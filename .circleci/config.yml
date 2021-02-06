@@ -33,12 +33,12 @@ jobs:
       - run:
           name: Generate changelog (only for tags)
           command: |
-            REGXP_TO_MATCH=.*gnuton.*
+            REGXP_TO_MATCH=.*ion.*
             if [[ ${CIRCLE_TAG} =~ ${REGXP_TO_MATCH} ]]; then
               CURRENT_TAG=${CIRCLE_TAG}
-              PREVIOUS_TAG=$(git tag --sort=-version:refname | grep -vE "snapshot|beta|alpha|${CIRCLE_TAG}" | grep ${REGXP_TO_MATCH} | head -n 1)
+              PREVIOUS_TAG=$(git tag --sort=-version:refname | grep -vE "${CIRCLE_TAG}" | grep ${REGXP_TO_MATCH} | head -n 1)
               echo "Generating logs between the tags ${PREVIOUS_TAG} and ${CURRENT_TAG}"
-              echo "Changes from the latest stable gnuton build (${PREVIOUS_TAG}):" > "${CHANGELOG_FILE}"
+              echo "Changes from the latest ion build (${PREVIOUS_TAG}):" > "${CHANGELOG_FILE}"
               git log ${PREVIOUS_TAG}...${CURRENT_TAG} --pretty=format:'* %s' --reverse | grep -vE 'Merge branch|ci:|Bump' >> "${CHANGELOG_FILE}" || echo "WARNING: The Changelog is empty!!"
               cat "${CHANGELOG_FILE}"
             else
@@ -89,7 +89,7 @@ jobs:
               fi
             fi
       - store_artifacts:
-          path: workspace/release      
+          path: workspace/release
       - persist_to_workspace:
           root: workspace
           paths:
@@ -102,15 +102,15 @@ jobs:
           at: workspace
       - add_ssh_keys:
           fingerprints:
-            - "92:8c:58:f4:aa:44:98:aa:2f:ac:bc:8b:a5:de:f5:c2"
+            - "a8:9c:28:88:e9:d8:0e:da:a7:6e:2b:7b:e5:e4:f6:e3"
       - run:
           name: "Publish manifest and release note for the current build"
           command: |
             ssh-keyscan github.com >> ~/.ssh/known_hosts
-            git config --global user.email "bot@gnuton.org"
+            git config --global user.email "bot@ion.org"
             git config --global user.name "Circle CI BOT"
             git config --global push.default simple
-            git clone -b master --single-branch git@github.com:gnuton/asuswrt-merlin.ng.git
+            git clone -b master --single-branch git@github.com:oivano/asuswrt-merlin.ng.git
             cd asuswrt-merlin.ng
             UPDATE_DIR=updates
             MAJOR_VER=$(echo "${CIRCLE_TAG}" | sed -E 's/([0-9.]*)[_-]?(.*)/\1/')
@@ -165,48 +165,48 @@ workflows:
               ignore:
                 - master
                 - mainline
-      - build:
-          name: "build_dsl-ax82u"
-          model: "dsl-ax82u"
-          release_dir: "src-rt-5.02axhnd.675x"
-          filters:
-            tags:
-              only: /.*/
-            branches:
-              ignore:
-                - master
-                - mainline
+ #     - build:
+ #         name: "build_dsl-ax82u"
+ #         model: "dsl-ax82u"
+ #         release_dir: "src-rt-5.02axhnd.675x"
+ #         filters:
+ #           tags:
+ #             only: /.*/
+ #           branches:
+ #             ignore:
+ #               - master
+ #               - mainline
       - publish-manifest-and-notes:
           filters:
             tags:
-              only: /[0-9]+.*gnuton[0-9]+/
+              only: /[0-9]+.*ion+/
             branches:
               ignore: /.*/
           requires:
-            - build_dsl-ax82u
+#            - build_dsl-ax82u
             - build_dsl-ac68u
       - publish-github-release:
           filters:
             tags:
-              only: /[0-9]+.*gnuton[0-9]+/
+              only: /[0-9]+.*ion+/
             branches:
               ignore: /.*/
           requires:
-            - build_dsl-ax82u
+#            - build_dsl-ax82u
             - build_dsl-ac68u
             - publish-manifest-and-notes
       - publish-github-ci-pre-release:
           filters:
             tags:
-              only: 
-               - /gnuton-snapshot-.*/
-               - /[0-9]+.*gnuton[0-9]+_beta[0-9]+/
-               - /[0-9]+.*gnuton[0-9]+_alpha[0-9]+/
+              only:
+               - /ion-snapshot-.*/
+               - /[0-9]+.*ion_beta[0-9]+/
+               - /[0-9]+.*ion_alpha[0-9]+/
             branches:
               ignore: /.*/
           requires:
-            - build_dsl-ax82u
+#            - build_dsl-ax82u
             - build_dsl-ac68u
 notify:
   webhooks:
-    - url: https://webhooks.gitter.im/e/c26cd1f27c23a32898e9
+#    - url:
