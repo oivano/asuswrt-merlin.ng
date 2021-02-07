@@ -20,6 +20,13 @@
 
 ---------------------
 
+### Web UI screenshot
+
+<p align="center">
+<a href="https://ibb.co/ypgHNZk"><img src="https://i.ibb.co/68DjyTt/386-1.png" alt="386-1"></a>
+</p>
+
+---------------------
 
 ### Stats
 Latest release:
