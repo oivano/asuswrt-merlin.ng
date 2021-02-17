@@ -1,3 +1,4 @@
 Changes from the latest ion build (386.1-ion_beta2):
 * set version,adjusted targets, circleci config and UI look
 * set version,adjusted targets, circleci config and UI look
+* disable asd
