@@ -71,28 +71,6 @@ var client_convRSSI = function(val) {
 	return result;
 };
 
-/* ouiDB lookup code */
-var ouiClientListArray = new Array();
-ouiClientListArray = Session.get("ouiDB");
-if(ouiClientListArray == undefined) {
-	ouiClientListArray = [];
-	//Download OUI DB
-	setTimeout(function() {
-		var ouiBDjs = document.createElement("script");
-		ouiBDjs.type = "application/javascript";
-		ouiBDjs.src = "/js/ouiDB.js";
-		window.document.body.appendChild(ouiBDjs);
-	}, 1000);
-}
-
-function updateManufacturer(_ouiDBArray) {
-	ouiClientListArray = [];
-	ouiClientListArray = _ouiDBArray;
-	Session.set("ouiDB", _ouiDBArray);
-}
-
-/* End ouiDB lookup code */
-
 var ipState = new Array();
 ipState["Static"] = "<#BOP_ctype_title5#>";
 ipState["DHCP"] = "<#BOP_ctype_title1#>";
@@ -2045,12 +2023,12 @@ var sorter = {
 		}
 		else if(clienlistViewMode == "ByInterface") {
 			if(_arrayName == "wired_list")
-					eval(""+_arrayName+".sort(sorter."+_Method+"_"+sorter.sortingMethod_wired+");");
+				eval(""+_arrayName+".sort(sorter."+_Method+"_"+sorter.sortingMethod_wired+");");
 			else if(_arrayName.substr(0,2) == "wl")
 				eval("wl_list['"+_arrayName.substr(0,3)+"'].sort(sorter."+_Method+"_"+sorter["sortingMethod_"+_arrayName.substr(0,3)+""]+");");
 			else if(isSupport("amas") && _arrayName.substr(0,2) == "gn")
 				eval("gn_list['"+_arrayName.substr(0,3)+"'].sort(sorter."+_Method+"_"+sorter["sortingMethod_"+_arrayName.substr(0,3)+""]+");");
-			}
+		}
 		drawClientListBlock(_arrayName);
 		sorter.drawBorder(_arrayName);
 	}
@@ -2217,7 +2195,7 @@ function exportClientListLog() {
 		case "ByInterface" :
 			$.each(isWL_map, function(index, value){
 				if(index == "0")
-			setArray(wired_list);
+					setArray(wired_list);
 				else
 					setArray(wl_list["wl"+index+""]);
 			});
@@ -2275,7 +2253,7 @@ function sorterClientList() {
 		case "ByInterface" :
 			$.each(isWL_map, function(index, value){
 				if(index == "0")
-			sorter.doSorter(sorter.wired_index, indexMapType[sorter.wired_index], 'wired_list');
+					sorter.doSorter(sorter.wired_index, indexMapType[sorter.wired_index], 'wired_list');
 				else{
 					if($("#clientlist_wl" + index + "_list_Block").length > 0)
 						sorter.doSorter(sorter["wl" + index + "_index"], indexMapType[sorter["wl" + index + "_index"]], "wl" + index + "_list");
@@ -2293,7 +2271,7 @@ function create_clientlist_listview() {
 	all_list = [];
 	$.each(isWL_map, function(index, value){
 		if(index == "0")
-	wired_list = [];
+			wired_list = [];
 		else
 			wl_list["wl"+index+""] = [];
 	});
@@ -2487,7 +2465,7 @@ function create_clientlist_listview() {
 					if(isSupport("amas") && clientList[clientList[i]].isWL != 0 && clientList[clientList[i]].isGN != "")
 						gn_list["gn"+clientList[clientList[i]].isGN+""].push(tempArray);
 					else if(clientList[clientList[i]].isWL == 0)
-								wired_list.push(tempArray);
+						wired_list.push(tempArray);
 					else
 						wl_list["wl"+clientList[clientList[i]].isWL+""].push(tempArray);
 					break;
@@ -2505,10 +2483,10 @@ function create_clientlist_listview() {
 		$.each(isWL_map, function(index, value){
 			if(index == "0"){
 				if(!sorter.wired_display){
-			document.getElementById("clientlist_wired_list_Block").style.display = "none";
-			document.getElementById("wired_expander").innerHTML = "[ <#Clientlist_Show#> ]";
-		}
-		}
+					document.getElementById("clientlist_wired_list_Block").style.display = "none";
+					document.getElementById("wired_expander").innerHTML = "[ <#Clientlist_Show#> ]";
+				}
+			}
 			else{
 				if(!sorter["wl"+index+"_display"]){
 					document.getElementById("clientlist_wl"+index+"_list_Block").style.display = "none";
@@ -2722,7 +2700,7 @@ function showHideContent(objnmae, thisObj) {
 				sorter.all_display = true;
 			else {
 				if(clickItem == "wired")
-						sorter.wired_display = true;
+					sorter.wired_display = true;
 				else
 					sorter["" + clickItem + "_display"] = true;
 			}
@@ -2735,7 +2713,7 @@ function showHideContent(objnmae, thisObj) {
 				sorter.all_display = false;
 			else {
 				if(clickItem == "wired")
-						sorter.wired_display = false;
+					sorter.wired_display = false;
 				else
 					sorter["" + clickItem + "_display"] = false;
 			}
@@ -3167,7 +3145,7 @@ function retOverLibStr(client){
 	if(client.isITunes)
 		overlibStr += "<p><#Device_service_iTune#></p>YES";
 	if(client.isWL > 0){
-		overlibStr += "<p><#Wireless_Radio#>:</p>" + wl_nband_title[client.isWL-1] + " (" + client.rssi + " dBm)";
+		overlibStr += "<p><#Wireless_Radio#>:</p>" + isWL_map[client.isWL]["text"].replace("G", " GHz") + " (" + client.rssi + " dBm)";
 		if(stainfo_support) {
 			overlibStr += "<p>Tx Rate:</p>" + ((client.curTx != "") ? client.curTx : "-");
 			overlibStr += "<p>Rx Rate:</p>" + ((client.curRx != "") ? client.curRx : "-");
@@ -3191,7 +3169,7 @@ function ajaxCallJsonp(target){
 }
 
 function oui_query_full_vendor(mac){
-	if(clientList[mac].vendor != "") {
+	if(clientList[mac] != undefined && clientList[mac].vendor != "") {
 		setTimeout(function(){
 			var overlibStrTmp = retOverLibStr(clientList[mac]);
 			overlibStrTmp += "<p><span>.....................................</span></p><p style='margin-top:5px'><#Manufacturer#> :</p>";
@@ -3200,10 +3178,12 @@ function oui_query_full_vendor(mac){
 		}, 1);
 	}
 	else {
-		if('<% nvram_get("x_Setting"); %>' == '1' && wanConnectStatus && clientList[mac].internetState) {
 			var queryStr = mac.replace(/\:/g, "").splice(6,6,"");
-			var overlibStrTmp = retOverLibStr(clientList[mac]);
-			$.getJSON("http://nw-dlcdnet.asus.com/plugin/js/ouiDB.json", function(data){
+			if (clientList[mac] != undefined)
+				var overlibStrTmp = retOverLibStr(clientList[mac]);
+			else
+				var overlibStrTmp = "<p><#MAC_Address#>:</p>" + mac.toUpperCase();
+			$.getJSON("/js/ouiDB.json", function(data){
 				if(data != "" && data[queryStr] != undefined){
 					if(overlib.isOut) return nd();
 					var vendor_name = data[queryStr].trim();
@@ -3212,7 +3192,6 @@ function oui_query_full_vendor(mac){
 					return overlib(overlibStrTmp);
 				}
 			});
-		}
 	}
 }
 

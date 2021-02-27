@@ -116,7 +116,7 @@ if(cfg_sync_support){
 }
 var download_srv = '<% nvram_get("firmware_server"); %>';
 if (download_srv == "") {
-	download_url = "https://gnuton.github.io/asuswrt-merlin.ng/updates";
+	download_url = "https://oivano.github.io/asuswrt-merlin.ng/updates";
 } else {
 	download_url = download_srv + "/" + based_modelid;
 }
@@ -810,7 +810,7 @@ function update_sig_ver(){
     		document.getElementById("sig_update_date").innerHTML = "";
     		document.getElementById("sig_update_scan").style.display = "none";
 			document.getElementById("sig_check").disabled = false;
-    		$("#sig_status").html("Signature update completed");	/* Untranslated */
+    		$("#sig_status").html("Signature update completed.");	/* Untranslated */
     		$("#sig_ver_word").html(sig_ver);
   		}
   	});
