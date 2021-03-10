@@ -209,4 +209,4 @@ workflows:
             - build_dsl-ac68u
 notify:
   webhooks:
-#    - url:
+    - url: https://webhooks.gitter.im/e/fe1ed0d17eff95999455
