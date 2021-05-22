@@ -79,7 +79,7 @@ struct useful_redirect_list {
 
 extern struct useful_redirect_list useful_redirect_lists[];
 
-#ifdef RTCONFIG_AMAS
+#if 1 //def RTCONFIG_AMAS dirty AMAS=n fix
 struct AiMesh_whitelist {
 	char *pattern;
 	char *mime_type;
@@ -526,7 +526,7 @@ extern void do_get_eptoken_cgi(char *url, FILE *stream);
 #endif
 #ifdef RTCONFIG_CAPTCHA
 extern unsigned int login_fail_num;
-extern int is_captcha_match(char *catpch);
+extern int is_captcha_match(unsigned char *catpch);
 #endif
 #if defined(RTAX82U) || defined(DSL_AX82U) || defined(GSAX3000) || defined(GSAX5400)
 extern void switch_ledg(int action);

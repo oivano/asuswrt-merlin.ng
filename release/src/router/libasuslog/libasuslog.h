@@ -27,8 +27,8 @@ int rm_asusdebuglog(char *path);
 /* output file*/
 #define LOG_NOTHING -1
 #define LOG_CUSTOM 0
-#define LOG_SYSTEMLOG 1
-#define LOG_CONSOLE 2
+#define LOG_SYSTEMLOG 3
+#define LOG_CONSOLE 4
 
 /* show time*/
 #define LOG_SHOWTIME 1

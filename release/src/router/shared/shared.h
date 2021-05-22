@@ -3181,10 +3181,12 @@ static inline int add_gpio_to_bled(__attribute__ ((unused)) const char *main_led
 #endif	/* RTCONFIG_BLINK_LED */
 
 /* bwdpi_utils.c */
-#if defined(RTCONFIG_BWDPI)
+#if 1 //defined(RTCONFIG_BWDPI)  BWDPI=n dirty fix
 extern int check_wrs_switch();
 extern int check_bwdpi_nvram_setting();
+extern int dump_dpi_support(int index);
 #endif
+
 extern void erase_symbol(char *old, char *sym);
 extern void StampToDate(unsigned long timestamp, char *date);
 extern int check_filesize_over(char *path, long int size);
@@ -3383,6 +3385,8 @@ enum {
 #ifdef RTCONFIG_COOVACHILLI
 extern void deauth_guest_sta(char *, char *);
 #endif
+
+#define CFGSYNC_GROUPID_LEN CKN_STR32 // amas=n Dirty Fix
 
 #ifdef RTCONFIG_CFGSYNC
 #define	CFGSYNC_GROUPID_LEN	CKN_STR32
