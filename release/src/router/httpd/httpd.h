@@ -79,7 +79,7 @@ struct useful_redirect_list {
 
 extern struct useful_redirect_list useful_redirect_lists[];
 
-#ifdef RTCONFIG_AMAS
+#if 1 //def RTCONFIG_AMAS
 struct AiMesh_whitelist {
 	char *pattern;
 	char *mime_type;

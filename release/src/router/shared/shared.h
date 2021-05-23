@@ -3384,6 +3384,8 @@ enum {
 extern void deauth_guest_sta(char *, char *);
 #endif
 
+#define CFGSYNC_GROUPID_LEN CKN_STR32 // dirty amas=n fix
+
 #ifdef RTCONFIG_CFGSYNC
 #define	CFGSYNC_GROUPID_LEN	CKN_STR32
 #define CLIENT_STALIST_JSON_PATH	"/tmp/stalist.json"
