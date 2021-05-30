@@ -192,4 +192,4 @@ Changes from the latest stable ion build (386.1-ion):
 * Set version to 386.2_4 for a point release
 * Updated documentation
 * Merge tag 386.02_4-gnuton1 into dsl-ac68u
-* disabled amas,mediasrv,parental2; added dirty build fixes
+* disabled amas,mediasrv,ahd,ahs; added dirty build fixes
