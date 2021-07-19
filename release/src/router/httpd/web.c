@@ -469,6 +469,13 @@ static char* _get_common_name(const char *src, char *dst, size_t len);
 static void ASN1_TimeToTM(ASN1_TIME* time, struct tm *t);
 #endif
 
+/* amas dirty fixes */
+int cfg_changed = 0;
+int is_cfg_server_ready = 0;
+int save_changed_param = 0;
+int check_cfg_changed =0;
+//
+
 #ifdef RTCONFIG_CFGSYNC
 #define CFG_JSON_FILE           "/tmp/cfg.json"
 #define CFG_SERVER_PID		"/var/run/cfg_server.pid"
@@ -29808,7 +29815,7 @@ struct useful_redirect_list useful_redirect_lists[] = {
 	{ NULL, NULL }
 };
 
-#ifdef RTCONFIG_AMAS
+//#ifdef RTCONFIG_AMAS dirty amas=n fix
 struct AiMesh_whitelist AiMesh_whitelists[] = {
 	{"AiMesh_Node_FirmwareUpgrade.asp", NULL},
 	{"upgrade.cgi", NULL},
@@ -29839,7 +29846,7 @@ struct AiMesh_whitelist AiMesh_whitelists[] = {
 #endif
 	{ NULL, NULL }
 };	/* */
-#endif
+//#endif
 
 struct log_pass_url_list log_pass_handlers[] = {
 	{ "**.gz", NULL },

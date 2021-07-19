@@ -435,9 +435,9 @@ var dnsfilter_support = isSupport("dnsfilter");
 var dnssec_support = isSupport("dnssec");
 var ntpd_support = isSupport("ntpd");
 var spirit_logo_support = isSupport("spirit");
-var wifilogo_support = isSupport("WIFI_LOGO"); 
-var new_wifi_cert_support = isSupport("wifi2017"); 
-var band2g_support = isSupport("2.4G"); 
+var wifilogo_support = isSupport("WIFI_LOGO");
+var new_wifi_cert_support = isSupport("wifi2017");
+var band2g_support = isSupport("2.4G");
 var band5g_support = isSupport("5G");
 var band5g2_support = isSupport("5G-2");
 var band6g_support = isSupport("wifi6e");
@@ -446,7 +446,7 @@ var max_band60g_wl_bw = 6;	// 2.16 GHz
 if (based_modelid == "GT-AXY16000") {
 	max_band60g_wl_bw = 7; // 4.32 GHz
 }
-var live_update_support = isSupport("update"); 
+var live_update_support = isSupport("update");
 var no_update_support = isSupport("noupdate");
 var cooler_support = isSupport("fanctrl");
 var power_support = isSupport("pwrctrl");
@@ -487,7 +487,7 @@ var location_list_support = isSupport("loclist");
 var cfg_wps_btn_support = isSupport("cfg_wps_btn");
 var usb_support = isSupport("usbX");
 var usbPortMax = isSupport("usbPortMax");
-var printer_support = isSupport("printer"); 
+var printer_support = isSupport("printer");
 var noprinter_support = isSupport("noprinter");
 var appbase_support = isSupport("appbase");
 var appnet_support = isSupport("appnet");
@@ -502,19 +502,19 @@ var aicloudipk_support = isSupport("aicloudipk");
 var yadns_hideqis = isSupport("yadns_hideqis");
 var yadns_support = false;	//yadns_hideqis || isSupport("yadns");
 var dnspriv_support = isSupport("dnspriv");
-var manualstb_support = isSupport("manual_stb"); 
+var manualstb_support = isSupport("manual_stb");
 var wps_multiband_support = isSupport("wps_multiband");
-var modem_support = isSupport("modem"); 
+var modem_support = isSupport("modem");
 var nomodem_support = isSupport("nomodem");
-var IPv6_support = isSupport("ipv6"); 
-var IPv6_Passthrough_support = isSupport("ipv6pt"); 
-var ParentalCtrl2_support = isSupport("PARENTAL2");
-var pptpd_support = isSupport("pptpd"); 
-var openvpnd_support = isSupport("openvpnd"); 
+var IPv6_support = isSupport("ipv6");
+var IPv6_Passthrough_support = isSupport("ipv6pt");
+var ParentalCtrl2_support = false;	//isSupport("PARENTAL2");
+var pptpd_support = isSupport("pptpd");
+var openvpnd_support = isSupport("openvpnd");
 var vpnc_support = isSupport("vpnc");
-var WebDav_support = isSupport("webdav"); 
-var HTTPS_support = isSupport("HTTPS"); 
-var nodm_support = isSupport("nodm"); 
+var WebDav_support = isSupport("webdav");
+var HTTPS_support = isSupport("HTTPS");
+var nodm_support = isSupport("nodm");
 var wimax_support = isSupport("wimax");
 var downsize_4m_support = isSupport("sfp4m");
 var downsize_8m_support = isSupport("sfp8m");
@@ -537,14 +537,14 @@ var tmo_support = isSupport("tmo");
 var atf_support = isSupport("atf");
 var pwrsave_support = isSupport("pwrsave");
 var wl_mfp_support = isSupport("wl_mfp");	// For Protected Management Frames, ARM platform
-var bwdpi_support = isSupport("bwdpi");
+var bwdpi_support = false; //isSupport("bwdpi");
 var bwdpi_mals_support = isSupport("dpi_mals");
 var bwdpi_cc_support = isSupport("dpi_cc");
 var bwdpi_vp_support = isSupport("dpi_vp");
 var bwdpi_webFilter_support = isSupport("webs_filter");
 var bwdpi_webHistory_support = isSupport("web_history");
 var bwdpi_bwMonitor_support = isSupport("bandwidth_monitor");
-var adaptiveqos_support = isSupport("adaptive_qos");
+var adaptiveqos_support = false; //isSupport("adaptive_qos");
 var ipsec_srv_support = isSupport("ipsec_srv");
 var ipsec_cli_support = isSupport("ipsec_cli");
 //var traffic_analyzer_support = isSupport("traffic_analyzer");
@@ -958,7 +958,7 @@ function show_banner(L3){// L3 = The third Level of Menu
 	else{
 		banner_code +='<div class="banner1" align="center"><img src="images/New_ui/asustitle.png" width="218" height="54" align="left">\n';
 		banner_code +='<div style="margin-top:13px;margin-left:-90px;*margin-top:0px;*margin-left:0px;" align="center"><span id="modelName_top" onclick="this.focus();" class="modelName_top"><#Web_Title2#></span></div>';
-		banner_code +='<div style="margin-left:25px;width:160px;height:52px;margin-top:0px;float:left;" align="left"><span><a href="https://github.com/gnuton/asuswrt-merlin.ng" target="_blank" rel="noreferrer"><img src="images/merlin-logo.png" style="border: 0;"></span></div>';
+		banner_code +='<div style="margin-left:25px;width:160px;height:52px;margin-top:0px;float:left;" align="left"><span><a href="https://github.com/oivano/asuswrt-merlin.ng" target="_blank" rel="noreferrer"></span></div>';
 
 		// logout, reboot
 		banner_code +='<a href="javascript:logout();"><div style="margin-top:13px;margin-left:25px; *width:136px;" class="titlebtn" align="center"><span><#t1Logout#></span></div></a>\n';

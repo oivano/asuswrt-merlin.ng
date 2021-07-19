@@ -115,8 +115,8 @@ if(cfg_sync_support){
 	var cfg_upgrade = '<% nvram_get("cfg_upgrade"); %>';
 }
 
-download_url_redir = "https://gnuton.github.io/asuswrt-merlin.ng/updates/" + based_modelid;
-download_url = "https://github.com/gnuton/asuswrt-merlin.ng/releases/latest";
+download_url_redir = "https://oivano.github.io/asuswrt-merlin.ng/updates/" + based_modelid;
+download_url = "https://github.com/oivano/asuswrt-merlin.ng/releases/latest";
 
 if(pipefw_support || urlfw_support){
 	var hndwr_status = '<% nvram_get("hndwr"); %>';

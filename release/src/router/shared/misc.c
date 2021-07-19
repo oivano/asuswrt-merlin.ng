@@ -4310,6 +4310,37 @@ int FindBrifByWlif(char *wl_ifname, char *brif_name, int size)
 
 #endif
 
+/**
+ * set is_valid_group_id.
+ * @return:
+ * 	0:	invalid parameter or amas disabled
+ */
+
+int is_valid_group_id(const char *str)
+/* valid group id char : "0123456789ABCDEF" */
+{
+	int i;
+	for (i=0; i<CFGSYNC_GROUPID_LEN; i++) {
+		if (str[i] >= '0' && str[i] <= '9')
+			continue;
+		else if (str[i] >= 'A' && str[i] <= 'F')
+			continue;
+		else
+			return 0;
+	}
+	return 1;
+}
+
+int get_amas_info() //dirty amas=n fix
+{
+	return 0;
+}
+
+int find_dms_dbdir_candidate(char *dbdir) // dirty mediasrv=n fix
+{
+	return 0;
+}
+
 #ifdef RTCONFIG_CFGSYNC
 int is_valid_group_id(const char *str)
 /* valid group id char : "0123456789ABCDEF" */
