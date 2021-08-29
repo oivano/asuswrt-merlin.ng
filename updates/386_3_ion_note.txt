@@ -1,0 +1,95 @@
+Changes from the latest stable ion build (386.2-ion):
+* libovpn: rewrote OpenVPN client routing implementation
+* openvpn: move custom config from nvram to JFFS, to allow storing more content
+* libovpn: fixed a few compile warnings
+* Updated documentation
+* httpd: fix import of hmac setting from uploaded ovpn file
+* Implement VPN Director
+* rc: implement importing pre-VPN Director rules; fix the import process not always writing back to flash
+* Updated documentation
+* webui: tweaks to VPNDirector page
+* rc: Fix vpn_client_clientlist import on HND models
+* webui: show start_client button on VPNDirector page if client is in an error state, instead of stop_client
+* webui: re-add base64.js, as it's used by some add-ons
+* libovpn: tighten file perms on vpndirector_rulelist and vpn_*_custom3 JFFS storage
+* webui: make killswitch CSS style match with routing style
+* webui: re-add option to display OpenVPN server passwords
+* webui: remove OpenVPN Server show pass checkbox for all models, turns out they really are encrypted, just not immediately stored as such
+* rc: migrate OpenVPN policy-strict mode to regular policy mode
+* libovpn: don't specify a /32 subnet to route_net_gateway as it may be provided as a hostname instead of an IP
+* libovpn: fix OVPN routes not being configured if DNS mode was set to "Ignore"
+* rc: fix typo in format.c preventing compiling
+* libovpn: update DNS exclusive handling to use VPN Director instead of the previous clientlist rules
+* libovpn: remove vpn_client?_clientlist handling from OpenVPN reset to default function
+* webui: improve field validation on VPNDirector rule entry
+* libovpn: handle DNS exclusive iptable rules separately, and refresh them on vpnrouting events
+* webui: renamed "Policy Rules" for "VPN Director" on OpenVPN client dropdown; updated help popup
+* webui_ update VPN Director page to use VPN Director instead of Policy Rule in its summary table
+* libovpn: rework DNS Exclusive mode interaction with dnsmasq
+* rc: fix vpnrouting event missing ovpn client 5; reverse order so DNS exclusive rules will be in the correct order in iptables's PREROUTING table
+* libovpn: ensure that DNS exclusive iptables rules are always in the correct order
+* libovpn: rc: move openvpn-event script back to route-up and route-pre-down handlers instead of up and down handlers.
+* libovpn: clear custom settings in reset_ovpn_settings()
+* HND5.02p1: Add support for BCM50991
+* webui: properly handle switch state when starting OpenVPN client with missing username/password
+* libovpn: only use first available DNS servers for Exclusive mode; tweaked logging
+* openvpn: Updated to 2.5.3
+* Updated documentation
+* rc: add missing change missing in acb41da6c7ef0d21dc381fc6f9c4621998e8016c
+* libovpn: clarify log entries for VPN Director rule configuration
+* rc: allow Guest Network 1 clients to use an OpenVPN tunnel in the firewall
+* libovpn: set remote endpoint route by its actual IP instead of the --remote parameter
+* libovpn: cleanup client instance on ovpn_stop_client() even if client isn't running
+* getdns/stubby: Update to 1.7.0/0.4.0.
+* stubby: re-implement syslog support
+* stubby: fix resolvconf config support (broken in 0.4.0)
+* rc: intercept all bridge interfaces, not just the LAN interface, for DNSFilter
+* rc: fix netool pings sent to non-responding target never sending the "completed" signature
+* webui: fix location of the DHCP options table on the WAN page
+* net-snmp: update to 5.9.1
+* net-snmp: fix compiling
+* Revert "usb: use correct /sys/block format for 4.1 kernel"
+* Revert "net-snmp: fix compiling"
+* Revert "net-snmp: update to 5.9.1"
+* rc: fix garbled log message on reboot
+* shared: handle both old and new sysfs format in exec_for_host() (fixes #761); fix potential crash
+* shared: fix unterminated string in get_active_fw_num()
+* Updated documentation
+* rom: Only source profile.add when custom configs enabled (#765)
+* openvpn: fix setting VPN client state/errorno on connection error
+* webui: Network Analysis page - dismiss preset list when clicking within the page
+* Merge tag '386.3-beta1' into dsl-master
+* iptables-1.4.3: fix fullcone output formatting
+* libovpn: fix logging of WAN routing rules
+* libovpn: fix excluding WAN clients from DNS exclusive rules
+* Updated documentation
+* Merge tag '386.3-beta2' into dsl-master
+* libovpn: add log message when creating RPDB rule for OVPN_RGW_ALL mode
+* rc: remove code handling cleanup of old 1.xxx TrendMicro signatures
+* libovpn: only enforce DNS exclusive for a client if the rule has no remote IP specified
+* openvpn: only set error state in nvram on fatal config errors
+* inadyn: handle Freedns authentication errors as such; improve error logging
+* Updated documentation
+* inadyn: freedns: fix memory leak and some grammar in log messages
+* webui: improve QR readability by adding a lighter quiet zone around the QR code
+* Merge tag '386.3' into dsl-master
+* libovpn: don't set default gateway for ovpn client with Redirect Internet set to No
+* sch_cake: Fix out of bounds when parsing TCP options
+* Revert "Enable jitterentropy-rngd for non-HND models"
+* Updated documentation
+* webui: visual enhancements to OpenVPN client page
+* Updated documentation
+* httpd: skip running gettunnelip.sh if Internet not redirected
+* rc: no longer process dnsfilter at boot time for obsolete Norton entries
+* rc: fix DNSFilter rules handling for IPV6 on HND models
+* webui: move killswitch setting to the Network Settings, and reorganize order in that section
+* Updated documentation
+* Merge tag '386.3_2' into dsl-master
+* dsl-ax82u: Added cake support to QOS MultiWAN
+* Updated changelog
+* dsl-ax82u: Using ptm0 device for WAN
+* docs: Updated changelog
+* dsl-ax82u: Updated RT-AC66U/Advanced_Wireless_Content.asp
+* dsl-ax82u: Imported WiFi_Insight.asp
+* dsl-ax82u: Enables DNS Filtering
+* merged tag '386.03_2-gnuton1' into dsl-ac68u + disabled amas,mediasrv,ahd,ahs; added dirty build fixes
