@@ -146,6 +146,9 @@ OBJS += bwdpi_utils.o
 OBJS += mac_name_tbl.o
 OBJS += stun.o
 OBJS += scripts.o
+#/*dirty amas fix*
+OBJS += amas_utils.o
+#/
 ifeq ($(RTCONFIG_AHS),y)
 OBJS += $(if $(wildcard notify_ahs.c),notify_ahs.o,prebuild/notify_ahs.o)
 endif
@@ -222,6 +225,8 @@ else ifeq ($(RTCONFIG_QCN550X)$(RTCONFIG_SWITCH_QCA8337N),yy)
 OBJS += qca8337_ssdk_sh.o
 else ifeq ($(RTCONFIG_SOC_IPQ60XX),y)
 OBJS += ipq60xx.o
+else ifeq ($(RTCONFIG_SOC_IPQ50XX),y)
+OBJS += ipq50xx.o
 else
 OBJS += qca8337.o
 endif
@@ -237,7 +242,12 @@ OBJS += flash_mtd.o
 else
 # Broadcom
 OBJS += wl.o wl_linux.o
-OBJS += broadcom.o api-broadcom.o
+OBJS += broadcom.o
+ifeq ($(HND_ROUTER),y)
+OBJS += $(if $(wildcard sysdeps/api-broadcom.c),api-broadcom.o,prebuild/api-broadcom.o)
+else
+OBJS += api-broadcom.o
+endif
 ifeq ($(RTCONFIG_DSL_TCLINUX),y)
 OBJS += api-tclinux.o
 endif
@@ -255,7 +265,7 @@ endif
 ifeq ($(RTCONFIG_WBD),y)
 OBJS += appevent_util.o
 endif
-ifeq ($(GTAXE11000),y)
+ifeq ($(BCM_WLIMPL),69)
 OBJS += event_utils.o
 endif
 endif
@@ -339,7 +349,8 @@ OBJS += bcmwifi_channels.o
 endif
 
 ifeq ($(HND_ROUTER),y)
-OBJS += ethswctl.o ethctl_cmd.o
+OBJS += $(if $(wildcard ethswctl.c),ethswctl.o,prebuild/ethswctl.o)
+OBJS += $(if $(wildcard ethctl_cmd.c),ethctl_cmd.o,prebuild/ethctl_cmd.o)
 OBJS += memaccess.o
 endif
 
@@ -360,6 +371,7 @@ endif
 OBJS += $(if $(wildcard sysdeps/amas/amas_dwb.c),amas_dwb.o,prebuild/amas_dwb.o)
 endif
 OBJS += $(if $(wildcard amas_utils.c),amas_utils.o,prebuild/amas_utils.o)
+
 ifeq ($(RTCONFIG_AMASDB),y)
 CFLAGS += -DAMASDB
 endif
@@ -402,7 +414,7 @@ else
 vpath %.c sysdeps/broadcom  $(SRCBASE)/shared/bcmwifi/src
 ifeq ($(RTCONFIG_HND_ROUTER_AX),y)
 OBJS += bcmxtlv.o bcmutils.o
-ifeq ($(or $(RTAX55),$(RTAX1800)),y)
+ifeq ($(or $(RTAX55),$(RTAX1800),$(RTAX58U_V2)),y)
 OBJS += rtkswitch.o
 endif
 endif
@@ -423,6 +435,19 @@ endif
 
 ifeq ($(or $(RTCONFIG_JFFS_NVRAM),$(RTCONFIG_VAR_NVRAM)),y)
 OBJS += nvpriv.o
+endif
+
+ifeq ($(HND_ROUTER_AX_675X),y)
+ifneq ($(RTCONFIG_SDK502L07P1_121_37),y)
+OBJS += event_utils.o
+endif
+endif
+
+ifeq ($(OPDBG),y)
+CFLAGS += -DOPDBG
+endif
+ifneq ($(CUSTOM_MODEL),)
+CFLAGS += -DCUSTOM_MODEL
 endif
 
 all: libshared.so libshared.a
@@ -457,6 +482,13 @@ private.o:
 ifneq ($(wildcard ./prebuild/private.o),)
 	@-cp -f ./prebuild/private.o .
 endif
+
+#// dirty amas fix
+amas_utils.o:
+ifneq ($(wildcard ./prebuild/amas_utils.o),)
+	@-cp -f ./prebuild/amas_utils.o .
+endif
+#
 
 sw_auth.o:
 ifeq ($(wildcard $(SRCBASE)/router/sw-hw-auth/*.c),)
@@ -499,14 +531,12 @@ prebuild/%.o:
 .depend: $(OBJS:%.o=%.c)
 	@$(CC) $(CFLAGS) -M $^ > .depend
 
-ifeq ($(RTCONFIG_HND_ROUTER_AX),y)
 ifneq ($(wildcard prebuild/bcmutils.o),)
 bcmutils.o: prebuild/bcmutils.o
 	cp prebuild/$@ .
 else
 .bcmutils.depend: bcmutils.c
 	@$(CC) $(CFLAGS) -M $< > $@
-endif
 endif
 
 ifeq ($(RTCONFIG_HND_ROUTER_AX),y)

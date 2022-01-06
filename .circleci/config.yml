@@ -1,5 +1,26 @@
 version: 2.1
+
+orbs:
+  git-shallow-clone: guitarrapc/git-shallow-clone@2.4.0
+
 jobs:
+  getcode:
+    docker:
+      - image: cimg/base:2020.01
+    steps:
+      - checkout
+      - run:
+          name: Get code
+          shell: /bin/bash
+          command: |
+            #git clone --depth 1 --branch $CIRCLE_BRANCH  $CIRCLE_REPOSITORY_URL
+            pwd
+            ls
+            rm -Rf .git
+      - persist_to_workspace:
+          root: .
+          paths:
+            - .
   build:
     parameters:
       model:
@@ -16,8 +37,10 @@ jobs:
           LD_LIBRARY_PATH: "$LD_LIBRARY:~/am-toolchains/brcm-arm-sdk/hndtools-arm-linux-2.6.36-uclibc-4.5.3/lib"
           PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/toolchains/crosstools-arm-gcc-5.3-linux-4.1-glibc-2.22-binutils-2.25/usr/bin:/opt/toolchains/crosstools-aarch64-gcc-5.3-linux-4.1-glibc-2.22-binutils-2.25/usr/bin:/opt/toolchains/crosstools-arm-gcc-5.5-linux-4.1-glibc-2.26-binutils-2.28.1/usr/bin:/opt/toolchains/crosstools-aarch64-gcc-5.5-linux-4.1-glibc-2.26-binutils-2.28.1/usr/bin:/opt/brcm-arm/bin:/opt/toolchains/crosstools-arm-gcc-5.3-linux-4.1-glibc-2.22-binutils-2.25/usr/bin:/opt/toolchains/crosstools-aarch64-gcc-5.3-linux-4.1-glibc-2.22-binutils-2.25/usr/bin:/opt/toolchains/crosstools-arm-gcc-5.5-linux-4.1-glibc-2.26-binutils-2.28.1/usr/bin:/opt/toolchains/crosstools-aarch64-gcc-5.5-linux-4.1-glibc-2.26-binutils-2.28.1/usr/bin:/opt/brcm-arm/bin"
           TERM: "xterm-256color"
+    resource_class: large
     steps:
-      - checkout
+      - attach_workspace:
+          at: .
       - run:
           name: Set Version from TAG
           shell: /bin/bash
@@ -31,19 +54,10 @@ jobs:
               sed -i "s/EXTENDNO=.*/EXTENDNO=${MINOR_VER}/g" release/src-rt/version.conf
             fi
       - run:
-          name: Generate changelog (only for tags)
+          name: Generate changelog
           command: |
-            REGXP_TO_MATCH=.*ion.*
-            if [[ ${CIRCLE_TAG} =~ ${REGXP_TO_MATCH} ]]; then
-              CURRENT_TAG=${CIRCLE_TAG}
-              PREVIOUS_TAG=$(git tag --sort=-version:refname | grep -vE "snapshot|beta|alpha|${CIRCLE_TAG}" | grep ${REGXP_TO_MATCH} | head -n 1)
-              echo "Generating logs between the tags ${PREVIOUS_TAG} and ${CURRENT_TAG}"
-              echo "Changes from the latest stable ion build (${PREVIOUS_TAG}):" > "${CHANGELOG_FILE}"
-              git log ${PREVIOUS_TAG}...${CURRENT_TAG} --pretty=format:'* %s' --reverse | grep -vE 'Merge branch|ci:|Bump' >> "${CHANGELOG_FILE}" || echo "WARNING: The Changelog is empty!!"
-              cat "${CHANGELOG_FILE}"
-            else
-              echo "No changelog to generate. Changelog is generated only for tags matching ${REGXP_TO_MATCH}";
-            fi;
+            python tools/get-last-notes.py > "${CHANGELOG_FILE}"
+            cat "${CHANGELOG_FILE}"
       - run:
           name: Build firmware
           shell: /bin/bash
@@ -63,6 +77,9 @@ jobs:
             elif [[ ${MODEL} == "dsl-ax82u" ]]; then
               echo $BWDPI_KEYS_DSLAX82U | base64 -d > /tmp/keys.tgz
               tar xzf /tmp/keys.tgz --no-same-owner -C ${PROJECT_DIR}/release/${RELEASE_DIR}/router/bwdpi_source/prebuild/DSL-AX82U
+            elif [[ ${MODEL} == "rt-ax82u" ]]; then
+              echo $BWDPI_KEYS_RTAX82U | base64 -d > /tmp/keys.tgz
+              tar xzf /tmp/keys.tgz --no-same-owner -C ${PROJECT_DIR}/release/${RELEASE_DIR}/router/bwdpi_source/prebuild/RT-AX82U
             fi
             echo "----- BUILD -----"
             make ${MODEL} | tee "/tmp/build.log"
@@ -70,14 +87,17 @@ jobs:
             ls ${PROJECT_DIR}/release/${RELEASE_DIR}/image/
       - run:
           name: Prepare workspace
+          shell: /bin/bash
           command: |
+            export IMAGE_PATH=${PROJECT_DIR}/release/${RELEASE_DIR}/image/
             mkdir -p workspace/release/
             if [[ ${MODEL} == "dsl-ac68u" ]]; then
-              cp ${PROJECT_DIR}/release/${RELEASE_DIR}/image/DSL*DSL*.trx workspace/release/
-              cp ${PROJECT_DIR}/release/${RELEASE_DIR}/image/DSL*DSL*.md5 workspace/release/ || :
-            elif [[ ${MODEL} == "dsl-ax82u" ]]; then
-              cp ${PROJECT_DIR}/release/${RELEASE_DIR}/image/*_cferom_pureubi.w workspace/release
-              cp ${PROJECT_DIR}/release/${RELEASE_DIR}/image/*_cferom_pureubi.md5 workspace/release || :
+              mv "${IMAGE_PATH}/DSL-AC68U_${CIRCLE_TAG}.trx" "${IMAGE_PATH}/DSL-AC68U_${CIRCLE_TAG}_NO-DSL-FIRMWARE.trx"
+              cp ${IMAGE_PATH}/*.trx workspace/release/
+              cp ${IMAGE_PATH}/DSL*DSL*.md5 workspace/release/ || :
+            elif [[ ${MODEL} == "rt-ax82u" ]] || [[ ${MODEL} == "dsl-ax82u" ]]; then
+              cp ${IMAGE_PATH}/*_cferom_puresqubi.md5 workspace/release
+              cp ${IMAGE_PATH}/*_cferom_puresqubi.w   workspace/release || :
             fi
             cp /tmp/build.log workspace/release/${MODEL}-build.log
             if [ -z "${CIRCLE_TAG}" ]; then
@@ -154,10 +174,16 @@ workflows:
   version: 2.1
   build_and_release:
     jobs:
+      - getcode:
+          filters:
+            tags:
+              only: /.*/
       - build:
           name: "build_dsl-ac68u"
           model: "dsl-ac68u"
           release_dir: "src-rt-6.x.4708"
+          requires:
+            - getcode
           filters:
             tags:
               only: /.*/
@@ -165,17 +191,6 @@ workflows:
               ignore:
                 - master
                 - mainline
- #     - build:
- #         name: "build_dsl-ax82u"
- #         model: "dsl-ax82u"
- #         release_dir: "src-rt-5.02axhnd.675x"
- #         filters:
- #           tags:
- #             only: /.*/
- #           branches:
- #             ignore:
- #               - master
- #               - mainline
       - request-testing:
           type: approval
           filters:
@@ -184,7 +199,6 @@ workflows:
             branches:
               ignore: /.*/
           requires:
-#            - build_dsl-ax82u
             - build_dsl-ac68u
       - publish-manifest-and-notes:
           filters:
@@ -212,7 +226,6 @@ workflows:
             branches:
               ignore: /.*/
           requires:
-#            - build_dsl-ax82u
             - build_dsl-ac68u
 notify:
   webhooks:
