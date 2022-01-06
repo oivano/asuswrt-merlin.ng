@@ -376,7 +376,7 @@ function initial(){
 		disable_all_ctrl();
 	}
 
-	$.getJSON("http://nw-dlcdnet.asus.com/plugin/js/dns_db.json",
+	$.getJSON("https://nw-dlcdnet.asus.com/plugin/js/dns_db.json",
 		function(data){
 			var dns_db_translation_mapping = [
 				{tag:"#ADGUARD_1",text:"<#IPConnection_x_DNS_DB_ADGUARD_1#>"},

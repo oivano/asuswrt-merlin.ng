@@ -17,28 +17,22 @@ extern int vpnc_load_profile(VPNC_PROFILE *list, const int list_size, const int 
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-#ifdef RTCONFIG_DNSFILTER
-#include "dnsfilter.h"
-#endif
-
 void adjust_merlin_config(void)
 {
 #ifdef RTCONFIG_OPENVPN
 	int unit;
 	char varname_ori[32], varname_ori2[32], varname_new[32];
 	int rgw, plan, converted;
-	char buffer[8000];
 	char *desc, *source, *dest, *iface, newiface[8];
 #endif
-	char *newstr, *hostnames;
+	char buffer[65536];
+	char *dhcp_hostnames;
 	char *nv, *nvp, *entry;
-	char *name, *mac, *mode, *ipaddr, *nvname;
-	char tmp[64];
-#ifdef RTCONFIG_DNSFILTER
-	int globalmode;
-#endif
-	int count;
-	int need_commit=0;
+	char *nv2, *nvp2, *entry2;
+	char *name, *mac, *mac2, *ipaddr, *dns;
+	char tmp[100];
+	int count, len = 0, found;
+	int need_commit = 0;
 
 #ifdef RTCONFIG_OPENVPN
 /* Migrate OVPN RGW + clientlist rules to VPN Director (386.3) */
@@ -232,48 +226,6 @@ void adjust_merlin_config(void)
 		nvram_set("dev_fail_reboot", "1");
 	}
 
-/* Remove discontinued DNSFilter services (384.7) */
-#ifdef RTCONFIG_DNSFILTER
-	globalmode = nvram_get_int("dnsfilter_mode");
-	if (globalmode == DNSF_SRV_NORTON1 || globalmode == DNSF_SRV_NORTON2 || globalmode == DNSF_SRV_NORTON3)
-		nvram_set_int("dnsfilter_mode", DNSF_SRV_OPENDNS_FAMILY);
-
-#ifdef HND_ROUTER
-	nv = nvp = malloc(255 * 6 + 1);
-	if (nv) nvram_split_get("dnsfilter_rulelist", nv, 255 * 6 + 1, 5);
-#else
-	nv = nvp = strdup(nvram_safe_get("dnsfilter_rulelist"));
-#endif
-	newstr = malloc(strlen(nv) + 1);
-
-	if (newstr) {
-		newstr[0] = '\0';
-
-		while (nv && (entry = strsep(&nvp, "<")) != NULL) {
-			if (vstrsep(entry, ">", &name, &mac, &mode) != 3)
-				continue;
-			if (!*mac || !*mode )
-				continue;
-
-			if (atoi(mode) == DNSF_SRV_NORTON1 || atoi(mode) == DNSF_SRV_NORTON2 || atoi(mode) == DNSF_SRV_NORTON3) {
-				need_commit = 1;
-				snprintf(tmp, sizeof(tmp), "<%s>%s>%d", name, mac, DNSF_SRV_OPENDNS_FAMILY);
-			}
-			else
-				snprintf(tmp, sizeof(tmp), "<%s>%s>%s", name, mac, mode);
-			strcat(newstr, tmp);
-		}
-
-#ifdef HND_ROUTER
-		nvram_split_set("dnsfilter_rulelist", newstr, 255 * 6 + 1, 5);
-#else
-		nvram_set("dnsfilter_rulelist", newstr);
-#endif
-		free(newstr);
-	}
-	free(nv);
-#endif
-
 /* Migrate lan_dns_fwd_local (384.11) */
 	if (nvram_get_int("lan_dns_fwd_local")) {
 		need_commit = 1;
@@ -281,59 +233,72 @@ void adjust_merlin_config(void)
 		nvram_unset("lan_dns_fwd_local");
 	}
 
-/* Migrate dhcp_staticlist hostnames to dhcp_hostnames */
+/* Migrate dhcp_hostnames into dhcp_staticlist (386.4) */
 #ifdef HND_ROUTER
-	nvname = jffs_nvram_get("dhcp_hostnames");
+	dhcp_hostnames = read_whole_file("/jffs/nvram/dhcp_hostnames");
+	if (dhcp_hostnames)
+		len = strlen(dhcp_hostnames) + 1;
 #else
-	nvname = nvram_safe_get("dhcp_hostnames");
+	dhcp_hostnames = strdup(nvram_safe_get("dhcp_hostnames"));
+	len = strlen(dhcp_hostnames) + 1;
 #endif
-	if ((!nvname) || (!*nvname)) {
+
+	if (len > 1) {
+		converted = 0;
+		*buffer = '\0';
 		nv = nvp = strdup(nvram_safe_get("dhcp_staticlist"));
-		newstr = malloc(strlen(nv) + 1);
-		hostnames = malloc(strlen(nv) + 1);
+		nv2 = malloc(len);
 
-		if (newstr && hostnames && nv && *nv) {
-			newstr[0] = '\0';
-			hostnames[0] = '\0';
+		while ((entry = strsep(&nvp, "<")) != NULL) {
+			count = vstrsep(entry, ">", &mac, &ipaddr, &dns, &name);
 
-			while ((entry = strsep(&nvp, "<")) != NULL) {
-				count = vstrsep(entry, ">", &mac, &ipaddr, &name);
+			if (count < 2)		// Invalid entry, skip it
+				continue;
+			else if (count == 2) {	// Very old entry
+				snprintf(tmp, sizeof (tmp), "<%s>%s>>", mac, ipaddr);
+			}
+			else if (count == 3) {	// Missing hostname
+				converted = 1;
 
-				switch (count) {
-				case 0:
-					continue;
-				case 2:		// No conversion needed
-					strlcpy(tmp, entry, sizeof(tmp));
-					break;
-				case 3:
-					if (*name) {
-						snprintf(tmp, sizeof(tmp), "<%s>%s", mac, name);
-						strcat(hostnames, tmp);
+				/* Find hostname if we have one */
+				found = 0;
+				if (nv2) {
+					strlcpy(nv2, dhcp_hostnames, len);
+					nvp2 = nv2;
+					while ((entry2 = strsep(&nvp2, "<")) != NULL) {
+						if (vstrsep(entry2, ">", &mac2, &name) == 2) {
+							if (!strcasecmp(mac, mac2)) {
+								found = 1;
+								break;
+							}
+						}
 					}
-					snprintf(tmp, sizeof(tmp), "<%s>%s", mac, ipaddr);
-					break;
-				default:	// Unknown, just leave it as-is
-					strlcpy(tmp, entry, sizeof(tmp));
-					break;
 				}
-				strcat(newstr, tmp);
+				if (!found)
+					name = "";
+				snprintf(tmp, sizeof (tmp), "<%s>%s>%s>%s",mac, ipaddr, dns, name);
 			}
-
-			if (*hostnames) {
-				need_commit = 1;
-				nvram_set("dhcp_staticlist", newstr);
-#ifdef HND_ROUTER
-				jffs_nvram_set("dhcp_hostnames", hostnames);
-#else
-				nvram_set("dhcp_hostnames", hostnames);
-#endif
+			else if (count == 4) {	// Complete entry
+				strlcpy(tmp, entry, sizeof(tmp));
 			}
+			strlcat(buffer, tmp, sizeof(buffer));
 		}
 
-		if (nv) free(nv);
-		if (newstr) free(newstr);
-		if (hostnames) free(hostnames);
+		if (nv2) free(nv2);
+		free(nv);
+
+		if (converted) {
+			need_commit = 1;
+#ifdef HND_ROUTER
+			jffs_nvram_unset("dhcp_hostnames");
+#else
+			nvram_unset("dhcp_hostnames");
+#endif
+			nvram_set("dhcp_staticlist", buffer);
+		}
 	}
+	free(dhcp_hostnames);
+
 
 /* Migrade DDNS external IP check (386.1) */
 	if(!nvram_is_empty("ddns_ipcheck")) {
@@ -651,12 +616,5 @@ void adjust_jffs_content(void)
 		system("/bin/mv -f /jffs/ssl/* /jffs/.cert/");     /* */
 		rmdir("/jffs/ssl");
 	}
-
-/* Remove legacy 1.xxx Trend Micro signatures if present */
-#ifdef RTCONFIG_BWDPI
-	if (f_exists("/jffs/signature/rule.trf") &&
-	    f_size("/jffs/signature/rule.trf") < 50000)
-		unlink("/jffs/signature/rule.trf");
-#endif
 }
 
