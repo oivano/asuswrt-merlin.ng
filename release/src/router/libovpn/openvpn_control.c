@@ -382,7 +382,12 @@ void ovpn_client_up_handler(int unit)
 		// Handle traffic redirection
 		rgw = nvram_pf_get_int(prefix, "rgw");
 
-		if (rgw != OVPN_RGW_NONE) {
+		if (rgw == OVPN_RGW_NONE) {
+			snprintf(buffer, sizeof (buffer), "/usr/sbin/ip route del default table ovpnc%d", unit);
+			system(buffer);
+			if (verb >= 6)
+				logmessage("openvpn-routing", "Remove default gateway for client %d table", unit);
+		} else {
 			// Force traffic to remote VPN server to go through local GW
 			remote_env = getenv("trusted_ip");
 			localgw = getenv("route_net_gateway");
@@ -400,8 +405,8 @@ void ovpn_client_up_handler(int unit)
 			// Use VPN as default gateway
 			remotegw_env = getenv("route_vpn_gateway");
 			if (remotegw_env) {
-				snprintf(buffer, sizeof (buffer), "/usr/sbin/ip route replace default via %s table ovpnc%d",
-				         remotegw_env, unit);
+				snprintf(buffer, sizeof (buffer), "/usr/sbin/ip route replace default via %s dev %s table ovpnc%d",
+				         remotegw_env, dev_env, unit);
 				if (verb >= 3)
 					logmessage("openvpn-routing","Setting client %d routing table's default route through the tunnel", unit);
 				system(buffer);
@@ -573,6 +578,8 @@ void ovpn_set_routing_rules(int unit) {
 			if (state == OVPN_STS_RUNNING || state == OVPN_STS_INIT) {
 				snprintf(buffer, sizeof (buffer), "/usr/sbin/ip rule add table ovpnc%d priority %d", unit, 10000 + unit);
 				system(buffer);
+				if (verb >= 3)
+					logmessage("openvpn-routing","Routing all traffic through ovpnc%d", unit);
 			}
 			break;
 
@@ -699,7 +706,7 @@ void ovpn_set_exclusive_dns(int unit) {
 		if (atoi(&enable[0]) == 0)
 			continue;
 
-		if (*src) {
+		if (*src && !*dst) {
 			strlcpy(buffer, src, sizeof(buffer));
 
 			if ((netptr = strchr(buffer, '/'))) {

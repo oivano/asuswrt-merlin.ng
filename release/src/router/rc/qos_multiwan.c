@@ -103,24 +103,6 @@ static void WGN_ifname(int i, int j, char *wl_if)
 	}
 }
 
-static void WGN_subnet(const char *wgn, char *net, int len)
-{
-	char *buf = NULL, *g = NULL, *p = NULL;
-	char *wif = NULL, *sub = NULL;
-
-	g = buf = strdup(nvram_safe_get("wgn_brif_rulelist"));
-	while (g) {
-	if ((p = strsep(&g, "<")) == NULL) break;
-		if ((vstrsep(p, ">", &wif, &sub)) != 2) continue;
-		if (!strcmp(wgn, wif)) {
-			snprintf(net, len, "%s", sub);
-			break;
-		}
-	}
-	if (buf) free(buf);
-	QOSDBG(" wgn=%s, net=%s, sub=%s\n", wgn, net, sub);
-}
-
 static void add_iptables_AMAS_WGN(FILE *fn, const char *action)
 {
 	/* Setup guest network's ebtables rules */
@@ -128,11 +110,8 @@ static void add_iptables_AMAS_WGN(FILE *fn, const char *action)
 	char wl[128] = {0}, wlv[128] = {0}, tmp[128] = {0}, *next = NULL, *next2 = NULL;
 	char prefix[32] = {0};
 	char mssid_mark[4] = {0};
-	char wl_ifname[IFNAMSIZ] = {0};
-	char *wl_if = wl_ifname;
 	int  i = 0;
 	int  j = 1;
-	char *wgn = NULL;
 	char net[20] = {0};
 
 	/*
@@ -148,8 +127,7 @@ static void add_iptables_AMAS_WGN(FILE *fn, const char *action)
 
 			if(nvram_get_int(strcat_r(wlv, "_bss_enabled", tmp)) && 
 			   nvram_get_int(strcat_r(wlv, "_bw_enabled" , tmp))) {
-				wgn = nvram_safe_get(strcat_r(wlv, "_brif", tmp));
-				WGN_subnet(wgn, net, sizeof(net));
+				wgn_subnet(wlv, net, sizeof(net)); // move API to shared/amas_wgn_shared.c
 				snprintf(mssid_mark, sizeof(mssid_mark), "%d", guest_mark);
 				if (!strcmp(net, "")) continue;
 				fprintf(fn, "-A PREROUTING -s %s -j %s %s\n", net, action, mssid_mark);
@@ -679,8 +657,13 @@ static int add_qos_rules(char *pcWANIF)
 			manual_return = 1;
 			break;
 		default:
+#if defined(RTCONFIG_QCA)
+			action = "--set-mark";
+			manual_return = 1;
+#else
 			action = "--set-return";
 			manual_return = 0;
+#endif
 			break;
 	}
 
@@ -1270,7 +1253,8 @@ static int start_tqos(void)
 		mtu = strtoul(nvram_safe_get("wan_mtu"), NULL, 10);
 		bw = obw;
 
-#if defined(RTCONFIG_HND_ROUTER_AX)
+#if defined(RTCONFIG_HND_ROUTER_AX) \
+ || defined(RTCONFIG_SOC_IPQ8074)
 		qsched = "fq_codel quantum 300 limit 1000 noecn";
 #else
 		qsched = "sfq perturb 10";
@@ -1656,8 +1640,8 @@ static int add_bandwidth_limiter_rules(char *pcWANIF)
 #endif
 
 #ifdef RTCONFIG_AMAS_WGN
-	// AMAS RE mode
-	if (nvram_get_int("re_mode") == 1) add_iptables_AMAS_WGN(fn, action);
+	// AMAS non-RE mode
+	if (nvram_get_int("re_mode") == 0) add_iptables_AMAS_WGN(fn, action);
 #endif
 
 	fprintf(fn, "COMMIT\n");
@@ -1736,7 +1720,8 @@ static int start_bandwidth_limiter(void)
 	get_qos_prefix(0, prefix);
 	guest = 3;	/* 3 ~ 12 ==> egress from guest network, handle (qdisc-id) */
 
-#if defined(RTCONFIG_HND_ROUTER_AX)
+#if defined(RTCONFIG_HND_ROUTER_AX) \
+ || defined(RTCONFIG_SOC_IPQ8074)
 	qsched = "fq_codel quantum 300 limit 1000 noecn";
 #else
 	qsched = "sfq perturb 10";
@@ -1896,7 +1881,7 @@ static int start_bandwidth_limiter(void)
 			fprintf(f, "\tTQA%d%d=\"tc qdisc add dev $GUEST%d%d\"\n", i, j, i, j);
 			fprintf(f, "\tTCA%d%d=\"tc class add dev $GUEST%d%d\"\n", i, j, i, j);
 			fprintf(f, "\tTFA%d%d=\"tc filter add dev $GUEST%d%d\"\n", i, j, i, j); // 5
-#if defined(RTCONFIG_SOC_IPQ8074)
+#if defined(RTCONFIG_QCA)
 			fprintf(f, "\n"
 				   "\t$TQA%d%d root handle %d: htb default %d\n", i, j, guest, guest_mark);
 #else
@@ -2290,7 +2275,8 @@ static int start_rog_qos()
 		 * the BW is set here for each class
 		 */
 
-#if defined(RTCONFIG_HND_ROUTER_AX)
+#if defined(RTCONFIG_HND_ROUTER_AX) \
+ || defined(RTCONFIG_SOC_IPQ8074)
 		qsched = "fq_codel quantum 300 limit 1000 noecn";
 #else
 		qsched = "sfq perturb 10";
@@ -2407,16 +2393,21 @@ static int start_bandwidth_limiter_AMAS_WGN(void)
 {
 	FILE *f = NULL;
 	char wl_ifname[IFNAMSIZ];
+#if defined(RTCONFIG_SOC_IPQ8074)
+	char *qsched = "fq_codel quantum 300 limit 1000 noecn";
+#else
+	char *qsched = "sfq perturb 10";
+#endif
 
 	if ((f = fopen(qosfn, "w")) == NULL) return -2;
 
 	/* Start Function */
 	fprintf(f,
 		"#!/bin/sh\n"
-		"SFQ=\"sfq perturb 10\"\n"
+		"SCH=\"%s\"\n"
 		"\n"
 		"start()\n"
-		"{\n"
+		"{\n", qsched
 	);
 
 	// init guest 3: ~ 14: (12 guestnetwork), start number = 3
@@ -2453,7 +2444,7 @@ static int start_bandwidth_limiter_AMAS_WGN(void)
 			fprintf(f, "\t$TCA%d%d parent %d: classid %d:1 htb rate %skbit\n", i, j, guest, guest, nvram_pf_safe_get(wlv, "_bw_dl")); //7
 			fprintf(f, "\n"
 				   "\t$TCA%d%d parent %d:1 classid %d:%d htb rate 1kbit ceil %skbit prio %d\n", i, j, guest, guest, guest_mark, nvram_pf_safe_get(wlv, "_bw_dl"), guest_mark);
-			fprintf(f, "\t$TQA%d%d parent %d:%d handle %d: $SFQ\n", i, j, guest, guest_mark, guest_mark);
+			fprintf(f, "\t$TQA%d%d parent %d:%d handle %d: $SCH\n", i, j, guest, guest_mark, guest_mark);
 			fprintf(f, "\t$TFA%d%d parent %d: prio %d protocol ip u32 match mark %d 0x%x flowid %d:%d\n", i, j, guest, guest_mark, guest_mark, QOS_MASK, guest, guest_mark); // 10
 			QOSDBG("[BWLIT_GUEST] create %s bandwidth limiter, qdisc=%d, class=%d\n", wl_if, guest, guest_mark);
 
@@ -2580,6 +2571,11 @@ int start_iQos(void)
 			status = start_bandwidth_limiter_AMAS_WGN();
 #endif
 		break;
+#ifdef HND_ROUTER
+	case 9:
+		status = start_cake();
+		break;
+#endif
 	default:
 		/* Unknown QoS type */
 		_dprintf("%s: unknown qos_type %d\n",
@@ -2629,3 +2625,122 @@ void ForceDisableWLan_bw(void)
 	}
 	QOSDBG("[BWLIT] ALL Guest Netwok of Bandwidth Limiter has been Didabled.\n");
 }
+
+#ifdef HND_ROUTER
+
+int start_cake(void)
+{
+	unsigned int ibw, obw;
+	FILE *f;
+	char overheadstr[32];
+	char ibwstr[32];
+	char obwstr[32];
+	char *mode;
+	char nvnat[16];
+	int nat;
+
+	if((f = fopen("/etc/cake-qos.conf", "w")) == NULL) return -2;
+
+	switch (nvram_get_int("qos_atm")) {
+		case 0:
+			mode = "";
+			break;
+		case 1:
+			mode = "atm";
+			break;
+		case 2:
+			mode = "ptm";
+			break;
+		default:
+			mode = "";
+	}
+
+	ibw = strtoul(nvram_safe_get("qos_ibw"), NULL, 10);
+	obw = strtoul(nvram_safe_get("qos_obw"), NULL, 10);
+
+	if (ibw == 0)
+		*ibwstr = '\0';
+	else
+		snprintf(ibwstr, sizeof(ibwstr), "bandwidth %dkbit", ibw);
+
+	if (obw == 0)
+		*obwstr = '\0';
+	else
+		snprintf(obwstr, sizeof(obwstr), "bandwidth %dkbit", obw);
+
+	snprintf(overheadstr, sizeof(overheadstr), "overhead %d mpu %d", nvram_get_int("qos_overhead"), nvram_get_int("qos_mpu"));
+
+	const char *wan_ifname = get_wan_ifname(wan_primary_ifunit());
+
+	snprintf(nvnat, sizeof (nvnat), "wan%d_nat_x", wan_primary_ifunit());
+	nat = nvram_get_int(nvnat);
+
+	/* Config parameters */
+	fprintf(f,
+		"#!/bin/sh\n\n"
+		"ULIF='%s'\n"
+		"DLIF='%s'\n"
+		"MIF='ifb4%s'\n"
+		"ULBW='%s'\n"
+		"DLBW='%s'\n"
+		"OVERHEAD='%s'\n"
+		"FRAMING='%s'\n"
+		"ULPRIOQUEUE='diffserv3'\n"
+		"DLPRIOQUEUE='besteffort'\n"
+		"ULOPTIONS='%s dual-srchost'\n"
+		"DLOPTIONS='%s wash dual-dsthost ingress'\n",
+
+		wan_ifname,
+		wan_ifname,
+		wan_ifname,
+		obwstr,
+		ibwstr,
+		overheadstr,
+		mode,
+		(nat ? "nat" : ""),
+		(nat ? "nat" : "")
+	);
+
+	append_custom_config("cake-qos.conf",f);
+	fclose(f);
+
+
+	if((f = fopen(qosfn, "w")) == NULL) return -2;
+
+	/* Stop/start rules */
+	fprintf(f,
+		"#!/bin/sh\n"
+		"source /etc/cake-qos.conf\n\n"
+
+		"case \"$1\" in\n"
+		"start)\n"
+		"# Upload\n"
+		"\ttc qdisc add dev $ULIF root cake $ULPRIOQUEUE $ULBW $OVERHEAD $FRAMING $ULOPTIONS 2>/dev/null\n\n"
+
+		"# Download\n"
+		"\tip link add name $MIF type ifb 2>/dev/null\n"
+		"\ttc qdisc add dev $DLIF handle ffff: ingress 2>/dev/null\n"
+		"\ttc qdisc add dev $MIF root cake $DLPRIOQUEUE $DLBW $OVERHEAD $FRAMING $DLOPTIONS 2>/dev/null\n"
+		"\tip link set $MIF up 2>/dev/null\n"
+		"\ttc filter add dev $DLIF parent ffff: prio 10 matchall action mirred egress redirect dev $MIF 2>/dev/null\n\n"
+
+		"\t;;\n"
+		"stop)\n"
+		"\ttc qdisc del dev $ULIF root 2>/dev/null\n"
+		"\ttc qdisc del dev $DLIF ingress 2>/dev/null\n"
+		"\ttc qdisc del dev $MIF root 2>/dev/null\n"
+		"\tip link set $MIF down 2>/dev/null\n"
+		"\tip link del dev $MIF 2>/dev/null\n"
+		"\t;;\n"
+		"*)\n"
+		"esac\n");
+
+	fclose(f);
+	chmod("/etc/cake-qos.conf", 0755);
+	chmod(qosfn, 0755);
+	run_custom_script("qos-start", 120, "init", NULL);
+	eval((char *)qosfn, "start");
+
+	return 0;
+}
+#endif

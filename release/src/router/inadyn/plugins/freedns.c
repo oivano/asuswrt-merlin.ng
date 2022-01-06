@@ -2,7 +2,7 @@
  *
  * Copyright (C) 2003-2004  Narcis Ilisei <inarcis2002@hotpop.com>
  * Copyright (C) 2006       Steve Horbachuk
- * Copyright (C) 2010-2020  Joachim Nilsson <troglobit@gmail.com>
+ * Copyright (C) 2010-2021  Joachim Wiberg <troglobit@gmail.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -88,7 +88,7 @@ static char *fetch_keys(ddns_t *ctx, ddns_info_t *info)
 	trans.max_rsp_len = ctx->work_buflen - 1;	/* Save place for a \0 at the end */
 
 	rc = http_transaction(&client, &trans);
-	logit(LOG_DEBUG, "=> %s", trans.rsp_body);
+	logit((strstr(trans.rsp_body, "ERROR:") ? LOG_ERR : LOG_DEBUG), "=> %s", trans.rsp_body);
 	http_exit(&client);
 	http_destruct(&client, 1);
 
@@ -110,8 +110,13 @@ static int setup(ddns_t *ctx, ddns_info_t *info, ddns_alias_t *alias)
 
 	tmp = buf = fetch_keys(ctx, info);
 	if (!buf) {
-		logit(LOG_INFO, "Cannot find you FreeDNS account API keys");
+		logit(LOG_ERR, "Cannot find your FreeDNS account API keys");
 		return RC_ERROR;
+	}
+
+	if (strstr(buf, "Failed authenticating to fetch API keys")) {
+		free(buf);
+		return RC_DDNS_RSP_AUTH_FAIL;
 	}
 
 	for (line = strsep(&tmp, "\n"); line; line = strsep(&tmp, "\n")) {
