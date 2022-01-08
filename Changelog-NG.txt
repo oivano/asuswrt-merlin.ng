@@ -1,6 +1,13 @@
 Asuswrt-Merlin 386/NG Changelog
 ===============================
 
+386.4-ion (XX-XX-XX)
+  - NOTE: DSL-AC68U removed support for the following functions; amas bwdpi cfg_sync cloudsync
+          conndiag email fileflex gameMode media ookla optimize_xbox pptpd printer repeater
+          rrsut snmp timemachine user_low_rssi yadns
+          Streamlined RAM usage and cleaned js Web UI pages to show only enabled functions,
+          please refer to README.md for Web UI layout of all ion release(s).
+
 386.04_0-gnuton0 (XX-XX-XX)
   - NOTE: AiMesh setup needs ethernet backhaul cable
   - FIXED DSL-AX82U updated ADSL driver
