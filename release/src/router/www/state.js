@@ -509,7 +509,7 @@ var noaidisk_support = isSupport("noaidisk");
 var cloudsync_support = isSupport("cloudsync");
 var nocloudsync_support = isSupport("nocloudsync");
 var aicloudipk_support = isSupport("aicloudipk");
-var yadns_hideqis = true;
+var yadns_hideqis = isSupport("yadns_hideqis");
 var yadns_support = false;	//yadns_hideqis || isSupport("yadns");
 var dnspriv_support = isSupport("dnspriv");
 var manualstb_support = isSupport("manual_stb");
@@ -602,7 +602,7 @@ var wifiproxy_support = isSupport("wifiproxy");
 var lyra_hide_support = isSupport("lyra_hide");
 var port2_device = isSupport("port2_device");
 var hdspindown_support = isSupport("hdspindown");
-var amesh_support = false;
+var amesh_support = isSupport("amas");
 var ameshRouter_support = isSupport("amasRouter");
 var ameshNode_support = isSupport("amasNode");
 var amesh_wgn_support = isSupport("amas_wgn");
@@ -991,7 +991,6 @@ function show_banner(L3){// L3 = The third Level of Menu
 		banner_code +='<div class="banner1" align="center"><img src="images/New_ui/asustitle.png" width="218" height="54" align="left">\n';
 		banner_code +='<div style="margin-top:13px;margin-left:-90px;*margin-top:0px;*margin-left:0px;" align="center"><span id="modelName_top" onclick="this.focus();" class="modelName_top"><#Web_Title2#></span></div>';
 		banner_code +='<div style="margin-left:25px;width:160px;height:52px;margin-top:0px;float:left;" align="left"><span><a href="https://github.com/oivano/asuswrt-merlin.ng" target="_blank" rel="noreferrer"></span></div>';
-
 		// logout, reboot
 		banner_code +='<a href="javascript:logout();"><div style="margin-top:13px;margin-left:25px; *width:136px;" class="titlebtn" align="center"><span><#t1Logout#></span></div></a>\n';
 		banner_code +='<a href="javascript:reboot();"><div style="margin-top:13px;margin-left:0px;*width:136px;" class="titlebtn" align="center"><span><#BTN_REBOOT#></span></div></a>\n';
