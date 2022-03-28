@@ -8,10 +8,69 @@ Asuswrt-Merlin 386/NG Changelog
           Streamlined RAM usage and cleaned js Web UI pages to show only enabled functions,
           please refer to README.md for Web UI layout of all ion release(s).
 
-386.04_0-gnuton0 (XX-XX-XX)
+386.05_2-gnuton0 (26-March-2022)
+  - NEW: Added support for ZenWifi AX (X8)/RT-AX95Q 
+  - NEW: Added support for TUF-AX5400
+
+386.5_2 (25-March-2022)
+  - UPDATED: openssl to 1.1.1n.
+  - UPDATED: openvpn to 2.5.6.
+  - CHANGED: Added Wireguard module + userspace tool to
+             GT-AXE11000.
+  - FIXED: Only a few DNSFilter clients are supported
+           on HND models (entries limited to 255 chars).
+  - FIXED: Security issue in AiCloud (backport from Asus)
+  - FIXED: Cannot enable Adaptive QoS under certain scenarios
+           on pre-HND router models.
+
+386.5 (2-March-2022)
+  - NEW: Added support for the RT-AC68U V4.  All
+         RT-AC68U models are using a combined
+         firmware file (like stock firmware),
+         with both firmwares within the samae file.
+  - NEW: Added support for the GT-AXE11000.
+  - NEW: Added config option for the Boost key on
+         GT models.  The option can be found on the
+         Administration -> System page.
+  - NEW: Basic IPv6 support for TQoS (Kevin Bracey)
+  - UPDATED: Merged with GPL 386_46065.
+  - UPDATED: Reverted dnsmasq from 2.86 to 2.85.
+  - UPDATED: miniupnpd to 2.3.0.
+  - UPDATED: avahi to 0.8 + a few backports.
+  - CHANGED: Improved accuracy of overhead parameters
+             in Traditional QoS (Kevin Bracey)
+  - CHANGED: Report download stats for TQoS (Kevin Bracey)
+  - CHANGED: Report DFS scanning state for both 5 GHz bands
+             if appropriate on tri-band models
+  - CHANGED: Enabled pass_persist support in net-snmp.
+  - FIXED: Various TQoS issues (Kevin Bracey)
+  - FIXED: enabling/disabling 802.11b rates wouldn't get saved
+           to nvram.
+  - FIXED: netatalk failing to load extensions.
+  - FIXED: Large swapfiles reported the incorrect size on
+           the Tools page (Kevin Bracey)
+  - FIXED: User accounts would not show as connected on
+           the OpenVPN server username list if a remote
+           client connected over IPv6.
+  - FIXED: Earlier syslog content was missing on RT-AX86U
+           and RT-AX68U after a reboot.
+  - FIXED: WAN monitoring could fail if using IPv6 and
+           DNS Rebind protection was enabled.
+  - FIXED: RT-AX86U syslog could be truncated after a reboot.
+  - FIXED: Toggling FTP WAN access without applying settings
+           wouldn't reconfigure the FTP server properly.
+  - FIXED: Non-functionning TrendMicro features on the
+           RT-AX68U and RT-AX86U (reverted kernel components
+           to the previous version).
+
+386.04_0-gnuton2 (31-Jan-2022)
+  - NOTE: AiMesh setup needs ethernet backhaul cable
+  - FIXED Added back DNS Priv and DNS SEC to VDSL WAN page
+
+386.04_0-gnuton1 (24-Jan-2022)
   - NOTE: AiMesh setup needs ethernet backhaul cable
   - FIXED DSL-AX82U updated ADSL driver
-  - FIXED DSL-AX82U Allow manual upload for all variants 
+  - FIXED DSL-AX82U Allow manual upload for all variants
 
 386.4 (1-Jan-2022)
   - NEW: Added support for the RT-AX86S (uses the same firmware
@@ -49,9 +108,9 @@ Asuswrt-Merlin 386/NG Changelog
   - CHANGED: miniupnpd will now be supplied the public WAN
              IP to improve compatibility with dual NAT
              setups.
-  - CHANGEED: Disabling Auto DoH will now also disable
-              Windows' new Discovery of Designated
-              Resolvers (DDR) feature.
+  - CHANGED: Disabling Auto DoH will now also disable
+             Windows' new Discovery of Designated
+             Resolvers (DDR) feature.
   - FIXED: Wrong interface might be used for the default
            gateway in an openvpn client routing table.
   - FIXED: Generated OpenVPN certs used SHA1 signatures

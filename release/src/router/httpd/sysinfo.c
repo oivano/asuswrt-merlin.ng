@@ -101,7 +101,7 @@ void GetPhyStatus_rtk(int *states);
 #endif
 
 
-#define MBYTES 1024 / 1024
+#define MBYTES (1024 * 1024)
 #define KBYTES 1024
 
 #define SI_WL_QUERY_ASSOC 1
@@ -196,7 +196,8 @@ int ej_show_sysinfo(int eid, webs_t wp, int argc, char_t ** argv)
 				free(buffer);
 				sprintf(result, "%d", freq);
 			}
-			else if (get_model() == MODEL_RTAX58U || get_model() == MODEL_RTAX56U || get_model() == MODEL_DSLAX82U)
+			else if (get_model() == MODEL_RTAX58U || get_model() == MODEL_RTAX56U ||
+					get_model() == MODEL_DSLAX82U || get_model() == MODEL_RTAX95Q)
 				strcpy(result, "1500");
 			else
 #endif
@@ -209,19 +210,19 @@ int ej_show_sysinfo(int eid, webs_t wp, int argc, char_t ** argv)
 			}
 		} else if(strcmp(type,"memory.total") == 0) {
 			sysinfo(&sys);
-			sprintf(result,"%.2f",(sys.totalram * sys.mem_unit / (float)MBYTES));
+			sprintf(result,"%.2f",(float) sys.totalram * sys.mem_unit / MBYTES);
 		} else if(strcmp(type,"memory.free") == 0) {
 			sysinfo(&sys);
-			sprintf(result,"%.2f",(sys.freeram * sys.mem_unit / (float)MBYTES));
+			sprintf(result,"%.2f",(float) sys.freeram * sys.mem_unit / MBYTES);
 		} else if(strcmp(type,"memory.buffer") == 0) {
 			sysinfo(&sys);
-			sprintf(result,"%.2f",(sys.bufferram * sys.mem_unit / (float)MBYTES));
+			sprintf(result,"%.2f",(float) sys.bufferram * sys.mem_unit / MBYTES);
 		} else if(strcmp(type,"memory.swap.total") == 0) {
 			sysinfo(&sys);
-			sprintf(result,"%.2f",(sys.totalswap * sys.mem_unit / (float)MBYTES));
+			sprintf(result,"%.2f",(float) sys.totalswap * sys.mem_unit / MBYTES);
 		} else if(strcmp(type,"memory.swap.used") == 0) {
 			sysinfo(&sys);
-			sprintf(result,"%.2f",((sys.totalswap - sys.freeswap) * sys.mem_unit / (float)MBYTES));
+			sprintf(result,"%.2f",(float) (sys.totalswap - sys.freeswap) * sys.mem_unit / MBYTES);
 		} else if(strcmp(type,"memory.cache") == 0) {
 			int size = 0;
 			char *buffer = read_whole_file("/proc/meminfo");
@@ -271,7 +272,7 @@ int ej_show_sysinfo(int eid, webs_t wp, int argc, char_t ** argv)
 			char *mount_info = read_whole_file("/proc/mounts");
 
 			if ((mount_info) && (strstr(mount_info, "/jffs")) && (statvfs("/jffs",&fiData) == 0 )) {
-				sprintf(result,"%.2f / %.2f MB",((fiData.f_blocks-fiData.f_bfree) * fiData.f_frsize / (float)MBYTES) ,(fiData.f_blocks * fiData.f_frsize / (float)MBYTES));
+				sprintf(result,"%.2f / %.2f MB",((float) (fiData.f_blocks-fiData.f_bfree) * fiData.f_frsize / MBYTES) ,((float) fiData.f_blocks * fiData.f_frsize / MBYTES));
 			} else {
 				strcpy(result,"<i>Unmounted</i>");
 			}
@@ -282,7 +283,7 @@ int ej_show_sysinfo(int eid, webs_t wp, int argc, char_t ** argv)
 			struct statvfs fiData;
 
 			if (statvfs("/jffs",&fiData) == 0 ) {
-				sprintf(result,"%ld",(fiData.f_bfree * fiData.f_frsize / MBYTES));
+				sprintf(result,"%llu",((unsigned long long) fiData.f_bfree * fiData.f_frsize / MBYTES));
 			} else {
 				strcpy(result,"-1");
 			}
@@ -302,11 +303,14 @@ int ej_show_sysinfo(int eid, webs_t wp, int argc, char_t ** argv)
 #endif
 					temperature = get_phy_temperature(radio);
 			}
+#ifdef RTAC68U_V4	// Broken on 2.4G, potentially bogus on 5G
+			strcpy(result, "<i>N/A</i>");
+#else
 			if (temperature == 0)
 				strcpy(result,"<i>disabled</i>");
 			else
 				sprintf(result,"%u&deg;C", temperature);
-
+#endif
 		} else if(strcmp(type,"conn.total") == 0) {
 			FILE* fp;
 
@@ -626,7 +630,7 @@ unsigned int get_phy_temperature(int radio)
 		interface = nvram_safe_get("wl0_ifname");
 	} else if (radio == 5) {
 		interface = nvram_safe_get("wl1_ifname");
-#if defined(RTAC3200) || defined(RTAC5300) || defined(GTAC5300) || defined(GTAX11000) || defined(GTAXE11000)
+#if defined(RTAC3200) || defined(RTAC5300) || defined(GTAC5300) || defined(GTAX11000) || defined(GTAXE11000) || defined(RTAX95Q)
 	} else if (radio == 52) {
 		interface = nvram_safe_get("wl2_ifname");
 #endif

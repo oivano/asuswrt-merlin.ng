@@ -40,7 +40,12 @@ then
 	ARCH="_arm"
 	HND="_hnd"
 
-	cp release/src/router/hnd_extra/prebuilt/* $REPO/release/src/router/hnd_extra/prebuilt/$BUILD_NAME/
+	rsync -a --del release/src/router/hnd_extra/prebuilt/ $REPO/release/src/router/hnd_extra/prebuilt/$BUILD_NAME
+	if [ "$BUILD_NAME" == "RT-AC86U" ]
+	then
+		ln -s ../GT-AC2900/vis-dcon $REPO/release/src/router/hnd_extra/prebuilt/RT-AC86U/vis-dcon
+		ln -s ../GT-AC2900/vis-datacollector $REPO/release/src/router/hnd_extra/prebuilt/RT-AC86U/vis-datacollector
+	fi
 	aarch64-buildroot-linux-gnu-strip --strip-unneeded $REPO/release/src/router/hnd_extra/prebuilt/$BUILD_NAME/*.o
 	arm-brcm-linux-uclibcgnueabi-strip $REPO/release/src/router/hnd_extra/prebuilt/$BUILD_NAME/wl
 	cp release/src/router/envram_bin/envram$ARCH$SDK/* $REPO/release/src/router/envram_bin/envram$ARCH$SDK/
@@ -92,9 +97,10 @@ then
 	cp release/src-rt-5.02axhnd/wl/exe/prebuilt/* $REPO/release/src-rt-5.02axhnd/wl/exe/prebuilt/
 	cp release/src-rt-5.02axhnd/hostTools/prebuilt/cmplzma $REPO/release/src-rt-5.02axhnd/hostTools/prebuilt/
 	cp release/src-rt-5.02axhnd/hostTools/prebuilt/lzmacmd $REPO/release/src-rt-5.02axhnd/hostTools/prebuilt/
+	cp release/src-rt-5.02axhnd/bcmdrivers/broadcom/net/wl/impl51/main/components/apps/acsdv2/prebuilt/* $REPO/release/src-rt-5.02axhnd/bcmdrivers/broadcom/net/wl/impl51/main/components/apps/acsdv2/prebuilt/$BUILD_NAME/
 	rsync -a --del release/src-rt-5.02axhnd/router-sysdep/ $REPO/release/src-rt-5.02axhnd/router-sysdep.$BUILD_NAME_LC
 
-elif [ "$BUILD_NAME" == "RT-AX56U" ] || [ "$BUILD_NAME" == "RT-AX58U" ] || [ "$BUILD_NAME" == "DSL-AX82U" ] || [ "$BUILD_NAME" == "RT-AX82U" ]
+elif [ "$BUILD_NAME" == "RT-AX56U" ] || [ "$BUILD_NAME" == "RT-AX58U" ] || [ "$BUILD_NAME" == "DSL-AX82U" ] || [ "$BUILD_NAME" == "RT-AX82U" ] || [ "$BUILD_NAME" == "TUF-AX5400" ]  || [ "$BUILD_NAME" == "RT-AX95Q" ]
 then
 	SDK="_6750hnd"
 	ARCH="_arm"
@@ -104,6 +110,7 @@ then
 	cp release/src-rt-5.02axhnd.675x/hostTools/prebuilt/addvtoken $REPO/release/src-rt-5.02axhnd.675x/hostTools/prebuilt/$BUILD_NAME/
 	cp release/src-rt-5.02axhnd.675x/hostTools/prebuilt/cmplzma $REPO/release/src-rt-5.02axhnd.675x/hostTools/prebuilt/
 	cp release/src-rt-5.02axhnd.675x/hostTools/prebuilt/lzmacmd $REPO/release/src-rt-5.02axhnd.675x/hostTools/prebuilt/
+	cp release/src-rt-5.02axhnd.675x/bcmdrivers/broadcom/net/wl/impl69/main/components/apps/acsdv2/prebuilt/* $REPO/release/src-rt-5.02axhnd.675x/bcmdrivers/broadcom/net/wl/impl69/main/components/apps/acsdv2/prebuilt/$BUILD_NAME/
 	rsync -a --del release/src-rt-5.02axhnd.675x/router-sysdep/ $REPO/release/src-rt-5.02axhnd.675x/router-sysdep.$BUILD_NAME_LC
 elif [ "$BUILD_NAME" == "DSL-AC68U" ]
 then
@@ -131,12 +138,12 @@ then
 	cp release/src-rt-5.02p1axhnd.675x/hostTools/prebuilt/addvtoken $REPO/release/src-rt-5.02p1axhnd.675x/hostTools/prebuilt/$BUILD_NAME/
 	cp release/src-rt-5.02p1axhnd.675x/hostTools/prebuilt/cmplzma $REPO/release/src-rt-5.02p1axhnd.675x/hostTools/prebuilt/
 	cp release/src-rt-5.02p1axhnd.675x/hostTools/prebuilt/lzmacmd $REPO/release/src-rt-5.02p1axhnd.675x/hostTools/prebuilt/
+	cp release/src-rt-5.02p1axhnd.675x/bcmdrivers/broadcom/net/wl/impl69/main/components/apps/acsdv2/prebuilt/* $REPO/release/src-rt-5.02p1axhnd.675x/bcmdrivers/broadcom/net/wl/impl69/main/components/apps/acsdv2/prebuilt/$BUILD_NAME/
 	rsync -a --del release/src-rt-5.02p1axhnd.675x/router-sysdep/ $REPO/release/src-rt-5.02p1axhnd.675x/router-sysdep.$BUILD_NAME_LC
 else
 	echo "Unrecognized BUILD_NAME!"
 	exit
 fi
-
 # Common to all
 
 echo "*** Copying common files..."
@@ -150,6 +157,7 @@ cp release/src/router/bwdpi_source/asus/prebuild/* $REPO/release/src/router/bwdp
 cp release/src/router/bwdpi_source/asus_sql/prebuild/* $REPO/release/src/router/bwdpi_source/asus_sql/prebuild/$BUILD_NAME/
 cp release/src/router/bwdpi_source/prebuild/* $REPO/release/src/router/bwdpi_source/prebuild/$BUILD_NAME/
 cp release/src/router/dropbox_client/prebuild/* $REPO/release/src/router/dropbox_client/prebuild/$BUILD_NAME/
+
 cp release/src/router/ftpclient/prebuild/* $REPO/release/src/router/ftpclient/prebuild/$BUILD_NAME/
 cp release/src/router/protect_srv/prebuild/* $REPO/release/src/router/protect_srv/prebuild/$BUILD_NAME/
 cp release/src/router/protect_srv/lib/prebuild/* $REPO/release/src/router/protect_srv/lib/prebuild/$BUILD_NAME/
@@ -168,7 +176,7 @@ cp release/src/router/libletsencrypt/prebuild/* $REPO/release/src/router/liblets
 cp release/src/router/libbcm/prebuilt/* $REPO/release/src/router/libbcm/prebuilt/$BUILD_NAME/
 cp release/src/router/infosvr/prebuild/* $REPO/release/src/router/infosvr/prebuild/$BUILD_NAME/
 cp -ar release/src/router/ookla_speedtest/OOKLA-* $REPO/release/src/router/ookla_speedtest/
-
+ 
 # Common to most
 echo "*** Copying optional files - ignore errors"
 cp release/src/router/dblog/daemon/prebuild/* $REPO/release/src/router/dblog/daemon/prebuild/$BUILD_NAME/
@@ -185,7 +193,6 @@ cp release/src/router/sysstate/log_daemon/prebuild/* $REPO/release/src/router/sy
 cp release/src/router/sysstate/commands/prebuild/* $REPO/release/src/router/sysstate/commands/prebuild/$BUILD_NAME/
 cp release/src/router/wb/prebuild/* $REPO/release/src/router/wb/prebuild/$BUILD_NAME/
 cp release/src/router/eventd/prebuilt/* $REPO/release/src/router/eventd/prebuilt/$BUILD_NAME/
-
 echo "*** Copying exceptions and special cases..."
 
 # Pre-HND
@@ -240,8 +247,6 @@ then
 fi
 
 # Cleanup
-rm $REPO/release/src/router/bwdpi_source/prebuild/$BUILD_NAME/*.pem
-rm $REPO/release/src/router/bwdpi_source/prebuild/$BUILD_NAME/*.enc
 rm $REPO/release/src/router/rc/prebuild/$BUILD_NAME/init-broadcom.o
 rm $REPO/release/src/router/shared/prebuild/$BUILD_NAME/api-broadcom.o
 

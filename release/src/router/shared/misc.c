@@ -4841,15 +4841,10 @@ int FindBrifByWlif(char *wl_ifname, char *brif_name, int size)
 
 #endif
 
-/**
- * set is_valid_group_id.
- * @return:
- * 	0:	invalid parameter or amas disabled
- */
-
-int is_valid_group_id(const char *str)
-/* valid group id char : "0123456789ABCDEF" */
-{
+// dirty amas=n fix
+/* int is_valid_group_id(const char *str)
+* valid group id char : "0123456789ABCDEF" */
+/*{
 	int i;
 	for (i=0; i<CFGSYNC_GROUPID_LEN; i++) {
 		if (str[i] >= '0' && str[i] <= '9')
@@ -4861,7 +4856,7 @@ int is_valid_group_id(const char *str)
 	}
 	return 1;
 }
-
+*/
 int get_amas_info() //dirty amas=n fix
 {
 	return 0;
@@ -5329,35 +5324,19 @@ static int is_invalid_char_for_hostname(int c)
 {
 	int ret = 0;
 
-	if (c < 0x20)
+	if (c <= 0x2c)				/* space and !"#$%&'()*+, */
 		ret = 1;
-#if 0
-	else if (c >= 0x21 && c <= 0x2c)	/* !"#$%&'()*+, */
-		ret = 1;
-#else	/* allow '+' */
-	else if (c >= 0x21 && c <= 0x2a)	/* !"#$%&'()* */
-		ret = 1;
-	else if (c == 0x2c)			/* , */
-		ret = 1;
-#endif
 	else if (c >= 0x2e && c <= 0x2f)	/* ./ */
 		ret = 1;
 	else if (c >= 0x3a && c <= 0x40)	/* :;<=>?@ */
 		ret = 1;
-#if 0
-	else if (c >= 0x5b && c <= 0x60)	/* [\]^_ */
-		ret = 1;
-#else	/* allow '_' */
 	else if (c >= 0x5b && c <= 0x5e)	/* [\]^ */
 		ret = 1;
 	else if (c == 0x60)			/* ` */
 		ret = 1;
-#endif
 	else if (c >= 0x7b)			/* {|}~ DEL */
 		ret = 1;
-#if 0
-	printf("%c (0x%02x) is %svalid for hostname\n", c, c, (ret == 0) ? "  " : "in");
-#endif
+
 	return ret;
 }
 

@@ -1,8 +1,5 @@
 version: 2.1
 
-orbs:
-  git-shallow-clone: guitarrapc/git-shallow-clone@2.4.0
-
 jobs:
   getcode:
     docker:
@@ -74,12 +71,6 @@ jobs:
             if [[ ${MODEL} == "dsl-ac68u" ]]; then
               echo $BWDPI_KEYS_DSLAC68U | base64 -d > /tmp/keys.tgz
               tar xzf /tmp/keys.tgz --no-same-owner -C ${PROJECT_DIR}/release/${RELEASE_DIR}/router/bwdpi_source/prebuild/DSL-AC68U
-            elif [[ ${MODEL} == "dsl-ax82u" ]]; then
-              echo $BWDPI_KEYS_DSLAX82U | base64 -d > /tmp/keys.tgz
-              tar xzf /tmp/keys.tgz --no-same-owner -C ${PROJECT_DIR}/release/${RELEASE_DIR}/router/bwdpi_source/prebuild/DSL-AX82U
-            elif [[ ${MODEL} == "rt-ax82u" ]]; then
-              echo $BWDPI_KEYS_RTAX82U | base64 -d > /tmp/keys.tgz
-              tar xzf /tmp/keys.tgz --no-same-owner -C ${PROJECT_DIR}/release/${RELEASE_DIR}/router/bwdpi_source/prebuild/RT-AX82U
             fi
             echo "----- BUILD -----"
             make ${MODEL} | tee "/tmp/build.log"
@@ -95,7 +86,7 @@ jobs:
               mv "${IMAGE_PATH}/DSL-AC68U_${CIRCLE_TAG}.trx" "${IMAGE_PATH}/DSL-AC68U_${CIRCLE_TAG}_NO-DSL-FIRMWARE.trx"
               cp ${IMAGE_PATH}/*.trx workspace/release/
               cp ${IMAGE_PATH}/DSL*DSL*.md5 workspace/release/ || :
-            elif [[ ${MODEL} == "rt-ax82u" ]] || [[ ${MODEL} == "dsl-ax82u" ]]; then
+            else
               cp ${IMAGE_PATH}/*_cferom_puresqubi.md5 workspace/release
               cp ${IMAGE_PATH}/*_cferom_puresqubi.w   workspace/release || :
             fi

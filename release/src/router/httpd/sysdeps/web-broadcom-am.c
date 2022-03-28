@@ -323,6 +323,7 @@ ej_wl_unit_status_array(int eid, webs_t wp, int argc, char_t **argv, int unit)
 	char *line;
 	char hostnameentry[65];
 	char ipentry[42], macentry[18];
+	unsigned int flagentry;
 	int found, foundipv6 = 0, noclients = 0;
 	char rxrate[12], txrate[12];
 	char ea[ETHER_ADDR_STR_LEN];
@@ -406,7 +407,7 @@ ej_wl_unit_status_array(int eid, webs_t wp, int argc, char_t **argv, int unit)
 
 // DFS status
 #ifdef RTCONFIG_BCMWL6
-	if (unit != 1)
+	if (unit == 0)
 		goto sta_list;
 
 	if (nvram_match(strcat_r(prefix, "reg_mode", tmp), "off"))
@@ -433,7 +434,8 @@ ej_wl_unit_status_array(int eid, webs_t wp, int argc, char_t **argv, int unit)
 		"POST-ISM Out Of Channels (OOC)"
 	};
 
-	ret += websWrite(wp, "var dfs_statusarray = [\"%s\", \"%d s\", \"%s\"];\n",
+	ret += websWrite(wp, "var dfs_statusarray%d = [\"%s\", \"%d s\", \"%s\"];\n",
+		unit,
 		(dfs_status->state >= WL_DFS_CACSTATES ? "Unknown" : dfs_cacstate_str[dfs_status->state]),
 		dfs_status->duration/1000,
 		(dfs_status->chanspec_cleared ? wf_chspec_ntoa(dfs_status->chanspec_cleared, chanspec_str) : "None"));
@@ -507,8 +509,9 @@ sta_list:
 			arplistptr = strdup(arplist);
 			line = strtok(arplistptr, "\n");
 			while (line) {
-				if ( (sscanf(line,"%15s %*s %*s %17s",ipentry,macentry) == 2) &&
-				     (!strcasecmp(macentry, ether_etoa((void *)&auth->ea[i], ea))) ) {
+				if ( (sscanf(line,"%15s %*s %x %17s",ipentry,&flagentry,macentry) == 3) &&
+				     (!strcasecmp(macentry, ether_etoa((void *)&auth->ea[i], ea))) &&
+				     (flagentry != 0) ) {
 					found = 1;
 					break;
 				} else
