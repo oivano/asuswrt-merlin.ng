@@ -4349,8 +4349,9 @@ endif
 ez-ipupdate: openssl $(if $(RTCONFIG_HTTPS),mssl)
 
 ez-ipupdate-install:
-	install -D ez-ipupdate/ez-ipupdate $(INSTALLDIR)/ez-ipupdate/usr/sbin/ez-ipupdate
-	$(STRIP) $(INSTALLDIR)/ez-ipupdate/usr/sbin/ez-ipupdate
+# disabled INADYN per default
+#	install -D ez-ipupdate/ez-ipupdate $(INSTALLDIR)/ez-ipupdate/usr/sbin/ez-ipupdate
+#	$(STRIP) $(INSTALLDIR)/ez-ipupdate/usr/sbin/ez-ipupdate
 
 libconfuse/Makefile:
 	cd libconfuse && $(CONFIGURE) --prefix=/usr --disable-shared \
@@ -4397,15 +4398,15 @@ inadyn-clean:
 	@rm -f inadyn/Makefile
 
 quagga/stamp-h1:
-	@cd quagga && \
+	@cd quagga && autoreconf -i -f && \
 	CC=$(CC) AR=$(AR) RANLIB=$(RANLIB) LD=$(LD) \
 	CFLAGS="$(CFLAGS) -Os -Wall -ffunction-sections -fdata-sections -fPIC" \
-	LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections" \
-	$(CONFIGURE) --prefix=/usr --sysconfdir=/etc --enable-shared --disable-static \
-	--disable-ripngd --disable-ospfd --disable-doc --disable-ospfclient \
-	--disable-ospf6d --disable-bgpd --disable-bgp-announce --disable-babeld \
+	LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections -L$(STAGEDIR)/usr/lib -lreadline" \
+	$(CONFIGURE) --prefix=/usr --sysconfdir=/etc --enable-shared \
+	--disable-ripngd --disable-ripd --disable-doc --disable-ospfclient \
+	--disable-ospf6d --disable-babeld \
 	--disable-silent-rules \
-	--disable-isisd
+	--disable-isisd --enable-vtysh
 	@touch $@
 
 quagga: quagga/stamp-h1
@@ -4423,10 +4424,14 @@ quagga-install:
 	$(STRIP)  $(INSTALLDIR)/quagga/usr/lib/libzebra.so
 	install -d $(INSTALLDIR)/quagga/usr/sbin
 	libtool --mode=install install -c quagga/zebra/zebra $(INSTALLDIR)/quagga/usr/sbin
-	libtool --mode=install install -c quagga/ripd/ripd $(INSTALLDIR)/quagga/usr/sbin
+	libtool --mode=install install -c quagga/vtysh/vtysh $(INSTALLDIR)/quagga/usr/sbin
+	libtool --mode=install install -c quagga/bgpd/bgpd $(INSTALLDIR)/quagga/usr/sbin
+	libtool --mode=install install -c quagga/ospfd/ospfd $(INSTALLDIR)/quagga/usr/sbin
 	libtool --mode=install install -c quagga/watchquagga/watchquagga $(INSTALLDIR)/quagga/usr/sbin
 	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/zebra
-	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/ripd
+	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/vtysh
+	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/bgpd
+	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/ospfd
 	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/watchquagga
 ifneq ($(RTCONFIG_MUSL_LIBC),y)
 	mkdir -p $(TARGETDIR)/lib
