@@ -434,7 +434,7 @@ config RTCONFIG_DSL
 
 config RTCONFIG_DSL_ANNEX_B
 	bool "DSL Annex B Support"
-	default n
+	default y
 
 config RTCONFIG_DSL_TCLINUX
 	bool "DSL Support with TCLINUX"

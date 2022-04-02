@@ -4842,9 +4842,9 @@ int FindBrifByWlif(char *wl_ifname, char *brif_name, int size)
 #endif
 
 // dirty amas=n fix
-/* int is_valid_group_id(const char *str)
-* valid group id char : "0123456789ABCDEF" */
-/*{
+int is_valid_group_id(const char *str)
+/* valid group id char : "0123456789ABCDEF" */
+{
 	int i;
 	for (i=0; i<CFGSYNC_GROUPID_LEN; i++) {
 		if (str[i] >= '0' && str[i] <= '9')
@@ -4856,7 +4856,7 @@ int FindBrifByWlif(char *wl_ifname, char *brif_name, int size)
 	}
 	return 1;
 }
-*/
+
 int get_amas_info() //dirty amas=n fix
 {
 	return 0;
