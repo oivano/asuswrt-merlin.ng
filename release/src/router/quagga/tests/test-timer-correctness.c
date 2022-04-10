@@ -23,10 +23,10 @@
  * 02111-1307, USA.
  */
 
+#include <zebra.h>
+
 #include <stdio.h>
 #include <unistd.h>
-
-#include <zebra.h>
 
 #include "memory.h"
 #include "pqueue.h"
@@ -113,7 +113,6 @@ static int cmp_timeval(const void* a, const void *b)
 int main(int argc, char **argv)
 {
   int i, j;
-  struct thread t;
   struct timeval **alarms;
 
   master = thread_master_create();
@@ -140,8 +139,9 @@ int main(int argc, char **argv)
       interval_msec = prng_rand(prng) % 5000;
       arg = XMALLOC(MTYPE_TMP, TIMESTR_LEN + 1);
       timers[i] = thread_add_timer_msec(master, timer_func, arg, interval_msec);
-      ret = snprintf(arg, TIMESTR_LEN + 1, "%ld.%06ld",
-                     timers[i]->u.sands.tv_sec, timers[i]->u.sands.tv_usec);
+      ret = snprintf(arg, TIMESTR_LEN + 1, "%lld.%06lld",
+                     (long long)timers[i]->u.sands.tv_sec,
+                     (long long)timers[i]->u.sands.tv_usec);
       assert(ret > 0);
       assert((size_t)ret < TIMESTR_LEN + 1);
       timers_pending++;
@@ -180,15 +180,16 @@ int main(int argc, char **argv)
 
       ret = snprintf(expected_buf + expected_buf_pos,
                      expected_buf_len - expected_buf_pos,
-                     "%ld.%06ld\n", alarms[i]->tv_sec, alarms[i]->tv_usec);
+                     "%lld.%06lld\n",
+                     (long long)alarms[i]->tv_sec,
+                     (long long)alarms[i]->tv_usec);
       assert(ret > 0);
       expected_buf_pos += ret;
       assert(expected_buf_pos < expected_buf_len);
     }
   XFREE(MTYPE_TMP, alarms);
 
-  while (thread_fetch(master, &t))
-    thread_call(&t);
+  thread_main (master);
 
   return 0;
 }

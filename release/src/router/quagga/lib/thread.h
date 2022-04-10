@@ -45,19 +45,26 @@ struct thread_list
 
 struct pqueue;
 
+/*
+ * Abstract it so we can use different methodologies to
+ * select on data.
+ */
+typedef fd_set thread_fd_set;
+
 /* Master of the theads. */
 struct thread_master
 {
-  struct thread_list read;
-  struct thread_list write;
+  struct thread **read;
+  struct thread **write;
   struct pqueue *timer;
   struct thread_list event;
   struct thread_list ready;
   struct thread_list unuse;
   struct pqueue *background;
-  fd_set readfd;
-  fd_set writefd;
-  fd_set exceptfd;
+  int fd_limit;
+  thread_fd_set readfd;
+  thread_fd_set writefd;
+  thread_fd_set exceptfd;
   unsigned long alloc;
 };
 
@@ -169,6 +176,7 @@ enum quagga_clkid {
 #define thread_add_write(m,f,a,v) funcname_thread_add_write(m,f,a,v,#f,__FILE__,__LINE__)
 #define thread_add_timer(m,f,a,v) funcname_thread_add_timer(m,f,a,v,#f,__FILE__,__LINE__)
 #define thread_add_timer_msec(m,f,a,v) funcname_thread_add_timer_msec(m,f,a,v,#f,__FILE__,__LINE__)
+#define thread_add_timer_tv(m,f,a,v) funcname_thread_add_timer_tv(m,f,a,v,#f,__FILE__,__LINE__)
 #define thread_add_event(m,f,a,v) funcname_thread_add_event(m,f,a,v,#f,__FILE__,__LINE__)
 #define thread_execute(m,f,a,v) funcname_thread_execute(m,f,a,v,#f,__FILE__,__LINE__)
 
@@ -191,6 +199,10 @@ extern struct thread *funcname_thread_add_timer (struct thread_master *,
 extern struct thread *funcname_thread_add_timer_msec (struct thread_master *,
 				                      int (*)(struct thread *),
 				                      void *, long, debugargdef);
+extern struct thread *funcname_thread_add_timer_tv (struct thread_master *,
+				                    int (*)(struct thread *),
+				                    void *, struct timeval *,
+						    debugargdef);
 extern struct thread *funcname_thread_add_event (struct thread_master *,
 				                 int (*)(struct thread *),
 				                 void *, int, debugargdef);
@@ -206,9 +218,9 @@ extern struct thread *funcname_thread_execute (struct thread_master *,
 
 extern void thread_cancel (struct thread *);
 extern unsigned int thread_cancel_event (struct thread_master *, void *);
-extern struct thread *thread_fetch (struct thread_master *, struct thread *);
-extern void thread_call (struct thread *);
+extern void thread_main (struct thread_master *);
 extern unsigned long thread_timer_remain_second (struct thread *);
+extern struct timeval thread_timer_remain(struct thread*);
 extern int thread_should_yield (struct thread *);
 extern unsigned long timeval_elapsed (struct timeval a, struct timeval b);
 

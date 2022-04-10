@@ -112,8 +112,8 @@ ospf6_serv_sock (void)
 }
 
 /* ospf6 set socket option */
-void
-ospf6_sso (u_int ifindex, struct in6_addr *group, int option)
+int
+ospf6_sso (ifindex_t ifindex, struct in6_addr *group, int option)
 {
   struct ipv6_mreq mreq6;
   int ret;
@@ -125,8 +125,12 @@ ospf6_sso (u_int ifindex, struct in6_addr *group, int option)
   ret = setsockopt (ospf6_sock, IPPROTO_IPV6, option,
                     &mreq6, sizeof (mreq6));
   if (ret < 0)
-    zlog_err ("Network: setsockopt (%d) on ifindex %d failed: %s",
-              option, ifindex, safe_strerror (errno));
+    {
+      zlog_err ("Network: setsockopt (%d) on ifindex %d failed: %s",
+                option, ifindex, safe_strerror (errno));
+    }
+
+  return ret;
 }
 
 static int
@@ -150,7 +154,7 @@ iov_totallen (struct iovec *iov)
 
 int
 ospf6_sendmsg (struct in6_addr *src, struct in6_addr *dst,
-               unsigned int *ifindex, struct iovec *message)
+               ifindex_t *ifindex, struct iovec *message)
 {
   int retval;
   struct msghdr smsghdr;
@@ -208,7 +212,7 @@ ospf6_sendmsg (struct in6_addr *src, struct in6_addr *dst,
 
 int
 ospf6_recvmsg (struct in6_addr *src, struct in6_addr *dst,
-               unsigned int *ifindex, struct iovec *message)
+               ifindex_t *ifindex, struct iovec *message)
 {
   int retval;
   struct msghdr rmsghdr;

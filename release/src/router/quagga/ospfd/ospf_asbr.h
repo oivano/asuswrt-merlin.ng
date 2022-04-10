@@ -39,12 +39,12 @@ struct external_info
   struct prefix_ipv4 p;
 
   /* Interface index. */
-  unsigned int ifindex;
+  ifindex_t ifindex;
 
   /* Nexthop address. */
   struct in_addr nexthop;
 
-  /* Additional Route tag. */
+  /* Additional Route tag: this is the wire type */
   u_int32_t tag;
 
   struct route_map_set_values route_map_set;
@@ -61,8 +61,9 @@ extern int ospf_route_map_set_compare (struct route_map_set_values *,
 				struct route_map_set_values *);
 extern struct external_info *ospf_external_info_add (u_char, 
                                               struct prefix_ipv4,
-					      unsigned int, 
-					      struct in_addr);
+					      ifindex_t, 
+					      struct in_addr,
+					      route_tag_t);
 extern void ospf_external_info_delete (u_char, struct prefix_ipv4);
 extern struct external_info *ospf_external_info_lookup (u_char, 
                                                  struct prefix_ipv4 *);

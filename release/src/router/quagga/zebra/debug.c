@@ -30,6 +30,7 @@ unsigned long zebra_debug_packet;
 unsigned long zebra_debug_kernel;
 unsigned long zebra_debug_rib;
 unsigned long zebra_debug_fpm;
+unsigned long zebra_debug_nht;
 
 DEFUN (show_debugging_zebra,
        show_debugging_zebra_cmd,
@@ -74,6 +75,8 @@ DEFUN (show_debugging_zebra,
 
   if (IS_ZEBRA_DEBUG_FPM)
     vty_out (vty, "  Zebra FPM debugging is on%s", VTY_NEWLINE);
+  if (IS_ZEBRA_DEBUG_NHT)
+    vty_out (vty, "  Zebra next-hop tracking debugging is on%s", VTY_NEWLINE);
 
   return CMD_SUCCESS;
 }
@@ -89,6 +92,17 @@ DEFUN (debug_zebra_events,
   return CMD_WARNING;
 }
 
+DEFUN (debug_zebra_nht,
+       debug_zebra_nht_cmd,
+       "debug zebra nht",
+       DEBUG_STR
+       "Zebra configuration\n"
+       "Debug option set for zebra next hop tracking\n")
+{
+  zebra_debug_nht = ZEBRA_DEBUG_NHT;
+  return CMD_WARNING;
+}
+
 DEFUN (debug_zebra_packet,
        debug_zebra_packet_cmd,
        "debug zebra packet",
@@ -97,14 +111,14 @@ DEFUN (debug_zebra_packet,
        "Debug option set for zebra packet\n")
 {
   zebra_debug_packet = ZEBRA_DEBUG_PACKET;
-  zebra_debug_packet |= ZEBRA_DEBUG_SEND;
-  zebra_debug_packet |= ZEBRA_DEBUG_RECV;
+  SET_FLAG(zebra_debug_packet, ZEBRA_DEBUG_SEND);
+  SET_FLAG(zebra_debug_packet, ZEBRA_DEBUG_RECV);
   return CMD_SUCCESS;
 }
 
 DEFUN (debug_zebra_packet_direct,
        debug_zebra_packet_direct_cmd,
-       "debug zebra packet (recv|send)",
+       "debug zebra packet (recv|send|detail)",
        DEBUG_STR
        "Zebra configuration\n"
        "Debug option set for zebra packet\n"
@@ -113,10 +127,11 @@ DEFUN (debug_zebra_packet_direct,
 {
   zebra_debug_packet = ZEBRA_DEBUG_PACKET;
   if (strncmp ("send", argv[0], strlen (argv[0])) == 0)
-    zebra_debug_packet |= ZEBRA_DEBUG_SEND;
+    SET_FLAG(zebra_debug_packet, ZEBRA_DEBUG_SEND);
   if (strncmp ("recv", argv[0], strlen (argv[0])) == 0)
-    zebra_debug_packet |= ZEBRA_DEBUG_RECV;
-  zebra_debug_packet &= ~ZEBRA_DEBUG_DETAIL;
+    SET_FLAG(zebra_debug_packet, ZEBRA_DEBUG_RECV);
+  if (strncmp ("detail", argv[0], strlen (argv[0])) == 0)
+    SET_FLAG(zebra_debug_packet, ZEBRA_DEBUG_DETAIL);
   return CMD_SUCCESS;
 }
 
@@ -132,10 +147,10 @@ DEFUN (debug_zebra_packet_detail,
 {
   zebra_debug_packet = ZEBRA_DEBUG_PACKET;
   if (strncmp ("send", argv[0], strlen (argv[0])) == 0)
-    zebra_debug_packet |= ZEBRA_DEBUG_SEND;
+    SET_FLAG(zebra_debug_packet, ZEBRA_DEBUG_SEND);
   if (strncmp ("recv", argv[0], strlen (argv[0])) == 0)
-    zebra_debug_packet |= ZEBRA_DEBUG_RECV;
-  zebra_debug_packet |= ZEBRA_DEBUG_DETAIL;
+    SET_FLAG(zebra_debug_packet, ZEBRA_DEBUG_RECV);
+  SET_FLAG(zebra_debug_packet, ZEBRA_DEBUG_DETAIL);
   return CMD_SUCCESS;
 }
 
@@ -196,6 +211,18 @@ DEFUN (no_debug_zebra_events,
   return CMD_SUCCESS;
 }
 
+DEFUN (no_debug_zebra_nht,
+       no_debug_zebra_nht_cmd,
+       "no debug zebra nht",
+       NO_STR
+       DEBUG_STR
+       "Zebra configuration\n"
+       "Debug option set for zebra next hop tracking\n")
+{
+  zebra_debug_nht = 0;
+  return CMD_SUCCESS;
+}
+
 DEFUN (no_debug_zebra_packet,
        no_debug_zebra_packet_cmd,
        "no debug zebra packet",
@@ -219,9 +246,9 @@ DEFUN (no_debug_zebra_packet_direct,
        "Debug option set for send packet\n")
 {
   if (strncmp ("send", argv[0], strlen (argv[0])) == 0)
-    zebra_debug_packet &= ~ZEBRA_DEBUG_SEND;
+    UNSET_FLAG(zebra_debug_packet, ZEBRA_DEBUG_SEND);
   if (strncmp ("recv", argv[0], strlen (argv[0])) == 0)
-    zebra_debug_packet &= ~ZEBRA_DEBUG_RECV;
+    UNSET_FLAG(zebra_debug_packet, ZEBRA_DEBUG_RECV);
   return CMD_SUCCESS;
 }
 
@@ -350,8 +377,8 @@ zebra_debug_init (void)
 
   install_element (VIEW_NODE, &show_debugging_zebra_cmd);
 
-  install_element (ENABLE_NODE, &show_debugging_zebra_cmd);
   install_element (ENABLE_NODE, &debug_zebra_events_cmd);
+  install_element (ENABLE_NODE, &debug_zebra_nht_cmd);
   install_element (ENABLE_NODE, &debug_zebra_packet_cmd);
   install_element (ENABLE_NODE, &debug_zebra_packet_direct_cmd);
   install_element (ENABLE_NODE, &debug_zebra_packet_detail_cmd);
@@ -360,6 +387,7 @@ zebra_debug_init (void)
   install_element (ENABLE_NODE, &debug_zebra_rib_q_cmd);
   install_element (ENABLE_NODE, &debug_zebra_fpm_cmd);
   install_element (ENABLE_NODE, &no_debug_zebra_events_cmd);
+  install_element (ENABLE_NODE, &no_debug_zebra_nht_cmd);
   install_element (ENABLE_NODE, &no_debug_zebra_packet_cmd);
   install_element (ENABLE_NODE, &no_debug_zebra_kernel_cmd);
   install_element (ENABLE_NODE, &no_debug_zebra_rib_cmd);
@@ -367,6 +395,7 @@ zebra_debug_init (void)
   install_element (ENABLE_NODE, &no_debug_zebra_fpm_cmd);
 
   install_element (CONFIG_NODE, &debug_zebra_events_cmd);
+  install_element (CONFIG_NODE, &debug_zebra_nht_cmd);
   install_element (CONFIG_NODE, &debug_zebra_packet_cmd);
   install_element (CONFIG_NODE, &debug_zebra_packet_direct_cmd);
   install_element (CONFIG_NODE, &debug_zebra_packet_detail_cmd);
@@ -375,6 +404,7 @@ zebra_debug_init (void)
   install_element (CONFIG_NODE, &debug_zebra_rib_q_cmd);
   install_element (CONFIG_NODE, &debug_zebra_fpm_cmd);
   install_element (CONFIG_NODE, &no_debug_zebra_events_cmd);
+  install_element (CONFIG_NODE, &no_debug_zebra_nht_cmd);
   install_element (CONFIG_NODE, &no_debug_zebra_packet_cmd);
   install_element (CONFIG_NODE, &no_debug_zebra_kernel_cmd);
   install_element (CONFIG_NODE, &no_debug_zebra_rib_cmd);

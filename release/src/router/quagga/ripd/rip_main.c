@@ -33,6 +33,7 @@
 #include "privs.h"
 #include "sigevent.h"
 #include "zclient.h"
+#include "vrf.h"
 
 #include "ripd/ripd.h"
 
@@ -192,7 +193,6 @@ main (int argc, char **argv)
   int daemon_mode = 0;
   int dryrun = 0;
   char *progname;
-  struct thread thread;
 
   /* Set umask before anything for security */
   umask (0027);
@@ -280,11 +280,12 @@ main (int argc, char **argv)
   vty_init (master);
   memory_init ();
   keychain_init ();
+  vrf_init ();
 
   /* RIP related initialization. */
   rip_init ();
   rip_if_init ();
-  rip_zclient_init ();
+  rip_zclient_init (master);
   rip_peer_init ();
 
   /* Get configuration file. */
@@ -311,8 +312,7 @@ main (int argc, char **argv)
   zlog_notice ("RIPd %s starting: vty@%d", QUAGGA_VERSION, vty_port);
 
   /* Execute each thread. */
-  while (thread_fetch (master, &thread))
-    thread_call (&thread);
+  thread_main (master);
 
   /* Not reached. */
   return (0);

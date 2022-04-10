@@ -28,6 +28,8 @@
 #include "command.h"
 #include "filter.h"
 #include "plist.h"
+#include "vrf.h"
+#include "nexthop.h"
 
 #include "zebra/zserv.h"
 
@@ -44,10 +46,10 @@ zebra_route_match_add(struct vty *vty, struct route_map_index *index,
       switch (ret)
 	{
 	case RMAP_RULE_MISSING:
-	  vty_out (vty, "%% Can't find rule.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% Zebra Can't find rule.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	case RMAP_COMPILE_ERROR:
-	  vty_out (vty, "%% Argument is malformed.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% Zebra Argument is malformed.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	}
     }
@@ -67,10 +69,10 @@ zebra_route_match_delete (struct vty *vty, struct route_map_index *index,
       switch (ret)
 	{
 	case RMAP_RULE_MISSING:
-	  vty_out (vty, "%% Can't find rule.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% Zebra Can't find rule.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	case RMAP_COMPILE_ERROR:
-	  vty_out (vty, "%% Argument is malformed.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% Zebra Argument is malformed.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	}
     }
@@ -90,10 +92,10 @@ zebra_route_set_add (struct vty *vty, struct route_map_index *index,
       switch (ret)
 	{
 	case RMAP_RULE_MISSING:
-	  vty_out (vty, "%% Can't find rule.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% Zebra Can't find rule.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	case RMAP_COMPILE_ERROR:
-	  vty_out (vty, "%% Argument is malformed.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% Zebra Argument is malformed.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	}
     }
@@ -113,10 +115,10 @@ zebra_route_set_delete (struct vty *vty, struct route_map_index *index,
       switch (ret)
 	{
 	case RMAP_RULE_MISSING:
-	  vty_out (vty, "%% Can't find rule.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% Zebra Can't find rule.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	case RMAP_COMPILE_ERROR:
-	  vty_out (vty, "%% Argument is malformed.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% Zebra Argument is malformed.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	}
     }
@@ -130,18 +132,22 @@ static route_map_result_t
 route_match_interface (void *rule, struct prefix *prefix,
 		       route_map_object_t type, void *object)
 {
+  struct nexthop_vrfid *nh_vrf;
   struct nexthop *nexthop;
   char *ifname = rule;
-  unsigned int ifindex;
+  ifindex_t ifindex;
 
   if (type == RMAP_ZEBRA)
     {
       if (strcasecmp(ifname, "any") == 0)
 	return RMAP_MATCH;
-      ifindex = ifname2ifindex(ifname);
+      nh_vrf = object;
+      if (!nh_vrf)
+	return RMAP_NOMATCH;
+      ifindex = ifname2ifindex_vrf (ifname, nh_vrf->vrf_id);
       if (ifindex == 0)
 	return RMAP_NOMATCH;
-      nexthop = object;
+      nexthop = nh_vrf->nexthop;
       if (!nexthop)
 	return RMAP_NOMATCH;
       if (nexthop->ifindex == ifindex)
@@ -365,7 +371,8 @@ DEFUN (set_src,
        "src address\n")
 {
   struct in_addr src;
-  struct interface *pif;
+  struct interface *pif = NULL;
+  vrf_iter_t iter;
 
   if (inet_pton(AF_INET, argv[0], &src) <= 0)
     {
@@ -373,12 +380,16 @@ DEFUN (set_src,
       return CMD_WARNING;
     }
 
-    pif = if_lookup_exact_address (src);
-    if (!pif)
-      {
-        vty_out (vty, "%% not a local address%s", VTY_NEWLINE);
-        return CMD_WARNING;
-      }
+  for (iter = vrf_first (); iter != VRF_ITER_INVALID; iter = vrf_next (iter))
+    if ((pif = if_lookup_exact_address_vrf (src, vrf_iter2id (iter))) != NULL)
+      break;
+
+  if (!pif)
+    {
+      vty_out (vty, "%% not a local address%s", VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
   return zebra_route_set_add (vty, vty->index, "src", argv[0]);
 }
 
@@ -414,11 +425,13 @@ route_match_ip_next_hop (void *rule, struct prefix *prefix,
 {
   struct access_list *alist;
   struct nexthop *nexthop;
+  struct nexthop_vrfid *nh_vrf;
   struct prefix_ipv4 p;
 
   if (type == RMAP_ZEBRA)
     {
-      nexthop = object;
+      nh_vrf = object;
+      nexthop = nh_vrf->nexthop;
       switch (nexthop->type) {
       case NEXTHOP_TYPE_IFINDEX:
       case NEXTHOP_TYPE_IFNAME:
@@ -476,11 +489,13 @@ route_match_ip_next_hop_prefix_list (void *rule, struct prefix *prefix,
 {
   struct prefix_list *plist;
   struct nexthop *nexthop;
+  struct nexthop_vrfid *nh_vrf;
   struct prefix_ipv4 p;
 
   if (type == RMAP_ZEBRA)
     {
-      nexthop = object;
+      nh_vrf = object;
+      nexthop = nh_vrf->nexthop;
       switch (nexthop->type) {
       case NEXTHOP_TYPE_IFINDEX:
       case NEXTHOP_TYPE_IFNAME:
@@ -622,10 +637,10 @@ route_set_src (void *rule, struct prefix *prefix,
 {
   if (type == RMAP_ZEBRA)
     {
-      struct nexthop *nexthop;
+      struct nexthop_vrfid *nh_vrf;
 
-      nexthop = object;
-      nexthop->src = *(union g_addr *)rule;
+      nh_vrf = object;
+      nh_vrf->nexthop->src = *(union g_addr *)rule;
     }
   return RMAP_OKAY;
 }

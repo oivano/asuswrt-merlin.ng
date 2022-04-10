@@ -48,6 +48,7 @@
 #ifdef HAVE_SNMP
 #include "ospfd/ospf_snmp.h"
 #endif /* HAVE_SNMP */
+#include "ospfd/ospf_te.h"
 
 /* Zebra structure to hold current status. */
 struct zclient *zclient = NULL;
@@ -59,7 +60,7 @@ struct in_addr router_id_zebra;
 /* Router-id update message from zebra. */
 static int
 ospf_router_id_update_zebra (int command, struct zclient *zclient,
-			     zebra_size_t length)
+			     zebra_size_t length, vrf_id_t vrf_id)
 {
   struct ospf *ospf;
   struct prefix router_id;
@@ -84,11 +85,12 @@ ospf_router_id_update_zebra (int command, struct zclient *zclient,
 
 /* Inteface addition message from zebra. */
 static int
-ospf_interface_add (int command, struct zclient *zclient, zebra_size_t length)
+ospf_interface_add (int command, struct zclient *zclient, zebra_size_t length,
+    vrf_id_t vrf_id)
 {
   struct interface *ifp;
 
-  ifp = zebra_interface_add_read (zclient->ibuf);
+  ifp = zebra_interface_add_read (zclient->ibuf, vrf_id);
 
   if (IS_DEBUG_OSPF (zebra, ZEBRA_INTERFACE))
     zlog_debug ("Zebra: interface add %s index %d flags %llx metric %d mtu %d",
@@ -114,7 +116,7 @@ ospf_interface_add (int command, struct zclient *zclient, zebra_size_t length)
 
 static int
 ospf_interface_delete (int command, struct zclient *zclient,
-                       zebra_size_t length)
+                       zebra_size_t length, vrf_id_t vrf_id)
 {
   struct interface *ifp;
   struct stream *s;
@@ -122,7 +124,7 @@ ospf_interface_delete (int command, struct zclient *zclient,
 
   s = zclient->ibuf;
   /* zebra_interface_state_read() updates interface structure in iflist */
-  ifp = zebra_interface_state_read (s);
+  ifp = zebra_interface_state_read (s, vrf_id);
 
   if (ifp == NULL)
     return 0;
@@ -149,7 +151,7 @@ ospf_interface_delete (int command, struct zclient *zclient,
 }
 
 static struct interface *
-zebra_interface_if_lookup (struct stream *s)
+zebra_interface_if_lookup (struct stream *s, vrf_id_t vrf_id)
 {
   char ifname_tmp[INTERFACE_NAMSIZ];
 
@@ -163,13 +165,13 @@ zebra_interface_if_lookup (struct stream *s)
 
 static int
 ospf_interface_state_up (int command, struct zclient *zclient,
-                         zebra_size_t length)
+                         zebra_size_t length, vrf_id_t vrf_id)
 {
   struct interface *ifp;
   struct ospf_interface *oi;
   struct route_node *rn;
 
-  ifp = zebra_interface_if_lookup (zclient->ibuf);
+  ifp = zebra_interface_if_lookup (zclient->ibuf, vrf_id);
 
   if (ifp == NULL)
     return 0;
@@ -225,13 +227,13 @@ ospf_interface_state_up (int command, struct zclient *zclient,
 
 static int
 ospf_interface_state_down (int command, struct zclient *zclient,
-                           zebra_size_t length)
+                           zebra_size_t length, vrf_id_t vrf_id)
 {
   struct interface *ifp;
   struct ospf_interface *oi;
   struct route_node *node;
 
-  ifp = zebra_interface_state_read (zclient->ibuf);
+  ifp = zebra_interface_state_read (zclient->ibuf, vrf_id);
 
   if (ifp == NULL)
     return 0;
@@ -251,11 +253,11 @@ ospf_interface_state_down (int command, struct zclient *zclient,
 
 static int
 ospf_interface_address_add (int command, struct zclient *zclient,
-                            zebra_size_t length)
+                            zebra_size_t length, vrf_id_t vrf_id)
 {
   struct connected *c;
 
-  c = zebra_interface_address_read (command, zclient->ibuf);
+  c = zebra_interface_address_read (command, zclient->ibuf, vrf_id);
 
   if (c == NULL)
     return 0;
@@ -278,7 +280,7 @@ ospf_interface_address_add (int command, struct zclient *zclient,
 
 static int
 ospf_interface_address_delete (int command, struct zclient *zclient,
-                               zebra_size_t length)
+                               zebra_size_t length, vrf_id_t vrf_id)
 {
   struct connected *c;
   struct interface *ifp;
@@ -286,7 +288,7 @@ ospf_interface_address_delete (int command, struct zclient *zclient,
   struct route_node *rn;
   struct prefix p;
 
-  c = zebra_interface_address_read (command, zclient->ibuf);
+  c = zebra_interface_address_read (command, zclient->ibuf, vrf_id);
 
   if (c == NULL)
     return 0;
@@ -311,6 +313,7 @@ ospf_interface_address_delete (int command, struct zclient *zclient,
 
   assert (rn->info);
   oi = rn->info;
+  route_unlock_node (rn);
 
   /* Call interface hook functions to clean up */
   ospf_if_free (oi);
@@ -324,6 +327,24 @@ ospf_interface_address_delete (int command, struct zclient *zclient,
   return 0;
 }
 
+static int
+ospf_interface_link_params (int command, struct zclient *zclient,
+                        zebra_size_t length)
+{
+  struct interface *ifp;
+
+  ifp = zebra_interface_link_params_read (zclient->ibuf);
+
+  if (ifp == NULL)
+    return 0;
+
+  /* Update TE TLV */
+  ospf_mpls_te_update_if (ifp);
+
+  return 0;
+}
+
+
 void
 ospf_zebra_add (struct prefix_ipv4 *p, struct ospf_route *or)
 {
@@ -335,7 +356,7 @@ ospf_zebra_add (struct prefix_ipv4 *p, struct ospf_route *or)
   struct ospf_path *path;
   struct listnode *node;
 
-  if (zclient->redist[ZEBRA_ROUTE_OSPF])
+  if (vrf_bitmap_check (zclient->redist[ZEBRA_ROUTE_OSPF], VRF_DEFAULT))
     {
       message = 0;
       flags = 0;
@@ -349,12 +370,18 @@ ospf_zebra_add (struct prefix_ipv4 *p, struct ospf_route *or)
       if (distance)
         SET_FLAG (message, ZAPI_MESSAGE_DISTANCE);
 
+      /* Check if path type is ASE */
+      if (((or->path_type == OSPF_PATH_TYPE1_EXTERNAL) ||
+          (or->path_type == OSPF_PATH_TYPE2_EXTERNAL)) &&
+           (or->u.ext.tag > 0) && (or->u.ext.tag <= ROUTE_TAG_MAX))
+        SET_FLAG (message, ZAPI_MESSAGE_TAG);
+
       /* Make packet. */
       s = zclient->obuf;
       stream_reset (s);
 
       /* Put command, type, flags, message. */
-      zclient_create_header (s, ZEBRA_IPV4_ROUTE_ADD);
+      zclient_create_header (s, ZEBRA_IPV4_ROUTE_ADD, VRF_DEFAULT);
       stream_putc (s, ZEBRA_ROUTE_OSPF);
       stream_putc (s, flags);
       stream_putc (s, message);
@@ -416,6 +443,9 @@ ospf_zebra_add (struct prefix_ipv4 *p, struct ospf_route *or)
             stream_putl (s, or->cost);
         }
 
+      if (CHECK_FLAG (message, ZAPI_MESSAGE_TAG))
+         stream_putl (s, or->u.ext.tag);
+
       stream_putw_at (s, 0, stream_get_endp (s));
 
       zclient_send_message(zclient);
@@ -433,7 +463,7 @@ ospf_zebra_delete (struct prefix_ipv4 *p, struct ospf_route *or)
   struct ospf_path *path;
   struct listnode *node;
 
-  if (zclient->redist[ZEBRA_ROUTE_OSPF])
+  if (vrf_bitmap_check (zclient->redist[ZEBRA_ROUTE_OSPF], VRF_DEFAULT))
     {
       message = 0;
       flags = 0;
@@ -444,7 +474,7 @@ ospf_zebra_delete (struct prefix_ipv4 *p, struct ospf_route *or)
       stream_reset (s);
 
       /* Put command, type, flags, message. */
-      zclient_create_header (s, ZEBRA_IPV4_ROUTE_DELETE);
+      zclient_create_header (s, ZEBRA_IPV4_ROUTE_DELETE, VRF_DEFAULT);
       stream_putc (s, ZEBRA_ROUTE_OSPF);
       stream_putc (s, flags);
       stream_putc (s, message);
@@ -514,8 +544,9 @@ ospf_zebra_add_discard (struct prefix_ipv4 *p)
 {
   struct zapi_ipv4 api;
 
-  if (zclient->redist[ZEBRA_ROUTE_OSPF])
+  if (vrf_bitmap_check (zclient->redist[ZEBRA_ROUTE_OSPF], VRF_DEFAULT))
     {
+      api.vrf_id = VRF_DEFAULT;
       api.type = ZEBRA_ROUTE_OSPF;
       api.flags = ZEBRA_FLAG_BLACKHOLE;
       api.message = 0;
@@ -523,6 +554,7 @@ ospf_zebra_add_discard (struct prefix_ipv4 *p)
       SET_FLAG (api.message, ZAPI_MESSAGE_NEXTHOP);
       api.nexthop_num = 0;
       api.ifindex_num = 0;
+      api.tag = 0;
 
       zapi_ipv4_route (ZEBRA_IPV4_ROUTE_ADD, zclient, p, &api);
 
@@ -537,8 +569,9 @@ ospf_zebra_delete_discard (struct prefix_ipv4 *p)
 {
   struct zapi_ipv4 api;
 
-  if (zclient->redist[ZEBRA_ROUTE_OSPF])
+  if (vrf_bitmap_check (zclient->redist[ZEBRA_ROUTE_OSPF], VRF_DEFAULT))
     {
+      api.vrf_id = VRF_DEFAULT;
       api.type = ZEBRA_ROUTE_OSPF;
       api.flags = ZEBRA_FLAG_BLACKHOLE;
       api.message = 0;
@@ -546,6 +579,7 @@ ospf_zebra_delete_discard (struct prefix_ipv4 *p)
       SET_FLAG (api.message, ZAPI_MESSAGE_NEXTHOP);
       api.nexthop_num = 0;
       api.ifindex_num = 0;
+      api.tag = 0;
 
       zapi_ipv4_route (ZEBRA_IPV4_ROUTE_DELETE, zclient, p, &api);
 
@@ -560,7 +594,8 @@ int
 ospf_is_type_redistributed (int type)
 {
   return (DEFAULT_ROUTE_TYPE (type)) ?
-    zclient->default_information : zclient->redist[type];
+    vrf_bitmap_check (zclient->default_information, VRF_DEFAULT) : \
+    vrf_bitmap_check (zclient->redist[type], VRF_DEFAULT);
 }
 
 int
@@ -594,7 +629,7 @@ ospf_redistribute_set (struct ospf *ospf, int type, int mtype, int mvalue)
   ospf->dmetric[type].type = mtype;
   ospf->dmetric[type].value = mvalue;
 
-  zclient_redistribute (ZEBRA_REDISTRIBUTE_ADD, zclient, type);
+  zclient_redistribute (ZEBRA_REDISTRIBUTE_ADD, zclient, type, VRF_DEFAULT);
 
   if (IS_DEBUG_OSPF (zebra, ZEBRA_REDISTRIBUTE))
     zlog_debug ("Redistribute[%s]: Start  Type[%d], Metric[%d]",
@@ -615,7 +650,7 @@ ospf_redistribute_unset (struct ospf *ospf, int type)
   if (!ospf_is_type_redistributed (type))
     return CMD_SUCCESS;
 
-  zclient_redistribute (ZEBRA_REDISTRIBUTE_DELETE, zclient, type);
+  zclient_redistribute (ZEBRA_REDISTRIBUTE_DELETE, zclient, type, VRF_DEFAULT);
 
   if (IS_DEBUG_OSPF (zebra, ZEBRA_REDISTRIBUTE))
     zlog_debug ("Redistribute[%s]: Stop",
@@ -655,7 +690,8 @@ ospf_redistribute_default_set (struct ospf *ospf, int originate,
       return CMD_SUCCESS;
     }
 
-  zclient_redistribute_default (ZEBRA_REDISTRIBUTE_DEFAULT_ADD, zclient);
+  zclient_redistribute_default (ZEBRA_REDISTRIBUTE_DEFAULT_ADD, zclient,
+                                VRF_DEFAULT);
 
   if (IS_DEBUG_OSPF (zebra, ZEBRA_REDISTRIBUTE))
     zlog_debug ("Redistribute[DEFAULT]: Start  Type[%d], Metric[%d]",
@@ -682,7 +718,8 @@ ospf_redistribute_default_unset (struct ospf *ospf)
   ospf->dmetric[DEFAULT_ROUTE].type = -1;
   ospf->dmetric[DEFAULT_ROUTE].value = -1;
 
-  zclient_redistribute_default (ZEBRA_REDISTRIBUTE_DEFAULT_DELETE, zclient);
+  zclient_redistribute_default (ZEBRA_REDISTRIBUTE_DEFAULT_DELETE, zclient,
+                                VRF_DEFAULT);
 
   if (IS_DEBUG_OSPF (zebra, ZEBRA_REDISTRIBUTE))
     zlog_debug ("Redistribute[DEFAULT]: Stop");
@@ -816,7 +853,7 @@ ospf_routemap_unset (struct ospf *ospf, int type)
 /* Zebra route add and delete treatment. */
 static int
 ospf_zebra_read_ipv4 (int command, struct zclient *zclient,
-                      zebra_size_t length)
+                      zebra_size_t length, vrf_id_t vrf_id)
 {
   struct stream *s;
   struct zapi_ipv4 api;
@@ -825,6 +862,7 @@ ospf_zebra_read_ipv4 (int command, struct zclient *zclient,
   struct prefix_ipv4 p;
   struct external_info *ei;
   struct ospf *ospf;
+  unsigned char plength = 0;
 
   s = zclient->ibuf;
   ifindex = 0;
@@ -838,7 +876,8 @@ ospf_zebra_read_ipv4 (int command, struct zclient *zclient,
   /* IPv4 prefix. */
   memset (&p, 0, sizeof (struct prefix_ipv4));
   p.family = AF_INET;
-  p.prefixlen = stream_getc (s);
+  plength = stream_getc (s);
+  p.prefixlen = MIN(IPV4_MAX_PREFIXLEN, plength);
   stream_get (&p.prefix, s, PSIZE (p.prefixlen));
 
   if (IPV4_NET127(ntohl(p.prefix.s_addr)))
@@ -860,6 +899,10 @@ ospf_zebra_read_ipv4 (int command, struct zclient *zclient,
     api.distance = stream_getc (s);
   if (CHECK_FLAG (api.message, ZAPI_MESSAGE_METRIC))
     api.metric = stream_getl (s);
+  if (CHECK_FLAG (api.message, ZAPI_MESSAGE_TAG))
+    api.tag = stream_getl (s);
+  else
+    api.tag = 0;
 
   ospf = ospf_lookup ();
   if (ospf == NULL)
@@ -877,8 +920,12 @@ ospf_zebra_read_ipv4 (int command, struct zclient *zclient,
        *     || CHECK_FLAG (api.flags, ZEBRA_FLAG_REJECT))
        * return 0;
        */
-        
-      ei = ospf_external_info_add (api.type, p, ifindex, nexthop);
+
+      /* Protocol tag overwrites all other tag value send by zebra */
+      if (ospf->dtag[api.type] > 0)
+       api.tag = ospf->dtag[api.type];
+
+      ei = ospf_external_info_add (api.type, p, ifindex, nexthop, api.tag);
 
       if (ospf->router_id.s_addr == 0)
         /* Set flags to generate AS-external-LSA originate event
@@ -1000,8 +1047,6 @@ ospf_distribute_list_update_timer (struct thread *thread)
   return 0;
 }
 
-#define OSPF_DISTRIBUTE_UPDATE_DELAY 5
-
 /* Update distribute-list and set timer to apply access-list. */
 void
 ospf_distribute_list_update (struct ospf *ospf, uintptr_t type)
@@ -1018,13 +1063,13 @@ ospf_distribute_list_update (struct ospf *ospf, uintptr_t type)
 
   /* Set timer. */
   ospf->t_distribute_update =
-    thread_add_timer (master, ospf_distribute_list_update_timer,
-                      (void *) type, OSPF_DISTRIBUTE_UPDATE_DELAY);
+    thread_add_timer_msec (master, ospf_distribute_list_update_timer,
+                      (void *) type, ospf->min_ls_interval);
 }
 
 /* If access-list is updated, apply some check. */
 static void
-ospf_filter_update (struct access_list *access)
+ospf_filter_update (const char *name)
 {
   struct ospf *ospf;
   int type;
@@ -1067,7 +1112,7 @@ ospf_filter_update (struct access_list *access)
 
           /* Schedule distribute-list update timer. */
           if (DISTRIBUTE_LIST (ospf, type) == NULL ||
-              strcmp (DISTRIBUTE_NAME (ospf, type), access->name) == 0)
+              strcmp (DISTRIBUTE_NAME (ospf, type), name) == 0)
             ospf_distribute_list_update (ospf, type);
         }
     }
@@ -1126,7 +1171,7 @@ ospf_prefix_list_update (struct prefix_list *plist)
     {
       /* Update filter-list in. */
       if (PREFIX_NAME_IN (area))
-        if (strcmp (PREFIX_NAME_IN (area), plist->name) == 0)
+        if (strcmp (PREFIX_NAME_IN (area), prefix_list_name (plist)) == 0)
           {
             PREFIX_LIST_IN (area) =
               prefix_list_lookup (AFI_IP, PREFIX_NAME_IN (area));
@@ -1135,7 +1180,7 @@ ospf_prefix_list_update (struct prefix_list *plist)
 
       /* Update filter-list out. */
       if (PREFIX_NAME_OUT (area))
-        if (strcmp (PREFIX_NAME_OUT (area), plist->name) == 0)
+        if (strcmp (PREFIX_NAME_OUT (area), prefix_list_name (plist)) == 0)
           {
             PREFIX_LIST_IN (area) =
               prefix_list_lookup (AFI_IP, PREFIX_NAME_OUT (area));
@@ -1292,12 +1337,19 @@ ospf_distance_apply (struct prefix_ipv4 *p, struct ospf_route *or)
   return 0;
 }
 
+static void
+ospf_zebra_connected (struct zclient *zclient)
+{
+  zclient_send_requests (zclient, VRF_DEFAULT);
+}
+
 void
-ospf_zebra_init ()
+ospf_zebra_init (struct thread_master *master)
 {
   /* Allocate zebra structure. */
-  zclient = zclient_new ();
+  zclient = zclient_new (master);
   zclient_init (zclient, ZEBRA_ROUTE_OSPF);
+  zclient->zebra_connected = ospf_zebra_connected;
   zclient->router_id_update = ospf_router_id_update_zebra;
   zclient->interface_add = ospf_interface_add;
   zclient->interface_delete = ospf_interface_delete;
@@ -1305,6 +1357,8 @@ ospf_zebra_init ()
   zclient->interface_down = ospf_interface_state_down;
   zclient->interface_address_add = ospf_interface_address_add;
   zclient->interface_address_delete = ospf_interface_address_delete;
+  zclient->interface_link_params = ospf_interface_link_params;
+
   zclient->ipv4_route_add = ospf_zebra_read_ipv4;
   zclient->ipv4_route_delete = ospf_zebra_read_ipv4;
 

@@ -1,0 +1,19 @@
+[Unit]
+Description=Quagga NHRP daemon
+BindsTo=zebra.service
+Wants=network.target
+After=zebra.service network-pre.target
+Before=network.target
+ConditionPathExists=/etc/quagga/nhrpd.conf
+Documentation=man:nhrpd
+
+[Service]
+Type=forking
+EnvironmentFile=/etc/sysconfig/quagga
+ExecStartPre=-/bin/chmod -f 640 /etc/quagga/nhrpd.conf
+ExecStartPre=-/bin/chown -f $QUAGGA_USER:$QUAGGA_GROUP /etc/quagga/nhrpd.conf
+ExecStart=/usr/sbin/nhrpd -d $NHRPD_OPTS -f /etc/quagga/nhrpdd.conf
+Restart=on-abort
+
+[Install]
+WantedBy=multi-user.target

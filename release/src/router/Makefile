@@ -4404,9 +4404,9 @@ quagga/stamp-h1:
 	LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections -L$(STAGEDIR)/usr/lib -lreadline" \
 	$(CONFIGURE) --prefix=/usr --sysconfdir=/etc --enable-shared \
 	--disable-ripngd --disable-ripd --disable-doc --disable-ospfclient \
-	--disable-ospf6d --disable-babeld \
-	--disable-silent-rules \
-	--disable-isisd --enable-vtysh
+	--disable-ospf6d --disable-nhrpd \
+	--disable-silent-rules --disable-vtysh \
+	--disable-isisd
 	@touch $@
 
 quagga: quagga/stamp-h1
@@ -4424,15 +4424,15 @@ quagga-install:
 	$(STRIP)  $(INSTALLDIR)/quagga/usr/lib/libzebra.so
 	install -d $(INSTALLDIR)/quagga/usr/sbin
 	libtool --mode=install install -c quagga/zebra/zebra $(INSTALLDIR)/quagga/usr/sbin
-	libtool --mode=install install -c quagga/vtysh/vtysh $(INSTALLDIR)/quagga/usr/sbin
+#	libtool --mode=install install -c quagga/vtysh $(INSTALLDIR)/quagga/usr/sbin
 	libtool --mode=install install -c quagga/bgpd/bgpd $(INSTALLDIR)/quagga/usr/sbin
 	libtool --mode=install install -c quagga/ospfd/ospfd $(INSTALLDIR)/quagga/usr/sbin
 	libtool --mode=install install -c quagga/watchquagga/watchquagga $(INSTALLDIR)/quagga/usr/sbin
-	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/zebra
-	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/vtysh
-	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/bgpd
-	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/ospfd
-	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/watchquagga
+#	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/zebra
+#	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/vtysh
+#	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/bgpd
+#	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/ospfd
+#	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/watchquagga
 ifneq ($(RTCONFIG_MUSL_LIBC),y)
 	mkdir -p $(TARGETDIR)/lib
 ifneq ($(HND_ROUTER),y)

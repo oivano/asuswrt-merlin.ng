@@ -47,6 +47,13 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #define BGP_ATTR_MIN_LEN        3       /* Attribute flag, type length. */
 #define BGP_ATTR_DEFAULT_WEIGHT 32768
 
+struct bgp_attr_encap_subtlv {
+    struct bgp_attr_encap_subtlv	*next;		/* for chaining */
+    uint16_t				type;
+    uint16_t				length;
+    uint8_t				value[1];	/* will be extended */
+};
+
 /* Additional/uncommon BGP attributes.
  * lazily allocated as and when a struct attr
  * requires it.
@@ -54,13 +61,14 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 struct attr_extra
 {
   /* Multi-Protocol Nexthop, AFI IPv6 */
-#ifdef HAVE_IPV6
   struct in6_addr mp_nexthop_global;
   struct in6_addr mp_nexthop_local;
-#endif /* HAVE_IPV6 */
 
   /* Extended Communities attribute. */
   struct ecommunity *ecommunity;
+
+  /* Large Communities attribute. */
+  struct lcommunity *lcommunity;
   
   /* Route-Reflector Cluster attribute */
   struct cluster_list *cluster;
@@ -69,7 +77,6 @@ struct attr_extra
   struct transit *transit;
 
   struct in_addr mp_nexthop_global_in;
-  struct in_addr mp_nexthop_local_in;
   
   /* Aggregator Router ID attribute */
   struct in_addr aggregator_addr;
@@ -85,6 +92,12 @@ struct attr_extra
   
   /* MP Nexthop length */
   u_char mp_nexthop_len;
+
+  uint16_t			encap_tunneltype;	/* grr */
+  struct bgp_attr_encap_subtlv *encap_subtlvs;		/* rfc5512 */
+
+  /* route tag */
+  route_tag_t tag;
 };
 
 /* BGP core attribute structure. */
@@ -158,7 +171,7 @@ extern struct attr *bgp_attr_default_set (struct attr *attr, u_char);
 extern struct attr *bgp_attr_default_intern (u_char);
 extern struct attr *bgp_attr_aggregate_intern (struct bgp *, u_char,
                                         struct aspath *, 
-                                        struct community *, int as_set);
+                                        struct community *, int as_set, u_char);
 extern bgp_size_t bgp_packet_attribute (struct bgp *bgp, struct peer *,
 					struct stream *, struct attr *,
 					struct prefix *, afi_t, safi_t,
@@ -174,10 +187,10 @@ extern unsigned long int attr_unknown_count (void);
 
 /* Cluster list prototypes. */
 extern int cluster_loop_check (struct cluster_list *, struct in_addr);
-extern void cluster_unintern (struct cluster_list *);
+extern void cluster_unintern (struct cluster_list **);
 
 /* Transit attribute prototypes. */
-void transit_unintern (struct transit *);
+void transit_unintern (struct transit **);
 
 /* Below exported for unit-test purposes only */
 struct bgp_attr_parser_args {
@@ -194,6 +207,12 @@ extern int bgp_mp_reach_parse (struct bgp_attr_parser_args *args,
 extern int bgp_mp_unreach_parse (struct bgp_attr_parser_args *args,
                                  struct bgp_nlri *);
 
+extern struct bgp_attr_encap_subtlv *
+encap_tlv_dup(struct bgp_attr_encap_subtlv *orig);
+
+extern void
+bgp_attr_flush_encap(struct attr *attr);
+
 /**
  * Set of functions to encode MP_REACH_NLRI and MP_UNREACH_NLRI attributes.
  * Typical call sequence is to call _start(), followed by multiple _prefix(),
@@ -205,6 +224,8 @@ extern size_t bgp_packet_mpattr_start(struct stream *s, afi_t afi, safi_t safi,
 extern void bgp_packet_mpattr_prefix(struct stream *s, afi_t afi, safi_t safi,
 				     struct prefix *p, struct prefix_rd *prd,
 				     u_char *tag);
+extern size_t bgp_packet_mpattr_prefix_size(afi_t afi, safi_t safi,
+                                            struct prefix *p);
 extern void bgp_packet_mpattr_end(struct stream *s, size_t sizep);
 
 extern size_t bgp_packet_mpunreach_start (struct stream *s, afi_t afi,

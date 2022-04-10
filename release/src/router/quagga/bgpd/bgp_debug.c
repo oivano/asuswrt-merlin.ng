@@ -28,6 +28,8 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "str.h"
 #include "log.h"
 #include "sockunion.h"
+#include "filter.h"
+#include "memory.h"
 
 #include "bgpd/bgpd.h"
 #include "bgpd/bgp_aspath.h"
@@ -45,6 +47,8 @@ unsigned long conf_bgp_debug_keepalive;
 unsigned long conf_bgp_debug_update;
 unsigned long conf_bgp_debug_normal;
 unsigned long conf_bgp_debug_zebra;
+unsigned long conf_bgp_debug_allow_martians;
+unsigned long conf_bgp_debug_nht;
 
 unsigned long term_bgp_debug_as4;
 unsigned long term_bgp_debug_fsm;
@@ -55,6 +59,8 @@ unsigned long term_bgp_debug_keepalive;
 unsigned long term_bgp_debug_update;
 unsigned long term_bgp_debug_normal;
 unsigned long term_bgp_debug_zebra;
+unsigned long term_bgp_debug_allow_martians;
+unsigned long term_bgp_debug_nht;
 
 /* messages for BGP-4 status */
 const struct message bgp_status_msg[] = 
@@ -68,7 +74,8 @@ const struct message bgp_status_msg[] =
   { Clearing,    "Clearing"    },
   { Deleted,     "Deleted"     },
 };
-const int bgp_status_msg_max = BGP_STATUS_MAX;
+#define BGP_DEBUG_MSG_MAX(msg) const int msg ## _max = array_size (msg)
+BGP_DEBUG_MSG_MAX (bgp_status_msg);
 
 /* BGP message type string. */
 const char *bgp_type_str[] =
@@ -79,7 +86,8 @@ const char *bgp_type_str[] =
   "NOTIFICATION",
   "KEEPALIVE",
   "ROUTE-REFRESH",
-  "CAPABILITY"
+  "CAPABILITY",
+  NULL,
 };
 
 /* message for BGP-4 Notify */
@@ -93,15 +101,15 @@ static const struct message bgp_notify_msg[] =
   { BGP_NOTIFY_CEASE, "Cease"},
   { BGP_NOTIFY_CAPABILITY_ERR, "CAPABILITY Message Error"},
 };
-static const int bgp_notify_msg_max = BGP_NOTIFY_MAX;
+BGP_DEBUG_MSG_MAX (bgp_notify_msg);
 
 static const struct message bgp_notify_head_msg[] = 
 {
   { BGP_NOTIFY_HEADER_NOT_SYNC, "/Connection Not Synchronized"},
   { BGP_NOTIFY_HEADER_BAD_MESLEN, "/Bad Message Length"},
-  { BGP_NOTIFY_HEADER_BAD_MESTYPE, "/Bad Message Type"}
+  { BGP_NOTIFY_HEADER_BAD_MESTYPE, "/Bad Message Type"},
 };
-static const int bgp_notify_head_msg_max = BGP_NOTIFY_HEADER_MAX;
+BGP_DEBUG_MSG_MAX (bgp_notify_head_msg);
 
 static const struct message bgp_notify_open_msg[] = 
 {
@@ -114,7 +122,7 @@ static const struct message bgp_notify_open_msg[] =
   { BGP_NOTIFY_OPEN_UNACEP_HOLDTIME, "/Unacceptable Hold Time"}, 
   { BGP_NOTIFY_OPEN_UNSUP_CAPBL, "/Unsupported Capability"},
 };
-static const int bgp_notify_open_msg_max = BGP_NOTIFY_OPEN_MAX;
+BGP_DEBUG_MSG_MAX (bgp_notify_open_msg);
 
 static const struct message bgp_notify_update_msg[] = 
 {
@@ -131,7 +139,7 @@ static const struct message bgp_notify_update_msg[] =
   { BGP_NOTIFY_UPDATE_INVAL_NETWORK, "/Invalid Network Field"},
   { BGP_NOTIFY_UPDATE_MAL_AS_PATH, "/Malformed AS_PATH"},
 };
-static const int bgp_notify_update_msg_max = BGP_NOTIFY_UPDATE_MAX;
+BGP_DEBUG_MSG_MAX (bgp_notify_update_msg);
 
 static const struct message bgp_notify_cease_msg[] =
 {
@@ -145,7 +153,7 @@ static const struct message bgp_notify_cease_msg[] =
   { BGP_NOTIFY_CEASE_COLLISION_RESOLUTION, "/Connection collision resolution"},
   { BGP_NOTIFY_CEASE_OUT_OF_RESOURCE, "/Out of Resource"},
 };
-static const int bgp_notify_cease_msg_max = BGP_NOTIFY_CEASE_MAX;
+BGP_DEBUG_MSG_MAX (bgp_notify_cease_msg);
 
 static const struct message bgp_notify_capability_msg[] = 
 {
@@ -154,7 +162,7 @@ static const struct message bgp_notify_capability_msg[] =
   { BGP_NOTIFY_CAPABILITY_INVALID_LENGTH, "/Invalid Capability Length"},
   { BGP_NOTIFY_CAPABILITY_MALFORMED_CODE, "/Malformed Capability Value"},
 };
-static const int bgp_notify_capability_msg_max = BGP_NOTIFY_CAPABILITY_MAX;
+BGP_DEBUG_MSG_MAX (bgp_notify_capability_msg);
 
 /* Origin strings. */
 const char *bgp_origin_str[] = {"i","e","?"};
@@ -174,7 +182,6 @@ bgp_dump_attr (struct peer *peer, struct attr *attr, char *buf, size_t size)
     snprintf (buf + strlen (buf), size - strlen (buf), ", origin %s",
 	      bgp_origin_str[attr->origin]);
 
-#ifdef HAVE_IPV6
   if (attr->extra)
     {
       char addrbuf[BUFSIZ];
@@ -191,7 +198,6 @@ bgp_dump_attr (struct peer *peer, struct attr *attr, char *buf, size_t size)
                   inet_ntop (AF_INET6, &attr->extra->mp_nexthop_local, 
                              addrbuf, BUFSIZ));
     }
-#endif /* HAVE_IPV6 */
 
   if (CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_LOCAL_PREF)))
     snprintf (buf + strlen (buf), size - strlen (buf), ", localpref %u",
@@ -471,6 +477,48 @@ ALIAS (no_debug_bgp_events,
        BGP_STR
        "BGP events\n")
 
+DEFUN (debug_bgp_nht,
+       debug_bgp_nht_cmd,
+       "debug bgp nht",
+       DEBUG_STR
+       BGP_STR
+       "BGP nexthop tracking events\n")
+{
+  if (vty->node == CONFIG_NODE)
+    DEBUG_ON (nht, NHT);
+  else
+    {
+      TERM_DEBUG_ON (nht, NHT);
+      vty_out (vty, "BGP nexthop tracking debugging is on%s", VTY_NEWLINE);
+    }
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_debug_bgp_nht,
+       no_debug_bgp_nht_cmd,
+       "no debug bgp nht",
+       NO_STR
+       DEBUG_STR
+       BGP_STR
+       "BGP nexthop tracking events\n")
+{
+  if (vty->node == CONFIG_NODE)
+    DEBUG_OFF (nht, NHT);
+  else
+    {
+      TERM_DEBUG_OFF (nht, NHT);
+      vty_out (vty, "BGP nexthop tracking debugging is off%s", VTY_NEWLINE);
+    }
+  return CMD_SUCCESS;
+}
+
+ALIAS (no_debug_bgp_nht,
+       undebug_bgp_nht_cmd,
+       "undebug bgp nht",
+       UNDEBUG_STR
+       BGP_STR
+       "BGP next-hop tracking updates\n")
+
 DEFUN (debug_bgp_filter,
        debug_bgp_filter_cmd,
        "debug bgp filters",
@@ -726,6 +774,48 @@ ALIAS (no_debug_bgp_zebra,
        BGP_STR
        "BGP Zebra messages\n")
 
+DEFUN (debug_bgp_allow_martians,
+       debug_bgp_allow_martians_cmd,
+       "debug bgp allow-martians",
+       DEBUG_STR
+       BGP_STR
+       "BGP allow martian next hops\n")
+{
+  if (vty->node == CONFIG_NODE)
+    DEBUG_ON (allow_martians, ALLOW_MARTIANS);
+  else
+    {
+      TERM_DEBUG_ON (allow_martians, ALLOW_MARTIANS);
+      vty_out (vty, "BGP allow_martian next hop debugging is on%s", VTY_NEWLINE);
+    }
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_debug_bgp_allow_martians,
+       no_debug_bgp_allow_martians_cmd,
+       "no debug bgp allow-martians",
+       NO_STR
+       DEBUG_STR
+       BGP_STR
+       "BGP allow martian next hops\n")
+{
+  if (vty->node == CONFIG_NODE)
+    DEBUG_OFF (allow_martians, ALLOW_MARTIANS);
+  else
+    {
+      TERM_DEBUG_OFF (allow_martians, ALLOW_MARTIANS);
+      vty_out (vty, "BGP allow martian next hop debugging is off%s", VTY_NEWLINE);
+    }
+  return CMD_SUCCESS;
+}
+
+ALIAS (no_debug_bgp_allow_martians,
+       undebug_bgp_allow_martians_cmd,
+       "undebug bgp allow-martians",
+       UNDEBUG_STR
+       BGP_STR
+       "BGP allow martian next hops\n")
+
 DEFUN (no_debug_bgp_all,
        no_debug_bgp_all_cmd,
        "no debug all bgp",
@@ -744,6 +834,7 @@ DEFUN (no_debug_bgp_all,
   TERM_DEBUG_OFF (fsm, FSM);
   TERM_DEBUG_OFF (filter, FILTER);
   TERM_DEBUG_OFF (zebra, ZEBRA);
+  TERM_DEBUG_OFF (allow_martians, ALLOW_MARTIANS);
   vty_out (vty, "All possible debugging has been turned off%s", VTY_NEWLINE);
       
   return CMD_SUCCESS;
@@ -787,6 +878,10 @@ DEFUN (show_debugging_bgp,
     vty_out (vty, "  BGP as4 debugging is on%s", VTY_NEWLINE);
   if (BGP_DEBUG (as4, AS4_SEGMENT))
     vty_out (vty, "  BGP as4 aspath segment debugging is on%s", VTY_NEWLINE);
+  if (BGP_DEBUG (allow_martians, ALLOW_MARTIANS))
+    vty_out (vty, "  BGP allow martian next hop debugging is on%s", VTY_NEWLINE);
+  if (BGP_DEBUG (nht, NHT))
+    vty_out (vty, "  BGP next-hop tracking debugging is on%s", VTY_NEWLINE);
   vty_out (vty, "%s", VTY_NEWLINE);
   return CMD_SUCCESS;
 }
@@ -860,6 +955,18 @@ bgp_config_write_debug (struct vty *vty)
       write++;
     }
 
+  if (CONF_BGP_DEBUG (allow_martians, ALLOW_MARTIANS))
+    {
+      vty_out (vty, "debug bgp allow-martians%s", VTY_NEWLINE);
+      write++;
+    }
+  
+  if (CONF_BGP_DEBUG (nht, NHT))
+    {
+      vty_out (vty, "debug bgp nht%s", VTY_NEWLINE);
+      write++;
+    }
+
   return write;
 }
 
@@ -886,6 +993,8 @@ bgp_debug_init (void)
   install_element (CONFIG_NODE, &debug_bgp_fsm_cmd);
   install_element (ENABLE_NODE, &debug_bgp_events_cmd);
   install_element (CONFIG_NODE, &debug_bgp_events_cmd);
+  install_element (ENABLE_NODE, &debug_bgp_nht_cmd);
+  install_element (CONFIG_NODE, &debug_bgp_nht_cmd);
   install_element (ENABLE_NODE, &debug_bgp_filter_cmd);
   install_element (CONFIG_NODE, &debug_bgp_filter_cmd);
   install_element (ENABLE_NODE, &debug_bgp_keepalive_cmd);
@@ -898,6 +1007,8 @@ bgp_debug_init (void)
   install_element (CONFIG_NODE, &debug_bgp_normal_cmd);
   install_element (ENABLE_NODE, &debug_bgp_zebra_cmd);
   install_element (CONFIG_NODE, &debug_bgp_zebra_cmd);
+  install_element (ENABLE_NODE, &debug_bgp_allow_martians_cmd);
+  install_element (CONFIG_NODE, &debug_bgp_allow_martians_cmd);
 
   install_element (ENABLE_NODE, &no_debug_bgp_as4_cmd);
   install_element (ENABLE_NODE, &undebug_bgp_as4_cmd);
@@ -912,6 +1023,9 @@ bgp_debug_init (void)
   install_element (ENABLE_NODE, &no_debug_bgp_events_cmd);
   install_element (ENABLE_NODE, &undebug_bgp_events_cmd);
   install_element (CONFIG_NODE, &no_debug_bgp_events_cmd);
+  install_element (ENABLE_NODE, &no_debug_bgp_nht_cmd);
+  install_element (ENABLE_NODE, &undebug_bgp_nht_cmd);
+  install_element (CONFIG_NODE, &no_debug_bgp_nht_cmd);
   install_element (ENABLE_NODE, &no_debug_bgp_filter_cmd);
   install_element (ENABLE_NODE, &undebug_bgp_filter_cmd);
   install_element (CONFIG_NODE, &no_debug_bgp_filter_cmd);
@@ -927,6 +1041,9 @@ bgp_debug_init (void)
   install_element (ENABLE_NODE, &no_debug_bgp_zebra_cmd);
   install_element (ENABLE_NODE, &undebug_bgp_zebra_cmd);
   install_element (CONFIG_NODE, &no_debug_bgp_zebra_cmd);
+  install_element (ENABLE_NODE, &no_debug_bgp_allow_martians_cmd);
+  install_element (ENABLE_NODE, &undebug_bgp_allow_martians_cmd);
+  install_element (CONFIG_NODE, &no_debug_bgp_allow_martians_cmd);
   install_element (ENABLE_NODE, &no_debug_bgp_all_cmd);
   install_element (ENABLE_NODE, &undebug_bgp_all_cmd);
 }

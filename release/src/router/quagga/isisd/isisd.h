@@ -25,15 +25,15 @@
 
 #define ISISD_VERSION "0.0.7"
 
+#include "isisd/isis_constants.h"
+#include "isisd/isis_common.h"
+#include "isisd/isis_redist.h"
+#include "isis_flags.h"
+#include "dict.h"
+
 /* uncomment if you are a developer in bug hunt */
 /* #define EXTREME_DEBUG  */
 /* #define EXTREME_TLV_DEBUG */
-
-struct rmap
-{
-  char *name;
-  struct route_map *map;
-};
 
 struct isis
 {
@@ -53,30 +53,7 @@ struct isis
   time_t uptime;		/* when did we start */
   struct thread *t_dync_clean;	/* dynamic hostname cache cleanup thread */
 
-  /* Redistributed external information. */
-  struct route_table *external_info[ZEBRA_ROUTE_MAX + 1];
-  /* Redistribute metric info. */
-  struct
-  {
-    int type;			/* Internal or External  */
-    int value;			/* metric value */
-  } dmetric[ZEBRA_ROUTE_MAX + 1];
-
-  struct
-  {
-    char *name;
-    struct route_map *map;
-  } rmap[ZEBRA_ROUTE_MAX + 1];
-#ifdef HAVE_IPV6
-  struct
-  {
-    struct
-    {
-      char *name;
-      struct route_map *map;
-    } rmap[ZEBRA_ROUTE_MAX + 1];
-  } inet6_afmode;
-#endif
+  struct route_table *ext_info[REDIST_PROTOCOL_COUNT];
 };
 
 extern struct isis *isis;
@@ -91,11 +68,23 @@ struct isis_area
   struct isis_spftree *spftree6[ISIS_LEVELS];	  /* The v6 SPTs */
   struct route_table *route_table6[ISIS_LEVELS];  /* IPv6 routes */
 #endif
-  unsigned int min_bcast_mtu;
+#define DEFAULT_LSP_MTU 1497
+  unsigned int lsp_mtu;				  /* Size of LSPs to generate */
   struct list *circuit_list;	/* IS-IS circuits */
   struct flags flags;
   struct thread *t_tick;	/* LSP walker */
   struct thread *t_lsp_refresh[ISIS_LEVELS];
+  /* t_lsp_refresh is used in two ways:
+   * a) regular refresh of LSPs
+   * b) (possibly throttled) updates to LSPs
+   *
+   * The lsp_regenerate_pending flag tracks whether the timer is active
+   * for the a) or the b) case.
+   *
+   * It is of utmost importance to clear this flag when the timer is
+   * rescheduled for normal refresh, because otherwise, updates will
+   * be delayed until the next regular refresh.
+   */
   int lsp_regenerate_pending[ISIS_LEVELS];
 
   /*
@@ -116,6 +105,8 @@ struct isis_area
   char is_type;			/* level-1 level-1-2 or level-2-only */
   /* are we overloaded? */
   char overload_bit;
+  /* L1/L2 router identifier for inter-area traffic */
+  char attached_bit;
   u_int16_t lsp_refresh[ISIS_LEVELS];
   /* minimum time allowed before lsp retransmission */
   u_int16_t lsp_gen_interval[ISIS_LEVELS];
@@ -131,6 +122,9 @@ struct isis_area
 #endif				/* HAVE_IPV6 */
   /* Counters */
   u_int32_t circuit_state_changes;
+  struct isis_redist redist_settings[REDIST_PROTOCOL_COUNT]
+                                    [ZEBRA_ROUTE_MAX + 1][ISIS_LEVELS];
+  struct route_table *ext_reach[REDIST_PROTOCOL_COUNT][ISIS_LEVELS];
 
 #ifdef TOPOLOGY_GENERATE
   struct list *topology;
@@ -146,6 +140,25 @@ struct isis_area *isis_area_create(const char *);
 struct isis_area *isis_area_lookup (const char *);
 int isis_area_get (struct vty *vty, const char *area_tag);
 void print_debug(struct vty *, int, int);
+
+void isis_area_overload_bit_set(struct isis_area *area, bool overload_bit);
+void isis_area_attached_bit_set(struct isis_area *area, bool attached_bit);
+void isis_area_dynhostname_set(struct isis_area *area, bool dynhostname);
+void isis_area_metricstyle_set(struct isis_area *area, bool old_metric,
+			       bool new_metric);
+void isis_area_lsp_mtu_set(struct isis_area *area, unsigned int lsp_mtu);
+void isis_area_is_type_set(struct isis_area *area, int is_type);
+void isis_area_max_lsp_lifetime_set(struct isis_area *area, int level,
+			            uint16_t max_lsp_lifetime);
+void isis_area_lsp_refresh_set(struct isis_area *area, int level,
+			       uint16_t lsp_refresh);
+/* IS_LEVEL_1 sets area_passwd, IS_LEVEL_2 domain_passwd */
+int isis_area_passwd_unset (struct isis_area *area, int level);
+int isis_area_passwd_cleartext_set (struct isis_area *area, int level,
+                                    const char *passwd, u_char snp_auth);
+int isis_area_passwd_hmac_md5_set (struct isis_area *area, int level,
+                                   const char *passwd, u_char snp_auth);
+void isis_vty_init (void);
 
 /* Master of threads. */
 extern struct thread_master *master;
@@ -163,5 +176,27 @@ extern struct thread_master *master;
 #define DEBUG_EVENTS                     (1<<10)
 #define DEBUG_ZEBRA                      (1<<11)
 #define DEBUG_PACKET_DUMP                (1<<12)
+#define DEBUG_LSP_GEN                    (1<<13)
+#define DEBUG_LSP_SCHED                  (1<<14)
+
+#define lsp_debug(...) \
+  do \
+    { \
+      if (isis->debugs & DEBUG_LSP_GEN) \
+        zlog_debug(__VA_ARGS__); \
+    } \
+  while (0)
+
+#define sched_debug(...) \
+  do \
+    { \
+      if (isis->debugs & DEBUG_LSP_SCHED) \
+        zlog_debug(__VA_ARGS__); \
+    } \
+  while (0)
+
+#define DEBUG_TE                         (1<<13)
+
+#define IS_DEBUG_ISIS(x)                 (isis->debugs & x)
 
 #endif /* ISISD_H */

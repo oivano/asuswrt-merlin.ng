@@ -34,7 +34,9 @@
 #include "privs.h"
 #include "sigevent.h"
 #include "filter.h"
+#include "plist.h"
 #include "zclient.h"
+#include "vrf.h"
 
 #include "isisd/dict.h"
 #include "include-netbsd/iso.h"
@@ -46,7 +48,10 @@
 #include "isisd/isis_dynhn.h"
 #include "isisd/isis_spf.h"
 #include "isisd/isis_route.h"
+#include "isisd/isis_routemap.h"
 #include "isisd/isis_zebra.h"
+#include "isisd/isis_tlv.h"
+#include "isisd/isis_te.h"
 
 /* Default configuration file name */
 #define ISISD_DEFAULT_CONFIG "isisd.conf"
@@ -231,7 +236,6 @@ main (int argc, char **argv, char **envp)
 {
   char *p;
   int opt, vty_port = ISISD_VTY_PORT;
-  struct thread thread;
   char *config_file = NULL;
   char *vty_addr = NULL;
   int dryrun = 0;
@@ -319,7 +323,7 @@ main (int argc, char **argv, char **envp)
   master = thread_master_create ();
 
   /* random seed from time */
-  srand (time (NULL));
+  srandom (time (NULL));
 
   /*
    *  initializations
@@ -330,14 +334,19 @@ main (int argc, char **argv, char **envp)
   vty_init (master);
   memory_init ();
   access_list_init();
+  vrf_init ();
+  prefix_list_init();
   isis_init ();
   isis_circuit_init ();
   isis_spf_cmds_init ();
+  isis_redist_init ();
+  isis_route_map_init();
+  isis_mpls_te_init();
 
   /* create the global 'isis' instance */
   isis_new (1);
 
-  isis_zebra_init ();
+  isis_zebra_init (master);
 
   /* parse config file */
   /* this is needed three times! because we have interfaces before the areas */
@@ -348,8 +357,11 @@ main (int argc, char **argv, char **envp)
     return(0);
   
   /* demonize */
-  if (daemon_mode)
-    daemon (0, 0);
+  if (daemon_mode && daemon (0, 0) < 0)
+    {
+      zlog_err("IS-IS daemon failed: %s", strerror(errno));
+      exit (1);
+    }
 
   /* Process ID file creation. */
   if (pid_file[0] != '\0')
@@ -362,8 +374,7 @@ main (int argc, char **argv, char **envp)
   zlog_notice ("Quagga-ISISd %s starting: vty@%d", QUAGGA_VERSION, vty_port);
 
   /* Start finite state machine. */
-  while (thread_fetch (master, &thread))
-    thread_call (&thread);
+  thread_main (master);
 
   /* Not reached. */
   exit (0);

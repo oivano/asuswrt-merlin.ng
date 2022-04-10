@@ -185,6 +185,13 @@ In this example, the precision is set to provide timestamps with
 millisecond accuracy.
 @end deffn
 
+@deffn Command {log commands} {}
+This command enables the logging of all commands typed by a user to
+all enabled log destinations.  The note that logging includes full
+command lines, including passwords.  Once set, command logging can only
+be turned off by restarting the daemon.
+@end deffn  
+
 @deffn Command {service password-encryption} {}
 Encrypt password.
 @end deffn
@@ -545,6 +552,12 @@ Kill line from the beginning, erasing input.
 @kindex C-t
 Transpose character.
 
+@item C-v
+@kindex C-v
+Interpret following character literally. Do not treat it specially.
+This can be used to, e.g., type in a literal @kbd{?} rather than do
+help completion.
+
 @end table
 
 @node CLI Advanced Commands
@@ -585,5 +598,8 @@ Use command line completion by typing @key{TAB}.
 You can use command line help by typing @code{help} at the beginning of
 the line.  Typing @kbd{?} at any point in the line will show possible
 completions.
+
+To enter an actual @kbd{?} character rather show completions, e.g. to
+enter into a regexp, use @kbd{@key{C}-v ?}.
 
 @end table

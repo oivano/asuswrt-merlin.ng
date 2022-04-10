@@ -25,6 +25,11 @@
 
 #include "if.h"
 
+/* Filter direction.  */
+#define FILTER_IN                 0
+#define FILTER_OUT                1
+#define FILTER_MAX                2
+
 /* Filter type is made by `permit', `deny' and `dynamic'. */
 enum filter_type 
 {
@@ -59,8 +64,8 @@ struct access_list
 /* Prototypes for access-list. */
 extern void access_list_init (void);
 extern void access_list_reset (void);
-extern void access_list_add_hook (void (*func)(struct access_list *));
-extern void access_list_delete_hook (void (*func)(struct access_list *));
+extern void access_list_add_hook (void (*func) (const char *));
+extern void access_list_delete_hook (void (*func) (const char *));
 extern struct access_list *access_list_lookup (afi_t, const char *);
 extern enum filter_type access_list_apply (struct access_list *, void *);
 

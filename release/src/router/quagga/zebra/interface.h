@@ -23,6 +23,7 @@
 #define _ZEBRA_INTERFACE_H
 
 #include "redistribute.h"
+#include "event_counter.h"
 
 #ifdef HAVE_IRDP
 #include "zebra/irdp.h"
@@ -37,14 +38,20 @@
 #define IF_ZEBRA_SHUTDOWN_OFF    0
 #define IF_ZEBRA_SHUTDOWN_ON     1
 
-/* Router advertisement feature. */
-#if (defined(LINUX_IPV6) && (defined(__GLIBC__) && __GLIBC__ >= 2 && __GLIBC_MINOR__ >= 1)) || defined(KAME)
-  #ifdef HAVE_RTADV
-    #define RTADV
-  #endif
-#endif
+/* Global user-configured default for interface link-detect */
+typedef enum {
+  IF_LINKDETECT_UNSPEC = 0,
+  IF_LINKDETECT_ON,
+  IF_LINKDETECT_OFF,
+} zebra_if_linkdetect;
 
-#ifdef RTADV
+/* Global defaults for interfaces */
+struct zebra_if_defaults {
+  /* Link-detect default configuration */
+  zebra_if_linkdetect linkdetect;
+};
+
+#if defined (HAVE_RTADV)
 /* Router advertisement parameter.  From RFC4861, RFC6275 and RFC4191. */
 struct rtadvconf
 {
@@ -178,7 +185,7 @@ struct rtadvconf
 #define RTADV_PREF_MEDIUM 0x0 /* Per RFC4191. */
 };
 
-#endif /* RTADV */
+#endif /* HAVE_RTADV */
 
 /* `zebra' daemon local interface structure. */
 struct zebra_if
@@ -191,16 +198,33 @@ struct zebra_if
 
   /* Router advertise configuration. */
   u_char rtadv_enable;
-
+  
+  /* Interface specific link-detect configuration state */
+  zebra_if_linkdetect linkdetect;
+  
   /* Installed addresses chains tree. */
   struct route_table *ipv4_subnets;
 
-#ifdef RTADV
+  /* Information about up/down changes */
+  struct event_counter up_events;
+  struct event_counter down_events;
+
+#if defined(HAVE_RTADV)
   struct rtadvconf rtadv;
 #endif /* RTADV */
 
 #ifdef HAVE_IRDP
   struct irdp_interface irdp;
+#endif
+
+#ifdef HAVE_STRUCT_SOCKADDR_DL
+  union {
+    /* note that sdl_storage is never accessed, it only exists to make space.
+     * all actual uses refer to sdl - but use sizeof(sdl_storage)!  this fits
+     * best with C aliasing rules. */
+    struct sockaddr_dl sdl;
+    struct sockaddr_storage sdl_storage;
+  };
 #endif
 
 #ifdef SUNOS_5
@@ -219,6 +243,7 @@ extern void if_up (struct interface *);
 extern void if_down (struct interface *);
 extern void if_refresh (struct interface *);
 extern void if_flags_update (struct interface *, uint64_t);
+extern void if_startup_count_up (void);
 extern int if_subnet_add (struct interface *, struct connected *);
 extern int if_subnet_delete (struct interface *, struct connected *);
 

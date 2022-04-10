@@ -42,6 +42,7 @@
 #include "isisd/isis_misc.h"
 #include "isisd/isis_pdu.h"
 #include "isisd/isis_lsp.h"
+#include "isisd/isis_te.h"
 
 void
 free_tlv (void *val)
@@ -115,7 +116,6 @@ parse_tlvs (char *areatag, u_char * stream, int size, u_int32_t * expected,
   struct ipv6_reachability *ipv6_reach;
   int prefix_octets;
 #endif /* HAVE_IPV6 */
-  u_char virtual;
   int value_len, retval = ISIS_OK;
   u_char *start = stream, *pnt = stream, *endpnt;
 
@@ -179,7 +179,6 @@ parse_tlvs (char *areatag, u_char * stream, int size, u_int32_t * expected,
 	       * |                        Virtual Flag                           | 
 	       * +-------+-------+-------+-------+-------+-------+-------+-------+
 	       */
-	      virtual = *pnt;	/* FIXME: what is the use for this? */
 	      pnt++;
 	      value_len++;
 	      /* +-------+-------+-------+-------+-------+-------+-------+-------+
@@ -231,9 +230,23 @@ parse_tlvs (char *areatag, u_char * stream, int size, u_int32_t * expected,
 	      while (length > value_len)
 		{
 		  te_is_nei = (struct te_is_neigh *) pnt;
-		  value_len += 11;
-		  pnt += 11;
-		  /* FIXME - subtlvs are handled here, for now we skip */
+		  value_len += IS_NEIGHBOURS_LEN;
+		  pnt += IS_NEIGHBOURS_LEN;
+                  /* FIXME - subtlvs are handled here, for now we skip */
+		  /* FIXME: All TE SubTLVs are not necessary present in LSP PDU. */
+		  /* So, it must be copied in a new te_is_neigh structure        */
+		  /* rather than just initialize pointer to the original LSP PDU */
+		  /* to avoid consider the rest of lspdu as subTLVs or buffer overflow */
+		  if (IS_MPLS_TE(isisMplsTE))
+		    {
+		      struct te_is_neigh *new = XCALLOC(MTYPE_ISIS_TLV, sizeof(struct te_is_neigh));
+		      memcpy(new->neigh_id, te_is_nei->neigh_id, ISIS_SYS_ID_LEN + 1);
+		      memcpy(new->te_metric, te_is_nei->te_metric, 3);
+		      new->sub_tlvs_length = te_is_nei->sub_tlvs_length;
+		      memcpy(new->sub_tlvs, pnt, te_is_nei->sub_tlvs_length);
+                      te_is_nei = new;
+                    }
+		  /* Skip SUB TLVs payload */
 		  value_len += te_is_nei->sub_tlvs_length;
 		  pnt += te_is_nei->sub_tlvs_length;
 
@@ -847,8 +860,8 @@ tlv_add_te_is_neighs (struct list *te_is_neighs, struct stream *stream)
 
   for (ALL_LIST_ELEMENTS_RO (te_is_neighs, node, te_is_neigh))
     {
-      /* FIXME: This will be wrong if we are going to add TE sub TLVs. */
-      if (pos - value + IS_NEIGHBOURS_LEN > 255)
+      /* FIXME: Check if Total SubTLVs size doesn't exceed 255 */
+      if (pos - value + IS_NEIGHBOURS_LEN + te_is_neigh->sub_tlvs_length > 255)
         {
           retval = add_tlv (TE_IS_NEIGHBOURS, pos - value, value, stream);
           if (retval != ISIS_OK)
@@ -860,9 +873,15 @@ tlv_add_te_is_neighs (struct list *te_is_neighs, struct stream *stream)
       pos += ISIS_SYS_ID_LEN + 1;
       memcpy (pos, te_is_neigh->te_metric, 3);
       pos += 3;
-      /* Sub TLVs length. */
-      *pos = 0;
+      /* Set the total size of Sub TLVs */
+      *pos = te_is_neigh->sub_tlvs_length;
       pos++;
+      /* Copy Sub TLVs if any */
+      if (te_is_neigh->sub_tlvs_length > 0)
+        {
+          memcpy (pos, te_is_neigh->sub_tlvs, te_is_neigh->sub_tlvs_length);
+          pos += te_is_neigh->sub_tlvs_length;
+        }
     }
 
   return add_tlv (TE_IS_NEIGHBOURS, pos - value, value, stream);
@@ -926,7 +945,6 @@ tlv_add_ip_addrs (struct list *ip_addrs, struct stream *stream)
   struct prefix_ipv4 *ipv4;
   u_char value[255];
   u_char *pos = value;
-  int retval;
 
   for (ALL_LIST_ELEMENTS_RO (ip_addrs, node, ipv4))
     {
@@ -995,8 +1013,8 @@ tlv_add_lsp_entries (struct list *lsps, struct stream *stream)
   return add_tlv (LSP_ENTRIES, pos - value, value, stream);
 }
 
-int
-tlv_add_ipv4_reachs (struct list *ipv4_reachs, struct stream *stream)
+static int
+tlv_add_ipv4_reachs (u_char tag, struct list *ipv4_reachs, struct stream *stream)
 {
   struct listnode *node;
   struct ipv4_reachability *reach;
@@ -1009,7 +1027,7 @@ tlv_add_ipv4_reachs (struct list *ipv4_reachs, struct stream *stream)
       if (pos - value + IPV4_REACH_LEN > 255)
 	{
 	  retval =
-	    add_tlv (IPV4_INT_REACHABILITY, pos - value, value, stream);
+	    add_tlv (tag, pos - value, value, stream);
 	  if (retval != ISIS_OK)
 	    return retval;
 	  pos = value;
@@ -1028,8 +1046,21 @@ tlv_add_ipv4_reachs (struct list *ipv4_reachs, struct stream *stream)
       pos += IPV4_MAX_BYTELEN;
     }
 
-  return add_tlv (IPV4_INT_REACHABILITY, pos - value, value, stream);
+  return add_tlv (tag, pos - value, value, stream);
 }
+
+int
+tlv_add_ipv4_int_reachs (struct list *ipv4_reachs, struct stream *stream)
+{
+  return tlv_add_ipv4_reachs(IPV4_INT_REACHABILITY, ipv4_reachs, stream);
+}
+
+int
+tlv_add_ipv4_ext_reachs (struct list *ipv4_reachs, struct stream *stream)
+{
+  return tlv_add_ipv4_reachs(IPV4_EXT_REACHABILITY, ipv4_reachs, stream);
+}
+
 
 int
 tlv_add_te_ipv4_reachs (struct list *te_ipv4_reachs, struct stream *stream)

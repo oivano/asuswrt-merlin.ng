@@ -52,7 +52,7 @@ if_ioctl (u_long request, caddr_t buffer)
 {
   int sock;
   int ret;
-  int err;
+  int err = 0;
 
   if (zserv_privs.change(ZPRIVS_RAISE))
     zlog (NULL, LOG_ERR, "Can't raise privileges");
@@ -85,7 +85,7 @@ if_ioctl_ipv6 (u_long request, caddr_t buffer)
 {
   int sock;
   int ret;
-  int err;
+  int err = 0;
 
   if (zserv_privs.change(ZPRIVS_RAISE))
     zlog (NULL, LOG_ERR, "Can't raise privileges");
@@ -196,7 +196,6 @@ if_set_prefix (struct interface *ifp, struct connected *ifc)
   struct prefix_ipv4 *p;
 
   p = (struct prefix_ipv4 *) ifc->address;
-  rib_lookup_and_pushup (p);
 
   memset (&addreq, 0, sizeof addreq);
   strncpy ((char *)&addreq.ifra_name, ifp->name, sizeof addreq.ifra_name);

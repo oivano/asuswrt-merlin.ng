@@ -39,7 +39,7 @@
  * LSP Entries                9   n   n   y  ISO10589
  * Authentication            10   y   y   y  ISO10589, RFC3567
  * Checksum                  12   y   n   y  RFC3358
- * TE IS Reachability        22   n   y   n  RFC5305
+ * Extended IS Reachability  22   n   y   n  RFC5305
  * IS Alias                  24   n   y   n  RFC3786
  * IP Int. Reachability     128   n   y   n  RFC1195
  * Protocols Supported      129   y   y   n  RFC1195
@@ -50,6 +50,7 @@
  * Extended IP Reachability 135   n   y   n  RFC5305
  * Dynamic Hostname         137   n   y   n  RFC2763
  * Shared Risk Link Group   138   n   y   y  RFC5307
+ * Inter-AS Reachability    141   n   y   n  RFC5316
  * Restart TLV              211   y   n   n  RFC3847
  * MT IS Reachability       222   n   y   n  RFC5120
  * MT Supported             229   y   y   n  RFC5120
@@ -59,10 +60,10 @@
  * MT IPv6 IP Reachability  237   n   y   n  RFC5120
  * P2P Adjacency State      240   y   n   n  RFC3373
  * IIH Sequence Number      241   y   n   n  draft-shen-isis-iih-sequence
- * Router Capability        242   -   -   -  draft-ietf-isis-caps
+ * Router Capability        242   n   y   n  RFC4971
  *
  *
- * IS Reachability sub-TLVs we (should) support.
+ * IS Reachability sub-TLVs we support (See isis_te.[c,h])
  * ____________________________________________________________________________
  * Name                           Value   Status
  * ____________________________________________________________________________
@@ -76,6 +77,8 @@
  * TE Default metric                 18   RFC5305
  * Link Protection Type              20   RFC5307
  * Interface Switching Capability    21   RFC5307
+ * Remote AS number                  24   RFC5316
+ * IPv4 Remote ASBR identifier       25   RFC5316
  *
  *
  * IP Reachability sub-TLVs we (should) support.
@@ -109,8 +112,11 @@
 #define IPV6_ADDR                 232
 #define IPV6_REACHABILITY         236
 #define WAY3_HELLO                240
+#define ROUTER_INFORMATION        242
 
 #define AUTH_INFO_HDRLEN          3
+
+#define MAX_TLV_LEN 255
 
 #define IS_NEIGHBOURS_LEN (ISIS_SYS_ID_LEN + 5)
 #define LAN_NEIGHBOURS_LEN 6
@@ -119,6 +125,8 @@
 #define IPV6_REACH_LEN 22
 #define TE_IPV4_REACH_LEN 9
 
+#define MAX_SUBTLV_SIZE         256
+
 /* struct for neighbor */
 struct is_neigh
 {
@@ -126,12 +134,18 @@ struct is_neigh
   u_char neigh_id[ISIS_SYS_ID_LEN + 1];
 };
 
-/* struct for te is neighbor */
+/* struct for te metric */
 struct te_is_neigh
 {
   u_char neigh_id[ISIS_SYS_ID_LEN + 1];
   u_char te_metric[3];
   u_char sub_tlvs_length;
+  /* Theorical Maximum SubTLVs is 256 because the sub_tlvs_length is 8 bits */
+  /* Practically, 118 bytes are necessary to store all supported TE parameters */
+  /* FIXME: A pointer will use less memory, but need to be free */
+  /* which is hard to fix, especially within free_tlvs() function */
+  /* and malloc() / free() as a CPU cost compared to the memory usage */
+  u_char sub_tlvs[MAX_SUBTLV_SIZE];      /* SUB TLVs storage */
 };
 
 /* Decode and encode three-octet metric into host byte order integer */
@@ -228,11 +242,13 @@ struct ipv6_reachability
 
 /* bits in control_info */
 #define CTRL_INFO_DIRECTION    0x80
-#define DIRECTION_UP           0
-#define DIRECTION_DOWN         1
+#define DIRECTION_UP           0x00
+#define DIRECTION_DOWN         0x80
+
 #define CTRL_INFO_DISTRIBUTION 0x40
-#define DISTRIBUTION_INTERNAL  0
-#define DISTRIBUTION_EXTERNAL  1
+#define DISTRIBUTION_INTERNAL  0x00
+#define DISTRIBUTION_EXTERNAL  0x40
+
 #define CTRL_INFO_SUBTLVS      0x20
 #endif /* HAVE_IPV6 */
 
@@ -311,7 +327,8 @@ int tlv_add_in_addr (struct in_addr *, struct stream *stream, u_char tag);
 int tlv_add_dynamic_hostname (struct hostname *hostname,
 			      struct stream *stream);
 int tlv_add_lsp_entries (struct list *lsps, struct stream *stream);
-int tlv_add_ipv4_reachs (struct list *ipv4_reachs, struct stream *stream);
+int tlv_add_ipv4_int_reachs (struct list *ipv4_reachs, struct stream *stream);
+int tlv_add_ipv4_ext_reachs (struct list *ipv4_reachs, struct stream *stream);
 int tlv_add_te_ipv4_reachs (struct list *te_ipv4_reachs, struct stream *stream);
 #ifdef HAVE_IPV6
 int tlv_add_ipv6_addrs (struct list *ipv6_addrs, struct stream *stream);

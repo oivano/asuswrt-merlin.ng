@@ -143,12 +143,16 @@ Matches the specified @var{access_list}
 Matches the specified @var{ipv4_addr}.
 @end deffn
 
-@deffn {Route-map Command} {match aspath @var{as_path}} {}
+@deffn {Route-map Command} {match as-path @var{as_path}} {}
 Matches the specified @var{as_path}.
 @end deffn
 
 @deffn {Route-map Command} {match metric @var{metric}} {}
 Matches the specified @var{metric}.
+@end deffn
+
+@deffn {Route-map Command} {match local-preference @var{metric}} {}
+Matches the specified @var{local-preference}.
 @end deffn
 
 @deffn {Route-map Command} {match community @var{community_list}} {}
@@ -171,6 +175,7 @@ Set the route's weight.
 @end deffn
 
 @deffn {Route-map Command} {set metric @var{metric}} {}
+@anchor{routemap set metric}
 Set the BGP attribute MED.
 @end deffn
 

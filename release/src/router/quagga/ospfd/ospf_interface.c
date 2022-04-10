@@ -144,6 +144,29 @@ ospf_if_reset_variables (struct ospf_interface *oi)
   oi->v_ls_ack = 1;  
 }
 
+void
+ospf_if_reset_type (struct interface *ifp, u_char type)
+{
+  struct route_node *rn;
+  
+  for (rn = route_top (IF_OIFS (ifp)); rn; rn = route_next (rn))
+    {
+      struct ospf_interface *oi = rn->info;
+      u_char orig_ism_state;
+      
+      if (!oi)
+	continue;
+      
+      orig_ism_state = oi->state;
+      OSPF_ISM_EVENT_EXECUTE (oi, ISM_InterfaceDown);
+      
+      oi->type = IF_DEF_PARAMS (ifp)->type;
+      
+      if (orig_ism_state > ISM_Down)
+        OSPF_ISM_EVENT_EXECUTE (oi, ISM_InterfaceUp);
+    }
+}
+
 /* lookup oi for specified prefix/ifp */
 struct ospf_interface *
 ospf_if_table_lookup (struct interface *ifp, struct prefix *prefix)
@@ -232,8 +255,8 @@ ospf_if_new (struct ospf *ospf, struct interface *ifp, struct prefix *p)
   /* Set default values. */
   ospf_if_reset_variables (oi);
 
-  /* Add pseudo neighbor. */
-  oi->nbr_self = ospf_nbr_new (oi);
+  /* Set pseudo neighbor to Null */
+  oi->nbr_self = NULL;
 
   oi->ls_upd_queue = route_table_init ();
   oi->t_ls_upd_event = NULL;
@@ -241,9 +264,7 @@ ospf_if_new (struct ospf *ospf, struct interface *ifp, struct prefix *p)
 
   oi->crypt_seqnum = time (NULL);
 
-#ifdef HAVE_OPAQUE_LSA
   ospf_opaque_type9_lsa_init (oi);
-#endif /* HAVE_OPAQUE_LSA */
 
   oi->ospf = ospf;
   
@@ -295,9 +316,7 @@ ospf_if_cleanup (struct ospf_interface *oi)
   ospf_ls_upd_queue_empty (oi);
   
   /* Reset pseudo neighbor. */
-  ospf_nbr_delete (oi->nbr_self);
-  oi->nbr_self = ospf_nbr_new (oi);
-  ospf_nbr_add_self (oi);
+  ospf_nbr_self_reset (oi);
 }
 
 void
@@ -307,9 +326,7 @@ ospf_if_free (struct ospf_interface *oi)
 
   assert (oi->state == ISM_Down);
 
-#ifdef HAVE_OPAQUE_LSA
   ospf_opaque_type9_lsa_term (oi);
-#endif /* HAVE_OPAQUE_LSA */
 
   /* Free Pseudo Neighbour */
   ospf_nbr_delete (oi->nbr_self);
@@ -688,9 +705,7 @@ ospf_if_new_hook (struct interface *ifp)
   SET_IF_PARAM (IF_DEF_PARAMS (ifp), auth_type);
   IF_DEF_PARAMS (ifp)->auth_type = OSPF_AUTH_NOTSET;
   
-#ifdef HAVE_OPAQUE_LSA
   rc = ospf_opaque_new_if (ifp);
-#endif /* HAVE_OPAQUE_LSA */
   return rc;
 }
 
@@ -699,9 +714,7 @@ ospf_if_delete_hook (struct interface *ifp)
 {
   int rc = 0;
   struct route_node *rn;
-#ifdef HAVE_OPAQUE_LSA
   rc = ospf_opaque_del_if (ifp);
-#endif /* HAVE_OPAQUE_LSA */
 
   route_table_finish (IF_OIFS (ifp));
 
@@ -876,6 +889,9 @@ ospf_vl_new (struct ospf *ospf, struct ospf_vl_data *vl_data)
 
   snprintf (ifname, sizeof(ifname), "VLINK%d", vlink_count);
   vi = if_create (ifname, strnlen(ifname, sizeof(ifname)));
+  /* Ensure that linkdetection is not enabled on the stub interfaces
+   * created for OSPF virtual links. */
+  UNSET_FLAG(vi->status, ZEBRA_INTERFACE_LINKDETECTION);
   co = connected_new ();
   co->ifp = vi;
   listnode_add (vi->connected, co);
@@ -912,7 +928,9 @@ ospf_vl_new (struct ospf *ospf, struct ospf_vl_data *vl_data)
   if (IS_DEBUG_OSPF_EVENT)
     zlog_debug ("ospf_vl_new(): set associated area to the backbone");
 
-  ospf_nbr_add_self (voi);
+  /* Add pseudo neighbor. */
+  ospf_nbr_self_reset (voi);
+
   ospf_area_add_if (voi->area, voi);
 
   ospf_if_stream_set (voi);
@@ -1013,7 +1031,7 @@ ospf_vl_set_params (struct ospf_vl_data *vl_data, struct vertex *v)
   struct ospf_interface *voi;
   struct listnode *node;
   struct vertex_parent *vp = NULL;
-  int i;
+  unsigned int i;
   struct router_lsa *rl;
 
   voi = vl_data->vl_oi;
@@ -1254,7 +1272,6 @@ void
 ospf_if_init ()
 {
   /* Initialize Zebra interface data structure. */
-  if_init ();
   om->iflist = iflist;
   if_add_hook (IF_NEW_HOOK, ospf_if_new_hook);
   if_add_hook (IF_DELETE_HOOK, ospf_if_delete_hook);

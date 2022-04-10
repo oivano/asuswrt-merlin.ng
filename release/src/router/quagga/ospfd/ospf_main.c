@@ -39,6 +39,7 @@
 #include "privs.h"
 #include "sigevent.h"
 #include "zclient.h"
+#include "vrf.h"
 
 #include "ospfd/ospfd.h"
 #include "ospfd/ospf_interface.h"
@@ -185,7 +186,6 @@ main (int argc, char **argv)
   int daemon_mode = 0;
   char *config_file = NULL;
   char *progname;
-  struct thread thread;
   int dryrun = 0;
 
   /* Set umask before anything for security */
@@ -290,35 +290,26 @@ main (int argc, char **argv)
   debug_init ();
   vty_init (master);
   memory_init ();
+  vrf_init ();
 
   access_list_init ();
   prefix_list_init ();
 
   /* OSPFd inits. */
   ospf_if_init ();
-  ospf_zebra_init ();
+  ospf_zebra_init (master);
 
   /* OSPF vty inits. */
   ospf_vty_init ();
   ospf_vty_show_init ();
+  ospf_vty_clear_init ();
 
   ospf_route_map_init ();
 #ifdef HAVE_SNMP
   ospf_snmp_init ();
 #endif /* HAVE_SNMP */
-#ifdef HAVE_OPAQUE_LSA
   ospf_opaque_init ();
-#endif /* HAVE_OPAQUE_LSA */
   
-  /* Need to initialize the default ospf structure, so the interface mode
-     commands can be duly processed if they are received before 'router ospf',
-     when quagga(ospfd) is restarted */
-  if (!ospf_get())
-    {
-      zlog_err("OSPF instance init failed: %s", strerror(errno));
-      exit (1);
-    }
-
   /* Get configuration file. */
   vty_read_config (config_file, config_default);
 
@@ -342,10 +333,8 @@ main (int argc, char **argv)
   /* Print banner. */
   zlog_notice ("OSPFd %s starting: vty@%d", QUAGGA_VERSION, vty_port);
 
-  /* Fetch next active thread. */
-  while (thread_fetch (master, &thread))
-    thread_call (&thread);
-
+  thread_main (master);
+  
   /* Not reached. */
   return (0);
 }

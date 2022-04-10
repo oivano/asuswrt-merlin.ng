@@ -40,6 +40,7 @@
 #include "ospf6_neighbor.h"
 #include "ospf6_intra.h"
 #include "ospf6_spf.h"
+#include "ospf6_snmp.h"
 #include "ospf6d.h"
 
 unsigned char conf_debug_ospf6_interface = 0;
@@ -58,7 +59,7 @@ const char *ospf6_interface_state_str[] =
 };
 
 struct ospf6_interface *
-ospf6_interface_lookup_by_ifindex (int ifindex)
+ospf6_interface_lookup_by_ifindex (ifindex_t ifindex)
 {
   struct ospf6_interface *oi;
   struct interface *ifp;
@@ -336,29 +337,6 @@ ospf6_interface_if_add (struct interface *ifp)
 
   /* interface start */
   ospf6_interface_state_update(oi->interface);
-}
-
-void
-ospf6_interface_if_del (struct interface *ifp)
-{
-  struct ospf6_interface *oi;
-
-  oi = (struct ospf6_interface *) ifp->info;
-  if (oi == NULL)
-    return;
-
-  /* interface stop */
-  if (oi->area)
-    thread_execute (master, interface_down, oi, 0);
-
-  listnode_delete (oi->area->if_list, oi);
-  oi->area = (struct ospf6_area *) NULL;
-
-  /* cut link */
-  oi->interface = NULL;
-  ifp->info = NULL;
-
-  ospf6_interface_delete (oi);
 }
 
 void
@@ -703,7 +681,7 @@ interface_up (struct thread *thread)
       if (IS_OSPF6_DEBUG_INTERFACE)
 	zlog_debug ("Interface %s has no link local address, can't execute [InterfaceUp]",
 		    oi->interface->name);
-	return 0;
+      return 0;
     }
 
   /* Recompute cost */
@@ -727,7 +705,18 @@ interface_up (struct thread *thread)
     }
 
   /* Join AllSPFRouters */
-  ospf6_sso (oi->interface->ifindex, &allspfrouters6, IPV6_JOIN_GROUP);
+  if (ospf6_sso (oi->interface->ifindex, &allspfrouters6, IPV6_JOIN_GROUP) < 0)
+    {
+      if (oi->sso_try_cnt++ < OSPF6_INTERFACE_SSO_RETRY_MAX)
+        {
+          zlog_info("Scheduling %s for sso retry, trial count: %d",
+                    oi->interface->name, oi->sso_try_cnt);
+          thread_add_timer (master, interface_up, oi,
+                            OSPF6_INTERFACE_SSO_RETRY_INT);
+        }
+      return 0;
+    }
+  oi->sso_try_cnt = 0; /* Reset on success */
 
   /* Update interface route */
   ospf6_interface_connected_route_update (oi->interface);
@@ -913,7 +902,7 @@ ospf6_interface_show (struct vty *vty, struct interface *ifp)
 	       "disabled" : "enabled", VNL);
       inet_ntop (AF_INET, &oi->area->area_id,
                  strbuf, sizeof (strbuf));
-      vty_out (vty, "  Area ID %s, Cost %hu%s", strbuf, oi->cost,
+      vty_out (vty, "  Area ID %s, Cost %u%s", strbuf, oi->cost,
 	       VNL);
     }
   else
@@ -1873,14 +1862,6 @@ ospf6_interface_init (void)
   install_element (VIEW_NODE, &show_ipv6_ospf6_interface_ifname_prefix_cmd);
   install_element (VIEW_NODE, &show_ipv6_ospf6_interface_ifname_prefix_detail_cmd);
   install_element (VIEW_NODE, &show_ipv6_ospf6_interface_ifname_prefix_match_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_ospf6_interface_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_ospf6_interface_prefix_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_ospf6_interface_prefix_detail_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_ospf6_interface_prefix_match_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_ospf6_interface_ifname_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_ospf6_interface_ifname_prefix_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_ospf6_interface_ifname_prefix_detail_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_ospf6_interface_ifname_prefix_match_cmd);
 
   install_element (CONFIG_NODE, &interface_cmd);
   install_default (INTERFACE_NODE);
@@ -1912,6 +1893,66 @@ ospf6_interface_init (void)
   /* reference bandwidth commands */
   install_element (OSPF6_NODE, &auto_cost_reference_bandwidth_cmd);
   install_element (OSPF6_NODE, &no_auto_cost_reference_bandwidth_cmd);
+}
+
+/* Clear the specified interface structure */
+static void
+ospf6_interface_clear (struct vty *vty, struct interface *ifp)
+{
+  struct ospf6_interface *oi;
+
+  if (!if_is_operative (ifp))
+    return;
+
+  if (ifp->info == NULL)
+    return;
+
+  oi = (struct ospf6_interface *) ifp->info;
+
+  if (IS_OSPF6_DEBUG_INTERFACE)
+    zlog_debug ("Interface %s: clear by reset", ifp->name);
+
+  /* Reset the interface */
+  thread_add_event (master, interface_down, oi, 0);
+  thread_add_event (master, interface_up, oi, 0);
+}
+
+/* Clear interface */
+DEFUN (clear_ipv6_ospf6_interface,
+       clear_ipv6_ospf6_interface_cmd,
+       "clear ipv6 ospf6 interface [IFNAME]",
+       CLEAR_STR
+       IP6_STR
+       OSPF6_STR
+       INTERFACE_STR
+       IFNAME_STR
+       )
+{
+  struct interface *ifp;
+  struct listnode *node;
+
+  if (argc == 0) /* Clear all the ospfv3 interfaces. */
+    {
+      for (ALL_LIST_ELEMENTS_RO (iflist, node, ifp))
+        ospf6_interface_clear (vty, ifp);
+    }
+  else /* Interface name is specified. */
+    {
+      if ((ifp = if_lookup_by_name (argv[0])) == NULL)
+        {
+          vty_out (vty, "No such Interface: %s%s", argv[0], VNL);
+          return CMD_WARNING;
+        }
+      ospf6_interface_clear (vty, ifp);
+    }
+
+  return CMD_SUCCESS;
+}
+
+void
+install_element_ospf6_clear_interface (void)
+{
+  install_element (ENABLE_NODE, &clear_ipv6_ospf6_interface_cmd);
 }
 
 DEFUN (debug_ospf6_interface,
