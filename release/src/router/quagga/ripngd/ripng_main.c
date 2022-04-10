@@ -34,6 +34,7 @@
 #include "if.h"
 #include "privs.h"
 #include "sigevent.h"
+#include "vrf.h"
 
 #include "ripngd/ripngd.h"
 
@@ -191,7 +192,6 @@ main (int argc, char **argv)
   int vty_port = RIPNG_VTY_PORT;
   int daemon_mode = 0;
   char *progname;
-  struct thread thread;
   int dryrun = 0;
 
   /* Set umask before anything for security */
@@ -276,10 +276,11 @@ main (int argc, char **argv)
   cmd_init (1);
   vty_init (master);
   memory_init ();
+  vrf_init ();
 
   /* RIPngd inits. */
   ripng_init ();
-  zebra_init ();
+  zebra_init (master);
   ripng_peer_init ();
 
   /* Get configuration file. */
@@ -306,8 +307,7 @@ main (int argc, char **argv)
   zlog_notice ("RIPNGd %s starting: vty@%d", QUAGGA_VERSION, vty_port);
 
   /* Fetch next active thread. */
-  while (thread_fetch (master, &thread))
-    thread_call (&thread);
+  thread_main (master);
 
   /* Not reached. */
   return 0;

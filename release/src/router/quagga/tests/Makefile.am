@@ -1,27 +1,15 @@
-AUTOMAKE_OPTIONS    = dejagnu
-DEJATOOL = libzebra
-
-SUBDIRS = \
-	bgpd.tests \
-	libzebra.tests
 
 EXTRA_DIST = \
-	config/unix.exp \
-	lib/bgpd.exp \
-	lib/libzebra.exp \
-	global-conf.exp \
 	testcommands.in \
-	testcommands.refout
+	testcommands.refout \
+	testcli.in \
+	testcli.refout
 
 AM_CPPFLAGS = -I.. -I$(top_srcdir) -I$(top_srcdir)/lib -I$(top_builddir)/lib
 DEFS = @DEFS@ $(LOCAL_OPTS) -DSYSCONFDIR=\"$(sysconfdir)/\"
 
-AM_CFLAGS = $(PICFLAGS)
-AM_LDFLAGS = $(PILDFLAGS)
-
 if BGPD
 TESTS_BGPD = aspathtest testbgpcap ecommtest testbgpmpattr testbgpmpath
-DEJATOOL += bgpd
 else
 TESTS_BGPD =
 endif
@@ -29,22 +17,30 @@ endif
 check_PROGRAMS = testsig testsegv testbuffer testmemory heavy heavywq heavythread \
 		testprivs teststream testchecksum tabletest testnexthopiter \
 		testcommands test-timer-correctness test-timer-performance \
+		testcli \
 		$(TESTS_BGPD)
+
+TESTS = $(TESTS_BGPD) teststream tabletest testmemory testnexthopiter \
+	test-timer-correctness tabletest
+
 
 ../vtysh/vtysh_cmd.c:
 	$(MAKE) -C ../vtysh vtysh_cmd.c
 
 test-commands-defun.c: ../vtysh/vtysh_cmd.c
 	sed \
-		-e '/"vtysh.h"/d' \
+		-e 's/"vtysh\.h"/"tests.h"/' \
 		-e 's/vtysh_init_cmd/test_init_cmd/' \
 		-e 's/VTYSH_[A-Z][A-Z_0-9]*/0/g' \
 		< ../vtysh/vtysh_cmd.c \
 		> test-commands-defun.c
 
 BUILT_SOURCES = test-commands-defun.c
-noinst_HEADERS = prng.h
+CLEANFILES = test-commands-defun.c bgpd libzebra
 
+noinst_HEADERS = prng.h tests.h common-cli.h
+
+testcli_SOURCES = test-cli.c common-cli.c
 testsig_SOURCES = test-sig.c
 testsegv_SOURCES = test-segv.c
 testbuffer_SOURCES = test-buffer.c
@@ -66,6 +62,7 @@ testcommands_SOURCES = test-commands-defun.c test-commands.c prng.c
 test_timer_correctness_SOURCES = test-timer-correctness.c prng.c
 test_timer_performance_SOURCES = test-timer-performance.c prng.c
 
+testcli_LDADD = ../lib/libzebra.la @LIBCAP@
 testsig_LDADD = ../lib/libzebra.la @LIBCAP@
 testsegv_LDADD = ../lib/libzebra.la @LIBCAP@
 testbuffer_LDADD = ../lib/libzebra.la @LIBCAP@

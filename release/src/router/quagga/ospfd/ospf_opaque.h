@@ -32,23 +32,6 @@
 	 (type) == OSPF_OPAQUE_AS_LSA)
 
 /*
- * Usage of Opaque-LSA administrative flags in "struct ospf".
- *
- *    7   6   5   4   3   2   1   0
- * +---+---+---+---+---+---+---+---+
- * |///|///|///|///|B11|B10|B09| O |
- * +---+---+---+---+---+---+---+---+
- *                 |<--------->| A
- *                       |       +--- Operation status (operational = 1)
- *                       +----------- Blocking status for each LSA type
- */
-
-#define IS_OPAQUE_LSA_ORIGINATION_BLOCKED(V) \
-        CHECK_FLAG((V), (OPAQUE_BLOCK_TYPE_09_LSA_BIT | \
-                         OPAQUE_BLOCK_TYPE_10_LSA_BIT | \
-                         OPAQUE_BLOCK_TYPE_11_LSA_BIT))
-
-/*
  * Opaque LSA's link state ID is redefined as follows.
  *
  *        24       16        8        0
@@ -77,6 +60,10 @@
 #define OPAQUE_TYPE_TRAFFIC_ENGINEERING_LSA		1
 #define OPAQUE_TYPE_SYCAMORE_OPTICAL_TOPOLOGY_DESC	2
 #define OPAQUE_TYPE_GRACE_LSA				3
+#define OPAQUE_TYPE_L1VPN_LSA                          5
+#define OPAQUE_TYPE_ROUTER_INFORMATION_LSA             4
+#define OPAQUE_TYPE_INTER_AS_LSA                       6
+#define OPAQUE_TYPE_MAX                                6
 
 /* Followings types are proposed in internet-draft documents. */
 #define OPAQUE_TYPE_8021_QOSPF				129
@@ -87,7 +74,7 @@
 #define OPAQUE_TYPE_WILDCARD				0
 
 #define OPAQUE_TYPE_RANGE_UNASSIGNED(type) \
-	(  4 <= (type) && (type) <= 127)
+	( OPAQUE_TYPE_MAX  <= (type) && (type) <= 127)
 
 #define OPAQUE_TYPE_RANGE_RESERVED(type) \
 	(127 <  (type) && (type) <= 255)
@@ -151,16 +138,9 @@ extern void ospf_opaque_lsa_reoriginate_schedule (void *lsa_type_dependent,
 extern void ospf_opaque_lsa_refresh_schedule (struct ospf_lsa *lsa);
 extern void ospf_opaque_lsa_flush_schedule (struct ospf_lsa *lsa);
 
-extern void ospf_opaque_adjust_lsreq (struct ospf_neighbor *nbr,
-				      struct list *lsas);
 extern void ospf_opaque_self_originated_lsa_received (struct ospf_neighbor
 						      *nbr,
 						      struct ospf_lsa *lsa);
-extern void ospf_opaque_ls_ack_received (struct ospf_neighbor *nbr,
-					 struct ospf_lsa *lsa);
-
-extern void htonf (float *src, float *dst);
-extern void ntohf (float *src, float *dst);
 extern struct ospf *oi_to_top (struct ospf_interface *oi);
 
 #endif /* _ZEBRA_OSPF_OPAQUE_H */

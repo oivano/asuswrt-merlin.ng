@@ -186,6 +186,12 @@ extern uint64_t stream_getq (struct stream *);
 extern uint64_t stream_getq_from (struct stream *, size_t);
 extern u_int32_t stream_get_ipv4 (struct stream *);
 
+/* IEEE-754 floats */
+extern float stream_getf (struct stream *);
+extern double stream_getd (struct stream *);
+extern int stream_putf (struct stream *, float);
+extern int stream_putd (struct stream *, double);
+
 #undef stream_read
 #undef stream_write
 
@@ -212,6 +218,8 @@ extern size_t stream_write (struct stream *, const void *, size_t);
 
 /* reset the stream. See Note above */
 extern void stream_reset (struct stream *);
+/* move unread data to start of stream, discarding read data */
+extern void stream_discard (struct stream *);
 extern int stream_flush (struct stream *, int);
 extern int stream_empty (struct stream *); /* is the stream empty? */
 

@@ -31,6 +31,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "privs.h"
 #include "linklist.h"
 #include "network.h"
+#include "filter.h"
 
 #include "bgpd/bgpd.h"
 #include "bgpd/bgp_fsm.h"
@@ -145,47 +146,39 @@ bgp_update_sock_send_buffer_size (int fd)
     }
 }
 
-static void
+void
 bgp_set_socket_ttl (struct peer *peer, int bgp_sock)
 {
   char buf[INET_ADDRSTRLEN];
-  int ret;
+  int ret, ttl, minttl;
 
-  /* In case of peer is EBGP, we should set TTL for this connection.  */
-  if (!peer->gtsm_hops && (peer_sort (peer) == BGP_PEER_EBGP))
+  if (bgp_sock < 0)
+    return;
+
+  if (peer->gtsm_hops)
     {
-      ret = sockopt_ttl (peer->su.sa.sa_family, bgp_sock, peer->ttl);
-      if (ret)
-	{
-	  zlog_err ("%s: Can't set TxTTL on peer (rtrid %s) socket, err = %d",
-		    __func__,
-		    inet_ntop (AF_INET, &peer->remote_id, buf, sizeof(buf)),
-		    errno);
-	}
+      ttl = 255;
+      minttl = 256 - peer->gtsm_hops;
     }
-  else if (peer->gtsm_hops)
+  else
     {
-      /* On Linux, setting minttl without setting ttl seems to mess with the
-	 outgoing ttl. Therefore setting both.
-      */
-      ret = sockopt_ttl (peer->su.sa.sa_family, bgp_sock, MAXTTL);
-      if (ret)
-	{
-	  zlog_err ("%s: Can't set TxTTL on peer (rtrid %s) socket, err = %d",
-		    __func__,
-		    inet_ntop (AF_INET, &peer->remote_id, buf, sizeof(buf)),
-		    errno);
-	}
-      ret = sockopt_minttl (peer->su.sa.sa_family, bgp_sock,
-			    MAXTTL + 1 - peer->gtsm_hops);
-      if (ret)
-	{
-	  zlog_err ("%s: Can't set MinTTL on peer (rtrid %s) socket, err = %d",
-		    __func__,
-		    inet_ntop (AF_INET, &peer->remote_id, buf, sizeof(buf)),
-		    errno);
-	}
+      ttl = peer_ttl (peer);
+      minttl = 0;
     }
+
+  ret = sockopt_ttl (peer->su.sa.sa_family, bgp_sock, ttl);
+  if (ret)
+    zlog_err ("%s: Can't set TxTTL on peer (rtrid %s) socket, err = %d",
+              __func__,
+              inet_ntop (AF_INET, &peer->remote_id, buf, sizeof(buf)),
+              errno);
+
+  ret = sockopt_minttl (peer->su.sa.sa_family, bgp_sock, minttl);
+  if (ret && (errno != ENOTSUP || minttl))
+    zlog_err ("%s: Can't set MinTTL on peer (rtrid %s) socket, err = %d",
+              __func__,
+              inet_ntop (AF_INET, &peer->remote_id, buf, sizeof(buf)),
+              errno);
 }
 
 /* Accept bgp connection. */
@@ -207,7 +200,7 @@ bgp_accept (struct thread *thread)
       zlog_err ("accept_sock is nevative value %d", accept_sock);
       return -1;
     }
-  listener->thread = thread_add_read (master, bgp_accept, listener, accept_sock);
+  listener->thread = thread_add_read (bm->master, bgp_accept, listener, accept_sock);
 
   /* Accept client connection. */
   bgp_sock = sockunion_accept (accept_sock, &su);
@@ -222,11 +215,15 @@ bgp_accept (struct thread *thread)
   bgp_update_sock_send_buffer_size(bgp_sock);
 
   if (BGP_DEBUG (events, EVENTS))
-    zlog_debug ("[Event] BGP connection from host %s", inet_sutop (&su, buf));
+    zlog_debug ("[Event] BGP connection from host %s:%d", 
+                inet_sutop (&su, buf), sockunion_get_port (&su));
   
   /* Check remote IP address */
   peer1 = peer_lookup (NULL, &su);
-  if (! peer1 || peer1->status == Idle)
+  /* We could perhaps just drop new connections from already Established
+   * peers here.
+   */
+  if (! peer1 || peer1->status == Idle || peer1->status > Established)
     {
       if (BGP_DEBUG (events, EVENTS))
 	{
@@ -234,8 +231,9 @@ bgp_accept (struct thread *thread)
 	    zlog_debug ("[Event] BGP connection IP address %s is not configured",
 		       inet_sutop (&su, buf));
 	  else
-	    zlog_debug ("[Event] BGP connection IP address %s is Idle state",
-		       inet_sutop (&su, buf));
+	    zlog_debug ("[Event] BGP connection IP address %s is %s state",
+		       inet_sutop (&su, buf),
+		       LOOKUP (bgp_status_msg, peer1->status));
 	}
       close (bgp_sock);
       return -1;
@@ -251,17 +249,29 @@ bgp_accept (struct thread *thread)
     char buf[SU_ADDRSTRLEN];
 
     peer = peer_create_accept (peer1->bgp);
-    SET_FLAG (peer->sflags, PEER_STATUS_ACCEPT_PEER);
     peer->su = su;
     peer->fd = bgp_sock;
     peer->status = Active;
+
+    /* Config state that should affect OPEN packet must be copied over */
     peer->local_id = peer1->local_id;
     peer->v_holdtime = peer1->v_holdtime;
     peer->v_keepalive = peer1->v_keepalive;
-
+    peer->local_as = peer1->local_as;
+    peer->change_local_as = peer1->change_local_as;
+    peer->flags = peer1->flags;
+    peer->sflags = peer1->sflags;
+  #define PEER_ARRAY_COPY(D,S,A) \
+    memcpy ((D)->A, (S)->A, sizeof (((D)->A)[0][0])*AFI_MAX*SAFI_MAX);
+    PEER_ARRAY_COPY(peer, peer1, afc);
+    PEER_ARRAY_COPY(peer, peer1, af_flags);
+  #undef PEER_ARRAY_COPY
+  
     /* Make peer's address string. */
     sockunion2str (&su, buf, SU_ADDRSTRLEN);
     peer->host = XSTRDUP (MTYPE_BGP_PEER_HOST, buf);
+    
+    SET_FLAG (peer->sflags, PEER_STATUS_ACCEPT_PEER);
   }
 
   BGP_EVENT_ADD (peer, TCP_connection_open);
@@ -276,6 +286,7 @@ bgp_bind (struct peer *peer)
 #ifdef SO_BINDTODEVICE
   int ret;
   struct ifreq ifreq;
+  int myerrno;
 
   if (! peer->ifname)
     return 0;
@@ -287,13 +298,15 @@ bgp_bind (struct peer *peer)
   
   ret = setsockopt (peer->fd, SOL_SOCKET, SO_BINDTODEVICE, 
 		    &ifreq, sizeof (ifreq));
-
+  myerrno = errno;
+  
   if (bgpd_privs.change (ZPRIVS_LOWER) )
     zlog_err ("bgp_bind: could not lower privs");
 
   if (ret < 0)
     {
-      zlog (peer->log, LOG_INFO, "bind to interface %s failed", peer->ifname);
+      zlog (peer->log, LOG_INFO, "bind to interface %s failed, errno=%d",
+            peer->ifname, myerrno);
       return ret;
     }
 #endif /* SO_BINDTODEVICE */
@@ -304,28 +317,27 @@ static int
 bgp_update_address (struct interface *ifp, const union sockunion *dst,
 		    union sockunion *addr)
 {
-  struct prefix *p, *sel, *d;
+  struct prefix *p, *sel, d;
   struct connected *connected;
   struct listnode *node;
   int common;
 
-  d = sockunion2hostprefix (dst);
+  sockunion2hostprefix (dst, &d);
   sel = NULL;
   common = -1;
 
   for (ALL_LIST_ELEMENTS_RO (ifp->connected, node, connected))
     {
       p = connected->address;
-      if (p->family != d->family)
+      if (p->family != d.family)
 	continue;
-      if (prefix_common_bits (p, d) > common)
+      if (prefix_common_bits (p, &d) > common)
 	{
 	  sel = p;
-	  common = prefix_common_bits (sel, d);
+	  common = prefix_common_bits (sel, &d);
 	}
     }
 
-  prefix_free (d);
   if (!sel)
     return 1;
 
@@ -362,7 +374,7 @@ bgp_update_source (struct peer *peer)
 int
 bgp_connect (struct peer *peer)
 {
-  unsigned int ifindex = 0;
+  ifindex_t ifindex = 0;
 
   /* Make socket for the peer. */
   peer->fd = sockunion_socket (&peer->su);
@@ -384,10 +396,8 @@ bgp_connect (struct peer *peer)
     zlog_err ("%s: could not raise privs", __func__);
   if (sockunion_family (&peer->su) == AF_INET)
     setsockopt_ipv4_tos (peer->fd, IPTOS_PREC_INTERNETCONTROL);
-# ifdef HAVE_IPV6
   else if (sockunion_family (&peer->su) == AF_INET6)
     setsockopt_ipv6_tclass (peer->fd, IPTOS_PREC_INTERNETCONTROL);
-# endif
   if (bgpd_privs.change (ZPRIVS_LOWER))
     zlog_err ("%s: could not lower privs", __func__);
 #endif
@@ -401,10 +411,8 @@ bgp_connect (struct peer *peer)
   /* Update source bind. */
   bgp_update_source (peer);
 
-#ifdef HAVE_IPV6
   if (peer->ifname)
-    ifindex = if_nametoindex (peer->ifname);
-#endif /* HAVE_IPV6 */
+    ifindex = ifname2ifindex (peer->ifname);
 
   if (BGP_DEBUG (events, EVENTS))
     plog_debug (peer->log, "%s [Event] Connect start to %s fd %d",
@@ -452,10 +460,8 @@ bgp_listener (int sock, struct sockaddr *sa, socklen_t salen)
 #ifdef IPTOS_PREC_INTERNETCONTROL
   if (sa->sa_family == AF_INET)
     setsockopt_ipv4_tos (sock, IPTOS_PREC_INTERNETCONTROL);
-#  ifdef HAVE_IPV6
   else if (sa->sa_family == AF_INET6)
     setsockopt_ipv6_tclass (sock, IPTOS_PREC_INTERNETCONTROL);
-#  endif
 #endif
 
   sockopt_v6only (sa->sa_family, sock);
@@ -481,14 +487,13 @@ bgp_listener (int sock, struct sockaddr *sa, socklen_t salen)
   listener = XMALLOC (MTYPE_BGP_LISTENER, sizeof(*listener));
   listener->fd = sock;
   memcpy(&listener->su, sa, salen);
-  listener->thread = thread_add_read (master, bgp_accept, listener, sock);
+  listener->thread = thread_add_read (bm->master, bgp_accept, listener, sock);
   listnode_add (bm->listen_sockets, listener);
 
   return 0;
 }
 
 /* IPv6 supported version of BGP server socket setup.  */
-#ifdef HAVE_IPV6
 int
 bgp_socket (unsigned short port, const char *address)
 {
@@ -545,50 +550,6 @@ bgp_socket (unsigned short port, const char *address)
 
   return 0;
 }
-#else
-/* Traditional IPv4 only version.  */
-int
-bgp_socket (unsigned short port, const char *address)
-{
-  int sock;
-  int socklen;
-  struct sockaddr_in sin;
-  int ret, en;
-
-  sock = socket (AF_INET, SOCK_STREAM, 0);
-  if (sock < 0)
-    {
-      zlog_err ("socket: %s", safe_strerror (errno));
-      return sock;
-    }
-
-  /* if we intend to implement ttl-security, this socket needs ttl=255 */
-  sockopt_ttl (AF_INET, sock, MAXTTL);
-
-  memset (&sin, 0, sizeof (struct sockaddr_in));
-  sin.sin_family = AF_INET;
-  sin.sin_port = htons (port);
-  socklen = sizeof (struct sockaddr_in);
-
-  if (address && ((ret = inet_aton(address, &sin.sin_addr)) < 1))
-    {
-      zlog_err("bgp_socket: could not parse ip address %s: %s",
-                address, safe_strerror (errno));
-      return ret;
-    }
-#ifdef HAVE_STRUCT_SOCKADDR_IN_SIN_LEN
-  sin.sin_len = socklen;
-#endif /* HAVE_STRUCT_SOCKADDR_IN_SIN_LEN */
-
-  ret = bgp_listener (sock, (struct sockaddr *) &sin, socklen);
-  if (ret < 0) 
-    {
-      close (sock);
-      return ret;
-    }
-  return sock;
-}
-#endif /* HAVE_IPV6 */
 
 void
 bgp_close (void)

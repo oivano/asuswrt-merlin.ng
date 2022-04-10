@@ -598,6 +598,10 @@ ospf_ase_route_match_same (struct route_table *rt, struct prefix *prefix,
        if (op->ifindex != newop->ifindex)
 	 return 0;
      }
+
+   if (or->u.ext.tag != newor->u.ext.tag)
+     return 0;
+
    return 1;
 }
 
@@ -679,8 +683,8 @@ ospf_ase_calculate_timer (struct thread *t)
 
       quagga_gettime(QUAGGA_CLK_MONOTONIC, &stop_time);
 
-      zlog_info ("SPF Processing Time(usecs): External Routes: %ld\n",
-		 (stop_time.tv_sec - start_time.tv_sec)*1000000L+
+      zlog_info ("SPF Processing Time(usecs): External Routes: %lld\n",
+		 (stop_time.tv_sec - start_time.tv_sec)*1000000LL+
 		 (stop_time.tv_usec - start_time.tv_usec));
     }
   return 0;
@@ -723,6 +727,8 @@ ospf_ase_register_external_lsa (struct ospf_lsa *lsa, struct ospf *top)
   rn = route_node_get (top->external_lsas, (struct prefix *) &p);
   if ((lst = rn->info) == NULL)
     rn->info = lst = list_new();
+  else
+    route_unlock_node (rn);
 
   /* We assume that if LSA is deleted from DB
      is is also deleted from this RT */
@@ -743,13 +749,13 @@ ospf_ase_unregister_external_lsa (struct ospf_lsa *lsa, struct ospf *top)
   p.prefixlen = ip_masklen (al->mask);
   apply_mask_ipv4 (&p);
 
-  rn = route_node_get (top->external_lsas, (struct prefix *) &p);
-  lst = rn->info;
+  rn = route_node_lookup (top->external_lsas, (struct prefix *) &p);
 
-  /* XXX lst can be NULL */
-  if (lst) {
+  if (rn) {
+    lst = rn->info;
     listnode_delete (lst, lsa);
     ospf_lsa_unlock (&lsa); /* external_lsas list */
+    route_unlock_node (rn);
   }
 }
 
@@ -821,6 +827,7 @@ ospf_ase_incremental_update (struct ospf *ospf, struct ospf_lsa *lsa)
     {
       rn2 = route_node_get (tmp_old, (struct prefix *) &p);
       rn2->info = rn->info;
+      route_unlock_node (rn);
     }
 
   /* install changes to zebra */
@@ -844,7 +851,6 @@ ospf_ase_incremental_update (struct ospf *ospf, struct ospf_lsa *lsa)
       if (rn)
 	{
 	  rn->info = NULL;
-	  route_unlock_node (rn);
 	  route_unlock_node (rn);
 	}
     }

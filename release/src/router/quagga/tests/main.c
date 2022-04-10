@@ -52,7 +52,7 @@ DEFUN (daemon_exit,
 }
 
 static int timer_count;
-int
+static int
 test_timer (struct thread *thread)
 {
   int *count = THREAD_ARG(thread);
@@ -106,7 +106,6 @@ main (int argc, char **argv)
   int vty_port = 4000;
   int daemon_mode = 0;
   char *progname;
-  struct thread thread;
   char *config_file = NULL;
   
   /* Set umask before anything for security */
@@ -191,8 +190,7 @@ main (int argc, char **argv)
   test_init();  
   
   /* Fetch next active thread. */
-  while (thread_fetch (master, &thread))
-    thread_call (&thread);
+  thread_main (master);
 
   /* Not reached. */
   exit (0);

@@ -21,6 +21,16 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #ifndef _QUAGGA_BGP_ADVERTISE_H
 #define _QUAGGA_BGP_ADVERTISE_H
 
+#include <lib/fifo.h>
+
+/* BGP advertise FIFO.  */
+struct bgp_advertise_fifo
+{
+  struct bgp_advertise *next;
+  struct bgp_advertise *prev;
+  u_int32_t count;
+};
+
 /* BGP advertise attribute.  */
 struct bgp_advertise_attr
 {
@@ -122,6 +132,24 @@ struct bgp_synchronize
 #define BGP_ADJ_OUT_ADD(N,A)   BGP_INFO_ADD(N,A,adj_out)
 #define BGP_ADJ_OUT_DEL(N,A)   BGP_INFO_DEL(N,A,adj_out)
 
+#define BGP_ADV_FIFO_ADD(F, N)			\
+  do {						\
+    FIFO_ADD((F), (N));				\
+    (F)->count++;                               \
+  } while (0)
+
+#define BGP_ADV_FIFO_DEL(F, N)			\
+  do {						\
+    FIFO_DEL((N));				\
+    (F)->count--;				\
+  } while (0)
+
+#define BGP_ADV_FIFO_INIT(F)			\
+  do {						\
+    FIFO_INIT((F));				\
+    (F)->count = 0;				\
+  } while (0)
+
 /* Prototypes.  */
 extern void bgp_adj_out_set (struct bgp_node *, struct peer *, struct prefix *,
 		      struct attr *, afi_t, safi_t, struct bgp_info *);
@@ -133,7 +161,7 @@ extern int bgp_adj_out_lookup (struct peer *, struct prefix *, afi_t, safi_t,
 			struct bgp_node *);
 
 extern void bgp_adj_in_set (struct bgp_node *, struct peer *, struct attr *);
-extern void bgp_adj_in_unset (struct bgp_node *, struct peer *);
+extern int bgp_adj_in_unset (struct bgp_node *, struct peer *);
 extern void bgp_adj_in_remove (struct bgp_node *, struct bgp_adj_in *);
 
 extern struct bgp_advertise *

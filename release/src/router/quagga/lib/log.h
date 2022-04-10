@@ -24,6 +24,7 @@
 #define _ZEBRA_LOG_H
 
 #include <syslog.h>
+#include <stdio.h>
 
 /* Here is some guidance on logging levels to use:
  *
@@ -54,7 +55,8 @@ typedef enum
   ZLOG_OSPF6,
   ZLOG_ISIS,
   ZLOG_PIM,
-  ZLOG_MASC
+  ZLOG_MASC,
+  ZLOG_NHRP,
 } zlog_proto_t;
 
 /* If maxlvl is set to ZLOG_DISABLED, then no messages will be sent
@@ -186,15 +188,18 @@ extern void zlog_backtrace_sigsafe(int priority, void *program_counter);
    It caches the most recent localtime result and can therefore
    avoid multiple calls within the same second.  If buflen is too small,
    *buf will be set to '\0', and 0 will be returned. */
+#define QUAGGA_TIMESTAMP_LEN 40
 extern size_t quagga_timestamp(int timestamp_precision /* # subsecond digits */,
 			       char *buf, size_t buflen);
+
+extern void zlog_hexdump(void *mem, unsigned int len);
 
 /* structure useful for avoiding repeated rendering of the same timestamp */
 struct timestamp_control {
    size_t len;		/* length of rendered timestamp */
    int precision;	/* configuration parameter */
    int already_rendered; /* should be initialized to 0 */
-   char buf[40];	/* will contain the rendered timestamp */
+   char buf[QUAGGA_TIMESTAMP_LEN];	/* will contain the rendered timestamp */
 };
 
 /* Defines for use in command construction: */

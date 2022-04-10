@@ -25,22 +25,26 @@
 
 #include "zebra/redistribute.h"
 
-void zebra_redistribute_add (int a, struct zserv *b, int c)
+void zebra_redistribute_add (int a, struct zserv *b, int c,
+    vrf_id_t vrf_id)
 { return; }
 #ifdef HAVE_SYS_WEAK_ALIAS_PRAGMA
 #pragma weak zebra_redistribute_delete = zebra_redistribute_add
 #pragma weak zebra_redistribute_default_add = zebra_redistribute_add
 #pragma weak zebra_redistribute_default_delete = zebra_redistribute_add
 #else
-void zebra_redistribute_delete  (int a, struct zserv *b, int c)
+void zebra_redistribute_delete  (int a, struct zserv *b, int c,
+    vrf_id_t vrf_id)
 { return; }
-void zebra_redistribute_default_add (int a, struct zserv *b, int c)
+void zebra_redistribute_default_add (int a, struct zserv *b, int c,
+    vrf_id_t vrf_id)
 { return; }
-void zebra_redistribute_default_delete (int a, struct zserv *b, int c)
+void zebra_redistribute_default_delete (int a, struct zserv *b, int c,
+    vrf_id_t vrf_id)
 { return; }
 #endif
 
-void redistribute_add (struct prefix *a, struct rib *b)
+void redistribute_add (struct prefix *a, struct rib *b, struct rib *c)
 { return; }
 #ifdef HAVE_SYS_WEAK_ALIAS_PRAGMA
 #pragma weak redistribute_delete = redistribute_add
@@ -74,3 +78,7 @@ void zebra_interface_address_delete_update (struct interface *a,
                                                 struct connected *b)
 { return; }
 #endif
+
+/* Interface parameters update */
+void zebra_interface_parameters_update (struct interface *ifp)
+{ return; };

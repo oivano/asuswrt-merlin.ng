@@ -32,6 +32,7 @@
 #include "plist.h"
 #include "privs.h"
 #include "sigevent.h"
+#include "vrf.h"
 
 #include "zebra/rib.h"
 #include "zebra/zserv.h"
@@ -70,6 +71,7 @@ struct option longopts[] =
   { "batch",       no_argument,       NULL, 'b'},
   { "daemon",      no_argument,       NULL, 'd'},
   { "keep_kernel", no_argument,       NULL, 'k'},
+  { "fpm_format",  required_argument, NULL, 'F'},
   { "config_file", required_argument, NULL, 'f'},
   { "pid_file",    required_argument, NULL, 'i'},
   { "socket",      required_argument, NULL, 'z'},
@@ -129,6 +131,7 @@ usage (char *progname, int status)
 	      "-b, --batch        Runs in batch mode\n"\
 	      "-d, --daemon       Runs in daemon mode\n"\
 	      "-f, --config_file  Set configuration file name\n"\
+	      "-F, --fpm_format   Set fpm format to 'netlink' or 'protobuf'\n"\
 	      "-i, --pid_file     Set process identifier file name\n"\
 	      "-z, --socket       Set path of zebra socket\n"\
 	      "-k, --keep_kernel  Don't delete old routes which installed by "\
@@ -204,6 +207,82 @@ struct quagga_signal_t zebra_signals[] =
   },
 };
 
+/* Callback upon creating a new VRF. */
+static int
+zebra_vrf_new (vrf_id_t vrf_id, void **info)
+{
+  struct zebra_vrf *zvrf = *info;
+
+  if (! zvrf)
+    {
+      zvrf = zebra_vrf_alloc (vrf_id);
+      *info = (void *)zvrf;
+      router_id_init (zvrf);
+    }
+
+  return 0;
+}
+
+/* Callback upon enabling a VRF. */
+static int
+zebra_vrf_enable (vrf_id_t vrf_id, void **info)
+{
+  struct zebra_vrf *zvrf = (struct zebra_vrf *) (*info);
+
+  assert (zvrf);
+
+#if defined (HAVE_RTADV)
+  rtadv_init (zvrf);
+#endif
+  kernel_init (zvrf);
+  interface_list (zvrf);
+  route_read (zvrf);
+
+  return 0;
+}
+
+/* Callback upon disabling a VRF. */
+static int
+zebra_vrf_disable (vrf_id_t vrf_id, void **info)
+{
+  struct zebra_vrf *zvrf = (struct zebra_vrf *) (*info);
+  struct listnode *list_node;
+  struct interface *ifp;
+
+  assert (zvrf);
+
+  rib_close_table (zvrf->table[AFI_IP][SAFI_UNICAST]);
+  rib_close_table (zvrf->table[AFI_IP6][SAFI_UNICAST]);
+
+  for (ALL_LIST_ELEMENTS_RO (vrf_iflist (vrf_id), list_node, ifp))
+    {
+      int operative = if_is_operative (ifp);
+      UNSET_FLAG (ifp->flags, IFF_UP);
+      if (operative)
+        if_down (ifp);
+    }
+
+#if defined (HAVE_RTADV)
+  rtadv_terminate (zvrf);
+#endif
+  kernel_terminate (zvrf);
+
+  list_delete_all_node (zvrf->rid_all_sorted_list);
+  list_delete_all_node (zvrf->rid_lo_sorted_list);
+
+  return 0;
+}
+
+/* Zebra VRF initialization. */
+static void
+zebra_vrf_init (void)
+{
+  vrf_add_hook (VRF_NEW_HOOK, zebra_vrf_new);
+  vrf_add_hook (VRF_ENABLE_HOOK, zebra_vrf_enable);
+  vrf_add_hook (VRF_DISABLE_HOOK, zebra_vrf_disable);
+  vrf_init ();
+}
+
 /* Main startup routine. */
 int
 main (int argc, char **argv)
@@ -216,8 +295,8 @@ main (int argc, char **argv)
   int daemon_mode = 0;
   char *config_file = NULL;
   char *progname;
-  struct thread thread;
   char *zserv_path = NULL;
+  char *fpm_format = NULL;
 
   /* Set umask before anything for security */
   umask (0027);
@@ -233,9 +312,9 @@ main (int argc, char **argv)
       int opt;
   
 #ifdef HAVE_NETLINK  
-      opt = getopt_long (argc, argv, "bdkf:i:z:hA:P:ru:g:vs:C", longopts, 0);
+      opt = getopt_long (argc, argv, "bdkf:F:i:z:hA:P:ru:g:vs:C", longopts, 0);
 #else
-      opt = getopt_long (argc, argv, "bdkf:i:z:hA:P:ru:g:vC", longopts, 0);
+      opt = getopt_long (argc, argv, "bdkf:F:i:z:hA:P:ru:g:vC", longopts, 0);
 #endif /* HAVE_NETLINK */
 
       if (opt == EOF)
@@ -258,6 +337,9 @@ main (int argc, char **argv)
 	  break;
 	case 'f':
 	  config_file = optarg;
+	  break;
+	case 'F':
+	  fpm_format = optarg;
 	  break;
 	case 'A':
 	  vty_addr = optarg;
@@ -324,12 +406,12 @@ main (int argc, char **argv)
   rib_init ();
   zebra_if_init ();
   zebra_debug_init ();
-  router_id_init();
+  router_id_cmd_init ();
   zebra_vty_init ();
   access_list_init ();
   prefix_list_init ();
-#ifdef RTADV
-  rtadv_init ();
+#if defined (HAVE_RTADV)
+  rtadv_cmd_init ();
 #endif
 #ifdef HAVE_IRDP
   irdp_init();
@@ -338,19 +420,17 @@ main (int argc, char **argv)
   /* For debug purpose. */
   /* SET_FLAG (zebra_debug_event, ZEBRA_DEBUG_EVENT); */
 
-  /* Make kernel routing socket. */
-  kernel_init ();
-  interface_list ();
-  route_read ();
+  /* Initialize VRF module, and make kernel routing socket. */
+  zebra_vrf_init ();
 
 #ifdef HAVE_SNMP
   zebra_snmp_init ();
 #endif /* HAVE_SNMP */
 
 #ifdef HAVE_FPM
-  zfpm_init (zebrad.master, 1, 0);
+  zfpm_init (zebrad.master, 1, 0, fpm_format);
 #else
-  zfpm_init (zebrad.master, 0, 0);
+  zfpm_init (zebrad.master, 0, 0, fpm_format);
 #endif
 
   /* Process the configuration file. Among other configuration
@@ -365,7 +445,10 @@ main (int argc, char **argv)
   /* Don't start execution if we are in dry-run mode */
   if (dryrun)
     return(0);
-  
+
+  /* Count up events for interfaces */
+  if_startup_count_up ();
+
   /* Clean up rib. */
   rib_weed_tables ();
 
@@ -405,10 +488,8 @@ main (int argc, char **argv)
 
   /* Print banner. */
   zlog_notice ("Zebra %s starting: vty@%d", QUAGGA_VERSION, vty_port);
+  
+  thread_main (zebrad.master);
 
-  while (thread_fetch (zebrad.master, &thread))
-    thread_call (&thread);
-
-  /* Not reached... */
   return 0;
 }

@@ -22,19 +22,19 @@
 #include "lib/log.h"
 #include "lib/memory.h"
 
-void
+static void
 sighup (void)
 {
   printf ("processed hup\n");
 }
 
-void
+static void
 sigusr1 (void)
 {
   printf ("processed usr1\n");
 }
 
-void
+static void
 sigusr2 (void)
 {
   printf ("processed usr2\n");
@@ -57,7 +57,6 @@ struct quagga_signal_t sigs[] =
 };
 
 struct thread_master *master;
-struct thread t;
 
 int
 main (void)
@@ -71,8 +70,7 @@ main (void)
   zlog_set_level (NULL, ZLOG_DEST_STDOUT, LOG_DEBUG);
   zlog_set_level (NULL, ZLOG_DEST_MONITOR, ZLOG_DISABLED);
   
-  while (thread_fetch (master, &t))
-    thread_call (&t);
+  thread_main (master);
 
   exit (0);
 }

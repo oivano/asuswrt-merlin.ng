@@ -26,13 +26,15 @@
 #include "table.h"
 #include "zserv.h"
 
-extern void zebra_redistribute_add (int, struct zserv *, int);
-extern void zebra_redistribute_delete (int, struct zserv *, int);
+extern void zebra_redistribute_add (int, struct zserv *, int, vrf_id_t);
+extern void zebra_redistribute_delete (int, struct zserv *, int, vrf_id_t);
 
-extern void zebra_redistribute_default_add (int, struct zserv *, int);
-extern void zebra_redistribute_default_delete (int, struct zserv *, int);
+extern void zebra_redistribute_default_add (int, struct zserv *, int,
+    vrf_id_t);
+extern void zebra_redistribute_default_delete (int, struct zserv *, int,
+    vrf_id_t);
 
-extern void redistribute_add (struct prefix *, struct rib *);
+extern void redistribute_add (struct prefix *, struct rib *new, struct rib *old);
 extern void redistribute_delete (struct prefix *, struct rib *);
 
 extern void zebra_interface_up_update (struct interface *);
@@ -46,7 +48,11 @@ extern void zebra_interface_address_add_update (struct interface *,
 extern void zebra_interface_address_delete_update (struct interface *,
 						   struct connected *c);
 
+extern void zebra_interface_parameters_update (struct interface *);
+
 extern int zebra_check_addr (struct prefix *);
+
+extern int is_default (struct prefix *);
 
 #endif /* _ZEBRA_REDISTRIBUTE_H */
 

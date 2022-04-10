@@ -47,19 +47,19 @@ struct config
 
 struct list *config_top;
 
-int
+static int
 line_cmp (char *c1, char *c2)
 {
   return strcmp (c1, c2);
 }
 
-void
+static void
 line_del (char *line)
 {
   XFREE (MTYPE_VTYSH_CONFIG_LINE, line);
 }
 
-struct config *
+static struct config *
 config_new ()
 {
   struct config *config;
@@ -67,13 +67,13 @@ config_new ()
   return config;
 }
 
-int
+static int
 config_cmp (struct config *c1, struct config *c2)
 {
   return strcmp (c1->name, c2->name);
 }
 
-void
+static void
 config_del (struct config* config)
 {
   list_delete (config->line);
@@ -82,7 +82,7 @@ config_del (struct config* config)
   XFREE (MTYPE_VTYSH_CONFIG, config);
 }
 
-struct config *
+static struct config *
 config_get (int index, const char *line)
 {
   struct config *config;
@@ -121,13 +121,13 @@ config_get (int index, const char *line)
   return config;
 }
 
-void
+static void
 config_add_line (struct list *config, const char *line)
 {
   listnode_add (config, XSTRDUP (MTYPE_VTYSH_CONFIG_LINE, line));
 }
 
-void
+static void
 config_add_line_uniq (struct list *config, const char *line)
 {
   struct listnode *node, *nnode;
@@ -141,7 +141,7 @@ config_add_line_uniq (struct list *config, const char *line)
   listnode_add_sort (config, XSTRDUP (MTYPE_VTYSH_CONFIG_LINE, line));
 }
 
-void
+static void
 vtysh_config_parse_line (const char *line)
 {
   char c;
@@ -166,18 +166,38 @@ vtysh_config_parse_line (const char *line)
       /* Store line to current configuration. */
       if (config)
 	{
-	  if (strncmp (line, " address-family vpnv4",
+          if (strncmp (line, " address-family vpnv4",
 	      strlen (" address-family vpnv4")) == 0)
 	    config = config_get (BGP_VPNV4_NODE, line);
+	  else if (strncmp (line, " address-family vpn6",
+	      strlen (" address-family vpn6")) == 0)
+	    config = config_get (BGP_VPNV6_NODE, line);
+	  else if (strncmp (line, " address-family encapv6",
+	      strlen (" address-family encapv6")) == 0)
+	    config = config_get (BGP_ENCAPV6_NODE, line);
+	  else if (strncmp (line, " address-family encap",
+	      strlen (" address-family encap")) == 0)
+	    config = config_get (BGP_ENCAP_NODE, line);
 	  else if (strncmp (line, " address-family ipv4 multicast",
 		   strlen (" address-family ipv4 multicast")) == 0)
 	    config = config_get (BGP_IPV4M_NODE, line);
 	  else if (strncmp (line, " address-family ipv6",
 		   strlen (" address-family ipv6")) == 0)
 	    config = config_get (BGP_IPV6_NODE, line);
+	  else if (strncmp (line, " link-params", strlen (" link-params")) == 0)
+	    {
+	      config_add_line (config->line, line);
+	      config->index = LINK_PARAMS_NODE;
+	    }
+	  else if (config->index == LINK_PARAMS_NODE &&
+	           strncmp (line, "  exit-link-params", strlen ("  exit")) == 0)
+	    {
+	      config_add_line (config->line, line);
+	      config->index = INTERFACE_NODE;
+	    }
 	  else if (config->index == RMAP_NODE ||
-	           config->index == INTERFACE_NODE ||
-		   config->index == VTY_NODE)
+	      config->index == INTERFACE_NODE ||
+	      config->index == VTY_NODE)
 	    config_add_line_uniq (config->line, line);
 	  else
 	    config_add_line (config->line, line);
@@ -198,8 +218,6 @@ vtysh_config_parse_line (const char *line)
 	config = config_get (OSPF_NODE, line);
       else if (strncmp (line, "router ospf6", strlen ("router ospf6")) == 0)
 	config = config_get (OSPF6_NODE, line);
-      else if (strncmp (line, "router babel", strlen ("router babel")) == 0)
-	config = config_get (BABEL_NODE, line);
       else if (strncmp (line, "router bgp", strlen ("router bgp")) == 0)
 	config = config_get (BGP_NODE, line);
       else if (strncmp (line, "router isis", strlen ("router isis")) == 0)
@@ -382,7 +400,7 @@ vtysh_read_file (FILE *confp)
 	  fprintf (stderr, "There is no such command.\n");
 	  break;
 	}
-      fprintf (stderr, "Error occured during reading below line.\n%s\n", 
+      fprintf (stderr, "Error occurred during reading below line.\n%s\n",
 	       vty->buf);
       exit (1);
     }

@@ -89,9 +89,11 @@ struct work_queue
   /* remaining fields should be opaque to users */
   struct list *items;                 /* queue item list */
   unsigned long runs;                 /* runs count */
+  unsigned long worst_usec;
   
   struct {
     unsigned int best;
+    unsigned int worst;
     unsigned int granularity;
     unsigned long total;
   } cycles;	/* cycle counts */
@@ -118,6 +120,8 @@ extern void work_queue_add (struct work_queue *, void *);
 extern void work_queue_plug (struct work_queue *wq);
 /* unplug the queue, allow it to be drained again */
 extern void work_queue_unplug (struct work_queue *wq);
+
+bool work_queue_is_scheduled (struct work_queue *);
 
 /* Helpers, exported for thread.c and command.c */
 extern int work_queue_run (struct thread *);

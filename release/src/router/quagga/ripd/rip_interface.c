@@ -74,7 +74,7 @@ static int
 ipv4_multicast_join (int sock, 
 		     struct in_addr group, 
 		     struct in_addr ifa,
-		     unsigned int ifindex)
+		     ifindex_t ifindex)
 {
   int ret;
 
@@ -95,7 +95,7 @@ static int
 ipv4_multicast_leave (int sock, 
 		      struct in_addr group, 
 		      struct in_addr ifa,
-		      unsigned int ifindex)
+		      ifindex_t ifindex)
 {
   int ret;
 
@@ -110,6 +110,8 @@ ipv4_multicast_leave (int sock,
   return ret;
 }
 
+static void rip_interface_reset (struct rip_interface *);
+
 /* Allocate new RIP's interface configuration. */
 static struct rip_interface *
 rip_interface_new (void)
@@ -117,19 +119,9 @@ rip_interface_new (void)
   struct rip_interface *ri;
 
   ri = XCALLOC (MTYPE_RIP_INTERFACE, sizeof (struct rip_interface));
-
-  /* Default authentication type is simple password for Cisco
-     compatibility. */
-  ri->auth_type = RIP_NO_AUTH;
-  ri->md5_auth_len = RIP_AUTH_MD5_COMPAT_SIZE;
-
-  /* Set default split-horizon behavior.  If the interface is Frame
-     Relay or SMDS is enabled, the default value for split-horizon is
-     off.  But currently Zebra does detect Frame Relay or SMDS
-     interface.  So all interface is set to split horizon.  */
-  ri->split_horizon_default = RIP_SPLIT_HORIZON;
-  ri->split_horizon = ri->split_horizon_default;
-
+  
+  rip_interface_reset (ri);
+  
   return ri;
 }
 
@@ -380,7 +372,8 @@ if_check_address (struct in_addr addr)
 
 /* Inteface link down message processing. */
 int
-rip_interface_down (int command, struct zclient *zclient, zebra_size_t length)
+rip_interface_down (int command, struct zclient *zclient, zebra_size_t length,
+    vrf_id_t vrf_id)
 {
   struct interface *ifp;
   struct stream *s;
@@ -389,7 +382,7 @@ rip_interface_down (int command, struct zclient *zclient, zebra_size_t length)
 
   /* zebra_interface_state_read() updates interface structure in
      iflist. */
-  ifp = zebra_interface_state_read(s);
+  ifp = zebra_interface_state_read (s, vrf_id);
 
   if (ifp == NULL)
     return 0;
@@ -406,13 +399,14 @@ rip_interface_down (int command, struct zclient *zclient, zebra_size_t length)
 
 /* Inteface link up message processing */
 int
-rip_interface_up (int command, struct zclient *zclient, zebra_size_t length)
+rip_interface_up (int command, struct zclient *zclient, zebra_size_t length,
+    vrf_id_t vrf_id)
 {
   struct interface *ifp;
 
   /* zebra_interface_state_read () updates interface structure in
      iflist. */
-  ifp = zebra_interface_state_read (zclient->ibuf);
+  ifp = zebra_interface_state_read (zclient->ibuf, vrf_id);
 
   if (ifp == NULL)
     return 0;
@@ -436,11 +430,12 @@ rip_interface_up (int command, struct zclient *zclient, zebra_size_t length)
 
 /* Inteface addition message from zebra. */
 int
-rip_interface_add (int command, struct zclient *zclient, zebra_size_t length)
+rip_interface_add (int command, struct zclient *zclient, zebra_size_t length,
+    vrf_id_t vrf_id)
 {
   struct interface *ifp;
 
-  ifp = zebra_interface_add_read (zclient->ibuf);
+  ifp = zebra_interface_add_read (zclient->ibuf, vrf_id);
 
   if (IS_RIP_DEBUG_ZEBRA)
     zlog_debug ("interface add %s index %d flags %#llx metric %d mtu %d",
@@ -466,7 +461,7 @@ rip_interface_add (int command, struct zclient *zclient, zebra_size_t length)
 
 int
 rip_interface_delete (int command, struct zclient *zclient,
-		      zebra_size_t length)
+		      zebra_size_t length, vrf_id_t vrf_id)
 {
   struct interface *ifp;
   struct stream *s;
@@ -474,7 +469,7 @@ rip_interface_delete (int command, struct zclient *zclient,
 
   s = zclient->ibuf;  
   /* zebra_interface_state_read() updates interface structure in iflist */
-  ifp = zebra_interface_state_read(s);
+  ifp = zebra_interface_state_read (s, vrf_id);
 
   if (ifp == NULL)
     return 0;
@@ -494,81 +489,82 @@ rip_interface_delete (int command, struct zclient *zclient,
   return 0;
 }
 
-void
-rip_interface_clean (void)
+static void
+rip_interface_clean (struct rip_interface *ri)
 {
-  struct listnode *node;
-  struct interface *ifp;
-  struct rip_interface *ri;
+  ri->enable_network = 0;
+  ri->enable_interface = 0;
+  ri->running = 0;
 
-  for (ALL_LIST_ELEMENTS_RO (iflist, node, ifp))
+  if (ri->t_wakeup)
     {
-      ri = ifp->info;
-
-      ri->enable_network = 0;
-      ri->enable_interface = 0;
-      ri->running = 0;
-
-      if (ri->t_wakeup)
-	{
-	  thread_cancel (ri->t_wakeup);
-	  ri->t_wakeup = NULL;
-	}
+      thread_cancel (ri->t_wakeup);
+      ri->t_wakeup = NULL;
     }
 }
 
 void
-rip_interface_reset (void)
+rip_interfaces_clean (void)
 {
   struct listnode *node;
   struct interface *ifp;
-  struct rip_interface *ri;
 
   for (ALL_LIST_ELEMENTS_RO (iflist, node, ifp))
+    rip_interface_clean (ifp->info);
+}
+
+static void
+rip_interface_reset (struct rip_interface *ri)
+{
+  /* Default authentication type is simple password for Cisco
+     compatibility. */
+  ri->auth_type = RIP_NO_AUTH;
+  ri->md5_auth_len = RIP_AUTH_MD5_COMPAT_SIZE;
+
+  /* Set default split-horizon behavior.  If the interface is Frame
+     Relay or SMDS is enabled, the default value for split-horizon is
+     off.  But currently Zebra does detect Frame Relay or SMDS
+     interface.  So all interface is set to split horizon.  */
+  ri->split_horizon_default = RIP_SPLIT_HORIZON;
+  ri->split_horizon = ri->split_horizon_default;
+
+  ri->ri_send = RI_RIP_UNSPEC;
+  ri->ri_receive = RI_RIP_UNSPEC;
+  
+  if (ri->auth_str)
     {
-      ri = ifp->info;
-
-      ri->enable_network = 0;
-      ri->enable_interface = 0;
-      ri->running = 0;
-
-      ri->ri_send = RI_RIP_UNSPEC;
-      ri->ri_receive = RI_RIP_UNSPEC;
-
-      ri->auth_type = RIP_NO_AUTH;
-
-      if (ri->auth_str)
-	{
-	  free (ri->auth_str);
-	  ri->auth_str = NULL;
-	}
-      if (ri->key_chain)
-	{
-	  free (ri->key_chain);
-	  ri->key_chain = NULL;
-	}
-
-      ri->split_horizon = RIP_NO_SPLIT_HORIZON;
-      ri->split_horizon_default = RIP_NO_SPLIT_HORIZON;
-
-      ri->list[RIP_FILTER_IN] = NULL;
-      ri->list[RIP_FILTER_OUT] = NULL;
-
-      ri->prefix[RIP_FILTER_IN] = NULL;
-      ri->prefix[RIP_FILTER_OUT] = NULL;
-      
-      if (ri->t_wakeup)
-	{
-	  thread_cancel (ri->t_wakeup);
-	  ri->t_wakeup = NULL;
-	}
-
-      ri->recv_badpackets = 0;
-      ri->recv_badroutes = 0;
-      ri->sent_updates = 0;
-
-      ri->passive = 0;
+      free (ri->auth_str);
+      ri->auth_str = NULL;
     }
+  if (ri->key_chain)
+    {
+      free (ri->key_chain);
+      ri->key_chain = NULL;
+    }
+
+  ri->list[RIP_FILTER_IN] = NULL;
+  ri->list[RIP_FILTER_OUT] = NULL;
+
+  ri->prefix[RIP_FILTER_IN] = NULL;
+  ri->prefix[RIP_FILTER_OUT] = NULL;
+  
+  ri->recv_badpackets = 0;
+  ri->recv_badroutes = 0;
+  ri->sent_updates = 0;
+
+  ri->passive = 0;
+  
+  rip_interface_clean (ri);
+}
+
+void
+rip_interfaces_reset (void)
+{
+  struct listnode *node;
+  struct interface *ifp;
+
+  for (ALL_LIST_ELEMENTS_RO (iflist, node, ifp))
+    rip_interface_reset (ifp->info);
 }
 
 int
@@ -638,19 +634,19 @@ rip_apply_address_add (struct connected *ifc)
   if ((rip_enable_if_lookup(ifc->ifp->name) >= 0) ||
       (rip_enable_network_lookup2(ifc) >= 0))
     rip_redistribute_add(ZEBRA_ROUTE_CONNECT, RIP_ROUTE_INTERFACE,
-                         &address, ifc->ifp->ifindex, NULL, 0, 0);
+                         &address, ifc->ifp->ifindex, NULL, 0, 0, 0);
 
 }
 
 int
 rip_interface_address_add (int command, struct zclient *zclient,
-			   zebra_size_t length)
+			   zebra_size_t length, vrf_id_t vrf_id)
 {
   struct connected *ifc;
   struct prefix *p;
 
   ifc = zebra_interface_address_read (ZEBRA_INTERFACE_ADDRESS_ADD, 
-                                      zclient->ibuf);
+                                      zclient->ibuf, vrf_id);
 
   if (ifc == NULL)
     return 0;
@@ -700,13 +696,13 @@ rip_apply_address_del (struct connected *ifc) {
 
 int
 rip_interface_address_delete (int command, struct zclient *zclient,
-			      zebra_size_t length)
+			      zebra_size_t length, vrf_id_t vrf_id)
 {
   struct connected *ifc;
   struct prefix *p;
 
   ifc = zebra_interface_address_read (ZEBRA_INTERFACE_ADDRESS_DELETE,
-                                      zclient->ibuf);
+                                      zclient->ibuf, vrf_id);
   
   if (ifc)
     {
@@ -949,7 +945,7 @@ rip_connect_set (struct interface *ifp, int set)
             (rip_enable_network_lookup2(connected) >= 0))
           rip_redistribute_add (ZEBRA_ROUTE_CONNECT, RIP_ROUTE_INTERFACE,
                                 &address, connected->ifp->ifindex, 
-                                NULL, 0, 0);
+                                NULL, 0, 0, 0);
       } else
         {
           rip_redistribute_delete (ZEBRA_ROUTE_CONNECT, RIP_ROUTE_INTERFACE,
@@ -957,7 +953,7 @@ rip_connect_set (struct interface *ifp, int set)
           if (rip_redistribute_check (ZEBRA_ROUTE_CONNECT))
             rip_redistribute_add (ZEBRA_ROUTE_CONNECT, RIP_ROUTE_REDISTRIBUTE,
                                   &address, connected->ifp->ifindex,
-                                  NULL, 0, 0);
+                                  NULL, 0, 0, 0);
         }
     }
 }
@@ -2055,7 +2051,6 @@ void
 rip_if_init (void)
 {
   /* Default initial size of interface vector. */
-  if_init();
   if_add_hook (IF_NEW_HOOK, rip_interface_new_hook);
   if_add_hook (IF_DELETE_HOOK, rip_interface_delete_hook);
   

@@ -30,6 +30,7 @@
 #include "zclient.h"
 #include "linklist.h"
 #include "log.h"
+#include "vrf.h"
 
 #include "zebra/rib.h"
 #include "zebra/zserv.h"
@@ -67,7 +68,7 @@ zebra_check_addr (struct prefix *p)
   return 1;
 }
 
-static int
+int
 is_default (struct prefix *p)
 {
   if (p->family == AF_INET)
@@ -85,7 +86,7 @@ is_default (struct prefix *p)
 }
 
 static void
-zebra_redistribute_default (struct zserv *client)
+zebra_redistribute_default (struct zserv *client, vrf_id_t vrf_id)
 {
   struct prefix_ipv4 p;
   struct route_table *table;
@@ -101,7 +102,7 @@ zebra_redistribute_default (struct zserv *client)
   p.family = AF_INET;
 
   /* Lookup table.  */
-  table = vrf_table (AFI_IP, SAFI_UNICAST, 0);
+  table = zebra_vrf_table (AFI_IP, SAFI_UNICAST, vrf_id);
   if (table)
     {
       rn = route_node_lookup (table, (struct prefix *)&p);
@@ -121,7 +122,7 @@ zebra_redistribute_default (struct zserv *client)
   p6.family = AF_INET6;
 
   /* Lookup table.  */
-  table = vrf_table (AFI_IP6, SAFI_UNICAST, 0);
+  table = zebra_vrf_table (AFI_IP6, SAFI_UNICAST, vrf_id);
   if (table)
     {
       rn = route_node_lookup (table, (struct prefix *)&p6);
@@ -139,24 +140,33 @@ zebra_redistribute_default (struct zserv *client)
 
 /* Redistribute routes. */
 static void
-zebra_redistribute (struct zserv *client, int type)
+zebra_redistribute (struct zserv *client, int type, vrf_id_t vrf_id)
 {
   struct rib *newrib;
   struct route_table *table;
   struct route_node *rn;
 
-  table = vrf_table (AFI_IP, SAFI_UNICAST, 0);
+  table = zebra_vrf_table (AFI_IP, SAFI_UNICAST, vrf_id);
   if (table)
     for (rn = route_top (table); rn; rn = route_next (rn))
       RNODE_FOREACH_RIB (rn, newrib)
-	if (CHECK_FLAG (newrib->flags, ZEBRA_FLAG_SELECTED) 
-	    && newrib->type == type 
-	    && newrib->distance != DISTANCE_INFINITY
-	    && zebra_check_addr (&rn->p))
-	  zsend_route_multipath (ZEBRA_IPV4_ROUTE_ADD, client, &rn->p, newrib);
-  
+        {
+          if (IS_ZEBRA_DEBUG_EVENT)
+            zlog_debug("%s: checking: selected=%d, type=%d, distance=%d, zebra_check_addr=%d",
+                       __func__, CHECK_FLAG (newrib->flags, ZEBRA_FLAG_SELECTED),
+                       newrib->type, newrib->distance, zebra_check_addr (&rn->p));
+          if (CHECK_FLAG (newrib->flags, ZEBRA_FLAG_SELECTED)
+              && newrib->type == type
+              && newrib->distance != DISTANCE_INFINITY
+              && zebra_check_addr (&rn->p))
+	    {
+	      client->redist_v4_add_cnt++;
+              zsend_route_multipath (ZEBRA_IPV4_ROUTE_ADD, client, &rn->p, newrib);
+            }
+        }
+
 #ifdef HAVE_IPV6
-  table = vrf_table (AFI_IP6, SAFI_UNICAST, 0);
+  table = zebra_vrf_table (AFI_IP6, SAFI_UNICAST, vrf_id);
   if (table)
     for (rn = route_top (table); rn; rn = route_next (rn))
       RNODE_FOREACH_RIB (rn, newrib)
@@ -164,38 +174,50 @@ zebra_redistribute (struct zserv *client, int type)
 	    && newrib->type == type 
 	    && newrib->distance != DISTANCE_INFINITY
 	    && zebra_check_addr (&rn->p))
-	  zsend_route_multipath (ZEBRA_IPV6_ROUTE_ADD, client, &rn->p, newrib);
+	  {
+	    client->redist_v6_add_cnt++;
+	    zsend_route_multipath (ZEBRA_IPV6_ROUTE_ADD, client, &rn->p, newrib);
+	  }
 #endif /* HAVE_IPV6 */
 }
 
 void
-redistribute_add (struct prefix *p, struct rib *rib)
+redistribute_add (struct prefix *p, struct rib *rib, struct rib *rib_old)
 {
   struct listnode *node, *nnode;
   struct zserv *client;
-
+  
   for (ALL_LIST_ELEMENTS (zebrad.client_list, node, nnode, client))
     {
-      if (is_default (p))
-        {
-          if (client->redist_default || client->redist[rib->type])
-            {
-              if (p->family == AF_INET)
-                zsend_route_multipath (ZEBRA_IPV4_ROUTE_ADD, client, p, rib);
-#ifdef HAVE_IPV6
-              if (p->family == AF_INET6)
-                zsend_route_multipath (ZEBRA_IPV6_ROUTE_ADD, client, p, rib);
-#endif /* HAVE_IPV6 */	  
-	    }
-        }
-      else if (client->redist[rib->type])
+      if ((is_default (p) &&
+           vrf_bitmap_check (client->redist_default, rib->vrf_id))
+          || vrf_bitmap_check (client->redist[rib->type], rib->vrf_id))
         {
           if (p->family == AF_INET)
-            zsend_route_multipath (ZEBRA_IPV4_ROUTE_ADD, client, p, rib);
-#ifdef HAVE_IPV6
+	    {
+	      client->redist_v4_add_cnt++;
+	      zsend_route_multipath (ZEBRA_IPV4_ROUTE_ADD, client, p, rib);
+	    }
           if (p->family == AF_INET6)
-            zsend_route_multipath (ZEBRA_IPV6_ROUTE_ADD, client, p, rib);
-#endif /* HAVE_IPV6 */	  
+	    {
+	      client->redist_v6_add_cnt++;
+	      zsend_route_multipath (ZEBRA_IPV6_ROUTE_ADD, client, p, rib);
+	    }
+        }
+      else if (rib_old && vrf_bitmap_check (client->redist[rib_old->type], 
+                                            rib_old->vrf_id))
+        {
+          /* redistribute_add has implicit withdraw semantics, so there
+           * may be an old route already redistributed that is being updated.
+           *
+           * However, if the new route is of a type that is /not/ redistributed
+           * to the client, then we must ensure the old route is explicitly
+           * withdrawn.
+           */
+          if (p->family == AF_INET)
+            zsend_route_multipath (ZEBRA_IPV4_ROUTE_DELETE, client, p, rib_old);
+          if (p->family == AF_INET6)
+            zsend_route_multipath (ZEBRA_IPV6_ROUTE_DELETE, client, p, rib_old);
         }
     }
 }
@@ -212,21 +234,9 @@ redistribute_delete (struct prefix *p, struct rib *rib)
 
   for (ALL_LIST_ELEMENTS (zebrad.client_list, node, nnode, client))
     {
-      if (is_default (p))
-	{
-	  if (client->redist_default || client->redist[rib->type])
-	    {
-	      if (p->family == AF_INET)
-		zsend_route_multipath (ZEBRA_IPV4_ROUTE_DELETE, client, p,
-				       rib);
-#ifdef HAVE_IPV6
-	      if (p->family == AF_INET6)
-		zsend_route_multipath (ZEBRA_IPV6_ROUTE_DELETE, client, p,
-				       rib);
-#endif /* HAVE_IPV6 */
-	    }
-	}
-      else if (client->redist[rib->type])
+      if ((is_default (p) &&
+           vrf_bitmap_check (client->redist_default, rib->vrf_id))
+          || vrf_bitmap_check (client->redist[rib->type], rib->vrf_id))
 	{
 	  if (p->family == AF_INET)
 	    zsend_route_multipath (ZEBRA_IPV4_ROUTE_DELETE, client, p, rib);
@@ -239,7 +249,8 @@ redistribute_delete (struct prefix *p, struct rib *rib)
 }
 
 void
-zebra_redistribute_add (int command, struct zserv *client, int length)
+zebra_redistribute_add (int command, struct zserv *client, int length,
+    vrf_id_t vrf_id)
 {
   int type;
 
@@ -248,15 +259,16 @@ zebra_redistribute_add (int command, struct zserv *client, int length)
   if (type == 0 || type >= ZEBRA_ROUTE_MAX)
     return;
 
-  if (! client->redist[type])
+  if (! vrf_bitmap_check (client->redist[type], vrf_id))
     {
-      client->redist[type] = 1;
-      zebra_redistribute (client, type);
+      vrf_bitmap_set (client->redist[type], vrf_id);
+      zebra_redistribute (client, type, vrf_id);
     }
 }
 
 void
-zebra_redistribute_delete (int command, struct zserv *client, int length)
+zebra_redistribute_delete (int command, struct zserv *client, int length,
+    vrf_id_t vrf_id)
 {
   int type;
 
@@ -265,21 +277,22 @@ zebra_redistribute_delete (int command, struct zserv *client, int length)
   if (type == 0 || type >= ZEBRA_ROUTE_MAX)
     return;
 
-  client->redist[type] = 0;
+  vrf_bitmap_unset (client->redist[type], vrf_id);
 }
 
 void
-zebra_redistribute_default_add (int command, struct zserv *client, int length)
+zebra_redistribute_default_add (int command, struct zserv *client, int length,
+    vrf_id_t vrf_id)
 {
-  client->redist_default = 1;
-  zebra_redistribute_default (client);
+  vrf_bitmap_set (client->redist_default, vrf_id);
+  zebra_redistribute_default (client, vrf_id);
 }     
 
 void
 zebra_redistribute_default_delete (int command, struct zserv *client,
-				   int length)
+    int length, vrf_id_t vrf_id)
 {
-  client->redist_default = 0;;
+  vrf_bitmap_unset (client->redist_default, vrf_id);
 }     
 
 /* Interface up information. */
@@ -293,7 +306,11 @@ zebra_interface_up_update (struct interface *ifp)
     zlog_debug ("MESSAGE: ZEBRA_INTERFACE_UP %s", ifp->name);
 
   for (ALL_LIST_ELEMENTS (zebrad.client_list, node, nnode, client))
-    zsend_interface_update (ZEBRA_INTERFACE_UP, client, ifp);
+    if (client->ifinfo)
+      {
+        zsend_interface_update (ZEBRA_INTERFACE_UP, client, ifp);
+        zsend_interface_link_params (client, ifp);
+      }
 }
 
 /* Interface down information. */
@@ -307,7 +324,9 @@ zebra_interface_down_update (struct interface *ifp)
     zlog_debug ("MESSAGE: ZEBRA_INTERFACE_DOWN %s", ifp->name);
 
   for (ALL_LIST_ELEMENTS (zebrad.client_list, node, nnode, client))
-    zsend_interface_update (ZEBRA_INTERFACE_DOWN, client, ifp);
+    {
+      zsend_interface_update (ZEBRA_INTERFACE_DOWN, client, ifp);
+    }
 }
 
 /* Interface information update. */
@@ -322,7 +341,11 @@ zebra_interface_add_update (struct interface *ifp)
     
   for (ALL_LIST_ELEMENTS (zebrad.client_list, node, nnode, client))
     if (client->ifinfo)
-      zsend_interface_add (client, ifp);
+      {
+	client->ifadd_cnt++;
+	zsend_interface_add (client, ifp);
+        zsend_interface_link_params (client, ifp);
+      }
 }
 
 void
@@ -336,7 +359,10 @@ zebra_interface_delete_update (struct interface *ifp)
 
   for (ALL_LIST_ELEMENTS (zebrad.client_list, node, nnode, client))
     if (client->ifinfo)
-      zsend_interface_delete (client, ifp);
+      {
+	client->ifdel_cnt++;
+	zsend_interface_delete (client, ifp);
+      }
 }
 
 /* Interface address addition. */
@@ -350,12 +376,12 @@ zebra_interface_address_add_update (struct interface *ifp,
 
   if (IS_ZEBRA_DEBUG_EVENT)
     {
-      char buf[INET6_ADDRSTRLEN];
+      char buf[PREFIX_STRLEN];
 
       p = ifc->address;
-      zlog_debug ("MESSAGE: ZEBRA_INTERFACE_ADDRESS_ADD %s/%d on %s",
-		  inet_ntop (p->family, &p->u.prefix, buf, INET6_ADDRSTRLEN),
-		  p->prefixlen, ifc->ifp->name);
+      zlog_debug ("MESSAGE: ZEBRA_INTERFACE_ADDRESS_ADD %s on %s",
+		  prefix2str (p, buf, sizeof(buf)),
+		  ifc->ifp->name);
     }
 
   if (!CHECK_FLAG(ifc->conf, ZEBRA_IFC_REAL))
@@ -365,7 +391,10 @@ zebra_interface_address_add_update (struct interface *ifp,
 
   for (ALL_LIST_ELEMENTS (zebrad.client_list, node, nnode, client))
     if (client->ifinfo && CHECK_FLAG (ifc->conf, ZEBRA_IFC_REAL))
-      zsend_interface_address (ZEBRA_INTERFACE_ADDRESS_ADD, client, ifp, ifc);
+      {
+	client->connected_rt_add_cnt++;
+	zsend_interface_address (ZEBRA_INTERFACE_ADDRESS_ADD, client, ifp, ifc);
+      }
 }
 
 /* Interface address deletion. */
@@ -379,17 +408,35 @@ zebra_interface_address_delete_update (struct interface *ifp,
 
   if (IS_ZEBRA_DEBUG_EVENT)
     {
-      char buf[INET6_ADDRSTRLEN];
+      char buf[PREFIX_STRLEN];
 
       p = ifc->address;
-      zlog_debug ("MESSAGE: ZEBRA_INTERFACE_ADDRESS_DELETE %s/%d on %s",
-		  inet_ntop (p->family, &p->u.prefix, buf, INET6_ADDRSTRLEN),
-		 p->prefixlen, ifc->ifp->name);
+      zlog_debug ("MESSAGE: ZEBRA_INTERFACE_ADDRESS_DELETE %s on %s",
+		  prefix2str (p, buf, sizeof(buf)),
+		  ifc->ifp->name);
     }
 
   router_id_del_address(ifc);
 
   for (ALL_LIST_ELEMENTS (zebrad.client_list, node, nnode, client))
     if (client->ifinfo && CHECK_FLAG (ifc->conf, ZEBRA_IFC_REAL))
-      zsend_interface_address (ZEBRA_INTERFACE_ADDRESS_DELETE, client, ifp, ifc);
+      {
+	client->connected_rt_del_cnt++;
+	zsend_interface_address (ZEBRA_INTERFACE_ADDRESS_DELETE, client, ifp, ifc);
+      }
+}
+
+/* Interface parameters update */
+void
+zebra_interface_parameters_update (struct interface *ifp)
+{
+  struct listnode *node, *nnode;
+  struct zserv *client;
+
+  if (IS_ZEBRA_DEBUG_EVENT)
+    zlog_debug ("MESSAGE: ZEBRA_INTERFACE_LINK_PARAMS %s", ifp->name);
+
+  for (ALL_LIST_ELEMENTS (zebrad.client_list, node, nnode, client))
+    if (client->ifinfo)
+      zsend_interface_link_params (client, ifp);
 }

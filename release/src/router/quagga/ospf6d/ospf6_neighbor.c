@@ -38,6 +38,7 @@
 #include "ospf6_neighbor.h"
 #include "ospf6_intra.h"
 #include "ospf6_flood.h"
+#include "ospf6_snmp.h"
 #include "ospf6d.h"
 
 unsigned char conf_debug_ospf6_neighbor = 0;
@@ -935,8 +936,6 @@ ospf6_neighbor_init (void)
 {
   install_element (VIEW_NODE, &show_ipv6_ospf6_neighbor_cmd);
   install_element (VIEW_NODE, &show_ipv6_ospf6_neighbor_detail_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_ospf6_neighbor_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_ospf6_neighbor_detail_cmd);
 }
 
 DEFUN (debug_ospf6_neighbor,

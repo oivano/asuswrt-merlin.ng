@@ -55,7 +55,7 @@ struct bgp_node
    * @see bgp_node_to_rnode
    * @see bgp_node_from_rnode
    */
-  ROUTE_NODE_FIELDS;
+  ROUTE_NODE_FIELDS
 
   struct bgp_adj_out *adj_out;
 
@@ -65,6 +65,7 @@ struct bgp_node
 
   u_char flags;
 #define BGP_NODE_PROCESS_SCHEDULED	(1 << 0)
+#define BGP_NODE_USER_CLEAR             (1 << 1)
 };
 
 /*
@@ -115,44 +116,6 @@ static inline struct bgp_table *
 bgp_node_table (struct bgp_node *node)
 {
   return bgp_node_to_rnode (node)->table->info;
-}
-
-/*
- * bgp_node_info
- *
- * Returns the 'info' pointer corresponding to a bgp node.
- */
-static inline void *
-bgp_node_info (const struct bgp_node *node)
-{
-  return node->info;
-}
-
-/*
- * bgp_node_set_info
- */
-static inline void
-bgp_node_set_info (struct bgp_node *node, void *info)
-{
-  node->info = info;
-}
-
-/*
- * bgp_node_prefix
- */
-static inline struct prefix *
-bgp_node_prefix (struct bgp_node *node)
-{
-  return &node->p;
-}
-
-/*
- * bgp_node_prefixlen
- */
-static inline u_char
-bgp_node_prefixlen (struct bgp_node *node)
-{
-  return bgp_node_prefix (node)->prefixlen;
 }
 
 /*
@@ -265,8 +228,6 @@ bgp_node_match_ipv4 (const struct bgp_table *table, struct in_addr *addr)
 						     addr));
 }
 
-#ifdef HAVE_IPV6
-
 /*
  * bgp_node_match_ipv6
  */
@@ -276,8 +237,6 @@ bgp_node_match_ipv6 (const struct bgp_table *table, struct in6_addr *addr)
   return bgp_node_from_rnode (route_node_match_ipv6 (table->route_table,
 						     addr));
 }
-
-#endif /* HAVE_IPV6 */
 
 static inline unsigned long
 bgp_table_count (const struct bgp_table *const table)

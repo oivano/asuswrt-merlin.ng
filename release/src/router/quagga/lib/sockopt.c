@@ -20,6 +20,11 @@
  */
 
 #include <zebra.h>
+
+#ifdef SUNOS_5
+#include <ifaddrs.h>
+#endif
+
 #include "log.h"
 #include "sockopt.h"
 #include "sockunion.h"
@@ -220,7 +225,7 @@ int
 setsockopt_ipv4_multicast(int sock,
 			int optname, 
 			unsigned int mcast_addr,
-			unsigned int ifindex)
+			ifindex_t ifindex)
 {
 #ifdef HAVE_RFC3678
   struct group_req gr;
@@ -318,8 +323,7 @@ setsockopt_ipv4_multicast(int sock,
  * Set IP_MULTICAST_IF socket option in an OS-dependent manner.
  */
 int
-setsockopt_ipv4_multicast_if(int sock,
-			unsigned int ifindex)
+setsockopt_ipv4_multicast_if(int sock, ifindex_t ifindex)
 {
 
 #ifdef HAVE_STRUCT_IP_MREQN_IMR_IFINDEX
@@ -339,13 +343,42 @@ setsockopt_ipv4_multicast_if(int sock,
   m.s_addr = htonl(ifindex);
 
   return setsockopt (sock, IPPROTO_IP, IP_MULTICAST_IF, (void *)&m, sizeof(m));
+#elif defined(SUNOS_5)
+  char ifname[IF_NAMESIZE];
+  struct ifaddrs *ifa, *ifap;
+  struct in_addr ifaddr;
+
+  if (if_indextoname(ifindex, ifname) == NULL)
+    return -1;
+
+  if (getifaddrs(&ifa) != 0)
+    return -1;
+
+  for (ifap = ifa; ifap != NULL; ifap = ifap->ifa_next)
+    {
+      struct sockaddr_in *sa;
+
+      if (strcmp(ifap->ifa_name, ifname) != 0)
+        continue;
+      if (ifap->ifa_addr->sa_family != AF_INET)
+        continue;
+      sa = (struct sockaddr_in*)ifap->ifa_addr;
+      memcpy(&ifaddr, &sa->sin_addr, sizeof(ifaddr));
+      break;
+    }
+
+  freeifaddrs(ifa);
+  if (!ifap) /* This means we did not find an IP */
+    return -1;
+
+  return setsockopt(sock, IPPROTO_IP, IP_MULTICAST_IF, (void *)&ifaddr, sizeof(ifaddr));
 #else
   #error "Unsupported multicast API"
 #endif
 }
   
 static int
-setsockopt_ipv4_ifindex (int sock, int val)
+setsockopt_ipv4_ifindex (int sock, ifindex_t val)
 {
   int ret;
 
@@ -381,7 +414,7 @@ setsockopt_ipv4_tos(int sock, int tos)
 
 
 int
-setsockopt_ifindex (int af, int sock, int val)
+setsockopt_ifindex (int af, int sock, ifindex_t val)
 {
   int ret = -1;
   
@@ -408,11 +441,11 @@ setsockopt_ifindex (int af, int sock, int val)
  * Returns the interface index (small integer >= 1) if it can be
  * determined, or else 0.
  */
-static int
+static ifindex_t
 getsockopt_ipv4_ifindex (struct msghdr *msgh)
 {
   /* XXX: initialize to zero?  (Always overwritten, so just cosmetic.) */
-  int ifindex = -1;
+  ifindex_t ifindex = -1;
 
 #if defined(IP_PKTINFO)
 /* Linux pktinfo based ifindex retrieval */
@@ -432,7 +465,7 @@ getsockopt_ipv4_ifindex (struct msghdr *msgh)
   struct sockaddr_dl *sdl;
 #else
   /* SUNOS_5 uses an integer with the index. */
-  int *ifindex_p;
+  ifindex_t *ifindex_p;
 #endif /* SUNOS_5 */
 
 #ifndef SUNOS_5
@@ -473,7 +506,7 @@ getsockopt_ipv4_ifindex (struct msghdr *msgh)
 }
 
 /* return ifindex, 0 if none found */
-int
+ifindex_t
 getsockopt_ifindex (int af, struct msghdr *msgh)
 {
   switch (af)
@@ -516,6 +549,22 @@ sockopt_iphdrincl_swab_systoh (struct ip *iph)
 #endif /* HAVE_IP_HDRINCL_BSD_ORDER */
 
   iph->ip_id = ntohs(iph->ip_id);
+}
+
+int
+sockopt_tcp_rtt (int sock)
+{
+#ifdef TCP_INFO
+  struct tcp_info ti;
+  socklen_t len = sizeof(ti);
+
+  if (getsockopt (sock, IPPROTO_TCP, TCP_INFO, &ti, &len) != 0)
+    return 0;
+
+  return ti.tcpi_rtt / 1000;
+#else
+  return 0;
+#endif
 }
 
 int

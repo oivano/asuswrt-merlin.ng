@@ -35,6 +35,7 @@
 #include "privs.h"
 #include "sigevent.h"
 #include "zclient.h"
+#include "vrf.h"
 
 #include "ospf6d.h"
 #include "ospf6_top.h"
@@ -150,7 +151,7 @@ ospf6_exit (int status)
   ospf6_asbr_terminate ();
   ospf6_lsa_terminate ();
 
-  if_terminate ();
+  vrf_terminate ();
   vty_terminate ();
   cmd_terminate ();
 
@@ -228,7 +229,6 @@ main (int argc, char *argv[], char *envp[])
   char *vty_addr = NULL;
   int vty_port = 0;
   char *config_file = NULL;
-  struct thread thread;
   int dryrun = 0;
 
   /* Set umask before anything for security */
@@ -318,7 +318,7 @@ main (int argc, char *argv[], char *envp[])
   cmd_init (1);
   vty_init (master);
   memory_init ();
-  if_init ();
+  vrf_init ();
   access_list_init ();
   prefix_list_init ();
 
@@ -351,9 +351,8 @@ main (int argc, char *argv[], char *envp[])
                QUAGGA_VERSION, OSPF6_DAEMON_VERSION,vty_port);
 
   /* Start finite state machine, here we go! */
-  while (thread_fetch (master, &thread))
-    thread_call (&thread);
-
+  thread_main (master);
+  
   /* Log in case thread failed */
   zlog_warn ("Thread failed");
 

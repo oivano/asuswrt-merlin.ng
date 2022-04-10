@@ -47,7 +47,8 @@ static void group_timer_off(struct igmp_group *group);
 static struct igmp_group *find_group_by_addr(struct igmp_sock *igmp,
 					     struct in_addr group_addr);
 
-static int igmp_sock_open(struct in_addr ifaddr, int ifindex, uint32_t pim_options)
+static int igmp_sock_open(struct in_addr ifaddr, ifindex_t ifindex, 
+                          uint32_t pim_options)
 {
   int fd;
   int join = 0;
@@ -110,7 +111,9 @@ static int igmp_sock_open(struct in_addr ifaddr, int ifindex, uint32_t pim_optio
 static void igmp_sock_dump(array_t *igmp_sock_array)
 {
   int size = array_size(igmp_sock_array);
-  for (int i = 0; i < size; ++i) {
+  int i;
+  
+  for (i = 0; i < size; ++i) {
     
     struct igmp_sock *igmp = array_get(igmp_sock_array, i);
     
@@ -621,7 +624,7 @@ static int igmp_v2_report(struct igmp_sock *igmp,
   memcpy(&group_addr, igmp_msg + 4, sizeof(struct in_addr));
 
   /* non-existant group is created as INCLUDE {empty} */
-  group = igmp_add_group_by_addr(igmp, group_addr, ifp->name);
+  group = igmp_add_group_by_addr(igmp, group_addr);
   if (!group) {
     return -1;
   }
@@ -678,7 +681,7 @@ static int igmp_v1_report(struct igmp_sock *igmp,
   memcpy(&group_addr, igmp_msg + 4, sizeof(struct in_addr));
 
   /* non-existant group is created as INCLUDE {empty} */
-  group = igmp_add_group_by_addr(igmp, group_addr, ifp->name);
+  group = igmp_add_group_by_addr(igmp, group_addr);
   if (!group) {
     return -1;
   }
@@ -952,7 +955,7 @@ static int pim_igmp_read(struct thread *t)
   socklen_t tolen = sizeof(to);
   uint8_t buf[PIM_IGMP_BUFSIZE_READ];
   int len;
-  int ifindex = -1;
+  ifindex_t ifindex = -1;
   int result = -1; /* defaults to bad */
 
   zassert(t);
@@ -1356,8 +1359,7 @@ static struct igmp_group *find_group_by_addr(struct igmp_sock *igmp,
 }
 
 struct igmp_group *igmp_add_group_by_addr(struct igmp_sock *igmp,
-					  struct in_addr group_addr,
-					  const char *ifname)
+					  struct in_addr group_addr)
 {
   struct igmp_group *group;
 
@@ -1395,8 +1397,8 @@ struct igmp_group *igmp_add_group_by_addr(struct igmp_sock *igmp,
   }
   group->group_source_list->del = (void (*)(void *)) igmp_source_free;
 
-  group->t_group_timer                         = 0;
-  group->t_group_query_retransmit_timer        = 0;
+  group->t_group_timer                         = NULL;
+  group->t_group_query_retransmit_timer        = NULL;
   group->group_specific_query_retransmit_count = 0;
   group->group_addr                            = group_addr;
   group->group_igmp_sock                       = igmp;
@@ -1413,7 +1415,7 @@ struct igmp_group *igmp_add_group_by_addr(struct igmp_sock *igmp,
     char group_str[100];
     pim_inet4_dump("<group?>", group->group_addr, group_str, sizeof(group_str));
     zlog_debug("Creating new IGMP group %s on socket %d interface %s",
-	       group_str, group->group_igmp_sock->fd, ifname);
+	       group_str, igmp->fd, igmp->interface->name);
   }
 
   /*

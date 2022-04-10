@@ -25,7 +25,6 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "log.h"
 #include "sockunion.h"
 
-#define VTY_BUFSIZ 512
 #define VTY_MAXHIST 20
 
 /* VTY struct. */
@@ -33,6 +32,9 @@ struct vty
 {
   /* File descripter of this vty. */
   int fd;
+
+  /* output FD, to support stdin/stdout combination */
+  int wfd;
 
   /* Is this vty connect to file or not */
   enum {VTY_TERM, VTY_FILE, VTY_SHELL, VTY_SHELL_SERV} type;
@@ -166,7 +168,7 @@ do { \
  * The logic below ((TMPL) <= ((MIN) && (TMPL) != (MIN)) is
  * done to circumvent the compiler complaining about
  * comparing unsigned numbers against zero, if MIN is zero.
- * NB: The compiler isn't smart enough to supress the warning
+ * NB: The compiler isn't smart enough to suprress the warning
  * if you write (MIN) != 0 && tmpl < (MIN).
  */
 #define VTY_GET_INTEGER_RANGE_HEART(NAME,TMPL,STR,MIN,MAX)      \
@@ -234,6 +236,7 @@ extern void vty_init_vtysh (void);
 extern void vty_terminate (void);
 extern void vty_reset (void);
 extern struct vty *vty_new (void);
+extern struct vty *vty_stdio (void (*atclose)(void));
 extern int vty_out (struct vty *, const char *, ...) PRINTF_ATTRIBUTE(2, 3);
 extern void vty_read_config (char *, char *);
 extern void vty_time_print (struct vty *, int);

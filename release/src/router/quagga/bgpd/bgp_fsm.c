@@ -30,6 +30,8 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "stream.h"
 #include "memory.h"
 #include "plist.h"
+#include "workqueue.h"
+#include "filter.h"
 
 #include "bgpd/bgpd.h"
 #include "bgpd/bgp_attr.h"
@@ -40,6 +42,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_route.h"
 #include "bgpd/bgp_dump.h"
 #include "bgpd/bgp_open.h"
+#include "bgpd/bgp_nht.h"
 #ifdef HAVE_SNMP
 #include "bgpd/bgp_snmp.h"
 #endif /* HAVE_SNMP */
@@ -65,7 +68,7 @@ static int bgp_start (struct peer *);
 static int
 bgp_start_jitter (int time)
 {
-  return ((rand () % (time + 1)) - (time / 2));
+  return ((random () % (time + 1)) - (time / 2));
 }
 
 /* Check if suppress start/restart of sessions to peer. */
@@ -100,19 +103,17 @@ bgp_timer_set (struct peer *peer)
       BGP_TIMER_OFF (peer->t_connect);
       BGP_TIMER_OFF (peer->t_holdtime);
       BGP_TIMER_OFF (peer->t_keepalive);
-      BGP_TIMER_OFF (peer->t_asorig);
       BGP_TIMER_OFF (peer->t_routeadv);
       break;
 
     case Connect:
-      /* After start timer is expired, the peer moves to Connnect
+      /* After start timer is expired, the peer moves to Connect
          status.  Make sure start timer is off and connect timer is
          on. */
       BGP_TIMER_OFF (peer->t_start);
       BGP_TIMER_ON (peer->t_connect, bgp_connect_timer, peer->v_connect);
       BGP_TIMER_OFF (peer->t_holdtime);
       BGP_TIMER_OFF (peer->t_keepalive);
-      BGP_TIMER_OFF (peer->t_asorig);
       BGP_TIMER_OFF (peer->t_routeadv);
       break;
 
@@ -132,7 +133,6 @@ bgp_timer_set (struct peer *peer)
 	}
       BGP_TIMER_OFF (peer->t_holdtime);
       BGP_TIMER_OFF (peer->t_keepalive);
-      BGP_TIMER_OFF (peer->t_asorig);
       BGP_TIMER_OFF (peer->t_routeadv);
       break;
 
@@ -150,7 +150,6 @@ bgp_timer_set (struct peer *peer)
 	  BGP_TIMER_OFF (peer->t_holdtime);
 	}
       BGP_TIMER_OFF (peer->t_keepalive);
-      BGP_TIMER_OFF (peer->t_asorig);
       BGP_TIMER_OFF (peer->t_routeadv);
       break;
 
@@ -173,7 +172,6 @@ bgp_timer_set (struct peer *peer)
 	  BGP_TIMER_ON (peer->t_keepalive, bgp_keepalive_timer, 
 			peer->v_keepalive);
 	}
-      BGP_TIMER_OFF (peer->t_asorig);
       BGP_TIMER_OFF (peer->t_routeadv);
       break;
 
@@ -197,7 +195,6 @@ bgp_timer_set (struct peer *peer)
 	  BGP_TIMER_ON (peer->t_keepalive, bgp_keepalive_timer,
 			peer->v_keepalive);
 	}
-      BGP_TIMER_OFF (peer->t_asorig);
       break;
     case Deleted:
       BGP_TIMER_OFF (peer->t_gr_restart);
@@ -208,7 +205,6 @@ bgp_timer_set (struct peer *peer)
       BGP_TIMER_OFF (peer->t_connect);
       BGP_TIMER_OFF (peer->t_holdtime);
       BGP_TIMER_OFF (peer->t_keepalive);
-      BGP_TIMER_OFF (peer->t_asorig);
       BGP_TIMER_OFF (peer->t_routeadv);
     }
 }
@@ -395,7 +391,7 @@ bgp_graceful_stale_timer_expire (struct thread *thread)
   return 0;
 }
 
-/* Called after event occured, this function change status and reset
+/* Called after event occurred, this function change status and reset
    read/write and timer thread. */
 void
 bgp_fsm_change_status (struct peer *peer, int status)
@@ -406,7 +402,23 @@ bgp_fsm_change_status (struct peer *peer, int status)
    * (and must do so before actually changing into Deleted..
    */
   if (status >= Clearing)
-    bgp_clear_route_all (peer);
+    {
+      bgp_clear_route_all (peer);
+
+      /* If no route was queued for the clear-node processing, generate the
+       * completion event here. This is needed because if there are no routes
+       * to trigger the background clear-node thread, the event won't get
+       * generated and the peer would be stuck in Clearing. Note that this
+       * event is for the peer and helps the peer transition out of Clearing
+       * state; it should not be generated per (AFI,SAFI). The event is
+       * directly posted here without calling clear_node_complete() as we
+       * shouldn't do an extra unlock. This event will get processed after
+       * the state change that happens below, so peer will be in Clearing
+       * (or Deleted).
+       */
+      if (!work_queue_is_scheduled (peer->clear_node_queue))
+        BGP_EVENT_ADD (peer, Clearing_Completed);
+    }
   
   /* Preserve old status and change into new status. */
   peer->ostatus = peer->status;
@@ -495,7 +507,7 @@ bgp_stop (struct peer *peer)
       /* Reset peer synctime */
       peer->synctime = 0;
     }
-
+  
   /* Stop read and write threads when exists. */
   BGP_READ_OFF (peer->t_read);
   BGP_WRITE_OFF (peer->t_write);
@@ -505,7 +517,6 @@ bgp_stop (struct peer *peer)
   BGP_TIMER_OFF (peer->t_connect);
   BGP_TIMER_OFF (peer->t_holdtime);
   BGP_TIMER_OFF (peer->t_keepalive);
-  BGP_TIMER_OFF (peer->t_asorig);
   BGP_TIMER_OFF (peer->t_routeadv);
 
   /* Stream reset. */
@@ -545,7 +556,7 @@ bgp_stop (struct peer *peer)
 
         /* ORF received prefix-filter pnt */
         sprintf (orf_name, "%s.%d.%d", peer->host, afi, safi);
-        prefix_bgp_orf_remove_all (orf_name);
+        prefix_bgp_orf_remove_all (afi, orf_name);
       }
 
   /* Reset keepalive and holdtime */
@@ -576,19 +587,41 @@ bgp_stop (struct peer *peer)
   return 0;
 }
 
+/* first-val * 2**x back-off, where x is the number of sucessive calls 
+ * originally used for peer v_start back-off 
+ */
+__attribute__((unused))
+static int
+back_off_exp2 (const int first, int val, const int max) 
+{
+  val <<= 1;
+  return (val < max ? val : max);
+}
+
+/* exponential back off, but biased downward by the initial value. 
+ * this bias is significant at lower values, and tends to
+ * insignificance fairly quickly, so it is equal to the previous at
+ * scale.  Is below first-val * 1.7**x at x == 6, and below first-val
+ * * 1.75**x at x=10.
+ *
+ * I.e., this function is useful to get slower growth for the initial
+ * points of x.
+ */
+__attribute__((unused))
+static int
+back_off_exp2_bias (const int first, int val, const int max)
+{
+  val = (val << 1) - (val > first ? first : 0);
+  return (val < max ? val : max);
+}
+
 /* BGP peer is stoped by the error. */
 static int
 bgp_stop_with_error (struct peer *peer)
 {
-  /* Double start timer. */
-  peer->v_start *= 2;
-
-  /* Overflow check. */
-  if (peer->v_start >= (60 * 2))
-    peer->v_start = (60 * 2);
-
+  peer->v_start
+   = back_off_exp2_bias (BGP_INIT_START_TIMER, peer->v_start, 60);
   bgp_stop (peer);
-
   return 0;
 }
 
@@ -623,6 +656,8 @@ bgp_stop_with_notify (struct peer *peer, u_char code, u_char sub_code)
 static int
 bgp_connect_success (struct peer *peer)
 {
+  struct peer *realpeer;
+  
   if (peer->fd < 0)
     {
       zlog_err ("bgp_connect_success peer's fd is negative value %d",
@@ -644,9 +679,29 @@ bgp_connect_success (struct peer *peer)
       else
 	zlog_debug ("%s passive open", peer->host);
     }
-
-  if (! CHECK_FLAG (peer->sflags, PEER_STATUS_ACCEPT_PEER))
-    bgp_open_send (peer);
+  
+  /* Generally we want to send OPEN ASAP. Except, some partial BGP
+   * implementations out there (e.g., conformance test tools / BGP
+   * traffic generators) seem to be a bit funny about connection collisions,
+   * and OPENs before they have sent.
+   *
+   * As a hack, delay sending OPEN on an inbound accept-peer session
+   * _IF_ we locally have an outbound connection in progress, i.e. 
+   * we're in middle of a connection collision. If we delay, we delay until
+   * an Open is received - as per old Quagga behaviour.
+   */
+  if (CHECK_FLAG (peer->sflags, PEER_STATUS_ACCEPT_PEER))
+    {
+      realpeer = peer_lookup (peer->bgp, &peer->su);
+      
+      if (realpeer->status > Idle && realpeer->status <= Established)
+        {
+          SET_FLAG (peer->sflags, PEER_STATUS_OPEN_DEFERRED);
+          return 0;
+        }
+   }
+  
+  bgp_open_send (peer);
 
   return 0;
 }
@@ -665,6 +720,7 @@ int
 bgp_start (struct peer *peer)
 {
   int status;
+  int connected = 0;
 
   if (BGP_PEER_START_SUPPRESSED (peer))
     {
@@ -703,6 +759,12 @@ bgp_start (struct peer *peer)
       return 0;
     }
 
+  /* Register to be notified on peer up */
+  if ((peer_ttl(peer) == 1 || peer->gtsm_hops == 1) &&
+      ! CHECK_FLAG (peer->flags, PEER_FLAG_DISABLE_CONNECTED_CHECK))
+    connected = 1;
+
+  bgp_ensure_nexthop (NULL, peer, connected);
   status = bgp_connect (peer);
 
   switch (status)
@@ -953,6 +1015,7 @@ static const struct {
     {bgp_ignore, Idle},		/* Receive_UPDATE_message       */
     {bgp_ignore, Idle},		/* Receive_NOTIFICATION_message */
     {bgp_ignore, Idle},         /* Clearing_Completed           */
+    {bgp_ignore, Idle},         /* BGP_Stop_with_error          */
   },
   {
     /* Connect */
@@ -970,6 +1033,7 @@ static const struct {
     {bgp_ignore,  Idle},	/* Receive_UPDATE_message       */
     {bgp_stop,    Idle},	/* Receive_NOTIFICATION_message */
     {bgp_ignore,  Idle},         /* Clearing_Completed           */
+    {bgp_stop_with_error, Idle},/* BGP_Stop_with_error          */
   },
   {
     /* Active, */
@@ -987,6 +1051,7 @@ static const struct {
     {bgp_ignore,  Idle},	/* Receive_UPDATE_message       */
     {bgp_stop_with_error, Idle}, /* Receive_NOTIFICATION_message */
     {bgp_ignore, Idle},         /* Clearing_Completed           */
+    {bgp_stop_with_error, Idle},/* BGP_Stop_with_error          */
   },
   {
     /* OpenSent, */
@@ -1004,6 +1069,7 @@ static const struct {
     {bgp_fsm_event_error, Idle}, /* Receive_UPDATE_message       */
     {bgp_stop_with_error, Idle}, /* Receive_NOTIFICATION_message */
     {bgp_ignore, Idle},         /* Clearing_Completed           */
+    {bgp_stop_with_error, Idle},/* BGP_Stop_with_error          */
   },
   {
     /* OpenConfirm, */
@@ -1021,6 +1087,7 @@ static const struct {
     {bgp_ignore,  Idle},	/* Receive_UPDATE_message       */
     {bgp_stop_with_error, Idle}, /* Receive_NOTIFICATION_message */
     {bgp_ignore, Idle},         /* Clearing_Completed           */
+    {bgp_stop_with_error, Idle},/* BGP_Stop_with_error          */
   },
   {
     /* Established, */
@@ -1038,6 +1105,7 @@ static const struct {
     {bgp_fsm_update,           Established}, /* Receive_UPDATE_message       */
     {bgp_stop_with_error,         Clearing}, /* Receive_NOTIFICATION_message */
     {bgp_ignore,                      Idle}, /* Clearing_Completed           */
+    {bgp_stop_with_error,         Clearing}, /* BGP_Stop_with_error          */
   },
   {
     /* Clearing, */
@@ -1055,6 +1123,7 @@ static const struct {
     {bgp_stop,			Clearing},	/* Receive_UPDATE_message       */
     {bgp_stop,			Clearing},	/* Receive_NOTIFICATION_message */
     {bgp_clearing_completed,    Idle},		/* Clearing_Completed           */
+    {bgp_stop_with_error,       Clearing},      /* BGP_Stop_with_error          */
   },
   {
     /* Deleted, */
@@ -1072,6 +1141,7 @@ static const struct {
     {bgp_ignore,  Deleted},	/* Receive_UPDATE_message       */
     {bgp_ignore,  Deleted},	/* Receive_NOTIFICATION_message */
     {bgp_ignore,  Deleted},	/* Clearing_Completed           */
+    {bgp_ignore,  Deleted},     /* BGP_Stop_with_error          */
   },
 };
 
@@ -1092,6 +1162,7 @@ static const char *bgp_event_str[] =
   "Receive_UPDATE_message",
   "Receive_NOTIFICATION_message",
   "Clearing_Completed",
+  "BGP_Stop_with_error",
 };
 
 /* Execute event process. */

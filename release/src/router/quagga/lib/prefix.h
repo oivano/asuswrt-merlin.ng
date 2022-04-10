@@ -23,7 +23,29 @@
 #ifndef _ZEBRA_PREFIX_H
 #define _ZEBRA_PREFIX_H
 
+#ifdef SUNOS_5
+# include <sys/ethernet.h>
+#else
+# ifdef GNU_LINUX
+#  include <net/ethernet.h>
+# else
+#  include <netinet/if_ether.h>
+# endif
+#endif
 #include "sockunion.h"
+
+#ifndef ETHER_ADDR_LEN
+#define ETHER_ADDR_LEN  ETHERADDRL
+#endif
+
+/*
+ * there isn't a portable ethernet address type. We define our
+ * own to simplify internal handling
+ */
+struct ethaddr {
+    u_char octet[ETHER_ADDR_LEN];
+} __packed;
+
 
 /*
  * A struct prefix contains an address family, a prefix length, and an
@@ -33,6 +55,15 @@
  * (e.g. AF_INET:10.0.0.9/8), such as might be configured on an
  * interface.
  */
+
+/* different OSes use different names */
+#if defined(AF_PACKET)
+#define AF_ETHERNET AF_PACKET
+#else
+#if defined(AF_LINK)
+#define AF_ETHERNET AF_LINK
+#endif
+#endif
 
 /* IPv4 and IPv6 unified prefix structure. */
 struct prefix
@@ -51,6 +82,7 @@ struct prefix
       struct in_addr id;
       struct in_addr adv_router;
     } lp;
+    struct ethaddr prefix_eth;	/* AF_ETHERNET */
     u_char val[8];
     uintptr_t ptr;
   } u __attribute__ ((aligned (8)));
@@ -88,6 +120,14 @@ struct prefix_rd
   u_char family;
   u_char prefixlen;
   u_char val[8] __attribute__ ((aligned (8)));
+};
+
+/* Prefix for ethernet. */
+struct prefix_eth
+{
+  u_char family;
+  u_char prefixlen;
+  struct ethaddr eth_addr __attribute__ ((aligned (8))); /* AF_ETHERNET */
 };
 
 /* Prefix for a generic pointer */
@@ -129,6 +169,9 @@ union prefix46constptr
 #define INET6_BUFSIZ 51
 #endif /* INET6_BUFSIZ */
 
+/* Maximum prefix string length (IPv6) */
+#define PREFIX_STRLEN 51
+
 /* Max bit/byte length of IPv4 address. */
 #define IPV4_MAX_BYTELEN    4
 #define IPV4_MAX_BITLEN    32
@@ -156,9 +199,22 @@ union prefix46constptr
 /* Prefix's family member. */
 #define PREFIX_FAMILY(p)  ((p)->family)
 
+/* glibc defines s6_addr32 to __in6_u.__u6_addr32 if __USE_{MISC || GNU} */
+#ifndef s6_addr32
+#if defined(SUNOS_5)
+/* Some SunOS define s6_addr32 only to kernel */
+#define s6_addr32 _S6_un._S6_u32
+#else
+#define s6_addr32 __u6_addr.__u6_addr32
+#endif /* SUNOS_5 */
+#endif /*s6_addr32*/
+
 /* Prototypes. */
+extern int str2family(const char *);
 extern int afi2family (afi_t);
 extern afi_t family2afi (int);
+extern const char *safi2str(safi_t safi);
+extern const char *afi2str(afi_t afi);
 
 /* Check bit of the prefix. */
 extern unsigned int prefix_bit (const u_char *prefix, const u_char prefixlen);
@@ -169,7 +225,7 @@ extern void prefix_free (struct prefix *);
 extern const char *prefix_family_str (const struct prefix *);
 extern int prefix_blen (const struct prefix *);
 extern int str2prefix (const char *, struct prefix *);
-extern int prefix2str (const struct prefix *, char *, int);
+extern const char *prefix2str (union prefix46constptr, char *, int);
 extern int prefix_match (const struct prefix *, const struct prefix *);
 extern int prefix_same (const struct prefix *, const struct prefix *);
 extern int prefix_cmp (const struct prefix *, const struct prefix *);
@@ -179,8 +235,10 @@ extern void apply_mask (struct prefix *);
 
 extern struct prefix *sockunion2prefix (const union sockunion *dest,
                                         const union sockunion *mask);
-extern struct prefix *sockunion2hostprefix (const union sockunion *);
+extern struct prefix *sockunion2hostprefix (const union sockunion *, struct prefix *p);
 extern void prefix2sockunion (const struct prefix *, union sockunion *);
+
+extern int str2prefix_eth (const char *, struct prefix_eth *);
 
 extern struct prefix_ipv4 *prefix_ipv4_new (void);
 extern void prefix_ipv4_free (struct prefix_ipv4 *);

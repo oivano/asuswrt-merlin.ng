@@ -28,6 +28,7 @@
 #include "linklist.h"
 #include "sockunion.h"
 #include "memory.h"
+#include "filter.h"
 
 #include "bgpd/bgpd.h"
 #include "bgpd/bgp_table.h"
@@ -37,7 +38,35 @@
 #include "bgpd/bgp_aspath.h"
 #include "bgpd/bgp_community.h"
 #include "bgpd/bgp_ecommunity.h"
+#include "bgpd/bgp_lcommunity.h"
 #include "bgpd/bgp_mpath.h"
+
+bool
+bgp_mpath_is_configured_sort (struct bgp *bgp, bgp_peer_sort_t sort,
+                              afi_t afi, safi_t safi)
+{
+  struct bgp_maxpaths_cfg *cfg = &bgp->maxpaths[afi][safi];
+
+  /* XXX: BGP_DEFAULT_MAXPATHS is 1, and this test only seems to make sense
+   * if if it stays 1, so not sure the DEFAULT define is that useful.
+   */
+  switch (sort)
+    {
+      case BGP_PEER_IBGP:
+        return cfg->maxpaths_ibgp != BGP_DEFAULT_MAXPATHS;
+      case BGP_PEER_EBGP:
+        return cfg->maxpaths_ebgp != BGP_DEFAULT_MAXPATHS;
+      default:
+        return false;
+    }
+}
+
+bool
+bgp_mpath_is_configured (struct bgp *bgp, afi_t afi, safi_t safi)
+{
+  return bgp_mpath_is_configured_sort (bgp, BGP_PEER_IBGP, afi, safi)
+         || bgp_mpath_is_configured_sort (bgp, BGP_PEER_EBGP, afi, safi);
+}
 
 /*
  * bgp_maximum_paths_set
@@ -111,28 +140,45 @@ bgp_info_nexthop_cmp (struct bgp_info *bi1, struct bgp_info *bi2)
 
   compare = IPV4_ADDR_CMP (&bi1->attr->nexthop, &bi2->attr->nexthop);
 
-  if (!compare && ae1 && ae2 && (ae1->mp_nexthop_len == ae2->mp_nexthop_len))
+  if (!compare && ae1 && ae2)
     {
-      switch (ae1->mp_nexthop_len)
+      if (ae1->mp_nexthop_len == ae2->mp_nexthop_len)
         {
-        case 4:
-        case 12:
-          compare = IPV4_ADDR_CMP (&ae1->mp_nexthop_global_in,
-                                   &ae2->mp_nexthop_global_in);
-          break;
-#ifdef HAVE_IPV6
-        case 16:
-          compare = IPV6_ADDR_CMP (&ae1->mp_nexthop_global,
-                                   &ae2->mp_nexthop_global);
-          break;
-        case 32:
+          switch (ae1->mp_nexthop_len)
+            {
+            case 4:
+            case 12:
+              compare = IPV4_ADDR_CMP (&ae1->mp_nexthop_global_in,
+                                       &ae2->mp_nexthop_global_in);
+              break;
+            case 16:
+              compare = IPV6_ADDR_CMP (&ae1->mp_nexthop_global,
+                                       &ae2->mp_nexthop_global);
+              break;
+            case 32:
+              compare = IPV6_ADDR_CMP (&ae1->mp_nexthop_global,
+                                       &ae2->mp_nexthop_global);
+              if (!compare)
+                compare = IPV6_ADDR_CMP (&ae1->mp_nexthop_local,
+                                         &ae2->mp_nexthop_local);
+              break;
+            }
+        }
+
+      /* This can happen if one IPv6 peer sends you global and link-local
+       * nexthops but another IPv6 peer only sends you global
+       */
+      else if (ae1->mp_nexthop_len == 16 || ae1->mp_nexthop_len == 32)
+        {
           compare = IPV6_ADDR_CMP (&ae1->mp_nexthop_global,
                                    &ae2->mp_nexthop_global);
           if (!compare)
-            compare = IPV6_ADDR_CMP (&ae1->mp_nexthop_local,
-                                     &ae2->mp_nexthop_local);
-          break;
-#endif /* HAVE_IPV6 */
+            {
+              if (ae1->mp_nexthop_len < ae2->mp_nexthop_len)
+                compare = -1;
+              else
+                compare = 1;
+            }
         }
     }
 
@@ -395,13 +441,14 @@ bgp_info_mpath_attr_set (struct bgp_info *binfo, struct attr *attr)
 void
 bgp_info_mpath_update (struct bgp_node *rn, struct bgp_info *new_best,
                        struct bgp_info *old_best, struct list *mp_list,
-                       struct bgp_maxpaths_cfg *mpath_cfg)
+                        afi_t afi, safi_t safi)
 {
   u_int16_t maxpaths, mpath_count, old_mpath_count;
   struct listnode *mp_node, *mp_next_node;
   struct bgp_info *cur_mpath, *new_mpath, *next_mpath, *prev_mpath;
   int mpath_changed, debug;
-  char pfx_buf[INET_ADDRSTRLEN], nh_buf[2][INET_ADDRSTRLEN];
+  char pfx_buf[INET6_ADDRSTRLEN], nh_buf[2][INET6_ADDRSTRLEN];
+  struct bgp_maxpaths_cfg *mpath_cfg = NULL;
 
   mpath_changed = 0;
   maxpaths = BGP_DEFAULT_MAXPATHS;
@@ -410,6 +457,7 @@ bgp_info_mpath_update (struct bgp_node *rn, struct bgp_info *new_best,
   old_mpath_count = 0;
   prev_mpath = new_best;
   mp_node = listhead (mp_list);
+
   debug = BGP_DEBUG (events, EVENTS);
 
   if (debug)
@@ -417,6 +465,7 @@ bgp_info_mpath_update (struct bgp_node *rn, struct bgp_info *new_best,
 
   if (new_best)
     {
+      mpath_cfg = &new_best->peer->bgp->maxpaths[afi][safi];
       mpath_count++;
       if (new_best != old_best)
         bgp_info_mpath_dequeue (new_best);
@@ -599,6 +648,7 @@ bgp_info_mpath_aggregate_update (struct bgp_info *new_best,
   u_char origin, attr_chg;
   struct community *community, *commerge;
   struct ecommunity *ecomm, *ecommerge;
+  struct lcommunity *lcomm, *lcommerge;
   struct attr_extra *ae;
   struct attr attr = { 0 };
 
@@ -663,10 +713,12 @@ bgp_info_mpath_aggregate_update (struct bgp_info *new_best,
   ae = attr.extra;
   ecomm = (ae && ae->ecommunity) ? ecommunity_dup (ae->ecommunity) : NULL;
 
+  lcomm = (ae && ae->lcommunity) ? lcommunity_dup (ae->lcommunity) : NULL;
+
   for (mpinfo = bgp_info_mpath_first (new_best); mpinfo;
        mpinfo = bgp_info_mpath_next (mpinfo))
     {
-      asmerge = aspath_aggregate (aspath, mpinfo->attr->aspath);
+      asmerge = aspath_aggregate_mpath (aspath, mpinfo->attr->aspath);
       aspath_free (aspath);
       aspath = asmerge;
 
@@ -697,6 +749,18 @@ bgp_info_mpath_aggregate_update (struct bgp_info *new_best,
           else
             ecomm = ecommunity_dup (ae->ecommunity);
         }
+
+      if (ae && ae->lcommunity)
+        {
+          if (lcomm)
+            {
+              lcommerge = lcommunity_merge (lcomm, ae->lcommunity);
+              lcomm = lcommunity_uniq_sort (lcommerge);
+              lcommunity_free (&lcommerge);
+            }
+          else
+            lcomm = lcommunity_dup (ae->lcommunity);
+        }
     }
 
   attr.aspath = aspath;
@@ -715,10 +779,8 @@ bgp_info_mpath_aggregate_update (struct bgp_info *new_best,
 
   /* Zap multipath attr nexthop so we set nexthop to self */
   attr.nexthop.s_addr = 0;
-#ifdef HAVE_IPV6
   if (attr.extra)
     memset (&attr.extra->mp_nexthop_global, 0, sizeof (struct in6_addr));
-#endif /* HAVE_IPV6 */
 
   /* TODO: should we set ATOMIC_AGGREGATE and AGGREGATOR? */
 

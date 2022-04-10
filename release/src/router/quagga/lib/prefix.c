@@ -187,6 +187,18 @@ prefix6_bit (const struct in6_addr *prefix, const u_char prefixlen)
   return prefix_bit((const u_char *) &prefix->s6_addr, prefixlen);
 }
 
+int
+str2family(const char *string)
+{
+  if (!strcmp("ipv4", string))
+    return AF_INET;
+  else if (!strcmp("ipv6", string))
+    return AF_INET6;
+  else if (!strcmp("ethernet", string))
+    return AF_ETHERNET;
+  return -1;
+}
+
 /* Address Famiy Identifier to Address Family converter. */
 int
 afi2family (afi_t afi)
@@ -197,6 +209,8 @@ afi2family (afi_t afi)
   else if (afi == AFI_IP6)
     return AF_INET6;
 #endif /* HAVE_IPV6 */
+  else if (afi == AFI_ETHER)
+    return AF_ETHERNET;
   return 0;
 }
 
@@ -209,7 +223,39 @@ family2afi (int family)
   else if (family == AF_INET6)
     return AFI_IP6;
 #endif /* HAVE_IPV6 */
+  else if (family == AF_ETHERNET)
+    return AFI_ETHER;
   return 0;
+}
+
+const char *
+afi2str(afi_t afi)
+{
+  switch (afi) {
+    case AFI_IP:
+	return "IPv4";
+    case AFI_IP6:
+	return "IPv6";
+    case AFI_ETHER:
+	return "ethernet";
+  }
+  return NULL;
+}
+
+const char *
+safi2str(safi_t safi)
+{
+  switch (safi) {
+    case SAFI_UNICAST:
+	return "unicast";
+    case SAFI_MULTICAST:
+	return "multicast";
+    case SAFI_ENCAP:
+	return "encap";
+    case SAFI_MPLS_VPN:
+	return "vpn";
+  }
+  return NULL;
 }
 
 /* If n includes p prefix then return 1 else return 0. */
@@ -259,6 +305,10 @@ prefix_copy (struct prefix *dest, const struct prefix *src)
       dest->u.lp.id = src->u.lp.id;
       dest->u.lp.adv_router = src->u.lp.adv_router;
     }
+  else if (src->family == AF_ETHERNET)
+    {
+      dest->u.prefix_eth = src->u.prefix_eth;
+    }
   else
     {
       zlog (NULL, LOG_ERR, "prefix_copy(): Unknown address family %d",
@@ -288,6 +338,10 @@ prefix_same (const struct prefix *p1, const struct prefix *p2)
 	if (IPV6_ADDR_SAME (&p1->u.prefix6.s6_addr, &p2->u.prefix6.s6_addr))
 	  return 1;
 #endif /* HAVE_IPV6 */
+      if (p1->family == AF_ETHERNET) {
+	if (!memcmp(p1->u.prefix_eth.octet, p2->u.prefix_eth.octet, ETHER_ADDR_LEN))
+	    return 1;
+      }
     }
   return 0;
 }
@@ -379,6 +433,8 @@ prefix_family_str (const struct prefix *p)
   if (p->family == AF_INET6)
     return "inet6";
 #endif /* HAVE_IPV6 */
+  if (p->family == AF_ETHERNET)
+    return "ether";
   return "unspec";
 }
 
@@ -445,6 +501,60 @@ str2prefix_ipv4 (const char *str, struct prefix_ipv4 *p)
       p->family = AF_INET;
       p->prefixlen = plen;
     }
+
+  return ret;
+}
+
+/* When string format is invalid return 0. */
+int
+str2prefix_eth (const char *str, struct prefix_eth *p)
+{
+  int		ret = 0;
+  int		plen = 48;
+  char		*pnt;
+  char		*cp = NULL;
+  const char	*str_addr = str;
+  unsigned int	a[6];
+  int		i;
+
+  /* Find slash inside string. */
+  pnt = strchr (str, '/');
+
+  if (pnt)
+    {
+      /* Get prefix length. */
+      plen = (u_char) atoi (++pnt);
+      if (plen > 48)
+	{
+	  ret = 0;
+	  goto done;
+	}
+
+      cp = XMALLOC (MTYPE_TMP, (pnt - str) + 1);
+      strncpy (cp, str, pnt - str);
+      *(cp + (pnt - str)) = '\0';
+
+      str_addr = cp;
+    }
+
+  /* Convert string to prefix. */
+  if (sscanf(str_addr, "%2x:%2x:%2x:%2x:%2x:%2x",
+    a+0, a+1, a+2, a+3, a+4, a+5) != 6)
+    {
+      ret = 0;
+      goto done;
+    }
+  for (i = 0; i < 6; ++i)
+    {
+      p->eth_addr.octet[i] = a[i] & 0xff;
+    }
+  p->prefixlen = plen;
+  p->family = AF_ETHERNET;
+  ret = 1;
+
+done:
+  if (cp)
+    XFREE (MTYPE_TMP, cp);
 
   return ret;
 }
@@ -539,7 +649,7 @@ str2prefix_ipv6 (const char *str, struct prefix_ipv6 *p)
     {
       int plen;
 
-      cp = XMALLOC (0, (pnt - str) + 1);
+      cp = XMALLOC (MTYPE_TMP, (pnt - str) + 1);
       strncpy (cp, str, pnt - str);
       *(cp + (pnt - str)) = '\0';
       ret = inet_pton (AF_INET6, cp, &p->prefix);
@@ -681,13 +791,13 @@ sockunion2prefix (const union sockunion *dest,
 
 /* Utility function of convert between struct prefix <=> union sockunion. */
 struct prefix *
-sockunion2hostprefix (const union sockunion *su)
+sockunion2hostprefix (const union sockunion *su, struct prefix *prefix)
 {
   if (su->sa.sa_family == AF_INET)
     {
       struct prefix_ipv4 *p;
 
-      p = prefix_ipv4_new ();
+      p = prefix ? (struct prefix_ipv4 *) prefix : prefix_ipv4_new ();
       p->family = AF_INET;
       p->prefix = su->sin.sin_addr;
       p->prefixlen = IPV4_MAX_BITLEN;
@@ -698,7 +808,7 @@ sockunion2hostprefix (const union sockunion *su)
     {
       struct prefix_ipv6 *p;
 
-      p = prefix_ipv6_new ();
+      p = prefix ? (struct prefix_ipv6 *) prefix : prefix_ipv6_new ();
       p->family = AF_INET6;
       p->prefixlen = IPV6_MAX_BITLEN;
       memcpy (&p->prefix, &su->sin6.sin6_addr, sizeof (struct in6_addr));
@@ -735,6 +845,8 @@ prefix_blen (const struct prefix *p)
       return IPV6_MAX_BYTELEN;
       break;
 #endif /* HAVE_IPV6 */
+    case AF_ETHERNET:
+      return ETHER_ADDR_LEN;
     }
   return 0;
 }
@@ -757,17 +869,41 @@ str2prefix (const char *str, struct prefix *p)
     return ret;
 #endif /* HAVE_IPV6 */
 
+  /* Next we try to convert string to struct prefix_eth. */
+  ret = str2prefix_eth (str, (struct prefix_eth *) p);
+  if (ret)
+    return ret;
+
   return 0;
 }
 
-int
-prefix2str (const struct prefix *p, char *str, int size)
+const char *
+prefix2str (union prefix46constptr pu, char *str, int size)
 {
+  const struct prefix *p = pu.p;
   char buf[BUFSIZ];
+
+  if (p->family == AF_ETHERNET) {
+    int		i;
+    char	*s = str;
+
+    assert(size > (3*ETHER_ADDR_LEN) + 1 /* slash */ + 3 /* plen */ );
+    for (i = 0; i < ETHER_ADDR_LEN; ++i) {
+	sprintf(s, "%02x", p->u.prefix_eth.octet[i]);
+	if (i < (ETHER_ADDR_LEN - 1)) {
+	    *(s+2) = ':';
+	    s += 3;
+	} else {
+	    s += 2;
+	}
+    }
+    sprintf(s, "/%d", p->prefixlen);
+    return 0;
+  }
 
   inet_ntop (p->family, &p->u.prefix, buf, BUFSIZ);
   snprintf (str, size, "%s/%d", buf, p->prefixlen);
-  return 0;
+  return str;
 }
 
 struct prefix *

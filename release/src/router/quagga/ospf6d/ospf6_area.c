@@ -657,7 +657,7 @@ DEFUN (show_ipv6_ospf6_spf_tree,
        SHOW_STR
        IP6_STR
        OSPF6_STR
-       "Shortest Path First caculation\n"
+       "Shortest Path First calculation\n"
        "Show SPF tree\n")
 {
   struct listnode *node;
@@ -665,6 +665,8 @@ DEFUN (show_ipv6_ospf6_spf_tree,
   struct ospf6_vertex *root;
   struct ospf6_route *route;
   struct prefix prefix;
+
+  OSPF6_CMD_CHECK_RUNNING ();
 
   ospf6_linkstate_prefix (ospf6->router_id, htonl (0), &prefix);
 
@@ -692,7 +694,7 @@ DEFUN (show_ipv6_ospf6_area_spf_tree,
        OSPF6_STR
        OSPF6_AREA_STR
        OSPF6_AREA_ID_STR
-       "Shortest Path First caculation\n"
+       "Shortest Path First calculation\n"
        "Show SPF tree\n")
 {
   u_int32_t area_id;
@@ -700,6 +702,8 @@ DEFUN (show_ipv6_ospf6_area_spf_tree,
   struct ospf6_vertex *root;
   struct ospf6_route *route;
   struct prefix prefix;
+
+  OSPF6_CMD_CHECK_RUNNING ();
 
   ospf6_linkstate_prefix (ospf6->router_id, htonl (0), &prefix);
 
@@ -734,7 +738,7 @@ DEFUN (show_ipv6_ospf6_simulate_spf_tree_root,
        SHOW_STR
        IP6_STR
        OSPF6_STR
-       "Shortest Path First caculation\n"
+       "Shortest Path First calculation\n"
        "Show SPF tree\n"
        "Specify root's router-id to calculate another router's SPF tree\n")
 {
@@ -746,6 +750,8 @@ DEFUN (show_ipv6_ospf6_simulate_spf_tree_root,
   u_int32_t router_id;
   struct ospf6_route_table *spf_table;
   unsigned char tmp_debug_ospf6_spf = 0;
+
+  OSPF6_CMD_CHECK_RUNNING ();
 
   inet_pton (AF_INET, argv[0], &router_id);
   ospf6_linkstate_prefix (router_id, htonl (0), &prefix);
@@ -792,10 +798,6 @@ ospf6_area_init (void)
   install_element (VIEW_NODE, &show_ipv6_ospf6_spf_tree_cmd);
   install_element (VIEW_NODE, &show_ipv6_ospf6_area_spf_tree_cmd);
   install_element (VIEW_NODE, &show_ipv6_ospf6_simulate_spf_tree_root_cmd);
-
-  install_element (ENABLE_NODE, &show_ipv6_ospf6_spf_tree_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_ospf6_area_spf_tree_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_ospf6_simulate_spf_tree_root_cmd);
 
   install_element (OSPF6_NODE, &area_range_cmd);
   install_element (OSPF6_NODE, &area_range_advertise_cmd);
