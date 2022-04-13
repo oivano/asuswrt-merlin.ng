@@ -1,7 +1,13 @@
 Asuswrt-Merlin 386/NG Changelog
 ===============================
 
-386.4-ion (XX-XX-XX)
+386.5_2-ion (XX-XX-XX)
+  - UPDATED: quagga to 1.2.4
+  - UPDATED: Dropbear to 2022.82
+    UPDATED: Readline to 8.1
+  - NOTE: enabled following quagga services; bgpd, ospfd. Disabled everything else.
+
+386.4-ion (14-Janaury-2021)
   - NOTE: DSL-AC68U removed support for the following functions; amas bwdpi cfg_sync cloudsync
           conndiag email fileflex gameMode media ookla optimize_xbox pptpd printer repeater
           rrsut snmp timemachine user_low_rssi yadns

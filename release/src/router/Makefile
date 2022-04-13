@@ -810,7 +810,7 @@ obj-$(RTCONFIG_BT_CONN) += glib-2.37.7
 obj-$(RTCONFIG_BT_CONN) += udev-173
 obj-$(RTCONFIG_BT_CONN) += libical-2.0.0
 obj-$(RTCONFIG_BT_CONN) += ncurses-6.0
-obj-$(RTCONFIG_BT_CONN) += readline-6.2
+obj-$(RTCONFIG_BT_CONN) += readline-8.1
 obj-$(RTCONFIG_BT_CONN) += json-c
 obj-$(RTCONFIG_BT_CONN) += bluez-5.41
 ifeq ($(or $(HND_ROUTER_AX_675X),$(HND_ROUTER_AX_6756)),y)
@@ -1351,6 +1351,8 @@ obj-$(RTCONFIG_HTTPS) += curl
 obj-$(RTCONFIG_SSH) += dropbear
 obj-$(RTCONFIG_WTFAST) += wtfast
 #obj-$(RTCONFIG_ZEBRA) += zebra
+#obj-$(RTCONFIG_QUAGGA) += ncurses-6.0
+#obj-$(RTCONFIG_QUAGGA) += readline-8.1
 obj-$(RTCONFIG_QUAGGA) += quagga
 #obj-$(RTCONFIG_IPP2P) += ipp2p
 ifeq ($(HND_ROUTER_AX_6756),y)
@@ -4400,18 +4402,20 @@ inadyn-clean:
 quagga/stamp-h1:
 	@cd quagga && autoreconf -i -f && \
 	CC=$(CC) AR=$(AR) RANLIB=$(RANLIB) LD=$(LD) \
-	CFLAGS="$(CFLAGS) -Os -Wall -ffunction-sections -fdata-sections -fPIC" \
-	LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections -L$(STAGEDIR)/usr/lib" \
-	LIBREADLINE="-L$(STAGEDIR)/usr/lib -lreadline" \
+	CFLAGS="-I$(STAGEDIR)/usr/include/readline $(CFLAGS) -Os -Wall -ffunction-sections -fdata-sections -fPIC" \
+	LDFLAGS="-L$(STAGEDIR)/usr/lib -ffunction-sections -fdata-sections -Wl,--gc-sections" \
 	$(CONFIGURE) --prefix=/usr --sysconfdir=/etc --enable-shared \
-	--disable-ripngd --disable-ripd --disable-doc --disable-ospfclient \
-	--disable-ospf6d --disable-nhrpd \
-	--disable-silent-rules \
-	--disable-isisd
+	--disable-ripngd --disable-pimd --disable-ripd --disable-doc --disable-ospfclient \
+	--disable-ospf6d --disable-nhrpd --disable-fpm \
+	--disable-silent-rules --enable-user=nobody \
+	--enable-group=nobody --disable-isisd --disable-vtysh
 	@touch $@
 
 quagga: quagga/stamp-h1
+	@$(SEP)
 	@$(MAKE) -C quagga CC=$(CC) AR=$(AR) RANLIB=$(RANLIB) LD=$(LD) $(PARALLEL_BUILD)
+#		LIBREADLINE_CFLAGS="-I$(STAGEDIR)/usr/include/readline" \
+#		LIBREADLINE_LDFLAGS="-L$(STAGEDIR)/usr/lib -lreadline"
 
 quagga-clean:
 	-@$(MAKE) -C quagga clean
@@ -4425,12 +4429,12 @@ quagga-install:
 	$(STRIP)  $(INSTALLDIR)/quagga/usr/lib/libzebra.so
 	install -d $(INSTALLDIR)/quagga/usr/sbin
 	libtool --mode=install install -c quagga/zebra/zebra $(INSTALLDIR)/quagga/usr/sbin
-	libtool --mode=install install -c quagga/vtysh $(INSTALLDIR)/quagga/usr/sbin
+#	libtool --mode=install install -c quagga/vtysh $(INSTALLDIR)/quagga/usr/sbin
 	libtool --mode=install install -c quagga/bgpd/bgpd $(INSTALLDIR)/quagga/usr/sbin
 	libtool --mode=install install -c quagga/ospfd/ospfd $(INSTALLDIR)/quagga/usr/sbin
 	libtool --mode=install install -c quagga/watchquagga/watchquagga $(INSTALLDIR)/quagga/usr/sbin
 	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/zebra
-	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/vtysh
+#	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/vtysh
 	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/bgpd
 	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/ospfd
 	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/watchquagga
@@ -7372,7 +7376,7 @@ libfapi-0.1-install:
 	cd libfapi-0.1; make clean; make
 	install -D libfapi-0.1/libfapi.so $(TARGETDIR)/usr/lib/
 
-fapi_wlan_common-05.04.00.131: ncurses-6.0 readline-6.2 libhelper-1.4.0.2
+fapi_wlan_common-05.04.00.131: ncurses-6.0 readline-8.1 libhelper-1.4.0.2
 	cd fapi_wlan_common-05.04.00.131; make clean; make
 
 fapi_wlan_common-05.04.00.131-install:
@@ -7830,29 +7834,32 @@ wsdd2-clean:
 
 # End merlin components
 
-readline-6.2/Makefile: readline-6.2/configure
-	cd readline-6.2 && $(CONFIGURE)\
-		--prefix=/usr --exec_prefix=/usr --bindir=/usr/bin --sbindir=/usr/sbin --libexecdir=/usr/lib\
-		--sysconfdir=/etc --disable-static --enable-shared\
-		CFLAGS="-I$(STAGEDIR)/usr/local/include"\
-		LDFLAGS="-L$(STAGEDIR)/usr/local/lib -L$(STAGEDIR)/usr/lib -L$(TOP)/ncurese-2.0/lib -ldl -lpthread" \
+readline-8.1/Makefile: readline-8.1/configure
+	cd readline-8.1 && autoreconf -i -f && \
+	CC=$(CC) CFLAGS="-O2 -I$(STAGEDIR)/usr/local/include -I$(TOP)/ncurses-6.0/include -ffunction-sections -fdata-sections" \
+	LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections -L$(TOP)/ncurses-6.0/lib/ -L$(STAGEDIR)/usr/local/lib -L$(STAGEDIR)/usr/lib -ldl -lpthread" \
+	$(CONFIGURE) --prefix=/usr --exec_prefix=/usr --bindir=/usr/bin --sbindir=/usr/sbin --libexecdir=/usr/lib \
+	--sysconfdir=/etc --disable-static --enable-shared
+	touch $@
 
-readline-6.2: readline-6.2/Makefile
-	$(MAKE) SHLIB_LIBS="-lncurses" -C $@ && $(MAKE) $@-stage
+readline-8.1: readline-8.1/Makefile
+	@$(SEP)
+	$(MAKE) SHLIB_LIBS="$(TOP)/ncurses-6.0/lib/libncursesw.a" -C $@ && $(MAKE) $@-stage
+#	$(MAKE) -C $@ && $(MAKE) $@-stage
 
-readline-6.2-clean:
-	[ ! -f readline-6.2/Makefile ] || $(MAKE) -C readline-6.2 distclean
+readline-8.1-clean:
+	[ ! -f readline-8.1/Makefile ] || $(MAKE) -C readline-8.1 distclean
 
-readline-6.2-install: readline-6.2
-	install -D readline-6.2/shlib/libhistory.so.6.2 $(INSTALLDIR)/readline-6.2/usr/lib/libhistory.so.6.2
-	install -D readline-6.2/shlib/libreadline.so.6.2 $(INSTALLDIR)/readline-6.2/usr/lib/libreadline.so.6.2
-	$(STRIP) $(INSTALLDIR)/readline-6.2/usr/lib/libhistory.so.6.2
-	$(STRIP) $(INSTALLDIR)/readline-6.2/usr/lib/libreadline.so.6.2
-	cd $(INSTALLDIR)/readline-6.2/usr/lib && \
-		ln -sf libhistory.so.6.2 libhistory.so.6 &&\
-		ln -sf libhistory.so.6.2 libhistory.so &&\
-		ln -sf libreadline.so.6.2 libreadline.so.6 &&\
-		ln -sf libreadline.so.6.2 libreadline.so
+readline-8.1-install: readline-8.1
+	install -D readline-8.1/shlib/libhistory.so.8.1 $(INSTALLDIR)/readline-8.1/usr/lib/libhistory.so.8.1
+	install -D readline-8.1/shlib/libreadline.so.8.1 $(INSTALLDIR)/readline-8.1/usr/lib/libreadline.so.8.1
+	$(STRIP) $(INSTALLDIR)/readline-8.1/usr/lib/libhistory.so.8.1
+	$(STRIP) $(INSTALLDIR)/readline-8.1/usr/lib/libreadline.so.8.1
+	cd $(INSTALLDIR)/readline-8.1/usr/lib && \
+		ln -sf libhistory.so.8.1 libhistory.so.8 &&\
+		ln -sf libhistory.so.8.1 libhistory.so &&\
+		ln -sf libreadline.so.8.1 libreadline.so.8 &&\
+		ln -sf libreadline.so.8.1 libreadline.so
 
 dbus-1.8.8/stamp-h1:
 	cd dbus-1.8.8 && ./autogen.sh --no-configure
