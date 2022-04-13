@@ -4428,11 +4428,11 @@ quagga-install:
 	libtool --mode=install install -c quagga/bgpd/bgpd $(INSTALLDIR)/quagga/usr/sbin
 	libtool --mode=install install -c quagga/ospfd/ospfd $(INSTALLDIR)/quagga/usr/sbin
 	libtool --mode=install install -c quagga/watchquagga/watchquagga $(INSTALLDIR)/quagga/usr/sbin
-#	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/zebra
+	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/zebra
 #	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/vtysh
-#	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/bgpd
-#	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/ospfd
-#	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/watchquagga
+	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/bgpd
+	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/ospfd
+	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/watchquagga
 ifneq ($(RTCONFIG_MUSL_LIBC),y)
 	mkdir -p $(TARGETDIR)/lib
 ifneq ($(HND_ROUTER),y)
@@ -4977,7 +4977,7 @@ dropbear/config.h: dropbear/config.h.in
 
 dropbear: dropbear/config.h
 	@$(SEP)
-	@$(MAKE) -C $@ PROGRAMS="dropbear dbclient dropbearkey scp" MULTI=1 IGNORE_SPEED=1 $(PARALLEL_BUILD)
+	@$(MAKE) -C $@ PROGRAMS="dropbear dbclient dropbearkey scp sftp" MULTI=1 IGNORE_SPEED=1 $(PARALLEL_BUILD)
 
 dropbear-install:
 	install -D dropbear/dropbearmulti $(INSTALLDIR)/dropbear/usr/bin/dropbearmulti
@@ -4986,6 +4986,7 @@ dropbear-install:
 	ln -sf dropbearmulti dropbearkey && \
 	ln -sf dropbearmulti dbclient && \
 	ln -sf dropbearmulti ssh && \
+	ln -sf dropbearmulti sftp && \
 	ln -sf dropbearmulti scp
 	install -d $(INSTALLDIR)/dropbear/usr/sbin
 	cd $(INSTALLDIR)/dropbear/usr/sbin && \
