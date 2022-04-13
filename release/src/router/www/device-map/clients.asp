@@ -35,8 +35,15 @@ p{
 	padding: 2px 3px;
 	border-radius: 3px;
 }
-.imgUserIcon_card{
+.imgUserIcon{
+	cursor: pointer;
+	position: relative; 
 	left: 17px; 
+	width: 52px;
+	height: 52px;
+	-webkit-border-radius: 10px;
+	-moz-border-radius: 10px;
+	border-radius: 10px;
 }
 </style>
 <script type="text/javascript" src="/state.js"></script>
@@ -153,7 +160,7 @@ function drawClientList(tab){
 		}
 		else if(userIconBase64 != "NoIcon") {
 			clientHtmlTd += '<div title="'+ deviceTitle + '"">';
-			clientHtmlTd += '<img id="imgUserIcon_'+ i +'" class="imgUserIcon_card" src="' + userIconBase64 + '"';
+			clientHtmlTd += '<img id="imgUserIcon_'+ i +'" class="imgUserIcon" src="' + userIconBase64 + '"';
 			clientHtmlTd += '</div>';
 		}
 		else if(clientObj.type != "0" || clientObj.vendor == "") {
@@ -189,16 +196,12 @@ function drawClientList(tab){
 		clientHtmlTd += '</div></td>';
 		
 		clientHtmlTd += '<td style="width:55px">';
-		var MULTIFILTER_BLOCK_ALL = parent.httpApi.nvramGet(["MULTIFILTER_BLOCK_ALL"]).MULTIFILTER_BLOCK_ALL;
-		if(MULTIFILTER_BLOCK_ALL == "1")
+		if(!clientObj.internetState) {
 			clientHtmlTd += '<div class="internetBlock" title="Block Internet access" style="height:20px;width:20px;margin-right:5px;float:right;"></div>';/*untranslated*/
-		else{
-			if(!clientObj.internetState) {
-				clientHtmlTd += '<div class="internetBlock" title="Block Internet access" style="height:20px;width:20px;margin-right:5px;float:right;"></div>';/*untranslated*/
-			}
-			if(clientObj.internetMode == "time") {
-				clientHtmlTd += '<div class="internetTimeLimits" title="Time Scheduling" style="background-size:25px 20px;height:20px;width:25px;margin-right:5px;float:right;"></div>';/*untranslated*/
-			}
+		}
+
+		if(clientObj.internetMode == "time") {
+			clientHtmlTd += '<div class="internetTimeLimits" title="Time Scheduling" style="background-size:25px 20px;height:20px;width:25px;margin-right:5px;float:right;"></div>';/*untranslated*/
 		}
 		if(parent.sw_mode == 1){
 			clientHtmlTd += '</td></tr><tr><td style="height:20px;" title=\'' + ipState[clientObj.ipMethod] + '\'>';
@@ -313,7 +316,7 @@ function drawClientList(tab){
 		if(document.getElementById("tabWireless").offsetWidth > 150 || 
 			(document.getElementById("tabOnline").offsetWidth+document.getElementById("tabWired").offsetWidth+document.getElementById("tabWireless").offsetWidth) > 300){
 			var wireless_span = document.getElementById("tabWirelessSpan").innerHTML;
-			var Modified_wireless_term = wireless_span.replace("<#tm_wireless#>", "WiFi");
+			var Modified_wireless_term = wireless_span.replace("<#tm_wireless#>", "Wi-Fi");
 			document.getElementById("tabWirelessSpan").innerHTML = Modified_wireless_term;
 		}
 	}
@@ -333,7 +336,7 @@ function drawClientList(tab){
 		document.getElementById("searchingBar").placeholder = 'Search';
 	}
 	else{
-		document.getElementById("searchingBar").placeholder = '[' + wl_nband_title[tab.split("wireless")[1]-1] + '](' + totalClientNum.wireless_ifnames[tab.split("wireless")[1]-1] + ')';
+		document.getElementById("searchingBar").placeholder = '[' + wl_nband_title[tab.split("wireless")[1]] + '](' + totalClientNum.wireless_ifnames[tab.split("wireless")[1]] + ')';
 	}
 
 	if(pagesVar.curTab != tab){

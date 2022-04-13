@@ -71,6 +71,28 @@ var client_convRSSI = function(val) {
 	return result;
 };
 
+/* ouiDB lookup code */
+var ouiClientListArray = new Array();
+ouiClientListArray = Session.get("ouiDB");
+if(ouiClientListArray == undefined) {
+	ouiClientListArray = [];
+	//Download OUI DB
+	setTimeout(function() {
+		var ouiBDjs = document.createElement("script");
+		ouiBDjs.type = "application/javascript";
+		ouiBDjs.src = "/js/ouiDB.js";
+		window.document.body.appendChild(ouiBDjs);
+	}, 1000);
+}
+
+function updateManufacturer(_ouiDBArray) {
+	ouiClientListArray = [];
+	ouiClientListArray = _ouiDBArray;
+	Session.set("ouiDB", _ouiDBArray);
+}
+
+/* End ouiDB lookup code */
+
 var ipState = new Array();
 ipState["Static"] = "<#BOP_ctype_title5#>";
 ipState["DHCP"] = "<#BOP_ctype_title1#>";
@@ -434,6 +456,7 @@ function getUploadIconList() {
 	return list
 }
 
+
 function getVenderIconClassName(venderName) {
 	var vender_class_name = "";
 	var match_data = venderName.match(venderArrayRE);
@@ -481,8 +504,6 @@ var card_client_variable = {
 	"firstTimeOpenBlock" : false,
 	"custom_usericon_del" : "",
 	"userIconBase64" : "NoIcon",
-	"userIconBase64_ori" : "NoIcon",
-	"userUploadFlag" : false,
 	"ipBindingFlag" : false,
 	"timeSchedulingFlag" : false,
 	"blockInternetFlag" : false,
@@ -639,7 +660,9 @@ function popClientListEditTable(event) {
 	//device icon list start
 	code += '<tr>';
 	code += '<td colspan="3">';
-	code += '<div id="card_custom_image" class="custom_icon_list_bg" style="display:none;"></div>';
+	code += '<div id="card_custom_image" class="client_icon_list" style="display:none;">';
+	code += '<table width="99%;" id="tbCardClientListIcon" border="1" align="center" cellpadding="4" cellspacing="0">';
+	code += '</table>';
 	code += '</td>';
 	code += '</tr>';
 	//device icon list end
@@ -647,7 +670,7 @@ function popClientListEditTable(event) {
 	//adv setting start
 	if(adv_setting) {
 		var block_internet_hint = "Enable this button to block this device to access internet.";/* untranslated */
-		var time_scheduling_hint = "<#ParentalCtrl_Desc_TS#>";
+		var time_scheduling_hint = "Time Scheduling allows you to set the time limit for a client's network usage.";/* untranslated */
 		var ip_binding_hint = "Enable this button to bind specific IP with MAC Address of this device.";/* untranslated */
 		var internetTimeScheduling_title = (bwdpi_support) ? "<#Time_Scheduling#>" : "<#Parental_Control#>";
 		code += '<tr>';
@@ -729,21 +752,38 @@ function popClientListEditTable(event) {
 	document.getElementById("edit_client_block").onclick = function() {show_edit_client_block();}
 
 	//build device icon list start
-	if(!downsize_4m_support) {
-		custom_icon_list_api.paramObj.container = $('#edit_client_block').find("#card_custom_image");
-		custom_icon_list_api.paramObj.source = "local";
-		custom_icon_list_api.paramObj.select_icon_callBack = card_select_custom_icon;
-		custom_icon_list_api.paramObj.upload_callBack = previewCardUploadIcon;
-		custom_icon_list_api.gen_component(custom_icon_list_api.paramObj);
-		$.getJSON("/ajax/extend_custom_icon.json",
-			function(data){
-				custom_icon_list_api.paramObj.container = $('#edit_client_block').find("#card_custom_image");
-				custom_icon_list_api.paramObj.source = "cloud";
-				custom_icon_list_api.paramObj.db = data;
-				custom_icon_list_api.paramObj.select_icon_callBack = card_select_custom_icon;
-				custom_icon_list_api.gen_component(custom_icon_list_api.paramObj);
+	var clientListIconArray = [["Windows device", "1"], ["Router", "2"], ["NAS/Server", "4"], ["IP Cam", "5"], ["Macbook", "6"], ["Game Console", "7"], ["Android Phone", "9"], ["iPhone", "10"], 
+	["Apple TV", "11"], ["Set-top Box", "12"], ["iMac", "14"], ["ROG", "15"], ["Printer", "18"], ["Windows Phone", "19"], ["Android Tablet", "20"], ["iPad", "21"], ["Linux Device", "22"], 
+	["Smart TV", "23"], ["Repeater", "24"], ["Kindle", "25"], ["Scanner", "26"], ["Chromecast", "27"], ["ASUS smartphone", "28"], ["ASUS Pad", "29"], ["Windows", "30"], ["Android", "31"], ["Mac OS", "32"],
+	["Windows laptop", "35"]];
+
+	var eachColCount = 7;
+	var colCount = parseInt(clientListIconArray.length / eachColCount);
+	if(usericon_support)
+		colCount++;
+
+	for(var rowIndex = 0; rowIndex < colCount; rowIndex += 1) {
+		var row = document.getElementById("tbCardClientListIcon").insertRow(rowIndex);
+		row.id = "trCardClientListIcon" + rowIndex;
+		for(var colIndex = 0; colIndex < eachColCount; colIndex += 1) {
+			var cell = row.insertCell(-1);
+			cell.id = "tbCardClientListIcon" + (colIndex + (rowIndex * 7));
+			var idx = (colIndex + (rowIndex * eachColCount));
+			if(clientListIconArray[colIndex + (rowIndex * eachColCount)] != undefined) {
+				cell.innerHTML = '<div class="type' + clientListIconArray[idx][1] + '" onclick="select_image(this.className,\''+clientInfo.vendor.replace("'","\\'")+'\');"  title="' + clientListIconArray[idx][0] + '"></div>';
 			}
-		);
+			else {
+				if(usericon_support) {
+					if(document.getElementById("tdCardUserIcon") == null) {
+						cell.id = "tdCardUserIcon";
+						cell.className = "client_icon_list_td";
+						cell.innerHTML = '<div id="divCardUserIcon" class="client_upload_div" style="display:none;">+' +
+						'<input type="file" name="cardUploadIcon" id="cardUploadIcon" class="client_upload_file" onchange="previewCardUploadIcon(this);" title="Upload client icon" /></div>';/*untranslated*/
+						break;
+					}
+				}
+			}
+		}
 	}
 	//build device icon list end
 
@@ -1012,6 +1052,7 @@ function popClientListEditTable(event) {
 	if(usericon_support) {
 		//2.check browswer support File Reader and Canvas or not.
 		if(isSupportFileReader() && isSupportCanvas()) {
+			document.getElementById("divCardUserIcon").style.display = "";
 			//Setting drop event
 			var holder = document.getElementById("card_client_preview_icon");
 			holder.ondragover = function () { return false; };
@@ -1040,7 +1081,6 @@ function popClientListEditTable(event) {
 							}, 100); //for firefox FPS(Frames per Second) issue need delay
 						};
 						reader.readAsDataURL(file);
-						card_client_variable.userUploadFlag = true;
 						return false;
 					}
 					else {
@@ -1076,7 +1116,6 @@ function popClientListEditTable(event) {
 	formHTML += '<input type="hidden" name="action_wait" value="1">';
 	formHTML += '<input type="hidden" name="custom_clientlist" value="">';
 	formHTML += '<input type="hidden" name="custom_usericon" value="">';
-	formHTML += '<input type="hidden" name="usericon_mac" value="" disabled>';
 	formHTML += '<input type="hidden" name="custom_usericon_del" value="" disabled>';
 	if(adv_setting) {
 		formHTML += '<input type="hidden" name="dhcp_staticlist" value="" disabled>';
@@ -1094,7 +1133,7 @@ function popClientListEditTable(event) {
 	formObj.innerHTML = formHTML;
 	card_client_variable.firstTimeOpenBlock = true;
 }
-function previewCardUploadIcon($obj) {
+function previewCardUploadIcon(imageObj) {
 	var userIconLimitFlag = userIconNumLimit(document.getElementById("card_client_macaddr_field").value);
 
 	if(userIconLimitFlag) {	//not over 100
@@ -1107,8 +1146,10 @@ function previewCardUploadIcon($obj) {
 		};
 
 		//1.check image extension
-		if (!checkImageExtension($obj.val()))
+		if (!checkImageExtension(imageObj.value)) {
 			alert("<#Setting_upload_hint#>");
+			imageObj.focus();
+		}
 		else {
 			//2.Re-drow image
 			var fileReader = new FileReader(); 
@@ -1119,7 +1160,6 @@ function previewCardUploadIcon($obj) {
 				var canvas = document.getElementById("card_canvas_user_icon");
 				var ctx = canvas.getContext("2d");
 				ctx.clearRect(0,0,85,85);
-				$("#card_client_image").find(".flash").remove();
 				document.getElementById("card_client_image").style.display = "none";
 				document.getElementById("card_canvas_user_icon").style.display = "";
 				setTimeout(function() {
@@ -1128,8 +1168,8 @@ function previewCardUploadIcon($obj) {
 					card_client_variable.userIconBase64 = dataURL;
 				}, 100); //for firefox FPS(Frames per Second) issue need delay
 			}
-			fileReader.readAsDataURL($obj.prop("files")[0]);
-			card_client_variable.userUploadFlag = true;
+			fileReader.readAsDataURL(imageObj.files[0]);
+			userIconHideFlag = true;
 		}
 	}
 	else {	//over 100 then let usee select delete icon or nothing
@@ -1165,8 +1205,8 @@ function card_confirm(event) {
 					ip_obj.focus();
 					retFlag = 0;
 				}
-				else if(card_client_variable.ipBindingFlag && (ip_num <= getSubnet('<% nvram_get("lan_ipaddr"); %>', '<% nvram_get("lan_netmask"); %>', "head") ||
-					 ip_num >= getSubnet('<% nvram_get("lan_ipaddr"); %>', '<% nvram_get("lan_netmask"); %>', "end"))){
+				else if(ip_num <= getSubnet('<% nvram_get("lan_ipaddr"); %>', '<% nvram_get("lan_netmask"); %>', "head") ||
+					 ip_num >= getSubnet('<% nvram_get("lan_ipaddr"); %>', '<% nvram_get("lan_netmask"); %>', "end")){
 					alert(ip_obj.value+" <#JS_validip#>");
 					ip_obj.value = $('#edit_client_block #card_client_ipaddr_field_orig').val();
 					ip_obj.focus();
@@ -1242,6 +1282,9 @@ function card_confirm(event) {
 		}
 		else {
 			clientTypeNum = document.getElementById("card_client_image").className.replace("clientIcon_no_hover type", "");
+			if(clientTypeNum == "0_viewMode") {
+				clientTypeNum = "0";
+			}
 		}
 
 		var clientName = document.getElementById("card_client_name").value.trim();
@@ -1417,23 +1460,13 @@ function card_confirm(event) {
 		// handle user image
 		document.card_clientlist_form.custom_usericon.disabled = true;
 		if(usericon_support) {
-			var clientMac = document.getElementById("card_client_macaddr_field").value.replace(/\:/g, "");
 			document.card_clientlist_form.custom_usericon.disabled = false;
-			if(card_client_variable.userIconBase64 != "NoIcon" && (card_client_variable.userIconBase64 != card_client_variable.userIconBase64_ori)) {
-				if(card_client_variable.userUploadFlag)
-					document.card_clientlist_form.custom_usericon.value = clientMac + ">" + card_client_variable.userIconBase64;
-				else{
-					document.card_clientlist_form.custom_usericon.value = clientTypeNum + ">" + card_client_variable.userIconBase64;
-					document.card_clientlist_form.usericon_mac.disabled = false;
-					document.card_clientlist_form.usericon_mac.value = clientMac;
-				}
+			var clientMac = document.getElementById("card_client_macaddr_field").value.replace(/\:/g, "");
+			if(card_client_variable.userIconBase64 != "NoIcon") {
+				document.card_clientlist_form.custom_usericon.value = clientMac + ">" + card_client_variable.userIconBase64;
 			}
-			else if(card_client_variable.userIconBase64 == "NoIcon"){
+			else {
 				document.card_clientlist_form.custom_usericon.value = clientMac + ">noupload";
-			}
-			else{
-				document.card_clientlist_form.custom_usericon.disabled = true;
-				document.card_clientlist_form.usericon_mac.disabled = true;
 			}
 		}
 
@@ -1459,6 +1492,10 @@ function card_confirm(event) {
 							genClientList();
 
 							switch(callBack) {
+								case "DNSFilter" :
+									showDropdownClientList('setclientmac', 'name>mac', 'all', 'ClientList_Block_PC', 'pull_arrow', 'all');
+									show_dnsfilter_list();
+									break;
 								case "DHCP" :
 									showDropdownClientList('setClientIP', 'mac>ip', 'all', 'ClientList_Block_PC', 'pull_arrow', 'all');
 									showdhcp_staticlist();
@@ -1498,10 +1535,6 @@ function card_confirm(event) {
 								case "AiMesh" :
 									client_remove_client_upload_icon(document.getElementById("card_client_macaddr_field").value);
 									display_client_block();
-									break;
-								case "DNSFilter" :
-									showDropdownClientList('setClientmac', 'mac', 'all', 'ClientList_Block_PC', 'pull_arrow', 'all');
-									show_dnsfilter_list();
 									break;
 								default :
 									refreshpage();
@@ -1659,25 +1692,17 @@ function uploadIcon_cancel() {
 	card_client_variable.custom_usericon_del = "";
 	document.getElementById("edit_uploadicons_block").style.display = "none";
 }
-function card_select_custom_icon($obj){
-	var type = $obj.attr("class")
-	var icon_rul = $obj.css('background-image').replace('url(','').replace(')','').replace(/\"/gi, "");
-	$("#card_client_image").css("background-image","url(" + icon_rul + ")");
-	$("#card_client_image").find(".flash").remove();
-	$("#card_client_image").removeClass().addClass("clientIcon_no_hover").addClass(type).css("background-size", "");
-	$("#card_client_image").show();
-	$("#card_canvas_user_icon").hide();
-	card_client_variable.userIconBase64 = icon_rul;
-	card_client_variable.userUploadFlag = false;
-}
+
 function select_image(type,  vender) {
 	var sequence = type.substring(4,type.length);
-	$("#card_client_image").find(".flash").remove();
-	$("#card_client_image").css("background-image","");
 	document.getElementById("card_client_image").style.display = "none";
 	document.getElementById("card_canvas_user_icon").style.display = "none";
+	var icon_type = type;
+	if(type == "type0") {
+		icon_type = "type0_viewMode";
+	}
 	document.getElementById("card_client_image").style.backgroundSize = "";
-	document.getElementById("card_client_image").className = "clientIcon_no_hover "+ type;
+	document.getElementById("card_client_image").className = "clientIcon_no_hover "+ icon_type;
 	if(vender != "" && type == "type0" && !downsize_4m_support) {
 		var venderIconClassName = getVenderIconClassName(vender.toLowerCase());
 		if(venderIconClassName != "") {
@@ -1691,7 +1716,6 @@ function select_image(type,  vender) {
 		if(usericon_support) {
 			var clientMac = document.getElementById('card_client_macaddr_field').value.replace(/\:/g, "");
 			card_client_variable.userIconBase64 = getUploadIcon(clientMac);
-			card_client_variable.userIconBase64_ori = card_client_variable.userIconBase64 ;
 			if(card_client_variable.userIconBase64 != "NoIcon") {
 				var img = document.createElement("img");
 				img.src = card_client_variable.userIconBase64;
@@ -1709,17 +1733,16 @@ function select_image(type,  vender) {
 	if(!userImageFlag) {
 		card_client_variable.userIconBase64 = "NoIcon";
 		document.getElementById("card_client_image").style.display = "";
-		if(type == "type36")
-			$("#card_client_image").append($("<div>").addClass("flash"));
 	}
 }
 
-function oui_query_card(mac) {
+ function oui_query_card(mac) {
 	var queryStr = mac.replace(/\:/g, "").splice(6,6,"");
+
 	if(mac != document.getElementById("card_client_macaddr_field").value) //avoid click two device quickly
 		oui_query_card(document.getElementById("card_client_macaddr_field").value);
 	else{
-		$.getJSON("/ajax/ouiDB.json", function(data){
+		$.getJSON("http://nw-dlcdnet.asus.com/plugin/js/ouiDB.json", function(data){
 			if(data != "" && data[queryStr] != undefined){
         if(document.getElementById("edit_client_block") == null) return true;
 				var vendor_name = data[queryStr].trim();
@@ -1905,17 +1928,12 @@ var sorter = {
 			b_num = b[sorter.indexFlag].replace(/:/g, "");
 			return parseInt(a_num) - parseInt(b_num);
 		}
-		else if(sorter.indexFlag == 8){//Access time
-			var a_num = 0, b_num = 0;
-			a_num = sorter.convert_time_to_num(a[sorter.indexFlag]);
-			b_num = sorter.convert_time_to_num(b[sorter.indexFlag]);
-			return parseInt(a_num) - parseInt(b_num);
-		}
 		else {
 			return parseInt(a[sorter.indexFlag]) - parseInt(b[sorter.indexFlag]);
 		}
 	},
 	"num_decrease" : function(a, b) {
+		var a_num = 0, b_num = 0;
 		if(sorter.indexFlag == 3) { //IP
 			var a_num = 0, b_num = 0;
 			a_num = inet_network(a[sorter.indexFlag]);
@@ -1932,12 +1950,6 @@ var sorter = {
 			var a_num = 0, b_num = 0;
 			a_num = a[sorter.indexFlag].replace(/:/g, "");
 			b_num = b[sorter.indexFlag].replace(/:/g, "");
-			return parseInt(b_num) - parseInt(a_num);
-		}
-		else if(sorter.indexFlag == 8){//Access time
-			var a_num = 0, b_num = 0;
-			a_num = sorter.convert_time_to_num(a[sorter.indexFlag]);
-			b_num = sorter.convert_time_to_num(b[sorter.indexFlag]);
 			return parseInt(b_num) - parseInt(a_num);
 		}
 		else {
@@ -1979,7 +1991,8 @@ var sorter = {
 			sorter[""+clickItem+"_index"] = sorterClickIndex;
 			sorter["sortingMethod_"+clickItem+""] = (sorter["sortingMethod_"+clickItem+""] == "increase") ? "decrease" : "increase";
 		}
-		obj.parentNode.childNodes[sorterLastIndex].style.boxShadow = "";
+		obj.parentNode.childNodes[sorterLastIndex].style.borderTop = '1px solid #222';
+		obj.parentNode.childNodes[sorterLastIndex].style.borderBottom = '1px solid #222';	
 	},
 	"drawBorder" : function(_arrayName) {
 		var clickItem = _arrayName.split("_")[0];
@@ -1999,12 +2012,28 @@ var sorter = {
 			clickIndex = sorter[""+_arrayName.substr(0,3)+"_index"];
 			clickSortingMethod = sorter["sortingMethod_"+_arrayName.substr(0,3)+""];
 		}
-		var boxShadowTopCss = "0 1px 0 #FC0 inset";
-		var boxShadowBottomCss = "0 -1px 0 #FC0 inset";
-		if(clickSortingMethod == "increase")
-			document.getElementById("tr_"+clickItem+"_title").childNodes[clickIndex].style.boxShadow = boxShadowTopCss;
-		else
-			document.getElementById("tr_"+clickItem+"_title").childNodes[clickIndex].style.boxShadow = boxShadowBottomCss;
+		var borderTopCss = "";
+		var borderBottomCss = "";
+		if(getBrowser_info().ie != undefined || getBrowser_info().ie != null) {
+			borderTopCss = "3px solid #FC0";
+			borderBottomCss = "1px solid #FC0";
+		}
+		else if(getBrowser_info().firefox != undefined || getBrowser_info().firefox != null) {
+			borderTopCss = "2px solid #FC0";
+			borderBottomCss = "1px solid #FC0";
+		}
+		else {
+			borderTopCss = "2px solid #FC0";
+			borderBottomCss = "2px solid #FC0";
+		}
+		if(clickSortingMethod == "increase") {
+			document.getElementById("tr_"+clickItem+"_title").childNodes[clickIndex].style.borderTop = borderTopCss;
+			document.getElementById("tr_"+clickItem+"_title").childNodes[clickIndex].style.borderBottom = '1px solid #222';
+		}
+		else {
+			document.getElementById("tr_"+clickItem+"_title").childNodes[clickIndex].style.borderTop = '1px solid #222';
+			document.getElementById("tr_"+clickItem+"_title").childNodes[clickIndex].style.borderBottom = borderBottomCss;
+		}
 	},
 	"doSorter" : function(_flag, _Method, _arrayName) {	
 		// update variables
@@ -2016,30 +2045,14 @@ var sorter = {
 		}
 		else if(clienlistViewMode == "ByInterface") {
 			if(_arrayName == "wired_list")
-				eval(""+_arrayName+".sort(sorter."+_Method+"_"+sorter.sortingMethod_wired+");");
+					eval(""+_arrayName+".sort(sorter."+_Method+"_"+sorter.sortingMethod_wired+");");
 			else if(_arrayName.substr(0,2) == "wl")
 				eval("wl_list['"+_arrayName.substr(0,3)+"'].sort(sorter."+_Method+"_"+sorter["sortingMethod_"+_arrayName.substr(0,3)+""]+");");
 			else if(isSupport("amas") && _arrayName.substr(0,2) == "gn")
 				eval("gn_list['"+_arrayName.substr(0,3)+"'].sort(sorter."+_Method+"_"+sorter["sortingMethod_"+_arrayName.substr(0,3)+""]+");");
-		}
+			}
 		drawClientListBlock(_arrayName);
 		sorter.drawBorder(_arrayName);
-	},
-	"convert_time_to_num" : function(_time) {
-		var num = 0;
-		var array = _time.split(":");
-		var hour = parseInt(array[0], 10) * 60 * 60;
-		if(isNaN(hour))
-			hour = 0;
-		var min = parseInt(array[1], 10) * 60;
-		if(isNaN(min))
-			min = 0;
-		var sec = parseInt(array[2], 10);
-		if(isNaN(sec))
-			sec = 0;
-
-		num = hour + min + sec;
-		return num;
 	}
 }
 var wired_list = new Array();
@@ -2204,7 +2217,7 @@ function exportClientListLog() {
 		case "ByInterface" :
 			$.each(isWL_map, function(index, value){
 				if(index == "0")
-					setArray(wired_list);
+			setArray(wired_list);
 				else
 					setArray(wl_list["wl"+index+""]);
 			});
@@ -2262,7 +2275,7 @@ function sorterClientList() {
 		case "ByInterface" :
 			$.each(isWL_map, function(index, value){
 				if(index == "0")
-					sorter.doSorter(sorter.wired_index, indexMapType[sorter.wired_index], 'wired_list');
+			sorter.doSorter(sorter.wired_index, indexMapType[sorter.wired_index], 'wired_list');
 				else{
 					if($("#clientlist_wl" + index + "_list_Block").length > 0)
 						sorter.doSorter(sorter["wl" + index + "_index"], indexMapType[sorter["wl" + index + "_index"]], "wl" + index + "_list");
@@ -2280,7 +2293,7 @@ function create_clientlist_listview() {
 	all_list = [];
 	$.each(isWL_map, function(index, value){
 		if(index == "0")
-			wired_list = [];
+	wired_list = [];
 		else
 			wl_list["wl"+index+""] = [];
 	});
@@ -2350,7 +2363,7 @@ function create_clientlist_listview() {
 			if(stainfo_support && !(isSwMode('mb') || isSwMode('ew'))) {
 				code += "<th width=" + obj_width[6] + " onclick='sorter.addBorder(this);sorter.doSorter(6, \"num\", \"all_list\");' style='cursor:pointer;' title='The transmission rates of your wireless device'>Tx Rate (Mbps)</th>";/*untranslated*/
 				code += "<th width=" + obj_width[7] + " onclick='sorter.addBorder(this);sorter.doSorter(7, \"num\", \"all_list\");' style='cursor:pointer;' title='The receive rates of your wireless device'>Rx Rate (Mbps)</th>";/*untranslated*/
-				code += "<th width=" + obj_width[8] + " onclick='sorter.addBorder(this);sorter.doSorter(8, \"num\", \"all_list\");' style='cursor:pointer;'><#Access_Time#></th>";
+				code += "<th width=" + obj_width[8] + " onclick='sorter.addBorder(this);sorter.doSorter(8, \"str\", \"all_list\");' style='cursor:pointer;'><#Access_Time#></th>";
 			}
 			code += "</tr>";
 			code += "</table>";
@@ -2396,7 +2409,7 @@ function create_clientlist_listview() {
 				if(stainfo_support && !(isSwMode('mb') || isSwMode('ew'))) {
 					code += "<th width=" + obj_width[6] + " onclick='sorter.addBorder(this);sorter.doSorter(6, \"num\", \"wl"+wl_map[wl_nband_title[i]]+"_list\");' style='cursor:pointer;' title='The transmission rates of your wireless device'>Tx Rate (Mbps)</th>";/*untranslated*/
 					code += "<th width=" + obj_width[7] + " onclick='sorter.addBorder(this);sorter.doSorter(7, \"num\", \"wl"+wl_map[wl_nband_title[i]]+"_list\");' style='cursor:pointer;' title='The receive rates of your wireless device'>Rx Rate (Mbps)</th>";/*untranslated*/
-					code += "<th width=" + obj_width[8] + " onclick='sorter.addBorder(this);sorter.doSorter(8, \"num\", \"wl"+wl_map[wl_nband_title[i]]+"_list\");' style='cursor:pointer;'><#Access_Time#></th>";
+					code += "<th width=" + obj_width[8] + " onclick='sorter.addBorder(this);sorter.doSorter(8, \"str\", \"wl"+wl_map[wl_nband_title[i]]+"_list\");' style='cursor:pointer;'><#Access_Time#></th>";
 				}
 				code += "</tr>";
 				code += "</table>";
@@ -2419,7 +2432,7 @@ function create_clientlist_listview() {
 					if(stainfo_support && !(isSwMode('mb') || isSwMode('ew'))) {
 						code += "<th width=" + obj_width[6] + " onclick='sorter.addBorder(this);sorter.doSorter(6, \"num\", \"gn"+i+"_list\");' style='cursor:pointer;' title='The transmission rates of your wireless device'>Tx Rate (Mbps)</th>";/*untranslated*/
 						code += "<th width=" + obj_width[7] + " onclick='sorter.addBorder(this);sorter.doSorter(7, \"num\", \"gn"+i+"_list\");' style='cursor:pointer;' title='The receive rates of your wireless device'>Rx Rate (Mbps)</th>";/*untranslated*/
-						code += "<th width=" + obj_width[8] + " onclick='sorter.addBorder(this);sorter.doSorter(8, \"num\", \"gn"+i+"_list\");' style='cursor:pointer;'><#Access_Time#></th>";
+						code += "<th width=" + obj_width[8] + " onclick='sorter.addBorder(this);sorter.doSorter(8, \"str\", \"gn"+i+"_list\");' style='cursor:pointer;'><#Access_Time#></th>";
 					}
 					code += "</tr>";
 					code += "</table>";
@@ -2474,7 +2487,7 @@ function create_clientlist_listview() {
 					if(isSupport("amas") && clientList[clientList[i]].isWL != 0 && clientList[clientList[i]].isGN != "")
 						gn_list["gn"+clientList[clientList[i]].isGN+""].push(tempArray);
 					else if(clientList[clientList[i]].isWL == 0)
-						wired_list.push(tempArray);
+								wired_list.push(tempArray);
 					else
 						wl_list["wl"+clientList[clientList[i]].isWL+""].push(tempArray);
 					break;
@@ -2492,10 +2505,10 @@ function create_clientlist_listview() {
 		$.each(isWL_map, function(index, value){
 			if(index == "0"){
 				if(!sorter.wired_display){
-					document.getElementById("clientlist_wired_list_Block").style.display = "none";
-					document.getElementById("wired_expander").innerHTML = "[ <#Clientlist_Show#> ]";
-				}
-			}
+			document.getElementById("clientlist_wired_list_Block").style.display = "none";
+			document.getElementById("wired_expander").innerHTML = "[ <#Clientlist_Show#> ]";
+		}
+		}
 			else{
 				if(!sorter["wl"+index+"_display"]){
 					document.getElementById("clientlist_wl"+index+"_list_Block").style.display = "none";
@@ -2621,6 +2634,9 @@ function drawClientListBlock(objID) {
 				}
 				else if( clientlist_sort[j].type != "0" || clientlist_sort[j].vender == "") {
 					var icon_type = "type" + clientlist_sort[j].type;
+					if(clientlist_sort[j].type == "0") {
+						icon_type = "type0_viewMode";
+					}
 					clientListCode += "<div style='height:40px;width:40px;cursor:default;' class='clientIcon_no_hover " + icon_type + "' title='"+ clientlist_sort[j].deviceTypeName +"'>";
 					if(clientlist_sort[j].type == "36")
 						clientListCode += "<div class='flash'></div>";
@@ -2633,13 +2649,16 @@ function drawClientListBlock(objID) {
 					}
 					else {
 						var icon_type = "type" + clientlist_sort[j].type;
+						if(clientlist_sort[j].type == "0") {
+							icon_type = "type0_viewMode";
+						}
 						clientListCode += "<div style='height:40px;width:40px;cursor:default;' class='clientIcon_no_hover " + icon_type + "' title='"+ clientlist_sort[j].deviceTypeName +"'></div>";
 					}				
 				}
 				clientListCode += "</td>";
 
 				clientListCode += "<td style='word-wrap:break-word; word-break:break-all;' width='" + obj_width[2] + "'>";
-				var clientNameEnCode = htmlEnDeCode.htmlEncode(clientlist_sort[j].name);
+				var clientNameEnCode = htmlEnDeCode.htmlEncode(decodeURIComponent(clientlist_sort[j].name));
 				clientListCode += "<div id='div_clientName_"+objID+"_"+j+"' class='viewclientlist_clientName_edit' onclick='editClientName(\""+objID+"_"+j+"\");'>"+clientNameEnCode+"</div>";
 				clientListCode += "<input id='client_name_"+objID+"_"+j+"' type='text' value='"+clientNameEnCode+"' class='input_25_table' maxlength='32' style='width:95%;margin-left:0px;display:none;' onblur='saveClientName(\""+objID+"_"+j+"\", "+clientlist_sort[j].type+", \"" + clientlist_sort[j].mac + "\");'>";
 				clientListCode += "</td>";
@@ -2703,7 +2722,7 @@ function showHideContent(objnmae, thisObj) {
 				sorter.all_display = true;
 			else {
 				if(clickItem == "wired")
-					sorter.wired_display = true;
+						sorter.wired_display = true;
 				else
 					sorter["" + clickItem + "_display"] = true;
 			}
@@ -2716,7 +2735,7 @@ function showHideContent(objnmae, thisObj) {
 				sorter.all_display = false;
 			else {
 				if(clickItem == "wired")
-					sorter.wired_display = false;
+						sorter.wired_display = false;
 				else
 					sorter["" + clickItem + "_display"] = false;
 			}
@@ -3015,7 +3034,7 @@ function showDropdownClientList(_callBackFun, _callBackFunParam, _interfaceMode,
 				}
 				break;
 			case "name" :
-				attribute_value = (clientObj.nickName == "") ? clientObj.name : clientObj.nickName;
+				attribute_value = (clientObj.nickName == "") ? clientObj.name.replace(/'/g, "\\'") : clientObj.nickName.replace(/'/g, "\\'");
 				break;
 			default :
 				attribute_value = _attribute;
@@ -3123,593 +3142,15 @@ function showDropdownClientList(_callBackFun, _callBackFunParam, _interfaceMode,
 		}
 	}
 
-	if(document.getElementById(_containerID).childNodes.length == "0"){
-		if(document.getElementById(_pullArrowID) != null)
-			document.getElementById(_pullArrowID).style.display = "none";
-	}
-	else{
-		if(document.getElementById(_pullArrowID) != null)
-			document.getElementById(_pullArrowID).style.display = "";
-	}
+	if(document.getElementById(_containerID).childNodes.length == "0")
+		document.getElementById(_pullArrowID).style.display = "none";
+	else
+		document.getElementById(_pullArrowID).style.display = "";
 }
 
 function redirectTimeScheduling(_mac) {
 	cookie.set("time_scheduling_mac", _mac, 1);
 	location.href = "ParentalControl.asp" ;
-}
-
-var custom_icon_list_api = {
-	"paramObj": {
-		"container":"",
-		"source":"",//local or cloud
-		"db":"",//custom_icon_list_api.db or cloud response data
-		"select_icon_callBack":"",//call back fun.
-		"upload_callBack":""//call back fun.
-	},
-	"db": {
-		"electronic_product": {
-			"title": "Electronic Devices",
-			"translation": "#CLIENTLIST_ELECTRONIC_DEVICES",
-			"list": [
-				{
-					"num": 0,
-					"title": "Device",
-					"translation": "#CLIENTLIST_DEVICE"
-				},
-				{
-					"num": 34,
-					"title": "Desktop",
-					"translation": "#CLIENTLIST_DESKTOP"
-				},
-				{
-					"num": 14,
-					"title": "iMac",
-					"translation": ""
-				},
-				{
-					"num": 1,
-					"title": "Windows Desktop",
-					"translation": "#CLIENTLIST_WINDOWS_DESKTOP"
-				},
-				{
-					"num": 72,
-					"title": "Linux Desktop",
-					"translation": "#CLIENTLIST_LINUX_DESKTOP"
-				},
-				{
-					"num": 22,
-					"title": "Linux Device",
-					"translation": "#CLIENTLIST_LINUX_DEVICE"
-				},
-				{
-					"num": 33,
-					"title": "Smartphone",
-					"translation": "#CLIENTLIST_SMARTPHONE"
-				},
-				{
-					"num": 10,
-					"title": "iPhone",
-					"translation": "#CLIENTLIST_IPHONE"
-				},
-				{
-					"num": 28,
-					"title": "ASUS smartphone",
-					"translation": "#CLIENTLIST_ASUS_SMARTPHONE"
-				},
-				{
-					"num": 19,
-					"title": "Windows Phone",
-					"translation": "#CLIENTLIST_WINDOWS_PHONE"
-				},
-				{
-					"num": 9,
-					"title": "Android Phone",
-					"translation": "#CLIENTLIST_ANDROID_PHONE"
-				},
-				{
-					"num": 73,
-					"title": "Pad",
-					"translation": "#CLIENTLIST_PAD"
-				},
-				{
-					"num": 21,
-					"title": "iPad",
-					"translation": "#CLIENTLIST_IPAD"
-				},
-				{
-					"num": 29,
-					"title": "ASUS Pad",
-					"translation": "#CLIENTLIST_ASUS_PAD"
-				},
-				{
-					"num": 20,
-					"title": "Android Tablet",
-					"translation": "#CLIENTLIST_ANDROID_TABLET"
-				},
-				{
-					"num": 2,
-					"title": "Router",
-					"translation": "#ROUTER"
-				},
-				{
-					"num": 24,
-					"title": "Repeater",
-					"translation": "#CLIENTLIST_REPEATER"
-				},
-				{
-					"num": 4,
-					"title": "NAS/Server",
-					"translation": "#CLIENTLIST_NAS_SERVER"
-				},
-				{
-					"num": 37,
-					"title": "Notebook",
-					"translation": "#CLIENTLIST_NB"
-				},
-				{
-					"num": 35,
-					"title": "Windows NB",
-					"translation": "#CLIENTLIST_WINDOWS_NB"
-				},
-				{
-					"num": 6,
-					"title": "Macbook",
-					"translation": "#CLIENTLIST_MACBOOK"
-				},
-				{
-					"num": 38,
-					"title": "ASUS Notebook",
-					"translation": "#Clientlist_ASUS_NB"
-				},
-				{
-					"num": 39,
-					"title": "SD Card",
-					"translation": "#CLIENTLIST_SD_CARD"
-				},
-				{
-					"num": 40,
-					"title": "USB",
-					"translation": ""
-				},
-				{
-					"num": 18,
-					"title": "Printer",
-					"translation": "#PRINTER"
-				},
-				{
-					"num": 41,
-					"title": "Camera",
-					"translation": ""
-				},
-				{
-					"num": 15,
-					"title": "ROG Device",
-					"translation": "#CLIENTLIST_ROG_DEVICE"
-				},
-				{
-					"num": 25,
-					"title": "Kindle",
-					"translation": ""
-				},
-				{
-					"num": 26,
-					"title": "Scanner",
-					"translation": "#CLIENTLIST_SCANNER"
-				},
-				{
-					"num": 32,
-					"title": "Apple Device",
-					"translation": "#CLIENTLIST_APPLE_DEVICE"
-				},
-				{
-					"num": 31,
-					"title": "Android Device",
-					"translation": "#CLIENTLIST_ANDROID_DEVICE"
-				},
-				{
-					"num": 30,
-					"title": "Windows Device",
-					"translation": "#CLIENTLIST_WINDOWS_DEVICE"
-				},
-				{
-					"num": 42,
-					"title": "ASUS Device",
-					"translation": "#CLIENTLIST_ASUS_DEVICE"
-				}
-			]
-		},
-		"media_and_entertainment": {
-			"title": "Media and Entertainment",
-			"translation": "#CLIENTLIST_MEDIA_ENTERTAINMENT",
-			"list": [
-				{
-					"num": 43,
-					"title": "Google Home",
-					"translation": ""
-				},
-				{
-					"num": 44,
-					"title": "Amazon Alexa",
-					"translation": ""
-				},
-				{
-					"num": 45,
-					"title": "Apple HomePod",
-					"translation": ""
-				},
-				{
-					"num": 11,
-					"title": "Apple TV",
-					"translation": ""
-				},
-				{
-					"num": 46,
-					"title": "DLINA",
-					"translation": ""
-				},
-				{
-					"num": 47,
-					"title": "Home Cinema",
-					"translation": ""
-				},
-				{
-					"num": 48,
-					"title": "Wireless Headphone",
-					"translation": ""
-				},
-				{
-					"num": 7,
-					"title": "Game Console",
-					"translation": ""
-				},
-				{
-					"num": 12,
-					"title": "Set-top Box",
-					"translation": ""
-				},
-				{
-					"num": 27,
-					"title": "Chromecast",
-					"translation": ""
-				},
-				{
-					"num": 74,
-					"title": "PlayStation",
-					"translation": ""
-				},
-				{
-					"num": 75,
-					"title": "PlayStation 4",
-					"translation": ""
-				},
-				{
-					"num": 76,
-					"title": "XBox",
-					"translation": ""
-				},
-				{
-					"num": 77,
-					"title": "Xbox One",
-					"translation": ""
-				}
-			]
-		},
-		"electronic_equipment": {
-			"title": "Electronic equipment",
-			"translation": "#CLIENTLIST_ELECTRONIC_EQUIPMENT",
-			"list": [
-				{
-					"num": 49,
-					"title": "Air Conditioner",
-					"translation": "#CLIENTLIST_AIR_CONDITIONER"
-				},
-				{
-					"num": 50,
-					"title": "Refrigerator",
-					"translation": "#CLIENTLIST_REFRIGERATOR"
-				},
-				{
-					"num": 51,
-					"title": "Weight scale",
-					"translation": "#CLIENTLIST_WEIGHT_SCALE"
-				},
-				{
-					"num": 52,
-					"title": "Electric pot",
-					"translation": "#CLIENTLIST_ELECTRIC_POT"
-				},
-				{
-					"num": 53,
-					"title": "Microwave oven",
-					"translation": "#CLIENTLIST_MICROWAVE_OVEN"
-				},
-				{
-					"num": 54,
-					"title": "Air Purifier",
-					"translation": "#CLIENTLIST_AIR_PURIFIER"
-				},
-				{
-					"num": 55,
-					"title": "Fan",
-					"translation": "#CLIENTLIST_FAN"
-				},
-				{
-					"num": 56,
-					"title": "Dehumidifier",
-					"translation": "#CLIENTLIST_DEHUMIDIFIER"
-				},
-				{
-					"num": 57,
-					"title": "Washing Machine",
-					"translation": "#CLIENTLIST_WASHING_MACHINE"
-				},
-				{
-					"num": 58,
-					"title": "Water Heater",
-					"translation": "#CLIENTLIST_WATER_HEATER"
-				},
-				{
-					"num": 59,
-					"title": "Electric Kettle",
-					"translation": "#CLIENTLIST_ELECTRIC_KETTLE"
-				},
-				{
-					"num": 60,
-					"title": "Smart Bulb",
-					"translation": "#CLIENTLIST_SMART_BULB"
-				},
-				{
-					"num": 23,
-					"title": "Smart TV",
-					"translation": "#CLIENTLIST_SMART_TV"
-				},
-				{
-					"num": 61,
-					"title": "Cleaning Robot",
-					"translation": "#CLIENTLIST_CLEANING_ROBOT"
-				}
-			]
-		},
-		"security": {
-			"title": "Security",
-			"translation": "#CLIENTLIST_SECURITY",
-			"list": [
-				{
-					"num": 62,
-					"title": "Seismograph",
-					"translation": "#CLIENTLIST_SEISMOGRAPH"
-				},
-				{
-					"num": 63,
-					"title": "Smart lock",
-					"translation": "#CLIENTLIST_SMART_LOCK"
-				},
-				{
-					"num": 5,
-					"title": "IP Cam",
-					"translation": "#IPCAM"
-				}
-			]
-		},
-		"warables": {
-			"title": "Wearables",
-			"translation": "#CLIENTLIST_WEARABLES",
-			"list": [
-				{
-					"num": 64,
-					"title": "Smart Bracelet",
-					"translation": "#CLIENTLIST_SMART_BRACELET"
-				},
-				{
-					"num": 65,
-					"title": "Watch",
-					"translation": "#CLIENTLIST_WATCH"
-				}
-			]
-		},
-		"others": {
-			"title": "Others",
-			"translation": "#OTHERS",
-			"list": [
-				{
-					"num": 66,
-					"title": "Wall Switch",
-					"translation": "#CLIENTLIST_WALL_SWITCH"
-				},
-				{
-					"num": 67,
-					"title": "Smart Door Lock",
-					"translation": "#CLIENTLIST_WINDOW_SENSOR"
-				},
-				{
-					"num": 68,
-					"title": "Temperature Humidity Sensor",
-					"translation": "#CLIENTLIST_TEMPERATURE_HUMIDITY_SENSOR"
-				},
-				{
-					"num": 69,
-					"title": "Body Sensor",
-					"translation": "#CLIENTLIST_BODY_SENSOR"
-				},
-				{
-					"num": 70,
-					"title": "Smart plug",
-					"translation": "#CLIENTLIST_SMART_PLUG"
-				},
-				{
-					"num": 71,
-					"title": "Robot",
-					"translation": "#CLIENTLIST_ROBOT"
-				}
-			]
-		}
-	},
-	gen_component : function(_paramObj){
-		var custom_icon_db_translation_mapping = [
-			{tag:"#CLIENTLIST_ELECTRONIC_DEVICES",text:"<#Clientlist_Electronic_Devices#>"},
-			{tag:"#CLIENTLIST_DESKTOP",text:"<#Clientlist_Desktop#>"},
-			{tag:"#CLIENTLIST_WINDOWS_DESKTOP",text:"<#Clientlist_Windows_Desktop#>"},
-			{tag:"#CLIENTLIST_LINUX_DESKTOP",text:"<#Clientlist_Linux_Desktop#>"},
-			{tag:"#CLIENTLIST_LINUX_DEVICE",text:"<#Clientlist_Linux_Device#>"},
-			{tag:"#CLIENTLIST_SMARTPHONE",text:"<#Clientlist_Smartphone#>"},
-			{tag:"#CLIENTLIST_IPHONE",text:"<#Clientlist_iPhone#>"},
-			{tag:"#CLIENTLIST_ASUS_SMARTPHONE",text:"<#Clientlist_ASUS_smartphone#>"},
-			{tag:"#CLIENTLIST_WINDOWS_PHONE",text:"<#Clientlist_Windows_Phone#>"},
-			{tag:"#CLIENTLIST_ANDROID_PHONE",text:"<#Clientlist_Android_Phone#>"},
-			{tag:"#CLIENTLIST_PAD",text:"<#Clientlist_Pad#>"},
-			{tag:"#CLIENTLIST_IPAD",text:"<#Clientlist_iPad#>"},
-			{tag:"#CLIENTLIST_ASUS_PAD",text:"<#Clientlist_ASUS_pad#>"},
-			{tag:"#CLIENTLIST_ANDROID_TABLET",text:"<#Clientlist_Android_Tablet#>"},
-			{tag:"#CLIENTLIST_REPEATER",text:"<#Clientlist_Repeater#>"},
-			{tag:"#CLIENTLIST_NAS_SERVER",text:"<#Clientlist_NAS_Server#>"},
-			{tag:"#CLIENTLIST_NB",text:"<#Clientlist_NB#>"},
-			{tag:"#CLIENTLIST_WINDOWS_NB",text:"<#Clientlist_Windows_NB#>"},
-			{tag:"#CLIENTLIST_MACBOOK",text:"<#Clientlist_Macbook#>"},
-			{tag:"#Clientlist_ASUS_NB",text:"<#Clientlist_ASUS_NB#>"},
-			{tag:"#CLIENTLIST_SD_CARD",text:"<#Clientlist_SD_Card#>"},
-			{tag:"#CLIENTLIST_ROG_DEVICE",text:"<#Clientlist_ROG_Device#>"},
-			{tag:"#CLIENTLIST_SCANNER",text:"<#Clientlist_Scanner#>"},
-			{tag:"#CLIENTLIST_APPLE_DEVICE",text:"<#Clientlist_Apple_Device#>"},
-			{tag:"#CLIENTLIST_ANDROID_DEVICE",text:"<#Clientlist_Android_Device#>"},
-			{tag:"#CLIENTLIST_WINDOWS_DEVICE",text:"<#Clientlist_Windows_Device#>"},
-			{tag:"#CLIENTLIST_ASUS_DEVICE",text:"<#Clientlist_ASUS_Device#>"},
-			{tag:"#CLIENTLIST_MEDIA_ENTERTAINMENT",text:"<#Clientlist_Media_Entertainment#>"},
-			{tag:"#CLIENTLIST_ELECTRONIC_EQUIPMENT",text:"<#Clientlist_Electronic_Equipment#>"},
-			{tag:"#CLIENTLIST_AIR_CONDITIONER",text:"<#Clientlist_Air_Conditioner#>"},
-			{tag:"#CLIENTLIST_REFRIGERATOR",text:"<#Clientlist_Refrigerator#>"},
-			{tag:"#CLIENTLIST_WEIGHT_SCALE",text:"<#Clientlist_Weight_Scale#>"},
-			{tag:"#CLIENTLIST_ELECTRIC_POT",text:"<#Clientlist_Electric_Pot#>"},
-			{tag:"#CLIENTLIST_MICROWAVE_OVEN",text:"<#Clientlist_Microwave_Oven#>"},
-			{tag:"#CLIENTLIST_AIR_PURIFIER",text:"<#Clientlist_Air_Purifier#>"},
-			{tag:"#CLIENTLIST_FAN",text:"<#Clientlist_Fan#>"},
-			{tag:"#CLIENTLIST_DEHUMIDIFIER",text:"<#Clientlist_Dehumidifier#>"},
-			{tag:"#CLIENTLIST_WASHING_MACHINE",text:"<#Clientlist_Washing_Machine#>"},
-			{tag:"#CLIENTLIST_WATER_HEATER",text:"<#Clientlist_Water_Heater#>"},
-			{tag:"#CLIENTLIST_ELECTRIC_KETTLE",text:"<#Clientlist_Electric_Kettle#>"},
-			{tag:"#CLIENTLIST_SMART_BULB",text:"<#Clientlist_Smart_Bulb#>"},
-			{tag:"#CLIENTLIST_SMART_TV",text:"<#Clientlist_Smart_TV#>"},
-			{tag:"#CLIENTLIST_CLEANING_ROBOT",text:"<#Clientlist_Cleaning_Robot#>"},
-			{tag:"#CLIENTLIST_SECURITY",text:"<#Clientlist_Security#>"},
-			{tag:"#CLIENTLIST_SEISMOGRAPH",text:"<#Clientlist_Seismograph#>"},
-			{tag:"#CLIENTLIST_SMART_LOCK",text:"<#Clientlist_Smart_lock#>"},
-			{tag:"#CLIENTLIST_WEARABLES",text:"<#Clientlist_Wearables#>"},
-			{tag:"#CLIENTLIST_SMART_BRACELET",text:"<#Clientlist_Smart_bracelet#>"},
-			{tag:"#CLIENTLIST_WATCH",text:"<#Clientlist_Watch#>"},
-			{tag:"#CLIENTLIST_WALL_SWITCH",text:"<#Clientlist_Wall_switch#>"},
-			{tag:"#CLIENTLIST_WINDOW_SENSOR",text:"<#Clientlist_Window_sensor#>"},
-			{tag:"#CLIENTLIST_TEMPERATURE_HUMIDITY_SENSOR",text:"<#Clientlist_Temperature_humidity_sensor#>"},
-			{tag:"#CLIENTLIST_BODY_SENSOR",text:"<#Clientlist_Body_sensor#>"},
-			{tag:"#CLIENTLIST_SMART_PLUG",text:"<#Clientlist_Smart_plug#>"},
-			{tag:"#CLIENTLIST_ROBOT",text:"<#Clientlist_Robot#>"},
-			{tag:"#PRINTER",text:"<#Clientlist_Printer#>"},
-			{tag:"#ROUTER",text:"<#Device_type_02_RT#>"},
-			{tag:"#NAS",text:"<#Device_type_04_NS#>"},
-			{tag:"#IPCAM",text:"<#Device_type_05_IC#>"}
-		];
-		var $container = _paramObj.container;
-		var json_data = custom_icon_list_api.db;
-		if(_paramObj.source == "cloud")
-			json_data = _paramObj.db;
-		$.each(json_data, function( index, value ) {
-			var category = value;
-			if(category.list != undefined){
-				var $category_obj = "";
-				if($container.find("#" + index + "").length == 0){
-					$category_obj = $("<div>").addClass("custom_icon_category").attr("id",index);
-					if(_paramObj.source == "cloud"){
-						if($container.find(".custom_icon_category.upload").length > 0)
-							$category_obj.insertBefore($container.find(".custom_icon_category.upload"));
-						else
-							$category_obj.appendTo($container);
-					}
-					else
-						$category_obj.appendTo($container);
-					var $title_obj = $("<div>").addClass("category_title");
-					$title_obj.appendTo($category_obj);
-					if(category.title != "")
-						$title_obj.html(category.title);
-					if(category.translation != "") {
-						var specific_translation = custom_icon_db_translation_mapping.filter(function(item, index, _array){
-							return (item.tag == category.translation);
-						})[0];
-						if(specific_translation != undefined)
-							$title_obj.html(specific_translation.text);
-					}
-				}
-				else
-					$category_obj = $container.find("#" + index + "");
-
-				if(category.list.length > 0){
-					var total_count = category.list.length;
-					var maxi_count = 7;
-
-					var row_idx = $category_obj.children(".category_content").last().attr("row_idx");
-					if(row_idx == undefined)
-						row_idx = 0;
-
-					$.each(category.list, function( index, value ){
-						var $content_obj = "";
-						if($category_obj.find(".category_content[row_idx=" + row_idx + "]").length == 0){
-							$content_obj = $("<div>").addClass("category_content").attr("row_idx", row_idx);
-						}
-						else{
-							$content_obj = $category_obj.find(".category_content[row_idx=" + row_idx + "]");
-							if($content_obj.children().length >= maxi_count){
-								row_idx++;
-								$content_obj = $("<div>").addClass("category_content").attr("row_idx", row_idx);
-							}
-						}
-
-						var icon = value;
-						var src = "";
-						if(_paramObj.source == "cloud"){
-							if(icon.src != undefined && icon.src != "")
-								src = icon.src
-							else
-								return;
-						}
-						if($category_obj.children(".category_content").children(".type" + icon.num + "").length > 0)
-							return;
-
-						var $item_obj = $("<div>").addClass("type" + icon.num + "");
-						if(icon.title != "")
-							$item_obj.attr("title", icon.title);
-						if(icon.translation != ""){
-							var specific_translation = custom_icon_db_translation_mapping.filter(function(item, index, _array){
-								return (item.tag == icon.translation);
-							})[0];
-							if(specific_translation != undefined){
-								$item_obj.attr("title", specific_translation.text);
-							}
-						}
-						if(_paramObj.source == "cloud" && src != ""){
-							$item_obj.css("background-image", "url(" + src + ")");
-						}
-
-						$content_obj.appendTo($category_obj);
-						$item_obj.appendTo($content_obj);
-						$item_obj.unbind("click");
-						$item_obj.click(function(e){
-							e = e || event;
-							if(_paramObj.select_icon_callBack)
-								_paramObj.select_icon_callBack($(this));
-						});
-					});
-				}
-			}
-		});
-
-		if((_paramObj.source == "local") && isSupport("usericon") && !isSupport("sfp4m")) {
-			$upload_category = $("<div>").addClass("custom_icon_category upload");
-			$upload_category.appendTo($container);
-			$upload_category.append($("<div>").addClass("category_title").html("<#option_upload#>"));
-			var $upload_icon = $("<div>").addClass("client_upload_div").html("+");
-			var $input_file = $("<input/>").attr({"type":"file", "title":"Upload client icon"}).addClass("client_upload_file");/* untranslated */
-			$input_file.appendTo($upload_icon);
-			$upload_category.append($("<div>").addClass("category_content").append($upload_icon));
-			$input_file.on("change", function(){if(_paramObj.upload_callBack) _paramObj.upload_callBack($(this));});
-		}
-	}
 }
 
 /* Exported from device-map/clients.asp */
@@ -3726,7 +3167,7 @@ function retOverLibStr(client){
 	if(client.isITunes)
 		overlibStr += "<p><#Device_service_iTune#></p>YES";
 	if(client.isWL > 0){
-		overlibStr += "<p><#Wireless_Radio#>:</p>" + isWL_map[client.isWL]["text"].replace("G", " GHz") + " (" + client.rssi + " dBm)";
+		overlibStr += "<p><#Wireless_Radio#>:</p>" + wl_nband_title[client.isWL-1] + " (" + client.rssi + " dBm)";
 		if(stainfo_support) {
 			overlibStr += "<p>Tx Rate:</p>" + ((client.curTx != "") ? client.curTx : "-");
 			overlibStr += "<p>Rx Rate:</p>" + ((client.curRx != "") ? client.curRx : "-");
@@ -3750,7 +3191,7 @@ function ajaxCallJsonp(target){
 }
 
 function oui_query_full_vendor(mac){
-	if(clientList[mac] != undefined && clientList[mac].vendor != "") {
+	if(clientList[mac].vendor != "") {
 		setTimeout(function(){
 			var overlibStrTmp = retOverLibStr(clientList[mac]);
 			overlibStrTmp += "<p><span>.....................................</span></p><p style='margin-top:5px'><#Manufacturer#> :</p>";
@@ -3759,12 +3200,10 @@ function oui_query_full_vendor(mac){
 		}, 1);
 	}
 	else {
+		if('<% nvram_get("x_Setting"); %>' == '1' && wanConnectStatus && clientList[mac].internetState) {
 			var queryStr = mac.replace(/\:/g, "").splice(6,6,"");
-			if (clientList[mac] != undefined)
-				var overlibStrTmp = retOverLibStr(clientList[mac]);
-			else
-				var overlibStrTmp = "<p><#MAC_Address#>:</p>" + mac.toUpperCase();
-			$.getJSON("/ajax/ouiDB.json", function(data){
+			var overlibStrTmp = retOverLibStr(clientList[mac]);
+			$.getJSON("http://nw-dlcdnet.asus.com/plugin/js/ouiDB.json", function(data){
 				if(data != "" && data[queryStr] != undefined){
 					if(overlib.isOut) return nd();
 					var vendor_name = data[queryStr].trim();
@@ -3773,6 +3212,7 @@ function oui_query_full_vendor(mac){
 					return overlib(overlibStrTmp);
 				}
 			});
+		}
 	}
 }
 
