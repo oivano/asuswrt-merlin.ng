@@ -4401,11 +4401,12 @@ quagga/stamp-h1:
 	@cd quagga && autoreconf -i -f && \
 	CC=$(CC) AR=$(AR) RANLIB=$(RANLIB) LD=$(LD) \
 	CFLAGS="$(CFLAGS) -Os -Wall -ffunction-sections -fdata-sections -fPIC" \
-	LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections -L$(STAGEDIR)/usr/lib -lreadline" \
+	LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections -L$(STAGEDIR)/usr/lib" \
+	LIBREADLINE="-L$(STAGEDIR)/usr/lib -lreadline" \
 	$(CONFIGURE) --prefix=/usr --sysconfdir=/etc --enable-shared \
 	--disable-ripngd --disable-ripd --disable-doc --disable-ospfclient \
 	--disable-ospf6d --disable-nhrpd \
-	--disable-silent-rules --disable-vtysh \
+	--disable-silent-rules \
 	--disable-isisd
 	@touch $@
 
@@ -4424,15 +4425,15 @@ quagga-install:
 	$(STRIP)  $(INSTALLDIR)/quagga/usr/lib/libzebra.so
 	install -d $(INSTALLDIR)/quagga/usr/sbin
 	libtool --mode=install install -c quagga/zebra/zebra $(INSTALLDIR)/quagga/usr/sbin
-#	libtool --mode=install install -c quagga/vtysh $(INSTALLDIR)/quagga/usr/sbin
+	libtool --mode=install install -c quagga/vtysh $(INSTALLDIR)/quagga/usr/sbin
 	libtool --mode=install install -c quagga/bgpd/bgpd $(INSTALLDIR)/quagga/usr/sbin
 	libtool --mode=install install -c quagga/ospfd/ospfd $(INSTALLDIR)/quagga/usr/sbin
 	libtool --mode=install install -c quagga/watchquagga/watchquagga $(INSTALLDIR)/quagga/usr/sbin
-#	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/zebra
-#	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/vtysh
-#	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/bgpd
-#	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/ospfd
-#	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/watchquagga
+	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/zebra
+	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/vtysh
+	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/bgpd
+	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/ospfd
+	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/watchquagga
 ifneq ($(RTCONFIG_MUSL_LIBC),y)
 	mkdir -p $(TARGETDIR)/lib
 ifneq ($(HND_ROUTER),y)
@@ -4962,7 +4963,7 @@ rstats-install:
 dropbear/config.h.in: $(if $(RTCONFIG_PROTECTION_SERVER),protect_srv-stage,)
 
 dropbear/config.h: dropbear/config.h.in
-	cd dropbear && \
+	cd dropbear && autoreconf -i -f && \
 		CPPFLAGS="-O2 -Wall $(EXTRACFLAGS) -DARGTYPE=3 -ffunction-sections -fdata-sections -I$(STAGEDIR)/usr/include \
 			$(if $(RTCONFIG_PROTECTION_SERVER),-DSECURITY_NOTIFY,)" \
 		LDFLAGS="-Wl,--gc-sections -L$(STAGEDIR)/usr/lib" \
