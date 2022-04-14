@@ -257,11 +257,6 @@ struct serversession {
 	/* The numeric address they connected from, used for logging */
 	char * addrstring;
 
-#ifdef SECURITY_NOTIFY
-	/* The numeric address w/o port they connected from */
-	char * hoststring;
-#endif
-
 	/* The resolved remote address, used for lastlog etc */
 	char *remotehost;
 
@@ -321,6 +316,7 @@ struct clientsession {
 
 	int lastauthtype; /* either AUTH_TYPE_PUBKEY or AUTH_TYPE_PASSWORD,
 						 for the last type of auth we tried */
+	int is_trivial_auth;
 	int ignore_next_auth_response;
 #if DROPBEAR_CLI_INTERACT_AUTH
 	int auth_interact_failed; /* flag whether interactive auth can still

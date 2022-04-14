@@ -4962,7 +4962,7 @@ rstats-install:
 dropbear/config.h.in: $(if $(RTCONFIG_PROTECTION_SERVER),protect_srv-stage,)
 
 dropbear/config.h: dropbear/config.h.in
-	cd dropbear && \
+	cd dropbear && autoreconf -i -f && \
 		CPPFLAGS="-O2 -Wall $(EXTRACFLAGS) -DARGTYPE=3 -ffunction-sections -fdata-sections -I$(STAGEDIR)/usr/include \
 			$(if $(RTCONFIG_PROTECTION_SERVER),-DSECURITY_NOTIFY,)" \
 		LDFLAGS="-Wl,--gc-sections -L$(STAGEDIR)/usr/lib" \
@@ -4986,7 +4986,6 @@ dropbear-install:
 	ln -sf dropbearmulti dropbearkey && \
 	ln -sf dropbearmulti dbclient && \
 	ln -sf dropbearmulti ssh && \
-	ln -sf dropbearmulti sftp && \
 	ln -sf dropbearmulti scp
 	install -d $(INSTALLDIR)/dropbear/usr/sbin
 	cd $(INSTALLDIR)/dropbear/usr/sbin && \
