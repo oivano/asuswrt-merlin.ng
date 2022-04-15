@@ -17,10 +17,9 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with Quagga; see the file COPYING.  If not, write to the Free
- * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * You should have received a copy of the GNU General Public License along
+ * with this program; see the file COPYING; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
 /*
@@ -30,7 +29,7 @@
 #ifndef _FPM_PB_H
 #define _FPM_PB_H
 
-#include "route_types.h"
+#include "lib/route_types.h"
 #include "qpb/qpb.h"
 
 #include "fpm/fpm.pb-c.h"
@@ -39,25 +38,23 @@
  * fpm__route_key__create
  */
 #define fpm_route_key_create fpm__route_key__create
-static inline Fpm__RouteKey *
-fpm__route_key__create (qpb_allocator_t *allocator, struct prefix *prefix)
+static inline Fpm__RouteKey *fpm__route_key__create(qpb_allocator_t *allocator,
+						    struct prefix *prefix)
 {
-  Fpm__RouteKey *key;
+	Fpm__RouteKey *key;
 
-  key = QPB_ALLOC (allocator, typeof (*key));
-  if (!key)
-    {
-      return NULL;
-    }
-  fpm__route_key__init (key);
+	key = QPB_ALLOC(allocator, typeof(*key));
+	if (!key) {
+		return NULL;
+	}
+	fpm__route_key__init(key);
 
-  key->prefix = qpb__l3_prefix__create (allocator, prefix);
-  if (!key->prefix)
-    {
-      return NULL;
-    }
+	key->prefix = qpb__l3_prefix__create(allocator, prefix);
+	if (!key->prefix) {
+		return NULL;
+	}
 
-  return key;
+	return key;
 }
 
 #endif

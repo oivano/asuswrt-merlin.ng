@@ -14,10 +14,9 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with GNU Zebra; see the file COPYING.  If not, write to the 
- * Free Software Foundation, Inc., 59 Temple Place - Suite 330, 
- * Boston, MA 02111-1307, USA.  
+ * You should have received a copy of the GNU General Public License along
+ * with this program; see the file COPYING; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
 #ifndef OSPF6_PROTO_H
@@ -36,6 +35,8 @@
 #define OSPF6_ROUTER_BIT_V     (1 << 2)
 #define OSPF6_ROUTER_BIT_E     (1 << 1)
 #define OSPF6_ROUTER_BIT_B     (1 << 0)
+#define OSPF6_ROUTER_BIT_NT    (1 << 4)
+
 
 /* OSPF options */
 /* present in HELLO, DD, LSA */
@@ -53,49 +54,46 @@
 
 /* OSPF6 Prefix */
 #define OSPF6_PREFIX_MIN_SIZE                  4U /* .length == 0 */
-struct ospf6_prefix
-{
-  u_int8_t prefix_length;
-  u_int8_t prefix_options;
-  union {
-    u_int16_t _prefix_metric;
-    u_int16_t _prefix_referenced_lstype;
-  } u;
+struct ospf6_prefix {
+	uint8_t prefix_length;
+	uint8_t prefix_options;
+	union {
+		uint16_t _prefix_metric;
+		uint16_t _prefix_referenced_lstype;
+	} u;
 #define prefix_metric        u._prefix_metric
 #define prefix_refer_lstype  u._prefix_referenced_lstype
-  /* followed by one address_prefix */
+	/* followed by one address_prefix */
+	struct in6_addr addr[];
 };
 
 #define OSPF6_PREFIX_OPTION_NU (1 << 0)  /* No Unicast */
 #define OSPF6_PREFIX_OPTION_LA (1 << 1)  /* Local Address */
 #define OSPF6_PREFIX_OPTION_MC (1 << 2)  /* MultiCast */
 #define OSPF6_PREFIX_OPTION_P  (1 << 3)  /* Propagate (NSSA) */
+#define OSPF6_PREFIX_OPTION_DN                                                 \
+	(1 << 4) /* DN bit to prevent loops in VPN environment */
 
 /* caddr_t OSPF6_PREFIX_BODY (struct ospf6_prefix *); */
-#define OSPF6_PREFIX_BODY(x) ((caddr_t)(x) + sizeof (struct ospf6_prefix))
+#define OSPF6_PREFIX_BODY(x) ((caddr_t)(x) + sizeof(struct ospf6_prefix))
 
 /* size_t OSPF6_PREFIX_SPACE (int prefixlength); */
 #define OSPF6_PREFIX_SPACE(x) ((((x) + 31) / 32) * 4)
 
 /* size_t OSPF6_PREFIX_SIZE (struct ospf6_prefix *); */
-#define OSPF6_PREFIX_SIZE(x) \
-   (OSPF6_PREFIX_SPACE ((x)->prefix_length) + sizeof (struct ospf6_prefix))
+#define OSPF6_PREFIX_SIZE(x)                                                   \
+	(OSPF6_PREFIX_SPACE((x)->prefix_length) + sizeof(struct ospf6_prefix))
 
 /* struct ospf6_prefix *OSPF6_PREFIX_NEXT (struct ospf6_prefix *); */
-#define OSPF6_PREFIX_NEXT(x) \
-   ((struct ospf6_prefix *)((caddr_t)(x) + OSPF6_PREFIX_SIZE (x)))
+#define OSPF6_PREFIX_NEXT(x)                                                   \
+	((struct ospf6_prefix *)((caddr_t)(x) + OSPF6_PREFIX_SIZE(x)))
 
-#define ospf6_prefix_in6_addr(in6, op)                         \
-do {                                                           \
-  memset (in6, 0, sizeof (struct in6_addr));                   \
-  memcpy (in6, (caddr_t) (op) + sizeof (struct ospf6_prefix),  \
-          OSPF6_PREFIX_SPACE ((op)->prefix_length));           \
-} while (0)
-
-extern void ospf6_prefix_apply_mask (struct ospf6_prefix *op);
-extern void ospf6_prefix_options_printbuf (u_int8_t prefix_options,
-                                           char *buf, int size);
-extern void ospf6_capability_printbuf (char capability, char *buf, int size);
-extern void ospf6_options_printbuf (u_char *options, char *buf, int size);
+extern void ospf6_prefix_in6_addr(struct in6_addr *in6, const void *prefix_buf,
+				  const struct ospf6_prefix *p);
+extern void ospf6_prefix_apply_mask(struct ospf6_prefix *op);
+extern void ospf6_prefix_options_printbuf(uint8_t prefix_options, char *buf,
+					  int size);
+extern void ospf6_capability_printbuf(char capability, char *buf, int size);
+extern void ospf6_options_printbuf(uint8_t *options, char *buf, int size);
 
 #endif /* OSPF6_PROTO_H */

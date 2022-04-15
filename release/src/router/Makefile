@@ -632,6 +632,11 @@ endif
 #
 SEP=printf "\033[41;1m   $@   \033[0m\n"
 
+# testing libyang/quagga
+obj-y += ncurses-6.0
+obj-y += readline-8.1
+obj-y += libyang-2.0.164
+obj-y += quagga
 #
 # standard packages
 #
@@ -810,7 +815,7 @@ obj-$(RTCONFIG_BT_CONN) += glib-2.37.7
 obj-$(RTCONFIG_BT_CONN) += udev-173
 obj-$(RTCONFIG_BT_CONN) += libical-2.0.0
 obj-$(RTCONFIG_BT_CONN) += ncurses-6.0
-obj-$(RTCONFIG_BT_CONN) += readline-6.2
+obj-$(RTCONFIG_BT_CONN) += readline-8.1
 obj-$(RTCONFIG_BT_CONN) += json-c
 obj-$(RTCONFIG_BT_CONN) += bluez-5.41
 ifeq ($(or $(HND_ROUTER_AX_675X),$(HND_ROUTER_AX_6756)),y)
@@ -1351,6 +1356,8 @@ obj-$(RTCONFIG_HTTPS) += curl
 obj-$(RTCONFIG_SSH) += dropbear
 obj-$(RTCONFIG_WTFAST) += wtfast
 #obj-$(RTCONFIG_ZEBRA) += zebra
+obj-$(RTCONFIG_QUAGGA) += pcre2-10.40
+obj-$(RTCONFIG_QUAGGA) += libyang-2.0.164
 obj-$(RTCONFIG_QUAGGA) += quagga
 #obj-$(RTCONFIG_IPP2P) += ipp2p
 ifeq ($(HND_ROUTER_AX_6756),y)
@@ -4397,16 +4404,50 @@ inadyn-clean:
 	[ ! -f inadyn/Makefile ] || $(MAKE) -C inadyn distclean
 	@rm -f inadyn/Makefile
 
+libyang-2.0.164/build/Makefile:
+	@rm -rf libyang-2.0.164/build && mkdir -p libyang-2.0.164/build
+	cd libyang-2.0.164/build && \
+	$(call CMAKE_CrossOptions, crosscompiled.cmake) && \
+	cmake -DCMAKE_TOOLCHAIN_FILE=crosscompiled.cmake \
+		-DCMAKE_INSTALL_PREFIX:PATH=/usr \
+		-DCMAKE_FIND_ROOT_PATH=crosscompiled.cmake \
+		-DCMAKE_INCLUDE_PATH=$(STAGEDIR)/usr/include \
+		-DCMAKE_BUILD_TYPE:String="Debug" \
+		-DCMAKE_REQUIRED_LIBRARIES="pthread pcre2-8" \
+		-DCMAKE_C_FLAGS="$(CFLAGS) -std=gnu99 -ffunction-sections -fdata-sections -I$(STAGEDIR)/usr/include" \
+		-DCMAKE_EXE_LINKER_FLAGS="-Wl,--gc-sections -L$(STAGEDIR)/usr/lib -pthread -lpcre2-8" \
+		-DPCRE2_LIBRARIES=$(STAGEDIR)/usr/lib/libpcre2-8.so \
+		-DPCRE2_INCLUDE_DIRS=$(STAGEDIR)/usr/include \
+		..
+
+libyang-2.0.164: pcre2-10.40 libyang-2.0.164/build/Makefile
+	@$(SEP)
+	$(MAKE) -C libyang-2.0.164/build $(PARALLEL_BUILD) && $(MAKE) $@-stage
+
+libyang-2.0.164-install:
+	@$(SEP)
+	install -d $(INSTALLDIR)/libyang-2.0.164/usr/lib
+	install -D libyang-2.0.164/build/libyang.so.2.18.6 $(INSTALLDIR)/libyang-2.0.164/usr/lib/libyang.so.2.18.6
+	cd $(INSTALLDIR)/libyang-2.0.164/usr/lib \
+		&& ln -sf libyang.so.2.18.6 libyang.so.2 \
+		&& ln -sf libyang.so.2.18.6 libyang.so \
+	$(STRIP) $(INSTALLDIR)/libyang-2.0.164/usr/lib/libyang.so.2.18.6
+
+libyang-2.0.164-clean:
+	@rm -rf libyang-2.0.164/build
+
 quagga/stamp-h1:
-	@cd quagga && autoreconf -i -f && \
+	@$(SEP)
+	@cd quagga && autoreconf -i -f &&  \
 	CC=$(CC) AR=$(AR) RANLIB=$(RANLIB) LD=$(LD) \
-	CFLAGS="$(CFLAGS) -Os -Wall -ffunction-sections -fdata-sections -fPIC" \
-	LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections" \
-	$(CONFIGURE) --prefix=/usr --sysconfdir=/etc --enable-shared \
-	--disable-ripngd --disable-ripd --disable-doc --disable-ospfclient \
-	--disable-ospf6d --disable-nhrpd \
-	--disable-silent-rules --disable-vtysh \
-	--disable-isisd
+	CFLAGS="$(CFLAGS) -Os -Wall -ffunction-sections -fdata-sections -fPIC -I$(STAGEDIR)/usr/include/json-c -I$(STAGEDIR)/usr/include/libyang-2.0.164" \
+	LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections -L$(STAGEDIR)/usr/lib -ljson-c -lyang -lreadline" \
+	$(CONFIGURE) --with-clippy=./build-clippy/lib/clippy --prefix=/usr --sysconfdir=/etc --enable-shared \
+	--disable-ripngd --disable-ripd --disable-doc --disable-ospfclient --disable-ldpd \
+	--disable-ospf6d --disable-nhrpd --disable-eigrpd  --disable-babeld \
+	--disable-silent-rules --disable-eigrpd \
+	--disable-isisd --disable-vrrpd --disable-pimd --disable-pbrd \
+	--disable-snmp
 	@touch $@
 
 quagga: quagga/stamp-h1
@@ -4417,6 +4458,7 @@ quagga-clean:
 	@rm -f quagga/stamp-h1
 
 quagga-install:
+	@$(SEP)
 	install -d $(INSTALLDIR)/quagga/usr/lib
 	libtool --mode=install install -c quagga/lib/libzebra.la $(INSTALLDIR)/quagga/usr/lib
 	libtool --finish $(INSTALLDIR)/quagga/usr/lib
@@ -4424,15 +4466,15 @@ quagga-install:
 	$(STRIP)  $(INSTALLDIR)/quagga/usr/lib/libzebra.so
 	install -d $(INSTALLDIR)/quagga/usr/sbin
 	libtool --mode=install install -c quagga/zebra/zebra $(INSTALLDIR)/quagga/usr/sbin
-#	libtool --mode=install install -c quagga/vtysh $(INSTALLDIR)/quagga/usr/sbin
+	libtool --mode=install install -c quagga/vtysh $(INSTALLDIR)/quagga/usr/sbin
 	libtool --mode=install install -c quagga/bgpd/bgpd $(INSTALLDIR)/quagga/usr/sbin
 	libtool --mode=install install -c quagga/ospfd/ospfd $(INSTALLDIR)/quagga/usr/sbin
-	libtool --mode=install install -c quagga/watchquagga/watchquagga $(INSTALLDIR)/quagga/usr/sbin
+	libtool --mode=install install -c quagga/watchfrr/watchfrr $(INSTALLDIR)/quagga/usr/sbin
 	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/zebra
-#	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/vtysh
+	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/vtysh
 	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/bgpd
 	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/ospfd
-	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/watchquagga
+	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/watchfrr
 ifneq ($(RTCONFIG_MUSL_LIBC),y)
 	mkdir -p $(TARGETDIR)/lib
 ifneq ($(HND_ROUTER),y)
@@ -5111,7 +5153,7 @@ ffmpeg/stamp-h1: $(if $(FFMPEG_ZLIB_REQD),zlib,)
 		--disable-bsfs \
 		--disable-protocols $(FFMPEG_CONFIGURE_PROTOCOLS) \
 		--disable-devices --disable-filters \
-		--extra-cflags="-Os $(EXTRACFLAGSx) -ffunction-sections -fdata-sections -fPIC $(if $(FFMPEG_ZLIB_REQD),-I$(TOP)/zlib,)" \
+		--extra-cflags="-Os $(EXTRACFLAGS) -ffunction-sections -fdata-sections -fPIC $(if $(FFMPEG_ZLIB_REQD),-I$(TOP)/zlib,)" \
 		--extra-ldflags="-ffunction-sections -fdata-sections -Wl,--gc-sections -fPIC" \
 		$(if $(FFMPEG_ZLIB_REQD),--extra-libs="-L$(TOP)/zlib -lz" --enable-zlib,--disable-zlib) \
 		--disable-debug --prefix=''
@@ -6200,6 +6242,30 @@ pcre-8.31-install: pcre-8.31
 pcre-8.31-clean:
 	-@$(MAKE) -C pcre-8.31 clean
 	@rm -f pcre-8.31/stamp-h1
+
+pcre2-10.40/stamp-h1:
+	cd pcre2-10.40 && autoreconf -i -f && \
+	CC=$(CC) CXX=$(CXX) AR=$(AR) RANLIB=$(RANLIB) LD=$(LD) CFLAGS="-Os -Wall -std=gnu99" LIBS="$(EXTRALDFLAGS)" \
+	$(CONFIGURE) --prefix=/usr --disable-dependency-tracking
+	touch $@
+
+pcre2-10.40: pcre2-10.40/stamp-h1
+	$(MAKE) -C pcre2-10.40 all $(PARALLEL_BUILD) && $(MAKE) $@-stage
+
+pcre2-10.40-install: pcre2-10.40
+	@$(SEP)
+	install -D pcre2-10.40/.libs/libpcre2-8.so.0.11.0 $(INSTALLDIR)/pcre2-10.40/usr/lib/libpcre2-8.so.0.11.0
+	cd $(INSTALLDIR)/pcre2-10.40/usr/lib && ln -sf libpcre2-8.so.0.11.0 libpcre2-8.so.0
+	cd $(INSTALLDIR)/pcre2-10.40/usr/lib && ln -sf libpcre2-8.so.0.11.0 libpcre2-8.so
+	$(STRIP) -s $(INSTALLDIR)/pcre2-10.40/usr/lib/libpcre2-8.so.0.11.0
+	install -D pcre2-10.40/.libs/libpcre2-posix.so.3.0.2 $(INSTALLDIR)/pcre2-10.40/usr/lib/libpcre2-posix.so.3.0.2
+	cd $(INSTALLDIR)/pcre2-10.40/usr/lib && ln -sf libpcre2-posix.so.3.0.2 libpcre2-posix.so.3
+	cd $(INSTALLDIR)/pcre2-10.40/usr/lib && ln -sf libpcre2-posix.so.3.0.2 libpcre2-posix.so
+	$(STRIP) -s $(INSTALLDIR)/pcre2-10.40/usr/lib/libpcre2-posix.so.3.0.2
+
+pcre2-10.40-clean:
+	-@$(MAKE) -C pcre2-10.40 clean
+	@rm -f pcre2-10.40/stamp-h1
 
 libxml2/stamp-h1:
 	cd libxml2 && mkdir -p m4 && autoreconf -i -f && \
@@ -7371,7 +7437,7 @@ libfapi-0.1-install:
 	cd libfapi-0.1; make clean; make
 	install -D libfapi-0.1/libfapi.so $(TARGETDIR)/usr/lib/
 
-fapi_wlan_common-05.04.00.131: ncurses-6.0 readline-6.2 libhelper-1.4.0.2
+fapi_wlan_common-05.04.00.131: ncurses-6.0 readline-8.1 libhelper-1.4.0.2
 	cd fapi_wlan_common-05.04.00.131; make clean; make
 
 fapi_wlan_common-05.04.00.131-install:
@@ -7829,29 +7895,30 @@ wsdd2-clean:
 
 # End merlin components
 
-readline-6.2/Makefile: readline-6.2/configure
-	cd readline-6.2 && $(CONFIGURE)\
+readline-8.1/Makefile: readline-8.1/configure
+	cd readline-8.1 && autoreconf -i -f && \
+	$(CONFIGURE) \
 		--prefix=/usr --exec_prefix=/usr --bindir=/usr/bin --sbindir=/usr/sbin --libexecdir=/usr/lib\
-		--sysconfdir=/etc --disable-static --enable-shared\
-		CFLAGS="-I$(STAGEDIR)/usr/local/include"\
-		LDFLAGS="-L$(STAGEDIR)/usr/local/lib -L$(STAGEDIR)/usr/lib -L$(TOP)/ncurese-2.0/lib -ldl -lpthread" \
+		--sysconfdir=/etc --with-curses --disable-static --enable-shared\
+		CFLAGS="-I$(STAGEDIR)/usr/include"\
+		LDFLAGS="-L$(STAGEDIR)/usr/lib -L$(TOP)/ncurses-6.0/lib/libncurses.so.6 -ldl -lpthread"
 
-readline-6.2: readline-6.2/Makefile
+readline-8.1: readline-8.1/Makefile
 	$(MAKE) SHLIB_LIBS="-lncurses" -C $@ && $(MAKE) $@-stage
 
-readline-6.2-clean:
-	[ ! -f readline-6.2/Makefile ] || $(MAKE) -C readline-6.2 distclean
+readline-8.1-clean:
+	[ ! -f readline-8.1/Makefile ] || $(MAKE) -C readline-8.1 distclean
 
-readline-6.2-install: readline-6.2
-	install -D readline-6.2/shlib/libhistory.so.6.2 $(INSTALLDIR)/readline-6.2/usr/lib/libhistory.so.6.2
-	install -D readline-6.2/shlib/libreadline.so.6.2 $(INSTALLDIR)/readline-6.2/usr/lib/libreadline.so.6.2
-	$(STRIP) $(INSTALLDIR)/readline-6.2/usr/lib/libhistory.so.6.2
-	$(STRIP) $(INSTALLDIR)/readline-6.2/usr/lib/libreadline.so.6.2
-	cd $(INSTALLDIR)/readline-6.2/usr/lib && \
-		ln -sf libhistory.so.6.2 libhistory.so.6 &&\
-		ln -sf libhistory.so.6.2 libhistory.so &&\
-		ln -sf libreadline.so.6.2 libreadline.so.6 &&\
-		ln -sf libreadline.so.6.2 libreadline.so
+readline-8.1-install: readline-8.1
+	install -D readline-8.1/shlib/libhistory.so.8.1 $(INSTALLDIR)/readline-8.1/usr/lib/libhistory.so.8.1
+	install -D readline-8.1/shlib/libreadline.so.8.1 $(INSTALLDIR)/readline-8.1/usr/lib/libreadline.so.8.1
+	$(STRIP) $(INSTALLDIR)/readline-8.1/usr/lib/libhistory.so.8.1
+	$(STRIP) $(INSTALLDIR)/readline-8.1/usr/lib/libreadline.so.8.1
+	cd $(INSTALLDIR)/readline-8.1/usr/lib && \
+		ln -sf libhistory.so.8.1 libhistory.so.8 &&\
+		ln -sf libhistory.so.8.1 libhistory.so &&\
+		ln -sf libreadline.so.8.1 libreadline.so.8 &&\
+		ln -sf libreadline.so.8.1 libreadline.so
 
 dbus-1.8.8/stamp-h1:
 	cd dbus-1.8.8 && ./autogen.sh --no-configure

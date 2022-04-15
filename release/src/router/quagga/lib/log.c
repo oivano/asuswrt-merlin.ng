@@ -14,1044 +14,649 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with GNU Zebra; see the file COPYING.  If not, write to the Free
- * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * You should have received a copy of the GNU General Public License along
+ * with this program; see the file COPYING; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#define QUAGGA_DEFINE_DESC_TABLE
+#define FRR_DEFINE_DESC_TABLE
 
 #include <zebra.h>
 
+#include "zclient.h"
 #include "log.h"
 #include "memory.h"
 #include "command.h"
-#ifndef SUNOS_5
-#include <sys/un.h>
+#include "lib_errors.h"
+#include "lib/hook.h"
+#include "printfrr.h"
+#include "frr_pthread.h"
+
+#ifdef HAVE_LIBUNWIND
+#define UNW_LOCAL_ONLY
+#include <libunwind.h>
+#include <dlfcn.h>
 #endif
-/* for printstack on solaris */
-#ifdef HAVE_UCONTEXT_H
-#include <ucontext.h>
-#endif
 
-static int logfile_fd = -1;	/* Used in signal handler. */
-
-struct zlog *zlog_default = NULL;
-
-const char *zlog_proto_names[] = 
+/**
+ * Looks up a message in a message list by key.
+ *
+ * If the message is not found, returns the provided error message.
+ *
+ * Terminates when it hits a struct message that's all zeros.
+ *
+ * @param mz the message list
+ * @param kz the message key
+ * @param nf the message to return if not found
+ * @return the message
+ */
+const char *lookup_msg(const struct message *mz, int kz, const char *nf)
 {
-  "NONE",
-  "DEFAULT",
-  "ZEBRA",
-  "RIP",
-  "BGP",
-  "OSPF",
-  "RIPNG",
-  "BABEL",
-  "OSPF6",
-  "ISIS",
-  "PIM",
-  "MASC",
-  "NHRP",
-  NULL,
-};
-
-const char *zlog_priority[] =
-{
-  "emergencies",
-  "alerts",
-  "critical",
-  "errors",
-  "warnings",
-  "notifications",
-  "informational",
-  "debugging",
-  NULL,
-};
-  
-
+	static struct message nt = {0};
+	const char *rz = nf ? nf : "(no message found)";
+	const struct message *pnt;
+	for (pnt = mz; memcmp(pnt, &nt, sizeof(struct message)); pnt++)
+		if (pnt->key == kz) {
+			rz = pnt->str ? pnt->str : rz;
+			break;
+		}
+	return rz;
+}
 
 /* For time string format. */
-
-size_t
-quagga_timestamp(int timestamp_precision, char *buf, size_t buflen)
+size_t frr_timestamp(int timestamp_precision, char *buf, size_t buflen)
 {
-  static struct {
-    time_t last;
-    size_t len;
-    char buf[28];
-  } cache;
-  struct timeval clock;
+	static struct {
+		time_t last;
+		size_t len;
+		char buf[28];
+	} cache;
+	struct timeval clock;
 
-  /* would it be sufficient to use global 'recent_time' here?  I fear not... */
-  gettimeofday(&clock, NULL);
+	gettimeofday(&clock, NULL);
 
-  /* first, we update the cache if the time has changed */
-  if (cache.last != clock.tv_sec)
-    {
-      struct tm *tm;
-      cache.last = clock.tv_sec;
-      tm = localtime(&cache.last);
-      cache.len = strftime(cache.buf, sizeof(cache.buf),
-      			   "%Y/%m/%d %H:%M:%S", tm);
-    }
-  /* note: it's not worth caching the subsecond part, because
-     chances are that back-to-back calls are not sufficiently close together
-     for the clock not to have ticked forward */
-
-  if (buflen > cache.len)
-    {
-      memcpy(buf, cache.buf, cache.len);
-      if ((timestamp_precision > 0) &&
-	  (buflen > cache.len+1+timestamp_precision))
-	{
-	  /* should we worry about locale issues? */
-	  static const int divisor[] = {0, 100000, 10000, 1000, 100, 10, 1};
-	  int prec;
-	  char *p = buf+cache.len+1+(prec = timestamp_precision);
-	  *p-- = '\0';
-	  while (prec > 6)
-	    /* this is unlikely to happen, but protect anyway */
-	    {
-	      *p-- = '0';
-	      prec--;
-	    }
-	  clock.tv_usec /= divisor[prec];
-	  do
-	    {
-	      *p-- = '0'+(clock.tv_usec % 10);
-	      clock.tv_usec /= 10;
-	    }
-	  while (--prec > 0);
-	  *p = '.';
-	  return cache.len+1+timestamp_precision;
+	/* first, we update the cache if the time has changed */
+	if (cache.last != clock.tv_sec) {
+		struct tm tm;
+		cache.last = clock.tv_sec;
+		localtime_r(&cache.last, &tm);
+		cache.len = strftime(cache.buf, sizeof(cache.buf),
+				     "%Y/%m/%d %H:%M:%S", &tm);
 	}
-      buf[cache.len] = '\0';
-      return cache.len;
-    }
-  if (buflen > 0)
-    buf[0] = '\0';
-  return 0;
+	/* note: it's not worth caching the subsecond part, because
+	   chances are that back-to-back calls are not sufficiently close
+	   together
+	   for the clock not to have ticked forward */
+
+	if (buflen > cache.len) {
+		memcpy(buf, cache.buf, cache.len);
+		if ((timestamp_precision > 0)
+		    && (buflen > cache.len + 1 + timestamp_precision)) {
+			/* should we worry about locale issues? */
+			static const int divisor[] = {0,   100000, 10000, 1000,
+						      100, 10,     1};
+			int prec;
+			char *p = buf + cache.len + 1
+				  + (prec = timestamp_precision);
+			*p-- = '\0';
+			while (prec > 6)
+			/* this is unlikely to happen, but protect anyway */
+			{
+				*p-- = '0';
+				prec--;
+			}
+			clock.tv_usec /= divisor[prec];
+			do {
+				*p-- = '0' + (clock.tv_usec % 10);
+				clock.tv_usec /= 10;
+			} while (--prec > 0);
+			*p = '.';
+			return cache.len + 1 + timestamp_precision;
+		}
+		buf[cache.len] = '\0';
+		return cache.len;
+	}
+	if (buflen > 0)
+		buf[0] = '\0';
+	return 0;
 }
 
-/* Utility routine for current time printing. */
-static void
-time_print(FILE *fp, struct timestamp_control *ctl)
-{
-  if (!ctl->already_rendered)
-    {
-      ctl->len = quagga_timestamp(ctl->precision, ctl->buf, sizeof(ctl->buf));
-      ctl->already_rendered = 1;
-    }
-  fprintf(fp, "%s ", ctl->buf);
-}
-  
-
-/* va_list version of zlog. */
-static void
-vzlog (struct zlog *zl, int priority, const char *format, va_list args)
-{
-  int original_errno = errno;
-  struct timestamp_control tsctl;
-  tsctl.already_rendered = 0;
-
-  /* If zlog is not specified, use default one. */
-  if (zl == NULL)
-    zl = zlog_default;
-
-  /* When zlog_default is also NULL, use stderr for logging. */
-  if (zl == NULL)
-    {
-      tsctl.precision = 0;
-      time_print(stderr, &tsctl);
-      fprintf (stderr, "%s: ", "unknown");
-      vfprintf (stderr, format, args);
-      fprintf (stderr, "\n");
-      fflush (stderr);
-
-      /* In this case we return at here. */
-      errno = original_errno;
-      return;
-    }
-  tsctl.precision = zl->timestamp_precision;
-
-  /* Syslog output */
-  if (priority <= zl->maxlvl[ZLOG_DEST_SYSLOG])
-    {
-      va_list ac;
-      va_copy(ac, args);
-      vsyslog (priority|zlog_default->facility, format, ac);
-      va_end(ac);
-    }
-
-  /* File output. */
-  if ((priority <= zl->maxlvl[ZLOG_DEST_FILE]) && zl->fp)
-    {
-      va_list ac;
-      time_print (zl->fp, &tsctl);
-      if (zl->record_priority)
-	fprintf (zl->fp, "%s: ", zlog_priority[priority]);
-      fprintf (zl->fp, "%s: ", zlog_proto_names[zl->protocol]);
-      va_copy(ac, args);
-      vfprintf (zl->fp, format, ac);
-      va_end(ac);
-      fprintf (zl->fp, "\n");
-      fflush (zl->fp);
-    }
-
-  /* stdout output. */
-  if (priority <= zl->maxlvl[ZLOG_DEST_STDOUT])
-    {
-      va_list ac;
-      time_print (stdout, &tsctl);
-      if (zl->record_priority)
-	fprintf (stdout, "%s: ", zlog_priority[priority]);
-      fprintf (stdout, "%s: ", zlog_proto_names[zl->protocol]);
-      va_copy(ac, args);
-      vfprintf (stdout, format, ac);
-      va_end(ac);
-      fprintf (stdout, "\n");
-      fflush (stdout);
-    }
-
-  /* Terminal monitor. */
-  if (priority <= zl->maxlvl[ZLOG_DEST_MONITOR])
-    vty_log ((zl->record_priority ? zlog_priority[priority] : NULL),
-	     zlog_proto_names[zl->protocol], format, &tsctl, args);
-
-  errno = original_errno;
-}
-
-static char *
-str_append(char *dst, int len, const char *src)
-{
-  while ((len-- > 0) && *src)
-    *dst++ = *src++;
-  return dst;
-}
-
-static char *
-num_append(char *s, int len, u_long x)
-{
-  char buf[30];
-  char *t;
-
-  if (!x)
-    return str_append(s,len,"0");
-  *(t = &buf[sizeof(buf)-1]) = '\0';
-  while (x && (t > buf))
-    {
-      *--t = '0'+(x % 10);
-      x /= 10;
-    }
-  return str_append(s,len,t);
-}
-
-#if defined(SA_SIGINFO) || defined(HAVE_STACK_TRACE)
-static char *
-hex_append(char *s, int len, u_long x)
-{
-  char buf[30];
-  char *t;
-
-  if (!x)
-    return str_append(s,len,"0");
-  *(t = &buf[sizeof(buf)-1]) = '\0';
-  while (x && (t > buf))
-    {
-      u_int cc = (x % 16);
-      *--t = ((cc < 10) ? ('0'+cc) : ('a'+cc-10));
-      x /= 16;
-    }
-  return str_append(s,len,t);
-}
-#endif
-
-/* Needs to be enhanced to support Solaris. */
-static int
-syslog_connect(void)
-{
-#ifdef SUNOS_5
-  return -1;
-#else
-  int fd;
-  char *s;
-  struct sockaddr_un addr;
-
-  if ((fd = socket(AF_UNIX,SOCK_DGRAM,0)) < 0)
-    return -1;
-  addr.sun_family = AF_UNIX;
-#ifdef _PATH_LOG
-#define SYSLOG_SOCKET_PATH _PATH_LOG
-#else
-#define SYSLOG_SOCKET_PATH "/dev/log"
-#endif
-  s = str_append(addr.sun_path,sizeof(addr.sun_path),SYSLOG_SOCKET_PATH);
-#undef SYSLOG_SOCKET_PATH
-  *s = '\0';
-  if (connect(fd,(struct sockaddr *)&addr,sizeof(addr)) < 0)
-    {
-      close(fd);
-      return -1;
-    }
-  return fd;
-#endif
-}
-
-static void
-syslog_sigsafe(int priority, const char *msg, size_t msglen)
-{
-  static int syslog_fd = -1;
-  char buf[sizeof("<1234567890>ripngd[1234567890]: ")+msglen+50];
-  char *s;
-
-  if ((syslog_fd < 0) && ((syslog_fd = syslog_connect()) < 0))
-    return;
-
-#define LOC s,buf+sizeof(buf)-s
-  s = buf;
-  s = str_append(LOC,"<");
-  s = num_append(LOC,priority);
-  s = str_append(LOC,">");
-  /* forget about the timestamp, too difficult in a signal handler */
-  s = str_append(LOC,zlog_default->ident);
-  if (zlog_default->syslog_options & LOG_PID)
-    {
-      s = str_append(LOC,"[");
-      s = num_append(LOC,getpid());
-      s = str_append(LOC,"]");
-    }
-  s = str_append(LOC,": ");
-  s = str_append(LOC,msg);
-  write(syslog_fd,buf,s-buf);
-#undef LOC
-}
-
-static int
-open_crashlog(void)
-{
-#define CRASHLOG_PREFIX "/var/tmp/quagga."
-#define CRASHLOG_SUFFIX "crashlog"
-  if (zlog_default && zlog_default->ident)
-    {
-      /* Avoid strlen since it is not async-signal-safe. */
-      const char *p;
-      size_t ilen;
-
-      for (p = zlog_default->ident, ilen = 0; *p; p++)
-	ilen++;
-      {
-	char buf[sizeof(CRASHLOG_PREFIX)+ilen+sizeof(CRASHLOG_SUFFIX)+3];
-	char *s = buf;
-#define LOC s,buf+sizeof(buf)-s
-	s = str_append(LOC, CRASHLOG_PREFIX);
-	s = str_append(LOC, zlog_default->ident);
-	s = str_append(LOC, ".");
-	s = str_append(LOC, CRASHLOG_SUFFIX);
-#undef LOC
-	*s = '\0';
-	return open(buf, O_WRONLY|O_CREAT|O_EXCL, LOGFILE_MASK);
-      }
-    }
-  return open(CRASHLOG_PREFIX CRASHLOG_SUFFIX, O_WRONLY|O_CREAT|O_EXCL,
-	      LOGFILE_MASK);
-#undef CRASHLOG_SUFFIX
-#undef CRASHLOG_PREFIX
-}
+/*
+ * crash handling
+ *
+ * NB: only AS-Safe (async-signal) functions can be used here!
+ */
 
 /* Note: the goal here is to use only async-signal-safe functions. */
-void
-zlog_signal(int signo, const char *action
-#ifdef SA_SIGINFO
-	    , siginfo_t *siginfo, void *program_counter
-#endif
-	   )
+void zlog_signal(int signo, const char *action, void *siginfo_v,
+		 void *program_counter)
 {
-  time_t now;
-  char buf[sizeof("DEFAULT: Received signal S at T (si_addr 0xP, PC 0xP); aborting...")+100];
-  char *s = buf;
-  char *msgstart = buf;
-#define LOC s,buf+sizeof(buf)-s
+	siginfo_t *siginfo = siginfo_v;
+	time_t now;
+	char buf[sizeof("DEFAULT: Received signal S at T (si_addr 0xP, PC 0xP); aborting...")
+		 + 100];
+	struct fbuf fb = { .buf = buf, .pos = buf, .len = sizeof(buf) };
 
-  time(&now);
-  if (zlog_default)
-    {
-      s = str_append(LOC,zlog_proto_names[zlog_default->protocol]);
-      *s++ = ':';
-      *s++ = ' ';
-      msgstart = s;
-    }
-  s = str_append(LOC,"Received signal ");
-  s = num_append(LOC,signo);
-  s = str_append(LOC," at ");
-  s = num_append(LOC,now);
-#ifdef SA_SIGINFO
-  s = str_append(LOC," (si_addr 0x");
-  s = hex_append(LOC,(u_long)(siginfo->si_addr));
-  if (program_counter)
-    {
-      s = str_append(LOC,", PC 0x");
-      s = hex_append(LOC,(u_long)program_counter);
-    }
-  s = str_append(LOC,"); ");
-#else /* SA_SIGINFO */
-  s = str_append(LOC,"; ");
-#endif /* SA_SIGINFO */
-  s = str_append(LOC,action);
-  if (s < buf+sizeof(buf))
-    *s++ = '\n';
+	time(&now);
 
-  /* N.B. implicit priority is most severe */
-#define PRI LOG_CRIT
+	bprintfrr(&fb, "Received signal %d at %lld", signo, (long long)now);
+	if (program_counter)
+		bprintfrr(&fb, " (si_addr 0x%tx, PC 0x%tx)",
+			  (ptrdiff_t)siginfo->si_addr,
+			  (ptrdiff_t)program_counter);
+	else
+		bprintfrr(&fb, " (si_addr 0x%tx)",
+			  (ptrdiff_t)siginfo->si_addr);
+	bprintfrr(&fb, "; %s\n", action);
 
-#define DUMP(FD) write(FD, buf, s-buf);
-  /* If no file logging configured, try to write to fallback log file. */
-  if ((logfile_fd >= 0) || ((logfile_fd = open_crashlog()) >= 0))
-    DUMP(logfile_fd)
-  if (!zlog_default)
-    DUMP(STDERR_FILENO)
-  else
-    {
-      if (PRI <= zlog_default->maxlvl[ZLOG_DEST_STDOUT])
-        DUMP(STDOUT_FILENO)
-      /* Remove trailing '\n' for monitor and syslog */
-      *--s = '\0';
-      if (PRI <= zlog_default->maxlvl[ZLOG_DEST_MONITOR])
-        vty_log_fixed(buf,s-buf);
-      if (PRI <= zlog_default->maxlvl[ZLOG_DEST_SYSLOG])
-	syslog_sigsafe(PRI|zlog_default->facility,msgstart,s-msgstart);
-    }
-#undef DUMP
+	zlog_sigsafe(fb.buf, fb.pos - fb.buf);
 
-  zlog_backtrace_sigsafe(PRI,
-#ifdef SA_SIGINFO
-  			 program_counter
-#else
-			 NULL
-#endif
-			);
+	zlog_backtrace_sigsafe(LOG_CRIT, program_counter);
 
-  s = buf;
-  if (!thread_current)
-    s = str_append (LOC, "no thread information available\n");
-  else
-    {
-      s = str_append (LOC, "in thread ");
-      s = str_append (LOC, thread_current->funcname);
-      s = str_append (LOC, " scheduled from ");
-      s = str_append (LOC, thread_current->schedfrom);
-      s = str_append (LOC, ":");
-      s = num_append (LOC, thread_current->schedfrom_line);
-      s = str_append (LOC, "\n");
-    }
+	fb.pos = buf;
 
-#define DUMP(FD) write(FD, buf, s-buf);
-  /* If no file logging configured, try to write to fallback log file. */
-  if (logfile_fd >= 0)
-    DUMP(logfile_fd)
-  if (!zlog_default)
-    DUMP(STDERR_FILENO)
-  else
-    {
-      if (PRI <= zlog_default->maxlvl[ZLOG_DEST_STDOUT])
-        DUMP(STDOUT_FILENO)
-      /* Remove trailing '\n' for monitor and syslog */
-      *--s = '\0';
-      if (PRI <= zlog_default->maxlvl[ZLOG_DEST_MONITOR])
-        vty_log_fixed(buf,s-buf);
-      if (PRI <= zlog_default->maxlvl[ZLOG_DEST_SYSLOG])
-	syslog_sigsafe(PRI|zlog_default->facility,msgstart,s-msgstart);
-    }
-#undef DUMP
+	struct thread *tc;
+	tc = pthread_getspecific(thread_current);
 
-#undef PRI
-#undef LOC
+	if (!tc)
+		bprintfrr(&fb, "no thread information available\n");
+	else
+		bprintfrr(&fb, "in thread %s scheduled from %s:%d %s()\n",
+			  tc->xref->funcname, tc->xref->xref.file,
+			  tc->xref->xref.line, tc->xref->xref.func);
+
+	zlog_sigsafe(fb.buf, fb.pos - fb.buf);
 }
 
 /* Log a backtrace using only async-signal-safe functions.
    Needs to be enhanced to support syslog logging. */
-void
-zlog_backtrace_sigsafe(int priority, void *program_counter)
+void zlog_backtrace_sigsafe(int priority, void *program_counter)
 {
-#ifdef HAVE_STACK_TRACE
-  static const char pclabel[] = "Program counter: ";
-  void *array[64];
-  int size;
-  char buf[100];
-  char *s, **bt = NULL;
-#define LOC s,buf+sizeof(buf)-s
+#ifdef HAVE_LIBUNWIND
+	char buf[256];
+	struct fbuf fb = { .buf = buf, .len = sizeof(buf) };
+	unw_cursor_t cursor;
+	unw_context_t uc;
+	unw_word_t ip, off, sp;
+	Dl_info dlinfo;
 
-#ifdef HAVE_GLIBC_BACKTRACE
-  size = backtrace(array, array_size(array));
-  if (size <= 0 || (size_t)size > array_size(array))
-    return;
+	memset(&uc, 0, sizeof(uc));
+	memset(&cursor, 0, sizeof(cursor));
 
-#define DUMP(FD) { \
-  if (program_counter) \
-    { \
-      write(FD, pclabel, sizeof(pclabel)-1); \
-      backtrace_symbols_fd(&program_counter, 1, FD); \
-    } \
-  write(FD, buf, s-buf);	\
-  backtrace_symbols_fd(array, size, FD); \
-}
-#elif defined(HAVE_PRINTSTACK)
-#define DUMP(FD) { \
-  if (program_counter) \
-    write((FD), pclabel, sizeof(pclabel)-1); \
-  write((FD), buf, s-buf); \
-  printstack((FD)); \
-}
-#endif /* HAVE_GLIBC_BACKTRACE, HAVE_PRINTSTACK */
+	unw_getcontext(&uc);
+	unw_init_local(&cursor, &uc);
+	while (unw_step(&cursor) > 0) {
+		char name[128] = "?";
 
-  s = buf;
-  s = str_append(LOC,"Backtrace for ");
-  s = num_append(LOC,size);
-  s = str_append(LOC," stack frames:\n");
+		unw_get_reg(&cursor, UNW_REG_IP, &ip);
+		unw_get_reg(&cursor, UNW_REG_SP, &sp);
 
-  if ((logfile_fd >= 0) || ((logfile_fd = open_crashlog()) >= 0))
-    DUMP(logfile_fd)
-  if (!zlog_default)
-    DUMP(STDERR_FILENO)
-  else
-    {
-      if (priority <= zlog_default->maxlvl[ZLOG_DEST_STDOUT])
-	DUMP(STDOUT_FILENO)
-      /* Remove trailing '\n' for monitor and syslog */
-      *--s = '\0';
-      if (priority <= zlog_default->maxlvl[ZLOG_DEST_MONITOR])
-	vty_log_fixed(buf,s-buf);
-      if (priority <= zlog_default->maxlvl[ZLOG_DEST_SYSLOG])
-	syslog_sigsafe(priority|zlog_default->facility,buf,s-buf);
-      {
-	int i;
-#ifdef HAVE_GLIBC_BACKTRACE
-        bt = backtrace_symbols(array, size);
-#endif
-	/* Just print the function addresses. */
-	for (i = 0; i < size; i++)
-	  {
-	    s = buf;
-	    if (bt) 
-	      s = str_append(LOC, bt[i]);
-	    else {
-	      s = str_append(LOC,"[bt ");
-	      s = num_append(LOC,i);
-	      s = str_append(LOC,"] 0x");
-	      s = hex_append(LOC,(u_long)(array[i]));
-	    }
-	    *s = '\0';
-	    if (priority <= zlog_default->maxlvl[ZLOG_DEST_MONITOR])
-	      vty_log_fixed(buf,s-buf);
-	    if (priority <= zlog_default->maxlvl[ZLOG_DEST_SYSLOG])
-	      syslog_sigsafe(priority|zlog_default->facility,buf,s-buf);
-	  }
-	  if (bt)
-	    free(bt);
-      }
-    }
-#undef DUMP
-#undef LOC
+		if (!unw_get_proc_name(&cursor, buf, sizeof(buf), &off))
+			snprintfrr(name, sizeof(name), "%s+%#lx",
+				   buf, (long)off);
+
+		fb.pos = buf;
+		if (unw_is_signal_frame(&cursor))
+			bprintfrr(&fb, "    ---- signal ----\n");
+		bprintfrr(&fb, "%-30s %16lx %16lx", name, (long)ip, (long)sp);
+		if (dladdr((void *)ip, &dlinfo))
+			bprintfrr(&fb, " %s (mapped at %p)",
+				  dlinfo.dli_fname, dlinfo.dli_fbase);
+		bprintfrr(&fb, "\n");
+		zlog_sigsafe(fb.buf, fb.pos - fb.buf);
+	}
+#elif defined(HAVE_GLIBC_BACKTRACE)
+	void *array[64];
+	int size, i;
+	char buf[128];
+	struct fbuf fb = { .buf = buf, .pos = buf, .len = sizeof(buf) };
+	char **bt = NULL;
+
+	size = backtrace(array, array_size(array));
+	if (size <= 0 || (size_t)size > array_size(array))
+		return;
+
+	bprintfrr(&fb, "Backtrace for %d stack frames:", size);
+	zlog_sigsafe(fb.pos, fb.buf - fb.pos);
+
+	bt = backtrace_symbols(array, size);
+
+	for (i = 0; i < size; i++) {
+		fb.pos = buf;
+		if (bt)
+			bprintfrr(&fb, "%s", bt[i]);
+		else
+			bprintfrr(&fb, "[bt %d] 0x%tx", i,
+				  (ptrdiff_t)(array[i]));
+		zlog_sigsafe(fb.buf, fb.pos - fb.buf);
+	}
+	if (bt)
+		free(bt);
 #endif /* HAVE_STRACK_TRACE */
 }
 
-void
-zlog_backtrace(int priority)
+void zlog_backtrace(int priority)
 {
-#ifndef HAVE_GLIBC_BACKTRACE
-  zlog(NULL, priority, "No backtrace available on this platform.");
-#else
-  void *array[20];
-  int size, i;
-  char **strings;
+#ifdef HAVE_LIBUNWIND
+	char buf[100];
+	unw_cursor_t cursor;
+	unw_context_t uc;
+	unw_word_t ip, off, sp;
+	Dl_info dlinfo;
 
-  size = backtrace(array, array_size(array));
-  if (size <= 0 || (size_t)size > array_size(array))
-    {
-      zlog_err("Cannot get backtrace, returned invalid # of frames %d "
-	       "(valid range is between 1 and %lu)",
-	       size, (unsigned long)(array_size(array)));
-      return;
-    }
-  zlog(NULL, priority, "Backtrace for %d stack frames:", size);
-  if (!(strings = backtrace_symbols(array, size)))
-    {
-      zlog_err("Cannot get backtrace symbols (out of memory?)");
-      for (i = 0; i < size; i++)
-	zlog(NULL, priority, "[bt %d] %p",i,array[i]);
-    }
-  else
-    {
-      for (i = 0; i < size; i++)
-	zlog(NULL, priority, "[bt %d] %s",i,strings[i]);
-      free(strings);
-    }
-#endif /* HAVE_GLIBC_BACKTRACE */
+	unw_getcontext(&uc);
+	unw_init_local(&cursor, &uc);
+	zlog(priority, "Backtrace:");
+	while (unw_step(&cursor) > 0) {
+		char name[128] = "?";
+
+		unw_get_reg(&cursor, UNW_REG_IP, &ip);
+		unw_get_reg(&cursor, UNW_REG_SP, &sp);
+
+		if (unw_is_signal_frame(&cursor))
+			zlog(priority, "    ---- signal ----");
+
+		if (!unw_get_proc_name(&cursor, buf, sizeof(buf), &off))
+			snprintf(name, sizeof(name), "%s+%#lx",
+				buf, (long)off);
+
+		if (dladdr((void *)ip, &dlinfo))
+			zlog(priority, "%-30s %16lx %16lx %s (mapped at %p)",
+				name, (long)ip, (long)sp,
+				dlinfo.dli_fname, dlinfo.dli_fbase);
+		else
+			zlog(priority, "%-30s %16lx %16lx",
+				name, (long)ip, (long)sp);
+	}
+#elif defined(HAVE_GLIBC_BACKTRACE)
+	void *array[20];
+	int size, i;
+	char **strings;
+
+	size = backtrace(array, array_size(array));
+	if (size <= 0 || (size_t)size > array_size(array)) {
+		flog_err_sys(
+			EC_LIB_SYSTEM_CALL,
+			"Cannot get backtrace, returned invalid # of frames %d (valid range is between 1 and %lu)",
+			size, (unsigned long)(array_size(array)));
+		return;
+	}
+	zlog(priority, "Backtrace for %d stack frames:", size);
+	if (!(strings = backtrace_symbols(array, size))) {
+		flog_err_sys(EC_LIB_SYSTEM_CALL,
+			     "Cannot get backtrace symbols (out of memory?)");
+		for (i = 0; i < size; i++)
+			zlog(priority, "[bt %d] %p", i, array[i]);
+	} else {
+		for (i = 0; i < size; i++)
+			zlog(priority, "[bt %d] %s", i, strings[i]);
+		free(strings);
+	}
+#else /* !HAVE_GLIBC_BACKTRACE && !HAVE_LIBUNWIND */
+	zlog(priority, "No backtrace available on this platform.");
+#endif
 }
 
-void
-zlog (struct zlog *zl, int priority, const char *format, ...)
+void zlog_thread_info(int log_level)
 {
-  va_list args;
+	struct thread *tc;
+	tc = pthread_getspecific(thread_current);
 
-  va_start(args, format);
-  vzlog (zl, priority, format, args);
-  va_end (args);
+	if (tc)
+		zlog(log_level,
+		     "Current thread function %s, scheduled from file %s, line %u in %s()",
+		     tc->xref->funcname, tc->xref->xref.file,
+		     tc->xref->xref.line, tc->xref->xref.func);
+	else
+		zlog(log_level, "Current thread not known/applicable");
 }
 
-#define ZLOG_FUNC(FUNCNAME,PRIORITY) \
-void \
-FUNCNAME(const char *format, ...) \
-{ \
-  va_list args; \
-  va_start(args, format); \
-  vzlog (NULL, PRIORITY, format, args); \
-  va_end(args); \
-}
-
-ZLOG_FUNC(zlog_err, LOG_ERR)
-
-ZLOG_FUNC(zlog_warn, LOG_WARNING)
-
-ZLOG_FUNC(zlog_info, LOG_INFO)
-
-ZLOG_FUNC(zlog_notice, LOG_NOTICE)
-
-ZLOG_FUNC(zlog_debug, LOG_DEBUG)
-
-#undef ZLOG_FUNC
-
-#define PLOG_FUNC(FUNCNAME,PRIORITY) \
-void \
-FUNCNAME(struct zlog *zl, const char *format, ...) \
-{ \
-  va_list args; \
-  va_start(args, format); \
-  vzlog (zl, PRIORITY, format, args); \
-  va_end(args); \
-}
-
-PLOG_FUNC(plog_err, LOG_ERR)
-
-PLOG_FUNC(plog_warn, LOG_WARNING)
-
-PLOG_FUNC(plog_info, LOG_INFO)
-
-PLOG_FUNC(plog_notice, LOG_NOTICE)
-
-PLOG_FUNC(plog_debug, LOG_DEBUG)
-
-#undef PLOG_FUNC
-
-void zlog_thread_info (int log_level)
+void memory_oom(size_t size, const char *name)
 {
-  if (thread_current)
-    zlog(NULL, log_level, "Current thread function %s, scheduled from "
-	 "file %s, line %u", thread_current->funcname,
-	 thread_current->schedfrom, thread_current->schedfrom_line);
-  else
-    zlog(NULL, log_level, "Current thread not known/applicable");
-}
-
-void
-_zlog_assert_failed (const char *assertion, const char *file,
-		     unsigned int line, const char *function)
-{
-  /* Force fallback file logging? */
-  if (zlog_default && !zlog_default->fp &&
-      ((logfile_fd = open_crashlog()) >= 0) &&
-      ((zlog_default->fp = fdopen(logfile_fd, "w")) != NULL))
-    zlog_default->maxlvl[ZLOG_DEST_FILE] = LOG_ERR;
-  zlog(NULL, LOG_CRIT, "Assertion `%s' failed in file %s, line %u, function %s",
-       assertion,file,line,(function ? function : "?"));
-  zlog_backtrace(LOG_CRIT);
-  zlog_thread_info(LOG_CRIT);
-  abort();
-}
-
-
-/* Open log stream */
-struct zlog *
-openzlog (const char *progname, zlog_proto_t protocol,
-	  int syslog_flags, int syslog_facility)
-{
-  struct zlog *zl;
-  u_int i;
-
-  zl = XCALLOC(MTYPE_ZLOG, sizeof (struct zlog));
-
-  zl->ident = progname;
-  zl->protocol = protocol;
-  zl->facility = syslog_facility;
-  zl->syslog_options = syslog_flags;
-
-  /* Set default logging levels. */
-  for (i = 0; i < array_size(zl->maxlvl); i++)
-    zl->maxlvl[i] = ZLOG_DISABLED;
-  zl->maxlvl[ZLOG_DEST_MONITOR] = LOG_DEBUG;
-  zl->default_lvl = LOG_DEBUG;
-
-  openlog (progname, syslog_flags, zl->facility);
-  
-  return zl;
-}
-
-void
-closezlog (struct zlog *zl)
-{
-  closelog();
-
-  if (zl->fp != NULL)
-    fclose (zl->fp);
-
-  if (zl->filename != NULL)
-    free (zl->filename);
-
-  XFREE (MTYPE_ZLOG, zl);
-}
-
-/* Called from command.c. */
-void
-zlog_set_level (struct zlog *zl, zlog_dest_t dest, int log_level)
-{
-  if (zl == NULL)
-    zl = zlog_default;
-
-  zl->maxlvl[dest] = log_level;
-}
-
-int
-zlog_set_file (struct zlog *zl, const char *filename, int log_level)
-{
-  FILE *fp;
-  mode_t oldumask;
-
-  /* There is opend file.  */
-  zlog_reset_file (zl);
-
-  /* Set default zl. */
-  if (zl == NULL)
-    zl = zlog_default;
-
-  /* Open file. */
-  oldumask = umask (0777 & ~LOGFILE_MASK);
-  fp = fopen (filename, "a");
-  umask(oldumask);
-  if (fp == NULL)
-    return 0;
-
-  /* Set flags. */
-  zl->filename = strdup (filename);
-  zl->maxlvl[ZLOG_DEST_FILE] = log_level;
-  zl->fp = fp;
-  logfile_fd = fileno(fp);
-
-  return 1;
-}
-
-/* Reset opend file. */
-int
-zlog_reset_file (struct zlog *zl)
-{
-  if (zl == NULL)
-    zl = zlog_default;
-
-  if (zl->fp)
-    fclose (zl->fp);
-  zl->fp = NULL;
-  logfile_fd = -1;
-  zl->maxlvl[ZLOG_DEST_FILE] = ZLOG_DISABLED;
-
-  if (zl->filename)
-    free (zl->filename);
-  zl->filename = NULL;
-
-  return 1;
-}
-
-/* Reopen log file. */
-int
-zlog_rotate (struct zlog *zl)
-{
-  int level;
-
-  if (zl == NULL)
-    zl = zlog_default;
-
-  if (zl->fp)
-    fclose (zl->fp);
-  zl->fp = NULL;
-  logfile_fd = -1;
-  level = zl->maxlvl[ZLOG_DEST_FILE];
-  zl->maxlvl[ZLOG_DEST_FILE] = ZLOG_DISABLED;
-
-  if (zl->filename)
-    {
-      mode_t oldumask;
-      int save_errno;
-
-      oldumask = umask (0777 & ~LOGFILE_MASK);
-      zl->fp = fopen (zl->filename, "a");
-      save_errno = errno;
-      umask(oldumask);
-      if (zl->fp == NULL)
-        {
-	  zlog_err("Log rotate failed: cannot open file %s for append: %s",
-	  	   zl->filename, safe_strerror(save_errno));
-	  return -1;
-        }	
-      logfile_fd = fileno(zl->fp);
-      zl->maxlvl[ZLOG_DEST_FILE] = level;
-    }
-
-  return 1;
-}
-
-/* Message lookup function. */
-const char *
-lookup (const struct message *mes, int key)
-{
-  const struct message *pnt;
-
-  for (pnt = mes; pnt->key != 0; pnt++) 
-    if (pnt->key == key) 
-      return pnt->str;
-
-  return "";
-}
-
-/* Older/faster version of message lookup function, but requires caller to pass
- * in the array size (instead of relying on a 0 key to terminate the search). 
- *
- * The return value is the message string if found, or the 'none' pointer
- * provided otherwise.
- */
-const char *
-mes_lookup (const struct message *meslist, int max, int index,
-  const char *none, const char *mesname)
-{
-  int pos = index - meslist[0].key;
-  
-  /* first check for best case: index is in range and matches the key
-   * value in that slot.
-   * NB: key numbering might be offset from 0. E.g. protocol constants
-   * often start at 1.
-   */
-  if ((pos >= 0) && (pos < max)
-      && (meslist[pos].key == index))
-    return meslist[pos].str;
-
-  /* fall back to linear search */
-  {
-    int i;
-
-    for (i = 0; i < max; i++, meslist++)
-      {
-	if (meslist->key == index)
-	  {
-	    const char *str = (meslist->str ? meslist->str : none);
-	    
-	    zlog_debug ("message index %d [%s] found in %s at position %d (max is %d)",
-		      index, str, mesname, i, max);
-	    return str;
-	  }
-      }
-  }
-  zlog_err("message index %d not found in %s (max is %d)", index, mesname, max);
-  assert (none);
-  return none;
+	zlog(LOG_CRIT,
+	     "out of memory: failed to allocate %zu bytes for %s object",
+	     size, name);
+	zlog_backtrace(LOG_CRIT);
+	log_memstats(stderr, "log");
+	abort();
 }
 
 /* Wrapper around strerror to handle case where it returns NULL. */
-const char *
-safe_strerror(int errnum)
+const char *safe_strerror(int errnum)
 {
-  const char *s = strerror(errnum);
-  return (s != NULL) ? s : "Unknown error";
+	const char *s = strerror(errnum);
+	return (s != NULL) ? s : "Unknown error";
 }
 
 #define DESC_ENTRY(T) [(T)] = { (T), (#T), '\0' }
 static const struct zebra_desc_table command_types[] = {
-  DESC_ENTRY	(ZEBRA_INTERFACE_ADD),
-  DESC_ENTRY	(ZEBRA_INTERFACE_DELETE),
-  DESC_ENTRY	(ZEBRA_INTERFACE_ADDRESS_ADD),
-  DESC_ENTRY	(ZEBRA_INTERFACE_ADDRESS_DELETE),
-  DESC_ENTRY	(ZEBRA_INTERFACE_UP),
-  DESC_ENTRY	(ZEBRA_INTERFACE_DOWN),
-  DESC_ENTRY	(ZEBRA_IPV4_ROUTE_ADD),
-  DESC_ENTRY	(ZEBRA_IPV4_ROUTE_DELETE),
-  DESC_ENTRY	(ZEBRA_IPV6_ROUTE_ADD),
-  DESC_ENTRY	(ZEBRA_IPV6_ROUTE_DELETE),
-  DESC_ENTRY	(ZEBRA_REDISTRIBUTE_ADD),
-  DESC_ENTRY	(ZEBRA_REDISTRIBUTE_DELETE),
-  DESC_ENTRY	(ZEBRA_REDISTRIBUTE_DEFAULT_ADD),
-  DESC_ENTRY	(ZEBRA_REDISTRIBUTE_DEFAULT_DELETE),
-  DESC_ENTRY	(ZEBRA_IPV4_NEXTHOP_LOOKUP),
-  DESC_ENTRY	(ZEBRA_IPV6_NEXTHOP_LOOKUP),
-  DESC_ENTRY	(ZEBRA_IPV4_IMPORT_LOOKUP),
-  DESC_ENTRY	(ZEBRA_IPV6_IMPORT_LOOKUP),
-  DESC_ENTRY	(ZEBRA_INTERFACE_RENAME),
-  DESC_ENTRY	(ZEBRA_ROUTER_ID_ADD),
-  DESC_ENTRY	(ZEBRA_ROUTER_ID_DELETE),
-  DESC_ENTRY	(ZEBRA_ROUTER_ID_UPDATE),
-  DESC_ENTRY	(ZEBRA_HELLO),
-  DESC_ENTRY	(ZEBRA_NEXTHOP_REGISTER),
-  DESC_ENTRY	(ZEBRA_NEXTHOP_UNREGISTER),
-  DESC_ENTRY	(ZEBRA_NEXTHOP_UPDATE),
-};
+	DESC_ENTRY(ZEBRA_INTERFACE_ADD),
+	DESC_ENTRY(ZEBRA_INTERFACE_DELETE),
+	DESC_ENTRY(ZEBRA_INTERFACE_ADDRESS_ADD),
+	DESC_ENTRY(ZEBRA_INTERFACE_ADDRESS_DELETE),
+	DESC_ENTRY(ZEBRA_INTERFACE_UP),
+	DESC_ENTRY(ZEBRA_INTERFACE_DOWN),
+	DESC_ENTRY(ZEBRA_INTERFACE_SET_MASTER),
+	DESC_ENTRY(ZEBRA_ROUTE_ADD),
+	DESC_ENTRY(ZEBRA_ROUTE_DELETE),
+	DESC_ENTRY(ZEBRA_ROUTE_NOTIFY_OWNER),
+	DESC_ENTRY(ZEBRA_REDISTRIBUTE_ADD),
+	DESC_ENTRY(ZEBRA_REDISTRIBUTE_DELETE),
+	DESC_ENTRY(ZEBRA_REDISTRIBUTE_DEFAULT_ADD),
+	DESC_ENTRY(ZEBRA_REDISTRIBUTE_DEFAULT_DELETE),
+	DESC_ENTRY(ZEBRA_ROUTER_ID_ADD),
+	DESC_ENTRY(ZEBRA_ROUTER_ID_DELETE),
+	DESC_ENTRY(ZEBRA_ROUTER_ID_UPDATE),
+	DESC_ENTRY(ZEBRA_HELLO),
+	DESC_ENTRY(ZEBRA_CAPABILITIES),
+	DESC_ENTRY(ZEBRA_NEXTHOP_REGISTER),
+	DESC_ENTRY(ZEBRA_NEXTHOP_UNREGISTER),
+	DESC_ENTRY(ZEBRA_NEXTHOP_UPDATE),
+	DESC_ENTRY(ZEBRA_INTERFACE_NBR_ADDRESS_ADD),
+	DESC_ENTRY(ZEBRA_INTERFACE_NBR_ADDRESS_DELETE),
+	DESC_ENTRY(ZEBRA_INTERFACE_BFD_DEST_UPDATE),
+	DESC_ENTRY(ZEBRA_BFD_DEST_REGISTER),
+	DESC_ENTRY(ZEBRA_BFD_DEST_DEREGISTER),
+	DESC_ENTRY(ZEBRA_BFD_DEST_UPDATE),
+	DESC_ENTRY(ZEBRA_BFD_DEST_REPLAY),
+	DESC_ENTRY(ZEBRA_REDISTRIBUTE_ROUTE_ADD),
+	DESC_ENTRY(ZEBRA_REDISTRIBUTE_ROUTE_DEL),
+	DESC_ENTRY(ZEBRA_VRF_UNREGISTER),
+	DESC_ENTRY(ZEBRA_VRF_ADD),
+	DESC_ENTRY(ZEBRA_VRF_DELETE),
+	DESC_ENTRY(ZEBRA_VRF_LABEL),
+	DESC_ENTRY(ZEBRA_INTERFACE_VRF_UPDATE),
+	DESC_ENTRY(ZEBRA_BFD_CLIENT_REGISTER),
+	DESC_ENTRY(ZEBRA_BFD_CLIENT_DEREGISTER),
+	DESC_ENTRY(ZEBRA_INTERFACE_ENABLE_RADV),
+	DESC_ENTRY(ZEBRA_INTERFACE_DISABLE_RADV),
+	DESC_ENTRY(ZEBRA_IPV4_NEXTHOP_LOOKUP_MRIB),
+	DESC_ENTRY(ZEBRA_INTERFACE_LINK_PARAMS),
+	DESC_ENTRY(ZEBRA_MPLS_LABELS_ADD),
+	DESC_ENTRY(ZEBRA_MPLS_LABELS_DELETE),
+	DESC_ENTRY(ZEBRA_MPLS_LABELS_REPLACE),
+	DESC_ENTRY(ZEBRA_SR_POLICY_SET),
+	DESC_ENTRY(ZEBRA_SR_POLICY_DELETE),
+	DESC_ENTRY(ZEBRA_SR_POLICY_NOTIFY_STATUS),
+	DESC_ENTRY(ZEBRA_IPMR_ROUTE_STATS),
+	DESC_ENTRY(ZEBRA_LABEL_MANAGER_CONNECT),
+	DESC_ENTRY(ZEBRA_LABEL_MANAGER_CONNECT_ASYNC),
+	DESC_ENTRY(ZEBRA_GET_LABEL_CHUNK),
+	DESC_ENTRY(ZEBRA_RELEASE_LABEL_CHUNK),
+	DESC_ENTRY(ZEBRA_FEC_REGISTER),
+	DESC_ENTRY(ZEBRA_FEC_UNREGISTER),
+	DESC_ENTRY(ZEBRA_FEC_UPDATE),
+	DESC_ENTRY(ZEBRA_ADVERTISE_ALL_VNI),
+	DESC_ENTRY(ZEBRA_ADVERTISE_DEFAULT_GW),
+	DESC_ENTRY(ZEBRA_ADVERTISE_SVI_MACIP),
+	DESC_ENTRY(ZEBRA_ADVERTISE_SUBNET),
+	DESC_ENTRY(ZEBRA_LOCAL_ES_ADD),
+	DESC_ENTRY(ZEBRA_LOCAL_ES_DEL),
+	DESC_ENTRY(ZEBRA_REMOTE_ES_VTEP_ADD),
+	DESC_ENTRY(ZEBRA_REMOTE_ES_VTEP_DEL),
+	DESC_ENTRY(ZEBRA_LOCAL_ES_EVI_ADD),
+	DESC_ENTRY(ZEBRA_LOCAL_ES_EVI_DEL),
+	DESC_ENTRY(ZEBRA_VNI_ADD),
+	DESC_ENTRY(ZEBRA_VNI_DEL),
+	DESC_ENTRY(ZEBRA_L3VNI_ADD),
+	DESC_ENTRY(ZEBRA_L3VNI_DEL),
+	DESC_ENTRY(ZEBRA_REMOTE_VTEP_ADD),
+	DESC_ENTRY(ZEBRA_REMOTE_VTEP_DEL),
+	DESC_ENTRY(ZEBRA_MACIP_ADD),
+	DESC_ENTRY(ZEBRA_MACIP_DEL),
+	DESC_ENTRY(ZEBRA_IP_PREFIX_ROUTE_ADD),
+	DESC_ENTRY(ZEBRA_IP_PREFIX_ROUTE_DEL),
+	DESC_ENTRY(ZEBRA_REMOTE_MACIP_ADD),
+	DESC_ENTRY(ZEBRA_REMOTE_MACIP_DEL),
+	DESC_ENTRY(ZEBRA_DUPLICATE_ADDR_DETECTION),
+	DESC_ENTRY(ZEBRA_PW_ADD),
+	DESC_ENTRY(ZEBRA_PW_DELETE),
+	DESC_ENTRY(ZEBRA_PW_SET),
+	DESC_ENTRY(ZEBRA_PW_UNSET),
+	DESC_ENTRY(ZEBRA_PW_STATUS_UPDATE),
+	DESC_ENTRY(ZEBRA_RULE_ADD),
+	DESC_ENTRY(ZEBRA_RULE_DELETE),
+	DESC_ENTRY(ZEBRA_RULE_NOTIFY_OWNER),
+	DESC_ENTRY(ZEBRA_TABLE_MANAGER_CONNECT),
+	DESC_ENTRY(ZEBRA_GET_TABLE_CHUNK),
+	DESC_ENTRY(ZEBRA_RELEASE_TABLE_CHUNK),
+	DESC_ENTRY(ZEBRA_IPSET_CREATE),
+	DESC_ENTRY(ZEBRA_IPSET_DESTROY),
+	DESC_ENTRY(ZEBRA_IPSET_ENTRY_ADD),
+	DESC_ENTRY(ZEBRA_IPSET_ENTRY_DELETE),
+	DESC_ENTRY(ZEBRA_IPSET_NOTIFY_OWNER),
+	DESC_ENTRY(ZEBRA_IPSET_ENTRY_NOTIFY_OWNER),
+	DESC_ENTRY(ZEBRA_IPTABLE_ADD),
+	DESC_ENTRY(ZEBRA_IPTABLE_DELETE),
+	DESC_ENTRY(ZEBRA_IPTABLE_NOTIFY_OWNER),
+	DESC_ENTRY(ZEBRA_VXLAN_FLOOD_CONTROL),
+	DESC_ENTRY(ZEBRA_VXLAN_SG_ADD),
+	DESC_ENTRY(ZEBRA_VXLAN_SG_DEL),
+	DESC_ENTRY(ZEBRA_VXLAN_SG_REPLAY),
+	DESC_ENTRY(ZEBRA_MLAG_PROCESS_UP),
+	DESC_ENTRY(ZEBRA_MLAG_PROCESS_DOWN),
+	DESC_ENTRY(ZEBRA_MLAG_CLIENT_REGISTER),
+	DESC_ENTRY(ZEBRA_MLAG_CLIENT_UNREGISTER),
+	DESC_ENTRY(ZEBRA_MLAG_FORWARD_MSG),
+	DESC_ENTRY(ZEBRA_ERROR),
+	DESC_ENTRY(ZEBRA_CLIENT_CAPABILITIES),
+	DESC_ENTRY(ZEBRA_OPAQUE_MESSAGE),
+	DESC_ENTRY(ZEBRA_OPAQUE_REGISTER),
+	DESC_ENTRY(ZEBRA_OPAQUE_UNREGISTER),
+	DESC_ENTRY(ZEBRA_NEIGH_DISCOVER),
+	DESC_ENTRY(ZEBRA_NHG_ADD),
+	DESC_ENTRY(ZEBRA_NHG_DEL),
+	DESC_ENTRY(ZEBRA_NHG_NOTIFY_OWNER),
+	DESC_ENTRY(ZEBRA_ROUTE_NOTIFY_REQUEST),
+	DESC_ENTRY(ZEBRA_CLIENT_CLOSE_NOTIFY),
+	DESC_ENTRY(ZEBRA_EVPN_REMOTE_NH_ADD),
+	DESC_ENTRY(ZEBRA_EVPN_REMOTE_NH_DEL),
+	DESC_ENTRY(ZEBRA_NHRP_NEIGH_ADDED),
+	DESC_ENTRY(ZEBRA_NHRP_NEIGH_REMOVED),
+	DESC_ENTRY(ZEBRA_NHRP_NEIGH_GET),
+	DESC_ENTRY(ZEBRA_NHRP_NEIGH_REGISTER),
+	DESC_ENTRY(ZEBRA_NHRP_NEIGH_UNREGISTER),
+	DESC_ENTRY(ZEBRA_NEIGH_IP_ADD),
+	DESC_ENTRY(ZEBRA_NEIGH_IP_DEL),
+	DESC_ENTRY(ZEBRA_CONFIGURE_ARP),
+	DESC_ENTRY(ZEBRA_GRE_GET),
+	DESC_ENTRY(ZEBRA_GRE_UPDATE),
+	DESC_ENTRY(ZEBRA_GRE_SOURCE_SET)};
 #undef DESC_ENTRY
 
-static const struct zebra_desc_table unknown = { 0, "unknown", '?' };
+static const struct zebra_desc_table unknown = {0, "unknown", '?'};
 
-static const struct zebra_desc_table *
-zroute_lookup(u_int zroute)
+static const struct zebra_desc_table *zroute_lookup(unsigned int zroute)
 {
-  u_int i;
+	unsigned int i;
 
-  if (zroute >= array_size(route_types))
-    {
-      zlog_err("unknown zebra route type: %u", zroute);
-      return &unknown;
-    }
-  if (zroute == route_types[zroute].type)
-    return &route_types[zroute];
-  for (i = 0; i < array_size(route_types); i++)
-    {
-      if (zroute == route_types[i].type)
-        {
-	  zlog_warn("internal error: route type table out of order "
-		    "while searching for %u, please notify developers", zroute);
-	  return &route_types[i];
-        }
-    }
-  zlog_err("internal error: cannot find route type %u in table!", zroute);
-  return &unknown;
+	if (zroute >= array_size(route_types)) {
+		flog_err(EC_LIB_DEVELOPMENT, "unknown zebra route type: %u",
+			 zroute);
+		return &unknown;
+	}
+	if (zroute == route_types[zroute].type)
+		return &route_types[zroute];
+	for (i = 0; i < array_size(route_types); i++) {
+		if (zroute == route_types[i].type) {
+			zlog_warn(
+				"internal error: route type table out of order while searching for %u, please notify developers",
+				zroute);
+			return &route_types[i];
+		}
+	}
+	flog_err(EC_LIB_DEVELOPMENT,
+		 "internal error: cannot find route type %u in table!", zroute);
+	return &unknown;
 }
 
-const char *
-zebra_route_string(u_int zroute)
+const char *zebra_route_string(unsigned int zroute)
 {
-  return zroute_lookup(zroute)->string;
+	return zroute_lookup(zroute)->string;
 }
 
-char
-zebra_route_char(u_int zroute)
+char zebra_route_char(unsigned int zroute)
 {
-  return zroute_lookup(zroute)->chr;
+	return zroute_lookup(zroute)->chr;
 }
 
-const char *
-zserv_command_string (unsigned int command)
+const char *zserv_command_string(unsigned int command)
 {
-  if (command >= array_size(command_types))
-    {
-      zlog_err ("unknown zserv command type: %u", command);
-      return unknown.string;
-    }
-  return command_types[command].string;
+	if (command >= array_size(command_types)) {
+		flog_err(EC_LIB_DEVELOPMENT, "unknown zserv command type: %u",
+			 command);
+		return unknown.string;
+	}
+	return command_types[command].string;
 }
 
-int
-proto_name2num(const char *s)
+int proto_name2num(const char *s)
 {
-   unsigned i;
+	unsigned i;
 
-   for (i=0; i<array_size(route_types); ++i)
-     if (strcasecmp(s, route_types[i].string) == 0)
-       return route_types[i].type;
-   return -1;
+	for (i = 0; i < array_size(route_types); ++i)
+		if (strcasecmp(s, route_types[i].string) == 0)
+			return route_types[i].type;
+	return -1;
 }
 
-int
-proto_redistnum(int afi, const char *s)
+int proto_redistnum(int afi, const char *s)
 {
-  if (! s)
-    return -1;
+	if (!s)
+		return -1;
 
-  if (afi == AFI_IP)
-    {
-      if (strncmp (s, "k", 1) == 0)
-	return ZEBRA_ROUTE_KERNEL;
-      else if (strncmp (s, "c", 1) == 0)
-	return ZEBRA_ROUTE_CONNECT;
-      else if (strncmp (s, "s", 1) == 0)
-	return ZEBRA_ROUTE_STATIC;
-      else if (strncmp (s, "r", 1) == 0)
-	return ZEBRA_ROUTE_RIP;
-      else if (strncmp (s, "o", 1) == 0)
-	return ZEBRA_ROUTE_OSPF;
-      else if (strncmp (s, "i", 1) == 0)
-	return ZEBRA_ROUTE_ISIS;
-      else if (strncmp (s, "bg", 2) == 0)
-	return ZEBRA_ROUTE_BGP;
-      else if (strncmp (s, "ba", 2) == 0)
-	return ZEBRA_ROUTE_BABEL;
-      else if (strncmp (s, "n", 1) == 0)
-	return ZEBRA_ROUTE_NHRP;
-    }
-  if (afi == AFI_IP6)
-    {
-      if (strncmp (s, "k", 1) == 0)
-	return ZEBRA_ROUTE_KERNEL;
-      else if (strncmp (s, "c", 1) == 0)
-	return ZEBRA_ROUTE_CONNECT;
-      else if (strncmp (s, "s", 1) == 0)
-	return ZEBRA_ROUTE_STATIC;
-      else if (strncmp (s, "r", 1) == 0)
-	return ZEBRA_ROUTE_RIPNG;
-      else if (strncmp (s, "o", 1) == 0)
-	return ZEBRA_ROUTE_OSPF6;
-      else if (strncmp (s, "i", 1) == 0)
-	return ZEBRA_ROUTE_ISIS;
-      else if (strncmp (s, "bg", 2) == 0)
-	return ZEBRA_ROUTE_BGP;
-      else if (strncmp (s, "ba", 2) == 0)
-	return ZEBRA_ROUTE_BABEL;
-      else if (strncmp (s, "n", 1) == 0)
-	return ZEBRA_ROUTE_NHRP;
-    }
-  return -1;
+	if (afi == AFI_IP) {
+		if (strmatch(s, "kernel"))
+			return ZEBRA_ROUTE_KERNEL;
+		else if (strmatch(s, "connected"))
+			return ZEBRA_ROUTE_CONNECT;
+		else if (strmatch(s, "static"))
+			return ZEBRA_ROUTE_STATIC;
+		else if (strmatch(s, "rip"))
+			return ZEBRA_ROUTE_RIP;
+		else if (strmatch(s, "eigrp"))
+			return ZEBRA_ROUTE_EIGRP;
+		else if (strmatch(s, "ospf"))
+			return ZEBRA_ROUTE_OSPF;
+		else if (strmatch(s, "isis"))
+			return ZEBRA_ROUTE_ISIS;
+		else if (strmatch(s, "bgp"))
+			return ZEBRA_ROUTE_BGP;
+		else if (strmatch(s, "table"))
+			return ZEBRA_ROUTE_TABLE;
+		else if (strmatch(s, "vnc"))
+			return ZEBRA_ROUTE_VNC;
+		else if (strmatch(s, "vnc-direct"))
+			return ZEBRA_ROUTE_VNC_DIRECT;
+		else if (strmatch(s, "nhrp"))
+			return ZEBRA_ROUTE_NHRP;
+		else if (strmatch(s, "babel"))
+			return ZEBRA_ROUTE_BABEL;
+		else if (strmatch(s, "sharp"))
+			return ZEBRA_ROUTE_SHARP;
+		else if (strmatch(s, "openfabric"))
+			return ZEBRA_ROUTE_OPENFABRIC;
+	}
+	if (afi == AFI_IP6) {
+		if (strmatch(s, "kernel"))
+			return ZEBRA_ROUTE_KERNEL;
+		else if (strmatch(s, "connected"))
+			return ZEBRA_ROUTE_CONNECT;
+		else if (strmatch(s, "static"))
+			return ZEBRA_ROUTE_STATIC;
+		else if (strmatch(s, "ripng"))
+			return ZEBRA_ROUTE_RIPNG;
+		else if (strmatch(s, "ospf6"))
+			return ZEBRA_ROUTE_OSPF6;
+		else if (strmatch(s, "isis"))
+			return ZEBRA_ROUTE_ISIS;
+		else if (strmatch(s, "bgp"))
+			return ZEBRA_ROUTE_BGP;
+		else if (strmatch(s, "table"))
+			return ZEBRA_ROUTE_TABLE;
+		else if (strmatch(s, "vnc"))
+			return ZEBRA_ROUTE_VNC;
+		else if (strmatch(s, "vnc-direct"))
+			return ZEBRA_ROUTE_VNC_DIRECT;
+		else if (strmatch(s, "nhrp"))
+			return ZEBRA_ROUTE_NHRP;
+		else if (strmatch(s, "babel"))
+			return ZEBRA_ROUTE_BABEL;
+		else if (strmatch(s, "sharp"))
+			return ZEBRA_ROUTE_SHARP;
+		else if (strmatch(s, "openfabric"))
+			return ZEBRA_ROUTE_OPENFABRIC;
+	}
+	return -1;
 }
 
-void
-zlog_hexdump (void *mem, unsigned int len) {
-  unsigned long i = 0;
-  unsigned int j = 0;
-  unsigned int columns = 8;
-  char buf[(len * 4) + ((len/4) * 20) + 30];
-  char *s = buf;
+void zlog_hexdump(const void *mem, size_t len)
+{
+	char line[64];
+	const uint8_t *src = mem;
+	const uint8_t *end = src + len;
 
-  for (i = 0; i < len + ((len % columns) ? (columns - len % columns) : 0); i++)
-    {
-      /* print offset */
-      if (i % columns == 0)
-        s += sprintf(s, "0x%016lx: ", (unsigned long)mem + i);
+	if (len == 0) {
+		zlog_debug("%016lx: (zero length / no data)", (long)src);
+		return;
+	}
 
-      /* print hex data */
-      if (i < len)
-        s += sprintf(s, "%02x ", 0xFF & ((char*)mem)[i]);
+	while (src < end) {
+		struct fbuf fb = {
+			.buf = line,
+			.pos = line,
+			.len = sizeof(line),
+		};
+		const uint8_t *lineend = src + 8;
+		unsigned line_bytes = 0;
 
-      /* end of block, just aligning for ASCII dump */
-      else
-        s += sprintf(s, "   ");
+		bprintfrr(&fb, "%016lx: ", (long)src);
 
-      /* print ASCII dump */
-      if (i % columns == (columns - 1))
-        {
-          for (j = i - (columns - 1); j <= i; j++)
-            {
-              if (j >= len) /* end of block, not really printing */
-                s += sprintf(s, " ");
+		while (src < lineend && src < end) {
+			bprintfrr(&fb, "%02x ", *src++);
+			line_bytes++;
+		}
+		if (line_bytes < 8)
+			bprintfrr(&fb, "%*s", (8 - line_bytes) * 3, "");
 
-              else if(isprint((int)((char*)mem)[j])) /* printable char */
-                s += sprintf(s, "%c", 0xFF & ((char*)mem)[j]);
+		src -= line_bytes;
+		while (src < lineend && src < end && fb.pos < fb.buf + fb.len) {
+			uint8_t byte = *src++;
 
-              else /* other char */
-                s += sprintf(s, ".");
-            }
-          s += sprintf(s, "\n");
-        }
-    }
-    zlog_debug("\n%s", buf);
+			if (isprint(byte))
+				*fb.pos++ = byte;
+			else
+				*fb.pos++ = '.';
+		}
+
+		zlog_debug("%.*s", (int)(fb.pos - fb.buf), fb.buf);
+	}
+}
+
+const char *zlog_sanitize(char *buf, size_t bufsz, const void *in, size_t inlen)
+{
+	const char *inbuf = in;
+	char *pos = buf, *end = buf + bufsz;
+	const char *iend = inbuf + inlen;
+
+	memset(buf, 0, bufsz);
+	for (; inbuf < iend; inbuf++) {
+		/* don't write partial escape sequence */
+		if (end - pos < 5)
+			break;
+
+		if (*inbuf == '\n')
+			snprintf(pos, end - pos, "\\n");
+		else if (*inbuf == '\r')
+			snprintf(pos, end - pos, "\\r");
+		else if (*inbuf == '\t')
+			snprintf(pos, end - pos, "\\t");
+		else if (*inbuf < ' ' || *inbuf == '"' || *inbuf >= 127)
+			snprintf(pos, end - pos, "\\x%02hhx", *inbuf);
+		else
+			*pos = *inbuf;
+
+		pos += strlen(pos);
+	}
+	return buf;
 }

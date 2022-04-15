@@ -13,121 +13,184 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with GNU Zebra; see the file COPYING.  If not, write to the Free
- * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * You should have received a copy of the GNU General Public License along
+ * with this program; see the file COPYING; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
 #include <zebra.h>
 
-#ifdef HAVE_SNMP
 #include <net-snmp/net-snmp-config.h>
 #include <net-snmp/net-snmp-includes.h>
 
 #include "smux.h"
 
-#define min(A,B) ((A) < (B) ? (A) : (B))
-
-int
-oid_compare (const oid *o1, int o1_len, const oid *o2, int o2_len)
+int oid_compare(const oid *o1, int o1_len, const oid *o2, int o2_len)
 {
-  int i;
+	int i;
 
-  for (i = 0; i < min (o1_len, o2_len); i++)
-    {
-      if (o1[i] < o2[i])
-	return -1;
-      else if (o1[i] > o2[i])
-	return 1;
-    }
-  if (o1_len < o2_len)
-    return -1;
-  if (o1_len > o2_len)
-    return 1;
+	for (i = 0; i < MIN(o1_len, o2_len); i++) {
+		if (o1[i] < o2[i])
+			return -1;
+		else if (o1[i] > o2[i])
+			return 1;
+	}
+	if (o1_len < o2_len)
+		return -1;
+	if (o1_len > o2_len)
+		return 1;
 
-  return 0;
+	return 0;
 }
 
-void *
-oid_copy (void *dest, const void *src, size_t size)
+void *oid_copy(void *dest, const void *src, size_t size)
 {
-  return memcpy (dest, src, size * sizeof (oid));
+	return memcpy(dest, src, size * sizeof(oid));
 }
 
-void
-oid2in_addr (oid oid[], int len, struct in_addr *addr)
+void oid2in_addr(oid oid[], int len, struct in_addr *addr)
 {
-  int i;
-  u_char *pnt;
-  
-  if (len == 0)
-    return;
+	int i;
+	uint8_t *pnt;
 
-  pnt = (u_char *) addr;
+	if (len == 0)
+		return;
 
-  for (i = 0; i < len; i++)
-    *pnt++ = oid[i];
+	pnt = (uint8_t *)addr;
+
+	for (i = 0; i < len; i++)
+		*pnt++ = oid[i];
 }
 
-void
-oid_copy_addr (oid oid[], struct in_addr *addr, int len)
+void oid2in6_addr(oid oid[], struct in6_addr *addr)
 {
-  int i;
-  u_char *pnt;
-  
-  if (len == 0)
-    return;
+	unsigned int i;
+	uint8_t *pnt;
 
-  pnt = (u_char *) addr;
+	pnt = (uint8_t *)addr;
 
-  for (i = 0; i < len; i++)
-    oid[i] = *pnt++;
+	for (i = 0; i < sizeof(struct in6_addr); i++)
+		*pnt++ = oid[i];
 }
 
-int
-smux_header_generic (struct variable *v, oid *name, size_t *length, int exact,
-		     size_t *var_len, WriteMethod **write_method)
+void oid2int(oid oid[], int *dest)
 {
-  oid fulloid[MAX_OID_LEN];
-  int ret;
+	uint8_t i;
+	uint8_t *pnt;
+	int network_dest;
 
-  oid_copy (fulloid, v->name, v->namelen);
-  fulloid[v->namelen] = 0;
-  /* Check against full instance. */
-  ret = oid_compare (name, *length, fulloid, v->namelen + 1);
+	pnt = (uint8_t *)&network_dest;
 
-  /* Check single instance. */
-  if ((exact && (ret != 0)) || (!exact && (ret >= 0)))
-	return MATCH_FAILED;
-
-  /* In case of getnext, fill in full instance. */
-  memcpy (name, fulloid, (v->namelen + 1) * sizeof (oid));
-  *length = v->namelen + 1;
-
-  *write_method = 0;
-  *var_len = sizeof(long);    /* default to 'long' results */
-
-  return MATCH_SUCCEEDED;
+	for (i = 0; i < sizeof(int); i++)
+		*pnt++ = oid[i];
+	*dest = ntohl(network_dest);
 }
 
-int
-smux_header_table (struct variable *v, oid *name, size_t *length, int exact,
-		   size_t *var_len, WriteMethod **write_method)
+void oid_copy_in_addr(oid oid[], const struct in_addr *addr)
 {
-  /* If the requested OID name is less than OID prefix we
-     handle, adjust it to our prefix. */
-  if ((oid_compare (name, *length, v->name, v->namelen)) < 0)
-    {
-      if (exact)
-	return MATCH_FAILED;
-      oid_copy(name, v->name, v->namelen);
-      *length = v->namelen;
-    }
+	int i;
+	const uint8_t *pnt;
+	int len = sizeof(struct in_addr);
 
-  *write_method = 0;
-  *var_len = sizeof(long);
+	pnt = (uint8_t *)addr;
 
-  return MATCH_SUCCEEDED;
+	for (i = 0; i < len; i++)
+		oid[i] = *pnt++;
 }
-#endif /* HAVE_SNMP */
+
+
+void oid_copy_in6_addr(oid oid[], const struct in6_addr *addr)
+{
+	int i;
+	const uint8_t *pnt;
+	int len = sizeof(struct in6_addr);
+
+	pnt = (uint8_t *)addr;
+
+	for (i = 0; i < len; i++)
+		oid[i] = *pnt++;
+}
+
+void oid_copy_int(oid oid[], int *val)
+{
+	uint8_t i;
+	const uint8_t *pnt;
+	int network_val;
+
+	network_val = htonl(*val);
+	pnt = (uint8_t *)&network_val;
+
+	for (i = 0; i < sizeof(int); i++)
+		oid[i] = *pnt++;
+}
+
+void oid2string(oid oid[], int len, char *string)
+{
+	int i;
+	uint8_t *pnt;
+
+	if (len == 0)
+		return;
+
+	pnt = (uint8_t *)string;
+
+	for (i = 0; i < len; i++)
+		*pnt++ = (uint8_t)oid[i];
+}
+
+void oid_copy_str(oid oid[], const char *string, int len)
+{
+	int i;
+	const uint8_t *pnt;
+
+	if (len == 0)
+		return;
+
+	pnt = (uint8_t *)string;
+
+	for (i = 0; i < len; i++)
+		oid[i] = *pnt++;
+}
+
+int smux_header_generic(struct variable *v, oid *name, size_t *length,
+			int exact, size_t *var_len, WriteMethod **write_method)
+{
+	oid fulloid[MAX_OID_LEN];
+	int ret;
+
+	oid_copy(fulloid, v->name, v->namelen);
+	fulloid[v->namelen] = 0;
+	/* Check against full instance. */
+	ret = oid_compare(name, *length, fulloid, v->namelen + 1);
+
+	/* Check single instance. */
+	if ((exact && (ret != 0)) || (!exact && (ret >= 0)))
+		return MATCH_FAILED;
+
+	/* In case of getnext, fill in full instance. */
+	memcpy(name, fulloid, (v->namelen + 1) * sizeof(oid));
+	*length = v->namelen + 1;
+
+	*write_method = 0;
+	*var_len = sizeof(long); /* default to 'long' results */
+
+	return MATCH_SUCCEEDED;
+}
+
+int smux_header_table(struct variable *v, oid *name, size_t *length, int exact,
+		      size_t *var_len, WriteMethod **write_method)
+{
+	/* If the requested OID name is less than OID prefix we
+	   handle, adjust it to our prefix. */
+	if ((oid_compare(name, *length, v->name, v->namelen)) < 0) {
+		if (exact)
+			return MATCH_FAILED;
+		oid_copy(name, v->name, v->namelen);
+		*length = v->namelen;
+	}
+
+	*write_method = 0;
+	*var_len = sizeof(long);
+
+	return MATCH_SUCCEEDED;
+}

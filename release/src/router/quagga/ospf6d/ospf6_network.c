@@ -13,10 +13,9 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with GNU Zebra; see the file COPYING.  If not, write to the 
- * Free Software Foundation, Inc., 59 Temple Place - Suite 330, 
- * Boston, MA 02111-1307, USA.  
+ * You should have received a copy of the GNU General Public License along
+ * with this program; see the file COPYING; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
 #include <zebra.h>
@@ -26,237 +25,256 @@
 #include "sockunion.h"
 #include "sockopt.h"
 #include "privs.h"
+#include "lib_errors.h"
+#include "vrf.h"
 
 #include "libospf.h"
 #include "ospf6_proto.h"
+#include "ospf6_top.h"
 #include "ospf6_network.h"
+#include "ospf6d.h"
 
-extern struct zebra_privs_t ospf6d_privs;
-
-int  ospf6_sock;
 struct in6_addr allspfrouters6;
 struct in6_addr alldrouters6;
 
 /* setsockopt MulticastLoop to off */
-static void
-ospf6_reset_mcastloop (void)
+static void ospf6_reset_mcastloop(int ospf6_sock)
 {
-  u_int off = 0;
-  if (setsockopt (ospf6_sock, IPPROTO_IPV6, IPV6_MULTICAST_LOOP,
-                  &off, sizeof (u_int)) < 0)
-    zlog_warn ("Network: reset IPV6_MULTICAST_LOOP failed: %s",
-               safe_strerror (errno));
+	unsigned int off = 0;
+	if (setsockopt(ospf6_sock, IPPROTO_IPV6, IPV6_MULTICAST_LOOP, &off,
+		       sizeof(unsigned int))
+	    < 0)
+		zlog_warn("Network: reset IPV6_MULTICAST_LOOP failed: %s",
+			  safe_strerror(errno));
 }
 
-static void
-ospf6_set_pktinfo (void)
+static void ospf6_set_pktinfo(int ospf6_sock)
 {
-  setsockopt_ipv6_pktinfo (ospf6_sock, 1);
+	setsockopt_ipv6_pktinfo(ospf6_sock, 1);
 }
 
-static void
-ospf6_set_transport_class (void)
+static void ospf6_set_transport_class(int ospf6_sock)
 {
 #ifdef IPTOS_PREC_INTERNETCONTROL
-  setsockopt_ipv6_tclass (ospf6_sock, IPTOS_PREC_INTERNETCONTROL);
+	setsockopt_ipv6_tclass(ospf6_sock, IPTOS_PREC_INTERNETCONTROL);
 #endif
 }
 
-static void
-ospf6_set_checksum (void)
+static void ospf6_set_checksum(int ospf6_sock)
 {
-  int offset = 12;
+	int offset = 12;
 #ifndef DISABLE_IPV6_CHECKSUM
-  if (setsockopt (ospf6_sock, IPPROTO_IPV6, IPV6_CHECKSUM,
-                  &offset, sizeof (offset)) < 0)
-    zlog_warn ("Network: set IPV6_CHECKSUM failed: %s", safe_strerror (errno));
+	if (setsockopt(ospf6_sock, IPPROTO_IPV6, IPV6_CHECKSUM, &offset,
+		       sizeof(offset))
+	    < 0)
+		zlog_warn("Network: set IPV6_CHECKSUM failed: %s",
+			  safe_strerror(errno));
 #else
-  zlog_warn ("Network: Don't set IPV6_CHECKSUM");
+	zlog_warn("Network: Don't set IPV6_CHECKSUM");
 #endif /* DISABLE_IPV6_CHECKSUM */
 }
 
-/* Make ospf6d's server socket. */
-int
-ospf6_serv_sock (void)
+void ospf6_serv_close(int *ospf6_sock)
 {
-  if (ospf6d_privs.change (ZPRIVS_RAISE))
-    zlog_err ("ospf6_serv_sock: could not raise privs");
+	if (*ospf6_sock != -1) {
+		close(*ospf6_sock);
+		*ospf6_sock = -1;
+		return;
+	}
+}
 
-  ospf6_sock = socket (AF_INET6, SOCK_RAW, IPPROTO_OSPFIGP);
-  if (ospf6_sock < 0)
-    {
-      zlog_warn ("Network: can't create OSPF6 socket.");
-      if (ospf6d_privs.change (ZPRIVS_LOWER))
-        zlog_err ("ospf_sock_init: could not lower privs");
-      return -1;
-    }
-  if (ospf6d_privs.change (ZPRIVS_LOWER))
-      zlog_err ("ospf_sock_init: could not lower privs");
+/* Make ospf6d's server socket. */
+int ospf6_serv_sock(struct ospf6 *ospf6)
+{
+	int ospf6_sock;
 
-  /* set socket options */
+	if (ospf6->fd != -1)
+		return -1;
+
+	if (ospf6->vrf_id == VRF_UNKNOWN)
+		return -1;
+
+	frr_with_privs(&ospf6d_privs) {
+
+		ospf6_sock = vrf_socket(AF_INET6, SOCK_RAW, IPPROTO_OSPFIGP,
+					ospf6->vrf_id, ospf6->name);
+		if (ospf6_sock < 0) {
+			zlog_warn("Network: can't create OSPF6 socket.");
+			return -1;
+		}
+	}
+
+/* set socket options */
 #if 1
-  sockopt_reuseaddr (ospf6_sock);
+	sockopt_reuseaddr(ospf6_sock);
 #else
-  ospf6_set_reuseaddr ();
+	ospf6_set_reuseaddr();
 #endif /*1*/
-  ospf6_reset_mcastloop ();
-  ospf6_set_pktinfo ();
-  ospf6_set_transport_class ();
-  ospf6_set_checksum ();
+	ospf6_reset_mcastloop(ospf6_sock);
+	ospf6_set_pktinfo(ospf6_sock);
+	ospf6_set_transport_class(ospf6_sock);
+	ospf6_set_checksum(ospf6_sock);
 
-  /* setup global in6_addr, allspf6 and alldr6 for later use */
-  inet_pton (AF_INET6, ALLSPFROUTERS6, &allspfrouters6);
-  inet_pton (AF_INET6, ALLDROUTERS6, &alldrouters6);
+	ospf6->fd = ospf6_sock;
+	/* setup global in6_addr, allspf6 and alldr6 for later use */
+	inet_pton(AF_INET6, ALLSPFROUTERS6, &allspfrouters6);
+	inet_pton(AF_INET6, ALLDROUTERS6, &alldrouters6);
 
-  return 0;
+	return 0;
 }
 
 /* ospf6 set socket option */
-int
-ospf6_sso (ifindex_t ifindex, struct in6_addr *group, int option)
+int ospf6_sso(ifindex_t ifindex, struct in6_addr *group, int option, int sockfd)
 {
-  struct ipv6_mreq mreq6;
-  int ret;
+	struct ipv6_mreq mreq6;
+	int ret;
+	int bufsize = (8 * 1024 * 1024);
 
-  assert (ifindex);
-  mreq6.ipv6mr_interface = ifindex;
-  memcpy (&mreq6.ipv6mr_multiaddr, group, sizeof (struct in6_addr));
+	if (sockfd == -1)
+		return -1;
 
-  ret = setsockopt (ospf6_sock, IPPROTO_IPV6, option,
-                    &mreq6, sizeof (mreq6));
-  if (ret < 0)
-    {
-      zlog_err ("Network: setsockopt (%d) on ifindex %d failed: %s",
-                option, ifindex, safe_strerror (errno));
-    }
+	assert(ifindex);
+	mreq6.ipv6mr_interface = ifindex;
+	memcpy(&mreq6.ipv6mr_multiaddr, group, sizeof(struct in6_addr));
 
-  return ret;
+	ret = setsockopt(sockfd, IPPROTO_IPV6, option, &mreq6, sizeof(mreq6));
+	if (ret < 0) {
+		flog_err_sys(
+			EC_LIB_SOCKET,
+			"Network: setsockopt (%d) on ifindex %d failed: %s",
+			option, ifindex, safe_strerror(errno));
+		return ret;
+	}
+
+	setsockopt_so_sendbuf(sockfd, bufsize);
+	setsockopt_so_recvbuf(sockfd, bufsize);
+
+	return 0;
 }
 
-static int
-iov_count (struct iovec *iov)
+static int iov_count(struct iovec *iov)
 {
-  int i;
-  for (i = 0; iov[i].iov_base; i++)
-    ;
-  return i;
+	int i;
+	for (i = 0; iov[i].iov_base; i++)
+		;
+	return i;
 }
 
-static int
-iov_totallen (struct iovec *iov)
+static int iov_totallen(struct iovec *iov)
 {
-  int i;
-  int totallen = 0;
-  for (i = 0; iov[i].iov_base; i++)
-    totallen += iov[i].iov_len;
-  return totallen;
+	int i;
+	int totallen = 0;
+	for (i = 0; iov[i].iov_base; i++)
+		totallen += iov[i].iov_len;
+	return totallen;
 }
 
-int
-ospf6_sendmsg (struct in6_addr *src, struct in6_addr *dst,
-               ifindex_t *ifindex, struct iovec *message)
+int ospf6_sendmsg(struct in6_addr *src, struct in6_addr *dst,
+		  ifindex_t ifindex, struct iovec *message, int ospf6_sock)
 {
-  int retval;
-  struct msghdr smsghdr;
-  struct cmsghdr *scmsgp;
-  u_char cmsgbuf[CMSG_SPACE(sizeof (struct in6_pktinfo))];
-  struct in6_pktinfo *pktinfo;
-  struct sockaddr_in6 dst_sin6;
+	int retval;
+	struct msghdr smsghdr;
+	struct cmsghdr *scmsgp;
+	union {
+		struct cmsghdr hdr;
+		uint8_t buf[CMSG_SPACE(sizeof(struct in6_pktinfo))];
+	} cmsgbuf;
+	struct in6_pktinfo *pktinfo;
+	struct sockaddr_in6 dst_sin6;
 
-  assert (dst);
-  assert (*ifindex);
+	assert(dst);
 
-  scmsgp = (struct cmsghdr *)cmsgbuf;
-  pktinfo = (struct in6_pktinfo *)(CMSG_DATA(scmsgp));
-  memset (&dst_sin6, 0, sizeof (struct sockaddr_in6));
+	memset(&cmsgbuf, 0, sizeof(cmsgbuf));
+	scmsgp = (struct cmsghdr *)&cmsgbuf;
+	pktinfo = (struct in6_pktinfo *)(CMSG_DATA(scmsgp));
+	memset(&dst_sin6, 0, sizeof(struct sockaddr_in6));
 
-  /* source address */
-  pktinfo->ipi6_ifindex = *ifindex;
-  if (src)
-    memcpy (&pktinfo->ipi6_addr, src, sizeof (struct in6_addr));
-  else
-    memset (&pktinfo->ipi6_addr, 0, sizeof (struct in6_addr));
+	/* source address */
+	pktinfo->ipi6_ifindex = ifindex;
+	if (src)
+		memcpy(&pktinfo->ipi6_addr, src, sizeof(struct in6_addr));
+	else
+		memset(&pktinfo->ipi6_addr, 0, sizeof(struct in6_addr));
 
-  /* destination address */
-  dst_sin6.sin6_family = AF_INET6;
+	/* destination address */
+	dst_sin6.sin6_family = AF_INET6;
 #ifdef SIN6_LEN
-  dst_sin6.sin6_len = sizeof (struct sockaddr_in6);
+	dst_sin6.sin6_len = sizeof(struct sockaddr_in6);
 #endif /*SIN6_LEN*/
-  memcpy (&dst_sin6.sin6_addr, dst, sizeof (struct in6_addr));
-#ifdef HAVE_SIN6_SCOPE_ID
-  dst_sin6.sin6_scope_id = *ifindex;
-#endif
+	memcpy(&dst_sin6.sin6_addr, dst, sizeof(struct in6_addr));
+	dst_sin6.sin6_scope_id = ifindex;
 
-  /* send control msg */
-  scmsgp->cmsg_level = IPPROTO_IPV6;
-  scmsgp->cmsg_type = IPV6_PKTINFO;
-  scmsgp->cmsg_len = CMSG_LEN (sizeof (struct in6_pktinfo));
-  /* scmsgp = CMSG_NXTHDR (&smsghdr, scmsgp); */
+	/* send control msg */
+	scmsgp->cmsg_level = IPPROTO_IPV6;
+	scmsgp->cmsg_type = IPV6_PKTINFO;
+	scmsgp->cmsg_len = CMSG_LEN(sizeof(struct in6_pktinfo));
+	/* scmsgp = CMSG_NXTHDR (&smsghdr, scmsgp); */
 
-  /* send msg hdr */
-  memset (&smsghdr, 0, sizeof (smsghdr));
-  smsghdr.msg_iov = message;
-  smsghdr.msg_iovlen = iov_count (message);
-  smsghdr.msg_name = (caddr_t) &dst_sin6;
-  smsghdr.msg_namelen = sizeof (struct sockaddr_in6);
-  smsghdr.msg_control = (caddr_t) cmsgbuf;
-  smsghdr.msg_controllen = scmsgp->cmsg_len;
+	/* send msg hdr */
+	memset(&smsghdr, 0, sizeof(smsghdr));
+	smsghdr.msg_iov = message;
+	smsghdr.msg_iovlen = iov_count(message);
+	smsghdr.msg_name = (caddr_t)&dst_sin6;
+	smsghdr.msg_namelen = sizeof(struct sockaddr_in6);
+	smsghdr.msg_control = (caddr_t)&cmsgbuf.buf;
+	smsghdr.msg_controllen = sizeof(cmsgbuf.buf);
 
-  retval = sendmsg (ospf6_sock, &smsghdr, 0);
-  if (retval != iov_totallen (message))
-    zlog_warn ("sendmsg failed: ifindex: %d: %s (%d)",
-               *ifindex, safe_strerror (errno), errno);
+	retval = sendmsg(ospf6_sock, &smsghdr, 0);
+	if (retval != iov_totallen(message))
+		zlog_warn("sendmsg failed: source: %pI6 Dest: %pI6 ifindex: %d: %s (%d)",
+			  src, dst, ifindex,
+			  safe_strerror(errno), errno);
 
-  return retval;
+	return retval;
 }
 
-int
-ospf6_recvmsg (struct in6_addr *src, struct in6_addr *dst,
-               ifindex_t *ifindex, struct iovec *message)
+int ospf6_recvmsg(struct in6_addr *src, struct in6_addr *dst,
+		  ifindex_t *ifindex, struct iovec *message, int ospf6_sock)
 {
-  int retval;
-  struct msghdr rmsghdr;
-  struct cmsghdr *rcmsgp;
-  u_char cmsgbuf[CMSG_SPACE(sizeof (struct in6_pktinfo))];
-  struct in6_pktinfo *pktinfo;
-  struct sockaddr_in6 src_sin6;
+	int retval;
+	struct msghdr rmsghdr;
+	struct cmsghdr *rcmsgp;
+	uint8_t cmsgbuf[CMSG_SPACE(sizeof(struct in6_pktinfo))];
+	struct in6_pktinfo *pktinfo;
+	struct sockaddr_in6 src_sin6;
 
-  rcmsgp = (struct cmsghdr *)cmsgbuf;
-  pktinfo = (struct in6_pktinfo *)(CMSG_DATA(rcmsgp));
-  memset (&src_sin6, 0, sizeof (struct sockaddr_in6));
+	rcmsgp = (struct cmsghdr *)cmsgbuf;
+	pktinfo = (struct in6_pktinfo *)(CMSG_DATA(rcmsgp));
+	memset(&src_sin6, 0, sizeof(struct sockaddr_in6));
 
-  /* receive control msg */
-  rcmsgp->cmsg_level = IPPROTO_IPV6;
-  rcmsgp->cmsg_type = IPV6_PKTINFO;
-  rcmsgp->cmsg_len = CMSG_LEN (sizeof (struct in6_pktinfo));
-  /* rcmsgp = CMSG_NXTHDR (&rmsghdr, rcmsgp); */
+	/* receive control msg */
+	rcmsgp->cmsg_level = IPPROTO_IPV6;
+	rcmsgp->cmsg_type = IPV6_PKTINFO;
+	rcmsgp->cmsg_len = CMSG_LEN(sizeof(struct in6_pktinfo));
+	/* rcmsgp = CMSG_NXTHDR (&rmsghdr, rcmsgp); */
 
-  /* receive msg hdr */
-  memset (&rmsghdr, 0, sizeof (rmsghdr));
-  rmsghdr.msg_iov = message;
-  rmsghdr.msg_iovlen = iov_count (message);
-  rmsghdr.msg_name = (caddr_t) &src_sin6;
-  rmsghdr.msg_namelen = sizeof (struct sockaddr_in6);
-  rmsghdr.msg_control = (caddr_t) cmsgbuf;
-  rmsghdr.msg_controllen = sizeof (cmsgbuf);
+	/* receive msg hdr */
+	memset(&rmsghdr, 0, sizeof(rmsghdr));
+	rmsghdr.msg_iov = message;
+	rmsghdr.msg_iovlen = iov_count(message);
+	rmsghdr.msg_name = (caddr_t)&src_sin6;
+	rmsghdr.msg_namelen = sizeof(struct sockaddr_in6);
+	rmsghdr.msg_control = (caddr_t)cmsgbuf;
+	rmsghdr.msg_controllen = sizeof(cmsgbuf);
 
-  retval = recvmsg (ospf6_sock, &rmsghdr, 0);
-  if (retval < 0)
-    zlog_warn ("recvmsg failed: %s", safe_strerror (errno));
-  else if (retval == iov_totallen (message))
-    zlog_warn ("recvmsg read full buffer size: %d", retval);
+	retval = recvmsg(ospf6_sock, &rmsghdr, MSG_DONTWAIT);
+	if (retval < 0) {
+		if (errno != EAGAIN && errno != EWOULDBLOCK)
+			zlog_warn("stream_recvmsg failed: %s",
+				  safe_strerror(errno));
+		return retval;
+	} else if (retval == iov_totallen(message))
+		zlog_warn("recvmsg read full buffer size: %d", retval);
 
-  /* source address */
-  assert (src);
-  memcpy (src, &src_sin6.sin6_addr, sizeof (struct in6_addr));
+	/* source address */
+	assert(src);
+	memcpy(src, &src_sin6.sin6_addr, sizeof(struct in6_addr));
 
-  /* destination address */
-  if (ifindex)
-    *ifindex = pktinfo->ipi6_ifindex;
-  if (dst)
-    memcpy (dst, &pktinfo->ipi6_addr, sizeof (struct in6_addr));
+	/* destination address */
+	if (ifindex)
+		*ifindex = pktinfo->ipi6_ifindex;
+	if (dst)
+		memcpy(dst, &pktinfo->ipi6_addr, sizeof(struct in6_addr));
 
-  return retval;
+	return retval;
 }
-
-

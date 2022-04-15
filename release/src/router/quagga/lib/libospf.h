@@ -14,14 +14,17 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with GNU Zebra; see the file COPYING.  If not, write to the Free
- * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * You should have received a copy of the GNU General Public License along
+ * with this program; see the file COPYING; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
 #ifndef _LIBOSPFD_H
 #define _LIBOSPFD_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* IP precedence. */
 #ifndef IPTOS_PREC_INTERNETCONTROL
@@ -33,14 +36,14 @@
 #define IPPROTO_OSPFIGP         89
 #endif /* IPPROTO_OSPFIGP */
 
-/* Architectual Constants */
+/* Architectural Constants */
 #ifdef DEBUG
-#define OSPF_LS_REFRESH_TIME                    60
+#define OSPF_LS_REFRESH_TIME                   120
 #else
 #define OSPF_LS_REFRESH_TIME                  1800
 #endif
-#define OSPF_MIN_LS_INTERVAL                  5000  /* msec */
-#define OSPF_MIN_LS_ARRIVAL                   1000  /* msec */
+#define OSPF_MIN_LS_INTERVAL                  5000     /* msec */
+#define OSPF_MIN_LS_ARRIVAL                   1000     /* in milliseconds */
 #define OSPF_LSA_INITIAL_AGE                     0	/* useful for debug */
 #define OSPF_LSA_MAXAGE                       3600
 #define OSPF_CHECK_AGE                         300
@@ -69,9 +72,9 @@
 #define OSPF_ROUTER_PRIORITY_DEFAULT        1
 #define OSPF_RETRANSMIT_INTERVAL_DEFAULT    5
 #define OSPF_TRANSMIT_DELAY_DEFAULT         1
-#define OSPF_DEFAULT_BANDWIDTH		 10000	/* Kbps */
+#define OSPF_DEFAULT_BANDWIDTH		 10000	/* Mbps */
 
-#define OSPF_DEFAULT_REF_BANDWIDTH	100000  /* Kbps */
+#define OSPF_DEFAULT_REF_BANDWIDTH	100000  /* Mbps */
 
 #define OSPF_POLL_INTERVAL_DEFAULT         60
 #define OSPF_NEIGHBOR_PRIORITY_DEFAULT      0
@@ -80,6 +83,12 @@
 #define OSPF_FAST_HELLO_DEFAULT             0
 
 #define OSPF_AREA_BACKBONE              0x00000000      /* 0.0.0.0 */
+#define OSPF_AREA_RANGE_COST_UNSPEC	-1U
+
+#define OSPF_AREA_DEFAULT       0
+#define OSPF_AREA_STUB          1
+#define OSPF_AREA_NSSA          2
+#define OSPF_AREA_TYPE_MAX	3
 
 /* SPF Throttling timer values. */
 #define OSPF_SPF_DELAY_DEFAULT              0
@@ -88,5 +97,9 @@
 
 #define OSPF_LSA_MAXAGE_CHECK_INTERVAL		30
 #define OSPF_LSA_MAXAGE_REMOVE_DELAY_DEFAULT	60
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _LIBOSPFD_H */

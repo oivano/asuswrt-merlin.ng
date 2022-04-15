@@ -1,30 +1,29 @@
 /*
-  PIM for Quagga
-  Copyright (C) 2008  Everton da Silva Marques
-
-  This program is free software; you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation; either version 2 of the License, or
-  (at your option) any later version.
-
-  This program is distributed in the hope that it will be useful, but
-  WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-  General Public License for more details.
-  
-  You should have received a copy of the GNU General Public License
-  along with this program; see the file COPYING; if not, write to the
-  Free Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston,
-  MA 02110-1301 USA
-  
-  $QuaggaId: $Format:%an, %ai, %h$ $
-*/
+ * PIM for Quagga
+ * Copyright (C) 2008  Everton da Silva Marques
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; see the file COPYING; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
+ */
 
 #include <zebra.h>
 
 #include "log.h"
 #include "thread.h"
 #include "memory.h"
+#include "if.h"
+#include "network.h"
 
 #include "pimd.h"
 #include "pim_pim.h"
@@ -39,573 +38,708 @@
 #include "pim_join.h"
 #include "pim_assert.h"
 #include "pim_msg.h"
+#include "pim_register.h"
+#include "pim_errors.h"
+#include "pim_bsm.h"
 
 static int on_pim_hello_send(struct thread *t);
-static int pim_hello_send(struct interface *ifp,
-			  uint16_t holdtime);
+
+static const char *pim_pim_msgtype2str(enum pim_msg_type type)
+{
+	switch (type) {
+	case PIM_MSG_TYPE_HELLO:
+		return "HELLO";
+	case PIM_MSG_TYPE_REGISTER:
+		return "REGISTER";
+	case PIM_MSG_TYPE_REG_STOP:
+		return "REGSTOP";
+	case PIM_MSG_TYPE_JOIN_PRUNE:
+		return "JOINPRUNE";
+	case PIM_MSG_TYPE_BOOTSTRAP:
+		return "BOOT";
+	case PIM_MSG_TYPE_ASSERT:
+		return "ASSERT";
+	case PIM_MSG_TYPE_GRAFT:
+		return "GRAFT";
+	case PIM_MSG_TYPE_GRAFT_ACK:
+		return "GACK";
+	case PIM_MSG_TYPE_CANDIDATE:
+		return "CANDIDATE";
+	}
+
+	return "UNKNOWN";
+}
 
 static void sock_close(struct interface *ifp)
 {
-  struct pim_interface *pim_ifp = ifp->info;
+	struct pim_interface *pim_ifp = ifp->info;
 
-  if (PIM_DEBUG_PIM_TRACE) {
-    if (pim_ifp->t_pim_sock_read) {
-      zlog_debug("Cancelling READ event for PIM socket fd=%d on interface %s",
-		 pim_ifp->pim_sock_fd,
-		 ifp->name);
-    }
-  }
-  THREAD_OFF(pim_ifp->t_pim_sock_read);
+	if (PIM_DEBUG_PIM_TRACE) {
+		if (pim_ifp->t_pim_sock_read) {
+			zlog_debug(
+				"Cancelling READ event for PIM socket fd=%d on interface %s",
+				pim_ifp->pim_sock_fd, ifp->name);
+		}
+	}
+	THREAD_OFF(pim_ifp->t_pim_sock_read);
 
-  if (PIM_DEBUG_PIM_TRACE) {
-    if (pim_ifp->t_pim_hello_timer) {
-      zlog_debug("Cancelling PIM hello timer for interface %s",
-		 ifp->name);
-    }
-  }
-  THREAD_OFF(pim_ifp->t_pim_hello_timer);
+	if (PIM_DEBUG_PIM_TRACE) {
+		if (pim_ifp->t_pim_hello_timer) {
+			zlog_debug(
+				"Cancelling PIM hello timer for interface %s",
+				ifp->name);
+		}
+	}
+	THREAD_OFF(pim_ifp->t_pim_hello_timer);
 
-  if (PIM_DEBUG_PIM_TRACE) {
-    zlog_debug("Deleting PIM socket fd=%d on interface %s",
-	       pim_ifp->pim_sock_fd, ifp->name);
-  }
+	if (PIM_DEBUG_PIM_TRACE) {
+		zlog_debug("Deleting PIM socket fd=%d on interface %s",
+			   pim_ifp->pim_sock_fd, ifp->name);
+	}
 
-  if (close(pim_ifp->pim_sock_fd)) {
-    zlog_warn("Failure closing PIM socket fd=%d on interface %s: errno=%d: %s",
-	      pim_ifp->pim_sock_fd, ifp->name,
-	      errno, safe_strerror(errno));
-  }
-  
-  pim_ifp->pim_sock_fd = -1;
-  pim_ifp->pim_sock_creation = 0;
+	/*
+	 * If the fd is already deleted no need to do anything here
+	 */
+	if (pim_ifp->pim_sock_fd > 0 && close(pim_ifp->pim_sock_fd)) {
+		zlog_warn(
+			"Failure closing PIM socket fd=%d on interface %s: errno=%d: %s",
+			pim_ifp->pim_sock_fd, ifp->name, errno,
+			safe_strerror(errno));
+	}
 
-  zassert(pim_ifp->pim_sock_fd < 0);
-  zassert(!pim_ifp->t_pim_sock_read);
-  zassert(!pim_ifp->t_pim_hello_timer);
-  zassert(!pim_ifp->pim_sock_creation);
+	pim_ifp->pim_sock_fd = -1;
+	pim_ifp->pim_sock_creation = 0;
 }
 
 void pim_sock_delete(struct interface *ifp, const char *delete_message)
 {
-  zlog_info("PIM INTERFACE DOWN: on interface %s: %s",
-	    ifp->name, delete_message);
+	zlog_info("PIM INTERFACE DOWN: on interface %s: %s", ifp->name,
+		  delete_message);
 
-  if (!ifp->info) {
-    zlog_err("%s: %s: but PIM not enabled on interface %s (!)",
-	     __PRETTY_FUNCTION__, delete_message, ifp->name);
-    return;
-  }
+	if (!ifp->info) {
+		flog_err(EC_PIM_CONFIG,
+			 "%s: %s: but PIM not enabled on interface %s (!)",
+			 __func__, delete_message, ifp->name);
+		return;
+	}
 
-  /*
-    RFC 4601: 4.3.1.  Sending Hello Messages
-    
-    Before an interface goes down or changes primary IP address, a Hello
-    message with a zero HoldTime should be sent immediately (with the
-    old IP address if the IP address changed).
-  */
-  pim_hello_send(ifp, 0 /* zero-sec holdtime */);
+	/*
+	  RFC 4601: 4.3.1.  Sending Hello Messages
 
-  pim_neighbor_delete_all(ifp, delete_message);
+	  Before an interface goes down or changes primary IP address, a Hello
+	  message with a zero HoldTime should be sent immediately (with the
+	  old IP address if the IP address changed).
+	*/
+	pim_hello_send(ifp, 0 /* zero-sec holdtime */);
 
-  sock_close(ifp);
+	pim_neighbor_delete_all(ifp, delete_message);
+
+	sock_close(ifp);
+}
+
+/* For now check dst address for hello, assrt and join/prune is all pim rtr */
+static bool pim_pkt_dst_addr_ok(enum pim_msg_type type, in_addr_t addr)
+{
+	if ((type == PIM_MSG_TYPE_HELLO) || (type == PIM_MSG_TYPE_ASSERT)
+	    || (type == PIM_MSG_TYPE_JOIN_PRUNE)) {
+		if (addr != qpim_all_pim_routers_addr.s_addr)
+			return false;
+	}
+
+	return true;
 }
 
 int pim_pim_packet(struct interface *ifp, uint8_t *buf, size_t len)
 {
-  struct ip *ip_hdr;
-  size_t ip_hlen; /* ip header length in bytes */
-  char src_str[100];
-  char dst_str[100];
-  uint8_t *pim_msg;
-  int pim_msg_len;
-  uint8_t pim_version;
-  uint8_t pim_type;
-  uint16_t pim_checksum; /* received checksum */
-  uint16_t checksum;     /* computed checksum */
-  struct pim_neighbor *neigh;
+	struct ip *ip_hdr;
+	size_t ip_hlen; /* ip header length in bytes */
+	char src_str[INET_ADDRSTRLEN];
+	char dst_str[INET_ADDRSTRLEN];
+	uint8_t *pim_msg;
+	int pim_msg_len;
+	uint16_t pim_checksum; /* received checksum */
+	uint16_t checksum;     /* computed checksum */
+	struct pim_neighbor *neigh;
+	struct pim_msg_header *header;
+	bool   no_fwd;
 
-  if (!ifp->info) {
-    zlog_warn("%s: PIM not enabled on interface %s",
-	      __PRETTY_FUNCTION__, ifp->name);
-    return -1;
-  }
-    
-  if (len < sizeof(*ip_hdr)) {
-    zlog_warn("PIM packet size=%zu shorter than minimum=%zu",
-	      len, sizeof(*ip_hdr));
-    return -1;
-  }
+	if (len < sizeof(*ip_hdr)) {
+		if (PIM_DEBUG_PIM_PACKETS)
+			zlog_debug(
+				"PIM packet size=%zu shorter than minimum=%zu",
+				len, sizeof(*ip_hdr));
+		return -1;
+	}
 
-  ip_hdr = (struct ip *) buf;
+	ip_hdr = (struct ip *)buf;
+	ip_hlen = ip_hdr->ip_hl << 2; /* ip_hl gives length in 4-byte words */
 
-  pim_inet4_dump("<src?>", ip_hdr->ip_src, src_str, sizeof(src_str));
-  pim_inet4_dump("<dst?>", ip_hdr->ip_dst, dst_str, sizeof(dst_str));
+	pim_msg = buf + ip_hlen;
+	pim_msg_len = len - ip_hlen;
 
-  ip_hlen = ip_hdr->ip_hl << 2; /* ip_hl gives length in 4-byte words */
+	header = (struct pim_msg_header *)pim_msg;
+	if (pim_msg_len < PIM_PIM_MIN_LEN) {
+		if (PIM_DEBUG_PIM_PACKETS)
+			zlog_debug(
+				"PIM message size=%d shorter than minimum=%d",
+				pim_msg_len, PIM_PIM_MIN_LEN);
+		return -1;
+	}
 
-  if (PIM_DEBUG_PIM_PACKETS) {
-    zlog_debug("Recv IP packet from %s to %s on %s: size=%zu ip_header_size=%zu ip_proto=%d",
-	       src_str, dst_str, ifp->name, len, ip_hlen, ip_hdr->ip_p);
-  }
+	if (header->ver != PIM_PROTO_VERSION) {
+		if (PIM_DEBUG_PIM_PACKETS)
+			zlog_debug(
+				"Ignoring PIM pkt from %s with unsupported version: %d",
+				ifp->name, header->ver);
+		return -1;
+	}
 
-  if (ip_hdr->ip_p != PIM_IP_PROTO_PIM) {
-    zlog_warn("IP packet protocol=%d is not PIM=%d",
-	      ip_hdr->ip_p, PIM_IP_PROTO_PIM);
-    return -1;
-  }
+	/* save received checksum */
+	pim_checksum = header->checksum;
 
-  if (ip_hlen < PIM_IP_HEADER_MIN_LEN) {
-    zlog_warn("IP packet header size=%zu shorter than minimum=%d",
-	      ip_hlen, PIM_IP_HEADER_MIN_LEN);
-    return -1;
-  }
-  if (ip_hlen > PIM_IP_HEADER_MAX_LEN) {
-    zlog_warn("IP packet header size=%zu greater than maximum=%d",
-	      ip_hlen, PIM_IP_HEADER_MAX_LEN);
-    return -1;
-  }
+	/* for computing checksum */
+	header->checksum = 0;
+	no_fwd = header->Nbit;
 
-  pim_msg = buf + ip_hlen;
-  pim_msg_len = len - ip_hlen;
+	if (header->type == PIM_MSG_TYPE_REGISTER) {
+		if (pim_msg_len < PIM_MSG_REGISTER_LEN) {
+			if (PIM_DEBUG_PIM_PACKETS)
+				zlog_debug("PIM Register Message size=%d shorther than min length %d",
+					   pim_msg_len, PIM_MSG_REGISTER_LEN);
+			return -1;
+		}
+		/* First 8 byte header checksum */
+		checksum = in_cksum(pim_msg, PIM_MSG_REGISTER_LEN);
+		if (checksum != pim_checksum) {
+			checksum = in_cksum(pim_msg, pim_msg_len);
+			if (checksum != pim_checksum) {
+				if (PIM_DEBUG_PIM_PACKETS)
+					zlog_debug(
+						"Ignoring PIM pkt from %s with invalid checksum: received=%x calculated=%x",
+						ifp->name, pim_checksum,
+						checksum);
 
-  if (PIM_DEBUG_PIM_PACKETDUMP_RECV) {
-    pim_pkt_dump(__PRETTY_FUNCTION__, pim_msg, pim_msg_len);
-  }
+				return -1;
+			}
+		}
+	} else {
+		checksum = in_cksum(pim_msg, pim_msg_len);
+		if (checksum != pim_checksum) {
+			if (PIM_DEBUG_PIM_PACKETS)
+				zlog_debug(
+					"Ignoring PIM pkt from %s with invalid checksum: received=%x calculated=%x",
+					ifp->name, pim_checksum, checksum);
 
-  if (pim_msg_len < PIM_PIM_MIN_LEN) {
-    zlog_warn("PIM message size=%d shorter than minimum=%d",
-	      pim_msg_len, PIM_PIM_MIN_LEN);
-    return -1;
-  }
+			return -1;
+		}
+	}
 
-  pim_version = PIM_MSG_HDR_GET_VERSION(pim_msg);
-  pim_type    = PIM_MSG_HDR_GET_TYPE(pim_msg);
+	if (PIM_DEBUG_PIM_PACKETS) {
+		pim_inet4_dump("<src?>", ip_hdr->ip_src, src_str,
+			       sizeof(src_str));
+		pim_inet4_dump("<dst?>", ip_hdr->ip_dst, dst_str,
+			       sizeof(dst_str));
+		zlog_debug(
+			"Recv PIM %s packet from %s to %s on %s: ttl=%d pim_version=%d pim_msg_size=%d checksum=%x",
+			pim_pim_msgtype2str(header->type), src_str, dst_str,
+			ifp->name, ip_hdr->ip_ttl, header->ver, pim_msg_len,
+			checksum);
+		if (PIM_DEBUG_PIM_PACKETDUMP_RECV) {
+			pim_pkt_dump(__func__, pim_msg, pim_msg_len);
+		}
+	}
 
-  if (pim_version != PIM_PROTO_VERSION) {
-    zlog_warn("Ignoring PIM pkt from %s with unsupported version: %d",
-	      ifp->name, pim_version);
-    return -1;
-  }
+	if (!pim_pkt_dst_addr_ok(header->type, ip_hdr->ip_dst.s_addr)) {
+		char dst_str[INET_ADDRSTRLEN];
+		char src_str[INET_ADDRSTRLEN];
 
-  /* save received checksum */
-  pim_checksum = PIM_MSG_HDR_GET_CHECKSUM(pim_msg);
+		pim_inet4_dump("<dst?>", ip_hdr->ip_dst, dst_str,
+			       sizeof(dst_str));
+		pim_inet4_dump("<src?>", ip_hdr->ip_src, src_str,
+			       sizeof(src_str));
+		zlog_warn(
+			"%s: Ignoring Pkt. Unexpected IP destination %s for %s (Expected: all_pim_routers_addr) from %s",
+			__func__, dst_str, pim_pim_msgtype2str(header->type),
+			src_str);
+		return -1;
+	}
 
-  /* for computing checksum */
-  *(uint16_t *) PIM_MSG_HDR_OFFSET_CHECKSUM(pim_msg) = 0;
+	switch (header->type) {
+	case PIM_MSG_TYPE_HELLO:
+		return pim_hello_recv(ifp, ip_hdr->ip_src,
+				      pim_msg + PIM_MSG_HEADER_LEN,
+				      pim_msg_len - PIM_MSG_HEADER_LEN);
+		break;
+	case PIM_MSG_TYPE_REGISTER:
+		return pim_register_recv(ifp, ip_hdr->ip_dst, ip_hdr->ip_src,
+					 pim_msg + PIM_MSG_HEADER_LEN,
+					 pim_msg_len - PIM_MSG_HEADER_LEN);
+		break;
+	case PIM_MSG_TYPE_REG_STOP:
+		return pim_register_stop_recv(ifp, pim_msg + PIM_MSG_HEADER_LEN,
+					      pim_msg_len - PIM_MSG_HEADER_LEN);
+		break;
+	case PIM_MSG_TYPE_JOIN_PRUNE:
+		neigh = pim_neighbor_find(ifp, ip_hdr->ip_src);
+		if (!neigh) {
+			if (PIM_DEBUG_PIM_PACKETS)
+				zlog_debug(
+					"%s %s: non-hello PIM message type=%d from non-neighbor %s on %s",
+					__FILE__, __func__, header->type,
+					src_str, ifp->name);
+			return -1;
+		}
+		pim_neighbor_timer_reset(neigh, neigh->holdtime);
+		return pim_joinprune_recv(ifp, neigh, ip_hdr->ip_src,
+					  pim_msg + PIM_MSG_HEADER_LEN,
+					  pim_msg_len - PIM_MSG_HEADER_LEN);
+		break;
+	case PIM_MSG_TYPE_ASSERT:
+		neigh = pim_neighbor_find(ifp, ip_hdr->ip_src);
+		if (!neigh) {
+			if (PIM_DEBUG_PIM_PACKETS)
+				zlog_debug(
+					"%s %s: non-hello PIM message type=%d from non-neighbor %s on %s",
+					__FILE__, __func__, header->type,
+					src_str, ifp->name);
+			return -1;
+		}
+		pim_neighbor_timer_reset(neigh, neigh->holdtime);
+		return pim_assert_recv(ifp, neigh, ip_hdr->ip_src,
+				       pim_msg + PIM_MSG_HEADER_LEN,
+				       pim_msg_len - PIM_MSG_HEADER_LEN);
+		break;
+	case PIM_MSG_TYPE_BOOTSTRAP:
+		return pim_bsm_process(ifp, ip_hdr, pim_msg, pim_msg_len,
+				       no_fwd);
+		break;
 
-  checksum = in_cksum(pim_msg, pim_msg_len);
-  if (checksum != pim_checksum) {
-    zlog_warn("Ignoring PIM pkt from %s with invalid checksum: received=%x calculated=%x",
-	      ifp->name, pim_checksum, checksum);
-    return -1;
-  }
-
-  if (PIM_DEBUG_PIM_PACKETS) {
-    zlog_debug("Recv PIM packet from %s to %s on %s: ttl=%d pim_version=%d pim_type=%d pim_msg_size=%d checksum=%x",
-	       src_str, dst_str, ifp->name, ip_hdr->ip_ttl,
-	       pim_version, pim_type, pim_msg_len, checksum);
-  }
-
-  if (pim_type == PIM_MSG_TYPE_REGISTER  ||
-      pim_type == PIM_MSG_TYPE_REG_STOP  ||
-      pim_type == PIM_MSG_TYPE_BOOTSTRAP ||
-      pim_type == PIM_MSG_TYPE_GRAFT     ||
-      pim_type == PIM_MSG_TYPE_GRAFT_ACK ||
-      pim_type == PIM_MSG_TYPE_CANDIDATE)
-    {
-      if (PIM_DEBUG_PIM_PACKETS) {
-	zlog_debug("Recv PIM packet type %d which is not currently understood",
-		   pim_type);
-      }
-      return -1;
-    }
-
-  if (pim_type == PIM_MSG_TYPE_HELLO) {
-    int result = pim_hello_recv(ifp,
-                 ip_hdr->ip_src,
-                 pim_msg + PIM_MSG_HEADER_LEN,
-                 pim_msg_len - PIM_MSG_HEADER_LEN);
-    return result;
-  }
-
-  neigh = pim_neighbor_find(ifp, ip_hdr->ip_src);
-  if (!neigh) {
-    zlog_warn("%s %s: non-hello PIM message type=%d from non-neighbor %s on %s",
-	      __FILE__, __PRETTY_FUNCTION__,
-	      pim_type, src_str, ifp->name);
-    return -1;
-  }
-
-  switch (pim_type) {
-  case PIM_MSG_TYPE_JOIN_PRUNE:
-    return pim_joinprune_recv(ifp, neigh,
-			      ip_hdr->ip_src,
-			      pim_msg + PIM_MSG_HEADER_LEN,
-			      pim_msg_len - PIM_MSG_HEADER_LEN);
-  case PIM_MSG_TYPE_ASSERT:
-    return pim_assert_recv(ifp, neigh,
-			   ip_hdr->ip_src,
-			   pim_msg + PIM_MSG_HEADER_LEN,
-			   pim_msg_len - PIM_MSG_HEADER_LEN);
-  default:
-    zlog_warn("%s %s: unsupported PIM message type=%d from %s on %s",
-	      __FILE__, __PRETTY_FUNCTION__,
-	      pim_type, src_str, ifp->name);
-  }
-
-  return -1;
+	default:
+		if (PIM_DEBUG_PIM_PACKETS) {
+			zlog_debug(
+				"Recv PIM packet type %d which is not currently understood",
+				header->type);
+		}
+		return -1;
+	}
 }
 
 static void pim_sock_read_on(struct interface *ifp);
 
 static int pim_sock_read(struct thread *t)
 {
-  struct interface *ifp;
-  struct pim_interface *pim_ifp;
-  int fd;
-  struct sockaddr_in from;
-  struct sockaddr_in to;
-  socklen_t fromlen = sizeof(from);
-  socklen_t tolen = sizeof(to);
-  uint8_t buf[PIM_PIM_BUFSIZE_READ];
-  int len;
-  ifindex_t ifindex = -1;
-  int result = -1; /* defaults to bad */
+	struct interface *ifp, *orig_ifp;
+	struct pim_interface *pim_ifp;
+	int fd;
+	struct sockaddr_in from;
+	struct sockaddr_in to;
+	socklen_t fromlen = sizeof(from);
+	socklen_t tolen = sizeof(to);
+	uint8_t buf[PIM_PIM_BUFSIZE_READ];
+	int len;
+	ifindex_t ifindex = -1;
+	int result = -1; /* defaults to bad */
+	static long long count = 0;
+	int cont = 1;
 
-  zassert(t);
+	orig_ifp = ifp = THREAD_ARG(t);
+	fd = THREAD_FD(t);
 
-  ifp = THREAD_ARG(t);
-  zassert(ifp);
+	pim_ifp = ifp->info;
 
-  fd = THREAD_FD(t);
+	while (cont) {
+		len = pim_socket_recvfromto(fd, buf, sizeof(buf), &from,
+					    &fromlen, &to, &tolen, &ifindex);
+		if (len < 0) {
+			if (errno == EINTR)
+				continue;
+			if (errno == EWOULDBLOCK || errno == EAGAIN)
+				break;
 
-  pim_ifp = ifp->info;
-  zassert(pim_ifp);
+			if (PIM_DEBUG_PIM_PACKETS)
+				zlog_debug("Received errno: %d %s", errno,
+					   safe_strerror(errno));
+			goto done;
+		}
 
-  zassert(fd == pim_ifp->pim_sock_fd);
+		/*
+		 * What?  So with vrf's the incoming packet is received
+		 * on the vrf interface but recvfromto above returns
+		 * the right ifindex, so just use it.  We know
+		 * it's the right interface because we bind to it
+		 */
+		ifp = if_lookup_by_index(ifindex, pim_ifp->pim->vrf->vrf_id);
+		if (!ifp || !ifp->info) {
+			if (PIM_DEBUG_PIM_PACKETS)
+				zlog_debug(
+					"%s: Received incoming pim packet on interface(%s:%d) not yet configured for pim",
+					__func__, ifp ? ifp->name : "Unknown",
+					ifindex);
+			goto done;
+		}
+		int fail = pim_pim_packet(ifp, buf, len);
+		if (fail) {
+			if (PIM_DEBUG_PIM_PACKETS)
+				zlog_debug("%s: pim_pim_packet() return=%d",
+					   __func__, fail);
+			goto done;
+		}
 
-  len = pim_socket_recvfromto(fd, buf, sizeof(buf),
-			      &from, &fromlen,
-			      &to, &tolen,
-			      &ifindex);
-  if (len < 0) {
-    zlog_warn("Failure receiving IP PIM packet on fd=%d: errno=%d: %s",
-	      fd, errno, safe_strerror(errno));
-    goto done;
-  }
+		count++;
+		if (count % router->packet_process == 0)
+			cont = 0;
+	}
 
-  if (PIM_DEBUG_PIM_PACKETS) {
-    char from_str[100];
-    char to_str[100];
-    
-    if (!inet_ntop(AF_INET, &from.sin_addr, from_str, sizeof(from_str)))
-      sprintf(from_str, "<from?>");
-    if (!inet_ntop(AF_INET, &to.sin_addr, to_str, sizeof(to_str)))
-      sprintf(to_str, "<to?>");
-    
-    zlog_debug("Recv IP PIM pkt size=%d from %s to %s on fd=%d on ifindex=%d (sock_ifindex=%d)",
-	       len, from_str, to_str, fd, ifindex, ifp->ifindex);
-  }
+	result = 0; /* good */
 
-  if (PIM_DEBUG_PIM_PACKETDUMP_RECV) {
-    pim_pkt_dump(__PRETTY_FUNCTION__, buf, len);
-  }
+done:
+	pim_sock_read_on(orig_ifp);
 
-#ifdef PIM_CHECK_RECV_IFINDEX_SANITY
-  /* ifindex sanity check */
-  if (ifindex != (int) ifp->ifindex) {
-    char from_str[100];
-    char to_str[100];
-    struct interface *recv_ifp;
+	if (result) {
+		++pim_ifp->pim_ifstat_hello_recvfail;
+	}
 
-    if (!inet_ntop(AF_INET, &from.sin_addr, from_str , sizeof(from_str)))
-      sprintf(from_str, "<from?>");
-    if (!inet_ntop(AF_INET, &to.sin_addr, to_str , sizeof(to_str)))
-      sprintf(to_str, "<to?>");
-
-    recv_ifp = if_lookup_by_index(ifindex);
-    if (recv_ifp) {
-      zassert(ifindex == (int) recv_ifp->ifindex);
-    }
-
-#ifdef PIM_REPORT_RECV_IFINDEX_MISMATCH
-    zlog_warn("Interface mismatch: recv PIM pkt from %s to %s on fd=%d: recv_ifindex=%d (%s) sock_ifindex=%d (%s)",
-	      from_str, to_str, fd,
-	      ifindex, recv_ifp ? recv_ifp->name : "<if-notfound>",
-	      ifp->ifindex, ifp->name);
-#endif
-    goto done;
-  }
-#endif
-
-  int fail = pim_pim_packet(ifp, buf, len);
-  if (fail) {
-    zlog_warn("%s: pim_pim_packet() return=%d",
-              __PRETTY_FUNCTION__, fail);
-    goto done;
-  }
-
-  result = 0; /* good */
-
- done:
-  pim_sock_read_on(ifp);
-
-  if (result) {
-    ++pim_ifp->pim_ifstat_hello_recvfail;
-  }
-
-  return result;
+	return result;
 }
 
 static void pim_sock_read_on(struct interface *ifp)
 {
-  struct pim_interface *pim_ifp;
+	struct pim_interface *pim_ifp;
 
-  zassert(ifp);
-  zassert(ifp->info);
+	assert(ifp);
+	assert(ifp->info);
 
-  pim_ifp = ifp->info;
+	pim_ifp = ifp->info;
 
-  if (PIM_DEBUG_PIM_TRACE) {
-    zlog_debug("Scheduling READ event on PIM socket fd=%d",
-	       pim_ifp->pim_sock_fd);
-  }
-  pim_ifp->t_pim_sock_read = 0;
-  zassert(!pim_ifp->t_pim_sock_read);
-  THREAD_READ_ON(master, pim_ifp->t_pim_sock_read, pim_sock_read, ifp,
-		 pim_ifp->pim_sock_fd);
+	if (PIM_DEBUG_PIM_TRACE_DETAIL) {
+		zlog_debug("Scheduling READ event on PIM socket fd=%d",
+			   pim_ifp->pim_sock_fd);
+	}
+	thread_add_read(router->master, pim_sock_read, ifp,
+			pim_ifp->pim_sock_fd, &pim_ifp->t_pim_sock_read);
 }
 
-static int pim_sock_open(struct in_addr ifaddr, ifindex_t ifindex)
+static int pim_sock_open(struct interface *ifp)
 {
-  int fd;
+	int fd;
+	struct pim_interface *pim_ifp = ifp->info;
 
-  fd = pim_socket_mcast(IPPROTO_PIM, ifaddr, 0 /* loop=false */);
-  if (fd < 0)
-    return -1;
+	fd = pim_socket_mcast(IPPROTO_PIM, pim_ifp->primary_address, ifp,
+			      0 /* loop=false */);
+	if (fd < 0)
+		return -1;
 
-  if (pim_socket_join(fd, qpim_all_pim_routers_addr, ifaddr, ifindex)) {
-    close(fd);
-    return -2;
-  }
+	if (pim_socket_join(fd, qpim_all_pim_routers_addr,
+			    pim_ifp->primary_address, ifp->ifindex)) {
+		close(fd);
+		return -2;
+	}
 
-  return fd;
+	return fd;
 }
 
 void pim_ifstat_reset(struct interface *ifp)
 {
-  struct pim_interface *pim_ifp;
+	struct pim_interface *pim_ifp;
 
-  zassert(ifp);
+	assert(ifp);
 
-  pim_ifp = ifp->info;
-  if (!pim_ifp) {
-    return;
-  }
+	pim_ifp = ifp->info;
+	if (!pim_ifp) {
+		return;
+	}
 
-  pim_ifp->pim_ifstat_start          = pim_time_monotonic_sec();
-  pim_ifp->pim_ifstat_hello_sent     = 0;
-  pim_ifp->pim_ifstat_hello_sendfail = 0;
-  pim_ifp->pim_ifstat_hello_recv     = 0;
-  pim_ifp->pim_ifstat_hello_recvfail = 0;
+	pim_ifp->pim_ifstat_start = pim_time_monotonic_sec();
+	pim_ifp->pim_ifstat_hello_sent = 0;
+	pim_ifp->pim_ifstat_hello_sendfail = 0;
+	pim_ifp->pim_ifstat_hello_recv = 0;
+	pim_ifp->pim_ifstat_hello_recvfail = 0;
+	pim_ifp->pim_ifstat_bsm_rx = 0;
+	pim_ifp->pim_ifstat_bsm_tx = 0;
+	pim_ifp->pim_ifstat_join_recv = 0;
+	pim_ifp->pim_ifstat_join_send = 0;
+	pim_ifp->pim_ifstat_prune_recv = 0;
+	pim_ifp->pim_ifstat_prune_send = 0;
+	pim_ifp->pim_ifstat_reg_recv = 0;
+	pim_ifp->pim_ifstat_reg_send = 0;
+	pim_ifp->pim_ifstat_reg_stop_recv = 0;
+	pim_ifp->pim_ifstat_reg_stop_send = 0;
+	pim_ifp->pim_ifstat_assert_recv = 0;
+	pim_ifp->pim_ifstat_assert_send = 0;
+	pim_ifp->pim_ifstat_bsm_cfg_miss = 0;
+	pim_ifp->pim_ifstat_ucast_bsm_cfg_miss = 0;
+	pim_ifp->pim_ifstat_bsm_invalid_sz = 0;
 }
 
 void pim_sock_reset(struct interface *ifp)
 {
-  struct pim_interface *pim_ifp;
+	struct pim_interface *pim_ifp;
 
-  zassert(ifp);
-  zassert(ifp->info);
+	assert(ifp);
+	assert(ifp->info);
 
-  pim_ifp = ifp->info;
+	pim_ifp = ifp->info;
 
-  pim_ifp->primary_address = pim_find_primary_addr(ifp);
+	pim_ifp->primary_address = pim_find_primary_addr(ifp);
 
-  pim_ifp->pim_sock_fd       = -1;
-  pim_ifp->pim_sock_creation = 0;
-  pim_ifp->t_pim_sock_read   = 0;
+	pim_ifp->pim_sock_fd = -1;
+	pim_ifp->pim_sock_creation = 0;
+	pim_ifp->t_pim_sock_read = NULL;
 
-  pim_ifp->t_pim_hello_timer          = 0;
-  pim_ifp->pim_hello_period           = PIM_DEFAULT_HELLO_PERIOD;
-  pim_ifp->pim_default_holdtime       = -1; /* unset: means 3.5 * pim_hello_period */
-  pim_ifp->pim_triggered_hello_delay  = PIM_DEFAULT_TRIGGERED_HELLO_DELAY;
-  pim_ifp->pim_dr_priority            = PIM_DEFAULT_DR_PRIORITY;
-  pim_ifp->pim_propagation_delay_msec = PIM_DEFAULT_PROPAGATION_DELAY_MSEC;
-  pim_ifp->pim_override_interval_msec = PIM_DEFAULT_OVERRIDE_INTERVAL_MSEC;
-  if (PIM_DEFAULT_CAN_DISABLE_JOIN_SUPPRESSION) {
-    PIM_IF_DO_PIM_CAN_DISABLE_JOIN_SUPRESSION(pim_ifp->options);
-  }
-  else {
-    PIM_IF_DONT_PIM_CAN_DISABLE_JOIN_SUPRESSION(pim_ifp->options);
-  }
+	pim_ifp->t_pim_hello_timer = NULL;
+	pim_ifp->pim_hello_period = PIM_DEFAULT_HELLO_PERIOD;
+	pim_ifp->pim_default_holdtime =
+		-1; /* unset: means 3.5 * pim_hello_period */
+	pim_ifp->pim_triggered_hello_delay = PIM_DEFAULT_TRIGGERED_HELLO_DELAY;
+	pim_ifp->pim_dr_priority = PIM_DEFAULT_DR_PRIORITY;
+	pim_ifp->pim_propagation_delay_msec =
+		PIM_DEFAULT_PROPAGATION_DELAY_MSEC;
+	pim_ifp->pim_override_interval_msec =
+		PIM_DEFAULT_OVERRIDE_INTERVAL_MSEC;
+	if (PIM_DEFAULT_CAN_DISABLE_JOIN_SUPPRESSION) {
+		PIM_IF_DO_PIM_CAN_DISABLE_JOIN_SUPPRESSION(pim_ifp->options);
+	} else {
+		PIM_IF_DONT_PIM_CAN_DISABLE_JOIN_SUPPRESSION(pim_ifp->options);
+	}
 
-  /* neighbors without lan_delay */
-  pim_ifp->pim_number_of_nonlandelay_neighbors = 0;
-  pim_ifp->pim_neighbors_highest_propagation_delay_msec = 0;
-  pim_ifp->pim_neighbors_highest_override_interval_msec = 0;
+	/* neighbors without lan_delay */
+	pim_ifp->pim_number_of_nonlandelay_neighbors = 0;
+	pim_ifp->pim_neighbors_highest_propagation_delay_msec = 0;
+	pim_ifp->pim_neighbors_highest_override_interval_msec = 0;
 
-  /* DR Election */
-  pim_ifp->pim_dr_election_last          = 0; /* timestamp */
-  pim_ifp->pim_dr_election_count         = 0;
-  pim_ifp->pim_dr_election_changes       = 0;
-  pim_ifp->pim_dr_num_nondrpri_neighbors = 0; /* neighbors without dr_pri */
-  pim_ifp->pim_dr_addr                   = pim_ifp->primary_address;
+	/* DR Election */
+	pim_ifp->pim_dr_election_last = 0; /* timestamp */
+	pim_ifp->pim_dr_election_count = 0;
+	pim_ifp->pim_dr_election_changes = 0;
+	pim_ifp->pim_dr_num_nondrpri_neighbors =
+		0; /* neighbors without dr_pri */
+	pim_ifp->pim_dr_addr = pim_ifp->primary_address;
+	pim_ifp->am_i_dr = true;
 
-  pim_ifstat_reset(ifp);
+	pim_ifstat_reset(ifp);
 }
 
-int pim_msg_send(int fd,
-		 struct in_addr dst,
-		 uint8_t *pim_msg,
-		 int pim_msg_size,
-		 const char *ifname)
+static uint16_t ip_id = 0;
+
+
+static int pim_msg_send_frame(int fd, char *buf, size_t len,
+			      struct sockaddr *dst, size_t salen)
 {
-  ssize_t            sent;
-  struct sockaddr_in to;
-  socklen_t          tolen;
+	struct ip *ip = (struct ip *)buf;
 
-  if (PIM_DEBUG_PIM_PACKETS) {
-    char dst_str[100];
-    pim_inet4_dump("<dst?>", dst, dst_str, sizeof(dst_str));
-    zlog_debug("%s: to %s on %s: msg_size=%d checksum=%x",
-	       __PRETTY_FUNCTION__,
-	       dst_str, ifname, pim_msg_size,
-	       *(uint16_t *) PIM_MSG_HDR_OFFSET_CHECKSUM(pim_msg));
-  }
+	if (sendto(fd, buf, len, MSG_DONTWAIT, dst, salen) < 0) {
+		char dst_str[INET_ADDRSTRLEN];
 
-  memset(&to, 0, sizeof(to));
-  to.sin_family = AF_INET;
-  to.sin_addr = dst;
-  tolen = sizeof(to);
+		switch (errno) {
+		case EMSGSIZE: {
+			size_t hdrsize = sizeof(struct ip);
+			size_t newlen1 = ((len - hdrsize) / 2) & 0xFFF8;
+			size_t sendlen = newlen1 + hdrsize;
+			size_t offset = ntohs(ip->ip_off);
 
-  if (PIM_DEBUG_PIM_PACKETDUMP_SEND) {
-    pim_pkt_dump(__PRETTY_FUNCTION__, pim_msg, pim_msg_size);
-  }
+			ip->ip_len = htons(sendlen);
+			ip->ip_off = htons(offset | IP_MF);
+			if (pim_msg_send_frame(fd, buf, sendlen, dst, salen)
+			    == 0) {
+				struct ip *ip2 = (struct ip *)(buf + newlen1);
+				size_t newlen2 = len - sendlen;
+				sendlen = newlen2 + hdrsize;
 
-  sent = sendto(fd, pim_msg, pim_msg_size, MSG_DONTWAIT,
-                (struct sockaddr *)&to, tolen);
-  if (sent != (ssize_t) pim_msg_size) {
-    int e = errno;
-    char dst_str[100];
-    pim_inet4_dump("<dst?>", dst, dst_str, sizeof(dst_str));
-    if (sent < 0) {
-      zlog_warn("%s: sendto() failure to %s on %s: fd=%d msg_size=%d: errno=%d: %s",
-		__PRETTY_FUNCTION__,
-		dst_str, ifname, fd, pim_msg_size,
-		e, safe_strerror(e));
-    }
-    else {
-      zlog_warn("%s: sendto() partial to %s on %s: fd=%d msg_size=%d: sent=%zd",
-		__PRETTY_FUNCTION__,
-		dst_str, ifname, fd,
-		pim_msg_size, sent);
-    }
-    return -1;
-  }
+				memcpy(ip2, ip, hdrsize);
+				ip2->ip_len = htons(sendlen);
+				ip2->ip_off = htons(offset + (newlen1 >> 3));
+				return pim_msg_send_frame(fd, (char *)ip2,
+							  sendlen, dst, salen);
+			}
+		}
 
-  return 0;
+			return -1;
+		default:
+			if (PIM_DEBUG_PIM_PACKETS) {
+				pim_inet4_dump("<dst?>", ip->ip_dst, dst_str,
+					       sizeof(dst_str));
+				zlog_warn(
+					"%s: sendto() failure to %s: fd=%d msg_size=%zd: errno=%d: %s",
+					__func__, dst_str, fd, len, errno,
+					safe_strerror(errno));
+			}
+			return -1;
+		}
+	}
+
+	return 0;
 }
 
-static int hello_send(struct interface *ifp,
-		      uint16_t holdtime)
+int pim_msg_send(int fd, pim_addr src, struct in_addr dst, uint8_t *pim_msg,
+		 int pim_msg_size, const char *ifname)
 {
-  uint8_t pim_msg[PIM_PIM_BUFSIZE_WRITE];
-  struct pim_interface *pim_ifp;
-  int pim_tlv_size;
-  int pim_msg_size;
+	struct sockaddr_in to;
+	socklen_t tolen;
+	unsigned char buffer[10000];
+	unsigned char *msg_start;
+	uint8_t ttl;
+	struct pim_msg_header *header;
+	struct ip *ip;
 
-  pim_ifp = ifp->info;
+	memset(buffer, 0, 10000);
+	int sendlen = sizeof(struct ip) + pim_msg_size;
 
-  if (PIM_DEBUG_PIM_HELLO) {
-    char dst_str[100];
-    pim_inet4_dump("<dst?>", qpim_all_pim_routers_addr, dst_str, sizeof(dst_str));
-    zlog_debug("%s: to %s on %s: holdt=%u prop_d=%u overr_i=%u dis_join_supp=%d dr_prio=%u gen_id=%08x addrs=%d",
-	       __PRETTY_FUNCTION__,
-	       dst_str, ifp->name,
-	       holdtime,
-	       pim_ifp->pim_propagation_delay_msec, pim_ifp->pim_override_interval_msec,
-	       PIM_IF_TEST_PIM_CAN_DISABLE_JOIN_SUPRESSION(pim_ifp->options),
-	       pim_ifp->pim_dr_priority, pim_ifp->pim_generation_id,
-	       listcount(ifp->connected));
-  }
+	msg_start = buffer + sizeof(struct ip);
+	memcpy(msg_start, pim_msg, pim_msg_size);
 
-  pim_tlv_size = pim_hello_build_tlv(ifp->name,
-				     pim_msg + PIM_PIM_MIN_LEN,
-				     sizeof(pim_msg) - PIM_PIM_MIN_LEN,
-				     holdtime,
-				     pim_ifp->pim_dr_priority,
-				     pim_ifp->pim_generation_id,
-				     pim_ifp->pim_propagation_delay_msec,
-				     pim_ifp->pim_override_interval_msec,
-				     PIM_IF_TEST_PIM_CAN_DISABLE_JOIN_SUPRESSION(pim_ifp->options),
-				     ifp->connected);
-  if (pim_tlv_size < 0) {
-    return -1;
-  }
+	header = (struct pim_msg_header *)pim_msg;
+/*
+ * Omnios apparently doesn't have a #define for IP default
+ * ttl that is the same as all other platforms.
+ */
+#ifndef IPDEFTTL
+#define IPDEFTTL   64
+#endif
+	/* TTL for packets destine to ALL-PIM-ROUTERS is 1 */
+	switch (header->type) {
+	case PIM_MSG_TYPE_HELLO:
+	case PIM_MSG_TYPE_JOIN_PRUNE:
+	case PIM_MSG_TYPE_BOOTSTRAP:
+	case PIM_MSG_TYPE_ASSERT:
+		ttl = 1;
+		break;
+	case PIM_MSG_TYPE_REGISTER:
+	case PIM_MSG_TYPE_REG_STOP:
+	case PIM_MSG_TYPE_GRAFT:
+	case PIM_MSG_TYPE_GRAFT_ACK:
+	case PIM_MSG_TYPE_CANDIDATE:
+		ttl = IPDEFTTL;
+		break;
+	default:
+		ttl = MAXTTL;
+		break;
+	}
 
-  pim_msg_size = pim_tlv_size + PIM_PIM_MIN_LEN;
+	ip = (struct ip *)buffer;
+	ip->ip_id = htons(++ip_id);
+	ip->ip_hl = 5;
+	ip->ip_v = 4;
+	ip->ip_tos = IPTOS_PREC_INTERNETCONTROL;
+	ip->ip_p = PIM_IP_PROTO_PIM;
+	ip->ip_src = src;
+	ip->ip_dst = dst;
+	ip->ip_ttl = ttl;
+	ip->ip_len = htons(sendlen);
 
-  zassert(pim_msg_size >= PIM_PIM_MIN_LEN);
-  zassert(pim_msg_size <= PIM_PIM_BUFSIZE_WRITE);
+	if (PIM_DEBUG_PIM_PACKETS) {
+		char dst_str[INET_ADDRSTRLEN];
+		pim_inet4_dump("<dst?>", dst, dst_str, sizeof(dst_str));
+		zlog_debug("%s: to %s on %s: msg_size=%d checksum=%x", __func__,
+			   dst_str, ifname, pim_msg_size, header->checksum);
+	}
 
-  pim_msg_build_header(pim_msg, pim_msg_size,
-		       PIM_MSG_TYPE_HELLO);
+	memset(&to, 0, sizeof(to));
+	to.sin_family = AF_INET;
+	to.sin_addr = dst;
+	tolen = sizeof(to);
 
-  if (pim_msg_send(pim_ifp->pim_sock_fd,
-		   qpim_all_pim_routers_addr,
-		   pim_msg,
-		   pim_msg_size,
-		   ifp->name)) {
-    if (PIM_DEBUG_PIM_HELLO) {
-      zlog_debug("%s: could not send PIM message on interface %s",
-		 __PRETTY_FUNCTION__, ifp->name);
-    }
-    return -2;
-  }
+	if (PIM_DEBUG_PIM_PACKETDUMP_SEND) {
+		pim_pkt_dump(__func__, pim_msg, pim_msg_size);
+	}
 
-  return 0;
+	pim_msg_send_frame(fd, (char *)buffer, sendlen, (struct sockaddr *)&to,
+			   tolen);
+	return 0;
 }
 
-static int pim_hello_send(struct interface *ifp,
-			  uint16_t holdtime)
+static int hello_send(struct interface *ifp, uint16_t holdtime)
 {
-  struct pim_interface *pim_ifp;
+	uint8_t pim_msg[PIM_PIM_BUFSIZE_WRITE];
+	struct pim_interface *pim_ifp;
+	int pim_tlv_size;
+	int pim_msg_size;
 
-  zassert(ifp);
-  pim_ifp = ifp->info;
-  zassert(pim_ifp);
+	pim_ifp = ifp->info;
 
-  if (hello_send(ifp, holdtime)) {
-    ++pim_ifp->pim_ifstat_hello_sendfail;
+	if (PIM_DEBUG_PIM_HELLO) {
+		char dst_str[INET_ADDRSTRLEN];
+		pim_inet4_dump("<dst?>", qpim_all_pim_routers_addr, dst_str,
+			       sizeof(dst_str));
+		zlog_debug(
+			"%s: to %s on %s: holdt=%u prop_d=%u overr_i=%u dis_join_supp=%d dr_prio=%u gen_id=%08x addrs=%d",
+			__func__, dst_str, ifp->name, holdtime,
+			pim_ifp->pim_propagation_delay_msec,
+			pim_ifp->pim_override_interval_msec,
+			PIM_IF_TEST_PIM_CAN_DISABLE_JOIN_SUPPRESSION(
+				pim_ifp->options),
+			pim_ifp->pim_dr_priority, pim_ifp->pim_generation_id,
+			listcount(ifp->connected));
+	}
 
-    if (PIM_DEBUG_PIM_HELLO) {
-      zlog_warn("Could not send PIM hello on interface %s",
-		ifp->name);
-    }
-    return -1;
-  }
+	pim_tlv_size = pim_hello_build_tlv(
+		ifp, pim_msg + PIM_PIM_MIN_LEN,
+		sizeof(pim_msg) - PIM_PIM_MIN_LEN, holdtime,
+		pim_ifp->pim_dr_priority, pim_ifp->pim_generation_id,
+		pim_ifp->pim_propagation_delay_msec,
+		pim_ifp->pim_override_interval_msec,
+		PIM_IF_TEST_PIM_CAN_DISABLE_JOIN_SUPPRESSION(pim_ifp->options));
+	if (pim_tlv_size < 0) {
+		return -1;
+	}
 
-  ++pim_ifp->pim_ifstat_hello_sent;
+	pim_msg_size = pim_tlv_size + PIM_PIM_MIN_LEN;
 
-  return 0;
+	assert(pim_msg_size >= PIM_PIM_MIN_LEN);
+	assert(pim_msg_size <= PIM_PIM_BUFSIZE_WRITE);
+
+	pim_msg_build_header(pim_msg, pim_msg_size, PIM_MSG_TYPE_HELLO, false);
+
+	if (pim_msg_send(pim_ifp->pim_sock_fd, pim_ifp->primary_address,
+			 qpim_all_pim_routers_addr, pim_msg, pim_msg_size,
+			 ifp->name)) {
+		if (PIM_DEBUG_PIM_HELLO) {
+			zlog_debug(
+				"%s: could not send PIM message on interface %s",
+				__func__, ifp->name);
+		}
+		return -2;
+	}
+
+	return 0;
+}
+
+int pim_hello_send(struct interface *ifp, uint16_t holdtime)
+{
+	struct pim_interface *pim_ifp = ifp->info;
+
+	if (if_is_loopback(ifp))
+		return 0;
+
+	if (hello_send(ifp, holdtime)) {
+		++pim_ifp->pim_ifstat_hello_sendfail;
+
+		if (PIM_DEBUG_PIM_HELLO) {
+			zlog_warn("Could not send PIM hello on interface %s",
+				  ifp->name);
+		}
+		return -1;
+	}
+
+	++pim_ifp->pim_ifstat_hello_sent;
+	PIM_IF_FLAG_SET_HELLO_SENT(pim_ifp->flags);
+
+	return 0;
 }
 
 static void hello_resched(struct interface *ifp)
 {
-  struct pim_interface *pim_ifp;
+	struct pim_interface *pim_ifp;
 
-  zassert(ifp);
-  pim_ifp = ifp->info;
-  zassert(pim_ifp);
+	pim_ifp = ifp->info;
 
-  if (PIM_DEBUG_PIM_HELLO) {
-    zlog_debug("Rescheduling %d sec hello on interface %s",
-	       pim_ifp->pim_hello_period, ifp->name);
-  }
-  THREAD_OFF(pim_ifp->t_pim_hello_timer);
-  THREAD_TIMER_ON(master, pim_ifp->t_pim_hello_timer,
-		  on_pim_hello_send,
-		  ifp, pim_ifp->pim_hello_period);
+	if (PIM_DEBUG_PIM_HELLO) {
+		zlog_debug("Rescheduling %d sec hello on interface %s",
+			   pim_ifp->pim_hello_period, ifp->name);
+	}
+	THREAD_OFF(pim_ifp->t_pim_hello_timer);
+	thread_add_timer(router->master, on_pim_hello_send, ifp,
+			 pim_ifp->pim_hello_period,
+			 &pim_ifp->t_pim_hello_timer);
 }
 
 /*
@@ -613,25 +747,21 @@ static void hello_resched(struct interface *ifp)
  */
 static int on_pim_hello_send(struct thread *t)
 {
-  struct pim_interface *pim_ifp;
-  struct interface *ifp;
+	struct pim_interface *pim_ifp;
+	struct interface *ifp;
 
-  zassert(t);
-  ifp = THREAD_ARG(t);
-  zassert(ifp);
+	ifp = THREAD_ARG(t);
+	pim_ifp = ifp->info;
 
-  pim_ifp = ifp->info;
+	/*
+	 * Schedule next hello
+	 */
+	hello_resched(ifp);
 
-  /*
-   * Schedule next hello
-   */
-  pim_ifp->t_pim_hello_timer = 0;
-  hello_resched(ifp);
-
-  /*
-   * Send hello
-   */
-  return pim_hello_send(ifp, PIM_IF_DEFAULT_HOLDTIME(pim_ifp));
+	/*
+	 * Send hello
+	 */
+	return pim_hello_send(ifp, PIM_IF_DEFAULT_HOLDTIME(pim_ifp));
 }
 
 /*
@@ -645,21 +775,19 @@ static int on_pim_hello_send(struct thread *t)
  */
 void pim_hello_restart_now(struct interface *ifp)
 {
-  struct pim_interface *pim_ifp;
+	struct pim_interface *pim_ifp;
 
-  zassert(ifp);
-  pim_ifp = ifp->info;
-  zassert(pim_ifp);
+	pim_ifp = ifp->info;
 
-  /*
-   * Reset next hello timer
-   */
-  hello_resched(ifp);
+	/*
+	 * Reset next hello timer
+	 */
+	hello_resched(ifp);
 
-  /*
-   * Immediately send hello
-   */
-  pim_hello_send(ifp, PIM_IF_DEFAULT_HOLDTIME(pim_ifp));
+	/*
+	 * Immediately send hello
+	 */
+	pim_hello_send(ifp, PIM_IF_DEFAULT_HOLDTIME(pim_ifp));
 }
 
 /*
@@ -673,93 +801,113 @@ void pim_hello_restart_now(struct interface *ifp)
  */
 void pim_hello_restart_triggered(struct interface *ifp)
 {
-  struct pim_interface *pim_ifp;
-  int triggered_hello_delay_msec;
-  int random_msec;
+	struct pim_interface *pim_ifp;
+	int triggered_hello_delay_msec;
+	int random_msec;
 
-  zassert(ifp);
-  pim_ifp = ifp->info;
-  zassert(pim_ifp);
+	pim_ifp = ifp->info;
 
-  triggered_hello_delay_msec = 1000 * pim_ifp->pim_triggered_hello_delay;
+	/*
+	 * No need to ever start loopback or vrf device hello's
+	 */
+	if (if_is_loopback(ifp))
+		return;
 
-  if (pim_ifp->t_pim_hello_timer) {
-    long remain_msec = pim_time_timer_remain_msec(pim_ifp->t_pim_hello_timer);
-    if (remain_msec <= triggered_hello_delay_msec) {
-      /* Rescheduling hello would increase the delay, then it's faster
-	 to just wait for the scheduled periodic hello. */
-      return;
-    }
+	/*
+	 * There exists situations where we have the a RPF out this
+	 * interface, but we haven't formed a neighbor yet.  This
+	 * happens especially during interface flaps.  While
+	 * we would like to handle this more gracefully in other
+	 * parts of the code.  In order to get us up and running
+	 * let's just send the hello immediate'ish
+	 * This should be revisited when we get nexthop tracking
+	 * in and when we have a better handle on safely
+	 * handling the rpf information for upstreams that
+	 * we cannot legally reach yet.
+	 */
+	triggered_hello_delay_msec = 1;
+	// triggered_hello_delay_msec = 1000 *
+	// pim_ifp->pim_triggered_hello_delay;
 
-    THREAD_OFF(pim_ifp->t_pim_hello_timer);
-    pim_ifp->t_pim_hello_timer = 0;
-  }
-  zassert(!pim_ifp->t_pim_hello_timer);
+	if (pim_ifp->t_pim_hello_timer) {
+		long remain_msec =
+			pim_time_timer_remain_msec(pim_ifp->t_pim_hello_timer);
+		if (remain_msec <= triggered_hello_delay_msec) {
+			/* Rescheduling hello would increase the delay, then
+			   it's faster
+			   to just wait for the scheduled periodic hello. */
+			return;
+		}
 
-  random_msec = random() % (triggered_hello_delay_msec + 1);
+		THREAD_OFF(pim_ifp->t_pim_hello_timer);
+	}
 
-  if (PIM_DEBUG_PIM_HELLO) {
-    zlog_debug("Scheduling %d msec triggered hello on interface %s",
-	       random_msec, ifp->name);
-  }
+	random_msec = triggered_hello_delay_msec;
+	// random_msec = random() % (triggered_hello_delay_msec + 1);
 
-  THREAD_TIMER_MSEC_ON(master, pim_ifp->t_pim_hello_timer,
-		       on_pim_hello_send,
-		       ifp, random_msec);
+	if (PIM_DEBUG_PIM_HELLO) {
+		zlog_debug("Scheduling %d msec triggered hello on interface %s",
+			   random_msec, ifp->name);
+	}
+
+	thread_add_timer_msec(router->master, on_pim_hello_send, ifp,
+			      random_msec, &pim_ifp->t_pim_hello_timer);
 }
 
 int pim_sock_add(struct interface *ifp)
 {
-  struct pim_interface *pim_ifp;
-  struct in_addr ifaddr;
-  uint32_t old_genid;
+	struct pim_interface *pim_ifp;
+	uint32_t old_genid;
 
-  pim_ifp = ifp->info;
-  zassert(pim_ifp);
+	pim_ifp = ifp->info;
+	assert(pim_ifp);
 
-  if (pim_ifp->pim_sock_fd >= 0) {
-    zlog_warn("Can't recreate existing PIM socket fd=%d for interface %s",
-	      pim_ifp->pim_sock_fd, ifp->name);
-    return -1;
-  }
+	if (pim_ifp->pim_sock_fd >= 0) {
+		if (PIM_DEBUG_PIM_PACKETS)
+			zlog_debug(
+				"Can't recreate existing PIM socket fd=%d for interface %s",
+				pim_ifp->pim_sock_fd, ifp->name);
+		return -1;
+	}
 
-  ifaddr = pim_ifp->primary_address;
+	pim_ifp->pim_sock_fd = pim_sock_open(ifp);
+	if (pim_ifp->pim_sock_fd < 0) {
+		if (PIM_DEBUG_PIM_PACKETS)
+			zlog_debug("Could not open PIM socket on interface %s",
+				   ifp->name);
+		return -2;
+	}
 
-  pim_ifp->pim_sock_fd = pim_sock_open(ifaddr, ifp->ifindex);
-  if (pim_ifp->pim_sock_fd < 0) {
-    zlog_warn("Could not open PIM socket on interface %s",
-	      ifp->name);
-    return -2;
-  }
+	pim_socket_ip_hdr(pim_ifp->pim_sock_fd);
 
-  pim_ifp->t_pim_sock_read   = 0;
-  pim_ifp->pim_sock_creation = pim_time_monotonic_sec();
+	pim_ifp->t_pim_sock_read = NULL;
+	pim_ifp->pim_sock_creation = pim_time_monotonic_sec();
 
-  /*
-   * Just ensure that the new generation id
-   * actually chooses something different.
-   * Actually ran across a case where this
-   * happened, pre-switch to random().
-   * While this is unlikely to happen now
-   * let's make sure it doesn't.
-   */
-  old_genid = pim_ifp->pim_generation_id;
+	/*
+	 * Just ensure that the new generation id
+	 * actually chooses something different.
+	 * Actually ran across a case where this
+	 * happened, pre-switch to random().
+	 * While this is unlikely to happen now
+	 * let's make sure it doesn't.
+	 */
+	old_genid = pim_ifp->pim_generation_id;
 
-  while (old_genid == pim_ifp->pim_generation_id)
-    pim_ifp->pim_generation_id = random();
+	while (old_genid == pim_ifp->pim_generation_id)
+		pim_ifp->pim_generation_id = frr_weak_random();
 
-  zlog_info("PIM INTERFACE UP: on interface %s ifindex=%d",
-	    ifp->name, ifp->ifindex);
+	zlog_info("PIM INTERFACE UP: on interface %s ifindex=%d", ifp->name,
+		  ifp->ifindex);
 
-  /*
-   * Start receiving PIM messages
-   */
-  pim_sock_read_on(ifp);
+	/*
+	 * Start receiving PIM messages
+	 */
+	pim_sock_read_on(ifp);
 
-  /*
-   * Start sending PIM hello's
-   */
-  pim_hello_restart_triggered(ifp);
+	/*
+	 * Start sending PIM hello's
+	 */
+	pim_hello_restart_triggered(ifp);
 
-  return 0;
+	return 0;
 }

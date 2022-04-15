@@ -14,10 +14,9 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with GNU Zebra; see the file COPYING.  If not, write to the Free
- * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * You should have received a copy of the GNU General Public License along
+ * with this program; see the file COPYING; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
 #ifndef _ZEBRA_RNH_H
@@ -26,24 +25,40 @@
 #include "prefix.h"
 #include "vty.h"
 
-/* Nexthop structure. */
-struct rnh
-{
-  u_char flags;
-#define ZEBRA_NHT_CONNECTED  	0x1
-  struct rib *state;
-  struct list *client_list;
-  struct route_node *node;
-};
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-extern struct rnh *zebra_add_rnh(struct prefix *p, vrf_id_t vrfid);
-extern struct rnh *zebra_lookup_rnh(struct prefix *p, vrf_id_t vrfid);
-extern void zebra_delete_rnh(struct rnh *rnh);
-extern void zebra_add_rnh_client(struct rnh *rnh, struct zserv *client, vrf_id_t vrf_id_t);
+extern void zebra_rnh_init(void);
+
+extern struct rnh *zebra_add_rnh(struct prefix *p, vrf_id_t vrfid,
+				 bool *exists);
+extern struct rnh *zebra_lookup_rnh(struct prefix *p, vrf_id_t vrfid,
+				    safi_t safi);
+extern void zebra_free_rnh(struct rnh *rnh);
+extern void zebra_add_rnh_client(struct rnh *rnh, struct zserv *client,
+				 vrf_id_t vrfid);
+extern int zebra_send_rnh_update(struct rnh *rnh, struct zserv *client,
+				 vrf_id_t vrf_id, uint32_t srte_color);
+extern void zebra_register_rnh_pseudowire(vrf_id_t, struct zebra_pw *, bool *);
+extern void zebra_deregister_rnh_pseudowire(vrf_id_t, struct zebra_pw *);
 extern void zebra_remove_rnh_client(struct rnh *rnh, struct zserv *client);
-extern int zebra_evaluate_rnh_table(vrf_id_t vrfid, int family);
-extern int zebra_dispatch_rnh_table(vrf_id_t vrfid, int family, struct zserv *cl);
-extern void zebra_print_rnh_table(vrf_id_t vrfid, int family, struct vty *vty);
-extern char *rnh_str(struct rnh *rnh, char *buf, int size);
-extern int zebra_cleanup_rnh_client(vrf_id_t vrf, int family, struct zserv *client);
+extern void zebra_evaluate_rnh(struct zebra_vrf *zvrf, afi_t afi, int force,
+			       struct prefix *p, safi_t safi);
+extern void zebra_print_rnh_table(vrf_id_t vrfid, afi_t afi, struct vty *vty,
+				  struct prefix *p);
+
+extern int rnh_resolve_via_default(struct zebra_vrf *zvrf, int family);
+
+extern bool rnh_nexthop_valid(const struct route_entry *re,
+			      const struct nexthop *nh);
+
+/* UI control to avoid notifications if backup nexthop status changes */
+void rnh_set_hide_backups(bool hide_p);
+bool rnh_get_hide_backups(void);
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif /*_ZEBRA_RNH_H */

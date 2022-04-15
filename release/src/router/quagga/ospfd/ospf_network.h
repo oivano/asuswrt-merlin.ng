@@ -14,26 +14,21 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with GNU Zebra; see the file COPYING.  If not, write to the Free
- * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * You should have received a copy of the GNU General Public License along
+ * with this program; see the file COPYING; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
 #ifndef _ZEBRA_OSPF_NETWORK_H
 #define _ZEBRA_OSPF_NETWORK_H
 
 /* Prototypes. */
-extern int ospf_if_add_allspfrouters (struct ospf *, struct prefix *,
+extern int ospf_if_add_allspfrouters(struct ospf *, struct prefix *, ifindex_t);
+extern int ospf_if_drop_allspfrouters(struct ospf *, struct prefix *,
 				      ifindex_t);
-extern int ospf_if_drop_allspfrouters (struct ospf *, struct prefix *,
-				       ifindex_t);
-extern int ospf_if_add_alldrouters (struct ospf *, struct prefix *,
-				    ifindex_t);
-extern int ospf_if_drop_alldrouters (struct ospf *, struct prefix *,
-				     ifindex_t);
-extern int ospf_if_ipmulticast (struct ospf *, struct prefix *, ifindex_t);
-extern int ospf_sock_init (void);
-extern void ospf_adjust_sndbuflen (struct ospf *, unsigned int);
+extern int ospf_if_add_alldrouters(struct ospf *, struct prefix *, ifindex_t);
+extern int ospf_if_drop_alldrouters(struct ospf *, struct prefix *, ifindex_t);
+extern int ospf_if_ipmulticast(struct ospf *, struct prefix *, ifindex_t);
+extern int ospf_sock_init(struct ospf *ospf);
 
 #endif /* _ZEBRA_OSPF_NETWORK_H */

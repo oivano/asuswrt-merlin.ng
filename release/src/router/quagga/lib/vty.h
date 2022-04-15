@@ -1,133 +1,296 @@
 /* Virtual terminal [aka TeletYpe] interface routine
-   Copyright (C) 1997 Kunihiro Ishiguro
-
-This file is part of GNU Zebra.
-
-GNU Zebra is free software; you can redistribute it and/or modify it
-under the terms of the GNU General Public License as published by the
-Free Software Foundation; either version 2, or (at your option) any
-later version.
-
-GNU Zebra is distributed in the hope that it will be useful, but
-WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with GNU Zebra; see the file COPYING.  If not, write to the Free
-Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
-02111-1307, USA.  */
+ * Copyright (C) 1997 Kunihiro Ishiguro
+ *
+ * This file is part of GNU Zebra.
+ *
+ * GNU Zebra is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2, or (at your option) any
+ * later version.
+ *
+ * GNU Zebra is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; see the file COPYING; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
+ */
 
 #ifndef _ZEBRA_VTY_H
 #define _ZEBRA_VTY_H
 
+#include <sys/types.h>
+#ifdef HAVE_LIBPCREPOSIX
+#include <pcreposix.h>
+#else
+#include <regex.h>
+#endif /* HAVE_LIBPCREPOSIX */
+
 #include "thread.h"
 #include "log.h"
 #include "sockunion.h"
+#include "qobj.h"
+#include "compiler.h"
+#include "northbound.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+struct json_object;
+
+#define VTY_BUFSIZ 4096
 #define VTY_MAXHIST 20
+#define VTY_MAXDEPTH 8
+
+#define VTY_MAXCFGCHANGES 16
+
+struct vty_error {
+	char error_buf[VTY_BUFSIZ];
+	uint32_t line_num;
+};
+
+struct vty_cfg_change {
+	char xpath[XPATH_MAXLEN];
+	enum nb_operation operation;
+	const char *value;
+};
+
+PREDECL_DLIST(vtys);
 
 /* VTY struct. */
-struct vty 
-{
-  /* File descripter of this vty. */
-  int fd;
+struct vty {
+	struct vtys_item itm;
 
-  /* output FD, to support stdin/stdout combination */
-  int wfd;
+	/* File descripter of this vty. */
+	int fd;
 
-  /* Is this vty connect to file or not */
-  enum {VTY_TERM, VTY_FILE, VTY_SHELL, VTY_SHELL_SERV} type;
+	/* output FD, to support stdin/stdout combination */
+	int wfd;
 
-  /* Node status of this vty */
-  int node;
+	/* File output, used for VTYSH only */
+	FILE *of;
+	FILE *of_saved;
 
-  /* Failure count */
-  int fail;
+	/* whether we are using pager or not */
+	bool is_paged;
 
-  /* Output buffer. */
-  struct buffer *obuf;
+	/* Is this vty connect to file or not */
+	enum { VTY_TERM, VTY_FILE, VTY_SHELL, VTY_SHELL_SERV } type;
 
-  /* Command input buffer */
-  char *buf;
+	/* Node status of this vty */
+	int node;
 
-  /* Command cursor point */
-  int cp;
+	/* Failure count */
+	int fail;
 
-  /* Command length */
-  int length;
+	/* Output filer regex */
+	bool filter;
+	regex_t include;
 
-  /* Command max length. */
-  int max;
+	/* Line buffer */
+	struct buffer *lbuf;
 
-  /* Histry of command */
-  char *hist[VTY_MAXHIST];
+	/* Output buffer. */
+	struct buffer *obuf;
 
-  /* History lookup current point */
-  int hp;
+	/* Command input buffer */
+	char *buf;
 
-  /* History insert end point */
-  int hindex;
+	/* Command input error buffer */
+	struct list *error;
 
-  /* For current referencing point of interface, route-map,
-     access-list etc... */
-  void *index;
+	/* Command cursor point */
+	int cp;
 
-  /* For multiple level index treatment such as key chain and key. */
-  void *index_sub;
+	/* Command length */
+	int length;
 
-  /* For escape character. */
-  unsigned char escape;
+	/* Command max length. */
+	int max;
 
-  /* Current vty status. */
-  enum {VTY_NORMAL, VTY_CLOSE, VTY_MORE, VTY_MORELINE} status;
+	/* Histry of command */
+	char *hist[VTY_MAXHIST];
 
-  /* IAC handling: was the last character received the
-     IAC (interpret-as-command) escape character (and therefore the next
-     character will be the command code)?  Refer to Telnet RFC 854. */
-  unsigned char iac;
+	/* History lookup current point */
+	int hp;
 
-  /* IAC SB (option subnegotiation) handling */
-  unsigned char iac_sb_in_progress;
-  /* At the moment, we care only about the NAWS (window size) negotiation,
-     and that requires just a 5-character buffer (RFC 1073):
-       <NAWS char> <16-bit width> <16-bit height> */
+	/* History insert end point */
+	int hindex;
+
+	/* Changes enqueued to be applied in the candidate configuration. */
+	size_t num_cfg_changes;
+	struct vty_cfg_change cfg_changes[VTY_MAXCFGCHANGES];
+
+	/* XPath of the current node */
+	int xpath_index;
+	char xpath[VTY_MAXDEPTH][XPATH_MAXLEN];
+
+	/* In configure mode. */
+	bool config;
+
+	/* Private candidate configuration mode. */
+	bool private_config;
+
+	/* Candidate configuration. */
+	struct nb_config *candidate_config;
+
+	/* Base candidate configuration. */
+	struct nb_config *candidate_config_base;
+
+	/* Dynamic transaction information. */
+	bool pending_allowed;
+	bool pending_commit;
+	char *pending_cmds_buf;
+	size_t pending_cmds_buflen;
+	size_t pending_cmds_bufpos;
+
+	/* Confirmed-commit timeout and rollback configuration. */
+	struct thread *t_confirmed_commit_timeout;
+	struct nb_config *confirmed_commit_rollback;
+
+	/* qobj object ID (replacement for "index") */
+	uint64_t qobj_index;
+
+	/* qobj second-level object ID (replacement for "index_sub") */
+	uint64_t qobj_index_sub;
+
+	/* For escape character. */
+	unsigned char escape;
+
+	/* Current vty status. */
+	enum { VTY_NORMAL, VTY_CLOSE, VTY_MORE, VTY_MORELINE } status;
+
+	/* IAC handling: was the last character received the
+	   IAC (interpret-as-command) escape character (and therefore the next
+	   character will be the command code)?  Refer to Telnet RFC 854. */
+	unsigned char iac;
+
+	/* IAC SB (option subnegotiation) handling */
+	unsigned char iac_sb_in_progress;
+/* At the moment, we care only about the NAWS (window size) negotiation,
+   and that requires just a 5-character buffer (RFC 1073):
+     <NAWS char> <16-bit width> <16-bit height> */
 #define TELNET_NAWS_SB_LEN 5
-  unsigned char sb_buf[TELNET_NAWS_SB_LEN];
-  /* How many subnegotiation characters have we received?  We just drop
-     those that do not fit in the buffer. */
-  size_t sb_len;
+	unsigned char sb_buf[TELNET_NAWS_SB_LEN];
+	/* How many subnegotiation characters have we received?  We just drop
+	   those that do not fit in the buffer. */
+	size_t sb_len;
 
-  /* Window width/height. */
-  int width;
-  int height;
+	/* Window width/height. */
+	int width;
+	int height;
 
-  /* Configure lines. */
-  int lines;
+	/* Configure lines. */
+	int lines;
 
-  /* Terminal monitor. */
-  int monitor;
+	/* Terminal monitor. */
+	int monitor;
 
-  /* In configure mode. */
-  int config;
+	/* Read and write thread. */
+	struct thread *t_read;
+	struct thread *t_write;
 
-  /* Read and write thread. */
-  struct thread *t_read;
-  struct thread *t_write;
+	/* Timeout seconds and thread. */
+	unsigned long v_timeout;
+	struct thread *t_timeout;
 
-  /* Timeout seconds and thread. */
-  unsigned long v_timeout;
-  struct thread *t_timeout;
+	/* What address is this vty comming from. */
+	char address[SU_ADDRSTRLEN];
 
-  /* What address is this vty comming from. */
-  char address[SU_ADDRSTRLEN];
+	/* "frame" output.  This is buffered and will be printed if some
+	 * actual output follows, or will be discarded if the frame ends
+	 * without any output. */
+	size_t frame_pos;
+	char frame[1024];
+};
+
+static inline void vty_push_context(struct vty *vty, int node, uint64_t id)
+{
+	vty->node = node;
+	vty->qobj_index = id;
+}
+
+/* note: VTY_PUSH_CONTEXT(..., NULL) doesn't work, since it will try to
+ * dereference "NULL->qobj_node.nid" */
+#define VTY_PUSH_CONTEXT(nodeval, ptr)                                         \
+	vty_push_context(vty, nodeval, QOBJ_ID_0SAFE(ptr))
+#define VTY_PUSH_CONTEXT_NULL(nodeval) vty_push_context(vty, nodeval, 0ULL)
+#define VTY_PUSH_CONTEXT_SUB(nodeval, ptr)                                     \
+	do {                                                                   \
+		vty->node = nodeval;                                           \
+		/* qobj_index stays untouched */                               \
+		vty->qobj_index_sub = QOBJ_ID_0SAFE(ptr);                      \
+	} while (0)
+
+/* can return NULL if context is invalid! */
+#define VTY_GET_CONTEXT(structname)                                            \
+	QOBJ_GET_TYPESAFE(vty->qobj_index, structname)
+#define VTY_GET_CONTEXT_SUB(structname)                                        \
+	QOBJ_GET_TYPESAFE(vty->qobj_index_sub, structname)
+
+/* will return if ptr is NULL. */
+#define VTY_CHECK_CONTEXT(ptr)                                                 \
+	if (!ptr) {                                                            \
+		vty_out(vty,                                                   \
+			"Current configuration object was deleted "            \
+			"by another process.\n");                              \
+		return CMD_WARNING;                                            \
+	}
+
+/* struct structname *ptr = <context>;   ptr will never be NULL. */
+#define VTY_DECLVAR_CONTEXT(structname, ptr)                                   \
+	struct structname *ptr = VTY_GET_CONTEXT(structname);                  \
+	VTY_CHECK_CONTEXT(ptr);
+#define VTY_DECLVAR_CONTEXT_SUB(structname, ptr)                               \
+	struct structname *ptr = VTY_GET_CONTEXT_SUB(structname);              \
+	VTY_CHECK_CONTEXT(ptr);
+#define VTY_DECLVAR_INSTANCE_CONTEXT(structname, ptr)                          \
+	if (vty->qobj_index == 0)                                              \
+		return CMD_NOT_MY_INSTANCE;                                    \
+	struct structname *ptr = VTY_GET_CONTEXT(structname);                  \
+	VTY_CHECK_CONTEXT(ptr);
+
+/* XPath macros. */
+#define VTY_PUSH_XPATH(nodeval, value)                                         \
+	do {                                                                   \
+		if (vty->xpath_index >= VTY_MAXDEPTH) {                        \
+			vty_out(vty, "%% Reached maximum CLI depth (%u)\n",    \
+				VTY_MAXDEPTH);                                 \
+			return CMD_WARNING;                                    \
+		}                                                              \
+		vty->node = nodeval;                                           \
+		strlcpy(vty->xpath[vty->xpath_index], value,                   \
+			sizeof(vty->xpath[0]));                                \
+		vty->xpath_index++;                                            \
+	} while (0)
+
+#define VTY_CURR_XPATH vty->xpath[vty->xpath_index - 1]
+
+#define VTY_CHECK_XPATH                                                        \
+	do {                                                                   \
+		if (vty->type != VTY_FILE && !vty->private_config              \
+		    && vty->xpath_index > 0                                    \
+		    && !yang_dnode_exists(vty->candidate_config->dnode,        \
+					  VTY_CURR_XPATH)) {                   \
+			vty_out(vty,                                           \
+				"Current configuration object was deleted "    \
+				"by another process.\n\n");                    \
+			return CMD_WARNING;                                    \
+		}                                                              \
+	} while (0)
+
+struct vty_arg {
+	const char *name;
+	const char *value;
+	const char **argv;
+	int argc;
 };
 
 /* Integrated configuration file. */
-#define INTEGRATE_DEFAULT_CONFIG "Quagga.conf"
-
-/* Small macro to determine newline is newline only or linefeed needed. */
-#define VTY_NEWLINE  ((vty->type == VTY_TERM) ? "\r\n" : "\n")
+#define INTEGRATE_DEFAULT_CONFIG "frr.conf"
 
 /* Default time out value */
 #define VTY_TIMEOUT_DEFAULT 600
@@ -144,115 +307,50 @@ struct vty
 #define IS_DIRECTORY_SEP(c) ((c) == DIRECTORY_SEP)
 #endif
 
-/* GCC have printf type attribute check.  */
-#ifdef __GNUC__
-#define PRINTF_ATTRIBUTE(a,b) __attribute__ ((__format__ (__printf__, a, b)))
-#else
-#define PRINTF_ATTRIBUTE(a,b)
-#endif /* __GNUC__ */
-
-/* Utility macros to convert VTY argument to unsigned long */
-#define VTY_GET_ULONG(NAME,V,STR) \
-do { \
-  char *endptr = NULL; \
-  errno = 0; \
-  (V) = strtoul ((STR), &endptr, 10); \
-  if (*(STR) == '-' || *endptr != '\0' || errno) \
-    { \
-      vty_out (vty, "%% Invalid %s value%s", NAME, VTY_NEWLINE); \
-      return CMD_WARNING; \
-    } \
-} while (0)
-
-/*
- * The logic below ((TMPL) <= ((MIN) && (TMPL) != (MIN)) is
- * done to circumvent the compiler complaining about
- * comparing unsigned numbers against zero, if MIN is zero.
- * NB: The compiler isn't smart enough to suprress the warning
- * if you write (MIN) != 0 && tmpl < (MIN).
- */
-#define VTY_GET_INTEGER_RANGE_HEART(NAME,TMPL,STR,MIN,MAX)      \
-do {                                                            \
-  VTY_GET_ULONG(NAME, (TMPL), STR);                             \
-  if ( ((TMPL) <= (MIN) && (TMPL) != (MIN)) || (TMPL) > (MAX) ) \
-    {                                                           \
-      vty_out (vty, "%% Invalid %s value%s", NAME, VTY_NEWLINE);\
-      return CMD_WARNING;                                       \
-    }                                                           \
-} while (0)
-
-#define VTY_GET_INTEGER_RANGE(NAME,V,STR,MIN,MAX)               \
-do {                                                            \
-  unsigned long tmpl;                                           \
-  VTY_GET_INTEGER_RANGE_HEART(NAME,tmpl,STR,MIN,MAX);           \
-  (V) = tmpl;                                                   \
-} while (0)
-
-#define VTY_CHECK_INTEGER_RANGE(NAME,STR,MIN,MAX)               \
-do {                                                            \
-  unsigned long tmpl;                                           \
-  VTY_GET_INTEGER_RANGE_HEART(NAME,tmpl,STR,MIN,MAX);           \
-} while (0)
-
-#define VTY_GET_INTEGER(NAME,V,STR)                             \
-    VTY_GET_INTEGER_RANGE(NAME,V,STR,0U,UINT32_MAX)
-
-#define VTY_GET_IPV4_ADDRESS(NAME,V,STR)                                      \
-do {                                                                             \
-  int retv;                                                                   \
-  retv = inet_aton ((STR), &(V));                                             \
-  if (!retv)                                                                  \
-    {                                                                         \
-      vty_out (vty, "%% Invalid %s value%s", NAME, VTY_NEWLINE);              \
-      return CMD_WARNING;                                                     \
-    }                                                                         \
-} while (0)
-
-#define VTY_GET_IPV4_PREFIX(NAME,V,STR)                                       \
-do {                                                                             \
-  int retv;                                                                   \
-  retv = str2prefix_ipv4 ((STR), &(V));                                       \
-  if (retv <= 0)                                                              \
-    {                                                                         \
-      vty_out (vty, "%% Invalid %s value%s", NAME, VTY_NEWLINE);              \
-      return CMD_WARNING;                                                     \
-    }                                                                         \
-} while (0)
-
-#define VTY_WARN_EXPERIMENTAL()                                               \
-do {                                                                          \
-  vty_out (vty, "%% WARNING: this command is experimental. Both its name and" \
-                " parameters may%s%% change in a future version of Quagga,"   \
-                " possibly breaking your configuration!%s",                   \
-                VTY_NEWLINE, VTY_NEWLINE);                                    \
-} while (0)
-
-/* Exported variables */
-extern char integrate_default[];
-
 /* Prototypes. */
-extern void vty_init (struct thread_master *);
-extern void vty_init_vtysh (void);
-extern void vty_terminate (void);
-extern void vty_reset (void);
-extern struct vty *vty_new (void);
-extern struct vty *vty_stdio (void (*atclose)(void));
-extern int vty_out (struct vty *, const char *, ...) PRINTF_ATTRIBUTE(2, 3);
-extern void vty_read_config (char *, char *);
-extern void vty_time_print (struct vty *, int);
-extern void vty_serv_sock (const char *, unsigned short, const char *);
-extern void vty_close (struct vty *);
-extern char *vty_get_cwd (void);
-extern void vty_log (const char *level, const char *proto, 
-                     const char *fmt, struct timestamp_control *, va_list);
-extern int vty_config_lock (struct vty *);
-extern int vty_config_unlock (struct vty *);
-extern int vty_shell (struct vty *);
-extern int vty_shell_serv (struct vty *);
-extern void vty_hello (struct vty *);
+extern void vty_init(struct thread_master *, bool do_command_logging);
+extern void vty_init_vtysh(void);
+extern void vty_terminate(void);
+extern void vty_reset(void);
+extern struct vty *vty_new(void);
+extern struct vty *vty_stdio(void (*atclose)(int isexit));
 
-/* Send a fixed-size message to all vty terminal monitors; this should be
-   an async-signal-safe function. */
-extern void vty_log_fixed (char *buf, size_t len);
+/* - vty_frame() output goes to a buffer (for context-begin markers)
+ * - vty_out() will first print this buffer, and clear it
+ * - vty_endframe() clears the buffer without printing it, and prints an
+ *   extra string if the buffer was empty before (for context-end markers)
+ */
+extern int vty_out(struct vty *, const char *, ...) PRINTFRR(2, 3);
+extern void vty_frame(struct vty *, const char *, ...) PRINTFRR(2, 3);
+extern void vty_endframe(struct vty *, const char *);
+extern bool vty_set_include(struct vty *vty, const char *regexp);
+/* returns CMD_SUCCESS so you can do a one-line "return vty_json(...)"
+ * NULL check and json_object_free() is included.
+ */
+extern int vty_json(struct vty *vty, struct json_object *json);
+
+extern bool vty_read_config(struct nb_config *config, const char *config_file,
+			    char *config_default_dir);
+extern void vty_time_print(struct vty *, int);
+extern void vty_serv_sock(const char *, unsigned short, const char *);
+extern void vty_close(struct vty *);
+extern char *vty_get_cwd(void);
+extern void vty_update_xpath(const char *oldpath, const char *newpath);
+extern int vty_config_enter(struct vty *vty, bool private_config,
+			    bool exclusive);
+extern void vty_config_exit(struct vty *);
+extern int vty_config_node_exit(struct vty *);
+extern int vty_shell(struct vty *);
+extern int vty_shell_serv(struct vty *);
+extern void vty_hello(struct vty *);
+
+/* ^Z / SIGTSTP handling */
+extern void vty_stdio_suspend(void);
+extern void vty_stdio_resume(void);
+extern void vty_stdio_close(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _ZEBRA_VTY_H */

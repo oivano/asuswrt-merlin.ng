@@ -16,10 +16,9 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with GNU Zebra; see the file COPYING.  If not, write to the Free
- * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * You should have received a copy of the GNU General Public License along
+ * with this program; see the file COPYING; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
 #include <zebra.h>
@@ -27,10 +26,14 @@
 #include "memory.h"
 #include "prefix.h"
 #include "table.h"
+#include "vty.h"
 #include "routemap.h"
 #include "command.h"
 #include "log.h"
 #include "plist.h"
+#include "vrf.h"
+#include "frrstr.h"
+#include "northbound_cli.h"
 
 #include "ospfd/ospfd.h"
 #include "ospfd/ospf_asbr.h"
@@ -38,935 +41,583 @@
 #include "ospfd/ospf_lsa.h"
 #include "ospfd/ospf_route.h"
 #include "ospfd/ospf_zebra.h"
+#include "ospfd/ospf_errors.h"
 
 /* Hook function for updating route_map assignment. */
-static void
-ospf_route_map_update (const char *name)
+static void ospf_route_map_update(const char *name)
 {
-  struct ospf *ospf;
-  int type;
+	struct ospf *ospf;
+	int type;
+	struct listnode *n1 = NULL;
 
-  /* If OSPF instatnce does not exist, return right now. */
-  ospf = ospf_lookup ();
-  if (ospf == NULL)
-    return;
+	/* If OSPF instatnce does not exist, return right now. */
+	if (listcount(om->ospf) == 0)
+		return;
 
-  /* Update route-map */
-  for (type = 0; type <= ZEBRA_ROUTE_MAX; type++)
-    {
-      if (ROUTEMAP_NAME (ospf, type)
-	  && strcmp (ROUTEMAP_NAME (ospf, type), name) == 0)
-	{
-	  /* Keep old route-map. */
-	  struct route_map *old = ROUTEMAP (ospf, type);
+	for (ALL_LIST_ELEMENTS_RO(om->ospf, n1, ospf)) {
+		/* Update route-map */
+		for (type = 0; type <= ZEBRA_ROUTE_MAX; type++) {
+			struct list *red_list;
+			struct listnode *node;
+			struct ospf_redist *red;
 
-	  /* Update route-map. */
-	  ROUTEMAP (ospf, type) =
-	    route_map_lookup_by_name (ROUTEMAP_NAME (ospf, type));
+			red_list = ospf->redist[type];
+			if (!red_list)
+				continue;
 
-	  /* No update for this distribute type. */
-	  if (old == NULL && ROUTEMAP (ospf, type) == NULL)
-	    continue;
+			for (ALL_LIST_ELEMENTS_RO(red_list, node, red)) {
+				if (ROUTEMAP_NAME(red)
+				    && strcmp(ROUTEMAP_NAME(red), name) == 0) {
+					/* Keep old route-map. */
+					struct route_map *old = ROUTEMAP(red);
 
-	  ospf_distribute_list_update (ospf, type);
+					ROUTEMAP(red) =
+						route_map_lookup_by_name(
+							ROUTEMAP_NAME(red));
+
+					if (!old)
+						route_map_counter_increment(
+							ROUTEMAP(red));
+
+					/* No update for this distribute type.
+					 */
+					if (old == NULL
+					    && ROUTEMAP(red) == NULL)
+						continue;
+
+					ospf_distribute_list_update(
+						ospf, type, red->instance);
+				}
+			}
+		}
 	}
-    }
 }
 
-static void
-ospf_route_map_event (route_map_event_t event, const char *name)
+static void ospf_route_map_event(const char *name)
 {
-  struct ospf *ospf;
-  int type;
+	struct ospf *ospf;
+	int type;
+	struct listnode *n1 = NULL;
 
-  /* If OSPF instatnce does not exist, return right now. */
-  ospf = ospf_lookup ();
-  if (ospf == NULL)
-    return;
+	for (ALL_LIST_ELEMENTS_RO(om->ospf, n1, ospf)) {
+		for (type = 0; type <= ZEBRA_ROUTE_MAX; type++) {
+			struct list *red_list;
+			struct listnode *node;
+			struct ospf_redist *red;
 
-  /* Update route-map. */
-  for (type = 0; type <= ZEBRA_ROUTE_MAX; type++)
-    {
-      if (ROUTEMAP_NAME (ospf, type) &&  ROUTEMAP (ospf, type)
-	  && !strcmp (ROUTEMAP_NAME (ospf, type), name))
-        {
-          ospf_distribute_list_update (ospf, type);
-        }
-    }
-}
+			red_list = ospf->redist[type];
+			if (!red_list)
+				continue;
 
-/* Delete rip route map rule. */
-static int
-ospf_route_match_delete (struct vty *vty, struct route_map_index *index,
-			 const char *command, const char *arg)
-{
-  int ret;
-
-  ret = route_map_delete_match (index, command, arg);
-  if (ret)
-    {
-      switch (ret)
-        {
-        case RMAP_RULE_MISSING:
-          vty_out (vty, "%% OSPF Can't find rule.%s", VTY_NEWLINE);
-          return CMD_WARNING;
-        case RMAP_COMPILE_ERROR:
-          vty_out (vty, "%% OSPF Argument is malformed.%s", VTY_NEWLINE);
-          return CMD_WARNING;
-        }
-    }
-
-  return CMD_SUCCESS;
-}
-
-static int
-ospf_route_match_add (struct vty *vty, struct route_map_index *index,
-		      const char *command, const char *arg)
-{                                                                              
-  int ret;
-
-  ret = route_map_add_match (index, command, arg);
-  if (ret)
-    {
-      switch (ret)
-        {
-        case RMAP_RULE_MISSING:
-          vty_out (vty, "%% OSPF Can't find rule.%s", VTY_NEWLINE);
-          return CMD_WARNING;
-        case RMAP_COMPILE_ERROR:
-          vty_out (vty, "%% OSPF Argument is malformed.%s", VTY_NEWLINE);
-          return CMD_WARNING;
-        }
-    }
-
-  return CMD_SUCCESS;
-}
-
-static int
-ospf_route_set_add (struct vty *vty, struct route_map_index *index,
-		    const char *command, const char *arg)
-{
-  int ret;
-
-  ret = route_map_add_set (index, command, arg);
-  if (ret)
-    {
-      switch (ret)
-        {
-        case RMAP_RULE_MISSING:
-          vty_out (vty, "%% OSPF Can't find rule.%s", VTY_NEWLINE);
-          return CMD_WARNING;
-        case RMAP_COMPILE_ERROR:
-          vty_out (vty, "%% OSPF Argument is malformed.%s", VTY_NEWLINE);
-          return CMD_WARNING;
-        }
-    }
-
-  return CMD_SUCCESS;
-}
-
-/* Delete rip route map rule. */
-static int
-ospf_route_set_delete (struct vty *vty, struct route_map_index *index,
-		       const char *command, const char *arg)
-{                                              
-  int ret;
-
-  ret = route_map_delete_set (index, command, arg);
-  if (ret)
-    {
-      switch (ret)
-        {
-        case RMAP_RULE_MISSING:
-          vty_out (vty, "%% OSPF Can't find rule.%s", VTY_NEWLINE);
-          return CMD_WARNING;
-        case RMAP_COMPILE_ERROR:
-          vty_out (vty, "%% OSPF Argument is malformed.%s", VTY_NEWLINE);
-          return CMD_WARNING;
-        }
-    }
-
-  return CMD_SUCCESS;
+			for (ALL_LIST_ELEMENTS_RO(red_list, node, red)) {
+				if (ROUTEMAP_NAME(red) && ROUTEMAP(red)
+				    && !strcmp(ROUTEMAP_NAME(red), name)) {
+					ospf_distribute_list_update(
+						ospf, type, red->instance);
+				}
+			}
+		}
+	}
 }
 
 /* `match ip netxthop ' */
 /* Match function return 1 if match is success else return zero. */
-static route_map_result_t
-route_match_ip_nexthop (void *rule, struct prefix *prefix,
-			route_map_object_t type, void *object)
+static enum route_map_cmd_result_t
+route_match_ip_nexthop(void *rule, const struct prefix *prefix, void *object)
 {
-  struct access_list *alist;
-  struct external_info *ei = object;
-  struct prefix_ipv4 p;
+	struct access_list *alist;
+	struct external_info *ei = object;
+	struct prefix_ipv4 p;
 
-  if (type == RMAP_OSPF)
-    {
-      p.family = AF_INET;
-      p.prefix = ei->nexthop;
-      p.prefixlen = IPV4_MAX_BITLEN;
+	p.family = AF_INET;
+	p.prefix = ei->nexthop;
+	p.prefixlen = IPV4_MAX_BITLEN;
 
-      alist = access_list_lookup (AFI_IP, (char *) rule);
-      if (alist == NULL)
-        return RMAP_NOMATCH;
+	alist = access_list_lookup(AFI_IP, (char *)rule);
+	if (alist == NULL)
+		return RMAP_NOMATCH;
 
-      return (access_list_apply (alist, &p) == FILTER_DENY ?
-              RMAP_NOMATCH : RMAP_MATCH);
-    }
-  return RMAP_NOMATCH;
+	return (access_list_apply(alist, &p) == FILTER_DENY ? RMAP_NOMATCH
+							    : RMAP_MATCH);
 }
 
 /* Route map `ip next-hop' match statement. `arg' should be
    access-list name. */
-static void *
-route_match_ip_nexthop_compile (const char *arg)
+static void *route_match_ip_nexthop_compile(const char *arg)
 {
-  return XSTRDUP (MTYPE_ROUTE_MAP_COMPILED, arg);
+	return XSTRDUP(MTYPE_ROUTE_MAP_COMPILED, arg);
 }
 
 /* Free route map's compiled `ip address' value. */
-static void
-route_match_ip_nexthop_free (void *rule)
+static void route_match_ip_nexthop_free(void *rule)
 {
-  XFREE (MTYPE_ROUTE_MAP_COMPILED, rule);
+	XFREE(MTYPE_ROUTE_MAP_COMPILED, rule);
 }
 
 /* Route map commands for metric matching. */
-struct route_map_rule_cmd route_match_ip_nexthop_cmd =
-{
-  "ip next-hop",
-  route_match_ip_nexthop,
-  route_match_ip_nexthop_compile,
-  route_match_ip_nexthop_free
+static const struct route_map_rule_cmd route_match_ip_nexthop_cmd = {
+	"ip next-hop",
+	route_match_ip_nexthop,
+	route_match_ip_nexthop_compile,
+	route_match_ip_nexthop_free
 };
 
 /* `match ip next-hop prefix-list PREFIX_LIST' */
 
-static route_map_result_t
-route_match_ip_next_hop_prefix_list (void *rule, struct prefix *prefix,
-                                    route_map_object_t type, void *object)
+static enum route_map_cmd_result_t
+route_match_ip_next_hop_prefix_list(void *rule, const struct prefix *prefix,
+				    void *object)
 {
-  struct prefix_list *plist;
-  struct external_info *ei = object;
-  struct prefix_ipv4 p;
+	struct prefix_list *plist;
+	struct external_info *ei = object;
+	struct prefix_ipv4 p;
 
-  if (type == RMAP_OSPF)
-    {
-      p.family = AF_INET;
-      p.prefix = ei->nexthop;
-      p.prefixlen = IPV4_MAX_BITLEN;
+	p.family = AF_INET;
+	p.prefix = ei->nexthop;
+	p.prefixlen = IPV4_MAX_BITLEN;
 
-      plist = prefix_list_lookup (AFI_IP, (char *) rule);
-      if (plist == NULL)
-        return RMAP_NOMATCH;
+	plist = prefix_list_lookup(AFI_IP, (char *)rule);
+	if (plist == NULL)
+		return RMAP_NOMATCH;
 
-      return (prefix_list_apply (plist, &p) == PREFIX_DENY ?
-              RMAP_NOMATCH : RMAP_MATCH);
-    }
-  return RMAP_NOMATCH;
+	return (prefix_list_apply(plist, &p) == PREFIX_DENY ? RMAP_NOMATCH
+							    : RMAP_MATCH);
 }
 
-static void *
-route_match_ip_next_hop_prefix_list_compile (const char *arg)
+static void *route_match_ip_next_hop_prefix_list_compile(const char *arg)
 {
-  return XSTRDUP (MTYPE_ROUTE_MAP_COMPILED, arg);
+	return XSTRDUP(MTYPE_ROUTE_MAP_COMPILED, arg);
 }
 
-static void
-route_match_ip_next_hop_prefix_list_free (void *rule)
+static void route_match_ip_next_hop_prefix_list_free(void *rule)
 {
-  XFREE (MTYPE_ROUTE_MAP_COMPILED, rule);
+	XFREE(MTYPE_ROUTE_MAP_COMPILED, rule);
 }
 
-struct route_map_rule_cmd route_match_ip_next_hop_prefix_list_cmd =
+static const struct route_map_rule_cmd
+		route_match_ip_next_hop_prefix_list_cmd = {
+	"ip next-hop prefix-list",
+	route_match_ip_next_hop_prefix_list,
+	route_match_ip_next_hop_prefix_list_compile,
+	route_match_ip_next_hop_prefix_list_free
+};
+
+/* `match ip next-hop type <blackhole>' */
+
+static enum route_map_cmd_result_t
+route_match_ip_next_hop_type(void *rule, const struct prefix *prefix,
+			     void *object)
 {
-  "ip next-hop prefix-list",
-  route_match_ip_next_hop_prefix_list,
-  route_match_ip_next_hop_prefix_list_compile,
-  route_match_ip_next_hop_prefix_list_free
+	struct external_info *ei = object;
+
+	if (prefix->family == AF_INET) {
+		ei = (struct external_info *)object;
+		if (!ei)
+			return RMAP_NOMATCH;
+
+		if (ei->nexthop.s_addr == INADDR_ANY && !ei->ifindex)
+			return RMAP_MATCH;
+	}
+	return RMAP_NOMATCH;
+}
+
+static void *route_match_ip_next_hop_type_compile(const char *arg)
+{
+	return XSTRDUP(MTYPE_ROUTE_MAP_COMPILED, arg);
+}
+
+static void route_match_ip_next_hop_type_free(void *rule)
+{
+	XFREE(MTYPE_ROUTE_MAP_COMPILED, rule);
+}
+
+static const struct route_map_rule_cmd
+		route_match_ip_next_hop_type_cmd = {
+	"ip next-hop type",
+	route_match_ip_next_hop_type,
+	route_match_ip_next_hop_type_compile,
+	route_match_ip_next_hop_type_free
 };
 
 /* `match ip address IP_ACCESS_LIST' */
 /* Match function should return 1 if match is success else return
    zero. */
-static route_map_result_t
-route_match_ip_address (void *rule, struct prefix *prefix,
-                        route_map_object_t type, void *object)
+static enum route_map_cmd_result_t
+route_match_ip_address(void *rule, const struct prefix *prefix, void *object)
 {
-  struct access_list *alist;
-  /* struct prefix_ipv4 match; */
+	struct access_list *alist;
+	/* struct prefix_ipv4 match; */
 
-  if (type == RMAP_OSPF)
-    {
-      alist = access_list_lookup (AFI_IP, (char *) rule);
-      if (alist == NULL)
-        return RMAP_NOMATCH;
+	alist = access_list_lookup(AFI_IP, (char *)rule);
+	if (alist == NULL)
+		return RMAP_NOMATCH;
 
-      return (access_list_apply (alist, prefix) == FILTER_DENY ?
-              RMAP_NOMATCH : RMAP_MATCH);
-    }
-  return RMAP_NOMATCH;
+	return (access_list_apply(alist, prefix) == FILTER_DENY ? RMAP_NOMATCH
+								: RMAP_MATCH);
 }
 
 /* Route map `ip address' match statement.  `arg' should be
    access-list name. */
-static void *
-route_match_ip_address_compile (const char *arg)
+static void *route_match_ip_address_compile(const char *arg)
 {
-  return XSTRDUP (MTYPE_ROUTE_MAP_COMPILED, arg);
+	return XSTRDUP(MTYPE_ROUTE_MAP_COMPILED, arg);
 }
 
 /* Free route map's compiled `ip address' value. */
-static void
-route_match_ip_address_free (void *rule)
+static void route_match_ip_address_free(void *rule)
 {
-  XFREE (MTYPE_ROUTE_MAP_COMPILED, rule);
+	XFREE(MTYPE_ROUTE_MAP_COMPILED, rule);
 }
 
 /* Route map commands for ip address matching. */
-struct route_map_rule_cmd route_match_ip_address_cmd =
-{
-  "ip address",
-  route_match_ip_address,
-  route_match_ip_address_compile,
-  route_match_ip_address_free
+static const struct route_map_rule_cmd route_match_ip_address_cmd = {
+	"ip address",
+	route_match_ip_address,
+	route_match_ip_address_compile,
+	route_match_ip_address_free
 };
 
 /* `match ip address prefix-list PREFIX_LIST' */
-static route_map_result_t
-route_match_ip_address_prefix_list (void *rule, struct prefix *prefix,
-                                    route_map_object_t type, void *object)
+static enum route_map_cmd_result_t
+route_match_ip_address_prefix_list(void *rule, const struct prefix *prefix,
+				   void *object)
 {
-  struct prefix_list *plist;
+	struct prefix_list *plist;
 
-  if (type == RMAP_OSPF)
-    {
-      plist = prefix_list_lookup (AFI_IP, (char *) rule);
-      if (plist == NULL)
-        return RMAP_NOMATCH;
+	plist = prefix_list_lookup(AFI_IP, (char *)rule);
+	if (plist == NULL)
+		return RMAP_NOMATCH;
 
-      return (prefix_list_apply (plist, prefix) == PREFIX_DENY ?
-              RMAP_NOMATCH : RMAP_MATCH);
-    }
-  return RMAP_NOMATCH;
+	return (prefix_list_apply(plist, prefix) == PREFIX_DENY ? RMAP_NOMATCH
+								: RMAP_MATCH);
 }
 
-static void *
-route_match_ip_address_prefix_list_compile (const char *arg)
+static void *route_match_ip_address_prefix_list_compile(const char *arg)
 {
-  return XSTRDUP (MTYPE_ROUTE_MAP_COMPILED, arg);
+	return XSTRDUP(MTYPE_ROUTE_MAP_COMPILED, arg);
 }
 
-static void
-route_match_ip_address_prefix_list_free (void *rule)
+static void route_match_ip_address_prefix_list_free(void *rule)
 {
-  XFREE (MTYPE_ROUTE_MAP_COMPILED, rule);
+	XFREE(MTYPE_ROUTE_MAP_COMPILED, rule);
 }
 
-struct route_map_rule_cmd route_match_ip_address_prefix_list_cmd =
-{
-  "ip address prefix-list",
-  route_match_ip_address_prefix_list,
-  route_match_ip_address_prefix_list_compile,
-  route_match_ip_address_prefix_list_free
+static const struct route_map_rule_cmd
+		route_match_ip_address_prefix_list_cmd = {
+	"ip address prefix-list",
+	route_match_ip_address_prefix_list,
+	route_match_ip_address_prefix_list_compile,
+	route_match_ip_address_prefix_list_free
 };
 
 /* `match interface IFNAME' */
 /* Match function should return 1 if match is success else return
    zero. */
-static route_map_result_t
-route_match_interface (void *rule, struct prefix *prefix,
-		       route_map_object_t type, void *object)
+static enum route_map_cmd_result_t
+route_match_interface(void *rule, const struct prefix *prefix, void *object)
 {
-  struct interface *ifp;
-  struct external_info *ei;
+	struct interface *ifp;
+	struct external_info *ei;
 
-  if (type == RMAP_OSPF)
-    {
-      ei = object;
-      ifp = if_lookup_by_name ((char *)rule);
+	ei = object;
+	ifp = if_lookup_by_name((char *)rule, ei->ospf->vrf_id);
 
-      if (ifp == NULL || ifp->ifindex != ei->ifindex)
-	return RMAP_NOMATCH;
+	if (ifp == NULL || ifp->ifindex != ei->ifindex)
+		return RMAP_NOMATCH;
 
-      return RMAP_MATCH;
-    }
-  return RMAP_NOMATCH;
+	return RMAP_MATCH;
 }
 
 /* Route map `interface' match statement.  `arg' should be
    interface name. */
-static void *
-route_match_interface_compile (const char *arg)
+static void *route_match_interface_compile(const char *arg)
 {
-  return XSTRDUP (MTYPE_ROUTE_MAP_COMPILED, arg);
+	return XSTRDUP(MTYPE_ROUTE_MAP_COMPILED, arg);
 }
 
 /* Free route map's compiled `interface' value. */
-static void
-route_match_interface_free (void *rule)
+static void route_match_interface_free(void *rule)
 {
-  XFREE (MTYPE_ROUTE_MAP_COMPILED, rule);
+	XFREE(MTYPE_ROUTE_MAP_COMPILED, rule);
 }
 
 /* Route map commands for ip address matching. */
-struct route_map_rule_cmd route_match_interface_cmd =
-{
-  "interface",
-  route_match_interface,
-  route_match_interface_compile,
-  route_match_interface_free
+static const struct route_map_rule_cmd route_match_interface_cmd = {
+	"interface",
+	route_match_interface,
+	route_match_interface_compile,
+	route_match_interface_free
 };
 
 /* Match function return 1 if match is success else return zero. */
-static route_map_result_t
-route_match_tag (void *rule, struct prefix *prefix,
-                 route_map_object_t type, void *object)
+static enum route_map_cmd_result_t
+route_match_tag(void *rule, const struct prefix *prefix, void *object)
 {
-  route_tag_t *tag;
-  struct external_info *ei;
+	route_tag_t *tag;
+	struct external_info *ei;
 
-  if (type == RMAP_OSPF)
-    {
-      tag = rule;
-      ei = object;
+	tag = rule;
+	ei = object;
 
-      return ((ei->tag == *tag)? RMAP_MATCH : RMAP_NOMATCH);
-    }
-
-  return RMAP_NOMATCH;
+	return ((ei->tag == *tag) ? RMAP_MATCH : RMAP_NOMATCH);
 }
 
 /* Route map commands for tag matching. */
-static struct route_map_rule_cmd route_match_tag_cmd =
-{
-  "tag",
-  route_match_tag,
-  route_map_rule_tag_compile,
-  route_map_rule_tag_free,
+static const struct route_map_rule_cmd route_match_tag_cmd = {
+	"tag",
+	route_match_tag,
+	route_map_rule_tag_compile,
+	route_map_rule_tag_free,
 };
 
+struct ospf_metric {
+	enum { metric_increment, metric_decrement, metric_absolute } type;
+	bool used;
+	uint32_t metric;
+};
 
 /* `set metric METRIC' */
 /* Set metric to attribute. */
-static route_map_result_t
-route_set_metric (void *rule, struct prefix *prefix,
-                  route_map_object_t type, void *object)
+static enum route_map_cmd_result_t
+route_set_metric(void *rule, const struct prefix *prefix, void *object)
 {
-  u_int32_t *metric;
-  struct external_info *ei;
+	struct ospf_metric *metric;
+	struct external_info *ei;
 
-  if (type == RMAP_OSPF)
-    {
-      /* Fetch routemap's rule information. */
-      metric = rule;
-      ei = object;
+	/* Fetch routemap's rule information. */
+	metric = rule;
+	ei = object;
 
-      /* Set metric out value. */
-      ei->route_map_set.metric = *metric;
-    }
-  return RMAP_OKAY;
+	/* Set metric out value. */
+	if (!metric->used)
+		return RMAP_OKAY;
+
+	ei->route_map_set.metric = DEFAULT_DEFAULT_METRIC;
+
+	if (metric->type == metric_increment)
+		ei->route_map_set.metric += metric->metric;
+	else if (metric->type == metric_decrement)
+		ei->route_map_set.metric -= metric->metric;
+	else if (metric->type == metric_absolute)
+		ei->route_map_set.metric = metric->metric;
+
+	if (ei->route_map_set.metric > OSPF_LS_INFINITY)
+		ei->route_map_set.metric = OSPF_LS_INFINITY;
+
+	return RMAP_OKAY;
 }
 
 /* set metric compilation. */
-static void *
-route_set_metric_compile (const char *arg)
+static void *route_set_metric_compile(const char *arg)
 {
-  u_int32_t *metric;
-  int32_t ret;
+	struct ospf_metric *metric;
 
-  /* OSPF doesn't support the +/- in
-     set metric <+/-metric> check
-     Ignore the +/- component */
-  if (! all_digit (arg))
-    {
-      if ((strncmp (arg, "+", 1) == 0 || strncmp (arg, "-", 1) == 0) &&
-	  all_digit (arg+1))
-	{
-	  zlog_warn ("OSPF does not support 'set metric +/-'");
-	  arg++;
+	metric = XCALLOC(MTYPE_ROUTE_MAP_COMPILED, sizeof(*metric));
+	metric->used = false;
+
+	if (all_digit(arg))
+		metric->type = metric_absolute;
+
+	if (strmatch(arg, "+rtt") || strmatch(arg, "-rtt")) {
+		flog_warn(EC_OSPF_SET_METRIC_PLUS,
+			  "OSPF does not support 'set metric +rtt / -rtt'");
+		return metric;
 	}
-      else
-	return NULL;
-    }
 
-  metric = XCALLOC (MTYPE_ROUTE_MAP_COMPILED, sizeof (u_int32_t));
-  ret = atoi (arg);
+	if ((arg[0] == '+') && all_digit(arg + 1)) {
+		metric->type = metric_increment;
+		arg++;
+	}
 
-  if (ret >= 0)
-    {
-      *metric = (u_int32_t)ret;
-      return metric;
-    }
+	if ((arg[0] == '-') && all_digit(arg + 1)) {
+		metric->type = metric_decrement;
+		arg++;
+	}
 
-  XFREE (MTYPE_ROUTE_MAP_COMPILED, metric);
-  return NULL;
+	metric->metric = strtoul(arg, NULL, 10);
+
+	if (metric->metric)
+		metric->used = true;
+
+	return metric;
 }
 
 /* Free route map's compiled `set metric' value. */
-static void
-route_set_metric_free (void *rule)
+static void route_set_metric_free(void *rule)
 {
-  XFREE (MTYPE_ROUTE_MAP_COMPILED, rule);
+	XFREE(MTYPE_ROUTE_MAP_COMPILED, rule);
 }
 
 /* Set metric rule structure. */
-struct route_map_rule_cmd route_set_metric_cmd =
-{
-  "metric",
-  route_set_metric,
-  route_set_metric_compile,
-  route_set_metric_free,
+static const struct route_map_rule_cmd route_set_metric_cmd = {
+	"metric",
+	route_set_metric,
+	route_set_metric_compile,
+	route_set_metric_free,
 };
 
 /* `set metric-type TYPE' */
 /* Set metric-type to attribute. */
-static route_map_result_t
-route_set_metric_type (void *rule, struct prefix *prefix,
-		       route_map_object_t type, void *object)
+static enum route_map_cmd_result_t
+route_set_metric_type(void *rule, const struct prefix *prefix, void *object)
 {
-  u_int32_t *metric_type;
-  struct external_info *ei;
+	uint32_t *metric_type;
+	struct external_info *ei;
 
-  if (type == RMAP_OSPF)
-    {
-      /* Fetch routemap's rule information. */
-      metric_type = rule;
-      ei = object;
+	/* Fetch routemap's rule information. */
+	metric_type = rule;
+	ei = object;
 
-      /* Set metric out value. */
-      ei->route_map_set.metric_type = *metric_type;
-    }
-  return RMAP_OKAY;
+	/* Set metric out value. */
+	ei->route_map_set.metric_type = *metric_type;
+
+	return RMAP_OKAY;
 }
 
 /* set metric-type compilation. */
-static void *
-route_set_metric_type_compile (const char *arg)
+static void *route_set_metric_type_compile(const char *arg)
 {
-  u_int32_t *metric_type;
+	uint32_t *metric_type;
 
-  metric_type = XCALLOC (MTYPE_ROUTE_MAP_COMPILED, sizeof (u_int32_t));
-  if (strcmp (arg, "type-1") == 0)
-    *metric_type = EXTERNAL_METRIC_TYPE_1;
-  else if (strcmp (arg, "type-2") == 0)
-    *metric_type = EXTERNAL_METRIC_TYPE_2;
+	metric_type = XCALLOC(MTYPE_ROUTE_MAP_COMPILED, sizeof(uint32_t));
+	if (strcmp(arg, "type-1") == 0)
+		*metric_type = EXTERNAL_METRIC_TYPE_1;
+	else if (strcmp(arg, "type-2") == 0)
+		*metric_type = EXTERNAL_METRIC_TYPE_2;
 
-  if (*metric_type == EXTERNAL_METRIC_TYPE_1 ||
-      *metric_type == EXTERNAL_METRIC_TYPE_2)
-    return metric_type;
+	if (*metric_type == EXTERNAL_METRIC_TYPE_1
+	    || *metric_type == EXTERNAL_METRIC_TYPE_2)
+		return metric_type;
 
-  XFREE (MTYPE_ROUTE_MAP_COMPILED, metric_type);
-  return NULL;
+	XFREE(MTYPE_ROUTE_MAP_COMPILED, metric_type);
+	return NULL;
 }
 
 /* Free route map's compiled `set metric-type' value. */
-static void
-route_set_metric_type_free (void *rule)
+static void route_set_metric_type_free(void *rule)
 {
-  XFREE (MTYPE_ROUTE_MAP_COMPILED, rule);
+	XFREE(MTYPE_ROUTE_MAP_COMPILED, rule);
 }
 
 /* Set metric rule structure. */
-struct route_map_rule_cmd route_set_metric_type_cmd =
-{
-  "metric-type",
-  route_set_metric_type,
-  route_set_metric_type_compile,
-  route_set_metric_type_free,
+static const struct route_map_rule_cmd route_set_metric_type_cmd = {
+	"metric-type",
+	route_set_metric_type,
+	route_set_metric_type_compile,
+	route_set_metric_type_free,
 };
 
-static route_map_result_t
-route_set_tag (void *rule, struct prefix *prefix,
-               route_map_object_t type, void *object)
+static enum route_map_cmd_result_t
+route_set_tag(void *rule, const struct prefix *prefix, void *object)
 {
-  route_tag_t *tag;
-  struct external_info *ei;
+	route_tag_t *tag;
+	struct external_info *ei;
 
-  if (type == RMAP_OSPF)
-    {
-      tag = rule;
-      ei = object;
+	tag = rule;
+	ei = object;
 
-      /* Set tag value */
-      ei->tag=*tag;
-    }
+	/* Set tag value */
+	ei->tag = *tag;
 
-  return RMAP_OKAY;
+	return RMAP_OKAY;
 }
 
 /* Route map commands for tag set. */
-static struct route_map_rule_cmd route_set_tag_cmd =
-{
-  "tag",
-  route_set_tag,
-  route_map_rule_tag_compile,
-  route_map_rule_tag_free,
+static const struct route_map_rule_cmd route_set_tag_cmd = {
+	"tag",
+	route_set_tag,
+	route_map_rule_tag_compile,
+	route_map_rule_tag_free,
 };
 
-DEFUN (match_ip_nexthop,
-       match_ip_nexthop_cmd,
-       "match ip next-hop (<1-199>|<1300-2699>|WORD)",
-       MATCH_STR
-       IP_STR
-       "Match next-hop address of route\n"
-       "IP access-list number\n"
-       "IP access-list number (expanded range)\n"
-       "IP access-list name\n")
-{
-  return ospf_route_match_add (vty, vty->index, "ip next-hop", argv[0]);
-}
-
-DEFUN (no_match_ip_nexthop,
-       no_match_ip_nexthop_cmd,
-       "no match ip next-hop",
-       NO_STR
-       MATCH_STR
-       IP_STR
-       "Match next-hop address of route\n")
-{
-  if (argc == 0)
-    return ospf_route_match_delete (vty, vty->index, "ip next-hop", NULL);
-
-  return ospf_route_match_delete (vty, vty->index, "ip next-hop", argv[0]);
-}
-
-ALIAS (no_match_ip_nexthop,
-       no_match_ip_nexthop_val_cmd,
-       "no match ip next-hop (<1-199>|<1300-2699>|WORD)",
-       NO_STR
-       MATCH_STR
-       IP_STR
-       "Match next-hop address of route\n"
-       "IP access-list number\n"
-       "IP access-list number (expanded range)\n"
-       "IP access-list name\n")
-
-DEFUN (match_ip_next_hop_prefix_list,
-       match_ip_next_hop_prefix_list_cmd,
-       "match ip next-hop prefix-list WORD",
-       MATCH_STR
-       IP_STR
-       "Match next-hop address of route\n"
-       "Match entries of prefix-lists\n"
-       "IP prefix-list name\n")
-{
-  return ospf_route_match_add (vty, vty->index, "ip next-hop prefix-list",
-			       argv[0]);
-}
-
-DEFUN (no_match_ip_next_hop_prefix_list,
-       no_match_ip_next_hop_prefix_list_cmd,
-       "no match ip next-hop prefix-list",
-       NO_STR
-       MATCH_STR
-       IP_STR
-       "Match next-hop address of route\n"
-       "Match entries of prefix-lists\n")
-{
-  if (argc == 0)
-    return ospf_route_match_delete (vty, vty->index, "ip next-hop prefix-list",
-				    NULL);
-  return ospf_route_match_delete (vty, vty->index, "ip next-hop prefix-list",
-				  argv[0]);
-}
-
-ALIAS (no_match_ip_next_hop_prefix_list,
-       no_match_ip_next_hop_prefix_list_val_cmd,
-       "no match ip next-hop prefix-list WORD",
-       NO_STR
-       MATCH_STR
-       IP_STR
-       "Match next-hop address of route\n"
-       "Match entries of prefix-lists\n"
-       "IP prefix-list name\n")
-
-DEFUN (match_ip_address,
-       match_ip_address_cmd,
-       "match ip address (<1-199>|<1300-2699>|WORD)",
-       MATCH_STR
-       IP_STR
-       "Match address of route\n"
-       "IP access-list number\n"
-       "IP access-list number (expanded range)\n"
-       "IP access-list name\n")
-{
-  return ospf_route_match_add (vty, vty->index, "ip address", argv[0]);
-}
-
-DEFUN (no_match_ip_address,
-       no_match_ip_address_cmd,
-       "no match ip address",
-       NO_STR
-       MATCH_STR
-       IP_STR
-       "Match address of route\n")
-{
-  if (argc == 0)
-    return ospf_route_match_delete (vty, vty->index, "ip address", NULL);
-
-  return ospf_route_match_delete (vty, vty->index, "ip address", argv[0]);
-}
-
-ALIAS (no_match_ip_address,
-       no_match_ip_address_val_cmd,
-       "no match ip address (<1-199>|<1300-2699>|WORD)",
-       NO_STR
-       MATCH_STR
-       IP_STR
-       "Match address of route\n"
-       "IP access-list number\n"
-       "IP access-list number (expanded range)\n"
-       "IP access-list name\n")
-
-DEFUN (match_ip_address_prefix_list,
-       match_ip_address_prefix_list_cmd,
-       "match ip address prefix-list WORD",
-       MATCH_STR
-       IP_STR
-       "Match address of route\n"
-       "Match entries of prefix-lists\n"
-       "IP prefix-list name\n")
-{
-  return ospf_route_match_add (vty, vty->index, "ip address prefix-list",
-			       argv[0]);
-}
-
-DEFUN (no_match_ip_address_prefix_list,
-       no_match_ip_address_prefix_list_cmd,
-       "no match ip address prefix-list",
-       NO_STR
-       MATCH_STR
-       IP_STR
-       "Match address of route\n"
-       "Match entries of prefix-lists\n")
-{
-  if (argc == 0)
-    return ospf_route_match_delete (vty, vty->index, "ip address prefix-list",
-				    NULL);
-  return ospf_route_match_delete (vty, vty->index, "ip address prefix-list",
-				  argv[0]);
-}
-
-ALIAS (no_match_ip_address_prefix_list,
-       no_match_ip_address_prefix_list_val_cmd,
-       "no match ip address prefix-list WORD",
-       NO_STR
-       MATCH_STR
-       IP_STR
-       "Match address of route\n"
-       "Match entries of prefix-lists\n"
-       "IP prefix-list name\n")
-
-DEFUN (match_interface,
-       match_interface_cmd,
-       "match interface WORD",
-       MATCH_STR
-       "Match first hop interface of route\n"
-       "Interface name\n")
-{
-  return ospf_route_match_add (vty, vty->index, "interface", argv[0]);
-}
-
-DEFUN (no_match_interface,
-       no_match_interface_cmd,
-       "no match interface",
-       NO_STR
-       MATCH_STR
-       "Match first hop interface of route\n")
-{
-  if (argc == 0)
-    return ospf_route_match_delete (vty, vty->index, "interface", NULL);
-
-  return ospf_route_match_delete (vty, vty->index, "interface", argv[0]);
-}
-
-ALIAS (no_match_interface,
-       no_match_interface_val_cmd,
-       "no match interface WORD",
-       NO_STR
-       MATCH_STR
-       "Match first hop interface of route\n"
-       "Interface name\n")
-
-DEFUN (match_tag,
-       match_tag_cmd,
-       "match tag <1-4294967295>",
-       MATCH_STR
-       "Match tag of route\n"
-       "Tag value\n")
-{
-  return ospf_route_match_add (vty, vty->index, "tag", argv[0]);
-}
-
-DEFUN (no_match_tag,
-       no_match_tag_cmd,
-       "no match tag",
-       NO_STR
-       MATCH_STR
-       "Match tag of route\n")
-{
-  if (argc == 0)
-    return ospf_route_match_delete (vty, vty->index, "tag", NULL);
-
-  return ospf_route_match_delete (vty, vty->index, "tag", argv[0]);
-}
-
-ALIAS (no_match_tag,
-       no_match_tag_val_cmd,
-       "no match tag <1-4294967295>",
-       NO_STR
-       MATCH_STR
-       "Match tag of route\n"
-       "Tag value\n")
-
-DEFUN (set_metric,
-       set_metric_cmd,
-       "set metric <0-4294967295>",
-       SET_STR
-       "Metric value for destination routing protocol\n"
-       "Metric value\n")
-{
-  return ospf_route_set_add (vty, vty->index, "metric", argv[0]);
-}
-
-DEFUN (no_set_metric,
-       no_set_metric_cmd,
-       "no set metric",
-       NO_STR
-       SET_STR
-       "Metric value for destination routing protocol\n")
-{
-  if (argc == 0)
-    return ospf_route_set_delete (vty, vty->index, "metric", NULL);
-
-  return ospf_route_set_delete (vty, vty->index, "metric", argv[0]);
-}
-
-ALIAS (no_set_metric,
-       no_set_metric_val_cmd,
-       "no set metric <0-4294967295>",
-       NO_STR
-       SET_STR
-       "Metric value for destination routing protocol\n"
-       "Metric value\n")
-
-DEFUN (set_metric_type,
+DEFUN_YANG (set_metric_type,
        set_metric_type_cmd,
-       "set metric-type (type-1|type-2)",
+       "set metric-type <type-1|type-2>",
        SET_STR
        "Type of metric for destination routing protocol\n"
        "OSPF[6] external type 1 metric\n"
        "OSPF[6] external type 2 metric\n")
 {
-  if (strcmp (argv[0], "1") == 0)
-    return ospf_route_set_add (vty, vty->index, "metric-type", "type-1");
-  if (strcmp (argv[0], "2") == 0)
-    return ospf_route_set_add (vty, vty->index, "metric-type", "type-2");
+	char *ext = argv[2]->text;
 
-  return ospf_route_set_add (vty, vty->index, "metric-type", argv[0]);
+	const char *xpath =
+		"./set-action[action='frr-ospf-route-map:metric-type']";
+	char xpath_value[XPATH_MAXLEN];
+
+	nb_cli_enqueue_change(vty, xpath, NB_OP_CREATE, NULL);
+	snprintf(xpath_value, sizeof(xpath_value),
+		 "%s/rmap-set-action/frr-ospf-route-map:metric-type", xpath);
+	nb_cli_enqueue_change(vty, xpath_value, NB_OP_MODIFY, ext);
+	return nb_cli_apply_changes(vty, NULL);
 }
 
-DEFUN (no_set_metric_type,
+DEFUN_YANG (no_set_metric_type,
        no_set_metric_type_cmd,
-       "no set metric-type",
-       NO_STR
-       SET_STR
-       "Type of metric for destination routing protocol\n")
-{
-  if (argc == 0)
-    return ospf_route_set_delete (vty, vty->index, "metric-type", NULL);
-
-  return ospf_route_set_delete (vty, vty->index, "metric-type", argv[0]);
-}
-
-ALIAS (no_set_metric_type,
-       no_set_metric_type_val_cmd,
-       "no set metric-type (type-1|type-2)",
+       "no set metric-type [<type-1|type-2>]",
        NO_STR
        SET_STR
        "Type of metric for destination routing protocol\n"
        "OSPF[6] external type 1 metric\n"
        "OSPF[6] external type 2 metric\n")
-
-DEFUN (set_tag,
-       set_tag_cmd,
-       "set tag <1-4294967295>",
-       SET_STR
-       "Tag value for routing protocol\n"
-       "Tag value\n")
 {
-  return ospf_route_set_add (vty, vty->index, "tag", argv[0]);
+	const char *xpath =
+		"./set-action[action='frr-ospf-route-map:metric-type']";
+
+	nb_cli_enqueue_change(vty, xpath, NB_OP_DESTROY, NULL);
+	return nb_cli_apply_changes(vty, NULL);
 }
-
-DEFUN (no_set_tag,
-       no_set_tag_cmd,
-       "no set tag",
-       NO_STR
-       SET_STR
-       "Tag value for routing protocol\n")
-{
-  if (argc == 0)
-      ospf_route_set_delete(vty, vty->index, "tag", NULL);
-
-  return ospf_route_set_delete (vty, vty->index, "tag", argv[0]);
-}
-
-ALIAS (no_set_tag,
-       no_set_tag_val_cmd,
-       "no set tag <1-4294967295>",
-       NO_STR
-       SET_STR
-       "Tag value for routing protocol\n"
-       "Tag value\n")
 
 /* Route-map init */
-void
-ospf_route_map_init (void)
+void ospf_route_map_init(void)
 {
-  route_map_init ();
-  route_map_init_vty ();
+	route_map_init();
 
-  route_map_add_hook (ospf_route_map_update);
-  route_map_delete_hook (ospf_route_map_update);
-  route_map_event_hook (ospf_route_map_event);
-  
-  route_map_install_match (&route_match_ip_nexthop_cmd);
-  route_map_install_match (&route_match_ip_next_hop_prefix_list_cmd);
-  route_map_install_match (&route_match_ip_address_cmd);
-  route_map_install_match (&route_match_ip_address_prefix_list_cmd);
-  route_map_install_match (&route_match_interface_cmd);
-  route_map_install_match (&route_match_tag_cmd);
+	route_map_add_hook(ospf_route_map_update);
+	route_map_delete_hook(ospf_route_map_update);
+	route_map_event_hook(ospf_route_map_event);
 
-  route_map_install_set (&route_set_metric_cmd);
-  route_map_install_set (&route_set_metric_type_cmd);
-  route_map_install_set (&route_set_tag_cmd);
+	route_map_set_metric_hook(generic_set_add);
+	route_map_no_set_metric_hook(generic_set_delete);
 
-  install_element (RMAP_NODE, &match_ip_nexthop_cmd);
-  install_element (RMAP_NODE, &no_match_ip_nexthop_cmd);
-  install_element (RMAP_NODE, &no_match_ip_nexthop_val_cmd);
-  install_element (RMAP_NODE, &match_ip_next_hop_prefix_list_cmd);
-  install_element (RMAP_NODE, &no_match_ip_next_hop_prefix_list_cmd);
-  install_element (RMAP_NODE, &no_match_ip_next_hop_prefix_list_val_cmd);
-  install_element (RMAP_NODE, &match_ip_address_cmd);
-  install_element (RMAP_NODE, &no_match_ip_address_cmd);
-  install_element (RMAP_NODE, &no_match_ip_address_val_cmd);
-  install_element (RMAP_NODE, &match_ip_address_prefix_list_cmd);
-  install_element (RMAP_NODE, &no_match_ip_address_prefix_list_cmd);
-  install_element (RMAP_NODE, &no_match_ip_address_prefix_list_val_cmd);
-  install_element (RMAP_NODE, &match_interface_cmd);
-  install_element (RMAP_NODE, &no_match_interface_cmd);
-  install_element (RMAP_NODE, &no_match_interface_val_cmd);
-  install_element (RMAP_NODE, &match_tag_cmd);
-  install_element (RMAP_NODE, &no_match_tag_cmd);
-  install_element (RMAP_NODE, &no_match_tag_val_cmd);
+	route_map_match_ip_next_hop_hook(generic_match_add);
+	route_map_no_match_ip_next_hop_hook(generic_match_delete);
 
-  install_element (RMAP_NODE, &set_metric_cmd);
-  install_element (RMAP_NODE, &no_set_metric_cmd);
-  install_element (RMAP_NODE, &no_set_metric_val_cmd);
-  install_element (RMAP_NODE, &set_metric_type_cmd);
-  install_element (RMAP_NODE, &no_set_metric_type_cmd);
-  install_element (RMAP_NODE, &no_set_metric_type_val_cmd);
-  install_element (RMAP_NODE, &set_tag_cmd);
-  install_element (RMAP_NODE, &no_set_tag_cmd);
-  install_element (RMAP_NODE, &no_set_tag_val_cmd);
+	route_map_match_interface_hook(generic_match_add);
+	route_map_no_match_interface_hook(generic_match_delete);
+
+	route_map_match_ip_address_hook(generic_match_add);
+	route_map_no_match_ip_address_hook(generic_match_delete);
+
+	route_map_match_ip_address_prefix_list_hook(generic_match_add);
+	route_map_no_match_ip_address_prefix_list_hook(generic_match_delete);
+
+	route_map_match_ip_next_hop_prefix_list_hook(generic_match_add);
+	route_map_no_match_ip_next_hop_prefix_list_hook(generic_match_delete);
+
+	route_map_match_ip_next_hop_type_hook(generic_match_add);
+	route_map_no_match_ip_next_hop_type_hook(generic_match_delete);
+
+	route_map_match_tag_hook(generic_match_add);
+	route_map_no_match_tag_hook(generic_match_delete);
+
+	route_map_set_metric_hook(generic_set_add);
+	route_map_no_set_metric_hook(generic_set_delete);
+
+	route_map_set_tag_hook(generic_set_add);
+	route_map_no_set_tag_hook(generic_set_delete);
+
+	route_map_install_match(&route_match_ip_nexthop_cmd);
+	route_map_install_match(&route_match_ip_next_hop_prefix_list_cmd);
+	route_map_install_match(&route_match_ip_address_cmd);
+	route_map_install_match(&route_match_ip_address_prefix_list_cmd);
+	route_map_install_match(&route_match_ip_next_hop_type_cmd);
+	route_map_install_match(&route_match_interface_cmd);
+	route_map_install_match(&route_match_tag_cmd);
+
+	route_map_install_set(&route_set_metric_cmd);
+	route_map_install_set(&route_set_metric_type_cmd);
+	route_map_install_set(&route_set_tag_cmd);
+
+	install_element(RMAP_NODE, &set_metric_type_cmd);
+	install_element(RMAP_NODE, &no_set_metric_type_cmd);
 }

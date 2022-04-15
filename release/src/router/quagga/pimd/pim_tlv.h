@@ -1,24 +1,21 @@
 /*
-  PIM for Quagga
-  Copyright (C) 2008  Everton da Silva Marques
-
-  This program is free software; you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation; either version 2 of the License, or
-  (at your option) any later version.
-
-  This program is distributed in the hope that it will be useful, but
-  WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-  General Public License for more details.
-  
-  You should have received a copy of the GNU General Public License
-  along with this program; see the file COPYING; if not, write to the
-  Free Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston,
-  MA 02110-1301 USA
-  
-  $QuaggaId: $Format:%an, %ai, %h$ $
-*/
+ * PIM for Quagga
+ * Copyright (C) 2008  Everton da Silva Marques
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; see the file COPYING; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
+ */
 
 #ifndef PIM_TLV_H
 #define PIM_TLV_H
@@ -28,10 +25,6 @@
 #include "config.h"
 #include "if.h"
 #include "linklist.h"
-
-#ifdef HAVE_INTTYPES_H
-#include <inttypes.h>
-#endif /* HAVE_INTTYPES_H */
 
 #define PIM_MSG_OPTION_TYPE_HOLDTIME         (1)
 #define PIM_MSG_OPTION_TYPE_LAN_PRUNE_DELAY  (2)
@@ -55,8 +48,18 @@ typedef uint32_t pim_hello_options;
 #define PIM_OPTION_UNSET(options, option_mask) ((options) &= ~(option_mask))
 #define PIM_OPTION_IS_SET(options, option_mask) ((options) & (option_mask))
 
-#define PIM_TLV_GET_UINT16(buf) ntohs(*(const uint16_t *)(buf))
-#define PIM_TLV_GET_UINT32(buf) ntohl(*(const uint32_t *)(buf))
+#define PIM_TLV_GET_UINT16(buf)                                                \
+	({                                                                     \
+		uint16_t _tmp;                                                 \
+		memcpy(&_tmp, (buf), sizeof(uint16_t));                        \
+		ntohs(_tmp);                                                   \
+	})
+#define PIM_TLV_GET_UINT32(buf)                                                \
+	({                                                                     \
+		uint32_t _tmp;                                                 \
+		memcpy(&_tmp, (buf), sizeof(uint32_t));                        \
+		ntohl(_tmp);                                                   \
+	})
 #define PIM_TLV_GET_TYPE(buf) PIM_TLV_GET_UINT16(buf)
 #define PIM_TLV_GET_LENGTH(buf) PIM_TLV_GET_UINT16(buf)
 #define PIM_TLV_GET_HOLDTIME(buf) PIM_TLV_GET_UINT16(buf)
@@ -71,63 +74,45 @@ typedef uint32_t pim_hello_options;
 #define PIM_TLV_MIN_SIZE                (PIM_TLV_TYPE_SIZE + PIM_TLV_LENGTH_SIZE)
 #define PIM_TLV_OPTION_SIZE(option_len) (PIM_TLV_MIN_SIZE + (option_len))
 
-uint8_t *pim_tlv_append_uint16(uint8_t *buf,
-			       const uint8_t *buf_pastend,
-			       uint16_t option_type,
-			       uint16_t option_value);
-uint8_t *pim_tlv_append_2uint16(uint8_t *buf,
-				const uint8_t *buf_pastend,
-				uint16_t option_type,
-				uint16_t option_value1,
+uint8_t *pim_tlv_append_uint16(uint8_t *buf, const uint8_t *buf_pastend,
+			       uint16_t option_type, uint16_t option_value);
+uint8_t *pim_tlv_append_2uint16(uint8_t *buf, const uint8_t *buf_pastend,
+				uint16_t option_type, uint16_t option_value1,
 				uint16_t option_value2);
-uint8_t *pim_tlv_append_uint32(uint8_t *buf,
-			       const uint8_t *buf_pastend,
-			       uint16_t option_type,
-			       uint32_t option_value);
-uint8_t *pim_tlv_append_addrlist_ucast(uint8_t *buf,
-				       const uint8_t *buf_pastend,
-				       struct list *ifconnected);
+uint8_t *pim_tlv_append_uint32(uint8_t *buf, const uint8_t *buf_pastend,
+			       uint16_t option_type, uint32_t option_value);
+uint8_t *pim_tlv_append_addrlist_ucast(uint8_t *buf, const uint8_t *buf_pastend,
+				       struct list *ifconnected, int family);
 
 int pim_tlv_parse_holdtime(const char *ifname, struct in_addr src_addr,
 			   pim_hello_options *hello_options,
-			   uint16_t *hello_option_holdtime,
-			   uint16_t option_len,
+			   uint16_t *hello_option_holdtime, uint16_t option_len,
 			   const uint8_t *tlv_curr);
 int pim_tlv_parse_lan_prune_delay(const char *ifname, struct in_addr src_addr,
 				  pim_hello_options *hello_options,
 				  uint16_t *hello_option_propagation_delay,
 				  uint16_t *hello_option_override_interval,
-				  uint16_t option_len,
-				  const uint8_t *tlv_curr);
+				  uint16_t option_len, const uint8_t *tlv_curr);
 int pim_tlv_parse_dr_priority(const char *ifname, struct in_addr src_addr,
 			      pim_hello_options *hello_options,
 			      uint32_t *hello_option_dr_priority,
-			      uint16_t option_len,
-			      const uint8_t *tlv_curr);
+			      uint16_t option_len, const uint8_t *tlv_curr);
 int pim_tlv_parse_generation_id(const char *ifname, struct in_addr src_addr,
 				pim_hello_options *hello_options,
 				uint32_t *hello_option_generation_id,
-				uint16_t option_len,
-				const uint8_t *tlv_curr);
+				uint16_t option_len, const uint8_t *tlv_curr);
 int pim_tlv_parse_addr_list(const char *ifname, struct in_addr src_addr,
 			    pim_hello_options *hello_options,
 			    struct list **hello_option_addr_list,
-			    uint16_t option_len,
-			    const uint8_t *tlv_curr);
+			    uint16_t option_len, const uint8_t *tlv_curr);
 
-int pim_parse_addr_ucast(const char *ifname, struct in_addr src_addr,
-			 struct prefix *p,
-			 const uint8_t *buf,
-			 int buf_size);
-int pim_parse_addr_group(const char *ifname, struct in_addr src_addr,
-			 struct prefix *p,
-			 const uint8_t *buf,
-			 int buf_size);
-int pim_parse_addr_source(const char *ifname,
-			  struct in_addr src_addr,
-			  struct prefix *p,
-			  uint8_t *flags,
-			  const uint8_t *buf,
+int pim_encode_addr_ucast(uint8_t *buf, struct prefix *p);
+int pim_encode_addr_group(uint8_t *buf, afi_t afi, int bidir, int scope,
+			  struct in_addr group);
+
+int pim_parse_addr_ucast(struct prefix *p, const uint8_t *buf, int buf_size);
+int pim_parse_addr_group(pim_sgaddr *sg, const uint8_t *buf, int buf_size);
+int pim_parse_addr_source(pim_sgaddr *sg, uint8_t *flags, const uint8_t *buf,
 			  int buf_size);
 
 #endif /* PIM_TLV_H */

@@ -7,6 +7,10 @@
  * (at your option) any later version.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <fcntl.h>
 #include <errno.h>
 #include <string.h>
@@ -35,18 +39,18 @@ struct nlmsghdr *znl_nlmsg_push(struct zbuf *zb, uint16_t type, uint16_t flags)
 	struct nlmsghdr *n;
 
 	n = znl_push(zb, sizeof(*n));
-	if (!n) return NULL;
+	if (!n)
+		return NULL;
 
-	*n = (struct nlmsghdr) {
-		.nlmsg_type = type,
-		.nlmsg_flags = flags,
+	*n = (struct nlmsghdr){
+		.nlmsg_type = type, .nlmsg_flags = flags,
 	};
 	return n;
 }
 
 void znl_nlmsg_complete(struct zbuf *zb, struct nlmsghdr *n)
 {
-	n->nlmsg_len = zb->tail - (uint8_t*)n;
+	n->nlmsg_len = zb->tail - (uint8_t *)n;
 }
 
 struct nlmsghdr *znl_nlmsg_pull(struct zbuf *zb, struct zbuf *payload)
@@ -55,7 +59,8 @@ struct nlmsghdr *znl_nlmsg_pull(struct zbuf *zb, struct zbuf *payload)
 	size_t plen;
 
 	n = znl_pull(zb, sizeof(*n));
-	if (!n) return NULL;
+	if (!n)
+		return NULL;
 
 	plen = n->nlmsg_len - sizeof(*n);
 	zbuf_init(payload, znl_pull(zb, plen), plen, plen);
@@ -64,22 +69,23 @@ struct nlmsghdr *znl_nlmsg_pull(struct zbuf *zb, struct zbuf *payload)
 	return n;
 }
 
-struct rtattr *znl_rta_push(struct zbuf *zb, uint16_t type, const void *val, size_t len)
+struct rtattr *znl_rta_push(struct zbuf *zb, uint16_t type, const void *val,
+			    size_t len)
 {
 	struct rtattr *rta;
 	uint8_t *dst;
 
 	rta = znl_push(zb, ZNL_ALIGN(sizeof(*rta)) + ZNL_ALIGN(len));
-	if (!rta) return NULL;
+	if (!rta)
+		return NULL;
 
-	*rta = (struct rtattr) {
-		.rta_type = type,
-		.rta_len  = ZNL_ALIGN(sizeof(*rta)) + len,
+	*rta = (struct rtattr){
+		.rta_type = type, .rta_len = ZNL_ALIGN(sizeof(*rta)) + len,
 	};
 
-	dst = (uint8_t *)(rta+1);
+	dst = (uint8_t *)(rta + 1);
 	memcpy(dst, val, len);
-	memset(dst+len, 0, ZNL_ALIGN(len) - len);
+	memset(dst + len, 0, ZNL_ALIGN(len) - len);
 
 	return rta;
 }
@@ -94,9 +100,10 @@ struct rtattr *znl_rta_nested_push(struct zbuf *zb, uint16_t type)
 	struct rtattr *rta;
 
 	rta = znl_push(zb, sizeof(*rta));
-	if (!rta) return NULL;
+	if (!rta)
+		return NULL;
 
-	*rta = (struct rtattr) {
+	*rta = (struct rtattr){
 		.rta_type = type,
 	};
 	return rta;
@@ -104,12 +111,13 @@ struct rtattr *znl_rta_nested_push(struct zbuf *zb, uint16_t type)
 
 void znl_rta_nested_complete(struct zbuf *zb, struct rtattr *rta)
 {
-	size_t len = zb->tail - (uint8_t*) rta;
+	size_t len = zb->tail - (uint8_t *)rta;
 	size_t align = ZNL_ALIGN(len) - len;
 
 	if (align) {
 		void *dst = zbuf_pushn(zb, align);
-		if (dst) memset(dst, 0, align);
+		if (dst)
+			memset(dst, 0, align);
 	}
 	rta->rta_len = len;
 }
@@ -120,7 +128,8 @@ struct rtattr *znl_rta_pull(struct zbuf *zb, struct zbuf *payload)
 	size_t plen;
 
 	rta = znl_pull(zb, sizeof(*rta));
-	if (!rta) return NULL;
+	if (!rta)
+		return NULL;
 
 	if (rta->rta_len > sizeof(*rta)) {
 		plen = rta->rta_len - sizeof(*rta);
@@ -141,15 +150,17 @@ int znl_open(int protocol, int groups)
 	if (fd < 0)
 		return -1;
 
-	fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
-	fcntl(fd, F_SETFD, FD_CLOEXEC);
+	if (fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK) < 0)
+		goto error;
+	if (fcntl(fd, F_SETFD, FD_CLOEXEC) < 0)
+		goto error;
 	if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &buf, sizeof(buf)) < 0)
 		goto error;
 
 	memset(&addr, 0, sizeof(addr));
 	addr.nl_family = AF_NETLINK;
 	addr.nl_groups = groups;
-	if (bind(fd, (struct sockaddr *) &addr, sizeof(addr)) < 0)
+	if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0)
 		goto error;
 
 	return fd;
@@ -157,4 +168,3 @@ error:
 	close(fd);
 	return -1;
 }
-

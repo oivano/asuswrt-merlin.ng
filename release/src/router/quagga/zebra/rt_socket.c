@@ -14,384 +14,416 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with GNU Zebra; see the file COPYING.  If not, write to the Free
- * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * You should have received a copy of the GNU General Public License along
+ * with this program; see the file COPYING; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
 #include <zebra.h>
+
+#ifndef HAVE_NETLINK
+
+#ifdef __OpenBSD__
+#include <netmpls/mpls.h>
+#endif
 
 #include "if.h"
 #include "prefix.h"
 #include "sockunion.h"
 #include "log.h"
-#include "str.h"
 #include "privs.h"
+#include "vxlan.h"
+#include "lib_errors.h"
 
 #include "zebra/debug.h"
 #include "zebra/rib.h"
 #include "zebra/rt.h"
 #include "zebra/kernel_socket.h"
+#include "zebra/zebra_mpls.h"
+#include "zebra/zebra_errors.h"
 
 extern struct zebra_privs_t zserv_privs;
 
-/* kernel socket export */
-extern int rtm_write (int message, union sockunion *dest,
-                      union sockunion *mask, union sockunion *gate,
-                      unsigned int index, int zebra_flags, int metric);
-
-#ifdef HAVE_STRUCT_SOCKADDR_IN_SIN_LEN
-/* Adjust netmask socket length. Return value is a adjusted sin_len
-   value. */
-static int
-sin_masklen (struct in_addr mask)
+#ifdef __OpenBSD__
+static int kernel_rtm_add_labels(struct mpls_label_stack *nh_label,
+				 struct sockaddr_mpls *smpls)
 {
-  char *p, *lim;
-  int len;
-  struct sockaddr_in sin;
-
-  if (mask.s_addr == 0) 
-    return sizeof (long);
-
-  sin.sin_addr = mask;
-  len = sizeof (struct sockaddr_in);
-
-  lim = (char *) &sin.sin_addr;
-  p = lim + sizeof (sin.sin_addr);
-
-  while (*--p == 0 && p >= lim) 
-    len--;
-  return len;
-}
-#endif /* HAVE_STRUCT_SOCKADDR_IN_SIN_LEN */
-
-/* Interface between zebra message and rtm message. */
-static int
-kernel_rtm_ipv4 (int cmd, struct prefix *p, struct rib *rib)
-
-{
-  struct sockaddr_in *mask = NULL;
-  struct sockaddr_in sin_dest, sin_mask, sin_gate;
-  struct nexthop *nexthop, *tnexthop;
-  int recursing;
-  int nexthop_num = 0;
-  ifindex_t ifindex = 0;
-  int gate = 0;
-  int error;
-  char prefix_buf[PREFIX_STRLEN];
-
-  if (IS_ZEBRA_DEBUG_RIB)
-    prefix2str (p, prefix_buf, sizeof(prefix_buf));
-  memset (&sin_dest, 0, sizeof (struct sockaddr_in));
-  sin_dest.sin_family = AF_INET;
-#ifdef HAVE_STRUCT_SOCKADDR_IN_SIN_LEN
-  sin_dest.sin_len = sizeof (struct sockaddr_in);
-#endif /* HAVE_STRUCT_SOCKADDR_IN_SIN_LEN */
-  sin_dest.sin_addr = p->u.prefix4;
-
-  memset (&sin_mask, 0, sizeof (struct sockaddr_in));
-
-  memset (&sin_gate, 0, sizeof (struct sockaddr_in));
-  sin_gate.sin_family = AF_INET;
-#ifdef HAVE_STRUCT_SOCKADDR_IN_SIN_LEN
-  sin_gate.sin_len = sizeof (struct sockaddr_in);
-#endif /* HAVE_STRUCT_SOCKADDR_IN_SIN_LEN */
-
-  /* Make gateway. */
-  for (ALL_NEXTHOPS_RO(rib->nexthop, nexthop, tnexthop, recursing))
-    {
-      if (CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_RECURSIVE))
-        continue;
-
-      gate = 0;
-      char gate_buf[INET_ADDRSTRLEN] = "NULL";
-
-      /*
-       * XXX We need to refrain from kernel operations in some cases,
-       * but this if statement seems overly cautious - what about
-       * other than ADD and DELETE?
-       */
-      if ((cmd == RTM_ADD
-	   && CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_ACTIVE))
-	  || (cmd == RTM_DELETE
-	      && CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB)
-	      ))
-	{
-	  if (nexthop->type == NEXTHOP_TYPE_IPV4 ||
-	      nexthop->type == NEXTHOP_TYPE_IPV4_IFINDEX)
-	    {
-	      sin_gate.sin_addr = nexthop->gate.ipv4;
-	      gate = 1;
-	    }
-	  if (nexthop->type == NEXTHOP_TYPE_IFINDEX
-	      || nexthop->type == NEXTHOP_TYPE_IFNAME
-	      || nexthop->type == NEXTHOP_TYPE_IPV4_IFINDEX)
-	    ifindex = nexthop->ifindex;
-	  if (nexthop->type == NEXTHOP_TYPE_BLACKHOLE)
-	    {
-	      struct in_addr loopback;
-	      loopback.s_addr = htonl (INADDR_LOOPBACK);
-	      sin_gate.sin_addr = loopback;
-	      gate = 1;
-	    }
-
-	  if (gate && p->prefixlen == 32)
-	    mask = NULL;
-	  else
-	    {
-	      masklen2ip (p->prefixlen, &sin_mask.sin_addr);
-	      sin_mask.sin_family = AF_INET;
-#ifdef HAVE_STRUCT_SOCKADDR_IN_SIN_LEN
-	      sin_mask.sin_len = sin_masklen (sin_mask.sin_addr);
-#endif /* HAVE_STRUCT_SOCKADDR_IN_SIN_LEN */
-	      mask = &sin_mask;
-	    }
-
-	  error = rtm_write (cmd,
-			     (union sockunion *)&sin_dest, 
-			     (union sockunion *)mask, 
-			     gate ? (union sockunion *)&sin_gate : NULL,
-			     ifindex,
-			     rib->flags,
-			     rib->metric);
-
-           if (IS_ZEBRA_DEBUG_RIB)
-           {
-             if (!gate)
-             {
-               zlog_debug ("%s: %s: attention! gate not found for rib %p",
-                 __func__, prefix_buf, rib);
-               rib_dump (p, rib);
-             }
-             else
-               inet_ntop (AF_INET, &sin_gate.sin_addr, gate_buf, INET_ADDRSTRLEN);
-           }
- 
-           switch (error)
-           {
-             /* We only flag nexthops as being in FIB if rtm_write() did its work. */
-             case ZEBRA_ERR_NOERROR:
-               nexthop_num++;
-               if (IS_ZEBRA_DEBUG_RIB)
-                 zlog_debug ("%s: %s: successfully did NH %s",
-                   __func__, prefix_buf, gate_buf);
-               if (cmd == RTM_ADD)
-                 SET_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB);
-               break;
- 
-             /* The only valid case for this error is kernel's failure to install
-              * a multipath route, which is common for FreeBSD. This should be
-              * ignored silently, but logged as an error otherwise.
-              */
-             case ZEBRA_ERR_RTEXIST:
-               if (cmd != RTM_ADD)
-                 zlog_err ("%s: rtm_write() returned %d for command %d",
-                   __func__, error, cmd);
-               continue;
-               break;
- 
-             /* Given that our NEXTHOP_FLAG_FIB matches real kernel FIB, it isn't
-              * normal to get any other messages in ANY case.
-              */
-             case ZEBRA_ERR_RTNOEXIST:
-             case ZEBRA_ERR_RTUNREACH:
-             default:
-               zlog_err ("%s: %s: rtm_write() unexpectedly returned %d for command %s",
-                 __func__, prefix2str(p, prefix_buf, sizeof(prefix_buf)),
-                 error, lookup (rtm_type_str, cmd));
-               break;
-           }
-         } /* if (cmd and flags make sense) */
-       else
-         if (IS_ZEBRA_DEBUG_RIB)
-           zlog_debug ("%s: odd command %s for flags %d",
-             __func__, lookup (rtm_type_str, cmd), nexthop->flags);
-     } /* for (ALL_NEXTHOPS_RO(...))*/
- 
-   /* If there was no useful nexthop, then complain. */
-   if (nexthop_num == 0 && IS_ZEBRA_DEBUG_KERNEL)
-     zlog_debug ("%s: No useful nexthops were found in RIB entry %p", __func__, rib);
-
-  return 0; /*XXX*/
-}
-
-#ifdef HAVE_IPV6
-
-#ifdef SIN6_LEN
-/* Calculate sin6_len value for netmask socket value. */
-static int
-sin6_masklen (struct in6_addr mask)
-{
-  struct sockaddr_in6 sin6;
-  char *p, *lim;
-  int len;
-
-  if (IN6_IS_ADDR_UNSPECIFIED (&mask)) 
-    return sizeof (long);
-
-  sin6.sin6_addr = mask;
-  len = sizeof (struct sockaddr_in6);
-
-  lim = (char *) & sin6.sin6_addr;
-  p = lim + sizeof (sin6.sin6_addr);
-
-  while (*--p == 0 && p >= lim) 
-    len--;
-
-  return len;
-}
-#endif /* SIN6_LEN */
-
-/* Interface between zebra message and rtm message. */
-static int
-kernel_rtm_ipv6 (int cmd, struct prefix *p, struct rib *rib)
-{
-  struct sockaddr_in6 *mask;
-  struct sockaddr_in6 sin_dest, sin_mask, sin_gate;
-  struct nexthop *nexthop, *tnexthop;
-  int recursing;
-  int nexthop_num = 0;
-  ifindex_t ifindex = 0;
-  int gate = 0;
-  int error;
-
-  memset (&sin_dest, 0, sizeof (struct sockaddr_in6));
-  sin_dest.sin6_family = AF_INET6;
-#ifdef SIN6_LEN
-  sin_dest.sin6_len = sizeof (struct sockaddr_in6);
-#endif /* SIN6_LEN */
-  sin_dest.sin6_addr = p->u.prefix6;
-
-  memset (&sin_mask, 0, sizeof (struct sockaddr_in6));
-
-  memset (&sin_gate, 0, sizeof (struct sockaddr_in6));
-  sin_gate.sin6_family = AF_INET6;
-#ifdef HAVE_STRUCT_SOCKADDR_IN_SIN_LEN
-  sin_gate.sin6_len = sizeof (struct sockaddr_in6);
-#endif /* HAVE_STRUCT_SOCKADDR_IN_SIN_LEN */
-
-  /* Make gateway. */
-  for (ALL_NEXTHOPS_RO(rib->nexthop, nexthop, tnexthop, recursing))
-    {
-      if (CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_RECURSIVE))
-	continue;
-
-      gate = 0;
-
-      if ((cmd == RTM_ADD
-	   && CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_ACTIVE))
-	  || (cmd == RTM_DELETE
-#if 0
-	      && CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB)
-#endif
-	      ))
-	{
-	  if (nexthop->type == NEXTHOP_TYPE_IPV6
-	      || nexthop->type == NEXTHOP_TYPE_IPV6_IFNAME
-	      || nexthop->type == NEXTHOP_TYPE_IPV6_IFINDEX)
-	    {
-	      sin_gate.sin6_addr = nexthop->gate.ipv6;
-	      gate = 1;
-	    }
-	  if (nexthop->type == NEXTHOP_TYPE_IFINDEX
-	      || nexthop->type == NEXTHOP_TYPE_IFNAME
-	      || nexthop->type == NEXTHOP_TYPE_IPV6_IFNAME
-	      || nexthop->type == NEXTHOP_TYPE_IPV6_IFINDEX)
-	    ifindex = nexthop->ifindex;
-
-	  if (cmd == RTM_ADD)
-	    SET_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB);
+	if (nh_label->num_labels > 1) {
+		flog_warn(EC_ZEBRA_MAX_LABELS_PUSH,
+			  "%s: can't push %u labels at once (maximum is 1)",
+			  __func__, nh_label->num_labels);
+		return -1;
 	}
 
-      /* Under kame set interface index to link local address. */
+	memset(smpls, 0, sizeof(*smpls));
+	smpls->smpls_len = sizeof(*smpls);
+	smpls->smpls_family = AF_MPLS;
+	smpls->smpls_label = htonl(nh_label->label[0] << MPLS_LABEL_OFFSET);
+
+	return 0;
+}
+#endif
+
+/* Interface between zebra message and rtm message. */
+static int kernel_rtm(int cmd, const struct prefix *p,
+		      const struct nexthop_group *ng, uint32_t metric)
+
+{
+	union sockunion sin_dest, sin_mask, sin_gate;
+#ifdef __OpenBSD__
+	struct sockaddr_mpls smpls;
+#endif
+	union sockunion *smplsp = NULL;
+	struct nexthop *nexthop;
+	int nexthop_num = 0;
+	ifindex_t ifindex = 0;
+	bool gate = false;
+	int error;
+	char gate_buf[INET6_BUFSIZ];
+	enum blackhole_type bh_type = BLACKHOLE_UNSPEC;
+
+	/*
+	 * We only have the ability to ADD or DELETE at this point
+	 * in time.
+	 */
+	if (cmd != RTM_ADD && cmd != RTM_DELETE) {
+		if (IS_ZEBRA_DEBUG_KERNEL)
+			zlog_debug("%s: %pFX odd command %s", __func__, p,
+				   lookup_msg(rtm_type_str, cmd, NULL));
+		return 0;
+	}
+
+	memset(&sin_dest, 0, sizeof(sin_dest));
+	memset(&sin_gate, 0, sizeof(sin_gate));
+	memset(&sin_mask, 0, sizeof(sin_mask));
+
+	switch (p->family) {
+	case AF_INET:
+		sin_dest.sin.sin_family = AF_INET;
+		sin_dest.sin.sin_addr = p->u.prefix4;
+		sin_gate.sin.sin_family = AF_INET;
+#ifdef HAVE_STRUCT_SOCKADDR_SA_LEN
+		sin_dest.sin.sin_len = sizeof(struct sockaddr_in);
+		sin_gate.sin.sin_len = sizeof(struct sockaddr_in);
+#endif /* HAVE_STRUCT_SOCKADDR_SA_LEN */
+		break;
+	case AF_INET6:
+		sin_dest.sin6.sin6_family = AF_INET6;
+		sin_dest.sin6.sin6_addr = p->u.prefix6;
+		sin_gate.sin6.sin6_family = AF_INET6;
+#ifdef HAVE_STRUCT_SOCKADDR_SA_LEN
+		sin_dest.sin6.sin6_len = sizeof(struct sockaddr_in6);
+		sin_gate.sin6.sin6_len = sizeof(struct sockaddr_in6);
+#endif /* HAVE_STRUCT_SOCKADDR_SA_LEN */
+		break;
+	}
+
+	/* Make gateway. */
+	for (ALL_NEXTHOPS_PTR(ng, nexthop)) {
+		/*
+		 * We only want to use the actual good nexthops
+		 */
+		if (CHECK_FLAG(nexthop->flags, NEXTHOP_FLAG_RECURSIVE) ||
+		    !CHECK_FLAG(nexthop->flags, NEXTHOP_FLAG_ACTIVE))
+			continue;
+
+		smplsp = NULL;
+		gate = false;
+		snprintf(gate_buf, sizeof(gate_buf), "NULL");
+
+		switch (nexthop->type) {
+		case NEXTHOP_TYPE_IPV4:
+		case NEXTHOP_TYPE_IPV4_IFINDEX:
+			sin_gate.sin.sin_addr = nexthop->gate.ipv4;
+			sin_gate.sin.sin_family = AF_INET;
+#ifdef HAVE_STRUCT_SOCKADDR_SA_LEN
+			sin_gate.sin.sin_len = sizeof(struct sockaddr_in);
+#endif /* HAVE_STRUCT_SOCKADDR_SA_LEN */
+			ifindex = nexthop->ifindex;
+			gate = true;
+			break;
+		case NEXTHOP_TYPE_IPV6:
+		case NEXTHOP_TYPE_IPV6_IFINDEX:
+			sin_gate.sin6.sin6_addr = nexthop->gate.ipv6;
+			sin_gate.sin6.sin6_family = AF_INET6;
+#ifdef HAVE_STRUCT_SOCKADDR_SA_LEN
+			sin_gate.sin6.sin6_len = sizeof(struct sockaddr_in6);
+#endif /* HAVE_STRUCT_SOCKADDR_SA_LEN */
+			ifindex = nexthop->ifindex;
+/* Under kame set interface index to link local address */
 #ifdef KAME
 
-#define SET_IN6_LINKLOCAL_IFINDEX(a, i) \
-      do { \
-	(a).s6_addr[2] = ((i) >> 8) & 0xff; \
-	(a).s6_addr[3] = (i) & 0xff; \
-      } while (0)
+#define SET_IN6_LINKLOCAL_IFINDEX(a, i)                                        \
+	do {                                                                   \
+		(a).s6_addr[2] = ((i) >> 8) & 0xff;                            \
+		(a).s6_addr[3] = (i)&0xff;                                     \
+	} while (0)
 
-      if (gate && IN6_IS_ADDR_LINKLOCAL(&sin_gate.sin6_addr))
-	SET_IN6_LINKLOCAL_IFINDEX (sin_gate.sin6_addr, ifindex);
+			if (IN6_IS_ADDR_LINKLOCAL(&sin_gate.sin6.sin6_addr))
+				SET_IN6_LINKLOCAL_IFINDEX(
+					sin_gate.sin6.sin6_addr,
+					ifindex);
 #endif /* KAME */
 
-      if (gate && p->prefixlen == 128)
-	mask = NULL;
-      else
-	{
-	  masklen2ip6 (p->prefixlen, &sin_mask.sin6_addr);
-	  sin_mask.sin6_family = AF_INET6;
-#ifdef SIN6_LEN
-	  sin_mask.sin6_len = sin6_masklen (sin_mask.sin6_addr);
-#endif /* SIN6_LEN */
-	  mask = &sin_mask;
+			gate = true;
+			break;
+		case NEXTHOP_TYPE_IFINDEX:
+			ifindex = nexthop->ifindex;
+			break;
+		case NEXTHOP_TYPE_BLACKHOLE:
+			bh_type = nexthop->bh_type;
+			switch (p->family) {
+			case AF_INET: {
+				struct in_addr loopback;
+
+				loopback.s_addr = htonl(INADDR_LOOPBACK);
+				sin_gate.sin.sin_addr = loopback;
+#ifdef HAVE_STRUCT_SOCKADDR_SA_LEN
+				sin_gate.sin.sin_len =
+					sizeof(struct sockaddr_in);
+#endif /* HAVE_STRUCT_SOCKADDR_SA_LEN */
+				gate = true;
+			} break;
+			case AF_INET6: {
+				struct in6_addr loopback;
+
+				inet_pton(AF_INET6, "::1", &loopback);
+
+				sin_gate.sin6.sin6_addr = loopback;
+				sin_gate.sin6.sin6_family = AF_INET6;
+
+#ifdef HAVE_STRUCTSOCKADDR_SA_LEN
+				sin_gate.sin6.sin6_len =
+					sizeof(struct sockaddr_in6);
+#endif /* HAVE_STRUCTSOCKADDR_SA_LEN */
+				gate = true;
+			} break;
+			}
+		}
+
+		switch (p->family) {
+		case AF_INET:
+			masklen2ip(p->prefixlen, &sin_mask.sin.sin_addr);
+			sin_mask.sin.sin_family = AF_INET;
+#ifdef HAVE_STRUCT_SOCKADDR_SA_LEN
+			sin_mask.sin.sin_len = sizeof(struct sockaddr_in);
+#endif /* HAVE_STRUCT_SOCKADDR_SA_LEN */
+			break;
+		case AF_INET6:
+			masklen2ip6(p->prefixlen, &sin_mask.sin6.sin6_addr);
+			sin_mask.sin6.sin6_family = AF_INET6;
+#ifdef HAVE_STRUCT_SOCKADDR_SA_LEN
+			sin_mask.sin6.sin6_len = sizeof(struct sockaddr_in6);
+#endif /* HAVE_STRUCT_SOCKADDR_SA_LEN */
+			break;
+		}
+
+#ifdef __OpenBSD__
+		if (nexthop->nh_label) {
+			if (kernel_rtm_add_labels(nexthop->nh_label,
+						  &smpls) != 0)
+				continue;
+			smplsp = (union sockunion *)&smpls;
+		}
+#endif
+		error = rtm_write(cmd, &sin_dest, &sin_mask,
+				  gate ? &sin_gate : NULL, smplsp,
+				  ifindex, bh_type, metric);
+
+		if (IS_ZEBRA_DEBUG_KERNEL) {
+			if (!gate) {
+				zlog_debug(
+					"%s: %pFX: attention! gate not found for re",
+					__func__, p);
+			} else {
+				switch (p->family) {
+				case AF_INET:
+					inet_ntop(AF_INET,
+						  &sin_gate.sin.sin_addr,
+						  gate_buf, sizeof(gate_buf));
+					break;
+
+				case AF_INET6:
+					inet_ntop(AF_INET6,
+						  &sin_gate.sin6.sin6_addr,
+						  gate_buf, sizeof(gate_buf));
+					break;
+
+				default:
+					snprintf(gate_buf, sizeof(gate_buf),
+						 "(invalid-af)");
+					break;
+				}
+			}
+		}
+		switch (error) {
+			/* We only flag nexthops as being in FIB if
+			 * rtm_write() did its work. */
+		case ZEBRA_ERR_NOERROR:
+			nexthop_num++;
+			if (IS_ZEBRA_DEBUG_KERNEL)
+				zlog_debug("%s: %pFX: successfully did NH %s",
+					   __func__, p, gate_buf);
+			if (cmd == RTM_ADD)
+				SET_FLAG(nexthop->flags, NEXTHOP_FLAG_FIB);
+			break;
+
+			/* The only valid case for this error is
+			 * kernel's failure to install a multipath
+			 * route, which is common for FreeBSD. This
+			 * should be ignored silently, but logged as an error
+			 * otherwise.
+			 */
+		case ZEBRA_ERR_RTEXIST:
+			if (cmd != RTM_ADD)
+				flog_err(EC_LIB_SYSTEM_CALL,
+					 "%s: rtm_write() returned %d for command %d",
+					 __func__, error, cmd);
+			continue;
+
+			/* Note any unexpected status returns */
+		default:
+			flog_err(
+				EC_LIB_SYSTEM_CALL,
+				"%s: %pFX: rtm_write() unexpectedly returned %d for command %s",
+				__func__, p, error,
+				lookup_msg(rtm_type_str, cmd, NULL));
+			break;
+		}
+	} /* for (ALL_NEXTHOPS(...))*/
+
+	/* If there was no useful nexthop, then complain. */
+	if (nexthop_num == 0) {
+		if (IS_ZEBRA_DEBUG_KERNEL)
+			zlog_debug(
+				"%s: No useful nexthops were found in RIB prefix %pFX",
+				__func__, p);
+		return 1;
 	}
 
-      error = rtm_write (cmd,
-			(union sockunion *) &sin_dest,
-			(union sockunion *) mask,
-			gate ? (union sockunion *)&sin_gate : NULL,
-			ifindex,
-			rib->flags,
-			rib->metric);
+	return 0; /*XXX*/
+}
 
-#if 0
-      if (error)
-	{
-	  zlog_info ("kernel_rtm_ipv6(): nexthop %d add error=%d.",
-	    nexthop_num, error);
+/*
+ * Update or delete a prefix from the kernel,
+ * using info from a dataplane context struct.
+ */
+enum zebra_dplane_result kernel_route_update(struct zebra_dplane_ctx *ctx)
+{
+	enum zebra_dplane_result res = ZEBRA_DPLANE_REQUEST_SUCCESS;
+	uint32_t type, old_type;
+
+	if (dplane_ctx_get_src(ctx) != NULL) {
+		zlog_err("route add: IPv6 sourcedest routes unsupported!");
+		return ZEBRA_DPLANE_REQUEST_FAILURE;
 	}
-#else
-      (void)error;
-#endif
 
-      nexthop_num++;
-    }
+	type = dplane_ctx_get_type(ctx);
+	old_type = dplane_ctx_get_old_type(ctx);
 
-  /* If there is no useful nexthop then return. */
-  if (nexthop_num == 0)
-    {
-      if (IS_ZEBRA_DEBUG_KERNEL)
-	zlog_debug ("kernel_rtm_ipv6(): No useful nexthop.");
-      return 0;
-    }
+	frr_with_privs(&zserv_privs) {
 
-  return 0; /*XXX*/
+		if (dplane_ctx_get_op(ctx) == DPLANE_OP_ROUTE_DELETE) {
+			if (!RSYSTEM_ROUTE(type))
+				kernel_rtm(RTM_DELETE, dplane_ctx_get_dest(ctx),
+					   dplane_ctx_get_ng(ctx),
+					   dplane_ctx_get_metric(ctx));
+		} else if (dplane_ctx_get_op(ctx) == DPLANE_OP_ROUTE_INSTALL) {
+			if (!RSYSTEM_ROUTE(type))
+				kernel_rtm(RTM_ADD, dplane_ctx_get_dest(ctx),
+					   dplane_ctx_get_ng(ctx),
+					   dplane_ctx_get_metric(ctx));
+		} else if (dplane_ctx_get_op(ctx) == DPLANE_OP_ROUTE_UPDATE) {
+			/* Must do delete and add separately -
+			 * no update available
+			 */
+			if (!RSYSTEM_ROUTE(old_type))
+				kernel_rtm(RTM_DELETE, dplane_ctx_get_dest(ctx),
+					   dplane_ctx_get_old_ng(ctx),
+					   dplane_ctx_get_old_metric(ctx));
+
+			if (!RSYSTEM_ROUTE(type))
+				kernel_rtm(RTM_ADD, dplane_ctx_get_dest(ctx),
+					   dplane_ctx_get_ng(ctx),
+					   dplane_ctx_get_metric(ctx));
+		} else {
+			zlog_err("Invalid routing socket update op %s (%u)",
+				 dplane_op2str(dplane_ctx_get_op(ctx)),
+				 dplane_ctx_get_op(ctx));
+			res = ZEBRA_DPLANE_REQUEST_FAILURE;
+		}
+	} /* Elevated privs */
+
+	return res;
 }
 
-#endif
-
-static int
-kernel_rtm (int cmd, struct prefix *p, struct rib *rib)
+enum zebra_dplane_result kernel_nexthop_update(struct zebra_dplane_ctx *ctx)
 {
-  switch (PREFIX_FAMILY(p))
-    {
-    case AF_INET:
-      return kernel_rtm_ipv4 (cmd, p, rib);
-    case AF_INET6:
-      return kernel_rtm_ipv6 (cmd, p, rib);
-    }
-  return 0;
+	return ZEBRA_DPLANE_REQUEST_SUCCESS;
 }
 
-int
-kernel_route_rib (struct prefix *p, struct rib *old, struct rib *new)
+int kernel_neigh_register(vrf_id_t vrf_id, struct zserv *client, bool reg)
 {
-  int route = 0;
-
-  if (zserv_privs.change(ZPRIVS_RAISE))
-    zlog (NULL, LOG_ERR, "Can't raise privileges");
-
-  if (old)
-    route |= kernel_rtm (RTM_DELETE, p, old);
-
-  if (new)
-    route |= kernel_rtm (RTM_ADD, p, new);
-
-  if (zserv_privs.change(ZPRIVS_LOWER))
-    zlog (NULL, LOG_ERR, "Can't lower privileges");
-
-  return route;
+	/* TODO */
+	return 0;
 }
+
+int kernel_neigh_update(int add, int ifindex, void *addr, char *lla, int llalen,
+			ns_id_t ns_id, uint8_t family, bool permanent)
+{
+	/* TODO */
+	return 0;
+}
+
+/* NYI on routing-socket platforms, but we've always returned 'success'... */
+enum zebra_dplane_result kernel_neigh_update_ctx(struct zebra_dplane_ctx *ctx)
+{
+	return ZEBRA_DPLANE_REQUEST_SUCCESS;
+}
+
+extern int kernel_get_ipmr_sg_stats(struct zebra_vrf *zvrf, void *mroute)
+{
+	return 0;
+}
+
+/*
+ * Update MAC, using dataplane context object. No-op here for now.
+ */
+enum zebra_dplane_result kernel_mac_update_ctx(struct zebra_dplane_ctx *ctx)
+{
+	return ZEBRA_DPLANE_REQUEST_SUCCESS;
+}
+
+extern int kernel_interface_set_master(struct interface *master,
+				       struct interface *slave)
+{
+	return 0;
+}
+
+uint32_t kernel_get_speed(struct interface *ifp, int *error)
+{
+	return ifp->speed;
+}
+
+int kernel_upd_mac_nh(uint32_t nh_id, struct in_addr vtep_ip)
+{
+	return 0;
+}
+
+int kernel_del_mac_nh(uint32_t nh_id)
+{
+	return 0;
+}
+
+int kernel_upd_mac_nhg(uint32_t nhg_id, uint32_t nh_cnt,
+		struct nh_grp *nh_ids)
+{
+	return 0;
+}
+
+int kernel_del_mac_nhg(uint32_t nhg_id)
+{
+	return 0;
+}
+
+#endif /* !HAVE_NETLINK */

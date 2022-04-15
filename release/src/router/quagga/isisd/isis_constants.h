@@ -1,23 +1,23 @@
 /*
- * IS-IS Rout(e)ing protocol - isis_constants.h   
+ * IS-IS Rout(e)ing protocol - isis_constants.h
  *
  * Copyright (C) 2001,2002   Sampo Saaristo
- *                           Tampere University of Technology      
+ *                           Tampere University of Technology
  *                           Institute of Communications Engineering
  *
- * This program is free software; you can redistribute it and/or modify it 
- * under the terms of the GNU General Public Licenseas published by the Free 
- * Software Foundation; either version 2 of the License, or (at your option) 
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public Licenseas published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
  * any later version.
  *
- * This program is distributed in the hope that it will be useful,but WITHOUT 
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or 
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for 
+ * This program is distributed in the hope that it will be useful,but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
  * more details.
-
- * You should have received a copy of the GNU General Public License along 
- * with this program; if not, write to the Free Software Foundation, Inc., 
- * 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; see the file COPYING; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
 #ifndef ISIS_CONSTANTS_H
@@ -34,6 +34,9 @@
 #define ISO_SAP                       0xFE
 #define INTRADOMAIN_ROUTEING_SELECTOR 0
 #define SEQUENCE_MODULUS              4294967296
+
+#define ISO9542_ESIS			0x82
+#define ISO10589_ISIS			0x83
 
 /*
  * implementation specific jitter values
@@ -70,7 +73,9 @@
 #define MAX_MIN_LSP_GEN_INTERVAL      120  /* RFC 4444 says 65535 */
 #define DEFAULT_MIN_LSP_GEN_INTERVAL  30
 
-#define MIN_LSP_TRANS_INTERVAL        5
+#define MIN_LSP_RETRANS_INTERVAL      5 /* Seconds */
+
+#define TRIGGERED_IIH_DELAY           50	/* msec */
 
 #define MIN_CSNP_INTERVAL             1
 #define MAX_CSNP_INTERVAL             600
@@ -135,7 +140,7 @@
  * LSP bit masks
  */
 #define LSPBIT_P   0x80
-#define LSPBIT_ATT 0x78
+#define LSPBIT_ATT 0x08 /* only use the Default ATT bit */
 #define LSPBIT_OL  0x04
 #define LSPBIT_IST 0x03
 
@@ -153,19 +158,24 @@
 #define ISIS_MASK_LSP_ATT_ERROR_BIT(x)     ((x)&0x40)
 #define ISIS_MASK_LSP_ATT_EXPENSE_BIT(x)   ((x)&0x20)
 #define ISIS_MASK_LSP_ATT_DELAY_BIT(x)     ((x)&0x10)
-#define ISIS_MASK_LSP_ATT_DEFAULT_BIT(x)   ((x)&0x8)
 
 #define LLC_LEN 3
 
 /* we need to be aware of the fact we are using ISO sized
  * packets, using isomtu = mtu - LLC_LEN
  */
-#define ISO_MTU(C) \
-          ((if_is_broadcast ((C)->interface)) ? \
-           (C->interface->mtu - LLC_LEN) : (C->interface->mtu))
+#define ISO_MTU(C)                                                             \
+	((if_is_broadcast((C)->interface)) ? (C->interface->mtu - LLC_LEN)     \
+					   : (C->interface->mtu))
 
-#ifndef ETH_ALEN
-#define ETH_ALEN 6
-#endif
+#define MAX_LLC_LEN 0x5ff
+#define ETHERTYPE_EXT_LLC 0x8870
+
+static inline uint16_t isis_ethertype(size_t len)
+{
+	if (len > MAX_LLC_LEN)
+		return ETHERTYPE_EXT_LLC;
+	return len;
+}
 
 #endif /* ISIS_CONSTANTS_H */

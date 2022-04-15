@@ -23,109 +23,102 @@
 ## 02111-1307, USA.  
 ##
 
+use Getopt::Long;
+
 print <<EOF;
 #include <zebra.h>
+
 #include "command.h"
-#include "vtysh.h"
+#include "linklist.h"
+
+#include "vtysh/vtysh.h"
 
 EOF
 
-$ignore{'"interface IFNAME"'} = "ignore";
-$ignore{'"interface IFNAME " "vrf <0-65535>"'} = "ignore";
-$ignore{'"link-params"'} = "ignore";
-$ignore{'"ip vrf NAME"'} = "ignore";
-$ignore{'"router rip"'} = "ignore";
-$ignore{'"router ripng"'} = "ignore";
-$ignore{'"router ospf"'} = "ignore";
-$ignore{'"router ospf <0-65535>"'} = "ignore";
-$ignore{'"router ospf6"'} = "ignore";
-$ignore{'"router bgp " "<1-4294967295>"'} = "ignore";
-$ignore{'"router bgp " "<1-4294967295>" " view WORD"'} = "ignore";
-$ignore{'"router isis WORD"'} = "ignore";
-$ignore{'"router zebra"'} = "ignore";
-$ignore{'"address-family ipv4"'} = "ignore";
-$ignore{'"address-family ipv4 (unicast|multicast)"'} = "ignore";
-$ignore{'"address-family ipv6"'} = "ignore";
-$ignore{'"address-family ipv6 (unicast|multicast)"'} = "ignore";
-$ignore{'"address-family vpnv4"'} = "ignore";
-$ignore{'"address-family vpnv4 unicast"'} = "ignore";
-$ignore{'"address-family vpnv6"'} = "ignore";
-$ignore{'"address-family vpnv6 unicast"'} = "ignore";
-$ignore{'"address-family ipv4 vrf NAME"'} = "ignore";
-$ignore{'"address-family encap"'} = "ignore";
-$ignore{'"address-family encapv4"'} = "ignore";
-$ignore{'"address-family encapv6"'} = "ignore";
-$ignore{'"exit-address-family"'} = "ignore";
-$ignore{'"exit-link-params"'} = "ignore";
-$ignore{'"vnc defaults"'} = "ignore";
-$ignore{'"vnc nve-group NAME"'} = "ignore";
-$ignore{'"exit-vnc"'} = "ignore";
-$ignore{'"key chain WORD"'} = "ignore";
-$ignore{'"key <0-2147483647>"'} = "ignore";
-$ignore{'"route-map WORD (deny|permit) <1-65535>"'} = "ignore";
-$ignore{'"show route-map"'} = "ignore";
-$ignore{'"line vty"'} = "ignore";
-$ignore{'"who"'} = "ignore";
-$ignore{'"terminal monitor"'} = "ignore";
-$ignore{'"terminal no monitor"'} = "ignore";
-$ignore{'"show history"'} = "ignore";
-
 my $cli_stomp = 0;
 
-foreach (@ARGV) {
-    $file = $_;
+sub scan_file {
+    my ( $file, $fabricd) = @_;
 
-    open (FH, "@CPP@ -DHAVE_CONFIG_H -DVTYSH_EXTRACT_PL -DHAVE_IPV6 -I@top_builddir@ -I@srcdir@/ -I@srcdir@/.. -I@top_srcdir@/lib -I@top_builddir@/lib -I@top_srcdir@/isisd/topology @CPPFLAGS@ $file |");
+    $cppadd = $fabricd ? "-DFABRICD=1" : "";
+
+    $command_line = "@CPP@ -P -std=gnu11 -DHAVE_CONFIG_H -DVTYSH_EXTRACT_PL -Ivtysh/@top_builddir@ -Ivtysh/@top_srcdir@ -Ivtysh/@top_srcdir@/lib -Ivtysh/@top_builddir@/lib -Ivtysh/@top_srcdir@/bgpd -Ivtysh/@top_srcdir@/bgpd/rfapi @LUA_INCLUDE@ @CPPFLAGS@ @LIBYANG_CFLAGS@ $cppadd $file |";
+    open (FH, $command_line)
+	|| die "Open to the pipeline failed: $!\n\nCommand Issued:\n$command_line";
     local $/; undef $/;
     $line = <FH>;
-    close (FH);
+    if (!close (FH)) {
+	die "File: $file failed to compile:\n$!\nwhen extracting cli from it please inspect\n"
+    }
 
-    @defun = ($line =~ /(?:DEFUN|ALIAS)\s*\((.+?)\);?\s?\s?\n/sg);
+    # ?: makes a group non-capturing
+    @defun = ($line =~ /((?:DEFUN|DEFUN_HIDDEN|DEFUN_YANG|ALIAS|ALIAS_HIDDEN|ALIAS_YANG|DEFPY|DEFPY_HIDDEN|DEFPY_YANG)\s*\(.+?\));?\s?\s?\n/sg);
     @install = ($line =~ /install_element\s*\(\s*[0-9A-Z_]+,\s*&[^;]*;\s*\n/sg);
 
     # DEFUN process
     foreach (@defun) {
-	my (@defun_array);
-	@defun_array = split (/,/);
-	$defun_array[0] = '';
+        # $_ will contain the entire string including the DEFUN, ALIAS, etc.
+        # We need to extract the DEFUN/ALIAS from everything in ()s.
+        # The /s at the end tells the regex to allow . to match newlines.
+        $_ =~ /^(.*?)\s*\((.*)\)$/s;
 
+        my (@defun_array);
+        $defun_or_alias = $1;
+        @defun_array = split (/,/, $2);
 
-	# Actual input command string.
-	$str = "$defun_array[2]";
-	$str =~ s/^\s+//g;
-	$str =~ s/\s+$//g;
+        if ($defun_or_alias =~ /_HIDDEN/) {
+            $hidden = 1;
+        } else {
+            $hidden = 0;
+        }
 
-	# Get VTY command structure.  This is needed for searching
-	# install_element() command.
-	$cmd = "$defun_array[1]";
-	$cmd =~ s/^\s+//g;
-	$cmd =~ s/\s+$//g;
+        $defun_array[0] = '';
+
+        # Actual input command string.
+        $str = "$defun_array[2]";
+        $str =~ s/^\s+//g;
+        $str =~ s/\s+$//g;
+
+        # Get VTY command structure.  This is needed for searching
+        # install_element() command.
+        $cmd = "$defun_array[1]";
+        $cmd =~ s/^\s+//g;
+        $cmd =~ s/\s+$//g;
+
+        if ($fabricd) {
+            $cmd = "fabricd_" . $cmd;
+        }
 
         # $protocol is VTYSH_PROTO format for redirection of user input
         if ($file =~ /lib\/keychain\.c$/) {
-            $protocol = "VTYSH_RIPD";
+            $protocol = "VTYSH_RIPD|VTYSH_EIGRPD";
         }
-        elsif ($file =~ /lib\/routemap\.c$/) {
-            $protocol = "VTYSH_RIPD|VTYSH_RIPNGD|VTYSH_OSPFD|VTYSH_OSPF6D|VTYSH_BGPD|VTYSH_ZEBRA";
-        }
-        elsif ($file =~ /lib\/filter\.c$/) {
-            $protocol = "VTYSH_ALL";
+        elsif ($file =~ /lib\/routemap\.c$/ || $file =~ /lib\/routemap_cli\.c$/) {
+            $protocol = "VTYSH_RMAP";
         }
         elsif ($file =~ /lib\/vrf\.c$/) {
-            $protocol = "VTYSH_ZEBRA";
+            $protocol = "VTYSH_VRF";
         }
+        elsif ($file =~ /lib\/if\.c$/) {
+            $protocol = "VTYSH_INTERFACE";
+        }
+        elsif ($file =~ /lib\/(filter|filter_cli)\.c$/) {
+            $protocol = "VTYSH_ACL";
+        }
+        elsif ($file =~ /lib\/(lib|log)_vty\.c$/) {
+            $protocol = "VTYSH_ALL";
+        }
+	elsif ($file =~ /lib\/agentx\.c$/) {
+	    $protocol = "VTYSH_ISISD|VTYSH_RIPD|VTYSH_OSPFD|VTYSH_OSPF6D|VTYSH_BGPD|VTYSH_ZEBRA";
+	}
+	elsif ($file =~ /lib\/nexthop_group\.c$/) {
+	    $protocol = "VTYSH_NH_GROUP";
+	}
         elsif ($file =~ /lib\/plist\.c$/) {
             if ($defun_array[1] =~ m/ipv6/) {
-                $protocol = "VTYSH_RIPNGD|VTYSH_OSPF6D|VTYSH_BGPD|VTYSH_ZEBRA";
+                $protocol = "VTYSH_RIPNGD|VTYSH_OSPF6D|VTYSH_BGPD|VTYSH_ZEBRA|VTYSH_BABELD|VTYSH_ISISD|VTYSH_FABRICD";
             } else {
-                $protocol = "VTYSH_RIPD|VTYSH_OSPFD|VTYSH_BGPD|VTYSH_ZEBRA";
-            }
-        }
-        elsif ($file =~ /lib\/distribute\.c$/) {
-            if ($defun_array[1] =~ m/ipv6/) {
-                $protocol = "VTYSH_RIPNGD";
-            } else {
-                $protocol = "VTYSH_RIPD";
+                $protocol = "VTYSH_RIPD|VTYSH_OSPFD|VTYSH_BGPD|VTYSH_ZEBRA|VTYSH_PIMD|VTYSH_EIGRPD|VTYSH_BABELD|VTYSH_ISISD|VTYSH_FABRICD";
             }
         }
         elsif ($file =~ /lib\/if_rmap\.c$/) {
@@ -135,63 +128,111 @@ foreach (@ARGV) {
                 $protocol = "VTYSH_RIPD";
             }
         }
-        elsif ($file =~ /lib\/vty\.c$/) {
+	elsif ($file =~ /lib\/resolver\.c$/) {
+	    $protocol = "VTYSH_NHRPD|VTYSH_BGPD";
+	}
+	elsif ($file =~ /lib\/spf_backoff\.c$/) {
+	    $protocol = "VTYSH_ISISD";
+	}
+        elsif ($file =~ /lib\/(vty|thread)\.c$/) {
            $protocol = "VTYSH_ALL";
         }
-	else {
-           ($protocol) = ($file =~ /^.*\/([a-z0-9]+)\/[a-zA-Z0-9_\-]+\.c$/);
+        elsif ($file =~ /librfp\/.*\.c$/ || $file =~ /rfapi\/.*\.c$/) {
+           $protocol = "VTYSH_BGPD";
+        }
+        elsif ($fabricd) {
+           $protocol = "VTYSH_FABRICD";
+        }
+        else {
+           ($protocol) = ($file =~ /^(?:.*\/)?([a-z0-9]+)\/[a-zA-Z0-9_\-]+\.c$/);
            $protocol = "VTYSH_" . uc $protocol;
         }
 
-	# Append _vtysh to structure then build DEFUN again
-	$defun_array[1] = $cmd . "_vtysh";
-	$defun_body = join (", ", @defun_array);
+        # Append _vtysh to structure then build DEFUN again
+        $defun_array[1] = $cmd . "_vtysh";
+        $defun_body = join (", ", @defun_array);
 
 	# $cmd -> $str hash for lookup
-       if (exists($cmd2str{$cmd})) {
-           warn "Duplicate CLI Function: $cmd\n";
-           warn "\tFrom cli: $cmd2str{$cmd} to New cli: $str\n";
-           warn "\tOriginal Protocol: $cmd2proto{$cmd} to New Protocol: $protocol\n";
-	   $cli_stomp++;
-       }
-	$cmd2str{$cmd} = $str;
-	$cmd2defun{$cmd} = $defun_body;
-	$cmd2proto{$cmd} = $protocol;
+	if (exists($cmd2str{$cmd})) {
+	    warn "Duplicate CLI Function: $cmd\n";
+	    warn "\tFrom cli: $cmd2str{$cmd} to New cli: $str\n";
+	    warn "\tOriginal Protocol: $cmd2proto{$cmd} to New Protocol: $protocol\n";
+	    $cli_stomp++;
+	}
+        $cmd2str{$cmd} = $str;
+        $cmd2defun{$cmd} = $defun_body;
+        $cmd2proto{$cmd} = $protocol;
+        $cmd2hidden{$cmd} = $hidden;
     }
 
     # install_element() process
     foreach (@install) {
-	my (@element_array);
-	@element_array = split (/,/);
+        my (@element_array);
+        @element_array = split (/,/);
 
-	# Install node
-	$enode = $element_array[0];
-	$enode =~ s/^\s+//g;
-	$enode =~ s/\s+$//g;
-	($enode) = ($enode =~ /([0-9A-Z_]+)$/);
+        # Install node
+        $enode = $element_array[0];
+        $enode =~ s/^\s+//g;
+        $enode =~ s/\s+$//g;
+        ($enode) = ($enode =~ /([0-9A-Z_]+)$/);
 
-	# VTY command structure.
-	($ecmd) = ($element_array[1] =~ /&([^\)]+)/);
-	$ecmd =~ s/^\s+//g;
-	$ecmd =~ s/\s+$//g;
+        # VTY command structure.
+        ($ecmd) = ($element_array[1] =~ /&([^\)]+)/);
+        $ecmd =~ s/^\s+//g;
+        $ecmd =~ s/\s+$//g;
 
-	# Register $ecmd
-	if (defined ($cmd2str{$ecmd})
-	    && ! defined ($ignore{$cmd2str{$ecmd}})) {
-	    my ($key);
-	    $key = $enode . "," . $cmd2str{$ecmd};
-	    $ocmd{$key} = $ecmd;
-	    $odefun{$key} = $cmd2defun{$ecmd};
-	    push (@{$oproto{$key}}, $cmd2proto{$ecmd});
-	}
+        if ($fabricd) {
+            $ecmd = "fabricd_" . $ecmd;
+        }
+
+        # Register $ecmd
+        if (defined ($cmd2str{$ecmd})) {
+            my ($key);
+            $key = $enode . "," . $cmd2str{$ecmd};
+            $ocmd{$key} = $ecmd;
+            $odefun{$key} = $cmd2defun{$ecmd};
+
+            if ($cmd2hidden{$ecmd}) {
+                $defsh{$key} = "DEFSH_HIDDEN"
+            } else {
+                $defsh{$key} = "DEFSH"
+            }
+            push (@{$oproto{$key}}, $cmd2proto{$ecmd});
+        }
     }
 }
 
-my $bad_cli_stomps = 102;
-# Currently we have $bad_cli_stomps.  This was determined by
-# running this script and counting up the collisions from what
-# was returned.
-#
+my $have_isisd = 0;
+my $have_fabricd = 0;
+
+GetOptions('have-isisd' => \$have_isisd, 'have-fabricd' => \$have_fabricd);
+
+foreach (@ARGV) {
+    if (/(^|\/)isisd\//) {
+        # We scan all the IS-IS files twice, once for isisd,
+        # once for fabricd. Exceptions are made for the files
+        # that are not shared between the two.
+        if (/isis_vty_isisd.c/) {
+            if ( $have_isisd ) {
+                scan_file($_, 0);
+            }
+        } elsif (/isis_vty_fabricd.c/) {
+            if ( $have_fabricd ) {
+                scan_file($_, 1);
+            }
+        } else {
+            if ( $have_isisd ) {
+                scan_file($_, 0);
+            }
+            if ( $have_fabricd ) {
+                scan_file($_, 1);
+            }
+        }
+    } else {
+        scan_file($_, 0);
+    }
+}
+
 # When we have cli commands that map to the same function name, we
 # can introduce subtle bugs due to code not being called when
 # we think it is.
@@ -199,13 +240,9 @@ my $bad_cli_stomps = 102;
 # If extract.pl fails with a error message and you've been
 # modifying the cli, then go back and fix your code to
 # not have cli command function collisions.
-#
-# If you've removed a cli overwrite, you can safely subtract
-# one from $bad_cli_stomps.  If you've added to the problem
 # please fix your code before submittal
-if ($cli_stomp != $bad_cli_stomps) {
-    warn "Expected $bad_cli_stomps command line stomps, but got $cli_stomp instead\n";
-    exit $cli_stomp;
+if ($cli_stomp) {
+    warn "There are $cli_stomp command line stomps\n";
 }
 
 # Check finaly alive $cmd;
@@ -216,25 +253,24 @@ foreach (keys %odefun) {
 }
 
 # Output DEFSH
-foreach (keys %live) {
+foreach (sort keys %live) {
     my ($proto);
     my ($key);
     $key = $live{$_};
     $proto = join ("|", @{$oproto{$key}});
-    printf "DEFSH ($proto$odefun{$key})\n\n";
+    printf "$defsh{$key} ($proto$odefun{$key})\n\n";
 }
 
 # Output install_element
 print <<EOF;
-void
-vtysh_init_cmd (void)
+void vtysh_init_cmd(void)
 {
 EOF
 
-foreach (keys %odefun) {
+foreach (sort keys %odefun) {
     my ($node, $str) = (split (/,/));
     $cmd = $ocmd{$_};
-    $cmd =~ s/_cmd/_cmd_vtysh/;
+    $cmd =~ s/_cmd$/_cmd_vtysh/;
     printf "  install_element ($node, &$cmd);\n";
 }
 

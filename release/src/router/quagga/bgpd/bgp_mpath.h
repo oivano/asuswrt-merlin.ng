@@ -1,5 +1,4 @@
-/* $QuaggaId: Format:%an, %ai, %h$ $
- *
+/*
  * BGP Multipath
  * Copyright (C) 2010 Google Inc.
  *
@@ -15,68 +14,80 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with Quagga; see the file COPYING.  If not, write to the Free
- * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * You should have received a copy of the GNU General Public License along
+ * with this program; see the file COPYING; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
 #ifndef _QUAGGA_BGP_MPATH_H
 #define _QUAGGA_BGP_MPATH_H
 
-/* BGP default maximum-paths */
-#define BGP_DEFAULT_MAXPATHS 1
-
-/* Supplemental information linked to bgp_info for keeping track of
+/* Supplemental information linked to bgp_path_info for keeping track of
  * multipath selections, lazily allocated to save memory
  */
-struct bgp_info_mpath
-{
-  /* Points to the first multipath (on bestpath) or the next multipath */
-  struct bgp_info_mpath *mp_next;
+struct bgp_path_info_mpath {
+	/* Points to the first multipath (on bestpath) or the next multipath */
+	struct bgp_path_info_mpath *mp_next;
 
-  /* Points to the previous multipath or NULL on bestpath */
-  struct bgp_info_mpath *mp_prev;
+	/* Points to the previous multipath or NULL on bestpath */
+	struct bgp_path_info_mpath *mp_prev;
 
-  /* Points to bgp_info associated with this multipath info */
-  struct bgp_info *mp_info;
+	/* Points to bgp_path_info associated with this multipath info */
+	struct bgp_path_info *mp_info;
 
-  /* When attached to best path, the number of selected multipaths */
-  u_int32_t mp_count;
+	/* When attached to best path, the number of selected multipaths */
+	uint16_t mp_count;
 
-  /* Aggregated attribute for advertising multipath route */
-  struct attr *mp_attr;
+	/* Flags - relevant as noted. */
+	uint16_t mp_flags;
+#define BGP_MP_LB_PRESENT 0x1 /* Link-bandwidth present for >= 1 path */
+#define BGP_MP_LB_ALL 0x2 /* Link-bandwidth present for all multipaths */
+
+	/* Aggregated attribute for advertising multipath route */
+	struct attr *mp_attr;
+
+	/* Cumulative bandiwdth of all multipaths - attached to best path. */
+	uint64_t cum_bw;
 };
 
 /* Functions to support maximum-paths configuration */
-extern int bgp_maximum_paths_set (struct bgp *, afi_t, safi_t, int, u_int16_t);
-extern int bgp_maximum_paths_unset (struct bgp *, afi_t, safi_t, int);
-bool bgp_mpath_is_configured_sort (struct bgp *, bgp_peer_sort_t, afi_t, safi_t);
-bool bgp_mpath_is_configured (struct bgp *, afi_t, safi_t);
+extern int bgp_maximum_paths_set(struct bgp *, afi_t, safi_t, int, uint16_t,
+				 uint16_t);
+extern int bgp_maximum_paths_unset(struct bgp *, afi_t, safi_t, int);
 
 /* Functions used by bgp_best_selection to record current
  * multipath selections
  */
-extern void bgp_mp_list_init (struct list *);
-extern void bgp_mp_list_clear (struct list *);
-extern void bgp_mp_list_add (struct list *, struct bgp_info *);
-extern void bgp_mp_dmed_deselect (struct bgp_info *);
-extern void bgp_info_mpath_update (struct bgp_node *, struct bgp_info *,
-                                   struct bgp_info *, struct list *,
-                                   afi_t, safi_t);
-extern void bgp_info_mpath_aggregate_update (struct bgp_info *,
-                                             struct bgp_info *);
+extern int bgp_path_info_nexthop_cmp(struct bgp_path_info *bpi1,
+				     struct bgp_path_info *bpi2);
+extern void bgp_mp_list_init(struct list *);
+extern void bgp_mp_list_clear(struct list *);
+extern void bgp_mp_list_add(struct list *mp_list, struct bgp_path_info *mpinfo);
+extern void bgp_mp_dmed_deselect(struct bgp_path_info *dmed_best);
+extern void bgp_path_info_mpath_update(struct bgp *bgp, struct bgp_dest *dest,
+				       struct bgp_path_info *new_best,
+				       struct bgp_path_info *old_best,
+				       struct list *mp_list,
+				       struct bgp_maxpaths_cfg *mpath_cfg);
+extern void
+bgp_path_info_mpath_aggregate_update(struct bgp_path_info *new_best,
+				     struct bgp_path_info *old_best);
 
-/* Unlink and free multipath information associated with a bgp_info */
-extern void bgp_info_mpath_dequeue (struct bgp_info *);
-extern void bgp_info_mpath_free (struct bgp_info_mpath **);
+/* Unlink and free multipath information associated with a bgp_path_info */
+extern void bgp_path_info_mpath_dequeue(struct bgp_path_info *path);
+extern void bgp_path_info_mpath_free(struct bgp_path_info_mpath **mpath);
 
 /* Walk list of multipaths associated with a best path */
-extern struct bgp_info *bgp_info_mpath_first (struct bgp_info *);
-extern struct bgp_info *bgp_info_mpath_next (struct bgp_info *);
+extern struct bgp_path_info *
+bgp_path_info_mpath_first(struct bgp_path_info *path);
+extern struct bgp_path_info *
+bgp_path_info_mpath_next(struct bgp_path_info *path);
 
 /* Accessors for multipath information */
-extern u_int32_t bgp_info_mpath_count (struct bgp_info *);
-extern struct attr *bgp_info_mpath_attr (struct bgp_info *);
+extern uint32_t bgp_path_info_mpath_count(struct bgp_path_info *path);
+extern struct attr *bgp_path_info_mpath_attr(struct bgp_path_info *path);
+extern bool bgp_path_info_mpath_chkwtd(struct bgp *bgp,
+				       struct bgp_path_info *path);
+extern uint64_t bgp_path_info_mpath_cumbw(struct bgp_path_info *path);
 
 #endif /* _QUAGGA_BGP_MPATH_H */

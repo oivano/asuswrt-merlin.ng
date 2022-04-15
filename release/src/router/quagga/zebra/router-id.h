@@ -15,10 +15,9 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with GNU Zebra; see the file COPYING.  If not, write to the Free
- * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * You should have received a copy of the GNU General Public License along
+ * with this program; see the file COPYING; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
 #ifndef _ROUTER_ID_H_
@@ -31,11 +30,19 @@
 #include "zclient.h"
 #include "if.h"
 
-extern void router_id_add_address(struct connected *);
-extern void router_id_del_address(struct connected *);
-extern void router_id_init(struct zebra_vrf *);
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+extern void router_id_add_address(struct connected *c);
+extern void router_id_del_address(struct connected *c);
+extern void router_id_init(struct zebra_vrf *zvrf);
 extern void router_id_cmd_init(void);
-extern void router_id_write(struct vty *);
-extern void router_id_get(struct prefix *, vrf_id_t);
+extern void router_id_write(struct vty *vty, struct zebra_vrf *zvrf);
+extern int router_id_get(afi_t afi, struct prefix *p, struct zebra_vrf *zvrf);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

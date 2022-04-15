@@ -14,18 +14,61 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with GNU Zebra; see the file COPYING.  If not, write to the Free
- * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * You should have received a copy of the GNU General Public License along
+ * with this program; see the file COPYING; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
 #include <zebra.h>
 
-#include "zebra/zserv.h"
-#include "rt_netlink.h"
+#ifdef GNU_LINUX
 
-void route_read (struct zebra_vrf *zvrf)
+#include "vty.h"
+#include "zebra/rt.h"
+#include "zebra/zebra_pbr.h"
+#include "zebra/rt_netlink.h"
+#include "zebra/rule_netlink.h"
+
+void route_read(struct zebra_ns *zns)
 {
-  netlink_route_read (zvrf);
+	netlink_route_read(zns);
 }
+
+void macfdb_read(struct zebra_ns *zns)
+{
+	netlink_macfdb_read(zns);
+}
+
+void macfdb_read_for_bridge(struct zebra_ns *zns, struct interface *ifp,
+			    struct interface *br_if)
+{
+	netlink_macfdb_read_for_bridge(zns, ifp, br_if);
+}
+
+void macfdb_read_specific_mac(struct zebra_ns *zns, struct interface *br_if,
+			      const struct ethaddr *mac, vlanid_t vid)
+{
+	netlink_macfdb_read_specific_mac(zns, br_if, mac, vid);
+}
+
+void neigh_read(struct zebra_ns *zns)
+{
+	netlink_neigh_read(zns);
+}
+
+void neigh_read_for_vlan(struct zebra_ns *zns, struct interface *vlan_if)
+{
+	netlink_neigh_read_for_vlan(zns, vlan_if);
+}
+
+void neigh_read_specific_ip(const struct ipaddr *ip, struct interface *vlan_if)
+{
+	netlink_neigh_read_specific_ip(ip, vlan_if);
+}
+
+void kernel_read_pbr_rules(struct zebra_ns *zns)
+{
+	netlink_rules_read(zns);
+}
+
+#endif /* GNU_LINUX */

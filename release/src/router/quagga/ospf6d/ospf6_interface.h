@@ -13,107 +13,147 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with GNU Zebra; see the file COPYING.  If not, write to the 
- * Free Software Foundation, Inc., 59 Temple Place - Suite 330, 
- * Boston, MA 02111-1307, USA.  
+ * You should have received a copy of the GNU General Public License along
+ * with this program; see the file COPYING; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
 #ifndef OSPF6_INTERFACE_H
 #define OSPF6_INTERFACE_H
 
+#include "qobj.h"
+#include "hook.h"
 #include "if.h"
 
 /* Debug option */
 extern unsigned char conf_debug_ospf6_interface;
-#define OSPF6_DEBUG_INTERFACE_ON() \
-  (conf_debug_ospf6_interface = 1)
-#define OSPF6_DEBUG_INTERFACE_OFF() \
-  (conf_debug_ospf6_interface = 0)
-#define IS_OSPF6_DEBUG_INTERFACE \
-  (conf_debug_ospf6_interface)
+#define OSPF6_DEBUG_INTERFACE_ON() (conf_debug_ospf6_interface = 1)
+#define OSPF6_DEBUG_INTERFACE_OFF() (conf_debug_ospf6_interface = 0)
+#define IS_OSPF6_DEBUG_INTERFACE (conf_debug_ospf6_interface)
 
 /* Interface structure */
-struct ospf6_interface
-{
-  /* IF info from zebra */
-  struct interface *interface;
+struct ospf6_interface {
+	/* IF info from zebra */
+	struct interface *interface;
 
-  /* back pointer */
-  struct ospf6_area *area;
+	/* back pointer */
+	struct ospf6_area *area;
 
-  /* list of ospf6 neighbor */
-  struct list *neighbor_list;
+	uint32_t area_id;
+	int area_id_format;
 
-  /* linklocal address of this I/F */
-  struct in6_addr *linklocal_addr;
+	/* list of ospf6 neighbor */
+	struct list *neighbor_list;
 
-  /* Interface ID; use interface->ifindex */
+	/* linklocal address of this I/F */
+	struct in6_addr *linklocal_addr;
 
-  /* ospf6 instance id */
-  u_char instance_id;
+	/* Interface ID; use interface->ifindex */
 
-  /* I/F transmission delay */
-  u_int32_t transdelay;
+	/* ospf6 instance id */
+	uint8_t instance_id;
 
-  /* Network Type */
-  u_char type;
+	/* I/F transmission delay */
+	uint32_t transdelay;
 
-  /* Router Priority */
-  u_char priority;
+	/* Packet send buffer. */
+	struct ospf6_fifo *obuf; /* Output queue */
 
-  /* Time Interval */
-  u_int16_t hello_interval;
-  u_int16_t dead_interval;
-  u_int32_t rxmt_interval;
+	/* Network Type */
+	uint8_t type;
+	bool type_cfg;
 
-  u_int32_t state_change;
+	/* Router Priority */
+	uint8_t priority;
 
-  /* Cost */
-  u_int32_t cost;
+	/* Time Interval */
+	uint16_t hello_interval;
+	uint16_t dead_interval;
+	uint32_t rxmt_interval;
 
-  /* I/F MTU */
-  u_int32_t ifmtu;
+	uint32_t state_change;
 
-  /* Interface State */
-  u_char state;
+	/* Cost */
+	uint32_t cost;
 
-  /* Interface socket setting trial counter, resets on success */
-  u_char sso_try_cnt;
+	/* I/F MTU */
+	uint32_t ifmtu;
 
-  /* OSPF6 Interface flag */
-  char flag;
+	/* Configured MTU */
+	uint32_t c_ifmtu;
 
-  /* MTU mismatch check */
-  u_char mtu_ignore;
+	/* Interface State */
+	uint8_t state;
 
-  /* Decision of DR Election */
-  u_int32_t drouter;
-  u_int32_t bdrouter;
-  u_int32_t prev_drouter;
-  u_int32_t prev_bdrouter;
+	/* Interface socket setting trial counter, resets on success */
+	uint8_t sso_try_cnt;
+	struct thread *thread_sso;
 
-  /* Linklocal LSA Database: includes Link-LSA */
-  struct ospf6_lsdb *lsdb;
-  struct ospf6_lsdb *lsdb_self;
+	/* OSPF6 Interface flag */
+	char flag;
 
-  struct ospf6_lsdb *lsupdate_list;
-  struct ospf6_lsdb *lsack_list;
+	/* MTU mismatch check */
+	uint8_t mtu_ignore;
 
-  /* Ongoing Tasks */
-  struct thread *thread_send_hello;
-  struct thread *thread_send_lsupdate;
-  struct thread *thread_send_lsack;
+	/* Decision of DR Election */
+	in_addr_t drouter;
+	in_addr_t bdrouter;
+	in_addr_t prev_drouter;
+	in_addr_t prev_bdrouter;
 
-  struct thread *thread_network_lsa;
-  struct thread *thread_link_lsa;
-  struct thread *thread_intra_prefix_lsa;
+	/* Linklocal LSA Database: includes Link-LSA */
+	struct ospf6_lsdb *lsdb;
+	struct ospf6_lsdb *lsdb_self;
 
-  struct ospf6_route_table *route_connected;
+	struct ospf6_lsdb *lsupdate_list;
+	struct ospf6_lsdb *lsack_list;
 
-  /* prefix-list name to filter connected prefix */
-  char *plist_name;
+	/* Ongoing Tasks */
+	struct thread *thread_send_hello;
+	struct thread *thread_send_lsupdate;
+	struct thread *thread_send_lsack;
+
+	struct thread *thread_network_lsa;
+	struct thread *thread_link_lsa;
+	struct thread *thread_intra_prefix_lsa;
+	struct thread *thread_as_extern_lsa;
+	struct thread *thread_wait_timer;
+
+	struct ospf6_route_table *route_connected;
+
+	/* last hello sent */
+	struct timeval last_hello;
+
+	/* prefix-list name to filter connected prefix */
+	char *plist_name;
+
+	/* BFD information */
+	struct {
+		bool enabled;
+		uint8_t detection_multiplier;
+		uint32_t min_rx;
+		uint32_t min_tx;
+		char *profile;
+	} bfd_config;
+
+	int on_write_q;
+
+	/* Statistics Fields */
+	uint32_t hello_in;
+	uint32_t hello_out;
+	uint32_t db_desc_in;
+	uint32_t db_desc_out;
+	uint32_t ls_req_in;
+	uint32_t ls_req_out;
+	uint32_t ls_upd_in;
+	uint32_t ls_upd_out;
+	uint32_t ls_ack_in;
+	uint32_t ls_ack_out;
+	uint32_t discarded;
+
+	QOBJ_FIELDS;
 };
+DECLARE_QOBJ_TYPE(ospf6_interface);
 
 /* interface state */
 #define OSPF6_INTERFACE_NONE             0
@@ -126,7 +166,7 @@ struct ospf6_interface
 #define OSPF6_INTERFACE_DR               7
 #define OSPF6_INTERFACE_MAX              8
 
-extern const char *ospf6_interface_state_str[];
+extern const char *const ospf6_interface_state_str[];
 
 /* flags */
 #define OSPF6_INTERFACE_DISABLE      0x01
@@ -141,37 +181,48 @@ extern const char *ospf6_interface_state_str[];
 #define OSPF6_INTERFACE_PRIORITY       1
 #define OSPF6_INTERFACE_TRANSDELAY     1
 #define OSPF6_INTERFACE_INSTANCE_ID    0
-#define OSPF6_INTERFACE_BANDWIDTH      10000   /* Kbps */
-#define OSPF6_REFERENCE_BANDWIDTH      100000  /* Kbps */
+#define OSPF6_INTERFACE_BANDWIDTH      10000   /* Mbps */
+#define OSPF6_REFERENCE_BANDWIDTH      100000  /* Mbps */
 #define OSPF6_INTERFACE_SSO_RETRY_INT  1
 #define OSPF6_INTERFACE_SSO_RETRY_MAX  5
 
-
 /* Function Prototypes */
 
-extern struct ospf6_interface *ospf6_interface_lookup_by_ifindex (int);
-extern struct ospf6_interface *ospf6_interface_create (struct interface *);
-extern void ospf6_interface_delete (struct ospf6_interface *);
+extern void ospf6_interface_start(struct ospf6_interface *oi);
+extern void ospf6_interface_stop(struct ospf6_interface *oi);
 
-extern void ospf6_interface_enable (struct ospf6_interface *);
-extern void ospf6_interface_disable (struct ospf6_interface *);
+extern struct ospf6_interface *
+ospf6_interface_lookup_by_ifindex(ifindex_t, vrf_id_t vrf_id);
+extern struct ospf6_interface *ospf6_interface_create(struct interface *ifp);
+extern void ospf6_interface_delete(struct ospf6_interface *oi);
 
-extern void ospf6_interface_if_add (struct interface *);
-extern void ospf6_interface_state_update (struct interface *);
-extern void ospf6_interface_connected_route_update (struct interface *);
+extern void ospf6_interface_enable(struct ospf6_interface *oi);
+extern void ospf6_interface_disable(struct ospf6_interface *oi);
+
+extern void ospf6_interface_state_update(struct interface *ifp);
+extern void ospf6_interface_connected_route_update(struct interface *ifp);
+extern struct in6_addr *
+ospf6_interface_get_global_address(struct interface *ifp);
 
 /* interface event */
-extern int interface_up (struct thread *);
-extern int interface_down (struct thread *);
-extern int wait_timer (struct thread *);
-extern int backup_seen (struct thread *);
-extern int neighbor_change (struct thread *);
+extern int interface_up(struct thread *thread);
+extern int interface_down(struct thread *thread);
+extern int wait_timer(struct thread *thread);
+extern int backup_seen(struct thread *thread);
+extern int neighbor_change(struct thread *thread);
 
-extern void ospf6_interface_init (void);
+extern void ospf6_interface_init(void);
+extern void ospf6_interface_clear(struct interface *ifp);
 
-extern void install_element_ospf6_clear_interface (void);
+extern void install_element_ospf6_clear_interface(void);
 
-extern int config_write_ospf6_debug_interface (struct vty *vty);
-extern void install_element_ospf6_debug_interface (void);
+extern int config_write_ospf6_debug_interface(struct vty *vty);
+extern void install_element_ospf6_debug_interface(void);
+extern int ospf6_interface_neighbor_count(struct ospf6_interface *oi);
+extern uint8_t dr_election(struct ospf6_interface *oi);
+
+DECLARE_HOOK(ospf6_interface_change,
+	     (struct ospf6_interface * oi, int state, int old_state),
+	     (oi, state, old_state));
 
 #endif /* OSPF6_INTERFACE_H */

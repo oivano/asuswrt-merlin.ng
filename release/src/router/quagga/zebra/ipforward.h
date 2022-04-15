@@ -13,23 +13,28 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with GNU Zebra; see the file COPYING.  If not, write to the 
- * Free Software Foundation, Inc., 59 Temple Place - Suite 330, 
- * Boston, MA 02111-1307, USA.  
+ * You should have received a copy of the GNU General Public License along
+ * with this program; see the file COPYING; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
 #ifndef _ZEBRA_IPFORWARD_H
 #define _ZEBRA_IPFORWARD_H
 
-extern int ipforward (void);
-extern int ipforward_on (void);
-extern int ipforward_off (void);
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-#ifdef HAVE_IPV6
-extern int ipforward_ipv6 (void);
-extern int ipforward_ipv6_on (void);
-extern int ipforward_ipv6_off (void);
-#endif /* HAVE_IPV6 */
+extern int ipforward(void);
+extern int ipforward_on(void);
+extern int ipforward_off(void);
+
+extern int ipforward_ipv6(void);
+extern int ipforward_ipv6_on(void);
+extern int ipforward_ipv6_off(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _ZEBRA_IPFORWARD_H */

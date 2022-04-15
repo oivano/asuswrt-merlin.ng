@@ -25,7 +25,11 @@
 #define _ZEBRA_VERSION_H
 
 #ifdef GIT_VERSION
-#include "gitversion.h"
+#include "lib/gitversion.h"
+#endif
+
+#ifdef __cplusplus
+extern "C" {
 #endif
 
 #ifndef GIT_SUFFIX
@@ -35,22 +39,27 @@
 #define GIT_INFO ""
 #endif
 
-#define QUAGGA_PROGNAME   "@PACKAGE_NAME@"
+#define FRR_PAM_NAME    "@PACKAGE_NAME@"
+#define FRR_SMUX_NAME   "@PACKAGE_NAME@"
+#define FRR_PTM_NAME    "@PACKAGE_NAME@"
 
-#define QUAGGA_VERSION     "@PACKAGE_VERSION@" GIT_SUFFIX
+#define FRR_FULL_NAME   "FRRouting"
+#define FRR_VERSION     "@PACKAGE_VERSION@" GIT_SUFFIX
+#define FRR_VER_SHORT   "@PACKAGE_VERSION@"
+#define FRR_BUG_ADDRESS "@PACKAGE_BUGREPORT@"
+#define FRR_COPYRIGHT   "Copyright 1996-2005 Kunihiro Ishiguro, et al."
+#define FRR_CONFIG_ARGS "@CONFIG_ARGS@"
 
-#define ZEBRA_BUG_ADDRESS "@PACKAGE_BUGREPORT@"
-
-#define QUAGGA_URL "http://www.quagga.net"
-
-#define QUAGGA_COPYRIGHT "Copyright 1996-2005 Kunihiro Ishiguro, et al."
-
-#define QUAGGA_CONFIG_ARGS "@CONFIG_ARGS@"
+#define FRR_DEFAULT_MOTD \
+	"\n" \
+	"Hello, this is " FRR_FULL_NAME " (version " FRR_VERSION ").\n" \
+	FRR_COPYRIGHT "\n" \
+	GIT_INFO "\n"
 
 pid_t pid_output (const char *);
 
-#ifndef HAVE_DAEMON
-int daemon(int, int);
+#ifdef __cplusplus
+}
 #endif
 
 #endif /* _ZEBRA_VERSION_H */

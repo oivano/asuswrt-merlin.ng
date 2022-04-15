@@ -10,13 +10,12 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with Quagga; see the file COPYING.  If not, write to the Free
- * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * You should have received a copy of the GNU General Public License along
+ * with this program; see the file COPYING; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-/* 
+/*
  * Simple program to demonstrate how OSPF API can be used. This
  * application retrieves the LSDB from the OSPF daemon and then
  * originates, updates and finally deletes an application-specific
@@ -31,6 +30,10 @@
 #include "prefix.h" /* needed by ospf_asbr.h */
 #include "privs.h"
 #include "log.h"
+#include "lib/printfrr.h"
+
+/* work around gcc bug 69981, disable MTYPEs in libospf */
+#define _QUAGGA_OSPF_MEMORY_H
 
 #include "ospfd/ospfd.h"
 #include "ospfd/ospf_asbr.h"
@@ -39,20 +42,17 @@
 #include "ospfd/ospf_api.h"
 #include "ospf_apiclient.h"
 
-/* privileges struct. 
+/* privileges struct.
  * set cap_num_* and uid/gid to nothing to use NULL privs
  * as ospfapiclient links in libospf.a which uses privs.
  */
-struct zebra_privs_t ospfd_privs =
-{
-  .user = NULL,
-  .group = NULL,
-  .cap_num_p = 0,
-  .cap_num_i = 0
-};
+struct zebra_privs_t ospfd_privs = {.user = NULL,
+				    .group = NULL,
+				    .cap_num_p = 0,
+				    .cap_num_i = 0};
 
 /* The following includes are specific to this application. For
-   example it uses threads from libzebra, however your application is
+   example it uses threads from libfrr, however your application is
    free to use any thread library (like pthreads). */
 
 #include "ospfd/ospf_dump.h" /* for ospf_lsa_header_dump */
@@ -71,276 +71,276 @@ struct ospf_apiclient *oclient;
 char **args;
 
 /* Our opaque LSAs have the following format. */
-struct my_opaque_lsa
-{
-  struct lsa_header hdr; /* include common LSA header */
-  u_char data[4]; /* our own data format then follows here */
+struct my_opaque_lsa {
+	struct lsa_header hdr; /* include common LSA header */
+	uint8_t data[4];       /* our own data format then follows here */
 };
 
 
 /* ---------------------------------------------------------
- * Threads for asynchronous messages and LSA update/delete 
+ * Threads for asynchronous messages and LSA update/delete
  * ---------------------------------------------------------
  */
 
-static int
-lsa_delete (struct thread *t)
+static int lsa_delete(struct thread *t)
 {
-  struct ospf_apiclient *oclient;
-  struct in_addr area_id;
-  int rc;
+	struct ospf_apiclient *oclient;
+	struct in_addr area_id;
+	int rc;
 
-  oclient = THREAD_ARG (t);
+	oclient = THREAD_ARG(t);
 
-  inet_aton (args[6], &area_id);
+	rc = inet_aton(args[6], &area_id);
+	if (rc <= 0) {
+		printf("Address Specified: %s is invalid\n", args[6]);
+		return rc;
+	}
 
-  printf ("Deleting LSA... ");
-  rc = ospf_apiclient_lsa_delete (oclient, 
-				  area_id, 
-				  atoi (args[2]),       /* lsa type */
-				  atoi (args[3]),	/* opaque type */
-				  atoi (args[4]));	/* opaque ID */
-  printf ("done, return code is = %d\n", rc);
-  return rc;
+	printf("Deleting LSA... ");
+	rc = ospf_apiclient_lsa_delete(oclient, area_id,
+				       atoi(args[2]),  /* lsa type */
+				       atoi(args[3]),  /* opaque type */
+				       atoi(args[4])); /* opaque ID */
+	printf("done, return code is = %d\n", rc);
+	return rc;
 }
 
-static int
-lsa_inject (struct thread *t)
+static int lsa_inject(struct thread *t)
 {
-  struct ospf_apiclient *cl;
-  struct in_addr ifaddr;
-  struct in_addr area_id;
-  u_char lsa_type;
-  u_char opaque_type;
-  u_int32_t opaque_id;
-  void *opaquedata;
-  int opaquelen;
+	struct ospf_apiclient *cl;
+	struct in_addr ifaddr;
+	struct in_addr area_id;
+	uint8_t lsa_type;
+	uint8_t opaque_type;
+	uint32_t opaque_id;
+	void *opaquedata;
+	int opaquelen;
 
-  static u_int32_t counter = 1;	/* Incremented each time invoked */
-  int rc;
+	static uint32_t counter = 1; /* Incremented each time invoked */
+	int rc;
 
-  cl = THREAD_ARG (t);
+	cl = THREAD_ARG(t);
 
-  inet_aton (args[5], &ifaddr);
-  inet_aton (args[6], &area_id);
-  lsa_type = atoi (args[2]);
-  opaque_type = atoi (args[3]);
-  opaque_id = atoi (args[4]);
-  opaquedata = &counter;
-  opaquelen = sizeof (u_int32_t);
+	rc = inet_aton(args[5], &ifaddr);
+	if (rc <= 0) {
+		printf("Ifaddr specified %s is invalid\n", args[5]);
+		return rc;
+	}
 
-  printf ("Originating/updating LSA with counter=%d... ", counter);
-  rc = ospf_apiclient_lsa_originate(cl, ifaddr, area_id,
-				    lsa_type,
-				    opaque_type, opaque_id,
-				    opaquedata, opaquelen);
+	rc = inet_aton(args[6], &area_id);
+	if (rc <= 0) {
+		printf("Area ID specified %s is invalid\n", args[6]);
+		return rc;
+	}
+	lsa_type = atoi(args[2]);
+	opaque_type = atoi(args[3]);
+	opaque_id = atoi(args[4]);
+	opaquedata = &counter;
+	opaquelen = sizeof(uint32_t);
 
-  printf ("done, return code is %d\n", rc);
+	printf("Originating/updating LSA with counter=%d... ", counter);
+	rc = ospf_apiclient_lsa_originate(cl, ifaddr, area_id, lsa_type,
+					  opaque_type, opaque_id, opaquedata,
+					  opaquelen);
 
-  counter++;
+	printf("done, return code is %d\n", rc);
 
-  return 0;
+	counter++;
+
+	return 0;
 }
 
 
 /* This thread handles asynchronous messages coming in from the OSPF
    API server */
-static int
-lsa_read (struct thread *thread)
+static int lsa_read(struct thread *thread)
 {
-  struct ospf_apiclient *oclient;
-  int fd;
-  int ret;
+	struct ospf_apiclient *oclient;
+	int fd;
+	int ret;
 
-  printf ("lsa_read called\n");
+	printf("lsa_read called\n");
 
-  oclient = THREAD_ARG (thread);
-  fd = THREAD_FD (thread);
+	oclient = THREAD_ARG(thread);
+	fd = THREAD_FD(thread);
 
-  /* Handle asynchronous message */
-  ret = ospf_apiclient_handle_async (oclient);
-  if (ret < 0) {
-    printf ("Connection closed, exiting...");
-    exit(0);
-  }
+	/* Handle asynchronous message */
+	ret = ospf_apiclient_handle_async(oclient);
+	if (ret < 0) {
+		printf("Connection closed, exiting...");
+		exit(0);
+	}
 
-  /* Reschedule read thread */
-  thread_add_read (master, lsa_read, oclient, fd);
+	/* Reschedule read thread */
+	thread_add_read(master, lsa_read, oclient, fd, NULL);
 
-  return 0;
+	return 0;
 }
 
 /* ---------------------------------------------------------
- * Callback functions for asynchronous events 
+ * Callback functions for asynchronous events
  * ---------------------------------------------------------
  */
 
-static void
-lsa_update_callback (struct in_addr ifaddr, struct in_addr area_id,
-		     u_char is_self_originated,
-		     struct lsa_header *lsa)
+static void lsa_update_callback(struct in_addr ifaddr, struct in_addr area_id,
+				uint8_t is_self_originated,
+				struct lsa_header *lsa)
 {
-  printf ("lsa_update_callback: ");
-  printf ("ifaddr: %s ", inet_ntoa (ifaddr));
-  printf ("area: %s\n", inet_ntoa (area_id));
-  printf ("is_self_origin: %u\n", is_self_originated);
+	printf("lsa_update_callback: ");
+	printfrr("ifaddr: %pI4 ", &ifaddr);
+	printfrr("area: %pI4\n", &area_id);
+	printf("is_self_origin: %u\n", is_self_originated);
 
-  /* It is important to note that lsa_header does indeed include the
-     header and the LSA payload. To access the payload, first check
-     the LSA type and then typecast lsa into the corresponding type,
-     e.g.:
-     
-     if (lsa->type == OSPF_ROUTER_LSA) {
-       struct router_lsa *rl = (struct router_lsa) lsa;
-       ...
-       u_int16_t links = rl->links;
-       ...
-    }
-  */
-       
-  ospf_lsa_header_dump (lsa);
+	/* It is important to note that lsa_header does indeed include the
+	   header and the LSA payload. To access the payload, first check
+	   the LSA type and then typecast lsa into the corresponding type,
+	   e.g.:
+
+	   if (lsa->type == OSPF_ROUTER_LSA) {
+	     struct router_lsa *rl = (struct router_lsa) lsa;
+	     ...
+	     uint16_t links = rl->links;
+	     ...
+	  }
+	*/
+
+	ospf_lsa_header_dump(lsa);
 }
 
-static void
-lsa_delete_callback (struct in_addr ifaddr, struct in_addr area_id,
-		     u_char is_self_originated,
-		     struct lsa_header *lsa)
+static void lsa_delete_callback(struct in_addr ifaddr, struct in_addr area_id,
+				uint8_t is_self_originated,
+				struct lsa_header *lsa)
 {
-  printf ("lsa_delete_callback: ");
-  printf ("ifaddr: %s ", inet_ntoa (ifaddr));
-  printf ("area: %s\n", inet_ntoa (area_id));
-  printf ("is_self_origin: %u\n", is_self_originated);
+	printf("lsa_delete_callback: ");
+	printf("ifaddr: %pI4 ", &ifaddr);
+	printf("area: %pI4\n", &area_id);
+	printf("is_self_origin: %u\n", is_self_originated);
 
-  ospf_lsa_header_dump (lsa);
+	ospf_lsa_header_dump(lsa);
 }
 
-static void
-ready_callback (u_char lsa_type, u_char opaque_type, struct in_addr addr)
+static void ready_callback(uint8_t lsa_type, uint8_t opaque_type,
+			   struct in_addr addr)
 {
-  printf ("ready_callback: lsa_type: %d opaque_type: %d addr=%s\n",
-	  lsa_type, opaque_type, inet_ntoa (addr));
+	printfrr("ready_callback: lsa_type: %d opaque_type: %d addr=%pI4\n",
+		 lsa_type, opaque_type, &addr);
 
-  /* Schedule opaque LSA originate in 5 secs */
-  thread_add_timer (master, lsa_inject, oclient, 5);
+	/* Schedule opaque LSA originate in 5 secs */
+	thread_add_timer(master, lsa_inject, oclient, 5, NULL);
 
-  /* Schedule opaque LSA update with new value */
-  thread_add_timer (master, lsa_inject, oclient, 10);
+	/* Schedule opaque LSA update with new value */
+	thread_add_timer(master, lsa_inject, oclient, 10, NULL);
 
-  /* Schedule delete */
-  thread_add_timer (master, lsa_delete, oclient, 30);
+	/* Schedule delete */
+	thread_add_timer(master, lsa_delete, oclient, 30, NULL);
 }
 
-static void
-new_if_callback (struct in_addr ifaddr, struct in_addr area_id)
+static void new_if_callback(struct in_addr ifaddr, struct in_addr area_id)
 {
-  printf ("new_if_callback: ifaddr: %s ", inet_ntoa (ifaddr));
-  printf ("area_id: %s\n", inet_ntoa (area_id));
+	printfrr("new_if_callback: ifaddr: %pI4 ", &ifaddr);
+	printfrr("area_id: %pI4\n", &area_id);
 }
 
-static void
-del_if_callback (struct in_addr ifaddr)
+static void del_if_callback(struct in_addr ifaddr)
 {
-  printf ("new_if_callback: ifaddr: %s\n ", inet_ntoa (ifaddr));
+	printfrr("new_if_callback: ifaddr: %pI4\n ", &ifaddr);
 }
 
-static void
-ism_change_callback (struct in_addr ifaddr, struct in_addr area_id,
-		     u_char state)
+static void ism_change_callback(struct in_addr ifaddr, struct in_addr area_id,
+				uint8_t state)
 {
-  printf ("ism_change: ifaddr: %s ", inet_ntoa (ifaddr));
-  printf ("area_id: %s\n", inet_ntoa (area_id));
-  printf ("state: %d [%s]\n", state, LOOKUP (ospf_ism_state_msg, state));
+	printfrr("ism_change: ifaddr: %pI4 ", &ifaddr);
+	printfrr("area_id: %pI4\n", &area_id);
+	printf("state: %d [%s]\n", state,
+	       lookup_msg(ospf_ism_state_msg, state, NULL));
 }
 
-static void
-nsm_change_callback (struct in_addr ifaddr, struct in_addr nbraddr,
-		     struct in_addr router_id, u_char state)
+static void nsm_change_callback(struct in_addr ifaddr, struct in_addr nbraddr,
+				struct in_addr router_id, uint8_t state)
 {
-  printf ("nsm_change: ifaddr: %s ", inet_ntoa (ifaddr));
-  printf ("nbraddr: %s\n", inet_ntoa (nbraddr));
-  printf ("router_id: %s\n", inet_ntoa (router_id));
-  printf ("state: %d [%s]\n", state, LOOKUP (ospf_nsm_state_msg, state));
+	printfrr("nsm_change: ifaddr: %pI4 ", &ifaddr);
+	printfrr("nbraddr: %pI4\n", &nbraddr);
+	printfrr("router_id: %pI4\n", &router_id);
+	printf("state: %d [%s]\n", state,
+	       lookup_msg(ospf_nsm_state_msg, state, NULL));
 }
 
 
 /* ---------------------------------------------------------
- * Main program 
+ * Main program
  * ---------------------------------------------------------
  */
 
-static int usage()
+static int usage(void)
 {
-  printf("Usage: ospfclient <ospfd> <lsatype> <opaquetype> <opaqueid> <ifaddr> <areaid>\n");
-  printf("where ospfd     : router where API-enabled OSPF daemon is running\n");
-  printf("      lsatype   : either 9, 10, or 11 depending on flooding scope\n");
-  printf("      opaquetype: 0-255 (e.g., experimental applications use > 128)\n");
-  printf("      opaqueid  : arbitrary application instance (24 bits)\n");
-  printf("      ifaddr    : interface IP address (for type 9) otherwise ignored\n");
-  printf("      areaid    : area in IP address format (for type 10) otherwise ignored\n");
-  
-  exit(1);
+	printf("Usage: ospfclient <ospfd> <lsatype> <opaquetype> <opaqueid> <ifaddr> <areaid>\n");
+	printf("where ospfd     : router where API-enabled OSPF daemon is running\n");
+	printf("      lsatype   : either 9, 10, or 11 depending on flooding scope\n");
+	printf("      opaquetype: 0-255 (e.g., experimental applications use > 128)\n");
+	printf("      opaqueid  : arbitrary application instance (24 bits)\n");
+	printf("      ifaddr    : interface IP address (for type 9) otherwise ignored\n");
+	printf("      areaid    : area in IP address format (for type 10) otherwise ignored\n");
+
+	exit(1);
 }
 
-int
-main (int argc, char *argv[])
+int main(int argc, char *argv[])
 {
-  args = argv;
+	struct thread thread;
 
-  /* ospfclient should be started with the following arguments:
-   * 
-   * (1) host (2) lsa_type (3) opaque_type (4) opaque_id (5) if_addr 
-   * (6) area_id
-   * 
-   * host: name or IP of host where ospfd is running
-   * lsa_type: 9, 10, or 11
-   * opaque_type: 0-255 (e.g., experimental applications use > 128) 
-   * opaque_id: arbitrary application instance (24 bits)
-   * if_addr: interface IP address (for type 9) otherwise ignored
-   * area_id: area in IP address format (for type 10) otherwise ignored
-   */
+	args = argv;
 
-  if (argc != 7)
-    {
-      usage();
-    }
+	/* ospfclient should be started with the following arguments:
+	 *
+	 * (1) host (2) lsa_type (3) opaque_type (4) opaque_id (5) if_addr
+	 * (6) area_id
+	 *
+	 * host: name or IP of host where ospfd is running
+	 * lsa_type: 9, 10, or 11
+	 * opaque_type: 0-255 (e.g., experimental applications use > 128)
+	 * opaque_id: arbitrary application instance (24 bits)
+	 * if_addr: interface IP address (for type 9) otherwise ignored
+	 * area_id: area in IP address format (for type 10) otherwise ignored
+	 */
 
-  /* Initialization */
-  zprivs_init (&ospfd_privs);
-  master = thread_master_create ();
+	if (argc != 7) {
+		usage();
+	}
 
-  /* Open connection to OSPF daemon */
-  oclient = ospf_apiclient_connect (args[1], ASYNCPORT);
-  if (!oclient)
-    {
-      printf ("Connecting to OSPF daemon on %s failed!\n",
-	      args[1]);
-      exit (1);
-    }
+	/* Initialization */
+	zprivs_preinit(&ospfd_privs);
+	zprivs_init(&ospfd_privs);
+	master = thread_master_create(NULL);
 
-  /* Register callback functions. */
-  ospf_apiclient_register_callback (oclient,
-				    ready_callback,
-				    new_if_callback,
-				    del_if_callback,
-				    ism_change_callback,
-				    nsm_change_callback,
-				    lsa_update_callback, 
-				    lsa_delete_callback);
+	/* Open connection to OSPF daemon */
+	oclient = ospf_apiclient_connect(args[1], ASYNCPORT);
+	if (!oclient) {
+		printf("Connecting to OSPF daemon on %s failed!\n", args[1]);
+		exit(1);
+	}
 
-  /* Register LSA type and opaque type. */
-  ospf_apiclient_register_opaque_type (oclient, atoi (args[2]),
-				       atoi (args[3]));
+	/* Register callback functions. */
+	ospf_apiclient_register_callback(
+		oclient, ready_callback, new_if_callback, del_if_callback,
+		ism_change_callback, nsm_change_callback, lsa_update_callback,
+		lsa_delete_callback);
 
-  /* Synchronize database with OSPF daemon. */
-  ospf_apiclient_sync_lsdb (oclient);
+	/* Register LSA type and opaque type. */
+	ospf_apiclient_register_opaque_type(oclient, atoi(args[2]),
+					    atoi(args[3]));
 
-  /* Schedule thread that handles asynchronous messages */
-  thread_add_read (master, lsa_read, oclient, oclient->fd_async);
+	/* Synchronize database with OSPF daemon. */
+	ospf_apiclient_sync_lsdb(oclient);
 
-  /* Now connection is established, run loop */
-  thread_main (master);
+	/* Schedule thread that handles asynchronous messages */
+	thread_add_read(master, lsa_read, oclient, oclient->fd_async, NULL);
 
-  /* Never reached */
-  return 0;
+	/* Now connection is established, run loop */
+	while (1) {
+		thread_fetch(master, &thread);
+		thread_call(&thread);
+	}
+
+	/* Never reached */
+	return 0;
 }
-

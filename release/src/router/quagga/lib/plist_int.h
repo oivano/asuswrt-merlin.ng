@@ -14,58 +14,72 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with GNU Zebra; see the file COPYING.  If not, write to the
- * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
- * Boston, MA 02111-1307, USA.
+ * You should have received a copy of the GNU General Public License along
+ * with this program; see the file COPYING; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
 #ifndef _QUAGGA_PLIST_INT_H
 #define _QUAGGA_PLIST_INT_H
 
-enum prefix_name_type
-{
-  PREFIX_TYPE_STRING,
-  PREFIX_TYPE_NUMBER
-};
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-struct prefix_list
-{
-  char *name;
-  char *desc;
+struct pltrie_table;
 
-  struct prefix_master *master;
+struct prefix_list {
+	char *name;
+	char *desc;
 
-  enum prefix_name_type type;
+	struct prefix_master *master;
 
-  int count;
-  int rangecount;
+	int count;
+	int rangecount;
 
-  struct prefix_list_entry *head;
-  struct prefix_list_entry *tail;
+	struct prefix_list_entry *head;
+	struct prefix_list_entry *tail;
 
-  struct prefix_list *next;
-  struct prefix_list *prev;
+	struct pltrie_table *trie;
+
+	struct prefix_list *next;
+	struct prefix_list *prev;
 };
 
 /* Each prefix-list's entry. */
-struct prefix_list_entry
-{
-  int seq;
+struct prefix_list_entry {
+	int64_t seq;
 
-  int le;
-  int ge;
+	int le;
+	int ge;
 
-  enum prefix_list_type type;
+	enum prefix_list_type type;
 
-  int any;
-  struct prefix prefix;
+	bool any;
+	struct prefix prefix;
 
-  unsigned long refcnt;
-  unsigned long hitcnt;
+	unsigned long refcnt;
+	unsigned long hitcnt;
 
-  struct prefix_list_entry *next;
-  struct prefix_list_entry *prev;
+	struct prefix_list *pl;
+
+	struct prefix_list_entry *next;
+	struct prefix_list_entry *prev;
+
+	/* up the chain for best match search */
+	struct prefix_list_entry *next_best;
+
+	/* Flag to track trie/list installation status. */
+	bool installed;
 };
+
+extern void prefix_list_entry_free(struct prefix_list_entry *pentry);
+extern void prefix_list_entry_delete2(struct prefix_list_entry *ple);
+extern void prefix_list_entry_update_start(struct prefix_list_entry *ple);
+extern void prefix_list_entry_update_finish(struct prefix_list_entry *ple);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _QUAGGA_PLIST_INT_H */

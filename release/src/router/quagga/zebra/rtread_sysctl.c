@@ -14,71 +14,98 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with GNU Zebra; see the file COPYING.  If not, write to the Free
- * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * You should have received a copy of the GNU General Public License along
+ * with this program; see the file COPYING; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
 #include <zebra.h>
+
+#if !defined(GNU_LINUX)
 
 #include "memory.h"
 #include "log.h"
 #include "vrf.h"
 
-#include "zebra/zserv.h"
 #include "zebra/rt.h"
 #include "zebra/kernel_socket.h"
+#include "zebra/zebra_pbr.h"
+#include "zebra/zebra_errors.h"
 
 /* Kernel routing table read up by sysctl function. */
-void
-route_read (struct zebra_vrf *zvrf)
+void route_read(struct zebra_ns *zns)
 {
-  caddr_t buf, end, ref;
-  size_t bufsiz;
-  struct rt_msghdr *rtm;
-  
+	caddr_t buf, end, ref;
+	size_t bufsiz;
+	struct rt_msghdr *rtm;
+
 #define MIBSIZ 6
-  int mib[MIBSIZ] = 
-  {
-    CTL_NET,
-    PF_ROUTE,
-    0,
-    0,
-    NET_RT_DUMP,
-    0
-  };
+	int mib[MIBSIZ] = {CTL_NET, PF_ROUTE, 0, 0, NET_RT_DUMP, 0};
 
-  if (zvrf->vrf_id != VRF_DEFAULT)
-    return;
+	if (zns->ns_id != NS_DEFAULT)
+		return;
 
-  /* Get buffer size. */
-  if (sysctl (mib, MIBSIZ, NULL, &bufsiz, NULL, 0) < 0) 
-    {
-      zlog_warn ("sysctl fail: %s", safe_strerror (errno));
-      return;
-    }
+	/* Get buffer size. */
+	if (sysctl(mib, MIBSIZ, NULL, &bufsiz, NULL, 0) < 0) {
+		flog_warn(EC_ZEBRA_SYSCTL_FAILED, "sysctl fail: %s",
+			  safe_strerror(errno));
+		return;
+	}
 
-  /* Allocate buffer. */
-  ref = buf = XMALLOC (MTYPE_TMP, bufsiz);
-  
-  /* Read routing table information by calling sysctl(). */
-  if (sysctl (mib, MIBSIZ, buf, &bufsiz, NULL, 0) < 0) 
-    {
-      zlog_warn ("sysctl() fail by %s", safe_strerror (errno));
-      return;
-    }
+	/* Allocate buffer. */
+	ref = buf = XMALLOC(MTYPE_TMP, bufsiz);
 
-  for (end = buf + bufsiz; buf < end; buf += rtm->rtm_msglen) 
-    {
-      rtm = (struct rt_msghdr *) buf;
-      /* We must set RTF_DONE here, so rtm_read() doesn't ignore the message. */
-      SET_FLAG (rtm->rtm_flags, RTF_DONE);
-      rtm_read (rtm);
-    }
+	/* Read routing table information by calling sysctl(). */
+	if (sysctl(mib, MIBSIZ, buf, &bufsiz, NULL, 0) < 0) {
+		flog_warn(EC_ZEBRA_SYSCTL_FAILED, "sysctl() fail by %s",
+			  safe_strerror(errno));
+		XFREE(MTYPE_TMP, ref);
+		return;
+	}
 
-  /* Free buffer. */
-  XFREE (MTYPE_TMP, ref);
+	for (end = buf + bufsiz; buf < end; buf += rtm->rtm_msglen) {
+		rtm = (struct rt_msghdr *)buf;
+		/* We must set RTF_DONE here, so rtm_read() doesn't ignore the
+		 * message. */
+		SET_FLAG(rtm->rtm_flags, RTF_DONE);
+		rtm_read(rtm);
+	}
 
-  return;
+	/* Free buffer. */
+	XFREE(MTYPE_TMP, ref);
+
+	return;
 }
+
+/* Only implemented for the netlink method. */
+void macfdb_read(struct zebra_ns *zns)
+{
+}
+
+void macfdb_read_for_bridge(struct zebra_ns *zns, struct interface *ifp,
+			    struct interface *br_if)
+{
+}
+
+void macfdb_read_specific_mac(struct zebra_ns *zns, struct interface *br_if,
+			      const struct ethaddr *mac, vlanid_t vid)
+{
+}
+
+void neigh_read(struct zebra_ns *zns)
+{
+}
+
+void neigh_read_for_vlan(struct zebra_ns *zns, struct interface *vlan_if)
+{
+}
+
+void neigh_read_specific_ip(const struct ipaddr *ip, struct interface *vlan_if)
+{
+}
+
+void kernel_read_pbr_rules(struct zebra_ns *zns)
+{
+}
+
+#endif /* !defined(GNU_LINUX) */

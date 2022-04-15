@@ -1,0 +1,7 @@
+#
+# libyang user types
+#
+
+# XXX: disable support for libyang custom user types temporarily to facilitate
+# the transition from libyang 0.x to libyang 1.x.
+#lib_libfrr_la_SOURCES += yang/libyang_plugins/frr_user_types.c

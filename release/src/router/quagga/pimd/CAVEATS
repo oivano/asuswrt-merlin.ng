@@ -1,5 +1,3 @@
-# $QuaggaId: $Format:%an, %ai, %h$ $
-
 C1 IGMPv3 backward compatibility with IGMPv1 and IGMPv2 is not
    implemented. See RFC 3376, 7.3. Multicast Router Behavior. That's
    because only Source-Specific Multicast is currently targeted.
@@ -174,5 +172,11 @@ C19 Provision to prevent group mode clash
     unable to program ASM groups into the kernel; multicast won't
     flow. There could be some provision to prevent such a behavior,
     but currently there is none.
+
+C20 Multicast traceroute module is based on:
+    draft-ietf-idmr-traceroute-ipm-07
+    It only implements, so far, weak traceroutes. The multicast routing
+    state of the router is not quieried but RPF path is followed along
+    PIM and IGMP enabled interfaces.
 
 -x-

@@ -1,15 +1,13 @@
-LINUX KERNEL REQUIREMENTS
-=========================
+KERNEL REQUIREMENTS
+===================
 
 The linux kernel has had various major regressions, performance
 issues and subtle bugs (especially in pmtu). Here is a short list
-of some -stable kernels that have been tested (at least briefly)
-and seem to be working well with Quagga/NHRP:
+of some -stable kernels and the first point release that is supposedly
+working well with opennhrp/dmvpn:
   3.12.8 or later
   3.14.54 or later
   3.18.22 or later[1]
-  4.4.52 or later
-  4.9.30 or later
 
 [1] But you need to apply the following two backported commits:
     3cdaa5be9e ipv4: Don't increase PMTU with Datagram Too Big message
@@ -34,6 +32,7 @@ This list tries to collect them to one source of information:
     commit "ipv4: introduce ip_dst_mtu_maybe_forward and protect forwarding path against pmtu spoofing"
   Workaround:
     Set sysctl net.ipv4.ip_forward_use_pmtu=1
+    See: https://marc.info/?t=143636239500003&r=1&w=2 for details
     (Should fix kernel to have this by default on for tunnel devices)
 
 - subtle path mtu mishandling issues

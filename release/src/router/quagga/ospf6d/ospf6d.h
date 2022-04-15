@@ -13,19 +13,19 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with GNU Zebra; see the file COPYING.  If not, write to the 
- * Free Software Foundation, Inc., 59 Temple Place - Suite 330, 
- * Boston, MA 02111-1307, USA.  
+ * You should have received a copy of the GNU General Public License along
+ * with this program; see the file COPYING; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
 #ifndef OSPF6D_H
 #define OSPF6D_H
 
-#define OSPF6_DAEMON_VERSION    "0.9.7r"
-
 #include "libospf.h"
 #include "thread.h"
+#include "memory.h"
+
+DECLARE_MGROUP(OSPF6D);
 
 /* global variables */
 extern struct thread_master *master;
@@ -49,6 +49,10 @@ extern struct thread_master *master;
 #define MSG_OK    0
 #define MSG_NG    1
 
+#define OSPF6_SUCCESS 1
+#define OSPF6_FAILURE 0
+#define OSPF6_INVALID -1
+
 /* cast macro: XXX - these *must* die, ick ick. */
 #define OSPF6_PROCESS(x) ((struct ospf6 *) (x))
 #define OSPF6_AREA(x) ((struct ospf6_area *) (x))
@@ -56,55 +60,31 @@ extern struct thread_master *master;
 #define OSPF6_NEIGHBOR(x) ((struct ospf6_neighbor *) (x))
 
 /* operation on timeval structure */
-#ifndef timerclear
-#define timerclear(a) (a)->tv_sec = (tvp)->tv_usec = 0
-#endif /*timerclear*/
-#ifndef timersub
-#define timersub(a, b, res)                           \
-  do {                                                \
-    (res)->tv_sec = (a)->tv_sec - (b)->tv_sec;        \
-    (res)->tv_usec = (a)->tv_usec - (b)->tv_usec;     \
-    if ((res)->tv_usec < 0)                           \
-      {                                               \
-        (res)->tv_sec--;                              \
-        (res)->tv_usec += 1000000;                    \
-      }                                               \
-  } while (0)
-#endif /*timersub*/
-#define timerstring(tv, buf, size)                      \
-  do {                                                  \
-    if ((tv)->tv_sec / 60 / 60 / 24)                    \
-      snprintf (buf, size, "%lldd%02lld:%02lld:%02lld", \
-                (tv)->tv_sec / 60LL / 60 / 24,          \
-                (tv)->tv_sec / 60LL / 60 % 24,          \
-                (tv)->tv_sec / 60LL % 60,               \
-                (tv)->tv_sec % 60LL);                   \
-    else                                                \
-      snprintf (buf, size, "%02lld:%02lld:%02lld",      \
-                (tv)->tv_sec / 60LL / 60 % 24,          \
-                (tv)->tv_sec / 60LL % 60,               \
-                (tv)->tv_sec % 60LL);                   \
-  } while (0)
-#define timerstring_local(tv, buf, size)                  \
-  do {                                                    \
-    int ret;                                              \
-    struct tm *tm;                                        \
-    tm = localtime (&(tv)->tv_sec);                       \
-    ret = strftime (buf, size, "%Y/%m/%d %H:%M:%S", tm);  \
-    if (ret == 0)                                         \
-      zlog_warn ("strftime error");                       \
-  } while (0)
+#define timerstring(tv, buf, size)                                             \
+	do {                                                                   \
+		if ((tv)->tv_sec / 60 / 60 / 24)                               \
+			snprintf(buf, size, "%lldd%02lld:%02lld:%02lld",       \
+				 (tv)->tv_sec / 60LL / 60 / 24,                \
+				 (tv)->tv_sec / 60LL / 60 % 24,                \
+				 (tv)->tv_sec / 60LL % 60,                     \
+				 (tv)->tv_sec % 60LL);                         \
+		else                                                           \
+			snprintf(buf, size, "%02lld:%02lld:%02lld",            \
+				 (tv)->tv_sec / 60LL / 60 % 24,                \
+				 (tv)->tv_sec / 60LL % 60,                     \
+				 (tv)->tv_sec % 60LL);                         \
+	} while (0)
 
-#define threadtimer_string(now, t, buf, size)                         \
-  do {                                                                \
-    struct timeval result;                                            \
-    if (!t)                                                           \
-      snprintf(buf, size, "inactive");				      \
-    else {                                                            \
-      timersub(&t->u.sands, &now, &result);                           \
-      timerstring(&result, buf, size);                                \
-    }                                                                 \
-} while (0)
+#define threadtimer_string(now, t, buf, size)                                  \
+	do {                                                                   \
+		struct timeval _result;                                        \
+		if (!t)                                                        \
+			snprintf(buf, size, "inactive");                       \
+		else {                                                         \
+			timersub(&t->u.sands, &now, &_result);                 \
+			timerstring(&_result, buf, size);                      \
+		}                                                              \
+	} while (0)
 
 /* for commands */
 #define OSPF6_AREA_STR      "Area information\n"
@@ -113,21 +93,37 @@ extern struct thread_master *master;
 #define OSPF6_ROUTER_ID_STR "Specify Router-ID\n"
 #define OSPF6_LS_ID_STR     "Specify Link State ID\n"
 
-#define VNL VTY_NEWLINE
-#define OSPF6_CMD_CHECK_RUNNING() \
-  if (ospf6 == NULL) \
-    { \
-      vty_out (vty, "OSPFv3 is not running%s", VTY_NEWLINE); \
-      return CMD_SUCCESS; \
-    }
+#define OSPF6_CMD_CHECK_VRF(uj, all_vrf, ospf6)                                \
+	do {                                                                   \
+		if (uj == false && all_vrf == false && ospf6 == NULL) {        \
+			vty_out(vty, "%% OSPFv3 instance not found\n");        \
+			return CMD_SUCCESS;                                    \
+		}                                                              \
+	} while (0)
 
+#define IS_OSPF6_ASBR(O) ((O)->flag & OSPF6_FLAG_ASBR)
+#define OSPF6_FIND_VRF_ARGS(argv, argc, idx_vrf, vrf_name, all_vrf)            \
+	do {                                                                   \
+		if (argv_find(argv, argc, "vrf", &idx_vrf)) {                  \
+			vrf_name = argv[idx_vrf + 1]->arg;                     \
+			all_vrf = strmatch(vrf_name, "all");                   \
+		} else {                                                       \
+			vrf_name = VRF_DEFAULT_NAME;                           \
+		}                                                              \
+	} while (0)
+
+#define OSPF6_FALSE false
+#define OSPF6_TRUE true
+#define OSPF6_SUCCESS 1
+#define OSPF6_FAILURE 0
+#define OSPF6_INVALID -1
+
+extern struct zebra_privs_t ospf6d_privs;
 
 /* Function Prototypes */
-extern struct route_node *route_prev (struct route_node *node);
+extern struct route_node *route_prev(struct route_node *node);
 
-extern void ospf6_debug (void);
-extern void ospf6_init (void);
+extern void ospf6_debug(void);
+extern void ospf6_init(struct thread_master *master);
 
 #endif /* OSPF6D_H */
-
-

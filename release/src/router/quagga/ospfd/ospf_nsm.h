@@ -15,14 +15,15 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with GNU Zebra; see the file COPYING.  If not, write to the Free
- * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * You should have received a copy of the GNU General Public License along
+ * with this program; see the file COPYING; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
 #ifndef _ZEBRA_OSPF_NSM_H
 #define _ZEBRA_OSPF_NSM_H
+
+#include "hook.h"
 
 /* OSPF Neighbor State Machine State. */
 #define NSM_DependUpon          0
@@ -39,7 +40,7 @@
 
 /* OSPF Neighbor State Machine Event. */
 #define NSM_NoEvent	        0
-#define NSM_PacketReceived	1 /* HelloReceived in the protocol */
+#define NSM_HelloReceived	1 /* HelloReceived in the protocol */
 #define NSM_Start		2
 #define NSM_TwoWayReceived	3
 #define NSM_NegotiationDone	4
@@ -55,36 +56,28 @@
 #define OSPF_NSM_EVENT_MAX     14
 
 /* Macro for OSPF NSM timer turn on. */
-#define OSPF_NSM_TIMER_ON(T,F,V)                                              \
-      do {                                                                    \
-        if (!(T))                                                             \
-          (T) = thread_add_timer (master, (F), nbr, (V));                     \
-      } while (0)
+#define OSPF_NSM_TIMER_ON(T,F,V) thread_add_timer (master, (F), nbr, (V), &(T))
 
 /* Macro for OSPF NSM timer turn off. */
-#define OSPF_NSM_TIMER_OFF(X)                                                 \
-      do {                                                                    \
-        if (X)                                                                \
-          {                                                                   \
-            thread_cancel (X);                                                \
-            (X) = NULL;                                                       \
-          }                                                                   \
-      } while (0)
+#define OSPF_NSM_TIMER_OFF(X) thread_cancel(&(X))
 
 /* Macro for OSPF NSM schedule event. */
-#define OSPF_NSM_EVENT_SCHEDULE(N,E)                                          \
-      thread_add_event (master, ospf_nsm_event, (N), (E))
+#define OSPF_NSM_EVENT_SCHEDULE(N, E)                                          \
+	thread_add_event(master, ospf_nsm_event, (N), (E), NULL)
 
 /* Macro for OSPF NSM execute event. */
-#define OSPF_NSM_EVENT_EXECUTE(N,E)                                           \
-      thread_execute (master, ospf_nsm_event, (N), (E))
+#define OSPF_NSM_EVENT_EXECUTE(N, E)                                           \
+	thread_execute(master, ospf_nsm_event, (N), (E))
 
 /* Prototypes. */
-extern int ospf_nsm_event (struct thread *);
-extern void ospf_check_nbr_loading (struct ospf_neighbor *);
-extern int ospf_db_summary_isempty (struct ospf_neighbor *);
-extern int ospf_db_summary_count (struct ospf_neighbor *);
-extern void ospf_db_summary_clear (struct ospf_neighbor *);
+extern int ospf_nsm_event(struct thread *);
+extern void ospf_check_nbr_loading(struct ospf_neighbor *);
+extern int ospf_db_summary_isempty(struct ospf_neighbor *);
+extern int ospf_db_summary_count(struct ospf_neighbor *);
+extern void ospf_db_summary_clear(struct ospf_neighbor *);
+extern int nsm_should_adj(struct ospf_neighbor *nbr);
+DECLARE_HOOK(ospf_nsm_change,
+	     (struct ospf_neighbor * on, int state, int oldstate),
+	     (on, state, oldstate));
 
 #endif /* _ZEBRA_OSPF_NSM_H */
-

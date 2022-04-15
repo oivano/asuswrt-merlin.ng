@@ -13,44 +13,56 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with GNU Zebra; see the file COPYING.  If not, write to the
- * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
- * Boston, MA 02111-1307, USA.
+ * You should have received a copy of the GNU General Public License along
+ * with this program; see the file COPYING; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
 #ifndef _ZEBRA_KEYCHAIN_H
 #define _ZEBRA_KEYCHAIN_H
 
-struct keychain
-{
-  char *name;
+#include "qobj.h"
 
-  struct list *key;
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+struct keychain {
+	char *name;
+
+	struct list *key;
+
+	QOBJ_FIELDS;
+};
+DECLARE_QOBJ_TYPE(keychain);
+
+struct key_range {
+	time_t start;
+	time_t end;
+
+	uint8_t duration;
 };
 
-struct key_range
-{
-  time_t start;
-  time_t end;
+struct key {
+	uint32_t index;
 
-  u_char duration;
+	char *string;
+
+	struct key_range send;
+	struct key_range accept;
+
+	QOBJ_FIELDS;
 };
+DECLARE_QOBJ_TYPE(key);
 
-struct key
-{
-  u_int32_t index;
+extern void keychain_init(void);
+extern struct keychain *keychain_lookup(const char *);
+extern struct key *key_lookup_for_accept(const struct keychain *, uint32_t);
+extern struct key *key_match_for_accept(const struct keychain *, const char *);
+extern struct key *key_lookup_for_send(const struct keychain *);
 
-  char *string;
-
-  struct key_range send;
-  struct key_range accept;
-};
-
-extern void keychain_init (void);
-extern struct keychain *keychain_lookup (const char *);
-extern struct key *key_lookup_for_accept (const struct keychain *, u_int32_t);
-extern struct key *key_match_for_accept (const struct keychain *, const char *);
-extern struct key *key_lookup_for_send (const struct keychain *);
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _ZEBRA_KEYCHAIN_H */

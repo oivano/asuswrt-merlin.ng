@@ -3,26 +3,28 @@
  *                             PDU processing
  *
  * Copyright (C) 2001,2002   Sampo Saaristo
- *                           Tampere University of Technology      
+ *                           Tampere University of Technology
  *                           Institute of Communications Engineering
  *
- * This program is free software; you can redistribute it and/or modify it 
- * under the terms of the GNU General Public Licenseas published by the Free 
- * Software Foundation; either version 2 of the License, or (at your option) 
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public Licenseas published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
  * any later version.
  *
- * This program is distributed in the hope that it will be useful,but WITHOUT 
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or 
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for 
+ * This program is distributed in the hope that it will be useful,but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
  * more details.
-
- * You should have received a copy of the GNU General Public License along 
- * with this program; if not, write to the Free Software Foundation, Inc., 
- * 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; see the file COPYING; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
 #ifndef _ZEBRA_ISIS_PDU_H
 #define _ZEBRA_ISIS_PDU_H
+
+#include "isisd/isis_tx_queue.h"
 
 #ifdef __SUNPRO_C
 #pragma pack(1)
@@ -49,53 +51,21 @@
  *  +-------+-------+-------+-------+-------+-------+-------+-------+
  */
 
-struct esis_fixed_hdr
-{
-  u_char idrp;
-  u_char length;
-  u_char version;
-  u_char id_len;
-  u_char pdu_type;
-  u_int16_t holdtime;
-  u_int16_t checksum;
-} __attribute__ ((packed));
+struct esis_fixed_hdr {
+	uint8_t idrp;
+	uint8_t length;
+	uint8_t version;
+	uint8_t id_len;
+	uint8_t pdu_type;
+	uint16_t holdtime;
+	uint16_t checksum;
+} __attribute__((packed));
 
 #define ESIS_FIXED_HDR_LEN   9
 
 #define ESH_PDU              2
 #define ISH_PDU              4
 #define RD_PDU               5
-
-/*
- *                       IS to IS Fixed Header
- *  +-------+-------+-------+-------+-------+-------+-------+-------+
- *  |         Intradomain Routeing Protocol Discriminator           | 
- *  +-------+-------+-------+-------+-------+-------+-------+-------+
- *  |                       Length Indicator                        |
- *  +-------+-------+-------+-------+-------+-------+-------+-------+
- *  |                  Version/Protocol ID extension                |
- *  +-------+-------+-------+-------+-------+-------+-------+-------+
- *  |   R   |   R   |   R   |              PDU Type                 |      
- *  +-------+-------+-------+-------+-------+-------+-------+-------+
- *  |                            Version                            |
- *  +-------+-------+-------+-------+-------+-------+-------+-------+
- *  |                            Reserved                           |
- *  +-------+-------+-------+-------+-------+-------+-------+-------+
- *  |                       Maximum Area Addresses                  |      
- *  +-------+-------+-------+-------+-------+-------+-------+-------+
- */
-
-struct isis_fixed_hdr
-{
-  u_char idrp;
-  u_char length;
-  u_char version1;
-  u_char id_len;
-  u_char pdu_type;
-  u_char version2;
-  u_char reserved;
-  u_char max_area_addrs;
-} __attribute__ ((packed));
 
 #define ISIS_FIXED_HDR_LEN 8
 
@@ -110,26 +80,25 @@ struct isis_fixed_hdr
  * +-------+-------+-------+-------+-------+-------+-------+-------+
  * |                       Reserved                | Circuit Type  | 1
  * +-------+-------+-------+-------+-------+-------+-------+-------+
- * +                        Source ID                              + id_len   
+ * +                        Source ID                              + id_len
  * +-------+-------+-------+-------+-------+-------+-------+-------+
- * |                        Holding  Time                          | 2     
+ * |                        Holding  Time                          | 2
  * +-------+-------+-------+-------+-------+-------+-------+-------+
- * |                        PDU Length                             | 2    
+ * |                        PDU Length                             | 2
  * +-------+-------+-------+-------+-------+-------+-------+-------+
  * |   R   |                Priority                               | 1
  * +-------+-------+-------+-------+-------+-------+-------+-------+
  * |                        LAN ID                                 | id_len + 1
  * +-------+-------+-------+-------+-------+-------+-------+-------+
  */
-struct isis_lan_hello_hdr
-{
-  u_char circuit_t;
-  u_char source_id[ISIS_SYS_ID_LEN];
-  u_int16_t hold_time;
-  u_int16_t pdu_len;
-  u_char prio;
-  u_char lan_id[ISIS_SYS_ID_LEN + 1];
-} __attribute__ ((packed));
+struct isis_lan_hello_hdr {
+	uint8_t circuit_t;
+	uint8_t source_id[ISIS_SYS_ID_LEN];
+	uint16_t hold_time;
+	uint16_t pdu_len;
+	uint8_t prio;
+	uint8_t lan_id[ISIS_SYS_ID_LEN + 1];
+} __attribute__((packed));
 #define ISIS_LANHELLO_HDRLEN  19
 
 #define P2P_HELLO            17
@@ -138,52 +107,36 @@ struct isis_lan_hello_hdr
  * +-------+-------+-------+-------+-------+-------+-------+-------+
  * |                        Reserved               | Circuit Type  | 1
  * +-------+-------+-------+-------+-------+-------+-------+-------+
- * +                        Source ID                              + id_len   
+ * +                        Source ID                              + id_len
  * +-------+-------+-------+-------+-------+-------+-------+-------+
- * +                        Holding  Time                          + 2     
+ * +                        Holding  Time                          + 2
  * +-------+-------+-------+-------+-------+-------+-------+-------+
- * +                        PDU Length                             + 2    
+ * +                        PDU Length                             + 2
  * +-------+-------+-------+-------+-------+-------+-------+-------+
  * |                        Local Circuit ID                       | 1
  * +-------+-------+-------+-------+-------+-------+-------+-------+
  */
-struct isis_p2p_hello_hdr
-{
-  u_char circuit_t;
-  u_char source_id[ISIS_SYS_ID_LEN];
-  u_int16_t hold_time;
-  u_int16_t pdu_len;
-  u_char local_id;
-} __attribute__ ((packed));
+struct isis_p2p_hello_hdr {
+	uint8_t circuit_t;
+	uint8_t source_id[ISIS_SYS_ID_LEN];
+	uint16_t hold_time;
+	uint16_t pdu_len;
+	uint8_t local_id;
+} __attribute__((packed));
 #define ISIS_P2PHELLO_HDRLEN 12
 
 #define L1_LINK_STATE        18
 #define L2_LINK_STATE        20
-/*
- *              L1 and L2 IS to IS link state PDU header
- * +-------+-------+-------+-------+-------+-------+-------+-------+
- * +                        PDU Length                             + 2
- * +-------+-------+-------+-------+-------+-------+-------+-------+
- * +                        Remaining Lifetime                     + 2 
- * +-------+-------+-------+-------+-------+-------+-------+-------+
- * |                        LSP ID                                 | id_len + 2
- * +-------+-------+-------+-------+-------+-------+-------+-------+
- * +                        Sequence Number                        + 4
- * +-------+-------+-------+-------+-------+-------+-------+-------+
- * +                        Checksum                               + 2
- * +-------+-------+-------+-------+-------+-------+-------+-------+
- * |   P   |              ATT              |LSPDBOL|    ISTYPE     |
- * +-------+-------+-------+-------+-------+-------+-------+-------+
- */
-struct isis_link_state_hdr
-{
-  u_int16_t pdu_len;
-  u_int16_t rem_lifetime;
-  u_char lsp_id[ISIS_SYS_ID_LEN + 2];
-  u_int32_t seq_num;
-  u_int16_t checksum;
-  u_int8_t lsp_bits;
-} __attribute__ ((packed));
+#define FS_LINK_STATE        10
+#define L2_CIRCUIT_FLOODING_SCOPE 2
+struct isis_lsp_hdr {
+	uint16_t pdu_len;
+	uint16_t rem_lifetime;
+	uint8_t lsp_id[ISIS_SYS_ID_LEN + 2];
+	uint32_t seqno;
+	uint16_t checksum;
+	uint8_t lsp_bits;
+};
 #define ISIS_LSP_HDR_LEN 19
 
 /*
@@ -191,7 +144,7 @@ struct isis_link_state_hdr
  * entry is LSP_ENTRIES_LEN (16) bytes long, the maximum number of LSP entries
  * can be accomodated in a TLV is
  * 255 / 16 = 15.
- * 
+ *
  * Therefore, the maximum length of the LSP Entries TLV is
  * 16 * 15 + 2 (header) = 242 bytes.
  */
@@ -202,7 +155,7 @@ struct isis_link_state_hdr
 /*
  *      L1 and L2 IS to IS complete sequence numbers PDU header
  * +-------+-------+-------+-------+-------+-------+-------+-------+
- * +                        PDU Length                             + 2    
+ * +                        PDU Length                             + 2
  * +-------+-------+-------+-------+-------+-------+-------+-------+
  * +                        Source ID                              + id_len + 1
  * +-------+-------+-------+-------+-------+-------+-------+-------+
@@ -211,12 +164,11 @@ struct isis_link_state_hdr
  * +                        End LSP ID                             + id_len + 2
  * +-------+-------+-------+-------+-------+-------+-------+-------+
  */
-struct isis_complete_seqnum_hdr
-{
-  u_int16_t pdu_len;
-  u_char source_id[ISIS_SYS_ID_LEN + 1];
-  u_char start_lsp_id[ISIS_SYS_ID_LEN + 2];
-  u_char stop_lsp_id[ISIS_SYS_ID_LEN + 2];
+struct isis_complete_seqnum_hdr {
+	uint16_t pdu_len;
+	uint8_t source_id[ISIS_SYS_ID_LEN + 1];
+	uint8_t start_lsp_id[ISIS_SYS_ID_LEN + 2];
+	uint8_t stop_lsp_id[ISIS_SYS_ID_LEN + 2];
 };
 #define ISIS_CSNP_HDRLEN 25
 
@@ -230,10 +182,9 @@ struct isis_complete_seqnum_hdr
  * +                        Source ID                              + id_len + 1
  * +---------------------------------------------------------------+
  */
-struct isis_partial_seqnum_hdr
-{
-  u_int16_t pdu_len;
-  u_char source_id[ISIS_SYS_ID_LEN + 1];
+struct isis_partial_seqnum_hdr {
+	uint16_t pdu_len;
+	uint8_t source_id[ISIS_SYS_ID_LEN + 1];
 };
 #define ISIS_PSNP_HDRLEN 9
 
@@ -244,7 +195,7 @@ struct isis_partial_seqnum_hdr
 /*
  * Function for receiving IS-IS PDUs
  */
-int isis_receive (struct thread *thread);
+int isis_receive(struct thread *thread);
 
 /*
  * calling arguments for snp_process ()
@@ -257,18 +208,15 @@ int isis_receive (struct thread *thread);
 /*
  * Sending functions
  */
-int send_lan_l1_hello (struct thread *thread);
-int send_lan_l2_hello (struct thread *thread);
-int send_p2p_hello (struct thread *thread);
-int send_csnp (struct isis_circuit *circuit, int level);
-int send_l1_csnp (struct thread *thread);
-int send_l2_csnp (struct thread *thread);
-int send_l1_psnp (struct thread *thread);
-int send_l2_psnp (struct thread *thread);
-int send_lsp (struct thread *thread);
-int ack_lsp (struct isis_link_state_hdr *hdr,
-	     struct isis_circuit *circuit, int level);
-void fill_fixed_hdr (struct isis_fixed_hdr *hdr, u_char pdu_type);
-int send_hello (struct isis_circuit *circuit, int level);
-
+void send_hello_sched(struct isis_circuit *circuit, int level, long delay);
+int send_csnp(struct isis_circuit *circuit, int level);
+int send_l1_csnp(struct thread *thread);
+int send_l2_csnp(struct thread *thread);
+int send_l1_psnp(struct thread *thread);
+int send_l2_psnp(struct thread *thread);
+void send_lsp(struct isis_circuit *circuit,
+	      struct isis_lsp *lsp, enum isis_tx_type tx_type);
+void fill_fixed_hdr(uint8_t pdu_type, struct stream *stream);
+int send_hello(struct isis_circuit *circuit, int level);
+int isis_handle_pdu(struct isis_circuit *circuit, uint8_t *ssnpa);
 #endif /* _ZEBRA_ISIS_PDU_H */

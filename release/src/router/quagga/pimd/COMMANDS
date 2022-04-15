@@ -1,5 +1,3 @@
-# $QuaggaId: $Format:%an, %ai, %h$ $
-
 global configuration commands:
        pimd:
        ip multicast-routing	Enable IP multicast forwarding
@@ -26,6 +24,7 @@ verification commands:
        show ip igmp groups retransmissions	IGMP group retransmission
        show ip igmp sources			IGMP sources information
        show ip igmp sources retransmissions	IGMP source retransmission
+       show ip igmp statistics			IGMP statistics information
        show ip pim address			PIM interface address
        show ip pim assert			PIM interface assert
        show ip pim assert-internal		PIM interface internal assert state
@@ -61,6 +60,7 @@ debug commands:
        clear ip pim interfaces		Reset PIM interfaces
        clear ip pim oil			Rescan PIM OIL (output interface list)
        debug igmp			IGMP protocol activity
+       debug mtrace			Mtrace protocol activity
        debug mroute			PIM interaction with kernel MFC cache
        debug pim			PIM protocol activity
        debug pim zebra			ZEBRA protocol activity
@@ -78,4 +78,6 @@ statistics commands:
        pimd:
        show memory pim		PIM memory statistics
 
+vtysh:
+	mtrace			Multicast traceroute
 -x-
