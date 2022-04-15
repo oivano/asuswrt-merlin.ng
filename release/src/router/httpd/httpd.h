@@ -78,14 +78,14 @@ struct useful_redirect_list {
 };
 
 extern struct useful_redirect_list useful_redirect_lists[];
+
 /* AMAS dirty fix */
-#if 1//def RTCONFIG_AMAS
+// * ifdef RTCONFIG_AMAS */
 struct AiMesh_whitelist {
 	char *pattern;
 	char *mime_type;
 };
 extern struct AiMesh_whitelist AiMesh_whitelists[];
-#endif
 
 struct stb_port {
         char *value;

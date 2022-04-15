@@ -31967,6 +31967,7 @@ struct useful_redirect_list useful_redirect_lists[] = {
 #endif
 	{ NULL, NULL }
 };
+
 /* amas dirty fixes */
 int cfg_changed = 0;
 int is_cfg_server_ready = 0;
@@ -31974,7 +31975,8 @@ int save_changed_param = 0;
 int check_cfg_changed = 0;
 //
 
-#if 1 //dirty RTCONFIG_AMAS
+/* amas dirty fixes */
+// *ifdef RTCONFIG_AMAS *//
 struct AiMesh_whitelist AiMesh_whitelists[] = {
 	{"AiMesh_Node_FirmwareUpgrade.asp", NULL},
 	{"upgrade.cgi", NULL},
@@ -31984,11 +31986,8 @@ struct AiMesh_whitelist AiMesh_whitelists[] = {
 	{"message.htm", NULL},
 	{"error_page.htm", NULL},
 	{"Main_Login.asp", NULL},
-	{"*.js", NULL},
-	{"js/*", NULL},
 	{"require/modules/*", NULL},
 	{"switcherplugin/*", NULL},
-	{"appGet.cgi", NULL},
 	{"start_apply.htm", NULL},
 	{"APP_Installation.asp", NULL},
 	{"Advanced_SwitchCtrl_Content.asp", NULL},
@@ -32006,7 +32005,6 @@ struct AiMesh_whitelist AiMesh_whitelists[] = {
 #endif
 	{ NULL, NULL }
 };	/* */
-#endif
 
 struct log_pass_url_list log_pass_handlers[] = {
 	{ "**.gz", NULL },
