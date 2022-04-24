@@ -1,0 +1,11 @@
+##  ion release asuswrt merlin changelog  ##
+
+Date: April 24, 2022
+Release: 386.5_2-ion
+
+  - UPDATED: quagga to 1.2.4
+  - UPDATED: Dropbear to 2022.82
+  - UPDATED: Readline to 8.1
+  - NOTE: enabled following quagga services; bgpd, ospfd. Disabled everything else.
+
+
