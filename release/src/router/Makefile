@@ -632,11 +632,8 @@ endif
 #
 SEP=printf "\033[41;1m   $@   \033[0m\n"
 
-# testing libyang/quagga
-obj-y += ncurses-6.0
-obj-y += readline-8.1
-obj-y += libyang-2.0.164
-obj-y += quagga
+# testing frr
+obj-y += libcares ncurses-6.0 pcre2 libyang readline-8.1 zlib json-c frr libcap
 #
 # standard packages
 #
@@ -1099,6 +1096,47 @@ define CMAKE_CrossOptions
 	)
 endef
 
+define CMakeConfigure
+(cd $(strip $(1)); \	
+		CFLAGS="-DENABLE_LYD_PRIV=ON -DPCRE2_LIBRARY=$(TOP)/pcre2/.libs $(CFLAGS) $(EXTRACFLAGS) $(4) -D_NEED_PRINTF -I$(TOP)/pcre2/src" \
+		LDFLAGS="$(5) -D_NEED_PRINTF -I$(TOP)/pcre2/src -L$(TOP)/pcre2/.libs -lpcre2-8 -lpthread" \
+		CXXFLAGS="$(CFLAGS) $(EXTRACFLAGS)" \
+		cmake \
+			--debug-output \
+			-DCMAKE_SYSTEM_NAME=Linux \
+			-DCMAKE_SYSTEM_VERSION= $(LINUX_KERNEL) \
+			-DCMAKE_SYSTEM_PROCESSOR=$(ARCH) \
+			-DCMAKE_BUILD_TYPE=Release \
+			-DCMAKE_C_FLAGS_RELEASE="-DNDEBUG" \
+			-DCMAKE_CXX_FLAGS_RELEASE="-DNDEBUG" \
+			-DCMAKE_C_COMPILER=$(CROSS_COMPILE)gcc \
+			-DCMAKE_CXX_COMPILER=$(CROSS_COMPILE)g++ \
+			-DCMAKE_EXE_LINKER_FLAGS="$(5)" \
+			-DCMAKE_MODULE_LINKER_FLAGS="$(5)" \
+			-DCMAKE_SHARED_LINKER_FLAGS="$(5)" \
+			-DCMAKE_FIND_ROOT_PATH=$(2) \
+			-DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=BOTH \
+			-DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+			-DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+			-DPCRE2_INCLUDE_DIR=$(TOP)/pcre2/src \
+			-DPCRE2_LIBRARY=$(TOP)/pcre2/.libs \
+			-DDL_LIBRARY=$(2) \
+			-DCMAKE_PREFIX_PATH=$(2) \
+			-DCMAKE_STRIP=: \
+			-DCMAKE_INSTALL_PREFIX=/usr \
+			$(3) \
+			$(6) \
+	)
+endef
+
+define CMakeClean
+	( rm -rf $(strip $(1))/CMakeCache.txt ;\
+	rm -rf $(strip $(1))/cmake_install.cmake ;\
+	rm -rf $(strip $(1))/CMakeFiles ;\
+	rm -rf $(strip $(1))/Makefile ;\
+	)
+endef
+
 # !!TB
 ifeq ($(RTCONFIG_USB),y)
 #obj-y += p910nd
@@ -1356,9 +1394,8 @@ obj-$(RTCONFIG_HTTPS) += curl
 obj-$(RTCONFIG_SSH) += dropbear
 obj-$(RTCONFIG_WTFAST) += wtfast
 #obj-$(RTCONFIG_ZEBRA) += zebra
-obj-$(RTCONFIG_QUAGGA) += pcre2-10.40
-obj-$(RTCONFIG_QUAGGA) += libyang-2.0.164
-obj-$(RTCONFIG_QUAGGA) += quagga
+obj-$(CONFIG_FRR) += libcares ncurses pcre2 libyang readline zlib json-c frr libcap
+obj-$(CONFIG_QUAGGA) += ncurses readline zlib quagga
 #obj-$(RTCONFIG_IPP2P) += ipp2p
 ifeq ($(HND_ROUTER_AX_6756),y)
 LZO_VER := -2.10
@@ -4404,77 +4441,122 @@ inadyn-clean:
 	[ ! -f inadyn/Makefile ] || $(MAKE) -C inadyn distclean
 	@rm -f inadyn/Makefile
 
-libyang-2.0.164/build/Makefile:
-	@rm -rf libyang-2.0.164/build && mkdir -p libyang-2.0.164/build
-	cd libyang-2.0.164/build && \
+#libyang-configure: zlib openssl pcre2
+#	@rm -rf libyang/build && mkdir -p libyang/build
+#	cd libyang/build && \
+#	rm -f $(TOP)/libyang/CMakeCache.txt
+#	rm -f $(TOP)/libyang/build/CMakeCache.txt
+#	$(call CMakeClean,$(TOP)/libyang/build)
+#	$(call CMakeConfigure,$(TOP)/libyang/build,${STAGING_DIR},$(LIBYANG_CMAKE_OPTIONS),$(LIBYANG_EXTRA_CFLAGS),$(LIBYANG_EXTRA_LDFLAGS),..)
+#
+#libyang: libyang-configure zlib
+#	@$(SEP)
+#	$(MAKE) -C libyang/build
+#	-mkdir -p $(TOP)/libyang/build/libyang
+#	-cp $(TOP)/libyang/build/src/config.h $(TOP)/libyang/build/libyang
+#	-cp $(TOP)/libyang/build/src/version.h $(TOP)/libyang/build/libyang
+#	-cp $(TOP)/libyang/src/libyang.h $(TOP)/libyang/build/libyang
+#	-cp $(TOP)/libyang/src/tree_schema.h $(TOP)/libyang/build/libyang
+#	-cp $(TOP)/libyang/src/tree_data.h $(TOP)/libyang/build/libyang
+#	-cp $(TOP)/libyang/src/tree.h $(TOP)/libyang/build/libyang
+#	-cp $(TOP)/libyang/src/xml.h $(TOP)/libyang/build/libyang
+#	-cp $(TOP)/libyang/src/dict.h $(TOP)/libyang/build/libyang
+#	-cp $(TOP)/libyang/src/context.h $(TOP)/libyang/build/libyang
+#	-cp $(TOP)/libyang/src/parser_schema.h $(TOP)/libyang/build/libyang
+#	-cp $(TOP)/libyang/src/parser_data.h $(TOP)/libyang/build/libyang
+#	-cp $(TOP)/libyang/src/printer_schema.h $(TOP)/libyang/build/libyang
+#	-cp $(TOP)/libyang/src/printer_data.h $(TOP)/libyang/build/libyang
+#	-cp $(TOP)/libyang/src/log.h $(TOP)/libyang/build/libyang
+#	-cp $(TOP)/libyang/src/in.h $(TOP)/libyang/build/libyang
+#	-cp $(TOP)/libyang/src/out.h $(TOP)/libyang/build/libyang
+#	-cp $(TOP)/libyang/src/set.h $(TOP)/libyang/build/libyang
+##	-cp $(TOP)/libyang/src/user_types.h $(TOP)/libyang/build/libyang
+
+libyang-install:
+	@$(SEP)
+	rm -rf $(INSTALLDIR)/libyang
+	$(MAKE) -C libyang/build install DESTDIR=$(INSTALLDIR)/libyang
+	rm -rf $(INSTALLDIR)/libyang/usr/lib/pkgconfig
+	rm -rf $(INSTALLDIR)/libyang/usr/include
+	rm -rf $(INSTALLDIR)/libyang/usr/share
+	rm -rf $(INSTALLDIR)/libyang/usr/bin
+
+libyang-clean:
+	if [ -e "$(TOP)/libyang/build/Makefile" ]; then $(MAKE) -C libyang/build clean ; fi
+
+libyang/build/Makefile: zlib openssl pcre2
+	@rm -rf libyang/build && mkdir -p libyang/build
+	cd libyang/build && \
 	$(call CMAKE_CrossOptions, crosscompiled.cmake) && \
 	cmake -DCMAKE_TOOLCHAIN_FILE=crosscompiled.cmake \
 		-DCMAKE_INSTALL_PREFIX:PATH=/usr \
+		-DPCRE2_LIBRARY=$(TOP)/prce2/src/.libs/libpcre2-8.a \
+		-DPCRE2_INCLUDE_DIR=$(TOP)/pcre2/src \
+		-DENABLE_LYD_PRIV=ON \
 		-DCMAKE_FIND_ROOT_PATH=crosscompiled.cmake \
-		-DCMAKE_INCLUDE_PATH=$(STAGEDIR)/usr/include \
-		-DCMAKE_BUILD_TYPE:String="Debug" \
+		-DCMAKE_INCLUDE_PATH="$(STAGEDIR)/usr/include" \
+		-DCMAKE_BUILD_TYPE:String="Release" \
 		-DCMAKE_REQUIRED_LIBRARIES="pthread pcre2-8" \
-		-DCMAKE_C_FLAGS="$(CFLAGS) -std=gnu99 -ffunction-sections -fdata-sections -I$(STAGEDIR)/usr/include" \
-		-DCMAKE_EXE_LINKER_FLAGS="-Wl,--gc-sections -L$(STAGEDIR)/usr/lib -pthread -lpcre2-8" \
-		-DPCRE2_LIBRARIES=$(STAGEDIR)/usr/lib/libpcre2-8.so \
-		-DPCRE2_INCLUDE_DIRS=$(STAGEDIR)/usr/include \
+		-DCMAKE_C_FLAGS="$(CFLAGS) -DNDEBUG -ffunction-sections -fdata-sections -I$(STAGEDIR)/usr/include" \
+		-DCMAKE_EXE_LINKER_FLAGS=" -Wl,--gc-sections -L$(STAGEDIR)/usr/lib -pthread -lpcre2-8" \
 		..
 
-libyang-2.0.164: pcre2-10.40 libyang-2.0.164/build/Makefile
+libyang: zlib openssl pcre2 libyang/build/Makefile
 	@$(SEP)
-	$(MAKE) -C libyang-2.0.164/build $(PARALLEL_BUILD) && $(MAKE) $@-stage
+	$(MAKE) -C libyang/build $(PARALLEL_BUILD) && $(MAKE) $@-stage
 
-libyang-2.0.164-install:
+frr/stamp-h1: ncurses-6.0 json-c readline-8.1 libyang libcap libcares
 	@$(SEP)
-	install -d $(INSTALLDIR)/libyang-2.0.164/usr/lib
-	install -D libyang-2.0.164/build/libyang.so.2.18.6 $(INSTALLDIR)/libyang-2.0.164/usr/lib/libyang.so.2.18.6
-	cd $(INSTALLDIR)/libyang-2.0.164/usr/lib \
-		&& ln -sf libyang.so.2.18.6 libyang.so.2 \
-		&& ln -sf libyang.so.2.18.6 libyang.so \
-	$(STRIP) $(INSTALLDIR)/libyang-2.0.164/usr/lib/libyang.so.2.18.6
-
-libyang-2.0.164-clean:
-	@rm -rf libyang-2.0.164/build
-
-quagga/stamp-h1:
-	@$(SEP)
-	@cd quagga && autoreconf -i -f &&  \
+	@cd frr && autoreconf -i -f &&  \
 	CC=$(CC) AR=$(AR) RANLIB=$(RANLIB) LD=$(LD) \
-	CFLAGS="$(CFLAGS) -Os -Wall -ffunction-sections -fdata-sections -fPIC -I$(STAGEDIR)/usr/include/json-c -I$(STAGEDIR)/usr/include/libyang-2.0.164" \
-	LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections -L$(STAGEDIR)/usr/lib -ljson-c -lyang -lreadline" \
-	$(CONFIGURE) --with-clippy=./build-clippy/lib/clippy --prefix=/usr --sysconfdir=/etc --enable-shared \
+	CFLAGS="-fno-strict-aliasing -ffunction-sections -fdata-sections -Wl,--gc-sections -I$(TOP)/libcap/libcap/include -DNEED_PRINTF $(CFLAGS) -I$(TOP)/libcares/include -I$(TOP)/ -Drpl_malloc=malloc -Drpl_realloc=realloc -I$(STAGEDIR)/usr/include -I$(TOP)/frr/build -I$(TOP)/libyang/build" \
+	CPPFLAGS="-fno-strict-aliasing -ffunction-sections -fdata-sections -Wl,--gc-sections -I$(TOP)/libcap/libcap/include -DNEED_PRINTF $(CFLAGS) -I$(TOP)/libcares/include -I$(TOP)/ -Drpl_malloc=malloc -Drpl_realloc=realloc -I$(STAGEDIR)/usr/include -I$(TOP)/frr/build -I$(TOP)/libyang/build" \
+	LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections -L$(TOP)/readline-8.1/shlib -L$(TOP)/ncurses-6.0/lib -lncurses -L$(TOP)/json-c/.libs -ljson-c -L$(TOP)/libyang/build -lyang -L$(TOP)/pcre2/.libs -lpcre2-8 -L$(TOP)/libcap/libcap -lcap" \
+	LIBYANG_CFLAGS="-I$(TOP)/libyang/build -I$(TOP)/pcre2/src -I$(TOP)/libcares/include" \
+	LIBYANG_LIBS="-L$(TOP)/libyang/build -lyang -L$(TOP)/pcre2/.libs -lpcre2-8" \
+	LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections -L$(TOP)/readline-8.1/shlib -L$(TOP)/ncurses-6.0/lib -lncurses -L$(TOP)/json-c/.libs -ljson-c -L$(TOP)/libyang/build -lyang -L$(TOP)/pcre2-10.40/.libs -lpcre2-8 -L$(TOP)/libcap/libcap -lcap" \
+	CARES_CFLAGS="-I$(TOP)/libcares/include" \
+	CARES_LIBS="-L$(TOP)/libcares/src/lib/.libs -lcares" \
+	PYTHON=/usr/bin/python3
+	$(CONFIGURE) --with-vtysh-pager=less --enable-clippy-only --prefix=/usr --sysconfdir=/etc --enable-shared \
 	--disable-ripngd --disable-ripd --disable-doc --disable-ospfclient --disable-ldpd \
 	--disable-ospf6d --disable-nhrpd --disable-eigrpd  --disable-babeld \
 	--disable-silent-rules --disable-eigrpd \
+	--disable-rfptest --disable-ssd  --disable-doc \
+	--enable-pie=no PYTHON=/usr/bin/python3 \
 	--disable-isisd --disable-vrrpd --disable-pimd --disable-pbrd \
-	--disable-snmp
+	--disable-snmp \
+	rm -rf frr/build && \
+	-mkdir -p frr/build \
+	$(MAKE) -C frr/build lib/clippy
 	@touch $@
 
-quagga: quagga/stamp-h1
-	@$(MAKE) -C quagga CC=$(CC) AR=$(AR) RANLIB=$(RANLIB) LD=$(LD) $(PARALLEL_BUILD)
+frr: frr/stamp-h1 ncurses-6.0 json-c readline-8.1 libyang libcap libcares
+	@$(MAKE) -C frr CC=$(CC) AR=$(AR) RANLIB=$(RANLIB) LD=$(LD) $(PARALLEL_BUILD)
 
-quagga-clean:
-	-@$(MAKE) -C quagga clean
-	@rm -f quagga/stamp-h1
+frr-clean:
+	-@$(MAKE) -C frr clean
+	@rm -f frr/stamp-h1
 
-quagga-install:
+frr-install:
 	@$(SEP)
-	install -d $(INSTALLDIR)/quagga/usr/lib
-	libtool --mode=install install -c quagga/lib/libzebra.la $(INSTALLDIR)/quagga/usr/lib
-	libtool --finish $(INSTALLDIR)/quagga/usr/lib
-	rm -f $(INSTALLDIR)/quagga/usr/lib/libzebra.la
-	$(STRIP)  $(INSTALLDIR)/quagga/usr/lib/libzebra.so
-	install -d $(INSTALLDIR)/quagga/usr/sbin
-	libtool --mode=install install -c quagga/zebra/zebra $(INSTALLDIR)/quagga/usr/sbin
-	libtool --mode=install install -c quagga/vtysh $(INSTALLDIR)/quagga/usr/sbin
-	libtool --mode=install install -c quagga/bgpd/bgpd $(INSTALLDIR)/quagga/usr/sbin
-	libtool --mode=install install -c quagga/ospfd/ospfd $(INSTALLDIR)/quagga/usr/sbin
-	libtool --mode=install install -c quagga/watchfrr/watchfrr $(INSTALLDIR)/quagga/usr/sbin
-	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/zebra
-	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/vtysh
-	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/bgpd
-	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/ospfd
-	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/watchfrr
+	install -d $(INSTALLDIR)/frr/usr/lib
+	libtool --mode=install install -c frr/lib/libzebra.la $(INSTALLDIR)/frr/usr/lib
+	libtool --finish $(INSTALLDIR)/frr/usr/lib
+	rm -f $(INSTALLDIR)/frr/usr/lib/libzebra.la
+	$(STRIP)  $(INSTALLDIR)/frr/usr/lib/libzebra.so
+	install -d $(INSTALLDIR)/frr/usr/sbin
+	libtool --mode=install install -c frr/zebra/zebra $(INSTALLDIR)/frr/usr/sbin
+	libtool --mode=install install -c frr/vtysh $(INSTALLDIR)/frr/usr/sbin
+	libtool --mode=install install -c frr/bgpd/bgpd $(INSTALLDIR)/frr/usr/sbin
+	libtool --mode=install install -c frr/ospfd/ospfd $(INSTALLDIR)/frr/usr/sbin
+	libtool --mode=install install -c frr/watchfrr/watchfrr $(INSTALLDIR)/frr/usr/sbin
+	$(STRIP) $(INSTALLDIR)/frr/usr/sbin/zebra
+	$(STRIP) $(INSTALLDIR)/frr/usr/sbin/vtysh
+	$(STRIP) $(INSTALLDIR)/frr/usr/sbin/bgpd
+	$(STRIP) $(INSTALLDIR)/frr/usr/sbin/ospfd
+	$(STRIP) $(INSTALLDIR)/frr/usr/sbin/watchfrr
+
 ifneq ($(RTCONFIG_MUSL_LIBC),y)
 	mkdir -p $(TARGETDIR)/lib
 ifneq ($(HND_ROUTER),y)
@@ -6243,29 +6325,29 @@ pcre-8.31-clean:
 	-@$(MAKE) -C pcre-8.31 clean
 	@rm -f pcre-8.31/stamp-h1
 
-pcre2-10.40/stamp-h1:
-	cd pcre2-10.40 && autoreconf -i -f && \
-	CC=$(CC) CXX=$(CXX) AR=$(AR) RANLIB=$(RANLIB) LD=$(LD) CFLAGS="-Os -Wall -std=gnu99" LIBS="$(EXTRALDFLAGS)" \
-	$(CONFIGURE) --prefix=/usr --disable-dependency-tracking
+pcre2/stamp-h1:
+	cd pcre2 && autoreconf -i -f && \
+	CC=$(CC) CXX=$(CXX) AR=$(AR) RANLIB=$(RANLIB) LD=$(LD) CFLAGS="-Os -Wall -DNEED_PRINTF" LIBS="$(EXTRALDFLAGS)" \
+	$(CONFIGURE) --prefix=/usr \ 
 	touch $@
 
-pcre2-10.40: pcre2-10.40/stamp-h1
-	$(MAKE) -C pcre2-10.40 all $(PARALLEL_BUILD) && $(MAKE) $@-stage
+pcre2: pcre2/stamp-h1
+	$(MAKE) -C pcre2 all $(PARALLEL_BUILD) && $(MAKE) $@-stage
 
-pcre2-10.40-install: pcre2-10.40
+pcre2-install: pcre2
 	@$(SEP)
-	install -D pcre2-10.40/.libs/libpcre2-8.so.0.11.0 $(INSTALLDIR)/pcre2-10.40/usr/lib/libpcre2-8.so.0.11.0
-	cd $(INSTALLDIR)/pcre2-10.40/usr/lib && ln -sf libpcre2-8.so.0.11.0 libpcre2-8.so.0
-	cd $(INSTALLDIR)/pcre2-10.40/usr/lib && ln -sf libpcre2-8.so.0.11.0 libpcre2-8.so
-	$(STRIP) -s $(INSTALLDIR)/pcre2-10.40/usr/lib/libpcre2-8.so.0.11.0
-	install -D pcre2-10.40/.libs/libpcre2-posix.so.3.0.2 $(INSTALLDIR)/pcre2-10.40/usr/lib/libpcre2-posix.so.3.0.2
-	cd $(INSTALLDIR)/pcre2-10.40/usr/lib && ln -sf libpcre2-posix.so.3.0.2 libpcre2-posix.so.3
-	cd $(INSTALLDIR)/pcre2-10.40/usr/lib && ln -sf libpcre2-posix.so.3.0.2 libpcre2-posix.so
-	$(STRIP) -s $(INSTALLDIR)/pcre2-10.40/usr/lib/libpcre2-posix.so.3.0.2
+	install -D pcre2/.libs/libpcre2-8.so.0.10.2 $(INSTALLDIR)/pcre2/usr/lib/libpcre2-8.so.0.10.2
+	cd $(INSTALLDIR)/pcre2/usr/lib && ln -sf libpcre2-8.so.0.10.2 libpcre2-8.so.0
+	cd $(INSTALLDIR)/pcre2/usr/lib && ln -sf libpcre2-8.so.0.10.2 libpcre2-8.so
+	$(STRIP) -s $(INSTALLDIR)/pcre2/usr/lib/libpcre2-8.so.0.10.2
+	install -D pcre2/.libs/libpcre2-posix.so.3.0.0 $(INSTALLDIR)/pcre2/usr/lib/libpcre2-posix.so.3.0.0
+	cd $(INSTALLDIR)/pcre2/usr/lib && ln -sf libpcre2-posix.so.3.0.0 libpcre2-posix.so.3
+	cd $(INSTALLDIR)/pcre2/usr/lib && ln -sf libpcre2-posix.so.3.0.0 libpcre2-posix.so
+	$(STRIP) -s $(INSTALLDIR)/pcre2/usr/lib/libpcre2-posix.so.3.0.0
 
-pcre2-10.40-clean:
-	-@$(MAKE) -C pcre2-10.40 clean
-	@rm -f pcre2-10.40/stamp-h1
+pcre2-clean:
+	-@$(MAKE) -C pcre2 clean
+	@rm -f pcre2/stamp-h1
 
 libxml2/stamp-h1:
 	cd libxml2 && mkdir -p m4 && autoreconf -i -f && \
@@ -7691,6 +7773,43 @@ libical-2.0.0-install:
 		ln -sf libicalvcal.so.2.0.0 libicalvcal.so.2.0 &&\
 		ln -sf libicalvcal.so.2.0.0 libicalvcal.so.2
 
+libcares: libcares-configure
+	@$(SEP)
+	@$(MAKE) -C $@
+
+libcares-install:
+	$(MAKE) -C libcares install DESTDIR=$(INSTALLDIR)/libcares
+	rm -rf $(INSTALLDIR)/libcares/usr/include
+	rm -f $(INSTALLDIR)/libcares/usr/lib/*.a
+	rm -f $(INSTALLDIR)/libcares/usr/lib/*.la
+	rm -rf $(INSTALLDIR)/libcares/usr/lib/pkgconfig
+	rm -rf $(INSTALLDIR)/libcares/usr/share
+
+libcares-clean:
+	$(MAKE) -C libcares clean
+
+libcares-configure:
+	cd libcares && \
+	autoreconf -i -f && \
+	$(CONFIGURE) --prefix=/usr --libdir=/usr/lib \
+	CFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-section" \
+	CC=$(CC) AR=$(AR) RANLIB=$(RANLIB) LD=$(LD) \
+	CFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections" \
+	CPPFLAGS="$(EXTRACFLAGS) -ffunction-sections -fdata-sections -Wl,--gc-sections" \
+	LDFLAGS="$(LDFLAGS) -fPIC"
+
+libcap:
+	@$(SEP)
+	cd libcap && $(MAKE) -C libcap
+
+libcap-clean:
+	$(MAKE) -C libcap clean
+
+libcap-install:
+	$(MAKE) -C libcap install DESTDIR=$(INSTALLDIR)/libcap
+	rm -rf $(INSTALLDIR)/libcap/usr/include
+	rm -f $(INSTALLDIR)/libcap/lib/*.a
+
 ncurses-6.0/Makefile: ncurses-6.0/configure
 	cd ncurses-6.0 && $(CONFIGURE) \
 		CFLAGS="$(EXTRACFLAGS) -Os -I$(STAGEDIR)/usr/include -ffunction-sections -fdata-sections -fPIC" \
@@ -7901,10 +8020,10 @@ readline-8.1/Makefile: readline-8.1/configure
 		--prefix=/usr --exec_prefix=/usr --bindir=/usr/bin --sbindir=/usr/sbin --libexecdir=/usr/lib\
 		--sysconfdir=/etc --with-curses --disable-static --enable-shared\
 		CFLAGS="-I$(STAGEDIR)/usr/include"\
-		LDFLAGS="-L$(STAGEDIR)/usr/lib -L$(TOP)/ncurses-6.0/lib/libncurses.so.6 -ldl -lpthread"
+		LDFLAGS="-L$(STAGEDIR)/usr/lib -L$(TOP)/ncurses-6.0/lib/libncurses.so.6 -ldl -lpthread -lncurses"
 
 readline-8.1: readline-8.1/Makefile
-	$(MAKE) SHLIB_LIBS="-lncurses" -C $@ && $(MAKE) $@-stage
+	$(MAKE) SHLIB_LIBS="$(TOP)/ncurses-6.0/lib/libncurses.so.6" -C $@ && $(MAKE) $@-stage
 
 readline-8.1-clean:
 	[ ! -f readline-8.1/Makefile ] || $(MAKE) -C readline-8.1 distclean
