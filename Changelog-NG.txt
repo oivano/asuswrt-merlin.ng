@@ -1,7 +1,7 @@
 Asuswrt-Merlin 386/NG Changelog
 ===============================
 
-386.5_2-ion (XX-XX-XX)
+386.5_2-ion (24-April-2022)
   - UPDATED: quagga to 1.2.4
   - UPDATED: Dropbear to 2022.82
   - UPDATED: Readline to 8.1
