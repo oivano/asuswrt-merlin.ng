@@ -158,9 +158,10 @@ const struct lyplg_ext_record plugins_nacm[] = {
 
         .plugin.id = "libyang 2 - NACM, version 1",
         .plugin.compile = &nacm_compile,
-        .plugin.validate = NULL,
         .plugin.sprinter = NULL,
-        .plugin.free = NULL
+        .plugin.free = NULL,
+        .plugin.snode = NULL,
+        .plugin.validate = NULL
     }, {
         .module = "ietf-netconf-acm",
         .revision = "2018-02-14",
@@ -168,9 +169,10 @@ const struct lyplg_ext_record plugins_nacm[] = {
 
         .plugin.id = "libyang 2 - NACM, version 1",
         .plugin.compile = &nacm_compile,
-        .plugin.validate = NULL,
         .plugin.sprinter = NULL,
-        .plugin.free = NULL
+        .plugin.free = NULL,
+        .plugin.snode = NULL,
+        .plugin.validate = NULL
     }, {
         .module = "ietf-netconf-acm",
         .revision = "2012-02-22",
@@ -178,9 +180,10 @@ const struct lyplg_ext_record plugins_nacm[] = {
 
         .plugin.id = "libyang 2 - NACM, version 1",
         .plugin.compile = &nacm_compile,
-        .plugin.validate = NULL,
         .plugin.sprinter = NULL,
-        .plugin.free = NULL
+        .plugin.free = NULL,
+        .plugin.snode = NULL,
+        .plugin.validate = NULL
     }, {
         .module = "ietf-netconf-acm",
         .revision = "2018-02-14",
@@ -188,9 +191,10 @@ const struct lyplg_ext_record plugins_nacm[] = {
 
         .plugin.id = "libyang 2 - NACM, version 1",
         .plugin.compile = &nacm_compile,
-        .plugin.validate = NULL,
         .plugin.sprinter = NULL,
-        .plugin.free = NULL
+        .plugin.free = NULL,
+        .plugin.snode = NULL,
+        .plugin.validate = NULL
     },
     {0} /* terminating zeroed item */
 };

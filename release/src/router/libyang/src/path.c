@@ -11,8 +11,6 @@
  *
  *     https://opensource.org/licenses/BSD-3-Clause
  */
-#define _ISOC99_SOURCE /* strtoull */
-
 #include "path.h"
 
 #include <assert.h>
@@ -108,8 +106,8 @@ ly_path_check_predicate(const struct ly_ctx *ctx, const struct lysc_node *cur_no
                 /* '=' */
                 LY_CHECK_GOTO(lyxp_next_token(ctx, exp, tok_idx, LYXP_TOKEN_OPER_EQUAL), token_error);
 
-                /* Literal */
-                LY_CHECK_GOTO(lyxp_next_token(ctx, exp, tok_idx, LYXP_TOKEN_LITERAL), token_error);
+                /* Literal or Number */
+                LY_CHECK_GOTO(lyxp_next_token2(ctx, exp, tok_idx, LYXP_TOKEN_LITERAL, LYXP_TOKEN_NUMBER), token_error);
 
                 /* ']' */
                 LY_CHECK_GOTO(lyxp_next_token(ctx, exp, tok_idx, LYXP_TOKEN_BRACK2), token_error);
@@ -123,8 +121,8 @@ ly_path_check_predicate(const struct ly_ctx *ctx, const struct lysc_node *cur_no
             /* '=' */
             LY_CHECK_GOTO(lyxp_next_token(ctx, exp, tok_idx, LYXP_TOKEN_OPER_EQUAL), token_error);
 
-            /* Literal */
-            LY_CHECK_GOTO(lyxp_next_token(ctx, exp, tok_idx, LYXP_TOKEN_LITERAL), token_error);
+            /* Literal or Number */
+            LY_CHECK_GOTO(lyxp_next_token2(ctx, exp, tok_idx, LYXP_TOKEN_LITERAL, LYXP_TOKEN_NUMBER), token_error);
 
             /* ']' */
             LY_CHECK_GOTO(lyxp_next_token(ctx, exp, tok_idx, LYXP_TOKEN_BRACK2), token_error);
@@ -232,7 +230,7 @@ token_error:
 
 LY_ERR
 ly_path_parse(const struct ly_ctx *ctx, const struct lysc_node *ctx_node, const char *str_path, size_t path_len,
-        uint8_t begin, uint8_t lref, uint8_t prefix, uint8_t pred, struct lyxp_expr **expr)
+        ly_bool lref, uint8_t begin, uint8_t prefix, uint8_t pred, struct lyxp_expr **expr)
 {
     LY_ERR ret = LY_SUCCESS;
     struct lyxp_expr *exp = NULL;
@@ -240,7 +238,6 @@ ly_path_parse(const struct ly_ctx *ctx, const struct lysc_node *ctx_node, const 
     const char *cur_node, *prev_prefix = NULL, *ptr;
 
     assert((begin == LY_PATH_BEGIN_ABSOLUTE) || (begin == LY_PATH_BEGIN_EITHER));
-    assert((lref == LY_PATH_LREF_TRUE) || (lref == LY_PATH_LREF_FALSE));
     assert((prefix == LY_PATH_PREFIX_OPTIONAL) || (prefix == LY_PATH_PREFIX_MANDATORY) ||
             (prefix == LY_PATH_PREFIX_STRICT_INHERIT));
     assert((pred == LY_PATH_PRED_KEYS) || (pred == LY_PATH_PRED_SIMPLE) || (pred == LY_PATH_PRED_LEAFREF));
@@ -255,7 +252,7 @@ ly_path_parse(const struct ly_ctx *ctx, const struct lysc_node *ctx_node, const 
         /* is the path relative? */
         if (lyxp_next_token(NULL, exp, &tok_idx, LYXP_TOKEN_OPER_PATH)) {
             /* relative path check specific to leafref */
-            if (lref == LY_PATH_LREF_TRUE) {
+            if (lref) {
                 /* mandatory '..' */
                 LY_CHECK_ERR_GOTO(lyxp_next_token(ctx, exp, &tok_idx, LYXP_TOKEN_DDOT), ret = LY_EVALID, error);
 
@@ -377,33 +374,41 @@ error:
 }
 
 /**
- * @brief Parse prefix from a NameTest, if any, and node name, and return expected module of the node.
+ * @brief Parse NameTest and get the corresponding schema node.
  *
  * @param[in] ctx libyang context.
  * @param[in] cur_node Optional current (original context) node.
- * @param[in] cur_mod Current module of the path (where the path is "instantiated"). Needed for ::LY_VALUE_SCHEMA*.
- * @param[in] prev_ctx_node Previous context node. Needed for ::LY_VALUE_JSON.
+ * @param[in] cur_mod Current module of the path (where the path is "instantiated"). Needed for ::LY_VALUE_SCHEMA
+ * and ::LY_VALUE_SCHEMA_RESOLVED.
+ * @param[in] prev_ctx_node Previous context node.
  * @param[in] expr Parsed path.
  * @param[in] tok_idx Index in @p expr.
- * @param[in] lref Lref option.
  * @param[in] format Format of the path.
  * @param[in] prefix_data Format-specific data for resolving any prefixes (see ::ly_resolve_prefix).
- * @param[out] mod Resolved module.
- * @param[out] name Parsed node name.
- * @param[out] name_len Length of @p name.
+ * @param[in] top_ext Optional top-level extension to use for searching the schema node.
+ * @param[in] getnext_opts Options to be used for ::lys_getnext() calls.
+ * @param[out] snode Resolved schema node.
+ * @param[out] ext Optional extension instance of @p snode, if any.
  * @return LY_ERR value.
  */
 static LY_ERR
-ly_path_compile_prefix(const struct ly_ctx *ctx, const struct lysc_node *cur_node, const struct lys_module *cur_mod,
-        const struct lysc_node *prev_ctx_node, const struct lyxp_expr *expr, uint16_t tok_idx, uint8_t lref,
-        LY_VALUE_FORMAT format, void *prefix_data, struct lys_glob_unres *unres, const struct lys_module **mod,
-        const char **name, size_t *name_len)
+ly_path_compile_snode(const struct ly_ctx *ctx, const struct lysc_node *cur_node, const struct lys_module *cur_mod,
+        const struct lysc_node *prev_ctx_node, const struct lyxp_expr *expr, uint16_t tok_idx, LY_VALUE_FORMAT format,
+        void *prefix_data, const struct lysc_ext_instance *top_ext, uint32_t getnext_opts, const struct lysc_node **snode,
+        struct lysc_ext_instance **ext)
 {
     LY_ERR ret;
-    const char *pref;
-    size_t len;
+    const struct lys_module *mod = NULL;
+    struct lysc_ext_instance *e = NULL;
+    const char *pref, *name;
+    size_t len, name_len;
 
     assert(expr->tokens[tok_idx] == LYXP_TOKEN_NAMETEST);
+
+    *snode = NULL;
+    if (ext) {
+        *ext = NULL;
+    }
 
     /* get prefix */
     if ((pref = strnstr(expr->expr + expr->tok_pos[tok_idx], ":", expr->tok_len[tok_idx]))) {
@@ -413,28 +418,39 @@ ly_path_compile_prefix(const struct ly_ctx *ctx, const struct lysc_node *cur_nod
         len = 0;
     }
 
-    /* find next node module */
+    /* set name */
+    if (pref) {
+        name = pref + len + 1;
+        name_len = expr->tok_len[tok_idx] - len - 1;
+    } else {
+        name = expr->expr + expr->tok_pos[tok_idx];
+        name_len = expr->tok_len[tok_idx];
+    }
+
+    /* find node module */
     if (pref) {
         LOG_LOCSET(cur_node, NULL, NULL, NULL);
 
-        *mod = ly_resolve_prefix(ctx, pref, len, format, prefix_data);
-        if (!*mod) {
+        mod = ly_resolve_prefix(ctx, pref, len, format, prefix_data);
+        if ((!mod || !mod->implemented) && prev_ctx_node) {
+            /* check for nested ext data */
+            ret = ly_nested_ext_schema(NULL, prev_ctx_node, pref, len, format, prefix_data, name, name_len, snode, &e);
+            if (!ret) {
+                goto success;
+            } else if (ret != LY_ENOT) {
+                goto error;
+            }
+        }
+
+        if (!mod) {
             LOGVAL(ctx, LYVE_XPATH, "No module connected with the prefix \"%.*s\" found (prefix format %s).",
                     (int)len, pref, ly_format2str(format));
             ret = LY_EVALID;
             goto error;
-        } else if (!(*mod)->implemented) {
-            if (lref == LY_PATH_LREF_FALSE) {
-                LOGVAL(ctx, LYVE_XPATH, "Not implemented module \"%s\" in path.", (*mod)->name);
-                ret = LY_EVALID;
-                goto error;
-            }
-
-            assert(unres);
-            LY_CHECK_GOTO(ret = lys_set_implemented_r((struct lys_module *)*mod, NULL, unres), error);
-            if (unres->recompile) {
-                return LY_ERECOMPILE;
-            }
+        } else if (!mod->implemented) {
+            LOGVAL(ctx, LYVE_XPATH, "Not implemented module \"%s\" in path.", mod->name);
+            ret = LY_EVALID;
+            goto error;
         }
 
         LOG_LOCBACK(cur_node ? 1 : 0, 0, 0, 0);
@@ -446,32 +462,43 @@ ly_path_compile_prefix(const struct ly_ctx *ctx, const struct lysc_node *cur_nod
                 LOGINT_RET(ctx);
             }
             /* use current module */
-            *mod = cur_mod;
+            mod = cur_mod;
             break;
         case LY_VALUE_JSON:
+        case LY_VALUE_LYB:
             if (!prev_ctx_node) {
                 LOGINT_RET(ctx);
             }
             /* inherit module of the previous node */
-            *mod = prev_ctx_node->module;
+            mod = prev_ctx_node->module;
             break;
         case LY_VALUE_CANON:
         case LY_VALUE_XML:
-        case LY_VALUE_LYB:
+        case LY_VALUE_STR_NS:
             /* not really defined or accepted */
             LOGINT_RET(ctx);
         }
     }
 
-    /* set name */
-    if (pref) {
-        *name = pref + len + 1;
-        *name_len = expr->tok_len[tok_idx] - len - 1;
+    /* find schema node */
+    if (!prev_ctx_node && top_ext) {
+        *snode = lysc_ext_find_node(top_ext, mod, name, name_len, 0, getnext_opts);
     } else {
-        *name = expr->expr + expr->tok_pos[tok_idx];
-        *name_len = expr->tok_len[tok_idx];
+        *snode = lys_find_child(prev_ctx_node, mod, name, name_len, 0, getnext_opts);
+        if (!(*snode) && prev_ctx_node) {
+            ret = ly_nested_ext_schema(NULL, prev_ctx_node, pref, len, format, prefix_data, name, name_len, snode, &e);
+            LY_CHECK_RET(ret && (ret != LY_ENOT), ret);
+        }
+    }
+    if (!(*snode)) {
+        LOGVAL(ctx, LYVE_XPATH, "Not found node \"%.*s\" in path.", (int)name_len, name);
+        return LY_ENOTFOUND;
     }
 
+success:
+    if (ext) {
+        *ext = e;
+    }
     return LY_SUCCESS;
 
 error:
@@ -487,9 +514,8 @@ ly_path_compile_predicate(const struct ly_ctx *ctx, const struct lysc_node *cur_
     LY_ERR ret = LY_SUCCESS;
     struct ly_path_predicate *p;
     const struct lysc_node *key;
-    const struct lys_module *mod = NULL;
-    const char *name;
-    size_t name_len, key_count;
+    const char *val;
+    size_t val_len, key_count;
 
     assert(ctx && ctx_node);
 
@@ -517,14 +543,9 @@ ly_path_compile_predicate(const struct ly_ctx *ctx, const struct lysc_node *cur_
 
         do {
             /* NameTest, find the key */
-            LY_CHECK_RET(ly_path_compile_prefix(ctx, cur_node, cur_mod, ctx_node, expr, *tok_idx, LY_PATH_LREF_FALSE,
-                    format, prefix_data, NULL, &mod, &name, &name_len));
-            key = lys_find_child(ctx_node, mod, name, name_len, 0, 0);
-            if (!key) {
-                LOGVAL(ctx, LYVE_XPATH, "Not found node \"%.*s\" in path.", (int)name_len, name);
-                ret = LY_ENOTFOUND;
-                goto cleanup;
-            } else if ((key->nodetype != LYS_LEAF) || !(key->flags & LYS_KEY)) {
+            LY_CHECK_RET(ly_path_compile_snode(ctx, cur_node, cur_mod, ctx_node, expr, *tok_idx, format, prefix_data,
+                    NULL, 0, &key, NULL));
+            if ((key->nodetype != LYS_LEAF) || !(key->flags & LYS_KEY)) {
                 LOGVAL(ctx, LYVE_XPATH, "Key expected instead of %s \"%s\" in path.", lys_nodetype2str(key->nodetype),
                         key->name);
                 ret = LY_EVALID;
@@ -544,18 +565,27 @@ ly_path_compile_predicate(const struct ly_ctx *ctx, const struct lysc_node *cur_
             assert(expr->tokens[*tok_idx] == LYXP_TOKEN_OPER_EQUAL);
             ++(*tok_idx);
 
-            /* Literal */
-            assert(expr->tokens[*tok_idx] == LYXP_TOKEN_LITERAL);
+            /* Literal or Number */
+            assert((expr->tokens[*tok_idx] == LYXP_TOKEN_LITERAL) || (expr->tokens[*tok_idx] == LYXP_TOKEN_NUMBER));
+            if (expr->tokens[*tok_idx] == LYXP_TOKEN_LITERAL) {
+                /* skip quotes */
+                val = expr->expr + expr->tok_pos[*tok_idx] + 1;
+                val_len = expr->tok_len[*tok_idx] - 2;
+            } else {
+                val = expr->expr + expr->tok_pos[*tok_idx];
+                val_len = expr->tok_len[*tok_idx];
+            }
+
+            /* store the value */
             LOG_LOCSET(key, NULL, NULL, NULL);
-            ret = lyd_value_store(ctx, &p->value, ((struct lysc_node_leaf *)key)->type,
-                    expr->expr + expr->tok_pos[*tok_idx] + 1, expr->tok_len[*tok_idx] - 2, NULL, format, prefix_data,
-                    LYD_HINT_DATA, key, NULL);
+            ret = lyd_value_store(ctx, &p->value, ((struct lysc_node_leaf *)key)->type, val, val_len, NULL, format,
+                    prefix_data, LYD_HINT_DATA, key, NULL);
             LOG_LOCBACK(key ? 1 : 0, 0, 0, 0);
             LY_CHECK_ERR_GOTO(ret, p->value.realtype = NULL, cleanup);
             ++(*tok_idx);
 
             /* "allocate" the type to avoid problems when freeing the value after the type was freed */
-            ++((struct lysc_type *)p->value.realtype)->refcount;
+            LY_ATOMIC_INC_BARRIER(((struct lysc_type *)p->value.realtype)->refcount);
 
             /* ']' */
             assert(expr->tokens[*tok_idx] == LYXP_TOKEN_BRACK2);
@@ -596,18 +626,27 @@ ly_path_compile_predicate(const struct ly_ctx *ctx, const struct lysc_node *cur_
         assert(expr->tokens[*tok_idx] == LYXP_TOKEN_OPER_EQUAL);
         ++(*tok_idx);
 
-        assert(expr->tokens[*tok_idx] == LYXP_TOKEN_LITERAL);
+        /* Literal or Number */
+        assert((expr->tokens[*tok_idx] == LYXP_TOKEN_LITERAL) || (expr->tokens[*tok_idx] == LYXP_TOKEN_NUMBER));
+        if (expr->tokens[*tok_idx] == LYXP_TOKEN_LITERAL) {
+            /* skip quotes */
+            val = expr->expr + expr->tok_pos[*tok_idx] + 1;
+            val_len = expr->tok_len[*tok_idx] - 2;
+        } else {
+            val = expr->expr + expr->tok_pos[*tok_idx];
+            val_len = expr->tok_len[*tok_idx];
+        }
+
         /* store the value */
         LOG_LOCSET(ctx_node, NULL, NULL, NULL);
-        ret = lyd_value_store(ctx, &p->value, ((struct lysc_node_leaflist *)ctx_node)->type,
-                expr->expr + expr->tok_pos[*tok_idx] + 1, expr->tok_len[*tok_idx] - 2, NULL, format, prefix_data,
-                LYD_HINT_DATA, ctx_node, NULL);
+        ret = lyd_value_store(ctx, &p->value, ((struct lysc_node_leaflist *)ctx_node)->type, val, val_len, NULL, format,
+                prefix_data, LYD_HINT_DATA, ctx_node, NULL);
         LOG_LOCBACK(ctx_node ? 1 : 0, 0, 0, 0);
         LY_CHECK_ERR_GOTO(ret, p->value.realtype = NULL, cleanup);
         ++(*tok_idx);
 
         /* "allocate" the type to avoid problems when freeing the value after the type was freed */
-        ++((struct lysc_type *)p->value.realtype)->refcount;
+        LY_ATOMIC_INC_BARRIER(((struct lysc_type *)p->value.realtype)->refcount);
 
         /* ']' */
         assert(expr->tokens[*tok_idx] == LYXP_TOKEN_BRACK2);
@@ -631,7 +670,7 @@ ly_path_compile_predicate(const struct ly_ctx *ctx, const struct lysc_node *cur_
         LY_ARRAY_NEW_GOTO(ctx, *predicates, p, ret, cleanup);
 
         /* syntax was already checked */
-        p->position = strtoull(expr->expr + expr->tok_pos[*tok_idx], (char **)&name, LY_BASE_DEC);
+        p->position = strtoull(expr->expr + expr->tok_pos[*tok_idx], (char **)&val, LY_BASE_DEC);
         ++(*tok_idx);
 
         /* ']' */
@@ -653,19 +692,14 @@ cleanup:
  * @param[in,out] tok_idx Index in @p expr, is adjusted for parsed tokens.
  * @param[in] format Format of the path.
  * @param[in] prefix_data Format-specific data for resolving any prefixes (see ::ly_resolve_prefix).
- * @param[in,out] unres Global unres structure for newly implemented modules.
  * @return LY_ERR value.
  */
 static LY_ERR
 ly_path_compile_predicate_leafref(const struct lysc_node *ctx_node, const struct lysc_node *cur_node,
-        const struct lyxp_expr *expr, uint16_t *tok_idx, LY_VALUE_FORMAT format, void *prefix_data,
-        struct lys_glob_unres *unres)
+        const struct lyxp_expr *expr, uint16_t *tok_idx, LY_VALUE_FORMAT format, void *prefix_data)
 {
     LY_ERR ret = LY_SUCCESS;
     const struct lysc_node *key, *node, *node2;
-    const struct lys_module *mod;
-    const char *name;
-    size_t name_len;
     struct ly_ctx *ctx = cur_node->module->ctx;
 
     LOG_LOCSET(cur_node, NULL, NULL, NULL);
@@ -689,15 +723,10 @@ ly_path_compile_predicate_leafref(const struct lysc_node *ctx_node, const struct
 
     do {
         /* NameTest, find the key */
-        ret = ly_path_compile_prefix(ctx, cur_node, cur_node->module, ctx_node, expr, *tok_idx,
-                LY_PATH_LREF_TRUE, format, prefix_data, unres, &mod, &name, &name_len);
+        ret = ly_path_compile_snode(ctx, cur_node, cur_node->module, ctx_node, expr, *tok_idx, format, prefix_data,
+                NULL, 0, &key, NULL);
         LY_CHECK_GOTO(ret, cleanup);
-        key = lys_find_child(ctx_node, mod, name, name_len, 0, 0);
-        if (!key) {
-            LOGVAL(ctx, LYVE_XPATH, "Not found node \"%.*s\" in path.", (int)name_len, name);
-            ret = LY_EVALID;
-            goto cleanup;
-        } else if ((key->nodetype != LYS_LEAF) || !(key->flags & LYS_KEY)) {
+        if ((key->nodetype != LYS_LEAF) || !(key->flags & LYS_KEY)) {
             LOGVAL(ctx, LYVE_XPATH, "Key expected instead of %s \"%s\" in path.",
                     lys_nodetype2str(key->nodetype), key->name);
             ret = LY_EVALID;
@@ -752,14 +781,8 @@ ly_path_compile_predicate_leafref(const struct lysc_node *ctx_node, const struct
 
             /* NameTest */
             assert(expr->tokens[*tok_idx] == LYXP_TOKEN_NAMETEST);
-            LY_CHECK_RET(ly_path_compile_prefix(ctx, cur_node, cur_node->module, node, expr, *tok_idx,
-                    LY_PATH_LREF_TRUE, format, prefix_data, unres, &mod, &name, &name_len));
-            node2 = lys_find_child(node, mod, name, name_len, 0, 0);
-            if (!node2) {
-                LOGVAL(ctx, LYVE_XPATH, "Not found node \"%.*s\" in path.", (int)name_len, name);
-                ret = LY_EVALID;
-                goto cleanup;
-            }
+            LY_CHECK_RET(ly_path_compile_snode(ctx, cur_node, cur_node->module, node, expr, *tok_idx, format,
+                    prefix_data, NULL, 0, &node2, NULL));
             node = node2;
             ++(*tok_idx);
         } while ((*tok_idx + 1 < expr->used) && (expr->tokens[*tok_idx + 1] == LYXP_TOKEN_NAMETEST));
@@ -784,31 +807,54 @@ ly_path_compile_predicate_leafref(const struct lysc_node *ctx_node, const struct
 
 cleanup:
     LOG_LOCBACK(1, 0, 0, 0);
-    return ret;
+    return (ret == LY_ENOTFOUND) ? LY_EVALID : ret;
 }
 
-LY_ERR
-ly_path_compile(const struct ly_ctx *ctx, const struct lys_module *cur_mod, const struct lysc_node *ctx_node,
-        const struct lysc_ext_instance *ext, const struct lyxp_expr *expr, uint8_t lref, uint8_t oper, uint8_t target,
-        LY_VALUE_FORMAT format, void *prefix_data, struct lys_glob_unres *unres, struct ly_path **path)
+/**
+ * @brief Compile path into ly_path structure. Any predicates of a leafref are only checked, not compiled.
+ *
+ * @param[in] ctx libyang context.
+ * @param[in] cur_mod Current module of the path (where it was "instantiated"), ignored of @p lref. Used for nodes
+ * without a prefix for ::LY_VALUE_SCHEMA and ::LY_VALUE_SCHEMA_RESOLVED format.
+ * @param[in] ctx_node Optional context node, mandatory of @p lref.
+ * @param[in] top_ext Extension instance containing the definition of the data being created. It is used to find the top-level
+ * node inside the extension instance instead of a module. Note that this is the case not only if the @p ctx_node is NULL,
+ * but also if the relative path starting in @p ctx_node reaches the document root via double dots.
+ * @param[in] expr Parsed path.
+ * @param[in] lref Whether leafref is being compiled or not.
+ * @param[in] oper Oper option (@ref path_oper_options).
+ * @param[in] target Target option (@ref path_target_options).
+ * @param[in] limit_access_tree Whether to limit accessible tree as described in
+ * [XPath context](https://datatracker.ietf.org/doc/html/rfc7950#section-6.4.1).
+ * @param[in] format Format of the path.
+ * @param[in] prefix_data Format-specific data for resolving any prefixes (see ::ly_resolve_prefix).
+ * @param[out] path Compiled path.
+ * @return LY_ERECOMPILE, only if @p lref.
+ * @return LY_ERR value.
+ */
+static LY_ERR
+_ly_path_compile(const struct ly_ctx *ctx, const struct lys_module *cur_mod, const struct lysc_node *ctx_node,
+        const struct lysc_ext_instance *top_ext, const struct lyxp_expr *expr, ly_bool lref, uint8_t oper, uint8_t target,
+        ly_bool limit_access_tree, LY_VALUE_FORMAT format, void *prefix_data, struct ly_path **path)
 {
     LY_ERR ret = LY_SUCCESS;
     uint16_t tok_idx = 0;
-    const struct lys_module *mod = NULL;
     const struct lysc_node *node2, *cur_node, *op;
     struct ly_path *p = NULL;
+    struct lysc_ext_instance *ext = NULL;
     uint32_t getnext_opts;
-    const char *name;
-    size_t name_len;
 
     assert(ctx);
-    assert((lref == LY_PATH_LREF_FALSE) || ctx_node);
-    assert((lref == LY_PATH_LREF_TRUE) || (lref == LY_PATH_LREF_FALSE));
+    assert(!lref || ctx_node);
     assert((oper == LY_PATH_OPER_INPUT) || (oper == LY_PATH_OPER_OUTPUT));
     assert((target == LY_PATH_TARGET_SINGLE) || (target == LY_PATH_TARGET_MANY));
 
-    /* find operation, if we are in any */
-    for (op = ctx_node; op && !(op->nodetype & (LYS_RPC | LYS_ACTION | LYS_NOTIF)); op = op->parent) {}
+    if (!limit_access_tree) {
+        op = NULL;
+    } else {
+        /* find operation, if we are in any */
+        for (op = ctx_node; op && !(op->nodetype & (LYS_RPC | LYS_ACTION | LYS_NOTIF)); op = op->parent) {}
+    }
 
     *path = NULL;
 
@@ -829,7 +875,14 @@ ly_path_compile(const struct ly_ctx *ctx, const struct lys_module *cur_mod, cons
         ++tok_idx;
     } else {
         /* relative path */
-        while ((lref == LY_PATH_LREF_TRUE) && (expr->tokens[tok_idx] == LYXP_TOKEN_DDOT)) {
+        if (!ctx_node) {
+            LOGVAL(ctx, LYVE_XPATH, "No initial schema parent for a relative path.");
+            ret = LY_EVALID;
+            goto cleanup;
+        }
+
+        /* go up the parents for leafref */
+        while (lref && (expr->tokens[tok_idx] == LYXP_TOKEN_DDOT)) {
             if (!ctx_node) {
                 LOGVAL(ctx, LYVE_XPATH, "Too many parent references in path.");
                 ret = LY_EVALID;
@@ -844,15 +897,11 @@ ly_path_compile(const struct ly_ctx *ctx, const struct lys_module *cur_mod, cons
             assert(expr->tokens[tok_idx] == LYXP_TOKEN_OPER_PATH);
             ++tok_idx;
         }
-
-        /* we are not storing the parent */
-        (void)ctx_node;
     }
 
     do {
         /* check last compiled inner node, whether it is uniquely identified (even key-less list) */
-        if (p && (lref == LY_PATH_LREF_FALSE) && (target == LY_PATH_TARGET_SINGLE) &&
-                (p->node->nodetype == LYS_LIST) && !p->predicates) {
+        if (p && !lref && (target == LY_PATH_TARGET_SINGLE) && (p->node->nodetype == LYS_LIST) && !p->predicates) {
             LOGVAL(ctx, LYVE_XPATH, "Predicate missing for %s \"%s\" in path.",
                     lys_nodetype2str(p->node->nodetype), p->node->name);
             ret = LY_EVALID;
@@ -862,19 +911,12 @@ ly_path_compile(const struct ly_ctx *ctx, const struct lys_module *cur_mod, cons
         /* NameTest */
         LY_CHECK_ERR_GOTO(lyxp_check_token(ctx, expr, tok_idx, LYXP_TOKEN_NAMETEST), ret = LY_EVALID, cleanup);
 
-        /* get module and node name */
-        LY_CHECK_GOTO(ret = ly_path_compile_prefix(ctx, cur_node, cur_mod, ctx_node, expr, tok_idx, lref, format,
-                prefix_data, unres, &mod, &name, &name_len), cleanup);
+        /* get schema node */
+        LY_CHECK_GOTO(ret = ly_path_compile_snode(ctx, cur_node, cur_mod, ctx_node, expr, tok_idx, format, prefix_data,
+                top_ext, getnext_opts, &node2, &ext), cleanup);
         ++tok_idx;
-
-        /* find the next node */
-        if (!ctx_node && ext) {
-            node2 = lysc_ext_find_node(ext, mod, name, name_len, 0, getnext_opts);
-        } else {
-            node2 = lys_find_child(ctx_node, mod, name, name_len, 0, getnext_opts);
-        }
-        if (!node2 || (op && (node2->nodetype & (LYS_RPC | LYS_ACTION | LYS_NOTIF)) && (node2 != op))) {
-            LOGVAL(ctx, LYVE_XPATH, "Not found node \"%.*s\" in path.", (int)name_len, name);
+        if ((op && (node2->nodetype & (LYS_RPC | LYS_ACTION | LYS_NOTIF)) && (node2 != op))) {
+            LOGVAL(ctx, LYVE_XPATH, "Not found node \"%s\" in path.", node2->name);
             ret = LY_EVALID;
             goto cleanup;
         }
@@ -883,10 +925,11 @@ ly_path_compile(const struct ly_ctx *ctx, const struct lys_module *cur_mod, cons
         /* new path segment */
         LY_ARRAY_NEW_GOTO(ctx, *path, p, ret, cleanup);
         p->node = ctx_node;
+        p->ext = ext;
 
         /* compile any predicates */
-        if (lref == LY_PATH_LREF_TRUE) {
-            ret = ly_path_compile_predicate_leafref(ctx_node, cur_node, expr, &tok_idx, format, prefix_data, unres);
+        if (lref) {
+            ret = ly_path_compile_predicate_leafref(ctx_node, cur_node, expr, &tok_idx, format, prefix_data);
         } else {
             ret = ly_path_compile_predicate(ctx, cur_node, cur_mod, ctx_node, expr, &tok_idx, format, prefix_data,
                     &p->predicates, &p->pred_type);
@@ -902,8 +945,7 @@ ly_path_compile(const struct ly_ctx *ctx, const struct lys_module *cur_mod, cons
     }
 
     /* check last compiled node */
-    if ((lref == LY_PATH_LREF_FALSE) && (target == LY_PATH_TARGET_SINGLE) &&
-            (p->node->nodetype & (LYS_LIST | LYS_LEAFLIST)) && !p->predicates) {
+    if (!lref && (target == LY_PATH_TARGET_SINGLE) && (p->node->nodetype & (LYS_LIST | LYS_LEAFLIST)) && !p->predicates) {
         LOGVAL(ctx, LYVE_XPATH, "Predicate missing for %s \"%s\" in path.",
                 lys_nodetype2str(p->node->nodetype), p->node->name);
         ret = LY_EVALID;
@@ -916,7 +958,24 @@ cleanup:
         *path = NULL;
     }
     LOG_LOCBACK(1, 0, 0, 0);
-    return ret;
+    return (ret == LY_ENOTFOUND) ? LY_EVALID : ret;
+}
+
+LY_ERR
+ly_path_compile(const struct ly_ctx *ctx, const struct lys_module *cur_mod, const struct lysc_node *ctx_node,
+        const struct lysc_ext_instance *top_ext, const struct lyxp_expr *expr, uint8_t oper, uint8_t target,
+        ly_bool limit_access_tree, LY_VALUE_FORMAT format, void *prefix_data, struct ly_path **path)
+{
+    return _ly_path_compile(ctx, cur_mod, ctx_node, top_ext, expr, 0, oper, target, limit_access_tree, format,
+            prefix_data, path);
+}
+
+LY_ERR
+ly_path_compile_leafref(const struct ly_ctx *ctx, const struct lysc_node *ctx_node, const struct lysc_ext_instance *top_ext,
+        const struct lyxp_expr *expr, uint8_t oper, uint8_t target, LY_VALUE_FORMAT format, void *prefix_data,
+        struct ly_path **path)
+{
+    return _ly_path_compile(ctx, ctx_node->module, ctx_node, top_ext, expr, 1, oper, target, 1, format, prefix_data, path);
 }
 
 LY_ERR
@@ -1068,7 +1127,7 @@ ly_path_dup(const struct ly_ctx *ctx, const struct ly_path *path, struct ly_path
                     /* key-predicate or leaf-list-predicate */
                     (*dup)[u].predicates[v].key = pred->key;
                     pred->value.realtype->plugin->duplicate(ctx, &pred->value, &(*dup)[u].predicates[v].value);
-                    ++((struct lysc_type *)pred->value.realtype)->refcount;
+                    LY_ATOMIC_INC_BARRIER(((struct lysc_type *)pred->value.realtype)->refcount);
                     break;
                 case LY_PATH_PREDTYPE_NONE:
                     break;

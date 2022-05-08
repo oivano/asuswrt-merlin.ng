@@ -130,17 +130,21 @@ struct lys_yin_parser_ctx *YCTX;
 static int
 setup_ctx(void **state)
 {
+    struct lysp_module *pmod;
+
     /* allocate parser context */
     YCTX = calloc(1, sizeof(*YCTX));
     YCTX->format = LYS_IN_YIN;
+    ly_set_new(&YCTX->parsed_mods);
 
     /* allocate new parsed module */
-    YCTX->parsed_mod = calloc(1, sizeof *YCTX->parsed_mod);
+    pmod = calloc(1, sizeof *pmod);
+    ly_set_add(YCTX->parsed_mods, pmod, 1, NULL);
 
     /* allocate new module */
-    YCTX->parsed_mod->mod = calloc(1, sizeof *YCTX->parsed_mod->mod);
-    YCTX->parsed_mod->mod->ctx = UTEST_LYCTX;
-    YCTX->parsed_mod->mod->parsed = YCTX->parsed_mod;
+    pmod->mod = calloc(1, sizeof *pmod->mod);
+    pmod->mod->ctx = UTEST_LYCTX;
+    pmod->mod->parsed = pmod;
 
     return 0;
 }
@@ -158,9 +162,8 @@ setup(void **state)
 static int
 teardown_ctx(void **UNUSED(state))
 {
-    lyxml_ctx_free(YCTX->xmlctx);
-    lys_module_free(YCTX->parsed_mod->mod);
-    free(YCTX);
+    lys_module_free(PARSER_CUR_PMOD(YCTX)->mod, 0);
+    yin_parser_ctx_free(YCTX);
     YCTX = NULL;
 
     return 0;
@@ -509,8 +512,8 @@ test_yin_parse_content(void **state)
     struct lysp_qname def = {0};
     struct lysp_ext *ext_def = NULL;
     struct lysp_when *when_p = NULL;
-    struct lysp_type_enum pos_enum = {}, val_enum = {};
-    struct lysp_type req_type = {}, range_type = {}, len_type = {}, patter_type = {}, enum_type = {};
+    struct lysp_type_enum pos_enum = {0}, val_enum = {0};
+    struct lysp_type req_type = {0}, range_type = {0}, len_type = {0}, patter_type = {0}, enum_type = {0};
     uint16_t config = 0;
 
     ly_in_new_memory(data, &UTEST_IN);
@@ -755,6 +758,7 @@ test_element_helper(void **state, const char *data, void *dest, const char **tex
         {LY_STMT_ARG_VALUE, dest, 0}
     };
 
+    YCTX->main_ctx = (struct lys_parser_ctx *)YCTX;
     ly_in_new_memory(data, &UTEST_IN);
     lyxml_ctx_new(UTEST_LYCTX, UTEST_IN, &YCTX->xmlctx);
     prefix = YCTX->xmlctx->prefix;
@@ -778,7 +782,7 @@ test_element_helper(void **state, const char *data, void *dest, const char **tex
 static void
 test_enum_elem(void **state)
 {
-    struct lysp_type type = {};
+    struct lysp_type type = {0};
     const char *data;
 
     data = ELEMENT_WRAPPER_START
@@ -812,7 +816,7 @@ test_enum_elem(void **state)
 static void
 test_bit_elem(void **state)
 {
-    struct lysp_type type = {};
+    struct lysp_type type = {0};
     const char *data;
 
     data = ELEMENT_WRAPPER_START
@@ -1177,7 +1181,7 @@ test_base_elem(void **state)
     const char *data;
     const char **bases = NULL;
     struct lysp_ext_instance *exts = NULL;
-    struct lysp_type type = {};
+    struct lysp_type type = {0};
 
     /* as identity subelement */
     data = "<identity xmlns=\"urn:ietf:params:xml:ns:yang:yin:1\">\n"
@@ -1216,7 +1220,7 @@ test_belongsto_elem(void **state)
     struct lysp_submodule submod;
     struct lysp_ext_instance *exts = NULL;
 
-    lydict_insert(UTEST_LYCTX, "module-name", 0, &YCTX->parsed_mod->mod->name);
+    lydict_insert(UTEST_LYCTX, "module-name", 0, &PARSER_CUR_PMOD(YCTX)->mod->name);
 
     data = ELEMENT_WRAPPER_START
             "<belongs-to module=\"module-name\"><prefix value=\"pref\"/>"EXT_SUBELEM "</belongs-to>"
@@ -1329,7 +1333,7 @@ static void
 test_fracdigits_elem(void **state)
 {
     const char *data;
-    struct lysp_type type = {};
+    struct lysp_type type = {0};
 
     /* valid value */
     data = ELEMENT_WRAPPER_START "<fraction-digits value=\"10\">"EXT_SUBELEM "</fraction-digits>" ELEMENT_WRAPPER_END;
@@ -1389,7 +1393,7 @@ static void
 test_length_elem(void **state)
 {
     const char *data;
-    struct lysp_type type = {};
+    struct lysp_type type = {0};
 
     /* max subelems */
     data = ELEMENT_WRAPPER_START
@@ -1476,7 +1480,7 @@ static void
 test_pattern_elem(void **state)
 {
     const char *data;
-    struct lysp_type type = {};
+    struct lysp_type type = {0};
 
     /* max subelems */
     data = ELEMENT_WRAPPER_START
@@ -1509,7 +1513,7 @@ static void
 test_value_position_elem(void **state)
 {
     const char *data;
-    struct lysp_type_enum en = {};
+    struct lysp_type_enum en = {0};
 
     /* valid values */
     data = ELEMENT_WRAPPER_START "<value value=\"55\">" EXT_SUBELEM "</value>" ELEMENT_WRAPPER_END;
@@ -1603,7 +1607,7 @@ static void
 test_range_elem(void **state)
 {
     const char *data;
-    struct lysp_type type = {};
+    struct lysp_type type = {0};
 
     /* max subelems */
     data = ELEMENT_WRAPPER_START
@@ -1636,7 +1640,7 @@ static void
 test_reqinstance_elem(void **state)
 {
     const char *data;
-    struct lysp_type type = {};
+    struct lysp_type type = {0};
 
     data = ELEMENT_WRAPPER_START "<require-instance value=\"true\">" EXT_SUBELEM "</require-instance>" ELEMENT_WRAPPER_END;
     assert_int_equal(test_element_helper(state, data, &type, NULL, NULL), LY_SUCCESS);
@@ -1781,7 +1785,7 @@ static void
 test_type_elem(void **state)
 {
     const char *data;
-    struct lysp_type type = {};
+    struct lysp_type type = {0};
 
     /* max subelems */
     data = ELEMENT_WRAPPER_START
@@ -1839,9 +1843,9 @@ static void
 test_max_elems_elem(void **state)
 {
     const char *data;
-    struct lysp_node_list list = {};
-    struct lysp_node_leaflist llist = {};
-    struct lysp_refine refine = {};
+    struct lysp_node_list list = {0};
+    struct lysp_node_leaflist llist = {0};
+    struct lysp_refine refine = {0};
 
     data = "<refine xmlns=\"urn:ietf:params:xml:ns:yang:yin:1\"> <max-elements value=\"unbounded\">"EXT_SUBELEM "</max-elements> </refine>";
     assert_int_equal(test_element_helper(state, data, &refine, NULL, NULL), LY_SUCCESS);
@@ -1890,9 +1894,9 @@ static void
 test_min_elems_elem(void **state)
 {
     const char *data;
-    struct lysp_node_list list = {};
-    struct lysp_node_leaflist llist = {};
-    struct lysp_refine refine = {};
+    struct lysp_node_list list = {0};
+    struct lysp_node_leaflist llist = {0};
+    struct lysp_refine refine = {0};
 
     data = "<refine xmlns=\"urn:ietf:params:xml:ns:yang:yin:1\"> <min-elements value=\"0\">"EXT_SUBELEM "</min-elements> </refine>";
     assert_int_equal(test_element_helper(state, data, &refine, NULL, NULL), LY_SUCCESS);
@@ -2451,7 +2455,7 @@ test_include_elem(void **state)
     struct include_meta inc_meta = {"module-name", &includes};
 
     /* max subelems */
-    YCTX->parsed_mod->version = LYS_VERSION_1_1;
+    PARSER_CUR_PMOD(YCTX)->version = LYS_VERSION_1_1;
     data = ELEMENT_WRAPPER_START
             "<include module=\"mod\">\n"
             "    <description><text>desc</text></description>\n"
@@ -2477,7 +2481,7 @@ test_include_elem(void **state)
     includes = NULL;
 
     /* invalid combinations */
-    YCTX->parsed_mod->version = LYS_VERSION_1_0;
+    PARSER_CUR_PMOD(YCTX)->version = LYS_VERSION_1_0;
     data = ELEMENT_WRAPPER_START
             "<include module=\"mod\">\n"
             "    <description><text>desc</text></description>\n"
@@ -2490,7 +2494,7 @@ test_include_elem(void **state)
     FREE_ARRAY(UTEST_LYCTX, includes, lysp_include_free);
     includes = NULL;
 
-    YCTX->parsed_mod->version = LYS_VERSION_1_0;
+    PARSER_CUR_PMOD(YCTX)->version = LYS_VERSION_1_0;
     data = ELEMENT_WRAPPER_START
             "<include module=\"mod\">\n"
             "    <reference><text>ref</text></reference>\n"
@@ -2598,7 +2602,7 @@ test_notification_elem(void **state)
     struct tree_node_meta notif_meta = {NULL, (struct lysp_node **)&notifs};
 
     /* max subelems */
-    YCTX->parsed_mod->version = LYS_VERSION_1_1;
+    PARSER_CUR_PMOD(YCTX)->version = LYS_VERSION_1_1;
     data = ELEMENT_WRAPPER_START
             "<notification name=\"notif-name\">\n"
             "    <anydata name=\"anyd\"/>\n"
@@ -2730,7 +2734,7 @@ test_container_elem(void **state)
     struct lysp_node_container *parsed = NULL;
 
     /* max subelems */
-    YCTX->parsed_mod->version = LYS_VERSION_1_1;
+    PARSER_CUR_PMOD(YCTX)->version = LYS_VERSION_1_1;
     data = ELEMENT_WRAPPER_START
             "<container name=\"cont-name\">\n"
             "    <anydata name=\"anyd\"/>\n"
@@ -2812,7 +2816,7 @@ test_case_elem(void **state)
     struct lysp_node_case *parsed = NULL;
 
     /* max subelems */
-    YCTX->parsed_mod->version = LYS_VERSION_1_1;
+    PARSER_CUR_PMOD(YCTX)->version = LYS_VERSION_1_1;
     data = ELEMENT_WRAPPER_START
             "<case name=\"case-name\">\n"
             "    <anydata name=\"anyd\"/>\n"
@@ -2879,7 +2883,7 @@ test_choice_elem(void **state)
     struct lysp_node_choice *parsed = NULL;
 
     /* max subelems */
-    YCTX->parsed_mod->version = LYS_VERSION_1_1;
+    PARSER_CUR_PMOD(YCTX)->version = LYS_VERSION_1_1;
     data = ELEMENT_WRAPPER_START
             "<choice name=\"choice-name\">\n"
             "    <anydata name=\"anyd\"/>\n"
@@ -2945,11 +2949,11 @@ static void
 test_inout_elem(void **state)
 {
     const char *data;
-    struct lysp_node_action_inout inout = {};
+    struct lysp_node_action_inout inout = {0};
     struct inout_meta inout_meta = {NULL, &inout};
 
     /* max subelements */
-    YCTX->parsed_mod->version = LYS_VERSION_1_1;
+    PARSER_CUR_PMOD(YCTX)->version = LYS_VERSION_1_1;
     data = ELEMENT_WRAPPER_START
             "<input>\n"
             "    <anydata name=\"anyd\"/>\n"
@@ -2993,7 +2997,7 @@ test_inout_elem(void **state)
     memset(&inout, 0, sizeof inout);
 
     /* max subelements */
-    YCTX->parsed_mod->version = LYS_VERSION_1_1;
+    PARSER_CUR_PMOD(YCTX)->version = LYS_VERSION_1_1;
     data = ELEMENT_WRAPPER_START
             "<output>\n"
             "    <anydata name=\"anyd\"/>\n"
@@ -3064,7 +3068,7 @@ test_action_elem(void **state)
     uint16_t flags;
 
     /* max subelems */
-    YCTX->parsed_mod->version = LYS_VERSION_1_1;
+    PARSER_CUR_PMOD(YCTX)->version = LYS_VERSION_1_1;
     data = ELEMENT_WRAPPER_START
             "<action name=\"act\">\n"
             "    <description><text>desc</text></description>\n"
@@ -3100,7 +3104,7 @@ test_action_elem(void **state)
     lysp_node_free(UTEST_LYCTX, (struct lysp_node *)actions);
     actions = NULL;
 
-    YCTX->parsed_mod->version = LYS_VERSION_1_1;
+    PARSER_CUR_PMOD(YCTX)->version = LYS_VERSION_1_1;
     data = ELEMENT_WRAPPER_START
             "<rpc name=\"act\">\n"
             "    <description><text>desc</text></description>\n"
@@ -3148,7 +3152,7 @@ test_augment_elem(void **state)
     struct lysp_node_augment *augments = NULL;
     struct tree_node_meta aug_meta = {NULL, (struct lysp_node **)&augments};
 
-    YCTX->parsed_mod->version = LYS_VERSION_1_1;
+    PARSER_CUR_PMOD(YCTX)->version = LYS_VERSION_1_1;
     data = ELEMENT_WRAPPER_START
             "<augment target-node=\"target\">\n"
             "    <action name=\"action\"/>\n"
@@ -3201,13 +3205,13 @@ test_augment_elem(void **state)
     assert_string_equal(augments->actions->name, "action");
     assert_string_equal(augments->notifs->name, "notif");
     TEST_1_CHECK_LYSP_EXT_INSTANCE(&(augments->exts[0]), LY_STMT_AUGMENT);
-    lysp_node_free(YCTX->parsed_mod->mod->ctx, (struct lysp_node *)augments);
+    lysp_node_free(PARSER_CUR_PMOD(YCTX)->mod->ctx, (struct lysp_node *)augments);
     augments = NULL;
 
     data = ELEMENT_WRAPPER_START "<augment target-node=\"target\" />" ELEMENT_WRAPPER_END;
     assert_int_equal(test_element_helper(state, data, &aug_meta, NULL, NULL), LY_SUCCESS);
     assert_string_equal(augments->nodeid, "target");
-    lysp_node_free(YCTX->parsed_mod->mod->ctx, (struct lysp_node *)augments);
+    lysp_node_free(PARSER_CUR_PMOD(YCTX)->mod->ctx, (struct lysp_node *)augments);
     augments = NULL;
 }
 
@@ -3421,15 +3425,17 @@ test_deviation_elem(void **state)
 static struct lysp_module *
 mod_renew(struct lys_yin_parser_ctx *ctx)
 {
-    struct ly_ctx *ly_ctx = ctx->parsed_mod->mod->ctx;
+    struct ly_ctx *ly_ctx = PARSER_CUR_PMOD(ctx)->mod->ctx;
+    struct lysp_module *pmod;
 
-    lys_module_free(ctx->parsed_mod->mod);
-    ctx->parsed_mod = calloc(1, sizeof *ctx->parsed_mod);
-    ctx->parsed_mod->mod = calloc(1, sizeof *ctx->parsed_mod->mod);
-    ctx->parsed_mod->mod->parsed = ctx->parsed_mod;
-    ctx->parsed_mod->mod->ctx = ly_ctx;
+    lys_module_free(PARSER_CUR_PMOD(ctx)->mod, 0);
+    pmod = calloc(1, sizeof *pmod);
+    ctx->parsed_mods->objs[0] = pmod;
+    pmod->mod = calloc(1, sizeof *pmod->mod);
+    pmod->mod->parsed = pmod;
+    pmod->mod->ctx = ly_ctx;
 
-    return ctx->parsed_mod;
+    return pmod;
 }
 
 static void
@@ -3549,16 +3555,18 @@ test_module_elem(void **state)
 static struct lysp_submodule *
 submod_renew(struct lys_yin_parser_ctx *ctx, const char *belongs_to)
 {
-    struct ly_ctx *ly_ctx = ctx->parsed_mod->mod->ctx;
+    struct ly_ctx *ly_ctx = PARSER_CUR_PMOD(ctx)->mod->ctx;
+    struct lysp_submodule *submod;
 
-    lys_module_free(ctx->parsed_mod->mod);
-    ctx->parsed_mod = calloc(1, sizeof(struct lysp_submodule));
-    ctx->parsed_mod->mod = calloc(1, sizeof *ctx->parsed_mod->mod);
-    lydict_insert(ly_ctx, belongs_to, 0, &ctx->parsed_mod->mod->name);
-    ctx->parsed_mod->mod->parsed = ctx->parsed_mod;
-    ctx->parsed_mod->mod->ctx = ly_ctx;
+    lys_module_free(PARSER_CUR_PMOD(ctx)->mod, 0);
+    submod = calloc(1, sizeof *submod);
+    ctx->parsed_mods->objs[0] = submod;
+    submod->mod = calloc(1, sizeof *submod->mod);
+    lydict_insert(ly_ctx, belongs_to, 0, &submod->mod->name);
+    submod->mod->parsed = (struct lysp_module *)submod;
+    submod->mod->ctx = ly_ctx;
 
-    return (struct lysp_submodule *)ctx->parsed_mod;
+    return submod;
 }
 
 static void
@@ -3681,7 +3689,6 @@ test_yin_parse_module(void **state)
     struct lys_module *mod;
     struct lys_yin_parser_ctx *yin_ctx = NULL;
     struct ly_in *in = NULL;
-    struct lys_glob_unres unres = {0};
 
     mod = calloc(1, sizeof *mod);
     mod->ctx = UTEST_LYCTX;
@@ -3707,11 +3714,10 @@ test_yin_parse_module(void **state)
             "    </md:annotation>\n"
             "</module>\n";
     assert_int_equal(ly_in_new_memory(data, &in), LY_SUCCESS);
-    assert_int_equal(yin_parse_module(&yin_ctx, in, mod, &unres), LY_SUCCESS);
+    assert_int_equal(yin_parse_module(&yin_ctx, in, mod), LY_SUCCESS);
     assert_null(mod->parsed->exts->child->next->child);
     assert_string_equal(mod->parsed->exts->child->next->arg, "test");
-    lys_compile_unres_glob_erase(UTEST_LYCTX, &unres);
-    lys_module_free(mod);
+    lys_module_free(mod, 0);
     yin_parser_ctx_free(yin_ctx);
     ly_in_free(in, 0);
     mod = NULL;
@@ -3748,9 +3754,8 @@ test_yin_parse_module(void **state)
             "    </list>\n"
             "</module>\n";
     assert_int_equal(ly_in_new_memory(data, &in), LY_SUCCESS);
-    assert_int_equal(yin_parse_module(&yin_ctx, in, mod, &unres), LY_SUCCESS);
-    lys_compile_unres_glob_erase(UTEST_LYCTX, &unres);
-    lys_module_free(mod);
+    assert_int_equal(yin_parse_module(&yin_ctx, in, mod), LY_SUCCESS);
+    lys_module_free(mod, 0);
     yin_parser_ctx_free(yin_ctx);
     ly_in_free(in, 0);
     mod = NULL;
@@ -3764,9 +3769,8 @@ test_yin_parse_module(void **state)
             "    <prefix value=\"foo\"/>\n"
             "</module>\n";
     assert_int_equal(ly_in_new_memory(data, &in), LY_SUCCESS);
-    assert_int_equal(yin_parse_module(&yin_ctx, in, mod, &unres), LY_SUCCESS);
-    lys_compile_unres_glob_erase(UTEST_LYCTX, &unres);
-    lys_module_free(mod);
+    assert_int_equal(yin_parse_module(&yin_ctx, in, mod), LY_SUCCESS);
+    lys_module_free(mod, 0);
     yin_parser_ctx_free(yin_ctx);
     ly_in_free(in, 0);
     mod = NULL;
@@ -3777,9 +3781,9 @@ test_yin_parse_module(void **state)
     data = "<submodule name=\"example-foo\" xmlns=\"urn:ietf:params:xml:ns:yang:yin:1\">"
             "</submodule>\n";
     assert_int_equal(ly_in_new_memory(data, &in), LY_SUCCESS);
-    assert_int_equal(yin_parse_module(&yin_ctx, in, mod, &unres), LY_EINVAL);
+    assert_int_equal(yin_parse_module(&yin_ctx, in, mod), LY_EINVAL);
     CHECK_LOG_CTX("Input data contains submodule which cannot be parsed directly without its main module.", NULL);
-    lys_module_free(mod);
+    lys_module_free(mod, 0);
     yin_parser_ctx_free(yin_ctx);
     ly_in_free(in, 0);
 
@@ -3792,9 +3796,9 @@ test_yin_parse_module(void **state)
             "</module>\n"
             "<module>";
     assert_int_equal(ly_in_new_memory(data, &in), LY_SUCCESS);
-    assert_int_equal(yin_parse_module(&yin_ctx, in, mod, &unres), LY_EVALID);
+    assert_int_equal(yin_parse_module(&yin_ctx, in, mod), LY_EVALID);
     CHECK_LOG_CTX("Trailing garbage \"<module>\" after module, expected end-of-input.", "Line number 6.");
-    lys_module_free(mod);
+    lys_module_free(mod, 0);
     yin_parser_ctx_free(yin_ctx);
     ly_in_free(in, 0);
     mod = NULL;
@@ -3809,7 +3813,7 @@ test_yin_parse_submodule(void **state)
     struct lysp_submodule *submod = NULL;
     struct ly_in *in;
 
-    lydict_insert(UTEST_LYCTX, "a", 0, &YCTX->parsed_mod->mod->name);
+    lydict_insert(UTEST_LYCTX, "a", 0, &PARSER_CUR_PMOD(YCTX)->mod->name);
 
     data = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
             "<submodule name=\"asub\""

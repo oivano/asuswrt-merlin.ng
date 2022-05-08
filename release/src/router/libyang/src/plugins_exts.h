@@ -17,6 +17,7 @@
 
 #include "log.h"
 #include "plugins.h"
+#include "tree_data.h"
 #include "tree_edit.h"
 #include "tree_schema.h"
 
@@ -24,12 +25,10 @@
 #include "plugins_exts_print.h"
 
 struct ly_ctx;
+struct ly_in;
 struct lyd_node;
-struct lysc_ctx;
-struct lysc_ext_instance;
 struct lysc_ext_substmt;
 struct lysp_ext_instance;
-struct lyspr_ctx;
 
 #ifdef __cplusplus
 extern "C" {
@@ -44,7 +43,7 @@ extern "C" {
  *
  * YANG extensions are very complex. Usually only its description specifies how it is supposed to behave, what are the
  * allowed substatements, their cardinality or if the standard YANG statements placed inside the extension differs somehow
- * in their meaning or behavior. libyang provids the Extension plugins API to implement such extensions and add its support
+ * in their meaning or behavior. libyang provides the Extension plugins API to implement such extensions and add its support
  * into libyang itself. However we tried our best, the API is not (and it cannot be) so universal and complete to cover all
  * possibilities. There are definitely use cases which cannot be simply implemented only with this API.
  *
@@ -101,7 +100,7 @@ extern "C" {
 /**
  * @brief Extensions API version
  */
-#define LYPLG_EXT_API_VERSION 1
+#define LYPLG_EXT_API_VERSION 3
 
 /**
  * @brief Macro to define plugin information in external plugins
@@ -120,7 +119,7 @@ extern "C" {
  * @param[in] substmts The sized array of extension instance's substatements. The whole array is freed except the storage
  * places which are expected to be covered by the extension plugin.
  */
-void lyplg_ext_instance_substatements_free(struct ly_ctx *ctx, struct lysc_ext_substmt *substmts);
+LIBYANG_API_DECL void lyplg_ext_instance_substatements_free(struct ly_ctx *ctx, struct lysc_ext_substmt *substmts);
 
 /**
  * @brief Callback to compile extension from the lysp_ext_instance to the lysc_ext_instance. The later structure is generally prepared
@@ -131,16 +130,28 @@ void lyplg_ext_instance_substatements_free(struct ly_ctx *ctx, struct lysc_ext_s
  *
  * @param[in] cctx Current compile context.
  * @param[in] p_ext Parsed extension instance data.
- * @param[in,out] c_ext Prepared compiled extension instance structure where an addition, extension-specific, data are supposed to be placed
- * for later use (data validation or use of external tool).
+ * @param[in,out] c_ext Prepared compiled extension instance structure where an addition, extension-specific, data are
+ * supposed to be placed for later use (data validation or use of external tool).
  * @return LY_SUCCESS in case of success.
  * @return LY_EVALID in case of non-conforming parsed data.
  * @return LY_ENOT in case the extension instance is not supported and should be removed.
  */
-typedef LY_ERR (*lyplg_ext_compile_clb)(struct lysc_ctx *cctx, const struct lysp_ext_instance *p_ext, struct lysc_ext_instance *c_ext);
+typedef LY_ERR (*lyplg_ext_compile_clb)(struct lysc_ctx *cctx, const struct lysp_ext_instance *p_ext,
+        struct lysc_ext_instance *c_ext);
 
 /**
- * @brief Callback to free the extension specific data created by the ::lyplg_ext_compile_clb callback of the same extension plugin.
+ * @brief Callback to print the compiled extension instance's private data in the INFO format.
+ *
+ * @param[in] ctx YANG printer context to provide output handler and other information for printing.
+ * @param[in] ext The compiled extension instance, mainly to access the extensions.
+ * @param[in,out] flag Flag to be shared with the caller regarding the opening brackets - 0 if the '{' not yet printed,
+ * 1 otherwise.
+ * @return LY_SUCCESS when everything was fine, other LY_ERR values in case of failure
+ */
+typedef LY_ERR (*lyplg_ext_schema_printer_clb)(struct lyspr_ctx *ctx, struct lysc_ext_instance *ext, ly_bool *flag);
+
+/**
+ * @brief Callback to free the extension-specific data created by its compilation.
  *
  * @param[in] ctx libyang context.
  * @param[in,out] ext Compiled extension structure where the data to free are placed.
@@ -148,40 +159,56 @@ typedef LY_ERR (*lyplg_ext_compile_clb)(struct lysc_ctx *cctx, const struct lysp
 typedef void (*lyplg_ext_free_clb)(struct ly_ctx *ctx, struct lysc_ext_instance *ext);
 
 /**
- * @brief Callback to decide if data instance is valid according to the schema.
+ * @brief Callback for getting a schema node for a new YANG instance data described by an extension instance.
+ * Needed only if the extension instance supports some nested standard YANG data.
  *
- * The callback is used only for the extension instances placed in the data nodes or type (the
- * ::lysc_ext_instance.parent_stmt value must be ::LY_STMT_IS_DATA_NODE() values or ::LY_STMT_TYPE):
- *
- * @param[in] ext Extension instance to be checked.
- * @param[in] node Data node connected with the extension instance.
- *
- * @return LY_SUCCESS on data validation success.
- * @return LY_EVALID in case the validation fails.
+ * @param[in] ext Compiled extension instance.
+ * @param[in] parent Parsed parent data node. Set if @p sparent is NULL.
+ * @param[in] sparent Schema parent node. Set if @p parent is NULL.
+ * @param[in] prefix Element prefix, if any.
+ * @param[in] prefix_len Length of @p prefix.
+ * @param[in] format Format of @p prefix.
+ * @param[in] prefix_data Format-specific prefix data.
+ * @param[in] name Element name.
+ * @param[in] name_len Length of @p name.
+ * @param[out] snode Schema node to use for parsing the node.
+ * @return LY_SUCCESS on success.
+ * @return LY_ENOT if the data are not described by @p ext.
+ * @return LY_ERR on error.
  */
-typedef LY_ERR (*lyplg_ext_data_validation_clb)(struct lysc_ext_instance *ext, struct lyd_node *node);
+typedef LY_ERR (*lyplg_ext_data_snode_clb)(struct lysc_ext_instance *ext, const struct lyd_node *parent,
+        const struct lysc_node *sparent, const char *prefix, size_t prefix_len, LY_VALUE_FORMAT format, void *prefix_data,
+        const char *name, size_t name_len, const struct lysc_node **snode);
 
 /**
- * @brief Callback to print the compiled extension instance's private data in the INFO format.
+ * @brief Callback for validating parsed YANG instance data described by an extension instance.
  *
- * @param[in] ctx YANG printer context to provide output handler and other information for printing.
- * @param[in] ext The compiled extension instance, mainly to access the extensions.
- * @param[in, out] flag Flag to be shared with the caller regarding the opening brackets - 0 if the '{' not yet printed,
- * 1 otherwise.
+ * This callback is used only for nested data definition (with a standard YANG schema parent).
  *
- * @return LY_SUCCESS when everything was fine, other LY_ERR values in case of failure
+ * @param[in] ext Compiled extension instance.
+ * @param[in] sibling First sibling with schema node returned by ::lyplg_ext_data_snode_clb.
+ * @param[in] val_opts Validation options, see @ref datavalidationoptions.
+ * @param[out] diff Optional diff with any changes made by the validation.
+ * @return LY_SUCCESS on success.
+ * @return LY_ERR on error.
  */
-typedef LY_ERR (*lyplg_ext_schema_printer_clb)(struct lyspr_ctx *ctx, struct lysc_ext_instance *ext, ly_bool *flag);
+typedef LY_ERR (*lyplg_ext_data_validate_clb)(struct lysc_ext_instance *ext, struct lyd_node *sibling, uint32_t val_opts,
+        struct lyd_node **diff);
 
 /**
  * @brief Extension plugin implementing various aspects of a YANG extension
  */
 struct lyplg_ext {
-    const char *id;                         /**< Plugin identification (mainly for distinguish incompatible versions of the plugins for external tools) */
-    lyplg_ext_compile_clb compile;          /**< Callback to compile extension instance from the parsed data */
-    lyplg_ext_data_validation_clb validate; /**< Callback to decide if data instance is valid according to the schema. */
-    lyplg_ext_schema_printer_clb sprinter;  /**< Callback to print the compiled content (info format) of the extension instance */
-    lyplg_ext_free_clb free;                /**< Free the extension instance specific data created by ::lyplg_ext.compile callback */
+    const char *id;                         /**< plugin identification (mainly for distinguish incompatible versions
+                                                 of the plugins for external tools) */
+    lyplg_ext_compile_clb compile;          /**< callback to compile extension instance from the parsed data */
+    lyplg_ext_schema_printer_clb sprinter;  /**< callback to print the compiled content (info format) of the extension
+                                                 instance */
+    lyplg_ext_free_clb free;                /**< free the extension-specific data created by its compilation */
+
+    lyplg_ext_data_snode_clb snode;         /**< callback to get schema node for nested YANG data */
+    lyplg_ext_data_validate_clb validate;   /**< callback to validate parsed data instances according to the extension
+                                                 definition */
 };
 
 struct lyplg_ext_record {
@@ -192,11 +219,34 @@ struct lyplg_ext_record {
                                       Instead, there should be defined multiple items in the plugins list, each with the
                                       different revision, but all with the same pointer to the plugin functions. The
                                       only valid use case for the NULL revision is the case the module has no revision. */
-    const char *name;            /**< name of the extension */
+    const char *name;            /**< YANG name of the extension */
 
     /* runtime data */
     struct lyplg_ext plugin;     /**< data to utilize plugin implementation */
 };
+
+/**
+ * @brief Get specific run-time extension instance data from a callback set by ::ly_ctx_set_ext_data_clb().
+ *
+ * @param[in] ctx Context with the callback.
+ * @param[in] ext Compiled extension instance.
+ * @param[out] ext_data Provided extension instance data.
+ * @param[out] ext_data_free Whether the extension instance should free @p ext_data or not.
+ * @return LY_SUCCESS on success.
+ * @return LY_ERR on error.
+ */
+LIBYANG_API_DECL LY_ERR lyplg_ext_get_data(const struct ly_ctx *ctx, const struct lysc_ext_instance *ext, void **ext_data,
+        ly_bool *ext_data_free);
+
+/**
+ * @brief Insert extension instance data into a parent.
+ *
+ * @param[in] parent Parent node to insert into.
+ * @param[in] first First top-level sibling node to insert.
+ * @return LY_SUCCESS on success.
+ * @return LY_ERR error on error.
+ */
+LIBYANG_API_DECL LY_ERR lyd_insert_ext(struct lyd_node *parent, struct lyd_node *first);
 
 /**
  * @brief Provide a log message from an extension plugin.
@@ -207,7 +257,7 @@ struct lyplg_ext_record {
  * @param[in] path Path relevant to the message.
  * @param[in] format Format string to print.
  */
-void lyplg_ext_log(const struct lysc_ext_instance *ext, LY_LOG_LEVEL level, LY_ERR err_no, const char *path,
+LIBYANG_API_DECL void lyplg_ext_log(const struct lysc_ext_instance *ext, LY_LOG_LEVEL level, LY_ERR err_no, const char *path,
         const char *format, ...);
 
 /** @} pluginsExtensions */

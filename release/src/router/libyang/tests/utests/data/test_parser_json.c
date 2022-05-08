@@ -37,6 +37,7 @@ setup(void **state)
             "}"
             "container cp {presence \"container switch\"; leaf y {type string;} leaf z {type int8;}}"
             "anydata any {config false;}"
+            "anyxml axml;"
             "leaf-list ll1 { type uint8; }"
             "leaf foo2 { type string; default \"default-val\"; }"
             "leaf foo3 { type uint32; }"
@@ -131,7 +132,7 @@ test_leaf(void **state)
     lyd_free_all(tree);
 
     PARSER_CHECK_ERROR(data, LYD_PARSE_STRICT, LYD_VALIDATE_PRESENT, tree, LY_EVALID,
-            "Unknown (or not implemented) YANG module \"x\" for metadata \"x:xxx\".", "Data location /@a:foo, line number 1.");
+            "Unknown (or not implemented) YANG module \"x\" of metadata \"x:xxx\".", "Data location /@a:foo, line number 1.");
 
     /* missing referenced metadata node */
     PARSER_CHECK_ERROR("{\"@a:foo\" : { \"a:hint\" : 1 }}", 0, LYD_VALIDATE_PRESENT, tree, LY_EVALID,
@@ -170,6 +171,11 @@ test_leaflist(void **state)
 
     CHECK_LYD_STRING(tree, LYD_PRINT_SHRINK | LYD_PRINT_WITHSIBLINGS, data);
     lyd_free_all(tree);
+
+    /* accept empty */
+    data = "{\"a:ll1\":[]}";
+    CHECK_PARSE_LYD(data, 0, LYD_VALIDATE_PRESENT, tree);
+    assert_null(tree);
 
     /* simple metadata */
     data = "{\"a:ll1\":[10,11],\"@a:ll1\":[null,{\"a:hint\":2}]}";
@@ -230,10 +236,10 @@ test_leaflist(void **state)
             "Missing JSON data instance to be coupled with @a:ll1 metadata.", "Data location /@a:ll1, line number 1.");
 
     PARSER_CHECK_ERROR("{\"a:ll1\":[1],\"@a:ll1\":[{\"a:hint\":1},{\"a:hint\":2}]}", 0, LYD_VALIDATE_PRESENT, tree, LY_EVALID,
-            "Missing JSON data instance no. 2 of a:ll1 to be coupled with metadata.", "Schema location /a:ll1, line number 1.");
+            "Missing JSON data instance #2 of a:ll1 to be coupled with metadata.", "Schema location /a:ll1, line number 1.");
 
     PARSER_CHECK_ERROR("{\"@a:ll1\":[{\"a:hint\":1},{\"a:hint\":2},{\"a:hint\":3}],\"a:ll1\" : [1, 2]}", 0, LYD_VALIDATE_PRESENT,
-            tree, LY_EVALID, "Missing 3rd JSON data instance to be coupled with @a:ll1 metadata.", "Data location /@a:ll1, line number 1.");
+            tree, LY_EVALID, "Missing JSON data instance #3 to be coupled with @a:ll1 metadata.", "Data location /@a:ll1, line number 1.");
 }
 
 static void
@@ -246,8 +252,106 @@ test_anydata(void **state)
     CHECK_PARSE_LYD(data, 0, LYD_VALIDATE_PRESENT, tree);
     assert_non_null(tree);
     tree = tree->next;
-    CHECK_LYSC_NODE(tree->schema, NULL, 0, LYS_SET_ENUM | LYS_CONFIG_R | LYS_YIN_ARGUMENT, 1, "any",
+    CHECK_LYSC_NODE(tree->schema, NULL, 0, LYS_STATUS_CURR | LYS_CONFIG_R | LYS_SET_CONFIG, 1, "any",
             1, LYS_ANYDATA, 0, 0, NULL, 0);
+    CHECK_LYD_STRING(tree, LYD_PRINT_SHRINK | LYD_PRINT_WITHSIBLINGS, data);
+    lyd_free_all(tree);
+
+    data = "{\"a:any\":{}}";
+    CHECK_PARSE_LYD(data, 0, LYD_VALIDATE_PRESENT, tree);
+    assert_non_null(tree);
+    tree = tree->next;
+    CHECK_LYSC_NODE(tree->schema, NULL, 0, LYS_STATUS_CURR | LYS_CONFIG_R | LYS_SET_CONFIG, 1, "any",
+            1, LYS_ANYDATA, 0, 0, NULL, 0);
+    CHECK_LYD_STRING(tree, LYD_PRINT_SHRINK | LYD_PRINT_WITHSIBLINGS, data);
+    lyd_free_all(tree);
+
+    data = "{\"a:any\":[null]}";
+    CHECK_PARSE_LYD(data, 0, LYD_VALIDATE_PRESENT, tree);
+    assert_non_null(tree);
+    tree = tree->next;
+    CHECK_LYSC_NODE(tree->schema, NULL, 0, LYS_STATUS_CURR | LYS_CONFIG_R | LYS_SET_CONFIG, 1, "any",
+            1, LYS_ANYDATA, 0, 0, NULL, 0);
+    CHECK_LYD_STRING(tree, LYD_PRINT_SHRINK | LYD_PRINT_WITHSIBLINGS, data);
+    lyd_free_all(tree);
+}
+
+static void
+test_anyxml(void **state)
+{
+    const char *data;
+    struct lyd_node *tree;
+
+    data = "{\"a:axml\":\"some-value in string\"}";
+    CHECK_PARSE_LYD(data, 0, LYD_VALIDATE_PRESENT, tree);
+    assert_non_null(tree);
+    tree = tree->next;
+    CHECK_LYSC_NODE(tree->schema, NULL, 0, LYS_STATUS_CURR | LYS_CONFIG_W, 1, "axml", 1, LYS_ANYXML, 0, 0, NULL, 0);
+    CHECK_LYD_STRING(tree, LYD_PRINT_SHRINK | LYD_PRINT_WITHSIBLINGS, data);
+    lyd_free_all(tree);
+
+    data = "{\"a:axml\":\"\"}";
+    CHECK_PARSE_LYD(data, 0, LYD_VALIDATE_PRESENT, tree);
+    assert_non_null(tree);
+    tree = tree->next;
+    CHECK_LYSC_NODE(tree->schema, NULL, 0, LYS_STATUS_CURR | LYS_CONFIG_W, 1, "axml", 1, LYS_ANYXML, 0, 0, NULL, 0);
+    CHECK_LYD_STRING(tree, LYD_PRINT_SHRINK | LYD_PRINT_WITHSIBLINGS, data);
+    lyd_free_all(tree);
+
+    data = "{\"a:axml\":55}";
+    CHECK_PARSE_LYD(data, 0, LYD_VALIDATE_PRESENT, tree);
+    assert_non_null(tree);
+    tree = tree->next;
+    CHECK_LYSC_NODE(tree->schema, NULL, 0, LYS_STATUS_CURR | LYS_CONFIG_W, 1, "axml", 1, LYS_ANYXML, 0, 0, NULL, 0);
+    CHECK_LYD_STRING(tree, LYD_PRINT_SHRINK | LYD_PRINT_WITHSIBLINGS, data);
+    lyd_free_all(tree);
+
+    data = "{\"a:axml\":false}";
+    CHECK_PARSE_LYD(data, 0, LYD_VALIDATE_PRESENT, tree);
+    assert_non_null(tree);
+    tree = tree->next;
+    CHECK_LYSC_NODE(tree->schema, NULL, 0, LYS_STATUS_CURR | LYS_CONFIG_W, 1, "axml", 1, LYS_ANYXML, 0, 0, NULL, 0);
+    CHECK_LYD_STRING(tree, LYD_PRINT_SHRINK | LYD_PRINT_WITHSIBLINGS, data);
+    lyd_free_all(tree);
+
+    data = "{\"a:axml\":null}";
+    CHECK_PARSE_LYD(data, 0, LYD_VALIDATE_PRESENT, tree);
+    assert_non_null(tree);
+    tree = tree->next;
+    CHECK_LYSC_NODE(tree->schema, NULL, 0, LYS_STATUS_CURR | LYS_CONFIG_W, 1, "axml", 1, LYS_ANYXML, 0, 0, NULL, 0);
+    CHECK_LYD_STRING(tree, LYD_PRINT_SHRINK | LYD_PRINT_WITHSIBLINGS, data);
+    lyd_free_all(tree);
+
+    data = "{\"a:axml\":[null,true,false]}";
+    CHECK_PARSE_LYD(data, 0, LYD_VALIDATE_PRESENT, tree);
+    assert_non_null(tree);
+    tree = tree->next;
+    CHECK_LYSC_NODE(tree->schema, NULL, 0, LYS_STATUS_CURR | LYS_CONFIG_W, 1, "axml", 1, LYS_ANYXML, 0, 0, NULL, 0);
+    CHECK_LYD_STRING(tree, LYD_PRINT_SHRINK | LYD_PRINT_WITHSIBLINGS, data);
+    lyd_free_all(tree);
+
+    data = "{\"a:axml\":[null,true,{\"name\":[25,40, false]}]}";
+    CHECK_PARSE_LYD(data, 0, LYD_VALIDATE_PRESENT, tree);
+    assert_non_null(tree);
+    tree = tree->next;
+    CHECK_LYSC_NODE(tree->schema, NULL, 0, LYS_STATUS_CURR | LYS_CONFIG_W, 1, "axml", 1, LYS_ANYXML, 0, 0, NULL, 0);
+    CHECK_LYD_STRING(tree, LYD_PRINT_SHRINK | LYD_PRINT_WITHSIBLINGS, data);
+    lyd_free_all(tree);
+
+    /* same as anydata tests */
+    data = "{\"a:axml\":{\"x:element1\":{\"element2\":\"/a:some/a:path\",\"list\":[{},{\"key\":\"a\"}]}}}";
+    CHECK_PARSE_LYD(data, 0, LYD_VALIDATE_PRESENT, tree);
+    assert_non_null(tree);
+    tree = tree->next;
+    CHECK_LYSC_NODE(tree->schema, NULL, 0, LYS_STATUS_CURR | LYS_CONFIG_W, 1, "axml", 1, LYS_ANYXML, 0, 0, NULL, 0);
+    CHECK_LYD_STRING(tree, LYD_PRINT_SHRINK | LYD_PRINT_WITHSIBLINGS, data);
+    lyd_free_all(tree);
+
+    data = "{\"a:axml\":{}}";
+    CHECK_PARSE_LYD(data, 0, LYD_VALIDATE_PRESENT, tree);
+    assert_non_null(tree);
+    tree = tree->next;
+    CHECK_LYSC_NODE(tree->schema, NULL, 0, LYS_STATUS_CURR | LYS_CONFIG_W, 1, "axml", 1, LYS_ANYXML, 0, 0, NULL, 0);
     CHECK_LYD_STRING(tree, LYD_PRINT_SHRINK | LYD_PRINT_WITHSIBLINGS, data);
     lyd_free_all(tree);
 }
@@ -269,9 +373,13 @@ test_list(void **state)
     LY_LIST_FOR(list->child, iter) {
         assert_int_not_equal(0, iter->hash);
     }
-
     CHECK_LYD_STRING(tree, LYD_PRINT_SHRINK | LYD_PRINT_WITHSIBLINGS, data);
     lyd_free_all(tree);
+
+    /* accept empty */
+    data = "{\"a:l1\":[]}";
+    CHECK_PARSE_LYD(data, 0, LYD_VALIDATE_PRESENT, tree);
+    assert_null(tree);
 
     /* missing keys */
     PARSER_CHECK_ERROR("{ \"a:l1\": [ {\"c\" : 1, \"b\" : \"b\"}]}", 0, LYD_VALIDATE_PRESENT, tree, LY_EVALID,
@@ -380,7 +488,7 @@ test_opaq(void **state)
             "Invalid non-number-encoded uint32 value \"\".", "Schema location /a:foo3, line number 1.");
 
     /* opaq flag */
-    CHECK_PARSE_LYD(data, LYD_PARSE_OPAQ | LYD_PARSE_ONLY, LYD_VALIDATE_PRESENT, tree);
+    CHECK_PARSE_LYD(data, LYD_PARSE_OPAQ | LYD_PARSE_ONLY, 0, tree);
     CHECK_LYD_NODE_OPAQ((struct lyd_node_opaq *)tree, 0, 0, LY_VALUE_JSON, "foo3", 0, 0, NULL,  0,  "");
     CHECK_LYD_STRING(tree, LYD_PRINT_SHRINK | LYD_PRINT_WITHSIBLINGS, data);
     lyd_free_all(tree);
@@ -391,7 +499,7 @@ test_opaq(void **state)
             "List instance is missing its key \"c\".", "Schema location /a:l1, data location /a:l1[a='val_a'][b='val_b'], line number 1.");
 
     /* opaq flag */
-    CHECK_PARSE_LYD(data, LYD_PARSE_OPAQ | LYD_PARSE_ONLY, LYD_VALIDATE_PRESENT, tree);
+    CHECK_PARSE_LYD(data, LYD_PARSE_OPAQ | LYD_PARSE_ONLY, 0, tree);
     CHECK_LYD_NODE_OPAQ((struct lyd_node_opaq *)tree, 0, 0x1, LY_VALUE_JSON, "l1", 0, 0, NULL,  0,  "");
     CHECK_LYD_STRING(tree, LYD_PRINT_SHRINK | LYD_PRINT_WITHSIBLINGS, data);
     lyd_free_all(tree);
@@ -402,19 +510,19 @@ test_opaq(void **state)
             "Invalid non-number-encoded int16 value \"val_c\".", "Schema location /a:l1/c, data location /a:l1[a='val_a'][b='val_b'], line number 1.");
 
     /* opaq flag */
-    CHECK_PARSE_LYD(data, LYD_PARSE_OPAQ | LYD_PARSE_ONLY, LYD_VALIDATE_PRESENT, tree);
+    CHECK_PARSE_LYD(data, LYD_PARSE_OPAQ | LYD_PARSE_ONLY, 0, tree);
     CHECK_LYD_NODE_OPAQ((struct lyd_node_opaq *)tree, 0, 0x1, LY_VALUE_JSON, "l1", 0, 0, NULL,  0,  "");
     CHECK_LYD_STRING(tree, LYD_PRINT_SHRINK | LYD_PRINT_WITHSIBLINGS, data);
     lyd_free_all(tree);
 
     data = "{\"a:l1\":[{\"a\":\"val_a\",\"b\":\"val_b\",\"c\":{\"val\":\"val_c\"}}]}";
-    CHECK_PARSE_LYD(data, LYD_PARSE_OPAQ | LYD_PARSE_ONLY, LYD_VALIDATE_PRESENT, tree);
+    CHECK_PARSE_LYD(data, LYD_PARSE_OPAQ | LYD_PARSE_ONLY, 0, tree);
     CHECK_LYD_NODE_OPAQ((struct lyd_node_opaq *)tree, 0, 0x1, LY_VALUE_JSON, "l1", 0, 0, NULL,  0,  "");
     CHECK_LYD_STRING(tree, LYD_PRINT_SHRINK | LYD_PRINT_WITHSIBLINGS, data);
     lyd_free_all(tree);
 
     data = "{\"a:l1\":[{\"a\":\"val_a\",\"b\":\"val_b\"}]}";
-    CHECK_PARSE_LYD(data, LYD_PARSE_OPAQ | LYD_PARSE_ONLY, LYD_VALIDATE_PRESENT, tree);
+    CHECK_PARSE_LYD(data, LYD_PARSE_OPAQ | LYD_PARSE_ONLY, 0, tree);
     CHECK_LYD_NODE_OPAQ((struct lyd_node_opaq *)tree, 0, 0x1, LY_VALUE_JSON, "l1", 0, 0, NULL,  0,  "");
     CHECK_LYD_STRING(tree, LYD_PRINT_SHRINK | LYD_PRINT_WITHSIBLINGS, data);
     lyd_free_all(tree);
@@ -427,6 +535,66 @@ test_opaq(void **state)
     /* empty name */
     PARSER_CHECK_ERROR("{\"@a:foo\":{\"\":0}}", 0, LYD_VALIDATE_PRESENT, tree, LY_EVALID,
             "A JSON object member name cannot be a zero-length string.", "Line number 1.");
+
+    /* opaque data tree format print */
+    data =
+            "{\n"
+            "  \"ietf-netconf-nmda:get-data\": {\n"
+            "    \"data\": {\n"
+            "      \"ietf-keystore:keystore\": {\n"
+            "        \"asymmetric-keys\": {\n"
+            "          \"asymmetric-key\": [\n"
+            "            {\n"
+            "              \"name\": \"genkey\",\n"
+            "              \"algorithm\": \"rsa2048\"\n"
+            "            }\n"
+            "          ]\n"
+            "        }\n"
+            "      },\n"
+            "      \"ietf-netconf-server:netconf-server\": {\n"
+            "        \"listen\": {\n"
+            "          \"idle-timeout\": 3600,\n"
+            "          \"endpoint\": [\n"
+            "            {\n"
+            "              \"name\": \"default-ssh\",\n"
+            "              \"ssh\": {\n"
+            "                \"tcp-server-parameters\": {\n"
+            "                  \"local-address\": \"0.0.0.0\",\n"
+            "                  \"local-port\": 830\n"
+            "                },\n"
+            "                \"ssh-server-parameters\": {\n"
+            "                  \"server-identity\": {\n"
+            "                    \"host-key\": [\n"
+            "                      {\n"
+            "                        \"name\": \"default-key\",\n"
+            "                        \"public-key\": {\n"
+            "                          \"keystore-reference\": \"genkey\"\n"
+            "                        }\n"
+            "                      }\n"
+            "                    ]\n"
+            "                  },\n"
+            "                  \"client-authentication\": {\n"
+            "                    \"supported-authentication-methods\": {\n"
+            "                      \"publickey\": [null],\n"
+            "                      \"passsword\": [null],\n"
+            "                      \"other\": [\n"
+            "                        \"interactive\",\n"
+            "                        \"gssapi\"\n"
+            "                      ]\n"
+            "                    }\n"
+            "                  }\n"
+            "                }\n"
+            "              }\n"
+            "            }\n"
+            "          ]\n"
+            "        }\n"
+            "      }\n"
+            "    }\n"
+            "  }\n"
+            "}\n";
+    CHECK_PARSE_LYD(data, LYD_PARSE_OPAQ | LYD_PARSE_ONLY, 0, tree);
+    CHECK_LYD_STRING(tree, LYD_PRINT_WITHSIBLINGS, data);
+    lyd_free_all(tree);
 }
 
 static void
@@ -436,15 +604,18 @@ test_rpc(void **state)
     struct ly_in *in;
     struct lyd_node *tree, *op;
     const struct lyd_node *node;
-    const char *dsc = "The <edit-config> operation loads all or part of a specified\n"
-            "configuration to the specified target configuration.";
-    const char *ref = "RFC 6241, Section 7.2";
-    const char *feats[] = {"writable-running", NULL};
+    const char *dsc = "Edit data in an NMDA datastore.\n"
+            "\n"
+            "If an error condition occurs such that an error severity\n"
+            "<rpc-error> element is generated, the server will stop\n"
+            "processing the <edit-data> operation and restore the\n"
+            "specified configuration to its complete state at\n"
+            "the start of this <edit-data> operation.";
 
-    assert_non_null((ly_ctx_load_module(UTEST_LYCTX, "ietf-netconf", "2011-06-01", feats)));
+    assert_non_null((ly_ctx_load_module(UTEST_LYCTX, "ietf-netconf-nmda", "2019-01-07", NULL)));
 
-    data = "{\"ietf-netconf:edit-config\":{"
-            "\"target\":{\"running\":[null]},"
+    data = "{\"ietf-netconf-nmda:edit-data\":{"
+            "\"datastore\":\"ietf-datastores:running\","
             "\"config\":{\"a:cp\":{\"z\":[null],\"@z\":{\"ietf-netconf:operation\":\"replace\"}},"
             "\"a:l1\":[{\"@\":{\"ietf-netconf:operation\":\"replace\"},\"a\":\"val_a\",\"b\":\"val_b\",\"c\":\"val_c\"}]}"
             "}}";
@@ -455,16 +626,16 @@ test_rpc(void **state)
     assert_non_null(op);
 
     CHECK_LYSC_ACTION((struct lysc_node_action *)op->schema, dsc, 0, LYS_STATUS_CURR,
-            1, 0, 0, 1, "edit-config", LYS_RPC,
-            0, 0, 0, 0, 0, ref, 0);
+            1, 0, 0, 1, "edit-data", LYS_RPC,
+            0, 0, 0, 0, 0, NULL, 0);
 
     node = tree;
     CHECK_LYSC_ACTION((struct lysc_node_action *)node->schema, dsc, 0, LYS_STATUS_CURR,
-            1, 0, 0, 1, "edit-config", LYS_RPC,
-            0, 0, 0, 0, 0, ref, 0);
+            1, 0, 0, 1, "edit-data", LYS_RPC,
+            0, 0, 0, 0, 0, NULL, 0);
     node = lyd_child(node)->next;
-    CHECK_LYSC_NODE(node->schema, "Inline Config content.", 0, LYS_STATUS_CURR | LYS_IS_INPUT, 1, "config",
-            0, LYS_ANYXML, 1, 0, NULL, 0);
+    CHECK_LYSC_NODE(node->schema, "Inline config content.", 0, LYS_STATUS_CURR | LYS_IS_INPUT, 1, "config",
+            0, LYS_ANYDATA, 1, 0, NULL, 0);
 
     node = ((struct lyd_node_any *)node)->value.tree;
     CHECK_LYSC_NODE(node->schema, NULL, 0, LYS_CONFIG_W | LYS_STATUS_CURR | LYS_PRESENCE, 1, "cp",
@@ -583,6 +754,7 @@ main(void)
         UTEST(test_leaf, setup),
         UTEST(test_leaflist, setup),
         UTEST(test_anydata, setup),
+        UTEST(test_anyxml, setup),
         UTEST(test_list, setup),
         UTEST(test_container, setup),
         UTEST(test_opaq, setup),

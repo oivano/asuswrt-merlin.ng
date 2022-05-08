@@ -168,7 +168,7 @@ lysp_stmt_qnames(struct lys_parser_ctx *ctx, const struct lysp_stmt *stmt,
     /* allocate new pointer */
     LY_ARRAY_NEW_RET(PARSER_CTX(ctx), *qnames, item, LY_EMEM);
     LY_CHECK_RET(lydict_insert(PARSER_CTX(ctx), stmt->arg, 0, &item->str));
-    item->mod = ctx->parsed_mod;
+    item->mod = PARSER_CUR_PMOD(ctx);
 
     for (const struct lysp_stmt *child = stmt->child; child; child = child->next) {
         switch (child->kw) {
@@ -416,7 +416,7 @@ lysp_stmt_restr(struct lys_parser_ctx *ctx, const struct lysp_stmt *stmt, struct
 {
     LY_CHECK_RET(lysp_stmt_validate_value(ctx, Y_STR_ARG, stmt->arg));
     LY_CHECK_RET(lydict_insert(PARSER_CTX(ctx), stmt->arg, 0, &restr->arg.str));
-    restr->arg.mod = ctx->parsed_mod;
+    restr->arg.mod = PARSER_CUR_PMOD(ctx);
 
     for (const struct lysp_stmt *child = stmt->child; child; child = child->next) {
         switch (child->kw) {
@@ -542,8 +542,8 @@ lysp_stmt_type_enum_value_pos(struct lys_parser_ctx *ctx, const struct lysp_stmt
 {
     size_t arg_len;
     char *ptr = NULL;
-    long int num = 0;
-    unsigned long int unum = 0;
+    long long int num = 0;
+    unsigned long long int unum = 0;
 
     if (*flags & LYS_SET_VALUE) {
         LOGVAL_PARSER(ctx, LY_VCODE_DUPSTMT, ly_stmt2str(stmt->kw));
@@ -562,13 +562,13 @@ lysp_stmt_type_enum_value_pos(struct lys_parser_ctx *ctx, const struct lysp_stmt
 
     errno = 0;
     if (stmt->kw == LY_STMT_VALUE) {
-        num = strtol(stmt->arg, &ptr, LY_BASE_DEC);
+        num = strtoll(stmt->arg, &ptr, LY_BASE_DEC);
         if ((num < INT64_C(-2147483648)) || (num > INT64_C(2147483647))) {
             LOGVAL_PARSER(ctx, LY_VCODE_INVAL, arg_len, stmt->arg, ly_stmt2str(stmt->kw));
             goto error;
         }
     } else {
-        unum = strtoul(stmt->arg, &ptr, LY_BASE_DEC);
+        unum = strtoull(stmt->arg, &ptr, LY_BASE_DEC);
         if (unum > UINT64_C(4294967295)) {
             LOGVAL_PARSER(ctx, LY_VCODE_INVAL, arg_len, stmt->arg, ly_stmt2str(stmt->kw));
             goto error;
@@ -681,7 +681,7 @@ lysp_stmt_type_fracdigits(struct lys_parser_ctx *ctx, const struct lysp_stmt *st
 {
     char *ptr;
     size_t arg_len;
-    unsigned long int num;
+    unsigned long long int num;
 
     if (*fracdig) {
         LOGVAL_PARSER(ctx, LY_VCODE_DUPSTMT, "fraction-digits");
@@ -696,7 +696,7 @@ lysp_stmt_type_fracdigits(struct lys_parser_ctx *ctx, const struct lysp_stmt *st
     }
 
     errno = 0;
-    num = strtoul(stmt->arg, &ptr, LY_BASE_DEC);
+    num = strtoull(stmt->arg, &ptr, LY_BASE_DEC);
     /* we have not parsed the whole argument */
     if ((size_t)(ptr - stmt->arg) != arg_len) {
         LOGVAL_PARSER(ctx, LY_VCODE_INVAL, arg_len, stmt->arg, "fraction-digits");
@@ -844,7 +844,7 @@ lysp_stmt_type_pattern(struct lys_parser_ctx *ctx, const struct lysp_stmt *stmt,
     buf[0] = LYSP_RESTR_PATTERN_ACK; /* pattern's default regular-match flag */
     buf[arg_len + 1] = '\0'; /* terminating NULL byte */
     LY_CHECK_RET(lydict_insert_zc(PARSER_CTX(ctx), buf, &restr->arg.str));
-    restr->arg.mod = ctx->parsed_mod;
+    restr->arg.mod = PARSER_CUR_PMOD(ctx);
 
     for (const struct lysp_stmt *child = stmt->child; child; child = child->next) {
         switch (child->kw) {
@@ -898,7 +898,7 @@ lysp_stmt_type(struct lys_parser_ctx *ctx, const struct lysp_stmt *stmt, struct 
 
     LY_CHECK_RET(lysp_stmt_validate_value(ctx, Y_PREF_IDENTIF_ARG, stmt->arg));
     LY_CHECK_RET(lydict_insert(PARSER_CTX(ctx), stmt->arg, 0, &type->name));
-    type->pmod = ctx->parsed_mod;
+    type->pmod = PARSER_CUR_PMOD(ctx);
 
     for (const struct lysp_stmt *child = stmt->child; child; child = child->next) {
         switch (child->kw) {
@@ -931,7 +931,7 @@ lysp_stmt_type(struct lys_parser_ctx *ctx, const struct lysp_stmt *stmt, struct 
             break;
         case LY_STMT_PATH:
             LY_CHECK_RET(lysp_stmt_text_field(ctx, child, 0, &str_path, Y_STR_ARG, &type->exts));
-            ret = ly_path_parse(PARSER_CTX(ctx), NULL, str_path, 0, LY_PATH_BEGIN_EITHER, LY_PATH_LREF_TRUE,
+            ret = ly_path_parse(PARSER_CTX(ctx), NULL, str_path, 0, 1, LY_PATH_BEGIN_EITHER,
                     LY_PATH_PREFIX_OPTIONAL, LY_PATH_PRED_LEAFREF, &type->path);
             lydict_remove(PARSER_CTX(ctx), str_path);
             LY_CHECK_RET(ret);
@@ -1005,7 +1005,7 @@ lysp_stmt_leaf(struct lys_parser_ctx *ctx, const struct lysp_stmt *stmt, struct 
             break;
         case LY_STMT_DEFAULT:
             LY_CHECK_RET(lysp_stmt_text_field(ctx, child, 0, &leaf->dflt.str, Y_STR_ARG, &leaf->exts));
-            leaf->dflt.mod = ctx->parsed_mod;
+            leaf->dflt.mod = PARSER_CUR_PMOD(ctx);
             break;
         case LY_STMT_DESCRIPTION:
             LY_CHECK_RET(lysp_stmt_text_field(ctx, child, 0, &leaf->dsc, Y_STR_ARG, &leaf->exts));
@@ -1069,7 +1069,7 @@ lysp_stmt_maxelements(struct lys_parser_ctx *ctx, const struct lysp_stmt *stmt,
 {
     size_t arg_len;
     char *ptr;
-    unsigned long int num;
+    unsigned long long int num;
 
     if (*flags & LYS_SET_MAX) {
         LOGVAL_PARSER(ctx, LY_VCODE_DUPSTMT, "max-elements");
@@ -1088,7 +1088,7 @@ lysp_stmt_maxelements(struct lys_parser_ctx *ctx, const struct lysp_stmt *stmt,
 
     if ((arg_len != ly_strlen_const("unbounded")) || strncmp(stmt->arg, "unbounded", arg_len)) {
         errno = 0;
-        num = strtoul(stmt->arg, &ptr, LY_BASE_DEC);
+        num = strtoull(stmt->arg, &ptr, LY_BASE_DEC);
         /* we have not parsed the whole argument */
         if ((size_t)(ptr - stmt->arg) != arg_len) {
             LOGVAL_PARSER(ctx, LY_VCODE_INVAL, arg_len, stmt->arg, "max-elements");
@@ -1136,7 +1136,7 @@ lysp_stmt_minelements(struct lys_parser_ctx *ctx, const struct lysp_stmt *stmt,
 {
     size_t arg_len;
     char *ptr;
-    unsigned long int num;
+    unsigned long long int num;
 
     if (*flags & LYS_SET_MIN) {
         LOGVAL_PARSER(ctx, LY_VCODE_DUPSTMT, "min-elements");
@@ -1154,7 +1154,7 @@ lysp_stmt_minelements(struct lys_parser_ctx *ctx, const struct lysp_stmt *stmt,
     }
 
     errno = 0;
-    num = strtoul(stmt->arg, &ptr, LY_BASE_DEC);
+    num = strtoull(stmt->arg, &ptr, LY_BASE_DEC);
     /* we have not parsed the whole argument */
     if ((size_t)(ptr - stmt->arg) != arg_len) {
         LOGVAL_PARSER(ctx, LY_VCODE_INVAL, arg_len, stmt->arg, "min-elements");
@@ -1403,7 +1403,7 @@ lysp_stmt_typedef(struct lys_parser_ctx *ctx, const struct lysp_stmt *stmt, stru
         switch (child->kw) {
         case LY_STMT_DEFAULT:
             LY_CHECK_RET(lysp_stmt_text_field(ctx, child, 0, &tpdf->dflt.str, Y_STR_ARG, &tpdf->exts));
-            tpdf->dflt.mod = ctx->parsed_mod;
+            tpdf->dflt.mod = PARSER_CUR_PMOD(ctx);
             break;
         case LY_STMT_DESCRIPTION:
             LY_CHECK_RET(lysp_stmt_text_field(ctx, child, 0, &tpdf->dsc, Y_STR_ARG, &tpdf->exts));
@@ -2045,7 +2045,7 @@ lysp_stmt_choice(struct lys_parser_ctx *ctx, const struct lysp_stmt *stmt, struc
             break;
         case LY_STMT_DEFAULT:
             LY_CHECK_RET(lysp_stmt_text_field(ctx, child, 0, &choice->dflt.str, Y_PREF_IDENTIF_ARG, &choice->exts));
-            choice->dflt.mod = ctx->parsed_mod;
+            choice->dflt.mod = PARSER_CUR_PMOD(ctx);
             break;
         case LY_STMT_ANYDATA:
             PARSER_CHECK_STMTVER2_RET(ctx, "anydata", "choice");
@@ -2306,9 +2306,15 @@ lysp_stmt_parse(struct lysc_ctx *ctx, const struct lysp_stmt *stmt, void **resul
     LY_ERR ret = LY_SUCCESS;
     uint16_t flags;
     struct lys_parser_ctx pctx = {0};
+    struct ly_set pmods = {0};
+    void *objs;
 
+    /* local context */
     pctx.format = LYS_IN_YANG;
-    pctx.parsed_mod = ctx->pmod;
+    pctx.parsed_mods = &pmods;
+    objs = &ctx->pmod;
+    pmods.objs = objs;
+    pmods.count = 1;
 
     LOG_LOCSET(NULL, NULL, ctx->path, NULL);
 
@@ -2338,6 +2344,7 @@ lysp_stmt_parse(struct lysc_ctx *ctx, const struct lysp_stmt *stmt, void **resul
         ret = lysp_stmt_choice(&pctx, stmt, NULL, (struct lysp_node **)result);
         break;
     case LY_STMT_CONFIG:
+        assert(*result);
         ret = lysp_stmt_config(&pctx, stmt, *(uint16_t **)result, exts);
         break;
     case LY_STMT_CONTACT:
@@ -2416,7 +2423,7 @@ lysp_stmt_parse(struct lysc_ctx *ctx, const struct lysp_stmt *stmt, void **resul
         const char *str_path = NULL;
 
         LY_CHECK_RET(lysp_stmt_text_field(&pctx, stmt, 0, &str_path, Y_STR_ARG, exts));
-        ret = ly_path_parse(ctx->ctx, NULL, str_path, 0, LY_PATH_BEGIN_EITHER, LY_PATH_LREF_TRUE,
+        ret = ly_path_parse(ctx->ctx, NULL, str_path, 0, 1, LY_PATH_BEGIN_EITHER,
                 LY_PATH_PREFIX_OPTIONAL, LY_PATH_PRED_LEAFREF, (struct lyxp_expr **)result);
         lydict_remove(ctx->ctx, str_path);
         break;

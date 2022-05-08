@@ -1098,8 +1098,8 @@ endef
 
 define CMakeConfigure
 (cd $(strip $(1)); \	
-		CFLAGS="-DENABLE_LYD_PRIV=ON -DPCRE2_LIBRARY=$(TOP)/pcre2/.libs $(CFLAGS) $(EXTRACFLAGS) $(4) -D_NEED_PRINTF -I$(TOP)/pcre2/src" \
-		LDFLAGS="$(5) -D_NEED_PRINTF -I$(TOP)/pcre2/src -L$(TOP)/pcre2/.libs -lpcre2-8 -lpthread" \
+		CFLAGS="$(CFLAGS) $(EXTRACFLAGS) $(4)" \
+		LDFLAGS="$(5)" \
 		CXXFLAGS="$(CFLAGS) $(EXTRACFLAGS)" \
 		cmake \
 			--debug-output \
@@ -1115,7 +1115,7 @@ define CMakeConfigure
 			-DCMAKE_MODULE_LINKER_FLAGS="$(5)" \
 			-DCMAKE_SHARED_LINKER_FLAGS="$(5)" \
 			-DCMAKE_FIND_ROOT_PATH=$(2) \
-			-DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=BOTH \
+			-DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
 			-DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
 			-DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
 			-DPCRE2_INCLUDE_DIR=$(TOP)/pcre2/src \
@@ -4441,36 +4441,8 @@ inadyn-clean:
 	[ ! -f inadyn/Makefile ] || $(MAKE) -C inadyn distclean
 	@rm -f inadyn/Makefile
 
-#libyang-configure: zlib openssl pcre2
-#	@rm -rf libyang/build && mkdir -p libyang/build
-#	cd libyang/build && \
-#	rm -f $(TOP)/libyang/CMakeCache.txt
-#	rm -f $(TOP)/libyang/build/CMakeCache.txt
-#	$(call CMakeClean,$(TOP)/libyang/build)
-#	$(call CMakeConfigure,$(TOP)/libyang/build,${STAGING_DIR},$(LIBYANG_CMAKE_OPTIONS),$(LIBYANG_EXTRA_CFLAGS),$(LIBYANG_EXTRA_LDFLAGS),..)
-#
-#libyang: libyang-configure zlib
-#	@$(SEP)
-#	$(MAKE) -C libyang/build
-#	-mkdir -p $(TOP)/libyang/build/libyang
-#	-cp $(TOP)/libyang/build/src/config.h $(TOP)/libyang/build/libyang
-#	-cp $(TOP)/libyang/build/src/version.h $(TOP)/libyang/build/libyang
-#	-cp $(TOP)/libyang/src/libyang.h $(TOP)/libyang/build/libyang
-#	-cp $(TOP)/libyang/src/tree_schema.h $(TOP)/libyang/build/libyang
-#	-cp $(TOP)/libyang/src/tree_data.h $(TOP)/libyang/build/libyang
-#	-cp $(TOP)/libyang/src/tree.h $(TOP)/libyang/build/libyang
-#	-cp $(TOP)/libyang/src/xml.h $(TOP)/libyang/build/libyang
-#	-cp $(TOP)/libyang/src/dict.h $(TOP)/libyang/build/libyang
-#	-cp $(TOP)/libyang/src/context.h $(TOP)/libyang/build/libyang
-#	-cp $(TOP)/libyang/src/parser_schema.h $(TOP)/libyang/build/libyang
-#	-cp $(TOP)/libyang/src/parser_data.h $(TOP)/libyang/build/libyang
-#	-cp $(TOP)/libyang/src/printer_schema.h $(TOP)/libyang/build/libyang
-#	-cp $(TOP)/libyang/src/printer_data.h $(TOP)/libyang/build/libyang
-#	-cp $(TOP)/libyang/src/log.h $(TOP)/libyang/build/libyang
-#	-cp $(TOP)/libyang/src/in.h $(TOP)/libyang/build/libyang
-#	-cp $(TOP)/libyang/src/out.h $(TOP)/libyang/build/libyang
-#	-cp $(TOP)/libyang/src/set.h $(TOP)/libyang/build/libyang
-##	-cp $(TOP)/libyang/src/user_types.h $(TOP)/libyang/build/libyang
+#libyang:
+#include libyang/libyang.mk
 
 libyang-install:
 	@$(SEP)
@@ -4485,20 +4457,19 @@ libyang-clean:
 	if [ -e "$(TOP)/libyang/build/Makefile" ]; then $(MAKE) -C libyang/build clean ; fi
 
 libyang/build/Makefile: zlib openssl pcre2
+	ls $(TOP)/pcre2/.libs/
+	rm -f $(TOP)/libyang/CMakeCache.txt
 	@rm -rf libyang/build && mkdir -p libyang/build
 	cd libyang/build && \
 	$(call CMAKE_CrossOptions, crosscompiled.cmake) && \
 	cmake -DCMAKE_TOOLCHAIN_FILE=crosscompiled.cmake \
 		-DCMAKE_INSTALL_PREFIX:PATH=/usr \
-		-DPCRE2_LIBRARY=$(TOP)/prce2/src/.libs/libpcre2-8.a \
+		-DPCRE2_LIBRARY=$(TOP)/pcre2/.libs\libpcre2-8.a \
 		-DPCRE2_INCLUDE_DIR=$(TOP)/pcre2/src \
 		-DENABLE_LYD_PRIV=ON \
 		-DCMAKE_FIND_ROOT_PATH=crosscompiled.cmake \
 		-DCMAKE_INCLUDE_PATH="$(STAGEDIR)/usr/include" \
-		-DCMAKE_BUILD_TYPE:String="Release" \
-		-DCMAKE_REQUIRED_LIBRARIES="pthread pcre2-8" \
-		-DCMAKE_C_FLAGS="$(CFLAGS) -DNDEBUG -ffunction-sections -fdata-sections -I$(STAGEDIR)/usr/include" \
-		-DCMAKE_EXE_LINKER_FLAGS=" -Wl,--gc-sections -L$(STAGEDIR)/usr/lib -pthread -lpcre2-8" \
+		-DCMAKE_BUILD_TYPE:String="Release -Wno-dev" \
 		..
 
 libyang: zlib openssl pcre2 libyang/build/Makefile
@@ -6328,14 +6299,15 @@ pcre-8.31-clean:
 pcre2/stamp-h1:
 	cd pcre2 && autoreconf -i -f && \
 	CC=$(CC) CXX=$(CXX) AR=$(AR) RANLIB=$(RANLIB) LD=$(LD) CFLAGS="-Os -Wall -DNEED_PRINTF" LIBS="$(EXTRALDFLAGS)" \
-	$(CONFIGURE) --prefix=/usr \ 
+	$(CONFIGURE) --prefix=/usr --bindir=/usr/sbin --libdir=/usr/lib --disable-shared \
 	touch $@
+	[ -d pcre2/m4 ] || mkdir pcre2/m4
 
 pcre2: pcre2/stamp-h1
-	$(MAKE) -C pcre2 all $(PARALLEL_BUILD) && $(MAKE) $@-stage
 
 pcre2-install: pcre2
 	@$(SEP)
+	ls $(TOP)/pcre2/.libs/
 	install -D pcre2/.libs/libpcre2-8.so.0.10.2 $(INSTALLDIR)/pcre2/usr/lib/libpcre2-8.so.0.10.2
 	cd $(INSTALLDIR)/pcre2/usr/lib && ln -sf libpcre2-8.so.0.10.2 libpcre2-8.so.0
 	cd $(INSTALLDIR)/pcre2/usr/lib && ln -sf libpcre2-8.so.0.10.2 libpcre2-8.so

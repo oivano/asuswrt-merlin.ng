@@ -32,6 +32,15 @@ const char *schema_a = "module a {\n"
         "      type string;\n"
         "    }\n"
         "  }\n"
+        "  list l11 {\n"
+        "    key \"a\";\n"
+        "    leaf a {\n"
+        "      type uint32;\n"
+        "    }\n"
+        "    leaf b {\n"
+        "      type uint32;\n"
+        "    }\n"
+        "  }\n"
         "  leaf foo {\n"
         "    type uint16;\n"
         "  }\n"
@@ -86,7 +95,7 @@ const char *schema_a = "module a {\n"
 static void
 test_top_level(void **state)
 {
-    const struct lys_module *mod;
+    struct lys_module *mod;
     struct lyd_node *node, *rpc;
 
     UTEST_ADD_MODULE(schema_a, LYS_IN_YANG, NULL, &mod);
@@ -138,10 +147,10 @@ test_top_level(void **state)
     lyd_free_tree(node);
 
     assert_int_equal(lyd_new_inner(NULL, mod, "l1", 0, &node), LY_ENOTFOUND);
-    CHECK_LOG_CTX("Inner node (not a list) \"l1\" not found.", NULL);
+    CHECK_LOG_CTX("Inner node (container, notif, RPC, or action) \"l1\" not found.", NULL);
 
     assert_int_equal(lyd_new_inner(NULL, mod, "l2", 0, &node), LY_ENOTFOUND);
-    CHECK_LOG_CTX("Inner node (not a list) \"l2\" not found.", NULL);
+    CHECK_LOG_CTX("Inner node (container, notif, RPC, or action) \"l2\" not found.", NULL);
 
     /* anydata */
     assert_int_equal(lyd_new_any(NULL, mod, "any", "some-value", 0, LYD_ANYDATA_STRING, 0, &node), LY_SUCCESS);
@@ -200,7 +209,7 @@ test_path(void **state)
 {
     LY_ERR ret;
     struct lyd_node *root, *node, *parent;
-    const struct lys_module *mod;
+    struct lys_module *mod;
     char *str;
 
     UTEST_ADD_MODULE(schema_a, LYS_IN_YANG, NULL, &mod);
@@ -250,6 +259,23 @@ test_path(void **state)
     assert_int_equal(ret, LY_SUCCESS);
     assert_non_null(root);
     assert_null(root->schema);
+
+    lyd_free_tree(root);
+
+    ret = lyd_new_path(NULL, UTEST_LYCTX, "/a:l11", NULL, LYD_NEW_PATH_OPAQ, &root);
+    assert_int_equal(ret, LY_SUCCESS);
+    assert_non_null(root);
+    assert_null(root->schema);
+
+    ret = lyd_new_path(root, NULL, "a", NULL, LYD_NEW_PATH_OPAQ, NULL);
+    assert_int_equal(ret, LY_SUCCESS);
+    assert_non_null(lyd_child(root));
+    assert_null(lyd_child(root)->schema);
+
+    ret = lyd_new_path(root, NULL, "b", NULL, LYD_NEW_PATH_OPAQ, NULL);
+    assert_int_equal(ret, LY_SUCCESS);
+    assert_non_null(lyd_child(root)->next);
+    assert_null(lyd_child(root)->next->schema);
 
     lyd_free_tree(root);
 
@@ -349,7 +375,7 @@ test_path_ext(void **state)
 {
     LY_ERR ret;
     struct lyd_node *root, *node;
-    const struct lys_module *mod;
+    struct lys_module *mod;
     const char *mod_str = "module ext {yang-version 1.1; namespace urn:tests:extensions:ext; prefix e;"
             "import ietf-restconf {revision-date 2017-01-26; prefix rc;}"
             "rc:yang-data template {container c {leaf x {type string;} leaf y {type string;} leaf z {type string;}}}}";

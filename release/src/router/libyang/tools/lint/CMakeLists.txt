@@ -1,20 +1,34 @@
 # yanglint
 
+if(WIN32)
+    set(YANGLINT_INTERACTIVE OFF)
+else()
+    set(YANGLINT_INTERACTIVE ON)
+endif()
+
 set(lintsrc
-    main.c
     main_ni.c
     cmd.c
     cmd_add.c
     cmd_clear.c
     cmd_data.c
     cmd_list.c
+    cmd_feature.c
     cmd_load.c
     cmd_print.c
     cmd_searchpath.c
     common.c
-    completion.c
-    configuration.c
-    linenoise/linenoise.c)
+)
+if(YANGLINT_INTERACTIVE)
+    set(lintsrc ${lintsrc}
+        main.c
+        completion.c
+        configuration.c
+        linenoise/linenoise.c)
+else()
+    set(lintsrc ${lintsrc}
+        main_ni_only.c)
+endif()
 
 set(format_sources
     ${format_sources}
@@ -28,6 +42,11 @@ install(TARGETS yanglint DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(FILES ${PROJECT_SOURCE_DIR}/tools/lint/yanglint.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
 target_include_directories(yanglint BEFORE PRIVATE ${PROJECT_BINARY_DIR})
 
+if(WIN32)
+    target_include_directories(yanglint PRIVATE ${GETOPT_INCLUDE_DIR})
+    target_link_libraries(yanglint ${GETOPT_LIBRARY})
+endif()
+
 #
 # tests
 #
@@ -39,7 +58,7 @@ function(add_yanglint_test)
     set_property(TEST ${TEST_NAME} APPEND PROPERTY ENVIRONMENT "YANGLINT=${PROJECT_BINARY_DIR}/yanglint")
 endfunction(add_yanglint_test)
 
-if(ENABLE_BUILD_TESTS)
+if(ENABLE_TESTS)
     # tests of non-interactive mode using shunit2
     find_program(PATH_SHUNIT NAMES shunit2)
     if(NOT PATH_SHUNIT)
@@ -52,7 +71,7 @@ if(ENABLE_BUILD_TESTS)
     find_program(PATH_EXPECT NAMES expect)
     if(NOT PATH_EXPECT)
         message(WARNING "'expect' not found! The yanglint(1) interactive tests will not be available.")
-    else()
+    elseif(YANGLINT_INTERACTIVE)
 #        add_yanglint_test(NAME in_list SCRIPT expect/list.exp)
     endif()
 endif()

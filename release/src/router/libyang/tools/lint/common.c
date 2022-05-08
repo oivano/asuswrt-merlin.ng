@@ -94,7 +94,7 @@ free_features(void *flist)
     struct schema_features *rec = (struct schema_features *)flist;
 
     if (rec) {
-        free(rec->module);
+        free(rec->mod_name);
         if (rec->features) {
             for (uint32_t u = 0; rec->features[u]; ++u) {
                 free(rec->features[u]);
@@ -108,20 +108,19 @@ free_features(void *flist)
 void
 get_features(struct ly_set *fset, const char *module, const char ***features)
 {
-    static const char *all_features[] = {"*", NULL};
-
     /* get features list for this module */
     for (uint32_t u = 0; u < fset->count; ++u) {
         struct schema_features *sf = (struct schema_features *)fset->objs[u];
-        if (!strcmp(module, sf->module)) {
+        if (!strcmp(module, sf->mod_name)) {
             /* matched module - explicitly set features */
             *features = (const char **)sf->features;
+            sf->applied = 1;
             return;
         }
     }
 
-    /* features not set, enable all features by default */
-    *features = all_features;
+    /* features not set so disable all */
+    *features = NULL;
 }
 
 int
@@ -144,10 +143,10 @@ parse_features(const char *fstring, struct ly_set *fset)
     /* fill the record */
     p = strchr(fstring, ':');
     if (!p) {
-        YLMSG_E("Invalid format of the features specification (%s)", fstring);
+        YLMSG_E("Invalid format of the features specification (%s).\n", fstring);
         return -1;
     }
-    rec->module = strndup(fstring, p - fstring);
+    rec->mod_name = strndup(fstring, p - fstring);
 
     /* start count on 2 to include terminating NULL byte */
     for (int count = 2; p; ++count) {
@@ -265,7 +264,7 @@ parse_cmdline(const char *cmdline, int *argc_p, char **argv_p[])
         ++count;
         r = realloc(vector, (count + 1) * sizeof *vector);
         if (!r) {
-            YLMSG_E("Memory allocation failed (%s:%d, %s),", __FILE__, __LINE__, strerror(errno));
+            YLMSG_E("Memory allocation failed (%s:%d, %s).\n", __FILE__, __LINE__, strerror(errno));
             free(vector);
             return -1;
         }
@@ -444,16 +443,17 @@ evaluate_xpath(const struct lyd_node *tree, const char *xpath)
 
 LY_ERR
 process_data(struct ly_ctx *ctx, enum lyd_type data_type, uint8_t merge, LYD_FORMAT format, struct ly_out *out,
-        uint32_t options_parse, uint32_t options_validate, uint32_t options_print,
-        struct cmdline_file *operational_f, struct ly_set *inputs, struct ly_set *xpaths)
+        uint32_t options_parse, uint32_t options_validate, uint32_t options_print, struct cmdline_file *operational_f,
+        struct cmdline_file *rpc_f, struct ly_set *inputs, struct ly_set *xpaths)
 {
     LY_ERR ret = LY_SUCCESS;
-    struct lyd_node *tree = NULL, *merged_tree = NULL;
-    struct lyd_node *operational = NULL;
+    struct lyd_node *tree = NULL, *op = NULL, *envp = NULL, *merged_tree = NULL, *oper_tree = NULL;
+    char *path = NULL;
+    struct ly_set *set = NULL;
 
     /* additional operational datastore */
     if (operational_f && operational_f->in) {
-        ret = lyd_parse_data(ctx, NULL, operational_f->in, operational_f->format, LYD_PARSE_ONLY, 0, &operational);
+        ret = lyd_parse_data(ctx, NULL, operational_f->in, operational_f->format, LYD_PARSE_ONLY, 0, &oper_tree);
         if (ret) {
             YLMSG_E("Failed to parse operational datastore file \"%s\".\n", operational_f->path);
             goto cleanup;
@@ -469,7 +469,35 @@ process_data(struct ly_ctx *ctx, enum lyd_type data_type, uint8_t merge, LYD_FOR
         case LYD_TYPE_RPC_YANG:
         case LYD_TYPE_REPLY_YANG:
         case LYD_TYPE_NOTIF_YANG:
-            ret = lyd_parse_op(ctx, NULL, input_f->in, input_f->format, data_type, &tree, NULL);
+            ret = lyd_parse_op(ctx, NULL, input_f->in, input_f->format, data_type, &tree, &op);
+            break;
+        case LYD_TYPE_RPC_NETCONF:
+        case LYD_TYPE_NOTIF_NETCONF:
+            ret = lyd_parse_op(ctx, NULL, input_f->in, input_f->format, data_type, &envp, &op);
+
+            /* adjust pointers */
+            for (tree = op; lyd_parent(tree); tree = lyd_parent(tree)) {}
+            break;
+        case LYD_TYPE_REPLY_NETCONF:
+            /* parse source RPC operation */
+            assert(rpc_f && rpc_f->in);
+            ret = lyd_parse_op(ctx, NULL, rpc_f->in, rpc_f->format, LYD_TYPE_RPC_NETCONF, &envp, &op);
+            if (ret) {
+                YLMSG_E("Failed to parse source NETCONF RPC operation file \"%s\".\n", rpc_f->path);
+                goto cleanup;
+            }
+
+            /* adjust pointers */
+            for (tree = op; lyd_parent(tree); tree = lyd_parent(tree)) {}
+
+            /* free input */
+            lyd_free_siblings(lyd_child(op));
+
+            /* we do not care */
+            lyd_free_all(envp);
+            envp = NULL;
+
+            ret = lyd_parse_op(ctx, op, input_f->in, input_f->format, data_type, &envp, NULL);
             break;
         default:
             YLMSG_E("Internal error (%s:%d).\n", __FILE__, __LINE__);
@@ -494,18 +522,79 @@ process_data(struct ly_ctx *ctx, enum lyd_type data_type, uint8_t merge, LYD_FOR
             }
             tree = NULL;
         } else if (format) {
-            lyd_print_all(out, tree, format, options_print);
-        } else if (operational) {
-            /* additional validation of the RPC/Action/reply/Notification with the operational datastore */
-            ret = lyd_validate_op(tree, operational, data_type, NULL);
+            /* print */
+            switch (data_type) {
+            case LYD_TYPE_DATA_YANG:
+                lyd_print_all(out, tree, format, options_print);
+                break;
+            case LYD_TYPE_RPC_YANG:
+            case LYD_TYPE_REPLY_YANG:
+            case LYD_TYPE_NOTIF_YANG:
+            case LYD_TYPE_RPC_NETCONF:
+            case LYD_TYPE_NOTIF_NETCONF:
+                lyd_print_tree(out, tree, format, options_print);
+                break;
+            case LYD_TYPE_REPLY_NETCONF:
+                /* just the output */
+                lyd_print_tree(out, lyd_child(tree), format, options_print);
+                break;
+            default:
+                assert(0);
+            }
+        } else {
+            /* validation of the RPC/Action/reply/Notification with the operational datastore, if any */
+            switch (data_type) {
+            case LYD_TYPE_DATA_YANG:
+                /* already validated */
+                break;
+            case LYD_TYPE_RPC_YANG:
+            case LYD_TYPE_RPC_NETCONF:
+                ret = lyd_validate_op(tree, oper_tree, LYD_TYPE_RPC_YANG, NULL);
+                break;
+            case LYD_TYPE_REPLY_YANG:
+            case LYD_TYPE_REPLY_NETCONF:
+                ret = lyd_validate_op(tree, oper_tree, LYD_TYPE_REPLY_YANG, NULL);
+                break;
+            case LYD_TYPE_NOTIF_YANG:
+            case LYD_TYPE_NOTIF_NETCONF:
+                ret = lyd_validate_op(tree, oper_tree, LYD_TYPE_NOTIF_YANG, NULL);
+                break;
+            default:
+                assert(0);
+            }
             if (ret) {
-                YLMSG_E("Failed to validate input data file \"%s\" with operational datastore \"%s\".\n",
-                        input_f->path, operational_f->path);
+                if (operational_f->path) {
+                    YLMSG_E("Failed to validate input data file \"%s\" with operational datastore \"%s\".\n",
+                            input_f->path, operational_f->path);
+                } else {
+                    YLMSG_E("Failed to validate input data file \"%s\".\n", input_f->path);
+                }
                 goto cleanup;
             }
+
+            if (op && oper_tree && lyd_parent(op)) {
+                /* check operation parent existence */
+                path = lyd_path(lyd_parent(op), LYD_PATH_STD, NULL, 0);
+                if (!path) {
+                    ret = LY_EMEM;
+                    goto cleanup;
+                }
+                if ((ret = lyd_find_xpath(oper_tree, path, &set))) {
+                    goto cleanup;
+                }
+                if (!set->count) {
+                    YLMSG_E("Operation \"%s\" parent \"%s\" not found in the operational data.\n", LYD_NAME(op), path);
+                    ret = LY_EVALID;
+                    goto cleanup;
+                }
+            }
         }
+
+        /* next iter */
         lyd_free_all(tree);
         tree = NULL;
+        lyd_free_all(envp);
+        envp = NULL;
     }
 
     if (merge) {
@@ -521,7 +610,7 @@ process_data(struct ly_ctx *ctx, enum lyd_type data_type, uint8_t merge, LYD_FOR
             lyd_print_all(out, merged_tree, format, options_print);
         }
 
-        for (uint32_t u = 0; u < xpaths->count; ++u) {
+        for (uint32_t u = 0; xpaths && (u < xpaths->count); ++u) {
             if (evaluate_xpath(merged_tree, (const char *)xpaths->objs[u])) {
                 goto cleanup;
             }
@@ -529,9 +618,11 @@ process_data(struct ly_ctx *ctx, enum lyd_type data_type, uint8_t merge, LYD_FOR
     }
 
 cleanup:
-    /* cleanup */
-    lyd_free_all(merged_tree);
     lyd_free_all(tree);
-
+    lyd_free_all(envp);
+    lyd_free_all(merged_tree);
+    lyd_free_all(oper_tree);
+    free(path);
+    ly_set_free(set, NULL);
     return ret;
 }

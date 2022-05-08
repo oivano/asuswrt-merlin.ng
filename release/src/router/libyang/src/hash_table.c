@@ -102,7 +102,7 @@ dict_hash_multi(uint32_t hash, const char *key_part, size_t len)
 {
     uint32_t i;
 
-    if (key_part) {
+    if (key_part && len) {
         for (i = 0; i < len; ++i) {
             hash += key_part[i];
             hash += (hash << 10);
@@ -156,7 +156,7 @@ lydict_resize_val_eq(void *val1_p, void *val2_p, ly_bool mod, void *cb_data)
     return 0;
 }
 
-API LY_ERR
+LIBYANG_API_DEF LY_ERR
 lydict_remove(const struct ly_ctx *ctx, const char *value)
 {
     LY_ERR ret = LY_SUCCESS;
@@ -242,7 +242,9 @@ dict_insert(const struct ly_ctx *ctx, char *value, size_t len, ly_bool zerocopy,
              */
             match->value = malloc(sizeof *match->value * (len + 1));
             LY_CHECK_ERR_RET(!match->value, LOGMEM(ctx), LY_EMEM);
-            memcpy(match->value, value, len);
+            if (len) {
+                memcpy(match->value, value, len);
+            }
             match->value[len] = '\0';
         }
     } else {
@@ -260,7 +262,7 @@ dict_insert(const struct ly_ctx *ctx, char *value, size_t len, ly_bool zerocopy,
     return ret;
 }
 
-API LY_ERR
+LIBYANG_API_DEF LY_ERR
 lydict_insert(const struct ly_ctx *ctx, const char *value, size_t len, const char **str_p)
 {
     LY_ERR result;
@@ -283,7 +285,7 @@ lydict_insert(const struct ly_ctx *ctx, const char *value, size_t len, const cha
     return result;
 }
 
-API LY_ERR
+LIBYANG_API_DEF LY_ERR
 lydict_insert_zc(const struct ly_ctx *ctx, char *value, const char **str_p)
 {
     LY_ERR result;
@@ -372,7 +374,7 @@ lyht_dup(const struct hash_table *orig)
         return NULL;
     }
 
-    memcpy(ht->recs, orig->recs, orig->used * orig->rec_size);
+    memcpy(ht->recs, orig->recs, (size_t)orig->used * (size_t)orig->rec_size);
     ht->used = orig->used;
     ht->invalid = orig->invalid;
     return ht;

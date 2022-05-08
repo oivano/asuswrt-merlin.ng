@@ -3,7 +3,7 @@
  * @author Radek Krejci <rkrejci@cesnet.cz>
  * @brief Parsing and validation helper functions for data trees
  *
- * Copyright (c) 2015 - 2018 CESNET, z.s.p.o.
+ * Copyright (c) 2015 - 2022 CESNET, z.s.p.o.
  *
  * This source code is licensed under BSD 3-Clause License (the "License").
  * You may not use this file except in compliance with the License.
@@ -13,7 +13,6 @@
  */
 
 #define _GNU_SOURCE /* asprintf, strdup */
-#include <sys/cdefs.h>
 
 #include <assert.h>
 #include <ctype.h>
@@ -30,6 +29,7 @@
 #include "log.h"
 #include "lyb.h"
 #include "parser_data.h"
+#include "plugins_exts.h"
 #include "printer_data.h"
 #include "set.h"
 #include "tree.h"
@@ -40,6 +40,7 @@
 #include "tree_schema_internal.h"
 #include "validation.h"
 #include "xml.h"
+#include "xpath.h"
 
 /**
  * @brief Find an entry in duplicate instance cache for an instance. Create it if it does not exist.
@@ -164,7 +165,62 @@ lyd_node_child_p(struct lyd_node *node)
     }
 }
 
-API struct lyd_node *
+LIBYANG_API_DEF LY_ERR
+lyxp_vars_set(struct lyxp_var **vars, const char *name, const char *value)
+{
+    LY_ERR ret = LY_SUCCESS;
+    char *var_name = NULL, *var_value = NULL;
+    struct lyxp_var *item;
+
+    if (!vars || !name || !value) {
+        return LY_EINVAL;
+    }
+
+    /* If variable is already defined then change its value. */
+    if (*vars && !lyxp_vars_find(*vars, name, 0, &item)) {
+        var_value = strdup(value);
+        LY_CHECK_RET(!var_value, LY_EMEM);
+
+        /* Set new value. */
+        free(item->value);
+        item->value = var_value;
+    } else {
+        var_name = strdup(name);
+        var_value = strdup(value);
+        LY_CHECK_ERR_GOTO(!var_name || !var_value, ret = LY_EMEM, error);
+
+        /* Add new variable. */
+        LY_ARRAY_NEW_GOTO(NULL, *vars, item, ret, error);
+        item->name = var_name;
+        item->value = var_value;
+    }
+
+    return LY_SUCCESS;
+
+error:
+    free(var_name);
+    free(var_value);
+    return ret;
+}
+
+LIBYANG_API_DEF void
+lyxp_vars_free(struct lyxp_var *vars)
+{
+    LY_ARRAY_COUNT_TYPE u;
+
+    if (!vars) {
+        return;
+    }
+
+    LY_ARRAY_FOR(vars, u) {
+        free(vars[u].name);
+        free(vars[u].value);
+    }
+
+    LY_ARRAY_FREE(vars);
+}
+
+LIBYANG_API_DEF struct lyd_node *
 lyd_child_no_keys(const struct lyd_node *node)
 {
     struct lyd_node **children;
@@ -190,10 +246,9 @@ lyd_child_no_keys(const struct lyd_node *node)
     }
 }
 
-API const struct lys_module *
+LIBYANG_API_DEF const struct lys_module *
 lyd_owner_module(const struct lyd_node *node)
 {
-    const struct lysc_node *schema;
     const struct lyd_node_opaq *opaq;
 
     if (!node) {
@@ -212,8 +267,58 @@ lyd_owner_module(const struct lyd_node *node)
         }
     }
 
-    for (schema = node->schema; schema->parent; schema = schema->parent) {}
-    return schema->module;
+    return lysc_owner_module(node->schema);
+}
+
+void
+lyd_first_module_sibling(struct lyd_node **node, const struct lys_module *mod)
+{
+    int cmp;
+    struct lyd_node *first;
+
+    assert(node && mod);
+
+    if (!*node) {
+        return;
+    }
+
+    first = *node;
+    cmp = strcmp(lyd_owner_module(first)->name, mod->name);
+    if (cmp > 0) {
+        /* there may be some preceding data */
+        while (first->prev->next) {
+            first = first->prev;
+            if (lyd_owner_module(first) == mod) {
+                cmp = 0;
+                break;
+            }
+        }
+    }
+
+    if (cmp == 0) {
+        /* there may be some preceding data belonging to this module */
+        while (first->prev->next) {
+            if (lyd_owner_module(first->prev) != mod) {
+                break;
+            }
+            first = first->prev;
+        }
+    }
+
+    if (cmp < 0) {
+        /* there may be some following data */
+        LY_LIST_FOR(first, first) {
+            if (lyd_owner_module(first) == mod) {
+                cmp = 0;
+                break;
+            }
+        }
+    }
+
+    if (cmp == 0) {
+        /* we have found the first module data node */
+        *node = first;
+    }
 }
 
 const struct lys_module *
@@ -296,19 +401,19 @@ lyd_parse_check_keys(struct lyd_node *node)
     return LY_SUCCESS;
 }
 
-void
-lyd_parse_set_data_flags(struct lyd_node *node, struct ly_set *when_check, struct ly_set *exts_check, struct lyd_meta **meta,
-        uint32_t options)
+LY_ERR
+lyd_parse_set_data_flags(struct lyd_node *node, struct lyd_meta **meta, struct lyd_ctx *lydctx,
+        struct lysc_ext_instance *ext)
 {
     struct lyd_meta *meta2, *prev_meta = NULL;
+    struct lyd_ctx_ext_val *ext_val;
 
     if (lysc_has_when(node->schema)) {
-        if (!(options & LYD_PARSE_ONLY)) {
+        if (!(lydctx->parse_opts & LYD_PARSE_ONLY)) {
             /* remember we need to evaluate this node's when */
-            LY_CHECK_RET(ly_set_add(when_check, node, 1, NULL), );
+            LY_CHECK_RET(ly_set_add(&lydctx->node_when, node, 1, NULL));
         }
     }
-    LY_CHECK_RET(lysc_node_ext_tovalidate(exts_check, node), );
 
     LY_LIST_FOR(*meta, meta2) {
         if (!strcmp(meta2->name, "default") && !strcmp(meta2->annotation->module->name, "ietf-netconf-with-defaults") &&
@@ -328,9 +433,182 @@ lyd_parse_set_data_flags(struct lyd_node *node, struct ly_set *when_check, struc
 
         prev_meta = meta2;
     }
+
+    if (ext) {
+        /* parsed for an extension */
+        node->flags |= LYD_EXT;
+
+        if (!(lydctx->parse_opts & LYD_PARSE_ONLY)) {
+            /* rememeber for validation */
+            ext_val = malloc(sizeof *ext_val);
+            LY_CHECK_ERR_RET(!ext_val, LOGMEM(LYD_CTX(node)), LY_EMEM);
+            ext_val->ext = ext;
+            ext_val->sibling = node;
+            LY_CHECK_RET(ly_set_add(&lydctx->ext_val, ext_val, 1, NULL));
+        }
+    }
+
+    return LY_SUCCESS;
 }
 
-API const char *
+/**
+ * @brief Check list node parsed into an opaque node for the reason.
+ *
+ * @param[in] node Opaque node.
+ * @param[in] snode Schema node of @p opaq.
+ * @return LY_SUCCESS if the node is valid;
+ * @return LY_ERR on error.
+ */
+static LY_ERR
+lyd_parse_opaq_list_error(const struct lyd_node *node, const struct lysc_node *snode)
+{
+    LY_ERR ret = LY_SUCCESS;
+    struct ly_set key_set = {0};
+    const struct lysc_node *key = NULL;
+    const struct lyd_node *child;
+    const struct lyd_node_opaq *opaq_k;
+    uint32_t i;
+
+    assert(!node->schema);
+
+    /* get all keys into a set */
+    while ((key = lys_getnext(key, snode, NULL, 0)) && (snode->flags & LYS_KEY)) {
+        LY_CHECK_GOTO(ret = ly_set_add(&key_set, (void *)snode, 1, NULL), cleanup);
+    }
+
+    LY_LIST_FOR(lyd_child(node), child) {
+        if (child->schema) {
+            LOGERR(LYD_CTX(node), LY_EINVAL, "Unexpected node %s \"%s\".", lys_nodetype2str(child->schema->nodetype),
+                    LYD_NAME(child));
+            ret = LY_EINVAL;
+            goto cleanup;
+        }
+
+        opaq_k = (struct lyd_node_opaq *)child;
+
+        /* find the key schema node */
+        for (i = 0; i < key_set.count; ++i) {
+            key = key_set.snodes[i];
+            if (!strcmp(key->name, opaq_k->name.name)) {
+                break;
+            }
+        }
+        if (i == key_set.count) {
+            /* some other node, skip */
+            continue;
+        }
+
+        /* key found */
+        ly_set_rm_index(&key_set, i, NULL);
+
+        /* check value */
+        ret = lys_value_validate(LYD_CTX(node), key, opaq_k->value, strlen(opaq_k->value), opaq_k->format,
+                opaq_k->val_prefix_data);
+        LY_CHECK_GOTO(ret, cleanup);
+    }
+
+    if (key_set.count) {
+        /* missing keys */
+        LOGVAL(LYD_CTX(node), LY_VCODE_NOKEY, key_set.snodes[0]->name);
+        ret = LY_EVALID;
+        goto cleanup;
+    }
+
+cleanup:
+    ly_set_erase(&key_set, NULL);
+    return ret;
+}
+
+LIBYANG_API_DEF LY_ERR
+lyd_parse_opaq_error(const struct lyd_node *node)
+{
+    const struct ly_ctx *ctx;
+    const struct lyd_node_opaq *opaq;
+    const struct lyd_node *parent;
+    const struct lys_module *mod;
+    const struct lysc_node *snode;
+
+    LY_CHECK_ARG_RET(LYD_CTX(node), node, !node->schema, !lyd_parent(node) || lyd_parent(node)->schema, LY_EINVAL);
+
+    ctx = LYD_CTX(node);
+    opaq = (struct lyd_node_opaq *)node;
+    parent = lyd_parent(node);
+
+    /* is always filled by parsers */
+    LY_CHECK_ARG_RET(ctx, opaq->name.module_ns, LY_EINVAL);
+
+    /* module */
+    switch (opaq->format) {
+    case LY_VALUE_XML:
+        if (!parent || strcmp(opaq->name.module_ns, parent->schema->module->ns)) {
+            mod = ly_ctx_get_module_implemented_ns(ctx, opaq->name.module_ns);
+            if (!mod) {
+                LOGVAL(ctx, LYVE_REFERENCE, "No (implemented) module with namespace \"%s\" in the context.",
+                        opaq->name.module_ns);
+                return LY_EVALID;
+            }
+        } else {
+            /* inherit */
+            mod = parent->schema->module;
+        }
+        break;
+    case LY_VALUE_JSON:
+    case LY_VALUE_LYB:
+        if (!parent || strcmp(opaq->name.module_name, parent->schema->module->name)) {
+            mod = ly_ctx_get_module_implemented(ctx, opaq->name.module_name);
+            if (!mod) {
+                LOGVAL(ctx, LYVE_REFERENCE, "No (implemented) module named \"%s\" in the context.", opaq->name.module_name);
+                return LY_EVALID;
+            }
+        } else {
+            /* inherit */
+            mod = parent->schema->module;
+        }
+        break;
+    default:
+        LOGERR(ctx, LY_EINVAL, "Unsupported value format.");
+        return LY_EINVAL;
+    }
+
+    /* schema */
+    snode = lys_find_child(parent ? parent->schema : NULL, mod, opaq->name.name, 0, 0, 0);
+    if (!snode && parent && parent->schema && (parent->schema->nodetype & (LYS_RPC | LYS_ACTION))) {
+        /* maybe output node */
+        snode = lys_find_child(parent->schema, mod, opaq->name.name, 0, 0, LYS_GETNEXT_OUTPUT);
+    }
+    if (!snode) {
+        if (parent) {
+            LOGVAL(ctx, LYVE_REFERENCE, "Node \"%s\" not found as a child of \"%s\" node.", opaq->name.name,
+                    LYD_NAME(parent));
+        } else {
+            LOGVAL(ctx, LYVE_REFERENCE, "Node \"%s\" not found in the \"%s\" module.", opaq->name.name, mod->name);
+        }
+        return LY_EVALID;
+    }
+
+    if (snode->nodetype & LYD_NODE_TERM) {
+        /* leaf / leaf-list */
+        LY_CHECK_RET(lys_value_validate(ctx, snode, opaq->value, strlen(opaq->value), opaq->format, opaq->val_prefix_data));
+    } else if (snode->nodetype == LYS_LIST) {
+        /* list */
+        LY_CHECK_RET(lyd_parse_opaq_list_error(node, snode));
+    } else if (snode->nodetype & LYD_NODE_INNER) {
+        /* inner node */
+        if (opaq->value) {
+            LOGVAL(ctx, LYVE_DATA, "Invalid value \"%s\" for %s \"%s\".", opaq->value,
+                    lys_nodetype2str(snode->nodetype), snode->name);
+            return LY_EVALID;
+        }
+    } else {
+        LOGERR(ctx, LY_EINVAL, "Unexpected opaque schema node %s \"%s\".", lys_nodetype2str(snode->nodetype), snode->name);
+        return LY_EINVAL;
+    }
+
+    LOGERR(ctx, LY_EINVAL, "Unexpected valid opaque node %s \"%s\".", lys_nodetype2str(snode->nodetype), snode->name);
+    return LY_EINVAL;
+}
+
+LIBYANG_API_DEF const char *
 lyd_value_get_canonical(const struct ly_ctx *ctx, const struct lyd_value *value)
 {
     LY_CHECK_ARG_RET(ctx, ctx, value, NULL);
@@ -339,7 +617,7 @@ lyd_value_get_canonical(const struct ly_ctx *ctx, const struct lyd_value *value)
            (const char *)value->realtype->plugin->print(ctx, value, LY_VALUE_CANON, NULL, NULL, NULL);
 }
 
-API LY_ERR
+LIBYANG_API_DEF LY_ERR
 lyd_any_value_str(const struct lyd_node *any, char **value_str)
 {
     const struct lyd_node_any *a;
@@ -396,7 +674,7 @@ cleanup:
     return ret;
 }
 
-API LY_ERR
+LIBYANG_API_DEF LY_ERR
 lyd_any_copy_value(struct lyd_node *trg, const union lyd_any_value *value, LYD_ANYDATA_VALUETYPE value_type)
 {
     struct lyd_node_any *t;
@@ -456,6 +734,46 @@ lyd_any_copy_value(struct lyd_node *trg, const union lyd_any_value *value, LYD_A
     return LY_SUCCESS;
 }
 
+const struct lysc_node *
+lyd_node_schema(const struct lyd_node *node)
+{
+    const struct lysc_node *schema = NULL;
+    const struct lyd_node *prev_iter = NULL, *iter;
+    const struct lys_module *mod;
+
+    if (!node) {
+        return NULL;
+    } else if (node->schema) {
+        return node->schema;
+    }
+
+    /* get schema node of an opaque node */
+    do {
+        /* get next data node */
+        for (iter = node; lyd_parent(iter) != prev_iter; iter = lyd_parent(iter)) {}
+
+        /* get equivalent schema node */
+        if (iter->schema) {
+            schema = iter->schema;
+        } else {
+            /* get module */
+            mod = lyd_owner_module(iter);
+            if (!mod && !schema) {
+                /* top-level opaque node has unknown module */
+                break;
+            }
+
+            /* get schema node */
+            schema = lys_find_child(schema, mod ? mod : schema->module, LYD_NAME(iter), 0, 0, 0);
+        }
+
+        /* remember to move to the descendant */
+        prev_iter = iter;
+    } while (schema && (iter != node));
+
+    return schema;
+}
+
 void
 lyd_del_move_root(struct lyd_node **root, const struct lyd_node *to_del, const struct lys_module *mod)
 {
@@ -468,11 +786,57 @@ lyd_del_move_root(struct lyd_node **root, const struct lyd_node *to_del, const s
         return;
     }
 
-    *root = (*root)->next;
-    if (mod && *root && (lyd_owner_module(to_del) != lyd_owner_module(*root))) {
-        /* there are no more nodes from mod */
+    if (mod && (*root)->prev->next && (!(*root)->next || (lyd_owner_module(to_del) != lyd_owner_module((*root)->next)))) {
+        /* there are no more nodes from mod, simply get the first top-level sibling */
         *root = lyd_first_sibling(*root);
+    } else {
+        *root = (*root)->next;
     }
+}
+
+LY_ERR
+ly_nested_ext_schema(const struct lyd_node *parent, const struct lysc_node *sparent, const char *prefix,
+        size_t prefix_len, LY_VALUE_FORMAT format, void *prefix_data, const char *name, size_t name_len,
+        const struct lysc_node **snode, struct lysc_ext_instance **ext)
+{
+    LY_ERR r;
+    LY_ARRAY_COUNT_TYPE u;
+    struct lysc_ext_instance *nested_exts = NULL;
+    lyplg_ext_data_snode_clb ext_snode_cb;
+
+    /* check if there are any nested extension instances */
+    if (parent && parent->schema) {
+        nested_exts = parent->schema->exts;
+    } else if (sparent) {
+        nested_exts = sparent->exts;
+    }
+    LY_ARRAY_FOR(nested_exts, u) {
+        if (!nested_exts[u].def->plugin) {
+            /* no plugin */
+            continue;
+        }
+
+        ext_snode_cb = nested_exts[u].def->plugin->snode;
+        if (!ext_snode_cb) {
+            /* not an extension with nested data */
+            continue;
+        }
+
+        /* try to get the schema node */
+        r = ext_snode_cb(&nested_exts[u], parent, sparent, prefix, prefix_len, format, prefix_data, name, name_len, snode);
+        if (!r) {
+            /* data successfully created, remember the ext instance */
+            *ext = &nested_exts[u];
+            return LY_SUCCESS;
+        } else if (r != LY_ENOT) {
+            /* fatal error */
+            return r;
+        }
+        /* data was not from this module, continue */
+    }
+
+    /* no extensions or none matched */
+    return LY_ENOT;
 }
 
 void
@@ -489,6 +853,7 @@ ly_free_prefix_data(LY_VALUE_FORMAT format, void *prefix_data)
 
     switch (format) {
     case LY_VALUE_XML:
+    case LY_VALUE_STR_NS:
         ns_list = prefix_data;
         for (i = 0; i < ns_list->count; ++i) {
             free(((struct lyxml_ns *)ns_list->objs[i])->prefix);
@@ -544,6 +909,7 @@ ly_dup_prefix_data(const struct ly_ctx *ctx, LY_VALUE_FORMAT format, const void 
         }
         break;
     case LY_VALUE_XML:
+    case LY_VALUE_STR_NS:
         /* copy all the namespaces */
         LY_CHECK_GOTO(ret = ly_set_new(&ns_list), cleanup);
         *prefix_data_p = ns_list;
@@ -607,7 +973,7 @@ ly_store_prefix_data(const struct ly_ctx *ctx, const void *value, size_t value_l
         }
 
         /* add all used prefixes */
-        value_end = value + value_len;
+        value_end = (char *)value + value_len;
         for (value_iter = value; value_iter; value_iter = value_next) {
             LY_CHECK_GOTO(ret = ly_value_prefix_next(value_iter, value_end, &substr_len, &is_prefix, &value_next), cleanup);
             if (is_prefix) {
@@ -630,20 +996,33 @@ ly_store_prefix_data(const struct ly_ctx *ctx, const void *value, size_t value_l
         }
         break;
     case LY_VALUE_XML:
+    case LY_VALUE_STR_NS:
         /* copy all referenced namespaces as prefix - namespace pairs */
         if (!*prefix_data_p) {
             /* new prefix data */
             LY_CHECK_GOTO(ret = ly_set_new(&ns_list), cleanup);
-            *format_p = LY_VALUE_XML;
+            *format_p = format;
             *prefix_data_p = ns_list;
         } else {
             /* reuse prefix data */
-            assert(*format_p == LY_VALUE_XML);
+            assert(*format_p == format);
             ns_list = *prefix_data_p;
         }
 
+        /* store default namespace */
+        ns = lyxml_ns_get(prefix_data, NULL, 0);
+        if (ns) {
+            new_ns = calloc(1, sizeof *new_ns);
+            LY_CHECK_ERR_GOTO(!new_ns, LOGMEM(ctx); ret = LY_EMEM, cleanup);
+            LY_CHECK_GOTO(ret = ly_set_add(ns_list, new_ns, 1, NULL), cleanup);
+
+            new_ns->prefix = NULL;
+            new_ns->uri = strdup(ns->uri);
+            LY_CHECK_ERR_GOTO(!new_ns->uri, LOGMEM(ctx); ret = LY_EMEM, cleanup);
+        }
+
         /* add all used prefixes */
-        value_end = value + value_len;
+        value_end = (char *)value + value_len;
         for (value_iter = value; value_iter; value_iter = value_next) {
             LY_CHECK_GOTO(ret = ly_value_prefix_next(value_iter, value_end, &substr_len, &is_prefix, &value_next), cleanup);
             if (is_prefix) {
@@ -709,7 +1088,7 @@ ly_format2str(LY_VALUE_FORMAT format)
     return NULL;
 }
 
-API LY_ERR
+LIBYANG_API_DEF LY_ERR
 ly_time_str2time(const char *value, time_t *time, char **fractions_s)
 {
     struct tm tm = {0};
@@ -737,14 +1116,6 @@ ly_time_str2time(const char *value, time_t *time, char **fractions_s)
         for (frac_len = 0; isdigit(frac[frac_len]); ++frac_len) {}
 
         i += frac_len;
-
-        /* skip trailing zeros */
-        for ( ; frac_len && (frac[frac_len - 1] == '0'); --frac_len) {}
-
-        if (!frac_len) {
-            /* only zeros, ignore */
-            frac = NULL;
-        }
     } else {
         frac = NULL;
     }
@@ -780,7 +1151,7 @@ ly_time_str2time(const char *value, time_t *time, char **fractions_s)
     return LY_SUCCESS;
 }
 
-API LY_ERR
+LIBYANG_API_DEF LY_ERR
 ly_time_time2str(time_t time, const char *fractions_s, char **str)
 {
     struct tm tm;
@@ -792,6 +1163,7 @@ ly_time_time2str(time_t time, const char *fractions_s, char **str)
     /* initialize the local timezone */
     tzset();
 
+#ifdef HAVE_TM_GMTOFF
     /* convert */
     if (!localtime_r(&time, &tm)) {
         return LY_ESYS;
@@ -808,6 +1180,16 @@ ly_time_time2str(time_t time, const char *fractions_s, char **str)
         zonediff_m = tm.tm_gmtoff / 60 % 60;
     }
     sprintf(zoneshift, "%+03d:%02d", zonediff_h, zonediff_m);
+#else
+    /* convert */
+    if (!gmtime_r(&time, &tm)) {
+        return LY_ESYS;
+    }
+
+    (void)zonediff_h;
+    (void)zonediff_m;
+    sprintf(zoneshift, "-00:00");
+#endif
 
     /* print */
     if (asprintf(str, "%04d-%02d-%02dT%02d:%02d:%02d%s%s%s",
@@ -819,11 +1201,11 @@ ly_time_time2str(time_t time, const char *fractions_s, char **str)
     return LY_SUCCESS;
 }
 
-API LY_ERR
+LIBYANG_API_DEF LY_ERR
 ly_time_str2ts(const char *value, struct timespec *ts)
 {
     LY_ERR rc;
-    char *fractions_s, frac_buf[10] = {'0'};
+    char *fractions_s, frac_buf[10];
     int frac_len;
 
     LY_CHECK_ARG_RET(NULL, value, ts, LY_EINVAL);
@@ -833,6 +1215,10 @@ ly_time_str2ts(const char *value, struct timespec *ts)
 
     /* convert fractions of a second to nanoseconds */
     if (fractions_s) {
+        /* init frac_buf with zeroes */
+        memset(frac_buf, '0', 9);
+        frac_buf[9] = '\0';
+
         frac_len = strlen(fractions_s);
         memcpy(frac_buf, fractions_s, frac_len > 9 ? 9 : frac_len);
         ts->tv_nsec = atol(frac_buf);
@@ -844,12 +1230,12 @@ ly_time_str2ts(const char *value, struct timespec *ts)
     return LY_SUCCESS;
 }
 
-API LY_ERR
+LIBYANG_API_DEF LY_ERR
 ly_time_ts2str(const struct timespec *ts, char **str)
 {
     char frac_buf[10];
 
-    LY_CHECK_ARG_RET(NULL, ts, str, LY_EINVAL);
+    LY_CHECK_ARG_RET(NULL, ts, str, ((ts->tv_nsec <= 999999999) && (ts->tv_nsec >= 0)), LY_EINVAL);
 
     /* convert nanoseconds to fractions of a second */
     if (ts->tv_nsec) {

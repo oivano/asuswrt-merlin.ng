@@ -126,16 +126,20 @@ struct utest_context {
  * @param[in] INPUT_FORMAT Format of the input data to be parsed. Can be 0 to try to detect format from the input handler.
  * @param[in] PARSE_OPTIONS Options for parser, see @ref dataparseroptions.
  * @param[in] VALIDATE_OPTIONS Options for the validation phase, see @ref datavalidationoptions.
- * @param[in] OUT_STATUS expected return status
- * @param[out] OUT_NODE Resulting data tree built from the input data. Note that NULL can be a valid result as a representation of an empty YANG data tree.
- * The returned data are expected to be freed using LYD_TREE_DESTROY().
+ * @param[in] RET expected return status
+ * @param[out] OUT_NODE Resulting data tree built from the input data. Note that NULL can be a valid result as a
+ * representation of an empty YANG data tree.
  */
-#define CHECK_PARSE_LYD_PARAM(INPUT, INPUT_FORMAT, PARSE_OPTIONS, VALIDATE_OPTIONS, OUT_STATUS, OUT_NODE) \
-    assert_int_equal(OUT_STATUS, lyd_parse_data_mem(_UC->ctx, INPUT, INPUT_FORMAT, PARSE_OPTIONS, VALIDATE_OPTIONS, &OUT_NODE)); \
-    if (OUT_STATUS == LY_SUCCESS) { \
-        assert_non_null(OUT_NODE); \
-    } else { \
-        assert_null(OUT_NODE); \
+#define CHECK_PARSE_LYD_PARAM(INPUT, INPUT_FORMAT, PARSE_OPTIONS, VALIDATE_OPTIONS, RET, OUT_NODE) \
+    { \
+        LY_ERR _r = lyd_parse_data_mem(_UC->ctx, INPUT, INPUT_FORMAT, PARSE_OPTIONS, VALIDATE_OPTIONS, &OUT_NODE); \
+        if (_r != RET) { \
+            if (_r) { \
+                fail_msg("%s != 0x%d; MSG: %s", #RET, _r, ly_err_last(_UC->ctx)->msg); \
+            } else { \
+                fail_msg("%s != 0x%d", #RET, _r); \
+            } \
+        } \
     }
 
 /**
@@ -147,10 +151,13 @@ struct utest_context {
  */
 #define CHECK_LYD_STRING_PARAM(NODE, TEXT, FORMAT, PARAM) \
     { \
-        char *test; \
-        lyd_print_mem(&test, NODE, FORMAT, PARAM); \
-        assert_string_equal(test, TEXT); \
-        free(test); \
+        char *str; \
+        LY_ERR _r = lyd_print_mem(&str, NODE, FORMAT, PARAM); \
+        if (_r) { \
+            fail_msg("Print err 0x%d; MSG: %s", _r, ly_err_last(_UC->ctx)->msg); \
+        } \
+        assert_string_equal(str, TEXT); \
+        free(str); \
     }
 
 /**
@@ -160,13 +167,15 @@ struct utest_context {
  */
 #define CHECK_LYD(NODE_1, NODE_2) \
     { \
-        char *test_1; \
-        char *test_2; \
-        lyd_print_mem(&test_1, NODE_1, LYD_XML, LYD_PRINT_WITHSIBLINGS | LYD_PRINT_SHRINK); \
-        lyd_print_mem(&test_2, NODE_2, LYD_XML, LYD_PRINT_WITHSIBLINGS | LYD_PRINT_SHRINK); \
-        assert_string_equal(test_1, test_2); \
-        free(test_1); \
-        free(test_2); \
+        char *str1; \
+        char *str2; \
+        assert_int_equal(LY_SUCCESS, lyd_print_mem(&str1, NODE_1, LYD_XML, LYD_PRINT_WITHSIBLINGS | LYD_PRINT_SHRINK)); \
+        assert_int_equal(LY_SUCCESS, lyd_print_mem(&str2, NODE_2, LYD_XML, LYD_PRINT_WITHSIBLINGS | LYD_PRINT_SHRINK)); \
+        assert_non_null(str1); \
+        assert_non_null(str2); \
+        assert_string_equal(str1, str2); \
+        free(str1); \
+        free(str2); \
     }
 
 /*
@@ -213,6 +222,7 @@ struct utest_context {
 
 /**
  * @brief check compileted type
+ *
  * @param[in] NODE pointer to lysc_type value
  * @param[in] TYPE expected type [LY_DATA_TYPE](@ref LY_DATA_TYPE)
  * @param[in] EXTS expected [sized array](@ref sizedarrays) size of extens list
@@ -223,7 +233,9 @@ struct utest_context {
     CHECK_ARRAY((NODE)->exts, EXTS); \
     assert_ptr_equal((NODE)->plugin, lyplg_find(LYPLG_TYPE, "", NULL, ly_data_type2str[TYPE]))
 
-/* @brief check compileted numeric type
+/**
+ * @brief check compileted numeric type
+ *
  * @param[in] NODE pointer to lysc_type_num value
  * @param[in] TYPE expected type [LY_DATA_TYPE](@ref LY_DATA_TYPE)
  * @param[in] EXTS expected [sized array](@ref sizedarrays) size of extens list
@@ -233,7 +245,9 @@ struct utest_context {
     CHECK_LYSC_TYPE(NODE, TYPE, EXTS);\
     CHECK_POINTER((NODE)->range, RANGE)
 
-/* @brief check compiled string type
+/**
+ * @brief check compiled string type
+ *
  * @param[in] NODE     pointer to lysc_type_num value
  * @param[in] EXTS     expected [sized array](@ref sizedarrays) size of extens list
  * @param[in] LENGTH   0 -> node dosnt have length limitation, 1 -> node have length limitation
@@ -245,7 +259,9 @@ struct utest_context {
     CHECK_POINTER((NODE)->length, LENGTH); \
     CHECK_ARRAY((NODE)->patterns, PATTERNS)
 
-/* @brief check compiled bits type
+/**
+ * @brief check compiled bits type
+ *
  * @param[in] NODE     pointer to lysc_type_num value
  * @param[in] EXTS     expected [sized array](@ref sizedarrays) size of extens list
  * @param[in] BITS     expected number of bits
@@ -264,7 +280,9 @@ struct utest_context {
     CHECK_STRING((NODE)->name, NAME); \
     CHECK_STRING((NODE)->ref, REF) \
 
-/* @brief check range
+/**
+ * @brief check range
+ *
  * @param[in] NODE     pointer to lysc_range value
  * @param[in] DSC      expected descriptin (string)
  * @param[in] EAPPTAG  expected string reprezenting error-app-tag value
@@ -282,7 +300,9 @@ struct utest_context {
     CHECK_ARRAY((NODE)->parts, PARTS); \
     CHECK_STRING((NODE)->ref, REF)
 
-/* @brief check pattern
+/**
+ * @brief check pattern
+ *
  * @param[in] NODE     pointer to lysc_pattern value
  * @param[in] DSC      expected descriptin (string)
  * @param[in] EAPPTAG  expected string reprezenting error-app-tag value
@@ -305,6 +325,7 @@ struct utest_context {
 
 /**
  * @brief assert that lysp_action_inout structure members are correct
+ *
  * @param[in] NODE      pointer to lysp_action_inout variable
  * @param[in] DATA      0 -> check if pointer to data is NULL, 1 -> check if pointer to data is not null
  * @param[in] EXTS      expected [sized array](@ref sizedarrays) size of extens list
@@ -326,6 +347,7 @@ struct utest_context {
 
 /**
  * @brief assert that lysp_action structure members are correct
+ *
  * @param[in] NODE    pointer to lysp_action variable
  * @param[in] DSC     expected description
  * @param[in] EXTS    expected [sized array](@ref sizedarrays) size of extension list
@@ -365,6 +387,7 @@ struct utest_context {
 
 /**
  * @brief assert that lysp_when structure members are correct
+ *
  * @param[in] NODE pointer to lysp_when variable
  * @param[in] COND expected string specifid condition
  * @param[in] DSC  expected string description statement
@@ -385,6 +408,7 @@ struct utest_context {
 
 /**
  * @brief assert that lysp_restr structure members are correct
+ *
  * @param[in] NODE pointer to lysp_restr variable
  * @param[in] ARG_STR expected string. The restriction expression/value
  * @param[in] DSC     expected descrition
@@ -406,6 +430,7 @@ struct utest_context {
 
 /**
  * @brief assert that lysp_import structure members are correct
+ *
  * @param[in] NODE   pointer to lysp_import variable
  * @param[in] DSC    expected description or NULL
  * @param[in] EXTS   expected [sized array](@ref sizedarrays) size of list of extensions
@@ -426,6 +451,7 @@ struct utest_context {
 
 /**
  * @brief assert that lysp_ext structure members are correct
+ *
  * @param[in] NODE pointer to lysp_ext_instance variable
  * @param[in] ARGNAME expected argument name
  * @param[in] COMPILED 0 -> compiled data dosnt exists, 1 -> compiled data exists
@@ -447,6 +473,7 @@ struct utest_context {
 
 /**
  * @brief assert that lysp_ext_instance structure members are correct
+ *
  * @param[in] NODE      pointer to lysp_ext_instance variable
  * @param[in] ARGUMENT  expected optional value of the extension's argument
  * @param[in] CHILD     0 -> node doesnt have child, 1 -> node have children
@@ -466,6 +493,7 @@ struct utest_context {
 
 /**
  * @brief assert that lysp_stmt structure members are correct
+ *
  * @param[in] NODE  pointer to lysp_stmt variable
  * @param[in] ARG   expected statemet argumet
  * @param[in] CHILD 0 -> node doesnt have child, 1 -> node have children
@@ -485,6 +513,7 @@ struct utest_context {
 
 /**
  * @brief assert that lysp_type_enum structure members are correct
+ *
  * @param[in] NODE pointer to lysp_type_enum variable
  * @param[in] DSC   expected description
  * @param[in] EXTS  expected [sized array](@ref sizedarrays) size of list of the extension instances
@@ -506,6 +535,7 @@ struct utest_context {
 
 /**
  * @brief assert that lysp_type_enum structure members are correct
+ *
  * @param[in] NODE pointer to lysp_type variable
  * @param[in] BASES  expected [sized array](@ref sizedarrays) size of list of indentifiers
  * @param[in] BITS   expected [sized array](@ref sizedarrays) size of list of bits
@@ -544,6 +574,7 @@ struct utest_context {
 
 /**
  * @brief assert that lysp_node structure members are correct
+ *
  * @param[in] NODE  pointer to lysp_node variable
  * @param[in] DSC   expected description statement
  * @param[in] EXTS  expected [sized array](@ref sizedarrays) size of list of the extension instances
@@ -573,6 +604,7 @@ struct utest_context {
 
 /**
  * @brief assert that lysp_node structure members are correct
+ *
  * @param[in] NODE  pointer to lysp_node variable
  * @param[in] DSC   expected description statement
  * @param[in] EXTS  expected [sized array](@ref sizedarrays) size of list of the extension instances
@@ -596,6 +628,7 @@ struct utest_context {
 
 /**
  * @brief assert that lysc_notif structure members are correct
+ *
  * @param[in] NODE    pointer to lysp_notif variable
  * @param[in] DATA    0 pointer is null, 1 pointer is not null
  * @param[in] DSC     expected description
@@ -626,6 +659,7 @@ struct utest_context {
 
 /**
  * @brief assert that lysc_action_inout structure members are correct
+ *
  * @param[in] NODE      pointer to lysp_notif variable
  * @param[in] DATA      0 pointer is null, 1 pointer is not null
  * @param[in] MUST      expected [sized array](@ref sizedarrays) size of list of must restrictions
@@ -639,6 +673,7 @@ struct utest_context {
 
 /**
  * @brief assert that lysc_action structure members are correct
+ *
  * @param[in] NODE    pointer to lysp_action variable
  * @param[in] DSC     string description statement
  * @param[in] EXTS    expected [sized array](@ref sizedarrays) size of list of the extension instances
@@ -677,6 +712,7 @@ struct utest_context {
 
 /**
  * @brief assert that lysc_node structure members are correct
+ *
  * @param[in] NODE    pointer to lysc_node variable
  * @param[in] DSC     expected description
  * @param[in] EXTS    expected [sized array](@ref sizedarrays) size of list of the extension instances
@@ -710,6 +746,7 @@ struct utest_context {
 
 /**
  * @brief assert that lysc_node_leaf structure members are correct
+ *
  * @param[in] NODE    pointer to lysc_node variable
  * @param[in] DSC     expected description
  * @param[in] EXTS    expected [sized array](@ref sizedarrays) size of list of the extension instances
@@ -743,6 +780,7 @@ struct utest_context {
 
 /**
  * @brief assert that lysc_node_leaf structure members are correct
+ *
  * @param[in] NODE    pointer to lysc_node variable
  * @param[in] DSC     expected description
  * @param[in] EXTS    expected [sized array](@ref sizedarrays) size of list of the extension instances
@@ -768,6 +806,7 @@ struct utest_context {
 
 /**
  * @brief assert that lyd_meta structure members are correct
+ *
  * @param[in] NODE       pointer to lyd_meta variable
  * @param[in] ANNOTATION 0 pointer is null, 1 pointer is not null
  * @param[in] NAME       expected name
@@ -782,10 +821,11 @@ struct utest_context {
     assert_string_equal((NODE)->name, NAME); \
     CHECK_POINTER((NODE)->next, NEXT); \
     CHECK_POINTER((NODE)->parent, PARENT); \
-    CHECK_LYD_VALUE((NODE)->value, TYPE_VAL, ##__VA_ARGS__);
+    CHECK_LYD_VALUE((NODE)->value, TYPE_VAL, __VA_ARGS__);
 
 /**
  * @brief assert that lyd_node_term structure members are correct
+ *
  * @param[in] NODE             pointer to lyd_node_term variable
  * @param[in] FLAGS            expected [data node flags](@ref dnodeflags)
  * @param[in] META             0 -> meta is not prezent, 1 -> meta is prezent
@@ -802,10 +842,11 @@ struct utest_context {
     CHECK_POINTER((NODE)->parent, PARENT); \
     assert_non_null((NODE)->prev); \
     CHECK_POINTER((NODE)->schema, SCHEMA); \
-    CHECK_LYD_VALUE((NODE)->value, VALUE_TYPE, ##__VA_ARGS__);
+    CHECK_LYD_VALUE((NODE)->value, VALUE_TYPE, __VA_ARGS__);
 
 /**
  * @brief assert that lyd_node_any structure members are correct
+ *
  * @param[in] NODE       pointer to lyd_node_term variable
  * @param[in] FLAGS      expected [data node flags](@ref dnodeflags)
  * @param[in] META       0 meta isnt present , 1 meta is present
@@ -823,6 +864,7 @@ struct utest_context {
 
 /**
  * @brief assert that lyd_node_opaq structure members are correct
+ *
  * @param[in] NODE     pointer to lyd_node_opaq variable
  * @param[in] ATTR     0 if pointer is null ,1 if pointer is not null
  * @param[in] CHILD    0 if pointer is null ,1 if pointer is not null
@@ -847,6 +889,7 @@ struct utest_context {
 
 /**
  * @brief assert that lyd_node_opaq structure members are correct
+ *
  * @param[in] NODE     pointer to lyd_node_opaq variable
  * @param[in] CHILD    1 if node has children other 0
  * @param[in] HILD_HT  1 if node has children hash table other 0
@@ -871,6 +914,7 @@ struct utest_context {
 
 /**
  * @brief assert that lyd_value structure members are correct
+ *
  * @param[in] NODE     lyd_value
  * @param[in] TYPE_VAL value type. EMPTY, UNION, BITS, INST, ENUM, INT8, INT16, UINT8, STRING, LEAFREF, DEC64, BINARY, BOOL, IDENT
  *                     part of text reprezenting LY_DATA_TYPE.
@@ -879,7 +923,7 @@ struct utest_context {
  *                     CHECK_LYD_VALUE_ ## TYPE_VAL.
  */
 #define CHECK_LYD_VALUE(NODE, TYPE_VAL, ...) \
-    CHECK_LYD_VALUE_ ## TYPE_VAL (NODE, ##__VA_ARGS__);
+    CHECK_LYD_VALUE_ ## TYPE_VAL (NODE, __VA_ARGS__);
 
 /*
  * LYD VALUES CHECKING SPECIALIZATION
@@ -888,6 +932,7 @@ struct utest_context {
 /**
  * @brief Internal macro. Assert that lyd_value structure members are correct. Lyd value is type EMPTY
  *        Example CHECK_LYD_VALUE(node->value, EMPTY, "");
+ *
  * @param[in] NODE           lyd_value variable
  * @param[in] CANNONICAL_VAL expected cannonical value
  */
@@ -901,6 +946,7 @@ struct utest_context {
  * @brief Internal macro. Assert that lyd_value structure members are correct. Lyd value is type UNION
  *        Example CHECK_LYD_VALUE(node->value, UNION, "12", INT8, "12", 12);
  * @warning   type of subvalue cannot be UNION. Example of calling
+ *
  * @param[in] NODE           lyd_value variable
  * @param[in] CANNONICAL_VAL expected cannonical value
  * @param[in] TYPE_VAL value type. EMPTY, UNION, BITS, INST, ENUM, INT8, INT16, UINT8, STRING, LEAFREF, DEC64, BINARY, BOOL, IDENT
@@ -915,33 +961,40 @@ struct utest_context {
     assert_int_equal(LY_TYPE_UNION, (NODE).realtype->basetype); \
     assert_non_null((NODE).subvalue); \
     assert_non_null((NODE).subvalue->prefix_data); \
-    CHECK_LYD_VALUE_ ## TYPE_VAL ((NODE).subvalue->value, ## __VA_ARGS__)
+    CHECK_LYD_VALUE_ ## TYPE_VAL ((NODE).subvalue->value, __VA_ARGS__)
+
+/**
+ * @brief Internal macro. Get 1st variadic argument.
+ */
+#define _GETARG1(ARG1, ...) ARG1
 
 /**
  * @brief Internal macro. Assert that lyd_value structure members are correct. Lyd value is type BITS
  *        Example arr[] = {"a", "b"}; CHECK_LYD_VALUE(node->value, BITS, "a b", arr);
+ *
  * @param[in] NODE           lyd_value variable
  * @param[in] CANNONICAL_VAL expected cannonical value
  * @param[in] VALUE          expected array of bits names
  */
-#define CHECK_LYD_VALUE_BITS(NODE, CANNONICAL_VAL, ...) \
+#define CHECK_LYD_VALUE_BITS(NODE, ...) \
     assert_non_null((NODE).realtype->plugin->print(UTEST_LYCTX, &(NODE), LY_VALUE_CANON, NULL, NULL, NULL)); \
-    assert_string_equal((NODE)._canonical, CANNONICAL_VAL); \
+    assert_string_equal((NODE)._canonical, _GETARG1(__VA_ARGS__, DUMMY)); \
     assert_non_null((NODE).realtype); \
     assert_int_equal(LY_TYPE_BITS, (NODE).realtype->basetype); \
     { \
         const char *arr[] = { __VA_ARGS__ }; \
-        LY_ARRAY_COUNT_TYPE arr_size = sizeof(arr) / sizeof(arr[0]); \
+        LY_ARRAY_COUNT_TYPE arr_size = (sizeof(arr) / sizeof(arr[0])) - 1; \
         struct lyd_value_bits *_val; \
         LYD_VALUE_GET(&(NODE), _val); \
         assert_int_equal(arr_size, LY_ARRAY_COUNT(_val->items)); \
         for (LY_ARRAY_COUNT_TYPE it = 0; it < arr_size; it++) { \
-            assert_string_equal(arr[it], _val->items[it]->name); \
+            assert_string_equal(arr[it + 1], _val->items[it]->name); \
         } \
     }
 
 /**
  * @brief Internal macro. Assert that lyd_value structure members are correct. Lyd value is type INST
+ *
  * @param[in] NODE           lyd_value variable
  * @param[in] CANNONICAL_VAL expected cannonical value
  * @param[in] VALUE          expected array of enum ly_path_pred_type
@@ -963,6 +1016,7 @@ struct utest_context {
 /**
  * @brief Internal macro. Assert that lyd_value structure members are correct. Lyd value is type ENUM.
  *        Example CHECK_LYD_VALUE(node->value, ENUM, "item_name", "item_name");
+ *
  * @param[in] NODE           lyd_value variable
  * @param[in] CANNONICAL_VAL expected cannonical value
  * @param[in] VALUE          expected enum item name
@@ -977,6 +1031,7 @@ struct utest_context {
 /**
  * @brief Internal macro. Assert that lyd_value structure members are correct. Lyd value is type INT8
  *        Example CHECK_LYD_VALUE(node->value, INT8, "12", 12);
+ *
  * @param[in] NODE           lyd_value variable
  * @param[in] CANNONICAL_VAL expected cannonical value
  * @param[in] VALUE          expected inteager value (-128 to 127).
@@ -991,6 +1046,7 @@ struct utest_context {
 /**
  * @brief Internal macro. Assert that lyd_value structure members are correct. Lyd value is type INT16
  *        Example CHECK_LYD_VALUE(node->value, INT8, "12", 12);
+ *
  * @param[in] NODE           lyd_value variable
  * @param[in] CANNONICAL_VAL expected cannonical value
  * @param[in] VALUE          expected inteager value.
@@ -1005,6 +1061,7 @@ struct utest_context {
 /**
  * @brief Internal macro. Assert that lyd_value structure members are correct. Lyd value is type UINT8.
  *        Example CHECK_LYD_VALUE(node->value, UINT8, "12", 12);
+ *
  * @param[in] NODE           lyd_value variable
  * @param[in] CANNONICAL_VAL expected cannonical value
  * @param[in] VALUE          expected inteager (0 to 255).
@@ -1019,6 +1076,7 @@ struct utest_context {
 /**
  * @brief Internal macro. Assert that lyd_value structure members are correct. Lyd value is type UINT32.
  *        Example CHECK_LYD_VALUE(node->value, UINT32, "12", 12);
+ *
  * @param[in] NODE           lyd_value variable
  * @param[in] CANNONICAL_VAL expected cannonical value
  * @param[in] VALUE          expected inteager (0 to MAX_UINT32).
@@ -1033,6 +1091,7 @@ struct utest_context {
 /**
  * @brief Internal macro. Assert that lyd_value structure members are correct. Lyd value is type STRING.
  *        Example CHECK_LYD_VALUE(node->value, STRING, "text");
+ *
  * @param[in] NODE           lyd_value variable
  * @param[in] CANNONICAL_VAL expected cannonical value
  */
@@ -1044,7 +1103,8 @@ struct utest_context {
 
 /**
  * @brief Internal macro. Assert that lyd_value structure members are correct. Lyd value is type LEAFREF
- * @brief Example CHECK_LYD_VALUE(node->value, LEAFREF, "");
+ *        Example CHECK_LYD_VALUE(node->value, LEAFREF, "");
+ *
  * @param[in] NODE           lyd_value variable
  * @param[in] CANNONICAL_VAL expected cannonical value
  */
@@ -1058,6 +1118,7 @@ struct utest_context {
 /**
  * @brief Internal macro. Assert that lyd_value structure members are correct. Lyd value is type DEC64
  *        Example CHECK_LYD_VALUE(node->value, DEC64, "125", 125);
+ *
  * @param[in] NODE           lyd_value variable
  * @param[in] CANNONICAL_VAL expected cannonical value
  * @param[in] VALUE          expected value 64bit inteager
@@ -1072,6 +1133,7 @@ struct utest_context {
 /**
  * @brief Internal macro. Assert that lyd_value structure members are correct. Lyd value is type BINARY.
  *        Example CHECK_LYD_VALUE(node->value, BINARY, "aGVs\nbG8=");
+ *
  * @param[in] NODE           lyd_value variable
  * @param[in] CANNONICAL_VAL expected cannonical value
  * @param[in] VALUE          expected value data
@@ -1092,6 +1154,7 @@ struct utest_context {
 /**
  * @brief Internal macro. Assert that lyd_value structure members are correct. Lyd value is type BOOL.
  *        Example CHECK_LYD_VALUE(node->value, BOOL, "true", 1);
+ *
  * @param[in] NODE           lyd_value variable
  * @param[in] CANNONICAL_VAL expected cannonical value
  * @param[in] VALUE          expected boolean value 0,1
@@ -1106,6 +1169,7 @@ struct utest_context {
 /**
  * @brief Internal macro. Assert that lyd_value structure members are correct. Lyd value is type IDENT.
  *        Example CHECK_LYD_VALUE(node->value, IDENT, "types:gigabit-ethernet", "gigabit-ethernet");
+ *
  * @param[in] NODE           lyd_value variable
  * @param[in] CANNONICAL_VAL expected cannonical value
  * @param[in] VALUE          expected ident name
@@ -1119,6 +1183,7 @@ struct utest_context {
 
 /**
  * @brief Macro testing parser when parsing incorrect module;
+ *
  * @param[in] DATA     String storing the schema module representation.
  * @param[in] FORMAT   Schema format of the @p DATA
  * @param[in] FEATURES Array of module's features to enable
@@ -1126,7 +1191,7 @@ struct utest_context {
  */
 #define UTEST_INVALID_MODULE(DATA, FORMAT, FEATURES, RET_VAL) \
     { \
-        const struct lys_module *mod; \
+        struct lys_module *mod; \
         assert_int_equal(LY_SUCCESS, ly_in_new_memory(DATA, &_UC->in)); \
         assert_int_equal(RET_VAL, lys_parse(_UC->ctx, _UC->in, FORMAT, FEATURES, &mod)); \
         assert_null(mod); \
@@ -1136,6 +1201,7 @@ struct utest_context {
 
 /**
  * @brief Add module (from a string) into the used libyang context.
+ *
  * @param[in] DATA     String storing the schema module representation.
  * @param[in] FORMAT   Schema format of the @p DATA
  * @param[in] FEATURES Array of module's features to enable
@@ -1150,6 +1216,7 @@ struct utest_context {
 /**
  * @brief Internal macro to compare error info record with the expected error message and path.
  * If NULL is provided as MSG, no error info record (NULL) is expected.
+ *
  * @param[in] ERR Error information record from libyang context.
  * @param[in] MSG Expected error message.
  * @param[in] PATH Expected error path.
@@ -1199,9 +1266,30 @@ struct utest_context {
         _CHECK_LOG_CTX(ly_err_last(_UC->ctx)->prev->prev->prev->prev, MSG5, PATH5)
 
 /**
+ * @brief Internal macro to check the last three libyang's context error.
+ */
+#define _CHECK_LOG_CTX6(MSG1, PATH1, MSG2, PATH2, MSG3, PATH3, MSG4, PATH4, MSG5, PATH5, MSG6, PATH6) \
+        _CHECK_LOG_CTX5(MSG1, PATH1, MSG2, PATH2, MSG3, PATH3, MSG4, PATH4, MSG5, PATH5); \
+        _CHECK_LOG_CTX(ly_err_last(_UC->ctx)->prev->prev->prev->prev->prev, MSG6, PATH6)
+
+/**
+ * @brief Internal macro to check the last three libyang's context error.
+ */
+#define _CHECK_LOG_CTX7(MSG1, PATH1, MSG2, PATH2, MSG3, PATH3, MSG4, PATH4, MSG5, PATH5, MSG6, PATH6, MSG7, PATH7) \
+        _CHECK_LOG_CTX6(MSG1, PATH1, MSG2, PATH2, MSG3, PATH3, MSG4, PATH4, MSG5, PATH5, MSG6, PATH6); \
+        _CHECK_LOG_CTX(ly_err_last(_UC->ctx)->prev->prev->prev->prev->prev->prev, MSG7, PATH7)
+
+/**
+ * @brief Internal macro to check the last three libyang's context error.
+ */
+#define _CHECK_LOG_CTX8(MSG1, PATH1, MSG2, PATH2, MSG3, PATH3, MSG4, PATH4, MSG5, PATH5, MSG6, PATH6, MSG7, PATH7, MSG8, PATH8) \
+        _CHECK_LOG_CTX7(MSG1, PATH1, MSG2, PATH2, MSG3, PATH3, MSG4, PATH4, MSG5, PATH5, MSG6, PATH6, MSG7, PATH7); \
+        _CHECK_LOG_CTX(ly_err_last(_UC->ctx)->prev->prev->prev->prev->prev->prev->prev, MSG8, PATH8)
+
+/**
  * @brief Internal helper macro to select _CHECK_LOG_CTX* macro according to the provided parameters.
  */
-#define _GET_CHECK_LOG_MACRO(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, NAME, ...) NAME
+#define _GET_CHECK_LOG_MACRO(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, NAME, ...) NAME
 
 /**
  * @brief Check expected error(s) in libyang context.
@@ -1214,8 +1302,27 @@ struct utest_context {
  * @param[in] PATH Expected error path.
  */
 #define CHECK_LOG_CTX(...) \
-    _GET_CHECK_LOG_MACRO(__VA_ARGS__, _CHECK_LOG_CTX5, _INVAL, _CHECK_LOG_CTX4, _INVAL, \
-            _CHECK_LOG_CTX3, _INVAL, _CHECK_LOG_CTX2, _INVAL, _CHECK_LOG_CTX1)(__VA_ARGS__); \
+    _GET_CHECK_LOG_MACRO(__VA_ARGS__, _CHECK_LOG_CTX8, _INVAL, _CHECK_LOG_CTX7, _INVAL, \
+            _CHECK_LOG_CTX6, _INVAL, _CHECK_LOG_CTX5, _INVAL, _CHECK_LOG_CTX4, _INVAL, \
+            _CHECK_LOG_CTX3, _INVAL, _CHECK_LOG_CTX2, _INVAL, _CHECK_LOG_CTX1, DUMMY)(__VA_ARGS__); \
+    ly_err_clean(_UC->ctx, NULL)
+
+/**
+ * @brief Check expected error in libyang context including error-app-tag.
+ *
+ * @param[in] MSG Expected error message.
+ * @param[in] PATH Expected error path.
+ * @param[in] APPTAG Expected error-app-tag.
+ */
+#define CHECK_LOG_CTX_APPTAG(MSG, PATH, APPTAG) \
+    if (!MSG) { \
+        assert_null(ly_err_last(_UC->ctx)); \
+    } else { \
+        assert_non_null(ly_err_last(_UC->ctx)); \
+        CHECK_STRING(ly_err_last(_UC->ctx)->msg, MSG); \
+        CHECK_STRING(ly_err_last(_UC->ctx)->path, PATH); \
+        CHECK_STRING(ly_err_last(_UC->ctx)->apptag, APPTAG); \
+    } \
     ly_err_clean(_UC->ctx, NULL)
 
 /**
@@ -1378,7 +1485,7 @@ utest_teardown(void **state)
  * UTEST(test_func, setup, teardown) - both setup and teardown are test-specific
  */
 #define UTEST(...) \
-    _GET_UTEST_MACRO(__VA_ARGS__, _UTEST_SETUP_TEARDOWN, _UTEST_SETUP, _UTEST)(__VA_ARGS__)
+    _GET_UTEST_MACRO(__VA_ARGS__, _UTEST_SETUP_TEARDOWN, _UTEST_SETUP, _UTEST, DUMMY)(__VA_ARGS__)
 
 #else /* _UTEST_MAIN_ */
 
