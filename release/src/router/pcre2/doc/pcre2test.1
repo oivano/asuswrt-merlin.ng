@@ -1,4 +1,4 @@
-.TH PCRE2TEST 1 "28 April 2021" "PCRE 10.37"
+.TH PCRE2TEST 1 "12 January 2022" "PCRE 10.40"
 .SH NAME
 pcre2test - a program for testing Perl-compatible regular expressions.
 .SH SYNOPSIS
@@ -27,12 +27,7 @@ each match attempt. Modifiers on external or internal command lines, the
 patterns, and the subject lines specify PCRE2 function options, control how the
 subject is processed, and what output is produced.
 .P
-As the original fairly simple PCRE library evolved, it acquired many different
-features, and as a result, the original \fBpcretest\fP program ended up with a
-lot of options in a messy, arcane syntax for testing all the features. The
-move to the new PCRE2 API provided an opportunity to re-implement the test
-program as \fBpcre2test\fP, with a cleaner modifier syntax. Nevertheless, there
-are still many obscure modifiers, some of which are specifically designed for
+There are many obscure modifiers, some of which are specifically designed for
 use in conjunction with the test script and data files that are distributed as
 part of PCRE2. All the modifiers are documented here, some without much
 justification, but many of them are unlikely to be of use except when testing
@@ -52,7 +47,7 @@ format before being passed to the library functions. Results are converted back
 to 8-bit code units for output.
 .P
 In the rest of this document, the names of library functions and structures
-are given in generic form, for example, \fBpcre_compile()\fP. The actual
+are given in generic form, for example, \fBpcre2_compile()\fP. The actual
 names used in the libraries have a suffix _8, _16, or _32, as appropriate.
 .
 .
@@ -61,10 +56,10 @@ names used in the libraries have a suffix _8, _16, or _32, as appropriate.
 .rs
 .sp
 Input to \fBpcre2test\fP is processed line by line, either by calling the C
-library's \fBfgets()\fP function, or via the \fBlibreadline\fP library. In some
-Windows environments character 26 (hex 1A) causes an immediate end of file, and
-no further data is read, so this character should be avoided unless you really
-want that action.
+library's \fBfgets()\fP function, or via the \fBlibreadline\fP or \fBlibedit\fP
+library. In some Windows environments character 26 (hex 1A) causes an immediate
+end of file, and no further data is read, so this character should be avoided
+unless you really want that action.
 .P
 The input is processed using using C's string functions, so must not
 contain binary zeros, even though in Unix-like environments, \fBfgets()\fP
@@ -216,7 +211,17 @@ available, and the use of JIT for matching is verified.
 \fB-LM\fP
 List modifiers: write a list of available pattern and subject modifiers to the
 standard output, then exit with zero exit code. All other options are ignored.
-If both -C and -LM are present, whichever is first is recognized.
+If both -C and any -Lx options are present, whichever is first is recognized.
+.TP 10
+\fB-LP\fP
+List properties: write a list of recognized Unicode properties to the standard
+output, then exit with zero exit code. All other options are ignored. If both
+-C and any -Lx options are present, whichever is first is recognized.
+.TP 10
+\fB-LS\fP
+List scripts: write a list of recogized Unicode script names to the standard
+output, then exit with zero exit code. All other options are ignored. If both
+-C and any -Lx options are present, whichever is first is recognized.
 .TP 10
 \fB-pattern\fP \fImodifier-list\fP
 Behave as if each pattern line contains the given modifiers.
@@ -443,15 +448,17 @@ excluding pattern meta-characters):
 .sp
 This is interpreted as the pattern's delimiter. A regular expression may be
 continued over several input lines, in which case the newline characters are
-included within it. It is possible to include the delimiter within the pattern
-by escaping it with a backslash, for example
+included within it. It is possible to include the delimiter as a literal within
+the pattern by escaping it with a backslash, for example
 .sp
   /abc\e/def/
 .sp
 If you do this, the escape and the delimiter form part of the pattern, but
-since the delimiters are all non-alphanumeric, this does not affect its
-interpretation. If the terminating delimiter is immediately followed by a
-backslash, for example,
+since the delimiters are all non-alphanumeric, the inclusion of the backslash
+does not affect the pattern's interpretation. Note, however, that this trick
+does not work within \eQ...\eE literal bracketing because the backslash will
+itself be interpreted as a literal. If the terminating delimiter is immediately
+followed by a backslash, for example,
 .sp
   /abc/\e
 .sp
@@ -470,11 +477,11 @@ A pattern can be followed by a modifier list (details below).
 .SH "SUBJECT LINE SYNTAX"
 .rs
 .sp
-Before each subject line is passed to \fBpcre2_match()\fP or
-\fBpcre2_dfa_match()\fP, leading and trailing white space is removed, and the
-line is scanned for backslash escapes, unless the \fBsubject_literal\fP
-modifier was set for the pattern. The following provide a means of encoding
-non-printing characters in a visible way:
+Before each subject line is passed to \fBpcre2_match()\fP,
+\fBpcre2_dfa_match()\fP, or \fBpcre2_jit_match()\fP, leading and trailing white
+space is removed, and the line is scanned for backslash escapes, unless the
+\fBsubject_literal\fP modifier was set for the pattern. The following provide a
+means of encoding non-printing characters in a visible way:
 .sp
   \ea         alarm (BEL, \ex07)
   \eb         backspace (\ex08)
@@ -570,6 +577,7 @@ way \fBpcre2_compile()\fP behaves. See
 for a description of the effects of these options.
 .sp
       allow_empty_class         set PCRE2_ALLOW_EMPTY_CLASS
+      allow_lookaround_bsk      set PCRE2_EXTRA_ALLOW_LOOKAROUND_BSK
       allow_surrogate_escapes   set PCRE2_EXTRA_ALLOW_SURROGATE_ESCAPES
       alt_bsux                  set PCRE2_ALT_BSUX
       alt_circumflex            set PCRE2_ALT_CIRCUMFLEX
@@ -1208,6 +1216,8 @@ pattern, but can be overridden by modifiers on the subject.
       match_limit=<n>            set a match limit
       memory                     show heap memory usage
       null_context               match with a NULL context
+      null_replacement           substitute with NULL replacement
+      null_subject               match with NULL subject
       offset=<n>                 set starting offset
       offset_limit=<n>           set offset limit
       ovector=<n>                set size of output vector
@@ -1631,7 +1641,7 @@ When testing \fBpcre2_substitute()\fP, this modifier also has the effect of
 passing the replacement string as zero-terminated.
 .
 .
-.SS "Passing a NULL context"
+.SS "Passing a NULL context, subject, or replacement"
 .rs
 .sp
 Normally, \fBpcre2test\fP passes a context block to \fBpcre2_match()\fP,
@@ -1640,6 +1650,10 @@ If the \fBnull_context\fP modifier is set, however, NULL is passed. This is for
 testing that the matching and substitution functions behave correctly in this
 case (they use default values). This modifier cannot be used with the
 \fBfind_limits\fP or \fBsubstitute_callout\fP modifiers.
+.P
+Similarly, for testing purposes, if the \fBnull_subject\fP or
+\fBnull_replacement\fP modifier is set, the subject or replacement string
+pointers are passed as NULL, respectively, to the relevant functions.
 .
 .
 .SH "THE ALTERNATIVE MATCHING FUNCTION"
@@ -2096,7 +2110,7 @@ on the stack.
 .sp
 .nf
 Philip Hazel
-University Computing Service
+Retired from University Computing Service
 Cambridge, England.
 .fi
 .
@@ -2105,6 +2119,6 @@ Cambridge, England.
 .rs
 .sp
 .nf
-Last updated: 28 April 2021
-Copyright (c) 1997-2021 University of Cambridge.
+Last updated: 12 January 2022
+Copyright (c) 1997-2022 University of Cambridge.
 .fi

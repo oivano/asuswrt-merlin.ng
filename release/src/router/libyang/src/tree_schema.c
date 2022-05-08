@@ -13,6 +13,7 @@
  */
 
 #define _GNU_SOURCE /* asprintf, strdup */
+#include <sys/cdefs.h>
 
 #include "tree_schema.h"
 
@@ -38,7 +39,6 @@
 #include "parser_schema.h"
 #include "path.h"
 #include "schema_compile.h"
-#include "schema_compile_amend.h"
 #include "schema_features.h"
 #include "set.h"
 #include "tree.h"
@@ -127,7 +127,7 @@ struct stmt_info_s stmt_attr_info[] = {
     [LY_STMT_YIN_ELEMENT] = {"yin-element", "value", STMT_FLAG_ID},
 };
 
-LIBYANG_API_DEF const char *
+API const char *
 ly_stmt2str(enum ly_stmt stmt)
 {
     if (stmt == LY_STMT_EXTENSION_INSTANCE) {
@@ -144,7 +144,7 @@ const char * const ly_devmod_list[] = {
     [LYS_DEV_REPLACE] = "replace",
 };
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 lysc_tree_dfs_full(const struct lysc_node *root, lysc_dfs_clb dfs_clb, void *data)
 {
     struct lysc_node *elem, *elem2;
@@ -181,7 +181,7 @@ lysc_tree_dfs_full(const struct lysc_node *root, lysc_dfs_clb dfs_clb, void *dat
     return LY_SUCCESS;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 lysc_module_dfs_full(const struct lys_module *mod, lysc_dfs_clb dfs_clb, void *data)
 {
     const struct lysc_node *root;
@@ -396,13 +396,13 @@ check:
     return next;
 }
 
-LIBYANG_API_DEF const struct lysc_node *
+API const struct lysc_node *
 lys_getnext(const struct lysc_node *last, const struct lysc_node *parent, const struct lysc_module *module, uint32_t options)
 {
     return lys_getnext_(last, parent, module, NULL, options);
 }
 
-LIBYANG_API_DEF const struct lysc_node *
+API const struct lysc_node *
 lys_getnext_ext(const struct lysc_node *last, const struct lysc_node *parent, const struct lysc_ext_instance *ext, uint32_t options)
 {
     return lys_getnext_(last, parent, NULL, ext, options);
@@ -441,14 +441,13 @@ lysc_ext_find_node(const struct lysc_ext_instance *ext, const struct lys_module 
     return NULL;
 }
 
-LIBYANG_API_DEF const struct lysc_node *
+API const struct lysc_node *
 lys_find_child(const struct lysc_node *parent, const struct lys_module *module, const char *name, size_t name_len,
         uint16_t nodetype, uint32_t options)
 {
     const struct lysc_node *node = NULL;
 
     LY_CHECK_ARG_RET(NULL, module, name, NULL);
-    LY_CHECK_CTX_EQUAL_RET(parent ? parent->module->ctx : NULL, module->ctx, NULL);
     if (!nodetype) {
         nodetype = LYS_NODETYPE_MASK;
     }
@@ -471,11 +470,10 @@ lys_find_child(const struct lysc_node *parent, const struct lys_module *module, 
             }
         }
     }
-
     return NULL;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 lys_find_xpath_atoms(const struct ly_ctx *ctx, const struct lysc_node *ctx_node, const char *xpath, uint32_t options,
         struct ly_set **set)
 {
@@ -485,9 +483,8 @@ lys_find_xpath_atoms(const struct ly_ctx *ctx, const struct lysc_node *ctx_node,
     uint32_t i;
 
     LY_CHECK_ARG_RET(NULL, ctx || ctx_node, xpath, set, LY_EINVAL);
-    LY_CHECK_CTX_EQUAL_RET(ctx, ctx_node ? ctx_node->module->ctx : NULL, LY_EINVAL);
     if (!(options & LYXP_SCNODE_ALL)) {
-        options |= LYXP_SCNODE;
+        options = LYXP_SCNODE;
     }
     if (!ctx) {
         ctx = ctx_node->module->ctx;
@@ -525,7 +522,7 @@ cleanup:
     return ret;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 lys_find_expr_atoms(const struct lysc_node *ctx_node, const struct lys_module *cur_mod, const struct lyxp_expr *expr,
         const struct lysc_prefix *prefixes, uint32_t options, struct ly_set **set)
 {
@@ -534,7 +531,6 @@ lys_find_expr_atoms(const struct lysc_node *ctx_node, const struct lys_module *c
     uint32_t i;
 
     LY_CHECK_ARG_RET(NULL, cur_mod, expr, prefixes, set, LY_EINVAL);
-    LY_CHECK_CTX_EQUAL_RET(ctx_node ? ctx_node->module->ctx : NULL, cur_mod->ctx, LY_EINVAL);
     if (!(options & LYXP_SCNODE_ALL)) {
         options = LYXP_SCNODE;
     }
@@ -571,7 +567,7 @@ cleanup:
     return ret;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 lys_find_xpath(const struct ly_ctx *ctx, const struct lysc_node *ctx_node, const char *xpath, uint32_t options,
         struct ly_set **set)
 {
@@ -581,7 +577,6 @@ lys_find_xpath(const struct ly_ctx *ctx, const struct lysc_node *ctx_node, const
     uint32_t i;
 
     LY_CHECK_ARG_RET(NULL, ctx || ctx_node, xpath, set, LY_EINVAL);
-    LY_CHECK_CTX_EQUAL_RET(ctx, ctx_node ? ctx_node->module->ctx : NULL, LY_EINVAL);
     if (!(options & LYXP_SCNODE_ALL)) {
         options = LYXP_SCNODE;
     }
@@ -623,7 +618,7 @@ cleanup:
     return ret;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 lys_find_lypath_atoms(const struct ly_path *path, struct ly_set **set)
 {
     LY_ERR ret = LY_SUCCESS;
@@ -653,7 +648,7 @@ cleanup:
     return ret;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 lys_find_path_atoms(const struct ly_ctx *ctx, const struct lysc_node *ctx_node, const char *path, ly_bool output,
         struct ly_set **set)
 {
@@ -663,7 +658,6 @@ lys_find_path_atoms(const struct ly_ctx *ctx, const struct lysc_node *ctx_node, 
     struct ly_path *p = NULL;
 
     LY_CHECK_ARG_RET(ctx, ctx || ctx_node, path, set, LY_EINVAL);
-    LY_CHECK_CTX_EQUAL_RET(ctx, ctx_node ? ctx_node->module->ctx : NULL, LY_EINVAL);
 
     if (!ctx) {
         ctx = ctx_node->module->ctx;
@@ -675,7 +669,8 @@ lys_find_path_atoms(const struct ly_ctx *ctx, const struct lysc_node *ctx_node, 
 
     /* compile */
     oper = output ? LY_PATH_OPER_OUTPUT : LY_PATH_OPER_INPUT;
-    ret = ly_path_compile(ctx, NULL, ctx_node, NULL, expr, oper, LY_PATH_TARGET_MANY, 0, LY_VALUE_JSON, NULL, &p);
+    ret = ly_path_compile(ctx, NULL, ctx_node, NULL, expr, LY_PATH_LREF_FALSE, oper, LY_PATH_TARGET_MANY,
+            LY_VALUE_JSON, NULL, NULL, &p);
     LY_CHECK_GOTO(ret, cleanup);
 
     /* resolve */
@@ -687,7 +682,7 @@ cleanup:
     return ret;
 }
 
-LIBYANG_API_DEF const struct lysc_node *
+API const struct lysc_node *
 lys_find_path(const struct ly_ctx *ctx, const struct lysc_node *ctx_node, const char *path, ly_bool output)
 {
     const struct lysc_node *snode = NULL;
@@ -697,7 +692,6 @@ lys_find_path(const struct ly_ctx *ctx, const struct lysc_node *ctx_node, const 
     uint8_t oper;
 
     LY_CHECK_ARG_RET(ctx, ctx || ctx_node, NULL);
-    LY_CHECK_CTX_EQUAL_RET(ctx, ctx_node ? ctx_node->module->ctx : NULL, NULL);
 
     if (!ctx) {
         ctx = ctx_node->module->ctx;
@@ -709,7 +703,8 @@ lys_find_path(const struct ly_ctx *ctx, const struct lysc_node *ctx_node, const 
 
     /* compile */
     oper = output ? LY_PATH_OPER_OUTPUT : LY_PATH_OPER_INPUT;
-    ret = ly_path_compile(ctx, NULL, ctx_node, NULL, exp, oper, LY_PATH_TARGET_MANY, 0, LY_VALUE_JSON, NULL, &p);
+    ret = ly_path_compile(ctx, NULL, ctx_node, NULL, exp, LY_PATH_LREF_FALSE, oper, LY_PATH_TARGET_MANY,
+            LY_VALUE_JSON, NULL, NULL, &p);
     LY_CHECK_GOTO(ret, cleanup);
 
     /* get last node */
@@ -725,97 +720,69 @@ char *
 lysc_path_until(const struct lysc_node *node, const struct lysc_node *parent, LYSC_PATH_TYPE pathtype, char *buffer,
         size_t buflen)
 {
-    const struct lysc_node *iter, *par, *key;
+    const struct lysc_node *iter;
     char *path = NULL;
     int len = 0;
-    ly_bool skip_schema;
 
     if (buffer) {
         LY_CHECK_ARG_RET(node->module->ctx, buflen > 1, NULL);
         buffer[0] = '\0';
     }
 
-    if ((pathtype == LYSC_PATH_DATA) || (pathtype == LYSC_PATH_DATA_PATTERN)) {
-        /* skip schema-only nodes */
-        skip_schema = 1;
-    } else {
-        skip_schema = 0;
-    }
+    switch (pathtype) {
+    case LYSC_PATH_LOG:
+    case LYSC_PATH_DATA:
+        for (iter = node; iter && (iter != parent) && (len >= 0); iter = iter->parent) {
+            char *s, *id;
+            const char *slash;
 
-    for (iter = node; iter && (iter != parent) && (len >= 0); iter = iter->parent) {
-        char *s;
-        const char *slash;
+            if ((pathtype == LYSC_PATH_DATA) && (iter->nodetype & (LYS_CHOICE | LYS_CASE | LYS_INPUT | LYS_OUTPUT))) {
+                /* schema-only node */
+                continue;
+            }
 
-        if (skip_schema && (iter->nodetype & (LYS_CHOICE | LYS_CASE | LYS_INPUT | LYS_OUTPUT))) {
-            /* schema-only node */
-            continue;
-        }
-
-        if ((pathtype == LYSC_PATH_DATA_PATTERN) && (iter->nodetype == LYS_LIST)) {
-            key = NULL;
-            while ((key = lys_getnext(key, iter, NULL, 0)) && lysc_is_key(key)) {
-                s = buffer ? strdup(buffer) : path;
-
-                /* print key predicate */
+            s = buffer ? strdup(buffer) : path;
+            id = strdup(iter->name);
+            if (parent && (iter->parent == parent)) {
+                slash = "";
+            } else {
+                slash = "/";
+            }
+            if (!iter->parent || (iter->parent->module != iter->module)) {
+                /* print prefix */
                 if (buffer) {
-                    len = snprintf(buffer, buflen, "[%s='%%s']%s", key->name, s ? s : "");
+                    len = snprintf(buffer, buflen, "%s%s:%s%s", slash, iter->module->name, id, s ? s : "");
                 } else {
-                    len = asprintf(&path, "[%s='%%s']%s", key->name, s ? s : "");
+                    len = asprintf(&path, "%s%s:%s%s", slash, iter->module->name, id, s ? s : "");
                 }
-                free(s);
-
-                if (buffer && (buflen <= (size_t)len)) {
-                    /* not enough space in buffer */
-                    break;
+            } else {
+                /* prefix is the same as in parent */
+                if (buffer) {
+                    len = snprintf(buffer, buflen, "%s%s%s", slash, id, s ? s : "");
+                } else {
+                    len = asprintf(&path, "%s%s%s", slash, id, s ? s : "");
                 }
             }
-        }
+            free(s);
+            free(id);
 
-        s = buffer ? strdup(buffer) : path;
-        if (parent && (iter->parent == parent)) {
-            slash = "";
-        } else {
-            slash = "/";
-        }
-
-        if (skip_schema) {
-            par = lysc_data_parent(iter);
-        } else {
-            par = iter->parent;
-        }
-
-        if (!par || (par->module != iter->module)) {
-            /* print prefix */
-            if (buffer) {
-                len = snprintf(buffer, buflen, "%s%s:%s%s", slash, iter->module->name, iter->name, s ? s : "");
-            } else {
-                len = asprintf(&path, "%s%s:%s%s", slash, iter->module->name, iter->name, s ? s : "");
-            }
-        } else {
-            /* prefix is the same as in parent */
-            if (buffer) {
-                len = snprintf(buffer, buflen, "%s%s%s", slash, iter->name, s ? s : "");
-            } else {
-                len = asprintf(&path, "%s%s%s", slash, iter->name, s ? s : "");
+            if (buffer && (buflen <= (size_t)len)) {
+                /* not enough space in buffer */
+                break;
             }
         }
-        free(s);
 
-        if (buffer && (buflen <= (size_t)len)) {
-            /* not enough space in buffer */
-            break;
+        if (len < 0) {
+            free(path);
+            path = NULL;
+        } else if (len == 0) {
+            if (buffer) {
+                strcpy(buffer, "/");
+            } else {
+                path = strdup("/");
+            }
         }
-    }
-
-    if (len < 0) {
-        free(path);
-        path = NULL;
-    } else if (len == 0) {
-        if (buffer) {
-            strcpy(buffer, "/");
-        } else {
-            path = strdup("/");
-        }
+        break;
     }
 
     if (buffer) {
@@ -825,19 +792,61 @@ lysc_path_until(const struct lysc_node *node, const struct lysc_node *parent, LY
     }
 }
 
-LIBYANG_API_DEF char *
+API char *
 lysc_path(const struct lysc_node *node, LYSC_PATH_TYPE pathtype, char *buffer, size_t buflen)
 {
     return lysc_path_until(node, NULL, pathtype, buffer, buflen);
 }
 
 LY_ERR
-_lys_set_implemented(struct lys_module *mod, const char **features, struct lys_glob_unres *unres)
+lys_set_implemented_r(struct lys_module *mod, const char **features, struct lys_glob_unres *unres)
+{
+    struct lys_module *m;
+
+    assert(!mod->implemented);
+
+    /* we have module from the current context */
+    m = ly_ctx_get_module_implemented(mod->ctx, mod->name);
+    if (m) {
+        assert(m != mod);
+
+        /* check collision with other implemented revision */
+        LOGERR(mod->ctx, LY_EDENIED, "Module \"%s%s%s\" is present in the context in other implemented revision (%s).",
+                mod->name, mod->revision ? "@" : "", mod->revision ? mod->revision : "", m->revision ? m->revision : "none");
+        return LY_EDENIED;
+    }
+
+    /* enable features */
+    LY_CHECK_RET(lys_enable_features(mod->parsed, features));
+
+    if (mod->ctx->flags & LY_CTX_EXPLICIT_COMPILE) {
+        /* do not compile the module yet */
+        mod->to_compile = 1;
+        return LY_SUCCESS;
+    }
+
+    /* add the module into newly implemented module set */
+    LY_CHECK_RET(ly_set_add(&unres->implementing, mod, 1, NULL));
+
+    /* mark the module implemented, check for collision was already done */
+    mod->implemented = 1;
+
+    /* compile the schema */
+    LY_CHECK_RET(lys_compile(mod, 0, unres));
+
+    /* new module is implemented and compiled */
+    unres->full_compilation = 0;
+
+    return LY_SUCCESS;
+}
+
+API LY_ERR
+lys_set_implemented(struct lys_module *mod, const char **features)
 {
     LY_ERR ret = LY_SUCCESS, r;
-    struct lys_module *mod_iter;
-    const char **imp_f, *all_f[] = {"*", NULL};
-    uint32_t i;
+    struct lys_glob_unres unres = {0};
+
+    LY_CHECK_ARG_RET(NULL, mod, LY_EINVAL);
 
     if (mod->implemented) {
         /* mod is already implemented, set the features */
@@ -845,391 +854,39 @@ _lys_set_implemented(struct lys_module *mod, const char **features, struct lys_g
         if (r == LY_EEXIST) {
             /* no changes */
             return LY_SUCCESS;
-        } else if (!r) {
-            /* mark the module as changed */
+        } else if (r) {
+            /* error */
+            return r;
+        }
+
+        if (mod->ctx->flags & LY_CTX_EXPLICIT_COMPILE) {
+            /* just mark the module as changed */
             mod->to_compile = 1;
-        }
-
-        return r;
-    }
-
-    /* implement, ignore recompilation because it must always take place later */
-    r = lys_implement(mod, features, unres);
-    LY_CHECK_ERR_GOTO(r && (r != LY_ERECOMPILE), ret = r, cleanup);
-
-    if (mod->ctx->flags & LY_CTX_ALL_IMPLEMENTED) {
-        /* implement all the imports as well */
-        for (i = 0; i < unres->creating.count; ++i) {
-            mod = unres->creating.objs[i];
-            if (mod->implemented) {
-                continue;
-            }
-
-            imp_f = (mod->ctx->flags & LY_CTX_ENABLE_IMP_FEATURES) ? all_f : NULL;
-            r = lys_implement(mod, imp_f, unres);
-            LY_CHECK_ERR_GOTO(r && (r != LY_ERECOMPILE), ret = r, cleanup);
-        }
-    }
-
-    /* Try to find module with LYS_MOD_IMPORTED_REV flag. */
-    i = 0;
-    while ((mod_iter = ly_ctx_get_module_iter(mod->ctx, &i))) {
-        if (!strcmp(mod_iter->name, mod->name) && (mod_iter != mod) && (mod_iter->latest_revision & LYS_MOD_IMPORTED_REV)) {
-            LOGVRB("Implemented module \"%s@%s\" was not and will not be imported if the revision-date is missing"
-                    " in the import statement. Instead, the revision \"%s\" is imported.", mod->name, mod->revision,
-                    mod_iter->revision);
-            break;
-        }
-    }
-
-cleanup:
-    return ret;
-}
-
-/**
- * @brief Check whether it may be needed to (re)compile a module from a particular dependency set
- * and if so, add it into its dep set.
- *
- * Dependency set includes all modules that need to be (re)compiled in case any of the module(s)
- * in the dep set are (re)compiled.
- *
- * The reason for recompilation is possible disabled nodes and updating
- * leafref targets to point to the newly compiled modules. Using the import relation, the
- * dependency is reflexive because of possible foreign augments and deviations, which are compiled
- * during the target module compilation.
- *
- * - every module must belong to exactly one dep set
- * - implement flag must be ignored because it can be changed during dep set compilation
- *
- * @param[in] mod Module to process.
- * @param[in,out] ctx_set Set with all not-yet-processed modules.
- * @param[in,out] dep_set Current dependency set to update.
- * @param[in] aux_set Set of traversed non-compiled modules, should be empty on first call.
- * @return LY_ERR value.
- */
-static LY_ERR
-lys_unres_dep_sets_create_mod_r(struct lys_module *mod, struct ly_set *ctx_set, struct ly_set *dep_set,
-        struct ly_set *aux_set)
-{
-    struct lys_module *mod2;
-    struct lysp_import *imports;
-    uint32_t i;
-    LY_ARRAY_COUNT_TYPE u, v;
-    ly_bool found;
-
-    if (LYS_IS_SINGLE_DEP_SET(mod)) {
-        /* is already in a separate dep set */
-        if (!lys_has_dep_mods(mod)) {
-            /* break the dep set here, no modules depend on this one */
             return LY_SUCCESS;
-        }
-
-        if (ly_set_contains(aux_set, mod, NULL)) {
-            /* it was traversed */
-            return LY_SUCCESS;
-        }
-
-        /* add a new auxiliary module */
-        LY_CHECK_RET(ly_set_add(aux_set, mod, 1, NULL));
-    } else {
-        if (!ly_set_contains(ctx_set, mod, &i)) {
-            /* it was already processed */
-            return LY_SUCCESS;
-        }
-
-        /* remove it from the set, we are processing it now */
-        ly_set_rm_index(ctx_set, i, NULL);
-
-        /* add a new dependent module into the dep set */
-        LY_CHECK_RET(ly_set_add(dep_set, mod, 1, NULL));
-    }
-
-    /* process imports of the module and submodules */
-    imports = mod->parsed->imports;
-    LY_ARRAY_FOR(imports, u) {
-        mod2 = imports[u].module;
-        LY_CHECK_RET(lys_unres_dep_sets_create_mod_r(mod2, ctx_set, dep_set, aux_set));
-    }
-    LY_ARRAY_FOR(mod->parsed->includes, v) {
-        imports = mod->parsed->includes[v].submodule->imports;
-        LY_ARRAY_FOR(imports, u) {
-            mod2 = imports[u].module;
-            if (LYS_IS_SINGLE_DEP_SET(mod2) && !lys_has_dep_mods(mod2)) {
-                /* break the dep set here, no modules depend on this one */
-                continue;
-            }
-
-            LY_CHECK_RET(lys_unres_dep_sets_create_mod_r(imports[u].module, ctx_set, dep_set, aux_set));
-        }
-    }
-
-    /* process modules and submodules importing this module */
-    for (i = 0; i < mod->ctx->list.count; ++i) {
-        mod2 = mod->ctx->list.objs[i];
-        found = 0;
-
-        imports = mod2->parsed->imports;
-        LY_ARRAY_FOR(imports, u) {
-            if (imports[u].module == mod) {
-                found = 1;
-                break;
-            }
-        }
-
-        if (!found) {
-            LY_ARRAY_FOR(mod2->parsed->includes, v) {
-                imports = mod2->parsed->includes[v].submodule->imports;
-                LY_ARRAY_FOR(imports, u) {
-                    if (imports[u].module == mod) {
-                        found = 1;
-                        break;
-                    }
-                }
-
-                if (found) {
-                    break;
-                }
-            }
-        }
-
-        if (found) {
-            LY_CHECK_RET(lys_unres_dep_sets_create_mod_r(mod2, ctx_set, dep_set, aux_set));
-        }
-    }
-
-    return LY_SUCCESS;
-}
-
-/**
- * @brief Add all simple modules (that have nothing to (re)compile) into separate dep sets.
- *
- * @param[in,out] ctx_set Set with all not-yet-processed modules.
- * @param[in,out] main_set Set of dependency module sets.
- * @return LY_ERR value.
- */
-static LY_ERR
-lys_unres_dep_sets_create_single(struct ly_set *ctx_set, struct ly_set *main_set)
-{
-    LY_ERR ret = LY_SUCCESS;
-    struct lys_module *m;
-    uint32_t i = 0;
-    struct ly_set *dep_set = NULL;
-
-    while (i < ctx_set->count) {
-        m = ctx_set->objs[i];
-        if (LYS_IS_SINGLE_DEP_SET(m)) {
-            /* remove it from the set, we are processing it now */
-            ly_set_rm_index(ctx_set, i, NULL);
-
-            /* this module can be in a separate dep set (but there still may be modules importing this one
-             * that depend on imports of this one in case it defines groupings) */
-            LY_CHECK_GOTO(ret = ly_set_new(&dep_set), cleanup);
-            LY_CHECK_GOTO(ret = ly_set_add(dep_set, m, 1, NULL), cleanup);
-            LY_CHECK_GOTO(ret = ly_set_add(main_set, dep_set, 1, NULL), cleanup);
-            dep_set = NULL;
         } else {
-            ++i;
+            /* full recompilation */
+            return lys_recompile(mod->ctx, 1);
         }
     }
 
-cleanup:
-    ly_set_free(dep_set, NULL);
-    return ret;
-}
+    /* implement this module and any other required modules, recursively */
+    ret = lys_set_implemented_r(mod, features, &unres);
 
-LY_ERR
-lys_unres_dep_sets_create(struct ly_ctx *ctx, struct ly_set *main_set, struct lys_module *mod)
-{
-    LY_ERR ret = LY_SUCCESS;
-    struct lys_module *m;
-    struct ly_set *dep_set = NULL, *ctx_set = NULL, aux_set = {0};
-    uint32_t i;
-    ly_bool found;
-
-    assert(!main_set->count);
-
-    /* start with a duplicate set of modules that we will remove from */
-    LY_CHECK_GOTO(ret = ly_set_dup(&ctx->list, NULL, &ctx_set), cleanup);
-
-    /* first create all dep sets with single modules */
-    LY_CHECK_GOTO(ret = lys_unres_dep_sets_create_single(ctx_set, main_set), cleanup);
-
-    if (mod && !ly_set_contains(ctx_set, mod, NULL)) {
-        /* dep set for this module has already been created, nothing else to do */
-        goto cleanup;
+    /* the first module being implemented is finished, resolve global unres, consolidate the set */
+    if (!ret) {
+        ret = lys_compile_unres_glob(mod->ctx, &unres);
     }
-
-    while (ctx_set->count) {
-        /* create new dep set */
-        LY_CHECK_GOTO(ret = ly_set_new(&dep_set), cleanup);
-
-        if (mod) {
-            /* use the module create a dep set with the rest of its dependent modules */
-            LY_CHECK_GOTO(ret = lys_unres_dep_sets_create_mod_r(mod, ctx_set, dep_set, &aux_set), cleanup);
-        } else {
-            /* use first ctx mod to create a dep set with the rest of its dependent modules */
-            LY_CHECK_GOTO(ret = lys_unres_dep_sets_create_mod_r(ctx_set->objs[0], ctx_set, dep_set, &aux_set), cleanup);
-        }
-        ly_set_erase(&aux_set, NULL);
-        assert(dep_set->count);
-
-        /* check whether there is any module that will be (re)compiled */
-        found = 0;
-        for (i = 0; i < dep_set->count; ++i) {
-            m = dep_set->objs[i];
-            if (m->to_compile) {
-                found = 1;
-                break;
-            }
-        }
-
-        if (found) {
-            /* if there is, all the implemented modules need to be recompiled */
-            for (i = 0; i < dep_set->count; ++i) {
-                m = dep_set->objs[i];
-                if (m->implemented) {
-                    m->to_compile = 1;
-                }
-            }
-        }
-
-        /* add the dep set into main set */
-        LY_CHECK_GOTO(ret = ly_set_add(main_set, dep_set, 1, NULL), cleanup);
-        dep_set = NULL;
-
-        if (mod) {
-            /* we need dep set only for this module */
-            break;
-        }
-    }
-
-#ifndef NDEBUG
-    LOGDBG(LY_LDGDEPSETS, "dep sets created (%" PRIu32 "):", main_set->count);
-    for (i = 0; i < main_set->count; ++i) {
-        struct ly_set *iter_set = main_set->objs[i];
-
-        LOGDBG(LY_LDGDEPSETS, "dep set #%" PRIu32 ":", i);
-        for (uint32_t j = 0; j < iter_set->count; ++j) {
-            m = iter_set->objs[j];
-            LOGDBG(LY_LDGDEPSETS, "\t%s", m->name);
-        }
-    }
-#endif
-
-cleanup:
-    assert(ret || main_set->objs);
-    ly_set_erase(&aux_set, NULL);
-    ly_set_free(dep_set, NULL);
-    ly_set_free(ctx_set, NULL);
-    return ret;
-}
-
-void
-lys_unres_glob_revert(struct ly_ctx *ctx, struct lys_glob_unres *unres)
-{
-    uint32_t i, j, idx, prev_lo;
-    struct ly_set *dep_set;
-    struct lys_module *m;
-    LY_ERR ret;
-
-    for (i = 0; i < unres->implementing.count; ++i) {
-        m = unres->implementing.objs[i];
-        assert(m->implemented);
-
-        /* make the module correctly non-implemented again */
-        m->implemented = 0;
-        lys_precompile_augments_deviations_revert(ctx, m);
-        lysc_module_free(m->compiled);
-        m->compiled = NULL;
-
-        /* should not be made implemented */
-        m->to_compile = 0;
-    }
-
-    for (i = 0; i < unres->creating.count; ++i) {
-        m = unres->creating.objs[i];
-
-        /* remove the module from the context */
-        ly_set_rm(&ctx->list, m, NULL);
-
-        /* remove it also from dep sets */
-        for (j = 0; j < unres->dep_sets.count; ++j) {
-            dep_set = unres->dep_sets.objs[j];
-            if (ly_set_contains(dep_set, m, &idx)) {
-                ly_set_rm_index(dep_set, idx, NULL);
-                break;
-            }
-        }
-
-        /* free the module */
-        lys_module_free(m, 1);
-    }
-
-    if (unres->implementing.count) {
-        /* recompile previous context because some implemented modules are no longer implemented,
-         * we can reuse the current to_compile flags */
-        prev_lo = ly_log_options(0);
-        ret = lys_compile_depset_all(ctx, &ctx->unres);
-        ly_log_options(prev_lo);
-        if (ret) {
-            LOGINT(ctx);
-        }
-    }
-}
-
-void
-lys_unres_glob_erase(struct lys_glob_unres *unres)
-{
-    uint32_t i;
-
-    for (i = 0; i < unres->dep_sets.count; ++i) {
-        ly_set_free(unres->dep_sets.objs[i], NULL);
-    }
-    ly_set_erase(&unres->dep_sets, NULL);
-    ly_set_erase(&unres->implementing, NULL);
-    ly_set_erase(&unres->creating, NULL);
-
-    assert(!unres->ds_unres.whens.count);
-    assert(!unres->ds_unres.musts.count);
-    assert(!unres->ds_unres.leafrefs.count);
-    assert(!unres->ds_unres.disabled_leafrefs.count);
-    assert(!unres->ds_unres.dflts.count);
-    assert(!unres->ds_unres.disabled.count);
-}
-
-LIBYANG_API_DEF LY_ERR
-lys_set_implemented(struct lys_module *mod, const char **features)
-{
-    LY_ERR ret = LY_SUCCESS;
-    struct lys_glob_unres *unres = &mod->ctx->unres;
-
-    LY_CHECK_ARG_RET(NULL, mod, LY_EINVAL);
-
-    /* implement */
-    ret = _lys_set_implemented(mod, features, unres);
-    LY_CHECK_GOTO(ret, cleanup);
-
-    if (!(mod->ctx->flags & LY_CTX_EXPLICIT_COMPILE)) {
-        /* create dep set for the module and mark all the modules that will be (re)compiled */
-        LY_CHECK_GOTO(ret = lys_unres_dep_sets_create(mod->ctx, &unres->dep_sets, mod), cleanup);
-
-        /* (re)compile the whole dep set (other dep sets will have no modules marked for compilation) */
-        LY_CHECK_GOTO(ret = lys_compile_depset_all(mod->ctx, unres), cleanup);
-
-        /* unres resolved */
-        lys_unres_glob_erase(unres);
-    }
-
-cleanup:
     if (ret) {
-        lys_unres_glob_revert(mod->ctx, unres);
-        lys_unres_glob_erase(unres);
+        /* failure, full compile revert */
+        lys_compile_unres_glob_revert(mod->ctx, &unres);
     }
+
+    lys_compile_unres_glob_erase(mod->ctx, &unres);
     return ret;
 }
 
 static LY_ERR
-lys_resolve_import_include(struct lys_parser_ctx *pctx, struct lysp_module *pmod, struct ly_set *new_mods)
+lys_resolve_import_include(struct lys_parser_ctx *pctx, struct lysp_module *pmod)
 {
     struct lysp_import *imp;
     LY_ARRAY_COUNT_TYPE u, v;
@@ -1238,15 +895,8 @@ lys_resolve_import_include(struct lys_parser_ctx *pctx, struct lysp_module *pmod
     LY_ARRAY_FOR(pmod->imports, u) {
         imp = &pmod->imports[u];
         if (!imp->module) {
-            LY_CHECK_RET(lys_parse_load(PARSER_CTX(pctx), imp->name, imp->rev[0] ? imp->rev : NULL, new_mods, &imp->module));
-
-            if (!imp->rev[0]) {
-                /* This module must be selected for the next similar
-                 * import without revision-date to avoid incorrect
-                 * derived identities in the ::lys_module.identities.
-                 */
-                imp->module->latest_revision |= LYS_MOD_IMPORTED_REV;
-            }
+            LY_CHECK_RET(lys_load_module(PARSER_CTX(pctx), imp->name, imp->rev[0] ? imp->rev : NULL, 0, NULL,
+                    pctx->unres, &imp->module));
         }
         /* check for importing the same module twice */
         for (v = 0; v < u; ++v) {
@@ -1255,7 +905,7 @@ lys_resolve_import_include(struct lys_parser_ctx *pctx, struct lysp_module *pmod
             }
         }
     }
-    LY_CHECK_RET(lysp_load_submodules(pctx, pmod, new_mods));
+    LY_CHECK_RET(lysp_load_submodules(pctx, pmod));
 
     pmod->parsing = 0;
 
@@ -1265,7 +915,7 @@ lys_resolve_import_include(struct lys_parser_ctx *pctx, struct lysp_module *pmod
 LY_ERR
 lys_parse_submodule(struct ly_ctx *ctx, struct ly_in *in, LYS_INFORMAT format, struct lys_parser_ctx *main_ctx,
         LY_ERR (*custom_check)(const struct ly_ctx *, struct lysp_module *, struct lysp_submodule *, void *),
-        void *check_data, struct ly_set *new_mods, struct lysp_submodule **submodule)
+        void *check_data, struct lysp_submodule **submodule)
 {
     LY_ERR ret;
     struct lysp_submodule *submod = NULL, *latest_sp;
@@ -1327,7 +977,11 @@ lys_parse_submodule(struct ly_ctx *ctx, struct ly_in *in, LYS_INFORMAT format, s
     lys_parser_fill_filepath(ctx, in, &submod->filepath);
 
     /* resolve imports and includes */
-    LY_CHECK_GOTO(ret = lys_resolve_import_include(pctx, (struct lysp_module *)submod, new_mods), error);
+    LY_CHECK_GOTO(ret = lys_resolve_import_include(pctx, (struct lysp_module *)submod), error);
+
+    /* remap possibly changed and reallocated typedefs and groupings list back to the main context */
+    memcpy(&main_ctx->tpdfs_nodes, &pctx->tpdfs_nodes, sizeof main_ctx->tpdfs_nodes);
+    memcpy(&main_ctx->grps_nodes, &pctx->grps_nodes, sizeof main_ctx->grps_nodes);
 
     if (format == LYS_IN_YANG) {
         yang_parser_ctx_free(yangctx);
@@ -1338,11 +992,6 @@ lys_parse_submodule(struct ly_ctx *ctx, struct ly_in *in, LYS_INFORMAT format, s
     return LY_SUCCESS;
 
 error:
-    if (!submod || !submod->name) {
-        LOGERR(ctx, ret, "Parsing submodule failed.");
-    } else {
-        LOGERR(ctx, ret, "Parsing submodule \"%s\" failed.", submod->name);
-    }
     lysp_module_free((struct lysp_module *)submod);
     if (format == LYS_IN_YANG) {
         yang_parser_ctx_free(yangctx);
@@ -1566,23 +1215,31 @@ lys_parsed_add_internal_ietf_netconf_with_defaults(struct lysp_module *mod)
 }
 
 LY_ERR
-lys_parse_in(struct ly_ctx *ctx, struct ly_in *in, LYS_INFORMAT format,
+lys_create_module(struct ly_ctx *ctx, struct ly_in *in, LYS_INFORMAT format, ly_bool need_implemented,
         LY_ERR (*custom_check)(const struct ly_ctx *ctx, struct lysp_module *mod, struct lysp_submodule *submod, void *data),
-        void *check_data, struct ly_set *new_mods, struct lys_module **module)
+        void *check_data, const char **features, struct lys_glob_unres *unres, struct lys_module **module)
 {
-    struct lys_module *mod = NULL, *latest, *mod_dup = NULL;
+    struct lys_module *mod = NULL, *latest, *mod_dup, *mod_impl;
+    struct lysp_submodule *submod;
     LY_ERR ret;
+    LY_ARRAY_COUNT_TYPE u;
     struct lys_yang_parser_ctx *yangctx = NULL;
     struct lys_yin_parser_ctx *yinctx = NULL;
     struct lys_parser_ctx *pctx = NULL;
     char *filename, *rev, *dot;
     size_t len;
-    ly_bool module_created = 0;
+    ly_bool implement;
 
-    assert(ctx && in && new_mods);
+    assert(ctx && in && (!features || need_implemented) && unres);
 
     if (module) {
         *module = NULL;
+    }
+
+    if (ctx->flags & LY_CTX_ALL_IMPLEMENTED) {
+        implement = 1;
+    } else {
+        implement = need_implemented;
     }
 
     mod = calloc(1, sizeof *mod);
@@ -1592,11 +1249,11 @@ lys_parse_in(struct ly_ctx *ctx, struct ly_in *in, LYS_INFORMAT format,
     /* parse */
     switch (format) {
     case LYS_IN_YIN:
-        ret = yin_parse_module(&yinctx, in, mod);
+        ret = yin_parse_module(&yinctx, in, mod, unres);
         pctx = (struct lys_parser_ctx *)yinctx;
         break;
     case LYS_IN_YANG:
-        ret = yang_parse_module(&yangctx, in, mod);
+        ret = yang_parse_module(&yangctx, in, mod, unres);
         pctx = (struct lys_parser_ctx *)yangctx;
         break;
     default:
@@ -1604,24 +1261,24 @@ lys_parse_in(struct ly_ctx *ctx, struct ly_in *in, LYS_INFORMAT format,
         ret = LY_EINVAL;
         break;
     }
-    LY_CHECK_GOTO(ret, cleanup);
+    LY_CHECK_GOTO(ret, free_mod_cleanup);
 
     /* make sure that the newest revision is at position 0 */
     lysp_sort_revisions(mod->parsed->revs);
     if (mod->parsed->revs) {
-        LY_CHECK_GOTO(ret = lydict_insert(ctx, mod->parsed->revs[0].date, 0, &mod->revision), cleanup);
+        LY_CHECK_GOTO(ret = lydict_insert(ctx, mod->parsed->revs[0].date, 0, &mod->revision), free_mod_cleanup);
     }
 
     /* decide the latest revision */
-    latest = ly_ctx_get_module_latest(ctx, mod->name);
+    latest = (struct lys_module *)ly_ctx_get_module_latest(ctx, mod->name);
     if (latest) {
         if (mod->revision) {
             if (!latest->revision) {
                 /* latest has no revision, so mod is anyway newer */
-                mod->latest_revision = latest->latest_revision & (LYS_MOD_LATEST_REV | LYS_MOD_LATEST_SEARCHDIRS);
+                mod->latest_revision = latest->latest_revision;
                 /* the latest is zeroed later when the new module is being inserted into the context */
             } else if (strcmp(mod->revision, latest->revision) > 0) {
-                mod->latest_revision = latest->latest_revision & (LYS_MOD_LATEST_REV | LYS_MOD_LATEST_SEARCHDIRS);
+                mod->latest_revision = latest->latest_revision;
                 /* the latest is zeroed later when the new module is being inserted into the context */
             } else {
                 latest = NULL;
@@ -1630,20 +1287,42 @@ lys_parse_in(struct ly_ctx *ctx, struct ly_in *in, LYS_INFORMAT format,
             latest = NULL;
         }
     } else {
-        mod->latest_revision = LYS_MOD_LATEST_REV;
+        mod->latest_revision = 1;
     }
 
     if (custom_check) {
-        LY_CHECK_GOTO(ret = custom_check(ctx, mod->parsed, NULL, check_data), cleanup);
+        LY_CHECK_GOTO(ret = custom_check(ctx, mod->parsed, NULL, check_data), free_mod_cleanup);
     }
 
     /* check whether it is not already in the context in the same revision */
-    mod_dup = ly_ctx_get_module(ctx, mod->name, mod->revision);
+    mod_dup = (struct lys_module *)ly_ctx_get_module(ctx, mod->name, mod->revision);
+    if (implement) {
+        mod_impl = ly_ctx_get_module_implemented(ctx, mod->name);
+        if (mod_impl && (mod_impl != mod_dup)) {
+            LOGERR(ctx, LY_EDENIED, "Module \"%s@%s\" is already implemented in the context.", mod_impl->name,
+                    mod_impl->revision ? mod_impl->revision : "<none>");
+            ret = LY_EDENIED;
+            goto free_mod_cleanup;
+        }
+    }
     if (mod_dup) {
+        if (implement) {
+            if (!mod_dup->implemented) {
+                /* just implement it */
+                LY_CHECK_GOTO(ret = lys_set_implemented_r(mod_dup, features, unres), free_mod_cleanup);
+                goto free_mod_cleanup;
+            }
+
+            /* nothing to do */
+            LOGVRB("Module \"%s@%s\" is already implemented in the context.", mod_dup->name,
+                    mod_dup->revision ? mod_dup->revision : "<none>");
+            goto free_mod_cleanup;
+        }
+
         /* nothing to do */
         LOGVRB("Module \"%s@%s\" is already present in the context.", mod_dup->name,
                 mod_dup->revision ? mod_dup->revision : "<none>");
-        goto cleanup;
+        goto free_mod_cleanup;
     }
 
     switch (in->type) {
@@ -1681,24 +1360,23 @@ lys_parse_in(struct ly_ctx *ctx, struct ly_in *in, LYS_INFORMAT format,
     case LY_IN_ERROR:
         LOGINT(ctx);
         ret = LY_EINT;
-        goto cleanup;
+        goto free_mod_cleanup;
     }
     lys_parser_fill_filepath(ctx, in, &mod->filepath);
 
     if (latest) {
-        latest->latest_revision &= ~(LYS_MOD_LATEST_REV | LYS_MOD_LATEST_SEARCHDIRS);
+        latest->latest_revision = 0;
     }
 
     /* add internal data in case specific modules were parsed */
     if (!strcmp(mod->name, "ietf-netconf")) {
-        LY_CHECK_GOTO(ret = lys_parsed_add_internal_ietf_netconf(mod->parsed), cleanup);
+        LY_CHECK_GOTO(ret = lys_parsed_add_internal_ietf_netconf(mod->parsed), free_mod_cleanup);
     } else if (!strcmp(mod->name, "ietf-netconf-with-defaults")) {
-        LY_CHECK_GOTO(ret = lys_parsed_add_internal_ietf_netconf_with_defaults(mod->parsed), cleanup);
+        LY_CHECK_GOTO(ret = lys_parsed_add_internal_ietf_netconf_with_defaults(mod->parsed), free_mod_cleanup);
     }
 
     /* add the module into newly created module set, will also be freed from there on any error */
-    LY_CHECK_GOTO(ret = ly_set_add(new_mods, mod, 1, NULL), cleanup);
-    module_created = 1;
+    LY_CHECK_GOTO(ret = ly_set_add(&unres->creating, mod, 1, NULL), free_mod_cleanup);
 
     /* add into context */
     ret = ly_set_add(&ctx->list, mod, 1, NULL);
@@ -1706,38 +1384,47 @@ lys_parse_in(struct ly_ctx *ctx, struct ly_in *in, LYS_INFORMAT format,
     ctx->change_count++;
 
     /* resolve includes and all imports */
-    LY_CHECK_GOTO(ret = lys_resolve_import_include(pctx, mod->parsed, new_mods), cleanup);
+    LY_CHECK_GOTO(ret = lys_resolve_import_include(pctx, mod->parsed), cleanup);
 
     /* check name collisions */
     LY_CHECK_GOTO(ret = lysp_check_dup_typedefs(pctx, mod->parsed), cleanup);
-    LY_CHECK_GOTO(ret = lysp_check_dup_groupings(pctx, mod->parsed), cleanup);
+    /* TODO groupings */
     LY_CHECK_GOTO(ret = lysp_check_dup_features(pctx, mod->parsed), cleanup);
     LY_CHECK_GOTO(ret = lysp_check_dup_identities(pctx, mod->parsed), cleanup);
 
     /* compile features */
     LY_CHECK_GOTO(ret = lys_compile_feature_iffeatures(mod->parsed), cleanup);
 
-    /* compile identities */
-    LY_CHECK_GOTO(ret = lys_compile_identities(mod), cleanup);
+    /* pre-compile identities of the module and any submodules */
+    LY_CHECK_GOTO(ret = lys_identity_precompile(NULL, ctx, mod->parsed, mod->parsed->identities, &mod->identities), cleanup);
+    LY_ARRAY_FOR(mod->parsed->includes, u) {
+        submod = mod->parsed->includes[u].submodule;
+        ret = lys_identity_precompile(NULL, ctx, (struct lysp_module *)submod, submod->identities, &mod->identities);
+        LY_CHECK_GOTO(ret, cleanup);
+    }
+
+    if (implement) {
+        /* implement (compile) */
+        LY_CHECK_GOTO(ret = lys_set_implemented_r(mod, features, unres), cleanup);
+    }
 
     /* success */
+    goto cleanup;
 
-cleanup:
-    if (ret && (ret != LY_EEXIST)) {
-        if (mod && mod->name) {
-            /* there are cases when path is not available for parsing error, so this additional
-             * message tries to add information about the module where the error occurred */
-            struct ly_err_item *e = ly_err_last(ctx);
-            if (e && (!e->path || !strncmp(e->path, "Line ", ly_strlen_const("Line ")))) {
-                LOGERR(ctx, ret, "Parsing module \"%s\" failed.", mod->name);
-            }
-        }
-    }
-    if (!module_created) {
-        lys_module_free(mod, 0);
+free_mod_cleanup:
+    lys_module_free(mod);
+    if (ret) {
+        mod = NULL;
+    } else {
+        /* return the existing module */
+        assert(mod_dup);
         mod = mod_dup;
     }
 
+cleanup:
+    if (pctx) {
+        ly_set_erase(&pctx->tpdfs_nodes, NULL);
+    }
     if (format == LYS_IN_YANG) {
         yang_parser_ctx_free(yangctx);
     } else {
@@ -1773,11 +1460,11 @@ lys_parse_get_format(const struct ly_in *in, LYS_INFORMAT format)
     return format;
 }
 
-LIBYANG_API_DEF LY_ERR
-lys_parse(struct ly_ctx *ctx, struct ly_in *in, LYS_INFORMAT format, const char **features, struct lys_module **module)
+API LY_ERR
+lys_parse(struct ly_ctx *ctx, struct ly_in *in, LYS_INFORMAT format, const char **features, const struct lys_module **module)
 {
-    LY_ERR ret = LY_SUCCESS;
-    struct lys_module *mod;
+    LY_ERR ret;
+    struct lys_glob_unres unres = {0};
 
     if (module) {
         *module = NULL;
@@ -1790,37 +1477,26 @@ lys_parse(struct ly_ctx *ctx, struct ly_in *in, LYS_INFORMAT format, const char 
     /* remember input position */
     in->func_start = in->current;
 
-    /* parse */
-    ret = lys_parse_in(ctx, in, format, NULL, NULL, &ctx->unres.creating, &mod);
+    ret = lys_create_module(ctx, in, format, 1, NULL, NULL, features, &unres, (struct lys_module **)module);
     LY_CHECK_GOTO(ret, cleanup);
 
-    /* implement */
-    ret = _lys_set_implemented(mod, features, &ctx->unres);
+    /* resolve global unres */
+    ret = lys_compile_unres_glob(ctx, &unres);
     LY_CHECK_GOTO(ret, cleanup);
-
-    if (!(ctx->flags & LY_CTX_EXPLICIT_COMPILE)) {
-        /* create dep set for the module and mark all the modules that will be (re)compiled */
-        LY_CHECK_GOTO(ret = lys_unres_dep_sets_create(ctx, &ctx->unres.dep_sets, mod), cleanup);
-
-        /* (re)compile the whole dep set (other dep sets will have no modules marked for compilation) */
-        LY_CHECK_GOTO(ret = lys_compile_depset_all(ctx, &ctx->unres), cleanup);
-
-        /* unres resolved */
-        lys_unres_glob_erase(&ctx->unres);
-    }
 
 cleanup:
     if (ret) {
-        lys_unres_glob_revert(ctx, &ctx->unres);
-        lys_unres_glob_erase(&ctx->unres);
-    } else if (module) {
-        *module = mod;
+        lys_compile_unres_glob_revert(ctx, &unres);
+    }
+    lys_compile_unres_glob_erase(ctx, &unres);
+    if (ret && module) {
+        *module = NULL;
     }
     return ret;
 }
 
-LIBYANG_API_DEF LY_ERR
-lys_parse_mem(struct ly_ctx *ctx, const char *data, LYS_INFORMAT format, struct lys_module **module)
+API LY_ERR
+lys_parse_mem(struct ly_ctx *ctx, const char *data, LYS_INFORMAT format, const struct lys_module **module)
 {
     LY_ERR ret;
     struct ly_in *in = NULL;
@@ -1835,8 +1511,8 @@ lys_parse_mem(struct ly_ctx *ctx, const char *data, LYS_INFORMAT format, struct 
     return ret;
 }
 
-LIBYANG_API_DEF LY_ERR
-lys_parse_fd(struct ly_ctx *ctx, int fd, LYS_INFORMAT format, struct lys_module **module)
+API LY_ERR
+lys_parse_fd(struct ly_ctx *ctx, int fd, LYS_INFORMAT format, const struct lys_module **module)
 {
     LY_ERR ret;
     struct ly_in *in = NULL;
@@ -1851,8 +1527,8 @@ lys_parse_fd(struct ly_ctx *ctx, int fd, LYS_INFORMAT format, struct lys_module 
     return ret;
 }
 
-LIBYANG_API_DEF LY_ERR
-lys_parse_path(struct ly_ctx *ctx, const char *path, LYS_INFORMAT format, struct lys_module **module)
+API LY_ERR
+lys_parse_path(struct ly_ctx *ctx, const char *path, LYS_INFORMAT format, const struct lys_module **module)
 {
     LY_ERR ret;
     struct ly_in *in = NULL;
@@ -1868,7 +1544,7 @@ lys_parse_path(struct ly_ctx *ctx, const char *path, LYS_INFORMAT format, struct
     return ret;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 lys_search_localfile(const char * const *searchpaths, ly_bool cwd, const char *name, const char *revision,
         char **localfile, LYS_INFORMAT *format)
 {

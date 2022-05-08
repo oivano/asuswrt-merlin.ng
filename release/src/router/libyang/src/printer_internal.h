@@ -30,7 +30,6 @@ struct lysp_submodule;
 struct lyspr_ctx {
     struct ly_out *out;              /**< output specification */
     uint16_t level;                  /**< current indentation level: 0 - no formatting, >= 1 indentation levels */
-    uint16_t flags;                  /**< internal flags for use by printer */
     uint32_t options;                /**< Schema output options (see @ref schemaprinterflags). */
     const struct lys_module *module; /**< schema to print */
 };
@@ -48,8 +47,8 @@ LY_ERR yang_print_parsed_module(struct ly_out *out, const struct lysp_module *mo
 /**
  * @brief Helper macros for data printers
  */
-#define DO_FORMAT (!(pctx->options & LY_PRINT_SHRINK))
-#define LEVEL pctx->level                     /**< current level */
+#define DO_FORMAT (!(ctx->options & LY_PRINT_SHRINK))
+#define LEVEL ctx->level                      /**< current level */
 #define INDENT (DO_FORMAT ? (LEVEL)*2 : 0),"" /**< indentation parameters for printer functions */
 #define LEVEL_INC LEVEL++                     /**< increase indentation level */
 #define LEVEL_DEC LEVEL--                     /**< decrease indentation level */

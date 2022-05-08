@@ -12,20 +12,18 @@
  *     https://opensource.org/licenses/BSD-3-Clause
  */
 
-#define _GNU_SOURCE /* strndup */
+#define _GNU_SOURCE /* asprintf, strdup */
+#include <sys/cdefs.h>
 
 #include "plugins_types.h"
 
-#ifdef _WIN32
-# include <winsock2.h>
-# include <ws2tcpip.h>
-#else
-#  include <arpa/inet.h>
-#  if defined (__FreeBSD__) || defined (__NetBSD__) || defined (__OpenBSD__)
-#    include <netinet/in.h>
-#    include <sys/socket.h>
-#  endif
+#include <arpa/inet.h>
+#if defined (__FreeBSD__) || defined (__NetBSD__) || defined (__OpenBSD__)
+#include <netinet/in.h>
+#include <sys/socket.h>
 #endif
+#include <assert.h>
+#include <ctype.h>
 #include <errno.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -214,8 +212,7 @@ const struct lyplg_type_record plugins_ipv4_address_no_zone[] = {
         .plugin.sort = NULL,
         .plugin.print = lyplg_type_print_ipv4_address_no_zone,
         .plugin.duplicate = lyplg_type_dup_simple,
-        .plugin.free = lyplg_type_free_simple,
-        .plugin.lyb_data_len = 4,
+        .plugin.free = lyplg_type_free_simple
     },
     {0}
 };

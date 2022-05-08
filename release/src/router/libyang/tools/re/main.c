@@ -13,6 +13,7 @@
  */
 
 #define _GNU_SOURCE /* asprintf, strdup */
+#include <sys/cdefs.h>
 
 #include <errno.h>
 #include <getopt.h>
@@ -124,7 +125,7 @@ main(int argc, char *argv[])
     int *invert_match = NULL;
     int patterns_count = 0;
     struct ly_ctx *ctx = NULL;
-    struct lys_module *mod;
+    const struct lys_module *mod;
     FILE *infile = NULL;
     size_t len = 0;
     ssize_t l;
@@ -146,7 +147,7 @@ main(int argc, char *argv[])
                 fprintf(stderr, "yangre error: command line patterns cannot be mixed with file input.\n");
                 goto cleanup;
             }
-            infile = fopen(optarg, "rb");
+            infile = fopen(optarg, "r");
             if (!infile) {
                 fprintf(stderr, "yangre error: unable to open input file %s (%s).\n", optarg, strerror(errno));
                 goto cleanup;

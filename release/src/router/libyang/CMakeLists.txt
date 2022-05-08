@@ -1,8 +1,4 @@
-if(WIN32)
-    cmake_minimum_required(VERSION 3.22.0)
-else()
-    cmake_minimum_required(VERSION 2.8.12)
-endif()
+cmake_minimum_required(VERSION 2.8.12)
 
 # force out-of-source build
 if(${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_BINARY_DIR})
@@ -20,30 +16,30 @@ include(UseCompat)
 include(ABICheck)
 include(SourceFormat)
 include(GenDoc)
-include(GenCoverage)
 
 # set default build type if not specified by user
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
 endif()
 # normalize build type string
-# see https://github.com/CESNET/libyang/pull/1692 for why CMAKE_C_FLAGS_<type> are not used directly
 string(TOUPPER "${CMAKE_BUILD_TYPE}" BUILD_TYPE_UPPER)
 if ("${BUILD_TYPE_UPPER}" STREQUAL "RELEASE")
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build Type" FORCE)
-    set(CMAKE_C_FLAGS "-DNDEBUG -O2 ${CMAKE_C_FLAGS}")
 elseif("${BUILD_TYPE_UPPER}" STREQUAL "DEBUG")
     set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Build Type" FORCE)
-    set(CMAKE_C_FLAGS "-g3 -O0 ${CMAKE_C_FLAGS}")
 elseif("${BUILD_TYPE_UPPER}" STREQUAL "RELWITHDEBINFO")
     set(CMAKE_BUILD_TYPE "RelWithDebInfo" CACHE STRING "Build Type" FORCE)
 elseif("${BUILD_TYPE_UPPER}" STREQUAL "RELWITHDEBUG")
     set(CMAKE_BUILD_TYPE "RelWithDebug" CACHE STRING "Build Type" FORCE)
 elseif("${BUILD_TYPE_UPPER}" STREQUAL "ABICHECK")
     set(CMAKE_BUILD_TYPE "ABICheck" CACHE STRING "Build Type" FORCE)
-    set(CMAKE_C_FLAGS "-g -Og ${CMAKE_C_FLAGS}")
 elseif("${BUILD_TYPE_UPPER}" STREQUAL "DOCONLY")
     set(CMAKE_BUILD_TYPE "DocOnly" CACHE STRING "Build Type" FORCE)
+endif()
+
+# check the supported platform
+if(NOT UNIX)
+    message(FATAL_ERROR "Only *nix like systems are supported.")
 endif()
 
 #
@@ -61,12 +57,12 @@ set (CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 # set version of the project
 set(LIBYANG_MAJOR_VERSION 2)
 set(LIBYANG_MINOR_VERSION 0)
-set(LIBYANG_MICRO_VERSION 194)
+set(LIBYANG_MICRO_VERSION 7)
 set(LIBYANG_VERSION ${LIBYANG_MAJOR_VERSION}.${LIBYANG_MINOR_VERSION}.${LIBYANG_MICRO_VERSION})
 # set version of the library
 set(LIBYANG_MAJOR_SOVERSION 2)
-set(LIBYANG_MINOR_SOVERSION 20)
-set(LIBYANG_MICRO_SOVERSION 15)
+set(LIBYANG_MINOR_SOVERSION 1)
+set(LIBYANG_MICRO_SOVERSION 4)
 set(LIBYANG_SOVERSION_FULL ${LIBYANG_MAJOR_SOVERSION}.${LIBYANG_MINOR_SOVERSION}.${LIBYANG_MICRO_SOVERSION})
 set(LIBYANG_SOVERSION ${LIBYANG_MAJOR_SOVERSION})
 
@@ -98,8 +94,7 @@ set(type_plugins
     src/plugins_types/ipv4_prefix.c
     src/plugins_types/ipv6_prefix.c
     src/plugins_types/date_and_time.c
-    src/plugins_types/xpath1.0.c
-    src/plugins_types/node_instanceid.c)
+    src/plugins_types/xpath1.0.c)
 
 set(libsrc
     src/common.c
@@ -144,19 +139,17 @@ set(libsrc
     src/plugins_exts/metadata.c
     src/plugins_exts/nacm.c
     src/plugins_exts/yangdata.c
-    src/plugins_exts/schema_mount.c
     src/xml.c
     src/xpath.c
     src/validation.c
     ${type_plugins})
 
 set(headers
+    src/libyang.h
     src/context.h
     src/dict.h
-    src/in.h
-    src/libyang.h
     src/log.h
-    src/out.h
+    src/in.h
     src/parser_data.h
     src/parser_schema.h
     src/plugins.h
@@ -164,35 +157,14 @@ set(headers
     src/plugins_exts_compile.h
     src/plugins_exts_print.h
     src/plugins_types.h
+    src/out.h
     src/printer_data.h
     src/printer_schema.h
     src/set.h
     src/tree.h
-    src/tree_data.h
     src/tree_edit.h
+    src/tree_data.h
     src/tree_schema.h)
-
-set(internal_headers
-    src/common.h
-    src/diff.h
-    src/hash_table.h
-    src/in_internal.h
-    src/json.h
-    src/lyb.h
-    src/out_internal.h
-    src/parser_internal.h
-    src/path.h
-    src/plugins_internal.h
-    src/printer_internal.h
-    src/schema_compile.h
-    src/schema_compile_amend.h
-    src/schema_compile_node.h
-    src/schema_features.h
-    src/tree_data_internal.h
-    src/tree_schema_internal.h
-    src/validation.h
-    src/xml.h
-    src/xpath.h)
 
 set(gen_headers
     src/version.h
@@ -223,23 +195,17 @@ set(format_sources
 #
 
 if(("${BUILD_TYPE_UPPER}" STREQUAL "DEBUG") OR ("${BUILD_TYPE_UPPER}" STREQUAL "RELWITHDEBINFO"))
-    option(ENABLE_TESTS "Build tests" ON)
+    option(ENABLE_BUILD_TESTS "Build tests" ON)
     option(ENABLE_VALGRIND_TESTS "Build tests with valgrind" ON)
+    # TODO enable when the internal docs ready
+    set(INTERNAL_DOCS NO)
 else()
-    option(ENABLE_TESTS "Build tests" OFF)
+    option(ENABLE_BUILD_TESTS "Build tests" OFF)
     option(ENABLE_VALGRIND_TESTS "Build tests with valgrind" OFF)
-endif()
-option(ENABLE_PERF_TESTS "Build performance tests" OFF)
-option(ENABLE_COVERAGE "Build code coverage report from tests" OFF)
-option(ENABLE_FUZZ_TARGETS "Build target programs suitable for fuzzing with AFL" OFF)
-option(ENABLE_INTERNAL_DOCS "Generate doxygen documentation also from internal headers" OFF)
-
-if(ENABLE_INTERNAL_DOCS)
-    set(doxy_files ${doxy_files} ${internal_headers})
-    set(INTERNAL_DOCS YES)
-else()
     set(INTERNAL_DOCS NO)
 endif()
+option(ENABLE_COVERAGE "Build code coverage report from tests" OFF)
+option(ENABLE_FUZZ_TARGETS "Build target programs suitable for fuzzing with AFL" OFF)
 
 set(LYD_VALUE_SIZE "24" CACHE STRING "Maximum size in bytes of data node values that do not need to be allocated dynamically, minimum is 8")
 if(LYD_VALUE_SIZE LESS 8)
@@ -249,66 +215,42 @@ set(PLUGINS_DIR "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/libyang" CACHE 
 set(PLUGINS_DIR_EXTENSIONS "${PLUGINS_DIR}/extensions" CACHE STRING "Directory with libyang user extensions plugins")
 set(PLUGINS_DIR_TYPES "${PLUGINS_DIR}/types" CACHE STRING "Directory with libyang user types plugins")
 
+if(ENABLE_COVERAGE)
+    if(NOT ENABLE_BUILD_TESTS)
+        message(WARNING "you cannot generage coverage when tests are disabled. Enable test by additing parameter -DENABLE_BUILD_TESTS=ON or run cmake in some debug mode")
+        set(ENABLE_COVERAGE OFF)
+    endif()
+
+    find_program(PATH_GCOV NAMES gcov)
+    if(NOT PATH_GCOV)
+        message(WARNING "'gcov' executable not found! Disabling building code coverage report.")
+        set(ENABLE_COVERAGE OFF)
+    endif()
+
+    find_program(PATH_LCOV NAMES lcov)
+    if(NOT PATH_LCOV)
+        message(WARNING "'lcov' executable not found! Disabling building code coverage report.")
+        set(ENABLE_COVERAGE OFF)
+    endif()
+
+    find_program(PATH_GENHTML NAMES genhtml)
+    if(NOT PATH_GENHTML)
+        message(WARNING "'genhtml' executable not found! Disabling building code coverage report.")
+        set(ENABLE_COVERAGE OFF)
+    endif()
+
+    if(NOT CMAKE_COMPILER_IS_GNUCC)
+        message(WARNING "Compiler is not gcc! Coverage may break the tests!")
+    endif()
+
+    if(ENABLE_COVERAGE)
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage -fprofile-arcs -ftest-coverage")
+    endif()
+endif()
+
 # by default build shared library
 # static build requires static libpcre2 library
 option(ENABLE_STATIC "Build static (.a) library" OFF)
-
-#
-# checks
-#
-if(ENABLE_STATIC)
-    message(STATUS "Disabling tests for static build")
-    set(ENABLE_TESTS OFF)
-    set(ENABLE_VALGRIND_TESTS OFF)
-endif()
-
-if(ENABLE_VALGRIND_TESTS)
-    if(NOT ENABLE_TESTS)
-        message(WARNING "Tests are disabled! Disabling memory leak tests.")
-        set(ENABLE_VALGRIND_TESTS OFF)
-    else()
-        find_program(VALGRIND_FOUND valgrind)
-        if(NOT VALGRIND_FOUND)
-            message(WARNING "valgrind executable not found! Disabling memory leak tests.")
-            set(ENABLE_VALGRIND_TESTS OFF)
-        endif()
-    endif()
-endif()
-
-if(ENABLE_TESTS)
-    find_package(CMocka 1.0.1)
-    if(NOT CMOCKA_FOUND)
-        message(STATUS "Disabling tests because of missing CMocka")
-        set(ENABLE_TESTS OFF)
-    endif()
-endif()
-
-if(ENABLE_PERF_TESTS)
-    find_path(VALGRIND_INCLUDE_DIR
-        NAMES
-        valgrind/callgrind.h
-        PATHS
-        /usr/include
-        /usr/local/include
-        /opt/local/include
-        /sw/include
-        ${CMAKE_INCLUDE_PATH}
-        ${CMAKE_INSTALL_PREFIX}/include)
-    if(VALGRIND_INCLUDE_DIR)
-        set(HAVE_CALLGRIND 1)
-    else()
-        message(STATUS "Disabling callgrind macros in performance tests because of missing valgrind headers")
-    endif()
-endif()
-
-if(ENABLE_COVERAGE)
-    gen_coverage_enable(${ENABLE_TESTS})
-endif()
-
-if ("${BUILD_TYPE_UPPER}" STREQUAL "DEBUG")
-    # enable before adding tests to let them detect that format checking is available - one of the tests is format checking
-    source_format_enable()
-endif()
 
 # generate files
 configure_file(${PROJECT_SOURCE_DIR}/src/config.h.in ${PROJECT_BINARY_DIR}/src/config.h @ONLY)
@@ -332,53 +274,24 @@ if(ENABLE_STATIC)
     add_definitions(-DSTATIC)
     set(CMAKE_EXE_LINKER_FLAGS -static)
     set(CMAKE_FIND_LIBRARY_SUFFIXES .a)
-    set(CMAKE_LINK_SEARCH_START_STATIC TRUE)
     set(CMAKE_EXE_LINK_DYNAMIC_C_FLAGS)       # remove -Wl,-Bdynamic
     set(CMAKE_EXE_LINK_DYNAMIC_CXX_FLAGS)
     add_library(yang STATIC ${libsrc} ${compatsrc})
 else()
     set(CMAKE_POSITION_INDEPENDENT_CODE TRUE)
     add_library(yangobj OBJECT ${libsrc} ${compatsrc})
-    if(NOT WIN32)
-        set_target_properties(yangobj PROPERTIES COMPILE_FLAGS "-fvisibility=hidden")
-    endif()
-    target_compile_definitions(yangobj PRIVATE LIBYANG_BUILD)
     add_library(yang SHARED $<TARGET_OBJECTS:yangobj>)
-
-    if(WIN32)
-        find_package(dlfcn-win32 REQUIRED)
-        set(CMAKE_DL_LIBS dlfcn-win32::dl)
-    endif()
 
     #link dl
     target_link_libraries(yang ${CMAKE_DL_LIBS})
-endif()
 
-if(WIN32)
-    find_path(DIRENT_INCLUDE_DIR NAMES dirent.h REQUIRED)
-    message(STATUS "Found <dirent.h> at ${DIRENT_INCLUDE_DIR}")
-
-    set(COMPAT_POSIX_INCLUDES
-        ${CMAKE_CURRENT_SOURCE_DIR}/compat/posix-shims
-        ${DIRENT_INCLUDE_DIR})
-
-    if(TARGET yangobj)
-        target_include_directories(yangobj PRIVATE ${COMPAT_POSIX_INCLUDES})
-    endif()
-    target_include_directories(yang PRIVATE ${COMPAT_POSIX_INCLUDES})
-    include_directories(${COMPAT_POSIX_INCLUDES})
-
-    find_package(pthreads REQUIRED)
-    set(COMPAT_WIN_LIBRARIES PThreads4W::PThreads4W shlwapi.lib ws2_32)
-    target_link_libraries(yang ${COMPAT_WIN_LIBRARIES})
+    set_target_properties(yangobj PROPERTIES COMPILE_FLAGS "-fvisibility=hidden")
 endif()
 
 set_target_properties(yang PROPERTIES VERSION ${LIBYANG_SOVERSION_FULL} SOVERSION ${LIBYANG_SOVERSION})
 
-if(NOT WIN32)
-    # link math
-    target_link_libraries(yang m)
-endif()
+# link math
+target_link_libraries(yang m)
 
 # find pthreads
 set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
@@ -412,8 +325,8 @@ if(PKG_CONFIG_FOUND)
     # check that pkg-config includes the used path
     execute_process(COMMAND ${PKG_CONFIG_EXECUTABLE} --variable pc_path pkg-config RESULT_VARIABLE RETURN OUTPUT_VARIABLE PC_PATH ERROR_QUIET)
     if(RETURN EQUAL 0)
-    string(STRIP "${PC_PATH}" PC_PATH)
-    set(PC_PATH "${PC_PATH}:$ENV{PKG_CONFIG_PATH}")
+	string(STRIP "${PC_PATH}" PC_PATH)
+	set(PC_PATH "${PC_PATH}:$ENV{PKG_CONFIG_PATH}")
         string(REGEX MATCH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/pkgconfig" SUBSTR "${PC_PATH}")
         string(LENGTH "${SUBSTR}" SUBSTR_LEN)
         if(SUBSTR_LEN EQUAL 0)
@@ -422,10 +335,28 @@ if(PKG_CONFIG_FOUND)
     endif()
 endif()
 
+if(ENABLE_BUILD_TESTS)
+    find_package(CMocka 1.0.0)
+endif(ENABLE_BUILD_TESTS)
+
+if ("${BUILD_TYPE_UPPER}" STREQUAL "DEBUG")
+    # enable before adding tests to let them detect that format checking is available - one of the tests is format checking
+    source_format_enable()
+endif()
+
 # tests
-if(ENABLE_TESTS OR ENABLE_PERF_TESTS)
-    enable_testing()
-    add_subdirectory(tests)
+if(ENABLE_VALGRIND_TESTS)
+    set(ENABLE_BUILD_TESTS ON)
+endif()
+
+if(ENABLE_BUILD_TESTS)
+    if(CMOCKA_FOUND)
+        enable_testing()
+        add_subdirectory(tests)
+    else()
+        message(STATUS "Disabling tests because of missing CMocka")
+        set(ENABLE_BUILD_TESTS OFF)
+    endif()
 endif()
 
 if(ENABLE_FUZZ_TARGETS)
@@ -438,9 +369,6 @@ if(ENABLE_FUZZ_TARGETS)
     endif()
 endif()
 
-# create coverage target for generating coverage reports
-gen_coverage("utest_.*" "utest_.*_valgrind")
-
 # tools - yanglint, yangre
 add_subdirectory(tools)
 
@@ -449,15 +377,12 @@ gen_doc("${doxy_files}" ${LIBYANG_VERSION} ${LIBYANG_DESCRIPTION} ${project_logo
 
 # generate API/ABI report
 if ("${BUILD_TYPE_UPPER}" STREQUAL "ABICHECK")
-    lib_abi_check(yang "${headers}" ${LIBYANG_SOVERSION_FULL} 22f8e17d28a34bfaf8ba1b8f067d4cbfe373e20b)
+    lib_abi_check(yang "${headers}" ${LIBYANG_SOVERSION_FULL} b45499b88104d43979f3e2e2a1cf8eba686f8585)
 endif()
 
 # source code format target for Makefile
 # - add it after tests which may also update list of sources to format
 source_format(${format_sources})
-
-# uninstall
-add_custom_target(uninstall "${CMAKE_COMMAND}" -P "${CMAKE_MODULE_PATH}/uninstall.cmake")
 
 # clean cmake cache
 add_custom_target(cclean
@@ -465,3 +390,4 @@ add_custom_target(cclean
         COMMAND find . -iname '*cmake*' -not -name CMakeLists.txt -not -path './CMakeModules*' -exec rm -rf {} +
         COMMAND rm -rf Makefile Doxyfile
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+

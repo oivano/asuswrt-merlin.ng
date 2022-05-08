@@ -22,7 +22,7 @@
 
 #define TEST_LOCAL_SETUP \
     char *printed; \
-    struct lys_module *mod; \
+    const struct lys_module *mod; \
     const char *orig; \
     const char *expect; \
     assert_int_equal(LY_SUCCESS, ly_out_new_memory(&printed, 0, &UTEST_OUT));
@@ -37,7 +37,7 @@ static void
 base_sections(void **state)
 {
     TEST_LOCAL_SETUP;
-    struct lys_module *modxx;
+    const struct lys_module *modxx;
 
     orig =
             "module a01xx {\n"

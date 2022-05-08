@@ -13,6 +13,7 @@
  */
 
 #define _GNU_SOURCE /* asprintf, strdup */
+#include <sys/cdefs.h>
 
 #include "out.h"
 #include "out_internal.h"
@@ -33,14 +34,8 @@
 #include "tree_data.h"
 #include "tree_schema.h"
 
-/**
- * @brief Align the desired size to 1 KB.
- */
-#define REALLOC_CHUNK(NEW_SIZE) \
-    NEW_SIZE + (1024 - (NEW_SIZE % 1024))
-
-LIBYANG_API_DEF ly_bool
-lyd_node_should_print(const struct lyd_node *node, uint32_t options)
+ly_bool
+ly_should_print(const struct lyd_node *node, uint32_t options)
 {
     const struct lyd_node *elem;
 
@@ -49,27 +44,12 @@ lyd_node_should_print(const struct lyd_node *node, uint32_t options)
         if (node->flags & LYD_DEFAULT) {
             /* implicit default node/NP container with only default nodes */
             return 0;
-        } else if (node->schema && (node->schema->nodetype & LYD_NODE_TERM)) {
+        } else if (node->schema->nodetype & LYD_NODE_TERM) {
             if (lyd_is_default(node)) {
                 /* explicit default node */
                 return 0;
             }
         }
-    } else if ((node->flags & LYD_DEFAULT) && (node->schema->nodetype == LYS_CONTAINER)) {
-        if (options & LYD_PRINT_KEEPEMPTYCONT) {
-            /* explicit request to print */
-            return 1;
-        }
-
-        /* avoid empty default containers */
-        LYD_TREE_DFS_BEGIN(node, elem) {
-            if ((elem != node) && lyd_node_should_print(elem, options)) {
-                return 1;
-            }
-            assert(elem->flags & LYD_DEFAULT);
-            LYD_TREE_DFS_END(node, elem)
-        }
-        return 0;
     } else if ((node->flags & LYD_DEFAULT) && !(options & LYD_PRINT_WD_MASK) && !(node->schema->flags & LYS_CONFIG_R)) {
         /* LYD_PRINT_WD_EXPLICIT, find out if this is some input/output */
         if (!(node->schema->flags & (LYS_IS_INPUT | LYS_IS_OUTPUT | LYS_IS_NOTIF)) && (node->schema->flags & LYS_CONFIG_W)) {
@@ -84,19 +64,29 @@ lyd_node_should_print(const struct lyd_node *node, uint32_t options)
             }
         }
         return 0;
+    } else if ((node->flags & LYD_DEFAULT) && (node->schema->nodetype == LYS_CONTAINER) && !(options & LYD_PRINT_KEEPEMPTYCONT)) {
+        /* avoid empty default containers */
+        LYD_TREE_DFS_BEGIN(node, elem) {
+            if (elem->schema->nodetype != LYS_CONTAINER) {
+                return 1;
+            }
+            assert(elem->flags & LYD_DEFAULT);
+            LYD_TREE_DFS_END(node, elem)
+        }
+        return 0;
     }
 
     return 1;
 }
 
-LIBYANG_API_DEF LY_OUT_TYPE
+API LY_OUT_TYPE
 ly_out_type(const struct ly_out *out)
 {
     LY_CHECK_ARG_RET(NULL, out, LY_OUT_ERROR);
     return out->type;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 ly_out_new_clb(ly_write_clb writeclb, void *user_data, struct ly_out **out)
 {
     LY_CHECK_ARG_RET(NULL, out, writeclb, LY_EINVAL);
@@ -111,10 +101,10 @@ ly_out_new_clb(ly_write_clb writeclb, void *user_data, struct ly_out **out)
     return LY_SUCCESS;
 }
 
-LIBYANG_API_DEF ly_write_clb
+API ly_write_clb
 ly_out_clb(struct ly_out *out, ly_write_clb writeclb)
 {
-    ly_write_clb prev_clb;
+    void *prev_clb;
 
     LY_CHECK_ARG_RET(NULL, out, out->type == LY_OUT_CALLBACK, NULL);
 
@@ -127,7 +117,7 @@ ly_out_clb(struct ly_out *out, ly_write_clb writeclb)
     return prev_clb;
 }
 
-LIBYANG_API_DEF void *
+API void *
 ly_out_clb_arg(struct ly_out *out, void *arg)
 {
     void *prev_arg;
@@ -143,7 +133,7 @@ ly_out_clb_arg(struct ly_out *out, void *arg)
     return prev_arg;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 ly_out_new_fd(int fd, struct ly_out **out)
 {
     LY_CHECK_ARG_RET(NULL, out, fd != -1, LY_EINVAL);
@@ -156,7 +146,7 @@ ly_out_new_fd(int fd, struct ly_out **out)
     return LY_SUCCESS;
 }
 
-LIBYANG_API_DEF int
+API int
 ly_out_fd(struct ly_out *out, int fd)
 {
     int prev_fd;
@@ -198,7 +188,7 @@ ly_out_fd(struct ly_out *out, int fd)
     return prev_fd;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 ly_out_new_file(FILE *f, struct ly_out **out)
 {
     LY_CHECK_ARG_RET(NULL, out, f, LY_EINVAL);
@@ -212,7 +202,7 @@ ly_out_new_file(FILE *f, struct ly_out **out)
     return LY_SUCCESS;
 }
 
-LIBYANG_API_DEF FILE *
+API FILE *
 ly_out_file(struct ly_out *out, FILE *f)
 {
     FILE *prev_f;
@@ -228,7 +218,7 @@ ly_out_file(struct ly_out *out, FILE *f)
     return prev_f;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 ly_out_new_memory(char **strp, size_t size, struct ly_out **out)
 {
     LY_CHECK_ARG_RET(NULL, out, strp, LY_EINVAL);
@@ -274,7 +264,7 @@ ly_out_memory(struct ly_out *out, char **strp, size_t size)
     return data;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 ly_out_reset(struct ly_out *out)
 {
     LY_CHECK_ARG_RET(NULL, out, LY_EINVAL);
@@ -320,7 +310,7 @@ ly_out_reset(struct ly_out *out)
     return LY_SUCCESS;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 ly_out_new_filepath(const char *filepath, struct ly_out **out)
 {
     LY_CHECK_ARG_RET(NULL, out, filepath, LY_EINVAL);
@@ -329,7 +319,7 @@ ly_out_new_filepath(const char *filepath, struct ly_out **out)
     LY_CHECK_ERR_RET(!*out, LOGMEM(NULL), LY_EMEM);
 
     (*out)->type = LY_OUT_FILEPATH;
-    (*out)->method.fpath.f = fopen(filepath, "wb");
+    (*out)->method.fpath.f = fopen(filepath, "w");
     if (!(*out)->method.fpath.f) {
         LOGERR(NULL, LY_ESYS, "Failed to open file \"%s\" (%s).", filepath, strerror(errno));
         free(*out);
@@ -340,7 +330,7 @@ ly_out_new_filepath(const char *filepath, struct ly_out **out)
     return LY_SUCCESS;
 }
 
-LIBYANG_API_DEF const char *
+API const char *
 ly_out_filepath(struct ly_out *out, const char *filepath)
 {
     FILE *f;
@@ -353,7 +343,7 @@ ly_out_filepath(struct ly_out *out, const char *filepath)
 
     /* replace filepath */
     f = out->method.fpath.f;
-    out->method.fpath.f = fopen(filepath, "wb");
+    out->method.fpath.f = fopen(filepath, "w");
     if (!out->method.fpath.f) {
         LOGERR(NULL, LY_ESYS, "Failed to open file \"%s\" (%s).", filepath, strerror(errno));
         out->method.fpath.f = f;
@@ -366,7 +356,7 @@ ly_out_filepath(struct ly_out *out, const char *filepath)
     return NULL;
 }
 
-LIBYANG_API_DEF void
+API void
 ly_out_free(struct ly_out *out, void (*clb_arg_destructor)(void *arg), ly_bool destroy)
 {
     if (!out) {
@@ -444,9 +434,7 @@ ly_vprint_(struct ly_out *out, const char *format, va_list ap)
             *out->method.mem.buf = aux;
             out->method.mem.size = out->method.mem.len + written + 1;
         }
-        if (written) {
-            memcpy(&(*out->method.mem.buf)[out->method.mem.len], msg, written);
-        }
+        memcpy(&(*out->method.mem.buf)[out->method.mem.len], msg, written);
         out->method.mem.len += written;
         (*out->method.mem.buf)[out->method.mem.len] = '\0';
         free(msg);
@@ -493,7 +481,7 @@ ly_print_(struct ly_out *out, const char *format, ...)
     return ret;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 ly_print(struct ly_out *out, const char *format, ...)
 {
     LY_ERR ret;
@@ -508,7 +496,7 @@ ly_print(struct ly_out *out, const char *format, ...)
     return ret;
 }
 
-LIBYANG_API_DEF void
+API void
 ly_print_flush(struct ly_out *out)
 {
     switch (out->type) {
@@ -540,7 +528,7 @@ LY_ERR
 ly_write_(struct ly_out *out, const char *buf, size_t len)
 {
     LY_ERR ret = LY_SUCCESS;
-    size_t written = 0, new_mem_size;
+    size_t written = 0;
 
     if (out->hole_count) {
         /* we are buffering data after a hole */
@@ -555,9 +543,7 @@ ly_write_(struct ly_out *out, const char *buf, size_t len)
             out->buf_size = out->buf_len + len;
         }
 
-        if (len) {
-            memcpy(&out->buffered[out->buf_len], buf, len);
-        }
+        memcpy(&out->buffered[out->buf_len], buf, len);
         out->buf_len += len;
 
         out->printed += len;
@@ -568,21 +554,17 @@ ly_write_(struct ly_out *out, const char *buf, size_t len)
 repeat:
     switch (out->type) {
     case LY_OUT_MEMORY:
-        new_mem_size = out->method.mem.len + len + 1;
-        if (new_mem_size > out->method.mem.size) {
-            new_mem_size = REALLOC_CHUNK(new_mem_size);
-            *out->method.mem.buf = ly_realloc(*out->method.mem.buf, new_mem_size);
+        if (out->method.mem.len + len + 1 > out->method.mem.size) {
+            *out->method.mem.buf = ly_realloc(*out->method.mem.buf, out->method.mem.len + len + 1);
             if (!*out->method.mem.buf) {
                 out->method.mem.len = 0;
                 out->method.mem.size = 0;
                 LOGMEM(NULL);
                 return LY_EMEM;
             }
-            out->method.mem.size = new_mem_size;
+            out->method.mem.size = out->method.mem.len + len + 1;
         }
-        if (len) {
-            memcpy(&(*out->method.mem.buf)[out->method.mem.len], buf, len);
-        }
+        memcpy(&(*out->method.mem.buf)[out->method.mem.len], buf, len);
         out->method.mem.len += len;
         (*out->method.mem.buf)[out->method.mem.len] = '\0';
 
@@ -645,7 +627,7 @@ repeat:
     return ret;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 ly_write(struct ly_out *out, const char *buf, size_t len)
 {
     out->func_printed = 0;
@@ -653,7 +635,7 @@ ly_write(struct ly_out *out, const char *buf, size_t len)
     return ly_write_(out, buf, len);
 }
 
-LIBYANG_API_DEF size_t
+API size_t
 ly_out_printed(const struct ly_out *out)
 {
     return out->func_printed;
@@ -722,8 +704,6 @@ LY_ERR
 ly_write_skipped(struct ly_out *out, size_t position, const char *buf, size_t count)
 {
     LY_ERR ret = LY_SUCCESS;
-
-    assert(count);
 
     switch (out->type) {
     case LY_OUT_MEMORY:

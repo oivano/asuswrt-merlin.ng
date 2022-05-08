@@ -32,39 +32,25 @@ struct lysc_ctx;
  *
  * @param[in] ctx Compile context.
  * @param[in] when_p Parsed when structure.
- * @param[in] parent_flags Flags of the parsed node with the when statement.
- * @param[in] compiled_parent Closest compiled parent of the when statement.
+ * @param[in] flags Flags of the parsed node with the when statement.
  * @param[in] ctx_node Context node for the when statement.
  * @param[in] node Compiled node to which add the compiled when.
  * @param[in,out] when_c Optional, pointer to the previously compiled @p when_p to be reused. Set to NULL
  * for the first call.
  * @return LY_ERR value.
  */
-LY_ERR lys_compile_when(struct lysc_ctx *ctx, struct lysp_when *when_p, uint16_t parent_flags,
-        const struct lysc_node *compiled_parent, const struct lysc_node *ctx_node, struct lysc_node *node,
-        struct lysc_when **when_c);
+LY_ERR lys_compile_when(struct lysc_ctx *ctx, struct lysp_when *when_p, uint16_t flags, const struct lysc_node *ctx_node,
+        struct lysc_node *node, struct lysc_when **when_c);
 
 /**
  * @brief Checks pattern syntax.
  *
  * @param[in] ctx Context.
  * @param[in] pattern Pattern to check.
- * @param[in,out] code Compiled PCRE2 pattern. If NULL, the compiled information used to validate pattern are freed.
+ * @param[in,out] pcre2_code Compiled PCRE2 pattern. If NULL, the compiled information used to validate pattern are freed.
  * @return LY_ERR value - LY_SUCCESS, LY_EMEM, LY_EVALID.
  */
 LY_ERR lys_compile_type_pattern_check(struct ly_ctx *ctx, const char *pattern, pcre2_code **code);
-
-/**
- * @brief Compile parsed pattern restriction in conjunction with the patterns from base type.
- * @param[in] ctx Compile context.
- * @param[in] patterns_p Array of parsed patterns from the current type to compile.
- * @param[in] base_patterns Compiled patterns from the type from which the current type is derived.
- * Patterns from the base type are inherited to have all the patterns that have to match at one place.
- * @param[out] patterns Pointer to the storage for the patterns of the current type.
- * @return LY_ERR LY_SUCCESS, LY_EMEM, LY_EVALID.
- */
-LY_ERR lys_compile_type_patterns(struct lysc_ctx *ctx, struct lysp_restr *patterns_p,
-        struct lysc_pattern **base_patterns, struct lysc_pattern ***patterns);
 
 /**
  * @brief Compile information about the leaf/leaf-list's type.
@@ -84,12 +70,34 @@ LY_ERR lys_compile_type(struct lysc_ctx *ctx, struct lysp_node *context_pnode, u
         struct lysp_qname **dflt);
 
 /**
+ * @brief Find the node according to the given descendant/absolute schema nodeid.
+ * Used in unique, refine and augment statements.
+ *
+ * @param[in] ctx Compile context
+ * @param[in] nodeid Descendant-schema-nodeid (according to the YANG grammar)
+ * @param[in] nodeid_len Length of the given nodeid, if it is not NULL-terminated string.
+ * @param[in] ctx_node Context node for a relative nodeid.
+ * @param[in] cur_mod Current module for the nodeid (where it was "instantiated").
+ * @param[in] format Format of any prefixes.
+ * @param[in] prefix_data Format-specific prefix data (see ::ly_resolve_prefix).
+ * @param[in] nodetype Optional (can be 0) restriction for target's nodetype. If target exists, but does not match
+ * the given nodetype, LY_EDENIED is returned (and target is provided), but no error message is printed.
+ * The value can be even an ORed value to allow multiple nodetypes.
+ * @param[out] target Found target node if any.
+ * @param[out] result_flag Output parameter to announce if the schema nodeid goes through the action's input/output or a Notification.
+ * The LYSC_OPT_RPC_INPUT, LYSC_OPT_RPC_OUTPUT and LYSC_OPT_NOTIFICATION are used as flags.
+ * @return LY_ERR values - LY_ENOTFOUND, LY_EVALID, LY_EDENIED or LY_SUCCESS.
+ */
+LY_ERR lysc_resolve_schema_nodeid(struct lysc_ctx *ctx, const char *nodeid, size_t nodeid_len,
+        const struct lysc_node *ctx_node, const struct lys_module *cur_mod, LY_VALUE_FORMAT format, void *prefix_data,
+        uint16_t nodetype, const struct lysc_node **target, uint16_t *result_flag);
+
+/**
  * @brief Compile choice children.
  *
  * @param[in] ctx Compile context
  * @param[in] child_p Parsed choice children nodes.
  * @param[in] node Compiled choice node to compile and add children to.
- * @param[in,out] child_set Optional set to add all the compiled nodes into (can be more in case of uses).
  * @return LY_ERR value - LY_SUCCESS or LY_EVALID.
  */
 LY_ERR lys_compile_node_choice_child(struct lysc_ctx *ctx, struct lysp_node *child_p, struct lysc_node *node,

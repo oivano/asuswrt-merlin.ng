@@ -47,7 +47,7 @@ test_imp_clb(const char *mod_name, const char *UNUSED(mod_rev), const char *UNUS
 
     if ((nl = strchr(user_data, '\n'))) {
         /* more modules */
-        if (!strncmp((char *)user_data + 7, mod_name, strlen(mod_name))) {
+        if (!strncmp(user_data + 7, mod_name, strlen(mod_name))) {
             *module_data = strndup(user_data, nl - (char *)user_data);
             *format = LYS_IN_YANG;
             *free_module_data = test_imp_free_data;
@@ -67,7 +67,7 @@ test_imp_clb(const char *mod_name, const char *UNUSED(mod_rev), const char *UNUS
 static void
 test_module(void **state)
 {
-    const char *str, *feats[] = {"invalid", NULL};
+    const char *str;
     struct ly_in *in;
     struct lys_module *mod = NULL;
     struct lysp_feature *f;
@@ -76,13 +76,22 @@ test_module(void **state)
 
     str = "module test {namespace urn:test; prefix t;"
             "feature f1;feature f2 {if-feature f1;}}";
+    assert_int_equal(LY_EINVAL, lys_compile(NULL, 0, NULL));
+    CHECK_LOG("Invalid argument mod (lys_compile()).", NULL);
     assert_int_equal(LY_SUCCESS, ly_in_new_memory(str, &in));
-    assert_int_equal(LY_SUCCESS, lys_parse_in(UTEST_LYCTX, in, LYS_IN_YANG, NULL, NULL, &unres.creating, &mod));
-    lys_unres_glob_erase(&unres);
+    assert_int_equal(LY_SUCCESS, lys_create_module(UTEST_LYCTX, in, LYS_IN_YANG, 0, NULL, NULL, NULL, &unres, &mod));
+    assert_int_equal(LY_SUCCESS, lys_compile_unres_glob(UTEST_LYCTX, &unres));
+    lys_compile_unres_glob_erase(UTEST_LYCTX, &unres);
     ly_in_free(in, 0);
     assert_int_equal(0, mod->implemented);
-    assert_int_equal(LY_EINVAL, lys_set_implemented(mod, feats));
-    assert_int_equal(LY_SUCCESS, lys_set_implemented(mod, NULL));
+    assert_int_equal(LY_SUCCESS, lys_compile(mod, 0, &unres));
+    assert_int_equal(LY_SUCCESS, lys_compile_unres_glob(UTEST_LYCTX, &unres));
+    lys_compile_unres_glob_erase(UTEST_LYCTX, &unres);
+    assert_null(mod->compiled);
+    mod->implemented = 1;
+    assert_int_equal(LY_SUCCESS, lys_compile(mod, 0, &unres));
+    assert_int_equal(LY_SUCCESS, lys_compile_unres_glob(UTEST_LYCTX, &unres));
+    lys_compile_unres_glob_erase(UTEST_LYCTX, &unres);
     assert_non_null(mod->compiled);
     assert_string_equal("test", mod->name);
     assert_string_equal("urn:test", mod->ns);
@@ -102,17 +111,18 @@ test_module(void **state)
     /* submodules cannot be compiled directly */
     str = "submodule test {belongs-to xxx {prefix x;}}";
     assert_int_equal(LY_SUCCESS, ly_in_new_memory(str, &in));
-    assert_int_equal(LY_EINVAL, lys_parse_in(UTEST_LYCTX, in, LYS_IN_YANG, NULL, NULL, &unres.creating, NULL));
-    lys_unres_glob_erase(&unres);
+    assert_int_equal(LY_EINVAL, lys_create_module(UTEST_LYCTX, in, LYS_IN_YANG, 1, NULL, NULL, NULL, &unres, NULL));
+    lys_compile_unres_glob_erase(UTEST_LYCTX, &unres);
     ly_in_free(in, 0);
     CHECK_LOG_CTX("Input data contains submodule which cannot be parsed directly without its main module.", NULL);
 
     /* data definition name collision in top level */
     str = "module aa {namespace urn:aa;prefix aa; leaf a {type string;} container a{presence x;}}";
     assert_int_equal(LY_SUCCESS, ly_in_new_memory(str, &in));
-    assert_int_equal(LY_EEXIST, lys_parse(UTEST_LYCTX, in, LYS_IN_YANG, NULL, &mod));
-    ly_in_free(in, 0);
+    assert_int_equal(LY_EEXIST, lys_create_module(UTEST_LYCTX, in, LYS_IN_YANG, 1, NULL, NULL, NULL, &unres, &mod));
     CHECK_LOG_CTX("Duplicate identifier \"a\" of data definition/RPC/action/notification statement.", "/aa:a");
+    lys_compile_unres_glob_erase(UTEST_LYCTX, &unres);
+    ly_in_free(in, 0);
 }
 
 static void
@@ -193,7 +203,7 @@ test_name_collisions(void **state)
 static void
 test_node_container(void **state)
 {
-    struct lys_module *mod;
+    const struct lys_module *mod;
     struct lysc_node_container *cont;
 
     assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module a {namespace urn:a;prefix a;container c;}", LYS_IN_YANG, &mod));
@@ -205,6 +215,7 @@ test_node_container(void **state)
     assert_true(cont->flags & LYS_STATUS_CURR);
 
     assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module b {namespace urn:b;prefix b;container c {config false; status deprecated; container child;}}", LYS_IN_YANG, &mod));
+    CHECK_LOG_CTX("Missing explicit \"deprecated\" status that was already specified in parent, inheriting.", NULL);
     assert_non_null(mod->compiled);
     assert_non_null((cont = (struct lysc_node_container *)mod->compiled->data));
     assert_true(cont->flags & LYS_CONFIG_R);
@@ -219,7 +230,7 @@ test_node_container(void **state)
 static void
 test_node_leaflist(void **state)
 {
-    struct lys_module *mod;
+    const struct lys_module *mod;
     struct lysc_type *type;
     struct lysc_node_leaflist *ll;
     struct lysc_node_leaf *l;
@@ -328,7 +339,7 @@ test_node_leaflist(void **state)
 static void
 test_node_list(void **state)
 {
-    struct lys_module *mod;
+    const struct lys_module *mod;
     struct lysc_node_list *list;
     struct lysc_node *child;
     struct ly_in *in;
@@ -420,11 +431,11 @@ test_node_list(void **state)
 
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module cc {yang-version 1.1;namespace urn:cc;prefix cc;feature f;"
             "list l {key x; leaf x {type string; if-feature f;}}}", LYS_IN_YANG, NULL));
-    CHECK_LOG_CTX("Key \"x\" is disabled.", "Schema location /cc:l/x.");
+    CHECK_LOG_CTX("Key \"x\" is disabled by its if-features.", "Schema location /cc:l/x.");
 
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module dd {namespace urn:dd;prefix dd;"
             "list l {key x; leaf x {type string; config false;}}}", LYS_IN_YANG, NULL));
-    CHECK_LOG_CTX("Key of a configuration list must not be a state leaf.", "/dd:l/x");
+    CHECK_LOG_CTX("Key of the configuration list must not be status leaf.", "/dd:l/x");
 
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module ee {namespace urn:ee;prefix ee;"
             "list l {config false;key x; leaf x {type string; config true;}}}", LYS_IN_YANG, NULL));
@@ -466,7 +477,7 @@ test_node_list(void **state)
 static void
 test_node_choice(void **state)
 {
-    struct lys_module *mod;
+    const struct lys_module *mod;
     struct lysc_node_choice *ch;
     struct lysc_node_case *cs;
 
@@ -525,7 +536,7 @@ test_node_choice(void **state)
 static void
 test_node_anydata(void **state)
 {
-    struct lys_module *mod;
+    const struct lys_module *mod;
     struct lysc_node_anydata *any;
 
     assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module a {yang-version 1.1;namespace urn:a;prefix a;"
@@ -544,14 +555,13 @@ test_node_anydata(void **state)
 
     /* invalid */
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module aa {namespace urn:aa;prefix aa;anydata any;}", LYS_IN_YANG, NULL));
-    CHECK_LOG_CTX("Parsing module \"aa\" failed.", NULL,
-            "Invalid keyword \"anydata\" as a child of \"module\" - the statement is allowed only in YANG 1.1 modules.", "Line number 1.");
+    CHECK_LOG_CTX("Invalid keyword \"anydata\" as a child of \"module\" - the statement is allowed only in YANG 1.1 modules.", "Line number 1.");
 }
 
 static void
 test_action(void **state)
 {
-    struct lys_module *mod;
+    const struct lys_module *mod;
     const struct lysc_node_action *rpc;
 
     assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module a {namespace urn:a;prefix a;"
@@ -579,8 +589,7 @@ test_action(void **state)
     /* invalid */
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module aa {namespace urn:aa;prefix aa;container top {action x;}}",
             LYS_IN_YANG, NULL));
-    CHECK_LOG_CTX("Parsing module \"aa\" failed.", NULL,
-            "Invalid keyword \"action\" as a child of \"container\" - the statement is allowed only in YANG 1.1 modules.", "Line number 1.");
+    CHECK_LOG_CTX("Invalid keyword \"action\" as a child of \"container\" - the statement is allowed only in YANG 1.1 modules.", "Line number 1.");
 
     assert_int_equal(LY_EEXIST, lys_parse_mem(UTEST_LYCTX, "module bb {namespace urn:bb;prefix bb;leaf x{type string;} rpc x;}",
             LYS_IN_YANG, NULL));
@@ -609,7 +618,7 @@ test_action(void **state)
 static void
 test_notification(void **state)
 {
-    struct lys_module *mod;
+    const struct lys_module *mod;
     const struct lysc_node_notif *notif;
 
     assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module a {namespace urn:a;prefix a;"
@@ -650,8 +659,7 @@ test_notification(void **state)
     /* invalid */
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module aa {namespace urn:aa;prefix aa;container top {notification x;}}",
             LYS_IN_YANG, NULL));
-    CHECK_LOG_CTX("Parsing module \"aa\" failed.", NULL,
-            "Invalid keyword \"notification\" as a child of \"container\" - the statement is allowed only in YANG 1.1 modules.", "Line number 1.");
+    CHECK_LOG_CTX("Invalid keyword \"notification\" as a child of \"container\" - the statement is allowed only in YANG 1.1 modules.", "Line number 1.");
 
     assert_int_equal(LY_EEXIST, lys_parse_mem(UTEST_LYCTX, "module bb {namespace urn:bb;prefix bb;leaf x{type string;} notification x;}", LYS_IN_YANG, NULL));
     CHECK_LOG_CTX("Duplicate identifier \"x\" of data definition/RPC/action/notification statement.", "/bb:x");
@@ -683,7 +691,7 @@ test_notification(void **state)
 static void
 test_type_range(void **state)
 {
-    struct lys_module *mod;
+    const struct lys_module *mod;
     struct lysc_type *type;
 
 #if 0
@@ -814,7 +822,7 @@ test_type_range(void **state)
 static void
 test_type_length(void **state)
 {
-    struct lys_module *mod;
+    const struct lys_module *mod;
     struct lysc_type *type;
 
     assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module a {namespace urn:a;prefix a;leaf l {type binary {length min {error-app-tag errortag;error-message error;}}}}", LYS_IN_YANG, &mod));
@@ -1019,7 +1027,7 @@ test_type_length(void **state)
 static void
 test_type_pattern(void **state)
 {
-    struct lys_module *mod;
+    const struct lys_module *mod;
     struct lysc_type *type;
 
     assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module a {yang-version 1.1; namespace urn:a;prefix a;leaf l {type string {"
@@ -1080,7 +1088,7 @@ test_type_pattern(void **state)
 static void
 test_type_enum(void **state)
 {
-    struct lys_module *mod;
+    const struct lys_module *mod;
     struct lysc_type *type;
 
     assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module a {yang-version 1.1; namespace urn:a;prefix a;feature f; leaf l {type enumeration {"
@@ -1094,7 +1102,7 @@ test_type_enum(void **state)
     assert_string_equal("automin", ((struct lysc_type_enum *)type)->enums[0].name);
     assert_int_equal(0, ((struct lysc_type_enum *)type)->enums[0].value);
     assert_string_equal("min", ((struct lysc_type_enum *)type)->enums[1].name);
-    assert_int_equal(INT64_C(-2147483648), ((struct lysc_type_enum *)type)->enums[1].value);
+    assert_int_equal(-2147483648, ((struct lysc_type_enum *)type)->enums[1].value);
     assert_string_equal("two", ((struct lysc_type_enum *)type)->enums[2].name);
     assert_int_equal(2, ((struct lysc_type_enum *)type)->enums[2].value);
     assert_string_equal("seven", ((struct lysc_type_enum *)type)->enums[3].name);
@@ -1152,32 +1160,25 @@ test_type_enum(void **state)
     /* invalid cases */
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module aa {namespace urn:aa;prefix aa; feature f; leaf l {type enumeration {"
             "enum one {if-feature f;}}}}", LYS_IN_YANG, &mod));
-    CHECK_LOG_CTX("Parsing module \"aa\" failed.", NULL,
-            "Invalid keyword \"if-feature\" as a child of \"enum\" - the statement is allowed only in YANG 1.1 modules.", "Line number 1.");
+    CHECK_LOG_CTX("Invalid keyword \"if-feature\" as a child of \"enum\" - the statement is allowed only in YANG 1.1 modules.", "Line number 1.");
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module aa {namespace urn:aa;prefix aa; leaf l {type enumeration {"
             "enum one {value -2147483649;}}}}", LYS_IN_YANG, &mod));
-    CHECK_LOG_CTX("Parsing module \"aa\" failed.", NULL,
-            "Invalid value \"-2147483649\" of \"value\".", "Line number 1.");
+    CHECK_LOG_CTX("Invalid value \"-2147483649\" of \"value\".", "Line number 1.");
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module aa {namespace urn:aa;prefix aa; leaf l {type enumeration {"
             "enum one {value 2147483648;}}}}", LYS_IN_YANG, &mod));
-    CHECK_LOG_CTX("Parsing module \"aa\" failed.", NULL,
-            "Invalid value \"2147483648\" of \"value\".", "Line number 1.");
+    CHECK_LOG_CTX("Invalid value \"2147483648\" of \"value\".", "Line number 1.");
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module aa {namespace urn:aa;prefix aa; leaf l {type enumeration {"
             "enum one; enum one;}}}", LYS_IN_YANG, &mod));
-    CHECK_LOG_CTX("Parsing module \"aa\" failed.", NULL,
-            "Duplicate identifier \"one\" of enum statement.", "Line number 1.");
+    CHECK_LOG_CTX("Duplicate identifier \"one\" of enum statement.", "Line number 1.");
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module aa {namespace urn:aa;prefix aa; leaf l {type enumeration {"
             "enum '';}}}", LYS_IN_YANG, &mod));
-    CHECK_LOG_CTX("Parsing module \"aa\" failed.", NULL,
-            "Enum name must not be zero-length.", "Line number 1.");
+    CHECK_LOG_CTX("Enum name must not be zero-length.", "Line number 1.");
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module aa {namespace urn:aa;prefix aa; leaf l {type enumeration {"
             "enum ' x';}}}", LYS_IN_YANG, &mod));
-    CHECK_LOG_CTX("Parsing module \"aa\" failed.", NULL,
-            "Enum name must not have any leading or trailing whitespaces (\" x\").", "Line number 1.");
+    CHECK_LOG_CTX("Enum name must not have any leading or trailing whitespaces (\" x\").", "Line number 1.");
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module aa {namespace urn:aa;prefix aa; leaf l {type enumeration {"
             "enum 'x ';}}}", LYS_IN_YANG, &mod));
-    CHECK_LOG_CTX("Parsing module \"aa\" failed.", NULL,
-            "Enum name must not have any leading or trailing whitespaces (\"x \").", "Line number 1.");
+    CHECK_LOG_CTX("Enum name must not have any leading or trailing whitespaces (\"x \").", "Line number 1.");
     assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module aa {namespace urn:aa;prefix aa; leaf l {type enumeration {"
             "enum 'inva\nlid';}}}", LYS_IN_YANG, &mod));
     CHECK_LOG_CTX("Control characters in enum name should be avoided (\"inva\nlid\", character number 5).", NULL);
@@ -1210,9 +1211,101 @@ test_type_enum(void **state)
 }
 
 static void
+test_type_bits(void **state)
+{
+    const struct lys_module *mod;
+    struct lysc_type *type;
+
+    /* type bits is now tested in file type/bits.c */
+#if 0
+    assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module a {yang-version 1.1; namespace urn:a;prefix a;feature f; leaf l {type bits {"
+            "bit automin; bit one {if-feature f; position 1;}"
+            "bit two; bit seven {position 7;} bit five {position 5;} bit eight;}}}", LYS_IN_YANG, &mod));
+    type = ((struct lysc_node_leaf *)mod->compiled->data)->type;
+    assert_non_null(type);
+    assert_int_equal(LY_TYPE_BITS, type->basetype);
+    assert_non_null(((struct lysc_type_bits *)type)->bits);
+    assert_int_equal(5, LY_ARRAY_COUNT(((struct lysc_type_bits *)type)->bits));
+    assert_string_equal("automin", ((struct lysc_type_bits *)type)->bits[0].name);
+    assert_int_equal(0, ((struct lysc_type_bits *)type)->bits[0].position);
+    assert_string_equal("two", ((struct lysc_type_bits *)type)->bits[1].name);
+    assert_int_equal(2, ((struct lysc_type_bits *)type)->bits[1].position);
+    assert_string_equal("seven", ((struct lysc_type_bits *)type)->bits[2].name);
+    assert_int_equal(7, ((struct lysc_type_bits *)type)->bits[2].position);
+    assert_string_equal("five", ((struct lysc_type_bits *)type)->bits[3].name);
+    assert_int_equal(5, ((struct lysc_type_bits *)type)->bits[3].position);
+    assert_string_equal("eight", ((struct lysc_type_bits *)type)->bits[4].name);
+    assert_int_equal(8, ((struct lysc_type_bits *)type)->bits[4].position);
+
+    assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module b {yang-version 1.1;namespace urn:b;prefix b;feature f; typedef mytype {type bits {"
+            "bit automin; bit one;bit two; bit seven {position 7;}bit eight;}} leaf l { type mytype {bit eight;bit seven;bit automin;}}}",
+            LYS_IN_YANG, &mod));
+    type = ((struct lysc_node_leaf *)mod->compiled->data)->type;
+    assert_non_null(type);
+    assert_int_equal(LY_TYPE_BITS, type->basetype);
+    assert_non_null(((struct lysc_type_bits *)type)->bits);
+    assert_int_equal(3, LY_ARRAY_COUNT(((struct lysc_type_bits *)type)->bits));
+    assert_string_equal("automin", ((struct lysc_type_bits *)type)->bits[0].name);
+    assert_int_equal(0, ((struct lysc_type_bits *)type)->bits[0].position);
+    assert_string_equal("seven", ((struct lysc_type_bits *)type)->bits[1].name);
+    assert_int_equal(7, ((struct lysc_type_bits *)type)->bits[1].position);
+    assert_string_equal("eight", ((struct lysc_type_bits *)type)->bits[2].name);
+    assert_int_equal(8, ((struct lysc_type_bits *)type)->bits[2].position);
+#endif
+
+    /* invalid cases */
+    assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module aa {namespace urn:aa;prefix aa; feature f; leaf l {type bits {"
+            "bit one {if-feature f;}}}}", LYS_IN_YANG, &mod));
+    CHECK_LOG_CTX("Invalid keyword \"if-feature\" as a child of \"bit\" - the statement is allowed only in YANG 1.1 modules.", "Line number 1.");
+
+#if 0
+    assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module aa {namespace urn:aa;prefix aa; leaf l {type bits {"
+            "bit one {position -1;}}}}", LYS_IN_YANG, &mod));
+    CHECK_LOG_CTX("Invalid value \"-1\" of \"position\".", "Line number 1.");
+    assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module aa {namespace urn:aa;prefix aa; leaf l {type bits {"
+            "bit one {position 4294967296;}}}}", LYS_IN_YANG, &mod));
+    CHECK_LOG_CTX("Invalid value \"4294967296\" of \"position\".", "Line number 1.");
+    assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module aa {namespace urn:aa;prefix aa; leaf l {type bits {"
+            "bit one; bit one;}}}", LYS_IN_YANG, &mod));
+    CHECK_LOG_CTX("Duplicate identifier \"one\" of bit statement.", "Line number 1.");
+    assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module aa {namespace urn:aa;prefix aa; leaf l {type bits {"
+            "bit '11';}}}", LYS_IN_YANG, &mod));
+    CHECK_LOG_CTX("Invalid identifier first character '1' (0x0031).", "Line number 1.");
+    assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module aa {namespace urn:aa;prefix aa; leaf l {type bits {"
+            "bit 'x1$1';}}}", LYS_IN_YANG, &mod));
+    CHECK_LOG_CTX("Invalid identifier character '$' (0x0024).", "Line number 1.");
+
+    assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module bb {namespace urn:bb;prefix bb; leaf l {type bits;}}", LYS_IN_YANG, &mod));
+    CHECK_LOG_CTX("Missing bit substatement for bits type.", "/bb:l");
+
+    assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module cc {yang-version 1.1;namespace urn:cc;prefix cc;typedef mytype {type bits {bit one;}}"
+            "leaf l {type mytype {bit two;}}}", LYS_IN_YANG, &mod));
+    CHECK_LOG_CTX("Invalid bits - derived type adds new item \"two\".", "/cc:l");
+
+    assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module dd {yang-version 1.1;namespace urn:dd;prefix dd;typedef mytype {type bits {bit one;}}"
+            "leaf l {type mytype {bit one {position 1;}}}}", LYS_IN_YANG, &mod));
+    CHECK_LOG_CTX("Invalid bits - position of the item \"one\" has changed from 0 to 1 in the derived type.", "/dd:l");
+    assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module ee {namespace urn:ee;prefix ee;leaf l {type bits {bit x {position 4294967295;}bit y;}}}", LYS_IN_YANG, &mod));
+    CHECK_LOG_CTX("Invalid bits - it is not possible to auto-assign bit position for \"y\" since the highest value is already 4294967295.", "/ee:l");
+
+    assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module ff {namespace urn:ff;prefix ff;leaf l {type bits {bit x {position 1;}bit y {position 1;}}}}", LYS_IN_YANG, &mod));
+    CHECK_LOG_CTX("Invalid bits - position 1 collide in items \"y\" and \"x\".", "/ff:l");
+
+    assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module gg {namespace urn:gg;prefix gg;typedef mytype {type bits;}"
+            "leaf l {type mytype {bit one;}}}", LYS_IN_YANG, &mod));
+    CHECK_LOG_CTX("Missing bit substatement for bits type mytype.", "/gg:l");
+#endif
+
+    assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module hh {namespace urn:hh;prefix hh; typedef mytype {type bits {bit one;}}"
+            "leaf l {type mytype {bit one;}}}", LYS_IN_YANG, &mod));
+    CHECK_LOG_CTX("Bits type can be subtyped only in YANG 1.1 modules.", "/hh:l");
+
+}
+
+static void
 test_type_dec64(void **state)
 {
-    struct lys_module *mod;
+    const struct lys_module *mod;
     struct lysc_type *type;
 
     assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module a {namespace urn:a;prefix a;leaf l {type decimal64 {"
@@ -1256,14 +1349,11 @@ test_type_dec64(void **state)
 
     /* invalid cases */
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module aa {namespace urn:aa;prefix aa; leaf l {type decimal64 {fraction-digits 0;}}}", LYS_IN_YANG, &mod));
-    CHECK_LOG_CTX("Parsing module \"aa\" failed.", NULL,
-            "Invalid value \"0\" of \"fraction-digits\".", "Line number 1.");
+    CHECK_LOG_CTX("Invalid value \"0\" of \"fraction-digits\".", "Line number 1.");
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module aa {namespace urn:aa;prefix aa; leaf l {type decimal64 {fraction-digits -1;}}}", LYS_IN_YANG, &mod));
-    CHECK_LOG_CTX("Parsing module \"aa\" failed.", NULL,
-            "Invalid value \"-1\" of \"fraction-digits\".", "Line number 1.");
+    CHECK_LOG_CTX("Invalid value \"-1\" of \"fraction-digits\".", "Line number 1.");
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module aa {namespace urn:aa;prefix aa; leaf l {type decimal64 {fraction-digits 19;}}}", LYS_IN_YANG, &mod));
-    CHECK_LOG_CTX("Parsing module \"aa\" failed.", NULL,
-            "Value \"19\" is out of \"fraction-digits\" bounds.", "Line number 1.");
+    CHECK_LOG_CTX("Value \"19\" is out of \"fraction-digits\" bounds.", "Line number 1.");
 
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module aa {namespace urn:aa;prefix aa; leaf l {type decimal64;}}", LYS_IN_YANG, &mod));
     CHECK_LOG_CTX("Missing fraction-digits substatement for decimal64 type.", "/aa:l");
@@ -1298,7 +1388,7 @@ test_type_dec64(void **state)
 static void
 test_type_instanceid(void **state)
 {
-    struct lys_module *mod;
+    const struct lys_module *mod;
     struct lysc_type *type;
 
     assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module a {namespace urn:a;prefix a;typedef mytype {type instance-identifier {require-instance false;}}"
@@ -1321,368 +1411,16 @@ test_type_instanceid(void **state)
 
     /* invalid cases */
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module aa {namespace urn:aa;prefix aa; leaf l {type instance-identifier {require-instance yes;}}}", LYS_IN_YANG, &mod));
-    CHECK_LOG_CTX("Parsing module \"aa\" failed.", NULL,
-            "Invalid value \"yes\" of \"require-instance\".", "Line number 1.");
+    CHECK_LOG_CTX("Invalid value \"yes\" of \"require-instance\".", "Line number 1.");
 
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module aa {namespace urn:aa;prefix aa; leaf l {type instance-identifier {fraction-digits 1;}}}", LYS_IN_YANG, &mod));
     CHECK_LOG_CTX("Invalid type restrictions for instance-identifier type.", "/aa:l");
 }
 
-static ly_bool
-identity_isderived(const struct lysc_ident *base, const char *der)
-{
-    LY_ARRAY_COUNT_TYPE u;
-
-    LY_ARRAY_FOR(base->derived, u) {
-        if (!strcmp(base->derived[u]->name, der)) {
-            return 1;
-        }
-        if (identity_isderived(base->derived[u], der)) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
-static ly_bool
-contains_derived_identity(struct ly_ctx *ctx, char *module_name,
-        char *revision, char *identity_name, char *derived_name)
-{
-    LY_ARRAY_COUNT_TYPE u = 0;
-    struct lys_module *mod;
-    struct lysc_ident *identity = NULL;
-
-    if (!(mod = ly_ctx_get_module(ctx, module_name, revision))) {
-        return 0;
-    }
-
-    LY_ARRAY_FOR(mod->identities, u) {
-        if (!strcmp(identity_name, mod->identities[u].name)) {
-            identity = &mod->identities[u];
-            break;
-        }
-    }
-    if (!identity) {
-        return 0;
-    }
-
-    return identity_isderived(identity, derived_name);
-}
-
-static void
-test_identity(void **state)
-{
-    char *str;
-    const char *feats[2] = {NULL, NULL};
-    struct lyd_node *tree;
-    const char *data;
-
-#define RESET_CTX(CTX) \
-    ly_ctx_destroy(UTEST_LYCTX); \
-    assert_int_equal(LY_SUCCESS, ly_ctx_new(NULL, LY_CTX_DISABLE_SEARCHDIRS, &UTEST_LYCTX));
-
-    /* It does not matter whether the base identity is in implemented
-     * module or not.
-     */
-
-    /* Implemented module's identity expand base identity located in unimplemented module. */
-    str = "module a {namespace urn:a; prefix a;"
-            "identity baseid;"
-            "identity id1 {base baseid;}"
-            "}";
-    ly_ctx_set_module_imp_clb(UTEST_LYCTX, test_imp_clb, str);
-    str = "module b {namespace urn:b; prefix b; import a {prefix a;}"
-            "identity id2 {base a:baseid;}"
-            "leaf lf {type identityref {base a:baseid;}}"
-            "}";
-    UTEST_ADD_MODULE(str, LYS_IN_YANG, NULL, NULL);
-    assert_true(contains_derived_identity(UTEST_LYCTX, "a", NULL, "baseid", "id2"));
-    data = "<lf xmlns=\"urn:b\">id2</lf>";
-    CHECK_PARSE_LYD_PARAM(data, LYD_XML, LYD_PARSE_STRICT, LYD_VALIDATE_PRESENT, LY_SUCCESS, tree);
-    lyd_free_tree(tree);
-    assert_true(contains_derived_identity(UTEST_LYCTX, "a", NULL, "baseid", "id1"));
-    data = "<lf xmlns=\"urn:b\" xmlns:ids=\"urn:a\">ids:id1</lf>";
-    CHECK_PARSE_LYD_PARAM(data, LYD_XML, LYD_PARSE_STRICT, LYD_VALIDATE_PRESENT, LY_EVALID, tree);
-    CHECK_LOG("Invalid identityref \"ids:id1\" value - identity found in non-implemented module \"a\".", "Schema location /b:lf, line number 1.");
-    assert_non_null(ly_ctx_get_module(UTEST_LYCTX, "a", NULL));
-    assert_false(contains_derived_identity(UTEST_LYCTX, "a", NULL, "baseid", "id3"));
-    data = "<lf xmlns=\"urn:b\" xmlns:ids=\"urn:a\">ids:id3</lf>";
-    CHECK_PARSE_LYD_PARAM(data, LYD_XML, LYD_PARSE_STRICT, LYD_VALIDATE_PRESENT, LY_EVALID, tree);
-    RESET_CTX(UTEST_LYCTX);
-
-    /* Unimplemented module (c) expand base identity located in unimplemented module. */
-    str = "module a {namespace urn:a; prefix a;"
-            "identity baseid;"
-            "identity id1 {base baseid;}"
-            "}\n"
-            "module c {namespace urn:c; prefix c; import a {prefix a;}"
-            "identity id3 {base a:baseid;}"
-            "}";
-    ly_ctx_set_module_imp_clb(UTEST_LYCTX, test_imp_clb, str);
-    str = "module b {namespace urn:b; prefix b; import a {prefix a;} import c {prefix c;}"
-            "identity id2 {base a:baseid;}"
-            "leaf lf {type identityref {base a:baseid;}}"
-            "}";
-    UTEST_ADD_MODULE(str, LYS_IN_YANG, NULL, NULL);
-    assert_true(contains_derived_identity(UTEST_LYCTX, "a", NULL, "baseid", "id2"));
-    data = "<lf xmlns=\"urn:b\">id2</lf>";
-    CHECK_PARSE_LYD_PARAM(data, LYD_XML, LYD_PARSE_STRICT, LYD_VALIDATE_PRESENT, LY_SUCCESS, tree);
-    lyd_free_tree(tree);
-    assert_true(contains_derived_identity(UTEST_LYCTX, "a", NULL, "baseid", "id1"));
-    data = "<lf xmlns=\"urn:b\" xmlns:ids=\"urn:a\">ids:id1</lf>";
-    CHECK_PARSE_LYD_PARAM(data, LYD_XML, LYD_PARSE_STRICT, LYD_VALIDATE_PRESENT, LY_EVALID, tree);
-    CHECK_LOG("Invalid identityref \"ids:id1\" value - identity found in non-implemented module \"a\".", "Schema location /b:lf, line number 1.");
-    assert_true(contains_derived_identity(UTEST_LYCTX, "a", NULL, "baseid", "id3"));
-    data = "<lf xmlns=\"urn:b\" xmlns:ids=\"urn:c\">ids:id3</lf>";
-    CHECK_PARSE_LYD_PARAM(data, LYD_XML, LYD_PARSE_STRICT, LYD_VALIDATE_PRESENT, LY_EVALID, tree);
-    CHECK_LOG("Invalid identityref \"ids:id3\" value - identity found in non-implemented module \"c\".", "Schema location /b:lf, line number 1.");
-    RESET_CTX(UTEST_LYCTX);
-
-    /* Unimplemented module expand base identity located in implemented module. */
-    str = "module b {namespace urn:b; prefix b;"
-            "identity baseid;"
-            "identity id2 {base baseid;}"
-            "leaf lf {type identityref {base baseid;}}"
-            "}";
-    UTEST_ADD_MODULE(str, LYS_IN_YANG, NULL, NULL);
-    str = "module a {namespace urn:a; prefix a; import b {prefix b;}"
-            "identity id1 {base b:baseid;}"
-            "}";
-    ly_ctx_set_module_imp_clb(UTEST_LYCTX, test_imp_clb, str);
-    /* load (but don't implement) module (a) into context by module (c) */
-    str = "module c {namespace urn:c; prefix c; import a {prefix a;}}";
-    UTEST_ADD_MODULE(str, LYS_IN_YANG, NULL, NULL);
-    assert_true(contains_derived_identity(UTEST_LYCTX, "b", NULL, "baseid", "id2"));
-    data = "<lf xmlns=\"urn:b\">id2</lf>";
-    CHECK_PARSE_LYD_PARAM(data, LYD_XML, LYD_PARSE_STRICT, LYD_VALIDATE_PRESENT, LY_SUCCESS, tree);
-    lyd_free_tree(tree);
-    assert_true(contains_derived_identity(UTEST_LYCTX, "b", NULL, "baseid", "id1"));
-    data = "<lf xmlns=\"urn:b\" xmlns:ids=\"urn:a\">ids:id1</lf>";
-    CHECK_PARSE_LYD_PARAM(data, LYD_XML, LYD_PARSE_STRICT, LYD_VALIDATE_PRESENT, LY_EVALID, tree);
-    CHECK_LOG("Invalid identityref \"ids:id1\" value - identity found in non-implemented module \"a\".", "Schema location /b:lf, line number 1.");
-    RESET_CTX(UTEST_LYCTX);
-
-    /* Transitivity of derived identity through unimplemented module. */
-    str = "module a {namespace urn:a; prefix a;"
-            "identity baseid;"
-            "identity id1 {base baseid;}"
-            "}\n"
-            "module c {namespace urn:c; prefix c; import a {prefix a;}"
-            "identity id3 {base a:baseid;}"
-            "}";
-    ly_ctx_set_module_imp_clb(UTEST_LYCTX, test_imp_clb, str);
-    str = "module b {namespace urn:b; prefix b; import c {prefix c;} import a {prefix a;}"
-            "identity id2 {base c:id3;}"
-            "leaf lf {type identityref {base a:baseid;}}"
-            "}";
-    UTEST_ADD_MODULE(str, LYS_IN_YANG, NULL, NULL);
-    assert_true(contains_derived_identity(UTEST_LYCTX, "a", NULL, "baseid", "id2"));
-    data = "<lf xmlns=\"urn:b\">id2</lf>";
-    CHECK_PARSE_LYD_PARAM(data, LYD_XML, LYD_PARSE_STRICT, LYD_VALIDATE_PRESENT, LY_SUCCESS, tree);
-    lyd_free_tree(tree);
-    assert_true(contains_derived_identity(UTEST_LYCTX, "a", NULL, "baseid", "id1"));
-    data = "<lf xmlns=\"urn:b\">id1</lf>";
-    CHECK_PARSE_LYD_PARAM(data, LYD_XML, LYD_PARSE_STRICT, LYD_VALIDATE_PRESENT, LY_EVALID, tree);
-    assert_true(contains_derived_identity(UTEST_LYCTX, "a", NULL, "baseid", "id3"));
-    data = "<lf xmlns=\"urn:b\">id3</lf>";
-    CHECK_PARSE_LYD_PARAM(data, LYD_XML, LYD_PARSE_STRICT, LYD_VALIDATE_PRESENT, LY_EVALID, tree);
-    RESET_CTX(UTEST_LYCTX);
-
-    /* The base reference must not refer to a non-existent module,
-     * even if the module is not implemented.
-     */
-    str = "module b {namespace urn:b; prefix b;"
-            "identity ident { base a:baseid;}"
-            "}";
-    ly_ctx_set_module_imp_clb(UTEST_LYCTX, test_imp_clb, str);
-    /* load (but don't implement) module (b) into context by module (c) */
-    str = "module c {namespace urn:c; prefix c; import b {prefix b;}}";
-    UTEST_INVALID_MODULE(str, LYS_IN_YANG, NULL, LY_EVALID);
-    RESET_CTX(UTEST_LYCTX);
-
-    /* Tests in which multiple revisions are available and the import
-     * does not specify an exact revision.
-     */
-
-    /* The old revision was soon implemented
-     * and therefore its "baseid" is used.
-     */
-    str = "module a {namespace urn:a; prefix a;"
-            "revision \"2014-05-08\";"
-            "identity baseid;"
-            "leaf alf { type identityref { base baseid;}}"
-            "}";
-    UTEST_ADD_MODULE(str, LYS_IN_YANG, NULL, NULL);
-    str = "module a {namespace urn:a; prefix a;"
-            "revision \"2015-05-08\";"
-            "identity baseid;"
-            "leaf alf { type identityref { base baseid;}}"
-            "}";
-    ly_ctx_set_module_imp_clb(UTEST_LYCTX, test_imp_clb, str);
-    str = "module b {namespace urn:b; prefix b;"
-            "import a {prefix a;}"
-            "identity baseref { base a:baseid;}"
-            "identity id1 { base baseref;}"
-            "identity id2 { base baseref;}"
-            "}";
-    UTEST_ADD_MODULE(str, LYS_IN_YANG, NULL, NULL);
-    assert_true(contains_derived_identity(UTEST_LYCTX, "a", "2014-05-08", "baseid", "baseref"));
-    assert_true(contains_derived_identity(UTEST_LYCTX, "a", "2014-05-08", "baseid", "id1"));
-    data = "<alf xmlns=\"urn:a\" xmlns:ids=\"urn:b\">ids:id1</alf>";
-    CHECK_PARSE_LYD_PARAM(data, LYD_XML, 0, LYD_VALIDATE_PRESENT, LY_SUCCESS, tree);
-    lyd_free_tree(tree);
-    assert_true(contains_derived_identity(UTEST_LYCTX, "a", "2014-05-08", "baseid", "id2"));
-    data = "<alf xmlns=\"urn:a\" xmlns:ids=\"urn:b\">ids:id2</alf>";
-    CHECK_PARSE_LYD_PARAM(data, LYD_XML, 0, LYD_VALIDATE_PRESENT, LY_SUCCESS, tree);
-    lyd_free_tree(tree);
-    RESET_CTX(UTEST_LYCTX);
-
-    /* Even if a newer revision has been implemented, the old and
-     * unimplemented one will be used because it has already been
-     * imported. Therefore, if the user wants to use multiple revisions,
-     * he must choose one and implement it as soon as possible.
-     */
-    str = "module a {namespace urn:a; prefix a;"
-            "revision \"2014-05-08\";"
-            "identity baseid;"
-            "leaf alf { type identityref { base baseid;}}"
-            "}";
-    ly_ctx_set_module_imp_clb(UTEST_LYCTX, test_imp_clb, str);
-    str = "module b {namespace urn:b; prefix b;"
-            "import a {prefix a;}"
-            "identity baseref { base a:baseid;}"
-            "identity id1 { base baseref;}"
-            "identity id2 { base baseref;}"
-            "}";
-    UTEST_ADD_MODULE(str, LYS_IN_YANG, NULL, NULL);
-    str = "module a {namespace urn:a; prefix a;"
-            "revision \"2015-05-08\";"
-            "identity baseid;"
-            "leaf alf { type identityref { base baseid;}}"
-            "}";
-    ly_log_level(LY_LLVRB);
-    UTEST_ADD_MODULE(str, LYS_IN_YANG, NULL, NULL);
-    CHECK_LOG("Implemented module \"a@2015-05-08\" was not and will not "
-            "be imported if the revision-date is missing in the import "
-            "statement. Instead, the revision \"2014-05-08\" is imported.", NULL);
-    ly_log_level(LY_LLWRN);
-    /* Data is inserted only to implemented revision. */
-    data = "<alf xmlns=\"urn:a\" xmlns:ids=\"urn:b\">ids:id1</alf>";
-    CHECK_PARSE_LYD_PARAM(data, LYD_XML, 0, LYD_VALIDATE_PRESENT, LY_EVALID, tree);
-    data = "<alf xmlns=\"urn:a\" xmlns:ids=\"urn:b\">ids:id2</alf>";
-    CHECK_PARSE_LYD_PARAM(data, LYD_XML, 0, LYD_VALIDATE_PRESENT, LY_EVALID, tree);
-    assert_true(contains_derived_identity(UTEST_LYCTX, "a", "2014-05-08", "baseid", "baseref"));
-    assert_false(contains_derived_identity(UTEST_LYCTX, "a", "2015-05-08", "baseid", "baseref"));
-    RESET_CTX(UTEST_LYCTX);
-
-    /* Identity testing with if-features. */
-
-    /* The if-feature has no effect if the module is imported. */
-    str = "module a {yang-version 1.1; namespace urn:a; prefix a;"
-            "feature f;"
-            "identity baseid { if-feature \"f\";}"
-            "}";
-    ly_ctx_set_module_imp_clb(UTEST_LYCTX, test_imp_clb, str);
-    str = "module b {namespace urn:b; prefix b; import a { prefix a;}"
-            "identity id1 { base a:baseid;}"
-            "leaf lf { type identityref { base a:baseid;}}"
-            "}";
-    UTEST_ADD_MODULE(str, LYS_IN_YANG, NULL, NULL);
-    assert_true(contains_derived_identity(UTEST_LYCTX, "a", NULL, "baseid", "id1"));
-    data = "<lf xmlns=\"urn:b\">id1</lf>";
-    CHECK_PARSE_LYD_PARAM(data, LYD_XML, 0, LYD_VALIDATE_PRESENT, LY_SUCCESS, tree);
-    lyd_free_tree(tree);
-    RESET_CTX(UTEST_LYCTX);
-
-    /* Even if the identity in the implemented module is disabled,
-     * it can be used as a base.
-     */
-    str = "module a {yang-version 1.1; namespace urn:a; prefix a;"
-            "feature f;"
-            "identity baseid { if-feature \"f\";}"
-            "}";
-    UTEST_ADD_MODULE(str, LYS_IN_YANG, NULL, NULL);
-    str = "module b {namespace urn:b; prefix b; import a { prefix a;}"
-            "identity id1 { base a:baseid;}"
-            "leaf lf { type identityref { base a:baseid;}}"
-            "}";
-    UTEST_ADD_MODULE(str, LYS_IN_YANG, NULL, NULL);
-    assert_true(contains_derived_identity(UTEST_LYCTX, "a", NULL, "baseid", "id1"));
-    data = "<lf xmlns=\"urn:b\">id1</lf>";
-    CHECK_PARSE_LYD_PARAM(data, LYD_XML, 0, LYD_VALIDATE_PRESENT, LY_SUCCESS, tree);
-    lyd_free_tree(tree);
-    RESET_CTX(UTEST_LYCTX);
-
-    /* Identity derivation cannot be instantiated if it is disabled.
-     * Conversely, if the identity is enabled, it can be instantiated.
-     */
-    str = "module a {namespace urn:a; prefix a;"
-            "identity baseid;"
-            "}";
-    UTEST_ADD_MODULE(str, LYS_IN_YANG, NULL, NULL);
-    str = "module b {yang-version 1.1; namespace urn:b; prefix b; import a { prefix a;}"
-            "feature f2;"
-            "feature f3;"
-            "identity id1 { base a:baseid;}"
-            "identity id2 { if-feature \"f2\"; base a:baseid;}"
-            "identity id3 { if-feature \"f3\"; base a:baseid;}"
-            "leaf lf { type identityref { base a:baseid;}}"
-            "}";
-    feats[0] = "f2";
-    UTEST_ADD_MODULE(str, LYS_IN_YANG, feats, NULL);
-    assert_true(contains_derived_identity(UTEST_LYCTX, "a", NULL, "baseid", "id1"));
-    data = "<lf xmlns=\"urn:b\">id1</lf>";
-    CHECK_PARSE_LYD_PARAM(data, LYD_XML, 0, LYD_VALIDATE_PRESENT, LY_SUCCESS, tree);
-    lyd_free_tree(tree);
-    assert_true(contains_derived_identity(UTEST_LYCTX, "a", NULL, "baseid", "id2"));
-    data = "<lf xmlns=\"urn:b\">id2</lf>";
-    CHECK_PARSE_LYD_PARAM(data, LYD_XML, 0, LYD_VALIDATE_PRESENT, LY_SUCCESS, tree);
-    lyd_free_tree(tree);
-    assert_true(contains_derived_identity(UTEST_LYCTX, "a", NULL, "baseid", "id3"));
-    data = "<lf xmlns=\"urn:b\">id3</lf>";
-    CHECK_PARSE_LYD_PARAM(data, LYD_XML, 0, LYD_VALIDATE_PRESENT, LY_EVALID, tree);
-    CHECK_LOG_CTX("Invalid identityref \"id3\" value - identity is disabled by if-feature.", "Schema location /b:lf, line number 1.");
-    RESET_CTX(UTEST_LYCTX);
-
-    /* The derived identities are enabled and disabled in submodule. */
-    str = "submodule asub {yang-version 1.1; belongs-to a {prefix a;}"
-            "feature f2;"
-            "feature f3;"
-            "identity id1 { base a:baseid;}"
-            "identity id2 { if-feature \"f2\"; base a:baseid;}"
-            "identity id3 { if-feature \"f3\"; base a:baseid;}"
-            "}";
-    ly_ctx_set_module_imp_clb(UTEST_LYCTX, test_imp_clb, str);
-    str = "module a {namespace urn:a; prefix a; include asub;"
-            "identity baseid;"
-            "}";
-    feats[0] = "f2";
-    UTEST_ADD_MODULE(str, LYS_IN_YANG, feats, NULL);
-    str = "module b {yang-version 1.1; namespace urn:b; prefix b; import a { prefix a;}"
-            "leaf lf { type identityref { base a:baseid;}}"
-            "}";
-    UTEST_ADD_MODULE(str, LYS_IN_YANG, NULL, NULL);
-    assert_true(contains_derived_identity(UTEST_LYCTX, "a", NULL, "baseid", "id1"));
-    data = "<lf xmlns=\"urn:b\" xmlns:ids=\"urn:a\">ids:id1</lf>";
-    CHECK_PARSE_LYD_PARAM(data, LYD_XML, 0, LYD_VALIDATE_PRESENT, LY_SUCCESS, tree);
-    lyd_free_tree(tree);
-    assert_true(contains_derived_identity(UTEST_LYCTX, "a", NULL, "baseid", "id2"));
-    data = "<lf xmlns=\"urn:b\" xmlns:ids=\"urn:a\">ids:id2</lf>";
-    CHECK_PARSE_LYD_PARAM(data, LYD_XML, 0, LYD_VALIDATE_PRESENT, LY_SUCCESS, tree);
-    lyd_free_tree(tree);
-    assert_true(contains_derived_identity(UTEST_LYCTX, "a", NULL, "baseid", "id3"));
-    data = "<lf xmlns=\"urn:b\" xmlns:ids=\"urn:a\">ids:id3</lf>";
-    CHECK_PARSE_LYD_PARAM(data, LYD_XML, 0, LYD_VALIDATE_PRESENT, LY_EVALID, tree);
-    CHECK_LOG_CTX("Invalid identityref \"ids:id3\" value - identity is disabled by if-feature.", "Schema location /b:lf, line number 1.");
-    RESET_CTX(UTEST_LYCTX);
-
-#undef RESET_CTX
-}
-
 static void
 test_type_identityref(void **state)
 {
-    struct lys_module *mod;
+    const struct lys_module *mod;
     struct lysc_type *type;
 
     assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module a {yang-version 1.1;namespace urn:a;prefix a;identity i; identity j; identity k {base i;}"
@@ -1743,36 +1481,35 @@ test_type_identityref(void **state)
 static void
 test_type_leafref(void **state)
 {
-    char *str;
-    struct lys_module *mod;
+    const struct lys_module *mod;
     struct lysc_type *type;
     const char *path;
     struct lyxp_expr *expr;
 
     /* lys_path_parse() */
     path = "invalid_path";
-    assert_int_equal(LY_EVALID, ly_path_parse(UTEST_LYCTX, NULL, path, strlen(path), 1, LY_PATH_BEGIN_EITHER,
+    assert_int_equal(LY_EVALID, ly_path_parse(UTEST_LYCTX, NULL, path, strlen(path), LY_PATH_BEGIN_EITHER, LY_PATH_LREF_TRUE,
             LY_PATH_PREFIX_OPTIONAL, LY_PATH_PRED_LEAFREF, &expr));
     path = "..";
-    assert_int_equal(LY_EVALID, ly_path_parse(UTEST_LYCTX, NULL, path, strlen(path), 1, LY_PATH_BEGIN_EITHER,
+    assert_int_equal(LY_EVALID, ly_path_parse(UTEST_LYCTX, NULL, path, strlen(path), LY_PATH_BEGIN_EITHER, LY_PATH_LREF_TRUE,
             LY_PATH_PREFIX_OPTIONAL, LY_PATH_PRED_LEAFREF, &expr));
     path = "..[";
-    assert_int_equal(LY_EVALID, ly_path_parse(UTEST_LYCTX, NULL, path, strlen(path), 1, LY_PATH_BEGIN_EITHER,
+    assert_int_equal(LY_EVALID, ly_path_parse(UTEST_LYCTX, NULL, path, strlen(path), LY_PATH_BEGIN_EITHER, LY_PATH_LREF_TRUE,
             LY_PATH_PREFIX_OPTIONAL, LY_PATH_PRED_LEAFREF, &expr));
     path = "../";
-    assert_int_equal(LY_EVALID, ly_path_parse(UTEST_LYCTX, NULL, path, strlen(path), 1, LY_PATH_BEGIN_EITHER,
+    assert_int_equal(LY_EVALID, ly_path_parse(UTEST_LYCTX, NULL, path, strlen(path), LY_PATH_BEGIN_EITHER, LY_PATH_LREF_TRUE,
             LY_PATH_PREFIX_OPTIONAL, LY_PATH_PRED_LEAFREF, &expr));
     path = "/";
-    assert_int_equal(LY_EVALID, ly_path_parse(UTEST_LYCTX, NULL, path, strlen(path), 1, LY_PATH_BEGIN_EITHER,
+    assert_int_equal(LY_EVALID, ly_path_parse(UTEST_LYCTX, NULL, path, strlen(path), LY_PATH_BEGIN_EITHER, LY_PATH_LREF_TRUE,
             LY_PATH_PREFIX_OPTIONAL, LY_PATH_PRED_LEAFREF, &expr));
 
     path = "../../pref:id/xxx[predicate]/invalid!!!";
-    assert_int_equal(LY_EVALID, ly_path_parse(UTEST_LYCTX, NULL, path, strlen(path), 1, LY_PATH_BEGIN_EITHER,
+    assert_int_equal(LY_EVALID, ly_path_parse(UTEST_LYCTX, NULL, path, strlen(path), LY_PATH_BEGIN_EITHER, LY_PATH_LREF_TRUE,
             LY_PATH_PREFIX_OPTIONAL, LY_PATH_PRED_LEAFREF, &expr));
     CHECK_LOG_CTX("Invalid character 0x21 ('!'), perhaps \"invalid\" is supposed to be a function call.", NULL);
 
     path = "/absolute/prefix:path";
-    assert_int_equal(LY_SUCCESS, ly_path_parse(UTEST_LYCTX, NULL, path, strlen(path), 1, LY_PATH_BEGIN_EITHER,
+    assert_int_equal(LY_SUCCESS, ly_path_parse(UTEST_LYCTX, NULL, path, strlen(path), LY_PATH_BEGIN_EITHER, LY_PATH_LREF_TRUE,
             LY_PATH_PREFIX_OPTIONAL, LY_PATH_PRED_LEAFREF, &expr));
     assert_int_equal(4, expr->used);
     assert_int_equal(LYXP_TOKEN_OPER_PATH, expr->tokens[0]);
@@ -1850,31 +1587,17 @@ test_type_leafref(void **state)
     assert_int_equal(1, ((struct lysc_type_leafref *)type)->require_instance);
 
     /* conditional leafrefs */
-    str = "module e {yang-version 1.1;namespace urn:e;prefix e;feature f1;"
-            "leaf ref1 {type leafref {path /target;}}"
-            "leaf target {if-feature 'f1'; type boolean;}}";
-    assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, str, LYS_IN_YANG, &mod));
-    CHECK_LOG_CTX("Target of leafref \"ref1\" cannot be referenced because it is disabled.", "Schema location /e:ref1.");
-
-    str = "module en {yang-version 1.1;namespace urn:en;prefix en;feature f1;"
-            "leaf ref1 {if-feature 'f1'; type leafref {path /target;}}"
-            "leaf target {type boolean;}}";
-    assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, str, LYS_IN_YANG, &mod));
-
-    str = "module e {yang-version 1.1;namespace urn:e;prefix e;feature f1;"
-            "leaf ref1 {if-feature 'f1'; type leafref {path /target;}}}";
-    assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, str, LYS_IN_YANG, &mod));
-    CHECK_LOG_CTX("Not found node \"target\" in path.", "Schema location /e:ref1.");
-
-    ly_ctx_set_options(UTEST_LYCTX, LY_CTX_REF_IMPLEMENTED);
-    ly_ctx_set_module_imp_clb(UTEST_LYCTX, test_imp_clb, "module cl {namespace urn:cl;prefix cl;feature f1;"
-            "leaf f {type string; if-feature 'f1';}"
-            "leaf g {type leafref {path \"/cl:f\";}}"
-            "leaf h {type uint16; default 1;}}");
-    assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module im {namespace urn:im;prefix im;import cl {prefix cl;}"
-            "leaf ref {must \"/cl:h > 0\"; type uint16;}}", LYS_IN_YANG, &mod));
-    ly_ctx_unset_options(UTEST_LYCTX, LY_CTX_REF_IMPLEMENTED);
-    CHECK_LOG_CTX("Target of leafref \"g\" cannot be referenced because it is disabled.", "Schema location /cl:g.");
+    /*assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module e {yang-version 1.1;namespace urn:e;prefix e;feature f1; feature f2;"
+                                        "leaf ref1 {if-feature 'f1 and f2';type leafref {path /target;}}"
+                                        "leaf target {if-feature f1; type boolean;}}", LYS_IN_YANG, &mod));
+    type = ((struct lysc_node_leaf*)mod->compiled->data)->type;
+    assert_non_null(type);
+    assert_int_equal(1, type->refcount);
+    assert_int_equal(LY_TYPE_LEAFREF, type->basetype);
+    assert_string_equal("/target", ((struct lysc_type_leafref* )type)->path->expr);
+    assert_int_equal(0, LY_ARRAY_COUNT(((struct lysc_type_leafref*)type)->prefixes));
+    assert_non_null(((struct lysc_type_leafref*)type)->realtype);
+    assert_int_equal(LY_TYPE_BOOL, ((struct lysc_type_leafref*)type)->realtype->basetype);*/
 
     assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module f {namespace urn:f;prefix f;"
             "list interface{key name;leaf name{type string;}list address {key ip;leaf ip {type string;}}}"
@@ -1966,8 +1689,7 @@ test_type_leafref(void **state)
     CHECK_LOG_CTX("List predicate defined for container \"a\" in path.", "Schema location /dd:ref1.");
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module ee {namespace urn:ee;prefix ee;\n  container a {leaf target2 {type uint8;}}\n"
             "leaf ref1 {type leafref {path /a!invalid;}}}", LYS_IN_YANG, &mod));
-    CHECK_LOG_CTX("Parsing module \"ee\" failed.", NULL,
-            "Invalid character 0x21 ('!'), perhaps \"a\" is supposed to be a function call.", "Line number 3.");
+    CHECK_LOG_CTX("Invalid character 0x21 ('!'), perhaps \"a\" is supposed to be a function call.", "Line number 3.");
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module ff {namespace urn:ff;prefix ff;container a {leaf target2 {type uint8;}}"
             "leaf ref1 {type leafref {path /a;}}}", LYS_IN_YANG, &mod));
     CHECK_LOG_CTX("Invalid leafref path \"/a\" - target node is container instead of leaf or leaf-list.", "Schema location /ff:ref1.");
@@ -1996,16 +1718,14 @@ test_type_leafref(void **state)
             "leaf ifname{type leafref{ path \"../interface/name\";}}\n"
             "leaf address {type leafref{\n path \"/interface[name is current()/../ifname]/ip\";}}}",
             LYS_IN_YANG, &mod));
-    CHECK_LOG_CTX("Parsing module \"nn\" failed.", NULL,
-            "Invalid character 0x69 ('i'), perhaps \"name\" is supposed to be a function call.", "Line number 5.");
+    CHECK_LOG_CTX("Invalid character 0x69 ('i'), perhaps \"name\" is supposed to be a function call.", "Line number 5.");
 
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module oo {namespace urn:oo;prefix oo;\n"
             "list interface{key name;leaf name{type string;}leaf ip {type string;}}\n"
             "leaf ifname{type leafref{ path \"../interface/name\";}}\n"
             "leaf address {type leafref{\n path \"/interface[name=current()/../ifname/ip\";}}}",
             LYS_IN_YANG, &mod));
-    CHECK_LOG_CTX("Parsing module \"oo\" failed.", NULL,
-            "Unexpected XPath expression end.", "Line number 5.");
+    CHECK_LOG_CTX("Unexpected XPath expression end.", "Line number 5.");
 
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module pp {namespace urn:pp;prefix pp;"
             "list interface{key name;leaf name{type string;}leaf ip {type string;}}"
@@ -2026,56 +1746,49 @@ test_type_leafref(void **state)
             "leaf ifname{type leafref{ path \"../interface/name\";}}leaf test{type string;}\n"
             "leaf address {type leafref{ path \"/interface[name=current() /  .. / ifname][name=current()/../test]/ip\";}}}",
             LYS_IN_YANG, &mod));
-    CHECK_LOG_CTX("Parsing module \"rr\" failed.", NULL,
-            "Duplicate predicate key \"name\" in path.", "Line number 4.");
+    CHECK_LOG_CTX("Duplicate predicate key \"name\" in path.", "Line number 4.");
 
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module ss {namespace urn:ss;prefix ss;\n"
             "list interface{key name;leaf name{type string;}leaf ip {type string;}}\n"
             "leaf ifname{type leafref{ path \"../interface/name\";}}leaf test{type string;}\n"
             "leaf address {type leafref{ path \"/interface[name = ../ifname]/ip\";}}}",
             LYS_IN_YANG, &mod));
-    CHECK_LOG_CTX("Parsing module \"ss\" failed.", NULL,
-            "Unexpected XPath token \"..\" (\"../ifname]/ip\"), expected \"FunctionName\".", "Line number 4.");
+    CHECK_LOG_CTX("Unexpected XPath token \"..\" (\"../ifname]/ip\"), expected \"FunctionName\".", "Line number 4.");
 
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module tt {namespace urn:tt;prefix tt;\n"
             "list interface{key name;leaf name{type string;}leaf ip {type string;}}\n"
             "leaf ifname{type leafref{ path \"../interface/name\";}}leaf test{type string;}\n"
             "leaf address {type leafref{ path \"/interface[name = current()../ifname]/ip\";}}}",
             LYS_IN_YANG, &mod));
-    CHECK_LOG_CTX("Parsing module \"tt\" failed.", NULL,
-            "Unexpected XPath token \"..\" (\"../ifname]/ip\"), expected \"]\".", "Line number 4.");
+    CHECK_LOG_CTX("Unexpected XPath token \"..\" (\"../ifname]/ip\"), expected \"]\".", "Line number 4.");
 
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module uu {namespace urn:uu;prefix uu;\n"
             "list interface{key name;leaf name{type string;}leaf ip {type string;}}\n"
             "leaf ifname{type leafref{ path \"../interface/name\";}}leaf test{type string;}\n"
             "leaf address {type leafref{ path \"/interface[name = current()/..ifname]/ip\";}}}",
             LYS_IN_YANG, &mod));
-    CHECK_LOG_CTX("Parsing module \"uu\" failed.", NULL,
-            "Invalid character 'i'[31] of expression '/interface[name = current()/..ifname]/ip'.", "Line number 4.");
+    CHECK_LOG_CTX("Invalid character 'i'[31] of expression '/interface[name = current()/..ifname]/ip'.", "Line number 4.");
 
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module vv {namespace urn:vv;prefix vv;\n"
             "list interface{key name;leaf name{type string;}leaf ip {type string;}}\n"
             "leaf ifname{type leafref{ path \"../interface/name\";}}leaf test{type string;}\n"
             "leaf address {type leafref{ path \"/interface[name = current()/ifname]/ip\";}}}",
             LYS_IN_YANG, &mod));
-    CHECK_LOG_CTX("Parsing module \"vv\" failed.", NULL,
-            "Unexpected XPath token \"NameTest\" (\"ifname]/ip\"), expected \"..\".", "Line number 4.");
+    CHECK_LOG_CTX("Unexpected XPath token \"NameTest\" (\"ifname]/ip\"), expected \"..\".", "Line number 4.");
 
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module ww {namespace urn:ww;prefix ww;\n"
             "list interface{key name;leaf name{type string;}leaf ip {type string;}}\n"
             "leaf ifname{type leafref{ path \"../interface/name\";}}leaf test{type string;}\n"
             "leaf address {type leafref{ path \"/interface[name = current()/../]/ip\";}}}",
             LYS_IN_YANG, &mod));
-    CHECK_LOG_CTX("Parsing module \"ww\" failed.", NULL,
-            "Unexpected XPath token \"]\" (\"]/ip\").", "Line number 4.");
+    CHECK_LOG_CTX("Unexpected XPath token \"]\" (\"]/ip\").", "Line number 4.");
 
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module xx {namespace urn:xx;prefix xx;\n"
             "list interface{key name;leaf name{type string;}leaf ip {type string;}}\n"
             "leaf ifname{type leafref{ path \"../interface/name\";}}leaf test{type string;}\n"
-            "leaf address {type leafref{ path \"/interface[name = current()/../#node]/ip\";}}}",
+            "leaf address {type leafref{ path \"/interface[name = current()/../$node]/ip\";}}}",
             LYS_IN_YANG, &mod));
-    CHECK_LOG_CTX("Parsing module \"xx\" failed.", NULL,
-            "Invalid character '#'[32] of expression '/interface[name = current()/../#node]/ip'.", "Line number 4.");
+    CHECK_LOG_CTX("Invalid character 0x24 ('$'), perhaps \"\" is supposed to be a function call.", "Line number 4.");
 
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module yy {namespace urn:yy;prefix yy;\n"
             "list interface{key name;leaf name{type string;}leaf ip {type string;}}\n"
@@ -2126,6 +1839,7 @@ test_type_leafref(void **state)
 static void
 test_type_empty(void **state)
 {
+
     /* invalid */
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module aa {namespace urn:aa;prefix aa;"
             "leaf l {type empty; default x;}}", LYS_IN_YANG, NULL));
@@ -2139,7 +1853,7 @@ test_type_empty(void **state)
 static void
 test_type_union(void **state)
 {
-    struct lys_module *mod;
+    const struct lys_module *mod;
     struct lysc_type *type;
 
     assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module a {yang-version 1.1;namespace urn:a;prefix a; typedef mybasetype {type string;}"
@@ -2211,7 +1925,7 @@ test_type_union(void **state)
 static void
 test_type_dflt(void **state)
 {
-    struct lys_module *mod;
+    const struct lys_module *mod;
     struct lysc_type *type;
     struct lysc_node_leaf *leaf;
     uint8_t dynamic;
@@ -2299,15 +2013,15 @@ test_status(void **state)
 
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module aa {namespace urn:aa;prefix aa;"
             "container c {status deprecated; leaf l {status current; type string;}}}", LYS_IN_YANG, NULL));
-    CHECK_LOG_CTX("Status \"current\" of \"l\" is in conflict with the \"deprecated\" status of parent \"c\".", "/aa:c/l");
+    CHECK_LOG_CTX("A \"current\" status is in conflict with the parent's \"deprecated\" status.", "/aa:c/l");
 
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module bb {namespace urn:bb;prefix bb;"
             "container c {status obsolete; leaf l {status current; type string;}}}", LYS_IN_YANG, NULL));
-    CHECK_LOG_CTX("Status \"current\" of \"l\" is in conflict with the \"obsolete\" status of parent \"c\".", "/bb:c/l");
+    CHECK_LOG_CTX("A \"current\" status is in conflict with the parent's \"obsolete\" status.", "/bb:c/l");
 
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module cc {namespace urn:cc;prefix cc;"
             "container c {status obsolete; leaf l {status deprecated; type string;}}}", LYS_IN_YANG, NULL));
-    CHECK_LOG_CTX("Status \"deprecated\" of \"l\" is in conflict with the \"obsolete\" status of parent \"c\".", "/cc:c/l");
+    CHECK_LOG_CTX("A \"deprecated\" status is in conflict with the parent's \"obsolete\" status.", "/cc:c/l");
 
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module cc {namespace urn:dd;prefix d;"
             "container c {leaf l {status obsolete; type string;}}"
@@ -2318,6 +2032,7 @@ test_status(void **state)
 static void
 test_grouping(void **state)
 {
+
     /* result ok, but a warning about not used locally scoped grouping printed */
     assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module a {namespace urn:a;prefix a; grouping grp1 {leaf a1 {type string;}}"
             "container a {leaf x {type string;} grouping grp2 {leaf a2 {type string;}}}}", LYS_IN_YANG, NULL));
@@ -2338,39 +2053,12 @@ test_grouping(void **state)
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module aa {namespace urn:aa;prefix aa;"
             "container a {grouping grp {leaf x {type leafref;}}}}", LYS_IN_YANG, NULL));
     CHECK_LOG_CTX("Missing path substatement for leafref type.", "/aa:a/{grouping='grp'}/x");
-
-    /* config check */
-    ly_ctx_set_module_imp_clb(UTEST_LYCTX, test_imp_clb, "module z1 {namespace urn:z1;prefix z1;"
-            "container root;}\n"
-            "module z2 {namespace urn:z2;prefix z2;"
-            "grouping leafs_group {"
-            "  leaf name {type string; config true;}"
-            "  leaf value {type uint32; config true;}"
-            "}}");
-    assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module z3 {namespace urn:z3;prefix z3;"
-            "import z1 {prefix z1;} import z2 {prefix z2;}"
-            "grouping grp_a_top {leaf a1 {type int8;}}"
-            "grouping list_group {"
-            "  list mylist {key \"name\"; unique \"value\"; uses z2:leafs_group;}"
-            "}"
-            "augment /z1:root { uses list_group;} }", LYS_IN_YANG, NULL));
-
-    /* identity */
-    assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module y1 {namespace urn:y1;prefix y1;"
-            "identity base_identity;"
-            "identity id1 {base \"base_identity\";}"
-            "grouping attrs_group {"
-            "  leaf name {type identityref {base \"base_identity\";} default \"id1\";}"
-            "}}", LYS_IN_YANG, NULL));
-    assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module y2 {namespace urn:y2;prefix y2;"
-            "import y1 {prefix y1;}"
-            "container root {uses y1:attrs_group;}}", LYS_IN_YANG, NULL));
 }
 
 static void
 test_uses(void **state)
 {
-    struct lys_module *mod;
+    const struct lys_module *mod;
     const struct lysc_node *parent, *child;
     const struct lysc_node_container *cont;
     const struct lysc_node_leaf *leaf;
@@ -2492,12 +2180,6 @@ test_uses(void **state)
     assert_non_null(child = lysc_node_child(child));
     assert_string_equal("x", child->name);
 
-    /* unique */
-    ly_ctx_set_module_imp_clb(UTEST_LYCTX, test_imp_clb, "module j {namespace urn:j;prefix j;"
-            "grouping grp {list l {key \"k\"; unique \"l\"; leaf k {type string;} leaf l {type string;}}}}");
-    assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module k {namespace urn:k;prefix k;import j {prefix j;}"
-            "container a {uses j:grp;}}", LYS_IN_YANG, NULL));
-
     /* invalid */
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module aa {namespace urn:aa;prefix aa;uses missinggrp;}", LYS_IN_YANG, &mod));
     CHECK_LOG_CTX("Grouping \"missinggrp\" referenced by a uses statement not found.", "/aa:{uses='missinggrp'}");
@@ -2517,8 +2199,7 @@ test_uses(void **state)
 
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module ee {namespace urn:ee;prefix ee;grouping grp {leaf l {type string; status deprecated;}}"
             "uses grp {status obsolete;}}", LYS_IN_YANG, &mod));
-    CHECK_LOG_CTX("Status \"deprecated\" of \"l\" is in conflict with the \"obsolete\" status of parent \"<uses>\".",
-            "/ee:{uses='grp'}/ee:l");
+    CHECK_LOG_CTX("A \"deprecated\" status is in conflict with the parent's \"obsolete\" status.", "/ee:{uses='grp'}/ee:l");
 
     assert_int_equal(LY_EEXIST, lys_parse_mem(UTEST_LYCTX, "module ff {namespace urn:ff;prefix ff;grouping grp {leaf l {type string;}}"
             "leaf l {type int8;}uses grp;}", LYS_IN_YANG, &mod));
@@ -2551,7 +2232,7 @@ test_uses(void **state)
 static void
 test_refine(void **state)
 {
-    struct lys_module *mod;
+    const struct lys_module *mod;
     struct lysc_node *parent, *child;
     struct lysc_node_leaf *leaf;
     struct lysc_node_leaflist *llist;
@@ -2682,8 +2363,7 @@ test_refine(void **state)
 
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module ii {namespace urn:ii;prefix ii;grouping grp {leaf l {type string; status deprecated;}}"
             "uses grp {status obsolete;}}", LYS_IN_YANG, &mod));
-    CHECK_LOG_CTX("Status \"deprecated\" of \"l\" is in conflict with the \"obsolete\" status of parent \"<uses>\".",
-            "/ii:{uses='grp'}/ii:l");
+    CHECK_LOG_CTX("A \"deprecated\" status is in conflict with the parent's \"obsolete\" status.", "/ii:{uses='grp'}/ii:l");
 
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module jj {namespace urn:jj;prefix jj;import grp {prefix g;}"
             "uses g:grp {refine c/x {presence nonsence;}}}", LYS_IN_YANG, &mod));
@@ -2706,7 +2386,7 @@ test_refine(void **state)
 static void
 test_augment(void **state)
 {
-    struct lys_module *mod;
+    const struct lys_module *mod;
     const struct lysc_node *node;
     const struct lysc_node_choice *ch;
     const struct lysc_node_case *c;
@@ -2876,7 +2556,7 @@ test_augment(void **state)
 static void
 test_deviation(void **state)
 {
-    struct lys_module *mod;
+    const struct lys_module *mod;
     const struct lysc_node *node;
     const struct lysc_node_list *list;
     const struct lysc_node_leaflist *llist;
@@ -3040,7 +2720,7 @@ test_deviation(void **state)
             "         leaf c {type string;} leaf d {type string;}}}");
     assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module j {namespace urn:j;prefix j;import i {prefix i;}"
             "augment /i:l1 {leaf j_c {type string;}}"
-            "deviation /i:l1 {deviate add {unique \"b j:j_c\"; }}"
+            "deviation /i:l1 {deviate add {unique \"i:b j_c\"; }}"
             "deviation /i:l1 {deviate add {unique \"i:c\";}}"
             "deviation /i:l2 {deviate delete {unique \"d\"; unique \"b c\";}}}", LYS_IN_YANG, NULL));
     assert_non_null((mod = ly_ctx_get_module_implemented(UTEST_LYCTX, "i")));
@@ -3233,21 +2913,18 @@ test_deviation(void **state)
     assert_int_equal(LY_TYPE_IDENT, leaf->type->basetype);
 
     ly_ctx_set_module_imp_clb(UTEST_LYCTX, test_imp_clb, "module y {namespace urn:y;prefix y;"
-            "leaf l1 {type string;}"
-            "leaf l2 {type string;}"
+            "container cont {leaf l {type string;}}"
+            "leaf bl2 {type string;}"
             "}");
     assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module z {namespace urn:z;prefix z;"
             "import y {prefix y;}"
-            "deviation \"/y:l1\" {deviate replace {type leafref {path \"/l2\";}}}"
-            "deviation \"/y:l2\" {deviate replace {type leafref {path \"/z:al2\";}}}"
-            "leaf al2 {type string;}"
+            "deviation \"/y:cont/y:l\" {deviate replace {type leafref {path \"/al\";}}}"
+            "leaf al {type string;}"
+            "leaf al2 {type leafref {path \"/y:bl2\";}}"
             "}", LYS_IN_YANG, NULL));
     assert_non_null((mod = ly_ctx_get_module_implemented(UTEST_LYCTX, "y")));
-    assert_non_null(leaf = (struct lysc_node_leaf *)mod->compiled->data);
-    assert_string_equal("l1", leaf->name);
-    assert_int_equal(LY_TYPE_LEAFREF, leaf->type->basetype);
-    leaf = (struct lysc_node_leaf *)leaf->next;
-    assert_string_equal("l2", leaf->name);
+    assert_non_null(leaf = (struct lysc_node_leaf *)lysc_node_child(mod->compiled->data));
+    assert_string_equal("l", leaf->name);
     assert_int_equal(LY_TYPE_LEAFREF, leaf->type->basetype);
 
     /* complex dependencies */
@@ -3272,58 +2949,6 @@ test_deviation(void **state)
     assert_string_equal(node->name, "l");
     assert_null(node->next);
 
-    /* default identity referencing deprecated */
-    ly_ctx_set_module_imp_clb(UTEST_LYCTX, test_imp_clb, "module a1-imp {namespace urn:a1-imp;prefix a1i;"
-            "identity id-base;"
-            "identity id1 {base id-base; status deprecated;}"
-            "leaf l {type identityref {base \"id-base\";}}"
-            "}");
-    assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module a1 {namespace urn:a1;prefix a1;"
-            "import a1-imp {prefix a1i;}"
-            "deviation \"/a1i:l\" {deviate add {default \"a1i:id1\";}}"
-            "}", LYS_IN_YANG, NULL));
-
-    /* default instance-identifier referencing deprecated */
-    ly_ctx_set_module_imp_clb(UTEST_LYCTX, test_imp_clb, "module a2-imp {namespace urn:a2-imp;prefix a2i;"
-            "leaf l {type instance-identifier;}"
-            "leaf k {type string; status deprecated;}"
-            "}");
-    assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module a2 {namespace urn:a2;prefix a2;"
-            "import a2-imp {prefix a2i;}"
-            "deviation \"/a2i:l\" {deviate add {default \"/a2i:k\";}}"
-            "}", LYS_IN_YANG, NULL));
-
-    /* must referencing deprecated */
-    ly_ctx_set_module_imp_clb(UTEST_LYCTX, test_imp_clb, "module a3-imp {namespace urn:a3-imp;prefix a3i;"
-            "leaf l {type string;}"
-            "leaf k {type string; status deprecated;}"
-            "}");
-    assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module a3 {namespace urn:a3;prefix a3;"
-            "import a3-imp {prefix a3i;}"
-            "deviation \"/a3i:l\" {deviate add {must \"string-length(/a3i:k) > 0\";}}"
-            "}", LYS_IN_YANG, NULL));
-
-    /* type leafref referencing deprecated */
-    ly_ctx_set_module_imp_clb(UTEST_LYCTX, test_imp_clb, "module a4-imp {namespace urn:a4-imp;prefix a4i;"
-            "leaf l {type string;}"
-            "leaf k {type string; status deprecated;}"
-            "}");
-    assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module a4 {namespace urn:a4;prefix a4;"
-            "import a4-imp {prefix a4i;}"
-            "deviation \"/a4i:l\" {deviate replace {type leafref {path \"/a4i:k\";}}}"
-            "}", LYS_IN_YANG, NULL));
-
-    /* unique referencing deprecated */
-    ly_ctx_set_module_imp_clb(UTEST_LYCTX, test_imp_clb, "module a5-imp {namespace urn:a5-imp;prefix a5i;"
-            "list l1 {key \"k\";"
-            "  leaf k {type string;}"
-            "  leaf l {type string; status deprecated;}"
-            "}}");
-    assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX, "module a5 {namespace urn:a5;prefix a5;"
-            "import a5-imp {prefix a5i;}"
-            "deviation \"/a5i:l1\" {deviate add {unique \"a5i:l\";}}"
-            "}", LYS_IN_YANG, NULL));
-
     assert_int_equal(LY_ENOTFOUND, lys_parse_mem(UTEST_LYCTX, "module aa1 {namespace urn:aa1;prefix aa1;import a {prefix a;}"
             "deviation /a:top/a:z {deviate not-supported;}}", LYS_IN_YANG, &mod));
     CHECK_LOG_CTX("Deviation(s) target node \"/a:top/a:z\" from module \"aa1\" was not found.", "/a:{deviation='/a:top/a:z'}");
@@ -3331,7 +2956,7 @@ test_deviation(void **state)
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module aa2 {namespace urn:aa2;prefix aa2;import a {prefix a;}"
             "deviation /a:top/a:a {deviate not-supported;}"
             "deviation /a:top/a:a {deviate add {default error;}}}", LYS_IN_YANG, NULL));
-    CHECK_LOG_CTX("Multiple deviations of \"/a:top/a:a\" with one of them being \"not-supported\".", "/aa2:{deviation='/a:top/a:a'}");
+    CHECK_LOG_CTX("Multiple deviations of \"/a:top/a:a\" with one of them being \"not-supported\".", "/");
 
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module bb {namespace urn:bb;prefix bb;import a {prefix a;}"
             "deviation a:top/a:a {deviate not-supported;}}", LYS_IN_YANG, &mod));
@@ -3532,7 +3157,7 @@ test_deviation(void **state)
             "container c {leaf x {type string;} leaf y {type string;}}}", LYS_IN_YANG, &mod));
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX, "module pp1 {namespace urn:pp1;prefix pp1; import pp {prefix pp;}"
             "deviation /pp:c/pp:x {deviate not-supported;}}", LYS_IN_YANG, &mod));
-    CHECK_LOG_CTX("Target of leafref \"l\" cannot be referenced because it is disabled.", "Schema location /pp:l.");
+    CHECK_LOG_CTX("Not found node \"x\" in path.", "Schema location /pp:l.");
 }
 
 static void
@@ -3564,7 +3189,7 @@ test_when(void **state)
             "    }\n"
             "}",
             LYS_IN_YANG, NULL));
-    CHECK_LOG_CTX("When condition cyclic dependency on the node \"cont2\".", "Schema location /a:cont/lst/val.");
+    CHECK_LOG_CTX("When condition includes a self-reference.", "Schema location /a:cont/lst/val.");
 
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX,
             "module a {\n"
@@ -3592,7 +3217,7 @@ test_when(void **state)
             "    }\n"
             "}",
             LYS_IN_YANG, NULL));
-    CHECK_LOG_CTX("When condition cyclic dependency on the node \"cont2\".", "Schema location /a:cont/lst/val.");
+    CHECK_LOG_CTX("When condition includes a self-reference.", "Schema location /a:cont/lst/val.");
 
     assert_int_equal(LY_EVALID, lys_parse_mem(UTEST_LYCTX,
             "module a {\n"
@@ -3688,84 +3313,6 @@ test_when(void **state)
             "    }\n"
             "}",
             LYS_IN_YANG, NULL));
-
-    ly_ctx_set_module_imp_clb(UTEST_LYCTX, test_imp_clb,
-            "module c1 {"
-            "  namespace urn:c1;"
-            "  prefix c1;"
-            "  container my-container {"
-            "    leaf my-type {"
-            "      type string;"
-            "    }"
-            "  }"
-            "}\n"
-            "module c2 {"
-            "  namespace \"urn:c2\";"
-            "  prefix c2;"
-            "  grouping my-group {"
-            "    leaf my-leaf {"
-            "      type string;"
-            "    }"
-            "  }"
-            "}");
-    assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX,
-            "module c3 {"
-            "  namespace \"urn:c3\";"
-            "  prefix c3;"
-            "  import c1 {"
-            "    prefix c1;"
-            "  }"
-            "  import c2 {"
-            "    prefix c2;"
-            "  }"
-            "  augment \"/c1:my-container\" {"
-            "    uses c2:my-group {"
-            "      when \"./c1:my-type = '42'\";"
-            "    }"
-            "  }"
-            "}",
-            LYS_IN_YANG, NULL));
-}
-
-static void
-test_must(void **state)
-{
-    /* "*" must not be restricted to any module */
-    ly_ctx_set_module_imp_clb(UTEST_LYCTX, test_imp_clb,
-            "module a {"
-            "  namespace urn:a;"
-            "  prefix a;"
-            "  container cont {"
-            "    leaf l {"
-            "      type empty;"
-            "    }"
-            "    list lst {"
-            "      key \"k\";"
-            "      leaf k {"
-            "        type uint8;"
-            "      }"
-            "    }"
-            "  }"
-            "}");
-    assert_int_equal(LY_SUCCESS, lys_parse_mem(UTEST_LYCTX,
-            "module a-aug {"
-            "  namespace urn:aa;"
-            "  prefix aa;"
-            "  import a {"
-            "    prefix a;"
-            "  }"
-            "  augment /a:cont {"
-            "    container cont2 {"
-            "      must \"/a:cont/*/a:k\";"
-            "      leaf aug {"
-            "        type empty;"
-            "      }"
-            "    }"
-            "  }"
-            "}",
-            LYS_IN_YANG, NULL));
-    /* no warnings */
-    CHECK_LOG_CTX(NULL, NULL);
 }
 
 int
@@ -3778,9 +3325,9 @@ main(void)
         UTEST(test_type_range, setup),
         UTEST(test_type_pattern, setup),
         UTEST(test_type_enum, setup),
+        UTEST(test_type_bits, setup),
         UTEST(test_type_dec64, setup),
         UTEST(test_type_instanceid, setup),
-        UTEST(test_identity, setup),
         UTEST(test_type_identityref, setup),
         UTEST(test_type_leafref, setup),
         UTEST(test_type_empty, setup),
@@ -3800,7 +3347,6 @@ main(void)
         UTEST(test_augment, setup),
         UTEST(test_deviation, setup),
         UTEST(test_when, setup),
-        UTEST(test_must, setup),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);

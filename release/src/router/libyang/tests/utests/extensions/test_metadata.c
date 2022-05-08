@@ -21,7 +21,7 @@
 static void
 test_yang(void **state)
 {
-    struct lys_module *mod;
+    const struct lys_module *mod;
     struct lysc_ext_instance *e;
 
     const char *data = "module a {yang-version 1.1; namespace urn:tests:extensions:metadata:a; prefix a;"
@@ -92,7 +92,7 @@ test_yang(void **state)
 static void
 test_yin(void **state)
 {
-    struct lys_module *mod;
+    const struct lys_module *mod;
     struct lysc_ext_instance *e;
     const char *data;
 

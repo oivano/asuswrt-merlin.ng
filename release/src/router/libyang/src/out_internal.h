@@ -16,8 +16,8 @@
 #define LY_OUT_INTERNAL_H_
 
 #include "out.h"
-
-struct lyd_node;
+#include "printer_data.h"
+#include "printer_schema.h"
 
 /**
  * @brief Printer output structure specifying where the data are printed.
@@ -55,6 +55,15 @@ struct ly_out {
     size_t printed;      /**< Total number of printed bytes */
     size_t func_printed; /**< Number of bytes printed by the last function */
 };
+
+/**
+ * @brief Check whether the node should even be printed.
+ *
+ * @param[in] node Node to check.
+ * @param[in] options Printer options.
+ * @return false (no, it should not be printed) or true (yes, it is supposed to be printed)
+ */
+ly_bool ly_should_print(const struct lyd_node *node, uint32_t options);
 
 /**
  * @brief Generic printer of the given format string into the specified output.

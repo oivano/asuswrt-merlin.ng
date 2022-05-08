@@ -558,7 +558,7 @@ echo "RC=$?" >>testtrygrep
 echo "---------------------------- Test 107 -----------------------------" >>testtrygrep
 echo "a" >testtemp1grep
 echo "aaaaa" >>testtemp1grep
-(cd $srcdir; $valgrind $vjs $pcre2grep  --line-offsets '(?<=\Ka)' $builddir/testtemp1grep) >>testtrygrep 2>&1
+(cd $srcdir; $valgrind $vjs $pcre2grep  --line-offsets --allow-lookaround-bsk '(?<=\Ka)' $builddir/testtemp1grep) >>testtrygrep 2>&1
 echo "RC=$?" >>testtrygrep
 
 echo "---------------------------- Test 108 ------------------------------" >>testtrygrep
@@ -638,13 +638,13 @@ echo "RC=$?" >>testtrygrep
 
 echo "---------------------------- Test 125 -----------------------------" >>testtrygrep
 printf 'abcd\n' >testNinputgrep
-$valgrind $vjs $pcre2grep --colour=always '(?<=\K.)' testNinputgrep >>testtrygrep
+$valgrind $vjs $pcre2grep --colour=always --allow-lookaround-bsk '(?<=\K.)' testNinputgrep >>testtrygrep
 echo "RC=$?" >>testtrygrep
-$valgrind $vjs $pcre2grep --colour=always '(?=.\K)' testNinputgrep >>testtrygrep
+$valgrind $vjs $pcre2grep --colour=always --allow-lookaround-bsk '(?=.\K)' testNinputgrep >>testtrygrep
 echo "RC=$?" >>testtrygrep
-$valgrind $vjs $pcre2grep --colour=always '(?<=\K[ac])' testNinputgrep >>testtrygrep
+$valgrind $vjs $pcre2grep --colour=always --allow-lookaround-bsk '(?<=\K[ac])' testNinputgrep >>testtrygrep
 echo "RC=$?" >>testtrygrep
-$valgrind $vjs $pcre2grep --colour=always '(?=[ac]\K)' testNinputgrep >>testtrygrep
+$valgrind $vjs $pcre2grep --colour=always --allow-lookaround-bsk '(?=[ac]\K)' testNinputgrep >>testtrygrep
 echo "RC=$?" >>testtrygrep
 
 echo "---------------------------- Test 126 -----------------------------" >>testtrygrep
@@ -674,10 +674,14 @@ echo "---------------------------- Test 131 -----------------------------" >>tes
 echo "RC=$?" >>testtrygrep
 
 echo "---------------------------- Test 132 -----------------------------" >>testtrygrep
-(cd $srcdir; $valgrind $vjs $pcre2grep -m1 -A3 '^match'; echo '---'; head -1) <$srcdir/testdata/grepinput >>testtrygrep 2>&1
+(cd $srcdir; exec 3<testdata/grepinput; $valgrind $vjs $pcre2grep -m1 -A3 '^match' <&3; echo '---'; head -1 <&3; exec 3<&-) >>testtrygrep 2>&1
 echo "RC=$?" >>testtrygrep
 
 echo "---------------------------- Test 133 -----------------------------" >>testtrygrep
+(cd $srcdir; exec 3<testdata/grepinput; $valgrind $vjs $pcre2grep -m1 -A3 '^match' <&3; echo '---'; $valgrind $vjs $pcre2grep -m1 -A3 '^match' <&3; exec 3<&-) >>testtrygrep 2>&1
+echo "RC=$?" >>testtrygrep
+
+echo "---------------------------- Test 134 -----------------------------" >>testtrygrep
 (cd $srcdir; $valgrind $vjs $pcre2grep -m1 -O '=$x{41}$x423$o{103}$o1045=' 'fox') <$srcdir/testdata/grepinputv >>testtrygrep 2>&1
 echo "RC=$?" >>testtrygrep
 
@@ -701,7 +705,7 @@ if [ $utf8 -ne 0 ] ; then
   echo "RC=$?" >>testtrygrep
 
   echo "---------------------------- Test U3 ------------------------------" >>testtrygrep
-  (cd $srcdir; $valgrind $vjs $pcre2grep --line-offsets -u --newline=any '(?<=\K\x{17f})' ./testdata/grepinput8) >>testtrygrep
+  (cd $srcdir; $valgrind $vjs $pcre2grep --line-offsets -u --newline=any --allow-lookaround-bsk '(?<=\K\x{17f})' ./testdata/grepinput8) >>testtrygrep
   echo "RC=$?" >>testtrygrep
 
   echo "---------------------------- Test U4 ------------------------------" >>testtrygrep

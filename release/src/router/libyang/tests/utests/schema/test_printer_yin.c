@@ -23,11 +23,9 @@
 static void
 test_module(void **state)
 {
-    struct lys_module *mod;
+    const struct lys_module *mod;
 
-    char *orig = malloc(8096);
-
-    strcpy(orig,
+    const char *orig =
             "module all {\n"
             "    yang-version 1.1;\n"
             "    namespace \"urn:all\";\n"
@@ -127,8 +125,7 @@ test_module(void **state)
             "        }\n\n"
             "        leaf leaf10 {\n"
             "            type boolean;\n"
-            "        }\n\n");
-    strcpy(orig + strlen(orig),
+            "        }\n\n"
             "        leaf leaf11 {\n"
             "            type enumeration {\n"
             "                enum \"one\";\n"
@@ -264,11 +261,9 @@ test_module(void **state)
             "            in the #define.\";\n"
             "        argument \"name\";\n"
             "    }\n"
-            "}\n");
+            "}\n";
 
-    char *ori_res = malloc(8096);
-
-    strcpy(ori_res,
+    const char *ori_res =
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
             "<module name=\"all\"\n"
             "        xmlns=\"urn:ietf:params:xml:ns:yang:yin:1\"\n"
@@ -385,8 +380,7 @@ test_module(void **state)
             "    </choice>\n"
             "    <leaf name=\"leaf10\">\n"
             "      <type name=\"boolean\"/>\n"
-            "    </leaf>\n");
-    strcpy(ori_res + strlen(ori_res),
+            "    </leaf>\n"
             "    <leaf name=\"leaf11\">\n"
             "      <type name=\"enumeration\">\n"
             "        <enum name=\"one\"/>\n"
@@ -515,7 +509,7 @@ test_module(void **state)
             "      </container>\n"
             "    </output>\n"
             "  </rpc>\n"
-            "</module>\n");
+            "</module>\n";
 
     char *printed;
     struct ly_out *out;
@@ -528,8 +522,6 @@ test_module(void **state)
     assert_string_equal(printed, ori_res);
 
     ly_out_free(out, NULL, 1);
-    free(orig);
-    free(ori_res);
 }
 
 static LY_ERR
@@ -546,7 +538,7 @@ test_imp_clb(const char *UNUSED(mod_name), const char *UNUSED(mod_rev), const ch
 static void
 test_submodule(void **state)
 {
-    struct lys_module *mod;
+    const struct lys_module *mod;
 
     const char *mod_yin =
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"

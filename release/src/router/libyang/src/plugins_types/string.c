@@ -15,6 +15,7 @@
 #include "plugins_types.h"
 
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 #include "libyang.h"
@@ -33,7 +34,7 @@
  * | string length | yes | `char *` | string itself |
  */
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 lyplg_type_store_string(const struct ly_ctx *ctx, const struct lysc_type *type, const void *value, size_t value_len,
         uint32_t options, LY_VALUE_FORMAT UNUSED(format), void *UNUSED(prefix_data), uint32_t hints,
         const struct lysc_node *UNUSED(ctx_node), struct lyd_value *storage, struct lys_glob_unres *UNUSED(unres),
@@ -102,8 +103,7 @@ const struct lyplg_type_record plugins_string[] = {
         .plugin.sort = NULL,
         .plugin.print = lyplg_type_print_simple,
         .plugin.duplicate = lyplg_type_dup_simple,
-        .plugin.free = lyplg_type_free_simple,
-        .plugin.lyb_data_len = -1,
+        .plugin.free = lyplg_type_free_simple
     },
     {0}
 };

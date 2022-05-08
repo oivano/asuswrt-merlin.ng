@@ -622,7 +622,7 @@ yin_parse_path(struct lys_yin_parser_ctx *ctx, enum ly_stmt kw, struct lysp_type
     const char *str_path;
 
     LY_CHECK_RET(yin_parse_simple_element(ctx, kw, &str_path, YIN_ARG_VALUE, Y_STR_ARG, &type->exts));
-    ret = ly_path_parse(ctx->xmlctx->ctx, NULL, str_path, 0, 1, LY_PATH_BEGIN_EITHER,
+    ret = ly_path_parse(ctx->xmlctx->ctx, NULL, str_path, 0, LY_PATH_BEGIN_EITHER, LY_PATH_LREF_TRUE,
             LY_PATH_PREFIX_OPTIONAL, LY_PATH_PRED_LEAFREF, &type->path);
     lydict_remove(ctx->xmlctx->ctx, str_path);
     LY_CHECK_RET(ret);
@@ -657,7 +657,7 @@ yin_parse_pattern(struct lys_yin_parser_ctx *ctx, struct lysp_type *type)
     saved_value[0] = LYSP_RESTR_PATTERN_ACK;
     saved_value[len + 1] = '\0';
     LY_CHECK_RET(lydict_insert_zc(ctx->xmlctx->ctx, saved_value, &restr->arg.str));
-    restr->arg.mod = PARSER_CUR_PMOD(ctx);
+    restr->arg.mod = ctx->parsed_mod;
     type->flags |= LYS_SET_PATTERN;
 
     struct yin_subelement subelems[] = {
@@ -684,7 +684,7 @@ yin_parse_fracdigits(struct lys_yin_parser_ctx *ctx, struct lysp_type *type)
 {
     const char *temp_val = NULL;
     char *ptr;
-    unsigned long long int num;
+    unsigned long int num;
 
     LY_CHECK_RET(lyxml_ctx_next(ctx->xmlctx));
     LY_CHECK_RET(yin_parse_attribute(ctx, YIN_ARG_VALUE, &temp_val, Y_STR_ARG, LY_STMT_FRACTION_DIGITS));
@@ -696,7 +696,7 @@ yin_parse_fracdigits(struct lys_yin_parser_ctx *ctx, struct lysp_type *type)
     }
 
     errno = 0;
-    num = strtoull(temp_val, &ptr, LY_BASE_DEC);
+    num = strtoul(temp_val, &ptr, LY_BASE_DEC);
     if (*ptr != '\0') {
         LOGVAL_PARSER((struct lys_parser_ctx *)ctx, LY_VCODE_INVAL_YIN, temp_val, "value", "fraction-digits");
         lydict_remove(ctx->xmlctx->ctx, temp_val);
@@ -961,7 +961,7 @@ yin_parse_restriction(struct lys_yin_parser_ctx *ctx, enum ly_stmt restr_kw, str
 
     LY_CHECK_RET(lyxml_ctx_next(ctx->xmlctx));
     LY_CHECK_RET(yin_parse_attribute(ctx, arg_type, &restr->arg.str, Y_STR_ARG, restr_kw));
-    restr->arg.mod = PARSER_CUR_PMOD(ctx);
+    restr->arg.mod = ctx->parsed_mod;
 
     return yin_parse_content(ctx, subelems, ly_sizeofarray(subelems), restr_kw, NULL, &restr->exts);
 }
@@ -1045,19 +1045,19 @@ yin_parse_qname(struct lys_yin_parser_ctx *ctx, enum ly_stmt kw, struct yin_sube
             qnames = (struct lysp_qname **)subinfo->dest;
             LY_ARRAY_NEW_RET(ctx->xmlctx->ctx, *qnames, qname, LY_EMEM);
         }
-        qname->mod = PARSER_CUR_PMOD(ctx);
+        qname->mod = ctx->parsed_mod;
         return yin_parse_simple_element(ctx, kw, &qname->str, YIN_ARG_VALUE, Y_STR_ARG, exts);
     case LY_STMT_UNIQUE:
         assert(!(subinfo->flags & YIN_SUBELEM_UNIQUE));
         qnames = (struct lysp_qname **)subinfo->dest;
         LY_ARRAY_NEW_RET(ctx->xmlctx->ctx, *qnames, qname, LY_EMEM);
-        qname->mod = PARSER_CUR_PMOD(ctx);
+        qname->mod = ctx->parsed_mod;
         return yin_parse_simple_element(ctx, kw, &qname->str, YIN_ARG_TAG, Y_STR_ARG, exts);
     case LY_STMT_IF_FEATURE:
         assert(!(subinfo->flags & YIN_SUBELEM_UNIQUE));
         qnames = (struct lysp_qname **)subinfo->dest;
         LY_ARRAY_NEW_RET(ctx->xmlctx->ctx, *qnames, qname, LY_EMEM);
-        qname->mod = PARSER_CUR_PMOD(ctx);
+        qname->mod = ctx->parsed_mod;
         return yin_parse_simple_element(ctx, kw, &qname->str, YIN_ARG_NAME, Y_STR_ARG, exts);
     default:
         break;
@@ -1082,8 +1082,8 @@ yin_parse_value_pos(struct lys_yin_parser_ctx *ctx, enum ly_stmt kw, struct lysp
     assert(kw == LY_STMT_POSITION || kw == LY_STMT_VALUE);
     const char *temp_val = NULL;
     char *ptr;
-    long long int num = 0;
-    unsigned long long int unum = 0;
+    long int num = 0;
+    unsigned long int unum = 0;
 
     /* set value flag */
     enm->flags |= LYS_SET_VALUE;
@@ -1100,13 +1100,13 @@ yin_parse_value_pos(struct lys_yin_parser_ctx *ctx, enum ly_stmt kw, struct lysp
     /* convert value */
     errno = 0;
     if (kw == LY_STMT_VALUE) {
-        num = strtoll(temp_val, &ptr, LY_BASE_DEC);
+        num = strtol(temp_val, &ptr, LY_BASE_DEC);
         if ((num < INT64_C(-2147483648)) || (num > INT64_C(2147483647))) {
             LOGVAL_PARSER((struct lys_parser_ctx *)ctx, LY_VCODE_INVAL_YIN, temp_val, "value", ly_stmt2str(kw));
             goto error;
         }
     } else {
-        unum = strtoull(temp_val, &ptr, LY_BASE_DEC);
+        unum = strtoul(temp_val, &ptr, LY_BASE_DEC);
         if (unum > UINT64_C(4294967295)) {
             LOGVAL_PARSER((struct lys_parser_ctx *)ctx, LY_VCODE_INVAL_YIN, temp_val, "value", ly_stmt2str(kw));
             goto error;
@@ -1161,9 +1161,9 @@ yin_parse_belongs_to(struct lys_yin_parser_ctx *ctx, struct lysp_submodule *subm
 
     LY_CHECK_RET(lyxml_ctx_next(ctx->xmlctx));
     LY_CHECK_RET(yin_parse_attribute(ctx, YIN_ARG_MODULE, &belongsto, Y_IDENTIF_ARG, LY_STMT_BELONGS_TO));
-    if (PARSER_CUR_PMOD(ctx)->mod->name != belongsto) {
+    if (ctx->parsed_mod->mod->name != belongsto) {
         LOGVAL_PARSER(ctx, LYVE_SYNTAX_YIN, "Submodule \"belongs-to\" value \"%s\" does not match its module name \"%s\".",
-                belongsto, PARSER_CUR_PMOD(ctx)->mod->name);
+                belongsto, ctx->parsed_mod->mod->name);
         lydict_remove(ctx->xmlctx->ctx, belongsto);
         return LY_EVALID;
     }
@@ -1255,7 +1255,7 @@ yin_parse_type(struct lys_yin_parser_ctx *ctx, enum ly_stmt parent, struct yin_s
         type = nested_type;
     }
 
-    type->pmod = PARSER_CUR_PMOD(ctx);
+    type->pmod = ctx->parsed_mod;
 
     struct yin_subelement subelems[] = {
         {LY_STMT_BASE, type, 0},
@@ -1267,7 +1267,7 @@ yin_parse_type(struct lys_yin_parser_ctx *ctx, enum ly_stmt parent, struct yin_s
         {LY_STMT_PATTERN, type, 0},
         {LY_STMT_RANGE, type, YIN_SUBELEM_UNIQUE},
         {LY_STMT_REQUIRE_INSTANCE, type, YIN_SUBELEM_UNIQUE},
-        {LY_STMT_TYPE, type, 0},
+        {LY_STMT_TYPE, type},
         {LY_STMT_EXTENSION_INSTANCE, NULL, 0},
     };
 
@@ -1291,7 +1291,7 @@ yin_parse_maxelements(struct lys_yin_parser_ctx *ctx, uint32_t *max, uint16_t *f
 {
     const char *temp_val = NULL;
     char *ptr;
-    unsigned long long int num;
+    unsigned long int num;
     struct yin_subelement subelems[] = {
         {LY_STMT_EXTENSION_INSTANCE, NULL, 0},
     };
@@ -1307,7 +1307,7 @@ yin_parse_maxelements(struct lys_yin_parser_ctx *ctx, uint32_t *max, uint16_t *f
 
     if (strcmp(temp_val, "unbounded")) {
         errno = 0;
-        num = strtoull(temp_val, &ptr, LY_BASE_DEC);
+        num = strtoul(temp_val, &ptr, LY_BASE_DEC);
         if (*ptr != '\0') {
             LOGVAL_PARSER((struct lys_parser_ctx *)ctx, LY_VCODE_INVAL_YIN, temp_val, "value", "max-elements");
             lydict_remove(ctx->xmlctx->ctx, temp_val);
@@ -1339,7 +1339,7 @@ yin_parse_minelements(struct lys_yin_parser_ctx *ctx, uint32_t *min, uint16_t *f
 {
     const char *temp_val = NULL;
     char *ptr;
-    unsigned long long int num;
+    unsigned long int num;
     struct yin_subelement subelems[] = {
         {LY_STMT_EXTENSION_INSTANCE, NULL, 0},
     };
@@ -1355,7 +1355,7 @@ yin_parse_minelements(struct lys_yin_parser_ctx *ctx, uint32_t *min, uint16_t *f
     }
 
     errno = 0;
-    num = strtoull(temp_val, &ptr, LY_BASE_DEC);
+    num = strtoul(temp_val, &ptr, LY_BASE_DEC);
     if (ptr[0] != 0) {
         LOGVAL_PARSER((struct lys_parser_ctx *)ctx, LY_VCODE_INVAL_YIN, temp_val, "value", "min-elements");
         lydict_remove(ctx->xmlctx->ctx, temp_val);
@@ -1619,9 +1619,9 @@ yin_parse_typedef(struct lys_yin_parser_ctx *ctx, struct tree_node_meta *typedef
     LY_CHECK_RET(yin_parse_content(ctx, subelems, ly_sizeofarray(subelems), LY_STMT_TYPEDEF, NULL, &tpdf->exts));
 
     /* store data for collision check */
-    if (typedef_meta->parent) {
-        assert(ctx->main_ctx);
-        LY_CHECK_RET(ly_set_add(&ctx->main_ctx->tpdfs_nodes, typedef_meta->parent, 0, NULL));
+    if (typedef_meta->parent && !(typedef_meta->parent->nodetype & (LYS_GROUPING | LYS_RPC | LYS_ACTION | LYS_INPUT |
+            LYS_OUTPUT | LYS_NOTIF))) {
+        LY_CHECK_RET(ly_set_add(&ctx->tpdfs_nodes, typedef_meta->parent, 0, NULL));
     }
 
     return LY_SUCCESS;
@@ -2327,12 +2327,6 @@ yin_parse_grouping(struct lys_yin_parser_ctx *ctx, struct tree_node_meta *gr_met
     ret = yin_parse_content(ctx, subelems, subelems_size, LY_STMT_GROUPING, NULL, &grp->exts);
     subelems_deallocator(subelems_size, subelems);
 
-    /* store data for collision check */
-    if (!ret && grp->parent) {
-        assert(ctx->main_ctx);
-        LY_CHECK_RET(ly_set_add(&ctx->main_ctx->grps_nodes, grp->parent, 0, NULL));
-    }
-
     return ret;
 }
 
@@ -2869,11 +2863,6 @@ yin_check_relative_order(struct lys_yin_parser_ctx *ctx, enum ly_stmt kw, enum l
     assert(parrent == LY_STMT_MODULE || parrent == LY_STMT_SUBMODULE);
     enum yang_module_stmt gr, next_gr;
 
-    if (kw == LY_STMT_EXTENSION_INSTANCE) {
-        /* no order defined */
-        return LY_SUCCESS;
-    }
-
     LY_CHECK_RET(kw2kw_group(ctx, kw, &gr));
     LY_CHECK_RET(kw2kw_group(ctx, next_kw, &next_gr));
 
@@ -3338,7 +3327,7 @@ yin_parse_content(struct lys_yin_parser_ctx *ctx, struct yin_subelement *subelem
             }
             if (subelem->flags & YIN_SUBELEM_VER2) {
                 /* subelement is supported only in version 1.1 or higher */
-                if (PARSER_CUR_PMOD(ctx)->version < LYS_VERSION_1_1) {
+                if (ctx->parsed_mod->version < LYS_VERSION_1_1) {
                     LOGVAL_PARSER((struct lys_parser_ctx *)ctx, LY_VCODE_INSUBELEM2, ly_stmt2str(kw), ly_stmt2str(current_element));
                     ret = LY_EVALID;
                     goto cleanup;
@@ -3440,9 +3429,9 @@ yin_parse_content(struct lys_yin_parser_ctx *ctx, struct yin_subelement *subelem
                 ret = yin_parse_import(ctx, (struct import_meta *)subelem->dest);
                 break;
             case LY_STMT_INCLUDE:
-                if ((current_element == LY_STMT_SUBMODULE) && (PARSER_CUR_PMOD(ctx)->version == LYS_VERSION_1_1)) {
+                if ((current_element == LY_STMT_SUBMODULE) && (ctx->parsed_mod->version == LYS_VERSION_1_1)) {
                     LOGWRN(PARSER_CTX(ctx), "YANG version 1.1 expects all includes in main module, includes in submodules (%s) are not necessary.",
-                            ((struct lysp_submodule *)PARSER_CUR_PMOD(ctx))->name);
+                            ((struct lysp_submodule *)(ctx->parsed_mod))->name);
                 }
                 ret = yin_parse_include(ctx, (struct include_meta *)subelem->dest);
                 break;
@@ -3711,23 +3700,22 @@ yin_parse_submodule(struct lys_yin_parser_ctx **yin_ctx, struct ly_ctx *ctx, str
     LY_ERR ret = LY_SUCCESS;
     struct lysp_submodule *mod_p = NULL;
 
-    assert(yin_ctx && ctx && main_ctx && in && submod);
-
     /* create context */
     *yin_ctx = calloc(1, sizeof **yin_ctx);
     LY_CHECK_ERR_RET(!(*yin_ctx), LOGMEM(ctx), LY_EMEM);
     (*yin_ctx)->format = LYS_IN_YIN;
-    (*yin_ctx)->main_ctx = main_ctx;
+    (*yin_ctx)->unres = main_ctx->unres;
     LY_CHECK_RET(lyxml_ctx_new(ctx, in, &(*yin_ctx)->xmlctx));
 
     mod_p = calloc(1, sizeof *mod_p);
     LY_CHECK_ERR_GOTO(!mod_p, LOGMEM(ctx); ret = LY_EMEM, cleanup);
-    mod_p->mod = PARSER_CUR_PMOD(main_ctx)->mod;
+    mod_p->mod = main_ctx->parsed_mod->mod;
     mod_p->parsing = 1;
+    (*yin_ctx)->parsed_mod = (struct lysp_module *)mod_p;
 
-    /* use main context parsed mods adding the current one */
-    (*yin_ctx)->parsed_mods = main_ctx->parsed_mods;
-    ly_set_add((*yin_ctx)->parsed_mods, mod_p, 1, NULL);
+    /* map the typedefs and groupings list from main context to the submodule's context */
+    memcpy(&(*yin_ctx)->tpdfs_nodes, &main_ctx->tpdfs_nodes, sizeof main_ctx->tpdfs_nodes);
+    memcpy(&(*yin_ctx)->grps_nodes, &main_ctx->grps_nodes, sizeof main_ctx->grps_nodes);
 
     /* check submodule */
     kw = yin_match_keyword(*yin_ctx, (*yin_ctx)->xmlctx->name, (*yin_ctx)->xmlctx->name_len, (*yin_ctx)->xmlctx->prefix,
@@ -3772,7 +3760,7 @@ cleanup:
 }
 
 LY_ERR
-yin_parse_module(struct lys_yin_parser_ctx **yin_ctx, struct ly_in *in, struct lys_module *mod)
+yin_parse_module(struct lys_yin_parser_ctx **yin_ctx, struct ly_in *in, struct lys_module *mod, struct lys_glob_unres *unres)
 {
     LY_ERR ret = LY_SUCCESS;
     enum ly_stmt kw = LY_STMT_NONE;
@@ -3782,14 +3770,14 @@ yin_parse_module(struct lys_yin_parser_ctx **yin_ctx, struct ly_in *in, struct l
     *yin_ctx = calloc(1, sizeof **yin_ctx);
     LY_CHECK_ERR_RET(!(*yin_ctx), LOGMEM(mod->ctx), LY_EMEM);
     (*yin_ctx)->format = LYS_IN_YIN;
-    LY_CHECK_ERR_RET(ly_set_new(&(*yin_ctx)->parsed_mods), free(*yin_ctx); LOGMEM(mod->ctx), LY_EMEM);
+    (*yin_ctx)->unres = unres;
     LY_CHECK_RET(lyxml_ctx_new(mod->ctx, in, &(*yin_ctx)->xmlctx));
-    (*yin_ctx)->main_ctx = (struct lys_parser_ctx *)(*yin_ctx);
 
     mod_p = calloc(1, sizeof *mod_p);
     LY_CHECK_ERR_GOTO(!mod_p, LOGMEM(mod->ctx), cleanup);
     mod_p->mod = mod;
-    ly_set_add((*yin_ctx)->parsed_mods, mod_p, 1, NULL);
+    mod_p->parsing = 1;
+    (*yin_ctx)->parsed_mod = mod_p;
 
     /* check module */
     kw = yin_match_keyword(*yin_ctx, (*yin_ctx)->xmlctx->name, (*yin_ctx)->xmlctx->name_len, (*yin_ctx)->xmlctx->prefix,
@@ -3822,6 +3810,7 @@ yin_parse_module(struct lys_yin_parser_ctx **yin_ctx, struct ly_in *in, struct l
         goto cleanup;
     }
 
+    mod_p->parsing = 0;
     mod->parsed = mod_p;
 
 cleanup:

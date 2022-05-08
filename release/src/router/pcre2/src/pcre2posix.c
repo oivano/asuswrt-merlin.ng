@@ -148,6 +148,7 @@ static const int eint2[] = {
   37, REG_EESCAPE, /* PCRE2 does not support \L, \l, \N{name}, \U, or \u */
   56, REG_INVARG,  /* internal error: unknown newline setting */
   92, REG_INVARG,  /* invalid option bits with PCRE2_LITERAL */
+  99, REG_EESCAPE  /* \K in lookaround */
 };
 
 /* Table of texts corresponding to POSIX error codes */
@@ -366,6 +367,8 @@ pcre2_regexec(const regex_t *preg, const char *string, size_t nmatch,
 int rc, so, eo;
 int options = 0;
 pcre2_match_data *md = (pcre2_match_data *)preg->re_match_data;
+
+if (string == NULL) return REG_INVARG;
 
 if ((eflags & REG_NOTBOL) != 0) options |= PCRE2_NOTBOL;
 if ((eflags & REG_NOTEOL) != 0) options |= PCRE2_NOTEOL;

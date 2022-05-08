@@ -12,10 +12,13 @@
  *     https://opensource.org/licenses/BSD-3-Clause
  */
 
-#define _GNU_SOURCE /* strdup */
+#define _GNU_SOURCE /* asprintf, strdup */
+#include <sys/cdefs.h>
 
 #include "plugins_types.h"
 
+#include <arpa/inet.h>
+#include <assert.h>
 #include <ctype.h>
 #include <errno.h>
 #include <stdint.h>
@@ -35,7 +38,6 @@
  * | Size (B) | Mandatory | Type | Meaning |
  * | :------  | :-------: | :--: | :-----: |
  * | 8        | yes | `time_t *` | UNIX timestamp |
- * | 1        | no | `int8_t *` | flag whether the value is in the special -00:00 unknown timezone or not |
  * | string length | no | `char *` | string with the fraction digits of a second |
  */
 
@@ -53,7 +55,6 @@ lyplg_type_store_date_and_time(const struct ly_ctx *ctx, const struct lysc_type 
     LY_ERR ret = LY_SUCCESS;
     struct lysc_type_str *type_dat = (struct lysc_type_str *)type;
     struct lyd_value_date_and_time *val;
-    struct tm tm;
     uint32_t i;
     char c;
 
@@ -70,7 +71,7 @@ lyplg_type_store_date_and_time(const struct ly_ctx *ctx, const struct lysc_type 
                     "(expected at least 8).", value_len);
             goto cleanup;
         }
-        for (i = 9; i < value_len; ++i) {
+        for (i = 8; i < value_len; ++i) {
             c = ((char *)value)[i];
             if (!isdigit(c)) {
                 ret = ly_err_new(err, LY_EVALID, LYVE_DATA, NULL, NULL, "Invalid LYB date-and-time character '%c' "
@@ -83,14 +84,9 @@ lyplg_type_store_date_and_time(const struct ly_ctx *ctx, const struct lysc_type 
         memcpy(&val->time, value, sizeof val->time);
 
         /* store fractions of second */
-        if (value_len > 9) {
-            val->fractions_s = strndup(((char *)value) + 9, value_len - 9);
-            LY_CHECK_ERR_GOTO(!val->fractions_s, ret = LY_EMEM, cleanup);
-        }
-
-        /* store unknown timezone */
         if (value_len > 8) {
-            val->unknown_tz = *(((int8_t *)value) + 8) ? 1 : 0;
+            val->fractions_s = strndup(((char *)value) + 8, value_len - 8);
+            LY_CHECK_ERR_GOTO(!val->fractions_s, ret = LY_EMEM, cleanup);
         }
 
         /* success */
@@ -114,33 +110,6 @@ lyplg_type_store_date_and_time(const struct ly_ctx *ctx, const struct lysc_type 
     /* pattern validation succeeded, convert to UNIX time and fractions of second */
     ret = ly_time_str2time(value, &val->time, &val->fractions_s);
     LY_CHECK_GOTO(ret, cleanup);
-
-#ifdef HAVE_TIME_H_TIMEZONE
-    if (!strncmp(((char *)value + value_len) - 6, "-00:00", 6)) {
-        /* unknown timezone, move the timestamp to UTC */
-        tzset();
-        val->time += timezone;
-        val->unknown_tz = 1;
-
-        if (daylight) {
-            /* DST may apply, adjust accordingly */
-            if (!localtime_r(&val->time, &tm)) {
-                ret = ly_err_new(err, LY_ESYS, LYVE_DATA, NULL, NULL, "localtime_r() call failed (%s).", strerror(errno));
-                goto cleanup;
-            } else if (tm.tm_isdst < 0) {
-                ret = ly_err_new(err, LY_EINT, LYVE_DATA, NULL, NULL, "Failed to get DST information.");
-                goto cleanup;
-            }
-            if (tm.tm_isdst) {
-                /* move an hour back */
-                val->time -= 3600;
-            }
-        }
-    }
-#else
-    (void)tm;
-    val->unknown_tz = 1;
-#endif
 
     if (format == LY_VALUE_CANON) {
         /* store canonical value */
@@ -180,8 +149,8 @@ lyplg_type_compare_date_and_time(const struct lyd_value *val1, const struct lyd_
     LYD_VALUE_GET(val1, v1);
     LYD_VALUE_GET(val2, v2);
 
-    /* compare timestamp and unknown tz */
-    if ((v1->time != v2->time) || (v1->unknown_tz != v2->unknown_tz)) {
+    /* compare timestamp */
+    if (v1->time != v2->time) {
         return LY_ENOT;
     }
 
@@ -206,19 +175,16 @@ lyplg_type_print_date_and_time(const struct ly_ctx *ctx, const struct lyd_value 
     LYD_VALUE_GET(value, val);
 
     if (format == LY_VALUE_LYB) {
-        if (val->unknown_tz || val->fractions_s) {
-            ret = malloc(8 + 1 + (val->fractions_s ? strlen(val->fractions_s) : 0));
+        if (val->fractions_s) {
+            ret = malloc(8 + strlen(val->fractions_s));
             LY_CHECK_ERR_RET(!ret, LOGMEM(ctx), NULL);
 
             *dynamic = 1;
             if (value_len) {
-                *value_len = 8 + 1 + (val->fractions_s ? strlen(val->fractions_s) : 0);
+                *value_len = 8 + strlen(val->fractions_s);
             }
             memcpy(ret, &val->time, sizeof val->time);
-            memcpy(ret + 8, &val->unknown_tz, sizeof val->unknown_tz);
-            if (val->fractions_s) {
-                memcpy(ret + 9, val->fractions_s, strlen(val->fractions_s));
-            }
+            memcpy(ret + 8, val->fractions_s, strlen(val->fractions_s));
         } else {
             *dynamic = 0;
             if (value_len) {
@@ -234,11 +200,6 @@ lyplg_type_print_date_and_time(const struct ly_ctx *ctx, const struct lyd_value 
         /* get the canonical value */
         if (ly_time_time2str(val->time, val->fractions_s, &ret)) {
             return NULL;
-        }
-
-        if (val->unknown_tz) {
-            /* date and time is correct, fix only the timezone */
-            strcpy((ret + strlen(ret)) - 6, "-00:00");
         }
 
         /* store it */
@@ -270,7 +231,7 @@ lyplg_type_dup_date_and_time(const struct ly_ctx *ctx, const struct lyd_value *o
     memset(dup, 0, sizeof *dup);
 
     /* optional canonical value */
-    ret = lydict_insert(ctx, original->_canonical, 0, &dup->_canonical);
+    ret = lydict_insert(ctx, original->_canonical, ly_strlen(original->_canonical), &dup->_canonical);
     LY_CHECK_GOTO(ret, error);
 
     /* allocate value */
@@ -279,9 +240,8 @@ lyplg_type_dup_date_and_time(const struct ly_ctx *ctx, const struct lyd_value *o
 
     LYD_VALUE_GET(original, orig_val);
 
-    /* copy timestamp and unknown tz */
+    /* copy timestamp */
     dup_val->time = orig_val->time;
-    dup_val->unknown_tz = orig_val->unknown_tz;
 
     /* duplicate second fractions */
     if (orig_val->fractions_s) {
@@ -306,7 +266,6 @@ lyplg_type_free_date_and_time(const struct ly_ctx *ctx, struct lyd_value *value)
     struct lyd_value_date_and_time *val;
 
     lydict_remove(ctx, value->_canonical);
-    value->_canonical = NULL;
     LYD_VALUE_GET(value, val);
     if (val) {
         free(val->fractions_s);
@@ -334,8 +293,7 @@ const struct lyplg_type_record plugins_date_and_time[] = {
         .plugin.sort = NULL,
         .plugin.print = lyplg_type_print_date_and_time,
         .plugin.duplicate = lyplg_type_dup_date_and_time,
-        .plugin.free = lyplg_type_free_date_and_time,
-        .plugin.lyb_data_len = -1,
+        .plugin.free = lyplg_type_free_date_and_time
     },
     {0}
 };

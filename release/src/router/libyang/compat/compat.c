@@ -24,9 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifndef _MSC_VER
 #include <sys/time.h>
-#endif
 #include <time.h>
 #include <unistd.h>
 
@@ -202,7 +200,6 @@ get_current_dir_name(void)
 
 #endif
 
-#ifndef _MSC_VER
 #ifndef HAVE_PTHREAD_MUTEX_TIMEDLOCK
 int
 pthread_mutex_timedlock(pthread_mutex_t *mutex, const struct timespec *abstime)
@@ -250,98 +247,4 @@ pthread_mutex_timedlock(pthread_mutex_t *mutex, const struct timespec *abstime)
     return rc;
 }
 
-#endif
-#endif
-
-#ifndef HAVE_REALPATH
-#ifdef _WIN32
-char *
-realpath(const char *path, char *resolved_path)
-{
-    char *resolved = _fullpath(resolved_path, path, PATH_MAX);
-
-    if ((_access(resolved, 0) == -1) && (errno == ENOENT)) {
-        return NULL;
-    }
-    return resolved;
-}
-
-#else
-#error No realpath() implementation for this platform is available.
-#endif
-#endif
-
-#ifndef HAVE_LOCALTIME_R
-#ifdef _WIN32
-struct tm *
-localtime_r(const time_t *timep, struct tm *result)
-{
-    errno_t res = localtime_s(result, timep);
-
-    if (res) {
-        return NULL;
-    } else {
-        return result;
-    }
-}
-
-#else
-#error No localtime_r() implementation for this platform is available.
-#endif
-#endif
-
-#ifndef HAVE_GMTIME_R
-#ifdef _WIN32
-struct tm *
-gmtime_r(const time_t *timep, struct tm *result)
-{
-    errno_t res = gmtime_s(result, timep);
-
-    if (res) {
-        return NULL;
-    } else {
-        return result;
-    }
-}
-
-#else
-#error No gmtime_r() implementation for this platform is available.
-#endif
-#endif
-
-#ifndef HAVE_DIRNAME
-#ifdef _WIN32
-#include <shlwapi.h>
-char *
-dirname(char *path)
-{
-    PathRemoveFileSpecA(path);
-    return path;
-}
-
-#else
-#error No dirname() implementation for this platform is available.
-#endif
-#endif
-
-#ifndef HAVE_SETENV
-#ifdef _WIN32
-int
-setenv(const char *name, const char *value, int overwrite)
-{
-    int errcode = 0;
-
-    if (!overwrite) {
-        size_t envsize = 0;
-        errcode = getenv_s(&envsize, NULL, 0, name);
-        if (errcode || envsize) {
-            return errcode;
-        }
-    }
-    return _putenv_s(name, value);
-}
-
-#else
-#error No setenv() implementation for this platform is available.
-#endif
 #endif

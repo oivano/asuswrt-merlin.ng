@@ -38,9 +38,9 @@ cmd_add_help(void)
             "                  even search in the module directory (all modules must be \n"
             "                  explicitly specified).\n"
             "  -F FEATURES, --features=FEATURES\n"
-            "                  Features to support, default all in all implemented modules.\n"
+            "                  Features to support, default all.\n"
             "                  <modname>:[<feature>,]*\n"
-            "  -i, --make-implemented\n"
+            "  -i, --makeimplemented\n"
             "                  Make the imported modules \"referenced\" from any loaded\n"
             "                  <schema> module also implemented. If specified a second time,\n"
             "                  all the modules are set implemented.\n");
@@ -56,7 +56,7 @@ cmd_add(struct ly_ctx **ctx, const char *cmdline)
         {"disable-searchdir", no_argument, NULL, 'D'},
         {"features", required_argument, NULL, 'F'},
         {"help", no_argument, NULL, 'h'},
-        {"make-implemented", no_argument, NULL, 'i'},
+        {"makeimplemented", no_argument, NULL, 'i'},
         {NULL, 0, NULL, 0}
     };
     uint16_t options_ctx = 0;
@@ -90,7 +90,7 @@ cmd_add(struct ly_ctx **ctx, const char *cmdline)
             cmd_add_help();
             goto cleanup;
 
-        case 'i': /* --make-implemented */
+        case 'i': /* --makeimplemented */
             if (options_ctx & LY_CTX_REF_IMPLEMENTED) {
                 options_ctx &= ~LY_CTX_REF_IMPLEMENTED;
                 options_ctx |= LY_CTX_ALL_IMPLEMENTED;
@@ -109,11 +109,6 @@ cmd_add(struct ly_ctx **ctx, const char *cmdline)
         /* no argument */
         cmd_add_help();
         goto cleanup;
-    }
-
-    if (!fset.count) {
-        /* no features, enable all of them */
-        options_ctx |= LY_CTX_ENABLE_IMP_FEATURES;
     }
 
     if (options_ctx) {

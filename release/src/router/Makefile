@@ -4457,19 +4457,19 @@ libyang-clean:
 	if [ -e "$(TOP)/libyang/build/Makefile" ]; then $(MAKE) -C libyang/build clean ; fi
 
 libyang/build/Makefile: zlib openssl pcre2
-	ls $(TOP)/pcre2/.libs/
 	rm -f $(TOP)/libyang/CMakeCache.txt
 	@rm -rf libyang/build && mkdir -p libyang/build
 	cd libyang/build && \
 	$(call CMAKE_CrossOptions, crosscompiled.cmake) && \
 	cmake -DCMAKE_TOOLCHAIN_FILE=crosscompiled.cmake \
 		-DCMAKE_INSTALL_PREFIX:PATH=/usr \
-		-DPCRE2_LIBRARY=$(TOP)/pcre2/.libs\libpcre2-8.a \
-		-DPCRE2_INCLUDE_DIR=$(TOP)/pcre2/src \
-		-DENABLE_LYD_PRIV=ON \
+		-DCMAKE_SKIP_RPATH=TRUE \
+		-DPCRE2_LIBRARIES=$(TOP)/pcre2/.libs/libpcre2-8.a \
+		-DPCRE2_INCLUDE_DIRS=$(TOP)/pcre2/src \
 		-DCMAKE_FIND_ROOT_PATH=crosscompiled.cmake \
-		-DCMAKE_INCLUDE_PATH="$(STAGEDIR)/usr/include" \
-		-DCMAKE_BUILD_TYPE:String="Release -Wno-dev" \
+		-DCMAKE_BUILD_TYPE:String="Release" \
+		-DENABLE_LYD_PRIV=ON \
+		-DCMAKE_C_FLAGS="$(CFLAGS) -DNDEBUG -ffunction-sections -fdata-sections -std=gnu99 -I$(STAGEDIR)/usr/include" \
 		..
 
 libyang: zlib openssl pcre2 libyang/build/Makefile
@@ -6298,8 +6298,8 @@ pcre-8.31-clean:
 
 pcre2/stamp-h1:
 	cd pcre2 && autoreconf -i -f && \
-	CC=$(CC) CXX=$(CXX) AR=$(AR) RANLIB=$(RANLIB) LD=$(LD) CFLAGS="-Os -Wall -DNEED_PRINTF" LIBS="$(EXTRALDFLAGS)" \
-	$(CONFIGURE) --prefix=/usr --bindir=/usr/sbin --libdir=/usr/lib --disable-shared \
+	CC=$(CC) CXX=$(CXX) AR=$(AR) RANLIB=$(RANLIB) LD=$(LD) CFLAGS="-Os -Wall -DNEED_PRINTF -std=gnu99" LIBS="$(EXTRALDFLAGS)" \
+	$(CONFIGURE) --prefix=/usr --bindir=/usr/sbin --libdir=/usr/lib \
 	touch $@
 	[ -d pcre2/m4 ] || mkdir pcre2/m4
 
@@ -6308,14 +6308,14 @@ pcre2: pcre2/stamp-h1
 pcre2-install: pcre2
 	@$(SEP)
 	ls $(TOP)/pcre2/.libs/
-	install -D pcre2/.libs/libpcre2-8.so.0.10.2 $(INSTALLDIR)/pcre2/usr/lib/libpcre2-8.so.0.10.2
-	cd $(INSTALLDIR)/pcre2/usr/lib && ln -sf libpcre2-8.so.0.10.2 libpcre2-8.so.0
-	cd $(INSTALLDIR)/pcre2/usr/lib && ln -sf libpcre2-8.so.0.10.2 libpcre2-8.so
-	$(STRIP) -s $(INSTALLDIR)/pcre2/usr/lib/libpcre2-8.so.0.10.2
-	install -D pcre2/.libs/libpcre2-posix.so.3.0.0 $(INSTALLDIR)/pcre2/usr/lib/libpcre2-posix.so.3.0.0
-	cd $(INSTALLDIR)/pcre2/usr/lib && ln -sf libpcre2-posix.so.3.0.0 libpcre2-posix.so.3
-	cd $(INSTALLDIR)/pcre2/usr/lib && ln -sf libpcre2-posix.so.3.0.0 libpcre2-posix.so
-	$(STRIP) -s $(INSTALLDIR)/pcre2/usr/lib/libpcre2-posix.so.3.0.0
+	install -D pcre2/.libs/libpcre2-8.so.11.0.11 $(INSTALLDIR)/pcre2/usr/lib/libpcre2-8.so.11.0.11
+	cd $(INSTALLDIR)/pcre2/usr/lib && ln -sf libpcre2-8.so.11.0.11 libpcre2-8.so.0
+	cd $(INSTALLDIR)/pcre2/usr/lib && ln -sf libpcre2-8.so.11.0.11 libpcre2-8.so
+	$(STRIP) -s $(INSTALLDIR)/pcre2/usr/lib/libpcre2-8.so.11.0.11
+	install -D pcre2/.libs/libpcre2-posix.so.3.2.0 $(INSTALLDIR)/pcre2/usr/lib/libpcre2-posix.so.3.2.0
+	cd $(INSTALLDIR)/pcre2/usr/lib && ln -sf libpcre2-posix.so.3.2.0 libpcre2-posix.so.3
+	cd $(INSTALLDIR)/pcre2/usr/lib && ln -sf libpcre2-posix.so.3.2.0 libpcre2-posix.so
+	$(STRIP) -s $(INSTALLDIR)/pcre2/usr/lib/libpcre2-posix.so.3.2.0
 
 pcre2-clean:
 	-@$(MAKE) -C pcre2 clean

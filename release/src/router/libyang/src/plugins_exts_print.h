@@ -17,8 +17,6 @@
 
 #include <stdint.h>
 
-#include "config.h"
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -49,21 +47,21 @@ struct lyspr_ctx;
  * @return Output handler where the data are being printed. Note that the address of the handler pointer in the context is
  * returned to allow to modify the handler.
  */
-LIBYANG_API_DECL struct ly_out **lys_ypr_ctx_get_out(const struct lyspr_ctx *ctx);
+struct ly_out **lys_ypr_ctx_get_out(const struct lyspr_ctx *ctx);
 
 /**
  * @brief YANG printer context getter for printer options.
  * @param[in] ctx YANG printer context.
  * @return pointer to the printer options to allow modifying them with @ref schemaprinterflags values.
  */
-LIBYANG_API_DECL uint32_t *lys_ypr_ctx_get_options(const struct lyspr_ctx *ctx);
+uint32_t *lys_ypr_ctx_get_options(const struct lyspr_ctx *ctx);
 
 /**
  * @brief YANG printer context getter for printer indentation level.
  * @param[in] ctx YANG printer context.
  * @return pointer to the printer's indentation level to allow modifying its value.
  */
-LIBYANG_API_DECL uint16_t *lys_ypr_ctx_get_level(const struct lyspr_ctx *ctx);
+uint16_t *lys_ypr_ctx_get_level(const struct lyspr_ctx *ctx);
 
 /**
  * @brief Print substatements of an extension instance
@@ -75,7 +73,7 @@ LIBYANG_API_DECL uint16_t *lys_ypr_ctx_get_level(const struct lyspr_ctx *ctx);
  * @param[in, out] flag Flag to be shared with the caller regarding the opening brackets - 0 if the '{' not yet printed,
  * 1 otherwise.
  */
-LIBYANG_API_DECL void lysc_print_extension_instance(struct lyspr_ctx *ctx, const struct lysc_ext_instance *ext, ly_bool *flag);
+void lysc_print_extension_instance(struct lyspr_ctx *ctx, const struct lysc_ext_instance *ext, ly_bool *flag);
 
 /** @} pluginsExtensionsPrint */
 

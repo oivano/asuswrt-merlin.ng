@@ -172,10 +172,9 @@ const struct lyplg_ext_record plugins_yangdata[] = {
 
         .plugin.id = "libyang 2 - yang-data, version 1",
         .plugin.compile = &yangdata_compile,
+        .plugin.validate = NULL,
         .plugin.sprinter = &yangdata_schema_printer,
-        .plugin.free = yangdata_free,
-        .plugin.snode = NULL,
-        .plugin.validate = NULL
+        .plugin.free = yangdata_free
     },
     {0}     /* terminating zeroed record */
 };

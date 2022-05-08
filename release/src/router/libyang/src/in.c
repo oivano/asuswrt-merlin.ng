@@ -50,24 +50,14 @@
 #include "tree_schema.h"
 #include "tree_schema_internal.h"
 
-LIBYANG_API_DEF LY_IN_TYPE
+API LY_IN_TYPE
 ly_in_type(const struct ly_in *in)
 {
     LY_CHECK_ARG_RET(NULL, in, LY_IN_ERROR);
     return in->type;
 }
 
-LIBYANG_API_DEF LY_ERR
-ly_in_reset(struct ly_in *in)
-{
-    LY_CHECK_ARG_RET(NULL, in, LY_EINVAL);
-
-    in->current = in->func_start = in->start;
-    in->line = 1;
-    return LY_SUCCESS;
-}
-
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 ly_in_new_fd(int fd, struct ly_in **in)
 {
     size_t length;
@@ -93,7 +83,7 @@ ly_in_new_fd(int fd, struct ly_in **in)
     return LY_SUCCESS;
 }
 
-LIBYANG_API_DEF int
+API int
 ly_in_fd(struct ly_in *in, int fd)
 {
     int prev_fd;
@@ -122,7 +112,7 @@ ly_in_fd(struct ly_in *in, int fd)
     return prev_fd;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 ly_in_new_file(FILE *f, struct ly_in **in)
 {
     LY_CHECK_ARG_RET(NULL, f, in, LY_EINVAL);
@@ -136,7 +126,7 @@ ly_in_new_file(FILE *f, struct ly_in **in)
     return LY_SUCCESS;
 }
 
-LIBYANG_API_DEF FILE *
+API FILE *
 ly_in_file(struct ly_in *in, FILE *f)
 {
     FILE *prev_f;
@@ -163,7 +153,7 @@ ly_in_file(struct ly_in *in, FILE *f)
     return prev_f;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 ly_in_new_memory(const char *str, struct ly_in **in)
 {
     LY_CHECK_ARG_RET(NULL, str, in, LY_EINVAL);
@@ -178,7 +168,7 @@ ly_in_new_memory(const char *str, struct ly_in **in)
     return LY_SUCCESS;
 }
 
-LIBYANG_API_DEF const char *
+API const char *
 ly_in_memory(struct ly_in *in, const char *str)
 {
     const char *data;
@@ -195,7 +185,17 @@ ly_in_memory(struct ly_in *in, const char *str)
     return data;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
+ly_in_reset(struct ly_in *in)
+{
+    LY_CHECK_ARG_RET(NULL, in, LY_EINVAL);
+
+    in->current = in->func_start = in->start;
+    in->line = 1;
+    return LY_SUCCESS;
+}
+
+API LY_ERR
 ly_in_new_filepath(const char *filepath, size_t len, struct ly_in **in)
 {
     LY_ERR ret;
@@ -224,7 +224,7 @@ ly_in_new_filepath(const char *filepath, size_t len, struct ly_in **in)
     return LY_SUCCESS;
 }
 
-LIBYANG_API_DEF const char *
+API const char *
 ly_in_filepath(struct ly_in *in, const char *filepath, size_t len)
 {
     int fd, prev_fd;
@@ -291,14 +291,6 @@ lys_parser_fill_filepath(struct ly_ctx *ctx, struct ly_in *in, const char **file
         if (fcntl(in->method.fd, F_GETPATH, path) != -1) {
             lydict_insert(ctx, path, 0, filepath);
         }
-#elif defined _WIN32
-        HANDLE h = _get_osfhandle(in->method.fd);
-        FILE_NAME_INFO info;
-        if (GetFileInformationByHandleEx(h, FileNameInfo, &info, sizeof info)) {
-            char *buf = calloc(info.FileNameLength + 1 /* trailing NULL */, MB_CUR_MAX);
-            len = wcstombs(buf, info.FileName, info.FileNameLength * MB_CUR_MAX);
-            lydict_insert(ctx, buf, len, filepath);
-        }
 #else
         /* get URI if there is /proc */
         sprintf(proc_path, "/proc/self/fd/%d", in->method.fd);
@@ -318,13 +310,7 @@ lys_parser_fill_filepath(struct ly_ctx *ctx, struct ly_in *in, const char **file
 
 }
 
-LIBYANG_API_DEF size_t
-ly_in_parsed(const struct ly_in *in)
-{
-    return in->current - in->func_start;
-}
-
-LIBYANG_API_DEF void
+API void
 ly_in_free(struct ly_in *in, ly_bool destroy)
 {
     if (!in) {
@@ -370,11 +356,15 @@ ly_in_read(struct ly_in *in, void *buf, size_t count)
         return LY_EDENIED;
     }
 
-    if (count) {
-        memcpy(buf, in->current, count);
-    }
+    memcpy(buf, in->current, count);
     in->current += count;
     return LY_SUCCESS;
+}
+
+API size_t
+ly_in_parsed(const struct ly_in *in)
+{
+    return in->current - in->func_start;
 }
 
 LY_ERR
@@ -395,7 +385,7 @@ lyd_ctx_free(struct lyd_ctx *lydctx)
     ly_set_erase(&lydctx->node_types, NULL);
     ly_set_erase(&lydctx->meta_types, NULL);
     ly_set_erase(&lydctx->node_when, NULL);
-    ly_set_erase(&lydctx->ext_val, free);
+    ly_set_erase(&lydctx->node_exts, NULL);
 }
 
 LY_ERR
@@ -450,11 +440,6 @@ lyd_parser_check_schema(struct lyd_ctx *lydctx, const struct lysc_node *snode)
     LY_ERR rc = LY_SUCCESS;
 
     LOG_LOCSET(snode, NULL, NULL, NULL);
-
-    if (lydctx->int_opts & LYD_INTOPT_ANY) {
-        /* nothing to check, everything is allowed */
-        goto cleanup;
-    }
 
     if ((lydctx->parse_opts & LYD_PARSE_NO_STATE) && (snode->flags & LYS_CONFIG_R)) {
         LOGVAL(lydctx->data_ctx->ctx, LY_VCODE_UNEXPNODE, "state", snode->name);
@@ -525,7 +510,7 @@ lyd_parser_create_term(struct lyd_ctx *lydctx, const struct lysc_node *schema, c
 LY_ERR
 lyd_parser_create_meta(struct lyd_ctx *lydctx, struct lyd_node *parent, struct lyd_meta **meta, const struct lys_module *mod,
         const char *name, size_t name_len, const void *value, size_t value_len, ly_bool *dynamic, LY_VALUE_FORMAT format,
-        void *prefix_data, uint32_t hints, const struct lysc_node *ctx_node)
+        void *prefix_data, uint32_t hints)
 {
     ly_bool incomplete;
     struct lyd_meta *first = NULL;
@@ -536,7 +521,7 @@ lyd_parser_create_meta(struct lyd_ctx *lydctx, struct lyd_node *parent, struct l
     }
 
     LY_CHECK_RET(lyd_create_meta(parent, meta, mod, name, name_len, value, value_len, dynamic, format, prefix_data,
-            hints, ctx_node, 0, &incomplete));
+            hints, 0, &incomplete));
 
     if (incomplete && !(lydctx->parse_opts & LYD_PARSE_ONLY)) {
         LY_CHECK_RET(ly_set_add(&lydctx->meta_types, *meta, 1, NULL));

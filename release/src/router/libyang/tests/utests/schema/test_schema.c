@@ -18,7 +18,6 @@
 
 #include "log.h"
 #include "parser_schema.h"
-#include "set.h"
 #include "tree_schema.h"
 
 LY_ERR
@@ -43,14 +42,9 @@ test_imp_clb(const char *UNUSED(mod_name), const char *UNUSED(mod_rev), const ch
 void test_getnext(void **state);
 void test_date(void **state);
 void test_revisions(void **state);
-void test_collision_typedef(void **state);
-void test_collision_grouping(void **state);
-void test_collision_identity(void **state);
-void test_collision_feature(void **state);
+void test_typedef(void **state);
 void test_accessible_tree(void **state);
 void test_includes(void **state);
-void test_key_order(void **state);
-void test_disabled_enum(void **state);
 
 /* test_schema_stmts.c */
 void test_identity(void **state);
@@ -68,14 +62,9 @@ main(void)
         UTEST(test_getnext),
         UTEST(test_date),
         UTEST(test_revisions),
-        UTEST(test_collision_typedef),
-        UTEST(test_collision_grouping),
-        UTEST(test_collision_identity),
-        UTEST(test_collision_feature),
+        UTEST(test_typedef),
         UTEST(test_accessible_tree),
         UTEST(test_includes),
-        UTEST(test_key_order),
-        UTEST(test_disabled_enum),
 
         /** test_schema_stmts.c */
         UTEST(test_identity),

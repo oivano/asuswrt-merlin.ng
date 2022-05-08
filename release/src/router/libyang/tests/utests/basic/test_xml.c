@@ -23,6 +23,7 @@
 #include "xml.h"
 
 LY_ERR lyxml_ns_add(struct lyxml_ctx *xmlctx, const char *prefix, size_t prefix_len, char *uri);
+LY_ERR lyxml_ns_rm(struct lyxml_ctx *xmlctx);
 
 static void
 test_element(void **state)
@@ -121,7 +122,7 @@ test_element(void **state)
     ly_in_free(in, 0);
 
     /* headers and comments */
-    str = "<?xml version=\"1.0\"?>  <!-- comment --> <?TEST xxx?> <element/>";
+    str = "<?xml version=\"1.0\"?>  <!-- comment --> <![CDATA[<greeting>Hello, world!</greeting>]]> <?TEST xxx?> <element/>";
     assert_int_equal(LY_SUCCESS, ly_in_new_memory(str, &in));
     assert_int_equal(LY_SUCCESS, lyxml_ctx_new(UTEST_LYCTX, in, &xmlctx));
     assert_int_equal(LYXML_ELEMENT, xmlctx->status);
@@ -438,18 +439,6 @@ test_text(void **state)
     assert_int_equal(LY_SUCCESS, lyxml_ctx_next(xmlctx));
     assert_int_equal(LYXML_ATTR_CONTENT, xmlctx->status);
     assert_true(!strncmp("$¢€𐍈", xmlctx->value, xmlctx->value_len));
-    assert_int_equal(xmlctx->ws_only, 0);
-    assert_int_equal(xmlctx->dynamic, 1);
-    ly_in_free(in, 0);
-
-    /* CDATA value */
-    assert_int_equal(LY_SUCCESS, ly_in_new_memory(">   <![CDATA[    special non-escaped chars <>&\"'  ]]>  </a>", &in));
-    xmlctx->in = in;
-    LOG_LOCINIT(NULL, NULL, NULL, in);
-    xmlctx->status = LYXML_ATTR_CONTENT;
-    assert_int_equal(LY_SUCCESS, lyxml_ctx_next(xmlctx));
-    assert_int_equal(LYXML_ELEM_CONTENT, xmlctx->status);
-    assert_true(!strncmp("       special non-escaped chars <>&\"'    ", xmlctx->value, xmlctx->value_len));
     assert_int_equal(xmlctx->ws_only, 0);
     assert_int_equal(xmlctx->dynamic, 1);
     free((char *)xmlctx->value);

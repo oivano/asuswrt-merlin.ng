@@ -93,7 +93,6 @@
 #include "common.h"
 #include "compat.h"
 #include "out_internal.h"
-#include "printer_schema.h"
 #include "tree_schema_internal.h"
 #include "xpath.h"
 
@@ -181,8 +180,7 @@ struct trt_pck_print {
  */
 typedef enum {
     TRD_INDENT_EMPTY = 0,               /**< If the node is a case node, there is no space before the \<name\>. */
-    TRD_INDENT_LONG_LINE_BREAK = 2,     /**< The new line should be indented so that it starts below \<name\> with
-                                             a whitespace offset of at least two characters. */
+    TRD_INDENT_LONG_LINE_BREAK = 2,     /**< The new line should be indented so that it starts below \<name\> with a whitespace offset of at least two characters. */
     TRD_INDENT_LINE_BEGIN = 2,          /**< Indent below the keyword (module, augment ...).  */
     TRD_INDENT_BTW_SIBLINGS = 2,        /**< Indent between | and | characters. */
     TRD_INDENT_BEFORE_KEYS = 1,         /**< "..."___\<keys\>. */
@@ -728,7 +726,8 @@ typedef const char *(*trt_get_charptr_func)(const struct lysp_node *pn);
  * We don't have to write basically the same algorithm twice
  * for lysp and lysc trees.
  */
-struct tro_getters {
+struct tro_getters
+{
     uint16_t (*nodetype)(const void *);         /**< Get nodetype. */
     const void *(*next)(const void *);          /**< Get sibling. */
     const void *(*parent)(const void *);        /**< Get parent. */
@@ -3974,7 +3973,7 @@ trm_nodeid_target_is_local(const struct lysp_node_augment *pn, const struct lysp
     ly_parse_nodeid(&id, &prefix, &prefix_len, &name, &name_len);
     if (prefix) {
         mod = ly_resolve_prefix(pmod->mod->ctx, prefix, prefix_len, LY_VALUE_SCHEMA, pmod);
-        ret = mod ? (mod->parsed == pmod) : 0;
+        ret = mod->parsed == pmod;
     } else {
         ret = 1;
     }
@@ -4300,8 +4299,7 @@ tree_print_compiled_node(struct ly_out *out, const struct lysc_node *node, uint3
 }
 
 LY_ERR
-tree_print_parsed_submodule(struct ly_out *out, const struct lysp_submodule *submodp, uint32_t UNUSED(options),
-        size_t line_length)
+tree_print_parsed_submodule(struct ly_out *out, const struct lysp_submodule *submodp, uint32_t UNUSED(options), size_t line_length)
 {
     struct trt_printer_ctx pc;
     struct trt_tree_ctx tc;

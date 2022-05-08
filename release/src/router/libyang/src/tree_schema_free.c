@@ -12,7 +12,6 @@
  *     https://opensource.org/licenses/BSD-3-Clause
  */
 
-#include <assert.h>
 #include <stdlib.h>
 
 #include "common.h"
@@ -105,13 +104,13 @@ lysp_include_free_(struct ly_ctx *ctx, struct lysp_include *include, ly_bool mai
 void
 lysp_include_free_submodule(struct ly_ctx *ctx, struct lysp_include *include)
 {
-    lysp_include_free_(ctx, include, 0);
+    return lysp_include_free_(ctx, include, 0);
 }
 
 void
 lysp_include_free(struct ly_ctx *ctx, struct lysp_include *include)
 {
-    lysp_include_free_(ctx, include, 1);
+    return lysp_include_free_(ctx, include, 1);
 }
 
 void
@@ -327,16 +326,6 @@ void
 lysp_node_free(struct ly_ctx *ctx, struct lysp_node *node)
 {
     struct lysp_node *child, *next;
-    struct lysp_node_container *cont;
-    struct lysp_node_leaf *leaf;
-    struct lysp_node_leaflist *llist;
-    struct lysp_node_list *list;
-    struct lysp_node_choice *choice;
-    struct lysp_node_case *cas;
-    struct lysp_node_uses *uses;
-    struct lysp_node_action *act;
-    struct lysp_node_action_inout *inout;
-    struct lysp_node_notif *notif;
     struct lysp_restr *musts = lysp_node_musts(node);
     struct lysp_when *when = lysp_node_when(node);
 
@@ -351,80 +340,56 @@ lysp_node_free(struct ly_ctx *ctx, struct lysp_node *node)
 
     switch (node->nodetype) {
     case LYS_CONTAINER:
-        cont = (struct lysp_node_container *)node;
-
-        lydict_remove(ctx, cont->presence);
-        FREE_ARRAY(ctx, cont->typedefs, lysp_tpdf_free);
-        if (cont->groupings) {
-            LY_LIST_FOR_SAFE(&cont->groupings->node, next, child) {
-                lysp_node_free(ctx, child);
-            }
-        }
-        LY_LIST_FOR_SAFE(cont->child, next, child) {
+        lydict_remove(ctx, ((struct lysp_node_container *)node)->presence);
+        FREE_ARRAY(ctx, ((struct lysp_node_container *)node)->typedefs, lysp_tpdf_free);
+        LY_LIST_FOR_SAFE(&((struct lysp_node_container *)node)->groupings->node, next, child) {
             lysp_node_free(ctx, child);
         }
-        if (cont->actions) {
-            LY_LIST_FOR_SAFE(&cont->actions->node, next, child) {
-                lysp_node_free(ctx, child);
-            }
+        LY_LIST_FOR_SAFE(((struct lysp_node_container *)node)->child, next, child) {
+            lysp_node_free(ctx, child);
         }
-        if (cont->notifs) {
-            LY_LIST_FOR_SAFE(&cont->notifs->node, next, child) {
-                lysp_node_free(ctx, child);
-            }
+        LY_LIST_FOR_SAFE(&((struct lysp_node_container *)node)->actions->node, next, child) {
+            lysp_node_free(ctx, child);
+        }
+        LY_LIST_FOR_SAFE(&((struct lysp_node_container *)node)->notifs->node, next, child) {
+            lysp_node_free(ctx, child);
         }
         break;
     case LYS_LEAF:
-        leaf = (struct lysp_node_leaf *)node;
-
-        lysp_type_free(ctx, &leaf->type);
-        lydict_remove(ctx, leaf->units);
-        lydict_remove(ctx, leaf->dflt.str);
+        lysp_type_free(ctx, &((struct lysp_node_leaf *)node)->type);
+        lydict_remove(ctx, ((struct lysp_node_leaf *)node)->units);
+        lydict_remove(ctx, ((struct lysp_node_leaf *)node)->dflt.str);
         break;
     case LYS_LEAFLIST:
-        llist = (struct lysp_node_leaflist *)node;
-
-        lysp_type_free(ctx, &llist->type);
-        lydict_remove(ctx, llist->units);
-        FREE_ARRAY(ctx, llist->dflts, lysp_qname_free);
+        lysp_type_free(ctx, &((struct lysp_node_leaflist *)node)->type);
+        lydict_remove(ctx, ((struct lysp_node_leaflist *)node)->units);
+        FREE_ARRAY(ctx, ((struct lysp_node_leaflist *)node)->dflts, lysp_qname_free);
         break;
     case LYS_LIST:
-        list = (struct lysp_node_list *)node;
-
-        lydict_remove(ctx, list->key);
-        FREE_ARRAY(ctx, list->typedefs, lysp_tpdf_free);
-        if (list->groupings) {
-            LY_LIST_FOR_SAFE(&list->groupings->node, next, child) {
-                lysp_node_free(ctx, child);
-            }
-        }
-        LY_LIST_FOR_SAFE(list->child, next, child) {
+        lydict_remove(ctx, ((struct lysp_node_list *)node)->key);
+        FREE_ARRAY(ctx, ((struct lysp_node_list *)node)->typedefs, lysp_tpdf_free);
+        LY_LIST_FOR_SAFE(&((struct lysp_node_list *)node)->groupings->node, next, child) {
             lysp_node_free(ctx, child);
         }
-        if (list->actions) {
-            LY_LIST_FOR_SAFE(&list->actions->node, next, child) {
-                lysp_node_free(ctx, child);
-            }
+        LY_LIST_FOR_SAFE(((struct lysp_node_list *)node)->child, next, child) {
+            lysp_node_free(ctx, child);
         }
-        if (list->notifs) {
-            LY_LIST_FOR_SAFE(&list->notifs->node, next, child) {
-                lysp_node_free(ctx, child);
-            }
+        LY_LIST_FOR_SAFE(&((struct lysp_node_list *)node)->actions->node, next, child) {
+            lysp_node_free(ctx, child);
         }
-        FREE_ARRAY(ctx, list->uniques, lysp_qname_free);
+        LY_LIST_FOR_SAFE(&((struct lysp_node_list *)node)->notifs->node, next, child) {
+            lysp_node_free(ctx, child);
+        }
+        FREE_ARRAY(ctx, ((struct lysp_node_list *)node)->uniques, lysp_qname_free);
         break;
     case LYS_CHOICE:
-        choice = (struct lysp_node_choice *)node;
-
-        LY_LIST_FOR_SAFE(choice->child, next, child) {
+        LY_LIST_FOR_SAFE(((struct lysp_node_choice *)node)->child, next, child) {
             lysp_node_free(ctx, child);
         }
-        lydict_remove(ctx, choice->dflt.str);
+        lydict_remove(ctx, ((struct lysp_node_choice *)node)->dflt.str);
         break;
     case LYS_CASE:
-        cas = (struct lysp_node_case *)node;
-
-        LY_LIST_FOR_SAFE(cas->child, next, child) {
+        LY_LIST_FOR_SAFE(((struct lysp_node_case *)node)->child, next, child) {
             lysp_node_free(ctx, child);
         }
         break;
@@ -433,57 +398,41 @@ lysp_node_free(struct ly_ctx *ctx, struct lysp_node *node)
         /* nothing special to do */
         break;
     case LYS_USES:
-        uses = (struct lysp_node_uses *)node;
-
-        FREE_ARRAY(ctx, uses->refines, lysp_refine_free);
-        if (uses->augments) {
-            LY_LIST_FOR_SAFE(&uses->augments->node, next, child) {
-                lysp_node_free(ctx, child);
-            }
+        FREE_ARRAY(ctx, ((struct lysp_node_uses *)node)->refines, lysp_refine_free);
+        LY_LIST_FOR_SAFE(&((struct lysp_node_uses *)node)->augments->node, next, child) {
+            lysp_node_free(ctx, child);
         }
         break;
     case LYS_RPC:
     case LYS_ACTION:
-        act = (struct lysp_node_action *)node;
-
-        FREE_ARRAY(ctx, act->typedefs, lysp_tpdf_free);
-        if (act->groupings) {
-            LY_LIST_FOR_SAFE(&act->groupings->node, next, child) {
-                lysp_node_free(ctx, child);
-            }
+        FREE_ARRAY(ctx, ((struct lysp_node_action *)node)->typedefs, lysp_tpdf_free);
+        LY_LIST_FOR_SAFE(&((struct lysp_node_action *)node)->groupings->node, next, child) {
+            lysp_node_free(ctx, child);
         }
-        if (act->input.nodetype) {
-            lysp_node_free(ctx, &act->input.node);
+        if (((struct lysp_node_action *)node)->input.nodetype) {
+            lysp_node_free(ctx, &((struct lysp_node_action *)node)->input.node);
         }
-        if (act->output.nodetype) {
-            lysp_node_free(ctx, &act->output.node);
+        if (((struct lysp_node_action *)node)->output.nodetype) {
+            lysp_node_free(ctx, &((struct lysp_node_action *)node)->output.node);
         }
         break;
     case LYS_INPUT:
     case LYS_OUTPUT:
-        inout = (struct lysp_node_action_inout *)node;
-
-        FREE_ARRAY(ctx, inout->typedefs, lysp_tpdf_free);
-        if (inout->groupings) {
-            LY_LIST_FOR_SAFE(&inout->groupings->node, next, child) {
-                lysp_node_free(ctx, child);
-            }
+        FREE_ARRAY(ctx, ((struct lysp_node_action_inout *)node)->typedefs, lysp_tpdf_free);
+        LY_LIST_FOR_SAFE(&((struct lysp_node_action_inout *)node)->groupings->node, next, child) {
+            lysp_node_free(ctx, child);
         }
-        LY_LIST_FOR_SAFE(inout->child, next, child) {
+        LY_LIST_FOR_SAFE(((struct lysp_node_action_inout *)node)->child, next, child) {
             lysp_node_free(ctx, child);
         }
         /* do not free the node, it is never standalone but part of the action node */
         return;
     case LYS_NOTIF:
-        notif = (struct lysp_node_notif *)node;
-
-        FREE_ARRAY(ctx, notif->typedefs, lysp_tpdf_free);
-        if (notif->groupings) {
-            LY_LIST_FOR_SAFE(&notif->groupings->node, next, child) {
-                lysp_node_free(ctx, child);
-            }
+        FREE_ARRAY(ctx, ((struct lysp_node_notif *)node)->typedefs, lysp_tpdf_free);
+        LY_LIST_FOR_SAFE(&((struct lysp_node_notif *)node)->groupings->node, next, child) {
+            lysp_node_free(ctx, child);
         }
-        LY_LIST_FOR_SAFE(notif->child, next, child) {
+        LY_LIST_FOR_SAFE(((struct lysp_node_notif *)node)->child, next, child) {
             lysp_node_free(ctx, child);
         }
         break;
@@ -611,89 +560,6 @@ lysc_must_free(struct ly_ctx *ctx, struct lysc_must *must)
     FREE_ARRAY(ctx, must->exts, lysc_ext_instance_free);
 }
 
-static void
-lysc_ident_derived_unlink(const struct lysc_ident *ident)
-{
-    LY_ARRAY_COUNT_TYPE u, v, w;
-    const struct lysp_submodule *submod;
-    const struct lysp_module *base_pmod = NULL;
-    const struct lysp_ident *identp = NULL;
-    const struct lys_module *mod, *iter;
-    const char *base_name;
-    uint32_t i;
-
-    /* find the parsed identity */
-    LY_ARRAY_FOR(ident->module->parsed->identities, u) {
-        if (ident->module->parsed->identities[u].name == ident->name) {
-            identp = &ident->module->parsed->identities[u];
-            base_pmod = ident->module->parsed;
-            break;
-        }
-    }
-    if (!identp) {
-        LY_ARRAY_FOR(ident->module->parsed->includes, v) {
-            submod = ident->module->parsed->includes[v].submodule;
-            LY_ARRAY_FOR(submod->identities, u) {
-                if (submod->identities[u].name == ident->name) {
-                    identp = &submod->identities[u];
-                    base_pmod = (struct lysp_module *)submod;
-                    break;
-                }
-            }
-        }
-    }
-    assert(identp);
-
-    /* remove link from all the foreign bases, it may not be there if identity compilation failed */
-    LY_ARRAY_FOR(identp->bases, u) {
-        base_name = strchr(identp->bases[u], ':');
-        if (!base_name) {
-            continue;
-        }
-
-        /* prefixed identity */
-        mod = ly_resolve_prefix(ident->module->ctx, identp->bases[u], base_name - identp->bases[u], LY_VALUE_SCHEMA,
-                (void *)base_pmod);
-        if (!mod) {
-            continue;
-        }
-        ++base_name;
-
-        i = 0;
-        while ((iter = ly_ctx_get_module_iter(ident->module->ctx, &i))) {
-            if (iter == mod) {
-                break;
-            }
-        }
-        if (!iter) {
-            /* target module was freed already */
-            continue;
-        }
-
-        /* find the compiled base */
-        LY_ARRAY_FOR(mod->identities, v) {
-            if (!strcmp(mod->identities[v].name, base_name)) {
-                /* find the derived link */
-                LY_ARRAY_FOR(mod->identities[v].derived, w) {
-                    if (mod->identities[v].derived[w] == ident) {
-                        /* remove the link */
-                        LY_ARRAY_DECREMENT(mod->identities[v].derived);
-                        if (!LY_ARRAY_COUNT(mod->identities[v].derived)) {
-                            LY_ARRAY_FREE(mod->identities[v].derived);
-                            mod->identities[v].derived = NULL;
-                        } else if (w < LY_ARRAY_COUNT(mod->identities[v].derived)) {
-                            memmove(mod->identities[v].derived + w, mod->identities[v].derived + w + 1,
-                                    (LY_ARRAY_COUNT(mod->identities[v].derived) - w) * sizeof ident);
-                        }
-                        break;
-                    }
-                }
-                break;
-            }
-        }
-    }
-}
-
 void
 lysc_ident_free(struct ly_ctx *ctx, struct lysc_ident *ident)
 {
@@ -715,7 +581,7 @@ lysc_range_free(struct ly_ctx *ctx, struct lysc_range *range)
     FREE_ARRAY(ctx, range->exts, lysc_ext_instance_free);
 }
 
-void
+static void
 lysc_pattern_free(struct ly_ctx *ctx, struct lysc_pattern **pattern)
 {
     if (--(*pattern)->refcount) {
@@ -731,7 +597,7 @@ lysc_pattern_free(struct ly_ctx *ctx, struct lysc_pattern **pattern)
     free(*pattern);
 }
 
-void
+static void
 lysc_enum_item_free(struct ly_ctx *ctx, struct lysc_type_bitenum_item *item)
 {
     lydict_remove(ctx, item->name);
@@ -749,7 +615,7 @@ lysc_type2_free(struct ly_ctx *ctx, struct lysc_type **type)
 void
 lysc_type_free(struct ly_ctx *ctx, struct lysc_type *type)
 {
-    if (LY_ATOMIC_DEC_BARRIER(type->refcount) > 1) {
+    if (--type->refcount) {
         return;
     }
 
@@ -1004,15 +870,10 @@ lysc_node_free_(struct ly_ctx *ctx, struct lysc_node *node)
 void
 lysc_node_free(struct ly_ctx *ctx, struct lysc_node *node, ly_bool unlink)
 {
-    struct lysc_node *next, *iter, **child_p;
+    struct lysc_node *iter, **child_p;
 
     if (node->nodetype & (LYS_INPUT | LYS_OUTPUT)) {
-        /* inouts are part of actions and cannot be unlinked/freed separately, we can only free all the children */
-        struct lysc_node_action_inout *inout = (struct lysc_node_action_inout *)node;
-        LY_LIST_FOR_SAFE(inout->child, next, iter) {
-            lysc_node_free_(ctx, iter);
-        }
-        inout->child = NULL;
+        /* nothing to do - inouts are part of actions and cannot be unlinked/freed separately */
         return;
     }
 
@@ -1097,23 +958,13 @@ lysc_module_free(struct lysc_module *module)
 }
 
 void
-lys_module_free(struct lys_module *module, ly_bool remove_links)
+lys_module_free(struct lys_module *module)
 {
-    LY_ARRAY_COUNT_TYPE u;
-
     if (!module) {
         return;
     }
 
-    assert(!module->implemented);
-    assert(!module->compiled);
-
-    if (remove_links) {
-        /* remove derived identity links */
-        LY_ARRAY_FOR(module->identities, u) {
-            lysc_ident_derived_unlink(&module->identities[u]);
-        }
-    }
+    lysc_module_free(module->compiled);
     FREE_ARRAY(module->ctx, module->identities, lysc_ident_free);
     lysp_module_free(module->parsed);
 
@@ -1133,7 +984,7 @@ lys_module_free(struct lys_module *module, ly_bool remove_links)
     free(module);
 }
 
-LIBYANG_API_DEF void
+API void
 lyplg_ext_instance_substatements_free(struct ly_ctx *ctx, struct lysc_ext_substmt *substmts)
 {
     LY_ARRAY_COUNT_TYPE u;
@@ -1231,14 +1082,6 @@ void
 yang_parser_ctx_free(struct lys_yang_parser_ctx *ctx)
 {
     if (ctx) {
-        if (ctx->main_ctx == (struct lys_parser_ctx *)ctx) {
-            ly_set_erase(&ctx->tpdfs_nodes, NULL);
-            ly_set_erase(&ctx->grps_nodes, NULL);
-        }
-        ly_set_rm_index(ctx->parsed_mods, ctx->parsed_mods->count - 1, NULL);
-        if (!ctx->parsed_mods->count) {
-            ly_set_free(ctx->parsed_mods, NULL);
-        }
         free(ctx);
     }
 }
@@ -1247,14 +1090,6 @@ void
 yin_parser_ctx_free(struct lys_yin_parser_ctx *ctx)
 {
     if (ctx) {
-        if (ctx->main_ctx == (struct lys_parser_ctx *)ctx) {
-            ly_set_erase(&ctx->tpdfs_nodes, NULL);
-            ly_set_erase(&ctx->grps_nodes, NULL);
-        }
-        ly_set_rm_index(ctx->parsed_mods, ctx->parsed_mods->count - 1, NULL);
-        if (!ctx->parsed_mods->count) {
-            ly_set_free(ctx->parsed_mods, NULL);
-        }
         lyxml_ctx_free(ctx->xmlctx);
         free(ctx);
     }
