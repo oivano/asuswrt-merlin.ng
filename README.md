@@ -3,7 +3,7 @@
 </p>
 
 <h3 align="center">
-    <a href="https://github.com/RMerl/asuswrt-merlin/wiki/About-Asuswrt">AsusWrt Merlin</a>
+    <a href="https://github.com/RMerl/asuswrt-merlin.ng/wiki/About-Asuswrt/">AsusWrt Merlin</a>
     for
     DSL-AC68U
 </h3>
@@ -15,7 +15,7 @@
   <br>
   <br>
   <a href="https://github.com/oivano/asuswrt-merlin.ng/releases/latest">Download latest firmware</a>
-  <a href="https://www.snbforums.com/threads/asuswrt-merlin-386-x-alphas-for-dsl-ac68u-are-now-available.68295/">Support forum</a>
+  <a href="https://www.snbforums.com/forums/asuswrt-merlin.42/">Support forum</a>
 </p>
 
 ---------------------
