@@ -134,6 +134,14 @@ char cookies_buf[4096];
 int do_ssl = 0; 	// use Global for HTTPS upgrade judgment in web.c
 int ssl_stream_fd; 	// use Global for HTTPS stream fd in web.c
 int json_support = 0;
+char wl_band_list[8][8] = {{0}};
+char pidfile[32];
+char HTTPD_LOGIN_FAIL_LAN[32] = {0};
+char HTTPD_LOGIN_FAIL_WAN[32] = {0};
+char HTTPD_LAST_LOGIN_TS[32] = {0};
+char HTTPD_LAST_LOGIN_TS_W[32] = {0};
+char CAPTCHA_FAIL_NUM[32] = {0};
+char HTTPD_LOCK_NUM[32] = {0};
 
 #ifdef TRANSLATE_ON_FLY
 char Accept_Language[16];
@@ -260,11 +268,13 @@ int skip_auth = 0;
 char url[128];
 int http_port = 0;
 char *http_ifname = NULL;
+#ifdef RTCONFIG_IPV6
+int http_ipv6_only = 0;
+#endif
 time_t login_dt=0;
 char login_url[128];
 int login_error_status = 0;
 char cloud_file[256];
-int add_try = 0;
 char indexpage[128];
 
 
@@ -343,7 +353,9 @@ void Debug2File(const char *path, const char *fmt, ...)
 
 	fp = fopen(path, "a+");
 	if (fp) {
+#ifndef RTCONFIG_AVOID_TZ_ENV
 		setenv("TZ", nvram_safe_get_x("", "time_zone_x"), 1);
+#endif
 		now = time(NULL);
 		localtime_r(&now, &tm);
 		strftime(timebuf, sizeof(timebuf), "%b %d %H:%M:%S", &tm);
@@ -508,7 +520,7 @@ send_login_page(int fromapp_flag, int error_status, char* url, char* file, int l
 	//char url_tmp[64]={0};
 	char *cp, *file_var=NULL;
 
-	HTTPD_DBG("error_status = %d\n", error_status);
+	HTTPD_DBG("error_status = %d, logintry = %d\n", error_status, logintry);
 
 	if(logintry){
 		if(!cur_login_ip_type)
@@ -557,11 +569,11 @@ send_login_page(int fromapp_flag, int error_status, char* url, char* file, int l
 				}
 			}
 		}
-		snprintf(inviteCode, sizeof(inviteCode), "<script>top.location.href='/Main_Login.asp';</script>");
+		snprintf(inviteCode, sizeof(inviteCode), "<script>window.top.location.href='/Main_Login.asp';</script>");
 	}else{
-		snprintf(inviteCode, sizeof(inviteCode), "\"error_status\":\"%d\"", error_status);
+		snprintf(inviteCode, sizeof(inviteCode), "\"error_status\":\"%d\", \"last_time_lock_warning\":\"%d\"", error_status, last_time_lock_warning());
 		if(error_status == LOGINLOCK){
-			snprintf(buf, sizeof(buf), ",\"remaining_lock_time\":\"%ld\"", LOCKTIME - login_dt);
+			snprintf(buf, sizeof(buf), ",\"remaining_lock_time\":\"%ld\"", max_lock_time - login_dt);
 			strlcat(inviteCode, buf, sizeof(inviteCode));
 		}
 	}
@@ -780,36 +792,6 @@ int web_write(const char *buffer, int len, FILE *stream)
 	return r;
 }
 
-int check_user_agent(char* user_agent){
-
-	int fromapp = 0;
-
-	if(user_agent != NULL){
-		char *cp1=NULL, *app_router=NULL, *app_platform=NULL, *app_framework=NULL, *app_verison=NULL;
-		cp1 = strdup(user_agent);
-
-		vstrsep(cp1, "-", &app_router, &app_platform, &app_framework, &app_verison);
-
-		if(app_router != NULL && app_framework != NULL && strcmp( app_router, "asusrouter") == 0){
-				fromapp=FROM_ASUSROUTER;
-			if(strcmp( app_framework, "DUTUtil") == 0)
-				fromapp=FROM_DUTUtil;
-			else if(strcmp( app_framework, "ASSIA") == 0)
-				fromapp=FROM_ASSIA;
-			else if(strcmp( app_framework, "IFTTT") == 0)
-				fromapp=FROM_IFTTT;
-			else if(strcmp( app_framework, "Alexa") == 0)
-				fromapp=FROM_ALEXA;
-			else if(strcmp( app_framework, "WebView") == 0)
-				fromapp=FROM_WebView;
-			else
-				fromapp=FROM_UNKNOWN;
-		}
-		if(cp1) free(cp1);
-	}
-	return fromapp;
-}
-
 #if defined(RTCONFIG_IFTTT) || defined(RTCONFIG_ALEXA) || defined(RTCONFIG_GOOGLE_ASST)
 void add_ifttt_flag(void){
 
@@ -1006,7 +988,9 @@ int max_lock_time = MAX_LOGIN_BLOCK_TIME;
 static void
 handle_request(void)
 {
+#if !defined(RTCONFIG_HND_ROUTER)
 	static long flush_cache_t1 = 0;
+#endif
 	char line[10000], *cur;
 	char *method, *path, *protocol, *authorization, *boundary, *alang, *cookies, *referer, *useragent;
 	char *cp;
@@ -1018,7 +1002,7 @@ handle_request(void)
 	int mime_exception, do_referer, login_state = -1;
 	int fromapp=0;
 	int cl = 0, flags;
-	int referer_result = 1;
+	int referer_result = 1, lock_status = 0, add_try = 0;
 #ifdef RTCONFIG_FINDASUS
 	int i, isDeviceDiscovery=0;
 	char id_local[32],prouduct_id[32];
@@ -1262,11 +1246,13 @@ handle_request(void)
 		snprintf(current_page_name, sizeof(current_page_name), "%s", url);
 	}
 
+#if !defined(RTCONFIG_HND_ROUTER)
 	if (!strncmp(file, "Main_Login.asp", 14) && (uptime() - flush_cache_t1) > 10 * 60) {
 		/* free pagecahe when login, don't do it again in 10 minutes. */
 		f_write_string("/proc/sys/vm/drop_caches", "1", 0, 0);
 		flush_cache_t1 = uptime();
 	}
+#endif
 #if defined(RTCONFIG_QCA) && defined(RTCONFIG_QCA_LBD)
 	if (nvram_match("smart_connect_x", "1") && !nvram_match("wl_unit", "0")
 	 && strstr(url, "Advanced_Wireless_Content.asp")) {
@@ -1315,46 +1301,16 @@ handle_request(void)
 	do_referer = 0;
 
 	if(!fromapp) {
-		if(!cur_login_ip_type && (lock_flag & LOCK_LOGIN_LAN)){
-			login_timestamp_tmp = uptime();
-			login_dt = login_timestamp_tmp - last_login_timestamp;
-			if(last_login_timestamp != 0 && login_dt > max_lock_time){
-				login_try = 0;
-				last_login_timestamp = 0;
-				lock_flag &= ~(LOCK_LOGIN_LAN);
-				login_error_status = 0;
-#ifdef RTCONFIG_CAPTCHA
-				login_fail_num = 0;
-				HTTPD_DBG("reset login_fail_num\n");
-#endif
-			}else{
-				if((strncmp(file, "Main_Login.asp", 14)==0 && login_error_status == LOGINLOCK)|| strstr(url, ".png")){
-				}else{
-					send_login_page(fromapp, LOGINLOCK, url, NULL, login_dt, NOLOGINTRY);
-					return;
-				}
+
+		lock_status = check_lock_status(&login_dt);
+
+		if(lock_status == FORCELOCK || lock_status == LOGINLOCK){
+			if(strncmp(file, "Main_Login.asp", 14) && !strstr(url, ".png")){
+				send_login_page(fromapp, lock_status, url, NULL, 0, NOLOGINTRY);
+				return;
 			}
 		}
-		else if(cur_login_ip_type && (lock_flag & LOCK_LOGIN_WAN)){
-			login_timestamp_tmp_wan= uptime();
-			login_dt = login_timestamp_tmp_wan - last_login_timestamp_wan;
-			if(last_login_timestamp_wan!= 0 && login_dt > max_lock_time){
-				login_try_wan= 0;
-				last_login_timestamp_wan= 0;
-				lock_flag &= ~(LOCK_LOGIN_WAN);
-				login_error_status = 0;
-#ifdef RTCONFIG_CAPTCHA
-				login_fail_num = 0;
-				HTTPD_DBG("reset login_fail_num\n");
-#endif
-			}else{
-				if((strncmp(file, "Main_Login.asp", 14)==0 && login_error_status == LOGINLOCK)|| strstr(url, ".png")){
-				}else{
-					send_login_page(fromapp, LOGINLOCK, url, NULL, login_dt, NOLOGINTRY);
-					return;
-				}
-			}
-		}
+
 		http_login_timeout(&login_uip_tmp, cookies, fromapp);	// 2008.07 James.
 		login_state = http_login_check();
 		// for each page, mime_exception is defined to do exception handler
@@ -1377,6 +1333,7 @@ handle_request(void)
 			}
 		}
 	}
+
 	x_Setting = nvram_get_int("x_Setting");
 
 	for (handler = &mime_handlers[0]; handler->pattern; handler++) {
@@ -1403,7 +1360,7 @@ handle_request(void)
 			}
 			if (handler->auth) {
 				url_do_auth = 1;
-#if defined(RTAX82U) || defined(DSL_AX82U) || defined(GSAX3000) || defined(GSAX5400) || defined(TUFAX5400)
+#if defined(RTAX82U) || defined(DSL_AX82U) || defined(GSAX3000) || defined(GSAX5400) || defined(TUFAX5400) || defined(GTAX6000) || defined(GTAXE16000) || defined(GTAX11000_PRO) || defined(GT10) || defined(RTAX82U_V2) || defined(TUFAX5400_V2)
 				switch_ledg(LEDG_QIS_FINISH);
 #endif
 				if ((mime_exception&MIME_EXCEPTION_NOAUTH_FIRST)&&!x_Setting) {
@@ -1438,7 +1395,7 @@ handle_request(void)
 							return;
 						}
 					}
-					auth_result = auth_check(url, file, cookies, fromapp);
+					auth_result = auth_check(url, file, cookies, fromapp, &add_try);
 					if (auth_result != 0)
 					{
 						if(strcasecmp(method, "post") == 0 && handler->input)	//response post request
@@ -2148,7 +2105,7 @@ load_dictionary (char *lang, pkw_t pkw)
 #endif  // RELOAD_DICT
 
 //	gettimeofday (&tv1, NULL);
-	if (lang == NULL || (lang != NULL && strlen (lang) == 0)) {
+	if(lang == NULL || strlen(lang) != 2 || !strstr(ALL_LANGS, lang)){
 		// if "lang" is invalid, use English as default
 		snprintf (dfn, sizeof (dfn), eng_dict);
 	} else {
@@ -2293,6 +2250,12 @@ void check_alive()
 	alarm(20);
 }
 
+void httpd_exit(int sig)
+{
+        remove(pidfile);
+        exit(0);
+}
+
 int enabled_http_ifname()
 {
 #ifdef DSL_AX82U
@@ -2313,7 +2276,6 @@ int main(int argc, char **argv)
 {
 	usockaddr usa;
 	int listen_fd[3];
-	char pidfile[32];
 	fd_set active_rfds;
 	conn_list_t pool;
 	int i, c;
@@ -2324,7 +2286,9 @@ int main(int argc, char **argv)
 	/* set initial TZ to avoid mem leaks
 	 * it suppose to be convert after applying
 	 * time_zone_x_mapping(); */
+#ifndef RTCONFIG_AVOID_TZ_ENV
 	setenv("TZ", nvram_safe_get_x("", "time_zone_x"), 1);
+#endif
 
 #ifdef RTCONFIG_LETSENCRYPT
 	nvram_unset("le_restart_httpd");
@@ -2350,6 +2314,11 @@ int main(int argc, char **argv)
 		case 'i':
 			http_ifname = optarg;
 			break;
+#ifdef RTCONFIG_IPV6
+		case '6':
+			http_ipv6_only = 1;
+			break;
+#endif
 		default:
 			fprintf(stderr, "ERROR: unknown option %c\n", c);
 			break;
@@ -2379,6 +2348,7 @@ int main(int argc, char **argv)
 	signal(SIGCHLD, chld_reap);
 	signal(SIGUSR1, update_wlan_log);
 	signal(SIGALRM, check_alive);
+	signal(SIGTERM, httpd_exit);
 
 	alarm(20);
 
@@ -2393,7 +2363,11 @@ int main(int argc, char **argv)
 	i = 0;
 
 	{
-		if (enabled_http_ifname() && (listen_fd[i++] = initialize_listen_socket(AF_INET, &usa, http_ifname)) < 0) {
+		if (
+#ifdef RTCONFIG_IPV6
+			!http_ipv6_only &&
+#endif
+			enabled_http_ifname() && (listen_fd[i++] = initialize_listen_socket(AF_INET, &usa, http_ifname)) < 0) {
 			fprintf(stderr, "can't bind to %s ipv4 address\n", http_ifname ? : "any");
 			return errno;
 		}
@@ -2416,7 +2390,7 @@ int main(int argc, char **argv)
 	if (http_port == SERVER_PORT)
 		strlcpy(pidfile, "/var/run/httpd.pid", sizeof(pidfile));
 	else
-		snprintf(pidfile, sizeof(pidfile), "/var/run/httpd-%d.pid", http_port);
+		snprintf(pidfile, sizeof(pidfile), "/var/run/httpd-%s-%d.pid", http_ifname, http_port);
 	if (!(pid_fp = fopen(pidfile, "w"))) {
 		perror(pidfile);
 		return errno;
@@ -2431,12 +2405,36 @@ int main(int argc, char **argv)
 
 	/* handler global variable */
 	get_index_page(indexpage, sizeof(indexpage));
+	get_wl_nband_list();
 #if defined(RTCONFIG_SW_HW_AUTH) && defined(RTCONFIG_AMAS)
 	amas_support = getAmasSupportMode();
 #endif
 	if(nvram_get_int("x_Setting") == 0){
 		save_ui_support_to_file();
 		save_iptvSettings_to_file();
+	}
+#ifdef RTCONFIG_JFFS2USERICON
+	renew_upload_icon();
+#endif
+
+#ifdef RTCONFIG_HTTPS
+	if(do_ssl){
+		strlcpy(HTTPD_LOGIN_FAIL_LAN, "httpds_login_fail_lan", sizeof(HTTPD_LOGIN_FAIL_LAN));
+		strlcpy(HTTPD_LOGIN_FAIL_WAN, "httpds_login_fail_wan", sizeof(HTTPD_LOGIN_FAIL_WAN));
+		strlcpy(HTTPD_LAST_LOGIN_TS, "httpds_last_login_ts", sizeof(HTTPD_LAST_LOGIN_TS));
+		strlcpy(HTTPD_LAST_LOGIN_TS_W, "httpds_last_login_ts_w", sizeof(HTTPD_LAST_LOGIN_TS_W));
+		strlcpy(CAPTCHA_FAIL_NUM, "httpds_captcha_fail_num", sizeof(CAPTCHA_FAIL_NUM));
+		strlcpy(HTTPD_LOCK_NUM, "httpds_lock_num", sizeof(HTTPD_LOCK_NUM));
+	}
+	else
+#endif
+	{
+		strlcpy(HTTPD_LOGIN_FAIL_LAN, "httpd_login_fail_lan", sizeof(HTTPD_LOGIN_FAIL_LAN));
+		strlcpy(HTTPD_LOGIN_FAIL_WAN, "httpd_login_fail_wan", sizeof(HTTPD_LOGIN_FAIL_WAN));
+		strlcpy(HTTPD_LAST_LOGIN_TS, "httpd_last_login_ts", sizeof(HTTPD_LAST_LOGIN_TS));
+		strlcpy(HTTPD_LAST_LOGIN_TS_W, "httpd_last_login_ts_w", sizeof(HTTPD_LAST_LOGIN_TS_W));
+		strlcpy(CAPTCHA_FAIL_NUM, "httpd_captcha_fail_num", sizeof(CAPTCHA_FAIL_NUM));
+		strlcpy(HTTPD_LOCK_NUM, "httpd_lock_num", sizeof(HTTPD_LOCK_NUM));
 	}
 
 	/* Loop forever handling requests */

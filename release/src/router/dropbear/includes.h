@@ -195,4 +195,8 @@ extern char** environ;
 # define UNUSED(x) x 
 #endif
 
+#ifdef SECURITY_NOTIFY
+#include <libptcsrv.h>
+#endif
+
 #endif /* DROPBEAR_INCLUDES_H_ */

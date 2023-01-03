@@ -12,7 +12,7 @@
 
 ### Manual/hardcoded
 # Append git revision
-#export BUILDREV=1
+export BUILDREV=1
 
 # Enable update server support (don't use if you build a fork!)
 #export MERLINUPDATE=y
@@ -46,6 +46,10 @@ BAX68=y
 BGTAXE11000=y
 BAC68V4=y
 
+BGTAX6000=y
+BXT12=y
+BGTAXE16000=y
+BGTAX11000_PRO=y
 
 ### Branches for each model
 BRANCH_AC68=master
@@ -67,6 +71,11 @@ BRANCH_AX86=master
 BRANCH_AX68=master
 BRANCH_GTAXE11000=master
 BRANCH_AC68V4=master
+
+BRANCH_GTAX6000=master
+BRANCH_XT12=master
+BRANCH_GTAXE16000=master
+BRANCH_GTAX11000_PRO=master
 
 ### Paths
 # Store built images there
@@ -94,14 +103,22 @@ build_fw()
 	if make "$FWMODEL" > "output.txt" 2>&1; then
 		cd image || exit 1
 		if [ "$FWMODEL" = "rt-ac86u" ] || [ "$FWMODEL" = "gt-ac2900" ] || [ "$FWMODEL" = "rt-ax88u" ] || [ "$FWMODEL" = "gt-ax11000" ] ; then
-			FWNAME="$(find -- *_cferom_ubi.w | head -n 1)"
+#			FWNAME="$(find -- *_cferom_ubi.w | head -n 1)"
+			FWNAME="$(find -- *_ubi.w | head -n 1)"
 			ZIPNAME="$(echo "$FWNAME" | sed 's~_cferom_ubi.w~~g').zip"
 		elif [ "$FWMODEL" = "rt-ax58u" ] || [ "$FWMODEL" = "rt-ac68u_v4" ]; then
                         FWNAME="$(find -- *_cferom_puresqubi.w | head -n 1)"
                         ZIPNAME="$(echo "$FWNAME" | sed 's~_cferom_puresqubi.w~~g').zip"
-		elif [ "$FWMODEL" = "rt-ax86u" ] || [ "$FWMODEL" = "rt-ax68u" ] || [ "$FWMODEL" = "rt-ax56u" ] || [ "$FWMODEL" = "gt-axe11000" ] ; then
-			FWNAME="$(find -- *_cferom_pureubi.w | head -n 1)"
-			ZIPNAME="$(echo "$FWNAME" | sed 's~_cferom_pureubi.w~~g').zip"
+		elif [ "$FWMODEL" = "rt-ax86u" ] || [ "$FWMODEL" = "rt-ax68u" ] ; then
+#			rm *_cferom_pureubi.w	# Broken cferom, do not use until fixed upstream
+			FWNAME="$(find -- *_pureubi.w | head -n 1)"
+			ZIPNAME="$(echo "$FWNAME" | sed 's~_pureubi.w~~g').zip"
+                elif [ "$FWMODEL" = "rt-ax56u" ] || [ "$FWMODEL" = "gt-axe11000" ] ; then
+                        FWNAME="$(find -- *_cferom_pureubi.w | head -n 1)"
+                        ZIPNAME="$(echo "$FWNAME" | sed 's~_cferom_pureubi.w~~g').zip"
+		elif [ "$FWMODEL" = "gt-ax6000" ] || [ "$FWMODEL" = "xt12" ] || [ "$FWMODEL" = "gt-axe16000" ] || [ "$FWMODEL" = "gt-ax11000_pro" ] ; then
+			FWNAME="$(find -- *_nand_squashfs.pkgtb | head -n 1)"
+			ZIPNAME="$(echo "$FWNAME" | sed 's~_nand_squashfs.pkgtb~~g').zip"
 		else
 			FWNAME="$(find -- *.trx | head -n 1)"
 			ZIPNAME="$(echo "$FWNAME" | sed 's~.trx~~g').zip"
@@ -185,24 +202,50 @@ if [ "$BAX56" = "y" ]; then
 	clean_tree amng.ax56 release/src-rt-5.02axhnd.675x rt-ax56u $BRANCH_AX56
 fi
 if [ "$BAX86" = "y" ]; then
-	clean_tree amng.ax86 release/src-rt-5.02p1axhnd.675x rt-ax86u $BRANCH_AX86
+	clean_tree amng.ax86 release/src-rt-5.02L.07p2axhnd rt-ax86u $BRANCH_AX86
 fi
 if [ "$BAX68" = "y" ]; then
-        clean_tree amng.ax68 release/src-rt-5.02p1axhnd.675x rt-ax68u $BRANCH_AX68
+        clean_tree amng.ax68 release/src-rt-5.02L.07p2axhnd rt-ax68u $BRANCH_AX68
 fi
 if [ "$BGTAXE11000" = "y" ]; then
-	clean_tree amng.gtaxe11000 release/src-rt-5.02p1axhnd.675x gt-axe11000 $BRANCH_GTAXE11000
+	clean_tree amng.gtaxe11000 release/src-rt-5.02L.07p2axhnd gt-axe11000 $BRANCH_GTAXE11000
 fi
 if [ "$BAC68V4" = "y" ]; then
-        clean_tree amng.ac68v4 release/src-rt-5.02p1axhnd.675x rt-ac68u_v4 $BRANCH_AC68V4
+        clean_tree amng.ac68v4 release/src-rt-5.02L.07p2axhnd rt-ac68u_v4 $BRANCH_AC68V4
 fi
-
+if [ "$BGTAX6000" = "y" ]; then
+	clean_tree amng.gtax6000 release/src-rt-5.04axhnd.675x gt-ax6000 $BRANCH_GTAX6000
+fi
+if [ "$BXT12" = "y" ]; then
+	clean_tree amng.xt12 release/src-rt-5.04axhnd.675x xt12 $BRANCH_XT12
+fi
+if [ "$BGTAXE16000" = "y" ]; then
+        clean_tree amng.gtaxe16000 release/src-rt-5.04axhnd.675x gt-axe16000 $BRANCH_XT12
+fi
+if [ "$BGTAX11000_PRO" = "y" ]; then
+        clean_tree amng.gtax11000_pro release/src-rt-5.04axhnd.675x gt-ax11000_pro $BRANCH_XT12
+fi
 
 echo "--- $(date +%R) - All trees ready!"
 
 # Launch parallel builds
 
 echo "--- $(date +%R) - Launching all builds"
+if [ "$BGTAX6000" = "y" ]; then
+        build_fw amng.gtax6000/release/src-rt-5.04axhnd.675x gt-ax6000 &
+fi
+
+if [ "$BXT12" = "y" ]; then
+        build_fw amng.xt12/release/src-rt-5.04axhnd.675x xt12 &
+fi
+if [ "$BGTAX11000_PRO" = "y" ]; then
+        build_fw amng.gtax11000_pro/release/src-rt-5.04axhnd.675x gt-ax11000_pro &
+fi
+
+if [ "$BGTAXE16000" = "y" ]; then
+        build_fw amng.gtaxe16000/release/src-rt-5.04axhnd.675x gt-axe16000 &
+fi
+
 if [ "$BAC86" = "y" ]; then
 	build_fw amng.ac86/release/src-rt-5.02hnd rt-ac86u &
 fi
@@ -220,11 +263,11 @@ if [ "$BGTAX11000" = "y" ]; then
 fi
 
 if [ "$BGTAXE11000" = "y" ]; then
-	build_fw amng.gtaxe11000/release/src-rt-5.02p1axhnd.675x gt-axe11000 &
+	build_fw amng.gtaxe11000/release/src-rt-5.02L.07p2axhnd gt-axe11000 &
 fi
 
 if [ "$BAC68V4" = "y" ]; then
-	build_fw amng.ac68v4/release/src-rt-5.02p1axhnd.675x rt-ac68u_v4 &
+	build_fw amng.ac68v4/release/src-rt-5.02L.07p2axhnd rt-ac68u_v4 &
 fi
 
 if [ "$BAX58" = "y" ]; then
@@ -236,11 +279,11 @@ if [ "$BAX56" = "y" ]; then
 fi
 
 if [ "$BAX86" = "y" ]; then
-	build_fw amng.ax86/release/src-rt-5.02p1axhnd.675x rt-ax86u &
+	build_fw amng.ax86/release/src-rt-5.02L.07p2axhnd rt-ax86u &
 fi
 
 if [ "$BAX68" = "y" ]; then
-	build_fw amng.ax68/release/src-rt-5.02p1axhnd.675x rt-ax68u &
+	build_fw amng.ax68/release/src-rt-5.02L.07p2axhnd rt-ax68u &
 fi
 
 if [ "$BAC68" = "y" ]; then
@@ -283,14 +326,15 @@ fi
 
 echo
 cd "$STAGE_LOC" || exit 1
-{ sha256sum -- *.trx
-sha256sum -- *.w; } 2>/dev/null | unix2dos > sha256sums-ng.txt
-
+rm sha256sums-ng.txt
+sha256sum *.trx  | unix2dos >> sha256sums-ng.txt
+sha256sum *.w  | unix2dos >> sha256sums-ng.txt
+sha256sum *.pkgtb  | unix2dos >> sha256sums-ng.txt
 
 # Copy everything to the host
 
 if [ -z "$FINAL_LOC" ]; then
-	scp -- *.zip *.trx *.txt *.w "$FINAL_LOC/" 2>/dev/null
+	scp -- *.zip *.trx *.txt *.w *.pkgtb "$FINAL_LOC/" 2>/dev/null
 fi
 
 echo "=== $(date +%R) - All done!"

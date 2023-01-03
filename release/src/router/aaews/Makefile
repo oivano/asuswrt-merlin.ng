@@ -3,7 +3,6 @@ WSLIB=libws.so
 DOG=mastiff
 
 include ../common.mak
-include $(TOP)/.config
 
 CURL_DIR=$(TOP)/curl-7.21.7
 XML2_DIR=$(TOP)/libxml2
@@ -51,6 +50,10 @@ ROUTER_LDFLAGS=-L$(NVRAM_DIR) -L$(SHARED_DIR) -L$(QCSAPI_DIR)
 else
 ROUTER_LIBS=-lnvram -lshared
 ROUTER_LDFLAGS=-L$(NVRAM_DIR) -L$(SHARED_DIR)
+ifeq ($(RTCONFIG_BCM_502L07P2),y)
+ROUTER_LIBS += -lethctl
+ROUTER_LDFLAGS += -L$(TOP_PLATFORM)/ethctl_lib
+endif
 endif
 ifeq ($(RTCONFIG_NOTIFICATION_CENTER),y)
 ROUTER_LIBS += -lsqlite3
@@ -89,8 +92,8 @@ LIBS = -lcurl -lssl -lcrypto -lxml2 -ljson-c -ldl -pthread -lrt $(ROUTER_LIBS) -
 LDFLAGS = -L$(OPENSSL_DIR) -L$(CURL_DIR)/lib/.libs -L$(XML2_DIR)/.libs -L$(JSON_C_DIR)/.libs -L. $(ROUTER_LDFLAGS) -L$(WS_SRC) -L$(WB_DIR) -L$(WB_DIR)/output
 
 ifeq ($(RTCONFIG_TR069),y)
-CFLAGS += -I$(TOP)/libssh2-1.9.0/include -I$(TOP)/zlib/include
-LDFLAGS += -L$(TOP)/libssh2-1.9.0/src/.libs -lssh2 -L$(TOP)/zlib -lz
+CFLAGS += -I$(TOP)/libssh2-1.10.0/include -I$(TOP)/zlib/include
+LDFLAGS += -L$(TOP)/libssh2-1.10.0/src/.libs -lssh2 -L$(TOP)/zlib -lz
 endif
 
 ifeq ($(RTCONFIG_QCA),y)

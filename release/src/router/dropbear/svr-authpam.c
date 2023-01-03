@@ -30,6 +30,7 @@
 #include "buffer.h"
 #include "dbutil.h"
 #include "auth.h"
+#include "runopts.h"
 
 #if DROPBEAR_SVR_PAM_AUTH
 
@@ -256,6 +257,11 @@ void svr_auth_pam(int valid_user) {
 				"Bad PAM password attempt for '%s' from %s",
 				printable_user,
 				svr_ses.addrstring);
+#ifdef SECURITY_NOTIFY
+		SEND_PTCSRV_EVENT(PROTECTION_SERVICE_SSH,
+				RPT_FAIL, svr_ses.hoststring,
+				"From dropbear , LOGIN FAIL(authpam)");
+#endif
 		send_msg_userauth_failure(0, 1);
 		goto cleanup;
 	}
@@ -267,6 +273,11 @@ void svr_auth_pam(int valid_user) {
 				"Bad PAM password attempt for '%s' from %s",
 				printable_user,
 				svr_ses.addrstring);
+#ifdef SECURITY_NOTIFY
+		SEND_PTCSRV_EVENT(PROTECTION_SERVICE_SSH,
+				RPT_FAIL, svr_ses.hoststring,
+				"From dropbear , LOGIN FAIL(authpam)");
+#endif
 		send_msg_userauth_failure(0, 1);
 		goto cleanup;
 	}
@@ -274,16 +285,36 @@ void svr_auth_pam(int valid_user) {
 	if (!valid_user) {
 		/* PAM auth succeeded but the username isn't allowed in for another reason
 		(checkusername() failed) */
+#ifdef SECURITY_NOTIFY
+		SEND_PTCSRV_EVENT(PROTECTION_SERVICE_SSH,
+				RPT_FAIL, svr_ses.hoststring,
+				"From dropbear , ACCOUNT FAIL");
+#endif
 		send_msg_userauth_failure(0, 1);
 		goto cleanup;
 	}
 
-	/* successful authentication */
-	dropbear_log(LOG_NOTICE, "PAM password auth succeeded for '%s' from %s",
-			ses.authstate.pw_name,
-			svr_ses.addrstring);
-	send_msg_userauth_success();
-
+	if (svr_opts.multiauthmethod && (ses.authstate.authtypes & ~AUTH_TYPE_PASSWORD)) {
+			/* successful PAM password authentication, but extra auth required */
+			dropbear_log(LOG_NOTICE,
+					"PAM password auth succeeded for '%s' from %s, extra auth required",
+					ses.authstate.pw_name,
+					svr_ses.addrstring);
+			ses.authstate.authtypes &= ~AUTH_TYPE_PASSWORD; /* PAM password auth ok, delete the method flag */
+			send_msg_userauth_failure(1, 0);  /* Send partial success */
+		} else {
+			/* successful authentication */
+			dropbear_log(LOG_NOTICE, "PAM password auth succeeded for '%s' from %s",
+				ses.authstate.pw_name,
+				svr_ses.addrstring);
+#ifdef SECURITY_NOTIFY
+			SEND_PTCSRV_EVENT(PROTECTION_SERVICE_SSH,
+				RPT_SUCCESS, svr_ses.hoststring,
+				"From dropbear , LOGIN SUCCESS(authpam)");
+#endif
+			send_msg_userauth_success();
+		}
+	
 cleanup:
 	if (password != NULL) {
 		m_burn(password, passwordlen);

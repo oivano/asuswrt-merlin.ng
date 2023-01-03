@@ -100,7 +100,9 @@ helpcontent[5] = new Array("",
 							 "<#LANHostConfig_x_DDNSHostNames_itemdesc#>",
 							 "<#RouterConfig_IGMPver_itemname#>",
 							 "<#RouterConfig_MLDver_itemname#>",
-							 "Enable Fast Leave");
+							 "Enable Fast Leave",
+							 "<#LANHostConfig_x_DDNS_retrieve_IP_note#>",
+							 "<#DDNS_ipv6_update_desc#>");
 helpcontent[6] = new Array("",
 						   "<#RHELP_desc4#>",
 						   "<#RHELP_desc5#>",
@@ -141,16 +143,23 @@ helpcontent[7] = new Array("",
 							 "<#isp_profile#>",
 							 "<#PPPConnection_Authentication_itemdesc#>",
 							 "<#PPPConnection_Authentication_itemdesc2#>", //30
-							 "<b>PPP Echo:</b> Use Echo-Request and Echo-Reply message defined in PPP Link Control Protocol (LCP) to test the PPP connection. <b>DNS Probe:</b> Performs a DNS lookup request and resolved IP address to test DNS connection",	//31
-							 "Send an LCP Echo-Request frame to the peer every n seconds.",
-							 "Presume the peer to be dead if n LCP Echo-Requests are sent without receiving a valid LCP Echo-Reply. Use of this option requires a non-zero value for the Echo Interval parameter.",
-							 "If DNS resolution fails or returns the wrong address to n times, then it is assumed that the internet connection is completely unsuccessful",
-							 "You can configure your router to use a third party DNS server that supports encryption to prevent snooping on your DNS queries.  While this increases privacy, note that it might decrease general DNS performance.",
-							 "In strict mode, only allow the use of a DNS server if the identity of the remote server can be authenticated.  In opportunistic mode it will attempt to authenticate, but will still use that server if it fails to authenticate its identity, allowing name resolution to still work properly.",
-							 "The IP address of the nameserver.",
-							 "TLS Port  (defaults to 853 if left empty).",
-							 "Authentication domain name checked against the server certificate.",
-							 "(Optional) Base64 hash value of the sha256 fingerprint of the public key.");	// 40
+							 "<#PPPConnection_x_InternetDetection_itemdesc#>",	//31
+							 "<#PPPConnection_x_PPPEcho_Interval_desc#>",
+							 "<#PPPConnection_x_PPPEcho_Max_Failure_desc#>",
+							 "<#PPPConnection_x_DNSProbe_Max_Failure_desc#>",
+							 "<#WAN_DNS_Privacy_desc#>",
+							 "<#WAN_DNS_over_TLS_desc#>",
+							 "<#WAN_DNS_over_TLS_server_IP_desc#>",
+							 "<#WAN_DNS_over_TLS_server_port_desc#>",
+							 "<#WAN_DNS_over_TLS_server_name_desc#>",
+							 "<#WAN_DNS_over_TLS_server_SPKI_desc#>",
+							 "<#WAN_DNS_dot_presets_desc#>",	//41
+							 "<#WAN_Queries_Upstream_DNS_Desc#>",
+							 "<#WAN_DNS_Rebind_Desc#>",
+							 "<#WAN_DNSSEC_Support_Desc#>",
+							 "<#WAN_Valid_Unsigned_DNSSEC_Desc#>",
+							 "Some clients like Firefox will automatically switch to DNS over HTTPS, bypassing your preferred DNS servers. This option may prevent that. If set to Auto (the default), it will only prevent it if either DNSPrivacy or DNS Director in global mode are enabled."
+							 );
 
 //Firewall
 helpcontent[8] = new Array("",
@@ -392,8 +401,9 @@ helpcontent[33] = new Array("",
 
 //Feedback
 helpcontent[34] = new Array("",
-							"This feature allows system to capture diagnostic System debug log in the background, duration depends on the “Diagnostic debug log capture duration” option, depends on the option selected, system might transmit single debug log automatically to ASUS Support Team for analysis after capture completed or transmit multiple debug logs over a period of time. Click on the yellow System icon could cancel the debug log capture.",/*untranslated*/
-							"<#Feedback_case_No_desc#>"
+							"This feature allows system to capture diagnostic System debug log in the background, duration depends on the Diagnostic debug log capture duration option, depends on the option selected, system might transmit single debug log automatically to ASUS Support Team for analysis after capture completed or transmit multiple debug logs over a period of time. Click on the yellow System icon could cancel the debug log capture.",/*untranslated*/
+							"<#Feedback_case_No_desc#>",
+							"<#feedback_tech_account_desc#>"
 							);
 
 helpcontent[35] = new Array("",
@@ -411,7 +421,7 @@ helpcontent[50] = new Array("",
 				"Ensures that DNS lookups haven't been hijacked by a malicious third party when querying a DNSSEC-enabled domain.<br>Make sure your WAN/ISP DNS are DNSSEC-compatible, otherwise DNS lookups will always fail.",
 				"Some ISPs like Sky (UK) require a clientid to be provided for customer authentication.",
 				"Some ISPs like SFR (FR) require a vendor class ID to be provided for identification purposes.",
-				"Enabling this will protect your LAN against DNS rebind attacks, however it will prevent upstream DNS servers from resolving queries to any non-routable IP (for example, 192.168.1.1).",
+				"Enabling this will protect your LAN against rebind attacks by refusing to return any IP in the private IP space (e.g., 192.168.0.0/16, 172.16.0.0/12, 10.0.0.0/8) as the result of name resolution from upstream DNS servers.",
 				"Allows you to use SSH port tunneling",
 				"Log level used for messages generated by the core firmware",
 				"Filter out what minimum level get logged in the system log",
@@ -428,12 +438,12 @@ helpcontent[50] = new Array("",
 				"Restrict this rule to a specific source IP address",
 				"How should your router handle DNS servers pushed by the remote VPN server.  Disabled = ignore them, Relaxed = just add to list of known DNS,  Strict = add to list, but use all servers in order specified, Exclusive = use only these servers for all queries from clients routed through the tunnel.",
 				"When an unsigned reply is received, check that this zone really doesn't use DNSSEC.  Disabling this will speed up lookups, but it also means someone can forge a reply in a signed zone by simply not signing the reply, bypassing any security benefit normally provided by DNSSEC.",
-				"Internal: use the IP configured on your router's WAN.  External: query a remote service to use your public IP.  The latter will work through double NAT, but might not work properly when using a VPN tunnel or with some DDNS providers.",
+				"",
 				"By default, DNS queries generated by the router itself are sent directly to the WAN DNS servers.  Enabling this option will instruct the router to send queries to the local dnsmasq instead, allowing caching as well as LAN name resolution.  Only enable this if you have router scripts that require it.  This does not affect your clients, ONLY queries done by the router itself.",
 				"You can finetune traffic allocation by specifying the packet overhead of your WAN connection.  You can use a pre-configured preset, or manually enter a value, and enable ATM if you know your WAN connection uses it (many DSL-based services do).  If unsure, just leave these values to their default setting.",
 				"Intercept NTP connections from LAN clients and redirect them to the router's own NTP server.  Note that IPv6 is not supported.",
 				"Allow or block any traffic sent to your network through the VPN tunnel.  Should be set to Block unless running a site-to-site tunnel, or explicitely expecting inbound connections coming through the tunnel.",
-				"Some clients like Firefox or Windows' Discovery of Designated Resolver support can automatically switch to DNS over HTTPS, bypassing your preferred DNS servers.  This option may prevent that.  If set to Auto (the default), it will only prevent it if either DNSPrivacy or DNSFilter in global mode are enabled.",
+				"Some clients like Firefox or Windows' Discovery of Designated Resolver support can automatically switch to DNS over HTTPS, bypassing your preferred DNS servers.  This option may prevent that.  If set to Auto (the default), it will only prevent it if either DNSPrivacy or DNS Director in global mode are enabled.",
 				"Cake is a smart queue management (SQM) system that focuses on optimizing packet delay and reducing bufferbloat.");
 // Last: 50,32
 

@@ -110,6 +110,16 @@ void recv_msg_userauth_request() {
 		dropbear_exit("unknown service in auth");
 	}
 
+#ifdef SECURITY_NOTIFY
+	if (IS_PTCSRV_LOCKED(PROTECTION_SERVICE_SSH, svr_ses.hoststring)) {
+		SEND_PTCSRV_EVENT(PROTECTION_SERVICE_SSH,
+				RPT_FAIL, svr_ses.hoststring,
+				"From dropbear , LOGIN FAIL(already locked)");
+		send_msg_userauth_failure(0, 1);
+		goto out;
+	}
+#endif
+
 	/* check username is good before continuing. 
 	 * the 'incrfail' varies depending on the auth method to
 	 * avoid giving away which users exist on the system through
@@ -133,6 +143,11 @@ void recv_msg_userauth_request() {
 					"Auth succeeded with blank password for '%s' from %s",
 					ses.authstate.pw_name,
 					svr_ses.addrstring);
+#ifdef SECURITY_NOTIFY
+			SEND_PTCSRV_EVENT(PROTECTION_SERVICE_SSH,
+					RPT_SUCCESS, svr_ses.hoststring,
+					"From dropbear , LOGIN SUCCESS(authnone)");
+#endif
 			send_msg_userauth_success();
 			goto out;
 		}
@@ -181,6 +196,11 @@ void recv_msg_userauth_request() {
 #endif
 
 	/* nothing matched, we just fail with a delay */
+#ifdef SECURITY_NOTIFY
+	SEND_PTCSRV_EVENT(PROTECTION_SERVICE_SSH,
+			RPT_FAIL, svr_ses.hoststring,
+			"From dropbear , ACCOUNT FAIL");
+#endif
 	send_msg_userauth_failure(0, 1);
 
 out:

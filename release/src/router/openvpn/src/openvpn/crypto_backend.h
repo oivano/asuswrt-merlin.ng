@@ -78,6 +78,21 @@ void crypto_clear_error(void);
  */
 void crypto_init_lib_engine(const char *engine_name);
 
+
+/**
+ * Load the given (OpenSSL) providers
+ * @param provider name of providers to load
+ * @return reference to the loaded provider
+ */
+provider_t *crypto_load_provider(const char *provider);
+
+/**
+ * Unloads the given (OpenSSL) provider
+ * @param provname  name of the provider to unload
+ * @param provider  pointer to the provider to unload
+ */
+void crypto_unload_provider(const char *provname, provider_t *provider);
+
 #ifdef DMALLOC
 /*
  * OpenSSL memory debugging.  If dmalloc debugging is enabled, tell
@@ -240,6 +255,8 @@ const cipher_kt_t *cipher_kt_get(const char *ciphername);
  * Retrieve a string describing the cipher (e.g. \c AES-128-CBC).
  * The returned name is normalised to the OpenVPN config name in case the
  * name differs from the name used by the crypto library.
+ *
+ * Returns [null-cipher] in case the cipher_kt is NULL.
  *
  * @param cipher_kt     Static cipher parameters
  *

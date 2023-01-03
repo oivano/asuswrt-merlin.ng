@@ -1,3 +1,106 @@
+Overview of changes in 2.5.8
+============================
+
+New features
+------------
+- allow running a default configuration with TLS libraries without BF-CBC
+  (even if TLS cipher negotiation would not actually use BF-CBC, the
+  long-term compatibility "default cipher BF-CBC" would trigger an error
+  on such TLS libraries)
+
+User-visible Changes
+--------------------
+- add git branch name + commit ID to OpenVPN version string on
+  MSVC builds (windows)
+
+Testing Enhancements
+--------------------
+- t_client.sh: if fping is found and fping6 is not, assume we have
+  fping 4.0 and up, and call "fping -6" for IPv6 ping tests
+
+- t_client.sh: allow to force FAIL on prerequisite fails, so a CI
+  environment will no longer "silently skip" t_client runs if fping (etc)
+  can not be found, but will error out
+
+Bugfixes
+--------
+- ``--auth-nocache'' was not always correctly clearing username+password
+  after a renegotiation
+
+- ensure that auth-token received from server is cleared if requested
+  by the management interface ("forget password" or automatically
+  via ``--management-forget-disconnect'')
+
+- in a setup without username+password, but with auth-token and
+  auth-token-username pushed by the server, OpenVPN would start asking
+  for username+password on token expiry.  Fix.
+
+- using ``--auth-token`` together with ``--management-client-auth``
+  (on the server) would lead to TLS keys getting out of sync and client
+  being disconnected.  Fix.
+
+- management interface would sometimes get stuck if client and server
+  try to write something simultaneously.  Fix by allowing a limited
+  level of recursion in virtual_output_callback()
+
+- fix management interface not returning ERROR:/SUCCESS: response
+  on "signal SIGxxx" commands when in HOLD state
+
+- tls-crypt-v2: abort connection if client-key is too short
+
+- make man page agree with actual code on replay-window backtrag log message
+
+- remove useless empty line from CR_RESPONSE message
+
+
+Overview of changes in 2.5.7
+============================
+
+New features
+------------
+- Limited OpenSSL 3.0 support
+    OpenSSL 3.0 support has been added. OpenSSL 3.0 support in 2.5 relies
+    on the compatiblity layer and full OpenSSL 3.0 support is coming with
+    OpenVPN 2.6. Only features that impact usage directly have been
+    backported:
+
+    ``--tls-cert-profile insecure``  has been added to allow selecting the
+    lowest  OpenSSL security level (not recommended, use only if you must).
+
+    OpenSSL 3.0 no longer supports the Blowfish (and other deprecated)
+    algorithm by default and the new option ``--providers`` allows loading
+    the legacy provider to renable these algorithms.  Most notably,
+    reading of many PKCS#12 files encrypted with the RC2 algorithm fails
+    unless ``--providers legacy default`` is configured.
+
+    The OpenSSL engine feature ``--engine`` is not enabled by default
+    anymore if OpenSSL 3.0 is detected.
+
+- print OpenSSL error stack if decoding PKCS12 file fails
+
+User-visible Changes
+--------------------
+- windows vcpkg building includes pkcs11-helper 1.29 now
+
+- add MSVC build options to harden windows binaries (HW-enforced
+  stack protection, SHA256 object hashes, SDL).
+
+Bugfixes
+--------
+- fix omission of cipher-negotiation.rst in tarballs
+
+- fix errno handling on Windows (Windows has different classes of
+  error codes, GetLastError() and C runtime errno, these should now
+  be handled correctly)
+
+- fix PATH_MAX build failure in auth-pam.c
+
+- fix t_net.sh self-test leaving around stale "ovpn-dummy0" interface
+
+- fix overlong path names, leading to missing pkcs11-helper patch
+  in tarball
+
+
 Overview of changes in 2.5.6
 ============================
 

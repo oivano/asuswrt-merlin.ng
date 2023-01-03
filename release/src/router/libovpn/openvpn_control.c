@@ -159,11 +159,6 @@ void ovpn_run_fw_scripts(){
 		snprintf(buffer, sizeof(buffer), "/etc/openvpn/client%d/dns.sh", unit);
 		if (f_exists(buffer))
 			eval(buffer);
-
-		snprintf(buffer, sizeof(buffer), "/etc/openvpn/client%d/qos.sh", unit);
-		if (f_exists(buffer))
-			eval(buffer);
-
 	}
 }
 
@@ -235,18 +230,11 @@ void ovpn_client_down_handler(int unit)
 
 	sprintf(dirname, "/etc/openvpn/client%d", unit);
 
-	sprintf(buffer, "%s/qos.sh", dirname);
-	if (f_exists(buffer)) {
-		eval("sed", "-i", "s/-A/-D/g", buffer);
-		eval(buffer);
-		unlink(buffer);
-	}
-
-	sprintf(buffer, "%s/client.resolv", dirname);
+	snprintf(buffer, sizeof(buffer), "%s/client.resolv", dirname);
 	if (f_exists(buffer))
 		unlink(buffer);
 
-	sprintf(buffer, "%s/client.conf", dirname);
+	snprintf(buffer, sizeof(buffer), "%s/client.conf", dirname);
 	if (f_exists(buffer))
 		unlink(buffer);
 }
@@ -307,21 +295,6 @@ void ovpn_client_up_handler(int unit)
 
 	snprintf(prefix, sizeof(prefix), "vpn_client%d_", unit);
 	sprintf(dirname, "/etc/openvpn/client%d", unit);
-
-	// tQOS fix
-	if ((nvram_pf_get_int(prefix, "rgw") >= 1) &&
-	    (nvram_get_int("qos_enable") == 1) &&
-	    (nvram_get_int("qos_type") == 1)) {
-		sprintf(buffer, "%s/qos.sh", dirname);
-		fp_qos = fopen(buffer, "w");
-		if (fp_qos) {
-			fprintf(fp_qos, "#!/bin/sh\n"
-				        "/usr/sbin/iptables -t mangle -A POSTROUTING -o br0 -m mark --mark 0x40000000/0xc0000000 -j MARK --set-xmark 0x80000000/0xC0000000\n");
-			fclose(fp_qos);
-			chmod(buffer, 0755);
-			eval(buffer);
-		}
-	}
 
 	verb = nvram_pf_get_int(prefix, "verb");
 
@@ -472,7 +445,8 @@ exit:
 		fclose(fp_resolv);
 
 		// Set exclusive DNS iptables
-		if ((nvram_pf_get_int(prefix, "rgw") == OVPN_RGW_POLICY) && (nvram_pf_get_int(prefix, "adns") == OVPN_DNSMODE_EXCLUSIVE)) {
+		if (((nvram_pf_get_int(prefix, "rgw") == OVPN_RGW_POLICY) || (nvram_pf_get_int(prefix, "rgw") == OVPN_RGW_ALL)) &&
+		     (nvram_pf_get_int(prefix, "adns") == OVPN_DNSMODE_EXCLUSIVE)) {
 			lock = file_lock(VPNROUTING_LOCK);
 			ovpn_set_exclusive_dns(unit);
 			// Refresh prerouting rules to ensure correct order
@@ -671,6 +645,7 @@ void ovpn_set_exclusive_dns(int unit) {
 	char *src, *dst, *iface, *desc, *enable, *netptr;
 	struct in_addr addr;
 	int mask;
+	char prefix[32];
 
 	FILE *fp_resolv, *fp_dns;
 
@@ -691,54 +666,72 @@ void ovpn_set_exclusive_dns(int unit) {
 	                "/usr/sbin/iptables -t nat -N DNSVPN%d\n",
 	                 unit);
 
-	ovpn_get_policy_rules(unit, rules, sizeof (rules));
-	ovpn_get_policy_rules(0, wanrules, sizeof (wanrules));
-	strlcat(rules, wanrules, sizeof (rules));
+	sprintf(prefix, "vpn_client%d_", unit);
 
-	nvp = rules;
+	if (nvram_pf_get_int(prefix, "rgw") == OVPN_RGW_ALL) {
+		// Iterate through servers
+		while (fgets(buffer2, sizeof(buffer2), fp_resolv) != NULL) {
+			if (sscanf(buffer2, "server=%16s", server) != 1)
+				continue;
 
-	snprintf(iface_match, sizeof (iface_match), "OVPN%d", unit);
+			if (!inet_aton(server, &addr))
+				continue;
 
-	while ((entry = strsep(&nvp, "<")) != NULL) {
-		if (vstrsep(entry, ">", &enable, &desc, &src, &dst, &iface) != 5)
-			continue;
+			fprintf(fp_dns, "/usr/sbin/iptables -t nat -A DNSVPN%d -j DNAT --to-destination %s\n", unit, server);
+			logmessage("openvpn", "Forcing all to use DNS server %s (OpenVPN client %d is set to Exclusive DNS mode)", server, unit);
+			// Only configure first server found, as others would never get used
+			break;
+		}
+	} else if (nvram_pf_get_int(prefix, "rgw") == OVPN_RGW_POLICY) {
+		ovpn_get_policy_rules(unit, rules, sizeof (rules));
+		ovpn_get_policy_rules(0, wanrules, sizeof (wanrules));
+		strlcat(rules, wanrules, sizeof (rules));
 
-		if (atoi(&enable[0]) == 0)
-			continue;
+		nvp = rules;
 
-		if (*src && !*dst) {
-			strlcpy(buffer, src, sizeof(buffer));
+		snprintf(iface_match, sizeof (iface_match), "OVPN%d", unit);
 
-			if ((netptr = strchr(buffer, '/'))) {
-				*netptr = '\0';
-				mask = atoi(&netptr[1]);
-			} else {
-				mask = 32;
-			}
+		while ((entry = strsep(&nvp, "<")) != NULL) {
+			if (vstrsep(entry, ">", &enable, &desc, &src, &dst, &iface) != 5)
+				continue;
 
-			if ((mask >= 0) &&
-			    (mask <= 32) &&
-			    (inet_aton(buffer, &addr))) {
-				if (!strcmp(iface, iface_match)) {
+			if (atoi(&enable[0]) == 0)
+				continue;
 
-					// Iterate through servers
-					rewind(fp_resolv);
-					while (fgets(buffer2, sizeof(buffer2), fp_resolv) != NULL) {
-						if (sscanf(buffer2, "server=%16s", server) != 1)
-							continue;
+			if (*src && !*dst) {
+				strlcpy(buffer, src, sizeof(buffer));
 
-						if (!inet_aton(server, &addr))
-							continue;
+				if ((netptr = strchr(buffer, '/'))) {
+					*netptr = '\0';
+					mask = atoi(&netptr[1]);
+				} else {
+					mask = 32;
+				}
 
-		                                fprintf(fp_dns, "/usr/sbin/iptables -t nat -A DNSVPN%d -s %s -j DNAT --to-destination %s\n", unit, src, server);
-		                                logmessage("openvpn", "Forcing %s to use DNS server %s", src, server);
-						// Only configure first server found, as others would never get used
-						break;
-					}
-	                        } else if (!strcmp(iface, "WAN")) {
-	                                fprintf(fp_dns, "/usr/sbin/iptables -t nat -I DNSVPN%d -s %s -j RETURN\n", unit, src);
-	                                logmessage("openvpn", "Excluding %s from forced DNS routing", src);
-	                        }
+				if ((mask >= 0) &&
+				    (mask <= 32) &&
+				    (inet_aton(buffer, &addr))) {
+					if (!strcmp(iface, iface_match)) {
+
+						// Iterate through servers
+						rewind(fp_resolv);
+						while (fgets(buffer2, sizeof(buffer2), fp_resolv) != NULL) {
+							if (sscanf(buffer2, "server=%16s", server) != 1)
+								continue;
+
+							if (!inet_aton(server, &addr))
+								continue;
+
+			                                fprintf(fp_dns, "/usr/sbin/iptables -t nat -A DNSVPN%d -s %s -j DNAT --to-destination %s\n", unit, src, server);
+			                                logmessage("openvpn", "Forcing %s to use DNS server %s", src, server);
+							// Only configure first server found, as others would never get used
+							break;
+						}
+		                        } else if (!strcmp(iface, "WAN")) {
+		                                fprintf(fp_dns, "/usr/sbin/iptables -t nat -I DNSVPN%d -s %s -j RETURN\n", unit, src);
+		                                logmessage("openvpn", "Excluding %s from forced DNS routing", src);
+		                        }
+				}
 			}
 		}
 	}
@@ -908,6 +901,10 @@ void ovpn_start_server(int unit) {
 
 	ovpn_setup_server_watchdog(sconf, unit);
 
+	// Update running ovpn client tables
+	if (sconf->if_type == OVPN_IF_TUN)
+		update_client_routes(sconf->if_name, 1);
+
 	free(sconf);
 }
 
@@ -965,6 +962,13 @@ void ovpn_stop_server(int unit) {
 		return;
 	}
 
+	// Remove routes from running ovpn clients
+	snprintf(buffer, sizeof(buffer), "vpn_server%d_if", unit);
+	if (!strcmp(nvram_safe_get(buffer), "tun")) {
+		snprintf(buffer, sizeof(buffer), "tun%d", OVPN_SERVER_BASEIF + unit);
+		update_client_routes(buffer, 0);
+	}
+
 	// Remove watchdog
 	sprintf(buffer, "CheckVPNServer%d", unit);
 	eval("cru", "d", buffer);
@@ -998,23 +1002,9 @@ void ovpn_process_eas(int start) {
 	int unit;
 
 	// Process servers
-	strlcpy(enabled, nvram_safe_get("vpn_serverx_start"), sizeof(enabled));
-
-	for (ptr = enabled; *ptr != '\0'; ptr++) {
-		if (!isdigit(*ptr))
-			continue;
-
-		unit = atoi(ptr);
-
-		if (unit > 0 && unit <= OVPN_SERVER_MAX) {
-			sprintf(buffer2, "vpnserver%d", unit);
-			if (pidof(buffer2) >= 0)
-				ovpn_stop_server(unit);
-
-			if (start)
-				ovpn_start_server(unit);
-		}
-	}
+	stop_ovpn_serverall();
+	if (start)
+		start_ovpn_serverall();
 
 	// Process clients
 	strlcpy(enabled, nvram_safe_get("vpn_clientx_eas"), sizeof(enabled));
@@ -1038,4 +1028,103 @@ void ovpn_process_eas(int start) {
 				ovpn_start_client(unit);
 		}
 	}
+}
+
+void start_ovpn_serverall() {
+        char enabled[32];
+        char *ptr;
+        int unit;
+
+	strlcpy(enabled, nvram_safe_get("vpn_serverx_start"), sizeof(enabled));
+
+	for (ptr = enabled; *ptr != '\0'; ptr++) {
+		if (!isdigit(*ptr))
+			continue;
+
+		unit = atoi(ptr);
+		if (unit > 0 && unit <= OVPN_SERVER_MAX)
+			ovpn_start_server(unit);
+	}
+}
+
+
+void stop_ovpn_serverall() {
+	char enabled[32], buffer[32];
+	char *ptr;
+	int unit;
+
+	strlcpy(enabled, nvram_safe_get("vpn_serverx_start"), sizeof(enabled));
+
+	for (ptr = enabled; *ptr != '\0'; ptr++) {
+		if (!isdigit(*ptr))
+			continue;
+
+		unit = atoi(ptr);
+		sprintf(buffer, "vpnserver%d", unit);
+		if (pidof(buffer) >= 0)
+			ovpn_stop_server(unit);
+        }
+}
+
+
+/* Remove/add server routes from client routing tables */
+
+void update_client_routes(char *server_iface, int addroute) {
+	int unit;
+	char buffer[32];
+
+	for( unit = 1; unit <= OVPN_CLIENT_MAX; unit++ ) {
+		sprintf(buffer, "vpnclient%d", unit);
+		if ( pidof(buffer) >= 0 ) {
+			if (addroute)
+				_add_server_routes(server_iface, unit);
+			else
+				_del_server_routes(server_iface, unit);
+		}
+	}
+}
+
+
+/* Add / remove OpenVPN server routes from client tables */
+/* Server-agnostic, could eventually be reused for other servers like WG/IPSEC */
+
+void _add_server_routes(char *server_iface, int client_unit) {
+	char buffer[128], routecmd[128], line[128];
+	FILE *fp_route;
+
+	snprintf(buffer, sizeof (buffer), "/usr/sbin/ip route list table main | grep %s > /tmp/vpnroute%d_tmp", server_iface, client_unit);
+	system(buffer);
+
+	snprintf(buffer, sizeof (buffer), "/tmp/vpnroute%d_tmp", client_unit);
+	fp_route = fopen(buffer, "r");
+
+	if (fp_route) {
+		while (fgets(line, sizeof(line), fp_route) != NULL) {
+			snprintf(routecmd, sizeof (routecmd), "/usr/sbin/ip route add %s table ovpnc%d", trimNL(line), client_unit);
+			system(routecmd);
+		}
+		fclose(fp_route);
+	}
+	unlink(buffer);
+}
+
+
+void _del_server_routes(char *server_iface, int client_unit) {
+	char buffer[128], routecmd[128], line[128];
+	FILE *fp_route;
+
+	snprintf(buffer, sizeof (buffer), "/usr/sbin/ip route list table ovpnc%d | grep %s > /tmp/vpnroute%d_tmp", client_unit, server_iface, client_unit);
+	system(buffer);
+
+	snprintf(buffer, sizeof (buffer), "/tmp/vpnroute%d_tmp", client_unit);
+	fp_route = fopen(buffer, "r");
+
+	if (fp_route) {
+		while (fgets(line, sizeof(line), fp_route) != NULL) {
+			snprintf(routecmd, sizeof (routecmd), "/usr/sbin/ip route del %s table ovpnc%d", trimNL(line), client_unit);
+			system(routecmd);
+		}
+		fclose(fp_route);
+	}
+	unlink(buffer);
 }

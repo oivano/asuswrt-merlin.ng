@@ -85,6 +85,9 @@ svr_session_cleanup(void) {
 	svr_pubkey_options_cleanup();
 
 	m_free(svr_ses.addrstring);
+#ifdef SECURITY_NOTIFY
+	m_free(svr_ses.hoststring);
+#endif
 	m_free(svr_ses.remotehost);
 	m_free(svr_ses.childpids);
 	svr_ses.childpidsize = 0;
@@ -119,7 +122,11 @@ void svr_session(int sock, int childpipe) {
 	len = strlen(host) + strlen(port) + 2;
 	svr_ses.addrstring = m_malloc(len);
 	snprintf(svr_ses.addrstring, len, "%s:%s", host, port);
+#ifdef SECURITY_NOTIFY
+	svr_ses.hoststring = host;
+#else
 	m_free(host);
+#endif
 	m_free(port);
 
 #if DROPBEAR_PLUGIN
@@ -208,7 +215,7 @@ void svr_session(int sock, int childpipe) {
 
 }
 
-/* failure exit - format must be <= 100 chars */
+/* cleanup and exit - format must be <= 100 chars */
 void svr_dropbear_exit(int exitcode, const char* format, va_list param) {
 	char exitmsg[150];
 	char fullmsg[300];
@@ -217,10 +224,12 @@ void svr_dropbear_exit(int exitcode, const char* format, va_list param) {
 	int add_delay = 0;
 
 #if DROPBEAR_PLUGIN
-        if ((ses.plugin_session != NULL)) {
-            svr_ses.plugin_instance->delete_session(ses.plugin_session);
-        }
-        ses.plugin_session = NULL;
+	if ((ses.plugin_session != NULL)) {
+		svr_ses.plugin_instance->delete_session(ses.plugin_session);
+	}
+	ses.plugin_session = NULL;
+	svr_opts.pubkey_plugin_options = NULL;
+	m_free(svr_opts.pubkey_plugin);
 #endif
 
 	/* Render the formatted exit message */
