@@ -25,7 +25,7 @@ jobs:
       release_dir:
         type: string
     docker:
-      - image: gnuton/asuswrt-merlin-toolchains-docker:latest-ubuntu-20_04
+      - image: ivano/asuswrt-merlin-toolchains-docker:latest
         environment:
           PROJECT_DIR: "/home/docker/project"
           CHANGELOG_FILE: "/tmp/CHANGELOG"
@@ -71,18 +71,6 @@ jobs:
             if [[ ${MODEL} == "dsl-ac68u" ]]; then
               echo $BWDPI_KEYS_DSLAC68U | base64 -d > /tmp/keys.tgz
               tar xzf /tmp/keys.tgz --no-same-owner -C ${PROJECT_DIR}/release/${RELEASE_DIR}/router/bwdpi_source/prebuild/DSL-AC68U
-            elif [[ ${MODEL} == "dsl-ax82u" ]]; then
-              echo $BWDPI_KEYS_DSLAX82U | base64 -d > /tmp/keys.tgz
-              tar xzf /tmp/keys.tgz --no-same-owner -C ${PROJECT_DIR}/release/${RELEASE_DIR}/router/bwdpi_source/prebuild/DSL-AX82U
-            elif [[ ${MODEL} == "rt-ax82u" ]]; then
-              echo $BWDPI_KEYS_RTAX82U | base64 -d > /tmp/keys.tgz
-              tar xzf /tmp/keys.tgz --no-same-owner -C ${PROJECT_DIR}/release/${RELEASE_DIR}/router/bwdpi_source/prebuild/RT-AX82U
-            elif [[ ${MODEL} == "tuf-ax5400" ]]; then
-              echo $BWDPI_KEYS_TUFAX5400 | base64 -d > /tmp/keys.tgz
-              tar xzf /tmp/keys.tgz --no-same-owner -C ${PROJECT_DIR}/release/${RELEASE_DIR}/router/bwdpi_source/prebuild/TUF-AX5400
-            elif [[ ${MODEL} == "rt-ax95q" ]]; then
-              echo $BWDPI_KEYS_RTAX95Q | base64 -d > /tmp/keys.tgz
-              tar xzf /tmp/keys.tgz --no-same-owner -C ${PROJECT_DIR}/release/${RELEASE_DIR}/router/bwdpi_source/prebuild/RT-AX95Q
             fi
             echo "----- BUILD -----"
             make ${MODEL} | tee "/tmp/build.log"
@@ -112,7 +100,7 @@ jobs:
               fi
             fi
       - store_artifacts:
-          path: workspace/release      
+          path: workspace/release
       - persist_to_workspace:
           root: workspace
           paths:
@@ -125,27 +113,22 @@ jobs:
           at: workspace
       - add_ssh_keys:
           fingerprints:
-            - "92:8c:58:f4:aa:44:98:aa:2f:ac:bc:8b:a5:de:f5:c2"
+            - "a8:9c:28:88:e9:d8:0e:da:a7:6e:2b:7b:e5:e4:f6:e3"
       - run:
           name: "Publish manifest and release note for the current build"
           command: |
             ssh-keyscan github.com >> ~/.ssh/known_hosts
-            git config --global user.email "bot@gnuton.org"
+            git config --global user.email "bot@ion.org"
             git config --global user.name "Circle CI BOT"
             git config --global push.default simple
-            git clone -b master --single-branch git@github.com:gnuton/asuswrt-merlin.ng.git
+            git clone -b master --single-branch git@github.com:oivano/asuswrt-merlin.ng.git
             cd asuswrt-merlin.ng
             UPDATE_DIR=updates
             MAJOR_VER=$(echo "${CIRCLE_TAG}" | sed -E 's/([0-9.]*)[_-]?(.*)/\1/')
             MINOR_VER=$(echo "${CIRCLE_TAG}" | sed -E 's/([0-9.]*)[_-]?(.*)/\2/')
             RELEASE_NOTE_FILE=$(echo "${MAJOR_VER}_${MINOR_VER}_note.txt" | sed "s/\./_/")
             echo "Generating manifest file..."
-            echo "DSL-AC68U#FW${MAJOR_VER}#EXT${MINOR_VER}#BETAFW0#BETAEXT0#"  > ${UPDATE_DIR}/manifest.txt
-            echo "DSL-AX82U#FW${MAJOR_VER}#EXT${MINOR_VER}#BETAFW0#BETAEXT0#" >> ${UPDATE_DIR}/manifest.txt
-            echo "RT-AX82U#FW${MAJOR_VER}#EXT${MINOR_VER}#BETAFW0#BETAEXT0#"  >>  ${UPDATE_DIR}/manifest.txt
-            echo "TUF-AX5400#FW${MAJOR_VER}#EXT${MINOR_VER}#BETAFW0#BETAEXT0#" >> ${UPDATE_DIR}/manifest.txt
-            echo "TUF-AX3000#FW${MAJOR_VER}#EXT${MINOR_VER}#BETAFW0#BETAEXT0#"  >>  ${UPDATE_DIR}/manifest.txt
-            echo "RT-AX95Q#FW${MAJOR_VER}#EXT${MINOR_VER}#BETAFW0#BETAEXT0#"  >>  ${UPDATE_DIR}/manifest.txt
+            echo "DSL-AC68U#FW${MAJOR_VER}#EXT${MINOR_VER}#BETAFW0#BETAEXT0#" > ${UPDATE_DIR}/manifest.txt
             cp $HOME/project/workspace/release/CHANGELOG ${UPDATE_DIR}/"${RELEASE_NOTE_FILE}"
             echo "Uploading to github manifest and ${RELEASE_NOTE_FILE}"
             git add ${UPDATE_DIR}
@@ -203,7 +186,7 @@ workflows:
           type: approval
           filters:
             tags:
-              only: /[0-9]+.*gnuton[0-9]+/
+              only: /[0-9]+.*ion+/
             branches:
               ignore: /.*/
           requires:
@@ -211,7 +194,7 @@ workflows:
       - publish-manifest-and-notes:
           filters:
             tags:
-              only: /[0-9]+.*gnuton[0-9]+/
+              only: /[0-9]+.*ion+/
             branches:
               ignore: /.*/
           requires:
@@ -219,7 +202,7 @@ workflows:
       - publish-github-release:
           filters:
             tags:
-              only: /[0-9]+.*gnuton[0-9]+/
+              only: /[0-9]+.*ion+/
             branches:
               ignore: /.*/
           requires:
@@ -227,14 +210,14 @@ workflows:
       - publish-github-ci-pre-release:
           filters:
             tags:
-              only: 
-               - /gnuton-snapshot-.*/
-               - /[0-9]+.*gnuton[0-9]+_beta[0-9]+/
-               - /[0-9]+.*gnuton[0-9]+_alpha[0-9]+/
+              only:
+               - /ion-snapshot-.*/
+               - /[0-9]+.*ion_beta[0-9]+/
+               - /[0-9]+.*ion_alpha[0-9]+/
             branches:
               ignore: /.*/
           requires:
             - build_dsl-ac68u
 notify:
   webhooks:
-    - url: https://webhooks.gitter.im/e/c26cd1f27c23a32898e9
+    - url: https://webhooks.gitter.im/e/fe1ed0d17eff95999455
