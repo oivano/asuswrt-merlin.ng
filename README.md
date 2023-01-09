@@ -30,19 +30,19 @@
 
 ### Stats
 Latest release:
-![GitHub release](https://img.shields.io/github/release/oivano/asuswrt-merlin.ng.svg) 
-![GitHub Release Date](https://img.shields.io/github/release-date/oivano/asuswrt-merlin.ng.svg)
-![GitHub Releases](https://img.shields.io/github/downloads/oivano/asuswrt-merlin.ng/latest/total.svg)
+![GitHub release](https://img.shields.io/github/release/oivano/asuswrt-merlin.ng.svg?style=plastic)
+![GitHub Release Date](https://img.shields.io/github/release-date/oivano/asuswrt-merlin.ng.svg?style=plastic)
+![GitHub Releases](https://img.shields.io/github/downloads/oivano/asuswrt-merlin.ng/latest/total.svg?style=plastic)
 
 Latest pre-release:
-![GitHub tag (latest SemVer pre-release)](https://img.shields.io/github/v/tag/oivano/asuswrt-merlin.ng?include_prereleases&label=pre-release)
-![GitHub (Pre-)Release Date](https://img.shields.io/github/release-date-pre/oivano/asuswrt-merlin.ng)
-![GitHub release (latest by date including pre-releases)](https://img.shields.io/github/downloads-pre/oivano/asuswrt-merlin.ng/latest/total)
+![GitHub tag (latest SemVer pre-release)](https://img.shields.io/github/v/tag/oivano/asuswrt-merlin.ng?include_prereleases&label=pre-release&style=plastic)
+![GitHub (Pre-)Release Date](https://img.shields.io/github/release-date-pre/oivano/asuswrt-merlin.ng?style=plastic)
+![GitHub release (latest by date including pre-releases)](https://img.shields.io/github/downloads-pre/oivano/asuswrt-merlin.ng/latest/total?style=plastic)
 
 All releases:
-![GitHub All Releases](https://img.shields.io/github/downloads/oivano/asuswrt-merlin.ng/total.svg)
+![GitHub All Releases](https://img.shields.io/github/downloads/oivano/asuswrt-merlin.ng/total.svg?style=plastic)
 
-Latest Merlin firmware version: ![GitHub release](https://img.shields.io/github/tag/RMerl/asuswrt-merlin.ng.svg)
+Latest Merlin firmware version: ![GitHub release](https://img.shields.io/github/v/tag/RMerl/asuswrt-merlin.ng.svg?style=plastic)
 
 Main branch build: [![CircleCI](https://circleci.com/gh/oivano/asuswrt-merlin.ng/tree/dsl-master.svg?style=svg)](https://circleci.com/gh/oivano/asuswrt-merlin.ng/tree/dsl-master)
 
