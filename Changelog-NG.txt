@@ -2,8 +2,8 @@ Asuswrt-Merlin 386/NG Changelog
 ===============================
 
 386.9-ion (xx-xxx-xxxx)
-  - NOTE: 386_xx release are only for Wifi 5 (802.11ac) models.
-  - NEW: Merged with GPL 386_50757.
+ - NOTE: 386_xx release are only for Wifi 5 (802.11ac) models.
+ - NEW: Merged with GPL 386_50757.
 
   - UPDATED: getdns/stubby to 1.7.2/0.4.2.
   - UPDATED: zlib to 1.2.12 + backports.
@@ -12,6 +12,7 @@ Asuswrt-Merlin 386/NG Changelog
   - UPDATED: nettle to 3.8.1.
   - UPDATED: openvpn to 2.5.8.
   - UPDATED: dropbear to 2022.83.
+  - UPDATED: dnsmasq to 2.88.
   - CHANGED: Rebranded DNSFilter as DNS Director.  This will prevent
              confusion with the company sharing the same name, and
              also better describes what the feature does.
