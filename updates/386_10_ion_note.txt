@@ -1,0 +1,8 @@
+##  ion release asuswrt merlin changelog  ##
+
+Date: May 11, 2023
+Release: 386.10-ion
+
+ - NOTE: 386_xx release are only for Wifi 5 (802.11ac) models.
+
+
