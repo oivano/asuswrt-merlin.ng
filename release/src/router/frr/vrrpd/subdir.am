@@ -1,0 +1,40 @@
+#
+# vrrpd
+#
+
+if VRRPD
+sbin_PROGRAMS += vrrpd/vrrpd
+vtysh_daemons += vrrpd
+man8 += $(MANBUILD)/frr-vrrpd.8
+endif
+
+vrrpd_vrrpd_SOURCES = \
+	vrrpd/vrrp.c \
+	vrrpd/vrrp_arp.c \
+	vrrpd/vrrp_debug.c \
+	vrrpd/vrrp_main.c \
+	vrrpd/vrrp_ndisc.c \
+	vrrpd/vrrp_northbound.c \
+	vrrpd/vrrp_packet.c \
+	vrrpd/vrrp_vty.c \
+	vrrpd/vrrp_zebra.c \
+	# end
+
+noinst_HEADERS += \
+	vrrpd/vrrp.h \
+	vrrpd/vrrp_arp.h \
+	vrrpd/vrrp_debug.h \
+	vrrpd/vrrp_ndisc.h \
+	vrrpd/vrrp_packet.h \
+	vrrpd/vrrp_vty.h \
+	vrrpd/vrrp_zebra.h \
+	# end
+
+clippy_scan += \
+	vrrpd/vrrp_vty.c \
+	# end
+
+vrrpd_vrrpd_LDADD = lib/libfrr.la @LIBCAP@
+nodist_vrrpd_vrrpd_SOURCES = \
+	yang/frr-vrrpd.yang.c \
+	# end

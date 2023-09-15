@@ -1,0 +1,50 @@
+#
+# bfdd
+#
+
+if BFDD
+noinst_LIBRARIES += bfdd/libbfd.a
+sbin_PROGRAMS += bfdd/bfdd
+vtysh_daemons += bfdd
+man8 += $(MANBUILD)/frr-bfdd.8
+endif
+
+bfdd_libbfd_a_SOURCES = \
+	bfdd/bfd.c \
+	bfdd/bfdd_nb.c \
+	bfdd/bfdd_nb_config.c \
+	bfdd/bfdd_nb_state.c \
+	bfdd/bfdd_vty.c \
+	bfdd/bfdd_cli.c \
+	bfdd/bfd_packet.c \
+	bfdd/config.c \
+	bfdd/control.c \
+	bfdd/dplane.c \
+	bfdd/event.c \
+	bfdd/ptm_adapter.c \
+	# end
+
+# Install headers so it can be used by external data plane
+# implementations.
+bfdd_headersdir = $(pkgincludedir)/bfdd
+bfdd_headers_HEADERS = \
+	bfdd/bfddp_packet.h \
+	# end
+
+clippy_scan += \
+	bfdd/bfdd_cli.c \
+	bfdd/bfdd_vty.c \
+	# end
+
+noinst_HEADERS += \
+	bfdd/bfdctl.h \
+	bfdd/bfdd_nb.h \
+	bfdd/bfd.h \
+	# end
+
+nodist_bfdd_bfdd_SOURCES = \
+	yang/frr-bfdd.yang.c \
+	# end
+
+bfdd_bfdd_SOURCES = bfdd/bfdd.c
+bfdd_bfdd_LDADD = bfdd/libbfd.a lib/libfrr.la

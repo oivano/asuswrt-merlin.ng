@@ -1,0 +1,50 @@
+#
+# babeld
+#
+
+if BABELD
+sbin_PROGRAMS += babeld/babeld
+vtysh_daemons += babeld
+endif
+
+babeld_babeld_SOURCES = \
+	babeld/babel_errors.c \
+	babeld/babel_filter.c \
+	babeld/babel_interface.c \
+	babeld/babel_main.c \
+	babeld/babel_zebra.c \
+	babeld/babeld.c \
+	babeld/kernel.c \
+	babeld/message.c \
+	babeld/neighbour.c \
+	babeld/net.c \
+	babeld/resend.c \
+	babeld/route.c \
+	babeld/source.c \
+	babeld/util.c \
+	babeld/xroute.c \
+	# end
+
+noinst_HEADERS += \
+	babeld/babel_errors.h \
+	babeld/babel_filter.h \
+	babeld/babel_interface.h \
+	babeld/babel_main.h \
+	babeld/babel_zebra.h \
+	babeld/babeld.h \
+	babeld/kernel.h \
+	babeld/message.h \
+	babeld/neighbour.h \
+	babeld/net.h \
+	babeld/resend.h \
+	babeld/route.h \
+	babeld/source.h \
+	babeld/util.h \
+	babeld/xroute.h \
+	# end
+
+clippy_scan += \
+	babeld/babel_interface.c \
+	babeld/babeld.c
+
+babeld_babeld_LDADD = lib/libfrr.la $(LIBCAP)

@@ -1,0 +1,41 @@
+#
+# vtysh
+#
+
+if VTYSH
+bin_PROGRAMS += vtysh/vtysh
+man1 += $(MANBUILD)/vtysh.1
+endif
+
+clippy_scan += \
+	vtysh/vtysh.c \
+	# end
+
+vtysh_vtysh_SOURCES = \
+	vtysh/vtysh_main.c \
+	vtysh/vtysh.c \
+	vtysh/vtysh_user.c \
+	vtysh/vtysh_config.c \
+	# end
+nodist_vtysh_vtysh_SOURCES = \
+	vtysh/vtysh_cmd.c \
+	# end
+
+noinst_HEADERS += \
+	vtysh/vtysh.h \
+	vtysh/vtysh_user.h \
+	# end
+
+vtysh_vtysh_LDADD = lib/libfrr.la $(LIBCAP) $(LIBREADLINE) $(LIBS) $(LIBPAM)
+
+EXTRA_DIST += vtysh/daemons.pl
+
+BUILT_SOURCES += vtysh/vtysh_daemons.h
+
+# force vtysh_daemons.h
+$(vtysh_vtysh_OBJECTS): vtysh/vtysh_daemons.h
+
+CLEANFILES += vtysh/vtysh_daemons.h
+vtysh/vtysh_daemons.h:
+	@$(MKDIR_P) vtysh
+	$(PERL) $(top_srcdir)/vtysh/daemons.pl $(vtysh_daemons) > vtysh/vtysh_daemons.h

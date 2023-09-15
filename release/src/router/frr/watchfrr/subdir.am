@@ -1,0 +1,24 @@
+#
+# watchfrr
+#
+
+if WATCHFRR
+sbin_PROGRAMS += watchfrr/watchfrr
+man8 += $(MANBUILD)/frr-watchfrr.8
+endif
+
+noinst_HEADERS += \
+	watchfrr/watchfrr.h \
+	watchfrr/watchfrr_errors.h \
+	# end
+
+watchfrr_watchfrr_LDADD = lib/libfrr.la $(LIBYANG_LIBS) $(LIBCAP)
+watchfrr_watchfrr_SOURCES = \
+	watchfrr/watchfrr.c \
+	watchfrr/watchfrr_errors.c \
+	watchfrr/watchfrr_vty.c \
+	# end
+
+clippy_scan += \
+	watchfrr/watchfrr_vty.c \
+	# end

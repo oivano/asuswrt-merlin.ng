@@ -1,0 +1,14 @@
+
+/.debhelper/
+/*/
+!/tests/
+!/source
+
+/*.log
+/*.substvars
+/*.debhelper
+/autoreconf.*
+/files
+/frr.init
+/frr.service
+/frr@.service

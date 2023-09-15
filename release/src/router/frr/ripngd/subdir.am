@@ -1,0 +1,44 @@
+#
+# ripngd
+#
+
+if RIPNGD
+sbin_PROGRAMS += ripngd/ripngd
+vtysh_daemons += ripngd
+man8 += $(MANBUILD)/frr-ripngd.8
+endif
+
+ripngd_ripngd_SOURCES = \
+	ripngd/ripng_cli.c \
+	ripngd/ripng_debug.c \
+	ripngd/ripng_interface.c \
+	ripngd/ripng_nexthop.c \
+	ripngd/ripng_offset.c \
+	ripngd/ripng_main.c \
+	ripngd/ripng_nb.c \
+	ripngd/ripng_nb_config.c \
+	ripngd/ripng_nb_rpcs.c \
+	ripngd/ripng_nb_state.c \
+	ripngd/ripng_peer.c \
+	ripngd/ripng_route.c \
+	ripngd/ripng_routemap.c \
+	ripngd/ripng_zebra.c \
+	ripngd/ripngd.c \
+	# end
+
+clippy_scan += \
+	ripngd/ripng_cli.c \
+	# end
+
+noinst_HEADERS += \
+	ripngd/ripng_debug.h \
+	ripngd/ripng_nb.h \
+	ripngd/ripng_nexthop.h \
+	ripngd/ripng_route.h \
+	ripngd/ripngd.h \
+	# end
+
+ripngd_ripngd_LDADD = lib/libfrr.la $(LIBCAP)
+nodist_ripngd_ripngd_SOURCES = \
+	yang/frr-ripngd.yang.c \
+	# end
