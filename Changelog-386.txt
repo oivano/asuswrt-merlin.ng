@@ -1,0 +1,572 @@
+Asuswrt-Merlin Changelog
+========================
+
+386.12-ion (15-Sep-2023)
+ - UPDATED: Merged with GPL 386_51997.
+
+386.12 (4-Sept-2023)
+  - UPDATED: Merged with GPL 386_51997.
+  - UPDATED: curl to 8.1.2.
+  - UPDATED: OpenVPN to 2.6.6.
+  - UPDATED: openssl to 1.1.1u.
+  - UPDATED: tor to 0.4.7.13.
+  - CHANGED: FTP server will now only support strong ciphers
+             in TLS mode.
+  - FIXED: QOS Classification showing no Upload data on some
+           WAN configurations.
+  - FIXED: Radio temperature graphs weren't updating
+  - FIXED: nvram usage reported on Sysinfo page was inaccurate
+           as it included JFFS stored values.
+
+386.11 (14-May-2023)
+  - UPDATED: curl to 8.0.1.
+  - UPDATED: openvpn to 2.6.3.
+  - CHANGED: Reduce max OpenVPN clients to 2 for RT-AC68U and
+             DSL-AC68U due to lack of NVRAM on these two
+             models.  Note that existing settings are not
+             automatically removed, you must run the following
+             command over SSH to remove them from nvram and
+             the /jffs/openvpn/ directory:
+
+                clear_vpnclients.sh
+
+             A backup will be saved in /jffs/openvpn_backup.tgz.
+
+  - FIXED: DDNS was being refreshed every time IPv6 bound6() event
+           occured even if IPv6 DDNS update was disabled.
+  - FIXED: Wireless Log wouldn't properly show IPv6 address
+           for clients with multiple addresses.
+  - FIXED: dnsmasq may crash if no DNS server is configured
+           (fix backported from dnsmasq upstream)
+
+386.10-ion (10-Mar-2023)
+  - NOTE: 386_xx release are only for Wifi 5 (802.11ac) models.
+
+386.10 (10-Mar-2023)
+  - NOTE: 386_xx releases are only for Wifi 5 (AC) models.
+  - NEW: Added Site Survey page under Network Tools tab.
+         (RT-AC86U/GT-AC2900).
+  - UPDATED: dnsmasq to 2.89.
+  - UPDATED: openvpn to 2.6.0.
+  - UPDATED: openssl to 1.1.1t.
+  - UPDATED: miniupnpd to 2.3.3.
+  - UPDATED: Asus security daemon updated to 2.0 engine (patch
+             from Asus)
+  - CHANGED: Moved WiFi Radar and Site Survey to the
+             Network Tools tab
+  - CHANGED: Disabled auto logout on System Log and
+             Wireless Log pages.
+  - CHANGED: Reduced EDNS packet size from 1280 to 1232
+             bytes in dnsmasq, to better work with some
+             upstream servers not fully supporting EDNS0.
+  - FIXED: NTP redirection wouldn`t work properly with
+           Guest Network, removed redirection for these.
+  - FIXED: Added missing Tools icon on ROG UI (icon
+           contributed by Cody).
+  - FIXED: RT-AC68U may crash when using Media Bridge mode
+           with a specific SSID length (patch from Asus)
+
+386.9-ion (20-Jan-2023)
+ - NOTE: 386_xx release are only for Wifi 5 (802.11ac) models.
+ - NEW: Merged with GPL 386_50757.
+
+386.9 (6-Jan-2023)
+  - NOTE: 386_xx release are only for Wifi 5 (802.11ac) models.
+  - NEW: Merged with GPL 386_50757.
+
+  - UPDATED: getdns/stubby to 1.7.2/0.4.2.
+  - UPDATED: zlib to 1.2.12 + backports.
+  - UPDATED: openssl to 1.1.1s.
+  - UPDATED: inadyn to 2.10.0.
+  - UPDATED: nettle to 3.8.1.
+  - UPDATED: openvpn to 2.5.8.
+  - UPDATED: dropbear to 2022.83.
+  - UPDATED: dnsmasq to 2.88.
+  - CHANGED: Rebranded DNSFilter as DNS Director.  This will prevent
+             confusion with the company sharing the same name, and
+             also better describes what the feature does.
+  - CHANGED: Setting an OpenVPN client to redirect all traffic while
+             in "Exclusive" DNS mode will now force redirect ALL
+             DNS traffic just like in VPN Director mode.
+             While this will allow redirecting clients with
+             hardcoded DNS servers, it also means that your whole
+             LAN will lose the ability of doing local name
+             resolution.  It might be best to use VPN Director
+             in that case to control which client should
+             be involved in the DNS redirection, or use
+             DNSFilter instead of Exclusive DNS mode.
+             editing VPNDirector rules.
+  - CHANGED: Switched generated self-signed certificate to an
+             EC certificate.
+  - CHANGED: Disabled DSS key support in Dropbear SSH.
+  - FIXED: Wrong temperatures used by the temperature graphs
+           (386.8 regression)
+  - FIXED: Guest Network clients couldn't route through VPN
+           (regression in 386.4 following a GPL merge).
+  - FIXED: Clients connected to Guest Network 1 aren't
+           redirected to the router's NTP if NTP interception is
+           enabled.
+  - FIXED: Name was truncated to 31 chars when enabling OpenVPN
+           client's Server Certificate Name Validation.
+  - FIXED: CVE-2022-37434 in zlib.
+  - REMOVED: Interface selector on Speedtest page (no longer
+             working, possibly due to an ookla client update)
+
+
+386.8 (13-Aug-2022)
+  - NOTE: This release is only available for the RT-AX88U as
+          well as the two new models listed below.
+  - NEW: Added support for the GT-AXE16000.
+  - NEW: Added support for the GT-AX11000_Pro.
+  - NEW: Added support for new RT-AX88U hardware revision.
+  - UPDATED: Merged with GPL 386_49634.
+  - CHANGED: Re-enabled IPv6 DDNS support.
+  - CHANGED: Once again block router DNS access over IPv6 when
+             using DNSFilter on a pre-HND model (reverted back
+             to 386.7 behaviour for that scenario)
+  - FIXED: inaccurate nvram usage on Sysinfo page for some HND
+           models.  Now accurately report kernel nvram usage.
+  - FIXED: WiFi Radar page alignment.
+  - FIXED: AiMesh node new firmware popup would use the device model
+           (like RT-AC66U_B1) rather than the product id (like
+           RT-AC68U) for the generated download URL.
+  - FIXED: OVPN client with DNS set to strict had lower priority
+           than DNSPrivacy servers.
+  - FIXED: IPv6 DNS may be missing if DNSPrivacy is enabled.
+  - FIXED: Wifi Radar pages missing on XT12.
+  - FIXED: QRcode failing to generate if the SSID contained unicode
+           characters (like emojis or other UTF8 entities)
+
+
+386.05_2-ion (24-Apr-2022)
+  - UPDATED: quagga to 1.2.4
+  - UPDATED: Dropbear to 2022.82
+  - UPDATED: Readline to 8.1
+  - NOTE: enabled following quagga services; bgpd, ospfd. Disabled everything else.
+ 
+386.5_2 (25-March-2022)
+  - UPDATED: openssl to 1.1.1n.
+  - UPDATED: openvpn to 2.5.6.
+  - CHANGED: Added Wireguard module + userspace tool to
+             GT-AXE11000.
+  - FIXED: Only a few DNSFilter clients are supported
+           on HND models (entries limited to 255 chars).
+  - FIXED: Security issue in AiCloud (backport from Asus)
+  - FIXED: Cannot enable Adaptive QoS under certain scenarios
+           on pre-HND router models.
+
+386.5 (2-March-2022)
+  - NEW: Added support for the RT-AC68U V4.  All
+         RT-AC68U models are using a combined
+         firmware file (like stock firmware),
+         with both firmwares within the same file.
+  - NEW: Added support for the GT-AXE11000.
+  - NEW: Added config option for the Boost key on
+         GT models.  The option can be found on the
+         Administration -> System page.
+  - NEW: Basic IPv6 support for TQoS (Kevin Bracey)
+  - UPDATED: Merged with GPL 386_46065.
+  - UPDATED: Reverted dnsmasq from 2.86 to 2.85.
+  - UPDATED: miniupnpd to 2.3.0.
+  - UPDATED: avahi to 0.8 + a few backports.
+  - CHANGED: Improved accuracy of overhead parameters
+             in Traditional QoS (Kevin Bracey)
+  - CHANGED: Report download stats for TQoS (Kevin Bracey)
+  - CHANGED: Report DFS scanning state for both 5 GHz bands
+             if appropriate on tri-band models
+  - CHANGED: Enabled pass_persist support in net-snmp.
+  - FIXED: Various TQoS issues (Kevin Bracey)
+  - FIXED: enabling/disabling 802.11b rates wouldn't get saved
+           to nvram.
+  - FIXED: netatalk failing to load extensions.
+  - FIXED: Large swapfiles reported the incorrect size on
+           the Tools page (Kevin Bracey)
+  - FIXED: User accounts would not show as connected on
+           the OpenVPN server username list if a remote
+           client connected over IPv6.
+  - FIXED: Earlier syslog content was missing on RT-AX86U
+           and RT-AX68U after a reboot.
+  - FIXED: WAN monitoring could fail if using IPv6 and
+           DNS Rebind protection was enabled.
+  - FIXED: RT-AX86U syslog could be truncated after a reboot.
+  - FIXED: Toggling FTP WAN access without applying settings
+           wouldn't reconfigure the FTP server properly.
+  - FIXED: Non-functionning TrendMicro features on the
+           RT-AX68U and RT-AX86U (reverted kernel components
+           to the previous version).
+
+386.4-ion (14-Jan-2022)
+
+  - NOTE: DSL-AC68U removed support for the following functions; amas bwdpi cfg_sync cloudsync
+          conndiag email fileflex gameMode media ookla optimize_xbox pptpd printer repeater
+          rrsut snmp timemachine user_low_rssi yadns
+          Streamlined RAM usage and cleaned js Web UI pages to show only enabled functions,
+          please refer to README.md for Web UI layout of all ion release(s).
+
+386.4 (1-Jan-2022)
+  - NEW: Added support for the RT-AX86S (uses the same firmware
+         as the RT-AX86U).
+  - NEW: Added wireguard kernel module + userspace tool to
+         HND models firmware images.
+  - NEW: IPv6 support for OpenVPN server.  Allows to remotely
+         connect to your router's OpenVPN server over IPv6, and
+         reach LAN clients over their IPv6 (redirecting IPv6
+         Internet traffic does not work).
+  - UPDATED: Merged with GPL 386_45958 + a few newer patches
+             from Asus.
+  - UPDATED: curl to 7.79.1.
+  - UPDATED: vsftpd to 3.0.5.
+  - UPDATED: openssl to 1.1.1m.
+  - UPDATED: wget to 1.21.1.
+  - UPDATED: nettle to 3.7.3.
+  - UPDATED: dnsmasq to 2.86.
+  - UPDATED: openvpn to 2.5.5.
+  - UPDATED: tor to 0.4.5.11.
+  - UPDATED: miniupnpd to 2.2.3-git 20211017.
+  - UPDATED: inadyn to 2.9.1.
+  - UPDATED: CA bundle to 2021-12-13.
+  - UPDATED: amtm to 3.2.2 (thelonelycoder)
+  - CHANGED: replaced jitterentropy-rngd with haveged.
+             It uses more resources, but it works
+             properly on older platforms, and is
+             generally less CPU intensive in regular
+             use.  This is implemented for all router
+             models.
+  - CHANGED: Switched dnsmasq crypto backend to nettle.
+  - CHANGED: Switched to Asus's own dhcp hostname support.
+             Existing dhcp_hostnames entries will be
+             converted on first boot.
+  - CHANGED: miniupnpd will now be supplied the public WAN
+             IP to improve compatibility with dual NAT
+             setups.
+  - CHANGED: Disabling Auto DoH will now also disable
+             Windows' new Discovery of Designated
+             Resolvers (DDR) feature.
+  - FIXED: Wrong interface might be used for the default
+           gateway in an openvpn client routing table.
+  - FIXED: Generated OpenVPN certs used SHA1 signatures
+           instead of SHA256 (regression from 386.1)
+  - FIXED: Various issues with protocol handling when
+           importing an ovpn client file.
+  - FIXED: IPv6 not working while in Dual WAN mode.
+  - FIXED: Failed OpenVPN client connections might sometime
+           be stuck with a "Connecting" state.
+  - FIXED: NTP sometimes failing to update at boot time
+           when using IPv6.
+  - FIXED: Changes done by firewall-start may be lost after
+           ddns service gets stopped when using tunnelbroker
+
+386.3_2 (6-Aug-2021)
+  - NOTE: closed down the Issue tracker on Github, as 90%
+          of it was people asking for technical support,
+          or failing to use the supplied submission form.
+  - NOTE: From now on DSL-AC68U trx images without DSL modem 
+          firmware will be provided at each release.
+	  Reason: Some ISPs may require older DSL modem fw.
+  - CHANGED: Re-disabled jitterentropy-rngd on non-HND
+             models.  It kept using CPU time every two
+             seconds and had a very marginal impact on
+             the entropy pool (which it never could push
+             above the target threshold of 1024).
+  - CHANGED: Moved the "Redirect Internet traffic" setting on
+             the OpenVPN Client page to the Network Settings
+             section to increase its visibility, as too many
+             users are forgetting to configure it.
+  - CHANGED: Display "Internet traffic not redirected" instead
+             of "Public IP Unknown" on the OpenVPN Client
+             status display when Redirect Internet traffic
+             is set to "No".
+  - FIXED: Only the first OpenVPN client would be used if
+           you had multiple clients connected and the first
+           one had a Redirect Internet set to "No".  Now,
+           setting this to "No" means that client's routing
+           table will no longer get a default gateway
+           configured, allowing traffic to be processed
+           by other RPDB tables if there wasn't a matching
+           route within that client's table.
+  - FIXED: IPV6-compatible DNSFilter servers weren't
+           properly configured in dnsmasq.
+  - FIXED: DNSFilter client rules may get corrupted after a
+           reboot.
+  - FIXED: Cake QoS for DSL-AX82U now works
+  - FIXED: QoS upload classification page now shows upload plot for DSL-AX82U
+  - FIXED: WiFi Insight page under wireless tab has been enabled for DSL-AX82U
+  - FIXED: DNSFilter has been enabled for DSL-AX82U
+
+386.3 (23-July-2021)
+  - NOTE: First time you boot into this version, you need to
+          either shift-reload the main index page, or clear
+          your browser cache.
+
+  - NEW: Introducing VPN Director, which replaces the original
+         policy routing management interface for OpenVPN clients.
+         A bit similar to Asus's own VPN Fusion, OpenVPN routing
+         rules are now managed through a central web interface,
+         and they are stored in JFFS instead of nvram, to allow
+         creating more rules, and free up some nvram for
+         nvram-limited devices such as the RT-AC68U.
+         See the Wiki for more information.
+
+  - NEW: Added QR codes to the networkmap as well as the Guest
+         Network page, to allow easily connecting a mobile
+         device just by scanning the QR code.
+         The generated QR code can also be saved as a file
+         if you'd like to print it.
+
+  - CHANGED: Rewrote OpenVPN routing handling.  The firmware will
+             now handle route creation itself rather than letting
+             the openvpn client create/remove routes.
+             The new implementation brings a few changes:
+
+             - "Force Internet traffic through tunnel" can now
+               be set to "No", "Yes (All)" or "VPN Director".
+             - This setting will now override whatever setting
+               pushed by the server regarding gateway redirection.
+             - The kill switch can now be used in both "Yes" and
+               "VPN Director" routing modes
+             - Manually stopping a client will remove the kill
+               switch.  It will now only be applied at boot time
+               (if client was set to start at boot), or if the
+               tunnel is disconnected through a non-user event
+
+  - CHANGED: Reworked OpenVPN's DNS Exclusive mode implementation
+             and interaction with dnsmasq.
+  - CHANGED: Moved OpenVPN Custom settings content to JFFS, and
+             increased max storage length from around 350 chars
+             to 4095 chars.
+  - CHANGED: Added support for BCM50991 used for the 2.5G
+             interface in newer RT-AX86U revisions.
+  - UPDATED: nano to 5.7.
+  - UPDATED: curl to 7.76.1.
+  - UPDATED: dnsmasq to 2.85-openssl.
+  - UPDATED: openvpn to 2.5.3.
+  - UPDATED: getdns to 1.7.0.
+  - UPDATED: stubby to 0.4.0.
+  - FIXED: Setting an OpenVPN client's DNS mode to Exclusive
+           could fail to work for certain configurations
+  - FIXED: DNS Exclusive redirections applied in Policy mode
+           could be executed in the wrong order if you had
+           overlapping policy rules in two separate clients.
+  - FIXED: Clients connected to Guest Network 1 couldn't be
+           routed through an OpenVPN tunnel.
+  - FIXED: Clients connected to Guest Network 1 would bypass
+           DNSFilter rules.
+  - FIXED: USB disks not properly unmounted on reboot
+           on some router models.
+  - FIXED: Missing error report on OpenVPN client connection
+           failure
+  - FIXED: profile.add getting used even if JFFS scripting
+           was disabled (dave14305)
+  - FIXED: Freedns authentication errors would not
+           properly be reported as errors.
+
+
+386.2_6 (6-June-2021)
+  - NOTE: The IRC channel, #asuswrt, has moved to the
+          Libera IRC network (https://libera.chat/).
+
+  - UPDATED: chart.js to 2.9.4.
+  - UPDATED: tor to 0.4.5.8.
+  - UPDATED: root certificate bundle to June 5th 2021.
+  - FIXED: Fragattack security issues
+  - FIXED: DSL-AX82U: CPU frequency is now visible in tools page
+  - FIXED: DSL-AX82U: Kernel supports cake QoS
+  - NEW: DSL-AX82U: Added IFTT support
+
+386.2_4 (30-Apr-2021)
+  - NEW: Added jitterentropy-rngd to non-HND models, in addition
+         to HND models.
+  - UPDATED: OpenVPN to 2.5.2.
+  - UPDATED: jitterentropy-rngd to 1.2.2 (library 3.0.3)
+  - FIXED: Scheduled new FW checks wouldn't display the webui
+           notification icon when the local router had a
+           new release available.
+  - FIXED: OpenVPN server would flip into an error state (being
+           shown as "initializing" on the webui) whenever an
+           inbound client failed to connect to it.
+  - FIXED: DSL-AX82U: CPU frequency is now visible in tools page
+
+386.2_2 (13-Apr-2021)
+  - FIXED: IPv6 pings were blocked if sent below the rate limit
+           instead of above (issue introduced in 42095)
+  - FIXED: kernel debuging log entry (was removed) (RT-AC86U)
+  - FIXED: Field that accepted a float value would reject
+           values equal to the allowed minimum (for example
+           the QoS bandwidth limits)
+  - FIXED: QoS Bandwidth settings were hidden on
+           non-HND models when accessing the QoS page.
+  - CHANGED: Tweaks to the Firmware Upgrade page display.
+  - CHANGED: Enabling DOS protection will now also rate limit
+             ICMPV6 echo (type 128) packets, like with IPv4.
+
+
+386.2 (2-Apr-2021)
+  - NOTE: due to changes in how custom device icons are handled,
+          first time you boot with 386.2 you need to either
+          shift-reload the main index page, or clear your
+          browser cache.
+
+  - NEW: Added support for the GT-AX11000.  Note that VPN Fusion,
+         as well as the ROG-specific features such as the custom
+         UI are not supported.
+  - NEW: Added support for the RT-AX68U.
+  - NEW: Added jitterentropy-rngd daemon to HND routers.  This will
+         ensure sufficient entropy is generated early on at
+         boot time, reducing boot stalls caused by insufficient
+         entropy for the kernel's random number generator,
+         and also generally improves security related to
+         crypto operations by the router.
+  - NEW: Added Cake QoS for HND routers.  Note that just like
+         Traditional QoS, this is not compatible with hardware
+         acceleration, and therefore might not be usable on
+         connections faster than around 350 Mbps (may vary based
+         on router models).
+  - UPDATED: Merged GPL 386_42095.
+  - UPDATED: Openssl to 1.1.1k.
+  - UPDATED: OpenVPN to 2.5.1.
+  - UPDATED: iproute2 to 5.11.0 (HND models).
+  - UPDATED: root certificate bundle to March 9th 2021.
+  - CHANGED: qos-start "init" user script now runs in blocking
+             mode to ensure it's able to complete any changes
+             it may apply to qos configs before these
+             configs get applied.
+  - FIXED: Router could get stuck at boot time after the user
+           migrated from stock firmware, or just erased his
+           JFFS partition, requiring a factory default reset.
+  - FIXED: ATM checkbox could not be enabled on QOS page.
+  - FIXED: DST not getting applied to some timezones (snauton)
+  - FIXED: Traditional QoS was broken in 386.1 (dave14305)
+  - FIXED: Connected IPSEC clients weren't shown on the VPN Status
+           page.
+  - FIXED: Userspace conntrack tool was no longer working
+  - FIXED: Traffic Monitor spikes for HND models.  (Asus backport)
+  - FIXED: webui incorrectly complaining about mismatched timezone
+           between browser and webui for some timezones (dave14305)
+  - REMOVED: SSH Brute Force Protection option (already handled
+             by Asuswrt's protect service daemon)
+
+
+386.1_2 (12-Feb-2021)
+  - NEW: Added snmp support to the RT-AX86U.
+  - UPDATED: inadyn to 2.8.1.
+  - UPDATED: nano to 5.5.
+  - CHANGED: Use local OUI database instead of remote one hosted
+             on Asus's server (allows queries to work even when
+             accessing webui over https)
+  - CHANGED: If dropbear cannot create keys in /jffs then
+             create temporary ones in /etc so SSH can work even
+             without a working JFFS partition.
+  - FIXED: Missing Game Mode on RT-AC88U
+  - FIXED: Non-working 160 MHz settings for RT-AC88U region/versions
+           that should support it
+  - FIXED: Missing Instant Guard to RT-AX56U and RT-AC88U.
+  - FIXED: IPv6 ending with "::" were considered invalid on the
+           webui (was breaking the Prefix field on the 6in4 tunnel
+           page for instance).
+  - FIXED: OUI lookups on site survey page not working
+           (for non-HND models)
+  - FIXED: Wifi Radar missing on GT-AC2900
+  - FIXED: Netools-enabled pages not used by GT-AC2900 and
+           RT-AX86U
+  - FIXED: GeForce NOW UPNP not working
+  - FIXED: Erasing the JFFS partition would often require a second
+           reboot since the operation failed when encountering
+           a bad block.  These are now properly skipped.
+  - FIXED: Parental Control's time scheduler not working properly.
+
+
+386.1 (30-Jan-2021)
+  Switched to the new 386 codebase.  386 introduces
+  AiMesh 2.0, finalizes the move to OpenSSL 1.1.1
+  firmware-wide, adds a new speedtest (powered
+  by Ookla).  For more details, please refer
+  to Asus's own release notes.
+
+  - NOTE: For developers, note that firmware code is
+          once again back on the master branch, with
+          both mainline and ax being reunified again.
+
+  - NOTE: Some users upgrading might have to go through some
+          database maintenance on first boot, which means the
+          router might be slower or have a non-responsive webui
+          for a while.
+          This can take anywhere from 5 minutes up to an hour,
+          depending on your model, just give it time to complete
+          the process.
+
+  - NEW: Added support for the RT-AX86U.
+  - NEW: Added support for the GT-AC2900, with a few restrictions:
+           - Non-ROG UI is used
+           - VPN Fusion is not supported
+           - A few other ROG-specific features are not supported
+         This is an experiment done in collaboration with Asus.
+  - NEW: Added support for the RT-AC68U V3.
+  - NEW: Added stub and stub-v2 compression options to OpenVPN
+         clients.  Not added to server, since compression is
+         considered deprecated, and will be removed most likely
+         in OpenVPN 2.6, for security reasons.
+  - NEW: Added tls-crypt-v2 support to OpenVPN clients.
+  - NEW: Added option to select an OpenVPN client when
+         running Oookla Speedtest.
+  - UPDATED: Merged GPL 386_41700
+  - UPDATED: Openssl to 1.1.1i.
+  - UPDATED: Updated to OpenVPN 2.5.0.  Note that OpenVPN
+             2.4.0 or newer is now required by the exported
+             client config file.  You can still manually
+             configure an older client to connect with your
+             router.
+  - UPDATED: dnsmasq to 2.84, resolving CVE-2020-25681,
+             CVE-2020-25682, CVE-2020-25683, CVE-2020-25687,
+             CVE-2020-25684, CVE-2020-25685 and
+             CVE-2020-25686 aka DNSpooq  (themiron)
+  - UPDATED: nano to 5.2.
+  - UPDATED: curl to 7.72.0.
+  - UPDATED: zlib to 1.2.11.
+  - UPDATED: lz4 to 1.9.2.
+  - UPDATED: e2fsprogs to 1.45.6.
+  - UPDATED: dropbear to 2020.81.
+  - UPDATED: miniupnpd to 2.2 (git snapshot from 20201129)
+  - UPDATED: Switched userspace ipset from 6.32 to 7.6 (to match
+             with upstream)
+  - CHANGED: firmware update checks are no longer using the
+             server address stored in nvram, for security
+             reasons.  Devs who were using that nvram
+             should instead edit the webs_scripts/* to
+             use their own URL.
+  - CHANGED: The old legacy cipher setting in OpenVPN is now only
+             available when running with static key authentication.
+  - CHANGED: Tweaks to the OpenVPN webui layout
+  - CHANGED: OpenVPN clients will now NAT all outbound traffic,
+             regardless of the source subnet.
+  - CHANGED: Reworked the display of DNSPrivacy presets
+  - CHANGED: Added AdGuard (ad blocking) and CIRA Canadian Shield
+             (non US-based service) to the DNSPrivacy presets.
+  - CHANGED: At boot time, OpenVPN killswitch will only be
+             applied for clients set to auto-start with WAN.
+  - CHANGED: Increased number of available mount points for addon
+             webpages to 20.
+  - CHANGED: Multiple routes can now be defined per client on the
+             OpenVPN client-specific configuration.
+  - CHANGED: Improved NAT acceleration report for newer models on
+             the sysinfo page.  Now query the hardware for the
+             current state instead of reporting the nvram values.
+  - CHANGED: When logging allowed connections is enabled, also log
+             outbound LAN connections (reverts to the behaviour from
+             a few years ago)
+  - FIXED: DHCP could fail to renew its lease with some ISPs when
+           Trend Micro engine was enabled (workaround provided
+           by Asus)
+  - FIXED: OpenVPN client remote IP wasn't updated on client
+           stop/restart.
+  - FIXED: Couldn't force generating a new SSL certificate for the
+           webui.
+  - REMOVED: Option to disable NCP.  The NCP cipher list is
+             now used both for NCP and non-NCP endpoints.
+  - REMOVED: fq_codel support for Adaptive QoS.  Due to a change
+             in how Trend Micro configures QoS, it is no longer
+             possible to intercept these to inject fq_codel.
+  - REMOVED: Option to select sfq as a queue scheduler for t.QoS
+             or Bandwidth Limiter, and always use fq_codel.
+  - REMOVED: Support for the Cloudcheck mobile app.
+
+

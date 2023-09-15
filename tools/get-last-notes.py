@@ -4,8 +4,8 @@ from datetime import date
 import os
 
 today=date.today()
-CHANGELOG_FILE='Changelog-NG.txt'
-MSG="""##  ion release asuswrt merlin changelog  ##\n"""
+CHANGELOG_FILE='Changelog-386.txt'
+MSG="""##  GNUton's Asus Merlin changelog  ##\n"""
 TAGGED_RELEASE_ENV_NAME='CIRCLE_TAG'
 
 latest_release = None
