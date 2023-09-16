@@ -1,0 +1,8 @@
+##  GNUton's Asus Merlin changelog  ##
+
+Date: September 15, 2023
+Release: 386.12-ion
+
+ - UPDATED: Merged with GPL 386_51997.
+
+
