@@ -1,0 +1,3 @@
+usr/include
+usr/lib/*/libopenconnect.so
+usr/lib/*/pkgconfig

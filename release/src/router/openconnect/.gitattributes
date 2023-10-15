@@ -1,0 +1,12 @@
+# images and icons
+*.ico -text
+*.png -text
+
+# certificates and keys under tests/
+*.p12 -text
+*.der -text
+
+# SoftHSM and SwTPM objects
+*.object -text
+tests/softhsm/*/generation -text
+swtpm*.state -text

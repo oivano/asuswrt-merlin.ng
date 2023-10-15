@@ -1,0 +1,160 @@
+%?mingw_package_header
+
+%global gitsnapshot @ISSNAP@
+%if 0%{?gitsnapshot}
+%global snapcommit @SNAPCOMMIT@
+%global snapcount @SNAPCOUNT@
+%global shortcommit %(c=%{snapcommit}; echo ${c:0:7})
+%global snapver .git.%{snapcount}.%{shortcommit}
+%endif
+
+%global tagver @VERSION@
+
+Name:		mingw-openconnect
+Version:	%{tagver}%{?snapver}
+Release:	0%{?dist}
+Summary:	Open client for SSL VPNs including Cisco AnyConnect VPN, Juniper Network Connect/Pulse, PAN GlobalProtect, Fortinet, etc.
+
+License:	LGPLv2
+URL:		https://www.infradead.org/openconnect.html
+%if 0%{?gitsnapshot}
+Source0:        https://github.com/openconnect/%{name}/archive/%{snapcommit}/openconnect-%{shortcommit}.tar.gz
+%else
+Source0:        https://www.infradead.org/openconnect/download/openconnect-%{version}.tar.gz
+%endif
+Source2:	gpgkey-BE07D9FD54809AB2C4B0FF5F63762CDA67E2F359.asc
+Source3:	macros.gpg
+
+
+BuildRequires:  mingw32-filesystem >= 95
+BuildRequires:  mingw32-gcc
+BuildRequires:  mingw32-gcc-c++
+BuildRequires:  mingw32-gettext
+BuildRequires:  mingw32-gnutls
+BuildRequires:  mingw32-p11-kit
+BuildRequires:  mingw32-libxml2
+BuildRequires:  mingw32-zlib
+BuildRequires:  mingw32-lz4
+BuildRequires:  mingw32-stoken
+BuildRequires:  wine-core(x86-32)
+
+BuildRequires:  mingw64-filesystem >= 95
+BuildRequires:  mingw64-gcc
+BuildRequires:  mingw64-gcc-c++
+BuildRequires:  mingw64-gettext
+BuildRequires:  mingw64-gnutls
+BuildRequires:  mingw64-p11-kit
+BuildRequires:  mingw64-libxml2
+BuildRequires:  mingw64-zlib
+BuildRequires:  mingw64-lz4
+BuildRequires:  mingw64-stoken
+BuildRequires:  wine-core(x86-64)
+
+BuildRequires:  mingw32-nsis
+
+BuildRequires:  pkgconfig automake autoconf libtool
+BuildRequires:  gettext-devel
+BuildRequires:  jq
+
+%description
+The OpenConnect multiprotocol VPN client library, cross-compiled for MinGW.
+
+%?mingw_debug_package
+
+# Win32
+%package -n mingw32-openconnect
+Summary:        OpenConnect VPN client library
+Requires:       pkgconfig
+
+%description -n mingw32-openconnect
+The OpenConnect multiprotocol VPN client library, cross-compiled for MinGW.
+
+%package -n mingw32-openconnect-installer
+Summary:        OpenConnect VPN client application installer
+
+%description -n mingw32-openconnect-installer
+The OpenConnect multiprotocol VPN client installer for 32-bit Windows.
+
+# Win64
+%package -n mingw64-openconnect
+Summary:        OpenConnect VPN client library
+Requires:       pkgconfig
+
+%description -n mingw64-openconnect
+The OpenConnect multiprotocol VPN client library, cross-compiled for MinGW.
+
+%package -n mingw64-openconnect-installer
+Summary:        OpenConnect VPN client application installer
+
+%description -n mingw64-openconnect-installer
+The OpenConnect multiprotocol VPN client installer for 64-bit Windows.
+
+%include %SOURCE3
+
+%prep
+%if 0%{?gitsnapshot}
+%setup -q -n openconnect-%{shortcommit}
+NOCONFIGURE=x ./autogen.sh
+%else
+%gpg_verify
+%setup -q -n openconnect-%{version}
+if [ ! -x configure ]; then
+    NOCONFIGURE=x ./autogen.sh
+fi
+%endif
+
+%mingw_configure --with-vpnc-script=vpnc-script-win.js \
+		 --without-gnutls-version-check --disable-dsa-tests \
+		 --sbindir='${exec_prefix}/bin'
+%mingw_make %{?_smp_mflags} V=1
+
+
+%install
+%mingw_make install DESTDIR=$RPM_BUILD_ROOT
+
+install -m 0644 build_win32/openconnect-installer-MinGW32-GnuTLS-*.exe $RPM_BUILD_ROOT/%{mingw32_bindir}/openconnect-installer-MinGW32-GnuTLS-%{version}-%{release}.exe
+install -m 0644 build_win64/openconnect-installer-MinGW64-GnuTLS-*.exe $RPM_BUILD_ROOT/%{mingw64_bindir}/openconnect-installer-MinGW64-GnuTLS-%{version}-%{release}.exe
+
+rm -f $RPM_BUILD_ROOT/%{mingw32_libdir}/libopenconnect.la
+rm -rf $RPM_BUILD_ROOT/%{mingw32_libexecdir}/openconnect
+rm -rf $RPM_BUILD_ROOT/%{mingw32_mandir}/man8/openconnect.8*
+rm -rf $RPM_BUILD_ROOT/%{mingw32_docdir}/openconnect
+rm -rf $RPM_BUILD_ROOT/%{mingw32_datadir}/bash-completion
+
+rm -f $RPM_BUILD_ROOT/%{mingw64_libdir}/libopenconnect.la
+rm -rf $RPM_BUILD_ROOT/%{mingw64_libexecdir}/openconnect
+rm -rf $RPM_BUILD_ROOT/%{mingw64_mandir}/man8/openconnect.8*
+rm -rf $RPM_BUILD_ROOT/%{mingw64_docdir}/openconnect
+rm -rf $RPM_BUILD_ROOT/%{mingw64_datadir}/bash-completion
+
+%mingw_find_lang openconnect
+# Surely this is supposed to happen automatically... but it doesn't seem to.
+%mingw_debug_install_post
+
+#Win32
+%files -n mingw32-openconnect -f mingw32-openconnect.lang
+%license COPYING.LGPL
+%{mingw32_bindir}/libopenconnect*.dll
+%{mingw32_bindir}/*.exe
+%{mingw32_includedir}/openconnect.h
+%{mingw32_libdir}/libopenconnect*.dll.a
+%{mingw32_libdir}/pkgconfig/openconnect.pc
+
+%files -n mingw32-openconnect-installer
+%{mingw32_bindir}/openconnect-installer-*.exe
+
+#Win64
+%files -n mingw64-openconnect -f mingw64-openconnect.lang
+%license COPYING.LGPL
+%{mingw64_bindir}/libopenconnect*.dll
+%{mingw64_bindir}/*.exe
+%{mingw64_includedir}/openconnect.h
+%{mingw64_libdir}/libopenconnect*.dll.a
+%{mingw64_libdir}/pkgconfig/openconnect.pc
+
+%files -n mingw64-openconnect-installer
+%{mingw64_bindir}/openconnect-installer-*.exe
+
+%changelog
+* Mon Apr 27 2020 David Woodhouse <dwmw2@infradead.org> - %{version}-%{release}
+- Autopackaging for COPR

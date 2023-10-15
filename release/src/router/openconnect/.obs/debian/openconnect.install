@@ -1,0 +1,7 @@
+usr/libexec/openconnect/*.py
+usr/libexec/openconnect/*.sh
+usr/sbin
+usr/share/bash-completion
+usr/share/doc/openconnect/html
+usr/share/locale
+usr/share/man

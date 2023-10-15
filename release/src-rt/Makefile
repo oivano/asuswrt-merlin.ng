@@ -2344,9 +2344,9 @@ define RouterOptions
 		sed -i "/RTCONFIG_OPENVPN/d" $(1); \
 		echo "RTCONFIG_OPENVPN=y" >>$(1); \
 	fi;
-	if [ "$(SSLVPN)" = "y" ]; then \
-		sed -i "/RTCONFIG_SSLVPN/d" $(1); \
-		echo "RTCONFIG_SSLVPN=y" >>$(1); \
+	if [ "$(OPENCONNECT)" = "y" ]; then \
+		sed -i "/RTCONFIG_OPENCONNECT/d" $(1); \
+		echo "RTCONFIG_OPENCONNECT=y" >>$(1); \
 	fi;
 	if [ "$(APP)" = "installed" ]; then \
 		sed -i "/RTCONFIG_APP_PREINSTALLED/d" $(1); \
@@ -5589,7 +5589,7 @@ fi;
 			echo "CONFIG_IP6_NF_TARGET_NPT=y" >>$(1); \
 		fi;\
 	fi;
-	if [ "$(SSLVPN)" = "y" ]; then \
+	if [ "$(OPENCONNECT)" = "y" ]; then \
 		sed -i "/CONFIG_TUN\>/d" $(1); \
 		echo "CONFIG_TUN=m" >>$(1); \
 		if [ "$(IPV6SUPP)" = "y" -o "$(IPV6FULL)" = "y" ]; then \

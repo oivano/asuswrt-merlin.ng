@@ -1,0 +1,71 @@
+<services>
+  <service name="obs_scm">
+    <param name="scm">git</param>
+    <param name="url">https://gitlab.com/openconnect/openconnect.git</param>
+    <param name="revision">master</param>
+    <param name="version">_auto_</param>
+    <param name="versionformat">@PARENT_TAG@+@TAG_OFFSET@+g%h</param>
+    <param name="versionrewrite-pattern">v(.*)</param>
+    <param name="versionrewrite-replacement">\1</param>
+    <param name="exclude">.git</param>
+    <param name="changesgenerate">enable</param>
+    <param name="filename">openconnect</param>
+    <param name="extract">.obs/openconnect.dsc</param>
+    <param name="extract">.obs/openconnect.spec</param>
+  </service>
+
+  <!-- recreate the tarball, as it's expected by debian build tools -->
+  <service name="tar" mode="buildtime"/>
+
+  <!-- extract debian packaging -->
+  <service name="extract_file" mode="buildtime">
+    <param name="archive">*.tar</param>
+    <param name="files">*/.obs/openconnect.dsc</param>
+    <param name="outfilename">openconnect.dsc</param>
+  </service>
+  <service name="extract_file" mode="buildtime">
+    <param name="archive">*.tar</param>
+    <param name="files">*/.obs/debian/changelog</param>
+    <param name="outfilename">debian.changelog</param>
+  </service>
+  <service name="extract_file" mode="buildtime">
+    <param name="archive">*.tar</param>
+    <param name="files">*/.obs/debian/control</param>
+    <param name="outfilename">debian.control</param>
+  </service>
+  <service name="extract_file" mode="buildtime">
+    <param name="archive">*.tar</param>
+    <param name="files">*/.obs/debian/copyright</param>
+    <param name="outfilename">debian.copyright</param>
+  </service>
+  <service name="extract_file" mode="buildtime">
+    <param name="archive">*.tar</param>
+    <param name="files">*/.obs/debian/rules</param>
+    <param name="outfilename">debian.rules</param>
+  </service>
+  <service name="extract_file" mode="buildtime">
+    <param name="archive">*.tar</param>
+    <param name="files">*/.obs/debian/libopenconnect-dev.install</param>
+    <param name="outfilename">debian.libopenconnect-dev.install</param>
+  </service>
+  <service name="extract_file" mode="buildtime">
+    <param name="archive">*.tar</param>
+    <param name="files">*/.obs/debian/libopenconnect5.install</param>
+    <param name="outfilename">debian.libopenconnect5.install</param>
+  </service>
+  <service name="extract_file" mode="buildtime">
+    <param name="archive">*.tar</param>
+    <param name="files">*/.obs/debian/openconnect.install</param>
+    <param name="outfilename">debian.openconnect.install</param>
+  </service>
+
+  <service name="set_version" mode="buildtime">
+    <param name="basename">openconnect</param>
+  </service>
+
+  <service name="recompress" mode="buildtime">
+    <param name="file">*.tar</param>
+    <param name="compression">gz</param>
+  </service>
+</services>
+

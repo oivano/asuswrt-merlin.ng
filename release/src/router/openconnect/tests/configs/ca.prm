@@ -1,0 +1,13 @@
+[ req ]
+prompt                          = no
+default_bits                    = 2432
+distinguished_name              = req_DN
+default_md                      = sha256
+string_mask                     = utf8only
+#req_extensions                 = x509v3
+[ req_DN ]
+CN                              = "OpenSSL Test CA"
+[ x509v3 ]
+basicConstraints                = CA:true
+keyUsage                        = keyCertSign
+subjectKeyIdentifier            = hash

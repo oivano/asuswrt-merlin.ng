@@ -972,8 +972,10 @@ obj-$(RTCONFIG_ASD) += asd
 
 obj-$(RTCONFIG_OPENVPN) += libovpn
 
-obj-$(RTCONFIG_SSLVPN) += wolfssl
-
+obj-$(RTCONFIG_OPENCONNECT) += libxml2
+obj-$(RTCONFIG_OPENCONNECT) += openssl
+obj-$(RTCONFIG_OPENCONNECT) += lz4
+obj-$(RTCONFIG_OPENCONNECT) += openconnect
 
 obj-y += rc
 obj-y += rom
@@ -3216,7 +3218,7 @@ mbedtls-install:
 wolfssl/Makefile:
 	cd wolfssl && autoreconf -i -f && \
 	$(CONFIGURE) --prefix=/usr --sysconfdir=/etc \
-	    --enable-fastmath \
+	    --enable-fastmath --enable-dtls \
 	    --enable-aes --enable-aescbc --enable-aesgcm --enable-aesccm --enable-aesctr --enable-aescfb \
 	    --enable-des3 \
 	    --enable-sha  --enable-sha3 --enable-sha224 --enable-sha384 --enable-sha512 \
@@ -3229,14 +3231,13 @@ wolfssl/Makefile:
 	    --enable-supportedcurves \
 	    --enable-secure-renegotiation --enable-fallback-scsv \
 	    --enable-session-ticket \
-	    --enable-tlsx \
+	    --enable-tlsx --enable-stunnel \
 	    CFLAGS="-Wall -O2 -ffunction-sections -fdata-sections -fPIC $(EXTRACFLAGS)" \
 	    LDFLAGS="-Wl,--gc-sections $(LDFLAGS)"
 	@touch $@
 
 wolfssl: wolfssl/Makefile
 	@$(SEP)
-	echo "build WolfSSL"
 	$(MAKE) -C $@ && $(MAKE) $@-stage
 
 wolfssl-clean:
@@ -6217,6 +6218,52 @@ openvpn-install:
 		install -D openvpn/src/plugins/auth-pam/.libs/openvpn-plugin-auth-pam.so $(INSTALLDIR)/openvpn/usr/lib/openvpn-plugin-auth-pam.so ; \
 		$(STRIP) -s $(INSTALLDIR)/openvpn/usr/lib/openvpn-plugin-auth-pam.so ; \
 #		install -D openvpn/dh2048.pem $(INSTALLDIR)/openvpn/rom/dh2048.pem ; \
+	fi
+
+openconnect: shared openssl lz4 libxml2 openconnect/Makefile
+	@$(SEP)
+	$(MAKE) -C $@ $(PARALLEL_BUILD)
+
+openconnect/Makefile:
+	( cd openconnect ; ./autogen.sh ; \
+		SSL_CFLAGS="-I$(STAGEDIR)/usr/include/openssl" \
+		SSL_LIBS="-L$(STAGEDIR)/usr/lib -lcrypto -lssl" \
+		LIBLZ4_CFLAGS="-I$(TOP)/lz4/lib" \
+		LIBLZ4_LIBS="-L$(TOP)/lz4/lib -llz4" \
+		LIBXML2_LIBS="-L$(STAGEDIR)/usr/lib -lxml2" \
+		CFLAGS="-O3 -Wall $(EXTRACFLAGS) -ffunction-sections -fdata-sections -fPIC -std=gnu99 \
+			-DASUSWRT -I$(TOP)/openssl/include -I$(STAGEDIR)/usr/include" \
+		LDFLAGS="-L$(TOP)/openssl -L$(STAGEDIR)/usr/lib $(EXTRALDFLAGS) $(EXTRALDFLAGS2) -ffunction-sections -fdata-sections \
+			-Wl,--gc-sections -lpthread -ldl" \
+		$(CONFIGURE) --prefix=/usr \
+			--disable-shared \
+			--without-libpcsclite \
+			--without-stoken \
+			--without-libpskc \
+			--without-gssapi \
+			--without-gnutls \
+			--with-openssl \
+			--disable-dsa-tests \
+			--with-vpnc-script=/etc/vpnc/vpnc-script \
+	)
+
+openconnect-clean:
+	@$(SEP)
+	[ ! -f openconnect/Makefile ] || $(MAKE) -C openconnect clean
+	@rm -f openconnect/Makefile
+
+openconnect-install:
+	if [ -f openconnect/Makefile ] ; then \
+		install -D openconnect/libopenconnect.la $(INSTALLDIR)/openconnect/usr/lib/libopenconnect.la ; \
+		$(STRIP) $(INSTALLDIR)/openconnect/usr/lib/* ; \
+		install -D openconnect/openconnect $(INSTALLDIR)/openconnect/usr/sbin/openconnect ; \
+		$(STRIP) -s $(INSTALLDIR)/openconnect/usr/sbin/openconnect ; \
+		chmod 0500 $(INSTALLDIR)/openconnect/usr/sbin/openconnect ; \
+		install -D openconnect/os-tcp-mtu $(INSTALLDIR)/openconnect/usr/sbin/os-tcp-mtu ; \
+		$(STRIP) -s $(INSTALLDIR)/openconnect/usr/sbin/os-tcp-mtu ; \
+		chmod 0500 $(INSTALLDIR)/openconnect/usr/sbin/os-tcp-mtu ; \
+		mkdir -p $(TARGETDIR)/rom/etc/vpnc ; \
+		cp openconnect/vpnc-script $(TARGETDIR)/rom/etc/vpnc/ ; \
 	fi
 
 sdparm-1.02: sdparm-1.02/Makefile
