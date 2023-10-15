@@ -972,6 +972,9 @@ obj-$(RTCONFIG_ASD) += asd
 
 obj-$(RTCONFIG_OPENVPN) += libovpn
 
+obj-$(RTCONFIG_SSLVPN) += wolfssl
+
+
 obj-y += rc
 obj-y += rom
 obj-y += others
@@ -3211,7 +3214,7 @@ mbedtls-install:
 	$(STRIP) $(INSTALLDIR)/mbedtls/usr/lib/*
 
 wolfssl/Makefile:
-	cd wolfssl && \
+	cd wolfssl && autoreconf -i -f && \
 	$(CONFIGURE) --prefix=/usr --sysconfdir=/etc \
 	    --enable-fastmath \
 	    --enable-aes --enable-aescbc --enable-aesgcm --enable-aesccm --enable-aesctr --enable-aescfb \
@@ -3232,6 +3235,8 @@ wolfssl/Makefile:
 	@touch $@
 
 wolfssl: wolfssl/Makefile
+	@$(SEP)
+	echo "build WolfSSL"
 	$(MAKE) -C $@ && $(MAKE) $@-stage
 
 wolfssl-clean:

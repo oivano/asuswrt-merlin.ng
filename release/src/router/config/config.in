@@ -269,6 +269,10 @@ config RTCONFIG_OPENVPN
 	depends on RTCONFIG_LZO
 	default n
 
+config RTCONFIG_SSLVPN
+	bool "SSL-VPN Support"
+	default n
+
 config RTCONFIG_IPSEC
 	bool "IPsec Support"
 	default n
