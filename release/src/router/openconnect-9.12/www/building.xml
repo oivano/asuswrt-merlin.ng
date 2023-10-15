@@ -1,0 +1,137 @@
+<PAGE>
+	<INCLUDE file="inc/header.tmpl" />
+
+	<VAR match="VAR_SEL_STARTED" replace="selected" />
+	<VAR match="VAR_SEL_BUILDING" replace="selected" />
+	<PARSE file="menu1.xml" />
+	<PARSE file="menu2-started.xml" />
+
+	<INCLUDE file="inc/content.tmpl" />
+
+    	<h1>Building OpenConnect</h1>
+
+<p>Unless you need to test the very latest version, you should not
+need to build OpenConnect for yourself. See the <a href="packages.html">packages</a>
+page for information about your operating system or distribution. If there
+is none, then you can file a bug or enhancement request asking for
+one.</p>
+
+<h2>Requirements</h2>
+<p>To build OpenConnect from its source code, you will need the following
+libraries and tools installed:</p>
+
+<ul>
+  <li><b><tt>libxml2</tt></b></li>
+  <li><b><tt>zlib</tt></b></li>
+  <li>Either <b><tt>OpenSSL</tt></b> or <b><tt>GnuTLS</tt></b> <i>(v3.2.10+)</i></li>
+  <li><b><tt>pkg-config</tt></b></li>
+</ul>
+And <em>optionally</em> also:
+<ul>
+  <li><b><tt><a href="https://p11-glue.github.io/p11-glue/p11-kit.html">p11-kit</a></tt></b> <i>(for PKCS#11 support)</i></li>
+  <li><b><tt><a href="https://github.com/OpenSC/libp11/wiki">libp11</a></tt></b> <i>(also needed for PKCS#11 support if using OpenSSL)</i></li>
+  <li><b><tt><a href="https://libproxy.github.io/libproxy/">libproxy</a></tt></b></li>
+  <li><b><tt><a href="http://trousers.sourceforge.net/">trousers</a></tt></b> <i>(for TPMv1 support if using GnuTLS)</i></li>
+  <li><b><tt><a href="https://www.gnu.org/software/libtasn1/">libtasn1</a></tt></b> and <em>either</em> <b><tt><a href="https://github.com/tpm2-software/tpm2-tss">tss2-esys</a></tt></b> or <b><tt><a href="https://sourceforge.net/projects/ibmtpm20tss/">IBM's TPM 2.0 TSS</a></tt></b>. <i>(for TPMv2 support if using GnuTLS)</i></li>
+  <li><b><tt><a href="http://stoken.sf.net/">libstoken</a></tt></b> <i>(for SecurID software token support)</i></li>
+  <li><b><tt><a href="https://www.nongnu.org/oath-toolkit/">libpskc</a></tt></b> <i>(for RFC6030 PSKC file storage of HOTP/TOTP keys)</i></li>
+  <li><b><tt><a href="https://pcsclite.apdu.fr/">libpcsclite</a></tt></b> <i>(for Yubikey hardware HOTP/HOTP support)</i></li>
+</ul>
+<p>OpenConnect supports the use of HTTP and SOCKS proxies to connect to the
+AnyConnect service, even without using libproxy. You may wish to use libproxy
+if you want OpenConnect to automatically use the appropriate proxies for your
+environment, without having to manually give it the <tt>--proxy</tt> argument
+on the command line.</p>
+
+<h2>Install vpnc-script</h2>
+ <p>OpenConnect should be given a default <a href="vpnc-script.html">vpnc-script</a>
+ for network configuration (routing and DNS) at compile-time. This can be overridden
+ at runtime (with <tt>--script</tt>).</p>
+ <p>The <tt>configure</tt> script will check whether either
+ <tt>/etc/vpnc/vpnc-script</tt> or <tt>/usr/share/vpnc-scripts/vpnc-script</tt>
+ exists and can be executed, and will fail if not. If you don't already have
+ a copy then you should install one. It might be in a separate <tt>vpnc-script</tt>
+ package for your operating system, it might be part of their <tt>vpnc</tt> package,
+ and there's one linked from the <a href="vpnc-script.html">vpnc-script page</a>, if
+ you need to download it manually. Install it as <tt>/etc/vpnc/vpnc-script</tt>.</p>
+
+<p>If you do not want to OpenConnect to use a vpnc-script from one of these
+ standard locations, you can configure OpenConnect to
+ use a different location by default. When running the <tt>./configure</tt> script
+ in the instructions below, you can append an argument such as <tt>--with-vpnc-script=<i>/where/I/put/vpnc-script</i></tt> to its command line. Note that the path you give will not be checked; the script doesn't have to be present when you <b>build</b> OpenConnect. But of course OpenConnect won't work very
+well without it, so you'll still have to install it later.</p>
+
+
+<h2>Building OpenConnect</h2>
+
+<p>If you checked the source code out from git rather from a release tarball
+  then run this command first to prepare the build system:</p>
+  <ul>
+    <li><tt>./autogen.sh</tt></li>
+  </ul>
+  <p>Then to build it, run the following commands:</p>
+  <ul>
+    <li><tt>./configure</tt></li>
+    <li><tt>make</tt></li>
+    <li><tt>make install</tt> <i>(If you want to install it)</i></li>
+  </ul>
+
+<p>Note that OpenConnect will attempt to use the GnuTLS library by default.
+If you want it to use OpenSSL instead, then add <tt>--without-gnutls</tt> to the
+<tt>./configure</tt> command above.</p>
+
+<p>If compilation fails, please make sure you have a working compiler and the
+<b>development</b> packages for all the required libraries mentioned above. If
+it still doesn't build, please send the full output in a plain-text mail to the
+<a href="mail.html">mailing list</a>.</p>
+
+
+<h2>Test suite</h2>
+
+<p>The included test suite can be run as <tt>make check</tt>.</p>
+
+<p>It depends on the following programs and libraries being available:</p>
+<ul>
+  <li><a href="/ocserv">ocserv</a></li>
+  <li><a href="https://cwrap.org/socket_wrapper.html">socket_wrapper</a></li>
+  <li><a href="https://cwrap.org/uid_wrapper.html">uid_wrapper</a></li>
+</ul>
+
+
+
+<h2>Test suite</h2>
+
+<p>The included test suite can be run as <tt>make check</tt>.</p>
+
+<p>It depends on the following programs and libraries being available:</p>
+<ul>
+  <li><a href="/ocserv">ocserv</a></li>
+  <li><a href="https://cwrap.org/socket_wrapper.html">socket_wrapper</a></li>
+  <li><a href="https://cwrap.org/uid_wrapper.html">uid_wrapper</a></li>
+</ul>
+
+
+<h2>TUN/TAP driver</h2>
+
+<h3>Mac OS</h3>
+
+<p>Mac OS X users with OS X 10.6 or older, or using OpenConnect 6.00 or older,
+will also need to install the <a href="http://tuntaposx.sourceforge.net/">Mac OS X tun/tap driver</a>.
+Newer versions of OpenConnect will use the <tt>utun</tt> device on OS X which does not
+require additional kernel modules to be installed.</p>
+<p>Solaris/OpenIndiana users will need the <a href="http://www.whiteboard.ne.jp/~admin2/tuntap/">Solaris TAP driver</a>.
+Note that for IPv6 support, the Solaris tun/tap driver from 16th Nov 2009 or newer is required.</p>
+
+<h3>Windows</h3>
+
+<p>On Windows, OpenConnect can use either the
+<a href="https://www.wintun.net">Wintun layer-3 driver from Wireguard</a>
+(requires Windows 7 or newer) or the
+<a href="https://community.openvpn.net/openvpn/wiki/GettingTapWindows">TAP-Windows driver from OpenVPN</a>
+(version 9.9 or later; requires Windows 2003 or newer). The more modern Wintun
+driver is included in the OpenConnect installer, starting with OpenConnect
+v9.00. If you wish to continue using TAP-Windows with OpenConnect, you will
+need to install it manually.</p>
+
+	<INCLUDE file="inc/footer.tmpl" />
+</PAGE>

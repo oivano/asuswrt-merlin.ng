@@ -1,0 +1,223 @@
+<PAGE>
+	<INCLUDE file="inc/header.tmpl" />
+
+	<VAR match="VAR_SEL_CONTRIBUTE" replace="selected" />
+	<VAR match="VAR_SEL_CONTRIB_MAIN" replace="selected" />
+	<PARSE file="menu1.xml" />
+	<PARSE file="menu2-contribute.xml" />
+
+	<INCLUDE file="inc/content.tmpl" />
+
+<h1>Contributing to OpenConnect</h1>
+
+<p>Contributions to OpenConnect are very welcome. You don't need to be able to write
+code. Testing, documentation improvements and especially translations are all
+extremely useful. Some specific suggestions and requests for help can be found below.</p>
+
+<h2>Submitting Patches</h2>
+
+<p>Patches can be sent to the <a href="mail.html">mailing list</a> or directly to <a
+href="mailto:dwmw2@infradead.org">the author</a> in private email. We are also experimenting
+with using GitLab, so please feel free to file issues and submit merge requests at
+<a href="https://gitlab.com/openconnect/openconnect">https://gitlab.com/openconnect/openconnect</a>.</p>
+
+<p>When submitting patches to be included in OpenConnect, please certify that your
+patch meets the criteria below by including include a <i>sign-off</i>
+line in your email which looks like this:
+</p>
+<tt>Signed-off-by: Random J Developer &amp;lt;random@developer.example.org&amp;gt;</tt>
+
+<p>This confirms that you are permitted to submit the patch for inclusion in
+ OpenConnect under the LGPLv2.1 licence. The full text of the certificate is as follows:
+
+<ul><li><p><b>Developer's Certificate of Origin 1.1</b></p>
+
+<p>By making a contribution to this project, I certify that:</p>
+<ol>
+  <li>The contribution was created in whole or in part by me and I
+  have the right to submit it under the open source license
+  indicated in the file; <b>or</b></li>
+  <li>The contribution is based upon previous work that, to the best
+  of my knowledge, is covered under an appropriate open source
+  license and I have the right under that license to submit that
+  work with modifications, whether created in whole or in part
+  by me, under the same open source license (unless I am
+  permitted to submit under a different license), as indicated
+  in the file; <b>or</b></li>
+  <li>The contribution was provided directly to me by some other
+  person who certified <i>(1)</i>, <i>(2)</i> or <i>(3)</i> and I have not modified
+  it.</li>
+</ol><p>and also that:</p>
+<ul><li>I understand and agree that this project and the contribution
+are public and that a record of the contribution <i>(including all
+personal information I submit with it, including my sign-off)</i> is
+maintained indefinitely and may be redistributed consistent with
+this project or the open source license(s) involved.
+</li></ul>
+</li></ul>
+
+<h1>What needs doing?</h1>
+
+<a name="translation"/>
+<h2>Translations</h2>
+
+<p>One of the main things needed at the present time is translations into
+languages other than English. All contributions will be gratefully received.</p>
+
+<p>Translations for OpenConnect are maintained in the GNOME
+<a href="https://l10n.gnome.org/module/NetworkManager-openconnect/">NetworkManager-openconnect module</a>.
+Translations can be contributed by joining the GNOME team as described on their
+<a href="https://wiki.gnome.org/TranslationProject">TranslationProject</a>
+wiki page, or simply by editing one of the language files in the <tt><a
+href="https://git.infradead.org/users/dwmw2/openconnect.git/tree/HEAD:/po">po/</a></tt>
+directory and sending the resulting patch (or file) to the <a
+href="mail.html">mailing list</a>.</p>
+
+<p>If there are questions about the messages because the intent is not clear, or if the
+messages could be improved to make translation easier or better, please also feel free to
+ask or make suggestions on the mailing list.</p>
+
+<h2>Documentation / Web Site</h2>
+
+<p>OpenConnect is designed with the principle that <i>"if it needs documenting, fix it instead"</i>. That isn't
+to say that we don't have documentation. But if a user finds something non-obvious and has to look it up
+in the documentation, then that in itself is a little bit of a usability failure. Software should Just Work™.</p>
+
+<p>So if you find something that is more complex than it needs to be, and you think it should
+Just Work™ then please don't hesitate to
+<a href="mailto:openconnect-devel@lists.infradead.org?subject=Usability improvement suggestion">tell us</a>
+bout it.</p>
+
+<p>Any improvements to the documentation are most welcome. In particular:</p>
+<ul>
+  <li><b>Update web site to be <a href="https://search.google.com/test/mobile-friendly?url=www.infradead.org%2Fopenconnect/">mobile-friendly</a></b><br/>
+  The current template is definitely showing its age, and could very much do with an overhaul.</li>
+</ul>
+
+<h2>Testing</h2>
+
+<p>All testing is valuable, and please do let us know if anything doesn't work when you think
+it should. There are some things which the regular developers don't have easy access to test,
+some help with testing these would be particularly welcome:</p>
+<ul>
+  <li><b>Various authentication methods for Pulse Secure.</b><br/>
+  Although it looked sane at first, the Pulse protocol has a lot of horrid
+  special cases. Aside from the <a href="tncc.html">Host Checker</a> most
+  should be working, but please test and let us know if anything is
+  missing or wrong.</li>
+</ul>
+
+
+<a name="new-protocols"/>
+<h2>New Protocols</h2>
+
+<p>There are some other protocols which would be good to add to OpenConnect. Getting a new
+protocol to the point where it basically works to send and receive traffic is only a
+few hours of work, and can be very rewarding.</p>
+
+<p>For some protocols we already know how they work on the wire and it's mostly just
+a matter of writing the code. For others we might have to <a href="mitm.html">observe
+the existing clients</a> to learn how they work.</p>
+
+<p>These would be great projects for someone to take on as a learning exercise, or
+perhaps even Google Summer of Code projects.</p>
+
+<ul>
+  <li><b><a href="https://www.checkpoint.com/products/endpoint-remote-access-vpn-software-blade/">CheckPoint VPN</a></b><br/>
+  This is an IPSec-based VPN with fallback to using the SSL transport. Some discussion of OpenConnect support in this <a href="https://gitlab.com/openconnect/openconnect/issues/13">GitLab ticket</a>,
+  and working code contributed in <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/207">MR !207</a>.</li>
+  <li><b>Cisco / Nortel IPSec VPN</b><br/>
+  These IPSec-based protocols are already supported by <a href="https://www.unix-ag.uni-kl.de/~massar/vpnc/">vpnc</a> to differing extents, but vpnc is no longer actively maintained.
+  Since OpenConnect now has ESP support, and since some of these protocols also fall back to operating over TCP when UDP and native ESP aren't available, it may make sense to implement them in OpenConnect now.</li>
+  <li><b>External authentication support for multiple protocols.</b><br/>
+  Many VPNs now use SAML or other technologies to hand off the login/authentication
+  process to a <a href="https://en.wikipedia.org/wiki/Single_sign-on">single sign-on</a> (SSO)
+  provider. Okta and Microsoft Azure are well known cloud-based SSO providers.
+  We have numerous <a href="https://gitlab.com/openconnect/openconnect/-/issues?label_name%5B%5D=External+Auth%2FSAML%2FSSO">issues</a> and
+  <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests?label_name[]=External+Auth%2FSAML%2FSSO">merge requests</a> labeled
+  <tt>External Auth/SAML/SSO</tt>. This is an area where there is a large amount of
+  commonal functionality across protocols, but also a large amount of variation in
+  the details, and where we need careful help designing suitable interfaces for
+  the interactions between OpenConnect's core code, VPN protocol-specific authentication code,
+  and external interfaces for authentication (e.g. web browsers or graphical pop-up
+  interfaces).</li>
+</ul>
+
+<p>Suggestions for other protocols which OpenConnect could usefully implement are also welcome.</p>
+
+<h2>Other enhancements</h2>
+
+One of the main other improvements that would be welcome, is implementing a full WebView in the graphical clients. Currently for protocols like Juniper, OpenConnect screen-scrapes the HTML pages used for login, and attempts to make sense of them. This is The main thing that would be
+Other items on the TODO list include:
+
+<ul>
+  <li><b>WebView support in graphical clients.</b><br/>
+  OpenConnect currently screen-scrapes the HTML login pages for protocols like Juniper, which is fragile and error-prone. It would be great if the graphical interfaces like NetworkManager could use a real WebView to show the pages, which would work with JavaScript and various other customisations that the admins often make. This might make an excellent Google Summer of Code project, or would also suit someone just trying to contribute in their spare time.</li>
+  <li><b>Support for running or emulating the '<a href="csd.html">Cisco Secure Desktop</a>' (Cisco), '<a href="hip.html">HIP</a>' (GlobalProtect), and '<a href="tncc.html">Host Checker</a>' (Juniper/Pulse) trojans.</b><br/>
+  OpenConnect does not yet support these trojans on Windows, whether by downloading and running trojan binaries directly, nor by invoking wrapper scripts.</li>
+  <li><b>GUI for OS X, perhaps based on <a href="https://tunnelblick.net/">Tunnelblick</a>.</b></li>
+  <li><b>Full Android keystore support.</b><br/>
+  OpenConnect's support for the Android keystore predates the Android keystore actually doing anything useful. We assume we can just ask for the private key and be given it. A real keystore would only allow us to perform signature operations using the key, and wouldn't just give it to us. Modern versions of Android can support this, and we should add support for it.</li>
+  <li><b>Mac OS X keychain support.</b><br/>
+  Likewise, using keys stored in the OS X keychain would be extremely useful.</li>
+</ul>
+
+<h2>Simplify OpenConnect's approach to interacting with external scripts and program</h2>
+
+Currently we have a vast proliferation of slightly different interfaces for OpenConnect to call scripts with slightly different interfaces, despite serving similar purposes.
+
+<h3>Routing and DNS configuration</h3>
+
+<ul>
+  <li><a href="https://gitlab.com/openconnect/vpnc-scripts">vpnc-script and vpnc-script-win.js</a>
+  handle this in a <i>relatively</i> uniform cross-protocol way, but there are still bugs tied to
+  historical assumptions based on the Cisco AnyConnect protocol (e.g. <a
+  href="https://gitlab.com/openconnect/openconnect/-/commit/a2b8134edf8e5f8e942dedf105e2813a0824b919">a2b8134e</a>
+  and <a href="https://gitlab.com/openconnect/openconnect/-/issues/433">#433</a>).</li>
+
+  <li>Need ways to <b>test</b> these scripts on operating systems other than Linux.</li>
+</ul>
+
+<h3>Trojans / security scanners</h3>
+
+<ul>
+  <li>Cisco <a href="csd.html">CSD</a>. Historically, this involved running a black-box binary provided by the server, then running it with a wrapper, and now running a "wrapper" script that doesn't
+  actually invoke the binary at all but just emulates its behavior and output. For backwards-compatibility with the binary version, the script receives <b>input</b> via a mixture of CLI args and
+  environment variables.  It connects to the VPN server independently from the main client process. It doesn't actually return any meaningful <b>output</b>. Instead, the main client process must
+  continue running in the background, reloading a "wait" URL in a loop, until the server's response to that wait URL indicates that the CSD process has completed successfully.</li>
+
+  <li>Juniper/Pulse <a href="tncc.html">TNCC (Host Checker)</a>. Historically, this involved running a black-box Java binary provided by the server, now a "wrapper" script that emulate's the binary's
+  behavior. The script receives <b>input</b> via a mixture of environment variables and standard input. It connects to the VPN server independently from the main client process, receives a token,
+  and pipes its <b>output</b> back to the main client process.</li>
+
+  <li>GlobalProtect <a href="hip.html">HIP</a>. The script receives <b>input</b> via a mixture of command-line arguments and environment variables (due to a mistaken attempt to closely copy the
+  interface of CSD). The script does not communicate independently with the VPN server. It merely generates a blob of XML, and pipes that <b>output</b> back to the main client process.</li>
+</ul>
+
+<h3>External/SAML/SSO authentication scripts</h3>
+
+<p>Most VPN protocols have some authentication modes which OpenConnect cannot handle on its own using its usual techniques of creating and submitting authentication forms from server-provided data (or
+screen-scraping).  These essentially require running a full web browser environment, due to requiring JavaScript or browser plugins for the authentication to complete.</p>
+
+<p>The individual VPN protocols vary substantially in how the VPN client is expected to communicate with the web browser doing the authentication:</p>
+<ul>
+  <li>Cisco HPKE: the VPN client launches a browser with the URL for the SSO entry point. When the authentication is complete, the browser redirects to an HTTP GET of
+  <tt>http://localhost:29786/...</tt>. This means the client has to run its own HTTP <b>server</b> in order to capture the output.</li>
+
+  <li>GlobalProtect SAML: the VPN client either launches a browser with either (a) the URL for the SSO entry point (<tt>saml-auth-method=REDIRECT</tt>) or (b) an HTML page containing the SSO entry
+  point (<tt>saml-auth-method=POST</tt>). The authentication is complete when the browser opens a page containing special HTTP headers. This means that the <b>browser</b> has to be specially instrumented
+  in order to capture the output.</li>
+
+  <li>Juniper, Pulse, F5, Fortinet: needs discovery documentation</li>
+</ul>
+
+<p>The <tt>open_webview</tt> hook needs implementing for Qt/KDE and Windows GUIs.</p>
+
+<p>The webview/external-browser options and API functions should perhaps be renamed to something like "external auth handler",
+since one of the goals and strong points of OpenConnect is to make VPN login interfaces scriptable without relying on a
+graphical browser in many cases.</p>
+
+</p>
+
+<INCLUDE file="inc/footer.tmpl" />
+</PAGE>

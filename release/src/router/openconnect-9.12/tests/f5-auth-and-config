@@ -1,0 +1,99 @@
+#!/bin/sh
+#
+# Copyright © 2021 Daniel Lenski
+#
+# This file is part of openconnect.
+#
+# This is free software; you can redistribute it and/or
+# modify it under the terms of the GNU Lesser General Public License
+# as published by the Free Software Foundation; either version 2.1 of
+# the License, or (at your option) any later version.
+#
+# This library is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>
+
+# This test uses LD_PRELOAD
+PRELOAD=1
+srcdir=${srcdir:-.}
+top_builddir=${top_builddir:-..}
+
+. `dirname $0`/common.sh
+
+FINGERPRINT="--servercert=pin-sha256:xp3scfzy3rO"
+CERT=$certdir/server-cert.pem
+KEY=$certdir/server-key.pem
+
+echo "Testing F5 auth against fake server ..."
+
+OCSERV=${srcdir}/fake-f5-server.py
+launch_simple_sr_server $ADDRESS 443 $CERT $KEY > /dev/null 2>&1
+PID=$!
+wait_server $PID
+
+SERVURL="https://$ADDRESS:443"
+CLIENT="$OPENCONNECT -q --protocol=f5 $FINGERPRINT -u test --passwd-on-stdin"
+export LD_PRELOAD=libsocket_wrapper.so
+
+echo "Configuring fake server not to present an HTML login form."
+curl -sk $SERVURL/CONFIGURE -d no_html_login_form=1
+
+echo -n "Authenticating with username/password in the absence of an HTML login form... "
+( echo "test" | $CLIENT $SERVURL --cookieonly >/dev/null 2>&1) ||
+    fail $PID "Could not receive cookie from fake F5 server"
+
+echo ok
+
+echo "Resetting fake server to default configuration."
+curl -sk $SERVURL/CONFIGURE -d ''
+
+echo -n "Authenticating with username/password... "
+( echo "test" | $CLIENT $SERVURL --cookieonly >/dev/null 2>&1) ||
+    fail $PID "Could not receive cookie from fake F5 server"
+
+echo ok
+
+echo "Configuring fake server for a choice of 3 domains/authgroups."
+curl -sk $SERVURL/CONFIGURE -d domains=xyz,abc,def
+
+echo -n "Authenticating with username/password/authgroup... "
+( echo "test" | $CLIENT $SERVURL --authgroup=abc --cookieonly >/dev/null 2>&1) ||
+    fail $PID "Could not receive cookie from fake F5 server"
+
+echo ok
+
+echo "Configuring fake server to require 2FA token following hidden form."
+curl -sk $SERVURL/CONFIGURE -d hidden_form_then_2fa=1
+
+echo -n "Authenticating with username/password/2FA-token... "
+( echo "test" | $CLIENT $SERVURL --token-mode=totp --token-secret=FAKE --cookieonly >/dev/null 2>&1) ||
+    fail $PID "Could not receive cookie from fake F5 server"
+
+echo ok
+
+echo "Configuring fake server to require 2FA token following hidden form with a field that must be overridden."
+curl -sk $SERVURL/CONFIGURE -d hidden_form_then_2fa=1 -d hidden_required_value=17
+
+echo -n "Authenticating with username/password/2FA-token and hidden field override... "
+( echo "test" | $CLIENT $SERVURL --token-mode=totp --token-secret=FAKE --form-entry 'hidden_form:choice=17' --cookieonly >/dev/null 2>&1) ||
+    fail $PID "Could not receive cookie from fake F5 server"
+
+echo ok
+
+echo "Resetting fake server to default configuration."
+curl -sk $SERVURL/CONFIGURE -d ''
+
+echo -n "Authenticating with username/password, then proceeding to tunnel stage... "
+echo "test" | $CLIENT $SERVURL >/dev/null 2>&1
+test $? = 2 || # what OpenConnect returns when server rejects cookie upon tunnel connection, as the fake server does
+    fail $PID "Something went wrong in fake F5 server (other than the expected rejection of cookie)"
+
+echo ok
+
+cleanup
+
+exit 0

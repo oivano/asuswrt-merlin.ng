@@ -1,0 +1,279 @@
+/* config.h.in.  Generated from configure.ac by autoheader.  */
+
+/* External browser executable */
+#undef DEFAULT_EXTERNAL_BROWSER
+
+/* p11-kit proxy */
+#undef DEFAULT_PKCS11_MODULE
+
+/* The GnuTLS priority string */
+#undef DEFAULT_PRIO
+
+/* Default vpnc-script locatin */
+#undef DEFAULT_VPNCSCRIPT
+
+/* Enable NLS support */
+#undef ENABLE_NLS
+
+/* endian header include path */
+#undef ENDIAN_HDR
+
+/* GSSAPI header */
+#undef GSSAPI_HDR
+
+/* MinGW has afunix.h */
+#undef HAVE_AF_UNIX_H
+
+/* Have alloca.h */
+#undef HAVE_ALLOCA_H
+
+/* Have asprintf() function */
+#undef HAVE_ASPRINTF
+
+/* OpenSSL has BIO_meth_free() function */
+#undef HAVE_BIO_METH_FREE
+
+/* Have __builtin_clz() */
+#undef HAVE_BUILTIN_CLZ
+
+/* Define to 1 if you have the <dlfcn.h> header file. */
+#undef HAVE_DLFCN_H
+
+/* Build with DTLS support */
+#undef HAVE_DTLS
+
+/* OpenSSL has DTLS_client_method() function */
+#undef HAVE_DTLS12
+
+/* OpenSSL has dtls1_stop_timer() function */
+#undef HAVE_DTLS1_STOP_TIMER
+
+/* OpenSSL has ENGINE support */
+#undef HAVE_ENGINE
+
+/* Have epoll */
+#undef HAVE_EPOLL
+
+/* Build with ESP support */
+#undef HAVE_ESP
+
+/* Have explicit_bzero() function */
+#undef HAVE_EXPLICIT_BZERO
+
+/* Have explicit_memset() function */
+#undef HAVE_EXPLICIT_MEMSET
+
+/* Have fdevname_r() function */
+#undef HAVE_FDEVNAME_R
+
+/* MinGW declares getenv_s */
+#undef HAVE_GETENV_S_DECL
+
+/* Have getline() function */
+#undef HAVE_GETLINE
+
+/* From GnuTLS 3.4.0 */
+#undef HAVE_GNUTLS_SYSTEM_KEYS
+
+/* Have GSSAPI support */
+#undef HAVE_GSSAPI
+
+/* Support Cisco external browser HPKE (ECDH+HKDF+AES-256-GCM) */
+#undef HAVE_HPKE_SUPPORT
+
+/* Have iconv() function */
+#undef HAVE_ICONV
+
+/* Have inet_aton() */
+#undef HAVE_INET_ATON
+
+/* Define to 1 if you have the <inttypes.h> header file. */
+#undef HAVE_INTTYPES_H
+
+/* Have IPV6_PATHMTU socket option */
+#undef HAVE_IPV6_PATHMTU
+
+/* Have builtin json-parser package */
+#undef HAVE_JSON
+
+/* Define to 1 if you have the `log' library (-llog). */
+#undef HAVE_LIBLOG
+
+/* Define to 1 if you have the `nsl' library (-lnsl). */
+#undef HAVE_LIBNSL
+
+/* Have libp11 and p11-kit for OpenSSL */
+#undef HAVE_LIBP11
+
+/* Have libpcsclite */
+#undef HAVE_LIBPCSCLITE
+
+/* Have libpskc */
+#undef HAVE_LIBPSKC
+
+/* Define to 1 if you have the `socket' library (-lsocket). */
+#undef HAVE_LIBSOCKET
+
+/* Have libstoken */
+#undef HAVE_LIBSTOKEN
+
+/* Have localtime_r() function */
+#undef HAVE_LOCALTIME_R
+
+/* Have localtime_s() function */
+#undef HAVE_LOCALTIME_S
+
+/* LZ4 was found */
+#undef HAVE_LZ4
+
+/* From LZ4 r129 */
+#undef HAVE_LZ4_COMPRESS_DEFAULT
+
+/* Have memset_s() function */
+#undef HAVE_MEMSET_S
+
+/* Have net/if_utun.h */
+#undef HAVE_NET_UTUN_H
+
+/* Have nl_langinfo() function */
+#undef HAVE_NL_LANGINFO
+
+/* Have. P11. Kit. */
+#undef HAVE_P11KIT
+
+/* Have posix_spawn() function */
+#undef HAVE_POSIX_SPAWN
+
+/* MinGW declares _putenv_s */
+#undef HAVE_PUTENV_S_DECL
+
+/* OpenSSL has SSL_CIPHER_find() function */
+#undef HAVE_SSL_CIPHER_FIND
+
+/* OpenSSL has SSL_CTX_set_min_proto_version() function */
+#undef HAVE_SSL_CTX_PROTOVER
+
+/* Have statfs() function */
+#undef HAVE_STATFS
+
+/* Define to 1 if you have the <stdint.h> header file. */
+#undef HAVE_STDINT_H
+
+/* Define to 1 if you have the <stdio.h> header file. */
+#undef HAVE_STDIO_H
+
+/* Define to 1 if you have the <stdlib.h> header file. */
+#undef HAVE_STDLIB_H
+
+/* Have strcasestr() function */
+#undef HAVE_STRCASESTR
+
+/* Have strchrnul() function */
+#undef HAVE_STRCHRNUL
+
+/* Define to 1 if you have the <strings.h> header file. */
+#undef HAVE_STRINGS_H
+
+/* Define to 1 if you have the <string.h> header file. */
+#undef HAVE_STRING_H
+
+/* Have strndup() function */
+#undef HAVE_STRNDUP
+
+/* On SunOS time() can go backwards */
+#undef HAVE_SUNOS_BROKEN_TIME
+
+/* Define to 1 if you have the <sys/stat.h> header file. */
+#undef HAVE_SYS_STAT_H
+
+/* Define to 1 if you have the <sys/types.h> header file. */
+#undef HAVE_SYS_TYPES_H
+
+/* Have Trousers TSS library */
+#undef HAVE_TROUSERS
+
+/* TSS2 library */
+#undef HAVE_TSS2
+
+/* Define to 1 if you have the <unistd.h> header file. */
+#undef HAVE_UNISTD_H
+
+/* Have vasprintf() function */
+#undef HAVE_VASPRINTF
+
+/* Have va_copy() */
+#undef HAVE_VA_COPY
+
+/* Have vhost */
+#undef HAVE_VHOST
+
+/* Have __va_copy() */
+#undef HAVE___VA_COPY
+
+/* Define as const if the declaration of iconv() needs const. */
+#undef ICONV_CONST
+
+/* if_tun.h include path */
+#undef IF_TUN_HDR
+
+/* libproxy header file */
+#undef LIBPROXY_HDR
+
+/* Define to the sub-directory where libtool stores uninstalled libraries. */
+#undef LT_OBJDIR
+
+/* Try to make getenv_s and _putenv_s available */
+#undef MINGW_HAS_SECURE_API
+
+/* Using GnuTLS */
+#undef OPENCONNECT_GNUTLS
+
+/* Using OpenSSL */
+#undef OPENCONNECT_OPENSSL
+
+/* We need to update to OpenSSL 3.0.0 API */
+#undef OPENSSL_SUPPRESS_DEPRECATED
+
+/* Name of package */
+#undef PACKAGE
+
+/* Define to the address where bug reports for this package should be sent. */
+#undef PACKAGE_BUGREPORT
+
+/* Define to the full name of this package. */
+#undef PACKAGE_NAME
+
+/* Define to the full name and version of this package. */
+#undef PACKAGE_STRING
+
+/* Define to the one symbol short name of this package. */
+#undef PACKAGE_TARNAME
+
+/* Define to the home page for this package. */
+#undef PACKAGE_URL
+
+/* Define to the version of this package. */
+#undef PACKAGE_VERSION
+
+/* Define to 1 if all of the C90 standard headers exist (not just the ones
+   required in a freestanding environment). This macro is provided for
+   backward compatibility; new code need not use it. */
+#undef STDC_HEADERS
+
+/* Version number of package */
+#undef VERSION
+
+/* _GNU_SOURCE */
+#undef _GNU_SOURCE
+
+/* _NETBSD_SOURCE */
+#undef _NETBSD_SOURCE
+
+/* _POSIX_C_SOURCE */
+#undef _POSIX_C_SOURCE
+
+/* Windows API version */
+#undef _WIN32_WINNT
+
+/* To request memset_s */
+#undef __STDC_WANT_LIB_EXT1__

@@ -1,0 +1,71 @@
+<PAGE>
+	<INCLUDE file="inc/header.tmpl" />
+
+	<VAR match="VAR_SEL_FEATURES" replace="selected" />
+	<VAR match="VAR_SEL_FEATURE_CSD" replace="selected" />
+	<PARSE file="menu1.xml" />
+	<PARSE file="menu2-features.xml" />
+
+	<INCLUDE file="inc/content.tmpl" />
+
+<h1>Cisco Secure Desktop</h1>
+
+<p>The CSD ('Cisco Secure Desktop') mechanism is a security scanner
+for the <a href="anyconnect.html">Cisco AnyConnect</a> VPNs, in the
+same vein as <a href="tncc.html">Juniper's Host Checker (tncc.jar)</a>
+and <a href="hip.html">GlobalProtect's HIP</a>.</p>
+
+<h2>Background</h2>
+
+<p>The 'Cisco Secure Desktop' is a bit of a misnomer &#8212; it works by
+downloading a trojan binary from the server and running it on your
+client machine to perform some kind of 'verification' and post its
+approval back to the server. This seems anything <em>but</em> secure
+to me, especially given their history of trivially-exploitable
+bugs.</p>
+<p>It's also fairly easy to subvert, by running your own modified binary
+instead of the one you download from the server. Or by running their
+binary but poking at it with gdb.</p>
+<p>We support this idiocy, but because of the security concerns the
+trojan will be executed only if a userid is specified on the command
+line using the <tt>--csd-user=</tt> option, or the <tt>--csd-wrapper=</tt>
+option is used to handle the script in a 'safe' manner.</p>
+<p>
+This support currently only works when the server has a Linux binary
+installed, and only when that Linux binary runs on the client machine.</p>
+
+<h2>CSD support in OpenConnect</h2>
+
+<p>OpenConnect supports running the CSD binary, or spoofing its
+behaviour, by passing the <tt>--csd-wrapper=SCRIPT</tt> argument
+with a shell script.</p>
+
+<p>The OpenConnect distribution includes <i>two</i> alternative
+scripts to support the execution or spoofing of the CSD behaviour, in
+the <tt>trojans/</tt> subdirectory:</p>
+
+<ul>
+  <li><p><tt>csd-post.sh</tt>: This script does <i>not</i> actually run the CSD trojan binary. Instead, it emulates
+  the behaviour of the CSD trojan, creating a plaintext report similar to the one that the CSD trojans build, and
+  uploading it to the server sent by the VPN gateway. The report may need to be customized in order to be accepted by some
+  servers; the <a href="https://github.com/Gilks/hostscan-bypass">hostscan-bypass</a> tool may help with this.
+  Because this script does not actually execute a trojan binary, and because its complete output is easily visible
+  in the script, the security concerns are greatly alleviated.</p>
+
+  <p>If it doesn't work for your VPN, please add <tt>set -x</tt> to the top of the script to make it generate copious
+  logging output, and <a href="https://www.infradead.org/openconnect/mail.html">contact the developers</a> so that we can
+  figure out what needs to be modified in order for it to work with more Cisco VPNs.</p></li>
+
+  <li><tt>csd-wrapper.sh</tt>: This script accepts the same options as some versions of the CSD trojan binary,
+  (<tt>-ticket</tt>, <tt>-stub</tt>, <tt>-group</tt>, <tt>-certhash</tt>, <tt>-url</tt>, <tt>-langselen</tt>),
+  downloads the files required by the binary, and then wraps the execution of the <tt>cstub</tt> binary.
+  That binary is often buggy, and may be untested or
+  <a href="https://gitlab.com/openconnect/openconnect/commit/7a5974a5971da3374d5906b05adde04e24416368">may not even exist</a>.
+  Because of the security dangers of executing a server-provided trojan binary, this script should be executed
+  with the permissions of a low-privilege user (e.g. <tt>--csd-user=nobody --csd-wrapper=trojans/csd-wrapper.sh</tt>).
+  <b>Don't use this unless you know what you're doing.</b>
+  </li>
+</ul>
+
+<INCLUDE file="inc/footer.tmpl" />
+</PAGE>

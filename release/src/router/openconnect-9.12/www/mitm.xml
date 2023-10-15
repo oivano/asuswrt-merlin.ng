@@ -1,0 +1,227 @@
+<PAGE>
+	<INCLUDE file="inc/header.tmpl" />
+
+	<VAR match="VAR_SEL_CONTRIBUTE" replace="selected" />
+	<VAR match="VAR_SEL_CONTRIB_MITM" replace="selected" />
+	<PARSE file="menu1.xml" />
+	<PARSE file="menu2-contribute.xml" />
+
+	<INCLUDE file="inc/content.tmpl" />
+
+<h1>Observing VPN clients</h1>
+
+<p>Most of the VPN <a href="protocols.html">protocols supported by
+OpenConnect</a> are proprietary, undocumented, and in many cases
+overly-complex, perhaps intentionally obfuscated.</p>
+
+<p>In order to add support for <a
+href="contribute.html#new-protocols">new protocols</a>, and sometimes
+even to improve or update support for existing ones, it is often
+necessary to observe existing clients and servers in order to
+understand how they work.</p>
+
+<h2>Observing TLS/SSL connections</h2>
+
+<p>Modern VPN protocols almost always support a UDP-based transport
+for tunneled packets, e.g. DTLS for the Cisco AnyConnect protocol, or
+ESP for the GlobalProtect protocol. This is because <a
+href="http://sites.inka.de/~W1011/devel/tcp-tcp.html">TCP over TCP is
+very suboptimal</a> in terms of performance. However, most VPN
+protocols also support TLS/SSL for connection initiation and as a
+fallback, due to its universal availability even in highly filtered or
+firewalled network environments. <b>It is typically more
+straightforward and productive to start out by observing the TLS/SSL
+side of a new VPN protocol, and saving the UDP-based transport for
+later</b> (See <a
+href="http://lists.infradead.org/pipermail/openconnect-devel/2016-October/004015.html">this
+discussion thread</a> from the <a href="mail.html">mailing list</a>
+during the initial work on the <a
+href="globalprotect.html">GlobalProtect protocol</a>.)</p>
+
+<p>The content of a TLS/SSL connection is end-to-end encrypted and
+authenticated, and the session keys are normally kept only in memory
+by the applications using these connections. Therefore, special
+techniques are needed to decrypt traffic and observe the plaintext
+bytes-on-the-wire of any TLS-based communications protocol.</p>
+
+<p>There are more-or-less 3 possible techniques for decrypting
+TLS-based communications and observing the plaintext. The first two
+shown here are quite simply, but not universally usable; the
+third is more complex but should be applicable to any TLS-based
+VPN protocol.</p>
+
+<h3>(1) Using SSLKEYLOGFILE</h3>
+
+<p>If your VPN client is based on a standard TLS library and does not
+disable this mechanism, it is likely the most straightforward way to
+decrypt TLS traffic.</p>
+
+<p>Most <a
+href="https://en.wikipedia.org/wiki/Comparison_of_TLS_implementations">TLS
+libraries</a> (including OpenSSL, GnuTLS, and LibNSS) support an
+environment variable called <tt>SSLKEYLOGFILE</tt>, which will cause
+applications using those libraries to write "premaster secrets" for
+their TLS/DTLS sessions to a file.  This makes it straightforward to
+automatically decrypt the traffic using the Wireshark network protocol
+analyzer. Basically, you should run the VPN client that you're
+observing with this environment variable set, run Wireshark on the
+same computer, and configure Wireshark to use the resulting log file;
+see <a href="https://wiki.wireshark.org/TLS#tls-decryption">Wireshark's
+TLS decryption documentation for details.</a></p>
+
+<p>Note that some proprietary VPN clients disable the
+<tt>SSLKEYLOGFILE</tt> mechanism to prevent decryption of their
+traffic, but many developers overlook this especially in early
+releases of their client software.</p>
+
+<h3>(2) Using server's RSA private key</h3>
+
+<p>If you have access to the RSA private key of a VPN <i>server</i>
+supporting the protocol you're observing (likely because you
+administer such a VPN), and can use RSA key exchange, then you can
+provide this RSA private key to Wireshark and automatically decrypt
+TLS traffic to and from <i>this server</i> using Wireshark; again, see
+<a href="https://wiki.wireshark.org/TLS#tls-decryption">Wireshark's
+TLS decryption documentation for details and limitations.</a></p>
+
+<p>This works because the RSA key exchange supported by TLS (re)uses
+the server's private key for encryption of the ephemeral session keys,
+unlike Diffie-Helman or Elliptic Curve Diffie-Helman exchanges which
+do not. (<a href="https://security.stackexchange.com/a/35521">More
+detailed explanation on StackExchange.</a>)</p>
+
+<p>This lack of <a href="https://en.wikipedia.org/wiki/Forward_secrecy">forward
+secrecy</a> of session keys is indeed why RSA key exchange has been
+deprecated in TLS 1.2 and <a href="https://en.wikipedia.org/wiki/Transport_Layer_Security#Key_exchange_or_key_agreement">removed
+in TLS 1.3</a>. However, most VPN servers and clients continue to
+support TLS 1.2 or older with RSA key exchange for backwards
+compatibility, so this is still a viable option for decrypting traffic
+as of 2022.</p>
+
+<h3>(3) MITM</h3>
+
+<p>If you cannot use either of the above mechanisms, then you will
+need to use the <a
+href="https://en.wikipedia.org/wiki/Man-in-the-middle_attack">MITM
+technique</a> to decrypt traffic to/from the VPN client you are
+observing.</p>
+
+<p>The basic idea is to convince the two peers of the TLS connection
+(VPN client and server) that they are communicating directly with each
+other via an end-to-end encrypted TLS session, when in fact each of
+them is in fact communicating with an intermediary (the
+"man-in-the-middle").  The intermediary creates two <i>separate</i>
+TLS sessions: one between the real client and the intermediary, and
+one between the intermediary and the real server. The intermediary can
+inspect and modify traffic before relaying it between the the peers,
+who continue to believe that they are communicating directly with each
+other.</p>
+
+<p>In order to MITM-capture the traffic from a typical proprietary VPN
+client:</p>
+
+<ol>
+  <li>Use <a href="https://mitmproxy.org">mitmproxy</a>, running on
+  Linux. (There are other similar tools available, but the rest of
+  this document will assume you are running <tt>mitmproxy</tt> on
+  Linux.)</li>
+
+  <li>Set up a virtual machine and install the required operating and
+  VPN client. (It is possible to do this using a physical system as
+  well, but this will make transparent routing more complex.) We
+  recommend:
+  <ul>
+    <li>Linux host OS with <a href="https://en.wikipedia.org/wiki/Kernel-based_Virtual_Machine">KVM/QEMU</a>
+    as a hypervisor</li>
+    <li>Guest/VM configured for <a href="https://en.wikibooks.org/wiki/QEMU/Networking#User_mode_networking">user
+    mode networking</a></li>
+    <li>Assuming the guest is running Microsoft Windows as its OS, install <a href="https://access.redhat.com/articles/2488201">RedHat's
+    paravirtualized I/O drivers</a> to improve performance.</li>
+  </ul></li>
+
+  <li><p>Run <tt>mitmproxy</tt> on the host system, and route traffic
+  from the VM through it <i>transparently</i>, that is without setting
+  an explicit proxy. (See <a href="#antimitm">below</a>, for why an explicit proxy is unlikely to work.)</p>
+  <p>With KVM/QEMU and user-mode networking, this
+  consists of setting the guest system's IPv4 gateway to
+  <tt>10.0.2.2</tt> and setting up <tt>iptables</tt> rules on the
+  Linux host to redirect traffic. (Described in more detail in
+  <a href="https://docs.mitmproxy.org/stable/howto-transparent-vms">mitmproxy's
+  guide to transparently proxying virtual machines</a>).</p></li>
+
+  <li><p><b>Browse to the URL <a
+  href="https://mitm.it">https://mitm.it</a> on the VM</b>; this is a
+  special domain intercepted by <tt>mitmproxy</tt> itself.</p><p>The
+  web page shown will help you verify that (a) the VM's traffic is
+  really passing through MITMproxy and (b) the VM's operating system
+  trusts <tt>mitmproxy</tt>'s certificates.</p></li>
+
+  <li>Run the VPN client on the VM, and capture and study its traffic
+  using <tt>mitmproxy</tt> (or <tt>mitmdump</tt>) on the host.</li>
+
+  <li><p>The client and/or server may employ various mechanisms to detect
+  MITM and shut down the MITM'ed connection. <b>Trick,
+  bludgeon, or confuse the client and server into ignoring this</b>;
+  see <a href="#antimitm">below</a> for specific examples.</p><p>This usually works by
+  sending a copy or hash/fingerprint of the server's TLS certificate
+  as part of the in-band protocol data, and checking for differences
+  from the certificate exchanged in the TLS handshake. </p></li>
+
+  <li>Repeat these steps iteratively to understand how the VPN
+  client's interaction with the VPN server works.</li>
+</ol>
+
+<h3 id="antimitm">Defeating anti-MITM measures</h3>
+
+<p>Many proprietary VPN clients will ignore <i>explicit</i> system/browser
+proxy settings and attempt to establish direct connections to VPN servers,
+which is why explicit proxy setups often will not work, and transparent
+proxying is required.</p>
+
+<p>In cases where your VPN client/server detect MITM'ed connections
+and stop communicating (6), it's typically necessary to write a script
+which will detect and rewrite in-band protocol data containing the
+server's TLS certificate (or a hash/fingerprint of it). This requires
+a recent version of <tt>mitmproxy</tt> containing <a
+href="https://github.com/mitmproxy/mitmproxy/pull/1935">pull request
+#1935</a> which was contributed by OpenConnect developers for this
+purpose.</p>
+
+<p>An example of such a script may be useful:
+<a href="https://gitlab.com/dlenski/pangp-hacks/-/blob/master/gp_ssl_log.py">gp_ssl_log.py</a>.
+This script works with <tt>mitmproxy</tt> or <tt>mitmdump</tt> to modify
+traffic to/from with a GlobalProtect server; specifically it <a
+href="https://gitlab.com/dlenski/pangp-hacks/-/blob/master/gp_ssl_log.py#L63-68">mangles
+the <tt>&lt;root-ca&gt;</tt> XML tag</a> sent by GlobalProtect portal
+servers, which GlobalProtect's official client software uses to verify
+that certificates of servers it connects to. It can be used with
+<tt>mitmdump</tt> as follows:</p>
+
+<pre>
+  ./mitmdump -vvv --tcp $YOUR_GP_SERVER_IP -s /path/to/gp_ssl_log.py --ssl-version-server all --insecure
+</pre>
+
+<h2>Documenting VPN protocols</h2>
+
+<p>Sometimes it's most satisfying and productive to simply start
+coding up support for a new protocol or feature in OpenConnect
+itself. However, if you don't understand the structure of the
+OpenConnect codebase well, this may make it difficult to explain and
+discuss the code with more experienced developers.</p>
+
+<p>Often it is very useful to take a step back and explain how the VPN
+protocol works in more human-readable terms before implementing it in
+OpenConnect's codebase.  Preparing a document that intersperses prose
+explanations with captured traffic can aid in communication.  See
+<a href="https://github.com/dlenski/openconnect/blob/master/PAN_GlobalProtect_protocol_doc.md">PAN_GlobalProtect_protocol_doc.md</a>,
+(prepared during the implementation of the GlobalProtect protocol in
+OpenConnect, and subsequently updated) for a complete example.</p>
+
+<h2>Ask for help</h2>
+
+<p>Ask on the <a href="mail.html">mailing list</a> for help with new
+protocol implementations, or show us your code via Merge Requests
+on GitLab.</p>
+
+<INCLUDE file="inc/footer.tmpl" />
+</PAGE>

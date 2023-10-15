@@ -1,0 +1,871 @@
+<PAGE>
+	<INCLUDE file="inc/header.tmpl" />
+
+	<VAR match="VAR_SEL_INDEX" replace="selected" />
+	<VAR match="VAR_SEL_CHANGELOG" replace="selected" />
+	<PARSE file="menu1.xml" />
+	<PARSE file="menu2.xml" />
+
+	<INCLUDE file="inc/content.tmpl" />
+
+    	<h1>Changelog</h1>
+
+<p>For full changelog entries including the latest development, see
+<a href="https://git.infradead.org/users/dwmw2/openconnect.git">gitweb</a>.</p>
+<ul>
+   <li><b>OpenConnect HEAD</b>
+     <ul>
+       <li><i>No changelog entries yet</i></li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-9.12.tar.gz">OpenConnect v9.12</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-9.12.tar.gz.asc">PGP signature</a>)</i> &#8212; 2023-05-20
+     <ul>
+       <li>Fix FreeBSD build and tests.</li>
+       <li>Add <tt>libopenconnect5.symbols</tt> file for Debian-style packaging (<i><a href="https://gitlab.com/openconnect/openconnect/-/issues/611#note_1395003963">discussion</a></i>).</li>
+       <li>Explicitly reject overly long tun device names.</li>
+       <li>Work around ambiguity between <tt>&amp;lt;json.h&amp;gt;</tt> from json-parser vs json-c (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/476">!476</a>).</li>
+       <li>Fix symbol versioning for <tt>openconnect_set_sni()</tt>.</li>
+       <li>Increase maximum input size from <tt>stdin</tt> (<a href="https://gitlab.com/openconnect/openconnect/-/issues/579">#579</a>).</li>
+       <li>Ignore 0.0.0.0 as NBNS address (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/446">!446</a>, <a href="https://gitlab.com/openconnect/vpnc-scripts/-/issues/58">vpnc-scripts#58</a>).</li>
+       <li>Fix Mac OS build of <tt>os-tcp-mtu</tt> tool (<a href="https://gitlab.com/openconnect/openconnect/-/issues/612">#612</a>).</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-9.11.tar.gz">OpenConnect v9.11</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-9.11.tar.gz.asc">PGP signature</a>)</i> &#8212; 2023-05-17
+     <ul>
+       <li>Rebuild test suite certificate chains (which had expired: <a href="https://gitlab.com/openconnect/openconnect/-/issues/609">#609</a>) </li>
+       <li>Fix stray <tt>(null)</tt> in URL path after Pulse authentication (<a href="https://gitlab.com/openconnect/openconnect/-/commit/4023bd95c3dd6b273462e0782132f70a608dc721">4023bd95</a>).</li>
+       <li>Fix config XML parsing mistake that left GlobalProtect ESP non-working in v9.10 (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/475">!475</a>).</li>
+       <li>Fix case sensitivity in GPST header matching (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/474">!474</a>).</li>
+       <li>Add external browser support for Windows ((<a href="https://gitlab.com/openconnect/openconnect/-/issues/553">#553</a>).</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-9.10.tar.gz">OpenConnect v9.10</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-9.10.tar.gz.asc">PGP signature</a>)</i> &#8212; 2023-05-04
+     <ul>
+       <li>Fix external browser authentication with KDE plasma-nm &amp;lt; 5.26.</li>
+       <li>Always redirect <tt>stdout</tt> to <tt>stderr</tt> when spawning external browser.</li>
+       <li>Increase default queue length to 32 packets (<a href="https://gitlab.com/openconnect/openconnect/-/issues/582">#582</a>).</li>
+       <li>Make the <a href="https://www.wintun.net/">Wintun</a> Layer 3 TUN driver the default on Windows (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/427">!427</a>).</li>
+       <li>Add support for and bundle Wintun 0.14.1 (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/294">!294</a>).</li>
+       <li>Fix receiving multiple packets in one TLS frame, and single packets split across multiple TLS frames, for Array (<a href="https://gitlab.com/openconnect/openconnect/-/issues/435">#435</a>).</li>
+       <li>Fix ESP failures under Windows (<a href="https://gitlab.com/openconnect/openconnect/-/issues/427">#427</a>).</li>
+       <li>Add <tt>list-system-keys</tt> tool to assist Windows/MacOS users in setup.</li>
+       <li>Handle idiosyncratic variation in search domain separators for all protocols (<a href="https://gitlab.com/openconnect/openconnect/-/issues/433">#433</a>, <a href="https://gitlab.com/openconnect/openconnect/-/issues/443">#443</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/388">!388</a>).</li>
+       <li>Support region selection field for Pulse authentication (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/399">!399</a>).</li>
+       <li>Support modified configuration packet from Pulse 9.1R16 servers (<a href="https://gitlab.com/openconnect/openconnect/-/issues/472">#472</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/401">!401</a>)</li>
+       <li>Allow hidden form fields to be populated or converted to text fields on the command line (<a href="https://gitlab.com/openconnect/openconnect/-/issues/493">#493</a>, <a href="https://gitlab.com/openconnect/openconnect/-/issues/489">#489</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/409">!409</a>)</li>
+       <li>Support yet another strange way of encoding challenge-based 2FA for GlobalProtect (<a href="https://gitlab.com/openconnect/openconnect/-/issues/495">#495</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/411">!411</a>)</li>
+       <li>Add <tt>--sni</tt> option (and corresponding C and Java API functions) to allow <a href="https://en.wikipedia.org/wiki/Domain_fronting">domain-fronting</a> connections in censored/filtered network environments (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/297">!297</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/451">!451</a>).</li>
+       <li>Parrot a GlobalProtect server's software version, if present, as the client version (<a href="https://gitlab.com/openconnect/openconnect/merge_requests/333">!333</a>)</li>
+       <li>Fix NULL pointer dereference that has left Android builds broken since v8.20 (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/389">!389</a>).</li>
+       <li>Fix Fortinet authentication bug where repeated SVPNCOOKIE causes segfaults (<a href="https://gitlab.com/openconnect/openconnect/-/issues/514">#514</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/418">!418</a>).</li>
+       <li>Support F5 VPNs which encode authentication forms only in JSON, not in HTML (<a href="https://gitlab.com/openconnect/openconnect/-/issues/512">#512</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/431">!431</a>).</li>
+       <li>Persist Windows installers for tagged builds (<a href="https://gitlab.com/openconnect/openconnect/-/issues/463">#463</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/391">!391</a>).</li>
+       <li>Support simultaneous IPv6 and Legacy IP ("dual-stack") for Fortinet (<a href="https://gitlab.com/openconnect/openconnect/-/issues/568">#568</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/456">!456</a>).</li>
+       <li>Support "FTM-push" token mode for Fortinet VPNs (<a href="https://gitlab.com/openconnect/openconnect/-/issues/555">#555</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/450">!450</a>).</li>
+       <li>Send IPv6-compatible version string in Pulse IF/T session establishment, and avoid its ESP/IP version layering idiocy on newer servers (<a href="https://gitlab.com/openconnect/openconnect/-/issues/506">#506</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/414">!414</a>)</li>
+       <li>Add <tt>--no-external-auth</tt> option to not advertise external-browser authentication, as a workaround for servers which behave differently when it is advertised (<a href="https://gitlab.com/openconnect/openconnect/-/issues/470">#470</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/398">!398</a>)</li>
+       <li>Emulate MacOS-specific contents in the HIP report for GlobalProtect (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/471">!471</a>).</li>
+       <li>Many small improvements in server response parsing, and better logging messages and documentation.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-9.01.tar.gz">OpenConnect v9.01</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-9.01.tar.gz.asc">PGP signature</a>)</i> &#8212; 2022-04-29
+     <ul>
+       <li>Fix library minor version (missing bump to 5.8).</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-9.00.tar.gz">OpenConnect v9.00</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-9.00.tar.gz.asc">PGP signature</a>)</i> &#8212; 2022-04-29
+     <ul>
+       <li>Add support for AnyConnect "Session Token Re-use Anchor Protocol" (STRAP) (<a href="https://gitlab.com/openconnect/openconnect/-/issues/410">#410</a>).</li>
+       <li>Add support for AnyConnect "external browser" SSO mode (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/354">!354</a>).</li>
+       <li>On Windows, fix crash on tunnel setup. (<a href="https://gitlab.com/openconnect/openconnect/-/issues/370">#370</a>, <a href="https://gitlab.com/openconnect/openconnect/commit/6a2ffbbcd1c4ef0b689cce3d17154f6d4c2e3bc0">6a2ffbb</a>)</li>
+       <li>Bugfix RSA SecurID token decryption and PIN entry forms, broken in v8.20. (<a href="https://gitlab.com/openconnect/openconnect/-/issues/388">#388</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/344">!344</a>)</li>
+       <li>Support <a href="https://www.cisco.com/c/en/us/support/docs/security/anyconnect-secure-mobility-client-v4x/212483-configure-asa-as-the-ssl-gateway-for-any.html">Cisco's multiple-certificate authentication</a> (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/194">!194</a>).</li>
+       <li>Append <tt>internal=no</tt> to GlobalProtect authentication/configuration forms, for compatibility with servers which apparently require this to function properly. (<a href="https://gitlab.com/openconnect/openconnect/-/issues/246">#246</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/337">!337</a>)</li>
+       <li>Revert GlobalProtect default route handling change from v8.20. (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/367">!367</a>)</li>
+       <li>Support split-exclude routes for Fortinet. (<a href="https://gitlab.com/openconnect/openconnect/-/issues/394">#394</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/345">!345</a>)</li>
+       <li>Add <tt>openconnect_set_useragent()</tt> function.</li>
+       <li>Add webview callback and SAML/SSO support for AnyConnect, GlobalProtect. (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/126">!126</a>).</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-8.20.tar.gz">OpenConnect v8.20</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-8.20.tar.gz.asc">PGP signature</a>)</i> &#8212; 2022-02-20
+     <ul>
+       <li>When the queue length <i>(<tt>-Q</tt> option)</i> is 16 or more, try using <a
+       href="https://www.redhat.com/en/blog/virtqueues-and-virtio-ring-how-data-travels">vhost-net</a> to accelerate tun device access.</li>
+       <li>Use <tt>epoll()</tt> where available.</li>
+       <li>Support non-AEAD ciphersuites in DTLSv1.2 with AnyConnect. (<a href="https://gitlab.com/openconnect/openconnect/-/issues/249">#249</a>)</li>
+       <li>Make <tt>tncc-emulate.py</tt> work with Python 3.7+. (<a href="https://gitlab.com/openconnect/openconnect/-/issues/152">#152</a>, <a href="https://gitlab.com/openconnect/openconnect/merge_requests/120">!120</a>)</li>
+       <li>Emulated a newer version of GlobalProtect official clients, 5.1.5-8; was 4.0.2-19 (<a href="https://gitlab.com/openconnect/openconnect/issues/176">#176</a>, <a href="https://gitlab.com/openconnect/openconnect/merge_requests/131">!131</a>)</li>
+       <li>Support Juniper login forms containing both password and 2FA token (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/121">!121</a>)</li>
+       <li>Explicitly disable 3DES and RC4, unless enabled with <tt>--allow-insecure-crypto</tt> (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/114">!114</a>)</li>
+       <li>Add obsolete-server-crypto test (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/114">!114</a>)</li>
+       <li>Allow protocols to delay tunnel setup and shutdown (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/117">!117</a>)</li>
+       <li>Support for GlobalProtect IPv6 (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/155">!155</a> and <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/188">!188</a>; previous work in <a href="https://gitlab.com/openconnect/openconnect/commit/d6db0ec03394234d41fbec7ffc794ceeb486a8f0">d6db0ec</a>)</li>
+       <li>SIGUSR1 causes OpenConnect to log detailed connection information and statistics (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/154">!154</a>)</li>
+       <li>Allow <tt>--servercert</tt> to be specified multiple times in order to accept server certificates matching more than one possible fingerprint (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/162">!162</a>, <a href="https://gitlab.com/openconnect/openconnect/-/issues/25">#25</a>)</li>
+       <li>Add insecure debugging build mode for developers (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/112">!112</a>)</li>
+       <li>Demangle default routes sent as split routes by GlobalProtect (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/118">!118</a>)</li>
+       <li>Improve GlobalProtect login argument decoding (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/143">!143</a>)</li>
+       <li>Add detection of authentication expiration date, intended to allow front-ends to cache and reuse authentication cookies/sessions (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/156">!156</a>)</li>
+       <li>Small bug fixes and clarification of many logging messages.</li>
+       <li>Support more Juniper login forms, including some SSO forms (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/171">!171</a>)</li>
+       <li>Automatically build Windows installers for OpenConnect command-line interface (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/176">!176</a>)</li>
+       <li>Restore compatibility with newer Cisco servers, by no longer sending them the <tt>X-AnyConnect-Platform</tt> header (<a href="https://gitlab.com/openconnect/openconnect/-/issues/101">#101</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/175">!175</a>)</li>
+       <li>Add support for PPP-based protocols, currently over TLS only (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/165">!165</a>).</li>
+       <li>Add support for two PPP-based protocols, F5 with <tt>--protocol=f5</tt> and Fortinet with <tt>--protocol=fortinet</tt> (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/169">!169</a>).</li>
+       <li>Add experimental support for <a href="https://www.wintun.net/">Wintun</a> Layer 3 TUN driver under Windows (<a href="https://gitlab.com/openconnect/openconnect/-/issues/231">#231</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/178">!178</a>).</li>
+       <li>Clean up and improve Windows routing/DNS configuration script (<a href="https://gitlab.com/openconnect/vpnc-scripts/-/merge_requests/26">vpnc-scripts!26</a>, <a href="https://gitlab.com/openconnect/vpnc-scripts/-/merge_requests/41">vpnc-scripts!41</a>, <a href="https://gitlab.com/openconnect/vpnc-scripts/-/merge_requests/44">vpnc-scripts!44</a>).</li>
+       <li>On Windows, reclaim needed IP addresses from down network interfaces so that configuration script can succeed (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/178">!178</a>).</li>
+       <li>Fix output redirection under Windows (<a href="https://gitlab.com/openconnect/openconnect/-/issues/229">#229</a>)</li>
+       <li>More gracefully handle idle timeouts and other fatal errors for Juniper and Pulse (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/187">!187</a>)</li>
+       <li>Ignore failures to fetch the Juniper/oNCP landing page if the authentication was successful (<a href="https://gitlab.com/openconnect/openconnect/-/commit/3e77943692b511719d9217d2ecc43588b7c6c08b">3e779436</a>).</li>
+       <li>Add support for <a href="https://arraynetworks.com/products-secure-access-gateways-ag-series.html">Array Networks SSL VPN</a> (<a href="https://gitlab.com/openconnect/openconnect/-/issues/102">#102</a>)</li>
+       <li>Support TLSv1.3 with TPMv2 EC and RSA keys, add test cases for swtpm and hardware TPM. (<a href="https://gitlab.com/openconnect/openconnect/-/compare/ed80bfacf6baa17a6f5f4a5ec7e11aee541cba95...ee1cd782ab0d91d34785c81425ee27217a66d0aa">ed80bfac...ee1cd782</a>)</li>
+       <li>Add <tt>openconnect_get_connect_url()</tt> to simplify passing correct server information to the connecting <tt>openconnect</tt> process. <i>(NetworkManager-openconnect <a href="https://gitlab.gnome.org/GNOME/NetworkManager-openconnect/-/issues/46">#46</a>, <a href="https://gitlab.gnome.org/GNOME/NetworkManager-openconnect/-/issues/53">#53</a>)</i></li>
+       <li>Disable brittle "system policy" enforcement where it cannot be gracefully overridden at user request. <a href="https://bugzilla.redhat.com/show_bug.cgi?id=1960763"><i>(RH#1960763)</i></a>.</li>
+       <li>Pass "portal cookie" fields from GlobalProtect portal to gateway to avoid repetition of password- or SAML-based login (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/199">!199</a>)</li>
+       <li>With <tt>--user</tt>, enter username supplied via command-line into all authentication forms, not just the first. (<a href="https://gitlab.com/openconnect/openconnect/-/issues/267">#267</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/220">!220</a>).</li>
+       <li>Fix a subtle bug which has prevented ESP rekey and ESP-to-TLS fallback from working reliably with the Juniper/oNCP protocol since v8.04. (<a href="https://gitlab.com/openconnect/openconnect/-/issues/322">#322</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/293">!293</a>).</li>
+       <li>Fix a bug in <tt>csd-wrapper.sh</tt> which has prevented it from correctly downloading compressed Trojan binaries since at least v8.00. (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/305">!305</a>)</li>
+       <li>Make Windows socketpair emulation more robust in the face of Windows's ability to break its localhost routes. (<a href="https://gitlab.com/openconnect/openconnect/-/issues/228">#228</a>, <a href="https://gitlab.com/openconnect/openconnect/-/issues/361">#361</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/320">!320</a>)</li>
+       <li>Perform proper disconnect and routes cleanup on Windows when receiving Ctrl+C or Ctrl+Break. (<a href="https://gitlab.com/openconnect/openconnect/-/issues/362">#362</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/323">!323</a>)</li>
+       <li>Improve logging in routing/DNS configuration scripts. (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/328">!328</a>, <a href="https://gitlab.com/openconnect/vpnc-scripts/-/merge_requests/45">vpnc-scripts!45</a>)</li>
+       <li>Support modified configuration packet from Pulse 9.1R14 servers (<a href="https://gitlab.com/openconnect/openconnect/-/issues/379">#379</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/331">!331</a>)</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-8.10.tar.gz">OpenConnect v8.10</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-8.10.tar.gz.asc">PGP signature</a>)</i> &#8212; 2020-05-14
+     <ul>
+       <li>Install bash completion script to <tt>${datadir}/bash-completion/completions/openconnect</tt>.</li>
+       <li>Improve compatibility of <tt>csd-post.sh</tt> trojan.</li>
+       <li>Update Android build dependencies and bump API level to support Android 10.</li>
+       <li>Fix potential buffer overflow with GnuTLS describing local certs (CVE-2020-12823).</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-8.09.tar.gz">OpenConnect v8.09</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-8.09.tar.gz.asc">PGP signature</a>)</i> &#8212; 2020-04-29
+     <ul>
+       <li>Add bash completion support.</li>
+       <li>Give more helpful error in case of Pulse servers asking for TNCC.</li>
+       <li>Sanitize non-canonical Legacy IP network addresses (<a href="https://gitlab.com/openconnect/openconnect/merge_requests/97">!97</a>)</li>
+       <li>Fix OpenSSL validation for trusted but invalid certificates (CVE-2020-12105).</li>
+       <li>Convert <tt>tncc-wrapper.py</tt> to Python 3, and include modernized <tt>tncc-emulate.py</tt> as well. (<a href="https://gitlab.com/openconnect/openconnect/-/issues/91">!91</a>)</li>
+       <li>Disable <a href="https://en.wikipedia.org/wiki/Nagle's_algorithm">Nagle's algorithm</a> for TLS sockets, to improve interactivity when tunnel runs over TCP rather than UDP. (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/89">!89</a></li>
+       <li>GlobalProtect: more resilient handling of periodic HIP check and login arguments, and predictable naming of challenge forms
+           (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/95">!95</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/93/">!93</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/90">!90</a>)</li>
+       <li>Work around PKCS#11 tokens which forget to set <tt>CKF_LOGIN_REQUIRED</tt> (<a href="https://gitlab.com/openconnect/openconnect/issues/123">#123</a>).</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-8.08.tar.gz">OpenConnect v8.08</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-8.08.tar.gz.asc">PGP signature</a>)</i> &#8212; 2020-04-06
+     <ul>
+       <li>Fix check of <tt>pin-sha256:</tt> public key hashes to be case sensitive (<a href="https://gitlab.com/openconnect/openconnect/issues/116">#116</a>).</li>
+       <li>Don't give non-functioning <tt>stderr</tt> to CSD trojan scripts.</li>
+       <li>Fix crash with uninitialised OIDC token.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-8.07.tar.gz">OpenConnect v8.07</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-8.07.tar.gz.asc">PGP signature</a>)</i> &#8212; 2020-04-04
+     <ul>
+       <li>Don't abort Pulse connection when server-provided certificate MD5 doesn't match.</li>
+       <li>Fix off-by-one in check for bad GnuTLS versions, and add build and run time checks.</li>
+       <li>Don't abort connection if CSD wrapper script returns non-zero (for now).</li>
+       <li>Make <tt>--passtos</tt> work for protocols that use ESP, in addition to DTLS.</li>
+       <li>Convert <tt>tncc-wrapper.py</tt> to Python 3, and include modernized <tt>tncc-emulate.py</tt> as well.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-8.06.tar.gz">OpenConnect v8.06</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-8.06.tar.gz.asc">PGP signature</a>)</i> &#8212; 2020-03-31
+     <ul>
+       <li>Implement EAP-TTLS fragmentation.</li>
+       <li>Fix Windows build with MSYS2 (<a href="https://gitlab.com/openconnect/openconnect/issues/74">#74</a>).</li>
+       <li>Allow custom stoken rcfile to be specified (<a href="https://gitlab.com/openconnect/openconnect/issues/71">#71</a>).</li>
+       <li>Periodic HIP checking for GlobalProtect, and cross-protocol API (<a href="https://gitlab.com/openconnect/openconnect/merge_requests/56">!56</a>).</li>
+       <li>Ciphersuite priority override options (<a href="https://gitlab.com/openconnect/openconnect/merge_requests/71">!71</a>).</li>
+       <li>Clearer GlobalProtect debugging/SAML output (<a href="https://gitlab.com/openconnect/openconnect/merge_requests/66">!66</a>, <a href="https://gitlab.com/openconnect/openconnect/merge_requests/69">!69</a>).</li>
+       <li>Explain experimental Pulse support for servers where Juniper oNCP is disabled (<a href="https://gitlab.com/openconnect/openconnect/merge_requests/48">!48</a>).</li>
+       <li>Ignore missing Cisco CSD stub and simply CSD subprocess invocation (<a href="https://gitlab.com/openconnect/openconnect/merge_requests/77">!77</a>, <a href="https://gitlab.com/openconnect/openconnect/merge_requests/74">!74</a>).</li>
+       <li>Pass <tt>IDLE_TIMEOUT</tt> to vpnc-script (<a href="https://gitlab.com/openconnect/openconnect/merge_requests/67">!67</a>).</li>
+       <li>Windows line-ending flexibility for standard input (<a href="https://gitlab.com/openconnect/openconnect/merge_requests/78">!78</a>).</li>
+       <li>Disable DTLS for GnuTLS versions between 3.6.3 and 3.6.13 inclusive due to <a href="https://gitlab.com/gnutls/gnutls/-/issues/960">GnuTLS #960</a>.</li>
+       <li>Add RFC6750 Bearer token support (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/70">!70</a>).</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-8.05.tar.gz">OpenConnect v8.05</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-8.05.tar.gz.asc">PGP signature</a>)</i> &#8212; 2019-09-12
+     <ul>
+       <li>Fix GlobalProtect ESP stall (<a href="https://gitlab.com/openconnect/openconnect/merge_requests/55">!55</a>).</li>
+       <li>Fix HTTP chunked encoding buffer overflow (CVE-2019-16239).</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-8.04.tar.gz">OpenConnect v8.04</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-8.04.tar.gz.asc">PGP signature</a>)</i> &#8212; 2019-08-09
+     <ul>
+       <li>Rework DTLS MTU detection. (<a href="https://gitlab.com/openconnect/openconnect/issues/10">#10</a>)</li>
+       <li>Add Pulse Connect Secure support.</li>
+       <li>OpenSSL build fixes (<a href="https://gitlab.com/openconnect/openconnect/merge_requests/51">!51</a>).</li>
+       <li>Add HMAC-SHA256-128 (RFC4868) support for ESP.</li>
+       <li>Support IPv6 in ESP.</li>
+       <li>Translate user-visible strings from <tt>openconnect_get_supported_protocols()</tt>.</li>
+       <li>Fix proxy username/password handling to allow special characters and escaping.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-8.03.tar.gz">OpenConnect v8.03</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-8.03.tar.gz.asc">PGP signature</a>)</i> &#8212; 2019-05-18
+     <ul>
+       <li>Fix detection of <tt>utun</tt> support on OS X (<a href="https://gitlab.com/openconnect/openconnect/issues/18">#18</a>).</li>
+       <li>Fix Cisco DTLSv1.2 support for <tt>AES256-GCM-SHA384</tt>.</li>
+       <li>Fix Solaris 11.4 build by properly detecting <tt>memset_s()</tt>.</li>
+       <li>Fix recognition of OTP password fields (<a href="https://gitlab.com/openconnect/openconnect/issues/24">#24</a>).</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-8.02.tar.gz">OpenConnect v8.02</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-8.02.tar.gz.asc">PGP signature</a>)</i> &#8212; 2019-01-16
+     <ul>
+       <li>Fix GNU/Hurd build.</li>
+       <li>Discover <tt>vpnc-script</tt> in default packaged location on FreeBSD/OpenBSD.</li>
+       <li>Support split-exclude routes for GlobalProtect.</li>
+       <li>Fix GnuTLS builds without libtasn1.</li>
+       <li>Fix DTLS support with OpenSSL 1.1.1+.</li>
+       <li>Add Cisco-compatible DTLSv1.2 support.</li>
+       <li>Invoke script with <tt>reason=attempt-reconnect</tt> before doing so.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-8.01.tar.gz">OpenConnect v8.01</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-8.01.tar.gz.asc">PGP signature</a>)</i> &#8212; 2019-01-05
+     <ul>
+       <li>Fix <tt>memset_s()</tt> arguments.</li>
+       <li>Fix OpenBSD build.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-8.00.tar.gz">OpenConnect v8.00</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-8.00.tar.gz.asc">PGP signature</a>)</i> &#8212; 2019-01-05
+     <ul>
+       <li>Clear form submissions (which may include passwords) before freeing (CVE-2018-20319).</li>
+       <li>Allow form responses to be provided on command line.</li>
+       <li>Add support for SSL keys stored in <a href="tpm.html">TPM2</a>.</li>
+       <li>Fix ESP rekey when replay protection is disabled.</li>
+       <li>Drop support for GnuTLS older than 3.2.10.</li>
+       <li>Fix <tt>--passwd-on-stdin</tt> for Windows to not forcibly open console.</li>
+       <li>Fix portability of shell scripts in test suite.</li>
+       <li>Add Google Authenticator TOTP support for Juniper.</li>
+       <li>Add RFC7469 key PIN support for cert hashes.</li>
+       <li>Add protocol method to securely log out the Juniper session.</li>
+       <li>Relax requirements for Juniper hostname packet response to support old gateways.</li>
+       <li>Add API functions to query the supported protocols.</li>
+       <li>Verify ESP sequence numbers and warn even if replay protection is disabled.</li>
+       <li>Add support for PAN GlobalProtect VPN protocol (<tt>--protocol=gp</tt>).</li>
+       <li>Reorganize listing of command-line options, and include information on supported protocols.</li>
+       <li>SIGTERM cleans up the session similarly to SIGINT.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-7.08.tar.gz">OpenConnect v7.08</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-7.08.tar.gz.asc">PGP signature</a>)</i> &#8212; 2016-12-13
+     <ul>
+       <li>Add SHA256 support for server cert hashes.</li>
+       <li>Enable DHE ciphers for Cisco DTLS.</li>
+       <li>Increase initial oNCP configuration buffer size.</li>
+       <li>Reopen <tt>CONIN$</tt> when stdin is redirected on Windows.</li>
+       <li>Improve support for point-to-point routing on Windows.</li>
+       <li>Check for non-resumed DTLS sessions which may indicate a MiTM attack.</li>
+       <li>Add <tt>TUNIDX</tt> environment variable on Windows.</li>
+       <li>Fix compatibility with Pulse Secure 8.2R5.</li>
+       <li>Fix IPv6 support in Solaris.</li>
+       <li>Support DTLS automatic negotiation.</li>
+       <li>Support <tt>--key-password</tt> for GnuTLS PKCS#11 PIN.</li>
+       <li>Support automatic DTLS MTU detection with OpenSSL.</li>
+       <li>Drop support for combined GnuTLS/OpenSSL build.</li>
+       <li>Update OpenSSL to allow TLSv1.2, improve compatibility options.</li>
+       <li>Remove <tt>--no-cert-check</tt> option. It was being (mis)used.</li>
+       <li>Fix OpenSSL support for PKCS#11 EC keys without public key.</li>
+       <li>Support for final OpenSSL 1.1 release.</li>
+       <li>Fix polling/retry on "tun" socket when buffers full.</li>
+       <li>Fix AnyConnect server-side MTU setting.</li>
+       <li>Fix ESP replay detection.</li>
+       <li>Allow build with LibreSSL <i>(for fetishists only; do not use this as DTLS is broken)</i>.</li>
+       <li>Add certificate torture test suite.</li>
+       <li>Support PKCS#11 PIN via <tt>pin-value=</tt> and <tt>--key-password</tt> for OpenSSL.</li>
+       <li>Fix integer overflow issues with ESP packet replay detection.</li>
+       <li>Add <tt>--pass-tos</tt> option as in OpenVPN.</li>
+       <li>Support rôle selection form in Juniper VPN.</li>
+       <li>Support DER-format certificates, add certificate format torture tests.</li>
+       <li>For OpenSSL >= 1.0.2, fix certificate validation when only an
+          intermediate CA is specified with the <tt>--cafile</tt> option.</li>
+       <li>Support Juniper "Pre Sign-in Message".</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-7.07.tar.gz">OpenConnect v7.07</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-7.07.tar.gz.asc">PGP signature</a>)</i> &#8212; 2016-07-11
+   <ul>
+       <li>More fixes for OpenSSL 1.1 build.</li>
+       <li>Support Juniper "Post Sign-in Message".</li>
+       <li>Add <tt>--protocol</tt> option.</li>
+       <li>Fix ChaCha20-Poly1305 cipher suite to reflect final standard.</li>
+       <li>Add ability to disable IPv6 support via library API.</li>
+       <li>Set groups appropriately when using <tt>setuid()</tt>.</li>
+       <li>Automatic DTLS MTU detection.</li>
+       <li>Support SSL client certificate authentication with Juniper servers.</li>
+       <li>Revamp SSL certificate validation for OpenSSL and stop supporting OpenSSL older than 0.9.8.</li>
+       <li>Fix handling of multiple DNS search domains with Network Connect.</li>
+       <li>Fix handling of large configuration packets for Network Connect.</li>
+       <li>Enable SNI when built with OpenSSL <i>(1.0.1g or later)</i>.</li>
+       <li>Add <tt>--resolve</tt> and <tt>--local-hostname</tt> options to command line.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-7.06.tar.gz">OpenConnect v7.06</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-7.06.tar.gz.asc">PGP signature</a>)</i> &#8212; 2015-03-17
+     <ul>
+       <li>Fix <tt>openconnect.pc</tt> breakage after liboath removal.</li>
+       <li>Refactor Juniper Network Connect receive loop.</li>
+       <li>Fix some memory leaks.</li>
+       <li>Add Bosnian translation.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-7.05.tar.gz">OpenConnect v7.05</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-7.05.tar.gz.asc">PGP signature</a>)</i> &#8212; 2015-03-10
+     <ul>
+       <li>Fix alignment issue which broke LZS compression on ARM etc.</li>
+       <li>Support HTTP authentication to servers, not just proxies.</li>
+       <li>Work around Yubikey <a href="https://forum.yubico.com/viewtopica454-3.html?f=26&amp;t=1601">issue</a> with non-ASCII passphrase set on pre-KitKat Android.</li>
+       <li>Add SHA256/SHA512 support for OATH.</li>
+       <li>Remove liboath dependency.</li>
+       <li>Support DTLS v1.2 and AES-GCM with OpenSSL 1.0.2.</li>
+       <li>Add OpenSSL 1.0.2 to known-broken releases (<a href="http://rt.openssl.org/Ticket/Display.html?id=3703&amp;amp;user=guest&amp;amp;pass=guest">RT#3703</a>,
+       <a href="http://rt.openssl.org/Ticket/Display.html?id=3711&amp;amp;user=guest&amp;amp;pass=guest">RT#3711</a>).</li>
+       <li>Fix build with OpenSSL HEAD <i>(OpenSSL 1.1.x).</i></li>
+       <li>Preliminary support for Juniper SSL VPN.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-7.04.tar.gz">OpenConnect v7.04</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-7.04.tar.gz.asc">PGP signature</a>)</i> &#8212; 2015-01-25
+     <ul>
+       <li>Change default behaviour to enable only stateless compression.</li>
+       <li>Add <tt>--compression</tt> argument and <tt>openconnect_set_compression_mode()</tt>.</li>
+       <li>Add support for LZS compression <i>(compatible with latest Cisco ASA and ocserv)</i>.</li>
+       <li>Add support for <a href="https://code.google.com/p/lz4/">LZ4</a> compression <i>(compatible with ocserv)</i>.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-7.03.tar.gz">OpenConnect v7.03</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-7.03.tar.gz.asc">PGP signature</a>)</i> &#8212; 2015-01-09
+     <ul>
+       <li>Android build infrastructure updates, including 64-bit support.</li>
+       <li>Clean up handling of incoming packets.</li>
+       <li>Fix issue with two-stage <i>(i.e. NetworkManager)</i> connection to servers with trick DNS <a href="https://bugzilla.redhat.com/show_bug.cgi?id=1179681"><i>(RH#1179681)</i></a>.</li>
+       <li>Stop using static variables for received packets.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-7.02.tar.gz">OpenConnect v7.02</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-7.02.tar.gz.asc">PGP signature</a>)</i> &#8212; 2014-12-19
+     <ul>
+       <li>Add PKCS#11 support for OpenSSL.</li>
+       <li>Fix handling of select options in <tt>openconnect_set_option_value().</tt></li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-7.01.tar.gz">OpenConnect v7.01</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-7.01.tar.gz.asc">PGP signature</a>)</i> &#8212; 2014-12-07
+     <ul>
+       <li>Try harder to find a PKCS#11 key to match a given certificate.</li>
+       <li>Handle '<tt>Connection: close</tt>' from proxies correctly.</li>
+       <li>Warn when MTU is set too low <i>(&lt;1280)</i> to permit IPv6 connectivity.</li>
+       <li>Add support for <tt>X-CSTP-DynDNS</tt>, to trigger DNS lookup on each reconnect.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-7.00.tar.gz">OpenConnect v7.00</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-7.00.tar.gz.asc">PGP signature</a>)</i> &#8212; 2014-11-27
+     <ul>
+       <li>Add support for GnuTLS 3.4 <tt>system:</tt> keys including Windows certificate store.</li>
+       <li>Add support for HOTP/TOTP keys from Yubikey NEO devices.</li>
+       <li>Add <tt>---no-system-trust</tt> option to disable default certificate authorities.</li>
+       <li>Improve <tt>libiconv</tt> and <tt>libintl</tt> detection.</li>
+       <li>Stop calling <tt>setenv()</tt> from library functions.</li>
+       <li>Support <tt>utun</tt> driver on OS X.</li>
+       <li>Change library API so string ownership is never transferred.</li>
+       <li>Support new NDIS6 TAP-Windows driver shipped with OpenVPN 2.3.4.</li>
+       <li>Support using PSKC <i>(<a href="https://tools.ietf.org/html/rfc6030">RFC6030</a>)</i> token files for HOTP/TOTP tokens.</li>
+       <li>Support for updating HOTP token storage when token is used.</li>
+       <li>Support for reading OTP token data from a file.</li>
+       <li>Add full <a href="charset.html">character set handling</a> for legacy non-UTF8 systems <i>(including Windows)</i>.</li>
+       <li>Fix legacy <i>(i.e. not XML POST)</i> submission of non-ASCII form entries <i>(even in UTF-8 locales)</i>.</li>
+       <li>Add support for 32-bit Windows XP.</li>
+       <li>Avoid retrying without XML POST, when we failed to even reach the server.</li>
+       <li>Fix off-by-one in parameter substitution in error messages.</li>
+       <li>Improve reporting when GSSAPI auth requested but not compiled in.</li>
+       <li>Fix parsing of split include routes on Windows.</li>
+       <li>Fix crash on invocation with <tt>--token-mode</tt> but no <tt>--token-secret</tt>.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-6.00.tar.gz">OpenConnect v6.00</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-6.00.tar.gz.asc">PGP signature</a>)</i> &#8212; 2014-07-08
+     <ul>
+       <li>Support SOCKS proxy authentication (password, GSSAPI).</li>
+       <li>Support HTTP proxy authentication (Basic, Digest, NTLM and GSSAPI).</li>
+       <li>Download XML profile in XML POST mode.</li>
+       <li>Fix a couple of bugs involving DTLS rekeying.</li>
+       <li>Fix problems seen when building or connecting without DTLS enabled.</li>
+       <li>Fix tun error handling on Windows hosts.</li>
+       <li>Skip password prompts when using PKCS#8 and PKCS#12 certificates with empty passwords.</li>
+       <li>Fix several minor memory leaks and error paths.</li>
+       <li>Update several Android dependencies, and make the download process more robust.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-5.99.tar.gz">OpenConnect v5.99</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-5.99.tar.gz.asc">PGP signature</a>)</i> &#8212; 2014-03-05
+     <ul>
+       <li>Add <a href="https://tools.ietf.org/html/rfc4226">RFC4226</a> HOTP token support.</li>
+       <li>Tolerate servers closing connection uncleanly after HTTP/1.0 response <a href="https://bugs.launchpad.net/bugs/1225276"><i>(Ubuntu #1225276)</i></a>.</li>
+       <li>Add support for IPv6 split tunnel configuration.</li>
+       <li>Add Windows support with MinGW <i>(tested with both IPv6 and Legacy IP with latest <a href="https://git.infradead.org/users/dwmw2/vpnc-scripts.git/blob_plain/HEAD:/vpnc-script-win.js">vpnc-script-win.js</a>)</i></li>
+       <li>Change library API to support updating the auth form when the authgroup is changed <a href="https://bugs.launchpad.net/bugs/1229195"><i>(Ubuntu #1229195)</i></a>.</li>
+       <li>Change <tt>--os mac</tt> to <tt>--os mac-intel</tt>, to match the identifier used by Cisco clients.</li>
+       <li>Add new API functions to support invoking the VPN mainloop directly from an application.</li>
+       <li>Add JNI interface and sample Java application.</li>
+       <li>Fix junk in <tt>--cookieonly</tt> output when CSD is enabled.</li>
+       <li>Enable TOTP, stoken, and JNI support in the Android builds.</li>
+       <li>Add <tt>--pfs</tt> option to enforce perfect forward secrecy.</li>
+       <li>Enable elliptic curves with GnuTLS 3.2.9+, where there is a
+       workaround for certain firewalls that fail with client hellos between
+       256 and 512 bytes.</li>
+       <li>Add padding when sending password, to avoid leakage of password
+       and username length.</li>
+       <li>Add support for DTLS 1.2 and AES-GCM when connecting to ocserv.</li>
+       <li>Add support for server name indication when compiled with GnuTLS
+       3.2.9+.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-5.03.tar.gz">OpenConnect v5.03</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-5.03.tar.gz.asc">PGP signature</a>)</i> &#8212; 2014-02-03
+     <ul>
+       <li>Fix crash on <tt>--authenticate</tt> due to freeing <tt>--cafile</tt> option in <tt>argv</tt>.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-5.02.tar.gz">OpenConnect v5.02</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-5.02.tar.gz.asc">PGP signature</a>)</i> &#8212; 2014-01-01
+     <ul>
+       <li>Fix XML POST issues with authgroups by falling back to old style login.</li>
+       <li>Fix <tt>--cookie-on-stdin</tt> with cookies from ocserv.</li>
+       <li>Fix reconnection to wrong host after redirect.</li>
+       <li>Reduce limit of queued packets on DTLS socket, to fix VoIP latency.</li>
+       <li>Fix Solaris build breakage due to missing <tt>&amp;lt;string.h&amp;gt;</tt> includes.</li>
+       <li>Include path in <tt>&amp;lt;group-access&amp;gt;</tt> node.</li>
+       <li>Include supporting CA certificates from PKCS#11 tokens <i>(with GnuTLS 3.2.7+)</i>.</li>
+       <li>Fix possible heap overflow if MTU is increased on reconnection (CVE-2013-7098).</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-5.01.tar.gz">OpenConnect v5.01</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-5.01.tar.gz.asc">PGP signature</a>)</i> &#8212; 2013-06-01
+     <ul>
+       <li>Attempt to handle <tt>&amp;lt;client-cert-request&amp;gt;</tt> in aggregate auth mode.</li>
+       <li>Don't include <tt>X-Aggregate-Auth:</tt> header in fallback mode.</li>
+       <li>Enable AES256 mode for DTLS with GnuTLS <a href="https://bugzilla.redhat.com/show_bug.cgi?id=955710"><i>(RH#955710)</i></a>.</li>
+       <li>Add <tt>--dump-http-traffic</tt> option for debugging.</li>
+       <li>Be more permissive in parsing XML forms.</li>
+       <li>Use original URL when falling back to non-XML POST mode.</li>
+       <li>Add <tt>--no-xmlpost</tt> option to revert to older, compatible behaviour.</li>
+       <li>Close connection before falling back to non-xmlpost mode <a href="https://bugzilla.redhat.com/show_bug.cgi?id=964650"><i>(RH#964650)</i></a>.</li>
+       <li>Improve error handling when server closes connection <a href="https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=708928"><i>(Debian #708928)</i></a>.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-5.00.tar.gz">OpenConnect v5.00</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-5.00.tar.gz.asc">PGP signature</a>)</i> &#8212; 2013-05-15
+     <ul>
+       <li>Use GnuTLS by default instead of OpenSSL.</li>
+       <li>Avoid using deprecated <tt>gnutls_pubkey_verify_data()</tt> function.</li>
+       <li>Fix compatibility issues with XML POST authentication.</li>
+       <li>Fix memory leaks on <tt>realloc()</tt> failure.</li>
+       <li>Fix certificate validation problem caused by hostname canonicalisation.</li>
+       <li>Add <a href="https://tools.ietf.org/html/rfc6238">RFC6238</a> TOTP token support using <a href="https://www.nongnu.org/oath-toolkit/">liboath</a>.</li>
+       <li>Replace <tt>--stoken</tt> option with more generic <tt>--token-mode</tt> and <tt>--token-secret</tt> options.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-4.99.tar.gz">OpenConnect v4.99</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-4.99.tar.gz.asc">PGP signature</a>)</i> &#8212; 2013-02-07
+     <ul>
+       <li>Add <tt>--os</tt> switch to report a different OS type to the gateway.</li>
+       <li>Support new XML POST format.</li>
+       <li>Add SecurID token support using <a href="http://stoken.sf.net/">libstoken</a>.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-4.08.tar.gz">OpenConnect v4.08</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-4.08.tar.gz.asc">PGP signature</a>)</i> &#8212; 2013-02-13
+     <ul>
+       <li>Fix overflow on HTTP request buffers (CVE-2012-6128)</li>
+       <li>Fix connection to servers with round-robin DNS with two-stage auth/connect.</li>
+       <li>Impose minimum MTU of 1280 bytes.</li>
+       <li>Fix some harmless issues reported by Coverity.</li>
+       <li>Improve <tt>"Attempting to connect..."</tt> message to be explicit when it's connecting to a proxy.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-4.07.tar.gz">OpenConnect v4.07</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-4.07.tar.gz.asc">PGP signature</a>)</i> &#8212; 2012-08-31
+     <ul>
+       <li>Fix segmentation fault when invoked with <tt>-p</tt> argument.</li>
+       <li>Fix handling of write stalls on CSTP (TCP) socket.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-4.06.tar.gz">OpenConnect v4.06</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-4.06.tar.gz.asc">PGP signature</a>)</i> &#8212; 2012-07-23
+     <ul>
+       <li>Fix default CA location for non-Fedora systems with old GnuTLS.</li>
+       <li>Improve error handing when <tt>vpnc-script</tt> exits with error.</li>
+       <li>Handle PKCS#11 tokens which won't list keys without login.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-4.05.tar.gz">OpenConnect v4.05</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-4.05.tar.gz.asc">PGP signature</a>)</i> &#8212; 2012-07-12
+     <ul>
+       <li>Use correct CSD script for Mac OS X.</li>
+       <li>Fix endless loop in PIN cache handling with multiple PKCS#11 tokens.</li>
+       <li>Fix PKCS#11 URI handling to preserve all attributes.</li>
+       <li>Don't forget key password on GUI reconnect.</li>
+       <li>Fix GnuTLS v3 build on OpenBSD.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-4.04.tar.gz">OpenConnect v4.04</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-4.04.tar.gz.asc">PGP signature</a>)</i> &#8212; 2012-07-05
+     <ul>
+       <li>Fix GnuTLS password handling for PKCS#8 files.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-4.03.tar.gz">OpenConnect v4.03</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-4.03.tar.gz.asc">PGP signature</a>)</i> &#8212; 2012-07-02
+     <ul>
+       <li>Fix <tt>--no-proxy</tt> option.</li>
+       <li>Fix handling of requested vs. received MTU settings.</li>
+       <li>Fix DTLS MTU for GnuTLS 3.0.21 and newer.</li>
+       <li>Support more ciphers for OpenSSL encrypted PEM keys, with GnuTLS.</li>
+       <li>Fix GnuTLS compatibility issue with servers that insist on TLSv1.0 or non-AES ciphers <a href="https://bugzilla.redhat.com/show_bug.cgi?id=836558"><i>(RH#836558)</i></a>.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-4.02.tar.gz">OpenConnect v4.02</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-4.02.tar.gz.asc">PGP signature</a>)</i> &#8212; 2012-06-28
+     <ul>
+       <li>Fix build failure due to unconditional inclusion of <tt>&amp;lt;gnutls/dtls.h&amp;gt;</tt>.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-4.01.tar.gz">OpenConnect v4.01</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-4.01.tar.gz.asc">PGP signature</a>)</i> &#8212; 2012-06-28
+     <ul>
+       <li>Fix DTLS MTU issue with GnuTLS.</li>
+       <li>Fix reconnect crash when compression is disabled.</li>
+       <li>Fix build on systems like FreeBSD 8 without <tt>O_CLOEXEC</tt>.</li>
+       <li>Add <tt>--dtls-local-port</tt> option.</li>
+       <li>Print correct error when <tt>/dev/net/tun</tt> cannot be opened.</li>
+       <li>Fix <tt>openconnect.pc</tt> pkg-config file not to require <tt>zlib.pc</tt> on systems which lack it (like RHEL5).</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-4.00.tar.gz">OpenConnect v4.00</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-4.00.tar.gz.asc">PGP signature</a>)</i> &#8212; 2012-06-20
+     <ul>
+       <li>Add support for OpenSSL's odd encrypted PKCS#1 files, for GnuTLS.</li>
+       <li>Fix repeated passphrase retry for OpenSSL.</li>
+       <li>Add keystore support for Android.</li>
+       <li>Support TPM, and also additional checks on PKCS#11 certs, even with GnuTLS 2.12.</li>
+       <li>Fix library references to OpenSSL's <tt>ERR_print_errors_cb()</tt> when built against GnuTLS v2.12.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-3.99.tar.gz">OpenConnect v3.99</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-3.99.tar.gz.asc">PGP signature</a>)</i> &#8212; 2012-06-13
+     <ul>
+       <li>Enable native TPM support when built with GnuTLS.</li>
+       <li>Enable PKCS#11 token support when built with GnuTLS.</li>
+       <li>Eliminate all SSL library exposure through <tt>libopenconnect</tt>.</li>
+       <li>Parse split DNS information, provide <tt>$CISCO_SPLIT_DNS</tt> environment variable to <tt>vpnc-script</tt>.</li>
+       <li>Attempt to provide new-style MTU information to server <i>(on Linux only, unless specified on command line)</i>.</li>
+       <li>Allow building against GnuTLS, including DTLS support.</li>
+       <li>Add <tt>--with-pkgconfigdir=</tt> option to <tt>configure</tt> for FreeBSD's benefit <i><a href="https://bugs.freedesktop.org/show_bug.cgi?id=48743">(fd#48743)</a></i>.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-3.20.tar.gz">OpenConnect v3.20</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-3.20.tar.gz.asc">PGP signature</a>)</i> &#8212; 2012-05-18
+     <ul>
+       <li>Cope with non-keepalive HTTP response on authentication success.</li>
+       <li>Fix progress callback with incorrect <tt>cbdata</tt> which caused KDE crash.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-3.19.tar.gz">OpenConnect v3.19</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-3.19.tar.gz.asc">PGP signature</a>)</i> &#8212; 2012-05-17
+     <ul>
+       <li>Add <tt>--config</tt> option for reading options from file.</li>
+       <li>Improve OpenSSL DTLS compatibility to work on Ubuntu 10.04.</li>
+       <li>Flush progress logging output promptly after each message.</li>
+       <li>Add symbol versioning for shared library (on sane platforms).</li>
+       <li>Add <tt>openconnect_set_cancel_fd()</tt> function to allow clean cancellation.</li>
+       <li>Fix corruption of URL in <tt>openconnect_parse_url()</tt> if it specifies a port number.</li>
+       <li>Fix inappropriate <tt>exit()</tt> calls from library code.</li>
+       <li>Library namespace cleanup &#8212; all symbols now have the prefix <tt>openconnect_</tt> on platforms where symbol versioning works.</li>
+       <li>Fix <tt>--non-inter</tt> option so it still uses login information from command line.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-3.18.tar.gz">OpenConnect v3.18</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-3.18.tar.gz.asc">PGP signature</a>)</i> &#8212; 2012-04-25
+     <ul>
+       <li>Fix autohate breakage with <tt>--disable-nls</tt>... hopefully.</li>
+       <li>Fix buffer overflow in banner handling.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-3.17.tar.gz">OpenConnect v3.17</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-3.17.tar.gz.asc">PGP signature</a>)</i> &#8212; 2012-04-20
+     <ul>
+       <li>Work around <tt>time()</tt> brokenness on Solaris.</li>
+       <li>Fix interface plumbing on Solaris 10.</li>
+       <li>Provide <tt>asprintf()</tt> function for (unpatched) Solaris 10.</li>
+       <li>Make <tt>vpnc-script</tt> mandatory, like it is for <tt>vpnc</tt></li>
+       <li>Don't set Legacy IP address on tun device; let <tt>vpnc-script</tt> do it.</li>
+       <li>Detect OpenSSL even without pkg-config.</li>
+       <li>Stop building static library by default.</li>
+       <li>Invoke <tt>vpnc-script</tt> with "pre-init" reason to load tun module if necessary.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-3.16.tar.gz">OpenConnect v3.16</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-3.16.tar.gz.asc">PGP signature</a>)</i> &#8212; 2012-04-08
+     <ul>
+       <li>Fix build failure on Debian/kFreeBSD and Hurd.</li>
+       <li>Fix memory leak of deflated packets.</li>
+       <li>Fix memory leak of zlib state on CSTP reconnect.</li>
+       <li>Eliminate <tt>memcpy()</tt> calls on packets from DTLS and tunnel device.</li>
+       <li>Use <tt>I_LINK</tt> instead of <tt>I_PLINK</tt> on Solaris to plumb interface for Legacy IP.</li>
+       <li>Plumb interface for IPv6 on Solaris, instead of expecting <tt>vpnc-script</tt> to do it.</li>
+       <li>Refer to <a href="vpnc-script.html">vpnc-script</a> and <a href="mail.html">help</a> web pages in openconnect output.</li>
+       <li>Fix potential crash when processing libproxy results.</li>
+       <li>Be more conservative in detecting libproxy without pkg-config.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-3.15.tar.gz">OpenConnect v3.15</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-3.15.tar.gz.asc">PGP signature</a>)</i> &#8212; 2011-11-25
+     <ul>
+       <li>Fix for reading multiple packets from Solaris tun device.</li>
+       <li>Call <tt>bindtextdomain()</tt> to ensure that translations are found in install path.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-3.14.tar.gz">OpenConnect v3.14</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-3.14.tar.gz.asc">PGP signature</a>)</i> &#8212; 2011-11-08
+     <ul>
+       <li>Move executable to <tt>$prefix/sbin</tt>.</li>
+       <li>Fix build issues on OSX, OpenIndiana, DragonFlyBSD, OpenBSD, FreeBSD &amp;amp; NetBSD.</li>
+       <li>Fix non-portable <tt>(void *)</tt> arithmetic.</li>
+       <li>Make more messages translatable.</li>
+       <li>Attempt to make NLS support more portable (with fewer dependencies).</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-3.13.tar.gz">OpenConnect v3.13</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-3.13.tar.gz.asc">PGP signature</a>)</i> &#8212; 2011-09-30
+     <ul>
+       <li>Add <tt>--cert-expire-warning</tt> option.</li>
+       <li>Give visible warning when server dislikes client SSL certificate.</li>
+       <li>Add localisation support.</li>
+       <li>Fix build on Debian systems where <tt>dtls1_stop_timer()</tt> is not available.</li>
+       <li>Fix libproxy detection.</li>
+       <li>Enable a useful set of compiler warnings by default.</li>
+       <li>Fix various minor compiler warnings.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-3.12.tar.gz">OpenConnect v3.12</a></b> &#8212; 2011-09-12
+     <ul>
+       <li>Fix DTLS compatibility with ASA firmware 8.4.1(11) and above.</li>
+       <li>Fix build failures on GNU Hurd, on systems with ancient OpenSSL,
+       and on Debian.</li>
+       <li>Add <tt>--pid-file</tt> option.</li>
+       <li>Print SHA1 fingerprint with server certificate details.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-3.11.tar.gz">OpenConnect v3.11</a></b> &#8212; 2011-07-20
+     <ul>
+       <li>Add <tt>Android.mk</tt> file for Android build support</li>
+       <li>Add logging support for Android, in place of standard <tt>syslog()</tt>.</li>
+       <li>Switch back to using TLSv1, but without extensions.</li>
+       <li>Make TPM support optional, dependent on OpenSSL ENGINE support.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-3.10.tar.gz">OpenConnect v3.10</a></b> &#8212; 2011-06-30
+     <ul>
+       <li>Switch to using GNU autoconf/automake/libtool.</li>
+       <li>Produce shared library for authentication.</li>
+       <li>Improve library API to make life easier for C++ users.</li>
+       <li>Be more explicit about requiring <tt>pkg-config</tt>.</li>
+       <li>Invoke script with <tt>reason=reconnect</tt> on CSTP reconnect.</li>
+       <li>Add <tt>--non-inter</tt> option to avoid all user input.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-3.02.tar.gz">OpenConnect v3.02</a></b> &#8212; 2011-04-19
+     <ul>
+       <li>Install man page in <tt>make install</tt> target.</li>
+       <li>Add <tt>openconnect_vpninfo_free()</tt> to libopenconnect.</li>
+       <li>Clear cached <tt>peer_addr</tt> to avoid reconnecting to wrong host.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-3.01.tar.gz">OpenConnect v3.01</a></b> &#8212; 2011-03-09
+     <ul>
+       <li>Add libxml2 to pkg-config requirements.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-3.00.tar.gz">OpenConnect v3.00</a></b> &#8212; 2011-03-09
+     <ul>
+       <li>Create libopenconnect.a for GUI authentication dialog to use.</li>
+       <li>Remove auth-dialog, which now lives in the <a href="https://gitlab.gnome.org/GNOME/NetworkManager-openconnect">network-manager-openconnect</a> package.</li>
+       <li>Cope with more entries in authentication forms.</li>
+       <li>Add <tt>--csd-wrapper</tt> option to wrap CSD trojan.</li>
+       <li>Report error and abort if CA file cannot be opened.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-2.26.tar.gz">OpenConnect v2.26</a></b> &#8212; 2010-09-22
+     <ul>
+       <li>Fix potential crash on relative HTTP redirect.</li>
+       <li>Use correct TUN/TAP device node on Android.</li>
+       <li>Check client certificate expiry date.</li>
+       <li>Implement CSTP and DTLS rekeying <i>(both by reconnecting CSTP)</i>.</li>
+       <li>Add <tt>--force-dpd</tt> option to set minimum DPD interval.</li>
+       <li>Don't print <tt>webvpn</tt> cookie in debug output.</li>
+       <li>Fix host selection in NetworkManager auth dialog.</li>
+       <li>Use SSLv3 instead of TLSv1; some servers <i>(or their firewalls)</i>
+	   don't accept any <tt>ClientHello</tt> options.</li>
+       <li>Never include address family prefix on <tt>script-tun</tt> connections.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-2.25.tar.gz">OpenConnect v2.25</a></b> &#8212; 2010-05-15
+     <ul>
+       <li>Always validate server certificate, even when no extra <tt>--cafile</tt> is provided.</li>
+       <li>Add <tt>--no-cert-check</tt> option to avoid certificate validation.</li>
+       <li>Check server hostname against its certificate.</li>
+       <li>Provide text-mode function for reviewing and accepting "invalid" certificates.</li>
+       <li>Fix libproxy detection on NetBSD.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-2.24.tar.gz">OpenConnect v2.24</a></b> &#8212; 2010-05-07
+     <ul>
+       <li>Forget preconfigured password after a single attempt; don't retry infinitely if it's failing.</li>
+       <li>Set <tt>$CISCO_BANNER</tt> environment variable when running script.</li>
+       <li>Better handling of passphrase failure on certificate files.</li>
+       <li>Fix NetBSD build (thanks to Pouya D. Tafti).</li>
+       <li>Fix DragonFly BSD build.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-2.23.tar.gz">OpenConnect v2.23</a></b> &#8212; 2010-04-09
+     <ul>
+       <li>Support "Cisco Secure Desktop" trojan in NetworkManager auth-dialog.</li>
+       <li>Support proxy in NetworkManager auth-dialog.</li>
+       <li>Add <tt>--no-http-keepalive</tt> option to work around Cisco's incompetence.</li>
+       <li>Fix build on Debian/kFreeBSD.</li>
+       <li>Fix crash on receiving HTTP 404 error.</li>
+       <li>Improve workaround for server certificates lacking SSL_SERVER purpose, so that it also works with OpenSSL older than 0.9.8k.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-2.22.tar.gz">OpenConnect v2.22</a></b> &#8212; 2010-03-07
+     <ul>
+       <li>Fix bug handling port numbers above 9999.</li>
+       <li>Ignore "<tt>Connection: Keep-Alive</tt>" in HTTP/1.0 to work around server bug with certificate authentication.</li>
+       <li>Handle non-standard port (and full URLs) when used with NetworkManager.</li>
+       <li>Cope with relative redirect and form URLs.</li>
+       <li>Allocate HTTP receive buffer dynamically, to cope with arbitrary size of content.</li>
+       <li>Fix server cert SHA1 comparison to be case-insensitive.</li>
+       <li>Fix build on Solaris and OSX <i>(<tt>strndup()</tt>, <tt>AI_NUMERICSERV</tt>).</i></li>
+       <li>Fix exit code with <tt>--background</tt> option.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-2.21.tar.gz">OpenConnect v2.21</a></b> &#8212; 2010-01-10
+     <ul>
+       <li>Fix handling of HTTP 1.0 responses with keepalive <a href="https://bugzilla.redhat.com/show_bug.cgi?id=553817"><i>(RH#553817)</i></a>.</li>
+       <li>Fix case sensitivity in HTTP headers and hostname comparison on redirect.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-2.20.tar.gz">OpenConnect v2.20</a></b> &#8212; 2010-01-04
+     <ul>
+       <li>Fix use-after-free bug in NetworkManager authentication dialog <a href="https://bugzilla.redhat.com/show_bug.cgi?id=551665"><i>(RH#551665)</i></a>.</li>
+       <li>Allow server to be specified with <tt>https://</tt> URL, including port and pathname (which Cisco calls 'UserGroup')</li>
+       <li>Support connection through HTTP and SOCKS proxies.</li>
+       <li>Handle HTTP redirection with port numbers.</li>
+       <li>Handle HTTP redirection with IPv6 literal addresses.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-2.12.tar.gz">OpenConnect v2.12</a></b> &#8212; 2009-12-07
+     <ul>
+       <li>Fix buffer overflow when generating useragent string.</li>
+       <li>Cope with idiotic schizoDNS configurations by not repeating DNS lookup for VPN server on reconnects.</li>
+       <li>Support DragonFlyBSD. Probably.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-2.11.tar.gz">OpenConnect v2.11</a></b> &#8212; 2009-11-17
+     <ul>
+       <li>Add IPv6 support for FreeBSD.</li>
+       <li>Support "split tunnel" mode for IPv6 routing.</li>
+       <li>Fix bug where client certificate's MD5 was only given to the
+	   CSD trojan if a PKCS#12 certificate was used.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-2.10.tar.gz">OpenConnect v2.10</a></b> &#8212; 2009-11-04
+     <ul>
+       <li>OpenSolaris support.</li>
+       <li>Preliminary support for IPv6 connectivity.</li>
+       <li>Fix session shutdown on exit.</li>
+       <li>Fix reconnection when TCP connection is closed.</li>
+       <li>Support for "Cisco Secure Desktop" idiocy.</li>
+       <li>Allow <tt>User-Agent:</tt> to be specified on command line.</li>
+       <li>Fix session termination on disconnect.</li>
+       <li>Fix recognition of certificates from OpenSSL 1.0.0.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-2.01.tar.gz">OpenConnect v2.01</a></b> &#8212; 2009-06-24
+     <ul>
+       <li>Fix bug causing loss of DTLS (and lots of syslog spam about it)
+	   after a CSTP reconnection.</li>
+       <li>Don't apply OpenSSL certificate chain workaround if we already
+	   have "extra" certificates loaded (e.g. from a PKCS#12 file).</li>
+       <li>Load "extra" certificates from <tt>.pem</tt> files too.</li>
+       <li>Fix SEGV caused by freeing certificates after processing cert
+	   chain.</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-2.00.tar.gz">OpenConnect v2.00</a></b> &#8212; 2009-06-03
+      <ul>
+	<li>Add OpenBSD and FreeBSD support.</li>
+	<li>Build with OpenSSL-0.9.7 (Mac OS X, OpenBSD, etc.)</li>
+	<li>Support PKCS#12 certificates.</li>
+	<li>Automatic detection of certificate type (PKCS#12, PEM, TPM).</li>
+	<li>Work around OpenSSL trust chain issues (<a href="http://rt.openssl.org/Ticket/Display.html?id=1942&amp;amp;user=guest&amp;amp;pass=guest">RT#1942</a>).</li>
+	<li>Allow PEM passphrase to be specified on command line.</li>
+	<li>Allow PEM passphrase automatically generated from the <tt>fsid</tt> of the file system on which the certificate is stored.</li>
+	<li>Fix certificate comparisons (in NM auth-dialog and <tt>--servercert</tt> option) to use SHA1 fingerprint, not signature.</li>
+	<li>Fix segfault in NM auth-dialog when changing hosts.</li>
+      </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-1.40.tar.gz">OpenConnect v1.40</a></b> &#8212; 2009-05-27
+      <ul>
+	<li>Fix validation of server's SSL certificate when NetworkManager runs openconnect as an unprivileged user (which can't read the real user's trust chain file).</li>
+	<li>Fix double-free of DTLS Cipher option on reconnect.</li>
+	<li>Reconnect on SSL write errors</li>
+	<li>Fix reporting of SSL errors through syslog/UI.</li>
+      </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-1.30.tar.gz">OpenConnect v1.30</a></b> &#8212; 2009-05-13
+      <ul>
+	<li>NetworkManager auth-dialog will now cache authentication form options.</li>
+      </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-1.20.tar.gz">OpenConnect v1.20</a></b> &#8212; 2009-05-08
+      <ul>
+	<li>DTLS cipher choice fixes.</li>
+	<li>Improve handling of authentication group selection.</li>
+	<li>Export more information to connection script.</li>
+	<li>Add <tt>--background</tt> option to dæmonize after connection.</li>
+	<li>Detect TCP connection closure.</li>
+      </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-1.10.tar.gz">OpenConnect v1.10</a></b> &#8212; 2009-04-01
+      <ul>
+	<li>NetworkManager UI rewrite with many improvements.</li>
+	<li>Support for "UserGroups" where a single server offers multiple
+	configurations according to the URL used to connect.</li>
+      </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-1.00.tar.gz">OpenConnect v1.00</a></b> &#8212; 2009-03-18
+      <ul>
+	<li>First non-beta release.</li>
+      </ul>
+  </li>
+</ul>
+	<INCLUDE file="inc/footer.tmpl" />
+</PAGE>

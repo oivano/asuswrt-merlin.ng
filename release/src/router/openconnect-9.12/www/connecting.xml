@@ -1,0 +1,77 @@
+<PAGE>
+	<INCLUDE file="inc/header.tmpl" />
+
+	<VAR match="VAR_SEL_STARTED" replace="selected" />
+	<VAR match="VAR_SEL_CONNECTING" replace="selected" />
+	<PARSE file="menu1.xml" />
+	<PARSE file="menu2-started.xml" />
+
+	<INCLUDE file="inc/content.tmpl" />
+
+    	<h1>Connecting to the VPN</h1>
+
+<p>Once you have <a href="building.html">installed</a> OpenConnect and checked that you have a
+<a href="vpnc-script.html">vpnc-script</a> which will set up the routing and DNS for it, using OpenConnect
+ is very simple. As root, run the following command for an AnyConnect/ocserv VPN:
+ <ul>
+   <li><tt>openconnect https://vpn.mycompany.com/</tt></li>
+ </ul>
+ For one of the other <a href="protocols.html">supported protocols</a>, you'll need to add <tt>--protocol</tt>.
+ For example, for a PAN GlobalProtect VPN:
+ <ul>
+   <li><tt>openconnect --protocol=gp https://vpn.mycompany.com/</tt></li>
+ </ul>
+</p>
+
+<p>That should be it, if you have a password-based login. If your VPN uses
+<a href="https://en.wikipedia.org/wiki/Client_certificate">TLS/SSL client certificates</a> for authentication,
+you'll need to tell OpenConnect where to find the certificate with the <tt>-c</tt> option.</p>
+
+<p>You can provide the certificate either as the file name of a PKCS#12 or PEM file,
+or if OpenConnect is built against a suitable version of GnuTLS you can provide the
+certificate in the form of a PKCS#11 URI. If the private key is in a separate file
+from the certificate, this must be specified with <tt>-k</tt>:
+<ul>
+  <li><tt>openconnect -c cert_and_private_key.pem https://vpn.mycompany.com/</tt></li>
+  <li><tt>openconnect -c certificate.pem -k private_key.pem https://vpn.mycompany.com/</tt></li>
+  <li><tt>openconnect -c pkcs11:id=X_%b04%c3%85%d4u%e7%0b%10v%08%c9%0dA%8f%3bl%df https://vpn.mycompany.com/</tt></li>
+  <li><tt>openconnect -c system:win:id=37835fdcdfe2817ee22d6b161e54812fe95867fe https://vpn.mycompany.com/</tt></li>
+</ul>
+</p>
+
+<p>
+See the <a href="manual.html">manual</a> for additional options which can be used to tune
+OpenConnect's connections, and automate various aspects of the authentication process (e.g.
+populating multi-factor authentication codes using RSA- or OATH-based soft tokens).
+</p>
+
+<h2>Windows certificate store</h2>
+
+<p>If your certificate is in the system certificate store, OpenConnect should be able
+to use it when built against GnuTLS, as a "<a href="https://www.gnutls.org/manual/html_node/Application_002dspecific-keys.html">system key</a>".
+</p>
+
+<p>
+  To find the <tt>system:win:…</tt> URI to use for your key with the <tt>list-system-keys.exe</tt>
+  tool included with OpenConnect. Its output might look something like the following:
+<table border="1"><tr><td><pre>
+Label: (null)
+Cert URI: system:win:id=37835fdcdfe2817ee22d6b161e54812fe95867fe;type=cert
+Key URI: system:win:id=37835fdcdfe2817ee22d6b161e54812fe95867fe;type=privkey
+Cert info: subject `CN=d1ab215ccab521bc', issuer `CN=Token Signing Public Key', serial 0x2ce0193a3ecf4da9f0591cee9158e48ec53a8e54, RSA key 1024 bits, signed using DSA-SHA1 (broken!), activated `2020-05-07 06:48:59 UTC', expires `2020-05-14 06:48:59 UTC', pin-sha256="2XOidBPfppXj4REiuj9fIE3UYQK6TTQIODQajIOiLFi="
+</pre></td></tr></table>
+You can choose the certificate you need to use, and provide it to OpenConnect with the <tt>-c</tt> argument as shown in the last example above; omitting the <tt>;type=</tt> part.</p>
+
+<p>
+  Note that as of the time of writing (2022-05-22; GnuTLS v3.7.5), GnuTLS is only able to use keys from the <tt>CERT_SYSTEM_STORE_CURRENT_USER</tt> store in Windows,
+  not the <tt>CERT_SYSTEM_STORE_LOCAL_MACHINE</tt> or <a href="https://docs.microsoft.com/en-us/windows/win32/seccrypto/system-store-locations">other locations</a>.
+  This is reported as <a href="https://gitlab.com/gnutls/gnutls/-/issues/1365">GnuTLS issue #1365</a>.
+</p>
+<p>
+  Even where the certificate is marked as "non-exportable", some have succeeded in stealing
+  certificates from their Windows certificate store using tools like
+  <a href="https://github.com/iSECPartners/jailbreak">Jailbreak</a> and
+  <a href="https://krestfield.github.io/docs/pki/exporting_a_nonexportable_certificate.html">mimikatz</a>.
+</p>
+	<INCLUDE file="inc/footer.tmpl" />
+</PAGE>

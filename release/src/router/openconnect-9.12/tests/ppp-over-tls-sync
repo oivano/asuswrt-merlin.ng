@@ -1,0 +1,71 @@
+#!/bin/sh
+#
+# Copyright © 2021 Daniel Lenski
+#
+# This file is part of openconnect.
+#
+# This is free software; you can redistribute it and/or
+# modify it under the terms of the GNU Lesser General Public License
+# as published by the Free Software Foundation; either version 2.1 of
+# the License, or (at your option) any later version.
+#
+# This library is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>
+
+srcdir=${srcdir:-.}
+top_builddir=${top_builddir:-..}
+
+. `dirname $0`/common.sh
+
+FINGERPRINT="--servercert=pin-sha256:xp3scfzy3rO"
+CERT=$certdir/server-cert.pem
+KEY=$certdir/server-key.pem
+
+# pppd is very poorly designed for mocking and testing in isolation, and running as non-root.
+# See launch_simple_pppd() in common.sh for a number of caveats about using it for these
+# purposes.
+
+IPV4_NO="noip"
+IPV4_YES="'169.254.1.1:169.254.128.128'" # needs single-quotes to escape for socat
+IPV6_NO="noipv6"
+IPV6_YES="+ipv6"
+OFFER_DNS="ms-dns 1.1.1.1 ms-dns 8.8.8.8"
+NO_HDR_COMP="nopcomp noaccomp"
+NO_JUNK_COMP="novj noccp"
+HDLC_YES=""
+HDLC_NO="sync"
+IPV4_SUCCESS_1="rcvd [IPCP ConfAck "
+IPV4_SUCCESS_2="sent [IPCP ConfAck "
+IPV6_SUCCESS_1="rcvd [IPV6CP ConfAck "
+IPV6_SUCCESS_2="sent [IPV6CP ConfAck "
+TIMEOUT_3S_IDLE="idle 3"
+
+echo "Testing PPP with 'synchronous' framing (plain RFC1661)... "
+
+echo -n "Starting PPP peer (sync/no-HDLC/plain-RFC1661, IPv4+IPv6, DNS, extraneous VJ and CCP)... "
+start=$(date +%s)
+launch_simple_pppd $CERT $KEY $HDLC_NO $IPV4_YES $OFFER_DNS $IPV6_YES 2>&1
+echo "started in $(( $(date +%s) - start )) seconds"
+wait_server "$PID"
+echo -n "Connecting to it with openconnect --protocol=nullppp... "
+start=$(date +%s)
+LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q --protocol=nullppp $ADDRESS:443 -u test $FINGERPRINT --cookie "term" -Ss '' >/dev/null 2>&1
+took=$(( $(date +%s) - start ))
+if grep -qF "$IPV4_SUCCESS_1" $LOGFILE && grep -qF "$IPV4_SUCCESS_2" $LOGFILE && grep -qF "$IPV6_SUCCESS_1" $LOGFILE && grep -qF "$IPV6_SUCCESS_2" $LOGFILE; then
+    echo "ok (took $took seconds)"
+else
+    echo "failed (after $took seconds)"
+    echo "Log from pppd"; echo "===== START pppd log ====="
+    cat $LOGFILE
+    echo "===== END pppd log ====="
+    fail "$PID" "Did not negotiate IPCP and IP6CP successfully."
+fi
+
+cleanup
+
+exit 0

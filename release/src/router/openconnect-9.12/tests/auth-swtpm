@@ -1,0 +1,80 @@
+#!/bin/sh
+#
+# Copyright (C) 2016 Red Hat, Inc.
+#
+# This file is part of openconnect.
+#
+# This is free software; you can redistribute it and/or
+# modify it under the terms of the GNU Lesser General Public License
+# as published by the Free Software Foundation; either version 2.1 of
+# the License, or (at your option) any later version.
+#
+# This library is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>
+
+# This test uses LD_PRELOAD
+PRELOAD=1
+SERV="${SERV:-../src/ocserv}"
+srcdir=${srcdir:-.}
+top_builddir=${top_builddir:-..}
+
+. `dirname $0`/common.sh
+
+swtpm_list=${swtpm_list:-`echo ${certdir}/swtpm*-key-tpm.pem`}
+
+echo "Testing TPMv2 auth with swtpm..."
+
+launch_simple_sr_server -d 1 -f -c configs/test-user-cert.config
+PID=$!
+wait_server $PID
+
+mkdir -p ${SOCKDIR}/swtpm
+LD_PRELOAD=libsocket_wrapper.so ${SWTPM} socket --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --tpmstate dir=`pwd`/${SOCKDIR}/swtpm --log file=swtpm-log -d
+
+sleep 0.5
+LD_PRELOAD=libsocket_wrapper.so ${SWTPM_IOCTL} --tcp 127.0.0.1:2322 --load permanent ${srcdir}/swtpm-perm.state
+LD_PRELOAD=libsocket_wrapper.so ${SWTPM_IOCTL} --tcp 127.0.0.1:2322 -i
+
+export TPM_INTERFACE_TYPE=socsim
+
+# We don't actually *require* either of the startup tools
+# to be present; we can fall back to killing swtpm and then
+# restarting it with the startup-clear option. Sadly, there
+# isn't a way for swtpm_ioctl to start it once swtpm is
+# running.
+#
+# We are also inconsistent: the Esys build will automatically
+# start the TPM while the IBM TSS build won't. I'd "fix" that
+# to make the tests work, but I actually think *not* doing so
+# is probably correct.
+if ! tsstartup && ! tpm2_startup -T swtpm -c; then
+    LD_PRELOAD=libsocket_wrapper.so ${SWTPM_IOCTL} --tcp 127.0.0.1:2322 -s
+    LD_PRELOAD=libsocket_wrapper.so ${SWTPM} socket --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --tpmstate dir=`pwd`/${SOCKDIR}/swtpm --log file=swtpm-log --flags not-need-init,startup-clear -d
+fi
+
+for KEY in ${swtpm_list}; do
+    echo -n "Connecting to obtain cookie (with key ${KEY##*/})... "
+    if [ "${KEY%%.p12}" != "${KEY}" ]; then
+	CERTARGS="-c ${KEY} --key-password password"
+    else
+	CERT="${KEY%-key-*.pem}-cert.pem"
+	if [ ! -r "$CERT" ]; then CERT="${certdir}/$CERT"; fi
+	CERTARGS="--sslkey ${KEY} -c ${CERT}"
+    fi
+    if ! echo "test" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $ADDRESS:443 -u test $CERTARGS --servercert=pin-sha256:xp3scfzy3rO --cookieonly -vvvvv --passwd-on-stdin; then
+	LD_PRELOAD=libsocket_wrapper.so ${SWTPM_IOCTL} --tcp 127.0.0.1:2322 -s
+	fail $PID "Could not connect with key ${KEY##*/}!"
+    fi
+done
+
+echo ok
+
+LD_PRELOAD=libsocket_wrapper.so ${SWTPM_IOCTL} --tcp 127.0.0.1:2322 -s
+cleanup
+
+exit 0

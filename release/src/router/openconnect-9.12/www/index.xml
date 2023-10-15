@@ -1,0 +1,83 @@
+<PAGE>
+	<INCLUDE file="inc/header.tmpl" />
+
+	<VAR match="VAR_SEL_INDEX" replace="selected" />
+	<VAR match="VAR_SEL_ABOUT" replace="selected" />
+	<PARSE file="menu1.xml" />
+	<PARSE file="menu2.xml" />
+
+	<INCLUDE file="inc/content.tmpl" />
+
+<h1>OpenConnect</h1>
+<p>OpenConnect is a <a href="platforms.html">cross-platform</a> multi-protocol SSL VPN client which supports a number of VPN protocols:</p>
+
+<ul>
+  <li><a href="anyconnect.html">Cisco AnyConnect</a> (<tt>--protocol=anyconnect</tt>)</li>
+  <li><a href="array.html">Array Networks AG SSL VPN</a> (<tt>--protocol=array</tt>)</li>
+  <li><a href="juniper.html">Juniper SSL VPN</a> (<tt>--protocol=nc</tt>)</li>
+  <li><a href="pulse.html">Pulse Connect Secure</a> (<tt>--protocol=pulse</tt>)</li>
+  <li><a href="globalprotect.html">Palo Alto Networks GlobalProtect SSL VPN</a> (<tt>--protocol=gp</tt>)</li>
+  <li><a href="f5.html">F5 Big-IP SSL VPN</a> (<tt>--protocol=f5</tt>)</li>
+  <li><a href="fortinet.html">Fortinet Fortigate SSL VPN</a> (<tt>--protocol=fortinet</tt>)</li>
+</ul>
+
+<p>OpenConnect is not officially supported by, or associated in any way
+with Cisco Systems, Juniper Networks, Pulse Secure, Palo Alto Networks, F5,
+or Fortinet, or any of the companies whose protocols we may support in the future.
+It just happens to interoperate with their equipment. Trademarks belong to
+their owners in a rather tautological and obvious fashion.</p>
+
+<p>An openconnect VPN server (<a
+href="https://www.infradead.org/ocserv">ocserv</a>), which implements
+an improved version of the Cisco AnyConnect protocol, has also been
+written.</p>
+
+<p>OpenConnect is released under the <a href="licence.html">GNU Lesser Public License, version 2.1</a>.</p>
+
+<h2>Motivation</h2>
+
+<p>Development of OpenConnect was started after a trial of the Cisco AnyConnect
+client under Linux found it to have many deficiencies:</p>
+<ul>
+  <li>Inability to use SSL certificates from a <a href="https://en.wikipedia.org/wiki/Trusted_Platform_Module">TPM</a> or
+  <a href="https://en.wikipedia.org/wiki/PKCS11">PKCS#11</a> smartcard, or even use a passphrase.</li>
+  <li>Lack of support for Linux platforms other than i386.</li>
+  <li>Lack of integration with NetworkManager on the Linux desktop.</li>
+  <li>Lack of proper (RPM/DEB) packaging for Linux distributions.</li>
+  <li>"Stealth" use of libraries with <tt>dlopen()</tt>, even using
+      the development-only symlinks such as <tt>libz.so</tt> &#8212;
+      making it hard to properly discover the dependencies which
+      proper packaging would have expressed</li>
+  <li>Tempfile races allowing unprivileged users to trick it into overwriting arbitrary files, as root.</li>
+  <li>Unable to run as an unprivileged user, which would have reduced the severity of the above bug.</li>
+  <li>Inability to audit the source code for further such "Security 101" bugs.</li>
+</ul>
+
+<p>Naturally, OpenConnect addresses all of the above issues, and more.</p>
+
+<h2>New protocols</h2>
+<p>Adding new protocols to OpenConnect is relatively simple, and
+additional protocols have been added over the years since using
+OpenConnect allows a developer to concentrate on the protocol itself
+and most of the boring details about platform-specific tunnel management
+and IP configuration, and handling of client SSL certificates, are already
+resolved.</p>
+
+<p>If you have a protocol which you think it makes sense to support in
+OpenConnect, especially if you are able to help with interoperability
+testing, please file an <a href="https://gitlab.com/openconnect/openconnect/-/issues">issue</a>
+in GitLab.
+</p>
+
+<h2>Consistent multi-protocol support</h2>
+
+<p>Wherever possible, OpenConnect presents a uniform API and command-line
+interface to each of these VPNs. For example,
+<a href="manual.html"><tt>openconnect --force-dpd=10</tt></a>
+will attempt dead peer detection every 10 seconds on every VPN that
+supports it, even though the actual mechanism used may be protocol-specific.
+Protocol-specific features and deficiencies are described on the
+<a href="protocols.html">individual protocol pages</a>.</p>
+
+	<INCLUDE file="inc/footer.tmpl" />
+</PAGE>

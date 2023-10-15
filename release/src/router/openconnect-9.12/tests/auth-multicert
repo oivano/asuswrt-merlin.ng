@@ -1,0 +1,53 @@
+#!/bin/sh
+#
+# Copyright © 2021 Daniel Lenski
+# Copyright © 2021 Tom Carroll
+#
+# This file is part of openconnect.
+#
+# This is free software; you can redistribute it and/or
+# modify it under the terms of the GNU Lesser General Public License
+# as published by the Free Software Foundation; either version 2.1 of
+# the License, or (at your option) any later version.
+#
+# This library is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>
+
+# This test uses LD_PRELOAD
+PRELOAD=1
+srcdir=${srcdir:-.}
+top_builddir=${top_builddir:-..}
+
+. `dirname $0`/common.sh
+
+FINGERPRINT="--servercert=pin-sha256:xp3scfzy3rO"
+CERT=$certdir/server-cert.pem
+KEY=$certdir/server-key.pem
+USERCERT=$certdir/user-cert.pem
+USERKEY=$certdir/user-key-pkcs1.pem
+CAFILE=$certdir/ca.pem
+
+echo "Testing multiple certificate authentication against fake Cisco server ... "
+
+OCSERV=${srcdir}/fake-cisco-server.py
+launch_simple_sr_server --enable-multicert --cafile $CAFILE $ADDRESS 443 $CERT $KEY > /dev/null 2>&1
+PID=$!
+wait_server $PID
+
+echo -n "Authenticating using multiple certificate authentication... "
+( echo "test" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT --cafile $CAFILE \
+	--certificate $USERCERT --sslkey $USERKEY \
+	--mca-certificate $USERCERT --mca-key $USERKEY \
+	-q $ADDRESS:443 $FINGERPRINT --authenticate >/dev/null 2>&1) ||
+    fail $PID "Could not receive cookie from fake Cisco server"
+
+echo ok
+
+cleanup
+
+exit 0

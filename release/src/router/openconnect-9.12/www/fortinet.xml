@@ -1,0 +1,80 @@
+<PAGE>
+	<INCLUDE file="inc/header.tmpl" />
+
+	<VAR match="VAR_SEL_PROTOCOLS" replace="selected" />
+	<VAR match="VAR_SEL_FORTINET" replace="selected" />
+	<PARSE file="menu1.xml" />
+	<PARSE file="menu2-protocols.xml" />
+
+	<INCLUDE file="inc/content.tmpl" />
+
+<h1>Fortinet SSL VPN</h1>
+
+<p>Experimental support for <a
+href="https://www.fortinet.com/products/vpn">Fortinet SSL
+VPN</a> was added to OpenConnect in March 2021. It is also known as FortiGate
+in some documentation. It is a
+<a href="https://en.wikipedia.org/wiki/Point-to-Point_Protocol">PPP</a>-based
+protocol using the native PPP support which was merged into the 9.00
+release.</p>
+
+<p>Fortinet mode is requested by adding <tt>--protocol=fortinet</tt>
+to the command line:
+<pre>
+  openconnect --protocol=fortinet fortigate.example.com
+</pre></p>
+
+<p>Since <a href="http://sites.inka.de/~W1011/devel/tcp-tcp.html">TCP over
+TCP is very suboptimal</a>, OpenConnect tries to always use PPP-over-DTLS,
+and will only fall over to the PPP-over-TLS tunnel if that fails, or if
+disabled via the <tt>--no-dtls</tt> argument.</p>
+
+<h2>Authentication</h2>
+
+<p>OpenConnect currently supports
+basic username/password, optional TLS client certificate, and optional multifactor
+authentication token entry via the two known challenge/response mechanisms:
+plaintext/"tokeninfo"
+(<a href="https://gitlab.com/openconnect/openconnect/-/issues/225">issue #225</a>)
+and HTML forms
+(<a href="https://gitlab.com/openconnect/openconnect/-/issues/332">issue #332</a>).</p>
+
+<p>If you have access to a Fortinet VPN which uses other types of
+authentication, please send information to <a href="mail.html">the mailing
+list</a> so that we can add support to OpenConnect.</p>
+
+<h2>Non-PPP-based wire protocol</h2>
+
+<p>FortiGate server versions starting around v5.6.6 support <a
+href="https://gitlab.com/openconnect/openconnect/-/issues/297#note_1173334442">a
+new wire protocol ("v2") for the VPN tunnel</a>, in addition to the
+original wire protocol ("v1"). The original wire protocol is based on
+PPP; the new one is not.</p>
+
+<p>OpenConnect does not yet support this wire protocol. We do not know
+of any advantages of this wire protocol, but if there are some then it
+might be worthwhile to add support, and relatively straightforward (<a
+href="https://gitlab.com/openconnect/openconnect/-/issues/297#note_1173228786">see
+many details of this wire protocol are easily understood</a>).</p>
+
+<h2>Quirks and Issues</h2>
+
+<p>FortiGate server versions prior to v6.2.1 do <i>not</i> allow the
+post-authentication cookie (as output by <tt>--authenticate</tt>) to
+be used to reestablish a dropped connection. This means that if the
+client loses its connection to the gateway (for example, due to a
+network outage, or after roaming to a different physical adapter) a
+new authentication will <i>always</i> be required. This is a substantial
+design flaw which is not present in any of the other protocols
+supported by OpenConnect.</p>
+
+<p>Starting with FortiOS 6.2.1, an optional server-side
+setting (<a href="https://docs.fortinet.com/document/fortigate/6.2.1/cli-reference/281620/vpn-ssl-settings"><tt>tun-connect-without-reauth</tt></a>)
+appears intended to support reconnection, but still doesn't work very well
+(see <a href="https://gitlab.com/openconnect/openconnect/-/issues/297#note_669164202">discussion on issue #297</a>).
+Please send reports on success and failure with Fortinet reconnection
+to <a href="mail.html">the mailing list</a>
+so we can understand it better.</p>
+
+	<INCLUDE file="inc/footer.tmpl" />
+</PAGE>

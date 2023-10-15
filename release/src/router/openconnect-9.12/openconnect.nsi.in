@@ -1,0 +1,87 @@
+#!Nsis Installer Command Script
+#
+# This is an NSIS Installer Command Script generated automatically
+# by the Fedora nsiswrapper program.  For more information see:
+#
+#   https://fedoraproject.org/wiki/MinGW
+#
+# To build an installer from the script you would normally do:
+#
+#   makensis this_script
+#
+# which will generate the output file 'openconnect-installer.exe' which is a Windows
+# installer containing your program.
+
+Name "OpenConnect"
+InstallDir "$ProgramFiles\OpenConnect"
+InstallDirRegKey HKLM SOFTWARE\OpenConnect "Install_Dir"
+
+ShowInstDetails hide
+ShowUninstDetails hide
+
+SetCompressor /FINAL lzma
+
+VIAddVersionKey ProductName "OpenConnect"
+
+XPStyle on
+
+!include "x64.nsh"
+
+Function .onInit
+ ${If} ${RunningX64}
+   SetRegView 64
+   StrCpy $INSTDIR "$ProgramFiles64\OpenConnect"
+ ${EndIf}
+FunctionEnd
+
+
+Page components
+Page directory
+Page instfiles
+
+ComponentText "Select which optional components you want to install."
+
+DirText "Please select the installation folder."
+
+Section "OpenConnect"
+  SectionIn RO
+
+  SetOutPath "$INSTDIR"
+  !include instfiles.nsh
+
+  ClearErrors
+  FileOpen $0 "$INSTDIR\Online Documentation.url" w
+  IfErrors done
+    FileWrite $0 "[InternetShortcut]$\n"
+    FileWrite $0 "URL=https://www.infradead.org/openconnect$\n"
+    FileWrite $0 "IconIndex=0$\n"
+    FileWrite $0 "IconFile=$INSTDIR\openconnect.exe$\n"
+    FileClose $0
+  done:
+SectionEnd
+
+Section "Start Menu Shortcuts"
+  CreateDirectory "$SMPROGRAMS\OpenConnect"
+  CreateShortCut "$SMPROGRAMS\OpenConnect\Uninstall OpenConnect.lnk" "$INSTDIR\Uninstall OpenConnect.exe" "" "$INSTDIR\Uninstall OpenConnect.exe" 0
+  CreateShortCut "$SMPROGRAMS\OpenConnect\openconnect.exe.lnk" "$INSTDIR\.\openconnect.exe" "" "$INSTDIR\.\openconnect.exe" 0
+SectionEnd
+
+Section "Desktop Icons"
+  CreateShortCut "$DESKTOP\openconnect.exe.lnk" "$INSTDIR\.\openconnect.exe" "" "$INSTDIR\.\openconnect.exe" 0
+SectionEnd
+
+Section "Uninstall"
+  Delete /rebootok "$DESKTOP\openconnect.exe.lnk"
+  Delete /rebootok "$SMPROGRAMS\OpenConnect\openconnect.exe.lnk"
+  Delete /rebootok "$SMPROGRAMS\OpenConnect\Uninstall OpenConnect.lnk"
+  RMDir "$SMPROGRAMS\OpenConnect"
+
+  !include uninstfiles.nsh
+  Delete /rebootok "$INSTDIR\Online Documentation.url"
+  Delete /rebootok "$INSTDIR\Uninstall OpenConnect.exe"
+  RMDir "$INSTDIR"
+SectionEnd
+
+Section -post
+  WriteUninstaller "$INSTDIR\Uninstall OpenConnect.exe"
+SectionEnd
