@@ -1405,7 +1405,7 @@ obj-$(RTCONFIG_WTFAST) += wtfast
 obj-$(RTCONFIG_QUAGGA) += quagga
 obj-$(RTCONFIG_QUAGGA) += libcap-ng
 obj-$(RTCONFIG_QUAGGA) += json-c
-obj-$(RTCONFIG_QUAGGA) += pcre2-10.42
+obj-$(RTCONFIG_QUAGGA) += pcre2
 obj-$(RTCONFIG_QUAGGA) += libyang
 obj-$(RTCONFIG_QUAGGA) += zlib
 obj-$(RTCONFIG_QUAGGA) += readline-8.1
@@ -6446,41 +6446,60 @@ pcre-8.31-clean:
 	-@$(MAKE) -C pcre-8.31 clean
 	@rm -f pcre-8.31/stamp-h1
 
-pcre2-10.42/stamp-h1:
-	( cd pcre2-10.42 ; ./autogen.sh ; \
-	CFLAGS="-O3 -Wall $(EXTRACFLAGS) -ffunction-sections -fdata-sections -std=gnu99 -DASUSWRT" \
-	LDFLAGS="$(EXTRALDFLAGS) -ffunction-sections -fdata-sections -Wl,--gc-sections -lpthread -ldl" \
-	$(CONFIGURE) --enable-static  --enable-shared \
-		--disable-percent-zt --enable-pcre2-16 --enable-pcre2-32 \
-		--enable-utf --enable-unicode-properties \
-	)
+pcre2/stamp-h1:
+	@$(SEP)
+	cd pcre2 && autoreconf -i -f && \
+	CC=$(CC) CFLAGS="-Os $(EXTRACFLAGS) -ffunction-sections -fdata-sections -std=gnu99 -fPIC" \
+		LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections -lpthread" \
+		LIBS="-lpthread" \
+		$(CONFIGURE) --prefix=/usr --enable-shared --enable-static \
+		--disable-percent-zt --enable-pcre2-8 --enable-pcre2-16 --enable-pcre2-32 \
+		--enable-unicode --enable-jit
+	touch $@
 
-pcre2-10.42: pcre2-10.42/stamp-h1
-	$(MAKE) $@-stage
+pcre2: pcre2/stamp-h1
+	@$(MAKE) -C pcre2 all
 
-pcre2-10.42-clean:
-	-@$(MAKE) -C pcre2-10.42 clean
-	@rm -f pcre2-10.42/stamp-h1
+pcre2-install: pcre2
+	ls $(TOP)/pcre2/.libs/
+	install -D pcre2/.libs/libpcre2-8.so* $(INSTALLDIR)/usr/lib/
+	cd $(INSTALLDIR)/usr/lib && ln -sf libpcre2-8.so* libpcre2-8.so.0
+	cd $(INSTALLDIR)/usr/lib && ln -sf libpcre2-8.so* libpcre2-8.so
+	$(STRIP) -s $(INSTALLDIR)/usr/lib/libpcre2-8.so*
+	install -D pcre2/.libs/libpcre2-posix.so* $(INSTALLDIR)/usr/lib/
+	cd $(INSTALLDIR)/usr/lib && ln -sf libpcre2-posix.so* libpcre2-posix.so.3
+	cd $(INSTALLDIR)/usr/lib && ln -sf libpcre2-posix.so* libpcre2-posix.so
+	$(STRIP) -s $(INSTALLDIR)/usr/lib/libpcre2-posix.so*
 
-libyang/build/Makefile: zlib pcre2-10.42
+pcre2-clean:
+	-@$(MAKE) -C pcre2 clean
+	@rm -f pcre2/stamp-h1
+
+libyang/build/Makefile: zlib pcre2
+	@$(SEP)
+	rm -f $(TOP)/libyang/CMakeCache.txt
 	@rm -rf libyang/build && mkdir -p libyang/build
 	cd libyang/build && \
 	$(call CMAKE_CrossOptions, crosscompiled.cmake) && \
-	cmake -v -DCMAKE_TOOLCHAIN_FILE=crosscompiled.cmake \
-		-DCMAKE_C_FLAGS="-I$(TOP)/pcre2-10.42/src -O2 -DNDEBUG -Wall -Wextra -Wno-missing-field-initializers -std=c99 $(EXTRACFLAGS)" \
-		-DCMAKE_EXE_LINKER_FLAGS="-L$(STAGEDIR)/usr/local/lib -lpcre2-8 -lpthread -Wl,--gc-sections $(EXTRALDFLAGS)" \
+	cmake -DCMAKE_TOOLCHAIN_FILE=crosscompiled.cmake \
+		-DCMAKE_INSTALL_PREFIX:PATH=/usr \
+		-DCMAKE_C_FLAGS="-Os -DNDEBUG -ffunction-sections -fdata-sections -std=gnu99 -fPIC $(EXTRACFLAGS)" \
+		-DCMAKE_EXE_LINKER_FLAGS="-lpthread -L$(STAGEDIR)/usr/lib -lpcre2.8 -Wl,--gc-sections" \
+		-DCMAKE_REQUIRED_LIBRARIES="-lpthread -L$(STAGEDIR)/usr/lib -lpcre2.8 $(EXTRALDFLAGS)" \
+		-DCMAKE_SKIP_RPATH=TRUE \
+		-DCMAKE_FIND_ROOT_PATH=crosscompiled.cmake \
 		-DENABLE_STATIC=FALSE \
 		-DCMAKE_BUILD_TYPE:String="Release" \
 		-DENABLE_SHARED=TRUE \
-		-DCMAKE_CXX_STANDARD=99 \
-		-DCMAKE_TEST_BIG_ENDIAN=OFF \
 		-DENABLE_LATEST_REVISIONS=OFF \
-		-DPCRE2_LIBRARIES=$(STAGEDIR)/usr/local/lib \
-		-DPCRE2_INCLUDE_DIRS=$(TOP)/pcre2-10.42/src \
+		-DPCRE2_LIBRARIES="$(STAGEDIR)/usr/lib/ -lpcre2.8" \
+		-DPCRE2_INCLUDE_DIRS="$(TOP)/pcre2/src" \
+		-DCMAKE_INCLUDE_DIR="$(STAGEDIR)/usr/include" \
+		-DCMAKE_LIBRARY_PATH="$(STAGEDIR)/lib $(STAGEDIR)/usr/lib" \
 		-DENABLE_LYD_PRIV=ON \
 	..
 
-libyang: pcre2-10.42 libyang/build/Makefile
+libyang: pcre2 libyang/build/Makefile
 	$(MAKE) -C libyang/build
 
 libyang-install:
@@ -7917,8 +7936,8 @@ ncurses-6.1/Makefile: ncurses-6.1/configure
 		--sysconfdir=/etc --datadir=/usr/share --localstatedir=/var --mandir=/usr/man\
 		--without-normal --with-debug --with-shared\
 		--without-tests --without-progs --without-manpages \
-		CFLAGS="-I$(STAGEDIR)/usr/local/include"\
-		LDFLAGS="-L$(STAGEDIR)/usr/local/lib -ldl -lpthread"
+		CFLAGS="-I$(STAGEDIR)/usr/include"\
+		LDFLAGS="-L$(STAGEDIR)/usr/lib -ldl -lpthread"
 
 ncurses-6.1: ncurses-6.1/progs/tic ncurses-6.1/Makefile
 	export TIC_PATH=$(SRCBASE)/router/../pre_tools/ncurses-6.1/progs/tic && $(MAKE) -C $@ && $(MAKE) $@-stage
@@ -8153,11 +8172,33 @@ wsdd2-clean:
 	$(MAKE) -C wsdd2 clean
 
 # End merlin components
+htop-configure: ncurses-6.0 libnl
+	cd htop && ./autogen.sh
+	cd htop && sh $(CONFIGURE) --prefix=/usr --enable-taskstats --enable-delayacct \
+	CFLAGS="$(EXTRACFLAGS) $(MIPS16_OPT)  -ffunction-sections -fdata-sections -Wl,--gc-sections -DNEED_PRINTF $(LTO) -I$(TOP)/ncurses/include " \
+	LDFLAGS="$(COPTS) $(MIPS16_OPT)  -ffunction-sections -fdata-sections -Wl,--gc-sections $(LDLTO) -L$(TOP)/ncurses/lib" \
+	HTOP_NCURSES_CONFIG_SCRIPT="$(TOP)/ncurses/misc/ncurses-config" \
+	LIBNL3_CFLAGS="-I$(STAGEDIR)/usr/include/libnl3" \
+	LIBNL3_LIBS="-L$(STAGEDIR)/usr/lib -lnl-3" \
+	LIBNL3GENL_CFLAGS="-I$(STAGEDIR)/usr/include" \
+	LIBNL3GENL_LIBS="-L$(STAGEDIR)/usr/lib -lnl-genl-3"
+	touch $@
+
+htop: ncurses-6.0 libnl htop-configure
+	@$(SEP)
+	$(MAKE) -C $@
+
+htop-clean:
+	$(MAKE) -C htop clean
+
+htop-install:
+#	$(MAKE) -C htop installDESTDIR=$(INSTALLDIR)/htop
+	install -D htop/htop $(INSTALLDIR)/htop/usr/sbin/htop
 
 readline-8.1/Makefile: ncurses-6.0 readline-8.1/configure
 	cd readline-8.1 && autoreconf -i -f && \
-	CC=$(CC) CFLAGS="-O2 -I$(STAGEDIR)/usr/local/include -I$(TOP)/ncurses-6.0/include -ffunction-sections -fdata-sections" \
-	LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections -L$(TOP)/ncurses-6.0/lib/ -L$(STAGEDIR)/usr/local/lib -L$(STAGEDIR)/usr/lib -ldl -lpthread" \
+	CC=$(CC) CFLAGS="-O2 -I$(STAGEDIR)/usr/include -I$(TOP)/ncurses-6.0/include -ffunction-sections -fdata-sections" \
+	LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections -L$(TOP)/ncurses-6.0/lib/ -L$(STAGEDIR)/usr/lib -ldl -lpthread" \
 	$(CONFIGURE) --prefix=/usr --exec_prefix=/usr --bindir=/usr/bin --sbindir=/usr/sbin --libexecdir=/usr/lib \
 	--sysconfdir=/etc --disable-static --enable-shared
 	touch $@
