@@ -71,11 +71,9 @@ test_data_xml(void **state)
     schema = MODULE_CREATE_YANG("defs", "identity ident1; identity ident2 {base ident1;}"
             "leaf un1 {type union {"
             "    type leafref {path /int8; require-instance true;}"
-            "    type leafref {path /int64; require-instance true;}"
             "    type union { type identityref {base ident1;} type instance-identifier {require-instance true;} }"
             "    type string {length 1..20;}}}"
             "leaf int8 {type int8 {range 10..20;}}"
-            "leaf int64 {type int64;}"
             "leaf-list llist {type string;}");
     UTEST_ADD_MODULE(schema, LYS_IN_YANG, NULL, NULL);
 
@@ -104,31 +102,8 @@ test_data_xml(void **state)
     /* invalid value */
     TEST_ERROR_XML2("",
             "defs", "", "un1", "123456789012345678901", LY_EVALID);
-    CHECK_LOG_CTX("Invalid union value \"123456789012345678901\" - no matching subtype found:\n"
-            "    libyang 2 - leafref, version 1: Invalid type int8 value \"123456789012345678901\".\n"
-            "    libyang 2 - leafref, version 1: Invalid type int64 value \"123456789012345678901\".\n"
-            "    libyang 2 - identityref, version 1: Invalid identityref \"123456789012345678901\" value - identity not found in module \"defs\".\n"
-            "    libyang 2 - instance-identifier, version 1: Invalid instance-identifier \"123456789012345678901\" value - syntax error.\n"
-            "    libyang 2 - string, version 1: Unsatisfied length - string \"123456789012345678901\" length is not allowed.\n",
-            "Schema location \"/defs:un1\", line number 1.");
-}
-
-static void
-test_data_json(void **state)
-{
-    const char *schema, *data;
-    struct lyd_node *tree;
-
-    /* xml test */
-    schema = MODULE_CREATE_YANG("defs", "leaf un21 {type union {type uint8; type string;}}"
-            "leaf un22 {type union {type uint16; type string;}}"
-            "leaf un2 {type union {type leafref {path /un21; require-instance false;} type leafref {path /un22; require-instance false;}}}");
-    UTEST_ADD_MODULE(schema, LYS_IN_YANG, NULL, NULL);
-
-    data = "{\"defs:un2\":\"str\"}";
-    CHECK_PARSE_LYD_PARAM(data, LYD_JSON, LYD_PARSE_STRICT, LYD_VALIDATE_PRESENT, LY_SUCCESS, tree);
-    CHECK_LYD_STRING_PARAM(tree, data, LYD_JSON, LYD_PRINT_SHRINK | LYD_PRINT_WITHSIBLINGS);
-    lyd_free_all(tree);
+    CHECK_LOG_CTX("Invalid union value \"123456789012345678901\" - no matching subtype found.",
+            "Schema location /defs:un1, line number 1.");
 }
 
 static void
@@ -147,60 +122,12 @@ test_plugin_lyb(void **state)
     TEST_SUCCESS_LYB("lyb", "un1", "");
 }
 
-static void
-test_validation(void **state)
-{
-    const char *schema, *data;
-    struct lyd_node *tree;
-    char *out;
-
-    schema = MODULE_CREATE_YANG("val",
-            "leaf l1 {\n"
-            "  type union {\n"
-            "   type uint32 {\n"
-            "      range \"0..1048575\";\n"
-            "    }\n"
-            "    type enumeration {\n"
-            "      enum auto;\n"
-            "    }\n"
-            "  }\n"
-            "}\n"
-            "leaf int8 {type int8 {range 10..20;}}\n"
-            "leaf l2 {\n"
-            "  type union {\n"
-            "    type leafref {path /int8; require-instance true;}\n"
-            "    type string;\n"
-            "  }\n"
-            "}\n");
-    UTEST_ADD_MODULE(schema, LYS_IN_YANG, NULL, NULL);
-
-    /* parse from LYB */
-    data = "<l1 xmlns=\"urn:tests:val\">auto</l1><int8 xmlns=\"urn:tests:val\">15</int8><l2 xmlns=\"urn:tests:val\">15</l2>";
-    CHECK_PARSE_LYD_PARAM(data, LYD_XML, LYD_PARSE_STRICT, LYD_VALIDATE_PRESENT, LY_SUCCESS, tree);
-    assert_int_equal(LY_SUCCESS, lyd_print_mem(&out, tree, LYD_LYB, LYD_PRINT_SHRINK | LYD_PRINT_WITHSIBLINGS));
-    lyd_free_all(tree);
-    CHECK_PARSE_LYD_PARAM(out, LYD_LYB, LYD_PARSE_STRICT, LYD_VALIDATE_PRESENT, LY_SUCCESS, tree);
-    free(out);
-
-    /* validate */
-    assert_int_equal(LY_SUCCESS, lyd_validate_all(&tree, NULL, LYD_VALIDATE_PRESENT, NULL));
-
-    /* print and compare */
-    assert_int_equal(LY_SUCCESS, lyd_print_mem(&out, tree, LYD_XML, LYD_PRINT_SHRINK | LYD_PRINT_WITHSIBLINGS));
-    assert_string_equal(out, data);
-
-    free(out);
-    lyd_free_all(tree);
-}
-
 int
 main(void)
 {
     const struct CMUnitTest tests[] = {
         UTEST(test_data_xml),
-        UTEST(test_data_json),
         UTEST(test_plugin_lyb),
-        UTEST(test_validation),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);

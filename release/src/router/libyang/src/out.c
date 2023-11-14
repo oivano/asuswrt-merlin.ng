@@ -39,8 +39,8 @@
 #define REALLOC_CHUNK(NEW_SIZE) \
     NEW_SIZE + (1024 - (NEW_SIZE % 1024))
 
-LIBYANG_API_DEF ly_bool
-lyd_node_should_print(const struct lyd_node *node, uint32_t options)
+ly_bool
+ly_should_print(const struct lyd_node *node, uint32_t options)
 {
     const struct lyd_node *elem;
 
@@ -63,7 +63,7 @@ lyd_node_should_print(const struct lyd_node *node, uint32_t options)
 
         /* avoid empty default containers */
         LYD_TREE_DFS_BEGIN(node, elem) {
-            if ((elem != node) && lyd_node_should_print(elem, options)) {
+            if ((elem != node) && ly_should_print(elem, options)) {
                 return 1;
             }
             assert(elem->flags & LYD_DEFAULT);
@@ -89,14 +89,14 @@ lyd_node_should_print(const struct lyd_node *node, uint32_t options)
     return 1;
 }
 
-LIBYANG_API_DEF LY_OUT_TYPE
+API LY_OUT_TYPE
 ly_out_type(const struct ly_out *out)
 {
     LY_CHECK_ARG_RET(NULL, out, LY_OUT_ERROR);
     return out->type;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 ly_out_new_clb(ly_write_clb writeclb, void *user_data, struct ly_out **out)
 {
     LY_CHECK_ARG_RET(NULL, out, writeclb, LY_EINVAL);
@@ -111,7 +111,7 @@ ly_out_new_clb(ly_write_clb writeclb, void *user_data, struct ly_out **out)
     return LY_SUCCESS;
 }
 
-LIBYANG_API_DEF ly_write_clb
+API ly_write_clb
 ly_out_clb(struct ly_out *out, ly_write_clb writeclb)
 {
     ly_write_clb prev_clb;
@@ -127,7 +127,7 @@ ly_out_clb(struct ly_out *out, ly_write_clb writeclb)
     return prev_clb;
 }
 
-LIBYANG_API_DEF void *
+API void *
 ly_out_clb_arg(struct ly_out *out, void *arg)
 {
     void *prev_arg;
@@ -143,7 +143,7 @@ ly_out_clb_arg(struct ly_out *out, void *arg)
     return prev_arg;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 ly_out_new_fd(int fd, struct ly_out **out)
 {
     LY_CHECK_ARG_RET(NULL, out, fd != -1, LY_EINVAL);
@@ -156,7 +156,7 @@ ly_out_new_fd(int fd, struct ly_out **out)
     return LY_SUCCESS;
 }
 
-LIBYANG_API_DEF int
+API int
 ly_out_fd(struct ly_out *out, int fd)
 {
     int prev_fd;
@@ -198,7 +198,7 @@ ly_out_fd(struct ly_out *out, int fd)
     return prev_fd;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 ly_out_new_file(FILE *f, struct ly_out **out)
 {
     LY_CHECK_ARG_RET(NULL, out, f, LY_EINVAL);
@@ -212,7 +212,7 @@ ly_out_new_file(FILE *f, struct ly_out **out)
     return LY_SUCCESS;
 }
 
-LIBYANG_API_DEF FILE *
+API FILE *
 ly_out_file(struct ly_out *out, FILE *f)
 {
     FILE *prev_f;
@@ -228,7 +228,7 @@ ly_out_file(struct ly_out *out, FILE *f)
     return prev_f;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 ly_out_new_memory(char **strp, size_t size, struct ly_out **out)
 {
     LY_CHECK_ARG_RET(NULL, out, strp, LY_EINVAL);
@@ -274,7 +274,7 @@ ly_out_memory(struct ly_out *out, char **strp, size_t size)
     return data;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 ly_out_reset(struct ly_out *out)
 {
     LY_CHECK_ARG_RET(NULL, out, LY_EINVAL);
@@ -320,7 +320,7 @@ ly_out_reset(struct ly_out *out)
     return LY_SUCCESS;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 ly_out_new_filepath(const char *filepath, struct ly_out **out)
 {
     LY_CHECK_ARG_RET(NULL, out, filepath, LY_EINVAL);
@@ -329,7 +329,7 @@ ly_out_new_filepath(const char *filepath, struct ly_out **out)
     LY_CHECK_ERR_RET(!*out, LOGMEM(NULL), LY_EMEM);
 
     (*out)->type = LY_OUT_FILEPATH;
-    (*out)->method.fpath.f = fopen(filepath, "wb");
+    (*out)->method.fpath.f = fopen(filepath, "w");
     if (!(*out)->method.fpath.f) {
         LOGERR(NULL, LY_ESYS, "Failed to open file \"%s\" (%s).", filepath, strerror(errno));
         free(*out);
@@ -340,7 +340,7 @@ ly_out_new_filepath(const char *filepath, struct ly_out **out)
     return LY_SUCCESS;
 }
 
-LIBYANG_API_DEF const char *
+API const char *
 ly_out_filepath(struct ly_out *out, const char *filepath)
 {
     FILE *f;
@@ -353,7 +353,7 @@ ly_out_filepath(struct ly_out *out, const char *filepath)
 
     /* replace filepath */
     f = out->method.fpath.f;
-    out->method.fpath.f = fopen(filepath, "wb");
+    out->method.fpath.f = fopen(filepath, "w");
     if (!out->method.fpath.f) {
         LOGERR(NULL, LY_ESYS, "Failed to open file \"%s\" (%s).", filepath, strerror(errno));
         out->method.fpath.f = f;
@@ -366,7 +366,7 @@ ly_out_filepath(struct ly_out *out, const char *filepath)
     return NULL;
 }
 
-LIBYANG_API_DEF void
+API void
 ly_out_free(struct ly_out *out, void (*clb_arg_destructor)(void *arg), ly_bool destroy)
 {
     if (!out) {
@@ -417,7 +417,7 @@ ly_vprint_(struct ly_out *out, const char *format, va_list ap)
 {
     LY_ERR ret;
     int written = 0;
-    char *msg = NULL;
+    char *msg = NULL, *aux;
 
     switch (out->type) {
     case LY_OUT_FD:
@@ -433,13 +433,15 @@ ly_vprint_(struct ly_out *out, const char *format, va_list ap)
             break;
         }
         if (out->method.mem.len + written + 1 > out->method.mem.size) {
-            *out->method.mem.buf = ly_realloc(*out->method.mem.buf, out->method.mem.len + written + 1);
-            if (!*out->method.mem.buf) {
+            aux = ly_realloc(*out->method.mem.buf, out->method.mem.len + written + 1);
+            if (!aux) {
+                out->method.mem.buf = NULL;
                 out->method.mem.len = 0;
                 out->method.mem.size = 0;
                 LOGMEM(NULL);
                 return LY_EMEM;
             }
+            *out->method.mem.buf = aux;
             out->method.mem.size = out->method.mem.len + written + 1;
         }
         if (written) {
@@ -491,7 +493,7 @@ ly_print_(struct ly_out *out, const char *format, ...)
     return ret;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 ly_print(struct ly_out *out, const char *format, ...)
 {
     LY_ERR ret;
@@ -506,7 +508,7 @@ ly_print(struct ly_out *out, const char *format, ...)
     return ret;
 }
 
-LIBYANG_API_DEF void
+API void
 ly_print_flush(struct ly_out *out)
 {
     switch (out->type) {
@@ -588,7 +590,6 @@ repeat:
         break;
     case LY_OUT_FD: {
         ssize_t r;
-
         r = write(out->method.fd, buf, len);
         if (r < 0) {
             ret = LY_ESYS;
@@ -607,7 +608,6 @@ repeat:
         break;
     case LY_OUT_CALLBACK: {
         ssize_t r;
-
         r = out->method.clb.func(out->method.clb.arg, buf, len);
         if (r < 0) {
             ret = LY_ESYS;
@@ -628,9 +628,9 @@ repeat:
         }
         LOGERR(NULL, LY_ESYS, "%s: writing data failed (%s).", __func__, strerror(errno));
         written = 0;
-    } else if (written != len) {
-        LOGERR(NULL, LY_ESYS, "%s: writing data failed (unable to write %" PRIu32 " from %" PRIu32 " data).", __func__,
-                (uint32_t)(len - written), (uint32_t)len);
+    } else if ((size_t)written != len) {
+        LOGERR(NULL, LY_ESYS, "%s: writing data failed (unable to write %u from %u data).", __func__,
+                len - (size_t)written, len);
         ret = LY_ESYS;
     } else {
         if (out->type == LY_OUT_FDSTREAM) {
@@ -645,7 +645,7 @@ repeat:
     return ret;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 ly_write(struct ly_out *out, const char *buf, size_t len)
 {
     out->func_printed = 0;
@@ -653,7 +653,7 @@ ly_write(struct ly_out *out, const char *buf, size_t len)
     return ly_write_(out, buf, len);
 }
 
-LIBYANG_API_DEF size_t
+API size_t
 ly_out_printed(const struct ly_out *out)
 {
     return out->func_printed;

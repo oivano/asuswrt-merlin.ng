@@ -1,10 +1,9 @@
 /**
  * @file parser_data.h
  * @author Radek Krejci <rkrejci@cesnet.cz>
- * @author Michal Vasko <mvasko@cesnet.cz>
  * @brief Data parsers for libyang
  *
- * Copyright (c) 2015-2023 CESNET, z.s.p.o.
+ * Copyright (c) 2015-2020 CESNET, z.s.p.o.
  *
  * This source code is licensed under BSD 3-Clause License (the "License").
  * You may not use this file except in compliance with the License.
@@ -121,7 +120,7 @@ struct ly_in;
  * Default parser behavior:
  * - complete input file is always parsed. In case of XML, even not well-formed XML document (multiple top-level
  * elements) is parsed in its entirety,
- * - parser silently ignores data without matching schema node definition (for LYB format an error),
+ * - parser silently ignores data without matching schema node definition,
  * - list instances are checked whether they have all the keys, error is raised if not.
  *
  * Default parser validation behavior:
@@ -140,8 +139,9 @@ struct ly_in;
  * but since they are used (as a separate parameter) together in some functions, we want to keep them in a separated
  * range to be able detect that the caller put wrong flags into the parser/validate options parameter. */
 #define LYD_PARSE_ONLY      0x010000        /**< Data will be only parsed and no validation will be performed. When statements
-                                                 are kept unevaluated, union types may not be fully resolved, and
-                                                 default values are not added (only the ones parsed are present). */
+                                                 are kept unevaluated, union types may not be fully resolved, if-feature
+                                                 statements are not checked, and default values are not added (only the ones
+                                                 parsed are present). */
 #define LYD_PARSE_STRICT    0x020000        /**< Instead of silently ignoring data without schema definition raise an error.
                                                  Do not combine with ::LYD_PARSE_OPAQ (except for ::LYD_LYB). */
 #define LYD_PARSE_OPAQ      0x040000        /**< Instead of silently ignoring data without definition, parse them into
@@ -157,16 +157,6 @@ struct ly_in;
                                                  modified manually. If this flag is used incorrectly (for unordered data),
                                                  the behavior is undefined and most functions executed with these
                                                  data will not work correctly. */
-#define LYD_PARSE_SUBTREE 0x400000          /**< Parse only the current data subtree with any descendants, no siblings.
-                                                 Also, a new return value ::LY_ENOT is returned if there is a sibling
-                                                 subtree following in the input data. Note that if validation is requested,
-                                                 only the newly parsed subtree is validated. */
-#define LYD_PARSE_WHEN_TRUE 0x800000        /**< Mark all the parsed nodes dependend on a when condition with the flag
-                                                 that means the condition was satisifed before. This allows for
-                                                 auto-deletion of these nodes during validation. */
-#define LYD_PARSE_NO_NEW 0x1000000          /**< Do not set ::LYD_NEW (non-validated node flag) for any nodes. Use
-                                                 when parsing validated data to skip some validation tasks and modify
-                                                 some validation behavior (auto-deletion of cases). */
 
 #define LYD_PARSE_OPTS_MASK 0xFFFF0000      /**< Mask for all the LYD_PARSE_ options. */
 
@@ -198,12 +188,6 @@ struct ly_in;
 #define LYD_VALIDATE_NO_STATE   0x0001      /**< Consider state data not allowed and raise an error if they are found.
                                                  Also, no implicit state data are added. */
 #define LYD_VALIDATE_PRESENT    0x0002      /**< Validate only modules whose data actually exist. */
-#define LYD_VALIDATE_MULTI_ERROR 0x0004     /**< Do not stop validation on the first error but generate all the detected errors. */
-#define LYD_VALIDATE_OPERATIONAL 0x0008     /**< Semantic constraint violations are reported only as warnings instead
-                                                 of errors (see [RFC 8342 sec. 5.3](https://datatracker.ietf.org/doc/html/rfc8342#section-5.3)). */
-#define LYD_VALIDATE_NO_DEFAULTS 0x0010     /**< Do not add any default nodes during validation, other implicit nodes
-                                                 (such as NP containers) are still added. Validation will fail if a
-                                                 default node is required for it to pass. */
 
 #define LYD_VALIDATE_OPTS_MASK  0x0000FFFF  /**< Mask for all the LYD_VALIDATE_* options. */
 
@@ -222,7 +206,7 @@ struct ly_in;
  * @return LY_SUCCESS in case of successful parsing (and validation).
  * @return LY_ERR value in case of error. Additional error information can be obtained from the context using ly_err* functions.
  */
-LIBYANG_API_DECL LY_ERR lyd_parse_data(const struct ly_ctx *ctx, struct lyd_node *parent, struct ly_in *in, LYD_FORMAT format,
+LY_ERR lyd_parse_data(const struct ly_ctx *ctx, struct lyd_node *parent, struct ly_in *in, LYD_FORMAT format,
         uint32_t parse_options, uint32_t validate_options, struct lyd_node **tree);
 
 /**
@@ -239,7 +223,7 @@ LIBYANG_API_DECL LY_ERR lyd_parse_data(const struct ly_ctx *ctx, struct lyd_node
  * @return LY_SUCCESS in case of successful parsing (and validation).
  * @return LY_ERR value in case of error. Additional error information can be obtained from the context using ly_err* functions.
  */
-LIBYANG_API_DECL LY_ERR lyd_parse_data_mem(const struct ly_ctx *ctx, const char *data, LYD_FORMAT format, uint32_t parse_options,
+LY_ERR lyd_parse_data_mem(const struct ly_ctx *ctx, const char *data, LYD_FORMAT format, uint32_t parse_options,
         uint32_t validate_options, struct lyd_node **tree);
 
 /**
@@ -257,7 +241,7 @@ LIBYANG_API_DECL LY_ERR lyd_parse_data_mem(const struct ly_ctx *ctx, const char 
  * @return LY_SUCCESS in case of successful parsing (and validation).
  * @return LY_ERR value in case of error. Additional error information can be obtained from the context using ly_err* functions.
  */
-LIBYANG_API_DECL LY_ERR lyd_parse_data_fd(const struct ly_ctx *ctx, int fd, LYD_FORMAT format, uint32_t parse_options,
+LY_ERR lyd_parse_data_fd(const struct ly_ctx *ctx, int fd, LYD_FORMAT format, uint32_t parse_options,
         uint32_t validate_options, struct lyd_node **tree);
 
 /**
@@ -274,8 +258,8 @@ LIBYANG_API_DECL LY_ERR lyd_parse_data_fd(const struct ly_ctx *ctx, int fd, LYD_
  * @return LY_SUCCESS in case of successful parsing (and validation).
  * @return LY_ERR value in case of error. Additional error information can be obtained from the context using ly_err* functions.
  */
-LIBYANG_API_DECL LY_ERR lyd_parse_data_path(const struct ly_ctx *ctx, const char *path, LYD_FORMAT format,
-        uint32_t parse_options, uint32_t validate_options, struct lyd_node **tree);
+LY_ERR lyd_parse_data_path(const struct ly_ctx *ctx, const char *path, LYD_FORMAT format, uint32_t parse_options,
+        uint32_t validate_options, struct lyd_node **tree);
 
 /**
  * @brief Parse (and validate) data from the input handler as an extension data tree following the schema tree of the given
@@ -296,8 +280,8 @@ LIBYANG_API_DECL LY_ERR lyd_parse_data_path(const struct ly_ctx *ctx, const char
  * @return LY_SUCCESS in case of successful parsing (and validation).
  * @return LY_ERR value in case of error. Additional error information can be obtained from the context using ly_err* functions.
  */
-LIBYANG_API_DECL LY_ERR lyd_parse_ext_data(const struct lysc_ext_instance *ext, struct lyd_node *parent, struct ly_in *in,
-        LYD_FORMAT format, uint32_t parse_options, uint32_t validate_options, struct lyd_node **tree);
+LY_ERR lyd_parse_ext_data(const struct lysc_ext_instance *ext, struct lyd_node *parent, struct ly_in *in, LYD_FORMAT format,
+        uint32_t parse_options, uint32_t validate_options, struct lyd_node **tree);
 
 /**
  * @ingroup datatree
@@ -311,35 +295,26 @@ LIBYANG_API_DECL LY_ERR lyd_parse_ext_data(const struct lysc_ext_instance *ext, 
  * @{
  */
 enum lyd_type {
-    LYD_TYPE_DATA_YANG = 0,     /* generic YANG instance data */
-    LYD_TYPE_RPC_YANG,          /* instance of a YANG RPC/action request with only "input" data children,
-                                   including all parents and optional top-level "action" element in case of an action */
-    LYD_TYPE_NOTIF_YANG,        /* instance of a YANG notification, including all parents in case of a nested one */
-    LYD_TYPE_REPLY_YANG,        /* instance of a YANG RPC/action reply with only "output" data children,
-                                   including all parents in case of an action */
+    LYD_TYPE_DATA_YANG = 0, /* generic YANG instance data */
+    LYD_TYPE_RPC_YANG,      /* instance of a YANG RPC/action request with only "input" data children,
+                               including all parents in case of an action */
+    LYD_TYPE_NOTIF_YANG,    /* instance of a YANG notification , including all parents in case of a nested one */
+    LYD_TYPE_REPLY_YANG,    /* instance of a YANG RPC/action reply with only "output" data children,
+                               including all parents in case of an action */
 
-    LYD_TYPE_RPC_NETCONF,       /* complete NETCONF RPC invocation as defined for
-                                   [RPC](https://tools.ietf.org/html/rfc7950#section-7.14.4) and
-                                   [action](https://tools.ietf.org/html/rfc7950#section-7.15.2) */
-    LYD_TYPE_NOTIF_NETCONF,     /* complete NETCONF notification message as defined for
-                                   [notification](https://tools.ietf.org/html/rfc7950#section-7.16.2) */
-    LYD_TYPE_REPLY_NETCONF,     /* complete NETCONF RPC reply as defined for
-                                   [RPC](https://tools.ietf.org/html/rfc7950#section-7.14.4) and
-                                   [action](https://tools.ietf.org/html/rfc7950#section-7.15.2) */
-
-    LYD_TYPE_RPC_RESTCONF,      /* message-body of a RESTCONF operation input parameters
-                                   ([ref](https://www.rfc-editor.org/rfc/rfc8040.html#section-3.6.1)) */
-    LYD_TYPE_NOTIF_RESTCONF,    /* RESTCONF JSON notification data
-                                   ([ref](https://www.rfc-editor.org/rfc/rfc8040.html#section-6.4)), to parse
-                                   a notification in XML, use ::LYD_TYPE_NOTIF_NETCONF */
-    LYD_TYPE_REPLY_RESTCONF     /* message-body of a RESTCONF operation output parameters
-                                   ([ref](https://www.rfc-editor.org/rfc/rfc8040.html#section-3.6.2)) */
+    LYD_TYPE_RPC_NETCONF,   /* complete NETCONF RPC invocation as defined for
+                               [RPC](https://tools.ietf.org/html/rfc7950#section-7.14.4) and
+                               [action](https://tools.ietf.org/html/rfc7950#section-7.15.2) */
+    LYD_TYPE_NOTIF_NETCONF, /* complete NETCONF notification message as defined for
+                               [notification](https://tools.ietf.org/html/rfc7950#section-7.16.2) */
+    LYD_TYPE_REPLY_NETCONF  /* complete NETCONF RPC reply as defined for
+                               [RPC](https://tools.ietf.org/html/rfc7950#section-7.14.4) and
+                               [action](https://tools.ietf.org/html/rfc7950#section-7.15.2) */
 };
 /** @} datatype */
 
 /**
- * @brief Parse YANG data into an operation data tree. Specific parsing flags ::LYD_PARSE_ONLY, ::LYD_PARSE_STRICT and
- * no validation flags are used.
+ * @brief Parse YANG data into an operation data tree.
  *
  * At least one of @p parent, @p tree, or @p op must always be set.
  *
@@ -366,28 +341,6 @@ enum lyd_type {
  *   - @p op - must be NULL, the reply is appended to the RPC;
  *   Note that there are 3 kinds of NETCONF replies - ok, error, and data. Only data reply appends any nodes to the RPC.
  *
- * - ::LYD_TYPE_RPC_RESTCONF:
- *   - @p parent - must be set, pointing to the invoked RPC operation (RPC or action) node;
- *   - @p format - can be both ::LYD_JSON and ::LYD_XML;
- *   - @p tree - must be provided, all the RESTCONF-specific JSON objects will be returned here as
- *               a separate opaque data tree, even if the function fails, this may be returned;
- *   - @p op - must be NULL, @p parent points to the operation;
- *
- * - ::LYD_TYPE_NOTIF_RESTCONF:
- *   - @p parent - must be NULL, the whole notification is expected;
- *   - @p format - must be ::LYD_JSON, XML-formatted notifications are parsed using ::LYD_TYPE_NOTIF_NETCONF;
- *   - @p tree - must be provided, all the RESTCONF-specific JSON objects will be returned here as
- *               a separate opaque data tree, even if the function fails, this may be returned;
- *   - @p op - must be provided, the notification data tree itself will be returned here, pointing to the operation;
- *
- * - ::LYD_TYPE_REPLY_RESTCONF:
- *   - @p parent - must be set, pointing to the invoked RPC operation (RPC or action) node;
- *   - @p format - can be both ::LYD_JSON and ::LYD_XML;
- *   - @p tree - must be provided, all the RESTCONF-specific JSON objects will be returned here as
- *               a separate opaque data tree, even if the function fails, this may be returned;
- *   - @p op - must be NULL, @p parent points to the operation;
- *   Note that error reply should be parsed as 'yang-data' extension data.
- *
  * @param[in] ctx libyang context.
  * @param[in] parent Optional parent to connect the parsed nodes to.
  * @param[in] in Input handle to read the input from.
@@ -398,7 +351,7 @@ enum lyd_type {
  * @return LY_ERR value.
  * @return LY_ENOT if @p data_type is a NETCONF message and the root XML element is not the expected one.
  */
-LIBYANG_API_DECL LY_ERR lyd_parse_op(const struct ly_ctx *ctx, struct lyd_node *parent, struct ly_in *in, LYD_FORMAT format,
+LY_ERR lyd_parse_op(const struct ly_ctx *ctx, struct lyd_node *parent, struct ly_in *in, LYD_FORMAT format,
         enum lyd_type data_type, struct lyd_node **tree, struct lyd_node **op);
 
 /**
@@ -441,44 +394,35 @@ LIBYANG_API_DECL LY_ERR lyd_parse_op(const struct ly_ctx *ctx, struct lyd_node *
  * @return LY_ERR value.
  * @return LY_ENOT if @p data_type is a NETCONF message and the root XML element is not the expected one.
  */
-LIBYANG_API_DECL LY_ERR lyd_parse_ext_op(const struct lysc_ext_instance *ext, struct lyd_node *parent, struct ly_in *in,
-        LYD_FORMAT format, enum lyd_type data_type, struct lyd_node **tree, struct lyd_node **op);
+LY_ERR lyd_parse_ext_op(const struct lysc_ext_instance *ext, struct lyd_node *parent, struct ly_in *in, LYD_FORMAT format,
+        enum lyd_type data_type, struct lyd_node **tree, struct lyd_node **op);
 
 /**
  * @brief Fully validate a data tree.
  *
- * The data tree is modified in-place. As a result of the validation, some data might be removed
- * from the tree. In that case, the removed items are freed, not just unlinked.
- *
- * @param[in,out] tree Data tree to recursively validate. May be changed by validation, might become NULL.
+ * @param[in,out] tree Data tree to recursively validate. May be changed by validation.
  * @param[in] ctx libyang context. Can be NULL if @p tree is set.
  * @param[in] val_opts Validation options (@ref datavalidationoptions).
  * @param[out] diff Optional diff with any changes made by the validation.
  * @return LY_SUCCESS on success.
  * @return LY_ERR error on error.
  */
-LIBYANG_API_DECL LY_ERR lyd_validate_all(struct lyd_node **tree, const struct ly_ctx *ctx, uint32_t val_opts,
-        struct lyd_node **diff);
+LY_ERR lyd_validate_all(struct lyd_node **tree, const struct ly_ctx *ctx, uint32_t val_opts, struct lyd_node **diff);
 
 /**
  * @brief Fully validate a data tree of a module.
  *
- * The data tree is modified in-place. As a result of the validation, some data might be removed
- * from the tree. In that case, the removed items are freed, not just unlinked.
- *
- * @param[in,out] tree Data tree to recursively validate. May be changed by validation, might become NULL.
+ * @param[in,out] tree Data tree to recursively validate. May be changed by validation.
  * @param[in] module Module whose data (and schema restrictions) to validate.
  * @param[in] val_opts Validation options (@ref datavalidationoptions).
  * @param[out] diff Optional diff with any changes made by the validation.
  * @return LY_SUCCESS on success.
  * @return LY_ERR error on error.
  */
-LIBYANG_API_DECL LY_ERR lyd_validate_module(struct lyd_node **tree, const struct lys_module *module, uint32_t val_opts,
-        struct lyd_node **diff);
+LY_ERR lyd_validate_module(struct lyd_node **tree, const struct lys_module *module, uint32_t val_opts, struct lyd_node **diff);
 
 /**
- * @brief Validate an RPC/action request, reply, or notification. Only the operation data tree (input/output/notif)
- * is validate, any parents are ignored.
+ * @brief Validate an RPC/action request, reply, or notification.
  *
  * @param[in,out] op_tree Operation tree with any parents. It can point to the operation itself or any of
  * its parents, only the operation subtree is actually validated.
@@ -488,7 +432,7 @@ LIBYANG_API_DECL LY_ERR lyd_validate_module(struct lyd_node **tree, const struct
  * @return LY_SUCCESS on success.
  * @return LY_ERR error on error.
  */
-LIBYANG_API_DECL LY_ERR lyd_validate_op(struct lyd_node *op_tree, const struct lyd_node *dep_tree, enum lyd_type data_type,
+LY_ERR lyd_validate_op(struct lyd_node *op_tree, const struct lyd_node *dep_tree, enum lyd_type data_type,
         struct lyd_node **diff);
 
 /** @} datatree */

@@ -200,15 +200,15 @@ test_schema_yang(void **state)
     /* ERROR TESTS NEGATIVE VALUE */
     schema = MODULE_CREATE_YANG("ERR0", "leaf port {type string {length \"-1 .. 20\";}}");
     UTEST_INVALID_MODULE(schema, LYS_IN_YANG, NULL, LY_EDENIED);
-    CHECK_LOG_CTX("Invalid length restriction - value \"-1\" does not fit the type limitations.", "Path \"/ERR0:port\".");
+    CHECK_LOG_CTX("Invalid length restriction - value \"-1\" does not fit the type limitations.", "/ERR0:port");
 
     schema = MODULE_CREATE_YANG("ERR1", "leaf port {type string {length \"100 .. 18446744073709551616\";}}");
     UTEST_INVALID_MODULE(schema, LYS_IN_YANG, NULL, LY_EVALID);
-    CHECK_LOG_CTX("Invalid length restriction - invalid value \"18446744073709551616\".", "Path \"/ERR1:port\".");
+    CHECK_LOG_CTX("Invalid length restriction - invalid value \"18446744073709551616\".", "/ERR1:port");
 
     schema = MODULE_CREATE_YANG("ERR2", "leaf port {type string {length \"10 .. 20 | 20 .. 30\";}}");
     UTEST_INVALID_MODULE(schema, LYS_IN_YANG, NULL, LY_EEXIST);
-    CHECK_LOG_CTX("Invalid length restriction - values are not in ascending order (20).", "Path \"/ERR2:port\".");
+    CHECK_LOG_CTX("Invalid length restriction - values are not in ascending order (20).", "/ERR2:port");
 
     schema = MODULE_CREATE_YANG("ERR3",
             "typedef my_type {"
@@ -216,7 +216,7 @@ test_schema_yang(void **state)
             "}"
             "leaf port {type my_type {length \"-1 .. 15\";}}");
     UTEST_INVALID_MODULE(schema, LYS_IN_YANG, NULL, LY_EDENIED);
-    CHECK_LOG_CTX("Invalid length restriction - value \"-1\" does not fit the type limitations.", "Path \"/ERR3:port\".");
+    CHECK_LOG_CTX("Invalid length restriction - value \"-1\" does not fit the type limitations.", "/ERR3:port");
 
     /*
      * PATTERN
@@ -286,7 +286,7 @@ test_schema_yang(void **state)
             "}}");
     UTEST_INVALID_MODULE(schema, LYS_IN_YANG, NULL, LY_EVALID);
     CHECK_LOG_CTX("Regular expression \"[a-zA-Z_[a-zA-Z0-9\\-_.*\" is not valid (\"\": missing terminating ] for character class).",
-            "Path \"/TPATTERN_ERR_0:port\".");
+            "/TPATTERN_ERR_0:port");
 
     schema = MODULE_CREATE_YANG("TDEFAULT_0",
             "typedef my_type {"
@@ -313,24 +313,6 @@ test_schema_yang(void **state)
     lysp_leaf = (void *) mod->parsed->data;
     CHECK_LYSP_NODE_LEAF(lysp_leaf, NULL, 0, 0x0, 0, "port", 0, 0, NULL, 0, 0, NULL, NULL);
     CHECK_LYSP_TYPE(&(lysp_leaf->type), 0, 0, 0, 0, 0, 0x0, 0, 0, "my_type", 0, 0, 1, 0, 0, 0);
-
-    /* TEST pattern backslash
-     * The '[' character is escaped, thus character group is broken.
-     */
-
-    schema = MODULE_CREATE_YANG("TPATTERN_BC_ERR_1", "leaf port {type string {"
-            "pattern '\\[a]b';" /* pattern '\[a]b'; */
-            "}}");
-    UTEST_INVALID_MODULE(schema, LYS_IN_YANG, NULL, LY_EVALID);
-    CHECK_LOG_CTX("Regular expression \"\\[a]b\" is not valid (\"]b\": character group doesn't begin with '[').",
-            "Path \"/TPATTERN_BC_ERR_1:port\".");
-
-    schema = MODULE_CREATE_YANG("TPATTERN_BC_ERR_2", "leaf port {type string {"
-            "pattern \"\\\\[a]b\";" /* pattern "\\[a]b"; */
-            "}}");
-    UTEST_INVALID_MODULE(schema, LYS_IN_YANG, NULL, LY_EVALID);
-    CHECK_LOG_CTX("Regular expression \"\\[a]b\" is not valid (\"]b\": character group doesn't begin with '[').",
-            "Path \"/TPATTERN_BC_ERR_2:port\".");
 
     /* PATTERN AND LENGTH */
     schema = MODULE_CREATE_YANG("TPL_0",
@@ -467,26 +449,26 @@ test_schema_yin(void **state)
     schema = MODULE_CREATE_YIN("ERR0", "<leaf name=\"port\"> <type name=\"string\">"
             "<length value =\"-1 .. 20\"/> </type></leaf>");
     UTEST_INVALID_MODULE(schema, LYS_IN_YIN, NULL, LY_EDENIED);
-    CHECK_LOG_CTX("Invalid length restriction - value \"-1\" does not fit the type limitations.", "Path \"/ERR0:port\".");
+    CHECK_LOG_CTX("Invalid length restriction - value \"-1\" does not fit the type limitations.", "/ERR0:port");
 
     schema = MODULE_CREATE_YIN("ERR1", "<leaf name=\"port\"> <type name=\"string\">"
             "<length value=\"100 .. 18446744073709551616\"/>"
             "</type> </leaf>");
     UTEST_INVALID_MODULE(schema, LYS_IN_YIN, NULL, LY_EVALID);
-    CHECK_LOG_CTX("Invalid length restriction - invalid value \"18446744073709551616\".", "Path \"/ERR1:port\".");
+    CHECK_LOG_CTX("Invalid length restriction - invalid value \"18446744073709551616\".", "/ERR1:port");
 
     schema = MODULE_CREATE_YIN("ERR2", "<leaf name=\"port\">"
             "<type name=\"string\"> <length value=\"10 .. 20 | 20 .. 30\"/>"
             "</type> </leaf>");
     UTEST_INVALID_MODULE(schema, LYS_IN_YIN, NULL, LY_EEXIST);
-    CHECK_LOG_CTX("Invalid length restriction - values are not in ascending order (20).", "Path \"/ERR2:port\".");
+    CHECK_LOG_CTX("Invalid length restriction - values are not in ascending order (20).", "/ERR2:port");
 
     schema = MODULE_CREATE_YIN("ERR3",
             "<typedef name=\"my_type\"> <type name=\"string\"/> </typedef>"
             "<leaf name=\"port\"> <type name=\"my_type\"> <length value=\"-1 .. 15\"/>"
             "</type> </leaf>");
     UTEST_INVALID_MODULE(schema, LYS_IN_YIN, NULL, LY_EDENIED);
-    CHECK_LOG_CTX("Invalid length restriction - value \"-1\" does not fit the type limitations.", "Path \"/ERR3:port\".");
+    CHECK_LOG_CTX("Invalid length restriction - value \"-1\" does not fit the type limitations.", "/ERR3:port");
 
     /*
      * PATTERN
@@ -557,7 +539,7 @@ test_schema_yin(void **state)
             "</type> </leaf>");
     UTEST_INVALID_MODULE(schema, LYS_IN_YIN, NULL, LY_EVALID);
     CHECK_LOG_CTX("Regular expression \"[a-zA-Z_][a-zA-Z0-9\\-_.*\" is not valid (\"\": missing terminating ] for character class).",
-            "Path \"/TPATTERN_ERR_0:port\".");
+            "/TPATTERN_ERR_0:port");
 
     /*
      * DEFAUT VALUE
@@ -618,8 +600,16 @@ test_schema_yin(void **state)
             "</typedef>"
             "<leaf name=\"port\"> <type name=\"my_type\"/> </leaf>");
     UTEST_INVALID_MODULE(schema, LYS_IN_YIN, NULL, LY_EVALID);
-    CHECK_LOG_CTX("Invalid default - value does not fit the type (Unsatisfied length - string \"a1i-j<\" length is not allowed.).",
-            "Schema location \"/TDEFAULT_2:port\".");
+
+    schema = MODULE_CREATE_YIN("TDEFAULT_2",
+            "<typedef name=\"my_type\">"
+            "   <type name=\"string\">"
+            "       <length  value=\"2\"/>"
+            "   </type>"
+            "   <default value=\"a1i-j&lt;\"/>"
+            "</typedef>"
+            "<leaf name=\"port\"> <type name=\"my_type\"/> </leaf>");
+    UTEST_INVALID_MODULE(schema, LYS_IN_YIN, NULL, LY_EVALID);
 
     schema = MODULE_CREATE_YIN("TDEFAULT_3",
             "<typedef name=\"my_type\">"
@@ -628,8 +618,6 @@ test_schema_yin(void **state)
             "</type> </typedef>"
             "<leaf name=\"port\"><type name=\"my_type\"> <pattern value=\"bcd.*\"/> </type></leaf>");
     UTEST_INVALID_MODULE(schema, LYS_IN_YIN, NULL, LY_EVALID);
-    CHECK_LOG_CTX("Invalid default - value does not fit the type (Unsatisfied pattern - \"a1i-j<\" does not conform to \"bcd.*\".).",
-            "Schema location \"/TDEFAULT_3:port\".");
 
 }
 
@@ -738,7 +726,7 @@ test_data_xml(void **state)
     /* error */
     TEST_ERROR_XML("T0", "< df");
     CHECK_LOG_CTX("Child element \"df\" inside a terminal node \"port\" found.",
-            "Data location \"/T0:port\", line number 1.");
+            "Schema location /T0:port, data location /T0:port, line number 1.");
     TEST_ERROR_XML("T0", "&text;");
     CHECK_LOG_CTX("Entity reference \"&text;</po\" not supported, only predefined references allowed.", "Line number 1.");
     TEST_ERROR_XML("T0", "\"&#x8;\"");
@@ -756,14 +744,14 @@ test_data_xml(void **state)
     TEST_SUCCESS_XML("T1", "abcde",    STRING, "abcde");
     TEST_SUCCESS_XML("T1", "abcde&lt;", STRING, "abcde<");
     TEST_ERROR_XML("T1", "p4abc");
-    CHECK_LOG_CTX_APPTAG("invalid pattern of value", "Schema location \"/T1:port\", line number 1.", "pattern-violation");
+    CHECK_LOG_CTX_APPTAG("invalid pattern of value", "Schema location /T1:port, line number 1.", "pattern-violation");
     /* size 20 */
     TEST_SUCCESS_XML("T1", "ahojahojahojahojahoj", STRING, "ahojahojahojahojahoj");
     TEST_SUCCESS_XML("T1", "abc-de", STRING, "abc-de");
     /* ERROR LENGTH  */
     TEST_ERROR_XML("T1", "p4a&lt;");
     CHECK_LOG_CTX("Unsatisfied length - string \"p4a<\" length is not allowed.",
-            "Schema location \"/T1:port\", line number 1.");
+            "Schema location /T1:port, line number 1.");
 
     /* TEST DEFAULT VALUE */
     schema = MODULE_CREATE_YANG("T2",
@@ -807,10 +795,10 @@ test_data_xml(void **state)
     TEST_SUCCESS_XML("T_UTF8", "€€€€€",    STRING, "€€€€€");
     TEST_ERROR_XML("T_UTF8", "€€€");
     CHECK_LOG_CTX("Unsatisfied length - string \"€€€\" length is not allowed.",
-            "Schema location \"/T_UTF8:port\", line number 1.");
+            "Schema location /T_UTF8:port, line number 1.");
     TEST_ERROR_XML("T_UTF8", "€€€€€€€€");
     CHECK_LOG_CTX("Unsatisfied pattern - \"€€€€€€€€\" does not conform to \"[€]{5,7}\".",
-            "Schema location \"/T_UTF8:port\", line number 1.");
+            "Schema location /T_UTF8:port, line number 1.");
 
     /* ANCHOR TEST ^$ is implicit */
     schema = MODULE_CREATE_YANG("T_ANCHOR", "leaf port {type string {"
@@ -819,10 +807,10 @@ test_data_xml(void **state)
     UTEST_ADD_MODULE(schema, LYS_IN_YANG, NULL, NULL);
     TEST_ERROR_XML("T_ANCHOR", "abc");
     CHECK_LOG_CTX("Unsatisfied pattern - \"abc\" does not conform to \"a.*b\".",
-            "Schema location \"/T_ANCHOR:port\", line number 1.");
+            "Schema location /T_ANCHOR:port, line number 1.");
     TEST_ERROR_XML("T_ANCHOR", "cab");
     CHECK_LOG_CTX("Unsatisfied pattern - \"cab\" does not conform to \"a.*b\".",
-            "Schema location \"/T_ANCHOR:port\", line number 1.");
+            "Schema location /T_ANCHOR:port, line number 1.");
 }
 
 static void
@@ -868,7 +856,7 @@ test_data_json(void **state)
     CHECK_LOG_CTX("Invalid character reference \"\\f\" (0x0000000c).", "Line number 1.");
 
     TEST_ERROR_JSON("T0", "\"");
-    CHECK_LOG_CTX("Invalid character sequence \"\"}\", expected a JSON object-end or next item.", "Line number 1.");
+    CHECK_LOG_CTX("Unexpected character \"\"\" after JSON string.", "Line number 1.");
 
     TEST_ERROR_JSON("T0", "aabb \\x");
     CHECK_LOG_CTX("Invalid character escape sequence \\x.", "Line number 1.");
@@ -884,14 +872,14 @@ test_data_json(void **state)
     TEST_SUCCESS_JSON("T1", "a\\nbcde",     STRING, "a\nbcde");
     TEST_ERROR_JSON("T1", "p4abc\\n");
     CHECK_LOG_CTX("Unsatisfied pattern - \"p4abc\n\" does not conform to inverted \"p4.*\\n\".",
-            "Schema location \"/T1:port\", line number 1.");
+            "Schema location /T1:port, line number 1.");
     /* size 20 */
     TEST_SUCCESS_JSON("T1", "ahojahojaho\\njahojaho", STRING, "ahojahojaho\njahojaho");
     TEST_SUCCESS_JSON("T1", "abc\\n-de", STRING, "abc\n-de");
     /* ERROR LENGTH  */
     TEST_ERROR_JSON("T1", "p4a\u042F");
     CHECK_LOG_CTX("Unsatisfied length - string \"p4aЯ\" length is not allowed.",
-            "Schema location \"/T1:port\", line number 1.");
+            "Schema location /T1:port, line number 1.");
 
     /* TEST DEFAULT VALUE */
     schema = MODULE_CREATE_YANG("T_DEFAULT2",
@@ -929,10 +917,10 @@ test_data_json(void **state)
     TEST_SUCCESS_JSON("T_UTF8", "€€€€€",    STRING, "€€€€€");
     TEST_ERROR_JSON("T_UTF8", "€€€");
     CHECK_LOG_CTX("Unsatisfied length - string \"€€€\" length is not allowed.",
-            "Schema location \"/T_UTF8:port\", line number 1.");
+            "Schema location /T_UTF8:port, line number 1.");
     TEST_ERROR_JSON("T_UTF8", "€€€€€€€€");
     CHECK_LOG_CTX("Unsatisfied pattern - \"€€€€€€€€\" does not conform to \"[€]{5,7}\".",
-            "Schema location \"/T_UTF8:port\", line number 1.");
+            "Schema location /T_UTF8:port, line number 1.");
 
     /* ANCHOR TEST ^$ is implicit */
     schema = MODULE_CREATE_YANG("T_ANCHOR", "leaf port {type string {"
@@ -941,10 +929,10 @@ test_data_json(void **state)
     UTEST_ADD_MODULE(schema, LYS_IN_YANG, NULL, NULL);
     TEST_ERROR_JSON("T_ANCHOR", "abc");
     CHECK_LOG_CTX("Unsatisfied pattern - \"abc\" does not conform to \"a.*b\".",
-            "Schema location \"/T_ANCHOR:port\", line number 1.");
+            "Schema location /T_ANCHOR:port, line number 1.");
     TEST_ERROR_JSON("T_ANCHOR", "cb");
     CHECK_LOG_CTX("Unsatisfied pattern - \"cb\" does not conform to \"a.*b\".",
-            "Schema location \"/T_ANCHOR:port\", line number 1.");
+            "Schema location /T_ANCHOR:port, line number 1.");
 }
 
 static void
@@ -1011,7 +999,7 @@ test_diff(void **state)
             "121</port>";
     CHECK_PARSE_LYD_PARAM(diff_expected, LYD_XML, 0, LYD_VALIDATE_PRESENT, LY_EVALID, model_1);
     CHECK_LOG_CTX("Unsatisfied length - string \"121\" length is not allowed.",
-            "Schema location \"/T_DIFF:port\", line number 1.");
+            "Schema location /T_DIFF:port, line number 1.");
 
     /* diff from default value */
     data_1 = "<cont xmlns=\"urn:tests:T_DIFF1\"></cont>";
@@ -1074,7 +1062,7 @@ test_plugin_store(void **state)
     struct ly_err_item *err = NULL;
     struct lys_module *mod;
     struct lyd_value value = {0};
-    struct lyplg_type *type = lyplg_type_plugin_find("", NULL, ly_data_type2str[LY_TYPE_STRING]);
+    struct lyplg_type *type = lyplg_find(LYPLG_TYPE, "", NULL, ly_data_type2str[LY_TYPE_STRING]);
     struct lysc_type *lysc_type;
     char *alloc_text;
     unsigned int alloc_text_size;
@@ -1151,30 +1139,6 @@ test_plugin_store(void **state)
     assert_int_equal(LY_EINVAL, ly_ret);
     ly_err_free(err);
 
-    /* TEST pattern backslash */
-
-    schema = MODULE_CREATE_YANG("TPATTERN_BC_1", "leaf port {type string {"
-            "pattern '\\\\[a]b';"  /* pattern '\\[a]b'; */
-            "}}");
-    UTEST_ADD_MODULE(schema, LYS_IN_YANG, NULL, &mod);
-    lysc_type = ((struct lysc_node_leaf *)mod->compiled->data)->type;
-    val_text = "\\ab";
-    assert_int_equal(LY_SUCCESS, type->store(UTEST_LYCTX, lysc_type, val_text, strlen(val_text),
-            0, LY_VALUE_XML, NULL, LYD_VALHINT_STRING, NULL, &value, NULL, &err));
-    CHECK_LYD_VALUE(value, STRING, "\\ab");
-    type->free(UTEST_LYCTX, &value);
-
-    schema = MODULE_CREATE_YANG("TPATTERN_BC_2", "leaf port {type string {"
-            "pattern \"\\\\\\\\[a]b\";" /* pattern "\\\\[a]b"; */
-            "}}");
-    UTEST_ADD_MODULE(schema, LYS_IN_YANG, NULL, &mod);
-    lysc_type = ((struct lysc_node_leaf *)mod->compiled->data)->type;
-    val_text = "\\ab";
-    assert_int_equal(LY_SUCCESS, type->store(UTEST_LYCTX, lysc_type, val_text, strlen(val_text),
-            0, LY_VALUE_XML, NULL, LYD_VALHINT_STRING, NULL, &value, NULL, &err));
-    CHECK_LYD_VALUE(value, STRING, "\\ab");
-    type->free(UTEST_LYCTX, &value);
-
     /* ERROR TESTS */
 
     val_text = "10 \"| bcdei";
@@ -1206,7 +1170,7 @@ test_plugin_compare(void **state)
     struct ly_err_item *err = NULL;
     struct lys_module *mod;
     struct lyd_value values[10];
-    struct lyplg_type *type = lyplg_type_plugin_find("", NULL, ly_data_type2str[LY_TYPE_STRING]);
+    struct lyplg_type *type = lyplg_find(LYPLG_TYPE, "", NULL, ly_data_type2str[LY_TYPE_STRING]);
     struct lysc_type *lysc_type;
     LY_ERR ly_ret;
     const char *schema;
@@ -1284,7 +1248,7 @@ test_plugin_print(void **state)
     struct ly_err_item *err = NULL;
     struct lys_module *mod;
     struct lyd_value values[10];
-    struct lyplg_type *type = lyplg_type_plugin_find("", NULL, ly_data_type2str[LY_TYPE_STRING]);
+    struct lyplg_type *type = lyplg_find(LYPLG_TYPE, "", NULL, ly_data_type2str[LY_TYPE_STRING]);
     struct lysc_type *lysc_type;
     LY_ERR ly_ret;
 
@@ -1323,7 +1287,7 @@ test_plugin_dup(void **state)
     struct ly_err_item *err = NULL;
     struct lys_module *mod;
     struct lyd_value values[10];
-    struct lyplg_type *type = lyplg_type_plugin_find("", NULL, ly_data_type2str[LY_TYPE_STRING]);
+    struct lyplg_type *type = lyplg_find(LYPLG_TYPE, "", NULL, ly_data_type2str[LY_TYPE_STRING]);
     struct lysc_type *lysc_type[2];
     const char *schema;
     LY_ERR ly_ret;

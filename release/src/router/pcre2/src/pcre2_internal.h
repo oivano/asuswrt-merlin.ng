@@ -59,6 +59,7 @@ pcre2test.c with CODE_UNIT_WIDTH == 0. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 
 /* Macros to make boolean values more obvious. The #ifndef is to pacify
 compiler warnings in environments where these macros are defined elsewhere.

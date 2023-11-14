@@ -4,7 +4,7 @@
  * @author Michal Vasko <mvasko@cesnet.cz>
  * @brief Context implementations
  *
- * Copyright (c) 2015 - 2023 CESNET, z.s.p.o.
+ * Copyright (c) 2015 - 2021 CESNET, z.s.p.o.
  *
  * This source code is licensed under BSD 3-Clause License (the "License").
  * You may not use this file except in compliance with the License.
@@ -45,17 +45,14 @@
 #include "tree_data.h"
 #include "tree_data_internal.h"
 #include "tree_schema.h"
-#include "tree_schema_free.h"
 #include "tree_schema_internal.h"
 
 #include "../models/ietf-datastores@2018-02-14.h"
 #include "../models/ietf-inet-types@2013-07-15.h"
 #include "../models/ietf-yang-library@2019-01-04.h"
 #include "../models/ietf-yang-metadata@2016-08-05.h"
-#include "../models/ietf-yang-schema-mount@2019-01-14.h"
-#include "../models/ietf-yang-structure-ext@2020-06-17.h"
 #include "../models/ietf-yang-types@2013-07-15.h"
-#include "../models/yang@2022-06-16.h"
+#include "../models/yang@2021-04-07.h"
 #define IETF_YANG_LIB_REV "2019-01-04"
 
 static struct internal_modules_s {
@@ -66,11 +63,9 @@ static struct internal_modules_s {
     LYS_INFORMAT format;
 } internal_modules[] = {
     {"ietf-yang-metadata", "2016-08-05", (const char *)ietf_yang_metadata_2016_08_05_yang, 0, LYS_IN_YANG},
-    {"yang", "2022-06-16", (const char *)yang_2022_06_16_yang, 1, LYS_IN_YANG},
+    {"yang", "2021-04-07", (const char *)yang_2021_04_07_yang, 1, LYS_IN_YANG},
     {"ietf-inet-types", "2013-07-15", (const char *)ietf_inet_types_2013_07_15_yang, 0, LYS_IN_YANG},
     {"ietf-yang-types", "2013-07-15", (const char *)ietf_yang_types_2013_07_15_yang, 0, LYS_IN_YANG},
-    {"ietf-yang-schema-mount", "2019-01-14", (const char *)ietf_yang_schema_mount_2019_01_14_yang, 1, LYS_IN_YANG},
-    {"ietf-yang-structure-ext", "2020-06-17", (const char *)ietf_yang_structure_ext_2020_06_17_yang, 0, LYS_IN_YANG},
     /* ietf-datastores and ietf-yang-library must be right here at the end of the list! */
     {"ietf-datastores", "2018-02-14", (const char *)ietf_datastores_2018_02_14_yang, 1, LYS_IN_YANG},
     {"ietf-yang-library", IETF_YANG_LIB_REV, (const char *)ietf_yang_library_2019_01_04_yang, 1, LYS_IN_YANG}
@@ -78,7 +73,7 @@ static struct internal_modules_s {
 
 #define LY_INTERNAL_MODS_COUNT sizeof(internal_modules) / sizeof(struct internal_modules_s)
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 ly_ctx_set_searchdir(struct ly_ctx *ctx, const char *search_dir)
 {
     struct stat st;
@@ -125,7 +120,7 @@ ly_ctx_set_searchdir(struct ly_ctx *ctx, const char *search_dir)
     }
 }
 
-LIBYANG_API_DEF const char * const *
+API const char * const *
 ly_ctx_get_searchdirs(const struct ly_ctx *ctx)
 {
 #define LY_CTX_SEARCHDIRS_SIZE_STEP 8
@@ -147,7 +142,7 @@ ly_ctx_get_searchdirs(const struct ly_ctx *ctx)
     return (const char * const *)ctx->search_paths.objs;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 ly_ctx_unset_searchdir(struct ly_ctx *ctx, const char *value)
 {
     LY_CHECK_ARG_RET(ctx, ctx, LY_EINVAL);
@@ -180,7 +175,7 @@ ly_ctx_unset_searchdir(struct ly_ctx *ctx, const char *value)
     return LY_SUCCESS;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 ly_ctx_unset_searchdir_last(struct ly_ctx *ctx, uint32_t count)
 {
     LY_CHECK_ARG_RET(ctx, ctx, LY_EINVAL);
@@ -192,7 +187,7 @@ ly_ctx_unset_searchdir_last(struct ly_ctx *ctx, uint32_t count)
     return LY_SUCCESS;
 }
 
-LIBYANG_API_DEF struct lys_module *
+API struct lys_module *
 ly_ctx_load_module(struct ly_ctx *ctx, const char *name, const char *revision, const char **features)
 {
     struct lys_module *mod = NULL;
@@ -228,24 +223,13 @@ cleanup:
     return mod;
 }
 
-/**
- * @brief Hash table value-equal callback for comparing context error hash table record.
- */
-static ly_bool
-ly_ctx_ht_err_equal_cb(void *val1_p, void *val2_p, ly_bool UNUSED(mod), void *UNUSED(cb_data))
-{
-    struct ly_ctx_err_rec *err1 = val1_p, *err2 = val2_p;
-
-    return !memcmp(&err1->tid, &err2->tid, sizeof err1->tid);
-}
-
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 ly_ctx_new(const char *search_dir, uint16_t options, struct ly_ctx **new_ctx)
 {
     struct ly_ctx *ctx = NULL;
     struct lys_module *module;
-    char *search_dir_list, *sep, *dir;
-    const char **imp_f, *all_f[] = {"*", NULL};
+    char *search_dir_list;
+    char *sep, *dir;
     uint32_t i;
     struct ly_in *in = NULL;
     LY_ERR rc = LY_SUCCESS;
@@ -262,9 +246,8 @@ ly_ctx_new(const char *search_dir, uint16_t options, struct ly_ctx **new_ctx)
     /* plugins */
     LY_CHECK_ERR_GOTO(lyplg_init(), LOGINT(NULL); rc = LY_EINT, cleanup);
 
-    /* initialize thread-specific error hash table */
-    ctx->err_ht = lyht_new(1, sizeof(struct ly_ctx_err_rec), ly_ctx_ht_err_equal_cb, NULL, 1);
-    LY_CHECK_ERR_GOTO(!ctx->err_ht, rc = LY_EMEM, cleanup);
+    /* initialize thread-specific keys */
+    while ((pthread_key_create(&ctx->errlist_key, ly_err_free)) == EAGAIN) {}
 
     /* init LYB hash lock */
     pthread_mutex_init(&ctx->lyb_hash_lock, NULL);
@@ -275,7 +258,7 @@ ly_ctx_new(const char *search_dir, uint16_t options, struct ly_ctx **new_ctx)
         search_dir_list = strdup(search_dir);
         LY_CHECK_ERR_GOTO(!search_dir_list, LOGMEM(NULL); rc = LY_EMEM, cleanup);
 
-        for (dir = search_dir_list; (sep = strchr(dir, PATH_SEPARATOR[0])) != NULL && rc == LY_SUCCESS; dir = sep + 1) {
+        for (dir = search_dir_list; (sep = strchr(dir, ':')) != NULL && rc == LY_SUCCESS; dir = sep + 1) {
             *sep = 0;
             rc = ly_ctx_set_searchdir(ctx, dir);
             if (rc == LY_EEXIST) {
@@ -311,8 +294,7 @@ ly_ctx_new(const char *search_dir, uint16_t options, struct ly_ctx **new_ctx)
         ly_in_memory(in, internal_modules[i].data);
         LY_CHECK_GOTO(rc = lys_parse_in(ctx, in, internal_modules[i].format, NULL, NULL, &unres.creating, &module), cleanup);
         if (internal_modules[i].implemented || (ctx->flags & LY_CTX_ALL_IMPLEMENTED)) {
-            imp_f = (ctx->flags & LY_CTX_ENABLE_IMP_FEATURES) ? all_f : NULL;
-            LY_CHECK_GOTO(rc = lys_implement(module, imp_f, &unres), cleanup);
+            LY_CHECK_GOTO(rc = lys_implement(module, NULL, &unres), cleanup);
         }
     }
 
@@ -334,7 +316,7 @@ cleanup:
 }
 
 static LY_ERR
-ly_ctx_new_yl_legacy(struct ly_ctx *ctx, const struct lyd_node *yltree)
+ly_ctx_new_yl_legacy(struct ly_ctx *ctx, struct lyd_node *yltree)
 {
     struct lyd_node *module, *node;
     struct ly_set *set;
@@ -344,12 +326,11 @@ ly_ctx_new_yl_legacy(struct ly_ctx *ctx, const struct lyd_node *yltree)
     ly_bool imported = 0;
     const struct lys_module *mod;
     LY_ERR ret = LY_SUCCESS;
-    uint32_t i, j;
 
     LY_CHECK_RET(ret = lyd_find_xpath(yltree, "/ietf-yang-library:yang-library/modules-state/module", &set));
 
     /* process the data tree */
-    for (i = 0; i < set->count; ++i) {
+    for (uint32_t i = 0; i < set->count; ++i) {
         module = set->dnodes[i];
 
         /* initiate */
@@ -381,8 +362,8 @@ ly_ctx_new_yl_legacy(struct ly_ctx *ctx, const struct lyd_node *yltree)
         LY_CHECK_ERR_GOTO(!feature_arr, ret = LY_EMEM, cleanup);
 
         /* Parse features into an array of strings */
-        for (j = 0; j < features.count; ++j) {
-            feature_arr[j] = lyd_get_value(features.dnodes[j]);
+        for (uint32_t u = 0; u < features.count; u++) {
+            feature_arr[u] = lyd_get_value(features.dnodes[u]);
         }
         feature_arr[features.count] = NULL;
         ly_set_clean(&features, free);
@@ -403,76 +384,32 @@ cleanup:
     return ret;
 }
 
-LIBYANG_API_DEF LY_ERR
-ly_ctx_new_ylpath(const char *search_dir, const char *path, LYD_FORMAT format, int options, struct ly_ctx **ctx)
-{
-    LY_ERR ret = LY_SUCCESS;
-    struct ly_ctx *ctx_yl = NULL;
-    struct lyd_node *data_yl = NULL;
-
-    LY_CHECK_ARG_RET(NULL, path, ctx, LY_EINVAL);
-
-    /* create a seperate context for the data */
-    LY_CHECK_GOTO(ret = ly_ctx_new(search_dir, 0, &ctx_yl), cleanup);
-
-    /* parse yang library data tree */
-    LY_CHECK_GOTO(ret = lyd_parse_data_path(ctx_yl, path, format, 0, LYD_VALIDATE_PRESENT, &data_yl), cleanup);
-
-    /* create the new context */
-    ret = ly_ctx_new_yldata(search_dir, data_yl, options, ctx);
-
-cleanup:
-    lyd_free_all(data_yl);
-    ly_ctx_destroy(ctx_yl);
-    return ret;
-}
-
-LIBYANG_API_DEF LY_ERR
-ly_ctx_new_ylmem(const char *search_dir, const char *data, LYD_FORMAT format, int options, struct ly_ctx **ctx)
-{
-    LY_ERR ret = LY_SUCCESS;
-    struct ly_ctx *ctx_yl = NULL;
-    struct lyd_node *data_yl = NULL;
-
-    LY_CHECK_ARG_RET(NULL, data, ctx, LY_EINVAL);
-
-    /* create a seperate context for the data */
-    LY_CHECK_GOTO(ret = ly_ctx_new(search_dir, 0, &ctx_yl), cleanup);
-
-    /* parse yang library data tree */
-    LY_CHECK_GOTO(ret = lyd_parse_data_mem(ctx_yl, data, format, 0, LYD_VALIDATE_PRESENT, &data_yl), cleanup);
-
-    /* create the new context */
-    ret = ly_ctx_new_yldata(search_dir, data_yl, options, ctx);
-
-cleanup:
-    lyd_free_all(data_yl);
-    ly_ctx_destroy(ctx_yl);
-    return ret;
-}
-
-LIBYANG_API_DEF LY_ERR
-ly_ctx_new_yldata(const char *search_dir, const struct lyd_node *tree, int options, struct ly_ctx **ctx)
+static LY_ERR
+ly_ctx_new_yl_common(const char *search_dir, const char *input, LYD_FORMAT format, int options,
+        LY_ERR (*parser_func)(const struct ly_ctx *, const char *, LYD_FORMAT, uint32_t, uint32_t, struct lyd_node **),
+        struct ly_ctx **ctx)
 {
     const char *name = NULL, *revision = NULL;
     struct lyd_node *module, *node;
+    struct lyd_node *yltree = NULL;
     struct ly_set *set = NULL;
     const char **feature_arr = NULL;
     struct ly_set features = {0};
     LY_ERR ret = LY_SUCCESS;
     const struct lys_module *mod;
-    struct ly_ctx *ctx_new = NULL;
+    struct ly_ctx *ctx_yl = NULL, *ctx_new = NULL;
     ly_bool no_expl_compile = 0;
-    uint32_t i, j;
 
-    LY_CHECK_ARG_RET(NULL, tree, ctx, LY_EINVAL);
-
-    /* create a new context */
-    if (*ctx == NULL) {
+    /* create a seperate context in case it is LY_CTX_NO_YANGLIBRARY since it needs it for parsing */
+    if (options & LY_CTX_NO_YANGLIBRARY) {
+        LY_CHECK_GOTO(ret = ly_ctx_new(search_dir, 0, &ctx_yl), cleanup);
         LY_CHECK_GOTO(ret = ly_ctx_new(search_dir, options, &ctx_new), cleanup);
     } else {
-        ctx_new = *ctx;
+        LY_CHECK_GOTO(ret = ly_ctx_new(search_dir, options, &ctx_new), cleanup);
     }
+
+    /* parse yang library data tree */
+    LY_CHECK_GOTO(ret = parser_func(ctx_yl ? ctx_yl : ctx_new, input, format, 0, LYD_VALIDATE_PRESENT, &yltree), cleanup);
 
     /* redundant to compile modules one-by-one */
     if (!(options & LY_CTX_EXPLICIT_COMPILE)) {
@@ -480,20 +417,20 @@ ly_ctx_new_yldata(const char *search_dir, const struct lyd_node *tree, int optio
         no_expl_compile = 1;
     }
 
-    LY_CHECK_GOTO(ret = lyd_find_xpath(tree, "/ietf-yang-library:yang-library/module-set[1]/module", &set), cleanup);
+    LY_CHECK_GOTO(ret = lyd_find_xpath(yltree, "/ietf-yang-library:yang-library/module-set[1]/module", &set), cleanup);
     if (set->count == 0) {
         /* perhaps a legacy data tree? */
-        LY_CHECK_GOTO(ret = ly_ctx_new_yl_legacy(ctx_new, tree), cleanup);
+        LY_CHECK_GOTO(ret = ly_ctx_new_yl_legacy(ctx_new, yltree), cleanup);
     } else {
         /* process the data tree */
-        for (i = 0; i < set->count; ++i) {
+        for (uint32_t i = 0; i < set->count; ++i) {
             module = set->dnodes[i];
 
             /* initiate */
             name = NULL;
             revision = NULL;
 
-            /* iterate over data */
+            /* Iterate over data */
             LY_LIST_FOR(lyd_child(module), node) {
                 if (!strcmp(node->schema->name, "name")) {
                     name = lyd_get_value(node);
@@ -507,9 +444,9 @@ ly_ctx_new_yldata(const char *search_dir, const struct lyd_node *tree, int optio
             feature_arr = malloc((features.count + 1) * sizeof *feature_arr);
             LY_CHECK_ERR_GOTO(!feature_arr, ret = LY_EMEM, cleanup);
 
-            /* parse features into an array of strings */
-            for (j = 0; j < features.count; ++j) {
-                feature_arr[j] = lyd_get_value(features.dnodes[j]);
+            /* Parse features into an array of strings */
+            for (uint32_t u = 0; u < features.count; u++) {
+                feature_arr[u] = lyd_get_value(features.dnodes[u]);
             }
             feature_arr[features.count] = NULL;
             ly_set_clean(&features, NULL);
@@ -518,13 +455,17 @@ ly_ctx_new_yldata(const char *search_dir, const struct lyd_node *tree, int optio
             mod = ly_ctx_load_module(ctx_new, name, revision, feature_arr);
             free(feature_arr);
             if (!mod) {
-                LOGERR(*ctx ? *ctx : LYD_CTX(tree), LY_EINVAL, "Unable to load module %s@%s specified by yang library data.",
-                        name, revision ? revision : "<none>");
+                LOGERR(NULL, LY_EINVAL, "Unable to load module %s@%s specified by yang library data.", name,
+                        revision ? revision : "<none>");
                 ret = LY_EINVAL;
                 goto cleanup;
             }
         }
     }
+
+    /* free data because their context may be recompiled */
+    lyd_free_all(yltree);
+    yltree = NULL;
 
     /* compile */
     LY_CHECK_GOTO(ret = ly_ctx_compile(ctx_new), cleanup);
@@ -535,19 +476,34 @@ ly_ctx_new_yldata(const char *search_dir, const struct lyd_node *tree, int optio
     }
 
 cleanup:
+    lyd_free_all(yltree);
     ly_set_free(set, NULL);
     ly_set_erase(&features, NULL);
-    if (*ctx == NULL) {
-        *ctx = ctx_new;
-        if (ret) {
-            ly_ctx_destroy(*ctx);
-            *ctx = NULL;
-        }
+    ly_ctx_destroy(ctx_yl);
+    *ctx = ctx_new;
+    if (ret) {
+        ly_ctx_destroy(*ctx);
+        *ctx = NULL;
     }
+
     return ret;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
+ly_ctx_new_ylpath(const char *search_dir, const char *path, LYD_FORMAT format, int options, struct ly_ctx **ctx)
+{
+    LY_CHECK_ARG_RET(NULL, path, ctx, LY_EINVAL);
+    return ly_ctx_new_yl_common(search_dir, path, format, options, lyd_parse_data_path, ctx);
+}
+
+API LY_ERR
+ly_ctx_new_ylmem(const char *search_dir, const char *data, LYD_FORMAT format, int options, struct ly_ctx **ctx)
+{
+    LY_CHECK_ARG_RET(NULL, data, ctx, LY_EINVAL);
+    return ly_ctx_new_yl_common(search_dir, data, format, options, lyd_parse_data_mem, ctx);
+}
+
+API LY_ERR
 ly_ctx_compile(struct ly_ctx *ctx)
 {
     LY_ERR ret = LY_SUCCESS;
@@ -569,7 +525,7 @@ cleanup:
     return ret;
 }
 
-LIBYANG_API_DEF uint16_t
+API uint16_t
 ly_ctx_get_options(const struct ly_ctx *ctx)
 {
     LY_CHECK_ARG_RET(ctx, ctx, 0);
@@ -577,7 +533,7 @@ ly_ctx_get_options(const struct ly_ctx *ctx)
     return ctx->flags;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 ly_ctx_set_options(struct ly_ctx *ctx, uint16_t option)
 {
     LY_ERR lyrc = LY_SUCCESS;
@@ -585,8 +541,7 @@ ly_ctx_set_options(struct ly_ctx *ctx, uint16_t option)
     uint32_t i;
 
     LY_CHECK_ARG_RET(ctx, ctx, LY_EINVAL);
-    LY_CHECK_ERR_RET((option & LY_CTX_NO_YANGLIBRARY) && !(ctx->flags & LY_CTX_NO_YANGLIBRARY),
-            LOGARG(ctx, option), LY_EINVAL);
+    LY_CHECK_ERR_RET(option & LY_CTX_NO_YANGLIBRARY, LOGARG(ctx, option), LY_EINVAL);
 
     if (!(ctx->flags & LY_CTX_SET_PRIV_PARSED) && (option & LY_CTX_SET_PRIV_PARSED)) {
         ctx->flags |= LY_CTX_SET_PRIV_PARSED;
@@ -618,13 +573,43 @@ lysc_node_clear_priv_dfs_cb(struct lysc_node *node, void *UNUSED(data), ly_bool 
     return LY_SUCCESS;
 }
 
-LIBYANG_API_DEF LY_ERR
-ly_ctx_unset_options(struct ly_ctx *ctx, uint16_t option)
+static void
+lysc_node_clear_all_priv(struct lys_module *mod)
 {
     LY_ARRAY_COUNT_TYPE u, v;
-    const struct lysc_ext_instance *ext;
-    struct lysc_node *root;
 
+    if (!mod->compiled) {
+        return;
+    }
+
+    /* set NULL for all ::lysc_node.priv pointers in module */
+    lysc_module_dfs_full(mod, lysc_node_clear_priv_dfs_cb, NULL);
+
+    /* only lys_compile_extension_instance()
+     * can set ::lysp_ext_instance.parsed
+     */
+    if (mod->parsed) {
+        struct lysp_ext_instance *exts_p;
+        exts_p = mod->parsed->exts;
+        LY_ARRAY_FOR(exts_p, u) {
+            if (exts_p[u].parsed) {
+                /* lys_compile_extension_instance() was called */
+                struct lysc_ext_substmt *substmts;
+                struct lysc_node *root;
+                /* set NULL for all ::lysc_node.priv pointers in extensions */
+                substmts = mod->compiled->exts[u].substmts;
+                LY_ARRAY_FOR(substmts, v) {
+                    root = *(struct lysc_node **)substmts[v].storage;
+                    lysc_tree_dfs_full(root, lysc_node_clear_priv_dfs_cb, NULL);
+                }
+            }
+        }
+    }
+}
+
+API LY_ERR
+ly_ctx_unset_options(struct ly_ctx *ctx, uint16_t option)
+{
     LY_CHECK_ARG_RET(ctx, ctx, LY_EINVAL);
     LY_CHECK_ERR_RET(option & LY_CTX_NO_YANGLIBRARY, LOGARG(ctx, option), LY_EINVAL);
 
@@ -634,24 +619,7 @@ ly_ctx_unset_options(struct ly_ctx *ctx, uint16_t option)
 
         index = 0;
         while ((mod = ly_ctx_get_module_iter(ctx, &index))) {
-            if (!mod->compiled) {
-                continue;
-            }
-
-            /* set NULL for all ::lysc_node.priv pointers in module */
-            lysc_module_dfs_full(mod, lysc_node_clear_priv_dfs_cb, NULL);
-
-            /* set NULL for all ::lysc_node.priv pointers in compiled extension instances */
-            LY_ARRAY_FOR(mod->compiled->exts, u) {
-                ext = &mod->compiled->exts[u];
-                LY_ARRAY_FOR(ext->substmts, v) {
-                    if (ext->substmts[v].stmt & LY_STMT_DATA_NODE_MASK) {
-                        LY_LIST_FOR(*(struct lysc_node **)ext->substmts[v].storage, root) {
-                            lysc_tree_dfs_full(root, lysc_node_clear_priv_dfs_cb, NULL);
-                        }
-                    }
-                }
-            }
+            lysc_node_clear_all_priv(mod);
         }
     }
 
@@ -661,7 +629,7 @@ ly_ctx_unset_options(struct ly_ctx *ctx, uint16_t option)
     return LY_SUCCESS;
 }
 
-LIBYANG_API_DEF uint16_t
+API uint16_t
 ly_ctx_get_change_count(const struct ly_ctx *ctx)
 {
     LY_CHECK_ARG_RET(ctx, ctx, 0);
@@ -669,40 +637,16 @@ ly_ctx_get_change_count(const struct ly_ctx *ctx)
     return ctx->change_count;
 }
 
-LIBYANG_API_DEF uint32_t
-ly_ctx_get_modules_hash(const struct ly_ctx *ctx)
+API void
+ly_ctx_set_module_imp_clb(struct ly_ctx *ctx, ly_module_imp_clb clb, void *user_data)
 {
-    const struct lys_module *mod;
-    uint32_t i = ly_ctx_internal_modules_count(ctx), hash = 0, fi = 0;
-    struct lysp_feature *f = NULL;
+    LY_CHECK_ARG_RET(ctx, ctx, );
 
-    LY_CHECK_ARG_RET(ctx, ctx, 0);
-
-    while ((mod = ly_ctx_get_module_iter(ctx, &i))) {
-        /* name */
-        hash = lyht_hash_multi(hash, mod->name, strlen(mod->name));
-
-        /* revision */
-        if (mod->revision) {
-            hash = lyht_hash_multi(hash, mod->revision, strlen(mod->revision));
-        }
-
-        /* enabled features */
-        while ((f = lysp_feature_next(f, mod->parsed, &fi))) {
-            if (f->flags & LYS_FENABLED) {
-                hash = lyht_hash_multi(hash, f->name, strlen(f->name));
-            }
-        }
-
-        /* imported/implemented */
-        hash = lyht_hash_multi(hash, (char *)&mod->implemented, sizeof mod->implemented);
-    }
-
-    hash = lyht_hash_multi(hash, NULL, 0);
-    return hash;
+    ctx->imp_clb = clb;
+    ctx->imp_clb_data = user_data;
 }
 
-LIBYANG_API_DEF ly_module_imp_clb
+API ly_module_imp_clb
 ly_ctx_get_module_imp_clb(const struct ly_ctx *ctx, void **user_data)
 {
     LY_CHECK_ARG_RET(ctx, ctx, NULL);
@@ -713,30 +657,7 @@ ly_ctx_get_module_imp_clb(const struct ly_ctx *ctx, void **user_data)
     return ctx->imp_clb;
 }
 
-LIBYANG_API_DEF void
-ly_ctx_set_module_imp_clb(struct ly_ctx *ctx, ly_module_imp_clb clb, void *user_data)
-{
-    LY_CHECK_ARG_RET(ctx, ctx, );
-
-    ctx->imp_clb = clb;
-    ctx->imp_clb_data = user_data;
-}
-
-LIBYANG_API_DEF ly_ext_data_clb
-ly_ctx_set_ext_data_clb(struct ly_ctx *ctx, ly_ext_data_clb clb, void *user_data)
-{
-    ly_ext_data_clb prev;
-
-    LY_CHECK_ARG_RET(ctx, ctx, NULL);
-
-    prev = ctx->ext_clb;
-    ctx->ext_clb = clb;
-    ctx->ext_clb_data = user_data;
-
-    return prev;
-}
-
-LIBYANG_API_DEF struct lys_module *
+API struct lys_module *
 ly_ctx_get_module_iter(const struct ly_ctx *ctx, uint32_t *index)
 {
     LY_CHECK_ARG_RET(ctx, ctx, index, NULL);
@@ -812,14 +733,14 @@ ly_ctx_get_module_by(const struct ly_ctx *ctx, const char *key, size_t key_offse
     return NULL;
 }
 
-LIBYANG_API_DEF struct lys_module *
+API struct lys_module *
 ly_ctx_get_module_ns(const struct ly_ctx *ctx, const char *ns, const char *revision)
 {
     LY_CHECK_ARG_RET(ctx, ctx, ns, NULL);
     return ly_ctx_get_module_by(ctx, ns, offsetof(struct lys_module, ns), revision);
 }
 
-LIBYANG_API_DEF struct lys_module *
+API struct lys_module *
 ly_ctx_get_module(const struct ly_ctx *ctx, const char *name, const char *revision)
 {
     LY_CHECK_ARG_RET(ctx, ctx, name, NULL);
@@ -848,14 +769,14 @@ ly_ctx_get_module_latest_by(const struct ly_ctx *ctx, const char *key, size_t ke
     return NULL;
 }
 
-LIBYANG_API_DEF struct lys_module *
+API struct lys_module *
 ly_ctx_get_module_latest(const struct ly_ctx *ctx, const char *name)
 {
     LY_CHECK_ARG_RET(ctx, ctx, name, NULL);
     return ly_ctx_get_module_latest_by(ctx, name, offsetof(struct lys_module, name));
 }
 
-LIBYANG_API_DEF struct lys_module *
+API struct lys_module *
 ly_ctx_get_module_latest_ns(const struct ly_ctx *ctx, const char *ns)
 {
     LY_CHECK_ARG_RET(ctx, ctx, ns, NULL);
@@ -885,7 +806,7 @@ ly_ctx_get_module_implemented_by(const struct ly_ctx *ctx, const char *key, size
     return NULL;
 }
 
-LIBYANG_API_DEF struct lys_module *
+API struct lys_module *
 ly_ctx_get_module_implemented(const struct ly_ctx *ctx, const char *name)
 {
     LY_CHECK_ARG_RET(ctx, ctx, name, NULL);
@@ -899,7 +820,7 @@ ly_ctx_get_module_implemented2(const struct ly_ctx *ctx, const char *name, size_
     return ly_ctx_get_module_implemented_by(ctx, name, name_len, offsetof(struct lys_module, name));
 }
 
-LIBYANG_API_DEF struct lys_module *
+API struct lys_module *
 ly_ctx_get_module_implemented_ns(const struct ly_ctx *ctx, const char *ns)
 {
     LY_CHECK_ARG_RET(ctx, ctx, ns, NULL);
@@ -976,47 +897,53 @@ _ly_ctx_get_submodule(const struct ly_ctx *ctx, const char *submodule, const cha
     return submod;
 }
 
-LIBYANG_API_DEF const struct lysp_submodule *
+API const struct lysp_submodule *
 ly_ctx_get_submodule(const struct ly_ctx *ctx, const char *submodule, const char *revision)
 {
     return _ly_ctx_get_submodule(ctx, submodule, revision, 0);
 }
 
-LIBYANG_API_DEF const struct lysp_submodule *
+API const struct lysp_submodule *
 ly_ctx_get_submodule_latest(const struct ly_ctx *ctx, const char *submodule)
 {
     return _ly_ctx_get_submodule(ctx, submodule, NULL, 1);
 }
 
-LIBYANG_API_DEF const struct lysp_submodule *
+API const struct lysp_submodule *
 ly_ctx_get_submodule2(const struct lys_module *module, const char *submodule, const char *revision)
 {
     return _ly_ctx_get_submodule2(module, submodule, revision, 0);
 }
 
-LIBYANG_API_DEF const struct lysp_submodule *
+API const struct lysp_submodule *
 ly_ctx_get_submodule2_latest(const struct lys_module *module, const char *submodule)
 {
     return _ly_ctx_get_submodule2(module, submodule, NULL, 1);
 }
 
-LIBYANG_API_DEF void
+API void
 ly_ctx_reset_latests(struct ly_ctx *ctx)
 {
     struct lys_module *mod;
 
     for (uint32_t v = 0; v < ctx->list.count; ++v) {
         mod = ctx->list.objs[v];
-        mod->latest_revision &= ~(LYS_MOD_LATEST_SEARCHDIRS | LYS_MOD_LATEST_IMPCLB);
+        if (mod->latest_revision & LYS_MOD_LATEST_SEARCHDIRS) {
+            mod->latest_revision &= ~LYS_MOD_LATEST_SEARCHDIRS;
+            assert(mod->latest_revision & LYS_MOD_LATEST_REV);
+        }
         if (mod->parsed && mod->parsed->includes) {
             for (LY_ARRAY_COUNT_TYPE u = 0; u < LY_ARRAY_COUNT(mod->parsed->includes); ++u) {
-                mod->parsed->includes[u].submodule->latest_revision &= ~(LYS_MOD_LATEST_SEARCHDIRS | LYS_MOD_LATEST_IMPCLB);
+                if (mod->parsed->includes[u].submodule->latest_revision & LYS_MOD_LATEST_SEARCHDIRS) {
+                    mod->parsed->includes[u].submodule->latest_revision &= ~LYS_MOD_LATEST_SEARCHDIRS;
+                    assert(mod->latest_revision & LYS_MOD_LATEST_REV);
+                }
             }
         }
     }
 }
 
-LIBYANG_API_DEF uint32_t
+API uint32_t
 ly_ctx_internal_modules_count(const struct ly_ctx *ctx)
 {
     if (!ctx) {
@@ -1124,7 +1051,7 @@ ylib_submodules(struct lyd_node *parent, const struct lysp_module *pmod, ly_bool
     return LY_SUCCESS;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 ly_ctx_get_yanglib_data(const struct ly_ctx *ctx, struct lyd_node **root_p, const char *content_id_format, ...)
 {
     LY_ERR ret;
@@ -1273,23 +1200,10 @@ error:
     return ret;
 }
 
-/**
- * @brief Callback for freeing context error hash table values.
- *
- * @param[in] val_p Pointer to a pointer to an error item to free with all the siblings.
- */
-static void
-ly_ctx_ht_err_rec_free(void *val_p)
-{
-    struct ly_ctx_err_rec *err = val_p;
-
-    ly_err_free(err->err);
-}
-
-LIBYANG_API_DEF void
+API void
 ly_ctx_destroy(struct ly_ctx *ctx)
 {
-    struct lysf_ctx fctx = {.ctx = ctx};
+    struct lys_module *mod;
 
     if (!ctx) {
         return;
@@ -1297,20 +1211,17 @@ ly_ctx_destroy(struct ly_ctx *ctx)
 
     /* models list */
     for ( ; ctx->list.count; ctx->list.count--) {
-        fctx.mod = ctx->list.objs[ctx->list.count - 1];
+        mod = ctx->list.objs[ctx->list.count - 1];
 
         /* remove the module */
-        if (fctx.mod->implemented) {
-            fctx.mod->implemented = 0;
-            lysc_module_free(&fctx, fctx.mod->compiled);
-            fctx.mod->compiled = NULL;
+        if (mod->implemented) {
+            mod->implemented = 0;
+            lysc_module_free(mod->compiled);
+            mod->compiled = NULL;
         }
-        lys_module_free(&fctx, fctx.mod, 0);
+        lys_module_free(ctx->list.objs[ctx->list.count - 1]);
     }
     free(ctx->list.objs);
-
-    /* free extensions */
-    lysf_ctx_erase(&fctx);
 
     /* search paths list */
     ly_set_erase(&ctx->search_paths, free);
@@ -1318,8 +1229,9 @@ ly_ctx_destroy(struct ly_ctx *ctx)
     /* leftover unres */
     lys_unres_glob_erase(&ctx->unres);
 
-    /* clean the error hash table */
-    lyht_free(ctx->err_ht, ly_ctx_ht_err_rec_free);
+    /* clean the error list */
+    ly_err_clean(ctx, 0);
+    pthread_key_delete(ctx->errlist_key);
 
     /* dictionary */
     lydict_clean(&ctx->dict);

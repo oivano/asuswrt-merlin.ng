@@ -52,11 +52,6 @@ extern const struct lyplg_type_record plugins_string[];
 extern const struct lyplg_type_record plugins_union[];
 
 /*
- * yang
- */
-extern const struct lyplg_type_record plugins_instanceid_keys[];
-
-/*
  * ietf-inet-types
  */
 extern const struct lyplg_type_record plugins_ipv4_address[];
@@ -70,7 +65,6 @@ extern const struct lyplg_type_record plugins_ipv6_prefix[];
  * ietf-yang-types
  */
 extern const struct lyplg_type_record plugins_date_and_time[];
-extern const struct lyplg_type_record plugins_hex_string[];
 extern const struct lyplg_type_record plugins_xpath10[];
 
 /*
@@ -84,8 +78,6 @@ extern const struct lyplg_type_record plugins_node_instanceid[];
 extern struct lyplg_ext_record plugins_metadata[];
 extern struct lyplg_ext_record plugins_nacm[];
 extern struct lyplg_ext_record plugins_yangdata[];
-extern struct lyplg_ext_record plugins_schema_mount[];
-extern struct lyplg_ext_record plugins_structure[];
 
 static pthread_mutex_t plugins_guard = PTHREAD_MUTEX_INITIALIZER;
 
@@ -148,8 +140,8 @@ plugins_iter(enum LYPLG type, uint32_t *index)
     return plugins->objs[*index - 1];
 }
 
-static void *
-lyplg_record_find(enum LYPLG type, const char *module, const char *revision, const char *name)
+void *
+lyplg_find(enum LYPLG type, const char *module, const char *revision, const char *name)
 {
     uint32_t i = 0;
     struct lyplg_record *item;
@@ -165,26 +157,11 @@ lyplg_record_find(enum LYPLG type, const char *module, const char *revision, con
                 continue;
             }
 
-            return item;
+            return &item->plugin;
         }
     }
 
     return NULL;
-}
-
-struct lyplg_type *
-lyplg_type_plugin_find(const char *module, const char *revision, const char *name)
-{
-    struct lyplg_record *record;
-
-    record = lyplg_record_find(LYPLG_TYPE, module, revision, name);
-    return record ? &((struct lyplg_type_record *)record)->plugin : NULL;
-}
-
-struct lyplg_ext_record *
-lyplg_ext_record_find(const char *module, const char *revision, const char *name)
-{
-    return lyplg_record_find(LYPLG_EXTENSION, module, revision, name);
 }
 
 /**
@@ -315,7 +292,6 @@ plugins_load(void *dlhandler, const char *pathname, enum LYPLG type)
         /* ... get types plugins information ... */
         if (!(plugins = dlsym(dlhandler, plugins_load_info[type].plugins_var))) {
             char *errstr = dlerror();
-
             LOGERR(NULL, LY_EINVAL, "Processing user %s plugin \"%s\" failed, missing %s plugins information (%s).",
                     plugins_load_info[type].id, pathname, plugins_load_info[type].id, errstr);
             return LY_EINVAL;
@@ -463,9 +439,6 @@ lyplg_init(void)
     LY_CHECK_GOTO(ret = plugins_insert(LYPLG_TYPE, plugins_string), error);
     LY_CHECK_GOTO(ret = plugins_insert(LYPLG_TYPE, plugins_union), error);
 
-    /* yang */
-    LY_CHECK_GOTO(ret = plugins_insert(LYPLG_TYPE, plugins_instanceid_keys), error);
-
     /* ietf-inet-types */
     LY_CHECK_GOTO(ret = plugins_insert(LYPLG_TYPE, plugins_ipv4_address), error);
     LY_CHECK_GOTO(ret = plugins_insert(LYPLG_TYPE, plugins_ipv4_address_no_zone), error);
@@ -476,7 +449,6 @@ lyplg_init(void)
 
     /* ietf-yang-types */
     LY_CHECK_GOTO(ret = plugins_insert(LYPLG_TYPE, plugins_date_and_time), error);
-    LY_CHECK_GOTO(ret = plugins_insert(LYPLG_TYPE, plugins_hex_string), error);
     LY_CHECK_GOTO(ret = plugins_insert(LYPLG_TYPE, plugins_xpath10), error);
 
     /* ietf-netconf-acm */
@@ -486,8 +458,6 @@ lyplg_init(void)
     LY_CHECK_GOTO(ret = plugins_insert(LYPLG_EXTENSION, plugins_metadata), error);
     LY_CHECK_GOTO(ret = plugins_insert(LYPLG_EXTENSION, plugins_nacm), error);
     LY_CHECK_GOTO(ret = plugins_insert(LYPLG_EXTENSION, plugins_yangdata), error);
-    LY_CHECK_GOTO(ret = plugins_insert(LYPLG_EXTENSION, plugins_schema_mount), error);
-    LY_CHECK_GOTO(ret = plugins_insert(LYPLG_EXTENSION, plugins_structure), error);
 
 #ifndef STATIC
     /* external types */
@@ -516,18 +486,13 @@ error:
     return ret;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 lyplg_add(const char *pathname)
 {
 #ifdef STATIC
     (void)pathname;
 
     LOGERR(NULL, LY_EINVAL, "Plugins are not supported in statically built library.");
-    return LY_EINVAL;
-#elif defined (_WIN32)
-    (void)pathname;
-
-    LOGERR(NULL, LY_EINVAL, "Plugins are not (yet) supported on Windows.");
     return LY_EINVAL;
 #else
     LY_ERR ret = LY_SUCCESS;

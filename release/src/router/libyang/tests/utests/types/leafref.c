@@ -64,8 +64,8 @@
 static void
 test_data_xml(void **state)
 {
-    const char *schema, *schema2, *schema3, *data;
-    struct lyd_node *tree;
+    const char *schema, *schema2, *data2;
+    struct lyd_node *tree2;
 
     /* xml test */
     schema = MODULE_CREATE_YANG("defs", "leaf lref {type leafref {path /leaflisttarget; require-instance true;}}"
@@ -97,41 +97,27 @@ test_data_xml(void **state)
             "<str-norestr xmlns=\"urn:tests:defs\">y</str-norestr>",
             "defs", "xmlns:a=\"urn:tests:defs\"", "a:lref2", "y", STRING, "y");
 
-    data = "<str-norestr xmlns=\"urn:tests:defs\">y</str-norestr>"
+    data2 = "<str-norestr xmlns=\"urn:tests:defs\">y</str-norestr>"
             "<c xmlns=\"urn:tests:leafrefs\"><l><id>x</id><value>x</value><lr1>y</lr1></l></c>";
-    CHECK_PARSE_LYD_PARAM(data, LYD_XML, 0, LYD_VALIDATE_PRESENT, LY_SUCCESS, tree);
-    CHECK_LYD_NODE_TERM((struct lyd_node_term *)lyd_child(lyd_child(tree->next->next)->next)->next->next,
+    CHECK_PARSE_LYD_PARAM(data2, LYD_XML, 0, LYD_VALIDATE_PRESENT, LY_SUCCESS, tree2);
+    CHECK_LYD_NODE_TERM((struct lyd_node_term *)lyd_child(lyd_child(tree2->next->next)->next)->next->next,
             0, 0, 0, 1, 1, STRING, "y");
-    lyd_free_all(tree);
+    lyd_free_all(tree2);
 
-    data = "<list xmlns=\"urn:tests:defs\"><id>x</id><targets>a</targets><targets>b</targets></list>"
+    data2 = "<list xmlns=\"urn:tests:defs\"><id>x</id><targets>a</targets><targets>b</targets></list>"
             "<list xmlns=\"urn:tests:defs\"><id>y</id><targets>c</targets><targets>d</targets></list>"
             "<c xmlns=\"urn:tests:leafrefs\"><x><x>y</x></x>"
             "<l><id>x</id><value>x</value><lr3>c</lr3></l></c>";
-    CHECK_PARSE_LYD_PARAM(data, LYD_XML, 0, LYD_VALIDATE_PRESENT, LY_SUCCESS, tree);
-    CHECK_LYD_NODE_TERM((struct lyd_node_term *)lyd_child(lyd_child(tree->next->next->next)->next)->next->next,
+    CHECK_PARSE_LYD_PARAM(data2, LYD_XML, 0, LYD_VALIDATE_PRESENT, LY_SUCCESS, tree2);
+    CHECK_LYD_NODE_TERM((struct lyd_node_term *)lyd_child(lyd_child(tree2->next->next->next)->next)->next->next,
             0, 0, 0, 1, 1, STRING, "c");
-    lyd_free_all(tree);
-
-    schema3 = MODULE_CREATE_YANG("simple", "leaf l1 {type leafref {path \"../target\";}}"
-            "leaf target {type string;}");
-    UTEST_ADD_MODULE(schema3, LYS_IN_YANG, NULL, NULL);
-
-    data = "<l1 xmlns=\"urn:tests:simple\">&quot;*&quot;&#39;</l1>"
-            "<target xmlns=\"urn:tests:simple\">&quot;*&quot;&#39;</target>";
-    CHECK_PARSE_LYD_PARAM(data, LYD_XML, 0, LYD_VALIDATE_PRESENT, LY_SUCCESS, tree);
-    lyd_free_all(tree);
-
-    data = "<l1 xmlns=\"urn:tests:simple\">&quot;*&#39;&quot;</l1>"
-            "<target xmlns=\"urn:tests:simple\">&quot;*&#39;&quot;</target>";
-    CHECK_PARSE_LYD_PARAM(data, LYD_XML, 0, LYD_VALIDATE_PRESENT, LY_SUCCESS, tree);
-    lyd_free_all(tree);
+    lyd_free_all(tree2);
 
     /* invalid value */
     TEST_ERROR_XML2("<leaflisttarget xmlns=\"urn:tests:defs\">x</leaflisttarget>",
             "defs", "", "lref", "y", LY_EVALID);
     CHECK_LOG_CTX_APPTAG("Invalid leafref value \"y\" - no target instance \"/leaflisttarget\" with the same value.",
-            "Data location \"/defs:lref\".", "instance-required");
+            "Schema location /defs:lref, data location /defs:lref.", "instance-required");
 
     TEST_ERROR_XML2("<list xmlns=\"urn:tests:defs\"><id>x</id><targets>a</targets><targets>b</targets></list>"
             "<list xmlns=\"urn:tests:defs\"><id>y</id><targets>x</targets><targets>y</targets></list>"
@@ -139,62 +125,36 @@ test_data_xml(void **state)
             "defs", "", "lref2", "b", LY_EVALID);
     CHECK_LOG_CTX_APPTAG("Invalid leafref value \"b\" - "
             "no target instance \"../list[id = current()/../str-norestr]/targets\" with the same value.",
-            "Data location \"/defs:lref2\".", "instance-required");
+            "Schema location /defs:lref2, data location /defs:lref2.", "instance-required");
 
     TEST_ERROR_XML2("<list xmlns=\"urn:tests:defs\"><id>x</id><targets>a</targets><targets>b</targets></list>"
             "<list xmlns=\"urn:tests:defs\"><id>y</id><targets>x</targets><targets>y</targets></list>",
             "defs", "", "lref2", "b", LY_EVALID);
     CHECK_LOG_CTX_APPTAG("Invalid leafref value \"b\" - "
-            "no target instance \"../list[id = current()/../str-norestr]/targets\" with the same value.",
-            "Data location \"/defs:lref2\".", "instance-required");
+            "no existing target instance \"../list[id = current()/../str-norestr]/targets\".",
+            "Schema location /defs:lref2, data location /defs:lref2.", "instance-required");
 
     TEST_ERROR_XML2("<str-norestr xmlns=\"urn:tests:defs\">y</str-norestr>",
             "defs", "", "lref2", "b", LY_EVALID);
     CHECK_LOG_CTX_APPTAG("Invalid leafref value \"b\" - "
-            "no target instance \"../list[id = current()/../str-norestr]/targets\" with the same value.",
-            "Data location \"/defs:lref2\".", "instance-required");
+            "no existing target instance \"../list[id = current()/../str-norestr]/targets\".",
+            "Schema location /defs:lref2, data location /defs:lref2.", "instance-required");
 
     TEST_ERROR_XML2("<str-norestr xmlns=\"urn:tests:defs\">y</str-norestr>",
             "leafrefs", "", "c", "<l><id>x</id><value>x</value><lr1>a</lr1></l>", LY_EVALID);
     CHECK_LOG_CTX_APPTAG("Invalid leafref value \"a\" - no target instance \"../../../t:str-norestr\" with the same value.",
-            "Data location \"/leafrefs:c/l[id='x'][value='x']/lr1\".", "instance-required");
+            "Schema location /leafrefs:c/l/lr1, data location /leafrefs:c/l[id='x'][value='x']/lr1.", "instance-required");
 
     TEST_ERROR_XML2("<str-norestr xmlns=\"urn:tests:defs\">z</str-norestr>",
             "leafrefs", "", "c", "<l><id>y</id><value>y</value></l><l><id>x</id><value>x</value><lr2>z</lr2></l>", LY_EVALID);
-    CHECK_LOG_CTX_APPTAG("Invalid leafref value \"z\" - no target instance \"../../l[id=current()/../../../t:str-norestr]"
-            "[value=current()/../../../t:str-norestr]/value\" with the same value.",
-            "Data location \"/leafrefs:c/l[id='x'][value='x']/lr2\".", "instance-required");
+    CHECK_LOG_CTX_APPTAG("Invalid leafref value \"z\" - no existing target instance \"../../l[id=current()/../../../t:str-norestr]"
+            "[value=current()/../../../t:str-norestr]/value\".",
+            "Schema location /leafrefs:c/l/lr2, data location /leafrefs:c/l[id='x'][value='x']/lr2.", "instance-required");
 
     TEST_ERROR_XML2("",
             "defs", "", "lref", "%n", LY_EVALID);
-    CHECK_LOG_CTX_APPTAG("Invalid leafref value \"%n\" - no target instance \"/leaflisttarget\" with the same value.",
-            "Data location \"/defs:lref\".", "instance-required");
-}
-
-static void
-test_data_json(void **state)
-{
-    const char *schema, *data;
-    struct lyd_node *tree;
-
-    /* json test */
-    schema = MODULE_CREATE_YANG("simple", "leaf l1 {type leafref {path \"../target\";}}"
-            "leaf target {type string;}");
-    UTEST_ADD_MODULE(schema, LYS_IN_YANG, NULL, NULL);
-
-    data = "{"
-            "  \"simple:l1\":\"\\\"*\\\"'\","
-            "  \"simple:target\":\"\\\"*\\\"'\""
-            "}";
-    CHECK_PARSE_LYD_PARAM(data, LYD_JSON, 0, LYD_VALIDATE_PRESENT, LY_SUCCESS, tree);
-    lyd_free_all(tree);
-
-    data = "{"
-            "  \"simple:l1\":\"\\\"*'\\\"\","
-            "  \"simple:target\":\"\\\"*'\\\"\""
-            "}";
-    CHECK_PARSE_LYD_PARAM(data, LYD_JSON, 0, LYD_VALIDATE_PRESENT, LY_SUCCESS, tree);
-    lyd_free_all(tree);
+    CHECK_LOG_CTX_APPTAG("Invalid leafref value \"%n\" - no existing target instance \"/leaflisttarget\".",
+            "Schema location /defs:lref, data location /defs:lref.", "instance-required");
 }
 
 static void
@@ -209,46 +169,12 @@ test_plugin_lyb(void **state)
     TEST_SUCCESS_LYB("lyb", "lst", "key_str", "lref", "key_str");
 }
 
-static void
-test_data_xpath_json(void **state)
-{
-    const char *schema, *data;
-    struct lyd_node *tree;
-
-    ly_ctx_set_options(UTEST_LYCTX, LY_CTX_LEAFREF_EXTENDED);
-
-    /* json xpath test */
-    schema = MODULE_CREATE_YANG("xp_test",
-            "list l1 {key t1;"
-            "leaf t1 {type uint8;}"
-            "list l2 {key t2;"
-            "leaf t2 {type uint8;}"
-            "leaf-list l3 {type uint8;}"
-            "}}"
-            "leaf r1 {type leafref {path \"../l1/t1\";}}"
-            "leaf r2 {type leafref {path \"deref(../r1)/../l2/t2\";}}"
-            "leaf r3 {type leafref {path \"deref(../r2)/../l3\";}}");
-
-    UTEST_ADD_MODULE(schema, LYS_IN_YANG, NULL, NULL);
-
-    data = "{"
-            "  \"xp_test:l1\":[{\"t1\": 1,\"l2\":[{\"t2\": 2,\"l3\":[3]}]}],"
-            "  \"xp_test:r1\": 1,"
-            "  \"xp_test:r2\": 2,"
-            "  \"xp_test:r3\": 3"
-            "}";
-    CHECK_PARSE_LYD_PARAM(data, LYD_JSON, 0, LYD_VALIDATE_PRESENT, LY_SUCCESS, tree);
-    lyd_free_all(tree);
-}
-
 int
 main(void)
 {
     const struct CMUnitTest tests[] = {
         UTEST(test_data_xml),
-        UTEST(test_data_json),
         UTEST(test_plugin_lyb),
-        UTEST(test_data_xpath_json),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);

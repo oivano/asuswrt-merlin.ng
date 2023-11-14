@@ -1,10 +1,9 @@
 /**
  * @file identityref.c
  * @author Radek Krejci <rkrejci@cesnet.cz>
- * @author Michal Vasko <mvasko@cesnet.cz>
  * @brief Built-in identityref type plugin.
  *
- * Copyright (c) 2019-2023 CESNET, z.s.p.o.
+ * Copyright (c) 2019-2021 CESNET, z.s.p.o.
  *
  * This source code is licensed under BSD 3-Clause License (the "License").
  * You may not use this file except in compliance with the License.
@@ -51,16 +50,8 @@ static LY_ERR
 identityref_ident2str(const struct lysc_ident *ident, LY_VALUE_FORMAT format, void *prefix_data, char **str, size_t *str_len)
 {
     int len;
-    const char *prefix;
 
-    /* get the prefix, may be NULL for no prefix and the default namespace */
-    prefix = lyplg_type_get_prefix(ident->module, format, prefix_data);
-
-    if (prefix) {
-        len = asprintf(str, "%s:%s", prefix, ident->name);
-    } else {
-        len = asprintf(str, "%s", ident->name);
-    }
+    len = asprintf(str, "%s:%s", lyplg_type_get_prefix(ident->module, format, prefix_data), ident->name);
     if (len == -1) {
         return LY_EMEM;
     }
@@ -228,7 +219,7 @@ identityref_check_ident(const struct lysc_ident *ident, const char *value,
     return ret;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 lyplg_type_store_identityref(const struct ly_ctx *ctx, const struct lysc_type *type, const void *value, size_t value_len,
         uint32_t options, LY_VALUE_FORMAT format, void *prefix_data, uint32_t hints, const struct lysc_node *ctx_node,
         struct lyd_value *storage, struct lys_glob_unres *unres, struct ly_err_item **err)
@@ -258,12 +249,6 @@ lyplg_type_store_identityref(const struct ly_ctx *ctx, const struct lysc_type *t
     ret = identityref_check_base(ident, type_ident, value, value_len, err);
     LY_CHECK_GOTO(ret, cleanup);
 
-    if (ctx_node) {
-        /* check status */
-        ret = lyplg_type_check_status(ctx_node, ident->flags, format, prefix_data, ident->name, err);
-        LY_CHECK_GOTO(ret, cleanup);
-    }
-
     /* store value */
     storage->ident = ident;
 
@@ -279,11 +264,8 @@ lyplg_type_store_identityref(const struct ly_ctx *ctx, const struct lysc_type *t
         }
     } else {
         /* JSON format with prefix is the canonical one */
-        if (asprintf(&canon, "%s:%s", ident->module->name, ident->name) == -1) {
-            LOGMEM(ctx);
-            ret = LY_EMEM;
-            goto cleanup;
-        }
+        ret = identityref_ident2str(ident, LY_VALUE_JSON, NULL, &canon, NULL);
+        LY_CHECK_GOTO(ret, cleanup);
 
         ret = lydict_insert_zc(ctx, canon, &storage->_canonical);
         LY_CHECK_GOTO(ret, cleanup);
@@ -300,7 +282,7 @@ cleanup:
     return ret;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 lyplg_type_compare_identityref(const struct lyd_value *val1, const struct lyd_value *val2)
 {
     if (val1->realtype != val2->realtype) {
@@ -313,13 +295,13 @@ lyplg_type_compare_identityref(const struct lyd_value *val1, const struct lyd_va
     return LY_ENOT;
 }
 
-LIBYANG_API_DEF const void *
+API const void *
 lyplg_type_print_identityref(const struct ly_ctx *UNUSED(ctx), const struct lyd_value *value, LY_VALUE_FORMAT format,
         void *prefix_data, ly_bool *dynamic, size_t *value_len)
 {
     char *ret;
 
-    if (format == LY_VALUE_CANON) {
+    if ((format == LY_VALUE_CANON) || (format == LY_VALUE_JSON) || (format == LY_VALUE_LYB)) {
         if (dynamic) {
             *dynamic = 0;
         }

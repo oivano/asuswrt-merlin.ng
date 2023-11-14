@@ -3,7 +3,7 @@
  * @author Michal Vasko <mvasko@cesnet.cz>
  * @brief LYB printer for libyang data structure
  *
- * Copyright (c) 2020 - 2022 CESNET, z.s.p.o.
+ * Copyright (c) 2020 CESNET, z.s.p.o.
  *
  * This source code is licensed under BSD 3-Clause License (the "License").
  * You may not use this file except in compliance with the License.
@@ -27,7 +27,6 @@
 #include "log.h"
 #include "out.h"
 #include "out_internal.h"
-#include "plugins_exts/metadata.h"
 #include "printer_data.h"
 #include "printer_internal.h"
 #include "set.h"
@@ -81,7 +80,7 @@ lyb_ptr_equal_cb(void *val1_p, void *val2_p, ly_bool UNUSED(mod), void *UNUSED(c
  * @return LY_EEXIST when the whole hash sequence sollides.
  */
 static LY_ERR
-lyb_hash_sequence_check(struct ly_ht *ht, struct lysc_node *sibling, LYB_HASH ht_col_id, LYB_HASH compare_col_id)
+lyb_hash_sequence_check(struct hash_table *ht, struct lysc_node *sibling, LYB_HASH ht_col_id, LYB_HASH compare_col_id)
 {
     struct lysc_node **col_node;
 
@@ -94,7 +93,6 @@ lyb_hash_sequence_check(struct ly_ht *ht, struct lysc_node *sibling, LYB_HASH ht
     lyht_set_cb(ht, lyb_ptr_equal_cb);
     do {
         int64_t j;
-
         for (j = (int64_t)compare_col_id; j > -1; --j) {
             if (lyb_get_hash(sibling, j) != lyb_get_hash(*col_node, j)) {
                 /* one non-colliding hash */
@@ -108,8 +106,7 @@ lyb_hash_sequence_check(struct ly_ht *ht, struct lysc_node *sibling, LYB_HASH ht
         }
 
         /* get next node inserted with last hash col ID ht_col_id */
-    } while (!lyht_find_next_with_collision_cb(ht, col_node, lyb_get_hash(*col_node, ht_col_id), lyb_hash_equal_cb,
-            (void **)&col_node));
+    } while (!lyht_find_next(ht, col_node, lyb_get_hash(*col_node, ht_col_id), (void **)&col_node));
 
     lyht_set_cb(ht, lyb_hash_equal_cb);
     return LY_SUCCESS;
@@ -123,9 +120,9 @@ lyb_hash_sequence_check(struct ly_ht *ht, struct lysc_node *sibling, LYB_HASH ht
  * @return LY_ERR value.
  */
 static LY_ERR
-lyb_hash_siblings(struct lysc_node *sibling, struct ly_ht **ht_p)
+lyb_hash_siblings(struct lysc_node *sibling, struct hash_table **ht_p)
 {
-    struct ly_ht *ht;
+    struct hash_table *ht;
     const struct lysc_node *parent;
     const struct lys_module *mod;
     LYB_HASH i;
@@ -148,7 +145,6 @@ lyb_hash_siblings(struct lysc_node *sibling, struct ly_ht **ht_p)
         for (i = 0; i < LYB_HASH_BITS; ++i) {
             /* check that we are not colliding with nodes inserted with a lower collision ID than ours */
             int64_t j;
-
             for (j = (int64_t)i - 1; j > -1; --j) {
                 if (lyb_hash_sequence_check(ht, sibling, (LYB_HASH)j, i)) {
                     break;
@@ -172,7 +168,7 @@ lyb_hash_siblings(struct lysc_node *sibling, struct ly_ht **ht_p)
                 if (lyht_insert(ht, &sibling, lyb_get_hash(sibling, i), NULL)) {
                     LOGINT(sibling->module->ctx);
                     lyht_set_cb(ht, lyb_hash_equal_cb);
-                    lyht_free(ht, NULL);
+                    lyht_free(ht);
                     return LY_EINT;
                 }
                 lyht_set_cb(ht, lyb_hash_equal_cb);
@@ -184,7 +180,7 @@ lyb_hash_siblings(struct lysc_node *sibling, struct ly_ht **ht_p)
         if (i == LYB_HASH_BITS) {
             /* wow */
             LOGINT(sibling->module->ctx);
-            lyht_free(ht, NULL);
+            lyht_free(ht);
             return LY_EINT;
         }
     }
@@ -205,7 +201,7 @@ lyb_hash_siblings(struct lysc_node *sibling, struct ly_ht **ht_p)
  * @return LY_ERR value.
  */
 static LY_ERR
-lyb_hash_find(struct ly_ht *ht, struct lysc_node *node, LYB_HASH *hash_p)
+lyb_hash_find(struct hash_table *ht, struct lysc_node *node, LYB_HASH *hash_p)
 {
     LYB_HASH hash;
     uint32_t i;
@@ -401,7 +397,7 @@ lyb_write_number(uint64_t num, size_t bytes, struct ly_out *out, struct lylyb_ct
  *
  * @param[in] str String to write.
  * @param[in] str_len Length of @p str.
- * @param[in] len_size Size of @p str_len in bytes.
+ * @param[in] len_size Size of @ str_len in bytes.
  * @param[in] out Out structure.
  * @param[in] lybctx LYB context.
  * @return LY_ERR value.
@@ -453,28 +449,27 @@ lyb_write_string(const char *str, size_t str_len, uint8_t len_size, struct ly_ou
  *
  * @param[in] out Out structure.
  * @param[in] mod Module to print.
- * @param[in] with_features Whether to also print enabled features or not.
  * @param[in] lybctx LYB context.
  * @return LY_ERR value.
  */
 static LY_ERR
-lyb_print_model(struct ly_out *out, const struct lys_module *mod, ly_bool with_features, struct lylyb_ctx *lybctx)
+lyb_print_model(struct ly_out *out, const struct lys_module *mod, struct lylyb_ctx *lybctx)
 {
-    LY_ERR rc = LY_SUCCESS;
     uint16_t revision;
-    struct ly_set feat_set = {0};
-    struct lysp_feature *f = NULL;
-    uint32_t i = 0;
-    int r;
 
     /* model name length and model name */
-    LY_CHECK_GOTO(rc = lyb_write_string(mod->name, 0, sizeof(uint16_t), out, lybctx), cleanup);
+    if (mod) {
+        LY_CHECK_RET(lyb_write_string(mod->name, 0, sizeof(uint16_t), out, lybctx));
+    } else {
+        lyb_write_number(0, 2, out, lybctx);
+        return LY_SUCCESS;
+    }
 
     /* model revision as XXXX XXXX XXXX XXXX (2B) (year is offset from 2000)
      *                   YYYY YYYM MMMD DDDD */
     revision = 0;
-    if (mod->revision) {
-        r = atoi(mod->revision);
+    if (mod && mod->revision) {
+        int r = atoi(mod->revision);
         r -= LYB_REV_YEAR_OFFSET;
         r <<= LYB_REV_YEAR_SHIFT;
 
@@ -489,30 +484,14 @@ lyb_print_model(struct ly_out *out, const struct lys_module *mod, ly_bool with_f
 
         revision |= r;
     }
-    LY_CHECK_GOTO(rc = lyb_write_number(revision, sizeof revision, out, lybctx), cleanup);
+    LY_CHECK_RET(lyb_write_number(revision, sizeof revision, out, lybctx));
 
-    if (with_features) {
-        /* collect enabled module features */
-        while ((f = lysp_feature_next(f, mod->parsed, &i))) {
-            if (f->flags & LYS_FENABLED) {
-                LY_CHECK_GOTO(rc = ly_set_add(&feat_set, f, 1, NULL), cleanup);
-            }
-        }
-
-        /* print enabled feature count and their names */
-        LY_CHECK_GOTO(rc = lyb_write_number(feat_set.count, sizeof(uint16_t), out, lybctx), cleanup);
-        for (i = 0; i < feat_set.count; ++i) {
-            f = feat_set.objs[i];
-            LY_CHECK_GOTO(rc = lyb_write_string(f->name, 0, sizeof(uint16_t), out, lybctx), cleanup);
-        }
+    if (mod) {
+        /* fill cached hashes, if not already */
+        lyb_cache_module_hash(mod);
     }
 
-    /* fill cached hashes, if not already */
-    lyb_cache_module_hash(mod);
-
-cleanup:
-    ly_set_erase(&feat_set, NULL);
-    return rc;
+    return LY_SUCCESS;
 }
 
 /**
@@ -566,7 +545,7 @@ lyb_print_data_models(struct ly_out *out, const struct lyd_node *root, struct ly
 
     /* and all the used models */
     for (i = 0; i < set->count; ++i) {
-        LY_CHECK_GOTO(ret = lyb_print_model(out, set->objs[i], 1, lybctx), cleanup);
+        LY_CHECK_GOTO(ret = lyb_print_model(out, set->objs[i], lybctx), cleanup);
     }
 
 cleanup:
@@ -701,7 +680,7 @@ lyb_print_term_value(struct lyd_node_term *term, struct ly_out *out, struct lyly
 
         if (value_len > UINT32_MAX) {
             LOGERR(lybctx->ctx, LY_EINT, "The maximum length of the LYB data "
-                    "from a term node must not exceed %" PRIu32 ".", UINT32_MAX);
+                    "from a term node must not exceed %lu.", UINT32_MAX);
             ret = LY_EINT;
             goto cleanup;
         }
@@ -777,7 +756,7 @@ lyb_print_metadata(struct ly_out *out, const struct lyd_node *node, struct lyd_l
 
     if (wd_mod) {
         /* write the "default" metadata */
-        LY_CHECK_RET(lyb_print_model(out, wd_mod, 0, lybctx->lybctx));
+        LY_CHECK_RET(lyb_print_model(out, wd_mod, lybctx->lybctx));
         LY_CHECK_RET(lyb_write_string("default", 0, sizeof(uint16_t), out, lybctx->lybctx));
         LY_CHECK_RET(lyb_write_string("true", 0, sizeof(uint16_t), out, lybctx->lybctx));
     }
@@ -785,7 +764,7 @@ lyb_print_metadata(struct ly_out *out, const struct lyd_node *node, struct lyd_l
     /* write all the node metadata */
     LY_LIST_FOR(node->meta, iter) {
         /* model */
-        LY_CHECK_RET(lyb_print_model(out, iter->annotation->module, 0, lybctx->lybctx));
+        LY_CHECK_RET(lyb_print_model(out, iter->annotation->module, lybctx->lybctx));
 
         /* annotation name with length */
         LY_CHECK_RET(lyb_write_string(iter->name, 0, sizeof(uint16_t), out, lybctx->lybctx));
@@ -856,7 +835,7 @@ lyb_print_attributes(struct ly_out *out, const struct lyd_node_opaq *node, struc
  * @return LY_ERR value.
  */
 static LY_ERR
-lyb_print_schema_hash(struct ly_out *out, struct lysc_node *schema, struct ly_ht **sibling_ht, struct lylyb_ctx *lybctx)
+lyb_print_schema_hash(struct ly_out *out, struct lysc_node *schema, struct hash_table **sibling_ht, struct lylyb_ctx *lybctx)
 {
     LY_ARRAY_COUNT_TYPE u;
     uint32_t i;
@@ -944,35 +923,6 @@ lyb_print_node_header(struct ly_out *out, const struct lyd_node *node, struct ly
 }
 
 /**
- * @brief Print LYB node type.
- *
- * @param[in] out Out structure.
- * @param[in] node Current data node to print.
- * @param[in] lybctx LYB context.
- * @return LY_ERR value.
- */
-static LY_ERR
-lyb_print_lyb_type(struct ly_out *out, const struct lyd_node *node, struct lyd_lyb_ctx *lybctx)
-{
-    enum lylyb_node_type lyb_type;
-
-    if (node->flags & LYD_EXT) {
-        assert(node->schema);
-        lyb_type = LYB_NODE_EXT;
-    } else if (!node->schema) {
-        lyb_type = LYB_NODE_OPAQ;
-    } else if (!lysc_data_parent(node->schema)) {
-        lyb_type = LYB_NODE_TOP;
-    } else {
-        lyb_type = LYB_NODE_CHILD;
-    }
-
-    LY_CHECK_RET(lyb_write_number(lyb_type, 1, out, lybctx->lybctx));
-
-    return LY_SUCCESS;
-}
-
-/**
  * @brief Print inner node.
  *
  * @param[in] out Out structure.
@@ -1054,12 +1004,8 @@ lyb_print_node_any(struct ly_out *out, struct lyd_node_any *anydata, struct lyd_
     struct ly_out *out2 = NULL;
     struct lylyb_ctx *lybctx = lyd_lybctx->lybctx;
 
-    if ((anydata->schema->nodetype == LYS_ANYDATA) && (anydata->value_type != LYD_ANYDATA_DATATREE)) {
-        LOGINT_RET(lybctx->ctx);
-    }
-
     if (anydata->value_type == LYD_ANYDATA_DATATREE) {
-        /* will be printed as a nested LYB data tree because the used modules need to be written */
+        /* will be printed as a nested LYB data tree */
         value_type = LYD_ANYDATA_LYB;
     } else {
         value_type = anydata->value_type;
@@ -1205,26 +1151,20 @@ lyb_print_node_list(struct ly_out *out, const struct lyd_node *node, struct lyd_
  * @return LY_ERR value.
  */
 static LY_ERR
-lyb_print_node(struct ly_out *out, const struct lyd_node **printed_node, struct ly_ht **sibling_ht,
+lyb_print_node(struct ly_out *out, const struct lyd_node **printed_node, struct hash_table **sibling_ht,
         struct lyd_lyb_ctx *lybctx)
 {
     const struct lyd_node *node = *printed_node;
 
-    /* write node type */
-    LY_CHECK_RET(lyb_print_lyb_type(out, node, lybctx));
-
-    /* write model info first */
-    if (node->schema && ((node->flags & LYD_EXT) || !lysc_data_parent(node->schema))) {
-        LY_CHECK_RET(lyb_print_model(out, node->schema->module, 0, lybctx->lybctx));
+    /* write model info first, for all opaque and top-level nodes */
+    if (!node->schema && (!node->parent || !node->parent->schema)) {
+        LY_CHECK_RET(lyb_print_model(out, NULL, lybctx->lybctx));
+    } else if (node->schema && !lysc_data_parent(node->schema)) {
+        LY_CHECK_RET(lyb_print_model(out, node->schema->module, lybctx->lybctx));
     }
 
-    if (node->flags & LYD_EXT) {
-        /* write schema node name */
-        LY_CHECK_RET(lyb_write_string(node->schema->name, 0, sizeof(uint16_t), out, lybctx->lybctx));
-    } else {
-        /* write schema hash */
-        LY_CHECK_RET(lyb_print_schema_hash(out, (struct lysc_node *)node->schema, sibling_ht, lybctx->lybctx));
-    }
+    /* write schema hash */
+    LY_CHECK_RET(lyb_print_schema_hash(out, (struct lysc_node *)node->schema, sibling_ht, lybctx->lybctx));
 
     if (!node->schema) {
         LY_CHECK_RET(lyb_print_node_opaq(out, (struct lyd_node_opaq *)node, lybctx));
@@ -1256,23 +1196,38 @@ lyb_print_node(struct ly_out *out, const struct lyd_node **printed_node, struct 
 static LY_ERR
 lyb_print_siblings(struct ly_out *out, const struct lyd_node *node, struct lyd_lyb_ctx *lybctx)
 {
-    struct ly_ht *sibling_ht = NULL;
+    struct hash_table *sibling_ht = NULL;
     const struct lys_module *prev_mod = NULL;
+    ly_bool top_level;
+    uint8_t zero[LYB_SIZE_BYTES] = {0};
+
+    if (!node) {
+        lyb_write(out, zero, LYB_SIZE_BYTES, lybctx->lybctx);
+        return LY_SUCCESS;
+    }
+
+    top_level = !LY_ARRAY_COUNT(lybctx->lybctx->siblings);
 
     LY_CHECK_RET(lyb_write_start_siblings(out, lybctx->lybctx));
 
-    /* write all the siblings */
-    LY_LIST_FOR(node, node) {
-        /* do not reuse top-level sibling hash tables from different modules */
-        if (!node->schema || (!lysc_data_parent(node->schema) && (node->schema->module != prev_mod))) {
-            sibling_ht = NULL;
-            prev_mod = node->schema ? node->schema->module : NULL;
+    if (top_level) {
+        /* write all the siblings */
+        LY_LIST_FOR(node, node) {
+            /* do not reuse sibling hash tables from different modules */
+            if (!node->schema || (node->schema->module != prev_mod)) {
+                sibling_ht = NULL;
+                prev_mod = node->schema ? node->schema->module : NULL;
+            }
+
+            LY_CHECK_RET(lyb_print_node(out, &node, &sibling_ht, lybctx));
+
+            if (!(lybctx->print_options & LYD_PRINT_WITHSIBLINGS)) {
+                break;
+            }
         }
-
-        LY_CHECK_RET(lyb_print_node(out, &node, &sibling_ht, lybctx));
-
-        if (!lyd_parent(node) && !(lybctx->print_options & LYD_PRINT_WITHSIBLINGS)) {
-            break;
+    } else {
+        LY_LIST_FOR(node, node) {
+            LY_CHECK_RET(lyb_print_node(out, &node, &sibling_ht, lybctx));
         }
     }
 
@@ -1290,9 +1245,9 @@ lyb_print_data(struct ly_out *out, const struct lyd_node *root, uint32_t options
     const struct ly_ctx *ctx = root ? LYD_CTX(root) : NULL;
 
     lybctx = calloc(1, sizeof *lybctx);
-    LY_CHECK_ERR_GOTO(!lybctx, LOGMEM(ctx); ret = LY_EMEM, cleanup);
+    LY_CHECK_ERR_RET(!lybctx, LOGMEM(ctx), LY_EMEM);
     lybctx->lybctx = calloc(1, sizeof *lybctx->lybctx);
-    LY_CHECK_ERR_GOTO(!lybctx->lybctx, LOGMEM(ctx); ret = LY_EMEM, cleanup);
+    LY_CHECK_ERR_RET(!lybctx, LOGMEM(ctx), LY_EMEM);
 
     lybctx->print_options = options;
     if (root) {

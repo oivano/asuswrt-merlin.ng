@@ -1,10 +1,9 @@
 /**
  * @file common.h
  * @author Radek Krejci <rkrejci@cesnet.cz>
- * @author Michal Vasko <mvasko@cesnet.cz>
  * @brief common internal definitions for libyang
  *
- * Copyright (c) 2015 - 2023 CESNET, z.s.p.o.
+ * Copyright (c) 2015 - 2018 CESNET, z.s.p.o.
  *
  * This source code is licensed under BSD 3-Clause License (the "License").
  * You may not use this file except in compliance with the License.
@@ -21,10 +20,8 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "compat.h"
-#include "config.h"
 #include "context.h"
-#include "hash_table_internal.h"
+#include "hash_table.h"
 #include "log.h"
 #include "schema_compile.h"
 #include "set.h"
@@ -40,17 +37,8 @@ struct lysc_node;
     defined __SUNPRO_C || \
     defined __xlC__
 # define THREAD_LOCAL __thread
-#elif defined _MSC_VER
-# define THREAD_LOCAL __declspec(thread)
 #else
 # error "Cannot define THREAD_LOCAL"
-#endif
-
-/** platform-specific environment variable path separator */
-#ifndef _WIN32
-# define PATH_SEPARATOR ":"
-#else
-# define PATH_SEPARATOR ";"
 #endif
 
 #define GETMACRO1(_1, NAME, ...) NAME
@@ -59,17 +47,20 @@ struct lysc_node;
 #define GETMACRO4(_1, _2, _3, _4, NAME, ...) NAME
 #define GETMACRO5(_1, _2, _3, _4, _5, NAME, ...) NAME
 #define GETMACRO6(_1, _2, _3, _4, _5, _6, NAME, ...) NAME
-#define GETMACRO7(_1, _2, _3, _4, _5, _6, _7, NAME, ...) NAME
+
+/*
+ * If the compiler supports attribute to mark objects as hidden, mark all
+ * objects as hidden and export only objects explicitly marked to be part of
+ * the public API.
+ */
+#define API __attribute__((visibility("default")))
 
 /******************************************************************************
  * Logger
  *****************************************************************************/
 
-/** size of the last message buffer */
-#define LY_LAST_MSG_SIZE 512
-
-extern ATOMIC_T ly_ll;
-extern ATOMIC_T ly_log_opts;
+extern volatile LY_LOG_LEVEL ly_ll;
+extern volatile uint32_t ly_log_opts;
 
 struct ly_log_location_s {
     uint64_t line;                   /**< One-time line value being reset after use - replaces whatever is in inputs */
@@ -87,16 +78,7 @@ struct ly_log_location_s {
  * @param[in] no Error type code.
  * @param[in] format Format string to print.
  */
-void ly_log(const struct ly_ctx *ctx, LY_LOG_LEVEL level, LY_ERR no, const char *format, ...) _FORMAT_PRINTF(4, 5);
-
-/**
- * @brief Generate data path based on the data and schema nodes stored in the log location.
- *
- * @param[in] ctx Context for logging.
- * @param[out] path Generated data path.
- * @return LY_ERR value.
- */
-LY_ERR ly_vlog_build_data_path(const struct ly_ctx *ctx, char **path);
+void ly_log(const struct ly_ctx *ctx, LY_LOG_LEVEL level, LY_ERR no, const char *format, ...);
 
 /**
  * @brief Print Validation error and store it into the context (if provided).
@@ -106,15 +88,7 @@ LY_ERR ly_vlog_build_data_path(const struct ly_ctx *ctx, char **path);
  * @param[in] code Validation error code.
  * @param[in] format Format string to print.
  */
-void ly_vlog(const struct ly_ctx *ctx, const char *apptag, LY_VECODE code, const char *format, ...) _FORMAT_PRINTF(4, 5);
-
-/**
- * @brief Move error items from source to target context replacing any previous ones.
- *
- * @param[in] src_ctx Source context to read errors from.
- * @param[in] trg_ctx Target context to set the errors for.
- */
-void ly_err_move(struct ly_ctx *src_ctx, struct ly_ctx *trg_ctx);
+void ly_vlog(const struct ly_ctx *ctx, const char *apptag, LY_VECODE code, const char *format, ...);
 
 /**
  * @brief Logger's location data setter.
@@ -124,9 +98,11 @@ void ly_err_move(struct ly_ctx *src_ctx, struct ly_ctx *trg_ctx);
  * @param[in] path Direct path string to print.
  * @param[in] in Input handler (providing line number)
  * @param[in] line One-time line value to be reset when used.
+ * @param[in] reset Flag to indicate if the not set arguments (NULLs) are intended to rewrite the current values or if they
+ * are supposed to be ignored and the previous values should be kept.
  */
 void ly_log_location(const struct lysc_node *scnode, const struct lyd_node *dnode,
-        const char *path, const struct ly_in *in, uint64_t line);
+        const char *path, const struct ly_in *in, uint64_t line, ly_bool reset);
 
 /**
  * @brief Revert the specific logger's location data by number of changes made by ::ly_log_location().
@@ -139,19 +115,15 @@ void ly_log_location(const struct lysc_node *scnode, const struct lyd_node *dnod
 void ly_log_location_revert(uint32_t scnode_steps, uint32_t dnode_steps, uint32_t path_steps, uint32_t in_steps);
 
 /**
- * @brief Get the stored data node for logging at the index.
+ * @brief Initiate location data for logger, all arguments are set as provided (even NULLs) - overrides the current values.
  *
- * @param[in] idx Index of the data node.
- * @return Logged data node, NULL if out of range.
+ * @param[in] SCNODE Compiled schema node.
+ * @param[in] DNODE Data node.
+ * @param[in] PATH Direct path string to print.
+ * @param[in] IN Input handler (providing line number)
  */
-const struct lyd_node *ly_log_location_dnode(uint32_t idx);
-
-/**
- * @brief Get the count of stored data nodes for logging.
- *
- * @return Count of the data nodes.
- */
-uint32_t ly_log_location_dnode_count(void);
+#define LOG_LOCINIT(SCNODE, DNODE, PATH, IN) \
+    ly_log_location(SCNODE, DNODE, PATH, IN, 0, 1)
 
 /**
  * @brief Update location data for logger, not provided arguments (NULLs) are kept (does not override).
@@ -162,7 +134,7 @@ uint32_t ly_log_location_dnode_count(void);
  * @param[in] IN Input handler (providing line number)
  */
 #define LOG_LOCSET(SCNODE, DNODE, PATH, IN) \
-    ly_log_location(SCNODE, DNODE, PATH, IN, 0)
+    ly_log_location(SCNODE, DNODE, PATH, IN, 0, 0)
 
 /**
  * @brief Update location data for logger, not provided arguments (NULLs) are kept (does not override).
@@ -202,7 +174,7 @@ void ly_log_dbg(uint32_t group, const char *format, ...);
 #define LOGVAL(CTX, ...) ly_vlog(CTX, NULL, __VA_ARGS__)
 #define LOGVAL_APPTAG(CTX, APPTAG, ...) ly_vlog(CTX, APPTAG, __VA_ARGS__)
 #define LOGVAL_LINE(CTX, LINE, ...) \
-    ly_log_location(NULL, NULL, NULL, NULL, LINE); \
+    ly_log_location(NULL, NULL, NULL, NULL, LINE, 0); \
     ly_vlog(CTX, NULL, __VA_ARGS__)
 
 /**
@@ -245,25 +217,15 @@ void ly_log_dbg(uint32_t group, const char *format, ...);
     LY_CHECK_ARG_RET1(CTX, ARG4, RETVAL)
 #define LY_CHECK_ARG_RET5(CTX, ARG1, ARG2, ARG3, ARG4, ARG5, RETVAL) LY_CHECK_ARG_RET4(CTX, ARG1, ARG2, ARG3, ARG4, RETVAL);\
     LY_CHECK_ARG_RET1(CTX, ARG5, RETVAL)
-#define LY_CHECK_ARG_RET6(CTX, ARG1, ARG2, ARG3, ARG4, ARG5, ARG6, RETVAL) LY_CHECK_ARG_RET5(CTX, ARG1, ARG2, ARG3, ARG4, ARG5, RETVAL);\
-    LY_CHECK_ARG_RET1(CTX, ARG6, RETVAL)
-#define LY_CHECK_ARG_RET(CTX, ...) GETMACRO7(__VA_ARGS__, LY_CHECK_ARG_RET6, LY_CHECK_ARG_RET5, LY_CHECK_ARG_RET4, \
-    LY_CHECK_ARG_RET3, LY_CHECK_ARG_RET2, LY_CHECK_ARG_RET1, DUMMY) (CTX, __VA_ARGS__)
-
-#define LY_CHECK_CTX_EQUAL_RET2(CTX1, CTX2, RETVAL) if ((CTX1) && (CTX2) && ((CTX1) != (CTX2))) \
-    {LOGERR(CTX1, LY_EINVAL, "Different contexts mixed in a single function call."); return RETVAL;}
-#define LY_CHECK_CTX_EQUAL_RET3(CTX1, CTX2, CTX3, RETVAL) LY_CHECK_CTX_EQUAL_RET2(CTX1, CTX2, RETVAL); \
-    LY_CHECK_CTX_EQUAL_RET2(CTX2, CTX3, RETVAL); LY_CHECK_CTX_EQUAL_RET2(CTX1, CTX3, RETVAL)
-#define LY_CHECK_CTX_EQUAL_RET(CTX, ...) GETMACRO3(__VA_ARGS__, LY_CHECK_CTX_EQUAL_RET3, LY_CHECK_CTX_EQUAL_RET2, \
-    DUMMY) (CTX, __VA_ARGS__)
+#define LY_CHECK_ARG_RET(CTX, ...) GETMACRO6(__VA_ARGS__, LY_CHECK_ARG_RET5, LY_CHECK_ARG_RET4, LY_CHECK_ARG_RET3, \
+    LY_CHECK_ARG_RET2, LY_CHECK_ARG_RET1, DUMMY) (CTX, __VA_ARGS__)
 
 /* count sequence size for LY_VCODE_INCHILDSTMT validation error code */
-int LY_VCODE_INSTREXP_len(const char *str);
-
+size_t LY_VCODE_INSTREXP_len(const char *str);
 /* default maximum characters to print in LY_VCODE_INCHILDSTMT */
 #define LY_VCODE_INSTREXP_MAXLEN 20
 
-#define LY_VCODE_INCHAR         LYVE_SYNTAX, "Invalid character 0x%hhx."
+#define LY_VCODE_INCHAR         LYVE_SYNTAX, "Invalid character 0x%x."
 #define LY_VCODE_INSTREXP       LYVE_SYNTAX, "Invalid character sequence \"%.*s\", expected %s."
 #define LY_VCODE_EOF            LYVE_SYNTAX, "Unexpected end-of-input."
 #define LY_VCODE_NTERM          LYVE_SYNTAX, "%s not terminated."
@@ -340,6 +302,7 @@ int LY_VCODE_INSTREXP_len(const char *str);
 
 /* RFC 7950 section 15 error messages used in type plugin validation callbacks */
 #define LY_ERRMSG_NOLREF_VAL /* LYVE_DATA */ "Invalid leafref value \"%s\" - no target instance \"%s\" with the same value."
+#define LY_ERRMSG_NOLREF_INST /* LYVE_DATA */ "Invalid leafref value \"%s\" - no existing target instance \"%s\"."
 #define LY_ERRMSG_NOINST /* LYVE_DATA */ "Invalid instance-identifier \"%s\" value - required instance not found."
 
 /******************************************************************************
@@ -347,18 +310,10 @@ int LY_VCODE_INSTREXP_len(const char *str);
  *****************************************************************************/
 
 /**
- * @brief Context error hash table record.
- */
-struct ly_ctx_err_rec {
-    struct ly_err_item *err;          /** pointer to the error items, if any */
-    pthread_t tid;                    /** pthread thread ID */
-};
-
-/**
  * @brief Context of the YANG schemas
  */
 struct ly_ctx {
-    struct ly_dict dict;              /**< dictionary to effectively store strings used in the context related structures */
+    struct dict_table dict;           /**< dictionary to effectively store strings used in the context related structures */
     struct ly_set search_paths;       /**< set of directories where to search for schema's imports/includes */
     struct ly_set list;               /**< set of loaded YANG schemas */
     ly_module_imp_clb imp_clb;        /**< optional callback for retrieving missing included or imported models */
@@ -369,9 +324,7 @@ struct ly_ctx {
                                            more times */
     uint16_t flags;                   /**< context settings, see @ref contextoptions */
 
-    ly_ext_data_clb ext_clb;          /**< optional callback for providing extension-specific run-time data for extensions */
-    void *ext_clb_data;               /**< optional private data for ::ly_ctx.ext_clb */
-    struct ly_ht *err_ht;             /**< hash table of thread-specific list of errors related to the context */
+    pthread_key_t errlist_key;        /**< key for the thread-specific list of errors related to the context */
     pthread_mutex_t lyb_hash_lock;    /**< lock for storing LYB schema hashes in schema nodes */
 };
 
@@ -414,6 +367,7 @@ struct lys_module *ly_ctx_get_module_implemented2(const struct ly_ctx *ctx, cons
  *
  * @param[in] ptr Memory to reallocate.
  * @param[in] size New size of the memory block.
+ *
  * @return Pointer to the new memory, NULL on error.
  */
 void *ly_realloc(void *ptr, size_t size);
@@ -482,8 +436,7 @@ LY_ERR ly_strntou8(const char *nptr, size_t len, uint8_t *ret);
  * If no string remains, it is set to NULL.
  * @return LY_ERR value.
  */
-LY_ERR ly_value_prefix_next(const char *str_begin, const char *str_end, uint32_t *len, ly_bool *is_prefix,
-        const char **str_next);
+LY_ERR ly_value_prefix_next(const char *str_begin, const char *str_end, uint32_t *len, ly_bool *is_prefix, const char **str_next);
 
 /**
  * @brief Wrapper around strlen() to handle NULL strings.
@@ -540,18 +493,7 @@ LY_ERR ly_value_prefix_next(const char *str_begin, const char *str_end, uint32_t
 LY_ERR ly_getutf8(const char **input, uint32_t *utf8_char, size_t *bytes_read);
 
 /**
- * @brief Check an UTF-8 character is valid.
- *
- * @param[in] input Input string to process.
- * @param[in] in_len Bytes left to read in @p input.
- * @param[out] utf8_len Length of a valid UTF-8 character.
- * @return LY_SUCCESS on success
- * @return LY_EINVAL in case of invalid UTF-8 character.
- */
-LY_ERR ly_checkutf8(const char *input, size_t in_len, size_t *utf8_len);
-
-/**
- * @brief Store UTF-8 character specified as 4byte integer into the dst buffer.
+ * Store UTF-8 character specified as 4byte integer into the dst buffer.
  *
  * UTF-8 mapping:
  * 00000000 -- 0000007F:    0xxxxxxx
@@ -561,7 +503,7 @@ LY_ERR ly_checkutf8(const char *input, size_t in_len, size_t *utf8_len);
  *
  * Includes checking for valid characters (following RFC 7950, sec 9.4)
  *
- * @param[in,out] dst Destination buffer to store the UTF-8 character, must provide enough space (up to 4 bytes) for storing the UTF-8 character.
+ * @param[in, out] dst Destination buffer to store the UTF-8 character, must provide enough space (up to 4 bytes) for storing the UTF-8 character.
  * @param[in] value 32b value of the UTF-8 character to store.
  * @param[out] bytes_written Number of bytes written into @p dst (size of the written UTF-8 character).
  * @return LY_SUCCESS on success
@@ -571,7 +513,6 @@ LY_ERR ly_pututf8(char *dst, uint32_t value, size_t *bytes_written);
 
 /**
  * @brief Get number of characters in the @p str, taking multibyte characters into account.
- *
  * @param[in] str String to examine.
  * @param[in] bytes Number of valid bytes that are supposed to be taken into account in @p str.
  * This parameter is useful mainly for non NULL-terminated strings. In case of NULL-terminated
@@ -582,7 +523,6 @@ size_t ly_utf8len(const char *str, size_t bytes);
 
 /**
  * @brief Parse signed integer with possible limitation.
- *
  * @param[in] val_str String value containing signed integer, note that
  * nothing else than whitespaces are expected after the value itself.
  * @param[in] val_len Length of the @p val_str string.
@@ -601,7 +541,6 @@ LY_ERR ly_parse_int(const char *val_str, size_t val_len, int64_t min, int64_t ma
 
 /**
  * @brief Parse unsigned integer with possible limitation.
- *
  * @param[in] val_str String value containing unsigned integer, note that
  * nothing else than whitespaces are expected after the value itself.
  * @param[in] val_len Length of the @p val_str string.
@@ -622,7 +561,7 @@ LY_ERR ly_parse_uint(const char *val_str, size_t val_len, uint64_t max, int base
  *
  * node-identifier     = [prefix ":"] identifier
  *
- * @param[in,out] id Identifier to parse. When returned, it points to the first character which is not part of the identifier.
+ * @param[in, out] id Identifier to parse. When returned, it points to the first character which is not part of the identifier.
  * @param[out] prefix Node's prefix, NULL if there is not any.
  * @param[out] prefix_len Length of the node's prefix, 0 if there is not any.
  * @param[out] name Node's name.
@@ -634,7 +573,7 @@ LY_ERR ly_parse_nodeid(const char **id, const char **prefix, size_t *prefix_len,
 /**
  * @brief parse instance-identifier's predicate, supports key-predicate, leaf-list-predicate and pos rules from YANG ABNF Grammar.
  *
- * @param[in,out] pred Predicate string (including the leading '[') to parse. The string is updated according to what was parsed
+ * @param[in, out] pred Predicate string (including the leading '[') to parse. The string is updated according to what was parsed
  * (even for error case, so it can be used to determine which substring caused failure).
  * @param[in] limit Limiting length of the @p pred. Function expects NULL terminated string which is not overread.
  * The limit value is not checked with each character, so it can be overread and the failure is detected later.
@@ -679,11 +618,11 @@ LY_ERR ly_munmap(void *addr, size_t length);
 /**
  * @brief Concatenate formating string to the @p dest.
  *
- * @param[in,out] dest String to be concatenated by @p format.
- * Note that the input string can be reallocated during concatenation.
+ * @param[in, out] dest String to be concatenated by @p format.
+ *                 Note that the input string can be reallocated during concatenation.
  * @param[in] format Formating string (as for printf) which is supposed to be added after @p dest.
  * @return LY_SUCCESS or LY_EMEM.
  */
-LY_ERR ly_strcat(char **dest, const char *format, ...) _FORMAT_PRINTF(2, 3);
+LY_ERR ly_strcat(char **dest, const char *format, ...);
 
 #endif /* LY_COMMON_H_ */

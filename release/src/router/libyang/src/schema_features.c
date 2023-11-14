@@ -84,7 +84,7 @@ lysc_iffeature_value_(const struct lysc_iffeature *iff, size_t *index_e, size_t 
     return LY_ENOT;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 lysc_iffeature_value(const struct lysc_iffeature *iff)
 {
     size_t index_e = 0, index_f = 0;
@@ -97,7 +97,7 @@ lysc_iffeature_value(const struct lysc_iffeature *iff)
     return LY_ENOT;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 lys_identity_iffeature_value(const struct lysc_ident *ident)
 {
     LY_ARRAY_COUNT_TYPE u, v;
@@ -141,7 +141,7 @@ lys_identity_iffeature_value(const struct lysc_ident *ident)
     return LY_SUCCESS;
 }
 
-LIBYANG_API_DEF struct lysp_feature *
+API struct lysp_feature *
 lysp_feature_next(const struct lysp_feature *last, const struct lysp_module *pmod, uint32_t *idx)
 {
     struct lysp_feature *features;
@@ -211,7 +211,7 @@ lysp_feature_find(const struct lysp_module *pmod, const char *name, size_t len, 
     return NULL;
 }
 
-LIBYANG_API_DEF LY_ERR
+API LY_ERR
 lys_feature_value(const struct lys_module *module, const char *feature)
 {
     const struct lysp_feature *f;
@@ -310,7 +310,7 @@ iff_setop(uint8_t *list, uint8_t op, size_t pos)
 #define LYS_IFF_RP 0x08 /**< Additional, temporary, value of @ref ifftokens: ) */
 
 static LY_ERR
-lys_compile_iffeature(const struct ly_ctx *ctx, const struct lysp_qname *qname, struct lysc_iffeature *iff)
+lys_compile_iffeature(const struct ly_ctx *ctx, struct lysp_qname *qname, struct lysc_iffeature *iff)
 {
     LY_ERR rc = LY_SUCCESS;
     const char *c = qname->str;
@@ -341,7 +341,6 @@ lys_compile_iffeature(const struct ly_ctx *ctx, const struct lysp_qname *qname, 
                 !strncmp(&c[i], "and", op_len = ly_strlen_const("and")) ||
                 !strncmp(&c[i], "or", op_len = ly_strlen_const("or"))) {
             uint64_t spaces;
-
             for (spaces = 0; c[i + op_len + spaces] && isspace(c[i + op_len + spaces]); spaces++) {}
             if (c[i + op_len + spaces] == '\0') {
                 LOGVAL(ctx, LYVE_SYNTAX_YANG, "Invalid value \"%s\" of if-feature - unexpected end of expression.", qname->str);
@@ -387,8 +386,7 @@ lys_compile_iffeature(const struct ly_ctx *ctx, const struct lysp_qname *qname, 
     }
     if (j) {
         /* not matching count of ( and ) */
-        LOGVAL(ctx, LYVE_SYNTAX_YANG, "Invalid value \"%s\" of if-feature - non-matching opening and closing parentheses.",
-                qname->str);
+        LOGVAL(ctx, LYVE_SYNTAX_YANG, "Invalid value \"%s\" of if-feature - non-matching opening and closing parentheses.", qname->str);
         return LY_EVALID;
     }
     if (f_exp != f_size) {
@@ -401,8 +399,7 @@ lys_compile_iffeature(const struct ly_ctx *ctx, const struct lysp_qname *qname, 
     if (checkversion || (expr_size > 1)) {
         /* check that we have 1.1 module */
         if (qname->mod->version != LYS_VERSION_1_1) {
-            LOGVAL(ctx, LYVE_SYNTAX_YANG, "Invalid value \"%s\" of if-feature - YANG 1.1 expression in YANG 1.0 module.",
-                    qname->str);
+            LOGVAL(ctx, LYVE_SYNTAX_YANG, "Invalid value \"%s\" of if-feature - YANG 1.1 expression in YANG 1.0 module.", qname->str);
             return LY_EVALID;
         }
     }
@@ -411,7 +408,7 @@ lys_compile_iffeature(const struct ly_ctx *ctx, const struct lysp_qname *qname, 
     LY_ARRAY_CREATE_RET(ctx, iff->features, f_size, LY_EMEM);
     iff->expr = calloc((j = (expr_size / IFF_RECORDS_IN_BYTE) + ((expr_size % IFF_RECORDS_IN_BYTE) ? 1 : 0)), sizeof *iff->expr);
     stack.stack = malloc(expr_size * sizeof *stack.stack);
-    LY_CHECK_ERR_GOTO(!stack.stack || !iff->expr, LOGMEM(ctx); rc = LY_EMEM, cleanup);
+    LY_CHECK_ERR_GOTO(!stack.stack || !iff->expr, LOGMEM(ctx); rc = LY_EMEM, error);
 
     stack.size = expr_size;
     f_size--; expr_size--; /* used as indexes from now */
@@ -473,7 +470,7 @@ lys_compile_iffeature(const struct ly_ctx *ctx, const struct lysp_qname *qname, 
                 LOGVAL(ctx, LYVE_SYNTAX_YANG, "Invalid value \"%s\" of if-feature - unable to find feature \"%.*s\".",
                         qname->str, (int)(j - i), &c[i]);
                 rc = LY_EVALID;
-                goto cleanup;
+                goto error;
             }
             iff->features[f_size] = f;
             LY_ARRAY_INCREMENT(iff->features);
@@ -489,26 +486,23 @@ lys_compile_iffeature(const struct ly_ctx *ctx, const struct lysp_qname *qname, 
         /* not all expected operators and operands found */
         LOGVAL(ctx, LYVE_SYNTAX_YANG, "Invalid value \"%s\" of if-feature - processing error.", qname->str);
         rc = LY_EINT;
+    } else {
+        rc = LY_SUCCESS;
     }
 
-cleanup:
-    if (rc) {
-        LY_ARRAY_FREE(iff->features);
-        iff->features = NULL;
-        free(iff->expr);
-        iff->expr = NULL;
-    }
+error:
+    /* cleanup */
     iff_stack_clean(&stack);
+
     return rc;
 }
 
 LY_ERR
-lys_eval_iffeatures(const struct ly_ctx *ctx, const struct lysp_qname *iffeatures, ly_bool *enabled)
+lys_eval_iffeatures(const struct ly_ctx *ctx, struct lysp_qname *iffeatures, ly_bool *enabled)
 {
     LY_ERR ret;
     LY_ARRAY_COUNT_TYPE u;
     struct lysc_iffeature iff;
-    struct lysf_ctx fctx = {.ctx = (struct ly_ctx *)ctx};
 
     /* enabled by default */
     *enabled = 1;
@@ -523,7 +517,7 @@ lys_eval_iffeatures(const struct ly_ctx *ctx, const struct lysp_qname *iffeature
         LY_CHECK_RET(lys_compile_iffeature(ctx, &iffeatures[u], &iff));
 
         ret = lysc_iffeature_value(&iff);
-        lysc_iffeature_free(&fctx, &iff);
+        lysc_iffeature_free((struct ly_ctx *)ctx, &iff);
         if (ret == LY_ENOT) {
             *enabled = 0;
             break;
@@ -535,8 +529,15 @@ lys_eval_iffeatures(const struct ly_ctx *ctx, const struct lysp_qname *iffeature
     return LY_SUCCESS;
 }
 
-LY_ERR
-lys_check_features(const struct lysp_module *pmod)
+/**
+ * @brief Check whether all enabled features have their if-features satisfied.
+ * Enabled features with false if-features are disabled with a warning.
+ *
+ * @param[in] pmod Parsed module features to check.
+ * @return LY_ERR value.
+ */
+static LY_ERR
+lys_check_features(struct lysp_module *pmod)
 {
     LY_ERR r;
     uint32_t i = 0;
@@ -551,9 +552,12 @@ lys_check_features(const struct lysp_module *pmod)
         assert(f->iffeatures_c);
         r = lysc_iffeature_value(f->iffeatures_c);
         if (r == LY_ENOT) {
-            LOGERR(pmod->mod->ctx, LY_EDENIED, "Feature \"%s\" cannot be enabled because its \"if-feature\" is not satisfied.",
+            LOGWRN(pmod->mod->ctx, "Feature \"%s\" cannot be enabled because its \"if-feature\" is not satisfied.",
                     f->name);
-            return LY_EDENIED;
+
+            /* disable feature and re-evaluate all the feature if-features again */
+            f->flags &= ~LYS_FENABLED;
+            return lys_check_features(pmod);
         } else if (r) {
             return r;
         } /* else if-feature satisfied */
@@ -622,7 +626,8 @@ lys_set_features(struct lysp_module *pmod, const char **features)
         return LY_EEXIST;
     }
 
-    return LY_SUCCESS;
+    /* check final features if-feature state */
+    return lys_check_features(pmod);
 }
 
 /**

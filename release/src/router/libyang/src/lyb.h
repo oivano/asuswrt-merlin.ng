@@ -3,7 +3,7 @@
  * @author Michal Vasko <mvasko@cesnet.cz>
  * @brief Header for LYB format printer & parser
  *
- * Copyright (c) 2020 - 2022 CESNET, z.s.p.o.
+ * Copyright (c) 2020 CESNET, z.s.p.o.
  *
  * This source code is licensed under BSD 3-Clause License (the "License").
  * You may not use this file except in compliance with the License.
@@ -51,7 +51,7 @@ struct lysc_node;
  sb          = siblings_start
  se          = siblings_end
  siblings    = zero-LYB_SIZE_BYTES | (sb instance+ se)
- instance    = node_type model hash node
+ instance    = model hash node
  model       = 16bit_zero | (model_name_length model_name revision)
  node        = opaq | leaflist | list | any | inner | leaf
  opaq        = opaq_data siblings
@@ -64,16 +64,6 @@ struct lysc_node;
 
  @endverbatim
  */
-
-/**
- * @brief LYB data node type
- */
-enum lylyb_node_type {
-    LYB_NODE_TOP,   /**< top-level node */
-    LYB_NODE_CHILD, /**< child node with a parent */
-    LYB_NODE_OPAQ,  /**< opaque node */
-    LYB_NODE_EXT    /**< nested extension data node */
-};
 
 /**
  * @brief LYB format parser context
@@ -95,7 +85,7 @@ struct lylyb_ctx {
     /* LYB printer only */
     struct lyd_lyb_sib_ht {
         struct lysc_node *first_sibling;
-        struct ly_ht *ht;
+        struct hash_table *ht;
     } *sib_hts;
 };
 
@@ -111,7 +101,7 @@ void lyd_lyb_ctx_free(struct lyd_ctx *lydctx);
 #define LYB_SIBLING_STEP 4
 
 /* current LYB format version */
-#define LYB_VERSION_NUM 0x05
+#define LYB_VERSION_NUM 0x03
 
 /* LYB format version mask of the header byte */
 #define LYB_VERSION_MASK 0x0F

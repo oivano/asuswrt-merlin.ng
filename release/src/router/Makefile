@@ -4515,18 +4515,22 @@ inadyn-clean:
 	@rm -f inadyn/Makefile
 
 quagga/stamp-h1: ncurses-6.0 json-c readline-8.1 libyang libcap-ng
-	@cd frr mkdir build-clippy ; cd build-clippy ; \
+	@cd frr ; ./bootstrap.sh ; \
+	mkdir build-clippy ; cd build-clippy ; \
 	./configure --enable-clippy-only ; \
 	make clippy-only ; \
 	.. ; autoreconf -i -f && \
-	CC=$(CC) AR=$(AR) RANLIB=$(RANLIB) LD=$(LD) \
 	CFLAGS="-I$(STAGEDIR)/usr/include/readline $(CFLAGS) -Os -Wall -ffunction-sections -fdata-sections -fPIC" \
 	LDFLAGS="-L$(STAGEDIR)/usr/lib -ffunction-sections -fdata-sections -Wl,--gc-sections" \
 #	LIBREADLINE_CFLAGS="-I$(STAGEDIR)/usr/include/readline" \
 #	LIBREADLINE_LDFLAGS="-L$(STAGEDIR)/usr/lib -lreadline" \
-	$(CONFIGURE) --with-sysroot=/usr/ --sysconfdir=/etc --enable-shared \
+	$(CONFIGURE) CC=$(CC) CXX=$(CXX) AR=$(AR) RANLIB=$(RANLIB) LD=$(LD) \
+		--with-sysroot=/usr/ \
+		--sysconfdir=/etc \
+		--enable-shared \
 		--with-clippy=./build-clippy/lib/clippy \
 		--prefix=/usr \
+		--sysconfdir=/etc/frr \
 		--enable-user=nobody \
 		--enable-group=frr \
 		--enable-vty-group=frrvty \
@@ -6448,17 +6452,37 @@ pcre-8.31-clean:
 
 pcre2/stamp-h1:
 	@$(SEP)
-	cd pcre2 && autoreconf -i -f && \
-	CC=$(CC) CFLAGS="-Os $(EXTRACFLAGS) -ffunction-sections -fdata-sections -std=gnu99 -fPIC" \
-		LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections -lpthread" \
-		LIBS="-lpthread" \
+	cd pcre2 ; ./autogen.sh ;  \
+		CFLAGS="-Os $(CFLAGS) -I$(STAGEDIR)/usr/include -std=gnu99 -fPIC" \
+		LDFLAGS="-Wl,--gc-sections" \
+		LIBS="-lpthread -lc" \
 		$(CONFIGURE) --prefix=/usr --enable-shared --enable-static \
 		--disable-percent-zt --enable-pcre2-8 --enable-pcre2-16 --enable-pcre2-32 \
-		--enable-unicode --enable-jit
+		--enable-unicode
 	touch $@
 
+#pcre2/stamp-h1:
+#	rm -f $(TOP)/pcre2/CMakeCache.txt
+#	cd pcre2 && \
+#	$(call CMAKE_CrossOptions, crosscompiled.cmake) && \
+#	cmake -DCMAKE_TOOLCHAIN_FILE=crosscompiled.cmake \
+#		-DCMAKE_C_FLAGS="-Os $(CFLAGS) -Wall -Wextra -Wno-missing-field-initializers -Wno-unused-macros -DNDEBUG -ffunction-sections -fdata-sections -std=gnu99 -fPIC" \
+#		-DCMAKE_EXE_LINKER_FLAGS="-lc -Wl,--gc-sections" \
+#		-DCMAKE_THREAD_LIBS_INIT="$(STAGEDIR)/lib -lpthread" \
+#		-DCMAKE_INSTALL_PREFIX:PATH=/usr \
+#		-DBUILD_SHARED_LIBS=ON \
+#		-DPCRE2_BUILD_PCRE2_8=ON \
+#		-DPCRE2_BUILD_PCRE2_16=ON \
+#		-DPCRE2_BUILD_PCRE2_32=ON \
+#		-DPCRE2_DEBUG=OFF \
+#		-DPCRE2_DISABLE_PERCENT_ZT=ON \
+#		-DPCRE2_SUPPORT_JIT=ON \
+#		-DPCRE2_SHOW_REPORT=OFF \
+#		-DPCRE2_BUILD_PCRE2GREP=ON \
+#		-DPCRE2_BUILD_TESTS=OFF
+
 pcre2: pcre2/stamp-h1
-	@$(MAKE) -C pcre2 all
+	$(MAKE) -C pcre2 all
 
 pcre2-install: pcre2
 	ls $(TOP)/pcre2/.libs/
@@ -6475,7 +6499,7 @@ pcre2-clean:
 	-@$(MAKE) -C pcre2 clean
 	@rm -f pcre2/stamp-h1
 
-libyang/build/Makefile: zlib pcre2
+libyang/build/Makefile: pcre2
 	@$(SEP)
 	rm -f $(TOP)/libyang/CMakeCache.txt
 	@rm -rf libyang/build && mkdir -p libyang/build
@@ -6483,20 +6507,16 @@ libyang/build/Makefile: zlib pcre2
 	$(call CMAKE_CrossOptions, crosscompiled.cmake) && \
 	cmake -DCMAKE_TOOLCHAIN_FILE=crosscompiled.cmake \
 		-DCMAKE_INSTALL_PREFIX:PATH=/usr \
-		-DCMAKE_C_FLAGS="-Os -DNDEBUG -ffunction-sections -fdata-sections -std=gnu99 -fPIC $(EXTRACFLAGS)" \
-		-DCMAKE_EXE_LINKER_FLAGS="-lpthread -L$(STAGEDIR)/usr/lib -lpcre2.8 -Wl,--gc-sections" \
-		-DCMAKE_REQUIRED_LIBRARIES="-lpthread -L$(STAGEDIR)/usr/lib -lpcre2.8 $(EXTRALDFLAGS)" \
+		-DCMAKE_C_FLAGS="-O3 $(CFLAGS) -Wall -Wextra -Wno-missing-field-initializers -DNDEBUG -ffunction-sections -fdata-sections -std=gnu99" \
+		-DCMAKE_EXE_LINKER_FLAGS="-L$(STAGEDIR)/usr/lib -lpcre2.8 -Wl,--gc-sections" \
+		-DCMAKE_REQUIRED_LIBRARIES="-L$(STAGEDIR)/usr/lib -lpcre2.8" \
 		-DCMAKE_SKIP_RPATH=TRUE \
 		-DCMAKE_FIND_ROOT_PATH=crosscompiled.cmake \
 		-DENABLE_STATIC=FALSE \
 		-DCMAKE_BUILD_TYPE:String="Release" \
-		-DENABLE_SHARED=TRUE \
-		-DENABLE_LATEST_REVISIONS=OFF \
-		-DPCRE2_LIBRARIES="$(STAGEDIR)/usr/lib/ -lpcre2.8" \
+		-DCMAKE_THREAD_LIBS_INIT="$(STAGEDIR)/lib -lpthread" \
+		-DPCRE2_LIBRARIES="$(STAGEDIR)/usr/lib -lpcre2.8" \
 		-DPCRE2_INCLUDE_DIRS="$(TOP)/pcre2/src" \
-		-DCMAKE_INCLUDE_DIR="$(STAGEDIR)/usr/include" \
-		-DCMAKE_LIBRARY_PATH="$(STAGEDIR)/lib $(STAGEDIR)/usr/lib" \
-		-DENABLE_LYD_PRIV=ON \
 	..
 
 libyang: pcre2 libyang/build/Makefile

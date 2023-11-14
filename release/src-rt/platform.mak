@@ -94,7 +94,7 @@ export EXTRA_FLAG := -lgcc_s
 export ARCH := arm
 export HOST := arm-linux
 export TOOLS := $(SRCBASE)/toolchains/hndtools-arm-linux-2.6.36-uclibc-4.5.3
-export RTVER := 0.9.32.1
+export RTVER := 0.9.33.2
 export BCMSUB := brcmarm
  endif
 else ifeq ($(RTCONFIG_BCM_ARM_GCLIBC),y)
