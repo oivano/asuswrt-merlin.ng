@@ -6624,7 +6624,7 @@ strongswan/Makefile: strongswan/configure
 	--enable-acert --enable-agent \
 	--enable-md4 \
 	--enable-eap-identity --enable-eap-md5 --enable-eap-mschapv2 --enable-eap-tls --enable-eap-peap \
-	--enable-cmd --enable-libipsec \
+	--enable-cmd --enable-libipsec --enable-kernel-libipsec \
 	--enable-shared --disable-static \
 	--with-ipsecdir=/usr/lib/ipsec \
 	--with-strongswan-conf=/etc/strongswan.conf \

@@ -1,3 +1,101 @@
+strongswan-5.9.11
+-----------------
+
+- A deadlock in the vici plugin has been fixed that could get triggered when
+  multiple connections were initiated/terminated concurrently and control-log
+  events were raised by the watcher_t component.
+
+- CRLs have to be signed by a certificate that has the cRLSign keyUsage bit
+  encoded (even if it's a CA), or a CA certificate without keyUsage extension.
+
+- Optional CA labels in EST server URIs are supported by `pki --est/estca`.
+
+- CMS-style signatures in PKCS#7 containers are supported by the pkcs7 and
+  openssl plugins, which allows verifying RSA-PSS and ECDSA signatures.
+
+- Fixed a regression in the server implementation of EAP-TLS with TLS 1.2 or
+  earlier that was introduced with 5.9.10.
+
+- Ensure the TLS handshake is complete in the EAP-TLS client with TLS <= 1.2.
+
+- kernel-libipsec can process raw ESP packets on Linux (disabled by default) and
+  gained support for trap policies.
+
+- The dhcp plugin uses an alternate method to determine the source address
+  for unicast DHCP requests that's not affected by interface filtering.
+
+- Certificate and trust chain selection as initiator has been improved in case
+  the local trust chain is incomplete and an unrelated certreq is received.
+
+- ECDSA and EdDSA keys in IPSECKEY RRs are supported by the ipseckey plugin.
+
+- To bypass tunnel mode SAs/policies, the kernel-wfp plugin installs bypass
+  policies also on the FWPM_SUBLAYER_IPSEC_TUNNEL sublayer.
+
+- Stale OCSP responses are now replace in-place in the certificate cache.
+
+- Fixed parsing of SCEP server capabilities by `pki --scep/scepca`.
+
+
+strongswan-5.9.10
+-----------------
+
+- Fixed a vulnerability related to certificate verification in TLS-based EAP
+  methods that leads to an authentication bypass followed by an expired pointer
+  dereference that results in a denial of service and possibly even remote code
+  execution.
+  This vulnerability has been registered as CVE-2023-26463.
+
+- Added support for full packet hardware offload for IPsec SAs and policies with
+  Linux 6.2 kernels to the kernel-netlink plugin.
+
+- TLS-based EAP methods now use the standardized key derivation when used
+  with TLS 1.3.
+
+- The eap-tls plugin properly supports TLS 1.3 according to RFC 9190, by
+  implementing the "protected success indication".
+
+- With the `prefer` value for the `childless` setting, initiators will create
+  a childless IKE_SA if the responder supports the extension.
+
+- Routes via XFRM interfaces can optionally be installed automatically by
+  enabling the `install_routes_xfrmi` option of the kernel-netlink plugin.
+
+- charon-nm now uses XFRM interfaces instead of dummy TUN devices to avoid
+  issues with name resolution if they are supported by the kernel.
+
+- The `pki --req` command can encode extendedKeyUsage (EKU) flags in the
+  PKCS#10 certificate signing request.
+
+- The `pki --issue` command adopts EKU flags from CSRs but allows modifying them
+  (replace them completely, or adding/removing specific flags).
+
+- On Linux 6.2 kernels, the last use times of CHILD_SAs are determined via the
+  IPsec SAs instead of the policies.
+
+- For libcurl with MultiSSL support, the curl plugin provides an option to
+  select the SSL/TLS backend.
+
+
+strongswan-5.9.9
+----------------
+
+- The charon.reqid_base setting allows specifying the first reqid that's
+  automatically assigned to a CHILD_SA.
+
+- The path/command for resolvconf(8) used by the resolve plugin is now
+  configurable.
+
+- The resolve plugin doesn't generate unique interface names for name servers
+  anymore. Instead, all available name servers are associated with a single,
+  configurable interface name.
+
+- Serial numbers of certificates and CRLs are now always returned in canonical
+  form (i.e. without leading zeros).
+
+- The kernel-netlink plugin now logs extended ACK error/warning messages.
+
+
 strongswan-5.9.8
 ----------------
 

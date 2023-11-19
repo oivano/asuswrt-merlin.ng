@@ -7,12 +7,6 @@
  * passed into the kernel from userspace via netlink sockets.
  */
 
-#if !defined(__KERNEL__) && defined(HND_ROUTER)
-#define __XFRM_API_ALIGN __attribute__((aligned(8)))
-#else
-#define __XFRM_API_ALIGN
-#endif
-
 /* Structure to encapsulate addresses. I do not want to use
  * "standard" structure. My apologies.
  */
@@ -294,7 +288,7 @@ enum xfrm_attr_type_t {
 	XFRMA_ETIMER_THRESH,
 	XFRMA_SRCADDR,		/* xfrm_address_t */
 	XFRMA_COADDR,		/* xfrm_address_t */
-	XFRMA_LASTUSED,		/* unsigned long  */
+	XFRMA_LASTUSED,		/* __u64  */
 	XFRMA_POLICY_TYPE,	/* struct xfrm_userpolicy_type */
 	XFRMA_MIGRATE,
 	XFRMA_ALG_AEAD,		/* struct xfrm_algo_aead */
@@ -387,7 +381,7 @@ struct xfrm_usersa_info {
 #define XFRM_STATE_AF_UNSPEC	32
 #define XFRM_STATE_ALIGN4	64
 #define XFRM_STATE_ESN		128
-} __XFRM_API_ALIGN;
+};
 
 #define XFRM_SA_XFLAG_DONT_ENCAP_DSCP	1
 
@@ -426,7 +420,7 @@ struct xfrm_userpolicy_info {
 	/* Automatically expand selector to include matching ICMP payloads. */
 #define XFRM_POLICY_ICMP	2
 	__u8				share;
-} __XFRM_API_ALIGN;
+};
 
 struct xfrm_userpolicy_id {
 	struct xfrm_selector		sel;
@@ -509,6 +503,7 @@ struct xfrm_user_offload {
 };
 #define XFRM_OFFLOAD_IPV6	1
 #define XFRM_OFFLOAD_INBOUND	2
+#define XFRM_OFFLOAD_PACKET	4
 
 #ifndef __KERNEL__
 /* backwards compatibility for userspace */
