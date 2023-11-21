@@ -697,7 +697,7 @@ function refresh_ipsec_data() {
 				<table width="100%" id="vpnc" style="margin-bottom:20px;" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable">
 					<thead>
 						<tr>
-							<td>PPTP/L2TP Clients<span id="vpnc_Block_Running" style="background: transparent;"></span></td>
+							<td>IPsec Clients<span id="vpnc_Block_Running" style="background: transparent;"></span></td>
 						</tr>
 					</thead>
 					<tr>

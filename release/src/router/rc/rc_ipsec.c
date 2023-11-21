@@ -605,7 +605,6 @@ void rc_strongswan_conf_set()
 		"	interfaces_ignore = %s\n"
 		"	starter { load_warning = no }\n"
 		"	load_modular = yes\n"
-		"	i_dont_care_about_security_and_use_aggressive_mode_psk = yes\n"
 		"	plugins {\n"
 		"		include strongswan.d/charon/*.conf\n"
 		"	}\n"
@@ -2423,6 +2422,7 @@ void rc_ipsec_set(ipsec_conn_status_t conn_status, ipsec_prof_type_t prof_type)
 		modprobe("ah4");
 		modprobe("esp4");
 		modprobe("ipcomp");
+		modprobe("tun");
 		modprobe("xfrm4_tunnel");
 		modprobe("xfrm_user");
 
