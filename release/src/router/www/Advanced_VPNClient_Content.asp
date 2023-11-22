@@ -1778,7 +1778,6 @@ function save_ipsec_profile_panel() {
 		if(getRadioItemCheck(document.ipsec_form.ipsec_remote_gateway_method) == "0") {
 			if(!validator.ipv4_addr(document.ipsec_form.ipsec_remote_gateway.value)) {
 				document.ipsec_form.ipsec_remote_gateway.focus();
-				alert(document.ipsec_form.ipsec_remote_gateway.value + " <#JS_validip#>");
 				return false;
 			}
 		}
@@ -1843,7 +1842,6 @@ function save_ipsec_profile_panel() {
 				if(subnetIP_support_IPv6)
 					is_ipv6 = (existSubnetObj.value.indexOf(":") != -1) ? true : false;
 				if(!is_ipv4 && !is_ipv6) {
-					alert(existSubnetObj.value + "<#JS_validip#>");
 					existSubnetObj.focus();
 					return false;
 				}
