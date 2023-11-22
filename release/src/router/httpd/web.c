@@ -28050,12 +28050,17 @@ struct ipsec_conn_token_table{
 	ipsec_conn_token_t *next;
 };
 
-static int find_acc_in_IG_list(char *account, char *dev_name, int dev_name_len)
+static int find_acc_in_IG_list(char *account, char *dev_name, int dev_name_len, char *group)
 {
 	char word[1024]={0}, *word_next=NULL;
-	char ig_client_list[1024] = {0}, ig_desc[33] = {0}, word_tmp[128] = {0};
+	char ig_client_list[4096] = {0}, ig_desc[33] = {0}, word_tmp[128] = {0};
 
-	strlcpy(ig_client_list, nvram_safe_get("ig_client_list"), sizeof(ig_client_list));
+	if(!strcmp(group, "IG"))
+		strlcpy(ig_client_list, nvram_safe_get("ig_client_list"), sizeof(ig_client_list));
+	else if(!strcmp(group, "GUEST"))
+		strlcpy(ig_client_list, nvram_safe_get("ig_guest_client_list"), sizeof(ig_client_list));
+	else
+		return 0;
 
 	foreach_60(word, ig_client_list, word_next){
 
@@ -28072,7 +28077,7 @@ static int find_acc_in_IG_list(char *account, char *dev_name, int dev_name_len)
 }
 
 static int
-get_ipsec_conn_info(struct json_object *ipsec_conn_obj)
+get_ipsec_conn_info(struct json_object *ipsec_conn_obj, int for_json)
 {
 	int ret = 0, len = 0, change_to_new_profile = 0;
 	char line[512] = {0};
@@ -28080,17 +28085,27 @@ get_ipsec_conn_info(struct json_object *ipsec_conn_obj)
 	char *tmp_eap_start = NULL, *tmp_eap_end = NULL;
 	char dest_name[32] = {0},dest_ip[32] = {0},dest_xauth[33] = {0},dest_period[32] = {0},dest_reauth[32] = {0}, dev_name[33] = {0};
 	char profile_name[PROFILE_NAME_LENTH] = {0}, ipaddr[16] = {0}, conn_status[8] = {0}, conn_period[16] = {0}, xauth_account[33] = {0}, eap_account[33] = {0}, psk_reauth_time[16] = {0};
-	char cmd[64] = {0};
-	char acc_group[8] = {0}, ig_account[33] = {0}, compare_account[33] = {0};
+	char cmd[64] = {0}, bytes_buf[64] = {0}, bytes_i[64] = {0}, bytes_o[64] = {0};
+	char acc_group[16] = {0}, ig_account[33] = {0}, compare_account[33] = {0};
+	char word[256]={0}, *next=NULL;
 	FILE *p_fp;
 	struct json_object *ipsec_conn_array = json_object_new_array();
-	struct json_object *ipsec_profile_h2n_array = json_object_new_array();
-	struct json_object *ipsec_profile_h2nv2_array = json_object_new_array();
-	struct json_object *ipsec_profile_other_array = json_object_new_array();
+	struct json_object *ipsec_conn = NULL, *ig_conn = NULL, *ig_guest_conn = NULL;
+	struct json_object *ipsec_profile_h2n_array = NULL, *ipsec_profile_h2nv2_array = NULL, *ipsec_profile_other_array = NULL;
+	if(for_json){
+		ipsec_conn = json_object_new_array();
+		ig_conn = json_object_new_array();
+		ig_guest_conn = json_object_new_array();
+	}else{
+		ipsec_profile_h2n_array = json_object_new_array();
+		ipsec_profile_h2nv2_array = json_object_new_array();
+		ipsec_profile_other_array = json_object_new_array();
+	}
 
 	snprintf(cmd, sizeof(cmd), "%s", "ipsec statusall");
 	
 	if ((p_fp = popen(cmd, "r")) != NULL) {
+
 		while (1) 
 		{
 			if(change_to_new_profile != 1)
@@ -28123,7 +28138,7 @@ get_ipsec_conn_info(struct json_object *ipsec_conn_obj)
 
 				if(strstr(line,"ESTABLISHED") != NULL) {
 					strlcpy(conn_status, "3", sizeof(conn_status)); /* phase 1 established */
-					
+
 					/* ipaddr */
 					tmp_ip_start = index(line,',');
 					tmp_ip_start = index(tmp_ip_start,']');
@@ -28167,9 +28182,8 @@ get_ipsec_conn_info(struct json_object *ipsec_conn_obj)
 						strlcpy(xauth_account,dest_xauth, sizeof(xauth_account));
 						fgets(line, sizeof(line), p_fp);
 					}
-					else{
+					else
 						strlcpy(xauth_account, "", sizeof(xauth_account));
-					}
 
 					/* eap users of IKEv2 in the second line */
 					if(strstr(line,"Remote EAP identity:") != NULL){
@@ -28188,19 +28202,41 @@ get_ipsec_conn_info(struct json_object *ipsec_conn_obj)
 						strncpy(dest_reauth,tmp_reauth,len);
 						dest_reauth[len-1] = '\0';
 						strlcpy(psk_reauth_time,dest_reauth, sizeof(psk_reauth_time));
-					}
-					else{
+                    }
+					else
 						strlcpy(psk_reauth_time,"", sizeof(psk_reauth_time));
-					}
 					
-					while (fgets(line, sizeof(line), p_fp)) {		
+					while (fgets(line, sizeof(line), p_fp)) {
 						if(strstr(line, profile_name) == NULL){
 							change_to_new_profile=1;
 							break;
-						}					
-						if(strstr(line,"INSTALLED") != NULL || strstr(line,"rekeying") != NULL){
+						}
+						if(strstr(line,"rekeying") != NULL){
+							strlcpy(conn_status, "1", sizeof(conn_status));
+							foreach(word, line, next){
+								if(!strncmp(word, "bytes_i", 7))
+									strlcpy(bytes_i, bytes_buf, sizeof(bytes_i));
+								else if(!strncmp(word, "bytes_o", 7))
+									strlcpy(bytes_o, bytes_buf, sizeof(bytes_o));
+								else
+									strlcpy(bytes_buf, word, sizeof(bytes_buf));
+							}
+							break;
+						}
+
+						if(strstr(line,"INSTALLED") != NULL){
 							//data->conn_status = 1;		/* phase 2 connected */
 							strlcpy(conn_status, "1", sizeof(conn_status));
+							if(fgets(line, sizeof(line), p_fp) && strstr(line,"rekeying") != NULL){
+								foreach(word, line, next){
+									if(!strncmp(word, "bytes_i", 7))
+										strlcpy(bytes_i, bytes_buf, sizeof(bytes_i));
+									else if(!strncmp(word, "bytes_o", 7))
+										strlcpy(bytes_o, bytes_buf, sizeof(bytes_o));
+									else
+										strlcpy(bytes_buf, word, sizeof(bytes_buf));
+								}
+							}
 							break;
 						}
 					}
@@ -28221,7 +28257,7 @@ get_ipsec_conn_info(struct json_object *ipsec_conn_obj)
 					conn_period[0] = '\0';
 					xauth_account[0] = '0';
 					eap_account[0] = '\0';
-					psk_reauth_time[0] = '\0';				
+					psk_reauth_time[0] = '\0';
 
 					while (fgets(line, sizeof(line), p_fp)) {
 						if(!(strstr(line,profile_name) != NULL)){
@@ -28236,14 +28272,17 @@ get_ipsec_conn_info(struct json_object *ipsec_conn_obj)
 				else
 					strlcpy(compare_account, eap_account, sizeof(compare_account));
 
-				if(find_acc_in_IG_list(compare_account, dev_name, sizeof(dev_name))){
+				if(find_acc_in_IG_list(compare_account, dev_name, sizeof(dev_name), "IG")){
 					strlcpy(ig_account, dev_name, sizeof(ig_account));
 					strlcpy(acc_group, "IG", sizeof(acc_group));
-				}
-				else{
+				}else if(find_acc_in_IG_list(compare_account, dev_name, sizeof(dev_name), "GUEST")){
+					strlcpy(ig_account, dev_name, sizeof(ig_account));
+					strlcpy(acc_group, "IG_GUEST", sizeof(acc_group));
+				} else{
 					strlcpy(ig_account,"", sizeof(ig_account));
 					strlcpy(acc_group, "IPSEC", sizeof(acc_group));
 				}
+
 				ipsec_conn_array = json_object_new_array();
 				json_object_array_add(ipsec_conn_array, json_object_new_string(ipaddr));
 				json_object_array_add(ipsec_conn_array, json_object_new_string(conn_status));
@@ -28253,23 +28292,45 @@ get_ipsec_conn_info(struct json_object *ipsec_conn_obj)
 				json_object_array_add(ipsec_conn_array, json_object_new_string(strlen(xauth_account)?"1":"2"));
 				json_object_array_add(ipsec_conn_array, json_object_new_string(acc_group));
 				json_object_array_add(ipsec_conn_array, json_object_new_string(ig_account));
-				if(!strcmp(profile_name, "Host-to-Net"))
-					json_object_array_add(ipsec_profile_h2n_array, ipsec_conn_array);
-				else if(!strcmp(profile_name, "Host-to-Netv2"))
-					json_object_array_add(ipsec_profile_h2nv2_array, ipsec_conn_array);
+				json_object_array_add(ipsec_conn_array, json_object_new_string(bytes_i));
+				json_object_array_add(ipsec_conn_array, json_object_new_string(bytes_o));
+				if(for_json){
+					if(!strcmp("IG", acc_group))
+						json_object_array_add(ig_conn, ipsec_conn_array);
+					else if(!strcmp("IPSEC", acc_group))
+						json_object_array_add(ipsec_conn, ipsec_conn_array);
+					else if(!strcmp("IG_GUEST", acc_group))
+						json_object_array_add(ig_guest_conn, ipsec_conn_array);
+				}
 				else
-					json_object_array_add(ipsec_profile_other_array, ipsec_conn_array);
+				{
+					if(!strcmp(profile_name, "Host-to-Net"))
+						json_object_array_add(ipsec_profile_h2n_array, ipsec_conn_array);
+					else if(!strcmp(profile_name, "Host-to-Netv2"))
+						json_object_array_add(ipsec_profile_h2nv2_array, ipsec_conn_array);
+					else
+						json_object_array_add(ipsec_profile_other_array, ipsec_conn_array);
+				}
 			}
 		}
-		if(json_object_array_length(ipsec_profile_h2n_array))
-			json_object_object_add(ipsec_conn_obj, "Host-to-Net", ipsec_profile_h2n_array);
-		if(json_object_array_length(ipsec_profile_h2nv2_array))
-			json_object_object_add(ipsec_conn_obj, "Host-to-Netv2", ipsec_profile_h2nv2_array);
-		if(json_object_array_length(ipsec_profile_other_array))
-			json_object_object_add(ipsec_conn_obj, "other", ipsec_profile_other_array);
 
+		if(for_json){
+			json_object_object_add(ipsec_conn_obj, "IPSEC", ipsec_conn);
+			json_object_object_add(ipsec_conn_obj, "IG", ig_conn);
+			json_object_object_add(ipsec_conn_obj, "IG_GUEST", ig_guest_conn);
+		}
+		else
+		{
+			if(json_object_array_length(ipsec_profile_h2n_array))
+				json_object_object_add(ipsec_conn_obj, "Host-to-Net", ipsec_profile_h2n_array);
+			if(json_object_array_length(ipsec_profile_h2nv2_array))
+				json_object_object_add(ipsec_conn_obj, "Host-to-Netv2", ipsec_profile_h2nv2_array);
+			if(json_object_array_length(ipsec_profile_other_array))
+				json_object_object_add(ipsec_conn_obj, "other", ipsec_profile_other_array);
+		}
 		pclose(p_fp);
 	}
+	dbg("get_ipsec_conn_info:ipsec_conn_obj = %s\n", json_object_to_json_string(ipsec_conn_obj));
 	return ret;
 }
 
@@ -28281,7 +28342,7 @@ ej_get_ipsec_conn(int eid, webs_t wp, int argc, char_t **argv)
 	struct json_object *ipsec_conn_obj = NULL, *client_info = NULL, *client_info_val = NULL;
 	ipsec_conn_obj = json_object_new_object();
 
-	get_ipsec_conn_info(ipsec_conn_obj);
+	get_ipsec_conn_info(ipsec_conn_obj, 0);
 	ret += websWrite(wp, "[");
 	if(ipsec_conn_obj != NULL)
 	{
@@ -28320,51 +28381,17 @@ ej_get_ipsec_conn(int eid, webs_t wp, int argc, char_t **argv)
 static int
 ej_get_ipsec_conn_json(int eid, webs_t wp, int argc, char_t **argv)
 {
-	int ret = 0, i = 0, j = 0, profile_len = 0, client_info_len;
-	struct json_object *ipsec_conn_obj = NULL, *client_info = NULL, *client_info_val = NULL;
-	struct json_object *ipsec_conn_json_info = NULL, *ipsec_conn = NULL, *ig_conn = NULL;
-	ipsec_conn_obj = json_object_new_object();
-	ipsec_conn_json_info = json_object_new_object();
-	ipsec_conn = json_object_new_array();
-	ig_conn = json_object_new_array();
+    struct json_object *ipsec_conn_obj = json_object_new_object();
 
-	get_ipsec_conn_info(ipsec_conn_obj);
+    get_ipsec_conn_info(ipsec_conn_obj, 1);
 
-	if(ipsec_conn_obj != NULL)
-	{
-		json_object_object_foreach(ipsec_conn_obj, key, val)
-		{
-			profile_len = json_object_array_length(val);
-			for(i = 0; i < profile_len; i++)
-			{
-				client_info = json_object_array_get_idx(val, i);
-				client_info_len = json_object_array_length(client_info);
-				for(j = 0; j < client_info_len; j++){
-					if(j == 6){
-						client_info_val = json_object_array_get_idx(client_info, j);
-						if(!strcmp("IG", json_object_get_string(client_info_val)))
-							json_object_array_add(ig_conn, client_info);
-						else if(!strcmp("IPSEC", json_object_get_string(client_info_val)))
-							json_object_array_add(ipsec_conn, client_info);
-						break;
-					}
-				}
-			}
-		}
-		json_object_object_add(ipsec_conn_json_info, "IPSEC", ipsec_conn);
-		json_object_object_add(ipsec_conn_json_info, "IG", ig_conn);
-	}
+    websWrite(wp, "%s", json_object_to_json_string(ipsec_conn_obj));
 
-	websWrite(wp, "%s", json_object_to_json_string(ipsec_conn_json_info));
+    if(ipsec_conn_obj)
+        json_object_put(ipsec_conn_obj);
 
-	if(ipsec_conn_obj != NULL)
-		json_object_put(ipsec_conn_obj);
-	if(ipsec_conn_json_info != NULL)
-		json_object_put(ipsec_conn_json_info);
-
-	return ret;
+    return 0;
 }
-
 #endif
 
 #ifdef RTCONFIG_CAPTIVE_PORTAL
