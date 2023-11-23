@@ -1344,14 +1344,14 @@ void ipsec_conf_local_set(FILE *fp, int prof_idx, ipsec_prof_type_t prof_type)
 	
 	if (VPN_TYPE_HOST_NET_CLI == prof[prof_type][prof_idx].vpn_type) {
 		fprintf(fp, "  leftsourceip=%%config4,%%config6\n");
-/*		fprintf(fp, "  leftupdown=\"%s %d %u\"\n", FILE_PATH_IPSEC_UPDOWN, prof_idx + 1, prof[prof_type][prof_idx].vpn_type); */
+//		fprintf(fp, "  leftupdown=\"%s %d %u\"\n", FILE_PATH_IPSEC_UPDOWN, prof_idx + 1, prof[prof_type][prof_idx].vpn_type);
 	}
 	else if ( (VPN_TYPE_NET_NET_CLI == prof[prof_type][prof_idx].vpn_type)
 			|| (VPN_TYPE_NET_NET_SVR == prof[prof_type][prof_idx].vpn_type)
 			|| (VPN_TYPE_NET_NET_PEER == prof[prof_type][prof_idx].vpn_type)
 	) {
 		fprintf(fp, "  leftsubnet=%s\n", prof[prof_type][prof_idx].local_subnet);
-/*		fprintf(fp, "  leftupdown=\"%s %d %u\"\n", FILE_PATH_IPSEC_UPDOWN, prof_idx + 1, prof[prof_type][prof_idx].vpn_type); */
+//		fprintf(fp, "  leftupdown=\"%s %d %u\"\n", FILE_PATH_IPSEC_UPDOWN, prof_idx + 1, prof[prof_type][prof_idx].vpn_type);
 	}
 	else {
 	fprintf(fp, "  leftsubnet=%s\n"
