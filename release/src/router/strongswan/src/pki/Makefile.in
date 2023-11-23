@@ -115,12 +115,13 @@ am_pki_OBJECTS = pki.$(OBJEXT) pki_cert.$(OBJEXT) command.$(OBJEXT) \
 	commands/acert.$(OBJEXT) commands/dn.$(OBJEXT) \
 	commands/est.$(OBJEXT) commands/estca.$(OBJEXT) \
 	commands/gen.$(OBJEXT) commands/issue.$(OBJEXT) \
-	commands/keyid.$(OBJEXT) commands/pkcs12.$(OBJEXT) \
-	commands/pkcs7.$(OBJEXT) commands/print.$(OBJEXT) \
-	commands/pub.$(OBJEXT) commands/req.$(OBJEXT) \
-	commands/scep.$(OBJEXT) commands/scepca.$(OBJEXT) \
-	commands/self.$(OBJEXT) commands/signcrl.$(OBJEXT) \
-	commands/verify.$(OBJEXT) est/est_tls.$(OBJEXT) \
+	commands/keyid.$(OBJEXT) commands/ocsp.$(OBJEXT) \
+	commands/pkcs12.$(OBJEXT) commands/pkcs7.$(OBJEXT) \
+	commands/print.$(OBJEXT) commands/pub.$(OBJEXT) \
+	commands/req.$(OBJEXT) commands/scep.$(OBJEXT) \
+	commands/scepca.$(OBJEXT) commands/self.$(OBJEXT) \
+	commands/signcrl.$(OBJEXT) commands/verify.$(OBJEXT) \
+	est/est_tls.$(OBJEXT) ocsp/index_responder.$(OBJEXT) \
 	scep/scep.$(OBJEXT)
 pki_OBJECTS = $(am_pki_OBJECTS)
 am__DEPENDENCIES_1 =
@@ -151,12 +152,13 @@ am__depfiles_remade = ./$(DEPDIR)/command.Po ./$(DEPDIR)/pki.Po \
 	commands/$(DEPDIR)/dn.Po commands/$(DEPDIR)/est.Po \
 	commands/$(DEPDIR)/estca.Po commands/$(DEPDIR)/gen.Po \
 	commands/$(DEPDIR)/issue.Po commands/$(DEPDIR)/keyid.Po \
-	commands/$(DEPDIR)/pkcs12.Po commands/$(DEPDIR)/pkcs7.Po \
-	commands/$(DEPDIR)/print.Po commands/$(DEPDIR)/pub.Po \
-	commands/$(DEPDIR)/req.Po commands/$(DEPDIR)/scep.Po \
-	commands/$(DEPDIR)/scepca.Po commands/$(DEPDIR)/self.Po \
-	commands/$(DEPDIR)/signcrl.Po commands/$(DEPDIR)/verify.Po \
-	est/$(DEPDIR)/est_tls.Po scep/$(DEPDIR)/scep.Po
+	commands/$(DEPDIR)/ocsp.Po commands/$(DEPDIR)/pkcs12.Po \
+	commands/$(DEPDIR)/pkcs7.Po commands/$(DEPDIR)/print.Po \
+	commands/$(DEPDIR)/pub.Po commands/$(DEPDIR)/req.Po \
+	commands/$(DEPDIR)/scep.Po commands/$(DEPDIR)/scepca.Po \
+	commands/$(DEPDIR)/self.Po commands/$(DEPDIR)/signcrl.Po \
+	commands/$(DEPDIR)/verify.Po est/$(DEPDIR)/est_tls.Po \
+	ocsp/$(DEPDIR)/index_responder.Po scep/$(DEPDIR)/scep.Po
 am__mv = mv -f
 COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
@@ -504,6 +506,7 @@ pki_SOURCES = pki.c pki.h pki_cert.c pki_cert.h command.c command.h \
 	commands/gen.c \
 	commands/issue.c \
 	commands/keyid.c \
+	commands/ocsp.c \
 	commands/pkcs12.c \
 	commands/pkcs7.c \
 	commands/print.c \
@@ -515,6 +518,7 @@ pki_SOURCES = pki.c pki.h pki_cert.c pki_cert.h command.c command.h \
 	commands/signcrl.c \
 	commands/verify.c \
 	est/est_tls.h est/est_tls.c	\
+	ocsp/index_responder.h ocsp/index_responder.c	\
 	scep/scep.h scep/scep.c
 
 pki_LDADD = \
@@ -629,6 +633,8 @@ commands/issue.$(OBJEXT): commands/$(am__dirstamp) \
 	commands/$(DEPDIR)/$(am__dirstamp)
 commands/keyid.$(OBJEXT): commands/$(am__dirstamp) \
 	commands/$(DEPDIR)/$(am__dirstamp)
+commands/ocsp.$(OBJEXT): commands/$(am__dirstamp) \
+	commands/$(DEPDIR)/$(am__dirstamp)
 commands/pkcs12.$(OBJEXT): commands/$(am__dirstamp) \
 	commands/$(DEPDIR)/$(am__dirstamp)
 commands/pkcs7.$(OBJEXT): commands/$(am__dirstamp) \
@@ -657,6 +663,14 @@ est/$(DEPDIR)/$(am__dirstamp):
 	@: > est/$(DEPDIR)/$(am__dirstamp)
 est/est_tls.$(OBJEXT): est/$(am__dirstamp) \
 	est/$(DEPDIR)/$(am__dirstamp)
+ocsp/$(am__dirstamp):
+	@$(MKDIR_P) ocsp
+	@: > ocsp/$(am__dirstamp)
+ocsp/$(DEPDIR)/$(am__dirstamp):
+	@$(MKDIR_P) ocsp/$(DEPDIR)
+	@: > ocsp/$(DEPDIR)/$(am__dirstamp)
+ocsp/index_responder.$(OBJEXT): ocsp/$(am__dirstamp) \
+	ocsp/$(DEPDIR)/$(am__dirstamp)
 scep/$(am__dirstamp):
 	@$(MKDIR_P) scep
 	@: > scep/$(am__dirstamp)
@@ -674,6 +688,7 @@ mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
 	-rm -f commands/*.$(OBJEXT)
 	-rm -f est/*.$(OBJEXT)
+	-rm -f ocsp/*.$(OBJEXT)
 	-rm -f scep/*.$(OBJEXT)
 
 distclean-compile:
@@ -689,6 +704,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@commands/$(DEPDIR)/gen.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@commands/$(DEPDIR)/issue.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@commands/$(DEPDIR)/keyid.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@commands/$(DEPDIR)/ocsp.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@commands/$(DEPDIR)/pkcs12.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@commands/$(DEPDIR)/pkcs7.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@commands/$(DEPDIR)/print.Po@am__quote@ # am--include-marker
@@ -700,6 +716,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@commands/$(DEPDIR)/signcrl.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@commands/$(DEPDIR)/verify.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@est/$(DEPDIR)/est_tls.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@ocsp/$(DEPDIR)/index_responder.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@scep/$(DEPDIR)/scep.Po@am__quote@ # am--include-marker
 
 $(am__depfiles_remade):
@@ -932,6 +949,8 @@ distclean-generic:
 	-rm -f commands/$(am__dirstamp)
 	-rm -f est/$(DEPDIR)/$(am__dirstamp)
 	-rm -f est/$(am__dirstamp)
+	-rm -f ocsp/$(DEPDIR)/$(am__dirstamp)
+	-rm -f ocsp/$(am__dirstamp)
 	-rm -f scep/$(DEPDIR)/$(am__dirstamp)
 	-rm -f scep/$(am__dirstamp)
 
@@ -953,6 +972,7 @@ distclean: distclean-recursive
 	-rm -f commands/$(DEPDIR)/gen.Po
 	-rm -f commands/$(DEPDIR)/issue.Po
 	-rm -f commands/$(DEPDIR)/keyid.Po
+	-rm -f commands/$(DEPDIR)/ocsp.Po
 	-rm -f commands/$(DEPDIR)/pkcs12.Po
 	-rm -f commands/$(DEPDIR)/pkcs7.Po
 	-rm -f commands/$(DEPDIR)/print.Po
@@ -964,6 +984,7 @@ distclean: distclean-recursive
 	-rm -f commands/$(DEPDIR)/signcrl.Po
 	-rm -f commands/$(DEPDIR)/verify.Po
 	-rm -f est/$(DEPDIR)/est_tls.Po
+	-rm -f ocsp/$(DEPDIR)/index_responder.Po
 	-rm -f scep/$(DEPDIR)/scep.Po
 	-rm -f Makefile
 distclean-am: clean-am distclean-compile distclean-generic \
@@ -1020,6 +1041,7 @@ maintainer-clean: maintainer-clean-recursive
 	-rm -f commands/$(DEPDIR)/gen.Po
 	-rm -f commands/$(DEPDIR)/issue.Po
 	-rm -f commands/$(DEPDIR)/keyid.Po
+	-rm -f commands/$(DEPDIR)/ocsp.Po
 	-rm -f commands/$(DEPDIR)/pkcs12.Po
 	-rm -f commands/$(DEPDIR)/pkcs7.Po
 	-rm -f commands/$(DEPDIR)/print.Po
@@ -1031,6 +1053,7 @@ maintainer-clean: maintainer-clean-recursive
 	-rm -f commands/$(DEPDIR)/signcrl.Po
 	-rm -f commands/$(DEPDIR)/verify.Po
 	-rm -f est/$(DEPDIR)/est_tls.Po
+	-rm -f ocsp/$(DEPDIR)/index_responder.Po
 	-rm -f scep/$(DEPDIR)/scep.Po
 	-rm -f Makefile
 maintainer-clean-am: distclean-am maintainer-clean-generic

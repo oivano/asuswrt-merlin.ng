@@ -542,6 +542,8 @@ static char *whitelist[] = {
 	"_IO_file_doallocate",
 	"selinux_check_access",
 	"on_exit",
+	/* glibc thread-local storage triggered primarily by Botan */
+	"__tls_get_addr",
 	/* ignore dlopen, as we do not dlclose to get proper leak reports */
 	"dlopen",
 	"dlerror",
@@ -666,6 +668,9 @@ static char *whitelist[] = {
 	"botan_privkey_load",
 	"botan_privkey_load_rsa_pkcs1",
 	"botan_kdf",
+	/* C++ due to Botan */
+	"__cxa_get_globals",
+	"__cxa_thread_atexit",
 };
 
 /**

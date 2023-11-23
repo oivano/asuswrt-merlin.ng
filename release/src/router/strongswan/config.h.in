@@ -36,6 +36,10 @@
 /* have binutils bfd.h */
 #undef HAVE_BFD_H
 
+/* Define to 1 if you have the `botan_pubkey_ecc_key_used_explicit_encoding'
+   function. */
+#undef HAVE_BOTAN_PUBKEY_ECC_KEY_USED_EXPLICIT_ENCODING
+
 /* Define to 1 if you have the `botan_rng_init_custom' function. */
 #undef HAVE_BOTAN_RNG_INIT_CUSTOM
 

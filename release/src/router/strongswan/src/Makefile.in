@@ -123,6 +123,7 @@ host_triplet = @host@
 @USE_INTEGRITY_TEST_TRUE@am__append_34 = checksum
 @USE_AIKGEN_TRUE@am__append_35 = aikgen
 @USE_LIBTPMTSS_TRUE@am__append_36 = tpm_extendpcr
+@USE_CERT_ENROLL_TRUE@am__append_37 = cert-enroll
 subdir = src
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/m4/config/libtool.m4 \
@@ -199,7 +200,8 @@ DIST_SUBDIRS = . include libstrongswan libipsec libsimaka libtls \
 	libcharon xfrmi starter ipsec charon charon-systemd charon-nm \
 	stroke _updown pki swanctl conftest libfast manager medsrv \
 	pool charon-tkm charon-cmd charon-svc pt-tls-client \
-	sw-collector sec-updater checksum aikgen tpm_extendpcr
+	sw-collector sec-updater checksum aikgen tpm_extendpcr \
+	cert-enroll
 am__DIST_COMMON = $(srcdir)/Makefile.in
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
 am__relativize = \
@@ -489,7 +491,8 @@ SUBDIRS = . include $(am__append_1) $(am__append_2) $(am__append_3) \
 	$(am__append_25) $(am__append_26) $(am__append_27) \
 	$(am__append_28) $(am__append_29) $(am__append_30) \
 	$(am__append_31) $(am__append_32) $(am__append_33) \
-	$(am__append_34) $(am__append_35) $(am__append_36)
+	$(am__append_34) $(am__append_35) $(am__append_36) \
+	$(am__append_37)
 all: all-recursive
 
 .SUFFIXES:

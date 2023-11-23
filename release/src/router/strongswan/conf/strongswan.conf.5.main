@@ -1088,14 +1088,6 @@ on this platform and no NAT is detected.
 Buffer size for received Netlink messages.
 
 .TP
-.BR charon.plugins.kernel-netlink.force_receive_buffer_size " [no]"
-If the maximum Netlink socket receive buffer in bytes set by
-.RI "" "receive_buffer_size" ""
-exceeds the system\-wide maximum from
-/proc/sys/net/core/rmem_max, this option can be used to override the limit.
-Enabling this option requires special privileges (CAP_NET_ADMIN).
-
-.TP
 .BR charon.plugins.kernel-netlink.fwmark " []"
 Firewall mark to set on the routing rule that directs traffic to our routing
 table. The format is [!]mark[/mask], where the optional exclamation mark inverts
@@ -1163,13 +1155,13 @@ currently only useful if the kernel based route lookup is used (i.e. if route
 installation is disabled or an inverted fwmark match is configured).
 
 .TP
-.BR charon.plugins.kernel-netlink.receive_buffer_size " [0]"
+.BR charon.plugins.kernel-netlink.receive_buffer_size " [8388608]"
 Maximum Netlink socket receive buffer in bytes. This value controls how many
-bytes of Netlink messages can be received on a Netlink socket. The default value
-is set by /proc/sys/net/core/rmem_default. The specified value cannot exceed the
-system\-wide maximum from /proc/sys/net/core/rmem_max, unless
-.RI "" "force_receive_buffer_size" ""
-is enabled.
+bytes of Netlink messages can be queued to a Netlink socket. If set to 0, the
+default from /proc/sys/net/core/rmem_default will apply. Note that the kernel
+doubles the configured value to account for overhead. To exceed the system\-wide
+maximum from /proc/sys/net/core/rmem_max, special privileges (CAP_NET_ADMIN) are
+necessary, otherwise, the kernel silently caps the value.
 
 .TP
 .BR charon.plugins.kernel-netlink.retries " [0]"
@@ -1477,6 +1469,13 @@ activated in that config.
 Load the legacy provider in OpenSSL 3+ for algorithms like MD4, DES, or Blowfish
 (the first two are required for EAP\-MSCHAPv2). If disabled, the default provider
 is loaded, or those configured in the OpenSSL config (e.g. the fips provider).
+
+.TP
+.BR charon.plugins.openxpki.database " []"
+Database URI connecting to the OpenXPKI
+.RB "" "certificate" ""
+database. If it contains
+a password, make sure to adjust the permissions of the config file accordingly.
 
 .TP
 .BR charon.plugins.osx-attr.append " [yes]"
@@ -2014,6 +2013,10 @@ Delay response messages.
 .TP
 .BR charon.receive_delay_type " [0]"
 Specific IKEv2 message type to delay, 0 for any.
+
+.TP
+.BR charon.reject_trusted_end_entity " [no]"
+Reject peers that use trusted end\-entity certificates (i.e. local certificates).
 
 .TP
 .BR charon.replay_window " [32]"

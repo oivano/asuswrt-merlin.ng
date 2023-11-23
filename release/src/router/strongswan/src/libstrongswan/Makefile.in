@@ -192,71 +192,73 @@ host_triplet = @host@
 @MONOLITHIC_TRUE@@USE_PKCS8_TRUE@am__append_78 = plugins/pkcs8/libstrongswan-pkcs8.la
 @USE_PKCS12_TRUE@am__append_79 = plugins/pkcs12
 @MONOLITHIC_TRUE@@USE_PKCS12_TRUE@am__append_80 = plugins/pkcs12/libstrongswan-pkcs12.la
-@USE_PGP_TRUE@am__append_81 = plugins/pgp
-@MONOLITHIC_TRUE@@USE_PGP_TRUE@am__append_82 = plugins/pgp/libstrongswan-pgp.la
-@USE_DNSKEY_TRUE@am__append_83 = plugins/dnskey
-@MONOLITHIC_TRUE@@USE_DNSKEY_TRUE@am__append_84 = plugins/dnskey/libstrongswan-dnskey.la
-@USE_SSHKEY_TRUE@am__append_85 = plugins/sshkey
-@MONOLITHIC_TRUE@@USE_SSHKEY_TRUE@am__append_86 = plugins/sshkey/libstrongswan-sshkey.la
-@USE_PEM_TRUE@am__append_87 = plugins/pem
-@MONOLITHIC_TRUE@@USE_PEM_TRUE@am__append_88 = plugins/pem/libstrongswan-pem.la
-@USE_CURL_TRUE@am__append_89 = plugins/curl
-@MONOLITHIC_TRUE@@USE_CURL_TRUE@am__append_90 = plugins/curl/libstrongswan-curl.la
-@USE_FILES_TRUE@am__append_91 = plugins/files
-@MONOLITHIC_TRUE@@USE_FILES_TRUE@am__append_92 = plugins/files/libstrongswan-files.la
-@USE_WINHTTP_TRUE@am__append_93 = plugins/winhttp
-@MONOLITHIC_TRUE@@USE_WINHTTP_TRUE@am__append_94 = plugins/winhttp/libstrongswan-winhttp.la
-@USE_UNBOUND_TRUE@am__append_95 = plugins/unbound
-@MONOLITHIC_TRUE@@USE_UNBOUND_TRUE@am__append_96 = plugins/unbound/libstrongswan-unbound.la
-@USE_SOUP_TRUE@am__append_97 = plugins/soup
-@MONOLITHIC_TRUE@@USE_SOUP_TRUE@am__append_98 = plugins/soup/libstrongswan-soup.la
-@USE_LDAP_TRUE@am__append_99 = plugins/ldap
-@MONOLITHIC_TRUE@@USE_LDAP_TRUE@am__append_100 = plugins/ldap/libstrongswan-ldap.la
-@USE_MYSQL_TRUE@am__append_101 = plugins/mysql
-@MONOLITHIC_TRUE@@USE_MYSQL_TRUE@am__append_102 = plugins/mysql/libstrongswan-mysql.la
-@USE_SQLITE_TRUE@am__append_103 = plugins/sqlite
-@MONOLITHIC_TRUE@@USE_SQLITE_TRUE@am__append_104 = plugins/sqlite/libstrongswan-sqlite.la
-@USE_PADLOCK_TRUE@am__append_105 = plugins/padlock
-@MONOLITHIC_TRUE@@USE_PADLOCK_TRUE@am__append_106 = plugins/padlock/libstrongswan-padlock.la
-@USE_OPENSSL_TRUE@am__append_107 = plugins/openssl
-@MONOLITHIC_TRUE@@USE_OPENSSL_TRUE@am__append_108 = plugins/openssl/libstrongswan-openssl.la
-@USE_WOLFSSL_TRUE@am__append_109 = plugins/wolfssl
-@MONOLITHIC_TRUE@@USE_WOLFSSL_TRUE@am__append_110 = plugins/wolfssl/libstrongswan-wolfssl.la
-@USE_GCRYPT_TRUE@am__append_111 = plugins/gcrypt
-@MONOLITHIC_TRUE@@USE_GCRYPT_TRUE@am__append_112 = plugins/gcrypt/libstrongswan-gcrypt.la
-@USE_BOTAN_TRUE@am__append_113 = plugins/botan
-@MONOLITHIC_TRUE@@USE_BOTAN_TRUE@am__append_114 = plugins/botan/libstrongswan-botan.la
-@USE_FIPS_PRF_TRUE@am__append_115 = plugins/fips_prf
-@MONOLITHIC_TRUE@@USE_FIPS_PRF_TRUE@am__append_116 = plugins/fips_prf/libstrongswan-fips-prf.la
-@USE_AGENT_TRUE@am__append_117 = plugins/agent
-@MONOLITHIC_TRUE@@USE_AGENT_TRUE@am__append_118 = plugins/agent/libstrongswan-agent.la
-@USE_KEYCHAIN_TRUE@am__append_119 = plugins/keychain
-@MONOLITHIC_TRUE@@USE_KEYCHAIN_TRUE@am__append_120 = plugins/keychain/libstrongswan-keychain.la
-@USE_PKCS11_TRUE@am__append_121 = plugins/pkcs11
-@MONOLITHIC_TRUE@@USE_PKCS11_TRUE@am__append_122 = plugins/pkcs11/libstrongswan-pkcs11.la
-@USE_CHAPOLY_TRUE@am__append_123 = plugins/chapoly
-@MONOLITHIC_TRUE@@USE_CHAPOLY_TRUE@am__append_124 = plugins/chapoly/libstrongswan-chapoly.la
-@USE_CTR_TRUE@am__append_125 = plugins/ctr
-@MONOLITHIC_TRUE@@USE_CTR_TRUE@am__append_126 = plugins/ctr/libstrongswan-ctr.la
-@USE_CCM_TRUE@am__append_127 = plugins/ccm
-@MONOLITHIC_TRUE@@USE_CCM_TRUE@am__append_128 = plugins/ccm/libstrongswan-ccm.la
-@USE_GCM_TRUE@am__append_129 = plugins/gcm
-@MONOLITHIC_TRUE@@USE_GCM_TRUE@am__append_130 = plugins/gcm/libstrongswan-gcm.la
-@USE_MGF1_TRUE@am__append_131 = plugins/mgf1
-@MONOLITHIC_TRUE@@USE_MGF1_TRUE@am__append_132 = plugins/mgf1/libstrongswan-mgf1.la
-@USE_NTRU_TRUE@am__append_133 = plugins/ntru
-@MONOLITHIC_TRUE@@USE_NTRU_TRUE@am__append_134 = plugins/ntru/libstrongswan-ntru.la
-@USE_BLISS_TRUE@am__append_135 = plugins/bliss
-@MONOLITHIC_TRUE@@USE_BLISS_TRUE@am__append_136 = plugins/bliss/libstrongswan-bliss.la
-@USE_NEWHOPE_TRUE@am__append_137 = plugins/newhope
-@MONOLITHIC_TRUE@@USE_NEWHOPE_TRUE@am__append_138 = plugins/newhope/libstrongswan-newhope.la
-@USE_DRBG_TRUE@am__append_139 = plugins/drbg
-@MONOLITHIC_TRUE@@USE_DRBG_TRUE@am__append_140 = plugins/drbg/libstrongswan-drbg.la
-@USE_TEST_VECTORS_TRUE@am__append_141 = plugins/test_vectors
-@MONOLITHIC_TRUE@@USE_TEST_VECTORS_TRUE@am__append_142 = plugins/test_vectors/libstrongswan-test-vectors.la
-@USE_LIBNTTFFT_TRUE@am__append_143 = math/libnttfft/tests
-@USE_BLISS_TRUE@am__append_144 = plugins/bliss/tests
-@USE_NEWHOPE_TRUE@am__append_145 = plugins/newhope/tests
+@USE_OPENXPKI_TRUE@am__append_81 = plugins/openxpki
+@MONOLITHIC_TRUE@@USE_OPENXPKI_TRUE@am__append_82 = plugins/openxpki/libstrongswan-openxpki.la
+@USE_PGP_TRUE@am__append_83 = plugins/pgp
+@MONOLITHIC_TRUE@@USE_PGP_TRUE@am__append_84 = plugins/pgp/libstrongswan-pgp.la
+@USE_DNSKEY_TRUE@am__append_85 = plugins/dnskey
+@MONOLITHIC_TRUE@@USE_DNSKEY_TRUE@am__append_86 = plugins/dnskey/libstrongswan-dnskey.la
+@USE_SSHKEY_TRUE@am__append_87 = plugins/sshkey
+@MONOLITHIC_TRUE@@USE_SSHKEY_TRUE@am__append_88 = plugins/sshkey/libstrongswan-sshkey.la
+@USE_PEM_TRUE@am__append_89 = plugins/pem
+@MONOLITHIC_TRUE@@USE_PEM_TRUE@am__append_90 = plugins/pem/libstrongswan-pem.la
+@USE_CURL_TRUE@am__append_91 = plugins/curl
+@MONOLITHIC_TRUE@@USE_CURL_TRUE@am__append_92 = plugins/curl/libstrongswan-curl.la
+@USE_FILES_TRUE@am__append_93 = plugins/files
+@MONOLITHIC_TRUE@@USE_FILES_TRUE@am__append_94 = plugins/files/libstrongswan-files.la
+@USE_WINHTTP_TRUE@am__append_95 = plugins/winhttp
+@MONOLITHIC_TRUE@@USE_WINHTTP_TRUE@am__append_96 = plugins/winhttp/libstrongswan-winhttp.la
+@USE_UNBOUND_TRUE@am__append_97 = plugins/unbound
+@MONOLITHIC_TRUE@@USE_UNBOUND_TRUE@am__append_98 = plugins/unbound/libstrongswan-unbound.la
+@USE_SOUP_TRUE@am__append_99 = plugins/soup
+@MONOLITHIC_TRUE@@USE_SOUP_TRUE@am__append_100 = plugins/soup/libstrongswan-soup.la
+@USE_LDAP_TRUE@am__append_101 = plugins/ldap
+@MONOLITHIC_TRUE@@USE_LDAP_TRUE@am__append_102 = plugins/ldap/libstrongswan-ldap.la
+@USE_MYSQL_TRUE@am__append_103 = plugins/mysql
+@MONOLITHIC_TRUE@@USE_MYSQL_TRUE@am__append_104 = plugins/mysql/libstrongswan-mysql.la
+@USE_SQLITE_TRUE@am__append_105 = plugins/sqlite
+@MONOLITHIC_TRUE@@USE_SQLITE_TRUE@am__append_106 = plugins/sqlite/libstrongswan-sqlite.la
+@USE_PADLOCK_TRUE@am__append_107 = plugins/padlock
+@MONOLITHIC_TRUE@@USE_PADLOCK_TRUE@am__append_108 = plugins/padlock/libstrongswan-padlock.la
+@USE_OPENSSL_TRUE@am__append_109 = plugins/openssl
+@MONOLITHIC_TRUE@@USE_OPENSSL_TRUE@am__append_110 = plugins/openssl/libstrongswan-openssl.la
+@USE_WOLFSSL_TRUE@am__append_111 = plugins/wolfssl
+@MONOLITHIC_TRUE@@USE_WOLFSSL_TRUE@am__append_112 = plugins/wolfssl/libstrongswan-wolfssl.la
+@USE_GCRYPT_TRUE@am__append_113 = plugins/gcrypt
+@MONOLITHIC_TRUE@@USE_GCRYPT_TRUE@am__append_114 = plugins/gcrypt/libstrongswan-gcrypt.la
+@USE_BOTAN_TRUE@am__append_115 = plugins/botan
+@MONOLITHIC_TRUE@@USE_BOTAN_TRUE@am__append_116 = plugins/botan/libstrongswan-botan.la
+@USE_FIPS_PRF_TRUE@am__append_117 = plugins/fips_prf
+@MONOLITHIC_TRUE@@USE_FIPS_PRF_TRUE@am__append_118 = plugins/fips_prf/libstrongswan-fips-prf.la
+@USE_AGENT_TRUE@am__append_119 = plugins/agent
+@MONOLITHIC_TRUE@@USE_AGENT_TRUE@am__append_120 = plugins/agent/libstrongswan-agent.la
+@USE_KEYCHAIN_TRUE@am__append_121 = plugins/keychain
+@MONOLITHIC_TRUE@@USE_KEYCHAIN_TRUE@am__append_122 = plugins/keychain/libstrongswan-keychain.la
+@USE_PKCS11_TRUE@am__append_123 = plugins/pkcs11
+@MONOLITHIC_TRUE@@USE_PKCS11_TRUE@am__append_124 = plugins/pkcs11/libstrongswan-pkcs11.la
+@USE_CHAPOLY_TRUE@am__append_125 = plugins/chapoly
+@MONOLITHIC_TRUE@@USE_CHAPOLY_TRUE@am__append_126 = plugins/chapoly/libstrongswan-chapoly.la
+@USE_CTR_TRUE@am__append_127 = plugins/ctr
+@MONOLITHIC_TRUE@@USE_CTR_TRUE@am__append_128 = plugins/ctr/libstrongswan-ctr.la
+@USE_CCM_TRUE@am__append_129 = plugins/ccm
+@MONOLITHIC_TRUE@@USE_CCM_TRUE@am__append_130 = plugins/ccm/libstrongswan-ccm.la
+@USE_GCM_TRUE@am__append_131 = plugins/gcm
+@MONOLITHIC_TRUE@@USE_GCM_TRUE@am__append_132 = plugins/gcm/libstrongswan-gcm.la
+@USE_MGF1_TRUE@am__append_133 = plugins/mgf1
+@MONOLITHIC_TRUE@@USE_MGF1_TRUE@am__append_134 = plugins/mgf1/libstrongswan-mgf1.la
+@USE_NTRU_TRUE@am__append_135 = plugins/ntru
+@MONOLITHIC_TRUE@@USE_NTRU_TRUE@am__append_136 = plugins/ntru/libstrongswan-ntru.la
+@USE_BLISS_TRUE@am__append_137 = plugins/bliss
+@MONOLITHIC_TRUE@@USE_BLISS_TRUE@am__append_138 = plugins/bliss/libstrongswan-bliss.la
+@USE_NEWHOPE_TRUE@am__append_139 = plugins/newhope
+@MONOLITHIC_TRUE@@USE_NEWHOPE_TRUE@am__append_140 = plugins/newhope/libstrongswan-newhope.la
+@USE_DRBG_TRUE@am__append_141 = plugins/drbg
+@MONOLITHIC_TRUE@@USE_DRBG_TRUE@am__append_142 = plugins/drbg/libstrongswan-drbg.la
+@USE_TEST_VECTORS_TRUE@am__append_143 = plugins/test_vectors
+@MONOLITHIC_TRUE@@USE_TEST_VECTORS_TRUE@am__append_144 = plugins/test_vectors/libstrongswan-test-vectors.la
+@USE_LIBNTTFFT_TRUE@am__append_145 = math/libnttfft/tests
+@USE_BLISS_TRUE@am__append_146 = plugins/bliss/tests
+@USE_NEWHOPE_TRUE@am__append_147 = plugins/newhope/tests
 subdir = src/libstrongswan
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/m4/config/libtool.m4 \
@@ -338,7 +340,7 @@ libstrongswan_la_DEPENDENCIES = $(am__DEPENDENCIES_1) \
 	$(am__append_122) $(am__append_124) $(am__append_126) \
 	$(am__append_128) $(am__append_130) $(am__append_132) \
 	$(am__append_134) $(am__append_136) $(am__append_138) \
-	$(am__append_140) $(am__append_142)
+	$(am__append_140) $(am__append_142) $(am__append_144)
 am__libstrongswan_la_SOURCES_DIST = library.c asn1/asn1.c \
 	asn1/asn1_parser.c asn1/oid.c bio/bio_reader.c \
 	bio/bio_writer.c collections/blocking_queue.c \
@@ -365,10 +367,11 @@ am__libstrongswan_la_SOURCES_DIST = library.c asn1/asn1.c \
 	credentials/certificates/crl.c \
 	credentials/certificates/ocsp_response.c \
 	credentials/certificates/x509.c \
+	credentials/certificates/ocsp_single_response.c \
 	credentials/certificates/certificate_printer.c \
 	credentials/containers/container.c \
 	credentials/containers/pkcs12.c \
-	credentials/credential_manager.c \
+	credentials/credential_manager.c credentials/ocsp_responders.c \
 	credentials/sets/auth_cfg_wrapper.c \
 	credentials/sets/ocsp_response_wrapper.c \
 	credentials/sets/cert_cache.c credentials/sets/mem_cred.c \
@@ -459,10 +462,12 @@ am_libstrongswan_la_OBJECTS = library.lo asn1/asn1.lo \
 	credentials/certificates/crl.lo \
 	credentials/certificates/ocsp_response.lo \
 	credentials/certificates/x509.lo \
+	credentials/certificates/ocsp_single_response.lo \
 	credentials/certificates/certificate_printer.lo \
 	credentials/containers/container.lo \
 	credentials/containers/pkcs12.lo \
 	credentials/credential_manager.lo \
+	credentials/ocsp_responders.lo \
 	credentials/sets/auth_cfg_wrapper.lo \
 	credentials/sets/ocsp_response_wrapper.lo \
 	credentials/sets/cert_cache.lo credentials/sets/mem_cred.lo \
@@ -530,10 +535,12 @@ am__depfiles_remade = ./$(DEPDIR)/library.Plo asn1/$(DEPDIR)/asn1.Plo \
 	credentials/$(DEPDIR)/cred_encoding.Plo \
 	credentials/$(DEPDIR)/credential_factory.Plo \
 	credentials/$(DEPDIR)/credential_manager.Plo \
+	credentials/$(DEPDIR)/ocsp_responders.Plo \
 	credentials/certificates/$(DEPDIR)/certificate.Plo \
 	credentials/certificates/$(DEPDIR)/certificate_printer.Plo \
 	credentials/certificates/$(DEPDIR)/crl.Plo \
 	credentials/certificates/$(DEPDIR)/ocsp_response.Plo \
+	credentials/certificates/$(DEPDIR)/ocsp_single_response.Plo \
 	credentials/certificates/$(DEPDIR)/x509.Plo \
 	credentials/containers/$(DEPDIR)/container.Plo \
 	credentials/containers/$(DEPDIR)/pkcs12.Plo \
@@ -717,12 +724,14 @@ am__nobase_strongswan_include_HEADERS_DIST = library.h asn1/asn1.h \
 	credentials/certificates/crl.h \
 	credentials/certificates/pkcs10.h \
 	credentials/certificates/ocsp_request.h \
+	credentials/certificates/ocsp_single_response.h \
 	credentials/certificates/ocsp_response.h \
 	credentials/certificates/pgp_certificate.h \
 	credentials/certificates/certificate_printer.h \
 	credentials/containers/container.h \
 	credentials/containers/pkcs7.h credentials/containers/pkcs12.h \
-	credentials/credential_manager.h \
+	credentials/credential_manager.h credentials/ocsp_responders.h \
+	credentials/ocsp_responder.h \
 	credentials/sets/auth_cfg_wrapper.h \
 	credentials/sets/ocsp_response_wrapper.h \
 	credentials/sets/cert_cache.h credentials/sets/mem_cred.h \
@@ -801,16 +810,16 @@ DIST_SUBDIRS = . math/libnttfft plugins/af_alg plugins/aes plugins/des \
 	plugins/nonce plugins/hmac plugins/kdf plugins/cmac \
 	plugins/xcbc plugins/x509 plugins/revocation \
 	plugins/constraints plugins/acert plugins/pubkey plugins/pkcs1 \
-	plugins/pkcs7 plugins/pkcs8 plugins/pkcs12 plugins/pgp \
-	plugins/dnskey plugins/sshkey plugins/pem plugins/curl \
-	plugins/files plugins/winhttp plugins/unbound plugins/soup \
-	plugins/ldap plugins/mysql plugins/sqlite plugins/padlock \
-	plugins/openssl plugins/wolfssl plugins/gcrypt plugins/botan \
-	plugins/fips_prf plugins/agent plugins/keychain plugins/pkcs11 \
-	plugins/chapoly plugins/ctr plugins/ccm plugins/gcm \
-	plugins/mgf1 plugins/ntru plugins/bliss plugins/newhope \
-	plugins/drbg plugins/test_vectors tests math/libnttfft/tests \
-	plugins/bliss/tests plugins/newhope/tests
+	plugins/pkcs7 plugins/pkcs8 plugins/pkcs12 plugins/openxpki \
+	plugins/pgp plugins/dnskey plugins/sshkey plugins/pem \
+	plugins/curl plugins/files plugins/winhttp plugins/unbound \
+	plugins/soup plugins/ldap plugins/mysql plugins/sqlite \
+	plugins/padlock plugins/openssl plugins/wolfssl plugins/gcrypt \
+	plugins/botan plugins/fips_prf plugins/agent plugins/keychain \
+	plugins/pkcs11 plugins/chapoly plugins/ctr plugins/ccm \
+	plugins/gcm plugins/mgf1 plugins/ntru plugins/bliss \
+	plugins/newhope plugins/drbg plugins/test_vectors tests \
+	math/libnttfft/tests plugins/bliss/tests plugins/newhope/tests
 am__DIST_COMMON = $(srcdir)/Makefile.in $(top_srcdir)/depcomp \
 	$(top_srcdir)/ylwrap settings/settings_lexer.c \
 	settings/settings_parser.c settings/settings_parser.h
@@ -1117,10 +1126,11 @@ libstrongswan_la_SOURCES = library.c asn1/asn1.c asn1/asn1_parser.c \
 	credentials/certificates/crl.c \
 	credentials/certificates/ocsp_response.c \
 	credentials/certificates/x509.c \
+	credentials/certificates/ocsp_single_response.c \
 	credentials/certificates/certificate_printer.c \
 	credentials/containers/container.c \
 	credentials/containers/pkcs12.c \
-	credentials/credential_manager.c \
+	credentials/credential_manager.c credentials/ocsp_responders.c \
 	credentials/sets/auth_cfg_wrapper.c \
 	credentials/sets/ocsp_response_wrapper.c \
 	credentials/sets/cert_cache.c credentials/sets/mem_cred.c \
@@ -1184,15 +1194,18 @@ settings/settings_types.h
 @USE_DEV_HEADERS_TRUE@credentials/certificates/certificate.h credentials/certificates/x509.h \
 @USE_DEV_HEADERS_TRUE@credentials/certificates/ac.h credentials/certificates/crl.h \
 @USE_DEV_HEADERS_TRUE@credentials/certificates/pkcs10.h credentials/certificates/ocsp_request.h \
+@USE_DEV_HEADERS_TRUE@credentials/certificates/ocsp_single_response.h \
 @USE_DEV_HEADERS_TRUE@credentials/certificates/ocsp_response.h \
 @USE_DEV_HEADERS_TRUE@credentials/certificates/pgp_certificate.h \
 @USE_DEV_HEADERS_TRUE@credentials/certificates/certificate_printer.h \
 @USE_DEV_HEADERS_TRUE@credentials/containers/container.h credentials/containers/pkcs7.h \
 @USE_DEV_HEADERS_TRUE@credentials/containers/pkcs12.h \
-@USE_DEV_HEADERS_TRUE@credentials/credential_manager.h credentials/sets/auth_cfg_wrapper.h \
-@USE_DEV_HEADERS_TRUE@credentials/sets/ocsp_response_wrapper.h credentials/sets/cert_cache.h \
-@USE_DEV_HEADERS_TRUE@credentials/sets/mem_cred.h credentials/sets/callback_cred.h \
-@USE_DEV_HEADERS_TRUE@credentials/auth_cfg.h credentials/credential_set.h credentials/cert_validator.h \
+@USE_DEV_HEADERS_TRUE@credentials/credential_manager.h credentials/ocsp_responders.h \
+@USE_DEV_HEADERS_TRUE@credentials/ocsp_responder.h \
+@USE_DEV_HEADERS_TRUE@credentials/sets/auth_cfg_wrapper.h credentials/sets/ocsp_response_wrapper.h \
+@USE_DEV_HEADERS_TRUE@credentials/sets/cert_cache.h credentials/sets/mem_cred.h \
+@USE_DEV_HEADERS_TRUE@credentials/sets/callback_cred.h credentials/auth_cfg.h \
+@USE_DEV_HEADERS_TRUE@credentials/credential_set.h credentials/cert_validator.h \
 @USE_DEV_HEADERS_TRUE@database/database.h database/database_factory.h fetcher/fetcher.h \
 @USE_DEV_HEADERS_TRUE@fetcher/fetcher_manager.h eap/eap.h pen/pen.h ipsec/ipsec_types.h \
 @USE_DEV_HEADERS_TRUE@metadata/metadata.h metadata/metadata_factory.h metadata/metadata_int.h \
@@ -1247,7 +1260,7 @@ libstrongswan_la_LIBADD = $(DLLIB) $(ATOMICLIB) $(BTLIB) $(SOCKLIB) \
 	$(am__append_124) $(am__append_126) $(am__append_128) \
 	$(am__append_130) $(am__append_132) $(am__append_134) \
 	$(am__append_136) $(am__append_138) $(am__append_140) \
-	$(am__append_142)
+	$(am__append_142) $(am__append_144)
 AM_CPPFLAGS = -I$(top_srcdir)/src/libstrongswan \
 	-DIPSEC_DIR=\"${ipsecdir}\" -DIPSEC_LIB_DIR=\"${ipseclibdir}\" \
 	-DPLUGINDIR=\"${plugindir}\" \
@@ -1312,8 +1325,9 @@ $(srcdir)/crypto/proposal/proposal_keywords_static.c
 @MONOLITHIC_FALSE@	$(am__append_129) $(am__append_131) \
 @MONOLITHIC_FALSE@	$(am__append_133) $(am__append_135) \
 @MONOLITHIC_FALSE@	$(am__append_137) $(am__append_139) \
-@MONOLITHIC_FALSE@	$(am__append_141) tests $(am__append_143) \
-@MONOLITHIC_FALSE@	$(am__append_144) $(am__append_145)
+@MONOLITHIC_FALSE@	$(am__append_141) $(am__append_143) tests \
+@MONOLITHIC_FALSE@	$(am__append_145) $(am__append_146) \
+@MONOLITHIC_FALSE@	$(am__append_147)
 
 # build unit tests
 ##################
@@ -1347,8 +1361,9 @@ $(srcdir)/crypto/proposal/proposal_keywords_static.c
 @MONOLITHIC_TRUE@	$(am__append_129) $(am__append_131) \
 @MONOLITHIC_TRUE@	$(am__append_133) $(am__append_135) \
 @MONOLITHIC_TRUE@	$(am__append_137) $(am__append_139) \
-@MONOLITHIC_TRUE@	$(am__append_141) . tests $(am__append_143) \
-@MONOLITHIC_TRUE@	$(am__append_144) $(am__append_145)
+@MONOLITHIC_TRUE@	$(am__append_141) $(am__append_143) . tests \
+@MONOLITHIC_TRUE@	$(am__append_145) $(am__append_146) \
+@MONOLITHIC_TRUE@	$(am__append_147)
 all: $(BUILT_SOURCES)
 	$(MAKE) $(AM_MAKEFLAGS) all-recursive
 
@@ -1618,6 +1633,9 @@ credentials/certificates/ocsp_response.lo:  \
 credentials/certificates/x509.lo:  \
 	credentials/certificates/$(am__dirstamp) \
 	credentials/certificates/$(DEPDIR)/$(am__dirstamp)
+credentials/certificates/ocsp_single_response.lo:  \
+	credentials/certificates/$(am__dirstamp) \
+	credentials/certificates/$(DEPDIR)/$(am__dirstamp)
 credentials/certificates/certificate_printer.lo:  \
 	credentials/certificates/$(am__dirstamp) \
 	credentials/certificates/$(DEPDIR)/$(am__dirstamp)
@@ -1634,6 +1652,8 @@ credentials/containers/pkcs12.lo:  \
 	credentials/containers/$(am__dirstamp) \
 	credentials/containers/$(DEPDIR)/$(am__dirstamp)
 credentials/credential_manager.lo: credentials/$(am__dirstamp) \
+	credentials/$(DEPDIR)/$(am__dirstamp)
+credentials/ocsp_responders.lo: credentials/$(am__dirstamp) \
 	credentials/$(DEPDIR)/$(am__dirstamp)
 credentials/sets/$(am__dirstamp):
 	@$(MKDIR_P) credentials/sets
@@ -2038,10 +2058,12 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@credentials/$(DEPDIR)/cred_encoding.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@credentials/$(DEPDIR)/credential_factory.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@credentials/$(DEPDIR)/credential_manager.Plo@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@credentials/$(DEPDIR)/ocsp_responders.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@credentials/certificates/$(DEPDIR)/certificate.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@credentials/certificates/$(DEPDIR)/certificate_printer.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@credentials/certificates/$(DEPDIR)/crl.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@credentials/certificates/$(DEPDIR)/ocsp_response.Plo@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@credentials/certificates/$(DEPDIR)/ocsp_single_response.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@credentials/certificates/$(DEPDIR)/x509.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@credentials/containers/$(DEPDIR)/container.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@credentials/containers/$(DEPDIR)/pkcs12.Plo@am__quote@ # am--include-marker
@@ -2567,10 +2589,12 @@ distclean: distclean-recursive
 	-rm -f credentials/$(DEPDIR)/cred_encoding.Plo
 	-rm -f credentials/$(DEPDIR)/credential_factory.Plo
 	-rm -f credentials/$(DEPDIR)/credential_manager.Plo
+	-rm -f credentials/$(DEPDIR)/ocsp_responders.Plo
 	-rm -f credentials/certificates/$(DEPDIR)/certificate.Plo
 	-rm -f credentials/certificates/$(DEPDIR)/certificate_printer.Plo
 	-rm -f credentials/certificates/$(DEPDIR)/crl.Plo
 	-rm -f credentials/certificates/$(DEPDIR)/ocsp_response.Plo
+	-rm -f credentials/certificates/$(DEPDIR)/ocsp_single_response.Plo
 	-rm -f credentials/certificates/$(DEPDIR)/x509.Plo
 	-rm -f credentials/containers/$(DEPDIR)/container.Plo
 	-rm -f credentials/containers/$(DEPDIR)/pkcs12.Plo
@@ -2749,10 +2773,12 @@ maintainer-clean: maintainer-clean-recursive
 	-rm -f credentials/$(DEPDIR)/cred_encoding.Plo
 	-rm -f credentials/$(DEPDIR)/credential_factory.Plo
 	-rm -f credentials/$(DEPDIR)/credential_manager.Plo
+	-rm -f credentials/$(DEPDIR)/ocsp_responders.Plo
 	-rm -f credentials/certificates/$(DEPDIR)/certificate.Plo
 	-rm -f credentials/certificates/$(DEPDIR)/certificate_printer.Plo
 	-rm -f credentials/certificates/$(DEPDIR)/crl.Plo
 	-rm -f credentials/certificates/$(DEPDIR)/ocsp_response.Plo
+	-rm -f credentials/certificates/$(DEPDIR)/ocsp_single_response.Plo
 	-rm -f credentials/certificates/$(DEPDIR)/x509.Plo
 	-rm -f credentials/containers/$(DEPDIR)/container.Plo
 	-rm -f credentials/containers/$(DEPDIR)/pkcs12.Plo

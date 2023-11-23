@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <SoftwareIdentity
   name="strongSwan"
-  tagId="strongSwan-5-9-11"
-  version="5.9.11" versionScheme="alphanumeric"
+  tagId="strongSwan-5-9-12"
+  version="5.9.12" versionScheme="alphanumeric"
   xmlns="http://standards.iso.org/iso/19770/-2/2015/schema.xsd">
   <Entity
     name="strongSwan Project"

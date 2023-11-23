@@ -2067,7 +2067,7 @@ static status_t reestablish_children(private_ike_sa_t *this, ike_sa_t *new,
 		if (action & ACTION_START)
 		{
 			child_init_args_t args = {
-				.reqid = child_sa->get_reqid(child_sa),
+				.reqid = child_sa->get_reqid_ref(child_sa),
 				.label = child_sa->get_label(child_sa),
 			};
 			child_cfg = child_sa->get_config(child_sa);
@@ -2076,6 +2076,10 @@ static status_t reestablish_children(private_ike_sa_t *this, ike_sa_t *new,
 			other->task_manager->queue_child(other->task_manager,
 											 child_cfg->get_ref(child_cfg),
 											 &args);
+			if (args.reqid)
+			{
+				charon->kernel->release_reqid(charon->kernel, args.reqid);
+			}
 		}
 	}
 	enumerator->destroy(enumerator);
@@ -2380,7 +2384,11 @@ METHOD(ike_sa_t, handle_redirect, bool,
 	switch (this->state)
 	{
 		case IKE_CONNECTING:
-			return redirect_connecting(this, gateway);
+			if (!has_condition(this, COND_AUTHENTICATED))
+			{
+				return redirect_connecting(this, gateway);
+			}
+			/* fall-through during IKE_AUTH if authenticated */
 		case IKE_ESTABLISHED:
 			return redirect_established(this, gateway);
 		default:
@@ -3021,7 +3029,7 @@ METHOD(ike_sa_t, destroy, void,
 	}
 	/* uninstall CHILD_SAs before virtual IPs, otherwise we might kill
 	 * routes that the CHILD_SA tries to uninstall. */
-	while (array_remove(this->child_sas, ARRAY_TAIL, &child_sa))
+	while (array_remove(this->child_sas, ARRAY_HEAD, &child_sa))
 	{
 		charon->child_sa_manager->remove(charon->child_sa_manager, child_sa);
 		child_sa->destroy(child_sa);

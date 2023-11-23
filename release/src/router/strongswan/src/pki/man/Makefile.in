@@ -106,9 +106,9 @@ mkinstalldirs = $(install_sh) -d
 CONFIG_HEADER = $(top_builddir)/config.h
 CONFIG_CLEAN_FILES = pki.1 pki---acert.1 pki---dn.1 pki---est.1 \
 	pki---estca.1 pki---gen.1 pki---issue.1 pki---keyid.1 \
-	pki---pkcs12.1 pki---pkcs7.1 pki---print.1 pki---pub.1 \
-	pki---req.1 pki---scep.1 pki---scepca.1 pki---self.1 \
-	pki---signcrl.1 pki---verify.1
+	pki---ocsp.1 pki---pkcs12.1 pki---pkcs7.1 pki---print.1 \
+	pki---pub.1 pki---req.1 pki---scep.1 pki---scepca.1 \
+	pki---self.1 pki---signcrl.1 pki---verify.1
 CONFIG_CLEAN_VPATH_FILES =
 AM_V_P = $(am__v_P_@AM_V@)
 am__v_P_ = $(am__v_P_@AM_DEFAULT_V@)
@@ -165,12 +165,12 @@ am__DIST_COMMON = $(srcdir)/Makefile.in $(srcdir)/pki---acert.1.in \
 	$(srcdir)/pki---dn.1.in $(srcdir)/pki---est.1.in \
 	$(srcdir)/pki---estca.1.in $(srcdir)/pki---gen.1.in \
 	$(srcdir)/pki---issue.1.in $(srcdir)/pki---keyid.1.in \
-	$(srcdir)/pki---pkcs12.1.in $(srcdir)/pki---pkcs7.1.in \
-	$(srcdir)/pki---print.1.in $(srcdir)/pki---pub.1.in \
-	$(srcdir)/pki---req.1.in $(srcdir)/pki---scep.1.in \
-	$(srcdir)/pki---scepca.1.in $(srcdir)/pki---self.1.in \
-	$(srcdir)/pki---signcrl.1.in $(srcdir)/pki---verify.1.in \
-	$(srcdir)/pki.1.in
+	$(srcdir)/pki---ocsp.1.in $(srcdir)/pki---pkcs12.1.in \
+	$(srcdir)/pki---pkcs7.1.in $(srcdir)/pki---print.1.in \
+	$(srcdir)/pki---pub.1.in $(srcdir)/pki---req.1.in \
+	$(srcdir)/pki---scep.1.in $(srcdir)/pki---scepca.1.in \
+	$(srcdir)/pki---self.1.in $(srcdir)/pki---signcrl.1.in \
+	$(srcdir)/pki---verify.1.in $(srcdir)/pki.1.in
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
 ACLOCAL = @ACLOCAL@
 ALLOCA = @ALLOCA@
@@ -432,6 +432,7 @@ man1_MANS = \
 	pki---gen.1 \
 	pki---issue.1 \
 	pki---keyid.1 \
+	pki---ocsp.1 \
 	pki---pkcs7.1 \
 	pki---print.1 \
 	pki---pub.1 \
@@ -490,6 +491,8 @@ pki---gen.1: $(top_builddir)/config.status $(srcdir)/pki---gen.1.in
 pki---issue.1: $(top_builddir)/config.status $(srcdir)/pki---issue.1.in
 	cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@
 pki---keyid.1: $(top_builddir)/config.status $(srcdir)/pki---keyid.1.in
+	cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@
+pki---ocsp.1: $(top_builddir)/config.status $(srcdir)/pki---ocsp.1.in
 	cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@
 pki---pkcs12.1: $(top_builddir)/config.status $(srcdir)/pki---pkcs12.1.in
 	cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@

@@ -26,5 +26,5 @@ add_plugin_subdirs = $(if $(call plugin_enabled,$(1)), \
               )
 
 # strongSwan version, replaced by top Makefile
-strongswan_VERSION := "5.9.11"
+strongswan_VERSION := "5.9.12"
 
