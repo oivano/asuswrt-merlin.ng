@@ -1553,7 +1553,7 @@ obj-$(RTCONFIG_TCPDUMP) += libpcap
 obj-$(RTCONFIG_TCPDUMP) += tcpdump-4.4.0
 obj-$(RTCONFIG_DUMP4000) += libpcap
 obj-$(RTCONFIG_DUMP4000) += tcpdump-4.4.0
-obj-$(RTCONFIG_TRACEROUTE) += traceroute-2.1.0
+obj-$(RTCONFIG_TRACEROUTE) += mtr
 
 obj-$(RTCONFIG_FPROBE) += libpcap
 obj-$(RTCONFIG_FPROBE) += fprobe-1.1
@@ -4835,7 +4835,6 @@ traceroute-2.1.0/stamp-h1:
 traceroute-2.1.0: traceroute-2.1.0/stamp-h1
 	$(MAKE) -C traceroute-2.1.0
 
-
 traceroute-2.1.0-install: traceroute-2.1.0
 	install -d $(INSTALLDIR)/traceroute-2.1.0/usr/sbin/
 	install -D traceroute-2.1.0/traceroute/traceroute $(INSTALLDIR)/traceroute-2.1.0/usr/sbin/traceroute
@@ -4844,6 +4843,26 @@ traceroute-2.1.0-install: traceroute-2.1.0
 traceroute-2.1.0-clean:
 	-$(MAKE) -C traceroute-2.1.0 clean
 	@rm -f traceroute-2.1.0/stamp-h1
+
+mtr/stamp-h1: ncurses-6.0 jansson-2.7
+	cd mtr && ./bootstrap.sh && \
+	$(CONFIGURE) CC=$(CC) CXX=$(CXX) AR=$(AR) LD=$(LD) --prefix=/usr --bindir=/usr/sbin --libdir=/usr/lib \
+	--without-gtk --disable-ipv6 ac_cv_lib_cap_cap_set_proc=no \
+	CFLAGS="$(CFLAGS) -Os -Wall -ffunction-sections -fdata-sections -I$(STAGEDIR)/usr/include" \
+	LDFLAGS="-Wl,--gc-sections,--as-needed -L$(STAGEDIR)/usr/lib -ljansson -lncurses -ldl" \
+	touch $@
+
+mtr: mtr/stamp-h1
+	$(MAKE) -C mtr
+
+mtr-install: mtr
+	install -d $(INSTALLDIR)/mtr/usr/sbin/
+	install -D mtr/mtr $(INSTALLDIR)/mtr/usr/sbin/mtr
+	$(STRIP) $(INSTALLDIR)/mtr/usr/sbin/mtr
+
+mtr-clean:
+	-$(MAKE) -C mtr clean
+	@rm -f mtr/stamp-h1
 
 libqcsapi_client-install: libqcsapi_client
 	install -d $(INSTALLDIR)/libqcsapi_client/usr/lib/
