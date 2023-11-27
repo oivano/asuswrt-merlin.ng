@@ -292,7 +292,7 @@ export EXTRALDFLAGS2 = -L$(TOP_PLATFORM)/nvram$(BCMEX)$(EX7) -lnvram -L$(TOP)/sh
 endif
 
 
-export LD_LIBRARY_PATH := $(SRCBASE)/toolchains/hndtools-arm-linux-2.6.36-uclibc-4.5.3/lib
+export LD_LIBRARY_PATH := $(LIBDIR)
 endif
 ifeq (2_6_36,$(LINUX_VERSION))
 export BUILD_MFG := 0
@@ -1116,7 +1116,8 @@ LLDPD := lldpd-0.9.8
 else
 $(error lldpd is not defined)
 endif
-obj-y  += $(LLDPD)
+obj-y += lldpd-1.0.17
+#obj-y  += $(LLDPD)
 obj-y  += libxml2
 endif
 
@@ -4464,9 +4465,8 @@ ifeq ($(RTCONFIG_L2TP),y)
 endif
 
 ez-ipupdate: openssl $(if $(RTCONFIG_HTTPS),mssl)
-
-ez-ipupdate-install:
 # disabled INADYN per default
+# ez-ipupdate-install:
 #	install -D ez-ipupdate/ez-ipupdate $(INSTALLDIR)/ez-ipupdate/usr/sbin/ez-ipupdate
 #	$(STRIP) $(INSTALLDIR)/ez-ipupdate/usr/sbin/ez-ipupdate
 
@@ -4844,12 +4844,14 @@ traceroute-2.1.0-clean:
 	-$(MAKE) -C traceroute-2.1.0 clean
 	@rm -f traceroute-2.1.0/stamp-h1
 
-mtr/stamp-h1: ncurses-6.0 jansson-2.7
+mtr/stamp-h1: shared ncurses-6.0 jansson-2.7
 	cd mtr && ./bootstrap.sh && \
-	$(CONFIGURE) CC=$(CC) CXX=$(CXX) AR=$(AR) LD=$(LD) --prefix=/usr --bindir=/usr/sbin --libdir=/usr/lib \
+	$(CONFIGURE) --prefix=/usr --bindir=/usr/sbin --libdir=/usr/lib \
 	--without-gtk --disable-ipv6 ac_cv_lib_cap_cap_set_proc=no \
-	CFLAGS="$(CFLAGS) -Os -Wall -ffunction-sections -fdata-sections -I$(STAGEDIR)/usr/include" \
-	LDFLAGS="-Wl,--gc-sections,--as-needed -L$(STAGEDIR)/usr/lib -ljansson -lncurses -ldl" \
+	CFLAGS="$(CFLAGS) -Os -Wall -ffunction-sections -fdata-sections -std=gnu99 -I$(TOP)/shared -I$(STAGEDIR)/usr/include -I$(TOP)/ncurses-6.0/include" \
+	LDFLAGS="-L$(STAGEDIR)/usr/lib $(EXTRALDFLAGS) $(EXTRALDFLAGS2) -Wl,--gc-sections,--as-needed" \
+	JANSSON_LIBS="-L$(STAGEDIR)/usr/lib -ljansson" \
+	LIBS="-lc $(EXTRALDFLAGS) $(EXTRALDFLAGS2) -L$(TOP)/ncurses-6.0/lib -lncurses" \
 	touch $@
 
 mtr: mtr/stamp-h1
@@ -4953,6 +4955,32 @@ lldpd-1.0.11-clean:
 	@rm -f lldpd-1.0.11/Makefile
 	[ ! -f lldpd-1.0.11/libevent/Makefile ] || $(MAKE) -C lldpd-1.0.11/libevent clean
 	@rm -f lldpd-1.0.11/libevent/Makefile
+
+lldpd-1.0.17: libevent-2.0.21 jansson-2.7 lldpd-1.0.17/Makefile
+	$(MAKE) -C $@
+
+lldpd-1.0.17/Makefile:
+	cd lldpd-1.0.17 && autoreconf -i -f && \
+	$(CONFIGURE) --prefix= --bindir=/usr/sbin --libdir=/usr/lib \
+	$(if $(RTCONFIG_QCA),--disable-hardening,) \
+	CFLAGS="-g -O2 -I$(STAGEDIR)/usr/include" \
+	LDFLAGS="-L$(TOP)/lldpd-1.0.17/lib -lm -L$(STAGEDIR)/usr/lib -ljansson -ldl" \
+	--with-privsep-user=nobody --with-privsep-group=root --with-privsep-path=/var/run/lldpd
+
+lldpd-1.0.17-install: lldpd-1.0.17
+	install -D lldpd-1.0.17/src/client/.libs/lldpcli $(INSTALLDIR)/lldpd-1.0.17/usr/sbin/lldpcli
+	install -D lldpd-1.0.17/src/daemon/lldpd $(INSTALLDIR)/lldpd-1.0.17/usr/sbin/lldpd
+	install -D lldpd-1.0.17/src/lib/.libs/liblldpctl.so.4.9.0 $(INSTALLDIR)/lldpd-1.0.17/usr/lib/liblldpctl.so.4.9.0
+	$(STRIP) $(INSTALLDIR)/lldpd-1.0.17/usr/sbin/lldpcli
+	$(STRIP) $(INSTALLDIR)/lldpd-1.0.17/usr/sbin/lldpd
+	$(STRIP) $(INSTALLDIR)/lldpd-1.0.17/usr/lib/liblldpctl.so.4.9.0
+	cd $(INSTALLDIR)/lldpd-1.0.17/usr/lib && ln -sf liblldpctl.so.4.9.0 liblldpctl.so && ln -sf liblldpctl.so.4.9.0 liblldpctl.so.4
+
+lldpd-1.0.17-clean:
+	[ ! -f lldpd-1.0.17/Makefile ] || $(MAKE) -C lldpd-1.0.17 clean
+	@rm -f lldpd-1.0.17/Makefile
+	[ ! -f lldpd-1.0.17/libevent/Makefile ] || $(MAKE) -C lldpd-1.0.17/libevent clean
+	@rm -f lldpd-1.0.17/libevent/Makefile
 
 libevent-2.0.21: libevent-2.0.21/Makefile
 	$(MAKE) -C $@ $(PARALLEL_BUILD) && $(MAKE) $@-stage && sed 's|/usr/lib|$(STAGEDIR)/usr/lib|g' -i $(STAGEDIR)/usr/lib/libevent.la
@@ -6657,7 +6685,7 @@ strongswan/Makefile: strongswan/configure
 
 strongswan: openssl strongswan/Makefile
 	@$(SEP)
-	$(MAKE) -j 8 -C strongswan
+	$(MAKE) -j 8 -C strongswan $(PARALLEL_BUILD)
 
 strongswan-install: strongswan
 	@$(SEP)
@@ -7824,7 +7852,7 @@ jansson-2.7: jansson-2.7/Makefile
 
 jansson-2.7-install: jansson-2.7
 	install -D jansson-2.7/src/.libs/libjansson.so $(INSTALLDIR)/jansson-2.7/usr/lib/libjansson.so
-	$(STRIP) $(INSTALLDIR)/jansson-2.7/usr/lib/libjansson.so
+#	$(STRIP) $(INSTALLDIR)/jansson-2.7/usr/lib/libjansson.so
 	cd $(INSTALLDIR)/jansson-2.7/usr/lib && \
 		ln -sf libjansson.so libjansson.so.4
 
@@ -9733,5 +9761,4 @@ $(obj-y) $(obj-n) $(obj-clean) $(obj-install): dummy
 .PHONY: all clean distclean mrproper install package image
 .PHONY: conf mconf oldconf kconf kmconf config menuconfig oldconfig
 .PHONY: dummy libnet libpcap
-
 

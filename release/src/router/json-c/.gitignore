@@ -8,5 +8,4 @@ Makefile
 libtool
 .deps
 .libs
-json_config.h
 stamp-h2
