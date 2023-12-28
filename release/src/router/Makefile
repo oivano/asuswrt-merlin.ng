@@ -1605,7 +1605,7 @@ obj-y += libnfnetlink-1.0.1
 obj-y += libmnl-1.0.4
 obj-y += ipset-7.6
 endif
-obj-$(RTCONFIG_NFS) += nfs-utils-1.3.4
+obj-$(RTCONFIG_NFS) += nfs-utils-2.6.4 libevent-2.0.21
 obj-$(RTCONFIG_NFS) += portmap
 # End merlin add-ons
 
@@ -8146,6 +8146,32 @@ nfs-utils-1.3.4-install:
 	install -D nfs-utils-1.3.4/utils/showmount/showmount $(INSTALLDIR)/nfs-utils-1.3.4/usr/sbin/showmount
 	install -D nfs-utils-1.3.4/utils/statd/statd $(INSTALLDIR)/nfs-utils-1.3.4/usr/sbin/statd
 	$(STRIP) $(INSTALLDIR)/nfs-utils-1.3.4/usr/sbin/*
+
+nfs-utils-2.6.4/stamp-h1: libevent-2.0.21
+	cd nfs-utils-2.6.4 && ./autogen.sh && \
+	CPPFLAGS="$(EXTRACFLAGS) -Os -std=gnu99" knfsd_cv_bsd_signals=no \
+	CC_FOR_BUILD=$(CC) LD=$(LD) $(CONFIGURE) --disable-mount --disable-nfsv4 --disable-nfsv41 \
+	--disable-ipv6 --disable-tirpc --disable-nfsdcld --disable-nfsdcltrack --disable-nfsrahead --disable-uuid --disable-gss --disable-ldap \
+	--without-tcp-wrappers \
+	CFLAGS="-I$(STAGEDIR)/usr/include -I$(TOP)/libevent-2.0.21/include -I$(TOP)/shared" \
+	LDFLAGS="$(LDFLAGS) -ffunction-sections -fdata-sections -Wl,--gc-sections -L$(STAGEDIR)/usr/lib" \
+	LIBS="$(EXTRALDFLAGS) $(EXTRALDFLAGS2) -L$(STAGEDIR)/usr/lib -lpthread -lcrypt -ldl -lc -lmnl -luuid"
+	@touch $@
+
+nfs-utils-2.6.4: nfs-utils-2.6.4/stamp-h1
+	$(MAKE) -C $@
+
+nfs-utils-2.6.4-clean:
+	-@$(MAKE) -C nfs-utils-2.6.4 distclean
+	@rm -f nfs-utils-2.6.4/stamp-h1
+
+nfs-utils-2.6.4-install:
+	install -D nfs-utils-2.6.4/utils/nfsd/nfsd $(INSTALLDIR)/nfs-utils-2.6.4/usr/sbin/nfsd
+	install -D nfs-utils-2.6.4/utils/mountd/mountd $(INSTALLDIR)/nfs-utils-2.6.4/usr/sbin/mountd
+	install -D nfs-utils-2.6.4/utils/exportfs/exportfs $(INSTALLDIR)/nfs-utils-2.6.4/usr/sbin/exportfs
+	install -D nfs-utils-2.6.4/utils/showmount/showmount $(INSTALLDIR)/nfs-utils-2.6.4/usr/sbin/showmount
+	install -D nfs-utils-2.6.4/utils/statd/statd $(INSTALLDIR)/nfs-utils-2.6.4/usr/sbin/statd
+	$(STRIP) $(INSTALLDIR)/nfs-utils-2.6.4/usr/sbin/*
 
 portmap: portmap/Makefile
 	$(MAKE) -C $@  EXTRACFLAGS="$(EXTRACFLAGS) -Os" NO_TCP_WRAPPER=y RPCUSER=nobody
