@@ -635,6 +635,12 @@ int build_temp_rootfs(const char *newroot)
 		__cp("", "/usr/lib", "libz.so* liblzo2.so* liblz4.so*", newroot);
 	}
 #endif
+#if defined(RTCONFIG_SSLVPN)
+	/* Use dummy command instead of preparing environment for real one. */
+	snprintf(d1, sizeof(d1), "%s/usr/sbin/cru", newroot);
+	f_write_string(d1, "#!/bin/sh\n", 0, 0);
+	eval("chmod", "a+x", d1);
+#endif
 #if defined(RTCONFIG_WIREGUARD)
 	/* Use dummy command instead of preparing environment for real one. */
 	snprintf(d1, sizeof(d1), "%s/usr/sbin/cru", newroot);

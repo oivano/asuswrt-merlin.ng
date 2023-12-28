@@ -269,6 +269,11 @@ config RTCONFIG_OPENVPN
 	depends on RTCONFIG_LZO
 	default n
 
+config RTCONFIG_OPENCONNECT
+	bool "A VPN client compatible with several SSL VPN implementations (ocserv, Cisco AnyConnect, Juniper, Palo Alto)"
+	depends on RTCONFIG_OPENSSL11
+	default n
+
 config RTCONFIG_IPSEC
 	bool "IPsec Support"
 	default n

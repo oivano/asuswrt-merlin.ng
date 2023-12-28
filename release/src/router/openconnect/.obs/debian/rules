@@ -1,0 +1,28 @@
+#!/usr/bin/make -f
+
+include /usr/share/dpkg/pkg-info.mk
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	dh_auto_configure -- \
+		--disable-dsa-tests \
+		--htmldir=/usr/share/doc/openconnect/html \
+		--with-gnutls \
+		--without-gnutls-version-check \
+		--with-vpnc-script=/usr/share/vpnc-scripts/vpnc-script
+	$(MAKE) version.c
+	sed -i -e 's|".*"|"v$(DEB_VERSION)"|' version.c
+
+override_dh_installchangelogs:
+	dh_installchangelogs www/changelog.html
+
+override_dh_compress:
+	dh_compress -Xhtml/changelog.html
+
+override_dh_makeshlibs:
+	dh_makeshlibs
+	dpkg-gensymbols -plibopenconnect5 -Pdebian/libopenconnect5 -Ilibopenconnect5.symbols

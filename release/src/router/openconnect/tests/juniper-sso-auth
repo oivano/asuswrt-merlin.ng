@@ -1,0 +1,56 @@
+#!/bin/sh -efu
+#
+# Copyright © 2021 Joachim Kuebart <joachim.kuebart@gmail.com>
+#
+# This file is part of openconnect.
+#
+# This is free software; you can redistribute it and/or
+# modify it under the terms of the GNU Lesser General Public License
+# as published by the Free Software Foundation; either version 2.1 of
+# the License, or (at your option) any later version.
+#
+# This library is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>
+
+# This test uses LD_PRELOAD
+PRELOAD=1
+srcdir=${srcdir:-.}
+top_builddir=${top_builddir:-..}
+
+. `dirname $0`/common.sh
+
+FINGERPRINT="--servercert=pin-sha256:xp3scfzy3rO"
+CERT=$certdir/server-cert.pem
+KEY=$certdir/server-key.pem
+FAKE_TOKEN="--token-mode=totp --token-secret=ABCD"
+
+echo "Testing Juniper SSO auth against fake server ..."
+
+${srcdir}/fake-juniper-sso-server.py $ADDRESS 1443 $CERT $KEY >/dev/null 2>&1 &
+PID=$!
+wait_server $PID
+
+echo -n "Azure SSO with MFA. "
+(
+    echo test |
+    $OPENCONNECT \
+        $FAKE_TOKEN \
+        $FINGERPRINT \
+        --cookieonly \
+        --csd-wrapper ${srcdir}/fake-tncc.py \
+        --protocol nc \
+        --quiet \
+        --user "test@example.com" \
+        $ADDRESS:1443 \
+        >/dev/null 2>&1
+) ||
+    fail $PID "Could not receive cookie from fake Juniper server"
+
+echo ok
+
+cleanup

@@ -1305,11 +1305,11 @@ function hide_traffic_warning(){
 }
 
 function get_helplink(){
-	return "https://www.asuswrt-merlin.net/";
+	return "https://oivano.github.io/asuswrt-merlin.ng/";
 }
 
 function get_Downloadlink(){
-	return "https://www.asuswrt-merlin.net/download";
+	return "https://github.com/oivano/asuswrt-merlin.ng/releases/latest";
 }
 
 function Block_chars(obj, keywordArray){

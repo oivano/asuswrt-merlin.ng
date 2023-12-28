@@ -1,0 +1,61 @@
+<PAGE>
+	<INCLUDE file="inc/header.tmpl" />
+
+	<VAR match="VAR_SEL_PROTOCOLS" replace="selected" />
+	<VAR match="VAR_SEL_F5" replace="selected" />
+	<PARSE file="menu1.xml" />
+	<PARSE file="menu2-protocols.xml" />
+
+	<INCLUDE file="inc/content.tmpl" />
+
+<h1>F5 SSL VPN</h1>
+
+<p>Experimental support for <a
+href="https://www.f5.com/services/resources/glossary/ssl-vpn">F5 SSL
+VPN</a> was added to OpenConnect in March 2021. It is also known as BIG-IP in
+some documentation. It is a
+<a href="https://en.wikipedia.org/wiki/Point-to-Point_Protocol">PPP</a>-based
+protocol using the native PPP support which was merged into the 9.00
+release.</p>
+
+<p>F5 mode is requested by adding <tt>--protocol=f5</tt>
+to the command line:
+<pre>
+  openconnect --protocol=f5 big-ip.example.com
+</pre></p>
+
+<p>Since <a href="http://sites.inka.de/~W1011/devel/tcp-tcp.html">TCP over
+TCP is very suboptimal</a>, OpenConnect tries to always use PPP-over-DTLS,
+and will only fall over to the PPP-over-TLS tunnel if that fails, or if
+disabled via the <tt>--no-dtls</tt> argument.</p>
+
+<h2>Quirks and Issues</h2>
+
+<p>Currently, OpenConnect should fully support basic username/password
+authentication for F5, along with an optional TLS client certificate
+and the "domain" dropdown used by some F5 VPNs. The domain form field
+can be automatically populated with the <tt>--authgroup</tt> command-line option.</p>
+
+<p>Like <a href="juniper.html">Juniper</a>, the F5 VPN expects a full
+web browser environment for authentication, and uses HTML forms which
+rely heavily on JavaScript.  In some cases, JavaScript is used to
+inject modified values into hidden form fields, without which
+authentication will not complete successfully. If, as in <a
+href="https://gitlab.com/openconnect/openconnect/-/issues/493#note_1098089413">#493</a>,
+your F5 VPN uses a hidden form field with a value that must be
+overridden, you may be able to work around this by running
+<tt>openconnect --protocol=f5 <a
+href="manual.html#opt-form-entry">--form-entry</a>="hidden_form:choice=1"</tt>
+or similar (see issue for details on how this was determined).</p>
+
+<p>If you have access to an F5 VPN which uses other types of authentication (e.g.
+RSA or OATH tokens), please send information to <a href="mail.html">the mailing
+list</a> so that we add support to OpenConnect.</p>
+
+<p>Connectivity over DTLS is supported. On BIG-IP server v16, it is possible to use
+either DTLSv1.0 or DTLSv1.2, if configured correctly. On BIG-IP server v15, it is limited to
+DTLSv1.0 because experiments show that BIG-IP server v15 cannot negotiate correctly down to
+DTLSv1.0 when a newer version of DTLS is attempted.</p>
+
+	<INCLUDE file="inc/footer.tmpl" />
+</PAGE>

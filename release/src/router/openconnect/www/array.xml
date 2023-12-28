@@ -1,0 +1,38 @@
+<PAGE>
+	<INCLUDE file="inc/header.tmpl" />
+
+	<VAR match="VAR_SEL_PROTOCOLS" replace="selected" />
+	<VAR match="VAR_SEL_ARRAY" replace="selected" />
+	<PARSE file="menu1.xml" />
+	<PARSE file="menu2-protocols.xml" />
+
+	<INCLUDE file="inc/content.tmpl" />
+
+<h1>Array Networks AG SSL VPN</h1>
+
+<p>Experimental support for <a
+href="https://arraynetworks.com/products-secure-access-gateways-ag-series.html">Array
+AG SSL VPN</a> was added to OpenConnect in May 2021 for the 9.00 release. It is used for access to
+<a href="https://cloud.ibm.com/docs/iaas-vpn?topic=iaas-vpn-vpn-ssl-faq">IBM Cloud</a>
+private networks.</p>
+
+<p>Array mode is requested by adding <tt>--protocol=array</tt>
+to the command line:
+<pre>
+  openconnect --protocol=array vpn.lon.softlayer.com
+</pre></p>
+
+<h2>Quirks and Issues</h2>
+
+<p>Currently, OpenConnect only supports basic username/password
+authentication. If you have access to an Array VPN which uses other
+types of authentication (e.g.  RSA or OATH tokens), please send
+information to <a href="mail.html">the mailing list</a> so that we add
+support to OpenConnect.</p>
+
+<p>Connectivity over DTLS is supported, but currently limited to DTLSv1.0
+because no known version of the server supports DTLSv1.2. Some operating
+systems might ban DTLSv1.0 in their default security settings.</p>
+
+	<INCLUDE file="inc/footer.tmpl" />
+</PAGE>

@@ -1,0 +1,77 @@
+<PAGE>
+	<INCLUDE file="inc/header.tmpl" />
+
+	<VAR match="VAR_SEL_PROTOCOLS" replace="selected" />
+	<VAR match="VAR_SEL_PULSE" replace="selected" />
+	<PARSE file="menu1.xml" />
+	<PARSE file="menu2-protocols.xml" />
+
+	<INCLUDE file="inc/content.tmpl" />
+
+<h1>Pulse Connect Secure</h1>
+
+<p>Support for Pulse Connect Secure was added to OpenConnect in June 2019,
+for the 8.04 release. It has also been known as Junos Pulse and Ivanti Pulse Connect
+Secure, as its corporate ownership has changed.</p>
+
+<p>In most cases, Pulse servers also support the older
+<a href="juniper.html">Juniper Network Connect protocol</a>. The Pulse
+and Juniper protocols are extremely different from each other, and both extremely
+convoluted; the clearest improvement in the Pulse protocol is that it supports IPv6.</p>
+
+<p>Pulse mode is requested by adding <tt>--protocol=pulse</tt>
+to the command line:
+<pre>
+  openconnect --protocol=pulse vpn.example.com
+</pre></p>
+
+<p>The TCP transport for Pulse Connect Secure works over
+<a href="https://trustedcomputinggroup.org/resource/tnc-if-t-binding-to-tls/">IF-T/TLS</a>,
+first using EAP (and EAP-TTLS if certificates are being used) for
+authentication and then passing traffic over IF-T messages over
+the same transport. Just as with the older Juniper protocol, the UDP
+transport is <a href="https://tools.ietf.org/html/rfc3948">ESP</a>.</p>
+
+<h2>Authentication</h2>
+
+<p>The authentication cookies are compatible with the
+<a href="juniper.html">Juniper</a> mode, which means that external
+tools like <a href="https://github.com/russdill/juniper-vpn-py">juniper-vpn-py</a>
+should be usable with OpenConnect in Pulse mode too.</p>
+
+<h3>Host Checker</h3>
+
+<p>Support for Host Checker, also known as TNCC, has not yet been investigated and
+implemented for Pulse mode. The Juniper support may suffice for some users.</p>
+
+<h2>Connectivity</h2>
+
+<p>Once authentication is complete, the VPN connection can be
+established. Both Legacy IP and IPv6 should be working. Many
+Pulse VPNs will not provide full IPv6 connectivity unless a recent
+version of the official Pulse client for Windows is spoofed (see
+<a href="https://gitlab.com/openconnect/openconnect/-/issues/254#note_661398964">comment
+on GitLab issue #254</a>. Recent versions of OpenConnect will
+do this automatically, but for older versions it will need to be
+specified manually. For example:</p>
+
+<pre>
+  ./openconnect --protocol=pulse --useragent "Pulse-Secure/22.2.1.1295" --os=win
+</pre>
+
+<h2>Quirks and Issues</h2>
+
+<p>Some Pulse VPNs may <i>request</i> a client certificate but not actually
+<i>require</i> one. If you are trying to authenticate to such a VPN, and running
+into strange errors about unrecognized packet types, then mimicking a <i>very old</i>
+version of the official Pulse client software may help resolve the issue:</p>
+
+<pre>
+  ./openconnect --protocol=pulse --useragent "Pulse-Secure/3.0.0.0"
+</pre>
+
+<p>If you encounter this issue, please <a href="mail.html">tell us about it</a>
+so we can gather more information to solve it for everyone.</p>
+
+	<INCLUDE file="inc/footer.tmpl" />
+</PAGE>

@@ -1,0 +1,898 @@
+.TH OPENCONNECT 8
+.SH NAME
+openconnect \- Multi-protocol VPN client, for Cisco AnyConnect VPNs and others
+.SH SYNOPSIS
+.SY openconnect
+.OP \-\-config configfile
+.OP \-b,\-\-background
+.OP \-\-pid\-file pidfile
+.OP \-c,\-\-certificate cert
+.OP \-e,\-\-cert\-expire\-warning days
+.OP \-k,\-\-sslkey key
+.OP \-C,\-\-cookie cookie
+.OP \-\-cookie\-on\-stdin
+.OP \-\-compression MODE
+.OP \-d,\-\-deflate
+.OP \-D,\-\-no\-deflate
+.OP \-\-force\-dpd interval
+.OP \-\-force\-trojan interval
+.OP \-F,\-\-form\-entry form:opt=value
+.OP \-g,\-\-usergroup group
+.OP \-h,\-\-help
+.OP \-\-http\-auth methods
+.OP \-\-external\-browser browser
+.OP \-i,\-\-interface ifname
+.OP \-l,\-\-syslog
+.OP \-\-timestamp
+.OP \-\-passtos
+.OP \-U,\-\-setuid user
+.OP \-\-csd\-user user
+.OP \-m,\-\-mtu mtu
+.OP \-\-base\-mtu mtu
+.OP \-p,\-\-key\-password pass
+.OP \-P,\-\-proxy proxyurl
+.OP \-\-proxy\-auth methods
+.OP \-\-no\-proxy
+.OP \-\-libproxy
+.OP \-\-key\-password\-from\-fsid
+.OP \-q,\-\-quiet
+.OP \-Q,\-\-queue\-len len
+.OP \-s,\-\-script vpnc\-script
+.OP \-S,\-\-script\-tun
+.OP \-u,\-\-user name
+.OP \-V,\-\-version
+.OP \-v,\-\-verbose
+.OP \-x,\-\-xmlconfig config
+.OP \-\-authgroup group
+.OP \-\-authenticate
+.OP \-\-cookieonly
+.OP \-\-printcookie
+.OP \-\-cafile file
+.OP \-\-disable\-ipv6
+.OP \-\-dtls\-ciphers list
+.OP \-\-dtls12\-ciphers list
+.OP \-\-dtls\-local\-port port
+.OP \-\-dump\-http\-traffic
+.OP \-\-no\-system\-trust
+.OP \-\-pfs
+.OP \-\-no\-dtls
+.OP \-\-no\-http\-keepalive
+.OP \-\-no\-passwd
+.OP \-\-no\-xmlpost
+.OP \-\-non\-inter
+.OP \-\-passwd\-on\-stdin
+.OP \-\-protocol proto
+.OP \-\-token\-mode mode
+.OP \-\-token\-secret {secret\fR[\fI,counter\fR]|@\fIfile\fR}
+.OP \-\-reconnect\-timeout seconds
+.OP \-\-resolve host:ip
+.OP \-\-sni host
+.OP \-\-servercert sha1
+.OP \-\-useragent string
+.OP \-\-version\-string string
+.OP \-\-local\-hostname string
+.OP \-\-os string
+.B [\-\-server] [https://]\fIhost\fB[:\fIport\fB][/\fIgroup\fB]
+.YS
+
+.SH DESCRIPTION
+The program
+.B openconnect
+connects to VPN servers which use standard TLS/SSL, DTLS, and ESP
+protocols for data transport.
+
+It was originally written to support Cisco "AnyConnect" VPN servers,
+and has since been extended with experimental support for Juniper
+Network Connect
+.RB ( \-\-protocol=nc ),
+Junos/Ivanti Pulse VPN servers
+.RB ( \-\-protocol=pulse ),
+PAN GlobalProtect VPN servers
+.RB ( \-\-protocol=gp ),
+F5 Big-IP VPN servers
+.RB ( \-\-protocol=f5 ),
+Fortinet Fortigate VPN servers
+.RB ( \-\-protocol=fortinet ),
+and Array Networks SSL VPN servers
+.RB ( \-\-protocol=array ).
+
+The connection happens in two phases. First there is a simple HTTPS
+connection over which the user authenticates somehow \- by using a
+certificate, or password or SecurID, etc.  Having authenticated, the
+user is rewarded with an authentication cookie which can be used to make the
+real VPN connection.
+
+The second phase uses that cookie to connect to a tunnel via HTTPS,
+and data packets can be passed over the resulting connection. When
+possible, a UDP tunnel is also configured: AnyConnect uses DTLS, while
+Juniper and GlobalProtect use UDP-encapsulated ESP. The UDP tunnel
+may be disabled with
+.BR \-\-no\-dtls ,
+but is preferred when correctly supported by the server and network
+for performance reasons. (TCP performs poorly and unreliably over
+TCP-based tunnels; see
+.IR http://sites.inka.de/~W1011/devel/tcp-tcp.html .)
+
+.SH OPTIONS
+.TAG opt-config
+.TP
+.B \-\-config=CONFIGFILE
+Read further options from
+.I CONFIGFILE
+before continuing to process options from the command line. The file
+should contain long-format options as would be accepted on the command line,
+but without the two leading \-\- dashes. Empty lines, or lines where the
+first non-space character is a # character, are ignored.
+
+Any option except the
+.B config
+option may be specified in the file.
+.TAG opt-background
+.TP
+.B \-b,\-\-background
+Continue in background after startup
+.TAG opt-pid-file
+.TP
+.B \-\-pid\-file=PIDFILE
+Save the pid to
+.I PIDFILE
+when backgrounding
+.TAG opt-certificate
+.TAG opt-mca-certificate
+.TP
+.B \-c,\-\-certificate=CERT [,\-\-mca-certificate=CERT]
+Use SSL client certificate
+.I CERT
+which may be either a file name or, if OpenConnect has been built with an appropriate
+version of GnuTLS, a PKCS#11 URL.
+
+The
+.B \-\-mca-certificate
+option sets the secondary certificate for multi-certificate authentication (according
+to Cisco's terminology, the SSL client certificate is called the "machine" certificate,
+and the second certificate is called the "user" certificate).
+.TAG opt-cert-expire-warning
+.TP
+.B \-e,\-\-cert\-expire\-warning=DAYS
+Give a warning when SSL client certificate has
+.I DAYS
+left before expiry
+.TAG opt-sslkey
+.TAG opt-mca-key
+.TP
+.B \-k,\-\-sslkey=KEY [,\-\-mca\-key=KEY]
+Use SSL private key
+.I KEY
+which may be either a file name or, if OpenConnect has been built with an appropriate
+version of GnuTLS, a PKCS#11 URL.
+
+The
+.B \-\-mca\-key
+option sets the private key for the secondary certificate (see
+.BR \-\-mca\-certificate ).
+.TAG opt-cookie
+.TP
+.B \-C,\-\-cookie=COOKIE
+Use authentication cookie
+.IR COOKIE .
+.TAG opt-cookie-on-stdin
+.TP
+.B \-\-cookie\-on\-stdin
+Read cookie from standard input.
+.TAG opt-deflate
+.TP
+.B \-d,\-\-deflate
+Enable all compression, including stateful modes. By default, only stateless
+compression algorithms are enabled.
+.TAG opt-no-deflate
+.TP
+.B \-D,\-\-no\-deflate
+Disable all compression.
+.TAG opt-compression
+.TP
+.B \-\-compression=MODE
+Set compression mode, where
+.I MODE
+is one of
+.IR "stateless" ,
+.IR "none" ,
+or
+.IR "all" .
+
+By default, only stateless compression algorithms which do not maintain state
+from one packet to the next (and which can be used on UDP transports) are
+enabled. By setting the mode to
+.I "all"
+stateful algorithms (currently only zlib deflate) can be enabled. Or all
+compression can be disabled by setting the mode to
+.IR "none" .
+.TAG opt-force-dpd
+.TP
+.B \-\-force\-dpd=INTERVAL
+Use
+.I INTERVAL
+as Dead Peer Detection interval (in seconds). This will cause the client to use
+DPD at the specified interval even if the server hasn't requested it, or at a
+different interval from the one requested by the server.
+
+DPD mechanisms vary by protocol and by transport (TLS or DTLS/ESP), but are all
+functionally similar: they enable either the VPN client or the VPN server to
+transmit a signal to the peer, requesting an immediate reply which can be used
+to confirm that the link between the two peers is still working.
+.TAG opt-usergroup
+.TP
+.B \-g,\-\-usergroup=GROUP
+Set the URL path of the initial HTTPS connection to the server.
+
+With some protocols, this path may function as a login group or realm,
+hence the naming of this option. For example, the following invocations
+of OpenConnect are equivalent:
+.nf
+.B openconnect \-\-usergroup=loginPath vpn.server.com
+.B openconnect https://vpn.server.com/loginPath
+.fi
+
+.TAG opt-form-entry
+.TP
+.B \-F,\-\-form\-entry=FORM:OPTION[=VALUE]
+Provide authentication form input, where
+.I FORM
+and
+.I OPTION
+are the identifiers from the form and the specific input field, and
+.I VALUE
+is the string to be filled in automatically. For example, the standard username field
+(also handled by the
+.B \-\-user
+option) could also be provided with this option thus:
+.B \-\-form\-entry
+.IR main:username=joebloggs .
+
+If
+.I VALUE
+is not specified, this option will cause a hidden form field to be
+treated as a standard text-input field.
+
+This option should
+.I not
+be used to enter passwords.
+.B \-\-passwd\-on\-stdin
+should be used for that purpose. Not only will this option expose the password value
+via the OpenConnect process's command line, but unlike
+.B \-\-passwd\-on\-stdin
+this option will not recognize the case of an incorrect password, and stop trying
+to re-enter it repeatedly.
+.TAG opt-help
+.TP
+.B \-h,\-\-help
+Display help text
+.TAG opt-http-auth
+.TP
+.B \-\-http\-auth=METHODS
+Use only the specified methods for HTTP authentication to a server.  By default,
+only
+.IR Negotiate ,
+.I NTLM
+and
+.I Digest
+authentication are enabled.
+.I Basic
+authentication is also supported but because it is insecure it must be
+explicitly enabled. The argument is a comma-separated list of methods
+to be enabled. Note that the order does not matter: OpenConnect will use
+.IR Negotiate ,
+.IR NTLM ,
+.I Digest
+and
+.I Basic
+authentication in that order, if each is enabled, regardless of the order
+specified in the
+.I METHODS
+string.
+.TAG opt-external-browser
+.TP
+.B \-\-external\-browser=BROWSER
+Set
+.I BROWSER
+as the executable used by OpenConnect to handle the authentication process with
+gateways that support the
+.B single-sign-on-external-browser
+authentication method.
+.TAG opt-interface
+.TP
+.B \-i,\-\-interface=IFNAME
+Use
+.I IFNAME
+for tunnel interface
+.TAG opt-syslog
+.TP
+.B \-l,\-\-syslog
+After tunnel is brought up, use syslog for further progress messages
+.TAG opt-timestamp
+.TP
+.B \-\-timestamp
+Prepend a timestamp to each progress message
+.TAG opt-passtos
+.TP
+.B \-\-passtos
+Copy TOS / TCLASS of payload packet into DTLS and ESP packets. This is
+not set by default because it may leak information about the payload
+(for example, by differentiating voice/video traffic).
+.TAG opt-setuid
+.TP
+.B \-U,\-\-setuid=USER
+Drop privileges after connecting, to become user
+.I USER
+.TAG opt-csd-user
+.TP
+.B \-\-csd\-user=USER
+Drop privileges during execution of trojan binary or script (CSD, TNCC, or HIP).
+.TAG opt-csd-wrapper
+.TP
+.B \-\-csd\-wrapper=SCRIPT
+Run
+.I SCRIPT
+instead of the trojan binary or script.
+.TAG opt-force-trojan
+.TP
+.B \-\-force\-trojan=INTERVAL
+Use
+.I INTERVAL
+as interval (in seconds) for repeat execution of Trojan binary or script, overriding default and/or
+server-set interval.
+.TAG opt-mtu
+.TP
+.B \-m,\-\-mtu=MTU
+Request
+.I MTU
+from server as the MTU of the tunnel.
+.TAG opt-base-mtu
+.TP
+.B \-\-base\-mtu=MTU
+Indicate
+.I MTU
+as the path MTU between client and server on the unencrypted network. Newer
+servers will automatically calculate the MTU to be used on the tunnel from
+this value.
+.TAG opt-key-password
+.TAG opt-mca-key-password
+.TP
+.B \-p,\-\-key\-password=PASS [,\-\-mca\-key\-password=PASS]
+Provide passphrase for certificate file, or SRK (System Root Key) PIN for TPM
+
+.B \-\-mca\-key\-password
+provides the passphrase for the secondary certificate (see
+.BR \-\-mca\-certificate ).
+.TAG opt-proxy
+.TP
+.B \-P,\-\-proxy=PROXYURL
+Use HTTP or SOCKS proxy for connection. A username and password can be provided
+in the given URL, and will be used for authentication. If authentication is
+required but no credentials are given, GSSAPI and automatic NTLM authentication
+using Samba's ntlm_auth helper tool may be attempted.
+.TAG opt-proxy-auth
+.TP
+.B \-\-proxy\-auth=METHODS
+Use only the specified methods for HTTP authentication to a proxy.  By default,
+only Negotiate, NTLM and Digest authentication are enabled. Basic authentication
+is also supported but because it is insecure it must be explicitly enabled. The
+argument is a comma-separated list of methods to be enabled. Note that the order
+does not matter: OpenConnect will use Negotiate, NTLM, Digest and Basic
+authentication in that order, if each is enabled, regardless of the order
+specified in the METHODS string.
+.TAG opt-no-proxy
+.TP
+.B \-\-no\-proxy
+Disable use of proxy
+.TAG opt-libproxy
+.TP
+.B \-\-libproxy
+Use libproxy to configure proxy automatically (when built with libproxy support)
+.TAG opt-key-password-from-fsid
+.TP
+.B \-\-key\-password\-from\-fsid
+Passphrase for certificate file is automatically generated from the
+.I fsid
+of the file system on which it is stored. The
+.I fsid
+is obtained from the
+.BR statvfs (2)
+or
+.BR statfs (2)
+system call, depending on the operating system. On a Linux or similar system
+with GNU coreutils, the
+.I fsid
+used by this option should be equal to the output of the command:
+.EX
+stat \-\-file\-system \-\-printf=%i\e\en $CERTIFICATE
+.EE
+It is not the same as the 128\-bit UUID of the file system.
+.TAG opt-quiet
+.TP
+.B \-q,\-\-quiet
+Less output
+.TAG opt-queue-len
+.TP
+.B \-Q,\-\-queue\-len=LEN
+Set packet queue limit to
+.I LEN
+packets. The default is 32. A high value may allow better overall bandwidth
+but at a cost of latency. If you run Voice over IP or other interactive
+traffic over the VPN, you don't want those packets to be queued behind
+thousands of other large packets which are part of a bulk transfer.
+
+This option sets the maximum inbound and outbound packet queue sizes
+in OpenConnect itself, which control how many packets will be sent and
+received in a single batch, as well as affecting other buffering such
+as the socket send buffer (SO_SNDBUF) for network connections and the
+OS tunnel device.
+
+Ultimately, the right size for a queue is "just enough packets that it
+never quite gets empty before more are pushed to it". Any higher than
+that is simply introducing bufferbloat and additional latency with no
+benefit. With the default of 32, we are able to saturate a single
+Gigabit Ethernet from modest hardware, which is more than enough for
+most VPN users.
+
+If OpenConnect is built with vhost-net support, it will only be used
+if the queue length is set to 16 or more. This is because vhost-net
+introduces a small amount of additional latency, but improves total
+bandwidth quite considerably for those operating at high traffic
+rates. Thus it makes sense to use it when the user has indicated a
+preference for bandwidth over latency, by increasing the queue size.
+
+.TAG opt-script
+.TP
+.B \-s,\-\-script=SCRIPT
+Invoke
+.I SCRIPT
+to configure the network after connection. Without this, routing and name
+service are unlikely to work correctly. The script is expected to be
+compatible with the
+.B vpnc\-script
+which is shipped with the "vpnc" VPN client. See
+.I https://www.infradead.org/openconnect/vpnc-script.html
+for more information. This version of OpenConnect is configured to
+use \fB@DEFAULT_VPNCSCRIPT@\fR by default.
+
+On Windows, a relative directory for the default script will be handled as
+starting from the directory that the openconnect executable is running from,
+rather than the current directory. The script will be invoked with the
+command-based script host \fBcscript.exe\fR.
+.TAG opt-script-tun
+.TP
+.B \-S,\-\-script\-tun
+Pass traffic to 'script' program over a UNIX socket, instead of to a kernel
+tun/tap device. This allows the VPN IP traffic to be handled entirely in
+userspace, for example by a program which uses lwIP to provide SOCKS access
+into the VPN.
+.TAG opt-server
+.TP
+.B \-\-server=[https://]\fIHOST\fB[:\fIPORT\fB][/\fIPATH\fB]
+Define the VPN server as a simple
+.I HOST
+or as an URL containing the
+. I HOST
+and optionally the
+.I PORT
+number and the
+.IR PATH ;
+with some protocols, the path may function as a login group or realm,
+and it may equivalently be specified with
+.BR \-\-usergroup .
+
+As an alternative, define the VPN server as non-option command line argument.
+.TAG opt-user
+.TP
+.B \-u,\-\-user=NAME
+Set login username to
+.I NAME
+.TAG opt-version
+.TP
+.B \-V,\-\-version
+Report version number
+.TAG opt-verbose
+.TP
+.B \-v,\-\-verbose
+More output (may be specified multiple times for additional output)
+.TAG opt-xmlconfig
+.TP
+.B \-x,\-\-xmlconfig=CONFIG
+XML config file
+.TAG opt-authgroup
+.TP
+.B \-\-authgroup=GROUP
+Select GROUP from authentication dropdown or list entry.
+
+Many VPNs require a selection from a dropdown or list during the
+authentication process. This selection may be known as
+.BR authgroup
+(on Cisco VPNs),
+.BR realm
+(Juniper, Pulse, Fortinet),
+.BR domain
+(F5), and
+.BR gateway
+(GlobalProtect).
+This option attempts to automatically fill the appropriate
+protocol-specific field with the desired value.
+.TAG opt-authenticate
+.TP
+.B \-\-authenticate
+Authenticate to the VPN, output the information needed to make the connection in
+a form which can be used to set shell environment variables, and then exit.
+
+When invoked with this option, OpenConnect will not actually create the VPN connection
+or configure a tunnel interface, but if successful will print something like the
+following to stdout:
+.nf
+.B COOKIE='3311180634@13561856@1339425499@B315A0E29D16C6FD92EE...'
+.B HOST='10.0.0.1'
+.B CONNECT_URL='https://vpnserver.example.com'
+.B FINGERPRINT='469bb424ec8835944d30bc77c77e8fc1d8e23a42'
+.B RESOLVE='vpnserver.example.com:10.0.0.1'
+.fi
+Thus, you can invoke openconnect as a non-privileged user
+.I (with access to the user's PKCS#11 tokens, etc.)
+for authentication, and then invoke openconnect separately to make the actual
+connection as root:
+.nf
+.B eval `openconnect --authenticate https://vpnserver.example.com`;
+.B [ -n \fR["$COOKIE"\fR] ] && echo \fR["$COOKIE"\fR] |
+.B \ \ sudo openconnect --cookie-on-stdin $CONNECT_URL --servercert $FINGERPRINT --resolve $RESOLVE
+.fi
+
+Earlier versions of OpenConnect produced only the
+.B HOST
+variable (containing the numeric server address), and not the
+.B CONNECT_URL
+or
+.B RESOLVE
+variables. Subsequently, we discovered that servers behind proxies may not respond
+correctly unless the correct DNS name is present in the connection phase, and we
+added support for VPN protocols where the server URL's
+.I path
+component may be significant in the connection phase, prompting the addition of
+.B CONNECT_URL
+and
+.BR RESOLVE ,
+and the recommendation to use them as described above.
+If you are not certain that you are invoking a newer version of OpenConnect which outputs
+these variables, use the following command-line (compatible with most Bourne shell derivatives)
+which will work with either a newer or older version:
+.nf
+.B sudo openconnect --cookie-on-stdin ${CONNECT_URL:-$HOST} --servercert $FINGERPRINT ${RESOLVE:+--resolve=$RESOLVE}
+.fi
+.TAG opt-cookieonly
+.TP
+.B \-\-cookieonly
+Fetch and print cookie only; don't connect (this is essentially a subset of
+.BR \-\-authenticate ).
+.TAG opt-printcookie
+.TP
+.B \-\-printcookie
+Print cookie to stdout before connecting (see
+.B \-\-authenticate
+for the meaning of this cookie)
+.TAG opt-cafile
+.TP
+.B \-\-cafile=FILE
+Additional CA file for server verification. By default, this simply
+causes OpenConnect to trust additional root CA certificate(s) in
+addition to those trusted by the system. Use
+.B \-\-no\-system\-trust
+to prevent OpenConnect from trusting the system default certificate
+authorities.
+.TAG opt-no-system-trust
+.TP
+.B \-\-no\-system\-trust
+Do not trust the system default certificate authorities. If this option is
+given, only certificate authorities given with the
+.B \-\-cafile
+option, if any, will be trusted automatically.
+.TAG opt-disable-ipv
+.TP
+.B \-\-disable\-ipv6
+Do not advertise IPv6 capability to server
+.TAG opt-dtls-ciphers
+.TP
+.B \-\-dtls\-ciphers=LIST
+Set OpenSSL ciphers to support for DTLS
+.TAG opt-dtls
+.TP
+.B \-\-dtls12\-ciphers=LIST
+Set OpenSSL ciphers for Cisco's DTLS v1.2
+.TAG opt-dtls-local-port
+.TP
+.B \-\-dtls\-local\-port=PORT
+Use
+.I PORT
+as the local port for DTLS and UDP datagrams
+.TAG opt-dump-http-traffic
+.TP
+.B \-\-dump\-http\-traffic
+Enable verbose output of all HTTP requests and the bodies of all responses
+received from the server.
+
+.TAG opt-pfs
+.TP
+.B \-\-pfs
+Enforces Perfect Forward Secrecy (PFS). That ensures that if the server's
+long-term key is compromised, any session keys established before the compromise
+will be unaffected. If this option is provided and the server does not support PFS
+in the TLS channel the connection will fail.
+
+PFS is available in Cisco ASA releases 9.1(2) and higher; a suitable cipher
+suite may need to be manually enabled by the administrator using the
+.B ssl encryption
+setting.
+
+.TAG opt-no-dtls
+.TP
+.B \-\-no\-dtls
+Disable DTLS and ESP
+.TAG opt-no-http-keepalive
+.TP
+.B \-\-no\-http\-keepalive
+Version 8.2.2.5 of the Cisco ASA software has a bug where it will forget
+the client's SSL certificate when HTTP connections are being re\-used for
+multiple requests. So far, this has only been seen on the initial connection,
+where the server gives an HTTP/1.0 redirect response with an explicit
+.B Connection: Keep\-Alive
+directive. OpenConnect as of v2.22 has an unconditional workaround for this,
+which is never to obey that directive after an HTTP/1.0 response.
+
+However, Cisco's support team has failed to give any competent
+response to the bug report and we don't know under what other
+circumstances their bug might manifest itself. So this option exists
+to disable ALL re\-use of HTTP sessions and cause a new connection to be
+made for each request. If your server seems not to be recognizing your
+certificate, try this option. If it makes a difference, please report
+this information to the
+.B openconnect\-devel@lists.infradead.org
+mailing list.
+.TAG opt-no-passwd
+.TP
+.B \-\-no\-passwd
+Never attempt password (or SecurID) authentication.
+.TAG opt-no-external-auth
+.TP
+.B \-\-no\-external\-auth
+Prevent OpenConnect from advertising to the server that it supports
+any kind of authentication mode that requires an external browser.
+
+Some servers will force the client to use such an authentication mode
+if the client advertises it, but fallback to a more "scriptable"
+authentication mode if the client doesn't appear to support it.
+.TAG opt-no-xmlpost
+.TP
+.B \-\-no\-xmlpost
+Do not attempt to post an XML authentication/configuration request to the
+server; use the old style GET method which was used by older clients and
+servers instead.
+
+This option is a temporary safety net, to work around potential
+compatibility issues with the code which falls back to the old method
+automatically. It causes OpenConnect to behave more like older
+versions (4.08 and below) did. If you find that you need to use this
+option, then you have found a bug in OpenConnect. Please see
+https://www.infradead.org/openconnect/mail.html and report this to the
+developers.
+.TAG opt-allow-insecure-crypto
+.TP
+.B \-\-allow\-insecure\-crypto
+The ancient, broken 3DES and RC4 ciphers are insecure; we explicitly
+disable them by default. However, some still-in-use VPN servers can't do
+any better.
+
+This option enables use of these insecure ciphers, as well as the use
+of SHA1 for server certificate validation.
+.TAG opt-non-inter
+.TP
+.B \-\-non\-inter
+Do not expect user input; exit if it is required.
+.TAG opt-passwd-on-stdin
+.TP
+.B \-\-passwd\-on\-stdin
+Read password from standard input
+.TAG opt-protocol
+.TP
+.B \-\-protocol=PROTO
+Select VPN protocol
+.I PROTO
+to be used for the connection. Supported protocols are
+.I anyconnect
+for Cisco AnyConnect (the default),
+.I nc
+for experimental support for Juniper Network Connect (also supported
+by most Junos/Ivanti Pulse servers),
+.I pulse
+for experimental support for Junos/Ivanti Pulse,
+.I gp
+for experimental support for PAN GlobalProtect,
+.I f5
+for experimental support for F5 Big-IP,
+.I fortinet
+for experimental support for Fortinet Fortigate, and
+.I array
+for experimental support for Array Networks SSL VPN.
+
+See
+.I https://www.infradead.org/openconnect/protocols.html
+for details on features and deficiencies of the individual
+protocols.
+
+OpenConnect does not yet support all of the authentication options used
+by Pulse, nor does it support Host Checker/TNCC with Pulse. If your
+Junos/Ivanti Pulse VPN is not yet supported with
+.BR \-\-protocol=pulse ,
+then
+.B \-\-protocol=nc
+may be a useful fallback option.
+.TAG opt-token-mode
+.TP
+.B \-\-token\-mode=MODE
+Enable one-time password generation using the
+.I MODE
+algorithm.
+.B \-\-token\-mode=rsa
+will call libstoken to generate an RSA SecurID tokencode,
+.B \-\-token\-mode=totp
+will generate an RFC 6238 time-based password, and
+.B \-\-token\-mode=hotp
+will generate an RFC 4226 HMAC-based password. Yubikey
+tokens which generate OATH codes in hardware are supported with
+.BR \-\-token\-mode=yubioath .
+.B \-\-token\-mode=oidc
+will use the provided OpenIDConnect token as an RFC 6750 bearer token.
+.TAG opt-token-secret
+.TP
+.B \-\-token\-secret={ SECRET[,COUNTER] | @FILENAME }
+The secret to use when generating one-time passwords/verification codes.
+Base 32-encoded TOTP/HOTP secrets can be used by specifying "base32:" at the
+beginning of the secret, and for HOTP secrets the token counter can be
+specified following a comma.
+
+RSA SecurID secrets can be specified as an Android/iPhone URI or a raw numeric
+CTF string (with or without dashes).
+
+For Yubikey OATH the token secret specifies the name of the credential to be
+used. If not provided, the first OATH credential found on the device will be
+used.
+
+For OIDC the secret is the bearer token to be used.
+
+.IR FILENAME ,
+if specified, can contain any of the above strings.  Or, it can contain a
+SecurID XML (SDTID) seed.
+
+If this option is omitted, and \-\-token\-mode is
+"rsa", libstoken will try to use the software token seed saved in
+.B ~/.stokenrc
+by the "stoken import" command.
+.TAG opt-reconnect-timeout
+.TP
+.B \-\-reconnect\-timeout=SECONDS
+After disconnection or Dead Peer Detection, keep trying to reconnect for
+.IR SECONDS .
+The default is 300 seconds, which means that
+openconnect can recover a VPN connection after a temporary network outage
+lasting up to 300 seconds.
+.TAG opt-resolve
+.TP
+.B \-\-resolve=HOST:IP
+Automatically resolve the hostname
+.IR HOST
+to
+.IR IP
+instead of using the normal resolver to look it up.
+.TAG opt-servercert
+.TP
+.B \-\-sni=HOST
+When creating new TLS connections, always present the hostname
+.IR HOST
+as the SNI (Server Name Indication) in place of the correct hostname,
+which will still be sent in the HTTP 'Host:' header, and expect the
+peer's certificate to match the SNI rather than the correct hostname.
+This may be useful for Domain Fronting, by which some filtered or
+censored Internet connections can be bypassed.
+
+Note that sending different values for the SNI and 'Host:' header
+violates HTTP standards and is prevented by many cloud hosting providers.
+.TP
+.B \-\-servercert=HASH
+Accept server's SSL certificate only if it matches the provided fingerprint.
+This option implies
+.BR \-\-no\-system\-trust ,
+and may be specified multiple times in order to accept multiple possible
+fingerprints.
+
+The allowed fingerprint types are
+.IR SHA1 ,
+.IR SHA256 ,
+and
+.IR PIN-SHA256 .
+They are distinguished by the 'sha1:', 'sha256:' and 'pin-sha256:' prefixes to the
+encoded hash. The first two are custom identifiers providing hex
+encoding of the peer's public key, while 'pin-sha256:' is the RFC7469 key
+PIN, which utilizes base64 encoding. To ease certain
+testing use-cases, a partial match of the hash will also
+be accepted, if it is at least 4 characters past the prefix.
+.TAG opt-useragent
+.TP
+.B \-\-useragent=STRING
+Use
+.I STRING
+as 'User\-Agent:' field value in HTTP header.
+
+Some VPN servers may require specific values matching those sent by proprietary VPN
+clients in order to successfully authenticate or connect. For example, when connecting
+to a Cisco VPN server,
+\-\-useragent 'AnyConnect Windows 4.10.06079' or
+\-\-useragent 'Cisco AnyConnect VPN Agent for Windows 2.2.0133',
+or when connecting to a Pulse server,
+\-\-useragent 'Pulse-Secure/9.1.11.6725'.
+.TAG opt-version-string
+.TP
+.B \-\-version\-string=STRING
+Use
+.I STRING
+as the software version reported to the head end.
+(e.g. \-\-version\-string '2.2.0133')
+.TAG opt-local-hostname
+.TP
+.B \-\-local\-hostname=STRING
+Use
+.I STRING
+as 'X\-CSTP\-Hostname:' field value in HTTP header. For example \-\-local\-hostname 'mypc',
+will advertise the value 'mypc' as the suggested hostname to point to the provided IP address.
+.TAG opt-os
+.TP
+.B \-\-os=STRING
+OS type to report to gateway.  Recognized values are:
+.BR linux ,
+.BR linux\-64 ,
+.BR win ,
+.BR mac\-intel ,
+.BR android ,
+.BR apple\-ios .
+Reporting a different OS type may affect the dynamic access policy (DAP)
+applied to the VPN session.  If the gateway requires CSD, it will also cause
+the corresponding CSD trojan binary to be downloaded, so you may need to use
+.B \-\-csd\-wrapper
+if this code is not executable on the local machine.
+.SH SIGNALS
+In the data phase of the connection, the following signals are handled:
+.TAG sig-SIGINT
+.TAG sig-SIGTERM
+.TP
+.B SIGINT / SIGTERM
+performs a clean shutdown by logging the session off, disconnecting from the
+gateway, and running the vpnc\-script to restore the network configuration.
+.TAG sig-SIGHUP
+.TP
+.B SIGHUP
+disconnects from the gateway and runs the vpnc\-script, but does not log the
+session off; this allows for reconnection later using
+.BR \-\-cookie .
+.TAG sig-SIGUSR1
+.TP
+.B SIGUSR1
+writes progress message with detailed connection information and statistics.
+.TAG sig-SIGUSR2
+.TP
+.B SIGUSR2
+forces an immediate disconnection and reconnection; this can be used to
+quickly recover from LAN IP address changes.
+.SH LIMITATIONS
+See
+.B https://www.infradead.org/openconnect/contribute.html
+for various features that we wish OpenConnect had, and
+.B https://www.infradead.org/openconnect/protocols.html
+for information on the quirks and limitations of the individual VPN
+protocols.
+.SH SEE ALSO
+.BR ocserv (8)
+
+.SH AUTHORS
+David Woodhouse <dwmw2@infradead.org>

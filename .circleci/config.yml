@@ -25,7 +25,7 @@ jobs:
       release_dir:
         type: string
     docker:
-      - image: ivano/asuswrt-merlin-toolchains-custom:2023-11-16
+      - image: ivano/asuswrt-merlin-toolchains-custom:2023-09-29
         environment:
           PROJECT_DIR: "/home/docker/project"
           CHANGELOG_FILE: "/tmp/CHANGELOG"

@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <html xmlns:v>
 <head>
@@ -150,17 +150,11 @@ function parseNvramToArray(_oriNvram, _arrayLength) {
 function initial(){
 	show_menu();
 
-	var vpn_client_array = {"OpenVPN" : ["OpenVPN", "Advanced_OpenVPNClient_Content.asp"], "PPTP" : ["PPTP/L2TP", "Advanced_VPNClient_Content.asp"], "Wireguard" : ["Wireguard", "Advanced_WireguardClient_Content.asp"]};
-        if(!wireguard_support) {
-                delete vpn_client_array.Wireguard;
+        if(openvpnd_support) {
+                var vpn_client_array = {"OpenVPN" : ["OpenVPN", "Advanced_OpenVPNClient_Content.asp"], "PPTP" : ["IPsec", "Advanced_VPNClient_Content.asp"]};
+                $('#divSwitchMenu').html(gen_switch_menu(vpn_client_array, "PPTP"));
+                document.getElementById("divSwitchMenu").style.display = "";
         }
-        if(!vpnc_support) {
-                delete vpn_client_array.PPTP;
-        }
-        if(!openvpnd_support) {
-                delete vpn_client_array.OpenVPN;
-        }
-	$('#divSwitchMenu').html(gen_switch_menu(vpn_client_array, "PPTP"));
 
 	vpnc_clientlist_array = parseNvramToArray('<% nvram_char_to_ascii("","vpnc_clientlist"); %>', 5);
 	vpnc_pptp_options_x_list_array = parseNvramToArray('<% nvram_char_to_ascii("","vpnc_pptp_options_x_list"); %>', 1);
@@ -195,14 +189,26 @@ function initial(){
 		var wans_cap = '<% nvram_get("wans_cap"); %>'.split(" ");
 		var wan_type_list = [];
 		for(var i = 0; i < wans_cap.length; i += 1) {
-			if(wans_cap[i] == "wan" || wans_cap[i] == "wan2" || wans_cap[i] == "usb") {
-				var option_value = "";
-				var option_text = "";
-				option_value = wans_cap[i];
-				option_text = wans_cap[i].toUpperCase();
-				var option = [option_value, option_text];
-				wan_type_list.push(option);
+			var option_value = "";
+			var option_text = "";
+			option_value = wans_cap[i];
+			
+			switch(wans_cap[i]) {
+				case "dsl" :
+					option_text = wans_cap[i].toUpperCase();
+					break;
+				case "wan2" :
+					option_text = wans_cap[i].toUpperCase();
+					break;
+				case "usb" :
+					option_text = wans_cap[i].toUpperCase();
+					break;
+				case "lan" :
+					option_text = "Ethernet LAN";
+					break;
 			}
+			var option = [option_value, option_text];
+			wan_type_list.push(option);
 		}
 		var selectobject = document.ipsec_form.ipsec_local_public_interface;
 		for(var i = 0; i < wan_type_list.length; i += 1) {
@@ -1536,9 +1542,6 @@ function gen_subnet_input(_type, _idx, _value) {
 	else {
 		subnet_input_obj.placeholder = "(ex.10.10.10.0/24)";
 		subnet_input_obj.maxLength = "18";
-		subnet_input_obj.onkeypress = function() {
-			return validator.isIPAddrPlusNetmask(this,event);
-		};
 	}
 	subnet_input_obj.style.marginTop = "4px";
 	return subnet_input_obj;
@@ -1906,7 +1909,6 @@ function save_ipsec_profile_panel() {
 		if(getRadioItemCheck(document.ipsec_form.ipsec_remote_gateway_method) == "0") {
 			if(!validator.ipv4_addr(document.ipsec_form.ipsec_remote_gateway.value)) {
 				document.ipsec_form.ipsec_remote_gateway.focus();
-				alert(document.ipsec_form.ipsec_remote_gateway.value + " <#JS_validip#>");
 				return false;
 			}
 		}
@@ -2013,33 +2015,25 @@ function save_ipsec_profile_panel() {
 			var existSubnetObj = "";
 			var is_ipv4 = false;
 			var is_ipv6 = false;
-			//var all_profile_subnet_list_array = all_profile_subnet_list.split(">");
 			for(var i = 1 ; i <= existSubnetItem; i += 1) {
 				existSubnetObj = document.getElementById("ipsec_" + _type + "_subnet_" + i);
 				is_ipv4 = (existSubnetObj.value.indexOf(".") != -1) ? true : false;
 				if(subnetIP_support_IPv6)
 					is_ipv6 = (existSubnetObj.value.indexOf(":") != -1) ? true : false;
 				if(!is_ipv4 && !is_ipv6) {
-					alert(existSubnetObj.value + "<#JS_validip#>");
 					existSubnetObj.focus();
 					return false;
 				}
 
 				if(is_ipv4) {
 					if(!validator.isLegalIPAndMask(existSubnetObj)) {
-						return false;
+						return true;
 					}
 
 					var subnetIP = existSubnetObj.value.split("/")[0];
 					var maskCIDR = parseInt(existSubnetObj.value.split("/")[1], 10);
-					if (isNaN(maskCIDR) || (maskCIDR != 24 && maskCIDR != 23)){
-						alert("Mask address must be 23 or 24.");/*untranslated*/
-						existSubnetObj.focus();
-						existSubnetObj.select();
-						return false;
-					}
-					var subnetMask = createNetmaskAddr(maskCIDR);
-					if(!checkGatewayIP(subnetIP, subnetMask)) {
+					if (isNaN(maskCIDR) || maskCIDR < 0 || maskCIDR > 32){
+						alert("Mask address must be a valid subnet mask e.g. /24");/*untranslated*/
 						existSubnetObj.focus();
 						existSubnetObj.select();
 						return false;
@@ -2422,12 +2416,8 @@ function add_subnet_item(obj, _type) {
 		else {
 			divObj.placeholder = "(ex.10.10.10.0/24)";
 			divObj.maxLength = "18";
-			divObj.onkeypress = function() {
-				return validator.isIPAddrPlusNetmask(this,event);
-			};
 		}
 		divObj.style.marginTop = "4px";
-		//divObj.onkeypress = function(){return validator.isIPAddr(this, event);};
 		obj.parentNode.appendChild(divObj);
 
 		var removeElement = function(element) {

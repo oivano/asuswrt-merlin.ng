@@ -1606,7 +1606,7 @@ void nat_setting(char *wan_if, char *wan_ip, char *wanx_if, char *wanx_ip, char 
 	if (wan_unit > WAN_UNIT_MULTISRV_BASE) return;
 #endif
 #ifdef RTCONFIG_IPV6
-#if defined(RTCONFIG_OPENVPN) || defined(RTCONFIG_WIREGUARD)
+#if defined(RTCONFIG_OPENVPN) || defined(RTCONFIG_WIREGUARD) || defined(RTCONFIG_SSLVPN)
 	if (ipv6_enabled()) {
 		eval("ip6tables", "-t", "nat", "-F");
 	}
@@ -2087,7 +2087,7 @@ void nat_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)	//
 #endif
 
 #ifdef RTCONFIG_IPV6
-#if defined(RTCONFIG_OPENVPN) || defined(RTCONFIG_WIREGUARD)
+#if defined(RTCONFIG_OPENVPN) || defined(RTCONFIG_WIREGUARD) || defined(RTCONFIG_SSLVPN)
 	if (ipv6_enabled()) {
 		eval("ip6tables", "-t", "nat", "-F");
 	}
@@ -3473,6 +3473,12 @@ filter_setting(int wan_unit, char *lan_if, char *lan_ip, char *logaccept, char *
 	    ":OVPNCI - [0:0]\n"
 	    ":OVPNCF - [0:0]\n"
 #endif
+#ifdef RTCONFIG_SSLVPN
+	    ":SSLVPNSI - [0:0]\n"
+	    ":SSLVPNSF - [0:0]\n"
+	    ":SSLVPNCI - [0:0]\n"
+	    ":SSLVPNCF - [0:0]\n"
+#endif
 #ifdef RTCONFIG_VPNC
                 ":VPNCF - [0:0]\n"
                 ":VPNCI - [0:0]\n"
@@ -3515,6 +3521,12 @@ filter_setting(int wan_unit, char *lan_if, char *lan_ip, char *logaccept, char *
 		    ":OVPNSF - [0:0]\n"
 		    ":OVPNCI - [0:0]\n"
 		    ":OVPNCF - [0:0]\n"
+#endif
+#ifdef RTCONFIG_SSLVPN
+		    ":SSLVPNSI - [0:0]\n"
+		    ":SSLVPNSF - [0:0]\n"
+		    ":SSLVPNCI - [0:0]\n"
+		    ":SSLVPNCF - [0:0]\n"
 #endif
 #ifdef RTCONFIG_DNSFILTER
 		    ":DNSFILTER_DOT - [0:0]\n"
@@ -4105,6 +4117,14 @@ TRACE_PT("writing Parental Control\n");
 		}
 #endif
 
+#ifdef RTCONFIG_SSLVPN
+		fprintf(fp, "-A INPUT -j SSLVPNSI\n");
+		fprintf(fp, "-A INPUT -j SSLVPNCI\n");
+		if (ipv6_enabled()) {
+			fprintf(fp_ipv6, "-A INPUT -j SSLVPNSI\n");
+			fprintf(fp_ipv6, "-A INPUT -j SSLVPNCI\n");
+		}
+#endif
 		fprintf(fp, "-A INPUT -j %s\n", logdrop);
 	}
 
@@ -4190,6 +4210,12 @@ TRACE_PT("writing Parental Control\n");
 	fprintf(fp, "-A FORWARD -j OVPNSF\n");
 	if (ipv6_enabled())
 		fprintf(fp_ipv6, "-A FORWARD -j OVPNSF\n");
+#endif
+
+#ifdef RTCONFIG_SSLVPN
+	fprintf(fp, "-A FORWARD -j SSLVPNSF\n");
+	if (ipv6_enabled())
+		fprintf(fp_ipv6, "-A FORWARD -j SSLVPNSF\n");
 #endif
 
 	/* Filter out invalid WAN->WAN connections */
@@ -4783,6 +4809,12 @@ TRACE_PT("write wl filter\n");
 		fprintf(fp_ipv6, "-A FORWARD -j OVPNCF\n");
 #endif
 
+#ifdef RTCONFIG_SSLVPN
+	fprintf(fp, "-A FORWARD -j SSLVPNCF\n");
+	if (ipv6_enabled())
+		fprintf(fp_ipv6, "-A FORWARD -j SSLVPNCF\n");
+#endif
+
 #ifdef RTCONFIG_VPNC
 	fprintf(fp, "-A FORWARD -j VPNCF\n");
 	// if (ipv6_enabled())
@@ -4905,6 +4937,14 @@ filter_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)
 	    ":OVPNCI - [0:0]\n"
 	    ":OVPNCF - [0:0]\n"
 #endif
+
+#ifdef RTCONFIG_SSLVPN
+	    ":SSLVPNSI - [0:0]\n"
+	    ":SSLVPNSF - [0:0]\n"
+	    ":SSLVPNCI - [0:0]\n"
+	    ":SSLVPNCF - [0:0]\n"
+#endif
+
 #ifdef RTCONFIG_VPNC
 		":VPNCF - [0:0]\n"
 		":VPNCI - [0:0]\n"
@@ -4945,6 +4985,13 @@ filter_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)
 		    ":OVPNCI - [0:0]\n"
 		    ":OVPNCF - [0:0]\n"
 #endif
+#ifdef RTCONFIG_SSLVPN
+		    ":SSLVPNSI - [0:0]\n"
+		    ":SSLVPNSF - [0:0]\n"
+		    ":SSLVPNCI - [0:0]\n"
+		    ":SSLVPNCF - [0:0]\n"
+#endif
+
 #ifdef RTCONFIG_DNSFILTER
 		    ":DNSFILTER_DOT - [0:0]\n"
 #endif
@@ -5531,6 +5578,15 @@ TRACE_PT("writing Parental Control\n");
 		}
 #endif
 
+#ifdef RTCONFIG_SSLVPN
+		fprintf(fp, "-A INPUT -j SSLVPNSI\n");
+		fprintf(fp, "-A INPUT -j SSLVPNCI\n");
+		if (ipv6_enabled()) {
+			fprintf(fp_ipv6, "-A INPUT -j SSLVPNSI\n");
+			fprintf(fp_ipv6, "-A INPUT -j SSLVPNCI\n");
+		}
+#endif
+
 		fprintf(fp, "-A INPUT -j %s\n", logdrop);
 	}
 
@@ -5629,6 +5685,12 @@ TRACE_PT("writing Parental Control\n");
 	fprintf(fp, "-A FORWARD -j OVPNSF\n");
 	if (ipv6_enabled())
 		fprintf(fp_ipv6, "-A FORWARD -j OVPNSF\n");
+#endif
+
+#ifdef RTCONFIG_SSLVPN
+	fprintf(fp, "-A FORWARD -j SSLVPNSF\n");
+	if (ipv6_enabled())
+		fprintf(fp_ipv6, "-A FORWARD -j SSLVPNSF\n");
 #endif
 
 	for(unit = WAN_UNIT_FIRST; unit < wan_max_unit; ++unit){
@@ -6244,6 +6306,12 @@ TRACE_PT("write wl filter\n");
 	fprintf(fp, "-A FORWARD -j OVPNCF\n");
 	if (ipv6_enabled())
 		fprintf(fp_ipv6, "-A FORWARD -j OVPNCF\n");
+#endif
+
+#ifdef RTCONFIG_SSLVPN
+	fprintf(fp, "-A FORWARD -j SSLVPNCF\n");
+	if (ipv6_enabled())
+		fprintf(fp_ipv6, "-A FORWARD -j SSLVPNCF\n");
 #endif
 
 #ifdef RTCONFIG_VPNC
@@ -7336,6 +7404,10 @@ int start_firewall(int wanunit, int lanunit)
 	ovpn_run_fw_scripts();
 #endif
 
+/*#ifdef RTCONFIG_SSLVPN
+	sslvpn_run_fw_scripts();
+#endif
+*/
 	if (!nvram_get_int("ttl_inc_enable") && !nvram_get_int("ttl_spoof_enable")) {
 		modprobe_r("xt_HL");
 		modprobe_r("xt_hl");

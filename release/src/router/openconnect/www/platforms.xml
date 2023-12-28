@@ -1,0 +1,51 @@
+<PAGE>
+
+	<INCLUDE file="inc/header.tmpl" />
+
+	<VAR match="VAR_SEL_INDEX" replace="selected" />
+	<VAR match="VAR_SEL_PLATFORMS" replace="selected" />
+	<PARSE file="menu1.xml" />
+	<PARSE file="menu2.xml" />
+
+	<INCLUDE file="inc/content.tmpl" />
+
+	<h1>Supported Platforms</h1>
+
+<p>OpenConnect is known to work, with both IPv6 and Legacy IP, on Linux
+(<a href="https://github.com/cernekee/ics-openconnect">including
+Android</a>), OpenBSD, FreeBSD (including Debian GNU/kFreeBSD), NetBSD,
+DragonFly BSD, OpenIndiana/OpenSolaris, Solaris 10/11, Windows and
+Mac OS X platforms, and should be trivially portable to any other platform
+supporting <a href="https://en.wikipedia.org/wiki/TUN/TAP">TUN/TAP</a> devices
+and on which <a href="https://www.gnutls.org/">GnuTLS</a> or
+<a href="https://www.openssl.org/">OpenSSL</a> runs.</p>
+
+<p>Although OpenConnect's <a href="vpnc-script.html">vpnc-script</a> was
+originally based on that of vpnc, you <b>should not</b> use that one; it hasn't
+been officially updated since 2008. Please use the updated script from the <a
+href="https://gitlab.com/openconnect/vpnc-scripts">vpnc-scripts</a>
+repository instead. That repository also contains an updated version of
+<tt>vpnc-script-win.js</tt> for Windows.</p>
+
+<p>
+OpenConnect is known to work on at least i386, x86_64, PowerPC, MIPS, and ARM
+processors, and should not have issues with portability to other CPUs.</p>
+
+<p>Note that 'Cisco Secure Desktop' support may require the ability to run Linux/i386 binaries;
+see the <a href="csd.html">CSD page</a>. OpenConnect does not yet support
+CSD under Windows, but this is a <a href="contribute.html">much-desired
+contribution</a>.</p>
+
+<h2>New Ports</h2>
+<p>
+Platform support for new UNIX systems is relatively simple to add
+&#8212; most of the difference is in the TUN/TAP device handling, and
+the major variants of that are already supported.</p>
+<p>
+OpenConnect builds for Windows using MinGW in 32-bit and 64-bit mode, and
+works with the TAP-Windows driver shipped with OpenVPN <i>(driver version
+9.9 or later)</i>.</p>
+
+
+<INCLUDE file="inc/footer.tmpl" />
+</PAGE>

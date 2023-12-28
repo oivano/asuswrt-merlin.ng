@@ -292,7 +292,7 @@ export EXTRALDFLAGS2 = -L$(TOP_PLATFORM)/nvram$(BCMEX)$(EX7) -lnvram -L$(TOP)/sh
 endif
 
 
-export LD_LIBRARY_PATH := $(SRCBASE)/toolchains/hndtools-arm-linux-2.6.36-uclibc-4.5.3/lib
+export LD_LIBRARY_PATH := $(LIBDIR)
 endif
 ifeq (2_6_36,$(LINUX_VERSION))
 export BUILD_MFG := 0
@@ -972,6 +972,11 @@ obj-$(RTCONFIG_ASD) += asd
 
 obj-$(RTCONFIG_OPENVPN) += libovpn
 
+obj-$(RTCONFIG_OPENCONNECT) += libxml2
+obj-$(RTCONFIG_OPENCONNECT) += openssl
+obj-$(RTCONFIG_OPENCONNECT) += lz4
+obj-$(RTCONFIG_OPENCONNECT) += openconnect
+
 obj-y += rc
 obj-y += rom
 obj-y += others
@@ -1111,7 +1116,8 @@ LLDPD := lldpd-0.9.8
 else
 $(error lldpd is not defined)
 endif
-obj-y  += $(LLDPD)
+obj-y += lldpd-1.0.17
+#obj-y  += $(LLDPD)
 obj-y  += libxml2
 endif
 
@@ -1554,7 +1560,9 @@ obj-$(RTCONFIG_TCPDUMP) += libpcap
 obj-$(RTCONFIG_TCPDUMP) += tcpdump-4.4.0
 obj-$(RTCONFIG_DUMP4000) += libpcap
 obj-$(RTCONFIG_DUMP4000) += tcpdump-4.4.0
-obj-$(RTCONFIG_TRACEROUTE) += traceroute-2.1.0
+obj-$(RTCONFIG_TRACEROUTE) += ncurses-6.0
+obj-$(RTCONFIG_TRACEROUTE) += jansson-2.7
+obj-$(RTCONFIG_TRACEROUTE) += mtr
 
 obj-$(RTCONFIG_FPROBE) += libpcap
 obj-$(RTCONFIG_FPROBE) += fprobe-1.1
@@ -3217,9 +3225,9 @@ mbedtls-install:
 	$(STRIP) $(INSTALLDIR)/mbedtls/usr/lib/*
 
 wolfssl/Makefile:
-	cd wolfssl && \
+	cd wolfssl && autoreconf -i -f && \
 	$(CONFIGURE) --prefix=/usr --sysconfdir=/etc \
-	    --enable-fastmath \
+	    --enable-fastmath --enable-dtls \
 	    --enable-aes --enable-aescbc --enable-aesgcm --enable-aesccm --enable-aesctr --enable-aescfb \
 	    --enable-des3 \
 	    --enable-sha  --enable-sha3 --enable-sha224 --enable-sha384 --enable-sha512 \
@@ -3232,12 +3240,13 @@ wolfssl/Makefile:
 	    --enable-supportedcurves \
 	    --enable-secure-renegotiation --enable-fallback-scsv \
 	    --enable-session-ticket \
-	    --enable-tlsx \
+	    --enable-tlsx --enable-stunnel \
 	    CFLAGS="-Wall -O2 -ffunction-sections -fdata-sections -fPIC $(EXTRACFLAGS)" \
 	    LDFLAGS="-Wl,--gc-sections $(LDFLAGS)"
 	@touch $@
 
 wolfssl: wolfssl/Makefile
+	@$(SEP)
 	$(MAKE) -C $@ && $(MAKE) $@-stage
 
 wolfssl-clean:
@@ -4464,9 +4473,8 @@ ifeq ($(RTCONFIG_L2TP),y)
 endif
 
 ez-ipupdate: openssl $(if $(RTCONFIG_HTTPS),mssl)
-
-ez-ipupdate-install:
 # disabled INADYN per default
+# ez-ipupdate-install:
 #	install -D ez-ipupdate/ez-ipupdate $(INSTALLDIR)/ez-ipupdate/usr/sbin/ez-ipupdate
 #	$(STRIP) $(INSTALLDIR)/ez-ipupdate/usr/sbin/ez-ipupdate
 
@@ -4849,7 +4857,6 @@ traceroute-2.1.0/stamp-h1:
 traceroute-2.1.0: traceroute-2.1.0/stamp-h1
 	$(MAKE) -C traceroute-2.1.0
 
-
 traceroute-2.1.0-install: traceroute-2.1.0
 	install -d $(INSTALLDIR)/traceroute-2.1.0/usr/sbin/
 	install -D traceroute-2.1.0/traceroute/traceroute $(INSTALLDIR)/traceroute-2.1.0/usr/sbin/traceroute
@@ -4858,6 +4865,30 @@ traceroute-2.1.0-install: traceroute-2.1.0
 traceroute-2.1.0-clean:
 	-$(MAKE) -C traceroute-2.1.0 clean
 	@rm -f traceroute-2.1.0/stamp-h1
+
+mtr/stamp-h1: shared ncurses-6.0 jansson-2.7
+	cd mtr && ./bootstrap.sh && \
+	$(CONFIGURE) --prefix=/usr --bindir=/usr/sbin --libdir=/usr/lib \
+	--without-gtk --disable-ipv6 ac_cv_lib_cap_cap_set_proc=no \
+	CFLAGS="$(CFLAGS) -Os -Wall -ffunction-sections -fdata-sections -std=gnu99 -I$(TOP)/shared -I$(STAGEDIR)/usr/include -I$(TOP)/ncurses-6.0/include" \
+	LDFLAGS="-L$(STAGEDIR)/usr/lib $(EXTRALDFLAGS) $(EXTRALDFLAGS2) -Wl,--gc-sections,--as-needed" \
+	JANSSON_LIBS="-L$(STAGEDIR)/usr/lib -ljansson" \
+	LIBS="-lc $(EXTRALDFLAGS) $(EXTRALDFLAGS2) -L$(TOP)/ncurses-6.0/lib -lncurses" \
+	touch $@
+
+mtr: mtr/stamp-h1
+	$(MAKE) -C mtr
+
+mtr-install: mtr
+	install -d $(INSTALLDIR)/mtr/usr/sbin/
+	install -D mtr/mtr $(INSTALLDIR)/mtr/usr/sbin/mtr
+	install -D mtr/mtr-packet $(INSTALLDIR)/mtr/usr/sbin/mtr-packet
+	$(STRIP) $(INSTALLDIR)/mtr/usr/sbin/mtr
+	$(STRIP) $(INSTALLDIR)/mtr/usr/sbin/mtr-packet
+
+mtr-clean:
+	-$(MAKE) -C mtr clean
+	@rm -f mtr/stamp-h1
 
 libqcsapi_client-install: libqcsapi_client
 	install -d $(INSTALLDIR)/libqcsapi_client/usr/lib/
@@ -4948,6 +4979,32 @@ lldpd-1.0.11-clean:
 	@rm -f lldpd-1.0.11/Makefile
 	[ ! -f lldpd-1.0.11/libevent/Makefile ] || $(MAKE) -C lldpd-1.0.11/libevent clean
 	@rm -f lldpd-1.0.11/libevent/Makefile
+
+lldpd-1.0.17: libevent-2.0.21 jansson-2.7 lldpd-1.0.17/Makefile
+	$(MAKE) -C $@
+
+lldpd-1.0.17/Makefile:
+	cd lldpd-1.0.17 && autoreconf -i -f && \
+	$(CONFIGURE) --prefix= --bindir=/usr/sbin --libdir=/usr/lib \
+	$(if $(RTCONFIG_QCA),--disable-hardening,) \
+	CFLAGS="-g -O2 -I$(STAGEDIR)/usr/include" \
+	LDFLAGS="-L$(TOP)/lldpd-1.0.17/lib -lm -L$(STAGEDIR)/usr/lib -ljansson -ldl" \
+	--with-privsep-user=nobody --with-privsep-group=root --with-privsep-path=/var/run/lldpd
+
+lldpd-1.0.17-install: lldpd-1.0.17
+	install -D lldpd-1.0.17/src/client/.libs/lldpcli $(INSTALLDIR)/lldpd-1.0.17/usr/sbin/lldpcli
+	install -D lldpd-1.0.17/src/daemon/lldpd $(INSTALLDIR)/lldpd-1.0.17/usr/sbin/lldpd
+	install -D lldpd-1.0.17/src/lib/.libs/liblldpctl.so.4.9.0 $(INSTALLDIR)/lldpd-1.0.17/usr/lib/liblldpctl.so.4.9.0
+	$(STRIP) $(INSTALLDIR)/lldpd-1.0.17/usr/sbin/lldpcli
+	$(STRIP) $(INSTALLDIR)/lldpd-1.0.17/usr/sbin/lldpd
+	$(STRIP) $(INSTALLDIR)/lldpd-1.0.17/usr/lib/liblldpctl.so.4.9.0
+	cd $(INSTALLDIR)/lldpd-1.0.17/usr/lib && ln -sf liblldpctl.so.4.9.0 liblldpctl.so && ln -sf liblldpctl.so.4.9.0 liblldpctl.so.4
+
+lldpd-1.0.17-clean:
+	[ ! -f lldpd-1.0.17/Makefile ] || $(MAKE) -C lldpd-1.0.17 clean
+	@rm -f lldpd-1.0.17/Makefile
+	[ ! -f lldpd-1.0.17/libevent/Makefile ] || $(MAKE) -C lldpd-1.0.17/libevent clean
+	@rm -f lldpd-1.0.17/libevent/Makefile
 
 libevent-2.0.21: libevent-2.0.21/Makefile
 	$(MAKE) -C $@ $(PARALLEL_BUILD) && $(MAKE) $@-stage && sed 's|/usr/lib|$(STAGEDIR)/usr/lib|g' -i $(STAGEDIR)/usr/lib/libevent.la
@@ -6234,6 +6291,52 @@ openvpn-install:
 #		install -D openvpn/dh2048.pem $(INSTALLDIR)/openvpn/rom/dh2048.pem ; \
 	fi
 
+openconnect: shared openssl lz4 libxml2 openconnect/Makefile
+	@$(SEP)
+	$(MAKE) -C $@ $(PARALLEL_BUILD)
+
+openconnect/Makefile:
+	( cd openconnect ; ./autogen.sh ; \
+		SSL_CFLAGS="-I$(STAGEDIR)/usr/include/openssl" \
+		SSL_LIBS="-L$(STAGEDIR)/usr/lib -lcrypto -lssl" \
+		LIBLZ4_CFLAGS="-I$(TOP)/lz4/lib" \
+		LIBLZ4_LIBS="-L$(TOP)/lz4/lib -llz4" \
+		LIBXML2_LIBS="-L$(STAGEDIR)/usr/lib -lxml2" \
+		CFLAGS="-O3 -Wall $(EXTRACFLAGS) -ffunction-sections -fdata-sections -fPIC -std=gnu99 \
+			-DASUSWRT -I$(TOP)/openssl/include -I$(STAGEDIR)/usr/include" \
+		LDFLAGS="-L$(TOP)/openssl -L$(STAGEDIR)/usr/lib $(EXTRALDFLAGS) $(EXTRALDFLAGS2) -ffunction-sections -fdata-sections \
+			-Wl,--gc-sections -lpthread -ldl" \
+		$(CONFIGURE) --prefix=/usr \
+			--disable-shared \
+			--without-libpcsclite \
+			--without-stoken \
+			--without-libpskc \
+			--without-gssapi \
+			--without-gnutls \
+			--with-openssl \
+			--disable-dsa-tests \
+			--with-vpnc-script=/etc/vpnc/vpnc-script \
+	)
+
+openconnect-clean:
+	@$(SEP)
+	[ ! -f openconnect/Makefile ] || $(MAKE) -C openconnect clean
+	@rm -f openconnect/Makefile
+
+openconnect-install:
+	if [ -f openconnect/Makefile ] ; then \
+		install -D openconnect/libopenconnect.la $(INSTALLDIR)/openconnect/usr/lib/libopenconnect.la ; \
+		$(STRIP) $(INSTALLDIR)/openconnect/usr/lib/* ; \
+		install -D openconnect/openconnect $(INSTALLDIR)/openconnect/usr/sbin/openconnect ; \
+		$(STRIP) -s $(INSTALLDIR)/openconnect/usr/sbin/openconnect ; \
+		chmod 0500 $(INSTALLDIR)/openconnect/usr/sbin/openconnect ; \
+		install -D openconnect/os-tcp-mtu $(INSTALLDIR)/openconnect/usr/sbin/os-tcp-mtu ; \
+		$(STRIP) -s $(INSTALLDIR)/openconnect/usr/sbin/os-tcp-mtu ; \
+		chmod 0500 $(INSTALLDIR)/openconnect/usr/sbin/os-tcp-mtu ; \
+		mkdir -p $(TARGETDIR)/rom/etc/vpnc ; \
+		cp openconnect/vpnc-script $(TARGETDIR)/rom/etc/vpnc/ ; \
+	fi
+
 sdparm-1.02: sdparm-1.02/Makefile
 	$(MAKE) -C $@
 
@@ -6672,7 +6775,7 @@ strongswan/Makefile: strongswan/configure
 	--enable-acert --enable-agent \
 	--enable-md4 \
 	--enable-eap-identity --enable-eap-md5 --enable-eap-mschapv2 --enable-eap-tls --enable-eap-peap \
-	--enable-cmd --enable-libipsec \
+	--enable-cmd --enable-libipsec --enable-kernel-libipsec \
 	--enable-shared --disable-static \
 	--with-ipsecdir=/usr/lib/ipsec \
 	--with-strongswan-conf=/etc/strongswan.conf \
@@ -6686,7 +6789,7 @@ strongswan/Makefile: strongswan/configure
 
 strongswan: openssl strongswan/Makefile
 	@$(SEP)
-	$(MAKE) -j 8 -C strongswan
+	$(MAKE) -j 8 -C strongswan $(PARALLEL_BUILD)
 
 strongswan-install: strongswan
 	@$(SEP)
@@ -8192,19 +8295,19 @@ wsdd2-clean:
 	$(MAKE) -C wsdd2 clean
 
 # End merlin components
-htop-configure: ncurses-6.0 libnl
-	cd htop && ./autogen.sh
-	cd htop && sh $(CONFIGURE) --prefix=/usr --enable-taskstats --enable-delayacct \
-	CFLAGS="$(EXTRACFLAGS) $(MIPS16_OPT)  -ffunction-sections -fdata-sections -Wl,--gc-sections -DNEED_PRINTF $(LTO) -I$(TOP)/ncurses/include " \
-	LDFLAGS="$(COPTS) $(MIPS16_OPT)  -ffunction-sections -fdata-sections -Wl,--gc-sections $(LDLTO) -L$(TOP)/ncurses/lib" \
-	HTOP_NCURSES_CONFIG_SCRIPT="$(TOP)/ncurses/misc/ncurses-config" \
+htop-configure: ncurses-6.0 libnl-bf
+	cd htop && ./autogen.sh && \
+	$(CONFIGURE) --prefix=/usr --enable-taskstats --enable-delayacct \
+	CFLAGS="$(EXTRACFLAGS) -ffunction-sections -fdata-sections -Wl,--gc-sections -DNEED_PRINTF -I$(TOP)/ncurses-6.0/include" \
+	LDFLAGS="$(LDFLAGS) -ffunction-sections -fdata-sections -Wl,--gc-sections -L$(TOP)/ncurses-6.0/lib -lncurses" \
+	HTOP_NCURSES_CONFIG_SCRIPT="$(TOP)/ncurses-6.0/misc/ncurses-config" \
 	LIBNL3_CFLAGS="-I$(STAGEDIR)/usr/include/libnl3" \
-	LIBNL3_LIBS="-L$(STAGEDIR)/usr/lib -lnl-3" \
+	LIBNL3_LIBS="-L$(STAGEDIR)/usr/lib -lnl-3 -pthread" \
 	LIBNL3GENL_CFLAGS="-I$(STAGEDIR)/usr/include" \
 	LIBNL3GENL_LIBS="-L$(STAGEDIR)/usr/lib -lnl-genl-3"
 	touch $@
 
-htop: ncurses-6.0 libnl htop-configure
+htop: ncurses-6.0 libnl-bf htop-configure
 	@$(SEP)
 	$(MAKE) -C $@
 
@@ -9784,5 +9887,4 @@ $(obj-y) $(obj-n) $(obj-clean) $(obj-install): dummy
 .PHONY: all clean distclean mrproper install package image
 .PHONY: conf mconf oldconf kconf kmconf config menuconfig oldconfig
 .PHONY: dummy libnet libpcap
-
 
