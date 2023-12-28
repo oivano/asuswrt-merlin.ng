@@ -1554,6 +1554,8 @@ obj-$(RTCONFIG_TCPDUMP) += libpcap
 obj-$(RTCONFIG_TCPDUMP) += tcpdump-4.4.0
 obj-$(RTCONFIG_DUMP4000) += libpcap
 obj-$(RTCONFIG_DUMP4000) += tcpdump-4.4.0
+obj-$(RTCONFIG_TRACEROUTE) += ncurses-6.0
+obj-$(RTCONFIG_TRACEROUTE) += jansson-2.7
 obj-$(RTCONFIG_TRACEROUTE) += mtr
 
 obj-$(RTCONFIG_FPROBE) += libpcap
@@ -4860,7 +4862,9 @@ mtr: mtr/stamp-h1
 mtr-install: mtr
 	install -d $(INSTALLDIR)/mtr/usr/sbin/
 	install -D mtr/mtr $(INSTALLDIR)/mtr/usr/sbin/mtr
+	install -D mtr/mtr-packet $(INSTALLDIR)/mtr/usr/sbin/mtr-packet
 	$(STRIP) $(INSTALLDIR)/mtr/usr/sbin/mtr
+	$(STRIP) $(INSTALLDIR)/mtr/usr/sbin/mtr-packet
 
 mtr-clean:
 	-$(MAKE) -C mtr clean
@@ -7852,7 +7856,7 @@ jansson-2.7: jansson-2.7/Makefile
 
 jansson-2.7-install: jansson-2.7
 	install -D jansson-2.7/src/.libs/libjansson.so $(INSTALLDIR)/jansson-2.7/usr/lib/libjansson.so
-#	$(STRIP) $(INSTALLDIR)/jansson-2.7/usr/lib/libjansson.so
+	$(STRIP) $(INSTALLDIR)/jansson-2.7/usr/lib/libjansson.so
 	cd $(INSTALLDIR)/jansson-2.7/usr/lib && \
 		ln -sf libjansson.so libjansson.so.4
 
