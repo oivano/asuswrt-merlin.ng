@@ -12,7 +12,10 @@ Asuswrt-Merlin Changelog
           provide updates and fixes until the end of 2024, at which
           point all the 386_xx models will no longer be actively
           maintained.
-
+  - ADDED:   mtr 0.95
+  - ADDED:   openconnect 9.12
+  - ADDED:   webui add IPsec client support
+  - UPDATED: strongSwan to 5.9.12
   - UPDATED: openvpn to 2.6.10.
   - UPDATED: miniupnpd to 2.3.6.
   - UPDATED: tor to 0.4.7.16.
@@ -44,7 +47,6 @@ Asuswrt-Merlin Changelog
 
 
 386.12-ion (15-Sep-2023)
- - UPDATED: Merged with GPL 386_51997.
  - UPDATED: Merged with GPL 386_51997.
  - UPDATED: curl to 8.1.2.
  - UPDATED: OpenVPN to 2.6.6.
