@@ -1620,12 +1620,14 @@ yyreduce:
 		}
 		free((yyvsp[-1].s));
 		free((yyvsp[0].s));
+		/* suppress compiler warning */
+		(void)yynerrs;
 	}
-#line 1625 "parser/parser.c"
+#line 1627 "parser/parser.c"
     break;
 
 
-#line 1629 "parser/parser.c"
+#line 1631 "parser/parser.c"
 
       default: break;
     }
@@ -1849,7 +1851,7 @@ yyreturnlab:
   return yyresult;
 }
 
-#line 207 "parser/parser.y"
+#line 209 "parser/parser.y"
 
 
 /**

@@ -58,6 +58,11 @@ function initial(){
 		setTimeout("refresh_ipsec_data()",1200);
 	else
 		showhide("ipsecsrv", 0);
+
+	if (ipsec_cli_support)
+		setTimeout("refresh_ipsec_data()",1200);
+	else
+		showhide("ipsecclnt", 0);
 }
 
 
@@ -119,33 +124,6 @@ function displayData(){
 				                ":<% nvram_get("vpn_client2_port"); %>)";
 				client_desc = "<span style=\"background-color: transparent; color: white;\"><% nvram_get("vpn_client2_desc"); %></span>";
 				break;
-			case 3:
-				client_state = vpnc_state_t3;
-				client_errno = vpnc_errno_t3;
-				tmp = "<% nvram_get("vpn_client3_addr"); %>";
-				client_server = " ("+ tmp.shorter(42) + 
-				                " <% nvram_get("vpn_client3_proto"); %>" +
-				                ":<% nvram_get("vpn_client3_port"); %>)";
-				client_desc = "<span style=\"background-color: transparent; color: white;\"><% nvram_get("vpn_client3_desc"); %></span>";
-				break;
-			case 4:
-				client_state = vpnc_state_t4;
-				client_errno = vpnc_errno_t4;
-				tmp = "<% nvram_get("vpn_client4_addr"); %>";
-				client_server = " ("+ tmp.shorter(42) + 
-				                " <% nvram_get("vpn_client4_proto"); %>" +
-				                ":<% nvram_get("vpn_client4_port"); %>)";
-				client_desc = "<span style=\"background-color: transparent; color: white;\"><% nvram_get("vpn_client4_desc"); %></span>";
-				break;
-			case 5:
-				client_state = vpnc_state_t5;
-				client_errno = vpnc_errno_t5;
-				tmp = "<% nvram_get("vpn_client5_addr"); %>";
-				client_server = " ("+ tmp.shorter(42) + 
-				                " <% nvram_get("vpn_client5_proto"); %>" +
-				                ":<% nvram_get("vpn_client5_port"); %>)";
-				client_desc = "<span style=\"background-color: transparent; color: white;\"><% nvram_get("vpn_client5_desc"); %></span>";
-				break;
 		}
 
 		switch (client_state) {
@@ -188,15 +166,22 @@ function displayData(){
 		parsePPTPClients();
 	}
 
-	if ( (vpnc_support) && (vpnc_clientlist_array != "") ) {
-		show_vpnc_rulelist();
-	}
-
 	if(ipsec_srv_support) {
 		if('<% nvram_get("ipsec_server_enable"); %>' == "1")
 			document.getElementById("ipsec_srv_Block_Running").innerHTML = state_srv_run;
 		else
 			document.getElementById("ipsec_srv_Block_Running").innerHTML = state_srv_stop;
+	}
+
+	if ( (vpnc_support) && (vpnc_clientlist_array != "") ) {
+		show_vpnc_rulelist();
+	}
+
+	if(ipsec_cli_support) {
+		if('<% nvram_get("ipsec_client_enable"); %>' == "1")
+			document.getElementById("ipsec_cli_Block_Running").innerHTML = state_clnt_ced;
+		else
+			document.getElementById("ipsec_cli_Block_Running").innerHTML = state_clnt_disc;
 	}
 
 	setTimeout("refreshData()",2000);
@@ -422,7 +407,7 @@ function parseStatus(text, block, ipaddress, ripaddress){
 
 
 function parseIPSecData(profileName){
-	var ikeversion = (profileName == "Host-to-Netv2" ? "IKEv2" : "IKEv1")
+	var ikeversion = (profileName == "Host-to-Netv2" ? "IKEv2" : "Net-to-Net")
 	var code = "<table width='100%' border='1' align='center' cellpadding='4' cellspacing='0' bordercolor='#6b8fa3' class='FormTable_table'><thead><tr><td colspan='5'>Connected Clients - " + ikeversion + "</td></tr></thead><tr>";
 	code += "<th style='text-align:left;white-space:nowrap;'>Remote IP</th>";
 	code += "<th style='text-align:left;white-space:nowrap;'><#statusTitle_Client#></th>";
@@ -444,7 +429,10 @@ function parseIPSecData(profileName){
 	}
 
 	code +='</table>';
-	document.getElementById('ipsec_srv_Block').innerHTML += code;
+	if('<% nvram_get("ipsec_server_enable"); %>' == "1")
+		document.getElementById('ipsec_srv_Block').innerHTML += code;
+    else 
+		document.getElementById('ipsec_cli_Block').innerHTML += code;
 }
 
 function show_vpnc_rulelist(){
@@ -508,21 +496,29 @@ function refresh_ipsec_data() {
 		dataType: 'script',
 		timeout: 1500,
 		success: function() {
-			document.getElementById('ipsec_srv_Block').innerHTML = "";
 			ipsec_connect_status_array = [];
 			for(var i = 0; i < ipsec_connect_status.length; i += 1) {
 				ipsec_connect_status_array[ipsec_connect_status[i][0]] = ipsec_connect_status[i][1];
 			}
 			if(ipsec_connect_status_array["Host-to-Net"] != undefined) {
+				document.getElementById('ipsec_srv_Block').innerHTML = "";
 				var connected_count = (ipsec_connect_status_array["Host-to-Net"].split("<").length);
 				if(connected_count > 0) {
 					parseIPSecData("Host-to-Net");
 				}
 			}
 			if(ipsec_connect_status_array["Host-to-Netv2"] != undefined) {
+				document.getElementById('ipsec_srv_Block').innerHTML = "";
 				var connected_count = (ipsec_connect_status_array["Host-to-Netv2"].split("<").length);
 				if(connected_count > 0) {
 					parseIPSecData("Host-to-Netv2");
+				}
+			}
+			if(ipsec_connect_status_array["other"] != undefined) {
+				document.getElementById('ipsec_cli_Block').innerHTML = "";
+				var connected_count = (ipsec_connect_status_array["other"].split("<").length);
+				if(connected_count > 0) {
+					parseIPSecData("other");
 				}
 			}
 		}
@@ -628,7 +624,7 @@ function refresh_ipsec_data() {
 							<div id="ipsec_srv_Block"></div>
 						</td>
 					</tr>
-                                </table>
+                </table>
 				<table width="100%" id="client1" style="margin-bottom:20px;" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable">
 					<thead>
 						<tr>
@@ -694,19 +690,18 @@ function refresh_ipsec_data() {
 					</tr>
 
 				</table>
-				<table width="100%" id="vpnc" style="margin-bottom:20px;" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable">
+				<table width="100%" id="ipsecclnt" style="margin-bottom:20px;" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable">
 					<thead>
 						<tr>
-							<td>IPsec Clients<span id="vpnc_Block_Running" style="background: transparent;"></span></td>
+                                                        <td>IPSec Clients<span id="ipsec_cli_Block_Running" style="background: transparent;"></span></td>
 						</tr>
 					</thead>
 					<tr>
 						<td style="border: none;">
-							<div id="vpnc_clientlist_Block"></div>
+							<div id="ipsec_cli_Block"></div>
 						</td>
 					</tr>
-
-				</table>
+                </table>
 
 				<div class="apply_gen">
 					<input name="button" type="button" class="button_gen" onclick="applyRule();" value="<#CTL_refresh#>"/>

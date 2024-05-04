@@ -2,7 +2,11 @@ Asuswrt-Merlin Changelog
 ========================
 
 
-386.13-ion (xx-xx-xxxx)
+386.13_2-ion (05-May-2024)
+  - FIXED:   VPN Status page for IPsec clients and VPN Client IPsec connection status display issue
+  - UPDATED: strongswan to 5.9.14
+
+386.13-ion (16-Apr-2024)
   - NOTE: all the models supported by Asuswrt-Merlin on the
           386_xx series are now officialy on Asus' End of Life
           list, which means unless there are new major security

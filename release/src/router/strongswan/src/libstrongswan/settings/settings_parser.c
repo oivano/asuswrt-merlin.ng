@@ -660,7 +660,7 @@ static const yytype_int8 yytranslate[] =
 static const yytype_uint8 yyrline[] =
 {
        0,   120,   120,   122,   123,   127,   131,   138,   146,   151,
-     160,   165,   173,   178,   185,   186,   200,   201
+     160,   165,   173,   178,   185,   186,   202,   203
 };
 #endif
 
@@ -1646,12 +1646,14 @@ yyreduce:
 		}
 		free((yyvsp[-1].s));
 		free((yyvsp[0].s));
+		/* suppress compiler warning */
+		(void)yynerrs;
 	}
-#line 1651 "settings/settings_parser.c"
+#line 1653 "settings/settings_parser.c"
     break;
 
 
-#line 1655 "settings/settings_parser.c"
+#line 1657 "settings/settings_parser.c"
 
       default: break;
     }
@@ -1875,7 +1877,7 @@ yyreturnlab:
   return yyresult;
 }
 
-#line 204 "settings/settings_parser.y"
+#line 206 "settings/settings_parser.y"
 
 
 /**

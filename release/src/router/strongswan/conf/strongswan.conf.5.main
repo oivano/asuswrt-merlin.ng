@@ -459,6 +459,12 @@ WINS servers assigned to peer via configuration payload (CP).
 WINS servers assigned to peer via configuration payload (CP).
 
 .TP
+.BR charon.ocsp_nonce_len " [32]"
+Length of nonces in OCSP requests. According to RFC 8954, valid values are
+between 1 and 32, with new clients required to use 32. Some servers might not
+support that so lowering the value to e.g. 16 might be necessary.
+
+.TP
 .BR charon.plugins.addrblock.depth " [-1]"
 RFC3779 requires that all addrblocks claimed by a certificate must be contained
 in the addrblock extension of the issuer certificate, up to the root CA. The
@@ -1536,6 +1542,12 @@ keys not stored on tokens.
 .TP
 .BR charon.plugins.pkcs11.use_rng " [no]"
 Whether the PKCS#11 modules should be used as RNG.
+
+.TP
+.BR charon.plugins.pkcs11.use_rsa_pss_hashers " [no]"
+Whether the PKCS#11 modules should try to use internal hashing for RSA\-PSS
+signatures (some PKCS#11 libraries don't implement internal hashing in
+conjunction with RSA\-PSS correctly).
 
 .TP
 .BR charon.plugins.radattr.dir " []"
