@@ -1,0 +1,9 @@
+##  ion Asus Merlin changelog  ##
+
+Date: May 05, 2024
+Release: 386.13_2-ion
+
+  - FIXED:   VPN Status page for IPsec clients and VPN Client IPsec connection status display issue
+  - UPDATED: strongswan to 5.9.14
+
+
