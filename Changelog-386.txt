@@ -15,7 +15,6 @@ Asuswrt-Merlin Changelog
           ion will tentatively attempt to continue to
           provide updates and fixes
   - ADDED:   mtr 0.95
-  - ADDED:   htop 3.2.2
   - ADDED:   openconnect 9.12
   - ADDED:   webui add IPsec client support
   - UPDATED: strongSwan to 5.9.12

@@ -1,4 +1,4 @@
-#
+#-
 # Broadcom Linux Router Makefile
 #
 # Copyright 2016, Broadcom
@@ -976,6 +976,7 @@ obj-$(RTCONFIG_OPENCONNECT) += libxml2
 obj-$(RTCONFIG_OPENCONNECT) += openssl
 obj-$(RTCONFIG_OPENCONNECT) += lz4
 obj-$(RTCONFIG_OPENCONNECT) += openconnect
+obj-$(RTCONFIG_OPENCONNECT) += htop
 
 obj-y += rc
 obj-y += rom
@@ -8087,7 +8088,7 @@ ncurses-6.1-install: ncurses-6.1
 		ln -sf libpanel.so.6.1 libpanel.so.6 &&\
 		ln -sf libpanel.so.6.1 libpanel.so
 
-ncurses-6.0/Makefile: ncurses-6.0/configure
+ncurses-6.0/Makefile: ncurses-6.0/configure #--enable-widec
 	cd ncurses-6.0 && $(CONFIGURE) \
 		CFLAGS="$(EXTRACFLAGS) -Os -I$(STAGEDIR)/usr/include -ffunction-sections -fdata-sections -fPIC" \
 		LDFLAGS="$(LDFLAGS) -ffunction-sections -fdata-sections -Wl,--gc-sections -L$(STAGEDIR)/usr/lib" \
@@ -8111,10 +8112,12 @@ ncurses-6.0-install: ncurses-6.0
 	install -D ncurses-6.0/lib/libform.so.6.0 $(INSTALLDIR)/ncurses-6.0/usr/lib/libform.so.6.0
 	install -D ncurses-6.0/lib/libmenu.so.6.0 $(INSTALLDIR)/ncurses-6.0/usr/lib/libmenu.so.6.0
 	install -D ncurses-6.0/lib/libncurses.so.6.0 $(INSTALLDIR)/ncurses-6.0/usr/lib/libncurses.so.6.0
+#	install -D ncurses-6.0/lib/libncursesw.so.6.0 $(INSTALLDIR)/ncurses-6.0/usr/lib/libncursesw.so.6.0
 	install -D ncurses-6.0/lib/libpanel.so.6.0 $(INSTALLDIR)/ncurses-6.0/usr/lib/libpanel.so.6.0
 	$(STRIP) $(INSTALLDIR)/ncurses-6.0/usr/lib/libform.so.6.0
 	$(STRIP) $(INSTALLDIR)/ncurses-6.0/usr/lib/libmenu.so.6.0
 	$(STRIP) $(INSTALLDIR)/ncurses-6.0/usr/lib/libncurses.so.6.0
+#	$(STRIP) $(INSTALLDIR)/ncurses-6.0/usr/lib/libncursesw.so.6.0
 	$(STRIP) $(INSTALLDIR)/ncurses-6.0/usr/lib/libpanel.so.6.0
 	cd $(INSTALLDIR)/ncurses-6.0/usr/lib && \
 		ln -sf libncurses.so.6.0 libncurses.so.6 &&\
@@ -8125,7 +8128,6 @@ ncurses-6.0-install: ncurses-6.0
 		ln -sf libmenu.so.6.0 libmenu.so &&\
 		ln -sf libpanel.so.6.0 libpanel.so.6 &&\
 		ln -sf libpanel.so.6.0 libpanel.so
-
 
 # Start merlin components
 nano/Makefile:
@@ -8297,10 +8299,11 @@ wsdd2-clean:
 # End merlin components
 htop-configure: ncurses-6.0 libnl-bf
 	cd htop && ./autogen.sh && \
-	$(CONFIGURE) --prefix=/usr --enable-taskstats --enable-delayacct \
-	CFLAGS="$(EXTRACFLAGS) -ffunction-sections -fdata-sections -Wl,--gc-sections -DNEED_PRINTF -I$(TOP)/ncurses-6.0/include" \
-	LDFLAGS="$(LDFLAGS) -ffunction-sections -fdata-sections -Wl,--gc-sections -L$(TOP)/ncurses-6.0/lib -lncurses" \
-	HTOP_NCURSES_CONFIG_SCRIPT="$(TOP)/ncurses-6.0/misc/ncurses-config" \
+	$(CONFIGURE) --prefix=/usr --disable-sensors --enable-affinity --disable-capabilities --disable-delayacct --disable-unicode --disable-unwind --disable-hwloc \
+	ac_cv_file__proc_stat=yes ac_cv_file__proc_meminfo=yes \
+	CFLAGS="$(CFLAGS) -Os -Wall -ffunction-sections -fno-finite-math-only -fdata-sections -std=gnu99 -I$(TOP)/shared -I$(STAGEDIR)/usr/include -I$(TOP)/ncurses-6.0/include" \
+	LDFLAGS="$(LDFLAGS) -ffunction-sections -fdata-sections -Wl,--gc-sections" \
+	LIBS="-L$(TOP)/ncurses-6.0/lib -lncurses" \
 	LIBNL3_CFLAGS="-I$(STAGEDIR)/usr/include/libnl3" \
 	LIBNL3_LIBS="-L$(STAGEDIR)/usr/lib -lnl-3 -pthread" \
 	LIBNL3GENL_CFLAGS="-I$(STAGEDIR)/usr/include" \
@@ -8315,8 +8318,9 @@ htop-clean:
 	$(MAKE) -C htop clean
 
 htop-install:
-#	$(MAKE) -C htop installDESTDIR=$(INSTALLDIR)/htop
-	install -D htop/htop $(INSTALLDIR)/htop/usr/sbin/htop
+	install -d $(INSTALLDIR)/htop/usr/sbin/
+	install -D htop/htop $(INSTALLDIR)htop/usr/sbin/htop
+	$(STRIP) $(INSTALLDIR)/htop/usr/sbin/htop
 
 readline-8.1/Makefile: ncurses-6.0 readline-8.1/configure
 	cd readline-8.1 && autoreconf -i -f && \
