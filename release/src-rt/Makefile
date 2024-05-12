@@ -1636,6 +1636,10 @@ define RouterOptions
 		sed -i "/RTCONFIG_TRACEROUTE/d" $(1); \
 		echo "RTCONFIG_TRACEROUTE=y" >>$(1); \
 	fi;
+	if [ "$(HTOP)" = "y" ]; then \
+		sed -i "/RTCONFIG_HTOP/d" $(1); \
+		echo "RTCONFIG_HTOP=y" >>$(1); \
+	fi;
 	if [ "$(NETOOL)" = "y" ]; then \
 		sed -i "/RTCONFIG_NETOOL/d" $(1); \
 		echo "RTCONFIG_NETOOL=y" >>$(1); \

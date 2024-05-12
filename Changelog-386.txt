@@ -2,6 +2,10 @@ Asuswrt-Merlin Changelog
 ========================
 
 
+
+386.13_3-ion (XX-XXX-XXXX)
+   - ADDED:   htop 3.3.0
+
 386.13_2-ion (05-May-2024)
   - FIXED:   VPN Status page for IPsec clients and VPN Client IPsec connection status display issue
   - UPDATED: strongswan to 5.9.14
@@ -15,7 +19,6 @@ Asuswrt-Merlin Changelog
           ion will tentatively attempt to continue to
           provide updates and fixes
   - ADDED:   mtr 0.95
-  - ADDED:   htop 3.2.2
   - ADDED:   openconnect 9.12
   - ADDED:   webui add IPsec client support
   - UPDATED: strongSwan to 5.9.12

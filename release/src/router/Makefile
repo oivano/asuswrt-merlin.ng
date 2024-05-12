@@ -1609,6 +1609,11 @@ obj-$(RTCONFIG_NFS) += nfs-utils-1.3.4
 obj-$(RTCONFIG_NFS) += portmap
 # End merlin add-ons
 
+ifeq ($(RTCONFIG_HTOP),y)
+obj-y += ncurses-6.0
+obj-y += htop
+endif
+
 ifeq ($(RTCONFIG_TOR),y)
 obj-y += openssl
 obj-y += zlib
@@ -8195,6 +8200,31 @@ wsdd2-clean:
 	$(MAKE) -C wsdd2 clean
 
 # End merlin components
+
+htop-configure: ncurses-6.0 libnl-bf
+	cd htop && ./autogen.sh && \
+	$(CONFIGURE) --prefix=/usr --disable-sensors --enable-affinity --disable-capabilities --disable-delayacct --disable-unicode --disable-unwind --disable-hwloc \
+	ac_cv_file__proc_stat=yes ac_cv_file__proc_meminfo=yes \
+	CFLAGS="$(CFLAGS) -Os -Wall -ffunction-sections -fno-finite-math-only -fdata-sections -std=gnu99 -I$(TOP)/shared -I$(STAGEDIR)/usr/include -I$(TOP)/ncurses-6.0/include" \
+	LDFLAGS="$(LDFLAGS) -ffunction-sections -fdata-sections -Wl,--gc-sections" \
+	LIBS="-L$(TOP)/ncurses-6.0/lib -lncurses" \
+	LIBNL3_CFLAGS="-I$(STAGEDIR)/usr/include/libnl3" \
+	LIBNL3_LIBS="-L$(STAGEDIR)/usr/lib -lnl-3 -pthread" \
+	LIBNL3GENL_CFLAGS="-I$(STAGEDIR)/usr/include" \
+	LIBNL3GENL_LIBS="-L$(STAGEDIR)/usr/lib -lnl-genl-3"
+	touch $@
+
+htop: ncurses-6.0 libnl-bf htop-configure
+	@$(SEP)
+	$(MAKE) -C $@
+
+htop-clean:
+	$(MAKE) -C htop clean
+
+htop-install:
+	install -d $(INSTALLDIR)/htop/usr/sbin/
+	install -D htop/htop $(INSTALLDIR)/htop/usr/sbin/htop
+	$(STRIP) $(INSTALLDIR)/htop/usr/sbin/htop
 
 readline-8.1/Makefile: readline-8.1/configure
 	cd readline-8.1 && autoreconf -i -f && \

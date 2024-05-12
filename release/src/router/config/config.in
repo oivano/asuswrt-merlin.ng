@@ -431,6 +431,10 @@ config RTCONFIG_TRACEROUTE
 	bool "traceroute"
 	default n
 
+config RTCONFIG_HTOP
+	bool "htop"
+	default n
+
 config RTCONFIG_NETOOL
 	bool "Network Tool Daemon"
 	default n
