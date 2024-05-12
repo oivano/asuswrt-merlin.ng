@@ -249,6 +249,28 @@ causes certificate payloads to be sent unconditionally
 whenever certificate authentication is used.
 
 .TP
+.BR connections.<conn>.ocsp " [reply]"
+Send OCSP status requests in certificate request payloads and/or send OCSP
+status response in certificate payloads when using certificate authentication.
+With the default of
+.RI "" "reply" ""
+the daemon sends OCSP status responses in
+certificate payloads if an OCSP status request has been received in a
+certificate request,
+.RI "" "never" ""
+disables sending of OCSP status requests and
+responses altogether,
+.RI "" "request" ""
+causes OCSP status requests in certificate
+request payloads to be sent whenever certificate authentication is used,
+.RI "" "both" ""
+combines
+.RI "" "reply" ""
+and
+.RI "" "request" "."
+
+
+.TP
 .BR connections.<conn>.ppk_id " []"
 String identifying the Postquantum Preshared Key (PPK) to be used.
 

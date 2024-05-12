@@ -1,49 +1,104 @@
 Asuswrt-Merlin Changelog
 ========================
 
+
+386.13_2-ion (05-May-2024)
+  - FIXED:   VPN Status page for IPsec clients and VPN Client IPsec connection status display issue
+  - UPDATED: strongswan to 5.9.14
+
+386.13-ion (16-Apr-2024)
+  - NOTE: all the models supported by Asuswrt-Merlin on the
+          386_xx series are now officialy on Asus' End of Life
+          list, which means unless there are new major security
+          issues, no new updates will be provided by Asus.
+
+          ion will tentatively attempt to continue to
+          provide updates and fixes
+  - ADDED:   mtr 0.95
+  - ADDED:   htop 3.2.2
+  - ADDED:   openconnect 9.12
+  - ADDED:   webui add IPsec client support
+  - UPDATED: strongSwan to 5.9.12
+  - UPDATED: openvpn to 2.6.10.
+  - UPDATED: miniupnpd to 2.3.6.
+  - UPDATED: tor to 0.4.7.16.
+  - UPDATED: OUI database used by networkmap and the webui.
+  - CHANGED: QOS/Classification page can now resolve local IPv6
+             addresses.
+  - CHANGED: Display tracked connections on the QoS/Classification
+             page even if QoS isn't set to Adaptive QoS.
+  - CHANGED: Prevent the use of Apple's iCloud Private Relay
+             when enabling "Prevent client auto DoH".
+  - CHANGED: NAT Passthrough page - removed the "Enabled + NAT
+             Helper" option as the firewall no longer blocks
+             traffic when set to disabled.  This is back to the
+             former behaviour, where this setting only controls
+             whether or not to load the NAT helper.  You might
+             need to readjust that setting if you had previously
+             changed it.
+  - CHANGED: SIP, RTSP and H323 ALG (NAT helpers) are now
+             disabled by default, as these legacy features tend
+             to create issues with modern VoIP setups.
+             This change will only apply to people doing a
+             factory default reset of their router.
+  - FIXED: CVE-2023-48795 in dropbear.
+  - FIXED: Various issues with the QOS Classification page.
+  - FIXED: UPNP leases without a description would not appear
+           on the Forwarded Ports page.
+  - FIXED: web server crashing when entering certain settings on
+           the Network Filter Page.  Bypassed bug in closed source
+           validation code for now.
+  - FIXED: Concurrent cronjob changes through cru could cause
+           collisions, leading to missing jobs (dave14305)
+  - FIXED: CVE-2023-5678 & CVE-2024-0727 in openssl (backport from
+           Ubuntu by RSDNTWK)
+  - UPDATED: dnsmasq to 2.90 (resolves CVE 2023-50868 and CVE 2023-50387).
+  - UPDATED: openvpn to 2.6.8 (fixes a crash introduced in 2.6.7)
+  - UPDATED: openssl to 1.1.1w.
+  - UPDATED: curl to 8.4.0.
+  - UPDATED: openvpn to 2.6.7.
+  - FIXED: WPS not working on SDK6/SDK7 devices (affecting
+           RT-AC68U and RT-AC88U/3100/5300)
+  - FIXED: dcd constantly crashing (updated Trend Micro
+           components)
+
+
 386.12-ion (15-Sep-2023)
  - UPDATED: Merged with GPL 386_51997.
+ - UPDATED: curl to 8.1.2.
+ - UPDATED: OpenVPN to 2.6.6.
+ - UPDATED: openssl to 1.1.1u.
+ - UPDATED: tor to 0.4.7.13.
+ - CHANGED: FTP server will now only support strong ciphers
+            in TLS mode.
+ - FIXED: QOS Classification showing no Upload data on some
+          WAN configurations.
+ - FIXED: Radio temperature graphs weren't updating
+ - FIXED: nvram usage reported on Sysinfo page was inaccurate
+          as it included JFFS stored values.
+ - UPDATED: curl to 8.0.1.
+ - UPDATED: openvpn to 2.6.3.
+ - CHANGED: Reduce max OpenVPN clients to 2 for RT-AC68U and
+            DSL-AC68U due to lack of NVRAM on these two
+            models.  Note that existing settings are not
+            automatically removed, you must run the following
+            command over SSH to remove them from nvram and
+            the /jffs/openvpn/ directory:
 
-386.12 (4-Sept-2023)
-  - UPDATED: Merged with GPL 386_51997.
-  - UPDATED: curl to 8.1.2.
-  - UPDATED: OpenVPN to 2.6.6.
-  - UPDATED: openssl to 1.1.1u.
-  - UPDATED: tor to 0.4.7.13.
-  - CHANGED: FTP server will now only support strong ciphers
-             in TLS mode.
-  - FIXED: QOS Classification showing no Upload data on some
-           WAN configurations.
-  - FIXED: Radio temperature graphs weren't updating
-  - FIXED: nvram usage reported on Sysinfo page was inaccurate
-           as it included JFFS stored values.
+               clear_vpnclients.sh
 
-386.11 (14-May-2023)
-  - UPDATED: curl to 8.0.1.
-  - UPDATED: openvpn to 2.6.3.
-  - CHANGED: Reduce max OpenVPN clients to 2 for RT-AC68U and
-             DSL-AC68U due to lack of NVRAM on these two
-             models.  Note that existing settings are not
-             automatically removed, you must run the following
-             command over SSH to remove them from nvram and
-             the /jffs/openvpn/ directory:
+            A backup will be saved in /jffs/openvpn_backup.tgz.
 
-                clear_vpnclients.sh
+ - FIXED: DDNS was being refreshed every time IPv6 bound6() event
+          occured even if IPv6 DDNS update was disabled.
+ - FIXED: Wireless Log wouldn't properly show IPv6 address
+          for clients with multiple addresses.
+ - FIXED: dnsmasq may crash if no DNS server is configured
+          (fix backported from dnsmasq upstream)
 
-             A backup will be saved in /jffs/openvpn_backup.tgz.
-
-  - FIXED: DDNS was being refreshed every time IPv6 bound6() event
-           occured even if IPv6 DDNS update was disabled.
-  - FIXED: Wireless Log wouldn't properly show IPv6 address
-           for clients with multiple addresses.
-  - FIXED: dnsmasq may crash if no DNS server is configured
-           (fix backported from dnsmasq upstream)
 
 386.10-ion (10-Mar-2023)
   - NOTE: 386_xx release are only for Wifi 5 (802.11ac) models.
-
-386.10 (10-Mar-2023)
-  - NOTE: 386_xx releases are only for Wifi 5 (AC) models.
   - NEW: Added Site Survey page under Network Tools tab.
          (RT-AC86U/GT-AC2900).
   - UPDATED: dnsmasq to 2.89.
@@ -66,55 +121,51 @@ Asuswrt-Merlin Changelog
   - FIXED: RT-AC68U may crash when using Media Bridge mode
            with a specific SSID length (patch from Asus)
 
+
 386.9-ion (20-Jan-2023)
  - NOTE: 386_xx release are only for Wifi 5 (802.11ac) models.
  - NEW: Merged with GPL 386_50757.
+ - NOTE: 386_xx release are only for Wifi 5 (802.11ac) models.
+ - NEW: Merged with GPL 386_50757.
 
-386.9 (6-Jan-2023)
-  - NOTE: 386_xx release are only for Wifi 5 (802.11ac) models.
-  - NEW: Merged with GPL 386_50757.
-
-  - UPDATED: getdns/stubby to 1.7.2/0.4.2.
-  - UPDATED: zlib to 1.2.12 + backports.
-  - UPDATED: openssl to 1.1.1s.
-  - UPDATED: inadyn to 2.10.0.
-  - UPDATED: nettle to 3.8.1.
-  - UPDATED: openvpn to 2.5.8.
-  - UPDATED: dropbear to 2022.83.
-  - UPDATED: dnsmasq to 2.88.
-  - CHANGED: Rebranded DNSFilter as DNS Director.  This will prevent
-             confusion with the company sharing the same name, and
-             also better describes what the feature does.
-  - CHANGED: Setting an OpenVPN client to redirect all traffic while
-             in "Exclusive" DNS mode will now force redirect ALL
-             DNS traffic just like in VPN Director mode.
-             While this will allow redirecting clients with
-             hardcoded DNS servers, it also means that your whole
-             LAN will lose the ability of doing local name
-             resolution.  It might be best to use VPN Director
-             in that case to control which client should
-             be involved in the DNS redirection, or use
-             DNSFilter instead of Exclusive DNS mode.
-             editing VPNDirector rules.
-  - CHANGED: Switched generated self-signed certificate to an
-             EC certificate.
-  - CHANGED: Disabled DSS key support in Dropbear SSH.
+ - UPDATED: getdns/stubby to 1.7.2/0.4.2.
+ - UPDATED: zlib to 1.2.12 + backports.
+ - UPDATED: openssl to 1.1.1s.
+ - UPDATED: inadyn to 2.10.0.
+ - UPDATED: nettle to 3.8.1.
+ - UPDATED: openvpn to 2.5.8.
+ - UPDATED: dropbear to 2022.83.
+ - UPDATED: dnsmasq to 2.88.
+ - CHANGED: Rebranded DNSFilter as DNS Director.  This will prevent
+            confusion with the company sharing the same name, and
+            also better describes what the feature does.
+ - CHANGED: Setting an OpenVPN client to redirect all traffic while
+            in "Exclusive" DNS mode will now force redirect ALL
+            DNS traffic just like in VPN Director mode.
+            While this will allow redirecting clients with
+            hardcoded DNS servers, it also means that your whole
+            LAN will lose the ability of doing local name
+            resolution.  It might be best to use VPN Director
+            in that case to control which client should
+            be involved in the DNS redirection, or use
+            DNSFilter instead of Exclusive DNS mode.
+            editing VPNDirector rules.
+ - CHANGED: Switched generated self-signed certificate to an
+            EC certificate.
+ - CHANGED: Disabled DSS key support in Dropbear SSH.
   - FIXED: Wrong temperatures used by the temperature graphs
            (386.8 regression)
-  - FIXED: Guest Network clients couldn't route through VPN
+ - FIXED: Guest Network clients couldn't route through VPN
            (regression in 386.4 following a GPL merge).
-  - FIXED: Clients connected to Guest Network 1 aren't
-           redirected to the router's NTP if NTP interception is
-           enabled.
-  - FIXED: Name was truncated to 31 chars when enabling OpenVPN
-           client's Server Certificate Name Validation.
-  - FIXED: CVE-2022-37434 in zlib.
-  - REMOVED: Interface selector on Speedtest page (no longer
-             working, possibly due to an ookla client update)
-
-
-386.8 (13-Aug-2022)
-  - NOTE: This release is only available for the RT-AX88U as
+ - FIXED: Clients connected to Guest Network 1 aren't
+          redirected to the router's NTP if NTP interception is
+          enabled.
+ - FIXED: Name was truncated to 31 chars when enabling OpenVPN
+          client's Server Certificate Name Validation.
+ - FIXED: CVE-2022-37434 in zlib.
+ - REMOVED: Interface selector on Speedtest page (no longer
+            working, possibly due to an ookla client update)
+ - NOTE: This release is only available for the RT-AX88U as
           well as the two new models listed below.
   - NEW: Added support for the GT-AXE16000.
   - NEW: Added support for the GT-AX11000_Pro.
@@ -143,8 +194,6 @@ Asuswrt-Merlin Changelog
   - UPDATED: Dropbear to 2022.82
   - UPDATED: Readline to 8.1
   - NOTE: enabled following quagga services; bgpd, ospfd. Disabled everything else.
- 
-386.5_2 (25-March-2022)
   - UPDATED: openssl to 1.1.1n.
   - UPDATED: openvpn to 2.5.6.
   - CHANGED: Added Wireguard module + userspace tool to
@@ -154,8 +203,6 @@ Asuswrt-Merlin Changelog
   - FIXED: Security issue in AiCloud (backport from Asus)
   - FIXED: Cannot enable Adaptive QoS under certain scenarios
            on pre-HND router models.
-
-386.5 (2-March-2022)
   - NEW: Added support for the RT-AC68U V4.  All
          RT-AC68U models are using a combined
          firmware file (like stock firmware),
@@ -194,6 +241,7 @@ Asuswrt-Merlin Changelog
   - FIXED: Non-functionning TrendMicro features on the
            RT-AX68U and RT-AX86U (reverted kernel components
            to the previous version).
+
 
 386.4-ion (14-Jan-2022)
 

@@ -834,8 +834,10 @@ function show_vpnc_rulelist(){
 					code +='<td width="10%">-</td>';
 				}
 				else {
-					if(ipsec_connect_status_array[ipsec_profilelist_arraylist[i][2]]) {
-						var connect_status = ipsec_connect_status_array[ipsec_profilelist_arraylist[i][2]].split("<")[1].split(">")[1];
+					//if(ipsec_connect_status_array[ipsec_profilelist_arraylist[i][2]]) {
+						//var connect_status = ipsec_connect_status_array[ipsec_profilelist_arraylist[i][1]].split("<")[1].split(">")[1];
+						if(true) {
+						const connect_status = String(ipsec_connect_status_array.other).split('>')[1];
 						switch(connect_status) {
 							case '1' :
 								code +='<td width="10%" title="<#Connected#>"><img src="/images/checked_parentctrl.png" style="width:25px;"></td>';
