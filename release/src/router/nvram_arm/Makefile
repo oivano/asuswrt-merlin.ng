@@ -23,6 +23,7 @@ include ../common.mak
 CFLAGS	+= -I. -I$(SRCBASE)/include -Wall -fPIC
 #CFLAGS	+= -g -DDEBUG
 CFLAGS	+= -s
+#LDFLAGS += -Wl,--allow-shlib-undefined
 ifeq ($(CONFIG_RTR_OPTIMIZE_SIZE),y)
 CFLAGS  += -Os
 else

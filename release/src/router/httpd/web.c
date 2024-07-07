@@ -512,6 +512,13 @@ static char* _get_common_name(const char *src, char *dst, size_t len);
 static void ASN1_TimeToTM(ASN1_TIME* time, struct tm *t);
 #endif
 
+#ifndef RTCONFIG_BWDPI
+// dirty bwdpi=n fix
+int notify_cfg_server = 0;
+int check_tcode_blacklist = 0;
+int dump_dpi_support = 0;
+#endif
+
 #ifdef RTCONFIG_CFGSYNC
 #define CFG_JSON_FILE           "/tmp/cfg.json"
 #define CFG_SERVER_PID		"/var/run/cfg_server.pid"

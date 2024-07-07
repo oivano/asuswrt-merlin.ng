@@ -21079,8 +21079,8 @@ logmessage("ATE", "boot/continue fail= %d/%d\n", nvram_get_int("Ate_boot_fail"),
 				lanaccess_wl();
 #endif
 			}
-
-			check_wlx_nband_type();
+// dirty amas=n fix
+/*			check_wlx_nband_type(); */
 #ifdef RTCONFIG_TR069
 			tr_switch_wan_line(WAN_UNIT_FIRST);
 #endif

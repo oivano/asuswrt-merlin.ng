@@ -407,7 +407,7 @@ extern struct nvram_tuple router_defaults[];
 extern struct nvram_tuple router_state_defaults[];
 
 /* alert_mail.c */
-extern void alert_mail_service();
+//extern void alert_mail_service();
 
 /* ate.c */
 extern int asus_ate_command(const char *command, const char *value, const char *value2);
@@ -3218,7 +3218,7 @@ extern void write_timemachine_tokeninfo(char *mpname);
 
 // nt_mail.c
 #ifdef RTCONFIG_NOTIFICATION_CENTER
-extern void alert_mail_service();
+static inline int alert_mail_service = 0;
 extern void am_setup_email_conf();
 extern void am_setup_email_info();
 #endif

@@ -1,5 +1,6 @@
 include ../common.mak
-
+#quick build fix
+LDFLAGS += -Wl,--allow-shlib-undefined
 ifeq ($(HND_ROUTER_AX),y)
 ifeq ($(BRCM_CHIP),$(filter $(BRCM_CHIP),4908 4912))
 CFLAGS += -DBCM49XX

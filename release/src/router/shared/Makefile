@@ -139,13 +139,12 @@ OBJS += bin_sem_asus.o semaphore.o pids.o $(if $(wildcard notify_rc.c),notify_rc
 OBJS += discover.o
 OBJS += base64.o
 OBJS += nvparse.o
-OBJS += bwdpi_utils.o
-OBJS += bwdpi_utils.o
+#OBJS += bwdpi_utils.o
 OBJS += mac_name_tbl.o
 OBJS += stun.o
 OBJS += scripts.o
 #/*dirty amas fix*
-OBJS += amas_utils.o
+#OBJS += amas_utils.o
 #/
 ifeq ($(RTCONFIG_AHS),y)
 OBJS += $(if $(wildcard notify_ahs.c),notify_ahs.o,prebuild/notify_ahs.o)
@@ -497,10 +496,10 @@ ifneq ($(wildcard ./prebuild/private.o),)
 endif
 
 #// dirty amas fix
-amas_utils.o:
-ifneq ($(wildcard ./prebuild/amas_utils.o),)
-	@-cp -f ./prebuild/amas_utils.o .
-endif
+#amas_utils.o:
+#ifneq ($(wildcard ./prebuild/amas_utils.o),)
+#	@-cp -f ./prebuild/amas_utils.o .
+#endif
 #
 
 sw_auth.o:

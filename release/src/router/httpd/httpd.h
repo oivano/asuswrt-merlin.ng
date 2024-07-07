@@ -528,6 +528,13 @@ extern int check_model_name(void);
 extern char *pwenc(char *input, char *output, int len);
 #endif
 
+#ifndef RTCONFIG_BWDPI
+//dirty bwdpi=n fix
+extern int check_tcode_blacklist;
+extern int dump_dpi_support;
+extern int notify_cfg_server;
+#endif
+
 #if defined(RTCONFIG_IFTTT) || defined(RTCONFIG_ALEXA) || defined(RTCONFIG_GOOGLE_ASST)
 extern char ifttt_stoken[128];
 extern char ifttt_query_string[2048];
