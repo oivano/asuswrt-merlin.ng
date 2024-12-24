@@ -361,14 +361,6 @@ define(function(){
 			menus: function(){
 				var retArray = [];
 
-				if(!nfsd_support){
-					retArray.push("Advanced_AiDisk_NFS.asp");
-				}
-
-				if(!dnsfilter_support){
-					retArray.push("DNSDirector.asp");
-				}
-
 				if(!wifiRadar_support){
 					retArray.push("WiFi_Insight.asp");
 				}
@@ -530,6 +522,14 @@ define(function(){
 				var retArray = [];
 
 				/* By RC Support */
+				if(!nfsd_support){
+					retArray.push("Advanced_AiDisk_NFS.asp");
+				}
+
+				if(!dnsfilter_support){
+					retArray.push("DNSDirector.asp");
+				}
+
 				if(!bwdpi_support){
 					retArray.push("AdaptiveQoS_Bandwidth_Monitor.asp");
 					retArray.push("AdaptiveQoS_WebHistory.asp");
