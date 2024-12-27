@@ -18885,6 +18885,16 @@ int init_nvram2(void)
 	init_ahs_bhc_params();
 #endif /* RTCONFIG_AHS */
 #endif /* RTCONFIG_FRS_LIVE_UPDATE */
+
+#ifdef RTCONFIG_WEBDAV
+	// The enable_webdav_lock is enabled by default when upgrading or downgrading the version.
+	if(!nvram_match("extendno", nvram_safe_get("extendno_org"))){
+		nvram_set("enable_webdav_lock", "1");
+		nvram_set("webdav_lock_times", "3");
+		nvram_set("webdav_lock_interval", "2");
+	}
+#endif
+
 	return 0;
 }
 
@@ -21079,8 +21089,6 @@ logmessage("ATE", "boot/continue fail= %d/%d\n", nvram_get_int("Ate_boot_fail"),
 				lanaccess_wl();
 #endif
 			}
-// dirty amas=n fix
-/*			check_wlx_nband_type(); */
 #ifdef RTCONFIG_TR069
 			tr_switch_wan_line(WAN_UNIT_FIRST);
 #endif
