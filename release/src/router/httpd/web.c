@@ -512,13 +512,6 @@ static char* _get_common_name(const char *src, char *dst, size_t len);
 static void ASN1_TimeToTM(ASN1_TIME* time, struct tm *t);
 #endif
 
-#ifndef RTCONFIG_BWDPI
-// dirty bwdpi=n fix
-int notify_cfg_server = 0;
-int check_tcode_blacklist = 0;
-int dump_dpi_support = 0;
-#endif
-
 #ifdef RTCONFIG_CFGSYNC
 #define CFG_JSON_FILE           "/tmp/cfg.json"
 #define CFG_SERVER_PID		"/var/run/cfg_server.pid"
@@ -2094,7 +2087,7 @@ static int get_basic_clientlist_info(webs_t wp, int opt)
 {
 	int ret = 0, client_name_status = 0, wl_count = 0, wire_count = 0;
 	struct json_object *clients = NULL, *cache_clients = NULL, *wire_clients_array_obj = NULL, *wl_clients_array_obj = NULL, *clients_array_obj = NULL;
-	struct json_object *client_tmp = NULL, *client_name = NULL, *isWL = NULL, *isOnline = NULL, *macArray = NULL, *macArray_tmp = NULL;
+	struct json_object *client_tmp = NULL, *client_name = NULL, *isWL = NULL, *macArray = NULL, *macArray_tmp = NULL;
 	macArray = json_object_new_array();
 	clients_array_obj = json_object_new_array();
 	wire_clients_array_obj = json_object_new_array();
@@ -2125,11 +2118,7 @@ static int get_basic_clientlist_info(webs_t wp, int opt)
 							json_object_array_add(macArray_tmp, json_object_new_string(key));
 
 						json_object_array_add(wl_clients_array_obj, macArray_tmp);
-						if( (opt == 2) && json_object_object_get_ex(val, "isOnline", &isOnline) ) {
-							if(atoi(json_object_get_string(isOnline)) > 0) {
-								wl_count++;
-							}
-						}
+						wl_count++;
 					}else{
 						json_object_array_add(macArray_tmp, json_object_new_string(key));
 						if(client_name_status)
@@ -2138,11 +2127,7 @@ static int get_basic_clientlist_info(webs_t wp, int opt)
 							json_object_array_add(macArray_tmp, json_object_new_string(key));
 
 						json_object_array_add(wire_clients_array_obj, macArray_tmp);
-						if((opt == 2) && json_object_object_get_ex(val, "isOnline", &isOnline) ) {
-							if(atoi(json_object_get_string(isOnline)) > 0) {
-								wire_count++;
-							}
-						}
+						wire_count++;
 					}
 				}
 			}
@@ -9303,8 +9288,7 @@ static int get_client_bind_info(char *client_mac, char *node_mac, int node_mac_s
 
 //2016.09 Rawny add for new networkmap
 //static int get_client_detail_info(int eid, webs_t wp, int argc, char_t **argv, key_t shmkey, char *maclist_buf){
-static int get_client_detail_info(struct json_object *clients, struct json_object *macArray, key_t shmkey)
-{
+static int get_client_detail_info(struct json_object *clients, struct json_object *macArray, key_t shmkey){
 	CLIENT_DPRINTF("get_client_detail_info start\n");
 	int i, shm_client_info_id;
 	void *shared_client_info = (void *) 0;
@@ -9733,11 +9717,28 @@ static int get_client_detail_info(struct json_object *clients, struct json_objec
             //check isOnline attribute only on amas support(not when RTCONFIG_AMAS defined)
             if(is_amas_support()) {
 
-				struct json_object *isOnline = NULL;
-				json_object_object_get_ex(client, "isOnline", &isOnline);
-				snprintf(online, sizeof(online), "%s", json_object_get_string(isOnline));
+			struct json_object *isOnline = NULL;
+			json_object_object_get_ex(client, "isOnline", &isOnline);
+			//check isOnline attribute only on amas support(not when RTCONFIG_AMAS defined)
+			if(is_amas_support()) {
+				//handle wired client isOnline by networkmap
+				if(!memcmp(wireless, "0", 1)) {
+					if(p_client_info_tab->device_flag[i]&(1<<FLAG_EXIST)) {
+						json_object_object_add(client, "isOnline", json_object_new_string("1"));
+						json_object_array_add(macArray, json_object_new_string(mac_buf));
+					}
+					else
+						json_object_object_add(client, "isOnline", json_object_new_string("0"));
+				}
+				else if(isOnline && !strcmp(json_object_get_string(isOnline), "1"))
+					json_object_array_add(macArray, json_object_new_string(mac_buf));
+			}
+			// end : get wireless type
 
-				// _dprintf("WEB i = %2d, mac = %s, online = %s, wireless = %s, ip = %s\n", i, mac_buf, online, wireless, ipaddr);
+            //check isOnline attribute only on amas support(not when RTCONFIG_AMAS defined)
+            if(is_amas_support()) {
+
+                json_object_object_add(client, "isOnline", json_object_new_string(online));
 
                 if(strcmp(online, "1") == 0) {
                     json_object_array_add(macArray, json_object_new_string(mac_buf));   
@@ -15249,26 +15250,6 @@ err:
 			break;
 
 	fcntl(fileno(stream), F_SETOWN, -ret);
-}
-
-static void
-do_set_ASUS_NEW_EULA_cgi(char *url, FILE *stream)
-{
-	char from_service[200] = {0};
-	struct json_object *root = json_object_new_object();
-
-	do_json_decode(root);
-
-	char *ASUS_NEW_EULA = safe_get_cgi_json("ASUS_NEW_EULA", root);
-
-	strlcpy(from_service, user_agent, sizeof(from_service));
-
-	int ret = set_ASUS_NEW_EULA(ASUS_NEW_EULA, from_service);
-
-	if(root)
-		json_object_put(root);
-
-	websWrite(stream, "{\"statusCode\":\"%d\"}", ret);
 }
 
 static void
@@ -22364,9 +22345,6 @@ struct mime_handler mime_handlers[] =
 	{ "upgrade.cgi*", "text/html", no_cache_IE7, do_upgrade_post, do_upgrade_cgi, do_auth},
 	{ "upload.cgi*", "text/html", no_cache_IE7, do_upload_post, do_upload_cgi, do_auth },
 	{ "set_ASUS_EULA.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_set_ASUS_EULA_cgi, do_auth },
-	{ "set_ASUS_NEW_EULA.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_set_ASUS_NEW_EULA_cgi, do_auth },
-	{ "set_ASUS_privacy_policy.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_set_ASUS_privacy_policy_cgi, do_auth },
-	{ "get_ASUS_privacy_policy.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_get_ASUS_privacy_policy_cgi, do_auth },
 	{ "set_TM_EULA.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_set_TM_EULA_cgi, do_auth },
 #if defined(RTCONFIG_BWDPI)
 	{ "wrs_wbl.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_wrs_wbl_cgi, do_auth },
@@ -28416,7 +28394,6 @@ get_ipsec_conn_info(struct json_object *ipsec_conn_obj, int for_json)
 	snprintf(cmd, sizeof(cmd), "%s", "ipsec statusall");
 	
 	if ((p_fp = popen(cmd, "r")) != NULL) {
-
 		while (1) 
 		{
 			if(change_to_new_profile != 1)
@@ -28449,7 +28426,7 @@ get_ipsec_conn_info(struct json_object *ipsec_conn_obj, int for_json)
 
 				if(strstr(line,"ESTABLISHED") != NULL) {
 					strlcpy(conn_status, "3", sizeof(conn_status)); /* phase 1 established */
-
+					
 					/* ipaddr */
 					tmp_ip_start = index(line,',');
 					tmp_ip_start = index(tmp_ip_start,']');
@@ -28593,7 +28570,6 @@ get_ipsec_conn_info(struct json_object *ipsec_conn_obj, int for_json)
 					strlcpy(ig_account,"", sizeof(ig_account));
 					strlcpy(acc_group, "IPSEC", sizeof(acc_group));
 				}
-
 				ipsec_conn_array = json_object_new_array();
 				json_object_array_add(ipsec_conn_array, json_object_new_string(ipaddr));
 				json_object_array_add(ipsec_conn_array, json_object_new_string(conn_status));
@@ -28692,17 +28668,51 @@ ej_get_ipsec_conn(int eid, webs_t wp, int argc, char_t **argv)
 static int
 ej_get_ipsec_conn_json(int eid, webs_t wp, int argc, char_t **argv)
 {
-    struct json_object *ipsec_conn_obj = json_object_new_object();
+	int ret = 0, i = 0, j = 0, profile_len = 0, client_info_len;
+	struct json_object *ipsec_conn_obj = NULL, *client_info = NULL, *client_info_val = NULL;
+	struct json_object *ipsec_conn_json_info = NULL, *ipsec_conn = NULL, *ig_conn = NULL;
+	ipsec_conn_obj = json_object_new_object();
+	ipsec_conn_json_info = json_object_new_object();
+	ipsec_conn = json_object_new_array();
+	ig_conn = json_object_new_array();
 
     get_ipsec_conn_info(ipsec_conn_obj, 1);
 
-    websWrite(wp, "%s", json_object_to_json_string(ipsec_conn_obj));
+	if(ipsec_conn_obj != NULL)
+	{
+		json_object_object_foreach(ipsec_conn_obj, key, val)
+		{
+			profile_len = json_object_array_length(val);
+			for(i = 0; i < profile_len; i++)
+			{
+				client_info = json_object_array_get_idx(val, i);
+				client_info_len = json_object_array_length(client_info);
+				for(j = 0; j < client_info_len; j++){
+					if(j == 6){
+						client_info_val = json_object_array_get_idx(client_info, j);
+						if(!strcmp("IG", json_object_get_string(client_info_val)))
+							json_object_array_add(ig_conn, client_info);
+						else if(!strcmp("IPSEC", json_object_get_string(client_info_val)))
+							json_object_array_add(ipsec_conn, client_info);
+						break;
+					}
+				}
+			}
+		}
+		json_object_object_add(ipsec_conn_json_info, "IPSEC", ipsec_conn);
+		json_object_object_add(ipsec_conn_json_info, "IG", ig_conn);
+	}
 
-    if(ipsec_conn_obj)
-        json_object_put(ipsec_conn_obj);
+	websWrite(wp, "%s", json_object_to_json_string(ipsec_conn_json_info));
 
-    return 0;
+	if(ipsec_conn_obj != NULL)
+		json_object_put(ipsec_conn_obj);
+	if(ipsec_conn_json_info != NULL)
+		json_object_put(ipsec_conn_json_info);
+
+	return ret;
 }
+
 #endif
 
 #ifdef RTCONFIG_CAPTIVE_PORTAL
@@ -29245,8 +29255,7 @@ ej_get_cfg_clientlist(int eid, webs_t wp, int argc, char **argv){
 	lock = file_lock(CFG_FILE_LOCK);
 	shm_client_tbl_id = shmget((key_t)KEY_SHM_CFG, sizeof(CM_CLIENT_TABLE), 0666|IPC_CREAT);
 	if (shm_client_tbl_id == -1){
-		int error = errno;
-		fprintf(stderr, "shmget failed (%d)\n", error);
+		fprintf(stderr, "shmget failed\n");
 		file_unlock(lock);
 		return 0;
 	}
@@ -33671,7 +33680,12 @@ struct useful_redirect_list useful_redirect_lists[] = {
 #endif
 	{ NULL, NULL }
 };
-/* TODO AMAS dirty fixes */
+/* TODO dirty fixes */
+#ifndef RTCONFIG_CFGSYNC
+void notify_cfg_server() {
+// Dummy implementation: does nothing¬
+}
+#endif
 #ifndef RTCONFIG_AMAS
 int aae_sendIpcMsgAndWaitResp = 0;
 int cfg_changed = 0;
@@ -33703,7 +33717,6 @@ struct AiMesh_whitelist AiMesh_whitelists[] = {
 	{"Advanced_AiDisk_samba.asp", NULL},
 	{"Advanced_AiDisk_ftp.asp", NULL},
 	{"aidisk/*", NULL},
-//
 #ifdef RTCONFIG_IPERF3
 	{"set_iperf3_svr.cgi", NULL},
 	{"set_iperf3_cli.cgi", NULL},

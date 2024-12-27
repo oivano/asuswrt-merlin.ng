@@ -139,13 +139,11 @@ OBJS += bin_sem_asus.o semaphore.o pids.o $(if $(wildcard notify_rc.c),notify_rc
 OBJS += discover.o
 OBJS += base64.o
 OBJS += nvparse.o
-#OBJS += bwdpi_utils.o
+OBJS += bwdpi_utils.o
+OBJS += bwdpi_utils.o
 OBJS += mac_name_tbl.o
 OBJS += stun.o
 OBJS += scripts.o
-#/*dirty amas fix*
-#OBJS += amas_utils.o
-#/
 ifeq ($(RTCONFIG_AHS),y)
 OBJS += $(if $(wildcard notify_ahs.c),notify_ahs.o,prebuild/notify_ahs.o)
 endif
@@ -371,7 +369,6 @@ endif
 OBJS += $(if $(wildcard sysdeps/amas/amas_dwb.c),amas_dwb.o,prebuild/amas_dwb.o)
 endif
 OBJS += $(if $(wildcard amas_utils.c),amas_utils.o,prebuild/amas_utils.o)
-
 ifeq ($(RTCONFIG_AMASDB),y)
 CFLAGS += -DAMASDB
 endif
@@ -494,13 +491,6 @@ private.o:
 ifneq ($(wildcard ./prebuild/private.o),)
 	@-cp -f ./prebuild/private.o .
 endif
-
-#// dirty amas fix
-#amas_utils.o:
-#ifneq ($(wildcard ./prebuild/amas_utils.o),)
-#	@-cp -f ./prebuild/amas_utils.o .
-#endif
-#
 
 sw_auth.o:
 ifeq ($(wildcard $(SRCBASE)/router/sw-hw-auth/*.c),)

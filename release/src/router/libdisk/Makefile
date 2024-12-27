@@ -2,8 +2,6 @@ include ../common.mak
 
 OBJS = usb_info.o disk_io_tools.o disk_initial.o disk_share.o
 PROGS = libdisk.so write_smb_conf test_of_var_files
-#quick build fix
-#LDFLAGS += -Wl,--allow-shlib-undefined
 ifneq ($(BUILD_NAME),RT-N10U)
 PROGS += test_disk1 test_disk2
 endif

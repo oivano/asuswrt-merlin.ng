@@ -5549,31 +5549,30 @@ int FindBrifByWlif(const char *wl_ifname, char *brif_name, int size)
 }
 
 #endif
-
 // dirty amas=n fix
 int is_valid_group_id(const char *str)
 /* valid group id char : "0123456789ABCDEF" */
 {
-	int i;
-	for (i=0; i<CFGSYNC_GROUPID_LEN; i++) {
-		if (str[i] >= '0' && str[i] <= '9')
-			continue;
-		else if (str[i] >= 'A' && str[i] <= 'F')
-			continue;
-		else
-			return 0;
-	}
-	return 1;
+       int i;
+       for (i=0; i<CFGSYNC_GROUPID_LEN; i++) {
+               if (str[i] >= '0' && str[i] <= '9')
+                       continue;
+               else if (str[i] >= 'A' && str[i] <= 'F')
+                       continue;
+               else
+                       return 0;
+       }
+       return 1;
 }
 
 int get_amas_info() //dirty amas=n fix
 {
-	return 0;
+       return 0;
 }
-
-int find_dms_dbdir_candidate(char *dbdir) // dirty mediasrv=n fix
+// dirty mediasrv=n fix
+int find_dms_dbdir_candidate(char *dbdir)
 {
-	return 0;
+       return 0;
 }
 
 #ifdef RTCONFIG_CFGSYNC
@@ -6662,38 +6661,6 @@ void update_wlx_psr_mbss(void)
 	return;
 }
 #endif	// #if defined(RTCONFIG_AMAS) && defined(RTCONFIG_PSR_GUEST)
-
-/*
- * update sync profile update time to nvram
- * @feat:	0:nvram 1:openvpn 2:ipsec 3:usericon
- */
-void sync_profile_update_time(int feat){
-
-	int num = 0;
-	time_t update_time = 0;
-	char nvname[50] = {0}, update_time_buf[11] = {0};
-
-	const char *feat_list[] = {"setting", "openvpn", "ipsec", "usericon", "amascntrl", NULL};
-
-	num = sizeof(feat_list) / sizeof(feat_list[0]) - 1;
-
-	if(feat < 0 || feat > num)
-		return;
-
-	snprintf(nvname, sizeof(nvname), "%s_update_time", feat_list[feat]);
-
-	if(!nvram_get_int("ntp_ready")){
-		strlcpy(update_time_buf, nvram_safe_get(nvname), sizeof(update_time_buf));
-		update_time = strtoul(update_time_buf, NULL, 10) + 1;
-	}else{
-		update_time = time(NULL);
-	}
-
-	snprintf(update_time_buf, sizeof(update_time_buf), "%lu", update_time);
-
-	nvram_set(nvname, update_time_buf);
-	nvram_commit();
-}
 
 static char *rand_string(char *str, size_t size)
 {

@@ -3,7 +3,8 @@ Asuswrt-Merlin Changelog
 
 
 
-386.14-ion (xx-xxx-xxxx)
+386.14_2-ion (xx-xxx-xxxx)
+  - UPDATED: strongswan to 6.0.0
   - UPDATED: OpenVPN to 2.6.12.
   - CHANGED: Enabled Netfilter queue support for SDK6/SDK7
              devices (patch by HiHat)

@@ -10165,11 +10165,7 @@ wdp:
 #endif
 
 #ifdef RTCONFIG_NOTIFICATION_CENTER
-// dirty bwdpi=y fix
-	int check_wrs_switch = 0;
-	int alert_mail_service() {
-    	return 0; // Always return zero
-}
+	alert_mail_service();
 	ntevent_intranet_usage_insight();
 #endif
 

@@ -523,19 +523,20 @@ var aicloudipk_support = isSupport("aicloudipk");
 var yadns_hideqis = isSupport("yadns_hideqis");
 var yadns_support = false;	//yadns_hideqis || isSupport("yadns");
 var dnspriv_support = isSupport("dnspriv");
-var manualstb_support = isSupport("manual_stb");
+var manualstb_support = isSupport("manual_stb"); 
 var wps_multiband_support = isSupport("wps_multiband");
-var modem_support = isSupport("modem");
+var modem_support = isSupport("modem"); 
 var nomodem_support = isSupport("nomodem");
 var IPv6_support = isSupport("ipv6"); 
+var IPv6_Passthrough_support = isSupport("ipv6pt");
 var IPv6_Only_support = isSupport("v6only");
 var IPv6_Passthrough_support = isSupport("ipv6pt"); 
 var Softwire46_support = isSupport("s46");
 var ocnvc_support = isSupport("ocnvc");
+var dslite_support = isSupport("dslite");
 var ParentalCtrl2_support = false;
 var pptpd_support = isSupport("pptpd");
 var openvpnd_support = isSupport("openvpnd");
-var dslite_support = isSupport("dslite");
 var vpnc_support = isSupport("vpnc");
 var WebDav_support = isSupport("webdav");
 var HTTPS_support = isSupport("HTTPS");
@@ -579,7 +580,6 @@ var ipsec_cli_support = isSupport("ipsec_cli");
 //var traffic_analyzer_support = isSupport("traffic_analyzer");
 var traffic_analyzer_support = bwdpi_support;
 var traffic_limiter_support = isSupport("traffic_limiter");
-var dns_dpi_support = isSupport("dns_dpi");
 var force_upgrade_support = isSupport("fupgrade");
 var odm_support = isSupport("odm");
 var adBlock_support = isSupport("adBlock");
@@ -746,9 +746,9 @@ if(tmo_support && isMobile()){
 	if(location.pathname != "/MobileQIS_Login.asp")
 		location.href = "MobileQIS_Login.asp";
 }
-
+	
 if(isMobile() && (based_modelid == "RT-AC88U" || based_modelid == "RT-AX88U" || based_modelid == "RT-AC86U" || based_modelid == "GT-AC2900" || based_modelid == "RT-AC3100" || based_modelid == "RT-AC5300" || based_modelid == "GT-AC5300" || based_modelid == "GT-AC9600" || based_modelid == "GT-AX11000" || based_modelid == "GT-AXE11000" || based_modelid == "GT-AX6000" || based_modelid == "GT-AX11000_PRO" || based_modelid == "GT-AXE16000"))
-	QISWIZARD = "QIS_wizard_m.htm";
+	QISWIZARD = "QIS_wizard_m.htm";	
 
 var stopFlag = 0;
 
@@ -1027,8 +1027,7 @@ function show_banner(L3){// L3 = The third Level of Menu
 		}
 	}
 	else if(tuf_support){
-		banner_code +='<div class="banner1" align="center"><img src="images/New_ui/logo_TUF.png" align="left" style="width: 250px;height:96px;margin-left:45px;object-fit: cover;object-position: left;">';
-		banner_code +='<div style="margin-left:25px;margin-right:20px;width:160px;height:52px;margin-top:0px;float:left;" align="left"><span><a href="https://github.com/gnuton/asuswrt-merlin.ng" target="_blank" rel="noreferrer"><img src="images/merlin-logo.png" style="border: 0;"></a></span></div>'
+		banner_code +='<div class="banner1" align="center"><img src="images/New_ui/logo_TUF.png" align="left" style="width:450px;height:96px;margin-left:45px;">\n';
 		banner_code +='<div style="margin-top:0px;margin-left:-90px;*margin-top:0px;*margin-left:0px;" align="center"><span id="modelName_top" onclick="this.focus();" class="modelName_top"><#Web_Title2#></span></div>';
 			// logout
 			banner_code +='<a href="javascript:logout();"><div style="margin:20px 0 0 15px;*width:136px;background:url(\'images/New_ui/btn_logout.png\') no-repeat;background-size:cover;width:132px;height:34px;float:left;" align="center"><div style="margin:8px 0 0 15px;"><#t1Logout#></div></div></a>\n';
@@ -1047,7 +1046,8 @@ function show_banner(L3){// L3 = The third Level of Menu
 	else{
 		banner_code +='<div class="banner1" align="center"><img src="images/New_ui/asustitle.png" width="218" height="54" align="left">\n';
 		banner_code +='<div style="margin-top:13px;margin-left:-90px;*margin-top:0px;*margin-left:0px;" align="center"><span id="modelName_top" onclick="this.focus();" class="modelName_top"><#Web_Title2#></span></div>';
-		banner_code +='<div style="margin-left:25px;width:160px;height:52px;margin-top:0px;float:left;" align="left"><span><a href="https://github.com/oivano/asuswrt-merlin.ng" target="_blank" rel="noreferrer"></span></div>';
+		banner_code +='<div style="margin-left:25px;width:160px;height:52px;margin-top:0px;float:left;" align="left"><span><a href="https://oivano.github.io/asuswrt-merlin.ng/" target="_blank" rel="noreferrer"></a></span></div>';
+
 		// logout, reboot
 		banner_code +='<a href="javascript:logout();"><div style="margin-top:13px;margin-left:25px; *width:136px;" class="titlebtn" align="center"><span><#t1Logout#></span></div></a>\n';
 		banner_code +='<a href="javascript:reboot();"><div style="margin-top:13px;margin-left:0px;*width:136px;" class="titlebtn" align="center"><span><#BTN_REBOOT#></span></div></a>\n';
@@ -1480,7 +1480,7 @@ function showMenuTree(menuList, menuExclude){
 		var getMenuCode = function(){
 			var menu_code = '<div style="margin-top:-172px">';
 			if (rog_support)
-				menu_code += '<div style="width:160px;height:52px;"><span><a href="https://www.asuswrt-merlin.net/" target="_blank" rel="noreferrer"><img src="images/merlin-logo.png" style="border: 0;"></a></span></div>';
+				menu_code += '<div style="width:160px;height:52px;"><span><a href="https://oivano.github.io/asuswrt-merlin.ng/" target="_blank" rel="noreferrer"></a></span></div>';
 			for(var i=0; i<menuList.length; i++){
 				var curMenu = menuList[i];
 				var firstEntry = -1;
@@ -4547,77 +4547,3 @@ function Get_Component_PWD_Strength_Meter(id){
 	return $pwd_strength_container;
 }
 
-function plainPasswordSwitch(obj, event){
-	(event === 'focus') ? (obj.type = 'text') : (obj.type = 'password');						
-}
-
-function checkPolicy() {
-
-    const applyRule = () => {
-        httpApi.privateEula.set("1", function(){
-            httpApi.securityUpdate.set(1);
-            httpApi.nvramSet({
-                "webs_update_enable": 1,
-                "action_mode": "apply",
-                "rc_service": "saveNvram"
-            },()=>{},false);
-        })
-    }
-
-    if (policy_status.EULA == "0") {
-        const policyModal = new PolicyUpdateModalComponent();
-        policyModal.show();
-    } else if (policy_status.EULA == 1 && ((policy_status.PP == 1 && policy_status.PP_time != "") || (policy_status.PP == 0 && policy_status.PP_time == ""))) {
-        const policyModal = new PolicyModalComponent({
-            policy: 'PP',
-            agreeCallback: applyRule,
-            submit_reload: 1
-        });
-        policyModal.show();
-    } else if (policy_status.TM == 1 && policy_status.TM_time == '') {
-        const policyModal = new PolicyModalComponent({
-            policy: "TM"
-        });
-        policyModal.show();
-    }
-}
-if (
-    !(window.appInterface || // from Android app
-        (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.appInterface) // for iOS app
-    )
-) {
-	setTimeout(() => {
-		if (typeof httpApi === 'undefined') {
-			const httpApi_script = document.createElement('script');
-			httpApi_script.src = '/js/httpApi.js';
-			document.head.appendChild(httpApi_script);
-			httpApi_script.onload = () => {
-				if (re_mode != 1) {
-					if (typeof policy_status === 'undefined') {
-						const policy_script = document.createElement('script');
-						policy_script.src = '/js/asus_policy.js';
-						document.head.appendChild(policy_script);
-						policy_script.onload = () => {
-							checkPolicy();
-						}
-					} else {
-						checkPolicy();
-					}
-				}
-			}
-		} else {
-			if (re_mode != 1) {
-				if (typeof policy_status === 'undefined') {
-					const policy_script = document.createElement('script');
-                    policy_script.src = '/js/asus_policy.js';
-                    document.head.appendChild(policy_script);
-                    policy_script.onload = () => {
-                        checkPolicy();
-                    }
-                } else {
-                    checkPolicy();
-                }
-            }
-        }
-    }, 1500);
-}

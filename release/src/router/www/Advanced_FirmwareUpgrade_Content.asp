@@ -86,7 +86,6 @@
 <script language="JavaScript" type="text/javascript" src="/switcherplugin/jquery.iphone-switch.js"></script>
 <script language="JavaScript" type="text/javascript" src="/form.js"></script>
 <script language="JavaScript" type="text/javascript" src="/js/httpApi.js"></script>
-<script language="JavaScript" type="text/javascript" src="/js/asus_policy.js"></script>
 <script>
 $(function () {
 	if(amesh_support && (isSwMode("rt") || isSwMode("ap")) && ameshRouter_support) {
@@ -123,7 +122,7 @@ if(cfg_sync_support){
 }
 var download_srv = '<% nvram_get("firmware_server"); %>';
 if (download_srv == "") {
-	download_url = "https://oivano.github.io/asuswrt-merlin.ng/updates";
+	download_url = "https://github.com/oivano/asuswrt-merlin.ng/releases";
 } else {
 	download_url = download_srv + "/" + based_modelid;
 }
@@ -1165,7 +1164,7 @@ function show_fw_release_note(event) {
 	if (event.data.isMerlin) {
 		document.amas_release_note.version.value = event.data.newfwver.replace("3.0.0.4.","");
 		if (event.data.model_name)
-			siteurl = "https://gnuton.github.io/asuswrt-merlin.ng/updates/" + event.data.model_name;
+			siteurl = "https://github.com/oivano/asuswrt-merlin.ng/releases" + event.data.model_name;
 		else
 			siteurl = download_url;
 	} else {
@@ -1404,24 +1403,8 @@ function toggle_fw_check(state) {
 					<script type="text/javascript">
 					$('#switch_webs_update_enable').iphoneSwitch('<% nvram_get("webs_update_enable"); %>',
 						function(){
-							if(policy_status.PP==0||policy_status.PP_time==""){
-                                const policyModal = new PolicyModalComponent({
-                                    policy: "PP",
-                                    submit_reload: 1,
-                                    agreeCallback: ()=>{
-                                        hide_upgrade_opt(1);
-                                        save_update_enable('on');
-                                    },
-                                    disagreeCallback: ()=>{
-                                        alert(`<#ASUS_POLICY_Function_Confirm#>`);
-                                    }
-                                });
-                                policyModal.show();
-                                return false;
-							}else{
-                                hide_upgrade_opt(1);
-                                save_update_enable('on');
-							}
+							hide_upgrade_opt(1);
+							save_update_enable('on');
 						},
 						function(){
 							hide_upgrade_opt(0);
@@ -1461,23 +1444,8 @@ function toggle_fw_check(state) {
 					<script type="text/javascript">
 					$('#switch_security_update_enable').iphoneSwitch(httpApi.securityUpdate.get(),
 						function(){
-                            //on
-							if(policy_status.PP==0||policy_status.PP_time==""){
-                                const policyModal = new PolicyModalComponent({
-                                    policy: "PP",
-                                    submit_reload: 1,
-                                    agreeCallback: ()=>{
-                                        httpApi.securityUpdate.set(1);
-                                    },
-                                    disagreeCallback: ()=>{
-                                        alert(`<#ASUS_POLICY_Function_Confirm#>`);
-                                    }
-                                });
-                                policyModal.show();
-                                return false;
-							}else{
-                                httpApi.securityUpdate.set(1);
-							}
+							//on
+                            httpApi.securityUpdate.set(1);
 						},
 						function(){
 							//off

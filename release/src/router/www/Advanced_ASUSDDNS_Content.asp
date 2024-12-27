@@ -20,7 +20,6 @@
 <script type="text/javascript" src="/switcherplugin/jquery.iphone-switch.js"></script>
 <script type="text/javascript" src="/js/httpApi.js"></script>
 <script type="text/javascript" src="/form.js"></script>
-<script language="JavaScript" type="text/javascript" src="/js/asus_policy.js"></script>
 <style type="text/css">
 .contentM_upload{
 	position:absolute;
@@ -110,16 +109,6 @@ function init(){
 	}
 
 	setTimeout(show_warning_message, 1000);
-
-	if(ddns_enable_x == "1" && ddns_server_x.indexOf("WWW.ASUS.COM") != -1){
-        if(policy_status.PP==0||policy_status.PP_time==""){
-            const policyModal = new PolicyModalComponent({
-                policy: "PP",
-                submit_reload: 1
-            });
-            policyModal.show();
-        }
-	}
 
 	if(oauth_auth_status == "2"){
 		if(aae_ddnsinfo == "ns1.asuscomm.com")
@@ -340,29 +329,6 @@ function get_cert_info(){
 			show_cert_details();
 	   }
 	});
-}
-
-function apply_eula_check(){
-	if(document.form.ddns_enable_x.value == "1" && document.form.ddns_server_x.value.indexOf("WWW.ASUS.COM") != -1){
-		if(policy_status.PP==0||policy_status.PP_time==""){
-                const policyModal = new PolicyModalComponent({
-                    policy: "PP",
-                    submit_reload: 1,
-                    agreeCallback: applyRule,
-                    disagreeCallback: ()=>{
-                        alert(`<#ASUS_POLICY_Function_Confirm#>`);
-                    }
-                });
-                policyModal.show();
-                return false;
-            }else{
-                applyRule();
-            }
-        }else{
-            applyRule();
-        }
-
-	applyRule();
 }
 
 function applyRule(){
@@ -1146,7 +1112,7 @@ function check_unregister_result(){
 			</tr>
 		</table>
 				<div class="apply_gen">
-					<input class="button_gen" onclick="apply_eula_check();" type="button" value="<#CTL_apply#>" />
+					<input class="button_gen" onclick="applyRule();" type="button" value="<#CTL_apply#>" />
 				</div>
 		
 			  </td>

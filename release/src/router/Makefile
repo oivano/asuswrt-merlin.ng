@@ -6728,8 +6728,8 @@ strongswan/Makefile: strongswan/configure
 	--prefix=/usr/ --bindir=/usr/sbin --sysconfdir=/etc/ --localstatedir=/var/ --libexecdir=/usr/lib \
 	--enable-silent-rules \
 	--disable-gmp --enable-openssl \
-	--enable-acert --enable-agent \
-	--enable-md4 \
+	--enable-acert --enable-agent --enable-stroke --enable-md5 \
+	--enable-md4 --enable-hmac --enable-fips-prf --enable-curve25519 \
 	--enable-eap-identity --enable-eap-md5 --enable-eap-mschapv2 --enable-eap-tls --enable-eap-peap \
 	--enable-cmd --enable-libipsec --enable-kernel-libipsec \
 	--enable-shared --disable-static \

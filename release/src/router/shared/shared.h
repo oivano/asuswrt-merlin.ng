@@ -3869,17 +3869,11 @@ extern int check_AQoS_only_enabled();
 extern int check_WRS_only_enabled();
 extern void tm_recycle_stuck_process();
 #endif
-
-#ifndef RTCONFIG_BWDPI
-// dirty BWDPI=n fix
-extern int check_wrs_switch;
-extern int check_bwdpi_nvram_setting();
 extern void erase_symbol(char *old, char *sym);
 extern void StampToDate(unsigned long timestamp, char *date);
 extern int check_filesize_over(char *path, long int size);
 extern time_t get_last_month_timestamp();
 extern void TstampToNvram(char *name);
-#endif
 
 #if defined(RTCONFIG_USB)
 static inline int is_usb3_port(char *usb_node)
@@ -4158,10 +4152,8 @@ enum {
 extern void deauth_guest_sta(char *, char *);
 #endif
 
-//dirty amas=n fix section
 #define CFGSYNC_GROUPID_LEN CKN_STR32 // dirty amas=n fix
-//extern void get_control_channel(int unit, int *channel, int *bw, int *nctrlsb);
-//extern void check_wlx_nband_type();
+
 #ifdef RTCONFIG_CFGSYNC
 #define MAX_RELIST_NUM	9
 #define	CFGSYNC_GROUPID_LEN	CKN_STR32

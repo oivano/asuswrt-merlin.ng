@@ -1087,7 +1087,6 @@ void rc_ipsec_gen_cert(int skip_checking)
     chmod(FILE_PATH_CA_ETC"generate.sh", 0777);
     system(FILE_PATH_CA_ETC"generate.sh");
     /* 0:nvram 1:openvpn 2:ipsec 3:usericon */
-    sync_profile_update_time(2);
 	if(check_if_file_exist(FILE_PATH_CA_ETC FILE_NAME_CERT_PEM)&&check_if_file_exist(FILE_PATH_CA_ETC FILE_NAME_SVR_PRIVATE_KEY)&&check_if_file_exist(FILE_PATH_CA_ETC FILE_NAME_SVR_CERT_PEM)){
 		DBG(("CA files are generated properly.\n"));
 		logmessage("ipsec", "CA files are generated properly.\n");

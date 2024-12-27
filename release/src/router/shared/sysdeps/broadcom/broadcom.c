@@ -557,7 +557,7 @@ void del_beacon_vsie(char *hexdata)
 	wl_del_ie_with_oui(0, 0, (uchar *) OUI_ASUS);
 #endif
 }
-/* AMAS FIX dirty
+
 int add_interface_for_acsd(int unit) {
     char wlc_status[] = "wlcXXX_status", amas_wl_noacsd[] = "amas_wlXXX_noacsd", wl_chsync[] = "wlXXX_chsync";
     int ret = 0;
@@ -588,45 +588,6 @@ int add_interface_for_acsd(int unit) {
 
     dbg("add_interface_for_acsd(%d), ret(%d)\n", unit, ret);
     return ret;
-}
-*/
-
-int add_interface_for_acsd(int unit)
-{
-	int ret = 0, i = 0, band_unit = -1, use = -1, max_items = 4;
-	char *nv, *nvp, *b;
-
-	nv = nvp = strdup(nvram_safe_get("sta_priority"));
-	if (nv) {
-		while ((b = strsep(&nvp, " ")) != NULL) {
-			/* reset count */
-			if (i == max_items) {
-				i = 0;
-				band_unit = -1;
-				use = -1;
-			}
-
-			i++;
-
-			if (i == 2)	/* band unit */
-				band_unit = atoi(b);
-			if (i == 4)	/* use */
-				use = atoi(b);
-
-			/* judge */
-			if ((band_unit != -1 && use != -1)
-				&& (band_unit == unit && use == 0))
-			{
-				ret = 1;
-				break;
-			}
-		}
-		free(nv);
-	}
-
-	dbg("add_interface_for_acsd(%d), ret(%d)\n", unit, ret);
-
-	return ret;
 }
 
 int need_to_start_acsd()
