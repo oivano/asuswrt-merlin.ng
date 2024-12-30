@@ -170,7 +170,6 @@ am_libstrongswan_tests_OBJECTS = libstrongswan_tests-tests.$(OBJEXT) \
 	suites/libstrongswan_tests-test_rng_tester.$(OBJEXT) \
 	suites/libstrongswan_tests-test_mgf1.$(OBJEXT) \
 	suites/libstrongswan_tests-test_prf_plus.$(OBJEXT) \
-	suites/libstrongswan_tests-test_ntru.$(OBJEXT) \
 	suites/libstrongswan_tests-test_ed25519.$(OBJEXT) \
 	suites/libstrongswan_tests-test_ed448.$(OBJEXT) \
 	suites/libstrongswan_tests-test_signature_params.$(OBJEXT) \
@@ -228,7 +227,6 @@ am__depfiles_remade = ./$(DEPDIR)/libstrongswan_tests-tests.Po \
 	suites/$(DEPDIR)/libstrongswan_tests-test_metadata.Po \
 	suites/$(DEPDIR)/libstrongswan_tests-test_metadata_set.Po \
 	suites/$(DEPDIR)/libstrongswan_tests-test_mgf1.Po \
-	suites/$(DEPDIR)/libstrongswan_tests-test_ntru.Po \
 	suites/$(DEPDIR)/libstrongswan_tests-test_pen.Po \
 	suites/$(DEPDIR)/libstrongswan_tests-test_prf_plus.Po \
 	suites/$(DEPDIR)/libstrongswan_tests-test_printf.Po \
@@ -355,6 +353,7 @@ EGREP = @EGREP@
 ETAGS = @ETAGS@
 EXEEXT = @EXEEXT@
 FGREP = @FGREP@
+FILECMD = @FILECMD@
 FUZZING_CFLAGS = @FUZZING_CFLAGS@
 FUZZING_LDFLAGS = @FUZZING_LDFLAGS@
 GEM = @GEM@
@@ -630,7 +629,6 @@ libstrongswan_tests_SOURCES = tests.h tests.c \
   suites/test_rng_tester.c \
   suites/test_mgf1.c \
   suites/test_prf_plus.c \
-  suites/test_ntru.c \
   suites/test_ed25519.c \
   suites/test_ed448.c \
   suites/test_signature_params.c \
@@ -801,8 +799,6 @@ suites/libstrongswan_tests-test_mgf1.$(OBJEXT):  \
 	suites/$(am__dirstamp) suites/$(DEPDIR)/$(am__dirstamp)
 suites/libstrongswan_tests-test_prf_plus.$(OBJEXT):  \
 	suites/$(am__dirstamp) suites/$(DEPDIR)/$(am__dirstamp)
-suites/libstrongswan_tests-test_ntru.$(OBJEXT):  \
-	suites/$(am__dirstamp) suites/$(DEPDIR)/$(am__dirstamp)
 suites/libstrongswan_tests-test_ed25519.$(OBJEXT):  \
 	suites/$(am__dirstamp) suites/$(DEPDIR)/$(am__dirstamp)
 suites/libstrongswan_tests-test_ed448.$(OBJEXT):  \
@@ -855,7 +851,6 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@suites/$(DEPDIR)/libstrongswan_tests-test_metadata.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@suites/$(DEPDIR)/libstrongswan_tests-test_metadata_set.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@suites/$(DEPDIR)/libstrongswan_tests-test_mgf1.Po@am__quote@ # am--include-marker
-@AMDEP_TRUE@@am__include@ @am__quote@suites/$(DEPDIR)/libstrongswan_tests-test_ntru.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@suites/$(DEPDIR)/libstrongswan_tests-test_pen.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@suites/$(DEPDIR)/libstrongswan_tests-test_prf_plus.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@suites/$(DEPDIR)/libstrongswan_tests-test_printf.Po@am__quote@ # am--include-marker
@@ -1568,20 +1563,6 @@ suites/libstrongswan_tests-test_prf_plus.obj: suites/test_prf_plus.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libstrongswan_tests_CFLAGS) $(CFLAGS) -c -o suites/libstrongswan_tests-test_prf_plus.obj `if test -f 'suites/test_prf_plus.c'; then $(CYGPATH_W) 'suites/test_prf_plus.c'; else $(CYGPATH_W) '$(srcdir)/suites/test_prf_plus.c'; fi`
 
-suites/libstrongswan_tests-test_ntru.o: suites/test_ntru.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libstrongswan_tests_CFLAGS) $(CFLAGS) -MT suites/libstrongswan_tests-test_ntru.o -MD -MP -MF suites/$(DEPDIR)/libstrongswan_tests-test_ntru.Tpo -c -o suites/libstrongswan_tests-test_ntru.o `test -f 'suites/test_ntru.c' || echo '$(srcdir)/'`suites/test_ntru.c
-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) suites/$(DEPDIR)/libstrongswan_tests-test_ntru.Tpo suites/$(DEPDIR)/libstrongswan_tests-test_ntru.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='suites/test_ntru.c' object='suites/libstrongswan_tests-test_ntru.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libstrongswan_tests_CFLAGS) $(CFLAGS) -c -o suites/libstrongswan_tests-test_ntru.o `test -f 'suites/test_ntru.c' || echo '$(srcdir)/'`suites/test_ntru.c
-
-suites/libstrongswan_tests-test_ntru.obj: suites/test_ntru.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libstrongswan_tests_CFLAGS) $(CFLAGS) -MT suites/libstrongswan_tests-test_ntru.obj -MD -MP -MF suites/$(DEPDIR)/libstrongswan_tests-test_ntru.Tpo -c -o suites/libstrongswan_tests-test_ntru.obj `if test -f 'suites/test_ntru.c'; then $(CYGPATH_W) 'suites/test_ntru.c'; else $(CYGPATH_W) '$(srcdir)/suites/test_ntru.c'; fi`
-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) suites/$(DEPDIR)/libstrongswan_tests-test_ntru.Tpo suites/$(DEPDIR)/libstrongswan_tests-test_ntru.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='suites/test_ntru.c' object='suites/libstrongswan_tests-test_ntru.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libstrongswan_tests_CFLAGS) $(CFLAGS) -c -o suites/libstrongswan_tests-test_ntru.obj `if test -f 'suites/test_ntru.c'; then $(CYGPATH_W) 'suites/test_ntru.c'; else $(CYGPATH_W) '$(srcdir)/suites/test_ntru.c'; fi`
-
 suites/libstrongswan_tests-test_ed25519.o: suites/test_ed25519.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libstrongswan_tests_CFLAGS) $(CFLAGS) -MT suites/libstrongswan_tests-test_ed25519.o -MD -MP -MF suites/$(DEPDIR)/libstrongswan_tests-test_ed25519.Tpo -c -o suites/libstrongswan_tests-test_ed25519.o `test -f 'suites/test_ed25519.c' || echo '$(srcdir)/'`suites/test_ed25519.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) suites/$(DEPDIR)/libstrongswan_tests-test_ed25519.Tpo suites/$(DEPDIR)/libstrongswan_tests-test_ed25519.Po
@@ -1909,7 +1890,6 @@ distclean: distclean-am
 	-rm -f suites/$(DEPDIR)/libstrongswan_tests-test_metadata.Po
 	-rm -f suites/$(DEPDIR)/libstrongswan_tests-test_metadata_set.Po
 	-rm -f suites/$(DEPDIR)/libstrongswan_tests-test_mgf1.Po
-	-rm -f suites/$(DEPDIR)/libstrongswan_tests-test_ntru.Po
 	-rm -f suites/$(DEPDIR)/libstrongswan_tests-test_pen.Po
 	-rm -f suites/$(DEPDIR)/libstrongswan_tests-test_prf_plus.Po
 	-rm -f suites/$(DEPDIR)/libstrongswan_tests-test_printf.Po
@@ -2008,7 +1988,6 @@ maintainer-clean: maintainer-clean-am
 	-rm -f suites/$(DEPDIR)/libstrongswan_tests-test_metadata.Po
 	-rm -f suites/$(DEPDIR)/libstrongswan_tests-test_metadata_set.Po
 	-rm -f suites/$(DEPDIR)/libstrongswan_tests-test_mgf1.Po
-	-rm -f suites/$(DEPDIR)/libstrongswan_tests-test_ntru.Po
 	-rm -f suites/$(DEPDIR)/libstrongswan_tests-test_pen.Po
 	-rm -f suites/$(DEPDIR)/libstrongswan_tests-test_prf_plus.Po
 	-rm -f suites/$(DEPDIR)/libstrongswan_tests-test_printf.Po

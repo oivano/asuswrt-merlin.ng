@@ -326,9 +326,10 @@ configurations (with EAP or configuration payloads) it might not be possible to
 actively reauthenticate as responder. The IKEv2 reauthentication lifetime
 negotiation can instruct the client to perform reauthentication.
 
-Reauthentication is disabled by default. Enabling it usually may lead to small
-connection interruptions, as strongSwan uses a break\-before\-make policy with
-IKEv2 to avoid any conflicts with associated tunnel resources.
+Reauthentication is disabled by default. Enabling it can usually result in short
+connection interruptions, even when using make\-before\-break reauthentication,
+which is now the default. However, they are significantly shorter than when
+using the legacy break\-before\-make approach.
 
 .TP
 .BR connections.<conn>.rekey_time " [4h]"
@@ -993,7 +994,7 @@ Comma separated list of remote selectors to include in CHILD_SA. See
 for a description of the selector syntax.
 
 .TP
-.BR connections.<conn>.children.<child>.rekey_time " [1h]"
+.BR connections.<conn>.children.<child>.rekey_time " [1h or life_time - 10%]"
 Time to schedule CHILD_SA rekeying. CHILD_SA rekeying refreshes key material,
 optionally using a Diffie\-Hellman exchange if a group is specified in the
 proposal.
@@ -1003,7 +1004,12 @@ range of
 .RB "" "rand_time" ""
 gets subtracted to form the effective soft lifetime.
 
-By default CHILD_SA rekeying is scheduled every hour, minus
+If
+.RB "" "life_time" ""
+is explicitly configured,
+.RB "" "rekey_time" ""
+defaults to 10% less
+than that,       otherwise, CHILD_SA rekeying is scheduled every hour, minus
 .RB "" "rand_time" "."
 
 
@@ -1028,7 +1034,7 @@ and
 
 
 .TP
-.BR connections.<conn>.children.<child>.rekey_bytes " [0]"
+.BR connections.<conn>.children.<child>.rekey_bytes " [0 or life_bytes - 10%]"
 Number of bytes processed before initiating CHILD_SA rekeying. CHILD_SA rekeying
 refreshes key material, optionally using a Diffie\-Hellman exchange if a group is
 specified in the proposal.
@@ -1038,7 +1044,12 @@ range of
 .RB "" "rand_bytes" ""
 gets subtracted to form the effective soft volume limit.
 
-Volume based CHILD_SA rekeying is disabled by default.
+Volume based CHILD_SA rekeying is disabled by default. If
+.RB "" "life_bytes" ""
+is
+explicitly configured,
+.RB "" "rekey_bytes" ""
+defaults to 10% less than that.
 
 .TP
 .BR connections.<conn>.children.<child>.life_bytes " [rekey_bytes + 10%]"
@@ -1061,7 +1072,7 @@ and
 
 
 .TP
-.BR connections.<conn>.children.<child>.rekey_packets " [0]"
+.BR connections.<conn>.children.<child>.rekey_packets " [0 or life_packets - 10%]"
 Number of packets processed before initiating CHILD_SA rekeying. CHILD_SA
 rekeying refreshes key material, optionally using a Diffie\-Hellman exchange if a
 group is specified in the proposal.
@@ -1072,7 +1083,11 @@ range of
 gets subtracted to form the effective soft packet
 count limit.
 
-Packet count based CHILD_SA rekeying is disabled by default.
+Packet count based CHILD_SA rekeying is disabled by default. If
+.RB "" "life_packets" ""
+is explicitly configured,
+.RB "" "rekey_packets" ""
+defaults to 10% less than that.
 
 .TP
 .BR connections.<conn>.children.<child>.life_packets " [rekey_packets + 10%]"
@@ -1728,7 +1743,10 @@ Section defining a single pool with a unique name.
 .BR pools.<name>.addrs " []"
 Subnet or range defining addresses allocated in pool. Accepts a single CIDR
 subnet defining the pool to allocate addresses from or an address range
-(<from>\-<to>).  Pools must be unique and non\-overlapping.
+(<from>\-<to>). If the address in CIDR notation is not the network ID of the
+subnet (e.g. 10.1.0.5/24 instead of 10.1.0.0/24), addresses below it won't be
+allocated to clients (they could e.g. be assigned manually to internal hosts
+like the VPN server itself). Pools must be unique and non\-overlapping.
 
 .TP
 .BR pools.<name>.<attr> " []"

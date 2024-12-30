@@ -64,7 +64,6 @@ CONFIG_OPTS = \
 	--enable-attr-sql \
 	--enable-mediation \
 	--enable-botan \
-	--enable-openssl \
 	--enable-blowfish \
 	--enable-kernel-pfkey \
 	--enable-integrity-test \
@@ -82,14 +81,14 @@ CONFIG_OPTS = \
 	--enable-ctr \
 	--enable-ccm \
 	--enable-gcm \
-	--enable-cmac \
+	--enable-hmac \
 	--enable-chapoly \
 	--enable-ha \
 	--enable-af-alg \
 	--enable-whitelist \
 	--enable-xauth-generic \
 	--enable-xauth-eap \
-	--enable-pkcs8 \
+	--enable-pkcs12 \
 	--enable-unity \
 	--enable-unbound \
 	--enable-ipseckey \
@@ -98,17 +97,23 @@ CONFIG_OPTS = \
 	--enable-cmd \
 	--enable-libipsec \
 	--enable-kernel-libipsec \
+	--enable-stroke \
 	--enable-tkm \
-	--enable-ntru \
 	--enable-lookip \
-	--enable-bliss \
+	--enable-des \
+	--enable-aes \
+	--enable-md5 \
+	--enable-sha1 \
+	--enable-sha2 \
 	--enable-sha3 \
-	--enable-newhope \
+	--enable-gmp \
+	--enable-curve25519 \
 	--enable-systemd \
 	--enable-counters \
 	--enable-save-keys \
 	--enable-python-eggs \
-	--enable-wolfssl
+	--enable-wolfssl \
+	--enable-ml
 
 export ADA_PROJECT_PATH=/usr/local/ada/lib/gnat
 

@@ -6727,9 +6727,8 @@ strongswan/Makefile: strongswan/configure
 	ac_cv_prog_cc_c99=no $(CONFIGURE) \
 	--prefix=/usr/ --bindir=/usr/sbin --sysconfdir=/etc/ --localstatedir=/var/ --libexecdir=/usr/lib \
 	--enable-silent-rules \
-	--disable-gmp --enable-openssl \
-	--enable-acert --enable-agent --enable-stroke --enable-md5 \
-	--enable-md4 --enable-hmac --enable-fips-prf --enable-curve25519 \
+	--disable-gmp --enable-openssl --enable-aes --enable-curve25519 --enable-fips-prf --enable-hmac --enable-md5 \
+	--enable-acert --enable-agent --enable-stroke --enable-md4  \
 	--enable-eap-identity --enable-eap-md5 --enable-eap-mschapv2 --enable-eap-tls --enable-eap-peap \
 	--enable-cmd --enable-libipsec --enable-kernel-libipsec \
 	--enable-shared --disable-static \

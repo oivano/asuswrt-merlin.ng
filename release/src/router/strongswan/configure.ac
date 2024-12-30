@@ -20,7 +20,7 @@
 #  initialize & set some vars
 # ============================
 
-AC_INIT([strongSwan],[5.9.14])
+AC_INIT([strongSwan],[6.0.0])
 AM_INIT_AUTOMAKE(m4_esyscmd([
 	echo tar-ustar
 	echo subdir-objects
@@ -132,39 +132,37 @@ AC_SUBST(ipsec_script_upper, [`echo -n "$ipsec_script" | tr a-z A-Z`])
 m4_include(m4/macros/enable-disable.m4)
 
 # crypto plugins
-ARG_DISBL_SET([aes],            [disable AES software implementation plugin.])
+ARG_ENABL_SET([aes],            [enable AES software implementation plugin.])
 ARG_ENABL_SET([af-alg],         [enable AF_ALG crypto interface to Linux Crypto API.])
-ARG_ENABL_SET([bliss],          [enable BLISS software implementation plugin.])
 ARG_ENABL_SET([blowfish],       [enable Blowfish software implementation plugin.])
 ARG_ENABL_SET([botan],          [enables the Botan crypto plugin.])
 ARG_ENABL_SET([ccm],            [enables the CCM AEAD wrapper crypto plugin.])
 ARG_ENABL_SET([chapoly],        [enables the ChaCha20/Poly1305 AEAD plugin.])
 ARG_DISBL_SET([cmac],           [disable CMAC crypto implementation plugin.])
 ARG_ENABL_SET([ctr],            [enables the Counter Mode wrapper crypto plugin.])
-ARG_DISBL_SET([des],            [disable DES/3DES software implementation plugin.])
+ARG_ENABL_SET([des],            [enable DES/3DES software implementation plugin.])
 ARG_DISBL_SET([drbg],           [disable the NIST Deterministic Random Bit Generator plugin.])
-ARG_DISBL_SET([fips-prf],       [disable FIPS PRF software implementation plugin.])
-ARG_DISBL_SET([gcm],            [disable the GCM AEAD wrapper crypto plugin.])
+ARG_ENABL_SET([fips-prf],       [enable FIPS PRF software implementation plugin.])
+ARG_ENABL_SET([gcm],            [enable the GCM AEAD wrapper crypto plugin.])
 ARG_ENABL_SET([gcrypt],         [enables the libgcrypt plugin.])
-ARG_DISBL_SET([gmp],            [disable GNU MP (libgmp) based crypto implementation plugin.])
-ARG_DISBL_SET([curve25519],     [disable Curve25519 Diffie-Hellman plugin.])
-ARG_DISBL_SET([hmac],           [disable HMAC crypto implementation plugin.])
+ARG_ENABL_SET([gmp],            [enable GNU MP (libgmp) based crypto implementation plugin.])
+ARG_ENABL_SET([curve25519],     [enable Curve25519 Diffie-Hellman plugin.])
+ARG_ENABL_SET([hmac],           [enable HMAC crypto implementation plugin.])
 ARG_DISBL_SET([kdf],            [disable KDF (prf+) implementation plugin.])
 ARG_ENABL_SET([md4],            [enable MD4 software implementation plugin.])
-ARG_DISBL_SET([md5],            [disable MD5 software implementation plugin.])
+ARG_ENABL_SET([md5],            [enable MD5 software implementation plugin.])
 ARG_ENABL_SET([mgf1],           [enable the MGF1 software implementation plugin.])
-ARG_ENABL_SET([newhope],        [enable New Hope crypto plugin.])
+ARG_ENABL_SET([ml],             [enable Module-Lattice-based crypto (ML-KEM) plugin.])
 ARG_DISBL_SET([nonce],          [disable nonce generation plugin.])
-ARG_ENABL_SET([ntru],           [enables the NTRU crypto plugin.])
-ARG_ENABL_SET([openssl],        [enables the OpenSSL crypto plugin.])
+ARG_DISBL_SET([openssl],        [disable the OpenSSL crypto plugin.])
 ARG_ENABL_SET([wolfssl],        [enables the wolfSSL crypto plugin.])
 ARG_ENABL_SET([padlock],        [enables VIA Padlock crypto plugin.])
 ARG_DISBL_SET([random],         [disable RNG implementation on top of /dev/(u)random.])
-ARG_DISBL_SET([rc2],            [disable RC2 software implementation plugin.])
+ARG_ENABL_SET([rc2],            [enable RC2 software implementation plugin.])
 ARG_ENABL_SET([rdrand],         [enable Intel RDRAND random generator plugin.])
 ARG_ENABL_SET([aesni],          [enable Intel AES-NI crypto plugin.])
-ARG_DISBL_SET([sha1],           [disable SHA1 software implementation plugin.])
-ARG_DISBL_SET([sha2],           [disable SHA256/SHA384/SHA512 software implementation plugin.])
+ARG_ENABL_SET([sha1],           [enable SHA1 software implementation plugin.])
+ARG_ENABL_SET([sha2],           [enable SHA256/SHA384/SHA512 software implementation plugin.])
 ARG_ENABL_SET([sha3],           [enable SHA3_224/SHA3_256/SHA3_384/SHA3_512 software implementation plugin.])
 ARG_DISBL_SET([xcbc],           [disable xcbc crypto implementation plugin.])
 # encoding/decoding plugins
@@ -174,7 +172,7 @@ ARG_DISBL_SET([pgp],            [disable PGP key decoding plugin.])
 ARG_DISBL_SET([pkcs1],          [disable PKCS1 key decoding plugin.])
 ARG_DISBL_SET([pkcs7],          [disable PKCS7 container support plugin.])
 ARG_DISBL_SET([pkcs8],          [disable PKCS8 private key decoding plugin.])
-ARG_DISBL_SET([pkcs12],         [disable PKCS12 container support plugin.])
+ARG_ENABL_SET([pkcs12],         [enable PKCS12 container support plugin.])
 ARG_DISBL_SET([pubkey],         [disable RAW public key support plugin.])
 ARG_DISBL_SET([sshkey],         [disable SSH key decoding plugin.])
 ARG_DISBL_SET([x509],           [disable X509 certificate implementation plugin.])
@@ -237,7 +235,7 @@ ARG_DISBL_SET([socket-default], [disable default socket implementation for charo
 ARG_ENABL_SET([socket-dynamic], [enable dynamic socket implementation for charon])
 ARG_ENABL_SET([socket-win],     [enable Winsock2 based socket implementation for charon])
 # configuration/control plugins
-ARG_DISBL_SET([stroke],         [disable charons stroke configuration backend.])
+ARG_ENABL_SET([stroke],         [enable the stroke configuration backend.])
 ARG_ENABL_SET([smp],            [enable SMP configuration and control interface. Requires libxml.])
 ARG_ENABL_SET([sql],            [enable SQL database configuration backend.])
 ARG_ENABL_SET([uci],            [enable OpenWRT UCI configuration plugin.])
@@ -470,6 +468,10 @@ if test x$fips_prf = xtrue; then
 	fi
 fi
 
+if test x$pkcs12 = xtrue; then
+	rc2=true;
+fi
+
 if test x$swanctl = xtrue; then
 	vici=true
 fi
@@ -511,11 +513,11 @@ if test x$tpm = xtrue; then
 	tss_tss2=true
 fi
 
-if test x$gmp = xtrue -o x$ntru = xtrue -o x$bliss = xtrue; then
+if test x$gmp = xtrue; then
 	mgf1=true
 fi
 
-if test x$stroke = xtrue; then
+if test x$stroke = xtrue -o x$vici = xtrue; then
 	counters=true
 fi
 
@@ -713,6 +715,11 @@ AC_CHECK_HEADERS([netinet/ip6.h linux/fib_rules.h], [], [],
 	#include <sys/types.h>
 	#include <netinet/in.h>
 ])
+AC_CHECK_HEADERS([linux/vm_sockets.h], [have_vm_sockets=true], [],
+[
+	#include <sys/socket.h>
+])
+AM_CONDITIONAL(USE_VM_SOCKETS, [test "x$have_vm_sockets" = xtrue])
 
 AC_CHECK_MEMBERS([struct sockaddr.sa_len], [], [],
 [
@@ -1585,10 +1592,8 @@ ADD_PLUGIN([kdf],                  [s charon pki scripts nm cmd])
 ADD_PLUGIN([ctr],                  [s charon scripts nm cmd])
 ADD_PLUGIN([ccm],                  [s charon scripts nm cmd])
 ADD_PLUGIN([gcm],                  [s charon scripts nm cmd])
-ADD_PLUGIN([ntru],                 [s charon scripts nm cmd])
+ADD_PLUGIN([ml],                   [s charon scripts nm cmd])
 ADD_PLUGIN([drbg],                 [s charon pki scripts nm cmd])
-ADD_PLUGIN([newhope],              [s charon scripts nm cmd])
-ADD_PLUGIN([bliss],                [s charon pki scripts nm cmd])
 ADD_PLUGIN([curl],                 [s charon pki scripts nm cmd])
 ADD_PLUGIN([files],                [s charon pki scripts nm cmd])
 ADD_PLUGIN([winhttp],              [s charon pki scripts])
@@ -1755,10 +1760,8 @@ AM_CONDITIONAL(USE_CTR, test x$ctr = xtrue)
 AM_CONDITIONAL(USE_CCM, test x$ccm = xtrue)
 AM_CONDITIONAL(USE_GCM, test x$gcm = xtrue)
 AM_CONDITIONAL(USE_AF_ALG, test x$af_alg = xtrue)
-AM_CONDITIONAL(USE_NTRU, test x$ntru = xtrue)
-AM_CONDITIONAL(USE_NEWHOPE, test x$newhope = xtrue)
-AM_CONDITIONAL(USE_BLISS, test x$bliss = xtrue)
 AM_CONDITIONAL(USE_DRBG, test x$drbg = xtrue)
+AM_CONDITIONAL(USE_ML, test x$ml = xtrue)
 
 #  charon plugins
 # ----------------
@@ -1877,7 +1880,6 @@ AM_CONDITIONAL(USE_CONFTEST, test x$conftest = xtrue)
 AM_CONDITIONAL(USE_LIBSTRONGSWAN, test x$charon = xtrue -o x$pki = xtrue -o x$conftest = xtrue -o x$fast = xtrue -o x$imcv = xtrue -o x$nm = xtrue -o x$tkm = xtrue -o x$cmd = xtrue -o x$tls = xtrue -o x$tnc_tnccs = xtrue -o x$aikgen = xtrue -o x$svc = xtrue -o x$systemd = xtrue)
 AM_CONDITIONAL(USE_LIBCHARON, test x$charon = xtrue -o x$conftest = xtrue -o x$nm = xtrue -o x$tkm = xtrue -o x$cmd = xtrue -o x$svc = xtrue -o x$systemd = xtrue)
 AM_CONDITIONAL(USE_LIBIPSEC, test x$libipsec = xtrue)
-AM_CONDITIONAL(USE_LIBNTTFFT, test x$bliss = xtrue -o x$newhope = xtrue)
 AM_CONDITIONAL(USE_LIBTNCIF, test x$tnc_tnccs = xtrue -o x$imcv = xtrue)
 AM_CONDITIONAL(USE_LIBTNCCS, test x$tnc_tnccs = xtrue)
 AM_CONDITIONAL(USE_LIBPTTLS, test x$tnc_tnccs = xtrue)
@@ -1982,8 +1984,6 @@ AC_CONFIG_FILES([
 	src/Makefile
 	src/include/Makefile
 	src/libstrongswan/Makefile
-	src/libstrongswan/math/libnttfft/Makefile
-	src/libstrongswan/math/libnttfft/tests/Makefile
 	src/libstrongswan/plugins/aes/Makefile
 	src/libstrongswan/plugins/cmac/Makefile
 	src/libstrongswan/plugins/des/Makefile
@@ -2041,11 +2041,7 @@ AC_CONFIG_FILES([
 	src/libstrongswan/plugins/gcm/Makefile
 	src/libstrongswan/plugins/af_alg/Makefile
 	src/libstrongswan/plugins/drbg/Makefile
-	src/libstrongswan/plugins/ntru/Makefile
-	src/libstrongswan/plugins/bliss/Makefile
-	src/libstrongswan/plugins/bliss/tests/Makefile
-	src/libstrongswan/plugins/newhope/Makefile
-	src/libstrongswan/plugins/newhope/tests/Makefile
+	src/libstrongswan/plugins/ml/Makefile
 	src/libstrongswan/plugins/test_vectors/Makefile
 	src/libstrongswan/tests/Makefile
 	src/libipsec/Makefile
