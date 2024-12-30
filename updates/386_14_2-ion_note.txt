@@ -1,0 +1,27 @@
+##  ion Asus Merlin changelog  ##
+
+Date: December 30, 2024
+Release: 386.14_2-ion
+
+  - UPDATED: strongswan to 6.0.0
+       - FIXED: Reverted the change: "TUN devices can properly handle IPv6 addresses (fccc764)"
+  - UPDATED: OpenVPN to 2.6.12.
+  - CHANGED: Enabled Netfilter queue support for SDK6/SDK7
+             devices (patch by HiHat)
+  - FIXED: Security issues in AiCloud (backports from Asus)
+  - FIXED: CVE-2024-2511, CVE-2024-4741, CVE-2024-5535 &
+           Implicit rejection for RSA PKCS#1 in openssl
+           (backport from Ubuntu by RSDNTWK)
+  - UPDATED: Merged with GPL 386_52805.
+  - UPDATED: wget to 1.24.5.
+  - FIXED: WPS wouldn't start on RT-AC68U (note: starting through
+           webui was fixed, however starting through button is
+           still broken for the RT-AC66U_B1, including with
+           stock firmware).
+  - ADDED:   htop 3.3.0
+  - REMOVED: Wifi Radar was removed (unsupported by Wifi 7 devices,
+             and security issues cited by Asus in their own recent
+             releases).
+
+
+
