@@ -143,7 +143,7 @@ am_libstrongswan_wolfssl_la_OBJECTS = wolfssl_plugin.lo \
 	wolfssl_ec_diffie_hellman.lo wolfssl_ec_private_key.lo \
 	wolfssl_ec_public_key.lo wolfssl_ed_private_key.lo \
 	wolfssl_ed_public_key.lo wolfssl_hasher.lo wolfssl_hmac.lo \
-	wolfssl_kdf.lo wolfssl_rsa_public_key.lo \
+	wolfssl_kdf.lo wolfssl_kem.lo wolfssl_rsa_public_key.lo \
 	wolfssl_rsa_private_key.lo wolfssl_rng.lo wolfssl_sha1_prf.lo \
 	wolfssl_x_diffie_hellman.lo wolfssl_util.lo wolfssl_xof.lo
 libstrongswan_wolfssl_la_OBJECTS =  \
@@ -183,8 +183,8 @@ am__depfiles_remade = ./$(DEPDIR)/wolfssl_aead.Plo \
 	./$(DEPDIR)/wolfssl_ed_private_key.Plo \
 	./$(DEPDIR)/wolfssl_ed_public_key.Plo \
 	./$(DEPDIR)/wolfssl_hasher.Plo ./$(DEPDIR)/wolfssl_hmac.Plo \
-	./$(DEPDIR)/wolfssl_kdf.Plo ./$(DEPDIR)/wolfssl_plugin.Plo \
-	./$(DEPDIR)/wolfssl_rng.Plo \
+	./$(DEPDIR)/wolfssl_kdf.Plo ./$(DEPDIR)/wolfssl_kem.Plo \
+	./$(DEPDIR)/wolfssl_plugin.Plo ./$(DEPDIR)/wolfssl_rng.Plo \
 	./$(DEPDIR)/wolfssl_rsa_private_key.Plo \
 	./$(DEPDIR)/wolfssl_rsa_public_key.Plo \
 	./$(DEPDIR)/wolfssl_sha1_prf.Plo ./$(DEPDIR)/wolfssl_util.Plo \
@@ -271,6 +271,7 @@ EGREP = @EGREP@
 ETAGS = @ETAGS@
 EXEEXT = @EXEEXT@
 FGREP = @FGREP@
+FILECMD = @FILECMD@
 FUZZING_CFLAGS = @FUZZING_CFLAGS@
 FUZZING_LDFLAGS = @FUZZING_LDFLAGS@
 GEM = @GEM@
@@ -509,6 +510,7 @@ libstrongswan_wolfssl_la_SOURCES = \
 	wolfssl_hasher.h wolfssl_hasher.c \
 	wolfssl_hmac.h wolfssl_hmac.c \
 	wolfssl_kdf.h wolfssl_kdf.c \
+	wolfssl_kem.h wolfssl_kem.c \
 	wolfssl_rsa_public_key.h wolfssl_rsa_public_key.c \
 	wolfssl_rsa_private_key.h wolfssl_rsa_private_key.c \
 	wolfssl_rng.h wolfssl_rng.c \
@@ -619,6 +621,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/wolfssl_hasher.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/wolfssl_hmac.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/wolfssl_kdf.Plo@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/wolfssl_kem.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/wolfssl_plugin.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/wolfssl_rng.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/wolfssl_rsa_private_key.Plo@am__quote@ # am--include-marker
@@ -802,6 +805,7 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/wolfssl_hasher.Plo
 	-rm -f ./$(DEPDIR)/wolfssl_hmac.Plo
 	-rm -f ./$(DEPDIR)/wolfssl_kdf.Plo
+	-rm -f ./$(DEPDIR)/wolfssl_kem.Plo
 	-rm -f ./$(DEPDIR)/wolfssl_plugin.Plo
 	-rm -f ./$(DEPDIR)/wolfssl_rng.Plo
 	-rm -f ./$(DEPDIR)/wolfssl_rsa_private_key.Plo
@@ -866,6 +870,7 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/wolfssl_hasher.Plo
 	-rm -f ./$(DEPDIR)/wolfssl_hmac.Plo
 	-rm -f ./$(DEPDIR)/wolfssl_kdf.Plo
+	-rm -f ./$(DEPDIR)/wolfssl_kem.Plo
 	-rm -f ./$(DEPDIR)/wolfssl_plugin.Plo
 	-rm -f ./$(DEPDIR)/wolfssl_rng.Plo
 	-rm -f ./$(DEPDIR)/wolfssl_rsa_private_key.Plo

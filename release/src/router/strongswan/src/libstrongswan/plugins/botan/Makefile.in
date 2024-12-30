@@ -139,12 +139,13 @@ LTLIBRARIES = $(noinst_LTLIBRARIES) $(plugin_LTLIBRARIES)
 am__DEPENDENCIES_1 =
 libstrongswan_botan_la_DEPENDENCIES = $(am__DEPENDENCIES_1)
 am_libstrongswan_botan_la_OBJECTS = botan_plugin.lo botan_rng.lo \
-	botan_hasher.lo botan_hmac.lo botan_kdf.lo botan_crypter.lo \
-	botan_rsa_public_key.lo botan_rsa_private_key.lo \
-	botan_diffie_hellman.lo botan_ec_diffie_hellman.lo \
-	botan_ec_public_key.lo botan_ec_private_key.lo \
-	botan_ed_public_key.lo botan_ed_private_key.lo botan_util.lo \
-	botan_util_keys.lo botan_aead.lo botan_x25519.lo
+	botan_hasher.lo botan_hmac.lo botan_kdf.lo botan_kem.lo \
+	botan_crypter.lo botan_rsa_public_key.lo \
+	botan_rsa_private_key.lo botan_diffie_hellman.lo \
+	botan_ec_diffie_hellman.lo botan_ec_public_key.lo \
+	botan_ec_private_key.lo botan_ed_public_key.lo \
+	botan_ed_private_key.lo botan_util.lo botan_util_keys.lo \
+	botan_aead.lo botan_x25519.lo
 libstrongswan_botan_la_OBJECTS = $(am_libstrongswan_botan_la_OBJECTS)
 AM_V_lt = $(am__v_lt_@AM_V@)
 am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
@@ -181,8 +182,8 @@ am__depfiles_remade = ./$(DEPDIR)/botan_aead.Plo \
 	./$(DEPDIR)/botan_ed_private_key.Plo \
 	./$(DEPDIR)/botan_ed_public_key.Plo \
 	./$(DEPDIR)/botan_hasher.Plo ./$(DEPDIR)/botan_hmac.Plo \
-	./$(DEPDIR)/botan_kdf.Plo ./$(DEPDIR)/botan_plugin.Plo \
-	./$(DEPDIR)/botan_rng.Plo \
+	./$(DEPDIR)/botan_kdf.Plo ./$(DEPDIR)/botan_kem.Plo \
+	./$(DEPDIR)/botan_plugin.Plo ./$(DEPDIR)/botan_rng.Plo \
 	./$(DEPDIR)/botan_rsa_private_key.Plo \
 	./$(DEPDIR)/botan_rsa_public_key.Plo \
 	./$(DEPDIR)/botan_util.Plo ./$(DEPDIR)/botan_util_keys.Plo \
@@ -268,6 +269,7 @@ EGREP = @EGREP@
 ETAGS = @ETAGS@
 EXEEXT = @EXEEXT@
 FGREP = @FGREP@
+FILECMD = @FILECMD@
 FUZZING_CFLAGS = @FUZZING_CFLAGS@
 FUZZING_LDFLAGS = @FUZZING_LDFLAGS@
 GEM = @GEM@
@@ -498,6 +500,7 @@ libstrongswan_botan_la_SOURCES = \
 	botan_hasher.h botan_hasher.c \
 	botan_hmac.h botan_hmac.c \
 	botan_kdf.h botan_kdf.c \
+	botan_kem.h botan_kem.c \
 	botan_crypter.h botan_crypter.c \
 	botan_rsa_public_key.h botan_rsa_public_key.c \
 	botan_rsa_private_key.h botan_rsa_private_key.c \
@@ -614,6 +617,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/botan_hasher.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/botan_hmac.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/botan_kdf.Plo@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/botan_kem.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/botan_plugin.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/botan_rng.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/botan_rsa_private_key.Plo@am__quote@ # am--include-marker
@@ -796,6 +800,7 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/botan_hasher.Plo
 	-rm -f ./$(DEPDIR)/botan_hmac.Plo
 	-rm -f ./$(DEPDIR)/botan_kdf.Plo
+	-rm -f ./$(DEPDIR)/botan_kem.Plo
 	-rm -f ./$(DEPDIR)/botan_plugin.Plo
 	-rm -f ./$(DEPDIR)/botan_rng.Plo
 	-rm -f ./$(DEPDIR)/botan_rsa_private_key.Plo
@@ -859,6 +864,7 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/botan_hasher.Plo
 	-rm -f ./$(DEPDIR)/botan_hmac.Plo
 	-rm -f ./$(DEPDIR)/botan_kdf.Plo
+	-rm -f ./$(DEPDIR)/botan_kem.Plo
 	-rm -f ./$(DEPDIR)/botan_plugin.Plo
 	-rm -f ./$(DEPDIR)/botan_rng.Plo
 	-rm -f ./$(DEPDIR)/botan_rsa_private_key.Plo

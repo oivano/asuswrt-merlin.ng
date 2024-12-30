@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Tobias Brunner
+ * Copyright (C) 2018-2024 Tobias Brunner
  * Copyright (C) 2007 Martin Willi
  *
  * Copyright (C) secunet Security Networks AG
@@ -81,13 +81,13 @@ struct child_create_t {
 	void (*use_label)(child_create_t *this, sec_label_t *label);
 
 	/**
-	 * Initially propose a specific DH group to override configuration.
+	 * Initially propose a specific KE method to override configuration.
 	 *
-	 * This is used during rekeying to prefer the previously negotiated group.
+	 * This is used during rekeying to prefer the previously negotiated method.
 	 *
-	 * @param dh_group	DH group to use
+	 * @param ke_method	KE method to use
 	 */
-	void (*use_dh_group)(child_create_t *this, key_exchange_method_t dh_group);
+	void (*use_ke_method)(child_create_t *this, key_exchange_method_t ke_method);
 
 	/**
 	 * Get the lower of the two nonces, used for rekey collisions.
@@ -104,11 +104,32 @@ struct child_create_t {
 	child_sa_t* (*get_child) (child_create_t *this);
 
 	/**
+	 * Get the SPI of the other peer's selected proposal, if available.
+	 *
+	 * @return			other's SPI, 0 if unknown
+	 */
+	uint32_t (*get_other_spi)(child_create_t *this);
+
+	/**
 	 * Enforce a specific CHILD_SA config as responder.
 	 *
 	 * @param cfg		configuration to enforce, reference gets owned
 	 */
 	void (*set_config)(child_create_t *this, child_cfg_t *cfg);
+
+	/**
+	 * Get the child config of this task as initiator.
+	 *
+	 * @return				config for the CHILD_SA, NULL as responder
+	 */
+	child_cfg_t *(*get_config)(child_create_t *this);
+
+	/**
+	 * Mark this active task as being aborted, i.e. cause a deletion of the
+	 * created CHILD_SA immediately after its creation (any failures to create
+	 * the SA are ignored).
+	 */
+	void (*abort)(child_create_t *this);
 };
 
 /**

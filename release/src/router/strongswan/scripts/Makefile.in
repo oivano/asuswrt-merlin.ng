@@ -94,7 +94,7 @@ noinst_PROGRAMS = bin2array$(EXEEXT) bin2sql$(EXEEXT) id2sql$(EXEEXT) \
 	pubkey_speed$(EXEEXT) crypt_burn$(EXEEXT) hash_burn$(EXEEXT) \
 	fetch$(EXEEXT) dnssec$(EXEEXT) malloc_speed$(EXEEXT) \
 	aes-test$(EXEEXT) settings-test$(EXEEXT) timeattack$(EXEEXT) \
-	$(am__EXEEXT_1) $(am__EXEEXT_2)
+	nist_kem_kat$(EXEEXT) $(am__EXEEXT_1) $(am__EXEEXT_2)
 @USE_TLS_TRUE@am__append_1 = tls_test
 @USE_IMCV_TRUE@am__append_2 = -I$(top_srcdir)/src/libimcv
 @USE_IMCV_TRUE@am__append_3 = os_info
@@ -173,6 +173,10 @@ malloc_speed_OBJECTS = $(am_malloc_speed_OBJECTS)
 malloc_speed_DEPENDENCIES =  \
 	$(top_builddir)/src/libstrongswan/libstrongswan.la \
 	$(am__DEPENDENCIES_1)
+am_nist_kem_kat_OBJECTS = nist_kem_kat.$(OBJEXT)
+nist_kem_kat_OBJECTS = $(am_nist_kem_kat_OBJECTS)
+nist_kem_kat_DEPENDENCIES =  \
+	$(top_builddir)/src/libstrongswan/libstrongswan.la
 am_oid2der_OBJECTS = oid2der.$(OBJEXT)
 oid2der_OBJECTS = $(am_oid2der_OBJECTS)
 oid2der_DEPENDENCIES =  \
@@ -225,10 +229,10 @@ am__depfiles_remade = ./$(DEPDIR)/aes-test.Po ./$(DEPDIR)/bin2array.Po \
 	./$(DEPDIR)/fetch.Po ./$(DEPDIR)/hash_burn.Po \
 	./$(DEPDIR)/id2sql.Po ./$(DEPDIR)/key2keyid.Po \
 	./$(DEPDIR)/keyid2sql.Po ./$(DEPDIR)/malloc_speed.Po \
-	./$(DEPDIR)/oid2der.Po ./$(DEPDIR)/os_info.Po \
-	./$(DEPDIR)/pubkey_speed.Po ./$(DEPDIR)/settings-test.Po \
-	./$(DEPDIR)/thread_analysis.Po ./$(DEPDIR)/timeattack.Po \
-	./$(DEPDIR)/tls_test.Po
+	./$(DEPDIR)/nist_kem_kat.Po ./$(DEPDIR)/oid2der.Po \
+	./$(DEPDIR)/os_info.Po ./$(DEPDIR)/pubkey_speed.Po \
+	./$(DEPDIR)/settings-test.Po ./$(DEPDIR)/thread_analysis.Po \
+	./$(DEPDIR)/timeattack.Po ./$(DEPDIR)/tls_test.Po
 am__mv = mv -f
 COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
@@ -252,18 +256,19 @@ SOURCES = aes-test.c $(bin2array_SOURCES) $(bin2sql_SOURCES) \
 	$(crypt_burn_SOURCES) $(dh_speed_SOURCES) $(dnssec_SOURCES) \
 	$(fetch_SOURCES) $(hash_burn_SOURCES) $(id2sql_SOURCES) \
 	$(key2keyid_SOURCES) $(keyid2sql_SOURCES) \
-	$(malloc_speed_SOURCES) $(oid2der_SOURCES) $(os_info_SOURCES) \
-	$(pubkey_speed_SOURCES) settings-test.c \
-	$(thread_analysis_SOURCES) $(timeattack_SOURCES) \
-	$(tls_test_SOURCES)
+	$(malloc_speed_SOURCES) $(nist_kem_kat_SOURCES) \
+	$(oid2der_SOURCES) $(os_info_SOURCES) $(pubkey_speed_SOURCES) \
+	settings-test.c $(thread_analysis_SOURCES) \
+	$(timeattack_SOURCES) $(tls_test_SOURCES)
 DIST_SOURCES = aes-test.c $(bin2array_SOURCES) $(bin2sql_SOURCES) \
 	$(crypt_burn_SOURCES) $(dh_speed_SOURCES) $(dnssec_SOURCES) \
 	$(fetch_SOURCES) $(hash_burn_SOURCES) $(id2sql_SOURCES) \
 	$(key2keyid_SOURCES) $(keyid2sql_SOURCES) \
-	$(malloc_speed_SOURCES) $(oid2der_SOURCES) \
-	$(am__os_info_SOURCES_DIST) $(pubkey_speed_SOURCES) \
-	settings-test.c $(thread_analysis_SOURCES) \
-	$(timeattack_SOURCES) $(am__tls_test_SOURCES_DIST)
+	$(malloc_speed_SOURCES) $(nist_kem_kat_SOURCES) \
+	$(oid2der_SOURCES) $(am__os_info_SOURCES_DIST) \
+	$(pubkey_speed_SOURCES) settings-test.c \
+	$(thread_analysis_SOURCES) $(timeattack_SOURCES) \
+	$(am__tls_test_SOURCES_DIST)
 am__can_run_installinfo = \
   case $$AM_UPDATE_INFO_DIR in \
     n|no|NO) false;; \
@@ -324,6 +329,7 @@ EGREP = @EGREP@
 ETAGS = @ETAGS@
 EXEEXT = @EXEEXT@
 FGREP = @FGREP@
+FILECMD = @FILECMD@
 FUZZING_CFLAGS = @FUZZING_CFLAGS@
 FUZZING_LDFLAGS = @FUZZING_LDFLAGS@
 GEM = @GEM@
@@ -562,6 +568,7 @@ malloc_speed_SOURCES = malloc_speed.c
 fetch_SOURCES = fetch.c
 dnssec_SOURCES = dnssec.c
 timeattack_SOURCES = timeattack.c
+nist_kem_kat_SOURCES = nist_kem_kat.c
 id2sql_LDADD = $(top_builddir)/src/libstrongswan/libstrongswan.la
 key2keyid_LDADD = $(top_builddir)/src/libstrongswan/libstrongswan.la
 keyid2sql_LDADD = $(top_builddir)/src/libstrongswan/libstrongswan.la
@@ -576,6 +583,7 @@ dnssec_LDADD = $(top_builddir)/src/libstrongswan/libstrongswan.la
 aes_test_LDADD = $(top_builddir)/src/libstrongswan/libstrongswan.la
 settings_test_LDADD = $(top_builddir)/src/libstrongswan/libstrongswan.la
 timeattack_LDADD = $(top_builddir)/src/libstrongswan/libstrongswan.la $(RTLIB)
+nist_kem_kat_LDADD = $(top_builddir)/src/libstrongswan/libstrongswan.la
 @USE_IMCV_TRUE@os_info_SOURCES = os_info.c
 @USE_IMCV_TRUE@os_info_LDADD = $(top_builddir)/src/libstrongswan/libstrongswan.la \
 @USE_IMCV_TRUE@                  $(top_builddir)/src/libimcv/libimcv.la
@@ -671,6 +679,10 @@ malloc_speed$(EXEEXT): $(malloc_speed_OBJECTS) $(malloc_speed_DEPENDENCIES) $(EX
 	@rm -f malloc_speed$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(malloc_speed_OBJECTS) $(malloc_speed_LDADD) $(LIBS)
 
+nist_kem_kat$(EXEEXT): $(nist_kem_kat_OBJECTS) $(nist_kem_kat_DEPENDENCIES) $(EXTRA_nist_kem_kat_DEPENDENCIES) 
+	@rm -f nist_kem_kat$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(nist_kem_kat_OBJECTS) $(nist_kem_kat_LDADD) $(LIBS)
+
 oid2der$(EXEEXT): $(oid2der_OBJECTS) $(oid2der_DEPENDENCIES) $(EXTRA_oid2der_DEPENDENCIES) 
 	@rm -f oid2der$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(oid2der_OBJECTS) $(oid2der_LDADD) $(LIBS)
@@ -717,6 +729,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/key2keyid.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/keyid2sql.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/malloc_speed.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/nist_kem_kat.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/oid2der.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/os_info.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/pubkey_speed.Po@am__quote@ # am--include-marker
@@ -897,6 +910,7 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/key2keyid.Po
 	-rm -f ./$(DEPDIR)/keyid2sql.Po
 	-rm -f ./$(DEPDIR)/malloc_speed.Po
+	-rm -f ./$(DEPDIR)/nist_kem_kat.Po
 	-rm -f ./$(DEPDIR)/oid2der.Po
 	-rm -f ./$(DEPDIR)/os_info.Po
 	-rm -f ./$(DEPDIR)/pubkey_speed.Po
@@ -961,6 +975,7 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/key2keyid.Po
 	-rm -f ./$(DEPDIR)/keyid2sql.Po
 	-rm -f ./$(DEPDIR)/malloc_speed.Po
+	-rm -f ./$(DEPDIR)/nist_kem_kat.Po
 	-rm -f ./$(DEPDIR)/oid2der.Po
 	-rm -f ./$(DEPDIR)/os_info.Po
 	-rm -f ./$(DEPDIR)/pubkey_speed.Po

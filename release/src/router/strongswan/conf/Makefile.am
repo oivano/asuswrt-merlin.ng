@@ -31,7 +31,6 @@ plugins = \
 	plugins/android_log.opt \
 	plugins/attr.opt \
 	plugins/attr-sql.opt \
-	plugins/bliss.opt \
 	plugins/botan.opt \
 	plugins/bypass-lan.opt \
 	plugins/certexpire.opt \
@@ -77,7 +76,6 @@ plugins = \
 	plugins/kernel-pfroute.opt \
 	plugins/load-tester.opt \
 	plugins/lookip.opt \
-	plugins/ntru.opt \
 	plugins/openssl.opt \
 	plugins/openxpki.opt \
 	plugins/osx-attr.opt \

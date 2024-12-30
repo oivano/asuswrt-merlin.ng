@@ -131,9 +131,10 @@ struct private_child_sa_t {
 	bool tfcv3;
 
 	/**
-	 * The outbound SPI of the CHILD_SA that replaced this one during a rekeying
+	 * The "other" CHILD_SA involved in a passive rekeying (either replacing
+	 * this one, or being replaced by it)
 	 */
-	uint32_t rekey_spi;
+	child_sa_t *rekey_sa;
 
 	/**
 	 * Protocol used to protect this SA, ESP|AH
@@ -619,7 +620,7 @@ static status_t update_usebytes(private_child_sa_t *this, bool inbound)
 
 	if (inbound)
 	{
-		if (this->my_spi && this->inbound_installed)
+		if (this->inbound_installed)
 		{
 			kernel_ipsec_sa_id_t id = {
 				.src = this->other_addr,
@@ -653,7 +654,7 @@ static status_t update_usebytes(private_child_sa_t *this, bool inbound)
 	}
 	else
 	{
-		if (this->other_spi && (this->outbound_state & CHILD_OUTBOUND_SA))
+		if (this->outbound_state & CHILD_OUTBOUND_SA)
 		{
 			kernel_ipsec_sa_id_t id = {
 				.src = this->my_addr,
@@ -938,7 +939,6 @@ static status_t install_internal(private_child_sa_t *this, chunk_t encr,
 		this->my_cpi = cpi;
 		dst_ts = my_ts;
 		src_ts = other_ts;
-		this->inbound_installed = TRUE;
 	}
 	else
 	{
@@ -953,7 +953,6 @@ static status_t install_internal(private_child_sa_t *this, chunk_t encr,
 		{
 			tfc = this->config->get_tfc(this->config);
 		}
-		this->outbound_state |= CHILD_OUTBOUND_SA;
 	}
 
 	DBG2(DBG_CHD, "adding %s %N SA", inbound ? "inbound" : "outbound",
@@ -1060,6 +1059,17 @@ static status_t install_internal(private_child_sa_t *this, chunk_t encr,
 	other_ts->destroy(other_ts);
 	free(lifetime);
 
+	if (status == SUCCESS)
+	{
+		if (inbound)
+		{
+			this->inbound_installed = TRUE;
+		}
+		else
+		{
+			this->outbound_state |= CHILD_OUTBOUND_SA;
+		}
+	}
 	return status;
 }
 
@@ -1588,16 +1598,16 @@ METHOD(child_sa_t, remove_outbound, void,
 	this->outbound_state = CHILD_OUTBOUND_NONE;
 }
 
-METHOD(child_sa_t, set_rekey_spi, void,
-	private_child_sa_t *this, uint32_t spi)
+METHOD(child_sa_t, set_rekey_sa, void,
+	private_child_sa_t *this, child_sa_t *sa)
 {
-	this->rekey_spi = spi;
+	this->rekey_sa = sa;
 }
 
-METHOD(child_sa_t, get_rekey_spi, uint32_t,
+METHOD(child_sa_t, get_rekey_sa, child_sa_t*,
 	private_child_sa_t *this)
 {
-	return this->rekey_spi;
+	return this->rekey_sa;
 }
 
 CALLBACK(reinstall_vip, void,
@@ -1622,7 +1632,7 @@ static status_t update_sas(private_child_sa_t *this, host_t *me, host_t *other,
 						   bool encap, uint32_t reqid)
 {
 	/* update our (initiator) SA */
-	if (this->my_spi && this->inbound_installed)
+	if (this->inbound_installed)
 	{
 		kernel_ipsec_sa_id_t id = {
 			.src = this->other_addr,
@@ -1648,7 +1658,7 @@ static status_t update_sas(private_child_sa_t *this, host_t *me, host_t *other,
 	}
 
 	/* update his (responder) SA */
-	if (this->other_spi && (this->outbound_state & CHILD_OUTBOUND_SA))
+	if (this->outbound_state & CHILD_OUTBOUND_SA)
 	{
 		kernel_ipsec_sa_id_t id = {
 			.src = this->my_addr,
@@ -1959,7 +1969,7 @@ METHOD(child_sa_t, destroy, void,
 		};
 		charon->kernel->del_sa(charon->kernel, &id, &sa);
 	}
-	if (this->other_spi && (this->outbound_state & CHILD_OUTBOUND_SA))
+	if (this->outbound_state & CHILD_OUTBOUND_SA)
 	{
 		kernel_ipsec_sa_id_t id = {
 			.src = this->my_addr,
@@ -2077,8 +2087,8 @@ child_sa_t *child_sa_create(host_t *me, host_t *other, child_cfg_t *config,
 			.register_outbound = _register_outbound,
 			.install_outbound = _install_outbound,
 			.remove_outbound = _remove_outbound,
-			.set_rekey_spi = _set_rekey_spi,
-			.get_rekey_spi = _get_rekey_spi,
+			.set_rekey_sa = _set_rekey_sa,
+			.get_rekey_sa = _get_rekey_sa,
 			.update = _update,
 			.set_policies = _set_policies,
 			.install_policies = _install_policies,

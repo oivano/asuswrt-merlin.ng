@@ -62,6 +62,12 @@ if !USE_WINDOWS
     networking/streams/stream_service_unix.c
 endif
 
+if USE_VM_SOCKETS
+  libstrongswan_la_SOURCES += \
+    networking/streams/stream_vsock.c \
+    networking/streams/stream_service_vsock.c
+endif
+
 # private header files
 noinst_HEADERS = \
 settings/settings_types.h
@@ -133,6 +139,11 @@ utils/utils/strerror.h utils/compat/windows.h utils/compat/apple.h utils/compat/
 utils/utils/atomics.h utils/utils/types.h utils/utils/byteorder.h \
 utils/utils/string.h utils/utils/memory.h utils/utils/tty.h utils/utils/path.h \
 utils/utils/status.h utils/utils/object.h utils/utils/time.h utils/utils/align.h
+if USE_VM_SOCKETS
+  nobase_strongswan_include_HEADERS += \
+    networking/streams/stream_vsock.h \
+    networking/streams/stream_service_vsock.h
+endif
 endif
 
 library.lo :	$(top_builddir)/config.status
@@ -268,13 +279,6 @@ if MONOLITHIC
 SUBDIRS =
 else
 SUBDIRS = .
-endif
-
-# build libnttfft used by some plugins
-######################################
-
-if USE_LIBNTTFFT
-  SUBDIRS += math/libnttfft
 endif
 
 # build plugins with their own Makefile
@@ -672,31 +676,17 @@ if MONOLITHIC
 endif
 endif
 
-if USE_NTRU
-  SUBDIRS += plugins/ntru
-if MONOLITHIC
-  libstrongswan_la_LIBADD += plugins/ntru/libstrongswan-ntru.la
-endif
-endif
-
-if USE_BLISS
-  SUBDIRS += plugins/bliss
-if MONOLITHIC
-  libstrongswan_la_LIBADD += plugins/bliss/libstrongswan-bliss.la
-endif
-endif
-
-if USE_NEWHOPE
-  SUBDIRS += plugins/newhope
-if MONOLITHIC
-  libstrongswan_la_LIBADD += plugins/newhope/libstrongswan-newhope.la
-endif
-endif
-
 if USE_DRBG
   SUBDIRS += plugins/drbg
 if MONOLITHIC
   libstrongswan_la_LIBADD += plugins/drbg/libstrongswan-drbg.la
+endif
+endif
+
+if USE_ML
+  SUBDIRS += plugins/ml
+if MONOLITHIC
+  libstrongswan_la_LIBADD += plugins/ml/libstrongswan-ml.la
 endif
 endif
 
@@ -716,14 +706,3 @@ endif
 
 SUBDIRS += tests
 
-if USE_LIBNTTFFT
-  SUBDIRS += math/libnttfft/tests
-endif
-
-if USE_BLISS
-  SUBDIRS += plugins/bliss/tests
-endif
-
-if USE_NEWHOPE
-  SUBDIRS += plugins/newhope/tests
-endif

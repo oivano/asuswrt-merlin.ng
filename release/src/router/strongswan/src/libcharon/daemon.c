@@ -491,25 +491,37 @@ static void load_file_logger(private_daemon_t *this, char *section,
 							 linked_list_t *current_loggers)
 {
 	file_logger_t *file_logger;
+	file_logger_options_t options;
 	debug_t group;
 	level_t def;
-	bool add_ms, ike_name, log_level, flush_line, append;
-	char *time_format, *filename;
+	bool flush_line, append;
+	char *filename;
 
-	time_format = lib->settings->get_str(lib->settings,
-						"%s.filelog.%s.time_format", NULL, lib->ns, section);
-	add_ms = lib->settings->get_bool(lib->settings,
-						"%s.filelog.%s.time_add_ms", FALSE, lib->ns, section);
-	ike_name = lib->settings->get_bool(lib->settings,
-						"%s.filelog.%s.ike_name", FALSE, lib->ns, section);
-	log_level = lib->settings->get_bool(lib->settings,
-						"%s.filelog.%s.log_level", FALSE, lib->ns, section);
+	options.time_format = lib->settings->get_str(lib->settings,
+					"%s.filelog.%s.time_format", NULL, lib->ns, section);
+	options.time_precision = file_logger_time_precision_parse(
+				lib->settings->get_str(lib->settings,
+					"%s.filelog.%s.time_precision", NULL, lib->ns, section));
+	/* handle legacy option */
+	if (!options.time_precision &&
+		lib->settings->get_bool(lib->settings,
+					"%s.filelog.%s.time_add_ms", FALSE, lib->ns, section))
+	{
+		options.time_precision = FILE_LOGGER_TIME_PRECISION_MS;
+	}
+	options.ike_name = lib->settings->get_bool(lib->settings,
+					"%s.filelog.%s.ike_name", FALSE, lib->ns, section);
+	options.log_level = lib->settings->get_bool(lib->settings,
+					"%s.filelog.%s.log_level", FALSE, lib->ns, section);
+	options.json = lib->settings->get_bool(lib->settings,
+					"%s.filelog.%s.json", FALSE, lib->ns, section);
+
 	flush_line = lib->settings->get_bool(lib->settings,
-						"%s.filelog.%s.flush_line", FALSE, lib->ns, section);
+					"%s.filelog.%s.flush_line", FALSE, lib->ns, section);
 	append = lib->settings->get_bool(lib->settings,
-						"%s.filelog.%s.append", TRUE, lib->ns, section);
+					"%s.filelog.%s.append", TRUE, lib->ns, section);
 	filename = lib->settings->get_str(lib->settings,
-						"%s.filelog.%s.path", section, lib->ns, section);
+					"%s.filelog.%s.path", section, lib->ns, section);
 
 	file_logger = add_file_logger(this, filename, current_loggers);
 	if (!file_logger)
@@ -517,8 +529,7 @@ static void load_file_logger(private_daemon_t *this, char *section,
 		return;
 	}
 
-	file_logger->set_options(file_logger, time_format, add_ms, ike_name,
-							 log_level);
+	file_logger->set_options(file_logger, &options);
 	file_logger->open(file_logger, flush_line, append);
 
 	def = lib->settings->get_int(lib->settings, "%s.filelog.%s.default", 1,
@@ -652,7 +663,7 @@ METHOD(daemon_t, set_default_loggers, void,
 	{
 		if (!this->levels)
 		{
-			this->levels = calloc(sizeof(level_t), DBG_MAX);
+			this->levels = calloc(DBG_MAX, sizeof(level_t));
 		}
 		for (group = 0; group < DBG_MAX; group++)
 		{
