@@ -1,5 +1,6 @@
+# $Id: Makefile.linux_nft,v 1.19 2025/03/30 22:36:05 nanard Exp $
 # MiniUPnP project
-# (c) 2018-2022 Thomas Bernard
+# (c) 2018-2025 Thomas Bernard
 # (c) 2015 Tomofumi Hayashi
 # http://miniupnp.free.fr/ or https://miniupnp.tuxfamily.org/
 # Author : Tomofumi Hayashi
@@ -77,21 +78,11 @@ endif # ifdef PCFILE_FOUND
 
 LDLIBS += $(shell $(PKG_CONFIG) --static --libs-only-l libssl)
 
-TEST := $(shell $(PKG_CONFIG) --exists uuid && echo 1)
-ifeq ($(TEST),1)
-LDLIBS += $(shell $(PKG_CONFIG) --static --libs-only-l uuid)
-else
-$(info please install uuid-dev package / libuuid)
-endif # ($(TEST),1)
-
-# genuuid uses the uuidgen CLI tool which is part of libuuid
-# from the e2fsprogs
-# 'cat /proc/sys/kernel/random/uuid' could be also used
-#
-ifeq ($(TARGET_OPENWRT),)
-    UUIDEXECDIR=''
-else
-    UUIDEXECDIR="$(STAGING_DIR_HOST)/bin/"
+ifeq ($(TESTS), 1)
+EXECUTABLES += testupnpdescgen testgetifstats \
+               testupnppermissions testgetifaddr \
+               testgetroute testasyncsendto testportinuse \
+               testssdppktgen testminissdp testifacewatcher
 endif
 UUID=$(shell ($(UUIDEXECDIR)genuuid || $(UUIDEXECDIR)uuidgen || $(UUIDEXECDIR)uuid) 2> /dev/null )
 

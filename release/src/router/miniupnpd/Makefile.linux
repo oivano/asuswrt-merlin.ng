@@ -1,6 +1,6 @@
-# $Id: Makefile.linux,v 1.95 2017/12/12 11:40:14 nanard Exp $
+# $Id: Makefile.linux,v 1.113 2025/03/30 22:36:04 nanard Exp $
 # MiniUPnP project
-# (c) 2006-2021 Thomas Bernard
+# (c) 2006-2025 Thomas Bernard
 # http://miniupnp.free.fr/ or https://miniupnp.tuxfamily.org/
 # Author : Thomas Bernard
 # for use with GNU Make
@@ -70,14 +70,13 @@ NETFILTER_SCRIPTS = $(addprefix $(SRCDIR)/netfilter/, \
 
 ifneq ($(IPTABLES_PCFILE_FOUND),1)
 
-ifeq "$(wildcard /etc/gentoo-release )" ""
-LDLIBS ?= -liptc
-else # gentoo
-# the following is better, at least on gentoo with iptables 1.4.6
-# see http://miniupnp.tuxfamily.org/forum/viewtopic.php?p=1618
-# and http://miniupnp.tuxfamily.org/forum/viewtopic.php?p=2183
-LDLIBS ?= -lip4tc
-CPPFLAGS := -DIPTABLES_143 $(CPPFLAGS)
+EXECUTABLES = miniupnpd miniupnpdctl
+
+ifeq ($(TESTS), 1)
+EXECUTABLES += testupnpdescgen testgetifstats \
+               testupnppermissions testgetifaddr \
+               testgetroute testasyncsendto testportinuse \
+               testssdppktgen testminissdp testifacewatcher
 endif
 
 endif # ifneq ($(IPTABLES_PCFILE_FOUND),1)
