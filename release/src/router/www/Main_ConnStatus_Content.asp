@@ -293,7 +293,7 @@ function draw_table(type){
 											</td>
 										</table>
 										<div class="apply_gen">
-											<input type="button" onClick="location.reload();" value="<#CTL_refresh#>" class="button_gen">
+											<input type="button" onClick="get_connection_list();" value="<#CTL_refresh#>" class="button_gen">
 										</div>
 
 										<div id="connblock_header" style="display:none;"><span style="color:#FFCC00; font-size:larger;">NAT connections</span></div>
