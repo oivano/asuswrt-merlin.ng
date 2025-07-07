@@ -51,6 +51,15 @@ VISPAGES += $(JQUERYLIB)/jquery.cookie.js $(JQUERYLIB)/jquery.flot.min.js $(JQUE
 VISPAGES += $(JQUERYLIB)/jquery-ui.js $(JQUERYLIB)/jquery-ui.min.css
 endif # HND_ROUTER && RTCONFIG_VISUALIZATION
 
+update:
+	wget https://nw-dlcdnet.asus.com/plugin/js/tz_db.json -O ajax/tz_db.json
+	wget https://nw-dlcdnet.asus.com/plugin/js/gameList.json -O ajax/gameList.json
+	wget https://nw-dlcdnet.asus.com/plugin/js/logFilter.json -O ajax/logFilter.json
+	wget https://nw-dlcdnet.asus.com/plugin/js/extend_custom_icon.json -O ajax/extend_custom_icon.json
+	wget https://nw-dlcdnet.asus.com/plugin/js/pppIspList_V2.json -O ajax/pppIspList_V2.json
+	wget https://nw-dlcdnet.asus.com/plugin/js/DNS_List.json -O ajax/DNS_List.json
+
+
 clean:
 
 install:
@@ -946,14 +955,4 @@ endif
 ifneq ($(RTCONFIG_DNSPRIVACY), y)
 	rm -rf $(INSTALLDIR)/www/dot-servers.json
 endif
-
-update:
-	wget http://nw-dlcdnet.asus.com/plugin/js/tz_db.json -O ajax/tz_db.json
-	wget http://nw-dlcdnet.asus.com/plugin/js/dns_db.json -O ajax/dns_db.json
-	wget http://nw-dlcdnet.asus.com/plugin/js/ouiDB.json -O ajax/ouiDB.json
-	wget http://nw-dlcdnet.asus.com/plugin/js/gameList.json -O ajax/gameList.json
-	wget http://nw-dlcdnet.asus.com/plugin/js/logFilter.json -O ajax/logFilter.json
-	wget http://nw-dlcdnet.asus.com/plugin/js/extend_custom_icon.json -O ajax/extend_custom_icon.json
-	wget http://nw-dlcdnet.asus.com/plugin/js/pppIspList_V2.json -O ajax/pppIspList_V2.json
-	wget http://nw-dlcdnet.asus.com/plugin/js/DNS_List.json -O ajax/DNS_List.json
 
