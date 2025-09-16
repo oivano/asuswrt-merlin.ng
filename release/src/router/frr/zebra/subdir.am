@@ -1,0 +1,161 @@
+#
+# zebra
+#
+
+if ZEBRA
+sbin_PROGRAMS += zebra/zebra
+dist_examples_DATA += zebra/zebra.conf.sample
+vtysh_scan += \
+	$(top_srcdir)/zebra/debug.c \
+	$(top_srcdir)/zebra/interface.c \
+	$(top_srcdir)/zebra/router-id.c \
+	$(top_srcdir)/zebra/rtadv.c \
+	$(top_srcdir)/zebra/zebra_mpls_vty.c \
+	$(top_srcdir)/zebra/zebra_ptm.c \
+	$(top_srcdir)/zebra/zebra_pw.c \
+	$(top_srcdir)/zebra/zebra_routemap.c \
+	$(top_srcdir)/zebra/zebra_vty.c \
+	$(top_srcdir)/zebra/zserv.c \
+	# end
+
+# can be loaded as DSO - always include for vtysh
+vtysh_scan += $(top_srcdir)/zebra/irdp_interface.c
+vtysh_scan += $(top_srcdir)/zebra/zebra_fpm.c
+
+if IRDP
+module_LTLIBRARIES += zebra/zebra_irdp.la
+endif
+if SNMP
+module_LTLIBRARIES += zebra/zebra_snmp.la
+endif
+if FPM
+module_LTLIBRARIES += zebra/zebra_fpm.la
+endif
+
+man8 += $(MANBUILD)/zebra.8
+## endif ZEBRA
+endif
+
+zebra_zebra_LDADD = lib/libfrr.la $(LIBCAP)
+zebra_zebra_SOURCES = \
+	zebra/connected.c \
+	zebra/debug.c \
+	zebra/if_ioctl.c \
+	zebra/if_ioctl_solaris.c \
+	zebra/if_netlink.c \
+	zebra/if_sysctl.c \
+	zebra/interface.c \
+	zebra/ioctl.c \
+	zebra/ioctl_solaris.c \
+	zebra/ipforward_proc.c \
+	zebra/ipforward_solaris.c \
+	zebra/ipforward_sysctl.c \
+	zebra/kernel_netlink.c \
+	zebra/kernel_socket.c \
+	zebra/label_manager.c \
+	zebra/main.c \
+	zebra/redistribute.c \
+	zebra/router-id.c \
+	zebra/rt_netlink.c \
+	zebra/rt_socket.c \
+	zebra/rtadv.c \
+	zebra/rtread_getmsg.c \
+	zebra/rtread_netlink.c \
+	zebra/rtread_sysctl.c \
+	zebra/rule_netlink.c \
+	zebra/rule_socket.c \
+	zebra/zebra_l2.c \
+	zebra/zebra_memory.c \
+	zebra/zebra_mpls.c \
+	zebra/zebra_mpls_netlink.c \
+	zebra/zebra_mpls_openbsd.c \
+	zebra/zebra_mpls_null.c \
+	zebra/zebra_mpls_vty.c \
+	zebra/zebra_mroute.c \
+	zebra/zebra_ns.c \
+	zebra/zebra_pbr.c \
+	zebra/zebra_ptm.c \
+	zebra/zebra_ptm_redistribute.c \
+	zebra/zebra_pw.c \
+	zebra/zebra_rib.c \
+	zebra/zebra_rnh.c \
+	zebra/zebra_routemap.c \
+	zebra/zebra_vrf.c \
+	zebra/zebra_vty.c \
+	zebra/zebra_vxlan.c \
+	zebra/zserv.c \
+	zebra/zebra_netns_id.c \
+	zebra/zebra_netns_notify.c \
+	zebra/table_manager.c \
+	zebra/zapi_msg.c \
+	zebra/zebra_errors.c \
+	# end
+
+zebra/zebra_vty_clippy.c: $(CLIPPY_DEPS)
+zebra/zebra_vty.$(OBJEXT): zebra/zebra_vty_clippy.c
+
+noinst_HEADERS += \
+	zebra/connected.h \
+	zebra/debug.h \
+	zebra/if_netlink.h \
+	zebra/interface.h \
+	zebra/ioctl.h \
+	zebra/ioctl_solaris.h \
+	zebra/ipforward.h \
+	zebra/irdp.h \
+	zebra/kernel_netlink.h \
+	zebra/kernel_socket.h \
+	zebra/label_manager.h \
+	zebra/redistribute.h \
+	zebra/rib.h \
+	zebra/router-id.h \
+	zebra/rt.h \
+	zebra/rt_netlink.h \
+	zebra/rtadv.h \
+	zebra/rule_netlink.h \
+	zebra/zebra_fpm_private.h \
+	zebra/zebra_l2.h \
+	zebra/zebra_memory.h \
+	zebra/zebra_mpls.h \
+	zebra/zebra_mroute.h \
+	zebra/zebra_ns.h \
+	zebra/zebra_pbr.h \
+	zebra/zebra_ptm.h \
+	zebra/zebra_ptm_redistribute.h \
+	zebra/zebra_pw.h \
+	zebra/zebra_rnh.h \
+	zebra/zebra_routemap.h \
+	zebra/zebra_vrf.h \
+	zebra/zebra_vxlan.h \
+	zebra/zebra_vxlan_private.h \
+	zebra/zserv.h \
+	zebra/zebra_netns_id.h \
+	zebra/zebra_netns_notify.h \
+	zebra/table_manager.h \
+	zebra/zapi_msg.h \
+	zebra/zebra_errors.h \
+	# end
+
+zebra_zebra_irdp_la_SOURCES = \
+	zebra/irdp_interface.c \
+	zebra/irdp_main.c \
+	zebra/irdp_packet.c \
+	# end
+zebra_zebra_irdp_la_LDFLAGS = -avoid-version -module -shared -export-dynamic
+
+zebra_zebra_snmp_la_SOURCES = zebra/zebra_snmp.c
+zebra_zebra_snmp_la_CFLAGS = $(WERROR) $(SNMP_CFLAGS) -std=gnu99
+zebra_zebra_snmp_la_LDFLAGS = -avoid-version -module -shared -export-dynamic
+zebra_zebra_snmp_la_LIBADD = lib/libfrrsnmp.la
+
+zebra_zebra_fpm_la_LDFLAGS = -avoid-version -module -shared -export-dynamic
+zebra_zebra_fpm_la_LIBADD =
+zebra_zebra_fpm_la_SOURCES = zebra/zebra_fpm.c
+zebra_zebra_fpm_la_SOURCES += zebra/zebra_fpm_netlink.c
+if HAVE_PROTOBUF
+zebra_zebra_fpm_la_LIBADD += fpm/libfrrfpm_pb.la qpb/libfrr_pb.la $(PROTOBUF_C_LIBS)
+zebra_zebra_fpm_la_SOURCES += zebra/zebra_fpm_protobuf.c
+if DEV_BUILD
+zebra_zebra_fpm_la_SOURCES += zebra/zebra_fpm_dt.c
+endif
+endif

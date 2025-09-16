@@ -1409,10 +1409,16 @@ obj-$(RTCONFIG_HTTPS) += zlib
 obj-$(RTCONFIG_HTTPS) += curl
 obj-$(RTCONFIG_SSH) += dropbear
 obj-$(RTCONFIG_WTFAST) += wtfast
-#obj-$(RTCONFIG_ZEBRA) += zebra
-#obj-$(RTCONFIG_QUAGGA) += ncurses-6.0
-#obj-$(RTCONFIG_QUAGGA) += readline-8.1
-obj-$(RTCONFIG_QUAGGA) += quagga
+
+obj-$(RTCONFIG_QUAGGA) += frr
+obj-$(RTCONFIG_QUAGGA) += libcap-ng
+obj-$(RTCONFIG_QUAGGA) += json-c
+obj-$(RTCONFIG_QUAGGA) += pcre-8.31
+obj-$(RTCONFIG_QUAGGA) += libyang
+obj-$(RTCONFIG_QUAGGA) += zlib
+obj-$(RTCONFIG_QUAGGA) += readline-8.1
+obj-$(RTCONFIG_QUAGGA) += ncurses-6.0
+
 #obj-$(RTCONFIG_IPP2P) += ipp2p
 ifeq ($(HND_ROUTER_AX_6756),y)
 LZO_VER := -2.10
@@ -2721,7 +2727,6 @@ rmconf: config/mconf
 roldconf: config/conf
 	config/conf -o $(CONFIG_IN)
 	$(MAKE) shared-clean libdisk-clean rc-clean nvram$(BCMEX)$(EX7)-clean httpd-clean prebuilt-clean libbcmcrypto-clean
-#	@$(MAKE) iptables-clean ebtables-clean pppd-clean zebra-clean openssl-clean mssl-clean pppd-clean
 	$(MAKE) dnsmasq-clean iproute2-clean networkmap-clean
 ifeq ($(RTCONFIG_BCMARM),y)
 	$(MAKE) compressed-clean
@@ -4530,45 +4535,77 @@ inadyn-clean:
 	[ ! -f inadyn/Makefile ] || $(MAKE) -C inadyn distclean
 	@rm -f inadyn/Makefile
 
-quagga/stamp-h1:
-	@cd quagga && autoreconf -i -f && \
+frr/stamp-h1: ncurses-6.0 json-c readline-8.1 libyang libcap-ng
+	@$(SEP)
+	@rm -rf $(TOP)/frr/build && mkdir -p $(TOP)/frr/build
+	@cd frr && autoreconf -i -f && cd $(TOP)/frr/build && \
 	CC=$(CC) AR=$(AR) RANLIB=$(RANLIB) LD=$(LD) \
-	CFLAGS="-I$(STAGEDIR)/usr/include/readline $(CFLAGS) -Os -Wall -ffunction-sections -fdata-sections -fPIC" \
-	LDFLAGS="-L$(STAGEDIR)/usr/lib -ffunction-sections -fdata-sections -Wl,--gc-sections" \
-	$(CONFIGURE) --prefix=/usr --sysconfdir=/etc --enable-shared \
-	--disable-ripngd --disable-pimd --disable-ripd --disable-doc --disable-ospfclient \
-	--disable-ospf6d --disable-nhrpd --disable-fpm \
-	--disable-silent-rules --enable-user=nobody \
-	--enable-group=nobody --disable-isisd --disable-vtysh
+	CFLAGS="-I$(STAGEDIR)/usr/include $(CFLAGS) -Os -Wall -ffunction-sections -fdata-sections -fPIC" \
+	CPPFLAGS="-I$(STAGEDIR)/usr/include/readline -I$(STAGEDIR)/usr/include" \
+	LDFLAGS="-L$(TOP)/ncurses-6.0/lib -lncurses -L$(STAGEDIR)/usr/lib -lreadline -ljson-c -lpcre -lyang -lpthread -ffunction-sections -fdata-sections -Wl,--gc-sections" \
+	LIBREADLINE_CFLAGS="-I$(STAGEDIR)/usr/include" \
+	LIBREADLINE_LIBS="-L$(STAGEDIR)/usr/lib -lreadline -lncurses" \
+	JSON_C_CFLAGS="-I$(STAGEDIR)/usr/include/json-c" \
+	JSON_C_LIBS="-L$(STAGEDIR)/usr/lib -ljson-c" \
+	../configure --build=x86_64-pc-linux-gnu --host=arm-linux \
+		--prefix=/usr \
+		--sysconfdir=/etc/frr \
+		--enable-shared \
+		--disable-static \
+		--localstatedir=/var/run/frr \
+		--enable-user=nobody \
+		--enable-group=nobody \
+		--disable-backtrace \
+		--disable-babeld \
+		--disable-eigrpd \
+		--disable-pbrd \
+		--disable-doc \
+		--disable-ripngd \
+		--disable-rtadv \
+		--disable-pimd \
+		--disable-ripd \
+		--disable-irdp \
+		--disable-bgp-vnc \
+		--disable-ospfclient \
+		--disable-ospfapi \
+		--disable-ospf6d \
+		--disable-ldpd \
+		--disable-nhrpd \
+		--disable-silent-rules \
+		--disable-isisd \
+		--enable-shell-access \
+		--disable-clippy-only
 	@touch $@
 
-quagga: quagga/stamp-h1
+frr: frr/stamp-h1
 	@$(SEP)
-	@$(MAKE) -C quagga CC=$(CC) AR=$(AR) RANLIB=$(RANLIB) LD=$(LD) $(PARALLEL_BUILD)
-#		LIBREADLINE_CFLAGS="-I$(STAGEDIR)/usr/include/readline" \
-#		LIBREADLINE_LDFLAGS="-L$(STAGEDIR)/usr/lib -lreadline"
+	@$(MAKE) -C frr/build $(PARALLEL_BUILD)
 
-quagga-clean:
-	-@$(MAKE) -C quagga clean
-	@rm -f quagga/stamp-h1
+frr-clean:
+	-@$(MAKE) -C frr clean
+	@rm -f frr/stamp-h1
 
-quagga-install:
-	install -d $(INSTALLDIR)/quagga/usr/lib
-	libtool --mode=install install -c quagga/lib/libzebra.la $(INSTALLDIR)/quagga/usr/lib
-	libtool --finish $(INSTALLDIR)/quagga/usr/lib
-	rm -f $(INSTALLDIR)/quagga/usr/lib/libzebra.la
-	$(STRIP)  $(INSTALLDIR)/quagga/usr/lib/libzebra.so
-	install -d $(INSTALLDIR)/quagga/usr/sbin
-	libtool --mode=install install -c quagga/zebra/zebra $(INSTALLDIR)/quagga/usr/sbin
-#	libtool --mode=install install -c quagga/vtysh $(INSTALLDIR)/quagga/usr/sbin
-	libtool --mode=install install -c quagga/bgpd/bgpd $(INSTALLDIR)/quagga/usr/sbin
-	libtool --mode=install install -c quagga/ospfd/ospfd $(INSTALLDIR)/quagga/usr/sbin
-	libtool --mode=install install -c quagga/watchquagga/watchquagga $(INSTALLDIR)/quagga/usr/sbin
-	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/zebra
-#	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/vtysh
-	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/bgpd
-	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/ospfd
-	$(STRIP) $(INSTALLDIR)/quagga/usr/sbin/watchquagga
+frr-install:
+	install -d $(INSTALLDIR)/frr/usr/lib/
+	find frr/build/lib/.libs -name 'libfrr.so*' -type f -exec \
+		install -m 755 -t $(INSTALLDIR)/frr/usr/lib/ {} +
+	find frr/build/lib/.libs -name 'libfrr*.so*' -type l -exec \
+		cp -fa -t $(INSTALLDIR)/frr/usr/lib/ {} +
+	$(STRIP) $(INSTALLDIR)/frr/usr/lib/libfrr.so*
+	install -d $(INSTALLDIR)/frr/usr/sbin
+	libtool --mode=install install -c frr/build/zebra/zebra $(INSTALLDIR)/frr/usr/sbin
+	libtool --mode=install install -c frr/build/staticd/staticd $(INSTALLDIR)/frr/usr/sbin
+	libtool --mode=install install -c frr/build/bgpd/bgpd $(INSTALLDIR)/frr/usr/sbin
+	libtool --mode=install install -c frr/build/bfdd/bfdd $(INSTALLDIR)/frr/usr/sbin
+	libtool --mode=install install -c frr/build/vtysh/vtysh $(INSTALLDIR)/frr/usr/sbin
+	libtool --mode=install install -c frr/build/ospfd/ospfd $(INSTALLDIR)/frr/usr/sbin
+	libtool --mode=install install -c frr/build/watchfrr/watchfrr $(INSTALLDIR)/frr/usr/sbin
+	$(STRIP) $(INSTALLDIR)/frr/usr/sbin/{zebra,staticd,bgpd,bfdd,vtysh,ospfd,watchfrr}
+	mkdir -p $(TARGETDIR)/rom/etc/frr
+	cp frr/files/{frr.conf,daemons,vtysh.conf} $(TARGETDIR)/rom/etc/frr/
+	cp frr/files/{frr,watchfrr.sh,frrinit.sh,frrcommon.sh} $(INSTALLDIR)/frr/usr/sbin/
+	chmod 0555 $(INSTALLDIR)/frr/usr/sbin/{frr,watchfrr.sh,frrinit.sh,frrcommon.sh}
+
 ifneq ($(RTCONFIG_MUSL_LIBC),y)
 	mkdir -p $(TARGETDIR)/lib
 ifneq ($(HND_ROUTER),y)
@@ -4588,31 +4625,6 @@ else
 endif
 endif
 endif	#RTCONFIG_MUSL_LIBC
-
-zebra/stamp-h1:
-	@cd zebra && rm -f config.cache && \
-	CC=$(CC) AR=$(AR) RANLIB=$(RANLIB) LD=$(LD) \
-	CFLAGS="-Os -Wall $(EXTRACFLAGS) -ffunction-sections -fdata-sections" \
-	LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections -fPIC" \
-	$(CONFIGURE) --sysconfdir=/etc \
-	--enable-netlink $(if $(RTCONFIG_IPV6),--enable-ipv6,--disable-ipv6) --disable-ripngd --disable-ospfd --disable-doc \
-	--disable-ospf6d --disable-bgpd --disable-bgpd-announce
-	@touch $@
-
-zebra: zebra/stamp-h1
-	@$(MAKE) -C zebra CC=$(CC) AR=$(AR) RANLIB=$(RANLIB) LD=$(LD)
-
-zebra-clean:
-	-@$(MAKE) -C zebra clean
-	@rm -f zebra/stamp-h1
-
-zebra-install: zebra
-	install -D zebra/zebra/zebra $(INSTALLDIR)/zebra/usr/sbin/zebra
-	install -D zebra/ripd/ripd $(INSTALLDIR)/zebra/usr/sbin/ripd
-	install -D zebra/lib/libzebra.so $(INSTALLDIR)/zebra/usr/lib/libzebra.so
-	$(STRIP) $(INSTALLDIR)/zebra/usr/sbin/zebra
-	$(STRIP) $(INSTALLDIR)/zebra/usr/sbin/ripd
-	$(STRIP) $(INSTALLDIR)/zebra/usr/lib/libzebra.so
 
 bpalogin-install:
 	install -D bpalogin/bpalogin $(INSTALLDIR)/bpalogin/usr/sbin/bpalogin
@@ -5345,7 +5357,7 @@ ffmpeg/stamp-h1: $(if $(FFMPEG_ZLIB_REQD),zlib,)
 		--disable-bsfs \
 		--disable-protocols $(FFMPEG_CONFIGURE_PROTOCOLS) \
 		--disable-devices --disable-filters \
-		--extra-cflags="-Os $(EXTRACFLAGSx) -ffunction-sections -fdata-sections -fPIC $(if $(FFMPEG_ZLIB_REQD),-I$(TOP)/zlib,)" \
+		--extra-cflags="-Os $(EXTRACFLAGS) -ffunction-sections -fdata-sections -fPIC $(if $(FFMPEG_ZLIB_REQD),-I$(TOP)/zlib,)" \
 		--extra-ldflags="-ffunction-sections -fdata-sections -Wl,--gc-sections -fPIC" \
 		$(if $(FFMPEG_ZLIB_REQD),--extra-libs="-L$(TOP)/zlib -lz" --enable-zlib,--disable-zlib) \
 		--disable-debug --prefix=''
@@ -6567,7 +6579,7 @@ pcre-8.12-clean:
 pcre-8.31/stamp-h1:
 	cd pcre-8.31 && \
 	CC=$(CC) CXX=$(CXX) AR=$(AR) RANLIB=$(RANLIB) LD=$(LD) CFLAGS="-Os -Wall $(EXTRACFLAGS)" LIBS="$(EXTRALDFLAGS)" \
-	./$(CONFIGURE) --prefix=/usr --disable-dependency-tracking
+	./$(CONFIGURE) --prefix=/usr --disable-dependency-tracking --enable-utf --enable-unicode-properties --enable-pcre8 --enable-pcre16 --enable-shared
 	touch $@
 	[ -d pcre-8.31/m4 ] || mkdir pcre-8.31/m4
 
@@ -6588,6 +6600,73 @@ pcre-8.31-install: pcre-8.31
 pcre-8.31-clean:
 	-@$(MAKE) -C pcre-8.31 clean
 	@rm -f pcre-8.31/stamp-h1
+
+pcre2/stamp-h1:
+	@$(SEP)
+	cd pcre2 ; ./autogen.sh ;  \
+		CFLAGS="-Os $(CFLAGS) -I$(STAGEDIR)/usr/include -std=gnu99 -fPIC" \
+		LDFLAGS="-Wl,--gc-sections" \
+		LIBS="-lpthread -lc" \
+		$(CONFIGURE) --prefix=/usr --enable-shared --enable-static \
+		--disable-percent-zt --enable-pcre2-8 --enable-pcre2-16 --enable-pcre2-32 \
+		--enable-unicode
+	touch $@
+
+pcre2: pcre2/stamp-h1
+	$(MAKE) -C pcre2 all
+
+pcre2-install: pcre2
+	ls $(TOP)/pcre2/.libs/
+	install -D pcre2/.libs/libpcre2-8.so* $(INSTALLDIR)/usr/lib/
+	cd $(INSTALLDIR)/usr/lib && ln -sf libpcre2-8.so* libpcre2-8.so.0
+	cd $(INSTALLDIR)/usr/lib && ln -sf libpcre2-8.so* libpcre2-8.so
+	$(STRIP) -s $(INSTALLDIR)/usr/lib/libpcre2-8.so*
+	install -D pcre2/.libs/libpcre2-posix.so* $(INSTALLDIR)/usr/lib/
+	cd $(INSTALLDIR)/usr/lib && ln -sf libpcre2-posix.so* libpcre2-posix.so.3
+	cd $(INSTALLDIR)/usr/lib && ln -sf libpcre2-posix.so* libpcre2-posix.so
+	$(STRIP) -s $(INSTALLDIR)/usr/lib/libpcre2-posix.so*
+
+pcre2-clean:
+	-@$(MAKE) -C pcre2 clean
+	@rm -f pcre2/stamp-h1
+
+libyang/build/Makefile: pcre-8.31
+	rm -f $(TOP)/libyang/CMakeCache.txt
+	@rm -rf libyang/build && mkdir -p libyang/build
+	cd libyang/build && \
+	$(call CMAKE_CrossOptions, crosscompiled.cmake) && \
+	cmake -DCMAKE_TOOLCHAIN_FILE=crosscompiled.cmake \
+		-DCMAKE_INSTALL_PREFIX:PATH=/usr \
+		-DCMAKE_C_FLAGS="-O3 $(CFLAGS) -Wall -Wextra -Wno-missing-field-initializers -DNDEBUG -ffunction-sections -fdata-sections -std=gnu99" \
+		-DCMAKE_EXE_LINKER_FLAGS="-lpthread -lc $(EXTRALDFLAGS2) -L$(STAGEDIR)/usr/lib/ -lpcre -Wl,--gc-sections" \
+		-DCMAKE_SKIP_RPATH=TRUE \
+		-DCMAKE_PREFIX_PATH="$(STAGEDIR)/usr" \
+		-DCMAKE_FIND_ROOT_PATH="$(STAGEDIR)" \
+		-DENABLE_STATIC=FALSE \
+		-DBUILD_SHARED_LIBS=TRUE \
+		-DCMAKE_BUILD_TYPE:String="Release" \
+		-DCMAKE_THREAD_LIBS="-lpthread" \
+		-DPCRE_LIBRARY="$(STAGEDIR)/usr/lib/libpcre.so" \
+		-DPCRE_INCLUDE_DIR="$(STAGEDIR)/usr/include" \
+	..
+	touch $@
+
+libyang: libyang/build/Makefile
+	@$(SEP)
+	$(MAKE) -C libyang/build && $(MAKE) $@-stage
+
+libyang-stage:
+	@echo ">>> Installing libyang into $(STAGEDIR)"
+	$(MAKE) -C libyang/build install DESTDIR=$(STAGEDIR)
+
+libyang-install:
+	@$(SEP)
+	install -D libyang/build/libyang.so.0.14.50 $(INSTALLDIR)/libyang/usr/lib/libyang.so.0.14.50
+	$(STRIP) $(INSTALLDIR)/libyang/usr/lib/libyang.so.0.14.50
+	cd $(INSTALLDIR)/libyang/usr/lib && \
+		ln -sf libyang.so.0.14.50 libyang.so.0.14 && \
+		ln -sf libyang.so.0.14.50 libyang.so
+	@rm -rf libyang/build
 
 libxml2/stamp-h1:
 	cd libxml2 && mkdir -p m4 && autoreconf -i -f && \
@@ -7819,7 +7898,7 @@ ifeq ($(wildcard bluez-5.56/prebuild),)
 		--datadir=/usr/share --localstatedir=/var --mandir=/usr/man --infodir=/usr/info --disable-systemd --with-udevdir=$(STAGEDIR)/usr/lib/udev\
 		--enable-experimental --enable-maintainer-mode $(AQIS) \
 		GLIB_CFLAGS="-I$(TOP)/glib-2.59.0/glib" \
-		GLIB_LIBS="$(TOP)/glib-2.59.0//glib/.libs/libglib-2.0.so" \
+		GLIB_LIBS="$(TOP)/glib-2.59.0/glib/.libs/libglib-2.0.so" \
 		UDEV_CFLAGS="-I$(STAGEDIR)/usr/include" UDEV_LIBS="$(STAGEDIR)/usr/lib/libudev.so" \
 		CFLAGS="-I$(STAGEDIR)/usr/include -I$(STAGEDIR)/usr/local/include -I$(SRCBASE)/include -I$(STAGEDIR)/usr/local/include/glib-2.0 -I$(STAGEDIR)/usr/local/lib/glib-2.0/include -I$(TOP)/shared -DENCRYPT -I$(TOP)/json-c -D$(MODEL)" \
 		LDFLAGS="-L$(STAGEDIR)/lib -L$(STAGEDIR)/usr/lib \
@@ -8276,17 +8355,17 @@ htop-install:
 	install -D htop/htop $(INSTALLDIR)/htop/usr/sbin/htop
 	$(STRIP) $(INSTALLDIR)/htop/usr/sbin/htop
 
-readline-8.1/Makefile: readline-8.1/configure
+readline-8.1/Makefile: ncurses-6.0 readline-8.1/configure
 	cd readline-8.1 && autoreconf -i -f && \
-	CC=$(CC) CFLAGS="-O2 -I$(STAGEDIR)/usr/local/include -I$(TOP)/ncurses-6.0/include -ffunction-sections -fdata-sections" \
-	LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections -L$(TOP)/ncurses-6.0/lib/ -L$(STAGEDIR)/usr/local/lib -L$(STAGEDIR)/usr/lib -ldl -lpthread" \
+	CC=$(CC) CFLAGS="-O2 -I$(STAGEDIR)/usr/include -I$(TOP)/ncurses-6.0/include -ffunction-sections -fdata-sections" \
+	LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections -L$(TOP)/ncurses-6.0/lib/ -L$(STAGEDIR)/usr/lib -L$(STAGEDIR)/usr/lib -ldl -lpthread" \
 	$(CONFIGURE) --prefix=/usr --exec_prefix=/usr --bindir=/usr/bin --sbindir=/usr/sbin --libexecdir=/usr/lib \
 	--sysconfdir=/etc --disable-static --enable-shared
 	touch $@
 
 readline-8.1: readline-8.1/Makefile
 	@$(SEP)
-	$(MAKE) SHLIB_LIBS="$(TOP)/ncurses-6.0/lib/libncursesw.a" -C $@ && $(MAKE) $@-stage
+	$(MAKE) SHLIB_LIBS="$(TOP)/ncurses-6.0/lib/libncurses.a" -C $@ && $(MAKE) $@-stage
 #	$(MAKE) -C $@ && $(MAKE) $@-stage
 
 readline-8.1-clean:
