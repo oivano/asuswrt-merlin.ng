@@ -1,0 +1,11 @@
+##  ion Asus Merlin changelog  ##
+
+Date: September 23, 2025
+Release: 386.14_3-ion
+
+  - ADDED:   FRR 6.0.3 (FRR replaced Quagga in practice around 2017, as it became the actively developed, community-backed routing suite
+                       Quagga is now largely legacy while FRR continues active development with new features
+                       bug fixes, and protocol improvements.)
+
+
+
