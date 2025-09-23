@@ -1,7 +1,11 @@
 Asuswrt-Merlin Changelog
 ========================
-386.14_3-ion (XX-XXX-2025)
-  - ADDED:   FRR 6.0.3 (Quagga replacement)
+
+
+386.14_3-ion (23-Sep-2025)
+  - ADDED:   FRR 6.0.3 (FRR replaced Quagga in practice around 2017, as it became the actively developed, community-backed routing suite
+                       Quagga is now largely legacy while FRR continues active development with new features
+                       bug fixes, and protocol improvements.)
 
 
 386.14_2-ion (30-Dec-2024)
