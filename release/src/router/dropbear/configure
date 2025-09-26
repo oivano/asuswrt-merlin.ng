@@ -2816,7 +2816,7 @@ as_fn_append ac_header_c_list " sys/socket.h sys_socket_h HAVE_SYS_SOCKET_H"
 ac_aux_files="install-sh config.guess config.sub"
 
 # Locations in which to look for auxiliary files.
-ac_aux_dir_candidates="${srcdir}/src"
+ac_aux_dir_candidates="${srcdir}/src${PATH_SEPARATOR}${srcdir}/.."
 
 # Search for a directory containing all of the required auxiliary files,
 # $ac_aux_files, from the $PATH-style list $ac_aux_dir_candidates.

@@ -5209,6 +5209,7 @@ dropbear/config.h.in: $(if $(RTCONFIG_PROTECTION_SERVER),protect_srv-stage,)
 
 dropbear/config.h: dropbear/config.h.in
 	cd dropbear && autoreconf -i -f && \
+		CFLAGS="-O3 -Wall $(EXTRACFLAGS) -ffunction-sections -fdata-sections -fPIC -std=gnu99" \
 		CPPFLAGS="-O2 -Wall $(EXTRACFLAGS) -DARGTYPE=3 -ffunction-sections -fdata-sections -I$(STAGEDIR)/usr/include \
 			$(if $(RTCONFIG_PROTECTION_SERVER),-DSECURITY_NOTIFY,)" \
 		LDFLAGS="-Wl,--gc-sections -L$(STAGEDIR)/usr/lib" \
