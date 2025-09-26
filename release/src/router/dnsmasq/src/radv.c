@@ -1,4 +1,4 @@
-/* dnsmasq is Copyright (c) 2000-2024 Simon Kelley
+/* dnsmasq is Copyright (c) 2000-2025 Simon Kelley
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -25,6 +25,9 @@
 #ifdef HAVE_DHCP6
 
 #include <netinet/icmp6.h>
+#if defined(RTAX82_XD6) || defined(XD6_V2) || defined(ET12)
+#include <bcmnvram.h>
+#endif
 
 struct ra_param {
   time_t now;
@@ -58,7 +61,7 @@ static int add_prefixes(struct in6_addr *local,  int prefix,
 			unsigned int preferred, unsigned int valid, void *vparam);
 static int iface_search(struct in6_addr *local,  int prefix,
 			int scope, int if_index, int flags, 
-			int prefered, int valid, void *vparam);
+			unsigned int prefered, unsigned int valid, void *vparam);
 static int add_lla(int index, unsigned int type, char *mac, size_t maclen, void *parm);
 static void new_timeout(struct dhcp_context *context, char *iface_name, time_t now);
 static unsigned int calc_lifetime(struct ra_interface *ra);
@@ -67,6 +70,10 @@ static unsigned int calc_prio(struct ra_interface *ra);
 static struct ra_interface *find_iface_param(char *iface);
 
 static int hop_limit;
+
+#if defined(RTAX82_XD6) || defined(XD6_V2) || defined(ET12)
+static int bootup = 1;
+#endif
 
 void ra_init(time_t now)
 {
@@ -268,7 +275,11 @@ static void send_ra_alias(time_t now, int iface, char *iface_name, struct in6_ad
 #ifdef HAVE_LINUX_NETWORK
   FILE *f;
 #endif
-  
+#if defined(RTAX82_XD6) || defined(XD6_V2) || defined(ET12)
+  static char addr6[INET6_ADDRSTRLEN];
+  int resend = 0;
+RESEND:
+#endif
   parm.ind = iface;
   parm.managed = 0;
   parm.other = 0;
@@ -276,7 +287,11 @@ static void send_ra_alias(time_t now, int iface, char *iface_name, struct in6_ad
   parm.adv_router = 0;
   parm.if_name = iface_name;
   parm.first = 1;
+#if defined(RTAX82_XD6) || defined(XD6_V2) || defined(ET12)
+  parm.now = option_bool(OPT_RDNSS_WAR) && resend ? now + 1 : now;
+#else
   parm.now = now;
+#endif
   parm.glob_pref_time = parm.link_pref_time = parm.ula_pref_time = 0;
   parm.adv_interval = calc_interval(ra_param);
   parm.prio = calc_prio(ra_param);
@@ -290,7 +305,11 @@ static void send_ra_alias(time_t now, int iface, char *iface_name, struct in6_ad
   ra->code = 0;
   ra->hop_limit = hop_limit;
   ra->flags = parm.prio;
+#if defined(RTAX82_XD6) || defined(XD6_V2) || defined(ET12)
+  ra->lifetime = (option_bool(OPT_RDNSS_WAR) && bootup && !nvram_match("ipv6_dns", "") && nvram_match("ipv6_dns1_x", "")) ? 0 : htons(calc_lifetime(ra_param));
+#else
   ra->lifetime = htons(calc_lifetime(ra_param));
+#endif
   ra->reachable_time = 0;
   ra->retrans_time = 0;
 
@@ -307,7 +326,7 @@ static void send_ra_alias(time_t now, int iface, char *iface_name, struct in6_ad
 
   /* If no link-local address then we can't advertise since source address of
      advertisement must be link local address: RFC 4861 para 6.1.2. */
-  if (!iface_enumerate(AF_INET6, &parm, add_prefixes) ||
+  if (!iface_enumerate(AF_INET6, &parm, (callback_t){.af_inet6=add_prefixes}) ||
       parm.link_pref_time == 0)
     return;
 
@@ -449,10 +468,10 @@ static void send_ra_alias(time_t now, int iface, char *iface_name, struct in6_ad
       put_opt6_long(mtu);
     }
      
-  iface_enumerate(AF_LOCAL, &send_iface, add_lla);
+  iface_enumerate(AF_LOCAL, &send_iface, (callback_t){.af_local=add_lla});
  
   /* RDNSS, RFC 6106, use relevant DHCP6 options */
-  (void)option_filter(parm.tags, NULL, daemon->dhcp_opts6);
+  (void)option_filter(parm.tags, NULL, daemon->dhcp_opts6, 0);
   
   for (opt_cfg = daemon->dhcp_opts6; opt_cfg; opt_cfg = opt_cfg->next)
     {
@@ -485,26 +504,77 @@ static void send_ra_alias(time_t now, int iface, char *iface_name, struct in6_ad
 	      put_opt6_char(ICMP6_OPT_RDNSS);
 	      put_opt6_char((len/8) + 1);
 	      put_opt6_short(0);
+#if defined(RTAX82_XD6) || defined(XD6_V2) || defined(ET12)
+ 	      put_opt6_long((option_bool(OPT_RDNSS_WAR) && bootup && !nvram_match("ipv6_dns", "") && nvram_match("ipv6_dns1_x", "")) ? 0 : min_pref_time);
+#else
 	      put_opt6_long(min_pref_time);
+#endif
 	 
 	      for (a = (struct in6_addr *)opt_cfg->val, i = 0; i <  opt_cfg->len; i += IN6ADDRSZ, a++)
 		if (IN6_IS_ADDR_UNSPECIFIED(a))
 		  {
+#if defined(RTAX82_XD6) || defined(XD6_V2) || defined(ET12)
 		    if (parm.glob_pref_time != 0)
-		      put_opt6(&parm.link_global, IN6ADDRSZ);
-		  }
+		      {
+		        if (option_bool(OPT_RDNSS_WAR) && bootup && (inet_pton(AF_INET6, nvram_safe_get("ipv6_dns"), &addr) > 0))
+		          {
+		            bootup--;
+  			        if (!bootup)
+			          {
+			            nvram_set("ipv6_dns", "");
+			            resend = 1;
+			          }
+			        put_opt6(&addr, IN6ADDRSZ);
+		          }
+		        else
+		          {
+		            if (option_bool(OPT_RDNSS_WAR))
+			          {
+			            bootup = 0;
+			            memset(&addr, 0, sizeof(addr));
+			            inet_pton(AF_INET6, nvram_safe_get("ipv6_dns"), &addr);
+			            if (memcmp(&parm.link_global, &addr, sizeof(addr)))
+			              {
+			                addr6[0] = '\0';
+			                inet_ntop(AF_INET6, &parm.link_global, addr6, sizeof(addr6));
+		                    nvram_set("ipv6_dns", addr6);
+		                    nvram_commit();
+			              }
+			           }
+			        put_opt6(&parm.link_global, IN6ADDRSZ);
+		          }
+		        }
+#else
+		    put_opt6(&parm.link_global, IN6ADDRSZ);
+#endif
+		}
 		else if (IN6_IS_ADDR_ULA_ZERO(a))
 		  {
 		    if (parm.ula_pref_time != 0)
-		    put_opt6(&parm.ula, IN6ADDRSZ);
+		    {
+#if defined(RTAX82_XD6) || defined(XD6_V2) || defined(ET12)
+		      if (option_bool(OPT_RDNSS_WAR)) bootup = 0;
+#endif
+		      put_opt6(&parm.ula, IN6ADDRSZ);
+		    }
 		  }
 		else if (IN6_IS_ADDR_LINK_LOCAL_ZERO(a))
 		  {
 		    if (parm.link_pref_time != 0)
+			{
+#if defined(RTAX82_XD6) || defined(XD6_V2) || defined(ET12)
+				if (option_bool(OPT_RDNSS_WAR)) bootup = 0;
+#endif
 		      put_opt6(&parm.link_local, IN6ADDRSZ);
+			}
 		  }
 		else
-		  put_opt6(a, IN6ADDRSZ);
+		  {
+#if defined(RTAX82_XD6) || defined(XD6_V2) || defined(ET12)
+		    if (option_bool(OPT_RDNSS_WAR)) bootup = 0;
+#endif
+		    put_opt6(a, IN6ADDRSZ);
+		  }
 	    }
 	}
       
@@ -573,7 +643,15 @@ static void send_ra_alias(time_t now, int iface, char *iface_name, struct in6_ad
   while (retry_send(sendto(daemon->icmp6fd, daemon->outpacket.iov_base, 
 			   save_counter(-1), 0, (struct sockaddr *)&addr, 
 			   sizeof(addr))));
-  
+
+#if defined(RTAX82_XD6) || defined(XD6_V2) || defined(ET12)
+  if (option_bool(OPT_RDNSS_WAR) && resend)
+  {
+    resend = 0;
+    sleep(1);
+    goto RESEND;
+  }
+#endif
 }
 
 static void send_ra(time_t now, int iface, char *iface_name, struct in6_addr *dest)
@@ -748,9 +826,14 @@ static int add_prefixes(struct in6_addr *local,  int prefix,
 		    opt->flags |= 0x40;
 		  if (adv_router)
 		    opt->flags |= 0x20;
+#if defined(RTAX82_XD6) || defined(XD6_V2) || defined(ET12)
+		  opt->valid_lifetime = (option_bool(OPT_RDNSS_WAR) && bootup && !nvram_match("ipv6_dns", "") && nvram_match("ipv6_dns1_x", "")) ? htonl(0) : htonl(valid);
+		  opt->preferred_lifetime = (option_bool(OPT_RDNSS_WAR) && bootup && !nvram_match("ipv6_dns", "") && nvram_match("ipv6_dns1_x", "")) ? htonl(0) : htonl(preferred);
+#else
 		  opt->valid_lifetime = htonl(valid);
 		  opt->preferred_lifetime = htonl(preferred);
-		  opt->reserved = 0; 
+#endif
+		  opt->reserved = 0;
 		  opt->prefix = *local;
 		  
 		  inet_ntop(AF_INET6, local, daemon->addrbuff, ADDRSTRLEN);
@@ -823,7 +906,7 @@ time_t periodic_ra(time_t now)
 	  param.iface = context->if_index;
 	  new_timeout(context, param.name, now);
 	}
-      else if (iface_enumerate(AF_INET6, &param, iface_search))
+      else if (iface_enumerate(AF_INET6, &param, (callback_t){.af_inet6=iface_search}))
 	/* There's a context overdue, but we can't find an interface
 	   associated with it, because it's for a subnet we dont 
 	   have an interface on. Probably we're doing DHCP on
@@ -856,7 +939,7 @@ time_t periodic_ra(time_t now)
                     aparam.iface = param.iface;
                     aparam.alias_ifs = NULL;
                     aparam.num_alias_ifs = 0;
-                    iface_enumerate(AF_LOCAL, &aparam, send_ra_to_aliases);
+                    iface_enumerate(AF_LOCAL, &aparam, (callback_t){.af_local=send_ra_to_aliases});
                     my_syslog(MS_DHCP | LOG_INFO, "RTR-ADVERT(%s) %s => %d alias(es)",
                               param.name, daemon->addrbuff, aparam.num_alias_ifs);
 
@@ -871,7 +954,7 @@ time_t periodic_ra(time_t now)
                            those. */
                         aparam.max_alias_ifs = aparam.num_alias_ifs;
                         aparam.num_alias_ifs = 0;
-                        iface_enumerate(AF_LOCAL, &aparam, send_ra_to_aliases);
+                        iface_enumerate(AF_LOCAL, &aparam, (callback_t){.af_local=send_ra_to_aliases});
                         for (; aparam.num_alias_ifs; aparam.num_alias_ifs--)
                           {
                             my_syslog(MS_DHCP | LOG_INFO, "RTR-ADVERT(%s) %s => i/f %d",
@@ -920,7 +1003,7 @@ static int send_ra_to_aliases(int index, unsigned int type, char *mac, size_t ma
 
 static int iface_search(struct in6_addr *local,  int prefix,
 			int scope, int if_index, int flags, 
-			int preferred, int valid, void *vparam)
+			unsigned int preferred, unsigned int valid, void *vparam)
 {
   struct search_param *param = vparam;
   struct dhcp_context *context;
