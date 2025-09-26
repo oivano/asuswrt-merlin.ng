@@ -1168,7 +1168,7 @@ static status_t process_request(private_task_manager_t *this,
 				task = (task_t*)ike_auth_lifetime_create(this->ike_sa, FALSE);
 				array_insert(this->passive_tasks, ARRAY_TAIL, task);
 				task = (task_t*)child_create_create(this->ike_sa, NULL, FALSE,
-													NULL, NULL);
+													NULL, NULL, 0);
 				array_insert(this->passive_tasks, ARRAY_TAIL, task);
 				break;
 			}
@@ -1222,7 +1222,7 @@ static status_t process_request(private_task_manager_t *this,
 					else
 					{
 						task = (task_t*)child_create_create(this->ike_sa, NULL,
-															FALSE, NULL, NULL);
+															FALSE, NULL, NULL, 0);
 					}
 				}
 				else
@@ -1269,10 +1269,12 @@ static status_t process_request(private_task_manager_t *this,
 									task = (task_t*)ike_auth_lifetime_create(
 															this->ike_sa, FALSE);
 									break;
+								case INVALID_SYNTAX:
 								case AUTHENTICATION_FAILED:
-									/* initiator failed to authenticate us.
-									 * We use ike_delete to handle this, which
-									 * invokes all the required hooks. */
+									/* initiator failed to authenticate us or
+									 * parse our response. we use ike_delete to
+									 * handle this, which invokes all the
+									 * required hooks */
 									task = (task_t*)ike_delete_create(
 														this->ike_sa, FALSE);
 									break;
@@ -2119,7 +2121,7 @@ METHOD(task_manager_t, queue_ike, void,
 		peer_cfg_t *peer_cfg;
 
 		peer_cfg = this->ike_sa->get_peer_cfg(this->ike_sa);
-		if (peer_cfg->use_mobike(peer_cfg))
+		if (!peer_cfg->has_option(peer_cfg, OPT_NO_MOBIKE))
 		{
 			queue_task(this, (task_t*)ike_mobike_create(this->ike_sa, TRUE));
 		}
@@ -2170,6 +2172,7 @@ static void trigger_mbb_reauth(private_task_manager_t *this)
 	new->set_other_host(new, host->clone(host));
 	host = this->ike_sa->get_my_host(this->ike_sa);
 	new->set_my_host(new, host->clone(host));
+	charon->bus->ike_reestablish_pre(charon->bus, this->ike_sa, new);
 	enumerator = this->ike_sa->create_virtual_ip_enumerator(this->ike_sa, TRUE);
 	while (enumerator->enumerate(enumerator, &host))
 	{
@@ -2193,7 +2196,8 @@ static void trigger_mbb_reauth(private_task_manager_t *this)
 		}
 		cfg = child_sa->get_config(child_sa);
 		child_create = child_create_create(new, cfg->get_ref(cfg),
-										   FALSE, NULL, NULL);
+										   FALSE, NULL, NULL, 0);
+		child_create->recreate_sa(child_create, child_sa);
 		reqid = child_sa->get_reqid_ref(child_sa);
 		if (reqid)
 		{
@@ -2204,6 +2208,8 @@ static void trigger_mbb_reauth(private_task_manager_t *this)
 								child_sa->get_mark(child_sa, TRUE).value,
 								child_sa->get_mark(child_sa, FALSE).value);
 		child_create->use_label(child_create, child_sa->get_label(child_sa));
+		child_create->use_per_cpu(child_create, child_sa->use_per_cpu(child_sa),
+								  child_sa->get_cpu(child_sa));
 		/* interface IDs are not migrated as the new CHILD_SAs on old and new
 		 * IKE_SA go though regular updown events */
 		new->queue_task(new, &child_create->task);
@@ -2232,6 +2238,8 @@ static void trigger_mbb_reauth(private_task_manager_t *this)
 #endif /* ME */
 		)
 	{
+		charon->bus->ike_reestablish_post(charon->bus, this->ike_sa, new,
+										  FALSE);
 		charon->ike_sa_manager->checkin_and_destroy(charon->ike_sa_manager, new);
 		DBG1(DBG_IKE, "unable to reauthenticate IKE_SA, no CHILD_SA "
 			 "to recreate");
@@ -2246,10 +2254,14 @@ static void trigger_mbb_reauth(private_task_manager_t *this)
 		new->queue_task(new, (task_t*)ike_verify_peer_cert_create(new));
 		new->queue_task(new, (task_t*)ike_reauth_complete_create(new,
 										this->ike_sa->get_id(this->ike_sa)));
+		charon->bus->ike_reestablish_post(charon->bus, this->ike_sa, new,
+										  TRUE);
 		charon->ike_sa_manager->checkin(charon->ike_sa_manager, new);
 	}
 	else
 	{
+		charon->bus->ike_reestablish_post(charon->bus, this->ike_sa, new,
+										  FALSE);
 		charon->ike_sa_manager->checkin_and_destroy(charon->ike_sa_manager, new);
 		DBG1(DBG_IKE, "reauthenticating IKE_SA failed");
 	}
@@ -2360,19 +2372,37 @@ METHOD(task_manager_t, queue_dpd, void,
 }
 
 METHOD(task_manager_t, queue_child, void,
-	private_task_manager_t *this, child_cfg_t *cfg, child_init_args_t *args)
+	private_task_manager_t *this, child_cfg_t *cfg, child_init_args_t *args,
+	child_sa_t *child_sa)
 {
 	child_create_t *task;
+	uint32_t reqid;
 
-	if (args)
+	if (child_sa)
 	{
-		task = child_create_create(this->ike_sa, cfg, FALSE, args->src, args->dst);
+		task = child_create_create(this->ike_sa, cfg, FALSE, NULL, NULL, 0);
+		task->recreate_sa(task, child_sa);
+		reqid = child_sa->get_reqid_ref(child_sa);
+		if (reqid)
+		{
+			task->use_reqid(task, reqid);
+			charon->kernel->release_reqid(charon->kernel, reqid);
+		}
+		task->use_label(task, child_sa->get_label(child_sa));
+		task->use_per_cpu(task, child_sa->use_per_cpu(child_sa),
+						  child_sa->get_cpu(child_sa));
+	}
+	else if (args)
+	{
+		task = child_create_create(this->ike_sa, cfg, FALSE, args->src,
+								   args->dst, args->seq);
 		task->use_reqid(task, args->reqid);
 		task->use_label(task, args->label);
+		task->use_per_cpu(task, FALSE, args->cpu);
 	}
 	else
 	{
-		task = child_create_create(this->ike_sa, cfg, FALSE, NULL, NULL);
+		task = child_create_create(this->ike_sa, cfg, FALSE, NULL, NULL, 0);
 	}
 	queue_task(this, &task->task);
 }

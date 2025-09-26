@@ -203,6 +203,14 @@ ENUM(xfrm_attr_type_names, XFRMA_UNSPEC, __XFRMA_MAX,
 	"XFRMA_IF_ID",
 	"XFRMA_MTIMER_THRESH",
 	"XFRMA_SA_DIR",
+	"XFRMA_NAT_KEEPALIVE_INTERVAL",
+	"XFRMA_SA_PCPU",
+	"XFRMA_IPTFS_DROP_TIME",
+	"XFRMA_IPTFS_REORDER_WINDOW",
+	"XFRMA_IPTFS_DONT_FRAG",
+	"XFRMA_IPTFS_INIT_DELAY",
+	"XFRMA_IPTFS_MAX_QSIZE",
+	"XFRMA_IPTFS_PKT_SIZE",
 	"XFRMA_MAX",
 );
 
@@ -543,6 +551,9 @@ struct policy_sa_t {
 	/** Type of the policy */
 	policy_type_t type;
 
+	/** Whether to trigger per-CPU acquires for this policy */
+	bool pcpu_acquires;
+
 	/** Assigned SA */
 	ipsec_sa_t *sa;
 };
@@ -563,12 +574,13 @@ struct policy_sa_out_t {
 };
 
 /**
- * Create a policy_sa(_in)_t object
+ * Create a policy_sa(_out)_t object
  */
 static policy_sa_t *policy_sa_create(private_kernel_netlink_ipsec_t *this,
 	policy_dir_t dir, policy_type_t type, host_t *src, host_t *dst,
 	traffic_selector_t *src_ts, traffic_selector_t *dst_ts, mark_t mark,
-	uint32_t if_id, hw_offload_t hw_offload, ipsec_sa_cfg_t *cfg)
+	uint32_t if_id, hw_offload_t hw_offload, bool pcpu_acquires,
+	ipsec_sa_cfg_t *cfg)
 {
 	policy_sa_t *policy;
 
@@ -586,6 +598,7 @@ static policy_sa_t *policy_sa_create(private_kernel_netlink_ipsec_t *this,
 		INIT(policy, .priority = 0);
 	}
 	policy->type = type;
+	policy->pcpu_acquires = pcpu_acquires;
 	policy->sa = ipsec_sa_create(this, src, dst, mark, if_id, hw_offload, cfg);
 	return policy;
 }
@@ -780,6 +793,8 @@ static uint8_t mode2kernel(ipsec_mode_t mode)
 			return XFRM_MODE_TUNNEL;
 		case MODE_BEET:
 			return XFRM_MODE_BEET;
+		case MODE_IPTFS:
+			return XFRM_MODE_IPTFS;
 		default:
 			return mode;
 	}
@@ -967,7 +982,9 @@ static void process_acquire(private_kernel_netlink_ipsec_t *this,
 	struct xfrm_user_acquire *acquire;
 	struct rtattr *rta;
 	size_t rtasize;
-	kernel_acquire_data_t data = {};
+	kernel_acquire_data_t data = {
+		.cpu = CPU_ID_MAX,
+	};
 	chunk_t label = chunk_empty;
 	uint32_t reqid = 0;
 	uint8_t proto;
@@ -987,6 +1004,10 @@ static void process_acquire(private_kernel_netlink_ipsec_t *this,
 		{
 			struct xfrm_user_tmpl* tmpl = RTA_DATA(rta);
 			reqid = tmpl->reqid;
+		}
+		if (rta->rta_type == XFRMA_SA_PCPU)
+		{
+			data.cpu = *(uint32_t*)RTA_DATA(rta);
 		}
 #ifdef USE_SELINUX
 		if (rta->rta_type == XFRMA_SEC_CTX)
@@ -1010,12 +1031,12 @@ static void process_acquire(private_kernel_netlink_ipsec_t *this,
 			break;
 		default:
 			/* acquire for AH/ESP only, not for IPCOMP */
-
 			return;
 	}
 	data.src = selector2ts(&acquire->sel, TRUE);
 	data.dst = selector2ts(&acquire->sel, FALSE);
 	data.label = label.len ? sec_label_from_encoding(label) : NULL;
+	data.seq = acquire->seq;
 
 	charon->kernel->acquire(charon->kernel, reqid, &data);
 
@@ -1148,13 +1169,23 @@ static void process_mapping(private_kernel_netlink_ipsec_t *this,
 		dst = xfrm2host(mapping->id.family, &mapping->id.daddr, 0);
 		if (dst)
 		{
-			new = xfrm2host(mapping->id.family, &mapping->new_saddr,
-							mapping->new_sport);
-			if (new)
+			if (!mapping->old_sport)
 			{
-				charon->kernel->mapping(charon->kernel, IPPROTO_ESP, spi, dst,
-										new);
-				new->destroy(new);
+				/* ignore mappings for per-CPU SAs with 0 source port */
+				DBG1(DBG_KNL, "ignore NAT mapping change for per-resource "
+					 "CHILD_SA %N/0x%08x/%H", protocol_id_names, PROTO_ESP,
+					 htonl(spi), dst);
+			}
+			else
+			{
+				new = xfrm2host(mapping->id.family, &mapping->new_saddr,
+								mapping->new_sport);
+				if (new)
+				{
+					charon->kernel->mapping(charon->kernel, IPPROTO_ESP, spi, dst,
+											new);
+					new->destroy(new);
+				}
 			}
 			dst->destroy(dst);
 		}
@@ -1188,7 +1219,7 @@ CALLBACK(receive_events, void,
 METHOD(kernel_ipsec_t, get_features, kernel_feature_t,
 	private_kernel_netlink_ipsec_t *this)
 {
-	return KERNEL_ESP_V3_TFC | KERNEL_POLICY_SPI |
+	return KERNEL_ESP_V3_TFC | KERNEL_POLICY_SPI | KERNEL_ACQUIRE_SEQ |
 			(this->sa_lastused ? KERNEL_SA_USE_TIME : 0);
 }
 
@@ -1271,6 +1302,23 @@ static bool add_uint32(struct nlmsghdr *hdr, int buflen,
 					   enum xfrm_attr_type_t type, uint32_t value)
 {
 	uint32_t *xvalue;
+
+	xvalue = netlink_reserve(hdr, buflen, type, sizeof(*xvalue));
+	if (!xvalue)
+	{
+		return FALSE;
+	}
+	*xvalue = value;
+	return TRUE;
+}
+
+/**
+ * Add a uint16 attribute to message
+ */
+static bool add_uint16(struct nlmsghdr *hdr, int buflen,
+					   enum xfrm_attr_type_t type, uint16_t value)
+{
+	uint16_t *xvalue;
 
 	xvalue = netlink_reserve(hdr, buflen, type, sizeof(*xvalue));
 	if (!xvalue)
@@ -1723,6 +1771,7 @@ METHOD(kernel_ipsec_t, add_sa, status_t,
 			.int_alg = AUTH_UNDEFINED,
 			.tfc = data->tfc,
 			.ipcomp = data->ipcomp,
+			.cpu = data->cpu,
 			.initiator = data->initiator,
 			.inbound = data->inbound,
 			.update = data->update,
@@ -1751,6 +1800,7 @@ METHOD(kernel_ipsec_t, add_sa, status_t,
 	sa->id.proto = id->proto;
 	sa->family = id->src->get_family(id->src);
 	sa->mode = mode2kernel(mode);
+	sa->seq = data->seq;
 
 	if (!data->copy_ecn)
 	{
@@ -1796,6 +1846,7 @@ METHOD(kernel_ipsec_t, add_sa, status_t,
 	switch (mode)
 	{
 		case MODE_TUNNEL:
+		case MODE_IPTFS:
 			sa->flags |= XFRM_STATE_AF_UNSPEC;
 			break;
 		case MODE_BEET:
@@ -2038,6 +2089,15 @@ METHOD(kernel_ipsec_t, add_sa, status_t,
 		 * No. The reason the kernel ignores NAT-OA is that it recomputes
 		 * (or, rather, just ignores) the checksum. If packets pass the IPsec
 		 * checks it marks them "checksum ok" so OA isn't needed. */
+
+		/* if the remote port is set to 0 for UDP-encapsulated per-CPU SAs, we
+		 * increase the threshold for mapping changes as it gets otherwise
+		 * triggered with every packet */
+		if (data->inbound && !id->src->get_port(id->src) &&
+			!add_uint32(hdr, sizeof(request), XFRMA_MTIMER_THRESH, UINT32_MAX))
+		{
+			goto failed;
+		}
 	}
 
 	if (!add_mark(hdr, sizeof(request), id->mark))
@@ -2079,6 +2139,62 @@ METHOD(kernel_ipsec_t, add_sa, status_t,
 				   data->inbound ? XFRM_SA_DIR_IN : XFRM_SA_DIR_OUT))
 	{
 		goto failed;
+	}
+
+	if (data->cpu != CPU_ID_MAX)
+	{
+		if (!add_uint32(hdr, sizeof(request), XFRMA_SA_PCPU, data->cpu))
+		{
+			goto failed;
+		}
+		DBG2(DBG_KNL, "  using CPU ID: %u", data->cpu);
+	}
+
+	if (mode == MODE_IPTFS)
+	{
+		if (data->inbound)
+		{
+			if (!add_uint32(hdr, sizeof(request), XFRMA_IPTFS_DROP_TIME,
+							lib->settings->get_int(lib->settings,
+									"%s.iptfs.drop_time", 1000000, lib->ns)))
+			{
+				goto failed;
+			}
+			if (!add_uint16(hdr, sizeof(request), XFRMA_IPTFS_REORDER_WINDOW,
+							lib->settings->get_int(lib->settings,
+									"%s.iptfs.reorder_window", 3, lib->ns)))
+			{
+				goto failed;
+			}
+		}
+		else
+		{
+			if (!add_uint32(hdr, sizeof(request), XFRMA_IPTFS_INIT_DELAY,
+							lib->settings->get_int(lib->settings,
+									"%s.iptfs.init_delay", 0, lib->ns)))
+			{
+				goto failed;
+			}
+			if (!add_uint32(hdr, sizeof(request), XFRMA_IPTFS_MAX_QSIZE,
+							lib->settings->get_int(lib->settings,
+									"%s.iptfs.max_queue_size", 1024 * 1024, lib->ns)))
+			{
+				goto failed;
+			}
+			if (!add_uint32(hdr, sizeof(request), XFRMA_IPTFS_PKT_SIZE,
+							lib->settings->get_int(lib->settings,
+									"%s.iptfs.packet_size", 0, lib->ns)))
+			{
+				goto failed;
+			}
+			if ((data->iptfs_dont_frag ||
+				 lib->settings->get_bool(lib->settings,
+									"%s.iptfs.dont_fragment", FALSE, lib->ns)) &&
+				!netlink_reserve(hdr, sizeof(request), XFRMA_IPTFS_DONT_FRAG, 0))
+			{
+				goto failed;
+			}
+		}
 	}
 
 	if (id->proto != IPPROTO_COMP)
@@ -2938,6 +3054,11 @@ static status_t add_policy_internal(private_kernel_netlink_ipsec_t *this,
 	policy_info->sel = policy->sel;
 	policy_info->dir = policy->direction;
 
+	if (mapping->pcpu_acquires)
+	{
+		policy_info->flags |= XFRM_POLICY_CPU_ACQUIRE;
+	}
+
 	/* calculate priority based on selector size, small size = high prio */
 	policy_info->priority = mapping->priority;
 	policy_info->action = mapping->type != POLICY_DROP ? XFRM_POLICY_ALLOW
@@ -2994,8 +3115,9 @@ static status_t add_policy_internal(private_kernel_netlink_ipsec_t *this,
 			tmpl->reqid = ipsec->cfg.reqid;
 			tmpl->id.proto = protos[i].proto;
 			/* in order to match SAs with all matching labels, we can't have the
-			 * SPI in the template */
-			if (policy->direction == POLICY_OUT && !policy->label)
+			 * SPI in the template, similarly for per-CPU policies and sub-SAs */
+			if (policy->direction == POLICY_OUT && !policy->label &&
+				!mapping->pcpu_acquires)
 			{
 				tmpl->id.spi = protos[i].spi;
 			}
@@ -3005,7 +3127,8 @@ static status_t add_policy_internal(private_kernel_netlink_ipsec_t *this,
 							 policy->direction != POLICY_OUT;
 			tmpl->family = ipsec->src->get_family(ipsec->src);
 
-			if (proto_mode == MODE_TUNNEL || proto_mode == MODE_BEET)
+			if (proto_mode == MODE_TUNNEL || proto_mode == MODE_BEET ||
+				proto_mode == MODE_IPTFS)
 			{	/* only for tunnel mode */
 				host2xfrm(ipsec->src, &tmpl->saddr);
 				host2xfrm(ipsec->dst, &tmpl->id.daddr);
@@ -3141,7 +3264,8 @@ METHOD(kernel_ipsec_t, add_policy, status_t,
 	/* cache the assigned IPsec SA */
 	assigned_sa = policy_sa_create(this, id->dir, data->type, data->src,
 								   data->dst, id->src_ts, id->dst_ts, id->mark,
-								   id->if_id, data->hw_offload, data->sa);
+								   id->if_id, data->hw_offload,
+								   data->pcpu_acquires, data->sa);
 	assigned_sa->auto_priority = get_priority(policy, data->prio, id->interface);
 	assigned_sa->priority = this->get_priority ? this->get_priority(id, data)
 											   : data->manual_prio;
@@ -3374,6 +3498,7 @@ METHOD(kernel_ipsec_t, del_policy, status_t,
 		if (priority == mapping->priority &&
 			auto_priority == mapping->auto_priority &&
 			data->type == mapping->type &&
+			data->pcpu_acquires == mapping->pcpu_acquires &&
 			ipsec_sa_equals(mapping->sa, &assigned_sa))
 		{
 			current->used_by->remove_at(current->used_by, enumerator);
@@ -3882,6 +4007,12 @@ METHOD(kernel_ipsec_t, enable_udp_decap, bool,
 	if (setsockopt(fd, SOL_UDP, UDP_ENCAP, &type, sizeof(type)) < 0)
 	{
 		DBG1(DBG_KNL, "unable to set UDP_ENCAP: %s", strerror(errno));
+		return FALSE;
+	}
+	type = 1;
+	if (setsockopt(fd, SOL_UDP, UDP_GRO, &type, sizeof(type)) < 0)
+	{
+		DBG1(DBG_KNL, "unable to set UDP_GRO: %s", strerror(errno));
 		return FALSE;
 	}
 	return TRUE;

@@ -217,6 +217,18 @@ int main(int argc, char *argv[])
 	lib->settings->set_default_str(lib->settings,
 				"charon-nm.plugins.kernel-netlink.fwmark", "!210");
 
+	/* trigger a DPD to verify the current path is working */
+	lib->settings->set_default_str(lib->settings,
+				"charon-nm.check_current_path", "yes");
+
+	/* fail more quickly so users don't have to wait too long for a new SA */
+	lib->settings->set_default_str(lib->settings,
+				"charon-nm.retransmit_tries", "3");
+	lib->settings->set_default_str(lib->settings,
+				"charon-nm.retransmit_timeout", "2.0");
+	lib->settings->set_default_str(lib->settings,
+				"charon-nm.retransmit_base", "1.4");
+
 	DBG1(DBG_DMN, "Starting charon NetworkManager backend (strongSwan "VERSION")");
 	if (lib->integrity)
 	{

@@ -89,10 +89,12 @@ struct private_key_exchange_t {
 	 */
 	hasher_t *H;
 
+#ifdef TESTABLE_KE
 	/**
 	 * DRBG used during testing.
 	 */
 	drbg_t *drbg;
+#endif
 };
 
 /**
@@ -102,10 +104,13 @@ static bool get_random(private_key_exchange_t *this, size_t len, uint8_t *out)
 {
 	rng_t *rng;
 
+#ifdef TESTABLE_KE
 	if (this->drbg)
 	{
 		return this->drbg->generate(this->drbg, len, out);
 	}
+#endif
+
 	rng = lib->crypto->create_rng(lib->crypto, RNG_STRONG);
 	if (!rng || !rng->get_bytes(rng, len, out))
 	{
@@ -941,6 +946,8 @@ METHOD(key_exchange_t, get_shared_secret, bool,
 	return TRUE;
 }
 
+#ifdef TESTABLE_KE
+
 METHOD(key_exchange_t, set_seed, bool,
 	private_key_exchange_t *this, chunk_t value, drbg_t *drbg)
 {
@@ -948,6 +955,8 @@ METHOD(key_exchange_t, set_seed, bool,
 	this->drbg = drbg->get_ref(drbg);
 	return TRUE;
 }
+
+#endif /* TESTABLE_KE */
 
 METHOD(key_exchange_t, destroy, void,
 	private_key_exchange_t *this)
@@ -957,7 +966,9 @@ METHOD(key_exchange_t, destroy, void,
 	chunk_clear(&this->shared_secret);
 	chunk_free(&this->public_key);
 	chunk_free(&this->ciphertext);
+#ifdef TESTABLE_KE
 	DESTROY_IF(this->drbg);
+#endif
 	DESTROY_IF(this->shake128);
 	DESTROY_IF(this->shake256);
 	DESTROY_IF(this->G);
@@ -985,7 +996,6 @@ key_exchange_t *ml_kem_create(key_exchange_method_t method)
 			.get_public_key = _get_public_key,
 			.set_public_key = _set_public_key,
 			.get_shared_secret = _get_shared_secret,
-			.set_seed = _set_seed,
 			.destroy = _destroy,
 		},
 		.method = method,
@@ -995,6 +1005,10 @@ key_exchange_t *ml_kem_create(key_exchange_method_t method)
 		.G = lib->crypto->create_hasher(lib->crypto, HASH_SHA3_512),
 		.H = lib->crypto->create_hasher(lib->crypto, HASH_SHA3_256),
 	);
+
+#ifdef TESTABLE_KE
+	this->public.set_seed = _set_seed;
+#endif
 
 	if (!this->shake128 || !this->shake256 || !this->G || !this->H)
 	{

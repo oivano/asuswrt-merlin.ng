@@ -51,7 +51,9 @@ enum ipsec_mode_t {
 	/** passthrough policy for traffic without an IPsec SA */
 	MODE_PASS,
 	/** drop policy discarding traffic */
-	MODE_DROP
+	MODE_DROP,
+	/** IP-TFS mode, tunnel mode with aggregation/fragmentation */
+	MODE_IPTFS,
 };
 
 /**
@@ -277,5 +279,10 @@ bool if_id_from_string(const char *value, uint32_t *if_id);
  * @param[out] out	outbound interface ID
  */
 void allocate_unique_if_ids(uint32_t *in, uint32_t *out);
+
+/**
+ * Maximum CPU ID (used if no CPU ID specified).
+ */
+#define CPU_ID_MAX UINT32_MAX
 
 #endif /** IPSEC_TYPES_H_ @}*/

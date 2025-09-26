@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2019 Tobias Brunner
+ * Copyright (C) 2015-2024 Tobias Brunner
  * Copyright (C) 2015-2018 Andreas Steffen
  * Copyright (C) 2014 Martin Willi
  *
@@ -295,6 +295,7 @@ static void free_cert_data(cert_data_t *data)
 typedef struct {
 	request_data_t *request;
 	auth_cfg_t *cfg;
+	array_t *pubkeys;
 	uint32_t round;
 } auth_data_t;
 
@@ -303,6 +304,7 @@ typedef struct {
  */
 static void free_auth_data(auth_data_t *data)
 {
+	array_destroy(data->pubkeys);
 	DESTROY_IF(data->cfg);
 	free(data);
 }
@@ -312,14 +314,11 @@ static void free_auth_data(auth_data_t *data)
  */
 typedef struct {
 	request_data_t *request;
+	peer_cfg_option_t options;
 	uint32_t version;
-	bool aggressive;
 	bool encap;
-	bool mobike;
 	bool send_certreq;
-	bool pull;
 	identification_t *ppk_id;
-	bool ppk_required;
 	cert_policy_t send_cert;
 	ocsp_policy_t ocsp;
 	uint64_t dpd_delay;
@@ -418,6 +417,11 @@ static void log_auth(auth_cfg_t *auth)
 }
 
 /**
+ * Helper macro to check if an option flag is set
+ */
+#define has_opt(cfg, opt) ({ ((cfg)->options & (opt)) == (opt); })
+
+/**
  * Log parsed peer data
  */
 static void log_peer_data(peer_data_t *data)
@@ -435,9 +439,10 @@ static void log_peer_data(peer_data_t *data)
 	DBG2(DBG_CFG, "  send_cert = %N", cert_policy_names, data->send_cert);
 	DBG2(DBG_CFG, "  ocsp = %N", ocsp_policy_names, data->ocsp);
 	DBG2(DBG_CFG, "  ppk_id = %Y",  data->ppk_id);
-	DBG2(DBG_CFG, "  ppk_required = %u",  data->ppk_required);
-	DBG2(DBG_CFG, "  mobike = %u", data->mobike);
-	DBG2(DBG_CFG, "  aggressive = %u", data->aggressive);
+	DBG2(DBG_CFG, "  ppk_required = %u", has_opt(data, OPT_PPK_REQUIRED));
+	DBG2(DBG_CFG, "  mobike = %u", !has_opt(data, OPT_NO_MOBIKE));
+	DBG2(DBG_CFG, "  aggressive = %u", has_opt(data, OPT_IKEV1_AGGRESSIVE));
+	DBG2(DBG_CFG, "  pull = %u", !has_opt(data, OPT_IKEV1_PUSH_MODE));
 	DBG2(DBG_CFG, "  dscp = 0x%.2x", data->dscp);
 	DBG2(DBG_CFG, "  encap = %u", data->encap);
 	DBG2(DBG_CFG, "  dpd_delay = %llu", data->dpd_delay);
@@ -531,7 +536,6 @@ static void log_child_data(child_data_t *data, char *name)
 {
 	child_cfg_create_t *cfg DBG_UNUSED = &data->cfg;
 
-#define has_opt(opt) ({ (cfg->options & (opt)) == (opt); })
 	DBG2(DBG_CFG, "  child %s:", name);
 	DBG2(DBG_CFG, "   rekey_time = %llu", cfg->lifetime.time.rekey);
 	DBG2(DBG_CFG, "   life_time = %llu", cfg->lifetime.time.life);
@@ -543,12 +547,13 @@ static void log_child_data(child_data_t *data, char *name)
 	DBG2(DBG_CFG, "   life_packets = %llu", cfg->lifetime.packets.life);
 	DBG2(DBG_CFG, "   rand_packets = %llu", cfg->lifetime.packets.jitter);
 	DBG2(DBG_CFG, "   updown = %s", cfg->updown);
-	DBG2(DBG_CFG, "   hostaccess = %u", has_opt(OPT_HOSTACCESS));
-	DBG2(DBG_CFG, "   ipcomp = %u", has_opt(OPT_IPCOMP));
+	DBG2(DBG_CFG, "   hostaccess = %u", has_opt(cfg, OPT_HOSTACCESS));
+	DBG2(DBG_CFG, "   ipcomp = %u", has_opt(cfg, OPT_IPCOMP));
 	DBG2(DBG_CFG, "   mode = %N%s", ipsec_mode_names, cfg->mode,
-		 has_opt(OPT_PROXY_MODE) ? "_PROXY" : "");
-	DBG2(DBG_CFG, "   policies = %u", !has_opt(OPT_NO_POLICIES));
-	DBG2(DBG_CFG, "   policies_fwd_out = %u", has_opt(OPT_FWD_OUT_POLICIES));
+		 has_opt(cfg, OPT_PROXY_MODE) ? "_PROXY" : "");
+	DBG2(DBG_CFG, "   policies = %u", !has_opt(cfg, OPT_NO_POLICIES));
+	DBG2(DBG_CFG, "   policies_fwd_out = %u",
+		 has_opt(cfg, OPT_FWD_OUT_POLICIES));
 	if (data->replay_window != REPLAY_UNDEFINED)
 	{
 		DBG2(DBG_CFG, "   replay_window = %u", data->replay_window);
@@ -564,7 +569,7 @@ static void log_child_data(child_data_t *data, char *name)
 	DBG2(DBG_CFG, "   if_id_out = %u", cfg->if_id_out);
 	DBG2(DBG_CFG, "   mark_in = %u/%u",
 		 cfg->mark_in.value, cfg->mark_in.mask);
-	DBG2(DBG_CFG, "   mark_in_sa = %u", has_opt(OPT_MARK_IN_SA));
+	DBG2(DBG_CFG, "   mark_in_sa = %u", has_opt(cfg, OPT_MARK_IN_SA));
 	DBG2(DBG_CFG, "   mark_out = %u/%u",
 		 cfg->mark_out.value, cfg->mark_out.mask);
 	DBG2(DBG_CFG, "   set_mark_in = %u/%u",
@@ -578,10 +583,13 @@ static void log_child_data(child_data_t *data, char *name)
 	DBG2(DBG_CFG, "   proposals = %#P", data->proposals);
 	DBG2(DBG_CFG, "   local_ts = %#R", data->local_ts);
 	DBG2(DBG_CFG, "   remote_ts = %#R", data->remote_ts);
+	DBG2(DBG_CFG, "   per_cpu_sas = %s",
+		 has_opt(cfg, OPT_PER_CPU_SAS_ENCAP) ? "encap" :
+		 has_opt(cfg, OPT_PER_CPU_SAS) ? "1" : "0");
 	DBG2(DBG_CFG, "   hw_offload = %N", hw_offload_names, cfg->hw_offload);
-	DBG2(DBG_CFG, "   sha256_96 = %u", has_opt(OPT_SHA256_96));
-	DBG2(DBG_CFG, "   copy_df = %u", !has_opt(OPT_NO_COPY_DF));
-	DBG2(DBG_CFG, "   copy_ecn = %u", !has_opt(OPT_NO_COPY_ECN));
+	DBG2(DBG_CFG, "   sha256_96 = %u", has_opt(cfg, OPT_SHA256_96));
+	DBG2(DBG_CFG, "   copy_df = %u", !has_opt(cfg, OPT_NO_COPY_DF));
+	DBG2(DBG_CFG, "   copy_ecn = %u", !has_opt(cfg, OPT_NO_COPY_ECN));
 	DBG2(DBG_CFG, "   copy_dscp = %N", dscp_copy_names, cfg->copy_dscp);
 }
 
@@ -896,6 +904,7 @@ CALLBACK(parse_mode, bool,
 		{ "tunnel",				MODE_TUNNEL		},
 		{ "transport",			MODE_TRANSPORT	},
 		{ "transport_proxy",	MODE_TRANSPORT	},
+		{ "iptfs",				MODE_IPTFS		},
 		{ "beet",				MODE_BEET		},
 		{ "drop",				MODE_DROP		},
 		{ "pass",				MODE_PASS		},
@@ -915,23 +924,72 @@ CALLBACK(parse_mode, bool,
 }
 
 /**
+ * Macro to parse an option flag, add it if parsed value is either TRUE or FALSE.
+ */
+#define PARSE_OPTION(out, opt, v, add_if_true) \
+	bool val; \
+	if (parse_bool(&val, v)) { \
+		if (val == add_if_true)	{ \
+			*out |= opt; \
+		} \
+		return TRUE; \
+	} \
+	return FALSE;
+
+/**
+ * Enable a peer_cfg_option_t, the flag controls whether the option is enabled
+ * if the parsed value is TRUE or FALSE.
+ */
+static bool parse_peer_option(peer_cfg_option_t *out, peer_cfg_option_t opt,
+							  chunk_t v, bool add_if_true)
+{
+	PARSE_OPTION(out, opt, v, add_if_true)
+}
+
+/**
+ * Parse OPT_NO_MOBIKE option
+ */
+CALLBACK(parse_opt_mobike, bool,
+	peer_cfg_option_t *out, chunk_t v)
+{
+	return parse_peer_option(out, OPT_NO_MOBIKE, v, FALSE);
+}
+
+/**
+ * Parse OPT_IKEV1_AGGRESSIVE option
+ */
+CALLBACK(parse_opt_aggr, bool,
+	peer_cfg_option_t *out, chunk_t v)
+{
+	return parse_peer_option(out, OPT_IKEV1_AGGRESSIVE, v, TRUE);
+}
+
+/**
+ * Parse OPT_IKEV1_PUSH_MODE option
+ */
+CALLBACK(parse_opt_pull, bool,
+	peer_cfg_option_t *out, chunk_t v)
+{
+	return parse_peer_option(out, OPT_IKEV1_PUSH_MODE, v, FALSE);
+}
+
+/**
+ * Parse OPT_PPK_REQUIRED option
+ */
+CALLBACK(parse_opt_ppk_req, bool,
+	peer_cfg_option_t *out, chunk_t v)
+{
+	return parse_peer_option(out, OPT_PPK_REQUIRED, v, TRUE);
+}
+
+/**
  * Enable a child_cfg_option_t, the flag controls whether the option is enabled
  * if the parsed value is TRUE or FALSE.
  */
 static bool parse_option(child_cfg_option_t *out, child_cfg_option_t opt,
 						 chunk_t v, bool add_if_true)
 {
-	bool val;
-
-	if (parse_bool(&val, v))
-	{
-		if (val == add_if_true)
-		{
-			*out |= opt;
-		}
-		return TRUE;
-	}
-	return FALSE;
+	PARSE_OPTION(out, opt, v, add_if_true)
 }
 
 /**
@@ -1004,6 +1062,25 @@ CALLBACK(parse_opt_copy_ecn, bool,
 	child_cfg_option_t *out, chunk_t v)
 {
 	return parse_option(out, OPT_NO_COPY_ECN, v, FALSE);
+}
+
+/**
+ * Parse OPT_PER_CPU_SAS option
+ */
+CALLBACK(parse_opt_cpus, bool,
+	child_cfg_option_t *out, chunk_t v)
+{
+	enum_map_t map[] = {
+		{ "encap",	OPT_PER_CPU_SAS|OPT_PER_CPU_SAS_ENCAP	},
+	};
+	int d;
+
+	if (parse_map(map, countof(map), &d, v))
+	{
+		*out |= d;
+		return TRUE;
+	}
+	return parse_option(out, OPT_PER_CPU_SAS, v, TRUE);
 }
 
 /**
@@ -1129,7 +1206,7 @@ CALLBACK(parse_uint32_bin, bool,
 CALLBACK(parse_uint64, bool,
 	uint64_t *out, chunk_t v)
 {
-	char buf[16], *end;
+	char buf[32], *end;
 	unsigned long long l;
 
 	if (!vici_stringify(v, buf, sizeof(buf)))
@@ -1217,15 +1294,15 @@ CALLBACK(parse_time32, bool,
 CALLBACK(parse_bytes, bool,
 	uint64_t *out, chunk_t v)
 {
-	char buf[16], *end;
-	unsigned long long l;
+	char buf[32], *end;
+	unsigned long long l, ll;
 
 	if (!vici_stringify(v, buf, sizeof(buf)))
 	{
 		return FALSE;
 	}
 
-	l = strtoull(buf, &end, 0);
+	l = ll = strtoull(buf, &end, 0);
 	while (*end == ' ')
 	{
 		end++;
@@ -1234,15 +1311,15 @@ CALLBACK(parse_bytes, bool,
 	{
 		case 'g':
 		case 'G':
-			l *= 1024;
+			ll *= 1024;
 			/* fall */
 		case 'm':
 		case 'M':
-			l *= 1024;
+			ll *= 1024;
 			/* fall */
 		case 'k':
 		case 'K':
-			l *= 1024;
+			ll *= 1024;
 			end++;
 			break;
 		case '\0':
@@ -1254,7 +1331,7 @@ CALLBACK(parse_bytes, bool,
 	{
 		return FALSE;
 	}
-	*out = l;
+	*out = (ll < l) ? UINT64_MAX : ll;
 	return TRUE;
 }
 
@@ -1432,13 +1509,15 @@ CALLBACK(parse_auth, bool,
  */
 static bool parse_id(auth_cfg_t *cfg, auth_rule_t rule, chunk_t v)
 {
+	identification_t *id;
 	char buf[BUF_LEN];
 
-	if (!vici_stringify(v, buf, sizeof(buf)))
+	if (!vici_stringify(v, buf, sizeof(buf)) ||
+		!(id = identification_create_from_string_with_regex(buf)))
 	{
 		return FALSE;
 	}
-	cfg->add(cfg, rule, identification_create_from_string(buf));
+	cfg->add(cfg, rule, id);
 	return TRUE;
 }
 
@@ -1574,15 +1653,35 @@ CALLBACK(parse_cacerts, bool,
 CALLBACK(parse_pubkeys, bool,
 	auth_data_t *auth, chunk_t v)
 {
-	certificate_t *cert;
+	/* because we don't have an identity yet, just store the blob to parse/wrap
+	 * the key later */
+	array_insert_create_value(&auth->pubkeys, sizeof(chunk_t),
+							  ARRAY_TAIL, &v);
+	return TRUE;
+}
 
-	cert = lib->creds->create(lib->creds, CRED_CERTIFICATE, CERT_TRUSTED_PUBKEY,
-							  BUILD_BLOB, v, BUILD_END);
-	if (cert)
+/**
+ * Create raw public key certificates associated with the given identity and
+ * add them to the config.
+ */
+static bool parse_and_add_pubkeys(auth_data_t *auth, identification_t *id)
+{
+	certificate_t *cert;
+	chunk_t pubkey;
+	bool id_usable = id && id->get_type(id) != ID_ANY;
+
+	while (array_remove(auth->pubkeys, ARRAY_HEAD, &pubkey))
 	{
-		return add_cert(auth, AUTH_RULE_SUBJECT_CERT, cert);
+		cert = lib->creds->create(lib->creds, CRED_CERTIFICATE,
+								  CERT_TRUSTED_PUBKEY, BUILD_BLOB, pubkey,
+								  id_usable ? BUILD_SUBJECT : BUILD_END,
+								  id, BUILD_END);
+		if (!cert || !add_cert(auth, AUTH_RULE_SUBJECT_CERT, cert))
+		{
+			return FALSE;
+		}
 	}
-	return FALSE;
+	return TRUE;
 }
 
 /**
@@ -1858,6 +1957,7 @@ CALLBACK(child_kv, bool,
 		{ "if_id_out",			parse_if_id,		&child->cfg.if_id_out				},
 		{ "label",				parse_label,		&child->cfg.label					},
 		{ "label_mode",			parse_label_mode,	&child->cfg.label_mode				},
+		{ "per_cpu_sas",		parse_opt_cpus,		&child->cfg.options					},
 	};
 
 	return parse_rules(rules, countof(rules), name, value,
@@ -1917,11 +2017,11 @@ CALLBACK(peer_kv, bool,
 {
 	parse_rule_t rules[] = {
 		{ "version",		parse_uint32,		&peer->version				},
-		{ "aggressive",		parse_bool,			&peer->aggressive			},
-		{ "pull",			parse_bool,			&peer->pull					},
+		{ "aggressive",		parse_opt_aggr,		&peer->options				},
+		{ "pull",			parse_opt_pull,		&peer->options				},
 		{ "dscp",			parse_dscp,			&peer->dscp					},
 		{ "encap",			parse_bool,			&peer->encap				},
-		{ "mobike",			parse_bool,			&peer->mobike				},
+		{ "mobike",			parse_opt_mobike,	&peer->options				},
 		{ "dpd_delay",		parse_time,			&peer->dpd_delay			},
 		{ "dpd_timeout",	parse_time,			&peer->dpd_timeout			},
 		{ "fragmentation",	parse_frag,			&peer->fragmentation		},
@@ -1938,7 +2038,7 @@ CALLBACK(peer_kv, bool,
 		{ "over_time",		parse_time,			&peer->over_time			},
 		{ "rand_time",		parse_time,			&peer->rand_time			},
 		{ "ppk_id",			parse_peer_id,		&peer->ppk_id				},
-		{ "ppk_required",	parse_bool,			&peer->ppk_required			},
+		{ "ppk_required",	parse_opt_ppk_req,	&peer->options				},
 		{ "if_id_in",		parse_if_id,		&peer->if_id_in				},
 		{ "if_id_out",		parse_if_id,		&peer->if_id_out			},
 #ifdef ME
@@ -2202,11 +2302,8 @@ CALLBACK(peer_sn, bool,
 		enumerator_t *enumerator;
 		linked_list_t *auths;
 		auth_data_t *auth, *current;
-		auth_rule_t rule;
 		certificate_t *cert;
-		pubkey_cert_t *pubkey_cert;
 		identification_t *id;
-		bool default_id = FALSE;
 
 		INIT(auth,
 			.request = peer->request,
@@ -2220,29 +2317,23 @@ CALLBACK(peer_sn, bool,
 		}
 		id = auth->cfg->get(auth->cfg, AUTH_RULE_IDENTITY);
 
-		enumerator = auth->cfg->create_enumerator(auth->cfg);
-		while (enumerator->enumerate(enumerator, &rule, &cert))
+		if (!parse_and_add_pubkeys(auth, id))
 		{
-			if (rule == AUTH_RULE_SUBJECT_CERT && !default_id)
+			free_auth_data(auth);
+			return FALSE;
+		}
+
+		if (!id)
+		{
+			cert = auth->cfg->get(auth->cfg, AUTH_RULE_SUBJECT_CERT);
+			if (cert)
 			{
-				if (id == NULL)
-				{
-					id = cert->get_subject(cert);
-					DBG1(DBG_CFG, "  id not specified, defaulting to"
-								  " cert subject '%Y'", id);
-					auth->cfg->add(auth->cfg, AUTH_RULE_IDENTITY, id->clone(id));
-					default_id = TRUE;
-				}
-				else if (cert->get_type(cert) == CERT_TRUSTED_PUBKEY &&
-						 id->get_type(id) != ID_ANY)
-				{
-					/* set the subject of all raw public keys to the id */
-					pubkey_cert = (pubkey_cert_t*)cert;
-					pubkey_cert->set_subject(pubkey_cert, id);
-				}
+				id = cert->get_subject(cert);
+				DBG1(DBG_CFG, "  id not specified, defaulting to"
+							  " cert subject '%Y'", id);
+				auth->cfg->add(auth->cfg, AUTH_RULE_IDENTITY, id->clone(id));
 			}
 		}
-		enumerator->destroy(enumerator);
 
 		auths = strcasepfx(name, "local") ? peer->local : peer->remote;
 		enumerator = auths->create_enumerator(auths);
@@ -2699,9 +2790,7 @@ CALLBACK(config_sn, bool,
 		.vips = linked_list_create(),
 		.children = linked_list_create(),
 		.proposals = linked_list_create(),
-		.mobike = TRUE,
 		.send_certreq = TRUE,
-		.pull = TRUE,
 		.send_cert = CERT_SEND_IF_ASKED,
 		.ocsp = OCSP_SEND_REPLY,
 		.version = IKE_ANY,
@@ -2853,6 +2942,7 @@ CALLBACK(config_sn, bool,
 	ike_cfg = ike_cfg_create(&ike);
 
 	cfg = (peer_cfg_create_t){
+		.options = peer.options,
 		.cert_policy = peer.send_cert,
 		.ocsp_policy = peer.ocsp,
 		.unique = peer.unique,
@@ -2861,13 +2951,9 @@ CALLBACK(config_sn, bool,
 		.reauth_time = peer.reauth_time,
 		.jitter_time = peer.rand_time,
 		.over_time = peer.over_time,
-		.no_mobike = !peer.mobike,
-		.aggressive = peer.aggressive,
-		.push_mode = !peer.pull,
 		.dpd = peer.dpd_delay,
 		.dpd_timeout = peer.dpd_timeout,
 		.ppk_id = peer.ppk_id ? peer.ppk_id->clone(peer.ppk_id) : NULL,
-		.ppk_required = peer.ppk_required,
 		.if_id_in = peer.if_id_in,
 		.if_id_out = peer.if_id_out,
 	};

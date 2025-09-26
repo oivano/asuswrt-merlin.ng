@@ -496,8 +496,11 @@ METHOD(plugin_t, get_features, int,
 			PLUGIN_PROVIDE(SIGNER, AUTH_HMAC_SHA2_512_256),
 			PLUGIN_PROVIDE(SIGNER, AUTH_HMAC_SHA2_512_512),
 #endif
-#if OPENSSL_VERSION_NUMBER >= 0x10101000L
-		/* HKDF is available since 1.1.0, expand-only mode only since 1.1.1 */
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L || \
+	defined (OPENSSL_IS_AWSLC)
+		/* HKDF is available since 1.1.0, expand-only mode only since 1.1.1,
+		 * but 3.0.0 is required to support larger MODP groups and nonces
+		 * with its 2048 byte buffer size */
 		PLUGIN_REGISTER(KDF, openssl_kdf_create),
 			PLUGIN_PROVIDE(KDF, KDF_PRF),
 			PLUGIN_PROVIDE(KDF, KDF_PRF_PLUS),
@@ -550,7 +553,8 @@ METHOD(plugin_t, get_features, int,
 			PLUGIN_PROVIDE(KE, MODP_768_BIT),
 			PLUGIN_PROVIDE(KE, MODP_CUSTOM),
 #endif
-#ifdef OPENSSL_IS_AWSLC
+#if (OPENSSL_VERSION_NUMBER >= 0x30500000L && !defined(OPENSSL_NO_ML_KEM)) || \
+	defined(OPENSSL_IS_AWSLC)
 		/* ML-KEM key exchanges */
 		PLUGIN_REGISTER(KE, openssl_kem_create),
 			PLUGIN_PROVIDE(KE, ML_KEM_512),

@@ -258,15 +258,17 @@ host_triplet = @host@
 @MONOLITHIC_TRUE@@USE_TEST_VECTORS_TRUE@am__append_141 = plugins/test_vectors/libstrongswan-test-vectors.la
 subdir = src/libstrongswan
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
-am__aclocal_m4_deps = $(top_srcdir)/m4/config/libtool.m4 \
+am__aclocal_m4_deps = $(top_srcdir)/m4/macros/add-plugin.m4 \
+	$(top_srcdir)/m4/macros/enable-disable.m4 \
+	$(top_srcdir)/m4/macros/host-cpu-c-abi.m4 \
+	$(top_srcdir)/m4/macros/lib-prefix.m4 \
+	$(top_srcdir)/m4/macros/split-package-version.m4 \
+	$(top_srcdir)/m4/macros/with.m4 \
+	$(top_srcdir)/m4/config/libtool.m4 \
 	$(top_srcdir)/m4/config/ltoptions.m4 \
 	$(top_srcdir)/m4/config/ltsugar.m4 \
 	$(top_srcdir)/m4/config/ltversion.m4 \
 	$(top_srcdir)/m4/config/lt~obsolete.m4 \
-	$(top_srcdir)/m4/macros/split-package-version.m4 \
-	$(top_srcdir)/m4/macros/with.m4 \
-	$(top_srcdir)/m4/macros/enable-disable.m4 \
-	$(top_srcdir)/m4/macros/add-plugin.m4 \
 	$(top_srcdir)/configure.ac
 am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
 	$(ACLOCAL_M4)
@@ -389,18 +391,19 @@ am__libstrongswan_la_SOURCES_DIST = library.c asn1/asn1.c \
 	processing/processor.c processing/scheduler.c \
 	processing/watcher.c resolver/resolver_manager.c \
 	resolver/rr_set.c selectors/sec_label.c \
-	selectors/traffic_selector.c settings/settings.c \
-	settings/settings_types.c settings/settings_parser.y \
-	settings/settings_lexer.l utils/cpu_feature.c utils/utils.c \
-	utils/chunk.c utils/debug.c utils/enum.c \
-	utils/identification.c utils/lexparser.c utils/optionsfrom.c \
-	utils/capabilities.c utils/backtrace.c utils/parser_helper.c \
-	utils/test.c utils/process.c utils/utils/strerror.c \
-	utils/utils/atomics.c utils/utils/string.c \
-	utils/utils/memory.c utils/utils/tty.c utils/utils/path.c \
-	utils/utils/status.c utils/utils/time.c utils/utils/align.c \
-	threading/thread.c threading/thread_value.c threading/mutex.c \
-	threading/rwlock.c threading/spinlock.c threading/semaphore.c \
+	selectors/traffic_selector.c selectors/traffic_selector_list.c \
+	settings/settings.c settings/settings_types.c \
+	settings/settings_parser.y settings/settings_lexer.l \
+	utils/cpu_feature.c utils/utils.c utils/chunk.c utils/debug.c \
+	utils/enum.c utils/identification.c utils/lexparser.c \
+	utils/optionsfrom.c utils/capabilities.c utils/backtrace.c \
+	utils/parser_helper.c utils/test.c utils/process.c \
+	utils/utils/strerror.c utils/utils/atomics.c \
+	utils/utils/string.c utils/utils/memory.c utils/utils/tty.c \
+	utils/utils/path.c utils/utils/status.c utils/utils/time.c \
+	utils/utils/align.c threading/thread.c \
+	threading/thread_value.c threading/mutex.c threading/rwlock.c \
+	threading/spinlock.c threading/semaphore.c \
 	networking/streams/stream_unix.c \
 	networking/streams/stream_service_unix.c \
 	networking/streams/stream_vsock.c \
@@ -490,7 +493,8 @@ am_libstrongswan_la_OBJECTS = library.lo asn1/asn1.lo \
 	processing/processor.lo processing/scheduler.lo \
 	processing/watcher.lo resolver/resolver_manager.lo \
 	resolver/rr_set.lo selectors/sec_label.lo \
-	selectors/traffic_selector.lo settings/settings.lo \
+	selectors/traffic_selector.lo \
+	selectors/traffic_selector_list.lo settings/settings.lo \
 	settings/settings_types.lo settings/settings_parser.lo \
 	settings/settings_lexer.lo utils/cpu_feature.lo utils/utils.lo \
 	utils/chunk.lo utils/debug.lo utils/enum.lo \
@@ -613,6 +617,7 @@ am__depfiles_remade = ./$(DEPDIR)/library.Plo asn1/$(DEPDIR)/asn1.Plo \
 	resolver/$(DEPDIR)/rr_set.Plo \
 	selectors/$(DEPDIR)/sec_label.Plo \
 	selectors/$(DEPDIR)/traffic_selector.Plo \
+	selectors/$(DEPDIR)/traffic_selector_list.Plo \
 	settings/$(DEPDIR)/settings.Plo \
 	settings/$(DEPDIR)/settings_lexer.Plo \
 	settings/$(DEPDIR)/settings_parser.Plo \
@@ -762,16 +767,17 @@ am__nobase_strongswan_include_HEADERS_DIST = library.h asn1/asn1.h \
 	processing/jobs/job.h processing/jobs/callback_job.h \
 	processing/processor.h processing/scheduler.h \
 	processing/watcher.h selectors/sec_label.h \
-	selectors/traffic_selector.h settings/settings.h \
-	settings/settings_parser.h threading/thread_value.h \
-	threading/thread.h threading/windows/thread.h \
-	threading/mutex.h threading/condvar.h threading/spinlock.h \
-	threading/semaphore.h threading/rwlock.h \
-	threading/rwlock_condvar.h threading/lock_profiler.h \
-	utils/utils.h utils/chunk.h utils/debug.h utils/enum.h \
-	utils/identification.h utils/lexparser.h utils/optionsfrom.h \
-	utils/capabilities.h utils/backtrace.h utils/cpu_feature.h \
-	utils/leak_detective.h utils/printf_hook/printf_hook.h \
+	selectors/traffic_selector.h selectors/traffic_selector_list.h \
+	settings/settings.h settings/settings_parser.h \
+	threading/thread_value.h threading/thread.h \
+	threading/windows/thread.h threading/mutex.h \
+	threading/condvar.h threading/spinlock.h threading/semaphore.h \
+	threading/rwlock.h threading/rwlock_condvar.h \
+	threading/lock_profiler.h utils/utils.h utils/chunk.h \
+	utils/debug.h utils/enum.h utils/identification.h \
+	utils/lexparser.h utils/optionsfrom.h utils/capabilities.h \
+	utils/backtrace.h utils/cpu_feature.h utils/leak_detective.h \
+	utils/printf_hook/printf_hook.h \
 	utils/printf_hook/printf_hook_vstr.h \
 	utils/printf_hook/printf_hook_builtin.h utils/parser_helper.h \
 	utils/test.h utils/integrity_checker.h utils/process.h \
@@ -882,7 +888,6 @@ DLLIB = @DLLIB@
 DLLTOOL = @DLLTOOL@
 DSYMUTIL = @DSYMUTIL@
 DUMPBIN = @DUMPBIN@
-EASY_INSTALL = @EASY_INSTALL@
 ECHO_C = @ECHO_C@
 ECHO_N = @ECHO_N@
 ECHO_T = @ECHO_T@
@@ -951,7 +956,6 @@ PKG_CONFIG_PATH = @PKG_CONFIG_PATH@
 PLUGIN_CFLAGS = @PLUGIN_CFLAGS@
 PTHREADLIB = @PTHREADLIB@
 PYTHON = @PYTHON@
-PYTHONEGGINSTALLDIR = @PYTHONEGGINSTALLDIR@
 PYTHON_EXEC_PREFIX = @PYTHON_EXEC_PREFIX@
 PYTHON_PACKAGE_VERSION = @PYTHON_PACKAGE_VERSION@
 PYTHON_PLATFORM = @PYTHON_PLATFORM@
@@ -1157,19 +1161,20 @@ libstrongswan_la_SOURCES = library.c asn1/asn1.c asn1/asn1_parser.c \
 	processing/processor.c processing/scheduler.c \
 	processing/watcher.c resolver/resolver_manager.c \
 	resolver/rr_set.c selectors/sec_label.c \
-	selectors/traffic_selector.c settings/settings.c \
-	settings/settings_types.c settings/settings_parser.y \
-	settings/settings_lexer.l utils/cpu_feature.c utils/utils.c \
-	utils/chunk.c utils/debug.c utils/enum.c \
-	utils/identification.c utils/lexparser.c utils/optionsfrom.c \
-	utils/capabilities.c utils/backtrace.c utils/parser_helper.c \
-	utils/test.c utils/process.c utils/utils/strerror.c \
-	utils/utils/atomics.c utils/utils/string.c \
-	utils/utils/memory.c utils/utils/tty.c utils/utils/path.c \
-	utils/utils/status.c utils/utils/time.c utils/utils/align.c \
-	$(am__append_1) $(am__append_2) $(am__append_5) \
-	$(am__append_10) $(am__append_13) $(am__append_14) \
-	$(am__append_16) $(am__append_18) $(am__append_21)
+	selectors/traffic_selector.c selectors/traffic_selector_list.c \
+	settings/settings.c settings/settings_types.c \
+	settings/settings_parser.y settings/settings_lexer.l \
+	utils/cpu_feature.c utils/utils.c utils/chunk.c utils/debug.c \
+	utils/enum.c utils/identification.c utils/lexparser.c \
+	utils/optionsfrom.c utils/capabilities.c utils/backtrace.c \
+	utils/parser_helper.c utils/test.c utils/process.c \
+	utils/utils/strerror.c utils/utils/atomics.c \
+	utils/utils/string.c utils/utils/memory.c utils/utils/tty.c \
+	utils/utils/path.c utils/utils/status.c utils/utils/time.c \
+	utils/utils/align.c $(am__append_1) $(am__append_2) \
+	$(am__append_5) $(am__append_10) $(am__append_13) \
+	$(am__append_14) $(am__append_16) $(am__append_18) \
+	$(am__append_21)
 
 # private header files
 noinst_HEADERS = \
@@ -1276,6 +1281,7 @@ settings/settings_types.h
 @USE_DEV_HEADERS_TRUE@	processing/watcher.h \
 @USE_DEV_HEADERS_TRUE@	selectors/sec_label.h \
 @USE_DEV_HEADERS_TRUE@	selectors/traffic_selector.h \
+@USE_DEV_HEADERS_TRUE@	selectors/traffic_selector_list.h \
 @USE_DEV_HEADERS_TRUE@	settings/settings.h \
 @USE_DEV_HEADERS_TRUE@	settings/settings_parser.h \
 @USE_DEV_HEADERS_TRUE@	threading/thread_value.h \
@@ -1879,6 +1885,8 @@ selectors/sec_label.lo: selectors/$(am__dirstamp) \
 	selectors/$(DEPDIR)/$(am__dirstamp)
 selectors/traffic_selector.lo: selectors/$(am__dirstamp) \
 	selectors/$(DEPDIR)/$(am__dirstamp)
+selectors/traffic_selector_list.lo: selectors/$(am__dirstamp) \
+	selectors/$(DEPDIR)/$(am__dirstamp)
 settings/$(am__dirstamp):
 	@$(MKDIR_P) settings
 	@: > settings/$(am__dirstamp)
@@ -2208,6 +2216,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@resolver/$(DEPDIR)/rr_set.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@selectors/$(DEPDIR)/sec_label.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@selectors/$(DEPDIR)/traffic_selector.Plo@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@selectors/$(DEPDIR)/traffic_selector_list.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@settings/$(DEPDIR)/settings.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@settings/$(DEPDIR)/settings_lexer.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@settings/$(DEPDIR)/settings_parser.Plo@am__quote@ # am--include-marker
@@ -2741,6 +2750,7 @@ distclean: distclean-recursive
 	-rm -f resolver/$(DEPDIR)/rr_set.Plo
 	-rm -f selectors/$(DEPDIR)/sec_label.Plo
 	-rm -f selectors/$(DEPDIR)/traffic_selector.Plo
+	-rm -f selectors/$(DEPDIR)/traffic_selector_list.Plo
 	-rm -f settings/$(DEPDIR)/settings.Plo
 	-rm -f settings/$(DEPDIR)/settings_lexer.Plo
 	-rm -f settings/$(DEPDIR)/settings_parser.Plo
@@ -2927,6 +2937,7 @@ maintainer-clean: maintainer-clean-recursive
 	-rm -f resolver/$(DEPDIR)/rr_set.Plo
 	-rm -f selectors/$(DEPDIR)/sec_label.Plo
 	-rm -f selectors/$(DEPDIR)/traffic_selector.Plo
+	-rm -f selectors/$(DEPDIR)/traffic_selector_list.Plo
 	-rm -f settings/$(DEPDIR)/settings.Plo
 	-rm -f settings/$(DEPDIR)/settings_lexer.Plo
 	-rm -f settings/$(DEPDIR)/settings_parser.Plo

@@ -414,6 +414,52 @@ A comma\-separated list of network interfaces that should be used by charon. All
 other interfaces are ignored.
 
 .TP
+.B charon.iptfs
+.br
+Global settings for IP\-TFS (RFC 9347). The Linux kernel supports this mode since
+6.14. However, it currently only supports aggregation/fragmentation of tunneled
+IP packets in ESP/AGGFRAG packets. It doesn't yet support other IP\-TFS features
+like sending packets at a constant rate or congestion control.
+
+.TP
+.BR charon.iptfs.accept_fragments " [yes]"
+Whether fragments of inner packets across multiple AGGFRAG payloads are
+accepted. This is an IKEv2 option, so if the peer doesn't adhere to this request
+and still sends such fragments, they will be processed by the kernel.
+
+.TP
+.BR charon.iptfs.dont_frag " [no]"
+Force disabling fragmenting inner packets across multiple AGGFRAG payloads when
+sending outbound traffic (fragmentation is automatically disabled if the peer
+indicates that it doesn't support handling such packets).
+
+.TP
+.BR charon.iptfs.drop_time " [1000000]"
+Time in microseconds to wait for out\-of\-order packets when processing inbound
+traffic.
+
+.TP
+.BR charon.iptfs.init_delay " [0]"
+Time in microseconds to wait for subsequent packets to aggregate together when
+sending outbound traffic. Only relevant if no packets are already queued to be
+sent.
+
+.TP
+.BR charon.iptfs.max_queue_size " [1048576]"
+Maximum number of bytes allowed to be queued for sending on the tunnel (default
+1 MiB). If the queue is full, packets are dropped.
+
+.TP
+.BR charon.iptfs.packet_size " [0]"
+Maximum outer packet size (layer 3) when sending packets. The default of 0 will
+use the PMTU as packet size. Note that the kernel currently doesn't pad smaller
+packets.
+
+.TP
+.BR charon.iptfs.reorder_window " [3]"
+Number of packets that may arrive out of order when processing inbound traffic.
+
+.TP
 .BR charon.keep_alive " [20s]"
 NAT keep alive interval.
 
@@ -649,6 +695,14 @@ any (0.0.0.0) and let the system decide which way to route the packets to the
 DHCP server.
 
 .TP
+.BR charon.plugins.dhcp.interface_receive " [charon.plugins.dhcp.interface]"
+Interface name the plugin uses to bind its receive socket. The default is to use
+the same interface as the send socket. Set it to the empty string to avoid
+binding the receive socket to any interface while the send socket is bound to
+one. If the   server runs on the same host and the send socket is bound to an
+interface, it might be necessary to set this to `lo` or the empty string.
+
+.TP
 .BR charon.plugins.dhcp.server " [255.255.255.255]"
 DHCP server unicast or broadcast IP address.
 
@@ -864,6 +918,7 @@ IP/Hostname of RADIUS server.
 .B charon.plugins.eap-radius.servers
 .br
 Section to specify multiple RADIUS servers. The
+.RB "" "source" ","
 .RB "" "nas_identifier" ","
 .RB "" "secret" ","
 .RB "" "sockets" ""
@@ -871,14 +926,13 @@ and
 .RB "" "port" ""
 (or
 .RB "" "auth_port" ")"
-options can be specified for each
-server. A server's IP/Hostname can be configured using the
+options can be specified
+for each server. A server's IP/Hostname can be configured using the
 .RB "" "address" ""
-option.
-The
+option. The
 .RB "" "acct_port" ""
-[1813] option can be used to specify the port used for RADIUS
-accounting. For each RADIUS server a priority can be specified using the
+[1813] option can be used to specify the port used for
+RADIUS accounting. For each RADIUS server a priority can be specified using the
 .RB "" "preference" ""
 [0] option. The retransmission time for each server can set set
 using
@@ -891,6 +945,10 @@ and
 .TP
 .BR charon.plugins.eap-radius.sockets " [1]"
 Number of sockets (ports) to use, increase for high load.
+
+.TP
+.BR charon.plugins.eap-radius.source " []"
+Optional specific source IP to use.
 
 .TP
 .BR charon.plugins.eap-radius.station_id_with_port " [yes]"
@@ -2275,12 +2333,75 @@ Name of the user the daemon changes to after startup.
 Discard certificates with unsupported or unknown critical extensions.
 
 .TP
+.B charon-nm
+.br
+Section with settings specific to the NetworkManager backend `charon\-nm`.
+Settings from the `charon` section are not inherited, but many can be used here
+as well. Defaults for some settings are chosen very deliberately and should only
+be changed in case of conflicts.
+
+.TP
 .BR charon-nm.ca_dir " [<default>]"
 Directory from which to load CA certificates if no certificate is configured.
 
 .TP
+.BR charon-nm.install_virtual_ip_on " [lo]"
+Interface on which virtual IP addresses are installed. Note that NM also
+installs the virtual IPs on the XFRM interface.
+
+.TP
 .BR charon-nm.mtu " [1400]"
 MTU for XFRM interfaces created by the NM plugin.
+
+.TP
+.BR charon-nm.plugins.kernel-netlink.fwmark " [!210]"
+Make packets with this mark ignore the routing table. Must be the same mark set
+in charon\-nm.plugins.socket\-default.fwmark.
+
+.TP
+.BR charon-nm.plugins.socket-default.fwmark " [210]"
+Mark applied to IKE and ESP packets to ignore the routing table and avoid
+routing loops when using XFRM interfaces.
+
+.TP
+.BR charon-nm.port " [0]"
+Source port when sending packets to port 500. Defaults to an ephemeral port. May
+be set to 500 if firewall rules require a static port.
+
+.TP
+.BR charon-nm.port_nat_t " [0]"
+Source port when sending packets to port 4500 or a custom server port. Defaults
+to an ephemeral port. May be set to e.g. 4500 if firewall rules require a static
+port.
+
+.TP
+.BR charon-nm.retransmit_base " [1.4]"
+Base to use for calculating exponential back off, see IKEv2 RETRANSMISSION in
+.RB "" "strongswan.conf" "(5)."
+Default retransmission settings for charon\-nm are
+deliberately lower to fail and possibly reestablish SAs more quickly.
+
+.TP
+.BR charon-nm.retransmit_timeout " [2.0]"
+Timeout in seconds before sending first retransmit.
+
+.TP
+.BR charon-nm.retransmit_tries " [3]"
+Number of times to retransmit a packet before giving up.
+
+.TP
+.BR charon-nm.routing_table " [210]"
+Table where routes via XFRM interface are installed. Should be different than
+the table used for the regular IKE daemon due to the mark.
+
+.TP
+.BR charon-nm.routing_table_prio " [210]"
+Priority of the routing table. Higher than the default priority used for the
+regular IKE daemon.
+
+.TP
+.BR charon-nm.syslog.daemon.default " [1]"
+Default to logging via syslog's daemon facility on level 1.
 
 .TP
 .B charon-systemd.journal
@@ -2437,7 +2558,7 @@ Name of the software installed on the hardcopy device.
 .TP
 .BR libimcv.plugins.imc-hcd.subtypes.<section>.<sw_type>.<software>.patches " []"
 String describing all patches applied to the given software on this hardcopy
-device. The individual patches are separated by a newline character '\\n'.
+device. The individual patches are separated by a newline character '\[rs]\[rs]n'.
 
 .TP
 .BR libimcv.plugins.imc-hcd.subtypes.<section>.<sw_type>.<software>.string_version " []"

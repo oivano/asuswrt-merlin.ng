@@ -285,41 +285,41 @@ host_triplet = @host@
 @MONOLITHIC_TRUE@@USE_COUPLING_TRUE@am__append_132 = plugins/coupling/libstrongswan-coupling.la
 @USE_RADATTR_TRUE@am__append_133 = plugins/radattr
 @MONOLITHIC_TRUE@@USE_RADATTR_TRUE@am__append_134 = plugins/radattr/libstrongswan-radattr.la
-@USE_UCI_TRUE@am__append_135 = plugins/uci
-@MONOLITHIC_TRUE@@USE_UCI_TRUE@am__append_136 = plugins/uci/libstrongswan-uci.la
-@USE_ADDRBLOCK_TRUE@am__append_137 = plugins/addrblock
-@MONOLITHIC_TRUE@@USE_ADDRBLOCK_TRUE@am__append_138 = plugins/addrblock/libstrongswan-addrblock.la
-@USE_UNITY_TRUE@am__append_139 = plugins/unity
-@MONOLITHIC_TRUE@@USE_UNITY_TRUE@am__append_140 = plugins/unity/libstrongswan-unity.la
-@USE_XAUTH_GENERIC_TRUE@am__append_141 = plugins/xauth_generic
-@MONOLITHIC_TRUE@@USE_XAUTH_GENERIC_TRUE@am__append_142 = plugins/xauth_generic/libstrongswan-xauth-generic.la
-@USE_XAUTH_EAP_TRUE@am__append_143 = plugins/xauth_eap
-@MONOLITHIC_TRUE@@USE_XAUTH_EAP_TRUE@am__append_144 = plugins/xauth_eap/libstrongswan-xauth-eap.la
-@USE_XAUTH_PAM_TRUE@am__append_145 = plugins/xauth_pam
-@MONOLITHIC_TRUE@@USE_XAUTH_PAM_TRUE@am__append_146 = plugins/xauth_pam/libstrongswan-xauth-pam.la
-@USE_XAUTH_NOAUTH_TRUE@am__append_147 = plugins/xauth_noauth
-@MONOLITHIC_TRUE@@USE_XAUTH_NOAUTH_TRUE@am__append_148 = plugins/xauth_noauth/libstrongswan-xauth-noauth.la
-@USE_RESOLVE_TRUE@am__append_149 = plugins/resolve
-@MONOLITHIC_TRUE@@USE_RESOLVE_TRUE@am__append_150 = plugins/resolve/libstrongswan-resolve.la
-@USE_ATTR_TRUE@am__append_151 = plugins/attr
-@MONOLITHIC_TRUE@@USE_ATTR_TRUE@am__append_152 = plugins/attr/libstrongswan-attr.la
-@USE_SELINUX_TRUE@am__append_153 = plugins/selinux
-@MONOLITHIC_TRUE@@USE_SELINUX_TRUE@am__append_154 = plugins/selinux/libstrongswan-selinux.la
-@USE_ATTR_SQL_TRUE@am__append_155 = plugins/attr_sql
-@MONOLITHIC_TRUE@@USE_ATTR_SQL_TRUE@am__append_156 = plugins/attr_sql/libstrongswan-attr-sql.la
-@MONOLITHIC_TRUE@@USE_TPM_TRUE@am__append_157 = $(top_builddir)/src/libtpmtss/libtpmtss.la
-@USE_EAP_AKA_3GPP_TRUE@am__append_158 = plugins/eap_aka_3gpp/tests
+@USE_ADDRBLOCK_TRUE@am__append_135 = plugins/addrblock
+@MONOLITHIC_TRUE@@USE_ADDRBLOCK_TRUE@am__append_136 = plugins/addrblock/libstrongswan-addrblock.la
+@USE_UNITY_TRUE@am__append_137 = plugins/unity
+@MONOLITHIC_TRUE@@USE_UNITY_TRUE@am__append_138 = plugins/unity/libstrongswan-unity.la
+@USE_XAUTH_GENERIC_TRUE@am__append_139 = plugins/xauth_generic
+@MONOLITHIC_TRUE@@USE_XAUTH_GENERIC_TRUE@am__append_140 = plugins/xauth_generic/libstrongswan-xauth-generic.la
+@USE_XAUTH_EAP_TRUE@am__append_141 = plugins/xauth_eap
+@MONOLITHIC_TRUE@@USE_XAUTH_EAP_TRUE@am__append_142 = plugins/xauth_eap/libstrongswan-xauth-eap.la
+@USE_XAUTH_PAM_TRUE@am__append_143 = plugins/xauth_pam
+@MONOLITHIC_TRUE@@USE_XAUTH_PAM_TRUE@am__append_144 = plugins/xauth_pam/libstrongswan-xauth-pam.la
+@USE_XAUTH_NOAUTH_TRUE@am__append_145 = plugins/xauth_noauth
+@MONOLITHIC_TRUE@@USE_XAUTH_NOAUTH_TRUE@am__append_146 = plugins/xauth_noauth/libstrongswan-xauth-noauth.la
+@USE_RESOLVE_TRUE@am__append_147 = plugins/resolve
+@MONOLITHIC_TRUE@@USE_RESOLVE_TRUE@am__append_148 = plugins/resolve/libstrongswan-resolve.la
+@USE_ATTR_TRUE@am__append_149 = plugins/attr
+@MONOLITHIC_TRUE@@USE_ATTR_TRUE@am__append_150 = plugins/attr/libstrongswan-attr.la
+@USE_SELINUX_TRUE@am__append_151 = plugins/selinux
+@MONOLITHIC_TRUE@@USE_SELINUX_TRUE@am__append_152 = plugins/selinux/libstrongswan-selinux.la
+@USE_ATTR_SQL_TRUE@am__append_153 = plugins/attr_sql
+@MONOLITHIC_TRUE@@USE_ATTR_SQL_TRUE@am__append_154 = plugins/attr_sql/libstrongswan-attr-sql.la
+@MONOLITHIC_TRUE@@USE_TPM_TRUE@am__append_155 = $(top_builddir)/src/libtpmtss/libtpmtss.la
+@USE_EAP_AKA_3GPP_TRUE@am__append_156 = plugins/eap_aka_3gpp/tests
 subdir = src/libcharon
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
-am__aclocal_m4_deps = $(top_srcdir)/m4/config/libtool.m4 \
+am__aclocal_m4_deps = $(top_srcdir)/m4/macros/add-plugin.m4 \
+	$(top_srcdir)/m4/macros/enable-disable.m4 \
+	$(top_srcdir)/m4/macros/host-cpu-c-abi.m4 \
+	$(top_srcdir)/m4/macros/lib-prefix.m4 \
+	$(top_srcdir)/m4/macros/split-package-version.m4 \
+	$(top_srcdir)/m4/macros/with.m4 \
+	$(top_srcdir)/m4/config/libtool.m4 \
 	$(top_srcdir)/m4/config/ltoptions.m4 \
 	$(top_srcdir)/m4/config/ltsugar.m4 \
 	$(top_srcdir)/m4/config/ltversion.m4 \
 	$(top_srcdir)/m4/config/lt~obsolete.m4 \
-	$(top_srcdir)/m4/macros/split-package-version.m4 \
-	$(top_srcdir)/m4/macros/with.m4 \
-	$(top_srcdir)/m4/macros/enable-disable.m4 \
-	$(top_srcdir)/m4/macros/add-plugin.m4 \
 	$(top_srcdir)/configure.ac
 am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
 	$(ACLOCAL_M4)
@@ -387,8 +387,7 @@ libcharon_la_DEPENDENCIES =  \
 	$(am__append_134) $(am__append_136) $(am__append_138) \
 	$(am__append_140) $(am__append_142) $(am__append_144) \
 	$(am__append_146) $(am__append_148) $(am__append_150) \
-	$(am__append_152) $(am__append_154) $(am__append_156) \
-	$(am__append_157)
+	$(am__append_152) $(am__append_154) $(am__append_155)
 am__libcharon_la_SOURCES_DIST = attributes/attributes.c \
 	attributes/attributes.h attributes/attribute_provider.h \
 	attributes/attribute_handler.h attributes/attribute_manager.c \
@@ -448,12 +447,12 @@ am__libcharon_la_SOURCES_DIST = attributes/attributes.c \
 	encoding/payloads/fragment_payload.h kernel/kernel_interface.c \
 	kernel/kernel_interface.h kernel/kernel_ipsec.c \
 	kernel/kernel_ipsec.h kernel/kernel_net.c kernel/kernel_net.h \
-	kernel/kernel_listener.h kernel/kernel_handler.c \
-	kernel/kernel_handler.h network/receiver.c network/receiver.h \
-	network/sender.c network/sender.h network/socket.c \
-	network/socket.h network/socket_manager.c \
-	network/socket_manager.h processing/jobs/acquire_job.c \
-	processing/jobs/acquire_job.h \
+	kernel/kernel_listener.c kernel/kernel_listener.h \
+	kernel/kernel_handler.c kernel/kernel_handler.h \
+	network/receiver.c network/receiver.h network/sender.c \
+	network/sender.h network/socket.c network/socket.h \
+	network/socket_manager.c network/socket_manager.h \
+	processing/jobs/acquire_job.c processing/jobs/acquire_job.h \
 	processing/jobs/delete_child_sa_job.c \
 	processing/jobs/delete_child_sa_job.h \
 	processing/jobs/delete_ike_sa_job.c \
@@ -652,9 +651,10 @@ am_libcharon_la_OBJECTS = attributes/attributes.lo \
 	encoding/payloads/hash_payload.lo \
 	encoding/payloads/fragment_payload.lo \
 	kernel/kernel_interface.lo kernel/kernel_ipsec.lo \
-	kernel/kernel_net.lo kernel/kernel_handler.lo \
-	network/receiver.lo network/sender.lo network/socket.lo \
-	network/socket_manager.lo processing/jobs/acquire_job.lo \
+	kernel/kernel_net.lo kernel/kernel_listener.lo \
+	kernel/kernel_handler.lo network/receiver.lo network/sender.lo \
+	network/socket.lo network/socket_manager.lo \
+	processing/jobs/acquire_job.lo \
 	processing/jobs/delete_child_sa_job.lo \
 	processing/jobs/delete_ike_sa_job.lo \
 	processing/jobs/migrate_job.lo \
@@ -737,6 +737,7 @@ am__depfiles_remade = ./$(DEPDIR)/daemon.Plo \
 	kernel/$(DEPDIR)/kernel_handler.Plo \
 	kernel/$(DEPDIR)/kernel_interface.Plo \
 	kernel/$(DEPDIR)/kernel_ipsec.Plo \
+	kernel/$(DEPDIR)/kernel_listener.Plo \
 	kernel/$(DEPDIR)/kernel_net.Plo \
 	network/$(DEPDIR)/pf_handler.Plo \
 	network/$(DEPDIR)/receiver.Plo network/$(DEPDIR)/sender.Plo \
@@ -901,7 +902,7 @@ DIST_SUBDIRS = . plugins/load_tester plugins/save_keys \
 	plugins/kernel_wfp plugins/kernel_iph plugins/whitelist \
 	plugins/lookip plugins/error_notify plugins/certexpire \
 	plugins/systime_fix plugins/led plugins/duplicheck \
-	plugins/coupling plugins/radattr plugins/uci plugins/addrblock \
+	plugins/coupling plugins/radattr plugins/addrblock \
 	plugins/unity plugins/xauth_generic plugins/xauth_eap \
 	plugins/xauth_pam plugins/xauth_noauth plugins/resolve \
 	plugins/attr plugins/selinux plugins/attr_sql tests \
@@ -961,7 +962,6 @@ DLLIB = @DLLIB@
 DLLTOOL = @DLLTOOL@
 DSYMUTIL = @DSYMUTIL@
 DUMPBIN = @DUMPBIN@
-EASY_INSTALL = @EASY_INSTALL@
 ECHO_C = @ECHO_C@
 ECHO_N = @ECHO_N@
 ECHO_T = @ECHO_T@
@@ -1030,7 +1030,6 @@ PKG_CONFIG_PATH = @PKG_CONFIG_PATH@
 PLUGIN_CFLAGS = @PLUGIN_CFLAGS@
 PTHREADLIB = @PTHREADLIB@
 PYTHON = @PYTHON@
-PYTHONEGGINSTALLDIR = @PYTHONEGGINSTALLDIR@
 PYTHON_EXEC_PREFIX = @PYTHON_EXEC_PREFIX@
 PYTHON_PACKAGE_VERSION = @PYTHON_PACKAGE_VERSION@
 PYTHON_PLATFORM = @PYTHON_PLATFORM@
@@ -1244,12 +1243,12 @@ libcharon_la_SOURCES = attributes/attributes.c attributes/attributes.h \
 	encoding/payloads/fragment_payload.h kernel/kernel_interface.c \
 	kernel/kernel_interface.h kernel/kernel_ipsec.c \
 	kernel/kernel_ipsec.h kernel/kernel_net.c kernel/kernel_net.h \
-	kernel/kernel_listener.h kernel/kernel_handler.c \
-	kernel/kernel_handler.h network/receiver.c network/receiver.h \
-	network/sender.c network/sender.h network/socket.c \
-	network/socket.h network/socket_manager.c \
-	network/socket_manager.h processing/jobs/acquire_job.c \
-	processing/jobs/acquire_job.h \
+	kernel/kernel_listener.c kernel/kernel_listener.h \
+	kernel/kernel_handler.c kernel/kernel_handler.h \
+	network/receiver.c network/receiver.h network/sender.c \
+	network/sender.h network/socket.c network/socket.h \
+	network/socket_manager.c network/socket_manager.h \
+	processing/jobs/acquire_job.c processing/jobs/acquire_job.h \
 	processing/jobs/delete_child_sa_job.c \
 	processing/jobs/delete_child_sa_job.h \
 	processing/jobs/delete_ike_sa_job.c \
@@ -1332,7 +1331,7 @@ libcharon_la_LIBADD =  \
 	$(am__append_136) $(am__append_138) $(am__append_140) \
 	$(am__append_142) $(am__append_144) $(am__append_146) \
 	$(am__append_148) $(am__append_150) $(am__append_152) \
-	$(am__append_154) $(am__append_156) $(am__append_157)
+	$(am__append_154) $(am__append_155)
 EXTRA_DIST = Android.mk
 @STATIC_PLUGIN_CONSTRUCTORS_TRUE@BUILT_SOURCES = $(srcdir)/plugin_constructors.c
 @STATIC_PLUGIN_CONSTRUCTORS_TRUE@CLEANFILES = $(srcdir)/plugin_constructors.c
@@ -1374,8 +1373,8 @@ EXTRA_DIST = Android.mk
 @MONOLITHIC_FALSE@	$(am__append_139) $(am__append_141) \
 @MONOLITHIC_FALSE@	$(am__append_143) $(am__append_145) \
 @MONOLITHIC_FALSE@	$(am__append_147) $(am__append_149) \
-@MONOLITHIC_FALSE@	$(am__append_151) $(am__append_153) \
-@MONOLITHIC_FALSE@	$(am__append_155) tests $(am__append_158)
+@MONOLITHIC_FALSE@	$(am__append_151) $(am__append_153) tests \
+@MONOLITHIC_FALSE@	$(am__append_156)
 
 # build optional plugins
 ########################
@@ -1417,8 +1416,8 @@ EXTRA_DIST = Android.mk
 @MONOLITHIC_TRUE@	$(am__append_139) $(am__append_141) \
 @MONOLITHIC_TRUE@	$(am__append_143) $(am__append_145) \
 @MONOLITHIC_TRUE@	$(am__append_147) $(am__append_149) \
-@MONOLITHIC_TRUE@	$(am__append_151) $(am__append_153) \
-@MONOLITHIC_TRUE@	$(am__append_155) . tests $(am__append_158)
+@MONOLITHIC_TRUE@	$(am__append_151) $(am__append_153) . tests \
+@MONOLITHIC_TRUE@	$(am__append_156)
 all: $(BUILT_SOURCES)
 	$(MAKE) $(AM_MAKEFLAGS) all-recursive
 
@@ -1628,6 +1627,8 @@ kernel/kernel_interface.lo: kernel/$(am__dirstamp) \
 kernel/kernel_ipsec.lo: kernel/$(am__dirstamp) \
 	kernel/$(DEPDIR)/$(am__dirstamp)
 kernel/kernel_net.lo: kernel/$(am__dirstamp) \
+	kernel/$(DEPDIR)/$(am__dirstamp)
+kernel/kernel_listener.lo: kernel/$(am__dirstamp) \
 	kernel/$(DEPDIR)/$(am__dirstamp)
 kernel/kernel_handler.lo: kernel/$(am__dirstamp) \
 	kernel/$(DEPDIR)/$(am__dirstamp)
@@ -1981,6 +1982,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@kernel/$(DEPDIR)/kernel_handler.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@kernel/$(DEPDIR)/kernel_interface.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@kernel/$(DEPDIR)/kernel_ipsec.Plo@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@kernel/$(DEPDIR)/kernel_listener.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@kernel/$(DEPDIR)/kernel_net.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@network/$(DEPDIR)/pf_handler.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@network/$(DEPDIR)/receiver.Plo@am__quote@ # am--include-marker
@@ -2416,6 +2418,7 @@ distclean: distclean-recursive
 	-rm -f kernel/$(DEPDIR)/kernel_handler.Plo
 	-rm -f kernel/$(DEPDIR)/kernel_interface.Plo
 	-rm -f kernel/$(DEPDIR)/kernel_ipsec.Plo
+	-rm -f kernel/$(DEPDIR)/kernel_listener.Plo
 	-rm -f kernel/$(DEPDIR)/kernel_net.Plo
 	-rm -f network/$(DEPDIR)/pf_handler.Plo
 	-rm -f network/$(DEPDIR)/receiver.Plo
@@ -2597,6 +2600,7 @@ maintainer-clean: maintainer-clean-recursive
 	-rm -f kernel/$(DEPDIR)/kernel_handler.Plo
 	-rm -f kernel/$(DEPDIR)/kernel_interface.Plo
 	-rm -f kernel/$(DEPDIR)/kernel_ipsec.Plo
+	-rm -f kernel/$(DEPDIR)/kernel_listener.Plo
 	-rm -f kernel/$(DEPDIR)/kernel_net.Plo
 	-rm -f network/$(DEPDIR)/pf_handler.Plo
 	-rm -f network/$(DEPDIR)/receiver.Plo

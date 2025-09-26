@@ -330,12 +330,10 @@ static void request_query_config(xmlTextReaderPtr reader, xmlTextWriterPtr write
 			xmlTextWriterStartElement(writer, "childconfig");
 			xmlTextWriterWriteElement(writer, "name",
 									  child_cfg->get_name(child_cfg));
-			list = child_cfg->get_traffic_selectors(child_cfg, TRUE, NULL,
-													NULL, FALSE);
+			list = child_cfg->get_traffic_selectors(child_cfg, TRUE, NULL);
 			write_networks(writer, "local", list);
 			list->destroy_offset(list, offsetof(traffic_selector_t, destroy));
-			list = child_cfg->get_traffic_selectors(child_cfg, FALSE, NULL,
-													NULL, FALSE);
+			list = child_cfg->get_traffic_selectors(child_cfg, FALSE, NULL);
 			write_networks(writer, "remote", list);
 			list->destroy_offset(list, offsetof(traffic_selector_t, destroy));
 			xmlTextWriterEndElement(writer);
@@ -710,7 +708,7 @@ static job_requeue_t dispatch(private_smp_t *this)
 	fdp = malloc_thing(int);
 	*fdp = fd;
 	job = callback_job_create((callback_job_cb_t)process, fdp, free,
-							  (callback_job_cancel_t)return_false);
+							  callback_job_cancel_thread);
 	lib->processor->queue_job(lib->processor, (job_t*)job);
 
 	return JOB_REQUEUE_DIRECT;
@@ -800,7 +798,7 @@ plugin_t *smp_plugin_create()
 
 	lib->processor->queue_job(lib->processor,
 		(job_t*)callback_job_create_with_prio((callback_job_cb_t)dispatch, this,
-				NULL, (callback_job_cancel_t)return_false, JOB_PRIO_CRITICAL));
+				NULL, callback_job_cancel_thread, JOB_PRIO_CRITICAL));
 
 	return &this->public.plugin;
 }

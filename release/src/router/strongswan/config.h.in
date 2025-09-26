@@ -224,6 +224,9 @@
 /* have GNU-style qsort_r() */
 #undef HAVE_QSORT_R_GNU
 
+/* have regcomp() etc. */
+#undef HAVE_REGEX
+
 /* have netlink RTA_TABLE defined */
 #undef HAVE_RTA_TABLE
 
@@ -360,6 +363,9 @@
 
 /* Define to 1 if strerror_r returns char *. */
 #undef STRERROR_R_CHAR_P
+
+/* Define to 1 if key exchange methods should be testable. */
+#undef TESTABLE_KE
 
 /* use TSS2 v2 Extended System API */
 #undef TSS2_ESYS

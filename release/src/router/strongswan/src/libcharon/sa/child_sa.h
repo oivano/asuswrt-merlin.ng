@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2023 Tobias Brunner
+ * Copyright (C) 2006-2025 Tobias Brunner
  * Copyright (C) 2006-2008 Martin Willi
  * Copyright (C) 2006 Daniel Roethlisberger
  *
@@ -291,6 +291,12 @@ struct child_sa_t {
 	void (*set_ipcomp)(child_sa_t *this, ipcomp_transform_t ipcomp);
 
 	/**
+	 * Disable fragmenting messages across multiple IP-TFS packets. Only
+	 * relevant with MODE_IPTFS.
+	 */
+	void (*set_iptfs_dont_fragment)(child_sa_t *this);
+
+	/**
 	 * Get the action to enforce if the remote peer closes the CHILD_SA.
 	 *
 	 * @return			close action
@@ -389,6 +395,44 @@ struct child_sa_t {
 	 * @return				security label used with this CHILD_SA
 	 */
 	sec_label_t *(*get_label)(child_sa_t *this);
+
+	/**
+	 * Get the CPU ID used with this CHILD_SA.
+	 *
+	 * @return				CPU used with this CHILD_SA
+	 */
+	uint32_t (*get_cpu)(child_sa_t *this);
+
+	/**
+	 * Whether the per-CPU SA feature is enabled for this CHILD_SA.
+	 *
+	 * @return				TRUE if per-CPU SA feature is enabled
+	 */
+	bool (*use_per_cpu)(child_sa_t *this);
+
+	/**
+	 * Set whether the per-CPU SA feature is enabled for this CHILD_SA.
+	 *
+	 * @param per_cpu		TRUE to enable per-CPU SA feature, FALSE also resets
+	 *						the CPU ID
+	 */
+	void (*set_per_cpu)(child_sa_t *this, bool per_cpu);
+
+	/**
+	 * Get the optional sequence number associated with the acquire that
+	 * triggered this CHILD_SA.
+	 *
+	 * @return				sequence number associated with the acquire or 0
+	 */
+	uint32_t (*get_acquire_seq)(child_sa_t *this);
+
+	/**
+	 * Set the optional sequence number associated with the acquire that
+	 * triggered this CHILD_SA.
+	 *
+	 * @param seq			sequence number associated with the acquire
+	 */
+	void (*set_acquire_seq)(child_sa_t *this, uint32_t seq);
 
 	/**
 	 * Create an enumerator over traffic selectors of one side.
@@ -559,6 +603,13 @@ struct child_sa_create_t {
 	uint32_t if_id_out_def;
 	/** Optional security label to apply on SAs (cloned) */
 	sec_label_t *label;
+	/** Optional CPU ID, CPU_ID_MAX if not specified */
+	uint32_t cpu;
+	/** Optional flag to enable per-CPU SA feature */
+	bool per_cpu;
+	/** Optional sequence number associated with the acquire that triggered
+	 * this SA */
+	uint32_t seq;
 	/** TRUE to enable UDP encapsulation (NAT traversal) */
 	bool encap;
 };
@@ -574,5 +625,31 @@ struct child_sa_create_t {
  */
 child_sa_t *child_sa_create(host_t *me, host_t *other, child_cfg_t *config,
 							child_sa_create_t *data);
+
+/**
+ * Check if the given source and destination traffic selectors (e.g. from a
+ * packet triggering an acquire) match the negotiated local and remote traffic
+ * selectors of this child SA.
+ *
+ * @param this				CHILD_SA to check traffic selectors against
+ * @param src				source traffic selector
+ * @param dst				destination traffic selector
+ * @return					TRUE if both traffic selectors match
+ */
+bool child_sa_ts_match(child_sa_t *this, traffic_selector_t *src,
+					   traffic_selector_t *dst);
+
+/**
+ * Check if the given lists of source and destination traffic selectors (e.g.
+ * from a previous SA) match the negotiated local and remote traffic
+ * selectors of this child SA.
+ *
+ * @param this				CHILD_SA to check traffic selectors against
+ * @param src				source traffic selector list
+ * @param dst				destination traffic selector list
+ * @return					TRUE if all traffic selectors match
+ */
+bool child_sa_ts_lists_match(child_sa_t *this, traffic_selector_list_t *src,
+							 traffic_selector_list_t *dst);
 
 #endif /** CHILD_SA_H_ @}*/

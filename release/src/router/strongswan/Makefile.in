@@ -92,15 +92,17 @@ host_triplet = @host@
 @USE_SCRIPTS_TRUE@am__append_2 = scripts
 subdir = .
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
-am__aclocal_m4_deps = $(top_srcdir)/m4/config/libtool.m4 \
+am__aclocal_m4_deps = $(top_srcdir)/m4/macros/add-plugin.m4 \
+	$(top_srcdir)/m4/macros/enable-disable.m4 \
+	$(top_srcdir)/m4/macros/host-cpu-c-abi.m4 \
+	$(top_srcdir)/m4/macros/lib-prefix.m4 \
+	$(top_srcdir)/m4/macros/split-package-version.m4 \
+	$(top_srcdir)/m4/macros/with.m4 \
+	$(top_srcdir)/m4/config/libtool.m4 \
 	$(top_srcdir)/m4/config/ltoptions.m4 \
 	$(top_srcdir)/m4/config/ltsugar.m4 \
 	$(top_srcdir)/m4/config/ltversion.m4 \
 	$(top_srcdir)/m4/config/lt~obsolete.m4 \
-	$(top_srcdir)/m4/macros/split-package-version.m4 \
-	$(top_srcdir)/m4/macros/with.m4 \
-	$(top_srcdir)/m4/macros/enable-disable.m4 \
-	$(top_srcdir)/m4/macros/add-plugin.m4 \
 	$(top_srcdir)/configure.ac
 am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
 	$(ACLOCAL_M4)
@@ -270,7 +272,6 @@ DLLIB = @DLLIB@
 DLLTOOL = @DLLTOOL@
 DSYMUTIL = @DSYMUTIL@
 DUMPBIN = @DUMPBIN@
-EASY_INSTALL = @EASY_INSTALL@
 ECHO_C = @ECHO_C@
 ECHO_N = @ECHO_N@
 ECHO_T = @ECHO_T@
@@ -339,7 +340,6 @@ PKG_CONFIG_PATH = @PKG_CONFIG_PATH@
 PLUGIN_CFLAGS = @PLUGIN_CFLAGS@
 PTHREADLIB = @PTHREADLIB@
 PYTHON = @PYTHON@
-PYTHONEGGINSTALLDIR = @PYTHONEGGINSTALLDIR@
 PYTHON_EXEC_PREFIX = @PYTHON_EXEC_PREFIX@
 PYTHON_PACKAGE_VERSION = @PYTHON_PACKAGE_VERSION@
 PYTHON_PLATFORM = @PYTHON_PLATFORM@
@@ -1071,10 +1071,11 @@ cov-reset-common:
 @COVERAGE_TRUE@cov-report:
 @COVERAGE_TRUE@		@mkdir $(top_builddir)/coverage
 @COVERAGE_TRUE@		lcov -c -o $(top_builddir)/coverage/coverage.info -d $(top_builddir) \
-@COVERAGE_TRUE@			 --rc lcov_branch_coverage=1
+@COVERAGE_TRUE@			 --rc branch_coverage=1
 @COVERAGE_TRUE@		lcov -r $(top_builddir)/coverage/coverage.info '*/tests/*' '*/suites/*' '/usr*' \
+@COVERAGE_TRUE@			 '*proposal_keywords_static.*' \
 @COVERAGE_TRUE@			 -o $(abs_top_builddir)/coverage/coverage.cleaned.info \
-@COVERAGE_TRUE@			 --rc lcov_branch_coverage=1
+@COVERAGE_TRUE@			 --rc branch_coverage=1
 @COVERAGE_TRUE@		genhtml --num-spaces 4 --legend --branch-coverage --ignore-errors source \
 @COVERAGE_TRUE@				-t "$(PACKAGE_STRING)" \
 @COVERAGE_TRUE@				-o $(top_builddir)/coverage/html \

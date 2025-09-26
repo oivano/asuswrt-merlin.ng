@@ -723,12 +723,12 @@ EVENT packets wrapping messages. The message contains event details.
 
 ### log ###
 
-The _log_ event is issued to registered clients for each debug log message.
-This event is not associated with a command.
+The _log_ event is issued to registered clients for each debug log message on
+level 0 or 1. This event is not associated with a command.
 
 	{
 		group = <subsystem identifier for debug message>
-		level = <log level, 0-4>
+		level = <log level, 0-1>
 		thread = <numerical thread identifier issuing the log message>
 		ikesa-name = <name of IKE_SA, if log is associated with any>
 		ikesa-uniqued = <unique identifier of IKE_A, if log associated with any>
@@ -819,6 +819,8 @@ command.
 					mark-mask-out = <hex encoded outbound Netfilter mark mask>
 					if-id-in = <hex encoded inbound XFRM interface ID>
 					if-id-out = <hex encoded outbound XFRM interface ID>
+					per-cpu-sas = <yes if per-CPU SAs enabled>
+					cpu = <CPU ID of per-CPU SA>
 					label = <hex encoded security label>
 					encr-alg = <ESP encryption algorithm name, if any>
 					encr-keysize = <ESP encryption key size, if applicable>
@@ -1212,12 +1214,12 @@ _list-conns_ command and implicitly the _list-conn_ event:
 For more details about the ruby gem refer to the comments in the gem source
 code or the generated documentation.
 
-# vici Python egg #
+# vici Python wheel #
 
-The _vici Python egg_ is a pure Python implementation of the VICI protocol to
+The _vici Python wheel_ is a pure Python implementation of the VICI protocol to
 implement client applications. It is provided in the _python_ subdirectory, and
-gets built and installed if strongSwan has been _./configure_'d with
-_--enable-vici_ and _--enable-python-eggs_.
+gets built if strongSwan has been _./configure_'d with
+_--enable-vici_ and _--enable-python-wheels_. It is not installed automatically.
 
 The _vici_ module provides a _Session()_ constructor for a high level interface,
 the underlying classes are usually not required to build Python applications

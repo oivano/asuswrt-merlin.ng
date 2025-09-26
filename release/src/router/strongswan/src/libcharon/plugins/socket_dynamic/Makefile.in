@@ -90,15 +90,17 @@ build_triplet = @build@
 host_triplet = @host@
 subdir = src/libcharon/plugins/socket_dynamic
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
-am__aclocal_m4_deps = $(top_srcdir)/m4/config/libtool.m4 \
+am__aclocal_m4_deps = $(top_srcdir)/m4/macros/add-plugin.m4 \
+	$(top_srcdir)/m4/macros/enable-disable.m4 \
+	$(top_srcdir)/m4/macros/host-cpu-c-abi.m4 \
+	$(top_srcdir)/m4/macros/lib-prefix.m4 \
+	$(top_srcdir)/m4/macros/split-package-version.m4 \
+	$(top_srcdir)/m4/macros/with.m4 \
+	$(top_srcdir)/m4/config/libtool.m4 \
 	$(top_srcdir)/m4/config/ltoptions.m4 \
 	$(top_srcdir)/m4/config/ltsugar.m4 \
 	$(top_srcdir)/m4/config/ltversion.m4 \
 	$(top_srcdir)/m4/config/lt~obsolete.m4 \
-	$(top_srcdir)/m4/macros/split-package-version.m4 \
-	$(top_srcdir)/m4/macros/with.m4 \
-	$(top_srcdir)/m4/macros/enable-disable.m4 \
-	$(top_srcdir)/m4/macros/add-plugin.m4 \
 	$(top_srcdir)/configure.ac
 am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
 	$(ACLOCAL_M4)
@@ -242,7 +244,6 @@ DLLIB = @DLLIB@
 DLLTOOL = @DLLTOOL@
 DSYMUTIL = @DSYMUTIL@
 DUMPBIN = @DUMPBIN@
-EASY_INSTALL = @EASY_INSTALL@
 ECHO_C = @ECHO_C@
 ECHO_N = @ECHO_N@
 ECHO_T = @ECHO_T@
@@ -311,7 +312,6 @@ PKG_CONFIG_PATH = @PKG_CONFIG_PATH@
 PLUGIN_CFLAGS = @PLUGIN_CFLAGS@
 PTHREADLIB = @PTHREADLIB@
 PYTHON = @PYTHON@
-PYTHONEGGINSTALLDIR = @PYTHONEGGINSTALLDIR@
 PYTHON_EXEC_PREFIX = @PYTHON_EXEC_PREFIX@
 PYTHON_PACKAGE_VERSION = @PYTHON_PACKAGE_VERSION@
 PYTHON_PLATFORM = @PYTHON_PLATFORM@
