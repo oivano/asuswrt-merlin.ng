@@ -35,11 +35,26 @@ p{
        height: 30px;
 }
 </style>
-
-
 <script type="text/javascript" src="/validator.js"></script>
 <script>
+
+var connarray = Array();
+var connarray_route = Array();
+
 <% get_connlist_array(); %>
+<% get_ipv6clients_array(); %>
+
+var sortdir_nat = 0;
+var sortfield_nat = 0;
+var sortdir_route = 0;
+var sortfield_route = 0;
+var filter = [];
+filter["nat"] = Array(6);
+filter["route"] = Array(6);
+var sortfield_global = 0;
+var showNames;
+var refreshRate;
+var timedEvent = 0;
 
 function initial() {
 	show_menu();
@@ -223,10 +238,143 @@ function draw_table(type){
 	if (shownlen == 0) {
 		code += '<tr><td colspan="6" class="hint-color" style="text-align:center;">No results.</td></tr>';
 	} else {
-		document.getElementById("connblock").innerHTML = '<span style="color:#FFCC00;">No active connections.</span>';
+		code += '<tr><td colspan="6" class="hint-color" style="text-align:center;">' + shownlen + ' / ' + tracklen +' connections shown.</td></tr>';
+	}
+	code += "</tbody></table>";
+
+	if (type == "nat") {
+		document.getElementById('connblock_nat').innerHTML = code;
+		document.getElementById('track_header_' + sortfield_nat).style.boxShadow = "rgb(255, 204, 0) 0px " + (sortdir_nat == 1 ? "1" : "-1") + "px 0px 0px inset";
+	} else if (type == "route") {
+		document.getElementById('connblock_route').innerHTML = code;
+		document.getElementById('track_header_route_' + sortfield_route).style.boxShadow = "rgb(255, 204, 0) 0px " + (sortdir_route == 1 ? "1" : "-1") + "px 0px 0px inset";
 	}
 }
 
+
+function setsort(newfield, type) {
+	if (type == "nat") {
+		if (newfield != sortfield_nat) {
+			sortdir_nat = 0;
+			sortfield_nat = newfield;
+		 } else {
+			sortdir_nat = (sortdir_nat ? 0 : 1);
+		}
+	} else if (type == "route") {
+		if (newfield != sortfield_route) {
+			sortdir_route = 0;
+			sortfield_route = newfield;
+		 } else {
+			sortdir_route = (sortdir_route ? 0 : 1);
+		}
+	}
+}
+
+
+function table_sort(a, b){
+	var aa, bb;
+
+	switch (sortfield_global) {
+		case 0:		// Proto
+		case 1:		// Source IP
+		case 3:		// Destination IP
+			if (sortdir_global) {
+				aa = full_IPv6(a[sortfield_global].toString());
+				bb = full_IPv6(b[sortfield_global].toString());
+				if (aa == bb) return 0;
+				else if (aa > bb) return -1;
+				else return 1;
+			} else {
+				aa = full_IPv6(a[sortfield_global].toString());
+				bb = full_IPv6(b[sortfield_global].toString());
+				if (aa == bb) return 0;
+				else if (aa > bb) return 1;
+				else return -1;
+			}
+			break;
+		case 2:		// Local Port
+		case 4:		// Remote Port
+			if (sortdir_global)
+				return parseInt(b[sortfield_global]) - parseInt(a[sortfield_global]);
+			else
+				return parseInt(a[sortfield_global]) - parseInt(b[sortfield_global]);
+			break;
+		case 5:		// State
+			if (sortdir_global) {
+				aa = a[sortfield_global];
+				bb = b[sortfield_global];
+				if(aa == bb) return 0;
+				else if(aa > bb) return -1;
+				else return 1;
+			} else {
+				aa = a[sortfield_global];
+				bb = b[sortfield_global];
+				if(aa == bb) return 0;
+				else if(aa > bb) return 1;
+				else return -1;
+			}
+			break;
+	}
+}
+
+function get_connection_list() {
+	if (timedEvent) {
+		clearTimeout(timedEvent);
+		timedEvent = 0;
+	}
+
+	$.ajax({
+		url: '/ajax_conntrack.asp',
+		dataType: 'script',
+		error: function(xhr){
+				get_connection_list();
+				},
+		success: function(response){
+			connarray.pop();
+			connarray_route.pop();
+			draw_table("nat");
+			draw_table("route");
+			if (refreshRate > 0)
+				timedEvent = setTimeout("get_connection_list();", refreshRate * 1000);
+		}
+	});
+
+}
+
+function getRefresh() {
+	val  = parseInt(cookie.get('awrtm_connrefresh'));
+
+	if ((val != 0) && (val != 1) && (val != 3) && (val != 5) && (val != 10))
+		val = 0;
+
+	document.getElementById('refreshrate').value = val;
+
+	return val;
+}
+
+function setRefresh(obj) {
+	refreshRate = obj.value;
+	cookie.set('awrtm_connrefresh', refreshRate, 365);
+	get_connection_list();
+}
+
+function getShowNames() {
+	val = parseInt(cookie.get('awrtm_connnames'));
+
+	if ((val != 0) && (val != 1))
+		val = 1;
+
+	setRadioValue(document.getElementsByName('show_names'), val);
+
+	return val;
+}
+
+function setShowNames(obj) {
+	showNames = obj.value;
+	cookie.set('awrtm_connnames', showNames, 365);
+	draw_table("nat");
+	draw_table("route");
+}
 
 </script>
 </head>
