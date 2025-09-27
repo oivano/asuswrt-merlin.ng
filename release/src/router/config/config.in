@@ -274,7 +274,7 @@ config RTCONFIG_OPENVPN
 	default n
 
 config RTCONFIG_OPENCONNECT
-	bool "A VPN client compatible with several SSL VPN implementations (ocserv, Cisco AnyConnect, Juniper, Palo Alto)"
+	bool "openconnect VPN client compatible with several SSL/DTLS VPN implementations (ocserv, Cisco AnyConnect, Juniper, Palo Alto)"
 	depends on RTCONFIG_OPENSSL11
 	default n
 
