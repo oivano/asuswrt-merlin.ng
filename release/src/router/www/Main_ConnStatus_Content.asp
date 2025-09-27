@@ -13,28 +13,13 @@
 <link rel="stylesheet" type="text/css" href="form_style.css">
 <link rel="stylesheet" type="text/css" href="/js/table/table.css">
 <script type="text/javascript" src="/js/jquery.js"></script>
+<script type="text/javascript" src="/js/httpApi.js"></script>
 <script language="JavaScript" type="text/javascript" src="/state.js"></script>
 <script language="JavaScript" type="text/javascript" src="/general.js"></script>
 <script language="JavaScript" type="text/javascript" src="/popup.js"></script>
 <script language="JavaScript" type="text/javascript" src="/help.js"></script>
-<script type="text/javascript" src="/js/table/table.js"></script>
-<style>
-p{
-	font-weight: bolder;
-}
-.tableApi_table th {
-	height: 20px;
-	text-align:left;
-	padding-left:20px;
-}
-.tableApi_table td {
-	text-align: left;
-	padding-left:20px;
-}
-.data_tr {
-       height: 30px;
-}
-</style>
+<script type="text/javascript" src="/client_function.js"></script>
+<script language="JavaScript" type="text/javascript" src="/js/table/table.js"></script>
 <script type="text/javascript" src="/validator.js"></script>
 <script>
 
@@ -375,7 +360,6 @@ function setShowNames(obj) {
 	draw_table("nat");
 	draw_table("route");
 }
-
 </script>
 </head>
 
