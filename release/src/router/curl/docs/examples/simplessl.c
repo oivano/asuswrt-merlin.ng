@@ -38,7 +38,7 @@
    3.2. set pEngine to the name of the crypto engine you use
    3.3. set pKeyName to the key identifier you want to use
    4.   if you do not use a crypto engine:
-   4.1. set pKeyName to the file name of your client key
+   4.1. set pKeyName to the filename of your client key
    4.2. if the format of the key file is DER, set pKeyType to "DER"
 
    !! verify of the server certificate is not implemented here !!
@@ -66,7 +66,7 @@ int main(void)
 #ifdef USE_ENGINE
   pKeyName  = "rsa_test";
   pKeyType  = "ENG";
-  pEngine   = "chil";            /* for nChiper HSM... */
+  pEngine   = "chil";            /* for nCipher HSM... */
 #else
   pKeyName  = "testkey.pem";
   pKeyType  = "PEM";
@@ -74,15 +74,21 @@ int main(void)
 #endif
 
   headerfile = fopen(pHeaderFile, "wb");
+  if(!headerfile)
+    return 1;
 
   curl_global_init(CURL_GLOBAL_DEFAULT);
 
   curl = curl_easy_init();
   if(curl) {
     /* what call to write: */
-    curl_easy_setopt(curl, CURLOPT_URL, "HTTPS://your.favourite.ssl.site");
+    curl_easy_setopt(curl, CURLOPT_URL, "HTTPS://secure.site.example");
     curl_easy_setopt(curl, CURLOPT_HEADERDATA, headerfile);
 
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable:4127)  /* conditional expression is constant */
+#endif
     do { /* dummy loop, just to break out from */
       if(pEngine) {
         /* use crypto engine */
@@ -94,7 +100,7 @@ int main(void)
         if(curl_easy_setopt(curl, CURLOPT_SSLENGINE_DEFAULT, 1L) != CURLE_OK) {
           /* set the crypto engine as default */
           /* only needed for the first time you load
-             a engine in a curl object... */
+             an engine in a curl object... */
           fprintf(stderr, "cannot set crypto engine as default\n");
           break;
         }
@@ -124,7 +130,7 @@ int main(void)
       /* disconnect if we cannot validate server's cert */
       curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
 
-      /* Perform the request, res will get the return code */
+      /* Perform the request, res gets the return code */
       res = curl_easy_perform(curl);
       /* Check for errors */
       if(res != CURLE_OK)
@@ -133,11 +139,16 @@ int main(void)
 
       /* we are done... */
     } while(0);
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
     /* always cleanup */
     curl_easy_cleanup(curl);
   }
 
   curl_global_cleanup();
+
+  fclose(headerfile);
 
   return 0;
 }

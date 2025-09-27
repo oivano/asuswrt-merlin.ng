@@ -33,9 +33,9 @@
 static const char data[]="Lorem ipsum dolor sit amet, consectetur adipiscing "
   "elit. Sed vel urna neque. Ut quis leo metus. Quisque eleifend, ex at "
   "laoreet rhoncus, odio ipsum semper metus, at tempus ante urna in mauris. "
-  "Suspendisse ornare tempor venenatis. Ut dui neque, pellentesque a varius "
+  "Suspendisse ornare tempor venenatis. Ut dui neque, pellentesque a ______ "
   "eget, mattis vitae ligula. Fusce ut pharetra est. Ut ullamcorper mi ac "
-  "sollicitudin semper. Praesent sit amet tellus varius, posuere nulla non, "
+  "sollicitudin semper. Praesent sit amet tellus ______, posuere nulla non, "
   "rhoncus ipsum.";
 
 struct WriteThis {
@@ -73,7 +73,7 @@ int main(void)
   wt.readptr = data;
   wt.sizeleft = strlen(data);
 
-  /* In windows, this will init the winsock stuff */
+  /* In Windows, this inits the Winsock stuff */
   res = curl_global_init(CURL_GLOBAL_DEFAULT);
   /* Check for errors */
   if(res != CURLE_OK) {
@@ -141,7 +141,7 @@ int main(void)
     }
 #endif
 
-    /* Perform the request, res will get the return code */
+    /* Perform the request, res gets the return code */
     res = curl_easy_perform(curl);
     /* Check for errors */
     if(res != CURLE_OK)

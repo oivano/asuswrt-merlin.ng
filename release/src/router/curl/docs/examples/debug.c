@@ -49,7 +49,7 @@ void dump(const char *text,
   fprintf(stream, "%s, %10.10lu bytes (0x%8.8lx)\n",
           text, (unsigned long)size, (unsigned long)size);
 
-  for(i = 0; i<size; i += width) {
+  for(i = 0; i < size; i += width) {
 
     fprintf(stream, "%4.4lx: ", (unsigned long)i);
 
@@ -70,7 +70,7 @@ void dump(const char *text,
         break;
       }
       fprintf(stream, "%c",
-              (ptr[i + c] >= 0x20) && (ptr[i + c]<0x80)?ptr[i + c]:'.');
+              (ptr[i + c] >= 0x20) && (ptr[i + c] < 0x80) ? ptr[i + c] : '.');
       /* check again for 0D0A, to avoid an extra \n if it's at width */
       if(nohex && (i + c + 2 < size) && ptr[i + c + 1] == 0x0D &&
          ptr[i + c + 2] == 0x0A) {
@@ -90,15 +90,12 @@ int my_trace(CURL *handle, curl_infotype type,
 {
   struct data *config = (struct data *)userp;
   const char *text;
-  (void)handle; /* prevent compiler warning */
+  (void)handle;
 
   switch(type) {
   case CURLINFO_TEXT:
     fprintf(stderr, "== Info: %s", data);
-    /* FALLTHROUGH */
-  default: /* in case a new one is introduced to shock us */
     return 0;
-
   case CURLINFO_HEADER_OUT:
     text = "=> Send header";
     break;
@@ -117,6 +114,8 @@ int my_trace(CURL *handle, curl_infotype type,
   case CURLINFO_SSL_DATA_IN:
     text = "<= Recv SSL data";
     break;
+  default: /* in case a new one is introduced to shock us */
+    return 0;
   }
 
   dump(text, stderr, (unsigned char *)data, size, config->trace_ascii);
@@ -129,7 +128,7 @@ int main(void)
   CURLcode res;
   struct data config;
 
-  config.trace_ascii = 1; /* enable ascii tracing */
+  config.trace_ascii = 1; /* enable ASCII tracing */
 
   curl = curl_easy_init();
   if(curl) {

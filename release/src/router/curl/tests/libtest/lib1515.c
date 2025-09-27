@@ -28,33 +28,19 @@
  * (test1515) nor a dead connection is detected (test1616).
  */
 
-#include "test.h"
-#include "testutil.h"
-#include "warnless.h"
+#include "first.h"
+
+#include "testtrace.h"
 #include "memdebug.h"
 
-#define TEST_HANG_TIMEOUT 60 * 1000
+#define DNS_TIMEOUT 1L
 
-#define DNS_TIMEOUT 1
-
-static int debug_callback(CURL *curl, curl_infotype info, char *msg,
-                          size_t len, void *ptr)
-{
-  (void)curl;
-  (void)ptr;
-
-  if(info == CURLINFO_TEXT)
-    fprintf(stderr, "debug: %.*s", (int) len, msg);
-
-  return 0;
-}
-
-static int do_one_request(CURLM *m, char *URL, char *resolve)
+static CURLcode do_one_request(CURLM *m, const char *URL, const char *resolve)
 {
   CURL *curls;
   struct curl_slist *resolve_list = NULL;
   int still_running;
-  int res = 0;
+  CURLcode res = CURLE_OK;
   CURLMsg *msg;
   int msgs_left;
 
@@ -64,9 +50,13 @@ static int do_one_request(CURLM *m, char *URL, char *resolve)
 
   easy_setopt(curls, CURLOPT_URL, URL);
   easy_setopt(curls, CURLOPT_RESOLVE, resolve_list);
-  easy_setopt(curls, CURLOPT_DEBUGFUNCTION, debug_callback);
-  easy_setopt(curls, CURLOPT_VERBOSE, 1);
   easy_setopt(curls, CURLOPT_DNS_CACHE_TIMEOUT, DNS_TIMEOUT);
+
+  debug_config.nohex = TRUE;
+  debug_config.tracetime = TRUE;
+  easy_setopt(curls, CURLOPT_DEBUGDATA, &debug_config);
+  easy_setopt(curls, CURLOPT_DEBUGFUNCTION, libtest_debug_cb);
+  easy_setopt(curls, CURLOPT_VERBOSE, 1L);
 
   multi_add_handle(m, curls);
   multi_perform(m, &still_running);
@@ -110,37 +100,40 @@ test_cleanup:
   return res;
 }
 
-int test(char *URL)
+static CURLcode test_lib1515(const char *URL)
 {
   CURLM *multi = NULL;
-  int res = 0;
-  char *address = libtest_arg2;
-  char *port = libtest_arg3;
-  char *path = URL;
+  CURLcode res = CURLE_OK;
+  const char *path = URL;
+  const char *address = libtest_arg2;
+  const char *port = libtest_arg3;
   char dns_entry[256];
   int i;
   int count = 2;
 
-  msnprintf(dns_entry, sizeof(dns_entry), "testserver.example.com:%s:%s",
-            port, address);
+  curl_msnprintf(dns_entry, sizeof(dns_entry), "testserver.example.com:%s:%s",
+                 port, address);
 
   start_test_timing();
 
   global_init(CURL_GLOBAL_ALL);
+  curl_global_trace("all");
   multi_init(multi);
 
   for(i = 1; i <= count; i++) {
     char target_url[256];
-    msnprintf(target_url, sizeof(target_url),
-              "http://testserver.example.com:%s/%s%04d", port, path, i);
+    curl_msnprintf(target_url, sizeof(target_url),
+                   "http://testserver.example.com:%s/%s%04d", port, path, i);
 
     /* second request must succeed like the first one */
     res = do_one_request(multi, target_url, dns_entry);
-    if(res)
+    if(res != CURLE_OK) {
+      curl_mfprintf(stderr, "request %s failed with %d\n", target_url, res);
       goto test_cleanup;
+    }
 
     if(i < count)
-      sleep(DNS_TIMEOUT + 1);
+      curlx_wait_ms((DNS_TIMEOUT + 1) * 1000);
   }
 
 test_cleanup:
@@ -148,5 +141,5 @@ test_cleanup:
   curl_multi_cleanup(multi);
   curl_global_cleanup();
 
-  return (int) res;
+  return res;
 }

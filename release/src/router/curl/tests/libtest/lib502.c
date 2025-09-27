@@ -21,23 +21,19 @@
  * SPDX-License-Identifier: curl
  *
  ***************************************************************************/
-#include "test.h"
+#include "first.h"
 
-#include "testutil.h"
-#include "warnless.h"
 #include "memdebug.h"
-
-#define TEST_HANG_TIMEOUT 60 * 1000
 
 /*
  * Get a single URL without select().
  */
 
-int test(char *URL)
+static CURLcode test_lib502(const char *URL)
 {
   CURL *c = NULL;
   CURLM *m = NULL;
-  int res = 0;
+  CURLcode res = CURLE_OK;
   int running;
 
   start_test_timing();

@@ -21,30 +21,27 @@
  * SPDX-License-Identifier: curl
  *
  ***************************************************************************/
-#include "test.h"
+#include "first.h"
 
 #include "memdebug.h"
 
-static char data[]=
-  "dummy\n";
-
-struct WriteThis {
-  char *readptr;
+struct t654_WriteThis {
+  const char *readptr;
   curl_off_t sizeleft;
   int freecount;
 };
 
 static void free_callback(void *userp)
 {
-  struct WriteThis *pooh = (struct WriteThis *) userp;
+  struct t654_WriteThis *pooh = (struct t654_WriteThis *) userp;
 
   pooh->freecount++;
 }
 
-static size_t read_callback(char *ptr, size_t size, size_t nmemb, void *userp)
+static size_t t654_read_cb(char *ptr, size_t size, size_t nmemb, void *userp)
 {
-  struct WriteThis *pooh = (struct WriteThis *)userp;
-  int eof = !*pooh->readptr;
+  struct t654_WriteThis *pooh = (struct t654_WriteThis *)userp;
+  int eof;
 
   if(size*nmemb < 1)
     return 0;
@@ -62,16 +59,17 @@ static size_t read_callback(char *ptr, size_t size, size_t nmemb, void *userp)
   return 0;                         /* no more data left to deliver */
 }
 
-int test(char *URL)
+static CURLcode test_lib654(const char *URL)
 {
+  static const char testdata[] = "dummy\n";
+
   CURL *easy = NULL;
   CURL *easy2 = NULL;
   curl_mime *mime = NULL;
   curl_mimepart *part;
   struct curl_slist *hdrs = NULL;
-  CURLcode result;
-  int res = TEST_ERR_FAILURE;
-  struct WriteThis pooh;
+  CURLcode res = TEST_ERR_FAILURE;
+  struct t654_WriteThis pooh;
 
   /*
    * Check proper copy/release of mime post data bound to a duplicated
@@ -79,7 +77,7 @@ int test(char *URL)
    */
 
   if(curl_global_init(CURL_GLOBAL_ALL) != CURLE_OK) {
-    fprintf(stderr, "curl_global_init() failed\n");
+    curl_mfprintf(stderr, "curl_global_init() failed\n");
     return TEST_ERR_MAJOR_BAD;
   }
 
@@ -95,8 +93,8 @@ int test(char *URL)
   test_setopt(easy, CURLOPT_HEADER, 1L);
 
   /* Prepare the callback structure. */
-  pooh.readptr = data;
-  pooh.sizeleft = (curl_off_t) strlen(data);
+  pooh.readptr = testdata;
+  pooh.sizeleft = (curl_off_t) strlen(testdata);
   pooh.freecount = 0;
 
   /* Build the mime tree. */
@@ -111,8 +109,8 @@ int test(char *URL)
   part = curl_mime_addpart(mime);
   curl_mime_filedata(part, libtest_arg2);
   part = curl_mime_addpart(mime);
-  curl_mime_data_cb(part, (curl_off_t) -1, read_callback, NULL, free_callback,
-                    &pooh);
+  curl_mime_data_cb(part, (curl_off_t) -1, t654_read_cb, NULL,
+                    free_callback, &pooh);
 
   /* Bind mime data to its easy handle. */
   test_setopt(easy, CURLOPT_MIMEPOST, mime);
@@ -120,7 +118,7 @@ int test(char *URL)
   /* Duplicate the handle. */
   easy2 = curl_easy_duphandle(easy);
   if(!easy2) {
-    fprintf(stderr, "curl_easy_duphandle() failed\n");
+    curl_mfprintf(stderr, "curl_easy_duphandle() failed\n");
     res = TEST_ERR_FAILURE;
     goto test_cleanup;
   }
@@ -131,19 +129,17 @@ int test(char *URL)
   mime = NULL;  /* Already cleaned up. */
 
   /* Perform on the first handle: should not send any data. */
-  result = curl_easy_perform(easy);
-  if(result) {
-    fprintf(stderr, "curl_easy_perform(original) failed\n");
-    res = (int) result;
+  res = curl_easy_perform(easy);
+  if(res != CURLE_OK) {
+    curl_mfprintf(stderr, "curl_easy_perform(original) failed\n");
     goto test_cleanup;
   }
 
   /* Perform on the second handle: if the bound mime structure has not been
      duplicated properly, it should cause a valgrind error. */
-  result = curl_easy_perform(easy2);
-  if(result) {
-    fprintf(stderr, "curl_easy_perform(duplicated) failed\n");
-    res = (int) result;
+  res = curl_easy_perform(easy2);
+  if(res != CURLE_OK) {
+    curl_mfprintf(stderr, "curl_easy_perform(duplicated) failed\n");
     goto test_cleanup;
   }
 
@@ -154,8 +150,8 @@ int test(char *URL)
   easy2 = NULL;  /* Already cleaned up. */
 
   if(pooh.freecount != 2) {
-    fprintf(stderr, "free_callback() called %d times instead of 2\n",
-            pooh.freecount);
+    curl_mfprintf(stderr, "free_callback() called %d times instead of 2\n",
+                  pooh.freecount);
     res = TEST_ERR_FAILURE;
     goto test_cleanup;
   }

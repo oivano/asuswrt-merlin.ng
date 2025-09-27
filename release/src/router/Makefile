@@ -6961,13 +6961,15 @@ curl/Makefile: curl/configure
 		--prefix=/usr --bindir=/usr/sbin --libdir=/usr/lib \
 		--enable-silent-rules \
 		--disable-debug --disable-curldebug \
+		--disable-docs \
 		--enable-http --enable-ftp --enable-file \
 		--disable-ldap --disable-ldaps --disable-rtsp \
 		--disable-proxy --disable-dict --disable-telnet \
 		--disable-tftp  \
+		--without-libpsl \
 		--disable-gopher \
 		--disable-manual --disable-libcurl-option $(if $(RTCONFIG_IPV6),--enable-ipv6,--disable-ipv6) \
-		--disable-threaded-resolver --disable-ntlm-wb \
+		--disable-threaded-resolver \
 		--disable-doh --disable-netrc --disable-dnsshuffle \
 		$(if $(RTCONFIG_TR069),--with-libssh2=$(STAGEDIR)/usr,--without-zlib) \
 		$(if $(RTCONFIG_OPENSSL11)$(RTCONFIG_OPENSSL10),--with-ssl=$(TOP)/openssl --with-ca-fallback,--without-ssl) \

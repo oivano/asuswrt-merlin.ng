@@ -87,7 +87,7 @@ int main(void)
     struct state st = {0};
 
     /* enable HSTS for this handle */
-    curl_easy_setopt(curl, CURLOPT_HSTS_CTRL, (long)CURLHSTS_ENABLE);
+    curl_easy_setopt(curl, CURLOPT_HSTS_CTRL, CURLHSTS_ENABLE);
 
     /* function to call at first to populate the cache before the transfer */
     curl_easy_setopt(curl, CURLOPT_HSTSREADFUNCTION, hstsread);
@@ -104,7 +104,7 @@ int main(void)
 
     curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
 
-    /* Perform the request, res will get the return code */
+    /* Perform the request, res gets the return code */
     res = curl_easy_perform(curl);
     /* Check for errors */
     if(res != CURLE_OK)

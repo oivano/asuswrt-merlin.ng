@@ -29,8 +29,9 @@ pop3
 </server>
 <features>
 !SSPI
-debug
+Debug
 crypto
+digest
 </features>
 <name>
 POP3 DIGEST-MD5 graceful cancellation

@@ -21,13 +21,9 @@
  * SPDX-License-Identifier: curl
  *
  ***************************************************************************/
-#include "test.h"
+#include "first.h"
 
-#include "testutil.h"
-#include "warnless.h"
 #include "memdebug.h"
-
-#define TEST_HANG_TIMEOUT 60 * 1000
 
 /*
  * Simply download an HTTPS file!
@@ -39,11 +35,11 @@
  * fast/different compared to the real/distant servers we saw the bug happen
  * with.
  */
-int test(char *URL)
+static CURLcode test_lib560(const char *URL)
 {
   CURL *http_handle = NULL;
   CURLM *multi_handle = NULL;
-  int res = 0;
+  CURLcode res = CURLE_OK;
 
   int still_running; /* keep number of running handles */
 

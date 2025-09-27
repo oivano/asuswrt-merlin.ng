@@ -28,9 +28,15 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#ifdef UNDER_CE
+#define strerror(e) "?"
+#else
 #include <errno.h>
-#ifdef WIN32
+#endif
+#ifdef _WIN32
 #include <io.h>
+#undef stat
+#define stat _stat
 #else
 #include <unistd.h>
 #endif
@@ -46,10 +52,10 @@
 #define REMOTE_URL      "ftp://example.com/"  UPLOAD_FILE_AS
 #define RENAME_FILE_TO  "renamed-and-fine.txt"
 
-/* NOTE: if you want this example to work on Windows with libcurl as a
-   DLL, you MUST also provide a read callback with CURLOPT_READFUNCTION.
-   Failing to do so will give you a crash since a DLL may not use the
-   variable's memory when passed in to it from an app like this. */
+/* NOTE: if you want this example to work on Windows with libcurl as a DLL,
+   you MUST also provide a read callback with CURLOPT_READFUNCTION. Failing to
+   do so might give you a crash since a DLL may not use the variable's memory
+   when passed in to it from an app like this. */
 static size_t read_callback(char *ptr, size_t size, size_t nmemb, void *stream)
 {
   unsigned long nread;
@@ -89,8 +95,10 @@ int main(void)
 
   /* get a FILE * of the same file */
   hd_src = fopen(LOCAL_FILE, "rb");
+  if(!hd_src)
+    return 2;
 
-  /* In windows, this will init the winsock stuff */
+  /* In Windows, this inits the Winsock stuff */
   curl_global_init(CURL_GLOBAL_ALL);
 
   /* get a curl handle */

@@ -30,6 +30,19 @@
 #include <string.h>
 #include <curl/curl.h>
 
+/* Avoid warning in FD_SET() with pre-2020 Cygwin/MSYS releases:
+ * warning: conversion to 'long unsigned int' from 'curl_socket_t' {aka 'int'}
+ * may change the sign of the result [-Wsign-conversion]
+ */
+#ifdef __GNUC__
+#pragma GCC diagnostic ignored "-Wsign-conversion"
+#ifdef __DJGPP__
+#pragma GCC diagnostic ignored "-Warith-conversion"
+#endif
+#elif defined(_MSC_VER)
+#pragma warning(disable:4127)  /* conditional expression is constant */
+#endif
+
 /* Auxiliary function that waits on the socket. */
 static int wait_on_socket(curl_socket_t sockfd, int for_recv, long timeout_ms)
 {
@@ -37,8 +50,13 @@ static int wait_on_socket(curl_socket_t sockfd, int for_recv, long timeout_ms)
   fd_set infd, outfd, errfd;
   int res;
 
+#if defined(MSDOS) || defined(__AMIGA__)
+  tv.tv_sec = (time_t)(timeout_ms / 1000);
+  tv.tv_usec = (time_t)(timeout_ms % 1000) * 1000;
+#else
   tv.tv_sec = timeout_ms / 1000;
   tv.tv_usec = (int)(timeout_ms % 1000) * 1000;
+#endif
 
   FD_ZERO(&infd);
   FD_ZERO(&outfd);
@@ -89,8 +107,7 @@ int main(void)
       return 1;
     }
 
-    /* Extract the socket from the curl handle - we will need it for
-       waiting. */
+    /* Extract the socket from the curl handle - we need it for waiting. */
     res = curl_easy_getinfo(curl, CURLINFO_ACTIVESOCKET, &sockfd);
 
     if(res != CURLE_OK) {

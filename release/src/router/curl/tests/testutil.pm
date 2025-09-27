@@ -37,9 +37,12 @@ BEGIN {
         runclient
         runclientoutput
         setlogfunc
+        exerunner
         shell_quote
         subbase64
         subnewlines
+        subsha256base64file
+        substrippemfile
     );
 
     our @EXPORT_OK = qw(
@@ -48,12 +51,14 @@ BEGIN {
     );
 }
 
+use Digest::SHA qw(sha256);
 use MIME::Base64;
 
 use globalconfig qw(
     $torture
     $verbose
-);
+    $dev_null
+    );
 
 my $logfunc;      # optional reference to function for logging
 my @logmessages;  # array holding logged messages
@@ -94,6 +99,15 @@ sub clearlogs {
 
 
 #######################################################################
+
+sub includefile {
+    my ($f) = @_;
+    open(F, "<$f");
+    my @a = <F>;
+    close(F);
+    return join("", @a);
+}
+
 sub subbase64 {
     my ($thing) = @_;
 
@@ -113,13 +127,29 @@ sub subbase64 {
         $d =~ s/%([0-9A-Fa-f]{2})/chr(hex($1))/eg;
         $$thing =~ s/%%HEX%%/$d/;
     }
+    # repeat
     while($$thing =~ s/%repeat\[(\d+) x (.*?)\]%/%%REPEAT%%/i) {
         # decode %NN characters
         my ($d, $n) = ($2, $1);
         $d =~ s/%([0-9A-Fa-f]{2})/chr(hex($1))/eg;
+        $n =~ s/%([0-9A-Fa-f]{2})/chr(hex($1))/eg;
         my $all = $d x $n;
         $$thing =~ s/%%REPEAT%%/$all/;
     }
+
+    # days
+    while($$thing =~ s/%days\[(.*?)\]/%%DAYS%%/i) {
+        # convert to now + given days in epoch seconds, align to a 60 second
+        # boundary. Then provide two alternatives.
+        my $now = time();
+        my $d = ($1 * 24 * 3600) + $now + 30;
+        $d = int($d/60) * 60;
+        my $d2 = $d + 60;
+        $$thing =~ s/%%DAYS%%/%alternatives[$d,$d2]/;
+    }
+
+    # include a file
+    $$thing =~ s/%include ([^%]*)%[\n\r]+/includefile($1)/ge;
 }
 
 my $prevupdate;  # module scope so it remembers the last value
@@ -131,13 +161,6 @@ sub subnewlines {
         $$thing =~ s/\x0d*\x0a/\x0d\x0a/;
         return;
     }
-
-    # When curl is built with Hyper, it gets all response headers delivered as
-    # name/value pairs and curl "invents" the newlines when it saves the
-    # headers. Therefore, curl will always save headers with CRLF newlines
-    # when built to use Hyper. By making sure we deliver all tests using CRLF
-    # as well, all test comparisons will survive without knowing about this
-    # little quirk.
 
     if(($$thing =~ /^HTTP\/(1.1|1.0|2|3) [1-5][^\x0d]*\z/) ||
        ($$thing =~ /^(GET|POST|PUT|DELETE) \S+ HTTP\/\d+(\.\d+)?/) ||
@@ -178,7 +201,7 @@ sub runclient {
 #
 sub runclientoutput {
     my ($cmd)=@_;
-    return `$cmd 2>/dev/null`;
+    return `$cmd 2>$dev_null`;
 
 # This is one way to test curl on a remote machine
 #    my @out = `ssh $CLIENTIP cd \'$pwd\' \\; \'$cmd\'`;
@@ -186,6 +209,15 @@ sub runclientoutput {
 #    return @out;
 }
 
+#######################################################################
+# Return custom tool (e.g. wine or qemu) to run curl binaries.
+#
+sub exerunner {
+    if($ENV{'CURL_TEST_EXE_RUNNER'}) {
+        return $ENV{'CURL_TEST_EXE_RUNNER'} . ' ';
+    }
+    return '';
+}
 
 #######################################################################
 # Quote an argument for passing safely to a Bourne shell
@@ -193,12 +225,54 @@ sub runclientoutput {
 #
 sub shell_quote {
     my ($s)=@_;
-    if($s !~ m/^[-+=.,_\/:a-zA-Z0-9]+$/) {
-        # string contains a "dangerous" character--quote it
-        $s =~ s/'/'"'"'/g;
-        $s = "'" . $s . "'";
+    if($^O eq 'MSWin32') {
+        $s = '"' . $s . '"';
+    }
+    else {
+        if($s !~ m/^[-+=.,_\/:a-zA-Z0-9]+$/) {
+            # string contains a "dangerous" character--quote it
+            $s =~ s/'/'"'"'/g;
+            $s = "'" . $s . "'";
+        }
     }
     return $s;
 }
 
+sub get_sha256_base64 {
+    my ($file_path) = @_;
+    return encode_base64(sha256(do { local $/; open my $fh, '<:raw', $file_path or die $!; <$fh> }), "");
+}
+
+sub subsha256base64file {
+    my ($thing) = @_;
+
+    # SHA-256 base64
+    while($$thing =~ s/%sha256b64file\[(.*?)\]sha256b64file%/%%SHA256B64FILE%%/i) {
+        my $file_path = $1;
+        $file_path =~ s/%([0-9A-Fa-f]{2})/chr(hex($1))/eg;
+        my $hash_b64 = get_sha256_base64($file_path);
+        $$thing =~ s/%%SHA256B64FILE%%/$hash_b64/;
+    }
+}
+
+sub get_file_content {
+    my ($file_path) = @_;
+    my $content = do { local $/; open my $fh, '<', $file_path or die $!; <$fh> };
+    $content =~ s/(^|-----END .*?-----[\r\n]?)(.*?)(-----BEGIN .*?-----|$)/$1$3/gs;
+    $content =~ s/\r\n/\n/g;
+    chomp($content);
+    return $content;
+}
+
+sub substrippemfile {
+    my ($thing) = @_;
+
+    # File content substitution
+    while($$thing =~ s/%strippemfile\[(.*?)\]strippemfile%/%%FILE%%/i) {
+        my $file_path = $1;
+        $file_path =~ s/%([0-9A-Fa-f]{2})/chr(hex($1))/eg;
+        my $file_content = get_file_content($file_path);
+        $$thing =~ s/%%FILE%%/$file_content/;
+    }
+}
 1;

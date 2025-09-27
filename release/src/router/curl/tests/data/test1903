@@ -2,36 +2,13 @@
 <info>
 <keywords>
 HTTP
-<<<<<<< HEAD
-pipelining
-multi
-flaky
-=======
 cookies
 CURLOPT_COOKIEFILE
->>>>>>> 386.12
 </keywords>
 </info>
 
 # Server-side
 <reply>
-<<<<<<< HEAD
-<data>
-Adding handle 0
-Handle 0 Completed with status 0
-Adding handle 1
-Adding handle 2
-Adding handle 3
-Adding handle 4
-Adding handle 5
-Adding handle 6
-Handle 2 Completed with status 0
-Handle 3 Completed with status 0
-Handle 4 Completed with status 0
-Handle 5 Completed with status 0
-Handle 6 Completed with status 0
-Handle 1 Completed with status 0
-=======
 <data nocheck="yes" crlf="yes">
 HTTP/1.1 200 OK
 Date: Tue, 09 Nov 2010 14:49:00 GMT
@@ -41,37 +18,12 @@ Funny-head: yesyes swsclose
 Set-Cookie: foobar=name;
 Set-Cookie: secondcookie=present;
 
->>>>>>> 386.12
 </data>
 </reply>
 
 # Client-side
 <client>
 <server>
-<<<<<<< HEAD
-http-pipe
-</server>
-<features>
-http
-</features>
-<tool>
-lib1900
-</tool>
- <name>
-HTTP GET using pipelining, penalized on content-length
- </name>
- <command>
-http://%HOSTIP:%HTTPPIPEPORT/ log/urls1903.txt
-</command>
-<file name="log/urls1903.txt">
-0 1k.txt
-1000 100k.txt
-550 alphabet.txt
-10 alphabet.txt
-10 alphabet.txt
-10 alphabet.txt
-10 alphabet.txt
-=======
 http
 </server>
 <name>
@@ -93,7 +45,6 @@ cookies
 
 %HOSTIP	FALSE	/we/want/	FALSE	0	secondcookie	present
 %HOSTIP	FALSE	/we/want/	FALSE	0	foobar	name
->>>>>>> 386.12
 </file>
 </client>
 

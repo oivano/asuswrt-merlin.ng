@@ -21,30 +21,10 @@
  * SPDX-License-Identifier: curl
  *
  ***************************************************************************/
-#include "test.h"
+#include "first.h"
 
-#include "testutil.h"
-#include "warnless.h"
+#include "testtrace.h"
 #include "memdebug.h"
-
-struct entry {
-  const char *name;
-  const char *exp;
-};
-
-static const struct entry preload_hosts[] = {
-#if (SIZEOF_TIME_T < 5)
-  { "1.example.com", "20370320 01:02:03" },
-  { "2.example.com", "20370320 03:02:01" },
-  { "3.example.com", "20370319 01:02:03" },
-#else
-  { "1.example.com", "25250320 01:02:03" },
-  { "2.example.com", "25250320 03:02:01" },
-  { "3.example.com", "25250319 01:02:03" },
-#endif
-  { "4.example.com", "" },
-  { NULL, NULL } /* end of list marker */
-};
 
 struct state {
   int index;
@@ -54,6 +34,25 @@ struct state {
 static CURLSTScode hstsread(CURL *easy, struct curl_hstsentry *e,
                             void *userp)
 {
+  struct entry {
+    const char *name;
+    const char *exp;
+  };
+
+  static const struct entry preload_hosts[] = {
+#if (SIZEOF_TIME_T < 5)
+    { "1.example.com", "20370320 01:02:03" },
+    { "2.example.com", "20370320 03:02:01" },
+    { "3.example.com", "20370319 01:02:03" },
+#else
+    { "1.example.com", "25250320 01:02:03" },
+    { "2.example.com", "25250320 03:02:01" },
+    { "3.example.com", "25250319 01:02:03" },
+#endif
+    { "4.example.com", "" },
+    { NULL, NULL } /* end of list marker */
+  };
+
   const char *host;
   const char *expire;
   struct state *s = (struct state *)userp;
@@ -65,7 +64,7 @@ static CURLSTScode hstsread(CURL *easy, struct curl_hstsentry *e,
     strcpy(e->name, host);
     e->includeSubDomains = FALSE;
     strcpy(e->expire, expire);
-    fprintf(stderr, "add '%s'\n", host);
+    curl_mfprintf(stderr, "add '%s'\n", host);
   }
   else
     return CURLSTS_DONE;
@@ -88,7 +87,7 @@ static CURLSTScode hstswrite(CURL *easy, struct curl_hstsentry *e,
 {
   (void)easy;
   (void)userp;
-  printf("[%zu/%zu] %s %s\n", i->index, i->total, e->name, e->expire);
+  curl_mprintf("[%zu/%zu] %s %s\n", i->index, i->total, e->name, e->expire);
   return CURLSTS_OK;
 }
 
@@ -96,7 +95,7 @@ static CURLSTScode hstswrite(CURL *easy, struct curl_hstsentry *e,
  * Read/write HSTS cache entries via callback.
  */
 
-int test(char *URL)
+static CURLcode test_lib1915(const char *URL)
 {
   CURLcode res = CURLE_OK;
   CURL *hnd;
@@ -104,33 +103,46 @@ int test(char *URL)
 
   global_init(CURL_GLOBAL_ALL);
 
+  debug_config.nohex = TRUE;
+  debug_config.tracetime = TRUE;
+
   easy_init(hnd);
   easy_setopt(hnd, CURLOPT_URL, URL);
+  easy_setopt(hnd, CURLOPT_CONNECTTIMEOUT, 1L);
   easy_setopt(hnd, CURLOPT_HSTSREADFUNCTION, hstsread);
   easy_setopt(hnd, CURLOPT_HSTSREADDATA, &st);
   easy_setopt(hnd, CURLOPT_HSTSWRITEFUNCTION, hstswrite);
   easy_setopt(hnd, CURLOPT_HSTSWRITEDATA, &st);
   easy_setopt(hnd, CURLOPT_HSTS_CTRL, CURLHSTS_ENABLE);
+  easy_setopt(hnd, CURLOPT_DEBUGDATA, &debug_config);
+  easy_setopt(hnd, CURLOPT_DEBUGFUNCTION, libtest_debug_cb);
+  easy_setopt(hnd, CURLOPT_VERBOSE, 1L);
   res = curl_easy_perform(hnd);
   curl_easy_cleanup(hnd);
   hnd = NULL;
-  printf("First request returned %d\n", (int)res);
+  if(res == CURLE_OPERATION_TIMEDOUT) /* we expect that on Windows */
+    res = CURLE_COULDNT_CONNECT;
+  curl_mprintf("First request returned %d\n", res);
   res = CURLE_OK;
 
   easy_init(hnd);
   easy_setopt(hnd, CURLOPT_URL, URL);
+  easy_setopt(hnd, CURLOPT_CONNECTTIMEOUT, 1L);
   easy_setopt(hnd, CURLOPT_HSTSREADFUNCTION, hstsreadfail);
   easy_setopt(hnd, CURLOPT_HSTSREADDATA, &st);
   easy_setopt(hnd, CURLOPT_HSTSWRITEFUNCTION, hstswrite);
   easy_setopt(hnd, CURLOPT_HSTSWRITEDATA, &st);
   easy_setopt(hnd, CURLOPT_HSTS_CTRL, CURLHSTS_ENABLE);
+  easy_setopt(hnd, CURLOPT_DEBUGDATA, &debug_config);
+  easy_setopt(hnd, CURLOPT_DEBUGFUNCTION, libtest_debug_cb);
+  easy_setopt(hnd, CURLOPT_VERBOSE, 1L);
   res = curl_easy_perform(hnd);
   curl_easy_cleanup(hnd);
   hnd = NULL;
-  printf("Second request returned %d\n", (int)res);
+  curl_mprintf("Second request returned %d\n", res);
 
 test_cleanup:
   curl_easy_cleanup(hnd);
   curl_global_cleanup();
-  return (int)res;
+  return res;
 }

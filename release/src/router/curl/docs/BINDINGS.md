@@ -1,3 +1,9 @@
+<!--
+Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
+
+SPDX-License-Identifier: curl
+-->
+
 libcurl bindings
 ================
 
@@ -37,7 +43,7 @@ Clojure: [clj-curl](https://github.com/lsevero/clj-curl) by Lucas Severo
 
 [Euphoria](https://web.archive.org/web/20050204080544/rays-web.com/eulibcurl.htm) Written by Ray Smith
 
-[Falcon](http://www.falconpl.org/project_docs/curl/)
+[Falcon](https://web.archive.org/web/20240130001835/www.falconpl.org/project_docs/curl/)
 
 [Ferite](https://web.archive.org/web/20150102192018/ferite.org/) Written by Paul Querna
 
@@ -57,13 +63,15 @@ Go: [go-curl](https://github.com/andelf/go-curl) by ShuYu Wang
 
 [Hollywood](https://www.hollywood-mal.com/download.html) hURL by Andreas Falkenhahn
 
-[Java](https://github.com/pjlegato/curl-java)
+[Java](https://github.com/covers1624/curl4j)
 
 [Julia](https://github.com/JuliaWeb/LibCURL.jl) Written by Amit Murthy
 
 [Kapito](https://github.com/puzza007/katipo) is an Erlang HTTP library around libcurl.
 
 [Lisp](https://common-lisp.net/project/cl-curl/) Written by Liam Healy
+
+[LibQurl](https://github.com/Qriist/LibQurl) a feature rich AutoHotKey v2 (AHKv2) wrapper around libcurl.
 
 Lua: [luacurl](https://web.archive.org/web/20201205052437/luacurl.luaforge.net/) by Alexander Marinov, [Lua-cURL](https://github.com/Lua-cURL) by Jürgen Hötzel
 
@@ -96,6 +104,8 @@ Bailiff and Bálint Szilakszi,
 
 [Python](http://pycurl.io/) PycURL by Kjetil Jacobsen
 
+[Python](https://pypi.org/project/pymcurl/) mcurl by Ganesh Viswanathan
+
 [Q](https://q-lang.sourceforge.net/) The libcurl module is part of the default install
 
 [R](https://cran.r-project.org/package=curl)
@@ -125,6 +135,8 @@ Ruby: [curb](https://github.com/taf2/curb) written by Ross Bamford,
 
 [Tcl](https://web.archive.org/web/20160826011806/mirror.yellow5.com/tclcurl/) Tclcurl by Andrés García
 
+[Vibe](https://github.com/ttytm/vibe) HTTP requests through libcurl in V
+
 [Visual Basic](https://sourceforge.net/projects/libcurl-vb/) libcurl-vb by Jeffrey Phillips
 
 [Visual Foxpro](https://web.archive.org/web/20130730181523/www.ctl32.com.ar/libcurl.asp) by Carlos Alloatti
@@ -134,3 +146,5 @@ Ruby: [curb](https://github.com/taf2/curb) written by Ross Bamford,
 [XBLite](https://web.archive.org/web/20060426150418/perso.wanadoo.fr/xblite/libraries.html) Written by David Szafranski
 
 [Xojo](https://github.com/charonn0/RB-libcURL) Written by Andrew Lambert
+
+[Zig](https://github.com/jiacai2050/zig-curl) Written by Jiacai Liu, both easy and multi API are supported.

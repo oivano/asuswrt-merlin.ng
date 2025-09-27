@@ -60,10 +60,11 @@ http
 <features>
 !SSPI
 crypto
+digest
 </features>
 # tool is what to use instead of 'curl'
 <tool>
-lib%TESTNUMBER
+lib510
 </tool>
 
 <name>
@@ -100,11 +101,7 @@ one
 two
 5
 three
-%if hyper
-1D
-%else
 1d
-%endif
 and a final longer crap: four
 0
 

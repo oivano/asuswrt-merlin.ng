@@ -30,6 +30,11 @@
 #include <sys/stat.h>
 #include <curl/curl.h>
 
+#ifdef _WIN32
+#undef stat
+#define stat _stat
+#endif
+
 /*
  * This example shows an HTTP PUT operation. PUTs a file given as a command
  * line argument to the URL also given on the command line.
@@ -81,8 +86,10 @@ int main(int argc, char **argv)
      fdopen() from the previous descriptor, but hey this is just
      an example! */
   hd_src = fopen(file, "rb");
+  if(!hd_src)
+    return 2;
 
-  /* In windows, this will init the winsock stuff */
+  /* In Windows, this inits the Winsock stuff */
   curl_global_init(CURL_GLOBAL_ALL);
 
   /* get a curl handle */

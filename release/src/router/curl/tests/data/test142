@@ -186,5 +186,8 @@ SIZE %TESTNUMBER
 RETR %TESTNUMBER
 QUIT
 </protocol>
+<limits>
+Allocations: 170
+</limits>
 </verify>
 </testcase>

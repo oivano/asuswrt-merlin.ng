@@ -29,10 +29,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* somewhat unix-specific */
-#include <sys/time.h>
-#include <unistd.h>
-
 /* curl stuff */
 #include <curl/curl.h>
 
@@ -101,8 +97,8 @@ static int server_push_callback(CURL *parent,
 {
   char *headp;
   int *transfers = (int *)userp;
-  (void)parent; /* we have no use for this */
-  (void)num_headers; /* unused */
+  (void)parent;
+  (void)num_headers;
 
   if(pushindex == MAX_FILES)
     /* cannot fit anymore */

@@ -26,7 +26,7 @@
  * </DESC>
  */
 #include <stdio.h>
-#include <unistd.h>
+
 #include <curl/curl.h>
 
 int main(void)
@@ -44,7 +44,7 @@ int main(void)
     /* get the first document */
     curl_easy_setopt(curl, CURLOPT_URL, "https://example.com/");
 
-    /* Perform the request, res will get the return code */
+    /* Perform the request, res gets the return code */
     res = curl_easy_perform(curl);
     /* Check for errors */
     if(res != CURLE_OK)
@@ -55,7 +55,7 @@ int main(void)
        connection */
     curl_easy_setopt(curl, CURLOPT_URL, "https://example.com/docs/");
 
-    /* Perform the request, res will get the return code */
+    /* Perform the request, res gets the return code */
     res = curl_easy_perform(curl);
     /* Check for errors */
     if(res != CURLE_OK)

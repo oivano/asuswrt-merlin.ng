@@ -21,24 +21,24 @@
  * SPDX-License-Identifier: curl
  *
  ***************************************************************************/
-#include "test.h"
+#include "first.h"
 
-static char data[]="mooaaa";
-
-struct WriteThis {
+struct t1662_WriteThis {
   size_t sizeleft;
 };
 
-static size_t read_callback(char *ptr, size_t size, size_t nmemb, void *userp)
+static size_t t1662_read_cb(char *ptr, size_t size, size_t nmemb, void *userp)
 {
-  struct WriteThis *pooh = (struct WriteThis *)userp;
-  size_t len = strlen(data);
+  static const char testdata[] = "mooaaa";
+
+  struct t1662_WriteThis *pooh = (struct t1662_WriteThis *)userp;
+  size_t len = strlen(testdata);
 
   if(size*nmemb < len)
     return 0;
 
   if(pooh->sizeleft) {
-    memcpy(ptr, data, strlen(data));
+    memcpy(ptr, testdata, strlen(testdata));
     pooh->sizeleft = 0;
     return len;
   }
@@ -46,14 +46,13 @@ static size_t read_callback(char *ptr, size_t size, size_t nmemb, void *userp)
   return 0;                         /* no more data left to deliver */
 }
 
-
-int test(char *URL)
+static CURLcode test_lib1662(const char *URL)
 {
   CURLcode res = CURLE_OK;
   CURL *hnd;
   curl_mime *mime1;
   curl_mimepart *part1;
-  struct WriteThis pooh = { 1 };
+  struct t1662_WriteThis pooh = { 1 };
 
   mime1 = NULL;
 
@@ -67,15 +66,14 @@ int test(char *URL)
     mime1 = curl_mime_init(hnd);
     if(mime1) {
       part1 = curl_mime_addpart(mime1);
-      curl_mime_data_cb(part1, -1, read_callback, NULL, NULL, &pooh);
+      curl_mime_data_cb(part1, -1, t1662_read_cb, NULL, NULL, &pooh);
       curl_mime_filename(part1, "poetry.txt");
       curl_mime_name(part1, "content");
       curl_easy_setopt(hnd, CURLOPT_MIMEPOST, mime1);
       curl_easy_setopt(hnd, CURLOPT_USERAGENT, "curl/2000");
       curl_easy_setopt(hnd, CURLOPT_FOLLOWLOCATION, 1L);
       curl_easy_setopt(hnd, CURLOPT_MAXREDIRS, 50L);
-      curl_easy_setopt(hnd, CURLOPT_HTTP_VERSION,
-                       (long)CURL_HTTP_VERSION_2TLS);
+      curl_easy_setopt(hnd, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
       curl_easy_setopt(hnd, CURLOPT_VERBOSE, 1L);
       curl_easy_setopt(hnd, CURLOPT_FTP_SKIP_PASV_IP, 1L);
       curl_easy_setopt(hnd, CURLOPT_TCP_KEEPALIVE, 1L);
@@ -86,5 +84,5 @@ int test(char *URL)
   curl_easy_cleanup(hnd);
   curl_mime_free(mime1);
   curl_global_cleanup();
-  return (int)res;
+  return res;
 }

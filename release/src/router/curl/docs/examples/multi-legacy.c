@@ -30,9 +30,11 @@
 #include <stdio.h>
 #include <string.h>
 
-/* somewhat unix-specific */
+/* somewhat Unix-specific */
+#ifndef _WIN32
 #include <sys/time.h>
 #include <unistd.h>
+#endif
 
 /* curl stuff */
 #include <curl/curl.h>
@@ -56,11 +58,11 @@ int main(void)
   CURLMsg *msg; /* for picking up messages with the transfer status */
   int msgs_left; /* how many messages are left */
 
-  /* Allocate one CURL handle per transfer */
-  for(i = 0; i<HANDLECOUNT; i++)
+  /* Allocate one curl handle per transfer */
+  for(i = 0; i < HANDLECOUNT; i++)
     handles[i] = curl_easy_init();
 
-  /* set the options (I left out a few, you will get the point anyway) */
+  /* set the options (I left out a few, you get the point anyway) */
   curl_easy_setopt(handles[HTTP_HANDLE], CURLOPT_URL, "https://example.com");
 
   curl_easy_setopt(handles[FTP_HANDLE], CURLOPT_URL, "ftp://example.com");
@@ -70,7 +72,7 @@ int main(void)
   multi_handle = curl_multi_init();
 
   /* add the individual transfers */
-  for(i = 0; i<HANDLECOUNT; i++)
+  for(i = 0; i < HANDLECOUNT; i++)
     curl_multi_add_handle(multi_handle, handles[i]);
 
   /* we start some action by calling perform right away */
@@ -98,11 +100,19 @@ int main(void)
 
     curl_multi_timeout(multi_handle, &curl_timeo);
     if(curl_timeo >= 0) {
+#if defined(MSDOS) || defined(__AMIGA__)
+      timeout.tv_sec = (time_t)(curl_timeo / 1000);
+#else
       timeout.tv_sec = curl_timeo / 1000;
+#endif
       if(timeout.tv_sec > 1)
         timeout.tv_sec = 1;
       else
+#if defined(MSDOS) || defined(__AMIGA__)
+        timeout.tv_usec = (time_t)(curl_timeo % 1000) * 1000;
+#else
         timeout.tv_usec = (int)(curl_timeo % 1000) * 1000;
+#endif
     }
 
     /* get file descriptors from the transfers */
@@ -125,7 +135,8 @@ int main(void)
       rc = 0;
 #else
       /* Portable sleep for platforms other than Windows. */
-      struct timeval wait = { 0, 100 * 1000 }; /* 100ms */
+      struct timeval wait = {0};
+      wait.tv_usec = 100 * 1000; /* 100ms */
       rc = select(0, NULL, NULL, NULL, &wait);
 #endif
     }
@@ -147,12 +158,13 @@ int main(void)
   }
 
   /* See how the transfers went */
-  while((msg = curl_multi_info_read(multi_handle, &msgs_left))) {
+  /* !checksrc! disable EQUALSNULL 1 */
+  while((msg = curl_multi_info_read(multi_handle, &msgs_left)) != NULL) {
     if(msg->msg == CURLMSG_DONE) {
       int idx;
 
       /* Find out which handle this message is about */
-      for(idx = 0; idx<HANDLECOUNT; idx++) {
+      for(idx = 0; idx < HANDLECOUNT; idx++) {
         int found = (msg->easy_handle == handles[idx]);
         if(found)
           break;
@@ -171,8 +183,8 @@ int main(void)
 
   curl_multi_cleanup(multi_handle);
 
-  /* Free the CURL handles */
-  for(i = 0; i<HANDLECOUNT; i++)
+  /* Free the curl handles */
+  for(i = 0; i < HANDLECOUNT; i++)
     curl_easy_cleanup(handles[i]);
 
   return 0;

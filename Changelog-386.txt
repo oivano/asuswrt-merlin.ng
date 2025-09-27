@@ -1,8 +1,17 @@
-Asuswrt-Merlin Changelog
+ion release asuswrt merlin changelog
 ========================
 
 
 386.14_4-ion (XX-XX-2025)
+  - UPDATED: curl to 8.16.0
+  - NEW: Completely redesigned System Log -> Connections page.
+          - You can now filter the list
+          - You can set the page to auto-refresh itself
+          - Public IP addresses can be looked up on
+          - WhatismyIPaddress.com
+          - Local hostnames will be resolved and shown
+          - Routed IPv6 connections will be shown
+  - UPDATED: strongswan to 6.0.2
   - UPDATED: OpenVPN to 2.6.14.
   - UPDATED: miniupnpd to 2.3.8.
   - UPDATED: amtm to 6.1.5 (decoderman)
@@ -13,14 +22,14 @@ Asuswrt-Merlin Changelog
 
 
 386.14_3-ion (23-Sep-2025)
-  - ADDED:   FRR 6.0.3 (FRR replaced Quagga in practice around 2017, as it became the actively developed, community-backed routing suite
-             Quagga is now largely legacy while FRR continues active development with new features
-             bug fixes, and protocol improvements.)
+  - ADDED:  FRR 6.0.3 (FRR replaced Quagga in practice around 2017, as it became the actively developed, community-backed routing suite
+            Quagga is now largely legacy while FRR continues active development with new features
+            bug fixes, and protocol improvements.)
 
 
 386.14_2-ion (30-Dec-2024)
   - UPDATED: strongswan to 6.0.0
-       - FIXED: Reverted the change: "TUN devices can properly handle IPv6 addresses (fccc764)"
+              - FIXED: Reverted the change: "TUN devices can properly handle IPv6 addresses (fccc764)"
   - UPDATED: OpenVPN to 2.6.12.
   - CHANGED: Enabled Netfilter queue support for SDK6/SDK7
              devices (patch by HiHat)

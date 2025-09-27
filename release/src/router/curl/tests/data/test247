@@ -2,6 +2,7 @@
 <info>
 <keywords>
 FTP
+MDTM
 </keywords>
 </info>
 
@@ -34,8 +35,6 @@ ftp://%HOSTIP:%FTPPORT/%TESTNUMBER -T %LOGDIR/test%TESTNUMBER.txt -z "apr 1 2005
 
 # Verify data after the test has been "shot"
 <verify>
-<upload>
-</upload>
 <protocol>
 USER anonymous
 PASS ftp@example.com

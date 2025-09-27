@@ -50,7 +50,6 @@ file contents should appear once for each file
 http/3
 </features>
 <server>
-http
 http/3
 </server>
 <tool>
@@ -60,7 +59,7 @@ lib%TESTNUMBER
 HTTP GET multiple over HTTP/3
 </name>
 <command>
-https://%HOSTIP:%HTTP3PORT/path/%TESTNUMBER %HOSTIP %HTTP3PORT
+- %HOSTIP %HTTP3PORT %CERTDIR/certs/test-ca.cacert
 </command>
 </client>
 
@@ -92,13 +91,13 @@ Via: 3 nghttpx
 ^Host:.*
 </strip>
 <file name="%LOGDIR/stderr%TESTNUMBER" mode="text">
-* Connection #0 to host localhost left intact
-* Connection #0 to host localhost left intact
-* Connection #0 to host localhost left intact
-* Connection #0 to host localhost left intact
+== Info: Connection #0 to host localhost:%HTTP3PORT left intact
+== Info: Connection #0 to host localhost:%HTTP3PORT left intact
+== Info: Connection #0 to host localhost:%HTTP3PORT left intact
+== Info: Connection #0 to host localhost:%HTTP3PORT left intact
 </file>
 <stripfile>
-$_ = '' if (($_ !~ /left intact/) && ($_ !~ /Closing connection/))
+$_ = '' if(($_ !~ /left intact/) && ($_ !~ /Closing connection/))
 </stripfile>
 </verify>
 </testcase>

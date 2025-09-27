@@ -77,7 +77,9 @@ static int upload(CURL *curlhandle, const char *remotepath,
 
   f = fopen(localpath, "rb");
   if(!f) {
+#ifndef UNDER_CE
     perror(NULL);
+#endif
     return 0;
   }
 
@@ -112,12 +114,10 @@ static int upload(CURL *curlhandle, const char *remotepath,
       /* determine the length of the file already written */
 
       /*
-       * With NOBODY and NOHEADER, libcurl will issue a SIZE
-       * command, but the only way to retrieve the result is
-       * to parse the returned Content-Length header. Thus,
-       * getcontentlengthfunc(). We need discardfunc() above
-       * because HEADER will dump the headers to stdout
-       * without it.
+       * With NOBODY and NOHEADER, libcurl issues a SIZE command, but the only
+       * way to retrieve the result is to parse the returned Content-Length
+       * header. Thus, getcontentlengthfunc(). We need discardfunc() above
+       * because HEADER dumps the headers to stdout without it.
        */
       curl_easy_setopt(curlhandle, CURLOPT_NOBODY, 1L);
       curl_easy_setopt(curlhandle, CURLOPT_HEADER, 1L);

@@ -19,9 +19,6 @@ HTTP GET
 # SSL with libraries supporting CURLOPT_CERTINFO
 <features>
 SSL
-!bearssl
-!mbedtls
-!rustls
 !wolfssl
 </features>
 <server>

@@ -29,13 +29,12 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include <errno.h>
 #include <time.h>
 
 #include <curl/curl.h>
+#include <curl/mprintf.h>
 
-static void
-print_cookies(CURL *curl)
+static int print_cookies(CURL *curl)
 {
   CURLcode res;
   struct curl_slist *cookies;
@@ -47,7 +46,7 @@ print_cookies(CURL *curl)
   if(res != CURLE_OK) {
     fprintf(stderr, "Curl curl_easy_getinfo failed: %s\n",
             curl_easy_strerror(res));
-    exit(1);
+    return 1;
   }
   nc = cookies;
   i = 1;
@@ -60,6 +59,8 @@ print_cookies(CURL *curl)
     printf("(none)\n");
   }
   curl_slist_free_all(cookies);
+
+  return 0;
 }
 
 int
@@ -91,14 +92,11 @@ main(void)
 
     printf("-----------------------------------------------\n"
            "Setting a cookie \"PREF\" via cookie interface:\n");
-#ifdef WIN32
-#define snprintf _snprintf
-#endif
     /* Netscape format cookie */
-    snprintf(nline, sizeof(nline), "%s\t%s\t%s\t%s\t%.0f\t%s\t%s",
-             ".example.com", "TRUE", "/", "FALSE",
-             difftime(time(NULL) + 31337, (time_t)0),
-             "PREF", "hello example, i like you!");
+    curl_msnprintf(nline, sizeof(nline), "%s\t%s\t%s\t%s\t%.0f\t%s\t%s",
+                   ".example.com", "TRUE", "/", "FALSE",
+                   difftime(time(NULL) + 31337, (time_t)0),
+                   "PREF", "hello example, i like you!");
     res = curl_easy_setopt(curl, CURLOPT_COOKIELIST, nline);
     if(res != CURLE_OK) {
       fprintf(stderr, "Curl curl_easy_setopt failed: %s\n",
@@ -107,12 +105,11 @@ main(void)
     }
 
     /* HTTP-header style cookie. If you use the Set-Cookie format and do not
-    specify a domain then the cookie is sent for any domain and will not be
-    modified, likely not what you intended. Starting in 7.43.0 any-domain
-    cookies will not be exported either. For more information refer to the
-    CURLOPT_COOKIELIST documentation.
+       specify a domain then the cookie is sent for any domain and is not
+       modified, likely not what you intended. For more information refer to
+       the CURLOPT_COOKIELIST documentation.
     */
-    snprintf(nline, sizeof(nline),
+    curl_msnprintf(nline, sizeof(nline),
       "Set-Cookie: OLD_PREF=3d141414bf4209321; "
       "expires=Sun, 17-Jan-2038 19:14:07 GMT; path=/; domain=.example.com");
     res = curl_easy_setopt(curl, CURLOPT_COOKIELIST, nline);

@@ -33,10 +33,10 @@ struct callback_data {
 };
 
 static long file_is_coming(struct curl_fileinfo *finfo,
-                           struct callback_data *data,
+                           void *data,
                            int remains);
 
-static long file_is_downloaded(struct callback_data *data);
+static long file_is_downloaded(void *data);
 
 static size_t write_it(char *buff, size_t size, size_t nmemb,
                        void *cb_data);
@@ -50,9 +50,9 @@ int main(int argc, char **argv)
   struct callback_data data = { 0 };
 
   /* global initialization */
-  int rc = curl_global_init(CURL_GLOBAL_ALL);
+  CURLcode rc = curl_global_init(CURL_GLOBAL_ALL);
   if(rc)
-    return rc;
+    return (int)rc;
 
   /* initialization of easy handle */
   handle = curl_easy_init();
@@ -70,7 +70,7 @@ int main(int argc, char **argv)
   /* callback is called after data from the file have been transferred */
   curl_easy_setopt(handle, CURLOPT_CHUNK_END_FUNCTION, file_is_downloaded);
 
-  /* this callback will write contents into files */
+  /* this callback writes contents into files */
   curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, write_it);
 
   /* put transfer data into callbacks */
@@ -90,13 +90,13 @@ int main(int argc, char **argv)
 
   curl_easy_cleanup(handle);
   curl_global_cleanup();
-  return rc;
+  return (int)rc;
 }
 
-static long file_is_coming(struct curl_fileinfo *finfo,
-                           struct callback_data *data,
+static long file_is_coming(struct curl_fileinfo *finfo, void *input,
                            int remains)
 {
+  struct callback_data *data = input;
   printf("%3d %40s %10luB ", remains, finfo->filename,
          (unsigned long)finfo->size);
 
@@ -128,8 +128,9 @@ static long file_is_coming(struct curl_fileinfo *finfo,
   return CURL_CHUNK_BGN_FUNC_OK;
 }
 
-static long file_is_downloaded(struct callback_data *data)
+static long file_is_downloaded(void *input)
 {
+  struct callback_data *data = input;
   if(data->output) {
     printf("DOWNLOADED\n");
     fclose(data->output);

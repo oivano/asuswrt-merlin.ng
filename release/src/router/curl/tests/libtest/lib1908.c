@@ -21,13 +21,11 @@
  * SPDX-License-Identifier: curl
  *
  ***************************************************************************/
-#include "test.h"
+#include "first.h"
 
-#include "testutil.h"
-#include "warnless.h"
 #include "memdebug.h"
 
-int test(char *URL)
+static CURLcode test_lib1908(const char *URL)
 {
   CURLcode ret = CURLE_OK;
   CURL *hnd;
@@ -60,5 +58,5 @@ int test(char *URL)
     curl_easy_cleanup(hnd);
   }
   curl_global_cleanup();
-  return (int)ret;
+  return ret;
 }
