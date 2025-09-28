@@ -4571,7 +4571,7 @@ frr/stamp-h1: ncurses-6.0 json-c readline-8.1 libyang libcap-ng
 		--disable-ospf6d \
 		--disable-ldpd \
 		--disable-nhrpd \
-		--disable-silent-rules \
+		--enable-silent-rules \
 		--disable-isisd \
 		--enable-shell-access \
 		--disable-clippy-only
@@ -6357,6 +6357,7 @@ openconnect/Makefile:
 			-Wl,--gc-sections -lpthread -ldl" \
 		$(CONFIGURE) --prefix=/usr \
 			--disable-shared \
+			--enable-silent-rules \
 			--without-libpcsclite \
 			--without-stoken \
 			--without-libpskc \
