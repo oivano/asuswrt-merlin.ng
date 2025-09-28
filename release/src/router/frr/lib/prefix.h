@@ -24,12 +24,12 @@
 
 #ifdef SUNOS_5
 #include <sys/ethernet.h>
-#else
+/*#else
 #ifdef GNU_LINUX
 #include <net/ethernet.h>
 #else
 #include <netinet/if_ether.h>
-#endif
+#endif*/
 #endif
 #include "sockunion.h"
 #include "ipaddr.h"

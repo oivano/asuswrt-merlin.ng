@@ -397,6 +397,9 @@ int bgp_generate_updgrp_packets(struct thread *thread)
 	if (peer->bgp->main_peers_update_hold)
 		return 0;
 
+	if (peer->t_routeadv)
+		return 0;
+
 	do {
 		s = NULL;
 		FOREACH_AFI_SAFI (afi, safi) {
