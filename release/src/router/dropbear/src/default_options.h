@@ -326,7 +326,7 @@ group1 in Dropbear server too */
  * Homedir is prepended if path begins with ~/
  */
 #define DROPBEAR_SFTPSERVER 1
-#define SFTPSERVER_PATH "/usr/libexec/sftp-server"
+#define SFTPSERVER_PATH "/usr/bin/sftp-server"
 
 /* This is used by the scp binary when used as a client binary. If you're
  * not using the Dropbear client, you'll need to change it */

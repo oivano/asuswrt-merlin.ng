@@ -1408,6 +1408,7 @@ obj-$(RTCONFIG_HTTPS) += wget
 obj-$(RTCONFIG_HTTPS) += zlib
 obj-$(RTCONFIG_HTTPS) += curl
 obj-$(RTCONFIG_SSH) += dropbear
+obj-$(RTCONFIG_SSH) += openssh
 obj-$(RTCONFIG_WTFAST) += wtfast
 
 obj-$(RTCONFIG_QUAGGA) += frr
@@ -5227,6 +5228,7 @@ dropbear: dropbear/config.h
 	@$(MAKE) -C $@ PROGRAMS="dropbear dbclient dropbearkey scp" MULTI=1 IGNORE_SPEED=1 $(PARALLEL_BUILD)
 
 dropbear-install:
+	@$(SEP)
 	install -D dropbear/dropbearmulti $(INSTALLDIR)/dropbear/usr/bin/dropbearmulti
 	$(STRIP) $(INSTALLDIR)/dropbear/usr/bin/dropbearmulti
 	cd $(INSTALLDIR)/dropbear/usr/bin && \
@@ -5241,6 +5243,36 @@ dropbear-install:
 dropbear-clean:
 	-@$(MAKE) -C dropbear clean
 	@rm -f dropbear/config.h
+
+openssh-configure: dropbear
+	cd openssh && autoreconf -i -f && \
+		CC=$(CC) AR=$(AR) RANLIB=$(RANLIB) LD=$(LD) \
+		CFLAGS="-O2 -Wall -D_GNU_SOURCE $(EXTRACFLAGS) -ffunction-sections -fdata-sections -fPIC -std=gnu99" \
+		CPPFLAGS="-O2 -Wall $(EXTRACFLAGS) -DARGTYPE=3 -ffunction-sections -fdata-sections -I$(STAGEDIR)/usr/include \
+			$(if $(RTCONFIG_PROTECTION_SERVER),-DSECURITY_NOTIFY,)" \
+		LDFLAGS="$(EXTRALDFLAGS) $(EXTRALDFLAGS2) -Wl,--gc-sections -L$(STAGEDIR)/usr/lib" \
+		LIBS="-lc $(if $(RTCONFIG_PROTECTION_SERVER),-lptcsrv) -L$(STAGEDIR)/usr/lib" \
+		$(CONFIGURE) --without-hardening --without-zlib-version-check --disable-lastlog \
+		--prefix=/usr --exec-prefix=/usr --bindir=/usr/bin --sbindir=/usr/sbin --libexecdir=/usr/lib --sysconfdir=/etc \
+		--with-pid-dir=/var/run/openssh \
+		--disable-libutil \
+		--disable-utmp --disable-utmpx \
+		--disable-wtmp --disable-wtmpx \
+		ac_cv_search_getifaddrs="$(EXTRALDFLAGS) $(EXTRALDFLAGS2)" \
+		--disable-pututline --disable-pututxline
+
+openssh: openssh-configure
+	@$(SEP)
+	@$(MAKE) -C $@ MULTI=1 IGNORE_SPEED=1 $(PARALLEL_BUILD)
+
+openssh-install:
+	@$(SEP)
+	install -D openssh/sftp-server $(INSTALLDIR)/openssh/usr/bin/sftp-server
+	$(STRIP) $(INSTALLDIR)/openssh/usr/bin/sftp-server
+
+openssh-clean:
+	-@$(MAKE) -C openssh clean
+	@rm -f openssh-configure 
 
 wtfast-configure:
 	@true
