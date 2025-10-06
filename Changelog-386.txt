@@ -3,6 +3,7 @@ ion release asuswrt merlin changelog
 
 
 386.14_4-ion (XX-XX-2025)
+  - FIXED: CVE-2025-9230 fix for OpenSSL 1.1.1w (Ubuntu backport by RSDNTWK)
   - ADDED:  dropbear openssh-sftpserver support (sftp-server built from OpenSSH 10.0p1)
   - UPDATED: curl to 8.16.0
   - NEW: Completely redesigned System Log -> Connections page.
