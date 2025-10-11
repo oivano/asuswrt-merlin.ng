@@ -1,0 +1,26 @@
+##  ion Asus Merlin changelog  ##
+
+Date: October 11, 2025
+Release: 386.14_4-ion
+
+  - FIXED: CVE-2025-9230 fix for OpenSSL 1.1.1w (Ubuntu backport by RSDNTWK)
+  - ADDED:  dropbear openssh-sftpserver support (sftp-server built from OpenSSH 10.0p1)
+  - UPDATED: curl to 8.16.0
+  - NEW: Completely redesigned System Log -> Connections page.
+          - You can now filter the list
+          - You can set the page to auto-refresh itself
+          - Public IP addresses can be looked up on
+          - WhatismyIPaddress.com
+          - Local hostnames will be resolved and shown
+          - Routed IPv6 connections will be shown
+  - UPDATED: strongswan to 6.0.2
+  - UPDATED: OpenVPN to 2.6.15.
+  - UPDATED: miniupnpd to 2.3.8.
+  - UPDATED: amtm to 6.1.5 (decoderman)
+  - UPDATED: dnsmasq to 2.91.
+  - UPDATED: dropbear to 2025.88.
+  - FIXED: CVE-2024-9143 in OpenSSL (Debian backport by RSDNTWK)
+  - FIXED: CVE-2024-13176 in OpenSSL (Ubuntu backport by RSDNTWK)
+
+
+
