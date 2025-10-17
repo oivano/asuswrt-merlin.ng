@@ -1934,8 +1934,6 @@ define RouterOptions
         if [ "$(ASD)" = "n" ]; then \
                 sed -i "/RTCONFIG_ASD\>/d" $(1); \
                 echo "# RTCONFIG_ASD is not set" >>$(1); \
-		sed -i "/RTCONFIG_LIBASC/d" $(1); \
-		echo "# RTCONFIG_LIBASC is not set" >>$(1); \
 	fi;
 	if [ "$(ASD21)" = "y" ]; then \
 		sed -i "/RTCONFIG_ASD_2_1/d" $(1); \
