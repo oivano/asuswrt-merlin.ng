@@ -84,6 +84,7 @@ struct ospf_if_params {
 
 	DECLARE_IF_PARAM(uint32_t, v_hello); /* Hello Interval */
 	DECLARE_IF_PARAM(uint32_t, v_wait);  /* Router Dead Interval */
+	bool is_v_wait_set;                  /* Check for Dead Interval set */
 
 	/* MTU mismatch check (see RFC2328, chap 10.6) */
 	DECLARE_IF_PARAM(uint8_t, mtu_ignore);
@@ -117,6 +118,8 @@ struct ospf_if_info {
 	struct route_table *oifs;
 	unsigned int
 		membership_counts[MEMBER_MAX]; /* multicast group refcnts */
+
+	uint32_t curr_mtu;
 };
 
 struct ospf_interface;
@@ -285,7 +288,6 @@ extern void ospf_if_update_params(struct interface *, struct in_addr);
 
 extern int ospf_if_new_hook(struct interface *);
 extern void ospf_if_init(void);
-extern void ospf_if_stream_set(struct ospf_interface *);
 extern void ospf_if_stream_unset(struct ospf_interface *);
 extern void ospf_if_reset_variables(struct ospf_interface *);
 extern int ospf_if_is_enable(struct ospf_interface *);
@@ -322,7 +324,12 @@ extern int ospf_interface_neighbor_count(struct ospf_interface *oi);
    state of the interface. */
 extern void ospf_if_set_multicast(struct ospf_interface *);
 
+extern void ospf_if_interface(struct interface *ifp);
+
 DECLARE_HOOK(ospf_vl_add, (struct ospf_vl_data * vd), (vd))
 DECLARE_HOOK(ospf_vl_delete, (struct ospf_vl_data * vd), (vd))
+
+DECLARE_HOOK(ospf_if_update, (struct interface * ifp), (ifp))
+DECLARE_HOOK(ospf_if_delete, (struct interface * ifp), (ifp))
 
 #endif /* _ZEBRA_OSPF_INTERFACE_H */

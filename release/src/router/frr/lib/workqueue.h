@@ -25,10 +25,18 @@
 
 #include "memory.h"
 #include "queue.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 DECLARE_MTYPE(WORK_QUEUE)
 
 /* Hold time for the initial schedule of a queue run, in  millisec */
 #define WORK_QUEUE_DEFAULT_HOLD 50
+
+/* Retry for queue that is 'blocked' or 'retry later' */
+#define WORK_QUEUE_DEFAULT_RETRY 0
 
 /* action value, for use by item processor and item error handlers */
 typedef enum {
@@ -90,6 +98,8 @@ struct work_queue {
 
 		unsigned long
 			yield; /* yield time in us for associated thread */
+
+		uint32_t retry; /* Optional retry timeout if queue is blocked */
 	} spec;
 
 	/* remaining fields should be opaque to users */
@@ -154,19 +164,10 @@ extern struct work_queue *work_queue_new(struct thread_master *, const char *);
  * The usage of work_queue_free is being transitioned to pass
  * in the double pointer to remove use after free's.
  */
-#if CONFDATE > 20190205
-CPP_NOTICE("work_queue_free without double pointer is deprecated, please fixup")
-#endif
-extern void work_queue_free_and_null(struct work_queue **);
-extern void work_queue_free_original(struct work_queue *);
-#define work_queue_free(X)                                                     \
-	do {                                                                   \
-		work_queue_free_original((X));                                 \
-		CPP_WARN("Please use work_queue_free_and_null");               \
-	} while (0)
+extern void work_queue_free_and_null(struct work_queue **wqp);
 
 /* Add the supplied data as an item onto the workqueue */
-extern void work_queue_add(struct work_queue *, void *);
+extern void work_queue_add(struct work_queue *wq, void *item);
 
 /* plug the queue, ie prevent it from being drained / processed */
 extern void work_queue_plug(struct work_queue *wq);
@@ -179,5 +180,9 @@ bool work_queue_is_scheduled(struct work_queue *);
 extern int work_queue_run(struct thread *);
 
 extern void workqueue_cmd_init(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _QUAGGA_WORK_QUEUE_H */

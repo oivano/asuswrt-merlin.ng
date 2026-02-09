@@ -12,6 +12,7 @@
  *     https://opensource.org/licenses/BSD-3-Clause
  */
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <setjmp.h>
@@ -88,7 +89,7 @@ test_dup_to_ctx(void **state)
     st->dt2 = lyd_dup_to_ctx(st->dt1, 1, st->ctx2);
     assert_ptr_equal(st->dt2, NULL);
     assert_int_equal(ly_errno, LY_EINVAL);
-    assert_string_equal(ly_errmsg(),
+    assert_string_equal(ly_errmsg(st->ctx2),
                         "Target context does not contain schema node for the data node being duplicated (x:x).");
 
     /* case 2 - with the schema present in both contexts, duplication should succeed */
@@ -194,9 +195,9 @@ test_dup_to_ctx_leafrefs(void **state)
     assert_ptr_not_equal(st->dt2, NULL);
 
     /* the result is not valid - the leafref is not resolved */
-    assert_ptr_equal(((struct lyd_node_leaf_list *)st->dt2->child)->value.leafref, NULL);
+    assert_int_not_equal(((struct lyd_node_leaf_list *)st->dt2->child)->value_type, LY_TYPE_LEAFREF);
     assert_int_equal(lyd_validate(&st->dt2, LYD_OPT_CONFIG, st->ctx2), 0);
-    assert_ptr_not_equal(((struct lyd_node_leaf_list *)st->dt2->child)->value.leafref, NULL);
+    assert_ptr_equal(((struct lyd_node_leaf_list *)st->dt2->child)->value_type, LY_TYPE_LEAFREF);
 
     /* the values are the same, but they are stored in different contexts */
     assert_string_equal(((struct lyd_node_leaf_list *)st->dt1->child)->value_str,

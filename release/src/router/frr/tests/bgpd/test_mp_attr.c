@@ -37,6 +37,7 @@
 #include "bgpd/bgp_mplsvpn.h"
 #include "bgpd/bgp_nexthop.h"
 #include "bgpd/bgp_vty.h"
+#include "bgpd/bgp_network.h"
 
 #define VT100_RESET "\x1b[0m"
 #define VT100_RED "\x1b[31m"
@@ -950,12 +951,19 @@ static struct test_segment mp_prefix_sid[] = {
 		"PREFIX-SID",
 		"PREFIX-SID Test 1",
 		{
-			0x01, 0x00, 0x07,
-			0x00, 0x00, 0x00, 0x00,
-			0x00, 0x00, 0x02,
-			0x03, 0x00, 0x08, 0x00,
-			0x00, 0x0a, 0x1b, 0xfe,
-			0x00, 0x00, 0x0a
+			/* TLV[0] Latel-Index TLV */
+			0x01,                    /* Type 0x01:Label-Index */
+			0x00, 0x07,              /* Length */
+			0x00,                    /* RESERVED */
+			0x00, 0x00,              /* Flags */
+			0x00, 0x00, 0x00, 0x02,  /* Label Index */
+
+			/* TLV[1] SRGB TLV */
+			0x03,                    /* Type 0x03:SRGB */
+			0x00, 0x08,              /* Length */
+			0x00, 0x00,              /* Flags */
+			0x0a, 0x1b, 0xfe,        /* SRGB[0] first label */
+			0x00, 0x00, 0x0a         /* SRBG[0] nb-labels in range */
 		},
 		.len = 21,
 		.parses = SHOULD_PARSE,
@@ -1026,7 +1034,7 @@ static void parse_test(struct peer *peer, struct test_segment *t, int type)
 		parse_ret = bgp_mp_unreach_parse(&attr_args, &nlri);
 		break;
 	case BGP_ATTR_PREFIX_SID:
-		parse_ret = bgp_attr_prefix_sid(t->len, &attr_args, &nlri);
+		parse_ret = bgp_attr_prefix_sid(&attr_args);
 		break;
 	default:
 		printf("unknown type");
@@ -1078,15 +1086,15 @@ int main(void)
 	cmd_init(0);
 	bgp_vty_init();
 	master = thread_master_create("test mp attr");
-	bgp_master_init(master);
-	vrf_init(NULL, NULL, NULL, NULL);
+	bgp_master_init(master, BGP_SOCKET_SNDBUF_SIZE);
+	vrf_init(NULL, NULL, NULL, NULL, NULL);
 	bgp_option_set(BGP_OPT_NO_LISTEN);
 	bgp_attr_init();
 
 	if (fileno(stdout) >= 0)
 		tty = isatty(fileno(stdout));
 
-	if (bgp_get(&bgp, &asn, NULL, BGP_INSTANCE_TYPE_DEFAULT))
+	if (bgp_get(&bgp, &asn, NULL, BGP_INSTANCE_TYPE_DEFAULT) < 0)
 		return -1;
 
 	peer = peer_create_accept(bgp);

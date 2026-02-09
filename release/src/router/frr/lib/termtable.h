@@ -22,6 +22,10 @@
 
 #include <zebra.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum ttable_align {
 	LEFT,
 	RIGHT,
@@ -76,7 +80,7 @@ struct ttable {
 #define TTSTYLE_ASCII 0
 #define TTSTYLE_BLANK 1
 
-extern struct ttable_style ttable_styles[2];
+extern const struct ttable_style ttable_styles[2];
 
 /**
  * Creates a new table with the default style, which looks like this:
@@ -91,7 +95,7 @@ extern struct ttable_style ttable_styles[2];
  *
  * @return the created table
  */
-struct ttable *ttable_new(struct ttable_style *tts);
+struct ttable *ttable_new(const struct ttable_style *tts);
 
 /**
  * Deletes a table and releases all associated resources.
@@ -133,8 +137,7 @@ void ttable_cell_del(struct ttable_cell *cell);
  * columns were specified
  */
 struct ttable_cell *ttable_insert_row(struct ttable *tt, unsigned int row,
-				      const char *format, ...)
-	PRINTF_ATTRIBUTE(3, 4);
+				      const char *format, ...) PRINTFRR(3, 4);
 /**
  * Inserts a new row at the end of the table.
  *
@@ -160,7 +163,7 @@ struct ttable_cell *ttable_insert_row(struct ttable *tt, unsigned int row,
  * columns were specified
  */
 struct ttable_cell *ttable_add_row(struct ttable *tt, const char *format, ...)
-	PRINTF_ATTRIBUTE(2, 3);
+	PRINTFRR(2, 3);
 
 /**
  * Removes a row from the table.
@@ -293,5 +296,9 @@ void ttable_rowseps(struct ttable *tt, unsigned int row,
  * @return table in text form
  */
 char *ttable_dump(struct ttable *tt, const char *newline);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _TERMTABLE_H */

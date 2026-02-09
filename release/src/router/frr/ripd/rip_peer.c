@@ -29,8 +29,7 @@
 
 #include "ripd/ripd.h"
 
-/* Linked list of RIP peer. */
-struct list *peer_list;
+DEFINE_MTYPE_STATIC(RIPD, RIP_PEER, "RIP peer")
 
 static struct rip_peer *rip_peer_new(void)
 {
@@ -39,27 +38,28 @@ static struct rip_peer *rip_peer_new(void)
 
 static void rip_peer_free(struct rip_peer *peer)
 {
+	RIP_TIMER_OFF(peer->t_timeout);
 	XFREE(MTYPE_RIP_PEER, peer);
 }
 
-struct rip_peer *rip_peer_lookup(struct in_addr *addr)
+struct rip_peer *rip_peer_lookup(struct rip *rip, struct in_addr *addr)
 {
 	struct rip_peer *peer;
 	struct listnode *node, *nnode;
 
-	for (ALL_LIST_ELEMENTS(peer_list, node, nnode, peer)) {
+	for (ALL_LIST_ELEMENTS(rip->peer_list, node, nnode, peer)) {
 		if (IPV4_ADDR_SAME(&peer->addr, addr))
 			return peer;
 	}
 	return NULL;
 }
 
-struct rip_peer *rip_peer_lookup_next(struct in_addr *addr)
+struct rip_peer *rip_peer_lookup_next(struct rip *rip, struct in_addr *addr)
 {
 	struct rip_peer *peer;
 	struct listnode *node, *nnode;
 
-	for (ALL_LIST_ELEMENTS(peer_list, node, nnode, peer)) {
+	for (ALL_LIST_ELEMENTS(rip->peer_list, node, nnode, peer)) {
 		if (htonl(peer->addr.s_addr) > htonl(addr->s_addr))
 			return peer;
 	}
@@ -72,26 +72,27 @@ static int rip_peer_timeout(struct thread *t)
 	struct rip_peer *peer;
 
 	peer = THREAD_ARG(t);
-	listnode_delete(peer_list, peer);
+	listnode_delete(peer->rip->peer_list, peer);
 	rip_peer_free(peer);
 
 	return 0;
 }
 
 /* Get RIP peer.  At the same time update timeout thread. */
-static struct rip_peer *rip_peer_get(struct in_addr *addr)
+static struct rip_peer *rip_peer_get(struct rip *rip, struct in_addr *addr)
 {
 	struct rip_peer *peer;
 
-	peer = rip_peer_lookup(addr);
+	peer = rip_peer_lookup(rip, addr);
 
 	if (peer) {
 		if (peer->t_timeout)
 			thread_cancel(peer->t_timeout);
 	} else {
 		peer = rip_peer_new();
+		peer->rip = rip;
 		peer->addr = *addr;
-		listnode_add_sort(peer_list, peer);
+		listnode_add_sort(rip->peer_list, peer);
 	}
 
 	/* Update timeout thread. */
@@ -105,24 +106,24 @@ static struct rip_peer *rip_peer_get(struct in_addr *addr)
 	return peer;
 }
 
-void rip_peer_update(struct sockaddr_in *from, uint8_t version)
+void rip_peer_update(struct rip *rip, struct sockaddr_in *from, uint8_t version)
 {
 	struct rip_peer *peer;
-	peer = rip_peer_get(&from->sin_addr);
+	peer = rip_peer_get(rip, &from->sin_addr);
 	peer->version = version;
 }
 
-void rip_peer_bad_route(struct sockaddr_in *from)
+void rip_peer_bad_route(struct rip *rip, struct sockaddr_in *from)
 {
 	struct rip_peer *peer;
-	peer = rip_peer_get(&from->sin_addr);
+	peer = rip_peer_get(rip, &from->sin_addr);
 	peer->recv_badroutes++;
 }
 
-void rip_peer_bad_packet(struct sockaddr_in *from)
+void rip_peer_bad_packet(struct rip *rip, struct sockaddr_in *from)
 {
 	struct rip_peer *peer;
-	peer = rip_peer_get(&from->sin_addr);
+	peer = rip_peer_get(rip, &from->sin_addr);
 	peer->recv_badpackets++;
 }
 
@@ -130,7 +131,6 @@ void rip_peer_bad_packet(struct sockaddr_in *from)
 static char *rip_peer_uptime(struct rip_peer *peer, char *buf, size_t len)
 {
 	time_t uptime;
-	struct tm *tm;
 
 	/* If there is no connection has been done before print `never'. */
 	if (peer->uptime == 0) {
@@ -141,28 +141,20 @@ static char *rip_peer_uptime(struct rip_peer *peer, char *buf, size_t len)
 	/* Get current time. */
 	uptime = time(NULL);
 	uptime -= peer->uptime;
-	tm = gmtime(&uptime);
 
-	if (uptime < ONE_DAY_SECOND)
-		snprintf(buf, len, "%02d:%02d:%02d", tm->tm_hour, tm->tm_min,
-			 tm->tm_sec);
-	else if (uptime < ONE_WEEK_SECOND)
-		snprintf(buf, len, "%dd%02dh%02dm", tm->tm_yday, tm->tm_hour,
-			 tm->tm_min);
-	else
-		snprintf(buf, len, "%02dw%dd%02dh", tm->tm_yday / 7,
-			 tm->tm_yday - ((tm->tm_yday / 7) * 7), tm->tm_hour);
+	frrtime_to_interval(uptime, buf, len);
+
 	return buf;
 }
 
-void rip_peer_display(struct vty *vty)
+void rip_peer_display(struct vty *vty, struct rip *rip)
 {
 	struct rip_peer *peer;
 	struct listnode *node, *nnode;
 #define RIP_UPTIME_LEN 25
 	char timebuf[RIP_UPTIME_LEN];
 
-	for (ALL_LIST_ELEMENTS(peer_list, node, nnode, peer)) {
+	for (ALL_LIST_ELEMENTS(rip->peer_list, node, nnode, peer)) {
 		vty_out(vty, "    %-16s %9d %9d %9d   %s\n",
 			inet_ntoa(peer->addr), peer->recv_badpackets,
 			peer->recv_badroutes, ZEBRA_RIP_DISTANCE_DEFAULT,
@@ -170,13 +162,15 @@ void rip_peer_display(struct vty *vty)
 	}
 }
 
-static int rip_peer_list_cmp(struct rip_peer *p1, struct rip_peer *p2)
+int rip_peer_list_cmp(struct rip_peer *p1, struct rip_peer *p2)
 {
-	return htonl(p1->addr.s_addr) > htonl(p2->addr.s_addr);
+	if (p2->addr.s_addr == p1->addr.s_addr)
+		return 0;
+
+	return (htonl(p1->addr.s_addr) < htonl(p2->addr.s_addr)) ? -1 : 1;
 }
 
-void rip_peer_init(void)
+void rip_peer_list_del(void *arg)
 {
-	peer_list = list_new();
-	peer_list->cmp = (int (*)(void *, void *))rip_peer_list_cmp;
+	rip_peer_free(arg);
 }

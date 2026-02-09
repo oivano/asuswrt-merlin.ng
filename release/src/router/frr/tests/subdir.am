@@ -2,8 +2,6 @@
 # tests
 #
 
-PYTHON ?= python
-
 if BGPD
 TESTS_BGPD = \
 	tests/bgpd/test_aspath \
@@ -24,6 +22,8 @@ TESTS_ISISD =
 else
 TESTS_ISISD = \
 	tests/isisd/test_fuzz_isis_tlv \
+	tests/isisd/test_isis_lspdb \
+	tests/isisd/test_isis_spf \
 	tests/isisd/test_isis_vertex_queue \
 	# end
 endif
@@ -39,33 +39,43 @@ else
 TESTS_OSPF6D =
 endif
 
-tests/lib/cli/tests_lib_cli_test_cli-test_cli.$(OBJEXT): tests/lib/cli/test_cli_clippy.c
-tests/lib/cli/test_cli-test_cli.$(OBJEXT): tests/lib/cli/test_cli_clippy.c
-tests/ospf6d/tests_ospf6d_test_lsdb-test_lsdb.$(OBJEXT): tests/ospf6d/test_lsdb_clippy.c
-tests/ospf6d/test_lsdb-test_lsdb.$(OBJEXT): tests/ospf6d/test_lsdb_clippy.c
+clippy_scan += \
+	tests/lib/cli/test_cli.c \
+	tests/ospf6d/test_lsdb.c \
+	# end
 
 check_PROGRAMS = \
+	tests/lib/cxxcompat \
+	tests/lib/test_atomlist \
 	tests/lib/test_buffer \
 	tests/lib/test_checksum \
 	tests/lib/test_heavy_thread \
 	tests/lib/test_heavy_wq \
 	tests/lib/test_heavy \
+	tests/lib/test_idalloc \
 	tests/lib/test_memory \
 	tests/lib/test_nexthop_iter \
+	tests/lib/test_ntop \
+	tests/lib/test_prefix2str \
+	tests/lib/test_printfrr \
 	tests/lib/test_privs \
 	tests/lib/test_ringbuf \
 	tests/lib/test_srcdest_table \
 	tests/lib/test_segv \
+	tests/lib/test_seqlock \
 	tests/lib/test_sig \
 	tests/lib/test_stream \
 	tests/lib/test_table \
 	tests/lib/test_timer_correctness \
 	tests/lib/test_timer_performance \
 	tests/lib/test_ttable \
+	tests/lib/test_typelist \
+	tests/lib/test_versioncmp \
 	tests/lib/test_zlog \
 	tests/lib/test_graph \
 	tests/lib/cli/test_cli \
 	tests/lib/cli/test_commands \
+	tests/lib/northbound/test_oper_data \
 	$(TESTS_BGPD) \
 	$(TESTS_ISISD) \
 	$(TESTS_OSPF6D) \
@@ -78,6 +88,7 @@ check_PROGRAMS += \
 endif
 
 tests/lib/cli/test_commands_defun.c: vtysh/vtysh_cmd.c
+	mkdir -p tests/lib/cli
 	sed \
 		-e 's%"vtysh/vtysh\.h"%"tests/helpers/c/tests.h"%' \
 		-e 's/vtysh_init_cmd/test_init_cmd/' \
@@ -87,6 +98,7 @@ tests/lib/cli/test_commands_defun.c: vtysh/vtysh_cmd.c
 CLEANFILES += tests/lib/cli/test_commands_defun.c
 
 tests/isisd/test_fuzz_isis_tlv_tests.h: $(top_srcdir)/tests/isisd/test_fuzz_isis_tlv_tests.h.gz
+	mkdir -p tests/isisd
 	gzip -d < $(top_srcdir)/tests/isisd/test_fuzz_isis_tlv_tests.h.gz > "$@"
 CLEANFILES += tests/isisd/test_fuzz_isis_tlv_tests.h
 
@@ -99,6 +111,8 @@ noinst_HEADERS += \
 	tests/helpers/c/prng.h \
 	tests/helpers/c/tests.h \
 	tests/lib/cli/common_cli.h \
+	tests/lib/test_typelist.h \
+	tests/isisd/test_common.h \
 	# end
 
 #
@@ -109,10 +123,13 @@ TESTS_CPPFLAGS = $(AM_CPPFLAGS) \
 	-I$(top_srcdir)/tests/helpers/c \
 	-I$(top_builddir)/tests/helpers/c \
 	# end
-TESTS_CFLAGS = $(SAN_FLAGS)
+TESTS_CFLAGS = \
+	$(LIBYANG_CFLAGS) \
+	$(SAN_FLAGS) \
+	# end
 # note no -Werror
 
-ALL_TESTS_LDADD = lib/libfrr.la @LIBCAP@
+ALL_TESTS_LDADD = lib/libfrr.la $(LIBCAP)
 BGP_TEST_LDADD = bgpd/libbgp.a $(RFPLDADD) $(ALL_TESTS_LDADD) -lm
 ISISD_TEST_LDADD = isisd/libisis.a $(ALL_TESTS_LDADD)
 OSPF6_TEST_LDADD = ospf6d/libospf6.a $(ALL_TESTS_LDADD)
@@ -153,13 +170,26 @@ tests_bgpd_test_peer_attr_SOURCES = tests/bgpd/test_peer_attr.c
 tests_isisd_test_fuzz_isis_tlv_CFLAGS = $(TESTS_CFLAGS) -I$(top_builddir)/tests/isisd
 tests_isisd_test_fuzz_isis_tlv_CPPFLAGS = $(TESTS_CPPFLAGS) -I$(top_builddir)/tests/isisd
 tests_isisd_test_fuzz_isis_tlv_LDADD = $(ISISD_TEST_LDADD)
-tests_isisd_test_fuzz_isis_tlv_SOURCES = tests/isisd/test_fuzz_isis_tlv.c
+tests_isisd_test_fuzz_isis_tlv_SOURCES = tests/isisd/test_fuzz_isis_tlv.c tests/isisd/test_common.c
 nodist_tests_isisd_test_fuzz_isis_tlv_SOURCES = tests/isisd/test_fuzz_isis_tlv_tests.h
+tests_isisd_test_isis_lspdb_CFLAGS = $(TESTS_CFLAGS)
+tests_isisd_test_isis_lspdb_CPPFLAGS = $(TESTS_CPPFLAGS)
+tests_isisd_test_isis_lspdb_LDADD = $(ISISD_TEST_LDADD)
+tests_isisd_test_isis_lspdb_SOURCES = tests/isisd/test_isis_lspdb.c tests/isisd/test_common.c
+tests_isisd_test_isis_spf_CFLAGS = $(TESTS_CFLAGS)
+tests_isisd_test_isis_spf_CPPFLAGS = $(TESTS_CPPFLAGS)
+tests_isisd_test_isis_spf_LDADD = $(ISISD_TEST_LDADD)
+tests_isisd_test_isis_spf_SOURCES = tests/isisd/test_isis_spf.c tests/isisd/test_common.c tests/isisd/test_topologies.c
+nodist_tests_isisd_test_isis_spf_SOURCES = yang/frr-isisd.yang.c
 tests_isisd_test_isis_vertex_queue_CFLAGS = $(TESTS_CFLAGS)
 tests_isisd_test_isis_vertex_queue_CPPFLAGS = $(TESTS_CPPFLAGS)
 tests_isisd_test_isis_vertex_queue_LDADD = $(ISISD_TEST_LDADD)
-tests_isisd_test_isis_vertex_queue_SOURCES = tests/isisd/test_isis_vertex_queue.c
+tests_isisd_test_isis_vertex_queue_SOURCES = tests/isisd/test_isis_vertex_queue.c tests/isisd/test_common.c
 
+tests_lib_cxxcompat_CFLAGS = $(TESTS_CFLAGS) $(CXX_COMPAT_CFLAGS) $(WERROR)
+tests_lib_cxxcompat_CPPFLAGS = $(TESTS_CPPFLAGS)
+tests_lib_cxxcompat_SOURCES = tests/lib/cxxcompat.c
+tests_lib_cxxcompat_LDADD = $(ALL_TESTS_LDADD)
 tests_lib_cli_test_cli_CFLAGS = $(TESTS_CFLAGS)
 tests_lib_cli_test_cli_CPPFLAGS = $(TESTS_CPPFLAGS)
 tests_lib_cli_test_cli_LDADD = $(ALL_TESTS_LDADD)
@@ -169,6 +199,15 @@ tests_lib_cli_test_commands_CPPFLAGS = $(TESTS_CPPFLAGS)
 tests_lib_cli_test_commands_LDADD = $(ALL_TESTS_LDADD)
 nodist_tests_lib_cli_test_commands_SOURCES = tests/lib/cli/test_commands_defun.c
 tests_lib_cli_test_commands_SOURCES = tests/lib/cli/test_commands.c tests/helpers/c/prng.c
+tests_lib_northbound_test_oper_data_CFLAGS = $(TESTS_CFLAGS)
+tests_lib_northbound_test_oper_data_CPPFLAGS = $(TESTS_CPPFLAGS)
+tests_lib_northbound_test_oper_data_LDADD = $(ALL_TESTS_LDADD)
+tests_lib_northbound_test_oper_data_SOURCES = tests/lib/northbound/test_oper_data.c
+nodist_tests_lib_northbound_test_oper_data_SOURCES = yang/frr-test-module.yang.c
+tests_lib_test_atomlist_CFLAGS = $(TESTS_CFLAGS)
+tests_lib_test_atomlist_CPPFLAGS = $(TESTS_CPPFLAGS)
+tests_lib_test_atomlist_LDADD = $(ALL_TESTS_LDADD)
+tests_lib_test_atomlist_SOURCES = tests/lib/test_atomlist.c
 tests_lib_test_buffer_CFLAGS = $(TESTS_CFLAGS)
 tests_lib_test_buffer_CPPFLAGS = $(TESTS_CPPFLAGS)
 tests_lib_test_buffer_LDADD = $(ALL_TESTS_LDADD)
@@ -193,6 +232,9 @@ tests_lib_test_heavy_wq_CFLAGS = $(TESTS_CFLAGS)
 tests_lib_test_heavy_wq_CPPFLAGS = $(TESTS_CPPFLAGS)
 tests_lib_test_heavy_wq_LDADD = $(ALL_TESTS_LDADD) -lm
 tests_lib_test_heavy_wq_SOURCES = tests/lib/test_heavy_wq.c tests/helpers/c/main.c
+tests_lib_test_idalloc_CFLAGS = $(TESTS_CFLAGS)
+tests_lib_test_idalloc_LDADD = $(ALL_TESTS_LDADD)
+tests_lib_test_idalloc_SOURCES = tests/lib/test_idalloc.c
 tests_lib_test_memory_CFLAGS = $(TESTS_CFLAGS)
 tests_lib_test_memory_CPPFLAGS = $(TESTS_CPPFLAGS)
 tests_lib_test_memory_LDADD = $(ALL_TESTS_LDADD)
@@ -201,6 +243,18 @@ tests_lib_test_nexthop_iter_CFLAGS = $(TESTS_CFLAGS)
 tests_lib_test_nexthop_iter_CPPFLAGS = $(TESTS_CPPFLAGS)
 tests_lib_test_nexthop_iter_LDADD = $(ALL_TESTS_LDADD)
 tests_lib_test_nexthop_iter_SOURCES = tests/lib/test_nexthop_iter.c tests/helpers/c/prng.c
+tests_lib_test_ntop_CFLAGS = $(TESTS_CFLAGS)
+tests_lib_test_ntop_CPPFLAGS = $(TESTS_CPPFLAGS)
+tests_lib_test_ntop_LDADD = # none
+tests_lib_test_ntop_SOURCES = tests/lib/test_ntop.c tests/helpers/c/prng.c
+tests_lib_test_prefix2str_CFLAGS = $(TESTS_CFLAGS)
+tests_lib_test_prefix2str_CPPFLAGS = $(TESTS_CPPFLAGS)
+tests_lib_test_prefix2str_LDADD = $(ALL_TESTS_LDADD)
+tests_lib_test_prefix2str_SOURCES = tests/lib/test_prefix2str.c tests/helpers/c/prng.c
+tests_lib_test_printfrr_CFLAGS = $(TESTS_CFLAGS)
+tests_lib_test_printfrr_CPPFLAGS = $(TESTS_CPPFLAGS)
+tests_lib_test_printfrr_LDADD = $(ALL_TESTS_LDADD)
+tests_lib_test_printfrr_SOURCES = tests/lib/test_printfrr.c
 tests_lib_test_privs_CFLAGS = $(TESTS_CFLAGS)
 tests_lib_test_privs_CPPFLAGS = $(TESTS_CPPFLAGS)
 tests_lib_test_privs_LDADD = $(ALL_TESTS_LDADD)
@@ -213,6 +267,10 @@ tests_lib_test_segv_CFLAGS = $(TESTS_CFLAGS)
 tests_lib_test_segv_CPPFLAGS = $(TESTS_CPPFLAGS)
 tests_lib_test_segv_LDADD = $(ALL_TESTS_LDADD)
 tests_lib_test_segv_SOURCES = tests/lib/test_segv.c
+tests_lib_test_seqlock_CFLAGS = $(TESTS_CFLAGS)
+tests_lib_test_seqlock_CPPFLAGS = $(TESTS_CPPFLAGS)
+tests_lib_test_seqlock_LDADD = $(ALL_TESTS_LDADD)
+tests_lib_test_seqlock_SOURCES = tests/lib/test_seqlock.c
 tests_lib_test_sig_CFLAGS = $(TESTS_CFLAGS)
 tests_lib_test_sig_CPPFLAGS = $(TESTS_CPPFLAGS)
 tests_lib_test_sig_LDADD = $(ALL_TESTS_LDADD)
@@ -241,6 +299,14 @@ tests_lib_test_ttable_CFLAGS = $(TESTS_CFLAGS)
 tests_lib_test_ttable_CPPFLAGS = $(TESTS_CPPFLAGS)
 tests_lib_test_ttable_LDADD = $(ALL_TESTS_LDADD)
 tests_lib_test_ttable_SOURCES = tests/lib/test_ttable.c
+tests_lib_test_typelist_CFLAGS = $(TESTS_CFLAGS)
+tests_lib_test_typelist_CPPFLAGS = $(TESTS_CPPFLAGS)
+tests_lib_test_typelist_LDADD = $(ALL_TESTS_LDADD)
+tests_lib_test_typelist_SOURCES = tests/lib/test_typelist.c tests/helpers/c/prng.c
+tests_lib_test_versioncmp_CFLAGS = $(TESTS_CFLAGS)
+tests_lib_test_versioncmp_CPPFLAGS = $(TESTS_CPPFLAGS)
+tests_lib_test_versioncmp_LDADD = $(ALL_TESTS_LDADD)
+tests_lib_test_versioncmp_SOURCES = tests/lib/test_versioncmp.c
 tests_lib_test_zlog_CFLAGS = $(TESTS_CFLAGS)
 tests_lib_test_zlog_CPPFLAGS = $(TESTS_CPPFLAGS)
 tests_lib_test_zlog_LDADD = $(ALL_TESTS_LDADD)
@@ -267,6 +333,10 @@ EXTRA_DIST += \
 	tests/helpers/python/frrtest.py \
 	tests/isisd/test_fuzz_isis_tlv.py \
 	tests/isisd/test_fuzz_isis_tlv_tests.h.gz \
+	tests/isisd/test_isis_lspdb.py \
+	tests/isisd/test_isis_spf.py \
+	tests/isisd/test_isis_spf.in \
+	tests/isisd/test_isis_spf.refout \
 	tests/isisd/test_isis_vertex_queue.py \
 	tests/lib/cli/test_commands.in \
 	tests/lib/cli/test_commands.py \
@@ -274,7 +344,14 @@ EXTRA_DIST += \
 	tests/lib/cli/test_cli.in \
 	tests/lib/cli/test_cli.py \
 	tests/lib/cli/test_cli.refout \
+	tests/lib/northbound/test_oper_data.in \
+	tests/lib/northbound/test_oper_data.py \
+	tests/lib/northbound/test_oper_data.refout \
+	tests/lib/test_atomlist.py \
 	tests/lib/test_nexthop_iter.py \
+	tests/lib/test_ntop.py \
+	tests/lib/test_prefix2str.py \
+	tests/lib/test_printfrr.py \
 	tests/lib/test_ringbuf.py \
 	tests/lib/test_srcdest_table.py \
 	tests/lib/test_stream.py \
@@ -283,6 +360,8 @@ EXTRA_DIST += \
 	tests/lib/test_timer_correctness.py \
 	tests/lib/test_ttable.py \
 	tests/lib/test_ttable.refout \
+	tests/lib/test_typelist.py \
+	tests/lib/test_versioncmp.py \
 	tests/lib/test_zlog.py \
 	tests/lib/test_graph.py \
 	tests/lib/test_graph.refout \

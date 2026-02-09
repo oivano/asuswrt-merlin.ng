@@ -23,7 +23,7 @@
 #include "lib/prefix.h"
 #include "lib/memory.h"
 #include "lib/linklist.h"
-#include "lib/table.h"
+#include "lib/agg_table.h"
 #include "lib/plist.h"
 #include "lib/routemap.h"
 
@@ -47,7 +47,7 @@
 #include "bgpd/rfapi/vnc_import_bgp.h"
 #include "bgpd/rfapi/vnc_debug.h"
 
-#if ENABLE_BGP_VNC
+#ifdef ENABLE_BGP_VNC
 
 #undef BGP_VNC_DEBUG_MATCH_GROUP
 
@@ -126,10 +126,10 @@ struct rfapi_nve_group_cfg *bgp_rfapi_cfg_match_group(struct rfapi_cfg *hc,
 	struct rfapi_nve_group_cfg *rfg_vn = NULL;
 	struct rfapi_nve_group_cfg *rfg_un = NULL;
 
-	struct route_table *rt_vn;
-	struct route_table *rt_un;
-	struct route_node *rn_vn;
-	struct route_node *rn_un;
+	struct agg_table *rt_vn;
+	struct agg_table *rt_un;
+	struct agg_node *rn_vn;
+	struct agg_node *rn_un;
 
 	struct rfapi_nve_group_cfg *rfg;
 	struct listnode *node, *nnode;
@@ -156,19 +156,19 @@ struct rfapi_nve_group_cfg *bgp_rfapi_cfg_match_group(struct rfapi_cfg *hc,
 		return NULL;
 	}
 
-	rn_vn = route_node_match(rt_vn, vn); /* NB locks node */
+	rn_vn = agg_node_match(rt_vn, vn); /* NB locks node */
 	if (rn_vn) {
 		rfg_vn = rn_vn->info;
-		route_unlock_node(rn_vn);
+		agg_unlock_node(rn_vn);
 	}
 
-	rn_un = route_node_match(rt_un, un); /* NB locks node */
+	rn_un = agg_node_match(rt_un, un); /* NB locks node */
 	if (rn_un) {
 		rfg_un = rn_un->info;
-		route_unlock_node(rn_un);
+		agg_unlock_node(rn_un);
 	}
 
-#if BGP_VNC_DEBUG_MATCH_GROUP
+#ifdef BGP_VNC_DEBUG_MATCH_GROUP
 	{
 		char buf[PREFIX_STRLEN];
 
@@ -575,7 +575,7 @@ static struct rfapi_l2_group_cfg *rfapi_l2_group_lookup_byname(struct bgp *bgp,
 	return NULL;
 }
 
-static struct rfapi_l2_group_cfg *rfapi_l2_group_new()
+static struct rfapi_l2_group_cfg *rfapi_l2_group_new(void)
 {
 	struct rfapi_l2_group_cfg *rfg;
 
@@ -1164,9 +1164,16 @@ DEFUN (vnc_redist_bgpdirect_routemap,
 
 	if (hc->routemap_redist_name[route_type])
 		free(hc->routemap_redist_name[route_type]);
+
+	/* If the old route map config overwrite with new
+	 * route map config , old routemap counter have to be
+	 * reduced.
+	 */
+	route_map_counter_decrement(hc->routemap_redist[route_type]);
 	hc->routemap_redist_name[route_type] = strdup(argv[4]->arg);
 	hc->routemap_redist[route_type] =
 		route_map_lookup_by_name(argv[4]->arg);
+	route_map_counter_increment(hc->routemap_redist[route_type]);
 
 	vnc_redistribute_postchange(bgp);
 
@@ -1285,6 +1292,8 @@ DEFUN (vnc_nve_group_redist_bgpdirect_no_routemap,
 
 	if (rfg->routemap_redist_name[ZEBRA_ROUTE_BGP_DIRECT])
 		free(rfg->routemap_redist_name[ZEBRA_ROUTE_BGP_DIRECT]);
+	route_map_counter_decrement(
+		rfg->routemap_redist[ZEBRA_ROUTE_BGP_DIRECT]);
 	rfg->routemap_redist_name[ZEBRA_ROUTE_BGP_DIRECT] = NULL;
 	rfg->routemap_redist[ZEBRA_ROUTE_BGP_DIRECT] = NULL;
 
@@ -1316,10 +1325,14 @@ DEFUN (vnc_nve_group_redist_bgpdirect_routemap,
 
 	if (rfg->routemap_redist_name[ZEBRA_ROUTE_BGP_DIRECT])
 		free(rfg->routemap_redist_name[ZEBRA_ROUTE_BGP_DIRECT]);
+	route_map_counter_decrement(
+		rfg->routemap_redist[ZEBRA_ROUTE_BGP_DIRECT]);
 	rfg->routemap_redist_name[ZEBRA_ROUTE_BGP_DIRECT] =
 		strdup(argv[3]->arg);
 	rfg->routemap_redist[ZEBRA_ROUTE_BGP_DIRECT] =
 		route_map_lookup_by_name(argv[3]->arg);
+	route_map_counter_increment(
+		rfg->routemap_redist[ZEBRA_ROUTE_BGP_DIRECT]);
 
 	vnc_redistribute_postchange(bgp);
 
@@ -1396,7 +1409,7 @@ DEFUN (vnc_export_mode,
 	return CMD_SUCCESS;
 }
 
-static struct rfapi_rfg_name *rfgn_new()
+static struct rfapi_rfg_name *rfgn_new(void)
 {
 	return XCALLOC(MTYPE_RFAPI_RFG_NAME, sizeof(struct rfapi_rfg_name));
 }
@@ -1741,6 +1754,7 @@ DEFUN (vnc_nve_group_export_no_routemap,
 				    rfg->routemap_export_bgp_name))) {
 			if (rfg->routemap_export_bgp_name)
 				free(rfg->routemap_export_bgp_name);
+			route_map_counter_decrement(rfg->routemap_export_bgp);
 			rfg->routemap_export_bgp_name = NULL;
 			rfg->routemap_export_bgp = NULL;
 
@@ -1754,6 +1768,7 @@ DEFUN (vnc_nve_group_export_no_routemap,
 				    rfg->routemap_export_zebra_name))) {
 			if (rfg->routemap_export_zebra_name)
 				free(rfg->routemap_export_zebra_name);
+			route_map_counter_decrement(rfg->routemap_export_zebra);
 			rfg->routemap_export_zebra_name = NULL;
 			rfg->routemap_export_zebra = NULL;
 
@@ -1800,17 +1815,21 @@ DEFUN (vnc_nve_group_export_routemap,
 	if (is_bgp) {
 		if (rfg->routemap_export_bgp_name)
 			free(rfg->routemap_export_bgp_name);
+		route_map_counter_decrement(rfg->routemap_export_bgp);
 		rfg->routemap_export_bgp_name = strdup(argv[idx]->arg);
 		rfg->routemap_export_bgp =
 			route_map_lookup_by_name(argv[idx]->arg);
+		route_map_counter_increment(rfg->routemap_export_bgp);
 		vnc_direct_bgp_reexport_group_afi(bgp, rfg, AFI_IP);
 		vnc_direct_bgp_reexport_group_afi(bgp, rfg, AFI_IP6);
 	} else {
 		if (rfg->routemap_export_zebra_name)
 			free(rfg->routemap_export_zebra_name);
+		route_map_counter_decrement(rfg->routemap_export_zebra);
 		rfg->routemap_export_zebra_name = strdup(argv[idx]->arg);
 		rfg->routemap_export_zebra =
 			route_map_lookup_by_name(argv[idx]->arg);
+		route_map_counter_increment(rfg->routemap_export_zebra);
 		vnc_zebra_reexport_group_afi(bgp, rfg, AFI_IP);
 		vnc_zebra_reexport_group_afi(bgp, rfg, AFI_IP6);
 	}
@@ -1937,6 +1956,7 @@ DEFUN (vnc_nve_export_no_routemap,
 		    || (argc <= 5)) {
 
 			free(hc->routemap_export_bgp_name);
+			route_map_counter_decrement(hc->routemap_export_bgp);
 			hc->routemap_export_bgp_name = NULL;
 			hc->routemap_export_bgp = NULL;
 			vnc_direct_bgp_reexport(bgp, AFI_IP);
@@ -1948,6 +1968,7 @@ DEFUN (vnc_nve_export_no_routemap,
 		    || (argc <= 5)) {
 
 			free(hc->routemap_export_zebra_name);
+			route_map_counter_decrement(hc->routemap_export_zebra);
 			hc->routemap_export_zebra_name = NULL;
 			hc->routemap_export_zebra = NULL;
 			/* TBD vnc_zebra_rh_reexport(bgp, AFI_IP); */
@@ -1975,17 +1996,21 @@ DEFUN (vnc_nve_export_routemap,
 	if (argv[2]->arg[0] == 'b') {
 		if (hc->routemap_export_bgp_name)
 			free(hc->routemap_export_bgp_name);
+		route_map_counter_decrement(hc->routemap_export_bgp);
 		hc->routemap_export_bgp_name = strdup(argv[4]->arg);
 		hc->routemap_export_bgp =
 			route_map_lookup_by_name(argv[4]->arg);
+		route_map_counter_increment(hc->routemap_export_bgp);
 		vnc_direct_bgp_reexport(bgp, AFI_IP);
 		vnc_direct_bgp_reexport(bgp, AFI_IP6);
 	} else {
 		if (hc->routemap_export_zebra_name)
 			free(hc->routemap_export_zebra_name);
+		route_map_counter_decrement(hc->routemap_export_zebra);
 		hc->routemap_export_zebra_name = strdup(argv[4]->arg);
 		hc->routemap_export_zebra =
 			route_map_lookup_by_name(argv[4]->arg);
+		route_map_counter_increment(hc->routemap_export_zebra);
 		/* TBD vnc_zebra_rh_reexport(bgp, AFI_IP); */
 		/* TBD vnc_zebra_rh_reexport(bgp, AFI_IP6); */
 	}
@@ -2083,6 +2108,7 @@ void vnc_routemap_update(struct bgp *bgp, const char *unused)
 	struct rfapi_nve_group_cfg *rfg;
 	struct rfapi_cfg *hc;
 	int i;
+	struct route_map *old = NULL;
 
 	vnc_zlog_debug_verbose("%s(arg=%s)", __func__, unused);
 
@@ -2104,18 +2130,36 @@ void vnc_routemap_update(struct bgp *bgp, const char *unused)
 				  rfg)) {
 
 		if (rfg->routemap_export_bgp_name) {
+			old = rfg->routemap_export_bgp;
 			rfg->routemap_export_bgp = route_map_lookup_by_name(
 				rfg->routemap_export_bgp_name);
+			/* old is NULL. i.e Route map creation event.
+			 * So update applied_counter.
+			 * If Old is not NULL, i.e It may be routemap
+			 * updation or deletion.
+			 * So no need to update the counter.
+			 */
+			if (!old)
+				route_map_counter_increment(
+					rfg->routemap_export_bgp);
 		}
 		if (rfg->routemap_export_zebra_name) {
+			old = rfg->routemap_export_bgp;
 			rfg->routemap_export_bgp = route_map_lookup_by_name(
 				rfg->routemap_export_zebra_name);
+			if (!old)
+				route_map_counter_increment(
+					rfg->routemap_export_bgp);
 		}
 		for (i = 0; i < ZEBRA_ROUTE_MAX; ++i) {
 			if (rfg->routemap_redist_name[i]) {
+				old = rfg->routemap_redist[i];
 				rfg->routemap_redist[i] =
 					route_map_lookup_by_name(
 						rfg->routemap_redist_name[i]);
+				if (!old)
+					route_map_counter_increment(
+						rfg->routemap_redist[i]);
 			}
 		}
 
@@ -2128,17 +2172,27 @@ void vnc_routemap_update(struct bgp *bgp, const char *unused)
 	 * RH config, too
 	 */
 	if (hc->routemap_export_bgp_name) {
+		old = hc->routemap_export_bgp;
 		hc->routemap_export_bgp =
 			route_map_lookup_by_name(hc->routemap_export_bgp_name);
+		if (!old)
+			route_map_counter_increment(hc->routemap_export_bgp);
 	}
 	if (hc->routemap_export_zebra_name) {
+		old  = hc->routemap_export_bgp;
 		hc->routemap_export_bgp = route_map_lookup_by_name(
 			hc->routemap_export_zebra_name);
+		if (!old)
+			route_map_counter_increment(hc->routemap_export_bgp);
 	}
 	for (i = 0; i < ZEBRA_ROUTE_MAX; ++i) {
 		if (hc->routemap_redist_name[i]) {
+			old = hc->routemap_redist[i];
 			hc->routemap_redist[i] = route_map_lookup_by_name(
 				hc->routemap_redist_name[i]);
+			if (!old)
+				route_map_counter_increment(
+					hc->routemap_redist[i]);
 		}
 	}
 
@@ -2153,24 +2207,6 @@ void vnc_routemap_update(struct bgp *bgp, const char *unused)
 
 	vnc_zlog_debug_verbose("%s done", __func__);
 }
-
-#if 0 /* superseded */
-static void vnc_routemap_event(route_map_event_t type, /* ignored */
-			       const char *rmap_name)  /* ignored */
-{
-	struct listnode *mnode, *mnnode;
-	struct bgp *bgp;
-
-	vnc_zlog_debug_verbose("%s(event type=%d)", __func__, type);
-	if (bm->bgp == NULL) /* may be called during cleanup */
-		return;
-
-	for (ALL_LIST_ELEMENTS(bm->bgp, mnode, mnnode, bgp))
-		vnc_routemap_update(bgp, rmap_name);
-
-	vnc_zlog_debug_verbose("%s: done", __func__);
-}
-#endif
 
 /*-------------------------------------------------------------------------
  *			nve-group
@@ -2297,7 +2333,7 @@ static void bgp_rfapi_delete_nve_group(struct vty *vty, /* NULL = no output */
 			listnode_delete(rfg->nves, rfd);
 			listnode_add(orphaned_nves, rfd);
 		}
-		list_delete_and_null(&rfg->nves);
+		list_delete(&rfg->nves);
 	}
 
 	/* delete it */
@@ -2311,11 +2347,11 @@ static void bgp_rfapi_delete_nve_group(struct vty *vty, /* NULL = no output */
 
 	if (rfg->vn_node) {
 		rfg->vn_node->info = NULL;
-		route_unlock_node(rfg->vn_node); /* frees */
+		agg_unlock_node(rfg->vn_node); /* frees */
 	}
 	if (rfg->un_node) {
 		rfg->un_node->info = NULL;
-		route_unlock_node(rfg->un_node); /* frees */
+		agg_unlock_node(rfg->un_node); /* frees */
 	}
 	if (rfg->rfp_cfg)
 		XFREE(MTYPE_RFAPI_RFP_GROUP_CFG, rfg->rfp_cfg);
@@ -2374,7 +2410,7 @@ static void bgp_rfapi_delete_nve_group(struct vty *vty, /* NULL = no output */
 			if (vty)
 				vty_out(vty, "\n");
 		}
-		list_delete_and_null(&orphaned_nves);
+		list_delete(&orphaned_nves);
 	}
 }
 
@@ -2475,8 +2511,8 @@ DEFUN (vnc_nve_group_prefix,
 	VTY_DECLVAR_CONTEXT_SUB(rfapi_nve_group_cfg, rfg);
 	struct prefix p;
 	afi_t afi;
-	struct route_table *rt;
-	struct route_node *rn;
+	struct agg_table *rt;
+	struct agg_node *rn;
 	int is_un_prefix = 0;
 
 	/* make sure it's still in list */
@@ -2504,12 +2540,12 @@ DEFUN (vnc_nve_group_prefix,
 		rt = bgp->rfapi_cfg->nve_groups_vn[afi];
 	}
 
-	rn = route_node_get(rt, &p); /* NB locks node */
+	rn = agg_node_get(rt, &p); /* NB locks node */
 	if (rn->info) {
 		/*
 		 * There is already a group with this prefix
 		 */
-		route_unlock_node(rn);
+		agg_unlock_node(rn);
 		if (rn->info != rfg) {
 			/*
 			 * different group name: fail
@@ -2542,7 +2578,7 @@ DEFUN (vnc_nve_group_prefix,
 		/* detach rfg from previous route table location */
 		if (rfg->un_node) {
 			rfg->un_node->info = NULL;
-			route_unlock_node(rfg->un_node); /* frees */
+			agg_unlock_node(rfg->un_node); /* frees */
 		}
 		rfg->un_node = rn; /* back ref */
 		rfg->un_prefix = p;
@@ -2552,7 +2588,7 @@ DEFUN (vnc_nve_group_prefix,
 		/* detach rfg from previous route table location */
 		if (rfg->vn_node) {
 			rfg->vn_node->info = NULL;
-			route_unlock_node(rfg->vn_node); /* frees */
+			agg_unlock_node(rfg->vn_node); /* frees */
 		}
 		rfg->vn_node = rn; /* back ref */
 		rfg->vn_prefix = p;
@@ -2929,10 +2965,18 @@ DEFUN_NOSH (exit_vnc,
 }
 
 static struct cmd_node bgp_vnc_defaults_node = {
-	BGP_VNC_DEFAULTS_NODE, "%s(config-router-vnc-defaults)# ", 1};
+	.name = "bgp vnc defaults",
+	.node = BGP_VNC_DEFAULTS_NODE,
+	.parent_node = BGP_NODE,
+	.prompt = "%s(config-router-vnc-defaults)# ",
+};
 
 static struct cmd_node bgp_vnc_nve_group_node = {
-	BGP_VNC_NVE_GROUP_NODE, "%s(config-router-vnc-nve-group)# ", 1};
+	.name = "bgp vnc nve",
+	.node = BGP_VNC_NVE_GROUP_NODE,
+	.parent_node = BGP_NODE,
+	.prompt = "%s(config-router-vnc-nve-group)# ",
+};
 
 /*-------------------------------------------------------------------------
  *			VNC nve-group
@@ -3352,7 +3396,11 @@ DEFUN_NOSH (exit_vrf_policy,
 }
 
 static struct cmd_node bgp_vrf_policy_node = {
-	BGP_VRF_POLICY_NODE, "%s(config-router-vrf-policy)# ", 1};
+	.name = "bgp vrf policy",
+	.node = BGP_VRF_POLICY_NODE,
+	.parent_node = BGP_NODE,
+	.prompt = "%s(config-router-vrf-policy)# ",
+};
 
 /*-------------------------------------------------------------------------
  *			vnc-l2-group
@@ -3402,9 +3450,8 @@ static void bgp_rfapi_delete_l2_group(struct vty *vty, /* NULL = no output */
 	if (rfg->rt_export_list)
 		ecommunity_free(&rfg->rt_export_list);
 	if (rfg->labels)
-		list_delete_and_null(&rfg->labels);
-	if (rfg->rfp_cfg)
-		XFREE(MTYPE_RFAPI_RFP_GROUP_CFG, rfg->rfp_cfg);
+		list_delete(&rfg->labels);
+	XFREE(MTYPE_RFAPI_RFP_GROUP_CFG, rfg->rfp_cfg);
 	listnode_delete(bgp->rfapi_cfg->l2_groups, rfg);
 
 	rfapi_l2_group_del(rfg);
@@ -3589,7 +3636,11 @@ DEFUN (vnc_l2_group_rt,
 
 
 static struct cmd_node bgp_vnc_l2_group_node = {
-	BGP_VNC_L2_GROUP_NODE, "%s(config-router-vnc-l2-group)# ", 1};
+	.name = "bgp vnc l2",
+	.node = BGP_VNC_L2_GROUP_NODE,
+	.parent_node = BGP_NODE,
+	.prompt = "%s(config-router-vnc-l2-group)# ",
+};
 
 struct rfapi_l2_group_cfg *
 bgp_rfapi_get_group_by_lni_label(struct bgp *bgp, uint32_t logical_net_id,
@@ -3646,14 +3697,10 @@ bgp_rfapi_get_ecommunity_by_lni_label(struct bgp *bgp, uint32_t is_import,
 
 void bgp_rfapi_cfg_init(void)
 {
-	/* main bgpd code does not use this hook, but vnc does */
-	/* superseded by bgp_route_map_process_update_cb() */
-	/* bgp_route_map_event_hook_add(vnc_routemap_event); */
-
-	install_node(&bgp_vnc_defaults_node, NULL);
-	install_node(&bgp_vnc_nve_group_node, NULL);
-	install_node(&bgp_vrf_policy_node, NULL);
-	install_node(&bgp_vnc_l2_group_node, NULL);
+	install_node(&bgp_vnc_defaults_node);
+	install_node(&bgp_vnc_nve_group_node);
+	install_node(&bgp_vrf_policy_node);
+	install_node(&bgp_vnc_l2_group_node);
 	install_default(BGP_VRF_POLICY_NODE);
 	install_default(BGP_VNC_DEFAULTS_NODE);
 	install_default(BGP_VNC_NVE_GROUP_NODE);
@@ -3761,15 +3808,14 @@ struct rfapi_cfg *bgp_rfapi_cfg_new(struct rfapi_rfp_cfg *cfg)
 	struct rfapi_cfg *h;
 	afi_t afi;
 
-	h = (struct rfapi_cfg *)XCALLOC(MTYPE_RFAPI_CFG,
-					sizeof(struct rfapi_cfg));
+	h = XCALLOC(MTYPE_RFAPI_CFG, sizeof(struct rfapi_cfg));
 	assert(h);
 
 	h->nve_groups_sequential = list_new();
 	assert(h->nve_groups_sequential);
 	for (afi = AFI_IP; afi < AFI_MAX; afi++) {
-		h->nve_groups_vn[afi] = route_table_init();
-		h->nve_groups_un[afi] = route_table_init();
+		h->nve_groups_vn[afi] = agg_table_init();
+		h->nve_groups_un[afi] = agg_table_init();
 	}
 	h->default_response_lifetime =
 		BGP_VNC_DEFAULT_RESPONSE_LIFETIME_DEFAULT;
@@ -3816,19 +3862,18 @@ void bgp_rfapi_cfg_destroy(struct bgp *bgp, struct rfapi_cfg *h)
 	bgp_rfapi_delete_named_nve_group(NULL, bgp, NULL, RFAPI_GROUP_CFG_MAX);
 	bgp_rfapi_delete_named_l2_group(NULL, bgp, NULL);
 	if (h->l2_groups != NULL)
-		list_delete_and_null(&h->l2_groups);
-	list_delete_and_null(&h->nve_groups_sequential);
-	list_delete_and_null(&h->rfg_export_direct_bgp_l);
-	list_delete_and_null(&h->rfg_export_zebra_l);
+		list_delete(&h->l2_groups);
+	list_delete(&h->nve_groups_sequential);
+	list_delete(&h->rfg_export_direct_bgp_l);
+	list_delete(&h->rfg_export_zebra_l);
 	if (h->default_rt_export_list)
 		ecommunity_free(&h->default_rt_export_list);
 	if (h->default_rt_import_list)
 		ecommunity_free(&h->default_rt_import_list);
-	if (h->default_rfp_cfg)
-		XFREE(MTYPE_RFAPI_RFP_GROUP_CFG, h->default_rfp_cfg);
+	XFREE(MTYPE_RFAPI_RFP_GROUP_CFG, h->default_rfp_cfg);
 	for (afi = AFI_IP; afi < AFI_MAX; afi++) {
-		route_table_finish(h->nve_groups_vn[afi]);
-		route_table_finish(h->nve_groups_un[afi]);
+		agg_table_finish(h->nve_groups_vn[afi]);
+		agg_table_finish(h->nve_groups_un[afi]);
 	}
 	XFREE(MTYPE_RFAPI_CFG, h);
 }
@@ -4022,21 +4067,21 @@ int bgp_rfapi_cfg_write(struct vty *vty, struct bgp *bgp)
 			vty_out(vty, "!\n");
 
 		if (hc->l2_groups) {
-			struct rfapi_l2_group_cfg *rfg = NULL;
+			struct rfapi_l2_group_cfg *rfgc = NULL;
 			struct listnode *gnode;
-			for (ALL_LIST_ELEMENTS_RO(hc->l2_groups, gnode, rfg)) {
+			for (ALL_LIST_ELEMENTS_RO(hc->l2_groups, gnode, rfgc)) {
 				struct listnode *lnode;
 				void *data;
 				++write;
-				vty_out(vty, " vnc l2-group %s\n", rfg->name);
-				if (rfg->logical_net_id != 0)
+				vty_out(vty, " vnc l2-group %s\n", rfgc->name);
+				if (rfgc->logical_net_id != 0)
 					vty_out(vty,
 						"   logical-network-id %u\n",
-						rfg->logical_net_id);
-				if (rfg->labels != NULL
-				    && listhead(rfg->labels) != NULL) {
+						rfgc->logical_net_id);
+				if (rfgc->labels != NULL
+				    && listhead(rfgc->labels) != NULL) {
 					vty_out(vty, "   labels ");
-					for (ALL_LIST_ELEMENTS_RO(rfg->labels,
+					for (ALL_LIST_ELEMENTS_RO(rfgc->labels,
 								  lnode,
 								  data)) {
 						vty_out(vty, "%hu ",
@@ -4047,28 +4092,28 @@ int bgp_rfapi_cfg_write(struct vty *vty, struct bgp *bgp)
 					vty_out(vty, "\n");
 				}
 
-				if (rfg->rt_import_list && rfg->rt_export_list
-				    && ecommunity_cmp(rfg->rt_import_list,
-						      rfg->rt_export_list)) {
+				if (rfgc->rt_import_list && rfgc->rt_export_list
+				    && ecommunity_cmp(rfgc->rt_import_list,
+						      rfgc->rt_export_list)) {
 					char *b = ecommunity_ecom2str(
-						rfg->rt_import_list,
+						rfgc->rt_import_list,
 						ECOMMUNITY_FORMAT_ROUTE_MAP,
 						ECOMMUNITY_ROUTE_TARGET);
 					vty_out(vty, "   rt both %s\n", b);
 					XFREE(MTYPE_ECOMMUNITY_STR, b);
 				} else {
-					if (rfg->rt_import_list) {
+					if (rfgc->rt_import_list) {
 						char *b = ecommunity_ecom2str(
-							rfg->rt_import_list,
+							rfgc->rt_import_list,
 							ECOMMUNITY_FORMAT_ROUTE_MAP,
 							ECOMMUNITY_ROUTE_TARGET);
 						vty_out(vty, "  rt import %s\n",
 							b);
 						XFREE(MTYPE_ECOMMUNITY_STR, b);
 					}
-					if (rfg->rt_export_list) {
+					if (rfgc->rt_export_list) {
 						char *b = ecommunity_ecom2str(
-							rfg->rt_export_list,
+							rfgc->rt_export_list,
 							ECOMMUNITY_FORMAT_ROUTE_MAP,
 							ECOMMUNITY_ROUTE_TARGET);
 						vty_out(vty, "  rt export %s\n",
@@ -4081,7 +4126,7 @@ int bgp_rfapi_cfg_write(struct vty *vty, struct bgp *bgp)
 							  .cfg_group_cb)(
 						vty, bgp->rfapi->rfp,
 						RFAPI_RFP_CFG_GROUP_L2,
-						rfg->name, rfg->rfp_cfg);
+						rfgc->name, rfgc->rfp_cfg);
 				vty_out(vty, "   exit-vnc\n");
 				vty_out(vty, "!\n");
 			}
@@ -4582,7 +4627,8 @@ void bgp_rfapi_show_summary(struct bgp *bgp, struct vty *vty)
 		(hc->rfp_cfg.download_type == RFAPI_RFP_DOWNLOAD_PARTIAL
 			 ? "(default)"
 			 : ""));
-	sprintf(tmp, "%u seconds", hc->rfp_cfg.ftd_advertisement_interval);
+	snprintf(tmp, sizeof(tmp), "%u seconds",
+		 hc->rfp_cfg.ftd_advertisement_interval);
 	vty_out(vty, "%-39s %-19s %s\n", "    Advertisement Interval:", tmp,
 		(hc->rfp_cfg.ftd_advertisement_interval
 				 == RFAPI_RFP_CFG_DEFAULT_FTD_ADVERTISEMENT_INTERVAL

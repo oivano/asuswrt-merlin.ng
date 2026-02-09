@@ -61,10 +61,23 @@
 #include "zebra/zapi_msg.h"       /* for zserv_handle_commands */
 #include "zebra/zebra_vrf.h"      /* for zebra_vrf_lookup_by_id, zvrf */
 #include "zebra/zserv.h"          /* for zserv */
+#include "zebra/zebra_router.h"
+#include "zebra/zebra_errors.h"   /* for error messages */
 /* clang-format on */
 
 /* privileges */
 extern struct zebra_privs_t zserv_privs;
+
+/* The listener socket for clients connecting to us */
+static int zsock;
+
+/* The lock that protects access to zapi client objects */
+static pthread_mutex_t client_mutex;
+
+static struct zserv *find_client_internal(uint8_t proto,
+					  unsigned short instance,
+					  uint32_t session_id);
+
 
 /*
  * Client thread events.
@@ -144,8 +157,8 @@ static void zserv_event(struct zserv *client, enum zserv_event event);
  * hdr (optional)
  *    The message header
  */
-static void zserv_log_message(const char *errmsg, struct stream *msg,
-			      struct zmsghdr *hdr)
+void zserv_log_message(const char *errmsg, struct stream *msg,
+		       struct zmsghdr *hdr)
 {
 	zlog_debug("Rx'd ZAPI message");
 	if (errmsg)
@@ -155,7 +168,7 @@ static void zserv_log_message(const char *errmsg, struct stream *msg,
 		zlog_debug("Command: %s", zserv_command_string(hdr->command));
 		zlog_debug("    VRF: %u", hdr->vrf_id);
 	}
-	zlog_hexdump(msg->data, STREAM_READABLE(msg));
+	stream_hexdump(msg);
 }
 
 /*
@@ -171,7 +184,8 @@ static void zserv_log_message(const char *errmsg, struct stream *msg,
  */
 static void zserv_client_fail(struct zserv *client)
 {
-	zlog_warn("Client '%s' encountered an error and is shutting down.",
+	flog_warn(EC_ZEBRA_CLIENT_IO_ERROR,
+		  "Client '%s' encountered an error and is shutting down.",
 		  zebra_route_string(client->proto));
 
 	atomic_store_explicit(&client->pthread->running, false,
@@ -225,18 +239,16 @@ static int zserv_write(struct thread *thread)
 
 	cache = stream_fifo_new();
 
-	pthread_mutex_lock(&client->obuf_mtx);
-	{
+	frr_with_mutex(&client->obuf_mtx) {
 		while (stream_fifo_head(client->obuf_fifo))
 			stream_fifo_push(cache,
 					 stream_fifo_pop(client->obuf_fifo));
 	}
-	pthread_mutex_unlock(&client->obuf_mtx);
 
 	if (cache->tail) {
 		msg = cache->tail;
 		stream_set_getp(msg, 0);
-		wcmd = stream_getw_from(msg, 6);
+		wcmd = stream_getw_from(msg, ZAPI_HEADER_CMD_LOCATION);
 	}
 
 	while (stream_fifo_head(cache)) {
@@ -270,7 +282,8 @@ static int zserv_write(struct thread *thread)
 	return 0;
 
 zwrite_fail:
-	zlog_warn("%s: could not write to %s [fd = %d], closing.", __func__,
+	flog_warn(EC_ZEBRA_CLIENT_WRITE_FAILED,
+		  "%s: could not write to %s [fd = %d], closing.", __func__,
 		  zebra_route_string(client->proto), client->sock);
 	zserv_client_fail(client);
 	return 0;
@@ -309,7 +322,7 @@ static int zserv_read(struct thread *thread)
 	uint32_t p2p;
 	struct zmsghdr hdr;
 
-	p2p_orig = atomic_load_explicit(&zebrad.packets_to_process,
+	p2p_orig = atomic_load_explicit(&zrouter.packets_to_process,
 					memory_order_relaxed);
 	cache = stream_fifo_new();
 	p2p = p2p_orig;
@@ -398,12 +411,11 @@ static int zserv_read(struct thread *thread)
 		}
 
 		/* Debug packet information. */
-		if (IS_ZEBRA_DEBUG_EVENT)
-			zlog_debug("zebra message comes from socket [%d]",
+		if (IS_ZEBRA_DEBUG_PACKET)
+			zlog_debug("zebra message[%s:%u:%u] comes from socket [%d]",
+				   zserv_command_string(hdr.command),
+				   hdr.vrf_id, hdr.length,
 				   sock);
-
-		if (IS_ZEBRA_DEBUG_PACKET && IS_ZEBRA_DEBUG_RECV)
-			zserv_log_message(NULL, client->ibuf_work, &hdr);
 
 		stream_set_getp(client->ibuf_work, 0);
 		struct stream *msg = stream_dup(client->ibuf_work);
@@ -421,13 +433,11 @@ static int zserv_read(struct thread *thread)
 				      memory_order_relaxed);
 
 		/* publish read packets on client's input queue */
-		pthread_mutex_lock(&client->ibuf_mtx);
-		{
+		frr_with_mutex(&client->ibuf_mtx) {
 			while (cache->head)
 				stream_fifo_push(client->ibuf_fifo,
 						 stream_fifo_pop(cache));
 		}
-		pthread_mutex_unlock(&client->ibuf_mtx);
 
 		/* Schedule job to process those packets */
 		zserv_event(client, ZSERV_PROCESS_MESSAGES);
@@ -435,7 +445,8 @@ static int zserv_read(struct thread *thread)
 	}
 
 	if (IS_ZEBRA_DEBUG_PACKET)
-		zlog_debug("Read %d packets", p2p_orig - p2p);
+		zlog_debug("Read %d packets from client: %s", p2p_orig - p2p,
+			   zebra_route_string(client->proto));
 
 	/* Reschedule ourselves */
 	zserv_client_event(client, ZSERV_CLIENT_READ);
@@ -478,9 +489,9 @@ static void zserv_client_event(struct zserv *client,
  * with the message is executed. This proceeds until there are no more messages,
  * an error occurs, or the processing limit is reached.
  *
- * The client's I/O thread can push at most zebrad.packets_to_process messages
+ * The client's I/O thread can push at most zrouter.packets_to_process messages
  * onto the input buffer before notifying us there are packets to read. As long
- * as we always process zebrad.packets_to_process messages here, then we can
+ * as we always process zrouter.packets_to_process messages here, then we can
  * rely on the read thread to handle queuing this task enough times to process
  * everything on the input queue.
  */
@@ -489,11 +500,10 @@ static int zserv_process_messages(struct thread *thread)
 	struct zserv *client = THREAD_ARG(thread);
 	struct stream *msg;
 	struct stream_fifo *cache = stream_fifo_new();
+	uint32_t p2p = zrouter.packets_to_process;
+	bool need_resched = false;
 
-	uint32_t p2p = zebrad.packets_to_process;
-
-	pthread_mutex_lock(&client->ibuf_mtx);
-	{
+	frr_with_mutex(&client->ibuf_mtx) {
 		uint32_t i;
 		for (i = 0; i < p2p && stream_fifo_head(client->ibuf_fifo);
 		     ++i) {
@@ -502,55 +512,57 @@ static int zserv_process_messages(struct thread *thread)
 		}
 
 		msg = NULL;
-	}
-	pthread_mutex_unlock(&client->ibuf_mtx);
 
-	while (stream_fifo_head(cache)) {
-		msg = stream_fifo_pop(cache);
-		zserv_handle_commands(client, msg);
-		stream_free(msg);
+		/* Need to reschedule processing work if there are still
+		 * packets in the fifo.
+		 */
+		if (stream_fifo_head(client->ibuf_fifo))
+			need_resched = true;
 	}
+
+	/* Process the batch of messages */
+	if (stream_fifo_head(cache))
+		zserv_handle_commands(client, cache);
 
 	stream_fifo_free(cache);
+
+	/* Reschedule ourselves if necessary */
+	if (need_resched)
+		zserv_event(client, ZSERV_PROCESS_MESSAGES);
 
 	return 0;
 }
 
 int zserv_send_message(struct zserv *client, struct stream *msg)
 {
-	/*
-	 * This is a somewhat poorly named variable added with Zebra's portion
-	 * of the label manager. That component does not use the regular
-	 * zserv/zapi_msg interface for handling its messages, as the client
-	 * itself runs in-process. Instead it uses synchronous writes on the
-	 * zserv client's socket directly in the zread* handlers for its
-	 * message types. Furthermore, it cannot handle the usual messages
-	 * Zebra sends (such as those for interface changes) and so has added
-	 * this flag and check here as a hack to suppress all messages that it
-	 * does not explicitly know about.
-	 *
-	 * In any case this needs to be cleaned up at some point.
-	 *
-	 * See also:
-	 *    zread_label_manager_request
-	 *    zsend_label_manager_connect_response
-	 *    zsend_assign_label_chunk_response
-	 *    ...
-	 */
-	if (client->is_synchronous)
-		return 0;
-
-	pthread_mutex_lock(&client->obuf_mtx);
-	{
+	frr_with_mutex(&client->obuf_mtx) {
 		stream_fifo_push(client->obuf_fifo, msg);
 	}
-	pthread_mutex_unlock(&client->obuf_mtx);
 
 	zserv_client_event(client, ZSERV_CLIENT_WRITE);
 
 	return 0;
 }
 
+/*
+ * Send a batch of messages to a connected Zebra API client.
+ */
+int zserv_send_batch(struct zserv *client, struct stream_fifo *fifo)
+{
+	struct stream *msg;
+
+	frr_with_mutex(&client->obuf_mtx) {
+		msg = stream_fifo_pop(fifo);
+		while (msg) {
+			stream_fifo_push(client->obuf_fifo, msg);
+			msg = stream_fifo_pop(fifo);
+		}
+	}
+
+	zserv_client_event(client, ZSERV_CLIENT_WRITE);
+
+	return 0;
+}
 
 /* Hooks for client connect / disconnect */
 DEFINE_HOOK(zserv_client_connect, (struct zserv *client), (client));
@@ -570,6 +582,9 @@ DEFINE_KOOH(zserv_client_close, (struct zserv *client), (client));
  */
 static void zserv_client_free(struct zserv *client)
 {
+	if (client == NULL)
+		return;
+
 	hook_call(zserv_client_close, client);
 
 	/* Close file descriptor. */
@@ -578,11 +593,14 @@ static void zserv_client_free(struct zserv *client)
 
 		close(client->sock);
 
-		nroutes = rib_score_proto(client->proto, client->instance);
-		zlog_notice(
-			"client %d disconnected. %lu %s routes removed from the rib",
-			client->sock, nroutes,
-			zebra_route_string(client->proto));
+		if (DYNAMIC_CLIENT_GR_DISABLED(client)) {
+			nroutes = rib_score_proto(client->proto,
+						  client->instance);
+			zlog_notice(
+				"client %d disconnected %lu %s routes removed from the rib",
+				client->sock, nroutes,
+				zebra_route_string(client->proto));
+		}
 		client->sock = -1;
 	}
 
@@ -603,38 +621,80 @@ static void zserv_client_free(struct zserv *client)
 	pthread_mutex_destroy(&client->ibuf_mtx);
 
 	/* Free bitmaps. */
-	for (afi_t afi = AFI_IP; afi < AFI_MAX; afi++)
-		for (int i = 0; i < ZEBRA_ROUTE_MAX; i++)
+	for (afi_t afi = AFI_IP; afi < AFI_MAX; afi++) {
+		for (int i = 0; i < ZEBRA_ROUTE_MAX; i++) {
 			vrf_bitmap_free(client->redist[afi][i]);
+			redist_del_all_instances(&client->mi_redist[afi][i]);
+		}
 
-	vrf_bitmap_free(client->redist_default);
-	vrf_bitmap_free(client->ifinfo);
-	vrf_bitmap_free(client->ridinfo);
+		vrf_bitmap_free(client->redist_default[afi]);
+		vrf_bitmap_free(client->ridinfo[afi]);
+	}
 
-	XFREE(MTYPE_TMP, client);
+	/*
+	 * If any instance are graceful restart enabled,
+	 * client is not deleted
+	 */
+	if (DYNAMIC_CLIENT_GR_DISABLED(client)) {
+		if (IS_ZEBRA_DEBUG_EVENT)
+			zlog_debug("%s: Deleting client %s", __func__,
+				   zebra_route_string(client->proto));
+		XFREE(MTYPE_TMP, client);
+	} else {
+		/* Handle cases where client has GR instance. */
+		if (IS_ZEBRA_DEBUG_EVENT)
+			zlog_debug("%s: client %s restart enabled", __func__,
+				   zebra_route_string(client->proto));
+		if (zebra_gr_client_disconnect(client) < 0)
+			zlog_err(
+				"%s: GR enabled but could not handle disconnect event",
+				__func__);
+	}
 }
 
 void zserv_close_client(struct zserv *client)
 {
-	/* synchronously stop and join pthread */
-	frr_pthread_stop(client->pthread, NULL);
+	bool free_p = true;
 
-	if (IS_ZEBRA_DEBUG_EVENT)
-		zlog_debug("Closing client '%s'",
-			   zebra_route_string(client->proto));
+	if (client->pthread) {
+		/* synchronously stop and join pthread */
+		frr_pthread_stop(client->pthread, NULL);
 
-	thread_cancel_event(zebrad.master, client);
-	THREAD_OFF(client->t_cleanup);
+		if (IS_ZEBRA_DEBUG_EVENT)
+			zlog_debug("Closing client '%s'",
+				   zebra_route_string(client->proto));
 
-	/* destroy pthread */
-	frr_pthread_destroy(client->pthread);
-	client->pthread = NULL;
+		thread_cancel_event(zrouter.master, client);
+		THREAD_OFF(client->t_cleanup);
+		THREAD_OFF(client->t_process);
 
-	/* remove from client list */
-	listnode_delete(zebrad.client_list, client);
+		/* destroy pthread */
+		frr_pthread_destroy(client->pthread);
+		client->pthread = NULL;
+	}
+
+	/*
+	 * Final check in case the client struct is in use in another
+	 * pthread: if not in-use, continue and free the client
+	 */
+	frr_with_mutex(&client_mutex) {
+		if (client->busy_count <= 0) {
+			/* remove from client list */
+			listnode_delete(zrouter.client_list, client);
+		} else {
+			/*
+			 * The client session object may be in use, although
+			 * the associated pthread is gone. Defer final
+			 * cleanup.
+			 */
+			client->is_closed = true;
+			free_p = false;
+		}
+	}
 
 	/* delete client */
-	zserv_client_free(client);
+	if (free_p)
+		zserv_client_free(client);
 }
 
 /*
@@ -664,6 +724,8 @@ static int zserv_handle_client_fail(struct thread *thread)
 static struct zserv *zserv_client_create(int sock)
 {
 	struct zserv *client;
+	size_t stream_size =
+		MAX(ZEBRA_MAX_PACKET_SIZ, sizeof(struct zapi_route));
 	int i;
 	afi_t afi;
 
@@ -673,41 +735,36 @@ static struct zserv *zserv_client_create(int sock)
 	client->sock = sock;
 	client->ibuf_fifo = stream_fifo_new();
 	client->obuf_fifo = stream_fifo_new();
-	client->ibuf_work = stream_new(ZEBRA_MAX_PACKET_SIZ);
-	client->obuf_work = stream_new(ZEBRA_MAX_PACKET_SIZ);
+	client->ibuf_work = stream_new(stream_size);
+	client->obuf_work = stream_new(stream_size);
 	pthread_mutex_init(&client->ibuf_mtx, NULL);
 	pthread_mutex_init(&client->obuf_mtx, NULL);
 	client->wb = buffer_new(0);
-
-	/* Set table number. */
-	client->rtm_table = zebrad.rtm_table_default;
+	TAILQ_INIT(&(client->gr_info_queue));
 
 	atomic_store_explicit(&client->connect_time, (uint32_t) monotime(NULL),
 			      memory_order_relaxed);
 
 	/* Initialize flags */
-	for (afi = AFI_IP; afi < AFI_MAX; afi++)
+	for (afi = AFI_IP; afi < AFI_MAX; afi++) {
 		for (i = 0; i < ZEBRA_ROUTE_MAX; i++)
 			client->redist[afi][i] = vrf_bitmap_init();
-	client->redist_default = vrf_bitmap_init();
-	client->ifinfo = vrf_bitmap_init();
-	client->ridinfo = vrf_bitmap_init();
-
-	/* by default, it's not a synchronous client */
-	client->is_synchronous = 0;
+		client->redist_default[afi] = vrf_bitmap_init();
+		client->ridinfo[afi] = vrf_bitmap_init();
+	}
 
 	/* Add this client to linked list. */
-	listnode_add(zebrad.client_list, client);
+	frr_with_mutex(&client_mutex) {
+		listnode_add(zrouter.client_list, client);
+	}
 
 	struct frr_pthread_attr zclient_pthr_attrs = {
-		.id = frr_pthread_get_id(),
 		.start = frr_pthread_attr_default.start,
 		.stop = frr_pthread_attr_default.stop
 	};
 	client->pthread =
-		frr_pthread_new(&zclient_pthr_attrs, "Zebra API client thread");
-
-	zebra_vrf_update_all(client);
+		frr_pthread_new(&zclient_pthr_attrs, "Zebra API client thread",
+				"zebra_apic");
 
 	/* start read loop */
 	zserv_client_event(client, ZSERV_CLIENT_READ);
@@ -719,6 +776,66 @@ static struct zserv *zserv_client_create(int sock)
 	frr_pthread_run(client->pthread, NULL);
 
 	return client;
+}
+
+/*
+ * Retrieve a client object by the complete tuple of
+ * {protocol, instance, session}. This version supports use
+ * from a different pthread: the object will be returned marked
+ * in-use. The caller *must* release the client object with the
+ * release_client() api, to ensure that the in-use marker is cleared properly.
+ */
+struct zserv *zserv_acquire_client(uint8_t proto, unsigned short instance,
+				   uint32_t session_id)
+{
+	struct zserv *client = NULL;
+
+	frr_with_mutex(&client_mutex) {
+		client = find_client_internal(proto, instance, session_id);
+		if (client) {
+			/* Don't return a dead/closed client object */
+			if (client->is_closed)
+				client = NULL;
+			else
+				client->busy_count++;
+		}
+	}
+
+	return client;
+}
+
+/*
+ * Release a client object that was acquired with the acquire_client() api.
+ * After this has been called, the caller must not use the client pointer -
+ * it may be freed if the client has closed.
+ */
+void zserv_release_client(struct zserv *client)
+{
+	/*
+	 * Once we've decremented the client object's refcount, it's possible
+	 * for it to be deleted as soon as we release the lock, so we won't
+	 * touch the object again.
+	 */
+	frr_with_mutex(&client_mutex) {
+		client->busy_count--;
+
+		if (client->busy_count <= 0) {
+			/*
+			 * No more users of the client object. If the client
+			 * session is closed, schedule cleanup on the zebra
+			 * main pthread.
+			 */
+			if (client->is_closed)
+				thread_add_event(zrouter.master,
+						 zserv_handle_client_fail,
+						 client, 0, &client->t_cleanup);
+		}
+	}
+
+	/*
+	 * Cleanup must take place on the zebra main pthread, so we've
+	 * scheduled an event.
+	 */
 }
 
 /*
@@ -740,8 +857,8 @@ static int zserv_accept(struct thread *thread)
 	client_sock = accept(accept_sock, (struct sockaddr *)&client, &len);
 
 	if (client_sock < 0) {
-		zlog_warn("Can't accept zebra socket: %s",
-			  safe_strerror(errno));
+		flog_err_sys(EC_LIB_SOCKET, "Can't accept zebra socket: %s",
+			     safe_strerror(errno));
 		return -1;
 	}
 
@@ -752,6 +869,21 @@ static int zserv_accept(struct thread *thread)
 	zserv_client_create(client_sock);
 
 	return 0;
+}
+
+void zserv_close(void)
+{
+	/*
+	 * On shutdown, let's close the socket down
+	 * so that long running processes of killing the
+	 * routing table doesn't leave us in a bad
+	 * state where a client tries to reconnect
+	 */
+	close(zsock);
+	zsock = -1;
+
+	/* Free client list's mutex */
+	pthread_mutex_destroy(&client_mutex);
 }
 
 void zserv_start(char *path)
@@ -769,50 +901,43 @@ void zserv_start(char *path)
 	old_mask = umask(0077);
 
 	/* Make UNIX domain socket. */
-	zebrad.sock = socket(sa.ss_family, SOCK_STREAM, 0);
-	if (zebrad.sock < 0) {
-		zlog_warn("Can't create zserv socket: %s",
-			  safe_strerror(errno));
-		zlog_warn(
-			"zebra can't provide full functionality due to above error");
+	zsock = socket(sa.ss_family, SOCK_STREAM, 0);
+	if (zsock < 0) {
+		flog_err_sys(EC_LIB_SOCKET, "Can't create zserv socket: %s",
+			     safe_strerror(errno));
 		return;
 	}
 
 	if (sa.ss_family != AF_UNIX) {
-		sockopt_reuseaddr(zebrad.sock);
-		sockopt_reuseport(zebrad.sock);
+		sockopt_reuseaddr(zsock);
+		sockopt_reuseport(zsock);
 	} else {
 		struct sockaddr_un *suna = (struct sockaddr_un *)&sa;
 		if (suna->sun_path[0])
 			unlink(suna->sun_path);
 	}
 
-	frr_elevate_privs(&zserv_privs) {
-		setsockopt_so_recvbuf(zebrad.sock, 1048576);
-		setsockopt_so_sendbuf(zebrad.sock, 1048576);
-	}
+	setsockopt_so_recvbuf(zsock, 1048576);
+	setsockopt_so_sendbuf(zsock, 1048576);
 
-	frr_elevate_privs((sa.ss_family != AF_UNIX) ? &zserv_privs : NULL) {
-		ret = bind(zebrad.sock, (struct sockaddr *)&sa, sa_len);
+	frr_with_privs((sa.ss_family != AF_UNIX) ? &zserv_privs : NULL) {
+		ret = bind(zsock, (struct sockaddr *)&sa, sa_len);
 	}
 	if (ret < 0) {
-		zlog_warn("Can't bind zserv socket on %s: %s", path,
-			  safe_strerror(errno));
-		zlog_warn(
-			"zebra can't provide full functionality due to above error");
-		close(zebrad.sock);
-		zebrad.sock = -1;
+		flog_err_sys(EC_LIB_SOCKET, "Can't bind zserv socket on %s: %s",
+			     path, safe_strerror(errno));
+		close(zsock);
+		zsock = -1;
 		return;
 	}
 
-	ret = listen(zebrad.sock, 5);
+	ret = listen(zsock, 5);
 	if (ret < 0) {
-		zlog_warn("Can't listen to zserv socket %s: %s", path,
-			  safe_strerror(errno));
-		zlog_warn(
-			"zebra can't provide full functionality due to above error");
-		close(zebrad.sock);
-		zebrad.sock = -1;
+		flog_err_sys(EC_LIB_SOCKET,
+			     "Can't listen to zserv socket %s: %s", path,
+			     safe_strerror(errno));
+		close(zsock);
+		zsock = -1;
 		return;
 	}
 
@@ -825,15 +950,15 @@ void zserv_event(struct zserv *client, enum zserv_event event)
 {
 	switch (event) {
 	case ZSERV_ACCEPT:
-		thread_add_read(zebrad.master, zserv_accept, NULL, zebrad.sock,
+		thread_add_read(zrouter.master, zserv_accept, NULL, zsock,
 				NULL);
 		break;
 	case ZSERV_PROCESS_MESSAGES:
-		thread_add_event(zebrad.master, zserv_process_messages, client,
-				 0, NULL);
+		thread_add_event(zrouter.master, zserv_process_messages, client,
+				 0, &client->t_process);
 		break;
 	case ZSERV_HANDLE_CLIENT_FAIL:
-		thread_add_event(zebrad.master, zserv_handle_client_fail,
+		thread_add_event(zrouter.master, zserv_handle_client_fail,
 				 client, 0, &client->t_cleanup);
 	}
 }
@@ -844,7 +969,6 @@ void zserv_event(struct zserv *client, enum zserv_event event)
 #define ZEBRA_TIME_BUF 32
 static char *zserv_time_buf(time_t *time1, char *buf, int buflen)
 {
-	struct tm *tm;
 	time_t now;
 
 	assert(buf != NULL);
@@ -858,35 +982,30 @@ static char *zserv_time_buf(time_t *time1, char *buf, int buflen)
 
 	now = monotime(NULL);
 	now -= *time1;
-	tm = gmtime(&now);
 
-	if (now < ONE_DAY_SECOND)
-		snprintf(buf, buflen, "%02d:%02d:%02d", tm->tm_hour, tm->tm_min,
-			 tm->tm_sec);
-	else if (now < ONE_WEEK_SECOND)
-		snprintf(buf, buflen, "%dd%02dh%02dm", tm->tm_yday, tm->tm_hour,
-			 tm->tm_min);
-	else
-		snprintf(buf, buflen, "%02dw%dd%02dh", tm->tm_yday / 7,
-			 tm->tm_yday - ((tm->tm_yday / 7) * 7), tm->tm_hour);
+	frrtime_to_interval(now, buf, buflen);
+
 	return buf;
 }
 
+/* Display client info details */
 static void zebra_show_client_detail(struct vty *vty, struct zserv *client)
 {
 	char cbuf[ZEBRA_TIME_BUF], rbuf[ZEBRA_TIME_BUF];
 	char wbuf[ZEBRA_TIME_BUF], nhbuf[ZEBRA_TIME_BUF], mbuf[ZEBRA_TIME_BUF];
 	time_t connect_time, last_read_time, last_write_time;
-	uint16_t last_read_cmd, last_write_cmd;
+	uint32_t last_read_cmd, last_write_cmd;
+	struct client_gr_info *info = NULL;
 
 	vty_out(vty, "Client: %s", zebra_route_string(client->proto));
 	if (client->instance)
-		vty_out(vty, " Instance: %d", client->instance);
+		vty_out(vty, " Instance: %u", client->instance);
+	if (client->session_id)
+		vty_out(vty, " [%u]", client->session_id);
 	vty_out(vty, "\n");
 
 	vty_out(vty, "------------------------ \n");
 	vty_out(vty, "FD: %d \n", client->sock);
-	vty_out(vty, "Route Table ID: %d \n", client->rtm_table);
 
 	connect_time = (time_t) atomic_load_explicit(&client->connect_time,
 						     memory_order_relaxed);
@@ -928,34 +1047,130 @@ static void zebra_show_client_detail(struct vty *vty, struct zserv *client)
 			zserv_command_string(last_write_cmd));
 	vty_out(vty, "\n");
 
-	vty_out(vty, "Type        Add        Update     Del \n");
+	vty_out(vty, "Type        Add         Update      Del \n");
 	vty_out(vty, "================================================== \n");
-	vty_out(vty, "IPv4        %-12d%-12d%-12d\n", client->v4_route_add_cnt,
+	vty_out(vty, "IPv4        %-12u%-12u%-12u\n", client->v4_route_add_cnt,
 		client->v4_route_upd8_cnt, client->v4_route_del_cnt);
-	vty_out(vty, "IPv6        %-12d%-12d%-12d\n", client->v6_route_add_cnt,
+	vty_out(vty, "IPv6        %-12u%-12u%-12u\n", client->v6_route_add_cnt,
 		client->v6_route_upd8_cnt, client->v6_route_del_cnt);
-	vty_out(vty, "Redist:v4   %-12d%-12d%-12d\n", client->redist_v4_add_cnt,
+	vty_out(vty, "Redist:v4   %-12u%-12u%-12u\n", client->redist_v4_add_cnt,
 		0, client->redist_v4_del_cnt);
-	vty_out(vty, "Redist:v6   %-12d%-12d%-12d\n", client->redist_v6_add_cnt,
+	vty_out(vty, "Redist:v6   %-12u%-12u%-12u\n", client->redist_v6_add_cnt,
 		0, client->redist_v6_del_cnt);
-	vty_out(vty, "Connected   %-12d%-12d%-12d\n", client->ifadd_cnt, 0,
+	vty_out(vty, "Connected   %-12u%-12u%-12u\n", client->ifadd_cnt, 0,
 		client->ifdel_cnt);
-	vty_out(vty, "BFD peer    %-12d%-12d%-12d\n", client->bfd_peer_add_cnt,
+	vty_out(vty, "BFD peer    %-12u%-12u%-12u\n", client->bfd_peer_add_cnt,
 		client->bfd_peer_upd8_cnt, client->bfd_peer_del_cnt);
-	vty_out(vty, "Interface Up Notifications: %d\n", client->ifup_cnt);
-	vty_out(vty, "Interface Down Notifications: %d\n", client->ifdown_cnt);
-	vty_out(vty, "VNI add notifications: %d\n", client->vniadd_cnt);
-	vty_out(vty, "VNI delete notifications: %d\n", client->vnidel_cnt);
-	vty_out(vty, "L3-VNI add notifications: %d\n", client->l3vniadd_cnt);
-	vty_out(vty, "L3-VNI delete notifications: %d\n", client->l3vnidel_cnt);
-	vty_out(vty, "MAC-IP add notifications: %d\n", client->macipadd_cnt);
-	vty_out(vty, "MAC-IP delete notifications: %d\n", client->macipdel_cnt);
+	vty_out(vty, "NHT v4      %-12u%-12u%-12u\n",
+		client->v4_nh_watch_add_cnt, 0, client->v4_nh_watch_rem_cnt);
+	vty_out(vty, "NHT v6      %-12u%-12u%-12u\n",
+		client->v6_nh_watch_add_cnt, 0, client->v6_nh_watch_rem_cnt);
+	vty_out(vty, "VxLAN SG    %-12u%-12u%-12u\n", client->vxlan_sg_add_cnt,
+		0, client->vxlan_sg_del_cnt);
+	vty_out(vty, "Interface Up Notifications: %u\n", client->ifup_cnt);
+	vty_out(vty, "Interface Down Notifications: %u\n", client->ifdown_cnt);
+	vty_out(vty, "VNI add notifications: %u\n", client->vniadd_cnt);
+	vty_out(vty, "VNI delete notifications: %u\n", client->vnidel_cnt);
+	vty_out(vty, "L3-VNI add notifications: %u\n", client->l3vniadd_cnt);
+	vty_out(vty, "L3-VNI delete notifications: %u\n", client->l3vnidel_cnt);
+	vty_out(vty, "MAC-IP add notifications: %u\n", client->macipadd_cnt);
+	vty_out(vty, "MAC-IP delete notifications: %u\n", client->macipdel_cnt);
+	vty_out(vty, "ES add notifications: %u\n", client->local_es_add_cnt);
+	vty_out(vty, "ES delete notifications: %u\n", client->local_es_del_cnt);
+	vty_out(vty, "ES-EVI add notifications: %u\n",
+			client->local_es_evi_add_cnt);
+	vty_out(vty, "ES-EVI delete notifications: %u\n",
+			client->local_es_evi_del_cnt);
+
+	TAILQ_FOREACH (info, &client->gr_info_queue, gr_info) {
+		vty_out(vty, "VRF : %s\n", vrf_id_to_name(info->vrf_id));
+		vty_out(vty, "Capabilities : ");
+		switch (info->capabilities) {
+		case ZEBRA_CLIENT_GR_CAPABILITIES:
+			vty_out(vty, "Graceful Restart\n");
+			break;
+		case ZEBRA_CLIENT_ROUTE_UPDATE_COMPLETE:
+		case ZEBRA_CLIENT_ROUTE_UPDATE_PENDING:
+		case ZEBRA_CLIENT_GR_DISABLE:
+		case ZEBRA_CLIENT_RIB_STALE_TIME:
+			vty_out(vty, "None\n");
+			break;
+		}
+	}
 
 #if defined DEV_BUILD
 	vty_out(vty, "Input Fifo: %zu:%zu Output Fifo: %zu:%zu\n",
 		client->ibuf_fifo->count, client->ibuf_fifo->max_count,
 		client->obuf_fifo->count, client->obuf_fifo->max_count);
 #endif
+	vty_out(vty, "\n");
+}
+
+/* Display stale client information */
+static void zebra_show_stale_client_detail(struct vty *vty,
+					   struct zserv *client)
+{
+	char buf[PREFIX2STR_BUFFER];
+	time_t uptime;
+	struct client_gr_info *info = NULL;
+	struct zserv *s = NULL;
+	bool first_p = true;
+
+	TAILQ_FOREACH (info, &client->gr_info_queue, gr_info) {
+		if (first_p) {
+			vty_out(vty, "Stale Client Information\n");
+			vty_out(vty, "------------------------\n");
+
+			if (client->instance)
+				vty_out(vty, " Instance: %u", client->instance);
+			if (client->session_id)
+				vty_out(vty, " [%u]", client->session_id);
+
+			first_p = false;
+		}
+
+		vty_out(vty, "VRF : %s\n", vrf_id_to_name(info->vrf_id));
+		vty_out(vty, "Capabilities : ");
+		switch (info->capabilities) {
+		case ZEBRA_CLIENT_GR_CAPABILITIES:
+			vty_out(vty, "Graceful Restart\n");
+			break;
+		case ZEBRA_CLIENT_ROUTE_UPDATE_COMPLETE:
+		case ZEBRA_CLIENT_ROUTE_UPDATE_PENDING:
+		case ZEBRA_CLIENT_GR_DISABLE:
+		case ZEBRA_CLIENT_RIB_STALE_TIME:
+			vty_out(vty, "None\n");
+			break;
+		}
+
+		if (ZEBRA_CLIENT_GR_ENABLED(info->capabilities)) {
+			if (info->stale_client_ptr) {
+				s = (struct zserv *)(info->stale_client_ptr);
+				uptime = monotime(NULL);
+				uptime -= s->restart_time;
+
+				frrtime_to_interval(uptime, buf, sizeof(buf));
+
+				vty_out(vty, "Last restart time : %s ago\n",
+					buf);
+
+				vty_out(vty, "Stalepath removal time: %d sec\n",
+					info->stale_removal_time);
+				if (info->t_stale_removal) {
+					vty_out(vty,
+						"Stale delete timer: %ld sec\n",
+						thread_timer_remain_second(
+							info->t_stale_removal));
+				}
+			}
+			vty_out(vty, "Current AFI : %d\n", info->current_afi);
+			if (info->current_prefix) {
+				prefix2str(info->current_prefix, buf,
+					   sizeof(buf));
+				vty_out(vty, "Current prefix : %s\n", buf);
+			}
+		}
+	}
 	vty_out(vty, "\n");
 	return;
 }
@@ -973,7 +1188,7 @@ static void zebra_show_client_brief(struct vty *vty, struct zserv *client)
 	last_write_time = (time_t)atomic_load_explicit(&client->last_write_time,
 						       memory_order_relaxed);
 
-	vty_out(vty, "%-8s%12s %12s%12s%8d/%-8d%8d/%-8d\n",
+	vty_out(vty, "%-10s%12s %12s%12s%8d/%-8d%8d/%-8d\n",
 		zebra_route_string(client->proto),
 		zserv_time_buf(&connect_time, cbuf, ZEBRA_TIME_BUF),
 		zserv_time_buf(&last_read_time, rbuf, ZEBRA_TIME_BUF),
@@ -984,17 +1199,55 @@ static void zebra_show_client_brief(struct vty *vty, struct zserv *client)
 		client->v6_route_del_cnt);
 }
 
-struct zserv *zserv_find_client(uint8_t proto, unsigned short instance)
+/*
+ * Common logic that searches the client list for a zapi client; this
+ * MUST be called holding the client list mutex.
+ */
+static struct zserv *find_client_internal(uint8_t proto,
+					  unsigned short instance,
+					  uint32_t session_id)
 {
 	struct listnode *node, *nnode;
-	struct zserv *client;
+	struct zserv *client = NULL;
 
-	for (ALL_LIST_ELEMENTS(zebrad.client_list, node, nnode, client)) {
-		if (client->proto == proto && client->instance == instance)
-			return client;
+	for (ALL_LIST_ELEMENTS(zrouter.client_list, node, nnode, client)) {
+		if (client->proto == proto && client->instance == instance &&
+		    client->session_id == session_id)
+			break;
 	}
 
-	return NULL;
+	return client;
+}
+
+/*
+ * Public api that searches for a client session; this version is
+ * used from the zebra main pthread.
+ */
+struct zserv *zserv_find_client(uint8_t proto, unsigned short instance)
+{
+	struct zserv *client;
+
+	frr_with_mutex(&client_mutex) {
+		client = find_client_internal(proto, instance, 0);
+	}
+
+	return client;
+}
+
+/*
+ * Retrieve a client by its protocol, instance number, and session id.
+ */
+struct zserv *zserv_find_client_session(uint8_t proto, unsigned short instance,
+					uint32_t session_id)
+{
+	struct zserv *client;
+
+	frr_with_mutex(&client_mutex) {
+		client = find_client_internal(proto, instance, session_id);
+	}
+
+	return client;
+
 }
 
 /* This command is for debugging purpose. */
@@ -1008,8 +1261,11 @@ DEFUN (show_zebra_client,
 	struct listnode *node;
 	struct zserv *client;
 
-	for (ALL_LIST_ELEMENTS_RO(zebrad.client_list, node, client))
+	for (ALL_LIST_ELEMENTS_RO(zrouter.client_list, node, client)) {
 		zebra_show_client_detail(vty, client);
+		/* Show GR info if present */
+		zebra_show_stale_client_detail(vty, client);
+	}
 
 	return CMD_SUCCESS;
 }
@@ -1027,37 +1283,26 @@ DEFUN (show_zebra_client_summary,
 	struct zserv *client;
 
 	vty_out(vty,
-		"Name    Connect Time    Last Read  Last Write  IPv4 Routes       IPv6 Routes    \n");
+		"Name      Connect Time    Last Read  Last Write  IPv4 Routes       IPv6 Routes    \n");
 	vty_out(vty,
 		"--------------------------------------------------------------------------------\n");
 
-	for (ALL_LIST_ELEMENTS_RO(zebrad.client_list, node, client))
+	for (ALL_LIST_ELEMENTS_RO(zrouter.client_list, node, client))
 		zebra_show_client_brief(vty, client);
 
 	vty_out(vty, "Routes column shows (added+updated)/deleted\n");
 	return CMD_SUCCESS;
 }
 
-#if defined(HANDLE_ZAPI_FUZZING)
-void zserv_read_file(char *input)
-{
-	int fd;
-	struct thread t;
-
-	fd = open(input, O_RDONLY | O_NONBLOCK);
-	t.u.fd = fd;
-
-	zserv_client_create(fd);
-}
-#endif
-
 void zserv_init(void)
 {
 	/* Client list init. */
-	zebrad.client_list = list_new();
+	zrouter.client_list = list_new();
+	zrouter.stale_client_list = list_new();
 
 	/* Misc init. */
-	zebrad.sock = -1;
+	zsock = -1;
+	pthread_mutex_init(&client_mutex, NULL);
 
 	install_element(ENABLE_NODE, &show_zebra_client_cmd);
 	install_element(ENABLE_NODE, &show_zebra_client_summary_cmd);

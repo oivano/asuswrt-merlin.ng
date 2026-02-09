@@ -24,22 +24,20 @@
 #include "log.h"
 #include "lib_errors.h"
 
+#include "zebra/rib.h"
+#include "zebra/zebra_dplane.h"
 #if defined(HAVE_NETLINK)
 
 #include <linux/net_namespace.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
 
-#include "rib.h"
 #include "zebra_ns.h"
 #include "kernel_netlink.h"
 #endif /* defined(HAVE_NETLINK) */
 
 #include "zebra/zebra_netns_id.h"
 #include "zebra/zebra_errors.h"
-
-/* default NS ID value used when VRF backend is not NETNS */
-#define NS_DEFAULT_INTERNAL 0
 
 /* in case NEWNSID not available, the NSID will be locally obtained
  */
@@ -88,7 +86,7 @@ static int send_receive(int sock, struct nlmsghdr *nlh, unsigned int seq,
 	ret = sendto(sock, (const void *)nlh, (size_t)nlh->nlmsg_len, 0,
 		     (struct sockaddr *)&snl, (socklen_t)sizeof(snl));
 	if (ret < 0) {
-		flog_err_sys(LIB_ERR_SOCKET, "netlink( %u) sendmsg() error: %s",
+		flog_err_sys(EC_LIB_SOCKET, "netlink( %u) sendmsg() error: %s",
 			     sock, safe_strerror(errno));
 		return -1;
 	}
@@ -109,20 +107,20 @@ static int send_receive(int sock, struct nlmsghdr *nlh, unsigned int seq,
 	};
 	ret = recvmsg(sock, &msg, 0);
 	if (ret < 0) {
-		flog_err_sys(LIB_ERR_SOCKET,
+		flog_err_sys(EC_LIB_SOCKET,
 			     "netlink recvmsg: error %d (errno %u)", ret,
 			     errno);
 		return -1;
 	}
 	if (msg.msg_flags & MSG_TRUNC) {
-		flog_err(ZEBRA_ERR_NETLINK_LENGTH_ERROR,
-			  "netlink recvmsg : error message truncated");
+		flog_err(EC_ZEBRA_NETLINK_LENGTH_ERROR,
+			 "netlink recvmsg : error message truncated");
 		return -1;
 	}
 	/* nlh already points to buf */
 	if (nlh->nlmsg_seq != seq) {
 		flog_err(
-			ZEBRA_ERR_NETLINK_BAD_SEQUENCE,
+			EC_ZEBRA_NETLINK_BAD_SEQUENCE,
 			"netlink recvmsg: bad sequence number %x (expected %x)",
 			seq, nlh->nlmsg_seq);
 		return -1;
@@ -142,7 +140,7 @@ static ns_id_t extract_nsid(struct nlmsghdr *nlh, char *buf)
 	void *tail = (void *)((char *)nlh + NETLINK_ALIGN(nlh->nlmsg_len));
 	struct nlattr *attr;
 
-	for (attr = (struct nlattr *)((char *)buf + offset);
+	for (attr = (struct nlattr *)(buf + offset);
 	     NETLINK_NLATTR_LEN(tail, attr) >= sizeof(struct nlattr)
 	     && attr->nla_len >= sizeof(struct nlattr)
 	     && attr->nla_len <= NETLINK_NLATTR_LEN(tail, attr);
@@ -158,27 +156,34 @@ static ns_id_t extract_nsid(struct nlmsghdr *nlh, char *buf)
 	return ns_id;
 }
 
-ns_id_t zebra_ns_id_get(const char *netnspath)
+/* fd_param = -1 is ignored.
+ * netnspath set to null is ignored.
+ * one of the 2 params is mandatory. netnspath is looked in priority
+ */
+ns_id_t zebra_ns_id_get(const char *netnspath, int fd_param)
 {
 	int ns_id = -1;
 	struct sockaddr_nl snl;
-	int fd, sock, ret;
+	int fd = -1, sock, ret;
 	unsigned int seq;
 	ns_id_t return_nsid = NS_UNKNOWN;
 
 	/* netns path check */
-	if (!netnspath)
+	if (!netnspath && fd_param == -1)
 		return NS_UNKNOWN;
-	fd = open(netnspath, O_RDONLY);
-	if (fd == -1)
-		return NS_UNKNOWN;
-
+	if (netnspath)  {
+		fd = open(netnspath, O_RDONLY);
+		if (fd == -1)
+			return NS_UNKNOWN;
+	} else if (fd_param != -1)
+		fd = fd_param;
 	/* netlink socket */
 	sock = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
 	if (sock < 0) {
-		flog_err_sys(LIB_ERR_SOCKET, "netlink( %u) socket() error: %s",
+		flog_err_sys(EC_LIB_SOCKET, "netlink( %u) socket() error: %s",
 			     sock, safe_strerror(errno));
-		close(fd);
+		if (netnspath)
+			close(fd);
 		return NS_UNKNOWN;
 	}
 	memset(&snl, 0, sizeof(snl));
@@ -187,11 +192,12 @@ ns_id_t zebra_ns_id_get(const char *netnspath)
 	snl.nl_pid = 0; /* AUTO PID */
 	ret = bind(sock, (struct sockaddr *)&snl, sizeof(snl));
 	if (ret < 0) {
-		flog_err_sys(LIB_ERR_SOCKET,
+		flog_err_sys(EC_LIB_SOCKET,
 			     "netlink( %u) socket() bind error: %s", sock,
 			     safe_strerror(errno));
 		close(sock);
-		close(fd);
+		if (netnspath)
+			close(fd);
 		return NS_UNKNOWN;
 	}
 
@@ -207,69 +213,61 @@ ns_id_t zebra_ns_id_get(const char *netnspath)
 	nlh->nlmsg_len += NETLINK_ALIGN(sizeof(struct rtgenmsg));
 	rt->rtgen_family = AF_UNSPEC;
 
-	addattr32(nlh, NETLINK_SOCKET_BUFFER_SIZE, NETNSA_FD, fd);
-	addattr32(nlh, NETLINK_SOCKET_BUFFER_SIZE, NETNSA_NSID, ns_id);
+	nl_attr_put32(nlh, NETLINK_SOCKET_BUFFER_SIZE, NETNSA_FD, fd);
+	nl_attr_put32(nlh, NETLINK_SOCKET_BUFFER_SIZE, NETNSA_NSID, ns_id);
 
 	ret = send_receive(sock, nlh, seq, buf);
 	if (ret < 0) {
 		close(sock);
-		close(fd);
+		if (netnspath)
+			close(fd);
 		return NS_UNKNOWN;
 	}
 	nlh = (struct nlmsghdr *)buf;
 
 	/* message to analyse : NEWNSID response */
-	len = ret;
 	ret = 0;
-	do {
-		if (nlh->nlmsg_type >= NLMSG_MIN_TYPE) {
-			return_nsid = extract_nsid(nlh, buf);
-			if (return_nsid != NS_UNKNOWN)
-				break;
-		} else {
-			if (nlh->nlmsg_type == NLMSG_ERROR) {
-				struct nlmsgerr *err =
-					(struct nlmsgerr
-						 *)((char *)nlh
-						    + NETLINK_ALIGN(sizeof(
-							      struct
-							      nlmsghdr)));
+	if (nlh->nlmsg_type >= NLMSG_MIN_TYPE) {
+		return_nsid = extract_nsid(nlh, buf);
+	} else {
+		if (nlh->nlmsg_type == NLMSG_ERROR) {
+			struct nlmsgerr *err =
+				(struct nlmsgerr
+					 *)((char *)nlh
+					    + NETLINK_ALIGN(
+						      sizeof(struct nlmsghdr)));
 
-				ret = -1;
-				if (err->error < 0)
-					errno = -err->error;
-				else
-					errno = err->error;
-				if (errno == 0) {
-					/* request NEWNSID was successfull
-					 * return EEXIST error to get GETNSID
-					 */
-					errno = EEXIST;
-				}
-			} else {
-				/* other errors ignored
-				 * attempt to get nsid
+			ret = -1;
+			if (err->error < 0)
+				errno = -err->error;
+			else
+				errno = err->error;
+			if (errno == 0) {
+				/* request NEWNSID was successfull
+				 * return EEXIST error to get GETNSID
 				 */
-				ret = -1;
 				errno = EEXIST;
-				break;
 			}
+		} else {
+			/* other errors ignored
+			 * attempt to get nsid
+			 */
+			ret = -1;
+			errno = EEXIST;
 		}
-		len = len - NETLINK_ALIGN(nlh->nlmsg_len);
-		nlh = (struct nlmsghdr *)((char *)nlh
-					  + NETLINK_ALIGN(nlh->nlmsg_len));
-	} while (len != 0 && return_nsid != NS_UNKNOWN && ret == 0);
+	}
 
 	if (ret <= 0) {
 		if (errno != EEXIST && ret != 0) {
 			flog_err(
-				LIB_ERR_SOCKET,
+				EC_LIB_SOCKET,
 				"netlink( %u) recvfrom() error 2 when reading: %s",
 				fd, safe_strerror(errno));
 			close(sock);
-			close(fd);
+			if (netnspath)
+				close(fd);
 			if (errno == ENOTSUP) {
-				zlog_warn("NEWNSID locally generated");
+				zlog_debug("NEWNSID locally generated");
 				return zebra_ns_id_get_fallback(netnspath);
 			}
 			return NS_UNKNOWN;
@@ -281,13 +279,15 @@ ns_id_t zebra_ns_id_get(const char *netnspath)
 		nlh->nlmsg_len += NETLINK_ALIGN(sizeof(struct rtgenmsg));
 		rt->rtgen_family = AF_UNSPEC;
 
-		addattr32(nlh, NETLINK_SOCKET_BUFFER_SIZE, NETNSA_FD, fd);
-		addattr32(nlh, NETLINK_SOCKET_BUFFER_SIZE, NETNSA_NSID, ns_id);
+		nl_attr_put32(nlh, NETLINK_SOCKET_BUFFER_SIZE, NETNSA_FD, fd);
+		nl_attr_put32(nlh, NETLINK_SOCKET_BUFFER_SIZE, NETNSA_NSID,
+			      ns_id);
 
 		ret = send_receive(sock, nlh, seq, buf);
 		if (ret < 0) {
 			close(sock);
-			close(fd);
+			if (netnspath)
+				close(fd);
 			return NS_UNKNOWN;
 		}
 		nlh = (struct nlmsghdr *)buf;
@@ -318,16 +318,18 @@ ns_id_t zebra_ns_id_get(const char *netnspath)
 		} while (len != 0 && ret == 0);
 	}
 
-	close(fd);
+	if (netnspath)
+		close(fd);
 	close(sock);
 	return return_nsid;
 }
 
 #else
-ns_id_t zebra_ns_id_get(const char *netnspath)
+ns_id_t zebra_ns_id_get(const char *netnspath, int fd __attribute__ ((unused)))
 {
 	return zebra_ns_id_get_fallback(netnspath);
 }
+
 #endif /* ! defined(HAVE_NETLINK) */
 
 #ifdef HAVE_NETNS
@@ -337,7 +339,8 @@ static void zebra_ns_create_netns_directory(void)
 	/* S_IRWXU|S_IRGRP|S_IXGRP|S_IROTH|S_IXOTH */
 	if (mkdir(NS_RUN_DIR, 0755)) {
 		if (errno != EEXIST) {
-			zlog_warn("NS check: failed to access %s", NS_RUN_DIR);
+			flog_warn(EC_ZEBRA_NAMESPACE_DIR_INACCESSIBLE,
+				  "NS check: failed to access %s", NS_RUN_DIR);
 			return;
 		}
 	}
@@ -356,14 +359,14 @@ ns_id_t zebra_ns_id_get_default(void)
 	fd = open(NS_DEFAULT_NAME, O_RDONLY);
 
 	if (fd == -1)
-		return NS_DEFAULT_INTERNAL;
+		return NS_DEFAULT;
 	if (!vrf_is_backend_netns()) {
 		close(fd);
-		return NS_DEFAULT_INTERNAL;
+		return NS_DEFAULT;
 	}
 	close(fd);
-	return zebra_ns_id_get((char *)NS_DEFAULT_NAME);
+	return zebra_ns_id_get((char *)NS_DEFAULT_NAME, -1);
 #else  /* HAVE_NETNS */
-	return NS_DEFAULT_INTERNAL;
+	return NS_DEFAULT;
 #endif /* !HAVE_NETNS */
 }

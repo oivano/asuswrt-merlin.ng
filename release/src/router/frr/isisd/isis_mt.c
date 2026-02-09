@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2017 Christian Franke
  *
- * This file is part of FreeRangeRouting (FRR)
+ * This file is part of FRRouting (FRR)
  *
  * FRR is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -72,7 +72,7 @@ const char *isis_mtid2str(uint16_t mtid)
 	case ISIS_MT_IPV6_DSTSRC:
 		return "ipv6-dstsrc";
 	default:
-		snprintf(buf, sizeof(buf), "%" PRIu16, mtid);
+		snprintf(buf, sizeof(buf), "%hu", mtid);
 		return buf;
 	}
 }
@@ -163,7 +163,7 @@ void area_mt_init(struct isis_area *area)
 
 void area_mt_finish(struct isis_area *area)
 {
-	list_delete_and_null(&area->mt_settings);
+	list_delete(&area->mt_settings);
 }
 
 struct isis_area_mt_setting *area_get_mt_setting(struct isis_area *area,
@@ -286,7 +286,7 @@ void circuit_mt_init(struct isis_circuit *circuit)
 
 void circuit_mt_finish(struct isis_circuit *circuit)
 {
-	list_delete_and_null(&circuit->mt_settings);
+	list_delete(&circuit->mt_settings);
 }
 
 struct isis_circuit_mt_setting *
@@ -302,7 +302,9 @@ circuit_get_mt_setting(struct isis_circuit *circuit, uint16_t mtid)
 	return setting;
 }
 
-int circuit_write_mt_settings(struct isis_circuit *circuit, struct vty *vty)
+#ifdef FABRICD
+static int circuit_write_mt_settings(struct isis_circuit *circuit,
+				     struct vty *vty)
 {
 	int written = 0;
 	struct listnode *node;
@@ -311,12 +313,13 @@ int circuit_write_mt_settings(struct isis_circuit *circuit, struct vty *vty)
 	for (ALL_LIST_ELEMENTS_RO(circuit->mt_settings, node, setting)) {
 		const char *name = isis_mtid2str(setting->mtid);
 		if (name && !setting->enabled) {
-			vty_out(vty, " no isis topology %s\n", name);
+			vty_out(vty, " no " PROTO_NAME " topology %s\n", name);
 			written++;
 		}
 	}
 	return written;
 }
+#endif
 
 struct isis_circuit_mt_setting **
 circuit_mt_settings(struct isis_circuit *circuit, unsigned int *mt_count)
@@ -397,7 +400,7 @@ bool tlvs_to_adj_mt_set(struct isis_tlvs *tlvs, bool v4_usable, bool v6_usable,
 		    && !tlvs->mt_router_info_empty) {
 			/* Other end does not have MT enabled */
 			if (mt_settings[i]->mtid == ISIS_MT_IPV4_UNICAST
-			    && v4_usable)
+			    && (v4_usable || v6_usable))
 				adj_mt_set(adj, intersect_count++,
 					   ISIS_MT_IPV4_UNICAST);
 		} else {
@@ -510,8 +513,8 @@ static uint16_t *circuit_bcast_mt_set(struct isis_circuit *circuit, int level,
 
 static void tlvs_add_mt_set(struct isis_area *area, struct isis_tlvs *tlvs,
 			    unsigned int mt_count, uint16_t *mt_set,
-			    uint8_t *id, uint32_t metric, uint8_t *subtlvs,
-			    uint8_t subtlv_len)
+			    uint8_t *id, uint32_t metric,
+			    struct isis_ext_subtlvs *ext)
 {
 	for (unsigned int i = 0; i < mt_count; i++) {
 		uint16_t mtid = mt_set[i];
@@ -526,28 +529,33 @@ static void tlvs_add_mt_set(struct isis_area *area, struct isis_tlvs *tlvs,
 				area->area_tag, sysid_print(id),
 				LSP_PSEUDO_ID(id), isis_mtid2str(mtid));
 		}
-		isis_tlvs_add_extended_reach(tlvs, mtid, id, metric, subtlvs,
-					     subtlv_len);
+		isis_tlvs_add_extended_reach(tlvs, mtid, id, metric, ext);
 	}
 }
 
 void tlvs_add_mt_bcast(struct isis_tlvs *tlvs, struct isis_circuit *circuit,
-		       int level, uint8_t *id, uint32_t metric,
-		       uint8_t *subtlvs, uint8_t subtlv_len)
+		       int level, uint8_t *id, uint32_t metric)
 {
 	unsigned int mt_count;
 	uint16_t *mt_set = circuit_bcast_mt_set(circuit, level, &mt_count);
 
 	tlvs_add_mt_set(circuit->area, tlvs, mt_count, mt_set, id, metric,
-			subtlvs, subtlv_len);
+			circuit->ext);
 }
 
 void tlvs_add_mt_p2p(struct isis_tlvs *tlvs, struct isis_circuit *circuit,
-		     uint8_t *id, uint32_t metric, uint8_t *subtlvs,
-		     uint8_t subtlv_len)
+		     uint8_t *id, uint32_t metric)
 {
 	struct isis_adjacency *adj = circuit->u.p2p.neighbor;
 
 	tlvs_add_mt_set(circuit->area, tlvs, adj->mt_count, adj->mt_set, id,
-			metric, subtlvs, subtlv_len);
+			metric, circuit->ext);
+}
+
+void mt_init(void)
+{
+#ifdef FABRICD
+	hook_register(isis_circuit_config_write,
+		      circuit_write_mt_settings);
+#endif
 }

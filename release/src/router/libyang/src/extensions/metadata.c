@@ -21,6 +21,11 @@
 #include "../extensions.h"
 
 /**
+ * @brief Storage for ID used to check plugin API version compatibility.
+ */
+LYEXT_VERSION_CHECK
+
+/**
  * @brief Callback to check that the annotation can be instantiated inside the provided node
  *
  * @param[in] parent The parent of the instantiated extension.
@@ -65,7 +70,7 @@ annotation_final_check(struct lys_ext_instance *ext)
      */
     type = *(struct lys_type**)lys_ext_complex_get_substmt(LY_STMT_TYPE, (struct lys_ext_instance_complex *)ext, NULL);
     if (type->base == LY_TYPE_LEAFREF) {
-        LYEXT_LOG(LY_LLERR, "Annotations", "The leafref type is not supported for annotations (annotation %s).",
+        LYEXT_LOG(ext->module->ctx, LY_LLERR, "Annotations", "The leafref type is not supported for annotations (annotation %s).",
                   ext->arg_value);
         return 1;
     }
@@ -108,7 +113,7 @@ annotation_final_check(struct lys_ext_instance *ext)
     }
 
     if (c > 1) {
-        LYEXT_LOG(LY_LLERR, "Annotations",
+        LYEXT_LOG(ext->module->ctx, LY_LLERR, "Annotations",
                   "Annotation instance %s is not unique, there are %d instances with the same name in module %s.",
                   ext->arg_value, c, ((struct lys_module *)ext->parent)->name);
         return 1;
@@ -152,7 +157,7 @@ struct lyext_plugin_complex annotation = {
     .substmt = annotation_substmt,
 
     /* final size of the extension instance structure with the space for storing the substatements */
-    .instance_size = sizeof(struct lys_ext_instance_complex) + 5 * sizeof(void*) + sizeof(uint16_t)
+    .instance_size = (sizeof(struct lys_ext_instance_complex) - 1) + 5 * sizeof(void*) + sizeof(uint16_t)
 };
 
 /**

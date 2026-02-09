@@ -24,6 +24,12 @@
 
 #include "stream.h"
 
+/* OSPF LSA Default metric values */
+#define DEFAULT_DEFAULT_METRIC 20
+#define DEFAULT_DEFAULT_ORIGINATE_METRIC 10
+#define DEFAULT_DEFAULT_ALWAYS_METRIC 1
+#define DEFAULT_METRIC_TYPE EXTERNAL_METRIC_TYPE_2
+
 /* OSPF LSA Range definition. */
 #define OSPF_MIN_LSA		1  /* begin range here */
 #define OSPF_MAX_LSA           12
@@ -63,6 +69,8 @@ struct lsa_header {
 	uint16_t length;
 };
 
+struct vertex;
+
 /* OSPF LSA. */
 struct ospf_lsa {
 	/* LSA origination flag. */
@@ -89,10 +97,7 @@ struct ospf_lsa {
 	int lock;
 
 	/* Flags for the SPF calculation. */
-	int stat;
-#define LSA_SPF_NOT_EXPLORED -1
-#define LSA_SPF_IN_SPFTREE -2
-	/* If stat >= 0, stat is LSA position in candidates heap. */
+	struct vertex *stat;
 
 	/* References to this LSA in neighbor retransmission lists*/
 	int retransmit_counter;
@@ -270,8 +275,7 @@ extern struct in_addr ospf_get_ip_from_ifp(struct ospf_interface *);
 
 extern struct ospf_lsa *ospf_external_lsa_originate(struct ospf *,
 						    struct external_info *);
-extern int ospf_external_lsa_originate_timer(struct thread *);
-extern int ospf_default_originate_timer(struct thread *);
+extern void ospf_external_lsa_rid_change(struct ospf *ospf);
 extern struct ospf_lsa *ospf_lsa_lookup(struct ospf *ospf, struct ospf_area *,
 					uint32_t, struct in_addr,
 					struct in_addr);
@@ -327,5 +331,6 @@ extern struct ospf_lsa *ospf_translated_nssa_refresh(struct ospf *,
 						     struct ospf_lsa *);
 extern struct ospf_lsa *ospf_translated_nssa_originate(struct ospf *,
 						       struct ospf_lsa *);
-
+extern void ospf_flush_lsa_from_area(struct ospf *ospf, struct in_addr area_id,
+				     int type);
 #endif /* _ZEBRA_OSPF_LSA_H */

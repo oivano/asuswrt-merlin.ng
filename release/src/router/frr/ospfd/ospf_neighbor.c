@@ -141,6 +141,8 @@ void ospf_nbr_free(struct ospf_neighbor *nbr)
 	thread_cancel_event(master, nbr);
 
 	ospf_bfd_info_free(&nbr->bfd_info);
+
+	nbr->oi = NULL;
 	XFREE(MTYPE_OSPF_NEIGHBOR, nbr);
 }
 
@@ -269,9 +271,10 @@ void ospf_nbr_add_self(struct ospf_interface *oi, struct in_addr router_id)
 	rn = route_node_get(oi->nbrs, &p);
 	if (rn->info) {
 		/* There is already pseudo neighbor. */
-		zlog_warn(
-			"router_id %s already present in neighbor table. node refcount %u",
-			inet_ntoa(router_id), rn->lock);
+		if (IS_DEBUG_OSPF_EVENT)
+			zlog_debug(
+				"router_id %s already present in neighbor table. node refcount %u",
+				inet_ntoa(router_id), rn->lock);
 		route_unlock_node(rn);
 	} else
 		rn->info = oi->nbr_self;
@@ -401,12 +404,14 @@ void ospf_renegotiate_optional_capabilities(struct ospf *top)
 struct ospf_neighbor *ospf_nbr_lookup(struct ospf_interface *oi, struct ip *iph,
 				      struct ospf_header *ospfh)
 {
+	struct in_addr srcaddr = iph->ip_src;
+
 	if (oi->type == OSPF_IFTYPE_VIRTUALLINK
 	    || oi->type == OSPF_IFTYPE_POINTOPOINT)
 		return (ospf_nbr_lookup_by_routerid(oi->nbrs,
 						    &ospfh->router_id));
 	else
-		return (ospf_nbr_lookup_by_addr(oi->nbrs, &iph->ip_src));
+		return (ospf_nbr_lookup_by_addr(oi->nbrs, &srcaddr));
 }
 
 static struct ospf_neighbor *ospf_nbr_add(struct ospf_interface *oi,
@@ -443,7 +448,7 @@ static struct ospf_neighbor *ospf_nbr_add(struct ospf_interface *oi,
 		nbr->crypt_seqnum = ospfh->u.crypt.crypt_seqnum;
 
 	if (IS_DEBUG_OSPF_EVENT)
-		zlog_debug("NSM[%s:%s]: start", IF_NAME(nbr->oi),
+		zlog_debug("NSM[%s:%s]: start", IF_NAME(oi),
 			   inet_ntoa(nbr->router_id));
 
 	return nbr;

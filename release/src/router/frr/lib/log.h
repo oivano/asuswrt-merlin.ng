@@ -22,16 +22,21 @@
 #ifndef _ZEBRA_LOG_H
 #define _ZEBRA_LOG_H
 
+#include "zassert.h"
+
 #include <syslog.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdarg.h>
-#include "lib/hook.h"
 
-/* Hook for external logging function */
-DECLARE_HOOK(zebra_ext_log, (int priority, const char *format, va_list args),
-	     (priority, format, args));
+#include "lib/hook.h"
+#include "lib/zlog.h"
+#include "lib/zlog_targets.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* Here is some guidance on logging levels to use:
  *
@@ -49,19 +54,7 @@ DECLARE_HOOK(zebra_ext_log, (int priority, const char *format, va_list args),
  * please use LOG_ERR instead.
  */
 
-/* If maxlvl is set to ZLOG_DISABLED, then no messages will be sent
-   to that logging destination. */
-#define ZLOG_DISABLED	(LOG_EMERG-1)
-
-typedef enum {
-	ZLOG_DEST_SYSLOG = 0,
-	ZLOG_DEST_STDOUT,
-	ZLOG_DEST_MONITOR,
-	ZLOG_DEST_FILE
-} zlog_dest_t;
-#define ZLOG_NUM_DESTS		(ZLOG_DEST_FILE+1)
-
-extern bool zlog_startup_stderr;
+extern void zlog_rotate(void);
 
 /* Message structure. */
 struct message {
@@ -69,52 +62,33 @@ struct message {
 	const char *str;
 };
 
-/* Open zlog function */
-extern void openzlog(const char *progname, const char *protoname,
-		     uint16_t instance, int syslog_options,
-		     int syslog_facility);
-
-/* Close zlog function. */
-extern void closezlog(void);
-
-/* GCC have printf type attribute check.  */
-#ifdef __GNUC__
-#define PRINTF_ATTRIBUTE(a,b) __attribute__ ((__format__ (__printf__, a, b)))
-#else
-#define PRINTF_ATTRIBUTE(a,b)
-#endif /* __GNUC__ */
-
-/* Handy zlog functions. */
-extern void zlog_err_id(uint32_t id, const char *format, ...)
-	PRINTF_ATTRIBUTE(2, 3);
-extern void zlog_err(const char *format, ...) PRINTF_ATTRIBUTE(1, 2);
-extern void zlog_warn(const char *format, ...) PRINTF_ATTRIBUTE(1, 2);
-extern void zlog_info(const char *format, ...) PRINTF_ATTRIBUTE(1, 2);
-extern void zlog_notice(const char *format, ...) PRINTF_ATTRIBUTE(1, 2);
-extern void zlog_debug(const char *format, ...) PRINTF_ATTRIBUTE(1, 2);
-
 /* For logs which have error codes associated with them */
 #define flog_err(ferr_id, format, ...)                                        \
-	zlog_err_id(ferr_id, format, ##__VA_ARGS__)
+	zlog_err("[EC %u] " format, ferr_id, ##__VA_ARGS__)
 #define flog_err_sys(ferr_id, format, ...)                                     \
 	flog_err(ferr_id, format, ##__VA_ARGS__)
-
+#define flog_warn(ferr_id, format, ...)                                        \
+	zlog_warn("[EC %u] " format, ferr_id, ##__VA_ARGS__)
+#define flog(priority, ferr_id, format, ...)                                   \
+	zlog(priority, "[EC %u] " format, ferr_id, ##__VA_ARGS__)
 
 extern void zlog_thread_info(int log_level);
 
-/* Set logging level for the given destination.  If the log_level
-   argument is ZLOG_DISABLED, then the destination is disabled.
-   This function should not be used for file logging (use zlog_set_file
-   or zlog_reset_file instead). */
-extern void zlog_set_level(zlog_dest_t, int log_level);
+#define ZLOG_FILTERS_MAX 100      /* Max # of filters at once */
+#define ZLOG_FILTER_LENGTH_MAX 80 /* 80 character filter limit */
 
-/* Set logging to the given filename at the specified level. */
-extern int zlog_set_file(const char *filename, int log_level);
-/* Disable file logging. */
-extern int zlog_reset_file(void);
+struct zlog_cfg_filterfile {
+	struct zlog_cfg_file parent;
+};
 
-/* Rotate log. */
-extern int zlog_rotate(void);
+extern void zlog_filterfile_init(struct zlog_cfg_filterfile *zcf);
+extern void zlog_filterfile_fini(struct zlog_cfg_filterfile *zcf);
+
+/* Add/Del/Dump log filters */
+extern void zlog_filter_clear(void);
+extern int zlog_filter_add(const char *filter);
+extern int zlog_filter_del(const char *filter);
+extern int zlog_filter_dump(char *buf, size_t max_size);
 
 const char *lookup_msg(const struct message *mz, int kz, const char *nf);
 
@@ -122,12 +96,8 @@ const char *lookup_msg(const struct message *mz, int kz, const char *nf);
 extern const char *safe_strerror(int errnum);
 
 /* To be called when a fatal signal is caught. */
-extern void zlog_signal(int signo, const char *action
-#ifdef SA_SIGINFO
-			,
-			siginfo_t *siginfo, void *program_counter
-#endif
-			);
+extern void zlog_signal(int signo, const char *action, void *siginfo,
+			void *program_counter);
 
 /* Log a backtrace. */
 extern void zlog_backtrace(int priority);
@@ -148,12 +118,29 @@ extern void zlog_backtrace_sigsafe(int priority, void *program_counter);
 extern size_t quagga_timestamp(int timestamp_precision /* # subsecond digits */,
 			       char *buf, size_t buflen);
 
-extern void zlog_hexdump(const void *mem, unsigned int len);
+extern void zlog_hexdump(const void *mem, size_t len);
 extern const char *zlog_sanitize(char *buf, size_t bufsz, const void *in,
 				 size_t inlen);
 
+/* Note: whenever a new route-type or zserv-command is added the
+ * corresponding {command,route}_types[] table in lib/log.c MUST be
+ * updated! */
 
-extern int vzlog_test(int priority);
+/* Map a route type to a string.  For example, ZEBRA_ROUTE_RIPNG -> "ripng". */
+extern const char *zebra_route_string(unsigned int route_type);
+/* Map a route type to a char.  For example, ZEBRA_ROUTE_RIPNG -> 'R'. */
+extern char zebra_route_char(unsigned int route_type);
+/* Map a zserv command type to the same string,
+ * e.g. ZEBRA_INTERFACE_ADD -> "ZEBRA_INTERFACE_ADD" */
+/* Map a protocol name to its number. e.g. ZEBRA_ROUTE_BGP->9*/
+extern int proto_name2num(const char *s);
+/* Map redistribute X argument to protocol number.
+ * unlike proto_name2num, this accepts shorthands and takes
+ * an AFI value to restrict input */
+extern int proto_redistnum(int afi, const char *s);
+
+extern const char *zserv_command_string(unsigned int command);
+
 
 /* structure useful for avoiding repeated rendering of the same timestamp */
 struct timestamp_control {
@@ -195,5 +182,9 @@ struct timestamp_control {
 	"Local use\n"                                                          \
 	"Local use\n"                                                          \
 	"Local use\n"
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _ZEBRA_LOG_H */

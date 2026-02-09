@@ -79,8 +79,7 @@ struct external_info *ospf_external_info_new(uint8_t type,
 {
 	struct external_info *new;
 
-	new = (struct external_info *)XCALLOC(MTYPE_OSPF_EXTERNAL_INFO,
-					      sizeof(struct external_info));
+	new = XCALLOC(MTYPE_OSPF_EXTERNAL_INFO, sizeof(struct external_info));
 	new->type = type;
 	new->instance = instance;
 
@@ -135,13 +134,13 @@ ospf_external_info_add(struct ospf *ospf, uint8_t type, unsigned short instance,
 
 			inet_ntop(AF_INET, (void *)&nexthop.s_addr, inetbuf,
 				  INET6_BUFSIZ);
-			zlog_warn(
-				"Redistribute[%s][%d][%u]: %s/%d discarding old info with NH %s.",
-				ospf_redist_string(type), instance,
-				ospf->vrf_id, inet_ntoa(p.prefix), p.prefixlen,
-				inetbuf);
+			if (IS_DEBUG_OSPF(lsa, LSA_GENERATE))
+				zlog_debug(
+					"Redistribute[%s][%d][%u]: %s/%d discarding old info with NH %s.",
+					ospf_redist_string(type), instance,
+					ospf->vrf_id, inet_ntoa(p.prefix),
+					p.prefixlen, inetbuf);
 			XFREE(MTYPE_OSPF_EXTERNAL_INFO, rn->info);
-			rn->info = NULL;
 		}
 
 	/* Create new External info instance. */
@@ -150,6 +149,7 @@ ospf_external_info_add(struct ospf *ospf, uint8_t type, unsigned short instance,
 	new->ifindex = ifindex;
 	new->nexthop = nexthop;
 	new->tag = tag;
+	new->orig_tag = tag;
 
 	/* we don't unlock rn from the get() because we're attaching the info */
 	if (rn)
@@ -213,45 +213,58 @@ struct ospf_lsa *ospf_external_info_find_lsa(struct ospf *ospf,
 	struct as_external_lsa *al;
 	struct in_addr mask, id;
 
+	/* Fisrt search the lsdb with address specifc LSID
+	 * where all the host bits are set, if there a matched
+	 * LSA, return.
+	 * Ex: For route 10.0.0.0/16, LSID is 10.0.255.255
+	 * If no lsa with above LSID, use received address as
+	 * LSID and check if any LSA in LSDB.
+	 * If LSA found, check if the mask is same b/w the matched
+	 * LSA and received prefix, if same then it is the LSA for
+	 * this prefix.
+	 * Ex: For route 10.0.0.0/16, LSID is 10.0.0.0
+	 */
+
+	masklen2ip(p->prefixlen, &mask);
+	id.s_addr = p->prefix.s_addr | (~mask.s_addr);
+	lsa = ospf_lsdb_lookup_by_id(ospf->lsdb, OSPF_AS_EXTERNAL_LSA, id,
+				     ospf->router_id);
+	if (lsa)
+		return lsa;
+
 	lsa = ospf_lsdb_lookup_by_id(ospf->lsdb, OSPF_AS_EXTERNAL_LSA,
 				     p->prefix, ospf->router_id);
 
-	if (!lsa)
-		return NULL;
-
-	al = (struct as_external_lsa *)lsa->data;
-
-	masklen2ip(p->prefixlen, &mask);
-
-	if (mask.s_addr != al->mask.s_addr) {
-		id.s_addr = p->prefix.s_addr | (~mask.s_addr);
-		lsa = ospf_lsdb_lookup_by_id(ospf->lsdb, OSPF_AS_EXTERNAL_LSA,
-					     id, ospf->router_id);
-		if (!lsa)
-			return NULL;
+	if (lsa) {
+		al = (struct as_external_lsa *)lsa->data;
+		if (mask.s_addr == al->mask.s_addr)
+			return lsa;
 	}
 
-	return lsa;
+	return NULL;
 }
 
 
 /* Update ASBR status. */
 void ospf_asbr_status_update(struct ospf *ospf, uint8_t status)
 {
-	zlog_info("ASBR[Status:%d]: Update", status);
+	zlog_info("ASBR[%s:Status:%d]: Update",
+		  ospf_get_name(ospf), status);
 
 	/* ASBR on. */
 	if (status) {
 		/* Already ASBR. */
 		if (IS_OSPF_ASBR(ospf)) {
-			zlog_info("ASBR[Status:%d]: Already ASBR", status);
+			zlog_info("ASBR[%s:Status:%d]: Already ASBR",
+				  ospf_get_name(ospf), status);
 			return;
 		}
 		SET_FLAG(ospf->flags, OSPF_FLAG_ASBR);
 	} else {
 		/* Already non ASBR. */
 		if (!IS_OSPF_ASBR(ospf)) {
-			zlog_info("ASBR[Status:%d]: Already non ASBR", status);
+			zlog_info("ASBR[%s:Status:%d]: Already non ASBR",
+				  ospf_get_name(ospf), status);
 			return;
 		}
 		UNSET_FLAG(ospf->flags, OSPF_FLAG_ASBR);
@@ -260,6 +273,31 @@ void ospf_asbr_status_update(struct ospf *ospf, uint8_t status)
 	/* Transition from/to status ASBR, schedule timer. */
 	ospf_spf_calculate_schedule(ospf, SPF_FLAG_ASBR_STATUS_CHANGE);
 	ospf_router_lsa_update(ospf);
+}
+
+/* If there's redistribution configured, we need to refresh external
+ * LSAs in order to install Type-7 and flood to all NSSA Areas
+ */
+void ospf_asbr_nssa_redist_task(struct ospf *ospf)
+{
+	int type;
+
+	for (type = 0; type < ZEBRA_ROUTE_MAX; type++) {
+		struct list *red_list;
+		struct listnode *node;
+		struct ospf_redist *red;
+
+		red_list = ospf->redist[type];
+		if (!red_list)
+			continue;
+
+		for (ALL_LIST_ELEMENTS_RO(red_list, node, red))
+			ospf_external_lsa_refresh_type(ospf, type,
+						       red->instance,
+						       LSA_REFRESH_IF_CHANGED);
+	}
+
+	ospf_external_lsa_refresh_default(ospf);
 }
 
 void ospf_redistribute_withdraw(struct ospf *ospf, uint8_t type,

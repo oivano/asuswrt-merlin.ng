@@ -18,7 +18,6 @@
  */
 
 #include <zebra.h>
-#include "zebra/rib.h"
 
 #include "log.h"
 #include "prefix.h"
@@ -38,8 +37,10 @@
 #include "pim_zlookup.h"
 
 static struct zclient *zlookup = NULL;
+struct thread *zlookup_read;
 
 static void zclient_lookup_sched(struct zclient *zlookup, int delay);
+static int zclient_lookup_read_pipe(struct thread *thread);
 
 /* Connect to zebra for nexthop lookup. */
 static int zclient_lookup_connect(struct thread *t)
@@ -55,9 +56,17 @@ static int zclient_lookup_connect(struct thread *t)
 	if (zclient_socket_connect(zlookup) < 0) {
 		++zlookup->fail;
 		zlog_warn("%s: failure connecting zclient socket: failures=%d",
-			  __PRETTY_FUNCTION__, zlookup->fail);
+			  __func__, zlookup->fail);
 	} else {
 		zlookup->fail = 0; /* reset counter on connection */
+	}
+
+	if (zclient_send_hello(zlookup) < 0) {
+		if (close(zlookup->sock)) {
+			zlog_warn("%s: closing fd=%d: errno=%d %s", __func__,
+				  zlookup->sock, errno, safe_strerror(errno));
+		}
+		zlookup->sock = -1;
 	}
 
 	if (zlookup->sock < 0) {
@@ -66,27 +75,29 @@ static int zclient_lookup_connect(struct thread *t)
 		return -1;
 	}
 
+	thread_add_timer(router->master, zclient_lookup_read_pipe, zlookup, 60,
+			 &zlookup_read);
 	return 0;
 }
 
 /* Schedule connection with delay. */
 static void zclient_lookup_sched(struct zclient *zlookup, int delay)
 {
-	thread_add_timer(master, zclient_lookup_connect, zlookup, delay,
+	thread_add_timer(router->master, zclient_lookup_connect, zlookup, delay,
 			 &zlookup->t_connect);
 
 	zlog_notice("%s: zclient lookup connection scheduled for %d seconds",
-		    __PRETTY_FUNCTION__, delay);
+		    __func__, delay);
 }
 
 /* Schedule connection for now. */
 static void zclient_lookup_sched_now(struct zclient *zlookup)
 {
-	thread_add_event(master, zclient_lookup_connect, zlookup, 0,
+	thread_add_event(router->master, zclient_lookup_connect, zlookup, 0,
 			 &zlookup->t_connect);
 
 	zlog_notice("%s: zclient lookup immediate connection scheduled",
-		    __PRETTY_FUNCTION__);
+		    __func__);
 }
 
 /* Schedule reconnection, if needed. */
@@ -114,6 +125,7 @@ static void zclient_lookup_failed(struct zclient *zlookup)
 
 void zclient_lookup_free(void)
 {
+	THREAD_OFF(zlookup_read);
 	zclient_stop(zlookup);
 	zclient_free(zlookup);
 	zlookup = NULL;
@@ -121,10 +133,13 @@ void zclient_lookup_free(void)
 
 void zclient_lookup_new(void)
 {
-	zlookup = zclient_new_notify(master, &zclient_options_default);
+	struct zclient_options options = zclient_options_default;
+	options.synchronous = true;
+
+	zlookup = zclient_new(router->master, &options);
 	if (!zlookup) {
-		flog_err(LIB_ERR_ZAPI_SOCKET, "%s: zclient_new() failure",
-			  __PRETTY_FUNCTION__);
+		flog_err(EC_LIB_ZAPI_SOCKET, "%s: zclient_new() failure",
+			 __func__);
 		return;
 	}
 
@@ -134,8 +149,7 @@ void zclient_lookup_new(void)
 
 	zclient_lookup_sched_now(zlookup);
 
-	zlog_notice("%s: zclient lookup socket initialized",
-		    __PRETTY_FUNCTION__);
+	zlog_notice("%s: zclient lookup socket initialized", __func__);
 }
 
 static int zclient_read_nexthop(struct pim_instance *pim,
@@ -158,8 +172,9 @@ static int zclient_read_nexthop(struct pim_instance *pim,
 
 	if (PIM_DEBUG_PIM_NHT_DETAIL) {
 		char addr_str[INET_ADDRSTRLEN];
+
 		pim_inet4_dump("<addr?>", addr, addr_str, sizeof(addr_str));
-		zlog_debug("%s: addr=%s(%s)", __PRETTY_FUNCTION__, addr_str,
+		zlog_debug("%s: addr=%s(%s)", __func__, addr_str,
 			   pim->vrf->name);
 	}
 
@@ -170,10 +185,17 @@ static int zclient_read_nexthop(struct pim_instance *pim,
 		err = zclient_read_header(s, zlookup->sock, &length, &marker,
 					  &version, &vrf_id, &command);
 		if (err < 0) {
-			flog_err(LIB_ERR_ZAPI_MISSMATCH,
-				  "%s: zclient_read_header() failed",
-				  __PRETTY_FUNCTION__);
+			flog_err(EC_LIB_ZAPI_MISSMATCH,
+				 "%s: zclient_read_header() failed", __func__);
 			zclient_lookup_failed(zlookup);
+			return -1;
+		}
+
+		if (command == ZEBRA_ERROR) {
+			enum zebra_error_types error;
+
+			zapi_error_decode(s, &error);
+			/* Do nothing with it for now */
 			return -1;
 		}
 	}
@@ -186,8 +208,7 @@ static int zclient_read_nexthop(struct pim_instance *pim,
 		pim_inet4_dump("<addr?>", addr, addr_str, sizeof(addr_str));
 		pim_inet4_dump("<raddr?>", raddr, raddr_str, sizeof(raddr_str));
 		zlog_warn("%s: address mismatch: addr=%s(%s) raddr=%s",
-			  __PRETTY_FUNCTION__, addr_str, pim->vrf->name,
-			  raddr_str);
+			  __func__, addr_str, pim->vrf->name, raddr_str);
 		/* warning only */
 	}
 
@@ -203,10 +224,12 @@ static int zclient_read_nexthop(struct pim_instance *pim,
 	}
 
 	for (i = 0; i < nexthop_num; ++i) {
+		vrf_id_t nexthop_vrf_id;
 		enum nexthop_types_t nexthop_type;
 		struct pim_neighbor *nbr;
 		struct prefix p;
 
+		nexthop_vrf_id = stream_getl(s);
 		nexthop_type = stream_getc(s);
 		if (num_ifindex >= tab_size) {
 			char addr_str[INET_ADDRSTRLEN];
@@ -214,12 +237,13 @@ static int zclient_read_nexthop(struct pim_instance *pim,
 				       sizeof(addr_str));
 			zlog_warn(
 				"%s: found too many nexthop ifindexes (%d > %d) for address %s(%s)",
-				__PRETTY_FUNCTION__, (num_ifindex + 1),
-				tab_size, addr_str, pim->vrf->name);
+				__func__, (num_ifindex + 1), tab_size, addr_str,
+				pim->vrf->name);
 			return num_ifindex;
 		}
 		nexthop_tab[num_ifindex].protocol_distance = distance;
 		nexthop_tab[num_ifindex].route_metric = metric;
+		nexthop_tab[num_ifindex].vrf_id = nexthop_vrf_id;
 		switch (nexthop_type) {
 		case NEXTHOP_TYPE_IFINDEX:
 			nexthop_tab[num_ifindex].ifindex = stream_getl(s);
@@ -261,17 +285,17 @@ static int zclient_read_nexthop(struct pim_instance *pim,
 			 * If we are sending v6 secondary assume we receive v6
 			 * secondary
 			 */
-			if (pim->send_v6_secondary)
-				nbr = pim_neighbor_find_by_secondary(
-					if_lookup_by_index(
-						nexthop_tab[num_ifindex]
-							.ifindex,
-						vrf_id),
-					&p);
+			struct interface *ifp = if_lookup_by_index(
+				nexthop_tab[num_ifindex].ifindex,
+				nexthop_vrf_id);
+
+			if (!ifp)
+				nbr = NULL;
+			else if (pim->send_v6_secondary)
+				nbr = pim_neighbor_find_by_secondary(ifp, &p);
 			else
-				nbr = pim_neighbor_find_if(if_lookup_by_index(
-					nexthop_tab[num_ifindex].ifindex,
-					vrf_id));
+				nbr = pim_neighbor_find_if(ifp);
+
 			if (nbr) {
 				nexthop_tab[num_ifindex].nexthop_addr.family =
 					AF_INET;
@@ -289,8 +313,8 @@ static int zclient_read_nexthop(struct pim_instance *pim,
 					       sizeof(addr_str));
 				zlog_warn(
 					"%s: found non-ifindex nexthop type=%d for address %s(%s)",
-					__PRETTY_FUNCTION__, nexthop_type,
-					addr_str, pim->vrf->name);
+					__func__, nexthop_type, addr_str,
+					pim->vrf->name);
 			}
 			break;
 		}
@@ -309,15 +333,15 @@ static int zclient_lookup_nexthop_once(struct pim_instance *pim,
 	if (PIM_DEBUG_PIM_NHT_DETAIL) {
 		char addr_str[INET_ADDRSTRLEN];
 		pim_inet4_dump("<addr?>", addr, addr_str, sizeof(addr_str));
-		zlog_debug("%s: addr=%s(%s)", __PRETTY_FUNCTION__, addr_str,
+		zlog_debug("%s: addr=%s(%s)", __func__, addr_str,
 			   pim->vrf->name);
 	}
 
 	/* Check socket. */
 	if (zlookup->sock < 0) {
-		flog_err(LIB_ERR_ZAPI_SOCKET,
-			  "%s: zclient lookup socket is not connected",
-			  __PRETTY_FUNCTION__);
+		flog_err(EC_LIB_ZAPI_SOCKET,
+			 "%s: zclient lookup socket is not connected",
+			 __func__);
 		zclient_lookup_failed(zlookup);
 		return -1;
 	}
@@ -325,34 +349,49 @@ static int zclient_lookup_nexthop_once(struct pim_instance *pim,
 	if (pim->vrf->vrf_id == VRF_UNKNOWN) {
 		zlog_notice(
 			"%s: VRF: %s does not fully exist yet, delaying lookup",
-			__PRETTY_FUNCTION__, pim->vrf->name);
+			__func__, pim->vrf->name);
 		return -1;
 	}
 
 	s = zlookup->obuf;
 	stream_reset(s);
-	zclient_create_header(s, ZEBRA_IPV4_NEXTHOP_LOOKUP_MRIB, pim->vrf_id);
+	zclient_create_header(s, ZEBRA_IPV4_NEXTHOP_LOOKUP_MRIB,
+			      pim->vrf->vrf_id);
 	stream_put_in_addr(s, &addr);
 	stream_putw_at(s, 0, stream_get_endp(s));
 
 	ret = writen(zlookup->sock, s->data, stream_get_endp(s));
 	if (ret < 0) {
 		flog_err(
-			LIB_ERR_SOCKET,
+			EC_LIB_SOCKET,
 			"%s: writen() failure: %d writing to zclient lookup socket",
-			__PRETTY_FUNCTION__, errno);
+			__func__, errno);
 		zclient_lookup_failed(zlookup);
 		return -2;
 	}
 	if (ret == 0) {
-		flog_err_sys(LIB_ERR_SOCKET,
+		flog_err_sys(EC_LIB_SOCKET,
 			     "%s: connection closed on zclient lookup socket",
-			     __PRETTY_FUNCTION__);
+			     __func__);
 		zclient_lookup_failed(zlookup);
 		return -3;
 	}
 
 	return zclient_read_nexthop(pim, zlookup, nexthop_tab, tab_size, addr);
+}
+
+int zclient_lookup_read_pipe(struct thread *thread)
+{
+	struct zclient *zlookup = THREAD_ARG(thread);
+	struct pim_instance *pim = pim_get_pim_instance(VRF_DEFAULT);
+	struct pim_zlookup_nexthop nexthop_tab[10];
+	struct in_addr l = {.s_addr = INADDR_ANY};
+
+	zclient_lookup_nexthop_once(pim, nexthop_tab, 10, l);
+	thread_add_timer(router->master, zclient_lookup_read_pipe, zlookup, 60,
+			 &zlookup_read);
+
+	return 1;
 }
 
 int zclient_lookup_nexthop(struct pim_instance *pim,
@@ -380,8 +419,8 @@ int zclient_lookup_nexthop(struct pim_instance *pim,
 					       sizeof(addr_str));
 				zlog_debug(
 					"%s: lookup=%d/%d: could not find nexthop ifindex for address %s(%s)",
-					__PRETTY_FUNCTION__, lookup, max_lookup,
-					addr_str, pim->vrf->name);
+					__func__, lookup, max_lookup, addr_str,
+					pim->vrf->name);
 			}
 			return -1;
 		}
@@ -418,9 +457,9 @@ int zclient_lookup_nexthop(struct pim_instance *pim,
 						       sizeof(addr_str));
 					zlog_debug(
 						"%s: lookup=%d/%d: found non-recursive ifindex=%d for address %s(%s) dist=%d met=%d",
-						__PRETTY_FUNCTION__, lookup,
-						max_lookup, first_ifindex,
-						addr_str, pim->vrf->name,
+						__func__, lookup, max_lookup,
+						first_ifindex, addr_str,
+						pim->vrf->name,
 						nexthop_tab[0]
 							.protocol_distance,
 						nexthop_tab[0].route_metric);
@@ -447,8 +486,8 @@ int zclient_lookup_nexthop(struct pim_instance *pim,
 				      sizeof(nexthop_str));
 			zlog_debug(
 				"%s: lookup=%d/%d: zebra returned recursive nexthop %s for address %s(%s) dist=%d met=%d",
-				__PRETTY_FUNCTION__, lookup, max_lookup,
-				nexthop_str, addr_str, pim->vrf->name,
+				__func__, lookup, max_lookup, nexthop_str,
+				addr_str, pim->vrf->name,
 				nexthop_tab[0].protocol_distance,
 				nexthop_tab[0].route_metric);
 		}
@@ -463,8 +502,7 @@ int zclient_lookup_nexthop(struct pim_instance *pim,
 		pim_inet4_dump("<addr?>", addr, addr_str, sizeof(addr_str));
 		zlog_warn(
 			"%s: lookup=%d/%d: failure searching recursive nexthop ifindex for address %s(%s)",
-			__PRETTY_FUNCTION__, lookup, max_lookup, addr_str,
-			pim->vrf->name);
+			__func__, lookup, max_lookup, addr_str, pim->vrf->name);
 	}
 
 	return -2;
@@ -497,7 +535,7 @@ int pim_zlookup_sg_statistics(struct channel_oil *c_oil)
 		more.src = c_oil->oil.mfcc_origin;
 		more.grp = c_oil->oil.mfcc_mcastgrp;
 		zlog_debug(
-			"Sending Request for New Channel Oil Information(%s) VIIF %d(%s)",
+			"Sending Request for New Channel Oil Information%s VIIF %d(%s)",
 			pim_str_sg_dump(&more), c_oil->oil.mfcc_parent,
 			c_oil->pim->vrf->name);
 	}
@@ -516,9 +554,9 @@ int pim_zlookup_sg_statistics(struct channel_oil *c_oil)
 	ret = writen(zlookup->sock, s->data, count);
 	if (ret <= 0) {
 		flog_err(
-			LIB_ERR_SOCKET,
+			EC_LIB_SOCKET,
 			"%s: writen() failure: %d writing to zclient lookup socket",
-			__PRETTY_FUNCTION__, errno);
+			__func__, errno);
 		return -1;
 	}
 
@@ -535,9 +573,8 @@ int pim_zlookup_sg_statistics(struct channel_oil *c_oil)
 		err = zclient_read_header(s, zlookup->sock, &length, &marker,
 					  &version, &vrf_id, &command);
 		if (err < 0) {
-			flog_err(LIB_ERR_ZAPI_MISSMATCH,
-				  "%s: zclient_read_header() failed",
-				  __PRETTY_FUNCTION__);
+			flog_err(EC_LIB_ZAPI_MISSMATCH,
+				 "%s: zclient_read_header() failed", __func__);
 			zclient_lookup_failed(zlookup);
 			return -1;
 		}
@@ -553,9 +590,9 @@ int pim_zlookup_sg_statistics(struct channel_oil *c_oil)
 			more.src = c_oil->oil.mfcc_origin;
 			more.grp = c_oil->oil.mfcc_mcastgrp;
 			flog_err(
-				LIB_ERR_ZAPI_MISSMATCH,
+				EC_LIB_ZAPI_MISSMATCH,
 				"%s: Received wrong %s(%s) information requested",
-				__PRETTY_FUNCTION__, pim_str_sg_dump(&more),
+				__func__, pim_str_sg_dump(&more),
 				c_oil->pim->vrf->name);
 		}
 		zclient_lookup_failed(zlookup);

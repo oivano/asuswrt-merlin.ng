@@ -34,6 +34,7 @@
 #include "qpb/linear_allocator.h"
 #include "fpm/fpm_pb.h"
 
+#include "zebra_router.h"
 #include "zebra_fpm_private.h"
 
 /*
@@ -85,7 +86,7 @@ static inline int add_nexthop(qpb_allocator_t *allocator, Fpm__AddRoute *msg,
 	if (nexthop->type == NEXTHOP_TYPE_IPV4
 	    || nexthop->type == NEXTHOP_TYPE_IPV4_IFINDEX) {
 		gateway = &nexthop->gate;
-		if (nexthop->src.ipv4.s_addr)
+		if (nexthop->src.ipv4.s_addr != INADDR_ANY)
 			src = &nexthop->src;
 	}
 
@@ -95,7 +96,7 @@ static inline int add_nexthop(qpb_allocator_t *allocator, Fpm__AddRoute *msg,
 	}
 
 	if (nexthop->type == NEXTHOP_TYPE_IFINDEX) {
-		if (nexthop->src.ipv4.s_addr)
+		if (nexthop->src.ipv4.s_addr != INADDR_ANY)
 			src = &nexthop->src;
 	}
 
@@ -129,6 +130,7 @@ static inline int add_nexthop(qpb_allocator_t *allocator, Fpm__AddRoute *msg,
 	}
 
 	// TODO: Use src.
+	(void)src;
 
 	return 1;
 }
@@ -171,11 +173,11 @@ static Fpm__AddRoute *create_add_route_message(qpb_allocator_t *allocator,
 	 * Figure out the set of nexthops to be added to the message.
 	 */
 	num_nhs = 0;
-	for (ALL_NEXTHOPS(re->ng, nexthop)) {
-		if (num_nhs >= multipath_num)
+	for (ALL_NEXTHOPS(re->nhe->nhg, nexthop)) {
+		if (num_nhs >= zrouter.multipath_num)
 			break;
 
-		if (num_nhs >= ZEBRA_NUM_OF(nexthops))
+		if (num_nhs >= array_size(nexthops))
 			break;
 
 		if (nexthop->type == NEXTHOP_TYPE_BLACKHOLE) {
@@ -292,7 +294,7 @@ int zfpm_protobuf_encode_route(rib_dest_t *dest, struct route_entry *re,
 		return 0;
 	}
 
-	len = fpm__message__pack(msg, (uint8_t *)in_buf);
+	len = fpm__message__pack(msg, in_buf);
 	assert(len <= in_buf_len);
 
 	QPB_RESET_STACK_ALLOCATOR(allocator);

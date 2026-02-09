@@ -19,7 +19,7 @@
 
 #include "libyang.h"
 #include "common.h"
-#include "dict_private.h"
+#include "hash_table.h"
 #include "tree_schema.h"
 
 struct ly_modules_list {
@@ -34,15 +34,7 @@ struct ly_modules_list {
     uint8_t parsing_sub_modules_count;
     uint8_t parsed_submodules_count;
     uint16_t module_set_id;
-    int flags;
-};
-
-struct ly_err_item {
-    LY_ERR no;
-    LY_VECODE code;
-    char *msg;
-    char *path;
-    struct ly_err_item *next;
+    int flags; /* see @ref contextoptions. */
 };
 
 struct ly_ctx {
@@ -52,6 +44,9 @@ struct ly_ctx {
     void *imp_clb_data;
     ly_module_data_clb data_clb;
     void *data_clb_data;
+#ifdef LY_ENABLED_LYD_PRIV
+    void *(*priv_dup_clb)(const void *priv);
+#endif
     pthread_key_t errlist_key;
     uint8_t internal_module_count;
 };

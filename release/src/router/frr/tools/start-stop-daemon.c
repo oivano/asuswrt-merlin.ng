@@ -25,12 +25,17 @@
  *   the whole automake/config.h dance.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #ifdef HAVE_LXC
 #define _GNU_SOURCE
 #include <sched.h>
 #endif /* HAVE_LXC */
 
 #include <stddef.h>
+#undef VERSION
 #define VERSION "1.9.18"
 
 #define MIN_POLL_INTERVAL 20000 /*us*/
@@ -230,7 +235,7 @@ static const char *next_dirname(const char *s)
 {
 	const char *cur;
 
-	cur = (const char *)s;
+	cur = s;
 
 	if (*cur != '\0') {
 		for (; *cur != '/'; ++cur)
@@ -250,7 +255,7 @@ static void add_namespace(const char *path)
 	const char *nsdirname, *nsname, *cur;
 	struct namespace *namespace;
 
-	cur = (const char *)path;
+	cur = path;
 	nsdirname = nsname = "";
 
 	while ((cur = next_dirname(cur))[0] != '\0') {
@@ -268,14 +273,14 @@ static void add_namespace(const char *path)
 		badusage("invalid namepspace path");
 
 	namespace = xmalloc(sizeof(*namespace));
-	namespace->path = (const char *)path;
+	namespace->path = path;
 	namespace->nstype = nstype;
 	LIST_INSERT_HEAD(&namespace_head, namespace, list);
 }
 #endif
 
 #ifdef HAVE_LXC
-static void set_namespaces()
+static void set_namespaces(void)
 {
 	struct namespace *namespace;
 	int fd;
@@ -289,7 +294,7 @@ static void set_namespaces()
 	}
 }
 #else
-static void set_namespaces()
+static void set_namespaces(void)
 {
 	if (!LIST_EMPTY(&namespace_head))
 		fatal("LCX namespaces not supported");
@@ -396,7 +401,7 @@ static void parse_schedule_item(const char *string, struct schedule_item *item)
 
 	if (!strcmp(string, "forever")) {
 		item->type = sched_forever;
-	} else if (isdigit((int)string[0])) {
+	} else if (isdigit((unsigned char)string[0])) {
 		item->type = sched_timeout;
 		if (parse_integer(string, &item->value) != 0)
 			badusage("invalid timeout value in schedule");
@@ -405,8 +410,7 @@ static void parse_schedule_item(const char *string, struct schedule_item *item)
 		item->type = sched_signal;
 	} else {
 		badusage(
-			"invalid schedule item (must be [-]<signal-name>, "
-			"-<signal-number>, <timeout> or `forever'");
+			"invalid schedule item (must be [-]<signal-name>, -<signal-number>, <timeout> or `forever'");
 	}
 }
 
@@ -431,8 +435,7 @@ static void parse_schedule(const char *schedule_str)
 		parse_schedule_item(schedule_str, &schedule[1]);
 		if (schedule[1].type != sched_timeout) {
 			badusage(
-				"--retry takes timeout, or schedule list"
-				" of at least two items");
+				"--retry takes timeout, or schedule list of at least two items");
 		}
 		schedule[2].type = sched_signal;
 		schedule[2].value = SIGKILL;
@@ -446,8 +449,7 @@ static void parse_schedule(const char *schedule_str)
 					: (ptrdiff_t)strlen(schedule_str);
 			if (str_len >= (ptrdiff_t)sizeof(item_buf))
 				badusage(
-					"invalid schedule item: far too long"
-					" (you must delimit items with slashes)");
+					"invalid schedule item: far too long (you must delimit items with slashes)");
 			memcpy(item_buf, schedule_str, str_len);
 			item_buf[str_len] = 0;
 			schedule_str = slash ? slash + 1 : NULL;
@@ -456,8 +458,7 @@ static void parse_schedule(const char *schedule_str)
 			if (schedule[count].type == sched_forever) {
 				if (repeatat >= 0)
 					badusage(
-						"invalid schedule: `forever'"
-						" appears more than once");
+						"invalid schedule: `forever' appears more than once");
 				repeatat = count;
 				continue;
 			}
@@ -569,8 +570,7 @@ static void parse_options(int argc, char *const *argv)
 	if (signal_str != NULL) {
 		if (parse_signal(signal_str, &signal_nr) != 0)
 			badusage(
-				"signal value must be numeric or name"
-				" of signal (KILL, INTR, ...)");
+				"signal value must be numeric or name of signal (KILL, INTR, ...)");
 	}
 
 	if (schedule_str != NULL) {
@@ -600,9 +600,9 @@ static void parse_options(int argc, char *const *argv)
 static int pid_is_exec(pid_t pid, const struct stat *esb)
 {
 	struct stat sb;
-	char buf[32];
+	char buf[PATH_MAX];
 
-	sprintf(buf, "/proc/%d/exe", pid);
+	snprintf(buf, sizeof(buf), "/proc/%ld/exe", (long)pid);
 	if (stat(buf, &sb) != 0)
 		return 0;
 	return (sb.st_dev == esb->st_dev && sb.st_ino == esb->st_ino);
@@ -612,9 +612,9 @@ static int pid_is_exec(pid_t pid, const struct stat *esb)
 static int pid_is_user(pid_t pid, uid_t uid)
 {
 	struct stat sb;
-	char buf[32];
+	char buf[PATH_MAX];
 
-	sprintf(buf, "/proc/%d", pid);
+	snprintf(buf, sizeof(buf), "/proc/%ld", (long)pid);
 	if (stat(buf, &sb) != 0)
 		return 0;
 	return (sb.st_uid == uid);
@@ -623,11 +623,11 @@ static int pid_is_user(pid_t pid, uid_t uid)
 
 static int pid_is_cmd(pid_t pid, const char *name)
 {
-	char buf[32];
+	char buf[PATH_MAX];
 	FILE *f;
 	int c;
 
-	sprintf(buf, "/proc/%d/stat", pid);
+	snprintf(buf, sizeof(buf), "/proc/%ld/stat", (long)pid);
 	f = fopen(buf, "r");
 	if (!f)
 		return 0;
@@ -659,12 +659,12 @@ static void check(pid_t pid)
 static void do_pidfile(const char *name)
 {
 	FILE *f;
-	pid_t pid;
+	long pid;
 
 	f = fopen(name, "r");
 	if (f) {
-		if (fscanf(f, "%d", &pid) == 1)
-			check(pid);
+		if (fscanf(f, "%ld", &pid) == 1)
+			check((pid_t)pid);
 		fclose(f);
 	} else if (errno != ENOENT)
 		fatal("open pidfile %s: %s", name, strerror(errno));
@@ -677,7 +677,7 @@ static void do_procinit(void)
 	DIR *procdir;
 	struct dirent *entry;
 	int foundany;
-	pid_t pid;
+	long pid;
 
 	procdir = opendir("/proc");
 	if (!procdir)
@@ -685,10 +685,10 @@ static void do_procinit(void)
 
 	foundany = 0;
 	while ((entry = readdir(procdir)) != NULL) {
-		if (sscanf(entry->d_name, "%d", &pid) != 1)
+		if (sscanf(entry->d_name, "%ld", &pid) != 1)
 			continue;
 		foundany++;
-		check(pid);
+		check((pid_t)pid);
 	}
 	closedir(procdir);
 	if (!foundany)
@@ -723,21 +723,21 @@ static void do_stop(int signal_nr, int quietmode, int *n_killed,
 
 	for (p = found; p; p = p->next) {
 		if (testmode)
-			printf("Would send signal %d to %d.\n", signal_nr,
-			       p->pid);
+			printf("Would send signal %d to %ld.\n", signal_nr,
+			       (long)p->pid);
 		else if (kill(p->pid, signal_nr) == 0) {
 			push(&killed, p->pid);
 			(*n_killed)++;
 		} else {
-			printf("%s: warning: failed to kill %d: %s\n", progname,
-			       p->pid, strerror(errno));
+			printf("%s: warning: failed to kill %ld: %s\n",
+			       progname, (long)p->pid, strerror(errno));
 			(*n_notkilled)++;
 		}
 	}
 	if (quietmode < 0 && killed) {
 		printf("Stopped %s (pid", what_stop);
 		for (p = killed; p; p = p->next)
-			printf(" %d", p->pid);
+			printf(" %ld", (long)p->pid);
 		putchar(')');
 		if (retry_nr > 0)
 			printf(", retry #%d", retry_nr);
@@ -1025,7 +1025,9 @@ int main(int argc, char **argv)
 		/* change tty */
 		fd = open("/dev/tty", O_RDWR);
 		if (fd >= 0) {
-			ioctl(fd, TIOCNOTTY, 0);
+			if (ioctl(fd, TIOCNOTTY, 0) < 0)
+				printf("ioctl TIOCNOTTY failed: %s\n",
+				       strerror(errno));
 			close(fd);
 		}
 		chdir("/");
@@ -1050,7 +1052,7 @@ int main(int argc, char **argv)
 		if (pidf == NULL)
 			fatal("Unable to open pidfile `%s' for writing: %s",
 			      pidfile, strerror(errno));
-		fprintf(pidf, "%d\n", pidt);
+		fprintf(pidf, "%ld\n", (long)pidt);
 		fclose(pidf);
 	}
 	set_namespaces();

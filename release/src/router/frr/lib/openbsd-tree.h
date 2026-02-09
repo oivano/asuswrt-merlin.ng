@@ -27,6 +27,10 @@
 #ifndef _SYS_TREE_H_
 #define	_SYS_TREE_H_
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*
  * This file defines data structures for different types of trees:
  * splay trees and red-black trees.
@@ -360,18 +364,18 @@ static inline void _rb_init(struct rbt_tree *rbt)
 	rbt->rbt_root = NULL;
 }
 
-static inline int _rb_empty(struct rbt_tree *rbt)
+static inline int _rb_empty(const struct rbt_tree *rbt)
 {
 	return (rbt->rbt_root == NULL);
 }
 
 void *_rb_insert(const struct rb_type *, struct rbt_tree *, void *);
 void *_rb_remove(const struct rb_type *, struct rbt_tree *, void *);
-void *_rb_find(const struct rb_type *, struct rbt_tree *, const void *);
-void *_rb_nfind(const struct rb_type *, struct rbt_tree *, const void *);
-void *_rb_root(const struct rb_type *, struct rbt_tree *);
-void *_rb_min(const struct rb_type *, struct rbt_tree *);
-void *_rb_max(const struct rb_type *, struct rbt_tree *);
+void *_rb_find(const struct rb_type *, const struct rbt_tree *, const void *);
+void *_rb_nfind(const struct rb_type *, const struct rbt_tree *, const void *);
+void *_rb_root(const struct rb_type *, const struct rbt_tree *);
+void *_rb_min(const struct rb_type *, const struct rbt_tree *);
+void *_rb_max(const struct rb_type *, const struct rbt_tree *);
 void *_rb_next(const struct rb_type *, void *);
 void *_rb_prev(const struct rb_type *, void *);
 void *_rb_left(const struct rb_type *, void *);
@@ -397,103 +401,112 @@ int _rb_check(const struct rb_type *, void *, unsigned long);
 	__attribute__((__unused__)) static inline struct _type                 \
 		*_name##_RB_INSERT(struct _name *head, struct _type *elm)      \
 	{                                                                      \
-		return _rb_insert(_name##_RB_TYPE, &head->rbh_root, elm);      \
+		return (struct _type *)_rb_insert(_name##_RB_TYPE,             \
+						  &head->rbh_root, elm);       \
 	}                                                                      \
                                                                                \
 	__attribute__((__unused__)) static inline struct _type                 \
 		*_name##_RB_REMOVE(struct _name *head, struct _type *elm)      \
 	{                                                                      \
-		return _rb_remove(_name##_RB_TYPE, &head->rbh_root, elm);      \
+		return (struct _type *)_rb_remove(_name##_RB_TYPE,             \
+						  &head->rbh_root, elm);       \
 	}                                                                      \
                                                                                \
 	__attribute__((__unused__)) static inline struct _type                 \
-		*_name##_RB_FIND(struct _name *head, const struct _type *key)  \
+		*_name##_RB_FIND(const struct _name *head,                     \
+				 const struct _type *key)                      \
 	{                                                                      \
-		return _rb_find(_name##_RB_TYPE, &head->rbh_root, key);        \
+		return (struct _type *)_rb_find(_name##_RB_TYPE,               \
+						&head->rbh_root, key);         \
 	}                                                                      \
                                                                                \
 	__attribute__((__unused__)) static inline struct _type                 \
-		*_name##_RB_NFIND(struct _name *head, const struct _type *key) \
+		*_name##_RB_NFIND(const struct _name *head,                    \
+				  const struct _type *key)                     \
 	{                                                                      \
-		return _rb_nfind(_name##_RB_TYPE, &head->rbh_root, key);       \
+		return (struct _type *)_rb_nfind(_name##_RB_TYPE,              \
+						 &head->rbh_root, key);        \
 	}                                                                      \
                                                                                \
 	__attribute__((__unused__)) static inline struct _type                 \
-		*_name##_RB_ROOT(struct _name *head)                           \
+		*_name##_RB_ROOT(const struct _name *head)                     \
 	{                                                                      \
-		return _rb_root(_name##_RB_TYPE, &head->rbh_root);             \
+		return (struct _type *)_rb_root(_name##_RB_TYPE,               \
+						&head->rbh_root);              \
 	}                                                                      \
                                                                                \
 	__attribute__((__unused__)) static inline int _name##_RB_EMPTY(        \
-		struct _name *head)                                            \
+		const struct _name *head)                                      \
 	{                                                                      \
 		return _rb_empty(&head->rbh_root);                             \
 	}                                                                      \
                                                                                \
 	__attribute__((__unused__)) static inline struct _type                 \
-		*_name##_RB_MIN(struct _name *head)                            \
+		*_name##_RB_MIN(const struct _name *head)                      \
 	{                                                                      \
-		return _rb_min(_name##_RB_TYPE, &head->rbh_root);              \
+		return (struct _type *)_rb_min(_name##_RB_TYPE,                \
+					       &head->rbh_root);               \
 	}                                                                      \
                                                                                \
 	__attribute__((__unused__)) static inline struct _type                 \
-		*_name##_RB_MAX(struct _name *head)                            \
+		*_name##_RB_MAX(const struct _name *head)                      \
 	{                                                                      \
-		return _rb_max(_name##_RB_TYPE, &head->rbh_root);              \
+		return (struct _type *)_rb_max(_name##_RB_TYPE,                \
+					       &head->rbh_root);               \
 	}                                                                      \
                                                                                \
 	__attribute__((__unused__)) static inline struct _type                 \
 		*_name##_RB_NEXT(struct _type *elm)                            \
 	{                                                                      \
-		return _rb_next(_name##_RB_TYPE, elm);                         \
+		return (struct _type *)_rb_next(_name##_RB_TYPE, elm);         \
 	}                                                                      \
                                                                                \
 	__attribute__((__unused__)) static inline struct _type                 \
 		*_name##_RB_PREV(struct _type *elm)                            \
 	{                                                                      \
-		return _rb_prev(_name##_RB_TYPE, elm);                         \
+		return (struct _type *)_rb_prev(_name##_RB_TYPE, elm);         \
 	}                                                                      \
                                                                                \
 	__attribute__((__unused__)) static inline struct _type                 \
 		*_name##_RB_LEFT(struct _type *elm)                            \
 	{                                                                      \
-		return _rb_left(_name##_RB_TYPE, elm);                         \
+		return (struct _type *)_rb_left(_name##_RB_TYPE, elm);         \
 	}                                                                      \
                                                                                \
 	__attribute__((__unused__)) static inline struct _type                 \
 		*_name##_RB_RIGHT(struct _type *elm)                           \
 	{                                                                      \
-		return _rb_right(_name##_RB_TYPE, elm);                        \
+		return (struct _type *)_rb_right(_name##_RB_TYPE, elm);        \
 	}                                                                      \
                                                                                \
 	__attribute__((__unused__)) static inline struct _type                 \
 		*_name##_RB_PARENT(struct _type *elm)                          \
 	{                                                                      \
-		return _rb_parent(_name##_RB_TYPE, elm);                       \
+		return (struct _type *)_rb_parent(_name##_RB_TYPE, elm);       \
 	}                                                                      \
                                                                                \
 	__attribute__((__unused__)) static inline void _name##_RB_SET_LEFT(    \
 		struct _type *elm, struct _type *left)                         \
 	{                                                                      \
-		return _rb_set_left(_name##_RB_TYPE, elm, left);               \
+		_rb_set_left(_name##_RB_TYPE, elm, left);                      \
 	}                                                                      \
                                                                                \
 	__attribute__((__unused__)) static inline void _name##_RB_SET_RIGHT(   \
 		struct _type *elm, struct _type *right)                        \
 	{                                                                      \
-		return _rb_set_right(_name##_RB_TYPE, elm, right);             \
+		_rb_set_right(_name##_RB_TYPE, elm, right);                    \
 	}                                                                      \
                                                                                \
 	__attribute__((__unused__)) static inline void _name##_RB_SET_PARENT(  \
 		struct _type *elm, struct _type *parent)                       \
 	{                                                                      \
-		return _rb_set_parent(_name##_RB_TYPE, elm, parent);           \
+		_rb_set_parent(_name##_RB_TYPE, elm, parent);                  \
 	}                                                                      \
                                                                                \
 	__attribute__((__unused__)) static inline void _name##_RB_POISON(      \
 		struct _type *elm, unsigned long poison)                       \
 	{                                                                      \
-		return _rb_poison(_name##_RB_TYPE, elm, poison);               \
+		_rb_poison(_name##_RB_TYPE, elm, poison);                      \
 	}                                                                      \
                                                                                \
 	__attribute__((__unused__)) static inline int _name##_RB_CHECK(        \
@@ -559,5 +572,9 @@ int _rb_check(const struct rb_type *, void *, unsigned long);
 #define RB_FOREACH_REVERSE_SAFE(_e, _name, _head, _n)                          \
 	for ((_e) = RB_MAX(_name, (_head));                                    \
 	     (_e) != NULL && ((_n) = RB_PREV(_name, (_e)), 1); (_e) = (_n))
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _SYS_TREE_H_ */

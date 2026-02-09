@@ -49,7 +49,7 @@ struct graceful_restart_af {
 #define CAPABILITY_CODE_DYNAMIC_OLD    66 /* Dynamic Capability, deprecated since 2003 */
 #define CAPABILITY_CODE_DYNAMIC        67 /* Dynamic Capability */
 #define CAPABILITY_CODE_ADDPATH        69 /* Addpath Capability */
-#define CAPABILITY_CODE_FQDN           73 /* Advertise hostname capabilty */
+#define CAPABILITY_CODE_FQDN           73 /* Advertise hostname capability */
 #define CAPABILITY_CODE_ENHE            5 /* Extended Next Hop Encoding */
 #define CAPABILITY_CODE_REFRESH_OLD   128 /* Route Refresh Capability(cisco) */
 #define CAPABILITY_CODE_ORF_OLD       130 /* Cooperative Route Filtering Capability(cisco) */
@@ -68,13 +68,13 @@ struct graceful_restart_af {
 /* Cooperative Route Filtering Capability.  */
 
 /* ORF Type */
-#define ORF_TYPE_PREFIX                64 
+#define ORF_TYPE_PREFIX                64
 #define ORF_TYPE_PREFIX_OLD           128
 
 /* ORF Mode */
-#define ORF_MODE_RECEIVE                1 
-#define ORF_MODE_SEND                   2 
-#define ORF_MODE_BOTH                   3 
+#define ORF_MODE_RECEIVE                1
+#define ORF_MODE_SEND                   2
+#define ORF_MODE_BOTH                   3
 
 /* Capability Message Action.  */
 #define CAPABILITY_ACTION_SET           0
@@ -86,8 +86,8 @@ struct graceful_restart_af {
 
 extern int bgp_open_option_parse(struct peer *, uint8_t, int *);
 extern void bgp_open_capability(struct stream *, struct peer *);
-extern void bgp_capability_vty_out(struct vty *, struct peer *, uint8_t,
-				   json_object *);
+extern void bgp_capability_vty_out(struct vty *vty, struct peer *peer,
+				   bool use_json, json_object *json_neigh);
 extern as_t peek_for_as4_capability(struct peer *, uint8_t);
 
 #endif /* _QUAGGA_BGP_OPEN_H */

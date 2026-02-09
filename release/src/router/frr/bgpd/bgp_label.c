@@ -45,7 +45,7 @@ extern struct zclient *zclient;
 int bgp_parse_fec_update(void)
 {
 	struct stream *s;
-	struct bgp_node *rn;
+	struct bgp_dest *dest;
 	struct bgp *bgp;
 	struct bgp_table *table;
 	struct prefix p;
@@ -75,37 +75,37 @@ int bgp_parse_fec_update(void)
 		zlog_debug("no %u unicast table", p.family);
 		return -1;
 	}
-	rn = bgp_node_lookup(table, &p);
-	if (!rn) {
+	dest = bgp_node_lookup(table, &p);
+	if (!dest) {
 		zlog_debug("no node for the prefix");
 		return -1;
 	}
 
 	/* treat it as implicit withdraw - the label is invalid */
 	if (label == MPLS_INVALID_LABEL)
-		bgp_unset_valid_label(&rn->local_label);
+		bgp_unset_valid_label(&dest->local_label);
 	else {
-		label_ntop(label, 1, &rn->local_label);
-		bgp_set_valid_label(&rn->local_label);
+		label_ntop(label, 1, &dest->local_label);
+		bgp_set_valid_label(&dest->local_label);
 	}
-	SET_FLAG(rn->flags, BGP_NODE_LABEL_CHANGED);
-	bgp_unlock_node(rn);
-	bgp_process(bgp, rn, afi, safi);
+	SET_FLAG(dest->flags, BGP_NODE_LABEL_CHANGED);
+	bgp_dest_unlock_node(dest);
+	bgp_process(bgp, dest, afi, safi);
 	return 1;
 }
 
-mpls_label_t bgp_adv_label(struct bgp_node *rn, struct bgp_info *ri,
+mpls_label_t bgp_adv_label(struct bgp_dest *dest, struct bgp_path_info *pi,
 			   struct peer *to, afi_t afi, safi_t safi)
 {
 	struct peer *from;
 	mpls_label_t remote_label;
 	int reflect;
 
-	if (!rn || !ri || !to)
+	if (!dest || !pi || !to)
 		return MPLS_INVALID_LABEL;
 
-	remote_label = ri->extra ? ri->extra->label[0] : MPLS_INVALID_LABEL;
-	from = ri->peer;
+	remote_label = pi->extra ? pi->extra->label[0] : MPLS_INVALID_LABEL;
+	from = pi->peer;
 	reflect =
 		((from->sort == BGP_PEER_IBGP) && (to->sort == BGP_PEER_IBGP));
 
@@ -117,22 +117,155 @@ mpls_label_t bgp_adv_label(struct bgp_node *rn, struct bgp_info *ri,
 	if (CHECK_FLAG(to->af_flags[afi][safi], PEER_FLAG_NEXTHOP_UNCHANGED))
 		return remote_label;
 
-	return rn->local_label;
+	return dest->local_label;
 }
 
-void bgp_reg_dereg_for_label(struct bgp_node *rn, struct bgp_info *ri, int reg)
+/**
+ * This is passed as the callback function to bgp_labelpool.c:bgp_lp_get()
+ * by bgp_reg_dereg_for_label() when a label needs to be obtained from
+ * label pool.
+ * Note that it will reject the allocated label if a label index is found,
+ * because the label index supposes predictable labels
+ */
+int bgp_reg_for_label_callback(mpls_label_t new_label, void *labelid,
+			       bool allocated)
 {
+	struct bgp_path_info *pi;
+	struct bgp_dest *dest;
+
+	pi = labelid;
+	/* Is this path still valid? */
+	if (!bgp_path_info_unlock(pi)) {
+		if (BGP_DEBUG(labelpool, LABELPOOL))
+			zlog_debug(
+				"%s: bgp_path_info is no longer valid, ignoring",
+				__func__);
+		return -1;
+	}
+
+	dest = pi->net;
+
+	if (BGP_DEBUG(labelpool, LABELPOOL))
+		zlog_debug("%s: FEC %pRN label=%u, allocated=%d", __func__,
+			   bgp_dest_to_rnode(dest), new_label, allocated);
+
+	if (!allocated) {
+		/*
+		 * previously-allocated label is now invalid
+		 */
+		if (pi->attr->label_index == MPLS_INVALID_LABEL_INDEX
+		    && pi->attr->label != MPLS_LABEL_NONE
+		    && CHECK_FLAG(dest->flags, BGP_NODE_REGISTERED_FOR_LABEL)) {
+			bgp_unregister_for_label(dest);
+			label_ntop(MPLS_LABEL_IMPLICIT_NULL, 1,
+				   &dest->local_label);
+			bgp_set_valid_label(&dest->local_label);
+		}
+		return 0;
+	}
+
+	/*
+	 * label index is assigned, this should be handled by SR-related code,
+	 * so retry FEC registration and then reject label allocation for
+	 * it to be released to label pool
+	 */
+	if (pi->attr->label_index != MPLS_INVALID_LABEL_INDEX) {
+		flog_err(
+			EC_BGP_LABEL,
+			"%s: FEC %pRN Rejecting allocated label %u as Label Index is %u",
+			__func__, bgp_dest_to_rnode(dest), new_label,
+			pi->attr->label_index);
+
+		bgp_register_for_label(pi->net, pi);
+
+		return -1;
+	}
+
+	if (pi->attr->label != MPLS_INVALID_LABEL) {
+		if (new_label == pi->attr->label) {
+			/* already have same label, accept but do nothing */
+			return 0;
+		}
+		/* Shouldn't happen: different label allocation */
+		flog_err(EC_BGP_LABEL,
+			 "%s: %pRN had label %u but got new assignment %u",
+			 __func__, bgp_dest_to_rnode(dest), pi->attr->label,
+			 new_label);
+		/* continue means use new one */
+	}
+
+	label_ntop(new_label, 1, &dest->local_label);
+	bgp_set_valid_label(&dest->local_label);
+
+	/*
+	 * Get back to registering the FEC
+	 */
+	bgp_register_for_label(pi->net, pi);
+
+	return 0;
+}
+
+void bgp_reg_dereg_for_label(struct bgp_dest *dest, struct bgp_path_info *pi,
+			     bool reg)
+{
+	bool with_label_index = false;
 	struct stream *s;
-	struct prefix *p;
+	const struct prefix *p;
+	mpls_label_t *local_label;
 	int command;
 	uint16_t flags = 0;
 	size_t flags_pos = 0;
+	char addr[PREFIX_STRLEN];
+
+	p = bgp_dest_get_prefix(dest);
+	local_label = &(dest->local_label);
+	/* this prevents the loop when we're called by
+	 * bgp_reg_for_label_callback()
+	 */
+	bool have_label_to_reg = bgp_is_valid_label(local_label)
+			&& label_pton(local_label) != MPLS_LABEL_IMPLICIT_NULL;
+
+	if (reg) {
+		assert(pi);
+		/*
+		 * Determine if we will let zebra should derive label from
+		 * label index instead of bgpd requesting from label pool
+		 */
+		if (CHECK_FLAG(pi->attr->flag,
+			    ATTR_FLAG_BIT(BGP_ATTR_PREFIX_SID))
+			&& pi->attr->label_index != BGP_INVALID_LABEL_INDEX) {
+			with_label_index = true;
+		} else {
+			/*
+			 * If no label index was provided -- assume any label
+			 * from label pool will do. This means that label index
+			 * always takes precedence over auto-assigned labels.
+			 */
+			if (!have_label_to_reg) {
+				if (BGP_DEBUG(labelpool, LABELPOOL)) {
+					prefix2str(p, addr, PREFIX_STRLEN);
+					zlog_debug("%s: Requesting label from LP for %s",
+						 __func__, addr);
+				}
+				/* bgp_reg_for_label_callback() will call back
+				 * __func__ when it gets a label from the pool.
+				 * This means we'll never register FECs without
+				 * valid labels.
+				 */
+				bgp_lp_get(LP_TYPE_BGP_LU, pi,
+				    bgp_reg_for_label_callback);
+				return;
+			}
+		}
+	}
 
 	/* Check socket. */
 	if (!zclient || zclient->sock < 0)
 		return;
 
-	p = &(rn->p);
+	/* If the route node has a local_label assigned or the
+	 * path node has an MPLS SR label index allowing zebra to
+	 * derive the label, proceed with registration. */
 	s = zclient->obuf;
 	stream_reset(s);
 	command = (reg) ? ZEBRA_FEC_REGISTER : ZEBRA_FEC_UNREGISTER;
@@ -142,16 +275,16 @@ void bgp_reg_dereg_for_label(struct bgp_node *rn, struct bgp_info *ri, int reg)
 	stream_putw(s, PREFIX_FAMILY(p));
 	stream_put_prefix(s, p);
 	if (reg) {
-		assert(ri);
-		if (ri->attr->flag & ATTR_FLAG_BIT(BGP_ATTR_PREFIX_SID)) {
-			if (ri->attr->label_index != BGP_INVALID_LABEL_INDEX) {
-				flags |= ZEBRA_FEC_REGISTER_LABEL_INDEX;
-				stream_putl(s, ri->attr->label_index);
-			}
+		if (have_label_to_reg) {
+			flags |= ZEBRA_FEC_REGISTER_LABEL;
+			stream_putl(s, label_pton(local_label));
+		} else if (with_label_index) {
+			flags |= ZEBRA_FEC_REGISTER_LABEL_INDEX;
+			stream_putl(s, pi->attr->label_index);
 		}
-		SET_FLAG(rn->flags, BGP_NODE_REGISTERED_FOR_LABEL);
+		SET_FLAG(dest->flags, BGP_NODE_REGISTERED_FOR_LABEL);
 	} else
-		UNSET_FLAG(rn->flags, BGP_NODE_REGISTERED_FOR_LABEL);
+		UNSET_FLAG(dest->flags, BGP_NODE_REGISTERED_FOR_LABEL);
 
 	/* Set length and flags */
 	stream_putw_at(s, 0, stream_get_endp(s));
@@ -187,11 +320,12 @@ static int bgp_nlri_get_labels(struct peer *peer, uint8_t *pnt, uint8_t plen,
 	/* If we RX multiple labels we will end up keeping only the last
 	 * one. We do not yet support a label stack greater than 1. */
 	if (label_depth > 1)
-		zlog_warn("%s rcvd UPDATE with label stack %d deep", peer->host,
+		zlog_info("%s rcvd UPDATE with label stack %d deep", peer->host,
 			  label_depth);
 
 	if (!(bgp_is_withdraw_label(label) || label_bos(label)))
-		zlog_warn(
+		flog_warn(
+			EC_BGP_INVALID_LABEL_STACK,
 			"%s rcvd UPDATE with invalid label stack - no bottom of stack",
 			peer->host);
 
@@ -234,7 +368,8 @@ int bgp_nlri_parse_label(struct peer *peer, struct attr *attr,
 			if (pnt + BGP_ADDPATH_ID_LEN > lim)
 				return BGP_NLRI_PARSE_ERROR_PACKET_OVERFLOW;
 
-			addpath_id = ntohl(*((uint32_t *)pnt));
+			memcpy(&addpath_id, pnt, BGP_ADDPATH_ID_LEN);
+			addpath_id = ntohl(addpath_id);
 			pnt += BGP_ADDPATH_ID_LEN;
 		}
 
@@ -246,7 +381,7 @@ int bgp_nlri_parse_label(struct peer *peer, struct attr *attr,
 		/* sanity check against packet data */
 		if ((pnt + psize) > lim) {
 			flog_err(
-				BGP_ERR_UPDATE_RCV,
+				EC_BGP_UPDATE_RCV,
 				"%s [Error] Update packet error / L-U (prefix length %d exceeds packet size %u)",
 				peer->host, prefixlen, (uint)(lim - pnt));
 			return BGP_NLRI_PARSE_ERROR_PACKET_OVERFLOW;
@@ -258,10 +393,9 @@ int bgp_nlri_parse_label(struct peer *peer, struct attr *attr,
 
 		/* There needs to be at least one label */
 		if (prefixlen < 24) {
-			flog_err(BGP_ERR_UPDATE_RCV,
-				  "%s [Error] Update packet error"
-				  " (wrong label length %d)",
-				  peer->host, prefixlen);
+			flog_err(EC_BGP_UPDATE_RCV,
+				 "%s [Error] Update packet error (wrong label length %d)",
+				 peer->host, prefixlen);
 			bgp_notify_send(peer, BGP_NOTIFY_UPDATE_ERR,
 					BGP_NOTIFY_UPDATE_INVAL_NETWORK);
 			return BGP_NLRI_PARSE_ERROR_LABEL_LENGTH;
@@ -287,7 +421,7 @@ int bgp_nlri_parse_label(struct peer *peer, struct attr *attr,
 				 * ignored.
 				  */
 				flog_err(
-					BGP_ERR_UPDATE_RCV,
+					EC_BGP_UPDATE_RCV,
 					"%s: IPv4 labeled-unicast NLRI is multicast address %s, ignoring",
 					peer->host, inet_ntoa(p.u.prefix4));
 				continue;
@@ -300,7 +434,7 @@ int bgp_nlri_parse_label(struct peer *peer, struct attr *attr,
 				char buf[BUFSIZ];
 
 				flog_err(
-					BGP_ERR_UPDATE_RCV,
+					EC_BGP_UPDATE_RCV,
 					"%s: IPv6 labeled-unicast NLRI is link-local address %s, ignoring",
 					peer->host,
 					inet_ntop(AF_INET6, &p.u.prefix6, buf,
@@ -313,7 +447,7 @@ int bgp_nlri_parse_label(struct peer *peer, struct attr *attr,
 				char buf[BUFSIZ];
 
 				flog_err(
-					BGP_ERR_UPDATE_RCV,
+					EC_BGP_UPDATE_RCV,
 					"%s: IPv6 unicast NLRI is multicast address %s, ignoring",
 					peer->host,
 					inet_ntop(AF_INET6, &p.u.prefix6, buf,
@@ -337,8 +471,8 @@ int bgp_nlri_parse_label(struct peer *peer, struct attr *attr,
 	/* Packet length consistency check. */
 	if (pnt != lim) {
 		flog_err(
-			BGP_ERR_UPDATE_RCV,
-			"%s [Error] Update packet error / L-U (%zu data remaining after parsing)",
+			EC_BGP_UPDATE_RCV,
+			"%s [Error] Update packet error / L-U (%td data remaining after parsing)",
 			peer->host, lim - pnt);
 		return BGP_NLRI_PARSE_ERROR_PACKET_LENGTH;
 	}

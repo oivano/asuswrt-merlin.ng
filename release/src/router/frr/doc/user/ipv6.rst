@@ -77,6 +77,43 @@ Router Advertisement
    Default: ``600000``
 
 .. index::
+   single: ipv6 nd ra-fast-retrans
+   single: no ipv6 nd ra-fast-retrans
+.. clicmd:: [no] ipv6 nd ra-fast-retrans
+
+   RFC4861 states that consecutive RA packets should be sent no more
+   frequently than three seconds apart. FRR by default allows faster
+   transmissions of RA packets in order to speed convergence and
+   neighbor establishment, particularly for unnumbered peering.  By
+   turning off ipv6 nd ra-fast-retrans, the implementation is
+   compliant with the RFC at the cost of slower convergence
+   and neighbor establishment.
+   Default: enabled
+
+.. index::
+   single: ipv6 nd ra-retrans-interval (0-4294967295)
+   single: no ipv6 nd retrans-interval [(0-4294967295)]
+.. clicmd:: [no] ipv6 nd ra-retrans-interval [(0-4294967295)]
+
+   The value to be placed in the retrans timer field of router advertisements
+   sent from the interface, in msec. Indicates the interval between router
+   advertisement retransmissions. Setting the value to zero indicates that
+   the value is unspecified by this router. Must be between zero or 4294967295
+   msec.
+   Default: ``0``
+
+.. index::
+   single: ipv6 nd ra-hop-limit (0-255)
+   single: no ipv6 nd ra-hop-limit [(0-255)]
+.. clicmd:: [no] ipv6 nd ra-hop-limit [(0-255)]
+
+   The value to be placed in the hop count field of router advertisements sent
+   from the interface, in hops. Indicates the maximum diameter of the network.
+   Setting the value to zero indicates that the value is unspecified by this
+   router.  Must be between zero or 255 hops.
+   Default: ``64``
+
+.. index::
    single: ipv6 nd ra-lifetime (0-9000)
    single: no ipv6 nd ra-lifetime [(0-9000)]
 .. clicmd:: [no] ipv6 nd ra-lifetime [(0-9000)]
@@ -179,10 +216,56 @@ Router Advertisement
    hosts in proper interface configuration. The announced value is not verified
    to be consistent with router interface MTU.
 
-   Default: don't advertise any MTU option.::
-           interface eth0
-            no ipv6 nd suppress-ra
-            ipv6 nd prefix 2001:0DB8:5009::/64
+   Default: don't advertise any MTU option.
+
+.. index::
+   single: ipv6 nd rdnss ipv6address [lifetime]
+   single: no ipv6 nd rdnss ipv6address [lifetime]
+.. clicmd:: [no] ipv6 nd rdnss ipv6address [lifetime]
+
+   Recursive DNS server address to advertise using the RDNSS (type 25) option
+   described in RFC8106. Can be specified more than once to advertise multiple
+   addresses. Note that hosts may choose to limit the number of RDNSS addresses
+   to track.
+
+   Optional parameter:
+
+   - ``lifetime``: the maximum time in seconds over which the specified address
+     may be used for domain name resolution. Value ``infinite`` represents
+     infinity (i.e. a value of all one bits (``0xffffffff``)). A value of 0
+     indicates that the address must no longer be used.
+     Range: ``(0-4294967295)``  Default: ``3 * ra-interval``
+
+   Default: do not emit RDNSS option
+
+.. index::
+   single: ipv6 nd dnssl domain-name-suffix [lifetime]
+   single: no ipv6 nd dnssl domain-name-suffix [lifetime]
+.. clicmd:: [no] ipv6 nd dnssl domain-name-suffix [lifetime]
+
+   Advertise DNS search list using the DNSSL (type 31) option described in
+   RFC8106. Specify more than once to advertise multiple domain name suffixes.
+   Host implementations may limit the number of honored search list entries.
+
+   Optional parameter:
+
+   - ``lifetime``: the maximum time in seconds over which the specified domain
+     suffix may be used in the course of  name resolution. Value ``infinite``
+     represents infinity (i.e. a value of all one bits (``0xffffffff``)). A
+     value of 0 indicates that the name suffix must no longer be used.
+     Range: ``(0-4294967295)``  Default: ``3 * ra-interval``
+
+   Default: do not emit DNSSL option
+
+Router Advertisement Configuration Example
+==========================================
+A small example:
+
+.. code-block:: frr
+
+   interface eth0
+    no ipv6 nd suppress-ra
+    ipv6 nd prefix 2001:0DB8:5009::/64
 
 
 .. seealso::
@@ -191,3 +274,4 @@ Router Advertisement
    - :rfc:`4861` (Neighbor Discovery for IP Version 6 (IPv6))
    - :rfc:`6275` (Mobility Support in IPv6)
    - :rfc:`4191` (Default Router Preferences and More-Specific Routes)
+   - :rfc:`8106` (IPv6 Router Advertisement Options for DNS Configuration)

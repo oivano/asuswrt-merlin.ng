@@ -7,11 +7,15 @@ user_RSTFILES = \
 	doc/user/ldpd.rst \
 	doc/user/basic.rst \
 	doc/user/bgp.rst \
+	doc/user/bmp.rst \
 	doc/user/bugs.rst \
 	doc/user/conf.py \
 	doc/user/eigrpd.rst \
+	doc/user/fabricd.rst \
 	doc/user/filter.rst \
+	doc/user/frr-reload.rst \
 	doc/user/glossary.rst \
+	doc/user/grpc.rst \
 	doc/user/index.rst \
 	doc/user/installation.rst \
 	doc/user/ipv6.rst \
@@ -36,10 +40,13 @@ user_RSTFILES = \
 	doc/user/snmptrap.rst \
 	doc/user/static.rst \
 	doc/user/vnc.rst \
+	doc/user/vrrp.rst \
 	doc/user/vtysh.rst \
 	doc/user/zebra.rst \
 	doc/user/bfd.rst \
 	doc/user/flowspec.rst \
+	doc/user/watchfrr.rst \
+	doc/user/wecmp_linkbw.rst \
 	# end
 
 EXTRA_DIST += \

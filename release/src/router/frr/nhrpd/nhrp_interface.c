@@ -7,6 +7,10 @@
  * (at your option) any later version.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <net/if_arp.h>
 #include "zebra.h"
 #include "linklist.h"
@@ -108,7 +112,7 @@ static void nhrp_interface_interface_notifier(struct notifier_block *n,
 			      NOTIFY_INTERFACE_NBMA_CHANGED);
 		debugf(NHRP_DEBUG_IF, "%s: NBMA change: address %s",
 		       nifp->ifp->name,
-		       sockunion2str(&nifp->nbma, buf, sizeof buf));
+		       sockunion2str(&nifp->nbma, buf, sizeof(buf)));
 		break;
 	}
 }
@@ -131,7 +135,7 @@ static void nhrp_interface_update_nbma(struct interface *ifp)
 				     &nifp->linkidx, &saddr);
 		debugf(NHRP_DEBUG_IF, "%s: GRE: %x %x %x", ifp->name,
 		       nifp->grekey, nifp->linkidx, saddr.s_addr);
-		if (saddr.s_addr)
+		if (saddr.s_addr != INADDR_ANY)
 			sockunion_set(&nbma, AF_INET, (uint8_t *)&saddr.s_addr,
 				      sizeof(saddr.s_addr));
 		else if (!nbmaifp && nifp->linkidx != IFINDEX_INTERNAL)
@@ -217,7 +221,7 @@ static void nhrp_interface_update_address(struct interface *ifp, afi_t afi,
 	if (best && if_ad->configured
 	    && best->address->prefixlen != 8 * prefix_blen(best->address)) {
 		zlog_notice("%s: %s is not a host prefix", ifp->name,
-			    prefix2str(best->address, buf, sizeof buf));
+			    prefix2str(best->address, buf, sizeof(buf)));
 		best = NULL;
 	}
 
@@ -239,7 +243,7 @@ static void nhrp_interface_update_address(struct interface *ifp, afi_t afi,
 
 	debugf(NHRP_DEBUG_KERNEL, "%s: IPv%d address changed to %s", ifp->name,
 	       afi == AFI_IP ? 4 : 6,
-	       best ? prefix2str(best->address, buf, sizeof buf) : "(none)");
+	       best ? prefix2str(best->address, buf, sizeof(buf)) : "(none)");
 	if_ad->addr = addr;
 
 	if (if_ad->configured && sockunion_family(&if_ad->addr) != AF_UNSPEC) {
@@ -292,16 +296,8 @@ void nhrp_interface_update(struct interface *ifp)
 	}
 }
 
-int nhrp_interface_add(int cmd, struct zclient *client, zebra_size_t length,
-		       vrf_id_t vrf_id)
+int nhrp_ifp_create(struct interface *ifp)
 {
-	struct interface *ifp;
-
-	/* read and add the interface in the iflist. */
-	ifp = zebra_interface_add_read(client->ibuf, vrf_id);
-	if (ifp == NULL)
-		return 0;
-
 	debugf(NHRP_DEBUG_IF, "if-add: %s, ifindex: %u, hw_type: %d %s",
 	       ifp->name, ifp->ifindex, ifp->ll_type,
 	       if_link_type_str(ifp->ll_type));
@@ -311,67 +307,42 @@ int nhrp_interface_add(int cmd, struct zclient *client, zebra_size_t length,
 	return 0;
 }
 
-int nhrp_interface_delete(int cmd, struct zclient *client, zebra_size_t length,
-			  vrf_id_t vrf_id)
+int nhrp_ifp_destroy(struct interface *ifp)
 {
-	struct interface *ifp;
-	struct stream *s;
-
-	s = client->ibuf;
-	ifp = zebra_interface_state_read(s, vrf_id);
-	if (ifp == NULL)
-		return 0;
-
 	debugf(NHRP_DEBUG_IF, "if-delete: %s", ifp->name);
 
 	nhrp_interface_update(ifp);
 
-	if_set_index(ifp, IFINDEX_INTERNAL);
-
 	return 0;
 }
 
-int nhrp_interface_up(int cmd, struct zclient *client, zebra_size_t length,
-		      vrf_id_t vrf_id)
+int nhrp_ifp_up(struct interface *ifp)
 {
-	struct interface *ifp;
-
-	ifp = zebra_interface_state_read(client->ibuf, vrf_id);
-	if (ifp == NULL)
-		return 0;
-
 	debugf(NHRP_DEBUG_IF, "if-up: %s", ifp->name);
 	nhrp_interface_update_nbma(ifp);
 
 	return 0;
 }
 
-int nhrp_interface_down(int cmd, struct zclient *client, zebra_size_t length,
-			vrf_id_t vrf_id)
+int nhrp_ifp_down(struct interface *ifp)
 {
-	struct interface *ifp;
-
-	ifp = zebra_interface_state_read(client->ibuf, vrf_id);
-	if (ifp == NULL)
-		return 0;
-
 	debugf(NHRP_DEBUG_IF, "if-down: %s", ifp->name);
 	nhrp_interface_update(ifp);
+
 	return 0;
 }
 
-int nhrp_interface_address_add(int cmd, struct zclient *client,
-			       zebra_size_t length, vrf_id_t vrf_id)
+int nhrp_interface_address_add(ZAPI_CALLBACK_ARGS)
 {
 	struct connected *ifc;
 	char buf[PREFIX_STRLEN];
 
-	ifc = zebra_interface_address_read(cmd, client->ibuf, vrf_id);
+	ifc = zebra_interface_address_read(cmd, zclient->ibuf, vrf_id);
 	if (ifc == NULL)
 		return 0;
 
 	debugf(NHRP_DEBUG_IF, "if-addr-add: %s: %s", ifc->ifp->name,
-	       prefix2str(ifc->address, buf, sizeof buf));
+	       prefix2str(ifc->address, buf, sizeof(buf)));
 
 	nhrp_interface_update_address(
 		ifc->ifp, family2afi(PREFIX_FAMILY(ifc->address)), 0);
@@ -379,22 +350,21 @@ int nhrp_interface_address_add(int cmd, struct zclient *client,
 	return 0;
 }
 
-int nhrp_interface_address_delete(int cmd, struct zclient *client,
-				  zebra_size_t length, vrf_id_t vrf_id)
+int nhrp_interface_address_delete(ZAPI_CALLBACK_ARGS)
 {
 	struct connected *ifc;
 	char buf[PREFIX_STRLEN];
 
-	ifc = zebra_interface_address_read(cmd, client->ibuf, vrf_id);
+	ifc = zebra_interface_address_read(cmd, zclient->ibuf, vrf_id);
 	if (ifc == NULL)
 		return 0;
 
 	debugf(NHRP_DEBUG_IF, "if-addr-del: %s: %s", ifc->ifp->name,
-	       prefix2str(ifc->address, buf, sizeof buf));
+	       prefix2str(ifc->address, buf, sizeof(buf)));
 
 	nhrp_interface_update_address(
 		ifc->ifp, family2afi(PREFIX_FAMILY(ifc->address)), 0);
-	connected_free(ifc);
+	connected_free(&ifc);
 
 	return 0;
 }

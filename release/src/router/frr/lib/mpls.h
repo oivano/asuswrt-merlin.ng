@@ -25,6 +25,10 @@
 #include <zebra.h>
 #include <arpa/inet.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifdef MPLS_LABEL_MAX
 #undef MPLS_LABEL_MAX
 #endif
@@ -43,6 +47,7 @@
 #define MPLS_LABEL_OAM_ALERT           14      /* [RFC3429] */
 #define MPLS_LABEL_EXTENSION           15      /* [RFC7274] */
 #define MPLS_LABEL_MAX                 1048575
+#define MPLS_LABEL_VALUE_MASK          0x000FFFFF
 #define MPLS_LABEL_NONE                0xFFFFFFFF /* for internal use only */
 
 /* Minimum and maximum label values */
@@ -50,6 +55,7 @@
 #define MPLS_LABEL_RESERVED_MAX            15
 #define MPLS_LABEL_UNRESERVED_MIN          16
 #define MPLS_LABEL_UNRESERVED_MAX          1048575
+#define MPLS_LABEL_BASE_ANY                0
 
 /* Default min and max SRGB label range */
 /* Even if the SRGB allows to manage different Label space between routers,
@@ -66,8 +72,7 @@
 /* Maximum # labels that can be pushed. */
 #define MPLS_MAX_LABELS                    16
 
-#define IS_MPLS_RESERVED_LABEL(label)                                          \
-	(label >= MPLS_LABEL_RESERVED_MIN && label <= MPLS_LABEL_RESERVED_MAX)
+#define IS_MPLS_RESERVED_LABEL(label) (label <= MPLS_LABEL_RESERVED_MAX)
 
 #define IS_MPLS_UNRESERVED_LABEL(label)                                        \
 	(label >= MPLS_LABEL_UNRESERVED_MIN                                    \
@@ -120,8 +125,10 @@ enum lsp_types_t {
 	ZEBRA_LSP_STATIC = 1, /* Static LSP. */
 	ZEBRA_LSP_LDP = 2,    /* LDP LSP. */
 	ZEBRA_LSP_BGP = 3,    /* BGP LSP. */
-	ZEBRA_LSP_SR = 4,     /* Segment Routing LSP. */
-	ZEBRA_LSP_SHARP = 5,  /* Identifier for test protocol */
+	ZEBRA_LSP_OSPF_SR = 4,/* OSPF Segment Routing LSP. */
+	ZEBRA_LSP_ISIS_SR = 5,/* IS-IS Segment Routing LSP. */
+	ZEBRA_LSP_SHARP = 6,  /* Identifier for test protocol */
+	ZEBRA_LSP_SRTE = 7,   /* SR-TE LSP */
 };
 
 /* Functions for basic label operations. */
@@ -203,10 +210,17 @@ static inline char *label2str(mpls_label_t label, char *buf, size_t len)
 int mpls_str2label(const char *label_str, uint8_t *num_labels,
 		   mpls_label_t *labels);
 
+/* Generic string buffer for label-stack-to-str */
+#define MPLS_LABEL_STRLEN 1024
+
 /*
  * Label to string conversion, labels in string separated by '/'.
  */
-char *mpls_label2str(uint8_t num_labels, mpls_label_t *labels, char *buf,
+char *mpls_label2str(uint8_t num_labels, const mpls_label_t *labels, char *buf,
 		     int len, int pretty);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -41,6 +41,7 @@
 #include "ospf6_area.h"
 #include "ospf6_interface.h"
 #include "ospf6_neighbor.h"
+#include "ospf6_network.h"
 
 #include "ospf6_flood.h"
 #include "ospf6_asbr.h"
@@ -50,6 +51,11 @@
 #include "ospf6d.h"
 
 DEFINE_QOBJ_TYPE(ospf6)
+
+FRR_CFG_DEFAULT_BOOL(OSPF6_LOG_ADJACENCY_CHANGES,
+	{ .val_bool = true, .match_profile = "datacenter", },
+	{ .val_bool = false },
+)
 
 /* global ospf6d variable */
 struct ospf6 *ospf6;
@@ -106,7 +112,7 @@ static void ospf6_top_brouter_hook_add(struct ospf6_route *route)
 		inet_ntop(AF_INET, &brouter_id, brouter_name,
 			  sizeof(brouter_name));
 		zlog_debug("%s: brouter %s add with adv router %x nh count %u",
-			   __PRETTY_FUNCTION__, brouter_name,
+			   __func__, brouter_name,
 			   route->path.origin.adv_router,
 			   listcount(route->nh_list));
 	}
@@ -126,7 +132,7 @@ static void ospf6_top_brouter_hook_remove(struct ospf6_route *route)
 		inet_ntop(AF_INET, &brouter_id, brouter_name,
 			  sizeof(brouter_name));
 		zlog_debug("%s: brouter %p %s del with adv router %x nh %u",
-			   __PRETTY_FUNCTION__, (void *)route, brouter_name,
+			   __func__, (void *)route, brouter_name,
 			   route->path.origin.adv_router,
 			   listcount(route->nh_list));
 	}
@@ -136,7 +142,7 @@ static void ospf6_top_brouter_hook_remove(struct ospf6_route *route)
 	ospf6_abr_originate_summary(route);
 }
 
-static struct ospf6 *ospf6_create(void)
+static struct ospf6 *ospf6_create(vrf_id_t vrf_id)
 {
 	struct ospf6 *o;
 
@@ -144,6 +150,7 @@ static struct ospf6 *ospf6_create(void)
 
 	/* initialize */
 	monotime(&o->starttime);
+	o->vrf_id = vrf_id;
 	o->area_list = list_new();
 	o->area_list->cmp = ospf6_area_cmp;
 	o->lsdb = ospf6_lsdb_create(o);
@@ -178,12 +185,11 @@ static struct ospf6 *ospf6_create(void)
 
 	o->distance_table = route_table_init();
 
-/* Enable "log-adjacency-changes" */
-#if DFLT_OSPF6_LOG_ADJACENCY_CHANGES
-	SET_FLAG(o->config_flags, OSPF6_LOG_ADJACENCY_CHANGES);
-#endif
-
 	QOBJ_REG(o, ospf6);
+
+	ospf6_serv_sock();
+
+	thread_add_read(master, ospf6_receive, NULL, ospf6_sock, &o->t_ospf6_receive);
 
 	return o;
 }
@@ -198,11 +204,13 @@ void ospf6_delete(struct ospf6 *o)
 	ospf6_flush_self_originated_lsas_now();
 	ospf6_disable(ospf6);
 
+	ospf6_serv_close();
+
 	for (ALL_LIST_ELEMENTS(o->area_list, node, nnode, oa))
 		ospf6_area_delete(oa);
 
 
-	list_delete_and_null(&o->area_list);
+	list_delete(&o->area_list);
 
 	ospf6_lsdb_delete(o->lsdb);
 	ospf6_lsdb_delete(o->lsdb_self);
@@ -231,7 +239,7 @@ static void ospf6_disable(struct ospf6 *o)
 			ospf6_area_disable(oa);
 
 		/* XXX: This also changes persistent settings */
-		ospf6_asbr_redistribute_reset();
+		ospf6_asbr_redistribute_reset(o->vrf_id);
 
 		ospf6_lsdb_remove_all(o->lsdb);
 		ospf6_route_remove_all(o->route_table);
@@ -241,6 +249,7 @@ static void ospf6_disable(struct ospf6 *o)
 		THREAD_OFF(o->t_spf_calc);
 		THREAD_OFF(o->t_ase_calc);
 		THREAD_OFF(o->t_distribute_update);
+		THREAD_OFF(o->t_ospf6_receive);
 	}
 }
 
@@ -325,7 +334,10 @@ DEFUN_NOSH (router_ospf6,
        OSPF6_STR)
 {
 	if (ospf6 == NULL) {
-		ospf6 = ospf6_create();
+		ospf6 = ospf6_create(VRF_DEFAULT);
+		if (DFLT_OSPF6_LOG_ADJACENCY_CHANGES)
+			SET_FLAG(ospf6->config_flags,
+				 OSPF6_LOG_ADJACENCY_CHANGES);
 		if (ospf6->router_id == 0)
 			ospf6_router_id_update();
 	}
@@ -386,8 +398,7 @@ DEFUN(ospf6_router_id,
 	for (ALL_LIST_ELEMENTS_RO(o->area_list, node, oa)) {
 		if (oa->full_nbrs) {
 			vty_out(vty,
-				"For this router-id change to take effect,"
-				" save config and restart ospf6d\n");
+				"For this router-id change to take effect, save config and restart ospf6d\n");
 			return CMD_SUCCESS;
 		}
 	}
@@ -413,8 +424,7 @@ DEFUN(no_ospf6_router_id,
 	for (ALL_LIST_ELEMENTS_RO(o->area_list, node, oa)) {
 		if (oa->full_nbrs) {
 			vty_out(vty,
-				"For this router-id change to take effect,"
-				" save config and restart ospf6d\n");
+				"For this router-id change to take effect, save config and restart ospf6d\n");
 			return CMD_SUCCESS;
 		}
 	}
@@ -424,19 +434,6 @@ DEFUN(no_ospf6_router_id,
 
 	return CMD_SUCCESS;
 }
-
-#if CONFDATE > 20180828
-CPP_NOTICE("ospf6: `router-id A.B.C.D` deprecated 2017/08/28")
-#endif
-ALIAS_HIDDEN(ospf6_router_id, ospf6_router_id_hdn_cmd, "router-id A.B.C.D",
-	     "Configure OSPF6 Router-ID\n" V4NOTATION_STR)
-
-#if CONFDATE > 20180828
-CPP_NOTICE("ospf6: `no router-id A.B.C.D` deprecated 2017/08/28")
-#endif
-ALIAS_HIDDEN(no_ospf6_router_id, no_ospf6_router_id_hdn_cmd,
-	     "no router-id [A.B.C.D]",
-	     NO_STR "Configure OSPF6 Router-ID\n" V4NOTATION_STR)
 
 DEFUN (ospf6_log_adjacency_changes,
        ospf6_log_adjacency_changes_cmd,
@@ -653,11 +650,12 @@ DEFUN (no_ospf6_distance_source,
 
 DEFUN (ospf6_interface_area,
        ospf6_interface_area_cmd,
-       "interface IFNAME area A.B.C.D",
+       "interface IFNAME area <A.B.C.D|(0-4294967295)>",
        "Enable routing on an IPv6 interface\n"
        IFNAME_STR
        "Specify the OSPF6 area ID\n"
        "OSPF6 area ID in IPv4 address notation\n"
+       "OSPF6 area ID in decimal notation\n"
       )
 {
 	VTY_DECLVAR_CONTEXT(ospf6, o);
@@ -666,10 +664,9 @@ DEFUN (ospf6_interface_area,
 	struct ospf6_area *oa;
 	struct ospf6_interface *oi;
 	struct interface *ifp;
-	uint32_t area_id;
 
 	/* find/create ospf6 interface */
-	ifp = if_get_by_name(argv[idx_ifname]->arg, VRF_DEFAULT, 0);
+	ifp = if_get_by_name(argv[idx_ifname]->arg, VRF_DEFAULT);
 	oi = (struct ospf6_interface *)ifp->info;
 	if (oi == NULL)
 		oi = ospf6_interface_create(ifp);
@@ -680,15 +677,7 @@ DEFUN (ospf6_interface_area,
 	}
 
 	/* parse Area-ID */
-	if (inet_pton(AF_INET, argv[idx_ipv4]->arg, &area_id) != 1) {
-		vty_out(vty, "Invalid Area-ID: %s\n", argv[idx_ipv4]->arg);
-		return CMD_SUCCESS;
-	}
-
-	/* find/create ospf6 area */
-	oa = ospf6_area_lookup(area_id, o);
-	if (oa == NULL)
-		oa = ospf6_area_create(area_id, o, OSPF6_AREA_FMT_DOTTEDQUAD);
+	OSPF6_CMD_AREA_GET(argv[idx_ipv4]->arg, oa);
 
 	/* attach interface to area */
 	listnode_add(oa->if_list, oi); /* sort ?? */
@@ -712,12 +701,13 @@ DEFUN (ospf6_interface_area,
 
 DEFUN (no_ospf6_interface_area,
        no_ospf6_interface_area_cmd,
-       "no interface IFNAME area A.B.C.D",
+       "no interface IFNAME area <A.B.C.D|(0-4294967295)>",
        NO_STR
        "Disable routing on an IPv6 interface\n"
        IFNAME_STR
        "Specify the OSPF6 area ID\n"
        "OSPF6 area ID in IPv4 address notation\n"
+       "OSPF6 area ID in decimal notation\n"
        )
 {
 	int idx_ifname = 2;
@@ -740,10 +730,8 @@ DEFUN (no_ospf6_interface_area,
 	}
 
 	/* parse Area-ID */
-	if (inet_pton(AF_INET, argv[idx_ipv4]->arg, &area_id) != 1) {
-		vty_out(vty, "Invalid Area-ID: %s\n", argv[idx_ipv4]->arg);
-		return CMD_SUCCESS;
-	}
+	if (inet_pton(AF_INET, argv[idx_ipv4]->arg, &area_id) != 1)
+		area_id = htonl(strtoul(argv[idx_ipv4]->arg, NULL, 10));
 
 	/* Verify Area */
 	if (oi->area == NULL) {
@@ -757,7 +745,7 @@ DEFUN (no_ospf6_interface_area,
 		return CMD_SUCCESS;
 	}
 
-	thread_execute(master, interface_down, oi, 0);
+	ospf6_interface_disable(oi);
 
 	oa = oi->area;
 	listnode_delete(oi->area->if_list, oi);
@@ -768,6 +756,7 @@ DEFUN (no_ospf6_interface_area,
 		UNSET_FLAG(oa->flag, OSPF6_AREA_ENABLE);
 		ospf6_abr_disable_area(oa);
 	}
+	ospf6_interface_delete(oi);
 
 	return CMD_SUCCESS;
 }
@@ -1091,9 +1080,9 @@ static int config_write_ospf6(struct vty *vty)
 	if (CHECK_FLAG(ospf6->config_flags, OSPF6_LOG_ADJACENCY_CHANGES)) {
 		if (CHECK_FLAG(ospf6->config_flags, OSPF6_LOG_ADJACENCY_DETAIL))
 			vty_out(vty, " log-adjacency-changes detail\n");
-		else if (!DFLT_OSPF6_LOG_ADJACENCY_CHANGES)
+		else if (!SAVE_OSPF6_LOG_ADJACENCY_CHANGES)
 			vty_out(vty, " log-adjacency-changes\n");
-	} else if (DFLT_OSPF6_LOG_ADJACENCY_CHANGES) {
+	} else if (SAVE_OSPF6_LOG_ADJACENCY_CHANGES) {
 		vty_out(vty, " no log-adjacency-changes\n");
 	}
 
@@ -1121,16 +1110,21 @@ static int config_write_ospf6(struct vty *vty)
 	return 0;
 }
 
+static int config_write_ospf6(struct vty *vty);
 /* OSPF6 node structure. */
 static struct cmd_node ospf6_node = {
-	OSPF6_NODE, "%s(config-ospf6)# ", 1 /* VTYSH */
+	.name = "ospf6",
+	.node = OSPF6_NODE,
+	.parent_node = CONFIG_NODE,
+	.prompt = "%s(config-ospf6)# ",
+	.config_write = config_write_ospf6,
 };
 
 /* Install ospf related commands. */
 void ospf6_top_init(void)
 {
 	/* Install ospf6 top node. */
-	install_node(&ospf6_node, config_write_ospf6);
+	install_node(&ospf6_node);
 
 	install_element(VIEW_NODE, &show_ipv6_ospf6_cmd);
 	install_element(CONFIG_NODE, &router_ospf6_cmd);
@@ -1144,8 +1138,6 @@ void ospf6_top_init(void)
 	install_default(OSPF6_NODE);
 	install_element(OSPF6_NODE, &ospf6_router_id_cmd);
 	install_element(OSPF6_NODE, &no_ospf6_router_id_cmd);
-	install_element(OSPF6_NODE, &ospf6_router_id_hdn_cmd);
-	install_element(OSPF6_NODE, &no_ospf6_router_id_hdn_cmd);
 	install_element(OSPF6_NODE, &ospf6_log_adjacency_changes_cmd);
 	install_element(OSPF6_NODE, &ospf6_log_adjacency_changes_detail_cmd);
 	install_element(OSPF6_NODE, &no_ospf6_log_adjacency_changes_cmd);

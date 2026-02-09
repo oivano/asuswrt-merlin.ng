@@ -21,6 +21,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <sys/time.h>
 #include <sys/param.h>
 #include <time.h>
@@ -99,10 +103,8 @@ kernel_route(enum babel_kernel_routes operation, const unsigned char *pref,
     switch (operation) {
         case ROUTE_ADD:
             return zebra_route(1, family, pref, plen, gate, ifindex, metric);
-            break;
         case ROUTE_FLUSH:
             return zebra_route(0, family, pref, plen, gate, ifindex, metric);
-            break;
         case ROUTE_MODIFY:
             if(newmetric == metric && memcmp(newgate, gate, 16) == 0 &&
                newifindex == ifindex)
@@ -115,7 +117,6 @@ kernel_route(enum babel_kernel_routes operation, const unsigned char *pref,
             rc = zebra_route(1, family, pref, plen, newgate, newifindex,
                              newmetric);
             return rc;
-            break;
     }
 
     return 0;

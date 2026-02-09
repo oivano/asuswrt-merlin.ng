@@ -18,12 +18,15 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
 
 /* dummy test program */
 #include <stdio.h>
 #include <stdlib.h>
 #include "rfptest.h"
-int main()
+int main(void)
 {
 	printf("Your test code goes here.\n");
 	exit(1);

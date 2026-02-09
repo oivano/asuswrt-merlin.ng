@@ -9,6 +9,10 @@ FRRouting Developer's Guide
    packaging
    process-architecture
    library
+   testing
    bgpd
+   fpm
+   grpc
    ospf
    zebra
+   vtysh

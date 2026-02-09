@@ -22,8 +22,9 @@
 /* clang-format off */
 #include <zebra.h>
 #include <pthread.h>		// for pthread_mutex_unlock, pthread_mutex_lock
+#include <sys/uio.h>		// for writev
 
-#include "frr_pthread.h"	// for frr_pthread_get, frr_pthread
+#include "frr_pthread.h"
 #include "linklist.h"		// for list_delete, list_delete_all_node, lis...
 #include "log.h"		// for zlog_debug, safe_strerror, zlog_err
 #include "memory.h"		// for MTYPE_TMP, XCALLOC, XFREE
@@ -56,7 +57,7 @@ static bool validate_header(struct peer *);
 
 void bgp_writes_on(struct peer *peer)
 {
-	struct frr_pthread *fpt = frr_pthread_get(PTHREAD_IO);
+	struct frr_pthread *fpt = bgp_pth_io;
 	assert(fpt->running);
 
 	assert(peer->status != Deleted);
@@ -74,7 +75,7 @@ void bgp_writes_on(struct peer *peer)
 
 void bgp_writes_off(struct peer *peer)
 {
-	struct frr_pthread *fpt = frr_pthread_get(PTHREAD_IO);
+	struct frr_pthread *fpt = bgp_pth_io;
 	assert(fpt->running);
 
 	thread_cancel_async(fpt->master, &peer->t_write, NULL);
@@ -85,7 +86,7 @@ void bgp_writes_off(struct peer *peer)
 
 void bgp_reads_on(struct peer *peer)
 {
-	struct frr_pthread *fpt = frr_pthread_get(PTHREAD_IO);
+	struct frr_pthread *fpt = bgp_pth_io;
 	assert(fpt->running);
 
 	assert(peer->status != Deleted);
@@ -105,7 +106,7 @@ void bgp_reads_on(struct peer *peer)
 
 void bgp_reads_off(struct peer *peer)
 {
-	struct frr_pthread *fpt = frr_pthread_get(PTHREAD_IO);
+	struct frr_pthread *fpt = bgp_pth_io;
 	assert(fpt->running);
 
 	thread_cancel_async(fpt->master, &peer->t_read, NULL);
@@ -130,14 +131,12 @@ static int bgp_process_writes(struct thread *thread)
 	if (peer->fd < 0)
 		return -1;
 
-	struct frr_pthread *fpt = frr_pthread_get(PTHREAD_IO);
+	struct frr_pthread *fpt = bgp_pth_io;
 
-	pthread_mutex_lock(&peer->io_mtx);
-	{
+	frr_with_mutex(&peer->io_mtx) {
 		status = bgp_write(peer);
 		reschedule = (stream_fifo_head(peer->obuf) != NULL);
 	}
-	pthread_mutex_unlock(&peer->io_mtx);
 
 	/* no problem */
 	if (CHECK_FLAG(status, BGP_IO_TRANS_ERR)) {
@@ -182,13 +181,11 @@ static int bgp_process_reads(struct thread *thread)
 	if (peer->fd < 0 || bm->terminating)
 		return -1;
 
-	struct frr_pthread *fpt = frr_pthread_get(PTHREAD_IO);
+	struct frr_pthread *fpt = bgp_pth_io;
 
-	pthread_mutex_lock(&peer->io_mtx);
-	{
+	frr_with_mutex(&peer->io_mtx) {
 		status = bgp_read(peer);
 	}
-	pthread_mutex_unlock(&peer->io_mtx);
 
 	/* error checking phase */
 	if (CHECK_FLAG(status, BGP_IO_TRANS_ERR)) {
@@ -204,7 +201,6 @@ static int bgp_process_reads(struct thread *thread)
 
 	while (more) {
 		/* static buffer for transferring packets */
-		static unsigned char pktbuf[BGP_MAX_PACKET_SIZE];
 		/* shorter alias to peer's input buffer */
 		struct ringbuf *ibw = peer->ibuf_work;
 		/* packet size as given by header */
@@ -234,27 +230,26 @@ static int bgp_process_reads(struct thread *thread)
 		 */
 		if (ringbuf_remain(ibw) >= pktsize) {
 			struct stream *pkt = stream_new(pktsize);
-			assert(ringbuf_get(ibw, pktbuf, pktsize) == pktsize);
-			stream_put(pkt, pktbuf, pktsize);
+			assert(STREAM_WRITEABLE(pkt) == pktsize);
+			assert(ringbuf_get(ibw, pkt->data, pktsize) == pktsize);
+			stream_set_endp(pkt, pktsize);
 
-			pthread_mutex_lock(&peer->io_mtx);
-			{
+			frr_with_mutex(&peer->io_mtx) {
 				stream_fifo_push(peer->ibuf, pkt);
 			}
-			pthread_mutex_unlock(&peer->io_mtx);
 
 			added_pkt = true;
 		} else
 			break;
 	}
 
-	assert(ringbuf_space(peer->ibuf_work) >= BGP_MAX_PACKET_SIZE);
-
 	/* handle invalid header */
 	if (fatal) {
 		/* wipe buffer just in case someone screwed up */
 		ringbuf_wipe(peer->ibuf_work);
 	} else {
+		assert(ringbuf_space(peer->ibuf_work) >= BGP_MAX_PACKET_SIZE);
+
 		thread_add_read(fpt->master, bgp_process_reads, peer, peer->fd,
 				&peer->t_read);
 		if (added_pkt)
@@ -281,35 +276,96 @@ static uint16_t bgp_write(struct peer *peer)
 {
 	uint8_t type;
 	struct stream *s;
-	int num;
 	int update_last_write = 0;
-	unsigned int count = 0;
+	unsigned int count;
 	uint32_t uo = 0;
 	uint16_t status = 0;
 	uint32_t wpkt_quanta_old;
 
+	int writenum = 0;
+	int num;
+	unsigned int iovsz;
+	unsigned int strmsz;
+	unsigned int total_written;
+
 	wpkt_quanta_old = atomic_load_explicit(&peer->bgp->wpkt_quanta,
 					       memory_order_relaxed);
+	struct stream *ostreams[wpkt_quanta_old];
+	struct stream **streams = ostreams;
+	struct iovec iov[wpkt_quanta_old];
 
-	while (count < wpkt_quanta_old && (s = stream_fifo_head(peer->obuf))) {
-		int writenum;
-		do {
-			writenum = stream_get_endp(s) - stream_get_getp(s);
-			num = write(peer->fd, STREAM_PNT(s), writenum);
+	s = stream_fifo_head(peer->obuf);
 
-			if (num < 0) {
-				if (!ERRNO_IO_RETRY(errno)) {
-					BGP_EVENT_ADD(peer, TCP_fatal_error);
-					SET_FLAG(status, BGP_IO_FATAL_ERR);
-				} else {
-					SET_FLAG(status, BGP_IO_TRANS_ERR);
-				}
+	if (!s)
+		goto done;
 
-				goto done;
-			} else if (num != writenum)
-				stream_forward_getp(s, num);
+	count = iovsz = 0;
+	while (count < wpkt_quanta_old && iovsz < array_size(iov) && s) {
+		ostreams[iovsz] = s;
+		iov[iovsz].iov_base = stream_pnt(s);
+		iov[iovsz].iov_len = STREAM_READABLE(s);
+		writenum += STREAM_READABLE(s);
+		s = s->next;
+		++iovsz;
+		++count;
+	}
 
-		} while (num != writenum);
+	strmsz = iovsz;
+	total_written = 0;
+
+	do {
+		num = writev(peer->fd, iov, iovsz);
+
+		if (num < 0) {
+			if (!ERRNO_IO_RETRY(errno)) {
+				BGP_EVENT_ADD(peer, TCP_fatal_error);
+				SET_FLAG(status, BGP_IO_FATAL_ERR);
+			} else {
+				SET_FLAG(status, BGP_IO_TRANS_ERR);
+			}
+
+			break;
+		} else if (num != writenum) {
+			unsigned int msg_written = 0;
+			unsigned int ic = iovsz;
+
+			for (unsigned int i = 0; i < ic; i++) {
+				size_t ss = iov[i].iov_len;
+
+				if (ss > (unsigned int) num)
+					break;
+
+				msg_written++;
+				iovsz--;
+				writenum -= ss;
+				num -= ss;
+			}
+
+			total_written += msg_written;
+
+			assert(total_written < count);
+
+			memmove(&iov, &iov[msg_written],
+				sizeof(iov[0]) * iovsz);
+			streams = &streams[msg_written];
+			stream_forward_getp(streams[0], num);
+			iov[0].iov_base = stream_pnt(streams[0]);
+			iov[0].iov_len = STREAM_READABLE(streams[0]);
+
+			writenum -= num;
+			num = 0;
+			assert(writenum > 0);
+		} else {
+			total_written = strmsz;
+		}
+
+	} while (num != writenum);
+
+	/* Handle statistics */
+	for (unsigned int i = 0; i < total_written; i++) {
+		s = stream_fifo_pop(peer->obuf);
+
+		assert(s == ostreams[i]);
 
 		/* Retrieve BGP packet type. */
 		stream_set_getp(s, BGP_MARKER_SIZE + 2);
@@ -357,9 +413,8 @@ static uint16_t bgp_write(struct peer *peer)
 			break;
 		}
 
-		count++;
-
-		stream_free(stream_fifo_pop(peer->obuf));
+		stream_free(s);
+		ostreams[i] = NULL;
 		update_last_write = 1;
 	}
 
@@ -402,12 +457,15 @@ static uint16_t bgp_read(struct peer *peer)
 		SET_FLAG(status, BGP_IO_TRANS_ERR);
 		/* Fatal error; tear down session */
 	} else if (nbytes < 0) {
-		flog_err(BGP_ERR_UPDATE_RCV,
-			  "%s [Error] bgp_read_packet error: %s", peer->host,
-			  safe_strerror(errno));
+		flog_err(EC_BGP_UPDATE_RCV,
+			 "%s [Error] bgp_read_packet error: %s", peer->host,
+			 safe_strerror(errno));
 
 		if (peer->status == Established) {
-			if (CHECK_FLAG(peer->sflags, PEER_STATUS_NSF_MODE)) {
+			if ((CHECK_FLAG(peer->flags, PEER_FLAG_GRACEFUL_RESTART)
+			     || CHECK_FLAG(peer->flags,
+					   PEER_FLAG_GRACEFUL_RESTART_HELPER))
+			    && CHECK_FLAG(peer->sflags, PEER_STATUS_NSF_MODE)) {
 				peer->last_reset = PEER_DOWN_NSF_CLOSE_SESSION;
 				SET_FLAG(peer->sflags, PEER_STATUS_NSF_WAIT);
 			} else
@@ -423,7 +481,10 @@ static uint16_t bgp_read(struct peer *peer)
 				   peer->host, peer->fd);
 
 		if (peer->status == Established) {
-			if (CHECK_FLAG(peer->sflags, PEER_STATUS_NSF_MODE)) {
+			if ((CHECK_FLAG(peer->flags, PEER_FLAG_GRACEFUL_RESTART)
+			     || CHECK_FLAG(peer->flags,
+					   PEER_FLAG_GRACEFUL_RESTART_HELPER))
+			    && CHECK_FLAG(peer->sflags, PEER_STATUS_NSF_MODE)) {
 				peer->last_reset = PEER_DOWN_NSF_CLOSE_SESSION;
 				SET_FLAG(peer->sflags, PEER_STATUS_NSF_WAIT);
 			} else
@@ -453,7 +514,7 @@ static bool validate_header(struct peer *peer)
 	uint8_t type;
 	struct ringbuf *pkt = peer->ibuf_work;
 
-	static uint8_t m_correct[BGP_MARKER_SIZE] = {
+	static const uint8_t m_correct[BGP_MARKER_SIZE] = {
 		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 	uint8_t m_rx[BGP_MARKER_SIZE] = {0x00};

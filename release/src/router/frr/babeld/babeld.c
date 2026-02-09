@@ -30,6 +30,7 @@ THE SOFTWARE.
 #include "filter.h"
 #include "plist.h"
 #include "lib_errors.h"
+#include "network.h"
 
 #include "babel_main.h"
 #include "babeld.h"
@@ -43,8 +44,10 @@ THE SOFTWARE.
 #include "resend.h"
 #include "babel_filter.h"
 #include "babel_zebra.h"
-#include "babel_memory.h"
 #include "babel_errors.h"
+
+DEFINE_MGROUP(BABELD, "babeld")
+DEFINE_MTYPE_STATIC(BABELD, BABEL, "Babel Structure")
 
 static int babel_init_routing_process(struct thread *thread);
 static void babel_get_myid(void);
@@ -53,7 +56,8 @@ static int babel_read_protocol (struct thread *thread);
 static int babel_main_loop(struct thread *thread);
 static void babel_set_timer(struct timeval *timeout);
 static void babel_fill_with_next_timeout(struct timeval *tv);
-
+static void
+babel_distribute_update (struct distribute_ctx *ctx, struct distribute *dist);
 
 /* Informations relative to the babel running daemon. */
 static struct babel *babel_routing_process = NULL;
@@ -66,11 +70,14 @@ static time_t expiry_time;
 static time_t source_expiry_time;
 
 /* Babel node structure. */
+static int babel_config_write (struct vty *vty);
 static struct cmd_node cmd_babel_node =
 {
+    .name = "babel",
     .node   = BABEL_NODE,
+    .parent_node = CONFIG_NODE,
     .prompt = "%s(config-router)# ",
-    .vtysh  = 1,
+    .config_write = babel_config_write,
 };
 
 /* print current babel configuration on vty */
@@ -123,7 +130,7 @@ babel_config_write (struct vty *vty)
         }
     }
 
-    lines += config_write_distribute (vty);
+    lines += config_write_distribute (vty, babel_routing_process->distribute_ctx);
 
     return lines;
 }
@@ -135,7 +142,7 @@ babel_create_routing_process (void)
     assert (babel_routing_process == NULL);
 
     /* Allocaste Babel instance. */
-    babel_routing_process = XCALLOC (MTYPE_BABEL, sizeof (struct babel));
+    babel_routing_process = XCALLOC(MTYPE_BABEL, sizeof(struct babel));
 
     /* Initialize timeouts */
     gettime(&babel_now);
@@ -145,7 +152,7 @@ babel_create_routing_process (void)
     /* Make socket for Babel protocol. */
     protocol_socket = babel_socket(protocol_port);
     if (protocol_socket < 0) {
-        flog_err_sys(LIB_ERR_SOCKET, "Couldn't create link local socket: %s",
+        flog_err_sys(EC_LIB_SOCKET, "Couldn't create link local socket: %s",
 		  safe_strerror(errno));
         goto fail;
     }
@@ -154,11 +161,14 @@ babel_create_routing_process (void)
     thread_add_read(master, &babel_read_protocol, NULL, protocol_socket, &babel_routing_process->t_read);
     /* wait a little: zebra will announce interfaces, addresses, routes... */
     thread_add_timer_msec(master, babel_init_routing_process, NULL, 200L, &babel_routing_process->t_update);
-    return 0;
 
+    /* Distribute list install. */
+    babel_routing_process->distribute_ctx = distribute_list_ctx_create (vrf_lookup_by_id(VRF_DEFAULT));
+    distribute_list_add_hook (babel_routing_process->distribute_ctx, babel_distribute_update);
+    distribute_list_delete_hook (babel_routing_process->distribute_ctx, babel_distribute_update);
+    return 0;
 fail:
     XFREE(MTYPE_BABEL, babel_routing_process);
-    babel_routing_process = NULL;
     return -1;
 }
 
@@ -179,7 +189,7 @@ babel_read_protocol (struct thread *thread)
                     (struct sockaddr*)&sin6, sizeof(sin6));
     if(rc < 0) {
         if(errno != EAGAIN && errno != EINTR) {
-            flog_err_sys(LIB_ERR_SOCKET, "recv: %s", safe_strerror(errno));
+            flog_err_sys(EC_LIB_SOCKET, "recv: %s", safe_strerror(errno));
         }
     } else {
         FOR_ALL_INTERFACES(vrf, ifp) {
@@ -204,7 +214,7 @@ babel_read_protocol (struct thread *thread)
 static int
 babel_init_routing_process(struct thread *thread)
 {
-    myseqno = (random() & 0xFFFF);
+    myseqno = (frr_weak_random() & 0xFFFF);
     babel_get_myid();
     babel_load_state_file();
     debugf(BABEL_DEBUG_COMMON, "My ID is : %s.", format_eui64(myid));
@@ -255,12 +265,12 @@ babel_get_myid(void)
         return;
     }
 
-    flog_err(BABEL_ERR_CONFIG,
+    flog_err(EC_BABEL_CONFIG,
 	      "Warning: couldn't find router id -- using random value.");
 
     rc = read_random_bytes(myid, 8);
     if(rc < 0) {
-        flog_err(BABEL_ERR_CONFIG, "read(random): %s (cannot assign an ID)",
+        flog_err(EC_BABEL_CONFIG, "read(random): %s (cannot assign an ID)",
 		  safe_strerror(errno));
         exit(1);
     }
@@ -302,7 +312,7 @@ babel_initial_noise(void)
 
 /* Delete all the added babel routes, make babeld only speak to zebra. */
 static void
-babel_clean_routing_process()
+babel_clean_routing_process(void)
 {
     flush_all_routes();
     babel_interface_close_all();
@@ -315,8 +325,8 @@ babel_clean_routing_process()
         thread_cancel(babel_routing_process->t_update);
     }
 
+    distribute_list_delete(&babel_routing_process->distribute_ctx);
     XFREE(MTYPE_BABEL, babel_routing_process);
-    babel_routing_process = NULL;
 }
 
 /* Function used with timeout. */
@@ -403,6 +413,7 @@ babel_main_loop(struct thread *thread)
     }
 
     assert(0); /* this line should never be reach */
+    return 0;
 }
 
 static void
@@ -519,7 +530,7 @@ resize_receive_buffer(int size)
     if(receive_buffer == NULL) {
         receive_buffer = malloc(size);
         if(receive_buffer == NULL) {
-            flog_err(BABEL_ERR_MEMORY, "malloc(receive_buffer): %s",
+            flog_err(EC_BABEL_MEMORY, "malloc(receive_buffer): %s",
 		      safe_strerror(errno));
             return -1;
         }
@@ -528,7 +539,7 @@ resize_receive_buffer(int size)
         unsigned char *new;
         new = realloc(receive_buffer, size);
         if(new == NULL) {
-            flog_err(BABEL_ERR_MEMORY, "realloc(receive_buffer): %s",
+            flog_err(EC_BABEL_MEMORY, "realloc(receive_buffer): %s",
 		      safe_strerror(errno));
             return -1;
         }
@@ -539,7 +550,7 @@ resize_receive_buffer(int size)
 }
 
 static void
-babel_distribute_update (struct distribute *dist)
+babel_distribute_update (struct distribute_ctx *ctx, struct distribute *dist)
 {
     struct interface *ifp;
     babel_interface_nfo *babel_ifp;
@@ -574,11 +585,12 @@ babel_distribute_update (struct distribute *dist)
 static void
 babel_distribute_update_interface (struct interface *ifp)
 {
-    struct distribute *dist;
+    struct distribute *dist = NULL;
 
-    dist = distribute_lookup (ifp->name);
+    if (babel_routing_process)
+        dist = distribute_lookup(babel_routing_process->distribute_ctx, ifp->name);
     if (dist)
-        babel_distribute_update (dist);
+        babel_distribute_update (babel_routing_process->distribute_ctx, dist);
 }
 
 /* Update all interface's distribute list. */
@@ -711,7 +723,7 @@ void
 babeld_quagga_init(void)
 {
 
-    install_node(&cmd_babel_node, &babel_config_write);
+    install_node(&cmd_babel_node);
 
     install_element(CONFIG_NODE, &router_babel_cmd);
     install_element(CONFIG_NODE, &no_router_babel_cmd);
@@ -736,9 +748,7 @@ babeld_quagga_init(void)
     prefix_list_delete_hook (babel_distribute_update_all);
 
     /* Distribute list install. */
-    distribute_list_init (BABEL_NODE);
-    distribute_list_add_hook (babel_distribute_update);
-    distribute_list_delete_hook (babel_distribute_update);
+    distribute_list_init(BABEL_NODE);
 }
 
 /* Stubs to adapt Babel's filtering calls to Quagga's infrastructure. */
@@ -767,3 +777,7 @@ redistribute_filter(const unsigned char *prefix, unsigned short plen,
     return 0;
 }
 
+struct babel *babel_lookup(void)
+{
+    return babel_routing_process;
+}

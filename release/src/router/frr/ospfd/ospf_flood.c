@@ -83,6 +83,9 @@ struct external_info *ospf_external_info_check(struct ospf *ospf,
 	struct as_external_lsa *al;
 	struct prefix_ipv4 p;
 	struct route_node *rn;
+	struct list *ext_list;
+	struct listnode *node;
+	struct ospf_external *ext;
 	int type;
 
 	al = (struct as_external_lsa *)lsa->data;
@@ -91,23 +94,20 @@ struct external_info *ospf_external_info_check(struct ospf *ospf,
 	p.prefix = lsa->data->id;
 	p.prefixlen = ip_masklen(al->mask);
 
-	for (type = 0; type <= ZEBRA_ROUTE_MAX; type++) {
+	for (type = 0; type < ZEBRA_ROUTE_MAX; type++) {
 		int redist_on = 0;
 
 		redist_on =
 			is_prefix_default(&p)
-				? vrf_bitmap_check(zclient->default_information,
-						   ospf->vrf_id)
+				? vrf_bitmap_check(
+					  zclient->default_information[AFI_IP],
+					  ospf->vrf_id)
 				: (zclient->mi_redist[AFI_IP][type].enabled
 				   || vrf_bitmap_check(
 					      zclient->redist[AFI_IP][type],
 					      ospf->vrf_id));
 		// Pending: check for MI above.
 		if (redist_on) {
-			struct list *ext_list;
-			struct listnode *node;
-			struct ospf_external *ext;
-
 			ext_list = ospf->external[type];
 			if (!ext_list)
 				continue;
@@ -128,6 +128,22 @@ struct external_info *ospf_external_info_check(struct ospf *ospf,
 		}
 	}
 
+	if (is_prefix_default(&p) && ospf->external[DEFAULT_ROUTE]) {
+		ext_list = ospf->external[DEFAULT_ROUTE];
+
+		for (ALL_LIST_ELEMENTS_RO(ext_list, node, ext)) {
+			if (!ext->external_info)
+				continue;
+
+			rn = route_node_lookup(ext->external_info,
+					       (struct prefix *)&p);
+			if (!rn)
+				continue;
+			route_unlock_node(rn);
+			if (rn->info != NULL)
+				return (struct external_info *)rn->info;
+		}
+	}
 	return NULL;
 }
 
@@ -141,9 +157,9 @@ static void ospf_process_self_originated_lsa(struct ospf *ospf,
 
 	if (IS_DEBUG_OSPF_EVENT)
 		zlog_debug(
-			"LSA[Type%d:%s]: Process self-originated LSA seq 0x%x",
-			new->data->type, inet_ntoa(new->data->id),
-			ntohl(new->data->ls_seqnum));
+			"%s:LSA[Type%d:%s]: Process self-originated LSA seq 0x%x",
+			ospf_get_name(ospf), new->data->type,
+			inet_ntoa(new->data->id), ntohl(new->data->ls_seqnum));
 
 	/* If we're here, we installed a self-originated LSA that we received
 	   from a neighbor, i.e. it's more recent.  We must see whether we want
@@ -260,8 +276,8 @@ int ospf_flood(struct ospf *ospf, struct ospf_neighbor *nbr,
 
 	if (IS_DEBUG_OSPF_EVENT)
 		zlog_debug(
-			"LSA[Flooding]: start, NBR %s (%s), cur(%p), New-LSA[%s]",
-			inet_ntoa(nbr->router_id),
+			"%s:LSA[Flooding]: start, NBR %s (%s), cur(%p), New-LSA[%s]",
+			ospf_get_name(ospf), inet_ntoa(nbr->router_id),
 			lookup_msg(ospf_nsm_state_msg, nbr->state, NULL),
 			(void *)current, dump_lsa_key(new));
 
@@ -279,15 +295,16 @@ int ospf_flood(struct ospf *ospf, struct ospf_neighbor *nbr,
 				   == OSPF_INITIAL_SEQUENCE_NUMBER)) {
 			if (IS_DEBUG_OSPF_EVENT)
 				zlog_debug(
-					"LSA[Flooding]: Got a self-originated LSA, "
-					"while local one is initial instance.");
+					"%s:LSA[Flooding]: Got a self-originated LSA, while local one is initial instance.",
+					ospf_get_name(ospf));
 			; /* Accept this LSA for quick LSDB resynchronization.
 			     */
 		} else if (monotime_since(&current->tv_recv, NULL)
 			   < ospf->min_ls_arrival * 1000LL) {
 			if (IS_DEBUG_OSPF_EVENT)
 				zlog_debug(
-					"LSA[Flooding]: LSA is received recently.");
+					"%s:LSA[Flooding]: LSA is received recently.",
+					ospf_get_name(ospf));
 			return -1;
 		}
 	}
@@ -311,8 +328,7 @@ int ospf_flood(struct ospf *ospf, struct ospf_neighbor *nbr,
 			ospf_ls_retransmit_delete_nbr_as(ospf, current);
 			break;
 		default:
-			ospf_ls_retransmit_delete_nbr_area(nbr->oi->area,
-							   current);
+			ospf_ls_retransmit_delete_nbr_area(oi->area, current);
 			break;
 		}
 	}
@@ -328,7 +344,7 @@ int ospf_flood(struct ospf *ospf, struct ospf_neighbor *nbr,
 	   procedure cannot overwrite the newly installed LSA until
 	   MinLSArrival seconds have elapsed. */
 
-	if (!(new = ospf_lsa_install(ospf, nbr->oi, new)))
+	if (!(new = ospf_lsa_install(ospf, oi, new)))
 		return -1; /* unknown LSA type or any other error condition */
 
 	/* Acknowledge the receipt of the LSA by sending a Link State
@@ -360,9 +376,8 @@ static int ospf_flood_through_interface(struct ospf_interface *oi,
 
 	if (IS_DEBUG_OSPF_EVENT)
 		zlog_debug(
-			"ospf_flood_through_interface(): "
-			"considering int %s, INBR(%s), LSA[%s] AGE %u",
-			IF_NAME(oi), inbr ? inet_ntoa(inbr->router_id) : "NULL",
+			"%s:ospf_flood_through_interface(): considering int %s, INBR(%s), LSA[%s] AGE %u",
+			ospf_get_name(oi->ospf), IF_NAME(oi), inbr ? inet_ntoa(inbr->router_id) : "NULL",
 			dump_lsa_key(lsa), ntohs(lsa->data->ls_age));
 
 	if (!ospf_if_is_enable(oi))
@@ -383,8 +398,9 @@ static int ospf_flood_through_interface(struct ospf_interface *oi,
 		onbr = rn->info;
 		if (IS_DEBUG_OSPF_EVENT)
 			zlog_debug(
-				"ospf_flood_through_interface(): considering nbr %s (%s)",
+				"ospf_flood_through_interface(): considering nbr %s(%s) (%s)",
 				inet_ntoa(onbr->router_id),
+				ospf_get_name(oi->ospf),
 				lookup_msg(ospf_nsm_state_msg, onbr->state,
 					   NULL));
 
@@ -438,13 +454,8 @@ static int ospf_flood_through_interface(struct ospf_interface *oi,
 			}
 		}
 
-/* If the new LSA was received from this neighbor,
-   examine the next neighbor. */
-#ifdef ORIGINAL_CODING
-		if (inbr)
-			if (IPV4_ADDR_SAME(&inbr->router_id, &onbr->router_id))
-				continue;
-#else  /* ORIGINAL_CODING */
+ /* If the new LSA was received from this neighbor,
+    examine the next neighbor. */
 		if (inbr) {
 			/*
 			 * Triggered by LSUpd message parser "ospf_ls_upd ()".
@@ -470,7 +481,6 @@ static int ospf_flood_through_interface(struct ospf_interface *oi,
 				continue;
 			}
 		}
-#endif /* ORIGINAL_CODING */
 
 		/* Add the new LSA to the Link state retransmission list
 		   for the adjacency. The LSA will be retransmitted
@@ -497,8 +507,7 @@ static int ospf_flood_through_interface(struct ospf_interface *oi,
 		if (NBR_IS_DR(inbr) || NBR_IS_BDR(inbr)) {
 			if (IS_DEBUG_OSPF_NSSA)
 				zlog_debug(
-					"ospf_flood_through_interface(): "
-					"DR/BDR NOT SEND to int %s",
+					"ospf_flood_through_interface(): DR/BDR NOT SEND to int %s",
 					IF_NAME(oi));
 			return 1;
 		}
@@ -512,8 +521,7 @@ static int ospf_flood_through_interface(struct ospf_interface *oi,
 		if (oi->state == ISM_Backup) {
 			if (IS_DEBUG_OSPF_NSSA)
 				zlog_debug(
-					"ospf_flood_through_interface(): "
-					"ISM_Backup NOT SEND to int %s",
+					"ospf_flood_through_interface(): ISM_Backup NOT SEND to int %s",
 					IF_NAME(oi));
 			return 1;
 		}
@@ -528,8 +536,7 @@ static int ospf_flood_through_interface(struct ospf_interface *oi,
 	/* XXX HASSO: Is this IS_DEBUG_OSPF_NSSA really correct? */
 	if (IS_DEBUG_OSPF_NSSA)
 		zlog_debug(
-			"ospf_flood_through_interface(): "
-			"DR/BDR sending upd to int %s",
+			"ospf_flood_through_interface(): DR/BDR sending upd to int %s",
 			IF_NAME(oi));
 
 	/*  RFC2328  Section 13.3
@@ -539,7 +546,6 @@ static int ospf_flood_through_interface(struct ospf_interface *oi,
 	    IP addresses for these packets are the neighbors' IP
 	    addresses.   */
 	if (oi->type == OSPF_IFTYPE_NBMA) {
-		struct route_node *rn;
 		struct ospf_neighbor *nbr;
 
 		for (rn = route_top(oi->nbrs); rn; rn = route_next(rn))
@@ -676,43 +682,14 @@ int ospf_flood_through(struct ospf *ospf, struct ospf_neighbor *inbr,
 {
 	int lsa_ack_flag = 0;
 
-/* Type-7 LSA's for NSSA are flooded throughout the AS here, and
-   upon return are updated in the LSDB for Type-7's.  Later,
-   re-fresh will re-send them (and also, if ABR, packet code will
-   translate to Type-5's)
+	/* Type-7 LSA's for NSSA are flooded throughout the AS here, and
+	   upon return are updated in the LSDB for Type-7's.  Later,
+	   re-fresh will re-send them (and also, if ABR, packet code will
+	   translate to Type-5's)
 
-   As usual, Type-5 LSA's (if not DISCARDED because we are STUB or
-   NSSA) are flooded throughout the AS, and are updated in the
-   global table.  */
-#ifdef ORIGINAL_CODING
-	switch (lsa->data->type) {
-	case OSPF_ROUTER_LSA:
-	case OSPF_NETWORK_LSA:
-	case OSPF_SUMMARY_LSA:
-	case OSPF_ASBR_SUMMARY_LSA:
-	case OSPF_OPAQUE_LINK_LSA: /* ospf_flood_through_interface ? */
-	case OSPF_OPAQUE_AREA_LSA:
-		lsa_ack_flag =
-			ospf_flood_through_area(inbr->oi->area, inbr, lsa);
-		break;
-	case OSPF_AS_EXTERNAL_LSA: /* Type-5 */
-	case OSPF_OPAQUE_AS_LSA:
-		lsa_ack_flag = ospf_flood_through_as(ospf, inbr, lsa);
-		break;
-	/* Type-7 Only received within NSSA, then flooded */
-	case OSPF_AS_NSSA_LSA:
-		/* Any P-bit was installed with the Type-7. */
-		lsa_ack_flag =
-			ospf_flood_through_area(inbr->oi->area, inbr, lsa);
-
-		if (IS_DEBUG_OSPF_NSSA)
-			zlog_debug(
-				"ospf_flood_through: LOCAL NSSA FLOOD of Type-7.");
-		break;
-	default:
-		break;
-	}
-#else  /* ORIGINAL_CODING */
+	   As usual, Type-5 LSA's (if not DISCARDED because we are STUB or
+	   NSSA) are flooded throughout the AS, and are updated in the
+	   global table.  */
 	/*
 	 * At the common sub-sub-function "ospf_flood_through_interface()",
 	 * a parameter "inbr" will be used to distinguish the called context
@@ -742,7 +719,6 @@ int ospf_flood_through(struct ospf *ospf, struct ospf_neighbor *inbr,
 		lsa_ack_flag = ospf_flood_through_area(lsa->area, inbr, lsa);
 		break;
 	}
-#endif /* ORIGINAL_CODING */
 
 	return (lsa_ack_flag);
 }
@@ -758,9 +734,10 @@ void ospf_ls_request_add(struct ospf_neighbor *nbr, struct ospf_lsa *lsa)
 	 * the common function "ospf_lsdb_add()" -- endo.
 	 */
 	if (IS_DEBUG_OSPF(lsa, LSA_FLOODING))
-		zlog_debug("RqstL(%lu)++, NBR(%s), LSA[%s]",
+		zlog_debug("RqstL(%lu)++, NBR(%s(%s)), LSA[%s]",
 			   ospf_ls_request_count(nbr),
-			   inet_ntoa(nbr->router_id), dump_lsa_key(lsa));
+			   inet_ntoa(nbr->router_id),
+			   ospf_get_name(nbr->oi->ospf), dump_lsa_key(lsa));
 
 	ospf_lsdb_add(&nbr->ls_req, lsa);
 }
@@ -784,9 +761,10 @@ void ospf_ls_request_delete(struct ospf_neighbor *nbr, struct ospf_lsa *lsa)
 	}
 
 	if (IS_DEBUG_OSPF(lsa, LSA_FLOODING)) /* -- endo. */
-		zlog_debug("RqstL(%lu)--, NBR(%s), LSA[%s]",
+		zlog_debug("RqstL(%lu)--, NBR(%s(%s)), LSA[%s]",
 			   ospf_ls_request_count(nbr),
-			   inet_ntoa(nbr->router_id), dump_lsa_key(lsa));
+			   inet_ntoa(nbr->router_id),
+			   ospf_get_name(nbr->oi->ospf), dump_lsa_key(lsa));
 
 	ospf_lsdb_delete(&nbr->ls_req, lsa);
 }
@@ -844,6 +822,12 @@ void ospf_ls_retransmit_add(struct ospf_neighbor *nbr, struct ospf_lsa *lsa)
 	if (ospf_lsa_more_recent(old, lsa) < 0) {
 		if (old) {
 			old->retransmit_counter--;
+			if (IS_DEBUG_OSPF(lsa, LSA_FLOODING))
+				zlog_debug("RXmtL(%lu)--, NBR(%s(%s)), LSA[%s]",
+					   ospf_ls_retransmit_count(nbr),
+					   inet_ntoa(nbr->router_id),
+					   ospf_get_name(nbr->oi->ospf),
+					   dump_lsa_key(old));
 			ospf_lsdb_delete(&nbr->ls_rxmt, old);
 		}
 		lsa->retransmit_counter++;
@@ -856,9 +840,10 @@ void ospf_ls_retransmit_add(struct ospf_neighbor *nbr, struct ospf_lsa *lsa)
 		 * the common function "ospf_lsdb_add()" -- endo.
 		 */
 		if (IS_DEBUG_OSPF(lsa, LSA_FLOODING))
-			zlog_debug("RXmtL(%lu)++, NBR(%s), LSA[%s]",
+			zlog_debug("RXmtL(%lu)++, NBR(%s(%s)), LSA[%s]",
 				   ospf_ls_retransmit_count(nbr),
 				   inet_ntoa(nbr->router_id),
+				   ospf_get_name(nbr->oi->ospf),
 				   dump_lsa_key(lsa));
 		ospf_lsdb_add(&nbr->ls_rxmt, lsa);
 	}
@@ -870,9 +855,10 @@ void ospf_ls_retransmit_delete(struct ospf_neighbor *nbr, struct ospf_lsa *lsa)
 	if (ospf_ls_retransmit_lookup(nbr, lsa)) {
 		lsa->retransmit_counter--;
 		if (IS_DEBUG_OSPF(lsa, LSA_FLOODING)) /* -- endo. */
-			zlog_debug("RXmtL(%lu)--, NBR(%s), LSA[%s]",
+			zlog_debug("RXmtL(%lu)--, NBR(%s(%s)), LSA[%s]",
 				   ospf_ls_retransmit_count(nbr),
 				   inet_ntoa(nbr->router_id),
+				   ospf_get_name(nbr->oi->ospf),
 				   dump_lsa_key(lsa));
 		ospf_lsdb_delete(&nbr->ls_rxmt, lsa);
 	}
@@ -959,7 +945,7 @@ void ospf_lsa_flush_area(struct ospf_lsa *lsa, struct ospf_area *area)
 	   retransmissions */
 	lsa->data->ls_age = htons(OSPF_LSA_MAXAGE);
 	if (IS_DEBUG_OSPF_EVENT)
-		zlog_debug("%s: MAXAGE set to LSA %s", __PRETTY_FUNCTION__,
+		zlog_debug("%s: MAXAGE set to LSA %s", __func__,
 			   inet_ntoa(lsa->data->id));
 	monotime(&lsa->tv_recv);
 	lsa->tv_orig = lsa->tv_recv;

@@ -119,7 +119,7 @@ l2vpn_exit(struct l2vpn *l2vpn)
 static __inline int
 l2vpn_if_compare(const struct l2vpn_if *a, const struct l2vpn_if *b)
 {
-	return (if_cmp_name_func((char *)a->ifname, (char *)b->ifname));
+	return if_cmp_name_func(a->ifname, b->ifname);
 }
 
 struct l2vpn_if *
@@ -182,7 +182,7 @@ l2vpn_if_update(struct l2vpn_if *lif)
 static __inline int
 l2vpn_pw_compare(const struct l2vpn_pw *a, const struct l2vpn_pw *b)
 {
-	return (if_cmp_name_func((char *)a->ifname, (char *)b->ifname));
+	return if_cmp_name_func(a->ifname, b->ifname);
 }
 
 struct l2vpn_pw *
@@ -249,7 +249,7 @@ l2vpn_pw_init(struct l2vpn_pw *pw)
 
 	l2vpn_pw_fec(pw, &fec);
 	lde_kernel_insert(&fec, AF_INET, (union ldpd_addr*)&pw->lsr_id, 0, 0,
-	    0, (void *)pw);
+	    0, 0, (void *)pw);
 	lde_kernel_update(&fec);
 }
 
@@ -260,7 +260,7 @@ l2vpn_pw_exit(struct l2vpn_pw *pw)
 	struct zapi_pw	 zpw;
 
 	l2vpn_pw_fec(pw, &fec);
-	lde_kernel_remove(&fec, AF_INET, (union ldpd_addr*)&pw->lsr_id, 0, 0);
+	lde_kernel_remove(&fec, AF_INET, (union ldpd_addr*)&pw->lsr_id, 0, 0, 0);
 	lde_kernel_update(&fec);
 
 	pw2zpw(pw, &zpw);
@@ -294,6 +294,16 @@ l2vpn_pw_reset(struct l2vpn_pw *pw)
 		pw->flags |= F_PW_STATUSTLV;
 	else
 		pw->flags &= ~F_PW_STATUSTLV;
+
+	if (pw->flags & F_PW_STATUSTLV_CONF) {
+		struct fec_node         *fn;
+		struct fec fec;
+		l2vpn_pw_fec(pw, &fec);
+		fn = (struct fec_node *)fec_find(&ft, &fec);
+		if (fn)
+			pw->remote_status = fn->pw_remote_status;
+	}
+
 }
 
 int
@@ -303,6 +313,7 @@ l2vpn_pw_ok(struct l2vpn_pw *pw, struct fec_nh *fnh)
 	if (fnh->remote_label == NO_LABEL) {
 		log_warnx("%s: pseudowire %s: no remote label", __func__,
 			  pw->ifname);
+		pw->reason = F_PW_NO_REMOTE_LABEL;
 		return (0);
 	}
 
@@ -310,6 +321,7 @@ l2vpn_pw_ok(struct l2vpn_pw *pw, struct fec_nh *fnh)
 	if (pw->l2vpn->mtu != pw->remote_mtu) {
 		log_warnx("%s: pseudowire %s: MTU mismatch detected", __func__,
 			  pw->ifname);
+		pw->reason = F_PW_MTU_MISMATCH;
 		return (0);
 	}
 
@@ -318,9 +330,11 @@ l2vpn_pw_ok(struct l2vpn_pw *pw, struct fec_nh *fnh)
 	    pw->remote_status != PW_FORWARDING) {
 		log_warnx("%s: pseudowire %s: remote end is down", __func__,
 			  pw->ifname);
+		pw->reason = F_PW_REMOTE_NOT_FWD;
 		return (0);
 	}
 
+	pw->reason = F_PW_NO_ERR;
 	return (1);
 }
 
@@ -429,11 +443,13 @@ l2vpn_recv_pw_status(struct lde_nbr *ln, struct notify_msg *nm)
 		/* unknown fec */
 		return;
 
+	fn->pw_remote_status = nm->pw_status;
+
 	pw = (struct l2vpn_pw *) fn->data;
 	if (pw == NULL)
 		return;
 
-	fnh = fec_nh_find(fn, AF_INET, (union ldpd_addr *)&ln->id, 0, 0);
+	fnh = fec_nh_find(fn, AF_INET, (union ldpd_addr *)&ln->id, 0, 0, 0);
 	if (fnh == NULL)
 		return;
 
@@ -482,7 +498,7 @@ l2vpn_recv_pw_status_wcard(struct lde_nbr *ln, struct notify_msg *nm)
 		}
 
 		fnh = fec_nh_find(fn, AF_INET, (union ldpd_addr *)&ln->id,
-		    0, 0);
+		    0, 0, 0);
 		if (fnh == NULL)
 			continue;
 
@@ -517,10 +533,13 @@ l2vpn_pw_status_update(struct zapi_pw_status *zpw)
 		return (1);
 	}
 
-	if (zpw->status == PW_STATUS_UP)
+	if (zpw->status == PW_FORWARDING) {
 		local_status = PW_FORWARDING;
-	else
-		local_status = PW_NOT_FORWARDING;
+		pw->reason = F_PW_NO_ERR;
+	} else {
+		local_status = zpw->status;
+		pw->reason = F_PW_LOCAL_NOT_FWD;
+	}
 
 	/* local status didn't change */
 	if (pw->local_status == local_status)
@@ -564,10 +583,11 @@ l2vpn_pw_ctl(pid_t pid)
 			    sizeof(pwctl.ifname));
 			pwctl.pwid = pw->pwid;
 			pwctl.lsr_id = pw->lsr_id;
+			pwctl.status = PW_NOT_FORWARDING;
 			if (pw->enabled &&
 			    pw->local_status == PW_FORWARDING &&
 			    pw->remote_status == PW_FORWARDING)
-				pwctl.status = 1;
+				pwctl.status = PW_FORWARDING;
 
 			lde_imsg_compose_ldpe(IMSG_CTL_SHOW_L2VPN_PW, 0,
 			    pid, &pwctl, sizeof(pwctl));
@@ -604,6 +624,7 @@ l2vpn_binding_ctl(pid_t pid)
 			pwctl.local_ifmtu = pw->l2vpn->mtu;
 			pwctl.local_cword = (pw->flags & F_PW_CWORD_CONF) ?
 			    1 : 0;
+			pwctl.reason = pw->reason;
 		} else
 			pwctl.local_label = NO_LABEL;
 

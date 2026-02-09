@@ -29,7 +29,6 @@
 
 #include "memory.h"
 #include "vrf.h"
-#include "memory_vty.h"
 #include "filter.h"
 #include "vty.h"
 #include "sigevent.h"
@@ -38,6 +37,7 @@
 #include "plist.h"
 #include "vrf.h"
 #include "libfrr.h"
+#include "routemap.h"
 
 #include "pimd.h"
 #include "pim_instance.h"
@@ -47,6 +47,7 @@
 #include "pim_msdp.h"
 #include "pim_iface.h"
 #include "pim_bfd.h"
+#include "pim_mlag.h"
 #include "pim_errors.h"
 
 extern struct host host;
@@ -68,8 +69,15 @@ struct zebra_privs_t pimd_privs = {
 	.vty_group = VTY_GROUP,
 #endif
 	.caps_p = _caps_p,
-	.cap_num_p = sizeof(_caps_p) / sizeof(_caps_p[0]),
+	.cap_num_p = array_size(_caps_p),
 	.cap_num_i = 0};
+
+static const struct frr_yang_module_info *const pimd_yang_modules[] = {
+	&frr_filter_info,
+	&frr_interface_info,
+	&frr_route_map_info,
+	&frr_vrf_info,
+};
 
 FRR_DAEMON_INFO(pimd, PIM, .vty_port = PIMD_VTY_PORT,
 
@@ -78,7 +86,8 @@ FRR_DAEMON_INFO(pimd, PIM, .vty_port = PIMD_VTY_PORT,
 		.signals = pimd_signals,
 		.n_signals = 4 /* XXX array_size(pimd_signals) XXX*/,
 
-		.privs = &pimd_privs, )
+		.privs = &pimd_privs, .yang_modules = pimd_yang_modules,
+		.n_yang_modules = array_size(pimd_yang_modules), )
 
 
 int main(int argc, char **argv, char **envp)
@@ -104,7 +113,7 @@ int main(int argc, char **argv, char **envp)
 		}
 	}
 
-	master = frr_init();
+	pim_router_init();
 
 	/*
 	 * Initializations
@@ -122,8 +131,11 @@ int main(int argc, char **argv, char **envp)
 	/*
 	 * Initialize zclient "update" and "lookup" sockets
 	 */
+	if_zapi_callbacks(pim_ifp_create, pim_ifp_up,
+			  pim_ifp_down, pim_ifp_destroy);
 	pim_zebra_init();
 	pim_bfd_init();
+	pim_mlag_init();
 
 	frr_config_fork();
 
@@ -152,7 +164,7 @@ int main(int argc, char **argv, char **envp)
 		"PIM_UNEXPECTED_KERNEL_UPCALL: report unexpected kernel upcall");
 #endif
 
-	frr_run(master);
+	frr_run(router->master);
 
 	/* never reached */
 	return 0;

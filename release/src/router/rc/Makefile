@@ -494,6 +494,11 @@ endif
 ifeq ($(RTCONFIG_SNMPD),y)
 OBJS += snmpd.o
 endif
+
+ifeq ($(RTCONFIG_FRR),y)
+OBJS += frr.o
+endif
+
 CFLAGS += -DRTCONFIG_CROND
 ifeq ($(RTCONFIG_OPENVPN),y)
 CFLAGS += -I$(TOP)/libovpn

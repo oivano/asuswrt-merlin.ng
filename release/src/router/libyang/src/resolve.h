@@ -23,38 +23,39 @@
  */
 enum UNRES_ITEM {
     /* SCHEMA */
-    UNRES_USES,          /* unresolved uses grouping (refines and augments in it are resolved as well) */
-    UNRES_IFFEAT,        /* unresolved if-feature */
-    UNRES_TYPE_DER,      /* unresolved derived type defined in leaf/leaflist */
-    UNRES_TYPE_DER_TPDF, /* unresolved derived type defined as typedef */
-    UNRES_TYPE_DER_EXT,
-    UNRES_TYPE_LEAFREF,  /* check leafref value */
-    UNRES_AUGMENT,       /* unresolved augment targets */
-    UNRES_CHOICE_DFLT,   /* check choice default case */
-    UNRES_IDENT,         /* unresolved derived identities */
-    UNRES_TYPE_IDENTREF, /* check identityref value */
-    UNRES_FEATURE,       /* feature for circular check, it must be postponed when all if-features are resolved */
-    UNRES_TYPEDEF_DFLT,  /* validate default type value (from typedef) */
-    UNRES_TYPE_DFLT,     /* validate default type value (from lys_node) */
-    UNRES_LIST_KEYS,     /* list keys */
-    UNRES_LIST_UNIQ,     /* list uniques */
-    UNRES_XPATH,         /* unchecked XPath expression */
-    UNRES_EXT,           /* extension instances */
-
-    UNRES_EXT_FINALIZE,  /* extension is already resolved, but needs to be finalized via plugin callbacks */
+    UNRES_USES = 0x00000001,          /* unresolved uses grouping (refines and augments in it are resolved as well) */
+    UNRES_IFFEAT = 0x00000002,        /* unresolved if-feature */
+    UNRES_TYPE_DER = 0x00000004,      /* unresolved derived type defined in leaf/leaflist */
+    UNRES_TYPE_DER_TPDF = 0x00000008, /* unresolved derived type defined as typedef */
+    UNRES_TYPE_DER_EXT = 0x00000010,
+    UNRES_TYPE_LEAFREF = 0x00000020,  /* check leafref value */
+    UNRES_AUGMENT = 0x00000040,       /* unresolved augment targets */
+    UNRES_CHOICE_DFLT = 0x00000080,   /* check choice default case */
+    UNRES_IDENT = 0x00000100,         /* unresolved derived identities */
+    UNRES_TYPE_IDENTREF = 0x00000200, /* check identityref value */
+    UNRES_FEATURE = 0x00000400,       /* feature for circular check, it must be postponed when all if-features are resolved */
+    UNRES_TYPEDEF_DFLT = 0x00000800,  /* validate default type value (from typedef) */
+    UNRES_TYPE_DFLT = 0x00001000,     /* validate default type value (from lys_node) */
+    UNRES_LIST_KEYS = 0x00002000,     /* list keys */
+    UNRES_LIST_UNIQ = 0x00004000,     /* list uniques */
+    UNRES_MOD_IMPLEMENT = 0x00008000, /* unimplemented module */
+    UNRES_EXT = 0x00010000,           /* extension instances */
+    UNRES_XPATH = 0x00020000,         /* unchecked XPath expression */
+    UNRES_EXT_FINALIZE = 0x00040000,  /* extension is already resolved, but needs to be finalized via plugin callbacks */
 
     /* DATA */
-    UNRES_LEAFREF,       /* unresolved leafref reference */
-    UNRES_INSTID,        /* unresolved instance-identifier reference */
-    UNRES_WHEN,          /* unresolved when condition */
-    UNRES_MUST,          /* unresolved must condition */
-    UNRES_MUST_INOUT,    /* unresolved must condition in parent input or output */
-    UNRES_UNION,         /* union with leafref which must be checked because the type can change without changing the
-                            value itself, but removing the target node */
+    UNRES_LEAFREF = 0x00080000,       /* unresolved leafref reference */
+    UNRES_INSTID = 0x00100000,        /* unresolved instance-identifier reference */
+    UNRES_WHEN = 0x00200000,          /* unresolved when condition */
+    UNRES_MUST = 0x00400000,          /* unresolved must condition */
+    UNRES_MUST_INOUT = 0x00800000,    /* unresolved must condition in parent input or output */
+    UNRES_UNION = 0x01000000,         /* union with leafref which must be checked because the type can change without changing the
+                                         value itself, but removing the target node */
+    UNRES_UNIQ_LEAVES = 0x02000000,   /* list with a unique statement(s) whose leaves need to be checked */
 
     /* generic */
-    UNRES_RESOLVED,      /* a resolved item */
-    UNRES_DELETE,        /* prepared for auto-delete */
+    UNRES_RESOLVED = 0x04000000,      /* a resolved item */
+    UNRES_DELETE = 0x08000000,        /* prepared for auto-delete */
 };
 
 /**
@@ -92,6 +93,11 @@ struct unres_data {
     struct lyd_node **node;
     enum UNRES_ITEM *type;
     uint32_t count;
+
+    int store_diff;
+    struct lyd_difflist *diff;
+    unsigned int diff_size;
+    unsigned int diff_idx;
 };
 
 /**
@@ -175,12 +181,12 @@ int resolve_choice_default_schema_nodeid(const char *nodeid, const struct lys_no
 int resolve_absolute_schema_nodeid(const char *nodeid, const struct lys_module *module, int ret_nodetype,
                                    const struct lys_node **ret);
 
-const struct lys_node *resolve_json_nodeid(const char *nodeid, struct ly_ctx *ctx, const struct lys_node *start, int output);
+const struct lys_node *resolve_json_nodeid(const char *nodeid, const struct ly_ctx *ctx, const struct lys_node *start, int output);
 
 struct lyd_node *resolve_partial_json_data_nodeid(const char *nodeid, const char *llist_value, struct lyd_node *start,
                                                   int options, int *parsed);
 
-int resolve_len_ran_interval(const char *str_restr, struct lys_type *type, struct len_ran_intv **ret);
+int resolve_len_ran_interval(struct ly_ctx *ctx, const char *str_restr, struct lys_type *type, struct len_ran_intv **ret);
 
 int resolve_superior_type(const char *name, const char *prefix, const struct lys_module *module,
                           const struct lys_node *parent, struct lys_tpdf **ret);
@@ -227,16 +233,30 @@ int unres_schema_find(struct unres_schema *unres, int start_on_backwards, void *
 
 void unres_schema_free(struct lys_module *module, struct unres_schema **unres, int all);
 
+/**
+ * @brief Resolve instance-identifier in JSON data format. Logs directly.
+ *
+ * @param[in] data Data node where the path is used
+ * @param[in] path Instance-identifier node value.
+ * @param[in,out] ret Resolved instance or NULL.
+ *
+ * @return 0 on success (even if unresolved and \p ret is NULL), -1 on error.
+ */
+int resolve_instid(struct lyd_node *data, const char *path, int req_inst, struct lyd_node **ret);
+
+int resolve_leafref(struct lyd_node_leaf_list *leaf, const char *path, int req_inst, struct lyd_node **ret);
+
 int resolve_union(struct lyd_node_leaf_list *leaf, struct lys_type *type, int store, int ignore_fail,
                   struct lys_type **resolved_type);
 
-int resolve_unres_data_item(struct lyd_node *dnode, enum UNRES_ITEM type, int ignore_fail, struct lys_when **failed_when);
+int resolve_unres_data_item(struct lyd_node *dnode, enum UNRES_ITEM type, int ignore_fail, int multi_error,
+        struct lys_when **failed_when);
 
 int unres_data_addonly(struct unres_data *unres, struct lyd_node *node, enum UNRES_ITEM type);
 int unres_data_add(struct unres_data *unres, struct lyd_node *node, enum UNRES_ITEM type);
 void unres_data_del(struct unres_data *unres, uint32_t i);
 
-int resolve_unres_data(struct unres_data *unres, struct lyd_node **root, int options);
+int resolve_unres_data(struct ly_ctx *ctx, struct unres_data *unres, struct lyd_node **root, int options);
 int schema_nodeid_siblingcheck(const struct lys_node *sibling, const struct lys_module *cur_module,
                            const char *mod_name, int mod_name_len, const char *name, int nam_len);
 

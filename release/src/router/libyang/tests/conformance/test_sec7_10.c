@@ -17,6 +17,7 @@
 #include <setjmp.h>
 #include <errno.h>
 #include <unistd.h>
+#include <stdarg.h>
 #include <cmocka.h>
 #include <string.h>
 #include <sys/wait.h>
@@ -71,7 +72,7 @@ teardown_f(void **state)
 }
 
 static void
-TEST_CHOICE(void **state)
+TEST_ANYXML(void **state)
 {
     struct state *st = (*state);
     const int schemas_fail[] = {TEST_SCHEMA_LOAD_FAIL};
@@ -95,7 +96,7 @@ TEST_CHOICE(void **state)
 
         for (j = 0; j < TEST_DATA_FILE_COUNT; ++j) {
             sprintf(buf, TESTS_DIR "/conformance/" TEST_DIR "/data%d.xml", j + 1);
-            st->node = lyd_parse_path(st->ctx, buf, LYD_XML, LYD_OPT_CONFIG | LYD_OPT_NOAUTODEL);
+            st->node = lyd_parse_path(st->ctx, buf, LYD_XML, LYD_OPT_CONFIG);
             if (data_files_fail[j]) {
                 assert_ptr_equal(st->node, NULL);
             } else {
@@ -122,6 +123,12 @@ TEST_CHOICE(void **state)
             }
 
             schema_format = LYS_IN_YIN;
+            ly_ctx_destroy(st->ctx, NULL);
+            st->ctx = ly_ctx_new(TESTS_DIR "/conformance/" TEST_DIR, 0);
+            if (!st->ctx) {
+                fprintf(stderr, "Failed to create context.\n");
+                fail();
+            }
         } else {
             /* remove the modules */
             for (j = 0; j < TEST_SCHEMA_COUNT; ++j) {
@@ -138,7 +145,7 @@ int
 main(void)
 {
     const struct CMUnitTest tests[] = {
-        cmocka_unit_test_setup_teardown(TEST_CHOICE, setup_f, teardown_f),
+        cmocka_unit_test_setup_teardown(TEST_ANYXML, setup_f, teardown_f),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);

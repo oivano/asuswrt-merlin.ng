@@ -39,6 +39,8 @@
 #include "ripngd/ripng_debug.h"
 #include "ripngd/ripng_nexthop.h"
 
+DEFINE_MTYPE_STATIC(RIPNGD, RIPNG_RTE_DATA, "RIPng rte data")
+
 #define DEBUG 1
 
 #define min(a, b) ((a) < (b) ? (a) : (b))
@@ -72,7 +74,7 @@ struct list *ripng_rte_new(void)
 
 void ripng_rte_free(struct list *ripng_rte_list)
 {
-	list_delete_and_null(&ripng_rte_list);
+	list_delete(&ripng_rte_list);
 }
 
 /* Delete RTE */
@@ -114,7 +116,8 @@ void ripng_rte_add(struct list *ripng_rte_list, struct prefix_ipv6 *p,
 void ripng_rte_send(struct list *ripng_rte_list, struct interface *ifp,
 		    struct sockaddr_in6 *to)
 {
-
+	struct ripng_interface *ri = ifp->info;
+	struct ripng *ripng = ri->ripng;
 	struct ripng_rte_data *data;
 	struct listnode *node, *nnode;
 

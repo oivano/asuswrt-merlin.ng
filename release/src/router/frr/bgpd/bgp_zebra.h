@@ -23,6 +23,9 @@
 
 #include "vxlan.h"
 
+/* Default weight for next hop, if doing weighted ECMP. */
+#define BGP_ZEBRA_DEFAULT_NHOP_WEIGHT 1
+
 extern void bgp_zebra_init(struct thread_master *master,
 			   unsigned short instance);
 extern void bgp_zebra_init_tm_connect(struct bgp *bgp);
@@ -32,15 +35,13 @@ extern void bgp_zebra_destroy(void);
 extern int bgp_zebra_get_table_range(uint32_t chunk_size,
 				     uint32_t *start, uint32_t *end);
 extern int bgp_if_update_all(void);
-extern void bgp_config_write_maxpaths(struct vty *, struct bgp *, afi_t,
-				      safi_t);
-extern void bgp_config_write_redistribute(struct vty *, struct bgp *, afi_t,
-					  safi_t);
-extern void bgp_zebra_announce(struct bgp_node *, struct prefix *,
-			       struct bgp_info *, struct bgp *, afi_t, safi_t);
+extern void bgp_zebra_announce(struct bgp_dest *dest, const struct prefix *p,
+			       struct bgp_path_info *path, struct bgp *bgp,
+			       afi_t afi, safi_t safi);
 extern void bgp_zebra_announce_table(struct bgp *, afi_t, safi_t);
-extern void bgp_zebra_withdraw(struct prefix *, struct bgp_info *,
-			       struct bgp *, safi_t);
+extern void bgp_zebra_withdraw(const struct prefix *p,
+			       struct bgp_path_info *path, struct bgp *bgp,
+			       safi_t safi);
 
 extern void bgp_zebra_initiate_radv(struct bgp *bgp, struct peer *peer);
 extern void bgp_zebra_terminate_radv(struct bgp *bgp, struct peer *peer);
@@ -48,6 +49,7 @@ extern void bgp_zebra_terminate_radv(struct bgp *bgp, struct peer *peer);
 extern void bgp_zebra_instance_register(struct bgp *);
 extern void bgp_zebra_instance_deregister(struct bgp *);
 
+extern void bgp_redistribute_redo(struct bgp *bgp);
 extern struct bgp_redist *bgp_redist_lookup(struct bgp *, afi_t, uint8_t,
 					    unsigned short);
 extern struct bgp_redist *bgp_redist_add(struct bgp *, afi_t, uint8_t,
@@ -55,9 +57,10 @@ extern struct bgp_redist *bgp_redist_add(struct bgp *, afi_t, uint8_t,
 extern int bgp_redistribute_set(struct bgp *, afi_t, int, unsigned short,
 				bool changed);
 extern int bgp_redistribute_resend(struct bgp *, afi_t, int, unsigned short);
-extern int bgp_redistribute_rmap_set(struct bgp_redist *, const char *);
-extern int bgp_redistribute_metric_set(struct bgp *, struct bgp_redist *, afi_t,
-				       int, uint32_t);
+extern bool bgp_redistribute_rmap_set(struct bgp_redist *red, const char *name,
+				      struct route_map *route_map);
+extern bool bgp_redistribute_metric_set(struct bgp *, struct bgp_redist *,
+					afi_t, int, uint32_t);
 extern int bgp_redistribute_unset(struct bgp *, afi_t, int, unsigned short);
 extern int bgp_redistribute_unreg(struct bgp *, afi_t, int, unsigned short);
 
@@ -70,18 +73,25 @@ extern struct interface *if_lookup_by_ipv6_exact(struct in6_addr *, ifindex_t,
 extern int bgp_zebra_advertise_subnet(struct bgp *bgp, int advertise,
 				      vni_t vni);
 extern int bgp_zebra_advertise_gw_macip(struct bgp *, int, vni_t);
+extern int bgp_zebra_advertise_svi_macip(struct bgp *bgp, int advertise,
+					 vni_t vni);
 extern int bgp_zebra_advertise_all_vni(struct bgp *, int);
+extern int bgp_zebra_dup_addr_detection(struct bgp *bgp);
+extern int bgp_zebra_vxlan_flood_control(struct bgp *bgp,
+					 enum vxlan_flood_control flood_ctrl);
 
 extern int bgp_zebra_num_connects(void);
 
 extern bool bgp_zebra_nexthop_set(union sockunion *, union sockunion *,
 				  struct bgp_nexthop *, struct peer *);
-
 struct bgp_pbr_action;
 struct bgp_pbr_match;
+struct bgp_pbr_rule;
 struct bgp_pbr_match_entry;
+
 extern void bgp_send_pbr_rule_action(struct bgp_pbr_action *pbra,
-				bool install);
+				     struct bgp_pbr_rule *pbr,
+				     bool install);
 extern void bgp_send_pbr_ipset_match(struct bgp_pbr_match *pbrim,
 				     bool install);
 extern void bgp_send_pbr_ipset_entry_match(struct bgp_pbr_match_entry *pbrime,
@@ -92,5 +102,7 @@ extern void bgp_send_pbr_iptable(struct bgp_pbr_action *pba,
 
 extern void bgp_zebra_announce_default(struct bgp *bgp, struct nexthop *nh,
 				afi_t afi, uint32_t table_id, bool announce);
-
+extern int bgp_zebra_send_capabilities(struct bgp *bgp, bool disable);
+extern int bgp_zebra_update(afi_t afi, safi_t safi, vrf_id_t vrf_id, int type);
+extern int bgp_zebra_stale_timer_update(struct bgp *bgp);
 #endif /* _QUAGGA_BGP_ZEBRA_H */

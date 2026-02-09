@@ -16,6 +16,8 @@
 #ifndef LY_TREE_INTERNAL_H_
 #define LY_TREE_INTERNAL_H_
 
+#include <stdint.h>
+
 #include "libyang.h"
 #include "tree_schema.h"
 #include "tree_data.h"
@@ -63,6 +65,75 @@ struct lyd_node_pos {
 };
 
 /**
+ * @brief Internal structure for LYB parser/printer.
+ */
+struct lyb_state {
+    size_t *written;
+    size_t *position;
+    uint8_t *inner_chunks;
+    int used;
+    int size;
+    const struct lys_module **models;
+    int mod_count;
+    struct ly_ctx *ctx;
+
+    /* LYB printer only */
+    struct {
+        struct lys_node *first_sibling;
+        struct hash_table *ht;
+    } *sib_ht;
+    int sib_ht_count;
+};
+
+/* struct lyb_state allocation step */
+#define LYB_STATE_STEP 4
+
+/**
+ * LYB schema hash constants
+ *
+ * Hash is divided to collision ID and hash itself.
+ *
+ * First bits are collision ID until 1 is found. The rest is truncated 32b hash.
+ * 1xxx xxxx - collision ID 0 (no collisions)
+ * 01xx xxxx - collision ID 1 (collision ID 0 hash collided)
+ * 001x xxxx - collision ID 2 ...
+ */
+
+/* Number of bits the whole hash will take (including hash collision ID) */
+#define LYB_HASH_BITS 8
+
+/* Masking 32b hash (collision ID 0) */
+#define LYB_HASH_MASK 0x7f
+
+/* Type for storing the whole hash (used only internally, publicly defined directly) */
+#define LYB_HASH uint8_t
+
+/* Need to move this first >> collision number (from 0) to get collision ID hash part */
+#define LYB_HASH_COLLISION_ID 0x80
+
+/* How many bytes are reserved for one data chunk SIZE (8B is maximum) */
+#define LYB_SIZE_BYTES 1
+
+/* Maximum size that will be written into LYB_SIZE_BYTES (must be large enough) */
+#define LYB_SIZE_MAX UINT8_MAX
+
+/* How many bytes are reserved for one data chunk inner chunk count */
+#define LYB_INCHUNK_BYTES 1
+
+/* Maximum size that will be written into LYB_INCHUNK_BYTES (must be large enough) */
+#define LYB_INCHUNK_MAX UINT8_MAX
+
+/* Just a helper macro */
+#define LYB_META_BYTES (LYB_INCHUNK_BYTES + LYB_SIZE_BYTES)
+
+/* Type large enough for all meta data */
+#define LYB_META uint16_t
+
+LYB_HASH lyb_hash(struct lys_node *sibling, uint8_t collision_id);
+
+int lyb_has_schema_model(struct lys_node *sibling, const struct lys_module **models, int mod_count);
+
+/**
  * Macros to work with ::lyd_node#when_status
  * +--- bit 1 - some when-stmt connected with the node (resolve_applies_when() is true)
  * |+-- bit 2 - when-stmt's condition is resolved and it is true
@@ -76,6 +147,25 @@ struct lyd_node_pos {
 #define LYD_WHEN_TRUE  0x02
 #define LYD_WHEN_FALSE 0x01
 #define LYD_WHEN_DONE(status) (!((status) & LYD_WHEN) || ((status) & (LYD_WHEN_TRUE | LYD_WHEN_FALSE)))
+
+/**
+ * @brief Type flag for an unresolved type in a grouping.
+ */
+#define LY_VALUE_UNRESGRP 0x80
+
+#ifdef LY_ENABLED_CACHE
+
+/**
+ * @brief Minimum number of children for the parent to create a hash table for them.
+ */
+#   define LY_CACHE_HT_MIN_CHILDREN 4
+
+    int lyd_hash(struct lyd_node *node);
+
+    void lyd_insert_hash(struct lyd_node *node);
+
+    void lyd_unlink_hash(struct lyd_node *node, struct lyd_node *orig_parent);
+#endif
 
 /**
  * @brief Create submodule structure by reading data from memory.
@@ -127,9 +217,10 @@ void lys_submodule_free(struct lys_submodule *submodule, void (*private_destruct
  * the module of the \p child element. If the \p parent parameter is present,
  * the \p module parameter is ignored.
  * @param[in] child The schema tree node to be added.
+ * @param[in] options Parsing options. Only relevant when creating a shorthand case.
  * @return 0 on success, nonzero else
  */
-int lys_node_addchild(struct lys_node *parent, struct lys_module *module, struct lys_node *child);
+int lys_node_addchild(struct lys_node *parent, struct lys_module *module, struct lys_node *child, int options);
 
 /**
  * @brief Find a valid grouping definition relative to a node.
@@ -158,21 +249,20 @@ struct lys_node_grp *lys_find_grouping_up(const char *name, struct lys_node *sta
 int lys_check_id(struct lys_node *node, struct lys_node *parent, struct lys_module *module);
 
 /**
- * @brief Check all XPath expressions of a node (when and must), set LYS_XPATH_DEP flag if required.
- *
- * @param[in] node Node to examine.
- * @param[in] check_place Check where the node is placed to get know if the check is supposed to be performed
- * @return EXIT_SUCCESS on success, EXIT_FAILURE on forward reference, -1 on error.
- */
-int lys_check_xpath(struct lys_node *node, int check_place);
-
-/**
  * @brief Get know if the node contains must or when with XPath expression
  *
  * @param[in] node Node to examine.
  * @return 1 if contains, 0 otherwise
  */
 int lys_has_xpath(const struct lys_node *node);
+
+/**
+ * @brief Learn if \p type is defined in the local module or from an import.
+ *
+ * @param[in] type Type to examine.
+ * @return non-zero if local, 0 if from an import.
+ */
+int lys_type_is_local(const struct lys_type *type);
 
 /**
  * @brief Create a copy of the specified schema tree \p node
@@ -190,6 +280,7 @@ struct lys_node *lys_node_dup(struct lys_module *module, struct lys_node *parent
 /**
  * @brief duplicate the list of extension instances.
  *
+ * @param[in] ctx Context to store errors in.
  * @param[in] mod Module where we are
  * @param[in] orig list of the extension instances to duplicate, the size of the array must correspond with \p size
  * @param[in] size number of items in \p old array to duplicate
@@ -200,7 +291,7 @@ struct lys_node *lys_node_dup(struct lys_module *module, struct lys_node *parent
  * @param[in] unres list of unresolved items
  *
  */
-int lys_ext_dup(struct lys_module *mod, struct lys_ext_instance **orig, uint8_t size, void *parent,
+int lys_ext_dup(struct ly_ctx *ctx, struct lys_module *mod, struct lys_ext_instance **orig, uint8_t size, void *parent,
                 LYEXT_PAR parent_type, struct lys_ext_instance ***new, int shallow, struct unres_schema *unres);
 
 /**
@@ -223,23 +314,13 @@ void lys_extension_instances_free(struct ly_ctx *ctx, struct lys_ext_instance **
                                   void (*private_destructor)(const struct lys_node *node, void *priv));
 
 /**
- * @brief Switch two same schema nodes. \p src must be a shallow copy
- * of \p dst.
- *
- * @param[in] dst Destination node that will be replaced with \p src.
- * @param[in] src Source node that will replace \p dst.
- */
-void lys_node_switch(struct lys_node *dst, struct lys_node *src);
-
-/**
- * @brief Add pointer to \p leafref to \p leafref_target children so that it knows there
- * are some leafrefs referring it.
+ * @brief Check that leafref and its target have allowed config combination and there are no cyclic references.
  *
  * @param[in] leafref_target Leaf that is \p leafref's target.
  * @param[in] leafref Leaf or leaflist of type #LY_TYPE_LEAFREF referring \p leafref_target.
  * @return 0 on success, -1 on error.
  */
-int lys_leaf_add_leafref_target(struct lys_node_leaf *leafref_target, struct lys_node *leafref);
+int lys_leaf_check_leafref(struct lys_node_leaf *leafref_target, struct lys_node *leafref);
 
 /**
  * @brief Free a schema when condition
@@ -287,12 +368,14 @@ void lys_node_unlink(struct lys_node *node);
 /**
  * @brief Free the schema node structure, includes unlinking it from the tree
  *
+ * @param[in] ctx libang context to use, @p node may not have it filled (in groupings, for example).
  * @param[in] node Schema tree node to free. Do not use the pointer after calling this function.
  * @param[in] private_destructor Optional destructor function for private objects assigned
  * to the nodes via lys_set_private(). If NULL, the private objects are not freed by libyang.
  * @param[in] shallow Whether to do a shallow free only (on a shallow copy of a node).
  */
-void lys_node_free(struct lys_node *node, void (*private_destructor)(const struct lys_node *node, void *priv), int shallow);
+void lys_node_free(struct ly_ctx *ctx, struct lys_node *node,
+                   void (*private_destructor)(const struct lys_node *node, void *priv), int shallow);
 
 /**
  * @brief Free (and unlink it from the context) the specified schema.
@@ -303,10 +386,12 @@ void lys_node_free(struct lys_node *node, void (*private_destructor)(const struc
  * @param[in] module Data model to free.
  * @param[in] private_destructor Optional destructor function for private objects assigned
  * to the nodes via lys_set_private(). If NULL, the private objects are not freed by libyang.
+ * @param[in] free_subs Whether to free included submodules.
  * @param[in] remove_from_ctx Whether to remove this model from context. Always use 1 except
  * when removing all the models (in ly_ctx_destroy()).
  */
-void lys_free(struct lys_module *module, void (*private_destructor)(const struct lys_node *node, void *priv), int remove_from_ctx);
+void lys_free(struct lys_module *module, void (*private_destructor)(const struct lys_node *node, void *priv),
+              int free_subs, int remove_from_ctx);
 
 /**
  * @brief Create a data container knowing it's schema node.
@@ -319,25 +404,6 @@ void lys_free(struct lys_module *module, void (*private_destructor)(const struct
 struct lyd_node *_lyd_new(struct lyd_node *parent, const struct lys_node *schema, int dflt);
 
 /**
- * @brief Create a dummy node for XPath evaluation. After done using, it should be removed.
- *
- * The function must be used very carefully:
- * - there must not be a list node to create
- *
- * @param[in] data Any data node of the tree where the dummy node will be created
- * @param[in] parent To optimize searching in data tree (and to avoid issues with lists), caller can specify a
- *                   parent node that exists in the data tree.
- * @param[in] schema Schema node of the dummy node to create, must be of nodetype that
- * appears also in data tree.
- * @param[in] value Optional value to be set in the dummy node
- * @param[in] dflt Set dflt flag in the created data nodes
- *
- * @return The first created node needed for the dummy node in the given tree.
- */
-struct lyd_node *lyd_new_dummy(struct lyd_node *data, struct lyd_node *parent, const struct lys_node *schema,
-                               const char *value, int dflt);
-
-/**
  * @brief Find the parent node of an attribute.
  *
  * @param[in] root Root element of the data tree with the attribute.
@@ -348,14 +414,39 @@ struct lyd_node *lyd_new_dummy(struct lyd_node *data, struct lyd_node *parent, c
 const struct lyd_node *lyd_attr_parent(const struct lyd_node *root, struct lyd_attr *attr);
 
 /**
+ * @brief Internal version of lyd_value_type().
+ *
+ * @param[in] node Schema node of the value.
+ * @param[in] value String value to get the type of.
+ * @param[in] local_mod Local module for the value prefix resolution in case it is a default value (defined in schema).
+ * Otherwise set to NULL.
+ * @param[out] type Optionally the resolved type of the value.
+ * @return EXIT_SUCCESS on success, EXIT_FAILURE on error.
+ */
+int lyd_value_type_internal(struct lys_node *node, const char *value, const struct lys_module *local_mod,
+                            struct lys_type **type);
+
+/**
  * @brief Internal version of lyd_unlink().
  *
  * @param[in] node Node to unlink.
- * @param[in] permanent Whether the node is premanently unlinked or will be linked back.
+ * @param[in] permanent 0 - the node will be linked back,
+ *                      1 - the node is premanently unlinked,
+ *                      2 - the node is being freed.
  *
  * @return EXIT_SUCCESS on success, EXIT_FAILURE on error.
  */
 int lyd_unlink_internal(struct lyd_node *node, int permanent);
+
+/**
+ * @brief Get the canonical value.
+ *
+ * @param[in] schema Leaf or leaf-list schema node of the value.
+ * @param[in] val_str String value to transform.
+ * @param[in] val_str_len String value length.
+ * @return Canonical value (must be freed), NULL on error.
+ */
+char *lyd_make_canonical(const struct lys_node *schema, const char *val_str, int val_str_len);
 
 /**
  * @brief Internal version of lyd_insert() and lyd_insert_sibling().
@@ -399,35 +490,25 @@ int lys_get_sibling(const struct lys_node *siblings, const char *mod_name, int m
  * @param[in] name Node name.
  * @param[in] nam_len Node \p name length.
  * @param[in] type ORed desired type of the node. 0 means any (data node) type.
+ * @param[in] getnext_opts lys_getnext() options to use.
  * @param[out] ret Pointer to the node of the desired type. Can be NULL.
  *
  * @return EXIT_SUCCESS on success, EXIT_FAILURE on fail.
  */
 int lys_getnext_data(const struct lys_module *mod, const struct lys_node *parent, const char *name, int nam_len,
-                     LYS_NODE type, const struct lys_node **ret);
+                     LYS_NODE type, int getnext_opts, const struct lys_node **ret);
 
-/**
- * @brief Compare 2 list or leaf-list data nodes if they are the same from the YANG point of view. Logs directly.
- *
- * - leaf-lists are the same if they are defined by the same schema tree node and they have the same value
- * - lists are the same if they are defined by the same schema tree node, all their keys have identical values,
- *   and all unique sets have the same values
- *
- * @param[in] first First data node to compare.
- * @param[in] second Second node to compare.
- * @param[in] action Option to specify what will be checked:
- *            -1 - compare keys and all uniques
- *             0 - compare only keys
- *             n - compare n-th unique
- * @param[in] withdefaults Whether only different dflt flags cause 2 nodes not to be equal.
- * @param[in] log Flag for printing validation errors, useful for internal (non-validation) use of this function
- * @return 1 if both the nodes are the same from the YANG point of view,
- *         0 if they differ,
- *         -1 on error.
- */
-int lyd_list_equal(struct lyd_node *first, struct lyd_node *second, int action, int withdefaults, int log);
+int lyd_get_unique_default(const char* unique_expr, struct lyd_node *list, const char **dflt);
 
-const char *lyd_get_unique_default(const char* unique_expr, struct lyd_node *list);
+int lyd_build_relative_data_path(const struct lys_module *module, const struct lyd_node *node, const char *schema_id,
+                                 char *buf);
+
+void lyd_free_value(lyd_val value, LY_DATA_TYPE value_type, uint8_t value_flags, struct lys_type *type,
+                    const char *value_str, lyd_val *old_val, LY_DATA_TYPE *old_val_type, uint8_t *old_val_flags);
+
+int lyd_list_equal(struct lyd_node *node1, struct lyd_node *node2, int with_defaults);
+
+int lys_make_implemented_r(struct lys_module *module, struct unres_schema *unres);
 
 /**
  * @brief Check for (validate) mandatory nodes of a data tree. Checks recursively whole data tree. Requires all when
@@ -435,10 +516,13 @@ const char *lyd_get_unique_default(const char* unique_expr, struct lyd_node *lis
  *
  * @param[in] root Data tree to validate.
  * @param[in] ctx libyang context (for the case when the data tree is empty - i.e. root == NULL).
+ * @param[in] modules Only check mandatory nodes from these modules. If not set, check for all modules in the context.
+ * @param[in] mod_count Number of modules in \p modules.
  * @param[in] options Standard @ref parseroptions.
  * @return EXIT_SUCCESS or EXIT_FAILURE.
  */
-int lyd_check_mandatory_tree(struct lyd_node *root, struct ly_ctx *ctx, int options);
+int lyd_check_mandatory_tree(struct lyd_node *root, struct ly_ctx *ctx, const struct lys_module **modules, int mod_count,
+                             int options);
 
 /**
  * @brief Check if the provided node is inside a grouping.
@@ -448,25 +532,35 @@ int lyd_check_mandatory_tree(struct lyd_node *root, struct ly_ctx *ctx, int opti
  */
 int lys_ingrouping(const struct lys_node *node);
 
-/**
- * @brief Add default values, \p resolve unres, and finally
- * remove any redundant default values based on \p options.
- *
- * @param[in] root Data tree root. With empty data tree, new default nodes can be created so the root pointer
- *            will contain/return the newly created data tree.
- * @param[in] options Options for the inserting data to the target data tree options, see @ref parseroptions.
- * @param[in] ctx Optional parameter. If provided, default nodes from all modules in the context will be added.
- *            If NULL, only the modules explicitly mentioned in data tree are taken into account.
- * @param[in] data_tree Additional data tree to be traversed when evaluating when or must expressions in \p root
- *            tree.
- * @param[in] act_notif Action/notification itself in case \p root is actually an action/notification.
- * @param[in] unres Valid unres structure, on function successful exit they are all resolved.
- * @return 0 on success, nonzero on failure.
- */
-int lyd_defaults_add_unres(struct lyd_node **root, int options, struct ly_ctx *ctx, const struct lyd_node *data_tree,
-                           struct lyd_node *act_notif, struct unres_data *unres);
+int unres_data_diff_new(struct unres_data *unres, struct lyd_node *subtree, struct lyd_node *parent, int created);
 
-void lys_switch_deviations(struct lys_module *module);
+void unres_data_diff_rem(struct unres_data *unres, unsigned int idx);
+
+/**
+ * @brief Process (add/clean) default nodes in the data tree and resolve the unresolved items
+ *
+ * @param[in,out] root  Pointer to the root node of the complete data tree, the root node can be NULL if the data tree
+ *                      is empty
+ * @param[in] options   Parser options to know the data tree type, see @ref parseroptions.
+ * @param[in] ctx       Context for the case the \p root is empty (in that case \p ctx must not be NULL)
+ * @param[in] modules   Only modules that will be traversed when adding default values.
+ * @param[in] mod_count Number of module names in \p modules.
+ * @param[in] data_tree Additional data tree for validating RPC/action/notification. The tree is used to satisfy
+ *                      possible references to the datastore content.
+ * @param[in] act_notif In case of nested action/notification, the subtree of the action/notification. Note
+ *                      that in this case the \p root points to the top level data tree node which provides the context
+ *                      for the nested action/notification
+ * @param[in] unres     Unresolved data list, the newly added default nodes may need to add some unresolved items
+ * @param[in] wd        Whether to add default values.
+ * @return EXIT_SUCCESS or EXIT_FAILURE
+ */
+int lyd_defaults_add_unres(struct lyd_node **root, int options, struct ly_ctx *ctx, const struct lys_module **modules,
+                           int mod_count, const struct lyd_node *data_tree, struct lyd_node *act_notif,
+                           struct unres_data *unres, int wd);
+
+void lys_enable_deviations(struct lys_module *module);
+
+void lys_disable_deviations(struct lys_module *module);
 
 void lys_sub_module_remove_devs_augs(struct lys_module *module);
 
@@ -479,14 +573,10 @@ void lys_submodule_module_data_free(struct lys_submodule *submodule);
 int lys_copy_union_leafrefs(struct lys_module *mod, struct lys_node *parent, struct lys_type *type,
                             struct lys_type *prev_new, struct unres_schema *unres);
 
-const struct lys_module *lys_parse_mem_(struct ly_ctx *ctx, const char *data, LYS_INFORMAT format, int internal,
-                                        int implement);
+const struct lys_module *lys_parse_fd_(struct ly_ctx *ctx, int fd, LYS_INFORMAT format, const char *revision, int implement);
 
-/**
- * @brief Get know if the \p leaf is a key of the \p list
- * @return 0 for false, position of the key otherwise
- */
-int lys_is_key(struct lys_node_list *list, struct lys_node_leaf *leaf);
+const struct lys_module *lys_parse_mem_(struct ly_ctx *ctx, const char *data, LYS_INFORMAT format, const char *revision,
+                                        int internal, int implement);
 
 /**
  * @brief Get next augment from \p mod augmenting \p aug_target

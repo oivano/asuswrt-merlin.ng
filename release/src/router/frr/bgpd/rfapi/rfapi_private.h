@@ -47,7 +47,7 @@ struct rfapi_advertised_prefixes {
 };
 
 struct rfapi_descriptor {
-	struct route_node *un_node; /* backref to un table */
+	struct agg_node *un_node; /* backref to un table */
 
 	struct rfapi_descriptor *next; /* next vn_addr */
 
@@ -76,7 +76,7 @@ struct rfapi_descriptor {
 	struct rfapi_import_table *import_table;
 
 	uint32_t monitor_count;
-	struct route_table *mon;  /* rfapi_monitors */
+	struct agg_table *mon;    /* rfapi_monitors */
 	struct skiplist *mon_eth; /* ethernet monitors */
 
 	/*
@@ -85,10 +85,10 @@ struct rfapi_descriptor {
 	 * rsp_times      last time we sent response containing pfx
 	 */
 	uint32_t rib_prefix_count; /* pfxes with routes */
-	struct route_table *rib[AFI_MAX];
-	struct route_table *rib_pending[AFI_MAX];
+	struct agg_table *rib[AFI_MAX];
+	struct agg_table *rib_pending[AFI_MAX];
 	struct work_queue *updated_responses_queue;
-	struct route_table *rsp_times[AFI_MAX];
+	struct agg_table *rsp_times[AFI_MAX];
 
 	uint32_t rsp_counter;	 /* dedup initial rsp */
 	time_t rsp_time;	      /* dedup initial rsp */
@@ -171,7 +171,7 @@ struct rfapi_global_stats {
  * check vn address to get exact match.
  */
 struct rfapi {
-	struct route_table *un[AFI_MAX];
+	struct agg_table *un[AFI_MAX];
 	struct rfapi_import_table *imports; /* IPv4, IPv6 */
 	struct list descriptors;	    /* debug & resolve-nve imports */
 
@@ -198,8 +198,8 @@ struct rfapi {
 	 * bgp unicast or zebra, we need to keep track of information
 	 * related to expiring the routes according to the VNC lifetime
 	 */
-	struct route_table *rt_export_bgp[AFI_MAX];
-	struct route_table *rt_export_zebra[AFI_MAX];
+	struct agg_table *rt_export_bgp[AFI_MAX];
+	struct agg_table *rt_export_zebra[AFI_MAX];
 
 	/*
 	 * For VNC->BGP unicast exports in CE mode, we need a
@@ -212,7 +212,7 @@ struct rfapi {
 
 	/*
 	 * when importing bgp-direct routes in resolve-nve mode,
-	 * this list maps unicast route nexthops to their bgp_infos
+	 * this list maps unicast route nexthops to their bgp_path_infos
 	 * in the unicast table
 	 */
 	struct skiplist *resolve_nve_nexthop;
@@ -272,16 +272,13 @@ struct rfapi {
 			    ? ((prefix)->prefixlen == 128)                     \
 			    : 0))
 
-extern void rfapiQprefix2Rprefix(struct prefix *qprefix,
-				 struct rfapi_ip_prefix *rprefix);
-
 extern int rfapi_find_rfd(struct bgp *bgp, struct rfapi_ip_addr *vn_addr,
 			  struct rfapi_ip_addr *un_addr,
 			  struct rfapi_descriptor **rfd);
 
 extern void
 add_vnc_route(struct rfapi_descriptor *rfd, /* cookie + UN addr for VPN */
-	      struct bgp *bgp, int safi, struct prefix *p,
+	      struct bgp *bgp, int safi, const struct prefix *p,
 	      struct prefix_rd *prd, struct rfapi_ip_addr *nexthop,
 	      uint32_t *local_pref, /* host byte order */
 	      uint32_t *lifetime,   /* host byte order */
@@ -297,7 +294,7 @@ add_vnc_route(struct rfapi_descriptor *rfd, /* cookie + UN addr for VPN */
 #endif
 
 extern void del_vnc_route(struct rfapi_descriptor *rfd, struct peer *peer,
-			  struct bgp *bgp, safi_t safi, struct prefix *p,
+			  struct bgp *bgp, safi_t safi, const struct prefix *p,
 			  struct prefix_rd *prd, uint8_t type, uint8_t sub_type,
 			  struct rfapi_nexthop *lnh, int kill);
 
@@ -305,8 +302,6 @@ extern int rfapiCliGetPrefixAddr(struct vty *vty, const char *str,
 				 struct prefix *p);
 
 extern int rfapiGetVncLifetime(struct attr *attr, uint32_t *lifetime);
-
-extern int rfapiGetTunnelType(struct attr *attr, bgp_encap_types *type);
 
 extern int rfapiGetVncTunnelUnAddr(struct attr *attr, struct prefix *p);
 

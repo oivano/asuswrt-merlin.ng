@@ -20,38 +20,29 @@
 
 #include <zebra.h>
 
+#include "filter.h"
+
 #include "bfd.h"
+#include "bfdd_nb.h"
 #include "lib/version.h"
+#include "lib/command.h"
 
 
 /*
  * FRR related code.
  */
-DEFINE_MGROUP(BFDD, "Bidirectional Forwarding Detection Daemon");
-DEFINE_MTYPE(BFDD, BFDD_TMP, "short-lived temporary memory");
-DEFINE_MTYPE(BFDD, BFDD_CONFIG, "long-lived configuration memory");
-DEFINE_MTYPE(BFDD, BFDD_LABEL, "long-lived label memory");
-DEFINE_MTYPE(BFDD, BFDD_CONTROL, "long-lived control socket memory");
-DEFINE_MTYPE(BFDD, BFDD_NOTIFICATION, "short-lived control notification data");
+DEFINE_MGROUP(BFDD, "Bidirectional Forwarding Detection Daemon")
+DEFINE_MTYPE(BFDD, BFDD_CONTROL, "long-lived control socket memory")
+DEFINE_MTYPE(BFDD, BFDD_NOTIFICATION, "short-lived control notification data")
 
 /* Master of threads. */
 struct thread_master *master;
 
 /* BFDd privileges */
-static zebra_capabilities_t _caps_p[] = {ZCAP_BIND};
+static zebra_capabilities_t _caps_p[] = {ZCAP_BIND, ZCAP_SYS_ADMIN, ZCAP_NET_RAW};
 
-struct zebra_privs_t bfdd_privs = {
-#if defined(FRR_USER) && defined(FRR_GROUP)
-	.user = FRR_USER,
-	.group = FRR_GROUP,
-#endif
-#if defined(VTY_GROUP)
-	.vty_group = VTY_GROUP,
-#endif
-	.caps_p = _caps_p,
-	.cap_num_p = array_size(_caps_p),
-	.cap_num_i = 0,
-};
+/* BFD daemon information. */
+static struct frr_daemon_info bfdd_di;
 
 void socket_close(int *s)
 {
@@ -59,8 +50,8 @@ void socket_close(int *s)
 		return;
 
 	if (close(*s) != 0)
-		log_error("%s: close(%d): (%d) %s", __func__, *s, errno,
-			  strerror(errno));
+		zlog_err("%s: close(%d): (%d) %s", __func__, *s, errno,
+			 strerror(errno));
 
 	*s = -1;
 }
@@ -72,6 +63,8 @@ static void sigusr1_handler(void)
 
 static void sigterm_handler(void)
 {
+	bglobal.bg_shutdown = true;
+
 	/* Signalize shutdown. */
 	frr_early_fini();
 
@@ -84,18 +77,20 @@ static void sigterm_handler(void)
 	/* Shutdown and free all protocol related memory. */
 	bfd_shutdown();
 
-	/* Close all descriptors. */
-	socket_close(&bglobal.bg_echo);
-	socket_close(&bglobal.bg_shop);
-	socket_close(&bglobal.bg_mhop);
-	socket_close(&bglobal.bg_shop6);
-	socket_close(&bglobal.bg_mhop6);
-	socket_close(&bglobal.bg_vxlan);
+	bfd_vrf_terminate();
 
 	/* Terminate and free() FRR related memory. */
 	frr_fini();
 
 	exit(0);
+}
+
+static void sighup_handler(void)
+{
+	zlog_info("SIGHUP received");
+
+	/* Reload config file. */
+	vty_read_config(NULL, bfdd_di.config_file, config_default);
 }
 
 static struct quagga_signal_t bfd_signals[] = {
@@ -111,15 +106,28 @@ static struct quagga_signal_t bfd_signals[] = {
 		.signal = SIGINT,
 		.handler = &sigterm_handler,
 	},
+	{
+		.signal = SIGHUP,
+		.handler = &sighup_handler,
+	},
+};
+
+static const struct frr_yang_module_info *const bfdd_yang_modules[] = {
+	&frr_filter_info,
+	&frr_interface_info,
+	&frr_bfdd_info,
+	&frr_vrf_info,
 };
 
 FRR_DAEMON_INFO(bfdd, BFD, .vty_port = 2617,
 		.proghelp = "Implementation of the BFD protocol.",
 		.signals = bfd_signals, .n_signals = array_size(bfd_signals),
-		.privs = &bfdd_privs)
+		.privs = &bglobal.bfdd_privs,
+		.yang_modules = bfdd_yang_modules,
+		.n_yang_modules = array_size(bfdd_yang_modules))
 
 #define OPTION_CTLSOCK 1001
-static struct option longopts[] = {
+static const struct option longopts[] = {
 	{"bfdctl", required_argument, NULL, OPTION_CTLSOCK},
 	{0}
 };
@@ -130,43 +138,64 @@ static struct option longopts[] = {
  */
 struct bfd_global bglobal;
 
-struct bfd_diag_str_list diag_list[] = {
-	{.str = "NeighDown", .type = BFD_DIAGNEIGHDOWN},
-	{.str = "DetectTime", .type = BFD_DIAGDETECTTIME},
-	{.str = "AdminDown", .type = BFD_DIAGADMINDOWN},
+const struct bfd_diag_str_list diag_list[] = {
+	{.str = "control-expired", .type = BD_CONTROL_EXPIRED},
+	{.str = "echo-failed", .type = BD_ECHO_FAILED},
+	{.str = "neighbor-down", .type = BD_NEIGHBOR_DOWN},
+	{.str = "forwarding-reset", .type = BD_FORWARDING_RESET},
+	{.str = "path-down", .type = BD_PATH_DOWN},
+	{.str = "concatenated-path-down", .type = BD_CONCATPATH_DOWN},
+	{.str = "administratively-down", .type = BD_ADMIN_DOWN},
+	{.str = "reverse-concat-path-down", .type = BD_REVCONCATPATH_DOWN},
 	{.str = NULL},
 };
 
-struct bfd_state_str_list state_list[] = {
-	{.str = "AdminDown", .type = PTM_BFD_ADM_DOWN},
-	{.str = "Down", .type = PTM_BFD_DOWN},
-	{.str = "Init", .type = PTM_BFD_INIT},
-	{.str = "Up", .type = PTM_BFD_UP},
+const struct bfd_state_str_list state_list[] = {
+	{.str = "admin-down", .type = PTM_BFD_ADM_DOWN},
+	{.str = "down", .type = PTM_BFD_DOWN},
+	{.str = "init", .type = PTM_BFD_INIT},
+	{.str = "up", .type = PTM_BFD_UP},
 	{.str = NULL},
 };
 
 
 static void bg_init(void)
 {
-	TAILQ_INIT(&bglobal.bg_bcslist);
+	struct zebra_privs_t bfdd_privs = {
+#if defined(FRR_USER) && defined(FRR_GROUP)
+		.user = FRR_USER,
+		.group = FRR_GROUP,
+#endif
+#if defined(VTY_GROUP)
+		.vty_group = VTY_GROUP,
+#endif
+		.caps_p = _caps_p,
+		.cap_num_p = array_size(_caps_p),
+		.cap_num_i = 0,
+	};
 
-	bglobal.bg_shop = bp_udp_shop();
-	bglobal.bg_mhop = bp_udp_mhop();
-	bglobal.bg_shop6 = bp_udp6_shop();
-	bglobal.bg_mhop6 = bp_udp6_mhop();
-	bglobal.bg_echo = ptm_bfd_echo_sock_init();
-	bglobal.bg_vxlan = ptm_bfd_vxlan_sock_init();
+	TAILQ_INIT(&bglobal.bg_bcslist);
+	TAILQ_INIT(&bglobal.bg_obslist);
+
+	memcpy(&bglobal.bfdd_privs, &bfdd_privs,
+	       sizeof(bfdd_privs));
 }
 
 int main(int argc, char *argv[])
 {
-	const char *ctl_path = BFDD_CONTROL_SOCKET;
+	char ctl_path[512];
+	bool ctlsockused = false;
 	int opt;
+
+	/* Initialize system sockets. */
+	bg_init();
 
 	frr_preinit(&bfdd_di, argc, argv);
 	frr_opt_add("", longopts,
 		    "      --bfdctl       Specify bfdd control socket\n");
 
+	snprintf(ctl_path, sizeof(ctl_path), BFDD_CONTROL_SOCKET,
+		 "", "");
 	while (true) {
 		opt = frr_getopt(argc, argv, NULL);
 		if (opt == EOF)
@@ -174,7 +203,8 @@ int main(int argc, char *argv[])
 
 		switch (opt) {
 		case OPTION_CTLSOCK:
-			ctl_path = optarg;
+			strlcpy(ctl_path, optarg, sizeof(ctl_path));
+			ctlsockused = true;
 			break;
 
 		default:
@@ -183,43 +213,30 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	if (bfdd_di.pathspace && !ctlsockused)
+		snprintf(ctl_path, sizeof(ctl_path), BFDD_CONTROL_SOCKET,
+			 "/", bfdd_di.pathspace);
+
 #if 0 /* TODO add support for JSON configuration files. */
 	parse_config(conf);
 #endif
 
-	/* Initialize logging API. */
-	log_init(1, BLOG_DEBUG, &bfdd_di);
-
-	/* Initialize system sockets. */
-	bg_init();
+	/* Initialize FRR infrastructure. */
+	master = frr_init();
 
 	/* Initialize control socket. */
 	control_init(ctl_path);
 
-	/* Initialize FRR infrastructure. */
-	master = frr_init();
-
 	/* Initialize BFD data structures. */
 	bfd_initialize();
 
-	/* Initialize zebra connection. */
-	bfdd_zclient_init(&bfdd_privs);
+	bfd_vrf_init();
 
-	/* Add descriptors to the event loop. */
-	thread_add_read(master, bfd_recv_cb, NULL, bglobal.bg_shop,
-			&bglobal.bg_ev[0]);
-	thread_add_read(master, bfd_recv_cb, NULL, bglobal.bg_mhop,
-			&bglobal.bg_ev[1]);
-	thread_add_read(master, bfd_recv_cb, NULL, bglobal.bg_shop6,
-			&bglobal.bg_ev[2]);
-	thread_add_read(master, bfd_recv_cb, NULL, bglobal.bg_mhop6,
-			&bglobal.bg_ev[3]);
-	thread_add_read(master, bfd_recv_cb, NULL, bglobal.bg_echo,
-			&bglobal.bg_ev[4]);
-#if 0 /* TODO VxLAN support. */
-	thread_add_read(master, bfd_recv_cb, NULL, bglobal.bg_vxlan,
-			&bglobal.bg_ev[5]);
-#endif
+	access_list_init();
+
+	/* Initialize zebra connection. */
+	bfdd_zclient_init(&bglobal.bfdd_privs);
+
 	thread_add_read(master, control_accept, NULL, bglobal.bg_csock,
 			&bglobal.bg_csockev);
 

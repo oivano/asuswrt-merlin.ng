@@ -111,8 +111,6 @@ provides the following APIs:
 +============================+==================================================+
 | bgp_find_or_add_nexthop()  | find or add a nexthop in BGP nexthop table       |
 +----------------------------+--------------------------------------------------+
-| bgp_find_nexthop()         | find a nexthop in BGP nexthop table              |
-+----------------------------+--------------------------------------------------+
 | bgp_parse_nexthop_update() | parse a nexthop update message coming from zebra |
 +----------------------------+--------------------------------------------------+
 
@@ -241,7 +239,7 @@ Legend:
     /\   struct bgp_node: a BGP destination/route/prefix
     \/
 
-    [ ]  struct bgp_info: a BGP path (e.g. route received from a peer)
+    [ ]  struct bgp_path_info: a BGP path (e.g. route received from a peer)
 
      _
     (_)  struct bgp_nexthop_cache: a BGP nexthop
@@ -269,7 +267,7 @@ RNH table::
     O   O
        / \
       O   O
-   
+
    struct rnh
    {
      uint8_t flags;

@@ -48,7 +48,7 @@ struct ospf6_neighbor {
 	struct timeval last_changed;
 
 	/* Neighbor Router ID */
-	uint32_t router_id;
+	in_addr_t router_id;
 
 	/* Neighbor Interface ID */
 	ifindex_t ifindex;
@@ -56,10 +56,10 @@ struct ospf6_neighbor {
 	/* Router Priority of this neighbor */
 	uint8_t priority;
 
-	uint32_t drouter;
-	uint32_t bdrouter;
-	uint32_t prev_drouter;
-	uint32_t prev_bdrouter;
+	in_addr_t drouter;
+	in_addr_t bdrouter;
+	in_addr_t prev_drouter;
+	in_addr_t prev_bdrouter;
 
 	/* Options field (Capability) */
 	char options[3];
@@ -123,11 +123,7 @@ struct ospf6_neighbor {
 #define OSPF6_NEIGHBOR_EVENT_INACTIVITY_TIMER    10
 #define OSPF6_NEIGHBOR_EVENT_MAX_EVENT           11
 
-static const char *ospf6_neighbor_event_str[] = {
-	"NoEvent",      "HelloReceived", "2-WayReceived",   "NegotiationDone",
-	"ExchangeDone", "LoadingDone",   "AdjOK?",	  "SeqNumberMismatch",
-	"BadLSReq",     "1-WayReceived", "InactivityTimer",
-};
+extern const char *const ospf6_neighbor_event_str[];
 
 static inline const char *ospf6_neighbor_event_string(int event)
 {
@@ -138,7 +134,7 @@ static inline const char *ospf6_neighbor_event_string(int event)
 	return OSPF6_NEIGHBOR_UNKNOWN_EVENT_STRING;
 }
 
-extern const char *ospf6_neighbor_state_str[];
+extern const char *const ospf6_neighbor_state_str[];
 
 
 /* Function Prototypes */

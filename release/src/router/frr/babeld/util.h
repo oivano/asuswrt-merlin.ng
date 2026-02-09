@@ -27,6 +27,9 @@ THE SOFTWARE.
 #include "babeld.h"
 #include "babel_main.h"
 #include "log.h"
+#include "memory.h"
+
+DECLARE_MGROUP(BABELD)
 
 #if defined(i386) || defined(__mc68020__) || defined(__x86_64__)
 #define DO_NTOHS(_d, _s) do{ _d = ntohs(*(const unsigned short*)(_s)); }while(0)
@@ -119,7 +122,7 @@ void uchar_to_inaddr(struct in_addr *dest, const unsigned char *src);
 void in6addr_to_uchar(unsigned char *dest, const struct in6_addr *src);
 void uchar_to_in6addr(struct in6_addr *dest, const unsigned char *src);
 int daemonise(void);
-const unsigned char v4prefix[16];
+extern const unsigned char v4prefix[16];
 
 /* If debugging is disabled, we want to avoid calling format_address
    for every omitted debugging message.  So debug is a macro.  But

@@ -15,49 +15,91 @@ enterprise networks.
 
 .. _configuring-ospfd:
 
-Configuring ospfd
-=================
+Configuring OSPF
+================
 
-There are no *ospfd* specific options. Common options can be specified
-(:ref:`common-invocation-options`) to *ospfd*.  *ospfd* needs to acquire
-interface information from *zebra* in order to function. Therefore *zebra* must
-be running before invoking *ospfd*. Also, if *zebra* is restarted then *ospfd*
-must be too.
+*ospfd* accepts all :ref:`common-invocation-options`.
+
+.. option:: -n, --instance
+
+   Specify the instance number for this invocation of *ospfd*.
+
+.. option:: -a, --apiserver
+
+   Enable the OSPF API server. This is required to use ``ospfclient``.
+
+*ospfd* must acquire interface information from *zebra* in order to function.
+Therefore *zebra* must be running before invoking *ospfd*. Also, if *zebra* is
+restarted then *ospfd* must be too.
 
 Like other daemons, *ospfd* configuration is done in :abbr:`OSPF` specific
-configuration file :file:`ospfd.conf`.
+configuration file :file:`ospfd.conf` when the integrated config is not used.
+
+.. _ospf-multi-instance:
+
+Multi-instance Support
+----------------------
+
+OSPF supports multiple instances. Each instance is identified by a positive
+nonzero integer that must be provided when adding configuration items specific
+to that instance. Enabling instances is done with :file:`/etc/frr/daemons` in
+the following manner:
+
+::
+
+   ...
+   ospfd=yes
+   ospfd_instances=1,5,6
+   ...
+
+The ``ospfd_instances`` variable controls which instances are started and what
+their IDs are. In this example, after starting FRR you should see the following
+processes:
+
+.. code-block:: shell
+
+   # ps -ef | grep "ospfd"
+   frr      11816     1  0 17:30 ?        00:00:00 /usr/lib/frr/ospfd --daemon -A 127.0.0.1 -n 1
+   frr      11822     1  0 17:30 ?        00:00:00 /usr/lib/frr/ospfd --daemon -A 127.0.0.1 -n 2
+   frr      11828     1  0 17:30 ?        00:00:00 /usr/lib/frr/ospfd --daemon -A 127.0.0.1 -n 3
+
+
+The instance number should be specified in the config when addressing a particular instance:
+
+.. code-block:: frr
+
+   router ospf 5
+      ospf router-id 1.2.3.4
+      area 0.0.0.0 authentication message-digest
+      ...
 
 .. _ospf-router:
 
-OSPF router
-===========
+Routers
+-------
 
-To start OSPF process you have to specify the OSPF router. As of this
-writing, *ospfd* does not support multiple OSPF processes.
+To start OSPF process you have to specify the OSPF router.
 
-.. index:: router ospf
-.. clicmd:: router ospf
+.. index:: router ospf [(1-65535)] vrf NAME
+.. clicmd:: router ospf [(1-65535)] vrf NAME
 
-.. index:: no router ospf
-.. clicmd:: no router ospf
+.. index:: no router ospf [(1-65535)] vrf NAME
+.. clicmd:: no router ospf [(1-65535)] vrf NAME
 
-   Enable or disable the OSPF process. *ospfd* does not yet
-   support multiple OSPF processes. So you can not specify an OSPF process
-   number.
+   Enable or disable the OSPF process.
 
 .. index:: ospf router-id A.B.C.D
 .. clicmd:: ospf router-id A.B.C.D
 
-.. index:: no ospf router-id
-.. clicmd:: no ospf router-id
+.. index:: no ospf router-id [A.B.C.D]
+.. clicmd:: no ospf router-id [A.B.C.D]
 
-   This sets the router-ID of the OSPF process. The
-   router-ID may be an IP address of the router, but need not be - it can
-   be any arbitrary 32bit number. However it MUST be unique within the
-   entire OSPF domain to the OSPF speaker - bad things will happen if
-   multiple OSPF speakers are configured with the same router-ID! If one
-   is not specified then *ospfd* will obtain a router-ID
-   automatically from *zebra*.
+   This sets the router-ID of the OSPF process. The router-ID may be an IP
+   address of the router, but need not be - it can be any arbitrary 32bit
+   number. However it MUST be unique within the entire OSPF domain to the OSPF
+   speaker - bad things will happen if multiple OSPF speakers are configured
+   with the same router-ID! If one is not specified then *ospfd* will obtain a
+   router-ID automatically from *zebra*.
 
 .. index:: ospf abr-type TYPE
 .. clicmd:: ospf abr-type TYPE
@@ -135,8 +177,8 @@ writing, *ospfd* does not support multiple OSPF processes.
    OSPF (:ref:`redistribute-routes-to-ospf`). This is the only way to
    advertise non-OSPF links into stub areas.
 
-.. index:: timers throttle spf DELAY INITIAL-HOLDTIME MAX-HOLDTIME
-.. clicmd:: timers throttle spf DELAY INITIAL-HOLDTIME MAX-HOLDTIME
+.. index:: timers throttle spf (0-600000) (0-600000) (0-600000)
+.. clicmd:: timers throttle spf (0-600000) (0-600000) (0-600000)
 
 .. index:: no timers throttle spf
 .. clicmd:: no timers throttle spf
@@ -176,7 +218,7 @@ writing, *ospfd* does not support multiple OSPF processes.
    SPF-triggering event occurs within the hold-time of the previous SPF
    calculation.
 
-   This command supercedes the *timers spf* command in previous FRR
+   This command supersedes the *timers spf* command in previous FRR
    releases.
 
 .. index:: max-metric router-lsa [on-startup|on-shutdown] (5-86400)
@@ -268,11 +310,22 @@ writing, *ospfd* does not support multiple OSPF processes.
    In some cases it may be more convenient to enable OSPF on a per
    interface/subnet basis (:clicmd:`ip ospf area AREA [ADDR]`).
 
+.. index:: proactive-arp
+.. clicmd:: proactive-arp
+
+.. index:: no proactive-arp
+.. clicmd:: no proactive-arp
+
+   This command enables or disables sending ARP requests to update neighbor
+   table entries. It speeds up convergence for /32 networks on a P2P
+   connection. 
+
+   This feature is enabled by default.
 
 .. _ospf-area:
 
-OSPF area
-=========
+Areas
+-----
 
 .. index:: area A.B.C.D range A.B.C.D/M
 .. clicmd:: area A.B.C.D range A.B.C.D/M
@@ -510,8 +563,8 @@ OSPF area
 
 .. _ospf-interface:
 
-OSPF interface
-==============
+Interfaces
+----------
 
 .. index:: ip ospf area AREA [ADDR]
 .. clicmd:: ip ospf area AREA [ADDR]
@@ -620,6 +673,12 @@ OSPF interface
 .. index:: ip ospf network (broadcast|non-broadcast|point-to-multipoint|point-to-point)
 .. clicmd:: ip ospf network (broadcast|non-broadcast|point-to-multipoint|point-to-point)
 
+   When configuring a point-to-point network on an interface and the interface
+   has a /32 address associated with then OSPF will treat the interface
+   as being `unnumbered`.  If you are doing this you *must* set the
+   net.ipv4.conf.<interface name>.rp_filter value to 0.  In order for
+   the ospf multicast packets to be delivered by the kernel.
+
 .. index:: no ip ospf network
 .. clicmd:: no ip ospf network
 
@@ -645,11 +704,11 @@ OSPF interface
    retransmitting Database Description and Link State Request packets. The
    default value is 5 seconds.
 
-.. index:: ip ospf transmit-delay
-.. clicmd:: ip ospf transmit-delay
+.. index:: ip ospf transmit-delay (1-65535) [A.B.C.D]
+.. clicmd:: ip ospf transmit-delay (1-65535) [A.B.C.D]
 
-.. index:: no ip ospf transmit-delay
-.. clicmd:: no ip ospf transmit-delay
+.. index:: no ip ospf transmit-delay [(1-65535)] [A.B.C.D]
+.. clicmd:: no ip ospf transmit-delay [(1-65535)] [A.B.C.D]
 
    Set number of seconds for InfTransDelay value. LSAs' age should be
    incremented by this value when transmitting. The default value is 1 second.
@@ -662,10 +721,22 @@ OSPF interface
 
    Enable ospf on an interface and set associated area.
 
+OSPF route-map
+==============
+
+Usage of *ospfd*'s route-map support.
+
+.. index:: set metric [+|-](0-4294967295)
+.. clicmd:: set metric [+|-](0-4294967295)
+
+   Set a metric for matched route when sending announcement. Use plus (+) sign
+   to add a metric value to an existing metric. Use minus (-) sign to
+   substract a metric value from an existing metric.
+
 .. _redistribute-routes-to-ospf:
 
-Redistribute routes to OSPF
-===========================
+Redistribution
+--------------
 
 .. index:: redistribute (kernel|connected|static|rip|bgp)
 .. clicmd:: redistribute (kernel|connected|static|rip|bgp)
@@ -785,8 +856,8 @@ Redistribute routes to OSPF
 
 .. _showing-ospf-information:
 
-Showing OSPF information
-========================
+Showing Information
+===================
 
 .. _show-ip-ospf:
 
@@ -864,10 +935,13 @@ Opaque LSA
 .. index:: no capability opaque
 .. clicmd:: no capability opaque
 
-   *ospfd* supports Opaque LSA (:rfc:`2370`) as fundamental for MPLS Traffic
-   Engineering LSA. Prior to used MPLS TE, opaque-lsa must be enable in the
-   configuration file. Alternate command could be "mpls-te on"
-   (:ref:`ospf-traffic-engineering`).
+   *ospfd* supports Opaque LSA (:rfc:`2370`) as partial support for
+   MPLS Traffic Engineering LSAs. The opaque-lsa capability must be
+   enabled in the configuration. An alternate command could be
+   "mpls-te on" (:ref:`ospf-traffic-engineering`). Note that FRR
+   offers only partial support for some of the routing protocol
+   extensions that are used with MPLS-TE; it does not support a
+   complete RSVP-TE solution.
 
 .. index:: show ip ospf database (opaque-link|opaque-area|opaque-external)
 .. clicmd:: show ip ospf database (opaque-link|opaque-area|opaque-external)
@@ -893,6 +967,12 @@ Opaque LSA
 
 Traffic Engineering
 ===================
+
+.. note::
+
+   At this time, FRR offers partial support for some of the routing
+   protocol extensions that can be used with MPLS-TE. FRR does not
+   support a complete RSVP-TE solution currently.
 
 .. index:: mpls-te on
 .. clicmd:: mpls-te on
@@ -937,14 +1017,17 @@ Traffic Engineering
 Router Information
 ==================
 
-.. index:: router-info [as | area <A.B.C.D>]
-.. clicmd:: router-info [as | area <A.B.C.D>]
+.. index:: router-info [as | area]
+.. clicmd:: router-info [as | area]
 
 .. index:: no router-info
 .. clicmd:: no router-info
 
    Enable Router Information (:rfc:`4970`) LSA advertisement with AS scope
-   (default) or Area scope flooding when area is specified.
+   (default) or Area scope flooding when area is specified. Old syntax
+   `router-info area <A.B.C.D>` is always supported but mark as deprecated
+   as the area ID is no more necessary. Indeed, router information support
+   multi-area and detect automatically the areas.
 
 .. index:: pce address <A.B.C.D>
 .. clicmd:: pce address <A.B.C.D>
@@ -999,8 +1082,8 @@ Router Information
 Segment Routing
 ===============
 
-This is an EXPERIMENTAL support of Segment Routing as per draft
-`draft-ietf-ospf-segment-routing-extensions-24.txt` for MPLS dataplane.
+This is an EXPERIMENTAL support of Segment Routing as per `RFC 8665` for MPLS
+dataplane.
 
 .. index:: [no] segment-routing on
 .. clicmd:: [no] segment-routing on
@@ -1013,7 +1096,13 @@ This is an EXPERIMENTAL support of Segment Routing as per draft
 .. clicmd:: [no] segment-routing global-block (0-1048575) (0-1048575)
 
    Fix the Segment Routing Global Block i.e. the label range used by MPLS to
-   store label in the MPLS FIB.
+   store label in the MPLS FIB for Prefix SID.
+
+.. index:: [no] segment-routing local-block (0-1048575) (0-1048575)
+.. clicmd:: [no] segment-routing local-block (0-1048575) (0-1048575)
+
+   Fix the Segment Routing Local Block i.e. the label range used by MPLS to
+   store label in the MPLS FIB for Adjacency SID.
 
 .. index:: [no] segment-routing node-msd (1-16)
 .. clicmd:: [no] segment-routing node-msd (1-16)
@@ -1021,13 +1110,15 @@ This is an EXPERIMENTAL support of Segment Routing as per draft
    Fix the Maximum Stack Depth supported by the router. The value depend of the
    MPLS dataplane. E.g. for Linux kernel, since version 4.13 it is 32.
 
-.. index:: [no] segment-routing prefix A.B.C.D/M index (0-65535) [no-php-flag]
-.. clicmd:: [no] segment-routing prefix A.B.C.D/M index (0-65535) [no-php-flag]
+.. index:: [no] segment-routing prefix A.B.C.D/M index (0-65535) [no-php-flag|explicit-null]
+.. clicmd:: [no] segment-routing prefix A.B.C.D/M [index (0-65535)|no-php-flag|explicit-null]
 
    Set the Segment Routing index for the specified prefix. Note that, only
    prefix with /32 corresponding to a loopback interface are currently
    supported. The 'no-php-flag' means NO Penultimate Hop Popping that allows SR
-   node to request to its neighbor to not pop the label.
+   node to request to its neighbor to not pop the label. The 'explicit-null' means that
+   neighbor nodes must swap the incoming label by the MPLS Explicit Null label
+   before delivering the packet.
 
 .. index:: show ip ospf database segment-routing <adv-router ADVROUTER|self-originate> [json]
 .. clicmd:: show ip ospf database segment-routing <adv-router ADVROUTER|self-originate> [json]

@@ -97,7 +97,7 @@ void cmd_token_varname_set(struct cmd_token *token, const char *varname)
 			token->varname[i] = '_';
 			break;
 		default:
-			token->varname[i] = tolower((int)varname[i]);
+			token->varname[i] = tolower((unsigned char)varname[i]);
 		}
 	token->varname[len] = '\0';
 }
@@ -471,7 +471,7 @@ void cmd_graph_node_print_cb(struct graph_node *gn, struct buffer *buf)
 	struct cmd_token *tok = gn->data;
 	const char *color;
 
-	if (wasend == true) {
+	if (wasend) {
 		wasend = false;
 		return;
 	}

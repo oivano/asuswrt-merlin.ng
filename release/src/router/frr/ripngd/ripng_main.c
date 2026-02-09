@@ -27,7 +27,6 @@
 #include "vty.h"
 #include "command.h"
 #include "memory.h"
-#include "memory_vty.h"
 #include "thread.h"
 #include "log.h"
 #include "prefix.h"
@@ -35,18 +34,18 @@
 #include "privs.h"
 #include "sigevent.h"
 #include "vrf.h"
+#include "if_rmap.h"
 #include "libfrr.h"
+#include "routemap.h"
 
 #include "ripngd/ripngd.h"
+#include "ripngd/ripng_nb.h"
 
 /* RIPngd options. */
-#if CONFDATE > 20190521
-	CPP_NOTICE("-r / --retain has reached deprecation EOL, remove")
-#endif
-struct option longopts[] = {{"retain", no_argument, NULL, 'r'}, {0}};
+struct option longopts[] = {{0}};
 
 /* ripngd privileges */
-zebra_capabilities_t _caps_p[] = {ZCAP_NET_RAW, ZCAP_BIND};
+zebra_capabilities_t _caps_p[] = {ZCAP_NET_RAW, ZCAP_BIND, ZCAP_SYS_ADMIN};
 
 struct zebra_privs_t ripngd_privs = {
 #if defined(FRR_USER)
@@ -59,7 +58,7 @@ struct zebra_privs_t ripngd_privs = {
 	.vty_group = VTY_GROUP,
 #endif
 	.caps_p = _caps_p,
-	.cap_num_p = 2,
+	.cap_num_p = array_size(_caps_p),
 	.cap_num_i = 0};
 
 
@@ -72,13 +71,9 @@ static struct frr_daemon_info ripngd_di;
 static void sighup(void)
 {
 	zlog_info("SIGHUP received");
-	ripng_clean();
-	ripng_reset();
 
 	/* Reload config file. */
-	vty_read_config(ripngd_di.config_file, config_default);
-
-	/* Try to return to normal operation. */
+	vty_read_config(NULL, ripngd_di.config_file, config_default);
 }
 
 /* SIGINT handler. */
@@ -86,8 +81,8 @@ static void sigint(void)
 {
 	zlog_notice("Terminating on signal");
 
-	ripng_clean();
-
+	ripng_vrf_terminate();
+	if_rmap_terminate();
 	ripng_zebra_stop();
 	frr_fini();
 	exit(0);
@@ -118,6 +113,14 @@ struct quagga_signal_t ripng_signals[] = {
 	},
 };
 
+static const struct frr_yang_module_info *const ripngd_yang_modules[] = {
+	&frr_filter_info,
+	&frr_interface_info,
+	&frr_ripngd_info,
+	&frr_route_map_info,
+	&frr_vrf_info,
+};
+
 FRR_DAEMON_INFO(ripngd, RIPNG, .vty_port = RIPNG_VTY_PORT,
 
 		.proghelp = "Implementation of the RIPng routing protocol.",
@@ -125,12 +128,12 @@ FRR_DAEMON_INFO(ripngd, RIPNG, .vty_port = RIPNG_VTY_PORT,
 		.signals = ripng_signals,
 		.n_signals = array_size(ripng_signals),
 
-		.privs = &ripngd_privs, )
+		.privs = &ripngd_privs,
 
-#if CONFDATE > 20190521
-CPP_NOTICE("-r / --retain has reached deprecation EOL, remove")
-#endif
-#define DEPRECATED_OPTIONS "r"
+		.yang_modules = ripngd_yang_modules,
+		.n_yang_modules = array_size(ripngd_yang_modules), )
+
+#define DEPRECATED_OPTIONS ""
 
 /* RIPngd main routine. */
 int main(int argc, char **argv)
@@ -166,12 +169,12 @@ int main(int argc, char **argv)
 	master = frr_init();
 
 	/* Library inits. */
-	vrf_init(NULL, NULL, NULL, NULL);
+	ripng_vrf_init();
 
 	/* RIPngd inits. */
 	ripng_init();
+	ripng_cli_init();
 	zebra_init(master);
-	ripng_peer_init();
 
 	frr_config_fork();
 	frr_run(master);

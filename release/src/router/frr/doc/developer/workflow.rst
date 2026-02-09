@@ -73,14 +73,20 @@ Releases
 FRR employs a ``<MAJOR>.<MINOR>.<BUGFIX>`` versioning scheme.
 
 ``MAJOR``
-   Significant new features or multiple minor features. The addition of a new
-   routing protocol or daemon would fall under this class.
+   Significant new features or multiple minor features. This should mostly
+   cover any kind of disruptive change that is visible or "risky" to operators.
+   New features or protocols do not necessarily trigger this. (This was changed
+   for FRR 7.x after feedback from users that the pace of major version number
+   increments was too high.)
 
 ``MINOR``
-   Small features, e.g. options for automatic BGP shutdown.
+   General incremental development releases, excluding "major" changes
+   mentioned above.  Not necessarily fully backwards compatible, as smaller
+   (but still visible) changes or deprecated feature removals may still happen.
+   However, there shouldn't be any huge "surprises" between minor releases.
 
 ``BUGFIX``
-   Fixes for actual bugs and/or security issues.
+   Fixes for actual bugs and/or security issues.  Fully compatible.
 
 We will pull a new development branch for the next release every 4 months.  The
 current schedule is Feb/June/October 1. The decision for a ``MAJOR/MINOR``
@@ -91,17 +97,114 @@ documentation and packaging systems will be updated to reflect the next
 possible release name to allow for easy distinguishing.
 
 After one month the development branch will be renamed to
-``stable/MAJOR.MINOR``.  This process is not held up unless a crash or security
-issue has been found and needs to be addressed. Issues being fixed will not
-cause a delay.
+``stable/MAJOR.MINOR``.  The branch is a stable branch. This process is not
+held up unless a crash or security issue has been found and needs to
+be addressed. Issues being fixed will not cause a delay.
 
 Bugfix releases are made as needed at 1 month intervals until the next
-``MAJOR.MINOR`` relese branch is pulled. Depending on the severity of the bugs,
+``MAJOR.MINOR`` release branch is pulled. Depending on the severity of the bugs,
 bugfix releases may occur sooner.
 
-Bugfixes are applied to the two most recent releases. Security fixes are
-backported to all releases less than or equal to one year old. Security fixes
-may also be backported to older releases depending on severity.
+Bugfixes are applied to the two most recent releases. However, backporting of bug
+fixes to older than the two most recent releases will not be prevented, if acked
+under the classical development workflow applying for a pull request.
+
+Security fixes are backported to all releases less than or equal to at least one
+year old. Security fixes may also be backported to older releases depending on
+severity.
+
+For detailed instructions on how to produce an FRR release, refer to
+:ref:`frr-release-procedure`.
+
+
+Long term support branches ( LTS )
+-----------------------------------------
+
+This kind of branch is not yet officially supported, and need experimentation
+before being effective.
+
+Previous definition of releases prevents long term support of previous releases.
+For instance, bug and security fixes are not applied if the stable branch is too
+old.
+
+Because the FRR users have a need to backport bug and security fixes after the
+stable branch becomes too old, there is a need to provide support on a long term
+basis on that stable branch. If that support is applied on that stable branch,
+then that branch is a long term support branch.
+
+Having a LTS branch requires extra-work and requires one person to be in charge
+of that maintenance branch for a certain amount of time. The amount of time will
+be by default set to 4 months, and can be increased. 4 months stands for the time
+between two releases, this time can be applied to the decision to continue with a
+LTS release or not. In all cases, that time period will be well-defined and
+published. Also, a self nomination from a person that proposes to handle the LTS
+branch is required. The work can be shared by multiple people. In all cases, there
+must be at least one person that is in charge of the maintenance branch. The person
+on people responsible for a maintenance branch must be a FRR maintainer. Note that
+they may choose to abandon support for the maintenance branch at any time. If
+no one takes over the responsibility of the LTS branch, then the support will be
+discontinued.
+
+The LTS branch duties are the following ones:
+
+- organise meetings on a (bi-)weekly or monthly basis, the handling of issues
+  and pull requested relative to that branch. When time permits, this may be done
+  during the regularly scheduled FRR meeting.
+
+- ensure the stability of the branch, by using and eventually adapting the
+  checking the CI tools of FRR ( indeed, maintaining may lead to create
+  maintenance branches for topotests or for CI).
+
+It will not be possible to backport feature requests to LTS branches. Actually, it
+is a false good idea to use LTS for that need. Introducing feature requests may
+break the paradigm where all more recent releases should also include the feature
+request. This would require the LTS maintainer to ensure that all more recent
+releases have support for this feature request. Moreover, introducing features
+requests may result in breaking the stability of the branch. LTS branches are first
+done to bring long term support for stability.
+
+Development Branches
+--------------------
+
+Occassionally the community will desire the ability to work together
+on a feature that is considered useful to FRR.  In this case the
+parties may ask the Maintainers for the creation of a development
+branch in the main FRR repository.  Requirements for this to happen
+are:
+
+- A one paragraph description of the feature being implemented to
+  allow for the facilitation of discussion about the feature.  This
+  might include pointers to relevant RFC's or presentations that
+  explain what is planned.  This is intended to set a somewhat
+  low bar for organization.
+- A branch maintainer must be named.  This person is responsible for
+  keeping the branch up to date, and general communication about the
+  project with the other FRR Maintainers.  Additionally this person
+  must already be a FRR Maintainer.
+- Commits to this branch must follow the normal PR and commit process
+  as outlined in other areas of this document.  The goal of this is
+  to prevent the current state where large features are submitted
+  and are so large they are difficult to review.
+
+After a development branch has completed the work together, a final
+review can be made and the branch merged into master.  If a development
+branch is becomes un-maintained or not being actively worked on after
+three months then the Maintainers can decide to remove the branch.
+
+Debian Branches
+---------------
+
+The Debian project contains "official" packages for FRR.  While FRR
+Maintainers may participate in creating these, it is entirely the Debian
+project's decision what to ship and how to work on this.
+
+As a courtesy and for FRR's benefit, this packaging work is currently visible
+in git branches named ``debian/*`` on the main FRR git repository.  These
+branches are for the exclusive use by people involved in Debian packaging work
+for FRR.  Direct commit access may be handed out and FRR git rules (review,
+testing, etc.) do not apply.  Do not push to these branches without talking
+to the people noted under ``Maintainer:`` and ``Uploaders:`` in
+``debian/control`` on the target branch -- even if you are a FRR Maintainer.
 
 Changelog
 ---------
@@ -115,7 +218,6 @@ Submitting Patches and Enhancements
 
 FRR accepts patches from two sources:
 
-- Email (git format-patch)
 - GitHub pull request
 
 Contributors are highly encouraged to use GitHub's fork-and-PR workflow. It is
@@ -135,28 +237,10 @@ systems. Once the automated tests succeed, other developers will review your
 code for quality and correctness. After any concerns are resolved, your code
 will be merged into the branch it was submitted against.
 
-Patch Submission via Mailing List
----------------------------------
-
-As an alternative submission method, a patch can be mailed to the
-development mailing list. Patches received on the mailing list will be
-picked up by Patchwork and tested against the latest development branch.
-
-The recommended way to send the patch (or series of NN patches) to the
-list is by using ``git send-email`` as follows (assuming they are the N
-most recent commit(s) in your git history)::
-
-    git send-email -NN --annotate --to=dev@lists.frrouting.org
-
-If your commits do not already contain a ``Signed-off-by`` line, then
-use the following command to add it (after making sure you agree to the
-Developer Certificate of Origin as outlined above)::
-
-    git send-email -NN --annotate --signoff --to=dev@lists.frrouting.org
-
-Submitting multi-commit patches as a GitHub pull request is **strongly
-encouraged** and increases the probability of your patch getting reviewed and
-merged in a timely manner.
+The title of the pull request should provide a high level technical
+summary of the included patches.  The description should provide
+additional details that will help the reviewer to understand the context
+of the included patches.
 
 .. _license-for-contributions:
 
@@ -165,6 +249,12 @@ License for Contributions
 FRR is under a “GPLv2 or later” license. Any code submitted must be released
 under the same license (preferred) or any license which allows redistribution
 under this GPLv2 license (eg MIT License).
+It is forbidden to push any code that prevents from using GPLv3 license. This
+becomes a community rule, as FRR produces binaries that links with Apache 2.0
+libraries. Apache 2.0 and GPLv2 license are incompatible, if put together.
+Please see `<http://www.apache.org/licenses/GPL-compatibility.html>`_ for
+more information. This rule guarantees the user to distribute FRR binary code
+without any licensing issues.
 
 Pre-submission Checklist
 ------------------------
@@ -184,7 +274,10 @@ Pre-submission Checklist
    -  ``make test``
 
 - In the case of a major new feature or other significant change, document
-  plans for continued maintenance of the feature
+  plans for continued maintenance of the feature.  In addition it is a
+  requirement that automated testing must be written that exercises
+  the new feature within our existing CI infrastructure.  Also the
+  addition of automated testing to cover any pull request is encouraged.
 
 .. _signing-off:
 
@@ -193,6 +286,11 @@ Signing Off
 Code submitted to FRR must be signed off. We have the same requirements for
 using the signed-off-by process as the Linux kernel. In short, you must include
 a ``Signed-off-by`` tag in every patch.
+
+An easy way to do this is to use ``git commit -s`` where ``-s`` will automatically
+append a signed-off line to the end of your commit message. Also, if you commit
+and forgot to add the line you can use ``git commit --amend -s`` to add the
+signed-off line to the last commit.
 
 ``Signed-off-by`` is a developer's certification that they have the right to
 submit the patch for inclusion into the project. It is an agreement to the
@@ -270,6 +368,14 @@ After Submitting Your Changes
    -  An author must never delete or manually dismiss someone else's comments
       or review.  (A review may be overridden by agreement in the weekly
       technical meeting.)
+   -  When you have addressed someone's review comments, please click the
+      "re-request review" button (in the top-right corner of the PR page, next
+      to the reviewer's name, an icon that looks like "reload")
+   -  The responsibility for keeping a PR moving rests with the author at
+      least as long as there are either negative CI results or negative review
+      comments.  If you forget to mark a review comment as addressed (by
+      clicking re-request review), the reviewer may very well not notice and
+      won't come back to your PR.
    -  Automatically generated comments, e.g., those generated by CI systems,
       may be deleted by authors and others when such comments are not the most
       recent results from that automated comment source.
@@ -300,6 +406,19 @@ Documentation should be written in reStructuredText. Sphinx extensions may be
 utilized but pure ReST is preferred where possible. See
 :ref:`documentation`.
 
+Use of C++
+----------
+
+While C++ is not accepted for core components of FRR, extensions, modules or
+other distinct components may want to use C++ and include FRR header files.
+There is no requirement on contributors to work to retain C++ compatibility,
+but fixes for C++ compatibility are welcome.
+
+This implies that the burden of work to keep C++ compatibility is placed with
+the people who need it, and they may provide it at their leisure to the extent
+it is useful to them.  So, if only a subset of header files, or even parts of
+a header file are made available to C++, this is perfectly fine.
+
 Code Reviews
 ============
 
@@ -314,7 +433,7 @@ system in which submissions from an individual representing one company should
 be merged by someone unaffiliated with that company.
 
 Guidelines for code review
-""""""""""""""""""""""""""
+--------------------------
 
 - As a rule of thumb, the depth of the review should be proportional to the
   scope and / or impact of the patch.
@@ -329,6 +448,33 @@ Guidelines for code review
 
 - For a PR you marked with "Changes requested", please respond to updates in a
   timely manner to avoid impeding the flow of development.
+
+- Rejected or obsolete PRs are generally closed by the submitter based
+  on requests and/or agreement captured in a PR comment.  The comment
+  may originate with a reviewer or document agreement reached on Slack,
+  the Development mailing list, or the weekly technical meeting.
+
+- Reviewers may ask for new automated testing if they feel that the
+  code change is large enough/significant enough to warrant such
+  a requirement.
+
+For project members with merge permissions, the following patterns have
+emerged:
+
+- a PR with any reviews requesting changes may not be merged.
+
+- a PR with any negative CI result may not be merged.
+
+- an open "yellow" review mark ("review requested, but not done") should be
+  given some time (a few days up to weeks, depending on the size of the PR),
+  but is not a merge blocker.
+
+- a "textbubble" review mark ("review comments, but not positive/negative")
+  should be read through but is not a merge blocker.
+
+- non-trivial PRs are generally given some time (again depending on the size)
+  for people to mark an interest in reviewing.  Trivial PRs may be merged
+  immediately when CI is green.
 
 
 Coding Practices & Style
@@ -410,11 +556,60 @@ your new claim at the end of the list.
      * ...
      */
 
+Defensive coding requirements
+-----------------------------
+
+In general, code submitted into FRR will be rejected if it uses unsafe
+programming practices.  While there is no enforced overall ruleset, the
+following requirements have achieved consensus:
+
+- ``strcpy``, ``strcat`` and ``sprintf`` are inacceptable without exception.
+  Use ``strlcpy``, ``strlcat`` and ``snprintf`` instead.  (Rationale:  even if
+  you know the operation cannot overflow the buffer, a future code change may
+  inadvertedly introduce an overflow.)
+
+- buffer size arguments, particularly to ``strlcpy`` and ``snprintf``, must
+  use ``sizeof()`` whereever possible.  Particularly, do not use a size
+  constant in these cases.  (Rationale:  changing a buffer to another size
+  constant may leave the write operations on a now-incorrect size limit.)
+
+- For stack allocated structs and arrays that should be zero initialized,
+  prefer initializer expressions over ``memset()`` wherever possible. This
+  helps prevent ``memset()`` calls being missed in branches, and eliminates the
+  error class of an incorrect ``size`` argument to ``memset()``.
+
+  For example, instead of:
+
+  .. code-block:: c
+
+     struct foo mystruct;
+     ...
+     memset(&mystruct, 0x00, sizeof(struct foo));
+
+  Prefer:
+
+  .. code-block:: c
+
+     struct foo mystruct = {};
+
+- Do not zero initialize stack allocated values that must be initialized with a
+  nonzero value in order to be used. This way the compiler and memory checking
+  tools can catch uninitialized value use that would otherwise be suppressed by
+  the (incorrect) zero initialization.
+
+Other than these specific rules, coding practices from the Linux kernel as
+well as CERT or MISRA C guidelines may provide useful input on safe C code.
+However, these rules are not applied as-is;  some of them expressly collide
+with established practice.
+
 Code Formatting
 ---------------
 
-FRR uses Linux kernel style except where noted below. Code which does not
-comply with these style guidelines will not be accepted.
+C Code
+^^^^^^
+
+For C code, FRR uses Linux kernel style except where noted below. Code which
+does not comply with these style guidelines will not be accepted.
 
 The project provides multiple tools to allow you to correctly style your code
 as painlessly as possible, primarily built around ``clang-format``.
@@ -621,6 +816,28 @@ BSD coding style applies to:
 
 -  ``ldpd/``
 
+YANG
+^^^^
+
+FRR uses YANG to define data models for its northbound interface. YANG models
+should follow conventions used by the IETF standard models. From a practical
+standpoint, this corresponds to the output produced by the ``yanglint`` tool
+included in the ``libyang`` project, which is used by FRR to parse and validate
+YANG models. You should run the following command on all YANG documents you
+write:
+
+.. code-block:: console
+
+   yanglint -f yang <model>
+
+The output of this command should be identical to the input file. The sole
+exception to this is comments. ``yanglint`` does not support comments and will
+strip them from its output. You may include comments in your YANG documents,
+but they should be indented appropriately (use spaces). Where possible,
+comments should be eschewed in favor of a suitable ``description`` statement.
+
+In short, a diff between your input file and the output of ``yanglint`` should
+either be empty or contain only comments.
 
 Specific Exceptions
 ^^^^^^^^^^^^^^^^^^^
@@ -681,9 +898,32 @@ ways that can be unexpected for the original implementor. As such debugs
 ability to turn on/off debugs from the CLI and it is expected that the
 developer will use this convention to allow control of their debugs.
 
+Custom syntax-like block macros
+-------------------------------
+
+FRR uses some macros that behave like the ``for`` or ``if`` C keywords.  These
+macros follow these patterns:
+
+- loop-style macros are named ``frr_each_*`` (and ``frr_each``)
+- single run macros are named ``frr_with_*``
+- to avoid confusion, ``frr_with_*`` macros must always use a ``{ ... }``
+  block even if the block only contains one statement.  The ``frr_each``
+  constructs are assumed to be well-known enough to use normal ``for`` rules.
+- ``break``, ``return`` and ``goto`` all work correctly.  For loop-style
+  macros, ``continue`` works correctly too.
+
+Both the ``each`` and ``with`` keywords are inspired by other (more
+higher-level) programming languages that provide these constructs.
+
+There are also some older iteration macros, e.g. ``ALL_LIST_ELEMENTS`` and
+``FOREACH_AFI_SAFI``.  These macros in some cases do **not** fulfill the above
+pattern (e.g. ``break`` does not work in ``FOREACH_AFI_SAFI`` because it
+expands to 2 nested loops.)
+
 Static Analysis and Sanitizers
 ------------------------------
-Clang/LLVM comes with a variety of tools that can be used to help find bugs in FRR.
+Clang/LLVM and GCC come with a variety of tools that can be used to help find
+bugs in FRR.
 
 clang-analyze
    This is a static analyzer that scans the source code looking for patterns
@@ -727,10 +967,30 @@ All of the above tools are available in the Clang/LLVM toolchain since 3.4.
 AddressSanitizer and ThreadSanitizer are available in recent versions of GCC,
 but are no longer actively maintained. MemorySanitizer is not available in GCC.
 
+.. note::
+
+   The different Sanitizers are mostly incompatible with each other.  Please
+   refer to GCC/LLVM documentation for details.
+
 Additionally, the FRR codebase is regularly scanned with Coverity.
 Unfortunately Coverity does not have the ability to handle scanning pull
 requests, but after code is merged it will send an email notifying project
 members with Coverity access of newly introduced defects.
+
+Executing non-installed dynamic binaries
+----------------------------------------
+
+Since FRR uses the GNU autotools build system, it inherits its shortcomings.
+To execute a binary directly from the build tree under a wrapper like
+`valgrind`, `gdb` or `strace`, use::
+
+   ./libtool --mode=execute valgrind [--valgrind-opts] zebra/zebra [--zebra-opts]
+
+While replacing valgrind/zebra as needed.  The `libtool` script is found in
+the root of the build directory after `./configure` has completed.  Its purpose
+is to correctly set up `LD_LIBRARY_PATH` so that libraries from the build tree
+are used.  (On some systems, `libtool` is also available from PATH, but this is
+not always the case.)
 
 CLI changes
 -----------
@@ -768,6 +1028,8 @@ That said, compatibility measures can (and should) be removed when either:
 -  some measure of time (dependent on the specific case) has passed, so that
    the compatibility grace period is considered expired.
 
+For CLI commands, the deprecation period is 1 year.
+
 In all cases, compatibility pieces should be marked with compiler/preprocessor
 annotations to print warnings at compile time, pointing to the appropriate
 update path. A ``-Werror`` build should fail if compatibility bits are used. To
@@ -792,6 +1054,22 @@ Miscellaneous
 
 When in doubt, follow the guidelines in the Linux kernel style guide, or ask on
 the development mailing list / public Slack instance.
+
+JSON Output
+^^^^^^^^^^^
+
+* All JSON keys are to be camelCased, with no spaces
+* Commands which output JSON should produce ``{}`` if they have nothing to
+  display
+
+Use of const
+^^^^^^^^^^^^
+
+Please consider using ``const`` when possible: it's a useful hint to
+callers about the limits to side-effects from your apis, and it makes
+it possible to use your apis in paths that involve ``const``
+objects. If you encounter existing apis that *could* be ``const``,
+consider including changes in your own pull-request.
 
 
 .. _documentation:

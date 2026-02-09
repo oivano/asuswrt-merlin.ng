@@ -27,6 +27,10 @@
 
 #include "vty.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* return type when this error indication stuff is used.
  *
  * guaranteed to have boolean evaluation to "false" when OK, "true" when error
@@ -154,6 +158,7 @@ void log_ref_display(struct vty *vty, uint32_t code, bool json);
  */
 void log_ref_init(void);
 void log_ref_fini(void);
+void log_ref_vty_init(void);
 
 /* get error details.
  *
@@ -252,5 +257,9 @@ DEFUN("bla")
 }
 
 #endif /* THIS_IS_AN_EXAMPLE */
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _FERR_H */

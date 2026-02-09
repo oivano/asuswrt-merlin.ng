@@ -26,15 +26,18 @@
 #define BGP_WITHDRAW_LABEL 0x800000
 #define BGP_PREVENT_VRF_2_VRF_LEAK 0xFFFFFFFE
 
-struct bgp_node;
-struct bgp_info;
+struct bgp_dest;
+struct bgp_path_info;
 struct peer;
 
-extern void bgp_reg_dereg_for_label(struct bgp_node *rn, struct bgp_info *ri,
-				    int reg);
+extern int bgp_reg_for_label_callback(mpls_label_t new_label, void *labelid,
+				    bool allocated);
+extern void bgp_reg_dereg_for_label(struct bgp_dest *dest,
+				    struct bgp_path_info *pi, bool reg);
 extern int bgp_parse_fec_update(void);
-extern mpls_label_t bgp_adv_label(struct bgp_node *rn, struct bgp_info *ri,
-				  struct peer *to, afi_t afi, safi_t safi);
+extern mpls_label_t bgp_adv_label(struct bgp_dest *dest,
+				  struct bgp_path_info *pi, struct peer *to,
+				  afi_t afi, safi_t safi);
 
 extern int bgp_nlri_parse_label(struct peer *peer, struct attr *attr,
 				struct bgp_nlri *packet);
@@ -56,7 +59,7 @@ static inline int bgp_is_withdraw_label(mpls_label_t *label)
 
 	/* The check on pkt[2] for 0x00 or 0x02 is in case bgp_set_valid_label()
 	 * was called on the withdraw label */
-	if ((pkt[0] == 0x80) && (pkt[1] == 0x00)
+	if (((pkt[0] == 0x80) || (pkt[0] == 0x00)) && (pkt[1] == 0x00)
 	    && ((pkt[2] == 0x00) || (pkt[2] == 0x02)))
 		return 1;
 	return 0;
@@ -84,15 +87,15 @@ static inline void bgp_unset_valid_label(mpls_label_t *label)
 		t[2] &= ~0x02;
 }
 
-static inline void bgp_register_for_label(struct bgp_node *rn,
-					  struct bgp_info *ri)
+static inline void bgp_register_for_label(struct bgp_dest *dest,
+					  struct bgp_path_info *pi)
 {
-	bgp_reg_dereg_for_label(rn, ri, 1);
+	bgp_reg_dereg_for_label(dest, pi, true);
 }
 
-static inline void bgp_unregister_for_label(struct bgp_node *rn)
+static inline void bgp_unregister_for_label(struct bgp_dest *dest)
 {
-	bgp_reg_dereg_for_label(rn, NULL, 0);
+	bgp_reg_dereg_for_label(dest, NULL, false);
 }
 
 /* Label stream to value */

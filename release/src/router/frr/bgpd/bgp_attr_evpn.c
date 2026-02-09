@@ -45,7 +45,7 @@ void bgp_add_routermac_ecom(struct attr *attr, struct ethaddr *routermac)
 	memcpy(&routermac_ecom.val[2], routermac->octet, ETH_ALEN);
 	if (!attr->ecommunity)
 		attr->ecommunity = ecommunity_new();
-	ecommunity_add_val(attr->ecommunity, &routermac_ecom);
+	ecommunity_add_val(attr->ecommunity, &routermac_ecom, false, false);
 	ecommunity_str(attr->ecommunity);
 }
 
@@ -54,45 +54,25 @@ void bgp_add_routermac_ecom(struct attr *attr, struct ethaddr *routermac)
  * format accepted: AA:BB:CC:DD:EE:FF:GG:HH:II:JJ
  * if id is null, check only is done
  */
-int str2esi(const char *str, struct eth_segment_id *id)
+bool str2esi(const char *str, esi_t *id)
 {
-	unsigned int a[ESI_LEN];
+	unsigned int a[ESI_BYTES];
 	int i;
 
 	if (!str)
-		return 0;
+		return false;
 	if (sscanf(str, "%2x:%2x:%2x:%2x:%2x:%2x:%2x:%2x:%2x:%2x", a + 0, a + 1,
 		   a + 2, a + 3, a + 4, a + 5, a + 6, a + 7, a + 8, a + 9)
-	    != ESI_LEN) {
+	    != ESI_BYTES) {
 		/* error in incoming str length */
-		return 0;
+		return false;
 	}
 	/* valid mac address */
 	if (!id)
-		return 1;
-	for (i = 0; i < ESI_LEN; ++i)
+		return true;
+	for (i = 0; i < ESI_BYTES; ++i)
 		id->val[i] = a[i] & 0xff;
-	return 1;
-}
-
-char *esi2str(struct eth_segment_id *id)
-{
-	char *ptr;
-	uint8_t *val;
-
-	if (!id)
-		return NULL;
-
-	val = id->val;
-	ptr = (char *)XMALLOC(MTYPE_TMP,
-			      (ESI_LEN * 2 + ESI_LEN - 1 + 1) * sizeof(char));
-
-	snprintf(ptr, (ESI_LEN * 2 + ESI_LEN - 1 + 1),
-		 "%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x", val[0],
-		 val[1], val[2], val[3], val[4], val[5], val[6], val[7], val[8],
-		 val[9]);
-
-	return ptr;
+	return true;
 }
 
 char *ecom_mac2str(char *ecom_mac)
@@ -106,14 +86,14 @@ char *ecom_mac2str(char *ecom_mac)
 }
 
 /* Fetch router-mac from extended community */
-void bgp_attr_rmac(struct attr *attr, struct ethaddr *rmac)
+bool bgp_attr_rmac(struct attr *attr, struct ethaddr *rmac)
 {
 	int i = 0;
 	struct ecommunity *ecom;
 
 	ecom = attr->ecommunity;
 	if (!ecom || !ecom->size)
-		return;
+		return false;
 
 	/* If there is a router mac extended community, set RMAC in attr */
 	for (i = 0; i < ecom->size; i++) {
@@ -130,7 +110,9 @@ void bgp_attr_rmac(struct attr *attr, struct ethaddr *rmac)
 			continue;
 
 		memcpy(rmac, pnt, ETH_ALEN);
+		return true;
 	}
+	return false;
 }
 
 /*
@@ -184,7 +166,7 @@ uint32_t bgp_attr_mac_mobility_seqnum(struct attr *attr, uint8_t *sticky)
 	 * one.
 	 */
 	for (i = 0; i < ecom->size; i++) {
-		uint8_t *pnt;
+		const uint8_t *pnt;
 		uint8_t type, sub_type;
 		uint32_t seq_num;
 
@@ -213,7 +195,8 @@ uint32_t bgp_attr_mac_mobility_seqnum(struct attr *attr, uint8_t *sticky)
 /*
  * return true if attr contains router flag extended community
  */
-void bgp_attr_evpn_na_flag(struct attr *attr, uint8_t *router_flag)
+void bgp_attr_evpn_na_flag(struct attr *attr,
+		uint8_t *router_flag, bool *proxy)
 {
 	struct ecommunity *ecom;
 	int i;
@@ -235,10 +218,14 @@ void bgp_attr_evpn_na_flag(struct attr *attr, uint8_t *router_flag)
 		if (type == ECOMMUNITY_ENCODE_EVPN &&
 		    sub_type == ECOMMUNITY_EVPN_SUBTYPE_ND) {
 			val = *pnt++;
-			if (val & ECOMMUNITY_EVPN_SUBTYPE_ND_ROUTER_FLAG) {
+
+			if (val & ECOMMUNITY_EVPN_SUBTYPE_ND_ROUTER_FLAG)
 				*router_flag = 1;
-				break;
-			}
+
+			if (val & ECOMMUNITY_EVPN_SUBTYPE_PROXY_FLAG)
+				*proxy = true;
+
+			break;
 		}
 	}
 }
@@ -267,15 +254,26 @@ extern int bgp_build_evpn_prefix(int evpn_type, uint32_t eth_tag,
 			memcpy(&p_evpn_p->prefix_addr.ip.ipaddr_v4,
 			       &src->u.prefix4,
 			       sizeof(struct in_addr));
-			dst->prefixlen = (uint8_t)PREFIX_LEN_ROUTE_TYPE_5_IPV4;
+			dst->prefixlen = (uint16_t)PREFIX_LEN_ROUTE_TYPE_5_IPV4;
 		} else {
 			SET_IPADDR_V6(&p_evpn_p->prefix_addr.ip);
 			memcpy(&p_evpn_p->prefix_addr.ip.ipaddr_v6,
 			       &src->u.prefix6,
 			       sizeof(struct in6_addr));
-			dst->prefixlen = (uint8_t)PREFIX_LEN_ROUTE_TYPE_5_IPV6;
+			dst->prefixlen = (uint16_t)PREFIX_LEN_ROUTE_TYPE_5_IPV6;
 		}
 	} else
 		return -1;
 	return 0;
+}
+
+extern bool is_zero_gw_ip(const union gw_addr *gw_ip, const afi_t afi)
+{
+	if (afi == AF_INET6 && IN6_IS_ADDR_UNSPECIFIED(&gw_ip->ipv6))
+		return true;
+
+	if (afi == AF_INET && gw_ip->ipv4.s_addr == INADDR_ANY)
+		return true;
+
+	return false;
 }

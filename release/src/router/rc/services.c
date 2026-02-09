@@ -12342,136 +12342,6 @@ void stop_cron(void)
 }
 #endif
 
-#ifdef RTCONFIG_QUAGGA
-void stop_quagga(void)
-{
-	if (pids("zebra")){
-		killall("zebra", SIGINT);
-	}
-	if (pids("ripd")){
-		killall("ripd", SIGINT);
-	}
-}
-
-int start_quagga(void)
-{
-	FILE *fp, *fp2;
-	char *zebra_hostname;
-	char *zebra_passwd;
-	char *zebra_enpasswd;
-	char *rip_hostname;
-	char *rip_passwd;
-/*
-	char *wan_ip, *wan_ifname;
-	int   unit;
-	char tmp[32], prefix[] = "wanXXXXXXXXXX_";
-*/
-
-	if (!is_routing_enabled()) {
-		_dprintf("return -1\n");
-		return -1;
-	}
-	if (nvram_invmatch("quagga_enable", "1"))
-		return -1;
-
-/*
-	unit = wan_primary_ifunit();
-	snprintf(prefix, sizeof(prefix), "wan%d_", unit);
-
-	wan_ip = nvram_safe_get(strcat_r(prefix, "ipaddr", tmp));
-	wan_ifname = get_wan_ifname(unit);
-
-	if (!wan_ip || strcmp(wan_ip, "") == 0 || !inet_addr(wan_ip)) {
-		logmessage("quagga", "WAN IP is empty.");
-		return -1;
-	}
-*/
-
-	zebra_passwd = nvram_safe_get("zebra_passwd");
-	zebra_enpasswd = nvram_safe_get("zebra_enpasswd");
-	rip_passwd = nvram_safe_get("rip_passwd");
-	zebra_hostname = nvram_safe_get("productid");
-	rip_hostname = nvram_safe_get("productid");
-#ifdef RTCONFIG_NVRAM_ENCRYPT
-	int declen = strlen(zebra_passwd);
-	char *dec_passwd = NULL;
-	dec_passwd = malloc(declen);
-	if(dec_passwd){
-		pw_dec(zebra_passwd, dec_passwd, declen, 1);
-		zebra_passwd = dec_passwd;
-	}
-
-	int declen2 = strlen(zebra_enpasswd);
-	char *dec_passwd2 = NULL;
-	dec_passwd2 = malloc(declen2);
-	if(dec_passwd2){
-		pw_dec(zebra_enpasswd, dec_passwd2, declen2, 1);
-		zebra_enpasswd = dec_passwd2;
-	}
-
-	int declen3 = strlen(rip_passwd);
-	char *dec_passwd3 = NULL;
-	dec_passwd3 = malloc(declen3);
-	if(dec_passwd3){
-		pw_dec(rip_passwd, dec_passwd3, declen3, 1);
-		rip_passwd = dec_passwd3;
-	}
-#endif
-	if (pids("zebra")){
-		killall("zebra", SIGINT);
-		sleep(1);
-	}
-	if (pids("ripd")){
-		killall("ripd", SIGINT);
-		sleep(1);
-	}
-	if ((fp = fopen("/etc/zebra.conf", "w"))){
-		fprintf(fp, "hostname %s\n", zebra_hostname);
-		fprintf(fp, "password %s\n", zebra_passwd);
-		fprintf(fp, "enable password %s\n", zebra_enpasswd);
-		fprintf(fp, "log file /etc/zebra.log informational\n");
-		append_custom_config("zebra.conf",fp);
-		fclose(fp);
-		use_custom_config("zebra.conf","/etc/zebra.conf");
-		run_postconf("zebra","/etc/zebra.conf");
-		eval("zebra", "-d", "-f", "/etc/zebra.conf");
-	}
-	if ((fp2 = fopen("/etc/ripd.conf", "w"))){
-		fprintf(fp2, "hostname %s\n", rip_hostname);
-		fprintf(fp2, "password %s\n", rip_passwd);
-//		fprintf(fp2, "debug rip events\n");
-//		fprintf(fp2, "debug rip packet\n");
-		fprintf(fp2, "router rip\n");
-		fprintf(fp2, " version 2\n");
-#if !defined(BLUECAVE)
-		fprintf(fp2, " network vlan2\n");
-		fprintf(fp2, " network vlan3\n");
-		fprintf(fp2, " passive-interface vlan2\n");
-		fprintf(fp2, " passive-interface vlan3\n");
-#else
-		fprintf(fp2, " network eth1.2\n");
-		fprintf(fp2, " network eth1.3\n");
-		fprintf(fp2, " passive-interface eth1.2\n");
-		fprintf(fp2, " passive-interface eth1.3\n");
-#endif
-		fprintf(fp2, "log file /etc/ripd.log informational\n");
-		fprintf(fp2, "log stdout\n");
-
-		append_custom_config("ripd.conf",fp2);
-		fclose(fp2);
-		use_custom_config("ripd.conf","/etc/ripd.conf");
-		run_postconf("ripd","/etc/ripd.conf");
-		eval("ripd", "-d", "-f", "/etc/ripd.conf");
-	}
-#ifdef RTCONFIG_NVRAM_ENCRYPT
-	if(dec_passwd) free(dec_passwd);
-	if(dec_passwd2) free(dec_passwd2);
-	if(dec_passwd3) free(dec_passwd3);
-#endif
-	return 0;
-}
-#endif
-
 #if defined(RTCONFIG_RGBLED)
 #include <aura_rgb.h>
 void start_aurargb(void)
@@ -17856,11 +17726,19 @@ start_write_smb_conf();
                 nvram_commit();
 	}
 #endif /*the end of #if defined(RTCONFIG_IPSEC)*/
-#ifdef RTCONFIG_QUAGGA
-	else if (strcmp(script, "quagga") == 0)
+#ifdef RTCONFIG_FRR
+	else if (strcmp(script, "frr") == 0)
 	{
-		if(action & RC_SERVICE_STOP) stop_quagga();
-		if(action & RC_SERVICE_START) start_quagga();
+		if((action & RC_SERVICE_STOP) && (action & RC_SERVICE_START))
+			restart_frr();
+		else {
+			if(action & RC_SERVICE_STOP) stop_frr();
+			if(action & RC_SERVICE_START) start_frr();
+		}
+	}
+	else if (strcmp(script, "restart_frr") == 0)
+	{
+		restart_frr();
 	}
 #endif
 #ifdef RTCONFIG_CAPTIVE_PORTAL

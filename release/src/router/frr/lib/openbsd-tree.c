@@ -41,6 +41,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <stdlib.h>
 
 #include <lib/openbsd-tree.h>
@@ -341,7 +345,7 @@ rbe_remove(const struct rb_type *t, struct rbt_tree *rbt, struct rb_entry *rbe)
 			else
 				RBE_RIGHT(tmp) = rbe;
 
-			rbe_if_augment(t, parent);
+			rbe_if_augment(t, tmp);
 		} else
 			RBH_ROOT(rbt) = rbe;
 
@@ -427,11 +431,12 @@ void *_rb_insert(const struct rb_type *t, struct rbt_tree *rbt, void *elm)
 
 	rbe_insert_color(t, rbt, rbe);
 
-	return (NULL);
+	return NULL;
 }
 
 /* Finds the node with the same key as elm */
-void *_rb_find(const struct rb_type *t, struct rbt_tree *rbt, const void *key)
+void *_rb_find(const struct rb_type *t, const struct rbt_tree *rbt,
+	       const void *key)
 {
 	struct rb_entry *tmp = RBH_ROOT(rbt);
 	void *node;
@@ -448,11 +453,12 @@ void *_rb_find(const struct rb_type *t, struct rbt_tree *rbt, const void *key)
 			return (node);
 	}
 
-	return (NULL);
+	return NULL;
 }
 
 /* Finds the first node greater than or equal to the search key */
-void *_rb_nfind(const struct rb_type *t, struct rbt_tree *rbt, const void *key)
+void *_rb_nfind(const struct rb_type *t, const struct rbt_tree *rbt,
+		const void *key)
 {
 	struct rb_entry *tmp = RBH_ROOT(rbt);
 	void *node;
@@ -518,14 +524,14 @@ void *_rb_prev(const struct rb_type *t, void *elm)
 	return (rbe == NULL ? NULL : rb_e2n(t, rbe));
 }
 
-void *_rb_root(const struct rb_type *t, struct rbt_tree *rbt)
+void *_rb_root(const struct rb_type *t, const struct rbt_tree *rbt)
 {
 	struct rb_entry *rbe = RBH_ROOT(rbt);
 
 	return (rbe == NULL ? rbe : rb_e2n(t, rbe));
 }
 
-void *_rb_min(const struct rb_type *t, struct rbt_tree *rbt)
+void *_rb_min(const struct rb_type *t, const struct rbt_tree *rbt)
 {
 	struct rb_entry *rbe = RBH_ROOT(rbt);
 	struct rb_entry *parent = NULL;
@@ -538,7 +544,7 @@ void *_rb_min(const struct rb_type *t, struct rbt_tree *rbt)
 	return (parent == NULL ? NULL : rb_e2n(t, parent));
 }
 
-void *_rb_max(const struct rb_type *t, struct rbt_tree *rbt)
+void *_rb_max(const struct rb_type *t, const struct rbt_tree *rbt)
 {
 	struct rb_entry *rbe = RBH_ROOT(rbt);
 	struct rb_entry *parent = NULL;

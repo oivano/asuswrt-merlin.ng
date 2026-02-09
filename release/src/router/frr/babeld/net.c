@@ -20,6 +20,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <unistd.h>
 #include <fcntl.h>
 #include <string.h>
@@ -140,7 +144,7 @@ babel_send(int s,
     iovec[1].iov_base = buf2;
     iovec[1].iov_len = buflen2;
     memset(&msg, 0, sizeof(msg));
-    msg.msg_name = (struct sockaddr*)sin;
+    msg.msg_name = sin;
     msg.msg_namelen = slen;
     msg.msg_iov = iovec;
     msg.msg_iovlen = 2;

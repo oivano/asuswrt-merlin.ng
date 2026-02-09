@@ -3,6 +3,10 @@ module all {
   namespace "urn:all";
   prefix all_mod;
 
+  import all-imp {
+    prefix all_imp;
+  }
+
   revision 2016-05-23;
   revision 2016-05-22;
 
@@ -96,17 +100,21 @@ module all {
     }
 
     choice choic1 {
-      default "leaf10";
-      leaf leaf9 {
+      default "leaf9b";
+      leaf leaf9a {
         type decimal64 {
           fraction-digits 9;
         }
       }
 
-      leaf leaf10 {
+      leaf leaf9b {
         type boolean;
         default "false";
       }
+    }
+
+    leaf leaf10 {
+      type boolean;
     }
 
     leaf leaf11 {
@@ -214,6 +222,13 @@ module all {
       type instance-identifier;
     }
 
+    container must-deviations-container {
+      presence "Allows deviations on the leaf";
+      leaf leaf30 {
+        type string;
+      }
+    }
+
     leaf leaf23 {
       type empty;
     }
@@ -222,8 +237,9 @@ module all {
   augment "/cont1" {
     leaf leaf17 {
       type identityref {
-        base ident1;
+        base all_imp:ident4;
       }
+      must "../leaf17 = 'all_imp:ident5'";
     }
   }
 

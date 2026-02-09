@@ -65,7 +65,7 @@ static void control_handle_notify_add(struct bfd_control_socket *bcs,
 				      struct bfd_control_msg *bcm);
 static void control_handle_notify_del(struct bfd_control_socket *bcs,
 				      struct bfd_control_msg *bcm);
-static void _control_handle_notify(struct hash_backet *hb, void *arg);
+static void _control_handle_notify(struct hash_bucket *hb, void *arg);
 static void control_handle_notify(struct bfd_control_socket *bcs,
 				  struct bfd_control_msg *bcm);
 static void control_response(struct bfd_control_socket *bcs, uint16_t id,
@@ -86,13 +86,13 @@ static int sock_set_nonblock(int fd)
 
 	flags = fcntl(fd, F_GETFL, 0);
 	if (flags == -1) {
-		log_warning("%s: fcntl F_GETFL: %s", __func__, strerror(errno));
+		zlog_warn("%s: fcntl F_GETFL: %s", __func__, strerror(errno));
 		return -1;
 	}
 
 	flags |= O_NONBLOCK;
 	if (fcntl(fd, F_SETFL, flags) == -1) {
-		log_warning("%s: fcntl F_SETFL: %s", __func__, strerror(errno));
+		zlog_warn("%s: fcntl F_SETFL: %s", __func__, strerror(errno));
 		return -1;
 	}
 
@@ -116,20 +116,20 @@ int control_init(const char *path)
 
 	sd = socket(AF_UNIX, SOCK_STREAM, PF_UNSPEC);
 	if (sd == -1) {
-		log_error("%s: socket: %s", __func__, strerror(errno));
+		zlog_err("%s: socket: %s", __func__, strerror(errno));
 		return -1;
 	}
 
 	umval = umask(0);
 	if (bind(sd, (struct sockaddr *)&sun_, sizeof(sun_)) == -1) {
-		log_error("%s: bind: %s", __func__, strerror(errno));
+		zlog_err("%s: bind: %s", __func__, strerror(errno));
 		close(sd);
 		return -1;
 	}
 	umask(umval);
 
 	if (listen(sd, SOMAXCONN) == -1) {
-		log_error("%s: listen: %s", __func__, strerror(errno));
+		zlog_err("%s: listen: %s", __func__, strerror(errno));
 		close(sd);
 		return -1;
 	}
@@ -164,12 +164,11 @@ int control_accept(struct thread *t)
 
 	csock = accept(sd, NULL, 0);
 	if (csock == -1) {
-		log_warning("%s: accept: %s", __func__, strerror(errno));
+		zlog_warn("%s: accept: %s", __func__, strerror(errno));
 		return 0;
 	}
 
-	if (control_new(csock) == NULL)
-		close(csock);
+	control_new(csock);
 
 	bglobal.bg_csockev = NULL;
 	thread_add_read(master, control_accept, NULL, sd, &bglobal.bg_csockev);
@@ -186,8 +185,6 @@ struct bfd_control_socket *control_new(int sd)
 	struct bfd_control_socket *bcs;
 
 	bcs = XCALLOC(MTYPE_BFDD_CONTROL, sizeof(*bcs));
-	if (bcs == NULL)
-		return NULL;
 
 	/* Disable notifications by default. */
 	bcs->bcs_notify = 0;
@@ -247,10 +244,6 @@ struct bfd_notify_peer *control_notifypeer_new(struct bfd_control_socket *bcs,
 		return bnp;
 
 	bnp = XCALLOC(MTYPE_BFDD_CONTROL, sizeof(*bnp));
-	if (bnp == NULL) {
-		log_warning("%s: calloc: %s", __func__, strerror(errno));
-		return NULL;
-	}
 
 	TAILQ_INSERT_TAIL(&bcs->bcs_bnplist, bnp, bnp_entry);
 	bnp->bnp_bs = bs;
@@ -285,10 +278,6 @@ struct bfd_control_queue *control_queue_new(struct bfd_control_socket *bcs)
 	struct bfd_control_queue *bcq;
 
 	bcq = XCALLOC(MTYPE_BFDD_NOTIFICATION, sizeof(*bcq));
-	if (bcq == NULL) {
-		log_warning("%s: calloc: %s", __func__, strerror(errno));
-		return NULL;
-	}
 
 	control_reset_buf(&bcq->bcq_bcb);
 	TAILQ_INSERT_TAIL(&bcs->bcs_bcqueue, bcq, bcq_entry);
@@ -344,8 +333,6 @@ static int control_queue_enqueue(struct bfd_control_socket *bcs,
 	struct bfd_control_buffer *bcb;
 
 	bcq = control_queue_new(bcs);
-	if (bcq == NULL)
-		return -1;
 
 	bcb = &bcq->bcq_bcb;
 	bcb->bcb_left = sizeof(struct bfd_control_msg) + ntohl(bcm->bcm_length);
@@ -417,7 +404,6 @@ static void control_reset_buf(struct bfd_control_buffer *bcb)
 {
 	/* Get ride of old data. */
 	XFREE(MTYPE_BFDD_NOTIFICATION, bcb->bcb_buf);
-	bcb->bcb_buf = NULL;
 	bcb->bcb_pos = 0;
 	bcb->bcb_left = 0;
 }
@@ -451,7 +437,7 @@ static int control_read(struct thread *t)
 		if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
 			goto schedule_next_read;
 
-		log_warning("%s: read: %s", __func__, strerror(errno));
+		zlog_warn("%s: read: %s", __func__, strerror(errno));
 		control_free(bcs);
 		return 0;
 	}
@@ -459,15 +445,15 @@ static int control_read(struct thread *t)
 	/* Validate header fields. */
 	plen = ntohl(bcm.bcm_length);
 	if (plen < 2) {
-		log_debug("%s: client closed due small message length: %d",
-			  __func__, bcm.bcm_length);
+		zlog_debug("%s: client closed due small message length: %d",
+			   __func__, bcm.bcm_length);
 		control_free(bcs);
 		return 0;
 	}
 
 	if (bcm.bcm_ver != BMV_VERSION_1) {
-		log_debug("%s: client closed due bad version: %d", __func__,
-			  bcm.bcm_ver);
+		zlog_debug("%s: client closed due bad version: %d", __func__,
+			   bcm.bcm_ver);
 		control_free(bcs);
 		return 0;
 	}
@@ -481,8 +467,8 @@ static int control_read(struct thread *t)
 	bcb->bcb_buf = XMALLOC(MTYPE_BFDD_NOTIFICATION,
 			       sizeof(bcm) + bcb->bcb_left + 1);
 	if (bcb->bcb_buf == NULL) {
-		log_warning("%s: not enough memory for message size: %u",
-			    __func__, bcb->bcb_left);
+		zlog_warn("%s: not enough memory for message size: %zu",
+			  __func__, bcb->bcb_left);
 		control_free(bcs);
 		return 0;
 	}
@@ -503,7 +489,7 @@ skip_header:
 		if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
 			goto schedule_next_read;
 
-		log_warning("%s: read: %s", __func__, strerror(errno));
+		zlog_warn("%s: read: %s", __func__, strerror(errno));
 		control_free(bcs);
 		return 0;
 	}
@@ -532,8 +518,8 @@ skip_header:
 		break;
 
 	default:
-		log_debug("%s: unhandled message type: %d", __func__,
-			  bcb->bcb_bcm->bcm_type);
+		zlog_debug("%s: unhandled message type: %d", __func__,
+			   bcb->bcb_bcm->bcm_type);
 		control_response(bcs, bcb->bcb_bcm->bcm_id, BCM_RESPONSE_ERROR,
 				 "invalid message type");
 		break;
@@ -570,7 +556,7 @@ static int control_write(struct thread *t)
 			return 0;
 		}
 
-		log_warning("%s: write: %s", __func__, strerror(errno));
+		zlog_warn("%s: write: %s", __func__, strerror(errno));
 		control_free(bcs);
 		return 0;
 	}
@@ -630,7 +616,7 @@ static struct bfd_session *_notify_find_peer(struct bfd_peer_cfg *bpc)
 	return bs_peer_find(bpc);
 }
 
-static void _control_handle_notify(struct hash_backet *hb, void *arg)
+static void _control_handle_notify(struct hash_bucket *hb, void *arg)
 {
 	struct bfd_control_socket *bcs = arg;
 	struct bfd_session *bs = hb->data;
@@ -667,8 +653,7 @@ static int notify_add_cb(struct bfd_peer_cfg *bpc, void *arg)
 	if (bs == NULL)
 		return -1;
 
-	if (control_notifypeer_new(bcs, bs) == NULL)
-		return -1;
+	control_notifypeer_new(bcs, bs);
 
 	/* Notify peer status. */
 	_control_notify(bcs, bs);
@@ -734,8 +719,8 @@ static void control_response(struct bfd_control_socket *bcs, uint16_t id,
 	/* Generate JSON response. */
 	jsonstr = config_response(status, error);
 	if (jsonstr == NULL) {
-		log_warning("%s: config_response: failed to get JSON str",
-			    __func__);
+		zlog_warn("%s: config_response: failed to get JSON str",
+			  __func__);
 		return;
 	}
 
@@ -743,11 +728,6 @@ static void control_response(struct bfd_control_socket *bcs, uint16_t id,
 	jsonstrlen = strlen(jsonstr);
 	bcm = XMALLOC(MTYPE_BFDD_NOTIFICATION,
 		      sizeof(struct bfd_control_msg) + jsonstrlen);
-	if (bcm == NULL) {
-		log_warning("%s: malloc: %s", __func__, strerror(errno));
-		XFREE(MTYPE_BFDD_NOTIFICATION, jsonstr);
-		return;
-	}
 
 	bcm->bcm_length = htonl(jsonstrlen);
 	bcm->bcm_ver = BMV_VERSION_1;
@@ -769,8 +749,8 @@ static void _control_notify(struct bfd_control_socket *bcs,
 	/* Generate JSON response. */
 	jsonstr = config_notify(bs);
 	if (jsonstr == NULL) {
-		log_warning("%s: config_notify: failed to get JSON str",
-			    __func__);
+		zlog_warn("%s: config_notify: failed to get JSON str",
+			  __func__);
 		return;
 	}
 
@@ -778,11 +758,6 @@ static void _control_notify(struct bfd_control_socket *bcs,
 	jsonstrlen = strlen(jsonstr);
 	bcm = XMALLOC(MTYPE_BFDD_NOTIFICATION,
 		      sizeof(struct bfd_control_msg) + jsonstrlen);
-	if (bcm == NULL) {
-		log_warning("%s: malloc: %s", __func__, strerror(errno));
-		XFREE(MTYPE_BFDD_NOTIFICATION, jsonstr);
-		return;
-	}
 
 	bcm->bcm_length = htonl(jsonstrlen);
 	bcm->bcm_ver = BMV_VERSION_1;
@@ -794,13 +769,13 @@ static void _control_notify(struct bfd_control_socket *bcs,
 	control_queue_enqueue(bcs, bcm);
 }
 
-int control_notify(struct bfd_session *bs)
+int control_notify(struct bfd_session *bs, uint8_t notify_state)
 {
 	struct bfd_control_socket *bcs;
 	struct bfd_notify_peer *bnp;
 
 	/* Notify zebra listeners as well. */
-	ptm_bfd_notify(bs);
+	ptm_bfd_notify(bs, notify_state);
 
 	/*
 	 * PERFORMANCE: reuse the bfd_control_msg allocated data for
@@ -837,8 +812,8 @@ static void _control_notify_config(struct bfd_control_socket *bcs,
 	/* Generate JSON response. */
 	jsonstr = config_notify_config(op, bs);
 	if (jsonstr == NULL) {
-		log_warning("%s: config_notify_config: failed to get JSON str",
-			    __func__);
+		zlog_warn("%s: config_notify_config: failed to get JSON str",
+			  __func__);
 		return;
 	}
 
@@ -846,11 +821,6 @@ static void _control_notify_config(struct bfd_control_socket *bcs,
 	jsonstrlen = strlen(jsonstr);
 	bcm = XMALLOC(MTYPE_BFDD_NOTIFICATION,
 		      sizeof(struct bfd_control_msg) + jsonstrlen);
-	if (bcm == NULL) {
-		log_warning("%s: malloc: %s", __func__, strerror(errno));
-		XFREE(MTYPE_BFDD_NOTIFICATION, jsonstr);
-		return;
-	}
 
 	bcm->bcm_length = htonl(jsonstrlen);
 	bcm->bcm_ver = BMV_VERSION_1;

@@ -28,15 +28,15 @@
  * is the *last* keyword on the line no matter
  * what.
  */
-int use_json(const int argc, struct cmd_token *argv[])
+bool use_json(const int argc, struct cmd_token *argv[])
 {
 	if (argc == 0)
-		return 0;
+		return false;
 
 	if (argv[argc - 1]->arg && strmatch(argv[argc - 1]->text, "json"))
-		return 1;
+		return true;
 
-	return 0;
+	return false;
 }
 
 void json_object_string_add(struct json_object *obj, const char *key,
@@ -47,11 +47,12 @@ void json_object_string_add(struct json_object *obj, const char *key,
 
 void json_object_int_add(struct json_object *obj, const char *key, int64_t i)
 {
-#if defined(HAVE_JSON_C_JSON_H)
 	json_object_object_add(obj, key, json_object_new_int64(i));
-#else
-	json_object_object_add(obj, key, json_object_new_int((int)i));
-#endif
+}
+
+void json_object_double_add(struct json_object *obj, const char *key, double i)
+{
+	json_object_object_add(obj, key, json_object_new_double(i));
 }
 
 void json_object_boolean_false_add(struct json_object *obj, const char *key)
@@ -64,6 +65,11 @@ void json_object_boolean_true_add(struct json_object *obj, const char *key)
 	json_object_object_add(obj, key, json_object_new_boolean(1));
 }
 
+void json_object_boolean_add(struct json_object *obj, const char *key, bool val)
+{
+	json_object_object_add(obj, key, json_object_new_boolean(val));
+}
+
 struct json_object *json_object_lock(struct json_object *obj)
 {
 	return json_object_get(obj);
@@ -73,16 +79,3 @@ void json_object_free(struct json_object *obj)
 {
 	json_object_put(obj);
 }
-
-#if !defined(HAVE_JSON_C_JSON_H)
-int json_object_object_get_ex(struct json_object *obj, const char *key,
-			      struct json_object **value)
-{
-	*value = json_object_object_get(obj, key);
-
-	if (*value)
-		return 1;
-
-	return 0;
-}
-#endif

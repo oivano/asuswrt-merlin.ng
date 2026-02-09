@@ -45,7 +45,7 @@ RB_GENERATE(iface_head, iface, entry, iface_compare)
 static __inline int
 iface_compare(const struct iface *a, const struct iface *b)
 {
-	return (if_cmp_name_func((char *)a->name, (char *)b->name));
+	return if_cmp_name_func(a->name, b->name);
 }
 
 struct iface *
@@ -109,7 +109,7 @@ ldpe_if_exit(struct iface *iface)
 }
 
 struct iface *
-if_lookup(struct ldpd_conf *xconf, unsigned short ifindex)
+if_lookup(struct ldpd_conf *xconf, ifindex_t ifindex)
 {
 	struct iface *iface;
 
@@ -528,8 +528,7 @@ if_leave_ipv4_group(struct iface *iface, struct in_addr *addr)
 
 	if (setsockopt_ipv4_multicast(global.ipv4.ldp_disc_socket,
 	    IP_DROP_MEMBERSHIP, if_addr, addr->s_addr, iface->ifindex) < 0) {
-		log_warn("%s: error IP_DROP_MEMBERSHIP, interface %s "
-		    "address %s", __func__, iface->name, inet_ntoa(*addr));
+		log_warn("%s: error IP_DROP_MEMBERSHIP, interface %s address %s", __func__, iface->name, inet_ntoa(*addr));
 		return (-1);
 	}
 

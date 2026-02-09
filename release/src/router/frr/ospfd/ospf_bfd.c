@@ -65,6 +65,7 @@ static void ospf_bfd_reg_dereg_nbr(struct ospf_neighbor *nbr, int command)
 	struct interface *ifp = oi->ifp;
 	struct ospf_if_params *params;
 	struct bfd_info *bfd_info;
+	int cbit;
 
 	/* Check if BFD is enabled */
 	params = IF_DEF_PARAMS(ifp);
@@ -80,8 +81,10 @@ static void ospf_bfd_reg_dereg_nbr(struct ospf_neighbor *nbr, int command)
 			   inet_ntoa(nbr->src),
 			   ospf_vrf_id_to_name(oi->ospf->vrf_id));
 
+	cbit = CHECK_FLAG(bfd_info->flags, BFD_FLAG_BFD_CBIT_ON);
+
 	bfd_peer_sendmsg(zclient, bfd_info, AF_INET, &nbr->src, NULL, ifp->name,
-			 0, 0, command, 0, oi->ospf->vrf_id);
+			 0, 0, cbit, command, 0, oi->ospf->vrf_id);
 }
 
 /*
@@ -141,8 +144,7 @@ static int ospf_bfd_reg_dereg_all_nbr(struct interface *ifp, int command)
  * ospf_bfd_nbr_replay - Replay all the neighbors that have BFD enabled
  *                       to zebra
  */
-static int ospf_bfd_nbr_replay(int command, struct zclient *zclient,
-			       zebra_size_t length, vrf_id_t vrf_id)
+static int ospf_bfd_nbr_replay(ZAPI_CALLBACK_ARGS)
 {
 	struct listnode *inode, *node, *onode;
 	struct ospf *ospf;
@@ -157,7 +159,7 @@ static int ospf_bfd_nbr_replay(int command, struct zclient *zclient,
 	}
 
 	/* Send the client registration */
-	bfd_client_sendmsg(zclient, ZEBRA_BFD_CLIENT_REGISTER);
+	bfd_client_sendmsg(zclient, ZEBRA_BFD_CLIENT_REGISTER, vrf_id);
 
 	/* Replay the neighbor, if BFD is enabled in OSPF */
 	for (ALL_LIST_ELEMENTS(om->ospf, node, onode, ospf)) {
@@ -195,21 +197,22 @@ static int ospf_bfd_nbr_replay(int command, struct zclient *zclient,
  *                                  connectivity if the BFD status changed to
  *                                  down.
  */
-static int ospf_bfd_interface_dest_update(int command, struct zclient *zclient,
-					  zebra_size_t length, vrf_id_t vrf_id)
+static int ospf_bfd_interface_dest_update(ZAPI_CALLBACK_ARGS)
 {
 	struct interface *ifp;
 	struct ospf_interface *oi;
 	struct ospf_if_params *params;
-	struct ospf_neighbor *nbr;
+	struct ospf_neighbor *nbr = NULL;
 	struct route_node *node;
-	struct prefix p;
+	struct route_node *n_node;
+	struct prefix p, src_p;
 	int status;
 	int old_status;
 	struct bfd_info *bfd_info;
 	struct timeval tv;
 
-	ifp = bfd_get_peer_info(zclient->ibuf, &p, NULL, &status, vrf_id);
+	ifp = bfd_get_peer_info(zclient->ibuf, &p, &src_p, &status, NULL,
+				vrf_id);
 
 	if ((ifp == NULL) || (p.family != AF_INET))
 		return 0;
@@ -229,7 +232,28 @@ static int ospf_bfd_interface_dest_update(int command, struct zclient *zclient,
 		if ((oi = node->info) == NULL)
 			continue;
 
-		nbr = ospf_nbr_lookup_by_addr(oi->nbrs, &p.u.prefix4);
+		/* walk the neighbor list for point-to-point network */
+		if (oi->type == OSPF_IFTYPE_POINTOPOINT) {
+			for (n_node = route_top(oi->nbrs); n_node;
+				n_node = route_next(n_node)) {
+				nbr = n_node->info;
+				if (nbr) {
+					/* skip myself */
+					if (nbr == oi->nbr_self) {
+						nbr = NULL;
+						continue;
+					}
+
+					/* Found the matching neighbor */
+					if (nbr->src.s_addr ==
+						p.u.prefix4.s_addr)
+						break;
+				}
+			}
+		} else {
+			nbr = ospf_nbr_lookup_by_addr(oi->nbrs, &p.u.prefix4);
+		}
+
 		if (!nbr || !nbr->bfd_info)
 			continue;
 
@@ -238,7 +262,7 @@ static int ospf_bfd_interface_dest_update(int command, struct zclient *zclient,
 			continue;
 
 		old_status = bfd_info->status;
-		bfd_info->status = status;
+		BFD_SET_CLIENT_STATUS(bfd_info->status, status);
 		monotime(&tv);
 		bfd_info->last_update = tv.tv_sec;
 
@@ -250,6 +274,13 @@ static int ospf_bfd_interface_dest_update(int command, struct zclient *zclient,
 					   inet_ntoa(nbr->address.u.prefix4));
 
 			OSPF_NSM_EVENT_SCHEDULE(nbr, NSM_InactivityTimer);
+		}
+		if ((status == BFD_STATUS_UP)
+		    && (old_status == BFD_STATUS_DOWN)) {
+			if (IS_DEBUG_OSPF(nsm, NSM_EVENTS))
+				zlog_debug("NSM[%s:%s]: BFD Up",
+					   IF_NAME(nbr->oi),
+					   inet_ntoa(nbr->address.u.prefix4));
 		}
 	}
 
@@ -312,7 +343,7 @@ void ospf_bfd_write_config(struct vty *vty, struct ospf_if_params *params)
  * ospf_bfd_show_info - Show BFD info structure
  */
 void ospf_bfd_show_info(struct vty *vty, void *bfd_info, json_object *json_obj,
-			uint8_t use_json, int param_only)
+			bool use_json, int param_only)
 {
 	if (param_only)
 		bfd_show_param(vty, (struct bfd_info *)bfd_info, 1, 0, use_json,
@@ -326,7 +357,7 @@ void ospf_bfd_show_info(struct vty *vty, void *bfd_info, json_object *json_obj,
  * ospf_bfd_interface_show - Show the interface BFD configuration.
  */
 void ospf_bfd_interface_show(struct vty *vty, struct interface *ifp,
-			     json_object *json_interface_sub, uint8_t use_json)
+			     json_object *json_interface_sub, bool use_json)
 {
 	struct ospf_if_params *params;
 
@@ -350,7 +381,7 @@ static void ospf_bfd_if_param_set(struct interface *ifp, uint32_t min_rx,
 	params = IF_DEF_PARAMS(ifp);
 
 	bfd_set_param((struct bfd_info **)&(params->bfd_info), min_rx, min_tx,
-		      detect_mult, defaults, &command);
+		      detect_mult, NULL, defaults, &command);
 	if (command)
 		ospf_bfd_reg_dereg_all_nbr(ifp, command);
 }

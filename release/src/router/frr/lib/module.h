@@ -20,14 +20,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#if !defined(__GNUC__)
-#error module code needs GCC visibility extensions
-#elif __GNUC__ < 4
-#error module code needs GCC visibility extensions
-#else
-# define DSO_PUBLIC __attribute__ ((visibility ("default")))
-# define DSO_SELF   __attribute__ ((visibility ("protected")))
-# define DSO_LOCAL  __attribute__ ((visibility ("hidden")))
+#ifdef __cplusplus
+extern "C" {
 #endif
 
 struct frrmod_runtime;
@@ -78,9 +72,10 @@ extern union _frrmod_runtime_u _frrmod_this_module;
 
 #define FRR_COREMOD_SETUP(...)                                                 \
 	static const struct frrmod_info _frrmod_info = {__VA_ARGS__};          \
-	DSO_LOCAL union _frrmod_runtime_u _frrmod_this_module = {              \
-		.r.info = &_frrmod_info,                                       \
-	};
+	DSO_LOCAL union _frrmod_runtime_u _frrmod_this_module = {{             \
+		NULL,                                                          \
+		&_frrmod_info,                                                 \
+	}};
 #define FRR_MODULE_SETUP(...)                                                  \
 	FRR_COREMOD_SETUP(__VA_ARGS__)                                         \
 	DSO_SELF struct frrmod_runtime *frr_module = &_frrmod_this_module.r;
@@ -93,6 +88,10 @@ extern struct frrmod_runtime *frrmod_load(const char *spec, const char *dir,
 #if 0
 /* not implemented yet */
 extern void frrmod_unload(struct frrmod_runtime *module);
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 
 #endif /* _FRR_MODULE_H */

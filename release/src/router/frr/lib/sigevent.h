@@ -25,6 +25,10 @@
 
 #include <thread.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define QUAGGA_SIGNAL_TIMER_INTERVAL 2L
 
 struct quagga_signal_t {
@@ -44,7 +48,20 @@ struct quagga_signal_t {
 extern void signal_init(struct thread_master *m, int sigc,
 			struct quagga_signal_t *signals);
 
+
+/*
+ * Check whether any signals have been received and are pending. This is done
+ * with the application's key signals blocked. The complete set of signals
+ * is returned in 'setp', so the caller can restore them when appropriate.
+ * If there are pending signals, returns 'true', 'false' otherwise.
+ */
+bool frr_sigevent_check(sigset_t *setp);
+
 /* check whether there are signals to handle, process any found */
 extern int quagga_sigevent_process(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _QUAGGA_SIGNAL_H */

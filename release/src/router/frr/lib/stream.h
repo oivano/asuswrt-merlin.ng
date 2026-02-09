@@ -28,6 +28,10 @@
 #include "mpls.h"
 #include "prefix.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*
  * A stream is an arbitrary buffer, whose contents generally are assumed to
  * be in network order.
@@ -106,7 +110,7 @@ struct stream {
 	size_t getp;	       /* next get position */
 	size_t endp;	       /* last valid data position */
 	size_t size;	       /* size of data segment */
-	unsigned char data[0]; /* data pointer */
+	unsigned char data[];  /* data pointer */
 };
 
 /* First in first out queue structure. */
@@ -115,9 +119,9 @@ struct stream_fifo {
 	pthread_mutex_t mtx;
 
 	/* number of streams in this fifo */
-	_Atomic size_t count;
+	atomic_size_t count;
 #if defined DEV_BUILD
-	_Atomic size_t max_count;
+	atomic_size_t max_count;
 #endif
 
 	struct stream *head;
@@ -133,13 +137,6 @@ struct stream_fifo {
 
 #define STREAM_CONCAT_REMAIN(S1, S2, size) ((size) - (S1)->endp - (S2)->endp)
 
-/* deprecated macros - do not use in new code */
-#if CONFDATE > 20181128
-CPP_NOTICE("lib: time to remove deprecated stream.h macros")
-#endif
-#define STREAM_PNT(S)   stream_pnt((S))
-#define STREAM_REMAIN(S) STREAM_WRITEABLE((S))
-
 /* this macro is deprecated, but not slated for removal anytime soon */
 #define STREAM_DATA(S)  ((S)->data)
 
@@ -153,33 +150,33 @@ CPP_NOTICE("lib: time to remove deprecated stream.h macros")
  */
 extern struct stream *stream_new(size_t);
 extern void stream_free(struct stream *);
-extern struct stream *stream_copy(struct stream *, struct stream *src);
-extern struct stream *stream_dup(struct stream *);
+/* Copy 'src' into 'dest', returns 'dest' */
+extern struct stream *stream_copy(struct stream *dest,
+				  const struct stream *src);
+extern struct stream *stream_dup(const struct stream *s);
 
-#if CONFDATE > 20190821
-CPP_NOTICE("lib: time to remove stream_resize_orig")
-#endif
-extern size_t stream_resize_orig(struct stream *s, size_t newsize);
-#define stream_resize stream_resize_orig
 extern size_t stream_resize_inplace(struct stream **sptr, size_t newsize);
 
-extern size_t stream_get_getp(struct stream *);
-extern size_t stream_get_endp(struct stream *);
-extern size_t stream_get_size(struct stream *);
-extern uint8_t *stream_get_data(struct stream *);
+extern size_t stream_get_getp(const struct stream *s);
+extern size_t stream_get_endp(const struct stream *s);
+extern size_t stream_get_size(const struct stream *s);
 
 /**
  * Create a new stream structure; copy offset bytes from s1 to the new
  * stream; copy s2 data to the new stream; copy rest of s1 data to the
  * new stream.
  */
-extern struct stream *stream_dupcat(struct stream *s1, struct stream *s2,
-				    size_t offset);
+extern struct stream *stream_dupcat(const struct stream *s1,
+				    const struct stream *s2, size_t offset);
 
 extern void stream_set_getp(struct stream *, size_t);
 extern void stream_set_endp(struct stream *, size_t);
 extern void stream_forward_getp(struct stream *, size_t);
+extern bool stream_forward_getp2(struct stream *, size_t);
+extern void stream_rewind_getp(struct stream *s, size_t size);
+extern bool stream_rewind_getp2(struct stream *s, size_t size);
 extern void stream_forward_endp(struct stream *, size_t);
+extern bool stream_forward_endp2(struct stream *, size_t);
 
 /* steam_put: NULL source zeroes out size_t bytes of stream */
 extern void stream_put(struct stream *, const void *, size_t);
@@ -194,15 +191,20 @@ extern int stream_putl_at(struct stream *, size_t, uint32_t);
 extern int stream_putq(struct stream *, uint64_t);
 extern int stream_putq_at(struct stream *, size_t, uint64_t);
 extern int stream_put_ipv4(struct stream *, uint32_t);
-extern int stream_put_in_addr(struct stream *, struct in_addr *);
-extern int stream_put_in_addr_at(struct stream *, size_t, struct in_addr *);
-extern int stream_put_in6_addr_at(struct stream *, size_t, struct in6_addr *);
-extern int stream_put_prefix_addpath(struct stream *, struct prefix *,
+extern int stream_put_in_addr(struct stream *s, const struct in_addr *addr);
+extern bool stream_put_ipaddr(struct stream *s, struct ipaddr *ip);
+extern int stream_put_in_addr_at(struct stream *s, size_t putp,
+				 const struct in_addr *addr);
+extern int stream_put_in6_addr_at(struct stream *s, size_t putp,
+				  const struct in6_addr *addr);
+extern int stream_put_prefix_addpath(struct stream *s,
+				     const struct prefix *p,
 				     int addpath_encode,
 				     uint32_t addpath_tx_id);
-extern int stream_put_prefix(struct stream *, struct prefix *);
-extern int stream_put_labeled_prefix(struct stream *, struct prefix *,
-				     mpls_label_t *);
+extern int stream_put_prefix(struct stream *s, const struct prefix *p);
+extern int stream_put_labeled_prefix(struct stream *, const struct prefix *,
+				     mpls_label_t *, int addpath_encode,
+				     uint32_t addpath_tx_id);
 extern void stream_get(void *, struct stream *, size_t);
 extern bool stream_get2(void *data, struct stream *s, size_t size);
 extern void stream_get_from(void *, struct stream *, size_t, size_t);
@@ -219,7 +221,9 @@ extern bool stream_getl2(struct stream *s, uint32_t *l);
 extern uint32_t stream_getl_from(struct stream *, size_t);
 extern uint64_t stream_getq(struct stream *);
 extern uint64_t stream_getq_from(struct stream *, size_t);
+bool stream_getq2(struct stream *s, uint64_t *q);
 extern uint32_t stream_get_ipv4(struct stream *);
+extern bool stream_get_ipaddr(struct stream *s, struct ipaddr *ip);
 
 /* IEEE-754 floats */
 extern float stream_getf(struct stream *);
@@ -255,6 +259,9 @@ extern void stream_reset(struct stream *);
 extern int stream_flush(struct stream *, int);
 extern int stream_empty(struct stream *); /* is the stream empty? */
 
+/* debugging */
+extern void stream_hexdump(const struct stream *s);
+
 /* deprecated */
 extern uint8_t *stream_pnt(struct stream *);
 
@@ -281,6 +288,18 @@ extern uint8_t *stream_pnt(struct stream *);
  *    newly created stream_fifo
  */
 extern struct stream_fifo *stream_fifo_new(void);
+
+/*
+ * Init or re-init an on-stack fifo. This allows use of a fifo struct without
+ * requiring a malloc/free cycle.
+ * Note well that the fifo must be de-inited with the 'fifo_deinit' api.
+ */
+void stream_fifo_init(struct stream_fifo *fifo);
+
+/*
+ * Deinit an on-stack fifo.
+ */
+void stream_fifo_deinit(struct stream_fifo *fifo);
 
 /*
  * Push a stream onto a stream_fifo.
@@ -358,9 +377,10 @@ extern void stream_fifo_free(struct stream_fifo *fifo);
  * bit), for 64-bit values (you need to cast them anyway), and neither for
  * encoding (because it's downcasted.)
  */
-static inline uint8_t *ptr_get_be32(uint8_t *ptr, uint32_t *out)
+static inline const uint8_t *ptr_get_be32(const uint8_t *ptr, uint32_t *out)
 {
 	uint32_t tmp;
+
 	memcpy(&tmp, ptr, sizeof(tmp));
 	*out = ntohl(tmp);
 	return ptr + 4;
@@ -405,10 +425,57 @@ static inline uint8_t *ptr_get_be32(uint8_t *ptr, uint32_t *out)
 		(P) = _pval;                                                   \
 	} while (0)
 
+#define STREAM_GETF(S, P)                                                      \
+	do {                                                                   \
+		union {                                                        \
+			float r;                                               \
+			uint32_t d;                                            \
+		} _pval;                                                       \
+		if (!stream_getl2((S), &_pval.d))                              \
+			goto stream_failure;                                   \
+		(P) = _pval.r;                                                 \
+	} while (0)
+
+#define STREAM_GETQ(S, P)                                                      \
+	do {                                                                   \
+		uint64_t _pval;                                                \
+		if (!stream_getq2((S), &_pval))                                \
+			goto stream_failure;                                   \
+		(P) = _pval;                                                   \
+	} while (0)
+
+#define STREAM_GET_IPADDR(S, P)                                                \
+	do {                                                                   \
+		if (!stream_get_ipaddr((S), (P)))                              \
+			goto stream_failure;                                   \
+	} while (0)
+
 #define STREAM_GET(P, STR, SIZE)                                               \
 	do {                                                                   \
 		if (!stream_get2((P), (STR), (SIZE)))                          \
 			goto stream_failure;                                   \
 	} while (0)
+
+#define STREAM_FORWARD_GETP(STR, SIZE)                                         \
+	do {                                                                   \
+		if (!stream_forward_getp2((STR), (SIZE)))                      \
+			goto stream_failure;                                   \
+	} while (0)
+
+#define STREAM_REWIND_GETP(STR, SIZE)                                          \
+	do {                                                                   \
+		if (!stream_rewind_getp2((STR), (SIZE)))                       \
+			goto stream_failure;                                   \
+	} while (0)
+
+#define STREAM_FORWARD_ENDP(STR, SIZE)                                         \
+	do {                                                                   \
+		if (!stream_forward_endp2((STR), (SIZE)))                      \
+			goto stream_failure;                                   \
+	} while (0)
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _ZEBRA_STREAM_H */

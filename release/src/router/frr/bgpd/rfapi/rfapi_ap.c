@@ -18,11 +18,9 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include <errno.h>
-
 #include "lib/zebra.h"
 #include "lib/prefix.h"
-#include "lib/table.h"
+#include "lib/agg_table.h"
 #include "lib/vty.h"
 #include "lib/memory.h"
 #include "lib/routemap.h"
@@ -83,10 +81,10 @@
  * is used to spread out the sort for adbs with the same lifetime
  * and thereby make the skip list operations more efficient.
  */
-static int sl_adb_lifetime_cmp(void *adb1, void *adb2)
+static int sl_adb_lifetime_cmp(const void *adb1, const void *adb2)
 {
-	struct rfapi_adb *a1 = adb1;
-	struct rfapi_adb *a2 = adb2;
+	const struct rfapi_adb *a1 = adb1;
+	const struct rfapi_adb *a2 = adb2;
 
 	if (a1->lifetime < a2->lifetime)
 		return -1;

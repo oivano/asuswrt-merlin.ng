@@ -175,7 +175,7 @@ static inline size_t fpm_msg_align(size_t len)
  * The (rounded up) size of the FPM message header. This ensures that
  * the message payload always starts at an aligned address.
  */
-#define FPM_MSG_HDR_LEN (sizeof (fpm_msg_hdr_t))
+#define FPM_MSG_HDR_LEN (sizeof(fpm_msg_hdr_t))
 
 #ifndef COMPILE_ASSERT
 #define COMPILE_ASSERT(x) extern int __dummy[2 * !!(x) - 1]
@@ -245,7 +245,7 @@ static inline fpm_msg_hdr_t *fpm_msg_next(fpm_msg_hdr_t *hdr, size_t *len)
 /*
  * fpm_msg_hdr_ok
  *
- * Returns TRUE if a message header looks well-formed.
+ * Returns true if a message header looks well-formed.
  */
 static inline int fpm_msg_hdr_ok(const fpm_msg_hdr_t *hdr)
 {
@@ -272,7 +272,7 @@ static inline int fpm_msg_hdr_ok(const fpm_msg_hdr_t *hdr)
 /*
  * fpm_msg_ok
  *
- * Returns TRUE if a message looks well-formed.
+ * Returns true if a message looks well-formed.
  *
  * @param len The length in bytes from 'hdr' to the end of the buffer.
  */

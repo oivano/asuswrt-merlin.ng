@@ -54,6 +54,7 @@
 #include "eigrpd/eigrp_topology.h"
 #include "eigrpd/eigrp_memory.h"
 #include "eigrpd/eigrp_fsm.h"
+#include "eigrpd/eigrp_dump.h"
 
 struct eigrp_interface *eigrp_if_new(struct eigrp *eigrp, struct interface *ifp,
 				     struct prefix *p)
@@ -68,7 +69,7 @@ struct eigrp_interface *eigrp_if_new(struct eigrp *eigrp, struct interface *ifp,
 
 	/* Set zebra interface pointer. */
 	ei->ifp = ifp;
-	ei->address = p;
+	prefix_copy(&ei->address, p);
 
 	ifp->info = ei;
 	listnode_add(eigrp->eiflist, ei);
@@ -98,6 +99,9 @@ struct eigrp_interface *eigrp_if_new(struct eigrp *eigrp, struct interface *ifp,
 	ei->params.auth_type = EIGRP_AUTH_TYPE_NONE;
 	ei->params.auth_keychain = NULL;
 
+	ei->curr_bandwidth = ifp->bandwidth;
+	ei->curr_mtu = ifp->mtu;
+
 	return ei;
 }
 
@@ -109,21 +113,108 @@ int eigrp_if_delete_hook(struct interface *ifp)
 	if (!ei)
 		return 0;
 
-	list_delete_and_null(&ei->nbrs);
+	list_delete(&ei->nbrs);
 
 	eigrp = ei->eigrp;
 	listnode_delete(eigrp->eiflist, ei);
 
+	eigrp_fifo_free(ei->obuf);
+
 	XFREE(MTYPE_EIGRP_IF_INFO, ifp->info);
-	ifp->info = NULL;
+
+	return 0;
+}
+
+static int eigrp_ifp_create(struct interface *ifp)
+{
+	struct eigrp_interface *ei = ifp->info;
+
+	if (!ei)
+		return 0;
+
+	ei->params.type = eigrp_default_iftype(ifp);
+
+	eigrp_if_update(ifp);
+
+	return 0;
+}
+
+static int eigrp_ifp_up(struct interface *ifp)
+{
+	struct eigrp_interface *ei = ifp->info;
+
+	if (IS_DEBUG_EIGRP(zebra, ZEBRA_INTERFACE))
+		zlog_debug("Zebra: Interface[%s] state change to up.",
+			   ifp->name);
+
+	if (!ei)
+		return 0;
+
+	if (ei->curr_bandwidth != ifp->bandwidth) {
+		if (IS_DEBUG_EIGRP(zebra, ZEBRA_INTERFACE))
+			zlog_debug(
+				"Zebra: Interface[%s] bandwidth change %d -> %d.",
+				ifp->name, ei->curr_bandwidth,
+				ifp->bandwidth);
+
+		ei->curr_bandwidth = ifp->bandwidth;
+		// eigrp_if_recalculate_output_cost (ifp);
+	}
+
+	if (ei->curr_mtu != ifp->mtu) {
+		if (IS_DEBUG_EIGRP(zebra, ZEBRA_INTERFACE))
+			zlog_debug(
+				"Zebra: Interface[%s] MTU change %u -> %u.",
+				ifp->name, ei->curr_mtu, ifp->mtu);
+
+		ei->curr_mtu = ifp->mtu;
+		/* Must reset the interface (simulate down/up) when MTU
+		 * changes. */
+		eigrp_if_reset(ifp);
+		return 0;
+	}
+
+	eigrp_if_up(ifp->info);
+
+	return 0;
+}
+
+static int eigrp_ifp_down(struct interface *ifp)
+{
+	if (IS_DEBUG_EIGRP(zebra, ZEBRA_INTERFACE))
+		zlog_debug("Zebra: Interface[%s] state change to down.",
+			   ifp->name);
+
+	if (ifp->info)
+		eigrp_if_down(ifp->info);
+
+	return 0;
+}
+
+static int eigrp_ifp_destroy(struct interface *ifp)
+{
+	if (if_is_up(ifp))
+		zlog_warn("Zebra: got delete of %s, but interface is still up",
+			  ifp->name);
+
+	if (IS_DEBUG_EIGRP(zebra, ZEBRA_INTERFACE))
+		zlog_debug(
+			"Zebra: interface delete %s index %d flags %llx metric %d mtu %d",
+			ifp->name, ifp->ifindex, (unsigned long long)ifp->flags,
+			ifp->metric, ifp->mtu);
+
+	if (ifp->info)
+		eigrp_if_free(ifp->info, INTERFACE_DOWN_BY_ZEBRA);
 
 	return 0;
 }
 
 struct list *eigrp_iflist;
 
-void eigrp_if_init()
+void eigrp_if_init(void)
 {
+	if_zapi_callbacks(eigrp_ifp_create, eigrp_ifp_up,
+			  eigrp_ifp_down, eigrp_ifp_destroy);
 	/* Initialize Zebra interface data structure. */
 	// hook_register_prio(if_add, 0, eigrp_if_new);
 	hook_register_prio(if_del, 0, eigrp_if_delete_hook);
@@ -134,6 +225,20 @@ void eigrp_del_if_params(struct eigrp_if_params *eip)
 {
 	if (eip->auth_keychain)
 		free(eip->auth_keychain);
+}
+
+/*
+ * Set the network byte order of the 3 bytes we send
+ * of the mtu of the link.
+ */
+static void eigrp_mtu_convert(struct eigrp_metrics *metric, uint32_t host_mtu)
+{
+	uint32_t network_mtu = htonl(host_mtu);
+	uint8_t *nm = (uint8_t *)&network_mtu;
+
+	metric->mtu[0] = nm[1];
+	metric->mtu[1] = nm[2];
+	metric->mtu[2] = nm[3];
 }
 
 int eigrp_if_up(struct eigrp_interface *ei)
@@ -163,9 +268,7 @@ int eigrp_if_up(struct eigrp_interface *ei)
 	metric.delay = eigrp_delay_to_scaled(ei->params.delay);
 	metric.load = ei->params.load;
 	metric.reliability = ei->params.reliability;
-	metric.mtu[0] = 0xDC;
-	metric.mtu[1] = 0x05;
-	metric.mtu[2] = 0x00;
+	eigrp_mtu_convert(&metric, ei->ifp->mtu);
 	metric.hop_count = 0;
 	metric.flags = 0;
 	metric.tag = 0;
@@ -183,9 +286,7 @@ int eigrp_if_up(struct eigrp_interface *ei)
 
 	struct prefix dest_addr;
 
-	dest_addr.family = AF_INET;
-	dest_addr.u.prefix4 = ei->connected->address->u.prefix4;
-	dest_addr.prefixlen = ei->connected->address->prefixlen;
+	dest_addr = ei->address;
 	apply_mask(&dest_addr);
 	pe = eigrp_topology_table_lookup_ipv4(eigrp->topology_table,
 					      &dest_addr);
@@ -206,7 +307,7 @@ int eigrp_if_up(struct eigrp_interface *ei)
 		eigrp_prefix_entry_add(eigrp->topology_table, pe);
 		listnode_add(eigrp->topology_changes_internalIPV4, pe);
 
-		eigrp_nexthop_entry_add(pe, ne);
+		eigrp_nexthop_entry_add(eigrp, pe, ne);
 
 		for (ALL_LIST_ELEMENTS(eigrp->eiflist, node, nnode, ei2)) {
 			eigrp_update_send(ei2);
@@ -218,7 +319,7 @@ int eigrp_if_up(struct eigrp_interface *ei)
 		struct eigrp_fsm_action_message msg;
 
 		ne->prefix = pe;
-		eigrp_nexthop_entry_add(pe, ne);
+		eigrp_nexthop_entry_add(eigrp, pe, ne);
 
 		msg.packet_type = EIGRP_OPC_UPDATE;
 		msg.eigrp = eigrp;
@@ -267,16 +368,11 @@ void eigrp_if_stream_unset(struct eigrp_interface *ei)
 {
 	struct eigrp *eigrp = ei->eigrp;
 
-	if (ei->obuf) {
-		eigrp_fifo_free(ei->obuf);
-		ei->obuf = NULL;
-
-		if (ei->on_write_q) {
-			listnode_delete(eigrp->oi_write_q, ei);
-			if (list_isempty(eigrp->oi_write_q))
-				thread_cancel(eigrp->t_write);
-			ei->on_write_q = 0;
-		}
+	if (ei->on_write_q) {
+		listnode_delete(eigrp->oi_write_q, ei);
+		if (list_isempty(eigrp->oi_write_q))
+			thread_cancel(eigrp->t_write);
+		ei->on_write_q = 0;
 	}
 }
 
@@ -297,7 +393,7 @@ void eigrp_if_set_multicast(struct eigrp_interface *ei)
 		/* The interface should belong to the EIGRP-all-routers group.
 		 */
 		if (!ei->member_allrouters
-		    && (eigrp_if_add_allspfrouters(ei->eigrp, ei->address,
+		    && (eigrp_if_add_allspfrouters(ei->eigrp, &ei->address,
 						   ei->ifp->ifindex)
 			>= 0))
 			/* Set the flag only if the system call to join
@@ -308,7 +404,7 @@ void eigrp_if_set_multicast(struct eigrp_interface *ei)
 		 * group. */
 		if (ei->member_allrouters) {
 			/* Only actually drop if this is the last reference */
-			eigrp_if_drop_allspfrouters(ei->eigrp, ei->address,
+			eigrp_if_drop_allspfrouters(ei->eigrp, &ei->address,
 						    ei->ifp->ifindex);
 			/* Unset the flag regardless of whether the system call
 			   to leave
@@ -334,26 +430,22 @@ void eigrp_if_free(struct eigrp_interface *ei, int source)
 {
 	struct prefix dest_addr;
 	struct eigrp_prefix_entry *pe;
-	struct eigrp *eigrp = eigrp_lookup();
-
-	if (!eigrp)
-		return;
+	struct eigrp *eigrp = ei->eigrp;
 
 	if (source == INTERFACE_DOWN_BY_VTY) {
 		THREAD_OFF(ei->t_hello);
 		eigrp_hello_send(ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN, NULL);
 	}
 
-	dest_addr = *ei->connected->address;
+	dest_addr = ei->address;
 	apply_mask(&dest_addr);
 	pe = eigrp_topology_table_lookup_ipv4(eigrp->topology_table,
 					      &dest_addr);
 	if (pe)
-		eigrp_prefix_entry_delete(eigrp->topology_table, pe);
+		eigrp_prefix_entry_delete(eigrp, eigrp->topology_table, pe);
 
 	eigrp_if_down(ei);
 
-	list_delete_and_null(&ei->nbrs);
 	listnode_delete(ei->eigrp->eiflist, ei);
 }
 
@@ -381,7 +473,7 @@ struct eigrp_interface *eigrp_if_lookup_by_local_addr(struct eigrp *eigrp,
 		if (ifp && ei->ifp != ifp)
 			continue;
 
-		if (IPV4_ADDR_SAME(&address, &ei->address->u.prefix4))
+		if (IPV4_ADDR_SAME(&address, &ei->address.u.prefix4))
 			return ei;
 	}
 

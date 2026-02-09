@@ -33,6 +33,7 @@
 #include "table.h"
 #include "log.h"
 #include "command.h"
+#include "network.h"
 
 #include "ospfd/ospfd.h"
 #include "ospfd/ospf_interface.h"
@@ -48,6 +49,7 @@
 #include "ospfd/ospf_flood.h"
 #include "ospfd/ospf_abr.h"
 #include "ospfd/ospf_bfd.h"
+#include "ospfd/ospf_errors.h"
 
 DEFINE_HOOK(ospf_nsm_change,
 	    (struct ospf_neighbor * on, int state, int oldstate),
@@ -64,8 +66,9 @@ static int ospf_inactivity_timer(struct thread *thread)
 	nbr->t_inactivity = NULL;
 
 	if (IS_DEBUG_OSPF(nsm, NSM_TIMERS))
-		zlog_debug("NSM[%s:%s]: Timer (Inactivity timer expire)",
-			   IF_NAME(nbr->oi), inet_ntoa(nbr->router_id));
+		zlog_debug("NSM[%s:%s:%s]: Timer (Inactivity timer expire)",
+			   IF_NAME(nbr->oi), inet_ntoa(nbr->router_id),
+			   ospf_get_name(nbr->oi->ospf));
 
 	OSPF_NSM_EVENT_SCHEDULE(nbr, NSM_InactivityTimer);
 
@@ -80,8 +83,9 @@ static int ospf_db_desc_timer(struct thread *thread)
 	nbr->t_db_desc = NULL;
 
 	if (IS_DEBUG_OSPF(nsm, NSM_TIMERS))
-		zlog_debug("NSM[%s:%s]: Timer (DD Retransmit timer expire)",
-			   IF_NAME(nbr->oi), inet_ntoa(nbr->src));
+		zlog_debug("NSM[%s:%s:%s]: Timer (DD Retransmit timer expire)",
+			   IF_NAME(nbr->oi), inet_ntoa(nbr->src),
+			   ospf_get_name(nbr->oi->ospf));
 
 	/* resent last send DD packet. */
 	assert(nbr->last_send);
@@ -221,7 +225,7 @@ static int ospf_db_summary_add(struct ospf_neighbor *nbr, struct ospf_lsa *lsa)
 	case OSPF_OPAQUE_LINK_LSA:
 		/* Exclude type-9 LSAs that does not have the same "oi" with
 		 * "nbr". */
-		if (nbr->oi && ospf_if_exists(lsa->oi) != nbr->oi)
+		if (ospf_if_exists(lsa->oi) != nbr->oi)
 			return 0;
 		break;
 	case OSPF_OPAQUE_AREA_LSA:
@@ -386,16 +390,17 @@ static int nsm_kill_nbr(struct ospf_neighbor *nbr)
 
 		if (IS_DEBUG_OSPF(nsm, NSM_EVENTS))
 			zlog_debug(
-				"NSM[%s:%s]: Down (PollIntervalTimer scheduled)",
+				"NSM[%s:%s:%s]: Down (PollIntervalTimer scheduled)",
 				IF_NAME(nbr->oi),
-				inet_ntoa(nbr->address.u.prefix4));
+				inet_ntoa(nbr->address.u.prefix4),
+				ospf_get_name(nbr->oi->ospf));
 	}
 
 	return 0;
 }
 
 /* Neighbor State Machine */
-struct {
+const struct {
 	int (*func)(struct ospf_neighbor *);
 	int next_state;
 } NSM[OSPF_NSM_STATE_MAX][OSPF_NSM_EVENT_MAX] = {
@@ -571,7 +576,7 @@ struct {
 	},
 };
 
-static const char *ospf_nsm_event_str[] = {
+static const char *const ospf_nsm_event_str[] = {
 	"NoEvent",	   "PacketReceived",  "Start",
 	"2-WayReceived",     "NegotiationDone", "ExchangeDone",
 	"BadLSReq",	  "LoadingDone",     "AdjOK?",
@@ -584,8 +589,9 @@ static void nsm_notice_state_change(struct ospf_neighbor *nbr, int next_state,
 {
 	/* Logging change of status. */
 	if (IS_DEBUG_OSPF(nsm, NSM_STATUS))
-		zlog_debug("NSM[%s:%s]: State change %s -> %s (%s)",
+		zlog_debug("NSM[%s:%s:%s]: State change %s -> %s (%s)",
 			   IF_NAME(nbr->oi), inet_ntoa(nbr->router_id),
+			   ospf_get_name(nbr->oi->ospf),
 			   lookup_msg(ospf_nsm_state_msg, nbr->state, NULL),
 			   lookup_msg(ospf_nsm_state_msg, next_state, NULL),
 			   ospf_nsm_event_str[event]);
@@ -594,8 +600,9 @@ static void nsm_notice_state_change(struct ospf_neighbor *nbr, int next_state,
 	if (CHECK_FLAG(nbr->oi->ospf->config, OSPF_LOG_ADJACENCY_CHANGES)
 	    && (CHECK_FLAG(nbr->oi->ospf->config, OSPF_LOG_ADJACENCY_DETAIL)
 		|| (next_state == NSM_Full) || (next_state < nbr->state)))
-		zlog_notice("AdjChg: Nbr %s on %s: %s -> %s (%s)",
-			    inet_ntoa(nbr->router_id), IF_NAME(nbr->oi),
+		zlog_notice("AdjChg: Nbr %s(%s) on %s: %s -> %s (%s)",
+			    inet_ntoa(nbr->router_id),
+			    ospf_get_name(nbr->oi->ospf), IF_NAME(nbr->oi),
 			    lookup_msg(ospf_nsm_state_msg, nbr->state, NULL),
 			    lookup_msg(ospf_nsm_state_msg, next_state, NULL),
 			    ospf_nsm_event_str[event]);
@@ -615,8 +622,6 @@ static void nsm_change_state(struct ospf_neighbor *nbr, int state)
 	struct ospf_interface *oi = nbr->oi;
 	struct ospf_area *vl_area = NULL;
 	uint8_t old_state;
-	int x;
-	int force = 1;
 
 	/* Preserve old status. */
 	old_state = nbr->state;
@@ -663,32 +668,6 @@ static void nsm_change_state(struct ospf_neighbor *nbr, int state)
 			if (oi->type == OSPF_IFTYPE_VIRTUALLINK && vl_area)
 				if (++vl_area->full_vls == 1)
 					ospf_schedule_abr_task(oi->ospf);
-
-			/* kevinm: refresh any redistributions */
-			for (x = ZEBRA_ROUTE_SYSTEM; x < ZEBRA_ROUTE_MAX; x++) {
-				struct list *red_list;
-				struct listnode *node;
-				struct ospf_redist *red;
-
-				if (x == ZEBRA_ROUTE_OSPF6)
-					continue;
-
-				red_list = oi->ospf->redist[x];
-				if (!red_list)
-					continue;
-
-				for (ALL_LIST_ELEMENTS_RO(red_list, node, red))
-					ospf_external_lsa_refresh_type(
-						oi->ospf, x, red->instance,
-						force);
-			}
-			/* XXX: Clearly some thing is wrong with refresh of
-			 * external LSAs
-			 * this added to hack around defaults not refreshing
-			 * after a timer
-			 * jump.
-			 */
-			ospf_external_lsa_refresh_default(oi->ospf);
 		} else {
 			oi->full_nbrs--;
 			oi->area->full_nbrs--;
@@ -704,16 +683,16 @@ static void nsm_change_state(struct ospf_neighbor *nbr, int state)
 
 		if (CHECK_FLAG(oi->ospf->config, OSPF_LOG_ADJACENCY_DETAIL))
 			zlog_info(
-				"%s:(%s, %s -> %s): "
-				"scheduling new router-LSA origination",
-				__PRETTY_FUNCTION__, inet_ntoa(nbr->router_id),
+				"%s:[%s:%s], %s -> %s): scheduling new router-LSA origination",
+				__func__, inet_ntoa(nbr->router_id),
+				ospf_get_name(oi->ospf),
 				lookup_msg(ospf_nsm_state_msg, old_state, NULL),
 				lookup_msg(ospf_nsm_state_msg, state, NULL));
 
 		ospf_router_lsa_update_area(oi->area);
 
 		if (oi->type == OSPF_IFTYPE_VIRTUALLINK) {
-			struct ospf_area *vl_area = ospf_area_lookup_by_area_id(
+			vl_area = ospf_area_lookup_by_area_id(
 				oi->ospf, oi->vl_data->vl_area_id);
 
 			if (vl_area)
@@ -744,12 +723,19 @@ static void nsm_change_state(struct ospf_neighbor *nbr, int state)
 	/* Start DD exchange protocol */
 	if (state == NSM_ExStart) {
 		if (nbr->dd_seqnum == 0)
-			nbr->dd_seqnum = (uint32_t)random();
+			nbr->dd_seqnum = (uint32_t)frr_weak_random();
 		else
 			nbr->dd_seqnum++;
 
 		nbr->dd_flags =
 			OSPF_DD_FLAG_I | OSPF_DD_FLAG_M | OSPF_DD_FLAG_MS;
+		if (CHECK_FLAG(oi->ospf->config, OSPF_LOG_ADJACENCY_DETAIL))
+			zlog_info(
+				"%s: Initializing [DD]: %s with seqnum:%x , flags:%x",
+				(oi->ospf->name) ? oi->ospf->name
+						 : VRF_DEFAULT_NAME,
+				inet_ntoa(nbr->router_id), nbr->dd_seqnum,
+				nbr->dd_flags);
 		ospf_db_desc_send(nbr);
 	}
 
@@ -773,8 +759,9 @@ int ospf_nsm_event(struct thread *thread)
 	event = THREAD_VAL(thread);
 
 	if (IS_DEBUG_OSPF(nsm, NSM_EVENTS))
-		zlog_debug("NSM[%s:%s]: %s (%s)", IF_NAME(nbr->oi),
+		zlog_debug("NSM[%s:%s:%s]: %s (%s)", IF_NAME(nbr->oi),
 			   inet_ntoa(nbr->router_id),
+			   ospf_get_name(nbr->oi->ospf),
 			   lookup_msg(ospf_nsm_state_msg, nbr->state, NULL),
 			   ospf_nsm_event_str[event]);
 
@@ -795,10 +782,11 @@ int ospf_nsm_event(struct thread *thread)
 			 * not
 			 * try set next_state.
 			 */
-			zlog_warn(
-				"NSM[%s:%s]: %s (%s): "
-				"Warning: action tried to change next_state to %s",
+			flog_err(
+				EC_OSPF_FSM_INVALID_STATE,
+				"NSM[%s:%s:%s]: %s (%s): Warning: action tried to change next_state to %s",
 				IF_NAME(nbr->oi), inet_ntoa(nbr->router_id),
+				ospf_get_name(nbr->oi->ospf),
 				lookup_msg(ospf_nsm_state_msg, nbr->state,
 					   NULL),
 				ospf_nsm_event_str[event],

@@ -24,6 +24,12 @@ Running Ldpd
 The *ldpd* daemon can be invoked with any of the common
 options (:ref:`common-invocation-options`).
 
+..option:: --ctl_socket
+
+   This option allows you to override the path to the ldpd.sock file
+   used to control this daemon.  If specified this option overrides
+   the -N option path addition.
+
 The *zebra* daemon must be running before *ldpd* is invoked.
 
 Configuration of *ldpd* is done in its configuration file
@@ -102,6 +108,11 @@ LDP Configuration
    The following command located under MPLS router node configures the MPLS
    router-id of the local device.
 
+.. index:: [no] ordered-control
+.. clicmd:: [no] ordered-control
+
+   Configure LDP Ordered Label Distribution Control.
+
 .. index:: [no] address-family [ipv4 | ipv6]
 .. clicmd:: [no] address-family [ipv4 | ipv6]
 
@@ -150,6 +161,16 @@ LDP Configuration
    This is the value between each hello timer message sent.
    HOLDTIME value ranges from 1 to 65535 seconds. Default value is 15 seconds.
    That value is added as a TLV in the LDP messages.
+
+.. index:: [no] dual-stack transport-connection prefer ipv4
+.. clicmd:: [no] dual-stack transport-connection prefer ipv4
+
+   When *ldpd* is configured for dual-stack operation, the transport connection
+   preference is IPv6 by default (as specified by :rfc:`7552`). On such
+   circumstances, *ldpd* will refuse to establish TCP connections over IPv4.
+   You can use above command to change the transport connection preference to
+   IPv4. In this case, it will be possible to distribute label mappings for
+   IPv6 FECs over TCPv4 connections.
 
 .. _show-ldp-information:
 

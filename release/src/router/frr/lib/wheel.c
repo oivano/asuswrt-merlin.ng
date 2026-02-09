@@ -29,7 +29,9 @@ DEFINE_MTYPE_STATIC(LIB, TIMER_WHEEL_LIST, "Timer Wheel Slot List")
 
 static int debug_timer_wheel = 0;
 
-static int wheel_timer_thread(struct thread *t)
+static int wheel_timer_thread(struct thread *t);
+
+static int wheel_timer_thread_helper(struct thread *t)
 {
 	struct listnode *node, *nextnode;
 	unsigned long long curr_slot;
@@ -45,8 +47,8 @@ static int wheel_timer_thread(struct thread *t)
 	curr_slot = wheel->curr_slot % wheel->slots;
 
 	if (debug_timer_wheel)
-		zlog_debug("%s: Wheel Slot: %lld(%lld) count: %d",
-			   __PRETTY_FUNCTION__, wheel->curr_slot, curr_slot,
+		zlog_debug("%s: Wheel Slot: %lld(%lld) count: %d", __func__,
+			   wheel->curr_slot, curr_slot,
 			   listcount(wheel->wheel_slot_lists[curr_slot]));
 
 	for (ALL_LIST_ELEMENTS(wheel->wheel_slot_lists[curr_slot], node,
@@ -65,15 +67,29 @@ static int wheel_timer_thread(struct thread *t)
 	return 0;
 }
 
+static int wheel_timer_thread(struct thread *t)
+{
+	struct timer_wheel *wheel;
+
+	wheel = THREAD_ARG(t);
+
+	thread_execute_name(wheel->master, wheel_timer_thread_helper,
+			    wheel, 0, wheel->name);
+
+	return 0;
+}
+
 struct timer_wheel *wheel_init(struct thread_master *master, int period,
-			       size_t slots, unsigned int (*slot_key)(void *),
-			       void (*slot_run)(void *))
+			       size_t slots, unsigned int (*slot_key)(const void *),
+			       void (*slot_run)(void *),
+			       const char *run_name)
 {
 	struct timer_wheel *wheel;
 	size_t i;
 
 	wheel = XCALLOC(MTYPE_TIMER_WHEEL, sizeof(struct timer_wheel));
 
+	wheel->name = XSTRDUP(MTYPE_TIMER_WHEEL, run_name);
 	wheel->slot_key = slot_key;
 	wheel->slot_run = slot_run;
 
@@ -99,11 +115,12 @@ void wheel_delete(struct timer_wheel *wheel)
 	int i;
 
 	for (i = 0; i < wheel->slots; i++) {
-		list_delete_and_null(&wheel->wheel_slot_lists[i]);
+		list_delete(&wheel->wheel_slot_lists[i]);
 	}
 
 	THREAD_OFF(wheel->timer);
 	XFREE(MTYPE_TIMER_WHEEL_LIST, wheel->wheel_slot_lists);
+	XFREE(MTYPE_TIMER_WHEEL, wheel->name);
 	XFREE(MTYPE_TIMER_WHEEL, wheel);
 }
 
@@ -129,8 +146,8 @@ int wheel_add_item(struct timer_wheel *wheel, void *item)
 	slot = (*wheel->slot_key)(item);
 
 	if (debug_timer_wheel)
-		zlog_debug("%s: Inserting %p: %lld %lld", __PRETTY_FUNCTION__,
-			   item, slot, slot % wheel->slots);
+		zlog_debug("%s: Inserting %p: %lld %lld", __func__, item, slot,
+			   slot % wheel->slots);
 	listnode_add(wheel->wheel_slot_lists[slot % wheel->slots], item);
 
 	return 0;
@@ -143,8 +160,8 @@ int wheel_remove_item(struct timer_wheel *wheel, void *item)
 	slot = (*wheel->slot_key)(item);
 
 	if (debug_timer_wheel)
-		zlog_debug("%s: Removing %p: %lld %lld", __PRETTY_FUNCTION__,
-			   item, slot, slot % wheel->slots);
+		zlog_debug("%s: Removing %p: %lld %lld", __func__, item, slot,
+			   slot % wheel->slots);
 	listnode_delete(wheel->wheel_slot_lists[slot % wheel->slots], item);
 
 	return 0;

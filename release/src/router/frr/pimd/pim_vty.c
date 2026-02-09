@@ -39,6 +39,8 @@
 #include "pim_msdp.h"
 #include "pim_ssm.h"
 #include "pim_bfd.h"
+#include "pim_bsm.h"
+#include "pim_vxlan.h"
 
 int pim_debug_config_write(struct vty *vty)
 {
@@ -68,10 +70,6 @@ int pim_debug_config_write(struct vty *vty)
 		vty_out(vty, "debug igmp trace\n");
 		++writes;
 	}
-	if (PIM_DEBUG_IGMP_TRACE_DETAIL) {
-		vty_out(vty, "debug igmp trace detail\n");
-		++writes;
-	}
 
 	if (PIM_DEBUG_MROUTE) {
 		vty_out(vty, "debug mroute\n");
@@ -83,7 +81,7 @@ int pim_debug_config_write(struct vty *vty)
 		++writes;
 	}
 
-	if (PIM_DEBUG_MROUTE_DETAIL) {
+	if (PIM_DEBUG_MROUTE_DETAIL_ONLY) {
 		vty_out(vty, "debug mroute detail\n");
 		++writes;
 	}
@@ -109,13 +107,28 @@ int pim_debug_config_write(struct vty *vty)
 		vty_out(vty, "debug pim trace\n");
 		++writes;
 	}
-	if (PIM_DEBUG_PIM_TRACE_DETAIL) {
+	if (PIM_DEBUG_PIM_TRACE_DETAIL_ONLY) {
 		vty_out(vty, "debug pim trace detail\n");
 		++writes;
 	}
 
 	if (PIM_DEBUG_ZEBRA) {
 		vty_out(vty, "debug pim zebra\n");
+		++writes;
+	}
+
+        if (PIM_DEBUG_MLAG) {
+                vty_out(vty, "debug pim mlag\n");
+                ++writes;
+        }
+
+	if (PIM_DEBUG_BSM) {
+		vty_out(vty, "debug pim bsm\n");
+		++writes;
+	}
+
+	if (PIM_DEBUG_VXLAN) {
+		vty_out(vty, "debug pim vxlan\n");
 		++writes;
 	}
 
@@ -159,11 +172,11 @@ int pim_global_config_write_worker(struct pim_instance *pim, struct vty *vty)
 	char spaces[10];
 
 	if (pim->vrf_id == VRF_DEFAULT)
-		sprintf(spaces, "%s", "");
+		snprintf(spaces, sizeof(spaces), "%s", "");
 	else
-		sprintf(spaces, "%s", " ");
+		snprintf(spaces, sizeof(spaces), "%s", " ");
 
-	writes += pim_msdp_config_write_helper(pim, vty, spaces);
+	writes += pim_msdp_config_write(pim, vty, spaces);
 
 	if (!pim->send_v6_secondary) {
 		vty_out(vty, "%sno ip pim send-v6-secondary\n", spaces);
@@ -172,15 +185,15 @@ int pim_global_config_write_worker(struct pim_instance *pim, struct vty *vty)
 
 	writes += pim_rp_config_write(pim, vty, spaces);
 
-	if (qpim_register_suppress_time
+	if (router->register_suppress_time
 	    != PIM_REGISTER_SUPPRESSION_TIME_DEFAULT) {
 		vty_out(vty, "%sip pim register-suppress-time %d\n", spaces,
-			qpim_register_suppress_time);
+			router->register_suppress_time);
 		++writes;
 	}
-	if (qpim_t_periodic != PIM_DEFAULT_T_PERIODIC) {
+	if (router->t_periodic != PIM_DEFAULT_T_PERIODIC) {
 		vty_out(vty, "%sip pim join-prune-interval %d\n", spaces,
-			qpim_t_periodic);
+			router->t_periodic);
 		++writes;
 	}
 	if (pim->keep_alive_time != PIM_KEEPALIVE_PERIOD) {
@@ -193,14 +206,19 @@ int pim_global_config_write_worker(struct pim_instance *pim, struct vty *vty)
 			pim->rp_keep_alive_time);
 		++writes;
 	}
-	if (qpim_packet_process != PIM_DEFAULT_PACKET_PROCESS) {
+	if (router->packet_process != PIM_DEFAULT_PACKET_PROCESS) {
 		vty_out(vty, "%sip pim packets %d\n", spaces,
-			qpim_packet_process);
+			router->packet_process);
 		++writes;
 	}
 	if (ssm->plist_name) {
 		vty_out(vty, "%sip pim ssm prefix-list %s\n", spaces,
 			ssm->plist_name);
+		++writes;
+	}
+	if (pim->register_plist) {
+		vty_out(vty, "%sip pim register-accept-list %s\n", spaces,
+			pim->register_plist);
 		++writes;
 	}
 	if (pim->spt.switchover == PIM_SPT_INFINITY) {
@@ -221,6 +239,13 @@ int pim_global_config_write_worker(struct pim_instance *pim, struct vty *vty)
 		vty_out(vty, "%sip pim ecmp\n", spaces);
 		++writes;
 	}
+
+	if (pim->igmp_watermark_limit != 0) {
+		vty_out(vty, "%sip igmp watermark-warn %u\n", spaces,
+			pim->igmp_watermark_limit);
+		++writes;
+	}
+
 	if (pim->ssmpingd_list) {
 		struct listnode *node;
 		struct ssmpingd_sock *ss;
@@ -267,7 +292,7 @@ int pim_interface_config_write(struct vty *vty)
 				struct pim_interface *pim_ifp = ifp->info;
 
 				if (PIM_IF_TEST_PIM(pim_ifp->options)) {
-					vty_out(vty, " ip pim sm\n");
+					vty_out(vty, " ip pim\n");
 					++writes;
 				}
 
@@ -336,6 +361,24 @@ int pim_interface_config_write(struct vty *vty)
 					++writes;
 				}
 
+				/* IF ip igmp last-member_query-count */
+				if (pim_ifp->igmp_last_member_query_count
+				    != IGMP_DEFAULT_ROBUSTNESS_VARIABLE) {
+					vty_out(vty,
+						" ip igmp last-member-query-count %d\n",
+						pim_ifp->igmp_last_member_query_count);
+					++writes;
+				}
+
+				/* IF ip igmp last-member_query-interval */
+				if (pim_ifp->igmp_specific_query_max_response_time_dsec
+				    != IGMP_SPECIFIC_QUERY_MAX_RESPONSE_TIME_DSEC) {
+					vty_out(vty,
+						" ip igmp last-member-query-interval %d\n",
+						pim_ifp->igmp_specific_query_max_response_time_dsec);
+					  ++writes;
+				}
+
 				/* IF ip igmp join */
 				if (pim_ifp->igmp_join_list) {
 					struct listnode *node;
@@ -351,16 +394,25 @@ int pim_interface_config_write(struct vty *vty)
 							ij->group_addr,
 							group_str,
 							sizeof(group_str));
-						inet_ntop(AF_INET,
-							  &ij->source_addr,
-							  source_str,
-							  sizeof(source_str));
-						vty_out(vty,
-							" ip igmp join %s %s\n",
-							group_str, source_str);
+						if (ij->source_addr.s_addr == INADDR_ANY) {
+							vty_out(vty,
+								" ip igmp join %s\n",
+								group_str);
+						} else {
+							inet_ntop(AF_INET,
+								  &ij->source_addr,
+								  source_str,
+								  sizeof(source_str));
+							vty_out(vty,
+								" ip igmp join %s %s\n",
+								group_str, source_str);
+						}
 						++writes;
 					}
 				}
+
+				if (pim_ifp->activeactive)
+					vty_out(vty, " ip pim active-active\n");
 
 				/* boundary */
 				if (pim_ifp->boundary_oil_plist) {
@@ -372,7 +424,10 @@ int pim_interface_config_write(struct vty *vty)
 
 				writes +=
 					pim_static_write_mroute(pim, vty, ifp);
+				pim_bsm_write_config(vty, ifp);
+				++writes;
 				pim_bfd_write_config(vty, ifp);
+				++writes;
 			}
 			vty_endframe(vty, "!\n");
 			++writes;

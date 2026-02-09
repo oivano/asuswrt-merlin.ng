@@ -16,6 +16,7 @@
 #include "zclient.h"
 #include "debug.h"
 #include "memory.h"
+#include "resolver.h"
 
 DECLARE_MGROUP(NHRPD)
 
@@ -75,23 +76,15 @@ static inline void notifier_del(struct notifier_block *n)
 static inline void notifier_call(struct notifier_list *l, int cmd)
 {
 	struct notifier_block *n, *nn;
-	list_for_each_entry_safe(n, nn, &l->notifier_head, notifier_entry)
+	list_for_each_entry_safe(n, nn, &l->notifier_head, notifier_entry) {
 		n->action(n, cmd);
+	}
 }
 
 static inline int notifier_active(struct notifier_list *l)
 {
 	return !list_empty(&l->notifier_head);
 }
-
-struct resolver_query {
-	void (*callback)(struct resolver_query *, int n, union sockunion *);
-};
-
-void resolver_init(void);
-void resolver_resolve(struct resolver_query *query, int af,
-		      const char *hostname, void (*cb)(struct resolver_query *,
-						       int, union sockunion *));
 
 void nhrp_zebra_init(void);
 void nhrp_zebra_terminate(void);
@@ -314,18 +307,12 @@ void nhrp_interface_init(void);
 void nhrp_interface_update(struct interface *ifp);
 void nhrp_interface_update_mtu(struct interface *ifp, afi_t afi);
 
-int nhrp_interface_add(int cmd, struct zclient *client, zebra_size_t length,
-		       vrf_id_t vrf_id);
-int nhrp_interface_delete(int cmd, struct zclient *client, zebra_size_t length,
-			  vrf_id_t vrf_id);
-int nhrp_interface_up(int cmd, struct zclient *client, zebra_size_t length,
-		      vrf_id_t vrf_id);
-int nhrp_interface_down(int cmd, struct zclient *client, zebra_size_t length,
-			vrf_id_t vrf_id);
-int nhrp_interface_address_add(int cmd, struct zclient *client,
-			       zebra_size_t length, vrf_id_t vrf_id);
-int nhrp_interface_address_delete(int cmd, struct zclient *client,
-				  zebra_size_t length, vrf_id_t vrf_id);
+int nhrp_interface_add(ZAPI_CALLBACK_ARGS);
+int nhrp_interface_delete(ZAPI_CALLBACK_ARGS);
+int nhrp_interface_up(ZAPI_CALLBACK_ARGS);
+int nhrp_interface_down(ZAPI_CALLBACK_ARGS);
+int nhrp_interface_address_add(ZAPI_CALLBACK_ARGS);
+int nhrp_interface_address_delete(ZAPI_CALLBACK_ARGS);
 
 void nhrp_interface_notify_add(struct interface *ifp, struct notifier_block *n,
 			       notifier_fn_t fn);
@@ -333,6 +320,10 @@ void nhrp_interface_notify_del(struct interface *ifp, struct notifier_block *n);
 void nhrp_interface_set_protection(struct interface *ifp, const char *profile,
 				   const char *fallback_profile);
 void nhrp_interface_set_source(struct interface *ifp, const char *ifname);
+extern int nhrp_ifp_create(struct interface *ifp);
+extern int nhrp_ifp_up(struct interface *ifp);
+extern int nhrp_ifp_down(struct interface *ifp);
+extern int nhrp_ifp_destroy(struct interface *ifp);
 
 int nhrp_nhs_add(struct interface *ifp, afi_t afi, union sockunion *proto_addr,
 		 const char *nbma_fqdn);
@@ -349,8 +340,7 @@ void nhrp_route_update_nhrp(const struct prefix *p, struct interface *ifp);
 void nhrp_route_announce(int add, enum nhrp_cache_type type,
 			 const struct prefix *p, struct interface *ifp,
 			 const union sockunion *nexthop, uint32_t mtu);
-int nhrp_route_read(int command, struct zclient *zclient, zebra_size_t length,
-		    vrf_id_t vrf_id);
+int nhrp_route_read(ZAPI_CALLBACK_ARGS);
 int nhrp_route_get_nexthop(const union sockunion *addr, struct prefix *p,
 			   union sockunion *via, struct interface **ifp);
 enum nhrp_route_type nhrp_route_address(struct interface *in_ifp,

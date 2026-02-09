@@ -26,16 +26,22 @@
 /* clang-format off */
 static struct log_ref ferr_isis_err[] = {
 	{
-		.code = ISIS_ERR_PACKET,
+		.code = EC_ISIS_PACKET,
 		.title = "ISIS Packet Error",
 		.description = "Isis has detected an error with a packet from a peer",
 		.suggestion = "Gather log information and open an issue then restart FRR"
 	},
 	{
-		.code = ISIS_ERR_CONFIG,
+		.code = EC_ISIS_CONFIG,
 		.title = "ISIS Configuration Error",
 		.description = "Isis has detected an error within configuration for the router",
 		.suggestion = "Ensure configuration is correct"
+	},
+	{
+		.code = EC_ISIS_SID_OVERFLOW,
+		.title = "SID index overflow",
+		.description = "Isis has detected that a SID index falls outside of its associated SRGB range",
+		.suggestion = "Configure a larger SRGB"
 	},
 	{
 		.code = END_FERR,

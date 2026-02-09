@@ -42,13 +42,13 @@
 #include "distribute.h"
 #include "libfrr.h"
 #include "routemap.h"
+#include "nexthop_group.h"
 
 #include "sharp_zebra.h"
 #include "sharp_vty.h"
+#include "sharp_globals.h"
 
-uint32_t total_routes = 0;
-uint32_t installed_routes = 0;
-uint32_t removed_routes = 0;
+DEFINE_MGROUP(SHARPD, "sharpd")
 
 zebra_capabilities_t _caps_p[] = {
 };
@@ -81,6 +81,8 @@ static void sigint(void)
 {
 	zlog_notice("Terminating on signal");
 
+	frr_fini();
+
 	exit(0);
 }
 
@@ -111,6 +113,13 @@ struct quagga_signal_t sharp_signals[] = {
 
 #define SHARP_VTY_PORT 2614
 
+static const struct frr_yang_module_info *const sharpd_yang_modules[] = {
+	&frr_filter_info,
+	&frr_interface_info,
+	&frr_route_map_info,
+	&frr_vrf_info,
+};
+
 FRR_DAEMON_INFO(sharpd, SHARP, .vty_port = SHARP_VTY_PORT,
 
 		.proghelp = "Implementation of a Sharp of routes daemon.",
@@ -118,9 +127,16 @@ FRR_DAEMON_INFO(sharpd, SHARP, .vty_port = SHARP_VTY_PORT,
 		.signals = sharp_signals,
 		.n_signals = array_size(sharp_signals),
 
-		.privs = &sharp_privs, )
+		.privs = &sharp_privs, .yang_modules = sharpd_yang_modules,
+		.n_yang_modules = array_size(sharpd_yang_modules), )
 
-extern void sharp_vty_init(void);
+struct sharp_global sg;
+
+static void sharp_global_init(void)
+{
+	memset(&sg, 0, sizeof(sg));
+	sg.nhs = list_new();
+}
 
 int main(int argc, char **argv, char **envp)
 {
@@ -146,10 +162,10 @@ int main(int argc, char **argv, char **envp)
 
 	master = frr_init();
 
-	vrf_init(NULL, NULL, NULL, NULL);
+	sharp_global_init();
 
-	access_list_init();
-	route_map_init();
+	nexthop_group_init(NULL, NULL, NULL, NULL);
+	vrf_init(NULL, NULL, NULL, NULL, NULL);
 
 	sharp_zebra_init();
 

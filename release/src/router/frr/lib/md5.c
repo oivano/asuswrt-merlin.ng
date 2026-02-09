@@ -375,13 +375,8 @@ static void md5_calc(const uint8_t *b64, md5_ctxt *ctxt)
 }
 
 /* From RFC 2104 */
-void hmac_md5(text, text_len, key, key_len,
-	      digest) unsigned char *text; /* pointer to data stream */
-int text_len;				   /* length of data stream */
-unsigned char *key;			   /* pointer to authentication key */
-int key_len;				   /* length of authentication key */
-uint8_t *digest;			   /* caller digest to be filled in */
-
+void hmac_md5(unsigned char *text, int text_len, unsigned char *key,
+	      int key_len, uint8_t *digest)
 {
 	MD5_CTX context;
 	unsigned char k_ipad[65]; /* inner padding -
@@ -417,8 +412,8 @@ uint8_t *digest;			   /* caller digest to be filled in */
 	 */
 
 	/* start out by storing key in pads */
-	bzero(k_ipad, sizeof k_ipad);
-	bzero(k_opad, sizeof k_opad);
+	bzero(k_ipad, sizeof(k_ipad));
+	bzero(k_opad, sizeof(k_opad));
 	bcopy(key, k_ipad, key_len);
 	bcopy(key, k_opad, key_len);
 
@@ -434,7 +429,7 @@ uint8_t *digest;			   /* caller digest to be filled in */
 						* pass */
 	MD5Update(&context, k_ipad, 64);       /* start with inner pad */
 	MD5Update(&context, text, text_len);   /* then text of datagram */
-	MD5Final((uint8_t *)digest, &context); /* finish up 1st pass */
+	MD5Final(digest, &context); /* finish up 1st pass */
 	/*
 	 * perform outer MD5
 	 */
@@ -443,5 +438,5 @@ uint8_t *digest;			   /* caller digest to be filled in */
 	MD5Update(&context, k_opad, 64);       /* start with outer pad */
 	MD5Update(&context, digest, 16);       /* then results of 1st
 						* hash */
-	MD5Final((uint8_t *)digest, &context); /* finish up 2nd pass */
+	MD5Final(digest, &context); /* finish up 2nd pass */
 }

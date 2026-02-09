@@ -32,10 +32,39 @@ struct quagga_signal_t sigs[] = {};
 
 struct thread_master *master;
 
-static int threadfunc(struct thread *thread)
+void func1(int *arg);
+void func3(void);
+
+void func1(int *arg)
 {
 	int *null = NULL;
 	*null += 1;
+	*arg = 1;
+}
+
+static void func2(size_t depth, int *arg)
+{
+	/* variable stack frame size */
+	int buf[depth];
+	for (size_t i = 0; i < depth; i++)
+		buf[i] = arg[i] + 1;
+	if (depth > 0)
+		func2(depth - 1, buf);
+	else
+		func1(&buf[0]);
+	for (size_t i = 0; i < depth; i++)
+		buf[i] = arg[i] + 2;
+}
+
+void func3(void)
+{
+	int buf[6];
+	func2(6, buf);
+}
+
+static int threadfunc(struct thread *thread)
+{
+	func3();
 	return 0;
 }
 
@@ -44,11 +73,7 @@ int main(void)
 	master = thread_master_create(NULL);
 	signal_init(master, array_size(sigs), sigs);
 
-	openzlog("testsegv", "NONE", 0, LOG_CONS | LOG_NDELAY | LOG_PID,
-		 LOG_DAEMON);
-	zlog_set_level(ZLOG_DEST_SYSLOG, ZLOG_DISABLED);
-	zlog_set_level(ZLOG_DEST_STDOUT, LOG_DEBUG);
-	zlog_set_level(ZLOG_DEST_MONITOR, ZLOG_DISABLED);
+	zlog_aux_init("NONE: ", LOG_DEBUG);
 
 	thread_execute(master, threadfunc, 0, 0);
 

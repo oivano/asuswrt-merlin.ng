@@ -7,7 +7,7 @@
  * Copyright (C) 2016 Cumulus Networks, Inc.
  * Copyright (C) 2017 David Lamparter for NetDEF, Inc.
  *
- * This file is part of FreeRangeRouting (FRR).
+ * This file is part of FRRouting (FRR).
  *
  * FRR is free software; you can redistribute it and/or modify it under the
  * terms of the GNU General Public License as published by the Free Software
@@ -23,8 +23,12 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include "command.h"
-#include "memory_vty.h"
+#include "lib_vty.h"
 
 static void vty_do_exit(int isexit)
 {
@@ -41,19 +45,17 @@ int main(int argc, char **argv)
 
 	master = thread_master_create(NULL);
 
-	openzlog("grammar_sandbox", "NONE", 0, LOG_CONS | LOG_NDELAY | LOG_PID,
-		 LOG_DAEMON);
-	zlog_set_level(ZLOG_DEST_SYSLOG, ZLOG_DISABLED);
-	zlog_set_level(ZLOG_DEST_STDOUT, LOG_DEBUG);
-	zlog_set_level(ZLOG_DEST_MONITOR, ZLOG_DISABLED);
+	zlog_aux_init("NONE: ", LOG_DEBUG);
 
 	/* Library inits. */
 	cmd_init(1);
 	host.name = strdup("test");
 	host.domainname = strdup("testdomainname");
 
-	vty_init(master);
-	memory_init();
+	vty_init(master, true);
+	lib_cmd_init();
+	yang_init(true);
+	nb_init(master, NULL, 0, false);
 
 	vty_stdio(vty_do_exit);
 

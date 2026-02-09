@@ -17,6 +17,7 @@
 #include <setjmp.h>
 #include <errno.h>
 #include <unistd.h>
+#include <stdarg.h>
 #include <cmocka.h>
 #include <string.h>
 #include <sys/wait.h>
@@ -95,7 +96,7 @@ TEST_AUGMENT(void **state)
 
         for (j = 0; j < TEST_DATA_FILE_COUNT; ++j) {
             sprintf(buf, TESTS_DIR "/conformance/" TEST_DIR "/data%d.xml", j + 1);
-            st->node = lyd_parse_path(st->ctx, buf, LYD_XML, LYD_OPT_CONFIG | LYD_OPT_NOAUTODEL);
+            st->node = lyd_parse_path(st->ctx, buf, LYD_XML, LYD_OPT_CONFIG);
             if (data_files_fail[j]) {
                 assert_ptr_equal(st->node, NULL);
             } else {

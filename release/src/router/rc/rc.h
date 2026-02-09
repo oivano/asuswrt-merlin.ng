@@ -1988,9 +1988,10 @@ extern int sd_partition_num();
 extern void start_cron(void);
 extern void stop_cron(void);
 #endif
-#ifdef RTCONFIG_QUAGGA
-extern void stop_quagga(void);
-extern int start_quagga(void);
+#ifdef RTCONFIG_FRR
+extern void stop_frr(void);
+extern void start_frr(void);
+extern void restart_frr(void);
 #endif
 extern void start_webdav(void);
 #ifdef RTCONFIG_SAMBASRV
@@ -2614,13 +2615,6 @@ extern int start_cnid_metad(void);
 extern void stop_cnid_metad(int force);
 extern int start_avahi_daemon(void);
 extern void stop_avahi_daemon(void);
-#endif
-#ifdef RTCONFIG_QUAGGA
-extern void stop_quagga(void);
-extern int start_quagga(void);
-#endif
-#ifdef RTCONFIG_RGBLED
-extern void start_aurargb(void);
 #endif
 #if defined(RTCONFIG_MDNS)
 extern int generate_mdns_config(void);

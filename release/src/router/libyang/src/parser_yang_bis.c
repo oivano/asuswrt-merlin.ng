@@ -1,8 +1,9 @@
-/* A Bison parser, made by GNU Bison 3.0.4.  */
+/* A Bison parser, made by GNU Bison 3.5.  */
 
 /* Bison implementation for Yacc-like parsers in C
 
-   Copyright (C) 1984, 1989-1990, 2000-2015 Free Software Foundation, Inc.
+   Copyright (C) 1984, 1989-1990, 2000-2015, 2018-2019 Free Software Foundation,
+   Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -40,11 +41,14 @@
    define necessary library symbols; they are noted "INFRINGES ON
    USER NAME SPACE" below.  */
 
+/* Undocumented macros, especially those whose name start with YY_,
+   are private implementation details.  Do not rely on them.  */
+
 /* Identify Bison output.  */
 #define YYBISON 1
 
 /* Bison version.  */
-#define YYBISON_VERSION "3.0.4"
+#define YYBISON_VERSION "3.5"
 
 /* Skeleton name.  */
 #define YYSKELETON_NAME "yacc.c"
@@ -61,8 +65,7 @@
 
 
 
-/* Copy the first part of user declarations.  */
-
+/* First part of user prologue.  */
 
 #include <stdio.h>
 #include <stdarg.h>
@@ -76,35 +79,48 @@
 #include "parser_yang_lex.h"
 #include "parser.h"
 
-#define YANG_ADDELEM(current_ptr, size)                                                  \
-    if (size == LY_ARRAY_MAX(size)) {                                                    \
-         LOGERR(LY_EINT, "Reached limit (%"PRIu64") for storing typedefs.", LY_ARRAY_MAX(trg->tpdf_size));\
+#define YANG_ADDELEM(current_ptr, size, array_name)                                      \
+    if ((size) == LY_ARRAY_MAX(size)) {                                                  \
+         LOGERR(trg->ctx, LY_EINT, "Reached limit (%"PRIu64") for storing %s.", LY_ARRAY_MAX(size), array_name); \
          free(s);                                                                        \
          YYABORT;                                                                        \
-    } else if (!(size % LY_YANG_ARRAY_SIZE)) {                                           \
+    } else if (!((size) % LY_YANG_ARRAY_SIZE)) {                                         \
         void *tmp;                                                                       \
                                                                                          \
-        tmp = realloc(current_ptr, (sizeof *current_ptr) * (size + LY_YANG_ARRAY_SIZE)); \
+        tmp = realloc((current_ptr), (sizeof *(current_ptr)) * ((size) + LY_YANG_ARRAY_SIZE)); \
         if (!tmp) {                                                                      \
-            LOGMEM;                                                                      \
+            LOGMEM(trg->ctx);                                                            \
             free(s);                                                                     \
             YYABORT;                                                                     \
         }                                                                                \
-        memset(tmp + (sizeof *current_ptr) * size, 0, (sizeof *current_ptr) * LY_YANG_ARRAY_SIZE); \
-        current_ptr = tmp;                                                               \
+        memset((char *)tmp + (sizeof *(current_ptr)) * (size), 0, (sizeof *(current_ptr)) * LY_YANG_ARRAY_SIZE); \
+        (current_ptr) = tmp;                                                             \
     }                                                                                    \
-    actual = &current_ptr[size++];                                                       \
+    (size)++;                                                                            \
+    actual = &(current_ptr)[(size)-1];                                                   \
 
 void yyerror(YYLTYPE *yylloc, void *scanner, struct yang_parameter *param, ...);
 /* pointer on the current parsed element 'actual' */
 
 
-
-# ifndef YY_NULLPTR
-#  if defined __cplusplus && 201103L <= __cplusplus
-#   define YY_NULLPTR nullptr
+# ifndef YY_CAST
+#  ifdef __cplusplus
+#   define YY_CAST(Type, Val) static_cast<Type> (Val)
+#   define YY_REINTERPRET_CAST(Type, Val) reinterpret_cast<Type> (Val)
 #  else
-#   define YY_NULLPTR 0
+#   define YY_CAST(Type, Val) ((Type) (Val))
+#   define YY_REINTERPRET_CAST(Type, Val) ((Type) (Val))
+#  endif
+# endif
+# ifndef YY_NULLPTR
+#  if defined __cplusplus
+#   if 201103L <= __cplusplus
+#    define YY_NULLPTR nullptr
+#   else
+#    define YY_NULLPTR 0
+#   endif
+#  else
+#   define YY_NULLPTR ((void*)0)
 #  endif
 # endif
 
@@ -116,8 +132,8 @@ void yyerror(YYLTYPE *yylloc, void *scanner, struct yang_parameter *param, ...);
 # define YYERROR_VERBOSE 0
 #endif
 
-/* In a future release of Bison, this section will be replaced
-   by #include "parser_yang_bis.h".  */
+/* Use api.header.include to #include this header
+   instead of duplicating it here.  */
 #ifndef YY_YY_PARSER_YANG_BIS_H_INCLUDED
 # define YY_YY_PARSER_YANG_BIS_H_INCLUDED
 /* Debug traces.  */
@@ -238,12 +254,10 @@ extern int yydebug;
 
 /* Value type.  */
 #if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
-
 union YYSTYPE
 {
 
-
-  int32_t i;
+  int64_t i;
   uint32_t uint;
   char *str;
   char **p_str;
@@ -277,7 +291,6 @@ union YYSTYPE
 
 
 };
-
 typedef union YYSTYPE YYSTYPE;
 # define YYSTYPE_IS_TRIVIAL 1
 # define YYSTYPE_IS_DECLARED 1
@@ -303,36 +316,81 @@ int yyparse (void *scanner, struct yang_parameter *param);
 
 #endif /* !YY_YY_PARSER_YANG_BIS_H_INCLUDED  */
 
-/* Copy the second part of user declarations.  */
-
 
 
 #ifdef short
 # undef short
 #endif
 
-#ifdef YYTYPE_UINT8
-typedef YYTYPE_UINT8 yytype_uint8;
-#else
-typedef unsigned char yytype_uint8;
+/* On compilers that do not define __PTRDIFF_MAX__ etc., make sure
+   <limits.h> and (if available) <stdint.h> are included
+   so that the code can choose integer types of a good width.  */
+
+#ifndef __PTRDIFF_MAX__
+# include <limits.h> /* INFRINGES ON USER NAME SPACE */
+# if defined __STDC_VERSION__ && 199901 <= __STDC_VERSION__
+#  include <stdint.h> /* INFRINGES ON USER NAME SPACE */
+#  define YY_STDINT_H
+# endif
 #endif
 
-#ifdef YYTYPE_INT8
-typedef YYTYPE_INT8 yytype_int8;
+/* Narrow types that promote to a signed type and that can represent a
+   signed or unsigned integer of at least N bits.  In tables they can
+   save space and decrease cache pressure.  Promoting to a signed type
+   helps avoid bugs in integer arithmetic.  */
+
+#ifdef __INT_LEAST8_MAX__
+typedef __INT_LEAST8_TYPE__ yytype_int8;
+#elif defined YY_STDINT_H
+typedef int_least8_t yytype_int8;
 #else
 typedef signed char yytype_int8;
 #endif
 
-#ifdef YYTYPE_UINT16
-typedef YYTYPE_UINT16 yytype_uint16;
+#ifdef __INT_LEAST16_MAX__
+typedef __INT_LEAST16_TYPE__ yytype_int16;
+#elif defined YY_STDINT_H
+typedef int_least16_t yytype_int16;
 #else
-typedef unsigned short int yytype_uint16;
+typedef short yytype_int16;
 #endif
 
-#ifdef YYTYPE_INT16
-typedef YYTYPE_INT16 yytype_int16;
+#if defined __UINT_LEAST8_MAX__ && __UINT_LEAST8_MAX__ <= __INT_MAX__
+typedef __UINT_LEAST8_TYPE__ yytype_uint8;
+#elif (!defined __UINT_LEAST8_MAX__ && defined YY_STDINT_H \
+       && UINT_LEAST8_MAX <= INT_MAX)
+typedef uint_least8_t yytype_uint8;
+#elif !defined __UINT_LEAST8_MAX__ && UCHAR_MAX <= INT_MAX
+typedef unsigned char yytype_uint8;
 #else
-typedef short int yytype_int16;
+typedef short yytype_uint8;
+#endif
+
+#if defined __UINT_LEAST16_MAX__ && __UINT_LEAST16_MAX__ <= __INT_MAX__
+typedef __UINT_LEAST16_TYPE__ yytype_uint16;
+#elif (!defined __UINT_LEAST16_MAX__ && defined YY_STDINT_H \
+       && UINT_LEAST16_MAX <= INT_MAX)
+typedef uint_least16_t yytype_uint16;
+#elif !defined __UINT_LEAST16_MAX__ && USHRT_MAX <= INT_MAX
+typedef unsigned short yytype_uint16;
+#else
+typedef int yytype_uint16;
+#endif
+
+#ifndef YYPTRDIFF_T
+# if defined __PTRDIFF_TYPE__ && defined __PTRDIFF_MAX__
+#  define YYPTRDIFF_T __PTRDIFF_TYPE__
+#  define YYPTRDIFF_MAXIMUM __PTRDIFF_MAX__
+# elif defined PTRDIFF_MAX
+#  ifndef ptrdiff_t
+#   include <stddef.h> /* INFRINGES ON USER NAME SPACE */
+#  endif
+#  define YYPTRDIFF_T ptrdiff_t
+#  define YYPTRDIFF_MAXIMUM PTRDIFF_MAX
+# else
+#  define YYPTRDIFF_T long
+#  define YYPTRDIFF_MAXIMUM LONG_MAX
+# endif
 #endif
 
 #ifndef YYSIZE_T
@@ -340,15 +398,27 @@ typedef short int yytype_int16;
 #  define YYSIZE_T __SIZE_TYPE__
 # elif defined size_t
 #  define YYSIZE_T size_t
-# elif ! defined YYSIZE_T
+# elif defined __STDC_VERSION__ && 199901 <= __STDC_VERSION__
 #  include <stddef.h> /* INFRINGES ON USER NAME SPACE */
 #  define YYSIZE_T size_t
 # else
-#  define YYSIZE_T unsigned int
+#  define YYSIZE_T unsigned
 # endif
 #endif
 
-#define YYSIZE_MAXIMUM ((YYSIZE_T) -1)
+#define YYSIZE_MAXIMUM                                  \
+  YY_CAST (YYPTRDIFF_T,                                 \
+           (YYPTRDIFF_MAXIMUM < YY_CAST (YYSIZE_T, -1)  \
+            ? YYPTRDIFF_MAXIMUM                         \
+            : YY_CAST (YYSIZE_T, -1)))
+
+#define YYSIZEOF(X) YY_CAST (YYPTRDIFF_T, sizeof (X))
+
+/* Stored state numbers (used for stacks). */
+typedef yytype_int16 yy_state_t;
+
+/* State numbers in computations.  */
+typedef int yy_state_fast_t;
 
 #ifndef YY_
 # if defined YYENABLE_NLS && YYENABLE_NLS
@@ -362,30 +432,19 @@ typedef short int yytype_int16;
 # endif
 #endif
 
-#ifndef YY_ATTRIBUTE
-# if (defined __GNUC__                                               \
-      && (2 < __GNUC__ || (__GNUC__ == 2 && 96 <= __GNUC_MINOR__)))  \
-     || defined __SUNPRO_C && 0x5110 <= __SUNPRO_C
-#  define YY_ATTRIBUTE(Spec) __attribute__(Spec)
+#ifndef YY_ATTRIBUTE_PURE
+# if defined __GNUC__ && 2 < __GNUC__ + (96 <= __GNUC_MINOR__)
+#  define YY_ATTRIBUTE_PURE __attribute__ ((__pure__))
 # else
-#  define YY_ATTRIBUTE(Spec) /* empty */
+#  define YY_ATTRIBUTE_PURE
 # endif
 #endif
 
-#ifndef YY_ATTRIBUTE_PURE
-# define YY_ATTRIBUTE_PURE   YY_ATTRIBUTE ((__pure__))
-#endif
-
 #ifndef YY_ATTRIBUTE_UNUSED
-# define YY_ATTRIBUTE_UNUSED YY_ATTRIBUTE ((__unused__))
-#endif
-
-#if !defined _Noreturn \
-     && (!defined __STDC_VERSION__ || __STDC_VERSION__ < 201112)
-# if defined _MSC_VER && 1200 <= _MSC_VER
-#  define _Noreturn __declspec (noreturn)
+# if defined __GNUC__ && 2 < __GNUC__ + (7 <= __GNUC_MINOR__)
+#  define YY_ATTRIBUTE_UNUSED __attribute__ ((__unused__))
 # else
-#  define _Noreturn YY_ATTRIBUTE ((__noreturn__))
+#  define YY_ATTRIBUTE_UNUSED
 # endif
 #endif
 
@@ -396,13 +455,13 @@ typedef short int yytype_int16;
 # define YYUSE(E) /* empty */
 #endif
 
-#if defined __GNUC__ && 407 <= __GNUC__ * 100 + __GNUC_MINOR__
+#if defined __GNUC__ && ! defined __ICC && 407 <= __GNUC__ * 100 + __GNUC_MINOR__
 /* Suppress an incorrect diagnostic about yylval being uninitialized.  */
-# define YY_IGNORE_MAYBE_UNINITIALIZED_BEGIN \
-    _Pragma ("GCC diagnostic push") \
-    _Pragma ("GCC diagnostic ignored \"-Wuninitialized\"")\
+# define YY_IGNORE_MAYBE_UNINITIALIZED_BEGIN                            \
+    _Pragma ("GCC diagnostic push")                                     \
+    _Pragma ("GCC diagnostic ignored \"-Wuninitialized\"")              \
     _Pragma ("GCC diagnostic ignored \"-Wmaybe-uninitialized\"")
-# define YY_IGNORE_MAYBE_UNINITIALIZED_END \
+# define YY_IGNORE_MAYBE_UNINITIALIZED_END      \
     _Pragma ("GCC diagnostic pop")
 #else
 # define YY_INITIAL_VALUE(Value) Value
@@ -415,6 +474,20 @@ typedef short int yytype_int16;
 # define YY_INITIAL_VALUE(Value) /* Nothing. */
 #endif
 
+#if defined __cplusplus && defined __GNUC__ && ! defined __ICC && 6 <= __GNUC__
+# define YY_IGNORE_USELESS_CAST_BEGIN                          \
+    _Pragma ("GCC diagnostic push")                            \
+    _Pragma ("GCC diagnostic ignored \"-Wuseless-cast\"")
+# define YY_IGNORE_USELESS_CAST_END            \
+    _Pragma ("GCC diagnostic pop")
+#endif
+#ifndef YY_IGNORE_USELESS_CAST_BEGIN
+# define YY_IGNORE_USELESS_CAST_BEGIN
+# define YY_IGNORE_USELESS_CAST_END
+#endif
+
+
+#define YY_ASSERT(E) ((void) (0 && (E)))
 
 #if ! defined yyoverflow || YYERROR_VERBOSE
 
@@ -492,18 +565,19 @@ void free (void *); /* INFRINGES ON USER NAME SPACE */
 /* A type that is properly aligned for any stack member.  */
 union yyalloc
 {
-  yytype_int16 yyss_alloc;
+  yy_state_t yyss_alloc;
   YYSTYPE yyvs_alloc;
   YYLTYPE yyls_alloc;
 };
 
 /* The size of the maximum gap between one aligned stack and the next.  */
-# define YYSTACK_GAP_MAXIMUM (sizeof (union yyalloc) - 1)
+# define YYSTACK_GAP_MAXIMUM (YYSIZEOF (union yyalloc) - 1)
 
 /* The size of an array large to enough to hold all stacks, each with
    N elements.  */
 # define YYSTACK_BYTES(N) \
-     ((N) * (sizeof (yytype_int16) + sizeof (YYSTYPE) + sizeof (YYLTYPE)) \
+     ((N) * (YYSIZEOF (yy_state_t) + YYSIZEOF (YYSTYPE) \
+             + YYSIZEOF (YYLTYPE)) \
       + 2 * YYSTACK_GAP_MAXIMUM)
 
 # define YYCOPY_NEEDED 1
@@ -516,11 +590,11 @@ union yyalloc
 # define YYSTACK_RELOCATE(Stack_alloc, Stack)                           \
     do                                                                  \
       {                                                                 \
-        YYSIZE_T yynewbytes;                                            \
+        YYPTRDIFF_T yynewbytes;                                         \
         YYCOPY (&yyptr->Stack_alloc, Stack, yysize);                    \
         Stack = &yyptr->Stack_alloc;                                    \
-        yynewbytes = yystacksize * sizeof (*Stack) + YYSTACK_GAP_MAXIMUM; \
-        yyptr += yynewbytes / sizeof (*yyptr);                          \
+        yynewbytes = yystacksize * YYSIZEOF (*Stack) + YYSTACK_GAP_MAXIMUM; \
+        yyptr += yynewbytes / YYSIZEOF (*yyptr);                        \
       }                                                                 \
     while (0)
 
@@ -532,12 +606,12 @@ union yyalloc
 # ifndef YYCOPY
 #  if defined __GNUC__ && 1 < __GNUC__
 #   define YYCOPY(Dst, Src, Count) \
-      __builtin_memcpy (Dst, Src, (Count) * sizeof (*(Src)))
+      __builtin_memcpy (Dst, Src, YY_CAST (YYSIZE_T, (Count)) * sizeof (*(Src)))
 #  else
 #   define YYCOPY(Dst, Src, Count)              \
       do                                        \
         {                                       \
-          YYSIZE_T yyi;                         \
+          YYPTRDIFF_T yyi;                      \
           for (yyi = 0; yyi < (Count); yyi++)   \
             (Dst)[yyi] = (Src)[yyi];            \
         }                                       \
@@ -549,7 +623,7 @@ union yyalloc
 /* YYFINAL -- State number of the termination state.  */
 #define YYFINAL  6
 /* YYLAST -- Last index in YYTABLE.  */
-#define YYLAST   3439
+#define YYLAST   3466
 
 /* YYNTOKENS -- Number of terminals.  */
 #define YYNTOKENS  113
@@ -558,19 +632,20 @@ union yyalloc
 /* YYNRULES -- Number of rules.  */
 #define YYNRULES  827
 /* YYNSTATES -- Number of states.  */
-#define YYNSTATES  1320
+#define YYNSTATES  1318
 
-/* YYTRANSLATE[YYX] -- Symbol number corresponding to YYX as returned
-   by yylex, with out-of-bounds checking.  */
 #define YYUNDEFTOK  2
 #define YYMAXUTOK   357
 
+
+/* YYTRANSLATE(TOKEN-NUM) -- Symbol number corresponding to TOKEN-NUM
+   as returned by yylex, with out-of-bounds checking.  */
 #define YYTRANSLATE(YYX)                                                \
-  ((unsigned int) (YYX) <= YYMAXUTOK ? yytranslate[YYX] : YYUNDEFTOK)
+  (0 <= (YYX) && (YYX) <= YYMAXUTOK ? yytranslate[YYX] : YYUNDEFTOK)
 
 /* YYTRANSLATE[TOKEN-NUM] -- Symbol number corresponding to TOKEN-NUM
-   as returned by yylex, without out-of-bounds checking.  */
-static const yytype_uint8 yytranslate[] =
+   as returned by yylex.  */
+static const yytype_int8 yytranslate[] =
 {
        0,     2,     2,     2,     2,     2,     2,     2,     2,     2,
        2,     2,     2,     2,     2,     2,     2,     2,     2,     2,
@@ -612,91 +687,91 @@ static const yytype_uint8 yytranslate[] =
 
 #if YYDEBUG
   /* YYRLINE[YYN] -- Source line where rule number YYN was defined.  */
-static const yytype_uint16 yyrline[] =
+static const yytype_int16 yyrline[] =
 {
        0,   338,   338,   339,   340,   342,   365,   368,   370,   369,
-     393,   404,   414,   424,   425,   431,   436,   442,   453,   463,
-     476,   477,   483,   485,   489,   491,   495,   497,   498,   499,
-     501,   509,   517,   518,   523,   534,   545,   556,   564,   569,
-     570,   574,   575,   586,   597,   608,   612,   614,   637,   654,
-     658,   660,   661,   666,   671,   676,   682,   686,   688,   692,
-     694,   698,   700,   704,   706,   719,   730,   731,   742,   746,
-     747,   751,   752,   757,   764,   764,   771,   777,   825,   844,
-     847,   848,   849,   850,   851,   852,   853,   854,   855,   856,
-     859,   874,   881,   882,   886,   887,   888,   894,   899,   905,
-     923,   925,   926,   930,   935,   936,   958,   959,   960,   973,
-     978,   980,   981,   982,   983,   998,  1012,  1017,  1018,  1033,
-    1034,  1035,  1041,  1046,  1052,  1109,  1114,  1115,  1117,  1133,
-    1138,  1139,  1164,  1165,  1179,  1180,  1186,  1191,  1197,  1201,
-    1203,  1256,  1267,  1270,  1273,  1278,  1283,  1289,  1294,  1300,
-    1305,  1314,  1315,  1319,  1366,  1367,  1369,  1370,  1374,  1380,
-    1393,  1394,  1395,  1399,  1400,  1402,  1406,  1424,  1429,  1431,
-    1432,  1448,  1453,  1462,  1463,  1467,  1483,  1488,  1493,  1498,
-    1504,  1508,  1524,  1539,  1540,  1544,  1545,  1555,  1560,  1565,
-    1570,  1576,  1580,  1591,  1603,  1604,  1607,  1615,  1626,  1627,
-    1642,  1643,  1644,  1656,  1662,  1667,  1673,  1678,  1680,  1681,
-    1696,  1701,  1702,  1707,  1711,  1713,  1718,  1720,  1721,  1722,
-    1735,  1747,  1748,  1750,  1758,  1770,  1771,  1786,  1787,  1788,
-    1800,  1806,  1811,  1817,  1822,  1824,  1825,  1841,  1845,  1847,
-    1851,  1853,  1857,  1859,  1863,  1865,  1875,  1882,  1883,  1887,
-    1888,  1894,  1899,  1904,  1905,  1906,  1907,  1908,  1914,  1915,
-    1916,  1917,  1918,  1919,  1920,  1921,  1924,  1934,  1941,  1942,
-    1965,  1966,  1967,  1968,  1969,  1974,  1980,  1986,  1991,  1996,
-    1997,  1998,  2003,  2004,  2006,  2046,  2056,  2059,  2060,  2061,
-    2064,  2069,  2070,  2075,  2081,  2087,  2093,  2098,  2104,  2114,
-    2169,  2172,  2173,  2174,  2177,  2188,  2193,  2194,  2200,  2213,
-    2226,  2236,  2242,  2247,  2253,  2263,  2310,  2313,  2314,  2315,
-    2316,  2325,  2331,  2337,  2350,  2363,  2373,  2379,  2384,  2389,
-    2390,  2391,  2392,  2397,  2399,  2409,  2416,  2417,  2437,  2440,
-    2441,  2442,  2452,  2459,  2466,  2473,  2479,  2485,  2487,  2488,
-    2490,  2491,  2492,  2493,  2494,  2495,  2496,  2502,  2512,  2519,
-    2520,  2534,  2535,  2536,  2537,  2543,  2548,  2553,  2556,  2566,
-    2573,  2583,  2590,  2591,  2614,  2617,  2618,  2619,  2620,  2627,
-    2634,  2641,  2646,  2652,  2662,  2669,  2670,  2702,  2703,  2704,
-    2705,  2711,  2716,  2721,  2722,  2724,  2725,  2727,  2740,  2745,
-    2746,  2778,  2781,  2795,  2811,  2833,  2884,  2903,  2922,  2943,
-    2964,  2969,  2975,  2976,  2979,  2994,  3003,  3004,  3006,  3017,
-    3026,  3027,  3028,  3029,  3035,  3040,  3045,  3046,  3047,  3052,
-    3054,  3069,  3076,  3086,  3093,  3094,  3118,  3121,  3122,  3128,
-    3133,  3138,  3139,  3140,  3147,  3155,  3170,  3200,  3201,  3202,
-    3203,  3204,  3206,  3221,  3251,  3260,  3267,  3268,  3300,  3301,
-    3302,  3303,  3309,  3314,  3319,  3320,  3321,  3323,  3335,  3355,
-    3356,  3362,  3368,  3370,  3371,  3373,  3374,  3377,  3385,  3390,
-    3391,  3393,  3394,  3395,  3397,  3405,  3410,  3411,  3443,  3444,
-    3450,  3451,  3457,  3463,  3470,  3477,  3485,  3494,  3502,  3507,
-    3508,  3540,  3541,  3547,  3548,  3554,  3561,  3569,  3574,  3575,
-    3589,  3590,  3591,  3597,  3603,  3610,  3617,  3625,  3634,  3643,
-    3648,  3649,  3653,  3654,  3659,  3665,  3670,  3672,  3673,  3674,
-    3687,  3692,  3694,  3695,  3696,  3709,  3713,  3715,  3720,  3722,
-    3723,  3743,  3748,  3750,  3751,  3752,  3772,  3777,  3779,  3780,
-    3781,  3793,  3862,  3867,  3868,  3872,  3876,  3878,  3879,  3881,
-    3885,  3887,  3887,  3894,  3897,  3906,  3925,  3927,  3928,  3931,
-    3931,  3948,  3948,  3955,  3955,  3962,  3965,  3967,  3969,  3970,
-    3972,  3974,  3976,  3977,  3979,  3981,  3982,  3984,  3985,  3987,
-    3989,  3992,  3996,  3998,  3999,  4001,  4002,  4004,  4006,  4017,
-    4018,  4021,  4022,  4033,  4034,  4036,  4037,  4039,  4040,  4046,
-    4047,  4050,  4051,  4052,  4076,  4077,  4080,  4086,  4090,  4095,
-    4096,  4097,  4100,  4105,  4115,  4117,  4118,  4120,  4121,  4123,
-    4124,  4125,  4127,  4128,  4130,  4131,  4133,  4134,  4138,  4139,
-    4166,  4204,  4205,  4207,  4209,  4211,  4212,  4214,  4215,  4217,
-    4218,  4221,  4222,  4225,  4227,  4228,  4231,  4231,  4238,  4240,
-    4241,  4242,  4243,  4244,  4245,  4246,  4248,  4249,  4250,  4252,
-    4253,  4254,  4255,  4256,  4257,  4258,  4259,  4260,  4261,  4264,
-    4265,  4266,  4267,  4268,  4269,  4270,  4271,  4272,  4273,  4274,
-    4275,  4276,  4277,  4278,  4279,  4280,  4281,  4282,  4283,  4284,
-    4285,  4286,  4287,  4288,  4289,  4290,  4291,  4292,  4293,  4294,
-    4295,  4296,  4297,  4298,  4299,  4300,  4301,  4302,  4303,  4304,
-    4305,  4306,  4307,  4308,  4309,  4310,  4311,  4312,  4313,  4314,
-    4315,  4316,  4317,  4318,  4319,  4320,  4321,  4322,  4323,  4324,
-    4325,  4326,  4327,  4328,  4329,  4330,  4331,  4332,  4333,  4335,
-    4342,  4349,  4369,  4387,  4403,  4430,  4437,  4455,  4495,  4497,
-    4498,  4499,  4500,  4501,  4502,  4503,  4504,  4505,  4506,  4507,
-    4508,  4509,  4511,  4512,  4513,  4514,  4515,  4516,  4517,  4518,
-    4519,  4520,  4521,  4522,  4523,  4524,  4526,  4527,  4528,  4529,
-    4531,  4539,  4540,  4545,  4550,  4555,  4560,  4565,  4570,  4575,
-    4580,  4585,  4590,  4595,  4600,  4605,  4610,  4615,  4629,  4649,
-    4654,  4659,  4664,  4677,  4682,  4686,  4696,  4711,  4726,  4741,
-    4756,  4776,  4791,  4792,  4798,  4805,  4820,  4823
+     393,   406,   416,   426,   427,   433,   438,   444,   457,   467,
+     480,   481,   487,   489,   493,   495,   499,   501,   502,   503,
+     505,   513,   521,   522,   527,   538,   549,   560,   568,   573,
+     574,   578,   579,   590,   601,   612,   616,   618,   641,   658,
+     662,   664,   665,   670,   675,   680,   686,   690,   692,   696,
+     698,   702,   704,   708,   710,   723,   734,   735,   747,   751,
+     752,   756,   757,   762,   769,   769,   780,   786,   834,   853,
+     856,   857,   858,   859,   860,   861,   862,   863,   864,   865,
+     868,   883,   890,   891,   895,   896,   897,   903,   908,   914,
+     932,   934,   935,   939,   944,   945,   967,   968,   969,   982,
+     987,   989,   990,   991,   992,  1007,  1021,  1026,  1027,  1042,
+    1043,  1044,  1050,  1055,  1061,  1118,  1123,  1124,  1126,  1142,
+    1147,  1148,  1173,  1174,  1188,  1189,  1195,  1200,  1206,  1210,
+    1212,  1265,  1276,  1279,  1282,  1287,  1292,  1298,  1303,  1309,
+    1314,  1323,  1324,  1328,  1375,  1376,  1378,  1379,  1383,  1389,
+    1402,  1403,  1404,  1408,  1409,  1411,  1415,  1433,  1438,  1440,
+    1441,  1457,  1462,  1471,  1472,  1476,  1492,  1497,  1502,  1507,
+    1513,  1517,  1536,  1551,  1552,  1556,  1557,  1567,  1572,  1577,
+    1582,  1588,  1592,  1603,  1615,  1616,  1619,  1627,  1638,  1639,
+    1654,  1655,  1656,  1668,  1674,  1679,  1685,  1690,  1692,  1693,
+    1708,  1713,  1714,  1719,  1723,  1725,  1730,  1732,  1733,  1734,
+    1747,  1759,  1760,  1762,  1770,  1782,  1783,  1798,  1799,  1800,
+    1812,  1818,  1823,  1829,  1834,  1836,  1837,  1853,  1857,  1859,
+    1863,  1865,  1869,  1871,  1875,  1877,  1887,  1894,  1895,  1899,
+    1900,  1906,  1911,  1916,  1917,  1918,  1919,  1920,  1926,  1927,
+    1928,  1929,  1930,  1931,  1932,  1933,  1936,  1946,  1953,  1954,
+    1977,  1978,  1979,  1980,  1981,  1986,  1992,  1998,  2003,  2008,
+    2009,  2010,  2015,  2016,  2018,  2058,  2068,  2071,  2072,  2073,
+    2076,  2081,  2082,  2087,  2093,  2099,  2105,  2110,  2116,  2126,
+    2181,  2184,  2185,  2186,  2189,  2200,  2205,  2206,  2212,  2225,
+    2238,  2248,  2254,  2259,  2265,  2275,  2322,  2325,  2326,  2327,
+    2328,  2337,  2343,  2349,  2362,  2375,  2385,  2391,  2396,  2401,
+    2402,  2403,  2404,  2409,  2411,  2421,  2428,  2429,  2449,  2452,
+    2453,  2454,  2464,  2471,  2478,  2485,  2491,  2497,  2499,  2500,
+    2502,  2503,  2504,  2505,  2506,  2507,  2508,  2514,  2524,  2531,
+    2532,  2546,  2547,  2548,  2549,  2555,  2560,  2565,  2568,  2578,
+    2585,  2595,  2602,  2603,  2626,  2629,  2630,  2631,  2632,  2639,
+    2646,  2653,  2658,  2664,  2674,  2681,  2682,  2714,  2715,  2716,
+    2717,  2723,  2728,  2733,  2734,  2736,  2737,  2739,  2752,  2757,
+    2758,  2790,  2793,  2807,  2823,  2845,  2896,  2915,  2934,  2955,
+    2976,  2981,  2987,  2988,  2991,  3006,  3015,  3016,  3018,  3029,
+    3038,  3039,  3040,  3041,  3047,  3052,  3057,  3058,  3059,  3064,
+    3066,  3081,  3088,  3098,  3105,  3106,  3130,  3133,  3134,  3140,
+    3145,  3150,  3151,  3152,  3159,  3167,  3182,  3212,  3213,  3214,
+    3215,  3216,  3218,  3233,  3263,  3273,  3280,  3281,  3313,  3314,
+    3315,  3316,  3322,  3327,  3332,  3333,  3334,  3336,  3348,  3368,
+    3369,  3375,  3381,  3383,  3384,  3386,  3387,  3390,  3398,  3403,
+    3404,  3406,  3407,  3408,  3410,  3418,  3423,  3424,  3456,  3457,
+    3463,  3464,  3470,  3476,  3483,  3490,  3498,  3507,  3515,  3520,
+    3521,  3553,  3554,  3560,  3561,  3567,  3574,  3582,  3587,  3588,
+    3602,  3603,  3604,  3610,  3616,  3623,  3630,  3638,  3647,  3656,
+    3661,  3662,  3666,  3667,  3672,  3678,  3683,  3685,  3686,  3687,
+    3700,  3705,  3707,  3708,  3709,  3722,  3726,  3728,  3733,  3735,
+    3736,  3756,  3761,  3763,  3764,  3765,  3785,  3790,  3792,  3793,
+    3794,  3806,  3875,  3880,  3881,  3885,  3889,  3891,  3892,  3894,
+    3898,  3900,  3900,  3907,  3910,  3919,  3938,  3940,  3941,  3944,
+    3944,  3961,  3961,  3968,  3968,  3975,  3978,  3980,  3982,  3983,
+    3985,  3987,  3989,  3990,  3992,  3994,  3995,  3997,  3998,  4000,
+    4002,  4005,  4008,  4010,  4011,  4013,  4014,  4016,  4018,  4029,
+    4030,  4033,  4034,  4046,  4047,  4049,  4050,  4052,  4053,  4059,
+    4060,  4063,  4064,  4065,  4089,  4090,  4093,  4099,  4103,  4108,
+    4109,  4110,  4113,  4118,  4128,  4130,  4131,  4133,  4134,  4136,
+    4137,  4138,  4140,  4141,  4143,  4144,  4146,  4147,  4151,  4152,
+    4179,  4217,  4218,  4220,  4222,  4224,  4225,  4227,  4228,  4230,
+    4231,  4234,  4235,  4238,  4240,  4241,  4244,  4244,  4251,  4253,
+    4254,  4255,  4256,  4257,  4258,  4259,  4261,  4262,  4263,  4265,
+    4266,  4267,  4268,  4269,  4270,  4271,  4272,  4273,  4274,  4277,
+    4278,  4279,  4280,  4281,  4282,  4283,  4284,  4285,  4286,  4287,
+    4288,  4289,  4290,  4291,  4292,  4293,  4294,  4295,  4296,  4297,
+    4298,  4299,  4300,  4301,  4302,  4303,  4304,  4305,  4306,  4307,
+    4308,  4309,  4310,  4311,  4312,  4313,  4314,  4315,  4316,  4317,
+    4318,  4319,  4320,  4321,  4322,  4323,  4324,  4325,  4326,  4327,
+    4328,  4329,  4330,  4331,  4332,  4333,  4334,  4335,  4336,  4337,
+    4338,  4339,  4340,  4341,  4342,  4343,  4344,  4345,  4346,  4348,
+    4355,  4362,  4382,  4400,  4416,  4443,  4450,  4468,  4508,  4510,
+    4511,  4512,  4513,  4514,  4515,  4516,  4517,  4518,  4519,  4520,
+    4521,  4522,  4524,  4525,  4526,  4527,  4528,  4529,  4530,  4531,
+    4532,  4533,  4534,  4535,  4536,  4537,  4539,  4540,  4541,  4542,
+    4544,  4552,  4553,  4558,  4563,  4568,  4573,  4578,  4583,  4588,
+    4593,  4598,  4603,  4608,  4613,  4618,  4623,  4628,  4642,  4662,
+    4667,  4672,  4677,  4690,  4695,  4699,  4709,  4724,  4739,  4754,
+    4769,  4789,  4804,  4805,  4811,  4818,  4833,  4836
 };
 #endif
 
@@ -833,7 +908,7 @@ static const char *const yytname[] =
 # ifdef YYPRINT
 /* YYTOKNUM[NUM] -- (External) token number corresponding to the
    (internal) symbol number NUM (which must be that of a token).  */
-static const yytype_uint16 yytoknum[] =
+static const yytype_int16 yytoknum[] =
 {
        0,   256,   257,   258,   259,   260,   261,   262,   263,   264,
      265,   266,   267,   268,   269,   270,   271,   272,   273,   274,
@@ -850,158 +925,158 @@ static const yytype_uint16 yytoknum[] =
 };
 # endif
 
-#define YYPACT_NINF -706
+#define YYPACT_NINF (-1012)
 
-#define yypact_value_is_default(Yystate) \
-  (!!((Yystate) == (-706)))
+#define yypact_value_is_default(Yyn) \
+  ((Yyn) == YYPACT_NINF)
 
-#define YYTABLE_NINF -757
+#define YYTABLE_NINF (-757)
 
-#define yytable_value_is_error(Yytable_value) \
+#define yytable_value_is_error(Yyn) \
   0
 
   /* YYPACT[STATE-NUM] -- Index in YYTABLE of the portion describing
      STATE-NUM.  */
 static const yytype_int16 yypact[] =
 {
-     349,    27,  -706,  -706,   352,  1787,  -706,  -706,  -706,    53,
-      53,  -706,    53,  -706,    53,    53,  -706,    53,    53,    53,
-      53,  -706,    53,    53,  -706,  -706,  -706,  -706,    53,  -706,
-    -706,  -706,    53,    53,    53,    53,    53,    53,    53,    53,
-      53,    53,    53,    53,    53,    53,    53,    53,    53,    53,
-    -706,  -706,    53,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,    -5,    42,    96,   405,    65,    86,   372,
-      53,  -706,  -706,  3167,  3167,  3167,  2692,  3167,   147,  2446,
-    2446,  2446,  2446,  2446,   115,  2787,   151,   104,   417,  2446,
-     109,  2446,   164,   417,  3167,  2446,  2446,   181,   107,   185,
-    2787,  2446,   516,  2446,   373,   373,    53,  -706,    53,  -706,
-      53,  -706,    53,    53,    53,    53,  -706,  -706,  -706,  -706,
-    -706,    53,  -706,    53,  -706,    53,    53,    53,    53,    53,
-    -706,    53,    53,    53,    53,  -706,    53,    53,    53,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-      80,  -706,   132,  -706,  -706,  -706,   144,  2597,    53,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,   138,  -706,  -706,  -706,  -706,  -706,   178,
-    -706,   156,  -706,  -706,  -706,   244,  -706,  -706,  -706,   208,
-    -706,  -706,  -706,  -706,   244,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,   244,  -706,  -706,  -706,   244,  -706,   244,
-    -706,   244,  -706,   244,  -706,  -706,  -706,   244,  -706,  -706,
-    -706,  -706,   244,  -706,  -706,  -706,  -706,  -706,  -706,   244,
-    -706,  -706,  -706,   244,  -706,  -706,  -706,  -706,   244,  -706,
-    -706,  -706,   244,  -706,  -706,  -706,  -706,   244,  -706,   244,
-    -706,  -706,   244,  -706,   184,   285,  -706,   244,  -706,  -706,
-    -706,   244,  -706,  -706,   244,  -706,   244,  -706,  -706,  -706,
-    -706,   244,  -706,  -706,  -706,   244,  -706,  -706,  -706,  -706,
-    -706,   244,  -706,  -706,   244,  -706,  -706,  -706,   244,  -706,
-    -706,  -706,  -706,  -706,   244,  -706,  -706,  -706,   244,  -706,
-    -706,  -706,  -706,  2692,   373,  3167,   373,  2446,   373,  2446,
-    2446,  2446,  -706,  2446,   373,  2446,   373,   107,   373,  3167,
-    3167,  3167,  3167,  3167,    53,  3167,  3167,  3167,  3167,    53,
-    2692,  3167,  3167,  -706,  -706,   373,  -706,  -706,  -706,  -706,
-    -706,  -706,    53,  -706,    53,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,    53,    53,  -706,    53,    53,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,    53,  -706,  -706,
-      53,    53,  -706,    53,  -706,    53,  -706,    53,  -706,    53,
-      53,  -706,  -706,  -706,  3262,  -706,  -706,   209,  -706,  -706,
-    -706,    53,  -706,    53,  -706,  -706,    53,    53,  -706,  -706,
-    -706,    53,    53,    53,  -706,  -706,    53,  -706,  -706,  -706,
-      53,  -706,   261,  2446,    53,   281,  -706,   219,  -706,   290,
-    -706,   298,  -706,   358,  -706,   395,  -706,   412,  -706,   491,
-    -706,   497,  -706,   502,  -706,   503,  -706,   509,  -706,   510,
-    -706,   513,  -706,   226,  -706,   234,  -706,   262,  -706,   520,
-    -706,   533,  -706,   556,  -706,   502,  -706,   373,   373,    53,
-      53,    53,    53,   243,   373,   373,   129,   373,   175,   306,
-      53,    53,  -706,   184,  -706,  2882,    53,   283,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,   465,  1570,  2084,   305,
-    -706,  -706,   357,  -706,    34,    53,   309,  -706,  -706,   313,
-     316,  -706,  -706,  -706,   -15,  3262,  -706,    53,   572,   373,
-     176,   373,   373,   373,   373,   373,   373,   373,   373,   373,
-     373,   373,   373,   373,   373,   373,   373,   373,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,    53,  -706,   442,   299,    53,  -706,  -706,
-    -706,   299,  -706,  -706,   191,  -706,   373,  -706,   441,  -706,
-     121,  -706,  2179,    53,    53,   350,  1011,  -706,  -706,  -706,
-    -706,   500,  -706,   230,   476,   340,   505,   242,   288,   939,
-    1456,   874,  1851,  1986,  3334,  1388,  1486,  1107,   264,   900,
-     373,   373,   373,   373,    53,   144,   490,  -706,    53,    53,
-    -706,  -706,   447,  2446,   447,   373,  -706,  -706,  -706,   244,
-    -706,  -706,  3262,  -706,  -706,  -706,  -706,  -706,    53,    53,
-    -706,  3167,  2446,  -706,  -706,  -706,    -5,  -706,  -706,  -706,
-    -706,  -706,  -706,   373,   452,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,    53,    53,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  3167,  3167,   373,   373,  -706,  -706,
-    -706,  -706,  -706,    86,   244,  -706,  -706,    53,    53,  -706,
-     441,   441,    53,   568,   568,   571,  -706,   663,  -706,   373,
-    -706,   373,   373,   373,   448,  -706,   373,   373,   373,   373,
-     373,   373,   373,   373,   373,   373,   373,   373,   373,   373,
-     373,   373,   373,   373,   373,   373,   373,   373,   373,   373,
-     373,   373,   373,   373,   373,   373,   373,   373,   373,   373,
-     373,   373,   373,   373,   373,   373,   373,   373,   373,   373,
-    2787,  2787,   373,   373,   373,   373,   373,   373,   373,   373,
-     373,    53,    53,   380,  -706,   668,  -706,   388,  1714,  -706,
-    -706,   397,   399,   401,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,   413,  -706,  -706,
-    -706,   671,  -706,  -706,  -706,  -706,  -706,  -706,    53,    53,
-      53,    53,    53,    53,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,   373,  -706,  -706,   441,    53,
-     373,   373,   373,   373,  -706,    53,  -706,  -706,  -706,    53,
-     373,   373,    53,    13,  3167,    13,  3167,  3167,  3167,   373,
-      53,   444,  2278,   385,   518,   373,   373,   697,    20,  -706,
-    -706,   422,  -706,  -706,   679,  -706,  -706,   433,  -706,  -706,
-     682,  -706,   683,  -706,   556,  -706,   441,  -706,   441,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  1886,   729,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,   283,    53,  -706,  -706,  -706,  -706,
-      53,  -706,  -706,  -706,  -706,  -706,  -706,  -706,   429,   443,
-     373,   373,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,   373,   373,   373,   373,   373,   441,   441,
-     373,   373,   373,   373,   373,   373,   373,   373,  1946,   210,
-     154,   802,   369,   446,   540,  -706,  -706,  -706,  -706,  -706,
-    -706,    53,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,   441,  -706,  -706,
-     373,   250,   373,   373,   454,  2977,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-     441,  -706,  -706,   373,   128,   161,   162,   172,  -706,  3072,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,   469,   195,   373,   373,   373,   441,  -706,
-     274,   216,   746,  3262,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,   373,   373,   373
+     440,   100, -1012, -1012,   566,  1894, -1012, -1012, -1012,   266,
+     266, -1012,   266, -1012,   266,   266, -1012,   266,   266,   266,
+     266, -1012,   266,   266, -1012, -1012, -1012, -1012,   266, -1012,
+   -1012, -1012,   266,   266,   266,   266,   266,   266,   266,   266,
+     266,   266,   266,   266,   266,   266,   266,   266,   266,   266,
+   -1012, -1012,   266, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012,    -8,    31,    79,   868,    70,   125,   481,
+     266, -1012, -1012,  3273,  3273,  3273,  2893,  3273,    71,  2703,
+    2703,  2703,  2703,  2703,    98,  2988,    94,    52,   287,  2703,
+      77,  2703,   104,   287,  3273,  2703,  2703,   182,    58,   246,
+    2988,  2703,   321,  2703,   279,   279,   266, -1012,   266, -1012,
+     266, -1012,   266,   266,   266,   266, -1012, -1012, -1012, -1012,
+   -1012,   266, -1012,   266, -1012,   266,   266,   266,   266,   266,
+   -1012,   266,   266,   266,   266, -1012,   266,   266,   266, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+      29, -1012,   134, -1012, -1012, -1012,   -22,  2798,   266, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012,   151, -1012, -1012, -1012, -1012, -1012,   156,
+   -1012,    67, -1012, -1012, -1012,   224, -1012, -1012, -1012,   161,
+   -1012, -1012, -1012, -1012,   224, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012,   224, -1012, -1012, -1012,   224, -1012,   224,
+   -1012,   224, -1012,   224, -1012, -1012, -1012,   224, -1012, -1012,
+   -1012, -1012,   224, -1012, -1012, -1012, -1012, -1012, -1012,   224,
+   -1012, -1012, -1012,   224, -1012, -1012, -1012, -1012,   224, -1012,
+   -1012, -1012,   224, -1012, -1012, -1012, -1012,   224, -1012,   224,
+   -1012, -1012,   224, -1012,   262,   202, -1012,   224, -1012, -1012,
+   -1012,   224, -1012, -1012,   224, -1012,   224, -1012, -1012, -1012,
+   -1012,   224, -1012, -1012, -1012,   224, -1012, -1012, -1012, -1012,
+   -1012,   224, -1012, -1012,   224, -1012, -1012, -1012,   224, -1012,
+   -1012, -1012, -1012, -1012,   224, -1012, -1012, -1012,   224, -1012,
+   -1012, -1012, -1012,  2893,   279,  3273,   279,  2703,   279,  2703,
+    2703,  2703, -1012,  2703,   279,  2703,   279,    58,   279,  3273,
+    3273,  3273,  3273,  3273,   266,  3273,  3273,  3273,  3273,   266,
+    2893,  3273,  3273, -1012, -1012,   279, -1012, -1012, -1012, -1012,
+   -1012, -1012,   266, -1012,   266, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012,   266,   266, -1012,   266,   266, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012,   266, -1012, -1012,
+     266,   266, -1012,   266, -1012,   266, -1012,   266, -1012,   266,
+     266, -1012, -1012, -1012,  3368, -1012, -1012,   291, -1012, -1012,
+   -1012,   266, -1012,   266, -1012, -1012,   266,   266, -1012, -1012,
+   -1012,   266,   266,   266, -1012, -1012,   266, -1012, -1012, -1012,
+     266, -1012,   228,  2703,   266,   274, -1012,   189, -1012,   288,
+   -1012,   298, -1012,   303, -1012,   370, -1012,   380, -1012,   389,
+   -1012,   393, -1012,   407, -1012,   411, -1012,   419, -1012,   426,
+   -1012,   463, -1012,   238, -1012,   314, -1012,   317, -1012,   505,
+   -1012,   506, -1012,   521, -1012,   407, -1012,   279,   279,   266,
+     266,   266,   266,   326,   279,   279,   109,   279,   112,   608,
+     266,   266, -1012,   262, -1012,  3083,   266,   332, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012,  1964,  1994,  2191,   347,
+   -1012, -1012,    19, -1012,    54,   266,   355, -1012, -1012,   368,
+     373, -1012, -1012, -1012,    48,  3368, -1012,   266,   831,   279,
+     186,   279,   279,   279,   279,   279,   279,   279,   279,   279,
+     279,   279,   279,   279,   279,   279,   279,   279, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012,   266, -1012,   127,   515,   266, -1012, -1012,
+   -1012,   515, -1012, -1012,   188, -1012,   279, -1012,   473, -1012,
+     306, -1012,  2552,   266,   266,   397,  1000, -1012, -1012, -1012,
+   -1012,   783, -1012,   230,   503,   404,   887,   359,   438,   929,
+    1958,  1645,   817,   947,   344,  2074,  1547,  1768,   235,   852,
+     279,   279,   279,   279,   266,   -22,   280, -1012,   266,   266,
+   -1012, -1012,   375,  2703,   375,   279, -1012, -1012, -1012,   224,
+   -1012, -1012,  3368, -1012, -1012, -1012, -1012, -1012,   266,   266,
+   -1012,  3273,  2703, -1012, -1012, -1012,    -8, -1012, -1012, -1012,
+   -1012, -1012, -1012,   279,   474, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012,   266,   266, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012,  3273,  3273,   279,   279, -1012, -1012,
+   -1012, -1012, -1012,   125,   224, -1012, -1012,   266,   266, -1012,
+     399,   473,   266,   528,   528,   545, -1012,   567, -1012,   279,
+   -1012,   279,   279,   279,   480, -1012,   279,   279,   279,   279,
+     279,   279,   279,   279,   279,   279,   279,   279,   279,   279,
+     279,   279,   279,   279,   279,   279,   279,   279,   279,   279,
+     279,   279,   279,   279,   279,   279,   279,   279,   279,   279,
+     279,   279,   279,   279,   279,   279,   279,   279,   279,   279,
+    2988,  2988,   279,   279,   279,   279,   279,   279,   279,   279,
+     279,   266,   266,   423, -1012,   570, -1012,   428,  2046, -1012,
+   -1012,   434, -1012,   465, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012,   479, -1012, -1012,
+   -1012,   571, -1012, -1012, -1012, -1012, -1012, -1012,   266,   266,
+     266,   266,   266,   266, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012,   279, -1012,   473,   266,   279,
+     279,   279,   279, -1012,   266, -1012, -1012, -1012,   266,   279,
+     279,   266,    51,  3273,    51,  3273,  3273,  3273,   279,   266,
+     459,  2367,   385,   509,   279,   279,   341,   365, -1012, -1012,
+     483, -1012, -1012,   574, -1012, -1012,   486, -1012, -1012,   591,
+   -1012,   592, -1012,   521, -1012,   473, -1012,   473, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012,   885,  1126, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012,   332,   266, -1012, -1012, -1012, -1012,   266,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012,   467,   492,   279,
+     279, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012,   279,   279,   279,   279,   279,   473,   473,   279,
+     279,   279,   279,   279,   279,   279,   279,  1460,   205,   524,
+     216,   201,   493,   579, -1012, -1012, -1012, -1012, -1012, -1012,
+     266, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012,   473, -1012, -1012,   279,
+     293,   279,   279,   497,  3178, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,   473,
+   -1012, -1012,   279,    73,   120,   133,   163, -1012,    50, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012,   510,   222,   279,   279,   279,   473, -1012,   824,   346,
+     985,  3368, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012,   279,   279,   279
 };
 
   /* YYDEFACT[STATE-NUM] -- Default reduction number in state STATE-NUM.
      Performed when YYTABLE does not specify something else to do.  Zero
      means the default is an error.  */
-static const yytype_uint16 yydefact[] =
+static const yytype_int16 yydefact[] =
 {
      790,     0,     2,     3,     0,   757,     1,   649,   650,     0,
        0,   652,     0,   763,     0,     0,   761,     0,     0,     0,
@@ -1098,7 +1173,7 @@ static const yytype_uint16 yydefact[] =
      619,   619,   435,   439,   440,   438,   619,   619,   619,   619,
      619,   646,   651,   651,     0,     0,    28,    29,    52,    53,
       54,    55,    78,    64,     0,    23,    78,   107,   106,   105,
-     654,   654,   637,     0,     0,     0,   224,     0,   197,   164,
+       0,   654,   637,     0,     0,     0,   224,     0,   197,   164,
      165,   160,   161,   163,   193,   222,   143,   376,   375,   377,
      363,   367,   362,   340,   347,   339,   272,   282,   279,   283,
      280,   281,   271,   273,   254,   253,   255,   256,   257,   288,
@@ -1106,73 +1181,73 @@ static const yytype_uint16 yydefact[] =
      333,   331,   332,   317,   319,   460,   464,   465,   466,   459,
        0,     0,   389,   393,   394,   388,   437,   441,   442,   443,
      444,   633,     9,     0,    31,     0,    37,     0,    77,   619,
-      24,     0,     0,     0,   651,   641,   639,   640,   619,   225,
+      24,     0,   588,     0,   651,   641,   639,   640,   619,   225,
      619,   619,   198,   196,   619,   413,   414,     0,   651,   396,
      397,     0,   651,   619,   619,    39,    38,   651,     0,     0,
        0,     0,     0,     0,   619,    80,    81,    82,    83,    84,
-      85,    86,    87,    88,    89,    67,   651,   588,   654,   645,
-     227,   223,   200,   195,   619,   412,   619,   399,   398,   395,
-      32,    41,    11,     0,     0,     0,     0,     0,     0,    79,
-      18,     0,     0,     0,     0,   420,   401,     0,     0,   417,
-     418,     0,   567,   651,     0,    90,   474,     0,   467,   651,
-       0,   115,     0,   128,     0,   432,   654,   589,   654,   642,
-     226,   231,   232,   230,   619,   229,   199,   204,   205,   203,
-     619,   202,     0,     0,    30,    36,    33,    34,    35,    40,
-      44,    42,    43,   619,   566,   416,   619,    92,    91,   619,
-     473,   619,   117,   116,   619,   130,   129,   433,     0,     0,
-     228,   201,   415,   424,   425,   423,   619,   619,   619,   619,
-     619,   619,   400,   410,   411,   619,   405,   406,   407,   404,
-     408,   409,   619,   420,    94,   469,   119,   132,   654,   654,
-     422,   426,   429,   427,   428,   421,   403,   402,     0,     0,
-       0,     0,     0,     0,     0,   419,    93,    97,    98,   619,
-      96,     0,   468,   470,   471,   118,   122,   123,   121,   619,
-     131,   136,   137,   135,   619,   133,   597,   654,   590,   593,
-      95,     0,   120,   134,     0,     0,   484,   497,   477,   506,
-     619,   651,   475,   476,   651,   481,   651,   483,   651,   482,
-     654,   594,   595,   472,     0,     0,     0,     0,   592,   654,
-     619,   479,   478,   619,   486,   485,   619,   499,   498,   619,
-     508,   507,   591,     0,     0,   488,   501,   510,   654,   480,
-       0,     0,     0,     0,   487,   489,   492,   493,   494,   495,
-     496,   619,   491,   500,   502,   505,   619,   504,   509,   619,
-     512,   513,   514,   515,   516,   517,   596,   490,   503,   511
+      85,    86,    87,    88,    89,    67,   651,   654,   645,   227,
+     223,   200,   195,   619,   412,   619,   399,   398,   395,    32,
+      41,    11,     0,     0,     0,     0,     0,     0,    79,    18,
+       0,     0,     0,     0,   420,   401,     0,     0,   417,   418,
+       0,   567,   651,     0,    90,   474,     0,   467,   651,     0,
+     115,     0,   128,     0,   432,   654,   589,   654,   642,   226,
+     231,   232,   230,   619,   229,   199,   204,   205,   203,   619,
+     202,     0,     0,    30,    36,    33,    34,    35,    40,    44,
+      42,    43,   619,   566,   416,   619,    92,    91,   619,   473,
+     619,   117,   116,   619,   130,   129,   433,     0,     0,   228,
+     201,   415,   424,   425,   423,   619,   619,   619,   619,   619,
+     619,   400,   410,   411,   619,   405,   406,   407,   404,   408,
+     409,   619,   420,    94,   469,   119,   132,   654,   654,   422,
+     426,   429,   427,   428,   421,   403,   402,     0,     0,     0,
+       0,     0,     0,     0,   419,    93,    97,    98,   619,    96,
+       0,   468,   470,   471,   118,   122,   123,   121,   619,   131,
+     136,   137,   135,   619,   133,   597,   654,   590,   593,    95,
+       0,   120,   134,     0,     0,   484,   497,   477,   506,   619,
+     651,   475,   476,   651,   481,   651,   483,   651,   482,   654,
+     594,   595,   472,     0,     0,     0,     0,   592,   591,   619,
+     479,   478,   619,   486,   485,   619,   499,   498,   619,   508,
+     507,     0,     0,   488,   501,   510,   654,   480,     0,     0,
+       0,     0,   487,   489,   492,   493,   494,   495,   496,   619,
+     491,   500,   502,   505,   619,   504,   509,   619,   512,   513,
+     514,   515,   516,   517,   596,   490,   503,   511
 };
 
   /* YYPGOTO[NTERM-NUM].  */
 static const yytype_int16 yypgoto[] =
 {
-    -706,  -706,  -706,  1286,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,   -54,  -706,   -38,   -44,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -456,  -706,   -34,
-    -706,  -505,   -73,  -706,   616,  -706,   622,  -706,    -2,  -706,
-     168,   -98,  -706,  -706,  -287,  -706,  -706,   269,  -706,  -277,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -529,  -706,  -706,
-    -706,  -706,  -706,    84,  -706,  -706,  -706,  -706,  -706,  -706,
-     -33,  -706,  -706,  -706,  -706,  -706,  -706,  -684,  -706,   -59,
-    -706,  -549,  -706,  -706,  -706,  -706,  -706,  -706,  -706,   -22,
-    -706,     5,  -706,  -706,   -83,  -706,    35,  -706,  -706,  -706,
-    -706,    18,  -706,  -706,  -216,  -706,  -706,  -706,  -706,  -347,
-    -706,    52,  -706,  -706,    56,  -706,    57,  -706,  -706,  -706,
-       4,  -706,  -706,  -706,  -706,  -324,  -706,  -706,    -3,  -706,
-      -1,  -706,  -554,  -706,  -662,  -706,    24,  -706,  -706,  -469,
-    -706,   -88,  -706,  -706,   -66,  -706,  -706,  -706,   -63,  -706,
-    -706,   -43,  -706,  -706,   -39,  -706,  -706,  -706,  -706,  -706,
-     -36,  -706,  -706,  -706,   -23,  -706,   -16,   246,  -706,  -706,
-     704,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -379,  -706,   -69,  -706,  -706,  -308,
-    -706,  -706,    88,   271,  -706,    93,  -706,   -82,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,
-    -706,  -706,   -18,  -706,  -706,  -706,  -561,  -706,  -706,  -472,
-    -706,  -706,  -705,  -706,  -670,  -706,  -706,  -658,  -706,  -706,
-     -60,  -706,  -706,   -77,  -706,  -706,  -679,  -706,  -706,    97,
-    -706,  -706,  -706,  -303,  -270,  -286,  -266,  -706,  -706,  -706,
-    -706,   265,   127,  -706,  -706,   266,  -706,  -706,  -706,   186,
-    -706,  -706,  -706,  -416,  -706,  -706,  -706,   -29,   722,  -706,
-    -706,  -706,   541,   -93,  -332,    21,  -706,  -706,  -706,   424,
-     134,  -706,  -706,  -706,  -532,  -706,  -706,  -706,  -706,  -706,
-    -117,  -706,  -706,  -241,   105,    -4,  1346,    62,  -695,   122,
-    -706,   662,   187,  -706,   139,   -31,   -32,  -706,  -706,  -706,
-    -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706,  -706
+   -1012, -1012, -1012,   245, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012,   -16, -1012,    -2,    -9, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1011, -1012,    22,
+   -1012,  -534,   -24, -1012,   658, -1012,   681, -1012,    63, -1012,
+     105,   -41, -1012, -1012,  -237, -1012, -1012,   305, -1012,  -225,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012,  -486, -1012, -1012,
+   -1012, -1012, -1012,    41, -1012, -1012, -1012, -1012, -1012, -1012,
+     -11, -1012, -1012, -1012, -1012, -1012, -1012,  -657, -1012,    -3,
+   -1012,  -653, -1012, -1012, -1012, -1012, -1012, -1012, -1012,    23,
+   -1012,    30, -1012, -1012,    53, -1012,    35, -1012, -1012, -1012,
+   -1012,    10, -1012, -1012,  -236, -1012, -1012, -1012, -1012,  -366,
+   -1012,    38, -1012, -1012,    40, -1012,    43, -1012, -1012, -1012,
+     -21, -1012, -1012, -1012, -1012,  -355, -1012, -1012,    12, -1012,
+      18, -1012,  -704, -1012,  -480, -1012,    16, -1012, -1012,  -560,
+   -1012,   -80, -1012, -1012,   -67, -1012, -1012, -1012,   -63, -1012,
+   -1012,   -39, -1012, -1012,   -36, -1012, -1012, -1012, -1012, -1012,
+     -33, -1012, -1012, -1012,   -28, -1012,   -27,   206, -1012, -1012,
+     667, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012,  -435, -1012,   -62, -1012, -1012,  -365,
+   -1012, -1012,    42,   211, -1012,    44, -1012,   -87, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012,
+   -1012, -1012,    74, -1012, -1012, -1012,  -473, -1012, -1012,  -667,
+   -1012, -1012,  -675, -1012,  -722, -1012, -1012,  -662, -1012, -1012,
+    -271, -1012, -1012,   -35, -1012, -1012,  -725, -1012, -1012,    46,
+   -1012, -1012, -1012,  -390,  -319,  -335,  -461, -1012, -1012, -1012,
+   -1012,   214,    97, -1012, -1012,   239, -1012, -1012, -1012,   135,
+   -1012, -1012, -1012,  -441, -1012, -1012, -1012,   155,   693, -1012,
+   -1012, -1012,   185,   -93,  -328,  1164, -1012, -1012, -1012,   526,
+     110, -1012, -1012, -1012,  -433, -1012, -1012, -1012, -1012, -1012,
+    -143, -1012, -1012,  -260,    84,    -4,  1453,   166,  -694,   119,
+   -1012,   660,   -12, -1012,   137,   -20,   -23, -1012, -1012, -1012,
+   -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012, -1012
 };
 
   /* YYDEFGOTO[NTERM-NUM].  */
@@ -1180,32 +1255,32 @@ static const yytype_int16 yydefgoto[] =
 {
       -1,     1,   261,   262,   553,   933,   263,     2,   631,   632,
      269,     3,   633,   634,   944,   688,   332,    54,   686,   740,
-    1023,  1107,  1025,   741,  1056,  1108,   365,    55,   279,    56,
+    1023,  1106,  1025,   741,  1056,  1107,   365,    55,   279,    56,
      351,    57,   742,   339,   938,   293,   939,   299,   783,   356,
      784,   942,   521,   943,   144,   597,   718,   366,   489,  1027,
-    1028,  1064,  1114,  1065,  1158,  1209,   271,    62,   438,   749,
-     636,   750,   371,  1175,   372,  1120,  1066,  1163,  1211,   509,
-    1176,   579,  1122,  1067,  1166,  1212,   275,    64,   507,   669,
+    1028,  1064,  1113,  1065,  1157,  1208,   271,    62,   438,   749,
+     636,   750,   371,  1174,   372,  1119,  1066,  1162,  1210,   509,
+    1175,   579,  1121,  1067,  1165,  1211,   275,    64,   507,   669,
      711,   127,   505,   575,   705,   706,   765,   766,   307,    65,
      308,   136,   511,   582,   713,   401,   137,   515,   588,   715,
-     388,    66,   707,   964,   708,   957,  1043,  1104,   384,    67,
+     388,    66,   707,   964,   708,   957,  1043,  1103,   384,    67,
      385,   138,   591,   342,    68,   361,    69,   362,   709,   774,
-     710,   955,  1040,  1103,   347,    70,   348,   303,   785,   301,
+     710,   955,  1040,  1102,   347,    70,   348,   303,   785,   301,
      786,   378,    73,   297,    74,   531,   670,   612,   723,   671,
      529,   672,   609,   722,   673,   533,   724,   535,   674,   725,
      537,   675,   726,   527,   676,   606,   721,   828,   829,   525,
-    1178,   603,   720,   523,   677,   545,   678,   600,   719,   541,
-     679,   621,   728,  1050,  1051,   919,  1088,  1143,  1046,  1047,
-     920,  1110,  1111,  1071,  1142,   543,  1179,  1124,  1072,   624,
-     729,   170,   171,   626,   172,   173,   539,  1180,   618,   727,
-    1117,  1074,  1210,  1118,  1250,  1251,  1252,  1272,  1253,  1254,
-    1255,  1275,  1290,  1256,  1257,  1278,  1291,  1258,  1259,  1281,
-    1292,   519,  1181,   594,   717,   284,    75,   285,   319,    76,
+    1177,   603,   720,   523,   677,   545,   678,   600,   719,   541,
+     679,   621,   728,  1050,  1051,   919,  1087,  1142,  1046,  1047,
+     920,  1109,  1110,  1071,  1141,   543,  1178,  1123,  1072,   624,
+     729,   170,   171,   626,   172,   173,   539,  1179,   618,   727,
+    1116,  1074,  1209,  1117,  1249,  1250,  1251,  1271,  1252,  1253,
+    1254,  1274,  1288,  1255,  1256,  1277,  1289,  1257,  1258,  1280,
+    1290,   519,  1180,   594,   717,   284,    75,   285,   319,    76,
      320,   354,    77,   328,    78,   329,   323,    79,   324,   337,
       80,   338,   513,   680,   585,   374,    81,   375,   312,    82,
-     313,   459,   517,   646,  1113,   567,   376,   497,   343,   344,
+     313,   459,   517,   646,  1112,   567,   376,   497,   343,   344,
      345,   475,   476,   563,   478,   479,   565,   643,   699,   640,
-     950,  1127,  1238,  1239,  1245,  1269,  1128,   330,   331,   386,
+     950,  1126,  1237,  1238,  1244,  1268,  1127,   330,   331,   386,
      387,   352,   264,   377,   276,   441,   442,   638,   443,   124,
      390,   502,   503,   571,   176,   430,   629,   570,   702,   757,
     1036,   758,   759,   628,   428,   391,     4,   177,   752,   294,
@@ -1218,236 +1293,288 @@ static const yytype_int16 yydefgoto[] =
      number is the opposite.  If YYTABLE_NINF, syntax error.  */
 static const yytype_int16 yytable[] =
 {
-      11,   160,    71,    60,    72,    92,    92,   174,    92,   139,
-      92,    92,   314,    92,    92,    92,    92,   848,    92,    92,
-     169,   180,   764,   161,    92,   129,   162,     6,    92,    92,
+      11,   901,   174,   881,   897,    92,    92,   780,    92,   160,
+      92,    92,   314,    92,    92,    92,    92,    71,    92,    92,
+     865,   877,   161,    72,    92,   639,   162,   169,    92,    92,
       92,    92,    92,    92,    92,    92,    92,    92,    92,    92,
-      92,    92,    92,    92,    92,    92,   163,   901,    92,   781,
-     164,    20,   131,   165,   639,   881,   897,    15,     7,   822,
-       8,   506,   866,   878,   278,   277,   166,   882,   898,   142,
-     126,    93,    94,   167,    95,   309,    96,    97,   325,    98,
-      99,   100,   101,   353,   102,   103,    92,    43,   542,    63,
-     104,    45,  -587,  -587,   105,   106,   107,   108,   109,   110,
-     111,   112,   113,   114,   115,   116,   117,   118,   119,   120,
-     121,   122,   180,   159,   123,   180,   687,   180,   128,   363,
-     645,   305,    92,   180,    92,  1149,    92,   690,    92,    92,
-      92,    92,   305,     7,     7,     8,     8,    92,   130,    92,
-     273,    92,    92,    92,    92,    92,   141,    92,    92,    92,
-      92,   735,    92,    92,    92,   180,   143,   780,   807,   180,
-     834,   847,   779,   868,   880,   896,     7,     7,     8,     8,
-     865,   877,   180,    61,    11,   864,   876,     7,  -573,     8,
-       7,     7,     8,     8,   423,    20,   273,   273,   393,   180,
-     395,  1221,   397,   180,   399,   400,   402,   403,   321,   180,
-       7,   334,     8,   405,   335,   407,   273,   409,   410,   411,
-     412,   413,   635,   415,   416,   417,   418,   960,   420,   421,
-     422,    43,   298,   300,   302,   304,   953,   954,   474,   698,
-      12,   333,  1270,   340,  1271,   281,   424,   355,   357,   316,
-     282,    20,   433,   379,   317,   389,    19,   808,   426,   835,
-     427,   815,   869,   843,   856,  1032,  1033,   892,   910,  1222,
-     436,    20,   437,    22,    23,  1273,  1276,  1274,  1277,   358,
-     367,   133,   368,    20,   359,   369,  1279,    43,  1280,   746,
-     637,   712,   435,    46,   747,   912,   296,   296,   296,   296,
-     296,   474,   315,    47,    48,    20,   296,    43,   296,   477,
-    1289,    17,   296,   296,    19,   449,   130,   315,   296,    43,
-     296,     7,   446,     8,   450,  1216,   564,   273,   452,    20,
-     453,  1303,   454,   576,   455,    33,    34,    35,   456,   133,
-     613,    43,   913,   458,  1246,   782,  1247,    46,   614,  1248,
-     462,  1249,   738,   739,   464,   141,   630,   795,   439,   466,
-     440,    47,    48,   468,  -651,    43,  -651,     7,   471,     8,
-     472,   278,   277,   473,   296,   568,   615,   569,   480,   914,
-      41,    20,   482,    22,    23,   484,   145,   485,     7,  1294,
-       8,   562,   488,  1101,   273,   573,   490,   574,   278,   277,
-     645,    14,   494,   798,   577,   495,   578,   146,   147,   498,
-      20,   148,   580,  -651,   581,   499,     9,    43,   684,   501,
-      11,   130,   149,    36,   695,    11,    20,   150,   697,   151,
-     152,    41,   153,  -651,   698,   180,    10,   130,    11,   154,
-      11,  1168,   155,  1169,   305,   326,    43,    52,  1189,   687,
-      11,    11,    46,    11,    11,   788,   751,     7,    40,     8,
-     737,   156,    43,    11,   132,   763,    11,    11,    46,    11,
-     133,    11,   583,    11,   584,    11,    11,   134,   157,   145,
-     158,   135,   644,  1190,  1230,    18,   703,    11,    20,    11,
-     704,  1186,    11,    11,  1053,  1191,   125,    11,    11,    11,
-    1130,   147,    11,  1057,   148,     7,    11,     8,   932,   586,
-      11,   587,  1076,  1213,  1214,   149,    38,    20,  1077,    22,
-      23,  1078,   151,   152,    43,   153,   589,  1084,   590,   510,
-     133,   512,   514,   516,   180,   518,  1153,   520,  1235,  1126,
-      19,    20,   380,   381,   382,   683,    20,  1159,    22,    23,
-    1198,   128,  1244,    43,   156,    11,    11,    11,    11,    20,
-    1199,   394,   701,   396,  1237,   398,    11,    11,  1236,  1070,
-     130,  1260,    11,   158,   404,  1268,   406,    43,   408,   714,
-     668,   716,    43,    46,  1283,   126,  1288,     7,    48,     8,
-     692,   787,  1187,   273,   296,    43,   296,   296,   296,   691,
-     296,    46,   296,  1293,   689,   592,   703,   593,    49,   425,
-     693,   595,  1146,   596,   704,   775,   598,   601,   599,   602,
-     794,  1302,  1307,   604,   607,   605,   608,   610,   744,   611,
-    1299,    58,  1314,  1136,   616,   572,   617,    59,  1296,  1305,
-    1311,    92,  1300,   823,  1315,   270,   272,   619,   280,   620,
-     845,   858,   809,    11,   894,   849,   946,   870,   884,   900,
-     911,  1145,  1150,   844,   857,   824,  1029,   893,   825,   951,
-     622,   315,   623,   841,   854,   883,   899,   890,   908,  1031,
-     927,  1188,  1034,  1177,  1035,  1038,   522,  1039,   826,    92,
-    1219,    11,   827,    92,   767,   830,   805,   814,   821,   840,
-     296,   863,   875,   889,   907,   918,   926,   694,   831,    92,
-      92,   806,   816,   833,   846,   832,   867,   879,   895,   776,
-     921,   768,   792,   789,   793,   796,   799,   802,   811,   818,
-     837,   851,   860,   872,   886,   904,   915,   923,    20,  1297,
-      11,  1312,    11,   791,    92,    92,  1295,  1304,  1310,  1177,
-     940,   769,   940,  1309,  1048,  1052,   842,   855,  1044,   743,
-     891,   909,   315,   928,    92,    92,    17,  1141,   770,    19,
-      20,    41,   771,   772,    43,   761,   762,  1041,    45,  1042,
-     949,   130,  1054,    17,  1055,  1086,    19,  1087,   965,  1135,
-      33,    34,    35,  1156,   133,  1157,  1161,  1164,  1162,  1165,
-    1112,   625,  1112,   168,    42,   778,    43,    33,    34,    35,
-     934,   935,  1144,   804,   813,   820,   839,   853,   862,   874,
-     888,   906,   917,   925,  1208,   315,  1167,   929,  1298,   627,
-    1313,   126,   930,   902,    48,  1119,  1154,   753,   641,  1261,
-     700,   642,   315,    20,  1182,   349,   756,  1037,  1102,   431,
-     931,   760,     0,     0,   130,     0,     0,   547,   548,     0,
-       0,  1308,     0,     0,     0,     0,     0,   554,     0,   555,
-     556,     0,     0,     0,     0,   945,   557,   558,     0,    43,
-     559,     0,     0,     0,     0,    46,     0,     0,   145,   777,
-       0,     0,     0,   790,   958,   797,   800,   803,   812,   819,
-     838,   852,   861,   873,   887,   905,   916,   924,     0,   146,
-     147,    17,     0,   148,    19,    20,     0,  1225,    92,    92,
-     941,     0,   941,     0,     0,     0,   130,     0,     0,     0,
-       0,   151,   152,     0,   153,    33,     0,     0,     0,     0,
-     296,    20,     0,     0,     0,     0,   508,     0,     0,   315,
-     149,    43,   130,    11,    11,   150,  1073,    46,    11,   296,
-     524,   526,   528,   530,   532,   141,   534,   536,   538,   540,
-     155,     0,   544,   546,     0,  1030,    17,    43,     0,  1068,
-      20,     0,   158,    46,  1010,  1011,   128,     0,     0,   817,
-       0,   130,     0,     0,     0,     0,     0,     0,     0,     0,
-      33,     0,     0,     0,   133,     0,     0,   648,     0,     0,
-     649,   650,     0,     0,   651,   922,    43,   652,     0,   683,
-     653,     0,    46,   654,     0,     0,   655,    11,    11,   656,
-     141,     0,   657,     0,     0,   658,     0,     0,   659,     0,
-       0,   660,     0,    14,   661,     0,     0,   662,   663,   664,
-     665,     0,     0,   666,   801,     0,   667,     0,     0,     0,
-      28,     0,  1069,     0,    92,    92,    92,    92,    92,    92,
-     132,     0,   696,     0,     0,     0,  1192,     0,     0,     0,
-    1134,  1140,    39,   134,     0,    11,     0,   135,     0,     0,
-      44,    11,     0,     0,     0,    11,  -166,     0,    11,     0,
-       0,     0,     0,   730,   731,   732,    11,     0,     0,     0,
-       0,  1131,  1137,     0,   733,  1147,  1151,     0,     0,     0,
-    1185,   145,     0,     0,     0,     0,     0,   745,     0,     0,
-    1093,  1094,  1095,  1096,  1097,  1098,     0,     0,     0,     0,
-       0,     0,   773,   147,     0,     0,   148,     0,    20,     0,
-    1173,  1183,     0,     0,     0,     0,     0,   149,     0,   130,
-       0,    11,  1262,     0,   151,   152,    11,   153,     0,     0,
-       0,     0,   133,     0,   936,   937,     0,     0,     0,     0,
-       0,     0,     0,     0,    43,     0,  1282,     0,  1229,  1234,
-      46,     0,     0,   128,     0,     0,   156,  1133,  1139,   959,
-       0,     0,   961,   962,   963,     0,     0,   315,   315,     0,
-    1316,     0,     0,   966,     0,   158,  1173,  1217,  1223,  1226,
-    1231,     0,   903,  1301,  1306,     0,     0,    92,     0,     0,
-       0,     0,     0,     0,     0,     0,     0,     0,     0,   967,
-     968,     0,     0,   969,     0,     0,     0,     0,   970,   971,
-     972,     0,     0,     0,     0,   973,     0,     0,     0,     0,
-       0,     0,   974,     0,     0,     0,     0,   975,     0,     0,
-      11,    11,    11,    11,   976,   977,   978,   979,   980,   981,
-     982,  1132,  1138,   983,     0,  1148,  1152,     0,   984,   985,
-     986,   987,   988,  1241,     0,     0,     0,   989,   990,   315,
-       0,   991,     0,  1220,   992,  1228,  1233,     0,     0,   993,
-     994,     0,   956,   995,     0,     0,     0,     0,   996,     0,
-    1174,  1184,     0,   997,   998,   999,  1000,  1001,  1002,  1003,
-       0,     0,     0,     0,  1004,     0,     0,     0,     0,     0,
-       0,  1005,  1006,  1007,  1008,  1009,     0,     0,     0,     0,
-       0,     0,  1012,  1013,  1014,  1015,     0,     0,     0,     0,
-    1016,  1017,  1018,  1019,  1020,     0,     0,     0,     0,     0,
+      92,    92,    92,    92,    92,    92,    63,   848,    92,   764,
+     163,   139,   808,   164,   835,   751,   165,   869,   779,   180,
+     180,   166,   167,   882,   898,   506,   180,   126,    60,   305,
+     363,   864,   876,   278,   131,    36,   277,    15,     7,   180,
+       8,   129,   426,    41,   427,   180,    92,   296,   296,   296,
+     296,   296,   542,   315,   353,  1144,  1149,   296,   690,   296,
+       6,   687,   180,   296,   296,   159,   180,   128,   315,   296,
+      61,   296,   180,   960,     7,   305,     8,     7,  -573,     8,
+     273,   130,    92,   273,    92,     7,    92,     8,    92,    92,
+      92,    92,     7,   423,     8,   737,   687,    92,     7,    92,
+       8,    92,    92,    92,    92,    92,   321,    92,    92,    92,
+      92,   141,    92,    92,    92,  -587,  -587,  -654,   645,   281,
+     815,   142,   843,   856,   282,   296,   892,   910,     7,   334,
+       8,   436,   335,   437,    11,    93,    94,  1269,    95,  1270,
+      96,    97,   316,    98,    99,   100,   101,   317,   102,   103,
+     180,     7,   635,     8,   104,   143,   180,   273,   105,   106,
+     107,   108,   109,   110,   111,   112,   113,   114,   115,   116,
+     117,   118,   119,   120,   121,   122,   477,   637,   123,   298,
+     300,   302,   304,    14,  1272,    12,  1273,     7,   333,     8,
+     340,   781,    20,   273,   355,   357,    20,  1275,   424,  1276,
+     379,   822,   389,   130,   866,   878,   807,    20,   834,   847,
+     735,   868,   880,   896,   180,   433,   912,  1033,   130,   309,
+     435,    20,   325,    22,    23,   446,    20,  1278,    43,  1279,
+     358,     7,    43,     8,    46,   359,   746,   130,    46,   270,
+     272,   747,   280,    43,     7,     7,     8,     8,   932,    46,
+     273,   712,   393,   576,   395,   180,   397,    43,   399,   400,
+     402,   403,    43,   913,   305,   326,  1229,   405,    46,   407,
+    1215,   409,   410,   411,   412,   413,   141,   415,   416,   417,
+     418,  1224,   420,   421,   422,   953,   954,  1287,   439,   180,
+     440,   367,   568,   368,   569,   782,   369,   380,   381,   382,
+     914,   274,   613,   283,   292,   292,   292,   292,   292,   306,
+     311,   318,   322,   327,   292,   336,   292,   341,   346,   350,
+     292,   292,   360,   364,   370,   373,   292,   383,   292,   474,
+     278,    17,    20,   277,    19,    20,    19,  1245,   573,  1246,
+     574,   562,  1247,  1100,  1248,   296,   130,   296,   296,   296,
+      20,   296,   577,   296,   578,    33,    20,   278,   564,   133,
+     277,   133,   580,    18,   581,    41,    20,   583,    43,   584,
+      11,    43,    45,   474,   698,    11,    20,    46,   614,   126,
+    1189,   615,    48,    47,    48,   141,    43,   130,    11,   630,
+      11,  1167,    43,  1168,    38,    20,    45,    22,    23,   645,
+      11,    11,    43,    11,    11,  -651,  1143,  -651,    40,   859,
+     684,  1301,    43,    11,   883,   899,    11,    11,    46,    11,
+     695,    11,   315,    11,   795,    11,    11,  1188,  1070,    20,
+    1148,    43,   644,   697,   586,  1187,   587,    11,   751,    11,
+    1190,   698,    11,    11,   589,   145,   590,    11,    11,    11,
+    1129,   296,    11,   592,  -651,   593,    11,   595,   703,   596,
+      11,    52,   763,  1212,  1213,    43,   146,   147,  1032,   788,
+     148,   598,   704,   599,  -651,   601,   510,   602,   512,   514,
+     516,   149,   518,   604,   520,   605,   150,  1053,   151,   152,
+     607,   153,   608,  1057,    20,   683,    22,    23,   154,  1076,
+      20,   155,  1243,   798,  1125,    11,    11,    11,    11,  1048,
+    1052,   130,   701,   315,  1234,    20,    11,    11,   738,   739,
+     156,  1220,    11,  1300,  1305,  1267,  1297,   610,  1312,   611,
+      43,     7,  1145,     8,  1281,  1077,    43,   157,  1197,   158,
+     508,  1176,    46,  1083,  1293,  1302,  1308,  1152,   125,    49,
+    1158,    43,  1291,  1236,   524,   526,   528,   530,   532,  1198,
+     534,   536,   538,   540,  1259,  1235,   544,   546,   787,   616,
+     619,   617,   620,     7,  1135,     8,   315,  1286,   692,   273,
+       9,  1296,   572,  1311,   691,   622,  1298,   623,  1313,  1221,
+     689,    92,  1034,   315,  1035,   845,   858,  1307,   274,   894,
+      10,   823,   292,    11,   292,   292,   292,  1176,   292,  1038,
+     292,  1039,   364,   394,   824,   396,   693,   398,   825,   951,
+     844,   857,  1185,    58,   893,   274,   404,   744,   406,  1186,
+     408,  1041,    41,  1042,  1054,  1085,  1055,  1086,  1155,    92,
+    1156,    11,   826,    92,   809,   827,    59,   849,   830,   870,
+     884,   900,   911,   831,   832,  1160,  1163,  1161,  1164,    92,
+      92,   425,  1111,   946,  1111,   714,  1029,   716,   805,   814,
+     821,   840,   522,   863,   875,   889,   907,   918,   926,   841,
+     854,  1031,  1218,   890,   908,   791,   927,   792,  1044,   767,
+      11,   296,    11,   793,    92,    92,   768,  1140,   842,   855,
+     315,   769,   891,   909,   770,   928,   771,  1134,   292,   772,
+     296,   625,   778,   965,    92,    92,   168,  1207,  1166,   627,
+     804,   813,   820,   839,   853,   862,   874,   888,   906,   917,
+     925,   929,   902,   930,   776,  1118,  1153,   641,   789,   700,
+     796,   799,   802,   811,   818,   837,   851,   860,   872,   886,
+     904,   915,   923,   806,   816,   833,   846,   753,   867,   879,
+     895,   694,   921,  1260,   642,   940,   349,   940,  1294,  1303,
+    1309,  1037,   756,    19,    20,  1295,   777,  1310,  1101,   931,
+     790,   145,   797,   800,   803,   812,   819,   838,   852,   861,
+     873,   887,   905,   916,   924,     0,     7,   431,     8,   760,
+       0,     0,   273,   147,    17,     0,   148,   941,    20,   941,
+      43,    17,     0,   743,    19,   703,    46,   149,   126,   130,
+       0,    48,   945,   704,   151,   152,     0,   153,     0,   761,
+     762,     0,   133,     0,   154,    33,    34,    35,     0,   133,
+       0,   958,    42,    20,    43,     0,     0,     0,   775,   145,
+      46,     0,   149,   128,   130,     0,   156,   150,   141,     0,
+       0,    47,    48,     0,   934,   935,     0,     0,    92,    92,
+     146,   147,   155,   157,   148,   158,    20,   132,    20,    43,
+      22,    23,   836,   133,     0,    46,     0,   130,   128,  1292,
+     134,     0,   151,   152,   135,   153,     0,     0,     0,   748,
+       0,  1073,   154,    11,    11,     0,   956,     0,    11,   547,
+     548,   145,    43,     0,    43,     0,    17,   922,    46,   554,
+      20,   555,   556,     0,   156,     0,   141,     0,   557,   558,
+       0,   130,   559,   147,     0,     0,   148,     0,    20,     0,
+      33,   157,     0,   158,   133,     0,     0,   149,   292,     0,
+    1171,     0,   794,     0,   151,   152,    43,   153,   315,   315,
+       0,     0,    46,     0,   154,     0,     0,   292,   683,     0,
+     141,     0,    17,     0,    43,    19,     0,    11,    11,     0,
+      46,     0,    14,   128,     0,  1068,   156,     0,     0,     0,
+       0,     0,     0,     0,   801,     0,    33,    34,    35,    28,
+       0,     0,     0,   157,  1069,   158,     0,     0,     0,   132,
+       0,     0,   850,     0,    92,    92,    92,    92,    92,    92,
+     126,    39,   134,    48,     0,     0,   135,     0,     0,    44,
+       0,     0,     0,     0,    11,  -166,     0,     0,  1010,  1011,
+      11,     0,     0,     0,    11,     0,     0,    11,     0,   315,
+    1306,  1133,  1139,     0,     0,    11,     0,     0,     0,   648,
+       0,     0,   649,   650,     0,     0,   651,  1191,     0,   652,
+       0,     0,   653,     0,     0,   654,     0,     0,   655,  1024,
+    1026,   656,     0,     0,   657,     0,     0,   658,     0,     0,
+     659,  1184,     0,   660,     0,     0,   661,     0,     0,   662,
+     663,   664,   665,  1132,  1138,   666,     0,     0,   667,     0,
+      11,  1261,     0,    17,     0,    11,    19,    20,     0,     0,
+       0,     0,     0,     0,   696,  1130,  1136,     0,   130,  1146,
+    1150,     0,     0,     0,     0,     0,     0,    33,    34,    35,
+       0,   133,     0,     0,     0,     0,     0,     0,     0,     0,
+       0,    42,     0,    43,     0,   730,   731,   732,  1314,  1228,
+    1233,     0,     0,     0,  1172,  1182,   733,  1131,  1137,     0,
+       0,  1147,  1151,     0,     0,     0,    92,     0,     0,   745,
+       0,     0,     0,     0,  1092,  1093,  1094,  1095,  1096,  1097,
+       0,  1181,   315,     0,   773,     0,     0,     0,     0,     0,
+       0,     0,     0,     0,     0,     0,  1173,  1183,     0,  1219,
+       0,  1227,  1232,  1299,  1304,  1045,  1049,     0,     0,    11,
+      11,    11,    11,     0,     0,     0,   936,   937,     0,     0,
+    1172,  1216,  1222,  1225,  1230,     0,     0,     0,  1114,   315,
+    1120,  1122,  1124,     0,     0,     0,     0,     0,     0,     0,
+       0,   959,     0,     0,   961,   962,   963,     0,     0,     0,
+       0,     0,     0,     0,     0,   966,     0,     0,     0,     0,
+       0,     0,  1173,  1217,  1223,  1226,  1231,     0,     0,     0,
        0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
-       0,     0,     0,     0,     0,     0,  1174,  1218,  1224,  1227,
-    1232,     0,   274,     0,   283,   292,   292,   292,   292,   292,
-     306,   311,   318,   322,   327,   292,   336,   292,   341,   346,
-     350,   292,   292,   360,   364,   370,   373,   292,   383,   292,
-       0,     0,     0,     0,     0,    17,     0,     0,    19,    20,
+       0,   967,   968,     0,     0,   969,     0,  1108,     0,  1115,
+     970,   971,   972,     0,     0,     0,     0,   973,     0,     0,
+       0,     0,     0,     0,   974,     0,     0,     0,     0,   975,
+       0,     0,     0,     0,     0,     0,   976,   977,   978,   979,
+     980,   981,   982,     0,     0,   983,     0,     0,     0,     0,
+     984,   985,   986,   987,   988,     0,  1240,     0,     0,   989,
+     990,     0,     0,   991,     0,     0,   992,     0,     0,     0,
+       0,   993,   994,     0,     0,   995,     0,     0,     0,     0,
+     996,     0,     0,     0,     0,   997,   998,   999,  1000,  1001,
+    1002,  1003,     0,     0,     0,     0,  1004,     0,     0,     0,
+       0,     0,     0,  1005,  1006,  1007,  1008,  1009,     0,     0,
+       0,     0,     0,     0,  1012,  1013,  1014,  1015,   449,     0,
+       0,     0,  1016,  1017,  1018,  1019,  1020,   450,     0,     0,
+       0,   452,     0,   453,   145,   454,     0,   455,     0,     0,
+       0,   456,     0,     0,     0,     0,   458,     0,     0,     0,
+       0,     0,     0,   462,     0,   146,   147,   464,     0,   148,
+       0,    20,   466,     0,     0,     0,   468,     0,     0,     0,
+       0,   471,   130,   472,     0,     0,   473,   151,   152,     0,
+     153,   480,     0,     0,     0,   482,     0,   154,   484,     0,
+     485,     0,     0,     0,     0,   488,     0,    43,     0,   490,
+       0,     0,     0,    46,     0,   494,     0,     0,   495,   156,
+       0,   141,   498,     0,     0,   178,     0,     0,   499,     0,
+       0,   145,   501,     0,     0,  1075,   157,     0,   158,     0,
+       0,     0,     0,     0,  1079,  1214,  1080,  1081,     0,     0,
+    1082,     0,     0,   147,    17,     0,   148,     0,    20,  1089,
+    1090,     0,     0,     0,     0,     0,     0,   149,     0,   130,
+    1098,     0,     0,    32,   151,   152,     0,   153,     0,    34,
+      35,     0,   133,   414,   154,    37,     0,     0,   419,  1104,
+       0,  1105,     0,     0,    43,     0,     0,     0,     0,     0,
+      46,     0,     0,   128,    47,     0,   156,     0,   141,     0,
        0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
-     130,     0,   315,     0,     0,     0,     0,     0,   178,     0,
-      34,    35,     0,   133,     0,     0,    37,     0,     0,     0,
-       0,     0,     0,  1075,     0,    43,   315,     0,     0,     0,
-     145,    46,  1080,   126,  1081,  1082,    48,     0,  1083,   141,
-       0,     0,     0,     0,     0,  1024,  1026,  1090,  1091,     0,
-     315,     0,   147,     0,     0,   148,     0,    20,  1099,     0,
-     145,     0,     0,   871,     0,     0,   414,     0,   130,     0,
-       0,   419,     0,   151,   152,     0,   153,     0,  1105,     0,
-    1106,     0,   147,    17,     0,   148,     0,    20,     0,     0,
-       0,     0,     0,    43,     0,     0,   149,     0,   130,    46,
-       0,     0,    32,   151,   152,   156,   153,   141,    34,    35,
-       0,   133,     0,   154,    37,     0,     0,     0,     0,     0,
-       0,     0,     0,    43,   158,     0,     0,     0,  1170,    46,
-       0,   810,   128,    47,  1171,   156,     0,   141,     0,     0,
-       0,     0,     0,     0,   145,     0,     0,  1193,     0,     0,
-    1194,     0,   157,  1195,   158,  1196,     0,     0,  1197,     0,
-       0,   885,     0,     0,     0,     0,   147,     0,     0,   148,
-    1200,  1201,  1202,  1203,  1204,  1205,     0,   432,     0,  1206,
-     149,     0,     0,     0,   434,     0,  1207,   151,   152,     0,
-     153,     0,     0,   444,   445,   133,     0,   447,   448,     0,
-       0,     0,     0,     0,     0,  1115,     0,  1121,  1123,  1125,
-       0,     0,     0,  1240,     0,     0,   128,     0,     0,   156,
-       0,     0,     0,  1242,     0,   457,     0,     0,  1243,     0,
-       0,     0,   460,   461,     0,     0,     0,   463,   158,     0,
-       0,   465,     0,     0,  1263,   681,     0,   467,     0,   274,
-     469,   470,     0,   292,     0,   292,   292,   292,     0,   292,
-       0,   292,     0,   364,  1284,   481,     0,  1285,     0,   483,
-    1286,     0,     0,  1287,   486,   487,   274,     0,     0,     0,
-       0,     0,     0,   491,   492,   493,     0,     0,   145,     0,
-       0,     0,   496,     0,     0,  1317,     0,     0,     0,     0,
-    1318,     0,   500,  1319,     0,  1058,     0,     0,   504,     0,
-     147,     0,     0,   148,     0,     0,     0,     0,     0,  1059,
-    1060,     0,  1061,     0,   149,  1062,     0,     0,     0,     0,
-       0,   151,   152,     0,   153,     0,     0,     0,     0,     0,
-       0,   154,   549,   550,     0,   551,     0,   552,     0,     0,
-       0,     0,     0,     0,     0,     0,  1063,    -4,     0,   292,
-     128,     0,     0,   156,     0,     0,     0,   560,     0,     0,
-       0,     0,     0,     0,     0,   561,     0,    12,    13,    14,
-      15,    16,   158,     0,    17,    18,     0,    19,    20,    21,
-      22,    23,    24,    25,    26,    27,    28,     0,    29,  -753,
-      30,    31,     0,    32,     0,   566,  -754,     0,    33,    34,
-      35,     0,  -754,    36,     0,    37,    38,     0,    39,  -754,
-      40,    41,    42,  -754,    43,   145,    44,  -756,    45,     0,
-      46,     0,  -751,  -752,    47,    48,     0,    49,  -755,    50,
-      51,     0,     0,     0,     0,     0,     0,   147,    17,     0,
-     148,     0,    20,     0,    52,     0,     0,     0,     0,    53,
-     145,   149,     0,   130,     0,     0,     0,     0,   151,   152,
-       0,   153,     0,     0,     0,     0,   133,     0,   154,     0,
-       0,   146,   147,     0,   647,   148,    42,    20,    43,     0,
-       0,     0,     0,     0,    46,     0,     0,   128,   130,     0,
-     156,     0,   141,   151,   152,     0,   153,     0,     0,     0,
-       0,     0,     0,   154,     0,     0,     0,   157,     0,   158,
-     145,     0,     0,    43,     0,     0,   836,     0,     0,    46,
-       0,     0,     0,     0,     0,   156,     0,   141,     0,     0,
-       0,   146,   147,     0,     0,   148,   685,    20,     0,     0,
-     748,     0,   157,     0,   158,     0,     0,     0,   130,     0,
-     145,  1172,     0,   151,   152,     0,   153,     0,     0,     0,
-       0,     0,     0,   154,     0,     0,     0,     0,     0,     0,
-       0,     0,   147,    43,     0,   148,     0,    20,     0,    46,
-       0,     0,     0,     0,     0,   156,   149,   141,   734,   292,
-     736,     0,     0,   151,   152,     0,   153,     0,     0,     0,
-       0,     0,   157,   154,   158,     0,     0,     0,   292,     0,
-       0,  1215,     0,    43,     0,     0,     0,     0,     0,    46,
-       0,     0,   128,     0,     0,   156,     0,     0,     0,     0,
+       0,     0,     0,   157,     0,   158,     0,     0,     0,   145,
+       0,     0,   885,     0,     0,     0,     0,     0,     0,  1169,
+       0,     0,     0,     0,     0,  1170,     0,     0,     0,     0,
+     146,   147,    17,     0,   148,    19,    20,     0,  1192,     0,
+       0,  1193,     0,     0,  1194,     0,  1195,   130,     0,  1196,
+       0,     0,   151,   152,     0,   153,    33,     0,     0,     0,
+       0,  1199,  1200,  1201,  1202,  1203,  1204,     0,     0,     0,
+    1205,     0,    43,     0,   432,     0,     0,  1206,    46,     0,
+       0,   434,     0,     0,     0,     0,   141,     0,     0,     0,
+     444,   445,     0,     0,   447,   448,     0,     0,     0,     0,
+       0,     0,     0,   158,  1239,     0,     0,     0,     0,     0,
+     817,     0,     0,     0,  1241,     0,     0,     0,     0,  1242,
+       0,     0,   457,     0,     0,     0,     0,     0,     0,   460,
+     461,     0,   145,     0,   463,  1262,     0,     0,   465,     0,
+       0,     0,     0,     0,   467,     0,     0,   469,   470,     0,
+       0,     0,     0,     0,   147,  1282,     0,   148,  1283,    20,
+       0,  1284,   481,     0,  1285,     0,   483,     0,   149,     0,
+     130,   486,   487,     0,     0,   151,   152,     0,   153,     0,
+     491,   492,   493,   133,     0,  1315,     0,     0,     0,   496,
+    1316,     0,     0,  1317,     0,    43,     0,     0,     0,   500,
+       0,    46,     0,     0,   128,   504,     0,   156,     0,     0,
        0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
-       0,     0,   157,     0,   158,     0,     0,     0,   179,     0,
-       0,   850,   947,   948,   181,   310,     0,     0,     0,     0,
-       0,     0,     0,   952,   182,   183,   184,   185,   186,   187,
-     188,   189,   190,   191,   192,   193,   194,   195,   196,   197,
-     198,   199,   200,   201,   202,   203,   204,   205,   206,   207,
-     208,   209,   210,   211,   212,   213,   214,   215,   216,   217,
-     218,   219,   220,   221,   222,   223,   224,   225,   226,   227,
-     228,   229,   230,   231,   232,   233,   234,   235,   236,   237,
-     238,   239,   240,   241,   242,   243,   244,   245,   246,   247,
-     248,   249,   250,   251,   252,   253,   254,   255,   256,   257,
-     258,   259,   260,   179,     0,     0,     0,     0,     0,   682,
-     273,     0,     0,     0,     0,     0,     0,     0,     0,   182,
-     183,   184,   185,   186,   187,   188,   189,   190,   191,   192,
-     193,   194,   195,   196,   197,   198,   199,   200,   201,   202,
-     203,   204,   205,   206,   207,   208,   209,   210,   211,   212,
-     213,   214,   215,   754,   217,   218,   219,   220,   221,   222,
-     223,   224,   225,   226,   227,   228,   229,   230,   231,   232,
-     233,   234,   235,   236,   237,   238,   239,   240,   241,   242,
-     243,   244,   245,   246,     0,   248,     0,     0,     0,     0,
-     253,     0,     0,     0,     0,   258,   259,   260,  1021,  1022,
-       0,     0,   179,     0,   755,     0,     0,     0,   181,   310,
-       0,     0,     0,     0,     0,     0,  1045,  1049,   182,   183,
+       0,     0,     0,     0,     0,     0,   158,     0,     0,     0,
+       0,     0,     0,   903,     0,     0,     0,     0,     0,   549,
+     550,     0,   551,     0,   552,     0,     0,     0,     0,     0,
+       0,     0,     0,     0,    -4,     0,     0,     0,     0,     0,
+       0,     0,     0,     0,   560,     0,     0,     0,     0,     0,
+       0,     0,   561,   949,    12,    13,    14,    15,    16,     0,
+       0,    17,    18,     0,    19,    20,    21,    22,    23,    24,
+      25,    26,    27,    28,     0,    29,  -753,    30,    31,     0,
+      32,     0,   566,  -754,     0,    33,    34,    35,     0,  -754,
+      36,     0,    37,    38,     0,    39,  -754,    40,    41,    42,
+    -754,    43,   145,    44,  -756,    45,     0,    46,   145,  -751,
+    -752,    47,    48,     0,    49,  -755,    50,    51,     0,     0,
+       0,     0,     0,     0,   147,     0,     0,   148,     0,    20,
+     147,    52,     0,   148,     0,     0,    53,     0,   145,     0,
+     130,     0,     0,     0,   149,   151,   152,     0,   153,     0,
+       0,   151,   152,     0,   153,     0,     0,     0,     0,   133,
+     147,   647,     0,   148,     0,    43,     0,     0,     0,     0,
+       0,    46,     0,     0,   149,     0,     0,   156,     0,   141,
+     128,   151,   152,   156,   153,     0,     0,     0,     0,   133,
+     145,     0,     0,     0,     0,     0,   158,     0,     0,     0,
+       0,     0,   158,   810,     0,     0,     0,  1058,     0,   668,
+     128,     0,   147,   156,     0,   148,     0,     0,     0,     0,
+       0,  1059,  1060,   685,  1061,     0,   149,  1062,     0,     0,
+       0,     0,   158,   151,   152,     0,   153,     0,     0,   681,
+       0,    17,     0,   154,    19,    20,     0,     0,  1030,     0,
+       0,     0,     0,     0,     0,     0,   130,     0,  1063,     0,
+       0,     0,   128,     0,     0,   156,    34,    35,     0,   133,
+       0,     0,    37,     0,     0,   734,     0,   736,     0,     0,
+       0,    43,     0,     0,   158,     0,     0,    46,     0,   126,
+       0,     0,    48,     0,     0,   141,     0,     0,     0,     0,
+       0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
+       0,     0,     0,     0,     0,     0,     0,     0,     0,   871,
+       0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
+       0,     0,     0,     0,     0,   179,     0,     0,     0,   947,
+     948,   181,   310,     0,     0,     0,     0,     0,     0,     0,
+     952,   182,   183,   184,   185,   186,   187,   188,   189,   190,
+     191,   192,   193,   194,   195,   196,   197,   198,   199,   200,
+     201,   202,   203,   204,   205,   206,   207,   208,   209,   210,
+     211,   212,   213,   214,   215,   216,   217,   218,   219,   220,
+     221,   222,   223,   224,   225,   226,   227,   228,   229,   230,
+     231,   232,   233,   234,   235,   236,   237,   238,   239,   240,
+     241,   242,   243,   244,   245,   246,   247,   248,   249,   250,
+     251,   252,   253,   254,   255,   256,   257,   258,   259,   260,
+       0,     0,     0,     0,     0,     0,   682,     0,     0,     0,
+       0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
+       0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
+       0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
+       0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
+       0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
+       0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
+       0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
+       0,   179,     0,     0,     0,     0,     0,   181,   310,     0,
+       0,     0,     0,     0,     0,  1021,  1022,   182,   183,   184,
+     185,   186,   187,   188,   189,   190,   191,   192,   193,   194,
+     195,   196,   197,   198,   199,   200,   201,   202,   203,   204,
+     205,   206,   207,   208,   209,   210,   211,   212,   213,   214,
+     215,   216,   217,   218,   219,   220,   221,   222,   223,   224,
+     225,   226,   227,   228,   229,   230,   231,   232,   233,   234,
+     235,   236,   237,   238,   239,   240,   241,   242,   243,   244,
+     245,   246,   247,   248,   249,   250,   251,   252,   253,   254,
+     255,   256,   257,   258,   259,   260,     0,     0,     0,     0,
+       0,     0,  1128,     0,     0,     0,     0,     0,     0,     0,
+       0,     0,     0,     0,     0,     0,     0,  1078,     0,     0,
+       0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
+       0,  1084,     0,     0,     0,  1088,     0,     0,     0,     0,
+    1091,     0,     0,     0,     0,     0,     0,     0,     0,     0,
+       0,     0,     0,     0,     0,     0,     0,     0,     0,  1099,
+       0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
+       0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
+       0,     0,     0,     0,     0,     0,   179,     0,     0,     0,
+       0,     0,     0,   273,     0,  1154,     0,     0,     0,     0,
+       0,  1159,   182,   183,   184,   185,   186,   187,   188,   189,
+     190,   191,   192,   193,   194,   195,   196,   197,   198,   199,
+     200,   201,   202,   203,   204,   205,   206,   207,   208,   209,
+     210,   211,   212,   213,   214,   215,   754,   217,   218,   219,
+     220,   221,   222,   223,   224,   225,   226,   227,   228,   229,
+     230,   231,   232,   233,   234,   235,   236,   237,   238,   239,
+     240,   241,   242,   243,   244,   245,   246,     0,   248,     0,
+       0,     0,     0,   253,     0,     0,     0,     0,   258,   259,
+     260,     0,     0,     0,     0,     0,     0,   755,     0,     0,
+       0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
+       0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
+       0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
+       0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
+       0,     0,     0,  1263,     0,     0,  1264,   179,  1265,     0,
+    1266,   180,   286,   181,   287,   288,     0,     0,     0,   289,
+     290,   291,     0,   182,   183,   184,   185,   186,   187,   188,
+     189,   190,   191,   192,   193,   194,   195,   196,   197,   198,
+     199,   200,   201,   202,   203,   204,   205,   206,   207,   208,
+     209,   210,   211,   212,   213,   214,   215,   216,   217,   218,
+     219,   220,   221,   222,   223,   224,   225,   226,   227,   228,
+     229,   230,   231,   232,   233,   234,   235,   236,   237,   238,
+     239,   240,   241,   242,   243,   244,   245,   246,   247,   248,
+     249,   250,   251,   252,   253,   254,   255,   256,   257,   258,
+     259,   260,   179,     0,     0,     0,   429,   286,   181,   287,
+     288,     0,     0,     0,   289,   290,   291,     0,   182,   183,
      184,   185,   186,   187,   188,   189,   190,   191,   192,   193,
      194,   195,   196,   197,   198,   199,   200,   201,   202,   203,
      204,   205,   206,   207,   208,   209,   210,   211,   212,   213,
@@ -1455,347 +1582,350 @@ static const yytype_int16 yytable[] =
      224,   225,   226,   227,   228,   229,   230,   231,   232,   233,
      234,   235,   236,   237,   238,   239,   240,   241,   242,   243,
      244,   245,   246,   247,   248,   249,   250,   251,   252,   253,
-     254,   255,   256,   257,   258,   259,   260,     0,     0,  1109,
-    1079,  1116,     0,  1129,     0,     0,     0,     0,     0,     0,
-       0,     0,     0,     0,  1085,     0,     0,     0,  1089,     0,
-       0,     0,     0,  1092,     0,     0,     0,     0,     0,     0,
-       0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
-       0,     0,  1100,     0,     0,     0,     0,     0,     0,     0,
-       0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
-       0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
-     179,     0,     0,     0,   180,   286,   181,   287,   288,  1155,
-       0,     0,   289,   290,   291,  1160,   182,   183,   184,   185,
-     186,   187,   188,   189,   190,   191,   192,   193,   194,   195,
-     196,   197,   198,   199,   200,   201,   202,   203,   204,   205,
-     206,   207,   208,   209,   210,   211,   212,   213,   214,   215,
-     216,   217,   218,   219,   220,   221,   222,   223,   224,   225,
-     226,   227,   228,   229,   230,   231,   232,   233,   234,   235,
-     236,   237,   238,   239,   240,   241,   242,   243,   244,   245,
-     246,   247,   248,   249,   250,   251,   252,   253,   254,   255,
-     256,   257,   258,   259,   260,     0,     0,     0,     0,     0,
-       0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
-       0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
-       0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
-       0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
-       0,     0,     0,     0,     0,     0,     0,  1264,     0,     0,
-    1265,   179,  1266,     0,  1267,   429,   286,   181,   287,   288,
-       0,     0,     0,   289,   290,   291,     0,   182,   183,   184,
-     185,   186,   187,   188,   189,   190,   191,   192,   193,   194,
-     195,   196,   197,   198,   199,   200,   201,   202,   203,   204,
-     205,   206,   207,   208,   209,   210,   211,   212,   213,   214,
-     215,   216,   217,   218,   219,   220,   221,   222,   223,   224,
-     225,   226,   227,   228,   229,   230,   231,   232,   233,   234,
-     235,   236,   237,   238,   239,   240,   241,   242,   243,   244,
-     245,   246,   247,   248,   249,   250,   251,   252,   253,   254,
-     255,   256,   257,   258,   259,   260,   179,     0,     0,     0,
-     180,     0,   181,   273,     0,     0,     0,     0,     0,     0,
-       0,     0,   182,   183,   184,   185,   186,   187,   188,   189,
-     190,   191,   192,   193,   194,   195,   196,   197,   198,   199,
-     200,   201,   202,   203,   204,   205,   206,   207,   208,   209,
-     210,   211,   212,   213,   214,   215,   216,   217,   218,   219,
-     220,   221,   222,   223,   224,   225,   226,   227,   228,   229,
-     230,   231,   232,   233,   234,   235,   236,   237,   238,   239,
-     240,   241,   242,   243,   244,   245,   246,   247,   248,   249,
-     250,   251,   252,   253,   254,   255,   256,   257,   258,   259,
-     260,   179,     0,     0,     0,   180,     0,   181,   310,     0,
-       0,     0,     0,     0,     0,     0,     0,   182,   183,   184,
-     185,   186,   187,   188,   189,   190,   191,   192,   193,   194,
-     195,   196,   197,   198,   199,   200,   201,   202,   203,   204,
-     205,   206,   207,   208,   209,   210,   211,   212,   213,   214,
-     215,   216,   217,   218,   219,   220,   221,   222,   223,   224,
-     225,   226,   227,   228,   229,   230,   231,   232,   233,   234,
-     235,   236,   237,   238,   239,   240,   241,   242,   243,   244,
-     245,   246,   247,   248,   249,   250,   251,   252,   253,   254,
-     255,   256,   257,   258,   259,   260,   179,     0,     0,     0,
-       0,     0,   181,   310,     0,     0,   477,     0,     0,     0,
-       0,     0,   182,   183,   184,   185,   186,   187,   188,   189,
-     190,   191,   192,   193,   194,   195,   196,   197,   198,   199,
-     200,   201,   202,   203,   204,   205,   206,   207,   208,   209,
-     210,   211,   212,   213,   214,   215,   216,   217,   218,   219,
-     220,   221,   222,   223,   224,   225,   226,   227,   228,   229,
-     230,   231,   232,   233,   234,   235,   236,   237,   238,   239,
-     240,   241,   242,   243,   244,   245,   246,   247,   248,   249,
-     250,   251,   252,   253,   254,   255,   256,   257,   258,   259,
-     260,   179,     0,     0,     0,     0,     0,   181,   310,     0,
-       0,  1237,     0,     0,     0,     0,     0,   182,   183,   184,
-     185,   186,   187,   188,   189,   190,   191,   192,   193,   194,
-     195,   196,   197,   198,   199,   200,   201,   202,   203,   204,
-     205,   206,   207,   208,   209,   210,   211,   212,   213,   214,
-     215,   216,   217,   218,   219,   220,   221,   222,   223,   224,
-     225,   226,   227,   228,   229,   230,   231,   232,   233,   234,
-     235,   236,   237,   238,   239,   240,   241,   242,   243,   244,
-     245,   246,   247,   248,   249,   250,   251,   252,   253,   254,
-     255,   256,   257,   258,   259,   260,   179,   751,     0,     0,
-       0,     0,   181,   310,     0,     0,     0,     0,     0,     0,
-       0,     0,   182,   183,   184,   185,   186,   187,   188,   189,
-     190,   191,   192,   193,   194,   195,   196,   197,   198,   199,
-     200,   201,   202,   203,   204,   205,   206,   207,   208,   209,
-     210,   211,   212,   213,   214,   215,   216,   217,   218,   219,
-     220,   221,   222,   223,   224,   225,   226,   227,   228,   229,
-     230,   231,   232,   233,   234,   235,   236,   237,   238,   239,
-     240,   241,   242,   243,   244,   245,   246,   247,   248,   249,
-     250,   251,   252,   253,   254,   255,   256,   257,   258,   259,
-     260,   179,     0,     0,     0,   180,     0,   181,     0,     0,
-       0,     0,     0,     0,     0,     0,     0,   182,   183,   184,
-     185,   186,   187,   188,   189,   190,   191,   192,   193,   194,
-     195,   196,   197,   198,   199,   200,   201,   202,   203,   204,
-     205,   206,   207,   208,   209,   210,   211,   212,   213,   214,
-     215,   216,   217,   218,   219,   220,   221,   222,   223,   224,
-     225,   226,   227,   228,   229,   230,   231,   232,   233,   234,
-     235,   236,   237,   238,   239,   240,   241,   242,   243,   244,
-     245,   246,   247,   248,   249,   250,   251,   252,   253,   254,
-     255,   256,   257,   258,   259,   260,   179,     0,     0,     0,
-       0,     0,   181,   310,     0,     0,     0,     0,     0,     0,
-       0,     0,   182,   183,   184,   185,   186,   187,   188,   189,
-     190,   191,   192,   193,   194,   195,   196,   197,   198,   199,
-     200,   201,   202,   203,   204,   205,   206,   207,   208,   209,
-     210,   211,   212,   213,   214,   215,   216,   217,   218,   219,
-     220,   221,   222,   223,   224,   225,   226,   227,   228,   229,
-     230,   231,   232,   233,   234,   235,   236,   237,   238,   239,
-     240,   241,   242,   243,   244,   245,   246,   247,   248,   249,
-     250,   251,   252,   253,   254,   255,   256,   257,   258,   259,
-     260,    17,     0,     0,    19,    20,     0,     0,     0,     0,
-       0,     0,     0,     0,     0,     0,   130,     0,     0,     0,
-       0,     0,     0,     0,     0,    33,     0,     0,     0,   133,
-       0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
-       0,    43,     0,     0,     0,     0,     0,    46,     0,   126,
-       0,     0,    48,     0,     0,   141,     0,     0,     0,     0,
-       0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
-       0,     0,     0,     0,     0,     0,     0,     0,     0,   859
+     254,   255,   256,   257,   258,   259,   260,   179,     0,     0,
+       0,   180,     0,   181,   273,     0,     0,     0,     0,     0,
+       0,     0,     0,   182,   183,   184,   185,   186,   187,   188,
+     189,   190,   191,   192,   193,   194,   195,   196,   197,   198,
+     199,   200,   201,   202,   203,   204,   205,   206,   207,   208,
+     209,   210,   211,   212,   213,   214,   215,   216,   217,   218,
+     219,   220,   221,   222,   223,   224,   225,   226,   227,   228,
+     229,   230,   231,   232,   233,   234,   235,   236,   237,   238,
+     239,   240,   241,   242,   243,   244,   245,   246,   247,   248,
+     249,   250,   251,   252,   253,   254,   255,   256,   257,   258,
+     259,   260,   179,     0,     0,     0,   180,     0,   181,   310,
+       0,     0,     0,     0,     0,     0,     0,     0,   182,   183,
+     184,   185,   186,   187,   188,   189,   190,   191,   192,   193,
+     194,   195,   196,   197,   198,   199,   200,   201,   202,   203,
+     204,   205,   206,   207,   208,   209,   210,   211,   212,   213,
+     214,   215,   216,   217,   218,   219,   220,   221,   222,   223,
+     224,   225,   226,   227,   228,   229,   230,   231,   232,   233,
+     234,   235,   236,   237,   238,   239,   240,   241,   242,   243,
+     244,   245,   246,   247,   248,   249,   250,   251,   252,   253,
+     254,   255,   256,   257,   258,   259,   260,   179,     0,     0,
+       0,     0,     0,   181,   310,     0,     0,   477,     0,     0,
+       0,     0,     0,   182,   183,   184,   185,   186,   187,   188,
+     189,   190,   191,   192,   193,   194,   195,   196,   197,   198,
+     199,   200,   201,   202,   203,   204,   205,   206,   207,   208,
+     209,   210,   211,   212,   213,   214,   215,   216,   217,   218,
+     219,   220,   221,   222,   223,   224,   225,   226,   227,   228,
+     229,   230,   231,   232,   233,   234,   235,   236,   237,   238,
+     239,   240,   241,   242,   243,   244,   245,   246,   247,   248,
+     249,   250,   251,   252,   253,   254,   255,   256,   257,   258,
+     259,   260,   179,     0,     0,     0,     0,     0,   181,   310,
+       0,     0,  1236,     0,     0,     0,     0,     0,   182,   183,
+     184,   185,   186,   187,   188,   189,   190,   191,   192,   193,
+     194,   195,   196,   197,   198,   199,   200,   201,   202,   203,
+     204,   205,   206,   207,   208,   209,   210,   211,   212,   213,
+     214,   215,   216,   217,   218,   219,   220,   221,   222,   223,
+     224,   225,   226,   227,   228,   229,   230,   231,   232,   233,
+     234,   235,   236,   237,   238,   239,   240,   241,   242,   243,
+     244,   245,   246,   247,   248,   249,   250,   251,   252,   253,
+     254,   255,   256,   257,   258,   259,   260,   179,     0,     0,
+       0,   180,     0,   181,     0,     0,     0,     0,     0,     0,
+       0,     0,     0,   182,   183,   184,   185,   186,   187,   188,
+     189,   190,   191,   192,   193,   194,   195,   196,   197,   198,
+     199,   200,   201,   202,   203,   204,   205,   206,   207,   208,
+     209,   210,   211,   212,   213,   214,   215,   216,   217,   218,
+     219,   220,   221,   222,   223,   224,   225,   226,   227,   228,
+     229,   230,   231,   232,   233,   234,   235,   236,   237,   238,
+     239,   240,   241,   242,   243,   244,   245,   246,   247,   248,
+     249,   250,   251,   252,   253,   254,   255,   256,   257,   258,
+     259,   260,   179,     0,     0,     0,     0,     0,   181,   310,
+       0,     0,     0,     0,     0,     0,     0,     0,   182,   183,
+     184,   185,   186,   187,   188,   189,   190,   191,   192,   193,
+     194,   195,   196,   197,   198,   199,   200,   201,   202,   203,
+     204,   205,   206,   207,   208,   209,   210,   211,   212,   213,
+     214,   215,   216,   217,   218,   219,   220,   221,   222,   223,
+     224,   225,   226,   227,   228,   229,   230,   231,   232,   233,
+     234,   235,   236,   237,   238,   239,   240,   241,   242,   243,
+     244,   245,   246,   247,   248,   249,   250,   251,   252,   253,
+     254,   255,   256,   257,   258,   259,   260
 };
 
 static const yytype_int16 yycheck[] =
 {
-       4,    89,     5,     5,     5,     9,    10,    89,    12,    86,
-      14,    15,   105,    17,    18,    19,    20,   722,    22,    23,
-      89,     8,   706,    89,    28,    84,    89,     0,    32,    33,
+       4,   726,    89,   725,   726,     9,    10,   711,    12,    89,
+      14,    15,   105,    17,    18,    19,    20,     5,    22,    23,
+     724,   725,    89,     5,    28,   559,    89,    89,    32,    33,
       34,    35,    36,    37,    38,    39,    40,    41,    42,    43,
-      44,    45,    46,    47,    48,    49,    89,   726,    52,   711,
-      89,    31,    85,    89,   559,   725,   726,    23,     5,   721,
-       7,   393,   724,   725,    96,    96,    89,   725,   726,    87,
-      75,     9,    10,    89,    12,   104,    14,    15,   107,    17,
-      18,    19,    20,   114,    22,    23,    90,    67,   420,     5,
-      28,    71,   107,   108,    32,    33,    34,    35,    36,    37,
+      44,    45,    46,    47,    48,    49,     5,   722,    52,   706,
+      89,    86,   719,    89,   721,     5,    89,   724,   711,     8,
+       8,    89,    89,   725,   726,   393,     8,    75,     5,    17,
+      12,   724,   725,    96,    85,    56,    96,    23,     5,     8,
+       7,    84,   104,    64,   106,     8,    90,    99,   100,   101,
+     102,   103,   420,   105,   114,  1106,  1107,   109,   632,   111,
+       0,    82,     8,   115,   116,    89,     8,    76,   120,   121,
+       5,   123,     8,   766,     5,    17,     7,     5,    14,     7,
+      11,    42,   126,    11,   128,     5,   130,     7,   132,   133,
+     134,   135,     5,   104,     7,     8,    82,   141,     5,   143,
+       7,   145,   146,   147,   148,   149,    94,   151,   152,   153,
+     154,    81,   156,   157,   158,   107,   108,   107,   107,    88,
+     720,    87,   722,   723,    93,   177,   726,   727,     5,    92,
+       7,   104,    95,   106,   178,     9,    10,   104,    12,   106,
+      14,    15,    88,    17,    18,    19,    20,    93,    22,    23,
+       8,     5,    83,     7,    28,    70,     8,    11,    32,    33,
+      34,    35,    36,    37,    38,    39,    40,    41,    42,    43,
+      44,    45,    46,    47,    48,    49,    14,   105,    52,   100,
+     101,   102,   103,    22,   104,    20,   106,     5,   109,     7,
+     111,   711,    31,    11,   115,   116,    31,   104,   104,   106,
+     121,   721,   123,    42,   724,   725,   719,    31,   721,   722,
+     683,   724,   725,   726,     8,   104,    21,   951,    42,   104,
+     104,    31,   107,    33,    34,   104,    31,   104,    67,   106,
+      88,     5,    67,     7,    73,    93,    88,    42,    73,    94,
+      95,    93,    97,    67,     5,     5,     7,     7,     8,    73,
+      11,   105,   126,   104,   128,     8,   130,    67,   132,   133,
+     134,   135,    67,    68,    17,    18,   105,   141,    73,   143,
+     105,   145,   146,   147,   148,   149,    81,   151,   152,   153,
+     154,   105,   156,   157,   158,   758,   759,   105,   104,     8,
+     106,    85,   104,    87,   106,   105,    90,    16,    17,    18,
+     105,    96,   104,    98,    99,   100,   101,   102,   103,   104,
+     105,   106,   107,   108,   109,   110,   111,   112,   113,   114,
+     115,   116,   117,   118,   119,   120,   121,   122,   123,   107,
+     393,    27,    31,   393,    30,    31,    30,    84,   104,    86,
+     106,   474,    89,  1077,    91,   397,    42,   399,   400,   401,
+      31,   403,   104,   405,   106,    51,    31,   420,   107,    55,
+     420,    55,   104,    28,   106,    64,    31,   104,    67,   106,
+     414,    67,    71,   107,   108,   419,    31,    73,   104,    75,
+    1142,   104,    78,    77,    78,    81,    67,    42,   432,   103,
+     434,  1125,    67,  1127,    59,    31,    71,    33,    34,   107,
+     444,   445,    67,   447,   448,     5,   105,     7,    63,   105,
+     103,   105,    67,   457,   725,   726,   460,   461,    73,   463,
+     105,   465,   474,   467,   105,   469,   470,  1142,  1028,    31,
+     105,    67,   565,   105,   104,  1142,   106,   481,     5,   483,
+    1142,   108,   486,   487,   104,     4,   106,   491,   492,   493,
+     105,   503,   496,   104,    54,   106,   500,   104,    24,   106,
+     504,    97,   105,  1197,  1198,    67,    25,    26,   109,   105,
+      29,   104,    32,   106,    74,   104,   397,   106,   399,   400,
+     401,    40,   403,   104,   405,   106,    45,   104,    47,    48,
+     104,    50,   106,   105,    31,   628,    33,    34,    57,   105,
+      31,    60,  1236,   105,    85,   549,   550,   551,   552,  1010,
+    1011,    42,   645,   565,  1211,    31,   560,   561,    43,    44,
+      79,    37,   566,  1288,  1289,  1259,  1288,   104,  1290,   106,
+      67,     5,  1106,     7,  1268,   110,    67,    96,   111,    98,
+     395,  1141,    73,   104,  1288,  1289,  1290,   104,    62,    80,
+     104,    67,  1286,    14,   409,   410,   411,   412,   413,   107,
+     415,   416,   417,   418,   107,   112,   421,   422,   105,   104,
+     104,   106,   106,     5,   105,     7,   628,   107,   634,    11,
+      54,  1288,   503,  1290,   633,   104,  1288,   106,  1290,   105,
+     632,   635,   104,   645,   106,   722,   723,  1290,   393,   726,
+      74,   721,   397,   647,   399,   400,   401,  1207,   403,   104,
+     405,   106,   407,   127,   721,   129,   634,   131,   721,   752,
+     722,   723,  1142,     5,   726,   420,   140,   691,   142,  1142,
+     144,   104,    64,   106,   104,   104,   106,   106,   104,   683,
+     106,   685,   721,   687,   719,   721,     5,   722,   721,   724,
+     725,   726,   727,   721,   721,   104,   104,   106,   106,   703,
+     704,   175,  1092,   744,  1094,   652,   943,   654,   719,   720,
+     721,   722,   407,   724,   725,   726,   727,   728,   729,   722,
+     723,   946,  1208,   726,   727,   715,   729,   715,   964,   706,
+     734,   743,   736,   715,   738,   739,   706,  1103,   722,   723,
+     752,   706,   726,   727,   706,   729,   706,  1102,   503,   706,
+     762,   545,   711,   774,   758,   759,    89,  1192,  1123,   548,
+     719,   720,   721,   722,   723,   724,   725,   726,   727,   728,
+     729,   729,   726,   729,   711,  1094,  1111,   563,   715,   644,
+     717,   718,   719,   720,   721,   722,   723,   724,   725,   726,
+     727,   728,   729,   719,   720,   721,   722,   700,   724,   725,
+     726,   635,   728,  1244,   565,   742,   113,   744,  1288,  1289,
+    1290,   954,   702,    30,    31,  1288,   711,  1290,  1078,   735,
+     715,     4,   717,   718,   719,   720,   721,   722,   723,   724,
+     725,   726,   727,   728,   729,    -1,     5,   177,     7,   702,
+      -1,    -1,    11,    26,    27,    -1,    29,   742,    31,   744,
+      67,    27,    -1,   687,    30,    24,    73,    40,    75,    42,
+      -1,    78,   743,    32,    47,    48,    -1,    50,    -1,   703,
+     704,    -1,    55,    -1,    57,    51,    52,    53,    -1,    55,
+      -1,   762,    65,    31,    67,    -1,    -1,    -1,   105,     4,
+      73,    -1,    40,    76,    42,    -1,    79,    45,    81,    -1,
+      -1,    77,    78,    -1,   738,   739,    -1,    -1,   912,   913,
+      25,    26,    60,    96,    29,    98,    31,    49,    31,    67,
+      33,    34,   105,    55,    -1,    73,    -1,    42,    76,   105,
+      62,    -1,    47,    48,    66,    50,    -1,    -1,    -1,   694,
+      -1,  1028,    57,   947,   948,    -1,   761,    -1,   952,   423,
+     424,     4,    67,    -1,    67,    -1,    27,   105,    73,   433,
+      31,   435,   436,    -1,    79,    -1,    81,    -1,   442,   443,
+      -1,    42,   446,    26,    -1,    -1,    29,    -1,    31,    -1,
+      51,    96,    -1,    98,    55,    -1,    -1,    40,   743,    -1,
+     105,    -1,   105,    -1,    47,    48,    67,    50,  1010,  1011,
+      -1,    -1,    73,    -1,    57,    -1,    -1,   762,  1101,    -1,
+      81,    -1,    27,    -1,    67,    30,    -1,  1021,  1022,    -1,
+      73,    -1,    22,    76,    -1,  1028,    79,    -1,    -1,    -1,
+      -1,    -1,    -1,    -1,   105,    -1,    51,    52,    53,    39,
+      -1,    -1,    -1,    96,  1028,    98,    -1,    -1,    -1,    49,
+      -1,    -1,   105,    -1,  1058,  1059,  1060,  1061,  1062,  1063,
+      75,    61,    62,    78,    -1,    -1,    66,    -1,    -1,    69,
+      -1,    -1,    -1,    -1,  1078,    75,    -1,    -1,   912,   913,
+    1084,    -1,    -1,    -1,  1088,    -1,    -1,  1091,    -1,  1101,
+     105,  1102,  1103,    -1,    -1,  1099,    -1,    -1,    -1,   573,
+      -1,    -1,   576,   577,    -1,    -1,   580,  1142,    -1,   583,
+      -1,    -1,   586,    -1,    -1,   589,    -1,    -1,   592,   934,
+     935,   595,    -1,    -1,   598,    -1,    -1,   601,    -1,    -1,
+     604,  1142,    -1,   607,    -1,    -1,   610,    -1,    -1,   613,
+     614,   615,   616,  1102,  1103,   619,    -1,    -1,   622,    -1,
+    1154,  1244,    -1,    27,    -1,  1159,    30,    31,    -1,    -1,
+      -1,    -1,    -1,    -1,   638,  1102,  1103,    -1,    42,  1106,
+    1107,    -1,    -1,    -1,    -1,    -1,    -1,    51,    52,    53,
+      -1,    55,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
+      -1,    65,    -1,    67,    -1,   669,   670,   671,  1291,  1210,
+    1211,    -1,    -1,    -1,  1141,  1142,   680,  1102,  1103,    -1,
+      -1,  1106,  1107,    -1,    -1,    -1,  1220,    -1,    -1,   693,
+      -1,    -1,    -1,    -1,  1058,  1059,  1060,  1061,  1062,  1063,
+      -1,   105,  1244,    -1,   708,    -1,    -1,    -1,    -1,    -1,
+      -1,    -1,    -1,    -1,    -1,    -1,  1141,  1142,    -1,  1208,
+      -1,  1210,  1211,  1288,  1289,  1010,  1011,    -1,    -1,  1263,
+    1264,  1265,  1266,    -1,    -1,    -1,   740,   741,    -1,    -1,
+    1207,  1208,  1209,  1210,  1211,    -1,    -1,    -1,  1093,  1291,
+    1095,  1096,  1097,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
+      -1,   765,    -1,    -1,   768,   769,   770,    -1,    -1,    -1,
+      -1,    -1,    -1,    -1,    -1,   779,    -1,    -1,    -1,    -1,
+      -1,    -1,  1207,  1208,  1209,  1210,  1211,    -1,    -1,    -1,
+      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
+      -1,   805,   806,    -1,    -1,   809,    -1,  1092,    -1,  1094,
+     814,   815,   816,    -1,    -1,    -1,    -1,   821,    -1,    -1,
+      -1,    -1,    -1,    -1,   828,    -1,    -1,    -1,    -1,   833,
+      -1,    -1,    -1,    -1,    -1,    -1,   840,   841,   842,   843,
+     844,   845,   846,    -1,    -1,   849,    -1,    -1,    -1,    -1,
+     854,   855,   856,   857,   858,    -1,  1220,    -1,    -1,   863,
+     864,    -1,    -1,   867,    -1,    -1,   870,    -1,    -1,    -1,
+      -1,   875,   876,    -1,    -1,   879,    -1,    -1,    -1,    -1,
+     884,    -1,    -1,    -1,    -1,   889,   890,   891,   892,   893,
+     894,   895,    -1,    -1,    -1,    -1,   900,    -1,    -1,    -1,
+      -1,    -1,    -1,   907,   908,   909,   910,   911,    -1,    -1,
+      -1,    -1,    -1,    -1,   918,   919,   920,   921,   284,    -1,
+      -1,    -1,   926,   927,   928,   929,   930,   293,    -1,    -1,
+      -1,   297,    -1,   299,     4,   301,    -1,   303,    -1,    -1,
+      -1,   307,    -1,    -1,    -1,    -1,   312,    -1,    -1,    -1,
+      -1,    -1,    -1,   319,    -1,    25,    26,   323,    -1,    29,
+      -1,    31,   328,    -1,    -1,    -1,   332,    -1,    -1,    -1,
+      -1,   337,    42,   339,    -1,    -1,   342,    47,    48,    -1,
+      50,   347,    -1,    -1,    -1,   351,    -1,    57,   354,    -1,
+     356,    -1,    -1,    -1,    -1,   361,    -1,    67,    -1,   365,
+      -1,    -1,    -1,    73,    -1,   371,    -1,    -1,   374,    79,
+      -1,    81,   378,    -1,    -1,    92,    -1,    -1,   384,    -1,
+      -1,     4,   388,    -1,    -1,  1029,    96,    -1,    98,    -1,
+      -1,    -1,    -1,    -1,  1038,   105,  1040,  1041,    -1,    -1,
+    1044,    -1,    -1,    26,    27,    -1,    29,    -1,    31,  1053,
+    1054,    -1,    -1,    -1,    -1,    -1,    -1,    40,    -1,    42,
+    1064,    -1,    -1,    46,    47,    48,    -1,    50,    -1,    52,
+      53,    -1,    55,   150,    57,    58,    -1,    -1,   155,  1083,
+      -1,  1085,    -1,    -1,    67,    -1,    -1,    -1,    -1,    -1,
+      73,    -1,    -1,    76,    77,    -1,    79,    -1,    81,    -1,
+      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
+      -1,    -1,    -1,    96,    -1,    98,    -1,    -1,    -1,     4,
+      -1,    -1,   105,    -1,    -1,    -1,    -1,    -1,    -1,  1133,
+      -1,    -1,    -1,    -1,    -1,  1139,    -1,    -1,    -1,    -1,
+      25,    26,    27,    -1,    29,    30,    31,    -1,  1152,    -1,
+      -1,  1155,    -1,    -1,  1158,    -1,  1160,    42,    -1,  1163,
+      -1,    -1,    47,    48,    -1,    50,    51,    -1,    -1,    -1,
+      -1,  1175,  1176,  1177,  1178,  1179,  1180,    -1,    -1,    -1,
+    1184,    -1,    67,    -1,   261,    -1,    -1,  1191,    73,    -1,
+      -1,   268,    -1,    -1,    -1,    -1,    81,    -1,    -1,    -1,
+     277,   278,    -1,    -1,   281,   282,    -1,    -1,    -1,    -1,
+      -1,    -1,    -1,    98,  1218,    -1,    -1,    -1,    -1,    -1,
+     105,    -1,    -1,    -1,  1228,    -1,    -1,    -1,    -1,  1233,
+      -1,    -1,   309,    -1,    -1,    -1,    -1,    -1,    -1,   316,
+     317,    -1,     4,    -1,   321,  1249,    -1,    -1,   325,    -1,
+      -1,    -1,    -1,    -1,   331,    -1,    -1,   334,   335,    -1,
+      -1,    -1,    -1,    -1,    26,  1269,    -1,    29,  1272,    31,
+      -1,  1275,   349,    -1,  1278,    -1,   353,    -1,    40,    -1,
+      42,   358,   359,    -1,    -1,    47,    48,    -1,    50,    -1,
+     367,   368,   369,    55,    -1,  1299,    -1,    -1,    -1,   376,
+    1304,    -1,    -1,  1307,    -1,    67,    -1,    -1,    -1,   386,
+      -1,    73,    -1,    -1,    76,   392,    -1,    79,    -1,    -1,
+      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
+      -1,    -1,    -1,    -1,    -1,    -1,    98,    -1,    -1,    -1,
+      -1,    -1,    -1,   105,    -1,    -1,    -1,    -1,    -1,   426,
+     427,    -1,   429,    -1,   431,    -1,    -1,    -1,    -1,    -1,
+      -1,    -1,    -1,    -1,     0,    -1,    -1,    -1,    -1,    -1,
+      -1,    -1,    -1,    -1,   451,    -1,    -1,    -1,    -1,    -1,
+      -1,    -1,   459,   749,    20,    21,    22,    23,    24,    -1,
+      -1,    27,    28,    -1,    30,    31,    32,    33,    34,    35,
+      36,    37,    38,    39,    -1,    41,    42,    43,    44,    -1,
+      46,    -1,   489,    49,    -1,    51,    52,    53,    -1,    55,
+      56,    -1,    58,    59,    -1,    61,    62,    63,    64,    65,
+      66,    67,     4,    69,    70,    71,    -1,    73,     4,    75,
+      76,    77,    78,    -1,    80,    81,    82,    83,    -1,    -1,
+      -1,    -1,    -1,    -1,    26,    -1,    -1,    29,    -1,    31,
+      26,    97,    -1,    29,    -1,    -1,   102,    -1,     4,    -1,
+      42,    -1,    -1,    -1,    40,    47,    48,    -1,    50,    -1,
+      -1,    47,    48,    -1,    50,    -1,    -1,    -1,    -1,    55,
+      26,   568,    -1,    29,    -1,    67,    -1,    -1,    -1,    -1,
+      -1,    73,    -1,    -1,    40,    -1,    -1,    79,    -1,    81,
+      76,    47,    48,    79,    50,    -1,    -1,    -1,    -1,    55,
+       4,    -1,    -1,    -1,    -1,    -1,    98,    -1,    -1,    -1,
+      -1,    -1,    98,   105,    -1,    -1,    -1,    21,    -1,   105,
+      76,    -1,    26,    79,    -1,    29,    -1,    -1,    -1,    -1,
+      -1,    35,    36,   630,    38,    -1,    40,    41,    -1,    -1,
+      -1,    -1,    98,    47,    48,    -1,    50,    -1,    -1,   105,
+      -1,    27,    -1,    57,    30,    31,    -1,    -1,   944,    -1,
+      -1,    -1,    -1,    -1,    -1,    -1,    42,    -1,    72,    -1,
+      -1,    -1,    76,    -1,    -1,    79,    52,    53,    -1,    55,
+      -1,    -1,    58,    -1,    -1,   682,    -1,   684,    -1,    -1,
+      -1,    67,    -1,    -1,    98,    -1,    -1,    73,    -1,    75,
+      -1,    -1,    78,    -1,    -1,    81,    -1,    -1,    -1,    -1,
+      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
+      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,   105,
+      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
+      -1,    -1,    -1,    -1,    -1,     4,    -1,    -1,    -1,   746,
+     747,    10,    11,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
+     757,    20,    21,    22,    23,    24,    25,    26,    27,    28,
+      29,    30,    31,    32,    33,    34,    35,    36,    37,    38,
+      39,    40,    41,    42,    43,    44,    45,    46,    47,    48,
+      49,    50,    51,    52,    53,    54,    55,    56,    57,    58,
+      59,    60,    61,    62,    63,    64,    65,    66,    67,    68,
+      69,    70,    71,    72,    73,    74,    75,    76,    77,    78,
+      79,    80,    81,    82,    83,    84,    85,    86,    87,    88,
+      89,    90,    91,    92,    93,    94,    95,    96,    97,    98,
+      -1,    -1,    -1,    -1,    -1,    -1,   105,    -1,    -1,    -1,
+      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
+      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
+      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
+      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
+      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
+      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
+      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
+      -1,     4,    -1,    -1,    -1,    -1,    -1,    10,    11,    -1,
+      -1,    -1,    -1,    -1,    -1,   932,   933,    20,    21,    22,
+      23,    24,    25,    26,    27,    28,    29,    30,    31,    32,
+      33,    34,    35,    36,    37,    38,    39,    40,    41,    42,
+      43,    44,    45,    46,    47,    48,    49,    50,    51,    52,
+      53,    54,    55,    56,    57,    58,    59,    60,    61,    62,
+      63,    64,    65,    66,    67,    68,    69,    70,    71,    72,
+      73,    74,    75,    76,    77,    78,    79,    80,    81,    82,
+      83,    84,    85,    86,    87,    88,    89,    90,    91,    92,
+      93,    94,    95,    96,    97,    98,    -1,    -1,    -1,    -1,
+      -1,    -1,   105,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
+      -1,    -1,    -1,    -1,    -1,    -1,    -1,  1034,    -1,    -1,
+      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
+      -1,  1048,    -1,    -1,    -1,  1052,    -1,    -1,    -1,    -1,
+    1057,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
+      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,  1076,
+      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
+      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
+      -1,    -1,    -1,    -1,    -1,    -1,     4,    -1,    -1,    -1,
+      -1,    -1,    -1,    11,    -1,  1112,    -1,    -1,    -1,    -1,
+      -1,  1118,    20,    21,    22,    23,    24,    25,    26,    27,
+      28,    29,    30,    31,    32,    33,    34,    35,    36,    37,
       38,    39,    40,    41,    42,    43,    44,    45,    46,    47,
-      48,    49,     8,    89,    52,     8,    82,     8,    76,    12,
-     107,    17,   126,     8,   128,   105,   130,   632,   132,   133,
-     134,   135,    17,     5,     5,     7,     7,   141,    42,   143,
-      11,   145,   146,   147,   148,   149,    81,   151,   152,   153,
-     154,   683,   156,   157,   158,     8,    70,   711,   719,     8,
-     721,   722,   711,   724,   725,   726,     5,     5,     7,     7,
-     724,   725,     8,     5,   178,   724,   725,     5,    14,     7,
-       5,     5,     7,     7,   104,    31,    11,    11,   126,     8,
-     128,    37,   130,     8,   132,   133,   134,   135,    94,     8,
-       5,    92,     7,   141,    95,   143,    11,   145,   146,   147,
-     148,   149,    83,   151,   152,   153,   154,   766,   156,   157,
-     158,    67,   100,   101,   102,   103,   758,   759,   107,   108,
-      20,   109,   104,   111,   106,    88,   104,   115,   116,    88,
-      93,    31,   104,   121,    93,   123,    30,   719,   104,   721,
-     106,   720,   724,   722,   723,   950,   951,   726,   727,   105,
-     104,    31,   106,    33,    34,   104,   104,   106,   106,    88,
-      85,    55,    87,    31,    93,    90,   104,    67,   106,    88,
-     105,   105,   104,    73,    93,    21,    99,   100,   101,   102,
-     103,   107,   105,    77,    78,    31,   109,    67,   111,    14,
-     105,    27,   115,   116,    30,   284,    42,   120,   121,    67,
-     123,     5,   104,     7,   293,   105,   107,    11,   297,    31,
-     299,   105,   301,   104,   303,    51,    52,    53,   307,    55,
-     104,    67,    68,   312,    84,   105,    86,    73,   104,    89,
-     319,    91,    43,    44,   323,    81,   103,   105,   104,   328,
-     106,    77,    78,   332,     5,    67,     7,     5,   337,     7,
-     339,   393,   393,   342,   177,   104,   104,   106,   347,   105,
-      64,    31,   351,    33,    34,   354,     4,   356,     5,   105,
-       7,   474,   361,  1078,    11,   104,   365,   106,   420,   420,
-     107,    22,   371,   105,   104,   374,   106,    25,    26,   378,
-      31,    29,   104,    54,   106,   384,    54,    67,   103,   388,
-     414,    42,    40,    56,   105,   419,    31,    45,   105,    47,
-      48,    64,    50,    74,   108,     8,    74,    42,   432,    57,
-     434,  1126,    60,  1128,    17,    18,    67,    97,  1143,    82,
-     444,   445,    73,   447,   448,   105,     5,     5,    63,     7,
-       8,    79,    67,   457,    49,   105,   460,   461,    73,   463,
-      55,   465,   104,   467,   106,   469,   470,    62,    96,     4,
-      98,    66,   565,  1143,   105,    28,    24,   481,    31,   483,
-      32,  1143,   486,   487,   104,  1143,    62,   491,   492,   493,
-     105,    26,   496,   105,    29,     5,   500,     7,     8,   104,
-     504,   106,   105,  1198,  1199,    40,    59,    31,   109,    33,
-      34,   110,    47,    48,    67,    50,   104,   104,   106,   397,
-      55,   399,   400,   401,     8,   403,   104,   405,  1212,    85,
-      30,    31,    16,    17,    18,   628,    31,   104,    33,    34,
-     111,    76,  1237,    67,    79,   549,   550,   551,   552,    31,
-     107,   127,   645,   129,    14,   131,   560,   561,   112,  1028,
-      42,   107,   566,    98,   140,  1260,   142,    67,   144,   652,
-     105,   654,    67,    73,  1269,    75,   107,     5,    78,     7,
-     634,   105,  1143,    11,   397,    67,   399,   400,   401,   633,
-     403,    73,   405,  1288,   632,   104,    24,   106,    80,   175,
-     634,   104,  1107,   106,    32,   105,   104,   104,   106,   106,
-     105,  1290,  1291,   104,   104,   106,   106,   104,   691,   106,
-    1290,     5,  1292,   105,   104,   503,   106,     5,  1290,  1291,
-    1292,   635,  1290,   721,  1292,    94,    95,   104,    97,   106,
-     722,   723,   719,   647,   726,   722,   744,   724,   725,   726,
-     727,  1107,  1108,   722,   723,   721,   943,   726,   721,   752,
-     104,   474,   106,   722,   723,   725,   726,   726,   727,   946,
-     729,  1143,   104,  1142,   106,   104,   407,   106,   721,   683,
-    1209,   685,   721,   687,   706,   721,   719,   720,   721,   722,
-     503,   724,   725,   726,   727,   728,   729,   635,   721,   703,
-     704,   719,   720,   721,   722,   721,   724,   725,   726,   711,
-     728,   706,   715,   715,   715,   717,   718,   719,   720,   721,
-     722,   723,   724,   725,   726,   727,   728,   729,    31,  1290,
-     734,  1292,   736,   715,   738,   739,  1290,  1291,  1292,  1208,
-     742,   706,   744,  1292,  1010,  1011,   722,   723,   964,   687,
-     726,   727,   565,   729,   758,   759,    27,  1104,   706,    30,
-      31,    64,   706,   706,    67,   703,   704,   104,    71,   106,
-     749,    42,   104,    27,   106,   104,    30,   106,   774,  1103,
-      51,    52,    53,   104,    55,   106,   104,   104,   106,   106,
-    1093,   545,  1095,    89,    65,   711,    67,    51,    52,    53,
-     738,   739,   105,   719,   720,   721,   722,   723,   724,   725,
-     726,   727,   728,   729,  1193,   628,  1124,   729,  1290,   548,
-    1292,    75,   729,   726,    78,  1095,  1112,   700,   563,  1245,
-     644,   565,   645,    31,   105,   113,   702,   954,  1079,   177,
-     735,   702,    -1,    -1,    42,    -1,    -1,   423,   424,    -1,
-      -1,   105,    -1,    -1,    -1,    -1,    -1,   433,    -1,   435,
-     436,    -1,    -1,    -1,    -1,   743,   442,   443,    -1,    67,
-     446,    -1,    -1,    -1,    -1,    73,    -1,    -1,     4,   711,
-      -1,    -1,    -1,   715,   762,   717,   718,   719,   720,   721,
-     722,   723,   724,   725,   726,   727,   728,   729,    -1,    25,
-      26,    27,    -1,    29,    30,    31,    -1,   105,   912,   913,
-     742,    -1,   744,    -1,    -1,    -1,    42,    -1,    -1,    -1,
-      -1,    47,    48,    -1,    50,    51,    -1,    -1,    -1,    -1,
-     743,    31,    -1,    -1,    -1,    -1,   395,    -1,    -1,   752,
-      40,    67,    42,   947,   948,    45,  1028,    73,   952,   762,
-     409,   410,   411,   412,   413,    81,   415,   416,   417,   418,
-      60,    -1,   421,   422,    -1,   944,    27,    67,    -1,  1028,
-      31,    -1,    98,    73,   912,   913,    76,    -1,    -1,   105,
-      -1,    42,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
-      51,    -1,    -1,    -1,    55,    -1,    -1,   573,    -1,    -1,
-     576,   577,    -1,    -1,   580,   105,    67,   583,    -1,  1102,
-     586,    -1,    73,   589,    -1,    -1,   592,  1021,  1022,   595,
-      81,    -1,   598,    -1,    -1,   601,    -1,    -1,   604,    -1,
-      -1,   607,    -1,    22,   610,    -1,    -1,   613,   614,   615,
-     616,    -1,    -1,   619,   105,    -1,   622,    -1,    -1,    -1,
-      39,    -1,  1028,    -1,  1058,  1059,  1060,  1061,  1062,  1063,
-      49,    -1,   638,    -1,    -1,    -1,  1143,    -1,    -1,    -1,
-    1103,  1104,    61,    62,    -1,  1079,    -1,    66,    -1,    -1,
-      69,  1085,    -1,    -1,    -1,  1089,    75,    -1,  1092,    -1,
-      -1,    -1,    -1,   669,   670,   671,  1100,    -1,    -1,    -1,
-      -1,  1103,  1104,    -1,   680,  1107,  1108,    -1,    -1,    -1,
-    1143,     4,    -1,    -1,    -1,    -1,    -1,   693,    -1,    -1,
-    1058,  1059,  1060,  1061,  1062,  1063,    -1,    -1,    -1,    -1,
-      -1,    -1,   708,    26,    -1,    -1,    29,    -1,    31,    -1,
-    1142,  1143,    -1,    -1,    -1,    -1,    -1,    40,    -1,    42,
-      -1,  1155,  1245,    -1,    47,    48,  1160,    50,    -1,    -1,
-      -1,    -1,    55,    -1,   740,   741,    -1,    -1,    -1,    -1,
-      -1,    -1,    -1,    -1,    67,    -1,  1269,    -1,  1211,  1212,
-      73,    -1,    -1,    76,    -1,    -1,    79,  1103,  1104,   765,
-      -1,    -1,   768,   769,   770,    -1,    -1,  1010,  1011,    -1,
-    1293,    -1,    -1,   779,    -1,    98,  1208,  1209,  1210,  1211,
-    1212,    -1,   105,  1290,  1291,    -1,    -1,  1221,    -1,    -1,
-      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,   805,
-     806,    -1,    -1,   809,    -1,    -1,    -1,    -1,   814,   815,
-     816,    -1,    -1,    -1,    -1,   821,    -1,    -1,    -1,    -1,
-      -1,    -1,   828,    -1,    -1,    -1,    -1,   833,    -1,    -1,
-    1264,  1265,  1266,  1267,   840,   841,   842,   843,   844,   845,
-     846,  1103,  1104,   849,    -1,  1107,  1108,    -1,   854,   855,
-     856,   857,   858,  1221,    -1,    -1,    -1,   863,   864,  1102,
-      -1,   867,    -1,  1209,   870,  1211,  1212,    -1,    -1,   875,
-     876,    -1,   761,   879,    -1,    -1,    -1,    -1,   884,    -1,
-    1142,  1143,    -1,   889,   890,   891,   892,   893,   894,   895,
-      -1,    -1,    -1,    -1,   900,    -1,    -1,    -1,    -1,    -1,
-      -1,   907,   908,   909,   910,   911,    -1,    -1,    -1,    -1,
-      -1,    -1,   918,   919,   920,   921,    -1,    -1,    -1,    -1,
-     926,   927,   928,   929,   930,    -1,    -1,    -1,    -1,    -1,
+      48,    49,    50,    51,    52,    53,    54,    55,    56,    57,
+      58,    59,    60,    61,    62,    63,    64,    65,    66,    67,
+      68,    69,    70,    71,    72,    73,    74,    75,    76,    77,
+      78,    79,    80,    81,    82,    83,    84,    -1,    86,    -1,
+      -1,    -1,    -1,    91,    -1,    -1,    -1,    -1,    96,    97,
+      98,    -1,    -1,    -1,    -1,    -1,    -1,   105,    -1,    -1,
       -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
-      -1,    -1,    -1,    -1,    -1,    -1,  1208,  1209,  1210,  1211,
-    1212,    -1,    96,    -1,    98,    99,   100,   101,   102,   103,
-     104,   105,   106,   107,   108,   109,   110,   111,   112,   113,
-     114,   115,   116,   117,   118,   119,   120,   121,   122,   123,
-      -1,    -1,    -1,    -1,    -1,    27,    -1,    -1,    30,    31,
       -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
-      42,    -1,  1245,    -1,    -1,    -1,    -1,    -1,    92,    -1,
-      52,    53,    -1,    55,    -1,    -1,    58,    -1,    -1,    -1,
-      -1,    -1,    -1,  1029,    -1,    67,  1269,    -1,    -1,    -1,
-       4,    73,  1038,    75,  1040,  1041,    78,    -1,  1044,    81,
-      -1,    -1,    -1,    -1,    -1,   934,   935,  1053,  1054,    -1,
-    1293,    -1,    26,    -1,    -1,    29,    -1,    31,  1064,    -1,
-       4,    -1,    -1,   105,    -1,    -1,   150,    -1,    42,    -1,
-      -1,   155,    -1,    47,    48,    -1,    50,    -1,  1084,    -1,
-    1086,    -1,    26,    27,    -1,    29,    -1,    31,    -1,    -1,
-      -1,    -1,    -1,    67,    -1,    -1,    40,    -1,    42,    73,
-      -1,    -1,    46,    47,    48,    79,    50,    81,    52,    53,
-      -1,    55,    -1,    57,    58,    -1,    -1,    -1,    -1,    -1,
-      -1,    -1,    -1,    67,    98,    -1,    -1,    -1,  1134,    73,
-      -1,   105,    76,    77,  1140,    79,    -1,    81,    -1,    -1,
-      -1,    -1,    -1,    -1,     4,    -1,    -1,  1153,    -1,    -1,
-    1156,    -1,    96,  1159,    98,  1161,    -1,    -1,  1164,    -1,
-      -1,   105,    -1,    -1,    -1,    -1,    26,    -1,    -1,    29,
-    1176,  1177,  1178,  1179,  1180,  1181,    -1,   261,    -1,  1185,
-      40,    -1,    -1,    -1,   268,    -1,  1192,    47,    48,    -1,
-      50,    -1,    -1,   277,   278,    55,    -1,   281,   282,    -1,
-      -1,    -1,    -1,    -1,    -1,  1094,    -1,  1096,  1097,  1098,
-      -1,    -1,    -1,  1219,    -1,    -1,    76,    -1,    -1,    79,
-      -1,    -1,    -1,  1229,    -1,   309,    -1,    -1,  1234,    -1,
-      -1,    -1,   316,   317,    -1,    -1,    -1,   321,    98,    -1,
-      -1,   325,    -1,    -1,  1250,   105,    -1,   331,    -1,   393,
-     334,   335,    -1,   397,    -1,   399,   400,   401,    -1,   403,
-      -1,   405,    -1,   407,  1270,   349,    -1,  1273,    -1,   353,
-    1276,    -1,    -1,  1279,   358,   359,   420,    -1,    -1,    -1,
-      -1,    -1,    -1,   367,   368,   369,    -1,    -1,     4,    -1,
-      -1,    -1,   376,    -1,    -1,  1301,    -1,    -1,    -1,    -1,
-    1306,    -1,   386,  1309,    -1,    21,    -1,    -1,   392,    -1,
-      26,    -1,    -1,    29,    -1,    -1,    -1,    -1,    -1,    35,
-      36,    -1,    38,    -1,    40,    41,    -1,    -1,    -1,    -1,
-      -1,    47,    48,    -1,    50,    -1,    -1,    -1,    -1,    -1,
-      -1,    57,   426,   427,    -1,   429,    -1,   431,    -1,    -1,
-      -1,    -1,    -1,    -1,    -1,    -1,    72,     0,    -1,   503,
-      76,    -1,    -1,    79,    -1,    -1,    -1,   451,    -1,    -1,
-      -1,    -1,    -1,    -1,    -1,   459,    -1,    20,    21,    22,
-      23,    24,    98,    -1,    27,    28,    -1,    30,    31,    32,
-      33,    34,    35,    36,    37,    38,    39,    -1,    41,    42,
-      43,    44,    -1,    46,    -1,   489,    49,    -1,    51,    52,
-      53,    -1,    55,    56,    -1,    58,    59,    -1,    61,    62,
-      63,    64,    65,    66,    67,     4,    69,    70,    71,    -1,
-      73,    -1,    75,    76,    77,    78,    -1,    80,    81,    82,
-      83,    -1,    -1,    -1,    -1,    -1,    -1,    26,    27,    -1,
-      29,    -1,    31,    -1,    97,    -1,    -1,    -1,    -1,   102,
-       4,    40,    -1,    42,    -1,    -1,    -1,    -1,    47,    48,
-      -1,    50,    -1,    -1,    -1,    -1,    55,    -1,    57,    -1,
-      -1,    25,    26,    -1,   568,    29,    65,    31,    67,    -1,
-      -1,    -1,    -1,    -1,    73,    -1,    -1,    76,    42,    -1,
-      79,    -1,    81,    47,    48,    -1,    50,    -1,    -1,    -1,
-      -1,    -1,    -1,    57,    -1,    -1,    -1,    96,    -1,    98,
-       4,    -1,    -1,    67,    -1,    -1,   105,    -1,    -1,    73,
-      -1,    -1,    -1,    -1,    -1,    79,    -1,    81,    -1,    -1,
-      -1,    25,    26,    -1,    -1,    29,   630,    31,    -1,    -1,
-     694,    -1,    96,    -1,    98,    -1,    -1,    -1,    42,    -1,
-       4,   105,    -1,    47,    48,    -1,    50,    -1,    -1,    -1,
-      -1,    -1,    -1,    57,    -1,    -1,    -1,    -1,    -1,    -1,
-      -1,    -1,    26,    67,    -1,    29,    -1,    31,    -1,    73,
-      -1,    -1,    -1,    -1,    -1,    79,    40,    81,   682,   743,
-     684,    -1,    -1,    47,    48,    -1,    50,    -1,    -1,    -1,
-      -1,    -1,    96,    57,    98,    -1,    -1,    -1,   762,    -1,
-      -1,   105,    -1,    67,    -1,    -1,    -1,    -1,    -1,    73,
-      -1,    -1,    76,    -1,    -1,    79,    -1,    -1,    -1,    -1,
       -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
-      -1,    -1,    96,    -1,    98,    -1,    -1,    -1,     4,    -1,
-      -1,   105,   746,   747,    10,    11,    -1,    -1,    -1,    -1,
-      -1,    -1,    -1,   757,    20,    21,    22,    23,    24,    25,
-      26,    27,    28,    29,    30,    31,    32,    33,    34,    35,
-      36,    37,    38,    39,    40,    41,    42,    43,    44,    45,
-      46,    47,    48,    49,    50,    51,    52,    53,    54,    55,
-      56,    57,    58,    59,    60,    61,    62,    63,    64,    65,
-      66,    67,    68,    69,    70,    71,    72,    73,    74,    75,
-      76,    77,    78,    79,    80,    81,    82,    83,    84,    85,
-      86,    87,    88,    89,    90,    91,    92,    93,    94,    95,
-      96,    97,    98,     4,    -1,    -1,    -1,    -1,    -1,   105,
-      11,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    20,
-      21,    22,    23,    24,    25,    26,    27,    28,    29,    30,
-      31,    32,    33,    34,    35,    36,    37,    38,    39,    40,
-      41,    42,    43,    44,    45,    46,    47,    48,    49,    50,
-      51,    52,    53,    54,    55,    56,    57,    58,    59,    60,
-      61,    62,    63,    64,    65,    66,    67,    68,    69,    70,
-      71,    72,    73,    74,    75,    76,    77,    78,    79,    80,
-      81,    82,    83,    84,    -1,    86,    -1,    -1,    -1,    -1,
-      91,    -1,    -1,    -1,    -1,    96,    97,    98,   932,   933,
-      -1,    -1,     4,    -1,   105,    -1,    -1,    -1,    10,    11,
-      -1,    -1,    -1,    -1,    -1,    -1,  1010,  1011,    20,    21,
+      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
+      -1,    -1,    -1,  1250,    -1,    -1,  1253,     4,  1255,    -1,
+    1257,     8,     9,    10,    11,    12,    -1,    -1,    -1,    16,
+      17,    18,    -1,    20,    21,    22,    23,    24,    25,    26,
+      27,    28,    29,    30,    31,    32,    33,    34,    35,    36,
+      37,    38,    39,    40,    41,    42,    43,    44,    45,    46,
+      47,    48,    49,    50,    51,    52,    53,    54,    55,    56,
+      57,    58,    59,    60,    61,    62,    63,    64,    65,    66,
+      67,    68,    69,    70,    71,    72,    73,    74,    75,    76,
+      77,    78,    79,    80,    81,    82,    83,    84,    85,    86,
+      87,    88,    89,    90,    91,    92,    93,    94,    95,    96,
+      97,    98,     4,    -1,    -1,    -1,     8,     9,    10,    11,
+      12,    -1,    -1,    -1,    16,    17,    18,    -1,    20,    21,
       22,    23,    24,    25,    26,    27,    28,    29,    30,    31,
       32,    33,    34,    35,    36,    37,    38,    39,    40,    41,
       42,    43,    44,    45,    46,    47,    48,    49,    50,    51,
@@ -1803,118 +1933,69 @@ static const yytype_int16 yycheck[] =
       62,    63,    64,    65,    66,    67,    68,    69,    70,    71,
       72,    73,    74,    75,    76,    77,    78,    79,    80,    81,
       82,    83,    84,    85,    86,    87,    88,    89,    90,    91,
-      92,    93,    94,    95,    96,    97,    98,    -1,    -1,  1093,
-    1034,  1095,    -1,   105,    -1,    -1,    -1,    -1,    -1,    -1,
-      -1,    -1,    -1,    -1,  1048,    -1,    -1,    -1,  1052,    -1,
-      -1,    -1,    -1,  1057,    -1,    -1,    -1,    -1,    -1,    -1,
-      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
-      -1,    -1,  1076,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
-      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
-      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
-       4,    -1,    -1,    -1,     8,     9,    10,    11,    12,  1113,
-      -1,    -1,    16,    17,    18,  1119,    20,    21,    22,    23,
-      24,    25,    26,    27,    28,    29,    30,    31,    32,    33,
-      34,    35,    36,    37,    38,    39,    40,    41,    42,    43,
-      44,    45,    46,    47,    48,    49,    50,    51,    52,    53,
-      54,    55,    56,    57,    58,    59,    60,    61,    62,    63,
-      64,    65,    66,    67,    68,    69,    70,    71,    72,    73,
-      74,    75,    76,    77,    78,    79,    80,    81,    82,    83,
-      84,    85,    86,    87,    88,    89,    90,    91,    92,    93,
-      94,    95,    96,    97,    98,    -1,    -1,    -1,    -1,    -1,
-      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
-      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
-      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
-      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
-      -1,    -1,    -1,    -1,    -1,    -1,    -1,  1251,    -1,    -1,
-    1254,     4,  1256,    -1,  1258,     8,     9,    10,    11,    12,
-      -1,    -1,    -1,    16,    17,    18,    -1,    20,    21,    22,
-      23,    24,    25,    26,    27,    28,    29,    30,    31,    32,
-      33,    34,    35,    36,    37,    38,    39,    40,    41,    42,
-      43,    44,    45,    46,    47,    48,    49,    50,    51,    52,
-      53,    54,    55,    56,    57,    58,    59,    60,    61,    62,
-      63,    64,    65,    66,    67,    68,    69,    70,    71,    72,
-      73,    74,    75,    76,    77,    78,    79,    80,    81,    82,
-      83,    84,    85,    86,    87,    88,    89,    90,    91,    92,
-      93,    94,    95,    96,    97,    98,     4,    -1,    -1,    -1,
-       8,    -1,    10,    11,    -1,    -1,    -1,    -1,    -1,    -1,
-      -1,    -1,    20,    21,    22,    23,    24,    25,    26,    27,
-      28,    29,    30,    31,    32,    33,    34,    35,    36,    37,
-      38,    39,    40,    41,    42,    43,    44,    45,    46,    47,
-      48,    49,    50,    51,    52,    53,    54,    55,    56,    57,
-      58,    59,    60,    61,    62,    63,    64,    65,    66,    67,
-      68,    69,    70,    71,    72,    73,    74,    75,    76,    77,
-      78,    79,    80,    81,    82,    83,    84,    85,    86,    87,
-      88,    89,    90,    91,    92,    93,    94,    95,    96,    97,
-      98,     4,    -1,    -1,    -1,     8,    -1,    10,    11,    -1,
-      -1,    -1,    -1,    -1,    -1,    -1,    -1,    20,    21,    22,
-      23,    24,    25,    26,    27,    28,    29,    30,    31,    32,
-      33,    34,    35,    36,    37,    38,    39,    40,    41,    42,
-      43,    44,    45,    46,    47,    48,    49,    50,    51,    52,
-      53,    54,    55,    56,    57,    58,    59,    60,    61,    62,
-      63,    64,    65,    66,    67,    68,    69,    70,    71,    72,
-      73,    74,    75,    76,    77,    78,    79,    80,    81,    82,
-      83,    84,    85,    86,    87,    88,    89,    90,    91,    92,
-      93,    94,    95,    96,    97,    98,     4,    -1,    -1,    -1,
-      -1,    -1,    10,    11,    -1,    -1,    14,    -1,    -1,    -1,
-      -1,    -1,    20,    21,    22,    23,    24,    25,    26,    27,
-      28,    29,    30,    31,    32,    33,    34,    35,    36,    37,
-      38,    39,    40,    41,    42,    43,    44,    45,    46,    47,
-      48,    49,    50,    51,    52,    53,    54,    55,    56,    57,
-      58,    59,    60,    61,    62,    63,    64,    65,    66,    67,
-      68,    69,    70,    71,    72,    73,    74,    75,    76,    77,
-      78,    79,    80,    81,    82,    83,    84,    85,    86,    87,
-      88,    89,    90,    91,    92,    93,    94,    95,    96,    97,
-      98,     4,    -1,    -1,    -1,    -1,    -1,    10,    11,    -1,
-      -1,    14,    -1,    -1,    -1,    -1,    -1,    20,    21,    22,
-      23,    24,    25,    26,    27,    28,    29,    30,    31,    32,
-      33,    34,    35,    36,    37,    38,    39,    40,    41,    42,
-      43,    44,    45,    46,    47,    48,    49,    50,    51,    52,
-      53,    54,    55,    56,    57,    58,    59,    60,    61,    62,
-      63,    64,    65,    66,    67,    68,    69,    70,    71,    72,
-      73,    74,    75,    76,    77,    78,    79,    80,    81,    82,
-      83,    84,    85,    86,    87,    88,    89,    90,    91,    92,
-      93,    94,    95,    96,    97,    98,     4,     5,    -1,    -1,
-      -1,    -1,    10,    11,    -1,    -1,    -1,    -1,    -1,    -1,
-      -1,    -1,    20,    21,    22,    23,    24,    25,    26,    27,
-      28,    29,    30,    31,    32,    33,    34,    35,    36,    37,
-      38,    39,    40,    41,    42,    43,    44,    45,    46,    47,
-      48,    49,    50,    51,    52,    53,    54,    55,    56,    57,
-      58,    59,    60,    61,    62,    63,    64,    65,    66,    67,
-      68,    69,    70,    71,    72,    73,    74,    75,    76,    77,
-      78,    79,    80,    81,    82,    83,    84,    85,    86,    87,
-      88,    89,    90,    91,    92,    93,    94,    95,    96,    97,
-      98,     4,    -1,    -1,    -1,     8,    -1,    10,    -1,    -1,
-      -1,    -1,    -1,    -1,    -1,    -1,    -1,    20,    21,    22,
-      23,    24,    25,    26,    27,    28,    29,    30,    31,    32,
-      33,    34,    35,    36,    37,    38,    39,    40,    41,    42,
-      43,    44,    45,    46,    47,    48,    49,    50,    51,    52,
-      53,    54,    55,    56,    57,    58,    59,    60,    61,    62,
-      63,    64,    65,    66,    67,    68,    69,    70,    71,    72,
-      73,    74,    75,    76,    77,    78,    79,    80,    81,    82,
-      83,    84,    85,    86,    87,    88,    89,    90,    91,    92,
-      93,    94,    95,    96,    97,    98,     4,    -1,    -1,    -1,
-      -1,    -1,    10,    11,    -1,    -1,    -1,    -1,    -1,    -1,
-      -1,    -1,    20,    21,    22,    23,    24,    25,    26,    27,
-      28,    29,    30,    31,    32,    33,    34,    35,    36,    37,
-      38,    39,    40,    41,    42,    43,    44,    45,    46,    47,
-      48,    49,    50,    51,    52,    53,    54,    55,    56,    57,
-      58,    59,    60,    61,    62,    63,    64,    65,    66,    67,
-      68,    69,    70,    71,    72,    73,    74,    75,    76,    77,
-      78,    79,    80,    81,    82,    83,    84,    85,    86,    87,
-      88,    89,    90,    91,    92,    93,    94,    95,    96,    97,
-      98,    27,    -1,    -1,    30,    31,    -1,    -1,    -1,    -1,
-      -1,    -1,    -1,    -1,    -1,    -1,    42,    -1,    -1,    -1,
-      -1,    -1,    -1,    -1,    -1,    51,    -1,    -1,    -1,    55,
-      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
-      -1,    67,    -1,    -1,    -1,    -1,    -1,    73,    -1,    75,
-      -1,    -1,    78,    -1,    -1,    81,    -1,    -1,    -1,    -1,
-      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,
-      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,   105
+      92,    93,    94,    95,    96,    97,    98,     4,    -1,    -1,
+      -1,     8,    -1,    10,    11,    -1,    -1,    -1,    -1,    -1,
+      -1,    -1,    -1,    20,    21,    22,    23,    24,    25,    26,
+      27,    28,    29,    30,    31,    32,    33,    34,    35,    36,
+      37,    38,    39,    40,    41,    42,    43,    44,    45,    46,
+      47,    48,    49,    50,    51,    52,    53,    54,    55,    56,
+      57,    58,    59,    60,    61,    62,    63,    64,    65,    66,
+      67,    68,    69,    70,    71,    72,    73,    74,    75,    76,
+      77,    78,    79,    80,    81,    82,    83,    84,    85,    86,
+      87,    88,    89,    90,    91,    92,    93,    94,    95,    96,
+      97,    98,     4,    -1,    -1,    -1,     8,    -1,    10,    11,
+      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    20,    21,
+      22,    23,    24,    25,    26,    27,    28,    29,    30,    31,
+      32,    33,    34,    35,    36,    37,    38,    39,    40,    41,
+      42,    43,    44,    45,    46,    47,    48,    49,    50,    51,
+      52,    53,    54,    55,    56,    57,    58,    59,    60,    61,
+      62,    63,    64,    65,    66,    67,    68,    69,    70,    71,
+      72,    73,    74,    75,    76,    77,    78,    79,    80,    81,
+      82,    83,    84,    85,    86,    87,    88,    89,    90,    91,
+      92,    93,    94,    95,    96,    97,    98,     4,    -1,    -1,
+      -1,    -1,    -1,    10,    11,    -1,    -1,    14,    -1,    -1,
+      -1,    -1,    -1,    20,    21,    22,    23,    24,    25,    26,
+      27,    28,    29,    30,    31,    32,    33,    34,    35,    36,
+      37,    38,    39,    40,    41,    42,    43,    44,    45,    46,
+      47,    48,    49,    50,    51,    52,    53,    54,    55,    56,
+      57,    58,    59,    60,    61,    62,    63,    64,    65,    66,
+      67,    68,    69,    70,    71,    72,    73,    74,    75,    76,
+      77,    78,    79,    80,    81,    82,    83,    84,    85,    86,
+      87,    88,    89,    90,    91,    92,    93,    94,    95,    96,
+      97,    98,     4,    -1,    -1,    -1,    -1,    -1,    10,    11,
+      -1,    -1,    14,    -1,    -1,    -1,    -1,    -1,    20,    21,
+      22,    23,    24,    25,    26,    27,    28,    29,    30,    31,
+      32,    33,    34,    35,    36,    37,    38,    39,    40,    41,
+      42,    43,    44,    45,    46,    47,    48,    49,    50,    51,
+      52,    53,    54,    55,    56,    57,    58,    59,    60,    61,
+      62,    63,    64,    65,    66,    67,    68,    69,    70,    71,
+      72,    73,    74,    75,    76,    77,    78,    79,    80,    81,
+      82,    83,    84,    85,    86,    87,    88,    89,    90,    91,
+      92,    93,    94,    95,    96,    97,    98,     4,    -1,    -1,
+      -1,     8,    -1,    10,    -1,    -1,    -1,    -1,    -1,    -1,
+      -1,    -1,    -1,    20,    21,    22,    23,    24,    25,    26,
+      27,    28,    29,    30,    31,    32,    33,    34,    35,    36,
+      37,    38,    39,    40,    41,    42,    43,    44,    45,    46,
+      47,    48,    49,    50,    51,    52,    53,    54,    55,    56,
+      57,    58,    59,    60,    61,    62,    63,    64,    65,    66,
+      67,    68,    69,    70,    71,    72,    73,    74,    75,    76,
+      77,    78,    79,    80,    81,    82,    83,    84,    85,    86,
+      87,    88,    89,    90,    91,    92,    93,    94,    95,    96,
+      97,    98,     4,    -1,    -1,    -1,    -1,    -1,    10,    11,
+      -1,    -1,    -1,    -1,    -1,    -1,    -1,    -1,    20,    21,
+      22,    23,    24,    25,    26,    27,    28,    29,    30,    31,
+      32,    33,    34,    35,    36,    37,    38,    39,    40,    41,
+      42,    43,    44,    45,    46,    47,    48,    49,    50,    51,
+      52,    53,    54,    55,    56,    57,    58,    59,    60,    61,
+      62,    63,    64,    65,    66,    67,    68,    69,    70,    71,
+      72,    73,    74,    75,    76,    77,    78,    79,    80,    81,
+      82,    83,    84,    85,    86,    87,    88,    89,    90,    91,
+      92,    93,    94,    95,    96,    97,    98
 };
 
   /* YYSTOS[STATE-NUM] -- The (internal number of the) accessing
      symbol of state STATE-NUM.  */
-static const yytype_uint16 yystos[] =
+static const yytype_int16 yystos[] =
 {
        0,   114,   120,   124,   419,   441,     0,     5,     7,    54,
       74,   418,    20,    21,    22,    23,    24,    27,    28,    30,
@@ -2019,39 +2100,39 @@ static const yytype_uint16 yystos[] =
      402,   402,   402,   402,   402,   402,   402,   402,   402,   402,
      420,   420,   402,   402,   402,   402,   402,   402,   402,   402,
      402,   419,   419,   133,   395,   135,   395,   162,   163,   157,
-     398,   162,   421,   421,   104,   106,   413,   413,   104,   106,
+     398,   162,   109,   421,   104,   106,   413,   413,   104,   106,
      235,   104,   106,   219,   217,   116,   291,   292,   369,   116,
      286,   287,   369,   104,   104,   106,   137,   105,    21,    35,
       36,    38,    41,    72,   164,   166,   179,   186,   192,   249,
-     252,   296,   301,   310,   314,   402,   105,   109,   110,   419,
-     402,   402,   402,   402,   104,   419,   104,   106,   289,   419,
-     402,   402,   419,   420,   420,   420,   420,   420,   420,   402,
-     419,   421,   416,   236,   220,   402,   402,   134,   138,   116,
-     294,   295,   366,   367,   165,   395,   116,   313,   316,   367,
-     178,   395,   185,   395,   300,   395,    85,   384,   389,   105,
-     105,   151,   153,   176,   183,   238,   105,   151,   153,   176,
-     183,   222,   297,   290,   105,   140,   144,   151,   153,   105,
-     140,   151,   153,   104,   368,   419,   104,   106,   167,   104,
-     419,   104,   106,   180,   104,   106,   187,   302,   421,   421,
-     402,   402,   105,   151,   153,   176,   183,   252,   273,   299,
-     310,   335,   105,   151,   153,   183,   247,   339,   342,   345,
-     347,   350,   356,   402,   402,   402,   402,   402,   111,   107,
-     402,   402,   402,   402,   402,   402,   402,   402,   297,   168,
-     315,   181,   188,   421,   421,   105,   105,   151,   153,   170,
-     176,    37,   105,   151,   153,   105,   151,   153,   176,   183,
-     105,   151,   153,   176,   183,   190,   112,    14,   385,   386,
-     402,   420,   402,   402,   421,   387,    84,    86,    89,    91,
-     317,   318,   319,   321,   322,   323,   326,   327,   330,   331,
-     107,   386,   396,   402,   419,   419,   419,   419,   421,   388,
-     104,   106,   320,   104,   106,   324,   104,   106,   328,   104,
-     106,   332,   396,   421,   402,   402,   402,   402,   107,   105,
-     325,   329,   333,   421,   105,   245,   247,   339,   342,   347,
-     350,   356,   359,   105,   245,   247,   356,   359,   105,   194,
-     245,   247,   339,   342,   347,   350,   396,   402,   402,   402
+     252,   296,   301,   310,   314,   402,   105,   110,   419,   402,
+     402,   402,   402,   104,   419,   104,   106,   289,   419,   402,
+     402,   419,   420,   420,   420,   420,   420,   420,   402,   419,
+     421,   416,   236,   220,   402,   402,   134,   138,   116,   294,
+     295,   366,   367,   165,   395,   116,   313,   316,   367,   178,
+     395,   185,   395,   300,   395,    85,   384,   389,   105,   105,
+     151,   153,   176,   183,   238,   105,   151,   153,   176,   183,
+     222,   297,   290,   105,   140,   144,   151,   153,   105,   140,
+     151,   153,   104,   368,   419,   104,   106,   167,   104,   419,
+     104,   106,   180,   104,   106,   187,   302,   421,   421,   402,
+     402,   105,   151,   153,   176,   183,   252,   273,   299,   310,
+     335,   105,   151,   153,   183,   247,   339,   342,   345,   347,
+     350,   356,   402,   402,   402,   402,   402,   111,   107,   402,
+     402,   402,   402,   402,   402,   402,   402,   297,   168,   315,
+     181,   188,   421,   421,   105,   105,   151,   153,   170,   176,
+      37,   105,   151,   153,   105,   151,   153,   176,   183,   105,
+     151,   153,   176,   183,   190,   112,    14,   385,   386,   402,
+     420,   402,   402,   421,   387,    84,    86,    89,    91,   317,
+     318,   319,   321,   322,   323,   326,   327,   330,   331,   107,
+     386,   396,   402,   419,   419,   419,   419,   421,   388,   104,
+     106,   320,   104,   106,   324,   104,   106,   328,   104,   106,
+     332,   421,   402,   402,   402,   402,   107,   105,   325,   329,
+     333,   421,   105,   245,   247,   339,   342,   347,   350,   356,
+     359,   105,   245,   247,   356,   359,   105,   194,   245,   247,
+     339,   342,   347,   350,   396,   402,   402,   402
 };
 
   /* YYR1[YYN] -- Symbol number of symbol that rule YYN derives.  */
-static const yytype_uint16 yyr1[] =
+static const yytype_int16 yyr1[] =
 {
        0,   113,   114,   114,   114,   115,   116,   117,   118,   117,
      119,   120,   121,   122,   122,   122,   122,   123,   124,   125,
@@ -2139,7 +2220,7 @@ static const yytype_uint16 yyr1[] =
 };
 
   /* YYR2[YYN] -- Number of symbols on the right hand side of rule YYN.  */
-static const yytype_uint8 yyr2[] =
+static const yytype_int8 yyr2[] =
 {
        0,     2,     1,     1,     1,     1,     3,     0,     0,     6,
        1,    13,     1,     0,     2,     2,     2,     1,    13,     1,
@@ -2199,8 +2280,8 @@ static const yytype_uint8 yyr2[] =
        1,     1,     4,     1,     4,     1,     4,     2,     1,     1,
        4,     0,     3,     1,     1,     2,     2,     0,     2,     0,
        3,     0,     2,     0,     2,     1,     3,     2,     0,     2,
-       3,     2,     0,     2,     2,     0,     2,     0,     6,     5,
-       5,     5,     4,     0,     2,     0,     5,     5,     1,     1,
+       3,     2,     0,     2,     2,     0,     2,     0,     5,     5,
+       5,     4,     4,     0,     2,     0,     5,     5,     1,     1,
        1,     1,     1,     1,     1,     1,     2,     2,     1,     1,
        1,     2,     2,     1,     2,     4,     1,     1,     1,     0,
        2,     2,     3,     2,     1,     0,     1,     0,     2,     0,
@@ -2239,22 +2320,22 @@ static const yytype_uint8 yyr2[] =
 
 #define YYRECOVERING()  (!!yyerrstatus)
 
-#define YYBACKUP(Token, Value)                                  \
-do                                                              \
-  if (yychar == YYEMPTY)                                        \
-    {                                                           \
-      yychar = (Token);                                         \
-      yylval = (Value);                                         \
-      YYPOPSTACK (yylen);                                       \
-      yystate = *yyssp;                                         \
-      goto yybackup;                                            \
-    }                                                           \
-  else                                                          \
-    {                                                           \
-      yyerror (&yylloc, scanner, param, YY_("syntax error: cannot back up")); \
-      YYERROR;                                                  \
-    }                                                           \
-while (0)
+#define YYBACKUP(Token, Value)                                    \
+  do                                                              \
+    if (yychar == YYEMPTY)                                        \
+      {                                                           \
+        yychar = (Token);                                         \
+        yylval = (Value);                                         \
+        YYPOPSTACK (yylen);                                       \
+        yystate = *yyssp;                                         \
+        goto yybackup;                                            \
+      }                                                           \
+    else                                                          \
+      {                                                           \
+        yyerror (&yylloc, scanner, param, YY_("syntax error: cannot back up")); \
+        YYERROR;                                                  \
+      }                                                           \
+  while (0)
 
 /* Error token number */
 #define YYTERROR        1
@@ -2313,10 +2394,10 @@ do {                                            \
 /* Print *YYLOCP on YYO.  Private, do not rely on its existence. */
 
 YY_ATTRIBUTE_UNUSED
-static unsigned
+static int
 yy_location_print_ (FILE *yyo, YYLTYPE const * const yylocp)
 {
-  unsigned res = 0;
+  int res = 0;
   int end_col = 0 != yylocp->last_column ? yylocp->last_column - 1 : 0;
   if (0 <= yylocp->first_line)
     {
@@ -2359,15 +2440,15 @@ do {                                                                      \
 } while (0)
 
 
-/*----------------------------------------.
-| Print this symbol's value on YYOUTPUT.  |
-`----------------------------------------*/
+/*-----------------------------------.
+| Print this symbol's value on YYO.  |
+`-----------------------------------*/
 
 static void
-yy_symbol_value_print (FILE *yyoutput, int yytype, YYSTYPE const * const yyvaluep, YYLTYPE const * const yylocationp, void *scanner, struct yang_parameter *param)
+yy_symbol_value_print (FILE *yyo, int yytype, YYSTYPE const * const yyvaluep, YYLTYPE const * const yylocationp, void *scanner, struct yang_parameter *param)
 {
-  FILE *yyo = yyoutput;
-  YYUSE (yyo);
+  FILE *yyoutput = yyo;
+  YYUSE (yyoutput);
   YYUSE (yylocationp);
   YYUSE (scanner);
   YYUSE (param);
@@ -2375,26 +2456,28 @@ yy_symbol_value_print (FILE *yyoutput, int yytype, YYSTYPE const * const yyvalue
     return;
 # ifdef YYPRINT
   if (yytype < YYNTOKENS)
-    YYPRINT (yyoutput, yytoknum[yytype], *yyvaluep);
+    YYPRINT (yyo, yytoknum[yytype], *yyvaluep);
 # endif
+  YY_IGNORE_MAYBE_UNINITIALIZED_BEGIN
   YYUSE (yytype);
+  YY_IGNORE_MAYBE_UNINITIALIZED_END
 }
 
 
-/*--------------------------------.
-| Print this symbol on YYOUTPUT.  |
-`--------------------------------*/
+/*---------------------------.
+| Print this symbol on YYO.  |
+`---------------------------*/
 
 static void
-yy_symbol_print (FILE *yyoutput, int yytype, YYSTYPE const * const yyvaluep, YYLTYPE const * const yylocationp, void *scanner, struct yang_parameter *param)
+yy_symbol_print (FILE *yyo, int yytype, YYSTYPE const * const yyvaluep, YYLTYPE const * const yylocationp, void *scanner, struct yang_parameter *param)
 {
-  YYFPRINTF (yyoutput, "%s %s (",
+  YYFPRINTF (yyo, "%s %s (",
              yytype < YYNTOKENS ? "token" : "nterm", yytname[yytype]);
 
-  YY_LOCATION_PRINT (yyoutput, *yylocationp);
-  YYFPRINTF (yyoutput, ": ");
-  yy_symbol_value_print (yyoutput, yytype, yyvaluep, yylocationp, scanner, param);
-  YYFPRINTF (yyoutput, ")");
+  YY_LOCATION_PRINT (yyo, *yylocationp);
+  YYFPRINTF (yyo, ": ");
+  yy_symbol_value_print (yyo, yytype, yyvaluep, yylocationp, scanner, param);
+  YYFPRINTF (yyo, ")");
 }
 
 /*------------------------------------------------------------------.
@@ -2403,7 +2486,7 @@ yy_symbol_print (FILE *yyoutput, int yytype, YYSTYPE const * const yyvaluep, YYL
 `------------------------------------------------------------------*/
 
 static void
-yy_stack_print (yytype_int16 *yybottom, yytype_int16 *yytop)
+yy_stack_print (yy_state_t *yybottom, yy_state_t *yytop)
 {
   YYFPRINTF (stderr, "Stack now");
   for (; yybottom <= yytop; yybottom++)
@@ -2426,12 +2509,12 @@ do {                                                            \
 `------------------------------------------------*/
 
 static void
-yy_reduce_print (yytype_int16 *yyssp, YYSTYPE *yyvsp, YYLTYPE *yylsp, int yyrule, void *scanner, struct yang_parameter *param)
+yy_reduce_print (yy_state_t *yyssp, YYSTYPE *yyvsp, YYLTYPE *yylsp, int yyrule, void *scanner, struct yang_parameter *param)
 {
-  unsigned long int yylno = yyrline[yyrule];
+  int yylno = yyrline[yyrule];
   int yynrhs = yyr2[yyrule];
   int yyi;
-  YYFPRINTF (stderr, "Reducing stack by rule %d (line %lu):\n",
+  YYFPRINTF (stderr, "Reducing stack by rule %d (line %d):\n",
              yyrule - 1, yylno);
   /* The symbols being reduced.  */
   for (yyi = 0; yyi < yynrhs; yyi++)
@@ -2439,7 +2522,7 @@ yy_reduce_print (yytype_int16 *yyssp, YYSTYPE *yyvsp, YYLTYPE *yylsp, int yyrule
       YYFPRINTF (stderr, "   $%d = ", yyi + 1);
       yy_symbol_print (stderr,
                        yystos[yyssp[yyi + 1 - yynrhs]],
-                       &(yyvsp[(yyi + 1) - (yynrhs)])
+                       &yyvsp[(yyi + 1) - (yynrhs)]
                        , &(yylsp[(yyi + 1) - (yynrhs)])                       , scanner, param);
       YYFPRINTF (stderr, "\n");
     }
@@ -2483,13 +2566,13 @@ int yydebug;
 
 # ifndef yystrlen
 #  if defined __GLIBC__ && defined _STRING_H
-#   define yystrlen strlen
+#   define yystrlen(S) (YY_CAST (YYPTRDIFF_T, strlen (S)))
 #  else
 /* Return the length of YYSTR.  */
-static YYSIZE_T
+static YYPTRDIFF_T
 yystrlen (const char *yystr)
 {
-  YYSIZE_T yylen;
+  YYPTRDIFF_T yylen;
   for (yylen = 0; yystr[yylen]; yylen++)
     continue;
   return yylen;
@@ -2525,12 +2608,12 @@ yystpcpy (char *yydest, const char *yysrc)
    backslash-backslash).  YYSTR is taken from yytname.  If YYRES is
    null, do not copy; instead, return the length of what the result
    would have been.  */
-static YYSIZE_T
+static YYPTRDIFF_T
 yytnamerr (char *yyres, const char *yystr)
 {
   if (*yystr == '"')
     {
-      YYSIZE_T yyn = 0;
+      YYPTRDIFF_T yyn = 0;
       char const *yyp = yystr;
 
       for (;;)
@@ -2543,7 +2626,10 @@ yytnamerr (char *yyres, const char *yystr)
           case '\\':
             if (*++yyp != '\\')
               goto do_not_strip_quotes;
-            /* Fall through.  */
+            else
+              goto append;
+
+          append:
           default:
             if (yyres)
               yyres[yyn] = *yyp;
@@ -2558,10 +2644,10 @@ yytnamerr (char *yyres, const char *yystr)
     do_not_strip_quotes: ;
     }
 
-  if (! yyres)
+  if (yyres)
+    return yystpcpy (yyres, yystr) - yyres;
+  else
     return yystrlen (yystr);
-
-  return yystpcpy (yyres, yystr) - yyres;
 }
 # endif
 
@@ -2574,19 +2660,19 @@ yytnamerr (char *yyres, const char *yystr)
    *YYMSG_ALLOC to the required number of bytes.  Return 2 if the
    required number of bytes is too large to store.  */
 static int
-yysyntax_error (YYSIZE_T *yymsg_alloc, char **yymsg,
-                yytype_int16 *yyssp, int yytoken)
+yysyntax_error (YYPTRDIFF_T *yymsg_alloc, char **yymsg,
+                yy_state_t *yyssp, int yytoken)
 {
-  YYSIZE_T yysize0 = yytnamerr (YY_NULLPTR, yytname[yytoken]);
-  YYSIZE_T yysize = yysize0;
   enum { YYERROR_VERBOSE_ARGS_MAXIMUM = 5 };
   /* Internationalized format string. */
   const char *yyformat = YY_NULLPTR;
-  /* Arguments of yyformat. */
+  /* Arguments of yyformat: reported tokens (one for the "unexpected",
+     one per "expected"). */
   char const *yyarg[YYERROR_VERBOSE_ARGS_MAXIMUM];
-  /* Number of reported tokens (one for the "unexpected", one per
-     "expected"). */
+  /* Actual size of YYARG. */
   int yycount = 0;
+  /* Cumulated lengths of YYARG.  */
+  YYPTRDIFF_T yysize = 0;
 
   /* There are many possibilities here to consider:
      - If this state is a consistent state with a default action, then
@@ -2614,6 +2700,8 @@ yysyntax_error (YYSIZE_T *yymsg_alloc, char **yymsg,
   if (yytoken != YYEMPTY)
     {
       int yyn = yypact[*yyssp];
+      YYPTRDIFF_T yysize0 = yytnamerr (YY_NULLPTR, yytname[yytoken]);
+      yysize = yysize0;
       yyarg[yycount++] = yytname[yytoken];
       if (!yypact_value_is_default (yyn))
         {
@@ -2638,11 +2726,12 @@ yysyntax_error (YYSIZE_T *yymsg_alloc, char **yymsg,
                   }
                 yyarg[yycount++] = yytname[yyx];
                 {
-                  YYSIZE_T yysize1 = yysize + yytnamerr (YY_NULLPTR, yytname[yyx]);
-                  if (! (yysize <= yysize1
-                         && yysize1 <= YYSTACK_ALLOC_MAXIMUM))
+                  YYPTRDIFF_T yysize1
+                    = yysize + yytnamerr (YY_NULLPTR, yytname[yyx]);
+                  if (yysize <= yysize1 && yysize1 <= YYSTACK_ALLOC_MAXIMUM)
+                    yysize = yysize1;
+                  else
                     return 2;
-                  yysize = yysize1;
                 }
               }
         }
@@ -2654,6 +2743,7 @@ yysyntax_error (YYSIZE_T *yymsg_alloc, char **yymsg,
       case N:                               \
         yyformat = S;                       \
       break
+    default: /* Avoid compiler warnings. */
       YYCASE_(0, YY_("syntax error"));
       YYCASE_(1, YY_("syntax error, unexpected %s"));
       YYCASE_(2, YY_("syntax error, unexpected %s, expecting %s"));
@@ -2664,10 +2754,13 @@ yysyntax_error (YYSIZE_T *yymsg_alloc, char **yymsg,
     }
 
   {
-    YYSIZE_T yysize1 = yysize + yystrlen (yyformat);
-    if (! (yysize <= yysize1 && yysize1 <= YYSTACK_ALLOC_MAXIMUM))
+    /* Don't count the "%s"s in the final size, but reserve room for
+       the terminator.  */
+    YYPTRDIFF_T yysize1 = yysize + (yystrlen (yyformat) - 2 * yycount) + 1;
+    if (yysize <= yysize1 && yysize1 <= YYSTACK_ALLOC_MAXIMUM)
+      yysize = yysize1;
+    else
       return 2;
-    yysize = yysize1;
   }
 
   if (*yymsg_alloc < yysize)
@@ -2693,8 +2786,8 @@ yysyntax_error (YYSIZE_T *yymsg_alloc, char **yymsg,
         }
       else
         {
-          yyp++;
-          yyformat++;
+          ++yyp;
+          ++yyformat;
         }
   }
   return 0;
@@ -2719,48 +2812,33 @@ yydestruct (const char *yymsg, int yytype, YYSTYPE *yyvaluep, YYLTYPE *yylocatio
   YY_IGNORE_MAYBE_UNINITIALIZED_BEGIN
   switch (yytype)
     {
-          case 115: /* tmp_string  */
-
-      { free((((*yyvaluep).p_str)) ? *((*yyvaluep).p_str) : NULL); }
-
+    case 115: /* tmp_string  */
+            { free((((*yyvaluep).p_str)) ? *((*yyvaluep).p_str) : NULL); }
         break;
 
     case 210: /* pattern_arg_str  */
-
-      { free(((*yyvaluep).str)); }
-
+            { free(((*yyvaluep).str)); }
         break;
 
     case 399: /* semicolom  */
-
-      { free(((*yyvaluep).str)); }
-
+            { free(((*yyvaluep).str)); }
         break;
 
     case 401: /* curly_bracket_open  */
-
-      { free(((*yyvaluep).str)); }
-
+            { free(((*yyvaluep).str)); }
         break;
 
     case 405: /* string_opt_part1  */
-
-      { free(((*yyvaluep).str)); }
-
+            { free(((*yyvaluep).str)); }
         break;
 
     case 430: /* type_ext_alloc  */
-
-      { yang_type_free(param->module->ctx, ((*yyvaluep).v)); }
-
+            { yang_type_free(param->module->ctx, ((*yyvaluep).v)); }
         break;
 
     case 431: /* typedef_ext_alloc  */
-
-      { yang_type_free(param->module->ctx, &((struct lys_tpdf *)((*yyvaluep).v))->type); }
-
+            { yang_type_free(param->module->ctx, &((struct lys_tpdf *)((*yyvaluep).v))->type); }
         break;
-
 
       default:
         break;
@@ -2809,7 +2887,7 @@ YYLTYPE yylloc = yyloc_default;
     /* Number of syntax errors so far.  */
     int yynerrs;
 
-    int yystate;
+    yy_state_fast_t yystate;
     /* Number of tokens to shift before error messages enabled.  */
     int yyerrstatus;
 
@@ -2822,9 +2900,9 @@ YYLTYPE yylloc = yyloc_default;
        to reallocate them elsewhere.  */
 
     /* The state stack.  */
-    yytype_int16 yyssa[YYINITDEPTH];
-    yytype_int16 *yyss;
-    yytype_int16 *yyssp;
+    yy_state_t yyssa[YYINITDEPTH];
+    yy_state_t *yyss;
+    yy_state_t *yyssp;
 
     /* The semantic value stack.  */
     YYSTYPE yyvsa[YYINITDEPTH];
@@ -2839,7 +2917,7 @@ YYLTYPE yylloc = yyloc_default;
     /* The locations where the error started and ended.  */
     YYLTYPE yyerror_range[3];
 
-    YYSIZE_T yystacksize;
+    YYPTRDIFF_T yystacksize;
 
   int yyn;
   int yyresult;
@@ -2854,7 +2932,7 @@ YYLTYPE yylloc = yyloc_default;
   /* Buffer for error messages, and its allocated size.  */
   char yymsgbuf[128];
   char *yymsg = yymsgbuf;
-  YYSIZE_T yymsg_alloc = sizeof yymsgbuf;
+  YYPTRDIFF_T yymsg_alloc = sizeof yymsgbuf;
 #endif
 
 #define YYPOPSTACK(N)   (yyvsp -= (N), yyssp -= (N), yylsp -= (N))
@@ -2876,7 +2954,6 @@ YYLTYPE yylloc = yyloc_default;
   yychar = YYEMPTY; /* Cause a token to be read.  */
 
 /* User initialization code.  */
-
 { yylloc.last_column = 0;
                   if (param->flags & EXT_INSTANCE_SUBSTMT) {
                     is_ext_instance = 1;
@@ -2897,29 +2974,41 @@ YYLTYPE yylloc = yyloc_default;
   yylsp[0] = yylloc;
   goto yysetstate;
 
+
 /*------------------------------------------------------------.
-| yynewstate -- Push a new state, which is found in yystate.  |
+| yynewstate -- push a new state, which is found in yystate.  |
 `------------------------------------------------------------*/
- yynewstate:
+yynewstate:
   /* In all cases, when you get here, the value and location stacks
      have just been pushed.  So pushing a state here evens the stacks.  */
   yyssp++;
 
- yysetstate:
-  *yyssp = yystate;
+
+/*--------------------------------------------------------------------.
+| yysetstate -- set current state (the top of the stack) to yystate.  |
+`--------------------------------------------------------------------*/
+yysetstate:
+  YYDPRINTF ((stderr, "Entering state %d\n", yystate));
+  YY_ASSERT (0 <= yystate && yystate < YYNSTATES);
+  YY_IGNORE_USELESS_CAST_BEGIN
+  *yyssp = YY_CAST (yy_state_t, yystate);
+  YY_IGNORE_USELESS_CAST_END
 
   if (yyss + yystacksize - 1 <= yyssp)
+#if !defined yyoverflow && !defined YYSTACK_RELOCATE
+    goto yyexhaustedlab;
+#else
     {
       /* Get the current used size of the three stacks, in elements.  */
-      YYSIZE_T yysize = yyssp - yyss + 1;
+      YYPTRDIFF_T yysize = yyssp - yyss + 1;
 
-#ifdef yyoverflow
+# if defined yyoverflow
       {
         /* Give user a chance to reallocate the stack.  Use copies of
            these so that the &'s don't force the real ones into
            memory.  */
+        yy_state_t *yyss1 = yyss;
         YYSTYPE *yyvs1 = yyvs;
-        yytype_int16 *yyss1 = yyss;
         YYLTYPE *yyls1 = yyls;
 
         /* Each stack pointer address is followed by the size of the
@@ -2927,19 +3016,15 @@ YYLTYPE yylloc = yyloc_default;
            conditional around just the two extra args, but that might
            be undefined if yyoverflow is a macro.  */
         yyoverflow (YY_("memory exhausted"),
-                    &yyss1, yysize * sizeof (*yyssp),
-                    &yyvs1, yysize * sizeof (*yyvsp),
-                    &yyls1, yysize * sizeof (*yylsp),
+                    &yyss1, yysize * YYSIZEOF (*yyssp),
+                    &yyvs1, yysize * YYSIZEOF (*yyvsp),
+                    &yyls1, yysize * YYSIZEOF (*yylsp),
                     &yystacksize);
-
-        yyls = yyls1;
         yyss = yyss1;
         yyvs = yyvs1;
+        yyls = yyls1;
       }
-#else /* no yyoverflow */
-# ifndef YYSTACK_RELOCATE
-      goto yyexhaustedlab;
-# else
+# else /* defined YYSTACK_RELOCATE */
       /* Extend the stack our own way.  */
       if (YYMAXDEPTH <= yystacksize)
         goto yyexhaustedlab;
@@ -2948,44 +3033,45 @@ YYLTYPE yylloc = yyloc_default;
         yystacksize = YYMAXDEPTH;
 
       {
-        yytype_int16 *yyss1 = yyss;
+        yy_state_t *yyss1 = yyss;
         union yyalloc *yyptr =
-          (union yyalloc *) YYSTACK_ALLOC (YYSTACK_BYTES (yystacksize));
+          YY_CAST (union yyalloc *,
+                   YYSTACK_ALLOC (YY_CAST (YYSIZE_T, YYSTACK_BYTES (yystacksize))));
         if (! yyptr)
           goto yyexhaustedlab;
         YYSTACK_RELOCATE (yyss_alloc, yyss);
         YYSTACK_RELOCATE (yyvs_alloc, yyvs);
         YYSTACK_RELOCATE (yyls_alloc, yyls);
-#  undef YYSTACK_RELOCATE
+# undef YYSTACK_RELOCATE
         if (yyss1 != yyssa)
           YYSTACK_FREE (yyss1);
       }
 # endif
-#endif /* no yyoverflow */
 
       yyssp = yyss + yysize - 1;
       yyvsp = yyvs + yysize - 1;
       yylsp = yyls + yysize - 1;
 
-      YYDPRINTF ((stderr, "Stack size increased to %lu\n",
-                  (unsigned long int) yystacksize));
+      YY_IGNORE_USELESS_CAST_BEGIN
+      YYDPRINTF ((stderr, "Stack size increased to %ld\n",
+                  YY_CAST (long, yystacksize)));
+      YY_IGNORE_USELESS_CAST_END
 
       if (yyss + yystacksize - 1 <= yyssp)
         YYABORT;
     }
-
-  YYDPRINTF ((stderr, "Entering state %d\n", yystate));
+#endif /* !defined yyoverflow && !defined YYSTACK_RELOCATE */
 
   if (yystate == YYFINAL)
     YYACCEPT;
 
   goto yybackup;
 
+
 /*-----------.
 | yybackup.  |
 `-----------*/
 yybackup:
-
   /* Do appropriate processing given the current state.  Read a
      lookahead token if we need one and don't already have one.  */
 
@@ -3035,15 +3121,14 @@ yybackup:
 
   /* Shift the lookahead token.  */
   YY_SYMBOL_PRINT ("Shifting", yytoken, &yylval, &yylloc);
-
-  /* Discard the shifted token.  */
-  yychar = YYEMPTY;
-
   yystate = yyn;
   YY_IGNORE_MAYBE_UNINITIALIZED_BEGIN
   *++yyvsp = yylval;
   YY_IGNORE_MAYBE_UNINITIALIZED_END
   *++yylsp = yylloc;
+
+  /* Discard the shifted token.  */
+  yychar = YYEMPTY;
   goto yynewstate;
 
 
@@ -3058,7 +3143,7 @@ yydefault:
 
 
 /*-----------------------------.
-| yyreduce -- Do a reduction.  |
+| yyreduce -- do a reduction.  |
 `-----------------------------*/
 yyreduce:
   /* yyn is the number of a rule to reduce with.  */
@@ -3074,52 +3159,50 @@ yyreduce:
      GCC warning that YYVAL may be used uninitialized.  */
   yyval = yyvsp[1-yylen];
 
-  /* Default location.  */
+  /* Default location. */
   YYLLOC_DEFAULT (yyloc, (yylsp - yylen), yylen);
+  yyerror_range[1] = yyloc;
   YY_REDUCE_PRINT (yyn);
   switch (yyn)
     {
-        case 5:
-
-    { if (yyget_text(scanner)[0] == '"') {
+  case 5:
+                   { if (yyget_text(scanner)[0] == '"') {
                       char *tmp;
 
                       s = malloc(yyget_leng(scanner) - 1 + 7 * yylval.i);
                       if (!s) {
-                        LOGMEM;
+                        LOGMEM(trg->ctx);
                         YYABORT;
                       }
-                      if (!(tmp = yang_read_string(yyget_text(scanner) + 1, s, yyget_leng(scanner) - 2, 0, yylloc.first_column))) {
+                      if (!(tmp = yang_read_string(trg->ctx, yyget_text(scanner) + 1, s, yyget_leng(scanner) - 2, 0, yylloc.first_column))) {
                         YYABORT;
                       }
                       s = tmp;
                     } else {
                       s = calloc(1, yyget_leng(scanner) - 1);
                       if (!s) {
-                        LOGMEM;
+                        LOGMEM(trg->ctx);
                         YYABORT;
                       }
                       memcpy(s, yyget_text(scanner) + 1, yyget_leng(scanner) - 2);
                     }
                     (yyval.p_str) = &s;
                   }
-
     break;
 
   case 8:
-
-    { if (yyget_leng(scanner) > 2) {
+            { if (yyget_leng(scanner) > 2) {
                 int length_s = strlen(s), length_tmp = yyget_leng(scanner);
                 char *tmp;
 
                 tmp = realloc(s, length_s + length_tmp - 1);
                 if (!tmp) {
-                  LOGMEM;
+                  LOGMEM(trg->ctx);
                   YYABORT;
                 }
                 s = tmp;
                 if (yyget_text(scanner)[0] == '"') {
-                  if (!(tmp = yang_read_string(yyget_text(scanner) + 1, s, length_tmp - 2, length_s, yylloc.first_column))) {
+                  if (!(tmp = yang_read_string(trg->ctx, yyget_text(scanner) + 1, s, length_tmp - 2, length_s, yylloc.first_column))) {
                     YYABORT;
                   }
                   s = tmp;
@@ -3129,181 +3212,151 @@ yyreduce:
                 }
               }
             }
-
     break;
 
   case 10:
-
-    { if (param->submodule) {
+                                   { if (param->submodule) {
                                        free(s);
-                                       LOGVAL(LYE_INSTMT, LY_VLOG_NONE, NULL, "module");
+                                       LOGVAL(trg->ctx, LYE_INSTMT, LY_VLOG_NONE, NULL, "module");
                                        YYABORT;
                                      }
                                      trg = param->module;
-                                     yang_read_common(trg,s,MODULE_KEYWORD);
+                                     if (yang_read_common(trg,s,MODULE_KEYWORD)) {
+                                       YYABORT;
+                                     }
                                      s = NULL;
                                      actual_type = MODULE_KEYWORD;
                                    }
-
     break;
 
   case 12:
-
-    { if (!param->module->ns) {
-                                            LOGVAL(LYE_MISSCHILDSTMT, LY_VLOG_NONE, NULL, "namespace", "module");
+                                        { if (!param->module->ns) {
+                                            LOGVAL(trg->ctx, LYE_MISSCHILDSTMT, LY_VLOG_NONE, NULL, "namespace", "module");
                                             YYABORT;
                                           }
                                           if (!param->module->prefix) {
-                                            LOGVAL(LYE_MISSCHILDSTMT, LY_VLOG_NONE, NULL, "prefix", "module");
+                                            LOGVAL(trg->ctx, LYE_MISSCHILDSTMT, LY_VLOG_NONE, NULL, "prefix", "module");
                                             YYABORT;
                                           }
                                         }
-
     break;
 
   case 13:
-
-    { (yyval.i) = 0; }
-
+                            { (yyval.i) = 0; }
     break;
 
   case 14:
-
-    { if (yang_check_version(param->module, param->submodule, s, (yyvsp[-1].i))) {
+                                          { if (yang_check_version(param->module, param->submodule, s, (yyvsp[-1].i))) {
                                               YYABORT;
                                             }
                                             (yyval.i) = 1;
                                             s = NULL;
                                           }
-
     break;
 
   case 15:
-
-    { if (yang_read_common(param->module, s, NAMESPACE_KEYWORD)) {
+                                       { if (yang_read_common(param->module, s, NAMESPACE_KEYWORD)) {
                                            YYABORT;
                                          }
                                          s = NULL;
                                        }
-
     break;
 
   case 16:
-
-    { if (yang_read_prefix(trg, NULL, s)) {
+                                    { if (yang_read_prefix(trg, NULL, s)) {
                                         YYABORT;
                                       }
                                       s = NULL;
                                     }
-
     break;
 
   case 17:
-
-    { if (!param->submodule) {
+                                      { if (!param->submodule) {
                                           free(s);
-                                          LOGVAL(LYE_SUBMODULE, LY_VLOG_NONE, NULL);
+                                          LOGVAL(trg->ctx, LYE_SUBMODULE, LY_VLOG_NONE, NULL);
                                           YYABORT;
                                         }
                                         trg = (struct lys_module *)param->submodule;
-                                        yang_read_common(trg,s,MODULE_KEYWORD);
+                                        if (yang_read_common(trg,s,MODULE_KEYWORD)) {
+                                          YYABORT;
+                                        }
                                         s = NULL;
                                         actual_type = SUBMODULE_KEYWORD;
                                       }
-
     break;
 
   case 19:
-
-    { if (!param->submodule->prefix) {
-                                                  LOGVAL(LYE_MISSCHILDSTMT, LY_VLOG_NONE, NULL, "belongs-to", "submodule");
+                                              { if (!param->submodule->prefix) {
+                                                  LOGVAL(trg->ctx, LYE_MISSCHILDSTMT, LY_VLOG_NONE, NULL, "belongs-to", "submodule");
                                                   YYABORT;
                                                 }
                                                 if (!(yyvsp[0].i)) {
                                                   /* check version compatibility with the main module */
                                                   if (param->module->version > 1) {
-                                                      LOGVAL(LYE_INVER, LY_VLOG_NONE, NULL);
+                                                      LOGVAL(trg->ctx, LYE_INVER, LY_VLOG_NONE, NULL);
                                                       YYABORT;
                                                   }
                                                 }
                                               }
-
     break;
 
   case 20:
-
-    { (yyval.i) = 0; }
-
+                              { (yyval.i) = 0; }
     break;
 
   case 21:
-
-    { if (yang_check_version(param->module, param->submodule, s, (yyvsp[-1].i))) {
+                                             { if (yang_check_version(param->module, param->submodule, s, (yyvsp[-1].i))) {
                                                  YYABORT;
                                                }
                                                (yyval.i) = 1;
                                                s = NULL;
                                              }
-
     break;
 
   case 23:
-
-    { backup_type = actual_type;
+                         { backup_type = actual_type;
                            actual_type = YANG_VERSION_KEYWORD;
                          }
-
     break;
 
   case 25:
-
-    { backup_type = actual_type;
+                          { backup_type = actual_type;
                             actual_type = NAMESPACE_KEYWORD;
                           }
-
     break;
 
   case 30:
-
-    { actual_type = (yyvsp[-4].token);
+                 { actual_type = (yyvsp[-4].token);
                    backup_type = NODE;
                    actual = NULL;
                  }
-
     break;
 
   case 31:
-
-    { YANG_ADDELEM(trg->imp, trg->imp_size);
+                                   { YANG_ADDELEM(trg->imp, trg->imp_size, "imports");
                                      /* HACK for unres */
                                      ((struct lys_import *)actual)->module = (struct lys_module *)s;
                                      s = NULL;
                                      (yyval.token) = actual_type;
                                      actual_type = IMPORT_KEYWORD;
                                    }
-
     break;
 
   case 32:
-
-    { (yyval.i) = 0; }
-
+                        { (yyval.i) = 0; }
     break;
 
   case 33:
-
-    { if (yang_read_prefix(trg, actual, s)) {
+                                 { if (yang_read_prefix(trg, actual, s)) {
                                      YYABORT;
                                    }
                                    s = NULL;
                                  }
-
     break;
 
   case 34:
-
-    { if (trg->version != 2) {
-                                          LOGVAL(LYE_INSTMT, LY_VLOG_NONE, NULL, "description");
+                                      { if (trg->version != 2) {
+                                          LOGVAL(trg->ctx, LYE_INSTMT, LY_VLOG_NONE, NULL, "description");
                                           free(s);
                                           YYABORT;
                                         }
@@ -3313,13 +3366,11 @@ yyreduce:
                                         s = NULL;
                                         (yyval.i) = (yyvsp[-1].i);
                                       }
-
     break;
 
   case 35:
-
-    { if (trg->version != 2) {
-                                        LOGVAL(LYE_INSTMT, LY_VLOG_NONE, NULL, "reference");
+                                    { if (trg->version != 2) {
+                                        LOGVAL(trg->ctx, LYE_INSTMT, LY_VLOG_NONE, NULL, "reference");
                                         free(s);
                                         YYABORT;
                                       }
@@ -3329,13 +3380,11 @@ yyreduce:
                                       s = NULL;
                                       (yyval.i) = (yyvsp[-1].i);
                                     }
-
     break;
 
   case 36:
-
-    { if ((yyvsp[-1].i)) {
-                                            LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "revision-date", "import");
+                                        { if ((yyvsp[-1].i)) {
+                                            LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "revision-date", "import");
                                             free(s);
                                             YYABORT;
                                           }
@@ -3344,40 +3393,32 @@ yyreduce:
                                           s = NULL;
                                           (yyval.i) = 1;
                                         }
-
     break;
 
   case 37:
-
-    { YANG_ADDELEM(trg->inc, trg->inc_size);
+                                    { YANG_ADDELEM(trg->inc, trg->inc_size, "includes");
                                      /* HACK for unres */
                                      ((struct lys_include *)actual)->submodule = (struct lys_submodule *)s;
                                      s = NULL;
                                      (yyval.token) = actual_type;
                                      actual_type = INCLUDE_KEYWORD;
                                    }
-
     break;
 
   case 38:
-
-    { actual_type = (yyvsp[-1].token);
+                                                              { actual_type = (yyvsp[-1].token);
                                                                 backup_type = NODE;
                                                                 actual = NULL;
                                                               }
-
     break;
 
   case 41:
-
-    { (yyval.i) = 0; }
-
+                         { (yyval.i) = 0; }
     break;
 
   case 42:
-
-    { if (trg->version != 2) {
-                                           LOGVAL(LYE_INSTMT, LY_VLOG_NONE, NULL, "description");
+                                       { if (trg->version != 2) {
+                                           LOGVAL(trg->ctx, LYE_INSTMT, LY_VLOG_NONE, NULL, "description");
                                            free(s);
                                            YYABORT;
                                          }
@@ -3387,13 +3428,11 @@ yyreduce:
                                          s = NULL;
                                          (yyval.i) = (yyvsp[-1].i);
                                        }
-
     break;
 
   case 43:
-
-    { if (trg->version != 2) {
-                                         LOGVAL(LYE_INSTMT, LY_VLOG_NONE, NULL, "reference");
+                                     { if (trg->version != 2) {
+                                         LOGVAL(trg->ctx, LYE_INSTMT, LY_VLOG_NONE, NULL, "reference");
                                          free(s);
                                          YYABORT;
                                        }
@@ -3403,13 +3442,11 @@ yyreduce:
                                        s = NULL;
                                        (yyval.i) = (yyvsp[-1].i);
                                      }
-
     break;
 
   case 44:
-
-    { if ((yyvsp[-1].i)) {
-                                             LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "revision-date", "include");
+                                         { if ((yyvsp[-1].i)) {
+                                             LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "revision-date", "include");
                                              free(s);
                                              YYABORT;
                                            }
@@ -3418,33 +3455,29 @@ yyreduce:
                                            s = NULL;
                                            (yyval.i) = 1;
                                          }
-
     break;
 
   case 45:
-
-    { backup_type = actual_type;
+                                { backup_type = actual_type;
                                   actual_type = REVISION_DATE_KEYWORD;
                                 }
-
     break;
 
   case 47:
-
-    { (yyval.token) = actual_type;
+                                       { (yyval.token) = actual_type;
                                          if (is_ext_instance) {
-                                           if (yang_read_extcomplex_str(trg, ext_instance, "belongs-to", ext_name, s,
+                                           if (yang_read_extcomplex_str(trg, ext_instance, "belongs-to", ext_name, &s,
                                                                         0, LY_STMT_BELONGSTO)) {
                                              YYABORT;
                                            }
                                          } else {
                                            if (param->submodule->prefix) {
-                                             LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "belongs-to", "submodule");
+                                             LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "belongs-to", "submodule");
                                              free(s);
                                              YYABORT;
                                            }
                                            if (!ly_strequal(s, param->submodule->belongsto->name, 0)) {
-                                             LOGVAL(LYE_INARG, LY_VLOG_NONE, NULL, s, "belongs-to");
+                                             LOGVAL(trg->ctx, LYE_INARG, LY_VLOG_NONE, NULL, s, "belongs-to");
                                              free(s);
                                              YYABORT;
                                            }
@@ -3453,13 +3486,11 @@ yyreduce:
                                          s = NULL;
                                          actual_type = BELONGS_TO_KEYWORD;
                                        }
-
     break;
 
   case 48:
-
-    { if (is_ext_instance) {
-                         if (yang_read_extcomplex_str(trg, ext_instance, "prefix", "belongs-to", s,
+                     { if (is_ext_instance) {
+                         if (yang_read_extcomplex_str(trg, ext_instance, "prefix", "belongs-to", &s,
                                                       LY_STMT_BELONGSTO, LY_STMT_PREFIX)) {
                            YYABORT;
                          }
@@ -3471,192 +3502,161 @@ yyreduce:
                        s = NULL;
                        actual_type = (yyvsp[-4].token);
                      }
-
     break;
 
   case 49:
-
-    { backup_type = actual_type;
+                           { backup_type = actual_type;
                              actual_type = PREFIX_KEYWORD;
                            }
-
     break;
 
   case 52:
-
-    { if (yang_read_common(trg, s, ORGANIZATION_KEYWORD)) {
+                                  { if (yang_read_common(trg, s, ORGANIZATION_KEYWORD)) {
                                       YYABORT;
                                     }
                                     s = NULL;
                                   }
-
     break;
 
   case 53:
-
-    { if (yang_read_common(trg, s, CONTACT_KEYWORD)) {
+                             { if (yang_read_common(trg, s, CONTACT_KEYWORD)) {
                                  YYABORT;
                                }
                                s = NULL;
                              }
-
     break;
 
   case 54:
-
-    { if (yang_read_description(trg, NULL, s, NULL, MODULE_KEYWORD)) {
+                                 { if (yang_read_description(trg, NULL, s, NULL, MODULE_KEYWORD)) {
                                      YYABORT;
                                    }
                                    s = NULL;
                                  }
-
     break;
 
   case 55:
-
-    { if (yang_read_reference(trg, NULL, s, NULL, MODULE_KEYWORD)) {
+                               { if (yang_read_reference(trg, NULL, s, NULL, MODULE_KEYWORD)) {
                                    YYABORT;
                                  }
                                  s=NULL;
                                }
-
     break;
 
   case 56:
-
-    { backup_type = actual_type;
+                         { backup_type = actual_type;
                            actual_type = ORGANIZATION_KEYWORD;
                          }
-
     break;
 
   case 58:
-
-    { backup_type = actual_type;
+                    { backup_type = actual_type;
                       actual_type = CONTACT_KEYWORD;
                     }
-
     break;
 
   case 60:
-
-    { backup_type = actual_type;
+                        { backup_type = actual_type;
                           actual_type = DESCRIPTION_KEYWORD;
                         }
-
     break;
 
   case 62:
-
-    { backup_type = actual_type;
+                      { backup_type = actual_type;
                         actual_type = REFERENCE_KEYWORD;
                       }
-
     break;
 
   case 64:
-
-    { if (trg->rev_size) {
+                                   { if (trg->rev_size) {
                                       struct lys_revision *tmp;
 
                                       tmp = realloc(trg->rev, trg->rev_size * sizeof *trg->rev);
                                       if (!tmp) {
-                                        LOGMEM;
+                                        LOGMEM(trg->ctx);
                                         YYABORT;
                                       }
                                       trg->rev = tmp;
                                     }
                                   }
-
     break;
 
   case 65:
-
-    { (yyval.backup_token).token = actual_type;
+                                { (yyval.backup_token).token = actual_type;
                                   (yyval.backup_token).actual = actual;
                                   if (!is_ext_instance) {
-                                    YANG_ADDELEM(trg->rev, trg->rev_size);
+                                    YANG_ADDELEM(trg->rev, trg->rev_size, "revisions");
                                   }
                                   memcpy(((struct lys_revision *)actual)->date, s, LY_REV_SIZE);
                                   free(s);
                                   s = NULL;
                                   actual_type = REVISION_KEYWORD;
                                 }
-
     break;
 
   case 67:
-
-    { int i;
+                                              { int i;
 
                                                 /* check uniqueness of the revision date - not required by RFC */
                                                 for (i = 0; i < (trg->rev_size - 1); i++) {
                                                   if (!strcmp(trg->rev[i].date, trg->rev[trg->rev_size - 1].date)) {
-                                                    LOGWRN("Module's revisions are not unique (%s).", trg->rev[trg->rev_size - 1].date);
+                                                    LOGWRN(trg->ctx, "Module's revisions are not unique (%s).",
+                                                           trg->rev[trg->rev_size - 1].date);
                                                     break;
                                                   }
                                                 }
                                               }
-
     break;
 
   case 68:
-
-    { actual_type = (yyvsp[-1].backup_token).token;
+                                                                   { actual_type = (yyvsp[-1].backup_token).token;
                                                                      actual = (yyvsp[-1].backup_token).actual;
                                                                    }
-
     break;
 
   case 72:
-
-    { if (yang_read_description(trg, actual, s, "revision",REVISION_KEYWORD)) {
+                                        { if (yang_read_description(trg, actual, s, "revision",REVISION_KEYWORD)) {
                                             YYABORT;
                                           }
                                           s = NULL;
                                         }
-
     break;
 
   case 73:
-
-    { if (yang_read_reference(trg, actual, s, "revision", REVISION_KEYWORD)) {
+                                      { if (yang_read_reference(trg, actual, s, "revision", REVISION_KEYWORD)) {
                                           YYABORT;
                                         }
                                         s = NULL;
                                       }
-
     break;
 
   case 74:
-
-    { s = strdup(yyget_text(scanner));
+                            { s = strdup(yyget_text(scanner));
                               if (!s) {
-                                LOGMEM;
+                                LOGMEM(trg->ctx);
                                 YYABORT;
                               }
+                              if (lyp_check_date(trg->ctx, s)) {
+                                  free(s);
+                                  YYABORT;
+                              }
                             }
-
     break;
 
   case 76:
-
-    { if (lyp_check_date(s)) {
+             { if (lyp_check_date(trg->ctx, s)) {
                    free(s);
                    YYABORT;
                }
              }
-
     break;
 
   case 77:
-
-    { void *tmp;
+                           { void *tmp;
 
                              if (trg->tpdf_size) {
                                tmp = realloc(trg->tpdf, trg->tpdf_size * sizeof *trg->tpdf);
                                if (!tmp) {
-                                 LOGMEM;
+                                 LOGMEM(trg->ctx);
                                  YYABORT;
                                }
                                trg->tpdf = tmp;
@@ -3665,7 +3665,7 @@ yyreduce:
                              if (trg->features_size) {
                                tmp = realloc(trg->features, trg->features_size * sizeof *trg->features);
                                if (!tmp) {
-                                 LOGMEM;
+                                 LOGMEM(trg->ctx);
                                  YYABORT;
                                }
                                trg->features = tmp;
@@ -3674,7 +3674,7 @@ yyreduce:
                              if (trg->ident_size) {
                                tmp = realloc(trg->ident, trg->ident_size * sizeof *trg->ident);
                                if (!tmp) {
-                                 LOGMEM;
+                                 LOGMEM(trg->ctx);
                                  YYABORT;
                                }
                                trg->ident = tmp;
@@ -3683,7 +3683,7 @@ yyreduce:
                              if (trg->augment_size) {
                                tmp = realloc(trg->augment, trg->augment_size * sizeof *trg->augment);
                                if (!tmp) {
-                                 LOGMEM;
+                                 LOGMEM(trg->ctx);
                                  YYABORT;
                                }
                                trg->augment = tmp;
@@ -3692,18 +3692,16 @@ yyreduce:
                              if (trg->extensions_size) {
                                tmp = realloc(trg->extensions, trg->extensions_size * sizeof *trg->extensions);
                                if (!tmp) {
-                                 LOGMEM;
+                                 LOGMEM(trg->ctx);
                                  YYABORT;
                                }
                                trg->extensions = tmp;
                              }
                            }
-
     break;
 
   case 78:
-
-    { /* check the module with respect to the context now */
+                   { /* check the module with respect to the context now */
                          if (!param->submodule) {
                            switch (lyp_ctx_check_module(trg)) {
                            case -1:
@@ -3722,24 +3720,20 @@ yyreduce:
                          }
                          actual = NULL;
                        }
-
     break;
 
   case 79:
-
-    { actual = NULL; }
-
+                                 { actual = NULL; }
     break;
 
   case 90:
-
-    { (yyval.backup_token).token = actual_type;
+                                      { (yyval.backup_token).token = actual_type;
                                         (yyval.backup_token).actual = actual;
-                                        YANG_ADDELEM(trg->extensions, trg->extensions_size);
+                                        YANG_ADDELEM(trg->extensions, trg->extensions_size, "extensions");
                                         trg->extensions_size--;
                                         ((struct lys_ext *)actual)->name = lydict_insert_zc(param->module->ctx, s);
                                         ((struct lys_ext *)actual)->module = trg;
-                                        if (lyp_check_identifier(((struct lys_ext *)actual)->name, LY_IDENT_EXTENSION, trg, NULL)) {
+                                        if (lyp_check_identifier(trg->ctx, ((struct lys_ext *)actual)->name, LY_IDENT_EXTENSION, trg, NULL)) {
                                           trg->extensions_size++;
                                           YYABORT;
                                         }
@@ -3747,61 +3741,51 @@ yyreduce:
                                         s = NULL;
                                         actual_type = EXTENSION_KEYWORD;
                                       }
-
     break;
 
   case 91:
-
-    { struct lys_ext *ext = actual;
+                { struct lys_ext *ext = actual;
                   ext->plugin = ext_get_plugin(ext->name, ext->module->name, ext->module->rev ? ext->module->rev[0].date : NULL);
                   actual_type = (yyvsp[-1].backup_token).token;
                   actual = (yyvsp[-1].backup_token).actual;
                 }
-
     break;
 
   case 96:
-
-    { if (((struct lys_ext *)actual)->flags & LYS_STATUS_MASK) {
-                                        LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "status", "extension");
+                                    { if (((struct lys_ext *)actual)->flags & LYS_STATUS_MASK) {
+                                        LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "status", "extension");
                                         YYABORT;
                                       }
                                       ((struct lys_ext *)actual)->flags |= (yyvsp[0].i);
                                     }
-
     break;
 
   case 97:
-
-    { if (yang_read_description(trg, actual, s, "extension", NODE)) {
+                                         { if (yang_read_description(trg, actual, s, "extension", NODE)) {
                                              YYABORT;
                                            }
                                            s = NULL;
                                          }
-
     break;
 
   case 98:
-
-    { if (yang_read_reference(trg, actual, s, "extension", NODE)) {
+                                       { if (yang_read_reference(trg, actual, s, "extension", NODE)) {
                                            YYABORT;
                                          }
                                          s = NULL;
                                        }
-
     break;
 
   case 99:
-
-    { (yyval.token) = actual_type;
+                                 { (yyval.token) = actual_type;
                                    if (is_ext_instance) {
-                                     if (yang_read_extcomplex_str(trg, ext_instance, "argument", ext_name, s,
+                                     if (yang_read_extcomplex_str(trg, ext_instance, "argument", ext_name, &s,
                                                                   0, LY_STMT_ARGUMENT)) {
                                        YYABORT;
                                      }
                                    } else {
                                      if (((struct lys_ext *)actual)->argument) {
-                                        LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "argument", "extension");
+                                        LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "argument", "extension");
                                         free(s);
                                         YYABORT;
                                      }
@@ -3810,27 +3794,21 @@ yyreduce:
                                    s = NULL;
                                    actual_type = ARGUMENT_KEYWORD;
                                  }
-
     break;
 
   case 100:
-
-    { actual_type = (yyvsp[-1].token); }
-
+                                                               { actual_type = (yyvsp[-1].token); }
     break;
 
   case 103:
-
-    { (yyval.uint) = (yyvsp[0].uint);
+                                     { (yyval.uint) = (yyvsp[0].uint);
                                        backup_type = actual_type;
                                        actual_type = YIN_ELEMENT_KEYWORD;
                                      }
-
     break;
 
   case 105:
-
-    { if (is_ext_instance) {
+     { if (is_ext_instance) {
          int c;
          const char ***p;
          uint8_t *val;
@@ -3850,208 +3828,176 @@ yyreduce:
          ((struct lys_ext *)actual)->flags |= (yyvsp[-1].uint);
        }
      }
-
     break;
 
   case 106:
-
-    { (yyval.uint) = LYS_YINELEM; }
-
+                                         { (yyval.uint) = LYS_YINELEM; }
     break;
 
   case 107:
-
-    { (yyval.uint) = 0; }
-
+                         { (yyval.uint) = 0; }
     break;
 
   case 108:
-
-    { if (!strcmp(s, "true")) {
+             { if (!strcmp(s, "true")) {
                  (yyval.uint) = LYS_YINELEM;
                } else if (!strcmp(s, "false")) {
                  (yyval.uint) = 0;
                } else {
-                 LOGVAL(LYE_INSTMT, LY_VLOG_NONE, NULL, s);
+                 LOGVAL(trg->ctx, LYE_INSTMT, LY_VLOG_NONE, NULL, s);
                  free(s);
                  YYABORT;
                }
                free(s);
                s = NULL;
              }
-
     break;
 
   case 109:
-
-    { (yyval.i) = (yyvsp[0].i);
+                           { (yyval.i) = (yyvsp[0].i);
                              backup_type = actual_type;
                              actual_type = STATUS_KEYWORD;
                            }
-
     break;
 
   case 110:
-
-    { (yyval.i) = (yyvsp[-1].i); }
-
+                                                    { (yyval.i) = (yyvsp[-1].i); }
     break;
 
   case 111:
-
-    { (yyval.i) = LYS_STATUS_CURR; }
-
+                                       { (yyval.i) = LYS_STATUS_CURR; }
     break;
 
   case 112:
-
-    { (yyval.i) = LYS_STATUS_OBSLT; }
-
+                            { (yyval.i) = LYS_STATUS_OBSLT; }
     break;
 
   case 113:
-
-    { (yyval.i) = LYS_STATUS_DEPRC; }
-
+                              { (yyval.i) = LYS_STATUS_DEPRC; }
     break;
 
   case 114:
-
-    { if (!strcmp(s, "current")) {
+             { if (!strcmp(s, "current")) {
                  (yyval.i) = LYS_STATUS_CURR;
                } else if (!strcmp(s, "obsolete")) {
                  (yyval.i) = LYS_STATUS_OBSLT;
                } else if (!strcmp(s, "deprecated")) {
                  (yyval.i) = LYS_STATUS_DEPRC;
                } else {
-                 LOGVAL(LYE_INSTMT, LY_VLOG_NONE, NULL, s);
+                 LOGVAL(trg->ctx,LYE_INSTMT, LY_VLOG_NONE, NULL, s);
                  free(s);
                  YYABORT;
                }
                free(s);
                s = NULL;
              }
-
     break;
 
   case 115:
-
-    { /* check uniqueness of feature's names */
-                                      if (lyp_check_identifier(s, LY_IDENT_FEATURE, trg, NULL)) {
+                                    { /* check uniqueness of feature's names */
+                                      if (lyp_check_identifier(trg->ctx, s, LY_IDENT_FEATURE, trg, NULL)) {
                                         free(s);
                                         YYABORT;
                                       }
                                       (yyval.backup_token).token = actual_type;
                                       (yyval.backup_token).actual = actual;
-                                      YANG_ADDELEM(trg->features, trg->features_size);
+                                      YANG_ADDELEM(trg->features, trg->features_size, "features");
                                       ((struct lys_feature *)actual)->name = lydict_insert_zc(trg->ctx, s);
                                       ((struct lys_feature *)actual)->module = trg;
                                       s = NULL;
                                       actual_type = FEATURE_KEYWORD;
                                     }
-
     break;
 
   case 116:
-
-    { actual = (yyvsp[-1].backup_token).actual;
+              { actual = (yyvsp[-1].backup_token).actual;
                 actual_type = (yyvsp[-1].backup_token).token;
               }
-
     break;
 
   case 118:
-
-    { struct lys_iffeature *tmp;
+        { struct lys_iffeature *tmp;
 
           if (((struct lys_feature *)actual)->iffeature_size) {
             tmp = realloc(((struct lys_feature *)actual)->iffeature,
                           ((struct lys_feature *)actual)->iffeature_size * sizeof *tmp);
             if (!tmp) {
-              LOGMEM;
+              LOGMEM(trg->ctx);
               YYABORT;
             }
             ((struct lys_feature *)actual)->iffeature = tmp;
           }
         }
-
     break;
 
   case 121:
-
-    { if (((struct lys_feature *)actual)->flags & LYS_STATUS_MASK) {
-                                      LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "status", "feature");
+                                  { if (((struct lys_feature *)actual)->flags & LYS_STATUS_MASK) {
+                                      LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "status", "feature");
                                       YYABORT;
                                     }
                                     ((struct lys_feature *)actual)->flags |= (yyvsp[0].i);
                                   }
-
     break;
 
   case 122:
-
-    { if (yang_read_description(trg, actual, s, "feature", NODE)) {
+                                       { if (yang_read_description(trg, actual, s, "feature", NODE)) {
                                            YYABORT;
                                          }
                                          s = NULL;
                                        }
-
     break;
 
   case 123:
-
-    { if (yang_read_reference(trg, actual, s, "feature", NODE)) {
+                                     { if (yang_read_reference(trg, actual, s, "feature", NODE)) {
                                          YYABORT;
                                        }
                                        s = NULL;
                                      }
-
     break;
 
   case 124:
-
-    { (yyval.backup_token).token = actual_type;
+                       { (yyval.backup_token).token = actual_type;
                          (yyval.backup_token).actual = actual;
                          switch (actual_type) {
                          case FEATURE_KEYWORD:
                            YANG_ADDELEM(((struct lys_feature *)actual)->iffeature,
-                                        ((struct lys_feature *)actual)->iffeature_size);
+                                        ((struct lys_feature *)actual)->iffeature_size, "if-features");
                            break;
                          case IDENTITY_KEYWORD:
                            if (trg->version < 2) {
-                             LOGVAL(LYE_INSTMT, LY_VLOG_NONE, NULL, "if-feature", "identity");
+                             LOGVAL(trg->ctx, LYE_INSTMT, LY_VLOG_NONE, NULL, "if-feature", "identity");
                              free(s);
                              YYABORT;
                            }
                            YANG_ADDELEM(((struct lys_ident *)actual)->iffeature,
-                                        ((struct lys_ident *)actual)->iffeature_size);
+                                        ((struct lys_ident *)actual)->iffeature_size, "if-features");
                            break;
                          case ENUM_KEYWORD:
                            if (trg->version < 2) {
-                             LOGVAL(LYE_INSTMT, LY_VLOG_NONE, NULL, "if-feature");
+                             LOGVAL(trg->ctx, LYE_INSTMT, LY_VLOG_NONE, NULL, "if-feature");
                              free(s);
                              YYABORT;
                            }
                            YANG_ADDELEM(((struct lys_type_enum *)actual)->iffeature,
-                                        ((struct lys_type_enum *)actual)->iffeature_size);
+                                        ((struct lys_type_enum *)actual)->iffeature_size, "if-features");
                            break;
                          case BIT_KEYWORD:
                            if (trg->version < 2) {
-                             LOGVAL(LYE_INSTMT, LY_VLOG_NONE, NULL, "if-feature", "bit");
+                             LOGVAL(trg->ctx, LYE_INSTMT, LY_VLOG_NONE, NULL, "if-feature", "bit");
                              free(s);
                              YYABORT;
                            }
                            YANG_ADDELEM(((struct lys_type_bit *)actual)->iffeature,
-                                        ((struct lys_type_bit *)actual)->iffeature_size);
+                                        ((struct lys_type_bit *)actual)->iffeature_size, "if-features");
                            break;
                          case REFINE_KEYWORD:
                            if (trg->version < 2) {
-                             LOGVAL(LYE_INSTMT, LY_VLOG_NONE, NULL, "if-feature");
+                             LOGVAL(trg->ctx, LYE_INSTMT, LY_VLOG_NONE, NULL, "if-feature");
                              free(s);
                              YYABORT;
                            }
                            YANG_ADDELEM(((struct lys_refine *)actual)->iffeature,
-                                        ((struct lys_refine *)actual)->iffeature_size);
+                                        ((struct lys_refine *)actual)->iffeature_size, "if-features");
                            break;
                          case EXTENSION_INSTANCE:
                            /* nothing change */
@@ -4059,27 +4005,23 @@ yyreduce:
                          default:
                            /* lys_node_* */
                            YANG_ADDELEM(((struct lys_node *)actual)->iffeature,
-                                        ((struct lys_node *)actual)->iffeature_size);
+                                        ((struct lys_node *)actual)->iffeature_size, "if-features");
                            break;
                          }
                          ((struct lys_iffeature *)actual)->features = (struct lys_feature **)s;
                          s = NULL;
                          actual_type = IF_FEATURE_KEYWORD;
                        }
-
     break;
 
   case 125:
-
-    { actual = (yyvsp[-1].backup_token).actual;
+                 { actual = (yyvsp[-1].backup_token).actual;
                    actual_type = (yyvsp[-1].backup_token).token;
                  }
-
     break;
 
   case 128:
-
-    { const char *tmp;
+                                     { const char *tmp;
 
                                        tmp = lydict_insert_zc(trg->ctx, s);
                                        s = NULL;
@@ -4089,31 +4031,27 @@ yyreduce:
                                        }
                                        (yyval.backup_token).token = actual_type;
                                        (yyval.backup_token).actual = actual;
-                                       YANG_ADDELEM(trg->ident, trg->ident_size);
+                                       YANG_ADDELEM(trg->ident, trg->ident_size, "identities");
                                        ((struct lys_ident *)actual)->name = tmp;
                                        ((struct lys_ident *)actual)->module = trg;
                                        actual_type = IDENTITY_KEYWORD;
                                      }
-
     break;
 
   case 129:
-
-    { actual = (yyvsp[-1].backup_token).actual;
+               { actual = (yyvsp[-1].backup_token).actual;
                  actual_type = (yyvsp[-1].backup_token).token;
                }
-
     break;
 
   case 131:
-
-    { void *tmp;
+         { void *tmp;
 
            if (((struct lys_ident *)actual)->base_size) {
              tmp = realloc(((struct lys_ident *)actual)->base,
                            ((struct lys_ident *)actual)->base_size * sizeof *((struct lys_ident *)actual)->base);
              if (!tmp) {
-               LOGMEM;
+               LOGMEM(trg->ctx);
                YYABORT;
              }
              ((struct lys_ident *)actual)->base = tmp;
@@ -4123,119 +4061,107 @@ yyreduce:
              tmp = realloc(((struct lys_ident *)actual)->iffeature,
                            ((struct lys_ident *)actual)->iffeature_size * sizeof *((struct lys_ident *)actual)->iffeature);
              if (!tmp) {
-               LOGMEM;
+               LOGMEM(trg->ctx);
                YYABORT;
              }
              ((struct lys_ident *)actual)->iffeature = tmp;
            }
          }
-
     break;
 
   case 133:
-
-    { void *identity;
+                                 { void *identity;
 
                                    if ((trg->version < 2) && ((struct lys_ident *)actual)->base_size) {
                                      free(s);
-                                     LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "base", "identity");
+                                     LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "base", "identity");
                                      YYABORT;
                                    }
                                    identity = actual;
                                    YANG_ADDELEM(((struct lys_ident *)actual)->base,
-                                                ((struct lys_ident *)actual)->base_size);
+                                                ((struct lys_ident *)actual)->base_size, "bases");
                                    *((struct lys_ident **)actual) = (struct lys_ident *)s;
                                    s = NULL;
                                    actual = identity;
                                  }
-
     break;
 
   case 135:
-
-    { if (((struct lys_ident *)actual)->flags & LYS_STATUS_MASK) {
-                                       LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "status", "identity");
+                                   { if (((struct lys_ident *)actual)->flags & LYS_STATUS_MASK) {
+                                       LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "status", "identity");
                                        YYABORT;
                                      }
                                      ((struct lys_ident *)actual)->flags |= (yyvsp[0].i);
                                    }
-
     break;
 
   case 136:
-
-    { if (yang_read_description(trg, actual, s, "identity", NODE)) {
+                                        { if (yang_read_description(trg, actual, s, "identity", NODE)) {
                                             YYABORT;
                                           }
                                           s = NULL;
                                         }
-
     break;
 
   case 137:
-
-    { if (yang_read_reference(trg, actual, s, "identity", NODE)) {
+                                      { if (yang_read_reference(trg, actual, s, "identity", NODE)) {
                                           YYABORT;
                                         }
                                         s = NULL;
                                       }
-
     break;
 
   case 138:
-
-    { backup_type = actual_type;
+                                 { backup_type = actual_type;
                                    actual_type = BASE_KEYWORD;
                                  }
-
     break;
 
   case 140:
-
-    { tpdf_parent = (actual_type == EXTENSION_INSTANCE) ? ext_instance : actual;
+                                    { tpdf_parent = (actual_type == EXTENSION_INSTANCE) ? ext_instance : actual;
                                       (yyval.backup_token).token = actual_type;
                                       (yyval.backup_token).actual = actual;
-                                      if (lyp_check_identifier(s, LY_IDENT_TYPE, trg, tpdf_parent)) {
+                                      if (lyp_check_identifier(trg->ctx, s, LY_IDENT_TYPE, trg, tpdf_parent)) {
                                         free(s);
                                         YYABORT;
                                       }
                                       switch (actual_type) {
                                       case MODULE_KEYWORD:
                                       case SUBMODULE_KEYWORD:
-                                        YANG_ADDELEM(trg->tpdf, trg->tpdf_size);
+                                        YANG_ADDELEM(trg->tpdf, trg->tpdf_size, "typedefs");
                                         break;
                                       case GROUPING_KEYWORD:
                                         YANG_ADDELEM(((struct lys_node_grp *)tpdf_parent)->tpdf,
-                                                     ((struct lys_node_grp *)tpdf_parent)->tpdf_size);
+                                                     ((struct lys_node_grp *)tpdf_parent)->tpdf_size, "typedefs");
                                         break;
                                       case CONTAINER_KEYWORD:
                                         YANG_ADDELEM(((struct lys_node_container *)tpdf_parent)->tpdf,
-                                                     ((struct lys_node_container *)tpdf_parent)->tpdf_size);
+                                                     ((struct lys_node_container *)tpdf_parent)->tpdf_size, "typedefs");
                                         break;
                                       case LIST_KEYWORD:
                                         YANG_ADDELEM(((struct lys_node_list *)tpdf_parent)->tpdf,
-                                                     ((struct lys_node_list *)tpdf_parent)->tpdf_size);
+                                                     ((struct lys_node_list *)tpdf_parent)->tpdf_size, "typedefs");
                                         break;
                                       case RPC_KEYWORD:
                                       case ACTION_KEYWORD:
                                         YANG_ADDELEM(((struct lys_node_rpc_action *)tpdf_parent)->tpdf,
-                                                     ((struct lys_node_rpc_action *)tpdf_parent)->tpdf_size);
+                                                     ((struct lys_node_rpc_action *)tpdf_parent)->tpdf_size, "typedefs");
                                         break;
                                       case INPUT_KEYWORD:
                                       case OUTPUT_KEYWORD:
                                         YANG_ADDELEM(((struct lys_node_inout *)tpdf_parent)->tpdf,
-                                                     ((struct lys_node_inout *)tpdf_parent)->tpdf_size);
+                                                     ((struct lys_node_inout *)tpdf_parent)->tpdf_size, "typedefs");
                                         break;
                                       case NOTIFICATION_KEYWORD:
                                         YANG_ADDELEM(((struct lys_node_notif *)tpdf_parent)->tpdf,
-                                                     ((struct lys_node_notif *)tpdf_parent)->tpdf_size);
+                                                     ((struct lys_node_notif *)tpdf_parent)->tpdf_size, "typedefs");
                                         break;
                                       case EXTENSION_INSTANCE:
                                         /* typedef is already allocated */
                                         break;
                                       default:
                                         /* another type of nodetype is error*/
-                                        LOGINT;
+                                        LOGINT(trg->ctx);
                                         free(s);
                                         YYABORT;
                                       }
@@ -4244,119 +4170,97 @@ yyreduce:
                                       s = NULL;
                                       actual_type = TYPEDEF_KEYWORD;
                                     }
-
     break;
 
   case 141:
-
-    { if (!((yyvsp[-1].nodes).node.flag & LYS_TYPE_DEF)) {
-                      LOGVAL(LYE_MISSCHILDSTMT, LY_VLOG_NONE, NULL, "type", "typedef");
+                  { if (!((yyvsp[-1].nodes).node.flag & LYS_TYPE_DEF)) {
+                      LOGVAL(trg->ctx, LYE_MISSCHILDSTMT, LY_VLOG_NONE, NULL, "type", "typedef");
                       YYABORT;
                     }
                     actual_type = (yyvsp[-4].backup_token).token;
                     actual = (yyvsp[-4].backup_token).actual;
                   }
-
     break;
 
   case 142:
-
-    { (yyval.nodes).node.ptr_tpdf = actual;
+                      { (yyval.nodes).node.ptr_tpdf = actual;
                             (yyval.nodes).node.flag = 0;
                           }
-
     break;
 
   case 143:
-
-    { (yyvsp[-2].nodes).node.flag |= LYS_TYPE_DEF;
+                                     { (yyvsp[-2].nodes).node.flag |= LYS_TYPE_DEF;
                                        (yyval.nodes) = (yyvsp[-2].nodes);
                                      }
-
     break;
 
   case 144:
-
-    { if (yang_read_units(trg, (yyvsp[-1].nodes).node.ptr_tpdf, s, TYPEDEF_KEYWORD)) {
+                              { if (yang_read_units(trg, (yyvsp[-1].nodes).node.ptr_tpdf, s, TYPEDEF_KEYWORD)) {
                                   YYABORT;
                                 }
                                 s = NULL;
                               }
-
     break;
 
   case 145:
-
-    { if (yang_read_default(trg, (yyvsp[-1].nodes).node.ptr_tpdf, s, TYPEDEF_KEYWORD)) {
+                                { if (yang_read_default(trg, (yyvsp[-1].nodes).node.ptr_tpdf, s, TYPEDEF_KEYWORD)) {
                                     YYABORT;
                                   }
                                   s = NULL;
                                 }
-
     break;
 
   case 146:
-
-    { if ((yyvsp[-1].nodes).node.ptr_tpdf->flags & LYS_STATUS_MASK) {
-                                   LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "status", "typedef");
+                               { if ((yyvsp[-1].nodes).node.ptr_tpdf->flags & LYS_STATUS_MASK) {
+                                   LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "status", "typedef");
                                    YYABORT;
                                  }
                                  (yyvsp[-1].nodes).node.ptr_tpdf->flags |= (yyvsp[0].i);
                                }
-
     break;
 
   case 147:
-
-    { if (yang_read_description(trg, (yyvsp[-1].nodes).node.ptr_tpdf, s, "typedef", NODE)) {
+                                    { if (yang_read_description(trg, (yyvsp[-1].nodes).node.ptr_tpdf, s, "typedef", NODE)) {
                                         YYABORT;
                                       }
                                       s = NULL;
                                     }
-
     break;
 
   case 148:
-
-    { if (yang_read_reference(trg, (yyvsp[-1].nodes).node.ptr_tpdf, s, "typedef", NODE)) {
+                                  { if (yang_read_reference(trg, (yyvsp[-1].nodes).node.ptr_tpdf, s, "typedef", NODE)) {
                                       YYABORT;
                                     }
                                     s = NULL;
                                   }
-
     break;
 
   case 149:
-
-    { actual_type = (yyvsp[-1].backup_token).token;
+           { actual_type = (yyvsp[-1].backup_token).token;
              actual = (yyvsp[-1].backup_token).actual;
            }
-
     break;
 
   case 150:
-
-    { (yyval.backup_token).token = actual_type;
+                                     { (yyval.backup_token).token = actual_type;
                                        (yyval.backup_token).actual = actual;
-                                       if (!(actual = yang_read_type(trg, actual, s, actual_type))) {
+                                       if (!(actual = yang_read_type(trg->ctx, actual, s, actual_type))) {
                                          YYABORT;
                                        }
                                        s = NULL;
                                        actual_type = TYPE_KEYWORD;
                                      }
-
     break;
 
   case 153:
-
-    { if (((struct yang_type *)actual)->base == LY_TYPE_STRING &&
+                                   { if (((struct yang_type *)actual)->base == LY_TYPE_STRING &&
                                          ((struct yang_type *)actual)->type->info.str.pat_count) {
                                        void *tmp;
 
                                        tmp = realloc(((struct yang_type *)actual)->type->info.str.patterns,
                                                      ((struct yang_type *)actual)->type->info.str.pat_count * sizeof *((struct yang_type *)actual)->type->info.str.patterns);
                                        if (!tmp) {
-                                         LOGMEM;
+                                         LOGMEM(trg->ctx);
                                          YYABORT;
                                        }
                                        ((struct yang_type *)actual)->type->info.str.patterns = tmp;
@@ -4366,7 +4270,7 @@ yyreduce:
                                          tmp = realloc(((struct yang_type *)actual)->type->info.str.patterns_pcre,
                                                        2 * ((struct yang_type *)actual)->type->info.str.pat_count * sizeof *((struct yang_type *)actual)->type->info.str.patterns_pcre);
                                          if (!tmp) {
-                                           LOGMEM;
+                                           LOGMEM(trg->ctx);
                                            YYABORT;
                                          }
                                          ((struct yang_type *)actual)->type->info.str.patterns_pcre = tmp;
@@ -4379,7 +4283,7 @@ yyreduce:
                                        tmp = realloc(((struct yang_type *)actual)->type->info.uni.types,
                                                      ((struct yang_type *)actual)->type->info.uni.count * sizeof *tmp);
                                        if (!tmp) {
-                                         LOGMEM;
+                                         LOGMEM(trg->ctx);
                                          YYABORT;
                                        }
                                        ((struct yang_type *)actual)->type->info.uni.types = tmp;
@@ -4390,122 +4294,102 @@ yyreduce:
                                        tmp = realloc(((struct yang_type *)actual)->type->info.ident.ref,
                                                      ((struct yang_type *)actual)->type->info.ident.count* sizeof *tmp);
                                        if (!tmp) {
-                                         LOGMEM;
+                                         LOGMEM(trg->ctx);
                                          YYABORT;
                                        }
                                        ((struct yang_type *)actual)->type->info.ident.ref = tmp;
                                      }
                                    }
-
     break;
 
   case 157:
-
-    { if (yang_read_require_instance(actual, (yyvsp[0].i))) {
+                                             { if (yang_read_require_instance(trg->ctx, actual, (yyvsp[0].i))) {
                                                  YYABORT;
                                                }
                                              }
-
     break;
 
   case 158:
-
-    { /* leafref_specification */
+                                 { /* leafref_specification */
                                    if (yang_read_leafref_path(trg, actual, s)) {
                                      YYABORT;
                                    }
                                    s = NULL;
                                  }
-
     break;
 
   case 159:
-
-    { /* identityref_specification */
+                                 { /* identityref_specification */
                                    if (((struct yang_type *)actual)->base && ((struct yang_type *)actual)->base != LY_TYPE_IDENT) {
-                                     LOGVAL(LYE_INSTMT, LY_VLOG_NONE, NULL, "base");
+                                     LOGVAL(trg->ctx, LYE_INSTMT, LY_VLOG_NONE, NULL, "base");
                                      return EXIT_FAILURE;
                                    }
                                    ((struct yang_type *)actual)->base = LY_TYPE_IDENT;
                                    yang_type = actual;
                                    YANG_ADDELEM(((struct yang_type *)actual)->type->info.ident.ref,
-                                                ((struct yang_type *)actual)->type->info.ident.count);
+                                                ((struct yang_type *)actual)->type->info.ident.count, "identity refs");
                                    *((struct lys_ident **)actual) = (struct lys_ident *)s;
                                    actual = yang_type;
                                    s = NULL;
                                  }
-
     break;
 
   case 162:
-
-    { if (yang_read_fraction(actual, (yyvsp[0].uint))) {
+                                            { if (yang_read_fraction(trg->ctx, actual, (yyvsp[0].uint))) {
                                                 YYABORT;
                                               }
                                             }
-
     break;
 
   case 165:
-
-    { actual_type = (yyvsp[-1].backup_token).token;
+                                 { actual_type = (yyvsp[-1].backup_token).token;
                                    actual = (yyvsp[-1].backup_token).actual;
                                  }
-
     break;
 
   case 166:
-
-    { struct yang_type *stype = (struct yang_type *)actual;
+                   { struct yang_type *stype = (struct yang_type *)actual;
 
                          (yyval.backup_token).token = actual_type;
                          (yyval.backup_token).actual = actual;
                          if (stype->base != 0 && stype->base != LY_TYPE_UNION) {
-                           LOGVAL(LYE_SPEC, LY_VLOG_NONE, NULL, "Unexpected type statement.");
+                           LOGVAL(trg->ctx, LYE_SPEC, LY_VLOG_NONE, NULL, "Unexpected type statement.");
                            YYABORT;
                          }
                          stype->base = LY_TYPE_UNION;
                          if (strcmp(stype->name, "union")) {
                            /* type can be a substatement only in "union" type, not in derived types */
-                           LOGVAL(LYE_INCHILDSTMT, LY_VLOG_NONE, NULL, "type", "derived type");
+                           LOGVAL(trg->ctx, LYE_INCHILDSTMT, LY_VLOG_NONE, NULL, "type", "derived type");
                            YYABORT;
                          }
-                         YANG_ADDELEM(stype->type->info.uni.types, stype->type->info.uni.count)
+                         YANG_ADDELEM(stype->type->info.uni.types, stype->type->info.uni.count, "union types")
                          actual_type = UNION_KEYWORD;
                        }
-
     break;
 
   case 167:
-
-    { (yyval.uint) = (yyvsp[0].uint);
+                                             { (yyval.uint) = (yyvsp[0].uint);
                                                backup_type = actual_type;
                                                actual_type = FRACTION_DIGITS_KEYWORD;
                                              }
-
     break;
 
   case 168:
-
-    { (yyval.uint) = (yyvsp[-1].uint); }
-
+                                                                              { (yyval.uint) = (yyvsp[-1].uint); }
     break;
 
   case 169:
-
-    { (yyval.uint) = (yyvsp[-1].uint); }
-
+                                                       { (yyval.uint) = (yyvsp[-1].uint); }
     break;
 
   case 170:
-
-    { char *endptr = NULL;
+             { char *endptr = NULL;
                unsigned long val;
                errno = 0;
 
                val = strtoul(s, &endptr, 10);
                if (*endptr || s[0] == '-' || errno || val == 0 || val > UINT32_MAX) {
-                 LOGVAL(LYE_INARG, LY_VLOG_NONE, NULL, s, "fraction-digits");
+                 LOGVAL(trg->ctx, LYE_INARG, LY_VLOG_NONE, NULL, s, "fraction-digits");
                  free(s);
                  s = NULL;
                  YYABORT;
@@ -4514,33 +4398,27 @@ yyreduce:
                free(s);
                s =NULL;
              }
-
     break;
 
   case 171:
-
-    { actual = (yyvsp[-1].backup_token).actual;
+             { actual = (yyvsp[-1].backup_token).actual;
                actual_type = (yyvsp[-1].backup_token).token;
              }
-
     break;
 
   case 172:
-
-    { (yyval.backup_token).token = actual_type;
+                       { (yyval.backup_token).token = actual_type;
                          (yyval.backup_token).actual = actual;
-                         if (!(actual = yang_read_length(trg, actual, s, is_ext_instance))) {
+                         if (!(actual = yang_read_length(trg->ctx, actual, s, is_ext_instance))) {
                            YYABORT;
                          }
                          actual_type = LENGTH_KEYWORD;
                          s = NULL;
                        }
-
     break;
 
   case 175:
-
-    { switch (actual_type) {
+                         { switch (actual_type) {
                                case MUST_KEYWORD:
                                  (yyval.str) = "must";
                                  break;
@@ -4551,260 +4429,219 @@ yyreduce:
                                  (yyval.str) = "range";
                                  break;
                                default:
-                                 LOGINT;
+                                 LOGINT(trg->ctx);
                                  YYABORT;
                                  break;
                                }
                              }
-
     break;
 
   case 176:
-
-    { if (yang_read_message(trg, actual, s, (yyvsp[-1].str), ERROR_MESSAGE_KEYWORD)) {
+                                         { if (yang_read_message(trg, actual, s, (yyvsp[-1].str), ERROR_MESSAGE_KEYWORD)) {
                                              YYABORT;
                                            }
                                            s = NULL;
                                          }
-
     break;
 
   case 177:
-
-    { if (yang_read_message(trg, actual, s, (yyvsp[-1].str), ERROR_APP_TAG_KEYWORD)) {
+                                         { if (yang_read_message(trg, actual, s, (yyvsp[-1].str), ERROR_APP_TAG_KEYWORD)) {
                                              YYABORT;
                                            }
                                            s = NULL;
                                          }
-
     break;
 
   case 178:
-
-    { if (yang_read_description(trg, actual, s, (yyvsp[-1].str), NODE)) {
+                                       { if (yang_read_description(trg, actual, s, (yyvsp[-1].str), NODE)) {
                                            YYABORT;
                                           }
                                           s = NULL;
                                         }
-
     break;
 
   case 179:
-
-    { if (yang_read_reference(trg, actual, s, (yyvsp[-1].str), NODE)) {
+                                     { if (yang_read_reference(trg, actual, s, (yyvsp[-1].str), NODE)) {
                                          YYABORT;
                                        }
                                        s = NULL;
                                      }
-
     break;
 
   case 180:
-
-    { (yyval.backup_token).token = actual_type;
+                 { (yyval.backup_token).token = actual_type;
                    (yyval.backup_token).actual = actual;
                  }
-
     break;
 
   case 181:
-
-    {struct lys_restr *pattern = actual;
+                                                                       {struct lys_restr *pattern = actual;
                                                                         actual = NULL;
 #ifdef LY_ENABLED_CACHE
                                                                         if ((yyvsp[-2].backup_token).token != EXTENSION_INSTANCE &&
                                                                             !(data_node && data_node->nodetype != LYS_GROUPING && lys_ingrouping(data_node))) {
                                                                           unsigned int c = 2 * (((struct yang_type *)(yyvsp[-2].backup_token).actual)->type->info.str.pat_count - 1);
-                                                                          YANG_ADDELEM(((struct yang_type *)(yyvsp[-2].backup_token).actual)->type->info.str.patterns_pcre, c);
+                                                                          YANG_ADDELEM(((struct yang_type *)(yyvsp[-2].backup_token).actual)->type->info.str.patterns_pcre, c, "patterns");
+                                                                          ++c;
+                                                                          YANG_ADDELEM(((struct yang_type *)(yyvsp[-2].backup_token).actual)->type->info.str.patterns_pcre, c, "patterns");
+                                                                          actual = &(((struct yang_type *)(yyvsp[-2].backup_token).actual)->type->info.str.patterns_pcre)[2 * (((struct yang_type *)(yyvsp[-2].backup_token).actual)->type->info.str.pat_count - 1)];
                                                                         }
 #endif
-                                                                        if (yang_read_pattern(trg, pattern, actual, (yyvsp[-1].str), (yyvsp[0].ch))) {
+                                                                        if (yang_read_pattern(trg->ctx, pattern, actual, (yyvsp[-1].str), (yyvsp[0].ch))) {
                                                                           YYABORT;
                                                                         }
                                                                         actual_type = (yyvsp[-2].backup_token).token;
                                                                         actual = (yyvsp[-2].backup_token).actual;
                                                                       }
-
     break;
 
   case 182:
-
-    { if (actual_type != EXTENSION_INSTANCE) {
+                        { if (actual_type != EXTENSION_INSTANCE) {
                             if (((struct yang_type *)actual)->base != 0 && ((struct yang_type *)actual)->base != LY_TYPE_STRING) {
                               free(s);
-                              LOGVAL(LYE_SPEC, LY_VLOG_NONE, NULL, "Unexpected pattern statement.");
+                              LOGVAL(trg->ctx, LYE_SPEC, LY_VLOG_NONE, NULL, "Unexpected pattern statement.");
                               YYABORT;
                             }
                             ((struct yang_type *)actual)->base = LY_TYPE_STRING;
                             YANG_ADDELEM(((struct yang_type *)actual)->type->info.str.patterns,
-                                         ((struct yang_type *)actual)->type->info.str.pat_count);
+                                         ((struct yang_type *)actual)->type->info.str.pat_count, "patterns");
                           }
                           (yyval.str) = s;
                           s = NULL;
                           actual_type = PATTERN_KEYWORD;
                         }
-
     break;
 
   case 183:
-
-    { (yyval.ch) = 0x06; }
-
+                 { (yyval.ch) = 0x06; }
     break;
 
   case 184:
-
-    { (yyval.ch) = (yyvsp[-1].ch); }
-
+         { (yyval.ch) = (yyvsp[-1].ch); }
     break;
 
   case 185:
-
-    { (yyval.ch) = 0x06; /* ACK */ }
-
+                         { (yyval.ch) = 0x06; /* ACK */ }
     break;
 
   case 186:
-
-    { if (trg->version < 2) {
-                                        LOGVAL(LYE_INSTMT, LY_VLOG_NONE, NULL, "modifier");
+                                    { if (trg->version < 2) {
+                                        LOGVAL(trg->ctx, LYE_INSTMT, LY_VLOG_NONE, NULL, "modifier");
                                         YYABORT;
                                       }
                                       if ((yyvsp[-1].ch) != 0x06) {
-                                        LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "modifier", "pattern");
+                                        LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "modifier", "pattern");
                                         YYABORT;
                                       }
                                       (yyval.ch) = (yyvsp[0].ch);
                                     }
-
     break;
 
   case 187:
-
-    { if (yang_read_message(trg, actual, s, "pattern", ERROR_MESSAGE_KEYWORD)) {
+                                         { if (yang_read_message(trg, actual, s, "pattern", ERROR_MESSAGE_KEYWORD)) {
                                              YYABORT;
                                            }
                                            s = NULL;
                                          }
-
     break;
 
   case 188:
-
-    { if (yang_read_message(trg, actual, s, "pattern", ERROR_APP_TAG_KEYWORD)) {
+                                         { if (yang_read_message(trg, actual, s, "pattern", ERROR_APP_TAG_KEYWORD)) {
                                              YYABORT;
                                            }
                                            s = NULL;
                                          }
-
     break;
 
   case 189:
-
-    { if (yang_read_description(trg, actual, s, "pattern", NODE)) {
+                                       { if (yang_read_description(trg, actual, s, "pattern", NODE)) {
                                            YYABORT;
                                           }
                                           s = NULL;
                                         }
-
     break;
 
   case 190:
-
-    { if (yang_read_reference(trg, actual, s, "pattern", NODE)) {
+                                     { if (yang_read_reference(trg, actual, s, "pattern", NODE)) {
                                          YYABORT;
                                        }
                                        s = NULL;
                                      }
-
     break;
 
   case 191:
-
-    { backup_type = actual_type;
+                     { backup_type = actual_type;
                        actual_type = MODIFIER_KEYWORD;
                      }
-
     break;
 
   case 192:
-
-    { if (!strcmp(s, "invert-match")) {
+                                                         { if (!strcmp(s, "invert-match")) {
                                                              (yyval.ch) = 0x15;
                                                              free(s);
                                                              s = NULL;
                                                            } else {
-                                                             LOGVAL(LYE_INSTMT, LY_VLOG_NONE, NULL, s);
+                                                             LOGVAL(trg->ctx, LYE_INSTMT, LY_VLOG_NONE, NULL, s);
                                                              free(s);
                                                              YYABORT;
                                                            }
                                                          }
-
     break;
 
   case 193:
-
-    { struct lys_type_enum * tmp;
+                                                 { struct lys_type_enum * tmp;
 
                                                    cnt_val = 0;
                                                    tmp = realloc(((struct yang_type *)actual)->type->info.enums.enm,
                                                                  ((struct yang_type *)actual)->type->info.enums.count * sizeof *tmp);
                                                    if (!tmp) {
-                                                     LOGMEM;
+                                                     LOGMEM(trg->ctx);
                                                      YYABORT;
                                                    }
                                                    ((struct yang_type *)actual)->type->info.enums.enm = tmp;
                                                  }
-
     break;
 
   case 196:
-
-    { if (yang_check_enum(yang_type, actual, &cnt_val, is_value)) {
+           { if (yang_check_enum(trg->ctx, yang_type, actual, &cnt_val, is_value)) {
                YYABORT;
              }
              actual = (yyvsp[-1].backup_token).actual;
              actual_type = (yyvsp[-1].backup_token).token;
            }
-
     break;
 
   case 197:
-
-    { (yyval.backup_token).token = actual_type;
+                     { (yyval.backup_token).token = actual_type;
                        (yyval.backup_token).actual = yang_type = actual;
-                       YANG_ADDELEM(((struct yang_type *)actual)->type->info.enums.enm, ((struct yang_type *)actual)->type->info.enums.count);
-                       if (yang_read_enum(trg, yang_type, actual, s)) {
+                       YANG_ADDELEM(((struct yang_type *)actual)->type->info.enums.enm, ((struct yang_type *)actual)->type->info.enums.count, "enums");
+                       if (yang_read_enum(trg->ctx, yang_type, actual, s)) {
                          YYABORT;
                        }
                        s = NULL;
                        is_value = 0;
                        actual_type = ENUM_KEYWORD;
                      }
-
     break;
 
   case 199:
-
-    { if (((struct lys_type_enum *)actual)->iffeature_size) {
+         { if (((struct lys_type_enum *)actual)->iffeature_size) {
              struct lys_iffeature *tmp;
 
              tmp = realloc(((struct lys_type_enum *)actual)->iffeature,
                            ((struct lys_type_enum *)actual)->iffeature_size * sizeof *tmp);
              if (!tmp) {
-               LOGMEM;
+               LOGMEM(trg->ctx);
                YYABORT;
              }
              ((struct lys_type_enum *)actual)->iffeature = tmp;
            }
          }
-
     break;
 
   case 202:
-
-    { if (is_value) {
-                                  LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "value", "enum");
+                              { if (is_value) {
+                                  LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "value", "enum");
                                   YYABORT;
                                 }
                                 ((struct lys_type_enum *)actual)->value = (yyvsp[0].i);
@@ -4815,70 +4652,56 @@ yyreduce:
                                 }
                                 is_value = 1;
                               }
-
     break;
 
   case 203:
-
-    { if (((struct lys_type_enum *)actual)->flags & LYS_STATUS_MASK) {
-                                   LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "status", "enum");
+                               { if (((struct lys_type_enum *)actual)->flags & LYS_STATUS_MASK) {
+                                   LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "status", "enum");
                                    YYABORT;
                                  }
                                  ((struct lys_type_enum *)actual)->flags |= (yyvsp[0].i);
                                }
-
     break;
 
   case 204:
-
-    { if (yang_read_description(trg, actual, s, "enum", NODE)) {
+                                    { if (yang_read_description(trg, actual, s, "enum", NODE)) {
                                         YYABORT;
                                       }
                                       s = NULL;
                                     }
-
     break;
 
   case 205:
-
-    { if (yang_read_reference(trg, actual, s, "enum", NODE)) {
+                                  { if (yang_read_reference(trg, actual, s, "enum", NODE)) {
                                       YYABORT;
                                     }
                                     s = NULL;
                                   }
-
     break;
 
   case 206:
-
-    { (yyval.i) = (yyvsp[0].i);
+                                 { (yyval.i) = (yyvsp[0].i);
                                    backup_type = actual_type;
                                    actual_type = VALUE_KEYWORD;
                                  }
-
     break;
 
   case 207:
-
-    { (yyval.i) = (yyvsp[-1].i); }
-
+                                                { (yyval.i) = (yyvsp[-1].i); }
     break;
 
   case 208:
-
-    { (yyval.i) = (yyvsp[-1].i); }
-
+                                            { (yyval.i) = (yyvsp[-1].i); }
     break;
 
   case 209:
-
-    { /* convert it to int32_t */
+              { /* convert it to int32_t */
                 int64_t val;
                 char *endptr;
 
                 val = strtoll(s, &endptr, 10);
                 if (val < INT32_MIN || val > INT32_MAX || *endptr) {
-                    LOGVAL(LYE_INARG, LY_VLOG_NONE, NULL, s, "value");
+                    LOGVAL(trg->ctx, LYE_INARG, LY_VLOG_NONE, NULL, s, "value");
                     free(s);
                     YYABORT;
                 }
@@ -4886,133 +4709,109 @@ yyreduce:
                 s = NULL;
                 (yyval.i) = (int32_t) val;
              }
-
     break;
 
   case 210:
-
-    { actual_type = (yyvsp[-1].backup_token).token;
+                                                      { actual_type = (yyvsp[-1].backup_token).token;
                                                         actual = (yyvsp[-1].backup_token).actual;
                                                       }
-
     break;
 
   case 213:
-
-    { backup_type = actual_type;
+                       { backup_type = actual_type;
                          actual_type = PATH_KEYWORD;
                        }
-
     break;
 
   case 215:
-
-    { (yyval.i) = (yyvsp[0].i);
+                                               { (yyval.i) = (yyvsp[0].i);
                                                  backup_type = actual_type;
                                                  actual_type = REQUIRE_INSTANCE_KEYWORD;
                                                }
-
     break;
 
   case 216:
-
-    { (yyval.i) = (yyvsp[-1].i); }
-
+                                                                                 { (yyval.i) = (yyvsp[-1].i); }
     break;
 
   case 217:
-
-    { (yyval.i) = 1; }
-
+                                              { (yyval.i) = 1; }
     break;
 
   case 218:
-
-    { (yyval.i) = -1; }
-
+                          { (yyval.i) = -1; }
     break;
 
   case 219:
-
-    { if (!strcmp(s,"true")) {
+              { if (!strcmp(s,"true")) {
                   (yyval.i) = 1;
                 } else if (!strcmp(s,"false")) {
                   (yyval.i) = -1;
                 } else {
-                  LOGVAL(LYE_INARG, LY_VLOG_NONE, NULL, s, "require-instance");
+                  LOGVAL(trg->ctx, LYE_INARG, LY_VLOG_NONE, NULL, s, "require-instance");
                   free(s);
                   YYABORT;
                 }
                 free(s);
                 s = NULL;
               }
-
     break;
 
   case 220:
-
-    { struct lys_type_bit * tmp;
+                                       { struct lys_type_bit * tmp;
 
                                          cnt_val = 0;
                                          tmp = realloc(((struct yang_type *)actual)->type->info.bits.bit,
                                                        ((struct yang_type *)actual)->type->info.bits.count * sizeof *tmp);
                                          if (!tmp) {
-                                           LOGMEM;
+                                           LOGMEM(trg->ctx);
                                            YYABORT;
                                          }
                                          ((struct yang_type *)actual)->type->info.bits.bit = tmp;
                                        }
-
     break;
 
   case 223:
-
-    { if (yang_check_bit(yang_type, actual, &cnt_val, is_value)) {
+                  { if (yang_check_bit(trg->ctx, yang_type, actual, &cnt_val, is_value)) {
                       YYABORT;
                     }
                     actual = (yyvsp[-2].backup_token).actual;
                     actual_type = (yyvsp[-2].backup_token).token;
                   }
-
     break;
 
   case 224:
-
-    { (yyval.backup_token).token = actual_type;
+                                { (yyval.backup_token).token = actual_type;
                                   (yyval.backup_token).actual = yang_type = actual;
                                   YANG_ADDELEM(((struct yang_type *)actual)->type->info.bits.bit,
-                                               ((struct yang_type *)actual)->type->info.bits.count);
-                                  if (yang_read_bit(trg, yang_type, actual, s)) {
+                                               ((struct yang_type *)actual)->type->info.bits.count, "bits");
+                                  if (yang_read_bit(trg->ctx, yang_type, actual, s)) {
                                     YYABORT;
                                   }
                                   s = NULL;
                                   is_value = 0;
                                   actual_type = BIT_KEYWORD;
                                 }
-
     break;
 
   case 226:
-
-    { if (((struct lys_type_bit *)actual)->iffeature_size) {
+         { if (((struct lys_type_bit *)actual)->iffeature_size) {
              struct lys_iffeature *tmp;
 
              tmp = realloc(((struct lys_type_bit *)actual)->iffeature,
                            ((struct lys_type_bit *)actual)->iffeature_size * sizeof *tmp);
              if (!tmp) {
-               LOGMEM;
+               LOGMEM(trg->ctx);
                YYABORT;
              }
              ((struct lys_type_bit *)actual)->iffeature = tmp;
            }
          }
-
     break;
 
   case 229:
-
-    { if (is_value) {
-                                    LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "position", "bit");
+                                { if (is_value) {
+                                    LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "position", "bit");
                                     YYABORT;
                                   }
                                   ((struct lys_type_bit *)actual)->pos = (yyvsp[0].uint);
@@ -5023,71 +4822,57 @@ yyreduce:
                                   }
                                   is_value = 1;
                                 }
-
     break;
 
   case 230:
-
-    { if (((struct lys_type_bit *)actual)->flags & LYS_STATUS_MASK) {
-                                   LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "status", "bit");
+                              { if (((struct lys_type_bit *)actual)->flags & LYS_STATUS_MASK) {
+                                   LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "status", "bit");
                                    YYABORT;
                                  }
                                  ((struct lys_type_bit *)actual)->flags |= (yyvsp[0].i);
                               }
-
     break;
 
   case 231:
-
-    { if (yang_read_description(trg, actual, s, "bit", NODE)) {
+                                   { if (yang_read_description(trg, actual, s, "bit", NODE)) {
                                        YYABORT;
                                      }
                                      s = NULL;
                                    }
-
     break;
 
   case 232:
-
-    { if (yang_read_reference(trg, actual, s, "bit", NODE)) {
+                                 { if (yang_read_reference(trg, actual, s, "bit", NODE)) {
                                      YYABORT;
                                    }
                                    s = NULL;
                                  }
-
     break;
 
   case 233:
-
-    { (yyval.uint) = (yyvsp[0].uint);
+                                           { (yyval.uint) = (yyvsp[0].uint);
                                              backup_type = actual_type;
                                              actual_type = POSITION_KEYWORD;
                                            }
-
     break;
 
   case 234:
-
-    { (yyval.uint) = (yyvsp[-1].uint); }
-
+                                                               { (yyval.uint) = (yyvsp[-1].uint); }
     break;
 
   case 235:
-
-    { (yyval.uint) = (yyvsp[-1].uint); }
-
+                                                          { (yyval.uint) = (yyvsp[-1].uint); }
     break;
 
   case 236:
-
-    { /* convert it to uint32_t */
+              { /* convert it to uint32_t */
                 unsigned long val;
                 char *endptr = NULL;
                 errno = 0;
 
                 val = strtoul(s, &endptr, 10);
                 if (s[0] == '-' || *endptr || errno || val > UINT32_MAX) {
-                  LOGVAL(LYE_INARG, LY_VLOG_NONE, NULL, s, "position");
+                  LOGVAL(trg->ctx, LYE_INARG, LY_VLOG_NONE, NULL, s, "position");
                   free(s);
                   YYABORT;
                 }
@@ -5095,44 +4880,34 @@ yyreduce:
                 s = NULL;
                 (yyval.uint) = (uint32_t) val;
               }
-
     break;
 
   case 237:
-
-    { backup_type = actual_type;
+                          { backup_type = actual_type;
                             actual_type = ERROR_MESSAGE_KEYWORD;
                           }
-
     break;
 
   case 239:
-
-    { backup_type = actual_type;
+                          { backup_type = actual_type;
                             actual_type = ERROR_APP_TAG_KEYWORD;
                           }
-
     break;
 
   case 241:
-
-    { backup_type = actual_type;
+                  { backup_type = actual_type;
                     actual_type = UNITS_KEYWORD;
                   }
-
     break;
 
   case 243:
-
-    { backup_type = actual_type;
+                    { backup_type = actual_type;
                       actual_type = DEFAULT_KEYWORD;
                     }
-
     break;
 
   case 245:
-
-    { (yyval.backup_token).token = actual_type;
+                                     { (yyval.backup_token).token = actual_type;
                                        (yyval.backup_token).actual = actual;
                                        if (!(actual = yang_read_node(trg, actual, param->node, s, LYS_GROUPING, sizeof(struct lys_node_grp)))) {
                                          YYABORT;
@@ -5141,69 +4916,55 @@ yyreduce:
                                        data_node = actual;
                                        actual_type = GROUPING_KEYWORD;
                                      }
-
     break;
 
   case 246:
-
-    { LOGDBG(LY_LDGYANG, "finished parsing grouping statement \"%s\"", data_node->name);
+               { LOGDBG(LY_LDGYANG, "finished parsing grouping statement \"%s\"", data_node->name);
                  actual_type = (yyvsp[-1].backup_token).token;
                  actual = (yyvsp[-1].backup_token).actual;
                  data_node = (yyvsp[-1].backup_token).actual;
                }
-
     break;
 
   case 249:
-
-    { (yyval.nodes).grouping = actual; }
-
+                          { (yyval.nodes).grouping = actual; }
     break;
 
   case 250:
-
-    { if ((yyvsp[-1].nodes).grouping->flags & LYS_STATUS_MASK) {
-                                       LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).grouping, "status", "grouping");
+                                   { if ((yyvsp[-1].nodes).grouping->flags & LYS_STATUS_MASK) {
+                                       LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).grouping, "status", "grouping");
                                        YYABORT;
                                      }
                                      (yyvsp[-1].nodes).grouping->flags |= (yyvsp[0].i);
                                    }
-
     break;
 
   case 251:
-
-    { if (yang_read_description(trg, (yyvsp[-1].nodes).grouping, s, "grouping", NODE_PRINT)) {
+                                        { if (yang_read_description(trg, (yyvsp[-1].nodes).grouping, s, "grouping", NODE_PRINT)) {
                                             YYABORT;
                                           }
                                           s = NULL;
                                         }
-
     break;
 
   case 252:
-
-    { if (yang_read_reference(trg, (yyvsp[-1].nodes).grouping, s, "grouping", NODE_PRINT)) {
+                                      { if (yang_read_reference(trg, (yyvsp[-1].nodes).grouping, s, "grouping", NODE_PRINT)) {
                                           YYABORT;
                                         }
                                         s = NULL;
                                       }
-
     break;
 
   case 257:
-
-    { if (trg->version < 2) {
-                                                     LOGVAL(LYE_INSTMT, LY_VLOG_LYS, (yyvsp[-2].nodes).grouping, "notification");
+                                                 { if (trg->version < 2) {
+                                                     LOGVAL(trg->ctx, LYE_INSTMT, LY_VLOG_LYS, (yyvsp[-2].nodes).grouping, "notification");
                                                      YYABORT;
                                                    }
                                                  }
-
     break;
 
   case 266:
-
-    { (yyval.backup_token).token = actual_type;
+                                      { (yyval.backup_token).token = actual_type;
                                         (yyval.backup_token).actual = actual;
                                         if (!(actual = yang_read_node(trg, actual, param->node, s, LYS_CONTAINER, sizeof(struct lys_node_container)))) {
                                           YYABORT;
@@ -5212,27 +4973,23 @@ yyreduce:
                                         s = NULL;
                                         actual_type = CONTAINER_KEYWORD;
                                       }
-
     break;
 
   case 267:
-
-    { LOGDBG(LY_LDGYANG, "finished parsing container statement \"%s\"", data_node->name);
+                { LOGDBG(LY_LDGYANG, "finished parsing container statement \"%s\"", data_node->name);
                   actual_type = (yyvsp[-1].backup_token).token;
                   actual = (yyvsp[-1].backup_token).actual;
                   data_node = (yyvsp[-1].backup_token).actual;
                 }
-
     break;
 
   case 269:
-
-    { void *tmp;
+          { void *tmp;
 
             if ((yyvsp[-1].nodes).container->iffeature_size) {
               tmp = realloc((yyvsp[-1].nodes).container->iffeature, (yyvsp[-1].nodes).container->iffeature_size * sizeof *(yyvsp[-1].nodes).container->iffeature);
               if (!tmp) {
-                LOGMEM;
+                LOGMEM(trg->ctx);
                 YYABORT;
               }
               (yyvsp[-1].nodes).container->iffeature = tmp;
@@ -5241,102 +4998,86 @@ yyreduce:
             if ((yyvsp[-1].nodes).container->must_size) {
               tmp = realloc((yyvsp[-1].nodes).container->must, (yyvsp[-1].nodes).container->must_size * sizeof *(yyvsp[-1].nodes).container->must);
               if (!tmp) {
-                LOGMEM;
+                LOGMEM(trg->ctx);
                 YYABORT;
               }
               (yyvsp[-1].nodes).container->must = tmp;
             }
           }
-
     break;
 
   case 270:
-
-    { (yyval.nodes).container = actual; }
-
+                           { (yyval.nodes).container = actual; }
     break;
 
   case 274:
-
-    { if (yang_read_presence(trg, (yyvsp[-1].nodes).container, s)) {
+                                      { if (yang_read_presence(trg, (yyvsp[-1].nodes).container, s)) {
                                           YYABORT;
                                         }
                                         s = NULL;
                                       }
-
     break;
 
   case 275:
-
-    { if ((yyvsp[-1].nodes).container->flags & LYS_CONFIG_MASK) {
-                                        LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).container, "config", "container");
+                                    { if ((yyvsp[-1].nodes).container->flags & LYS_CONFIG_MASK) {
+                                        LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).container, "config", "container");
                                         YYABORT;
                                       }
                                       (yyvsp[-1].nodes).container->flags |= (yyvsp[0].i);
                                     }
-
     break;
 
   case 276:
-
-    { if ((yyvsp[-1].nodes).container->flags & LYS_STATUS_MASK) {
-                                        LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).container, "status", "container");
+                                    { if ((yyvsp[-1].nodes).container->flags & LYS_STATUS_MASK) {
+                                        LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).container, "status", "container");
                                         YYABORT;
                                       }
                                       (yyvsp[-1].nodes).container->flags |= (yyvsp[0].i);
                                     }
-
     break;
 
   case 277:
-
-    { if (yang_read_description(trg, (yyvsp[-1].nodes).container, s, "container", NODE_PRINT)) {
+                                         { if (yang_read_description(trg, (yyvsp[-1].nodes).container, s, "container", NODE_PRINT)) {
                                              YYABORT;
                                            }
                                            s = NULL;
                                          }
-
     break;
 
   case 278:
-
-    { if (yang_read_reference(trg, (yyvsp[-1].nodes).container, s, "container", NODE_PRINT)) {
+                                       { if (yang_read_reference(trg, (yyvsp[-1].nodes).container, s, "container", NODE_PRINT)) {
                                            YYABORT;
                                          }
                                          s = NULL;
                                        }
-
     break;
 
   case 281:
-
-    { if (trg->version < 2) {
-                                                      LOGVAL(LYE_INSTMT, LY_VLOG_LYS, (yyvsp[-2].nodes).container, "notification");
+                                                  { if (trg->version < 2) {
+                                                      LOGVAL(trg->ctx, LYE_INSTMT, LY_VLOG_LYS, (yyvsp[-2].nodes).container, "notification");
                                                       YYABORT;
                                                     }
                                                   }
-
     break;
 
   case 284:
-
-    { void *tmp;
+                { void *tmp;
 
                   if (!((yyvsp[-1].nodes).node.flag & LYS_TYPE_DEF)) {
-                    LOGVAL(LYE_MISSCHILDSTMT, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaf, "type", "leaf");
+                    LOGVAL(trg->ctx, LYE_MISSCHILDSTMT, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaf, "type", "leaf");
                     YYABORT;
                   }
                   if ((yyvsp[-1].nodes).node.ptr_leaf->dflt && ((yyvsp[-1].nodes).node.ptr_leaf->flags & LYS_MAND_TRUE)) {
                     /* RFC 6020, 7.6.4 - default statement must not with mandatory true */
-                    LOGVAL(LYE_INCHILDSTMT, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaf, "mandatory", "leaf");
-                    LOGVAL(LYE_SPEC, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaf, "The \"mandatory\" statement is forbidden on leaf with \"default\".");
+                    LOGVAL(trg->ctx, LYE_INCHILDSTMT, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaf, "mandatory", "leaf");
+                    LOGVAL(trg->ctx, LYE_SPEC, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaf, "The \"mandatory\" statement is forbidden on leaf with \"default\".");
                     YYABORT;
                   }
 
                   if ((yyvsp[-1].nodes).node.ptr_leaf->iffeature_size) {
                     tmp = realloc((yyvsp[-1].nodes).node.ptr_leaf->iffeature, (yyvsp[-1].nodes).node.ptr_leaf->iffeature_size * sizeof *(yyvsp[-1].nodes).node.ptr_leaf->iffeature);
                     if (!tmp) {
-                      LOGMEM;
+                      LOGMEM(trg->ctx);
                       YYABORT;
                     }
                     (yyvsp[-1].nodes).node.ptr_leaf->iffeature = tmp;
@@ -5345,7 +5086,7 @@ yyreduce:
                   if ((yyvsp[-1].nodes).node.ptr_leaf->must_size) {
                     tmp = realloc((yyvsp[-1].nodes).node.ptr_leaf->must, (yyvsp[-1].nodes).node.ptr_leaf->must_size * sizeof *(yyvsp[-1].nodes).node.ptr_leaf->must);
                     if (!tmp) {
-                      LOGMEM;
+                      LOGMEM(trg->ctx);
                       YYABORT;
                     }
                     (yyvsp[-1].nodes).node.ptr_leaf->must = tmp;
@@ -5356,12 +5097,10 @@ yyreduce:
                   actual = (yyvsp[-4].backup_token).actual;
                   data_node = (yyvsp[-4].backup_token).actual;
                 }
-
     break;
 
   case 285:
-
-    { (yyval.backup_token).token = actual_type;
+                                 { (yyval.backup_token).token = actual_type;
                                    (yyval.backup_token).actual = actual;
                                    if (!(actual = yang_read_node(trg, actual, param->node, s, LYS_LEAF, sizeof(struct lys_node_leaf)))) {
                                      YYABORT;
@@ -5370,101 +5109,81 @@ yyreduce:
                                    s = NULL;
                                    actual_type = LEAF_KEYWORD;
                                  }
-
     break;
 
   case 286:
-
-    { (yyval.nodes).node.ptr_leaf = actual;
+                      { (yyval.nodes).node.ptr_leaf = actual;
                             (yyval.nodes).node.flag = 0;
                           }
-
     break;
 
   case 289:
-
-    { (yyvsp[-2].nodes).node.flag |= LYS_TYPE_DEF;
+                                     { (yyvsp[-2].nodes).node.flag |= LYS_TYPE_DEF;
                                        (yyval.nodes) = (yyvsp[-2].nodes);
                                      }
-
     break;
 
   case 290:
-
-    { if (yang_read_units(trg, (yyvsp[-1].nodes).node.ptr_leaf, s, LEAF_KEYWORD)) {
+                              { if (yang_read_units(trg, (yyvsp[-1].nodes).node.ptr_leaf, s, LEAF_KEYWORD)) {
                                   YYABORT;
                                 }
                                 s = NULL;
                               }
-
     break;
 
   case 292:
-
-    { if (yang_read_default(trg, (yyvsp[-1].nodes).node.ptr_leaf, s, LEAF_KEYWORD)) {
+                                { if (yang_read_default(trg, (yyvsp[-1].nodes).node.ptr_leaf, s, LEAF_KEYWORD)) {
                                     YYABORT;
                                   }
                                   s = NULL;
                                 }
-
     break;
 
   case 293:
-
-    { if ((yyvsp[-1].nodes).node.ptr_leaf->flags & LYS_CONFIG_MASK) {
-                                   LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaf, "config", "leaf");
+                               { if ((yyvsp[-1].nodes).node.ptr_leaf->flags & LYS_CONFIG_MASK) {
+                                   LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaf, "config", "leaf");
                                    YYABORT;
                                  }
                                  (yyvsp[-1].nodes).node.ptr_leaf->flags |= (yyvsp[0].i);
                                }
-
     break;
 
   case 294:
-
-    { if ((yyvsp[-1].nodes).node.ptr_leaf->flags & LYS_MAND_MASK) {
-                                      LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaf, "mandatory", "leaf");
+                                  { if ((yyvsp[-1].nodes).node.ptr_leaf->flags & LYS_MAND_MASK) {
+                                      LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaf, "mandatory", "leaf");
                                       YYABORT;
                                     }
                                     (yyvsp[-1].nodes).node.ptr_leaf->flags |= (yyvsp[0].i);
                                   }
-
     break;
 
   case 295:
-
-    { if ((yyvsp[-1].nodes).node.ptr_leaf->flags & LYS_STATUS_MASK) {
-                                   LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaf, "status", "leaf");
+                               { if ((yyvsp[-1].nodes).node.ptr_leaf->flags & LYS_STATUS_MASK) {
+                                   LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaf, "status", "leaf");
                                    YYABORT;
                                  }
                                  (yyvsp[-1].nodes).node.ptr_leaf->flags |= (yyvsp[0].i);
                                }
-
     break;
 
   case 296:
-
-    { if (yang_read_description(trg, (yyvsp[-1].nodes).node.ptr_leaf, s, "leaf", NODE_PRINT)) {
+                                    { if (yang_read_description(trg, (yyvsp[-1].nodes).node.ptr_leaf, s, "leaf", NODE_PRINT)) {
                                         YYABORT;
                                       }
                                       s = NULL;
                                     }
-
     break;
 
   case 297:
-
-    { if (yang_read_reference(trg, (yyvsp[-1].nodes).node.ptr_leaf, s, "leaf", NODE_PRINT)) {
+                                  { if (yang_read_reference(trg, (yyvsp[-1].nodes).node.ptr_leaf, s, "leaf", NODE_PRINT)) {
                                       YYABORT;
                                     }
                                     s = NULL;
                                   }
-
     break;
 
   case 298:
-
-    { (yyval.backup_token).token = actual_type;
+                                      { (yyval.backup_token).token = actual_type;
                                         (yyval.backup_token).actual = actual;
                                         if (!(actual = yang_read_node(trg, actual, param->node, s, LYS_LEAFLIST, sizeof(struct lys_node_leaflist)))) {
                                           YYABORT;
@@ -5473,12 +5192,10 @@ yyreduce:
                                         s = NULL;
                                         actual_type = LEAF_LIST_KEYWORD;
                                       }
-
     break;
 
   case 299:
-
-    { void *tmp;
+                      { void *tmp;
 
                         if ((yyvsp[-1].nodes).node.ptr_leaflist->flags & LYS_CONFIG_R) {
                           /* RFC 6020, 7.7.5 - ignore ordering when the list represents state data
@@ -5487,12 +5204,12 @@ yyreduce:
                           (yyvsp[-1].nodes).node.ptr_leaflist->flags &= 0x7F;
                         }
                         if (!((yyvsp[-1].nodes).node.flag & LYS_TYPE_DEF)) {
-                          LOGVAL(LYE_MISSCHILDSTMT, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaflist, "type", "leaf-list");
+                          LOGVAL(trg->ctx, LYE_MISSCHILDSTMT, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaflist, "type", "leaf-list");
                           YYABORT;
                         }
                         if ((yyvsp[-1].nodes).node.ptr_leaflist->dflt_size && (yyvsp[-1].nodes).node.ptr_leaflist->min) {
-                          LOGVAL(LYE_INCHILDSTMT, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaflist, "min-elements", "leaf-list");
-                          LOGVAL(LYE_SPEC, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaflist,
+                          LOGVAL(trg->ctx, LYE_INCHILDSTMT, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaflist, "min-elements", "leaf-list");
+                          LOGVAL(trg->ctx, LYE_SPEC, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaflist,
                                  "The \"min-elements\" statement with non-zero value is forbidden on leaf-lists with the \"default\" statement.");
                           YYABORT;
                         }
@@ -5500,7 +5217,7 @@ yyreduce:
                         if ((yyvsp[-1].nodes).node.ptr_leaflist->iffeature_size) {
                           tmp = realloc((yyvsp[-1].nodes).node.ptr_leaflist->iffeature, (yyvsp[-1].nodes).node.ptr_leaflist->iffeature_size * sizeof *(yyvsp[-1].nodes).node.ptr_leaflist->iffeature);
                           if (!tmp) {
-                            LOGMEM;
+                            LOGMEM(trg->ctx);
                             YYABORT;
                           }
                           (yyvsp[-1].nodes).node.ptr_leaflist->iffeature = tmp;
@@ -5509,7 +5226,7 @@ yyreduce:
                         if ((yyvsp[-1].nodes).node.ptr_leaflist->must_size) {
                           tmp = realloc((yyvsp[-1].nodes).node.ptr_leaflist->must, (yyvsp[-1].nodes).node.ptr_leaflist->must_size * sizeof *(yyvsp[-1].nodes).node.ptr_leaflist->must);
                           if (!tmp) {
-                            LOGMEM;
+                            LOGMEM(trg->ctx);
                             YYABORT;
                           }
                           (yyvsp[-1].nodes).node.ptr_leaflist->must = tmp;
@@ -5518,7 +5235,7 @@ yyreduce:
                         if ((yyvsp[-1].nodes).node.ptr_leaflist->dflt_size) {
                           tmp = realloc((yyvsp[-1].nodes).node.ptr_leaflist->dflt, (yyvsp[-1].nodes).node.ptr_leaflist->dflt_size * sizeof *(yyvsp[-1].nodes).node.ptr_leaflist->dflt);
                           if (!tmp) {
-                            LOGMEM;
+                            LOGMEM(trg->ctx);
                             YYABORT;
                           }
                           (yyvsp[-1].nodes).node.ptr_leaflist->dflt = tmp;
@@ -5529,102 +5246,86 @@ yyreduce:
                         actual = (yyvsp[-4].backup_token).actual;
                         data_node = (yyvsp[-4].backup_token).actual;
                       }
-
     break;
 
   case 300:
-
-    { (yyval.nodes).node.ptr_leaflist = actual;
+                           { (yyval.nodes).node.ptr_leaflist = actual;
                                  (yyval.nodes).node.flag = 0;
                                }
-
     break;
 
   case 303:
-
-    { (yyvsp[-2].nodes).node.flag |= LYS_TYPE_DEF;
+                                          { (yyvsp[-2].nodes).node.flag |= LYS_TYPE_DEF;
                                             (yyval.nodes) = (yyvsp[-2].nodes);
                                           }
-
     break;
 
   case 304:
-
-    { if (trg->version < 2) {
+                                     { if (trg->version < 2) {
                                          free(s);
-                                         LOGVAL(LYE_INSTMT, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaflist, "default");
+                                         LOGVAL(trg->ctx, LYE_INSTMT, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaflist, "default");
                                          YYABORT;
                                        }
                                        YANG_ADDELEM((yyvsp[-1].nodes).node.ptr_leaflist->dflt,
-                                                    (yyvsp[-1].nodes).node.ptr_leaflist->dflt_size);
+                                                    (yyvsp[-1].nodes).node.ptr_leaflist->dflt_size, "defaults");
                                        (*(const char **)actual) = lydict_insert_zc(param->module->ctx, s);
                                        s = NULL;
                                        actual = (yyvsp[-1].nodes).node.ptr_leaflist;
                                      }
-
     break;
 
   case 305:
-
-    { if (yang_read_units(trg, (yyvsp[-1].nodes).node.ptr_leaflist, s, LEAF_LIST_KEYWORD)) {
+                                   { if (yang_read_units(trg, (yyvsp[-1].nodes).node.ptr_leaflist, s, LEAF_LIST_KEYWORD)) {
                                        YYABORT;
                                      }
                                      s = NULL;
                                    }
-
     break;
 
   case 307:
-
-    { if ((yyvsp[-1].nodes).node.ptr_leaflist->flags & LYS_CONFIG_MASK) {
-                                        LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaflist, "config", "leaf-list");
+                                    { if ((yyvsp[-1].nodes).node.ptr_leaflist->flags & LYS_CONFIG_MASK) {
+                                        LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaflist, "config", "leaf-list");
                                         YYABORT;
                                       }
                                       (yyvsp[-1].nodes).node.ptr_leaflist->flags |= (yyvsp[0].i);
                                     }
-
     break;
 
   case 308:
-
-    { if ((yyvsp[-1].nodes).node.flag & LYS_MIN_ELEMENTS) {
-                                              LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaflist, "min-elements", "leaf-list");
+                                          { if ((yyvsp[-1].nodes).node.flag & LYS_MIN_ELEMENTS) {
+                                              LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaflist, "min-elements", "leaf-list");
                                               YYABORT;
                                             }
                                             (yyvsp[-1].nodes).node.ptr_leaflist->min = (yyvsp[0].uint);
                                             (yyvsp[-1].nodes).node.flag |= LYS_MIN_ELEMENTS;
                                             (yyval.nodes) = (yyvsp[-1].nodes);
                                             if ((yyvsp[-1].nodes).node.ptr_leaflist->max && ((yyvsp[-1].nodes).node.ptr_leaflist->min > (yyvsp[-1].nodes).node.ptr_leaflist->max)) {
-                                              LOGVAL(LYE_SPEC, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaflist, "Invalid value \"%d\" of \"%s\".", (yyvsp[0].uint), "min-elements");
-                                              LOGVAL(LYE_SPEC, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaflist, "\"min-elements\" is bigger than \"max-elements\".");
+                                              LOGVAL(trg->ctx, LYE_SPEC, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaflist, "Invalid value \"%d\" of \"%s\".", (yyvsp[0].uint), "min-elements");
+                                              LOGVAL(trg->ctx, LYE_SPEC, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaflist, "\"min-elements\" is bigger than \"max-elements\".");
                                               YYABORT;
                                             }
                                           }
-
     break;
 
   case 309:
-
-    { if ((yyvsp[-1].nodes).node.flag & LYS_MAX_ELEMENTS) {
-                                              LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaflist, "max-elements", "leaf-list");
+                                          { if ((yyvsp[-1].nodes).node.flag & LYS_MAX_ELEMENTS) {
+                                              LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaflist, "max-elements", "leaf-list");
                                               YYABORT;
                                             }
                                             (yyvsp[-1].nodes).node.ptr_leaflist->max = (yyvsp[0].uint);
                                             (yyvsp[-1].nodes).node.flag |= LYS_MAX_ELEMENTS;
                                             (yyval.nodes) = (yyvsp[-1].nodes);
-                                            if ((yyvsp[-1].nodes).node.ptr_leaflist->min > (yyvsp[-1].nodes).node.ptr_leaflist->max) {
-                                              LOGVAL(LYE_SPEC, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaflist, "Invalid value \"%d\" of \"%s\".", (yyvsp[0].uint), "max-elements");
-                                              LOGVAL(LYE_SPEC, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaflist, "\"max-elements\" is smaller than \"min-elements\".");
+                                            if ((yyvsp[-1].nodes).node.ptr_leaflist->max && ((yyvsp[-1].nodes).node.ptr_leaflist->min > (yyvsp[-1].nodes).node.ptr_leaflist->max)) {
+                                              LOGVAL(trg->ctx, LYE_SPEC, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaflist, "Invalid value \"%d\" of \"%s\".", (yyvsp[0].uint), "max-elements");
+                                              LOGVAL(trg->ctx, LYE_SPEC, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaflist, "\"max-elements\" is smaller than \"min-elements\".");
                                               YYABORT;
                                             }
                                           }
-
     break;
 
   case 310:
-
-    { if ((yyvsp[-1].nodes).node.flag & LYS_ORDERED_MASK) {
-                                            LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaflist, "ordered by", "leaf-list");
+                                        { if ((yyvsp[-1].nodes).node.flag & LYS_ORDERED_MASK) {
+                                            LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaflist, "ordered by", "leaf-list");
                                             YYABORT;
                                           }
                                           if ((yyvsp[0].i) & LYS_USERORDERED) {
@@ -5633,43 +5334,35 @@ yyreduce:
                                           (yyvsp[-1].nodes).node.flag |= (yyvsp[0].i);
                                           (yyval.nodes) = (yyvsp[-1].nodes);
                                         }
-
     break;
 
   case 311:
-
-    { if ((yyvsp[-1].nodes).node.ptr_leaflist->flags & LYS_STATUS_MASK) {
-                                        LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaflist, "status", "leaf-list");
+                                    { if ((yyvsp[-1].nodes).node.ptr_leaflist->flags & LYS_STATUS_MASK) {
+                                        LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_leaflist, "status", "leaf-list");
                                         YYABORT;
                                       }
                                       (yyvsp[-1].nodes).node.ptr_leaflist->flags |= (yyvsp[0].i);
                                     }
-
     break;
 
   case 312:
-
-    { if (yang_read_description(trg, (yyvsp[-1].nodes).node.ptr_leaflist, s, "leaf-list", NODE_PRINT)) {
+                                         { if (yang_read_description(trg, (yyvsp[-1].nodes).node.ptr_leaflist, s, "leaf-list", NODE_PRINT)) {
                                              YYABORT;
                                            }
                                            s = NULL;
                                          }
-
     break;
 
   case 313:
-
-    { if (yang_read_reference(trg, (yyvsp[-1].nodes).node.ptr_leaflist, s, "leaf-list", NODE_PRINT)) {
+                                       { if (yang_read_reference(trg, (yyvsp[-1].nodes).node.ptr_leaflist, s, "leaf-list", NODE_PRINT)) {
                                            YYABORT;
                                          }
                                          s = NULL;
                                        }
-
     break;
 
   case 314:
-
-    { (yyval.backup_token).token = actual_type;
+                                 { (yyval.backup_token).token = actual_type;
                                    (yyval.backup_token).actual = actual;
                                    if (!(actual = yang_read_node(trg, actual, param->node, s, LYS_LIST, sizeof(struct lys_node_list)))) {
                                      YYABORT;
@@ -5678,17 +5371,15 @@ yyreduce:
                                    s = NULL;
                                    actual_type = LIST_KEYWORD;
                                  }
-
     break;
 
   case 315:
-
-    { void *tmp;
+                { void *tmp;
 
                   if ((yyvsp[-1].nodes).node.ptr_list->iffeature_size) {
                     tmp = realloc((yyvsp[-1].nodes).node.ptr_list->iffeature, (yyvsp[-1].nodes).node.ptr_list->iffeature_size * sizeof *(yyvsp[-1].nodes).node.ptr_list->iffeature);
                     if (!tmp) {
-                      LOGMEM;
+                      LOGMEM(trg->ctx);
                       YYABORT;
                     }
                     (yyvsp[-1].nodes).node.ptr_list->iffeature = tmp;
@@ -5697,7 +5388,7 @@ yyreduce:
                   if ((yyvsp[-1].nodes).node.ptr_list->must_size) {
                     tmp = realloc((yyvsp[-1].nodes).node.ptr_list->must, (yyvsp[-1].nodes).node.ptr_list->must_size * sizeof *(yyvsp[-1].nodes).node.ptr_list->must);
                     if (!tmp) {
-                      LOGMEM;
+                      LOGMEM(trg->ctx);
                       YYABORT;
                     }
                     (yyvsp[-1].nodes).node.ptr_list->must = tmp;
@@ -5706,7 +5397,7 @@ yyreduce:
                   if ((yyvsp[-1].nodes).node.ptr_list->tpdf_size) {
                     tmp = realloc((yyvsp[-1].nodes).node.ptr_list->tpdf, (yyvsp[-1].nodes).node.ptr_list->tpdf_size * sizeof *(yyvsp[-1].nodes).node.ptr_list->tpdf);
                     if (!tmp) {
-                      LOGMEM;
+                      LOGMEM(trg->ctx);
                       YYABORT;
                     }
                     (yyvsp[-1].nodes).node.ptr_list->tpdf = tmp;
@@ -5715,7 +5406,7 @@ yyreduce:
                   if ((yyvsp[-1].nodes).node.ptr_list->unique_size) {
                     tmp = realloc((yyvsp[-1].nodes).node.ptr_list->unique, (yyvsp[-1].nodes).node.ptr_list->unique_size * sizeof *(yyvsp[-1].nodes).node.ptr_list->unique);
                     if (!tmp) {
-                      LOGMEM;
+                      LOGMEM(trg->ctx);
                       YYABORT;
                     }
                     (yyvsp[-1].nodes).node.ptr_list->unique = tmp;
@@ -5726,21 +5417,17 @@ yyreduce:
                   actual = (yyvsp[-4].backup_token).actual;
                   data_node = (yyvsp[-4].backup_token).actual;
                 }
-
     break;
 
   case 316:
-
-    { (yyval.nodes).node.ptr_list = actual;
+                      { (yyval.nodes).node.ptr_list = actual;
                             (yyval.nodes).node.flag = 0;
                           }
-
     break;
 
   case 320:
-
-    { if ((yyvsp[-1].nodes).node.ptr_list->keys) {
-                                  LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_list, "key", "list");
+                            { if ((yyvsp[-1].nodes).node.ptr_list->keys) {
+                                  LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_list, "key", "list");
                                   free(s);
                                   YYABORT;
                               }
@@ -5748,71 +5435,61 @@ yyreduce:
                               (yyval.nodes) = (yyvsp[-1].nodes);
                               s = NULL;
                             }
-
     break;
 
   case 321:
-
-    { YANG_ADDELEM((yyvsp[-1].nodes).node.ptr_list->unique, (yyvsp[-1].nodes).node.ptr_list->unique_size);
+                               { YANG_ADDELEM((yyvsp[-1].nodes).node.ptr_list->unique, (yyvsp[-1].nodes).node.ptr_list->unique_size, "uniques");
                                  ((struct lys_unique *)actual)->expr = (const char **)s;
                                  (yyval.nodes) = (yyvsp[-1].nodes);
                                  s = NULL;
                                  actual = (yyvsp[-1].nodes).node.ptr_list;
                                }
-
     break;
 
   case 322:
-
-    { if ((yyvsp[-1].nodes).node.ptr_list->flags & LYS_CONFIG_MASK) {
-                                   LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_list, "config", "list");
+                               { if ((yyvsp[-1].nodes).node.ptr_list->flags & LYS_CONFIG_MASK) {
+                                   LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_list, "config", "list");
                                    YYABORT;
                                  }
                                  (yyvsp[-1].nodes).node.ptr_list->flags |= (yyvsp[0].i);
                                }
-
     break;
 
   case 323:
-
-    { if ((yyvsp[-1].nodes).node.flag & LYS_MIN_ELEMENTS) {
-                                         LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_list, "min-elements", "list");
+                                     { if ((yyvsp[-1].nodes).node.flag & LYS_MIN_ELEMENTS) {
+                                         LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_list, "min-elements", "list");
                                          YYABORT;
                                        }
                                        (yyvsp[-1].nodes).node.ptr_list->min = (yyvsp[0].uint);
                                        (yyvsp[-1].nodes).node.flag |= LYS_MIN_ELEMENTS;
                                        (yyval.nodes) = (yyvsp[-1].nodes);
                                        if ((yyvsp[-1].nodes).node.ptr_list->max && ((yyvsp[-1].nodes).node.ptr_list->min > (yyvsp[-1].nodes).node.ptr_list->max)) {
-                                         LOGVAL(LYE_SPEC, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_list, "Invalid value \"%d\" of \"%s\".", (yyvsp[0].uint), "min-elements");
-                                         LOGVAL(LYE_SPEC, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_list, "\"min-elements\" is bigger than \"max-elements\".");
+                                         LOGVAL(trg->ctx, LYE_SPEC, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_list, "Invalid value \"%d\" of \"%s\".", (yyvsp[0].uint), "min-elements");
+                                         LOGVAL(trg->ctx, LYE_SPEC, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_list, "\"min-elements\" is bigger than \"max-elements\".");
                                          YYABORT;
                                        }
                                      }
-
     break;
 
   case 324:
-
-    { if ((yyvsp[-1].nodes).node.flag & LYS_MAX_ELEMENTS) {
-                                         LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_list, "max-elements", "list");
+                                     { if ((yyvsp[-1].nodes).node.flag & LYS_MAX_ELEMENTS) {
+                                         LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_list, "max-elements", "list");
                                          YYABORT;
                                        }
                                        (yyvsp[-1].nodes).node.ptr_list->max = (yyvsp[0].uint);
                                        (yyvsp[-1].nodes).node.flag |= LYS_MAX_ELEMENTS;
                                        (yyval.nodes) = (yyvsp[-1].nodes);
-                                       if ((yyvsp[-1].nodes).node.ptr_list->min > (yyvsp[-1].nodes).node.ptr_list->max) {
-                                         LOGVAL(LYE_SPEC, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_list, "Invalid value \"%d\" of \"%s\".", (yyvsp[0].uint), "min-elements");
-                                         LOGVAL(LYE_SPEC, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_list, "\"max-elements\" is smaller than \"min-elements\".");
+                                       if ((yyvsp[-1].nodes).node.ptr_list->max && ((yyvsp[-1].nodes).node.ptr_list->min > (yyvsp[-1].nodes).node.ptr_list->max)) {
+                                         LOGVAL(trg->ctx, LYE_SPEC, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_list, "Invalid value \"%d\" of \"%s\".", (yyvsp[0].uint), "min-elements");
+                                         LOGVAL(trg->ctx, LYE_SPEC, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_list, "\"max-elements\" is smaller than \"min-elements\".");
                                          YYABORT;
                                        }
                                      }
-
     break;
 
   case 325:
-
-    { if ((yyvsp[-1].nodes).node.flag & LYS_ORDERED_MASK) {
-                                       LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_list, "ordered by", "list");
+                                   { if ((yyvsp[-1].nodes).node.flag & LYS_ORDERED_MASK) {
+                                       LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_list, "ordered by", "list");
                                        YYABORT;
                                      }
                                      if ((yyvsp[0].i) & LYS_USERORDERED) {
@@ -5821,53 +5498,43 @@ yyreduce:
                                      (yyvsp[-1].nodes).node.flag |= (yyvsp[0].i);
                                      (yyval.nodes) = (yyvsp[-1].nodes);
                                    }
-
     break;
 
   case 326:
-
-    { if ((yyvsp[-1].nodes).node.ptr_list->flags & LYS_STATUS_MASK) {
-                                   LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_list, "status", "list");
+                               { if ((yyvsp[-1].nodes).node.ptr_list->flags & LYS_STATUS_MASK) {
+                                   LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_list, "status", "list");
                                    YYABORT;
                                  }
                                  (yyvsp[-1].nodes).node.ptr_list->flags |= (yyvsp[0].i);
                                }
-
     break;
 
   case 327:
-
-    { if (yang_read_description(trg, (yyvsp[-1].nodes).node.ptr_list, s, "list", NODE_PRINT)) {
+                                    { if (yang_read_description(trg, (yyvsp[-1].nodes).node.ptr_list, s, "list", NODE_PRINT)) {
                                         YYABORT;
                                       }
                                       s = NULL;
                                     }
-
     break;
 
   case 328:
-
-    { if (yang_read_reference(trg, (yyvsp[-1].nodes).node.ptr_list, s, "list", NODE_PRINT)) {
+                                  { if (yang_read_reference(trg, (yyvsp[-1].nodes).node.ptr_list, s, "list", NODE_PRINT)) {
                                       YYABORT;
                                     }
                                     s = NULL;
                                   }
-
     break;
 
   case 332:
-
-    { if (trg->version < 2) {
-                                                 LOGVAL(LYE_INSTMT, LY_VLOG_LYS, (yyvsp[-2].nodes).node.ptr_list, "notification");
+                                             { if (trg->version < 2) {
+                                                 LOGVAL(trg->ctx, LYE_INSTMT, LY_VLOG_LYS, (yyvsp[-2].nodes).node.ptr_list, "notification");
                                                  YYABORT;
                                                }
                                              }
-
     break;
 
   case 334:
-
-    { (yyval.backup_token).token = actual_type;
+                                   { (yyval.backup_token).token = actual_type;
                                      (yyval.backup_token).actual = actual;
                                      if (!(actual = yang_read_node(trg, actual, param->node, s, LYS_CHOICE, sizeof(struct lys_node_choice)))) {
                                        YYABORT;
@@ -5876,53 +5543,45 @@ yyreduce:
                                      s = NULL;
                                      actual_type = CHOICE_KEYWORD;
                                    }
-
     break;
 
   case 335:
-
-    { LOGDBG(LY_LDGYANG, "finished parsing choice statement \"%s\"", data_node->name);
+             { LOGDBG(LY_LDGYANG, "finished parsing choice statement \"%s\"", data_node->name);
                actual_type = (yyvsp[-1].backup_token).token;
                actual = (yyvsp[-1].backup_token).actual;
                data_node = (yyvsp[-1].backup_token).actual;
              }
-
     break;
 
   case 337:
-
-    { struct lys_iffeature *tmp;
+         { struct lys_iffeature *tmp;
 
            if (((yyvsp[-1].nodes).node.ptr_choice->flags & LYS_MAND_TRUE) && (yyvsp[-1].nodes).node.ptr_choice->dflt) {
-              LOGVAL(LYE_INCHILDSTMT, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_choice, "default", "choice");
-              LOGVAL(LYE_SPEC, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_choice, "The \"default\" statement is forbidden on choices with \"mandatory\".");
+              LOGVAL(trg->ctx, LYE_INCHILDSTMT, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_choice, "default", "choice");
+              LOGVAL(trg->ctx, LYE_SPEC, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_choice, "The \"default\" statement is forbidden on choices with \"mandatory\".");
               YYABORT;
             }
 
            if ((yyvsp[-1].nodes).node.ptr_choice->iffeature_size) {
              tmp = realloc((yyvsp[-1].nodes).node.ptr_choice->iffeature, (yyvsp[-1].nodes).node.ptr_choice->iffeature_size * sizeof *tmp);
              if (!tmp) {
-               LOGMEM;
+               LOGMEM(trg->ctx);
                YYABORT;
              }
              (yyvsp[-1].nodes).node.ptr_choice->iffeature = tmp;
            }
          }
-
     break;
 
   case 338:
-
-    { (yyval.nodes).node.ptr_choice = actual;
+                        { (yyval.nodes).node.ptr_choice = actual;
                               (yyval.nodes).node.flag = 0;
                             }
-
     break;
 
   case 341:
-
-    { if ((yyvsp[-1].nodes).node.flag & LYS_CHOICE_DEFAULT) {
-                                      LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_choice, "default", "choice");
+                                  { if ((yyvsp[-1].nodes).node.flag & LYS_CHOICE_DEFAULT) {
+                                      LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_choice, "default", "choice");
                                       free(s);
                                       YYABORT;
                                     }
@@ -5931,80 +5590,66 @@ yyreduce:
                                     (yyval.nodes) = (yyvsp[-1].nodes);
                                     (yyval.nodes).node.flag |= LYS_CHOICE_DEFAULT;
                                   }
-
     break;
 
   case 342:
-
-    { if ((yyvsp[-1].nodes).node.ptr_choice->flags & LYS_CONFIG_MASK) {
-                                     LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_choice, "config", "choice");
+                                 { if ((yyvsp[-1].nodes).node.ptr_choice->flags & LYS_CONFIG_MASK) {
+                                     LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_choice, "config", "choice");
                                      YYABORT;
                                    }
                                    (yyvsp[-1].nodes).node.ptr_choice->flags |= (yyvsp[0].i);
                                    (yyval.nodes) = (yyvsp[-1].nodes);
                                  }
-
     break;
 
   case 343:
-
-    { if ((yyvsp[-1].nodes).node.ptr_choice->flags & LYS_MAND_MASK) {
-                                      LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_choice, "mandatory", "choice");
+                                  { if ((yyvsp[-1].nodes).node.ptr_choice->flags & LYS_MAND_MASK) {
+                                      LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_choice, "mandatory", "choice");
                                       YYABORT;
                                     }
                                     (yyvsp[-1].nodes).node.ptr_choice->flags |= (yyvsp[0].i);
                                     (yyval.nodes) = (yyvsp[-1].nodes);
                                   }
-
     break;
 
   case 344:
-
-    { if ((yyvsp[-1].nodes).node.ptr_choice->flags & LYS_STATUS_MASK) {
-                                     LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_choice, "status", "choice");
+                                 { if ((yyvsp[-1].nodes).node.ptr_choice->flags & LYS_STATUS_MASK) {
+                                     LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_choice, "status", "choice");
                                      YYABORT;
                                    }
                                    (yyvsp[-1].nodes).node.ptr_choice->flags |= (yyvsp[0].i);
                                    (yyval.nodes) = (yyvsp[-1].nodes);
                                  }
-
     break;
 
   case 345:
-
-    { if (yang_read_description(trg, (yyvsp[-1].nodes).node.ptr_choice, s, "choice", NODE_PRINT)) {
+                                      { if (yang_read_description(trg, (yyvsp[-1].nodes).node.ptr_choice, s, "choice", NODE_PRINT)) {
                                           YYABORT;
                                         }
                                         s = NULL;
                                         (yyval.nodes) = (yyvsp[-1].nodes);
                                       }
-
     break;
 
   case 346:
-
-    { if (yang_read_reference(trg, (yyvsp[-1].nodes).node.ptr_choice, s, "choice", NODE_PRINT)) {
+                                    { if (yang_read_reference(trg, (yyvsp[-1].nodes).node.ptr_choice, s, "choice", NODE_PRINT)) {
                                         YYABORT;
                                       }
                                       s = NULL;
                                       (yyval.nodes) = (yyvsp[-1].nodes);
                                     }
-
     break;
 
   case 356:
-
-    { if (trg->version < 2 ) {
-                     LOGVAL(LYE_INSTMT, LY_VLOG_LYS, actual, "choice");
+                 { if (trg->version < 2 ) {
+                     LOGVAL(trg->ctx, LYE_INSTMT, LY_VLOG_LYS, actual, "choice");
                      YYABORT;
                    }
                  }
-
     break;
 
   case 357:
-
-    { (yyval.backup_token).token = actual_type;
+                                 { (yyval.backup_token).token = actual_type;
                                    (yyval.backup_token).actual = actual;
                                    if (!(actual = yang_read_node(trg, actual, param->node, s, LYS_CASE, sizeof(struct lys_node_case)))) {
                                      YYABORT;
@@ -6013,75 +5658,61 @@ yyreduce:
                                    s = NULL;
                                    actual_type = CASE_KEYWORD;
                                  }
-
     break;
 
   case 358:
-
-    { LOGDBG(LY_LDGYANG, "finished parsing case statement \"%s\"", data_node->name);
+           { LOGDBG(LY_LDGYANG, "finished parsing case statement \"%s\"", data_node->name);
              actual_type = (yyvsp[-1].backup_token).token;
              actual = (yyvsp[-1].backup_token).actual;
              data_node = (yyvsp[-1].backup_token).actual;
            }
-
     break;
 
   case 360:
-
-    { struct lys_iffeature *tmp;
+          { struct lys_iffeature *tmp;
 
            if ((yyvsp[-1].nodes).cs->iffeature_size) {
              tmp = realloc((yyvsp[-1].nodes).cs->iffeature, (yyvsp[-1].nodes).cs->iffeature_size * sizeof *tmp);
              if (!tmp) {
-               LOGMEM;
+               LOGMEM(trg->ctx);
                YYABORT;
              }
              (yyvsp[-1].nodes).cs->iffeature = tmp;
            }
           }
-
     break;
 
   case 361:
-
-    { (yyval.nodes).cs = actual; }
-
+                      { (yyval.nodes).cs = actual; }
     break;
 
   case 364:
-
-    { if ((yyvsp[-1].nodes).cs->flags & LYS_STATUS_MASK) {
-                                   LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).cs, "status", "case");
+                               { if ((yyvsp[-1].nodes).cs->flags & LYS_STATUS_MASK) {
+                                   LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).cs, "status", "case");
                                    YYABORT;
                                  }
                                  (yyvsp[-1].nodes).cs->flags |= (yyvsp[0].i);
                                }
-
     break;
 
   case 365:
-
-    { if (yang_read_description(trg, (yyvsp[-1].nodes).cs, s, "case", NODE_PRINT)) {
+                                    { if (yang_read_description(trg, (yyvsp[-1].nodes).cs, s, "case", NODE_PRINT)) {
                                         YYABORT;
                                       }
                                       s = NULL;
                                     }
-
     break;
 
   case 366:
-
-    { if (yang_read_reference(trg, (yyvsp[-1].nodes).cs, s, "case", NODE_PRINT)) {
+                                  { if (yang_read_reference(trg, (yyvsp[-1].nodes).cs, s, "case", NODE_PRINT)) {
                                       YYABORT;
                                     }
                                     s = NULL;
                                   }
-
     break;
 
   case 368:
-
-    { (yyval.backup_token).token = actual_type;
+                                   { (yyval.backup_token).token = actual_type;
                                      (yyval.backup_token).actual = actual;
                                      if (!(actual = yang_read_node(trg, actual, param->node, s, LYS_ANYXML, sizeof(struct lys_node_anydata)))) {
                                        YYABORT;
@@ -6090,22 +5721,18 @@ yyreduce:
                                      s = NULL;
                                      actual_type = ANYXML_KEYWORD;
                                    }
-
     break;
 
   case 369:
-
-    { LOGDBG(LY_LDGYANG, "finished parsing anyxml statement \"%s\"", data_node->name);
+             { LOGDBG(LY_LDGYANG, "finished parsing anyxml statement \"%s\"", data_node->name);
                actual_type = (yyvsp[-1].backup_token).token;
                actual = (yyvsp[-1].backup_token).actual;
                data_node = (yyvsp[-1].backup_token).actual;
              }
-
     break;
 
   case 370:
-
-    { (yyval.backup_token).token = actual_type;
+                                    { (yyval.backup_token).token = actual_type;
                                       (yyval.backup_token).actual = actual;
                                       if (!(actual = yang_read_node(trg, actual, param->node, s, LYS_ANYDATA, sizeof(struct lys_node_anydata)))) {
                                         YYABORT;
@@ -6114,27 +5741,23 @@ yyreduce:
                                       s = NULL;
                                       actual_type = ANYDATA_KEYWORD;
                                     }
-
     break;
 
   case 371:
-
-    { LOGDBG(LY_LDGYANG, "finished parsing anydata statement \"%s\"", data_node->name);
+              { LOGDBG(LY_LDGYANG, "finished parsing anydata statement \"%s\"", data_node->name);
                 actual_type = (yyvsp[-1].backup_token).token;
                 actual = (yyvsp[-1].backup_token).actual;
                 data_node = (yyvsp[-1].backup_token).actual;
               }
-
     break;
 
   case 373:
-
-    { void *tmp;
+         { void *tmp;
 
            if ((yyvsp[-1].nodes).node.ptr_anydata->iffeature_size) {
              tmp = realloc((yyvsp[-1].nodes).node.ptr_anydata->iffeature, (yyvsp[-1].nodes).node.ptr_anydata->iffeature_size * sizeof *(yyvsp[-1].nodes).node.ptr_anydata->iffeature);
              if (!tmp) {
-               LOGMEM;
+               LOGMEM(trg->ctx);
                YYABORT;
              }
              (yyvsp[-1].nodes).node.ptr_anydata->iffeature = tmp;
@@ -6143,82 +5766,68 @@ yyreduce:
            if ((yyvsp[-1].nodes).node.ptr_anydata->must_size) {
              tmp = realloc((yyvsp[-1].nodes).node.ptr_anydata->must, (yyvsp[-1].nodes).node.ptr_anydata->must_size * sizeof *(yyvsp[-1].nodes).node.ptr_anydata->must);
              if (!tmp) {
-               LOGMEM;
+               LOGMEM(trg->ctx);
                YYABORT;
              }
              (yyvsp[-1].nodes).node.ptr_anydata->must = tmp;
            }
          }
-
     break;
 
   case 374:
-
-    { (yyval.nodes).node.ptr_anydata = actual;
+                        { (yyval.nodes).node.ptr_anydata = actual;
                               (yyval.nodes).node.flag = actual_type;
                             }
-
     break;
 
   case 378:
-
-    { if ((yyvsp[-1].nodes).node.ptr_anydata->flags & LYS_CONFIG_MASK) {
-                                     LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_anydata, "config",
+                                 { if ((yyvsp[-1].nodes).node.ptr_anydata->flags & LYS_CONFIG_MASK) {
+                                     LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_anydata, "config",
                                             ((yyvsp[-1].nodes).node.flag == ANYXML_KEYWORD) ? "anyxml" : "anydata");
                                      YYABORT;
                                    }
                                    (yyvsp[-1].nodes).node.ptr_anydata->flags |= (yyvsp[0].i);
                                  }
-
     break;
 
   case 379:
-
-    { if ((yyvsp[-1].nodes).node.ptr_anydata->flags & LYS_MAND_MASK) {
-                                        LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_anydata, "mandatory",
+                                    { if ((yyvsp[-1].nodes).node.ptr_anydata->flags & LYS_MAND_MASK) {
+                                        LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_anydata, "mandatory",
                                                ((yyvsp[-1].nodes).node.flag == ANYXML_KEYWORD) ? "anyxml" : "anydata");
                                         YYABORT;
                                       }
                                       (yyvsp[-1].nodes).node.ptr_anydata->flags |= (yyvsp[0].i);
                                     }
-
     break;
 
   case 380:
-
-    { if ((yyvsp[-1].nodes).node.ptr_anydata->flags & LYS_STATUS_MASK) {
-                                     LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_anydata, "status",
+                                 { if ((yyvsp[-1].nodes).node.ptr_anydata->flags & LYS_STATUS_MASK) {
+                                     LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_anydata, "status",
                                             ((yyvsp[-1].nodes).node.flag == ANYXML_KEYWORD) ? "anyxml" : "anydata");
                                      YYABORT;
                                    }
                                    (yyvsp[-1].nodes).node.ptr_anydata->flags |= (yyvsp[0].i);
                                  }
-
     break;
 
   case 381:
-
-    { if (yang_read_description(trg, (yyvsp[-1].nodes).node.ptr_anydata, s, ((yyvsp[-1].nodes).node.flag == ANYXML_KEYWORD) ? "anyxml" : "anydata", NODE_PRINT)) {
+                                      { if (yang_read_description(trg, (yyvsp[-1].nodes).node.ptr_anydata, s, ((yyvsp[-1].nodes).node.flag == ANYXML_KEYWORD) ? "anyxml" : "anydata", NODE_PRINT)) {
                                           YYABORT;
                                         }
                                         s = NULL;
                                       }
-
     break;
 
   case 382:
-
-    { if (yang_read_reference(trg, (yyvsp[-1].nodes).node.ptr_anydata, s, ((yyvsp[-1].nodes).node.flag == ANYXML_KEYWORD) ? "anyxml" : "anydata", NODE_PRINT)) {
+                                    { if (yang_read_reference(trg, (yyvsp[-1].nodes).node.ptr_anydata, s, ((yyvsp[-1].nodes).node.flag == ANYXML_KEYWORD) ? "anyxml" : "anydata", NODE_PRINT)) {
                                         YYABORT;
                                       }
                                       s = NULL;
                                     }
-
     break;
 
   case 383:
-
-    { (yyval.backup_token).token = actual_type;
+                                     { (yyval.backup_token).token = actual_type;
                                        (yyval.backup_token).actual = actual;
                                        if (!(actual = yang_read_node(trg, actual, param->node, s, LYS_USES, sizeof(struct lys_node_uses)))) {
                                          YYABORT;
@@ -6227,27 +5836,23 @@ yyreduce:
                                        s = NULL;
                                        actual_type = USES_KEYWORD;
                                      }
-
     break;
 
   case 384:
-
-    { LOGDBG(LY_LDGYANG, "finished parsing uses statement \"%s\"", data_node->name);
+           { LOGDBG(LY_LDGYANG, "finished parsing uses statement \"%s\"", data_node->name);
              actual_type = (yyvsp[-1].backup_token).token;
              actual = (yyvsp[-1].backup_token).actual;
              data_node = (yyvsp[-1].backup_token).actual;
            }
-
     break;
 
   case 386:
-
-    { void *tmp;
+         { void *tmp;
 
            if ((yyvsp[-1].nodes).uses->iffeature_size) {
              tmp = realloc((yyvsp[-1].nodes).uses->iffeature, (yyvsp[-1].nodes).uses->iffeature_size * sizeof *(yyvsp[-1].nodes).uses->iffeature);
              if (!tmp) {
-               LOGMEM;
+               LOGMEM(trg->ctx);
                YYABORT;
              }
              (yyvsp[-1].nodes).uses->iffeature = tmp;
@@ -6256,7 +5861,7 @@ yyreduce:
            if ((yyvsp[-1].nodes).uses->refine_size) {
              tmp = realloc((yyvsp[-1].nodes).uses->refine, (yyvsp[-1].nodes).uses->refine_size * sizeof *(yyvsp[-1].nodes).uses->refine);
              if (!tmp) {
-               LOGMEM;
+               LOGMEM(trg->ctx);
                YYABORT;
              }
              (yyvsp[-1].nodes).uses->refine = tmp;
@@ -6265,58 +5870,48 @@ yyreduce:
            if ((yyvsp[-1].nodes).uses->augment_size) {
              tmp = realloc((yyvsp[-1].nodes).uses->augment, (yyvsp[-1].nodes).uses->augment_size * sizeof *(yyvsp[-1].nodes).uses->augment);
              if (!tmp) {
-               LOGMEM;
+               LOGMEM(trg->ctx);
                YYABORT;
              }
              (yyvsp[-1].nodes).uses->augment = tmp;
            }
          }
-
     break;
 
   case 387:
-
-    { (yyval.nodes).uses = actual; }
-
+                      { (yyval.nodes).uses = actual; }
     break;
 
   case 390:
-
-    { if ((yyvsp[-1].nodes).uses->flags & LYS_STATUS_MASK) {
-                                   LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).uses, "status", "uses");
+                               { if ((yyvsp[-1].nodes).uses->flags & LYS_STATUS_MASK) {
+                                   LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).uses, "status", "uses");
                                    YYABORT;
                                  }
                                  (yyvsp[-1].nodes).uses->flags |= (yyvsp[0].i);
                                }
-
     break;
 
   case 391:
-
-    { if (yang_read_description(trg, (yyvsp[-1].nodes).uses, s, "uses", NODE_PRINT)) {
+                                    { if (yang_read_description(trg, (yyvsp[-1].nodes).uses, s, "uses", NODE_PRINT)) {
                                         YYABORT;
                                       }
                                       s = NULL;
                                     }
-
     break;
 
   case 392:
-
-    { if (yang_read_reference(trg, (yyvsp[-1].nodes).uses, s, "uses", NODE_PRINT)) {
+                                  { if (yang_read_reference(trg, (yyvsp[-1].nodes).uses, s, "uses", NODE_PRINT)) {
                                       YYABORT;
                                     }
                                     s = NULL;
                                   }
-
     break;
 
   case 397:
-
-    { (yyval.backup_token).token = actual_type;
+                                { (yyval.backup_token).token = actual_type;
                                   (yyval.backup_token).actual = actual;
                                   YANG_ADDELEM(((struct lys_node_uses *)actual)->refine,
-                                               ((struct lys_node_uses *)actual)->refine_size);
+                                               ((struct lys_node_uses *)actual)->refine_size, "refines");
                                   ((struct lys_refine *)actual)->target_name = transform_schema2json(trg, s);
                                   free(s);
                                   s = NULL;
@@ -6325,25 +5920,21 @@ yyreduce:
                                   }
                                   actual_type = REFINE_KEYWORD;
                                 }
-
     break;
 
   case 398:
-
-    { actual_type = (yyvsp[-1].backup_token).token;
+             { actual_type = (yyvsp[-1].backup_token).token;
                actual = (yyvsp[-1].backup_token).actual;
              }
-
     break;
 
   case 400:
-
-    { void *tmp;
+         { void *tmp;
 
            if ((yyvsp[-1].nodes).refine->iffeature_size) {
              tmp = realloc((yyvsp[-1].nodes).refine->iffeature, (yyvsp[-1].nodes).refine->iffeature_size * sizeof *(yyvsp[-1].nodes).refine->iffeature);
              if (!tmp) {
-               LOGMEM;
+               LOGMEM(trg->ctx);
                YYABORT;
              }
              (yyvsp[-1].nodes).refine->iffeature = tmp;
@@ -6352,7 +5943,7 @@ yyreduce:
            if ((yyvsp[-1].nodes).refine->must_size) {
              tmp = realloc((yyvsp[-1].nodes).refine->must, (yyvsp[-1].nodes).refine->must_size * sizeof *(yyvsp[-1].nodes).refine->must);
              if (!tmp) {
-               LOGMEM;
+               LOGMEM(trg->ctx);
                YYABORT;
              }
              (yyvsp[-1].nodes).refine->must = tmp;
@@ -6361,68 +5952,60 @@ yyreduce:
            if ((yyvsp[-1].nodes).refine->dflt_size) {
              tmp = realloc((yyvsp[-1].nodes).refine->dflt, (yyvsp[-1].nodes).refine->dflt_size * sizeof *(yyvsp[-1].nodes).refine->dflt);
              if (!tmp) {
-               LOGMEM;
+               LOGMEM(trg->ctx);
                YYABORT;
              }
              (yyvsp[-1].nodes).refine->dflt = tmp;
            }
          }
-
     break;
 
   case 401:
-
-    { (yyval.nodes).refine = actual;
+                              { (yyval.nodes).refine = actual;
                                     actual_type = REFINE_KEYWORD;
                                   }
-
     break;
 
   case 402:
-
-    { actual = (yyvsp[-2].nodes).refine;
+                                             { actual = (yyvsp[-2].nodes).refine;
                                                actual_type = REFINE_KEYWORD;
                                                if ((yyvsp[-2].nodes).refine->target_type) {
-                                                 if ((yyvsp[-2].nodes).refine->target_type & (LYS_LEAF | LYS_LIST | LYS_LEAFLIST | LYS_CONTAINER | LYS_ANYXML)) {
-                                                   (yyvsp[-2].nodes).refine->target_type &= (LYS_LEAF | LYS_LIST | LYS_LEAFLIST | LYS_CONTAINER | LYS_ANYXML);
+                                                 if ((yyvsp[-2].nodes).refine->target_type & (LYS_LEAF | LYS_LIST | LYS_LEAFLIST | LYS_CONTAINER | LYS_ANYDATA)) {
+                                                   (yyvsp[-2].nodes).refine->target_type &= (LYS_LEAF | LYS_LIST | LYS_LEAFLIST | LYS_CONTAINER | LYS_ANYDATA);
                                                  } else {
-                                                   LOGVAL(LYE_MISSCHILDSTMT, LY_VLOG_NONE, NULL, "must", "refine");
-                                                   LOGVAL(LYE_SPEC, LY_VLOG_NONE, NULL, "Invalid refine target nodetype for the substatements.");
+                                                   LOGVAL(trg->ctx, LYE_MISSCHILDSTMT, LY_VLOG_NONE, NULL, "must", "refine");
+                                                   LOGVAL(trg->ctx, LYE_SPEC, LY_VLOG_NONE, NULL, "Invalid refine target nodetype for the substatements.");
                                                    YYABORT;
                                                  }
                                                } else {
-                                                 (yyvsp[-2].nodes).refine->target_type = LYS_LEAF | LYS_LIST | LYS_LEAFLIST | LYS_CONTAINER | LYS_ANYXML;
+                                                 (yyvsp[-2].nodes).refine->target_type = LYS_LEAF | LYS_LIST | LYS_LEAFLIST | LYS_CONTAINER | LYS_ANYDATA;
                                                }
                                              }
-
     break;
 
   case 403:
-
-    { /* leaf, leaf-list, list, container or anyxml */
+             { /* leaf, leaf-list, list, container, choice, case, anydata or anyxml */
                /* check possibility of statements combination */
                if ((yyvsp[-2].nodes).refine->target_type) {
-                 if ((yyvsp[-2].nodes).refine->target_type & (LYS_LEAF | LYS_LIST | LYS_LEAFLIST | LYS_CONTAINER | LYS_ANYDATA)) {
-                   (yyvsp[-2].nodes).refine->target_type &= (LYS_LEAF | LYS_LIST | LYS_LEAFLIST | LYS_CONTAINER | LYS_ANYDATA);
+                 if ((yyvsp[-2].nodes).refine->target_type & (LYS_LEAF | LYS_LIST | LYS_LEAFLIST | LYS_CONTAINER | LYS_CHOICE | LYS_CASE | LYS_ANYDATA)) {
+                   (yyvsp[-2].nodes).refine->target_type &= (LYS_LEAF | LYS_LIST | LYS_LEAFLIST | LYS_CONTAINER | LYS_CHOICE | LYS_CASE | LYS_ANYDATA);
                  } else {
                    free(s);
-                   LOGVAL(LYE_MISSCHILDSTMT, LY_VLOG_NONE, NULL, "if-feature", "refine");
-                   LOGVAL(LYE_SPEC, LY_VLOG_NONE, NULL, "Invalid refine target nodetype for the substatements.");
+                   LOGVAL(trg->ctx, LYE_MISSCHILDSTMT, LY_VLOG_NONE, NULL, "if-feature", "refine");
+                   LOGVAL(trg->ctx, LYE_SPEC, LY_VLOG_NONE, NULL, "Invalid refine target nodetype for the substatements.");
                    YYABORT;
                  }
                } else {
-                 (yyvsp[-2].nodes).refine->target_type = LYS_LEAF | LYS_LIST | LYS_LEAFLIST | LYS_CONTAINER | LYS_ANYDATA;
+                 (yyvsp[-2].nodes).refine->target_type = LYS_LEAF | LYS_LIST | LYS_LEAFLIST | LYS_CONTAINER | LYS_CHOICE | LYS_CASE | LYS_ANYDATA;
                }
              }
-
     break;
 
   case 404:
-
-    { if ((yyvsp[-1].nodes).refine->target_type) {
+                                         { if ((yyvsp[-1].nodes).refine->target_type) {
                                              if ((yyvsp[-1].nodes).refine->target_type & LYS_CONTAINER) {
                                                if ((yyvsp[-1].nodes).refine->mod.presence) {
-                                                 LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "presence", "refine");
+                                                 LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "presence", "refine");
                                                  free(s);
                                                  YYABORT;
                                                }
@@ -6430,8 +6013,8 @@ yyreduce:
                                                (yyvsp[-1].nodes).refine->mod.presence = lydict_insert_zc(trg->ctx, s);
                                              } else {
                                                free(s);
-                                               LOGVAL(LYE_MISSCHILDSTMT, LY_VLOG_NONE, NULL, "presence", "refine");
-                                               LOGVAL(LYE_SPEC, LY_VLOG_NONE, NULL, "Invalid refine target nodetype for the substatements.");
+                                               LOGVAL(trg->ctx, LYE_MISSCHILDSTMT, LY_VLOG_NONE, NULL, "presence", "refine");
+                                               LOGVAL(trg->ctx, LYE_SPEC, LY_VLOG_NONE, NULL, "Invalid refine target nodetype for the substatements.");
                                                YYABORT;
                                              }
                                            } else {
@@ -6441,24 +6024,22 @@ yyreduce:
                                            s = NULL;
                                            (yyval.nodes) = (yyvsp[-1].nodes);
                                          }
-
     break;
 
   case 405:
-
-    { int i;
+                                        { int i;
 
                                           if ((yyvsp[-1].nodes).refine->dflt_size) {
                                             if (trg->version < 2) {
-                                              LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "default", "refine");
+                                              LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "default", "refine");
                                               YYABORT;
                                             }
                                             if ((yyvsp[-1].nodes).refine->target_type & LYS_LEAFLIST) {
                                               (yyvsp[-1].nodes).refine->target_type = LYS_LEAFLIST;
                                             } else {
                                               free(s);
-                                              LOGVAL(LYE_MISSCHILDSTMT, LY_VLOG_NONE, NULL, "default", "refine");
-                                              LOGVAL(LYE_SPEC, LY_VLOG_NONE, NULL, "Invalid refine target nodetype for the substatements.");
+                                              LOGVAL(trg->ctx, LYE_MISSCHILDSTMT, LY_VLOG_NONE, NULL, "default", "refine");
+                                              LOGVAL(trg->ctx, LYE_SPEC, LY_VLOG_NONE, NULL, "Invalid refine target nodetype for the substatements.");
                                               YYABORT;
                                             }
                                           } else {
@@ -6470,8 +6051,8 @@ yyreduce:
                                                 (yyvsp[-1].nodes).refine->target_type &= (LYS_LEAF | LYS_LEAFLIST | LYS_CHOICE);
                                               } else {
                                                 free(s);
-                                                LOGVAL(LYE_MISSCHILDSTMT, LY_VLOG_NONE, NULL, "default", "refine");
-                                                LOGVAL(LYE_SPEC, LY_VLOG_NONE, NULL, "Invalid refine target nodetype for the substatements.");
+                                                LOGVAL(trg->ctx, LYE_MISSCHILDSTMT, LY_VLOG_NONE, NULL, "default", "refine");
+                                                LOGVAL(trg->ctx, LYE_SPEC, LY_VLOG_NONE, NULL, "Invalid refine target nodetype for the substatements.");
                                                 YYABORT;
                                               }
                                             } else {
@@ -6486,33 +6067,31 @@ yyreduce:
                                           /* check for duplicity */
                                           for (i = 0; i < (yyvsp[-1].nodes).refine->dflt_size; ++i) {
                                               if (ly_strequal((yyvsp[-1].nodes).refine->dflt[i], s, 0)) {
-                                                  LOGVAL(LYE_INARG, LY_VLOG_NONE, NULL, s, "default");
-                                                  LOGVAL(LYE_SPEC, LY_VLOG_NONE, NULL, "Duplicated default value \"%s\".", s);
+                                                  LOGVAL(trg->ctx, LYE_INARG, LY_VLOG_NONE, NULL, s, "default");
+                                                  LOGVAL(trg->ctx, LYE_SPEC, LY_VLOG_NONE, NULL, "Duplicated default value \"%s\".", s);
                                                   YYABORT;
                                               }
                                           }
-                                          YANG_ADDELEM((yyvsp[-1].nodes).refine->dflt, (yyvsp[-1].nodes).refine->dflt_size);
+                                          YANG_ADDELEM((yyvsp[-1].nodes).refine->dflt, (yyvsp[-1].nodes).refine->dflt_size, "defaults");
                                           *((const char **)actual) = lydict_insert_zc(trg->ctx, s);
                                           actual = (yyvsp[-1].nodes).refine;
                                           s = NULL;
                                           (yyval.nodes) = (yyvsp[-1].nodes);
                                         }
-
     break;
 
   case 406:
-
-    { if ((yyvsp[-1].nodes).refine->target_type) {
+                                       { if ((yyvsp[-1].nodes).refine->target_type) {
                                            if ((yyvsp[-1].nodes).refine->target_type & (LYS_LEAF | LYS_CHOICE | LYS_LIST | LYS_CONTAINER | LYS_LEAFLIST)) {
                                              (yyvsp[-1].nodes).refine->target_type &= (LYS_LEAF | LYS_CHOICE | LYS_LIST | LYS_CONTAINER | LYS_LEAFLIST);
                                              if ((yyvsp[-1].nodes).refine->flags & LYS_CONFIG_MASK) {
-                                               LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "config", "refine");
+                                               LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "config", "refine");
                                                YYABORT;
                                              }
                                              (yyvsp[-1].nodes).refine->flags |= (yyvsp[0].i);
                                            } else {
-                                             LOGVAL(LYE_MISSCHILDSTMT, LY_VLOG_NONE, NULL, "config", "refine");
-                                             LOGVAL(LYE_SPEC, LY_VLOG_NONE, NULL, "Invalid refine target nodetype for the substatements.");
+                                             LOGVAL(trg->ctx, LYE_MISSCHILDSTMT, LY_VLOG_NONE, NULL, "config", "refine");
+                                             LOGVAL(trg->ctx, LYE_SPEC, LY_VLOG_NONE, NULL, "Invalid refine target nodetype for the substatements.");
                                              YYABORT;
                                            }
                                          } else {
@@ -6521,47 +6100,43 @@ yyreduce:
                                          }
                                          (yyval.nodes) = (yyvsp[-1].nodes);
                                        }
-
     break;
 
   case 407:
-
-    { if ((yyvsp[-1].nodes).refine->target_type) {
-                                              if ((yyvsp[-1].nodes).refine->target_type & (LYS_LEAF | LYS_CHOICE | LYS_ANYXML)) {
-                                                (yyvsp[-1].nodes).refine->target_type &= (LYS_LEAF | LYS_CHOICE | LYS_ANYXML);
+                                          { if ((yyvsp[-1].nodes).refine->target_type) {
+                                              if ((yyvsp[-1].nodes).refine->target_type & (LYS_LEAF | LYS_CHOICE | LYS_ANYDATA)) {
+                                                (yyvsp[-1].nodes).refine->target_type &= (LYS_LEAF | LYS_CHOICE | LYS_ANYDATA);
                                                 if ((yyvsp[-1].nodes).refine->flags & LYS_MAND_MASK) {
-                                                  LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "mandatory", "refine");
+                                                  LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "mandatory", "refine");
                                                   YYABORT;
                                                 }
                                                 (yyvsp[-1].nodes).refine->flags |= (yyvsp[0].i);
                                               } else {
-                                                LOGVAL(LYE_MISSCHILDSTMT, LY_VLOG_NONE, NULL, "mandatory", "refine");
-                                                LOGVAL(LYE_SPEC, LY_VLOG_NONE, NULL, "Invalid refine target nodetype for the substatements.");
+                                                LOGVAL(trg->ctx, LYE_MISSCHILDSTMT, LY_VLOG_NONE, NULL, "mandatory", "refine");
+                                                LOGVAL(trg->ctx, LYE_SPEC, LY_VLOG_NONE, NULL, "Invalid refine target nodetype for the substatements.");
                                                 YYABORT;
                                               }
                                             } else {
-                                              (yyvsp[-1].nodes).refine->target_type = LYS_LEAF | LYS_CHOICE | LYS_ANYXML;
+                                              (yyvsp[-1].nodes).refine->target_type = LYS_LEAF | LYS_CHOICE | LYS_ANYDATA;
                                               (yyvsp[-1].nodes).refine->flags |= (yyvsp[0].i);
                                             }
                                             (yyval.nodes) = (yyvsp[-1].nodes);
                                           }
-
     break;
 
   case 408:
-
-    { if ((yyvsp[-1].nodes).refine->target_type) {
+                                             { if ((yyvsp[-1].nodes).refine->target_type) {
                                                  if ((yyvsp[-1].nodes).refine->target_type & (LYS_LIST | LYS_LEAFLIST)) {
                                                    (yyvsp[-1].nodes).refine->target_type &= (LYS_LIST | LYS_LEAFLIST);
                                                    if ((yyvsp[-1].nodes).refine->flags & LYS_RFN_MINSET) {
-                                                     LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "min-elements", "refine");
+                                                     LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "min-elements", "refine");
                                                      YYABORT;
                                                    }
                                                    (yyvsp[-1].nodes).refine->flags |= LYS_RFN_MINSET;
                                                    (yyvsp[-1].nodes).refine->mod.list.min = (yyvsp[0].uint);
                                                  } else {
-                                                   LOGVAL(LYE_MISSCHILDSTMT, LY_VLOG_NONE, NULL, "min-elements", "refine");
-                                                   LOGVAL(LYE_SPEC, LY_VLOG_NONE, NULL, "Invalid refine target nodetype for the substatements.");
+                                                   LOGVAL(trg->ctx, LYE_MISSCHILDSTMT, LY_VLOG_NONE, NULL, "min-elements", "refine");
+                                                   LOGVAL(trg->ctx, LYE_SPEC, LY_VLOG_NONE, NULL, "Invalid refine target nodetype for the substatements.");
                                                    YYABORT;
                                                  }
                                                } else {
@@ -6571,23 +6146,21 @@ yyreduce:
                                                }
                                                (yyval.nodes) = (yyvsp[-1].nodes);
                                              }
-
     break;
 
   case 409:
-
-    { if ((yyvsp[-1].nodes).refine->target_type) {
+                                             { if ((yyvsp[-1].nodes).refine->target_type) {
                                                  if ((yyvsp[-1].nodes).refine->target_type & (LYS_LIST | LYS_LEAFLIST)) {
                                                    (yyvsp[-1].nodes).refine->target_type &= (LYS_LIST | LYS_LEAFLIST);
                                                    if ((yyvsp[-1].nodes).refine->flags & LYS_RFN_MAXSET) {
-                                                     LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "max-elements", "refine");
+                                                     LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "max-elements", "refine");
                                                      YYABORT;
                                                    }
                                                    (yyvsp[-1].nodes).refine->flags |= LYS_RFN_MAXSET;
                                                    (yyvsp[-1].nodes).refine->mod.list.max = (yyvsp[0].uint);
                                                  } else {
-                                                   LOGVAL(LYE_MISSCHILDSTMT, LY_VLOG_NONE, NULL, "max-elements", "refine");
-                                                   LOGVAL(LYE_SPEC, LY_VLOG_NONE, NULL, "Invalid refine target nodetype for the substatements.");
+                                                   LOGVAL(trg->ctx, LYE_MISSCHILDSTMT, LY_VLOG_NONE, NULL, "max-elements", "refine");
+                                                   LOGVAL(trg->ctx, LYE_SPEC, LY_VLOG_NONE, NULL, "Invalid refine target nodetype for the substatements.");
                                                    YYABORT;
                                                  }
                                                } else {
@@ -6597,38 +6170,32 @@ yyreduce:
                                                }
                                                (yyval.nodes) = (yyvsp[-1].nodes);
                                              }
-
     break;
 
   case 410:
-
-    { if (yang_read_description(trg, (yyvsp[-1].nodes).refine, s, "refine", NODE)) {
+                                            { if (yang_read_description(trg, (yyvsp[-1].nodes).refine, s, "refine", NODE)) {
                                                 YYABORT;
                                               }
                                               s = NULL;
                                             }
-
     break;
 
   case 411:
-
-    { if (yang_read_reference(trg, (yyvsp[-1].nodes).refine, s, "refine", NODE)) {
+                                          { if (yang_read_reference(trg, (yyvsp[-1].nodes).refine, s, "refine", NODE)) {
                                               YYABORT;
                                             }
                                             s = NULL;
                                           }
-
     break;
 
   case 414:
-
-    { void *parent;
+                                       { void *parent;
 
                                          (yyval.backup_token).token = actual_type;
                                          (yyval.backup_token).actual = actual;
                                          parent = actual;
                                          YANG_ADDELEM(((struct lys_node_uses *)actual)->augment,
-                                                      ((struct lys_node_uses *)actual)->augment_size);
+                                                      ((struct lys_node_uses *)actual)->augment_size, "augments");
                                          if (yang_read_augment(trg, parent, actual, s)) {
                                            YYABORT;
                                          }
@@ -6636,24 +6203,20 @@ yyreduce:
                                          s = NULL;
                                          actual_type = AUGMENT_KEYWORD;
                                        }
-
     break;
 
   case 415:
-
-    { LOGDBG(LY_LDGYANG, "finished parsing augment statement \"%s\"", data_node->name);
+                       { LOGDBG(LY_LDGYANG, "finished parsing augment statement \"%s\"", data_node->name);
                          actual_type = (yyvsp[-4].backup_token).token;
                          actual = (yyvsp[-4].backup_token).actual;
                          data_node = (yyvsp[-4].backup_token).actual;
                        }
-
     break;
 
   case 418:
-
-    { (yyval.backup_token).token = actual_type;
+                             { (yyval.backup_token).token = actual_type;
                                (yyval.backup_token).actual = actual;
-                               YANG_ADDELEM(trg->augment, trg->augment_size);
+                               YANG_ADDELEM(trg->augment, trg->augment_size, "augments");
                                if (yang_read_augment(trg, NULL, actual, s)) {
                                  YYABORT;
                                }
@@ -6661,70 +6224,56 @@ yyreduce:
                                s = NULL;
                                actual_type = AUGMENT_KEYWORD;
                              }
-
     break;
 
   case 419:
-
-    { LOGDBG(LY_LDGYANG, "finished parsing augment statement \"%s\"", data_node->name);
+                  { LOGDBG(LY_LDGYANG, "finished parsing augment statement \"%s\"", data_node->name);
                     actual_type = (yyvsp[-4].backup_token).token;
                     actual = (yyvsp[-4].backup_token).actual;
                     data_node = (yyvsp[-4].backup_token).actual;
                   }
-
     break;
 
   case 420:
-
-    { (yyval.nodes).augment = actual; }
-
+                         { (yyval.nodes).augment = actual; }
     break;
 
   case 423:
-
-    { if ((yyvsp[-1].nodes).augment->flags & LYS_STATUS_MASK) {
-                                      LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).augment, "status", "augment");
+                                  { if ((yyvsp[-1].nodes).augment->flags & LYS_STATUS_MASK) {
+                                      LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).augment, "status", "augment");
                                       YYABORT;
                                     }
                                     (yyvsp[-1].nodes).augment->flags |= (yyvsp[0].i);
                                   }
-
     break;
 
   case 424:
-
-    { if (yang_read_description(trg, (yyvsp[-1].nodes).augment, s, "augment", NODE_PRINT)) {
+                                       { if (yang_read_description(trg, (yyvsp[-1].nodes).augment, s, "augment", NODE_PRINT)) {
                                            YYABORT;
                                          }
                                          s = NULL;
                                        }
-
     break;
 
   case 425:
-
-    { if (yang_read_reference(trg, (yyvsp[-1].nodes).augment, s, "augment", NODE_PRINT)) {
+                                     { if (yang_read_reference(trg, (yyvsp[-1].nodes).augment, s, "augment", NODE_PRINT)) {
                                          YYABORT;
                                        }
                                        s = NULL;
                                      }
-
     break;
 
   case 428:
-
-    { if (trg->version < 2) {
-                                                    LOGVAL(LYE_INSTMT, LY_VLOG_LYS, (yyvsp[-2].nodes).augment, "notification");
+                                                { if (trg->version < 2) {
+                                                    LOGVAL(trg->ctx, LYE_INSTMT, LY_VLOG_LYS, (yyvsp[-2].nodes).augment, "notification");
                                                     YYABORT;
                                                   }
                                                 }
-
     break;
 
   case 430:
-
-    { if (param->module->version != 2) {
-                                       LOGVAL(LYE_INSTMT, LY_VLOG_LYS, actual, "action");
+                                   { if (param->module->version != 2) {
+                                       LOGVAL(trg->ctx, LYE_INSTMT, LY_VLOG_LYS, actual, "action");
                                        free(s);
                                        YYABORT;
                                      }
@@ -6737,22 +6286,18 @@ yyreduce:
                                      s = NULL;
                                      actual_type = ACTION_KEYWORD;
                                    }
-
     break;
 
   case 431:
-
-    { LOGDBG(LY_LDGYANG, "finished parsing action statement \"%s\"", data_node->name);
+             { LOGDBG(LY_LDGYANG, "finished parsing action statement \"%s\"", data_node->name);
                actual_type = (yyvsp[-1].backup_token).token;
                actual = (yyvsp[-1].backup_token).actual;
                data_node = (yyvsp[-1].backup_token).actual;
              }
-
     break;
 
   case 432:
-
-    { (yyval.backup_token).token = actual_type;
+                                { (yyval.backup_token).token = actual_type;
                                   (yyval.backup_token).actual = actual;
                                   if (!(actual = yang_read_node(trg, NULL, param->node, s, LYS_RPC, sizeof(struct lys_node_rpc_action)))) {
                                     YYABORT;
@@ -6761,27 +6306,23 @@ yyreduce:
                                   s = NULL;
                                   actual_type = RPC_KEYWORD;
                                 }
-
     break;
 
   case 433:
-
-    { LOGDBG(LY_LDGYANG, "finished parsing rpc statement \"%s\"", data_node->name);
+          { LOGDBG(LY_LDGYANG, "finished parsing rpc statement \"%s\"", data_node->name);
             actual_type = (yyvsp[-1].backup_token).token;
             actual = (yyvsp[-1].backup_token).actual;
             data_node = (yyvsp[-1].backup_token).actual;
           }
-
     break;
 
   case 435:
-
-    { void *tmp;
+          { void *tmp;
 
             if ((yyvsp[-1].nodes).node.ptr_rpc->iffeature_size) {
               tmp = realloc((yyvsp[-1].nodes).node.ptr_rpc->iffeature, (yyvsp[-1].nodes).node.ptr_rpc->iffeature_size * sizeof *(yyvsp[-1].nodes).node.ptr_rpc->iffeature);
               if (!tmp) {
-                LOGMEM;
+                LOGMEM(trg->ctx);
                 YYABORT;
               }
               (yyvsp[-1].nodes).node.ptr_rpc->iffeature = tmp;
@@ -6790,85 +6331,71 @@ yyreduce:
             if ((yyvsp[-1].nodes).node.ptr_rpc->tpdf_size) {
               tmp = realloc((yyvsp[-1].nodes).node.ptr_rpc->tpdf, (yyvsp[-1].nodes).node.ptr_rpc->tpdf_size * sizeof *(yyvsp[-1].nodes).node.ptr_rpc->tpdf);
               if (!tmp) {
-                LOGMEM;
+                LOGMEM(trg->ctx);
                 YYABORT;
               }
               (yyvsp[-1].nodes).node.ptr_rpc->tpdf = tmp;
             }
           }
-
     break;
 
   case 436:
-
-    { (yyval.nodes).node.ptr_rpc = actual;
+                     { (yyval.nodes).node.ptr_rpc = actual;
                            (yyval.nodes).node.flag = 0;
                          }
-
     break;
 
   case 438:
-
-    { if ((yyvsp[-1].nodes).node.ptr_rpc->flags & LYS_STATUS_MASK) {
-                                  LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_rpc, "status", "rpc");
+                              { if ((yyvsp[-1].nodes).node.ptr_rpc->flags & LYS_STATUS_MASK) {
+                                  LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).node.ptr_rpc, "status", "rpc");
                                   YYABORT;
                                 }
                                 (yyvsp[-1].nodes).node.ptr_rpc->flags |= (yyvsp[0].i);
                              }
-
     break;
 
   case 439:
-
-    { if (yang_read_description(trg, (yyvsp[-1].nodes).node.ptr_rpc, s, "rpc", NODE_PRINT)) {
+                                   { if (yang_read_description(trg, (yyvsp[-1].nodes).node.ptr_rpc, s, "rpc", NODE_PRINT)) {
                                        YYABORT;
                                      }
                                      s = NULL;
                                    }
-
     break;
 
   case 440:
-
-    { if (yang_read_reference(trg, (yyvsp[-1].nodes).node.ptr_rpc, s, "rpc", NODE_PRINT)) {
+                                 { if (yang_read_reference(trg, (yyvsp[-1].nodes).node.ptr_rpc, s, "rpc", NODE_PRINT)) {
                                      YYABORT;
                                    }
                                    s = NULL;
                                  }
-
     break;
 
   case 443:
-
-    { if ((yyvsp[-2].nodes).node.flag & LYS_RPC_INPUT) {
-                                         LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-2].nodes).node.ptr_rpc, "input", "rpc");
+                                     { if ((yyvsp[-2].nodes).node.flag & LYS_RPC_INPUT) {
+                                         LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-2].nodes).node.ptr_rpc, "input", "rpc");
                                          YYABORT;
                                        }
                                        (yyvsp[-2].nodes).node.flag |= LYS_RPC_INPUT;
                                        (yyval.nodes) = (yyvsp[-2].nodes);
                                      }
-
     break;
 
   case 444:
-
-    { if ((yyvsp[-2].nodes).node.flag & LYS_RPC_OUTPUT) {
-                                          LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-2].nodes).node.ptr_rpc, "output", "rpc");
+                                      { if ((yyvsp[-2].nodes).node.flag & LYS_RPC_OUTPUT) {
+                                          LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-2].nodes).node.ptr_rpc, "output", "rpc");
                                           YYABORT;
                                         }
                                         (yyvsp[-2].nodes).node.flag |= LYS_RPC_OUTPUT;
                                         (yyval.nodes) = (yyvsp[-2].nodes);
                                       }
-
     break;
 
   case 445:
-
-    { (yyval.backup_token).token = actual_type;
+                                { (yyval.backup_token).token = actual_type;
                                   (yyval.backup_token).actual = actual;
                                   s = strdup("input");
                                   if (!s) {
-                                    LOGMEM;
+                                    LOGMEM(trg->ctx);
                                     YYABORT;
                                   }
                                   if (!(actual = yang_read_node(trg, actual, param->node, s, LYS_INPUT, sizeof(struct lys_node_inout)))) {
@@ -6878,18 +6405,16 @@ yyreduce:
                                   s = NULL;
                                   actual_type = INPUT_KEYWORD;
                                 }
-
     break;
 
   case 446:
-
-    { void *tmp;
+                { void *tmp;
                   struct lys_node_inout *input = actual;
 
                   if (input->must_size) {
                     tmp = realloc(input->must, input->must_size * sizeof *input->must);
                     if (!tmp) {
-                      LOGMEM;
+                      LOGMEM(trg->ctx);
                       YYABORT;
                     }
                     input->must = tmp;
@@ -6898,7 +6423,7 @@ yyreduce:
                   if (input->tpdf_size) {
                     tmp = realloc(input->tpdf, input->tpdf_size * sizeof *input->tpdf);
                     if (!tmp) {
-                      LOGMEM;
+                      LOGMEM(trg->ctx);
                       YYABORT;
                     }
                     input->tpdf = tmp;
@@ -6909,16 +6434,14 @@ yyreduce:
                   actual = (yyvsp[-4].backup_token).actual;
                   data_node = (yyvsp[-4].backup_token).actual;
                 }
-
     break;
 
   case 452:
-
-    { (yyval.backup_token).token = actual_type;
+                                  { (yyval.backup_token).token = actual_type;
                                     (yyval.backup_token).actual = actual;
                                     s = strdup("output");
                                     if (!s) {
-                                      LOGMEM;
+                                      LOGMEM(trg->ctx);
                                       YYABORT;
                                     }
                                     if (!(actual = yang_read_node(trg, actual, param->node, s, LYS_OUTPUT, sizeof(struct lys_node_inout)))) {
@@ -6928,18 +6451,16 @@ yyreduce:
                                     s = NULL;
                                     actual_type = OUTPUT_KEYWORD;
                                   }
-
     break;
 
   case 453:
-
-    { void *tmp;
+                 { void *tmp;
                    struct lys_node_inout *output = actual;
 
                    if (output->must_size) {
                      tmp = realloc(output->must, output->must_size * sizeof *output->must);
                      if (!tmp) {
-                       LOGMEM;
+                       LOGMEM(trg->ctx);
                        YYABORT;
                      }
                      output->must = tmp;
@@ -6948,7 +6469,7 @@ yyreduce:
                    if (output->tpdf_size) {
                      tmp = realloc(output->tpdf, output->tpdf_size * sizeof *output->tpdf);
                      if (!tmp) {
-                       LOGMEM;
+                       LOGMEM(trg->ctx);
                        YYABORT;
                      }
                      output->tpdf = tmp;
@@ -6959,40 +6480,35 @@ yyreduce:
                    actual = (yyvsp[-4].backup_token).actual;
                    data_node = (yyvsp[-4].backup_token).actual;
                  }
-
     break;
 
   case 454:
-
-    { (yyval.backup_token).token = actual_type;
+                                         { (yyval.backup_token).token = actual_type;
                                            (yyval.backup_token).actual = actual;
                                            if (!(actual = yang_read_node(trg, actual, param->node, s, LYS_NOTIF, sizeof(struct lys_node_notif)))) {
                                              YYABORT;
                                            }
                                            data_node = actual;
+                                           s = NULL;
                                            actual_type = NOTIFICATION_KEYWORD;
                                          }
-
     break;
 
   case 455:
-
-    { LOGDBG(LY_LDGYANG, "finished parsing notification statement \"%s\"", data_node->name);
+                   { LOGDBG(LY_LDGYANG, "finished parsing notification statement \"%s\"", data_node->name);
                      actual_type = (yyvsp[-1].backup_token).token;
                      actual = (yyvsp[-1].backup_token).actual;
                      data_node = (yyvsp[-1].backup_token).actual;
                    }
-
     break;
 
   case 457:
-
-    { void *tmp;
+          { void *tmp;
 
             if ((yyvsp[-1].nodes).notif->must_size) {
               tmp = realloc((yyvsp[-1].nodes).notif->must, (yyvsp[-1].nodes).notif->must_size * sizeof *(yyvsp[-1].nodes).notif->must);
               if (!tmp) {
-                LOGMEM;
+                LOGMEM(trg->ctx);
                 YYABORT;
               }
               (yyvsp[-1].nodes).notif->must = tmp;
@@ -7001,7 +6517,7 @@ yyreduce:
            if ((yyvsp[-1].nodes).notif->iffeature_size) {
              tmp = realloc((yyvsp[-1].nodes).notif->iffeature, (yyvsp[-1].nodes).notif->iffeature_size * sizeof *(yyvsp[-1].nodes).notif->iffeature);
              if (!tmp) {
-               LOGMEM;
+               LOGMEM(trg->ctx);
                YYABORT;
              }
              (yyvsp[-1].nodes).notif->iffeature = tmp;
@@ -7010,57 +6526,47 @@ yyreduce:
            if ((yyvsp[-1].nodes).notif->tpdf_size) {
              tmp = realloc((yyvsp[-1].nodes).notif->tpdf, (yyvsp[-1].nodes).notif->tpdf_size * sizeof *(yyvsp[-1].nodes).notif->tpdf);
              if (!tmp) {
-               LOGMEM;
+               LOGMEM(trg->ctx);
                YYABORT;
              }
              (yyvsp[-1].nodes).notif->tpdf = tmp;
            }
           }
-
     break;
 
   case 458:
-
-    { (yyval.nodes).notif = actual; }
-
+                              { (yyval.nodes).notif = actual; }
     break;
 
   case 461:
-
-    { if ((yyvsp[-1].nodes).notif->flags & LYS_STATUS_MASK) {
-                                           LOGVAL(LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).notif, "status", "notification");
+                                       { if ((yyvsp[-1].nodes).notif->flags & LYS_STATUS_MASK) {
+                                           LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_LYS, (yyvsp[-1].nodes).notif, "status", "notification");
                                            YYABORT;
                                          }
                                          (yyvsp[-1].nodes).notif->flags |= (yyvsp[0].i);
                                        }
-
     break;
 
   case 462:
-
-    { if (yang_read_description(trg, (yyvsp[-1].nodes).notif, s, "notification", NODE_PRINT)) {
+                                            { if (yang_read_description(trg, (yyvsp[-1].nodes).notif, s, "notification", NODE_PRINT)) {
                                                 YYABORT;
                                               }
                                               s = NULL;
                                             }
-
     break;
 
   case 463:
-
-    { if (yang_read_reference(trg, (yyvsp[-1].nodes).notif, s, "notification", NODE_PRINT)) {
+                                          { if (yang_read_reference(trg, (yyvsp[-1].nodes).notif, s, "notification", NODE_PRINT)) {
                                               YYABORT;
                                             }
                                             s = NULL;
                                           }
-
     break;
 
   case 467:
-
-    { (yyval.backup_token).token = actual_type;
+                                 { (yyval.backup_token).token = actual_type;
                                    (yyval.backup_token).actual = actual;
-                                   YANG_ADDELEM(trg->deviation, trg->deviation_size);
+                                   YANG_ADDELEM(trg->deviation, trg->deviation_size, "deviations");
                                    ((struct lys_deviation *)actual)->target_name = transform_schema2json(trg, s);
                                    free(s);
                                    if (!((struct lys_deviation *)actual)->target_name) {
@@ -7069,106 +6575,88 @@ yyreduce:
                                    s = NULL;
                                    actual_type = DEVIATION_KEYWORD;
                                  }
-
     break;
 
   case 468:
-
-    { void *tmp;
+                    { void *tmp;
 
                       if ((yyvsp[-1].dev)->deviate_size) {
                         tmp = realloc((yyvsp[-1].dev)->deviate, (yyvsp[-1].dev)->deviate_size * sizeof *(yyvsp[-1].dev)->deviate);
                         if (!tmp) {
-                          LOGINT;
+                          LOGINT(trg->ctx);
                           YYABORT;
                         }
                         (yyvsp[-1].dev)->deviate = tmp;
                       } else {
-                        LOGVAL(LYE_MISSCHILDSTMT, LY_VLOG_NONE, NULL, "deviate", "deviation");
+                        LOGVAL(trg->ctx, LYE_MISSCHILDSTMT, LY_VLOG_NONE, NULL, "deviate", "deviation");
                         YYABORT;
                       }
                       actual_type = (yyvsp[-4].backup_token).token;
                       actual = (yyvsp[-4].backup_token).actual;
                     }
-
     break;
 
   case 469:
-
-    { (yyval.dev) = actual; }
-
+                           { (yyval.dev) = actual; }
     break;
 
   case 470:
-
-    { if (yang_read_description(trg, (yyvsp[-1].dev), s, "deviation", NODE)) {
+                                         { if (yang_read_description(trg, (yyvsp[-1].dev), s, "deviation", NODE)) {
                                              YYABORT;
                                            }
                                            s = NULL;
                                            (yyval.dev) = (yyvsp[-1].dev);
                                          }
-
     break;
 
   case 471:
-
-    { if (yang_read_reference(trg, (yyvsp[-1].dev), s, "deviation", NODE)) {
+                                       { if (yang_read_reference(trg, (yyvsp[-1].dev), s, "deviation", NODE)) {
                                            YYABORT;
                                          }
                                          s = NULL;
                                          (yyval.dev) = (yyvsp[-1].dev);
                                        }
-
     break;
 
   case 477:
-
-    { (yyval.backup_token).token = actual_type;
+                                             { (yyval.backup_token).token = actual_type;
                                                (yyval.backup_token).actual = actual;
-                                               if (!(actual = yang_read_deviate_unsupported(actual))) {
+                                               if (!(actual = yang_read_deviate_unsupported(trg->ctx, actual))) {
                                                  YYABORT;
                                                }
                                                actual_type = NOT_SUPPORTED_KEYWORD;
                                              }
-
     break;
 
   case 478:
-
-    { actual_type = (yyvsp[-2].backup_token).token;
+                            { actual_type = (yyvsp[-2].backup_token).token;
                               actual = (yyvsp[-2].backup_token).actual;
                             }
-
     break;
 
   case 484:
-
-    { (yyval.backup_token).token = actual_type;
+                         { (yyval.backup_token).token = actual_type;
                            (yyval.backup_token).actual = actual;
-                           if (!(actual = yang_read_deviate(actual, LY_DEVIATE_ADD))) {
+                           if (!(actual = yang_read_deviate(trg->ctx, actual, LY_DEVIATE_ADD))) {
                              YYABORT;
                            }
                            actual_type = ADD_KEYWORD;
                          }
-
     break;
 
   case 485:
-
-    { actual_type = (yyvsp[-2].backup_token).token;
+                  { actual_type = (yyvsp[-2].backup_token).token;
                     actual = (yyvsp[-2].backup_token).actual;
                   }
-
     break;
 
   case 487:
-
-    { void *tmp;
+         { void *tmp;
 
            if ((yyvsp[-1].deviate)->must_size) {
              tmp = realloc((yyvsp[-1].deviate)->must, (yyvsp[-1].deviate)->must_size * sizeof *(yyvsp[-1].deviate)->must);
              if (!tmp) {
-               LOGMEM;
+               LOGMEM(trg->ctx);
                YYABORT;
              }
              (yyvsp[-1].deviate)->must = tmp;
@@ -7177,7 +6665,7 @@ yyreduce:
            if ((yyvsp[-1].deviate)->unique_size) {
              tmp = realloc((yyvsp[-1].deviate)->unique, (yyvsp[-1].deviate)->unique_size * sizeof *(yyvsp[-1].deviate)->unique);
              if (!tmp) {
-               LOGMEM;
+               LOGMEM(trg->ctx);
                YYABORT;
              }
              (yyvsp[-1].deviate)->unique = tmp;
@@ -7186,132 +6674,110 @@ yyreduce:
            if ((yyvsp[-1].deviate)->dflt_size) {
              tmp = realloc((yyvsp[-1].deviate)->dflt, (yyvsp[-1].deviate)->dflt_size * sizeof *(yyvsp[-1].deviate)->dflt);
              if (!tmp) {
-               LOGMEM;
+               LOGMEM(trg->ctx);
                YYABORT;
              }
              (yyvsp[-1].deviate)->dflt = tmp;
            }
          }
-
     break;
 
   case 488:
-
-    { (yyval.deviate) = actual; }
-
+                             { (yyval.deviate) = actual; }
     break;
 
   case 489:
-
-    { if (yang_read_units(trg, actual, s, ADD_KEYWORD)) {
+                                     { if (yang_read_units(trg, actual, s, ADD_KEYWORD)) {
                                          YYABORT;
                                        }
                                        s = NULL;
                                        (yyval.deviate) = (yyvsp[-1].deviate);
                                      }
-
     break;
 
   case 491:
-
-    { YANG_ADDELEM((yyvsp[-1].deviate)->unique, (yyvsp[-1].deviate)->unique_size);
+                                      { YANG_ADDELEM((yyvsp[-1].deviate)->unique, (yyvsp[-1].deviate)->unique_size, "uniques");
                                         ((struct lys_unique *)actual)->expr = (const char **)s;
                                         s = NULL;
                                         actual = (yyvsp[-1].deviate);
                                         (yyval.deviate)= (yyvsp[-1].deviate);
                                       }
-
     break;
 
   case 492:
-
-    { YANG_ADDELEM((yyvsp[-1].deviate)->dflt, (yyvsp[-1].deviate)->dflt_size);
+                                       { YANG_ADDELEM((yyvsp[-1].deviate)->dflt, (yyvsp[-1].deviate)->dflt_size, "defaults");
                                          *((const char **)actual) = lydict_insert_zc(trg->ctx, s);
                                          s = NULL;
                                          actual = (yyvsp[-1].deviate);
                                          (yyval.deviate) = (yyvsp[-1].deviate);
                                        }
-
     break;
 
   case 493:
-
-    { if ((yyvsp[-1].deviate)->flags & LYS_CONFIG_MASK) {
-                                          LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "config", "deviate");
+                                      { if ((yyvsp[-1].deviate)->flags & LYS_CONFIG_MASK) {
+                                          LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "config", "deviate");
                                           YYABORT;
                                         }
                                         (yyvsp[-1].deviate)->flags = (yyvsp[0].i);
                                         (yyval.deviate) = (yyvsp[-1].deviate);
                                       }
-
     break;
 
   case 494:
-
-    { if ((yyvsp[-1].deviate)->flags & LYS_MAND_MASK) {
-                                             LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "mandatory", "deviate");
+                                         { if ((yyvsp[-1].deviate)->flags & LYS_MAND_MASK) {
+                                             LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "mandatory", "deviate");
                                              YYABORT;
                                            }
                                            (yyvsp[-1].deviate)->flags = (yyvsp[0].i);
                                            (yyval.deviate) = (yyvsp[-1].deviate);
                                          }
-
     break;
 
   case 495:
-
-    { if ((yyvsp[-1].deviate)->min_set) {
-                                                LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "min-elements", "deviation");
+                                            { if ((yyvsp[-1].deviate)->min_set) {
+                                                LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "min-elements", "deviation");
                                                 YYABORT;
                                               }
                                               (yyvsp[-1].deviate)->min = (yyvsp[0].uint);
                                               (yyvsp[-1].deviate)->min_set = 1;
                                               (yyval.deviate) =  (yyvsp[-1].deviate);
                                             }
-
     break;
 
   case 496:
-
-    { if ((yyvsp[-1].deviate)->max_set) {
-                                                LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "max-elements", "deviation");
+                                            { if ((yyvsp[-1].deviate)->max_set) {
+                                                LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "max-elements", "deviation");
                                                 YYABORT;
                                               }
                                               (yyvsp[-1].deviate)->max = (yyvsp[0].uint);
                                               (yyvsp[-1].deviate)->max_set = 1;
                                               (yyval.deviate) =  (yyvsp[-1].deviate);
                                             }
-
     break;
 
   case 497:
-
-    { (yyval.backup_token).token = actual_type;
+                               { (yyval.backup_token).token = actual_type;
                                  (yyval.backup_token).actual = actual;
-                                 if (!(actual = yang_read_deviate(actual, LY_DEVIATE_DEL))) {
+                                 if (!(actual = yang_read_deviate(trg->ctx, actual, LY_DEVIATE_DEL))) {
                                    YYABORT;
                                  }
                                  actual_type = DELETE_KEYWORD;
                                }
-
     break;
 
   case 498:
-
-    { actual_type = (yyvsp[-2].backup_token).token;
+                     { actual_type = (yyvsp[-2].backup_token).token;
                        actual = (yyvsp[-2].backup_token).actual;
                      }
-
     break;
 
   case 500:
-
-    { void *tmp;
+          { void *tmp;
 
             if ((yyvsp[-1].deviate)->must_size) {
               tmp = realloc((yyvsp[-1].deviate)->must, (yyvsp[-1].deviate)->must_size * sizeof *(yyvsp[-1].deviate)->must);
               if (!tmp) {
-                LOGMEM;
+                LOGMEM(trg->ctx);
                 YYABORT;
               }
               (yyvsp[-1].deviate)->must = tmp;
@@ -7320,7 +6786,7 @@ yyreduce:
             if ((yyvsp[-1].deviate)->unique_size) {
               tmp = realloc((yyvsp[-1].deviate)->unique, (yyvsp[-1].deviate)->unique_size * sizeof *(yyvsp[-1].deviate)->unique);
               if (!tmp) {
-                LOGMEM;
+                LOGMEM(trg->ctx);
                 YYABORT;
               }
               (yyvsp[-1].deviate)->unique = tmp;
@@ -7329,171 +6795,141 @@ yyreduce:
             if ((yyvsp[-1].deviate)->dflt_size) {
               tmp = realloc((yyvsp[-1].deviate)->dflt, (yyvsp[-1].deviate)->dflt_size * sizeof *(yyvsp[-1].deviate)->dflt);
               if (!tmp) {
-                LOGMEM;
+                LOGMEM(trg->ctx);
                 YYABORT;
               }
               (yyvsp[-1].deviate)->dflt = tmp;
             }
           }
-
     break;
 
   case 501:
-
-    { (yyval.deviate) = actual; }
-
+                                { (yyval.deviate) = actual; }
     break;
 
   case 502:
-
-    { if (yang_read_units(trg, actual, s, DELETE_KEYWORD)) {
+                                        { if (yang_read_units(trg, actual, s, DELETE_KEYWORD)) {
                                             YYABORT;
                                           }
                                           s = NULL;
                                           (yyval.deviate) = (yyvsp[-1].deviate);
                                         }
-
     break;
 
   case 504:
-
-    { YANG_ADDELEM((yyvsp[-1].deviate)->unique, (yyvsp[-1].deviate)->unique_size);
+                                         { YANG_ADDELEM((yyvsp[-1].deviate)->unique, (yyvsp[-1].deviate)->unique_size, "uniques");
                                            ((struct lys_unique *)actual)->expr = (const char **)s;
                                            s = NULL;
                                            actual = (yyvsp[-1].deviate);
                                            (yyval.deviate) = (yyvsp[-1].deviate);
                                          }
-
     break;
 
   case 505:
-
-    { YANG_ADDELEM((yyvsp[-1].deviate)->dflt, (yyvsp[-1].deviate)->dflt_size);
+                                          { YANG_ADDELEM((yyvsp[-1].deviate)->dflt, (yyvsp[-1].deviate)->dflt_size, "defaults");
                                             *((const char **)actual) = lydict_insert_zc(trg->ctx, s);
                                             s = NULL;
                                             actual = (yyvsp[-1].deviate);
                                             (yyval.deviate) = (yyvsp[-1].deviate);
                                           }
-
     break;
 
   case 506:
-
-    { (yyval.backup_token).token = actual_type;
+                                 { (yyval.backup_token).token = actual_type;
                                    (yyval.backup_token).actual = actual;
-                                   if (!(actual = yang_read_deviate(actual, LY_DEVIATE_RPL))) {
+                                   if (!(actual = yang_read_deviate(trg->ctx, actual, LY_DEVIATE_RPL))) {
                                      YYABORT;
                                    }
                                    actual_type = REPLACE_KEYWORD;
                                  }
-
     break;
 
   case 507:
-
-    { actual_type = (yyvsp[-2].backup_token).token;
+                      { actual_type = (yyvsp[-2].backup_token).token;
                         actual = (yyvsp[-2].backup_token).actual;
                       }
-
     break;
 
   case 509:
-
-    { void *tmp;
+         { void *tmp;
 
            if ((yyvsp[-1].deviate)->dflt_size) {
              tmp = realloc((yyvsp[-1].deviate)->dflt, (yyvsp[-1].deviate)->dflt_size * sizeof *(yyvsp[-1].deviate)->dflt);
              if (!tmp) {
-               LOGMEM;
+               LOGMEM(trg->ctx);
                YYABORT;
              }
              (yyvsp[-1].deviate)->dflt = tmp;
            }
          }
-
     break;
 
   case 510:
-
-    { (yyval.deviate) = actual; }
-
+                                 { (yyval.deviate) = actual; }
     break;
 
   case 512:
-
-    { if (yang_read_units(trg, actual, s, DELETE_KEYWORD)) {
+                                         { if (yang_read_units(trg, actual, s, DELETE_KEYWORD)) {
                                              YYABORT;
                                            }
                                            s = NULL;
                                            (yyval.deviate) = (yyvsp[-1].deviate);
                                          }
-
     break;
 
   case 513:
-
-    { YANG_ADDELEM((yyvsp[-1].deviate)->dflt, (yyvsp[-1].deviate)->dflt_size);
+                                           { YANG_ADDELEM((yyvsp[-1].deviate)->dflt, (yyvsp[-1].deviate)->dflt_size, "defaults");
                                              *((const char **)actual) = lydict_insert_zc(trg->ctx, s);
                                              s = NULL;
                                              actual = (yyvsp[-1].deviate);
                                              (yyval.deviate) = (yyvsp[-1].deviate);
                                            }
-
     break;
 
   case 514:
-
-    { if ((yyvsp[-1].deviate)->flags & LYS_CONFIG_MASK) {
-                                              LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "config", "deviate");
+                                          { if ((yyvsp[-1].deviate)->flags & LYS_CONFIG_MASK) {
+                                              LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "config", "deviate");
                                               YYABORT;
                                             }
                                             (yyvsp[-1].deviate)->flags = (yyvsp[0].i);
                                             (yyval.deviate) = (yyvsp[-1].deviate);
                                           }
-
     break;
 
   case 515:
-
-    { if ((yyvsp[-1].deviate)->flags & LYS_MAND_MASK) {
-                                                 LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "mandatory", "deviate");
+                                             { if ((yyvsp[-1].deviate)->flags & LYS_MAND_MASK) {
+                                                 LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "mandatory", "deviate");
                                                  YYABORT;
                                                }
                                                (yyvsp[-1].deviate)->flags = (yyvsp[0].i);
                                                (yyval.deviate) = (yyvsp[-1].deviate);
                                              }
-
     break;
 
   case 516:
-
-    { if ((yyvsp[-1].deviate)->min_set) {
-                                                    LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "min-elements", "deviation");
+                                                { if ((yyvsp[-1].deviate)->min_set) {
+                                                    LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "min-elements", "deviation");
                                                     YYABORT;
                                                   }
                                                   (yyvsp[-1].deviate)->min = (yyvsp[0].uint);
                                                   (yyvsp[-1].deviate)->min_set = 1;
                                                   (yyval.deviate) =  (yyvsp[-1].deviate);
                                                 }
-
     break;
 
   case 517:
-
-    { if ((yyvsp[-1].deviate)->max_set) {
-                                                    LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "max-elements", "deviation");
+                                                { if ((yyvsp[-1].deviate)->max_set) {
+                                                    LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "max-elements", "deviation");
                                                     YYABORT;
                                                   }
                                                   (yyvsp[-1].deviate)->max = (yyvsp[0].uint);
                                                   (yyvsp[-1].deviate)->max_set = 1;
                                                   (yyval.deviate) =  (yyvsp[-1].deviate);
                                                 }
-
     break;
 
   case 518:
-
-    { (yyval.backup_token).token = actual_type;
+                      { (yyval.backup_token).token = actual_type;
                         (yyval.backup_token).actual = actual;
                         if (!(actual = yang_read_when(trg, actual, actual_type, s))) {
                           YYABORT;
@@ -7501,157 +6937,121 @@ yyreduce:
                         s = NULL;
                         actual_type = WHEN_KEYWORD;
                       }
-
     break;
 
   case 519:
-
-    { actual_type = (yyvsp[-1].backup_token).token;
+           { actual_type = (yyvsp[-1].backup_token).token;
              actual = (yyvsp[-1].backup_token).actual;
            }
-
     break;
 
   case 523:
-
-    { if (yang_read_description(trg, actual, s, "when", NODE)) {
+                                    { if (yang_read_description(trg, actual, s, "when", NODE)) {
                                         YYABORT;
                                       }
                                       s = NULL;
                                     }
-
     break;
 
   case 524:
-
-    { if (yang_read_reference(trg, actual, s, "when", NODE)) {
+                                  { if (yang_read_reference(trg, actual, s, "when", NODE)) {
                                       YYABORT;
                                     }
                                     s = NULL;
                                   }
-
     break;
 
   case 525:
-
-    { (yyval.i) = (yyvsp[0].i);
+                           { (yyval.i) = (yyvsp[0].i);
                              backup_type = actual_type;
                              actual_type = CONFIG_KEYWORD;
                            }
-
     break;
 
   case 526:
-
-    { (yyval.i) = (yyvsp[-1].i); }
-
+                                                   { (yyval.i) = (yyvsp[-1].i); }
     break;
 
   case 527:
-
-    { (yyval.i) = LYS_CONFIG_W | LYS_CONFIG_SET; }
-
+                                    { (yyval.i) = LYS_CONFIG_W | LYS_CONFIG_SET; }
     break;
 
   case 528:
-
-    { (yyval.i) = LYS_CONFIG_R | LYS_CONFIG_SET; }
-
+                          { (yyval.i) = LYS_CONFIG_R | LYS_CONFIG_SET; }
     break;
 
   case 529:
-
-    { if (!strcmp(s, "true")) {
+              { if (!strcmp(s, "true")) {
                   (yyval.i) = LYS_CONFIG_W | LYS_CONFIG_SET;
                 } else if (!strcmp(s, "false")) {
                   (yyval.i) = LYS_CONFIG_R | LYS_CONFIG_SET;
                 } else {
-                  LOGVAL(LYE_INARG, LY_VLOG_NONE, NULL, s, "config");
+                  LOGVAL(trg->ctx, LYE_INARG, LY_VLOG_NONE, NULL, s, "config");
                   free(s);
                   YYABORT;
                 }
                 free(s);
                 s = NULL;
               }
-
     break;
 
   case 530:
-
-    { (yyval.i) = (yyvsp[0].i);
+                                 { (yyval.i) = (yyvsp[0].i);
                                    backup_type = actual_type;
                                    actual_type = MANDATORY_KEYWORD;
                                  }
-
     break;
 
   case 531:
-
-    { (yyval.i) = (yyvsp[-1].i); }
-
+                                                            { (yyval.i) = (yyvsp[-1].i); }
     break;
 
   case 532:
-
-    { (yyval.i) = LYS_MAND_TRUE; }
-
+                                       { (yyval.i) = LYS_MAND_TRUE; }
     break;
 
   case 533:
-
-    { (yyval.i) = LYS_MAND_FALSE; }
-
+                          { (yyval.i) = LYS_MAND_FALSE; }
     break;
 
   case 534:
-
-    { if (!strcmp(s, "true")) {
+              { if (!strcmp(s, "true")) {
                   (yyval.i) = LYS_MAND_TRUE;
                 } else if (!strcmp(s, "false")) {
                   (yyval.i) = LYS_MAND_FALSE;
                 } else {
-                  LOGVAL(LYE_INARG, LY_VLOG_NONE, NULL, s, "mandatory");
+                  LOGVAL(trg->ctx, LYE_INARG, LY_VLOG_NONE, NULL, s, "mandatory");
                   free(s);
                   YYABORT;
                 }
                 free(s);
                 s = NULL;
               }
-
     break;
 
   case 535:
-
-    { backup_type = actual_type;
+                     { backup_type = actual_type;
                        actual_type = PRESENCE_KEYWORD;
                      }
-
     break;
 
   case 537:
-
-    { (yyval.uint) = (yyvsp[0].uint);
+                                 { (yyval.uint) = (yyvsp[0].uint);
                                    backup_type = actual_type;
                                    actual_type = MIN_ELEMENTS_KEYWORD;
                                  }
-
     break;
 
   case 538:
-
-    { (yyval.uint) = (yyvsp[-1].uint); }
-
+                                                                  { (yyval.uint) = (yyvsp[-1].uint); }
     break;
 
   case 539:
-
-    { (yyval.uint) = (yyvsp[-1].uint); }
-
+                                                     { (yyval.uint) = (yyvsp[-1].uint); }
     break;
 
   case 540:
-
-    { if (strlen(s) == 1 && s[0] == '0') {
+              { if (strlen(s) == 1 && s[0] == '0') {
                   (yyval.uint) = 0;
                 } else {
                   /* convert it to uint32_t */
@@ -7661,7 +7061,7 @@ yyreduce:
 
                   val = strtoul(s, &endptr, 10);
                   if (*endptr || s[0] == '-' || errno || val > UINT32_MAX) {
-                      LOGVAL(LYE_INARG, LY_VLOG_NONE, NULL, s, "min-elements");
+                      LOGVAL(trg->ctx, LYE_INARG, LY_VLOG_NONE, NULL, s, "min-elements");
                       free(s);
                       YYABORT;
                   }
@@ -7670,39 +7070,29 @@ yyreduce:
                 free(s);
                 s = NULL;
               }
-
     break;
 
   case 541:
-
-    { (yyval.uint) = (yyvsp[0].uint);
+                                 { (yyval.uint) = (yyvsp[0].uint);
                                    backup_type = actual_type;
                                    actual_type = MAX_ELEMENTS_KEYWORD;
                                  }
-
     break;
 
   case 542:
-
-    { (yyval.uint) = (yyvsp[-1].uint); }
-
+                                                                  { (yyval.uint) = (yyvsp[-1].uint); }
     break;
 
   case 543:
-
-    { (yyval.uint) = 0; }
-
+                                            { (yyval.uint) = 0; }
     break;
 
   case 544:
-
-    { (yyval.uint) = (yyvsp[-1].uint); }
-
+                                   { (yyval.uint) = (yyvsp[-1].uint); }
     break;
 
   case 545:
-
-    { if (!strcmp(s, "unbounded")) {
+              { if (!strcmp(s, "unbounded")) {
                   (yyval.uint) = 0;
                 } else {
                   /* convert it to uint32_t */
@@ -7712,7 +7102,7 @@ yyreduce:
 
                   val = strtoul(s, &endptr, 10);
                   if (*endptr || s[0] == '-' || errno || val == 0 || val > UINT32_MAX) {
-                      LOGVAL(LYE_INARG, LY_VLOG_NONE, NULL, s, "max-elements");
+                      LOGVAL(trg->ctx, LYE_INARG, LY_VLOG_NONE, NULL, s, "max-elements");
                       free(s);
                       YYABORT;
                   }
@@ -7721,39 +7111,29 @@ yyreduce:
                 free(s);
                 s = NULL;
               }
-
     break;
 
   case 546:
-
-    { (yyval.i) = (yyvsp[0].i);
+                                   { (yyval.i) = (yyvsp[0].i);
                                      backup_type = actual_type;
                                      actual_type = ORDERED_BY_KEYWORD;
                                    }
-
     break;
 
   case 547:
-
-    { (yyval.i) = (yyvsp[-1].i); }
-
+                                                               { (yyval.i) = (yyvsp[-1].i); }
     break;
 
   case 548:
-
-    { (yyval.i) = LYS_USERORDERED; }
-
+                                        { (yyval.i) = LYS_USERORDERED; }
     break;
 
   case 549:
-
-    { (yyval.i) = LYS_SYSTEMORDERED; }
-
+                           { (yyval.i) = LYS_SYSTEMORDERED; }
     break;
 
   case 550:
-
-    { if (!strcmp(s, "user")) {
+              { if (!strcmp(s, "user")) {
                   (yyval.i) = LYS_USERORDERED;
                 } else if (!strcmp(s, "system")) {
                   (yyval.i) = LYS_SYSTEMORDERED;
@@ -7764,69 +7144,67 @@ yyreduce:
                 free(s);
                 s=NULL;
               }
-
     break;
 
   case 551:
-
-    { (yyval.backup_token).token = actual_type;
+                     { (yyval.backup_token).token = actual_type;
                        (yyval.backup_token).actual = actual;
                        switch (actual_type) {
                        case CONTAINER_KEYWORD:
                          YANG_ADDELEM(((struct lys_node_container *)actual)->must,
-                                     ((struct lys_node_container *)actual)->must_size);
+                                     ((struct lys_node_container *)actual)->must_size, "musts");
                          break;
                        case ANYDATA_KEYWORD:
                        case ANYXML_KEYWORD:
                          YANG_ADDELEM(((struct lys_node_anydata *)actual)->must,
-                                     ((struct lys_node_anydata *)actual)->must_size);
+                                     ((struct lys_node_anydata *)actual)->must_size, "musts");
                          break;
                        case LEAF_KEYWORD:
                          YANG_ADDELEM(((struct lys_node_leaf *)actual)->must,
-                                     ((struct lys_node_leaf *)actual)->must_size);
+                                     ((struct lys_node_leaf *)actual)->must_size, "musts");
                          break;
                        case LEAF_LIST_KEYWORD:
                          YANG_ADDELEM(((struct lys_node_leaflist *)actual)->must,
-                                     ((struct lys_node_leaflist *)actual)->must_size);
+                                     ((struct lys_node_leaflist *)actual)->must_size, "musts");
                          break;
                        case LIST_KEYWORD:
                          YANG_ADDELEM(((struct lys_node_list *)actual)->must,
-                                     ((struct lys_node_list *)actual)->must_size);
+                                     ((struct lys_node_list *)actual)->must_size, "musts");
                          break;
                        case REFINE_KEYWORD:
                          YANG_ADDELEM(((struct lys_refine *)actual)->must,
-                                     ((struct lys_refine *)actual)->must_size);
+                                     ((struct lys_refine *)actual)->must_size, "musts");
                          break;
                        case ADD_KEYWORD:
                        case DELETE_KEYWORD:
                          YANG_ADDELEM(((struct lys_deviate *)actual)->must,
-                                      ((struct lys_deviate *)actual)->must_size);
+                                      ((struct lys_deviate *)actual)->must_size, "musts");
                          break;
                        case NOTIFICATION_KEYWORD:
                          if (trg->version < 2) {
                            free(s);
-                           LOGVAL(LYE_INSTMT, LY_VLOG_LYS, actual, "must");
+                           LOGVAL(trg->ctx, LYE_INSTMT, LY_VLOG_LYS, actual, "must");
                            YYABORT;
                          }
                          YANG_ADDELEM(((struct lys_node_notif *)actual)->must,
-                                     ((struct lys_node_notif *)actual)->must_size);
+                                     ((struct lys_node_notif *)actual)->must_size, "musts");
                          break;
                        case INPUT_KEYWORD:
                        case OUTPUT_KEYWORD:
                          if (trg->version < 2) {
                            free(s);
-                           LOGVAL(LYE_INSTMT, LY_VLOG_LYS, actual, "must");
+                           LOGVAL(trg->ctx, LYE_INSTMT, LY_VLOG_LYS, actual, "must");
                            YYABORT;
                          }
                          YANG_ADDELEM(((struct lys_node_inout *)actual)->must,
-                                     ((struct lys_node_inout *)actual)->must_size);
+                                     ((struct lys_node_inout *)actual)->must_size, "musts");
                          break;
                        case EXTENSION_INSTANCE:
                          /* must is already allocated */
                          break;
                        default:
                          free(s);
-                         LOGINT;
+                         LOGINT(trg->ctx);
                          YYABORT;
                        }
                        ((struct lys_restr *)actual)->expr = transform_schema2json(trg, s);
@@ -7837,63 +7215,51 @@ yyreduce:
                        s = NULL;
                        actual_type = MUST_KEYWORD;
                      }
-
     break;
 
   case 552:
-
-    { actual_type = (yyvsp[-1].backup_token).token;
+           { actual_type = (yyvsp[-1].backup_token).token;
              actual = (yyvsp[-1].backup_token).actual;
            }
-
     break;
 
   case 555:
-
-    { backup_type = actual_type;
+                           { backup_type = actual_type;
                              actual_type = UNIQUE_KEYWORD;
                            }
-
     break;
 
   case 559:
-
-    { backup_type = actual_type;
+                     { backup_type = actual_type;
                        actual_type = KEY_KEYWORD;
                      }
-
     break;
 
   case 561:
-
-    { s = strdup(yyget_text(scanner));
+                             { s = strdup(yyget_text(scanner));
                                if (!s) {
-                                 LOGMEM;
+                                 LOGMEM(trg->ctx);
                                  YYABORT;
                                }
                              }
-
     break;
 
   case 564:
-
-    { (yyval.backup_token).token = actual_type;
+                      { (yyval.backup_token).token = actual_type;
                         (yyval.backup_token).actual = actual;
-                        if (!(actual = yang_read_range(trg, actual, s, is_ext_instance))) {
+                        if (!(actual = yang_read_range(trg->ctx, actual, s, is_ext_instance))) {
                           YYABORT;
                         }
                         actual_type = RANGE_KEYWORD;
                         s = NULL;
                       }
-
     break;
 
   case 565:
-
-    { if (s) {
+                                            { if (s) {
                                                 s = ly_realloc(s,strlen(s) + yyget_leng(scanner) + 2);
                                                 if (!s) {
-                                                  LOGMEM;
+                                                  LOGMEM(trg->ctx);
                                                   YYABORT;
                                                 }
                                                 strcat(s,"/");
@@ -7901,207 +7267,170 @@ yyreduce:
                                               } else {
                                                 s = malloc(yyget_leng(scanner) + 2);
                                                 if (!s) {
-                                                  LOGMEM;
+                                                  LOGMEM(trg->ctx);
                                                   YYABORT;
                                                 }
                                                 s[0]='/';
                                                 memcpy(s + 1, yyget_text(scanner), yyget_leng(scanner) + 1);
                                               }
                                             }
-
     break;
 
   case 569:
-
-    { if (s) {
+                                          { if (s) {
                                               s = ly_realloc(s,strlen(s) + yyget_leng(scanner) + 1);
                                               if (!s) {
-                                                LOGMEM;
+                                                LOGMEM(trg->ctx);
                                                 YYABORT;
                                               }
                                               strcat(s, yyget_text(scanner));
                                             } else {
                                               s = strdup(yyget_text(scanner));
                                               if (!s) {
-                                                LOGMEM;
+                                                LOGMEM(trg->ctx);
                                                 YYABORT;
                                               }
                                             }
                                           }
-
     break;
 
   case 571:
-
-    { tmp_s = yyget_text(scanner); }
-
+              { tmp_s = yyget_text(scanner); }
     break;
 
   case 572:
-
-    { s = strdup(tmp_s);
+                                                              { s = strdup(tmp_s);
                                                                 if (!s) {
-                                                                  LOGMEM;
+                                                                  LOGMEM(trg->ctx);
                                                                   YYABORT;
                                                                 }
                                                                 s[strlen(s) - 1] = '\0';
                                                              }
-
     break;
 
   case 573:
-
-    { tmp_s = yyget_text(scanner); }
-
+     { tmp_s = yyget_text(scanner); }
     break;
 
   case 574:
-
-    { s = strdup(tmp_s);
+                                                    { s = strdup(tmp_s);
                                                       if (!s) {
-                                                        LOGMEM;
+                                                        LOGMEM(trg->ctx);
                                                         YYABORT;
                                                       }
                                                       s[strlen(s) - 1] = '\0';
                                                     }
-
     break;
 
   case 598:
-
-    { /* convert it to uint32_t */
+                                             { /* convert it to uint32_t */
                                                 unsigned long val;
 
                                                 val = strtoul(yyget_text(scanner), NULL, 10);
                                                 if (val > UINT32_MAX) {
-                                                    LOGVAL(LYE_SPEC, LY_VLOG_NONE, NULL, "Converted number is very long.");
+                                                    LOGVAL(trg->ctx, LYE_SPEC, LY_VLOG_NONE, NULL, "Converted number is very long.");
                                                     YYABORT;
                                                 }
                                                 (yyval.uint) = (uint32_t) val;
                                              }
-
     break;
 
   case 599:
-
-    { (yyval.uint) = 0; }
-
+                                 { (yyval.uint) = 0; }
     break;
 
   case 600:
-
-    { (yyval.uint) = (yyvsp[0].uint); }
-
+                            { (yyval.uint) = (yyvsp[0].uint); }
     break;
 
   case 601:
-
-    { (yyval.i) = 0; }
-
+                    { (yyval.i) = 0; }
     break;
 
   case 602:
-
-    { /* convert it to int32_t */
+                           { /* convert it to int32_t */
                              int64_t val;
 
                              val = strtoll(yyget_text(scanner), NULL, 10);
                              if (val < INT32_MIN || val > INT32_MAX) {
-                                 LOGVAL(LYE_SPEC, LY_VLOG_NONE, NULL, "The number is not in the correct range (INT32_MIN..INT32_MAX): \"%d\"",val);
+                                 LOGVAL(trg->ctx, LYE_SPEC, LY_VLOG_NONE, NULL,
+                                        "The number is not in the correct range (INT32_MIN..INT32_MAX): \"%d\"",val);
                                  YYABORT;
                              }
                              (yyval.i) = (int32_t) val;
                            }
-
     break;
 
   case 608:
-
-    { if (lyp_check_identifier(s, LY_IDENT_SIMPLE, trg, NULL)) {
+              { if (lyp_check_identifier(trg->ctx, s, LY_IDENT_SIMPLE, trg, NULL)) {
                     free(s);
                     YYABORT;
                 }
               }
-
     break;
 
   case 613:
-
-    { char *tmp;
+             { char *tmp;
 
                if ((tmp = strchr(s, ':'))) {
                  *tmp = '\0';
                  /* check prefix */
-                 if (lyp_check_identifier(s, LY_IDENT_SIMPLE, trg, NULL)) {
+                 if (lyp_check_identifier(trg->ctx, s, LY_IDENT_SIMPLE, trg, NULL)) {
                    free(s);
                    YYABORT;
                  }
                  /* check identifier */
-                 if (lyp_check_identifier(tmp + 1, LY_IDENT_SIMPLE, trg, NULL)) {
+                 if (lyp_check_identifier(trg->ctx, tmp + 1, LY_IDENT_SIMPLE, trg, NULL)) {
                    free(s);
                    YYABORT;
                  }
                  *tmp = ':';
                } else {
                  /* check identifier */
-                 if (lyp_check_identifier(s, LY_IDENT_SIMPLE, trg, NULL)) {
+                 if (lyp_check_identifier(trg->ctx, s, LY_IDENT_SIMPLE, trg, NULL)) {
                    free(s);
                    YYABORT;
                  }
                }
              }
-
     break;
 
   case 614:
-
-    { s = (yyvsp[-1].str); }
-
+                           { s = (yyvsp[-1].str); }
     break;
 
   case 615:
-
-    { s = (yyvsp[-3].str); }
-
+                                                           { s = (yyvsp[-3].str); }
     break;
 
   case 616:
-
-    { actual_type = backup_type;
+               { actual_type = backup_type;
                  backup_type = NODE;
                  (yyval.str) = s;
                  s = NULL;
                }
-
     break;
 
   case 617:
-
-    { actual_type = backup_type;
+                         { actual_type = backup_type;
                            backup_type = NODE;
                          }
-
     break;
 
   case 618:
-
-    { (yyval.str) = s;
+                        { (yyval.str) = s;
                           s = NULL;
                         }
-
     break;
 
   case 622:
-
-    { actual_type = (yyvsp[-1].backup_token).token;
+                   { actual_type = (yyvsp[-1].backup_token).token;
                      actual = (yyvsp[-1].backup_token).actual;
                    }
-
     break;
 
   case 623:
-
-    { (yyval.backup_token).token = actual_type;
+                                              { (yyval.backup_token).token = actual_type;
                                                 (yyval.backup_token).actual = actual;
                                                 if (!(actual = yang_read_ext(trg, (actual) ? actual : trg, (yyvsp[-1].str), s,
                                                                              actual_type, backup_type, is_ext_instance))) {
@@ -8110,25 +7439,21 @@ yyreduce:
                                                 s = NULL;
                                                 actual_type = EXTENSION_INSTANCE;
                                               }
-
     break;
 
   case 624:
-
-    { (yyval.str) = s; s = NULL; }
-
+                         { (yyval.str) = s; s = NULL; }
     break;
 
   case 639:
-
-    {  struct yang_ext_substmt *substmt = ((struct lys_ext_instance *)actual)->parent;
+     {  struct yang_ext_substmt *substmt = ((struct lys_ext_instance *)actual)->parent;
         int32_t length = 0, old_length = 0;
         char *tmp_value;
 
         if (!substmt) {
           substmt = calloc(1, sizeof *substmt);
           if (!substmt) {
-            LOGMEM;
+            LOGMEM(trg->ctx);
             YYABORT;
           }
           ((struct lys_ext_instance *)actual)->parent = substmt;
@@ -8137,7 +7462,7 @@ yyreduce:
         old_length = (substmt->ext_substmt) ? strlen(substmt->ext_substmt) + 2 : 2;
         tmp_value = realloc(substmt->ext_substmt, old_length + length + 1);
         if (!tmp_value) {
-          LOGMEM;
+          LOGMEM(trg->ctx);
           YYABORT;
         }
         substmt->ext_substmt = tmp_value;
@@ -8147,12 +7472,10 @@ yyreduce:
         tmp_value[length + 1] = '\0';
         tmp_value[length + 2] = '\0';
       }
-
     break;
 
   case 640:
-
-    {  struct yang_ext_substmt *substmt = ((struct lys_ext_instance *)actual)->parent;
+     {  struct yang_ext_substmt *substmt = ((struct lys_ext_instance *)actual)->parent;
         int32_t length;
         char *tmp_value, **array;
         int i = 0;
@@ -8160,7 +7483,7 @@ yyreduce:
         if (!substmt) {
           substmt = calloc(1, sizeof *substmt);
           if (!substmt) {
-            LOGMEM;
+            LOGMEM(trg->ctx);
             YYABORT;
           }
           ((struct lys_ext_instance *)actual)->parent = substmt;
@@ -8173,14 +7496,14 @@ yyreduce:
           array = realloc(substmt->ext_modules, (i + 2) * sizeof *substmt->ext_modules);
         }
         if (!array) {
-          LOGMEM;
+          LOGMEM(trg->ctx);
           YYABORT;
         }
         substmt->ext_modules = array;
         array[i + 1] = NULL;
         tmp_value = malloc(length + 2);
         if (!tmp_value) {
-          LOGMEM;
+          LOGMEM(trg->ctx);
           YYABORT;
         }
         array[i] = tmp_value;
@@ -8188,57 +7511,45 @@ yyreduce:
         tmp_value[length] = '\0';
         tmp_value[length + 1] = '\0';
       }
-
     break;
 
   case 643:
-
-    { (yyval.str) = yyget_text(scanner); }
-
+                                        { (yyval.str) = yyget_text(scanner); }
     break;
 
   case 644:
-
-    { (yyval.str) = yyget_text(scanner); }
-
+                                               { (yyval.str) = yyget_text(scanner); }
     break;
 
   case 656:
-
-    { s = strdup(yyget_text(scanner));
+                { s = strdup(yyget_text(scanner));
                   if (!s) {
-                    LOGMEM;
+                    LOGMEM(trg->ctx);
                     YYABORT;
                   }
                 }
-
     break;
 
   case 749:
-
-    { s = strdup(yyget_text(scanner));
+                        { s = strdup(yyget_text(scanner));
                           if (!s) {
-                            LOGMEM;
+                            LOGMEM(trg->ctx);
                             YYABORT;
                           }
                         }
-
     break;
 
   case 750:
-
-    { s = strdup(yyget_text(scanner));
+                                  { s = strdup(yyget_text(scanner));
                                     if (!s) {
-                                      LOGMEM;
+                                      LOGMEM(trg->ctx);
                                       YYABORT;
                                     }
                                   }
-
     break;
 
   case 751:
-
-    { struct lys_type **type;
+                       { struct lys_type **type;
 
                              type = (struct lys_type **)yang_getplace_for_extcomplex_struct(ext_instance, NULL, ext_name,
                                                                                             "type", LY_STMT_TYPE);
@@ -8248,7 +7559,7 @@ yyreduce:
                              /* allocate type structure */
                              (*type) = calloc(1, sizeof **type);
                              if (!*type) {
-                               LOGMEM;
+                               LOGMEM(trg->ctx);
                                YYABORT;
                              }
 
@@ -8257,12 +7568,10 @@ yyreduce:
                              (yyval.v) = actual = *type;
                              is_ext_instance = 0;
                             }
-
     break;
 
   case 752:
-
-    { struct lys_tpdf **tpdf;
+                          { struct lys_tpdf **tpdf;
 
                                 tpdf = (struct lys_tpdf **)yang_getplace_for_extcomplex_struct(ext_instance, NULL, ext_name,
                                                                                                "typedef", LY_STMT_TYPEDEF);
@@ -8272,19 +7581,17 @@ yyreduce:
                                 /* allocate typedef structure */
                                 (*tpdf) = calloc(1, sizeof **tpdf);
                                 if (!*tpdf) {
-                                  LOGMEM;
+                                  LOGMEM(trg->ctx);
                                   YYABORT;
                                 }
 
                                 (yyval.v) = actual = *tpdf;
                                 is_ext_instance = 0;
                               }
-
     break;
 
   case 753:
-
-    { struct lys_iffeature **iffeature;
+                            { struct lys_iffeature **iffeature;
 
                                  iffeature = (struct lys_iffeature **)yang_getplace_for_extcomplex_struct(ext_instance, NULL, ext_name,
                                                                                                           "if-feature", LY_STMT_IFFEATURE);
@@ -8294,17 +7601,15 @@ yyreduce:
                                  /* allocate typedef structure */
                                  (*iffeature) = calloc(1, sizeof **iffeature);
                                  if (!*iffeature) {
-                                   LOGMEM;
+                                   LOGMEM(trg->ctx);
                                    YYABORT;
                                  }
                                  (yyval.v) = actual = *iffeature;
                                }
-
     break;
 
   case 754:
-
-    { struct lys_restr **restr;
+                              { struct lys_restr **restr;
                                     LY_STMT stmt;
 
                                     s = yyget_text(scanner);
@@ -8324,29 +7629,25 @@ yyreduce:
                                     /* allocate structure for must */
                                     (*restr) = calloc(1, sizeof(struct lys_restr));
                                     if (!*restr) {
-                                      LOGMEM;
+                                      LOGMEM(trg->ctx);
                                       YYABORT;
                                     }
                                     (yyval.v) = actual = *restr;
                                     s = NULL;
                                   }
-
     break;
 
   case 755:
-
-    { actual = yang_getplace_for_extcomplex_struct(ext_instance, NULL, ext_name, "when", LY_STMT_WHEN);
+                       { actual = yang_getplace_for_extcomplex_struct(ext_instance, NULL, ext_name, "when", LY_STMT_WHEN);
                              if (!actual) {
                                YYABORT;
                              }
                              (yyval.v) = actual;
                            }
-
     break;
 
   case 756:
-
-    { struct lys_revision **rev;
+                           { struct lys_revision **rev;
                                  int i;
 
                                  rev = (struct lys_revision **)yang_getplace_for_extcomplex_struct(ext_instance, &i, ext_name,
@@ -8356,19 +7657,17 @@ yyreduce:
                                  }
                                  rev[i] = calloc(1, sizeof **rev);
                                  if (!rev[i]) {
-                                   LOGMEM;
+                                   LOGMEM(trg->ctx);
                                    YYABORT;
                                  }
                                  actual = rev[i];
                                  (yyval.revisions).revision = rev;
                                  (yyval.revisions).index = i;
                                }
-
     break;
 
   case 757:
-
-    { LY_STMT stmt;
+                          { LY_STMT stmt;
 
                                 s = yyget_text(scanner);
                                 if (!strcmp(s, "action")) {
@@ -8407,181 +7706,145 @@ yyreduce:
                                 s = NULL;
                                 is_ext_instance = 0;
                               }
-
     break;
 
   case 758:
-
-    { LOGERR(LY_SUCCESS, "Extension's substatement \"%s\" not supported.", yyget_text(scanner)); }
-
+                                           { LOGERR(trg->ctx, ly_errno, "Extension's substatement \"%s\" not supported.", yyget_text(scanner)); }
     break;
 
   case 790:
-
-    { actual_type = EXTENSION_INSTANCE;
+                          { actual_type = EXTENSION_INSTANCE;
                                 actual = ext_instance;
                                 if (!is_ext_instance) {
-                                  LOGVAL(LYE_INSTMT, LY_VLOG_NONE, NULL, yyget_text(scanner));
+                                  LOGVAL(trg->ctx, LYE_INSTMT, LY_VLOG_NONE, NULL, yyget_text(scanner));
                                   YYABORT;
                                 }
                                 (yyval.i) = 0;
                               }
-
     break;
 
   case 792:
-
-    { if (yang_read_extcomplex_str(trg, ext_instance, "prefix", ext_name, s,
+                                   { if (yang_read_extcomplex_str(trg, ext_instance, "prefix", ext_name, &s,
                                                                   0, LY_STMT_PREFIX)) {
                                        YYABORT;
                                      }
                                    }
-
     break;
 
   case 793:
-
-    { if (yang_read_extcomplex_str(trg, ext_instance, "description", ext_name, s,
+                                        { if (yang_read_extcomplex_str(trg, ext_instance, "description", ext_name, &s,
                                                                        0, LY_STMT_DESCRIPTION)) {
                                             YYABORT;
                                           }
                                         }
-
     break;
 
   case 794:
-
-    { if (yang_read_extcomplex_str(trg, ext_instance, "reference", ext_name, s,
+                                      { if (yang_read_extcomplex_str(trg, ext_instance, "reference", ext_name, &s,
                                                                      0, LY_STMT_REFERENCE)) {
                                           YYABORT;
                                         }
                                       }
-
     break;
 
   case 795:
-
-    { if (yang_read_extcomplex_str(trg, ext_instance, "units", ext_name, s,
+                                  { if (yang_read_extcomplex_str(trg, ext_instance, "units", ext_name, &s,
                                                                      0, LY_STMT_UNITS)) {
                                       YYABORT;
                                     }
                                   }
-
     break;
 
   case 796:
-
-    { if (yang_read_extcomplex_str(trg, ext_instance, "base", ext_name, s,
+                                 { if (yang_read_extcomplex_str(trg, ext_instance, "base", ext_name, &s,
                                                                 0, LY_STMT_BASE)) {
                                      YYABORT;
                                    }
                                  }
-
     break;
 
   case 797:
-
-    { if (yang_read_extcomplex_str(trg, ext_instance, "contact", ext_name, s,
+                                    { if (yang_read_extcomplex_str(trg, ext_instance, "contact", ext_name, &s,
                                                                      0, LY_STMT_CONTACT)) {
                                         YYABORT;
                                       }
                                     }
-
     break;
 
   case 798:
-
-    { if (yang_read_extcomplex_str(trg, ext_instance, "default", ext_name, s,
+                                    { if (yang_read_extcomplex_str(trg, ext_instance, "default", ext_name, &s,
                                                                      0, LY_STMT_DEFAULT)) {
                                         YYABORT;
                                       }
                                     }
-
     break;
 
   case 799:
-
-    { if (yang_read_extcomplex_str(trg, ext_instance, "error-message", ext_name, s,
+                                          { if (yang_read_extcomplex_str(trg, ext_instance, "error-message", ext_name, &s,
                                                                          0, LY_STMT_ERRMSG)) {
                                               YYABORT;
                                             }
                                           }
-
     break;
 
   case 800:
-
-    { if (yang_read_extcomplex_str(trg, ext_instance, "error-app-tag", ext_name, s,
+                                          { if (yang_read_extcomplex_str(trg, ext_instance, "error-app-tag", ext_name, &s,
                                                                          0, LY_STMT_ERRTAG)) {
                                               YYABORT;
                                             }
                                           }
-
     break;
 
   case 801:
-
-    { if (yang_read_extcomplex_str(trg, ext_instance, "key", ext_name, s,
+                                { if (yang_read_extcomplex_str(trg, ext_instance, "key", ext_name, &s,
                                                                0, LY_STMT_KEY)) {
                                     YYABORT;
                                   }
                                 }
-
     break;
 
   case 802:
-
-    { if (yang_read_extcomplex_str(trg, ext_instance, "namespace", ext_name, s,
+                                      { if (yang_read_extcomplex_str(trg, ext_instance, "namespace", ext_name, &s,
                                                                      0, LY_STMT_NAMESPACE)) {
                                           YYABORT;
                                         }
                                       }
-
     break;
 
   case 803:
-
-    { if (yang_read_extcomplex_str(trg, ext_instance, "organization", ext_name, s,
+                                         { if (yang_read_extcomplex_str(trg, ext_instance, "organization", ext_name, &s,
                                                                         0, LY_STMT_ORGANIZATION)) {
                                              YYABORT;
                                            }
                                          }
-
     break;
 
   case 804:
-
-    { if (yang_read_extcomplex_str(trg, ext_instance, "path", ext_name, s,
+                                 { if (yang_read_extcomplex_str(trg, ext_instance, "path", ext_name, &s,
                                                                 0, LY_STMT_PATH)) {
                                      YYABORT;
                                    }
                                  }
-
     break;
 
   case 805:
-
-    { if (yang_read_extcomplex_str(trg, ext_instance, "presence", ext_name, s,
+                                     { if (yang_read_extcomplex_str(trg, ext_instance, "presence", ext_name, &s,
                                                                     0, LY_STMT_PRESENCE)) {
                                          YYABORT;
                                        }
                                      }
-
     break;
 
   case 806:
-
-    { if (yang_read_extcomplex_str(trg, ext_instance, "revision-date", ext_name, s,
+                                          { if (yang_read_extcomplex_str(trg, ext_instance, "revision-date", ext_name, &s,
                                                                          0, LY_STMT_REVISIONDATE)) {
                                               YYABORT;
                                             }
                                           }
-
     break;
 
   case 807:
-
-    { struct lys_type *type = (yyvsp[-2].v);
+     { struct lys_type *type = (yyvsp[-2].v);
 
        if (yang_fill_type(trg, type, (struct yang_type *)type->der, ext_instance, param->unres)) {
          yang_type_free(trg->ctx, type);
@@ -8594,17 +7857,15 @@ yyreduce:
        actual = ext_instance;
        is_ext_instance = 1;
      }
-
     break;
 
   case 808:
-
-    { struct lys_tpdf *tpdf = (yyvsp[-2].v);
+     { struct lys_tpdf *tpdf = (yyvsp[-2].v);
 
        if (yang_fill_type(trg, &tpdf->type, (struct yang_type *)tpdf->type.der, tpdf, param->unres)) {
          yang_type_free(trg->ctx, &tpdf->type);
        }
-       if (yang_check_ext_instance(trg, &tpdf->ext, tpdf->ext_size, tpdf, param->unres)) {
+       if (yang_check_ext_instance(trg, &tpdf->ext, &tpdf->ext_size, tpdf, param->unres)) {
          YYABORT;
        }
        if (unres_schema_add_node(trg, param->unres, &tpdf->type, UNRES_TYPE_DER_TPDF, (struct lys_node *)ext_instance) == -1) {
@@ -8618,43 +7879,35 @@ yyreduce:
        actual = ext_instance;
        is_ext_instance = 1;
      }
-
     break;
 
   case 809:
-
-    { if (yang_fill_extcomplex_flags(ext_instance, ext_name, "status", LY_STMT_STATUS,
+                                   { if (yang_fill_extcomplex_flags(ext_instance, ext_name, "status", LY_STMT_STATUS,
                                                                     (yyvsp[0].i), LYS_STATUS_MASK)) {
                                        YYABORT;
                                      }
                                    }
-
     break;
 
   case 810:
-
-    { if (yang_fill_extcomplex_flags(ext_instance, ext_name, "config", LY_STMT_CONFIG,
+                                   { if (yang_fill_extcomplex_flags(ext_instance, ext_name, "config", LY_STMT_CONFIG,
                                                                     (yyvsp[0].i), LYS_CONFIG_MASK)) {
                                        YYABORT;
                                      }
                                    }
-
     break;
 
   case 811:
-
-    { if (yang_fill_extcomplex_flags(ext_instance, ext_name, "mandatory", LY_STMT_MANDATORY,
+                                      { if (yang_fill_extcomplex_flags(ext_instance, ext_name, "mandatory", LY_STMT_MANDATORY,
                                                                        (yyvsp[0].i), LYS_MAND_MASK)) {
                                           YYABORT;
                                         }
                                       }
-
     break;
 
   case 812:
-
-    { if ((yyvsp[-1].i) & LYS_ORDERED_MASK) {
-                                            LOGVAL(LYE_TOOMANY, LY_VLOG_NONE, NULL, "ordered by", ext_name);
+                                       { if ((yyvsp[-1].i) & LYS_ORDERED_MASK) {
+                                            LOGVAL(trg->ctx, LYE_TOOMANY, LY_VLOG_NONE, NULL, "ordered by", ext_name);
                                             YYABORT;
                                          }
                                          if ((yyvsp[0].i) & LYS_USERORDERED) {
@@ -8666,45 +7919,37 @@ yyreduce:
                                          (yyvsp[-1].i) |= (yyvsp[0].i);
                                          (yyval.i) = (yyvsp[-1].i);
                                        }
-
     break;
 
   case 813:
-
-    { if (yang_fill_extcomplex_uint8(ext_instance, ext_name, "require-instance",
+                                             { if (yang_fill_extcomplex_uint8(ext_instance, ext_name, "require-instance",
                                                                               LY_STMT_REQINSTANCE, (yyvsp[0].i))) {
                                                  YYABORT;
                                                }
                                              }
-
     break;
 
   case 814:
-
-    { if (yang_fill_extcomplex_uint8(ext_instance, ext_name, "modifier", LY_STMT_MODIFIER, 0)) {
+                                     { if (yang_fill_extcomplex_uint8(ext_instance, ext_name, "modifier", LY_STMT_MODIFIER, 0)) {
                                          YYABORT;
                                        }
                                      }
-
     break;
 
   case 815:
-
-    { /* range check */
+     { /* range check */
        if ((yyvsp[0].uint) < 1 || (yyvsp[0].uint) > 18) {
-         LOGVAL(LYE_SPEC, LY_VLOG_NONE, NULL, "Invalid value \"%d\" of \"%s\".", (yyvsp[0].uint), "fraction-digits");
+         LOGVAL(trg->ctx, LYE_SPEC, LY_VLOG_NONE, NULL, "Invalid value \"%d\" of \"%s\".", (yyvsp[0].uint), "fraction-digits");
          YYABORT;
        }
        if (yang_fill_extcomplex_uint8(ext_instance, ext_name, "fraction-digits", LY_STMT_DIGITS, (yyvsp[0].uint))) {
          YYABORT;
        }
      }
-
     break;
 
   case 816:
-
-    { uint32_t **val;
+                                         { uint32_t **val;
 
                                            val = (uint32_t **)yang_getplace_for_extcomplex_struct(ext_instance, NULL, ext_name,
                                                                                                   "min-elements", LY_STMT_MIN);
@@ -8714,17 +7959,15 @@ yyreduce:
                                            /* store the value */
                                            *val = malloc(sizeof(uint32_t));
                                            if (!*val) {
-                                             LOGMEM;
+                                             LOGMEM(trg->ctx);
                                              YYABORT;
                                            }
                                            **val = (yyvsp[0].uint);
                                          }
-
     break;
 
   case 817:
-
-    { uint32_t **val;
+                                         { uint32_t **val;
 
                                            val = (uint32_t **)yang_getplace_for_extcomplex_struct(ext_instance, NULL, ext_name,
                                                                                                   "max-elements", LY_STMT_MAX);
@@ -8734,17 +7977,15 @@ yyreduce:
                                            /* store the value */
                                            *val = malloc(sizeof(uint32_t));
                                            if (!*val) {
-                                             LOGMEM;
+                                             LOGMEM(trg->ctx);
                                              YYABORT;
                                            }
                                            **val = (yyvsp[0].uint);
                                          }
-
     break;
 
   case 818:
-
-    { uint32_t **val;
+                                     { uint32_t **val;
 
                                        val = (uint32_t **)yang_getplace_for_extcomplex_struct(ext_instance, NULL, ext_name,
                                                                                               "position", LY_STMT_POSITION);
@@ -8754,17 +7995,15 @@ yyreduce:
                                        /* store the value */
                                        *val = malloc(sizeof(uint32_t));
                                        if (!*val) {
-                                         LOGMEM;
+                                         LOGMEM(trg->ctx);
                                          YYABORT;
                                        }
                                        **val = (yyvsp[0].uint);
                                      }
-
     break;
 
   case 819:
-
-    { int32_t **val;
+                                  { int32_t **val;
 
                                     val = (int32_t **)yang_getplace_for_extcomplex_struct(ext_instance, NULL, ext_name,
                                                                                           "value", LY_STMT_VALUE);
@@ -8774,17 +8013,15 @@ yyreduce:
                                     /* store the value */
                                     *val = malloc(sizeof(int32_t));
                                     if (!*val) {
-                                      LOGMEM;
+                                      LOGMEM(trg->ctx);
                                       YYABORT;
                                     }
                                     **val = (yyvsp[0].i);
                                   }
-
     break;
 
   case 820:
-
-    { struct lys_unique **unique;
+                                   { struct lys_unique **unique;
                                      int rc;
 
                                      unique = (struct lys_unique **)yang_getplace_for_extcomplex_struct(ext_instance, NULL, ext_name,
@@ -8794,7 +8031,7 @@ yyreduce:
                                      }
                                      *unique = calloc(1, sizeof(struct lys_unique));
                                      if (!*unique) {
-                                       LOGMEM;
+                                       LOGMEM(trg->ctx);
                                        YYABORT;
                                      }
                                      rc = yang_fill_unique(trg, (struct lys_node_list *)ext_instance, *unique, s, param->unres);
@@ -8804,12 +8041,10 @@ yyreduce:
                                        YYABORT;
                                      }
                                    }
-
     break;
 
   case 821:
-
-    { struct lys_iffeature *iffeature;
+     { struct lys_iffeature *iffeature;
 
        iffeature = (yyvsp[-2].v);
        s = (char *)iffeature->features;
@@ -8817,61 +8052,52 @@ yyreduce:
        if (yang_fill_iffeature(trg, iffeature, ext_instance, s, param->unres, 0)) {
          YYABORT;
        }
-       if (yang_check_ext_instance(trg, &iffeature->ext, iffeature->ext_size, iffeature, param->unres)) {
+       if (yang_check_ext_instance(trg, &iffeature->ext, &iffeature->ext_size, iffeature, param->unres)) {
          YYABORT;
        }
        s = NULL;
        actual = ext_instance;
      }
-
     break;
 
   case 823:
-
-    { if (yang_check_ext_instance(trg, &((struct lys_restr *)(yyvsp[-2].v))->ext, ((struct lys_restr *)(yyvsp[-2].v))->ext_size, (yyvsp[-2].v), param->unres)) {
+     { if (yang_check_ext_instance(trg, &((struct lys_restr *)(yyvsp[-2].v))->ext, &((struct lys_restr *)(yyvsp[-2].v))->ext_size, (yyvsp[-2].v), param->unres)) {
          YYABORT;
        }
        actual = ext_instance;
      }
-
     break;
 
   case 824:
-
-    { if (yang_check_ext_instance(trg, &(*(struct lys_when **)(yyvsp[-2].v))->ext, (*(struct lys_when **)(yyvsp[-2].v))->ext_size,
+     { if (yang_check_ext_instance(trg, &(*(struct lys_when **)(yyvsp[-2].v))->ext, &(*(struct lys_when **)(yyvsp[-2].v))->ext_size,
                                    *(struct lys_when **)(yyvsp[-2].v), param->unres)) {
          YYABORT;
        }
        actual = ext_instance;
      }
-
     break;
 
   case 825:
-
-    { int i;
+     { int i;
 
        for (i = 0; i < (yyvsp[-2].revisions).index; ++i) {
          if (!strcmp((yyvsp[-2].revisions).revision[i]->date, (yyvsp[-2].revisions).revision[(yyvsp[-2].revisions).index]->date)) {
-           LOGWRN("Module's revisions are not unique (%s).", (yyvsp[-2].revisions).revision[i]->date);
+           LOGWRN(trg->ctx, "Module's revisions are not unique (%s).", (yyvsp[-2].revisions).revision[i]->date);
            break;
          }
        }
-       if (yang_check_ext_instance(trg, &(yyvsp[-2].revisions).revision[(yyvsp[-2].revisions).index]->ext, (yyvsp[-2].revisions).revision[(yyvsp[-2].revisions).index]->ext_size,
+       if (yang_check_ext_instance(trg, &(yyvsp[-2].revisions).revision[(yyvsp[-2].revisions).index]->ext, &(yyvsp[-2].revisions).revision[(yyvsp[-2].revisions).index]->ext_size,
                                    &(yyvsp[-2].revisions).revision[(yyvsp[-2].revisions).index], param->unres)) {
          YYABORT;
        }
        actual = ext_instance;
      }
-
     break;
 
   case 826:
-
-    { actual = ext_instance;
+                                                                  { actual = ext_instance;
                                                                     is_ext_instance = 1;
                                                                   }
-
     break;
 
 
@@ -8901,14 +8127,13 @@ yyreduce:
   /* Now 'shift' the result of the reduction.  Determine what state
      that goes to, based on the state we popped back to and the rule
      number reduced by.  */
-
-  yyn = yyr1[yyn];
-
-  yystate = yypgoto[yyn - YYNTOKENS] + *yyssp;
-  if (0 <= yystate && yystate <= YYLAST && yycheck[yystate] == *yyssp)
-    yystate = yytable[yystate];
-  else
-    yystate = yydefgoto[yyn - YYNTOKENS];
+  {
+    const int yylhs = yyr1[yyn] - YYNTOKENS;
+    const int yyi = yypgoto[yylhs] + *yyssp;
+    yystate = (0 <= yyi && yyi <= YYLAST && yycheck[yyi] == *yyssp
+               ? yytable[yyi]
+               : yydefgoto[yylhs]);
+  }
 
   goto yynewstate;
 
@@ -8940,7 +8165,7 @@ yyerrlab:
           {
             if (yymsg != yymsgbuf)
               YYSTACK_FREE (yymsg);
-            yymsg = (char *) YYSTACK_ALLOC (yymsg_alloc);
+            yymsg = YY_CAST (char *, YYSTACK_ALLOC (YY_CAST (YYSIZE_T, yymsg_alloc)));
             if (!yymsg)
               {
                 yymsg = yymsgbuf;
@@ -8991,14 +8216,11 @@ yyerrlab:
 | yyerrorlab -- error raised explicitly by YYERROR.  |
 `---------------------------------------------------*/
 yyerrorlab:
+  /* Pacify compilers when the user code never invokes YYERROR and the
+     label yyerrorlab therefore never appears in user code.  */
+  if (0)
+    YYERROR;
 
-  /* Pacify compilers like GCC when the user code never invokes
-     YYERROR and the label yyerrorlab therefore never appears in user
-     code.  */
-  if (/*CONSTCOND*/ 0)
-     goto yyerrorlab;
-
-  yyerror_range[1] = yylsp[1-yylen];
   /* Do not reclaim the symbols of the rule whose action triggered
      this YYERROR.  */
   YYPOPSTACK (yylen);
@@ -9064,12 +8286,14 @@ yyacceptlab:
   yyresult = 0;
   goto yyreturn;
 
+
 /*-----------------------------------.
 | yyabortlab -- YYABORT comes here.  |
 `-----------------------------------*/
 yyabortlab:
   yyresult = 1;
   goto yyreturn;
+
 
 #if !defined yyoverflow || YYERROR_VERBOSE
 /*-------------------------------------------------.
@@ -9081,6 +8305,10 @@ yyexhaustedlab:
   /* Fall through.  */
 #endif
 
+
+/*-----------------------------------------------------.
+| yyreturn -- parsing is finished, return the result.  |
+`-----------------------------------------------------*/
 yyreturn:
   if (yychar != YYEMPTY)
     {
@@ -9112,15 +8340,16 @@ yyreturn:
 }
 
 
-
-void yyerror(YYLTYPE *yylloc, void *scanner, struct yang_parameter *param, ...){
-
+void
+yyerror(YYLTYPE *yylloc, void *scanner, struct yang_parameter *param, ...)
+{
   free(*param->value);
+  *param->value = NULL;
   if (yylloc->first_line != -1) {
     if (*param->data_node && (*param->data_node) == (*param->actual_node)) {
-      LOGVAL(LYE_INSTMT, LY_VLOG_LYS, *param->data_node, yyget_text(scanner));
+      LOGVAL(param->module->ctx, LYE_INSTMT, LY_VLOG_LYS, *param->data_node, yyget_text(scanner));
     } else {
-      LOGVAL(LYE_INSTMT, LY_VLOG_NONE, NULL, yyget_text(scanner));
+      LOGVAL(param->module->ctx, LYE_INSTMT, LY_VLOG_NONE, NULL, yyget_text(scanner));
     }
   }
 }

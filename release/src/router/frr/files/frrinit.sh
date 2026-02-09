@@ -16,19 +16,15 @@
 # provides the actual functions to start/stop/restart things.
 #
 
-if [ -r "/lib/lsb/init-functions" ]; then
-  . /lib/lsb/init-functions
-else
-  log_success_msg() {
-     echo "$@"
-  }
-  log_warning_msg() {
-     echo "$@" >&2
-  }
-  log_failure_msg() {
-     echo "$@" >&2
-  }
-fi
+log_success_msg() {
+  echo "$@"
+}
+log_warning_msg() {
+  echo "$@" >&2
+}
+log_failure_msg() {
+  echo "$@" >&2
+}
 
 self="`dirname $0`"
 if [ -r "$self/frrcommon.sh" ]; then

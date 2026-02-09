@@ -4,7 +4,7 @@
  * Copyright (C) 2017 by David Lamparter & Christian Franke,
  *                       Open Source Routing / NetDEF Inc.
  *
- * This file is part of FreeRangeRouting (FRR)
+ * This file is part of FRRouting (FRR)
  *
  * FRR is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -81,9 +81,9 @@ static char *format_srcdest(const struct prefix_ipv6 *dst_p,
 	return rv;
 }
 
-static unsigned int log_key(void *data)
+static unsigned int log_key(const void *data)
 {
-	struct prefix *hash_entry = data;
+	const struct prefix *hash_entry = data;
 	struct prefix_ipv6 *dst_p = (struct prefix_ipv6 *)&hash_entry[0];
 	struct prefix_ipv6 *src_p = (struct prefix_ipv6 *)&hash_entry[1];
 	unsigned int hash = 0;
@@ -102,10 +102,10 @@ static unsigned int log_key(void *data)
 	return hash;
 }
 
-static int log_cmp(const void *a, const void *b)
+static bool log_cmp(const void *a, const void *b)
 {
 	if (a == NULL || b == NULL)
-		return 0;
+		return false;
 
 	return !memcmp(a, b, 2 * sizeof(struct prefix));
 }
@@ -195,10 +195,10 @@ static void test_state_del_route(struct test_state *test,
 	XFREE(MTYPE_TMP, hash_entry_intern);
 }
 
-static void verify_log(struct hash_backet *backet, void *arg)
+static void verify_log(struct hash_bucket *bucket, void *arg)
 {
 	struct test_state *test = arg;
-	struct prefix *hash_entry = backet->data;
+	struct prefix *hash_entry = bucket->data;
 	struct prefix *dst_p = &hash_entry[0];
 	struct prefix_ipv6 *src_p = (struct prefix_ipv6 *)&hash_entry[1];
 	struct route_node *rn = srcdest_rnode_lookup(test->table, dst_p, src_p);
@@ -209,9 +209,9 @@ static void verify_log(struct hash_backet *backet, void *arg)
 	route_unlock_node(rn);
 }
 
-static void dump_log(struct hash_backet *backet, void *arg)
+static void dump_log(struct hash_bucket *bucket, void *arg)
 {
-	struct prefix *hash_entry = backet->data;
+	struct prefix *hash_entry = bucket->data;
 	struct prefix_ipv6 *dst_p = (struct prefix_ipv6 *)&hash_entry[0];
 	struct prefix_ipv6 *src_p = (struct prefix_ipv6 *)&hash_entry[1];
 	char *route_id = format_srcdest(dst_p, src_p);
@@ -289,7 +289,6 @@ static void test_state_verify(struct test_state *test)
 				expected_lock++;
 
 			if (rn->lock != expected_lock) {
-				const struct prefix_ipv6 *dst_p, *src_p;
 				srcdest_rnode_prefixes(
 					rn, (const struct prefix **)&dst_p,
 					(const struct prefix **)&src_p);
@@ -392,8 +391,7 @@ static void test_state_del_one_route(struct test_state *test, struct prng *prng)
 	}
 
 	assert(rn);
-	srcdest_rnode_prefixes(rn, (const struct prefix **)&dst_p,
-			       (const struct prefix **)&src_p);
+	srcdest_rnode_prefixes(rn, &dst_p, &src_p);
 	memcpy(&dst6_p, dst_p, sizeof(dst6_p));
 	if (src_p)
 		memcpy(&src6_p, src_p, sizeof(src6_p));

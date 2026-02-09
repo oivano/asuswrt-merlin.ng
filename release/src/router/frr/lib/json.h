@@ -21,7 +21,11 @@
 #ifndef _QUAGGA_JSON_H
 #define _QUAGGA_JSON_H
 
-#if defined(HAVE_JSON_C_JSON_H)
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include "command.h"
 #include <json-c/json.h>
 
 /*
@@ -37,26 +41,16 @@
 	     json_object_iter_equal(&(joi), &(join)) == 0;                     \
 	     json_object_iter_next(&(joi)))
 
-#else
-#include <json/json.h>
-
-/*
- * json_object_to_json_string_ext is only available for json-c
- * so let's just turn it back to the original usage.
- */
-#define json_object_to_json_string_ext(A, B) json_object_to_json_string (A)
-
-extern int json_object_object_get_ex(struct json_object *obj, const char *key,
-				     struct json_object **value);
-#endif
-
-#include "command.h"
-
-extern int use_json(const int argc, struct cmd_token *argv[]);
+extern bool use_json(const int argc, struct cmd_token *argv[]);
 extern void json_object_string_add(struct json_object *obj, const char *key,
 				   const char *s);
 extern void json_object_int_add(struct json_object *obj, const char *key,
 				int64_t i);
+void json_object_boolean_add(struct json_object *obj, const char *key,
+			     bool val);
+
+extern void json_object_double_add(struct json_object *obj, const char *key,
+				   double i);
 extern void json_object_boolean_false_add(struct json_object *obj,
 					  const char *key);
 extern void json_object_boolean_true_add(struct json_object *obj,
@@ -79,6 +73,10 @@ extern void json_object_free(struct json_object *obj);
   * Don't escape forward slashes.
   */
 #define JSON_C_TO_STRING_NOSLASHESCAPE (1<<4)
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 
 #endif /* _QUAGGA_JSON_H */

@@ -55,6 +55,7 @@ struct ospf6_interface {
 
 	/* Network Type */
 	uint8_t type;
+	bool type_cfg;
 
 	/* Router Priority */
 	uint8_t priority;
@@ -80,6 +81,7 @@ struct ospf6_interface {
 
 	/* Interface socket setting trial counter, resets on success */
 	uint8_t sso_try_cnt;
+	struct thread *thread_sso;
 
 	/* OSPF6 Interface flag */
 	char flag;
@@ -88,10 +90,10 @@ struct ospf6_interface {
 	uint8_t mtu_ignore;
 
 	/* Decision of DR Election */
-	uint32_t drouter;
-	uint32_t bdrouter;
-	uint32_t prev_drouter;
-	uint32_t prev_bdrouter;
+	in_addr_t drouter;
+	in_addr_t bdrouter;
+	in_addr_t prev_drouter;
+	in_addr_t prev_bdrouter;
 
 	/* Linklocal LSA Database: includes Link-LSA */
 	struct ospf6_lsdb *lsdb;
@@ -109,6 +111,7 @@ struct ospf6_interface {
 	struct thread *thread_link_lsa;
 	struct thread *thread_intra_prefix_lsa;
 	struct thread *thread_as_extern_lsa;
+	struct thread *thread_wait_timer;
 
 	struct ospf6_route_table *route_connected;
 
@@ -146,7 +149,7 @@ DECLARE_QOBJ_TYPE(ospf6_interface)
 #define OSPF6_INTERFACE_DR               7
 #define OSPF6_INTERFACE_MAX              8
 
-extern const char *ospf6_interface_state_str[];
+extern const char *const ospf6_interface_state_str[];
 
 /* flags */
 #define OSPF6_INTERFACE_DISABLE      0x01
@@ -168,7 +171,8 @@ extern const char *ospf6_interface_state_str[];
 
 /* Function Prototypes */
 
-extern struct ospf6_interface *ospf6_interface_lookup_by_ifindex(ifindex_t);
+extern struct ospf6_interface *
+ospf6_interface_lookup_by_ifindex(ifindex_t, vrf_id_t vrf_id);
 extern struct ospf6_interface *ospf6_interface_create(struct interface *);
 extern void ospf6_interface_delete(struct ospf6_interface *);
 

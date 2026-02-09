@@ -27,6 +27,21 @@ extern "C" {
  */
 
 /**
+ * @brief Extensions API version
+ */
+#define LYEXT_API_VERSION 1
+
+/**
+ * @brief Macro to store version of extension plugins API in the plugins.
+ * It is matched when the plugin is being loaded by libyang.
+ */
+#ifdef STATIC
+#define LYEXT_VERSION_CHECK
+#else
+#define LYEXT_VERSION_CHECK int lyext_api_version = LYEXT_API_VERSION;
+#endif
+
+/**
  * @brief Extension instance structure parent enumeration
  */
 typedef enum {
@@ -149,6 +164,17 @@ typedef int (*lyext_check_result_clb)(struct lys_ext_instance *ext);
  */
 typedef int (*lyext_check_inherit_clb)(struct lys_ext_instance *ext, struct lys_node *node);
 
+/**
+ * @brief Callback to decide if data is valid towards to schema.
+ *
+ * @param[in] ext Extension instance to be checked.
+ * @param[in] node Data node, which try to valid.
+ *
+ * @return 0 - valid
+ *         1 - invalid
+ */
+typedef int (*lyext_valid_data_clb)(struct lys_ext_instance *ext, struct lyd_node *node);
+
 struct lyext_plugin {
     LYEXT_TYPE type;                          /**< type of the extension, according to it the structure will be casted */
     uint16_t flags;                           /**< [extension flags](@ref extflags) */
@@ -160,6 +186,7 @@ struct lyext_plugin {
     lyext_check_inherit_clb check_inherit;    /**< callback to decide if the extension is supposed to be inherited into
                                                    the provided node, the callback is used only if the flags contains
                                                    #LYEXT_OPT_INHERIT flag */
+    lyext_valid_data_clb valid_data;          /**< callback to valid if data is valid toward to schema */
 };
 
 struct lyext_plugin_complex {
@@ -173,6 +200,7 @@ struct lyext_plugin_complex {
     lyext_check_inherit_clb check_inherit;    /**< callback to decide if the extension is supposed to be inherited into
                                                    the provided node, the callback is used only if the flags contains
                                                    #LYEXT_OPT_INHERIT flag */
+    lyext_valid_data_clb valid_data;          /**< callback to valid if data is valid toward to schema */
     struct lyext_substmt *substmt;            /**< NULL-terminated array of allowed substatements and restrictions
                                                    to their instantiation inside the extension instance */
     size_t instance_size;                     /**< size of the instance structure to allocate, the structure is
@@ -195,18 +223,65 @@ struct lyext_plugin_list {
 /**
  * @brief Logging function for extension plugins, use #LYEXT_LOG macro instead!
  */
-void lyext_log(LY_LOG_LEVEL level, const char *plugin, const char *function, const char *format, ...);
+void lyext_log(const struct ly_ctx *ctx, LY_LOG_LEVEL level, const char *plugin, const char *function, const char *format, ...);
 
 /**
  * @brief Logging macro for extension plugins
  *
+ * @param[in] ctx Context to store the error in.
  * @param[in] level #LY_LOG_LEVEL value with the message importance.
  * @param[in] plugin Plugin name.
  * @param[in] str Format string as in case of printf function.
  * @param[in] args Parameters to expand in format string.
  */
-#define LYEXT_LOG(level, plugin, str, args...)       \
-    lyext_log(level, plugin, __func__, str, ##args); \
+#define LYEXT_LOG(ctx, level, plugin, str, args...)       \
+    lyext_log(ctx, level, plugin, __func__, str, ##args); \
+
+/**
+ * @brief Type of object concerned by a validation error.
+ * This is used to determine how to compute the path of the element at issue.
+ */
+typedef enum {
+    LYEXT_VLOG_NONE = 0,
+    LYEXT_VLOG_XML, /**< const struct ::lyxml_elem* */
+    LYEXT_VLOG_LYS, /**< const struct ::lys_node* */
+    LYEXT_VLOG_LYD, /**< const struct ::lyd_node* */
+    LYEXT_VLOG_STR, /**< const char* */
+    LYEXT_VLOG_PREV, /**< Use the same path as the previous validation error */
+} LYEXT_VLOG_ELEM;
+
+/**
+ * @brief Validation logging function for extension plugins, use #LYEXT_VLOG macro instead!
+ */
+void lyext_vlog(const struct ly_ctx *ctx, LY_VECODE vecode, const char *plugin, const char *function,
+                LYEXT_VLOG_ELEM elem_type, const void *elem, const char *format, ...);
+
+/**
+ * @brief Validation logging macro for extension plugins
+ *
+ * @param[in] ctx Context to store the error in.
+ * @param[in] vecode #LY_VECODE validation error code.
+ * @param[in] plugin Plugin name.
+ * @param[in] elem_type #LYEXT_VLOG_ELEM what to expect in \p elem.
+ * @param[in] elem The element at issue.
+ * @param[in] str Format string as in case of printf function.
+ * @param[in] args Parameters to expand in format string.
+ */
+#define LYEXT_VLOG(ctx, vecode, plugin, elem_type, elem, str, args...)    \
+    lyext_vlog(ctx, vecode, plugin, __func__, elem_type, elem, str, ##args)
+
+/**
+ * @brief Free iffeature structure. In API only for plugins that want to handle if-feature statements similarly
+ * to libyang.
+ *
+ * @param[in] ctx libyang context.
+ * @param[in] iffeature iffeature array to free.
+ * @param[in] iffeature_size size of array \p iffeature.
+ * @param[in] shallow Whether to make only shallow free.
+ * @param[in] private_destructor Custom destructor for freeing any extension instances.
+ */
+void lys_iffeature_free(struct ly_ctx *ctx, struct lys_iffeature *iffeature, uint8_t iffeature_size, int shallow,
+                        void (*private_destructor)(const struct lys_node *node, void *priv));
 
 /**
  * @}

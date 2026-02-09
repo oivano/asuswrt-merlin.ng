@@ -31,6 +31,10 @@ extern const char ZEBRA_PTM_SOCK_NAME[];
 #include "zebra/zserv.h"
 #include "zebra/interface.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Zebra ptm context block */
 struct zebra_ptm_cb {
 	int ptm_sock; /* ptm file descriptor. */
@@ -59,6 +63,15 @@ struct zebra_ptm_cb {
 #define ZEBRA_IF_PTM_ENABLE_ON     1
 #define ZEBRA_IF_PTM_ENABLE_UNSPEC 2
 
+#define IS_BFD_ENABLED_PROTOCOL(protocol) ( \
+	(protocol) == ZEBRA_ROUTE_BGP || \
+	(protocol) == ZEBRA_ROUTE_OSPF || \
+	(protocol) == ZEBRA_ROUTE_OSPF6 || \
+	(protocol) == ZEBRA_ROUTE_ISIS || \
+	(protocol) == ZEBRA_ROUTE_PIM || \
+	(protocol) == ZEBRA_ROUTE_OPENFABRIC \
+)
+
 void zebra_ptm_init(void);
 void zebra_ptm_finish(void);
 int zebra_ptm_connect(struct thread *t);
@@ -78,4 +91,9 @@ void zebra_ptm_if_init(struct zebra_if *zebra_ifp);
 void zebra_ptm_if_set_ptm_state(struct interface *ifp,
 				struct zebra_if *zebra_ifp);
 void zebra_ptm_if_write(struct vty *vty, struct zebra_if *zebra_ifp);
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif

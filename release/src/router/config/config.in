@@ -242,9 +242,18 @@ config RTCONFIG_ZEBRA
 	bool "Zebra"
 	default n
 
-config RTCONFIG_QUAGGA
-	bool "Quagga"
+config RTCONFIG_FRR
+	bool "FRR (Free Range Routing)"
 	default n
+	help
+	  FRR is a modern IP routing protocol suite supporting BGP, OSPF,
+	  Static Routes, and BFD. Replaces legacy Quagga (RIPv2).
+
+config RTCONFIG_QUAGGA
+	bool "Quagga (Legacy - Deprecated)"
+	default n
+	help
+	  Legacy Quagga support - DEPRECATED. Use RTCONFIG_FRR instead.
 
 config RTCONFIG_DDNS
 	bool "Dynamic DNS"

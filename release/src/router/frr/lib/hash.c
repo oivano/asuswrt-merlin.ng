@@ -28,17 +28,18 @@
 #include "vty.h"
 #include "command.h"
 #include "libfrr.h"
+#include "frr_pthread.h"
 
-DEFINE_MTYPE(LIB, HASH, "Hash")
-DEFINE_MTYPE(LIB, HASH_BACKET, "Hash Bucket")
+DEFINE_MTYPE_STATIC(LIB, HASH, "Hash")
+DEFINE_MTYPE_STATIC(LIB, HASH_BACKET, "Hash Bucket")
 DEFINE_MTYPE_STATIC(LIB, HASH_INDEX, "Hash Index")
 
-pthread_mutex_t _hashes_mtx = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t _hashes_mtx = PTHREAD_MUTEX_INITIALIZER;
 static struct list *_hashes;
 
 struct hash *hash_create_size(unsigned int size,
-			      unsigned int (*hash_key)(void *),
-			      int (*hash_cmp)(const void *, const void *),
+			      unsigned int (*hash_key)(const void *),
+			      bool (*hash_cmp)(const void *, const void *),
 			      const char *name)
 {
 	struct hash *hash;
@@ -46,7 +47,7 @@ struct hash *hash_create_size(unsigned int size,
 	assert((size & (size - 1)) == 0);
 	hash = XCALLOC(MTYPE_HASH, sizeof(struct hash));
 	hash->index =
-		XCALLOC(MTYPE_HASH_INDEX, sizeof(struct hash_backet *) * size);
+		XCALLOC(MTYPE_HASH_INDEX, sizeof(struct hash_bucket *) * size);
 	hash->size = size;
 	hash->hash_key = hash_key;
 	hash->hash_cmp = hash_cmp;
@@ -54,20 +55,18 @@ struct hash *hash_create_size(unsigned int size,
 	hash->name = name ? XSTRDUP(MTYPE_HASH, name) : NULL;
 	hash->stats.empty = hash->size;
 
-	pthread_mutex_lock(&_hashes_mtx);
-	{
+	frr_with_mutex(&_hashes_mtx) {
 		if (!_hashes)
 			_hashes = list_new();
 
 		listnode_add(_hashes, hash);
 	}
-	pthread_mutex_unlock(&_hashes_mtx);
 
 	return hash;
 }
 
-struct hash *hash_create(unsigned int (*hash_key)(void *),
-			 int (*hash_cmp)(const void *, const void *),
+struct hash *hash_create(unsigned int (*hash_key)(const void *),
+			 bool (*hash_cmp)(const void *, const void *),
 			 const char *name)
 {
 	return hash_create_size(HASH_INITIAL_SIZE, hash_key, hash_cmp, name);
@@ -78,15 +77,26 @@ void *hash_alloc_intern(void *arg)
 	return arg;
 }
 
+/*
+ * ssq = ssq + (new^2 - old^2)
+ *     = ssq + ((new + old) * (new - old))
+ */
 #define hash_update_ssq(hz, old, new)                                          \
-	atomic_fetch_add_explicit(&hz->stats.ssq, (new + old) * (new - old),   \
-				  memory_order_relaxed);
+	do {                                                                   \
+		int _adjust = (new + old) * (new - old);                       \
+		if (_adjust < 0)                                               \
+			atomic_fetch_sub_explicit(&hz->stats.ssq, -_adjust,    \
+						  memory_order_relaxed);       \
+		else                                                           \
+			atomic_fetch_add_explicit(&hz->stats.ssq, _adjust,     \
+						  memory_order_relaxed);       \
+	} while (0)
 
 /* Expand hash if the chain length exceeds the threshold. */
 static void hash_expand(struct hash *hash)
 {
 	unsigned int i, new_size;
-	struct hash_backet *hb, *hbnext, **new_index;
+	struct hash_bucket *hb, *hbnext, **new_index;
 
 	new_size = hash->size * 2;
 
@@ -94,9 +104,7 @@ static void hash_expand(struct hash *hash)
 		return;
 
 	new_index = XCALLOC(MTYPE_HASH_INDEX,
-			    sizeof(struct hash_backet *) * new_size);
-	if (new_index == NULL)
-		return;
+			    sizeof(struct hash_bucket *) * new_size);
 
 	hash->stats.empty = new_size;
 
@@ -133,7 +141,7 @@ void *hash_get(struct hash *hash, void *data, void *(*alloc_func)(void *))
 	unsigned int key;
 	unsigned int index;
 	void *newdata;
-	struct hash_backet *backet;
+	struct hash_bucket *bucket;
 
 	if (!alloc_func && !hash->count)
 		return NULL;
@@ -141,10 +149,10 @@ void *hash_get(struct hash *hash, void *data, void *(*alloc_func)(void *))
 	key = (*hash->hash_key)(data);
 	index = key & (hash->size - 1);
 
-	for (backet = hash->index[index]; backet != NULL;
-	     backet = backet->next) {
-		if (backet->key == key && (*hash->hash_cmp)(backet->data, data))
-			return backet->data;
+	for (bucket = hash->index[index]; bucket != NULL;
+	     bucket = bucket->next) {
+		if (bucket->key == key && (*hash->hash_cmp)(bucket->data, data))
+			return bucket->data;
 	}
 
 	if (alloc_func) {
@@ -157,26 +165,26 @@ void *hash_get(struct hash *hash, void *data, void *(*alloc_func)(void *))
 			index = key & (hash->size - 1);
 		}
 
-		backet = XCALLOC(MTYPE_HASH_BACKET, sizeof(struct hash_backet));
-		backet->data = newdata;
-		backet->key = key;
-		backet->next = hash->index[index];
-		hash->index[index] = backet;
+		bucket = XCALLOC(MTYPE_HASH_BACKET, sizeof(struct hash_bucket));
+		bucket->data = newdata;
+		bucket->key = key;
+		bucket->next = hash->index[index];
+		hash->index[index] = bucket;
 		hash->count++;
 
-		int oldlen = backet->next ? backet->next->len : 0;
+		int oldlen = bucket->next ? bucket->next->len : 0;
 		int newlen = oldlen + 1;
 
 		if (newlen == 1)
 			hash->stats.empty--;
 		else
-			backet->next->len = 0;
+			bucket->next->len = 0;
 
-		backet->len = newlen;
+		bucket->len = newlen;
 
 		hash_update_ssq(hash, oldlen, newlen);
 
-		return backet->data;
+		return bucket->data;
 	}
 	return NULL;
 }
@@ -201,22 +209,22 @@ void *hash_release(struct hash *hash, void *data)
 	void *ret;
 	unsigned int key;
 	unsigned int index;
-	struct hash_backet *backet;
-	struct hash_backet *pp;
+	struct hash_bucket *bucket;
+	struct hash_bucket *pp;
 
 	key = (*hash->hash_key)(data);
 	index = key & (hash->size - 1);
 
-	for (backet = pp = hash->index[index]; backet; backet = backet->next) {
-		if (backet->key == key
-		    && (*hash->hash_cmp)(backet->data, data)) {
+	for (bucket = pp = hash->index[index]; bucket; bucket = bucket->next) {
+		if (bucket->key == key
+		    && (*hash->hash_cmp)(bucket->data, data)) {
 			int oldlen = hash->index[index]->len;
 			int newlen = oldlen - 1;
 
-			if (backet == pp)
-				hash->index[index] = backet->next;
+			if (bucket == pp)
+				hash->index[index] = bucket->next;
 			else
-				pp->next = backet->next;
+				pp->next = bucket->next;
 
 			if (hash->index[index])
 				hash->index[index]->len = newlen;
@@ -225,26 +233,26 @@ void *hash_release(struct hash *hash, void *data)
 
 			hash_update_ssq(hash, oldlen, newlen);
 
-			ret = backet->data;
-			XFREE(MTYPE_HASH_BACKET, backet);
+			ret = bucket->data;
+			XFREE(MTYPE_HASH_BACKET, bucket);
 			hash->count--;
 			return ret;
 		}
-		pp = backet;
+		pp = bucket;
 	}
 	return NULL;
 }
 
-void hash_iterate(struct hash *hash, void (*func)(struct hash_backet *, void *),
+void hash_iterate(struct hash *hash, void (*func)(struct hash_bucket *, void *),
 		  void *arg)
 {
 	unsigned int i;
-	struct hash_backet *hb;
-	struct hash_backet *hbnext;
+	struct hash_bucket *hb;
+	struct hash_bucket *hbnext;
 
 	for (i = 0; i < hash->size; i++)
 		for (hb = hash->index[i]; hb; hb = hbnext) {
-			/* get pointer to next hash backet here, in case (*func)
+			/* get pointer to next hash bucket here, in case (*func)
 			 * decides to delete hb by calling hash_release
 			 */
 			hbnext = hb->next;
@@ -252,17 +260,17 @@ void hash_iterate(struct hash *hash, void (*func)(struct hash_backet *, void *),
 		}
 }
 
-void hash_walk(struct hash *hash, int (*func)(struct hash_backet *, void *),
+void hash_walk(struct hash *hash, int (*func)(struct hash_bucket *, void *),
 	       void *arg)
 {
 	unsigned int i;
-	struct hash_backet *hb;
-	struct hash_backet *hbnext;
+	struct hash_bucket *hb;
+	struct hash_bucket *hbnext;
 	int ret = HASHWALK_CONTINUE;
 
 	for (i = 0; i < hash->size; i++) {
 		for (hb = hash->index[i]; hb; hb = hbnext) {
-			/* get pointer to next hash backet here, in case (*func)
+			/* get pointer to next hash bucket here, in case (*func)
 			 * decides to delete hb by calling hash_release
 			 */
 			hbnext = hb->next;
@@ -276,8 +284,8 @@ void hash_walk(struct hash *hash, int (*func)(struct hash_backet *, void *),
 void hash_clean(struct hash *hash, void (*free_func)(void *))
 {
 	unsigned int i;
-	struct hash_backet *hb;
-	struct hash_backet *next;
+	struct hash_bucket *hb;
+	struct hash_bucket *next;
 
 	for (i = 0; i < hash->size; i++) {
 		for (hb = hash->index[i]; hb; hb = next) {
@@ -296,7 +304,7 @@ void hash_clean(struct hash *hash, void (*free_func)(void *))
 	hash->stats.empty = hash->size;
 }
 
-static void hash_to_list_iter(struct hash_backet *hb, void *arg)
+static void hash_to_list_iter(struct hash_bucket *hb, void *arg)
 {
 	struct list *list = arg;
 
@@ -313,19 +321,16 @@ struct list *hash_to_list(struct hash *hash)
 
 void hash_free(struct hash *hash)
 {
-	pthread_mutex_lock(&_hashes_mtx);
-	{
+	frr_with_mutex(&_hashes_mtx) {
 		if (_hashes) {
 			listnode_delete(_hashes, hash);
 			if (_hashes->count == 0) {
-				list_delete_and_null(&_hashes);
+				list_delete(&_hashes);
 			}
 		}
 	}
-	pthread_mutex_unlock(&_hashes_mtx);
 
-	if (hash->name)
-		XFREE(MTYPE_HASH, hash->name);
+	XFREE(MTYPE_HASH, hash->name);
 
 	XFREE(MTYPE_HASH_INDEX, hash->index);
 	XFREE(MTYPE_HASH, hash);
@@ -445,7 +450,7 @@ DEFUN_NOSH(show_hash_stats,
 	return CMD_SUCCESS;
 }
 
-void hash_cmd_init()
+void hash_cmd_init(void)
 {
 	install_element(ENABLE_NODE, &show_hash_stats_cmd);
 }

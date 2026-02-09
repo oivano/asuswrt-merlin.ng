@@ -25,63 +25,48 @@
 #include "prefix.h"
 #include "vty.h"
 
-/* Nexthop structure. */
-struct rnh {
-	uint8_t flags;
-
-#define ZEBRA_NHT_CONNECTED  	0x1
-#define ZEBRA_NHT_DELETED       0x2
-#define ZEBRA_NHT_EXACT_MATCH   0x4
-
-	/* VRF identifier. */
-	vrf_id_t vrf_id;
-
-	struct route_entry *state;
-	struct prefix resolved_route;
-	struct list *client_list;
-
-	/* pseudowires dependent on this nh */
-	struct list *zebra_pseudowire_list;
-
-	struct route_node *node;
-
-	/*
-	 * if this has been filtered for the client
-	 */
-	int filtered[ZEBRA_ROUTE_MAX];
-};
-
-typedef enum { RNH_NEXTHOP_TYPE, RNH_IMPORT_CHECK_TYPE } rnh_type_t;
-
-extern int zebra_rnh_ip_default_route;
-extern int zebra_rnh_ipv6_default_route;
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 extern void zebra_rnh_init(void);
 
-static inline int rnh_resolve_via_default(int family)
+static inline const char *rnh_type2str(enum rnh_type type)
 {
-	if (((family == AF_INET) && zebra_rnh_ip_default_route)
-	    || ((family == AF_INET6) && zebra_rnh_ipv6_default_route))
-		return 1;
-	else
-		return 0;
+	switch (type) {
+	case RNH_NEXTHOP_TYPE:
+		return "Nexthop";
+	case RNH_IMPORT_CHECK_TYPE:
+		return "Import";
+	}
+
+	return "ERROR";
 }
 
 extern struct rnh *zebra_add_rnh(struct prefix *p, vrf_id_t vrfid,
-				 rnh_type_t type, bool *exists);
+				 enum rnh_type type, bool *exists);
 extern struct rnh *zebra_lookup_rnh(struct prefix *p, vrf_id_t vrfid,
-				    rnh_type_t type);
+				    enum rnh_type type);
 extern void zebra_free_rnh(struct rnh *rnh);
-extern void zebra_delete_rnh(struct rnh *rnh, rnh_type_t type);
 extern void zebra_add_rnh_client(struct rnh *rnh, struct zserv *client,
-				 rnh_type_t type, vrf_id_t vrfid);
-extern void zebra_register_rnh_pseudowire(vrf_id_t, struct zebra_pw *);
+				 enum rnh_type type, vrf_id_t vrfid);
+extern int zebra_send_rnh_update(struct rnh *rnh, struct zserv *client,
+				 enum rnh_type type, vrf_id_t vrf_id,
+				 uint32_t srte_color);
+extern void zebra_register_rnh_pseudowire(vrf_id_t, struct zebra_pw *, bool *);
 extern void zebra_deregister_rnh_pseudowire(vrf_id_t, struct zebra_pw *);
 extern void zebra_remove_rnh_client(struct rnh *rnh, struct zserv *client,
-				    rnh_type_t type);
-extern void zebra_evaluate_rnh(vrf_id_t vrfid, int family, int force,
-			       rnh_type_t type, struct prefix *p);
-extern void zebra_print_rnh_table(vrf_id_t vrfid, int family, struct vty *vty,
-				  rnh_type_t);
+				    enum rnh_type type);
+extern void zebra_evaluate_rnh(struct zebra_vrf *zvrf, afi_t afi, int force,
+			       enum rnh_type type, struct prefix *p);
+extern void zebra_print_rnh_table(vrf_id_t vrfid, afi_t afi, struct vty *vty,
+				  enum rnh_type type, struct prefix *p);
 extern char *rnh_str(struct rnh *rnh, char *buf, int size);
+
+extern int rnh_resolve_via_default(struct zebra_vrf *zvrf, int family);
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif /*_ZEBRA_RNH_H */

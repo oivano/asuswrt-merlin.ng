@@ -26,16 +26,25 @@
 
 struct ospf6_master {
 
-	uint32_t zebra_router_id;
+	in_addr_t zebra_router_id;
+};
+
+/* ospf6->config_flags */
+enum {
+	OSPF6_LOG_ADJACENCY_CHANGES =	(1 << 0),
+	OSPF6_LOG_ADJACENCY_DETAIL =	(1 << 1),
 };
 
 /* OSPFv3 top level data structure */
 struct ospf6 {
+	/* The relevant vrf_id */
+	vrf_id_t vrf_id;
+
 	/* my router id */
-	uint32_t router_id;
+	in_addr_t router_id;
 
 	/* static router id */
-	uint32_t router_id_static;
+	in_addr_t router_id_static;
 
 	struct in_addr router_id_zebra;
 
@@ -65,10 +74,8 @@ struct ospf6 {
 
 	uint8_t flag;
 
-	/* Configured flags */
+	/* Configuration bitmask, refer to enum above */
 	uint8_t config_flags;
-#define OSPF6_LOG_ADJACENCY_CHANGES      (1 << 0)
-#define OSPF6_LOG_ADJACENCY_DETAIL       (1 << 1)
 
 	/* LSA timer parameters */
 	unsigned int lsa_minarrival; /* LSA minimum arrival in milliseconds. */
@@ -90,6 +97,7 @@ struct ospf6 {
 	struct thread *t_ase_calc; /* ASE calculation timer. */
 	struct thread *maxage_remover;
 	struct thread *t_distribute_update; /* Distirbute update timer. */
+	struct thread *t_ospf6_receive; /* OSPF6 receive timer */
 
 	uint32_t ref_bandwidth;
 

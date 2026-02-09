@@ -20,7 +20,12 @@
 #ifndef __WHEEL_H__
 #define __WHEEL_H__
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct timer_wheel {
+	char *name;
 	struct thread_master *master;
 	int slots;
 	long long curr_slot;
@@ -33,7 +38,7 @@ struct timer_wheel {
 	/*
 	 * Key to determine what slot the item belongs in
 	 */
-	unsigned int (*slot_key)(void *);
+	unsigned int (*slot_key)(const void *);
 
 	void (*slot_run)(void *);
 };
@@ -75,8 +80,9 @@ struct timer_wheel {
  * of running your code.
  */
 struct timer_wheel *wheel_init(struct thread_master *master, int period,
-			       size_t slots, unsigned int (*slot_key)(void *),
-			       void (*slot_run)(void *));
+			       size_t slots,
+			       unsigned int (*slot_key)(const void *),
+			       void (*slot_run)(void *), const char *run_name);
 
 /*
  * Delete the specified timer wheel created
@@ -112,5 +118,9 @@ int wheel_add_item(struct timer_wheel *wheel, void *item);
  * possibly change next time pop.
  */
 int wheel_remove_item(struct timer_wheel *wheel, void *item);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -138,9 +138,21 @@ extern unsigned long term_debug_eigrp_zebra;
 
 /* Prototypes. */
 extern const char *eigrp_if_name_string(struct eigrp_interface *);
-extern const char *eigrp_if_ip_string(struct eigrp_interface *);
-extern const char *eigrp_neigh_ip_string(struct eigrp_neighbor *);
-extern const char *eigrp_topology_ip_string(struct eigrp_prefix_entry *);
+static inline const char
+*eigrp_topology_ip_string(struct eigrp_prefix_entry *tn)
+{
+	return inet_ntoa(tn->destination->u.prefix4);
+}
+
+static inline const char *eigrp_if_ip_string(struct eigrp_interface *ei)
+{
+	return ei ? inet_ntoa(ei->address.u.prefix4) : "inactive";
+}
+
+static inline const char *eigrp_neigh_ip_string(struct eigrp_neighbor *nbr)
+{
+	return inet_ntoa(nbr->src);
+}
 
 extern void eigrp_ip_header_dump(struct ip *);
 extern void eigrp_header_dump(struct eigrp_header *);
@@ -156,8 +168,9 @@ extern void show_ip_eigrp_neighbor_sub(struct vty *, struct eigrp_neighbor *,
 				       int);
 extern void show_ip_eigrp_prefix_entry(struct vty *,
 				       struct eigrp_prefix_entry *);
-extern void show_ip_eigrp_nexthop_entry(struct vty *, struct eigrp *,
-					struct eigrp_nexthop_entry *, int *);
+extern void show_ip_eigrp_nexthop_entry(struct vty *vty, struct eigrp *eigrp,
+					struct eigrp_nexthop_entry *ne,
+					bool *first);
 
 extern void eigrp_debug_init(void);
 

@@ -32,7 +32,7 @@
 
 void pim_jp_agg_group_list_free(struct pim_jp_agg_group *jag)
 {
-	list_delete_and_null(&jag->sources);
+	list_delete(&jag->sources);
 
 	XFREE(MTYPE_PIM_JP_AGG_GROUP, jag);
 }
@@ -108,7 +108,7 @@ void pim_jp_agg_clear_group(struct list *group)
 			js->up = NULL;
 			XFREE(MTYPE_PIM_JP_AGG_SOURCE, js);
 		}
-		list_delete_and_null(&jag->sources);
+		list_delete(&jag->sources);
 		listnode_delete(group, jag);
 		XFREE(MTYPE_PIM_JP_AGG_GROUP, jag);
 	}
@@ -117,9 +117,15 @@ void pim_jp_agg_clear_group(struct list *group)
 static struct pim_iface_upstream_switch *
 pim_jp_agg_get_interface_upstream_switch_list(struct pim_rpf *rpf)
 {
-	struct pim_interface *pim_ifp = rpf->source_nexthop.interface->info;
+	struct interface *ifp = rpf->source_nexthop.interface;
+	struct pim_interface *pim_ifp;
 	struct pim_iface_upstream_switch *pius;
 	struct listnode *node, *nnode;
+
+	if (!ifp)
+		return NULL;
+
+	pim_ifp = ifp->info;
 
 	/* Old interface is pim disabled */
 	if (!pim_ifp)
@@ -142,7 +148,8 @@ pim_jp_agg_get_interface_upstream_switch_list(struct pim_rpf *rpf)
 	return pius;
 }
 
-void pim_jp_agg_remove_group(struct list *group, struct pim_upstream *up)
+void pim_jp_agg_remove_group(struct list *group, struct pim_upstream *up,
+		struct pim_neighbor *nbr)
 {
 	struct listnode *node, *nnode;
 	struct pim_jp_agg_group *jag = NULL;
@@ -161,6 +168,20 @@ void pim_jp_agg_remove_group(struct list *group, struct pim_upstream *up)
 			break;
 	}
 
+	if (nbr) {
+		if (PIM_DEBUG_TRACE) {
+			char src_str[INET_ADDRSTRLEN];
+
+			pim_inet4_dump("<src?>", nbr->source_addr, src_str,
+					sizeof(src_str));
+			zlog_debug(
+				"up %s remove from nbr %s/%s jp-agg-list",
+				up->sg_str,
+				nbr->interface->name,
+				src_str);
+		}
+	}
+
 	if (js) {
 		js->up = NULL;
 		listnode_delete(jag->sources, js);
@@ -168,7 +189,7 @@ void pim_jp_agg_remove_group(struct list *group, struct pim_upstream *up)
 	}
 
 	if (jag->sources->count == 0) {
-		list_delete_and_null(&jag->sources);
+		list_delete(&jag->sources);
 		listnode_delete(group, jag);
 		XFREE(MTYPE_PIM_JP_AGG_GROUP, jag);
 	}
@@ -213,8 +234,18 @@ void pim_jp_agg_upstream_verification(struct pim_upstream *up, bool ignore)
 {
 #ifdef PIM_JP_AGG_DEBUG
 	struct interface *ifp;
-	struct pim_interface *pim_ifp = up->rpf.source_nexthop.interface->info;
-	struct pim_instance *pim = pim_ifp->pim;
+	struct pim_interface *pim_ifp;
+	struct pim_instance *pim;
+
+	if (!up->rpf.source_nexthop.interface) {
+		if (PIM_DEBUG_PIM_TRACE)
+			zlog_debug("%s: up %s RPF is not present", __func__,
+				   up->sg_str);
+		return;
+	}
+
+	pim_ifp = up->rpf.source_nexthop.interface->info;
+	pim = pim_ifp->pim;
 
 	FOR_ALL_INTERFACES (pim->vrf, ifp) {
 		pim_ifp = ifp->info;
@@ -238,7 +269,7 @@ void pim_jp_agg_upstream_verification(struct pim_upstream *up, bool ignore)
 }
 
 void pim_jp_agg_add_group(struct list *group, struct pim_upstream *up,
-			  bool is_join)
+			  bool is_join, struct pim_neighbor *nbr)
 {
 	struct listnode *node, *nnode;
 	struct pim_jp_agg_group *jag = NULL;
@@ -262,6 +293,20 @@ void pim_jp_agg_add_group(struct list *group, struct pim_upstream *up,
 	for (ALL_LIST_ELEMENTS(jag->sources, node, nnode, js)) {
 		if (js->up == up)
 			break;
+	}
+
+	if (nbr) {
+		if (PIM_DEBUG_TRACE) {
+			char src_str[INET_ADDRSTRLEN];
+
+			pim_inet4_dump("<src?>", nbr->source_addr, src_str,
+					sizeof(src_str));
+			zlog_debug(
+				"up %s add to nbr %s/%s jp-agg-list",
+				up->sg_str,
+				up->rpf.source_nexthop.interface->name,
+				src_str);
+		}
 	}
 
 	if (!js) {
@@ -304,10 +349,11 @@ void pim_jp_agg_switch_interface(struct pim_rpf *orpf, struct pim_rpf *nrpf,
 
 	/* send Prune(S,G) to the old upstream neighbor */
 	if (opius)
-		pim_jp_agg_add_group(opius->us, up, false);
+		pim_jp_agg_add_group(opius->us, up, false, NULL);
 
 	/* send Join(S,G) to the current upstream neighbor */
-	pim_jp_agg_add_group(npius->us, up, true);
+	if (npius)
+		pim_jp_agg_add_group(npius->us, up, true, NULL);
 }
 
 
@@ -321,10 +367,10 @@ void pim_jp_agg_single_upstream_send(struct pim_rpf *rpf,
 	static bool first = true;
 
 	/* skip JP upstream messages if source is directly connected */
-	if (!up || !rpf->source_nexthop.interface || pim_if_connected_to_source(
-							     rpf->source_nexthop
-								     .interface,
-							     up->sg.src))
+	if (!up || !rpf->source_nexthop.interface ||
+		pim_if_connected_to_source(rpf->source_nexthop.interface,
+			up->sg.src) ||
+		if_is_loopback_or_vrf(rpf->source_nexthop.interface))
 		return;
 
 	if (first) {

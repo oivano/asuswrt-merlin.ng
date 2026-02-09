@@ -41,19 +41,13 @@
 #include "zebra/kernel_netlink.h"
 #include "zebra/rule_netlink.h"
 #include "zebra/zebra_pbr.h"
+#include "zebra/zebra_errors.h"
 
-enum dp_req_result kernel_add_pbr_rule(struct zebra_pbr_rule *rule)
+enum zebra_dplane_result kernel_pbr_rule_update(struct zebra_dplane_ctx *ctx)
 {
-	flog_err(LIB_ERR_UNAVAILABLE, "%s not Implemented for this platform",
-		  __PRETTY_FUNCTION__);
-	return DP_REQUEST_FAILURE;
-}
-
-enum dp_req_result kernel_del_pbr_rule(struct zebra_pbr_rule *rule)
-{
-	flog_err(LIB_ERR_UNAVAILABLE, "%s not Implemented for this platform",
-		  __PRETTY_FUNCTION__);
-	return DP_REQUEST_FAILURE;
+	flog_err(EC_LIB_UNAVAILABLE, "%s not Implemented for this platform",
+		 __func__);
+	return ZEBRA_DPLANE_REQUEST_FAILURE;
 }
 
 #endif

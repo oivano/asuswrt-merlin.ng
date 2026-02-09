@@ -174,10 +174,13 @@ DEFUN (no_debug_ripng_zebra,
 	return CMD_SUCCESS;
 }
 
+static int config_write_debug(struct vty *vty);
 /* Debug node. */
 static struct cmd_node debug_node = {
-	DEBUG_NODE, "", /* Debug node has no interface. */
-	1		/* VTYSH */
+	.name = "debug",
+	.node = DEBUG_NODE,
+	.prompt = "",
+	.config_write = config_write_debug,
 };
 
 static int config_write_debug(struct vty *vty)
@@ -207,22 +210,15 @@ static int config_write_debug(struct vty *vty)
 	return write;
 }
 
-void ripng_debug_reset()
-{
-	ripng_debug_event = 0;
-	ripng_debug_packet = 0;
-	ripng_debug_zebra = 0;
-}
-
-void ripng_debug_init()
+void ripng_debug_init(void)
 {
 	ripng_debug_event = 0;
 	ripng_debug_packet = 0;
 	ripng_debug_zebra = 0;
 
-	install_node(&debug_node, config_write_debug);
+	install_node(&debug_node);
 
-	install_element(VIEW_NODE, &show_debugging_ripng_cmd);
+	install_element(ENABLE_NODE, &show_debugging_ripng_cmd);
 
 	install_element(ENABLE_NODE, &debug_ripng_events_cmd);
 	install_element(ENABLE_NODE, &debug_ripng_packet_cmd);

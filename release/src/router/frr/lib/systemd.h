@@ -19,6 +19,10 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*
  * Wrapper functions to systemd calls.
  *
@@ -28,7 +32,6 @@
  * To turn on systemd compilation, use --enable-systemd on
  * configure run.
  */
-void systemd_send_information(const char *info);
 void systemd_send_stopping(void);
 
 /*
@@ -37,3 +40,12 @@ void systemd_send_stopping(void);
  *                process?
  */
 void systemd_send_started(struct thread_master *master, int the_process);
+
+/*
+ * status - A status string to send to systemd
+ */
+void systemd_send_status(const char *status);
+
+#ifdef __cplusplus
+}
+#endif

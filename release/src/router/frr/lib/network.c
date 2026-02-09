@@ -22,6 +22,7 @@
 #include <zebra.h>
 #include "log.h"
 #include "network.h"
+#include "lib_errors.h"
 
 /* Read nbytes from fd and store into ptr. */
 int readn(int fd, uint8_t *ptr, int nbytes)
@@ -78,13 +79,15 @@ int set_nonblocking(int fd)
 	   should
 	   never be negative. */
 	if ((flags = fcntl(fd, F_GETFL)) < 0) {
-		zlog_warn("fcntl(F_GETFL) failed for fd %d: %s", fd,
-			  safe_strerror(errno));
+		flog_err(EC_LIB_SYSTEM_CALL,
+			 "fcntl(F_GETFL) failed for fd %d: %s", fd,
+			 safe_strerror(errno));
 		return -1;
 	}
 	if (fcntl(fd, F_SETFL, (flags | O_NONBLOCK)) < 0) {
-		zlog_warn("fcntl failed setting fd %d non-blocking: %s", fd,
-			  safe_strerror(errno));
+		flog_err(EC_LIB_SYSTEM_CALL,
+			 "fcntl failed setting fd %d non-blocking: %s", fd,
+			 safe_strerror(errno));
 		return -1;
 	}
 	return 0;
@@ -117,4 +120,22 @@ float htonf(float host)
 float ntohf(float net)
 {
 	return htonf(net);
+}
+
+/**
+ * Helper function that returns a random long value. The main purpose of
+ * this function is to hide a `random()` call that gets flagged by coverity
+ * scan and put it into one place.
+ *
+ * The main usage of this function should be for generating jitter or weak
+ * random values for simple purposes.
+ *
+ * See 'man 3 random' for more information.
+ *
+ * \returns random long integer.
+ */
+long frr_weak_random(void)
+{
+	/* coverity[dont_call] */
+	return random();
 }

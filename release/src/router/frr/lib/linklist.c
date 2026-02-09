@@ -38,28 +38,41 @@ static void list_free_internal(struct list *l)
 	XFREE(MTYPE_LINK_LIST, l);
 }
 
+
 /* Allocate new listnode.  Internal use only. */
-static struct listnode *listnode_new(void)
+static struct listnode *listnode_new(struct list *list, void *val)
 {
-	return XCALLOC(MTYPE_LINK_NODE, sizeof(struct listnode));
+	struct listnode *node;
+
+	/* if listnode memory is managed by the app then the val
+	 * passed in is the listnode
+	 */
+	if (list->flags & LINKLIST_FLAG_NODE_MEM_BY_APP) {
+		node = val;
+		node->prev = node->next = NULL;
+	} else {
+		node = XCALLOC(MTYPE_LINK_NODE, sizeof(struct listnode));
+		node->data = val;
+	}
+	return node;
 }
 
 /* Free listnode. */
-static void listnode_free(struct listnode *node)
+static void listnode_free(struct list *list, struct listnode *node)
 {
-	XFREE(MTYPE_LINK_NODE, node);
+	if (!(list->flags & LINKLIST_FLAG_NODE_MEM_BY_APP))
+		XFREE(MTYPE_LINK_NODE, node);
 }
 
-void listnode_add(struct list *list, void *val)
+struct listnode *listnode_add(struct list *list, void *val)
 {
 	struct listnode *node;
 
 	assert(val != NULL);
 
-	node = listnode_new();
+	node = listnode_new(list, val);
 
 	node->prev = list->tail;
-	node->data = val;
 
 	if (list->head == NULL)
 		list->head = node;
@@ -68,6 +81,8 @@ void listnode_add(struct list *list, void *val)
 	list->tail = node;
 
 	list->count++;
+
+	return node;
 }
 
 void listnode_add_head(struct list *list, void *val)
@@ -76,10 +91,9 @@ void listnode_add_head(struct list *list, void *val)
 
 	assert(val != NULL);
 
-	node = listnode_new();
+	node = listnode_new(list, val);
 
 	node->next = list->head;
-	node->data = val;
 
 	if (list->head == NULL)
 		list->head = node;
@@ -90,6 +104,69 @@ void listnode_add_head(struct list *list, void *val)
 	list->count++;
 }
 
+bool listnode_add_sort_nodup(struct list *list, void *val)
+{
+	struct listnode *n;
+	struct listnode *new;
+	int ret;
+	void *data;
+
+	assert(val != NULL);
+
+	if (list->flags & LINKLIST_FLAG_NODE_MEM_BY_APP) {
+		n = val;
+		data = n->data;
+	} else {
+		data = val;
+	}
+
+	if (list->cmp) {
+		for (n = list->head; n; n = n->next) {
+			ret = (*list->cmp)(data, n->data);
+			if (ret < 0) {
+				new = listnode_new(list, val);
+
+				new->next = n;
+				new->prev = n->prev;
+
+				if (n->prev)
+					n->prev->next = new;
+				else
+					list->head = new;
+				n->prev = new;
+				list->count++;
+				return true;
+			}
+			/* found duplicate return false */
+			if (ret == 0)
+				return false;
+		}
+	}
+
+	new = listnode_new(list, val);
+
+	LISTNODE_ATTACH(list, new);
+
+	return true;
+}
+
+struct list *list_dup(struct list *list)
+{
+	struct list *dup;
+	struct listnode *node;
+	void *data;
+
+	assert(list);
+
+	dup = list_new();
+	dup->cmp = list->cmp;
+	dup->del = list->del;
+	for (ALL_LIST_ELEMENTS_RO(list, node, data))
+		listnode_add(dup, data);
+
+	return dup;
+}
+
 void listnode_add_sort(struct list *list, void *val)
 {
 	struct listnode *n;
@@ -97,8 +174,8 @@ void listnode_add_sort(struct list *list, void *val)
 
 	assert(val != NULL);
 
-	new = listnode_new();
-	new->data = val;
+	new = listnode_new(list, val);
+	val = new->data;
 
 	if (list->cmp) {
 		for (n = list->head; n; n = n->next) {
@@ -135,8 +212,7 @@ struct listnode *listnode_add_after(struct list *list, struct listnode *pp,
 
 	assert(val != NULL);
 
-	nn = listnode_new();
-	nn->data = val;
+	nn = listnode_new(list, val);
 
 	if (pp == NULL) {
 		if (list->head)
@@ -170,8 +246,7 @@ struct listnode *listnode_add_before(struct list *list, struct listnode *pp,
 
 	assert(val != NULL);
 
-	nn = listnode_new();
-	nn->data = val;
+	nn = listnode_new(list, val);
 
 	if (pp == NULL) {
 		if (list->tail)
@@ -204,7 +279,7 @@ void listnode_move_to_tail(struct list *l, struct listnode *n)
 	LISTNODE_ATTACH(l, n);
 }
 
-void listnode_delete(struct list *list, void *val)
+void listnode_delete(struct list *list, const void *val)
 {
 	struct listnode *node = listnode_lookup(list, val);
 
@@ -234,13 +309,30 @@ void list_delete_all_node(struct list *list)
 		next = node->next;
 		if (*list->del)
 			(*list->del)(node->data);
-		listnode_free(node);
+		listnode_free(list, node);
 	}
 	list->head = list->tail = NULL;
 	list->count = 0;
 }
 
-void list_delete_and_null(struct list **list)
+void list_filter_out_nodes(struct list *list, bool (*cond)(void *data))
+{
+	struct listnode *node;
+	struct listnode *next;
+	void *data;
+
+	assert(list);
+
+	for (ALL_LIST_ELEMENTS(list, node, next, data)) {
+		if ((cond && cond(data)) || (!cond)) {
+			if (*list->del)
+				(*list->del)(data);
+			list_delete_node(list, node);
+		}
+	}
+}
+
+void list_delete(struct list **list)
 {
 	assert(*list);
 	list_delete_all_node(*list);
@@ -248,12 +340,7 @@ void list_delete_and_null(struct list **list)
 	*list = NULL;
 }
 
-void list_delete_original(struct list *list)
-{
-	list_delete_and_null(&list);
-}
-
-struct listnode *listnode_lookup(struct list *list, void *data)
+struct listnode *listnode_lookup(struct list *list, const void *data)
 {
 	struct listnode *node;
 
@@ -262,6 +349,13 @@ struct listnode *listnode_lookup(struct list *list, void *data)
 		if (data == listgetdata(node))
 			return node;
 	return NULL;
+}
+
+struct listnode *listnode_lookup_nocheck(struct list *list, void *data)
+{
+	if (!list)
+		return NULL;
+	return listnode_lookup(list, data);
 }
 
 void list_delete_node(struct list *list, struct listnode *node)
@@ -275,30 +369,7 @@ void list_delete_node(struct list *list, struct listnode *node)
 	else
 		list->tail = node->prev;
 	list->count--;
-	listnode_free(node);
-}
-
-void list_add_list(struct list *list, struct list *add)
-{
-	struct listnode *n;
-
-	for (n = listhead(add); n; n = listnextnode(n))
-		listnode_add(list, n->data);
-}
-
-struct list *list_dup(struct list *list)
-{
-	struct list *new = list_new();
-	struct listnode *ln;
-	void *data;
-
-	new->cmp = list->cmp;
-	new->del = list->del;
-
-	for (ALL_LIST_ELEMENTS_RO(list, ln, data))
-		listnode_add(new, data);
-
-	return new;
+	listnode_free(list, node);
 }
 
 void list_sort(struct list *list, int (*cmp)(const void **, const void **))
@@ -318,8 +389,30 @@ void list_sort(struct list *list, int (*cmp)(const void **, const void **))
 
 	qsort(items, n, sizeof(void *), realcmp);
 
-	for (unsigned int i = 0; i < n; ++i)
-		listnode_add(list, items[i]);
+	for (unsigned int j = 0; j < n; ++j)
+		listnode_add(list, items[j]);
 
 	XFREE(MTYPE_TMP, items);
+}
+
+struct listnode *listnode_add_force(struct list **list, void *val)
+{
+	if (*list == NULL)
+		*list = list_new();
+	return listnode_add(*list, val);
+}
+
+void **list_to_array(struct list *list, void **arr, size_t arrlen)
+{
+	struct listnode *ln;
+	void *vp;
+	size_t idx = 0;
+
+	for (ALL_LIST_ELEMENTS_RO(list, ln, vp)) {
+		arr[idx++] = vp;
+		if (idx == arrlen)
+			break;
+	}
+
+	return arr;
 }

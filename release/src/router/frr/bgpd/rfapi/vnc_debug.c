@@ -38,7 +38,7 @@ struct vnc_debug {
 	const char *name;
 };
 
-struct vnc_debug vncdebug[] = {
+static const struct vnc_debug vncdebug[] = {
 	{VNC_DEBUG_RFAPI_QUERY, "rfapi-query"},
 	{VNC_DEBUG_IMPORT_BI_ATTACH, "import-bi-attach"},
 	{VNC_DEBUG_IMPORT_DEL_REMOTE, "import-del-remote"},
@@ -114,21 +114,6 @@ DEFUN (no_debug_bgp_vnc,
 	return CMD_WARNING_CONFIG_FAILED;
 }
 
-#if CONFDATE > 20190402
-CPP_NOTICE("bgpd: time to remove undebug commands")
-#endif
-ALIAS_HIDDEN(no_debug_bgp_vnc,
-             undebug_bgp_vnc_cmd,
-	     "undebug bgp vnc <rfapi-query|import-bi-attach|import-del-remote|verbose>",
-             "Undebug\n"
-             BGP_STR
-             VNC_STR
-             "rfapi query handling\n"
-             "import BI atachment\n"
-             "import delete remote routes\n"
-             "verbose logging\n")
-
-
 /***********************************************************************
  *	no debug bgp vnc all
  ***********************************************************************/
@@ -147,17 +132,6 @@ DEFUN (no_debug_bgp_vnc_all,
 
 	return CMD_SUCCESS;
 }
-
-#if CONFDATE > 20190402
-CPP_NOTICE("bgpd: time to remove undebug commands")
-#endif
-ALIAS_HIDDEN (no_debug_bgp_vnc_all,
-              undebug_bgp_vnc_all_cmd,
-              "undebug all bgp vnc",
-              "Undebug\n"
-              "Disable all VNC debugging\n"
-              BGP_STR
-              VNC_STR)
 
 /***********************************************************************
  *	show/save
@@ -190,7 +164,7 @@ static int bgp_vnc_config_write_debug(struct vty *vty)
 	int write = 0;
 	size_t i;
 
-	for (i = 0; i < (sizeof(vncdebug) / sizeof(struct vnc_debug)); ++i) {
+	for (i = 0; i < array_size(vncdebug); ++i) {
 		if (conf_vnc_debug & vncdebug[i].bit) {
 			vty_out(vty, "debug bgp vnc %s\n", vncdebug[i].name);
 			write++;
@@ -199,22 +173,24 @@ static int bgp_vnc_config_write_debug(struct vty *vty)
 	return write;
 }
 
-static struct cmd_node debug_node = {DEBUG_VNC_NODE, "", 1};
+static int bgp_vnc_config_write_debug(struct vty *vty);
+static struct cmd_node debug_node = {
+	.name = "vnc debug",
+	.node = DEBUG_VNC_NODE,
+	.prompt = "",
+	.config_write = bgp_vnc_config_write_debug,
+};
 
 void vnc_debug_init(void)
 {
-	install_node(&debug_node, bgp_vnc_config_write_debug);
+	install_node(&debug_node);
 	install_element(ENABLE_NODE, &show_debugging_bgp_vnc_cmd);
 
 	install_element(ENABLE_NODE, &debug_bgp_vnc_cmd);
 	install_element(CONFIG_NODE, &debug_bgp_vnc_cmd);
 	install_element(ENABLE_NODE, &no_debug_bgp_vnc_cmd);
 	install_element(CONFIG_NODE, &no_debug_bgp_vnc_cmd);
-	install_element(ENABLE_NODE, &undebug_bgp_vnc_cmd);
-	install_element(CONFIG_NODE, &undebug_bgp_vnc_cmd);
 
 	install_element(ENABLE_NODE, &no_debug_bgp_vnc_all_cmd);
 	install_element(CONFIG_NODE, &no_debug_bgp_vnc_all_cmd);
-	install_element(ENABLE_NODE, &undebug_bgp_vnc_all_cmd);
-	install_element(CONFIG_NODE, &undebug_bgp_vnc_all_cmd);
 }

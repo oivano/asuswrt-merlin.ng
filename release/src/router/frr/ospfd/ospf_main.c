@@ -35,12 +35,12 @@
 #include "stream.h"
 #include "log.h"
 #include "memory.h"
-#include "memory_vty.h"
 #include "privs.h"
 #include "sigevent.h"
 #include "zclient.h"
 #include "vrf.h"
 #include "libfrr.h"
+#include "routemap.h"
 
 #include "ospfd/ospfd.h"
 #include "ospfd/ospf_interface.h"
@@ -72,9 +72,11 @@ struct zebra_privs_t ospfd_privs = {
 	.cap_num_i = 0};
 
 /* OSPFd options. */
-struct option longopts[] = {{"instance", required_argument, NULL, 'n'},
-			    {"apiserver", no_argument, NULL, 'a'},
-			    {0}};
+const struct option longopts[] = {
+	{"instance", required_argument, NULL, 'n'},
+	{"apiserver", no_argument, NULL, 'a'},
+	{0}
+};
 
 /* OSPFd program name */
 
@@ -96,6 +98,7 @@ static void sigint(void)
 {
 	zlog_notice("Terminating on signal");
 	ospf_terminate();
+	exit(0);
 }
 
 /* SIGUSR1 handler. */
@@ -123,18 +126,27 @@ struct quagga_signal_t ospf_signals[] = {
 	},
 };
 
+static const struct frr_yang_module_info *const ospfd_yang_modules[] = {
+	&frr_filter_info,
+	&frr_interface_info,
+	&frr_route_map_info,
+	&frr_vrf_info,
+};
+
 FRR_DAEMON_INFO(ospfd, OSPF, .vty_port = OSPF_VTY_PORT,
 
 		.proghelp = "Implementation of the OSPFv2 routing protocol.",
 
 		.signals = ospf_signals, .n_signals = array_size(ospf_signals),
 
-		.privs = &ospfd_privs, )
+		.privs = &ospfd_privs, .yang_modules = ospfd_yang_modules,
+		.n_yang_modules = array_size(ospfd_yang_modules), )
 
 /* OSPFd main routine. */
 int main(int argc, char **argv)
 {
 	unsigned short instance = 0;
+	bool created = false;
 
 #ifdef SUPPORT_OSPF_API
 	/* OSPF apiserver is disabled by default. */
@@ -187,7 +199,7 @@ int main(int argc, char **argv)
 	master = om->master;
 
 	/* Library inits. */
-	debug_init();
+	ospf_debug_init();
 	ospf_vrf_init();
 
 	access_list_init();
@@ -211,13 +223,14 @@ int main(int argc, char **argv)
 	/* OSPF errors init */
 	ospf_error_init();
 
-	/* Need to initialize the default ospf structure, so the interface mode
-	   commands can be duly processed if they are received before 'router
-	   ospf',
-	   when quagga(ospfd) is restarted */
-	if (!ospf_get_instance(instance)) {
-		flog_err(OSPF_ERR_INIT_FAIL, "OSPF instance init failed: %s",
-			  strerror(errno));
+	/*
+	 * Need to initialize the default ospf structure, so the interface mode
+	 * commands can be duly processed if they are received before 'router
+	 * ospf',  when ospfd is restarted
+	 */
+	if (instance && !ospf_get_instance(instance, &created)) {
+		flog_err(EC_OSPF_INIT_FAIL, "OSPF instance init failed: %s",
+			 strerror(errno));
 		exit(1);
 	}
 
@@ -225,5 +238,5 @@ int main(int argc, char **argv)
 	frr_run(master);
 
 	/* Not reached. */
-	return (0);
+	return 0;
 }

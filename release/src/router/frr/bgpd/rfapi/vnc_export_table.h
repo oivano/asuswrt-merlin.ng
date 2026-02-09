@@ -37,7 +37,7 @@ typedef enum vnc_export_type {
 
 struct vnc_export_info {
 	struct vnc_export_info *next;
-	struct route_node *node;
+	struct agg_node *node;
 	struct peer *peer;
 	uint8_t type;
 	uint8_t subtype;
@@ -45,22 +45,22 @@ struct vnc_export_info {
 	struct thread *timer;
 };
 
-extern struct route_node *vnc_etn_get(struct bgp *bgp, vnc_export_type_t type,
-				      struct prefix *p);
+extern struct agg_node *vnc_etn_get(struct bgp *bgp, vnc_export_type_t type,
+				    const struct prefix *p);
 
-extern struct route_node *
-vnc_etn_lookup(struct bgp *bgp, vnc_export_type_t type, struct prefix *p);
+extern struct agg_node *vnc_etn_lookup(struct bgp *bgp, vnc_export_type_t type,
+				       const struct prefix *p);
 
-extern struct vnc_export_info *vnc_eti_get(struct bgp *bgp,
-					   vnc_export_type_t etype,
-					   struct prefix *p, struct peer *peer,
-					   uint8_t type, uint8_t subtype);
+extern struct vnc_export_info *
+vnc_eti_get(struct bgp *bgp, vnc_export_type_t etype, const struct prefix *p,
+	    struct peer *peer, uint8_t type, uint8_t subtype);
 
 extern void vnc_eti_delete(struct vnc_export_info *goner);
 
 extern struct vnc_export_info *
-vnc_eti_checktimer(struct bgp *bgp, vnc_export_type_t etype, struct prefix *p,
-		   struct peer *peer, uint8_t type, uint8_t subtype);
+vnc_eti_checktimer(struct bgp *bgp, vnc_export_type_t etype,
+		   const struct prefix *p, struct peer *peer, uint8_t type,
+		   uint8_t subtype);
 
 
 #endif /* _QUAGGA_VNC_VNC_EXPORT_TABLE_H_ */

@@ -26,13 +26,37 @@
 #endif
 
 /* ISO C11 */
-#ifdef HAVE_STDATOMIC_H
+#ifdef __cplusplus
+#include <stdint.h>
+#include <atomic>
+using std::atomic_int;
+using std::memory_order;
+using std::memory_order_relaxed;
+using std::memory_order_acquire;
+using std::memory_order_release;
+using std::memory_order_acq_rel;
+using std::memory_order_consume;
+using std::memory_order_seq_cst;
+
+typedef std::atomic<bool>		atomic_bool;
+typedef std::atomic<size_t>		atomic_size_t;
+typedef std::atomic<uint_fast32_t>	atomic_uint_fast32_t;
+typedef std::atomic<uintptr_t>		atomic_uintptr_t;
+
+#elif defined(HAVE_STDATOMIC_H)
 #include <stdatomic.h>
+
+/* These are available in gcc, but not in stdatomic */
+#define atomic_add_fetch_explicit __atomic_add_fetch
+#define atomic_sub_fetch_explicit __atomic_sub_fetch
+#define atomic_and_fetch_explicit __atomic_and_fetch
+#define atomic_or_fetch_explicit __atomic_or_fetch
 
 /* gcc 4.7 and newer */
 #elif defined(HAVE___ATOMIC)
 
 #define _Atomic volatile
+#define _ATOMIC_WANT_TYPEDEFS
 
 #define memory_order_relaxed __ATOMIC_RELAXED
 #define memory_order_consume __ATOMIC_CONSUME
@@ -49,9 +73,17 @@
 #define atomic_fetch_and_explicit __atomic_fetch_and
 #define atomic_fetch_or_explicit __atomic_fetch_or
 
+#define atomic_add_fetch_explicit __atomic_add_fetch
+#define atomic_sub_fetch_explicit __atomic_sub_fetch
+#define atomic_and_fetch_explicit __atomic_and_fetch
+#define atomic_or_fetch_explicit __atomic_or_fetch
+
 #define atomic_compare_exchange_weak_explicit(atom, expect, desire, mem1,      \
 					      mem2)                            \
 	__atomic_compare_exchange_n(atom, expect, desire, 1, mem1, mem2)
+#define atomic_compare_exchange_strong_explicit(atom, expect, desire, mem1,    \
+					      mem2)                            \
+	__atomic_compare_exchange_n(atom, expect, desire, 0, mem1, mem2)
 
 /* gcc 4.1 and newer,
  * clang 3.3 (possibly older)
@@ -63,6 +95,7 @@
 #elif defined(HAVE___SYNC)
 
 #define _Atomic volatile
+#define _ATOMIC_WANT_TYPEDEFS
 
 #define memory_order_relaxed 0
 #define memory_order_consume 0
@@ -123,7 +156,7 @@
 		rval;                                                          \
 	})
 
-#define atomic_compare_exchange_weak_explicit(atom, expect, desire, mem1,      \
+#define atomic_compare_exchange_strong_explicit(atom, expect, desire, mem1,    \
 					      mem2)                            \
 	({                                                                     \
 		typeof(atom) _atom = (atom);                                   \
@@ -137,6 +170,9 @@
 		*_expect = rval;                                               \
 		ret;                                                           \
 	})
+#define atomic_compare_exchange_weak_explicit \
+	atomic_compare_exchange_strong_explicit
+
 #define atomic_fetch_and_explicit(ptr, val, mem)                               \
 	({                                                                     \
 		__sync_synchronize();                                          \
@@ -152,8 +188,50 @@
 		rval;                                                          \
 	})
 
+#define atomic_add_fetch_explicit(ptr, val, mem)                               \
+	({                                                                     \
+		__sync_synchronize();                                          \
+		typeof(*ptr) rval = __sync_add_and_fetch((ptr), (val));        \
+		__sync_synchronize();                                          \
+		rval;                                                          \
+	})
+#define atomic_sub_fetch_explicit(ptr, val, mem)                               \
+	({                                                                     \
+		__sync_synchronize();                                          \
+		typeof(*ptr) rval = __sync_sub_and_fetch((ptr), (val));        \
+		__sync_synchronize();                                          \
+		rval;                                                          \
+	})
+
+#define atomic_and_fetch_explicit(ptr, val, mem)                               \
+	({                                                                     \
+		__sync_synchronize();                                          \
+		typeof(*ptr) rval = __sync_and_and_fetch(ptr, val);            \
+		__sync_synchronize();                                          \
+		rval;                                                          \
+	})
+#define atomic_or_fetch_explicit(ptr, val, mem)                                \
+	({                                                                     \
+		__sync_synchronize();                                          \
+		typeof(*ptr) rval = __sync_or_and_fetch(ptr, val);             \
+		__sync_synchronize();                                          \
+		rval;                                                          \
+	})
+
 #else /* !HAVE___ATOMIC && !HAVE_STDATOMIC_H */
 #error no atomic functions...
+#endif
+
+#ifdef _ATOMIC_WANT_TYPEDEFS
+#undef _ATOMIC_WANT_TYPEDEFS
+
+#include <stdint.h>
+#include <stdbool.h>
+
+typedef _Atomic bool		atomic_bool;
+typedef _Atomic size_t		atomic_size_t;
+typedef _Atomic uint_fast32_t	atomic_uint_fast32_t;
+typedef _Atomic uintptr_t	atomic_uintptr_t;
 #endif
 
 #endif /* _FRRATOMIC_H */

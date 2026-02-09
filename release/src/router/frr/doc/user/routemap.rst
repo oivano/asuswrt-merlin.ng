@@ -7,6 +7,9 @@ Route Maps
 Route maps provide a means to both filter and/or apply actions to route, hence
 allowing policy to be applied to routes.
 
+For a route reflector to apply a ``route-map`` to reflected routes, be sure to
+include ``bgp route-reflector allow-outbound-policy`` in ``router bgp`` mode.
+
 Route maps are an ordered list of route map entries. Each entry may specify up
 to four distinct sets of clauses:
 
@@ -38,11 +41,12 @@ to four distinct sets of clauses:
       the ordered entry in the route-map. See below.
 
    Call Action
-      Call to another route-map, after any :term:`Set Actions` have been carried out.
-      If the route-map called returns `deny` then processing of the route-map
-      finishes and the route is denied, regardless of the :term:Matching Policy` or
-      the :term:`Exit Policy`. If the called route-map returns `permit`, then
-      :term:`Matching Policy` and :term:`Exit Policy` govern further behaviour, as normal.
+      Call to another route-map, after any :term:`Set Actions` have been
+      carried out.  If the route-map called returns `deny` then processing of
+      the route-map finishes and the route is denied, regardless of the
+      :term:`Matching Policy` or the :term:`Exit Policy`. If the called
+      route-map returns `permit`, then :term:`Matching Policy` and :term:`Exit
+      Policy` govern further behaviour, as normal.
 
    Exit Policy
       An entry may, optionally, specify an alternative :dfn:`Exit Policy` to
@@ -84,6 +88,23 @@ deny
 cont
    goto next route-map entry
 
+.. _route-map-show-command:
+
+.. index:: show route-map [WORD]
+.. clicmd:: show route-map [WORD]
+
+   Display data about each daemons knowledge of individual route-maps.
+   If WORD is supplied narrow choice to that particular route-map.
+
+.. _route-map-clear-counter-command:
+
+.. index:: clear route-map counter [WORD]
+.. clicmd:: clear route-map counter [WORD]
+
+   Clear counters that are being stored about the route-map utilization
+   so that subsuquent show commands will indicate since the last clear.
+   If WORD is specified clear just that particular route-map's counters.
+
 .. _route-map-command:
 
 Route Map Command
@@ -105,10 +126,10 @@ Route Map Match Command
 
    Matches the specified `access_list`
 
-.. index:: match ip address PREFIX-LIST
-.. clicmd:: match ip address PREFIX-LIST
+.. index:: match ip address prefix-list PREFIX_LIST
+.. clicmd:: match ip address prefix-list PREFIX_LIST
 
-   Matches the specified `prefix-list`
+   Matches the specified `PREFIX_LIST`
 
 .. index:: match ip address prefix-len 0-32
 .. clicmd:: match ip address prefix-len 0-32
@@ -120,23 +141,28 @@ Route Map Match Command
 
    Matches the specified `access_list`
 
-.. index:: match ipv6 address PREFIX-LIST
-.. clicmd:: match ipv6 address PREFIX-LIST
+.. index:: match ipv6 address prefix-list PREFIX_LIST
+.. clicmd:: match ipv6 address prefix-list PREFIX_LIST
 
-   Matches the specified `prefix-list`
+   Matches the specified `PREFIX_LIST`
 
 .. index:: match ipv6 address prefix-len 0-128
 .. clicmd:: match ipv6 address prefix-len 0-128
 
    Matches the specified `prefix-len`. This is a Zebra specific command.
 
-.. index:: match ip next-hop IPV4_ADDR
-.. clicmd:: match ip next-hop IPV4_ADDR
+.. index:: match ip next-hop address IPV4_ADDR
+.. clicmd:: match ip next-hop address IPV4_ADDR
 
-   Matches the specified `ipv4_addr`.
+   This is a BGP specific match command. Matches the specified `ipv4_addr`.
 
-.. index:: match aspath AS_PATH
-.. clicmd:: match aspath AS_PATH
+.. index:: match ipv6 next-hop IPV6_ADDR
+.. clicmd:: match ipv6 next-hop IPV6_ADDR
+
+   This is a BGP specific match command. Matches the specified `ipv6_addr`.
+
+.. index:: match as-path AS_PATH
+.. clicmd:: match as-path AS_PATH
 
    Matches the specified `as_path`.
 
@@ -252,15 +278,34 @@ Route Map Set Command
 
    Set the BGP local preference to `local_pref`.
 
+.. index:: set local-preference +LOCAL_PREF
+.. clicmd:: set local-preference +LOCAL_PREF
+
+   Add the BGP local preference to an existing `local_pref`.
+
+.. index:: set local-preference -LOCAL_PREF
+.. clicmd:: set local-preference -LOCAL_PREF
+
+   Subtract the BGP local preference from an existing `local_pref`.
+
+.. index:: [no] set distance DISTANCE
+.. clicmd:: [no] set distance DISTANCE
+
+   Set the Administrative distance to DISTANCE to use for the route.
+   This is only locally significant and will not be dispersed to peers.
+
 .. index:: set weight WEIGHT
 .. clicmd:: set weight WEIGHT
 
    Set the route's weight.
 
-.. index:: set metric METRIC
-.. clicmd:: set metric METRIC
+.. index:: [no] set metric <[+|-](1-4294967295)|rtt|+rtt|-rtt>
+.. clicmd:: [no] set metric <[+|-](1-4294967295)|rtt|+rtt|-rtt>
 
-   Set the BGP attribute MED.
+   Set the BGP attribute MED to a specific value. Use `+`/`-` to add or subtract
+   the specified value to/from the MED. Use `rtt` to set the MED to the round
+   trip time or `+rtt`/`-rtt` to add/subtract the round trip time to/from the
+   MED.
 
 .. index:: set as-path prepend AS_PATH
 .. clicmd:: set as-path prepend AS_PATH
@@ -281,6 +326,17 @@ Route Map Set Command
 .. clicmd:: set origin ORIGIN <egp|igp|incomplete>
 
    Set BGP route origin.
+
+.. index:: set table (1-4294967295)
+.. clicmd:: set table (1-4294967295)
+
+   Set the BGP table to a given table identifier
+
+.. index:: set sr-te color (1-4294967295)
+.. clicmd:: set sr-te color (1-4294967295)
+
+   Set the color of a SR-TE Policy to be applied to a learned route. The SR-TE
+   Policy is uniquely determined by the color and the BGP nexthop.
 
 .. _route-map-call-command:
 
@@ -313,6 +369,28 @@ Route Map Exit Action Command
 .. clicmd:: continue N
 
    Proceed processing the route-map at the first entry whose order is >= N
+
+.. _route-map-optimization-command:
+
+Route Map Optimization Command
+==============================
+
+.. index:: route-map optimization
+.. clicmd:: route-map optimization
+
+   Enable route-map processing optimization. The optimization is
+   enabled by default.
+   Instead of sequentially passing through all the route-map indexes
+   until a match is found, the search for the best-match index will be
+   based on a look-up in a prefix-tree. A per-route-map prefix-tree
+   will be constructed for this purpose. The prefix-tree will compose
+   of all the prefixes in all the prefix-lists that are included in the
+   match rule of all the sequences of a route-map.
+
+.. index:: no route-map optimization
+.. clicmd:: no route-map optimization
+
+   Disable the route-map processing optimization.
 
 Route Map Examples
 ==================

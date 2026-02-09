@@ -31,7 +31,7 @@
 #include "frrstr.h"
 #include "memory.h"
 #include "log.h"
-#include "log_int.h"
+#include "log_vty.h"
 #include "thread.h"
 #include "vector.h"
 #include "linklist.h"
@@ -46,8 +46,10 @@
 #include "jhash.h"
 #include "hook.h"
 #include "lib_errors.h"
+#include "northbound_cli.h"
+#include "network.h"
 
-DEFINE_MTYPE(LIB, HOST, "Host config")
+DEFINE_MTYPE_STATIC(LIB, HOST, "Host config")
 DEFINE_MTYPE(LIB, COMPLETION, "Completion item")
 
 #define item(x)                                                                \
@@ -71,81 +73,6 @@ const struct message tokennames[] = {
 	item(START_TKN),
 	item(END_TKN),
 	{0},
-};
-
-const char *node_names[] = {
-	"auth",			    // AUTH_NODE,
-	"view",			    // VIEW_NODE,
-	"auth enable",		    // AUTH_ENABLE_NODE,
-	"enable",		    // ENABLE_NODE,
-	"config",		    // CONFIG_NODE,
-	"debug",		    // DEBUG_NODE,
-	"vrf debug",		    // VRF_DEBUG_NODE,
-	"vnc debug",		    // DEBUG_VNC_NODE,
-	"aaa",			    // AAA_NODE,
-	"keychain",		    // KEYCHAIN_NODE,
-	"keychain key",		    // KEYCHAIN_KEY_NODE,
-	"logical-router",	   // LOGICALROUTER_NODE,
-	"static ip",		    // IP_NODE,
-	"vrf",			    // VRF_NODE,
-	"interface",		    // INTERFACE_NODE,
-	"nexthop-group",            // NH_GROUP_NODE,
-	"zebra",		    // ZEBRA_NODE,
-	"table",		    // TABLE_NODE,
-	"rip",			    // RIP_NODE,
-	"ripng",		    // RIPNG_NODE,
-	"babel",		    // BABEL_NODE,
-	"eigrp",		    // EIGRP_NODE,
-	"bgp",			    // BGP_NODE,
-	"bgp vpnv4",		    // BGP_VPNV4_NODE,
-	"bgp vpnv6",		    // BGP_VPNV6_NODE,
-	"bgp ipv4 unicast",	 // BGP_IPV4_NODE,
-	"bgp ipv4 multicast",       // BGP_IPV4M_NODE,
-	"bgp ipv4 labeled unicast", // BGP_IPV4L_NODE,
-	"bgp ipv6",		    // BGP_IPV6_NODE,
-	"bgp ipv6 multicast",       // BGP_IPV6M_NODE,
-	"bgp ipv6 labeled unicast", // BGP_IPV6L_NODE,
-	"bgp vrf policy",	   // BGP_VRF_POLICY_NODE,
-	"bgp vnc defaults",	 // BGP_VNC_DEFAULTS_NODE,
-	"bgp vnc nve",		    // BGP_VNC_NVE_GROUP_NODE,
-	"bgp vnc l2",		    // BGP_VNC_L2_GROUP_NODE,
-	"rfp defaults",		    // RFP_DEFAULTS_NODE,
-	"bgp evpn",		    // BGP_EVPN_NODE,
-	"ospf",			    // OSPF_NODE,
-	"ospf6",		    // OSPF6_NODE,
-	"ldp",			    // LDP_NODE,
-	"ldp ipv4",		    // LDP_IPV4_NODE,
-	"ldp ipv6",		    // LDP_IPV6_NODE,
-	"ldp ipv4 interface",       // LDP_IPV4_IFACE_NODE,
-	"ldp ipv6 interface",       // LDP_IPV6_IFACE_NODE,
-	"ldp l2vpn",		    // LDP_L2VPN_NODE,
-	"ldp",			    // LDP_PSEUDOWIRE_NODE,
-	"isis",			    // ISIS_NODE,
-	"ipv4 access list",	 // ACCESS_NODE,
-	"ipv4 prefix list",	 // PREFIX_NODE,
-	"ipv6 access list",	 // ACCESS_IPV6_NODE,
-	"MAC access list",	  // ACCESS_MAC_NODE,
-	"ipv6 prefix list",	 // PREFIX_IPV6_NODE,
-	"as list",		    // AS_LIST_NODE,
-	"community list",	   // COMMUNITY_LIST_NODE,
-	"routemap",		    // RMAP_NODE,
-	"pbr-map",		    // PBRMAP_NODE,
-	"smux",			    // SMUX_NODE,
-	"dump",			    // DUMP_NODE,
-	"forwarding",		    // FORWARDING_NODE,
-	"protocol",		    // PROTOCOL_NODE,
-	"mpls",			    // MPLS_NODE,
-	"pw",			    // PW_NODE,
-	"vty",			    // VTY_NODE,
-	"link-params",		    // LINK_PARAMS_NODE,
-	"bgp evpn vni",		    // BGP_EVPN_VNI_NODE,
-	"rpki",			    // RPKI_NODE
-	"bgp ipv4 flowspec",	    /* BGP_FLOWSPECV4_NODE
-				     */
-	"bgp ipv6 flowspec",	    /* BGP_FLOWSPECV6_NODE
-				     */
-	"bfd",			 /* BFD_NODE */
-	"bfd peer",		 /* BFD_PEER_NODE */
 };
 /* clang-format on */
 
@@ -173,93 +100,53 @@ const char *cmd_domainname_get(void)
 	return host.domainname;
 }
 
+static int root_on_exit(struct vty *vty);
+
 /* Standard command node structures. */
 static struct cmd_node auth_node = {
-	AUTH_NODE, "Password: ",
+	.name = "auth",
+	.node = AUTH_NODE,
+	.prompt = "Password: ",
 };
 
 static struct cmd_node view_node = {
-	VIEW_NODE, "%s> ",
+	.name = "view",
+	.node = VIEW_NODE,
+	.prompt = "%s> ",
+	.node_exit = root_on_exit,
 };
 
 static struct cmd_node auth_enable_node = {
-	AUTH_ENABLE_NODE, "Password: ",
+	.name = "auth enable",
+	.node = AUTH_ENABLE_NODE,
+	.prompt = "Password: ",
 };
 
 static struct cmd_node enable_node = {
-	ENABLE_NODE, "%s# ",
+	.name = "enable",
+	.node = ENABLE_NODE,
+	.prompt = "%s# ",
+	.node_exit = root_on_exit,
 };
 
-static struct cmd_node config_node = {CONFIG_NODE, "%s(config)# ", 1};
-
-/* Default motd string. */
-static const char *default_motd = FRR_DEFAULT_MOTD;
-
-static const struct facility_map {
-	int facility;
-	const char *name;
-	size_t match;
-} syslog_facilities[] = {
-	{LOG_KERN, "kern", 1},
-	{LOG_USER, "user", 2},
-	{LOG_MAIL, "mail", 1},
-	{LOG_DAEMON, "daemon", 1},
-	{LOG_AUTH, "auth", 1},
-	{LOG_SYSLOG, "syslog", 1},
-	{LOG_LPR, "lpr", 2},
-	{LOG_NEWS, "news", 1},
-	{LOG_UUCP, "uucp", 2},
-	{LOG_CRON, "cron", 1},
-#ifdef LOG_FTP
-	{LOG_FTP, "ftp", 1},
-#endif
-	{LOG_LOCAL0, "local0", 6},
-	{LOG_LOCAL1, "local1", 6},
-	{LOG_LOCAL2, "local2", 6},
-	{LOG_LOCAL3, "local3", 6},
-	{LOG_LOCAL4, "local4", 6},
-	{LOG_LOCAL5, "local5", 6},
-	{LOG_LOCAL6, "local6", 6},
-	{LOG_LOCAL7, "local7", 6},
-	{0, NULL, 0},
+static int config_write_host(struct vty *vty);
+static struct cmd_node config_node = {
+	.name = "config",
+	.node = CONFIG_NODE,
+	.parent_node = ENABLE_NODE,
+	.prompt = "%s(config)# ",
+	.config_write = config_write_host,
+	.node_exit = vty_config_node_exit,
 };
-
-static const char *facility_name(int facility)
-{
-	const struct facility_map *fm;
-
-	for (fm = syslog_facilities; fm->name; fm++)
-		if (fm->facility == facility)
-			return fm->name;
-	return "";
-}
-
-static int facility_match(const char *str)
-{
-	const struct facility_map *fm;
-
-	for (fm = syslog_facilities; fm->name; fm++)
-		if (!strncmp(str, fm->name, fm->match))
-			return fm->facility;
-	return -1;
-}
-
-static int level_match(const char *s)
-{
-	int level;
-
-	for (level = 0; zlog_priority[level] != NULL; level++)
-		if (!strncmp(s, zlog_priority[level], 2))
-			return level;
-	return ZLOG_DISABLED;
-}
 
 /* This is called from main when a daemon is invoked with -v or --version. */
 void print_version(const char *progname)
 {
 	printf("%s version %s\n", progname, FRR_VERSION);
 	printf("%s\n", FRR_COPYRIGHT);
-//	printf("configured with:\n\t%s\n", FRR_CONFIG_ARGS);
+#ifdef ENABLE_VERSION_BUILD_CONFIG
+	printf("configured with:\n\t%s\n", FRR_CONFIG_ARGS);
+#endif
 }
 
 char *argv_concat(struct cmd_token **argv, int argc, int shift)
@@ -284,7 +171,7 @@ vector cmd_make_strvec(const char *string)
 	const char *copy = string;
 
 	/* skip leading whitespace */
-	while (isspace((int)*copy) && *copy != '\0')
+	while (isspace((unsigned char)*copy) && *copy != '\0')
 		copy++;
 
 	/* if the entire string was whitespace or a comment, return */
@@ -329,23 +216,22 @@ int argv_find(struct cmd_token **argv, int argc, const char *text, int *index)
 	return found;
 }
 
-static unsigned int cmd_hash_key(void *p)
+static unsigned int cmd_hash_key(const void *p)
 {
 	int size = sizeof(p);
 
 	return jhash(p, size, 0);
 }
 
-static int cmd_hash_cmp(const void *a, const void *b)
+static bool cmd_hash_cmp(const void *a, const void *b)
 {
 	return a == b;
 }
 
 /* Install top node of command vector. */
-void install_node(struct cmd_node *node, int (*func)(struct vty *))
+void install_node(struct cmd_node *node)
 {
 	vector_set_index(cmdvec, node->node, node);
-	node->func = func;
 	node->cmdgraph = graph_new();
 	node->cmd_vector = vector_init(VECTOR_MIN_SIZE);
 	// add start node
@@ -367,7 +253,7 @@ const char *cmd_prompt(enum node_type node)
 }
 
 /* Install a command into a node. */
-void install_element(enum node_type ntype, struct cmd_element *cmd)
+void install_element(enum node_type ntype, const struct cmd_element *cmd)
 {
 	struct cmd_node *cnode;
 
@@ -383,22 +269,22 @@ void install_element(enum node_type ntype, struct cmd_element *cmd)
 	if (cnode == NULL) {
 		fprintf(stderr,
 			"%s[%s]:\n"
-			"\tnode %d (%s) does not exist.\n"
+			"\tnode %d does not exist.\n"
 			"\tplease call install_node() before install_element()\n",
-			cmd->name, cmd->string, ntype, node_names[ntype]);
+			cmd->name, cmd->string, ntype);
 		exit(EXIT_FAILURE);
 	}
 
-	if (hash_lookup(cnode->cmd_hash, cmd) != NULL) {
+	if (hash_lookup(cnode->cmd_hash, (void *)cmd) != NULL) {
 		fprintf(stderr,
 			"%s[%s]:\n"
 			"\tnode %d (%s) already has this command installed.\n"
 			"\tduplicate install_element call?\n",
-			cmd->name, cmd->string, ntype, node_names[ntype]);
+			cmd->name, cmd->string, ntype, cnode->name);
 		return;
 	}
 
-	assert(hash_get(cnode->cmd_hash, cmd, hash_alloc_intern));
+	assert(hash_get(cnode->cmd_hash, (void *)cmd, hash_alloc_intern));
 
 	struct graph *graph = graph_new();
 	struct cmd_token *token =
@@ -410,13 +296,13 @@ void install_element(enum node_type ntype, struct cmd_element *cmd)
 	cmd_graph_merge(cnode->cmdgraph, graph, +1);
 	graph_delete_graph(graph);
 
-	vector_set(cnode->cmd_vector, cmd);
+	vector_set(cnode->cmd_vector, (void *)cmd);
 
 	if (ntype == VIEW_NODE)
 		install_element(ENABLE_NODE, cmd);
 }
 
-void uninstall_element(enum node_type ntype, struct cmd_element *cmd)
+void uninstall_element(enum node_type ntype, const struct cmd_element *cmd)
 {
 	struct cmd_node *cnode;
 
@@ -432,22 +318,22 @@ void uninstall_element(enum node_type ntype, struct cmd_element *cmd)
 	if (cnode == NULL) {
 		fprintf(stderr,
 			"%s[%s]:\n"
-			"\tnode %d (%s) does not exist.\n"
+			"\tnode %d does not exist.\n"
 			"\tplease call install_node() before uninstall_element()\n",
-			cmd->name, cmd->string, ntype, node_names[ntype]);
+			cmd->name, cmd->string, ntype);
 		exit(EXIT_FAILURE);
 	}
 
-	if (hash_release(cnode->cmd_hash, cmd) == NULL) {
+	if (hash_release(cnode->cmd_hash, (void *)cmd) == NULL) {
 		fprintf(stderr,
 			"%s[%s]:\n"
 			"\tnode %d (%s) does not have this command installed.\n"
 			"\tduplicate uninstall_element call?\n",
-			cmd->name, cmd->string, ntype, node_names[ntype]);
+			cmd->name, cmd->string, ntype, cnode->name);
 		return;
 	}
 
-	vector_unset_value(cnode->cmd_vector, cmd);
+	vector_unset_value(cnode->cmd_vector, (void *)cmd);
 
 	struct graph *graph = graph_new();
 	struct cmd_token *token =
@@ -483,12 +369,14 @@ static char *zencrypt(const char *passwd)
 
 	gettimeofday(&tv, 0);
 
-	to64(&salt[0], random(), 3);
+	to64(&salt[0], frr_weak_random(), 3);
 	to64(&salt[3], tv.tv_usec, 3);
 	salt[5] = '\0';
 
 	return crypt(passwd, salt);
 }
+
+static bool full_cli;
 
 /* This function write configuration of this host. */
 static int config_write_host(struct vty *vty)
@@ -505,7 +393,7 @@ static int config_write_host(struct vty *vty)
 	 * which would cause other daemons to then switch to syslog when they
 	 * parse frr.conf.
 	 */
-	if (strcmp(zlog_default->protoname, "WATCHFRR")) {
+	if (full_cli) {
 		if (host.encrypt) {
 			if (host.password_encrypt)
 				vty_out(vty, "password 8 %s\n",
@@ -520,62 +408,7 @@ static int config_write_host(struct vty *vty)
 				vty_out(vty, "enable password %s\n",
 					host.enable);
 		}
-
-		if (host.logfile
-		    && (zlog_default->maxlvl[ZLOG_DEST_FILE]
-			!= ZLOG_DISABLED)) {
-			vty_out(vty, "log file %s", host.logfile);
-			if (zlog_default->maxlvl[ZLOG_DEST_FILE]
-			    != zlog_default->default_lvl)
-				vty_out(vty, " %s",
-					zlog_priority
-						[zlog_default->maxlvl
-							 [ZLOG_DEST_FILE]]);
-			vty_out(vty, "\n");
-		}
-
-		if (zlog_default->maxlvl[ZLOG_DEST_STDOUT] != ZLOG_DISABLED) {
-			vty_out(vty, "log stdout");
-			if (zlog_default->maxlvl[ZLOG_DEST_STDOUT]
-			    != zlog_default->default_lvl)
-				vty_out(vty, " %s",
-					zlog_priority
-						[zlog_default->maxlvl
-							 [ZLOG_DEST_STDOUT]]);
-			vty_out(vty, "\n");
-		}
-
-		if (zlog_default->maxlvl[ZLOG_DEST_MONITOR] == ZLOG_DISABLED)
-			vty_out(vty, "no log monitor\n");
-		else if (zlog_default->maxlvl[ZLOG_DEST_MONITOR]
-			 != zlog_default->default_lvl)
-			vty_out(vty, "log monitor %s\n",
-				zlog_priority[zlog_default->maxlvl
-						      [ZLOG_DEST_MONITOR]]);
-
-		if (zlog_default->maxlvl[ZLOG_DEST_SYSLOG] != ZLOG_DISABLED) {
-			vty_out(vty, "log syslog");
-			if (zlog_default->maxlvl[ZLOG_DEST_SYSLOG]
-			    != zlog_default->default_lvl)
-				vty_out(vty, " %s",
-					zlog_priority[zlog_default->maxlvl
-							      [ZLOG_DEST_SYSLOG]]);
-			vty_out(vty, "\n");
-		}
-
-		if (zlog_default->facility != LOG_DAEMON)
-			vty_out(vty, "log facility %s\n",
-				facility_name(zlog_default->facility));
-
-		if (zlog_default->record_priority == 1)
-			vty_out(vty, "log record-priority\n");
-
-		if (zlog_default->error_code)
-			vty_out(vty, "log error-code\n");
-
-		if (zlog_default->timestamp_precision > 0)
-			vty_out(vty, "log timestamp precision %d\n",
-				zlog_default->timestamp_precision);
+		log_config_write(vty);
 
 		if (host.advanced)
 			vty_out(vty, "service advanced-vty\n");
@@ -589,6 +422,10 @@ static int config_write_host(struct vty *vty)
 
 		if (host.motdfile)
 			vty_out(vty, "banner motd file %s\n", host.motdfile);
+		else if (host.motd
+			 && strncmp(host.motd, FRR_DEFAULT_MOTD,
+				    strlen(host.motd)))
+			vty_out(vty, "banner motd line %s\n", host.motd);
 		else if (!host.motd)
 			vty_out(vty, "no banner motd\n");
 	}
@@ -620,8 +457,8 @@ static int cmd_try_do_shortcut(enum node_type node, char *first_word)
  */
 static int compare_completions(const void *fst, const void *snd)
 {
-	struct cmd_token *first = *(struct cmd_token **)fst,
-			 *secnd = *(struct cmd_token **)snd;
+	const struct cmd_token *first = *(const struct cmd_token * const *)fst,
+			       *secnd = *(const struct cmd_token * const *)snd;
 	return strcmp(first->text, secnd->text);
 }
 
@@ -697,7 +534,7 @@ static vector cmd_complete_command_real(vector vline, struct vty *vty,
 	}
 
 	vector comps = completions_to_vec(completions);
-	list_delete_and_null(&completions);
+	list_delete(&completions);
 
 	// set status code appropriately
 	switch (vector_active(comps)) {
@@ -720,11 +557,14 @@ vector cmd_describe_command(vector vline, struct vty *vty, int *status)
 
 	if (cmd_try_do_shortcut(vty->node, vector_slot(vline, 0))) {
 		enum node_type onode;
+		int orig_xpath_index;
 		vector shifted_vline;
 		unsigned int index;
 
 		onode = vty->node;
+		orig_xpath_index = vty->xpath_index;
 		vty->node = ENABLE_NODE;
+		vty->xpath_index = 0;
 		/* We can try it on enable node, cos' the vty is authenticated
 		 */
 
@@ -739,6 +579,7 @@ vector cmd_describe_command(vector vline, struct vty *vty, int *status)
 
 		vector_free(shifted_vline);
 		vty->node = onode;
+		vty->xpath_index = orig_xpath_index;
 		return ret;
 	}
 
@@ -969,6 +810,7 @@ enum node_type node_parent(enum node_type node)
 	case BGP_IPV6M_NODE:
 	case BGP_EVPN_NODE:
 	case BGP_IPV6L_NODE:
+	case BMP_NODE:
 		ret = BGP_NODE;
 		break;
 	case BGP_EVPN_VNI_NODE:
@@ -996,6 +838,9 @@ enum node_type node_parent(enum node_type node)
 	case BFD_PEER_NODE:
 		ret = BFD_NODE;
 		break;
+	case BFD_PROFILE_NODE:
+		ret = BFD_NODE;
+		break;
 	default:
 		ret = CONFIG_NODE;
 		break;
@@ -1005,7 +850,7 @@ enum node_type node_parent(enum node_type node)
 }
 
 /* Execute command by argument vline vector. */
-static int cmd_execute_command_real(vector vline, enum filter_type filter,
+static int cmd_execute_command_real(vector vline, enum cmd_filter_type filter,
 				    struct vty *vty,
 				    const struct cmd_element **cmd)
 {
@@ -1022,7 +867,7 @@ static int cmd_execute_command_real(vector vline, enum filter_type filter,
 	// if matcher error, return corresponding CMD_ERR
 	if (MATCHER_ERROR(status)) {
 		if (argv_list)
-			list_delete_and_null(&argv_list);
+			list_delete(&argv_list);
 		switch (status) {
 		case MATCHER_INCOMPLETE:
 			return CMD_ERR_INCOMPLETE;
@@ -1047,11 +892,32 @@ static int cmd_execute_command_real(vector vline, enum filter_type filter,
 	int ret;
 	if (matched_element->daemon)
 		ret = CMD_SUCCESS_DAEMON;
-	else
+	else {
+		if (vty->config) {
+			/* Clear array of enqueued configuration changes. */
+			vty->num_cfg_changes = 0;
+			memset(&vty->cfg_changes, 0, sizeof(vty->cfg_changes));
+
+			/* Regenerate candidate configuration if necessary. */
+			if (frr_get_cli_mode() == FRR_CLI_CLASSIC
+			    && running_config->version
+				       > vty->candidate_config->version)
+				nb_config_replace(vty->candidate_config,
+						  running_config, true);
+
+			/*
+			 * Perform pending commit (if any) before executing
+			 * non-YANG command.
+			 */
+			if (matched_element->attr != CMD_ATTR_YANG)
+				nb_cli_pending_commit_check(vty);
+		}
+
 		ret = matched_element->func(matched_element, vty, argc, argv);
+	}
 
 	// delete list and cmd_token's in it
-	list_delete_and_null(&argv_list);
+	list_delete(&argv_list);
 	XFREE(MTYPE_TMP, argv);
 
 	return ret;
@@ -1077,14 +943,17 @@ int cmd_execute_command(vector vline, struct vty *vty,
 {
 	int ret, saved_ret = 0;
 	enum node_type onode, try_node;
+	int orig_xpath_index;
 
 	onode = try_node = vty->node;
+	orig_xpath_index = vty->xpath_index;
 
 	if (cmd_try_do_shortcut(vty->node, vector_slot(vline, 0))) {
 		vector shifted_vline;
 		unsigned int index;
 
 		vty->node = ENABLE_NODE;
+		vty->xpath_index = 0;
 		/* We can try it on enable node, cos' the vty is authenticated
 		 */
 
@@ -1099,6 +968,7 @@ int cmd_execute_command(vector vline, struct vty *vty,
 
 		vector_free(shifted_vline);
 		vty->node = onode;
+		vty->xpath_index = orig_xpath_index;
 		return ret;
 	}
 
@@ -1115,6 +985,8 @@ int cmd_execute_command(vector vline, struct vty *vty,
 		while (vty->node > CONFIG_NODE) {
 			try_node = node_parent(try_node);
 			vty->node = try_node;
+			if (vty->xpath_index > 0)
+				vty->xpath_index--;
 			ret = cmd_execute_command_real(vline, FILTER_RELAXED,
 						       vty, cmd);
 			if (ret == CMD_SUCCESS || ret == CMD_WARNING
@@ -1124,6 +996,7 @@ int cmd_execute_command(vector vline, struct vty *vty,
 		}
 		/* no command succeeded, reset the vty to the original node */
 		vty->node = onode;
+		vty->xpath_index = orig_xpath_index;
 	}
 
 	/* return command status for original node */
@@ -1191,6 +1064,7 @@ static int handle_pipe_action(struct vty *vty, const char *cmd_in,
 	/* look for `|` */
 	char *orig, *working, *token, *u;
 	char *pipe = strstr(cmd_in, "| ");
+	int ret = 0;
 
 	if (!pipe)
 		return 0;
@@ -1200,6 +1074,7 @@ static int handle_pipe_action(struct vty *vty, const char *cmd_in,
 
 	/* retrieve action */
 	token = strsep(&working, " ");
+	assert(token);
 
 	/* match result to known actions */
 	if (strmatch(token, "include")) {
@@ -1208,6 +1083,7 @@ static int handle_pipe_action(struct vty *vty, const char *cmd_in,
 
 		if (!regexp) {
 			vty_out(vty, "%% Need a regexp to filter with\n");
+			ret = 1;
 			goto fail;
 		}
 
@@ -1215,6 +1091,7 @@ static int handle_pipe_action(struct vty *vty, const char *cmd_in,
 
 		if (!succ) {
 			vty_out(vty, "%% Bad regexp '%s'\n", regexp);
+			ret = 1;
 			goto fail;
 		}
 		*cmd_out = XSTRDUP(MTYPE_TMP, cmd_in);
@@ -1222,12 +1099,13 @@ static int handle_pipe_action(struct vty *vty, const char *cmd_in,
 		strsep(&u, "|");
 	} else {
 		vty_out(vty, "%% Unknown action '%s'\n", token);
+		ret = 1;
 		goto fail;
 	}
 
 fail:
 	XFREE(MTYPE_TMP, orig);
-	return 0;
+	return ret;
 }
 
 static int handle_pipe_action_done(struct vty *vty, const char *cmd_exec)
@@ -1243,10 +1121,15 @@ int cmd_execute(struct vty *vty, const char *cmd,
 {
 	int ret;
 	char *cmd_out = NULL;
-	const char *cmd_exec;
+	const char *cmd_exec = NULL;
 	vector vline;
 
-	hook_call(cmd_execute, vty, cmd, &cmd_out);
+	ret = hook_call(cmd_execute, vty, cmd, &cmd_out);
+	if (ret) {
+		ret = CMD_WARNING;
+		goto free;
+	}
+
 	cmd_exec = cmd_out ? (const char *)cmd_out : cmd;
 
 	vline = cmd_make_strvec(cmd_exec);
@@ -1258,10 +1141,10 @@ int cmd_execute(struct vty *vty, const char *cmd,
 		ret = CMD_SUCCESS;
 	}
 
+free:
 	hook_call(cmd_execute_done, vty, cmd_exec);
 
-	if (cmd_out)
-		XFREE(MTYPE_TMP, cmd_out);
+	XFREE(MTYPE_TMP, cmd_out);
 
 	return ret;
 }
@@ -1282,10 +1165,10 @@ int cmd_execute(struct vty *vty, const char *cmd,
  *         as to why no command could be executed.
  */
 int command_config_read_one_line(struct vty *vty,
-				 const struct cmd_element **cmd, int use_daemon)
+				 const struct cmd_element **cmd,
+				 uint32_t line_num, int use_daemon)
 {
 	vector vline;
-	int saved_node;
 	int ret;
 
 	vline = cmd_make_strvec(vty->buf);
@@ -1303,14 +1186,16 @@ int command_config_read_one_line(struct vty *vty,
 	    && ret != CMD_SUCCESS && ret != CMD_WARNING
 	    && ret != CMD_NOT_MY_INSTANCE && ret != CMD_WARNING_CONFIG_FAILED
 	    && vty->node != CONFIG_NODE) {
-
-		saved_node = vty->node;
+		int saved_node = vty->node;
+		int saved_xpath_index = vty->xpath_index;
 
 		while (!(use_daemon && ret == CMD_SUCCESS_DAEMON)
 		       && !(!use_daemon && ret == CMD_ERR_NOTHING_TODO)
 		       && ret != CMD_SUCCESS && ret != CMD_WARNING
 		       && vty->node > CONFIG_NODE) {
 			vty->node = node_parent(vty->node);
+			if (vty->xpath_index > 0)
+				vty->xpath_index--;
 			ret = cmd_execute_command_strict(vline, vty, cmd);
 		}
 
@@ -1320,11 +1205,22 @@ int command_config_read_one_line(struct vty *vty,
 		    && !(!use_daemon && ret == CMD_ERR_NOTHING_TODO)
 		    && ret != CMD_SUCCESS && ret != CMD_WARNING) {
 			vty->node = saved_node;
+			vty->xpath_index = saved_xpath_index;
 		}
 	}
 
-	if (ret != CMD_SUCCESS && ret != CMD_WARNING)
-		memcpy(vty->error_buf, vty->buf, VTY_BUFSIZ);
+	if (ret != CMD_SUCCESS &&
+	    ret != CMD_WARNING &&
+	    ret != CMD_SUCCESS_DAEMON) {
+		struct vty_error *ve = XCALLOC(MTYPE_TMP, sizeof(*ve));
+
+		memcpy(ve->error_buf, vty->buf, VTY_BUFSIZ);
+		ve->line_num = line_num;
+		if (!vty->error)
+			vty->error = list_new();
+
+		listnode_add(vty->error, ve);
+	}
 
 	cmd_free_strvec(vline);
 
@@ -1338,10 +1234,9 @@ int config_from_file(struct vty *vty, FILE *fp, unsigned int *line_num)
 	*line_num = 0;
 
 	while (fgets(vty->buf, VTY_BUFSIZ, fp)) {
-		if (!error_ret)
-			++(*line_num);
+		++(*line_num);
 
-		ret = command_config_read_one_line(vty, NULL, 0);
+		ret = command_config_read_one_line(vty, NULL, *line_num, 0);
 
 		if (ret != CMD_SUCCESS && ret != CMD_WARNING
 		    && ret != CMD_ERR_NOTHING_TODO)
@@ -1358,17 +1253,11 @@ int config_from_file(struct vty *vty, FILE *fp, unsigned int *line_num)
 /* Configuration from terminal */
 DEFUN (config_terminal,
        config_terminal_cmd,
-       "configure terminal",
+       "configure [terminal]",
        "Configuration from vty interface\n"
        "Configuration terminal\n")
 {
-	if (vty_config_lock(vty))
-		vty->node = CONFIG_NODE;
-	else {
-		vty_out(vty, "VTY configuration is locked by other VTY\n");
-		return CMD_WARNING_CONFIG_FAILED;
-	}
-	return CMD_SUCCESS;
+	return vty_config_enter(vty, false, false);
 }
 
 /* Enable command */
@@ -1408,88 +1297,27 @@ DEFUN (config_exit,
 	return CMD_SUCCESS;
 }
 
+static int root_on_exit(struct vty *vty)
+{
+	if (vty_shell(vty))
+		exit(0);
+	else
+		vty->status = VTY_CLOSE;
+	return 0;
+}
+
 void cmd_exit(struct vty *vty)
 {
-	switch (vty->node) {
-	case VIEW_NODE:
-	case ENABLE_NODE:
-		if (vty_shell(vty))
-			exit(0);
-		else
-			vty->status = VTY_CLOSE;
-		break;
-	case CONFIG_NODE:
-		vty->node = ENABLE_NODE;
-		vty_config_unlock(vty);
-		break;
-	case INTERFACE_NODE:
-	case PW_NODE:
-	case LOGICALROUTER_NODE:
-	case VRF_NODE:
-	case NH_GROUP_NODE:
-	case ZEBRA_NODE:
-	case BGP_NODE:
-	case RIP_NODE:
-	case EIGRP_NODE:
-	case BABEL_NODE:
-	case RIPNG_NODE:
-	case OSPF_NODE:
-	case OSPF6_NODE:
-	case LDP_NODE:
-	case LDP_L2VPN_NODE:
-	case ISIS_NODE:
-	case KEYCHAIN_NODE:
-	case RMAP_NODE:
-	case PBRMAP_NODE:
-	case VTY_NODE:
-	case BFD_NODE:
-		vty->node = CONFIG_NODE;
-		break;
-	case BGP_IPV4_NODE:
-	case BGP_IPV4M_NODE:
-	case BGP_IPV4L_NODE:
-	case BGP_VPNV4_NODE:
-	case BGP_VPNV6_NODE:
-	case BGP_FLOWSPECV4_NODE:
-	case BGP_FLOWSPECV6_NODE:
-	case BGP_VRF_POLICY_NODE:
-	case BGP_VNC_DEFAULTS_NODE:
-	case BGP_VNC_NVE_GROUP_NODE:
-	case BGP_VNC_L2_GROUP_NODE:
-	case BGP_IPV6_NODE:
-	case BGP_IPV6M_NODE:
-	case BGP_EVPN_NODE:
-	case BGP_IPV6L_NODE:
-		vty->node = BGP_NODE;
-		break;
-	case BGP_EVPN_VNI_NODE:
-		vty->node = BGP_EVPN_NODE;
-		break;
-	case LDP_IPV4_NODE:
-	case LDP_IPV6_NODE:
-		vty->node = LDP_NODE;
-		break;
-	case LDP_IPV4_IFACE_NODE:
-		vty->node = LDP_IPV4_NODE;
-		break;
-	case LDP_IPV6_IFACE_NODE:
-		vty->node = LDP_IPV6_NODE;
-		break;
-	case LDP_PSEUDOWIRE_NODE:
-		vty->node = LDP_L2VPN_NODE;
-		break;
-	case KEYCHAIN_KEY_NODE:
-		vty->node = KEYCHAIN_NODE;
-		break;
-	case LINK_PARAMS_NODE:
-		vty->node = INTERFACE_NODE;
-		break;
-	case BFD_PEER_NODE:
-		vty->node = BFD_NODE;
-		break;
-	default:
-		break;
+	struct cmd_node *cnode = vector_lookup(cmdvec, vty->node);
+
+	if (cnode->node_exit) {
+		if (!cnode->node_exit(vty))
+			return;
 	}
+	if (cnode->parent_node)
+		vty->node = cnode->parent_node;
+	if (vty->xpath_index > 0)
+		vty->xpath_index--;
 }
 
 /* ALIAS_FIXME */
@@ -1508,62 +1336,9 @@ DEFUN (config_end,
        "end",
        "End current mode and change to enable mode.\n")
 {
-	switch (vty->node) {
-	case VIEW_NODE:
-	case ENABLE_NODE:
-		/* Nothing to do. */
-		break;
-	case CONFIG_NODE:
-	case INTERFACE_NODE:
-	case PW_NODE:
-	case LOGICALROUTER_NODE:
-	case VRF_NODE:
-	case NH_GROUP_NODE:
-	case ZEBRA_NODE:
-	case RIP_NODE:
-	case RIPNG_NODE:
-	case EIGRP_NODE:
-	case BABEL_NODE:
-	case BGP_NODE:
-	case BGP_VRF_POLICY_NODE:
-	case BGP_VNC_DEFAULTS_NODE:
-	case BGP_VNC_NVE_GROUP_NODE:
-	case BGP_VNC_L2_GROUP_NODE:
-	case BGP_VPNV4_NODE:
-	case BGP_VPNV6_NODE:
-	case BGP_FLOWSPECV4_NODE:
-	case BGP_FLOWSPECV6_NODE:
-	case BGP_IPV4_NODE:
-	case BGP_IPV4M_NODE:
-	case BGP_IPV4L_NODE:
-	case BGP_IPV6_NODE:
-	case BGP_IPV6M_NODE:
-	case BGP_EVPN_NODE:
-	case BGP_EVPN_VNI_NODE:
-	case BGP_IPV6L_NODE:
-	case RMAP_NODE:
-	case PBRMAP_NODE:
-	case OSPF_NODE:
-	case OSPF6_NODE:
-	case LDP_NODE:
-	case LDP_IPV4_NODE:
-	case LDP_IPV6_NODE:
-	case LDP_IPV4_IFACE_NODE:
-	case LDP_IPV6_IFACE_NODE:
-	case LDP_L2VPN_NODE:
-	case LDP_PSEUDOWIRE_NODE:
-	case ISIS_NODE:
-	case KEYCHAIN_NODE:
-	case KEYCHAIN_KEY_NODE:
-	case VTY_NODE:
-	case LINK_PARAMS_NODE:
-	case BFD_NODE:
-	case BFD_PEER_NODE:
-		vty_config_unlock(vty);
+	if (vty->config) {
+		vty_config_exit(vty);
 		vty->node = ENABLE_NODE;
-		break;
-	default:
-		break;
 	}
 	return CMD_SUCCESS;
 }
@@ -1578,20 +1353,9 @@ DEFUN (show_version,
 	vty_out(vty, "%s %s (%s).\n", FRR_FULL_NAME, FRR_VERSION,
 		cmd_hostname_get() ? cmd_hostname_get() : "");
 	vty_out(vty, "%s%s\n", FRR_COPYRIGHT, GIT_INFO);
-//	vty_out(vty, "configured with:\n    %s\n", FRR_CONFIG_ARGS);
-
-	return CMD_SUCCESS;
-}
-
-/* "Set" version ... ignore version tags */
-DEFUN (frr_version_defaults,
-       frr_version_defaults_cmd,
-       "frr <version|defaults> LINE...",
-       "FRRouting global parameters\n"
-       "version configuration was written by\n"
-       "set of configuration defaults used\n"
-       "version string\n")
-{
+#ifdef ENABLE_VERSION_BUILD_CONFIG
+	vty_out(vty, "configured with:\n    %s\n", FRR_CONFIG_ARGS);
+#endif
 	return CMD_SUCCESS;
 }
 
@@ -1668,7 +1432,7 @@ int cmd_list_cmds(struct vty *vty, int do_permute)
 		permute(vector_slot(node->cmdgraph->nodes, 0), vty);
 	else {
 		/* loop over all commands at this node */
-		struct cmd_element *element = NULL;
+		const struct cmd_element *element = NULL;
 		for (unsigned int i = 0; i < vector_active(node->cmd_vector);
 		     i++)
 			if ((element = vector_slot(node->cmd_vector, i))
@@ -1722,19 +1486,22 @@ static int vty_write_config(struct vty *vty)
 	if (host.noconfig)
 		return CMD_SUCCESS;
 
+	nb_cli_show_config_prepare(running_config, false);
+
 	if (vty->type == VTY_TERM) {
 		vty_out(vty, "\nCurrent configuration:\n");
 		vty_out(vty, "!\n");
 	}
 
+	if (strcmp(frr_defaults_version(), FRR_VER_SHORT))
+		vty_out(vty, "! loaded from %s\n", frr_defaults_version());
 	vty_out(vty, "frr version %s\n", FRR_VER_SHORT);
-	vty_out(vty, "frr defaults %s\n", DFLT_NAME);
+	vty_out(vty, "frr defaults %s\n", frr_defaults_profile());
 	vty_out(vty, "!\n");
 
 	for (i = 0; i < vector_active(cmdvec); i++)
-		if ((node = vector_slot(cmdvec, i)) && node->func
-		    && (node->vtysh || vty->type != VTY_SHELL)) {
-			if ((*node->func)(vty))
+		if ((node = vector_slot(cmdvec, i)) && node->config_write) {
+			if ((*node->config_write)(vty))
 				vty_out(vty, "!\n");
 		}
 
@@ -1781,14 +1548,15 @@ static int file_write_config(struct vty *vty)
 		dirfd = open(".", O_DIRECTORY | O_RDONLY);
 	/* if dirfd is invalid, directory sync fails, but we're still OK */
 
-	config_file_sav = XMALLOC(
-		MTYPE_TMP, strlen(config_file) + strlen(CONF_BACKUP_EXT) + 1);
-	strcpy(config_file_sav, config_file);
-	strcat(config_file_sav, CONF_BACKUP_EXT);
+	size_t config_file_sav_sz = strlen(config_file) + strlen(CONF_BACKUP_EXT) + 1;
+	config_file_sav = XMALLOC(MTYPE_TMP, config_file_sav_sz);
+	strlcpy(config_file_sav, config_file, config_file_sav_sz);
+	strlcat(config_file_sav, CONF_BACKUP_EXT, config_file_sav_sz);
 
 
 	config_file_tmp = XMALLOC(MTYPE_TMP, strlen(config_file) + 8);
-	sprintf(config_file_tmp, "%s.XXXXXX", config_file);
+	snprintf(config_file_tmp, strlen(config_file) + 8, "%s.XXXXXX",
+		 config_file);
 
 	/* Open file to configuration write. */
 	fd = mkstemp(config_file_tmp);
@@ -1948,7 +1716,7 @@ DEFUN(config_domainname,
 {
 	struct cmd_token *word = argv[1];
 
-	if (!isalpha((int)word->arg[0])) {
+	if (!isalpha((unsigned char)word->arg[0])) {
 		vty_out(vty, "Please specify string starting with alphabet\n");
 		return CMD_WARNING_CONFIG_FAILED;
 	}
@@ -1982,8 +1750,16 @@ DEFUN (config_hostname,
 {
 	struct cmd_token *word = argv[1];
 
-	if (!isalnum((int)word->arg[0])) {
-		vty_out(vty, "Please specify string starting with alphabet\n");
+	if (!isalnum((unsigned char)word->arg[0])) {
+		vty_out(vty,
+		    "Please specify string starting with alphabet or number\n");
+		return CMD_WARNING_CONFIG_FAILED;
+	}
+
+	/* With reference to RFC 1123 Section 2.1 */
+	if (strlen(word->arg) > HOSTNAME_LEN) {
+		vty_out(vty, "Hostname length should be less than %d chars\n",
+			HOSTNAME_LEN);
 		return CMD_WARNING_CONFIG_FAILED;
 	}
 
@@ -2022,7 +1798,7 @@ DEFUN (config_password,
 		return CMD_SUCCESS;
 	}
 
-	if (!isalnum((int)argv[idx_8]->arg[0])) {
+	if (!isalnum((unsigned char)argv[idx_8]->arg[0])) {
 		vty_out(vty,
 			"Please specify string starting with alphanumeric\n");
 		return CMD_WARNING_CONFIG_FAILED;
@@ -2102,7 +1878,7 @@ DEFUN (config_enable_password,
 		}
 	}
 
-	if (!isalnum((int)argv[idx_8]->arg[0])) {
+	if (!isalnum((unsigned char)argv[idx_8]->arg[0])) {
 		vty_out(vty,
 			"Please specify string starting with alphanumeric\n");
 		return CMD_WARNING_CONFIG_FAILED;
@@ -2281,7 +2057,8 @@ DEFUN (config_logmsg,
 	int level;
 	char *message;
 
-	if ((level = level_match(argv[idx_log_level]->arg)) == ZLOG_DISABLED)
+	level = log_level_match(argv[idx_log_level]->arg);
+	if (level == ZLOG_DISABLED)
 		return CMD_ERR_NO_MATCH;
 
 	zlog(level, "%s",
@@ -2289,366 +2066,6 @@ DEFUN (config_logmsg,
 	if (message)
 		XFREE(MTYPE_TMP, message);
 
-	return CMD_SUCCESS;
-}
-
-DEFUN (show_logging,
-       show_logging_cmd,
-       "show logging",
-       SHOW_STR
-       "Show current logging configuration\n")
-{
-	struct zlog *zl = zlog_default;
-
-	vty_out(vty, "Syslog logging: ");
-	if (zl->maxlvl[ZLOG_DEST_SYSLOG] == ZLOG_DISABLED)
-		vty_out(vty, "disabled");
-	else
-		vty_out(vty, "level %s, facility %s, ident %s",
-			zlog_priority[zl->maxlvl[ZLOG_DEST_SYSLOG]],
-			facility_name(zl->facility), zl->ident);
-	vty_out(vty, "\n");
-
-	vty_out(vty, "Stdout logging: ");
-	if (zl->maxlvl[ZLOG_DEST_STDOUT] == ZLOG_DISABLED)
-		vty_out(vty, "disabled");
-	else
-		vty_out(vty, "level %s",
-			zlog_priority[zl->maxlvl[ZLOG_DEST_STDOUT]]);
-	vty_out(vty, "\n");
-
-	vty_out(vty, "Monitor logging: ");
-	if (zl->maxlvl[ZLOG_DEST_MONITOR] == ZLOG_DISABLED)
-		vty_out(vty, "disabled");
-	else
-		vty_out(vty, "level %s",
-			zlog_priority[zl->maxlvl[ZLOG_DEST_MONITOR]]);
-	vty_out(vty, "\n");
-
-	vty_out(vty, "File logging: ");
-	if ((zl->maxlvl[ZLOG_DEST_FILE] == ZLOG_DISABLED) || !zl->fp)
-		vty_out(vty, "disabled");
-	else
-		vty_out(vty, "level %s, filename %s",
-			zlog_priority[zl->maxlvl[ZLOG_DEST_FILE]],
-			zl->filename);
-	vty_out(vty, "\n");
-
-	vty_out(vty, "Protocol name: %s\n", zl->protoname);
-	vty_out(vty, "Record priority: %s\n",
-		(zl->record_priority ? "enabled" : "disabled"));
-	vty_out(vty, "Error code: %s\n",
-		(zl->error_code ? "enabled" : "disabled"));
-	vty_out(vty, "Timestamp precision: %d\n", zl->timestamp_precision);
-
-	return CMD_SUCCESS;
-}
-
-DEFUN (config_log_stdout,
-       config_log_stdout_cmd,
-       "log stdout [<emergencies|alerts|critical|errors|warnings|notifications|informational|debugging>]",
-       "Logging control\n"
-       "Set stdout logging level\n"
-       LOG_LEVEL_DESC)
-{
-	int idx_log_level = 2;
-
-	if (argc == idx_log_level) {
-		zlog_set_level(ZLOG_DEST_STDOUT, zlog_default->default_lvl);
-		return CMD_SUCCESS;
-	}
-	int level;
-
-	if ((level = level_match(argv[idx_log_level]->arg)) == ZLOG_DISABLED)
-		return CMD_ERR_NO_MATCH;
-	zlog_set_level(ZLOG_DEST_STDOUT, level);
-	return CMD_SUCCESS;
-}
-
-DEFUN (no_config_log_stdout,
-       no_config_log_stdout_cmd,
-       "no log stdout [<emergencies|alerts|critical|errors|warnings|notifications|informational|debugging>]",
-       NO_STR
-       "Logging control\n"
-       "Cancel logging to stdout\n"
-       LOG_LEVEL_DESC)
-{
-	zlog_set_level(ZLOG_DEST_STDOUT, ZLOG_DISABLED);
-	return CMD_SUCCESS;
-}
-
-DEFUN (config_log_monitor,
-       config_log_monitor_cmd,
-       "log monitor [<emergencies|alerts|critical|errors|warnings|notifications|informational|debugging>]",
-       "Logging control\n"
-       "Set terminal line (monitor) logging level\n"
-       LOG_LEVEL_DESC)
-{
-	int idx_log_level = 2;
-
-	if (argc == idx_log_level) {
-		zlog_set_level(ZLOG_DEST_MONITOR, zlog_default->default_lvl);
-		return CMD_SUCCESS;
-	}
-	int level;
-
-	if ((level = level_match(argv[idx_log_level]->arg)) == ZLOG_DISABLED)
-		return CMD_ERR_NO_MATCH;
-	zlog_set_level(ZLOG_DEST_MONITOR, level);
-	return CMD_SUCCESS;
-}
-
-DEFUN (no_config_log_monitor,
-       no_config_log_monitor_cmd,
-       "no log monitor [<emergencies|alerts|critical|errors|warnings|notifications|informational|debugging>]",
-       NO_STR
-       "Logging control\n"
-       "Disable terminal line (monitor) logging\n"
-       LOG_LEVEL_DESC)
-{
-	zlog_set_level(ZLOG_DEST_MONITOR, ZLOG_DISABLED);
-	return CMD_SUCCESS;
-}
-
-static int set_log_file(struct vty *vty, const char *fname, int loglevel)
-{
-	int ret;
-	char *p = NULL;
-	const char *fullpath;
-
-	/* Path detection. */
-	if (!IS_DIRECTORY_SEP(*fname)) {
-		char cwd[MAXPATHLEN + 1];
-		cwd[MAXPATHLEN] = '\0';
-
-		if (getcwd(cwd, MAXPATHLEN) == NULL) {
-			flog_err_sys(LIB_ERR_SYSTEM_CALL,
-				     "config_log_file: Unable to alloc mem!");
-			return CMD_WARNING_CONFIG_FAILED;
-		}
-
-		p = XMALLOC(MTYPE_TMP, strlen(cwd) + strlen(fname) + 2);
-		sprintf(p, "%s/%s", cwd, fname);
-		fullpath = p;
-	} else
-		fullpath = fname;
-
-	ret = zlog_set_file(fullpath, loglevel);
-
-	if (p)
-		XFREE(MTYPE_TMP, p);
-
-	if (!ret) {
-		if (vty)
-			vty_out(vty, "can't open logfile %s\n", fname);
-		return CMD_WARNING_CONFIG_FAILED;
-	}
-
-	if (host.logfile)
-		XFREE(MTYPE_HOST, host.logfile);
-
-	host.logfile = XSTRDUP(MTYPE_HOST, fname);
-
-#if defined(HAVE_CUMULUS)
-	if (zlog_default->maxlvl[ZLOG_DEST_SYSLOG] != ZLOG_DISABLED)
-		zlog_set_level(ZLOG_DEST_SYSLOG, ZLOG_DISABLED);
-#endif
-	return CMD_SUCCESS;
-}
-
-void command_setup_early_logging(const char *dest, const char *level)
-{
-	char *token;
-
-	if (level) {
-		int nlevel = level_match(level);
-
-		if (nlevel != ZLOG_DISABLED)
-			zlog_default->default_lvl = nlevel;
-	}
-
-	if (!dest)
-		return;
-
-	if (strcmp(dest, "stdout") == 0) {
-		zlog_set_level(ZLOG_DEST_STDOUT, zlog_default->default_lvl);
-		return;
-	}
-
-	if (strcmp(dest, "syslog") == 0) {
-		zlog_set_level(ZLOG_DEST_SYSLOG, zlog_default->default_lvl);
-		return;
-	}
-
-	token = strstr(dest, ":");
-	if (token == NULL)
-		return;
-
-	token++;
-
-	set_log_file(NULL, token, zlog_default->default_lvl);
-}
-
-DEFUN (config_log_file,
-       config_log_file_cmd,
-       "log file FILENAME [<emergencies|alerts|critical|errors|warnings|notifications|informational|debugging>]",
-       "Logging control\n"
-       "Logging to file\n"
-       "Logging filename\n"
-       LOG_LEVEL_DESC)
-{
-	int idx_filename = 2;
-	int idx_log_levels = 3;
-	if (argc == 4) {
-		int level;
-		if ((level = level_match(argv[idx_log_levels]->arg))
-		    == ZLOG_DISABLED)
-			return CMD_ERR_NO_MATCH;
-		return set_log_file(vty, argv[idx_filename]->arg, level);
-	} else
-		return set_log_file(vty, argv[idx_filename]->arg,
-				    zlog_default->default_lvl);
-}
-
-static void disable_log_file(void)
-{
-	zlog_reset_file();
-
-	if (host.logfile)
-		XFREE(MTYPE_HOST, host.logfile);
-
-	host.logfile = NULL;
-}
-
-DEFUN (no_config_log_file,
-       no_config_log_file_cmd,
-       "no log file [FILENAME [LEVEL]]",
-       NO_STR
-       "Logging control\n"
-       "Cancel logging to file\n"
-       "Logging file name\n"
-       "Logging level\n")
-{
-	disable_log_file();
-	return CMD_SUCCESS;
-}
-
-DEFUN (config_log_syslog,
-       config_log_syslog_cmd,
-       "log syslog [<emergencies|alerts|critical|errors|warnings|notifications|informational|debugging>]",
-       "Logging control\n"
-       "Set syslog logging level\n"
-       LOG_LEVEL_DESC)
-{
-	int idx_log_levels = 2;
-
-	if (argc == 3) {
-		int level;
-		if ((level = level_match(argv[idx_log_levels]->arg))
-		    == ZLOG_DISABLED)
-			return CMD_ERR_NO_MATCH;
-		zlog_set_level(ZLOG_DEST_SYSLOG, level);
-		return CMD_SUCCESS;
-	} else {
-		zlog_set_level(ZLOG_DEST_SYSLOG, zlog_default->default_lvl);
-		return CMD_SUCCESS;
-	}
-}
-
-DEFUN (no_config_log_syslog,
-       no_config_log_syslog_cmd,
-       "no log syslog [<kern|user|mail|daemon|auth|syslog|lpr|news|uucp|cron|local0|local1|local2|local3|local4|local5|local6|local7>] [<emergencies|alerts|critical|errors|warnings|notifications|informational|debugging>]",
-       NO_STR
-       "Logging control\n"
-       "Cancel logging to syslog\n"
-       LOG_FACILITY_DESC
-       LOG_LEVEL_DESC)
-{
-	zlog_set_level(ZLOG_DEST_SYSLOG, ZLOG_DISABLED);
-	return CMD_SUCCESS;
-}
-
-DEFUN (config_log_facility,
-       config_log_facility_cmd,
-       "log facility <kern|user|mail|daemon|auth|syslog|lpr|news|uucp|cron|local0|local1|local2|local3|local4|local5|local6|local7>",
-       "Logging control\n"
-       "Facility parameter for syslog messages\n"
-       LOG_FACILITY_DESC)
-{
-	int idx_target = 2;
-	int facility = facility_match(argv[idx_target]->arg);
-
-	zlog_default->facility = facility;
-	return CMD_SUCCESS;
-}
-
-DEFUN (no_config_log_facility,
-       no_config_log_facility_cmd,
-       "no log facility [<kern|user|mail|daemon|auth|syslog|lpr|news|uucp|cron|local0|local1|local2|local3|local4|local5|local6|local7>]",
-       NO_STR
-       "Logging control\n"
-       "Reset syslog facility to default (daemon)\n"
-       LOG_FACILITY_DESC)
-{
-	zlog_default->facility = LOG_DAEMON;
-	return CMD_SUCCESS;
-}
-
-DEFUN (config_log_record_priority,
-       config_log_record_priority_cmd,
-       "log record-priority",
-       "Logging control\n"
-       "Log the priority of the message within the message\n")
-{
-	zlog_default->record_priority = 1;
-	return CMD_SUCCESS;
-}
-
-DEFUN (no_config_log_record_priority,
-       no_config_log_record_priority_cmd,
-       "no log record-priority",
-       NO_STR
-       "Logging control\n"
-       "Do not log the priority of the message within the message\n")
-{
-	zlog_default->record_priority = 0;
-	return CMD_SUCCESS;
-}
-
-DEFUN (config_log_error_code,
-       config_log_error_code_cmd,
-       "[no] log error-code",
-       NO_STR
-       "Logging control\n"
-       "Log the error code number where available\n")
-{
-	zlog_default->error_code = !!strcmp(argv[0]->text, "no");
-	return CMD_SUCCESS;
-}
-
-DEFUN (config_log_timestamp_precision,
-       config_log_timestamp_precision_cmd,
-       "log timestamp precision (0-6)",
-       "Logging control\n"
-       "Timestamp configuration\n"
-       "Set the timestamp precision\n"
-       "Number of subsecond digits\n")
-{
-	int idx_number = 3;
-	zlog_default->timestamp_precision =
-		strtoul(argv[idx_number]->arg, NULL, 10);
-	return CMD_SUCCESS;
-}
-
-DEFUN (no_config_log_timestamp_precision,
-       no_config_log_timestamp_precision_cmd,
-       "no log timestamp precision",
-       NO_STR
-       "Logging control\n"
-       "Timestamp configuration\n"
-       "Reset the timestamp precision to the default value of 0\n")
-{
-	zlog_default->timestamp_precision = 0;
 	return CMD_SUCCESS;
 }
 
@@ -2675,13 +2092,18 @@ int cmd_banner_motd_file(const char *file)
 		return CMD_ERR_NO_FILE;
 	in = strstr(rpath, SYSCONFDIR);
 	if (in == rpath) {
-		if (host.motdfile)
-			XFREE(MTYPE_HOST, host.motdfile);
+		XFREE(MTYPE_HOST, host.motdfile);
 		host.motdfile = XSTRDUP(MTYPE_HOST, file);
 	} else
 		success = CMD_WARNING_CONFIG_FAILED;
 
 	return success;
+}
+
+void cmd_banner_motd_line(const char *line)
+{
+	XFREE(MTYPE_HOST, host.motd);
+	host.motd = XSTRDUP(MTYPE_HOST, line);
 }
 
 DEFUN (banner_motd_file,
@@ -2704,6 +2126,26 @@ DEFUN (banner_motd_file,
 	return cmd;
 }
 
+DEFUN (banner_motd_line,
+       banner_motd_line_cmd,
+       "banner motd line LINE...",
+       "Set banner\n"
+       "Banner for motd\n"
+       "Banner from an input\n"
+       "Text\n")
+{
+	int idx = 0;
+	char *motd;
+
+	argv_find(argv, argc, "LINE", &idx);
+	motd = argv_concat(argv, argc, idx);
+
+	cmd_banner_motd_line(motd);
+	XFREE(MTYPE_TMP, motd);
+
+	return CMD_SUCCESS;
+}
+
 DEFUN (banner_motd_default,
        banner_motd_default_cmd,
        "banner motd default",
@@ -2711,7 +2153,7 @@ DEFUN (banner_motd_default,
        "Strings for motd\n"
        "Default string\n")
 {
-	host.motd = default_motd;
+	cmd_banner_motd_line(FRR_DEFAULT_MOTD);
 	return CMD_SUCCESS;
 }
 
@@ -2731,14 +2173,65 @@ DEFUN (no_banner_motd,
 
 DEFUN(find,
       find_cmd,
-      "find COMMAND...",
-      "Find CLI command containing text\n"
-      "Text to search for\n")
+      "find REGEX",
+      "Find CLI command matching a regular expression\n"
+      "Search pattern (POSIX regex)\n")
 {
-	char *text = argv_concat(argv, argc, 1);
+	char *pattern = argv[1]->arg;
 	const struct cmd_node *node;
 	const struct cmd_element *cli;
 	vector clis;
+
+	regex_t exp = {};
+
+	int cr = regcomp(&exp, pattern, REG_NOSUB | REG_EXTENDED);
+
+	if (cr != 0) {
+		switch (cr) {
+		case REG_BADBR:
+			vty_out(vty, "%% Invalid {...} expression\n");
+			break;
+		case REG_BADRPT:
+			vty_out(vty, "%% Bad repetition operator\n");
+			break;
+		case REG_BADPAT:
+			vty_out(vty, "%% Regex syntax error\n");
+			break;
+		case REG_ECOLLATE:
+			vty_out(vty, "%% Invalid collating element\n");
+			break;
+		case REG_ECTYPE:
+			vty_out(vty, "%% Invalid character class name\n");
+			break;
+		case REG_EESCAPE:
+			vty_out(vty,
+				"%% Regex ended with escape character (\\)\n");
+			break;
+		case REG_ESUBREG:
+			vty_out(vty,
+				"%% Invalid number in \\digit construction\n");
+			break;
+		case REG_EBRACK:
+			vty_out(vty, "%% Unbalanced square brackets\n");
+			break;
+		case REG_EPAREN:
+			vty_out(vty, "%% Unbalanced parentheses\n");
+			break;
+		case REG_EBRACE:
+			vty_out(vty, "%% Unbalanced braces\n");
+			break;
+		case REG_ERANGE:
+			vty_out(vty,
+				"%% Invalid endpoint in range expression\n");
+			break;
+		case REG_ESPACE:
+			vty_out(vty, "%% Failed to compile (out of memory)\n");
+			break;
+		}
+
+		goto done;
+	}
+
 
 	for (unsigned int i = 0; i < vector_active(cmdvec); i++) {
 		node = vector_slot(cmdvec, i);
@@ -2747,22 +2240,22 @@ DEFUN(find,
 		clis = node->cmd_vector;
 		for (unsigned int j = 0; j < vector_active(clis); j++) {
 			cli = vector_slot(clis, j);
-			if (strcasestr(cli->string, text))
+
+			if (regexec(&exp, cli->string, 0, NULL, 0) == 0)
 				vty_out(vty, "  (%s)  %s\n",
-					node_names[node->node], cli->string);
+					node->name, cli->string);
 		}
 	}
 
-	XFREE(MTYPE_TMP, text);
-
+done:
+	regfree(&exp);
 	return CMD_SUCCESS;
 }
 
 /* Set config filename.  Called from vty.c */
 void host_config_set(const char *filename)
 {
-	if (host.config)
-		XFREE(MTYPE_HOST, host.config);
+	XFREE(MTYPE_HOST, host.config);
 	host.config = XSTRDUP(MTYPE_HOST, filename);
 }
 
@@ -2785,6 +2278,8 @@ void install_default(enum node_type node)
 	install_element(node, &show_running_config_cmd);
 
 	install_element(node, &autocomplete_cmd);
+
+	nb_cli_install_default(node);
 }
 
 /* Initialize command interface. Install basic nodes and commands.
@@ -2795,9 +2290,6 @@ void install_default(enum node_type node)
 void cmd_init(int terminal)
 {
 	struct utsname names;
-
-	if (array_size(node_names) != NODE_TYPE_MAX)
-		assert(!"Update the CLI node description array!");
 
 	uname(&names);
 	qobj_init();
@@ -2823,26 +2315,26 @@ void cmd_init(int terminal)
 #endif
 	host.password = NULL;
 	host.enable = NULL;
-	host.logfile = NULL;
 	host.config = NULL;
 	host.noconfig = (terminal < 0);
 	host.lines = -1;
-	host.motd = default_motd;
+	cmd_banner_motd_line(FRR_DEFAULT_MOTD);
 	host.motdfile = NULL;
 
 	/* Install top nodes. */
-	install_node(&view_node, NULL);
-	install_node(&enable_node, NULL);
-	install_node(&auth_node, NULL);
-	install_node(&auth_enable_node, NULL);
-	install_node(&config_node, config_write_host);
+	install_node(&view_node);
+	install_node(&enable_node);
+	install_node(&auth_node);
+	install_node(&auth_enable_node);
+	install_node(&config_node);
 
 	/* Each node's basic commands. */
 	install_element(VIEW_NODE, &show_version_cmd);
 	install_element(ENABLE_NODE, &show_startup_config_cmd);
-	install_element(ENABLE_NODE, &debug_memstats_cmd);
 
 	if (terminal) {
+		install_element(ENABLE_NODE, &debug_memstats_cmd);
+
 		install_element(VIEW_NODE, &config_list_cmd);
 		install_element(VIEW_NODE, &config_exit_cmd);
 		install_element(VIEW_NODE, &config_quit_cmd);
@@ -2850,7 +2342,6 @@ void cmd_init(int terminal)
 		install_element(VIEW_NODE, &config_enable_cmd);
 		install_element(VIEW_NODE, &config_terminal_length_cmd);
 		install_element(VIEW_NODE, &config_terminal_no_length_cmd);
-		install_element(VIEW_NODE, &show_logging_cmd);
 		install_element(VIEW_NODE, &show_commandtree_cmd);
 		install_element(VIEW_NODE, &echo_cmd);
 		install_element(VIEW_NODE, &autocomplete_cmd);
@@ -2875,41 +2366,27 @@ void cmd_init(int terminal)
 	install_element(CONFIG_NODE, &no_hostname_cmd);
 	install_element(CONFIG_NODE, &domainname_cmd);
 	install_element(CONFIG_NODE, &no_domainname_cmd);
-	install_element(CONFIG_NODE, &frr_version_defaults_cmd);
-	install_element(CONFIG_NODE, &debug_memstats_cmd);
 
 	if (terminal > 0) {
+		full_cli = true;
+
+		install_element(CONFIG_NODE, &debug_memstats_cmd);
+
 		install_element(CONFIG_NODE, &password_cmd);
 		install_element(CONFIG_NODE, &no_password_cmd);
 		install_element(CONFIG_NODE, &enable_password_cmd);
 		install_element(CONFIG_NODE, &no_enable_password_cmd);
 
-		install_element(CONFIG_NODE, &config_log_stdout_cmd);
-		install_element(CONFIG_NODE, &no_config_log_stdout_cmd);
-		install_element(CONFIG_NODE, &config_log_monitor_cmd);
-		install_element(CONFIG_NODE, &no_config_log_monitor_cmd);
-		install_element(CONFIG_NODE, &config_log_file_cmd);
-		install_element(CONFIG_NODE, &no_config_log_file_cmd);
-		install_element(CONFIG_NODE, &config_log_syslog_cmd);
-		install_element(CONFIG_NODE, &no_config_log_syslog_cmd);
-		install_element(CONFIG_NODE, &config_log_facility_cmd);
-		install_element(CONFIG_NODE, &no_config_log_facility_cmd);
-		install_element(CONFIG_NODE, &config_log_record_priority_cmd);
-		install_element(CONFIG_NODE,
-				&no_config_log_record_priority_cmd);
-		install_element(CONFIG_NODE, &config_log_error_code_cmd);
-		install_element(CONFIG_NODE,
-				&config_log_timestamp_precision_cmd);
-		install_element(CONFIG_NODE,
-				&no_config_log_timestamp_precision_cmd);
 		install_element(CONFIG_NODE, &service_password_encrypt_cmd);
 		install_element(CONFIG_NODE, &no_service_password_encrypt_cmd);
 		install_element(CONFIG_NODE, &banner_motd_default_cmd);
 		install_element(CONFIG_NODE, &banner_motd_file_cmd);
+		install_element(CONFIG_NODE, &banner_motd_line_cmd);
 		install_element(CONFIG_NODE, &no_banner_motd_cmd);
 		install_element(CONFIG_NODE, &service_terminal_length_cmd);
 		install_element(CONFIG_NODE, &no_service_terminal_length_cmd);
 
+		log_cmd_init();
 		vrf_install_commands();
 	}
 
@@ -2918,7 +2395,7 @@ void cmd_init(int terminal)
 #endif
 }
 
-void cmd_terminate()
+void cmd_terminate(void)
 {
 	struct cmd_node *cmd_node;
 
@@ -2941,25 +2418,16 @@ void cmd_terminate()
 		cmdvec = NULL;
 	}
 
-	if (host.name)
-		XFREE(MTYPE_HOST, host.name);
-	if (host.domainname)
-		XFREE(MTYPE_HOST, host.domainname);
-	if (host.password)
-		XFREE(MTYPE_HOST, host.password);
-	if (host.password_encrypt)
-		XFREE(MTYPE_HOST, host.password_encrypt);
-	if (host.enable)
-		XFREE(MTYPE_HOST, host.enable);
-	if (host.enable_encrypt)
-		XFREE(MTYPE_HOST, host.enable_encrypt);
-	if (host.logfile)
-		XFREE(MTYPE_HOST, host.logfile);
-	if (host.motdfile)
-		XFREE(MTYPE_HOST, host.motdfile);
-	if (host.config)
-		XFREE(MTYPE_HOST, host.config);
+	XFREE(MTYPE_HOST, host.name);
+	XFREE(MTYPE_HOST, host.domainname);
+	XFREE(MTYPE_HOST, host.password);
+	XFREE(MTYPE_HOST, host.password_encrypt);
+	XFREE(MTYPE_HOST, host.enable);
+	XFREE(MTYPE_HOST, host.enable_encrypt);
+	XFREE(MTYPE_HOST, host.motdfile);
+	XFREE(MTYPE_HOST, host.config);
+	XFREE(MTYPE_HOST, host.motd);
 
-	list_delete_and_null(&varhandlers);
+	list_delete(&varhandlers);
 	qobj_finish();
 }

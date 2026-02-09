@@ -1,6 +1,4 @@
-#!/bin/sh /etc/rc.common
-
-START=95
+#!/bin/sh
 
 log_success_msg() {
         echo "$@"
@@ -12,6 +10,8 @@ log_failure_msg() {
         echo "$@" >&2
 }
 
+# "/usr/sbin/frrinit.sh start somenamespace"
+FRR_PATHSPACE="$2"
 self="`dirname $0`"
 if [ -r "$self/frrcommon.sh" ]; then
 	. "$self/frrcommon.sh"
@@ -65,3 +65,4 @@ reload() {
 	"$RELOAD_SCRIPT" --reload "$NEW_CONFIG_FILE"
 	exit $?
 }
+

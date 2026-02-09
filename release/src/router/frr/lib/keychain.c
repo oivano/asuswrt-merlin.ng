@@ -32,7 +32,7 @@ DEFINE_QOBJ_TYPE(keychain)
 DEFINE_QOBJ_TYPE(key)
 
 /* Master list of key chain. */
-struct list *keychain_list;
+static struct list *keychain_list;
 
 static struct keychain *keychain_new(void)
 {
@@ -116,10 +116,9 @@ static struct keychain *keychain_get(const char *name)
 
 static void keychain_delete(struct keychain *keychain)
 {
-	if (keychain->name)
-		XFREE(MTYPE_KEYCHAIN, keychain->name);
+	XFREE(MTYPE_KEYCHAIN, keychain->name);
 
-	list_delete_and_null(&keychain->key);
+	list_delete(&keychain->key);
 	listnode_delete(keychain_list, keychain);
 	keychain_free(keychain);
 }
@@ -217,8 +216,7 @@ static void key_delete(struct keychain *keychain, struct key *key)
 {
 	listnode_delete(keychain->key, key);
 
-	if (key->string)
-		XFREE(MTYPE_KEY, key->string);
+	XFREE(MTYPE_KEY, key->string);
 	key_free(key);
 }
 
@@ -961,20 +959,30 @@ DEFUN (no_send_lifetime,
 	return CMD_SUCCESS;
 }
 
-static struct cmd_node keychain_node = {KEYCHAIN_NODE, "%s(config-keychain)# ",
-					1};
+static int keychain_config_write(struct vty *vty);
+static struct cmd_node keychain_node = {
+	.name = "keychain",
+	.node = KEYCHAIN_NODE,
+	.parent_node = CONFIG_NODE,
+	.prompt = "%s(config-keychain)# ",
+	.config_write = keychain_config_write,
+};
 
-static struct cmd_node keychain_key_node = {KEYCHAIN_KEY_NODE,
-					    "%s(config-keychain-key)# ", 1};
+static struct cmd_node keychain_key_node = {
+	.name = "keychain key",
+	.node = KEYCHAIN_KEY_NODE,
+	.parent_node = KEYCHAIN_NODE,
+	.prompt = "%s(config-keychain-key)# ",
+};
 
 static int keychain_strftime(char *buf, int bufsiz, time_t *time)
 {
-	struct tm *tm;
+	struct tm tm;
 	size_t len;
 
-	tm = localtime(time);
+	localtime_r(time, &tm);
 
-	len = strftime(buf, bufsiz, "%T %b %d %Y", tm);
+	len = strftime(buf, bufsiz, "%T %b %d %Y", &tm);
 
 	return len;
 }
@@ -1033,6 +1041,8 @@ static int keychain_config_write(struct vty *vty)
 				}
 				vty_out(vty, "\n");
 			}
+
+			vty_out(vty, " exit\n");
 		}
 		vty_out(vty, "!\n");
 	}
@@ -1040,12 +1050,12 @@ static int keychain_config_write(struct vty *vty)
 	return 0;
 }
 
-void keychain_init()
+void keychain_init(void)
 {
 	keychain_list = list_new();
 
-	install_node(&keychain_node, keychain_config_write);
-	install_node(&keychain_key_node, NULL);
+	install_node(&keychain_node);
+	install_node(&keychain_key_node);
 
 	install_default(KEYCHAIN_NODE);
 	install_default(KEYCHAIN_KEY_NODE);

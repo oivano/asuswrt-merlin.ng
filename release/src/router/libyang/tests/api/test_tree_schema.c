@@ -179,10 +179,10 @@ const char *lys_module_a_with_typo = \
 
 char *result_tree = "\
 module: a\n\
-    +--rw top\n\
-    |  +--rw bar-sub2\n\
-    +--rw x\n\
-       +--rw bubba?      string\n";
+  +--rw top\n\
+  |  +--rw bar-sub2\n\
+  +--rw x\n\
+     +--rw bubba?      string\n";
 
 char *result_yang = "\
 module a {\n\
@@ -306,6 +306,24 @@ Reference: \n\
 Status:    current\n\
 Enabled:   no\n\
 If-feats:  \n";
+
+char *result_jsons = "{\"a\":{"
+  "\"namespace\":\"urn:a\","
+  "\"prefix\":\"a_mod\","
+  "\"yang-version\":{\"value\":\"1.0\"},"
+  "\"revision\":{\"2015-01-01\":{\"description\":{\"text\":\"version 1\"},\"reference\":{\"text\":\"RFC XXXX\"}}},"
+  "\"include\":{\"asub\":{},\"atop\":{}},"
+  "\"features\":[\"foo\"],"
+  "\"augment\":{\"/x\":{"
+    "\"if-features\":[\"bar\"],"
+    "\"data\":{\"bar-y\":{\"nodetype\":\"container\"}}}},"
+  "\"groupings\":[\"gg\"],"
+  "\"data\":{\"top\":{\"nodetype\":\"container\",\"included-from\":\"atop\"},"
+    "\"x\":{\"nodetype\":\"container\"}},"
+  "\"rpcs\":[\"bar-rpc\",\"foo-rpc\"],"
+  "\"notifications\":[\"bar-notif\",\"fox-notif\"]}}";
+
+char *result_jsons_grouping = "{\"gg\":{\"module\":\"a\",\"data\":{\"bar-gggg\":{\"nodetype\":\"leaf\"}}}}";
 
 static int
 setup_f(void **state)
@@ -712,7 +730,6 @@ test_lys_print_mem_tree(void **state)
     (void) state; /* unused */
     const struct lys_module *module;
     LYS_INFORMAT yang_format = LYS_IN_YIN;
-    char *target = "top";
     char *result = NULL;
     int rc;
 
@@ -721,7 +738,7 @@ test_lys_print_mem_tree(void **state)
         fail();
     }
 
-    rc = lys_print_mem(&result, module, LYS_OUT_TREE, target);
+    rc = lys_print_mem(&result, module, LYS_OUT_TREE, NULL, 0, 0);
     if (rc) {
         fail();
     }
@@ -736,7 +753,6 @@ test_lys_print_mem_yang(void **state)
     (void) state; /* unused */
     const struct lys_module *module;
     LYS_INFORMAT yang_format = LYS_IN_YIN;
-    char *target = "top";
     char *result = NULL;
     int rc;
 
@@ -745,7 +761,7 @@ test_lys_print_mem_yang(void **state)
         fail();
     }
 
-    rc = lys_print_mem(&result, module, LYS_OUT_YANG, target);
+    rc = lys_print_mem(&result, module, LYS_OUT_YANG, NULL, 0, 0);
     if (rc) {
         fail();
     }
@@ -760,7 +776,6 @@ test_lys_print_mem_yin(void **state)
     (void) state; /* unused */
     const struct lys_module *module;
     LYS_INFORMAT yang_format = LYS_IN_YIN;
-    char *target = "top";
     char *result = NULL;
     int rc;
 
@@ -769,7 +784,7 @@ test_lys_print_mem_yin(void **state)
         fail();
     }
 
-    rc = lys_print_mem(&result, module, LYS_OUT_YIN, target);
+    rc = lys_print_mem(&result, module, LYS_OUT_YIN, NULL, 0, 0);
     if (rc) {
         fail();
     }
@@ -793,12 +808,44 @@ test_lys_print_mem_info(void **state)
         fail();
     }
 
-    rc = lys_print_mem(&result, module, LYS_OUT_INFO, target);
+    rc = lys_print_mem(&result, module, LYS_OUT_INFO, target, 0, 0);
     if (rc) {
         fail();
     }
 
     assert_string_equal(result_info, result);
+    free(result);
+}
+
+static void
+test_lys_print_mem_jsons(void **state)
+{
+    (void) state; /* unused */
+    const struct lys_module *module;
+    LYS_INFORMAT yang_format = LYS_IN_YIN;
+    const char *target = "grouping/gg";
+    char *result = NULL;
+    int rc;
+
+    module = lys_parse_mem(ctx, lys_module_a, yang_format);
+    if (!module) {
+        fail();
+    }
+
+    rc = lys_print_mem(&result, module, LYS_OUT_JSON, NULL, 0, 0);
+    if (rc) {
+        fail();
+    }
+
+    assert_string_equal(result_jsons, result);
+    free(result);
+
+    rc = lys_print_mem(&result, module, LYS_OUT_JSON, target, 0, 0);
+    if (rc) {
+        fail();
+    }
+
+    assert_string_equal(result_jsons_grouping, result);
     free(result);
 }
 
@@ -809,7 +856,6 @@ test_lys_print_fd_tree(void **state)
     const struct lys_module *module;
     LYS_INFORMAT yang_format = LYS_IN_YIN;
     struct stat sb;
-    char *target = "top";
     char file_name[20];
     char *result;
     int rc;
@@ -821,14 +867,14 @@ test_lys_print_fd_tree(void **state)
     }
 
     memset(file_name, 0, sizeof(file_name));
-    strncpy(file_name, TMP_TEMPLATE, strlen(TMP_TEMPLATE));
+    strncpy(file_name, TMP_TEMPLATE, sizeof(file_name));
 
     fd = mkstemp(file_name);
     if (fd < 1) {
         goto error;
     }
 
-    rc = lys_print_fd(fd, module, LYS_OUT_TREE, target);
+    rc = lys_print_fd(fd, module, LYS_OUT_TREE, NULL, 0, 0);
     if (rc) {
         goto error;
     }
@@ -860,7 +906,6 @@ test_lys_print_fd_yang(void **state)
     const struct lys_module *module;
     LYS_INFORMAT yang_format = LYS_IN_YIN;
     struct stat sb;
-    char *target = "top";
     char file_name[20];
     char *result;
     int rc;
@@ -872,14 +917,14 @@ test_lys_print_fd_yang(void **state)
     }
 
     memset(file_name, 0, sizeof(file_name));
-    strncpy(file_name, TMP_TEMPLATE, strlen(TMP_TEMPLATE));
+    strncpy(file_name, TMP_TEMPLATE, sizeof(file_name));
 
     fd = mkstemp(file_name);
     if (fd < 1) {
         goto error;
     }
 
-    rc = lys_print_fd(fd, module, LYS_OUT_YANG, target);
+    rc = lys_print_fd(fd, module, LYS_OUT_YANG, NULL, 0, 0);
     if (rc) {
         goto error;
     }
@@ -911,7 +956,6 @@ test_lys_print_fd_yin(void **state)
     const struct lys_module *module;
     LYS_INFORMAT yang_format = LYS_IN_YIN;
     struct stat sb;
-    char *target = "top";
     char file_name[20];
     char *result;
     int rc;
@@ -923,14 +967,14 @@ test_lys_print_fd_yin(void **state)
     }
 
     memset(file_name, 0, sizeof(file_name));
-    strncpy(file_name, TMP_TEMPLATE, strlen(TMP_TEMPLATE));
+    strncpy(file_name, TMP_TEMPLATE, sizeof(file_name));
 
     fd = mkstemp(file_name);
     if (fd < 1) {
         goto error;
     }
 
-    rc = lys_print_fd(fd, module, LYS_OUT_YIN, target);
+    rc = lys_print_fd(fd, module, LYS_OUT_YIN, NULL, 0, 0);
     if (rc) {
         goto error;
     }
@@ -974,14 +1018,14 @@ test_lys_print_fd_info(void **state)
     }
 
     memset(file_name, 0, sizeof(file_name));
-    strncpy(file_name, TMP_TEMPLATE, strlen(TMP_TEMPLATE));
+    strncpy(file_name, TMP_TEMPLATE, sizeof(file_name));
 
     fd = mkstemp(file_name);
     if (fd < 1) {
         goto error;
     }
 
-    rc = lys_print_fd(fd, module, LYS_OUT_INFO, target);
+    rc = lys_print_fd(fd, module, LYS_OUT_INFO, target, 0, 0);
     if (rc) {
         goto error;
     }
@@ -1007,13 +1051,86 @@ error:
 }
 
 static void
+test_lys_print_fd_jsons(void **state)
+{
+    (void) state; /* unused */
+    const struct lys_module *module;
+    LYS_INFORMAT yang_format = LYS_IN_YIN;
+    struct stat sb;
+    char *target = "grouping/gg";
+    char file_name1[20];
+    char file_name2[20];
+    char *result;
+    int rc;
+    int fd1 = -1, fd2 = -1;
+
+    module = lys_parse_mem(ctx, lys_module_a, yang_format);
+    if (!module) {
+        goto error;
+    }
+
+    memset(file_name1, 0, sizeof(file_name1));
+    memset(file_name2, 0, sizeof(file_name2));
+    strncpy(file_name1, TMP_TEMPLATE, sizeof(file_name1));
+    strncpy(file_name2, TMP_TEMPLATE, sizeof(file_name2));
+
+    fd1 = mkstemp(file_name1);
+    fd2 = mkstemp(file_name2);
+    if (fd1 < 1 || fd2 < 1) {
+        goto error;
+    }
+
+    /* module */
+    rc = lys_print_fd(fd1, module, LYS_OUT_JSON, NULL, 0, 0);
+    if (rc) {
+        goto error;
+    }
+
+    if (fstat(fd1, &sb) == -1 || !S_ISREG(sb.st_mode)) {
+        goto error;
+    }
+
+    result = mmap(NULL, sb.st_size, PROT_READ, MAP_PRIVATE, fd1, 0);
+    assert_string_equal(result_jsons, result);
+
+    /* grouping */
+    rc = lys_print_fd(fd2, module, LYS_OUT_JSON, target, 0, 0);
+    if (rc) {
+        goto error;
+    }
+
+    if (fstat(fd2, &sb) == -1 || !S_ISREG(sb.st_mode)) {
+        goto error;
+    }
+
+    result = mmap(NULL, sb.st_size, PROT_READ, MAP_PRIVATE, fd2, 0);
+    assert_string_equal(result_jsons_grouping, result);
+
+    close(fd1);
+    close(fd2);
+    unlink(file_name1);
+    unlink(file_name2);
+
+    return;
+error:
+    if (fd1 > 0) {
+        close(fd1);
+        unlink(file_name1);
+    }
+    if (fd2 > 0) {
+        close(fd2);
+        unlink(file_name2);
+    }
+    fail();
+}
+
+static void
 test_lys_print_file_tree(void **state)
 {
     (void) state; /* unused */
     const struct lys_module *module;
     LYS_INFORMAT yang_format = LYS_IN_YIN;
     struct stat sb;
-    char *target = "top";
     char file_name[20];
     char *result;
     FILE *f = NULL;
@@ -1026,7 +1143,7 @@ test_lys_print_file_tree(void **state)
     }
 
     memset(file_name, 0, sizeof(file_name));
-    strncpy(file_name, TMP_TEMPLATE, strlen(TMP_TEMPLATE));
+    strncpy(file_name, TMP_TEMPLATE, sizeof(file_name));
 
     fd = mkstemp(file_name);
     if (fd < 1) {
@@ -1039,7 +1156,7 @@ test_lys_print_file_tree(void **state)
         goto error;
     }
 
-    rc = lys_print_file(f, module, LYS_OUT_TREE, target);
+    rc = lys_print_file(f, module, LYS_OUT_TREE, NULL, 0, 0);
     if (rc) {
         goto error;
     }
@@ -1076,7 +1193,6 @@ test_lys_print_file_yin(void **state)
     const struct lys_module *module;
     LYS_INFORMAT yang_format = LYS_IN_YIN;
     struct stat sb;
-    char *target = "top";
     char file_name[20];
     char *result;
     FILE *f = NULL;
@@ -1089,7 +1205,7 @@ test_lys_print_file_yin(void **state)
     }
 
     memset(file_name, 0, sizeof(file_name));
-    strncpy(file_name, TMP_TEMPLATE, strlen(TMP_TEMPLATE));
+    strncpy(file_name, TMP_TEMPLATE, sizeof(file_name));
 
     fd = mkstemp(file_name);
     if (fd < 1) {
@@ -1102,7 +1218,7 @@ test_lys_print_file_yin(void **state)
         goto error;
     }
 
-    rc = lys_print_file(f, module, LYS_OUT_YIN, target);
+    rc = lys_print_file(f, module, LYS_OUT_YIN, NULL, 0, 0);
     if (rc) {
         goto error;
     }
@@ -1139,7 +1255,6 @@ test_lys_print_file_yang(void **state)
     const struct lys_module *module;
     LYS_INFORMAT yang_format = LYS_IN_YIN;
     struct stat sb;
-    char *target = "top";
     char file_name[20];
     char *result;
     FILE *f = NULL;
@@ -1152,7 +1267,7 @@ test_lys_print_file_yang(void **state)
     }
 
     memset(file_name, 0, sizeof(file_name));
-    strncpy(file_name, TMP_TEMPLATE, strlen(TMP_TEMPLATE));
+    strncpy(file_name, TMP_TEMPLATE, sizeof(file_name));
 
     fd = mkstemp(file_name);
     if (fd < 1) {
@@ -1165,7 +1280,7 @@ test_lys_print_file_yang(void **state)
         goto error;
     }
 
-    rc = lys_print_file(f, module, LYS_OUT_YANG, target);
+    rc = lys_print_file(f, module, LYS_OUT_YANG, NULL, 0, 0);
     if (rc) {
         goto error;
     }
@@ -1215,7 +1330,7 @@ test_lys_print_file_info(void **state)
     }
 
     memset(file_name, 0, sizeof(file_name));
-    strncpy(file_name, TMP_TEMPLATE, strlen(TMP_TEMPLATE));
+    strncpy(file_name, TMP_TEMPLATE, sizeof(file_name));
 
     fd = mkstemp(file_name);
     if (fd < 1) {
@@ -1228,7 +1343,7 @@ test_lys_print_file_info(void **state)
         goto error;
     }
 
-    rc = lys_print_file(f, module, LYS_OUT_INFO, target);
+    rc = lys_print_file(f, module, LYS_OUT_INFO, target, 0, 0);
     if (rc) {
         goto error;
     }
@@ -1254,6 +1369,99 @@ error:
     if (fd > 0) {
         unlink(file_name);
         close(fd);
+    }
+    fail();
+}
+
+static void
+test_lys_print_file_jsons(void **state)
+{
+    (void) state; /* unused */
+    const struct lys_module *module;
+    LYS_INFORMAT yang_format = LYS_IN_YIN;
+    struct stat sb;
+    char *target = "grouping/gg";
+    char file_name1[20];
+    char file_name2[20];
+    char *result;
+    FILE *f1 = NULL, *f2 = NULL;
+    int rc;
+    int fd1 = -1, fd2 = -1;
+
+    module = lys_parse_mem(ctx, lys_module_a, yang_format);
+    if (!module) {
+        goto error;
+    }
+
+    memset(file_name1, 0, sizeof(file_name1));
+    memset(file_name2, 0, sizeof(file_name2));
+    strncpy(file_name1, TMP_TEMPLATE, sizeof(file_name1));
+    strncpy(file_name2, TMP_TEMPLATE, sizeof(file_name2));
+
+    fd1 = mkstemp(file_name1);
+    fd2 = mkstemp(file_name2);
+    if (fd1 < 1 || fd2 < 1) {
+        goto error;
+    }
+    close(fd1);
+    close(fd2);
+
+    f1 = (fopen(file_name1,"r+"));
+    f2 = (fopen(file_name2,"r+"));
+    if (!f1 || !f2) {
+        goto error;
+    }
+
+    /* module */
+    rc = lys_print_file(f1, module, LYS_OUT_JSON, NULL, 0, 0);
+    if (rc) {
+        goto error;
+    }
+
+    fclose(f1); f1 = NULL;
+
+    fd1 = open(file_name1, O_RDONLY);
+    if (fstat(fd1, &sb) == -1 || !S_ISREG(sb.st_mode)) {
+        goto error;
+    }
+
+    result = mmap(NULL, sb.st_size, PROT_READ, MAP_PRIVATE, fd1, 0);
+    assert_string_equal(result_jsons, result);
+
+    /* grouping */
+    rc = lys_print_file(f2, module, LYS_OUT_JSON, target, 0, 0);
+    if (rc) {
+        goto error;
+    }
+
+    fclose(f2); f2 = NULL;
+
+    fd2 = open(file_name2, O_RDONLY);
+    if (fstat(fd2, &sb) == -1 || !S_ISREG(sb.st_mode)) {
+        goto error;
+    }
+
+    result = mmap(NULL, sb.st_size, PROT_READ, MAP_PRIVATE, fd2, 0);
+    assert_string_equal(result_jsons_grouping, result);
+
+    close(fd1);
+    close(fd2);
+    unlink(file_name1);
+    unlink(file_name2);
+
+    return;
+error:
+    if (f1)
+        fclose(f1);
+    if (fd1 > 0) {
+        unlink(file_name1);
+        close(fd1);
+    }
+    if (f2)
+        fclose(f2);
+    if (fd2 > 0) {
+        unlink(file_name2);
+        close(fd2);
     }
     fail();
 }
@@ -1286,6 +1494,51 @@ test_lys_find_path(void **state)
 }
 
 static void
+test_lys_xpath_atomize(void **state)
+{
+    (void) state; /* unused */
+    const struct lys_module *module;
+    struct ly_set *set;
+    const char *schema =
+    "module a {"
+        "namespace \"urn:a\";"
+        "prefix \"a\";"
+        "grouping g {"
+            "list b {"
+                "key \"name type\";"
+                "leaf name {"
+                    "type leafref {"
+                        "path \"/a/name\";"
+                    "}"
+                "}"
+                "leaf type {"
+                    "type leafref {"
+                        "path \"/a[name=current()/../name]/type\";"
+                    "}"
+                "}"
+            "}"
+        "}"
+        "list a {"
+            "key \"name type\";"
+            "leaf name {"
+                "type string;"
+            "}"
+            "leaf type {"
+                "type string;"
+            "}"
+        "}"
+        "uses g;"
+    "}";
+
+    module = lys_parse_mem(ctx, schema, LYS_IN_YANG);
+    assert_non_null(module);
+
+    /* should not crash */
+    set = lys_xpath_atomize(module->data->child->child->next, LYXP_NODE_ELEM, "/a[name=current()/../name]/type", 0);
+    ly_set_free(set);
+}
+
+static void
 test_lys_path(void **state)
 {
     (void) state; /* unused */
@@ -1304,7 +1557,16 @@ test_lys_path(void **state)
     assert_ptr_not_equal(set, NULL);
     node = set->set.s[0];
     ly_set_free(set);
-    path = lys_path(node);
+    path = lys_path(node, 1);
+    assert_string_equal(template, path);
+    free(path);
+
+    template = "/a:x/a:bar-gggg";
+    set = lys_find_path(module, NULL, template);
+    assert_ptr_not_equal(set, NULL);
+    node = set->set.s[0];
+    ly_set_free(set);
+    path = lys_path(node, 0);
     assert_string_equal(template, path);
     free(path);
 }
@@ -1327,15 +1589,19 @@ int main(void)
         cmocka_unit_test_setup_teardown(test_lys_print_mem_yang, setup_f, teardown_f),
         cmocka_unit_test_setup_teardown(test_lys_print_mem_yin, setup_f, teardown_f),
         cmocka_unit_test_setup_teardown(test_lys_print_mem_info, setup_f, teardown_f),
+        cmocka_unit_test_setup_teardown(test_lys_print_mem_jsons, setup_f, teardown_f),
         cmocka_unit_test_setup_teardown(test_lys_print_fd_tree, setup_f, teardown_f),
         cmocka_unit_test_setup_teardown(test_lys_print_fd_yang, setup_f, teardown_f),
         cmocka_unit_test_setup_teardown(test_lys_print_fd_yin, setup_f, teardown_f),
         cmocka_unit_test_setup_teardown(test_lys_print_fd_info, setup_f, teardown_f),
+        cmocka_unit_test_setup_teardown(test_lys_print_fd_jsons, setup_f, teardown_f),
         cmocka_unit_test_setup_teardown(test_lys_print_file_tree, setup_f, teardown_f),
         cmocka_unit_test_setup_teardown(test_lys_print_file_yin, setup_f, teardown_f),
         cmocka_unit_test_setup_teardown(test_lys_print_file_yang, setup_f, teardown_f),
         cmocka_unit_test_setup_teardown(test_lys_print_file_info, setup_f, teardown_f),
+        cmocka_unit_test_setup_teardown(test_lys_print_file_jsons, setup_f, teardown_f),
         cmocka_unit_test_setup_teardown(test_lys_find_path, setup_f, teardown_f),
+        cmocka_unit_test_setup_teardown(test_lys_xpath_atomize, setup_f, teardown_f),
         cmocka_unit_test_setup_teardown(test_lys_path, setup_f, teardown_f),
     };
 

@@ -7,6 +7,10 @@
  * (at your option) any later version.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -203,7 +207,7 @@ static void parse_sa_message(struct vici_message_ctx *ctx,
 		}
 		break;
 	default:
-		if (!key)
+		if (!key || !key->ptr)
 			break;
 
 		switch (key->ptr[0]) {
@@ -214,9 +218,10 @@ static void parse_sa_message(struct vici_message_ctx *ctx,
 					if (str2sockunion(buf,
 							  &sactx->local.host)
 					    < 0)
-						flog_err(NHRP_ERR_SWAN,
-							  "VICI: bad strongSwan local-host: %s",
-							  buf);
+						flog_err(
+							EC_NHRP_SWAN,
+							"VICI: bad strongSwan local-host: %s",
+							buf);
 			} else if (blob_equal(key, "local-id")
 				   && ctx->nsections == 1) {
 				sactx->local.id = *val;
@@ -232,9 +237,10 @@ static void parse_sa_message(struct vici_message_ctx *ctx,
 					if (str2sockunion(buf,
 							  &sactx->remote.host)
 					    < 0)
-						flog_err(NHRP_ERR_SWAN,
-							  "VICI: bad strongSwan remote-host: %s",
-							  buf);
+						flog_err(
+							EC_NHRP_SWAN,
+							"VICI: bad strongSwan remote-host: %s",
+							buf);
 			} else if (blob_equal(key, "remote-id")
 				   && ctx->nsections == 1) {
 				sactx->remote.id = *val;
@@ -277,7 +283,7 @@ static void parse_cmd_response(struct vici_message_ctx *ctx,
 	case VICI_KEY_VALUE:
 		if (blob_equal(key, "errmsg")
 		    && blob2buf(val, buf, sizeof(buf)))
-			flog_err(NHRP_ERR_SWAN, "VICI: strongSwan: %s", buf);
+			flog_err(EC_NHRP_SWAN, "VICI: strongSwan: %s", buf);
 		break;
 	default:
 		break;
@@ -297,7 +303,7 @@ static void vici_recv_sa(struct vici_conn *vici, struct zbuf *msg, int event)
 	if (ctx.kill_ikesa && ctx.ike_uniqueid) {
 		debugf(NHRP_DEBUG_COMMON, "VICI: Deleting IKE_SA %u",
 		       ctx.ike_uniqueid);
-		snprintf(buf, sizeof buf, "%u", ctx.ike_uniqueid);
+		snprintf(buf, sizeof(buf), "%u", ctx.ike_uniqueid);
 		vici_submit_request(vici, "terminate", VICI_KEY_VALUE, "ike-id",
 				    strlen(buf), buf, VICI_END);
 	}
@@ -336,7 +342,8 @@ static void vici_recv_message(struct vici_conn *vici, struct zbuf *msg)
 		break;
 	case VICI_EVENT_UNKNOWN:
 	case VICI_CMD_UNKNOWN:
-		flog_err(NHRP_ERR_SWAN,
+		flog_err(
+			EC_NHRP_SWAN,
 			"VICI: StrongSwan does not support mandatory events (unpatched?)");
 		break;
 	case VICI_EVENT_CONFIRM:
@@ -474,8 +481,8 @@ static int vici_reconnect(struct thread *t)
 	fd = sock_open_unix("/var/run/charon.vici");
 	if (fd < 0) {
 		debugf(NHRP_DEBUG_VICI,
-		       "%s: failure connecting VICI socket: %s",
-		       __PRETTY_FUNCTION__, strerror(errno));
+		       "%s: failure connecting VICI socket: %s", __func__,
+		       strerror(errno));
 		thread_add_timer(master, vici_reconnect, vici, 2,
 				 &vici->t_reconnect);
 		return 0;
@@ -520,8 +527,8 @@ void vici_request_vc(const char *profile, union sockunion *src,
 	struct vici_conn *vici = &vici_connection;
 	char buf[2][SU_ADDRSTRLEN];
 
-	sockunion2str(src, buf[0], sizeof buf[0]);
-	sockunion2str(dst, buf[1], sizeof buf[1]);
+	sockunion2str(src, buf[0], sizeof(buf[0]));
+	sockunion2str(dst, buf[1], sizeof(buf[1]));
 
 	vici_submit_request(vici, "initiate", VICI_KEY_VALUE, "child",
 			    strlen(profile), profile, VICI_KEY_VALUE, "timeout",
@@ -543,7 +550,7 @@ int sock_open_unix(const char *path)
 
 	memset(&addr, 0, sizeof(struct sockaddr_un));
 	addr.sun_family = AF_UNIX;
-	strncpy(addr.sun_path, path, sizeof(addr.sun_path) - 1);
+	strlcpy(addr.sun_path, path, sizeof(addr.sun_path));
 
 	ret = connect(fd, (struct sockaddr *)&addr,
 		      sizeof(addr.sun_family) + strlen(addr.sun_path));

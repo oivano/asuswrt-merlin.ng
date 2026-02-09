@@ -54,6 +54,7 @@
 #include "ospfd/ospf_route.h"
 #include "ospfd/ospf_ase.h"
 #include "ospfd/ospf_zebra.h"
+#include "ospfd/ospf_errors.h"
 
 #include "ospfd/ospf_api.h"
 #include "ospfd/ospf_apiserver.h"
@@ -152,7 +153,8 @@ int ospf_apiserver_init(void)
 		NULL,		  /* ospf_apiserver_lsa_refresher */
 		ospf_apiserver_lsa_update, ospf_apiserver_lsa_delete);
 	if (rc != 0) {
-		zlog_warn(
+		flog_warn(
+			EC_OSPF_OPAQUE_REGISTRATION,
 			"ospf_apiserver_init: Failed to register opaque type [0/0]");
 	}
 
@@ -180,7 +182,7 @@ void ospf_apiserver_term(void)
 
 	/* Free client list itself */
 	if (apiserver_list)
-		list_delete_and_null(&apiserver_list);
+		list_delete(&apiserver_list);
 
 	/* Free wildcard list */
 	/* XXX  */
@@ -867,7 +869,8 @@ int ospf_apiserver_register_opaque_type(struct ospf_apiserver *apiserv,
 		NULL /* ospf_apiserver_lsa_delete */);
 
 	if (rc != 0) {
-		zlog_warn("Failed to register opaque type [%d/%d]", lsa_type,
+		flog_warn(EC_OSPF_OPAQUE_REGISTRATION,
+			  "Failed to register opaque type [%d/%d]", lsa_type,
 			  opaque_type);
 		return OSPF_API_OPAQUETYPEINUSE;
 	}
@@ -886,8 +889,7 @@ int ospf_apiserver_register_opaque_type(struct ospf_apiserver *apiserv,
 
 	if (IS_DEBUG_OSPF_EVENT)
 		zlog_debug(
-			"API: Add LSA-type(%d)/Opaque-type(%d) into"
-			" apiserv(%p), total#(%d)",
+			"API: Add LSA-type(%d)/Opaque-type(%d) into apiserv(%p), total#(%d)",
 			lsa_type, opaque_type, (void *)apiserv,
 			listcount(apiserv->opaque_types));
 
@@ -917,8 +919,7 @@ int ospf_apiserver_unregister_opaque_type(struct ospf_apiserver *apiserv,
 
 			if (IS_DEBUG_OSPF_EVENT)
 				zlog_debug(
-					"API: Del LSA-type(%d)/Opaque-type(%d)"
-					" from apiserv(%p), total#(%d)",
+					"API: Del LSA-type(%d)/Opaque-type(%d) from apiserv(%p), total#(%d)",
 					lsa_type, opaque_type, (void *)apiserv,
 					listcount(apiserv->opaque_types));
 
@@ -1662,7 +1663,8 @@ int ospf_apiserver_originate1(struct ospf_lsa *lsa)
 
 	/* Install this LSA into LSDB. */
 	if (ospf_lsa_install(ospf, lsa->oi, lsa) == NULL) {
-		zlog_warn("ospf_apiserver_originate1: ospf_lsa_install failed");
+		flog_warn(EC_OSPF_LSA_INSTALL_FAILURE,
+			  "ospf_apiserver_originate1: ospf_lsa_install failed");
 		return -1;
 	}
 
@@ -1773,7 +1775,8 @@ struct ospf_lsa *ospf_apiserver_lsa_refresher(struct ospf_lsa *lsa)
 
 	/* Install LSA into LSDB. */
 	if (ospf_lsa_install(ospf, new->oi, new) == NULL) {
-		zlog_warn(
+		flog_warn(
+			EC_OSPF_LSA_INSTALL_FAILURE,
 			"ospf_apiserver_lsa_refresher: ospf_lsa_install failed");
 		ospf_lsa_unlock(&new);
 		goto out;
@@ -2019,7 +2022,7 @@ int ospf_apiserver_del_if(struct interface *ifp)
 
 	/* zlog_warn for debugging */
 	zlog_warn("ospf_apiserver_del_if");
-	zlog_warn("ifp name=%s status=%d index=%d\n", ifp->name, ifp->status,
+	zlog_warn("ifp name=%s status=%d index=%d", ifp->name, ifp->status,
 		  ifp->ifindex);
 
 	oi = ospf_apiserver_if_lookup_by_ifp(ifp);
@@ -2105,7 +2108,6 @@ void ospf_apiserver_show_info(struct vty *vty, struct ospf_lsa *lsa)
 		for (i = 0; i < opaquelen; i++) {
 			zlog_debug("0x%x ", olsa->data[i]);
 		}
-		zlog_debug("\n");
 	}
 	return;
 }
@@ -2321,14 +2323,12 @@ void ospf_apiserver_clients_notify_ism_change(struct ospf_interface *oi)
 void ospf_apiserver_clients_notify_nsm_change(struct ospf_neighbor *nbr)
 {
 	struct msg *msg;
-	struct in_addr ifaddr = {.s_addr = 0L};
+	struct in_addr ifaddr;
 	struct in_addr nbraddr;
 
 	assert(nbr);
 
-	if (nbr->oi) {
-		ifaddr = nbr->oi->address->u.prefix4;
-	}
+	ifaddr = nbr->oi->address->u.prefix4;
 
 	nbraddr = nbr->address.u.prefix4;
 

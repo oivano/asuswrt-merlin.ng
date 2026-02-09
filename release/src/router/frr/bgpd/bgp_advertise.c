@@ -45,8 +45,8 @@
    peer.  */
 struct bgp_advertise_attr *baa_new(void)
 {
-	return (struct bgp_advertise_attr *)XCALLOC(
-		MTYPE_BGP_ADVERTISE_ATTR, sizeof(struct bgp_advertise_attr));
+	return XCALLOC(MTYPE_BGP_ADVERTISE_ATTR,
+		       sizeof(struct bgp_advertise_attr));
 }
 
 static void baa_free(struct bgp_advertise_attr *baa)
@@ -64,14 +64,14 @@ static void *baa_hash_alloc(void *p)
 	return baa;
 }
 
-unsigned int baa_hash_key(void *p)
+unsigned int baa_hash_key(const void *p)
 {
-	struct bgp_advertise_attr *baa = (struct bgp_advertise_attr *)p;
+	const struct bgp_advertise_attr *baa = p;
 
 	return attrhash_key_make(baa->attr);
 }
 
-int baa_hash_cmp(const void *p1, const void *p2)
+bool baa_hash_cmp(const void *p1, const void *p2)
 {
 	const struct bgp_advertise_attr *baa1 = p1;
 	const struct bgp_advertise_attr *baa2 = p2;
@@ -84,15 +84,14 @@ int baa_hash_cmp(const void *p1, const void *p2)
    information.  */
 struct bgp_advertise *bgp_advertise_new(void)
 {
-	return (struct bgp_advertise *)XCALLOC(MTYPE_BGP_ADVERTISE,
-					       sizeof(struct bgp_advertise));
+	return XCALLOC(MTYPE_BGP_ADVERTISE, sizeof(struct bgp_advertise));
 }
 
 void bgp_advertise_free(struct bgp_advertise *adv)
 {
-	if (adv->binfo)
-		bgp_info_unlock(
-			adv->binfo); /* bgp_advertise bgp_info reference */
+	if (adv->pathi)
+		/* bgp_advertise bgp_path_info reference */
+		bgp_path_info_unlock(adv->pathi);
 	XFREE(MTYPE_BGP_ADVERTISE, adv);
 }
 
@@ -145,8 +144,8 @@ void bgp_advertise_unintern(struct hash *hash, struct bgp_advertise_attr *baa)
 	}
 }
 
-int bgp_adj_out_lookup(struct peer *peer, struct bgp_node *rn,
-		       uint32_t addpath_tx_id)
+bool bgp_adj_out_lookup(struct peer *peer, struct bgp_dest *dest,
+			uint32_t addpath_tx_id)
 {
 	struct bgp_adj_out *adj;
 	struct peer_af *paf;
@@ -154,7 +153,7 @@ int bgp_adj_out_lookup(struct peer *peer, struct bgp_node *rn,
 	safi_t safi;
 	int addpath_capable;
 
-	for (adj = rn->adj_out; adj; adj = adj->next)
+	RB_FOREACH (adj, bgp_adj_out_rb, &dest->adj_out)
 		SUBGRP_FOREACH_PEER (adj->subgroup, paf)
 			if (paf->peer == peer) {
 				afi = SUBGRP_AFI(adj->subgroup);
@@ -170,20 +169,21 @@ int bgp_adj_out_lookup(struct peer *peer, struct bgp_node *rn,
 				    && adj->addpath_tx_id != addpath_tx_id)
 					continue;
 
-				return (adj->adv ? (adj->adv->baa ? 1 : 0)
-						 : (adj->attr ? 1 : 0));
+				return (adj->adv
+						? (adj->adv->baa ? true : false)
+						: (adj->attr ? true : false));
 			}
 
-	return 0;
+	return false;
 }
 
 
-void bgp_adj_in_set(struct bgp_node *rn, struct peer *peer, struct attr *attr,
+void bgp_adj_in_set(struct bgp_dest *dest, struct peer *peer, struct attr *attr,
 		    uint32_t addpath_id)
 {
 	struct bgp_adj_in *adj;
 
-	for (adj = rn->adj_in; adj; adj = adj->next) {
+	for (adj = dest->adj_in; adj; adj = adj->next) {
 		if (adj->peer == peer && adj->addpath_rx_id == addpath_id) {
 			if (adj->attr != attr) {
 				bgp_attr_unintern(&adj->attr);
@@ -195,42 +195,43 @@ void bgp_adj_in_set(struct bgp_node *rn, struct peer *peer, struct attr *attr,
 	adj = XCALLOC(MTYPE_BGP_ADJ_IN, sizeof(struct bgp_adj_in));
 	adj->peer = peer_lock(peer); /* adj_in peer reference */
 	adj->attr = bgp_attr_intern(attr);
+	adj->uptime = bgp_clock();
 	adj->addpath_rx_id = addpath_id;
-	BGP_ADJ_IN_ADD(rn, adj);
-	bgp_lock_node(rn);
+	BGP_ADJ_IN_ADD(dest, adj);
+	bgp_dest_lock_node(dest);
 }
 
-void bgp_adj_in_remove(struct bgp_node *rn, struct bgp_adj_in *bai)
+void bgp_adj_in_remove(struct bgp_dest *dest, struct bgp_adj_in *bai)
 {
 	bgp_attr_unintern(&bai->attr);
-	BGP_ADJ_IN_DEL(rn, bai);
+	BGP_ADJ_IN_DEL(dest, bai);
 	peer_unlock(bai->peer); /* adj_in peer reference */
 	XFREE(MTYPE_BGP_ADJ_IN, bai);
 }
 
-int bgp_adj_in_unset(struct bgp_node *rn, struct peer *peer,
-		     uint32_t addpath_id)
+bool bgp_adj_in_unset(struct bgp_dest *dest, struct peer *peer,
+		      uint32_t addpath_id)
 {
 	struct bgp_adj_in *adj;
 	struct bgp_adj_in *adj_next;
 
-	adj = rn->adj_in;
+	adj = dest->adj_in;
 
 	if (!adj)
-		return 0;
+		return false;
 
 	while (adj) {
 		adj_next = adj->next;
 
 		if (adj->peer == peer && adj->addpath_rx_id == addpath_id) {
-			bgp_adj_in_remove(rn, adj);
-			bgp_unlock_node(rn);
+			bgp_adj_in_remove(dest, adj);
+			bgp_dest_unlock_node(dest);
 		}
 
 		adj = adj_next;
 	}
 
-	return 1;
+	return true;
 }
 
 void bgp_sync_init(struct peer *peer)
@@ -242,9 +243,9 @@ void bgp_sync_init(struct peer *peer)
 	FOREACH_AFI_SAFI (afi, safi) {
 		sync = XCALLOC(MTYPE_BGP_SYNCHRONISE,
 			       sizeof(struct bgp_synchronize));
-		BGP_ADV_FIFO_INIT(&sync->update);
-		BGP_ADV_FIFO_INIT(&sync->withdraw);
-		BGP_ADV_FIFO_INIT(&sync->withdraw_low);
+		bgp_adv_fifo_init(&sync->update);
+		bgp_adv_fifo_init(&sync->withdraw);
+		bgp_adv_fifo_init(&sync->withdraw_low);
 		peer->sync[afi][safi] = sync;
 	}
 }
@@ -255,8 +256,6 @@ void bgp_sync_delete(struct peer *peer)
 	safi_t safi;
 
 	FOREACH_AFI_SAFI (afi, safi) {
-		if (peer->sync[afi][safi])
-			XFREE(MTYPE_BGP_SYNCHRONISE, peer->sync[afi][safi]);
-		peer->sync[afi][safi] = NULL;
+		XFREE(MTYPE_BGP_SYNCHRONISE, peer->sync[afi][safi]);
 	}
 }

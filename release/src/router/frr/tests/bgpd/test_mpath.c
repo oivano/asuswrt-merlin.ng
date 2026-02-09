@@ -38,6 +38,7 @@
 #include "bgpd/bgp_nexthop.h"
 #include "bgpd/bgp_mpath.h"
 #include "bgpd/bgp_evpn.h"
+#include "bgpd/bgp_network.h"
 
 #define VT100_RESET "\x1b[0m"
 #define VT100_RED "\x1b[31m"
@@ -51,8 +52,8 @@
 
 #define EXPECT_TRUE(expr, res)                                                 \
 	if (!(expr)) {                                                         \
-		printf("Test failure in %s line %u: %s\n", __FUNCTION__,       \
-		       __LINE__, #expr);                                       \
+		printf("Test failure in %s line %u: %s\n", __func__, __LINE__, \
+		       #expr);                                                 \
 		(res) = TEST_FAILED;                                           \
 	}
 
@@ -74,7 +75,7 @@ struct testcase_t__ {
 
 /* need these to link in libbgp */
 struct thread_master *master = NULL;
-struct zclient *zclient;
+extern struct zclient *zclient;
 struct zebra_privs_t bgpd_privs = {
 	.user = NULL,
 	.group = NULL,
@@ -205,17 +206,16 @@ struct peer test_mp_list_peer[] = {
 	{.local_as = 1, .as = 2}, {.local_as = 1, .as = 2},
 	{.local_as = 1, .as = 2},
 };
-int test_mp_list_peer_count = sizeof(test_mp_list_peer) / sizeof(struct peer);
+int test_mp_list_peer_count = array_size(test_mp_list_peer);
 struct attr test_mp_list_attr[4];
-struct bgp_info test_mp_list_info[] = {
+struct bgp_path_info test_mp_list_info[] = {
 	{.peer = &test_mp_list_peer[0], .attr = &test_mp_list_attr[0]},
 	{.peer = &test_mp_list_peer[1], .attr = &test_mp_list_attr[1]},
 	{.peer = &test_mp_list_peer[2], .attr = &test_mp_list_attr[1]},
 	{.peer = &test_mp_list_peer[3], .attr = &test_mp_list_attr[2]},
 	{.peer = &test_mp_list_peer[4], .attr = &test_mp_list_attr[3]},
 };
-int test_mp_list_info_count =
-	sizeof(test_mp_list_info) / sizeof(struct bgp_info);
+int test_mp_list_info_count = array_size(test_mp_list_info);
 
 static int setup_bgp_mp_list(testcase_t *t)
 {
@@ -247,7 +247,7 @@ static int run_bgp_mp_list(testcase_t *t)
 {
 	struct list mp_list;
 	struct listnode *mp_node;
-	struct bgp_info *info;
+	struct bgp_path_info *info;
 	int i;
 	int test_result = TEST_PASSED;
 	bgp_mp_list_init(&mp_list);
@@ -289,24 +289,42 @@ testcase_t test_bgp_mp_list = {
 };
 
 /*=========================================================
- * Testcase for bgp_info_mpath_update
+ * Testcase for bgp_path_info_mpath_update
  */
 
 struct bgp_node test_rn;
 
-static int setup_bgp_info_mpath_update(testcase_t *t)
+static int setup_bgp_path_info_mpath_update(testcase_t *t)
 {
 	int i;
+	struct bgp *bgp;
+	struct bgp_table *rt;
+	struct route_node *rt_node;
+	as_t asn = 1;
+
+	t->tmp_data = bgp_create_fake(&asn, NULL);
+	if (!t->tmp_data)
+		return -1;
+
+	bgp = t->tmp_data;
+	rt = bgp->rib[AFI_IP][SAFI_UNICAST];
+
+	if (!rt)
+		return -1;
+
 	str2prefix("42.1.1.0/24", &test_rn.p);
+	rt_node = bgp_dest_to_rnode(&test_rn);
+	memcpy((struct route_table *)&rt_node->table, &rt->route_table,
+	       sizeof(struct route_table *));
 	setup_bgp_mp_list(t);
 	for (i = 0; i < test_mp_list_info_count; i++)
-		bgp_info_add(&test_rn, &test_mp_list_info[i]);
+		bgp_path_info_add(&test_rn, &test_mp_list_info[i]);
 	return 0;
 }
 
-static int run_bgp_info_mpath_update(testcase_t *t)
+static int run_bgp_path_info_mpath_update(testcase_t *t)
 {
-	struct bgp_info *new_best, *old_best, *mpath;
+	struct bgp_path_info *new_best, *old_best, *mpath;
 	struct list mp_list;
 	struct bgp_maxpaths_cfg mp_cfg = {3, 3};
 	int test_result = TEST_PASSED;
@@ -317,47 +335,49 @@ static int run_bgp_info_mpath_update(testcase_t *t)
 	bgp_mp_list_add(&mp_list, &test_mp_list_info[1]);
 	new_best = &test_mp_list_info[3];
 	old_best = NULL;
-	bgp_info_mpath_update(&test_rn, new_best, old_best, &mp_list, &mp_cfg);
+	bgp_path_info_mpath_update(&test_rn, new_best, old_best, &mp_list,
+				   &mp_cfg);
 	bgp_mp_list_clear(&mp_list);
-	EXPECT_TRUE(bgp_info_mpath_count(new_best) == 2, test_result);
-	mpath = bgp_info_mpath_first(new_best);
+	EXPECT_TRUE(bgp_path_info_mpath_count(new_best) == 2, test_result);
+	mpath = bgp_path_info_mpath_first(new_best);
 	EXPECT_TRUE(mpath == &test_mp_list_info[0], test_result);
-	EXPECT_TRUE(CHECK_FLAG(mpath->flags, BGP_INFO_MULTIPATH), test_result);
-	mpath = bgp_info_mpath_next(mpath);
+	EXPECT_TRUE(CHECK_FLAG(mpath->flags, BGP_PATH_MULTIPATH), test_result);
+	mpath = bgp_path_info_mpath_next(mpath);
 	EXPECT_TRUE(mpath == &test_mp_list_info[1], test_result);
-	EXPECT_TRUE(CHECK_FLAG(mpath->flags, BGP_INFO_MULTIPATH), test_result);
+	EXPECT_TRUE(CHECK_FLAG(mpath->flags, BGP_PATH_MULTIPATH), test_result);
 
 	bgp_mp_list_add(&mp_list, &test_mp_list_info[0]);
 	bgp_mp_list_add(&mp_list, &test_mp_list_info[1]);
 	new_best = &test_mp_list_info[0];
 	old_best = &test_mp_list_info[3];
-	bgp_info_mpath_update(&test_rn, new_best, old_best, &mp_list, &mp_cfg);
+	bgp_path_info_mpath_update(&test_rn, new_best, old_best, &mp_list,
+				   &mp_cfg);
 	bgp_mp_list_clear(&mp_list);
-	EXPECT_TRUE(bgp_info_mpath_count(new_best) == 1, test_result);
-	mpath = bgp_info_mpath_first(new_best);
+	EXPECT_TRUE(bgp_path_info_mpath_count(new_best) == 1, test_result);
+	mpath = bgp_path_info_mpath_first(new_best);
 	EXPECT_TRUE(mpath == &test_mp_list_info[1], test_result);
-	EXPECT_TRUE(CHECK_FLAG(mpath->flags, BGP_INFO_MULTIPATH), test_result);
-	EXPECT_TRUE(!CHECK_FLAG(test_mp_list_info[0].flags, BGP_INFO_MULTIPATH),
+	EXPECT_TRUE(CHECK_FLAG(mpath->flags, BGP_PATH_MULTIPATH), test_result);
+	EXPECT_TRUE(!CHECK_FLAG(test_mp_list_info[0].flags, BGP_PATH_MULTIPATH),
 		    test_result);
 
 	return test_result;
 }
 
-static int cleanup_bgp_info_mpath_update(testcase_t *t)
+static int cleanup_bgp_path_info_mpath_update(testcase_t *t)
 {
 	int i;
 
 	for (i = 0; i < test_mp_list_peer_count; i++)
 		sockunion_free(test_mp_list_peer[i].su_remote);
 
-	return 0;
+	return bgp_delete((struct bgp *)t->tmp_data);
 }
 
-testcase_t test_bgp_info_mpath_update = {
-	.desc = "Test bgp_info_mpath_update",
-	.setup = setup_bgp_info_mpath_update,
-	.run = run_bgp_info_mpath_update,
-	.cleanup = cleanup_bgp_info_mpath_update,
+testcase_t test_bgp_path_info_mpath_update = {
+	.desc = "Test bgp_path_info_mpath_update",
+	.setup = setup_bgp_path_info_mpath_update,
+	.run = run_bgp_path_info_mpath_update,
+	.cleanup = cleanup_bgp_path_info_mpath_update,
 };
 
 /*=========================================================
@@ -365,10 +385,10 @@ testcase_t test_bgp_info_mpath_update = {
  */
 testcase_t *all_tests[] = {
 	&test_bgp_cfg_maximum_paths, &test_bgp_mp_list,
-	&test_bgp_info_mpath_update,
+	&test_bgp_path_info_mpath_update,
 };
 
-int all_tests_count = (sizeof(all_tests) / sizeof(testcase_t *));
+int all_tests_count = array_size(all_tests);
 
 /*=========================================================
  * Test Driver Functions
@@ -377,9 +397,9 @@ static int global_test_init(void)
 {
 	qobj_init();
 	master = thread_master_create(NULL);
-	zclient = zclient_new_notify(master, &zclient_options_default);
-	bgp_master_init(master);
-	vrf_init(NULL, NULL, NULL, NULL);
+	zclient = zclient_new(master, &zclient_options_default);
+	bgp_master_init(master, BGP_SOCKET_SNDBUF_SIZE);
+	vrf_init(NULL, NULL, NULL, NULL, NULL);
 	bgp_option_set(BGP_OPT_NO_LISTEN);
 
 	if (fileno(stdout) >= 0)

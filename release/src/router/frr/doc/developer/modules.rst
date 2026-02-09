@@ -1,3 +1,5 @@
+.. _modules:
+
 Modules
 =======
 
@@ -53,6 +55,14 @@ Basic boilerplate:
 
     #include "hook.h"
     #include "module.h"
+    #include "libfrr.h"
+    #include "thread.h"
+
+    static int module_late_init(struct thread_master *master)
+    {
+        /* Do initialization stuff here */
+        return 0;
+    }
 
     static int
     module_init (void)
@@ -103,9 +113,9 @@ standard entry point for loadable modules.
 Command line parameters
 -----------------------
 
-Command line parameters can be passed directly to a module by appending a 
-colon to the module name when loading it, e.g. ``-M mymodule:myparameter``. 
-The text after the colon will be accessible in the module's code through 
+Command line parameters can be passed directly to a module by appending a
+colon to the module name when loading it, e.g. ``-M mymodule:myparameter``.
+The text after the colon will be accessible in the module's code through
 ``THIS_MODULE->load_args``. For example, see how the format parameter is
 configured in the ``zfpm_init()`` function inside ``zebra_fpm.c``.
 

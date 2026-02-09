@@ -17,6 +17,7 @@
 #include <setjmp.h>
 #include <errno.h>
 #include <unistd.h>
+#include <stdarg.h>
 #include <cmocka.h>
 #include <string.h>
 #include <sys/wait.h>
@@ -29,7 +30,7 @@
 #define TEST_SCHEMA_COUNT 1
 #define TEST_SCHEMA_LOAD_FAIL 0
 #define TEST_DATA_FILE_COUNT 14
-#define TEST_DATA_FILE_LOAD_FAIL 0,0,0,0,1,0,0,0,1,1,1,1,1,1
+#define TEST_DATA_FILE_LOAD_FAIL 1,0,0,0,1,0,0,0,1,1,1,1,1,1
 #define TEST_DATA_COMPARE_FAIL 1,0,0,0,0,0,0,0
 #define TEST_DATA_COMPARE "ssh", "ssh", "42", "pattern", "", "true", "", ""
 
@@ -135,6 +136,12 @@ TEST_RPC_INPUT(void **state)
             }
 
             schema_format = LYS_IN_YIN;
+            ly_ctx_destroy(st->ctx, NULL);
+            st->ctx = ly_ctx_new(TESTS_DIR "/conformance/" TEST_DIR, 0);
+            if (!st->ctx) {
+                fprintf(stderr, "Failed to create context.\n");
+                fail();
+            }
         } else {
             /* remove the modules */
             for (j = 0; j < TEST_SCHEMA_COUNT; ++j) {

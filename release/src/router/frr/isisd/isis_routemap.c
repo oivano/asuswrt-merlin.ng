@@ -37,7 +37,6 @@
 #include "isis_constants.h"
 #include "isis_common.h"
 #include "isis_flags.h"
-#include "dict.h"
 #include "isisd.h"
 #include "isis_misc.h"
 #include "isis_adjacency.h"
@@ -49,10 +48,9 @@
 #include "isis_zebra.h"
 #include "isis_routemap.h"
 
-static route_map_result_t route_match_ip_address(void *rule,
-						 const struct prefix *prefix,
-						 route_map_object_t type,
-						 void *object)
+static enum route_map_cmd_result_t
+route_match_ip_address(void *rule, const struct prefix *prefix,
+		       route_map_object_t type, void *object)
 {
 	struct access_list *alist;
 
@@ -76,13 +74,16 @@ static void route_match_ip_address_free(void *rule)
 	XFREE(MTYPE_ROUTE_MAP_COMPILED, rule);
 }
 
-static struct route_map_rule_cmd route_match_ip_address_cmd = {
-	"ip address", route_match_ip_address, route_match_ip_address_compile,
-	route_match_ip_address_free};
+static const struct route_map_rule_cmd route_match_ip_address_cmd = {
+	"ip address",
+	route_match_ip_address,
+	route_match_ip_address_compile,
+	route_match_ip_address_free
+};
 
 /* ------------------------------------------------------------*/
 
-static route_map_result_t
+static enum route_map_cmd_result_t
 route_match_ip_address_prefix_list(void *rule, const struct prefix *prefix,
 				   route_map_object_t type, void *object)
 {
@@ -108,17 +109,19 @@ static void route_match_ip_address_prefix_list_free(void *rule)
 	XFREE(MTYPE_ROUTE_MAP_COMPILED, rule);
 }
 
-struct route_map_rule_cmd route_match_ip_address_prefix_list_cmd = {
-	"ip address prefix-list", route_match_ip_address_prefix_list,
+static const struct route_map_rule_cmd
+		route_match_ip_address_prefix_list_cmd = {
+	"ip address prefix-list",
+	route_match_ip_address_prefix_list,
 	route_match_ip_address_prefix_list_compile,
-	route_match_ip_address_prefix_list_free};
+	route_match_ip_address_prefix_list_free
+};
 
 /* ------------------------------------------------------------*/
 
-static route_map_result_t route_match_ipv6_address(void *rule,
-						   const struct prefix *prefix,
-						   route_map_object_t type,
-						   void *object)
+static enum route_map_cmd_result_t
+route_match_ipv6_address(void *rule, const struct prefix *prefix,
+			 route_map_object_t type, void *object)
 {
 	struct access_list *alist;
 
@@ -142,13 +145,16 @@ static void route_match_ipv6_address_free(void *rule)
 	XFREE(MTYPE_ROUTE_MAP_COMPILED, rule);
 }
 
-static struct route_map_rule_cmd route_match_ipv6_address_cmd = {
-	"ipv6 address", route_match_ipv6_address,
-	route_match_ipv6_address_compile, route_match_ipv6_address_free};
+static const struct route_map_rule_cmd route_match_ipv6_address_cmd = {
+	"ipv6 address",
+	route_match_ipv6_address,
+	route_match_ipv6_address_compile,
+	route_match_ipv6_address_free
+};
 
 /* ------------------------------------------------------------*/
 
-static route_map_result_t
+static enum route_map_cmd_result_t
 route_match_ipv6_address_prefix_list(void *rule, const struct prefix *prefix,
 				     route_map_object_t type, void *object)
 {
@@ -174,17 +180,19 @@ static void route_match_ipv6_address_prefix_list_free(void *rule)
 	XFREE(MTYPE_ROUTE_MAP_COMPILED, rule);
 }
 
-struct route_map_rule_cmd route_match_ipv6_address_prefix_list_cmd = {
-	"ipv6 address prefix-list", route_match_ipv6_address_prefix_list,
+static const struct route_map_rule_cmd
+		route_match_ipv6_address_prefix_list_cmd = {
+	"ipv6 address prefix-list",
+	route_match_ipv6_address_prefix_list,
 	route_match_ipv6_address_prefix_list_compile,
-	route_match_ipv6_address_prefix_list_free};
+	route_match_ipv6_address_prefix_list_free
+};
 
 /* ------------------------------------------------------------*/
 
-static route_map_result_t route_set_metric(void *rule,
-					   const struct prefix *prefix,
-					   route_map_object_t type,
-					   void *object)
+static enum route_map_cmd_result_t
+route_set_metric(void *rule, const struct prefix *prefix,
+		 route_map_object_t type, void *object)
 {
 	uint32_t *metric;
 	struct isis_ext_info *info;
@@ -219,9 +227,12 @@ static void route_set_metric_free(void *rule)
 	XFREE(MTYPE_ROUTE_MAP_COMPILED, rule);
 }
 
-static struct route_map_rule_cmd route_set_metric_cmd = {
-	"metric", route_set_metric, route_set_metric_compile,
-	route_set_metric_free};
+static const struct route_map_rule_cmd route_set_metric_cmd = {
+	"metric",
+	route_set_metric,
+	route_set_metric_compile,
+	route_set_metric_free
+};
 
 void isis_route_map_init(void)
 {

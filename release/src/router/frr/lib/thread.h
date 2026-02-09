@@ -26,6 +26,11 @@
 #include <poll.h>
 #include "monotime.h"
 #include "frratomic.h"
+#include "typesafe.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 struct rusage_t {
 	struct rusage cpu;
@@ -35,14 +40,8 @@ struct rusage_t {
 
 #define GETRUSAGE(X) thread_getrusage(X)
 
-/* Linked list of thread. */
-struct thread_list {
-	struct thread *head;
-	struct thread *tail;
-	int count;
-};
-
-struct pqueue;
+PREDECL_LIST(thread_list)
+PREDECL_HEAP(thread_timer_list)
 
 struct fd_handler {
 	/* number of pfd that fit in the allocated space of pfds. This is a
@@ -73,10 +72,8 @@ struct thread_master {
 
 	struct thread **read;
 	struct thread **write;
-	struct pqueue *timer;
-	struct thread_list event;
-	struct thread_list ready;
-	struct thread_list unuse;
+	struct thread_timer_list_head timer;
+	struct thread_list_head event, ready, unuse;
 	struct list *cancel_req;
 	bool canceled;
 	pthread_cond_t cancel_cond;
@@ -96,8 +93,8 @@ struct thread_master {
 struct thread {
 	uint8_t type;		  /* thread type */
 	uint8_t add_type;	  /* thread type */
-	struct thread *next;	  /* next pointer of the thread */
-	struct thread *prev;	  /* previous pointer of the thread */
+	struct thread_list_item threaditem;
+	struct thread_timer_list_item timeritem;
 	struct thread **ref;	  /* external reference (if given) */
 	struct thread_master *master; /* pointer to the struct thread_master */
 	int (*func)(struct thread *); /* event function */
@@ -107,7 +104,6 @@ struct thread {
 		int fd;		      /* file descriptor in case of r/w */
 		struct timeval sands; /* rest of time sands value. */
 	} u;
-	int index; /* queue position for timers */
 	struct timeval real;
 	struct cpu_thread_history *hist; /* cache pointer to cpu_history */
 	unsigned long yield;		 /* yield time in microseconds */
@@ -119,13 +115,13 @@ struct thread {
 
 struct cpu_thread_history {
 	int (*func)(struct thread *);
-	_Atomic unsigned int total_calls;
-	_Atomic unsigned int total_active;
+	atomic_uint_fast32_t total_calls;
+	atomic_uint_fast32_t total_active;
 	struct time_stats {
-		_Atomic unsigned long total, max;
+		atomic_size_t total, max;
 	} real;
 	struct time_stats cpu;
-	_Atomic uint8_t types;
+	atomic_uint_fast32_t types;
 	const char *funcname;
 };
 
@@ -143,6 +139,8 @@ struct cpu_thread_history {
 
 /* Thread yield time.  */
 #define THREAD_YIELD_TIME_SLOT     10 * 1000L /* 10ms */
+
+#define THREAD_TIMER_STRLEN 12
 
 /* Macros. */
 #define THREAD_ARG(X) ((X)->arg)
@@ -170,6 +168,8 @@ struct cpu_thread_history {
 #define thread_add_timer_tv(m,f,a,v,t) funcname_thread_add_timer_tv(m,f,a,v,t,#f,__FILE__,__LINE__)
 #define thread_add_event(m,f,a,v,t) funcname_thread_add_event(m,f,a,v,t,#f,__FILE__,__LINE__)
 #define thread_execute(m,f,a,v) funcname_thread_execute(m,f,a,v,#f,__FILE__,__LINE__)
+#define thread_execute_name(m, f, a, v, n)				\
+	funcname_thread_execute(m, f, a, v, n, __FILE__, __LINE__)
 
 /* Prototypes. */
 extern struct thread_master *thread_master_create(const char *);
@@ -215,6 +215,7 @@ extern struct thread *thread_fetch(struct thread_master *, struct thread *);
 extern void thread_call(struct thread *);
 extern unsigned long thread_timer_remain_second(struct thread *);
 extern struct timeval thread_timer_remain(struct thread *);
+extern unsigned long thread_timer_remain_msec(struct thread *);
 extern int thread_should_yield(struct thread *);
 /* set yield time for thread */
 extern void thread_set_yield_time(struct thread *, unsigned long);
@@ -229,5 +230,14 @@ extern unsigned long thread_consumed_time(RUSAGE_T *after, RUSAGE_T *before,
 
 /* only for use in logging functions! */
 extern pthread_key_t thread_current;
+extern char *thread_timer_to_hhmmss(char *buf, int buf_size,
+		struct thread *t_timer);
+
+/* Debug signal mask */
+void debug_signals(const sigset_t *sigs);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _ZEBRA_THREAD_H */

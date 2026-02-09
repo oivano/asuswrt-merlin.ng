@@ -16,21 +16,28 @@
 # file does not exist.
 #
 # This script should be installed in  /usr/sbin/frrcommon.sh
+# FRR_PATHSPACE is passed in from watchfrr
+suffix="${FRR_PATHSPACE:+/${FRR_PATHSPACE}}"
+nsopt="${FRR_PATHSPACE:+-N ${FRR_PATHSPACE}}"
 
 PATH=/bin:/usr/bin:/sbin:/usr/sbin
-D_PATH="/usr/sbin" # /usr/lib/frr
-C_PATH="/etc/frr" # /etc/frr
-V_PATH="/var/run/frr" # /var/run/frr
-VTYSH="/usr/sbin/vtysh" # /usr/bin/vtysh
-FRR_USER="nobody" # frr
-FRR_GROUP="nobody" # frr
-FRR_VTY_GROUP="" # frrvty
+D_PATH="/usr/sbin"
+C_PATH="/etc/frr"
+V_PATH="/var/run/frr"
+VTYSH="/usr/sbin/vtysh"
+FRR_USER="nobody"
+FRR_GROUP="nobody"
+FRR_VTY_GROUP=""
+FRR_CONFIG_MODE="0600"
+FRR_DEFAULT_PROFILE="traditional"
+MAX_FDS=1024
 
 # ORDER MATTERS FOR $DAEMONS!
 # - keep zebra first
 # - watchfrr does NOT belong in this list
+# Only compiled daemons: zebra bgpd ospfd staticd bfdd
 
-DAEMONS="zebra bgpd ripd ripngd ospfd ospf6d isisd babeld pimd ldpd eigrpd sharpd pbrd bfdd staticd"
+DAEMONS="zebra bgpd ospfd staticd bfdd"
 RELOAD_SCRIPT="$D_PATH/frr-reload.py"
 
 #
@@ -53,15 +60,19 @@ debug() {
 chownfrr() {
 	[ -n "$FRR_USER" ] && chown "$FRR_USER" "$1"
 	[ -n "$FRR_GROUP" ] && chgrp "$FRR_GROUP" "$1"
+	[ -n "$FRR_CONFIG_MODE" ] && chmod "$FRR_CONFIG_MODE" "$1"
+	if [ -d "$1" ]; then
+		chmod u+x "$1"
+	fi
 }
 
 vtysh_b () {
 	[ "$1" = "watchfrr" ] && return 0
 	[ -r "$C_PATH/frr.conf" ] || return 0
 	if [ -n "$1" ]; then
-		"$VTYSH" -b -n -d "$1"
+		"$VTYSH" `echo $nsopt` -b -d "$1"
 	else
-		"$VTYSH" -b -n
+		"$VTYSH" `echo $nsopt` -b
 	fi
 }
 
@@ -90,7 +101,8 @@ daemon_list() {
 				continue
 			fi
 			debug "$daemon enabled"
-			enabled="$enabled $daemon"
+#			enabled="$enabled $daemon"
+
 			if [ -n "$inst" ]; then
 				debug "$daemon multi-instance $inst"
 				oldifs="${IFS}"
@@ -99,6 +111,8 @@ daemon_list() {
 					enabled="$enabled $daemon-$i"
 				done
 				IFS="${oldifs}"
+			else
+				enabled="$enabled $daemon"
 			fi
 		else
 			debug "$daemon disabled"
@@ -152,7 +166,7 @@ daemon_start() {
 	instopt="${inst:+-n $inst}"
 	eval args="\$${daemon}_options"
 
-	if eval "$all_wrap $wrap $bin -d $instopt $args"; then
+	if eval "$all_wrap $wrap $bin $nsopt -d $frr_global_options $instopt $args"; then
 		log_success_msg "Started $dmninst"
 		vtysh_b "$daemon"
 	else
@@ -288,9 +302,11 @@ load_old_config() {
 }
 . "$C_PATH/daemons"
 
-load_old_config "$C_PATH/daemons.conf"
-load_old_config "/etc/default/frr"
-load_old_config "/etc/sysconfig/frr"
+if [ -z "$FRR_PATHSPACE" ]; then
+	load_old_config "$C_PATH/daemons.conf"
+	load_old_config "/etc/default/frr"
+	load_old_config "/etc/sysconfig/frr"
+fi
 
 if { declare -p watchfrr_options 2>/dev/null || true; } | grep -q '^declare \-a'; then
 	log_warning_msg "watchfrr_options contains a bash array value." \
@@ -298,6 +314,19 @@ if { declare -p watchfrr_options 2>/dev/null || true; } | grep -q '^declare \-a'
 		"Please remove or fix the setting."
 	unset watchfrr_options
 fi
+
+if test -z "$frr_profile"; then
+	# try to autodetect config profile
+	if test -d /etc/cumulus; then
+		frr_profile=datacenter
+	# elif test ...; then
+	# -- add your distro/system here
+	elif test -n "$FRR_DEFAULT_PROFILE"; then
+		frr_profile="$FRR_DEFAULT_PROFILE"
+	fi
+fi
+test -n "$frr_profile" && frr_global_options="$frr_global_options -F $frr_profile"
+
 
 #
 # other defaults and dispatch

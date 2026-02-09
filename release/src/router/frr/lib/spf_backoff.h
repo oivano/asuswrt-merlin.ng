@@ -7,7 +7,7 @@
  * Copyright (C) 2017 Orange Labs http://www.orange.com/
  * Copyright (C) 2017 by Christian Franke, Open Source Routing / NetDEF Inc.
  *
- * This file is part of FreeRangeRouting (FRR)
+ * This file is part of FRRouting (FRR)
  *
  * FRR is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -25,6 +25,10 @@
  */
 #ifndef _ZEBRA_SPF_BACKOFF_H
 #define _ZEBRA_SPF_BACKOFF_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 struct spf_backoff;
 struct thread_master;
@@ -57,5 +61,9 @@ long spf_backoff_short_delay(struct spf_backoff *backoff);
 long spf_backoff_long_delay(struct spf_backoff *backoff);
 long spf_backoff_holddown(struct spf_backoff *backoff);
 long spf_backoff_timetolearn(struct spf_backoff *backoff);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -24,7 +24,7 @@ Each router thus builds up an :abbr:`LSDB (Link State Database)` of all the
 link-state messages. From this collection of LSAs in the LSDB, each router can
 then calculate the shortest path to any other router, based on some common
 metric, by using an algorithm such as
-`Edgar Djikstra's <http://www.cs.utexas.edu/users/EWD/>`_
+`Edsger Dijkstra's <http://www.cs.utexas.edu/users/EWD/>`_
 :abbr:`SPF (Shortest Path First)` algorithm.
 
 .. index:: Link-state routing protocol advantages
@@ -83,8 +83,8 @@ sharing a link, for example:
 - DR/BDR election results.
 - Any optional capabilities supported by each router.
 
-The Hello protocol is comparatively trivial and will not be explored in greater
-detail than here.
+The Hello protocol is comparatively trivial and will not be explored in more
+detail.
 
 .. index:: OSPF LSA overview
 .. _ospf-lsas:
@@ -233,7 +233,7 @@ called `intra-area routes`.
 
   Cost
      The output cost of that interface, scaled inversely to some commonly known
-     reference value, :clicmd:`auto-cost reference-bandwidth (1-4294967`.
+     reference value, :clicmd:`auto-cost reference-bandwidth (1-4294967)`.
 
   Link Type
      Transit Network

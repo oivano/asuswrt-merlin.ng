@@ -79,9 +79,10 @@ enum { ISIS_UI_LEVEL_BRIEF,
 
 #include "lib/log.h"
 void log_multiline(int priority, const char *prefix, const char *format, ...)
-	PRINTF_ATTRIBUTE(3, 4);
+	PRINTFRR(3, 4);
+char *log_uptime(time_t uptime, char *buf, size_t nbuf);
 struct vty;
 void vty_multiline(struct vty *vty, const char *prefix, const char *format, ...)
-	PRINTF_ATTRIBUTE(3, 4);
+	PRINTFRR(3, 4);
 void vty_out_timestr(struct vty *vty, time_t uptime);
 #endif

@@ -93,19 +93,19 @@ extern void rfapiRibFree(struct rfapi_descriptor *rfd);
 extern void rfapiRibUpdatePendingNode(struct bgp *bgp,
 				      struct rfapi_descriptor *rfd,
 				      struct rfapi_import_table *it,
-				      struct route_node *it_node,
+				      struct agg_node *it_node,
 				      uint32_t lifetime);
 
 extern void rfapiRibUpdatePendingNodeSubtree(struct bgp *bgp,
 					     struct rfapi_descriptor *rfd,
 					     struct rfapi_import_table *it,
-					     struct route_node *it_node,
-					     struct route_node *omit_subtree,
+					     struct agg_node *it_node,
+					     struct agg_node *omit_subtree,
 					     uint32_t lifetime);
 
-extern int rfapiRibPreloadBi(struct route_node *rfd_rib_node,
+extern int rfapiRibPreloadBi(struct agg_node *rfd_rib_node,
 			     struct prefix *pfx_vn, struct prefix *pfx_un,
-			     uint32_t lifetime, struct bgp_info *bi);
+			     uint32_t lifetime, struct bgp_path_info *bpi);
 
 extern struct rfapi_next_hop_entry *
 rfapiRibPreload(struct bgp *bgp, struct rfapi_descriptor *rfd,
@@ -113,7 +113,7 @@ rfapiRibPreload(struct bgp *bgp, struct rfapi_descriptor *rfd,
 
 extern void rfapiRibPendingDeleteRoute(struct bgp *bgp,
 				       struct rfapi_import_table *it, afi_t afi,
-				       struct route_node *it_node);
+				       struct agg_node *it_node);
 
 extern void rfapiRibShowResponsesSummary(void *stream);
 
@@ -124,7 +124,7 @@ extern void rfapiRibShowResponses(void *stream, struct prefix *pfx_match,
 
 extern int rfapiRibFTDFilterRecentPrefix(
 	struct rfapi_descriptor *rfd,
-	struct route_node *it_rn,	    /* import table node */
+	struct agg_node *it_rn,		     /* import table node */
 	struct prefix *pfx_target_original); /* query target */
 
 extern void rfapiFreeRfapiUnOptionChain(struct rfapi_un_option *p);
@@ -147,7 +147,7 @@ extern void rfapi_rib_key_init(struct prefix *prefix, /* may be NULL */
 			       struct prefix *aux,    /* may be NULL */
 			       struct rfapi_rib_key *rk);
 
-extern int rfapi_rib_key_cmp(void *k1, void *k2);
+extern int rfapi_rib_key_cmp(const void *k1, const void *k2);
 
 extern void rfapiAdbFree(struct rfapi_adb *adb);
 

@@ -43,132 +43,102 @@
 #include "static_nht.h"
 #include "static_vty.h"
 
+bool debug;
+
 /* Zebra structure to hold current status. */
 struct zclient *zclient;
 static struct hash *static_nht_hash;
 
-static struct interface *zebra_interface_if_lookup(struct stream *s)
-{
-	char ifname_tmp[INTERFACE_NAMSIZ];
-
-	/* Read interface name. */
-	stream_get(ifname_tmp, s, INTERFACE_NAMSIZ);
-
-	/* And look it up. */
-	return if_lookup_by_name(ifname_tmp, VRF_DEFAULT);
-}
-
 /* Inteface addition message from zebra. */
-static int interface_add(int command, struct zclient *zclient,
-			       zebra_size_t length, vrf_id_t vrf_id)
+static int static_ifp_create(struct interface *ifp)
 {
-	struct interface *ifp;
-
-	ifp = zebra_interface_add_read(zclient->ibuf, vrf_id);
-
-	if (!ifp)
-		return 0;
-
 	static_ifindex_update(ifp, true);
+
 	return 0;
 }
 
-static int interface_delete(int command, struct zclient *zclient,
-			    zebra_size_t length, vrf_id_t vrf_id)
+static int static_ifp_destroy(struct interface *ifp)
 {
-	struct interface *ifp;
-	struct stream *s;
-
-	s = zclient->ibuf;
-	/* zebra_interface_state_read () updates interface structure in iflist
-	 */
-	ifp = zebra_interface_state_read(s, vrf_id);
-
-	if (ifp == NULL)
-		return 0;
-
-	if_set_index(ifp, IFINDEX_INTERNAL);
-
 	static_ifindex_update(ifp, false);
 	return 0;
 }
 
-static int interface_address_add(int command, struct zclient *zclient,
-				 zebra_size_t length, vrf_id_t vrf_id)
+static int interface_address_add(ZAPI_CALLBACK_ARGS)
 {
-	zebra_interface_address_read(command, zclient->ibuf, vrf_id);
+	zebra_interface_address_read(cmd, zclient->ibuf, vrf_id);
 
 	return 0;
 }
 
-static int interface_address_delete(int command, struct zclient *zclient,
-				    zebra_size_t length, vrf_id_t vrf_id)
+static int interface_address_delete(ZAPI_CALLBACK_ARGS)
 {
 	struct connected *c;
 
-	c = zebra_interface_address_read(command, zclient->ibuf, vrf_id);
+	c = zebra_interface_address_read(cmd, zclient->ibuf, vrf_id);
 
 	if (!c)
 		return 0;
 
-	connected_free(c);
+	connected_free(&c);
 	return 0;
 }
 
-static int interface_state_up(int command, struct zclient *zclient,
-			      zebra_size_t length, vrf_id_t vrf_id)
+static int static_ifp_up(struct interface *ifp)
 {
-	struct interface *ifp;
-
-	ifp = zebra_interface_if_lookup(zclient->ibuf);
-
-	if (ifp && if_is_vrf(ifp)) {
-		struct static_vrf *svrf = static_vrf_lookup_by_id(vrf_id);
+	if (if_is_vrf(ifp)) {
+		struct static_vrf *svrf = static_vrf_lookup_by_id(ifp->vrf_id);
 
 		static_fixup_vrf_ids(svrf);
-		static_config_install_delayed_routes(svrf);
 	}
 
+	/* Install any static reliant on this interface coming up */
+	static_install_intf_nh(ifp);
+	static_ifindex_update(ifp, true);
+
 	return 0;
 }
 
-static int interface_state_down(int command, struct zclient *zclient,
-				zebra_size_t length, vrf_id_t vrf_id)
+static int static_ifp_down(struct interface *ifp)
 {
-	zebra_interface_state_read(zclient->ibuf, vrf_id);
+	static_ifindex_update(ifp, false);
 
 	return 0;
 }
 
-static int route_notify_owner(int command, struct zclient *zclient,
-			      zebra_size_t length, vrf_id_t vrf_id)
+static int route_notify_owner(ZAPI_CALLBACK_ARGS)
 {
 	struct prefix p;
 	enum zapi_route_notify_owner note;
 	uint32_t table_id;
 	char buf[PREFIX_STRLEN];
 
-	prefix2str(&p, buf, sizeof(buf));
-
 	if (!zapi_route_notify_decode(zclient->ibuf, &p, &table_id, &note))
 		return -1;
 
+	prefix2str(&p, buf, sizeof(buf));
+
 	switch (note) {
 	case ZAPI_ROUTE_FAIL_INSTALL:
+		static_nht_mark_state(&p, vrf_id, STATIC_NOT_INSTALLED);
 		zlog_warn("%s: Route %s failed to install for table: %u",
-			  __PRETTY_FUNCTION__, buf, table_id);
+			  __func__, buf, table_id);
 		break;
 	case ZAPI_ROUTE_BETTER_ADMIN_WON:
-		zlog_warn("%s: Route %s over-ridden by better route for table: %u",
-			  __PRETTY_FUNCTION__, buf, table_id);
+		static_nht_mark_state(&p, vrf_id, STATIC_NOT_INSTALLED);
+		zlog_warn(
+			"%s: Route %s over-ridden by better route for table: %u",
+			__func__, buf, table_id);
 		break;
 	case ZAPI_ROUTE_INSTALLED:
+		static_nht_mark_state(&p, vrf_id, STATIC_INSTALLED);
 		break;
 	case ZAPI_ROUTE_REMOVED:
+		static_nht_mark_state(&p, vrf_id, STATIC_NOT_INSTALLED);
 		break;
 	case ZAPI_ROUTE_REMOVE_FAIL:
+		static_nht_mark_state(&p, vrf_id, STATIC_INSTALLED);
 		zlog_warn("%s: Route %s failure to remove for table: %u",
-			  __PRETTY_FUNCTION__, buf, table_id);
+			  __func__, buf, table_id);
 		break;
 	}
 
@@ -188,20 +158,44 @@ struct static_nht_data {
 	uint8_t nh_num;
 };
 
-static int static_zebra_nexthop_update(int command, struct zclient *zclient,
-				       zebra_size_t length, vrf_id_t vrf_id)
+/* API to check whether the configured nexthop address is
+ * one of its local connected address or not.
+ */
+static bool
+static_nexthop_is_local(vrf_id_t vrfid, struct prefix *addr, int family)
+{
+	if (family == AF_INET) {
+		if (if_lookup_exact_address(&addr->u.prefix4,
+					AF_INET,
+					vrfid))
+			return true;
+	} else if (family == AF_INET6) {
+		if (if_lookup_exact_address(&addr->u.prefix6,
+					AF_INET6,
+					vrfid))
+			return true;
+	}
+	return false;
+}
+static int static_zebra_nexthop_update(ZAPI_CALLBACK_ARGS)
 {
 	struct static_nht_data *nhtd, lookup;
 	struct zapi_route nhr;
 	afi_t afi = AFI_IP;
 
 	if (!zapi_nexthop_update_decode(zclient->ibuf, &nhr)) {
-		zlog_warn("Failure to decode nexthop update message");
+		zlog_err("Failure to decode nexthop update message");
 		return 1;
 	}
 
 	if (nhr.prefix.family == AF_INET6)
 		afi = AFI_IP6;
+
+	if (nhr.type == ZEBRA_ROUTE_CONNECT) {
+		if (static_nexthop_is_local(vrf_id, &nhr.prefix,
+					nhr.prefix.family))
+			nhr.nexthop_num = 0;
+	}
 
 	memset(&lookup, 0, sizeof(lookup));
 	lookup.nh = &nhr.prefix;
@@ -212,7 +206,8 @@ static int static_zebra_nexthop_update(int command, struct zclient *zclient,
 	if (nhtd) {
 		nhtd->nh_num = nhr.nexthop_num;
 
-		static_nht_update(&nhr.prefix, nhr.nexthop_num, afi,
+		static_nht_reset_start(&nhr.prefix, afi, nhtd->nh_vrf_id);
+		static_nht_update(NULL, &nhr.prefix, nhr.nexthop_num, afi,
 				  nhtd->nh_vrf_id);
 	} else
 		zlog_err("No nhtd?");
@@ -225,22 +220,22 @@ static void static_zebra_capabilities(struct zclient_capabilities *cap)
 	mpls_enabled = cap->mpls_enabled;
 }
 
-static unsigned int static_nht_hash_key(void *data)
+static unsigned int static_nht_hash_key(const void *data)
 {
-	struct static_nht_data *nhtd = data;
+	const struct static_nht_data *nhtd = data;
 	unsigned int key = 0;
 
 	key = prefix_hash_key(nhtd->nh);
 	return jhash_1word(nhtd->nh_vrf_id, key);
 }
 
-static int static_nht_hash_cmp(const void *d1, const void *d2)
+static bool static_nht_hash_cmp(const void *d1, const void *d2)
 {
 	const struct static_nht_data *nhtd1 = d1;
 	const struct static_nht_data *nhtd2 = d2;
 
 	if (nhtd1->nh_vrf_id != nhtd2->nh_vrf_id)
-		return 0;
+		return false;
 
 	return prefix_same(nhtd1->nh, nhtd2->nh);
 }
@@ -265,11 +260,12 @@ static void static_nht_hash_free(void *data)
 {
 	struct static_nht_data *nhtd = data;
 
-	prefix_free(nhtd->nh);
+	prefix_free(&nhtd->nh);
 	XFREE(MTYPE_TMP, nhtd);
 }
 
-void static_zebra_nht_register(struct static_route *si, bool reg)
+void static_zebra_nht_register(struct route_node *rn, struct static_nexthop *nh,
+			       bool reg)
 {
 	struct static_nht_data *nhtd, lookup;
 	uint32_t cmd;
@@ -279,14 +275,14 @@ void static_zebra_nht_register(struct static_route *si, bool reg)
 	cmd = (reg) ?
 		ZEBRA_NEXTHOP_REGISTER : ZEBRA_NEXTHOP_UNREGISTER;
 
-	if (si->nh_registered && reg)
+	if (nh->nh_registered && reg)
 		return;
 
-	if (!si->nh_registered && !reg)
+	if (!nh->nh_registered && !reg)
 		return;
 
 	memset(&p, 0, sizeof(p));
-	switch (si->type) {
+	switch (nh->type) {
 	case STATIC_IFNAME:
 	case STATIC_BLACKHOLE:
 		return;
@@ -294,32 +290,35 @@ void static_zebra_nht_register(struct static_route *si, bool reg)
 	case STATIC_IPV4_GATEWAY_IFNAME:
 		p.family = AF_INET;
 		p.prefixlen = IPV4_MAX_BITLEN;
-		p.u.prefix4 = si->addr.ipv4;
+		p.u.prefix4 = nh->addr.ipv4;
 		afi = AFI_IP;
 		break;
 	case STATIC_IPV6_GATEWAY:
 	case STATIC_IPV6_GATEWAY_IFNAME:
 		p.family = AF_INET6;
 		p.prefixlen = IPV6_MAX_BITLEN;
-		p.u.prefix6 = si->addr.ipv6;
+		p.u.prefix6 = nh->addr.ipv6;
 		afi = AFI_IP6;
 		break;
 	}
 
 	memset(&lookup, 0, sizeof(lookup));
 	lookup.nh = &p;
-	lookup.nh_vrf_id = si->nh_vrf_id;
+	lookup.nh_vrf_id = nh->nh_vrf_id;
 
-	si->nh_registered = reg;
+	nh->nh_registered = reg;
 
 	if (reg) {
 		nhtd = hash_get(static_nht_hash, &lookup,
 				static_nht_hash_alloc);
 		nhtd->refcount++;
 
-		if (nhtd->refcount > 1) {
-			static_nht_update(nhtd->nh, nhtd->nh_num,
-					  afi, si->nh_vrf_id);
+		if (debug)
+			zlog_debug("Registered nexthop(%pFX) for %pRN %d", &p,
+				   rn, nhtd->nh_num);
+		if (nhtd->refcount > 1 && nhtd->nh_num) {
+			static_nht_update(&rn->p, nhtd->nh, nhtd->nh_num, afi,
+					  nh->nh_vrf_id);
 			return;
 		}
 	} else {
@@ -335,26 +334,72 @@ void static_zebra_nht_register(struct static_route *si, bool reg)
 		static_nht_hash_free(nhtd);
 	}
 
-	if (zclient_send_rnh(zclient, cmd, &p, false, si->nh_vrf_id) < 0)
-		zlog_warn("%s: Failure to send nexthop to zebra",
-			  __PRETTY_FUNCTION__);
+	if (zclient_send_rnh(zclient, cmd, &p, false, nh->nh_vrf_id) < 0)
+		zlog_warn("%s: Failure to send nexthop to zebra", __func__);
+}
+/*
+ * When nexthop gets updated via configuration then use the
+ * already registered NH and resend the route to zebra
+ */
+int static_zebra_nh_update(struct route_node *rn, struct static_nexthop *nh)
+{
+	struct static_nht_data *nhtd, lookup = {};
+	struct prefix p = {};
+	afi_t afi = AFI_IP;
+
+	if (!nh->nh_registered)
+		return 0;
+
+	switch (nh->type) {
+	case STATIC_IFNAME:
+	case STATIC_BLACKHOLE:
+		return 0;
+	case STATIC_IPV4_GATEWAY:
+	case STATIC_IPV4_GATEWAY_IFNAME:
+		p.family = AF_INET;
+		p.prefixlen = IPV4_MAX_BITLEN;
+		p.u.prefix4 = nh->addr.ipv4;
+		afi = AFI_IP;
+		break;
+	case STATIC_IPV6_GATEWAY:
+	case STATIC_IPV6_GATEWAY_IFNAME:
+		p.family = AF_INET6;
+		p.prefixlen = IPV6_MAX_BITLEN;
+		p.u.prefix6 = nh->addr.ipv6;
+		afi = AFI_IP6;
+		break;
+	}
+
+	lookup.nh = &p;
+	lookup.nh_vrf_id = nh->nh_vrf_id;
+
+	nhtd = hash_lookup(static_nht_hash, &lookup);
+	if (nhtd && nhtd->nh_num) {
+		nh->state = STATIC_START;
+		static_nht_update(&rn->p, nhtd->nh, nhtd->nh_num, afi,
+				  nh->nh_vrf_id);
+		return 1;
+	}
+	return 0;
 }
 
 extern void static_zebra_route_add(struct route_node *rn,
-				   struct static_route *si_changed,
-				   vrf_id_t vrf_id, safi_t safi, bool install)
+				   struct static_path *pn, safi_t safi,
+				   bool install)
 {
-	struct static_route *si = rn->info;
+	struct static_nexthop *nh;
 	const struct prefix *p, *src_pp;
 	struct zapi_nexthop *api_nh;
 	struct zapi_route api;
 	uint32_t nh_num = 0;
+	struct stable_info *info;
 
 	p = src_pp = NULL;
 	srcdest_rnode_prefixes(rn, &p, &src_pp);
 
 	memset(&api, 0, sizeof(api));
-	api.vrf_id = vrf_id;
+	info = static_get_stable_info(rn);
+	api.vrf_id = GET_STABLE_VRF_ID(info);
 	api.type = ZEBRA_ROUTE_STATIC;
 	api.safi = safi;
 	memcpy(&api.prefix, p, sizeof(api.prefix));
@@ -364,64 +409,71 @@ extern void static_zebra_route_add(struct route_node *rn,
 		memcpy(&api.src_prefix, src_pp, sizeof(api.src_prefix));
 	}
 	SET_FLAG(api.flags, ZEBRA_FLAG_RR_USE_DISTANCE);
+	SET_FLAG(api.flags, ZEBRA_FLAG_ALLOW_RECURSION);
 	SET_FLAG(api.message, ZAPI_MESSAGE_NEXTHOP);
-	if (si_changed->distance) {
+	if (pn->distance) {
 		SET_FLAG(api.message, ZAPI_MESSAGE_DISTANCE);
-		api.distance = si_changed->distance;
+		api.distance = pn->distance;
 	}
-	if (si_changed->tag) {
+	if (pn->tag) {
 		SET_FLAG(api.message, ZAPI_MESSAGE_TAG);
-		api.tag = si_changed->tag;
+		api.tag = pn->tag;
 	}
-	if (si_changed->table_id != 0) {
+	if (pn->table_id != 0) {
 		SET_FLAG(api.message, ZAPI_MESSAGE_TABLEID);
-		api.tableid = si_changed->table_id;
+		api.tableid = pn->table_id;
 	}
-	for (/*loaded above*/; si; si = si->next) {
+	frr_each(static_nexthop_list, &pn->nexthop_list, nh) {
 		api_nh = &api.nexthops[nh_num];
-		if (si->nh_vrf_id == VRF_UNKNOWN)
+		if (nh->nh_vrf_id == VRF_UNKNOWN)
 			continue;
 
-		if (si->distance != si_changed->distance)
-			continue;
+		api_nh->vrf_id = nh->nh_vrf_id;
+		if (nh->onlink)
+			SET_FLAG(api_nh->flags, ZAPI_NEXTHOP_FLAG_ONLINK);
+		if (nh->color != 0) {
+			SET_FLAG(api.message, ZAPI_MESSAGE_SRTE);
+			api_nh->srte_color = nh->color;
+		}
 
-		api_nh->vrf_id = si->nh_vrf_id;
-		switch (si->type) {
+		nh->state = STATIC_SENT_TO_ZEBRA;
+
+		switch (nh->type) {
 		case STATIC_IFNAME:
-			if (si->ifindex == IFINDEX_INTERNAL)
+			if (nh->ifindex == IFINDEX_INTERNAL)
 				continue;
-			api_nh->ifindex = si->ifindex;
+			api_nh->ifindex = nh->ifindex;
 			api_nh->type = NEXTHOP_TYPE_IFINDEX;
 			break;
 		case STATIC_IPV4_GATEWAY:
-			if (!si->nh_valid)
+			if (!nh->nh_valid)
 				continue;
 			api_nh->type = NEXTHOP_TYPE_IPV4;
-			api_nh->gate = si->addr;
+			api_nh->gate = nh->addr;
 			break;
 		case STATIC_IPV4_GATEWAY_IFNAME:
-			if (si->ifindex == IFINDEX_INTERNAL)
+			if (nh->ifindex == IFINDEX_INTERNAL)
 				continue;
-			api_nh->ifindex = si->ifindex;
+			api_nh->ifindex = nh->ifindex;
 			api_nh->type = NEXTHOP_TYPE_IPV4_IFINDEX;
-			api_nh->gate = si->addr;
+			api_nh->gate = nh->addr;
 			break;
 		case STATIC_IPV6_GATEWAY:
-			if (!si->nh_valid)
+			if (!nh->nh_valid)
 				continue;
 			api_nh->type = NEXTHOP_TYPE_IPV6;
-			api_nh->gate = si->addr;
+			api_nh->gate = nh->addr;
 			break;
 		case STATIC_IPV6_GATEWAY_IFNAME:
-			if (si->ifindex == IFINDEX_INTERNAL)
+			if (nh->ifindex == IFINDEX_INTERNAL)
 				continue;
 			api_nh->type = NEXTHOP_TYPE_IPV6_IFINDEX;
-			api_nh->ifindex = si->ifindex;
-			api_nh->gate = si->addr;
+			api_nh->ifindex = nh->ifindex;
+			api_nh->gate = nh->addr;
 			break;
 		case STATIC_BLACKHOLE:
 			api_nh->type = NEXTHOP_TYPE_BLACKHOLE;
-			switch (si->bh_type) {
+			switch (nh->bh_type) {
 			case STATIC_BLACKHOLE_DROP:
 			case STATIC_BLACKHOLE_NULL:
 				api_nh->bh_type = BLACKHOLE_NULL;
@@ -432,13 +484,13 @@ extern void static_zebra_route_add(struct route_node *rn,
 			break;
 		}
 
-		if (si->snh_label.num_labels) {
+		if (nh->snh_label.num_labels) {
 			int i;
 
-			SET_FLAG(api.message, ZAPI_MESSAGE_LABEL);
-			api_nh->label_num = si->snh_label.num_labels;
+			SET_FLAG(api_nh->flags, ZAPI_NEXTHOP_FLAG_LABEL);
+			api_nh->label_num = nh->snh_label.num_labels;
 			for (i = 0; i < api_nh->label_num; i++)
-				api_nh->labels[i] = si->snh_label.label[i];
+				api_nh->labels[i] = nh->snh_label.label[i];
 		}
 		nh_num++;
 	}
@@ -456,19 +508,19 @@ extern void static_zebra_route_add(struct route_node *rn,
 			   ZEBRA_ROUTE_ADD : ZEBRA_ROUTE_DELETE,
 			   zclient, &api);
 }
+
 void static_zebra_init(void)
 {
 	struct zclient_options opt = { .receive_notify = true };
 
-	zclient = zclient_new_notify(master, &opt);
+	if_zapi_callbacks(static_ifp_create, static_ifp_up,
+			  static_ifp_down, static_ifp_destroy);
+
+	zclient = zclient_new(master, &opt);
 
 	zclient_init(zclient, ZEBRA_ROUTE_STATIC, 0, &static_privs);
 	zclient->zebra_capabilities = static_zebra_capabilities;
 	zclient->zebra_connected = zebra_connected;
-	zclient->interface_add = interface_add;
-	zclient->interface_delete = interface_delete;
-	zclient->interface_up = interface_state_up;
-	zclient->interface_down = interface_state_down;
 	zclient->interface_address_add = interface_address_add;
 	zclient->interface_address_delete = interface_address_delete;
 	zclient->route_notify_owner = route_notify_owner;
@@ -477,4 +529,18 @@ void static_zebra_init(void)
 	static_nht_hash = hash_create(static_nht_hash_key,
 				      static_nht_hash_cmp,
 				      "Static Nexthop Tracking hash");
+}
+
+void static_zebra_vrf_register(struct vrf *vrf)
+{
+	if (vrf->vrf_id == VRF_DEFAULT)
+		return;
+	zclient_send_reg_requests(zclient, vrf->vrf_id);
+}
+
+void static_zebra_vrf_unregister(struct vrf *vrf)
+{
+	if (vrf->vrf_id == VRF_DEFAULT)
+		return;
+	zclient_send_dereg_requests(zclient, vrf->vrf_id);
 }

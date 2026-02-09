@@ -62,35 +62,20 @@ static int vtysh_pam(const char *user)
 
 	/* Start PAM. */
 	ret = pam_start(FRR_PAM_NAME, user, &conv, &pamh);
-	/* printf ("ret %d\n", ret); */
 
 	/* Is user really user? */
 	if (ret == PAM_SUCCESS)
 		ret = pam_authenticate(pamh, 0);
-/* printf ("ret %d\n", ret); */
 
-#if 0
-  /* Permitted access? */
-  if (ret == PAM_SUCCESS)
-    ret = pam_acct_mgmt (pamh, 0);
-  printf ("ret %d\n", ret);
-
-  if (ret == PAM_AUTHINFO_UNAVAIL)
-    ret = PAM_SUCCESS;
-#endif /* 0 */
-
-/* This is where we have been authorized or not. */
-#ifdef DEBUG
-	if (ret == PAM_SUCCESS)
-		printf("Authenticated\n");
-	else
-		printf("Not Authenticated\n");
-#endif /* DEBUG */
+	if (ret != PAM_SUCCESS)
+		fprintf(stderr, "vtysh_pam: Failure to initialize pam: %s(%d)",
+			pam_strerror(pamh, ret), ret);
 
 	/* close Linux-PAM */
 	if (pam_end(pamh, ret) != PAM_SUCCESS) {
 		pamh = NULL;
-		fprintf(stderr, "vtysh_pam: failed to release authenticator\n");
+		fprintf(stderr, "vtysh_pam: failed to release authenticator: %s(%d)\n",
+			pam_strerror(pamh, ret), ret);
 		exit(1);
 	}
 
@@ -122,7 +107,7 @@ static struct vtysh_user *user_lookup(const char *name)
 	return NULL;
 }
 
-void user_config_write()
+void user_config_write(void)
 {
 	struct listnode *node, *nnode;
 	struct vtysh_user *user;
@@ -130,7 +115,8 @@ void user_config_write()
 
 	for (ALL_LIST_ELEMENTS(userlist, node, nnode, user)) {
 		if (user->nopassword) {
-			sprintf(line, "username %s nopassword", user->name);
+			snprintf(line, sizeof(line), "username %s nopassword",
+				 user->name);
 			config_add_line(config_top, line);
 		}
 	}
@@ -160,6 +146,26 @@ DEFUN (vtysh_banner_motd_file,
 {
 	int idx_file = 3;
 	return cmd_banner_motd_file(argv[idx_file]->arg);
+}
+
+DEFUN (vtysh_banner_motd_line,
+       vtysh_banner_motd_line_cmd,
+       "banner motd line LINE...",
+       "Set banner\n"
+       "Banner for motd\n"
+       "Banner from an input\n"
+       "Text\n")
+{
+	int idx = 0;
+	char *motd;
+
+	argv_find(argv, argc, "LINE", &idx);
+	motd = argv_concat(argv, argc, idx);
+
+	cmd_banner_motd_line(motd);
+	XFREE(MTYPE_TMP, motd);
+
+	return CMD_SUCCESS;
 }
 
 DEFUN (username_nopassword,
@@ -204,7 +210,7 @@ char *vtysh_get_home(void)
 	struct passwd *passwd;
 	char *homedir;
 
-	if ((homedir = getenv("HOME")) != 0)
+	if ((homedir = getenv("HOME")) != NULL)
 		return homedir;
 
 	/* Fallback if HOME is undefined */
@@ -218,4 +224,5 @@ void vtysh_user_init(void)
 	userlist = list_new();
 	install_element(CONFIG_NODE, &username_nopassword_cmd);
 	install_element(CONFIG_NODE, &vtysh_banner_motd_file_cmd);
+	install_element(CONFIG_NODE, &vtysh_banner_motd_line_cmd);
 }

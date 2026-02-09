@@ -43,6 +43,7 @@
 #include "pim_join.h"
 #include "pim_util.h"
 #include "pim_ssm.h"
+#include "pim_vxlan.h"
 
 struct thread *send_test_packet_timer = NULL;
 
@@ -58,8 +59,9 @@ void pim_register_join(struct pim_upstream *up)
 	}
 
 	pim_channel_add_oif(up->channel_oil, pim->regiface,
-			    PIM_OIF_FLAG_PROTO_PIM);
+			    PIM_OIF_FLAG_PROTO_PIM, __func__);
 	up->reg_state = PIM_REG_JOIN;
+	pim_vxlan_update_sg_reg_state(pim, up, true /*reg_join*/);
 }
 
 void pim_register_stop_send(struct interface *ifp, struct prefix_sg *sg,
@@ -92,12 +94,12 @@ void pim_register_stop_send(struct interface *ifp, struct prefix_sg *sg,
 	b1length += length;
 
 	pim_msg_build_header(buffer, b1length + PIM_MSG_REGISTER_STOP_LEN,
-			     PIM_MSG_TYPE_REG_STOP);
+			     PIM_MSG_TYPE_REG_STOP, false);
 
 	pinfo = (struct pim_interface *)ifp->info;
 	if (!pinfo) {
 		if (PIM_DEBUG_PIM_TRACE)
-			zlog_debug("%s: No pinfo!\n", __PRETTY_FUNCTION__);
+			zlog_debug("%s: No pinfo!", __func__);
 		return;
 	}
 	if (pim_msg_send(pinfo->pim_sock_fd, src, originator, buffer,
@@ -105,7 +107,7 @@ void pim_register_stop_send(struct interface *ifp, struct prefix_sg *sg,
 		if (PIM_DEBUG_PIM_TRACE) {
 			zlog_debug(
 				"%s: could not send PIM register stop message on interface %s",
-				__PRETTY_FUNCTION__, ifp->name);
+				__func__, ifp->name);
 		}
 	}
 	++pinfo->pim_ifstat_reg_stop_send;
@@ -119,6 +121,8 @@ int pim_register_stop_recv(struct interface *ifp, uint8_t *buf, int buf_size)
 	struct prefix source;
 	struct prefix_sg sg;
 	int l;
+
+	++pim_ifp->pim_ifstat_reg_stop_recv;
 
 	memset(&sg, 0, sizeof(struct prefix_sg));
 	l = pim_parse_addr_group(&sg, buf, buf_size);
@@ -139,18 +143,18 @@ int pim_register_stop_recv(struct interface *ifp, uint8_t *buf, int buf_size)
 	case PIM_REG_NOINFO:
 	case PIM_REG_PRUNE:
 		return 0;
-		break;
 	case PIM_REG_JOIN:
 		upstream->reg_state = PIM_REG_PRUNE;
 		pim_channel_del_oif(upstream->channel_oil, pim->regiface,
-				    PIM_OIF_FLAG_PROTO_PIM);
+				    PIM_OIF_FLAG_PROTO_PIM, __func__);
 		pim_upstream_start_register_stop_timer(upstream, 0);
+		pim_vxlan_update_sg_reg_state(pim, upstream,
+			false/*reg_join*/);
 		break;
 	case PIM_REG_JOIN_PENDING:
 		upstream->reg_state = PIM_REG_PRUNE;
 		pim_upstream_start_register_stop_timer(upstream, 0);
 		return 0;
-		break;
 	}
 
 	return 0;
@@ -175,25 +179,25 @@ void pim_register_send(const uint8_t *buf, int buf_size, struct in_addr src,
 	if (!ifp) {
 		if (PIM_DEBUG_PIM_REG)
 			zlog_debug("%s: No interface to transmit register on",
-				   __PRETTY_FUNCTION__);
+				   __func__);
 		return;
 	}
 	pinfo = (struct pim_interface *)ifp->info;
 	if (!pinfo) {
 		if (PIM_DEBUG_PIM_REG)
 			zlog_debug(
-				"%s: Interface: %s not configured for pim to trasmit on!\n",
-				__PRETTY_FUNCTION__, ifp->name);
+				"%s: Interface: %s not configured for pim to transmit on!",
+				__func__, ifp->name);
 		return;
 	}
 
 	if (PIM_DEBUG_PIM_REG) {
 		char rp_str[INET_ADDRSTRLEN];
-		strncpy(rp_str, inet_ntoa(rpg->rpf_addr.u.prefix4),
-			INET_ADDRSTRLEN - 1);
+		strlcpy(rp_str, inet_ntoa(rpg->rpf_addr.u.prefix4),
+			sizeof(rp_str));
 		zlog_debug("%s: Sending %s %sRegister Packet to %s on %s",
-			   __PRETTY_FUNCTION__, up->sg_str,
-			   null_register ? "NULL " : "", rp_str, ifp->name);
+			   __func__, up->sg_str, null_register ? "NULL " : "",
+			   rp_str, ifp->name);
 	}
 
 	memset(buffer, 0, 10000);
@@ -204,7 +208,7 @@ void pim_register_send(const uint8_t *buf, int buf_size, struct in_addr src,
 	memcpy(b1, (const unsigned char *)buf, buf_size);
 
 	pim_msg_build_header(buffer, buf_size + PIM_MSG_REGISTER_LEN,
-			     PIM_MSG_TYPE_REGISTER);
+			     PIM_MSG_TYPE_REGISTER, false);
 
 	++pinfo->pim_ifstat_reg_send;
 
@@ -213,10 +217,58 @@ void pim_register_send(const uint8_t *buf, int buf_size, struct in_addr src,
 		if (PIM_DEBUG_PIM_TRACE) {
 			zlog_debug(
 				"%s: could not send PIM register message on interface %s",
-				__PRETTY_FUNCTION__, ifp->name);
+				__func__, ifp->name);
 		}
 		return;
 	}
+}
+
+void pim_null_register_send(struct pim_upstream *up)
+{
+	struct ip ip_hdr;
+	struct pim_interface *pim_ifp;
+	struct pim_rpf *rpg;
+	struct in_addr src;
+
+	pim_ifp = up->rpf.source_nexthop.interface->info;
+	if (!pim_ifp) {
+		if (PIM_DEBUG_PIM_TRACE)
+			zlog_debug(
+				"%s: Cannot send null-register for %s no valid iif",
+				__func__, up->sg_str);
+		return;
+	}
+
+	rpg = RP(pim_ifp->pim, up->sg.grp);
+	if (!rpg) {
+		if (PIM_DEBUG_PIM_TRACE)
+			zlog_debug(
+				"%s: Cannot send null-register for %s no RPF to the RP",
+				__func__, up->sg_str);
+		return;
+	}
+
+	memset(&ip_hdr, 0, sizeof(struct ip));
+	ip_hdr.ip_p = PIM_IP_PROTO_PIM;
+	ip_hdr.ip_hl = 5;
+	ip_hdr.ip_v = 4;
+	ip_hdr.ip_src = up->sg.src;
+	ip_hdr.ip_dst = up->sg.grp;
+	ip_hdr.ip_len = htons(20);
+
+	/* checksum is broken */
+	src = pim_ifp->primary_address;
+	if (PIM_UPSTREAM_FLAG_TEST_SRC_VXLAN_ORIG(up->flags)) {
+		if (!pim_vxlan_get_register_src(pim_ifp->pim, up, &src)) {
+			if (PIM_DEBUG_PIM_TRACE)
+				zlog_debug(
+					"%s: Cannot send null-register for %s vxlan-aa PIP unavailable",
+					__func__, up->sg_str);
+			return;
+		}
+	}
+	pim_register_send((uint8_t *)&ip_hdr, sizeof(struct ip),
+			src, rpg, 1, up);
 }
 
 /*
@@ -231,8 +283,8 @@ void pim_register_send(const uint8_t *buf, int buf_size, struct in_addr src,
  *          # Note: this may be a spoofing attempt
  *      }
  *      if( I_am_RP(G) AND outer.dst == RP(G) ) {
- *            sentRegisterStop = FALSE;
- *            if ( register.borderbit == TRUE ) {
+ *            sentRegisterStop = false;
+ *            if ( register.borderbit == true ) {
  *                 if ( PMBR(S,G) == unknown ) {
  *                      PMBR(S,G) = outer.src
  *                 } else if ( outer.src != PMBR(S,G) ) {
@@ -244,10 +296,10 @@ void pim_register_send(const uint8_t *buf, int buf_size, struct in_addr src,
  *             ( SwitchToSptDesired(S,G) AND
  *               ( inherited_olist(S,G) == NULL ))) {
  *              send Register-Stop(S,G) to outer.src
- *              sentRegisterStop = TRUE;
+ *              sentRegisterStop = true;
  *            }
  *            if ( SPTbit(S,G) OR SwitchToSptDesired(S,G) ) {
- *                 if ( sentRegisterStop == TRUE ) {
+ *                 if ( sentRegisterStop == true ) {
  *                      set KeepaliveTimer(S,G) to RP_Keepalive_Period;
  *                 } else {
  *                      set KeepaliveTimer(S,G) to Keepalive_Period;
@@ -272,21 +324,19 @@ int pim_register_recv(struct interface *ifp, struct in_addr dest_addr,
 	struct prefix_sg sg;
 	uint32_t *bits;
 	int i_am_rp = 0;
-	struct pim_interface *pim_ifp = NULL;
-
-	pim_ifp = ifp->info;
+	struct pim_interface *pim_ifp = ifp->info;
+	struct pim_instance *pim = pim_ifp->pim;
 
 #define PIM_MSG_REGISTER_BIT_RESERVED_LEN 4
 	ip_hdr = (struct ip *)(tlv_buf + PIM_MSG_REGISTER_BIT_RESERVED_LEN);
 
-	if (!pim_rp_check_is_my_ip_address(pim_ifp->pim, ip_hdr->ip_dst,
-					   dest_addr)) {
+	if (!pim_rp_check_is_my_ip_address(pim, dest_addr)) {
 		if (PIM_DEBUG_PIM_REG) {
 			char dest[INET_ADDRSTRLEN];
 
 			pim_inet4_dump("<dst?>", dest_addr, dest, sizeof(dest));
 			zlog_debug(
-				"%s: Received Register message for %s that I do not own",
+				"%s: Received Register message for destination address: %s that I do not own",
 				__func__, dest);
 		}
 		return 0;
@@ -324,21 +374,47 @@ int pim_register_recv(struct interface *ifp, struct in_addr dest_addr,
 	sg.src = ip_hdr->ip_src;
 	sg.grp = ip_hdr->ip_dst;
 
-	i_am_rp = I_am_RP(pim_ifp->pim, sg.grp);
+	i_am_rp = I_am_RP(pim, sg.grp);
 
 	if (PIM_DEBUG_PIM_REG) {
 		char src_str[INET_ADDRSTRLEN];
 
 		pim_inet4_dump("<src?>", src_addr, src_str, sizeof(src_str));
-		zlog_debug(
-			"Received Register message(%s) from %s on %s, rp: %d",
-			pim_str_sg_dump(&sg), src_str, ifp->name, i_am_rp);
+		zlog_debug("Received Register message%s from %s on %s, rp: %d",
+			   pim_str_sg_dump(&sg), src_str, ifp->name, i_am_rp);
 	}
 
 	if (i_am_rp
 	    && (dest_addr.s_addr
-		== ((RP(pim_ifp->pim, sg.grp))->rpf_addr.u.prefix4.s_addr))) {
+		== ((RP(pim, sg.grp))->rpf_addr.u.prefix4.s_addr))) {
 		sentRegisterStop = 0;
+
+		if (pim->register_plist) {
+			struct prefix_list *plist;
+			struct prefix src;
+
+			plist = prefix_list_lookup(AFI_IP, pim->register_plist);
+
+			src.family = AF_INET;
+			src.prefixlen = IPV4_MAX_PREFIXLEN;
+			src.u.prefix4 = sg.src;
+
+			if (prefix_list_apply(plist, &src) == PREFIX_DENY) {
+				pim_register_stop_send(ifp, &sg, dest_addr,
+						       src_addr);
+				if (PIM_DEBUG_PIM_PACKETS) {
+					char src_str[INET_ADDRSTRLEN];
+
+					pim_inet4_dump("<src?>", src_addr,
+						       src_str,
+						       sizeof(src_str));
+					zlog_debug("%s: Sending register-stop to %s for %pSG4 due to prefix-list denial, dropping packet",
+						   __func__, src_str, &sg);
+				}
+
+				return 0;
+			}
+		}
 
 		if (*bits & PIM_REGISTER_BORDER_BIT) {
 			struct in_addr pimbr = pim_br_get_pmbr(&sg);
@@ -361,16 +437,15 @@ int pim_register_recv(struct interface *ifp, struct in_addr dest_addr,
 			}
 		}
 
-		struct pim_upstream *upstream =
-			pim_upstream_find(pim_ifp->pim, &sg);
+		struct pim_upstream *upstream = pim_upstream_find(pim, &sg);
 		/*
 		 * If we don't have a place to send ignore the packet
 		 */
 		if (!upstream) {
 			upstream = pim_upstream_add(
-				pim_ifp->pim, &sg, ifp,
-				PIM_UPSTREAM_FLAG_MASK_SRC_STREAM,
-				__PRETTY_FUNCTION__, NULL);
+				pim, &sg, ifp,
+				PIM_UPSTREAM_FLAG_MASK_SRC_STREAM, __func__,
+				NULL);
 			if (!upstream) {
 				zlog_warn("Failure to create upstream state");
 				return 1;
@@ -402,10 +477,8 @@ int pim_register_recv(struct interface *ifp, struct in_addr dest_addr,
 		}
 
 		if ((upstream->sptbit == PIM_UPSTREAM_SPTBIT_TRUE)
-		    || ((SwitchToSptDesired(pim_ifp->pim, &sg))
-			&& pim_upstream_inherited_olist(pim_ifp->pim, upstream)
-				   == 0)) {
-			// pim_scan_individual_oil (upstream->channel_oil);
+		    || ((SwitchToSptDesiredOnRp(pim, &sg))
+			&& pim_upstream_inherited_olist(pim, upstream) == 0)) {
 			pim_register_stop_send(ifp, &sg, dest_addr, src_addr);
 			sentRegisterStop = 1;
 		} else {
@@ -414,15 +487,13 @@ int pim_register_recv(struct interface *ifp, struct in_addr dest_addr,
 					   upstream->sptbit);
 		}
 		if ((upstream->sptbit == PIM_UPSTREAM_SPTBIT_TRUE)
-		    || (SwitchToSptDesired(pim_ifp->pim, &sg))) {
+		    || (SwitchToSptDesiredOnRp(pim, &sg))) {
 			if (sentRegisterStop) {
 				pim_upstream_keep_alive_timer_start(
-					upstream,
-					pim_ifp->pim->rp_keep_alive_time);
+					upstream, pim->rp_keep_alive_time);
 			} else {
 				pim_upstream_keep_alive_timer_start(
-					upstream,
-					pim_ifp->pim->keep_alive_time);
+					upstream, pim->keep_alive_time);
 			}
 		}
 
@@ -448,4 +519,33 @@ int pim_register_recv(struct interface *ifp, struct in_addr dest_addr,
 	}
 
 	return 0;
+}
+
+/*
+ * This routine scan all upstream and update register state and remove pimreg
+ * when couldreg becomes false.
+ */
+void pim_reg_del_on_couldreg_fail(struct interface *ifp)
+{
+	struct pim_interface *pim_ifp = ifp->info;
+	struct pim_instance *pim;
+	struct pim_upstream *up;
+
+	if (!pim_ifp)
+		return;
+
+	pim = pim_ifp->pim;
+
+	frr_each (rb_pim_upstream, &pim->upstream_head, up) {
+		if (ifp != up->rpf.source_nexthop.interface)
+			continue;
+
+		if (!pim_upstream_could_register(up)
+		    && (up->reg_state != PIM_REG_NOINFO)) {
+			pim_channel_del_oif(up->channel_oil, pim->regiface,
+					    PIM_OIF_FLAG_PROTO_PIM, __func__);
+			THREAD_OFF(up->t_rs_timer);
+			up->reg_state = PIM_REG_NOINFO;
+		}
+	}
 }

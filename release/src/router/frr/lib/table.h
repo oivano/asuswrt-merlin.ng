@@ -25,7 +25,12 @@
 #include "memory.h"
 #include "hash.h"
 #include "prefix.h"
-DECLARE_MTYPE(ROUTE_TABLE)
+#include "typesafe.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 DECLARE_MTYPE(ROUTE_NODE)
 
 /*
@@ -40,7 +45,7 @@ struct route_table;
  * Function vector that can be used by a client to customize the
  * behavior of one or more route tables.
  */
-typedef struct route_table_delegate_t_ route_table_delegate_t;
+typedef const struct route_table_delegate_t_ route_table_delegate_t;
 
 typedef struct route_node *(*route_table_create_node_func_t)(
 	route_table_delegate_t *, struct route_table *);
@@ -54,10 +59,12 @@ struct route_table_delegate_t_ {
 	route_table_destroy_node_func_t destroy_node;
 };
 
+PREDECL_HASH(rn_hash_node)
+
 /* Routing table top structure. */
 struct route_table {
 	struct route_node *top;
-	struct hash *hash;
+	struct rn_hash_node_head hash;
 
 	/*
 	 * Delegate that performs certain functions for this table.
@@ -124,11 +131,9 @@ struct route_table {
 	/* Lock of this radix */                                               \
 	unsigned int table_rdonly(lock);                                       \
                                                                                \
+	struct rn_hash_node_item nodehash;                                     \
 	/* Each node of route. */                                              \
 	void *info;                                                            \
-                                                                               \
-	/* Aggregation. */                                                     \
-	void *aggregate;
 
 
 /* Each routing entry. */
@@ -182,26 +187,39 @@ route_table_init_with_delegate(route_table_delegate_t *delegate);
 
 extern route_table_delegate_t *route_table_get_default_delegate(void);
 
-extern void route_table_finish(struct route_table *table);
-extern struct route_node *route_top(struct route_table *table);
-extern struct route_node *route_next(struct route_node *node);
-extern struct route_node *route_next_until(struct route_node *node,
-					   const struct route_node *limit);
-extern struct route_node *route_node_get(struct route_table *const table,
-					 union prefixconstptr pu);
-extern struct route_node *route_node_lookup(const struct route_table *table,
-					    union prefixconstptr pu);
-extern struct route_node *
-route_node_lookup_maynull(const struct route_table *table,
-			  union prefixconstptr pu);
-extern struct route_node *route_node_match(const struct route_table *table,
-					   union prefixconstptr pu);
-extern struct route_node *route_node_match_ipv4(const struct route_table *table,
-						const struct in_addr *addr);
-extern struct route_node *route_node_match_ipv6(const struct route_table *table,
-						const struct in6_addr *addr);
+static inline void *route_table_get_info(struct route_table *table)
+{
+	return table->info;
+}
 
-extern unsigned long route_table_count(const struct route_table *table);
+static inline void route_table_set_info(struct route_table *table, void *d)
+{
+	table->info = d;
+}
+
+/* ext_pure => extern __attribute__((pure))
+ *   does not modify memory (but depends on mem), allows compiler to optimize
+ */
+
+extern void route_table_finish(struct route_table *table);
+ext_pure struct route_node *route_top(struct route_table *table);
+ext_pure struct route_node *route_next(struct route_node *node);
+ext_pure struct route_node *route_next_until(struct route_node *node,
+					     const struct route_node *limit);
+extern struct route_node *route_node_get(struct route_table *table,
+					 union prefixconstptr pu);
+ext_pure struct route_node *route_node_lookup(struct route_table *table,
+					      union prefixconstptr pu);
+ext_pure struct route_node *route_node_lookup_maynull(struct route_table *table,
+						      union prefixconstptr pu);
+ext_pure struct route_node *route_node_match(struct route_table *table,
+					     union prefixconstptr pu);
+ext_pure struct route_node *route_node_match_ipv4(struct route_table *table,
+						  const struct in_addr *addr);
+ext_pure struct route_node *route_node_match_ipv6(struct route_table *table,
+						  const struct in6_addr *addr);
+
+ext_pure unsigned long route_table_count(struct route_table *table);
 
 extern struct route_node *route_node_create(route_table_delegate_t *delegate,
 					    struct route_table *table);
@@ -210,10 +228,10 @@ extern void route_node_destroy(route_table_delegate_t *delegate,
 			       struct route_table *table,
 			       struct route_node *node);
 
-extern struct route_node *route_table_get_next(const struct route_table *table,
-					       union prefixconstptr pu);
-extern int route_table_prefix_iter_cmp(const struct prefix *p1,
-				       const struct prefix *p2);
+ext_pure struct route_node *route_table_get_next(struct route_table *table,
+						 union prefixconstptr pu);
+ext_pure int route_table_prefix_iter_cmp(const struct prefix *p1,
+					 const struct prefix *p2);
 
 /*
  * Iterator functions.
@@ -279,6 +297,8 @@ static inline struct route_node *route_table_iter_next(route_table_iter_t *iter)
 		return NULL;
 
 	default:
+		/* Suppress uninitialized variable warning */
+		node = NULL;
 		assert(0);
 	}
 
@@ -294,7 +314,7 @@ static inline struct route_node *route_table_iter_next(route_table_iter_t *iter)
 /*
  * route_table_iter_is_done
  *
- * Returns TRUE if the iteration is complete.
+ * Returns true if the iteration is complete.
  */
 static inline int route_table_iter_is_done(route_table_iter_t *iter)
 {
@@ -304,11 +324,19 @@ static inline int route_table_iter_is_done(route_table_iter_t *iter)
 /*
  * route_table_iter_started
  *
- * Returns TRUE if this iterator has started iterating over the tree.
+ * Returns true if this iterator has started iterating over the tree.
  */
 static inline int route_table_iter_started(route_table_iter_t *iter)
 {
 	return iter->state != RT_ITER_STATE_INIT;
 }
+
+#ifdef _FRR_ATTRIBUTE_PRINTFRR
+#pragma FRR printfrr_ext "%pRN"  (struct route_node *)
+#endif
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _ZEBRA_TABLE_H */

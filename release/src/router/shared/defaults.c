@@ -4185,12 +4185,25 @@ struct nvram_tuple router_defaults[] = {
 	{ "ipsec_nat_t_ext_port", "4500", CKN_STR_DEFAULT, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },
 #endif /* RTCONFIG_UPNPC_NEW */
 #endif
-#ifdef RTCONFIG_QUAGGA
-	{ "quagga_enable", "0", CKN_STR1, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* 0: Disable */
-	{ "zebra_passwd", "zebra", CKN_STR_DEFAULT, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_SVR, 0 },	/* Set password for vty interface. If there is no password */
-	{ "zebra_enpasswd", "zebra", CKN_STR_DEFAULT, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_SVR, 0 },	/* Set enable password for VTY.(default: zebra) */
-	{ "rip_hostname", "ripd", CKN_STR_DEFAULT, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* Set hostname of the ripd.(default: ripd) */
-	{ "rip_passwd", "zebra", CKN_STR_DEFAULT, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_SVR, 0 },	/* Set password for vty interface. If there is no password */
+#ifdef RTCONFIG_FRR
+	/* FRR (Free Range Routing) - Modern routing suite replacing Quagga */
+	{ "frr_enable", "0", CKN_STR1, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* 0: Disable, 1: Enable FRR */
+	{ "frr_passwd", "zebra", CKN_STR_DEFAULT, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_SVR, 0 },	/* Password for vty interface */
+	{ "frr_enpasswd", "zebra", CKN_STR_DEFAULT, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_SVR, 0 },	/* Enable password for VTY */
+	/* Legacy Quagga compatibility - still read by FRR for migration */
+	{ "zebra_passwd", "zebra", CKN_STR_DEFAULT, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_SVR, 0 },	/* Fallback password */
+	{ "zebra_enpasswd", "zebra", CKN_STR_DEFAULT, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_SVR, 0 },	/* Fallback enable password */
+	/* Protocol-specific enables */
+	{ "frr_bgp_enable", "0", CKN_STR1, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* Enable BGP daemon */
+	{ "frr_bgp_as", "", CKN_STR64, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* BGP AS number */
+	{ "frr_bgp_neighbor", "", CKN_STR64, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* BGP neighbor IP */
+	{ "frr_bgp_neighbor_as", "", CKN_STR64, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* BGP neighbor AS */
+	{ "frr_ospf_enable", "0", CKN_STR1, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* Enable OSPF daemon */
+	{ "frr_ospf_area", "0", CKN_STR16, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* OSPF area ID */
+	{ "frr_ospf_networks", "", CKN_STR256, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* OSPF networks */
+	{ "frr_bfd_enable", "0", CKN_STR1, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* Enable BFD daemon */
+	{ "frr_allow_lan", "0", CKN_STR1, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* Allow LAN vty access */
+	{ "frr_force_regen", "0", CKN_STR1, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* Force config regen */
 #endif
 #if defined(RTCONFIG_QCA)
 	/* 0: MSG_INFO (default debug level in hostapd/wpa_supplicant), 1: MSG_DEBUG, 2: MSG_MSGDUMP, 3: MSG_EXCESSIVE */

@@ -25,10 +25,35 @@ forms the initial command set for a routing beast as it is starting.
 
 Config files are generally found in |INSTALL_PREFIX_ETC|.
 
-Each of the daemons has its own config file. The daemon name plus ``.conf`` is
-the default config file name. For example, zebra's default config file name is
-:file:`zebra.conf`. You can specify a config file using the :option:`-f` or
-:option:`--config_file` options when starting the daemon.
+Config Methods
+--------------
+
+There are two ways of configuring FRR.
+
+Traditionally each of the daemons had its own config file. The daemon name plus
+``.conf`` was the default config file name. For example, zebra's default config
+file was :file:`zebra.conf`. This method is deprecated.
+
+Because of the amount of config files this creates, and the tendency of one
+daemon to rely on others for certain functionality, most deployments now use
+"integrated" configuration. In this setup all configuration goes into a single
+file, typically :file:`/etc/frr/frr.conf`. When starting up FRR using an init
+script or systemd, ``vtysh`` is invoked to read the config file and send the
+appropriate portions to only the daemons interested in them. Running
+configuration updates are persisted back to this single file using ``vtysh``.
+This is the recommended method. To use this method, add the following line to
+:file:`/etc/frr/vtysh.conf`:
+
+.. code-block:: frr
+
+   service integrated-vtysh-config
+
+If you installed from source or used a package, this is probably already
+present.
+
+If desired, you can specify a config file using the :option:`-f` or
+:option:`--config_file` options when starting a daemon.
+
 
 .. _basic-config-commands:
 
@@ -86,6 +111,15 @@ Basic Config Commands
    debugging. Note that the existing code logs its most important messages with
    severity ``errors``.
 
+   .. warning::
+
+      FRRouting uses the ``writev()`` system call to write log messages.  This
+      call is supposed to be atomic, but in reality this does not hold for
+      pipes or terminals, only regular files.  This means that in rare cases,
+      concurrent log messages from distinct threads may get jumbled in
+      terminal output.  Use a log file and ``tail -f`` if this rare chance is
+      inacceptable to your setup.
+
 .. index::
    single: no log file [FILENAME [LEVEL]]
    single: log file FILENAME [LEVEL]
@@ -103,14 +137,6 @@ Basic Config Commands
    the default logging level (typically debugging, but can be changed using the
    deprecated ``log trap`` command) will be used. The ``no`` form of the command
    disables logging to a file.
-
-   .. note::
-
-      If you do not configure any file logging, and a daemon crashes due to a
-      signal or an assertion failure, it will attempt to save the crash
-      information in a file named :file:`/var/tmp/frr.<daemon name>.crashlog`.
-      For security reasons, this will not happen if the file exists already, so
-      it is important to delete the file after reporting the crash information.
 
 .. index::
    single: no log syslog [LEVEL]
@@ -180,13 +206,37 @@ Basic Config Commands
    In this example, the precision is set to provide timestamps with
    millisecond accuracy.
 
-.. index:: log commands
-.. clicmd:: log commands
+.. index:: [no] log commands
+.. clicmd:: [no] log commands
 
    This command enables the logging of all commands typed by a user to all
    enabled log destinations. The note that logging includes full command lines,
-   including passwords. Once set, command logging can only be turned off by
-   restarting the daemon.
+   including passwords. If the daemon startup option `--command-log-always`
+   is used to start the daemon then this command is turned on by default
+   and cannot be turned off and the [no] form of the command is dissallowed.
+
+.. index::
+   single: no log-filter WORD [DAEMON]
+   single: log-filter WORD [DAEMON]
+
+.. clicmd:: [no] log-filter WORD [DAEMON]
+
+   This command forces logs to be filtered on a specific string. A log message
+   will only be printed if it matches on one of the filters in the log-filter
+   table. Can be daemon independent.
+
+   .. note::
+
+      Log filters help when you need to turn on debugs that cause significant
+      load on the system (enabling certain debugs can bring FRR to a halt).
+      Log filters prevent this but you should still expect a small performance
+      hit due to filtering each of all those logs.
+
+.. index:: log-filter clear [DAEMON]
+.. clicmd:: log-filter clear [DAEMON]
+
+   This command clears all current filters in the log-filter table. Can be
+   daemon independent.
 
 .. index:: service password-encryption
 .. clicmd:: service password-encryption
@@ -213,6 +263,17 @@ Basic Config Commands
 .. clicmd:: banner motd default
 
    Set default motd string.
+
+.. index:: banner motd file FILE
+.. clicmd:: banner motd file FILE
+
+   Set motd string from file. The file must be in directory specified
+   under ``--sysconfdir``.
+
+.. index:: banner motd line LINE
+.. clicmd:: banner motd line LINE
+
+   Set motd string from an input.
 
 .. index:: no banner motd
 .. clicmd:: no banner motd
@@ -251,6 +312,9 @@ Below is a sample configuration file for the zebra daemon.
    !
    ! Zebra configuration file
    !
+   frr version 6.0
+   frr defaults traditional
+   !
    hostname Router
    password zebra
    enable password zebra
@@ -272,6 +336,137 @@ If a comment character is not the first character of the word, it's a normal
 character. So in the above example ``!`` will not be regarded as a comment and
 the password is set to ``zebra!password``.
 
+
+Configuration versioning, profiles and upgrade behavior
+-------------------------------------------------------
+
+All |PACKAGE_NAME| daemons share a mechanism to specify a configuration profile
+and version for loading and saving configuration.  Specific configuration
+settings take different default values depending on the selected profile and
+version.
+
+While the profile can be selected by user configuration and will remain over
+upgrades, |PACKAGE_NAME| will always write configurations using its current
+version.  This means that, after upgrading, a ``write file`` may write out a
+slightly different configuration than what was read in.
+
+Since the previous configuration is loaded with its version's defaults, but
+the new configuration is written with the new defaults, any default that
+changed between versions will result in an appropriate configuration entry
+being written out.  **FRRouting configuration is sticky, staying consistent
+over upgrades.**  Changed defaults will only affect new configuration.
+
+Note that the loaded version persists into interactive configuration
+sessions.  Commands executed in an interactive configuration session are
+no different from configuration loaded at startup.  This means that when,
+say, you configure a new BGP peer, the defaults used for configuration
+are the ones selected by the last ``frr version`` command.
+
+.. warning::
+
+   Saving the configuration does not bump the daemons forward to use the new
+   version for their defaults, but restarting them will, since they will then
+   apply the new ``frr version`` command that was written out.  Manually
+   execute the ``frr version`` command in ``show running-config`` to avoid
+   this intermediate state.
+
+This is visible in ``show running-config``:
+
+.. code-block:: frr
+
+   Current configuration:
+   !
+   ! loaded from 6.0
+   frr version 6.1-dev
+   frr defaults traditional
+   !
+
+If you save and then restart with this configuration, the old defaults will
+no longer apply.  Similarly, you could execute ``frr version 6.1-dev``, causing
+the new defaults to apply and the ``loaded from 6.0`` comment to disappear.
+
+
+Profiles
+^^^^^^^^
+
+|PACKAGE_NAME| provides configuration profiles to adapt its default settings
+to various usage scenarios.  Currently, the following profiles are
+implemented:
+
+* ``traditional`` - reflects defaults adhering mostly to IETF standards or
+  common practices in wide-area internet routing.
+* ``datacenter`` - reflects a single administrative domain with intradomain
+  links using aggressive timers.
+
+Your distribution/installation may pre-set a profile through the ``-F`` command
+line option on all daemons.  All daemons must be configured for the same
+profile.  The value specified on the command line is only a pre-set and any
+``frr defaults`` statement in the configuration will take precedence.
+
+.. note::
+
+   The profile must be the same across all daemons.  Mismatches may result
+   in undefined behavior.
+
+You can freely switch between profiles without causing any interruption or
+configuration changes.  All settings remain at their previous values, and
+``show running-configuration`` output will have new output listing the previous
+default values as explicit configuration.  New configuration, e.g. adding a
+BGP peer, will use the new defaults.  To apply the new defaults for existing
+configuration, the previously-invisible old defaults that are now shown must
+be removed from the configuration.
+
+
+Upgrade practices for interactive configuration
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+If you configure |PACKAGE_NAME| interactively and use the configuration
+writing functionality to make changes persistent, the following
+recommendations apply in regards to upgrades:
+
+1. Skipping major versions should generally work but is still inadvisable.
+   To avoid unneeded issue, upgrade one major version at a time and write
+   out the configuration after each update.
+
+2. After installing a new |PACKAGE_NAME| version, check the configuration
+   for differences against your old configuration.  If any defaults changed
+   that affect your setup, lines may appear or disappear.  If a new line
+   appears, it was previously the default (or not supported) and is now
+   neccessary to retain previous behavior.  If a line disappears, it
+   previously wasn't the default, but now is, so it is no longer necessary.
+
+3. Check the log files for deprecation warnings by using ``grep -i deprecat``.
+
+4. After completing each upgrade, save the configuration and either restart
+   |PACKAGE_NAME| or execute ``frr version <CURRENT>`` to ensure defaults of
+   the new version are fully applied.
+
+
+Upgrade practices for autogenerated configuration
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+When using |PACKAGE_NAME| with generated configurations (e.g. Ansible,
+Puppet, etc.), upgrade considerations differ somewhat:
+
+1. Always write out a ``frr version`` statement in the configurations you
+   generate.  This ensures that defaults are applied consistently.
+
+2. Try to not run more distinct versions of |PACKAGE_NAME| than necessary.
+   Each version may need to be checked individually.  If running a mix of
+   older and newer installations, use the oldest version for the
+   ``frr version`` statement.
+
+3. When rolling out upgrades, generate a configuration as usual with the old
+   version identifier and load it.  Check for any differences or deprecation
+   warnings.  If there are differences in the configuration, propagate these
+   back to the configuration generator to minimize relying on actual default
+   values.
+
+4. After the last installation of an old version is removed, change the
+   configuration generation to a newer ``frr version`` as appropriate.  Perform
+   the same checks as when rolling out upgrades.
+
+
 .. _terminal-mode-commands:
 
 Terminal Mode Commands
@@ -287,8 +482,8 @@ Terminal Mode Commands
 
    Write current configuration to configuration file.
 
-.. index:: configure terminal
-.. clicmd:: configure terminal
+.. index:: configure [terminal]
+.. clicmd:: configure [terminal]
 
    Change to configuration mode. This command is the first step to
    configuration.
@@ -319,6 +514,11 @@ Terminal Mode Commands
 
    Shows the current configuration of the logging system. This includes the
    status of all logging destinations.
+
+.. index:: show log-filter
+.. clicmd:: show log-filter
+
+   Shows the current log filters applied to each daemon.
 
 .. index:: show memory
 .. clicmd:: show memory
@@ -390,7 +590,7 @@ Terminal Mode Commands
 .. index:: find COMMAND...
 .. clicmd:: find COMMAND...
 
-   This commmand performs a simple substring search across all defined commands
+   This command performs a simple substring search across all defined commands
    in all modes. As an example, suppose you're in enable mode and can't
    remember where the command to turn OSPF segment routing on is:
 
@@ -414,6 +614,23 @@ Terminal Mode Commands
         (view)  show [ip] bgp l2vpn evpn all overlay
         ...
 
+.. _common-show-commands:
+
+.. index:: show thread cpu
+.. clicmd:: show thread cpu [r|w|t|e|x]
+
+   This command displays system run statistics for all the different event
+   types. If no options is specified all different run types are displayed
+   together.  Additionally you can ask to look at (r)ead, (w)rite, (t)imer,
+   (e)vent and e(x)ecute thread event types.  If you have compiled with
+   disable-cpu-time then this command will not show up.
+
+.. index:: show thread poll
+.. clicmd:: show thread poll
+
+   This command displays FRR's poll data.  It allows a glimpse into how
+   we are setting each individual fd for the poll command at that point
+   in time.
 
 .. _common-invocation-options:
 
@@ -462,9 +679,22 @@ These options apply to all |PACKAGE_NAME| daemons.
 
    Set the user and group to run as.
 
+.. option:: -N <namespace>
+
+   Set the namespace that the daemon will run in.  A "/<namespace>" will
+   be added to all files that use the statedir.  If you have "/var/run/frr"
+   as the default statedir then it will become "/var/run/frr/<namespace>".
+
 .. option:: -v, --version
 
    Print program version.
+
+.. option:: --command-log-always
+
+   Cause the daemon to always log commands entered to the specified log file.
+   This also makes the `no log commands` command dissallowed.  Enabling this
+   is suggested if you have need to track what the operator is doing on
+   this router.
 
 .. option:: --log <stdout|syslog|file:/path/to/log/file>
 
@@ -477,6 +707,10 @@ These options apply to all |PACKAGE_NAME| daemons.
 
    When initializing the daemon, allow the specification of a default
    log level at startup from one of the specified levels.
+
+.. option:: --tcli
+
+   Enable the transactional CLI mode.
 
 .. _loadable-module-support:
 

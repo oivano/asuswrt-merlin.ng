@@ -114,12 +114,6 @@ char *buffer_getstr(struct buffer *b)
 	return s;
 }
 
-/* Return 1 if buffer is empty. */
-int buffer_empty(struct buffer *b)
-{
-	return (b->head == NULL);
-}
-
 /* Clear and free all allocated data. */
 void buffer_reset(struct buffer *b)
 {
@@ -294,7 +288,7 @@ buffer_status_t buffer_flush_window(struct buffer *b, int fd, int width,
 	/* Previously print out is performed. */
 	if (erase_flag) {
 		iov[iov_index].iov_base = erase;
-		iov[iov_index].iov_len = sizeof erase;
+		iov[iov_index].iov_len = sizeof(erase);
 		iov_index++;
 	}
 
@@ -332,9 +326,8 @@ buffer_status_t buffer_flush_window(struct buffer *b, int fd, int width,
 			} else {
 				/* This should absolutely never occur. */
 				flog_err_sys(
-					LIB_ERR_SYSTEM_CALL,
-					"%s: corruption detected: iov_small overflowed; "
-					"head %p, tail %p, head->next %p",
+					EC_LIB_SYSTEM_CALL,
+					"%s: corruption detected: iov_small overflowed; head %p, tail %p, head->next %p",
 					__func__, (void *)b->head,
 					(void *)b->tail, (void *)b->head->next);
 				iov = XMALLOC(MTYPE_TMP,
@@ -347,7 +340,7 @@ buffer_status_t buffer_flush_window(struct buffer *b, int fd, int width,
 	/* In case of `more' display need. */
 	if (b->tail && (b->tail->sp < b->tail->cp) && !no_more_flag) {
 		iov[iov_index].iov_base = more;
-		iov[iov_index].iov_len = sizeof more;
+		iov[iov_index].iov_len = sizeof(more);
 		iov_index++;
 	}
 
@@ -365,8 +358,9 @@ buffer_status_t buffer_flush_window(struct buffer *b, int fd, int width,
 			iov_size =
 				((iov_index > IOV_MAX) ? IOV_MAX : iov_index);
 			if ((nbytes = writev(fd, c_iov, iov_size)) < 0) {
-				zlog_warn("%s: writev to fd %d failed: %s",
-					  __func__, fd, safe_strerror(errno));
+				flog_err(EC_LIB_SOCKET,
+					 "%s: writev to fd %d failed: %s",
+					 __func__, fd, safe_strerror(errno));
 				break;
 			}
 
@@ -377,8 +371,8 @@ buffer_status_t buffer_flush_window(struct buffer *b, int fd, int width,
 	}
 #else  /* IOV_MAX */
 	if ((nbytes = writev(fd, iov, iov_index)) < 0)
-		zlog_warn("%s: writev to fd %d failed: %s", __func__, fd,
-			  safe_strerror(errno));
+		flog_err(EC_LIB_SOCKET, "%s: writev to fd %d failed: %s",
+			 __func__, fd, safe_strerror(errno));
 #endif /* IOV_MAX */
 
 	/* Free printed buffer data. */
@@ -438,17 +432,16 @@ in one shot. */
 		if (ERRNO_IO_RETRY(errno))
 			/* Calling code should try again later. */
 			return BUFFER_PENDING;
-		zlog_warn("%s: write error on fd %d: %s", __func__, fd,
-			  safe_strerror(errno));
+		flog_err(EC_LIB_SOCKET, "%s: write error on fd %d: %s",
+			 __func__, fd, safe_strerror(errno));
 		return BUFFER_ERROR;
 	}
 
 	/* Free printed buffer data. */
 	while (written > 0) {
-		struct buffer_data *d;
 		if (!(d = b->head)) {
 			flog_err(
-				LIB_ERR_DEVELOPMENT,
+				EC_LIB_DEVELOPMENT,
 				"%s: corruption detected: buffer queue empty, but written is %lu",
 				__func__, (unsigned long)written);
 			break;
@@ -493,8 +486,8 @@ buffer_status_t buffer_write(struct buffer *b, int fd, const void *p,
 		if (ERRNO_IO_RETRY(errno))
 			nbytes = 0;
 		else {
-			zlog_warn("%s: write error on fd %d: %s", __func__, fd,
-				  safe_strerror(errno));
+			flog_err(EC_LIB_SOCKET, "%s: write error on fd %d: %s",
+				 __func__, fd, safe_strerror(errno));
 			return BUFFER_ERROR;
 		}
 	}

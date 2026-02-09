@@ -77,16 +77,16 @@ static struct ospf6_lsa_handler unknown_handler = {
 	.lh_debug = 0 /* No default debug */
 };
 
-void ospf6_install_lsa_handler(const struct ospf6_lsa_handler *handler)
+void ospf6_install_lsa_handler(struct ospf6_lsa_handler *handler)
 {
 	/* type in handler is host byte order */
 	int index = handler->lh_type & OSPF6_LSTYPE_FCODE_MASK;
 	vector_set_index(ospf6_lsa_handler_vector, index, (void *)handler);
 }
 
-const struct ospf6_lsa_handler *ospf6_get_lsa_handler(uint16_t type)
+struct ospf6_lsa_handler *ospf6_get_lsa_handler(uint16_t type)
 {
-	const struct ospf6_lsa_handler *handler = NULL;
+	struct ospf6_lsa_handler *handler = NULL;
 	unsigned int index = ntohs(type) & OSPF6_LSTYPE_FCODE_MASK;
 
 	if (index >= vector_active(ospf6_lsa_handler_vector))
@@ -130,7 +130,7 @@ uint8_t ospf6_lstype_debug(uint16_t type)
 {
 	const struct ospf6_lsa_handler *handler;
 	handler = ospf6_get_lsa_handler(type);
-	return handler->debug;
+	return handler->lh_debug;
 }
 
 /* RFC2328: Section 13.2 */
@@ -397,10 +397,10 @@ void ospf6_lsa_show_summary(struct vty *vty, struct ospf6_lsa *lsa)
 			(unsigned long)ntohl(lsa->header->seqnum),
 			handler->lh_get_prefix_str(lsa, buf, sizeof(buf), 0));
 	} else if (type != OSPF6_LSTYPE_UNKNOWN) {
-		sprintf(tmpbuf, "%-4s %-15s%-15s%4hu %8lx",
-			ospf6_lstype_short_name(lsa->header->type), id,
-			adv_router, ospf6_lsa_age_current(lsa),
-			(unsigned long)ntohl(lsa->header->seqnum));
+		snprintf(tmpbuf, sizeof(tmpbuf), "%-4s %-15s%-15s%4hu %8lx",
+			 ospf6_lstype_short_name(lsa->header->type), id,
+			 adv_router, ospf6_lsa_age_current(lsa),
+			 (unsigned long)ntohl(lsa->header->seqnum));
 
 		while (handler->lh_get_prefix_str(lsa, buf, sizeof(buf), cnt)
 		       != NULL) {
@@ -518,18 +518,16 @@ struct ospf6_lsa *ospf6_lsa_create(struct ospf6_lsa_header *header)
 	lsa_size = ntohs(header->length); /* XXX vulnerable */
 
 	/* allocate memory for this LSA */
-	new_header = (struct ospf6_lsa_header *)XMALLOC(MTYPE_OSPF6_LSA_HEADER,
-							lsa_size);
+	new_header = XMALLOC(MTYPE_OSPF6_LSA_HEADER, lsa_size);
 
 	/* copy LSA from original header */
 	memcpy(new_header, header, lsa_size);
 
 	/* LSA information structure */
 	/* allocate memory */
-	lsa = (struct ospf6_lsa *)XCALLOC(MTYPE_OSPF6_LSA,
-					  sizeof(struct ospf6_lsa));
+	lsa = XCALLOC(MTYPE_OSPF6_LSA, sizeof(struct ospf6_lsa));
 
-	lsa->header = (struct ospf6_lsa_header *)new_header;
+	lsa->header = new_header;
 
 	/* dump string */
 	ospf6_lsa_printbuf(lsa, lsa->name, sizeof(lsa->name));
@@ -546,18 +544,17 @@ struct ospf6_lsa *ospf6_lsa_create_headeronly(struct ospf6_lsa_header *header)
 	struct ospf6_lsa_header *new_header = NULL;
 
 	/* allocate memory for this LSA */
-	new_header = (struct ospf6_lsa_header *)XMALLOC(
-		MTYPE_OSPF6_LSA_HEADER, sizeof(struct ospf6_lsa_header));
+	new_header = XMALLOC(MTYPE_OSPF6_LSA_HEADER,
+			     sizeof(struct ospf6_lsa_header));
 
 	/* copy LSA from original header */
 	memcpy(new_header, header, sizeof(struct ospf6_lsa_header));
 
 	/* LSA information structure */
 	/* allocate memory */
-	lsa = (struct ospf6_lsa *)XCALLOC(MTYPE_OSPF6_LSA,
-					  sizeof(struct ospf6_lsa));
+	lsa = XCALLOC(MTYPE_OSPF6_LSA, sizeof(struct ospf6_lsa));
 
-	lsa->header = (struct ospf6_lsa_header *)new_header;
+	lsa->header = new_header;
 	SET_FLAG(lsa->flag, OSPF6_LSA_HEADERONLY);
 
 	/* dump string */
@@ -611,16 +608,17 @@ void ospf6_lsa_lock(struct ospf6_lsa *lsa)
 }
 
 /* decrement reference counter of struct ospf6_lsa */
-void ospf6_lsa_unlock(struct ospf6_lsa *lsa)
+struct ospf6_lsa *ospf6_lsa_unlock(struct ospf6_lsa *lsa)
 {
 	/* decrement reference counter */
 	assert(lsa->lock > 0);
 	lsa->lock--;
 
 	if (lsa->lock != 0)
-		return;
+		return lsa;
 
 	ospf6_lsa_delete(lsa);
+	return NULL;
 }
 
 
@@ -844,13 +842,13 @@ DEFUN (debug_ospf6_lsa_type,
 
 	if (argc == 5) {
 		if (strmatch(argv[idx_type]->text, "originate"))
-			SET_FLAG(handler->debug, OSPF6_LSA_DEBUG_ORIGINATE);
+			SET_FLAG(handler->lh_debug, OSPF6_LSA_DEBUG_ORIGINATE);
 		else if (strmatch(argv[idx_type]->text, "examine"))
-			SET_FLAG(handler->debug, OSPF6_LSA_DEBUG_EXAMIN);
+			SET_FLAG(handler->lh_debug, OSPF6_LSA_DEBUG_EXAMIN);
 		else if (strmatch(argv[idx_type]->text, "flooding"))
-			SET_FLAG(handler->debug, OSPF6_LSA_DEBUG_FLOOD);
+			SET_FLAG(handler->lh_debug, OSPF6_LSA_DEBUG_FLOOD);
 	} else
-		SET_FLAG(handler->debug, OSPF6_LSA_DEBUG);
+		SET_FLAG(handler->lh_debug, OSPF6_LSA_DEBUG);
 
 	return CMD_SUCCESS;
 }
@@ -896,13 +894,14 @@ DEFUN (no_debug_ospf6_lsa_type,
 
 	if (argc == 6) {
 		if (strmatch(argv[idx_type]->text, "originate"))
-			UNSET_FLAG(handler->debug, OSPF6_LSA_DEBUG_ORIGINATE);
+			UNSET_FLAG(handler->lh_debug,
+				   OSPF6_LSA_DEBUG_ORIGINATE);
 		if (strmatch(argv[idx_type]->text, "examine"))
-			UNSET_FLAG(handler->debug, OSPF6_LSA_DEBUG_EXAMIN);
+			UNSET_FLAG(handler->lh_debug, OSPF6_LSA_DEBUG_EXAMIN);
 		if (strmatch(argv[idx_type]->text, "flooding"))
-			UNSET_FLAG(handler->debug, OSPF6_LSA_DEBUG_FLOOD);
+			UNSET_FLAG(handler->lh_debug, OSPF6_LSA_DEBUG_FLOOD);
 	} else
-		UNSET_FLAG(handler->debug, OSPF6_LSA_DEBUG);
+		UNSET_FLAG(handler->lh_debug, OSPF6_LSA_DEBUG);
 
 	return CMD_SUCCESS;
 }
@@ -924,16 +923,16 @@ int config_write_ospf6_debug_lsa(struct vty *vty)
 		handler = vector_slot(ospf6_lsa_handler_vector, i);
 		if (handler == NULL)
 			continue;
-		if (CHECK_FLAG(handler->debug, OSPF6_LSA_DEBUG))
+		if (CHECK_FLAG(handler->lh_debug, OSPF6_LSA_DEBUG))
 			vty_out(vty, "debug ospf6 lsa %s\n",
 				ospf6_lsa_handler_name(handler));
-		if (CHECK_FLAG(handler->debug, OSPF6_LSA_DEBUG_ORIGINATE))
+		if (CHECK_FLAG(handler->lh_debug, OSPF6_LSA_DEBUG_ORIGINATE))
 			vty_out(vty, "debug ospf6 lsa %s originate\n",
 				ospf6_lsa_handler_name(handler));
-		if (CHECK_FLAG(handler->debug, OSPF6_LSA_DEBUG_EXAMIN))
+		if (CHECK_FLAG(handler->lh_debug, OSPF6_LSA_DEBUG_EXAMIN))
 			vty_out(vty, "debug ospf6 lsa %s examine\n",
 				ospf6_lsa_handler_name(handler));
-		if (CHECK_FLAG(handler->debug, OSPF6_LSA_DEBUG_FLOOD))
+		if (CHECK_FLAG(handler->lh_debug, OSPF6_LSA_DEBUG_FLOOD))
 			vty_out(vty, "debug ospf6 lsa %s flooding\n",
 				ospf6_lsa_handler_name(handler));
 	}

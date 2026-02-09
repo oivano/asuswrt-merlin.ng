@@ -74,6 +74,7 @@ void ospf6_bfd_reg_dereg_nbr(struct ospf6_neighbor *on, int command)
 	struct interface *ifp = oi->interface;
 	struct bfd_info *bfd_info;
 	char src[64];
+	int cbit;
 
 	if (!oi->bfd_info || !on->bfd_info)
 		return;
@@ -85,9 +86,11 @@ void ospf6_bfd_reg_dereg_nbr(struct ospf6_neighbor *on, int command)
 			   bfd_get_command_dbg_str(command), src);
 	}
 
+	cbit = CHECK_FLAG(bfd_info->flags, BFD_FLAG_BFD_CBIT_ON);
+
 	bfd_peer_sendmsg(zclient, bfd_info, AF_INET6, &on->linklocal_addr,
-			 on->ospf6_if->linklocal_addr, ifp->name, 0, 0, command,
-			 0, VRF_DEFAULT);
+			 on->ospf6_if->linklocal_addr, ifp->name, 0, 0, cbit,
+			 command, 0, ifp->vrf_id);
 
 	if (command == ZEBRA_BFD_DEST_DEREGISTER)
 		bfd_info_free((struct bfd_info **)&on->bfd_info);
@@ -138,10 +141,9 @@ static void ospf6_bfd_reg_dereg_all_nbr(struct ospf6_interface *oi, int command)
  * ospf6_bfd_nbr_replay - Replay all the neighbors that have BFD enabled
  *                        to zebra
  */
-static int ospf6_bfd_nbr_replay(int command, struct zclient *zclient,
-				zebra_size_t length, vrf_id_t vrf_id)
+static int ospf6_bfd_nbr_replay(ZAPI_CALLBACK_ARGS)
 {
-	struct vrf *vrf = vrf_lookup_by_id(VRF_DEFAULT);
+	struct vrf *vrf = vrf_lookup_by_id(vrf_id);
 	struct listnode *node;
 	struct interface *ifp;
 	struct ospf6_interface *oi;
@@ -152,7 +154,7 @@ static int ospf6_bfd_nbr_replay(int command, struct zclient *zclient,
 		zlog_debug("Zebra: BFD Dest replay request");
 
 	/* Send the client registration */
-	bfd_client_sendmsg(zclient, ZEBRA_BFD_CLIENT_REGISTER);
+	bfd_client_sendmsg(zclient, ZEBRA_BFD_CLIENT_REGISTER, vrf_id);
 
 	/* Replay the neighbor, if BFD is enabled on the interface*/
 	FOR_ALL_INTERFACES (vrf, ifp) {
@@ -182,8 +184,7 @@ static int ospf6_bfd_nbr_replay(int command, struct zclient *zclient,
  *                                   has changed and bring down the neighbor
  *                                   connectivity if BFD down is received.
  */
-static int ospf6_bfd_interface_dest_update(int command, struct zclient *zclient,
-					   zebra_size_t length, vrf_id_t vrf_id)
+static int ospf6_bfd_interface_dest_update(ZAPI_CALLBACK_ARGS)
 {
 	struct interface *ifp;
 	struct ospf6_interface *oi;
@@ -197,7 +198,8 @@ static int ospf6_bfd_interface_dest_update(int command, struct zclient *zclient,
 	struct bfd_info *bfd_info;
 	struct timeval tv;
 
-	ifp = bfd_get_peer_info(zclient->ibuf, &dp, &sp, &status, vrf_id);
+	ifp = bfd_get_peer_info(zclient->ibuf, &dp, &sp, &status,
+				NULL, vrf_id);
 
 	if ((ifp == NULL) || (dp.family != AF_INET6))
 		return 0;
@@ -234,7 +236,7 @@ static int ospf6_bfd_interface_dest_update(int command, struct zclient *zclient,
 			continue;
 
 		old_status = bfd_info->status;
-		bfd_info->status = status;
+		BFD_SET_CLIENT_STATUS(bfd_info->status, status);
 		monotime(&tv);
 		bfd_info->last_update = tv.tv_sec;
 
@@ -306,7 +308,7 @@ static void ospf6_bfd_if_param_set(struct ospf6_interface *oi, uint32_t min_rx,
 	int command = 0;
 
 	bfd_set_param((struct bfd_info **)&(oi->bfd_info), min_rx, min_tx,
-		      detect_mult, defaults, &command);
+		      detect_mult, NULL, defaults, &command);
 	if (command)
 		ospf6_bfd_reg_dereg_all_nbr(oi, command);
 }

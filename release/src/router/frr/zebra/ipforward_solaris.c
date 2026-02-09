@@ -29,6 +29,7 @@
 
 #include "privs.h"
 #include "zebra/ipforward.h"
+#include "zebra/zebra_errors.h"
 
 /*
 ** Solaris should define IP_DEV_NAME in <inet/ip.h>, but we'll save
@@ -70,9 +71,8 @@ static int solaris_nd(const int cmd, const char *parameter, const int value)
 	else if (cmd == ND_GET)
 		snprintf(nd_buf, ND_BUFFER_SIZE, "%s", parameter);
 	else {
-		flog_err_sys(LIB_ERR_SYSTEM_CALL,
-			     "internal error - inappropriate command given to "
-			     "solaris_nd()%s:%d",
+		flog_err_sys(EC_LIB_SYSTEM_CALL,
+			     "internal error - inappropriate command given to solaris_nd()%s:%d",
 			     __FILE__, __LINE__);
 		return -1;
 	}
@@ -82,17 +82,18 @@ static int solaris_nd(const int cmd, const char *parameter, const int value)
 	strioctl.ic_len = ND_BUFFER_SIZE;
 	strioctl.ic_dp = nd_buf;
 
-	frr_elevate_privs(&zserv_privs) {
+	frr_with_privs(&zserv_privs) {
 		if ((fd = open(device, O_RDWR)) < 0) {
-			zlog_warn("failed to open device %s - %s", device,
-				  safe_strerror(errno));
+			flog_err_sys(EC_LIB_SYSTEM_CALL,
+				     "failed to open device %s - %s", device,
+				     safe_strerror(errno));
 			return -1;
 		}
 		if (ioctl(fd, I_STR, &strioctl) < 0) {
 			close(fd);
-			zlog_warn("ioctl I_STR failed on device %s - %s",
-				  device,
-				  safe_strerror(errno));
+			flog_err_sys(EC_LIB_SYSTEM_CALL,
+				     "ioctl I_STR failed on device %s - %s",
+				     device, safe_strerror(errno));
 			return -1;
 		}
 		close(fd);
@@ -102,7 +103,7 @@ static int solaris_nd(const int cmd, const char *parameter, const int value)
 		errno = 0;
 		retval = atoi(nd_buf);
 		if (errno) {
-			zlog_warn(
+			zlog_debug(
 				"failed to convert returned value to integer - %s",
 				safe_strerror(errno));
 			retval = -1;

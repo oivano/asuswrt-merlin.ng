@@ -6,35 +6,36 @@ if BGPD
 noinst_LIBRARIES += bgpd/libbgp.a
 sbin_PROGRAMS += bgpd/bgpd
 noinst_PROGRAMS += bgpd/bgp_btoa
-
 dist_examples_DATA += \
 	bgpd/bgpd.conf.sample \
 	bgpd/bgpd.conf.sample2 \
 	bgpd/bgpd.conf.vnc.sample \
 	# end
 vtysh_scan += \
-	$(top_srcdir)/bgpd/bgp_bfd.c \
-	$(top_srcdir)/bgpd/bgp_debug.c \
-	$(top_srcdir)/bgpd/bgp_dump.c \
-	$(top_srcdir)/bgpd/bgp_evpn_vty.c \
-	$(top_srcdir)/bgpd/bgp_filter.c \
-	$(top_srcdir)/bgpd/bgp_mplsvpn.c \
-	$(top_srcdir)/bgpd/bgp_nexthop.c \
-	$(top_srcdir)/bgpd/bgp_route.c \
-	$(top_srcdir)/bgpd/bgp_routemap.c \
-	$(top_srcdir)/bgpd/bgp_vty.c \
-	$(top_srcdir)/bgpd/bgp_flowspec_vty.c \
+	bgpd/bgp_bfd.c \
+	bgpd/bgp_debug.c \
+	bgpd/bgp_dump.c \
+	bgpd/bgp_evpn_mh.c \
+	bgpd/bgp_evpn_vty.c \
+	bgpd/bgp_filter.c \
+	bgpd/bgp_mplsvpn.c \
+	bgpd/bgp_nexthop.c \
+	bgpd/bgp_route.c \
+	bgpd/bgp_routemap.c \
+	bgpd/bgp_vty.c \
+	bgpd/bgp_flowspec_vty.c \
 	# end
 
 # can be loaded as DSO - always include for vtysh
-vtysh_scan += $(top_srcdir)/bgpd/bgp_rpki.c
+vtysh_scan += bgpd/bgp_rpki.c
+vtysh_scan += bgpd/bgp_bmp.c
 
 if ENABLE_BGP_VNC
 vtysh_scan += \
-	$(top_srcdir)/bgpd/rfapi/bgp_rfapi_cfg.c \
-	$(top_srcdir)/bgpd/rfapi/rfapi.c \
-	$(top_srcdir)/bgpd/rfapi/rfapi_vty.c \
-	$(top_srcdir)/bgpd/rfapi/vnc_debug.c \
+	bgpd/rfapi/bgp_rfapi_cfg.c \
+	bgpd/rfapi/rfapi.c \
+	bgpd/rfapi/rfapi_vty.c \
+	bgpd/rfapi/vnc_debug.c \
 	# end
 endif
 if SNMP
@@ -43,10 +44,14 @@ endif
 if RPKI
 module_LTLIBRARIES += bgpd/bgpd_rpki.la
 endif
-man8 += $(MANBUILD)/bgpd.8
+if BGP_BMP
+module_LTLIBRARIES += bgpd/bgpd_bmp.la
+endif
+man8 += $(MANBUILD)/frr-bgpd.8
 endif
 
 bgpd_libbgp_a_SOURCES = \
+	bgpd/bgp_addpath.c \
 	bgpd/bgp_advertise.c \
 	bgpd/bgp_aspath.c \
 	bgpd/bgp_attr.c \
@@ -61,6 +66,7 @@ bgpd_libbgp_a_SOURCES = \
 	bgpd/bgp_encap_tlv.c \
 	bgpd/bgp_errors.c \
 	bgpd/bgp_evpn.c \
+	bgpd/bgp_evpn_mh.c \
 	bgpd/bgp_evpn_vty.c \
 	bgpd/bgp_filter.c \
 	bgpd/bgp_flowspec.c \
@@ -72,6 +78,7 @@ bgpd_libbgp_a_SOURCES = \
 	bgpd/bgp_label.c \
 	bgpd/bgp_labelpool.c \
 	bgpd/bgp_lcommunity.c \
+	bgpd/bgp_mac.c \
 	bgpd/bgp_memory.c \
 	bgpd/bgp_mpath.c \
 	bgpd/bgp_mplsvpn.c \
@@ -116,6 +123,8 @@ bgpd_libbgp_a_SOURCES += \
 endif
 
 noinst_HEADERS += \
+	bgpd/bgp_addpath.h \
+	bgpd/bgp_addpath_types.h \
 	bgpd/bgp_advertise.h \
 	bgpd/bgp_aspath.h \
 	bgpd/bgp_attr.h \
@@ -126,11 +135,13 @@ noinst_HEADERS += \
 	bgpd/bgp_damp.h \
 	bgpd/bgp_debug.h \
 	bgpd/bgp_dump.h \
+	bgpd/bgp_bmp.h \
 	bgpd/bgp_ecommunity.h \
 	bgpd/bgp_encap_tlv.h \
 	bgpd/bgp_encap_types.h \
 	bgpd/bgp_errors.h \
 	bgpd/bgp_evpn.h \
+	bgpd/bgp_evpn_mh.h \
 	bgpd/bgp_evpn_private.h \
 	bgpd/bgp_evpn_vty.h \
 	bgpd/bgp_filter.h \
@@ -143,6 +154,7 @@ noinst_HEADERS += \
 	bgpd/bgp_label.h \
 	bgpd/bgp_labelpool.h \
 	bgpd/bgp_lcommunity.h \
+	bgpd/bgp_mac.h \
 	bgpd/bgp_memory.h \
 	bgpd/bgp_mpath.h \
 	bgpd/bgp_mplsvpn.h \
@@ -187,17 +199,12 @@ noinst_HEADERS += \
 bgpd_bgpd_SOURCES = bgpd/bgp_main.c
 bgpd_bgp_btoa_SOURCES = bgpd/bgp_btoa.c
 
-if ENABLE_BGP_VNC
-bgpd_bgpd_SOURCES += bgpd/rfapi/rfapi_descriptor_rfp_utils.c
-bgpd_bgpd_CFLAGS = -Irfapi -I@top_srcdir@/$(RFPINC)
-
-bgpd_bgp_btoa_SOURCES += bgpd/rfapi/rfapi_descriptor_rfp_utils.c
-bgpd_bgp_btoa_CFLAGS = -Irfapi -I@top_srcdir@/$(RFPINC)
-endif
+bgpd_bgpd_CFLAGS = $(AM_CFLAGS)
+bgpd_bgp_btoa_CFLAGS = $(AM_CFLAGS)
 
 # RFPLDADD is set in bgpd/rfp-example/librfp/subdir.am
-bgpd_bgpd_LDADD = bgpd/libbgp.a $(RFPLDADD) lib/libfrr.la @LIBCAP@ @LIBM@
-bgpd_bgp_btoa_LDADD = bgpd/libbgp.a $(RFPLDADD) lib/libfrr.la @LIBCAP@ @LIBM@
+bgpd_bgpd_LDADD = bgpd/libbgp.a $(RFPLDADD) lib/libfrr.la $(LIBCAP) $(LIBM)
+bgpd_bgp_btoa_LDADD = bgpd/libbgp.a $(RFPLDADD) lib/libfrr.la $(LIBCAP) $(LIBM)
 
 bgpd_bgpd_snmp_la_SOURCES = bgpd/bgp_snmp.c
 bgpd_bgpd_snmp_la_CFLAGS = $(WERROR) $(SNMP_CFLAGS) -std=gnu99
@@ -209,12 +216,16 @@ bgpd_bgpd_rpki_la_CFLAGS = $(WERROR) $(RTRLIB_CFLAGS)
 bgpd_bgpd_rpki_la_LDFLAGS = -avoid-version -module -shared -export-dynamic
 bgpd_bgpd_rpki_la_LIBADD = $(RTRLIB_LIBS)
 
-bgpd/bgp_vty_clippy.c: $(CLIPPY_DEPS)
-bgpd/bgp_vty.$(OBJEXT): bgpd/bgp_vty_clippy.c
-bgpd/bgp_route_clippy.c: $(CLIPPY_DEPS)
-bgpd/bgp_route.$(OBJEXT): bgpd/bgp_route_clippy.c
-bgpd/bgp_debug_clippy.c: $(CLIPPY_DEPS)
-bgpd/bgp_debug.$(OBJEXT): bgpd/bgp_debug_clippy.c
-bgpd/bgp_rpki_clippy.c: $(CLIPPY_DEPS)
-$(AUTOMAKE_DUMMY)bgpd/bgpd_bgpd_rpki_la-bgp_rpki.lo: bgpd/bgp_rpki_clippy.c
-$(AUTOMAKE_DUMMY)bgpd/bgpd_rpki_la-bgp_rpki.lo: bgpd/bgp_rpki_clippy.c
+bgpd_bgpd_bmp_la_SOURCES = bgpd/bgp_bmp.c
+bgpd_bgpd_bmp_la_LIBADD = lib/libfrrcares.la
+bgpd_bgpd_bmp_la_LDFLAGS = -avoid-version -module -shared -export-dynamic
+
+clippy_scan += \
+	bgpd/bgp_bmp.c \
+	bgpd/bgp_debug.c \
+	bgpd/bgp_evpn_vty.c \
+	bgpd/bgp_route.c \
+	bgpd/bgp_routemap.c \
+	bgpd/bgp_rpki.c \
+	bgpd/bgp_vty.c \
+	# end

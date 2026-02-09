@@ -81,7 +81,6 @@ static void slow_func_del(struct work_queue *wq, void *data)
 	assert(hn && hn->str);
 	printf("%s: %s\n", __func__, hn->str);
 	XFREE(MTYPE_WQ_NODE_STR, hn->str);
-	hn->str = NULL;
 	XFREE(MTYPE_WQ_NODE, hn);
 }
 
@@ -139,7 +138,7 @@ DEFUN (clear_foo,
 	return CMD_SUCCESS;
 }
 
-static int heavy_wq_init()
+static int heavy_wq_init(void)
 {
 	heavy_wq = work_queue_new(master, "heavy_work_queue");
 
@@ -152,7 +151,7 @@ static int heavy_wq_init()
 	return 0;
 }
 
-void test_init()
+void test_init(void)
 {
 	install_element(VIEW_NODE, &clear_foo_cmd);
 	heavy_wq_init();

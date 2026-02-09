@@ -108,11 +108,14 @@ struct fec_nh {
 	union ldpd_addr		 nexthop;
 	ifindex_t		 ifindex;
 	uint32_t		 remote_label;
-	uint8_t			 priority;
+	uint8_t			 route_type;
+	unsigned short		 route_instance;
 	uint8_t			 flags;
 };
 #define F_FEC_NH_NEW		0x01
 #define F_FEC_NH_CONNECTED	0x02
+#define F_FEC_NH_DEFER		0x04		/* running ordered control */
+#define F_FEC_NH_NO_LDP		0x08		/* no ldp on this interface */
 
 struct fec_node {
 	struct fec		 fec;
@@ -122,6 +125,9 @@ struct fec_node {
 	struct lde_map_head	 upstream;	/* sent mappings */
 
 	uint32_t		 local_label;
+
+	uint32_t		 pw_remote_status;
+
 	void			*data;		/* fec specific data */
 };
 
@@ -147,6 +153,7 @@ void		 lde_imsg_compose_parent_sync(int, pid_t, void *, uint16_t);
 int		 lde_imsg_compose_ldpe(int, uint32_t, pid_t, void *, uint16_t);
 int		 lde_acl_check(char *, int, union ldpd_addr *, uint8_t);
 uint32_t	 lde_update_label(struct fec_node *);
+void		 lde_free_label(uint32_t label);
 void		 lde_send_change_klabel(struct fec_node *, struct fec_nh *);
 void		 lde_send_delete_klabel(struct fec_node *, struct fec_nh *);
 void		 lde_fec2map(struct fec *, struct map *);
@@ -164,6 +171,9 @@ void		 lde_send_labelwithdraw_pwid_wcard(struct lde_nbr *, uint16_t,
 		    uint32_t);
 void		 lde_send_labelrelease(struct lde_nbr *, struct fec_node *,
 		    struct map *, uint32_t);
+void		 lde_send_labelrequest(struct lde_nbr *, struct fec_node *,
+		     struct map *, int);
+void		 lde_send_labelrequest_wcard(struct lde_nbr *, uint16_t af);
 void		 lde_send_notification(struct lde_nbr *, uint32_t, uint32_t,
 		    uint16_t);
 void		 lde_send_notification_eol_prefix(struct lde_nbr *, int);
@@ -179,6 +189,13 @@ void		 lde_req_del(struct lde_nbr *, struct lde_req *, int);
 struct lde_wdraw *lde_wdraw_add(struct lde_nbr *, struct fec_node *);
 void		 lde_wdraw_del(struct lde_nbr *, struct lde_wdraw *);
 void		 lde_change_egress_label(int);
+void		 lde_change_allocate_filter(int);
+void		 lde_change_advertise_filter(int);
+void		 lde_change_accept_filter(int);
+void		 lde_change_expnull_for_filter(int);
+void		 lde_route_update(struct iface *, int);
+void		 lde_route_update_release(struct iface *, int);
+void		 lde_route_update_release_all(int);
 struct lde_addr	*lde_address_find(struct lde_nbr *, int,
 		    union ldpd_addr *);
 
@@ -192,13 +209,13 @@ void		 rt_dump(pid_t);
 void		 fec_snap(struct lde_nbr *);
 void		 fec_tree_clear(void);
 struct fec_nh	*fec_nh_find(struct fec_node *, int, union ldpd_addr *,
-		    ifindex_t, uint8_t);
+		    ifindex_t, uint8_t, unsigned short);
 void		 lde_kernel_insert(struct fec *, int, union ldpd_addr *,
-		    ifindex_t, uint8_t, int, void *);
+		    ifindex_t, uint8_t, unsigned short, int, void *);
 void		 lde_kernel_remove(struct fec *, int, union ldpd_addr *,
-		    ifindex_t, uint8_t);
+		    ifindex_t, uint8_t, unsigned short);
 void		 lde_kernel_update(struct fec *);
-void		 lde_check_mapping(struct map *, struct lde_nbr *);
+void		 lde_check_mapping(struct map *, struct lde_nbr *, int);
 void		 lde_check_request(struct map *, struct lde_nbr *);
 void		 lde_check_request_wcard(struct map *, struct lde_nbr *);
 void		 lde_check_release(struct map *, struct lde_nbr *);

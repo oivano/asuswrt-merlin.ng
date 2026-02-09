@@ -23,6 +23,7 @@
 #include <getopt.h>
 #include <unistd.h>
 
+#include "compat.h"
 #include "libyang.h"
 
 void
@@ -38,7 +39,7 @@ help(void)
         "  -h, --help              Show this help message and exit.\n"
         "  -v, --version           Show version number and exit.\n"
         "  -V, --verbose           Print the processing information.\n"
-        "  -i, --invert-match      Invert-match modifier for the closest preceeding\n"
+        "  -i, --invert-match      Invert-match modifier for the closest preceding\n"
         "                          pattern.\n"
         "  -p, --pattern=\"REGEXP\"  Regular expression including the quoting,\n"
         "                          which is applied the same way as in a YANG module.\n"
@@ -231,20 +232,26 @@ main(int argc, char* argv[])
             goto cleanup;
         } else if (!patterns_count) {
             help();
-            fprintf(stderr, "yangre error: missing patern parameter to use.\n");
+            fprintf(stderr, "yangre error: missing pattern parameter to use.\n");
             goto cleanup;
         }
         str = argv[optind];
     }
 
     for (modstr = (char*)module_start, i = 0; i < patterns_count; i++) {
-        asprintf(&s, "%s pattern %s%s", modstr, patterns[i], invert_match[i] ? module_invertmatch : module_match);
+        if (asprintf(&s, "%s pattern %s%s", modstr, patterns[i], invert_match[i] ? module_invertmatch : module_match) == -1) {
+            fprintf(stderr, "yangre error: memory allocation failed.\n");
+            goto cleanup;
+        }
         if (modstr != module_start) {
             free(modstr);
         }
         modstr = s;
     }
-    asprintf(&s, "%s%s", modstr, module_end);
+    if (asprintf(&s, "%s%s", modstr, module_end) == -1) {
+        fprintf(stderr, "yangre error: memory allocation failed.\n");
+        goto cleanup;
+    }
     if (modstr != module_start) {
         free(modstr);
     }

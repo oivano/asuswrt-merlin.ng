@@ -43,15 +43,12 @@
 DEFINE_MTYPE_STATIC(LIB, NS, "NetNS Context")
 DEFINE_MTYPE_STATIC(LIB, NS_NAME, "NetNS Name")
 
-/* default NS ID value used when VRF backend is not NETNS */
-#define NS_DEFAULT_INTERNAL 0
-
 static inline int ns_compare(const struct ns *ns, const struct ns *ns2);
 static struct ns *ns_lookup_name_internal(const char *name);
 
 RB_GENERATE(ns_head, ns, entry, ns_compare)
 
-struct ns_head ns_tree = RB_INITIALIZER(&ns_tree);
+static struct ns_head ns_tree = RB_INITIALIZER(&ns_tree);
 
 static struct ns *default_ns;
 static int ns_current_ns_fd;
@@ -74,7 +71,8 @@ static inline int ns_map_compare(const struct ns_map_nsid *a,
 RB_HEAD(ns_map_nsid_head, ns_map_nsid);
 RB_PROTOTYPE(ns_map_nsid_head, ns_map_nsid, id_entry, ns_map_compare);
 RB_GENERATE(ns_map_nsid_head, ns_map_nsid, id_entry, ns_map_compare);
-struct ns_map_nsid_head ns_map_nsid_list = RB_INITIALIZER(&ns_map_nsid_list);
+static struct ns_map_nsid_head ns_map_nsid_list =
+		RB_INITIALIZER(&ns_map_nsid_list);
 
 static ns_id_t ns_id_external_numbering;
 
@@ -100,9 +98,6 @@ static inline int setns(int fd, int nstype)
 static int have_netns_enabled = -1;
 #endif /* HAVE_NETNS */
 
-/* default NS ID value used when VRF backend is not NETNS */
-#define NS_DEFAULT_INTERNAL 0
-
 static int have_netns(void)
 {
 #ifdef HAVE_NETNS
@@ -123,7 +118,7 @@ static int have_netns(void)
 }
 
 /* Holding NS hooks  */
-struct ns_master {
+static struct ns_master {
 	int (*ns_new_hook)(struct ns *ns);
 	int (*ns_delete_hook)(struct ns *ns);
 	int (*ns_enable_hook)(struct ns *ns);
@@ -219,7 +214,7 @@ static int ns_enable_internal(struct ns *ns, void (*func)(ns_id_t, void *))
 		}
 
 		if (!ns_is_enabled(ns)) {
-			flog_err_sys(LIB_ERR_SYSTEM_CALL,
+			flog_err_sys(EC_LIB_SYSTEM_CALL,
 				     "Can not enable NS %u: %s!", ns->ns_id,
 				     safe_strerror(errno));
 			return 0;
@@ -227,9 +222,9 @@ static int ns_enable_internal(struct ns *ns, void (*func)(ns_id_t, void *))
 
 		/* Non default NS. leave */
 		if (ns->ns_id == NS_UNKNOWN) {
-			flog_err(LIB_ERR_NS,
-				  "Can not enable NS %s %u: Invalid NSID",
-				  ns->name, ns->ns_id);
+			flog_err(EC_LIB_NS,
+				 "Can not enable NS %s %u: Invalid NSID",
+				 ns->name, ns->ns_id);
 			return 0;
 		}
 		if (func)
@@ -344,8 +339,7 @@ void ns_delete(struct ns *ns)
 	// if_terminate (&ns->iflist);
 
 	RB_REMOVE(ns_head, &ns_tree, ns);
-	if (ns->name)
-		XFREE(MTYPE_NS_NAME, ns->name);
+	XFREE(MTYPE_NS_NAME, ns->name);
 
 	XFREE(MTYPE_NS, ns);
 }
@@ -371,7 +365,7 @@ int ns_enable(struct ns *ns, void (*func)(ns_id_t, void *))
 
 void ns_disable(struct ns *ns)
 {
-	return ns_disable_internal(ns);
+	ns_disable_internal(ns);
 }
 
 struct ns *ns_lookup(ns_id_t ns_id)
@@ -379,12 +373,20 @@ struct ns *ns_lookup(ns_id_t ns_id)
 	return ns_lookup_internal(ns_id);
 }
 
-void ns_walk_func(int (*func)(struct ns *))
+void ns_walk_func(int (*func)(struct ns *,
+			      void *param_in,
+			      void **param_out),
+		  void *param_in,
+		  void **param_out)
 {
 	struct ns *ns = NULL;
+	int ret;
 
-	RB_FOREACH (ns, ns_head, &ns_tree)
-		func(ns);
+	RB_FOREACH (ns, ns_head, &ns_tree) {
+		ret = func(ns, param_in, param_out);
+		if (ret == NS_WALK_STOP)
+			return;
+	}
 }
 
 const char *ns_get_name(struct ns *ns)
@@ -431,7 +433,7 @@ char *ns_netns_pathname(struct vty *vty, const char *name)
 		/* relevant pathname */
 		char tmp_name[PATH_MAX];
 
-		snprintf(tmp_name, PATH_MAX, "%s/%s", NS_RUN_DIR, name);
+		snprintf(tmp_name, sizeof(tmp_name), "%s/%s", NS_RUN_DIR, name);
 		result = realpath(tmp_name, pathname);
 	}
 
@@ -441,8 +443,8 @@ char *ns_netns_pathname(struct vty *vty, const char *name)
 				pathname,
 				safe_strerror(errno));
 		else
-			zlog_warn("Invalid pathname for %s: %s",
-				  pathname,
+			flog_warn(EC_LIB_LINUX_NS,
+				  "Invalid pathname for %s: %s", pathname,
 				  safe_strerror(errno));
 		return NULL;
 	}
@@ -452,7 +454,8 @@ char *ns_netns_pathname(struct vty *vty, const char *name)
 			vty_out(vty, "NS name (%s) invalid: too long (>%d)\n",
 				check_base, NS_NAMSIZ - 1);
 		else
-			zlog_warn("NS name (%s) invalid: too long (>%d)",
+			flog_warn(EC_LIB_LINUX_NS,
+				  "NS name (%s) invalid: too long (>%d)",
 				  check_base, NS_NAMSIZ - 1);
 		return NULL;
 	}
@@ -468,21 +471,12 @@ void ns_init(void)
 	if (ns_initialised == 1)
 		return;
 	errno = 0;
-#ifdef HAVE_NETNS
-	if (have_netns_enabled < 0) {
+	if (have_netns())
 		ns_default_ns_fd = open(NS_DEFAULT_NAME, O_RDONLY);
-		if (ns_default_ns_fd == -1)
-			flog_err(LIB_ERR_NS,
-				  "NS initialization failure %d(%s)", errno,
-				  safe_strerror(errno));
-	} else {
+	else {
 		ns_default_ns_fd = -1;
 		default_ns = NULL;
 	}
-#else
-	ns_default_ns_fd = -1;
-	default_ns = NULL;
-#endif /* HAVE_NETNS */
 	ns_current_ns_fd = -1;
 	ns_initialised = 1;
 }
@@ -495,8 +489,8 @@ void ns_init_management(ns_id_t default_ns_id, ns_id_t internal_ns)
 	ns_init();
 	default_ns = ns_get_created_internal(NULL, NULL, default_ns_id);
 	if (!default_ns) {
-		flog_err(LIB_ERR_NS, "%s: failed to create the default NS!",
-			  __func__);
+		flog_err(EC_LIB_NS, "%s: failed to create the default NS!",
+			 __func__);
 		exit(1);
 	}
 	if (have_netns()) {
@@ -513,8 +507,8 @@ void ns_init_management(ns_id_t default_ns_id, ns_id_t internal_ns)
 
 	/* Enable the default NS. */
 	if (!ns_enable(default_ns, NULL)) {
-		flog_err(LIB_ERR_NS, "%s: failed to enable the default NS!",
-			  __func__);
+		flog_err(EC_LIB_NS, "%s: failed to enable the default NS!",
+			 __func__);
 		exit(1);
 	}
 }
@@ -592,9 +586,27 @@ int ns_socket(int domain, int type, int protocol, ns_id_t ns_id)
 	return ret;
 }
 
-ns_id_t ns_get_default_id(void)
+/* if relative link_nsid matches default netns,
+ * then return default absolute netns value
+ * otherwise, return NS_UNKNOWN
+ */
+ns_id_t ns_id_get_absolute(ns_id_t ns_id_reference, ns_id_t link_nsid)
 {
-	if (default_ns)
-		return default_ns->ns_id;
-	return NS_DEFAULT_INTERNAL;
+	struct ns *ns;
+
+	ns = ns_lookup(ns_id_reference);
+	if (!ns)
+		return NS_UNKNOWN;
+
+	if (ns->relative_default_ns != link_nsid)
+		return NS_UNKNOWN;
+
+	ns = ns_get_default();
+	assert(ns);
+	return ns->ns_id;
+}
+
+struct ns *ns_get_default(void)
+{
+	return default_ns;
 }

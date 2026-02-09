@@ -27,14 +27,6 @@
 extern void bgp_parse_nexthop_update(int command, vrf_id_t vrf_id);
 
 /**
- * bgp_find_nexthop() - lookup the nexthop cache table for the bnc object
- * ARGUMENTS:
- *   p - path for which the nexthop object is being looked up
- *   connected - True if NH MUST be a connected route
- */
-extern int bgp_find_nexthop(struct bgp_info *p, int connected);
-
-/**
  * bgp_find_or_add_nexthop() - lookup the nexthop cache table for the bnc
  *  object. If not found, create a new object and register with ZEBRA for
  *  nexthop notification.
@@ -47,16 +39,17 @@ extern int bgp_find_nexthop(struct bgp_info *p, int connected);
  *   connected - True if NH MUST be a connected route
  */
 extern int bgp_find_or_add_nexthop(struct bgp *bgp_route,
-			struct bgp *bgp_nexthop, afi_t a, struct bgp_info *p,
-			struct peer *peer, int connected);
+				   struct bgp *bgp_nexthop, afi_t a,
+				   struct bgp_path_info *p, struct peer *peer,
+				   int connected);
 
 /**
  * bgp_unlink_nexthop() - Unlink the nexthop object from the path structure.
  * ARGUMENTS:
  *   p - path structure.
  */
-extern void bgp_unlink_nexthop(struct bgp_info *p);
-void bgp_unlink_nexthop_by_peer(struct peer *);
+extern void bgp_unlink_nexthop(struct bgp_path_info *p);
+void bgp_unlink_nexthop_by_peer(struct peer *peer);
 
 /**
  * bgp_delete_connected_nexthop() - Reset the 'peer' pointer for a connected
@@ -73,5 +66,28 @@ extern void bgp_delete_connected_nexthop(afi_t afi, struct peer *peer);
  * pertaining to this VRF. This is invoked upon VRF deletion.
  */
 extern void bgp_cleanup_nexthops(struct bgp *bgp);
+
+/*
+ * Add or remove the tracking of the bgp_path_info that
+ * uses this nexthop
+ */
+extern void path_nh_map(struct bgp_path_info *path,
+			struct bgp_nexthop_cache *bnc, bool make);
+/*
+ * When we actually have the connection to
+ * the zebra daemon, we need to reregister
+ * any nexthops we may have sitting around
+ */
+extern void bgp_nht_register_nexthops(struct bgp *bgp);
+
+/*
+ * When we have the the PEER_FLAG_CAPABILITY_ENHE flag
+ * set on a peer *after* it has been brought up we need
+ * to notice and setup the interface based RA,
+ * this code can walk the registered nexthops and
+ * register the important ones with zebra for RA.
+ */
+extern void bgp_nht_reg_enhe_cap_intfs(struct peer *peer);
+extern void bgp_nht_dereg_enhe_cap_intfs(struct peer *peer);
 
 #endif /* _BGP_NHT_H */

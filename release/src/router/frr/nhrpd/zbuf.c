@@ -7,7 +7,10 @@
  * (at your option) any later version.
  */
 
-#define _GNU_SOURCE
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
@@ -193,7 +196,7 @@ int zbufq_write(struct zbuf_queue *zbq, int fd)
 		iov[iovcnt++] = (struct iovec){
 			.iov_base = zb->head, .iov_len = zbuf_used(zb),
 		};
-		if (iovcnt >= ZEBRA_NUM_OF(iov))
+		if (iovcnt >= array_size(iov))
 			break;
 	}
 

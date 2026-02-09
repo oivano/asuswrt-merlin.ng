@@ -3178,9 +3178,15 @@ define RouterOptions
 		sed -i "/RTCONFIG_TUXERA_SMBD/d" $(1); \
 		echo "RTCONFIG_TUXERA_SMBD=y" >>$(1); \
 	fi;
+	if [ "$(FRR)" = "y" ]; then \
+		sed -i "/RTCONFIG_FRR/d" $(1); \
+		echo "RTCONFIG_FRR=y" >>$(1); \
+	fi;
+	# Legacy Quagga flag compatibility
 	if [ "$(QUAGGA)" = "y" ]; then \
-		sed -i "/RTCONFIG_QUAGGA/d" $(1); \
-		echo "RTCONFIG_QUAGGA=y" >>$(1); \
+		sed -i "/RTCONFIG_FRR/d" $(1); \
+		echo "RTCONFIG_FRR=y" >>$(1); \
+		echo "# QUAGGA=y mapped to FRR" >>$(1); \
 	fi;
 	if [ "$(ASPMD)" = "y" ]; then \
 		sed -i "/RTCONFIG_BCMASPMD/d" $(1); \

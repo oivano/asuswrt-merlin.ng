@@ -30,6 +30,8 @@
 #include "log.h"
 #include "hash.h"
 #include "libfrr.h"
+#include "lib_errors.h"
+#include "table.h"
 
 DEFINE_MTYPE_STATIC(LIB, ROUTE_MAP, "Route map")
 DEFINE_MTYPE(LIB, ROUTE_MAP_NAME, "Route map name")
@@ -38,9 +40,24 @@ DEFINE_MTYPE(LIB, ROUTE_MAP_RULE, "Route map rule")
 DEFINE_MTYPE_STATIC(LIB, ROUTE_MAP_RULE_STR, "Route map rule str")
 DEFINE_MTYPE(LIB, ROUTE_MAP_COMPILED, "Route map compiled")
 DEFINE_MTYPE_STATIC(LIB, ROUTE_MAP_DEP, "Route map dependency")
+DEFINE_MTYPE_STATIC(LIB, ROUTE_MAP_DEP_DATA, "Route map dependency data")
 
 DEFINE_QOBJ_TYPE(route_map_index)
 DEFINE_QOBJ_TYPE(route_map)
+
+#define IPv4_PREFIX_LIST "ip address prefix-list"
+#define IPv6_PREFIX_LIST "ipv6 address prefix-list"
+
+#define IS_RULE_IPv4_PREFIX_LIST(S)                                            \
+	(strncmp(S, IPv4_PREFIX_LIST, strlen(IPv4_PREFIX_LIST)) == 0)
+#define IS_RULE_IPv6_PREFIX_LIST(S)                                            \
+	(strncmp(S, IPv6_PREFIX_LIST, strlen(IPv6_PREFIX_LIST)) == 0)
+
+struct route_map_pentry_dep {
+	struct prefix_list_entry *pentry;
+	const char *plist_name;
+	route_map_event_t event;
+};
 
 /* Vector for route match rules. */
 static vector route_match_vec;
@@ -48,149 +65,23 @@ static vector route_match_vec;
 /* Vector for route set rules. */
 static vector route_set_vec;
 
-struct route_map_match_set_hooks {
-	/* match interface */
-	int (*match_interface)(struct vty *vty, struct route_map_index *index,
-			       const char *command, const char *arg,
-			       route_map_event_t type);
+static void route_map_pfx_tbl_update(route_map_event_t event,
+				     struct route_map_index *index, afi_t afi,
+				     const char *plist_name);
+static void route_map_pfx_table_add_default(afi_t afi,
+					    struct route_map_index *index);
+static void route_map_pfx_table_del_default(afi_t afi,
+					    struct route_map_index *index);
+static void route_map_add_plist_entries(afi_t afi,
+					struct route_map_index *index,
+					const char *plist_name,
+					struct prefix_list_entry *entry);
+static void route_map_del_plist_entries(afi_t afi,
+					struct route_map_index *index,
+					const char *plist_name,
+					struct prefix_list_entry *entry);
 
-	/* no match interface */
-	int (*no_match_interface)(struct vty *vty,
-				  struct route_map_index *index,
-				  const char *command, const char *arg,
-				  route_map_event_t type);
-
-	/* match ip address */
-	int (*match_ip_address)(struct vty *vty, struct route_map_index *index,
-				const char *command, const char *arg,
-				route_map_event_t type);
-
-	/* no match ip address */
-	int (*no_match_ip_address)(struct vty *vty,
-				   struct route_map_index *index,
-				   const char *command, const char *arg,
-				   route_map_event_t type);
-
-	/* match ip address prefix list */
-	int (*match_ip_address_prefix_list)(struct vty *vty,
-					    struct route_map_index *index,
-					    const char *command,
-					    const char *arg,
-					    route_map_event_t type);
-
-	/* no match ip address prefix list */
-	int (*no_match_ip_address_prefix_list)(struct vty *vty,
-					       struct route_map_index *index,
-					       const char *command,
-					       const char *arg,
-					       route_map_event_t type);
-
-	/* match ip next hop */
-	int (*match_ip_next_hop)(struct vty *vty, struct route_map_index *index,
-				 const char *command, const char *arg,
-				 route_map_event_t type);
-
-	/* no match ip next hop */
-	int (*no_match_ip_next_hop)(struct vty *vty,
-				    struct route_map_index *index,
-				    const char *command, const char *arg,
-				    route_map_event_t type);
-
-	/* match ip next hop prefix list */
-	int (*match_ip_next_hop_prefix_list)(struct vty *vty,
-					     struct route_map_index *index,
-					     const char *command,
-					     const char *arg,
-					     route_map_event_t type);
-
-	/* no match ip next hop prefix list */
-	int (*no_match_ip_next_hop_prefix_list)(struct vty *vty,
-						struct route_map_index *index,
-						const char *command,
-						const char *arg,
-						route_map_event_t type);
-
-	/* match ipv6 address */
-	int (*match_ipv6_address)(struct vty *vty,
-				  struct route_map_index *index,
-				  const char *command, const char *arg,
-				  route_map_event_t type);
-
-	/* no match ipv6 address */
-	int (*no_match_ipv6_address)(struct vty *vty,
-				     struct route_map_index *index,
-				     const char *command, const char *arg,
-				     route_map_event_t type);
-
-
-	/* match ipv6 address prefix list */
-	int (*match_ipv6_address_prefix_list)(struct vty *vty,
-					      struct route_map_index *index,
-					      const char *command,
-					      const char *arg,
-					      route_map_event_t type);
-
-	/* no match ipv6 address prefix list */
-	int (*no_match_ipv6_address_prefix_list)(struct vty *vty,
-						 struct route_map_index *index,
-						 const char *command,
-						 const char *arg,
-						 route_map_event_t type);
-
-	/* match metric */
-	int (*match_metric)(struct vty *vty, struct route_map_index *index,
-			    const char *command, const char *arg,
-			    route_map_event_t type);
-
-	/* no match metric */
-	int (*no_match_metric)(struct vty *vty, struct route_map_index *index,
-			       const char *command, const char *arg,
-			       route_map_event_t type);
-
-	/* match tag */
-	int (*match_tag)(struct vty *vty, struct route_map_index *index,
-			 const char *command, const char *arg,
-			 route_map_event_t type);
-
-	/* no match tag */
-	int (*no_match_tag)(struct vty *vty, struct route_map_index *index,
-			    const char *command, const char *arg,
-			    route_map_event_t type);
-
-	/* set ip nexthop */
-	int (*set_ip_nexthop)(struct vty *vty, struct route_map_index *index,
-			      const char *command, const char *arg);
-
-	/* no set ip nexthop */
-	int (*no_set_ip_nexthop)(struct vty *vty, struct route_map_index *index,
-				 const char *command, const char *arg);
-
-	/* set ipv6 nexthop local */
-	int (*set_ipv6_nexthop_local)(struct vty *vty,
-				      struct route_map_index *index,
-				      const char *command, const char *arg);
-
-	/* no set ipv6 nexthop local */
-	int (*no_set_ipv6_nexthop_local)(struct vty *vty,
-					 struct route_map_index *index,
-					 const char *command, const char *arg);
-
-	/* set metric */
-	int (*set_metric)(struct vty *vty, struct route_map_index *index,
-			  const char *command, const char *arg);
-
-	/* no set metric */
-	int (*no_set_metric)(struct vty *vty, struct route_map_index *index,
-			     const char *command, const char *arg);
-
-	/* set tag */
-	int (*set_tag)(struct vty *vty, struct route_map_index *index,
-		       const char *command, const char *arg);
-
-	/* no set tag */
-	int (*no_set_tag)(struct vty *vty, struct route_map_index *index,
-			  const char *command, const char *arg);
-};
+static struct hash *route_map_get_dep_hash(route_map_event_t event);
 
 struct route_map_match_set_hooks rmap_match_set_hook;
 
@@ -274,6 +165,22 @@ void route_map_no_match_ip_next_hop_prefix_list_hook(int (*func)(
 	rmap_match_set_hook.no_match_ip_next_hop_prefix_list = func;
 }
 
+/* match ip next-hop type */
+void route_map_match_ip_next_hop_type_hook(int (*func)(
+	struct vty *vty, struct route_map_index *index, const char *command,
+	const char *arg, route_map_event_t type))
+{
+	rmap_match_set_hook.match_ip_next_hop_type = func;
+}
+
+/* no match ip next-hop type */
+void route_map_no_match_ip_next_hop_type_hook(int (*func)(
+	struct vty *vty, struct route_map_index *index, const char *command,
+	const char *arg, route_map_event_t type))
+{
+	rmap_match_set_hook.no_match_ip_next_hop_type = func;
+}
+
 /* match ipv6 address */
 void route_map_match_ipv6_address_hook(int (*func)(
 	struct vty *vty, struct route_map_index *index, const char *command,
@@ -307,6 +214,22 @@ void route_map_no_match_ipv6_address_prefix_list_hook(int (*func)(
 	rmap_match_set_hook.no_match_ipv6_address_prefix_list = func;
 }
 
+/* match ipv6 next-hop type */
+void route_map_match_ipv6_next_hop_type_hook(int (*func)(
+	struct vty *vty, struct route_map_index *index, const char *command,
+	const char *arg, route_map_event_t type))
+{
+	rmap_match_set_hook.match_ipv6_next_hop_type = func;
+}
+
+/* no match ipv6 next-hop type */
+void route_map_no_match_ipv6_next_hop_type_hook(int (*func)(
+	struct vty *vty, struct route_map_index *index, const char *command,
+	const char *arg, route_map_event_t type))
+{
+	rmap_match_set_hook.no_match_ipv6_next_hop_type = func;
+}
+
 /* match metric */
 void route_map_match_metric_hook(int (*func)(
 	struct vty *vty, struct route_map_index *index, const char *command,
@@ -338,6 +261,24 @@ void route_map_no_match_tag_hook(int (*func)(
 	const char *arg, route_map_event_t type))
 {
 	rmap_match_set_hook.no_match_tag = func;
+}
+
+/* set sr-te color */
+void route_map_set_srte_color_hook(int (*func)(struct vty *vty,
+					       struct route_map_index *index,
+					       const char *command,
+					       const char *arg))
+{
+	rmap_match_set_hook.set_srte_color = func;
+}
+
+/* no set sr-te color */
+void route_map_no_set_srte_color_hook(int (*func)(struct vty *vty,
+						  struct route_map_index *index,
+						  const char *command,
+						  const char *arg))
+{
+	rmap_match_set_hook.no_set_srte_color = func;
 }
 
 /* set ip nexthop */
@@ -413,24 +354,29 @@ int generic_match_add(struct vty *vty, struct route_map_index *index,
 		      const char *command, const char *arg,
 		      route_map_event_t type)
 {
-	int ret;
+	enum rmap_compile_rets ret;
 
-	ret = route_map_add_match(index, command, arg);
+	ret = route_map_add_match(index, command, arg, type);
 	switch (ret) {
-	case RMAP_COMPILE_SUCCESS:
-		if (type != RMAP_EVENT_MATCH_ADDED) {
-			route_map_upd8_dependency(type, arg, index->map->name);
-		}
-		break;
 	case RMAP_RULE_MISSING:
-		vty_out(vty, "%% [%s] Can't find rule.\n", frr_protonameinst);
+		if (vty)
+			vty_out(vty, "%% [%s] Can't find rule.\n",
+				frr_protonameinst);
+		else
+			zlog_warn("Can't find rule: %s", command);
 		return CMD_WARNING_CONFIG_FAILED;
-		break;
 	case RMAP_COMPILE_ERROR:
-		vty_out(vty,
-			"%% [%s] Argument form is unsupported or malformed.\n",
-			frr_protonameinst);
+		if (vty)
+			vty_out(vty,
+				"%% [%s] Argument form is unsupported or malformed.\n",
+				frr_protonameinst);
+		else
+			zlog_warn("Argument form is unsupported or malformed: %s %s", command, arg);
 		return CMD_WARNING_CONFIG_FAILED;
+	case RMAP_COMPILE_SUCCESS:
+		/*
+		 * Nothing to do here move along
+		 */
 		break;
 	}
 
@@ -441,7 +387,7 @@ int generic_match_delete(struct vty *vty, struct route_map_index *index,
 			 const char *command, const char *arg,
 			 route_map_event_t type)
 {
-	int ret;
+	enum rmap_compile_rets ret;
 	int retval = CMD_SUCCESS;
 	char *dep_name = NULL;
 	const char *tmpstr;
@@ -460,28 +406,34 @@ int generic_match_delete(struct vty *vty, struct route_map_index *index,
 		rmap_name = XSTRDUP(MTYPE_ROUTE_MAP_NAME, index->map->name);
 	}
 
-	ret = route_map_delete_match(index, command, dep_name);
+	ret = route_map_delete_match(index, command, dep_name, type);
 	switch (ret) {
 	case RMAP_RULE_MISSING:
-		vty_out(vty, "%% [%s] Can't find rule.\n", frr_protonameinst);
+		if (vty)
+			vty_out(vty, "%% [%s] Can't find rule.\n",
+				frr_protonameinst);
+		else
+			zlog_warn("Can't find rule: %s", command);
 		retval = CMD_WARNING_CONFIG_FAILED;
 		break;
 	case RMAP_COMPILE_ERROR:
-		vty_out(vty,
-			"%% [%s] Argument form is unsupported or malformed.\n",
-			frr_protonameinst);
+		if (vty)
+			vty_out(vty,
+				"%% [%s] Argument form is unsupported or malformed.\n",
+				frr_protonameinst);
+		else
+			zlog_warn("Argument form is unsupported or malformed: %s %s", command, arg);
 		retval = CMD_WARNING_CONFIG_FAILED;
 		break;
 	case RMAP_COMPILE_SUCCESS:
-		if (type != RMAP_EVENT_MATCH_DELETED && dep_name)
-			route_map_upd8_dependency(type, dep_name, rmap_name);
+		/*
+		 * Nothing to do here
+		 */
 		break;
 	}
 
-	if (dep_name)
-		XFREE(MTYPE_ROUTE_MAP_RULE, dep_name);
-	if (rmap_name)
-		XFREE(MTYPE_ROUTE_MAP_NAME, rmap_name);
+	XFREE(MTYPE_ROUTE_MAP_RULE, dep_name);
+	XFREE(MTYPE_ROUTE_MAP_NAME, rmap_name);
 
 	return retval;
 }
@@ -489,20 +441,24 @@ int generic_match_delete(struct vty *vty, struct route_map_index *index,
 int generic_set_add(struct vty *vty, struct route_map_index *index,
 		    const char *command, const char *arg)
 {
-	int ret;
+	enum rmap_compile_rets ret;
 
 	ret = route_map_add_set(index, command, arg);
 	switch (ret) {
 	case RMAP_RULE_MISSING:
-		vty_out(vty, "%% [%s] Can't find rule.\n", frr_protonameinst);
+		if (vty)
+			vty_out(vty, "%% [%s] Can't find rule.\n", frr_protonameinst);
+		else
+			zlog_warn("Can't find rule: %s", command);
 		return CMD_WARNING_CONFIG_FAILED;
-		break;
 	case RMAP_COMPILE_ERROR:
-		vty_out(vty,
-			"%% [%s] Argument form is unsupported or malformed.\n",
-			frr_protonameinst);
+		if (vty)
+			vty_out(vty,
+				"%% [%s] Argument form is unsupported or malformed.\n",
+				frr_protonameinst);
+		else
+			zlog_warn("Argument form is unsupported or malformed: %s %s", command, arg);
 		return CMD_WARNING_CONFIG_FAILED;
-		break;
 	case RMAP_COMPILE_SUCCESS:
 		break;
 	}
@@ -513,20 +469,24 @@ int generic_set_add(struct vty *vty, struct route_map_index *index,
 int generic_set_delete(struct vty *vty, struct route_map_index *index,
 		       const char *command, const char *arg)
 {
-	int ret;
+	enum rmap_compile_rets ret;
 
 	ret = route_map_delete_set(index, command, arg);
 	switch (ret) {
 	case RMAP_RULE_MISSING:
-		vty_out(vty, "%% [%s] Can't find rule.\n", frr_protonameinst);
+		if (vty)
+			vty_out(vty, "%% [%s] Can't find rule.\n", frr_protonameinst);
+		else
+			zlog_warn("Can't find rule: %s", command);
 		return CMD_WARNING_CONFIG_FAILED;
-		break;
 	case RMAP_COMPILE_ERROR:
-		vty_out(vty,
-			"%% [%s] Argument form is unsupported or malformed.\n",
-			frr_protonameinst);
+		if (vty)
+			vty_out(vty,
+				"%% [%s] Argument form is unsupported or malformed.\n",
+				frr_protonameinst);
+		else
+			zlog_warn("Argument form is unsupported or malformed: %s %s", command, arg);
 		return CMD_WARNING_CONFIG_FAILED;
-		break;
 	case RMAP_COMPILE_SUCCESS:
 		break;
 	}
@@ -535,43 +495,17 @@ int generic_set_delete(struct vty *vty, struct route_map_index *index,
 }
 
 
-/* Route map rule. This rule has both `match' rule and `set' rule. */
-struct route_map_rule {
-	/* Rule type. */
-	struct route_map_rule_cmd *cmd;
-
-	/* For pretty printing. */
-	char *rule_str;
-
-	/* Pre-compiled match rule. */
-	void *value;
-
-	/* Linked list. */
-	struct route_map_rule *next;
-	struct route_map_rule *prev;
-};
-
-/* Making route map list. */
-struct route_map_list {
-	struct route_map *head;
-	struct route_map *tail;
-
-	void (*add_hook)(const char *);
-	void (*delete_hook)(const char *);
-	void (*event_hook)(route_map_event_t, const char *);
-};
-
 /* Master list of route map. */
-static struct route_map_list route_map_master = {NULL, NULL, NULL, NULL, NULL};
+struct route_map_list route_map_master = {NULL, NULL, NULL, NULL, NULL};
 struct hash *route_map_master_hash = NULL;
 
-static unsigned int route_map_hash_key_make(void *p)
+static unsigned int route_map_hash_key_make(const void *p)
 {
 	const struct route_map *map = p;
 	return string_hash_make(map->name);
 }
 
-static int route_map_hash_cmp(const void *p1, const void *p2)
+static bool route_map_hash_cmp(const void *p1, const void *p2)
 {
 	const struct route_map *map1 = p1;
 	const struct route_map *map2 = p2;
@@ -579,14 +513,14 @@ static int route_map_hash_cmp(const void *p1, const void *p2)
 	if (map1->deleted == map2->deleted) {
 		if (map1->name && map2->name) {
 			if (!strcmp(map1->name, map2->name)) {
-				return 1;
+				return true;
 			}
 		} else if (!map1->name && !map2->name) {
-			return 1;
+			return true;
 		}
 	}
 
-	return 0;
+	return false;
 }
 
 enum route_map_upd8_type {
@@ -612,17 +546,24 @@ struct route_map_dep {
 	struct hash *this_hash; /* ptr to the hash structure this is part of */
 };
 
-/* Hashes maintaining dependency between various sublists used by route maps */
-struct hash *route_map_dep_hash[ROUTE_MAP_DEP_MAX];
+struct route_map_dep_data {
+	/* Route-map name.
+	 */
+	char *rname;
+	/* Count of number of sequences of this
+	 * route-map that depend on the same entity.
+	 */
+	uint16_t  refcnt;
+};
 
-static unsigned int route_map_dep_hash_make_key(void *p);
-static int route_map_dep_hash_cmp(const void *p1, const void *p2);
+/* Hashes maintaining dependency between various sublists used by route maps */
+static struct hash *route_map_dep_hash[ROUTE_MAP_DEP_MAX];
+
+static unsigned int route_map_dep_hash_make_key(const void *p);
 static void route_map_clear_all_references(char *rmap_name);
 static void route_map_rule_delete(struct route_map_rule_list *,
 				  struct route_map_rule *);
-static int rmap_debug = 0;
-
-static void route_map_index_delete(struct route_map_index *, int);
+static bool rmap_debug;
 
 /* New route map allocation. Please note route map's name must be
    specified. */
@@ -671,6 +612,15 @@ static struct route_map *route_map_add(const char *name)
 		(*route_map_master.add_hook)(name);
 		route_map_notify_dependencies(name, RMAP_EVENT_CALL_ADDED);
 	}
+
+	if (!map->ipv4_prefix_table)
+		map->ipv4_prefix_table = route_table_init();
+
+	if (!map->ipv6_prefix_table)
+		map->ipv6_prefix_table = route_table_init();
+
+	if (rmap_debug)
+		zlog_debug("Add route-map %s", name);
 	return map;
 }
 
@@ -688,6 +638,9 @@ static void route_map_free_map(struct route_map *map)
 
 	while ((index = map->head) != NULL)
 		route_map_index_delete(index, 0);
+
+	if (rmap_debug)
+		zlog_debug("Deleting route-map %s", map->name);
 
 	list = &route_map_master;
 
@@ -709,7 +662,7 @@ static void route_map_free_map(struct route_map *map)
 }
 
 /* Route map delete from list. */
-static void route_map_delete(struct route_map *map)
+void route_map_delete(struct route_map *map)
 {
 	struct route_map_index *index;
 	char *name;
@@ -749,6 +702,18 @@ struct route_map *route_map_lookup_by_name(const char *name)
 	map = hash_lookup(route_map_master_hash, &tmp_map);
 	XFREE(MTYPE_ROUTE_MAP_NAME, tmp_map.name);
 	return map;
+}
+
+/* Simple helper to warn if route-map does not exist. */
+struct route_map *route_map_lookup_warn_noexist(struct vty *vty, const char *name)
+{
+	struct route_map *route_map = route_map_lookup_by_name(name);
+
+	if (!route_map)
+		if (vty_shell_serv(vty))
+			vty_out(vty, "The route-map '%s' does not exist.\n", name);
+
+	return route_map;
 }
 
 int route_map_mark_updated(const char *name)
@@ -796,7 +761,7 @@ static int route_map_clear_updated(struct route_map *map)
 
 /* Lookup route map.  If there isn't route map create one and return
    it. */
-static struct route_map *route_map_get(const char *name)
+struct route_map *route_map_get(const char *name)
 {
 	struct route_map *map;
 
@@ -829,22 +794,43 @@ static const char *route_map_type_str(enum route_map_type type)
 	switch (type) {
 	case RMAP_PERMIT:
 		return "permit";
-		break;
 	case RMAP_DENY:
 		return "deny";
-		break;
-	default:
+	case RMAP_ANY:
 		return "";
-		break;
 	}
+
+	return "";
 }
 
-static int route_map_empty(struct route_map *map)
+static const char *route_map_cmd_result_str(enum route_map_cmd_result_t res)
 {
-	if (map->head == NULL && map->tail == NULL)
-		return 1;
-	else
-		return 0;
+	switch (res) {
+	case RMAP_MATCH:
+		return "match";
+	case RMAP_NOMATCH:
+		return "no match";
+	case RMAP_NOOP:
+		return "noop";
+	case RMAP_ERROR:
+		return "error";
+	case RMAP_OKAY:
+		return "okay";
+	}
+
+	return "invalid";
+}
+
+static const char *route_map_result_str(route_map_result_t res)
+{
+	switch (res) {
+	case RMAP_DENYMATCH:
+		return "deny";
+	case RMAP_PERMITMATCH:
+		return "permit";
+	}
+
+	return "invalid";
 }
 
 /* show route-map */
@@ -853,11 +839,15 @@ static void vty_show_route_map_entry(struct vty *vty, struct route_map *map)
 	struct route_map_index *index;
 	struct route_map_rule *rule;
 
-	vty_out(vty, "%s:\n", frr_protonameinst);
+	vty_out(vty, "route-map: %s Invoked: %" PRIu64 " Optimization: %s Processed Change: %s\n",
+		map->name, map->applied - map->applied_clear,
+		map->optimization_disabled ? "disabled" : "enabled",
+		map->to_be_processed ? "true" : "false");
 
 	for (index = map->head; index; index = index->next) {
-		vty_out(vty, "route-map %s, %s, sequence %d\n", map->name,
-			route_map_type_str(index->type), index->pref);
+		vty_out(vty, " %s, sequence %d Invoked %" PRIu64 "\n",
+			route_map_type_str(index->type), index->pref,
+			index->applied - index->applied_clear);
 
 		/* Description */
 		if (index->description)
@@ -891,9 +881,19 @@ static void vty_show_route_map_entry(struct vty *vty, struct route_map *map)
 	}
 }
 
+static int sort_route_map(const void **map1, const void **map2)
+{
+	const struct route_map *m1 = *map1;
+	const struct route_map *m2 = *map2;
+
+	return strcmp(m1->name, m2->name);
+}
+
 static int vty_show_route_map(struct vty *vty, const char *name)
 {
 	struct route_map *map;
+
+	vty_out(vty, "%s:\n", frr_protonameinst);
 
 	if (name) {
 		map = route_map_lookup_by_name(name);
@@ -907,13 +907,51 @@ static int vty_show_route_map(struct vty *vty, const char *name)
 			return CMD_SUCCESS;
 		}
 	} else {
+
+		struct list *maplist = list_new();
+		struct listnode *ln;
+
 		for (map = route_map_master.head; map; map = map->next)
-			if (!map->deleted)
-				vty_show_route_map_entry(vty, map);
+			listnode_add(maplist, map);
+
+		list_sort(maplist, sort_route_map);
+
+		for (ALL_LIST_ELEMENTS_RO(maplist, ln, map))
+			vty_show_route_map_entry(vty, map);
+
+		list_delete(&maplist);
 	}
 	return CMD_SUCCESS;
 }
 
+/* Unused route map details */
+static int vty_show_unused_route_map(struct vty *vty)
+{
+	struct list *maplist = list_new();
+	struct listnode *ln;
+	struct route_map *map;
+
+	for (map = route_map_master.head; map; map = map->next) {
+		/* If use_count is zero, No protocol is using this routemap.
+		 * so adding to the list.
+		 */
+		if (!map->use_count)
+			listnode_add(maplist, map);
+	}
+
+	if (maplist->count > 0) {
+		vty_out(vty, "\n%s:\n", frr_protonameinst);
+		list_sort(maplist, sort_route_map);
+
+		for (ALL_LIST_ELEMENTS_RO(maplist, ln, map))
+			vty_show_route_map_entry(vty, map);
+	} else {
+		vty_out(vty, "\n%s: None\n", frr_protonameinst);
+	}
+
+	list_delete(&maplist);
+	return CMD_SUCCESS;
+}
 
 /* New route map allocation. Please note route map's name must be
    specified. */
@@ -923,20 +961,42 @@ static struct route_map_index *route_map_index_new(void)
 
 	new = XCALLOC(MTYPE_ROUTE_MAP_INDEX, sizeof(struct route_map_index));
 	new->exitpolicy = RMAP_EXIT; /* Default to Cisco-style */
+	TAILQ_INIT(&new->rhclist);
 	QOBJ_REG(new, route_map_index);
 	return new;
 }
 
 /* Free route map index. */
-static void route_map_index_delete(struct route_map_index *index, int notify)
+void route_map_index_delete(struct route_map_index *index, int notify)
 {
+	struct routemap_hook_context *rhc;
 	struct route_map_rule *rule;
 
 	QOBJ_UNREG(index);
 
+	if (rmap_debug)
+		zlog_debug("Deleting route-map %s sequence %d",
+			   index->map->name, index->pref);
+
+	/* Free route map entry description. */
+	XFREE(MTYPE_TMP, index->description);
+
+	/* Free route map northbound hook contexts. */
+	while ((rhc = TAILQ_FIRST(&index->rhclist)) != NULL)
+		routemap_hook_context_free(rhc);
+
 	/* Free route match. */
-	while ((rule = index->match_list.head) != NULL)
+	while ((rule = index->match_list.head) != NULL) {
+		if (IS_RULE_IPv4_PREFIX_LIST(rule->cmd->str))
+			route_map_pfx_tbl_update(RMAP_EVENT_PLIST_DELETED,
+						 index, AFI_IP, rule->rule_str);
+		else if (IS_RULE_IPv6_PREFIX_LIST(rule->cmd->str))
+			route_map_pfx_tbl_update(RMAP_EVENT_PLIST_DELETED,
+						 index, AFI_IP6,
+						 rule->rule_str);
+
 		route_map_rule_delete(&index->match_list, rule);
+	}
 
 	/* Free route set. */
 	while ((rule = index->set_list.head) != NULL)
@@ -954,13 +1014,13 @@ static void route_map_index_delete(struct route_map_index *index, int notify)
 		index->map->head = index->next;
 
 	/* Free 'char *nextrm' if not NULL */
-	if (index->nextrm)
-		XFREE(MTYPE_ROUTE_MAP_NAME, index->nextrm);
+	XFREE(MTYPE_ROUTE_MAP_NAME, index->nextrm);
+
+	route_map_pfx_tbl_update(RMAP_EVENT_INDEX_DELETED, index, 0, NULL);
 
 	/* Execute event hook. */
 	if (route_map_master.event_hook && notify) {
-		(*route_map_master.event_hook)(RMAP_EVENT_INDEX_DELETED,
-					       index->map->name);
+		(*route_map_master.event_hook)(index->map->name);
 		route_map_notify_dependencies(index->map->name,
 					      RMAP_EVENT_CALL_ADDED);
 	}
@@ -1017,17 +1077,23 @@ route_map_index_add(struct route_map *map, enum route_map_type type, int pref)
 		point->prev = index;
 	}
 
+	route_map_pfx_tbl_update(RMAP_EVENT_INDEX_ADDED, index, 0, NULL);
+
 	/* Execute event hook. */
 	if (route_map_master.event_hook) {
-		(*route_map_master.event_hook)(RMAP_EVENT_INDEX_ADDED,
-					       map->name);
+		(*route_map_master.event_hook)(map->name);
 		route_map_notify_dependencies(map->name, RMAP_EVENT_CALL_ADDED);
 	}
+
+	if (rmap_debug)
+		zlog_debug("Route-map %s add sequence %d, type: %s",
+			   map->name, pref, route_map_type_str(type));
+
 	return index;
 }
 
 /* Get route map index. */
-static struct route_map_index *
+struct route_map_index *
 route_map_index_get(struct route_map *map, enum route_map_type type, int pref)
 {
 	struct route_map_index *index;
@@ -1053,22 +1119,22 @@ static struct route_map_rule *route_map_rule_new(void)
 }
 
 /* Install rule command to the match list. */
-void route_map_install_match(struct route_map_rule_cmd *cmd)
+void route_map_install_match(const struct route_map_rule_cmd *cmd)
 {
-	vector_set(route_match_vec, cmd);
+	vector_set(route_match_vec, (void *)cmd);
 }
 
 /* Install rule command to the set list. */
-void route_map_install_set(struct route_map_rule_cmd *cmd)
+void route_map_install_set(const struct route_map_rule_cmd *cmd)
 {
-	vector_set(route_set_vec, cmd);
+	vector_set(route_set_vec, (void *)cmd);
 }
 
 /* Lookup rule command from match list. */
-static struct route_map_rule_cmd *route_map_lookup_match(const char *name)
+static const struct route_map_rule_cmd *route_map_lookup_match(const char *name)
 {
 	unsigned int i;
-	struct route_map_rule_cmd *rule;
+	const struct route_map_rule_cmd *rule;
 
 	for (i = 0; i < vector_active(route_match_vec); i++)
 		if ((rule = vector_slot(route_match_vec, i)) != NULL)
@@ -1078,10 +1144,10 @@ static struct route_map_rule_cmd *route_map_lookup_match(const char *name)
 }
 
 /* Lookup rule command from set list. */
-static struct route_map_rule_cmd *route_map_lookup_set(const char *name)
+static const struct route_map_rule_cmd *route_map_lookup_set(const char *name)
 {
 	unsigned int i;
-	struct route_map_rule_cmd *rule;
+	const struct route_map_rule_cmd *rule;
 
 	for (i = 0; i < vector_active(route_set_vec); i++)
 		if ((rule = vector_slot(route_set_vec, i)) != NULL)
@@ -1110,8 +1176,7 @@ static void route_map_rule_delete(struct route_map_rule_list *list,
 	if (rule->cmd->func_free)
 		(*rule->cmd->func_free)(rule->value);
 
-	if (rule->rule_str)
-		XFREE(MTYPE_ROUTE_MAP_RULE_STR, rule->rule_str);
+	XFREE(MTYPE_ROUTE_MAP_RULE_STR, rule->rule_str);
 
 	if (rule->next)
 		rule->next->prev = rule->prev;
@@ -1150,7 +1215,7 @@ const char *route_map_get_match_arg(struct route_map_index *index,
 				    const char *match_name)
 {
 	struct route_map_rule *rule;
-	struct route_map_rule_cmd *cmd;
+	const struct route_map_rule_cmd *cmd;
 
 	/* First lookup rule for add match statement. */
 	cmd = route_map_lookup_match(match_name);
@@ -1161,18 +1226,71 @@ const char *route_map_get_match_arg(struct route_map_index *index,
 		if (rule->cmd == cmd && rule->rule_str != NULL)
 			return (rule->rule_str);
 
-	return (NULL);
+	return NULL;
+}
+
+static route_map_event_t get_route_map_delete_event(route_map_event_t type)
+{
+	switch (type) {
+	case RMAP_EVENT_CALL_ADDED:
+		return RMAP_EVENT_CALL_DELETED;
+	case RMAP_EVENT_PLIST_ADDED:
+		return RMAP_EVENT_PLIST_DELETED;
+	case RMAP_EVENT_CLIST_ADDED:
+		return RMAP_EVENT_CLIST_DELETED;
+	case RMAP_EVENT_ECLIST_ADDED:
+		return RMAP_EVENT_ECLIST_DELETED;
+	case RMAP_EVENT_LLIST_ADDED:
+		return RMAP_EVENT_LLIST_DELETED;
+	case RMAP_EVENT_ASLIST_ADDED:
+		return RMAP_EVENT_ASLIST_DELETED;
+	case RMAP_EVENT_FILTER_ADDED:
+		return RMAP_EVENT_FILTER_DELETED;
+	case RMAP_EVENT_SET_ADDED:
+	case RMAP_EVENT_SET_DELETED:
+	case RMAP_EVENT_SET_REPLACED:
+	case RMAP_EVENT_MATCH_ADDED:
+	case RMAP_EVENT_MATCH_DELETED:
+	case RMAP_EVENT_MATCH_REPLACED:
+	case RMAP_EVENT_INDEX_ADDED:
+	case RMAP_EVENT_INDEX_DELETED:
+	case RMAP_EVENT_CALL_DELETED:
+	case RMAP_EVENT_PLIST_DELETED:
+	case RMAP_EVENT_CLIST_DELETED:
+	case RMAP_EVENT_ECLIST_DELETED:
+	case RMAP_EVENT_LLIST_DELETED:
+	case RMAP_EVENT_ASLIST_DELETED:
+	case RMAP_EVENT_FILTER_DELETED:
+		/* This function returns the appropriate 'deleted' event type
+		 * for every 'added' event type passed to this function.
+		 * This is done only for named entities used in the
+		 * route-map match commands.
+		 * This function is not to be invoked for any of the other event
+		 * types.
+		 */
+		assert(0);
+	}
+
+	assert(0);
+	/*
+	 * Return to make c happy but if we get here something has gone
+	 * terribly terribly wrong, so yes this return makes no sense.
+	 */
+	return RMAP_EVENT_CALL_ADDED;
 }
 
 /* Add match statement to route map. */
-int route_map_add_match(struct route_map_index *index, const char *match_name,
-			const char *match_arg)
+enum rmap_compile_rets route_map_add_match(struct route_map_index *index,
+					   const char *match_name,
+					   const char *match_arg,
+					   route_map_event_t type)
 {
 	struct route_map_rule *rule;
 	struct route_map_rule *next;
-	struct route_map_rule_cmd *cmd;
+	const struct route_map_rule_cmd *cmd;
 	void *compile;
-	int replaced = 0;
+	int8_t delete_rmap_event_type = 0;
+	const char *rule_key;
 
 	/* First lookup rule for add match statement. */
 	cmd = route_map_lookup_match(match_name);
@@ -1186,13 +1304,54 @@ int route_map_add_match(struct route_map_index *index, const char *match_name,
 			return RMAP_COMPILE_ERROR;
 	} else
 		compile = NULL;
+	/* use the compiled results if applicable */
+	if (compile && cmd->func_get_rmap_rule_key)
+		rule_key = (*cmd->func_get_rmap_rule_key)
+			   (compile);
+	else
+		rule_key = match_arg;
 
 	/* If argument is completely same ignore it. */
 	for (rule = index->match_list.head; rule; rule = next) {
 		next = rule->next;
 		if (rule->cmd == cmd) {
+			/* If the configured route-map match rule is exactly
+			 * the same as the existing configuration then,
+			 * ignore the duplicate configuration.
+			 */
+			if (strcmp(match_arg, rule->rule_str) == 0) {
+				if (cmd->func_free)
+					(*cmd->func_free)(compile);
+
+				return RMAP_COMPILE_SUCCESS;
+			}
+
+			/* If IPv4 or IPv6 prefix-list match criteria
+			 * has been delete to the route-map index, update
+			 * the route-map's prefix table.
+			 */
+			if (IS_RULE_IPv4_PREFIX_LIST(match_name))
+				route_map_pfx_tbl_update(
+					RMAP_EVENT_PLIST_DELETED, index, AFI_IP,
+					rule->rule_str);
+			else if (IS_RULE_IPv6_PREFIX_LIST(match_name))
+				route_map_pfx_tbl_update(
+					RMAP_EVENT_PLIST_DELETED, index,
+					AFI_IP6, rule->rule_str);
+
+			/* Remove the dependency of the route-map on the rule
+			 * that is being replaced.
+			 */
+			if (type >= RMAP_EVENT_CALL_ADDED) {
+				delete_rmap_event_type =
+					get_route_map_delete_event(type);
+				route_map_upd8_dependency(
+							delete_rmap_event_type,
+							rule->rule_str,
+							index->map->name);
+			}
+
 			route_map_rule_delete(&index->match_list, rule);
-			replaced = 1;
 		}
 	}
 
@@ -1208,58 +1367,95 @@ int route_map_add_match(struct route_map_index *index, const char *match_name,
 	/* Add new route match rule to linked list. */
 	route_map_rule_add(&index->match_list, rule);
 
+	/* If IPv4 or IPv6 prefix-list match criteria
+	 * has been added to the route-map index, update
+	 * the route-map's prefix table.
+	 */
+	if (IS_RULE_IPv4_PREFIX_LIST(match_name)) {
+		route_map_pfx_tbl_update(RMAP_EVENT_PLIST_ADDED, index, AFI_IP,
+					 match_arg);
+	} else if (IS_RULE_IPv6_PREFIX_LIST(match_name)) {
+		route_map_pfx_tbl_update(RMAP_EVENT_PLIST_ADDED, index, AFI_IP6,
+					 match_arg);
+	}
+
 	/* Execute event hook. */
 	if (route_map_master.event_hook) {
-		(*route_map_master.event_hook)(
-			replaced ? RMAP_EVENT_MATCH_REPLACED
-				 : RMAP_EVENT_MATCH_ADDED,
-			index->map->name);
+		(*route_map_master.event_hook)(index->map->name);
 		route_map_notify_dependencies(index->map->name,
 					      RMAP_EVENT_CALL_ADDED);
 	}
+	if (type != RMAP_EVENT_MATCH_ADDED)
+		route_map_upd8_dependency(type, rule_key, index->map->name);
 
 	return RMAP_COMPILE_SUCCESS;
 }
 
 /* Delete specified route match rule. */
-int route_map_delete_match(struct route_map_index *index,
-			   const char *match_name, const char *match_arg)
+enum rmap_compile_rets route_map_delete_match(struct route_map_index *index,
+					      const char *match_name,
+					      const char *match_arg,
+					      route_map_event_t type)
 {
 	struct route_map_rule *rule;
-	struct route_map_rule_cmd *cmd;
+	const struct route_map_rule_cmd *cmd;
+	const char *rule_key;
 
 	cmd = route_map_lookup_match(match_name);
 	if (cmd == NULL)
-		return 1;
+		return RMAP_RULE_MISSING;
 
 	for (rule = index->match_list.head; rule; rule = rule->next)
 		if (rule->cmd == cmd && (rulecmp(rule->rule_str, match_arg) == 0
 					 || match_arg == NULL)) {
-			route_map_rule_delete(&index->match_list, rule);
 			/* Execute event hook. */
 			if (route_map_master.event_hook) {
-				(*route_map_master.event_hook)(
-					RMAP_EVENT_MATCH_DELETED,
-					index->map->name);
+				(*route_map_master.event_hook)(index->map->name);
 				route_map_notify_dependencies(
 					index->map->name,
 					RMAP_EVENT_CALL_ADDED);
 			}
-			return 0;
+			if (cmd->func_get_rmap_rule_key)
+				rule_key = (*cmd->func_get_rmap_rule_key)
+					   (rule->value);
+			else
+				rule_key = match_arg;
+
+			if (type != RMAP_EVENT_MATCH_DELETED && rule_key)
+				route_map_upd8_dependency(type, rule_key,
+						index->map->name);
+
+			route_map_rule_delete(&index->match_list, rule);
+
+			/* If IPv4 or IPv6 prefix-list match criteria
+			 * has been delete from the route-map index, update
+			 * the route-map's prefix table.
+			 */
+			if (IS_RULE_IPv4_PREFIX_LIST(match_name)) {
+				route_map_pfx_tbl_update(
+					RMAP_EVENT_PLIST_DELETED, index, AFI_IP,
+					match_arg);
+			} else if (IS_RULE_IPv6_PREFIX_LIST(match_name)) {
+				route_map_pfx_tbl_update(
+					RMAP_EVENT_PLIST_DELETED, index,
+					AFI_IP6, match_arg);
+			}
+
+			return RMAP_COMPILE_SUCCESS;
 		}
 	/* Can't find matched rule. */
-	return 1;
+	return RMAP_RULE_MISSING;
 }
 
 /* Add route-map set statement to the route map. */
-int route_map_add_set(struct route_map_index *index, const char *set_name,
-		      const char *set_arg)
+enum rmap_compile_rets route_map_add_set(struct route_map_index *index,
+					 const char *set_name,
+					 const char *set_arg)
 {
 	struct route_map_rule *rule;
 	struct route_map_rule *next;
-	struct route_map_rule_cmd *cmd;
+	const struct route_map_rule_cmd *cmd;
 	void *compile;
-	int replaced = 0;
 
 	cmd = route_map_lookup_set(set_name);
 	if (cmd == NULL)
@@ -1278,10 +1474,8 @@ int route_map_add_set(struct route_map_index *index, const char *set_name,
 	   route_map_index. */
 	for (rule = index->set_list.head; rule; rule = next) {
 		next = rule->next;
-		if (rule->cmd == cmd) {
+		if (rule->cmd == cmd)
 			route_map_rule_delete(&index->set_list, rule);
-			replaced = 1;
-		}
 	}
 
 	/* Add new route map match rule. */
@@ -1298,10 +1492,7 @@ int route_map_add_set(struct route_map_index *index, const char *set_name,
 
 	/* Execute event hook. */
 	if (route_map_master.event_hook) {
-		(*route_map_master.event_hook)(replaced
-						       ? RMAP_EVENT_SET_REPLACED
-						       : RMAP_EVENT_SET_ADDED,
-					       index->map->name);
+		(*route_map_master.event_hook)(index->map->name);
 		route_map_notify_dependencies(index->map->name,
 					      RMAP_EVENT_CALL_ADDED);
 	}
@@ -1309,15 +1500,16 @@ int route_map_add_set(struct route_map_index *index, const char *set_name,
 }
 
 /* Delete route map set rule. */
-int route_map_delete_set(struct route_map_index *index, const char *set_name,
-			 const char *set_arg)
+enum rmap_compile_rets route_map_delete_set(struct route_map_index *index,
+					    const char *set_name,
+					    const char *set_arg)
 {
 	struct route_map_rule *rule;
-	struct route_map_rule_cmd *cmd;
+	const struct route_map_rule_cmd *cmd;
 
 	cmd = route_map_lookup_set(set_name);
 	if (cmd == NULL)
-		return 1;
+		return RMAP_RULE_MISSING;
 
 	for (rule = index->set_list.head; rule; rule = rule->next)
 		if ((rule->cmd == cmd) && (rulecmp(rule->rule_str, set_arg) == 0
@@ -1325,17 +1517,809 @@ int route_map_delete_set(struct route_map_index *index, const char *set_name,
 			route_map_rule_delete(&index->set_list, rule);
 			/* Execute event hook. */
 			if (route_map_master.event_hook) {
-				(*route_map_master.event_hook)(
-					RMAP_EVENT_SET_DELETED,
-					index->map->name);
+				(*route_map_master.event_hook)(index->map->name);
 				route_map_notify_dependencies(
 					index->map->name,
 					RMAP_EVENT_CALL_ADDED);
 			}
-			return 0;
+			return RMAP_COMPILE_SUCCESS;
 		}
 	/* Can't find matched rule. */
-	return 1;
+	return RMAP_RULE_MISSING;
+}
+
+static enum route_map_cmd_result_t
+route_map_apply_match(struct route_map_rule_list *match_list,
+		      const struct prefix *prefix, route_map_object_t type,
+		      void *object)
+{
+	enum route_map_cmd_result_t ret = RMAP_NOMATCH;
+	struct route_map_rule *match;
+	bool is_matched = false;
+
+
+	/* Check all match rule and if there is no match rule, go to the
+	   set statement. */
+	if (!match_list->head)
+		ret = RMAP_MATCH;
+	else {
+		for (match = match_list->head; match; match = match->next) {
+			/*
+			 * Try each match statement. If any match does not
+			 * return RMAP_MATCH or RMAP_NOOP, return.
+			 * Otherwise continue on to next match statement.
+			 * All match statements must MATCH for
+			 * end-result to be a match.
+			 * (Exception:If match stmts result in a mix of
+			 * MATCH/NOOP, then also end-result is a match)
+			 * If all result in NOOP, end-result is NOOP.
+			 */
+			ret = (*match->cmd->func_apply)(match->value, prefix,
+							type, object);
+
+			/*
+			 * If the consolidated result of func_apply is:
+			 *   -----------------------------------------------
+			 *   |  MATCH  | NOMATCH  |  NOOP   |  Final Result |
+			 *   ------------------------------------------------
+			 *   |   yes   |   yes    |  yes    |     NOMATCH   |
+			 *   |   no    |   no     |  yes    |     NOOP      |
+			 *   |   yes   |   no     |  yes    |     MATCH     |
+			 *   |   no    |   yes    |  yes    |     NOMATCH   |
+			 *   |-----------------------------------------------
+			 *
+			 *  Traditionally, all rules within route-map
+			 *  should match for it to MATCH.
+			 *  If there are noops within the route-map rules,
+			 *  it follows the above matrix.
+			 *
+			 *   Eg: route-map rm1 permit 10
+			 *         match rule1
+			 *         match rule2
+			 *         match rule3
+			 *         ....
+			 *       route-map rm1 permit 20
+			 *         match ruleX
+			 *         match ruleY
+			 *         ...
+			 */
+
+			switch (ret) {
+			case RMAP_MATCH:
+				is_matched = true;
+				break;
+
+			case RMAP_NOMATCH:
+				return ret;
+
+			case RMAP_NOOP:
+				if (is_matched)
+					ret = RMAP_MATCH;
+				break;
+
+			default:
+				break;
+			}
+
+		}
+	}
+	return ret;
+}
+
+static struct list *route_map_get_index_list(struct route_node **rn,
+					     const struct prefix *prefix,
+					     struct route_table *table)
+{
+	struct route_node *tmp_rn = NULL;
+
+	if (!(*rn)) {
+		*rn = route_node_match(table, prefix);
+
+		if (!(*rn))
+			return NULL;
+
+		if ((*rn)->info)
+			return (struct list *)((*rn)->info);
+
+		/* If rn->info is NULL, get the parent.
+		 * Store the rn in tmp_rn and unlock it later.
+		 */
+		tmp_rn = *rn;
+	}
+
+	do {
+		*rn = (*rn)->parent;
+		if (tmp_rn)
+			route_unlock_node(tmp_rn);
+
+		if (!(*rn))
+			break;
+
+		if ((*rn)->info) {
+			route_lock_node(*rn);
+			return (struct list *)((*rn)->info);
+		}
+	} while (!(*rn)->info);
+
+	return NULL;
+}
+
+/*
+ * This function returns the route-map index that best matches the prefix.
+ */
+static struct route_map_index *
+route_map_get_index(struct route_map *map, const struct prefix *prefix,
+		    route_map_object_t type, void *object, uint8_t *match_ret)
+{
+	int ret = 0;
+	struct list *candidate_rmap_list = NULL;
+	struct route_node *rn = NULL;
+	struct listnode *ln = NULL, *nn = NULL;
+	struct route_map_index *index = NULL, *best_index = NULL;
+	struct route_map_index *head_index = NULL;
+	struct route_table *table = NULL;
+	unsigned char family = prefix->family;
+
+	if (family == AF_INET)
+		table = map->ipv4_prefix_table;
+	else
+		table = map->ipv6_prefix_table;
+
+	if (!table)
+		return NULL;
+
+	do {
+		candidate_rmap_list =
+			route_map_get_index_list(&rn, prefix, table);
+		if (!rn)
+			break;
+
+		/* If the index at the head of the list is of seq higher
+		 * than that in best_index, ignore the list and get the
+		 * parent node's list.
+		 */
+		head_index = (struct route_map_index *)(listgetdata(
+			listhead(candidate_rmap_list)));
+		if (best_index && head_index
+		    && (best_index->pref < head_index->pref)) {
+			route_unlock_node(rn);
+			continue;
+		}
+
+		for (ALL_LIST_ELEMENTS(candidate_rmap_list, ln, nn, index)) {
+			/* If the index is of seq higher than that in
+			 * best_index, ignore the list and get the parent
+			 * node's list.
+			 */
+			if (best_index && (best_index->pref < index->pref))
+				break;
+
+			ret = route_map_apply_match(&index->match_list, prefix,
+						    type, object);
+
+			if (ret == RMAP_MATCH) {
+				*match_ret = ret;
+				best_index = index;
+				break;
+			} else if (ret == RMAP_NOOP) {
+				/*
+				 * If match_ret is denymatch, even if we see
+				 * more noops, we retain this return value and
+				 * return this eventually if there are no
+				 * matches.
+				 * If a best match route-map index already
+				 * exists, do not reset the match_ret.
+				 */
+				if (!best_index && (*match_ret != RMAP_NOMATCH))
+					*match_ret = ret;
+			} else {
+				/*
+				 * ret is RMAP_NOMATCH.
+				 * If a best match route-map index already
+				 * exists, do not reset the match_ret.
+				 */
+				if (!best_index)
+					*match_ret = ret;
+			}
+		}
+
+		route_unlock_node(rn);
+
+	} while (rn);
+
+	return best_index;
+}
+
+static int route_map_candidate_list_cmp(struct route_map_index *idx1,
+					struct route_map_index *idx2)
+{
+	if (!idx1)
+		return -1;
+	if (!idx2)
+		return 1;
+
+	return (idx1->pref - idx2->pref);
+}
+
+/*
+ * This function adds the route-map index into the default route's
+ * route-node in the route-map's IPv4/IPv6 prefix-table.
+ */
+static void route_map_pfx_table_add_default(afi_t afi,
+					    struct route_map_index *index)
+{
+	struct route_node *rn = NULL;
+	struct list *rmap_candidate_list = NULL;
+	struct prefix p;
+	bool updated_rn = false;
+	struct route_table *table = NULL;
+
+	memset(&p, 0, sizeof(p));
+	p.family = afi2family(afi);
+	p.prefixlen = 0;
+
+	if (p.family == AF_INET) {
+		table = index->map->ipv4_prefix_table;
+		if (!table)
+			index->map->ipv4_prefix_table = route_table_init();
+
+		table = index->map->ipv4_prefix_table;
+	} else {
+		table = index->map->ipv6_prefix_table;
+		if (!table)
+			index->map->ipv6_prefix_table = route_table_init();
+
+		table = index->map->ipv6_prefix_table;
+	}
+
+	/* Add default route to table */
+	rn = route_node_get(table, &p);
+
+	if (!rn)
+		return;
+
+	if (!rn->info) {
+		rmap_candidate_list = list_new();
+		rmap_candidate_list->cmp =
+			(int (*)(void *, void *))route_map_candidate_list_cmp;
+		rn->info = rmap_candidate_list;
+	} else {
+		rmap_candidate_list = (struct list *)rn->info;
+		updated_rn = true;
+	}
+
+	listnode_add_sort_nodup(rmap_candidate_list, index);
+	if (updated_rn)
+		route_unlock_node(rn);
+}
+
+/*
+ * This function removes the route-map index from the default route's
+ * route-node in the route-map's IPv4/IPv6 prefix-table.
+ */
+static void route_map_pfx_table_del_default(afi_t afi,
+					    struct route_map_index *index)
+{
+	struct route_node *rn = NULL;
+	struct list *rmap_candidate_list = NULL;
+	struct prefix p;
+	struct route_table *table = NULL;
+
+	memset(&p, 0, sizeof(p));
+	p.family = afi2family(afi);
+	p.prefixlen = 0;
+
+	if (p.family == AF_INET)
+		table = index->map->ipv4_prefix_table;
+	else
+		table = index->map->ipv6_prefix_table;
+
+	/* Remove RMAP index from default route in table */
+	rn = route_node_lookup(table, &p);
+	if (!rn || !rn->info)
+		return;
+
+	rmap_candidate_list = (struct list *)rn->info;
+
+	listnode_delete(rmap_candidate_list, index);
+
+	if (listcount(rmap_candidate_list) == 0) {
+		list_delete(&rmap_candidate_list);
+		rn->info = NULL;
+		route_unlock_node(rn);
+	}
+	route_unlock_node(rn);
+}
+
+/*
+ * This function adds the route-map index to the route-node for
+ * the prefix-entry in the route-map's IPv4/IPv6 prefix-table.
+ */
+static void route_map_pfx_table_add(struct route_table *table,
+				    struct route_map_index *index,
+				    struct prefix_list_entry *pentry)
+{
+	struct route_node *rn = NULL;
+	struct list *rmap_candidate_list = NULL;
+	bool updated_rn = false;
+
+	rn = route_node_get(table, &pentry->prefix);
+	if (!rn)
+		return;
+
+	if (!rn->info) {
+		rmap_candidate_list = list_new();
+		rmap_candidate_list->cmp =
+			(int (*)(void *, void *))route_map_candidate_list_cmp;
+		rn->info = rmap_candidate_list;
+	} else {
+		rmap_candidate_list = (struct list *)rn->info;
+		updated_rn = true;
+	}
+
+	listnode_add_sort_nodup(rmap_candidate_list, index);
+	if (updated_rn)
+		route_unlock_node(rn);
+}
+
+/*
+ * This function removes the route-map index from the route-node for
+ * the prefix-entry in the route-map's IPv4/IPv6 prefix-table.
+ */
+static void route_map_pfx_table_del(struct route_table *table,
+				    struct route_map_index *index,
+				    struct prefix_list_entry *pentry)
+{
+	struct route_node *rn = NULL;
+	struct list *rmap_candidate_list = NULL;
+
+	rn = route_node_lookup(table, &pentry->prefix);
+	if (!rn || !rn->info)
+		return;
+
+	rmap_candidate_list = (struct list *)rn->info;
+
+	listnode_delete(rmap_candidate_list, index);
+
+	if (listcount(rmap_candidate_list) == 0) {
+		list_delete(&rmap_candidate_list);
+		rn->info = NULL;
+		route_unlock_node(rn);
+	}
+	route_unlock_node(rn);
+}
+
+/* This function checks for the presence of an IPv4 prefix-list
+ * match rule in the given route-map index.
+ */
+static bool route_map_is_ip_pfx_list_rule_present(struct route_map_index *index)
+{
+	struct route_map_rule_list *match_list = NULL;
+	struct route_map_rule *rule = NULL;
+
+	match_list = &index->match_list;
+	for (rule = match_list->head; rule; rule = rule->next)
+		if (IS_RULE_IPv4_PREFIX_LIST(rule->cmd->str))
+			return true;
+
+	return false;
+}
+
+/* This function checks for the presence of an IPv6 prefix-list
+ * match rule in the given route-map index.
+ */
+static bool
+route_map_is_ipv6_pfx_list_rule_present(struct route_map_index *index)
+{
+	struct route_map_rule_list *match_list = NULL;
+	struct route_map_rule *rule = NULL;
+
+	match_list = &index->match_list;
+	for (rule = match_list->head; rule; rule = rule->next)
+		if (IS_RULE_IPv6_PREFIX_LIST(rule->cmd->str))
+			return true;
+
+	return false;
+}
+
+/* This function does the following:
+ * 1) If plist_name is not present, search for a IPv4 or IPv6 prefix-list
+ *    match clause (based on the afi passed to this foo) and get the
+ *    prefix-list name.
+ * 2) Look up the prefix-list using the name.
+ * 3) If the prefix-list is not found then, add the index to the IPv4/IPv6
+ *    default-route's node in the trie (based on the afi passed to this foo).
+ * 4) If the prefix-list is found then, remove the index from the IPv4/IPv6
+ *    default-route's node in the trie (based on the afi passed to this foo).
+ * 5) If a prefix-entry is passed then, create a route-node for this entry and
+ *    add this index to the route-node.
+ * 6) If prefix-entry is not passed then, for every prefix-entry in the
+ *    prefix-list, create a route-node for this entry and
+ *    add this index to the route-node.
+ */
+static void route_map_add_plist_entries(afi_t afi,
+					struct route_map_index *index,
+					const char *plist_name,
+					struct prefix_list_entry *entry)
+{
+	struct route_map_rule_list *match_list = NULL;
+	struct route_map_rule *match = NULL;
+	struct prefix_list *plist = NULL;
+	struct prefix_list_entry *pentry = NULL;
+	bool plist_rule_is_present = false;
+
+	if (!plist_name) {
+		match_list = &index->match_list;
+
+		for (match = match_list->head; match; match = match->next) {
+			if (afi == AFI_IP) {
+				if (IS_RULE_IPv4_PREFIX_LIST(match->cmd->str)) {
+					plist_rule_is_present = true;
+					break;
+				}
+			} else {
+				if (IS_RULE_IPv6_PREFIX_LIST(match->cmd->str)) {
+					plist_rule_is_present = true;
+					break;
+				}
+			}
+		}
+
+		if (plist_rule_is_present)
+			plist = prefix_list_lookup(afi, match->rule_str);
+	} else {
+		plist = prefix_list_lookup(afi, plist_name);
+	}
+
+	if (!plist) {
+		route_map_pfx_table_add_default(afi, index);
+		return;
+	}
+
+	route_map_pfx_table_del_default(afi, index);
+
+	if (entry) {
+		if (afi == AFI_IP) {
+			route_map_pfx_table_add(index->map->ipv4_prefix_table,
+						index, entry);
+		} else {
+			route_map_pfx_table_add(index->map->ipv6_prefix_table,
+						index, entry);
+		}
+	} else {
+		for (pentry = plist->head; pentry; pentry = pentry->next) {
+			if (afi == AFI_IP) {
+				route_map_pfx_table_add(
+					index->map->ipv4_prefix_table, index,
+					pentry);
+			} else {
+				route_map_pfx_table_add(
+					index->map->ipv6_prefix_table, index,
+					pentry);
+			}
+		}
+	}
+}
+
+/* This function does the following:
+ * 1) If plist_name is not present, search for a IPv4 or IPv6 prefix-list
+ *    match clause (based on the afi passed to this foo) and get the
+ *    prefix-list name.
+ * 2) Look up the prefix-list using the name.
+ * 3) If the prefix-list is not found then, delete the index from the IPv4/IPv6
+ *    default-route's node in the trie (based on the afi passed to this foo).
+ * 4) If a prefix-entry is passed then, remove this index from the route-node
+ *    for the prefix in this prefix-entry.
+ * 5) If prefix-entry is not passed then, for every prefix-entry in the
+ *    prefix-list, remove this index from the route-node
+ *    for the prefix in this prefix-entry.
+ */
+static void route_map_del_plist_entries(afi_t afi,
+					struct route_map_index *index,
+					const char *plist_name,
+					struct prefix_list_entry *entry)
+{
+	struct route_map_rule_list *match_list = NULL;
+	struct route_map_rule *match = NULL;
+	struct prefix_list *plist = NULL;
+	struct prefix_list_entry *pentry = NULL;
+	bool plist_rule_is_present = false;
+
+	if (!plist_name) {
+		match_list = &index->match_list;
+
+		for (match = match_list->head; match; match = match->next) {
+			if (afi == AFI_IP) {
+				if (IS_RULE_IPv4_PREFIX_LIST(match->cmd->str)) {
+					plist_rule_is_present = true;
+					break;
+				}
+			} else {
+				if (IS_RULE_IPv6_PREFIX_LIST(match->cmd->str)) {
+					plist_rule_is_present = true;
+					break;
+				}
+			}
+		}
+
+		if (plist_rule_is_present)
+			plist = prefix_list_lookup(afi, match->rule_str);
+	} else {
+		plist = prefix_list_lookup(afi, plist_name);
+	}
+
+	if (!plist) {
+		route_map_pfx_table_del_default(afi, index);
+		return;
+	}
+
+	if (entry) {
+		if (afi == AFI_IP) {
+			route_map_pfx_table_del(index->map->ipv4_prefix_table,
+						index, entry);
+		} else {
+			route_map_pfx_table_del(index->map->ipv6_prefix_table,
+						index, entry);
+		}
+	} else {
+		for (pentry = plist->head; pentry; pentry = pentry->next) {
+			if (afi == AFI_IP) {
+				route_map_pfx_table_del(
+					index->map->ipv4_prefix_table, index,
+					pentry);
+			} else {
+				route_map_pfx_table_del(
+					index->map->ipv6_prefix_table, index,
+					pentry);
+			}
+		}
+	}
+}
+
+/*
+ * This function handles the cases where a prefix-list is added/removed
+ * as a match command from a particular route-map index.
+ * It updates the prefix-table of the route-map accordingly.
+ */
+static void route_map_trie_update(afi_t afi, route_map_event_t event,
+				  struct route_map_index *index,
+				  const char *plist_name)
+{
+	if (event == RMAP_EVENT_PLIST_ADDED) {
+		if (afi == AFI_IP) {
+			if (!route_map_is_ipv6_pfx_list_rule_present(index)) {
+				route_map_pfx_table_del_default(AFI_IP6, index);
+				route_map_add_plist_entries(afi, index,
+							    plist_name, NULL);
+			} else {
+				route_map_del_plist_entries(AFI_IP6, index,
+							    NULL, NULL);
+			}
+		} else {
+			if (!route_map_is_ip_pfx_list_rule_present(index)) {
+				route_map_pfx_table_del_default(AFI_IP, index);
+				route_map_add_plist_entries(afi, index,
+							    plist_name, NULL);
+			} else {
+				route_map_del_plist_entries(AFI_IP, index, NULL,
+							    NULL);
+			}
+		}
+	} else if (event == RMAP_EVENT_PLIST_DELETED) {
+		if (afi == AFI_IP) {
+			route_map_del_plist_entries(afi, index, plist_name,
+						    NULL);
+
+			/* If IPv6 prefix-list match rule is not present,
+			 * add this index to the IPv4 default route's trie
+			 * node.
+			 * Also, add this index to the trie nodes created
+			 * for each of the prefix-entries within the IPv6
+			 * prefix-list, if the IPv6 prefix-list match rule
+			 * is present. Else, add this index to the IPv6
+			 * default route's trie node.
+			 */
+			if (!route_map_is_ipv6_pfx_list_rule_present(index))
+				route_map_pfx_table_add_default(afi, index);
+
+			route_map_add_plist_entries(AFI_IP6, index, NULL, NULL);
+		} else {
+			route_map_del_plist_entries(afi, index, plist_name,
+						    NULL);
+
+			/* If IPv4 prefix-list match rule is not present,
+			 * add this index to the IPv6 default route's trie
+			 * node.
+			 * Also, add this index to the trie nodes created
+			 * for each of the prefix-entries within the IPv4
+			 * prefix-list, if the IPv4 prefix-list match rule
+			 * is present. Else, add this index to the IPv4
+			 * default route's trie node.
+			 */
+			if (!route_map_is_ip_pfx_list_rule_present(index))
+				route_map_pfx_table_add_default(afi, index);
+
+			route_map_add_plist_entries(AFI_IP, index, NULL, NULL);
+		}
+	}
+}
+
+/*
+ * This function handles the cases where a route-map index and
+ * prefix-list is added/removed.
+ * It updates the prefix-table of the route-map accordingly.
+ */
+static void route_map_pfx_tbl_update(route_map_event_t event,
+				     struct route_map_index *index, afi_t afi,
+				     const char *plist_name)
+{
+	struct route_map *rmap = NULL;
+
+	if (!index)
+		return;
+
+	if (event == RMAP_EVENT_INDEX_ADDED) {
+		route_map_pfx_table_add_default(AFI_IP, index);
+		route_map_pfx_table_add_default(AFI_IP6, index);
+		return;
+	}
+
+	if (event == RMAP_EVENT_INDEX_DELETED) {
+		route_map_pfx_table_del_default(AFI_IP, index);
+		route_map_pfx_table_del_default(AFI_IP6, index);
+
+		if ((index->map->head == NULL) && (index->map->tail == NULL)) {
+			rmap = index->map;
+
+			if (rmap->ipv4_prefix_table) {
+				route_table_finish(rmap->ipv4_prefix_table);
+				rmap->ipv4_prefix_table = NULL;
+			}
+
+			if (rmap->ipv6_prefix_table) {
+				route_table_finish(rmap->ipv6_prefix_table);
+				rmap->ipv6_prefix_table = NULL;
+			}
+		}
+		return;
+	}
+
+	/* Handle prefix-list match rule addition/deletion.
+	 */
+	route_map_trie_update(afi, event, index, plist_name);
+}
+
+/*
+ * This function handles the cases where a new prefix-entry is added to
+ * a prefix-list or, an existing prefix-entry is removed from the prefix-list.
+ * It updates the prefix-table of the route-map accordingly.
+ */
+static void route_map_pentry_update(route_map_event_t event,
+				    const char *plist_name,
+				    struct route_map_index *index,
+				    struct prefix_list_entry *pentry)
+{
+	struct prefix_list *plist = NULL;
+	afi_t afi;
+	unsigned char family = pentry->prefix.family;
+
+	if (family == AF_INET) {
+		afi = AFI_IP;
+		plist = prefix_list_lookup(AFI_IP, plist_name);
+	} else {
+		afi = AFI_IP6;
+		plist = prefix_list_lookup(AFI_IP6, plist_name);
+	}
+
+	if (event == RMAP_EVENT_PLIST_ADDED) {
+		if (afi == AFI_IP) {
+			if (!route_map_is_ipv6_pfx_list_rule_present(index))
+				route_map_add_plist_entries(afi, index,
+							    plist_name, pentry);
+		} else {
+			if (!route_map_is_ip_pfx_list_rule_present(index))
+				route_map_add_plist_entries(afi, index,
+							    plist_name, pentry);
+		}
+	} else if (event == RMAP_EVENT_PLIST_DELETED) {
+		route_map_del_plist_entries(afi, index, plist_name, pentry);
+
+		if (plist->count == 1) {
+			if (afi == AFI_IP) {
+				if (!route_map_is_ipv6_pfx_list_rule_present(
+					    index))
+					route_map_pfx_table_add_default(afi,
+									index);
+			} else {
+				if (!route_map_is_ip_pfx_list_rule_present(
+					    index))
+					route_map_pfx_table_add_default(afi,
+									index);
+			}
+		}
+	}
+}
+
+static void route_map_pentry_process_dependency(struct hash_bucket *backet,
+						void *data)
+{
+	char *rmap_name = NULL;
+	struct route_map *rmap = NULL;
+	struct route_map_index *index = NULL;
+	struct route_map_rule_list *match_list = NULL;
+	struct route_map_rule *match = NULL;
+	struct route_map_dep_data *dep_data = NULL;
+	struct route_map_pentry_dep *pentry_dep =
+		(struct route_map_pentry_dep *)data;
+	unsigned char family = pentry_dep->pentry->prefix.family;
+
+	dep_data = (struct route_map_dep_data *)backet->data;
+	if (!dep_data)
+		return;
+
+	rmap_name = dep_data->rname;
+	rmap = route_map_lookup_by_name(rmap_name);
+	if (!rmap || !rmap->head)
+		return;
+
+	for (index = rmap->head; index; index = index->next) {
+		match_list = &index->match_list;
+
+		if (!match_list)
+			continue;
+
+		for (match = match_list->head; match; match = match->next) {
+			if (strcmp(match->rule_str, pentry_dep->plist_name)
+			    == 0) {
+				if (IS_RULE_IPv4_PREFIX_LIST(match->cmd->str)
+				    && family == AF_INET) {
+					route_map_pentry_update(
+						pentry_dep->event,
+						pentry_dep->plist_name, index,
+						pentry_dep->pentry);
+				} else if (IS_RULE_IPv6_PREFIX_LIST(
+						   match->cmd->str)
+					   && family == AF_INET6) {
+					route_map_pentry_update(
+						pentry_dep->event,
+						pentry_dep->plist_name, index,
+						pentry_dep->pentry);
+				}
+			}
+		}
+	}
+}
+
+void route_map_notify_pentry_dependencies(const char *affected_name,
+					  struct prefix_list_entry *pentry,
+					  route_map_event_t event)
+{
+	struct route_map_dep *dep = NULL;
+	struct hash *upd8_hash = NULL;
+	struct route_map_pentry_dep pentry_dep;
+
+	if (!affected_name || !pentry)
+		return;
+
+	upd8_hash = route_map_get_dep_hash(event);
+	if (!upd8_hash)
+		return;
+
+	dep = (struct route_map_dep *)hash_get(upd8_hash, (void *)affected_name,
+					       NULL);
+	if (dep) {
+		if (!dep->this_hash)
+			dep->this_hash = upd8_hash;
+
+		memset(&pentry_dep, 0, sizeof(struct route_map_pentry_dep));
+		pentry_dep.pentry = pentry;
+		pentry_dep.plist_name = affected_name;
+		pentry_dep.event = event;
+
+		hash_iterate(dep->dep_rmap_hash,
+			     route_map_pentry_process_dependency,
+			     (void *)&pentry_dep);
+	}
 }
 
 /* Apply route map's each index to the object.
@@ -1344,14 +2328,14 @@ int route_map_delete_set(struct route_map_index *index, const char *set_name,
    (note, this includes the description for the "NEXT"
    and "GOTO" frobs now
 
-	      Match   |   No Match
-		      |
-    permit    action  |     cont
-		      |
-    ------------------+---------------
-		      |
-    deny      deny    |     cont
-		      |
+	   |   Match   |   No Match   | No op
+	   |-----------|--------------|-------
+    permit |   action  |     cont     | cont.
+	   |           | default:deny | default:permit
+    -------------------+-----------------------
+	   |   deny    |     cont     | cont.
+    deny   |           | default:deny | default:permit
+	   |-----------|--------------|--------
 
    action)
       -Apply Set statements, accept route
@@ -1384,77 +2368,132 @@ int route_map_delete_set(struct route_map_index *index, const char *set_name,
 
    We need to make sure our route-map processing matches the above
 */
-
-static route_map_result_t
-route_map_apply_match(struct route_map_rule_list *match_list,
-		      const struct prefix *prefix, route_map_object_t type,
-		      void *object)
-{
-	route_map_result_t ret = RMAP_NOMATCH;
-	struct route_map_rule *match;
-
-
-	/* Check all match rule and if there is no match rule, go to the
-	   set statement. */
-	if (!match_list->head)
-		ret = RMAP_MATCH;
-	else {
-		for (match = match_list->head; match; match = match->next) {
-			/* Try each match statement in turn, If any do not
-			   return
-			   RMAP_MATCH, return, otherwise continue on to next
-			   match
-			   statement. All match statements must match for
-			   end-result
-			   to be a match. */
-			ret = (*match->cmd->func_apply)(match->value, prefix,
-							type, object);
-			if (ret != RMAP_MATCH)
-				return ret;
-		}
-	}
-	return ret;
-}
-
-/* Apply route map to the object. */
 route_map_result_t route_map_apply(struct route_map *map,
 				   const struct prefix *prefix,
 				   route_map_object_t type, void *object)
 {
 	static int recursion = 0;
-	int ret = 0;
-	struct route_map_index *index;
-	struct route_map_rule *set;
+	enum route_map_cmd_result_t match_ret = RMAP_NOMATCH;
+	route_map_result_t ret = RMAP_PERMITMATCH;
+	struct route_map_index *index = NULL;
+	struct route_map_rule *set = NULL;
+	char buf[PREFIX_STRLEN];
+	bool skip_match_clause = false;
 
 	if (recursion > RMAP_RECURSION_LIMIT) {
-		zlog_warn(
+		flog_warn(
+			EC_LIB_RMAP_RECURSION_LIMIT,
 			"route-map recursion limit (%d) reached, discarding route",
 			RMAP_RECURSION_LIMIT);
 		recursion = 0;
 		return RMAP_DENYMATCH;
 	}
 
-	if (map == NULL)
-		return RMAP_DENYMATCH;
+	if (map == NULL || map->head == NULL) {
+		ret = RMAP_DENYMATCH;
+		goto route_map_apply_end;
+	}
 
-	for (index = map->head; index; index = index->next) {
-		/* Apply this index. */
-		ret = route_map_apply_match(&index->match_list, prefix, type,
-					    object);
+	map->applied++;
+
+	if ((!map->optimization_disabled)
+	    && (map->ipv4_prefix_table || map->ipv6_prefix_table)) {
+		index = route_map_get_index(map, prefix, type, object,
+					    (uint8_t *)&match_ret);
+		if (index) {
+			if (rmap_debug)
+				zlog_debug(
+					"Best match route-map: %s, sequence: %d for pfx: %s, result: %s",
+					map->name, index->pref,
+					prefix2str(prefix, buf, sizeof(buf)),
+					route_map_cmd_result_str(match_ret));
+		} else {
+			if (rmap_debug)
+				zlog_debug(
+					"No best match sequence for pfx: %s in route-map: %s, result: %s",
+					prefix2str(prefix, buf, sizeof(buf)),
+					map->name,
+					route_map_cmd_result_str(match_ret));
+			/*
+			 * No index matches this prefix. Return deny unless,
+			 * match_ret = RMAP_NOOP.
+			 */
+			if (match_ret == RMAP_NOOP)
+				ret = RMAP_PERMITMATCH;
+			else
+				ret = RMAP_DENYMATCH;
+			goto route_map_apply_end;
+		}
+		skip_match_clause = true;
+	} else {
+		index = map->head;
+	}
+
+	for (; index; index = index->next) {
+		if (!skip_match_clause) {
+			index->applied++;
+			/* Apply this index. */
+			match_ret = route_map_apply_match(&index->match_list,
+							  prefix, type, object);
+			if (rmap_debug) {
+				zlog_debug(
+					"Route-map: %s, sequence: %d, prefix: %s, result: %s",
+					map->name, index->pref,
+					prefix2str(prefix, buf, sizeof(buf)),
+					route_map_cmd_result_str(match_ret));
+			}
+		} else
+			skip_match_clause = false;
+
 
 		/* Now we apply the matrix from above */
-		if (ret == RMAP_NOMATCH)
-			/* 'cont' from matrix - continue to next route-map
-			 * sequence */
+		if (match_ret == RMAP_NOOP)
+			/*
+			 * Do not change the return value. Retain the previous
+			 * return value. Previous values can be:
+			 * 1)permitmatch (if a nomatch was never
+			 * seen before in this route-map.)
+			 * 2)denymatch (if a nomatch was seen earlier in one
+			 * of the previous sequences)
+			 */
+
+			/*
+			 * 'cont' from matrix - continue to next route-map
+			 * sequence
+			 */
 			continue;
-		else if (ret == RMAP_MATCH) {
+		else if (match_ret == RMAP_NOMATCH) {
+
+			/*
+			 * The return value is now changed to denymatch.
+			 * So from here on out, even if we see more noops,
+			 * we retain this return value and return this
+			 * eventually if there are no matches.
+			 */
+			ret = RMAP_DENYMATCH;
+
+			/*
+			 * 'cont' from matrix - continue to next route-map
+			 * sequence
+			 */
+			continue;
+		} else if (match_ret == RMAP_MATCH) {
 			if (index->type == RMAP_PERMIT)
 			/* 'action' */
 			{
+				/* Match succeeded, rmap is of type permit */
+				ret = RMAP_PERMITMATCH;
+
 				/* permit+match must execute sets */
 				for (set = index->set_list.head; set;
 				     set = set->next)
-					ret = (*set->cmd->func_apply)(
+					/*
+					 * set cmds return RMAP_OKAY or
+					 * RMAP_ERROR. We do not care if
+					 * set succeeded or not. So, ignore
+					 * return code.
+					 */
+					(void) (*set->cmd->func_apply)(
 						set->value, prefix, type,
 						object);
 
@@ -1476,12 +2515,12 @@ route_map_result_t route_map_apply(struct route_map *map,
 
 					/* If nextrm returned 'deny', finish. */
 					if (ret == RMAP_DENYMATCH)
-						return ret;
+						goto route_map_apply_end;
 				}
 
 				switch (index->exitpolicy) {
 				case RMAP_EXIT:
-					return ret;
+					goto route_map_apply_end;
 				case RMAP_NEXT:
 					continue;
 				case RMAP_GOTO: {
@@ -1496,19 +2535,28 @@ route_map_result_t route_map_apply(struct route_map *map,
 					}
 					if (next == NULL) {
 						/* No clauses match! */
-						return ret;
+						goto route_map_apply_end;
 					}
 				}
 				}
 			} else if (index->type == RMAP_DENY)
 			/* 'deny' */
 			{
-				return RMAP_DENYMATCH;
+				ret = RMAP_DENYMATCH;
+				goto route_map_apply_end;
 			}
 		}
 	}
-	/* Finally route-map does not match at all. */
-	return RMAP_DENYMATCH;
+
+route_map_apply_end:
+	if (rmap_debug) {
+		zlog_debug("Route-map: %s, prefix: %s, result: %s",
+			   (map ? map->name : "null"),
+			   prefix2str(prefix, buf, sizeof(buf)),
+			   route_map_result_str(ret));
+	}
+
+	return (ret);
 }
 
 void route_map_add_hook(void (*func)(const char *))
@@ -1521,18 +2569,20 @@ void route_map_delete_hook(void (*func)(const char *))
 	route_map_master.delete_hook = func;
 }
 
-void route_map_event_hook(void (*func)(route_map_event_t, const char *))
+void route_map_event_hook(void (*func)(const char *name))
 {
 	route_map_master.event_hook = func;
 }
 
 /* Routines for route map dependency lists and dependency processing */
-static int route_map_rmap_hash_cmp(const void *p1, const void *p2)
+static bool route_map_rmap_hash_cmp(const void *p1, const void *p2)
 {
-	return (strcmp((const char *)p1, (const char *)p2) == 0);
+	return strcmp(((const struct route_map_dep_data *)p1)->rname,
+		      ((const struct route_map_dep_data *)p2)->rname)
+	       == 0;
 }
 
-static int route_map_dep_hash_cmp(const void *p1, const void *p2)
+static bool route_map_dep_hash_cmp(const void *p1, const void *p2)
 {
 
 	return (strcmp(((const struct route_map_dep *)p1)->dep_name,
@@ -1540,16 +2590,19 @@ static int route_map_dep_hash_cmp(const void *p1, const void *p2)
 		== 0);
 }
 
-static void route_map_clear_reference(struct hash_backet *backet, void *arg)
+static void route_map_clear_reference(struct hash_bucket *bucket, void *arg)
 {
-	struct route_map_dep *dep = (struct route_map_dep *)backet->data;
-	char *rmap_name;
+	struct route_map_dep *dep = bucket->data;
+	struct route_map_dep_data *dep_data = NULL, tmp_dep_data;
 
 	if (arg) {
-		rmap_name =
-			(char *)hash_release(dep->dep_rmap_hash, (void *)arg);
-		if (rmap_name) {
-			XFREE(MTYPE_ROUTE_MAP_NAME, rmap_name);
+		memset(&tmp_dep_data, 0, sizeof(struct route_map_dep_data));
+		tmp_dep_data.rname = arg;
+		dep_data = hash_release(dep->dep_rmap_hash,
+					&tmp_dep_data);
+		if (dep_data) {
+			XFREE(MTYPE_ROUTE_MAP_NAME, dep_data->rname);
+			XFREE(MTYPE_ROUTE_MAP_DEP_DATA, dep_data);
 		}
 		if (!dep->dep_rmap_hash->count) {
 			dep = hash_release(dep->this_hash,
@@ -1571,6 +2624,54 @@ static void route_map_clear_all_references(char *rmap_name)
 	}
 }
 
+static unsigned int route_map_dep_data_hash_make_key(const void *p)
+{
+	const struct route_map_dep_data *dep_data = p;
+
+	return string_hash_make(dep_data->rname);
+}
+
+DEFUN (set_srte_color,
+       set_srte_color_cmd,
+       "set sr-te color [(1-4294967295)]",
+       SET_STR
+       SRTE_STR
+       SRTE_COLOR_STR
+       "Color of the SR-TE Policies to match with\n")
+{
+	VTY_DECLVAR_CONTEXT(route_map_index, index);
+	int idx = 0;
+	char *arg = argv_find(argv, argc, "(1-4294967295)", &idx)
+			    ? argv[idx]->arg
+			    : NULL;
+
+	if (rmap_match_set_hook.set_srte_color)
+		return rmap_match_set_hook.set_srte_color(vty, index,
+							  "sr-te color", arg);
+	return CMD_SUCCESS;
+}
+
+DEFUN (no_set_srte_color,
+       no_set_srte_color_cmd,
+       "no set sr-te color [(1-4294967295)]",
+       NO_STR
+       SET_STR
+       SRTE_STR
+       SRTE_COLOR_STR
+       "Color of the SR-TE Policies to match with\n")
+{
+	VTY_DECLVAR_CONTEXT(route_map_index, index);
+	int idx = 0;
+	char *arg = argv_find(argv, argc, "(1-4294967295)", &idx)
+			    ? argv[idx]->arg
+			    : NULL;
+
+	if (rmap_match_set_hook.no_set_srte_color)
+		return rmap_match_set_hook.no_set_srte_color(
+			vty, index, "sr-te color", arg);
+	return CMD_SUCCESS;
+}
+
 static void *route_map_dep_hash_alloc(void *p)
 {
 	char *dep_name = (char *)p;
@@ -1579,39 +2680,46 @@ static void *route_map_dep_hash_alloc(void *p)
 	dep_entry = XCALLOC(MTYPE_ROUTE_MAP_DEP, sizeof(struct route_map_dep));
 	dep_entry->dep_name = XSTRDUP(MTYPE_ROUTE_MAP_NAME, dep_name);
 	dep_entry->dep_rmap_hash =
-		hash_create_size(8, route_map_dep_hash_make_key,
+		hash_create_size(8, route_map_dep_data_hash_make_key,
 				 route_map_rmap_hash_cmp, "Route Map Dep Hash");
 	dep_entry->this_hash = NULL;
 
-	return ((void *)dep_entry);
+	return dep_entry;
 }
 
 static void *route_map_name_hash_alloc(void *p)
 {
-	return ((void *)XSTRDUP(MTYPE_ROUTE_MAP_NAME, (const char *)p));
+	struct route_map_dep_data *dep_data = NULL, *tmp_dep_data = NULL;
+
+	dep_data = XCALLOC(MTYPE_ROUTE_MAP_DEP_DATA,
+			   sizeof(struct route_map_dep_data));
+	tmp_dep_data = p;
+	dep_data->rname = XSTRDUP(MTYPE_ROUTE_MAP_NAME, tmp_dep_data->rname);
+	return dep_data;
 }
 
-static unsigned int route_map_dep_hash_make_key(void *p)
+static unsigned int route_map_dep_hash_make_key(const void *p)
 {
 	return (string_hash_make((char *)p));
 }
 
-static void route_map_print_dependency(struct hash_backet *backet, void *data)
+static void route_map_print_dependency(struct hash_bucket *bucket, void *data)
 {
-	char *rmap_name = (char *)backet->data;
-	char *dep_name = (char *)data;
+	struct route_map_dep_data *dep_data = bucket->data;
+	char *rmap_name = dep_data->rname;
+	char *dep_name = data;
 
-	zlog_debug("%s: Dependency for %s: %s", __FUNCTION__, dep_name,
-		   rmap_name);
+	zlog_debug("%s: Dependency for %s: %s", __func__, dep_name, rmap_name);
 }
 
 static int route_map_dep_update(struct hash *dephash, const char *dep_name,
 				const char *rmap_name, route_map_event_t type)
 {
 	struct route_map_dep *dep = NULL;
-	char *ret_map_name;
 	char *dname, *rname;
 	int ret = 0;
+	struct route_map_dep_data *dep_data = NULL, *ret_dep_data = NULL;
+	struct route_map_dep_data tmp_dep_data;
 
 	dname = XSTRDUP(MTYPE_ROUTE_MAP_NAME, dep_name);
 	rname = XSTRDUP(MTYPE_ROUTE_MAP_NAME, rmap_name);
@@ -1625,8 +2733,8 @@ static int route_map_dep_update(struct hash *dephash, const char *dep_name,
 	case RMAP_EVENT_CALL_ADDED:
 	case RMAP_EVENT_FILTER_ADDED:
 		if (rmap_debug)
-			zlog_debug("%s: Adding dependency for %s in %s",
-				   __FUNCTION__, dep_name, rmap_name);
+			zlog_debug("Adding dependency for filter %s in route-map %s",
+				   dep_name, rmap_name);
 		dep = (struct route_map_dep *)hash_get(
 			dephash, dname, route_map_dep_hash_alloc);
 		if (!dep) {
@@ -1637,7 +2745,14 @@ static int route_map_dep_update(struct hash *dephash, const char *dep_name,
 		if (!dep->this_hash)
 			dep->this_hash = dephash;
 
-		hash_get(dep->dep_rmap_hash, rname, route_map_name_hash_alloc);
+		memset(&tmp_dep_data, 0, sizeof(struct route_map_dep_data));
+		tmp_dep_data.rname = rname;
+		dep_data = hash_lookup(dep->dep_rmap_hash, &tmp_dep_data);
+		if (!dep_data)
+			dep_data = hash_get(dep->dep_rmap_hash, &tmp_dep_data,
+					    route_map_name_hash_alloc);
+
+		dep_data->refcnt++;
 		break;
 	case RMAP_EVENT_PLIST_DELETED:
 	case RMAP_EVENT_CLIST_DELETED:
@@ -1647,26 +2762,48 @@ static int route_map_dep_update(struct hash *dephash, const char *dep_name,
 	case RMAP_EVENT_CALL_DELETED:
 	case RMAP_EVENT_FILTER_DELETED:
 		if (rmap_debug)
-			zlog_debug("%s: Deleting dependency for %s in %s",
-				   __FUNCTION__, dep_name, rmap_name);
+			zlog_debug("Deleting dependency for filter %s in route-map %s",
+				   dep_name, rmap_name);
 		dep = (struct route_map_dep *)hash_get(dephash, dname, NULL);
 		if (!dep) {
 			goto out;
 		}
 
-		ret_map_name = (char *)hash_release(dep->dep_rmap_hash, rname);
-		if (ret_map_name)
-			XFREE(MTYPE_ROUTE_MAP_NAME, ret_map_name);
+		memset(&tmp_dep_data, 0, sizeof(struct route_map_dep_data));
+		tmp_dep_data.rname = rname;
+		dep_data = hash_lookup(dep->dep_rmap_hash, &tmp_dep_data);
+
+		if (!dep_data)
+			goto out;
+
+		if (dep_data->refcnt)
+			dep_data->refcnt--;
+
+		if (!dep_data->refcnt) {
+			ret_dep_data = hash_release(dep->dep_rmap_hash,
+						    &tmp_dep_data);
+			if (ret_dep_data) {
+				XFREE(MTYPE_ROUTE_MAP_NAME,
+				      ret_dep_data->rname);
+				XFREE(MTYPE_ROUTE_MAP_DEP_DATA, ret_dep_data);
+			}
+		}
 
 		if (!dep->dep_rmap_hash->count) {
 			dep = hash_release(dephash, dname);
 			hash_free(dep->dep_rmap_hash);
 			XFREE(MTYPE_ROUTE_MAP_NAME, dep->dep_name);
 			XFREE(MTYPE_ROUTE_MAP_DEP, dep);
-			dep = NULL;
 		}
 		break;
-	default:
+	case RMAP_EVENT_SET_ADDED:
+	case RMAP_EVENT_SET_DELETED:
+	case RMAP_EVENT_SET_REPLACED:
+	case RMAP_EVENT_MATCH_ADDED:
+	case RMAP_EVENT_MATCH_DELETED:
+	case RMAP_EVENT_MATCH_REPLACED:
+	case RMAP_EVENT_INDEX_ADDED:
+	case RMAP_EVENT_INDEX_DELETED:
 		break;
 	}
 
@@ -1709,29 +2846,44 @@ static struct hash *route_map_get_dep_hash(route_map_event_t event)
 		break;
 	case RMAP_EVENT_CALL_ADDED:
 	case RMAP_EVENT_CALL_DELETED:
+	case RMAP_EVENT_MATCH_ADDED:
+	case RMAP_EVENT_MATCH_DELETED:
 		upd8_hash = route_map_dep_hash[ROUTE_MAP_DEP_RMAP];
 		break;
 	case RMAP_EVENT_FILTER_ADDED:
 	case RMAP_EVENT_FILTER_DELETED:
 		upd8_hash = route_map_dep_hash[ROUTE_MAP_DEP_FILTER];
 		break;
-	default:
+	/*
+	 * Should we actually be ignoring these?
+	 * I am not sure but at this point in time, let
+	 * us get them into this switch and we can peel
+	 * them into the appropriate place in the future
+	 */
+	case RMAP_EVENT_SET_ADDED:
+	case RMAP_EVENT_SET_DELETED:
+	case RMAP_EVENT_SET_REPLACED:
+	case RMAP_EVENT_MATCH_REPLACED:
+	case RMAP_EVENT_INDEX_ADDED:
+	case RMAP_EVENT_INDEX_DELETED:
 		upd8_hash = NULL;
 		break;
 	}
 	return (upd8_hash);
 }
 
-static void route_map_process_dependency(struct hash_backet *backet, void *data)
+static void route_map_process_dependency(struct hash_bucket *bucket, void *data)
 {
-	char *rmap_name = (char *)backet->data;
-	route_map_event_t type = (route_map_event_t)(ptrdiff_t)data;
+	struct route_map_dep_data *dep_data = NULL;
+	char *rmap_name = NULL;
+
+	dep_data = bucket->data;
+	rmap_name = dep_data->rname;
 
 	if (rmap_debug)
-		zlog_debug("%s: Notifying %s of dependency",
-			   __FUNCTION__, rmap_name);
+		zlog_debug("Notifying %s of dependency", rmap_name);
 	if (route_map_master.event_hook)
-		(*route_map_master.event_hook)(type, rmap_name);
+		(*route_map_master.event_hook)(rmap_name);
 }
 
 void route_map_upd8_dependency(route_map_event_t type, const char *arg,
@@ -1739,8 +2891,19 @@ void route_map_upd8_dependency(route_map_event_t type, const char *arg,
 {
 	struct hash *upd8_hash = NULL;
 
-	if ((upd8_hash = route_map_get_dep_hash(type)))
+	if ((upd8_hash = route_map_get_dep_hash(type))) {
 		route_map_dep_update(upd8_hash, arg, rmap_name, type);
+
+		if (type == RMAP_EVENT_CALL_ADDED) {
+			/* Execute hook. */
+			if (route_map_master.add_hook)
+				(*route_map_master.add_hook)(rmap_name);
+		} else if (type == RMAP_EVENT_CALL_DELETED) {
+			/* Execute hook. */
+			if (route_map_master.delete_hook)
+				(*route_map_master.delete_hook)(rmap_name);
+		}
+	}
 }
 
 void route_map_notify_dependencies(const char *affected_name,
@@ -1765,6 +2928,8 @@ void route_map_notify_dependencies(const char *affected_name,
 		if (!dep->this_hash)
 			dep->this_hash = upd8_hash;
 
+		if (rmap_debug)
+			zlog_debug("Filter %s updated", dep->dep_name);
 		hash_iterate(dep->dep_rmap_hash, route_map_process_dependency,
 			     (void *)event);
 	}
@@ -1772,800 +2937,70 @@ void route_map_notify_dependencies(const char *affected_name,
 	XFREE(MTYPE_ROUTE_MAP_NAME, name);
 }
 
-
 /* VTY related functions. */
-DEFUN (match_interface,
-       match_interface_cmd,
-       "match interface WORD",
-       MATCH_STR
-       "match first hop interface of route\n"
-       "Interface name\n")
-{
-	int idx_word = 2;
-	VTY_DECLVAR_CONTEXT(route_map_index, index);
-
-	if (rmap_match_set_hook.match_interface)
-		return rmap_match_set_hook.match_interface(
-			vty, index, "interface", argv[idx_word]->arg,
-			RMAP_EVENT_MATCH_ADDED);
-	return CMD_SUCCESS;
-}
-
-DEFUN (no_match_interface,
-       no_match_interface_cmd,
-       "no match interface [WORD]",
-       NO_STR
-       MATCH_STR
-       "Match first hop interface of route\n"
-       "Interface name\n")
-{
-	char *iface = (argc == 4) ? argv[3]->arg : NULL;
-	VTY_DECLVAR_CONTEXT(route_map_index, index);
-
-	if (rmap_match_set_hook.no_match_interface)
-		return rmap_match_set_hook.no_match_interface(
-			vty, index, "interface", iface,
-			RMAP_EVENT_MATCH_DELETED);
-	return CMD_SUCCESS;
-}
-
-
-DEFUN (match_ip_address,
-       match_ip_address_cmd,
-       "match ip address <(1-199)|(1300-2699)|WORD>",
-       MATCH_STR
-       IP_STR
-       "Match address of route\n"
-       "IP access-list number\n"
-       "IP access-list number (expanded range)\n"
-       "IP Access-list name\n")
-{
-	int idx_acl = 3;
-	VTY_DECLVAR_CONTEXT(route_map_index, index);
-
-	if (rmap_match_set_hook.match_ip_address)
-		return rmap_match_set_hook.match_ip_address(
-			vty, index, "ip address", argv[idx_acl]->arg,
-			RMAP_EVENT_FILTER_ADDED);
-	return CMD_SUCCESS;
-}
-
-
-DEFUN (no_match_ip_address,
-       no_match_ip_address_cmd,
-       "no match ip address [<(1-199)|(1300-2699)|WORD>]",
-       NO_STR
-       MATCH_STR
-       IP_STR
-       "Match address of route\n"
-       "IP access-list number\n"
-       "IP access-list number (expanded range)\n"
-       "IP Access-list name\n")
-{
-	int idx_word = 4;
-	VTY_DECLVAR_CONTEXT(route_map_index, index);
-
-	if (rmap_match_set_hook.no_match_ip_address) {
-		if (argc <= idx_word)
-			return rmap_match_set_hook.no_match_ip_address(
-				vty, index, "ip address", NULL,
-				RMAP_EVENT_FILTER_DELETED);
-		return rmap_match_set_hook.no_match_ip_address(
-			vty, index, "ip address", argv[idx_word]->arg,
-			RMAP_EVENT_FILTER_DELETED);
-	}
-	return CMD_SUCCESS;
-}
-
-
-DEFUN (match_ip_address_prefix_list,
-       match_ip_address_prefix_list_cmd,
-       "match ip address prefix-list WORD",
-       MATCH_STR
-       IP_STR
-       "Match address of route\n"
-       "Match entries of prefix-lists\n"
-       "IP prefix-list name\n")
-{
-	int idx_word = 4;
-	VTY_DECLVAR_CONTEXT(route_map_index, index);
-
-	if (rmap_match_set_hook.match_ip_address_prefix_list)
-		return rmap_match_set_hook.match_ip_address_prefix_list(
-			vty, index, "ip address prefix-list",
-			argv[idx_word]->arg, RMAP_EVENT_PLIST_ADDED);
-	return CMD_SUCCESS;
-}
-
-
-DEFUN (no_match_ip_address_prefix_list,
-       no_match_ip_address_prefix_list_cmd,
-       "no match ip address prefix-list [WORD]",
-       NO_STR
-       MATCH_STR
-       IP_STR
-       "Match address of route\n"
-       "Match entries of prefix-lists\n"
-       "IP prefix-list name\n")
-{
-	int idx_word = 5;
-	VTY_DECLVAR_CONTEXT(route_map_index, index);
-
-	if (rmap_match_set_hook.no_match_ip_address_prefix_list) {
-		if (argc <= idx_word)
-			return rmap_match_set_hook
-				.no_match_ip_address_prefix_list(
-					vty, index, "ip address prefix-list",
-					NULL, RMAP_EVENT_PLIST_DELETED);
-		return rmap_match_set_hook.no_match_ip_address_prefix_list(
-			vty, index, "ip address prefix-list",
-			argv[idx_word]->arg, RMAP_EVENT_PLIST_DELETED);
-	}
-	return CMD_SUCCESS;
-}
-
-
-DEFUN (match_ip_next_hop,
-       match_ip_next_hop_cmd,
-       "match ip next-hop <(1-199)|(1300-2699)|WORD>",
-       MATCH_STR
-       IP_STR
-       "Match next-hop address of route\n"
-       "IP access-list number\n"
-       "IP access-list number (expanded range)\n"
-       "IP Access-list name\n")
-{
-	int idx_acl = 3;
-	VTY_DECLVAR_CONTEXT(route_map_index, index);
-
-	if (rmap_match_set_hook.match_ip_next_hop)
-		return rmap_match_set_hook.match_ip_next_hop(
-			vty, index, "ip next-hop", argv[idx_acl]->arg,
-			RMAP_EVENT_FILTER_ADDED);
-	return CMD_SUCCESS;
-}
-
-
-DEFUN (no_match_ip_next_hop,
-       no_match_ip_next_hop_cmd,
-       "no match ip next-hop [<(1-199)|(1300-2699)|WORD>]",
-       NO_STR
-       MATCH_STR
-       IP_STR
-       "Match next-hop address of route\n"
-       "IP access-list number\n"
-       "IP access-list number (expanded range)\n"
-       "IP Access-list name\n")
-{
-	int idx_word = 4;
-	VTY_DECLVAR_CONTEXT(route_map_index, index);
-
-	if (rmap_match_set_hook.no_match_ip_next_hop) {
-		if (argc <= idx_word)
-			return rmap_match_set_hook.no_match_ip_next_hop(
-				vty, index, "ip next-hop", NULL,
-				RMAP_EVENT_FILTER_DELETED);
-		return rmap_match_set_hook.no_match_ip_next_hop(
-			vty, index, "ip next-hop", argv[idx_word]->arg,
-			RMAP_EVENT_FILTER_DELETED);
-	}
-	return CMD_SUCCESS;
-}
-
-
-DEFUN (match_ip_next_hop_prefix_list,
-       match_ip_next_hop_prefix_list_cmd,
-       "match ip next-hop prefix-list WORD",
-       MATCH_STR
-       IP_STR
-       "Match next-hop address of route\n"
-       "Match entries of prefix-lists\n"
-       "IP prefix-list name\n")
-{
-	int idx_word = 4;
-	VTY_DECLVAR_CONTEXT(route_map_index, index);
-
-	if (rmap_match_set_hook.match_ip_next_hop_prefix_list)
-		return rmap_match_set_hook.match_ip_next_hop_prefix_list(
-			vty, index, "ip next-hop prefix-list",
-			argv[idx_word]->arg, RMAP_EVENT_PLIST_ADDED);
-	return CMD_SUCCESS;
-}
-
-DEFUN (no_match_ip_next_hop_prefix_list,
-       no_match_ip_next_hop_prefix_list_cmd,
-       "no match ip next-hop prefix-list [WORD]",
-       NO_STR
-       MATCH_STR
-       IP_STR
-       "Match next-hop address of route\n"
-       "Match entries of prefix-lists\n"
-       "IP prefix-list name\n")
-{
-	int idx_word = 5;
-	VTY_DECLVAR_CONTEXT(route_map_index, index);
-
-	if (rmap_match_set_hook.no_match_ip_next_hop) {
-		if (argc <= idx_word)
-			return rmap_match_set_hook.no_match_ip_next_hop(
-				vty, index, "ip next-hop prefix-list", NULL,
-				RMAP_EVENT_PLIST_DELETED);
-		return rmap_match_set_hook.no_match_ip_next_hop(
-			vty, index, "ip next-hop prefix-list",
-			argv[idx_word]->arg, RMAP_EVENT_PLIST_DELETED);
-	}
-	return CMD_SUCCESS;
-}
-
-
-DEFUN (match_ipv6_address,
-       match_ipv6_address_cmd,
-       "match ipv6 address WORD",
-       MATCH_STR
-       IPV6_STR
-       "Match IPv6 address of route\n"
-       "IPv6 access-list name\n")
-{
-	int idx_word = 3;
-	VTY_DECLVAR_CONTEXT(route_map_index, index);
-
-	if (rmap_match_set_hook.match_ipv6_address)
-		return rmap_match_set_hook.match_ipv6_address(
-			vty, index, "ipv6 address", argv[idx_word]->arg,
-			RMAP_EVENT_FILTER_ADDED);
-	return CMD_SUCCESS;
-}
-
-DEFUN (no_match_ipv6_address,
-       no_match_ipv6_address_cmd,
-       "no match ipv6 address WORD",
-       NO_STR
-       MATCH_STR
-       IPV6_STR
-       "Match IPv6 address of route\n"
-       "IPv6 access-list name\n")
-{
-	int idx_word = 4;
-	VTY_DECLVAR_CONTEXT(route_map_index, index);
-
-	if (rmap_match_set_hook.no_match_ipv6_address)
-		return rmap_match_set_hook.no_match_ipv6_address(
-			vty, index, "ipv6 address", argv[idx_word]->arg,
-			RMAP_EVENT_FILTER_DELETED);
-	return CMD_SUCCESS;
-}
-
-
-DEFUN (match_ipv6_address_prefix_list,
-       match_ipv6_address_prefix_list_cmd,
-       "match ipv6 address prefix-list WORD",
-       MATCH_STR
-       IPV6_STR
-       "Match address of route\n"
-       "Match entries of prefix-lists\n"
-       "IP prefix-list name\n")
-{
-	int idx_word = 4;
-	VTY_DECLVAR_CONTEXT(route_map_index, index);
-
-	if (rmap_match_set_hook.match_ipv6_address_prefix_list)
-		return rmap_match_set_hook.match_ipv6_address_prefix_list(
-			vty, index, "ipv6 address prefix-list",
-			argv[idx_word]->arg, RMAP_EVENT_PLIST_ADDED);
-	return CMD_SUCCESS;
-}
-
-DEFUN (no_match_ipv6_address_prefix_list,
-       no_match_ipv6_address_prefix_list_cmd,
-       "no match ipv6 address prefix-list WORD",
-       NO_STR
-       MATCH_STR
-       IPV6_STR
-       "Match address of route\n"
-       "Match entries of prefix-lists\n"
-       "IP prefix-list name\n")
-{
-	int idx_word = 5;
-	VTY_DECLVAR_CONTEXT(route_map_index, index);
-
-	if (rmap_match_set_hook.no_match_ipv6_address_prefix_list)
-		return rmap_match_set_hook.no_match_ipv6_address_prefix_list(
-			vty, index, "ipv6 address prefix-list",
-			argv[idx_word]->arg, RMAP_EVENT_PLIST_DELETED);
-	return CMD_SUCCESS;
-}
-
-
-DEFUN (match_metric,
-       match_metric_cmd,
-       "match metric (0-4294967295)",
-       MATCH_STR
-       "Match metric of route\n"
-       "Metric value\n")
-{
-	int idx_number = 2;
-	VTY_DECLVAR_CONTEXT(route_map_index, index);
-
-	if (rmap_match_set_hook.match_metric)
-		return rmap_match_set_hook.match_metric(vty, index, "metric",
-							argv[idx_number]->arg,
-							RMAP_EVENT_MATCH_ADDED);
-	return CMD_SUCCESS;
-}
-
-
-DEFUN (no_match_metric,
-       no_match_metric_cmd,
-       "no match metric [(0-4294967295)]",
-       NO_STR
-       MATCH_STR
-       "Match metric of route\n"
-       "Metric value\n")
-{
-	int idx_number = 3;
-	VTY_DECLVAR_CONTEXT(route_map_index, index);
-
-	if (rmap_match_set_hook.no_match_metric) {
-		if (argc <= idx_number)
-			return rmap_match_set_hook.no_match_metric(
-				vty, index, "metric", NULL,
-				RMAP_EVENT_MATCH_DELETED);
-		return rmap_match_set_hook.no_match_metric(
-			vty, index, "metric", argv[idx_number]->arg,
-			RMAP_EVENT_MATCH_DELETED);
-	}
-	return CMD_SUCCESS;
-}
-
-
-DEFUN (match_tag,
-       match_tag_cmd,
-       "match tag (1-4294967295)",
-       MATCH_STR
-       "Match tag of route\n"
-       "Tag value\n")
-{
-	int idx_number = 2;
-	VTY_DECLVAR_CONTEXT(route_map_index, index);
-
-	if (rmap_match_set_hook.match_tag)
-		return rmap_match_set_hook.match_tag(vty, index, "tag",
-						     argv[idx_number]->arg,
-						     RMAP_EVENT_MATCH_ADDED);
-	return CMD_SUCCESS;
-}
-
-
-DEFUN (no_match_tag,
-       no_match_tag_cmd,
-       "no match tag [(1-4294967295)]",
-       NO_STR
-       MATCH_STR
-       "Match tag of route\n"
-       "Tag value\n")
+DEFUN(no_routemap_optimization, no_routemap_optimization_cmd,
+      "no route-map optimization",
+      NO_STR
+      "route-map\n"
+      "optimization\n")
 {
 	VTY_DECLVAR_CONTEXT(route_map_index, index);
 
-	int idx = 0;
-	char *arg = argv_find(argv, argc, "(1-4294967295)", &idx)
-			    ? argv[idx]->arg
-			    : NULL;
-
-	if (rmap_match_set_hook.no_match_tag)
-		return rmap_match_set_hook.no_match_tag(
-			vty, index, "tag", arg, RMAP_EVENT_MATCH_DELETED);
+	index->map->optimization_disabled = true;
 	return CMD_SUCCESS;
 }
 
-
-DEFUN (set_ip_nexthop,
-       set_ip_nexthop_cmd,
-       "set ip next-hop A.B.C.D",
-       SET_STR
-       IP_STR
-       "Next hop address\n"
-       "IP address of next hop\n")
-{
-	int idx_ipv4 = 3;
-	union sockunion su;
-	int ret;
-	VTY_DECLVAR_CONTEXT(route_map_index, index);
-
-	ret = str2sockunion(argv[idx_ipv4]->arg, &su);
-	if (ret < 0) {
-		vty_out(vty, "%% Malformed nexthop address\n");
-		return CMD_WARNING_CONFIG_FAILED;
-	}
-	if (su.sin.sin_addr.s_addr == 0
-	    || IPV4_CLASS_DE(ntohl(su.sin.sin_addr.s_addr))) {
-		vty_out(vty,
-			"%% nexthop address cannot be 0.0.0.0, multicast or reserved\n");
-		return CMD_WARNING_CONFIG_FAILED;
-	}
-
-	if (rmap_match_set_hook.set_ip_nexthop)
-		return rmap_match_set_hook.set_ip_nexthop(
-			vty, index, "ip next-hop", argv[idx_ipv4]->arg);
-	return CMD_SUCCESS;
-}
-
-
-DEFUN (no_set_ip_nexthop,
-       no_set_ip_nexthop_cmd,
-       "no set ip next-hop [A.B.C.D]",
-       NO_STR
-       SET_STR
-       IP_STR
-       "Next hop address\n"
-       "IP address of next hop\n")
-{
-	int idx = 0;
-	VTY_DECLVAR_CONTEXT(route_map_index, index);
-	const char *arg = NULL;
-
-	if (argv_find(argv, argc, "A.B.C.D", &idx))
-		arg = argv[idx]->arg;
-
-	if (rmap_match_set_hook.no_set_ip_nexthop)
-		return rmap_match_set_hook.no_set_ip_nexthop(
-			vty, index, "ip next-hop", arg);
-
-	return CMD_SUCCESS;
-}
-
-
-DEFUN (set_ipv6_nexthop_local,
-       set_ipv6_nexthop_local_cmd,
-       "set ipv6 next-hop local X:X::X:X",
-       SET_STR
-       IPV6_STR
-       "IPv6 next-hop address\n"
-       "IPv6 local address\n"
-       "IPv6 address of next hop\n")
-{
-	int idx_ipv6 = 4;
-	struct in6_addr addr;
-	int ret;
-	VTY_DECLVAR_CONTEXT(route_map_index, index);
-
-	ret = inet_pton(AF_INET6, argv[idx_ipv6]->arg, &addr);
-	if (!ret) {
-		vty_out(vty, "%% Malformed nexthop address\n");
-		return CMD_WARNING_CONFIG_FAILED;
-	}
-	if (!IN6_IS_ADDR_LINKLOCAL(&addr)) {
-		vty_out(vty, "%% Invalid link-local nexthop address\n");
-		return CMD_WARNING_CONFIG_FAILED;
-	}
-
-	if (rmap_match_set_hook.set_ipv6_nexthop_local)
-		return rmap_match_set_hook.set_ipv6_nexthop_local(
-			vty, index, "ipv6 next-hop local", argv[idx_ipv6]->arg);
-	return CMD_SUCCESS;
-}
-
-
-DEFUN (no_set_ipv6_nexthop_local,
-       no_set_ipv6_nexthop_local_cmd,
-       "no set ipv6 next-hop local [X:X::X:X]",
-       NO_STR
-       SET_STR
-       IPV6_STR
-       "IPv6 next-hop address\n"
-       "IPv6 local address\n"
-       "IPv6 address of next hop\n")
-{
-	int idx_ipv6 = 5;
-	VTY_DECLVAR_CONTEXT(route_map_index, index);
-
-	if (rmap_match_set_hook.no_set_ipv6_nexthop_local) {
-		if (argc <= idx_ipv6)
-			return rmap_match_set_hook.no_set_ipv6_nexthop_local(
-				vty, index, "ipv6 next-hop local", NULL);
-		return rmap_match_set_hook.no_set_ipv6_nexthop_local(
-			vty, index, "ipv6 next-hop local", argv[5]->arg);
-	}
-	return CMD_SUCCESS;
-}
-
-DEFUN (set_metric,
-       set_metric_cmd,
-       "set metric <(0-4294967295)|rtt|+rtt|-rtt|+metric|-metric>",
-       SET_STR
-       "Metric value for destination routing protocol\n"
-       "Metric value\n"
-       "Assign round trip time\n"
-       "Add round trip time\n"
-       "Subtract round trip time\n"
-       "Add metric\n"
-       "Subtract metric\n")
-{
-	int idx_number = 2;
-	VTY_DECLVAR_CONTEXT(route_map_index, index);
-
-	const char *pass = (argv[idx_number]->type == RANGE_TKN)
-				   ? argv[idx_number]->arg
-				   : argv[idx_number]->text;
-
-	if (rmap_match_set_hook.set_metric)
-		return rmap_match_set_hook.set_metric(vty, index, "metric",
-						      pass);
-	return CMD_SUCCESS;
-}
-
-
-DEFUN (no_set_metric,
-       no_set_metric_cmd,
-       "no set metric [(0-4294967295)]",
-       NO_STR
-       SET_STR
-       "Metric value for destination routing protocol\n"
-       "Metric value\n")
-{
-	int idx_number = 3;
-	VTY_DECLVAR_CONTEXT(route_map_index, index);
-
-	if (rmap_match_set_hook.no_set_metric) {
-		if (argc <= idx_number)
-			return rmap_match_set_hook.no_set_metric(
-				vty, index, "metric", NULL);
-		return rmap_match_set_hook.no_set_metric(vty, index, "metric",
-							 argv[idx_number]->arg);
-	}
-	return CMD_SUCCESS;
-}
-
-
-DEFUN (set_tag,
-       set_tag_cmd,
-       "set tag (1-4294967295)",
-       SET_STR
-       "Tag value for routing protocol\n"
-       "Tag value\n")
+DEFUN(routemap_optimization, routemap_optimization_cmd,
+      "route-map optimization",
+      "route-map\n"
+      "optimization\n")
 {
 	VTY_DECLVAR_CONTEXT(route_map_index, index);
 
-	int idx_number = 2;
-	if (rmap_match_set_hook.set_tag)
-		return rmap_match_set_hook.set_tag(vty, index, "tag",
-						   argv[idx_number]->arg);
+	index->map->optimization_disabled = false;
 	return CMD_SUCCESS;
 }
 
-
-DEFUN (no_set_tag,
-       no_set_tag_cmd,
-       "no set tag [(1-4294967295)]",
-       NO_STR
-       SET_STR
-       "Tag value for routing protocol\n"
-       "Tag value\n")
+static void clear_route_map_helper(struct route_map *map)
 {
-	VTY_DECLVAR_CONTEXT(route_map_index, index);
-
-	int idx_number = 3;
-	if (rmap_match_set_hook.no_set_tag) {
-		if (argc <= idx_number)
-			return rmap_match_set_hook.no_set_tag(vty, index, "tag",
-							      NULL);
-		return rmap_match_set_hook.no_set_tag(vty, index, "tag",
-						      argv[idx_number]->arg);
-	}
-	return CMD_SUCCESS;
-}
-
-
-DEFUN_NOSH (route_map,
-       route_map_cmd,
-       "route-map WORD <deny|permit> (1-65535)",
-       "Create route-map or enter route-map command mode\n"
-       "Route map tag\n"
-       "Route map denies set operations\n"
-       "Route map permits set operations\n"
-       "Sequence to insert to/delete from existing route-map entry\n")
-{
-	int idx_word = 1;
-	int idx_permit_deny = 2;
-	int idx_number = 3;
-	struct route_map *map;
 	struct route_map_index *index;
-	char *endptr = NULL;
-	int permit =
-		argv[idx_permit_deny]->arg[0] == 'p' ? RMAP_PERMIT : RMAP_DENY;
-	unsigned long pref = strtoul(argv[idx_number]->arg, &endptr, 10);
-	const char *mapname = argv[idx_word]->arg;
 
-	/* Get route map. */
-	map = route_map_get(mapname);
-	index = route_map_index_get(map, permit, pref);
-
-	VTY_PUSH_CONTEXT(RMAP_NODE, index);
-	return CMD_SUCCESS;
+	map->applied_clear = map->applied;
+	for (index = map->head; index; index = index->next)
+		index->applied_clear = index->applied;
 }
 
-DEFUN (no_route_map_all,
-       no_route_map_all_cmd,
-       "no route-map WORD",
-       NO_STR
-       "Create route-map or enter route-map command mode\n"
-       "Route map tag\n")
+DEFUN (rmap_clear_counters,
+       rmap_clear_counters_cmd,
+       "clear route-map counters [WORD]",
+       CLEAR_STR
+       "route-map information\n"
+       "counters associated with the specified route-map\n"
+       "route-map name\n")
 {
 	int idx_word = 2;
-	const char *mapname = argv[idx_word]->arg;
 	struct route_map *map;
 
-	map = route_map_lookup_by_name(mapname);
-	if (map == NULL) {
-		vty_out(vty, "%% Could not find route-map %s\n", mapname);
-		return CMD_WARNING_CONFIG_FAILED;
-	}
+	const char *name = (argc == 3 ) ? argv[idx_word]->arg : NULL;
 
-	route_map_delete(map);
+	if (name) {
+		map = route_map_lookup_by_name(name);
 
-	return CMD_SUCCESS;
-}
-
-DEFUN (no_route_map,
-       no_route_map_cmd,
-       "no route-map WORD <deny|permit> (1-65535)",
-       NO_STR
-       "Create route-map or enter route-map command mode\n"
-       "Route map tag\n"
-       "Route map denies set operations\n"
-       "Route map permits set operations\n"
-       "Sequence to insert to/delete from existing route-map entry\n")
-{
-	int idx_word = 2;
-	int idx_permit_deny = 3;
-	int idx_number = 4;
-	struct route_map *map;
-	struct route_map_index *index;
-	char *endptr = NULL;
-	int permit = strmatch(argv[idx_permit_deny]->text, "permit")
-			     ? RMAP_PERMIT
-			     : RMAP_DENY;
-	const char *prefstr = argv[idx_number]->arg;
-	const char *mapname = argv[idx_word]->arg;
-	unsigned long pref = strtoul(prefstr, &endptr, 10);
-
-	/* Existence check. */
-	map = route_map_lookup_by_name(mapname);
-	if (map == NULL) {
-		vty_out(vty, "%% Could not find route-map %s\n", mapname);
-		return CMD_WARNING_CONFIG_FAILED;
-	}
-
-	/* Lookup route map index. */
-	index = route_map_index_lookup(map, permit, pref);
-	if (index == NULL) {
-		vty_out(vty, "%% Could not find route-map entry %s %s\n",
-			mapname, prefstr);
-		return CMD_WARNING_CONFIG_FAILED;
-	}
-
-	/* Delete index from route map. */
-	route_map_index_delete(index, 1);
-
-	/* If this route rule is the last one, delete route map itself. */
-	if (route_map_empty(map))
-		route_map_delete(map);
-
-	return CMD_SUCCESS;
-}
-
-DEFUN (rmap_onmatch_next,
-       rmap_onmatch_next_cmd,
-       "on-match next",
-       "Exit policy on matches\n"
-       "Next clause\n")
-{
-	struct route_map_index *index = VTY_GET_CONTEXT(route_map_index);
-
-	if (index) {
-		if (index->type == RMAP_DENY) {
-			/* Under a deny clause, match means it's finished. No
-			 * need to set next */
-			vty_out(vty,
-				"on-match next not supported under route-map deny\n");
-			return CMD_WARNING_CONFIG_FAILED;
+		if (map)
+			clear_route_map_helper(map);
+		else {
+			vty_out(vty, "%s: 'route-map %s' not found\n",
+				frr_protonameinst, name);
+			return CMD_SUCCESS;
 		}
-		index->exitpolicy = RMAP_NEXT;
+	} else {
+		for (map = route_map_master.head; map; map = map->next)
+			clear_route_map_helper(map);
 	}
-	return CMD_SUCCESS;
-}
-
-DEFUN (no_rmap_onmatch_next,
-       no_rmap_onmatch_next_cmd,
-       "no on-match next",
-       NO_STR
-       "Exit policy on matches\n"
-       "Next clause\n")
-{
-	struct route_map_index *index = VTY_GET_CONTEXT(route_map_index);
-
-	if (index)
-		index->exitpolicy = RMAP_EXIT;
 
 	return CMD_SUCCESS;
+
 }
-
-DEFUN (rmap_onmatch_goto,
-       rmap_onmatch_goto_cmd,
-       "on-match goto (1-65535)",
-       "Exit policy on matches\n"
-       "Goto Clause number\n"
-       "Number\n")
-{
-	int idx = 0;
-	char *num = argv_find(argv, argc, "(1-65535)", &idx) ? argv[idx]->arg
-							     : NULL;
-
-	struct route_map_index *index = VTY_GET_CONTEXT(route_map_index);
-	int d = 0;
-
-	if (index) {
-		if (index->type == RMAP_DENY) {
-			/* Under a deny clause, match means it's finished. No
-			 * need to go anywhere */
-			vty_out(vty,
-				"on-match goto not supported under route-map deny\n");
-			return CMD_WARNING_CONFIG_FAILED;
-		}
-
-		if (num)
-			d = strtoul(num, NULL, 10);
-		else
-			d = index->pref + 1;
-
-		if (d <= index->pref) {
-			/* Can't allow you to do that, Dave */
-			vty_out(vty, "can't jump backwards in route-maps\n");
-			return CMD_WARNING_CONFIG_FAILED;
-		} else {
-			index->exitpolicy = RMAP_GOTO;
-			index->nextpref = d;
-		}
-	}
-	return CMD_SUCCESS;
-}
-
-DEFUN (no_rmap_onmatch_goto,
-       no_rmap_onmatch_goto_cmd,
-       "no on-match goto",
-       NO_STR
-       "Exit policy on matches\n"
-       "Goto Clause number\n")
-{
-	struct route_map_index *index = VTY_GET_CONTEXT(route_map_index);
-
-	if (index)
-		index->exitpolicy = RMAP_EXIT;
-
-	return CMD_SUCCESS;
-}
-
-/* Cisco/GNU Zebra compatibility aliases */
-/* ALIAS_FIXME */
-DEFUN (rmap_continue,
-       rmap_continue_cmd,
-       "continue (1-65535)",
-       "Continue on a different entry within the route-map\n"
-       "Route-map entry sequence number\n")
-{
-	return rmap_onmatch_goto(self, vty, argc, argv);
-}
-
-/* ALIAS_FIXME */
-DEFUN (no_rmap_continue,
-       no_rmap_continue_cmd,
-       "no continue [(1-65535)]",
-       NO_STR
-       "Continue on a different entry within the route-map\n"
-       "Route-map entry sequence number\n")
-{
-	return no_rmap_onmatch_goto(self, vty, argc, argv);
-}
-
 
 DEFUN (rmap_show_name,
        rmap_show_name_cmd,
@@ -2579,129 +3014,57 @@ DEFUN (rmap_show_name,
 	return vty_show_route_map(vty, name);
 }
 
-DEFUN (rmap_call,
-       rmap_call_cmd,
-       "call WORD",
-       "Jump to another Route-Map after match+set\n"
-       "Target route-map name\n")
+DEFUN (rmap_show_unused,
+       rmap_show_unused_cmd,
+       "show route-map-unused",
+       SHOW_STR
+       "unused route-map information\n")
 {
-	int idx_word = 1;
-	struct route_map_index *index = VTY_GET_CONTEXT(route_map_index);
-	const char *rmap = argv[idx_word]->arg;
+	return vty_show_unused_route_map(vty);
+}
 
-	assert(index);
-
-	if (index->nextrm) {
-		route_map_upd8_dependency(RMAP_EVENT_CALL_DELETED,
-					  index->nextrm, index->map->name);
-		XFREE(MTYPE_ROUTE_MAP_NAME, index->nextrm);
-	}
-	index->nextrm = XSTRDUP(MTYPE_ROUTE_MAP_NAME, rmap);
-
-	/* Execute event hook. */
-	route_map_upd8_dependency(RMAP_EVENT_CALL_ADDED, index->nextrm,
-				  index->map->name);
+DEFUN (debug_rmap,
+       debug_rmap_cmd,
+       "debug route-map",
+       DEBUG_STR
+       "Debug option set for route-maps\n")
+{
+	rmap_debug = true;
 	return CMD_SUCCESS;
 }
 
-DEFUN (no_rmap_call,
-       no_rmap_call_cmd,
-       "no call",
+DEFUN (no_debug_rmap,
+       no_debug_rmap_cmd,
+       "no debug route-map",
        NO_STR
-       "Jump to another Route-Map after match+set\n")
+       DEBUG_STR
+       "Debug option set for route-maps\n")
 {
-	struct route_map_index *index = VTY_GET_CONTEXT(route_map_index);
-
-	if (index->nextrm) {
-		route_map_upd8_dependency(RMAP_EVENT_CALL_DELETED,
-					  index->nextrm, index->map->name);
-		XFREE(MTYPE_ROUTE_MAP_NAME, index->nextrm);
-		index->nextrm = NULL;
-	}
-
+	rmap_debug = false;
 	return CMD_SUCCESS;
 }
 
-DEFUN (rmap_description,
-       rmap_description_cmd,
-       "description LINE...",
-       "Route-map comment\n"
-       "Comment describing this route-map rule\n")
-{
-	int idx_line = 1;
-	struct route_map_index *index = VTY_GET_CONTEXT(route_map_index);
-
-	if (index) {
-		if (index->description)
-			XFREE(MTYPE_TMP, index->description);
-		index->description = argv_concat(argv, argc, idx_line);
-	}
-	return CMD_SUCCESS;
-}
-
-DEFUN (no_rmap_description,
-       no_rmap_description_cmd,
-       "no description",
-       NO_STR
-       "Route-map comment\n")
-{
-	struct route_map_index *index = VTY_GET_CONTEXT(route_map_index);
-
-	if (index) {
-		if (index->description)
-			XFREE(MTYPE_TMP, index->description);
-		index->description = NULL;
-	}
-	return CMD_SUCCESS;
-}
+/* Debug node. */
+static int rmap_config_write_debug(struct vty *vty);
+static struct cmd_node rmap_debug_node = {
+	.name = "route-map debug",
+	.node = RMAP_DEBUG_NODE,
+	.prompt = "",
+	.config_write = rmap_config_write_debug,
+};
 
 /* Configuration write function. */
-static int route_map_config_write(struct vty *vty)
+static int rmap_config_write_debug(struct vty *vty)
 {
-	struct route_map *map;
-	struct route_map_index *index;
-	struct route_map_rule *rule;
-	int first = 1;
 	int write = 0;
 
-	for (map = route_map_master.head; map; map = map->next)
-		for (index = map->head; index; index = index->next) {
-			if (!first)
-				vty_out(vty, "!\n");
-			else
-				first = 0;
+	if (rmap_debug) {
+		vty_out(vty, "debug route-map\n");
+		write++;
+	}
 
-			vty_out(vty, "route-map %s %s %d\n", map->name,
-				route_map_type_str(index->type), index->pref);
-
-			if (index->description)
-				vty_out(vty, " description %s\n",
-					index->description);
-
-			for (rule = index->match_list.head; rule;
-			     rule = rule->next)
-				vty_out(vty, " match %s %s\n", rule->cmd->str,
-					rule->rule_str ? rule->rule_str : "");
-
-			for (rule = index->set_list.head; rule;
-			     rule = rule->next)
-				vty_out(vty, " set %s %s\n", rule->cmd->str,
-					rule->rule_str ? rule->rule_str : "");
-			if (index->nextrm)
-				vty_out(vty, " call %s\n", index->nextrm);
-			if (index->exitpolicy == RMAP_GOTO)
-				vty_out(vty, " on-match goto %d\n",
-					index->nextpref);
-			if (index->exitpolicy == RMAP_NEXT)
-				vty_out(vty, " on-match next\n");
-
-			write++;
-		}
 	return write;
 }
-
-/* Route map node structure. */
-static struct cmd_node rmap_node = {RMAP_NODE, "%s(config-route-map)# ", 1};
 
 /* Common route map rules */
 
@@ -2761,21 +3124,137 @@ void route_map_finish(void)
 	route_map_master_hash = NULL;
 }
 
-static void rmap_autocomplete(vector comps, struct cmd_token *token)
+/* Increment the use_count counter while attaching the route map */
+void route_map_counter_increment(struct route_map *map)
 {
-	struct route_map *map;
-
-	for (map = route_map_master.head; map; map = map->next)
-		vector_set(comps, XSTRDUP(MTYPE_COMPLETION, map->name));
+	if (map)
+		map->use_count++;
 }
 
-static const struct cmd_variable_handler rmap_var_handlers[] = {
-	{/* "route-map WORD" */
-	 .varname = "route_map",
-	 .completions = rmap_autocomplete},
-	{.tokenname = "ROUTEMAP_NAME", .completions = rmap_autocomplete},
-	{.tokenname = "RMAP_NAME", .completions = rmap_autocomplete},
-	{.completions = NULL}};
+/* Decrement the use_count counter while detaching the route map. */
+void route_map_counter_decrement(struct route_map *map)
+{
+	if (map) {
+		if (map->use_count <= 0)
+			return;
+		map->use_count--;
+	}
+}
+
+DEFUN_HIDDEN(show_route_map_pfx_tbl, show_route_map_pfx_tbl_cmd,
+	     "show route-map WORD prefix-table",
+	     SHOW_STR
+	     "route-map\n"
+	     "route-map name\n"
+	     "internal prefix-table\n")
+{
+	const char *rmap_name = argv[2]->arg;
+	struct route_map *rmap = NULL;
+	struct route_table *rm_pfx_tbl4 = NULL;
+	struct route_table *rm_pfx_tbl6 = NULL;
+	struct route_node *rn = NULL, *prn = NULL;
+	struct list *rmap_index_list = NULL;
+	struct listnode *ln = NULL, *nln = NULL;
+	struct route_map_index *index = NULL;
+	struct prefix *p = NULL, *pp = NULL;
+	char buf[SU_ADDRSTRLEN], pbuf[SU_ADDRSTRLEN];
+	uint8_t len = 54;
+
+	vty_out(vty, "%s:\n", frr_protonameinst);
+	rmap = route_map_lookup_by_name(rmap_name);
+	if (rmap) {
+		rm_pfx_tbl4 = rmap->ipv4_prefix_table;
+		if (rm_pfx_tbl4) {
+			vty_out(vty, "\n%s%43s%s\n", "IPv4 Prefix", "",
+				"Route-map Index List");
+			vty_out(vty, "%s%39s%s\n", "_______________", "",
+				"____________________");
+			for (rn = route_top(rm_pfx_tbl4); rn;
+			     rn = route_next(rn)) {
+				p = &rn->p;
+
+				vty_out(vty, "    %s/%d (%d)\n",
+					inet_ntop(p->family, &p->u.prefix, buf,
+						  SU_ADDRSTRLEN),
+					p->prefixlen, rn->lock);
+
+				vty_out(vty, "(P) ");
+				prn = rn->parent;
+				if (prn) {
+					pp = &prn->p;
+					vty_out(vty, "%s/%d\n",
+						inet_ntop(pp->family,
+							  &pp->u.prefix, pbuf,
+							  SU_ADDRSTRLEN),
+						pp->prefixlen);
+				}
+
+				vty_out(vty, "\n");
+				rmap_index_list = (struct list *)rn->info;
+				if (!rmap_index_list
+				    || !listcount(rmap_index_list))
+					vty_out(vty, "%*s%s\n", len, "", "-");
+				else
+					for (ALL_LIST_ELEMENTS(rmap_index_list,
+							       ln, nln,
+							       index)) {
+						vty_out(vty, "%*s%s seq %d\n",
+							len, "",
+							index->map->name,
+							index->pref);
+					}
+				vty_out(vty, "\n");
+			}
+		}
+
+		rm_pfx_tbl6 = rmap->ipv6_prefix_table;
+		if (rm_pfx_tbl6) {
+			vty_out(vty, "\n%s%43s%s\n", "IPv6 Prefix", "",
+				"Route-map Index List");
+			vty_out(vty, "%s%39s%s\n", "_______________", "",
+				"____________________");
+			for (rn = route_top(rm_pfx_tbl6); rn;
+			     rn = route_next(rn)) {
+				p = &rn->p;
+
+				vty_out(vty, "    %s/%d (%d)\n",
+					inet_ntop(p->family, &p->u.prefix, buf,
+						  SU_ADDRSTRLEN),
+					p->prefixlen, rn->lock);
+
+				vty_out(vty, "(P) ");
+				prn = rn->parent;
+				if (prn) {
+					pp = &prn->p;
+					vty_out(vty, "%s/%d\n",
+						inet_ntop(pp->family,
+							  &pp->u.prefix, pbuf,
+							  SU_ADDRSTRLEN),
+						pp->prefixlen);
+				}
+
+				vty_out(vty, "\n");
+				rmap_index_list = (struct list *)rn->info;
+				if (!rmap_index_list
+				    || !listcount(rmap_index_list))
+					vty_out(vty, "%*s%s\n", len, "", "-");
+				else
+					for (ALL_LIST_ELEMENTS(rmap_index_list,
+							       ln, nln,
+							       index)) {
+						vty_out(vty, "%*s%s seq %d\n",
+							len, "",
+							index->map->name,
+							index->pref);
+					}
+				vty_out(vty, "\n");
+			}
+		}
+	}
+
+	vty_out(vty, "\n");
+	return CMD_SUCCESS;
+}
 
 /* Initialization of route map vector. */
 void route_map_init(void)
@@ -2794,75 +3273,31 @@ void route_map_init(void)
 			8, route_map_dep_hash_make_key, route_map_dep_hash_cmp,
 			"Route Map Dep Hash");
 
-	cmd_variable_handler_register(rmap_var_handlers);
+	rmap_debug = false;
+
+	route_map_cli_init();
 
 	/* Install route map top node. */
-	install_node(&rmap_node, route_map_config_write);
+	install_node(&rmap_debug_node);
 
 	/* Install route map commands. */
-	install_default(RMAP_NODE);
-	install_element(CONFIG_NODE, &route_map_cmd);
-	install_element(CONFIG_NODE, &no_route_map_cmd);
-	install_element(CONFIG_NODE, &no_route_map_all_cmd);
-
-	/* Install the on-match stuff */
-	install_element(RMAP_NODE, &route_map_cmd);
-	install_element(RMAP_NODE, &rmap_onmatch_next_cmd);
-	install_element(RMAP_NODE, &no_rmap_onmatch_next_cmd);
-	install_element(RMAP_NODE, &rmap_onmatch_goto_cmd);
-	install_element(RMAP_NODE, &no_rmap_onmatch_goto_cmd);
-	install_element(RMAP_NODE, &rmap_continue_cmd);
-	install_element(RMAP_NODE, &no_rmap_continue_cmd);
-
-	/* Install the continue stuff (ALIAS of on-match). */
-
-	/* Install the call stuff. */
-	install_element(RMAP_NODE, &rmap_call_cmd);
-	install_element(RMAP_NODE, &no_rmap_call_cmd);
-
-	/* Install description commands. */
-	install_element(RMAP_NODE, &rmap_description_cmd);
-	install_element(RMAP_NODE, &no_rmap_description_cmd);
+	install_element(CONFIG_NODE, &debug_rmap_cmd);
+	install_element(CONFIG_NODE, &no_debug_rmap_cmd);
 
 	/* Install show command */
+	install_element(ENABLE_NODE, &rmap_clear_counters_cmd);
+
 	install_element(ENABLE_NODE, &rmap_show_name_cmd);
+	install_element(ENABLE_NODE, &rmap_show_unused_cmd);
 
-	install_element(RMAP_NODE, &match_interface_cmd);
-	install_element(RMAP_NODE, &no_match_interface_cmd);
+	install_element(ENABLE_NODE, &debug_rmap_cmd);
+	install_element(ENABLE_NODE, &no_debug_rmap_cmd);
 
-	install_element(RMAP_NODE, &match_ip_address_cmd);
-	install_element(RMAP_NODE, &no_match_ip_address_cmd);
+	install_element(RMAP_NODE, &routemap_optimization_cmd);
+	install_element(RMAP_NODE, &no_routemap_optimization_cmd);
 
-	install_element(RMAP_NODE, &match_ip_address_prefix_list_cmd);
-	install_element(RMAP_NODE, &no_match_ip_address_prefix_list_cmd);
+	install_element(RMAP_NODE, &set_srte_color_cmd);
+	install_element(RMAP_NODE, &no_set_srte_color_cmd);
 
-	install_element(RMAP_NODE, &match_ip_next_hop_cmd);
-	install_element(RMAP_NODE, &no_match_ip_next_hop_cmd);
-
-	install_element(RMAP_NODE, &match_ip_next_hop_prefix_list_cmd);
-	install_element(RMAP_NODE, &no_match_ip_next_hop_prefix_list_cmd);
-
-	install_element(RMAP_NODE, &match_ipv6_address_cmd);
-	install_element(RMAP_NODE, &no_match_ipv6_address_cmd);
-
-	install_element(RMAP_NODE, &match_ipv6_address_prefix_list_cmd);
-	install_element(RMAP_NODE, &no_match_ipv6_address_prefix_list_cmd);
-
-	install_element(RMAP_NODE, &match_metric_cmd);
-	install_element(RMAP_NODE, &no_match_metric_cmd);
-
-	install_element(RMAP_NODE, &match_tag_cmd);
-	install_element(RMAP_NODE, &no_match_tag_cmd);
-
-	install_element(RMAP_NODE, &set_ip_nexthop_cmd);
-	install_element(RMAP_NODE, &no_set_ip_nexthop_cmd);
-
-	install_element(RMAP_NODE, &set_ipv6_nexthop_local_cmd);
-	install_element(RMAP_NODE, &no_set_ipv6_nexthop_local_cmd);
-
-	install_element(RMAP_NODE, &set_metric_cmd);
-	install_element(RMAP_NODE, &no_set_metric_cmd);
-
-	install_element(RMAP_NODE, &set_tag_cmd);
-	install_element(RMAP_NODE, &no_set_tag_cmd);
+	install_element(ENABLE_NODE, &show_route_map_pfx_tbl_cmd);
 }

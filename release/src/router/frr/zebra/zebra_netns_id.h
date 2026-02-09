@@ -20,7 +20,15 @@
 #include "zebra.h"
 #include "ns.h"
 
-extern ns_id_t zebra_ns_id_get(const char *netnspath);
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+extern ns_id_t zebra_ns_id_get(const char *netnspath, int fd);
 extern ns_id_t zebra_ns_id_get_default(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* __ZEBRA_NS_ID_H__ */

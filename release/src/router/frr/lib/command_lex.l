@@ -22,6 +22,11 @@
  * 02111-1307, USA.
  */
 
+%top{
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+}
 %{
 /* ignore flex generated code in static analyzer */
 #ifndef __clang_analyzer__
@@ -43,8 +48,8 @@ IPV4            A\.B\.C\.D
 IPV4_PREFIX     A\.B\.C\.D\/M
 IPV6            X:X::X:X
 IPV6_PREFIX     X:X::X:X\/M
-MAC             M:A:C
-MAC_PREFIX      M:A:C\/M
+MAC             X:X:X:X:X:X
+MAC_PREFIX      X:X:X:X:X:X\/M
 VARIABLE        [A-Z][-_A-Z:0-9]+
 WORD            (\-|\+)?[a-zA-Z0-9\*][-+_a-zA-Z0-9\*]*
 NUMBER          (\-|\+)?[0-9]{1,20}
@@ -80,7 +85,7 @@ RANGE           \({NUMBER}[ ]?\-[ ]?{NUMBER}\)
 .               {return yytext[0];}
 %%
 
-YY_BUFFER_STATE buffer;
+static YY_BUFFER_STATE buffer;
 
 void set_lexer_string (yyscan_t *scn, const char *string)
 {

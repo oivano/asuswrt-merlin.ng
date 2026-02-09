@@ -21,19 +21,19 @@
 #include "queue.h"
 #include "imsg.h"
 
-int ibuf_realloc(struct ibuf *, size_t);
-void ibuf_enqueue(struct msgbuf *, struct ibuf *);
-void ibuf_dequeue(struct msgbuf *, struct ibuf *);
+static int ibuf_realloc(struct ibuf *, size_t);
+static void ibuf_enqueue(struct msgbuf *, struct ibuf *);
+static void ibuf_dequeue(struct msgbuf *, struct ibuf *);
 
 struct ibuf *ibuf_open(size_t len)
 {
 	struct ibuf *buf;
 
 	if ((buf = calloc(1, sizeof(struct ibuf))) == NULL)
-		return (NULL);
+		return NULL;
 	if ((buf->buf = malloc(len)) == NULL) {
 		free(buf);
-		return (NULL);
+		return NULL;
 	}
 	buf->size = buf->max = len;
 	buf->fd = -1;
@@ -46,10 +46,10 @@ struct ibuf *ibuf_dynamic(size_t len, size_t max)
 	struct ibuf *buf;
 
 	if (max < len)
-		return (NULL);
+		return NULL;
 
 	if ((buf = ibuf_open(len)) == NULL)
-		return (NULL);
+		return NULL;
 
 	if (max > 0)
 		buf->max = max;
@@ -57,34 +57,34 @@ struct ibuf *ibuf_dynamic(size_t len, size_t max)
 	return (buf);
 }
 
-int ibuf_realloc(struct ibuf *buf, size_t len)
+static int ibuf_realloc(struct ibuf *buf, size_t len)
 {
 	uint8_t *b;
 
 	/* on static buffers max is eq size and so the following fails */
 	if (buf->wpos + len > buf->max) {
 		errno = ERANGE;
-		return (-1);
+		return -1;
 	}
 
 	b = realloc(buf->buf, buf->wpos + len);
 	if (b == NULL)
-		return (-1);
+		return -1;
 	buf->buf = b;
 	buf->size = buf->wpos + len;
 
-	return (0);
+	return 0;
 }
 
 int ibuf_add(struct ibuf *buf, const void *data, size_t len)
 {
 	if (buf->wpos + len > buf->size)
 		if (ibuf_realloc(buf, len) == -1)
-			return (-1);
+			return -1;
 
 	memcpy(buf->buf + buf->wpos, data, len);
 	buf->wpos += len;
-	return (0);
+	return 0;
 }
 
 void *ibuf_reserve(struct ibuf *buf, size_t len)
@@ -93,7 +93,7 @@ void *ibuf_reserve(struct ibuf *buf, size_t len)
 
 	if (buf->wpos + len > buf->size)
 		if (ibuf_realloc(buf, len) == -1)
-			return (NULL);
+			return NULL;
 
 	b = buf->buf + buf->wpos;
 	buf->wpos += len;
@@ -104,7 +104,7 @@ void *ibuf_seek(struct ibuf *buf, size_t pos, size_t len)
 {
 	/* only allowed to seek in already written parts */
 	if (pos + len > buf->wpos)
-		return (NULL);
+		return NULL;
 
 	return (buf->buf + pos);
 }
@@ -146,17 +146,17 @@ again:
 			goto again;
 		if (errno == ENOBUFS)
 			errno = EAGAIN;
-		return (-1);
+		return -1;
 	}
 
 	if (n == 0) { /* connection closed */
 		errno = 0;
-		return (0);
+		return 0;
 	}
 
 	msgbuf_drain(msgbuf, n);
 
-	return (1);
+	return 1;
 }
 
 void ibuf_free(struct ibuf *buf)
@@ -183,6 +183,8 @@ void msgbuf_drain(struct msgbuf *msgbuf, size_t n)
 		next = TAILQ_NEXT(buf, entry);
 		if (buf->rpos + n >= buf->wpos) {
 			n -= buf->wpos - buf->rpos;
+
+			TAILQ_REMOVE(&msgbuf->bufs, buf, entry);
 			ibuf_dequeue(msgbuf, buf);
 		} else {
 			buf->rpos += n;
@@ -195,7 +197,7 @@ void msgbuf_clear(struct msgbuf *msgbuf)
 {
 	struct ibuf *buf;
 
-	while ((buf = TAILQ_FIRST(&msgbuf->bufs)) != NULL)
+	while ((buf = TAILQ_POP_FIRST(&msgbuf->bufs, entry)) != NULL)
 		ibuf_dequeue(msgbuf, buf);
 }
 
@@ -244,12 +246,12 @@ again:
 			goto again;
 		if (errno == ENOBUFS)
 			errno = EAGAIN;
-		return (-1);
+		return -1;
 	}
 
 	if (n == 0) { /* connection closed */
 		errno = 0;
-		return (0);
+		return 0;
 	}
 
 	/*
@@ -263,19 +265,18 @@ again:
 
 	msgbuf_drain(msgbuf, n);
 
-	return (1);
+	return 1;
 }
 
-void ibuf_enqueue(struct msgbuf *msgbuf, struct ibuf *buf)
+static void ibuf_enqueue(struct msgbuf *msgbuf, struct ibuf *buf)
 {
 	TAILQ_INSERT_TAIL(&msgbuf->bufs, buf, entry);
 	msgbuf->queued++;
 }
 
-void ibuf_dequeue(struct msgbuf *msgbuf, struct ibuf *buf)
+static void ibuf_dequeue(struct msgbuf *msgbuf, struct ibuf *buf)
 {
-	TAILQ_REMOVE(&msgbuf->bufs, buf, entry);
-
+	/* TAILQ_REMOVE done by caller */
 	if (buf->fd != -1)
 		close(buf->fd);
 

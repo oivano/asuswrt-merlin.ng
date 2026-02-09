@@ -60,7 +60,7 @@ struct eigrp_master {
 struct eigrp_metrics {
 	uint32_t delay;
 	uint32_t bandwidth;
-	unsigned char mtu[3];
+	uint8_t mtu[3];
 	uint8_t hop_count;
 	uint8_t reliability;
 	uint8_t load;
@@ -69,6 +69,8 @@ struct eigrp_metrics {
 };
 
 struct eigrp {
+	vrf_id_t vrf_id;
+
 	uint16_t AS;	 /* Autonomous system number */
 	uint16_t vrid;       /* Virtual Router ID */
 	uint8_t k_values[6]; /*Array for K values configuration*/
@@ -79,13 +81,13 @@ struct eigrp {
 	char *name;
 
 	/* EIGRP Router ID. */
-	uint32_t router_id;	/* Configured automatically. */
-	uint32_t router_id_static; /* Configured manually. */
+	struct in_addr router_id;	/* Configured automatically. */
+	struct in_addr router_id_static; /* Configured manually. */
 
 	struct list *eiflist;		  /* eigrp interfaces */
 	uint8_t passive_interface_default; /* passive-interface default */
 
-	unsigned int fd;
+	int fd;
 	unsigned int maxsndbuflen;
 
 	uint32_t sequence_number; /*Global EIGRP sequence number*/
@@ -131,6 +133,9 @@ struct eigrp {
 		uint32_t metric;
 	} route_map[ZEBRA_ROUTE_MAX];
 
+	/* distribute_ctx */
+	struct distribute_ctx *distribute_ctx;
+
 	QOBJ_FIELDS
 };
 DECLARE_QOBJ_TYPE(eigrp)
@@ -171,14 +176,15 @@ struct eigrp_interface {
 
 	/* To which multicast groups do we currently belong? */
 
+	uint32_t curr_bandwidth;
+	uint32_t curr_mtu;
 
 	uint8_t multicast_memberships;
 
 	/* EIGRP Network Type. */
 	uint8_t type;
 
-	struct prefix *address;      /* Interface prefix */
-	struct connected *connected; /* Pointer to connected */
+	struct prefix address;      /* Interface prefix */
 
 	/* Neighbor information. */
 	struct list *nbrs; /* EIGRP Neighbor List */
@@ -407,7 +413,6 @@ struct TLV_IPv4_Internal_type {
 
 	uint8_t prefix_length;
 
-	unsigned char destination_part[4];
 	struct in_addr destination;
 } __attribute__((packed));
 

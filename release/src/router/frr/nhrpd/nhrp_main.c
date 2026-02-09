@@ -7,6 +7,10 @@
  * (at your option) any later version.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <unistd.h>
 
 #include "zebra.h"
@@ -17,9 +21,9 @@
 #include "version.h"
 #include "log.h"
 #include "memory.h"
-#include "memory_vty.h"
 #include "command.h"
 #include "libfrr.h"
+#include "filter.h"
 
 #include "nhrpd.h"
 #include "netlink.h"
@@ -51,7 +55,7 @@ struct zebra_privs_t nhrpd_privs = {
 	.vty_group = VTY_GROUP,
 #endif
 	.caps_p = _caps_p,
-	.cap_num_p = ZEBRA_NUM_OF(_caps_p),
+	.cap_num_p = array_size(_caps_p),
 };
 
 static void parse_arguments(int argc, char **argv)
@@ -112,13 +116,19 @@ static struct quagga_signal_t sighandlers[] = {
 	},
 };
 
+static const struct frr_yang_module_info *const nhrpd_yang_modules[] = {
+	&frr_filter_info,
+	&frr_interface_info,
+};
+
 FRR_DAEMON_INFO(nhrpd, NHRP, .vty_port = NHRP_VTY_PORT,
 
 		.proghelp = "Implementation of the NHRP routing protocol.",
 
 		.signals = sighandlers, .n_signals = array_size(sighandlers),
 
-		.privs = &nhrpd_privs, )
+		.privs = &nhrpd_privs, .yang_modules = nhrpd_yang_modules,
+		.n_yang_modules = array_size(nhrpd_yang_modules), )
 
 int main(int argc, char **argv)
 {
@@ -130,9 +140,9 @@ int main(int argc, char **argv)
 	/* Library inits. */
 	master = frr_init();
 	nhrp_error_init();
-	vrf_init(NULL, NULL, NULL, NULL);
+	vrf_init(NULL, NULL, NULL, NULL, NULL);
 	nhrp_interface_init();
-	resolver_init();
+	resolver_init(master);
 
 	/* Run with elevated capabilities, as for all netlink activity
 	 * we need privileges anyway. */
@@ -143,6 +153,8 @@ int main(int argc, char **argv)
 	nhrp_vc_init();
 	nhrp_packet_init();
 	vici_init();
+	if_zapi_callbacks(nhrp_ifp_create, nhrp_ifp_up,
+			  nhrp_ifp_down, nhrp_ifp_destroy);
 	nhrp_zebra_init();
 	nhrp_shortcut_init();
 

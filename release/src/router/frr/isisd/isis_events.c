@@ -32,7 +32,6 @@
 #include "stream.h"
 #include "table.h"
 
-#include "isisd/dict.h"
 #include "isisd/isis_constants.h"
 #include "isisd/isis_common.h"
 #include "isisd/isis_flags.h"
@@ -63,7 +62,7 @@ void isis_event_circuit_state_change(struct isis_circuit *circuit,
 {
 	area->circuit_state_changes++;
 
-	if (isis->debugs & DEBUG_EVENTS)
+	if (IS_DEBUG_EVENTS)
 		zlog_debug("ISIS-Evt (%s) circuit %s", area->area_tag,
 			   up ? "up" : "down");
 
@@ -77,52 +76,46 @@ void isis_event_circuit_state_change(struct isis_circuit *circuit,
 
 static void circuit_commence_level(struct isis_circuit *circuit, int level)
 {
-	if (level == 1) {
-		if (!circuit->is_passive)
+	if (IS_DEBUG_EVENTS)
+		zlog_debug(
+			"ISIS-Evt (%s) circuit %u on iface %s commencing on L%d",
+			circuit->area->area_tag, circuit->circuit_id,
+			circuit->interface->name, level);
+
+	if (!circuit->is_passive) {
+		if (level == 1) {
 			thread_add_timer(master, send_l1_psnp, circuit,
 					 isis_jitter(circuit->psnp_interval[0],
 						     PSNP_JITTER),
 					 &circuit->t_send_psnp[0]);
-
-		if (circuit->circ_type == CIRCUIT_T_BROADCAST) {
-			thread_add_timer(master, isis_run_dr_l1, circuit,
-					 2 * circuit->hello_interval[0],
-					 &circuit->u.bc.t_run_dr[0]);
-
-			thread_add_timer(master, send_lan_l1_hello, circuit,
-					 isis_jitter(circuit->hello_interval[0],
-						     IIH_JITTER),
-					 &circuit->u.bc.t_send_lan_hello[0]);
-
-			circuit->u.bc.lan_neighs[0] = list_new();
-		}
-	} else {
-		if (!circuit->is_passive)
+		} else {
 			thread_add_timer(master, send_l2_psnp, circuit,
 					 isis_jitter(circuit->psnp_interval[1],
 						     PSNP_JITTER),
 					 &circuit->t_send_psnp[1]);
-
-		if (circuit->circ_type == CIRCUIT_T_BROADCAST) {
-			thread_add_timer(master, isis_run_dr_l2, circuit,
-					 2 * circuit->hello_interval[1],
-					 &circuit->u.bc.t_run_dr[1]);
-
-			thread_add_timer(master, send_lan_l2_hello, circuit,
-					 isis_jitter(circuit->hello_interval[1],
-						     IIH_JITTER),
-					 &circuit->u.bc.t_send_lan_hello[1]);
-
-			circuit->u.bc.lan_neighs[1] = list_new();
 		}
 	}
 
-	return;
+	if (circuit->circ_type == CIRCUIT_T_BROADCAST) {
+		thread_add_timer(master, isis_run_dr,
+				 &circuit->level_arg[level - 1],
+				 2 * circuit->hello_interval[level - 1],
+				 &circuit->u.bc.t_run_dr[level - 1]);
+
+		send_hello_sched(circuit, level, TRIGGERED_IIH_DELAY);
+		circuit->u.bc.lan_neighs[level - 1] = list_new();
+	}
 }
 
 static void circuit_resign_level(struct isis_circuit *circuit, int level)
 {
 	int idx = level - 1;
+
+	if (IS_DEBUG_EVENTS)
+		zlog_debug(
+			"ISIS-Evt (%s) circuit %u on iface %s resigning on L%d",
+			circuit->area->area_tag, circuit->circuit_id,
+			circuit->interface->name, level);
 
 	THREAD_TIMER_OFF(circuit->t_send_csnp[idx]);
 	THREAD_TIMER_OFF(circuit->t_send_psnp[idx]);
@@ -133,8 +126,9 @@ static void circuit_resign_level(struct isis_circuit *circuit, int level)
 		THREAD_TIMER_OFF(circuit->u.bc.t_refresh_pseudo_lsp[idx]);
 		circuit->lsp_regenerate_pending[idx] = 0;
 		circuit->u.bc.run_dr_elect[idx] = 0;
+		circuit->u.bc.is_dr[idx] = 0;
 		if (circuit->u.bc.lan_neighs[idx] != NULL)
-			list_delete_and_null(&circuit->u.bc.lan_neighs[idx]);
+			list_delete(&circuit->u.bc.lan_neighs[idx]);
 	}
 
 	return;
@@ -147,7 +141,7 @@ void isis_circuit_is_type_set(struct isis_circuit *circuit, int newtype)
 		return;
 	}
 
-	if (isis->debugs & DEBUG_EVENTS)
+	if (IS_DEBUG_EVENTS)
 		zlog_debug("ISIS-Evt (%s) circuit type change %s -> %s",
 			   circuit->area->area_tag,
 			   circuit_t2string(circuit->is_type),
@@ -158,7 +152,7 @@ void isis_circuit_is_type_set(struct isis_circuit *circuit, int newtype)
 
 	if (!(newtype & circuit->area->is_type)) {
 		flog_err(
-			ISIS_ERR_CONFIG,
+			EC_ISIS_CONFIG,
 			"ISIS-Evt (%s) circuit type change - invalid level %s because area is %s",
 			circuit->area->area_tag, circuit_t2string(newtype),
 			circuit_t2string(circuit->area->is_type));
@@ -216,25 +210,6 @@ void isis_circuit_is_type_set(struct isis_circuit *circuit, int newtype)
  *
  * ***********************************************************************/
 
-void isis_event_adjacency_state_change(struct isis_adjacency *adj, int newstate)
-{
-	/* adjacency state change event.
-	 * - the only proto-type was supported */
-
-	/* invalid arguments */
-	if (!adj || !adj->circuit || !adj->circuit->area)
-		return;
-
-	if (isis->debugs & DEBUG_EVENTS)
-		zlog_debug("ISIS-Evt (%s) Adjacency State change",
-			   adj->circuit->area->area_tag);
-
-	/* LSP generation again */
-	lsp_regenerate_schedule(adj->circuit->area, IS_LEVEL_1 | IS_LEVEL_2, 0);
-
-	return;
-}
-
 /* events supporting code */
 
 int isis_event_dis_status_change(struct thread *thread)
@@ -246,7 +221,7 @@ int isis_event_dis_status_change(struct thread *thread)
 	/* invalid arguments */
 	if (!circuit || !circuit->area)
 		return 0;
-	if (isis->debugs & DEBUG_EVENTS)
+	if (IS_DEBUG_EVENTS)
 		zlog_debug("ISIS-Evt (%s) DIS status change",
 			   circuit->area->area_tag);
 
@@ -259,7 +234,7 @@ int isis_event_dis_status_change(struct thread *thread)
 void isis_event_auth_failure(char *area_tag, const char *error_string,
 			     uint8_t *sysid)
 {
-	if (isis->debugs & DEBUG_EVENTS)
+	if (IS_DEBUG_EVENTS)
 		zlog_debug("ISIS-Evt (%s) Authentication failure %s from %s",
 			   area_tag, error_string, sysid_print(sysid));
 

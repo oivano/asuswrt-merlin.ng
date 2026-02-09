@@ -126,7 +126,12 @@ static void pim_msdp_sa_upstream_del(struct pim_msdp_sa *sa)
 	if (PIM_UPSTREAM_FLAG_TEST_SRC_MSDP(up->flags)) {
 		PIM_UPSTREAM_FLAG_UNSET_SRC_MSDP(up->flags);
 		sa->flags |= PIM_MSDP_SAF_UP_DEL_IN_PROG;
-		pim_upstream_del(sa->pim, up, __PRETTY_FUNCTION__);
+		up = pim_upstream_del(sa->pim, up, __func__);
+		/* re-eval joinDesired; clearing peer-msdp-sa flag can
+		 * cause JD to change
+		 */
+		if (up)
+			pim_upstream_update_join_desired(sa->pim, up);
 		sa->flags &= ~PIM_MSDP_SAF_UP_DEL_IN_PROG;
 	}
 
@@ -205,8 +210,7 @@ static void pim_msdp_sa_upstream_update(struct pim_msdp_sa *sa,
 	/* RFC3618: "RP triggers a (S, G) join event towards the data source
 	 * as if a JP message was rxed addressed to the RP itself." */
 	up = pim_upstream_add(sa->pim, &sa->sg, NULL /* iif */,
-			      PIM_UPSTREAM_FLAG_MASK_SRC_MSDP,
-			      __PRETTY_FUNCTION__, NULL);
+			      PIM_UPSTREAM_FLAG_MASK_SRC_MSDP, __func__, NULL);
 
 	sa->up = up;
 	if (up) {
@@ -445,10 +449,9 @@ static bool pim_msdp_sa_local_add_ok(struct pim_upstream *up)
 		return false;
 	}
 
-	if (!up->t_ka_timer) {
+	if (!pim_upstream_is_kat_running(up))
 		/* stream is not active */
 		return false;
-	}
 
 	if (!I_am_RP(pim, up->sg.grp)) {
 		/* we are not RP for the group */
@@ -469,7 +472,7 @@ static void pim_msdp_sa_local_add(struct pim_instance *pim,
 				  struct prefix_sg *sg)
 {
 	struct in_addr rp;
-	rp.s_addr = 0;
+	rp.s_addr = INADDR_ANY;
 	pim_msdp_sa_ref(pim, NULL /* mp */, sg, rp);
 }
 
@@ -519,7 +522,7 @@ static void pim_msdp_sa_local_del_on_up_del(struct pim_instance *pim,
 			 * changes; perhaps
 			 * address this in the next release? - XXX  */
 			flog_err(
-				  LIB_ERR_DEVELOPMENT,
+				EC_LIB_DEVELOPMENT,
 				"MSDP sa %s SPT teardown is causing the local entry to be removed",
 				sa->sg_str);
 			return;
@@ -561,11 +564,9 @@ void pim_msdp_sa_local_update(struct pim_upstream *up)
 static void pim_msdp_sa_local_setup(struct pim_instance *pim)
 {
 	struct pim_upstream *up;
-	struct listnode *up_node;
 
-	for (ALL_LIST_ELEMENTS_RO(pim->upstream_list, up_node, up)) {
+	frr_each (rb_pim_upstream, &pim->upstream_head, up)
 		pim_msdp_sa_local_update(up);
-	}
 }
 
 /* whenever the RP changes we need to re-evaluate the "local" SA-cache */
@@ -680,14 +681,14 @@ void pim_msdp_up_del(struct pim_instance *pim, struct prefix_sg *sg)
 }
 
 /* sa hash and peer list helpers */
-static unsigned int pim_msdp_sa_hash_key_make(void *p)
+static unsigned int pim_msdp_sa_hash_key_make(const void *p)
 {
-	struct pim_msdp_sa *sa = p;
+	const struct pim_msdp_sa *sa = p;
 
 	return (jhash_2words(sa->sg.src.s_addr, sa->sg.grp.s_addr, 0));
 }
 
-static int pim_msdp_sa_hash_eq(const void *p1, const void *p2)
+static bool pim_msdp_sa_hash_eq(const void *p1, const void *p2)
 {
 	const struct pim_msdp_sa *sa1 = p1;
 	const struct pim_msdp_sa *sa2 = p2;
@@ -1078,7 +1079,7 @@ static enum pim_msdp_err pim_msdp_peer_new(struct pim_instance *pim,
 	mp->mesh_group_name = XSTRDUP(MTYPE_PIM_MSDP_MG_NAME, mesh_group_name);
 	mp->state = PIM_MSDP_INACTIVE;
 	mp->fd = -1;
-	strcpy(mp->last_reset, "-");
+	strlcpy(mp->last_reset, "-", sizeof(mp->last_reset));
 	/* higher IP address is listener */
 	if (ntohl(mp->local.s_addr) > ntohl(mp->peer.s_addr)) {
 		mp->flags |= PIM_MSDP_PEERF_LISTENER;
@@ -1173,9 +1174,7 @@ static void pim_msdp_peer_free(struct pim_msdp_peer *mp)
 		stream_fifo_free(mp->obuf);
 	}
 
-	if (mp->mesh_group_name) {
-		XFREE(MTYPE_PIM_MSDP_MG_NAME, mp->mesh_group_name);
-	}
+	XFREE(MTYPE_PIM_MSDP_MG_NAME, mp->mesh_group_name);
 
 	mp->pim = NULL;
 	XFREE(MTYPE_PIM_MSDP_PEER, mp);
@@ -1215,13 +1214,13 @@ enum pim_msdp_err pim_msdp_peer_del(struct pim_instance *pim,
 }
 
 /* peer hash and peer list helpers */
-static unsigned int pim_msdp_peer_hash_key_make(void *p)
+static unsigned int pim_msdp_peer_hash_key_make(const void *p)
 {
-	struct pim_msdp_peer *mp = p;
+	const struct pim_msdp_peer *mp = p;
 	return (jhash_1word(mp->peer.s_addr, 0));
 }
 
-static int pim_msdp_peer_hash_eq(const void *p1, const void *p2)
+static bool pim_msdp_peer_hash_eq(const void *p1, const void *p2)
 {
 	const struct pim_msdp_peer *mp1 = p1;
 	const struct pim_msdp_peer *mp2 = p2;
@@ -1256,11 +1255,10 @@ static void pim_msdp_mg_free(struct pim_instance *pim)
 	if (PIM_DEBUG_MSDP_EVENTS) {
 		zlog_debug("MSDP mesh-group %s deleted", mg->mesh_group_name);
 	}
-	if (mg->mesh_group_name)
-		XFREE(MTYPE_PIM_MSDP_MG_NAME, mg->mesh_group_name);
+	XFREE(MTYPE_PIM_MSDP_MG_NAME, mg->mesh_group_name);
 
 	if (mg->mbr_list)
-		list_delete_and_null(&mg->mbr_list);
+		list_delete(&mg->mbr_list);
 
 	XFREE(MTYPE_PIM_MSDP_MG, pim->msdp.mg);
 }
@@ -1288,7 +1286,9 @@ enum pim_msdp_err pim_msdp_mg_del(struct pim_instance *pim,
 	struct pim_msdp_mg *mg = pim->msdp.mg;
 	struct pim_msdp_mg_mbr *mbr;
 
-	if (!mg || strcmp(mg->mesh_group_name, mesh_group_name)) {
+	if (!mg
+	    || (mesh_group_name
+		&& strcmp(mg->mesh_group_name, mesh_group_name))) {
 		return PIM_MSDP_ERR_NO_MG;
 	}
 
@@ -1523,8 +1523,8 @@ enum pim_msdp_err pim_msdp_mg_src_add(struct pim_instance *pim,
 }
 
 /*********************** MSDP feature APIs *********************************/
-int pim_msdp_config_write_helper(struct pim_instance *pim, struct vty *vty,
-				 const char *spaces)
+int pim_msdp_config_write(struct pim_instance *pim, struct vty *vty,
+			  const char *spaces)
 {
 	struct listnode *mbrnode;
 	struct pim_msdp_mg_mbr *mbr;
@@ -1553,11 +1553,6 @@ int pim_msdp_config_write_helper(struct pim_instance *pim, struct vty *vty,
 	return count;
 }
 
-int pim_msdp_config_write(struct vty *vty)
-{
-	return pim_msdp_config_write_helper(pimg, vty, "");
-}
-
 /* Enable feature including active/periodic timers etc. on the first peer
  * config. Till then MSDP should just stay quiet. */
 static void pim_msdp_enable(struct pim_instance *pim)
@@ -1579,14 +1574,16 @@ void pim_msdp_init(struct pim_instance *pim, struct thread_master *master)
 	pim->msdp.master = master;
 	char hash_name[64];
 
-	snprintf(hash_name, 64, "PIM %s MSDP Peer Hash", pim->vrf->name);
+	snprintf(hash_name, sizeof(hash_name), "PIM %s MSDP Peer Hash",
+		 pim->vrf->name);
 	pim->msdp.peer_hash = hash_create(pim_msdp_peer_hash_key_make,
 					  pim_msdp_peer_hash_eq, hash_name);
 	pim->msdp.peer_list = list_new();
 	pim->msdp.peer_list->del = (void (*)(void *))pim_msdp_peer_free;
 	pim->msdp.peer_list->cmp = (int (*)(void *, void *))pim_msdp_peer_comp;
 
-	snprintf(hash_name, 64, "PIM %s MSDP SA Hash", pim->vrf->name);
+	snprintf(hash_name, sizeof(hash_name), "PIM %s MSDP SA Hash",
+		 pim->vrf->name);
 	pim->msdp.sa_hash = hash_create(pim_msdp_sa_hash_key_make,
 					pim_msdp_sa_hash_eq, hash_name);
 	pim->msdp.sa_list = list_new();
@@ -1610,7 +1607,7 @@ void pim_msdp_exit(struct pim_instance *pim)
 	}
 
 	if (pim->msdp.peer_list) {
-		list_delete_and_null(&pim->msdp.peer_list);
+		list_delete(&pim->msdp.peer_list);
 	}
 
 	if (pim->msdp.sa_hash) {
@@ -1620,7 +1617,7 @@ void pim_msdp_exit(struct pim_instance *pim)
 	}
 
 	if (pim->msdp.sa_list) {
-		list_delete_and_null(&pim->msdp.sa_list);
+		list_delete(&pim->msdp.sa_list);
 	}
 
 	if (pim->msdp.work_obuf)

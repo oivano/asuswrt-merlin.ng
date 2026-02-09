@@ -74,12 +74,12 @@ void api_opaque_lsa_print(struct lsa_header *data)
 	olsa = (struct opaque_lsa *)data;
 
 	opaquelen = ntohs(data->length) - OSPF_LSA_HEADER_SIZE;
-	zlog_debug("apiserver_lsa_print: opaquelen=%d\n", opaquelen);
+	zlog_debug("apiserver_lsa_print: opaquelen=%d", opaquelen);
 
 	for (i = 0; i < opaquelen; i++) {
 		zlog_debug("0x%x ", olsa->mydata[i]);
 	}
-	zlog_debug("\n");
+	zlog_debug(" ");
 }
 
 /* -----------------------------------------------------------
@@ -242,17 +242,10 @@ const char *ospf_api_errname(int errcode)
 void msg_print(struct msg *msg)
 {
 	if (!msg) {
-		zlog_debug("msg_print msg=NULL!\n");
+		zlog_debug("msg_print msg=NULL!");
 		return;
 	}
 
-#ifdef ORIGINAL_CODING
-	zlog_debug(
-		"msg=%p msgtype=%d msglen=%d msgseq=%d streamdata=%p streamsize=%lu\n",
-		msg, msg->hdr.msgtype, ntohs(msg->hdr.msglen),
-		ntohl(msg->hdr.msgseq), STREAM_DATA(msg->s),
-		STREAM_SIZE(msg->s));
-#else /* ORIGINAL_CODING */
 	/* API message common header part. */
 	zlog_debug("API-msg [%s]: type(%d),len(%d),seq(%lu),data(%p),size(%zd)",
 		   ospf_api_typename(msg->hdr.msgtype), msg->hdr.msgtype,
@@ -260,16 +253,7 @@ void msg_print(struct msg *msg)
 		   (unsigned long)ntohl(msg->hdr.msgseq), STREAM_DATA(msg->s),
 		   STREAM_SIZE(msg->s));
 
-/* API message body part. */
-#ifdef ndef
-	/* Generic Hex/Ascii dump */
-	DumpBuf(STREAM_DATA(msg->s), STREAM_SIZE(msg->s)); /* Sorry, deleted! */
-#else  /* ndef */
-/* Message-type dependent dump function. */
-#endif /* ndef */
-
 	return;
-#endif /* ORIGINAL_CODING */
 }
 
 void msg_free(struct msg *msg)
@@ -300,7 +284,7 @@ uint32_t msg_get_seq(struct msg *msg)
  * -----------------------------------------------------------
  */
 
-struct msg_fifo *msg_fifo_new()
+struct msg_fifo *msg_fifo_new(void)
 {
 	return XCALLOC(MTYPE_OSPF_API_FIFO, sizeof(struct msg_fifo));
 }
@@ -369,8 +353,8 @@ struct msg *msg_read(int fd)
 	struct msg *msg;
 	struct apimsghdr hdr;
 	uint8_t buf[OSPF_API_MAX_MSG_SIZE];
-	int bodylen;
-	int rlen;
+	ssize_t bodylen;
+	ssize_t rlen;
 
 	/* Read message header */
 	rlen = readn(fd, (uint8_t *)&hdr, sizeof(struct apimsghdr));
@@ -394,8 +378,13 @@ struct msg *msg_read(int fd)
 
 	/* Determine body length. */
 	bodylen = ntohs(hdr.msglen);
-	if (bodylen > 0) {
+	if (bodylen > (ssize_t)sizeof(buf)) {
+		zlog_warn("%s: Body Length of message greater than what we can read",
+			  __func__);
+		return NULL;
+	}
 
+	if (bodylen > 0) {
 		/* Read message body */
 		rlen = readn(fd, buf, bodylen);
 		if (rlen < 0) {

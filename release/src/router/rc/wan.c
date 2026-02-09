@@ -3520,7 +3520,7 @@ wan_up(const char *pwan_ifname)
 		if (*gateway &&
 		    inet_addr_(gateway) != inet_addr_(nvram_safe_get(strcat_r(prefix, "ipaddr", tmp)))) {
 #ifdef RTCONFIG_MULTICAST_IPTV
-			/* Rawny: delete gateway route in IPTV(movistar) case to enable QUAGGA */
+			/* Rawny: delete gateway route in IPTV(movistar) case to enable FRR routing */
 			if (nvram_get_int("switch_stb_x") > 6 &&
 			    !nvram_match("switch_wantag", "movistar"))
 #endif
@@ -3623,10 +3623,10 @@ NOIP:
 			route_add(wan_ifname, 0, "172.17.90.1", NULL, "255.255.255.255");
 		start_igmpproxy(wan_ifname);
 	}
-#ifdef RTCONFIG_QUAGGA
+#ifdef RTCONFIG_FRR
 	if (wan_unit == WAN_UNIT_IPTV || wan_unit == WAN_UNIT_VOIP) {
-		stop_quagga();
-		start_quagga();
+		stop_frr();
+		start_frr();
 	}
 #endif
 #endif

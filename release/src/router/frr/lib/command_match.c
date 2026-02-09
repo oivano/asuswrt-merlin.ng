@@ -88,7 +88,7 @@ enum matcher_rv command_match(struct graph *cmdgraph, vector vline,
 
 	// prepend a dummy token to match that pesky start node
 	vector vvline = vector_init(vline->alloced + 1);
-	vector_set_index(vvline, 0, (void *)XSTRDUP(MTYPE_TMP, "dummy"));
+	vector_set_index(vvline, 0, XSTRDUP(MTYPE_TMP, "dummy"));
 	memcpy(vvline->index + 1, vline->index,
 	       sizeof(void *) * vline->alloced);
 	vvline->active = vline->active + 1;
@@ -195,7 +195,7 @@ static enum matcher_rv command_match_r(struct graph_node *start, vector vline,
 	enum matcher_rv status = MATCHER_NO_MATCH;
 
 	// get the minimum match level that can count as a full match
-	struct cmd_token *token = start->data;
+	struct cmd_token *copy, *token = start->data;
 	enum match_type minmatch = min_match_level(token->type);
 
 	/* check history/stack of tokens
@@ -326,15 +326,15 @@ static enum matcher_rv command_match_r(struct graph_node *start, vector vline,
 	}
 	if (*currbest) {
 		// copy token, set arg and prepend to currbest
-		struct cmd_token *token = start->data;
-		struct cmd_token *copy = cmd_token_dup(token);
+		token = start->data;
+		copy = cmd_token_dup(token);
 		copy->arg = XSTRDUP(MTYPE_CMD_ARG, input_token);
 		listnode_add_before(*currbest, (*currbest)->head, copy);
 	} else if (n + 1 == vector_active(vline) && status == MATCHER_NO_MATCH)
 		status = MATCHER_INCOMPLETE;
 
 	// cleanup
-	list_delete_and_null(&next);
+	list_delete(&next);
 
 	return status;
 }
@@ -367,7 +367,7 @@ enum matcher_rv command_complete(struct graph *graph, vector vline,
 
 	unsigned int idx;
 	for (idx = 0; idx < vector_active(vline) && next->count > 0; idx++) {
-		list_delete_and_null(&current);
+		list_delete(&current);
 		current = next;
 		next = list_new();
 		next->del = stack_del;
@@ -458,8 +458,8 @@ enum matcher_rv command_complete(struct graph *graph, vector vline,
 		}
 	}
 
-	list_delete_and_null(&current);
-	list_delete_and_null(&next);
+	list_delete(&current);
+	list_delete(&next);
 
 	return mrv;
 }
@@ -652,7 +652,7 @@ static void del_arglist(struct list *list)
 	list_delete_node(list, tail);
 
 	// delete the rest of the list as usual
-	list_delete_and_null(&list);
+	list_delete(&list);
 }
 
 /*---------- token level matching functions ----------*/
@@ -714,7 +714,7 @@ static enum match_type match_ipv4(const char *str)
 				dots++;
 				break;
 			}
-			if (!isdigit((int)*str))
+			if (!isdigit((unsigned char)*str))
 				return no_match;
 
 			str++;
@@ -723,8 +723,13 @@ static enum match_type match_ipv4(const char *str)
 		if (str - sp > 3)
 			return no_match;
 
-		strncpy(buf, sp, str - sp);
-		if (atoi(buf) > 255)
+		memcpy(buf, sp, str - sp);
+
+		int v = atoi(buf);
+
+		if (v > 255)
+			return no_match;
+		if (v > 0 && buf[0] == '0')
 			return no_match;
 
 		nums++;
@@ -765,7 +770,7 @@ static enum match_type match_ipv4_prefix(const char *str)
 				break;
 			}
 
-			if (!isdigit((int)*str))
+			if (!isdigit((unsigned char)*str))
 				return no_match;
 
 			str++;
@@ -774,8 +779,13 @@ static enum match_type match_ipv4_prefix(const char *str)
 		if (str - sp > 3)
 			return no_match;
 
-		strncpy(buf, sp, str - sp);
-		if (atoi(buf) > 255)
+		memcpy(buf, sp, str - sp);
+
+		int v = atoi(buf);
+
+		if (v > 255)
+			return no_match;
+		if (v > 0 && buf[0] == '0')
 			return no_match;
 
 		if (dots == 3) {
@@ -797,7 +807,7 @@ static enum match_type match_ipv4_prefix(const char *str)
 
 	sp = str;
 	while (*str != '\0') {
-		if (!isdigit((int)*str))
+		if (!isdigit((unsigned char)*str))
 			return no_match;
 
 		str++;

@@ -23,6 +23,7 @@ Basics
 
    basic
    vtysh
+   grpc
    filter
    routemap
    ipv6
@@ -42,6 +43,7 @@ Protocols
    bfd
    bgp
    babeld
+   fabricd
    ldpd
    eigrpd
    isisd
@@ -55,6 +57,9 @@ Protocols
    sharp
    static
    vnc
+   vrrp
+   bmp
+   watchfrr
 
 ########
 Appendix
@@ -67,6 +72,7 @@ Appendix
    bugs
    packet-dumps
    glossary
+   frr-reload
 
 ################
 Copyright notice

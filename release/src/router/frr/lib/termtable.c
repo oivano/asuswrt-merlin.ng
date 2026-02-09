@@ -20,13 +20,14 @@
 #include <zebra.h>
 #include <stdio.h>
 
+#include "printfrr.h"
 #include "memory.h"
 #include "termtable.h"
 
 DEFINE_MTYPE_STATIC(LIB, TTABLE, "ASCII table")
 
 /* clang-format off */
-struct ttable_style ttable_styles[] = {
+const struct ttable_style ttable_styles[] = {
 	{	// default ascii
 		.corner = '+',
 		.rownums_on = false,
@@ -98,7 +99,7 @@ void ttable_del(struct ttable *tt)
 	XFREE(MTYPE_TTABLE, tt);
 }
 
-struct ttable *ttable_new(struct ttable_style *style)
+struct ttable *ttable_new(const struct ttable_style *style)
 {
 	struct ttable *tt;
 
@@ -134,14 +135,15 @@ static struct ttable_cell *ttable_insert_row_va(struct ttable *tt, int i,
 {
 	assert(i >= -1 && i < tt->nrows);
 
+	char shortbuf[256];
 	char *res, *orig, *section;
 	struct ttable_cell *row;
 	int col = 0;
 	int ncols = 0;
 
 	/* count how many columns we have */
-	for (int i = 0; format[i]; i++)
-		ncols += !!(format[i] == '|');
+	for (int j = 0; format[j]; j++)
+		ncols += !!(format[j] == '|');
 	ncols++;
 
 	if (tt->ncols == 0)
@@ -158,19 +160,18 @@ static struct ttable_cell *ttable_insert_row_va(struct ttable *tt, int i,
 	/* CALLOC a block of cells */
 	row = XCALLOC(MTYPE_TTABLE, tt->ncols * sizeof(struct ttable_cell));
 
-	res = NULL;
-	vasprintf(&res, format, ap);
-
+	res = vasnprintfrr(MTYPE_TMP, shortbuf, sizeof(shortbuf), format, ap);
 	orig = res;
 
-	while (res) {
+	while (res && col < tt->ncols) {
 		section = strsep(&res, "|");
 		row[col].text = XSTRDUP(MTYPE_TTABLE, section);
 		row[col].style = tt->style.cell;
 		col++;
 	}
 
-	free(orig);
+	if (orig != shortbuf)
+		XFREE(MTYPE_TMP, orig);
 
 	/* insert row */
 	if (i == -1 || i == tt->nrows)
@@ -395,7 +396,7 @@ char *ttable_dump(struct ttable *tt, const char *newline)
 			memcpy(&buf[pos], left, lsize);
 			pos += lsize;
 
-			for (size_t i = 0; i < width - lsize - rsize; i++)
+			for (size_t l = 0; l < width - lsize - rsize; l++)
 				buf[pos++] = row[0].style.border.top;
 
 			pos -= width - lsize - rsize;
@@ -421,7 +422,7 @@ char *ttable_dump(struct ttable *tt, const char *newline)
 				buf[pos++] = row[j].style.border.left;
 
 			/* print left padding */
-			for (int i = 0; i < row[j].style.lpad; i++)
+			for (int k = 0; k < row[j].style.lpad; k++)
 				buf[pos++] = ' ';
 
 			/* calculate padding for sprintf */
@@ -443,7 +444,7 @@ char *ttable_dump(struct ttable *tt, const char *newline)
 			pos += sprintf(&buf[pos], fmt, abspad, row[j].text);
 
 			/* print right padding */
-			for (int i = 0; i < row[j].style.rpad; i++)
+			for (int k = 0; k < row[j].style.rpad; k++)
 				buf[pos++] = ' ';
 
 			/* if right border && not last col print right border */
@@ -459,7 +460,7 @@ char *ttable_dump(struct ttable *tt, const char *newline)
 			memcpy(&buf[pos], left, lsize);
 			pos += lsize;
 
-			for (size_t i = 0; i < width - lsize - rsize; i++)
+			for (size_t l = 0; l < width - lsize - rsize; l++)
 				buf[pos++] = row[0].style.border.bottom;
 
 			pos -= width - lsize - rsize;
@@ -483,7 +484,7 @@ char *ttable_dump(struct ttable *tt, const char *newline)
 		memcpy(&buf[pos], left, lsize);
 		pos += lsize;
 
-		for (size_t i = 0; i < width - lsize - rsize; i++)
+		for (size_t l = 0; l < width - lsize - rsize; l++)
 			buf[pos++] = tt->style.border.bottom;
 
 		memcpy(&buf[pos], right, rsize);

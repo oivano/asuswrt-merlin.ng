@@ -28,7 +28,6 @@
 #include "command.h"
 #include "vty.h"
 #include "memory.h"
-#include "memory_vty.h"
 #include "if.h"
 #include "filter.h"
 #include "prefix.h"
@@ -43,6 +42,7 @@
 #include "ospf6d.h"
 #include "ospf6_top.h"
 #include "ospf6_message.h"
+#include "ospf6_network.h"
 #include "ospf6_asbr.h"
 #include "ospf6_lsa.h"
 #include "ospf6_interface.h"
@@ -79,13 +79,17 @@ struct thread_master *master;
 
 static void __attribute__((noreturn)) ospf6_exit(int status)
 {
-	struct vrf *vrf = vrf_lookup_by_id(VRF_DEFAULT);
+	struct vrf *vrf;
 	struct interface *ifp;
 
 	frr_early_fini();
 
-	if (ospf6)
+	if (ospf6) {
+		vrf = vrf_lookup_by_id(ospf6->vrf_id);
 		ospf6_delete(ospf6);
+		ospf6 = NULL;
+	} else
+		vrf = vrf_lookup_by_id(VRF_DEFAULT);
 
 	bfd_gbl_exit();
 
@@ -162,6 +166,13 @@ struct quagga_signal_t ospf6_signals[] = {
 	},
 };
 
+static const struct frr_yang_module_info *const ospf6d_yang_modules[] = {
+	&frr_filter_info,
+	&frr_interface_info,
+	&frr_route_map_info,
+	&frr_vrf_info,
+};
+
 FRR_DAEMON_INFO(ospf6d, OSPF6, .vty_port = OSPF6_VTY_PORT,
 
 		.proghelp = "Implementation of the OSPFv3 routing protocol.",
@@ -169,7 +180,8 @@ FRR_DAEMON_INFO(ospf6d, OSPF6, .vty_port = OSPF6_VTY_PORT,
 		.signals = ospf6_signals,
 		.n_signals = array_size(ospf6_signals),
 
-		.privs = &ospf6d_privs, )
+		.privs = &ospf6d_privs, .yang_modules = ospf6d_yang_modules,
+		.n_yang_modules = array_size(ospf6d_yang_modules), )
 
 /* Main routine of ospf6d. Treatment of argument and starting ospf finite
    state machine is handled here. */
@@ -208,7 +220,7 @@ int main(int argc, char *argv[], char *envp[])
 	/* thread master */
 	master = frr_init();
 
-	vrf_init(NULL, NULL, NULL, NULL);
+	vrf_init(NULL, NULL, NULL, NULL, NULL);
 	access_list_init();
 	prefix_list_init();
 

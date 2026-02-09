@@ -156,21 +156,24 @@ static uint8_t *rip2Globals(struct variable *v, oid name[], size_t *length,
 			    int exact, size_t *var_len,
 			    WriteMethod **write_method)
 {
+	struct rip *rip;
+
 	if (smux_header_generic(v, name, length, exact, var_len, write_method)
 	    == MATCH_FAILED)
+		return NULL;
+
+	rip = rip_lookup_by_vrf_id(VRF_DEFAULT);
+	if (!rip)
 		return NULL;
 
 	/* Retrun global counter. */
 	switch (v->magic) {
 	case RIP2GLOBALROUTECHANGES:
-		return SNMP_INTEGER(rip_global_route_changes);
-		break;
+		return SNMP_INTEGER(rip->counters.route_changes);
 	case RIP2GLOBALQUERIES:
-		return SNMP_INTEGER(rip_global_queries);
-		break;
+		return SNMP_INTEGER(rip->counters.queries);
 	default:
 		return NULL;
-		break;
 	}
 	return NULL;
 }
@@ -281,8 +284,13 @@ static struct rip_peer *rip2PeerLookup(struct variable *v, oid name[],
 				       size_t *length, struct in_addr *addr,
 				       int exact)
 {
+	struct rip *rip;
 	int len;
 	struct rip_peer *peer;
+
+	rip = rip_lookup_by_vrf_id(VRF_DEFAULT);
+	if (!rip)
+		return NULL;
 
 	if (exact) {
 		/* Check the length. */
@@ -291,7 +299,7 @@ static struct rip_peer *rip2PeerLookup(struct variable *v, oid name[],
 
 		oid2in_addr(name + v->namelen, sizeof(struct in_addr), addr);
 
-		peer = rip_peer_lookup(addr);
+		peer = rip_peer_lookup(rip, addr);
 
 		if (peer->domain
 		    == (int)name[v->namelen + sizeof(struct in_addr)])
@@ -306,7 +314,7 @@ static struct rip_peer *rip2PeerLookup(struct variable *v, oid name[],
 		oid2in_addr(name + v->namelen, len, addr);
 
 		len = *length - v->namelen;
-		peer = rip_peer_lookup(addr);
+		peer = rip_peer_lookup(rip, addr);
 		if (peer) {
 			if ((len < (int)sizeof(struct in_addr) + 1)
 			    || (peer->domain
@@ -321,7 +329,7 @@ static struct rip_peer *rip2PeerLookup(struct variable *v, oid name[],
 				return peer;
 			}
 		}
-		peer = rip_peer_lookup_next(addr);
+		peer = rip_peer_lookup_next(rip, addr);
 
 		if (!peer)
 			return NULL;
@@ -362,7 +370,6 @@ static uint8_t *rip2IfStatEntry(struct variable *v, oid name[], size_t *length,
 	switch (v->magic) {
 	case RIP2IFSTATADDRESS:
 		return SNMP_IPADDRESS(addr);
-		break;
 	case RIP2IFSTATRCVBADPACKETS:
 		*var_len = sizeof(long);
 		return (uint8_t *)&ri->recv_badpackets;
@@ -402,10 +409,10 @@ static long rip2IfConfSend(struct rip_interface *ri)
 		return ripVersion2;
 	else if (ri->ri_send & RIPv1)
 		return ripVersion1;
-	else if (rip) {
-		if (rip->version_send == RIPv2)
+	else if (ri->rip) {
+		if (ri->rip->version_send == RIPv2)
 			return ripVersion2;
-		else if (rip->version_send == RIPv1)
+		else if (ri->rip->version_send == RIPv1)
 			return ripVersion1;
 	}
 	return doNotSend;
@@ -423,7 +430,7 @@ static long rip2IfConfReceive(struct rip_interface *ri)
 	if (!ri->running)
 		return doNotReceive;
 
-	recvv = (ri->ri_receive == RI_RIP_UNSPEC) ? rip->version_recv
+	recvv = (ri->ri_receive == RI_RIP_UNSPEC) ? ri->rip->version_recv
 						  : ri->ri_receive;
 	if (recvv == RI_RIP_VERSION_1_AND_2)
 		return rip1OrRip2;
@@ -540,13 +547,13 @@ static uint8_t *rip2PeerTable(struct variable *v, oid name[], size_t *length,
 		return (uint8_t *)&domain;
 
 	case RIP2PEERLASTUPDATE:
-#if 0 
+#if 0
       /* We don't know the SNMP agent startup time. We have two choices here:
        * - assume ripd startup time equals SNMP agent startup time
        * - don't support this variable, at all
        * Currently, we do the latter...
        */
-      *val_len = sizeof (time_t);
+      *val_len = sizeof(time_t);
       uptime = peer->uptime; /* now - snmp_agent_startup - peer->uptime */
       return (uint8_t *) &uptime;
 #else

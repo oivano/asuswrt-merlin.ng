@@ -23,11 +23,9 @@
  * Purpose:	maintain per-nve ribs and generate change lists
  */
 
-#include <errno.h>
-
 #include "lib/zebra.h"
 #include "lib/prefix.h"
-#include "lib/table.h"
+#include "lib/agg_table.h"
 #include "lib/vty.h"
 #include "lib/memory.h"
 #include "lib/log.h"
@@ -150,10 +148,10 @@ void rfapiRibCheckCounts(
 
 		for (afi = AFI_IP; afi < AFI_MAX; ++afi) {
 
-			struct route_node *rn;
+			struct agg_node *rn;
 
-			for (rn = route_top(rfd->rib[afi]); rn;
-			     rn = route_next(rn)) {
+			for (rn = agg_route_top(rfd->rib[afi]); rn;
+			     rn = agg_route_next(rn)) {
 
 				struct skiplist *sl = rn->info;
 				struct skiplist *dsl = rn->aggregate;
@@ -175,8 +173,8 @@ void rfapiRibCheckCounts(
 					++t_pfx_deleted;
 				}
 			}
-			for (rn = route_top(rfd->rib_pending[afi]); rn;
-			     rn = route_next(rn)) {
+			for (rn = agg_route_top(rfd->rib_pending[afi]); rn;
+			     rn = agg_route_next(rn)) {
 
 				struct list *l = rn->info; /* sorted by cost */
 				struct skiplist *sl = rn->aggregate;
@@ -224,7 +222,7 @@ void rfapiRibCheckCounts(
 	assert(t_ri_active + t_ri_deleted + t_ri_pend + offset == alloc_count);
 }
 
-static struct rfapi_info *rfapi_info_new()
+static struct rfapi_info *rfapi_info_new(void)
 {
 	return XCALLOC(MTYPE_RFAPI_INFO, sizeof(struct rfapi_info));
 }
@@ -270,8 +268,8 @@ static void rfapi_info_free(struct rfapi_info *goner)
 		if (goner->timer) {
 			struct rfapi_rib_tcb *tcb;
 
-			tcb = ((struct thread *)goner->timer)->arg;
-			thread_cancel((struct thread *)goner->timer);
+			tcb = goner->timer->arg;
+			thread_cancel(goner->timer);
 			XFREE(MTYPE_RFAPI_RECENT_DELETE, tcb);
 			goner->timer = NULL;
 		}
@@ -286,7 +284,7 @@ struct rfapi_rib_tcb {
 	struct rfapi_descriptor *rfd;
 	struct skiplist *sl;
 	struct rfapi_info *ri;
-	struct route_node *rn;
+	struct agg_node *rn;
 	int flags;
 #define RFAPI_RIB_TCB_FLAG_DELETED	0x00000001
 };
@@ -325,7 +323,7 @@ static int rfapiRibExpireTimer(struct thread *t)
 			RFAPI_RIB_PREFIX_COUNT_DECR(tcb->rfd, bgp->rfapi);
 		}
 		skiplist_free(tcb->sl);
-		route_unlock_node(tcb->rn);
+		agg_unlock_node(tcb->rn);
 	}
 
 	XFREE(MTYPE_RFAPI_RECENT_DELETE, tcb);
@@ -335,14 +333,13 @@ static int rfapiRibExpireTimer(struct thread *t)
 	return 0;
 }
 
-static void
-rfapiRibStartTimer(struct rfapi_descriptor *rfd, struct rfapi_info *ri,
-		   struct route_node *rn, /* route node attached to */
-		   int deleted)
+static void rfapiRibStartTimer(struct rfapi_descriptor *rfd,
+			       struct rfapi_info *ri,
+			       struct agg_node *rn, /* route node attached to */
+			       int deleted)
 {
 	struct thread *t = ri->timer;
 	struct rfapi_rib_tcb *tcb = NULL;
-	char buf_prefix[PREFIX_STRLEN];
 
 	if (t) {
 		tcb = t->arg;
@@ -363,9 +360,8 @@ rfapiRibStartTimer(struct rfapi_descriptor *rfd, struct rfapi_info *ri,
 		UNSET_FLAG(tcb->flags, RFAPI_RIB_TCB_FLAG_DELETED);
 	}
 
-	prefix2str(&rn->p, buf_prefix, sizeof(buf_prefix));
-	vnc_zlog_debug_verbose("%s: rfd %p pfx %s life %u", __func__, rfd,
-			       buf_prefix, ri->lifetime);
+	vnc_zlog_debug_verbose("%s: rfd %p pfx %pRN life %u", __func__, rfd, rn,
+			       ri->lifetime);
 	ri->timer = NULL;
 	thread_add_timer(bm->master, rfapiRibExpireTimer, tcb, ri->lifetime,
 			 &ri->timer);
@@ -390,10 +386,10 @@ extern void rfapi_rib_key_init(struct prefix *prefix, /* may be NULL */
 /*
  * Compares two <struct rfapi_rib_key>s
  */
-int rfapi_rib_key_cmp(void *k1, void *k2)
+int rfapi_rib_key_cmp(const void *k1, const void *k2)
 {
-	struct rfapi_rib_key *a = (struct rfapi_rib_key *)k1;
-	struct rfapi_rib_key *b = (struct rfapi_rib_key *)k2;
+	const struct rfapi_rib_key *a = (struct rfapi_rib_key *)k1;
+	const struct rfapi_rib_key *b = (struct rfapi_rib_key *)k2;
 	int ret;
 
 	if (!a || !b)
@@ -481,17 +477,17 @@ void rfapiRibClear(struct rfapi_descriptor *rfd)
 		bgp = rfd->bgp;
 	else
 		bgp = bgp_get_default();
-#if DEBUG_L2_EXTRA
+#ifdef DEBUG_L2_EXTRA
 	vnc_zlog_debug_verbose("%s: rfd=%p", __func__, rfd);
 #endif
 
 	for (afi = AFI_IP; afi < AFI_MAX; ++afi) {
-		struct route_node *pn;
-		struct route_node *rn;
+		struct agg_node *pn;
+		struct agg_node *rn;
 
 		if (rfd->rib_pending[afi]) {
-			for (pn = route_top(rfd->rib_pending[afi]); pn;
-			     pn = route_next(pn)) {
+			for (pn = agg_route_top(rfd->rib_pending[afi]); pn;
+			     pn = agg_route_next(pn)) {
 				if (pn->aggregate) {
 					/*
 					 * free references into the rfapi_info
@@ -502,7 +498,7 @@ void rfapiRibClear(struct rfapi_descriptor *rfd)
 						(struct skiplist
 							 *)(pn->aggregate));
 					pn->aggregate = NULL;
-					route_unlock_node(
+					agg_unlock_node(
 						pn); /* skiplist deleted */
 				}
 				/*
@@ -510,19 +506,19 @@ void rfapiRibClear(struct rfapi_descriptor *rfd)
 				 */
 				if (pn->info) {
 					if (pn->info != (void *)1) {
-						list_delete_and_null(
+						list_delete(
 							(struct list *
 								 *)(&pn->info));
 					}
 					pn->info = NULL;
 					/* linklist or 1 deleted */
-					route_unlock_node(pn);
+					agg_unlock_node(pn);
 				}
 			}
 		}
 		if (rfd->rib[afi]) {
-			for (rn = route_top(rfd->rib[afi]); rn;
-			     rn = route_next(rn)) {
+			for (rn = agg_route_top(rfd->rib[afi]); rn;
+			     rn = agg_route_next(rn)) {
 				if (rn->info) {
 
 					struct rfapi_info *ri;
@@ -541,7 +537,7 @@ void rfapiRibClear(struct rfapi_descriptor *rfd)
 					skiplist_free(
 						(struct skiplist *)rn->info);
 					rn->info = NULL;
-					route_unlock_node(rn);
+					agg_unlock_node(rn);
 					RFAPI_RIB_PREFIX_COUNT_DECR(rfd,
 								    bgp->rfapi);
 				}
@@ -566,7 +562,7 @@ void rfapiRibClear(struct rfapi_descriptor *rfd)
 							 *)(rn->aggregate));
 
 					rn->aggregate = NULL;
-					route_unlock_node(rn);
+					agg_unlock_node(rn);
 				}
 			}
 		}
@@ -601,32 +597,35 @@ void rfapiRibFree(struct rfapi_descriptor *rfd)
 	 * Free radix trees
 	 */
 	for (afi = AFI_IP; afi < AFI_MAX; ++afi) {
-		route_table_finish(rfd->rib_pending[afi]);
+		if (rfd->rib_pending[afi])
+			agg_table_finish(rfd->rib_pending[afi]);
 		rfd->rib_pending[afi] = NULL;
 
-		route_table_finish(rfd->rib[afi]);
+		if (rfd->rib[afi])
+			agg_table_finish(rfd->rib[afi]);
 		rfd->rib[afi] = NULL;
 
-		/* NB route_table_finish frees only prefix nodes, not chained
+		/* NB agg_table_finish frees only prefix nodes, not chained
 		 * info */
-		route_table_finish(rfd->rsp_times[afi]);
+		if (rfd->rsp_times[afi])
+			agg_table_finish(rfd->rsp_times[afi]);
 		rfd->rib[afi] = NULL;
 	}
 }
 
 /*
- * Copies struct bgp_info to struct rfapi_info, except for rk fields and un
+ * Copies struct bgp_path_info to struct rfapi_info, except for rk fields and un
  */
-static void rfapiRibBi2Ri(struct bgp_info *bi, struct rfapi_info *ri,
+static void rfapiRibBi2Ri(struct bgp_path_info *bpi, struct rfapi_info *ri,
 			  uint32_t lifetime)
 {
 	struct bgp_attr_encap_subtlv *pEncap;
 
-	ri->cost = rfapiRfpCost(bi->attr);
+	ri->cost = rfapiRfpCost(bpi->attr);
 	ri->lifetime = lifetime;
 
 	/* This loop based on rfapiRouteInfo2NextHopEntry() */
-	for (pEncap = bi->attr->vnc_subtlvs; pEncap; pEncap = pEncap->next) {
+	for (pEncap = bpi->attr->vnc_subtlvs; pEncap; pEncap = pEncap->next) {
 		struct bgp_tea_options *hop;
 
 		switch (pEncap->type) {
@@ -647,9 +646,7 @@ static void rfapiRibBi2Ri(struct bgp_info *bi, struct rfapi_info *ri,
 			       pEncap->length - 2);
 			if (hop->length > pEncap->length - 2) {
 				zlog_warn(
-					"%s: VNC subtlv length mismatch: "
-					"RFP option says %d, attr says %d "
-					"(shrinking)",
+					"%s: VNC subtlv length mismatch: RFP option says %d, attr says %d (shrinking)",
 					__func__, hop->length,
 					pEncap->length - 2);
 				hop->length = pEncap->length - 2;
@@ -664,13 +661,13 @@ static void rfapiRibBi2Ri(struct bgp_info *bi, struct rfapi_info *ri,
 	}
 
 	rfapi_un_options_free(ri->un_options); /* maybe free old version */
-	ri->un_options = rfapi_encap_tlv_to_un_option(bi->attr);
+	ri->un_options = rfapi_encap_tlv_to_un_option(bpi->attr);
 
 	/*
 	 * VN options
 	 */
-	if (bi->extra
-	    && decode_rd_type(bi->extra->vnc.import.rd.val)
+	if (bpi->extra
+	    && decode_rd_type(bpi->extra->vnc.import.rd.val)
 		       == RD_TYPE_VNC_ETH) {
 		/* ethernet route */
 
@@ -682,21 +679,21 @@ static void rfapiRibBi2Ri(struct bgp_info *bi, struct rfapi_info *ri,
 
 		vo->type = RFAPI_VN_OPTION_TYPE_L2ADDR;
 
-		/* copy from RD already stored in bi, so we don't need it_node
+		/* copy from RD already stored in bpi, so we don't need it_node
 		 */
-		memcpy(&vo->v.l2addr.macaddr, bi->extra->vnc.import.rd.val + 2,
+		memcpy(&vo->v.l2addr.macaddr, bpi->extra->vnc.import.rd.val + 2,
 		       ETH_ALEN);
 
-		(void)rfapiEcommunityGetLNI(bi->attr->ecommunity,
+		(void)rfapiEcommunityGetLNI(bpi->attr->ecommunity,
 					    &vo->v.l2addr.logical_net_id);
-		(void)rfapiEcommunityGetEthernetTag(bi->attr->ecommunity,
+		(void)rfapiEcommunityGetEthernetTag(bpi->attr->ecommunity,
 						    &vo->v.l2addr.tag_id);
 
 		/* local_nve_id comes from RD */
-		vo->v.l2addr.local_nve_id = bi->extra->vnc.import.rd.val[1];
+		vo->v.l2addr.local_nve_id = bpi->extra->vnc.import.rd.val[1];
 
 		/* label comes from MP_REACH_NLRI label */
-		vo->v.l2addr.label = decode_label(&bi->extra->label[0]);
+		vo->v.l2addr.label = decode_label(&bpi->extra->label[0]);
 
 		rfapi_vn_options_free(
 			ri->vn_options); /* maybe free old version */
@@ -706,8 +703,8 @@ static void rfapiRibBi2Ri(struct bgp_info *bi, struct rfapi_info *ri,
 	/*
 	 * If there is an auxiliary IP address (L2 can have it), copy it
 	 */
-	if (bi->extra && bi->extra->vnc.import.aux_prefix.family) {
-		ri->rk.aux_prefix = bi->extra->vnc.import.aux_prefix;
+	if (bpi->extra && bpi->extra->vnc.import.aux_prefix.family) {
+		ri->rk.aux_prefix = bpi->extra->vnc.import.aux_prefix;
 	}
 }
 
@@ -730,33 +727,34 @@ static void rfapiRibBi2Ri(struct bgp_info *bi, struct rfapi_info *ri,
  *	!0	do not include route in response
  */
 int rfapiRibPreloadBi(
-	struct route_node *rfd_rib_node, /* NULL = don't preload or filter */
+	struct agg_node *rfd_rib_node, /* NULL = don't preload or filter */
 	struct prefix *pfx_vn, struct prefix *pfx_un, uint32_t lifetime,
-	struct bgp_info *bi)
+	struct bgp_path_info *bpi)
 {
 	struct rfapi_descriptor *rfd;
 	struct skiplist *slRibPt = NULL;
 	struct rfapi_info *ori = NULL;
 	struct rfapi_rib_key rk;
-	struct route_node *trn;
+	struct agg_node *trn;
 	afi_t afi;
+	const struct prefix *p = agg_node_get_prefix(rfd_rib_node);
 
 	if (!rfd_rib_node)
 		return 0;
 
-	afi = family2afi(rfd_rib_node->p.family);
+	afi = family2afi(p->family);
 
-	rfd = (struct rfapi_descriptor *)(rfd_rib_node->table->info);
+	rfd = agg_get_table_info(agg_get_table(rfd_rib_node));
 
 	memset((void *)&rk, 0, sizeof(rk));
 	rk.vn = *pfx_vn;
-	rk.rd = bi->extra->vnc.import.rd;
+	rk.rd = bpi->extra->vnc.import.rd;
 
 	/*
 	 * If there is an auxiliary IP address (L2 can have it), copy it
 	 */
-	if (bi->extra->vnc.import.aux_prefix.family) {
-		rk.aux_prefix = bi->extra->vnc.import.aux_prefix;
+	if (bpi->extra->vnc.import.aux_prefix.family) {
+		rk.aux_prefix = bpi->extra->vnc.import.aux_prefix;
 	}
 
 	/*
@@ -773,18 +771,18 @@ int rfapiRibPreloadBi(
 
 		/* found: update contents of existing route in RIB */
 		ori->un = *pfx_un;
-		rfapiRibBi2Ri(bi, ori, lifetime);
+		rfapiRibBi2Ri(bpi, ori, lifetime);
 	} else {
 		/* not found: add new route to RIB */
 		ori = rfapi_info_new();
 		ori->rk = rk;
 		ori->un = *pfx_un;
-		rfapiRibBi2Ri(bi, ori, lifetime);
+		rfapiRibBi2Ri(bpi, ori, lifetime);
 
 		if (!slRibPt) {
 			slRibPt = skiplist_new(0, rfapi_rib_key_cmp, NULL);
 			rfd_rib_node->info = slRibPt;
-			route_lock_node(rfd_rib_node);
+			agg_lock_node(rfd_rib_node);
 			RFAPI_RIB_PREFIX_COUNT_INCR(rfd, rfd->bgp->rfapi);
 		}
 		skiplist_insert(slRibPt, &ori->rk, ori);
@@ -802,11 +800,10 @@ int rfapiRibPreloadBi(
 	/*
 	 * Update last sent time for prefix
 	 */
-	trn = route_node_get(rfd->rsp_times[afi],
-			     &rfd_rib_node->p); /* locks trn */
+	trn = agg_node_get(rfd->rsp_times[afi], p); /* locks trn */
 	trn->info = (void *)(uintptr_t)bgp_clock();
 	if (trn->lock > 1)
-		route_unlock_node(trn);
+		agg_unlock_node(trn);
 
 	return 0;
 }
@@ -837,7 +834,7 @@ int rfapiRibPreloadBi(
  */
 static void process_pending_node(struct bgp *bgp, struct rfapi_descriptor *rfd,
 				 afi_t afi,
-				 struct route_node *pn, /* pending node */
+				 struct agg_node *pn, /* pending node */
 				 struct rfapi_next_hop_entry **head,
 				 struct rfapi_next_hop_entry **tail)
 {
@@ -845,16 +842,15 @@ static void process_pending_node(struct bgp *bgp, struct rfapi_descriptor *rfd,
 	struct listnode *nnode = NULL;
 	struct rfapi_info *ri = NULL;    /* happy valgrind */
 	struct rfapi_ip_prefix hp = {0}; /* pfx to put in NHE */
-	struct route_node *rn = NULL;
+	struct agg_node *rn = NULL;
 	struct skiplist *slRibPt = NULL; /* rib list */
 	struct skiplist *slPendPt = NULL;
 	struct list *lPendCost = NULL;
 	struct list *delete_list = NULL;
 	int printedprefix = 0;
-	char buf_prefix[PREFIX_STRLEN];
 	int rib_node_started_nonempty = 0;
 	int sendingsomeroutes = 0;
-
+	const struct prefix *p;
 #if DEBUG_PROCESS_PENDING_NODE
 	unsigned int count_rib_initial = 0;
 	unsigned int count_pend_vn_initial = 0;
@@ -862,12 +858,12 @@ static void process_pending_node(struct bgp *bgp, struct rfapi_descriptor *rfd,
 #endif
 
 	assert(pn);
-	prefix2str(&pn->p, buf_prefix, sizeof(buf_prefix));
-	vnc_zlog_debug_verbose("%s: afi=%d, %s pn->info=%p", __func__, afi,
-			       buf_prefix, pn->info);
+	p = agg_node_get_prefix(pn);
+	vnc_zlog_debug_verbose("%s: afi=%d, %pRN pn->info=%p", __func__, afi,
+			       pn, pn->info);
 
 	if (AFI_L2VPN != afi) {
-		rfapiQprefix2Rprefix(&pn->p, &hp);
+		rfapiQprefix2Rprefix(p, &hp);
 	}
 
 	RFAPI_RIB_CHECK_COUNTS(1, 0);
@@ -875,7 +871,7 @@ static void process_pending_node(struct bgp *bgp, struct rfapi_descriptor *rfd,
 	/*
 	 * Find corresponding RIB node
 	 */
-	rn = route_node_get(rfd->rib[afi], &pn->p); /* locks rn */
+	rn = agg_node_get(rfd->rib[afi], p); /* locks rn */
 
 	/*
 	 * RIB skiplist has key=rfapi_addr={vn,un}, val = rfapi_info,
@@ -934,9 +930,9 @@ static void process_pending_node(struct bgp *bgp, struct rfapi_descriptor *rfd,
 				prefix2str(&ri->rk.vn, buf, sizeof(buf));
 				prefix2str(&ri->un, buf2, sizeof(buf2));
 				vnc_zlog_debug_verbose(
-					"%s:   put dl pfx=%s vn=%s un=%s cost=%d life=%d vn_options=%p",
-					__func__, buf_prefix, buf, buf2,
-					ri->cost, ri->lifetime, ri->vn_options);
+					"%s:   put dl pfx=%pRN vn=%s un=%s cost=%d life=%d vn_options=%p",
+					__func__, pn, buf, buf2, ri->cost,
+					ri->lifetime, ri->vn_options);
 
 				skiplist_delete_first(slRibPt);
 			}
@@ -945,30 +941,30 @@ static void process_pending_node(struct bgp *bgp, struct rfapi_descriptor *rfd,
 
 			skiplist_free(slRibPt);
 			rn->info = slRibPt = NULL;
-			route_unlock_node(rn);
+			agg_unlock_node(rn);
 
 			lPendCost = pn->info = NULL;
-			route_unlock_node(pn);
+			agg_unlock_node(pn);
 
 			goto callback;
 		}
 		if (slRibPt) {
 			skiplist_free(slRibPt);
 			rn->info = NULL;
-			route_unlock_node(rn);
+			agg_unlock_node(rn);
 		}
 
 		assert(!slPendPt);
 		if (slPendPt) { /* TBD I think we can toss this block */
 			skiplist_free(slPendPt);
 			pn->aggregate = NULL;
-			route_unlock_node(pn);
+			agg_unlock_node(pn);
 		}
 
 		pn->info = NULL;
-		route_unlock_node(pn);
+		agg_unlock_node(pn);
 
-		route_unlock_node(rn); /* route_node_get() */
+		agg_unlock_node(rn); /* agg_node_get() */
 
 		if (rib_node_started_nonempty) {
 			RFAPI_RIB_PREFIX_COUNT_DECR(rfd, bgp->rfapi);
@@ -1076,7 +1072,7 @@ static void process_pending_node(struct bgp *bgp, struct rfapi_descriptor *rfd,
 			if (skiplist_empty(slRibPt)) {
 				skiplist_free(slRibPt);
 				slRibPt = rn->info = NULL;
-				route_unlock_node(rn);
+				agg_unlock_node(rn);
 			}
 		}
 	}
@@ -1142,7 +1138,7 @@ static void process_pending_node(struct bgp *bgp, struct rfapi_descriptor *rfd,
 					slRibPt = skiplist_new(
 						0, rfapi_rib_key_cmp, NULL);
 					rn->info = slRibPt;
-					route_lock_node(rn);
+					agg_lock_node(rn);
 				}
 				skiplist_insert(slRibPt, &ori->rk, ori);
 
@@ -1185,14 +1181,13 @@ callback:
 
 		vnc_zlog_debug_verbose("%s: lPendCost->count now %d", __func__,
 				       lPendCost->count);
-		vnc_zlog_debug_verbose("%s: For prefix %s (a)", __func__,
-				       buf_prefix);
+		vnc_zlog_debug_verbose("%s: For prefix %pRN (a)", __func__, pn);
 		printedprefix = 1;
 
 		for (ALL_LIST_ELEMENTS(lPendCost, node, nnode, ri)) {
 
 			struct rfapi_next_hop_entry *new;
-			struct route_node *trn;
+			struct agg_node *trn;
 
 			new = XCALLOC(MTYPE_RFAPI_NEXTHOP,
 				      sizeof(struct rfapi_next_hop_entry));
@@ -1244,11 +1239,11 @@ callback:
 			/*
 			 * update this NVE's timestamp for this prefix
 			 */
-			trn = route_node_get(rfd->rsp_times[afi],
-					     &pn->p); /* locks trn */
+			trn = agg_node_get(rfd->rsp_times[afi],
+					   p); /* locks trn */
 			trn->info = (void *)(uintptr_t)bgp_clock();
 			if (trn->lock > 1)
-				route_unlock_node(trn);
+				agg_unlock_node(trn);
 
 			rfapiRfapiIpAddr2Str(&new->vn_address, buf, BUFSIZ);
 			rfapiRfapiIpAddr2Str(&new->un_address, buf2, BUFSIZ);
@@ -1267,8 +1262,8 @@ callback:
 		char buf2[BUFSIZ];
 
 		if (!printedprefix) {
-			vnc_zlog_debug_verbose("%s: For prefix %s (d)",
-					       __func__, buf_prefix);
+			vnc_zlog_debug_verbose("%s: For prefix %pRN (d)",
+					       __func__, pn);
 		}
 		vnc_zlog_debug_verbose("%s: delete_list has %d elements",
 				       __func__, delete_list->count);
@@ -1347,7 +1342,7 @@ callback:
 						0, rfapi_rib_key_cmp,
 						(void (*)(void *))
 							rfapi_info_free);
-					route_lock_node(rn);
+					agg_lock_node(rn);
 				}
 				RFAPI_RIB_CHECK_COUNTS(0, delete_list->count);
 
@@ -1432,24 +1427,24 @@ callback:
 		}
 
 		delete_list->del = (void (*)(void *))rfapi_info_free;
-		list_delete_and_null(&delete_list);
+		list_delete(&delete_list);
 	}
 
 	RFAPI_RIB_CHECK_COUNTS(0, 0);
 
 	/*
-	 * Reset pending lists. The final route_unlock_node() will probably
+	 * Reset pending lists. The final agg_unlock_node() will probably
 	 * cause the pending node to be released.
 	 */
 	if (slPendPt) {
 		skiplist_free(slPendPt);
 		pn->aggregate = NULL;
-		route_unlock_node(pn);
+		agg_unlock_node(pn);
 	}
 	if (lPendCost) {
-		list_delete_and_null(&lPendCost);
+		list_delete(&lPendCost);
 		pn->info = NULL;
-		route_unlock_node(pn);
+		agg_unlock_node(pn);
 	}
 	RFAPI_RIB_CHECK_COUNTS(0, 0);
 
@@ -1464,9 +1459,9 @@ callback:
 	}
 
 	if (sendingsomeroutes)
-		rfapiMonitorTimersRestart(rfd, &pn->p);
+		rfapiMonitorTimersRestart(rfd, p);
 
-	route_unlock_node(rn); /* route_node_get() */
+	agg_unlock_node(rn); /* agg_node_get() */
 
 	RFAPI_RIB_CHECK_COUNTS(1, 0);
 }
@@ -1484,9 +1479,9 @@ static void rib_do_callback_onepass(struct rfapi_descriptor *rfd, afi_t afi)
 	struct bgp *bgp = bgp_get_default();
 	struct rfapi_next_hop_entry *head = NULL;
 	struct rfapi_next_hop_entry *tail = NULL;
-	struct route_node *rn;
+	struct agg_node *rn;
 
-#if DEBUG_L2_EXTRA
+#ifdef DEBUG_L2_EXTRA
 	vnc_zlog_debug_verbose("%s: rfd=%p, afi=%d", __func__, rfd, afi);
 #endif
 
@@ -1495,7 +1490,8 @@ static void rib_do_callback_onepass(struct rfapi_descriptor *rfd, afi_t afi)
 
 	assert(bgp->rfapi);
 
-	for (rn = route_top(rfd->rib_pending[afi]); rn; rn = route_next(rn)) {
+	for (rn = agg_route_top(rfd->rib_pending[afi]); rn;
+	     rn = agg_route_next(rn)) {
 		process_pending_node(bgp, rfd, afi, rn, &head, &tail);
 	}
 
@@ -1585,11 +1581,11 @@ static void updated_responses_queue_init(struct rfapi_descriptor *rfd)
 void rfapiRibUpdatePendingNode(
 	struct bgp *bgp, struct rfapi_descriptor *rfd,
 	struct rfapi_import_table *it, /* needed for L2 */
-	struct route_node *it_node, uint32_t lifetime)
+	struct agg_node *it_node, uint32_t lifetime)
 {
-	struct prefix *prefix;
-	struct bgp_info *bi;
-	struct route_node *pn;
+	const struct prefix *prefix;
+	struct bgp_path_info *bpi;
+	struct agg_node *pn;
 	afi_t afi;
 	uint32_t queued_flag;
 	int count = 0;
@@ -1604,12 +1600,12 @@ void rfapiRibUpdatePendingNode(
 
 	RFAPI_RIB_CHECK_COUNTS(1, 0);
 
-	prefix = &it_node->p;
+	prefix = agg_node_get_prefix(it_node);
 	afi = family2afi(prefix->family);
 	prefix2str(prefix, buf, sizeof(buf));
 	vnc_zlog_debug_verbose("%s: prefix=%s", __func__, buf);
 
-	pn = route_node_get(rfd->rib_pending[afi], prefix);
+	pn = agg_node_get(rfd->rib_pending[afi], prefix);
 	assert(pn);
 
 	vnc_zlog_debug_verbose("%s: pn->info=%p, pn->aggregate=%p", __func__,
@@ -1622,7 +1618,7 @@ void rfapiRibUpdatePendingNode(
 		 */
 		skiplist_free((struct skiplist *)(pn->aggregate));
 		pn->aggregate = NULL;
-		route_unlock_node(pn); /* skiplist deleted */
+		agg_unlock_node(pn); /* skiplist deleted */
 	}
 
 
@@ -1631,32 +1627,27 @@ void rfapiRibUpdatePendingNode(
 	 */
 	if (pn->info) {
 		if (pn->info != (void *)1) {
-			list_delete_and_null((struct list **)(&pn->info));
+			list_delete((struct list **)(&pn->info));
 		}
 		pn->info = NULL;
-		route_unlock_node(pn); /* linklist or 1 deleted */
+		agg_unlock_node(pn); /* linklist or 1 deleted */
 	}
 
 	/*
-	 * The BIs in the import table are already sorted by cost
+	 * The BPIs in the import table are already sorted by cost
 	 */
-	for (bi = it_node->info; bi; bi = bi->next) {
+	for (bpi = it_node->info; bpi; bpi = bpi->next) {
 
 		struct rfapi_info *ri;
 		struct prefix pfx_nh;
 
-		if (!bi->attr) {
-			/* shouldn't happen */
-			/* TBD increment error stats counter */
-			continue;
-		}
-		if (!bi->extra) {
+		if (!bpi->extra) {
 			/* shouldn't happen */
 			/* TBD increment error stats counter */
 			continue;
 		}
 
-		rfapiNexthop2Prefix(bi->attr, &pfx_nh);
+		rfapiNexthop2Prefix(bpi->attr, &pfx_nh);
 
 		/*
 		 * Omit route if nexthop is self
@@ -1673,15 +1664,15 @@ void rfapiRibUpdatePendingNode(
 
 		ri = rfapi_info_new();
 		ri->rk.vn = pfx_nh;
-		ri->rk.rd = bi->extra->vnc.import.rd;
+		ri->rk.rd = bpi->extra->vnc.import.rd;
 		/*
 		 * If there is an auxiliary IP address (L2 can have it), copy it
 		 */
-		if (bi->extra->vnc.import.aux_prefix.family) {
-			ri->rk.aux_prefix = bi->extra->vnc.import.aux_prefix;
+		if (bpi->extra->vnc.import.aux_prefix.family) {
+			ri->rk.aux_prefix = bpi->extra->vnc.import.aux_prefix;
 		}
 
-		if (rfapiGetUnAddrOfVpnBi(bi, &ri->un)) {
+		if (rfapiGetUnAddrOfVpnBi(bpi, &ri->un)) {
 			rfapi_info_free(ri);
 			continue;
 		}
@@ -1689,7 +1680,7 @@ void rfapiRibUpdatePendingNode(
 		if (!pn->aggregate) {
 			pn->aggregate =
 				skiplist_new(0, rfapi_rib_key_cmp, NULL);
-			route_lock_node(pn);
+			agg_lock_node(pn);
 		}
 
 		/*
@@ -1709,13 +1700,13 @@ void rfapiRibUpdatePendingNode(
 			continue;
 		}
 
-		rfapiRibBi2Ri(bi, ri, lifetime);
+		rfapiRibBi2Ri(bpi, ri, lifetime);
 
 		if (!pn->info) {
 			pn->info = list_new();
 			((struct list *)(pn->info))->del =
 				(void (*)(void *))rfapi_info_free;
-			route_lock_node(pn);
+			agg_lock_node(pn);
 		}
 
 		listnode_add((struct list *)(pn->info), ri);
@@ -1730,10 +1721,10 @@ void rfapiRibUpdatePendingNode(
 		assert(!pn->aggregate);
 		pn->info = (void *)1; /* magic value means this node has no
 					 routes */
-		route_lock_node(pn);
+		agg_lock_node(pn);
 	}
 
-	route_unlock_node(pn); /* route_node_get */
+	agg_unlock_node(pn); /* agg_node_get */
 
 	queued_flag = RFAPI_QUEUED_FLAG(afi);
 
@@ -1757,25 +1748,30 @@ void rfapiRibUpdatePendingNode(
 
 void rfapiRibUpdatePendingNodeSubtree(
 	struct bgp *bgp, struct rfapi_descriptor *rfd,
-	struct rfapi_import_table *it, struct route_node *it_node,
-	struct route_node *omit_subtree, /* may be NULL */
+	struct rfapi_import_table *it, struct agg_node *it_node,
+	struct agg_node *omit_subtree, /* may be NULL */
 	uint32_t lifetime)
 {
 	/* FIXME: need to find a better way here to work without sticking our
 	 * hands in node->link */
-	if (it_node->l_left && (it_node->l_left != omit_subtree)) {
-		if (it_node->l_left->info)
-			rfapiRibUpdatePendingNode(bgp, rfd, it, it_node->l_left,
-						  lifetime);
-		rfapiRibUpdatePendingNodeSubtree(bgp, rfd, it, it_node->l_left,
+	if (agg_node_left(it_node)
+	    && (agg_node_left(it_node) != omit_subtree)) {
+		if (agg_node_left(it_node)->info)
+			rfapiRibUpdatePendingNode(
+				bgp, rfd, it, agg_node_left(it_node), lifetime);
+		rfapiRibUpdatePendingNodeSubtree(bgp, rfd, it,
+						 agg_node_left(it_node),
 						 omit_subtree, lifetime);
 	}
 
-	if (it_node->l_right && (it_node->l_right != omit_subtree)) {
-		if (it_node->l_right->info)
+	if (agg_node_right(it_node)
+	    && (agg_node_right(it_node) != omit_subtree)) {
+		if (agg_node_right(it_node)->info)
 			rfapiRibUpdatePendingNode(bgp, rfd, it,
-						  it_node->l_right, lifetime);
-		rfapiRibUpdatePendingNodeSubtree(bgp, rfd, it, it_node->l_right,
+						  agg_node_right(it_node),
+						  lifetime);
+		rfapiRibUpdatePendingNodeSubtree(bgp, rfd, it,
+						 agg_node_right(it_node),
 						 omit_subtree, lifetime);
 	}
 }
@@ -1788,13 +1784,14 @@ void rfapiRibUpdatePendingNodeSubtree(
  */
 int rfapiRibFTDFilterRecentPrefix(
 	struct rfapi_descriptor *rfd,
-	struct route_node *it_rn,	   /* import table node */
+	struct agg_node *it_rn,		    /* import table node */
 	struct prefix *pfx_target_original) /* query target */
 {
 	struct bgp *bgp = rfd->bgp;
-	afi_t afi = family2afi(it_rn->p.family);
+	const struct prefix *p = agg_node_get_prefix(it_rn);
+	afi_t afi = family2afi(p->family);
 	time_t prefix_time;
-	struct route_node *trn;
+	struct agg_node *trn;
 
 	/*
 	 * Not in FTD mode, so allow prefix
@@ -1807,14 +1804,15 @@ int rfapiRibFTDFilterRecentPrefix(
 	 * This matches behavior of now-obsolete rfapiRibFTDFilterRecent(),
 	 * but we need to decide if that is correct.
 	 */
-	if (it_rn->p.family == AF_ETHERNET)
+	if (p->family == AF_ETHERNET)
 		return 0;
 
-#if DEBUG_FTD_FILTER_RECENT
+#ifdef DEBUG_FTD_FILTER_RECENT
 	{
 		char buf_pfx[PREFIX_STRLEN];
 
-		prefix2str(&it_rn->p, buf_pfx, sizeof(buf_pfx));
+		prefix2str(agg_node_get_prefix(it_rn), buf_pfx,
+			   sizeof(buf_pfx));
 		vnc_zlog_debug_verbose("%s: prefix %s", __func__, buf_pfx);
 	}
 #endif
@@ -1822,8 +1820,8 @@ int rfapiRibFTDFilterRecentPrefix(
 	/*
 	 * prefix covers target address, so allow prefix
 	 */
-	if (prefix_match(&it_rn->p, pfx_target_original)) {
-#if DEBUG_FTD_FILTER_RECENT
+	if (prefix_match(p, pfx_target_original)) {
+#ifdef DEBUG_FTD_FILTER_RECENT
 		vnc_zlog_debug_verbose("%s: prefix covers target, allowed",
 				       __func__);
 #endif
@@ -1833,12 +1831,12 @@ int rfapiRibFTDFilterRecentPrefix(
 	/*
 	 * check this NVE's timestamp for this prefix
 	 */
-	trn = route_node_get(rfd->rsp_times[afi], &it_rn->p); /* locks trn */
+	trn = agg_node_get(rfd->rsp_times[afi], p); /* locks trn */
 	prefix_time = (time_t)trn->info;
 	if (trn->lock > 1)
-		route_unlock_node(trn);
+		agg_unlock_node(trn);
 
-#if DEBUG_FTD_FILTER_RECENT
+#ifdef DEBUG_FTD_FILTER_RECENT
 	vnc_zlog_debug_verbose("%s: last sent time %lu, last allowed time %lu",
 			       __func__, prefix_time,
 			       rfd->ftd_last_allowed_time);
@@ -1883,9 +1881,9 @@ rfapiRibPreload(struct bgp *bgp, struct rfapi_descriptor *rfd,
 		afi_t afi;
 		struct rfapi_info *ri;
 		int need_insert;
-		struct route_node *rn;
+		struct agg_node *rn;
 		int rib_node_started_nonempty = 0;
-		struct route_node *trn;
+		struct agg_node *trn;
 		int allowed = 0;
 
 		/* save in case we delete nhp */
@@ -1947,13 +1945,13 @@ rfapiRibPreload(struct bgp *bgp, struct rfapi_descriptor *rfd,
 		/*
 		 * Look up prefix in RIB
 		 */
-		rn = route_node_get(rfd->rib[afi], &pfx); /* locks rn */
+		rn = agg_node_get(rfd->rib[afi], &pfx); /* locks rn */
 
 		if (rn->info) {
 			rib_node_started_nonempty = 1;
 		} else {
 			rn->info = skiplist_new(0, rfapi_rib_key_cmp, NULL);
-			route_lock_node(rn);
+			agg_lock_node(rn);
 		}
 
 		/*
@@ -1995,7 +1993,8 @@ rfapiRibPreload(struct bgp *bgp, struct rfapi_descriptor *rfd,
 		}
 		vnc_zlog_debug_verbose(
 			"%s: RIB skiplist for this prefix follows", __func__);
-		rfapiRibShowRibSl(NULL, &rn->p, (struct skiplist *)rn->info);
+		rfapiRibShowRibSl(NULL, agg_node_get_prefix(rn),
+				  (struct skiplist *)rn->info);
 #endif
 
 
@@ -2063,15 +2062,15 @@ rfapiRibPreload(struct bgp *bgp, struct rfapi_descriptor *rfd,
 		rfapiRibStartTimer(rfd, ri, rn, 0);
 		RFAPI_RIB_CHECK_COUNTS(0, 0);
 
-		route_unlock_node(rn);
+		agg_unlock_node(rn);
 
 		/*
 		 * update this NVE's timestamp for this prefix
 		 */
-		trn = route_node_get(rfd->rsp_times[afi], &pfx); /* locks trn */
+		trn = agg_node_get(rfd->rsp_times[afi], &pfx); /* locks trn */
 		trn->info = (void *)(uintptr_t)bgp_clock();
 		if (trn->lock > 1)
-			route_unlock_node(trn);
+			agg_unlock_node(trn);
 
 		{
 			char str_pfx[PREFIX_STRLEN];
@@ -2108,15 +2107,14 @@ rfapiRibPreload(struct bgp *bgp, struct rfapi_descriptor *rfd,
 }
 
 void rfapiRibPendingDeleteRoute(struct bgp *bgp, struct rfapi_import_table *it,
-				afi_t afi, struct route_node *it_node)
+				afi_t afi, struct agg_node *it_node)
 {
 	struct rfapi_descriptor *rfd;
 	struct listnode *node;
-	char buf[PREFIX_STRLEN];
+	const struct prefix *p = agg_node_get_prefix(it_node);
 
-	prefix2str(&it_node->p, buf, sizeof(buf));
-	vnc_zlog_debug_verbose("%s: entry, it=%p, afi=%d, it_node=%p, pfx=%s",
-			       __func__, it, afi, it_node, buf);
+	vnc_zlog_debug_verbose("%s: entry, it=%p, afi=%d, it_node=%p, pfx=%pRN",
+			       __func__, it, afi, it_node, it_node);
 
 	if (AFI_L2VPN == afi) {
 		/*
@@ -2124,7 +2122,7 @@ void rfapiRibPendingDeleteRoute(struct bgp *bgp, struct rfapi_import_table *it,
 		 * identifies the rfd that owns it.
 		 */
 		struct rfapi_monitor_eth *m;
-		struct route_node *rn;
+		struct agg_node *rn;
 		struct skiplist *sl;
 		void *cursor;
 		int rc;
@@ -2154,12 +2152,12 @@ void rfapiRibPendingDeleteRoute(struct bgp *bgp, struct rfapi_import_table *it,
 				 * NVE, it's OK to send an update with the
 				 * delete
 				 */
-				if ((rn = route_node_lookup(m->rfd->rib[afi],
-							    &it_node->p))) {
+				if ((rn = agg_node_lookup(m->rfd->rib[afi],
+							  p))) {
 					rfapiRibUpdatePendingNode(
 						bgp, m->rfd, it, it_node,
 						m->rfd->response_lifetime);
-					route_unlock_node(rn);
+					agg_unlock_node(rn);
 				}
 			}
 		}
@@ -2177,11 +2175,11 @@ void rfapiRibPendingDeleteRoute(struct bgp *bgp, struct rfapi_import_table *it,
 			 * this
 			 * NVE, it's OK to send an update with the delete
 			 */
-			if ((rn = route_node_lookup(m->rfd->rib[afi],
-						    &it_node->p))) {
+			if ((rn = agg_node_lookup(m->rfd->rib[afi], p))) {
 				rfapiRibUpdatePendingNode(
 					bgp, m->rfd, it, it_node,
 					m->rfd->response_lifetime);
+				agg_unlock_node(rn);
 			}
 		}
 
@@ -2192,7 +2190,7 @@ void rfapiRibPendingDeleteRoute(struct bgp *bgp, struct rfapi_import_table *it,
 		for (ALL_LIST_ELEMENTS_RO(&bgp->rfapi->descriptors, node,
 					  rfd)) {
 
-			struct route_node *rn;
+			struct agg_node *rn;
 
 			vnc_zlog_debug_verbose(
 				"%s: comparing rfd(%p)->import_table=%p to it=%p",
@@ -2209,12 +2207,11 @@ void rfapiRibPendingDeleteRoute(struct bgp *bgp, struct rfapi_import_table *it,
 			 * prefix
 			 * previously, we should send an updated response.
 			 */
-			if ((rn = route_node_lookup(rfd->rib[afi],
-						    &it_node->p))) {
+			if ((rn = agg_node_lookup(rfd->rib[afi], p))) {
 				rfapiRibUpdatePendingNode(
 					bgp, rfd, it, it_node,
 					rfd->response_lifetime);
-				route_unlock_node(rn);
+				agg_unlock_node(rn);
 			}
 		}
 	}
@@ -2308,7 +2305,7 @@ static int print_rib_sl(int (*fp)(void *, const char *, ...), struct vty *vty,
 			*p = 0;
 
 		rfapiFormatSeconds(ri->lifetime, str_lifetime, BUFSIZ);
-#if RFAPI_REGISTRATIONS_REPORT_AGE
+#ifdef RFAPI_REGISTRATIONS_REPORT_AGE
 		rfapiFormatAge(ri->last_sent_time, str_age, BUFSIZ);
 #else
 		{
@@ -2406,14 +2403,15 @@ void rfapiRibShowResponses(void *stream, struct prefix *pfx_match,
 
 		for (afi = AFI_IP; afi < AFI_MAX; ++afi) {
 
-			struct route_node *rn;
+			struct agg_node *rn;
 
 			if (!rfd->rib[afi])
 				continue;
 
-			for (rn = route_top(rfd->rib[afi]); rn;
-			     rn = route_next(rn)) {
-
+			for (rn = agg_route_top(rfd->rib[afi]); rn;
+			     rn = agg_route_next(rn)) {
+				const struct prefix *p =
+					agg_node_get_prefix(rn);
 				struct skiplist *sl;
 				char str_pfx[PREFIX_STRLEN];
 				int printedprefix = 0;
@@ -2430,9 +2428,8 @@ void rfapiRibShowResponses(void *stream, struct prefix *pfx_match,
 				nhs_total += skiplist_count(sl);
 				++prefixes_total;
 
-				if (pfx_match
-				    && !prefix_match(pfx_match, &rn->p)
-				    && !prefix_match(&rn->p, pfx_match))
+				if (pfx_match && !prefix_match(pfx_match, p)
+				    && !prefix_match(p, pfx_match))
 					continue;
 
 				++prefixes_displayed;
@@ -2448,12 +2445,12 @@ void rfapiRibShowResponses(void *stream, struct prefix *pfx_match,
 					   "   %-20s %-15s %-15s %4s %-8s %-8s\n",
 					   "Prefix", "Registered VN",
 					   "Registered UN", "Cost", "Lifetime",
-#if RFAPI_REGISTRATIONS_REPORT_AGE
+#ifdef RFAPI_REGISTRATIONS_REPORT_AGE
 					   "Age"
 #else
 					   "Remaining"
 #endif
-					   );
+					);
 				}
 				if (!printednve) {
 					char str_vn[BUFSIZ];
@@ -2469,7 +2466,7 @@ void rfapiRibShowResponses(void *stream, struct prefix *pfx_match,
 								str_un,
 								BUFSIZ));
 				}
-				prefix2str(&rn->p, str_pfx, sizeof(str_pfx));
+				prefix2str(p, str_pfx, sizeof(str_pfx));
 				// fp(out, "  %s\n", buf);  /* prefix */
 
 				routes_displayed++;

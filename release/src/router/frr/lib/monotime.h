@@ -21,6 +21,10 @@
 #include <time.h>
 #include <sys/time.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifndef TIMESPEC_TO_TIMEVAL
 /* should be in sys/time.h on BSD & Linux libcs */
 #define TIMESPEC_TO_TIMEVAL(tv, ts)                                            \
@@ -79,5 +83,57 @@ static inline int64_t monotime_until(const struct timeval *ref,
 		*out = tv;
 	return (int64_t)tv.tv_sec * 1000000LL + tv.tv_usec;
 }
+
+static inline time_t monotime_to_realtime(const struct timeval *mono,
+					  struct timeval *realout)
+{
+	struct timeval delta, real;
+
+	monotime_since(mono, &delta);
+	gettimeofday(&real, NULL);
+
+	timersub(&real, &delta, &real);
+	if (realout)
+		*realout = real;
+	return real.tv_sec;
+}
+
+/* Char buffer size for time-to-string api */
+#define MONOTIME_STRLEN 32
+
+static inline char *time_to_string(time_t ts, char *buf)
+{
+	struct timeval tv;
+	time_t tbuf;
+
+	monotime(&tv);
+	tbuf = time(NULL) - (tv.tv_sec - ts);
+
+	return ctime_r(&tbuf, buf);
+}
+
+/* Convert interval to human-friendly string, used in cli output e.g. */
+static inline const char *frrtime_to_interval(time_t t, char *buf,
+					      size_t buflen)
+{
+	struct tm tm;
+
+	gmtime_r(&t, &tm);
+
+	if (t < ONE_DAY_SECOND)
+		snprintf(buf, buflen, "%02d:%02d:%02d", tm.tm_hour, tm.tm_min,
+			 tm.tm_sec);
+	else if (t < ONE_WEEK_SECOND)
+		snprintf(buf, buflen, "%dd%02dh%02dm", tm.tm_yday, tm.tm_hour,
+			 tm.tm_min);
+	else
+		snprintf(buf, buflen, "%02dw%dd%02dh", tm.tm_yday / 7,
+			 tm.tm_yday - ((tm.tm_yday / 7) * 7), tm.tm_hour);
+	return buf;
+}
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _FRR_MONOTIME_H */

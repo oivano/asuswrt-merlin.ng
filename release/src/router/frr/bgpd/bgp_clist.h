@@ -21,6 +21,8 @@
 #ifndef _QUAGGA_BGP_CLIST_H
 #define _QUAGGA_BGP_CLIST_H
 
+#include "jhash.h"
+
 /* Master Community-list. */
 #define COMMUNITY_LIST_MASTER          0
 #define EXTCOMMUNITY_LIST_MASTER       1
@@ -34,6 +36,8 @@
 #define COMMUNITY_LIST_STRING          0
 #define COMMUNITY_LIST_NUMBER          1
 
+#define COMMUNITY_SEQ_NUMBER_AUTO     -1
+
 /* Community-list entry types.  */
 #define COMMUNITY_LIST_STANDARD        0 /* Standard community-list.  */
 #define COMMUNITY_LIST_EXPANDED        1 /* Expanded community-list.  */
@@ -46,6 +50,9 @@
 struct community_list {
 	/* Name of the community-list.  */
 	char *name;
+
+	/* Stored hash value of name, to further speed up hash operations */
+	uint32_t name_hash;
 
 	/* String or number.  */
 	int sort;
@@ -74,7 +81,10 @@ struct community_entry {
 	uint8_t style;
 
 	/* Any match.  */
-	uint8_t any;
+	bool any;
+
+	/* Sequence number. */
+	int64_t seq;
 
 	/* Community structure.  */
 	union {
@@ -100,6 +110,7 @@ struct community_list_list {
 struct community_list_master {
 	struct community_list_list num;
 	struct community_list_list str;
+	struct hash *hash;
 };
 
 /* Community-list handler.  community_list_init() returns this
@@ -129,38 +140,48 @@ extern struct community_list_handler *community_list_init(void);
 extern void community_list_terminate(struct community_list_handler *);
 
 extern int community_list_set(struct community_list_handler *ch,
-			      const char *name, const char *str, int direct,
-			      int style);
+			      const char *name, const char *str,
+			      const char *seq, int direct, int style);
 extern int community_list_unset(struct community_list_handler *ch,
-				const char *name, const char *str, int direct,
-				int style);
+				const char *name, const char *str,
+				const char *seq, int direct, int style);
 extern int extcommunity_list_set(struct community_list_handler *ch,
-				 const char *name, const char *str, int direct,
-				 int style);
+				 const char *name, const char *str,
+				 const char *seq, int direct, int style);
 extern int extcommunity_list_unset(struct community_list_handler *ch,
 				   const char *name, const char *str,
-				   int direct, int style);
+				   const char *seq, int direct, int style);
 extern int lcommunity_list_set(struct community_list_handler *ch,
-			       const char *name, const char *str, int direct,
-			       int style);
+			       const char *name, const char *str,
+			       const char *seq, int direct, int style);
+extern bool lcommunity_list_valid(const char *community, int style);
 extern int lcommunity_list_unset(struct community_list_handler *ch,
-				 const char *name, const char *str, int direct,
-				 int style);
+				 const char *name, const char *str,
+				 const char *seq, int direct, int style);
 
 extern struct community_list_master *
 community_list_master_lookup(struct community_list_handler *, int);
 
 extern struct community_list *
-community_list_lookup(struct community_list_handler *, const char *, int);
+community_list_lookup(struct community_list_handler *c, const char *name,
+		      uint32_t name_hash, int master);
 
-extern int community_list_match(struct community *, struct community_list *);
-extern int ecommunity_list_match(struct ecommunity *, struct community_list *);
-extern int lcommunity_list_match(struct lcommunity *, struct community_list *);
-extern int community_list_exact_match(struct community *,
-				      struct community_list *);
+extern bool community_list_match(struct community *, struct community_list *);
+extern bool ecommunity_list_match(struct ecommunity *, struct community_list *);
+extern bool lcommunity_list_match(struct lcommunity *, struct community_list *);
+extern bool community_list_exact_match(struct community *,
+				       struct community_list *);
+extern bool lcommunity_list_exact_match(struct lcommunity *lcom,
+					struct community_list *list);
 extern struct community *community_list_match_delete(struct community *,
 						     struct community_list *);
 extern struct lcommunity *
 lcommunity_list_match_delete(struct lcommunity *lcom,
 			     struct community_list *list);
+
+static inline uint32_t bgp_clist_hash_key(char *name)
+{
+	return jhash(name, strlen(name), 0xdeadbeaf);
+}
+
 #endif /* _QUAGGA_BGP_CLIST_H */

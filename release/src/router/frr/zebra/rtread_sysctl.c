@@ -31,6 +31,7 @@
 #include "zebra/rt.h"
 #include "zebra/kernel_socket.h"
 #include "zebra/zebra_pbr.h"
+#include "zebra/zebra_errors.h"
 
 /* Kernel routing table read up by sysctl function. */
 void route_read(struct zebra_ns *zns)
@@ -47,7 +48,8 @@ void route_read(struct zebra_ns *zns)
 
 	/* Get buffer size. */
 	if (sysctl(mib, MIBSIZ, NULL, &bufsiz, NULL, 0) < 0) {
-		zlog_warn("sysctl fail: %s", safe_strerror(errno));
+		flog_warn(EC_ZEBRA_SYSCTL_FAILED, "sysctl fail: %s",
+			  safe_strerror(errno));
 		return;
 	}
 
@@ -56,7 +58,8 @@ void route_read(struct zebra_ns *zns)
 
 	/* Read routing table information by calling sysctl(). */
 	if (sysctl(mib, MIBSIZ, buf, &bufsiz, NULL, 0) < 0) {
-		zlog_warn("sysctl() fail by %s", safe_strerror(errno));
+		flog_warn(EC_ZEBRA_SYSCTL_FAILED, "sysctl() fail by %s",
+			  safe_strerror(errno));
 		XFREE(MTYPE_TMP, ref);
 		return;
 	}
@@ -85,11 +88,20 @@ void macfdb_read_for_bridge(struct zebra_ns *zns, struct interface *ifp,
 {
 }
 
+void macfdb_read_specific_mac(struct zebra_ns *zns, struct interface *br_if,
+			      struct ethaddr *mac, vlanid_t vid)
+{
+}
+
 void neigh_read(struct zebra_ns *zns)
 {
 }
 
 void neigh_read_for_vlan(struct zebra_ns *zns, struct interface *vlan_if)
+{
+}
+
+void neigh_read_specific_ip(struct ipaddr *ip, struct interface *vlan_if)
 {
 }
 

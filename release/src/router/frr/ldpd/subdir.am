@@ -6,8 +6,8 @@ if LDPD
 noinst_LIBRARIES += ldpd/libldp.a
 sbin_PROGRAMS += ldpd/ldpd
 dist_examples_DATA += ldpd/ldpd.conf.sample
-vtysh_scan += $(top_srcdir)/ldpd/ldp_vty_cmds.c
-man8 += $(MANBUILD)/ldpd.8
+vtysh_scan += ldpd/ldp_vty_cmds.c
+man8 += $(MANBUILD)/frr-ldpd.8
 endif
 
 ldpd_libldp_a_SOURCES = \
@@ -28,7 +28,6 @@ ldpd_libldp_a_SOURCES = \
 	ldpd/ldp_vty_conf.c \
 	ldpd/ldp_vty_exec.c \
 	ldpd/ldp_zebra.c \
-	ldpd/ldpd.c \
 	ldpd/ldpe.c \
 	ldpd/log.c \
 	ldpd/logmsg.c \
@@ -40,8 +39,9 @@ ldpd_libldp_a_SOURCES = \
 	ldpd/util.c \
 	# end
 
-ldpd/ldp_vty_cmds_clippy.c: $(CLIPPY_DEPS)
-ldpd/ldp_vty_cmds.$(OBJEXT): ldpd/ldp_vty_cmds_clippy.c
+clippy_scan += \
+	ldpd/ldp_vty_cmds.c \
+	# end
 
 noinst_HEADERS += \
 	ldpd/control.h \
@@ -55,4 +55,4 @@ noinst_HEADERS += \
 	# end
 
 ldpd_ldpd_SOURCES = ldpd/ldpd.c
-ldpd_ldpd_LDADD = ldpd/libldp.a lib/libfrr.la @LIBCAP@
+ldpd_ldpd_LDADD = ldpd/libldp.a lib/libfrr.la $(LIBCAP)

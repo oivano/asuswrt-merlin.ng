@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <setjmp.h>
+#include <stdarg.h>
 #include <cmocka.h>
 
 #include "tests/config.h"
@@ -23,6 +24,7 @@
 struct state {
     struct ly_ctx *ctx;
     const struct lys_module *mod;
+    const struct lys_module *mod2;
     struct lyd_node *dt;
     char *xml;
 };
@@ -32,6 +34,7 @@ setup_f(void **state)
 {
     struct state *st;
     const char *schemafile = TESTS_DIR"/data/files/defaults.yin";
+    const char *schema2file = TESTS_DIR"/data/files/defaults2.yang";
     const char *ncwdfile = TESTS_DIR"/schema/yin/ietf/ietf-netconf-with-defaults.yin";
     const char *ietfdir = TESTS_DIR"/schema/yin/ietf/";
 
@@ -57,6 +60,12 @@ setup_f(void **state)
     st->mod = lys_parse_path(st->ctx, schemafile, LYS_IN_YIN);
     if (!st->mod) {
         fprintf(stderr, "Failed to load data model \"%s\".\n", schemafile);
+        goto error;
+    }
+
+    st->mod2 = lys_parse_path(st->ctx, schema2file, LYS_IN_YANG);
+    if (!st->mod2) {
+        fprintf(stderr, "Failed to load data model \"%s\".\n", schema2file);
         goto error;
     }
 
@@ -228,7 +237,7 @@ test_df1(void **state)
     /* presence container */
     assert_ptr_not_equal((node = lyd_new(st->dt, NULL, "bar")), NULL);
     assert_int_not_equal(lyd_validate(&(st->dt), LYD_OPT_CONFIG, NULL), 0);
-    assert_string_equal(ly_errmsg(), "Missing required element \"ho\" in \"bar\".");
+    assert_string_equal(ly_errmsg(st->ctx), "Missing required element \"ho\" in \"bar\".");
 
     /* manadatory node in bar */
     assert_ptr_not_equal(lyd_new_leaf(node, NULL, "ho", "1"), NULL);
@@ -448,6 +457,18 @@ test_rpc_output_default(void **state)
 }
 
 static void
+test_rpc_augment(void **state)
+{
+    struct state *st = (*state);
+    const char *xml = "<oper xmlns=\"urn:defaults2\">"
+                         "<c1><c2><l>hi</l></c2></c1>"
+                       "</oper>";
+
+    st->dt = lyd_parse_mem(st->ctx, xml, LYD_XML, LYD_OPT_RPC, NULL);
+    assert_ptr_not_equal(st->dt, NULL);
+}
+
+static void
 test_notif_default(void **state)
 {
     struct state *st = (*state);
@@ -481,6 +502,42 @@ test_notif_default(void **state)
     assert_int_equal(lyd_print_mem(&(st->xml), st->dt, LYD_XML, LYP_WITHSIBLINGS | LYP_WD_ALL_TAG), 0);
     assert_ptr_not_equal(st->xml, NULL);
     assert_string_equal(st->xml, xml2);
+}
+
+static void
+test_val_diff(void **state)
+{
+    struct state *st = (*state);
+    struct lyd_difflist *diff;
+    int ret;
+
+    st->dt = lyd_new_path(NULL, st->ctx, "/defaults2:l1[k='when-true']", NULL, 0, 0);
+    assert_non_null(st->dt);
+
+    ret = lyd_validate_modules(&st->dt, &st->mod2, 1,  LYD_OPT_CONFIG | LYD_OPT_VAL_DIFF, &diff);
+    assert_int_equal(ret, 0);
+
+    assert_int_equal(diff->type[0], LYD_DIFF_CREATED);
+    assert_string_equal(diff->second[0]->schema->name, "cont1");
+    assert_string_equal(diff->second[0]->child->schema->name, "cont2");
+    assert_string_equal(diff->second[0]->child->child->schema->name, "dflt1");
+    assert_int_equal(diff->type[1], LYD_DIFF_CREATED);
+    assert_string_equal(diff->second[1]->schema->name, "dflt2");
+    assert_int_equal(diff->type[2], LYD_DIFF_END);
+
+    lyd_free_val_diff(diff);
+
+    st->dt = st->dt->next;
+    lyd_free(st->dt->prev);
+
+    ret = lyd_validate_modules(&st->dt, &st->mod2, 1,  LYD_OPT_CONFIG | LYD_OPT_VAL_DIFF, &diff);
+    assert_int_equal(ret, 0);
+
+    assert_int_equal(diff->type[0], LYD_DIFF_DELETED);
+    assert_string_equal(diff->first[0]->schema->name, "dflt2");
+    assert_int_equal(diff->type[1], LYD_DIFF_END);
+
+    lyd_free_val_diff(diff);
 }
 
 static void
@@ -525,13 +582,16 @@ test_leaflist_in10(void **state)
 "    <default value=\"one\"/>"
 "  </leaf-list></module>";
 
+    ly_log_options(LY_LOSTORE);
     mod = lys_parse_mem(st->ctx, yang, LYS_IN_YANG);
     assert_ptr_equal(mod, NULL);
-    assert_int_equal(ly_vecode, LYVE_INSTMT);
+    assert_int_equal(ly_err_first(st->ctx)->vecode, LYVE_INSTMT);
 
     mod = lys_parse_mem(st->ctx, yin, LYS_IN_YIN);
     assert_ptr_equal(mod, NULL);
-    assert_int_equal(ly_vecode, LYVE_INSTMT);
+    assert_int_equal(ly_err_first(st->ctx)->prev->prev->vecode, LYVE_INSTMT);
+    ly_err_clean(st->ctx, NULL);
+    ly_log_options(LY_LOLOG | LY_LOSTORE_LAST);
 }
 
 static void
@@ -627,7 +687,9 @@ int main(void)
                     cmocka_unit_test_setup_teardown(test_df4, setup_f, teardown_f),
                     cmocka_unit_test_setup_teardown(test_rpc_input_default, setup_f, teardown_f),
                     cmocka_unit_test_setup_teardown(test_rpc_output_default, setup_f, teardown_f),
+                    cmocka_unit_test_setup_teardown(test_rpc_augment, setup_f, teardown_f),
                     cmocka_unit_test_setup_teardown(test_notif_default, setup_f, teardown_f),
+                    cmocka_unit_test_setup_teardown(test_val_diff, setup_f, teardown_f),
                     cmocka_unit_test_setup_teardown(test_feature, setup_f, teardown_f),
                     cmocka_unit_test_setup_teardown(test_leaflist_in10, setup_clean_f, teardown_f),
                     cmocka_unit_test_setup_teardown(test_leaflist_yang, setup_clean_f, teardown_f),

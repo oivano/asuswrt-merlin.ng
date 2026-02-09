@@ -23,6 +23,11 @@
 #include "../extensions.h"
 
 /**
+ * @brief Storage for ID used to check plugin API version compatibility.
+ */
+LYEXT_VERSION_CHECK
+
+/**
  * @brief Callback to check that the NACM extension can be instantiated inside the provided node
  *
  * @param[in] parent The parent of the instantiated extension.
@@ -112,8 +117,8 @@ nacm_cardinality(struct lys_ext_instance *ext)
     }
 
     if (c > 1) {
-        path = lys_path((struct lys_node *)(ext->parent));
-        LYEXT_LOG(LY_LLERR, "NACM", "Extension nacm:%s can appear only once, but %d instances found in %s.",
+        path = lys_path((struct lys_node *)(ext->parent), LYS_PATH_FIRST_PREFIX);
+        LYEXT_LOG(ext->module->ctx, LY_LLERR, "NACM", "Extension nacm:%s can appear only once, but %d instances found in %s.",
                   ext->def->name, c, path);
         free(path);
         return 1;

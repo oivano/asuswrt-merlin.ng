@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <setjmp.h>
+#include <stdarg.h>
 #include <cmocka.h>
 
 #include "tests/config.h"
@@ -75,6 +76,7 @@ test_acm_yangtypes_xpath(void **state)
 
     /* schema */
     assert_ptr_not_equal(lys_parse_path(st->ctx, TESTS_DIR"/schema/yang/ietf/ietf-netconf-acm.yang", LYS_IN_YANG), NULL);
+    assert_ptr_not_equal(lys_parse_path(st->ctx, TESTS_DIR"/data/files/all-imp.yang", LYS_IN_YANG), NULL);
     assert_ptr_not_equal(lys_parse_path(st->ctx, TESTS_DIR"/data/files/all.yang", LYS_IN_YANG), NULL);
 
     /* data */

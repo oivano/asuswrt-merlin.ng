@@ -1,3 +1,17 @@
+# --- gcc 4.5.3 toolchain host library compatibility ---
+# The gcc 4.5.3 toolchain needs older library versions than modern systems provide
+# This check creates the required symlinks if they don't exist
+TOOLCHAIN_LIBS_CHECK := $(shell \
+	if [ ! -e /usr/lib/x86_64-linux-gnu/libmpfr.so.4 ] && [ -e /usr/lib/x86_64-linux-gnu/libmpfr.so.6 ]; then \
+		sudo ln -sf /usr/lib/x86_64-linux-gnu/libmpfr.so.6 /usr/lib/x86_64-linux-gnu/libmpfr.so.4 2>/dev/null || \
+		echo "WARNING: Cannot create libmpfr.so.4 symlink. Run: sudo ln -s /usr/lib/x86_64-linux-gnu/libmpfr.so.6 /usr/lib/x86_64-linux-gnu/libmpfr.so.4"; \
+	fi; \
+	if [ ! -e /usr/lib/x86_64-linux-gnu/libmpc.so.2 ] && [ -e /usr/lib/x86_64-linux-gnu/libmpc.so.3 ]; then \
+		sudo ln -sf /usr/lib/x86_64-linux-gnu/libmpc.so.3 /usr/lib/x86_64-linux-gnu/libmpc.so.2 2>/dev/null || \
+		echo "WARNING: Cannot create libmpc.so.2 symlink. Run: sudo ln -s /usr/lib/x86_64-linux-gnu/libmpc.so.3 /usr/lib/x86_64-linux-gnu/libmpc.so.2"; \
+	fi)
+
+
 #
 # Broadcom Linux Router Makefile
 #
@@ -1411,14 +1425,15 @@ obj-$(RTCONFIG_SSH) += dropbear
 obj-$(RTCONFIG_SSH) += openssh
 obj-$(RTCONFIG_WTFAST) += wtfast
 
-obj-$(RTCONFIG_QUAGGA) += frr
-obj-$(RTCONFIG_QUAGGA) += libcap-ng
-obj-$(RTCONFIG_QUAGGA) += json-c
-obj-$(RTCONFIG_QUAGGA) += pcre-8.31
-obj-$(RTCONFIG_QUAGGA) += libyang
-obj-$(RTCONFIG_QUAGGA) += zlib
-obj-$(RTCONFIG_QUAGGA) += readline-8.1
-obj-$(RTCONFIG_QUAGGA) += ncurses-6.0
+obj-$(RTCONFIG_FRR) += frr
+obj-$(RTCONFIG_FRR) += libcap
+obj-$(RTCONFIG_FRR) += libcap-ng
+obj-$(RTCONFIG_FRR) += json-c
+obj-$(RTCONFIG_FRR) += pcre-8.31
+obj-$(RTCONFIG_FRR) += libyang
+obj-$(RTCONFIG_FRR) += zlib
+obj-$(RTCONFIG_FRR) += readline-8.1
+obj-$(RTCONFIG_FRR) += ncurses-6.0
 
 #obj-$(RTCONFIG_IPP2P) += ipp2p
 ifeq ($(HND_ROUTER_AX_6756),y)
@@ -3784,15 +3799,15 @@ else
 	cd miniupnpd && ./configure --vendorcfg --leasefile --portinuse $(if $(RTCONFIG_AURASYNC),--aurasync,) $(if $(RTCONFIG_GEFORCENOW),--nvgfn) --iptablespath=$(TOP)/$(IPTABLES)
 endif
 
-miniupnpd: $(IPTABLES) e2fsprogs miniupnpd/config.h
+miniupnpd: $(IPTABLES) e2fsprogs libcap-ng miniupnpd/config.h
 	@$(SEP)
 	cp -f ./shared/version.h miniupnpd$(MUVER)/.
 	PKG_CONFIG=false ARCH=$(PLATFORM) \
 	$(MAKE) -C $@ -f Makefile $(PARALLEL_BUILD) \
 	    IPTABLESPATH=$(TOP)/$(IPTABLES) \
-	    EXTRACFLAGS="-Os $(EXTRACFLAGS) -idirafter$(KERNEL_HEADER_DIR) $(if $(or $(RTCONFIG_AURASYNC), $(RTCONFIG_GEFORCENOW)), -I$(TOP)/shared) -ffunction-sections -fdata-sections -I$(TOP)/e2fsprogs/lib" \
-	    LDFLAGS="$(EXTRALDFLAGS) -ffunction-sections -fdata-sections -Wl,--gc-sections -L$(IPTC_LIBDIR) -L$(TOP)/e2fsprogs/lib" \
-		LDLIBS="-Wl,--as-needed $(if $(or $(RTCONFIG_AURASYNC), $(RTCONFIG_GEFORCENOW)),-L$(TOP)/shared -lshared -L$(TOP_PLATFORM)/nvram$(BCMEX)$(EX7) -lnvram $(if $(BCM_502L07P2),-L$(TOP_PLATFORM)/ethctl_lib -lethctl)) -luuid -lrt $(IPTC_LIBS) $(if $(RTCONFIG_HND_ROUTER),-L$(TOP_PLATFORM)/wlcsm$(EXHND) -lwlcsm)"
+	    EXTRACFLAGS="-Os $(EXTRACFLAGS) -idirafter$(KERNEL_HEADER_DIR) $(if $(or $(RTCONFIG_AURASYNC), $(RTCONFIG_GEFORCENOW)), -I$(TOP)/shared) -ffunction-sections -fdata-sections -I$(TOP)/e2fsprogs/lib -I$(STAGEDIR)/usr/include" \
+	    LDFLAGS="$(EXTRALDFLAGS) -ffunction-sections -fdata-sections -Wl,--gc-sections -L$(IPTC_LIBDIR) -L$(TOP)/e2fsprogs/lib -L$(STAGEDIR)/usr/lib" \
+		LDLIBS="-Wl,--as-needed $(if $(or $(RTCONFIG_AURASYNC), $(RTCONFIG_GEFORCENOW)),-L$(TOP)/shared -lshared -L$(TOP_PLATFORM)/nvram$(BCMEX)$(EX7) -lnvram $(if $(BCM_502L07P2),-L$(TOP_PLATFORM)/ethctl_lib -lethctl)) -luuid -lrt -lcap-ng $(IPTC_LIBS) $(if $(RTCONFIG_HND_ROUTER),-L$(TOP_PLATFORM)/wlcsm$(EXHND) -lwlcsm)"
 
 miniupnpd-clean:
 	-@$(MAKE) -C miniupnpd -f Makefile clean
@@ -4539,23 +4554,29 @@ inadyn-clean:
 	[ ! -f inadyn/Makefile ] || $(MAKE) -C inadyn distclean
 	@rm -f inadyn/Makefile
 
-frr/stamp-h1: ncurses-6.0 json-c readline-8.1 libyang libcap-ng
+frr/stamp-h1: ncurses-6.0 json-c readline-8.1 libyang libcap libcap-ng
 	@$(SEP)
 	@rm -rf $(TOP)/frr/build && mkdir -p $(TOP)/frr/build
-	@cd frr && autoreconf -i -f && cd $(TOP)/frr/build && \
-	CC=$(CC) AR=$(AR) RANLIB=$(RANLIB) LD=$(LD) \
-	CFLAGS="-I$(STAGEDIR)/usr/include $(CFLAGS) -Os -Wall -ffunction-sections -fdata-sections -fPIC" \
+	cd frr && autoreconf -i -f && cd $(TOP)/frr/build && \
+	( unset AR LD NM RANLIB STRIP OBJDUMP; \
+	CC=$(CC) \
+	HOST_CC=/usr/bin/gcc HOST_CFLAGS="-O2 -DBUILDING_CLIPPY" HOST_LDFLAGS="" \
+	CFLAGS="-I$(TOP)/frr/lib -I$(STAGEDIR)/usr/include $(CFLAGS) -Os -Wall -ffunction-sections -fdata-sections -fPIC -std=gnu99" \
 	CPPFLAGS="-I$(STAGEDIR)/usr/include/readline -I$(STAGEDIR)/usr/include" \
-	LDFLAGS="-L$(TOP)/ncurses-6.0/lib -lncurses -L$(STAGEDIR)/usr/lib -lreadline -ljson-c -lpcre -lyang -lpthread -ffunction-sections -fdata-sections -Wl,--gc-sections" \
+	LDFLAGS="-L$(TOP)/ncurses-6.0/lib -L$(STAGEDIR)/usr/lib -ffunction-sections -fdata-sections -Wl,--gc-sections,--as-needed" \
+	LIBS="-lyang -lpcre -lcap -lcap-ng -ljson-c -lreadline -lncurses -lpthread" \
+	LIBYANG_CFLAGS="-I$(STAGEDIR)/usr/include" \
+	LIBYANG_LIBS="-L$(STAGEDIR)/usr/lib -lyang" \
 	LIBREADLINE_CFLAGS="-I$(STAGEDIR)/usr/include" \
 	LIBREADLINE_LIBS="-L$(STAGEDIR)/usr/lib -lreadline -lncurses" \
 	JSON_C_CFLAGS="-I$(STAGEDIR)/usr/include/json-c" \
 	JSON_C_LIBS="-L$(STAGEDIR)/usr/lib -ljson-c" \
+	ac_cv_path_PERL=/usr/bin/perl \
 	../configure --build=x86_64-pc-linux-gnu --host=arm-linux \
 		--prefix=/usr \
-		--sysconfdir=/etc/frr \
+		--sysconfdir=/etc/frr/ \
 		--enable-shared \
-		--disable-static \
+		--enable-static \
 		--localstatedir=/var/run/frr \
 		--enable-user=nobody \
 		--enable-group=nobody \
@@ -4578,7 +4599,7 @@ frr/stamp-h1: ncurses-6.0 json-c readline-8.1 libyang libcap-ng
 		--enable-silent-rules \
 		--disable-isisd \
 		--enable-shell-access \
-		--disable-clippy-only
+		--disable-clippy-only )
 	@touch $@
 
 frr: frr/stamp-h1
@@ -4590,12 +4611,15 @@ frr-clean:
 	@rm -f frr/stamp-h1
 
 frr-install:
+	@echo "Installing FRR libraries..."
 	install -d $(INSTALLDIR)/frr/usr/lib/
-	find frr/build/lib/.libs -name 'libfrr.so*' -type f -exec \
+	# Install all FRR shared libraries (libfrr, libfrrsnmp, etc.)
+	find frr/build/lib/.libs -name 'libfrr*.so*' -type f -exec \
 		install -m 755 -t $(INSTALLDIR)/frr/usr/lib/ {} +
 	find frr/build/lib/.libs -name 'libfrr*.so*' -type l -exec \
 		cp -fa -t $(INSTALLDIR)/frr/usr/lib/ {} +
-	$(STRIP) $(INSTALLDIR)/frr/usr/lib/libfrr.so*
+	$(STRIP) $(INSTALLDIR)/frr/usr/lib/libfrr*.so*
+	@echo "Installing FRR daemons and tools..."
 	install -d $(INSTALLDIR)/frr/usr/sbin
 	libtool --mode=install install -c frr/build/zebra/zebra $(INSTALLDIR)/frr/usr/sbin
 	libtool --mode=install install -c frr/build/staticd/staticd $(INSTALLDIR)/frr/usr/sbin
@@ -4605,10 +4629,11 @@ frr-install:
 	libtool --mode=install install -c frr/build/ospfd/ospfd $(INSTALLDIR)/frr/usr/sbin
 	libtool --mode=install install -c frr/build/watchfrr/watchfrr $(INSTALLDIR)/frr/usr/sbin
 	$(STRIP) $(INSTALLDIR)/frr/usr/sbin/{zebra,staticd,bgpd,bfdd,vtysh,ospfd,watchfrr}
+	@echo "Installing FRR configuration files..."
 	mkdir -p $(TARGETDIR)/rom/etc/frr
-	cp frr/files/{frr.conf,daemons,vtysh.conf} $(TARGETDIR)/rom/etc/frr/
-	cp frr/files/{frr,watchfrr.sh,frrinit.sh,frrcommon.sh} $(INSTALLDIR)/frr/usr/sbin/
-	chmod 0555 $(INSTALLDIR)/frr/usr/sbin/{frr,watchfrr.sh,frrinit.sh,frrcommon.sh}
+	install -m 0644 frr/files/{frr.conf,daemons,vtysh.conf} $(TARGETDIR)/rom/etc/frr/
+	@echo "Installing FRR helper scripts..."
+	install -m 0555 frr/files/{frr,watchfrr.sh,frrinit.sh,frrcommon.sh} $(INSTALLDIR)/frr/usr/sbin/
 
 ifneq ($(RTCONFIG_MUSL_LIBC),y)
 	mkdir -p $(TARGETDIR)/lib
@@ -6272,6 +6297,42 @@ lz4-install:
 	cd $(INSTALLDIR)/lz4/usr/lib && ln -sf liblz4.so.1.9.2 liblz4.so.1
 	cd $(INSTALLDIR)/lz4/usr/lib && ln -sf liblz4.so.1.9.2 liblz4.so
 
+# libcap - Linux capabilities library (required by FRR)
+libcap: kernel_header
+	@$(SEP)
+	$(MAKE) -C libcap \
+		BUILD_CC=/usr/bin/gcc \
+		BUILD_CFLAGS="-O2 -I../libcap/include -idirafter $(TOP)/kernel_header/include" \
+		KERNEL_INCLUDE=$(TOP)/kernel_header/include \
+		CC=$(CC) \
+		AR=$(AR) \
+		RANLIB=$(RANLIB) \
+		CFLAGS="-O2 -ffunction-sections -fdata-sections $(EXTRACFLAGS) -idirafter $(TOP)/kernel_header/include -DXATTR_NAME_CAPS=\\\"security.capability\\\"" \
+		LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections $(EXTRALDFLAGS) $(EXTRALDFLAGS2)" \
+		lib=lib \
+		RAISE_SETFCAP=no \
+		$(PARALLEL_BUILD) && \
+	$(MAKE) libcap-stage
+
+libcap-stage:
+	@echo ">>> Installing libcap into $(STAGEDIR)"
+	$(MAKE) -C libcap \
+		DESTDIR=$(STAGEDIR) \
+		prefix=/usr \
+		lib=lib \
+		RAISE_SETFCAP=no \
+		install
+
+libcap-clean:
+	-$(MAKE) -C libcap clean
+
+libcap-install:
+	@echo "Installing libcap runtime files..."
+	install -D libcap/libcap/libcap.so.2.27 $(INSTALLDIR)/libcap/usr/lib/libcap.so.2.27
+	$(STRIP) $(INSTALLDIR)/libcap/usr/lib/libcap.so.2.27
+	cd $(INSTALLDIR)/libcap/usr/lib && ln -sf libcap.so.2.27 libcap.so.2
+	cd $(INSTALLDIR)/libcap/usr/lib && ln -sf libcap.so.2.27 libcap.so
+
 libcap-ng/configure:
 	cd libcap-ng && ./autogen.sh ; \
 	CFLAGS="-Os -ffunction-sections -fdata-sections $(EXTRACFLAGS)" \
@@ -6282,7 +6343,11 @@ libcap-ng/configure:
 
 libcap-ng: libcap-ng/configure
 	@$(SEP)
-	$(MAKE) -C $@
+	$(MAKE) -C $@ && $(MAKE) $@-stage
+
+libcap-ng-stage:
+	@echo ">>> Installing libcap-ng into $(STAGEDIR)"
+	$(MAKE) -C libcap-ng install DESTDIR=$(STAGEDIR)
 
 libcap-ng-clean:
 	-$(MAKE) -C libcap-ng clean
@@ -6614,6 +6679,7 @@ pcre-8.31/stamp-h1:
 	[ -d pcre-8.31/m4 ] || mkdir pcre-8.31/m4
 
 pcre-8.31: pcre-8.31/stamp-h1
+	@$(MAKE) -C pcre-8.31
 	$(MAKE) $@-stage
 
 pcre-8.31-install: pcre-8.31
@@ -6660,42 +6726,84 @@ pcre2-clean:
 	-@$(MAKE) -C pcre2 clean
 	@rm -f pcre2/stamp-h1
 
+# Use prebuilt libyang if available, otherwise build from source
+# This helps avoid toolchain compatibility issues with newer libyang versions
+ifeq ($(wildcard $(TOP)/libyang/prebuilt/arm_cortex-a9/libyang.so.*),)
 libyang/build/Makefile: pcre-8.31
 	rm -f $(TOP)/libyang/CMakeCache.txt
 	@rm -rf libyang/build && mkdir -p libyang/build
-	cd libyang/build && \
+	@cd libyang/build && \
 	$(call CMAKE_CrossOptions, crosscompiled.cmake) && \
+	echo 'SET(CMAKE_FIND_ROOT_PATH "$${CMAKE_FIND_ROOT_PATH};$(STAGEDIR);$(STAGEDIR)/usr")' >>crosscompiled.cmake && \
 	cmake -DCMAKE_TOOLCHAIN_FILE=crosscompiled.cmake \
 		-DCMAKE_INSTALL_PREFIX:PATH=/usr \
 		-DCMAKE_C_FLAGS="-O3 $(CFLAGS) -Wall -Wextra -Wno-missing-field-initializers -DNDEBUG -ffunction-sections -fdata-sections -std=gnu99" \
-		-DCMAKE_EXE_LINKER_FLAGS="-lpthread -lc $(EXTRALDFLAGS2) -L$(STAGEDIR)/usr/lib/ -lpcre -Wl,--gc-sections" \
+		-DCMAKE_EXE_LINKER_FLAGS="-Wl,--gc-sections -L$(STAGEDIR)/usr/lib" \
+		-DCMAKE_SHARED_LINKER_FLAGS="-Wl,--gc-sections -L$(STAGEDIR)/usr/lib" \
 		-DCMAKE_SKIP_RPATH=TRUE \
 		-DCMAKE_PREFIX_PATH="$(STAGEDIR)/usr" \
-		-DCMAKE_FIND_ROOT_PATH="$(STAGEDIR)" \
 		-DENABLE_STATIC=FALSE \
 		-DBUILD_SHARED_LIBS=TRUE \
 		-DCMAKE_BUILD_TYPE:String="Release" \
-		-DCMAKE_THREAD_LIBS="-lpthread" \
-		-DPCRE_LIBRARY="$(STAGEDIR)/usr/lib/libpcre.so" \
-		-DPCRE_INCLUDE_DIR="$(STAGEDIR)/usr/include" \
+		-DENABLE_LYD_PRIV:BOOL=ON \
+		-DGEN_LANGUAGE_BINDINGS=OFF \
+		-DGEN_PYTHON_BINDINGS=OFF \
+		-DGEN_CPP_BINDINGS=OFF \
+		-DCMAKE_THREAD_LIBS_INIT="-lpthread" \
+		-DTHREADS_HAVE_PTHREAD_ARG=1 \
 	..
 	touch $@
 
 libyang: libyang/build/Makefile
 	@$(SEP)
 	$(MAKE) -C libyang/build && $(MAKE) $@-stage
+else
+# Using prebuilt libyang
+libyang:
+	@echo "Using prebuilt libyang from prebuilt/arm_cortex-a9/"
+	@$(MAKE) $@-stage
+endif
 
 libyang-stage:
 	@echo ">>> Installing libyang into $(STAGEDIR)"
+ifeq ($(wildcard $(TOP)/libyang/prebuilt/arm_cortex-a9/libyang.so.*),)
 	$(MAKE) -C libyang/build install DESTDIR=$(STAGEDIR)
+else
+	@echo "Using prebuilt libyang libraries"
+	install -d $(STAGEDIR)/usr/lib
+	install -d $(STAGEDIR)/usr/include/libyang
+	cp -a $(TOP)/libyang/prebuilt/arm_cortex-a9/libyang.so* $(STAGEDIR)/usr/lib/
+	cp -a $(TOP)/libyang/prebuilt/include/*.h $(STAGEDIR)/usr/include/libyang/ 2>/dev/null || true
+endif
 
 libyang-install:
 	@$(SEP)
-	install -D libyang/build/libyang.so.0.14.50 $(INSTALLDIR)/libyang/usr/lib/libyang.so.0.14.50
-	$(STRIP) $(INSTALLDIR)/libyang/usr/lib/libyang.so.0.14.50
+ifeq ($(wildcard $(TOP)/libyang/prebuilt/arm_cortex-a9/libyang.so.*),)
+	install -D libyang/build/libyang.so.1.10.32 $(INSTALLDIR)/libyang/usr/lib/libyang.so.1.10.32
+	$(STRIP) $(INSTALLDIR)/libyang/usr/lib/libyang.so.1.10.32
 	cd $(INSTALLDIR)/libyang/usr/lib && \
-		ln -sf libyang.so.0.14.50 libyang.so.0.14 && \
-		ln -sf libyang.so.0.14.50 libyang.so
+		ln -sf libyang.so.1.10.32 libyang.so.1.10 && \
+		ln -sf libyang.so.1.10.32 libyang.so
+	# Install libyang plugins
+	install -d $(INSTALLDIR)/libyang/usr/lib/libyang1/extensions
+	install -d $(INSTALLDIR)/libyang/usr/lib/libyang1/user_types
+	if [ -d libyang/build/src/extensions ]; then \
+		install -m 755 libyang/build/src/extensions/*.so $(INSTALLDIR)/libyang/usr/lib/libyang1/extensions/ 2>/dev/null || true; \
+	fi
+	if [ -d libyang/build/src/user_types ]; then \
+		install -m 755 libyang/build/src/user_types/*.so $(INSTALLDIR)/libyang/usr/lib/libyang1/user_types/ 2>/dev/null || true; \
+	fi
+else
+	install -d $(INSTALLDIR)/libyang/usr/lib
+	cp -a $(TOP)/libyang/prebuilt/arm_cortex-a9/libyang.so* $(INSTALLDIR)/libyang/usr/lib/
+	$(STRIP) $(INSTALLDIR)/libyang/usr/lib/libyang.so.* 2>/dev/null || true
+	cd $(INSTALLDIR)/libyang/usr/lib && \
+		[ -e libyang.so ] || ln -sf libyang.so.* libyang.so
+	# Install prebuilt libyang plugins
+	if [ -d $(TOP)/libyang/prebuilt/arm_cortex-a9/libyang1 ]; then \
+		cp -a $(TOP)/libyang/prebuilt/arm_cortex-a9/libyang1 $(INSTALLDIR)/libyang/usr/lib/; \
+	fi
+endif
 	@rm -rf libyang/build
 
 libxml2/stamp-h1:

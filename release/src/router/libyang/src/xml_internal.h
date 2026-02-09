@@ -38,7 +38,7 @@
         c == '.' || c == 0xb7 || (c >= 0x370 && c <= 0x1fff && c != 0x37e ) ||\
         (c >= 0xc0 && c <= 0x2ff && c != 0xd7 && c != 0xf7) || c == 0x200c || \
         c == 0x200d || (c >= 0x300 && c <= 0x36f) || \
-        (c >= 0x2070 && c <= 0x218f) || (c >= 0x2030f && c <= 0x2040) || \
+        (c >= 0x2070 && c <= 0x218f) || (c >= 0x203f && c <= 0x2040) || \
         (c >= 0x2c00 && c <= 0x2fef) || (c >= 0x3001 && c <= 0xd7ff) || \
         (c >= 0xf900 && c <= 0xfdcf) || (c >= 0xfdf0 && c <= 0xfffd) || \
         (c >= 0x10000 && c <= 0xeffff))
@@ -61,10 +61,11 @@
 int lyxml_add_child(struct ly_ctx *ctx, struct lyxml_elem *parent, struct lyxml_elem *child);
 
 /* copy_ns: 0 - set invalid namespaces to NULL, 1 - copy them into this subtree */
-void lyxml_correct_elem_ns(struct ly_ctx *ctx, struct lyxml_elem *elem, int copy_ns, int correct_attrs);
+void lyxml_correct_elem_ns(struct ly_ctx *ctx, struct lyxml_elem *elem, struct lyxml_elem *orig, int copy_ns,
+                           int correct_attrs);
 
 struct lyxml_elem *lyxml_dup_elem(struct ly_ctx *ctx, struct lyxml_elem *elem,
-                                  struct lyxml_elem *parent, int recursive);
+                                  struct lyxml_elem *parent, int recursive, int with_siblings);
 
 /**
  * @brief Free attribute. Includes unlinking from an element if the attribute
@@ -110,7 +111,8 @@ void lyxml_unlink_elem(struct ly_ctx *ctx, struct lyxml_elem *elem, int copy_ns)
 
 /**
  * @brief Get the first UTF-8 character value (4bytes) from buffer
- * @param[in] buf pointr to the current position in input buffer
+ * @param[in] ctx Context to store errors in.
+ * @param[in] buf Pointer to the current position in input buffer.
  * @param[out] read Number of processed bytes in buf (length of UTF-8
  * character).
  * @return UTF-8 value as 4 byte number. 0 means error, only UTF-8 characters
@@ -124,7 +126,15 @@ void lyxml_unlink_elem(struct ly_ctx *ctx, struct lyxml_elem *elem, int copy_ns)
  * 00000800 -- 0000FFFF:    1110xxxx 10xxxxxx 10xxxxxx
  * 00010000 -- 001FFFFF:    11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
  */
-int lyxml_getutf8(const char *buf, unsigned int *read);
+int lyxml_getutf8(struct ly_ctx *ctx, const char *buf, unsigned int *read);
+
+/**
+ * @brief Types of the XML data
+ */
+typedef enum lyxml_data_type {
+    LYXML_DATA_ATTR = 1,   /**< XML attribute data */
+    LYXML_DATA_ELEM = 2    /**< XML element data */
+} LYXML_DATA_TYPE;
 
 /**
  * @brief Dump XML text. Converts special characters to their equivalent
@@ -133,6 +143,6 @@ int lyxml_getutf8(const char *buf, unsigned int *read);
  * @param[in] text Text to dump.
  * @return Number of dumped characters.
  */
-int lyxml_dump_text(struct lyout *out, const char *text);
+int lyxml_dump_text(struct lyout *out, const char *text, LYXML_DATA_TYPE type);
 
 #endif /* LY_XML_INTERNAL_H_ */

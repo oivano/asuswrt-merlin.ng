@@ -66,9 +66,6 @@ struct bfd_peer_cfg {
 	bool bpc_has_label;
 	char bpc_label[MAXNAMELEN];
 
-	bool bpc_has_vxlan;
-	unsigned int bpc_vxlan;
-
 	bool bpc_has_localif;
 	char bpc_localif[MAXNAMELEN + 1];
 
@@ -87,9 +84,18 @@ struct bfd_peer_cfg {
 	bool bpc_has_echointerval;
 	uint64_t bpc_echointerval;
 
+	bool bpc_has_minimum_ttl;
+	uint8_t bpc_minimum_ttl;
+
 	bool bpc_echo;
 	bool bpc_createonly;
 	bool bpc_shutdown;
+
+	bool bpc_cbit;
+	bool bpc_passive;
+
+	bool bpc_has_profile;
+	char bpc_profile[64];
 
 	/* Status information */
 	enum bfd_peer_status bpc_bps;

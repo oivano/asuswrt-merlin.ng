@@ -23,8 +23,11 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include "command.h"
-#include "memory_vty.h"
 #include "graph.h"
 #include "linklist.h"
 #include "command_match.h"
@@ -35,12 +38,12 @@ DEFINE_MTYPE_STATIC(LIB, CMD_TOKENS, "Command desc")
 
 /** headers **/
 void grammar_sandbox_init(void);
-void pretty_print_graph(struct vty *vty, struct graph_node *, int, int,
-			struct graph_node **, size_t);
-void init_cmdgraph(struct vty *, struct graph **);
+static void pretty_print_graph(struct vty *vty, struct graph_node *, int, int,
+			       struct graph_node **, size_t);
+static void init_cmdgraph(struct vty *, struct graph **);
 
 /** shim interface commands **/
-struct graph *nodegraph = NULL, *nodegraph_free = NULL;
+static struct graph *nodegraph = NULL, *nodegraph_free = NULL;
 
 #define check_nodegraph()                                                      \
 	do {                                                                   \
@@ -136,7 +139,7 @@ DEFUN (grammar_test_complete,
 		vty_out(vty, "%% No match\n");
 
 	// free resources
-	list_delete_and_null(&completions);
+	list_delete(&completions);
 	cmd_free_strvec(command);
 	XFREE(MTYPE_TMP, cmdstr);
 
@@ -180,7 +183,7 @@ DEFUN (grammar_test_match,
 
 		vty_out(vty, "func: %p\n", element->func);
 
-		list_delete_and_null(&argvv);
+		list_delete(&argvv);
 	} else {
 		assert(MATCHER_ERROR(result));
 		switch (result) {
@@ -311,7 +314,7 @@ static void cmd_graph_permute(struct list *out, struct graph_node **stack,
 	struct graph_node *gn = stack[stackpos];
 	struct cmd_token *tok = gn->data;
 	char *appendp = cmd + strlen(cmd);
-	size_t i, j;
+	size_t j;
 
 	if (tok->type < SPECIAL_TKN) {
 		sprintf(appendp, "%s ", tok->text);
@@ -328,7 +331,7 @@ static void cmd_graph_permute(struct list *out, struct graph_node **stack,
 	if (++stackpos == CMD_ARGC_MAX)
 		return;
 
-	for (i = 0; i < vector_active(gn->to); i++) {
+	for (size_t i = 0; i < vector_active(gn->to); i++) {
 		struct graph_node *gnext = vector_slot(gn->to, i);
 		for (j = 0; j < stackpos; j++)
 			if (stack[j] == gnext)
@@ -396,7 +399,7 @@ DEFUN (grammar_findambig,
 			if (!nodegraph)
 				continue;
 			vty_out(vty, "scanning node %d (%s)\n", scannode - 1,
-				node_names[scannode - 1]);
+				cnode->name);
 		}
 
 		commands = cmd_graph_permutations(nodegraph);
@@ -417,7 +420,7 @@ DEFUN (grammar_findambig,
 			}
 			prev = cur;
 		}
-		list_delete_and_null(&commands);
+		list_delete(&commands);
 
 		vty_out(vty, "\n");
 	} while (scan && scannode < LINK_PARAMS_NODE);
@@ -488,8 +491,9 @@ void grammar_sandbox_init(void)
  * @param start the node to take as the root
  * @param level indent level for recursive calls, always pass 0
  */
-void pretty_print_graph(struct vty *vty, struct graph_node *start, int level,
-			int desc, struct graph_node **stack, size_t stackpos)
+static void pretty_print_graph(struct vty *vty, struct graph_node *start,
+			       int level, int desc, struct graph_node **stack,
+			       size_t stackpos)
 {
 	// print this node
 	char tokennum[32];
@@ -547,7 +551,7 @@ void pretty_print_graph(struct vty *vty, struct graph_node *start, int level,
 }
 
 /** stuff that should go in command.c + command.h */
-void init_cmdgraph(struct vty *vty, struct graph **graph)
+static void init_cmdgraph(struct vty *vty, struct graph **graph)
 {
 	// initialize graph, add start noe
 	*graph = graph_new();
