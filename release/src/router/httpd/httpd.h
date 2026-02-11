@@ -612,4 +612,7 @@ extern char *wl_nband_to_wlx(char *nv_name, char *wl_name, size_t len);
 extern int gen_asus_token_cookie(char *asus_token, int asus_token_len, char *token_cookie, int cookie_len);
 extern void check_lock_state();
 extern void gen_random_string_v2(char *out, size_t len);
+#ifdef RTCONFIG_FRR
+#include "frr_web.h"
+#endif
 #endif /* _httpd_h_ */

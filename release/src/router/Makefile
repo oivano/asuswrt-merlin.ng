@@ -1,17 +1,3 @@
-# --- gcc 4.5.3 toolchain host library compatibility ---
-# The gcc 4.5.3 toolchain needs older library versions than modern systems provide
-# This check creates the required symlinks if they don't exist
-TOOLCHAIN_LIBS_CHECK := $(shell \
-	if [ ! -e /usr/lib/x86_64-linux-gnu/libmpfr.so.4 ] && [ -e /usr/lib/x86_64-linux-gnu/libmpfr.so.6 ]; then \
-		sudo ln -sf /usr/lib/x86_64-linux-gnu/libmpfr.so.6 /usr/lib/x86_64-linux-gnu/libmpfr.so.4 2>/dev/null || \
-		echo "WARNING: Cannot create libmpfr.so.4 symlink. Run: sudo ln -s /usr/lib/x86_64-linux-gnu/libmpfr.so.6 /usr/lib/x86_64-linux-gnu/libmpfr.so.4"; \
-	fi; \
-	if [ ! -e /usr/lib/x86_64-linux-gnu/libmpc.so.2 ] && [ -e /usr/lib/x86_64-linux-gnu/libmpc.so.3 ]; then \
-		sudo ln -sf /usr/lib/x86_64-linux-gnu/libmpc.so.3 /usr/lib/x86_64-linux-gnu/libmpc.so.2 2>/dev/null || \
-		echo "WARNING: Cannot create libmpc.so.2 symlink. Run: sudo ln -s /usr/lib/x86_64-linux-gnu/libmpc.so.3 /usr/lib/x86_64-linux-gnu/libmpc.so.2"; \
-	fi)
-
-
 #
 # Broadcom Linux Router Makefile
 #
@@ -4555,10 +4541,16 @@ inadyn-clean:
 	@rm -f inadyn/Makefile
 
 frr/stamp-h1: ncurses-6.0 json-c readline-8.1 libyang libcap libcap-ng
-	@$(SEP)
+	@echo "Setting up toolchain library compatibility for FRR build..."
+	@if [ ! -e /usr/lib/x86_64-linux-gnu/libmpfr.so.4 ] && [ -e /usr/lib/x86_64-linux-gnu/libmpfr.so.6 ]; then \
+		sudo ln -sf /usr/lib/x86_64-linux-gnu/libmpfr.so.6 /usr/lib/x86_64-linux-gnu/libmpfr.so.4; \
+	fi
+	@if [ ! -e /usr/lib/x86_64-linux-gnu/libmpc.so.2 ] && [ -e /usr/lib/x86_64-linux-gnu/libmpc.so.3 ]; then \
+		sudo ln -sf /usr/lib/x86_64-linux-gnu/libmpc.so.3 /usr/lib/x86_64-linux-gnu/libmpc.so.2; \
+	fi
 	@rm -rf $(TOP)/frr/build && mkdir -p $(TOP)/frr/build
 	cd frr && autoreconf -i -f && cd $(TOP)/frr/build && \
-	( unset AR LD NM RANLIB STRIP OBJDUMP; \
+	( unset AR LD NM RANLIB OBJDUMP; \
 	CC=$(CC) \
 	HOST_CC=/usr/bin/gcc HOST_CFLAGS="-O2 -DBUILDING_CLIPPY" HOST_LDFLAGS="" \
 	CFLAGS="-I$(TOP)/frr/lib -I$(STAGEDIR)/usr/include $(CFLAGS) -Os -Wall -ffunction-sections -fdata-sections -fPIC -std=gnu99" \
@@ -4574,7 +4566,7 @@ frr/stamp-h1: ncurses-6.0 json-c readline-8.1 libyang libcap libcap-ng
 	ac_cv_path_PERL=/usr/bin/perl \
 	../configure --build=x86_64-pc-linux-gnu --host=arm-linux \
 		--prefix=/usr \
-		--sysconfdir=/etc/frr/ \
+		--sysconfdir=/etc \
 		--enable-shared \
 		--enable-static \
 		--localstatedir=/var/run/frr \
@@ -4594,6 +4586,8 @@ frr/stamp-h1: ncurses-6.0 json-c readline-8.1 libyang libcap libcap-ng
 		--disable-ospfclient \
 		--disable-ospfapi \
 		--disable-ospf6d \
+		--disable-config-rollbacks \
+		--disable-version-build-config \
 		--disable-ldpd \
 		--disable-nhrpd \
 		--enable-silent-rules \
@@ -4605,12 +4599,19 @@ frr/stamp-h1: ncurses-6.0 json-c readline-8.1 libyang libcap libcap-ng
 frr: frr/stamp-h1
 	@$(SEP)
 	@$(MAKE) -C frr/build $(PARALLEL_BUILD)
+	@echo "Cleaning up toolchain library symlinks..."
+	@[ -L /usr/lib/x86_64-linux-gnu/libmpfr.so.4 ] && sudo rm -f /usr/lib/x86_64-linux-gnu/libmpfr.so.4 || true
+	@[ -L /usr/lib/x86_64-linux-gnu/libmpc.so.2 ] && sudo rm -f /usr/lib/x86_64-linux-gnu/libmpc.so.2 || true
 
 frr-clean:
 	-@$(MAKE) -C frr clean
 	@rm -f frr/stamp-h1
+	@echo "Cleaning up toolchain library symlinks..."
+	@[ -L /usr/lib/x86_64-linux-gnu/libmpfr.so.4 ] && sudo rm -f /usr/lib/x86_64-linux-gnu/libmpfr.so.4 || true
+	@[ -L /usr/lib/x86_64-linux-gnu/libmpc.so.2 ] && sudo rm -f /usr/lib/x86_64-linux-gnu/libmpc.so.2 || true
 
 frr-install:
+	@$(SEP)
 	@echo "Installing FRR libraries..."
 	install -d $(INSTALLDIR)/frr/usr/lib/
 	# Install all FRR shared libraries (libfrr, libfrrsnmp, etc.)
@@ -4629,9 +4630,12 @@ frr-install:
 	libtool --mode=install install -c frr/build/ospfd/ospfd $(INSTALLDIR)/frr/usr/sbin
 	libtool --mode=install install -c frr/build/watchfrr/watchfrr $(INSTALLDIR)/frr/usr/sbin
 	$(STRIP) $(INSTALLDIR)/frr/usr/sbin/{zebra,staticd,bgpd,bfdd,vtysh,ospfd,watchfrr}
+	# Create symlink for vtysh in /usr/bin (vtysh expects to find itself there)
+	install -d $(INSTALLDIR)/frr/usr/bin
+	ln -sf ../sbin/vtysh $(INSTALLDIR)/frr/usr/bin/vtysh
 	@echo "Installing FRR configuration files..."
-	mkdir -p $(TARGETDIR)/rom/etc/frr
-	install -m 0644 frr/files/{frr.conf,daemons,vtysh.conf} $(TARGETDIR)/rom/etc/frr/
+	#mkdir -p $(TARGETDIR)/rom/etc
+	install -m 0644 frr/files/{frr.conf,daemons,vtysh.conf} $(TARGETDIR)/rom/etc/
 	@echo "Installing FRR helper scripts..."
 	install -m 0555 frr/files/{frr,watchfrr.sh,frrinit.sh,frrcommon.sh} $(INSTALLDIR)/frr/usr/sbin/
 
@@ -6679,6 +6683,7 @@ pcre-8.31/stamp-h1:
 	[ -d pcre-8.31/m4 ] || mkdir pcre-8.31/m4
 
 pcre-8.31: pcre-8.31/stamp-h1
+	@$(SEP)
 	@$(MAKE) -C pcre-8.31
 	$(MAKE) $@-stage
 
@@ -6749,6 +6754,7 @@ libyang/build/Makefile: pcre-8.31
 		-DGEN_LANGUAGE_BINDINGS=OFF \
 		-DGEN_PYTHON_BINDINGS=OFF \
 		-DGEN_CPP_BINDINGS=OFF \
+		-DENABLE_BUILD_TESTS=OFF \
 		-DCMAKE_THREAD_LIBS_INIT="-lpthread" \
 		-DTHREADS_HAVE_PTHREAD_ARG=1 \
 	..
@@ -6783,15 +6789,13 @@ ifeq ($(wildcard $(TOP)/libyang/prebuilt/arm_cortex-a9/libyang.so.*),)
 	$(STRIP) $(INSTALLDIR)/libyang/usr/lib/libyang.so.1.10.32
 	cd $(INSTALLDIR)/libyang/usr/lib && \
 		ln -sf libyang.so.1.10.32 libyang.so.1.10 && \
+		ln -sf libyang.so.1.10.32 libyang.so.1 && \
 		ln -sf libyang.so.1.10.32 libyang.so
 	# Install libyang plugins
 	install -d $(INSTALLDIR)/libyang/usr/lib/libyang1/extensions
 	install -d $(INSTALLDIR)/libyang/usr/lib/libyang1/user_types
 	if [ -d libyang/build/src/extensions ]; then \
-		install -m 755 libyang/build/src/extensions/*.so $(INSTALLDIR)/libyang/usr/lib/libyang1/extensions/ 2>/dev/null || true; \
-	fi
-	if [ -d libyang/build/src/user_types ]; then \
-		install -m 755 libyang/build/src/user_types/*.so $(INSTALLDIR)/libyang/usr/lib/libyang1/user_types/ 2>/dev/null || true; \
+		find libyang/build/src/extensions -name 'metadata.so' -exec install -m 755 {} $(INSTALLDIR)/libyang/usr/lib/libyang1/extensions/ \; ; \
 	fi
 else
 	install -d $(INSTALLDIR)/libyang/usr/lib

@@ -1169,8 +1169,7 @@ void _libfrr_version(void)
 {
 	const char banner[] =
 		FRR_FULL_NAME " " FRR_VERSION ".\n"
-		FRR_COPYRIGHT GIT_INFO "\n"
-		"configured with:\n    " FRR_CONFIG_ARGS "\n";
+		FRR_COPYRIGHT GIT_INFO "\n";
 	write(1, banner, sizeof(banner) - 1);
 	_exit(0);
 }

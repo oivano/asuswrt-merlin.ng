@@ -211,6 +211,7 @@ define(function(){
 					//{url: "DNSFilter.asp", tabName: "DNSFilter"},
 					{url: "Advanced_MultiSubnet_Content.asp", tabName: "<#menu5_2_2#>"},
 					{url: "Advanced_GWStaticRoute_Content.asp", tabName: "<#menu5_2_3#>"},
+					{url: "Advanced_FRR_Content.asp", tabName: "<#menu5_2_4#>"},
 					{url: "Advanced_IPTV_Content.asp", tabName: "IPTV"},
 					{url: "Advanced_SwitchCtrl_Content.asp", tabName: "<#Switch_itemname#>"},
 					{url: "NULL", tabName: "__INHERIT__"}
@@ -232,7 +233,7 @@ define(function(){
 					{url: "Advanced_ASUSDDNS_Content.asp", tabName: "<#menu5_3_6#>"},
 					{url: "Advanced_NATPassThrough_Content.asp", tabName: "<#NAT_passthrough_itemname#>"},
 					{url: "NULL", tabName: "__INHERIT__"}
-				]
+				] 
 			},
 			{
 				menuName: "Alexa & IFTTT",
@@ -689,6 +690,7 @@ define(function(){
 					retArray.push("Advanced_DHCP_Content.asp");
 					retArray.push("Advanced_MultiSubnet_Content.asp");
 					retArray.push("Advanced_GWStaticRoute_Content.asp");
+					retArray.push("Advanced_FRR_Content.asp");
 					retArray.push("Advanced_IPTV_Content.asp");
 					retArray.push("Advanced_SwitchCtrl_Content.asp");
 					retArray.push("Main_DHCPStatus_Content.asp");
@@ -716,6 +718,7 @@ define(function(){
 					}
 					retArray.push("Advanced_MultiSubnet_Content.asp");
 					retArray.push("Advanced_GWStaticRoute_Content.asp");
+					retArray.push("Advanced_FRR_Content.asp");
 					retArray.push("Advanced_IPTV_Content.asp");
 					retArray.push("Advanced_SwitchCtrl_Content.asp");
 					retArray.push("Main_DHCPStatus_Content.asp");
@@ -736,6 +739,7 @@ define(function(){
 					retArray.push("Advanced_DHCP_Content.asp");
 					retArray.push("Advanced_MultiSubnet_Content.asp");
 					retArray.push("Advanced_GWStaticRoute_Content.asp");
+					retArray.push("Advanced_FRR_Content.asp");
 					retArray.push("Advanced_IPTV_Content.asp");
 					retArray.push("Advanced_SwitchCtrl_Content.asp");
 					retArray.push("Main_DHCPStatus_Content.asp");

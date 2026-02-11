@@ -10,7 +10,7 @@ bfdd=yes
 #
 # If this option is set the /usr/sbin/frr script automatically loads
 # the config via "vtysh -b" when the servers are started.
-# Configuration file is /etc/frr/frr.conf
+# Configuration file is /etc/frr.conf
 #
 vtysh_enable=yes
 zebra_options=" -s 90000000 --daemon -A 127.0.0.1"

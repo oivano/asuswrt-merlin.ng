@@ -167,6 +167,10 @@ endif
 
 OBJS += $(if $(wildcard web_hook.c), web_hook.o, prebuild/web_hook.o)
 
+ifeq ($(RTCONFIG_FRR),y)
+OBJS += frr_web.o
+endif
+
 LIBS = -L$(TOP_PLATFORM)/nvram${BCMEX}$(EX7) -lnvram -L$(TOP)/shared -lshared
 ifeq ($(RTCONFIG_BCM_502L07P2),y)
 LIBS += -L$(TOP_PLATFORM)/ethctl_lib -lethctl

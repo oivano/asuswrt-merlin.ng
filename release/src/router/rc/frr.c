@@ -13,11 +13,11 @@
 #include <sys/stat.h>
 
 #define FRR_RUN_DIR		"/var/run/frr"
-#define FRR_CONFIG_DIR		"/etc/frr"
+#define FRR_CONFIG_DIR		"/etc"
 #define FRR_SCRIPT		"/usr/sbin/frr"
-#define FRR_DAEMONS		"/etc/frr/daemons"
-#define FRR_CONF		"/etc/frr/frr.conf"
-#define FRR_VTYSH_CONF		"/etc/frr/vtysh.conf"
+#define FRR_DAEMONS		"/etc/daemons"
+#define FRR_CONF		"/etc/frr.conf"
+#define FRR_VTYSH_CONF		"/etc/vtysh.conf"
 
 /* Check if FRR is enabled in NVRAM */
 static int is_frr_enabled(void)
