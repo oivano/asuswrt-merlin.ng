@@ -723,16 +723,13 @@ int bgp_vty_return(struct vty *vty, int ret)
 		str = "Operation not allowed on a directly connected neighbor";
 		break;
 	case BGP_ERR_PEER_SAFI_CONFLICT:
-		str = GR_INVALID;
+		str = "Cannot activate peer for both 'ipv4 unicast' and 'ipv4 labeled-unicast'";
 		break;
 	case BGP_ERR_GR_INVALID_CMD:
 		str = "The Graceful Restart command used is not valid at this moment.";
 		break;
 	case BGP_ERR_GR_OPERATION_FAILED:
 		str = "The Graceful Restart Operation failed due to an err.";
-		break;
-	case BGP_GR_NO_OPERATION:
-		str = GR_NO_OPER;
 		break;
 	}
 	if (str) {

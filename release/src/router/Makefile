@@ -152,6 +152,10 @@ export RTCONFIG_MUSL_LIBC
 MUSL_CFLAGS += -Dloff_t=off_t
 endif
 
+ifeq ($(RTCONFIG_FRR),y)
+export RTCONFIG_FRR
+endif
+
 export comma=","
 
 # New Broadcom/Ralink/MTK/QCA/RTK platform.

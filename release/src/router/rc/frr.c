@@ -321,7 +321,14 @@ void start_frr(void)
 	frr_write_default_config();
 	
 	/* Start FRR using the init script */
-	eval(FRR_SCRIPT, "start");
+	if (f_exists(FRR_SCRIPT)) {
+		_dprintf("Executing: %s start\n", FRR_SCRIPT);
+		eval(FRR_SCRIPT, "start");
+	} else {
+		logmessage("FRR", "Init script not found: %s", FRR_SCRIPT);
+		_dprintf("FRR init script not found: %s\n", FRR_SCRIPT);
+		return;
+	}
 	
 	_dprintf("FRR started\n");
 }

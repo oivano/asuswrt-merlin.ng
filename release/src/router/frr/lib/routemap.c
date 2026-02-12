@@ -1319,7 +1319,7 @@ enum rmap_compile_rets route_map_add_match(struct route_map_index *index,
 			 * the same as the existing configuration then,
 			 * ignore the duplicate configuration.
 			 */
-			if (strcmp(match_arg, rule->rule_str) == 0) {
+			if (rulecmp(match_arg, rule->rule_str) == 0) {
 				if (cmd->func_free)
 					(*cmd->func_free)(compile);
 
@@ -1976,7 +1976,15 @@ static void route_map_add_plist_entries(afi_t afi,
 		return;
 	}
 
-	route_map_pfx_table_del_default(afi, index);
+	/* Default entry should be deleted only if the first entry of the
+	 * prefix-list is created.
+	 */
+	if (entry) {
+		if (plist->count == 1)
+			route_map_pfx_table_del_default(afi, index);
+	} else {
+		route_map_pfx_table_del_default(afi, index);
+	}
 
 	if (entry) {
 		if (afi == AFI_IP) {

@@ -62,7 +62,8 @@ static int _nexthop_labels_cmp(const struct nexthop *nh1,
 	if (nhl1->num_labels < nhl2->num_labels)
 		return -1;
 
-	return memcmp(nhl1->label, nhl2->label, nhl1->num_labels);
+	return memcmp(nhl1->label, nhl2->label,
+		      (nhl1->num_labels * sizeof(mpls_label_t)));
 }
 
 int nexthop_g_addr_cmp(enum nexthop_types_t type, const union g_addr *addr1,
@@ -775,6 +776,16 @@ static ssize_t printfrr_nh(char *buf, size_t bsz, const char *fmt,
 	bool do_ifi = false;
 	const char *s, *v_is = "", *v_via = "", *v_viaif = "via ";
 	ssize_t ret = 3;
+
+	/* NULL-check */
+	if (nexthop == NULL) {
+		if (fmt[2] == 'v' && fmt[3] == 'v')
+			ret++;
+
+		strlcpy(buf, "NULL", bsz);
+
+		return ret;
+	}
 
 	switch (fmt[2]) {
 	case 'v':
