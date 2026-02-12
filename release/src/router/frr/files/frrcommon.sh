@@ -22,7 +22,7 @@ nsopt="${FRR_PATHSPACE:+-N ${FRR_PATHSPACE}}"
 
 PATH=/bin:/usr/bin:/sbin:/usr/sbin
 D_PATH="/usr/sbin"
-C_PATH="/etc/frr"
+C_PATH="/etc"
 V_PATH="/var/run/frr"
 VTYSH="/usr/sbin/vtysh"
 FRR_USER="nobody"

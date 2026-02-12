@@ -3238,6 +3238,13 @@ lys_node_dup_recursion(struct lys_module *module, struct lys_node *parent, const
         switch (finalize) {
         case 1:
             /* inherit config flags */
+            if (retval->nodetype & (LYS_RPC | LYS_ACTION | LYS_NOTIF)) {
+                /* no config flag should be set, it is ignored */
+                retval->flags &= ~LYS_CONFIG_MASK;
+                retval->flags &= ~LYS_CONFIG_SET;
+                break;
+            }
+
             if (retval->flags & LYS_CONFIG_SET) {
                 /* skip nodes with an explicit config value */
                 if ((flags & LYS_CONFIG_R) && (retval->flags & LYS_CONFIG_W)) {
@@ -4723,6 +4730,8 @@ lys_enable_deviations(struct lys_module *module)
     const char *ptr;
     struct unres_schema *unres;
 
+    module = lys_main_module(module);
+
     if (module->deviated) {
         unres = calloc(1, sizeof *unres);
         LY_CHECK_ERR_RETURN(!unres, LOGMEM(module->ctx), );
@@ -4763,6 +4772,8 @@ lys_disable_deviations(struct lys_module *module)
     const struct lys_module *mod;
     const char *ptr;
     struct unres_schema *unres;
+
+    module = lys_main_module(module);
 
     if (module->deviated) {
         unres = calloc(1, sizeof *unres);

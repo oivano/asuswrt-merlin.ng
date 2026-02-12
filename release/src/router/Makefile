@@ -6751,14 +6751,12 @@ libyang/build/Makefile: pcre-8.31
 		-DCMAKE_SHARED_LINKER_FLAGS="-Wl,--gc-sections -L$(STAGEDIR)/usr/lib" \
 		-DCMAKE_SKIP_RPATH=TRUE \
 		-DCMAKE_PREFIX_PATH="$(STAGEDIR)/usr" \
-		-DENABLE_STATIC=FALSE \
 		-DBUILD_SHARED_LIBS=TRUE \
 		-DCMAKE_BUILD_TYPE:String="Release" \
 		-DENABLE_LYD_PRIV:BOOL=ON \
 		-DGEN_LANGUAGE_BINDINGS=OFF \
 		-DGEN_PYTHON_BINDINGS=OFF \
 		-DGEN_CPP_BINDINGS=OFF \
-		-DENABLE_BUILD_TESTS=OFF \
 		-DCMAKE_THREAD_LIBS_INIT="-lpthread" \
 		-DTHREADS_HAVE_PTHREAD_ARG=1 \
 	..
@@ -6789,12 +6787,12 @@ endif
 libyang-install:
 	@$(SEP)
 ifeq ($(wildcard $(TOP)/libyang/prebuilt/arm_cortex-a9/libyang.so.*),)
-	install -D libyang/build/libyang.so.1.10.32 $(INSTALLDIR)/libyang/usr/lib/libyang.so.1.10.32
-	$(STRIP) $(INSTALLDIR)/libyang/usr/lib/libyang.so.1.10.32
+	install -D libyang/build/libyang.so.1.10.44 $(INSTALLDIR)/libyang/usr/lib/libyang.so.1.10.44
+	$(STRIP) $(INSTALLDIR)/libyang/usr/lib/libyang.so.1.10.44
 	cd $(INSTALLDIR)/libyang/usr/lib && \
-		ln -sf libyang.so.1.10.32 libyang.so.1.10 && \
-		ln -sf libyang.so.1.10.32 libyang.so.1 && \
-		ln -sf libyang.so.1.10.32 libyang.so
+		ln -sf libyang.so.1.10.44 libyang.so.1.10 && \
+		ln -sf libyang.so.1.10.44 libyang.so.1 && \
+		ln -sf libyang.so.1.10.44 libyang.so
 	# Install libyang plugins
 	install -d $(INSTALLDIR)/libyang/usr/lib/libyang1/extensions
 	install -d $(INSTALLDIR)/libyang/usr/lib/libyang1/user_types
