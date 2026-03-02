@@ -2,11 +2,11 @@
 MAKEFLAGS="-j 1"
 PROJECT_DIR="."
 CHANGELOG_FILE="/tmp/CHANGELOG"
-MODEL="rt-ac68u"
+MODEL="dsl-ac68u"
 SDK_PLATFORM="sdk"
 RELEASE_DIR="src-rt-6.x.4708"
 
-rm ${PROJECT_DIR}/release/${RELEASE_DIR}/toolchains
+rm -f ${PROJECT_DIR}/release/${RELEASE_DIR}/toolchains
 ln -s /opt/am-toolchains/brcm-arm-sdk  ${PROJECT_DIR}/release/${RELEASE_DIR}/toolchains
 
 export MERLINUPDATE=y

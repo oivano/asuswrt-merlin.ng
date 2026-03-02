@@ -1,5 +1,0 @@
-compatible = "brcm,bcm63xx-i2s";
-reg = <I2S_OFFSET I2S_SIZE>;
-
-#undef I2S_OFFSET
-#undef I2S_SIZE
