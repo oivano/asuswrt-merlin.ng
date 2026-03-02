@@ -222,12 +222,11 @@ typedef struct {
 #if defined(RTCONFIG_FBWIFI) || defined(RTCONFIG_CAPTIVE_PORTAL)
 	char		subunit[MAX_NR_CLIENT_LIST];
 #endif
-#if (defined(RTCONFIG_BWDPI) || defined(RTCONFIG_BWDPI_DEP))
+	/* Keep BWDPI fields for ABI compatibility with prebuilt binaries */
 	char		bwdpi_host[MAX_NR_CLIENT_LIST][32];
 	char		bwdpi_vendor[MAX_NR_CLIENT_LIST][100];
 	char		bwdpi_type[MAX_NR_CLIENT_LIST][100];
 	char		bwdpi_device[MAX_NR_CLIENT_LIST][100];
-#endif
 	int		ip_mac_num;
 	int		detail_info_num;
 //for sorting asus device

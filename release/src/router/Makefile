@@ -947,6 +947,12 @@ obj-$(RTCONFIG_SPEEDTEST) += curl
 
 obj-$(RTCONFIG_BWDPI) += sqlite
 obj-$(RTCONFIG_BWDPI) += bwdpi_source
+
+# Build stub library when BWDPI is disabled (for prebuilt binaries that need libbwdpi.so)
+ifneq ($(RTCONFIG_BWDPI),y)
+obj-y += bwdpi_stub
+endif
+
 obj-$(RTCONFIG_TRAFFIC_LIMITER) += sqlite
 obj-$(RTCONFIG_TRAFFIC_LIMITER) += traffic_limiter
 

@@ -221,6 +221,40 @@ void tm_recycle_stuck_process()
 		}
 	}
 }
+#else
+/* Stub implementations for prebuilt objects when BWDPI is disabled */
+int check_wrs_switch()
+{
+	return 0;
+}
+
+int check_bwdpi_nvram_setting()
+{
+	return 0;
+}
+
+int check_tcode_blacklist()
+{
+	return 0;
+}
+
+int dump_dpi_support(int index)
+{
+	return 0;
+}
+
+int bwdpi_client_info(char *MAC, char *ipaddr, bwdpi_device *device)
+{
+	/* Stub: BWDPI disabled, return failure */
+	if (device) {
+		memset(device, 0, sizeof(bwdpi_device));
+		strcpy(device->hostname, "");
+		strcpy(device->vendor_name, "");
+		strcpy(device->type_name, "");
+		strcpy(device->device_name, "");
+	}
+	return -1;
+}
 #endif
 
 /*

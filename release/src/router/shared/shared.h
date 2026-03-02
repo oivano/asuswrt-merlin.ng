@@ -3868,6 +3868,22 @@ extern int check_wan_2P5G_10G_speed();
 extern int check_AQoS_only_enabled();
 extern int check_WRS_only_enabled();
 extern void tm_recycle_stuck_process();
+#else
+/* Stub declarations for prebuilt objects that reference these functions */
+/* Define bwdpi_device structure for stub compatibility */
+typedef struct bwdpi_client bwdpi_device;
+struct bwdpi_client{
+	char hostname[32];
+	char vendor_name[100];
+	char type_name[100];
+	char device_name[100];
+};
+
+extern int check_wrs_switch();
+extern int check_bwdpi_nvram_setting();
+extern int check_tcode_blacklist();
+extern int dump_dpi_support(int index);
+extern int bwdpi_client_info(char *MAC, char *ipaddr, bwdpi_device *device);
 #endif
 extern void erase_symbol(char *old, char *sym);
 extern void StampToDate(unsigned long timestamp, char *date);
