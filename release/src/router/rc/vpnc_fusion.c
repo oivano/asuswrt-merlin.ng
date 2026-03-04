@@ -1869,6 +1869,7 @@ start_vpnc_by_unit(const int unit)
 	//init vpncX_ state.
 	update_vpnc_state(prof->vpnc_idx, WAN_STATE_INITIALIZING, 0);
 
+#if defined(RTCONFIG_PPTP) || defined(RTCONFIG_L2TP)
 	//Run PPTP/L2TP
 	if (VPNC_PROTO_PPTP == prof->protocol || VPNC_PROTO_L2TP == prof->protocol) {
 		mask = umask(0000);
@@ -1885,9 +1886,12 @@ start_vpnc_by_unit(const int unit)
 		char wan_proto[16];
 		snprintf(wan_proto, sizeof(wan_proto), "%s", nvram_safe_get(strcat_r(wan_prefix, "proto", tmp)));
 		if (nvram_match("fc_disable", "0") &&
-			(!strcmp(wan_proto, "pppoe") ||
-			 !strcmp(wan_proto, "pptp") ||
-			 !strcmp(wan_proto, "l2tp"))) {
+			(!strcmp(wan_proto, "pppoe")
+#if defined(RTCONFIG_PPTP) || defined(RTCONFIG_L2TP)
+			 || !strcmp(wan_proto, "pptp")
+			 || !strcmp(wan_proto, "l2tp")
+#endif
+			)) {
 			dbg("[%s, %d] Flow Cache Learning of GRE flows Tunnel: DISABLED, PassThru: ENABLED\n", __FUNCTION__, __LINE__);
 			eval("fc", "config", "--gre", "0");
 		}

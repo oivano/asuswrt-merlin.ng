@@ -48,7 +48,7 @@ char hash[HASH_TYPE_MAX_NUM][SZ_MIN] = {
 
 /*DH: default group is modp1536,modp2048*/
 char dh_group[DH_GROUP_MAX_NUM][SZ_MIN] = {
-/*Regular Groups*/
+/*Regular MODP Groups*/
     {"modp768"},      /*DH Group 1  : 768bits*/
     {"modp1024"},     /*DH Group 2  : 1024bits*/
     {"modp1536"},     /*DH Group 5  : 1536bits*/
@@ -57,10 +57,25 @@ char dh_group[DH_GROUP_MAX_NUM][SZ_MIN] = {
     {"modp4096"},     /*DH Group 16 : 4096bits*/
     {"modp6144"},     /*DH Group 17 : 6144bits*/
     {"modp8192"},     /*DH Group 18 : 8192bits*/
-/*Modulo Rrime Groups with Prime Order Sbugroup*/
-    {"modp1024s160"}, /*DH Group 22 : 1024bits*/
-    {"modp2048s224"}, /*DH Group 23 : 2048bits*/
-    {"modp2048s256"}, /*DH Group 24 : 2048bits*/
+/*ECP Groups (NIST curves)*/
+    {"ecp256"},       /*DH Group 19 : 256bit Random ECP (NIST P-256)*/
+    {"ecp384"},       /*DH Group 20 : 384bit Random ECP (NIST P-384)*/
+    {"ecp521"},       /*DH Group 21 : 521bit Random ECP (NIST P-521)*/
+/*Modulo Prime Groups with Prime Order Subgroup*/
+    {"modp1024s160"}, /*DH Group 22 : 1024bits MODP with 160bit Prime Order Subgroup*/
+    {"modp2048s224"}, /*DH Group 23 : 2048bits MODP with 224bit Prime Order Subgroup*/
+    {"modp2048s256"}, /*DH Group 24 : 2048bits MODP with 256bit Prime Order Subgroup*/
+/*Additional ECP Groups*/
+    {"ecp192"},       /*DH Group 25 : 192bit Random ECP (NIST P-192)*/
+    {"ecp224"},       /*DH Group 26 : 224bit Random ECP (NIST P-224)*/
+/*ECP Brainpool Groups*/
+    {"ecp224bp"},     /*DH Group 27 : 224bit Brainpool ECP*/
+    {"ecp256bp"},     /*DH Group 28 : 256bit Brainpool ECP*/
+    {"ecp384bp"},     /*DH Group 29 : 384bit Brainpool ECP*/
+    {"ecp512bp"},     /*DH Group 30 : 512bit Brainpool ECP*/
+/*Modern Elliptic Curves*/
+    {"curve25519"},   /*DH Group 31 : Curve25519*/
+    {"curve448"},     /*DH Group 32 : Curve448*/
 };
 
 static ipsec_samba_t samba_prof;

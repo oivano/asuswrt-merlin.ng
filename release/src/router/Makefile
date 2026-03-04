@@ -1404,8 +1404,6 @@ ifneq ($(REMOVE_ROUTER_UI), y)
 RTCONFIG_PPP_BASE = y
 endif
 obj-$(RTCONFIG_PPP_BASE) += pppd rp-pppoe
-obj-$(RTCONFIG_L2TP) += rp-l2tp
-obj-$(RTCONFIG_PPTP) += accel-pptp
 obj-$(RTCONFIG_EAPOL) += wpa_supplicant
 obj-$(RTCONFIG_HTTPS) += openssl
 obj-$(RTCONFIG_HTTPS) += wget
@@ -1443,9 +1441,6 @@ obj-$(CONFIG_LINUX26) += udev
 ifeq ($(RTCONFIG_USB_CDROM),y)
 obj-$(CONFIG_LINUX26) += hotplug-e2-helper
 endif
-
-obj-$(RTCONFIG_ACCEL_PPTPD) += accel-pptpd
-obj-$(RTCONFIG_PPTPD) += pptpd
 
 obj-$(RTCONFIG_WEBDAV) += sqlite
 obj-$(RTCONFIG_WEBDAV) += libxml2
@@ -2414,8 +2409,6 @@ endif
 #	@mv $(TARGETDIR)/lib/modules/*/kernel/drivers/hid/* $(PLATFORMDIR)/extras/ || true
 #	@rm -rf $(TARGETDIR)/lib/modules/*/kernel/drivers/hid || true
 	@cp -f $(TARGETDIR)/lib/modules/*/kernel/drivers/net/bcm57*.*o $(PLATFORMDIR)/extras/ || true
-	$(if $(RTCONFIG_PPTP),@cp -f,@mv) $(TARGETDIR)/lib/modules/*/kernel/drivers/net/pptp.*o $(PLATFORMDIR)/extras/ || true
-	$(if $(RTCONFIG_L2TP),@cp -f,@mv) $(TARGETDIR)/lib/modules/*/kernel/drivers/net/pppol2tp.*o $(PLATFORMDIR)/extras/ || true
 	@mv $(TARGETDIR)/lib/modules/*/kernel/drivers/net/ppp_deflate.*o $(PLATFORMDIR)/extras/ || true
 	@mv $(TARGETDIR)/lib/modules/*/kernel/crypto/* $(PLATFORMDIR)/extras/ || true
 	@rm -rf $(TARGETDIR)/lib/modules/*/kernel/crypto || true
@@ -4347,41 +4340,6 @@ vlan:
 vlan-install:
 	$(MAKE) -C vlan CROSS=$(CROSS_COMPILE) INSTALLDIR=$(INSTALLDIR)/vlan install	# STRIPTOOL=$(STRIP)
 	$(STRIP) $(INSTALLDIR)/vlan/usr/sbin/vconfig
-
-accel-pptpd: kernel_header pppd accel-pptpd/pptpd-1.3.3/Makefile
-	@$(MAKE) -C accel-pptpd server
-
-accel-pptpd/pptpd-1.3.3/Makefile:
-	( cd accel-pptpd/pptpd-1.3.3 && CFLAGS="$(CFLAGS) -g -O2 $(EXTRACFLAGS) -idirafter $(KDIR)/include" \
-		$(CONFIGURE) --prefix=/usr --bindir=/usr/sbin --libdir=/usr/lib \
-			--enable-bcrelay KDIR=$(KDIR) PPPDIR=$(TOP)/pppd \
-	)
-
-accel-pptpd-clean:
-	[ ! -f accel-pptpd/pptpd-1.3.3/Makefile ] || $(MAKE) -C accel-pptpd distclean
-	@rm -f accel-pptpd/pptpd-1.3.3/Makefile
-
-accel-pptpd-install: accel-pptpd
-	$(MAKE) -C accel-pptpd server_install
-
-pptpd/stamp-h1:
-	cd $(TOP)/pptpd && $(CONFIGURE) --prefix=/usr --enable-bcrelay CC=$(CC) STRIP=$(STRIP) AR=$(AR) LD=$(LD) NM=$(NM) RANLIB=$(RANLIB)
-	touch $@
-
-pptpd: pptpd/stamp-h1
-
-pptpd-install: pptpd
-	@echo pptpd
-	@install -D pptpd/pptpd $(INSTALLDIR)/pptpd/usr/sbin/pptpd
-	@install -D pptpd/bcrelay $(INSTALLDIR)/pptpd/usr/sbin/bcrelay
-	@install -D pptpd/pptpctrl $(INSTALLDIR)/pptpd/usr/sbin/pptpctrl
-	@$(STRIP) $(INSTALLDIR)/pptpd/usr/sbin/pptpd
-	@$(STRIP) $(INSTALLDIR)/pptpd/usr/sbin/bcrelay
-	@$(STRIP) $(INSTALLDIR)/pptpd/usr/sbin/pptpctrl
-
-pptpd-clean:
-	-@make -C pptpd clean
-	@rm -f pptpd/stamp-h1
 
 rp-pppoe/src/stamp-h1:
 ifeq ($(HND_ROUTER),y)

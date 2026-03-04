@@ -621,6 +621,7 @@ void btn_setup_save_setting(PKT_SET_INFO_GW_QUICK *pkt)
                         nvram_set_str("wan_hwaddr_x", pkt->ISPSetting.MAC, sizeof(pkt->ISPSetting.MAC));
                         nvram_set_str("wan_heartbeat_x", pkt->ISPSetting.BPServer, sizeof(pkt->ISPSetting.BPServer));
 		}	
+#ifdef RTCONFIG_PPTP
 		else if(pkt->ISPSetting.ISPType==ISP_TYPE_PPTP)
 		{
 			nvram_set("wan_proto", "pptp");
@@ -656,6 +657,7 @@ void btn_setup_save_setting(PKT_SET_INFO_GW_QUICK *pkt)
                                 nvram_set_ip("dhcp_end", dhcp_tmp);
 			}
 		}
+#endif
 		else if(pkt->ISPSetting.ISPType==ISP_TYPE_STATICIP)
 		{
 			nvram_set("wan_proto", "static");
@@ -676,6 +678,7 @@ void btn_setup_save_setting(PKT_SET_INFO_GW_QUICK *pkt)
                                 nvram_set_ip("dhcp_end", dhcp_tmp);
 			}
 		}
+#ifdef RTCONFIG_L2TP
 		else if(pkt->ISPSetting.ISPType==ISP_TYPE_L2TP)
                 {
                         nvram_set("wan_proto", "l2tp");
@@ -688,6 +691,7 @@ void btn_setup_save_setting(PKT_SET_INFO_GW_QUICK *pkt)
                         nvram_set_str("wan_hwaddr_x", pkt->ISPSetting.MAC, sizeof(pkt->ISPSetting.MAC));
                         nvram_set_str("wan_heartbeat_x", pkt->ISPSetting.BPServer, sizeof(pkt->ISPSetting.BPServer));
                 }
+#endif
 
 //		printf("ISPType is %x\n",pkt->ISPSetting.ISPType);
 //		printf("PacketNum is %x\n",pkt->ISPSetting.PacketNum);

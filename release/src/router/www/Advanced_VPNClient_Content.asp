@@ -151,8 +151,8 @@ function initial(){
 	show_menu();
 
         if(openvpnd_support) {
-                var vpn_client_array = {"OpenVPN" : ["OpenVPN", "Advanced_OpenVPNClient_Content.asp"], "PPTP" : ["IPsec", "Advanced_VPNClient_Content.asp"]};
-                $('#divSwitchMenu').html(gen_switch_menu(vpn_client_array, "PPTP"));
+                var vpn_client_array = {"OpenVPN" : ["OpenVPN", "Advanced_OpenVPNClient_Content.asp"], "IPSec" : ["IPSec", "Advanced_VPNClient_Content.asp"]};
+                $('#divSwitchMenu').html(gen_switch_menu(vpn_client_array, "IPSec"));
                 document.getElementById("divSwitchMenu").style.display = "";
         }
 
@@ -233,7 +233,8 @@ function Add_profile(upper){
 	}
 
 	add_profile_flag = true;
-	gen_vpnc_tab_list("pptp");
+	/* PPTP/L2TP removed - deprecated protocols */
+	// gen_vpnc_tab_list("pptp");
 	gen_vpnc_tab_list("openvpn");
 	gen_vpnc_tab_list("ipsec");
 	document.getElementById('importOvpnFile').style.display = "none";
@@ -256,7 +257,11 @@ function Add_profile(upper){
 	document.getElementById('edit_vpn_crt_client_crl').value = "";
 	manualImport(false);
 	$("#openvpnc_setting").fadeIn(300);
-	tabclickhandler(0);
+	/* Default to IPSec (type 3) since PPTP/L2TP removed */
+	if(ipsec_cli_support)
+		tabclickhandler(3);
+	else
+		tabclickhandler(2);
 	document.getElementById("cancelBtn").style.display = "";
 	document.getElementById("cancelBtn_openvpn").style.display = "";
 	if(ipsec_cli_support)
@@ -572,8 +577,9 @@ function tabclickhandler(_type){
 			tab_id = "ipsec";
 			break;
 	}
-	document.getElementById('pptpcTitle_' + tab_id + '').className = "vpnClientTitle_td_unclick";
-	document.getElementById('l2tpcTitle_' + tab_id + '').className = "vpnClientTitle_td_unclick";
+	/* PPTP/L2TP title elements removed */
+	// document.getElementById('pptpcTitle_' + tab_id + '').className = "vpnClientTitle_td_unclick";
+	// document.getElementById('l2tpcTitle_' + tab_id + '').className = "vpnClientTitle_td_unclick";
 //	if(openvpnd_support)
 //		document.getElementById('opencTitle_' + tab_id + '').className = "vpnClientTitle_td_unclick";
 	if(ipsec_cli_support)
@@ -582,22 +588,10 @@ function tabclickhandler(_type){
 	document.getElementById('openvpnc_setting_openvpn').style.display = "none";	
 	document.getElementById('openvpnc_setting_ipsec').style.display = "none";	
 	document.getElementById('trPPTPOptions').style.display = "none";
-	if(_type == 0){
-		save_flag = "PPTP";
-		document.form.vpnc_type.value = "PPTP";
-		document.vpnclientForm.vpnc_type.value = "PPTP";
-		document.getElementById('pptpcTitle_' + tab_id + '').className = "vpnClientTitle_td_click";
-		document.getElementById('openvpnc_setting').style.display = "block";
-		document.getElementById('trPPTPOptions').style.display = "";
-		adjust_panel_block_top("openvpnc_setting", 200);
-	}
-	else if(_type == 1){
-		save_flag = "L2TP";
-		document.form.vpnc_type.value = "L2TP";
-		document.vpnclientForm.vpnc_type.value = "L2TP";
-		document.getElementById('l2tpcTitle_' + tab_id + '').className = "vpnClientTitle_td_click";
-		document.getElementById('openvpnc_setting').style.display = "block";
-		adjust_panel_block_top("openvpnc_setting", 200);
+	/* PPTP/L2TP (types 0,1) removed - deprecated insecure protocols */
+	if(_type == 0 || _type == 1){
+		alert("PPTP and L2TP protocols have been removed due to security vulnerabilities. Please use OpenVPN, WireGuard, or IPSec instead.");
+		return false;
 	}
 	else if(_type == 2){
 		save_flag = "OpenVPN";
@@ -1141,13 +1135,16 @@ function Edit_Row(rowdata, flag){
 	if(vpnc_proto == "PPTP" || vpnc_proto == "L2TP") {
 		gen_vpnc_tab_list("pptp");
 		$("#openvpnc_setting").fadeIn(300);
-		document.getElementById("pptpcTitle_pptp").style.display = "none";
-		document.getElementById("trPPTPOptions").style.display = "none";
-		document.getElementById("l2tpcTitle_pptp").style.display = "none";
+		/* PPTP/L2TP title elements removed */
+		// document.getElementById("pptpcTitle_pptp").style.display = "none";
+		// document.getElementById("trPPTPOptions").style.display = "none";
+		// document.getElementById("l2tpcTitle_pptp").style.display = "none";
 //		if(openvpnd_support)
 //			document.getElementById("opencTitle_pptp").style.display = "none";
 		if(ipsec_cli_support)
 			document.getElementById("ipsecTitle_pptp").style.display = "none";
+		/* PPTP/L2TP handling removed */
+		/*
 		if(vpnc_proto == "PPTP") {
 			document.getElementById("pptpcTitle_pptp").style.display = "";
 			document.getElementById("trPPTPOptions").style.display = "";
@@ -1155,12 +1152,14 @@ function Edit_Row(rowdata, flag){
 		else {
 			document.getElementById("l2tpcTitle_pptp").style.display = "";
 		}
+		*/
 	}
 	else if(vpnc_proto == "OpenVPN") {
 		gen_vpnc_tab_list("openvpn");
 		$("#openvpnc_setting_openvpn").fadeIn(300);
-		document.getElementById("pptpcTitle_openvpn").style.display = "none";
-		document.getElementById("l2tpcTitle_openvpn").style.display = "none";
+		/* PPTP/L2TP title elements removed */
+		// document.getElementById("pptpcTitle_openvpn").style.display = "none";
+		// document.getElementById("l2tpcTitle_openvpn").style.display = "none";
 		document.getElementById("opencTitle_openvpn").style.display = "";
 		if(ipsec_cli_support)
 			document.getElementById("ipsecTitle_openvpn").style.display = "none";
@@ -1188,10 +1187,15 @@ function Edit_Row(rowdata, flag){
 	}
 	else{
 		document.form.vpnc_des_edit.value = vpnc_desc;
-		if(vpnc_proto == "PPTP")
-			tabclickhandler(0);
-		else if(vpnc_proto == "L2TP")
-			tabclickhandler(1);
+		/* PPTP/L2TP removed - show error if old profile */
+		if(vpnc_proto == "PPTP" || vpnc_proto == "L2TP") {
+			alert("This profile uses " + vpnc_proto + " which has been removed due to security vulnerabilities. Please create a new profile using OpenVPN, WireGuard, or IPSec.");
+			return false;
+		}
+		else if(vpnc_proto == "OpenVPN")
+			tabclickhandler(2);
+		else if(vpnc_proto == "IPSec")
+			tabclickhandler(3);
 		else
 			tabclickhandler(2);
 		document.form.vpnc_svr_edit.value = vpnc_server;
@@ -1450,8 +1454,9 @@ function gen_vpnc_tab_list(_type) {
 	$('#divTabMenu_' + _type + '').empty();
 	code += "<table width='100%' border='0' align='left' cellpadding='0' cellspacing='0' style='table-layout: fixed;'>";
 	code += "<tr>";
-	code += "<td align='center' id='pptpcTitle_" + _type + "' onclick='tabclickhandler(0);'>PPTP</td>";
-	code += "<td align='center' id='l2tpcTitle_" + _type + "' onclick='tabclickhandler(1);'>L2TP</td>";
+	/* PPTP/L2TP tabs removed - deprecated insecure protocols */
+	// code += "<td align='center' id='pptpcTitle_" + _type + "' onclick='tabclickhandler(0);'>PPTP</td>";
+	// code += "<td align='center' id='l2tpcTitle_" + _type + "' onclick='tabclickhandler(1);'>L2TP</td>";
 //	if(openvpnd_support) {
 //		code += "<td align='center' id='opencTitle_" + _type + "' onclick='tabclickhandler(2);'>OpenVPN</td>";
 //	}
@@ -2850,33 +2855,47 @@ function changePFS() {
 							<th><#vpn_ipsec_Encryption#></th>
 							<td>
 								<!--label><input type="checkbox" name="ipsec_encryption_p1" value="1">DES</label-->
-								<label><input type="checkbox" name="ipsec_encryption_p1" value="2">3DES</label>
+								<label><input type="checkbox" name="ipsec_encryption_p1" value="2">3DES <span style="color:#FC0">⚠ Legacy</span></label>
 								<label><input type="checkbox" name="ipsec_encryption_p1" value="4">AES128</label>
-								<!--label><input type="checkbox" name="ipsec_encryption_p1" value="8">AES192</label>
-								<label><input type="checkbox" name="ipsec_encryption_p1" value="16">AES256</label-->
+								<label><input type="checkbox" name="ipsec_encryption_p1" value="8">AES192</label>
+								<label><input type="checkbox" name="ipsec_encryption_p1" value="16">AES256 <span style="color:#0C0">✓ Recommended</span></label>
 							</td>
 						</tr>
 						<tr id="tr_adv_hash_p1">
 							<th><#vpn_ipsec_Hash#></th>
 							<td>
 								<!--label><input type="checkbox" name="ipsec_hash_p1" value="1">MD5</label-->
-								<label><input type="checkbox" name="ipsec_hash_p1" value="2">SHA1</label>
+								<label><input type="checkbox" name="ipsec_hash_p1" value="2">SHA1 <span style="color:#FC0">⚠ Legacy</span></label>
 								<label><input type="checkbox" name="ipsec_hash_p1" value="4">SHA256</label>
-								<!--label><input type="checkbox" name="ipsec_hash_p1" value="8">SHA384</label>
-								<label><input type="checkbox" name="ipsec_hash_p1" value="16">SHA512</label-->
+								<label><input type="checkbox" name="ipsec_hash_p1" value="8">SHA384</label>
+								<label><input type="checkbox" name="ipsec_hash_p1" value="16">SHA512 <span style="color:#0C0">✓ Recommended</span></label>
 							</td>
 						</tr>
 						<tr id="tr_adv_dh_group">
 							<th>Diffile-Hellman Groups<!--untranslated--></th>
 							<td>
-								<label><input type="checkbox" name="ipsec_dh_group_p1" value="1">1</label>
-								<label><input type="checkbox" name="ipsec_dh_group_p1" value="2">2</label>
+								<label><input type="checkbox" name="ipsec_dh_group_p1" value="1">1 <span style="color:#F00">⚠ Weak</span></label>
+								<label><input type="checkbox" name="ipsec_dh_group_p1" value="2">2 <span style="color:#F00">⚠ Weak</span></label>
 								<label><input type="checkbox" name="ipsec_dh_group_p1" value="4">5</label>
 								<label><input type="checkbox" name="ipsec_dh_group_p1" value="8">14</label>
 								<label><input type="checkbox" name="ipsec_dh_group_p1" value="16">15</label>
 								<label><input type="checkbox" name="ipsec_dh_group_p1" value="32">16</label>
 								<label><input type="checkbox" name="ipsec_dh_group_p1" value="64">17</label>
 								<label><input type="checkbox" name="ipsec_dh_group_p1" value="128">18</label>
+								<label><input type="checkbox" name="ipsec_dh_group_p1" value="2048">19 (256-bit ECP) <span style="color:#0C0">✓ Recommended</span></label>
+								<label><input type="checkbox" name="ipsec_dh_group_p1" value="4096">20 (384-bit ECP)</label>
+								<label><input type="checkbox" name="ipsec_dh_group_p1" value="8192">21 (521-bit ECP)</label>
+								<label><input type="checkbox" name="ipsec_dh_group_p1" value="256">22 (1024-bit MODP)</label>
+								<label><input type="checkbox" name="ipsec_dh_group_p1" value="512">23 (2048-bit MODP)</label>
+								<label><input type="checkbox" name="ipsec_dh_group_p1" value="1024">24 (2048-bit MODP)</label>
+								<label><input type="checkbox" name="ipsec_dh_group_p1" value="16384">25 (192-bit ECP)</label>
+								<label><input type="checkbox" name="ipsec_dh_group_p1" value="32768">26 (224-bit ECP)</label>
+								<label><input type="checkbox" name="ipsec_dh_group_p1" value="65536">27 (Brainpool P-224)</label>
+								<label><input type="checkbox" name="ipsec_dh_group_p1" value="131072">28 (Brainpool P-256)</label>
+								<label><input type="checkbox" name="ipsec_dh_group_p1" value="262144">29 (Brainpool P-384)</label>
+								<label><input type="checkbox" name="ipsec_dh_group_p1" value="524288">30 (Brainpool P-512)</label>
+								<label><input type="checkbox" name="ipsec_dh_group_p1" value="1048576">31 (Curve25519) <span style="color:#0C0">✓ Modern</span></label>
+								<label><input type="checkbox" name="ipsec_dh_group_p1" value="2097152">32 (Curve448)</label>
 							</td>
 						</tr>
 						<tr id="tr_adv_exchange_mode">
@@ -2937,20 +2956,20 @@ function changePFS() {
 							<th><#vpn_ipsec_Encryption#></th>
 							<td>
 								<!--label><input type="checkbox" name="ipsec_encryption_p2" value="1">DES</label-->
-								<label><input type="checkbox" name="ipsec_encryption_p2" value="2">3DES</label>
+								<label><input type="checkbox" name="ipsec_encryption_p2" value="2">3DES <span style="color:#FC0">⚠ Legacy</span></label>
 								<label><input type="checkbox" name="ipsec_encryption_p2" value="4">AES128</label>
-								<!--label><input type="checkbox" name="ipsec_encryption_p2" value="8">AES192</label>
-								<label><input type="checkbox" name="ipsec_encryption_p2" value="16">AES256</label-->
+								<label><input type="checkbox" name="ipsec_encryption_p2" value="8">AES192</label>
+								<label><input type="checkbox" name="ipsec_encryption_p2" value="16">AES256 <span style="color:#0C0">✓ Recommended</span></label>
 							</td>
 						</tr>
 						<tr id="tr_adv_hash_p2">
 							<th><#vpn_ipsec_Hash#></th>
 							<td>
 								<!--label><input type="checkbox" name="ipsec_hash_p2" value="1">MD5</label-->
-								<label><input type="checkbox" name="ipsec_hash_p2" value="2">SHA1</label>
+								<label><input type="checkbox" name="ipsec_hash_p2" value="2">SHA1 <span style="color:#FC0">⚠ Legacy</span></label>
 								<label><input type="checkbox" name="ipsec_hash_p2" value="4">SHA256</label>
-								<!--label><input type="checkbox" name="ipsec_hash_p2" value="8">SHA384</label>
-								<label><input type="checkbox" name="ipsec_hash_p2" value="16">SHA512</label-->
+								<label><input type="checkbox" name="ipsec_hash_p2" value="8">SHA384</label>
+								<label><input type="checkbox" name="ipsec_hash_p2" value="16">SHA512 <span style="color:#0C0">✓ Recommended</span></label>
 							</td>
 						</tr>
 						<tr id="tr_adv_pfs">
@@ -2963,14 +2982,28 @@ function changePFS() {
 						<tr id="tr_adv_pfs_group">
 							<th>PFS Groups</th><!-- untranslated -->
 							<td>
-								<label><input type="checkbox" name="ipsec_pfs_group" value="1">1</label>
-								<label><input type="checkbox" name="ipsec_pfs_group" value="2">2</label>
+								<label><input type="checkbox" name="ipsec_pfs_group" value="1">1 <span style="color:#F00">⚠ Weak</span></label>
+								<label><input type="checkbox" name="ipsec_pfs_group" value="2">2 <span style="color:#F00">⚠ Weak</span></label>
 								<label><input type="checkbox" name="ipsec_pfs_group" value="4">5</label>
 								<label><input type="checkbox" name="ipsec_pfs_group" value="8">14</label>
 								<label><input type="checkbox" name="ipsec_pfs_group" value="16">15</label>
 								<label><input type="checkbox" name="ipsec_pfs_group" value="32">16</label>
 								<label><input type="checkbox" name="ipsec_pfs_group" value="64">17</label>
 								<label><input type="checkbox" name="ipsec_pfs_group" value="128">18</label>
+								<label><input type="checkbox" name="ipsec_pfs_group" value="2048">19 (256-bit ECP) <span style="color:#0C0">✓ Recommended</span></label>
+								<label><input type="checkbox" name="ipsec_pfs_group" value="4096">20 (384-bit ECP)</label>
+								<label><input type="checkbox" name="ipsec_pfs_group" value="8192">21 (521-bit ECP)</label>
+								<label><input type="checkbox" name="ipsec_pfs_group" value="256">22 (1024-bit MODP)</label>
+								<label><input type="checkbox" name="ipsec_pfs_group" value="512">23 (2048-bit MODP)</label>
+								<label><input type="checkbox" name="ipsec_pfs_group" value="1024">24 (2048-bit MODP)</label>
+								<label><input type="checkbox" name="ipsec_pfs_group" value="16384">25 (192-bit ECP)</label>
+								<label><input type="checkbox" name="ipsec_pfs_group" value="32768">26 (224-bit ECP)</label>
+								<label><input type="checkbox" name="ipsec_pfs_group" value="65536">27 (Brainpool P-224)</label>
+								<label><input type="checkbox" name="ipsec_pfs_group" value="131072">28 (Brainpool P-256)</label>
+								<label><input type="checkbox" name="ipsec_pfs_group" value="262144">29 (Brainpool P-384)</label>
+								<label><input type="checkbox" name="ipsec_pfs_group" value="524288">30 (Brainpool P-512)</label>
+								<label><input type="checkbox" name="ipsec_pfs_group" value="1048576">31 (Curve25519) <span style="color:#0C0">✓ Modern</span></label>
+								<label><input type="checkbox" name="ipsec_pfs_group" value="2097152">32 (Curve448)</label>
 							</td>
 						</tr>
 						<tr id="tr_adv_keylife_time_p2">

@@ -217,9 +217,11 @@ if(debug) printf("test 11. cmd=%s.\n", cmd);
 		system(cmd);
 
 		if(!strcmp(wan_proto, "pptp") || !strcmp(wan_proto, "l2tp")){
+#if defined(RTCONFIG_PPTP) || defined(RTCONFIG_L2TP)
 			snprintf(cmd, sizeof(cmd), "ip route del %s dev %s 2>/dev/null", wan_multi_gate[unit], wan_multi_if[unit]);
 if(debug) printf("test 12. cmd=%s.\n", cmd);
 			system(cmd);
+#endif
 		}
 	}
 
@@ -723,7 +725,11 @@ void update_wan_state(char *prefix, int state, int reason)
 		nvram_unset(strcat_r(prefix, "routes_rfc", tmp));
 
 		/* reset wanX_x* VPN variables */
-		if (wan_proto == WAN_PPPOE || wan_proto == WAN_PPTP || wan_proto == WAN_L2TP) {
+		if (wan_proto == WAN_PPPOE
+#if defined(RTCONFIG_PPTP) || defined(RTCONFIG_L2TP)
+				|| wan_proto == WAN_PPTP || wan_proto == WAN_L2TP
+#endif
+		) {
 			nvram_set(strcat_r(prefix, "xipaddr", tmp), nvram_safe_get(strcat_r(prefix, "ipaddr", tmp1)));
 			nvram_set(strcat_r(prefix, "xnetmask", tmp), nvram_safe_get(strcat_r(prefix, "netmask", tmp1)));
 			nvram_set(strcat_r(prefix, "xgateway", tmp), nvram_safe_get(strcat_r(prefix, "gateway", tmp1)));
@@ -743,9 +749,12 @@ void update_wan_state(char *prefix, int state, int reason)
 		ptr = nvram_get_int(strcat_r(prefix, "dnsenable_x", tmp)) ? "" :
 			get_userdns_r(prefix, tmp1, sizeof(tmp1));
 		nvram_set(strcat_r(prefix, "dns", tmp), ptr);
-		if (nvram_match(strcat_r(prefix, "proto", tmp), "pppoe") ||
-		    nvram_match(strcat_r(prefix, "proto", tmp), "pptp") ||
-		    nvram_match(strcat_r(prefix, "proto", tmp), "l2tp"))
+		if (nvram_match(strcat_r(prefix, "proto", tmp), "pppoe")
+#if defined(RTCONFIG_PPTP) || defined(RTCONFIG_L2TP)
+		    || nvram_match(strcat_r(prefix, "proto", tmp), "pptp")
+		    || nvram_match(strcat_r(prefix, "proto", tmp), "l2tp")
+#endif
+		)
 			nvram_set(strcat_r(prefix, "xdns", tmp), ptr);
 		else
 			nvram_unset(strcat_r(prefix, "xdns", tmp));
@@ -1683,7 +1692,11 @@ TRACE_PT("3g begin with %s.\n", wan_ifname);
 #ifdef RTCONFIG_6RELAYD
 		case IPV6_PASSTHROUGH:
 #endif
-			if (!(wan_proto == WAN_PPPOE || wan_proto == WAN_PPTP || wan_proto == WAN_L2TP) ||
+			if (!(wan_proto == WAN_PPPOE
+#if defined(RTCONFIG_PPTP) || defined(RTCONFIG_L2TP)
+					|| wan_proto == WAN_PPTP || wan_proto == WAN_L2TP
+#endif
+				 ) ||
 			    !nvram_match(ipv6_nvname_by_unit("ipv6_ifdev", unit), "ppp")) {
 				enable_ipv6(wan_ifname);
 				need_linklocal_addr = 1;
@@ -1839,13 +1852,18 @@ TRACE_PT("3g begin with %s.\n", wan_ifname);
 			char tun_dev[IFNAMSIZ];
 #endif
 		case WAN_PPPOE:
+#if defined(RTCONFIG_PPTP) || defined(RTCONFIG_L2TP)
 		case WAN_PPTP:
 		case WAN_L2TP:
+#endif
 		{
 			char ipaddr[sizeof("255.255.255.255")], netmask[sizeof("255.255.255.255")];
 			int dhcpenable = nvram_get_int(strcat_r(prefix, "dhcpenable_x", tmp));
-			int demand = nvram_get_int(strcat_r(prefix, "pppoe_idletime", tmp)) &&
-				     (wan_proto != WAN_L2TP); /* L2TP does not support idling */
+			int demand = nvram_get_int(strcat_r(prefix, "pppoe_idletime", tmp))
+#if defined(RTCONFIG_L2TP)
+				     && (wan_proto != WAN_L2TP) /* L2TP does not support idling */
+#endif
+				     ;
 #if defined(RTCONFIG_PORT_BASED_VLAN) || defined(RTCONFIG_TAGGED_BASED_VLAN)
 			char ip_mask[sizeof("192.168.100.200/255.255.255.255XXX")];
 #endif
@@ -1954,7 +1972,7 @@ TRACE_PT("3g begin with %s.\n", wan_ifname);
 					start_igmpproxy(wan_ifname);
 			}
 
-#if defined(HND_ROUTER) || defined(RTAC1200V2)
+#if (defined(HND_ROUTER) || defined(RTAC1200V2)) && defined(RTCONFIG_PPTP)
 			if (wan_proto == WAN_PPTP && !module_loaded("pptp"))
 				modprobe("pptp");
 #endif
@@ -2365,10 +2383,12 @@ stop_wan_if(int unit)
 	}
 
 	switch (get_wan_proto(prefix)) {
+#ifdef RTCONFIG_L2TP
 	case WAN_L2TP:
 		kill_pidfile_tk("/var/run/l2tpd.pid");
 		usleep(1000*1000);
 		break;
+#endif
 #ifdef RTCONFIG_SOFTWIRE46
 	case WAN_LW4O6:
 	case WAN_MAPE:
@@ -3180,7 +3200,11 @@ void start_wan6(void)
 #endif
 		snprintf(prefix, sizeof(prefix), "wan%d_", wan_primary_ifunit_ipv6());
 		wan_proto = get_wan_proto(prefix);
-		if ((wan_proto == WAN_PPPOE || wan_proto == WAN_PPTP || wan_proto == WAN_L2TP) &&
+		if ((wan_proto == WAN_PPPOE
+#if defined(RTCONFIG_PPTP) || defined(RTCONFIG_L2TP)
+				|| wan_proto == WAN_PPTP || wan_proto == WAN_L2TP
+#endif
+		) &&
 		    nvram_match(ipv6_nvname("ipv6_ifdev"), "ppp"))
 			break;
 		/* fall through */
@@ -3418,7 +3442,11 @@ wan_up(const char *pwan_ifname)
 #ifdef RTCONFIG_6RELAYD
 			case IPV6_PASSTHROUGH:
 #endif
-				if ((wan_proto == WAN_PPPOE || wan_proto == WAN_PPTP || wan_proto == WAN_L2TP) &&
+				if ((wan_proto == WAN_PPPOE
+#if defined(RTCONFIG_PPTP) || defined(RTCONFIG_L2TP)
+					|| wan_proto == WAN_PPTP || wan_proto == WAN_L2TP
+#endif
+				) &&
 				    nvram_match(ipv6_nvname("ipv6_ifdev"), "ppp"))
 					break;
 #ifdef RTCONFIG_SOFTWIRE46
@@ -3530,12 +3558,14 @@ wan_up(const char *pwan_ifname)
 		route_add(wan_ifname, 0, "0.0.0.0", gateway, "0.0.0.0"); */
 		break;
 
+#if defined(RTCONFIG_PPTP) || defined(RTCONFIG_L2TP)
 	case WAN_PPTP:
 	case WAN_L2TP:
 		/* hack: avoid routing cycles, when both peer and server has the same IP */
 		/* delete gateway route as it's no longer needed */
 		if (*gateway)
 			route_del(wan_ifname, 0, gateway, "0.0.0.0", "255.255.255.255");
+#endif
 	}
 
 	/* Install interface dependent static routes */
@@ -3823,7 +3853,11 @@ NOIP:
 #ifdef RTCONFIG_VPN_FUSION
 	start_vpnc();
 #else
+#if defined(RTCONFIG_PPTP) || defined(RTCONFIG_L2TP)
 	if((nvram_match("vpnc_proto", "pptp") || nvram_match("vpnc_proto", "l2tp")) && nvram_match("vpnc_auto_conn", "1"))
+#else
+	if(0) /* PPTP/L2TP disabled */
+#endif
 		start_vpnc();
 #endif
 #endif
@@ -3992,12 +4026,12 @@ NOIP:
 	start_fprobe();
 #endif
 
-#if defined(RTCONFIG_HND_ROUTER_AX)
+#if defined(RTCONFIG_HND_ROUTER_AX) && defined(RTCONFIG_PPTP)
 	if (wan_proto == WAN_PPTP)
 		eval("fc", "config", "--tcp-ack-mflows", "0");
 	else
-		eval("fc", "config", "--tcp-ack-mflows", nvram_get_int("fc_tcp_ack_mflows_disable_force") ? "0" : "1");
 #endif
+		eval("fc", "config", "--tcp-ack-mflows", nvram_get_int("fc_tcp_ack_mflows_disable_force") ? "0" : "1");
 
 #if defined(RTCONFIG_SAMBASRV)
 	if (nvram_match("enable_samba", "1"))
@@ -4217,8 +4251,10 @@ wanx_ifunit(char *wan_ifname)
 		snprintf(prefix, sizeof(prefix), "wan%d_", unit);
 		switch (get_wan_proto(prefix)) {
 		case WAN_PPPOE:
+#if defined(RTCONFIG_PPTP) || defined(RTCONFIG_L2TP)
 		case WAN_PPTP:
 		case WAN_L2TP:
+#endif
 #ifdef RTCONFIG_SOFTWIRE46
 		case WAN_MAPE:
 		case WAN_V6PLUS:
@@ -4236,8 +4272,10 @@ wanx_ifunit(char *wan_ifname)
 			snprintf(prefix, sizeof(prefix), "wan%d_", unit);
 			switch (get_wan_proto(prefix)) {
 			case WAN_PPPOE:
+#if defined(RTCONFIG_PPTP) || defined(RTCONFIG_L2TP)
 			case WAN_PPTP:
 			case WAN_L2TP:
+#endif
 				if (nvram_match(strcat_r(prefix, "ifname", tmp), wan_ifname))
 					return unit;
 				break;
@@ -4249,9 +4287,12 @@ wanx_ifunit(char *wan_ifname)
 	for (unit = WAN_UNIT_FIRST_MULTISRV_START; unit < WAN_UNIT_MULTISRV_MAX; unit++) {
 		snprintf(prefix, sizeof(prefix), "wan%d_", unit);
 		if (nvram_match(strcat_r(prefix, "ifname", tmp), wan_ifname) &&
-			(nvram_match(strcat_r(prefix, "proto", tmp), "pppoe") ||
-			 nvram_match(strcat_r(prefix, "proto", tmp), "pptp") ||
-			 nvram_match(strcat_r(prefix, "proto", tmp), "l2tp")))
+			(nvram_match(strcat_r(prefix, "proto", tmp), "pppoe")
+#if defined(RTCONFIG_PPTP) || defined(RTCONFIG_L2TP)
+			 || nvram_match(strcat_r(prefix, "proto", tmp), "pptp")
+			 || nvram_match(strcat_r(prefix, "proto", tmp), "l2tp")
+#endif
+			))
 			return unit;
 	}
 #endif
@@ -4724,8 +4765,10 @@ stop_wan(void)
 		stop_wan_if(unit);
 
 #ifdef HND_ROUTER
+#ifdef RTCONFIG_PPTP
 	if (module_loaded("pptp"))
 		modprobe_r("pptp");
+#endif
 
 	fc_fini();
 #endif

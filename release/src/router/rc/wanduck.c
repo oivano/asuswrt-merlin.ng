@@ -1047,8 +1047,11 @@ int if_wan_ppp(int wan_unit, int pppoe){
 
 	wan_ppp = dualwan_unit__nonusbif(wan_unit) &&
 			((pppoe && !strcmp(wan_proto, "pppoe"))
+#if defined(RTCONFIG_PPTP) || defined(RTCONFIG_L2TP)
 					|| !strcmp(wan_proto, "pptp")
-					|| !strcmp(wan_proto, "l2tp"));
+					|| !strcmp(wan_proto, "l2tp")
+#endif
+					);
 
 	return wan_ppp;
 }

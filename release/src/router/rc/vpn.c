@@ -20,6 +20,9 @@
  * $Id:
  */
 
+/* PPTP server support removed - deprecated and insecure protocol */
+#ifdef RTCONFIG_PPTPD
+
 #include <rc.h>
 #include <stdlib.h>
 #include <bcmnvram.h>
@@ -326,3 +329,12 @@ void stop_pptpd(void)
 #endif
 #endif
 }
+
+#else /* !RTCONFIG_PPTPD */
+
+/* Stub functions when PPTP server support is disabled */
+void start_pptpd(void) { }
+void stop_pptpd(void) { }
+void write_chap_secret(char *file) { }
+
+#endif /* RTCONFIG_PPTPD */

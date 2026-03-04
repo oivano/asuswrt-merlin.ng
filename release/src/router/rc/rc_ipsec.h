@@ -115,7 +115,7 @@ typedef enum hash_type_s{
 }hash_type_t;        /*mapping to esp*/
 
 typedef enum dh_group_type_s{
-/*Regular Group*/
+/*Regular MODP Groups*/
     DH_GROUP_1,
     DH_GROUP_2,
     DH_GROUP_5,
@@ -124,10 +124,25 @@ typedef enum dh_group_type_s{
     DH_GROUP_16,
     DH_GROUP_17,
     DH_GROUP_18,
+/*ECP Groups (NIST curves)*/
+    DH_GROUP_19,
+    DH_GROUP_20,
+    DH_GROUP_21,
 /*Modulo Prime Groups with Prime Order Subgroup*/
     DH_GROUP_22,
     DH_GROUP_23,
     DH_GROUP_24,
+/*Additional ECP Groups*/
+    DH_GROUP_25,
+    DH_GROUP_26,
+/*ECP Brainpool Groups*/
+    DH_GROUP_27,
+    DH_GROUP_28,
+    DH_GROUP_29,
+    DH_GROUP_30,
+/*Modern Elliptic Curves*/
+    DH_GROUP_31,
+    DH_GROUP_32,
     DH_GROUP_MAX_NUM, /*don't remove it*/
 }dh_group_type_t;
 

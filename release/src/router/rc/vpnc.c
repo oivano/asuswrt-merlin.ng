@@ -92,9 +92,12 @@ start_vpnc(void)
 #ifdef HND_ROUTER
 	/* workaround for ppp packets are dropped by fc GRE learning when pptp server / client enabled */
 	if (nvram_match("fc_disable", "0") &&
-		(!strcmp(wan_proto, "pppoe") ||
-		 !strcmp(wan_proto, "pptp") ||
-		 !strcmp(wan_proto, "l2tp"))) {
+		(!strcmp(wan_proto, "pppoe")
+#if defined(RTCONFIG_PPTP) || defined(RTCONFIG_L2TP)
+		 || !strcmp(wan_proto, "pptp")
+		 || !strcmp(wan_proto, "l2tp")
+#endif
+		)) {
 		dbg("[%s, %d] Flow Cache Learning of GRE flows Tunnel: DISABLED, PassThru: ENABLED\n", __FUNCTION__, __LINE__);
 		eval("fc", "config", "--gre", "0");
 	}
@@ -473,7 +476,11 @@ vpnc_up(char *vpnc_ifname)
 		route_del(wan_ifname, 0, "0.0.0.0", nvram_safe_get(strcat_r(wan_prefix, "gateway", tmp)), "0.0.0.0");
 		route_add(wan_ifname, 2, "0.0.0.0", nvram_safe_get(strcat_r(wan_prefix, "gateway", tmp)), "0.0.0.0");
 	}
-	else if (!strcmp(wan_proto, "pppoe") || !strcmp(wan_proto, "pptp") || !strcmp(wan_proto,  "l2tp"))
+	else if (!strcmp(wan_proto, "pppoe")
+#if defined(RTCONFIG_PPTP) || defined(RTCONFIG_L2TP)
+		|| !strcmp(wan_proto, "pptp") || !strcmp(wan_proto,  "l2tp")
+#endif
+		)
 	{
 		char *wan_xgateway = nvram_safe_get(strcat_r(wan_prefix, "xgateway", tmp));
 
@@ -637,7 +644,11 @@ vpnc_down(char *vpnc_ifname)
 		if (!strcmp(wan_proto, "dhcp") || !strcmp(wan_proto, "static")) {
 			route_del(wan_ifname, 2, "0.0.0.0", nvram_pf_safe_get(wan_prefix, "gateway"), "0.0.0.0");
 		}
-		else if (!strcmp(wan_proto, "pppoe") || !strcmp(wan_proto, "pptp") || !strcmp(wan_proto, "l2tp"))
+		else if (!strcmp(wan_proto, "pppoe")
+#if defined(RTCONFIG_PPTP) || defined(RTCONFIG_L2TP)
+				 || !strcmp(wan_proto, "pptp") || !strcmp(wan_proto, "l2tp")
+#endif
+		)
 		{
 			char *wan_xgateway = nvram_pf_safe_get(wan_prefix, "xgateway");
 
@@ -662,7 +673,11 @@ vpnc_down(char *vpnc_ifname)
 			route_del(wan_ifname, 2, "0.0.0.0", nvram_safe_get(strcat_r(wan_prefix, "gateway", tmp)), "0.0.0.0");
 			route_add(wan_ifname, 0, "0.0.0.0", nvram_safe_get(strcat_r(wan_prefix, "gateway", tmp)), "0.0.0.0");
 		}
-		else if (!strcmp(wan_proto, "pppoe") || !strcmp(wan_proto, "pptp") || !strcmp(wan_proto, "l2tp"))
+		else if (!strcmp(wan_proto, "pppoe")
+#if defined(RTCONFIG_PPTP) || defined(RTCONFIG_L2TP)
+				 || !strcmp(wan_proto, "pptp") || !strcmp(wan_proto, "l2tp")
+#endif
+		)
 		{
 			char *wan_xgateway = nvram_safe_get(strcat_r(wan_prefix, "xgateway", tmp));
 
