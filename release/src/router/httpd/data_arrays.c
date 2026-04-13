@@ -1583,10 +1583,10 @@ void ctvbuf(FILE *f) {
 int ej_connlist_array(int eid, webs_t wp, int argc, char **argv) {
 	FILE *fp;
 	char output_path[64], redirect[128];
-	char line[100];
+	char line[256];
 	int firstline = 1;
-	char proto[6], address[16], dest[16], state[15], port1[6], port2[6];
-	int ret = 0;
+	char proto[6], address[48], dest[48], state[15], port1[6], port2[6];
+	int ret = 0, parsed;
 
 	ret += websWrite(wp, "var connarray = [");
 
@@ -1641,6 +1641,52 @@ int ej_connlist_array(int eid, webs_t wp, int argc, char **argv) {
 	unlink(output_path);
 
 	ret += websWrite(wp, "[]];\n");
+
+#ifdef RTCONFIG_IPV6
+	ret += websWrite(wp, "var connarray_route = [");
+
+	system("/usr/sbin/netstat-nat -Rno -X50 > /tmp/connect.log 2>&1");
+
+	fp = fopen("/tmp/connect.log", "r");
+	if (fp == NULL) {
+		websWrite(wp, "[]];\n");
+		return ret;
+	}
+
+	while (fgets(line, sizeof(line), fp)) {
+		if (strncmp(line,"udp",3) && strncmp(line,"tcp",3))
+			continue;
+
+		// Clear it as it might be absent
+		state[0] = '\0';
+
+		// Try IPv6 format (brackets present)
+		if (strchr(line, '[')) {
+			parsed = sscanf(line,
+			         "%3s "
+			         "[%47[^]]]:%5[0-9] "
+			         "[%47[^]]]:%5[0-9]"
+			         "%14s%*[ \t]",
+			         proto, address, port1, dest, port2, state);
+		} else {
+			continue;
+		}
+		// 5 + optional state
+		if (parsed < 5) continue;
+
+		ret += websWrite(wp, "[");
+		ret += websWriteJsonString(wp, proto); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, address); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, port1); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, dest); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, port2); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, state); ret += websWrite(wp, "],\n");
+	}
+	fclose(fp);
+	unlink("/tmp/connect.log");
+
+	ret += websWrite(wp, "[]];\n");
+#endif
 
 	return ret;
 }
