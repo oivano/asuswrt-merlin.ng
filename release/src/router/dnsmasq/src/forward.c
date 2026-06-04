@@ -378,7 +378,7 @@ static void forward_query(int udpfd, union mysockaddr *udpaddr,
 #ifdef HAVE_DNSSEC
       if (option_bool(OPT_DNSSEC_VALID))
 	{
-	  plen = add_do_bit(header, plen, ((unsigned char *) header) + daemon->edns_pktsz);
+	  plen = add_do_bit(header, plen, daemon->edns_pktsz);
 	  
 	  /* For debugging, set Checking Disabled, otherwise, have the upstream check too,
 	     this allows it to select auth servers when one is returning bad data. */
@@ -517,7 +517,7 @@ static void forward_query(int udpfd, union mysockaddr *udpaddr,
   forwarded = 0;
 
   /* Advertise the size of UDP reply we can accept. */
-  plen = add_pseudoheader(header, plen, (unsigned char *)(header + daemon->edns_pktsz), 0, NULL, 0, 0, 0);
+  plen = add_pseudoheader(header, plen, daemon->edns_pktsz, 0, NULL, 0, 0, 0);
 
   /* check for send errors here (no route to host) 
      if we fail to send to all nameservers, send back an error
@@ -592,7 +592,7 @@ static void forward_query(int udpfd, union mysockaddr *udpaddr,
  reply:
   if (udpfd != -1)
     {
-      if (!(plen = make_local_answer(flags, gotname, plen, header, daemon->namebuff, (char *)(header + replylimit), first, last, ede)))
+      if (!(plen = make_local_answer(flags, gotname, plen, header, daemon->namebuff, replylimit, first, last, ede)))
 	return;
       
       if (fwd_flags & FREC_HAS_PHEADER)
@@ -600,9 +600,9 @@ static void forward_query(int udpfd, union mysockaddr *udpaddr,
 	  u16 swap = htons((u16)ede);
 
 	  if (ede != EDE_UNSET)
-	    plen = add_pseudoheader(header, plen, (unsigned char *)(header + replylimit), EDNS0_OPTION_EDE, (unsigned char *)&swap, 2, 0, 0);
+	    plen = add_pseudoheader(header, plen, replylimit, EDNS0_OPTION_EDE, (unsigned char *)&swap, 2, 0, 0);
 	  else
-	    plen = add_pseudoheader(header, plen, (unsigned char *)(header + replylimit), 0, NULL, 0, 0, 0);
+	    plen = add_pseudoheader(header, plen, replylimit, 0, NULL, 0, 0, 0);
 	}
       
 #if defined(HAVE_CONNTRACK) && defined(HAVE_UBUS)
@@ -698,7 +698,7 @@ static struct ipsets *domain_find_sets(struct ipsets *setlist, const char *domai
 
 static size_t process_reply(struct dns_header *header, time_t now, struct server *server, size_t n, int check_rebind, 
 			    int no_cache, int cache_secure, int bogusanswer, int ad_reqd, int do_bit, int added_pheader, 
-			    union mysockaddr *query_source, unsigned char *limit, int ede)
+			    union mysockaddr *query_source, size_t outlen, int ede)
 {
   unsigned char *pheader, *sizep;
   struct ipsets *ipsets = NULL, *nftsets = NULL;
@@ -882,7 +882,7 @@ static size_t process_reply(struct dns_header *header, time_t now, struct server
   if (pheader && ede != EDE_UNSET)
     {
       u16 swap = htons((u16)ede);
-      n = add_pseudoheader(header, n, limit, EDNS0_OPTION_EDE, (unsigned char *)&swap, 2, do_bit, 1);
+      n = add_pseudoheader(header, n, outlen, EDNS0_OPTION_EDE, (unsigned char *)&swap, 2, do_bit, 1);
     }
 
   if (RCODE(header) == NXDOMAIN)
@@ -1030,7 +1030,7 @@ static void dnssec_validate(struct frec *forward, struct dns_header *header,
 		 allocation of a new one: third arg of get_new_frec() does that. */
 	      if ((serverind = dnssec_server(forward->sentto, daemon->keyname, STAT_ISEQUAL(status, STAT_NEED_DS), NULL, NULL)) != -1 &&
 		  (server = daemon->serverarray[serverind]) &&
-		  (nn = dnssec_generate_query(header, ((unsigned char *) header) + daemon->edns_pktsz,
+		  (nn = dnssec_generate_query(header, daemon->edns_pktsz,
 					      daemon->keyname, forward->class, get_id(),
 					      STAT_ISEQUAL(status, STAT_NEED_KEY) ? T_DNSKEY : T_DS)) && 
 		  (fd = allocate_rfd(&rfds, server)) != -1 &&
@@ -1442,7 +1442,7 @@ void return_reply(time_t now, struct frec *forward, struct dns_header *header, s
   if ((nn = process_reply(header, now, forward->sentto, (size_t)n, check_rebind, no_cache_dnssec, cache_secure, bogusanswer, 
 			  forward->flags & FREC_AD_QUESTION, forward->flags & FREC_DO_QUESTION, 
 			  !(forward->flags & FREC_HAS_PHEADER), &forward->frec_src.source,
-			  ((unsigned char *)header) + daemon->edns_pktsz, ede)))
+			  daemon->edns_pktsz, ede)))
     {
       struct frec_src *src, *prev;
       int do_trunc;
@@ -1945,7 +1945,7 @@ void receive_query(struct listener *listen, time_t now)
     {
       int cacheable;
 
-      n = add_edns0_config(header, n, ((unsigned char *)header) + daemon->edns_pktsz, &source_addr, now, &cacheable);
+      n = add_edns0_config(header, n, daemon->edns_pktsz, &source_addr, now, &cacheable);
       saved_question = blockdata_alloc((char *) header, (size_t)n);
 
       if (!cacheable)
@@ -1979,12 +1979,12 @@ void receive_query(struct listener *listen, time_t now)
 	    {
 	      u16 swap = htons(ede);
 	      
-	      m = add_pseudoheader(header,  m,  ((unsigned char *) header) + daemon->edns_pktsz,
-				   EDNS0_OPTION_EDE, (unsigned char *)&swap, 2, do_bit, 0);
+	      m = add_pseudoheader(header, m, daemon->edns_pktsz, EDNS0_OPTION_EDE,
+				   (unsigned char *)&swap, 2, do_bit, 0);
 	    }
 	  else
-	    m = add_pseudoheader(header,  m,  ((unsigned char *) header) + daemon->edns_pktsz,
-				 0, NULL, 0, do_bit, 0);
+	    m = add_pseudoheader(header, m, daemon->edns_pktsz, 0, 
+				 NULL, 0, do_bit, 0);
 	}
   
 #ifdef HAVE_DUMPFILE
@@ -2321,12 +2321,12 @@ static int tcp_key_recurse(time_t now, int status, struct dns_header *header, si
 	}
       
       /* Can't validate because we need a key/DS whose name now in keyname.
-	 Make query for same, and recurse to validate */
-      if (!packet)
-	{
-	  packet = whine_malloc(65536 + MAXDNAME + RRFIXEDSZ + sizeof(u16));
-	  new_header = (struct dns_header *)&packet[2];
-	}
+	 Make query for same in UDP packet buffer, recurse to validate*/
+      query_header = (struct dns_header *)daemon->packet;
+      daemon->srv_save = NULL;
+
+      m = dnssec_generate_query(query_header, daemon->edns_pktsz, keyname, class, 0,
+				STAT_ISEQUAL(new_status, STAT_NEED_KEY) ? T_DNSKEY : T_DS);
       
       if (!packet)
 	{
@@ -2488,7 +2488,7 @@ unsigned char *tcp_request(int confd, time_t now,
 	  memset(payload + size, 0, 65536 - size);
 	  
 	  /* Add edns0 pheader to query */
-	  size = add_edns0_config(header, size, ((unsigned char *) header) + daemon->packet_buff_sz, &peer_addr, now, &cacheable);
+	  size = add_edns0_config(header, size, daemon->packet_buff_sz, &peer_addr, now, &cacheable);
 
 	  /* Clear buffer to avoid risk of information disclosure. */
 	  memset(bigbuff->iov_base, 0, bigbuff->iov_len);
@@ -2639,7 +2639,7 @@ unsigned char *tcp_request(int confd, time_t now,
 #ifdef HAVE_DNSSEC
 		  if (option_bool(OPT_DNSSEC_VALID))
 		    {
-		      size = add_do_bit(header, size, ((unsigned char *) header) + 65536);
+		      size = add_do_bit(header, size, daemon->edns_pktsz);
 		      
 		      /* For debugging, set Checking Disabled, otherwise, have the upstream check too,
 			 this allows it to select auth servers when one is returning bad data. */
@@ -2729,7 +2729,7 @@ unsigned char *tcp_request(int confd, time_t now,
 		      
 		      m = process_reply(header, now, serv, (unsigned int)m, 
 					option_bool(OPT_NO_REBIND) && !norebind, no_cache_dnssec, cache_secure, bogusanswer,
-					ad_reqd, do_bit, !have_pseudoheader, &peer_addr, ((unsigned char *)header) + 65536, ede);
+					ad_reqd, do_bit, !have_pseudoheader, &peer_addr, 65536, ede);
 
 		      /* process_reply() adds pheader itself */
 		      have_pseudoheader = 0; 
@@ -2744,8 +2744,8 @@ unsigned char *tcp_request(int confd, time_t now,
       /* In case of local answer or no connections made. */
       if (m == 0)
 	{
-	  if (!(m = make_local_answer(flags, gotname, size, header, daemon->namebuff,
-				      ((char *) header) + 65536, first, last, ede)))
+	  if (!(m = make_local_answer(flags, gotname, size, out_header, daemon->namebuff,
+				      65536, first, last, ede)))
 	    break;
 	}
       else if (ede == EDE_UNSET)
@@ -2761,9 +2761,9 @@ unsigned char *tcp_request(int confd, time_t now,
 	  u16 swap = htons((u16)ede);
 	  
 	  if (ede != EDE_UNSET)
-	    m = add_pseudoheader(header, m, ((unsigned char *) header) + 65536, EDNS0_OPTION_EDE, (unsigned char *)&swap, 2, do_bit, 0);
+	    m = add_pseudoheader(out_header, m, 65536, EDNS0_OPTION_EDE, (unsigned char *)&swap, 2, do_bit, 0);
 	  else
-	    m = add_pseudoheader(header, m, ((unsigned char *) header) + 65536, 0, NULL, 0, do_bit, 0);
+	    m = add_pseudoheader(out_header, m, 65536, 0, NULL, 0, do_bit, 0);
 	}
 		  
       check_log_writer(1);

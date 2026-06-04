@@ -496,10 +496,14 @@ int hostname_issubdomain(char *a, char *b)
   for (ap = a; *ap; ap++); 
   for (bp = b; *bp; bp++);
 
-  /* a shorter than b or a empty. */
-  if ((bp - b) < (ap - a) || ap == a)
+  /* anything is a subdomain of the root domain. */
+  if (ap == a)
+    return (bp == b) ? 2 : 1;
+  
+  /* b shorter than a */
+  if ((bp - b) < (ap - a))
     return 0;
-
+  
   do
     {
       c1 = (unsigned char) *(--ap);
@@ -523,7 +527,6 @@ int hostname_issubdomain(char *a, char *b)
   return 0;
 }
  
-  
 time_t dnsmasq_time(void)
 {
 #ifdef HAVE_BROKEN_RTC
@@ -746,18 +749,24 @@ int memcmp_masked(unsigned char *a, unsigned char *b, int len, unsigned int mask
   return count;
 }
 
-char *print_mac(char *buff, unsigned char *mac, int len)
+char *print_mac(unsigned char *mac, int len)
 {
-  char *p = buff;
-  int i;
-   
-  if (len == 0)
-    sprintf(p, "<null>");
-  else
-    for (i = 0; i < len; i++)
-      p += sprintf(p, "%.2x%s", mac[i], (i == len - 1) ? "" : ":");
+  static struct iovec buff = { NULL, 0 };
   
-  return buff;
+  /* each byte is two digits plus ':' except that last
+     which is two digits plus terminator. */
+  if (len == 0 || !expand_buf(&buff, len*3))
+    return "<null>";
+  else
+    {
+      char *p =  buff.iov_base;
+      int i;
+
+      for (i = 0; i < len; i++)
+	p += sprintf(p, "%.2x%s", mac[i], (i == len - 1) ? "" : ":");
+    }
+  
+  return buff.iov_base;
 }
 
 /* rc is return from sendto and friends.
@@ -985,7 +994,7 @@ int kernel_version(void)
 }
 #endif
 
-#define hash_ptr(x) (((unsigned int)(((char *)(x)) - ((char *)NULL))) & 0xffffff)
+#define hash_ptr(x) (((uintptr_t)(x)) & 0xffffff)
 
 void *whine_malloc_real(const char *func, unsigned int line, size_t size)
 {
@@ -1073,4 +1082,56 @@ void free_real(const char *func, unsigned int line, void *ptr)
   
       free(ptr);
     }
+}
+
+/* get lines from f, expand buffer as required. Buffer is freed when
+   EOF reached and we return zero. Buffer also freed if f == NULL. */
+int get_line_alloc(FILE *f, char **buffp, size_t *sizep)
+{
+  size_t cnt = 0;
+  char *buff = *buffp;
+
+  while (1) {
+    int c = f ? getc(f) : EOF;
+        
+    if (cnt == *sizep)
+      {
+	void *new;
+	
+	if ((new = whine_realloc(buff, cnt + 1024)))
+	  {
+	    buff = *buffp = new;
+	    *sizep = cnt + 1024; 
+	  }
+	else
+	  {
+	    /* allocation failed, ignore line.
+	       Whine_realloc will have complained. */
+	    while (c != '\n' && c != EOF) 
+	      c = getc(f);
+	    
+	    cnt = 0;
+	    continue;
+	  }
+      }
+
+    buff[cnt] = 0;
+
+    if (c == '\n')
+      return 1;
+    
+    if (c == EOF)
+      {
+	/* handle last line without '\n' */
+	if (cnt != 0)
+	  return 1;
+
+	free(buff);
+	*buffp = NULL;
+	*sizep = 0;
+	return 0;
+      }
+	
+    buff[cnt++] = c;
+  }
 }

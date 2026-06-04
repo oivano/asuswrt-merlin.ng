@@ -1087,10 +1087,12 @@ int cache_recv_insert(time_t now, int fd)
 	if (op == PIPE_OP_KILLED)
 	  my_syslog(LOG_INFO, _("TCP process for DNSSEC validation timed out"));
 	
-	/* There's a tiny chance that the frec may have been freed 
-	   and reused before the TCP process returns. Detect that with
-	   the uid field which is unique modulo 2^32 for each use. */
-	if (uid == forward->uid)
+	/* There's a chance that the frec may have timed-out and been
+	   freed before the TCP process returns, so check that the
+	   frec is still marked in use. Even if it is in use, there's a tiny chance
+	   that the frec may have been freed and _reused_ before the TCP process returns.
+	   Detect that with the uid field which is unique modulo 2^32 for each use. */
+	if (forward->sentto && uid == forward->uid)
 	  {
 	    /* repatriate the work counters from the child process. */
 	    *keycountp = keycount;
@@ -1400,9 +1402,10 @@ static int eatspace(FILE *f)
     }
 }
 	 
-static int gettok(FILE *f, char *token)
+static int gettok(FILE *f, char *token, size_t buffsz)
 {
-  int c, count = 0;
+  int c;
+  unsigned int count = 0;
  
   while (1)
     {
@@ -1415,7 +1418,7 @@ static int gettok(FILE *f, char *token)
 	  return eatspace(f);
 	}
       
-      if (count < (MAXDNAMESTR - 1))
+      if (count < (buffsz - 1))
 	{
 	  token[count++] = c;
 	  token[count] = 0;
@@ -1440,7 +1443,7 @@ int read_hostsfile(char *filename, unsigned int index, int cache_size, struct cr
   
   lineno += eatspace(f);
   
-  while ((atnl = gettok(f, token)) != -1)
+  while ((atnl = gettok(f, token, MAXDNAMESTR)) != -1)
     {
       if (inet_pton(AF_INET, token, &addr) > 0)
 	{
@@ -1458,7 +1461,7 @@ int read_hostsfile(char *filename, unsigned int index, int cache_size, struct cr
 	{
 	  my_syslog(LOG_ERR, _("bad address at %s line %d"), filename, lineno); 
 	  while (atnl == 0)
-	    atnl = gettok(f, token);
+	    atnl = gettok(f, token, MAXDNAMESTR);
 	  lineno += atnl;
 	  continue;
 	}
@@ -1476,7 +1479,7 @@ int read_hostsfile(char *filename, unsigned int index, int cache_size, struct cr
 	  int fqdn, nomem;
 	  char *canon;
 	  
-	  if ((atnl = gettok(f, token)) == -1)
+	  if ((atnl = gettok(f, token, MAXDNAMESTR)) == -1)
 	    break;
 
 	  fqdn = !!strchr(token, '.');
