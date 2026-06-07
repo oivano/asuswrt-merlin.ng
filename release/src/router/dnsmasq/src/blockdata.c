@@ -208,6 +208,7 @@ void *blockdata_retrieve(struct blockdata *block, size_t len, void *data)
 	    return NULL;
 
 	  buff = new;
+	  buff_len = blen;
 	}
       data = buff;
     }
