@@ -11121,6 +11121,9 @@ start_services(void)
 #ifdef RTCONFIG_SSH
 	start_sshd();
 #endif
+#ifdef RTCONFIG_FRR
+	start_frr();
+#endif
 
 	run_custom_script("services-start", 0, NULL, NULL);
 
@@ -11333,6 +11336,9 @@ stop_services(void)
 	stop_telnetd();
 #ifdef RTCONFIG_SSH
 	stop_sshd();
+#endif
+#ifdef RTCONFIG_FRR
+	stop_frr();
 #endif
 #ifdef RTCONFIG_PROTECTION_SERVER
 	stop_ptcsrv();

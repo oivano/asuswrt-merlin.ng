@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <time.h>
@@ -15,6 +16,363 @@
 
 #include "httpd.h"
 #include "frr_web.h"
+
+#define FRR_RUNNING_CONFIG_CMD "vtysh -c 'show running-config' 2>/dev/null"
+#define FRR_SHOW_IP_ROUTE_CMD "vtysh -c 'show ip route' 2>/dev/null"
+#define FRR_SHOW_IPV6_ROUTE_CMD "vtysh -c 'show ipv6 route' 2>/dev/null"
+
+static const char *frr_route_proto_name(char code)
+{
+	switch (code) {
+	case 'B':
+		return "BGP";
+	case 'O':
+		return "OSPF";
+	case 'R':
+		return "RIP";
+	case 'I':
+		return "ISIS";
+	case 'S':
+		return "STATIC";
+	case 'K':
+		return "KERNEL";
+	case 'C':
+		return "CONNECTED";
+	case 'L':
+		return "LOCAL";
+	default:
+		return "DYNAMIC";
+	}
+}
+
+static int frr_is_route_prefix_token(const char *token)
+{
+	if (!token || !*token)
+		return 0;
+
+	if (strcmp(token, "default") == 0)
+		return 1;
+
+	if (strchr(token, '/'))
+		return 1;
+
+	return 0;
+}
+
+static int frr_write_route_origin_object(webs_t wp, const char *var_name, const char *cmd)
+{
+	FILE *fp;
+	char line[512];
+	char prefixes[256][64];
+	char protos[256][16];
+	int active_flags[256];
+	int route_count = 0;
+	int i;
+	int ret = 0;
+
+	ret += websWrite(wp, "var %s = {\n", var_name);
+
+	if (!frr_daemon_running("watchfrr") || !frr_daemon_running("zebra")) {
+		ret += websWrite(wp, "};\n");
+		return ret;
+	}
+
+	fp = popen(cmd, "r");
+	if (!fp) {
+		ret += websWrite(wp, "};\n");
+		return ret;
+	}
+
+	while (fgets(line, sizeof(line), fp)) {
+		char *p = line;
+		char *token_start;
+		char *token_end;
+		char *prefix;
+		char *prefix_end;
+		char code = '\0';
+		int active = 0;
+		const char *proto;
+
+		while (*p && isspace((unsigned char)*p))
+			p++;
+
+		if (!*p || *p == '\n' || *p == '\r')
+			continue;
+
+		if (strncmp(p, "Codes:", 6) == 0 || strncmp(p, "Gateway", 7) == 0)
+			continue;
+
+		prefix = NULL;
+		while (*p) {
+			while (*p && isspace((unsigned char)*p))
+				p++;
+
+			if (!*p || *p == '\n' || *p == '\r')
+				break;
+
+			token_start = p;
+			while (*p && !isspace((unsigned char)*p) && *p != ',' && *p != '\n' && *p != '\r')
+				p++;
+
+			token_end = p;
+			if (token_end == token_start)
+				continue;
+
+			/* Learn protocol code/flags from first marker token(s). */
+			if (code == '\0') {
+				char *q;
+				for (q = token_start; q < token_end; q++) {
+					if (isalpha((unsigned char)*q) && code == '\0')
+						code = *q;
+					if (*q == '>' || *q == '*')
+						active = 1;
+				}
+			}
+
+			/* Additional standalone flags like '*' can appear as separate token. */
+			if ((token_end - token_start) == 1 &&
+			    (token_start[0] == '>' || token_start[0] == '*')) {
+				active = 1;
+				continue;
+			}
+
+			if (frr_is_route_prefix_token(token_start)) {
+				prefix = token_start;
+				break;
+			}
+		}
+
+		if (code == '\0' || !prefix)
+			continue;
+
+		prefix_end = p;
+		*prefix_end = '\0';
+
+		proto = frr_route_proto_name(code);
+
+		for (i = 0; i < route_count; i++) {
+			if (!strcmp(prefixes[i], prefix)) {
+				if (active)
+					active_flags[i] = 1;
+				break;
+			}
+		}
+
+		if (i < route_count)
+			continue;
+
+		if (route_count >= 256)
+			continue;
+
+		strlcpy(prefixes[route_count], prefix, sizeof(prefixes[route_count]));
+		strlcpy(protos[route_count], proto, sizeof(protos[route_count]));
+		active_flags[route_count] = active ? 1 : 0;
+		route_count++;
+	}
+
+	pclose(fp);
+
+	for (i = 0; i < route_count; i++) {
+		ret += websWrite(wp,
+			"\"%s\":{\"proto\":\"%s\",\"active\":%d},\n",
+			prefixes[i], protos[i], active_flags[i]);
+	}
+
+	ret += websWrite(wp, "};\n");
+	return ret;
+}
+
+static void frr_append_delimited(char *dst, size_t dst_len, const char *value)
+{
+	size_t used;
+	size_t add;
+
+	if (!dst || dst_len == 0 || !value || !*value)
+		return;
+
+	used = strlen(dst);
+	if (used >= (dst_len - 1))
+		return;
+
+	if (used > 0) {
+		if (used + 1 >= dst_len)
+			return;
+		dst[used++] = '>';
+		dst[used] = '\0';
+	}
+
+	add = strlen(value);
+	if (used + add >= dst_len)
+		add = dst_len - used - 1;
+
+	memcpy(dst + used, value, add);
+	dst[used + add] = '\0';
+}
+
+struct frr_neighbor_info {
+	char ip[64];
+	char asn[32];
+	char desc[96];
+	char src[64];
+};
+
+static int frr_find_neighbor(struct frr_neighbor_info *list, int count, const char *ip)
+{
+	int i;
+
+	for (i = 0; i < count; i++) {
+		if (!strcmp(list[i].ip, ip))
+			return i;
+	}
+
+	return -1;
+}
+
+/* Parse active lines like: neighbor <ip> remote-as <asn>, description, update-source. */
+static int frr_extract_bgp_neighbors_from_conf(char *neighbors, size_t neighbors_len,
+		char *neighbor_as, size_t neighbor_as_len,
+		char *neighbor_desc, size_t neighbor_desc_len,
+		char *neighbor_src, size_t neighbor_src_len)
+{
+	FILE *fp;
+	char line[256];
+	struct frr_neighbor_info entries[64];
+	int entry_count = 0;
+	int i;
+
+	if (!neighbors || !neighbor_as || !neighbor_desc || !neighbor_src ||
+	    neighbors_len == 0 || neighbor_as_len == 0 ||
+	    neighbor_desc_len == 0 || neighbor_src_len == 0)
+		return 0;
+
+	neighbors[0] = '\0';
+	neighbor_as[0] = '\0';
+	neighbor_desc[0] = '\0';
+	neighbor_src[0] = '\0';
+
+	fp = popen(FRR_RUNNING_CONFIG_CMD, "r");
+	if (!fp)
+		return 0;
+
+	while (fgets(line, sizeof(line), fp)) {
+		char *p = line;
+		char ip[64];
+		char cmd[32];
+		char val[96];
+		int idx;
+		int i;
+
+		while (*p && isspace((unsigned char)*p))
+			p++;
+
+		if (*p == '\0' || *p == '\n' || *p == '\r' || *p == '!' || *p == '#')
+			continue;
+
+		if (strncmp(p, "neighbor", 8) != 0 || !isspace((unsigned char)p[8]))
+			continue;
+
+		p += 8;
+		while (*p && isspace((unsigned char)*p))
+			p++;
+
+		i = 0;
+		while (*p && !isspace((unsigned char)*p) && i < (int)(sizeof(ip) - 1))
+			ip[i++] = *p++;
+		ip[i] = '\0';
+
+		while (*p && isspace((unsigned char)*p))
+			p++;
+
+		i = 0;
+		while (*p && !isspace((unsigned char)*p) && i < (int)(sizeof(cmd) - 1))
+			cmd[i++] = *p++;
+		cmd[i] = '\0';
+
+		while (*p && isspace((unsigned char)*p))
+			p++;
+
+		if (!*cmd || !*p)
+			continue;
+
+		i = 0;
+		while (*p && *p != '\n' && *p != '\r' && i < (int)(sizeof(val) - 1))
+			val[i++] = *p++;
+		val[i] = '\0';
+
+		/* trim trailing spaces */
+		for (i = strlen(val) - 1; i >= 0; i--) {
+			if (!isspace((unsigned char)val[i]))
+				break;
+			val[i] = '\0';
+		}
+
+		if (!*ip)
+			continue;
+
+		idx = frr_find_neighbor(entries, entry_count, ip);
+		if (idx < 0) {
+			if (entry_count >= 64)
+				continue;
+			idx = entry_count++;
+			memset(&entries[idx], 0, sizeof(entries[idx]));
+			strlcpy(entries[idx].ip, ip, sizeof(entries[idx].ip));
+		}
+
+		if (!strcmp(cmd, "remote-as")) {
+			char *v = val;
+			i = 0;
+			while (*v && !isspace((unsigned char)*v) && i < (int)(sizeof(entries[idx].asn) - 1))
+				entries[idx].asn[i++] = *v++;
+			entries[idx].asn[i] = '\0';
+		}
+		else if (!strcmp(cmd, "description")) {
+			strlcpy(entries[idx].desc, val, sizeof(entries[idx].desc));
+		}
+		else if (!strcmp(cmd, "update-source")) {
+			char *v = val;
+			i = 0;
+			while (*v && !isspace((unsigned char)*v) && i < (int)(sizeof(entries[idx].src) - 1))
+				entries[idx].src[i++] = *v++;
+			entries[idx].src[i] = '\0';
+		}
+	}
+
+	pclose(fp);
+
+	for (i = 0; i < entry_count; i++) {
+		if (!entries[i].asn[0])
+			continue;
+
+		frr_append_delimited(neighbors, neighbors_len, entries[i].ip);
+		frr_append_delimited(neighbor_as, neighbor_as_len, entries[i].asn);
+		frr_append_delimited(neighbor_desc, neighbor_desc_len, entries[i].desc);
+		frr_append_delimited(neighbor_src, neighbor_src_len, entries[i].src);
+	}
+
+	return strlen(neighbors) > 0;
+}
+
+static int frr_bgp_runtime_ready(void)
+{
+	if (!nvram_match("frr_enable", "1"))
+		return 0;
+
+	if (!nvram_match("frr_bgp_enable", "1"))
+		return 0;
+
+	/*
+	 * If FRR stack isn't healthy, avoid showing stale values from NVRAM
+	 * or static config; UI should reflect current daemon status.
+	 */
+	if (!frr_daemon_running("watchfrr"))
+		return 0;
+	if (!frr_daemon_running("zebra"))
+		return 0;
+	if (!frr_daemon_running("bgpd"))
+		return 0;
+
+	return 1;
+}
 
 /* Check if a FRR daemon is running */
 int frr_daemon_running(const char *daemon_name)
@@ -122,6 +480,98 @@ int ej_get_frr_bgp_config(int eid, webs_t wp, int argc, char_t **argv)
 	return ret;
 }
 
+int ej_get_frr_bgp_neighbor_list(int eid, webs_t wp, int argc, char_t **argv)
+{
+	char *bgp_neighbors = nvram_safe_get("frr_bgp_neighbor");
+	char parsed_neighbors[512];
+	char parsed_neighbor_as[512];
+	char parsed_neighbor_desc[768];
+	char parsed_neighbor_src[512];
+
+	if (!frr_bgp_runtime_ready())
+		return 0;
+
+	if (*bgp_neighbors)
+		return websWrite(wp, "%s", bgp_neighbors);
+
+	if (frr_extract_bgp_neighbors_from_conf(parsed_neighbors, sizeof(parsed_neighbors),
+	    parsed_neighbor_as, sizeof(parsed_neighbor_as),
+	    parsed_neighbor_desc, sizeof(parsed_neighbor_desc),
+	    parsed_neighbor_src, sizeof(parsed_neighbor_src)) > 0)
+		return websWrite(wp, "%s", parsed_neighbors);
+
+	return 0;
+}
+
+int ej_get_frr_bgp_neighbor_as_list(int eid, webs_t wp, int argc, char_t **argv)
+{
+	char *bgp_neighbor_as = nvram_safe_get("frr_bgp_neighbor_as");
+	char parsed_neighbors[512];
+	char parsed_neighbor_as[512];
+	char parsed_neighbor_desc[768];
+	char parsed_neighbor_src[512];
+
+	if (!frr_bgp_runtime_ready())
+		return 0;
+
+	if (*bgp_neighbor_as)
+		return websWrite(wp, "%s", bgp_neighbor_as);
+
+	if (frr_extract_bgp_neighbors_from_conf(parsed_neighbors, sizeof(parsed_neighbors),
+	    parsed_neighbor_as, sizeof(parsed_neighbor_as),
+	    parsed_neighbor_desc, sizeof(parsed_neighbor_desc),
+	    parsed_neighbor_src, sizeof(parsed_neighbor_src)) > 0)
+		return websWrite(wp, "%s", parsed_neighbor_as);
+
+	return 0;
+}
+
+int ej_get_frr_bgp_neighbor_desc_list(int eid, webs_t wp, int argc, char_t **argv)
+{
+	char *bgp_neighbor_desc = nvram_safe_get("frr_bgp_neighbor_desc");
+	char parsed_neighbors[512];
+	char parsed_neighbor_as[512];
+	char parsed_neighbor_desc[768];
+	char parsed_neighbor_src[512];
+
+	if (!frr_bgp_runtime_ready())
+		return 0;
+
+	if (*bgp_neighbor_desc)
+		return websWrite(wp, "%s", bgp_neighbor_desc);
+
+	if (frr_extract_bgp_neighbors_from_conf(parsed_neighbors, sizeof(parsed_neighbors),
+	    parsed_neighbor_as, sizeof(parsed_neighbor_as),
+	    parsed_neighbor_desc, sizeof(parsed_neighbor_desc),
+	    parsed_neighbor_src, sizeof(parsed_neighbor_src)) > 0)
+		return websWrite(wp, "%s", parsed_neighbor_desc);
+
+	return 0;
+}
+
+int ej_get_frr_bgp_neighbor_src_list(int eid, webs_t wp, int argc, char_t **argv)
+{
+	char *bgp_neighbor_src = nvram_safe_get("frr_bgp_neighbor_src");
+	char parsed_neighbors[512];
+	char parsed_neighbor_as[512];
+	char parsed_neighbor_desc[768];
+	char parsed_neighbor_src[512];
+
+	if (!frr_bgp_runtime_ready())
+		return 0;
+
+	if (*bgp_neighbor_src)
+		return websWrite(wp, "%s", bgp_neighbor_src);
+
+	if (frr_extract_bgp_neighbors_from_conf(parsed_neighbors, sizeof(parsed_neighbors),
+	    parsed_neighbor_as, sizeof(parsed_neighbor_as),
+	    parsed_neighbor_desc, sizeof(parsed_neighbor_desc),
+	    parsed_neighbor_src, sizeof(parsed_neighbor_src)) > 0)
+		return websWrite(wp, "%s", parsed_neighbor_src);
+
+	return 0;
+}
+
 /* ASP function: Get OSPF configuration */
 int ej_get_frr_ospf_config(int eid, webs_t wp, int argc, char_t **argv)
 {
@@ -148,6 +598,16 @@ int ej_get_frr_bfd_config(int eid, webs_t wp, int argc, char_t **argv)
 	ret += websWrite(wp, "{\n");
 	ret += websWrite(wp, "  \"enabled\": %d\n", atoi(bfd_enable));
 	ret += websWrite(wp, "}\n");
+
+	return ret;
+}
+
+int ej_get_frr_route_origin_array(int eid, webs_t wp, int argc, char_t **argv)
+{
+	int ret = 0;
+
+	ret += frr_write_route_origin_object(wp, "frr_route_origin_v4", FRR_SHOW_IP_ROUTE_CMD);
+	ret += frr_write_route_origin_object(wp, "frr_route_origin_v6", FRR_SHOW_IPV6_ROUTE_CMD);
 
 	return ret;
 }

@@ -33007,8 +33007,13 @@ struct ej_handler ej_handlers[] = {
 	{ "get_frr_enabled", ej_get_frr_enabled},
 	{ "get_frr_daemon_status", ej_get_frr_daemon_status},
 	{ "get_frr_bgp_config", ej_get_frr_bgp_config},
+	{ "get_frr_bgp_neighbor_list", ej_get_frr_bgp_neighbor_list},
+	{ "get_frr_bgp_neighbor_as_list", ej_get_frr_bgp_neighbor_as_list},
+	{ "get_frr_bgp_neighbor_desc_list", ej_get_frr_bgp_neighbor_desc_list},
+	{ "get_frr_bgp_neighbor_src_list", ej_get_frr_bgp_neighbor_src_list},
 	{ "get_frr_ospf_config", ej_get_frr_ospf_config},
 	{ "get_frr_bfd_config", ej_get_frr_bfd_config},
+	{ "get_frr_route_origin_array", ej_get_frr_route_origin_array},
 	{ "login_state_hook", login_state_hook},
 	{ "is_logined_hook", ej_is_logined_hook},
 #ifdef RTCONFIG_FANCTRL
