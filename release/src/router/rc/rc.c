@@ -3573,6 +3573,9 @@ int main(int argc, char **argv)
 		return 0;
 	}
 #endif
+	else if (!strcmp(base, "ipsec_updown")) {
+		return ipsec_updown_main(argc, argv);
+	}
 	else if (!strcmp(base, "collect_debuglog")) {
 		if (argv[1]) {
 			if (!strcmp(argv[1], "klog"))

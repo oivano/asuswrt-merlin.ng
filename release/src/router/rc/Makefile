@@ -517,6 +517,10 @@ ifeq ($(RTCONFIG_IPSEC),y)
 OBJS += rc_ipsec.o
 endif
 
+ifeq ($(RTCONFIG_OPENCONNECT),y)
+OBJS += rc_openconnect.o
+endif
+
 ifeq ($(RTCONFIG_PARENTALCTRL),y)
 OBJS += pc.o
 OBJS += pc_block.o

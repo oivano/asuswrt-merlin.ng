@@ -111,6 +111,10 @@ int mkdir_if_none(const char *path)
 #define DBG(args) _dprintf args
 #endif
 
+#ifdef RTCONFIG_OPENCONNECT
+#include "rc_openconnect.h"
+#endif
+
 #if defined(RTCONFIG_NOTIFICATION_CENTER)
 #include <libnt.h>
 #include <nt_eInfo.h>
@@ -17736,6 +17740,25 @@ start_write_smb_conf();
                 nvram_commit();
 	}
 #endif /*the end of #if defined(RTCONFIG_IPSEC)*/
+#ifdef RTCONFIG_OPENCONNECT
+	else if (strcmp(script, "start_openconnect_client1") == 0) {
+		start_openconnect_client(1);
+	} else if (strcmp(script, "stop_openconnect_client1") == 0) {
+		stop_openconnect_client(1);
+	} else if (strcmp(script, "restart_openconnect_client1") == 0) {
+		stop_openconnect_client(1);
+		sleep(1);
+		start_openconnect_client(1);
+	} else if (strcmp(script, "start_openconnect_client2") == 0) {
+		start_openconnect_client(2);
+	} else if (strcmp(script, "stop_openconnect_client2") == 0) {
+		stop_openconnect_client(2);
+	} else if (strcmp(script, "restart_openconnect_client2") == 0) {
+		stop_openconnect_client(2);
+		sleep(1);
+		start_openconnect_client(2);
+	}
+#endif /*the end of #if defined(RTCONFIG_OPENCONNECT)*/
 #ifdef RTCONFIG_FRR
 	else if (strcmp(script, "frr") == 0)
 	{

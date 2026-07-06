@@ -507,6 +507,34 @@ int ej_show_sysinfo(int eid, webs_t wp, int argc, char_t ** argv)
 					}
 				}
 			}
+		} else if(strncmp(type,"openconnect_status",18) == 0 ) {
+#ifdef RTCONFIG_OPENCONNECT
+			int num = 0;
+			char buf[256];
+
+			sscanf(type,"openconnect_status.%d", &num);
+
+			if (num > 0 && num <= 2)
+			{
+				snprintf(buf, sizeof(buf), "openconnect_client%d", num);
+				if (pidof(buf) > 0) {
+					// Return status information from NVRAM
+					char state_var[64], errno_var[64], server_var[64], protocol_var[64];
+					snprintf(state_var, sizeof(state_var), "openconnect_client%d_state", num);
+					snprintf(errno_var, sizeof(errno_var), "openconnect_client%d_errno", num);
+					snprintf(server_var, sizeof(server_var), "openconnect_client%d_server", num);
+					snprintf(protocol_var, sizeof(protocol_var), "openconnect_client%d_protocol", num);
+					
+					snprintf(result, sizeof(result), "state=%s>errno=%s>server=%s>protocol=%s",
+						nvram_safe_get(state_var),
+						nvram_safe_get(errno_var),
+						nvram_safe_get(server_var),
+						nvram_safe_get(protocol_var));
+				} else {
+					strcpy(result, "stopped");
+				}
+			}
+#endif
 		} else if(strcmp(type,"ethernet.rtk") == 0 ) {
 #ifdef RTCONFIG_EXT_RTL8365MB
 			int states[4];

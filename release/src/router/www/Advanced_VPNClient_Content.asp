@@ -105,11 +105,95 @@
 	text-decoration: underline;
 	cursor: pointer;
 }
+/* IPSec Security Legend & Badges */
+.ipsec_security_legend {
+	display: -webkit-box;
+	display: -webkit-flex;
+	display: flex;
+	-webkit-box-align: center;
+	-webkit-align-items: center;
+	align-items: center;
+	-webkit-flex-wrap: wrap;
+	flex-wrap: wrap;
+	background: #0d1117;
+	border: 1px solid #555;
+	border-left: 3px solid #888;
+	padding: 5px 10px;
+	margin-bottom: 8px;
+	border-radius: 2px;
+	font-size: 11px;
+}
+.ipsec_security_legend_title {
+	font-weight: bold;
+	color: #ffffff !important;
+	margin-right: 12px;
+	font-size: 11px;
+}
+.ipsec_legend_item {
+	display: -webkit-inline-box;
+	display: -webkit-inline-flex;
+	display: inline-flex;
+	-webkit-box-align: center;
+	-webkit-align-items: center;
+	align-items: center;
+	margin-right: 12px;
+	white-space: nowrap;
+	font-size: 11px;
+	font-weight: bold;
+	line-height: 1;
+}
+.ipsec_legend_item.leg_weak   { color: #e57373 !important; }
+.ipsec_legend_item.leg_legacy { color: #ffb74d !important; }
+.ipsec_legend_item.leg_rec    { color: #81c784 !important; }
+.ipsec_legend_item.leg_modern { color: #64b5f6 !important; }
+.security_badge {
+	display: inline-block;
+	width: 10px;
+	height: 10px;
+	-webkit-border-radius: 50%;
+	border-radius: 50%;
+	margin-right: 4px;
+	vertical-align: middle;
+	position: relative;
+	top: -1px;
+	-webkit-box-sizing: border-box;
+	box-sizing: border-box;
+}
+.badge_weak        { background-color: #e53935; border: 1px solid #ff6659; }
+.badge_legacy      { background-color: #fb8c00; border: 1px solid #ffc046; }
+.badge_recommended { background-color: #43a047; border: 1px solid #76d275; }
+.badge_modern      { background-color: #1e88e5; border: 1px solid #6ab7ff; }
+/* Checkbox Grid */
+.ipsec_checkbox_grid {
+	margin: 3px 0;
+}
+.ipsec_checkbox_grid label {
+	display: -webkit-inline-box;
+	display: -webkit-inline-flex;
+	display: inline-flex;
+	-webkit-box-align: center;
+	-webkit-align-items: center;
+	align-items: center;
+	margin-right: 14px;
+	margin-bottom: 4px;
+	white-space: nowrap;
+	color: #dddddd !important;
+	cursor: pointer;
+	font-size: 12px;
+}
+.ipsec_checkbox_grid label .security_badge {
+	margin-left: 3px;
+	margin-right: 0;
+	top: -1px;
+}
+.ipsec_checkbox_grid input[type="checkbox"] {
+	margin: 0 4px 0 0;
+	vertical-align: middle;
+}
 </style>
 <script>
 var subnetIP_support_IPv6 = false;
 var vpnc_clientlist_array = [];
-var vpnc_pptp_options_x_list_array = [];
 var restart_vpncall_flag = 0; //Viz add 2014.04 for Edit Connecting rule then restart_vpncall
 
 <% wanlink(); %>
@@ -151,13 +235,12 @@ function initial(){
 	show_menu();
 
         if(openvpnd_support) {
-                var vpn_client_array = {"OpenVPN" : ["OpenVPN", "Advanced_OpenVPNClient_Content.asp"], "IPSec" : ["IPSec", "Advanced_VPNClient_Content.asp"]};
+                var vpn_client_array = {"OpenVPN" : ["OpenVPN", "Advanced_OpenVPNClient_Content.asp"], "IPSec" : ["IPSec", "Advanced_VPNClient_Content.asp"], "OpenConnect" : ["OpenConnect", "Advanced_OpenConnect_Content.asp"]};
                 $('#divSwitchMenu').html(gen_switch_menu(vpn_client_array, "IPSec"));
                 document.getElementById("divSwitchMenu").style.display = "";
         }
 
 	vpnc_clientlist_array = parseNvramToArray('<% nvram_char_to_ascii("","vpnc_clientlist"); %>', 5);
-	vpnc_pptp_options_x_list_array = parseNvramToArray('<% nvram_char_to_ascii("","vpnc_pptp_options_x_list"); %>', 1);
 	show_vpnc_rulelist();
 
 	if(ipsec_cli_support) {
@@ -234,7 +317,6 @@ function Add_profile(upper){
 
 	add_profile_flag = true;
 	/* PPTP/L2TP removed - deprecated protocols */
-	// gen_vpnc_tab_list("pptp");
 	gen_vpnc_tab_list("openvpn");
 	gen_vpnc_tab_list("ipsec");
 	document.getElementById('importOvpnFile').style.display = "none";
@@ -242,8 +324,6 @@ function Add_profile(upper){
 	document.form.vpnc_svr_edit.value = "";
 	document.form.vpnc_account_edit.value = "";
 	document.form.vpnc_pwd_edit.value = "";
-	document.form.selPPTPOption.value = "auto";	
-	document.getElementById("pptpOptionHint").style.display = "none";
 	document.vpnclientForm.vpnc_openvpn_des.value = "";
 	document.vpnclientForm.vpnc_openvpn_username.value = "";
 	document.vpnclientForm.vpnc_openvpn_pwd.value = "";	
@@ -279,20 +359,12 @@ function addRow_Group(upper, flag, idx){
 	disableOpenVpnManualformItem();
 	idx = parseInt(idx);
 
-	if(flag == 'PPTP' || flag == 'L2TP') {
-		type_obj = document.form.vpnc_type;
-		description_obj = document.form.vpnc_des_edit;
-		server_obj = document.form.vpnc_svr_edit;
-		username_obj = document.form.vpnc_account_edit;
-		password_obj = document.form.vpnc_pwd_edit;
-	}
-	else {	//OpenVPN: openvpn
-		type_obj = document.vpnclientForm.vpnc_type;
-		description_obj = document.vpnclientForm.vpnc_openvpn_des;
-		server_obj = document.vpnclientForm.vpnc_openvpn_unit_edit;
-		username_obj = document.vpnclientForm.vpnc_openvpn_username;
-		password_obj = document.vpnclientForm.vpnc_openvpn_pwd;
-	}
+	//OpenVPN
+	type_obj = document.vpnclientForm.vpnc_type;
+	description_obj = document.vpnclientForm.vpnc_openvpn_des;
+	server_obj = document.vpnclientForm.vpnc_openvpn_unit_edit;
+	username_obj = document.vpnclientForm.vpnc_openvpn_username;
+	password_obj = document.vpnclientForm.vpnc_openvpn_pwd;
 
 	if(validForm(flag)) {
 		duplicateCheck.tmpIdx = "";
@@ -320,9 +392,6 @@ function addRow_Group(upper, flag, idx){
 			vpnc_clientlist_array.push(editVPNCRuleArray);
 		}
 
-		//handle vpnc_pptp_options_x_list
-		handlePPTPOPtion(idx, document.form.selPPTPOption.value); //idx: NaN=Add i=edit row
-
 		if(idx >= 0) {
 			if(restart_vpncall_flag == 1){	//restart_vpncall
 				var vpnc_desc = editVPNCRuleArray[0];
@@ -333,13 +402,6 @@ function addRow_Group(upper, flag, idx){
 				var vpnc_userpwd = editVPNCRuleArray[4];
 
 				document.form.vpnc_des_edit.value = vpnc_desc;
-				if(vpnc_proto == "PPTP")
-					document.form.vpnc_proto.value = "pptp";
-				else if(vpnc_proto == "L2TP")
-					document.form.vpnc_proto.value = "l2tp";
-				else	//OpenVPN
-					document.form.vpnc_proto.value = "openvpn";
-
 				if(vpnc_proto == "OpenVPN")
 					document.form.vpn_client_unit.value = vpnc_openvpn_idx;
 				else
@@ -389,69 +451,25 @@ function addRow_Group(upper, flag, idx){
 				else
 					document.form.vpnc_pppoe_passwd.value = vpnc_userpwd;
 
-				// update vpnc_pptp_options_x
-				document.form.vpnc_pptp_options_x.value = "";
-				if(vpnc_proto == "PPTP" && document.form.selPPTPOption.value != "auto") {
-					document.form.vpnc_pptp_options_x.value = document.form.selPPTPOption.value;
-				}
-
 				document.form.vpn_clientx_eas.disabled = true;
 				document.form.vpnc_clientlist.value = parseArrayToStr_vpnc_clientlist();
-				document.form.vpnc_pptp_options_x_list.value = parseArrayToStr_vpnc_pptp_options_x_list();
 				document.getElementById("vpnc_clientlist_table").rows[idx].cells[0].innerHTML = "-";
 				document.getElementById("vpnc_clientlist_table").rows[idx].cells[5].innerHTML = "<img src='/images/InternetScan.gif'>";
 				document.form.submit();
 			}
 			else{
 				document.vpnclientForm.vpnc_clientlist.value = parseArrayToStr_vpnc_clientlist();
-				document.vpnclientForm.vpnc_pptp_options_x_list.value = parseArrayToStr_vpnc_pptp_options_x_list();
 				document.vpnclientForm.submit();
 			}
 		}
 		else {
 			document.vpnclientForm.vpn_clientx_eas.disabled = true;
-			document.vpnclientForm.vpnc_pptp_options_x_list.value = parseArrayToStr_vpnc_pptp_options_x_list();
 			document.vpnclientForm.vpnc_clientlist.value = parseArrayToStr_vpnc_clientlist();
 			document.vpnclientForm.submit();
 		}
 
 		cancel_add_rule();
 		show_vpnc_rulelist();
-	}
-}
-
-function handlePPTPOPtion(idx, objValue) {
-	var origPPTPOptionsListArray = vpnc_pptp_options_x_list_array.slice();
-	vpnc_pptp_options_x_list_array = [];
-	if(idx >= 0) { // edit
-		for(var i = 0; i < vpnc_clientlist_array.length; i += 1) {
-			var eachRuleArray = new Array();
-			if(origPPTPOptionsListArray[i] == undefined) {
-				eachRuleArray.push("auto");
-			}
-			else {
-				eachRuleArray.push(origPPTPOptionsListArray[i][0]);
-			}
-			vpnc_pptp_options_x_list_array.push(eachRuleArray);
-		}
-		var editRuleArray = new Array();
-		editRuleArray.push(objValue);
-		vpnc_pptp_options_x_list_array[idx] = editRuleArray;
-	}
-	else { // add
-		for(var i = 0; i < (vpnc_clientlist_array.length - 1); i += 1) {
-			var eachRuleArray = new Array();
-			if(origPPTPOptionsListArray[i] == undefined) {
-				eachRuleArray.push("auto");
-			}
-			else {
-				eachRuleArray.push(origPPTPOptionsListArray[i][0]);
-			}
-			vpnc_pptp_options_x_list_array.push(eachRuleArray);
-		}
-		var newRuleArray = new Array();
-		newRuleArray.push(objValue);
-		vpnc_pptp_options_x_list_array.push(newRuleArray);
 	}
 }
 
@@ -485,79 +503,26 @@ var duplicateCheck = {
 }
 
 function validForm(mode){
-	if(mode == "PPTP" || mode == "L2TP"){
-		valid_des = document.form.vpnc_des_edit;
-		valid_server = document.form.vpnc_svr_edit;
-		valid_username = document.form.vpnc_account_edit;
-		valid_password = document.form.vpnc_pwd_edit;
-
-		if(valid_des.value==""){
-			alert("<#JS_fieldblank#>");
-			valid_des.focus();
-			return false;		
-		}else if(!Block_chars(valid_des, ["*", "+", "|", ":", "?", "<", ">", ",", ".", "/", ";", "[", "]", "\\", "=", "\"" ])){
-			return false;		
-		}
-
-		if(valid_server.value==""){
-			alert("<#JS_fieldblank#>");
-			valid_server.focus();
-			return false;
-		}
-		else{
-			var isIPAddr = valid_server.value.replace(/\./g,"");
-			var re = /^[0-9]+$/;
-			if(!re.test(isIPAddr)) { //DDNS
-				if(!Block_chars(valid_server, ["<", ">"])) {
-					return false;
-				}		
-			}	
-			else { // IP
-				if(!validator.isLegalIP(valid_server,"")) {
-					return false;
-				}
-			}
-		}
-
-		if(valid_username.value==""){
-			alert("<#JS_fieldblank#>");
-			valid_username.focus();
-			return false;
-		}else if(!Block_chars(valid_username, ["<", ">"])){
-			return false;		
-		}
-
-		if(valid_password.value==""){
-			alert("<#JS_fieldblank#>");
-			valid_password.focus();
-			return false;
-		}else if(!Block_chars(valid_password, ["<", ">"])){
-			return false;		
-		}
-			
+	//OpenVPN
+	var valid_des = document.vpnclientForm.vpnc_openvpn_des;
+	var valid_username = document.vpnclientForm.vpnc_openvpn_username;
+	var valid_password = document.vpnclientForm.vpnc_openvpn_pwd;
+	if(valid_des.value == ""){
+		alert("<#JS_fieldblank#>");
+		valid_des.focus();
+		return false;		
 	}
-	else{		//OpenVPN
-		valid_des = document.vpnclientForm.vpnc_openvpn_des;
-		valid_username = document.vpnclientForm.vpnc_openvpn_username;
-		valid_password = document.vpnclientForm.vpnc_openvpn_pwd;
-		if(valid_des.value == ""){
-			alert("<#JS_fieldblank#>");
-			valid_des.focus();
-			return false;		
-		}
-		else if(!Block_chars(valid_des, ["*", "+", "|", ":", "?", "<", ">", ",", ".", "/", ";", "[", "]", "\\", "=", "\"" ])){
-			return false;		
-		}
-		
-		if(valid_username.value != "" && !Block_chars(valid_username, ["<", ">"])){
-			return false;		
-		}
+	else if(!Block_chars(valid_des, ["*", "+", "|", ":", "?", "<", ">", ",", ".", "/", ";", "[", "]", "\\", "=", "\"" ])){
+		return false;		
+	}
+	
+	if(valid_username.value != "" && !Block_chars(valid_username, ["<", ">"])){
+		return false;		
+	}
 
-		if(valid_password.value != "" && !Block_chars(valid_password, ["<", ">"])){
-			return false;		
-		}
-		
-	}	
+	if(valid_password.value != "" && !Block_chars(valid_password, ["<", ">"])){
+		return false;		
+	}
 	
 	return true;
 }
@@ -566,28 +531,26 @@ var save_flag;	//type of Saving profile
 function tabclickhandler(_type){
 	var tab_id = "";
 	switch(_type) {
-		case 0 :
-		case 1 :
-			tab_id = "pptp";
-			break;
 		case 2 :
 			tab_id = "openvpn";
 			break;
 		case 3 :
 			tab_id = "ipsec";
 			break;
+		case 4 :
+			tab_id = "openconnect";
+			break;
 	}
 	/* PPTP/L2TP title elements removed */
-	// document.getElementById('pptpcTitle_' + tab_id + '').className = "vpnClientTitle_td_unclick";
-	// document.getElementById('l2tpcTitle_' + tab_id + '').className = "vpnClientTitle_td_unclick";
-//	if(openvpnd_support)
-//		document.getElementById('opencTitle_' + tab_id + '').className = "vpnClientTitle_td_unclick";
-	if(ipsec_cli_support)
+	if(document.getElementById('openconnectTitle_' + tab_id))
+		document.getElementById('openconnectTitle_' + tab_id + '').className = "vpnClientTitle_td_unclick";
+	if(openvpnd_support && document.getElementById('opencTitle_' + tab_id))
+		document.getElementById('opencTitle_' + tab_id + '').className = "vpnClientTitle_td_unclick";
+	if(ipsec_cli_support && document.getElementById('ipsecTitle_' + tab_id))
 		document.getElementById('ipsecTitle_' + tab_id + '').className = "vpnClientTitle_td_unclick";
 	document.getElementById('openvpnc_setting').style.display = "none";
 	document.getElementById('openvpnc_setting_openvpn').style.display = "none";	
 	document.getElementById('openvpnc_setting_ipsec').style.display = "none";	
-	document.getElementById('trPPTPOptions').style.display = "none";
 	/* PPTP/L2TP (types 0,1) removed - deprecated insecure protocols */
 	if(_type == 0 || _type == 1){
 		alert("PPTP and L2TP protocols have been removed due to security vulnerabilities. Please use OpenVPN, WireGuard, or IPSec instead.");
@@ -597,7 +560,8 @@ function tabclickhandler(_type){
 		save_flag = "OpenVPN";
 		document.form.vpnc_type.value = "OpenVPN";
 		document.vpnclientForm.vpnc_type.value = "OpenVPN";
-		document.getElementById('opencTitle_' + tab_id + '').className = "vpnClientTitle_td_click";
+		if(document.getElementById('opencTitle_' + tab_id))
+			document.getElementById('opencTitle_' + tab_id + '').className = "vpnClientTitle_td_click";
 		document.getElementById('openvpnc_setting_openvpn').style.display = "block";
 		adjust_panel_block_top("openvpnc_setting_openvpn", 200);
 		if(add_profile_flag)
@@ -612,10 +576,16 @@ function tabclickhandler(_type){
 		update_unit_option();		
 		document.form.vpnc_type.value = "IPSec";
 		document.vpnclientForm.vpnc_type.value = "IPSec";
-		document.getElementById('ipsecTitle_' + tab_id + '').className = "vpnClientTitle_td_click";
+		if(document.getElementById('ipsecTitle_' + tab_id))
+			document.getElementById('ipsecTitle_' + tab_id + '').className = "vpnClientTitle_td_click";
 		document.getElementById('openvpnc_setting_ipsec').style.display = "block";
 		
 		adjust_panel_block_top("openvpnc_setting_ipsec", 50);
+	}
+	else if(_type == 4){
+		// OpenConnect - redirect to dedicated configuration page
+		window.location.href = "Advanced_OpenConnect_Content.asp";
+		return false;
 	}
 
 	var set_limit_hint = function(_type, _limitNum, _name) {
@@ -699,155 +669,74 @@ function show_vpnc_rulelist(){
 
 	var code = "";
 	code +='<table style="margin-bottom:30px;" width="98%" border="1" align="center" cellpadding="4" cellspacing="0" class="list_table" id="vpnc_clientlist_table">';
-	if(vpnc_clientlist_array.length == 0 && ipsec_arrayLength == 0)
+	if(ipsec_arrayLength == 0)
 		code +='<tr><td style="color:#FC0;" colspan="6"><#IPConnection_VSList_Norule#></td></tr>';
-	else{
-		for(var i = 0; i < vpnc_clientlist_array.length; i += 1) {
-			if(vpnc_clientlist_array[i] != "") {
-				var vpnc_desc = vpnc_clientlist_array[i][0];
-				var vpnc_proto = vpnc_clientlist_array[i][1];
-				var vpnc_server = vpnc_clientlist_array[i][2];
-				var vpnc_openvpn_idx = vpnc_clientlist_array[i][2];
-				var vpnc_username = vpnc_clientlist_array[i][3];
-				
-				code +='<tr id="row'+i+'">';
-				var client_state = "0";
-				if(vpnc_proto == "OpenVPN"){
-					openvpn_arrayLength++;
-					var connect_idx = document.form.vpn_clientx_eas.value.replace(",", "");
-						var client_errno = "";
-						if(connect_idx == vpnc_openvpn_idx) {
-							switch(vpnc_openvpn_idx) {
-								case "1" :
-									client_state = vpnc_state_t1;
-									client_errno = vpnc_errno_t1;
-									break;
-								case "2" :
-									client_state = vpnc_state_t2;
-									client_errno = vpnc_errno_t2;
-									break;
-								case "3" :
-									client_state = vpnc_state_t3;
-									client_errno = vpnc_errno_t3;
-									break;
-								case "4" :
-									client_state = vpnc_state_t4;
-									client_errno = vpnc_errno_t4;
-									break;
-								case "5" :
-									client_state = vpnc_state_t5;
-									client_errno = vpnc_errno_t5;
-									break;
-							}
-						}
-						// state: default 0, connecting 1, connected 2, error -1
-						// when state is -1, check errno, default 0, conflict 1 2 3, auth fail 4 5 6
-						if(client_state == 0)
-							code +='<td width="10%">-</td>';
-						else if(client_state == 1)
-							code +="<td width='10%'><img title='<#CTL_Add_enrollee#>' src='/images/InternetScan.gif'></td>";
-						else if(client_state == 2)
-							code +="<td width='10%'><img title='<#Connected#>' src='/images/checked_parentctrl.png' style='width:25px;'></td>";
-						else if(client_errno == 1 || client_errno == 2 || client_errno == 3){
-							code +="<td width='10%'><div title='<#vpn_openvpn_conflict#>' class='vpnc_ipconflict_icon'></div></td>";
-							$("#ip_conflict_hint").show();
-						}
-						else if(client_errno == 4 || client_errno == 5 || client_errno == 6)
-							code +="<td width='10%'><img title=\"<#qis_fail_desc1#>\" src='/images/button-close2.png' style='width:25px;'></td>";
-						else if(client_errno == 7)
-							code +="<td width='10%'><img title='Certification Authentication / Server certification / Server Key field error! \nPlease check the Keys and Certification contents on the Manual Setting.' src='/images/button-close2.png' style='width:25px;'></td>";
-						else		//Stop connection
-							code +="<td width='10%'><img title='<#ConnectionFailed#>' src='/images/button-close2.png' style='width:25px;'></td>";
-				}
-				else{
-					if( vpnc_proto == document.form.vpnc_proto.value.toUpperCase() 
-					 && vpnc_server == document.form.vpnc_heartbeat_x.value
-					 && vpnc_username == document.form.vpnc_pppoe_username.value){		//matched connecting rule
-						if(vpnc_state_t == 0 || vpnc_state_t ==1) // Initial or Connecting
-							code +="<td width='10%'><img title='<#CTL_Add_enrollee#>' src='/images/InternetScan.gif'></td>";
-						else if(vpnc_state_t == 2) // Connected
-							code +="<td width='10%'><img title='<#Connected#>' src='/images/checked_parentctrl.png' style='width:25px;'></td>";
-						else if(vpnc_state_t == 4 && vpnc_sbstate_t == 2)
-							code +="<td width='10%'><img title=\"<#qis_fail_desc1#>\" src='/images/button-close2.png' style='width:25px;'></td>";
-						else if(vpnc_state_t == 4 && vpnc_sbstate_t == 7){
-							code +="<td width='10%'><div title='<#vpn_openvpn_conflict#>' class='vpnc_ipconflict_icon'></div></td>";
-							$("#ip_conflict_hint").show();
-						}
-						else // Stop connection
-							code +="<td width='10%'><img title='<#ConnectionFailed#>' src='/images/button-close2.png' style='width:25px;'></td>";
-					}
-					else{
-						code +='<td width="10%">-</td>';
-					}	
-				}
-				
-				//Description
-				if(vpnc_desc.length >28) {
-					var overlib_str = vpnc_desc.substring(0, 25) + "...";
-					code +='<td width="30%" title="'+vpnc_desc+'">'+ overlib_str +'</td>';
-				}
-				else {
-					code +='<td width="30%">'+ vpnc_desc +'</td>';					
-				}
-				//VPN type
-				code += '<td width="15%">'+ vpnc_proto +'</td>';
-
-				// EDIT
-			 	code += '<td width="10%"><input class="edit_btn" type="button" onclick="Edit_Row(this, \'vpnc\');" value=""/></td>';
-				if(vpnc_proto == "OpenVPN"){ 
-					if(client_state != 0) {	//connecting
-						code += '<td width="10%"><input class="remove_btn" type="button" onclick="del_Row(this, \'vpnc_enable\');" value=""/></td>';
-						code += '<td width="25%"><input class="button_gen" type="button" onClick="connect_Row(this, \'disconnect\');" id="disonnect_btn" value="<#CTL_Deactivate#>" style="padding:0 0.3em 0 0.3em;" >';
-					}
-					else{			//OpenVPN is not connecting
-						code += '<td width="10%"><input class="remove_btn" type="button" onclick="del_Row(this, \'vpnc\');" value=""/></td>';
-						code += '<td width="25%"><input class="button_gen" type="button" onClick="connect_Row(this, \'vpnc\');" id="Connect_btn" name="Connect_btn" value="<#CTL_Activate#>" style="padding:0 0.3em 0 0.3em;" >';
-					}
-				}
-				else{
-					if( vpnc_proto == document.form.vpnc_proto.value.toUpperCase() 
-					 && vpnc_server == document.form.vpnc_heartbeat_x.value 
-					 && vpnc_username == document.form.vpnc_pppoe_username.value){		// This rule is connecting
-						code += '<td width="10%"><input class="remove_btn" type="button" onclick="del_Row(this, \'vpnc_enable\');" value=""/></td>';
-						code += '<td width="25%"><input class="button_gen" type="button" onClick="connect_Row(this, \'disconnect\');" id="disonnect_btn" value="<#CTL_Deactivate#>" style="padding:0 0.3em 0 0.3em;" >';
-					}
-					else{		// This rule is not connecting
-						code += '<td width="10%"><input class="remove_btn" type="button" onclick="del_Row(this, \'vpnc\');" value=""/></td>';
-						code += '<td width="25%"><input class="button_gen" type="button" onClick="connect_Row(this, \'vpnc\');" id="Connect_btn" name="Connect_btn" value="<#CTL_Activate#>" style="padding:0 0.3em 0 0.3em;" >';
-					}
-				}
-			}
-		}
-
-		if(ipsec_cli_support) {
-			//creat ipsec profile row start
-			control_profile_flag = true;
-			for(var i = 0; i < ipsec_arrayLength; i += 1) {
+	
+	if(ipsec_cli_support) {
+		//creat ipsec profile row start
+		control_profile_flag = true;
+		for(var i = 0; i < ipsec_arrayLength; i += 1) {
 				code +='<tr id=vpnc_row_' + ipsec_profilelist_arraylist[i][0] + '>';
 				if(ipsec_profilelist_arraylist[i][38] == 0) {
 					code +='<td width="10%">-</td>';
 				}
-				else {
-					//if(ipsec_connect_status_array[ipsec_profilelist_arraylist[i][2]]) {
-						//var connect_status = ipsec_connect_status_array[ipsec_profilelist_arraylist[i][1]].split("<")[1].split(">")[1];
-						if(true) {
-						const connect_status = String(ipsec_connect_status_array.other).split('>')[1];
-						switch(connect_status) {
-							case '1' :
-								code +='<td width="10%" title="<#Connected#>"><img src="/images/checked_parentctrl.png" style="width:25px;"></td>';
-								break;
-							case '2' :
-								code +='<td width="10%" title="<#Connecting_str#>"><img src="/images/InternetScan.gif" style="width:25px;"></td>';
-								break;
-							case '3' :
-								code +='<td width="10%" title="<#ConnectionFailed#>"><img src="/images/button-close2.png" style="width:25px;cursor:pointer;"></td>';
-								break;
+			else {
+				// Match this profile to its connection status by remote gateway IP or hostname
+				var connect_status = '3'; // Default: failed/disconnected
+				var profile_remote_ip = ipsec_profilelist_arraylist[i][4]; // Remote gateway IP/hostname from profile
+				var profile_activated = (ipsec_profilelist_arraylist[i][38] == 1);
+				
+				// Parse connection status data if available
+				if(ipsec_connect_status_array.other) {
+					var connections = String(ipsec_connect_status_array.other).split('<');
+					var active_connections = connections.filter(function(c) { return c.trim() != ''; });
+					
+					for(var c = 0; c < active_connections.length; c++) {
+						var conn_fields = active_connections[c].split('>');
+						// conn_fields[0] = remote IP, conn_fields[1] = status, conn_fields[3] = remote ID
+						var match_found = false;
+						
+						// Try to match by IP or remote ID
+						if(conn_fields[0] && (conn_fields[0] == profile_remote_ip || conn_fields[3] == profile_remote_ip)) {
+							match_found = true;
+						}
+						
+						// If only one active profile and one connection, assume they match
+						// (handles case where profile has FQDN that resolves to connection IP)
+						if(!match_found && profile_activated && active_connections.length == 1) {
+							var activated_count = 0;
+							for(var j = 0; j < ipsec_arrayLength; j++) {
+								if(ipsec_profilelist_arraylist[j][38] == 1) activated_count++;
+							}
+							if(activated_count == 1) {
+								match_found = true;
+							}
+						}
+						
+						if(match_found) {
+							connect_status = conn_fields[1] || '3';
+							break;
 						}
 					}
-					else {
-						code +='<td width="10%" title="<#ConnectionFailed#>"><img src="/images/button-close2.png" style="width:25px;cursor:pointer;"></td>';
-					}
 				}
+				
+				// If profile is activated but no connection found, show connecting (not failed)
+				if(connect_status === '3' && profile_activated) {
+					connect_status = '2';
+				}
+				
+				switch(connect_status) {
+					case '1' :
+						code +='<td width="10%" title="<#Connected#>"><img src="/images/checked_parentctrl.png" style="width:25px;"></td>';
+						break;
+					case '2' :
+						code +='<td width="10%" title="<#Connecting_str#>"><img src="/images/InternetScan.gif" style="width:25px;"></td>';
+						break;
+					case '3' :
+						code +='<td width="10%" title="<#ConnectionFailed#>"><img src="/images/button-close2.png" style="width:25px;cursor:pointer;"></td>';
+						break;
+				}
+			}
 				var ipsec_idx =  ipsec_profilelist_arraylist[i][0].split("_")[3];
 				var ipsec_profilename = ipsec_profilelist_arraylist[i][2].split("_c" + ipsec_idx + "")[0];
 				code +='<td width="30%">' + ipsec_profilename + '</td>';
@@ -868,7 +757,6 @@ function show_vpnc_rulelist(){
 			}
 			//creat ipsec profile row end
 		}
-	}
 	
 	code +='</table>';
 	document.getElementById("vpnc_clientlist_Block").innerHTML = code;		
@@ -914,17 +802,7 @@ function connect_Row(rowdata, flag){
 			document.form.vpn_clientx_eas.disabled = false;
 			document.form.vpn_clientx_eas.value = document.form.vpn_clientx_eas.value.replace(vpnc_openvpn_idx + ",", "");
 			document.vpnclientForm.vpn_clientx_eas.value = document.form.vpn_clientx_eas.value.replace(vpnc_openvpn_idx + ",", "");
-		}else{ //pptp/l2tp
-			document.form.vpnc_proto.value = "disable";
-			document.form.vpnc_heartbeat_x.value = "";
-			document.form.vpnc_pppoe_username.value = "";
-			document.form.vpnc_pppoe_passwd.value = "";
-						
-			if(vpnc_proto == "PPTP") {
-				document.form.vpnc_pptp_options_x.value = "";
-			}
-			
-		}			
+		}
 	}
 	else{		//"vpnc" making connection
 		if(isSupport("sdk7114")) {
@@ -959,16 +837,8 @@ function connect_Row(rowdata, flag){
 		}
 		document.form.vpnc_des_edit.value = vpnc_desc;
 
-		if(vpnc_proto == "PPTP")
-			document.form.vpnc_proto.value = "pptp";
-		else if(vpnc_proto == "L2TP")
-			document.form.vpnc_proto.value = "l2tp";
-		else	//OpenVPN
-			document.form.vpnc_proto.value = "openvpn";
-
-		if(vpnc_proto == "OpenVPN")
-			document.form.vpn_client_unit.value = vpnc_openvpn_idx;
-		else
+	//OpenVPN
+	document.form.vpnc_proto.value = "openvpn";
 			document.form.vpnc_heartbeat_x.value = vpnc_server;
 
 		if(vpnc_proto == "OpenVPN") {
@@ -1026,20 +896,7 @@ function connect_Row(rowdata, flag){
 		else{
 			document.form.vpnc_auto_conn.value = 1;
 		}	
-
-		//handle vpnc_pptp_options_x
-		if(vpnc_proto == "PPTP"){
-			document.form.vpnc_pptp_options_x.value = "";
-			if(vpnc_pptp_options_x_list_array[idx] != undefined) {
-				var setPPTPOption = vpnc_pptp_options_x_list_array[idx][0];
-				if(setPPTPOption != "auto" && setPPTPOption != "undefined") {
-					document.form.vpnc_pptp_options_x.value = setPPTPOption;
-				}
-			}
-		}
 	}
-	
-	document.form.vpnc_pptp_options_x_list.value = parseArrayToStr_vpnc_pptp_options_x_list();
 	document.form.vpnc_clientlist.value = parseArrayToStr_vpnc_clientlist();
 	rowdata.parentNode.innerHTML = "<img src='/images/InternetScan.gif'>";
 	document.form.submit();	
@@ -1115,51 +972,10 @@ function Edit_Row(rowdata, flag){
 	var vpnc_username = vpnc_clientlist_edit_array[0][3];
 	var vpnc_userpwd = vpnc_clientlist_edit_array[0][4];
 
-	//get idx of PPTP option value
-	var pptpOptionValue = "";
-	if(idx >= 0){
-		if(vpnc_pptp_options_x_list_array[idx] == undefined) {
-			pptpOptionValue = "auto";
-		}
-		else {
-			pptpOptionValue = vpnc_pptp_options_x_list_array[idx];
-		}
-	}
-	else{	//default is auto
-		pptpOptionValue = "auto";
-	}
-	
-	document.form.selPPTPOption.value = pptpOptionValue;
-	pptpOptionChange();
-
-	if(vpnc_proto == "PPTP" || vpnc_proto == "L2TP") {
-		gen_vpnc_tab_list("pptp");
-		$("#openvpnc_setting").fadeIn(300);
-		/* PPTP/L2TP title elements removed */
-		// document.getElementById("pptpcTitle_pptp").style.display = "none";
-		// document.getElementById("trPPTPOptions").style.display = "none";
-		// document.getElementById("l2tpcTitle_pptp").style.display = "none";
-//		if(openvpnd_support)
-//			document.getElementById("opencTitle_pptp").style.display = "none";
-		if(ipsec_cli_support)
-			document.getElementById("ipsecTitle_pptp").style.display = "none";
-		/* PPTP/L2TP handling removed */
-		/*
-		if(vpnc_proto == "PPTP") {
-			document.getElementById("pptpcTitle_pptp").style.display = "";
-			document.getElementById("trPPTPOptions").style.display = "";
-		}
-		else {
-			document.getElementById("l2tpcTitle_pptp").style.display = "";
-		}
-		*/
-	}
-	else if(vpnc_proto == "OpenVPN") {
+	if(vpnc_proto == "OpenVPN") {
 		gen_vpnc_tab_list("openvpn");
 		$("#openvpnc_setting_openvpn").fadeIn(300);
 		/* PPTP/L2TP title elements removed */
-		// document.getElementById("pptpcTitle_openvpn").style.display = "none";
-		// document.getElementById("l2tpcTitle_openvpn").style.display = "none";
 		document.getElementById("opencTitle_openvpn").style.display = "";
 		if(ipsec_cli_support)
 			document.getElementById("ipsecTitle_openvpn").style.display = "none";
@@ -1187,12 +1003,7 @@ function Edit_Row(rowdata, flag){
 	}
 	else{
 		document.form.vpnc_des_edit.value = vpnc_desc;
-		/* PPTP/L2TP removed - show error if old profile */
-		if(vpnc_proto == "PPTP" || vpnc_proto == "L2TP") {
-			alert("This profile uses " + vpnc_proto + " which has been removed due to security vulnerabilities. Please create a new profile using OpenVPN, WireGuard, or IPSec.");
-			return false;
-		}
-		else if(vpnc_proto == "OpenVPN")
+		if(vpnc_proto == "OpenVPN")
 			tabclickhandler(2);
 		else if(vpnc_proto == "IPSec")
 			tabclickhandler(3);
@@ -1213,11 +1024,6 @@ function del_Row(rowdata, flag){
 
 	var vpnc_clientlist_delete_array = vpnc_clientlist_array.slice(idx, (idx + 1));
 	vpnc_clientlist_array.splice(idx, 1);
-				
-	//del vpnc_pptp_options_x_list
-	if(vpnc_pptp_options_x_list_array[idx] != undefined) {
-		vpnc_pptp_options_x_list_array.splice(idx, 1);
-	}
 
 	if(flag == "vpnc_enable"){	//remove connected rule.
 		document.vpnclientForm.vpnc_proto.value = "disable";
@@ -1237,7 +1043,6 @@ function del_Row(rowdata, flag){
 
 	show_vpnc_rulelist();
 	document.vpnclientForm.vpnc_clientlist.value = parseArrayToStr_vpnc_clientlist();
-	document.vpnclientForm.vpnc_pptp_options_x_list.value = parseArrayToStr_vpnc_pptp_options_x_list();
 	document.vpnclientForm.submit();
 }
 
@@ -1442,24 +1247,11 @@ function addOpenvpnProfile(){
 	document.vpnclientForm.encoding = "application/x-www-form-urlencoded";
 	addRow_Group(10, save_flag, idx_tmp);
 }
-function pptpOptionChange() {
-	document.getElementById("pptpOptionHint").style.display = "none";
-	if(document.form.selPPTPOption.value == "+mppe-40") {
-		document.getElementById("pptpOptionHint").style.display = "";
-	}
-}
-
 function gen_vpnc_tab_list(_type) {
 	var code = "";
 	$('#divTabMenu_' + _type + '').empty();
 	code += "<table width='100%' border='0' align='left' cellpadding='0' cellspacing='0' style='table-layout: fixed;'>";
 	code += "<tr>";
-	/* PPTP/L2TP tabs removed - deprecated insecure protocols */
-	// code += "<td align='center' id='pptpcTitle_" + _type + "' onclick='tabclickhandler(0);'>PPTP</td>";
-	// code += "<td align='center' id='l2tpcTitle_" + _type + "' onclick='tabclickhandler(1);'>L2TP</td>";
-//	if(openvpnd_support) {
-//		code += "<td align='center' id='opencTitle_" + _type + "' onclick='tabclickhandler(2);'>OpenVPN</td>";
-//	}
 	if(ipsec_cli_support)
 		code += "<td align='center' id='ipsecTitle_" + _type + "' onclick='tabclickhandler(3);'>IPSec</td>";
 	code += "</tr>";
@@ -1470,15 +1262,24 @@ function cancel_ipsec_profile_panel() {
 	$("#openvpnc_setting_ipsec").fadeOut(300);
 }
 function switchSettingsMode(mode) {
+	var basicSettings = document.getElementById("ipsec_basic_settings");
+	var networkSettings = document.getElementById("ipsec_network_settings");
+	var advancedSettings = document.getElementById("ipsec_advanced_settings");
+	
+	// Only proceed if IPSec elements exist (not applicable for OpenConnect/OpenVPN)
+	if(!basicSettings || !networkSettings || !advancedSettings) {
+		return;
+	}
+	
 	if(mode == "1") {
-		document.getElementById("ipsec_basic_settings").style.display = "";
-		document.getElementById("ipsec_network_settings").style.display = "";
-		document.getElementById("ipsec_advanced_settings").style.display = "none";
+		basicSettings.style.display = "";
+		networkSettings.style.display = "";
+		advancedSettings.style.display = "none";
 	}	
 	else {
-		document.getElementById("ipsec_basic_settings").style.display = "none";
-		document.getElementById("ipsec_network_settings").style.display = "none";
-		document.getElementById("ipsec_advanced_settings").style.display = "";
+		basicSettings.style.display = "none";
+		networkSettings.style.display = "none";
+		advancedSettings.style.display = "";
 	}
 }
 function changeAdvDeadPeerDetection (obj) {
@@ -1543,11 +1344,14 @@ function gen_subnet_input(_type, _idx, _value) {
 	subnet_input_obj.value = _value;
 	subnet_input_obj.autocomplete = "off";
 	subnet_input_obj.autocapitalize = "off";
-	subnet_input_obj.placeholder = "(ex.10.10.10.0/24)";
+	if(_type === "remote") {
+		subnet_input_obj.placeholder = "(ex.10.10.10.0/24 or 0.0.0.0/0 for all)";
+	} else {
+		subnet_input_obj.placeholder = "(ex.10.10.10.0/24)";
+	}
 	if(subnetIP_support_IPv6)
 		subnet_input_obj.maxLength = "39";
 	else {
-		subnet_input_obj.placeholder = "(ex.10.10.10.0/24)";
 		subnet_input_obj.maxLength = "18";
 	}
 	subnet_input_obj.style.marginTop = "4px";
@@ -1611,6 +1415,10 @@ function initialIPSecProfile() {
 	document.getElementById("td_net_remote_private_subnet").appendChild(gen_subnet_add("remote"));
 
 	document.ipsec_form.ipsec_remote_port.value = "0";
+	
+	// Set default transport mode
+	document.ipsec_form.ipsec_transport.value = "tunnel";
+	
 	settingRadioItemCheck(document.ipsec_form.ipsec_ike, "1");
 	changeIKEVersion();
 	document.ipsec_form.ipsec_keylife_p1.value = "172800";
@@ -1638,8 +1446,7 @@ function editIPSecProfile(mode) {
 	}
 	gen_vpnc_tab_list("ipsec");
 	$("#openvpnc_setting_ipsec").fadeIn(300);
-	document.getElementById("pptpcTitle_ipsec").style.display = "none";
-	document.getElementById("l2tpcTitle_ipsec").style.display = "none";
+	/* PPTP/L2TP title elements removed */
 //	if(openvpnd_support)
 //		document.getElementById("opencTitle_ipsec").style.display = "none";
 	document.getElementById("ipsecTitle_ipsec").style.display = "";
@@ -1653,35 +1460,35 @@ function editIPSecProfile(mode) {
 			editProfileExtArray = ipsec_profile_client_1_ext.split(">");
 			editProfileArray.unshift("ipsec_profile_client_1");
 			document.ipsec_form.ipsec_profile_item.value = "ipsec_profile_client_1";
-			editProfileArray[2] = editProfileArray[2].split("_c1")[0];
+			if(editProfileArray[2]) editProfileArray[2] = editProfileArray[2].split("_c1")[0];
 			break;
 		case "ipsec_profile_client_2" :
 			editProfileArray = ipsec_profile_client_2.split(">");
 			editProfileExtArray = ipsec_profile_client_2_ext.split(">");
 			editProfileArray.unshift("ipsec_profile_client_2");
 			document.ipsec_form.ipsec_profile_item.value = "ipsec_profile_client_2";
-			editProfileArray[2] = editProfileArray[2].split("_c2")[0];
+			if(editProfileArray[2]) editProfileArray[2] = editProfileArray[2].split("_c2")[0];
 			break;
 		case "ipsec_profile_client_3" :
 			editProfileArray = ipsec_profile_client_3.split(">");
 			editProfileExtArray = ipsec_profile_client_3_ext.split(">");
 			editProfileArray.unshift("ipsec_profile_client_3");
 			document.ipsec_form.ipsec_profile_item.value = "ipsec_profile_client_3";
-			editProfileArray[2] = editProfileArray[2].split("_c3")[0];
+			if(editProfileArray[2]) editProfileArray[2] = editProfileArray[2].split("_c3")[0];
 			break;
 		case "ipsec_profile_client_4" :
 			editProfileArray = ipsec_profile_client_4.split(">");
 			editProfileExtArray = ipsec_profile_client_4_ext.split(">");
 			editProfileArray.unshift("ipsec_profile_client_4");
 			document.ipsec_form.ipsec_profile_item.value = "ipsec_profile_client_4";
-			editProfileArray[2] = editProfileArray[2].split("_c4")[0];
+			if(editProfileArray[2]) editProfileArray[2] = editProfileArray[2].split("_c4")[0];
 			break;
 		case "ipsec_profile_client_5" :
 			editProfileArray = ipsec_profile_client_5.split(">");
 			editProfileExtArray = ipsec_profile_client_5_ext.split(">");
 			editProfileArray.unshift("ipsec_profile_client_5");
 			document.ipsec_form.ipsec_profile_item.value = "ipsec_profile_client_5";
-			editProfileArray[2] = editProfileArray[2].split("_c5")[0];
+			if(editProfileArray[2]) editProfileArray[2] = editProfileArray[2].split("_c5")[0];
 			break;
 	}
 	UpdatePSecProfile(editProfileArray, editProfileExtArray);
@@ -1797,6 +1604,13 @@ function UpdatePSecProfile(array, array_ext) {
 		}
 	}
 	document.ipsec_form.ipsec_remote_port.value = array[12];
+	
+	// Set transport/tunnel mode
+	if(array[13] && (array[13] == "tunnel" || array[13] == "transport")) {
+		document.ipsec_form.ipsec_transport.value = array[13];
+	} else {
+		document.ipsec_form.ipsec_transport.value = "tunnel"; // Default to tunnel
+	}
 
 	settingRadioItemCheck(document.ipsec_form.ipsec_ike, array[17]);
 	changeIKEVersion();
@@ -1994,15 +1808,6 @@ function save_ipsec_profile_panel() {
 					return false;
 				}
 
-				//2.check PPTP
-				if(pptpd_support) {
-					ipConflict = checkIPConflict("PPTP", lanIPAddr, lanNetMask);
-					if(ipConflict.state) {
-						alertMsg("PPTP", ipConflict.ipAddr, ipConflict.netLegalRangeStart, ipConflict.netLegalRangeEnd);
-						return false;
-					}
-				}
-
 				//3.check OpenVPN
 				if(openvpnd_support) {
 					ipConflict = checkIPConflict("OpenVPN", lanIPAddr, lanNetMask);
@@ -2033,17 +1838,24 @@ function save_ipsec_profile_panel() {
 				}
 
 				if(is_ipv4) {
-					if(!validator.isLegalIPAndMask(existSubnetObj)) {
-						return true;
-					}
-
 					var subnetIP = existSubnetObj.value.split("/")[0];
 					var maskCIDR = parseInt(existSubnetObj.value.split("/")[1], 10);
-					if (isNaN(maskCIDR) || maskCIDR < 0 || maskCIDR > 32){
-						alert("Mask address must be a valid subnet mask e.g. /24");/*untranslated*/
-						existSubnetObj.focus();
-						existSubnetObj.select();
-						return false;
+					
+					// Allow 0.0.0.0/0 for "all traffic through VPN tunnel"
+					if(existSubnetObj.value === "0.0.0.0/0") {
+						// Valid - route all traffic through VPN
+					}
+					else {
+						if(!validator.isLegalIPAndMask(existSubnetObj)) {
+							return true;
+						}
+						
+						if (isNaN(maskCIDR) || maskCIDR < 0 || maskCIDR > 32){
+							alert("Mask address must be a valid subnet mask e.g. /24");/*untranslated*/
+							existSubnetObj.focus();
+							existSubnetObj.select();
+							return false;
+						}
 					}
 				}
 				else if(is_ipv6) {
@@ -2196,7 +2008,7 @@ function save_ipsec_profile_panel() {
 			"2", ipsec_profilename, getRadioItemCheck(document.ipsec_form.ipsec_remote_gateway_method), document.ipsec_form.ipsec_remote_gateway.value, 
 			document.ipsec_form.ipsec_local_public_interface.value, local_public_ip, "1", auth_method_vaule, 
 			local_subnet_list, document.ipsec_form.ipsec_local_port.value, remote_subnet_list, document.ipsec_form.ipsec_remote_port.value, 
-			"tunnel", "", "", accessible_networks, 
+			document.ipsec_form.ipsec_transport.value, "", "", accessible_networks, 
 			getRadioItemCheck(document.ipsec_form.ipsec_ike), "auto", "auto", getRadioItemCheck(document.ipsec_form.ipsec_exchange), 
 			document.ipsec_form.ipsec_local_id.value, document.ipsec_form.ipsec_remote_id.value, document.ipsec_form.ipsec_keylife_p1.value, "0", 
 			"", "", "eap-md5", "1", 
@@ -2241,6 +2053,8 @@ function save_ipsec_profile_panel() {
 		hash_p2 = get_checkboxlist("ipsec_hash_p2");
 		if(getRadioItemCheck(document.ipsec_form.ipsec_pfs) == "1")
 			pfs_group = get_checkboxlist("ipsec_pfs_group");
+		else
+			pfs_group = "0";  // PFS disabled - explicitly set to 0
 		var profile_ext_array = [encryption_p1, hash_p1, dh_group, encryption_p2, hash_p2, pfs_group];
 		result_ext = profile_ext_array.join(">");
 
@@ -2280,6 +2094,35 @@ function connect_Row_IPSec(rowdata, profileName, flag) {
 	var state = 0;
 	var actionScript = "ipsec_stop_cli";
 	if(flag == "active") {
+		// Check if any other IPSec connection is already active
+		var activeCount = 0;
+		var activeProfileName = "";
+		var profiles = [
+			{name: "ipsec_profile_client_1", value: ipsec_profile_client_1},
+			{name: "ipsec_profile_client_2", value: ipsec_profile_client_2},
+			{name: "ipsec_profile_client_3", value: ipsec_profile_client_3},
+			{name: "ipsec_profile_client_4", value: ipsec_profile_client_4},
+			{name: "ipsec_profile_client_5", value: ipsec_profile_client_5}
+		];
+		
+		for(var i = 0; i < profiles.length; i++) {
+			if(profiles[i].value != "" && profiles[i].name != profileName) {
+				// Get activation state (last field = "1" means activated/activating)
+				var fields = profiles[i].value.split(">");
+				var activationState = fields[fields.length - 1];
+				if(activationState == "1") {
+					activeCount++;
+					// Get profile name (field index 2)
+					activeProfileName = fields[2] ? fields[2].split("_c")[0] : profiles[i].name.replace("ipsec_profile_client_", "Profile ");
+				}
+			}
+		}
+		
+		if(activeCount > 0) {
+			alert("Only one IPSec connection can be active at a time.\nPlease deactivate '" + activeProfileName + "' before activating another connection.");
+			return false;
+		}
+		
 		state = 1;
 		actionScript = "ipsec_start_cli";
 	}
@@ -2339,6 +2182,10 @@ function update_connect_status() {
 		}
 	});
 }
+function editOpenConnectProfile(unit) {
+	// Redirect to OpenConnect management page with the specified unit
+	window.location.href = "Advanced_OpenConnect_Content.asp?unit=" + unit;
+}
 function changeIKEVersion() {
 	var ike_version = getRadioItemCheck(document.ipsec_form.ipsec_ike);
 	switch(ike_version) {
@@ -2377,18 +2224,7 @@ function parseArrayToStr_vpnc_clientlist() {
 	}
 	return vpnc_clientlist_str;
 }
-function parseArrayToStr_vpnc_pptp_options_x_list() {
-	var vpnc_pptp_options_x_list_str = "";
-	for(var i = 0; i < vpnc_pptp_options_x_list_array.length; i += 1) {
-		if(vpnc_pptp_options_x_list_array[i].length != 0) {
-			vpnc_pptp_options_x_list_str += "<";
-			for(var j = 0; j < vpnc_pptp_options_x_list_array[i].length; j += 1) {
-				vpnc_pptp_options_x_list_str += vpnc_pptp_options_x_list_array[i][j];
-			}
-		}
-	}
-	return vpnc_pptp_options_x_list_str;
-}
+
 function changeRemoteGatewayMethod() {
 	$("#ipsec_remote_gateway").removeAttr("maxlength");
 	$('#ipsec_remote_gateway').unbind("keypress");
@@ -2411,7 +2247,6 @@ function add_subnet_item(obj, _type) {
 		alert("<#JS_itemlimit1#> " + existSubnetItem + " <#JS_itemlimit2#>");
 	}
 	else {
-		var code = "";
 		var divObj = document.createElement("input");
 		divObj.type = "text";
 		divObj.className = "input_25_table";
@@ -2502,8 +2337,12 @@ function changePFS() {
 <input type="hidden" name="vpnc_dnsenable_x" value="<% nvram_get("vpnc_dnsenable_x"); %>">
 <input type="hidden" name="vpnc_defroute_x" value="<% nvram_get("vpnc_defroute_x"); %>">
 <input type="hidden" name="vpnc_proto" value="<% nvram_get("vpnc_proto"); %>">
+<input type="hidden" name="vpnc_type" value="IPSec">
+<input type="hidden" name="vpnc_des_edit" value="">
+<input type="hidden" name="vpnc_svr_edit" value="">
+<input type="hidden" name="vpnc_account_edit" value="">
+<input type="hidden" name="vpnc_pwd_edit" value="">
 <input type="hidden" name="vpnc_clientlist" value='<% nvram_get("vpnc_clientlist"); %>'>
-<input type="hidden" name="vpnc_type" value="PPTP">
 <input type="hidden" name="vpnc_auto_conn" value="<% nvram_get("vpnc_auto_conn"); %>">
 <input type="hidden" name="vpn_client_unit" value="1">
 <input type="hidden" name="vpn_client1_username" value="<% nvram_get("vpn_client1_username"); %>">
@@ -2517,62 +2356,12 @@ function changePFS() {
 <input type="hidden" name="vpn_client5_username" value="<% nvram_get("vpn_client5_username"); %>">
 <input type="hidden" name="vpn_client5_password" value="<% nvram_get("vpn_client5_password"); %>">
 <input type="hidden" name="vpn_clientx_eas" value="<% nvram_get("vpn_clientx_eas"); %>">
-<input type="hidden" name="vpnc_pptp_options_x" value="<% nvram_get("vpnc_pptp_options_x"); %>">
-<input type="hidden" name="vpnc_pptp_options_x_list" value="<% nvram_get("vpnc_pptp_options_x_list"); %>">
+
 <input type="hidden" name="ctf_nonat_force" value="<% nvram_get("ctf_nonat_force"); %>" disabled>
 <div id="openvpnc_setting"  class="contentM_qis pop_div_bg" style="box-shadow: 1px 5px 10px #000;">
 	<table class="QISform_wireless" border=0 align="center" cellpadding="5" cellspacing="0">
-		<tr style="height:32px;">
-			<td>
-				<div id="divTabMenu_pptp"></div>
-			</td>
-		</tr>
 		<tr>
 			<td>
-				<!---- vpnc_pptp/l2tp start  ---->
-				<div>
-				<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" class="FormTable">
-			 		<tr>
-						<th><#IPConnection_autofwDesc_itemname#></th>
-					  <td>
-					  	<input type="text" maxlength="64" name="vpnc_des_edit" value="" class="input_32_table" style="float:left;" autocorrect="off" autocapitalize="off"></input>
-					  </td>
-					</tr>  		
-					<tr>
-						<th><#BOP_isp_heart_item#></th>
-						<td>
-							<input type="text" maxlength="64" name="vpnc_svr_edit" value="" class="input_32_table" style="float:left;" autocorrect="off" autocapitalize="off"></input>
-						</td>
-					</tr>  		
-					<tr>
-						<th><#Username#></th>
-						<td>
-							<input type="text" maxlength="64" name="vpnc_account_edit" value="" class="input_32_table" style="float:left;" autocomplete="off" autocorrect="off" autocapitalize="off"></input>
-						</td>
-					</tr>  		
-					<tr>
-						<th><#HSDPAConfig_Password_itemname#></th>
-						<td>
-							<input type="text" maxlength="64" name="vpnc_pwd_edit" value="" class="input_32_table" style="float:left;" autocomplete="off" autocorrect="off" autocapitalize="off"></input>
-						</td>
-					</tr>
-					<tr id="trPPTPOptions">
-						<th><#PPPConnection_x_PPTPOptions_itemname#></th>
-						<td>
-							<select name="selPPTPOption" class="input_option" onchange="pptpOptionChange();">
-								<option value="auto"><#Auto#></option>
-								<option value="-mppc"><#No_Encryp#></option>
-								<option value="+mppe-40">MPPE 40</option>
-								<option value="+mppe-128">MPPE 128</option>
-							</select>
-							<div id="pptpOptionHint" style="display:none;">
-								<span><#PPTPOptions_OpenVPN_hint#></span>
-							</div>
-						</td>	
-					</tr>		 
-		 		</table>
-		 		</div>
-		 		<!---- vpnc_pptp/l2tp end  ---->		 			 	
 			</td>
 		</tr>
 	</table>		
@@ -2602,7 +2391,7 @@ function changePFS() {
 					<tr>
 						<td bgcolor="#4D595D" valign="top">
 							<div>&nbsp;</div>
-							<div class="formfonttitle">VPN - <#vpnc_title#></div>
+							<div class="formfonttitle">IPsec Client Settings</div>
 							<div id="divSwitchMenu" style="margin-top:-40px;float:right;"></div>
 							<div style="margin:10px 0 10px 5px;" class="splitLine"></div>
 							<div class="formfontdesc">
@@ -2752,7 +2541,7 @@ function changePFS() {
 							<input type="radio" name="ipsec_remote_gateway_method" id="ipsec_remote_gateway_ip" class="input" value="0" onchange="changeRemoteGatewayMethod()" checked>
 							<label for='ipsec_remote_gateway_ip' id="ipsec_remote_gateway_ip_label"><#vpn_ipsec_Static_IP#></label>
 							<input type="radio" name="ipsec_remote_gateway_method" id="ipsec_remote_gateway_ddns" class="input" value="1" onchange="changeRemoteGatewayMethod()">
-							<label for='ipsec_remote_gateway_ddns' id="ipsec_remote_gateway_ddns_label"><#LANHostConfig_x_LDNSServer1_itemname#></label>
+							<label for='ipsec_remote_gateway_ddns' id="ipsec_remote_gateway_ddns_label">FQDN<!--untranslated--></label>
 						</td>
 					</tr>
 					<tr id="tr_remote_gateway">
@@ -2819,30 +2608,26 @@ function changePFS() {
 						</td>
 					</tr>
 					<tr id="tr_net_transport">
-						<th><#DSL_Mode#></th>
-						<td>
-							<#vpn_ipsec_Tunnel#>
-							<!--select name="ipsec_transport" class="input_option">
-								<option value="tunnel">Tunnel</option>
-								<option value="transport">Transport</option>
-								<option value="transport_proxy">Transport Proxy</option>
-								<option value="passthrough">Passthrough</option>
-								<option value="drop">Drop</option>
-							</select-->
-						</td>
-					</tr>	
+					<th><#DSL_Mode#> *</th>
+					<td>
+						<select name="ipsec_transport" class="input_option">
+							<option value="tunnel">Tunnel (Site-to-Site/Road Warrior)</option>
+							<option value="transport">Transport (Host-to-Host)</option>
+						</select>
+						<span style="color:#FC0;margin-left:10px;">Tunnel mode encapsulates entire IP packet (most common). Transport mode only encrypts payload.</span>
+					</td>
+					</tr>
 				</table>
 				<!-- Network table end-->
-
-				<!-- Advanced Settings table start-->
+				<!-- Advanced Settings wrapper start-->
 				<div id="ipsec_advanced_settings" style="display:none;">
-					<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable" style="margin-top:15px;">
-						<thead>
-						<tr>
-							<td colspan="2">Advanced Settings - <#vpn_ipsec_Phase_1_Negotiations#></td>
-						</tr>
-						</thead>
-						<tr id="tr_adv_ike_version">
+				<table id="tb_adv_phase1" width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable" style="margin-top:15px;">
+					<thead>
+					<tr>
+						<td colspan="2">Advanced Settings - <#vpn_ipsec_Phase_1_Negotiations#></td>
+					</tr>
+					</thead>
+								<tr id="tr_adv_ike_version">
 							<th><#vpn_ipsec_IKE_Version#></th>
 							<td>
 								<input type="radio" name="ipsec_ike" id="ipsec_ike_v1" class="input" value="1" onchange="changeIKEVersion()" checked>
@@ -2854,48 +2639,59 @@ function changePFS() {
 						<tr id="tr_adv_encryption_p1">
 							<th><#vpn_ipsec_Encryption#></th>
 							<td>
-								<!--label><input type="checkbox" name="ipsec_encryption_p1" value="1">DES</label-->
-								<label><input type="checkbox" name="ipsec_encryption_p1" value="2">3DES <span style="color:#FC0">⚠ Legacy</span></label>
-								<label><input type="checkbox" name="ipsec_encryption_p1" value="4">AES128</label>
-								<label><input type="checkbox" name="ipsec_encryption_p1" value="8">AES192</label>
-								<label><input type="checkbox" name="ipsec_encryption_p1" value="16">AES256 <span style="color:#0C0">✓ Recommended</span></label>
+								<div class="ipsec_security_legend">
+									<span class="ipsec_security_legend_title">Security Level:</span>
+									<span class="ipsec_legend_item leg_weak"><span class="security_badge badge_weak"></span>Weak</span>
+									<span class="ipsec_legend_item leg_legacy"><span class="security_badge badge_legacy"></span>Legacy</span>
+									<span class="ipsec_legend_item leg_rec"><span class="security_badge badge_recommended"></span>Recommended</span>
+									<span class="ipsec_legend_item leg_modern"><span class="security_badge badge_modern"></span>Modern</span>
+								</div>
+								<div class="ipsec_checkbox_grid">
+									<label><input type="checkbox" name="ipsec_encryption_p1" value="2">3DES <span class="security_badge badge_legacy"></span></label>
+									<label><input type="checkbox" name="ipsec_encryption_p1" value="4">AES128</label>
+									<label><input type="checkbox" name="ipsec_encryption_p1" value="8">AES192</label>
+									<label><input type="checkbox" name="ipsec_encryption_p1" value="16">AES256 <span class="security_badge badge_recommended"></span></label>
+								</div>
 							</td>
 						</tr>
 						<tr id="tr_adv_hash_p1">
 							<th><#vpn_ipsec_Hash#></th>
 							<td>
-								<!--label><input type="checkbox" name="ipsec_hash_p1" value="1">MD5</label-->
-								<label><input type="checkbox" name="ipsec_hash_p1" value="2">SHA1 <span style="color:#FC0">⚠ Legacy</span></label>
-								<label><input type="checkbox" name="ipsec_hash_p1" value="4">SHA256</label>
-								<label><input type="checkbox" name="ipsec_hash_p1" value="8">SHA384</label>
-								<label><input type="checkbox" name="ipsec_hash_p1" value="16">SHA512 <span style="color:#0C0">✓ Recommended</span></label>
+								<div class="ipsec_checkbox_grid">
+									<label><input type="checkbox" name="ipsec_hash_p1" value="2">SHA1 <span class="security_badge badge_legacy"></span></label>
+									<label><input type="checkbox" name="ipsec_hash_p1" value="4">SHA256</label>
+									<label><input type="checkbox" name="ipsec_hash_p1" value="8">SHA384</label>
+									<label><input type="checkbox" name="ipsec_hash_p1" value="16">SHA512 <span class="security_badge badge_recommended"></span></label>
+								</div>
 							</td>
 						</tr>
 						<tr id="tr_adv_dh_group">
 							<th>Diffile-Hellman Groups<!--untranslated--></th>
 							<td>
-								<label><input type="checkbox" name="ipsec_dh_group_p1" value="1">1 <span style="color:#F00">⚠ Weak</span></label>
-								<label><input type="checkbox" name="ipsec_dh_group_p1" value="2">2 <span style="color:#F00">⚠ Weak</span></label>
-								<label><input type="checkbox" name="ipsec_dh_group_p1" value="4">5</label>
-								<label><input type="checkbox" name="ipsec_dh_group_p1" value="8">14</label>
-								<label><input type="checkbox" name="ipsec_dh_group_p1" value="16">15</label>
-								<label><input type="checkbox" name="ipsec_dh_group_p1" value="32">16</label>
-								<label><input type="checkbox" name="ipsec_dh_group_p1" value="64">17</label>
-								<label><input type="checkbox" name="ipsec_dh_group_p1" value="128">18</label>
-								<label><input type="checkbox" name="ipsec_dh_group_p1" value="2048">19 (256-bit ECP) <span style="color:#0C0">✓ Recommended</span></label>
-								<label><input type="checkbox" name="ipsec_dh_group_p1" value="4096">20 (384-bit ECP)</label>
-								<label><input type="checkbox" name="ipsec_dh_group_p1" value="8192">21 (521-bit ECP)</label>
-								<label><input type="checkbox" name="ipsec_dh_group_p1" value="256">22 (1024-bit MODP)</label>
-								<label><input type="checkbox" name="ipsec_dh_group_p1" value="512">23 (2048-bit MODP)</label>
-								<label><input type="checkbox" name="ipsec_dh_group_p1" value="1024">24 (2048-bit MODP)</label>
-								<label><input type="checkbox" name="ipsec_dh_group_p1" value="16384">25 (192-bit ECP)</label>
-								<label><input type="checkbox" name="ipsec_dh_group_p1" value="32768">26 (224-bit ECP)</label>
-								<label><input type="checkbox" name="ipsec_dh_group_p1" value="65536">27 (Brainpool P-224)</label>
-								<label><input type="checkbox" name="ipsec_dh_group_p1" value="131072">28 (Brainpool P-256)</label>
-								<label><input type="checkbox" name="ipsec_dh_group_p1" value="262144">29 (Brainpool P-384)</label>
-								<label><input type="checkbox" name="ipsec_dh_group_p1" value="524288">30 (Brainpool P-512)</label>
-								<label><input type="checkbox" name="ipsec_dh_group_p1" value="1048576">31 (Curve25519) <span style="color:#0C0">✓ Modern</span></label>
-								<label><input type="checkbox" name="ipsec_dh_group_p1" value="2097152">32 (Curve448)</label>
+								<div class="ipsec_checkbox_grid">
+									<label title="modp768 - 768 bits"><input type="checkbox" name="ipsec_dh_group_p1" value="1">1 <span class="security_badge badge_weak"></span></label>
+									<label title="modp1024 - 1024 bits"><input type="checkbox" name="ipsec_dh_group_p1" value="2">2 <span class="security_badge badge_weak"></span></label>
+									<label title="modp1536 - 1536 bits"><input type="checkbox" name="ipsec_dh_group_p1" value="4">5</label>
+									<label title="modp2048 - 2048 bits"><input type="checkbox" name="ipsec_dh_group_p1" value="8">14</label>
+									<label title="modp3072 - 3072 bits"><input type="checkbox" name="ipsec_dh_group_p1" value="16">15</label>
+									<label title="modp4096 - 4096 bits"><input type="checkbox" name="ipsec_dh_group_p1" value="32">16</label>
+									<label title="modp6144 - 6144 bits"><input type="checkbox" name="ipsec_dh_group_p1" value="64">17</label>
+									<label title="modp8192 - 8192 bits"><input type="checkbox" name="ipsec_dh_group_p1" value="128">18</label>
+									<label title="ecp256 - 256-bit ECP"><input type="checkbox" name="ipsec_dh_group_p1" value="256">19 <span class="security_badge badge_recommended"></span></label>
+									<label title="ecp384 - 384-bit ECP"><input type="checkbox" name="ipsec_dh_group_p1" value="512">20</label>
+									<label title="ecp521 - 521-bit ECP"><input type="checkbox" name="ipsec_dh_group_p1" value="1024">21</label>
+									<label title="modp1024s160"><input type="checkbox" name="ipsec_dh_group_p1" value="2048">22</label>
+									<label title="modp2048s224"><input type="checkbox" name="ipsec_dh_group_p1" value="4096">23</label>
+									<label title="modp2048s256"><input type="checkbox" name="ipsec_dh_group_p1" value="8192">24</label>
+									<label title="ecp192 - 192-bit ECP"><input type="checkbox" name="ipsec_dh_group_p1" value="16384">25</label>
+									<label title="ecp224 - 224-bit ECP"><input type="checkbox" name="ipsec_dh_group_p1" value="32768">26</label>
+									<label title="Brainpool P-224"><input type="checkbox" name="ipsec_dh_group_p1" value="65536">27</label>
+									<label title="Brainpool P-256"><input type="checkbox" name="ipsec_dh_group_p1" value="131072">28</label>
+									<label title="Brainpool P-384"><input type="checkbox" name="ipsec_dh_group_p1" value="262144">29</label>
+									<label title="Brainpool P-512"><input type="checkbox" name="ipsec_dh_group_p1" value="524288">30</label>
+									<label title="Curve25519"><input type="checkbox" name="ipsec_dh_group_p1" value="1048576">31 <span class="security_badge badge_modern"></span></label>
+									<label title="Curve448"><input type="checkbox" name="ipsec_dh_group_p1" value="2097152">32</label>
+								</div>
 							</td>
 						</tr>
 						<tr id="tr_adv_exchange_mode">
@@ -2945,31 +2741,41 @@ function changePFS() {
 								<span style="color:#FC0">(10~900) <#Second#></span>
 							</td>
 						</tr>
-					</table>
-					<table id="tb_adv_phase2" width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable" style="margin-top:15px;">
-						<thead>
-						<tr>
-							<td colspan="2">Advanced Settings - <#vpn_ipsec_Phase_2_Negotiations#></td>
-						</tr>
-						</thead>
+				</table>
+				<!-- Phase 1 table end-->
+				<table id="tb_adv_phase2" width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable" style="margin-top:15px;">
+					<thead>
+					<tr>
+						<td colspan="2">Advanced Settings - <#vpn_ipsec_Phase_2_Negotiations#></td>
+					</tr>
+					</thead>
 						<tr id="tr_adv_encryption_p2">
 							<th><#vpn_ipsec_Encryption#></th>
 							<td>
-								<!--label><input type="checkbox" name="ipsec_encryption_p2" value="1">DES</label-->
-								<label><input type="checkbox" name="ipsec_encryption_p2" value="2">3DES <span style="color:#FC0">⚠ Legacy</span></label>
-								<label><input type="checkbox" name="ipsec_encryption_p2" value="4">AES128</label>
-								<label><input type="checkbox" name="ipsec_encryption_p2" value="8">AES192</label>
-								<label><input type="checkbox" name="ipsec_encryption_p2" value="16">AES256 <span style="color:#0C0">✓ Recommended</span></label>
+								<div class="ipsec_security_legend">
+									<span class="ipsec_security_legend_title">Security Level:</span>
+									<span class="ipsec_legend_item leg_weak"><span class="security_badge badge_weak"></span>Weak</span>
+									<span class="ipsec_legend_item leg_legacy"><span class="security_badge badge_legacy"></span>Legacy</span>
+									<span class="ipsec_legend_item leg_rec"><span class="security_badge badge_recommended"></span>Recommended</span>
+									<span class="ipsec_legend_item leg_modern"><span class="security_badge badge_modern"></span>Modern</span>
+								</div>
+								<div class="ipsec_checkbox_grid">
+									<label><input type="checkbox" name="ipsec_encryption_p2" value="2">3DES <span class="security_badge badge_legacy"></span></label>
+									<label><input type="checkbox" name="ipsec_encryption_p2" value="4">AES128</label>
+									<label><input type="checkbox" name="ipsec_encryption_p2" value="8">AES192</label>
+									<label><input type="checkbox" name="ipsec_encryption_p2" value="16">AES256 <span class="security_badge badge_recommended"></span></label>
+								</div>
 							</td>
 						</tr>
 						<tr id="tr_adv_hash_p2">
 							<th><#vpn_ipsec_Hash#></th>
 							<td>
-								<!--label><input type="checkbox" name="ipsec_hash_p2" value="1">MD5</label-->
-								<label><input type="checkbox" name="ipsec_hash_p2" value="2">SHA1 <span style="color:#FC0">⚠ Legacy</span></label>
-								<label><input type="checkbox" name="ipsec_hash_p2" value="4">SHA256</label>
-								<label><input type="checkbox" name="ipsec_hash_p2" value="8">SHA384</label>
-								<label><input type="checkbox" name="ipsec_hash_p2" value="16">SHA512 <span style="color:#0C0">✓ Recommended</span></label>
+								<div class="ipsec_checkbox_grid">
+									<label><input type="checkbox" name="ipsec_hash_p2" value="2">SHA1 <span class="security_badge badge_legacy"></span></label>
+									<label><input type="checkbox" name="ipsec_hash_p2" value="4">SHA256</label>
+									<label><input type="checkbox" name="ipsec_hash_p2" value="8">SHA384</label>
+									<label><input type="checkbox" name="ipsec_hash_p2" value="16">SHA512 <span class="security_badge badge_recommended"></span></label>
+								</div>
 							</td>
 						</tr>
 						<tr id="tr_adv_pfs">
@@ -2982,28 +2788,30 @@ function changePFS() {
 						<tr id="tr_adv_pfs_group">
 							<th>PFS Groups</th><!-- untranslated -->
 							<td>
-								<label><input type="checkbox" name="ipsec_pfs_group" value="1">1 <span style="color:#F00">⚠ Weak</span></label>
-								<label><input type="checkbox" name="ipsec_pfs_group" value="2">2 <span style="color:#F00">⚠ Weak</span></label>
-								<label><input type="checkbox" name="ipsec_pfs_group" value="4">5</label>
-								<label><input type="checkbox" name="ipsec_pfs_group" value="8">14</label>
-								<label><input type="checkbox" name="ipsec_pfs_group" value="16">15</label>
-								<label><input type="checkbox" name="ipsec_pfs_group" value="32">16</label>
-								<label><input type="checkbox" name="ipsec_pfs_group" value="64">17</label>
-								<label><input type="checkbox" name="ipsec_pfs_group" value="128">18</label>
-								<label><input type="checkbox" name="ipsec_pfs_group" value="2048">19 (256-bit ECP) <span style="color:#0C0">✓ Recommended</span></label>
-								<label><input type="checkbox" name="ipsec_pfs_group" value="4096">20 (384-bit ECP)</label>
-								<label><input type="checkbox" name="ipsec_pfs_group" value="8192">21 (521-bit ECP)</label>
-								<label><input type="checkbox" name="ipsec_pfs_group" value="256">22 (1024-bit MODP)</label>
-								<label><input type="checkbox" name="ipsec_pfs_group" value="512">23 (2048-bit MODP)</label>
-								<label><input type="checkbox" name="ipsec_pfs_group" value="1024">24 (2048-bit MODP)</label>
-								<label><input type="checkbox" name="ipsec_pfs_group" value="16384">25 (192-bit ECP)</label>
-								<label><input type="checkbox" name="ipsec_pfs_group" value="32768">26 (224-bit ECP)</label>
-								<label><input type="checkbox" name="ipsec_pfs_group" value="65536">27 (Brainpool P-224)</label>
-								<label><input type="checkbox" name="ipsec_pfs_group" value="131072">28 (Brainpool P-256)</label>
-								<label><input type="checkbox" name="ipsec_pfs_group" value="262144">29 (Brainpool P-384)</label>
-								<label><input type="checkbox" name="ipsec_pfs_group" value="524288">30 (Brainpool P-512)</label>
-								<label><input type="checkbox" name="ipsec_pfs_group" value="1048576">31 (Curve25519) <span style="color:#0C0">✓ Modern</span></label>
-								<label><input type="checkbox" name="ipsec_pfs_group" value="2097152">32 (Curve448)</label>
+								<div class="ipsec_checkbox_grid">
+									<label title="modp768 - 768 bits"><input type="checkbox" name="ipsec_pfs_group" value="1">1 <span class="security_badge badge_weak"></span></label>
+									<label title="modp1024 - 1024 bits"><input type="checkbox" name="ipsec_pfs_group" value="2">2 <span class="security_badge badge_weak"></span></label>
+									<label title="modp1536 - 1536 bits"><input type="checkbox" name="ipsec_pfs_group" value="4">5</label>
+									<label title="modp2048 - 2048 bits"><input type="checkbox" name="ipsec_pfs_group" value="8">14</label>
+									<label title="modp3072 - 3072 bits"><input type="checkbox" name="ipsec_pfs_group" value="16">15</label>
+									<label title="modp4096 - 4096 bits"><input type="checkbox" name="ipsec_pfs_group" value="32">16</label>
+									<label title="modp6144 - 6144 bits"><input type="checkbox" name="ipsec_pfs_group" value="64">17</label>
+									<label title="modp8192 - 8192 bits"><input type="checkbox" name="ipsec_pfs_group" value="128">18</label>
+									<label title="ecp256 - 256-bit ECP"><input type="checkbox" name="ipsec_pfs_group" value="256">19 <span class="security_badge badge_recommended"></span></label>
+									<label title="ecp384 - 384-bit ECP"><input type="checkbox" name="ipsec_pfs_group" value="512">20</label>
+									<label title="ecp521 - 521-bit ECP"><input type="checkbox" name="ipsec_pfs_group" value="1024">21</label>
+									<label title="modp1024s160"><input type="checkbox" name="ipsec_pfs_group" value="2048">22</label>
+									<label title="modp2048s224"><input type="checkbox" name="ipsec_pfs_group" value="4096">23</label>
+									<label title="modp2048s256"><input type="checkbox" name="ipsec_pfs_group" value="8192">24</label>
+									<label title="ecp192 - 192-bit ECP"><input type="checkbox" name="ipsec_pfs_group" value="16384">25</label>
+									<label title="ecp224 - 224-bit ECP"><input type="checkbox" name="ipsec_pfs_group" value="32768">26</label>
+									<label title="Brainpool P-224"><input type="checkbox" name="ipsec_pfs_group" value="65536">27</label>
+									<label title="Brainpool P-256"><input type="checkbox" name="ipsec_pfs_group" value="131072">28</label>
+									<label title="Brainpool P-384"><input type="checkbox" name="ipsec_pfs_group" value="262144">29</label>
+									<label title="Brainpool P-512"><input type="checkbox" name="ipsec_pfs_group" value="524288">30</label>
+									<label title="Curve25519"><input type="checkbox" name="ipsec_pfs_group" value="1048576">31 <span class="security_badge badge_modern"></span></label>
+									<label title="Curve448"><input type="checkbox" name="ipsec_pfs_group" value="2097152">32</label>
+								</div>
 							</td>
 						</tr>
 						<tr id="tr_adv_keylife_time_p2">
@@ -3019,10 +2827,11 @@ function changePFS() {
 								<input type="text" class="input_6_table" name="ipsec_keyingtries" maxlength="2" value="3" onKeyPress="return validator.isNumber(this,event)" autocomplete="off" autocorrect="off" autocapitalize="off">
 							</td>
 						</tr>
-					</table>
-					<div style="color:#FC0;margin:10px 0px;"><#vpn_ipsec_Default_DH_Hint#></div>
+				</table>
+				<!-- Phase 2 table end-->
+				<div style="color:#FC0;margin:10px 0px;"><#vpn_ipsec_Default_DH_Hint#></div>
 				</div>
-				<!-- Advanced Settings table end-->
+				<!-- Advanced Settings wrapper end-->
 
 				<div style="margin-top:15px;width:100%;text-align:center;">
 					<input id="cancelBtn_ipsec" class="button_gen" type="button" onclick="cancel_ipsec_profile_panel();" value="<#CTL_Cancel#>">
@@ -3048,11 +2857,10 @@ function changePFS() {
 <input type="hidden" name="vpn_upload_type" value="ovpn">
 <input type="hidden" name="vpn_upload_unit" value="1">
 <input type="hidden" name="vpn_client_unit" value="<% nvram_get("vpn_client_unit"); %>">
-<input type="hidden" name="vpnc_type" value="PPTP">
 <input type="hidden" name="vpnc_proto" value="<% nvram_get("vpnc_proto"); %>" disabled>
+<input type="hidden" name="vpnc_type" value="IPSec">
 <input type="hidden" name="vpn_clientx_eas" value="<% nvram_get("vpn_clientx_eas"); %>">
 <input type="hidden" name="vpnc_auto_conn" value="<% nvram_get("vpnc_auto_conn"); %>">
-<input type="hidden" name="vpnc_pptp_options_x_list" value="<% nvram_get("vpnc_pptp_options_x_list"); %>">
 <input type="hidden" name="vpnc_openvpn_unit_edit" value="1">
 <div id="openvpnc_setting_openvpn" class="contentM_qis pop_div_bg" style="box-shadow: 1px 5px 10px #000;"> 
 	<table class="QISform_wireless" border=0 align="center" cellpadding="5" cellspacing="0">

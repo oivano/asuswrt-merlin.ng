@@ -186,13 +186,11 @@ function initial()
 {
 	show_menu();
 
-	if(vpnc_support) {
-		var vpn_client_array = {"OpenVPN" : ["OpenVPN", "Advanced_OpenVPNClient_Content.asp"], "PPTP" : ["IPsec", "Advanced_VPNClient_Content.asp"]};
+	if(vpnc_support || ipsec_cli_support) {
+		var vpn_client_array = {"OpenVPN" : ["OpenVPN", "Advanced_OpenVPNClient_Content.asp"], "IPSec" : ["IPSec", "Advanced_VPNClient_Content.asp"], "OpenConnect" : ["OpenConnect", "Advanced_OpenConnect_Content.asp"]};
 		$('#divSwitchMenu').html(gen_switch_menu(vpn_client_array, "OpenVPN"));
 		document.getElementById("divSwitchMenu").style.display = "";
 	}
-
-	$('#divSwitchMenu').html(gen_switch_menu(vpn_client_array, "OpenVPN"));
 
 	showclientlist();
 

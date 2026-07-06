@@ -1643,6 +1643,7 @@ extern int is_vpnc_dns_active(void);
 extern void rc_ipsec_nvram_convert_check(void);
 extern void rc_ipsec_config_init(void);
 extern void run_ipsec_firewall_scripts(void);
+extern int ipsec_updown_main(int argc, char *argv[]);
 #endif
 
 // network.c

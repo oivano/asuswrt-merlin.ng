@@ -575,6 +575,7 @@ var bwdpi_bwMonitor_support = isSupport("bandwidth_monitor");
 var adaptiveqos_support = false; //isSupport("adaptive_qos");
 var ipsec_srv_support = isSupport("ipsec_srv");
 var ipsec_cli_support = isSupport("ipsec_cli");
+var openconnect_support = isSupport("openconnect");
 //var traffic_analyzer_support = isSupport("traffic_analyzer");
 var traffic_analyzer_support = bwdpi_support;
 var traffic_limiter_support = isSupport("traffic_limiter");
@@ -1555,6 +1556,12 @@ function showMenuTree(menuList, menuExclude){
 			if(dualWAN_support && based_modelid != "BRT-AC828" && current_url.indexOf("Advanced_Modem_Content") == 0){
 				clickedItem.menu = clickedItem_menuWAN;			//show tab group as WAN while dualWAN_support
 			}
+			
+			// Validate clickedItem.menu exists in menuList and has tabs
+			if(!menuList[clickedItem.menu] || !menuList[clickedItem.menu].tab){
+				return "";
+			}
+			
 			for(var j=0; j<menuList[clickedItem.menu].tab.length; j++){
 				var curTab = menuList[clickedItem.menu].tab[j];
 
@@ -1593,7 +1600,11 @@ function showMenuTree(menuList, menuExclude){
 			}
 
 			var tab_container = "";
-			if(menuList[clickedItem.menu].tab[clickedItem.tab].tabName !== "__HIDE__" && tabCounter > 1){
+			if(menuList[clickedItem.menu] && 
+			   menuList[clickedItem.menu].tab && 
+			   menuList[clickedItem.menu].tab[clickedItem.tab] &&
+			   menuList[clickedItem.menu].tab[clickedItem.tab].tabName !== "__HIDE__" && 
+			   tabCounter > 1){
 				tab_container += '<div><table>';
 				tab_container += tab_code;
 				tab_container += '</table></div>';
@@ -1612,7 +1623,7 @@ function showMenuTree(menuList, menuExclude){
 	}
 
 	//Find clickedItem.menu for WAN
-	var clickedItem_menuWAN
+	var clickedItem_menuWAN = -1;
 	for(var z=0; z<menuList.length; z++){
 		var curMenuWAN = menuList[z];
 		for(var y=0; y<curMenuWAN.tab.length; y++){

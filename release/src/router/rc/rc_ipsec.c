@@ -468,27 +468,27 @@ void ipsec_prof_fill_ext(int prof_idx, char *p_data, ipsec_prof_type_t prof_type
     p_end = p_data;
 
     /*encryption_p1_ext*/
-    prof[prof_type][prof_idx].encryption_p1_ext = (uint8_t)ipsec_profile_int_parse(FLAG_NONE,
+    prof[prof_type][prof_idx].encryption_p1_ext = (uint16_t)ipsec_profile_int_parse(FLAG_NONE,
                                                                p_end, &i);
     p_end += i; /*to shifft next '>'*/
 
 	/*hash_p1_ext*/
-    prof[prof_type][prof_idx].hash_p1_ext = (uint8_t)ipsec_profile_int_parse(FLAG_NONE,
+    prof[prof_type][prof_idx].hash_p1_ext = (uint16_t)ipsec_profile_int_parse(FLAG_NONE,
                                                                p_end, &i);
 	p_end += i; /*to shifft next '>'*/
 
 	/*dh_group*/
-    prof[prof_type][prof_idx].dh_group = (uint8_t)ipsec_profile_int_parse(FLAG_NONE,
+    prof[prof_type][prof_idx].dh_group = (uint16_t)ipsec_profile_int_parse(FLAG_NONE,
                                                                p_end, &i);
 	p_end += i; /*to shifft next '>'*/
 
 	 /*encryption_p2_ext*/
-    prof[prof_type][prof_idx].encryption_p2_ext = (uint8_t)ipsec_profile_int_parse(FLAG_NONE,
+    prof[prof_type][prof_idx].encryption_p2_ext = (uint16_t)ipsec_profile_int_parse(FLAG_NONE,
                                                                p_end, &i);
     p_end += i; /*to shifft next '>'*/
 
 	/*hash_p2_ext*/
-    prof[prof_type][prof_idx].hash_p2_ext = (uint8_t)ipsec_profile_int_parse(FLAG_NONE,
+    prof[prof_type][prof_idx].hash_p2_ext = (uint16_t)ipsec_profile_int_parse(FLAG_NONE,
                                                                p_end, &i);
 	p_end += i; /*to shifft next '>'*/
 
@@ -706,7 +706,7 @@ void rc_ipsec_start(FILE *fp)
 void rc_ipsec_up(FILE *fp, int prof_idx, ipsec_prof_type_t prof_type)
 {
     if((NULL != fp) && ('\0' != prof[prof_type][prof_idx].profilename[0])){
-        //fprintf(fp, "ipsec up %s & \n", prof[prof_type][prof_idx].profilename);
+        fprintf(fp, "ipsec up %s & \n", prof[prof_type][prof_idx].profilename);
 #if defined(RTCONFIG_QUICKSEC)
 		//fprintf(fp, "quicksecpm -f /tmp/%s.xml -d\n", prof[prof_type][prof_idx].profilename);
 #endif
@@ -1358,7 +1358,7 @@ void ipsec_conf_local_set(FILE *fp, int prof_idx, ipsec_prof_type_t prof_type)
 	
 	if (VPN_TYPE_HOST_NET_CLI == prof[prof_type][prof_idx].vpn_type) {
 		fprintf(fp, "  leftsourceip=%%config4,%%config6\n");
-//		fprintf(fp, "  leftupdown=\"%s %d %u\"\n", FILE_PATH_IPSEC_UPDOWN, prof_idx + 1, prof[prof_type][prof_idx].vpn_type);
+		fprintf(fp, "  leftupdown=\"%s %d %u\"\n", FILE_PATH_IPSEC_UPDOWN, prof_idx + 1, prof[prof_type][prof_idx].vpn_type);
 	}
 	else if ( (VPN_TYPE_NET_NET_CLI == prof[prof_type][prof_idx].vpn_type)
 			|| (VPN_TYPE_NET_NET_SVR == prof[prof_type][prof_idx].vpn_type)
@@ -2826,6 +2826,8 @@ int write_ipc_resolv_dnsmasq(FILE* fp_servers)
 }
 #endif
 
+static void _get_my_ip_by_subnet(const char* subnet, char *ip, size_t len, int v6);
+
 static void _ipsec_updown_host_net_cli(int unit)
 {
 	char vif[IFNAMSIZ] = {0};
@@ -2840,6 +2842,7 @@ static void _ipsec_updown_host_net_cli(int unit)
 	char *my_ip6 = getenv("PLUTO_MY_SOURCEIP6_1");
 	char buf[128] = {0};
 	char *peer_net = safe_getenv("PLUTO_PEER_CLIENT");
+	char *my_net = safe_getenv("PLUTO_MY_CLIENT");
 	char *dns4_1 = getenv("PLUTO_DNS4_1");
 	char *dns4_2 = getenv("PLUTO_DNS4_2");
 	FILE *fp;
@@ -2898,7 +2901,33 @@ static void _ipsec_updown_host_net_cli(int unit)
 				unlink("/tmp/route_tmp");
 			}
 			// server route
+			logmessage("ipsec_route", "Adding server route: %s via %s dev %s table %s", addr_peer, wan_gateway, wan_if, table_str);
 			eval("ip", "route", "add", addr_peer, "via", wan_gateway, "dev", wan_if, "table", table_str);
+			
+			// ALWAYS add local subnet route to keep local traffic local
+			// This prevents router's IP and LAN clients from being routed into tunnel
+			int local_route_added = 0;
+			if (my_net && *my_net) {
+				char my_srcip[64] = {0};
+				_get_my_ip_by_subnet(my_net, my_srcip, sizeof(my_srcip), v6);
+				if (*my_srcip) {
+					logmessage("ipsec_route", "Adding local subnet route: %s src %s table %s", my_net, my_srcip, table_str);
+					eval("ip", "route", "add", my_net, "proto", "static", "src", my_srcip, "table", table_str);
+					local_route_added = 1;
+				}
+			}
+			// Fallback: add LAN route only if my_net route wasn't added
+			if (!local_route_added) {
+				char lan_class[32] = {0};
+				char *lan_ifname = nvram_safe_get("lan_ifname");
+				char *lan_ipaddr = nvram_safe_get("lan_ipaddr");
+				ip2class(lan_ipaddr, nvram_safe_get("lan_netmask"), lan_class);
+				if (*lan_class && *lan_ifname && *lan_ipaddr) {
+					logmessage("ipsec_route", "Adding LAN route (fallback): %s dev %s src %s table %s", lan_class, lan_ifname, lan_ipaddr, table_str);
+					eval("ip", "route", "add", lan_class, "dev", lan_ifname, "proto", "kernel", "scope", "link", "src", lan_ipaddr, "table", table_str);
+				}
+			}
+			
 			// server subnet
 			if (!strcmp(peer_net, "0.0.0.0/0")) {
 				eval("ip", "route", "add", "0.0.0.0/1", "dev", vif, "table", table_str);
@@ -2953,10 +2982,18 @@ static void _ipsec_updown_host_net_cli(int unit)
 			memset(buf, 0, sizeof(buf));
 		nvram_set("ipsec_client_dns", buf);
 		update_resolvconf();
-		if (dns4_1)
-			eval("ip", "route", "add", dns4_1, "dev", vif);
-		if (dns4_2)
-			eval("ip", "route", "add", dns4_1, "dev", vif);
+		// Charon installs LAN subnet -> ipsec0 in table 220; replace it with br0
+		// so LAN traffic is never routed into the tunnel.
+		{
+			char lan_class[32] = {0};
+			char *lan_ifname = nvram_safe_get("lan_ifname");
+			char *lan_ipaddr = nvram_safe_get("lan_ipaddr");
+			ip2class(lan_ipaddr, nvram_safe_get("lan_netmask"), lan_class);
+			if (*lan_class && *lan_ifname && *lan_ipaddr) {
+				eval("ip", "route", "replace", "table", "220", lan_class,
+				     "dev", lan_ifname, "proto", "kernel", "scope", "link", "src", lan_ipaddr);
+			}
+		}
 #endif
 	}
 	else {	//down
@@ -2967,9 +3004,18 @@ static void _ipsec_updown_host_net_cli(int unit)
 #ifdef RTCONFIG_VPN_FUSION
 		vpnc_idx = _get_vpnc_idx_by_prof_idx(unit);
 		if (vpnc_idx) {
-			// server route
 			snprintf(table_str, sizeof(table_str), "%d", vpnc_idx);
-			eval("ip", "route", "del", addr_peer, "via", wan_gateway, "dev", wan_if, "table", table_str);
+			// Cleanup local subnet routes (try both since only one was added)
+			if (my_net && *my_net) {
+				logmessage("ipsec_route", "Removing local subnet route: %s table %s", my_net, table_str);
+				eval("ip", "route", "del", my_net, "table", table_str);
+			}
+			char lan_class[32] = {0};
+			ip2class(nvram_safe_get("lan_ipaddr"), nvram_safe_get("lan_netmask"), lan_class);
+			if (*lan_class) {
+				logmessage("ipsec_route", "Removing LAN route: %s table %s", lan_class, table_str);
+				eval("ip", "route", "del", lan_class, "table", table_str);
+			}
 			// vpnc state
 			update_vpnc_state(vpnc_idx, WAN_STATE_STOPPED, 0);
 			// vpnc down
@@ -2984,6 +3030,14 @@ static void _ipsec_updown_host_net_cli(int unit)
 		eval("ip", "route", "del", addr_peer, "via", wan_gateway, "dev", wan_if);
 		// dns
 		nvram_set("ipsec_client_dns", "");
+		update_resolvconf();
+		// Remove the br0 LAN route we added to table 220
+		{
+			char lan_class[32] = {0};
+			ip2class(nvram_safe_get("lan_ipaddr"), nvram_safe_get("lan_netmask"), lan_class);
+			if (*lan_class)
+				eval("ip", "route", "del", "table", "220", lan_class);
+		}
 #endif
 	}
 }

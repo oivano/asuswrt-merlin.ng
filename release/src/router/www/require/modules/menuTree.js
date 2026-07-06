@@ -263,6 +263,7 @@ define(function(){
 					{url: "Advanced_OpenVPNClient_Content.asp", tabName: "<#vpnc_title#>"},
 					{url: "Advanced_VPNClient_Content.asp", tabName: (vpn_fusion_support) ? "<#VPN_Fusion#>" : "<#vpnc_title#>"},
 					{url: "Advanced_VPN_IPSec.asp", tabName: "IPSec"},	/* TODO: merge into VPNClient */
+					{url: "Advanced_OpenConnect_Content.asp", tabName: "OpenConnect"},
 					{url: "Advanced_TOR_Content.asp", tabName: "TOR"},
 					{url: "Advanced_Instant_Guard.asp", tabName: "<#Instant_Guard_title#>"},
 					{url: "NULL", tabName: "__INHERIT__"}
@@ -372,21 +373,21 @@ define(function(){
 					retArray.push("menu_NekworkTool");
 				}
 				
-				if(!pptpd_support && !openvpnd_support && !vpnc_support){
-					retArray.push("menu_VPN");
-				}
+			if(!pptpd_support && !openvpnd_support && !vpnc_support && !ipsec_srv_support && !ipsec_cli_support && !openconnect_support && !tor_support){
+				retArray.push("menu_VPN");
+			}
 
-				if(!tagged_based_vlan){
-					retArray.push("menu_VLAN");
-				}
+			if(!tagged_based_vlan){
+				retArray.push("menu_VLAN");
+			}
 
-				if(!wtfast_support) {
-					retArray.push("menu_GameBoost");
-				}
+			if(!wtfast_support) {
+				retArray.push("menu_GameBoost");
+			}
 
-				if(!amesh_support)
-					retArray.push("menu_AiMesh");
-				else{
+			if(!amesh_support)
+				retArray.push("menu_AiMesh");
+			else{
 					if(ameshRouter_support){
 						if(!isSwMode("rt") && !isSwMode("ap"))
 							retArray.push("menu_AiMesh");
@@ -505,14 +506,19 @@ define(function(){
 
 				if(!openvpnd_support){
 					retArray.push("Advanced_VPN_OpenVPN.asp");
-				}	
-
+					retArray.push("Advanced_OpenVPNClient_Content.asp");
+				}
+				
 				if(!ipsec_srv_support){
 					retArray.push("Advanced_VPN_IPSec.asp");
 				}
 				
 				if(!vpnc_support){
 					retArray.push("Advanced_VPNClient_Content.asp");
+				}
+				
+				if(!openconnect_support){
+					retArray.push("Advanced_OpenConnect_Content.asp");
 				}
 
 				if(!isSupport("Instant_Guard"))
@@ -552,7 +558,7 @@ define(function(){
 						retArray.push("Advanced_MobileBroadband_Content.asp");
 						retArray.push("Advanced_Modem_Content.asp");
 					}
-				}
+					}
 
 				if(!SwitchCtrl_support){
 					retArray.push("Advanced_SwitchCtrl_Content.asp");		
@@ -566,7 +572,7 @@ define(function(){
 					retArray.push("Advanced_SNMP_Content.asp");
 				}
 
-				if(!nt_center_support){
+					if(!nt_center_support){
 					retArray.push("Advanced_Notification_Content.asp");
 				}
 

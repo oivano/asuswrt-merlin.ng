@@ -25,6 +25,8 @@
 wan_route_x = '<% nvram_get("wan_route_x"); %>';
 wan_nat_x = '<% nvram_get("wan_nat_x"); %>';
 wan_proto = '<% nvram_get("wan_proto"); %>';
+var openconnect_support = '<% nvram_get("openconnect_support"); %>' == '1' ? true : false;
+var openconnect_cli_support = '<% nvram_get("openconnect_cli_support"); %>' == '1' ? true : (openconnect_support ? true : false);
 
 var overlib_str0 = new Array();	//Viz add 2013.04 for record longer VPN client username/pwd
 var overlib_str1 = new Array();	//Viz add 2013.04 for record longer VPN client username/pwd
@@ -33,9 +35,11 @@ vpnc_clientlist_array = decodeURIComponent('<% nvram_char_to_ascii("","vpnc_clie
 function initial(){
 	show_menu();
 
-	if (openvpnd_support) {
+	if (openvpnd_support || openconnect_cli_support) {
 		setTimeout("refreshData()",1000);
-	} else {
+	}
+	
+	if (!openvpnd_support) {
 		showhide("server1", 0);
 		showhide("server2", 0);
 		showhide("client1", 0);
@@ -51,9 +55,6 @@ function initial(){
 		showhide("client5", 0);
 	}
 
-	if (!pptpd_support)
-		showhide("pptpserver", 0);
-
 	if (ipsec_srv_support)
 		setTimeout("refresh_ipsec_data()",1200);
 	else
@@ -63,6 +64,11 @@ function initial(){
 		setTimeout("refresh_ipsec_data()",1200);
 	else
 		showhide("ipsecclnt", 0);
+
+	if (!openconnect_cli_support) {
+		showhide("openconnect1", 0);
+		showhide("openconnect2", 0);
+	}
 }
 
 
@@ -94,76 +100,70 @@ function displayData(){
 	else
 		max_unit = 5;
 
-	if (server1pid > 0)
-		document.getElementById("server1_Block_Running").innerHTML = state_srv_run;
-	else
-		document.getElementById("server1_Block_Running").innerHTML = state_srv_stop;
-
-	if (server2pid > 0)
-		document.getElementById("server2_Block_Running").innerHTML = state_srv_run;
-	else
-		document.getElementById("server2_Block_Running").innerHTML = state_srv_stop;
-
-	for (var unit = 1; unit < max_unit + 1; unit++) {
-		switch (unit) {
-			case 1:
-				client_state = vpnc_state_t1;
-				client_errno = vpnc_errno_t1;
-				tmp = "<% nvram_get("vpn_client1_addr"); %>";
-				client_server = " ("+ tmp.shorter(42) +
-				                " <% nvram_get("vpn_client1_proto"); %>" +
-				                ":<% nvram_get("vpn_client1_port"); %>)";
-				client_desc = "<span style=\"background-color: transparent; color: white;\"><% nvram_get("vpn_client1_desc"); %></span>";
-				break;
-			case 2:
-				client_state = vpnc_state_t2;
-				client_errno = vpnc_errno_t2;
-				tmp = "<% nvram_get("vpn_client2_addr"); %>";
-				client_server = " ("+ tmp.shorter(42) + 
-				                " <% nvram_get("vpn_client2_proto"); %>" +
-				                ":<% nvram_get("vpn_client2_port"); %>)";
-				client_desc = "<span style=\"background-color: transparent; color: white;\"><% nvram_get("vpn_client2_desc"); %></span>";
-				break;
-		}
-
-		switch (client_state) {
-			case "0":
-				document.getElementById("client"+unit+"_Block_Running").innerHTML = client_desc + state_clnt_disc;
-				break;
-			case "1":
-				document.getElementById("client"+unit+"_Block_Running").innerHTML = client_desc + state_clnt_cing + client_server;
-				break;
-			case "2":
-				document.getElementById("client"+unit+"_Block_Running").innerHTML = client_desc + state_clnt_ced + client_server;
-				break;
-			case "-1":
-				code = state_clnt_err;
-				if (client_errno == 1 || client_errno == 2 || client_errno == 3)
-					code += " - <#vpn_openvpn_conflict#>";
-				else if(client_errno == 4 || client_errno == 5 || client_errno == 6)
-					code += " - <#qis_fail_desc1#>";
-				document.getElementById("client"+unit+"_Block_Running").innerHTML = client_desc + code;
-				break;
-		}
-	}        
-
-	parseStatus(vpn_server1_status, "server1_Block", "", "");
-	parseStatus(vpn_server2_status, "server2_Block", "", "");
-	parseStatus(vpn_client1_status, "client1_Block", vpn_client1_ip, vpn_client1_rip);
-	parseStatus(vpn_client2_status, "client2_Block", vpn_client2_ip, vpn_client2_rip);
-
-	if (based_modelid != "RT-AC68U" && based_modelid != "DSL-AC68U") {
-		parseStatus(vpn_client3_status, "client3_Block", vpn_client3_ip, vpn_client3_rip);
-		parseStatus(vpn_client4_status, "client4_Block", vpn_client4_ip, vpn_client4_rip);
-		parseStatus(vpn_client5_status, "client5_Block", vpn_client5_ip, vpn_client5_rip);
-	}
-
-	if (pptpd_support) {
-		if (pptpdpid > 0)
-			document.getElementById("pptp_Block_Running").innerHTML = state_srv_run;
+	if (openvpnd_support) {
+		if (server1pid > 0)
+			document.getElementById("server1_Block_Running").innerHTML = state_srv_run;
 		else
-			document.getElementById("pptp_Block_Running").innerHTML = state_srv_stop;
-		parsePPTPClients();
+			document.getElementById("server1_Block_Running").innerHTML = state_srv_stop;
+
+		if (server2pid > 0)
+			document.getElementById("server2_Block_Running").innerHTML = state_srv_run;
+		else
+			document.getElementById("server2_Block_Running").innerHTML = state_srv_stop;
+
+		for (var unit = 1; unit < max_unit + 1; unit++) {
+			switch (unit) {
+				case 1:
+					client_state = vpnc_state_t1;
+					client_errno = vpnc_errno_t1;
+					tmp = "<% nvram_get("vpn_client1_addr"); %>";
+					client_server = " ("+ tmp.shorter(42) +
+					                " <% nvram_get("vpn_client1_proto"); %>" +
+					                ":<% nvram_get("vpn_client1_port"); %>)";
+					client_desc = "<span style=\"background-color: transparent; color: white;\"><% nvram_get("vpn_client1_desc"); %></span>";
+					break;
+				case 2:
+					client_state = vpnc_state_t2;
+					client_errno = vpnc_errno_t2;
+					tmp = "<% nvram_get("vpn_client2_addr"); %>";
+					client_server = " ("+ tmp.shorter(42) + 
+					                " <% nvram_get("vpn_client2_proto"); %>" +
+					                ":<% nvram_get("vpn_client2_port"); %>)";
+					client_desc = "<span style=\"background-color: transparent; color: white;\"><% nvram_get("vpn_client2_desc"); %></span>";
+					break;
+			}
+
+			switch (client_state) {
+				case "0":
+					document.getElementById("client"+unit+"_Block_Running").innerHTML = client_desc + state_clnt_disc;
+					break;
+				case "1":
+					document.getElementById("client"+unit+"_Block_Running").innerHTML = client_desc + state_clnt_cing + client_server;
+					break;
+				case "2":
+					document.getElementById("client"+unit+"_Block_Running").innerHTML = client_desc + state_clnt_ced + client_server;
+					break;
+				case "-1":
+					code = state_clnt_err;
+					if (client_errno == 1 || client_errno == 2 || client_errno == 3)
+						code += " - <#vpn_openvpn_conflict#>";
+					else if(client_errno == 4 || client_errno == 5 || client_errno == 6)
+						code += " - <#qis_fail_desc1#>";
+					document.getElementById("client"+unit+"_Block_Running").innerHTML = client_desc + code;
+					break;
+			}
+		}        
+
+		parseStatus(vpn_server1_status, "server1_Block", "", "");
+		parseStatus(vpn_server2_status, "server2_Block", "", "");
+		parseStatus(vpn_client1_status, "client1_Block", vpn_client1_ip, vpn_client1_rip);
+		parseStatus(vpn_client2_status, "client2_Block", vpn_client2_ip, vpn_client2_rip);
+
+		if (based_modelid != "RT-AC68U" && based_modelid != "DSL-AC68U") {
+			parseStatus(vpn_client3_status, "client3_Block", vpn_client3_ip, vpn_client3_rip);
+			parseStatus(vpn_client4_status, "client4_Block", vpn_client4_ip, vpn_client4_rip);
+			parseStatus(vpn_client5_status, "client5_Block", vpn_client5_ip, vpn_client5_rip);
+		}
 	}
 
 	if(ipsec_srv_support) {
@@ -177,11 +177,65 @@ function displayData(){
 		show_vpnc_rulelist();
 	}
 
-	if(ipsec_cli_support) {
-		if('<% nvram_get("ipsec_client_enable"); %>' == "1")
-			document.getElementById("ipsec_cli_Block_Running").innerHTML = state_clnt_ced;
-		else
-			document.getElementById("ipsec_cli_Block_Running").innerHTML = state_clnt_disc;
+	if(openconnect_cli_support) {
+		/* OpenConnect Client 1 */
+		var oc1_state = openconnect_client1_state;
+		var oc1_errno = openconnect_client1_errno;
+		var oc1_server = openconnect_client1_server;
+		var oc1_protocol = openconnect_client1_protocol || "anyconnect";
+		
+		switch(oc1_state) {
+			case "0": /* Stopped */
+				document.getElementById("openconnect1_Block_Running").innerHTML = state_clnt_disc;
+				break;
+			case "1": /* Connecting */
+				document.getElementById("openconnect1_Block_Running").innerHTML = state_clnt_cing + " (" + oc1_server + " - " + oc1_protocol + ")";
+				break;
+			case "2": /* Connected */
+				document.getElementById("openconnect1_Block_Running").innerHTML = state_clnt_ced + " (" + oc1_server + " - " + oc1_protocol + ")";
+				parseOpenConnectStatus(1, openconnect_client1_addr, openconnect_client1_rip);
+				break;
+			case "-1": /* Error */
+				var err_msg = state_clnt_err;
+				if(oc1_errno == "1") err_msg += " - Authentication failed";
+				else if(oc1_errno == "2") err_msg += " - Server unreachable";
+				else if(oc1_errno == "3") err_msg += " - Certificate error";
+				else if(oc1_errno == "4") err_msg += " - Configuration error";
+				else if(oc1_errno == "5") err_msg += " - Connection lost";
+				document.getElementById("openconnect1_Block_Running").innerHTML = err_msg;
+				break;
+		}
+		
+		/* OpenConnect Client 2 */
+		var oc2_state = openconnect_client2_state;
+		var oc2_errno = openconnect_client2_errno;
+		var oc2_server = openconnect_client2_server;
+		var oc2_protocol = openconnect_client2_protocol || "anyconnect";
+		
+		switch(oc2_state) {
+			case "0": /* Stopped */
+				document.getElementById("openconnect2_Block_Running").innerHTML = state_clnt_disc;
+				break;
+			case "1": /* Connecting */
+				document.getElementById("openconnect2_Block_Running").innerHTML = state_clnt_cing + " (" + oc2_server + " - " + oc2_protocol + ")";
+				break;
+			case "2": /* Connected */
+				document.getElementById("openconnect2_Block_Running").innerHTML = state_clnt_ced + " (" + oc2_server + " - " + oc2_protocol + ")";
+				parseOpenConnectStatus(2, openconnect_client2_addr, openconnect_client2_rip);
+				break;
+			case "-1": /* Error */
+				var err_msg = state_clnt_err;
+				if(oc2_errno == "1") err_msg += " - Authentication failed";
+				else if(oc2_errno == "2") err_msg += " - Server unreachable";
+				else if(oc2_errno == "3") err_msg += " - Certificate error";
+				else if(oc2_errno == "4") err_msg += " - Configuration error";
+				else if(oc2_errno == "5") err_msg += " - Connection lost";
+				document.getElementById("openconnect2_Block_Running").innerHTML = err_msg;
+				break;
+		}
+	} else {
+		showhide("openconnect1", 0);
+		showhide("openconnect2", 0);
 	}
 
 	setTimeout("refreshData()",2000);
@@ -193,32 +247,6 @@ function applyRule(){
 	document.form.submit();
 }
 
-
-function parsePPTPClients() {
-	text = document.form.status_pptp.value;
-
-	if (text == "") {
-		return;
-	}
-
-	var lines = text.split('\n');
-
-	code = '<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3" class="FormTable_table"><thead><tr><td colspan="4">Connected Clients</td></tr></thead><tr>';
-	code += '<th style="text-align:left;">Username</th><th style="text-align:left;">Interface</th><th style="text-align:left;">Remote IP</th><th style="text-align:left;">Client IP</th>';
-
-	for (i = 0; i < lines.length; ++i)
-	{
-		var done = false;
-
-		var fields = lines[i].split(' ');
-		if ( fields.length != 5 ) continue;
-
-		code +='<tr><td style="text-align:left;">' + fields[4] + '</td><td style="text-align:left;">' + fields[1] + '</td><td style="text-align:left;">' + fields[2] + '</td><td style="text-align:left;">' + fields[3] +'</td></tr>';
-	}
-	code +='</table>';
-
-	document.getElementById('pptp_Block').innerHTML = code;
-}
 
 
 function parseStatus(text, block, ipaddress, ripaddress){
@@ -495,6 +523,10 @@ function refresh_ipsec_data() {
 		url: '/ajax_ipsec.asp',
 		dataType: 'script',
 		timeout: 1500,
+		error: function(xhr){
+			// On AJAX error, don't change the status - keep showing last known state
+			setTimeout("refresh_ipsec_data()", 2000);
+		},
 		success: function() {
 			ipsec_connect_status_array = [];
 			for(var i = 0; i < ipsec_connect_status.length; i += 1) {
@@ -519,12 +551,56 @@ function refresh_ipsec_data() {
 				var connected_count = (ipsec_connect_status_array["other"].split("<").length);
 				if(connected_count > 0) {
 					parseIPSecData("other");
+					// Update status to connected
+					if(document.getElementById("ipsec_cli_Block_Running")) {
+						document.getElementById("ipsec_cli_Block_Running").innerHTML = " - Connected";
+					}
+				}
+				else {
+					// No active connections - check if enabled but not connected
+					if('<% nvram_get("ipsec_client_enable"); %>' == "1") {
+						document.getElementById("ipsec_cli_Block_Running").innerHTML = " - Connecting...";
+					}
+					else {
+						document.getElementById("ipsec_cli_Block_Running").innerHTML = ' - <span style="background-color: transparent; color: white;">Stopped</span>';
+					}
 				}
 			}
+			else {
+				// No status data available
+				if('<% nvram_get("ipsec_client_enable"); %>' == "1") {
+					document.getElementById("ipsec_cli_Block_Running").innerHTML = " - Connecting...";
+				}
+				else {
+					document.getElementById("ipsec_cli_Block_Running").innerHTML = ' - <span style="background-color: transparent; color: white;">Stopped</span>';
+				}
+			}
+			setTimeout("refresh_ipsec_data()", 2000);
 		}
 	});
+}
 
-	setTimeout("refresh_ipsec_data()", 2000)
+
+function parseOpenConnectStatus(unit, ipaddress, ripaddress){
+	var blockId = "openconnect" + unit + "_Block";
+	document.getElementById(blockId).innerHTML = "";
+	var code = "";
+	
+	if (!ipaddress && !ripaddress) {
+		return;  /* No connection info */
+	}
+	
+	code += '<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3" class="FormTable_table"><thead><tr><td colspan="4">Statistics</td></tr></thead>';
+	
+	if (ipaddress != "") {
+		code += '<tr><th class="statcell">Public IP</th>';
+		code += '<td class="statcell">' + ripaddress +'</td>';
+		code += '<th class="statcell">Local IP</th>';
+		code += '<td class="statcell">' + ipaddress +'</td></tr>';
+	}
+	
+	code += '</table>';
+	document.getElementById(blockId).innerHTML += code;
 }
 
 
@@ -549,7 +625,6 @@ function refresh_ipsec_data() {
 <input type="hidden" name="SystemCmd" value="">
 <input type="hidden" name="preferred_lang" id="preferred_lang" value="<% nvram_get("preferred_lang"); %>">
 <input type="hidden" name="firmver" value="<% nvram_get("firmver"); %>">
-<input type="hidden" name="status_pptp" value="<% nvram_dump("pptp_connected",""); %>">
 <input type="hidden" name="vpnc_proto" value="<% nvram_get("vpnc_proto"); %>">
 <input type="hidden" name="vpnc_pppoe_username" value="<% nvram_get("vpnc_pppoe_username"); %>">
 <input type="hidden" name="vpnc_heartbeat_x" value="<% nvram_get("vpnc_heartbeat_x"); %>">
@@ -574,19 +649,6 @@ function refresh_ipsec_data() {
                 <div>&nbsp;</div>
                 <div class="formfonttitle">VPN - Status</div>
 		<div style="margin:10px 0 10px 5px;" class="splitLine"></div>
-				<table width="100%" style="margin-bottom:20px;" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3" id="pptpserver" class="FormTable">
-					<thead>
-						<tr>
-							<td>PPTP VPN Server<span id="pptp_Block_Running" style="background: transparent;"></span></td>
-						</tr>
-					</thead>
-					<tr>
-						<td style="border: none;">
-							<div id="pptp_Block"></div>
-						</td>
-					</tr>
-
-				</table>
 				<table width="100%" id="server1" style="margin-bottom:20px;" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable">
 					<thead>
 						<tr>
@@ -702,6 +764,30 @@ function refresh_ipsec_data() {
 						</td>
 					</tr>
                 </table>
+				<table width="100%" id="openconnect1" style="margin-bottom:20px;" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable">
+					<thead>
+						<tr>
+														<td>OpenConnect Client 1<span id="openconnect1_Block_Running" style="background: transparent;"></span></td>
+						</tr>
+					</thead>
+					<tr>
+						<td style="border: none;">
+							<div id="openconnect1_Block"></div>
+						</td>
+					</tr>
+				</table>
+				<table width="100%" id="openconnect2" style="margin-bottom:20px;" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable">
+					<thead>
+						<tr>
+														<td>OpenConnect Client 2<span id="openconnect2_Block_Running" style="background: transparent;"></span></td>
+						</tr>
+					</thead>
+					<tr>
+						<td style="border: none;">
+							<div id="openconnect2_Block"></div>
+						</td>
+					</tr>
+				</table>
 
 				<div class="apply_gen">
 					<input name="button" type="button" class="button_gen" onclick="applyRule();" value="<#CTL_refresh#>"/>
