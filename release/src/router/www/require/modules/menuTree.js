@@ -259,7 +259,6 @@ define(function(){
 				tab: [
 					{url: "Advanced_VPNStatus.asp", tabName: "VPN Status"},
 					{url: "Advanced_VPN_OpenVPN.asp", tabName: "<#BOP_isp_heart_item#>"},
-					{url: "Advanced_VPN_PPTP.asp", tabName: "__INHERIT__"},
 					{url: "Advanced_OpenVPNClient_Content.asp", tabName: "<#vpnc_title#>"},
 					{url: "Advanced_VPNClient_Content.asp", tabName: (vpn_fusion_support) ? "<#VPN_Fusion#>" : "<#vpnc_title#>"},
 					{url: "Advanced_VPN_IPSec.asp", tabName: "IPSec"},	/* TODO: merge into VPNClient */
@@ -501,7 +500,6 @@ define(function(){
 				}
 				
 				if(!pptpd_support){
-					retArray.push("Advanced_VPN_PPTP.asp");
 				}
 
 				if(!openvpnd_support){

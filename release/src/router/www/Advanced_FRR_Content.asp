@@ -27,9 +27,11 @@
 		var frr_bgp_neighbor_as_array = '<% get_frr_bgp_neighbor_as_list(); %>';
 		var frr_bgp_neighbor_desc_array = '<% get_frr_bgp_neighbor_desc_list(); %>';
 		var frr_bgp_neighbor_src_array = '<% get_frr_bgp_neighbor_src_list(); %>';
+		var frrDefaultConfigDir = '/jffs/configs/frr';
 
 		function initial() {
 			show_menu();
+			normalize_frr_config_dir();
 
 			// Show/hide protocol sections based on enable status
 			showhide("frr_settings", (document.form.frr_enable.value == "1"));
@@ -45,7 +47,19 @@
 			location.href = 'Main_RouteStatus_Content.asp';
 		}
 
+		function normalize_frr_config_dir() {
+			var cfgField = document.form.frr_config_dir;
+
+			if (!cfgField)
+				return;
+
+			if (cfgField.value == '' || cfgField.value == '/etc')
+				cfgField.value = frrDefaultConfigDir;
+		}
+
 		function applyRule() {
+			normalize_frr_config_dir();
+
 			if (!validate_frr_config()) {
 				return false;
 			}
@@ -317,8 +331,8 @@
 		<input type="hidden" name="action_mode" value="apply">
 		<input type="hidden" name="action_script" value="restart_frr">
 		<input type="hidden" name="action_wait" value="10">
-		<input type="hidden" name="preferred_lang" id="preferred_lang" value="<% nvram_get("preferred_lang"); %>">
-		<input type="hidden" name="firmver" value="<% nvram_get("firmver"); %>">
+		<input type="hidden" name="preferred_lang" id="preferred_lang" value="<% nvram_get(" preferred_lang"); %>">
+		<input type="hidden" name="firmver" value="<% nvram_get(" firmver"); %>">
 		<input type="hidden" name="frr_bgp_neighbor" value="">
 		<input type="hidden" name="frr_bgp_neighbor_as" value="">
 		<input type="hidden" name="frr_bgp_neighbor_desc" value="">
@@ -352,8 +366,7 @@
 													<#FRR_desc#>
 												</div>
 												<div style="margin:6px 0 10px 5px;">
-													<input type="button" class="button_gen"
-														value="Route Status / Learned Routes"
+													<input type="button" class="button_gen" value="Routing Table"
 														onclick="routeStatusLink();" style="width:220px;">
 												</div>
 
@@ -404,7 +417,7 @@
 															<td>
 																<input type="password" maxlength="64"
 																	class="input_32_table" name="frr_passwd"
-																	value="<% nvram_get("frr_passwd"); %>"
+																	value="<% nvram_get(" frr_passwd"); %>"
 																autocomplete="off" autocorrect="off"
 																autocapitalize="off">
 															</td>
@@ -416,7 +429,7 @@
 															<td>
 																<input type="password" maxlength="64"
 																	class="input_32_table" name="frr_enpasswd"
-																	value="<% nvram_get("frr_enpasswd"); %>"
+																	value="<% nvram_get(" frr_enpasswd"); %>"
 																autocomplete="off" autocorrect="off"
 																autocapitalize="off">
 															</td>
@@ -471,7 +484,8 @@
 															</th>
 															<td>
 																<input type="text" maxlength="10" class="input_12_table"
-																	name="frr_bgp_as" value="<% nvram_get("frr_bgp_as"); %>" onKeyPress="return
+																	name="frr_bgp_as" value="<% nvram_get("
+																	frr_bgp_as"); %>" onKeyPress="return
 																validator.isNumber(this,event);">
 																<span style="color:#888;"> (1-4294967295)</span>
 																<div
@@ -534,7 +548,8 @@
 																</div>
 																<div style="margin-top:8px;">
 																	<span style="color:#888;">BGP Networks (CIDR,
-																		space/newline separated, e.g. 192.168.0.0/24)</span><br>
+																		space/newline separated, e.g.
+																		192.168.0.0/24)</span><br>
 																	<textarea name="frr_bgp_networks"
 																		class="textarea_ssh_table"
 																		style="width:98%;height:56px;"
@@ -576,7 +591,8 @@
 															</th>
 															<td>
 																<input type="text" maxlength="15" class="input_15_table"
-																	name="frr_ospf_area" value="<% nvram_get("frr_ospf_area"); %>" placeholder="0.0.0.0">
+																	name="frr_ospf_area" value="<% nvram_get("
+																	frr_ospf_area"); %>" placeholder="0.0.0.0">
 															</td>
 														</tr>
 														<tr>
@@ -595,7 +611,7 @@
 																<div
 																	style="color:#9FAFB8;font-size:11px;margin-top:4px;">
 																	One CIDR per line. Learned OSPF routes are labeled
-																	on Route Status.</div>
+																	on the Routing Table page.</div>
 															</td>
 														</tr>
 													</table>
@@ -631,17 +647,18 @@
 																			Peer: <input type="text" maxlength="15"
 																				class="input_15_table"
 																				name="frr_bfd_peer"
-																				value="<% nvram_get("frr_bfd_peer"); %>" placeholder="192.168.0.2"
+																				value="<% nvram_get(" frr_bfd_peer");
+																				%>" placeholder="192.168.0.2"
 																			onKeyPress="return
 																			validator.isIPAddr(this,event);">
 																			TX(ms): <input type="text" maxlength="5"
 																				class="input_6_table" name="frr_bfd_tx"
-																				value="<% nvram_get("frr_bfd_tx"); %>"
+																				value="<% nvram_get(" frr_bfd_tx"); %>"
 																			onKeyPress="return
 																			validator.isNumber(this,event);">
 																			RX(ms): <input type="text" maxlength="5"
 																				class="input_6_table" name="frr_bfd_rx"
-																				value="<% nvram_get("frr_bfd_rx"); %>"
+																				value="<% nvram_get(" frr_bfd_rx"); %>"
 																			onKeyPress="return
 																			validator.isNumber(this,event);">
 																		</div>
@@ -732,12 +749,20 @@
 															<td>
 																<input type="text" maxlength="128"
 																	class="input_32_table" name="frr_config_dir"
-																	value="<% nvram_get("frr_config_dir"); %>"
+																	value="<% nvram_get(" frr_config_dir"); %>"
 																autocomplete="off" autocorrect="off"
 																autocapitalize="off">
 																<span style="color:#888;">
 																	<#FRR_custom_config_hint#>
 																</span>
+																<div
+																	style="color:#9FAFB8;font-size:11px;margin-top:4px;">
+																	External integrated config: place <span
+																		style="color:#FFCC00;">frr.conf</span> in this
+																	directory. Optional companion files are <span
+																		style="color:#FFCC00;">daemons</span> and <span
+																		style="color:#FFCC00;">vtysh.conf</span>.
+																</div>
 															</td>
 														</tr>
 													</table>

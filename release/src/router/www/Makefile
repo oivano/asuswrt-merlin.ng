@@ -415,7 +415,6 @@ else
 	rm -rf $(INSTALLDIR)/www/ajax_openvpn_server.asp
 ifneq ($(RTCONFIG_ACCEL_PPTPD), y)
 	rm -rf $(INSTALLDIR)/www/images/New_ui/vpnstatus.png
-	rm -rf $(INSTALLDIR)/www/Advanced_VPN_PPTP.asp
 	rm -rf $(INSTALLDIR)/www/ajax_vpnserver_client_status.xml
 endif
 endif

@@ -4209,7 +4209,7 @@ struct nvram_tuple router_defaults[] = {
 	{ "frr_bfd_tx", "150", CKN_STR16, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* BFD transmit interval */
 	{ "frr_bfd_rx", "150", CKN_STR16, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* BFD receive interval */
 	{ "frr_allow_lan", "0", CKN_STR1, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* Allow LAN vty access */
-	{ "frr_config_dir", "/etc", CKN_STR128, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* Config source directory (synced to /etc runtime files) */
+	{ "frr_config_dir", "/jffs/configs/frr", CKN_STR128, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* Writable FRR config source directory mirrored into runtime files */
 	{ "frr_force_regen", "0", CKN_STR1, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* Force config regen */
 #endif
 #if defined(RTCONFIG_QCA)

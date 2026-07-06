@@ -11,30 +11,194 @@
 #include <unistd.h>
 #include <signal.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <limits.h>
+#include <pwd.h>
+#include <grp.h>
+#include <fcntl.h>
 
 #define FRR_RUN_DIR		"/var/run/frr"
-#define FRR_CONFIG_DIR_DEFAULT	"/etc"
+#define FRR_RUNTIME_CONFIG_DIR	"/etc"
+#define FRR_CONFIG_DIR_DEFAULT	"/jffs/configs/frr"
 #define FRR_SCRIPT		"/usr/sbin/frr"
 #define FRR_INIT_SCRIPT		"/usr/sbin/frrinit.sh"
-#define FRR_RUNTIME_DAEMONS	"/etc/daemons"
-#define FRR_RUNTIME_CONF	"/etc/frr.conf"
-#define FRR_RUNTIME_VTYSH_CONF	"/etc/vtysh.conf"
+#define FRR_RUNTIME_DAEMONS	FRR_RUNTIME_CONFIG_DIR "/daemons"
+#define FRR_RUNTIME_CONF	FRR_RUNTIME_CONFIG_DIR "/frr.conf"
+#define FRR_RUNTIME_VTYSH_CONF	FRR_RUNTIME_CONFIG_DIR "/vtysh.conf"
+#define FRR_DAEMON_USER		"nobody"
+#define FRR_DAEMON_GROUP	"nobody"
+#define FRR_STDERR_LOG_FILE	"/tmp/frr-start.stderr.log"
+
+static const char *frr_get_config_dir(char *buf, size_t len);
+
+static int frr_exec_script_capture_stderr(const char *script, const char *action,
+		const char *stderr_log, int append)
+{
+	int fd;
+	pid_t pid;
+	int status = 0;
+	int flags = O_WRONLY | O_CREAT;
+
+	if (!script || !*script || !action || !*action || !stderr_log || !*stderr_log)
+		return -1;
+
+	flags |= append ? O_APPEND : O_TRUNC;
+	fd = open(stderr_log, flags, 0644);
+	if (fd < 0)
+		return -1;
+
+	pid = fork();
+	if (pid < 0) {
+		close(fd);
+		return -1;
+	}
+
+	if (pid == 0) {
+		dup2(fd, STDERR_FILENO);
+		close(fd);
+		execl(script, script, action, (char *)NULL);
+		_exit(127);
+	}
+
+	close(fd);
+
+	if (waitpid(pid, &status, 0) < 0)
+		return -1;
+
+	if (WIFEXITED(status))
+		return WEXITSTATUS(status);
+
+	if (WIFSIGNALED(status))
+		return 128 + WTERMSIG(status);
+
+	return -1;
+}
+
+static void frr_log_captured_stderr(const char *stderr_log)
+{
+	FILE *fp;
+	char line[256];
+	int count = 0;
+
+	if (!stderr_log || !*stderr_log || !f_exists(stderr_log))
+		return;
+
+	fp = fopen(stderr_log, "r");
+	if (!fp)
+		return;
+
+	while (fgets(line, sizeof(line), fp) != NULL) {
+		size_t n = strlen(line);
+		if (n > 0 && line[n - 1] == '\n')
+			line[n - 1] = '\0';
+		if (!line[0])
+			continue;
+
+		logmessage("FRR", "script stderr: %s", line);
+		if (++count >= 50) {
+			logmessage("FRR", "script stderr: ... truncated after 50 lines");
+			break;
+		}
+	}
+
+	fclose(fp);
+}
+
+static void frr_fix_run_dir_owner(void)
+{
+	struct passwd *pw;
+	struct group *gr;
+	uid_t uid;
+	gid_t gid;
+
+	pw = getpwnam(FRR_DAEMON_USER);
+	if (!pw)
+		return;
+
+	uid = pw->pw_uid;
+	gid = pw->pw_gid;
+
+	gr = getgrnam(FRR_DAEMON_GROUP);
+	if (gr)
+		gid = gr->gr_gid;
+
+	/* Keep best-effort: startup script still has fallback behavior. */
+	if (chown(FRR_RUN_DIR, uid, gid) != 0)
+		_dprintf("FRR: failed to chown %s to %s:%s\n", FRR_RUN_DIR, FRR_DAEMON_USER, FRR_DAEMON_GROUP);
+}
 
 static int frr_invoke_script(const char *action)
 {
+	char cfg_dir[PATH_MAX];
+	char saved_cfg_dir[PATH_MAX];
+	const char *old_cfg_dir;
+	int had_old_cfg_dir = 0;
+	int ret;
+
 	if (!action || !*action)
 		return -1;
 
+	old_cfg_dir = getenv("FRR_CONFIG_DIR");
+	if (old_cfg_dir && *old_cfg_dir) {
+		strlcpy(saved_cfg_dir, old_cfg_dir, sizeof(saved_cfg_dir));
+		had_old_cfg_dir = 1;
+	}
+
+	setenv("FRR_CONFIG_DIR", frr_get_config_dir(cfg_dir, sizeof(cfg_dir)), 1);
+
 	if (f_exists(FRR_SCRIPT))
-		return eval(FRR_SCRIPT, action);
+		ret = eval(FRR_SCRIPT, action);
+	else if (f_exists(FRR_INIT_SCRIPT))
+		ret = eval(FRR_INIT_SCRIPT, action);
+	else {
+		logmessage("FRR", "Init script not found: %s or %s", FRR_SCRIPT, FRR_INIT_SCRIPT);
+		_dprintf("FRR init script not found: %s or %s\n", FRR_SCRIPT, FRR_INIT_SCRIPT);
+		ret = -1;
+	}
 
-	if (f_exists(FRR_INIT_SCRIPT))
-		return eval(FRR_INIT_SCRIPT, action);
+	if (had_old_cfg_dir)
+		setenv("FRR_CONFIG_DIR", saved_cfg_dir, 1);
+	else
+		unsetenv("FRR_CONFIG_DIR");
 
-	logmessage("FRR", "Init script not found: %s or %s", FRR_SCRIPT, FRR_INIT_SCRIPT);
-	_dprintf("FRR init script not found: %s or %s\n", FRR_SCRIPT, FRR_INIT_SCRIPT);
-	return -1;
+	return ret;
+}
+
+static int frr_invoke_script_capture(const char *action, const char *stderr_log, int append)
+{
+	char cfg_dir[PATH_MAX];
+	char saved_cfg_dir[PATH_MAX];
+	const char *old_cfg_dir;
+	int had_old_cfg_dir = 0;
+	int ret;
+
+	if (!action || !*action)
+		return -1;
+
+	old_cfg_dir = getenv("FRR_CONFIG_DIR");
+	if (old_cfg_dir && *old_cfg_dir) {
+		strlcpy(saved_cfg_dir, old_cfg_dir, sizeof(saved_cfg_dir));
+		had_old_cfg_dir = 1;
+	}
+
+	setenv("FRR_CONFIG_DIR", frr_get_config_dir(cfg_dir, sizeof(cfg_dir)), 1);
+
+	if (f_exists(FRR_SCRIPT))
+		ret = frr_exec_script_capture_stderr(FRR_SCRIPT, action, stderr_log, append);
+	else if (f_exists(FRR_INIT_SCRIPT))
+		ret = frr_exec_script_capture_stderr(FRR_INIT_SCRIPT, action, stderr_log, append);
+	else {
+		logmessage("FRR", "Init script not found: %s or %s", FRR_SCRIPT, FRR_INIT_SCRIPT);
+		_dprintf("FRR init script not found: %s or %s\n", FRR_SCRIPT, FRR_INIT_SCRIPT);
+		ret = -1;
+	}
+
+	if (had_old_cfg_dir)
+		setenv("FRR_CONFIG_DIR", saved_cfg_dir, 1);
+	else
+		unsetenv("FRR_CONFIG_DIR");
+
+	return ret;
 }
 
 static void frr_force_stop_daemons(void)
@@ -51,7 +215,7 @@ static void frr_force_stop_daemons(void)
 
 static const char *frr_get_config_dir(char *buf, size_t len)
 {
-	char *cfg_dir;
+	const char *cfg_dir;
 	size_t n;
 
 	if (!buf || len == 0)
@@ -69,6 +233,9 @@ static const char *frr_get_config_dir(char *buf, size_t len)
 		buf[n - 1] = '\0';
 		n--;
 	}
+
+	if (!strcmp(buf, FRR_RUNTIME_CONFIG_DIR))
+		strlcpy(buf, FRR_CONFIG_DIR_DEFAULT, len);
 
 	return buf;
 }
@@ -119,6 +286,19 @@ done:
 	return ok;
 }
 
+static int frr_should_regenerate_file(const char *path, int force_regen)
+{
+	struct stat st;
+
+	if (force_regen)
+		return 1;
+
+	if (!path || !*path)
+		return 1;
+
+	return (stat(path, &st) != 0);
+}
+
 static void frr_sync_runtime_config(const char *cfg_dir,
 		const char *daemons_path,
 		const char *conf_path,
@@ -127,7 +307,7 @@ static void frr_sync_runtime_config(const char *cfg_dir,
 	if (!cfg_dir || !*cfg_dir)
 		return;
 
-	if (!strcmp(cfg_dir, FRR_CONFIG_DIR_DEFAULT))
+	if (!strcmp(cfg_dir, FRR_RUNTIME_CONFIG_DIR))
 		return;
 
 	if (f_exists(daemons_path)) {
@@ -167,19 +347,18 @@ static void frr_create_dirs(void)
 
 	mkdir_if_none(FRR_RUN_DIR);
 	mkdir_if_none(cfg_dir);
-	mkdir_if_none(FRR_CONFIG_DIR_DEFAULT);
+	frr_fix_run_dir_owner();
 	
 	/* Set permissions */
 	chmod(FRR_RUN_DIR, 0755);
 	chmod(cfg_dir, 0755);
-	chmod(FRR_CONFIG_DIR_DEFAULT, 0755);
 }
 
 /* Write default configuration files if they don't exist */
 static void frr_write_default_config(void)
 {
 	FILE *fp;
-	struct stat st;
+	int force_regen;
 	char *frr_passwd, *frr_enpasswd;
 	char *hostname;
 	char cfg_dir[PATH_MAX];
@@ -191,6 +370,7 @@ static void frr_write_default_config(void)
 		daemons_path, sizeof(daemons_path),
 		conf_path, sizeof(conf_path),
 		vtysh_conf_path, sizeof(vtysh_conf_path));
+	force_regen = nvram_match("frr_force_regen", "1");
 	
 	/* Get passwords from NVRAM (compatible with old zebra_passwd) */
 	frr_passwd = nvram_safe_get("frr_passwd");
@@ -234,9 +414,14 @@ static void frr_write_default_config(void)
 	}
 #endif
 	
-	/* Always regenerate daemons file so UI protocol toggles are reflected on restart. */
-	fp = fopen(daemons_path, "w");
-	if (fp) {
+	/*
+	 * Preserve an existing external daemons file unless the user explicitly
+	 * requests regeneration. This lets a JFFS-hosted integrated FRR config set
+	 * remain authoritative across reboots.
+	 */
+	if (frr_should_regenerate_file(daemons_path, force_regen)) {
+		fp = fopen(daemons_path, "w");
+		if (fp) {
 		fprintf(fp, "# FRR daemons configuration\n");
 		fprintf(fp, "# Generated by AsusWRT\n");
 		fprintf(fp, "#\n");
@@ -253,19 +438,24 @@ static void frr_write_default_config(void)
 		fprintf(fp, "staticd_options=\" --daemon -A 127.0.0.1\"\n");
 		fprintf(fp, "bfdd_options=\" --daemon -A 127.0.0.1\"\n");
 
-		/* Support for custom config additions */
-		append_custom_config("frr_daemons", fp);
-		fclose(fp);
+			/* Support for custom config additions */
+			append_custom_config("frr_daemons", fp);
+			fclose(fp);
 
-		/* Allow custom config replacement */
-		use_custom_config("frr_daemons", daemons_path);
-		run_postconf("frr_daemons", daemons_path);
+			/* Allow custom config replacement */
+			use_custom_config("frr_daemons", daemons_path);
+			run_postconf("frr_daemons", daemons_path);
 
-		chmod(daemons_path, 0644);
+			chmod(daemons_path, 0644);
+		}
 	}
 	
-	/* Always regenerate frr.conf so UI changes are applied on restart. */
-	{
+	/*
+	 * Preserve an existing integrated frr.conf in the configured directory unless
+	 * regeneration is explicitly requested. This is the authoritative config used
+	 * by vtysh for all daemons.
+	 */
+	if (frr_should_regenerate_file(conf_path, force_regen)) {
 		fp = fopen(conf_path, "w");
 		if (fp) {
 			char *lan_ip, *wan_if;
@@ -510,11 +700,10 @@ static void frr_write_default_config(void)
 			
 			chmod(conf_path, 0644);
 		}
-		nvram_unset("frr_force_regen");
 	}
 	
 	/* Create vtysh.conf if missing */
-	if (stat(vtysh_conf_path, &st) != 0) {
+	if (frr_should_regenerate_file(vtysh_conf_path, force_regen)) {
 		fp = fopen(vtysh_conf_path, "w");
 		if (fp) {
 			fprintf(fp, "!\n");
@@ -526,6 +715,7 @@ static void frr_write_default_config(void)
 	}
 
 	frr_sync_runtime_config(cfg_dir, daemons_path, conf_path, vtysh_conf_path);
+	nvram_unset("frr_force_regen");
 
 #ifdef RTCONFIG_NVRAM_ENCRYPT
 	/* Free decrypted passwords */
@@ -537,6 +727,7 @@ static void frr_write_default_config(void)
 void start_frr(void)
 {
 	int running = 0;
+	int have_stderr = 0;
 
 	if (!is_frr_enabled()) {
 		_dprintf("FRR is not enabled\n");
@@ -544,6 +735,7 @@ void start_frr(void)
 	}
 
 	running = (pidof("watchfrr") > 0);
+	unlink(FRR_STDERR_LOG_FILE);
 	
 	_dprintf("Starting FRR routing services...\n");
 	
@@ -555,20 +747,29 @@ void start_frr(void)
 	if (running) {
 		_dprintf("FRR watchfrr already running - invoking restart\n");
 		logmessage("FRR", "watchfrr already running, invoking restart to apply config changes");
-		if (frr_invoke_script("restart") != 0) {
+		if (frr_invoke_script_capture("restart", FRR_STDERR_LOG_FILE, 1) != 0) {
+			have_stderr = 1;
 			_dprintf("FRR restart via init script failed - forcing stop/start\n");
 			logmessage("FRR", "restart command failed, forcing daemon stop/start fallback");
 			frr_force_stop_daemons();
-			if (frr_invoke_script("start") != 0) {
+			if (frr_invoke_script_capture("start", FRR_STDERR_LOG_FILE, 1) != 0) {
+				have_stderr = 1;
 				_dprintf("FRR start failed after forced stop\n");
 				logmessage("FRR", "start command failed after forced stop fallback");
 			}
 		}
+		else {
+			have_stderr = 1;
+		}
 	}
 	else {
-		if (frr_invoke_script("start") != 0) {
+		if (frr_invoke_script_capture("start", FRR_STDERR_LOG_FILE, 1) != 0) {
+			have_stderr = 1;
 			_dprintf("FRR start via init script failed\n");
 			logmessage("FRR", "start command failed");
+		}
+		else {
+			have_stderr = 1;
 		}
 	}
 
@@ -578,18 +779,27 @@ void start_frr(void)
 	}
 	else {
 		logmessage("FRR", "start completed but watchfrr is not running");
+		if (have_stderr)
+			frr_log_captured_stderr(FRR_STDERR_LOG_FILE);
 		_dprintf("FRR start failed\n");
 	}
 }
 
 void stop_frr(void)
 {
+	int have_stderr = 0;
+
 	_dprintf("Stopping FRR routing services...\n");
+	unlink(FRR_STDERR_LOG_FILE);
 
 	/* Stop FRR using init script; if it fails, force-stop daemon processes. */
-	if (frr_invoke_script("stop") != 0) {
+	if (frr_invoke_script_capture("stop", FRR_STDERR_LOG_FILE, 1) != 0) {
+		have_stderr = 1;
 		logmessage("FRR", "stop command failed, forcing daemon stop fallback");
 		frr_force_stop_daemons();
+	}
+	else {
+		have_stderr = 1;
 	}
 
 	if (pidof("watchfrr") <= 0) {
@@ -598,12 +808,16 @@ void stop_frr(void)
 	}
 	else {
 		logmessage("FRR", "stop completed but watchfrr is still running");
+		if (have_stderr)
+			frr_log_captured_stderr(FRR_STDERR_LOG_FILE);
 		_dprintf("FRR stop incomplete\n");
 	}
 }
 
 void restart_frr(void)
 {
+	int have_stderr = 0;
+
 	if (!is_frr_enabled()) {
 		_dprintf("FRR restart requested while disabled - stopping daemons\n");
 		logmessage("FRR", "restart requested while disabled; stopping FRR daemons");
@@ -611,20 +825,29 @@ void restart_frr(void)
 		return;
 	}
 
+	unlink(FRR_STDERR_LOG_FILE);
+
 	/* Ensure latest UI/NVRAM settings are materialized before restart. */
 	frr_create_dirs();
 	frr_write_default_config();
 
-	if (frr_invoke_script("restart") != 0) {
+	if (frr_invoke_script_capture("restart", FRR_STDERR_LOG_FILE, 1) != 0) {
+		have_stderr = 1;
 		_dprintf("FRR restart via init script failed - fallback stop/start\n");
 		logmessage("FRR", "restart command failed, using stop/start fallback");
 		stop_frr();
 		sleep(1);
 		start_frr();
 	}
+	else {
+		have_stderr = 1;
+	}
 
 	if (pidof("watchfrr") > 0)
 		logmessage("FRR", "restart completed successfully");
-	else
+	else {
 		logmessage("FRR", "restart completed but watchfrr is not running");
+		if (have_stderr)
+			frr_log_captured_stderr(FRR_STDERR_LOG_FILE);
+	}
 }

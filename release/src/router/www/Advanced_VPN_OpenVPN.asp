@@ -189,7 +189,7 @@ function initial(){
 	update_digest();
 	/*Advanced Setting end */
 
-	var vpn_server_array = { "PPTP" : ["PPTP", "Advanced_VPN_PPTP.asp"], "OpenVPN" : ["OpenVPN", "Advanced_VPN_OpenVPN.asp"], "IPSEC" : ["IPSec VPN", "Advanced_VPN_IPSec.asp"], "Wireguard" : ["Wireguard VPN", "Advanced_WireguardServer_Content.asp"]};
+	var vpn_server_array = { "OpenVPN" : ["OpenVPN", "Advanced_VPN_OpenVPN.asp"], "IPSEC" : ["IPSec VPN", "Advanced_VPN_IPSec.asp"], "Wireguard" : ["Wireguard VPN", "Advanced_WireguardServer_Content.asp"]};
 	if(!pptpd_support) {
 		delete vpn_server_array.PPTP;
 	}

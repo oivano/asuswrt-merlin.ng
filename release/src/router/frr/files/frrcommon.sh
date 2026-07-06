@@ -32,6 +32,10 @@ FRR_CONFIG_MODE="0600"
 FRR_DEFAULT_PROFILE="traditional"
 MAX_FDS=1024
 
+if [ -n "$FRR_CONFIG_DIR" ]; then
+	C_PATH="$FRR_CONFIG_DIR${suffix}"
+fi
+
 # ORDER MATTERS FOR $DAEMONS!
 # - keep zebra first
 # - watchfrr does NOT belong in this list
@@ -70,9 +74,9 @@ vtysh_b () {
 	[ "$1" = "watchfrr" ] && return 0
 	[ -r "$C_PATH/frr.conf" ] || return 0
 	if [ -n "$1" ]; then
-		"$VTYSH" `echo $nsopt` -b -d "$1"
+		"$VTYSH" --config_dir "$C_PATH" `echo $nsopt` -b -d "$1"
 	else
-		"$VTYSH" `echo $nsopt` -b
+		"$VTYSH" --config_dir "$C_PATH" `echo $nsopt` -b
 	fi
 }
 

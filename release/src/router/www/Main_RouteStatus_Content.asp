@@ -22,27 +22,45 @@
 	<script>
 <% get_route_array(); %>
 <% get_frr_route_origin_array(); %>
+			function has_route_origin_data(origin) {
+				var key;
 
-			function mask_to_cidr(mask) {
-				var parts = mask.split('.');
-				var i;
-				var cidr = 0;
+				if (!origin)
+					return false;
 
-				if (parts.length != 4)
-					return 0;
-
-				for (i = 0; i < 4; i++) {
-					var num = parseInt(parts[i], 10);
-					while (num > 0) {
-						cidr += (num & 1);
-						num = num >> 1;
-					}
+				for (key in origin) {
+					return true;
 				}
 
-				return cidr;
+				return false;
 			}
 
+		var frrOverlayEnabled = (typeof frr_route_overlay_enabled != 'undefined' && frr_route_overlay_enabled == 1 &&
+			(has_route_origin_data(frr_route_origin_v4) || has_route_origin_data(frr_route_origin_v6)));
+
+		function mask_to_cidr(mask) {
+			var parts = mask.split('.');
+			var i;
+			var cidr = 0;
+
+			if (parts.length != 4)
+				return 0;
+
+			for (i = 0; i < 4; i++) {
+				var num = parseInt(parts[i], 10);
+				while (num > 0) {
+					cidr += (num & 1);
+					num = num >> 1;
+				}
+			}
+
+			return cidr;
+		}
+
 		function route_meta_v4(dest, mask) {
+			if (!frrOverlayEnabled)
+				return null;
+
 			var origin = frr_route_origin_v4 || {};
 			var key;
 
@@ -65,6 +83,9 @@
 		}
 
 		function route_meta_v6(dest) {
+			if (!frrOverlayEnabled)
+				return null;
+
 			var origin = frr_route_origin_v6 || {};
 
 			if (origin[dest])
@@ -76,6 +97,9 @@
 		}
 
 		function format_route_badge(meta) {
+			if (!frrOverlayEnabled)
+				return '';
+
 			var proto = meta && meta.proto ? meta.proto : "Kernel";
 			var active = meta && meta.active ? 1 : 0;
 			var activeMark = active ? " +" : "";
@@ -102,12 +126,13 @@
 			var code, i, line;
 
 			code = '<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3" class="FormTable_table">';
-			code += '<thead><tr><td colspan="9">IPv4 Routing table</td></tr></thead>';
+			code += '<thead><tr><td colspan="' + (frrOverlayEnabled ? '9' : '8') + '">IPv4 Routing table</td></tr></thead>';
 			code += '<tr><th width="19%">Destination</th>';
 			code += '<th width="19%">Gateway</th>';
 			code += '<th width="16%">Genmask</th>';
 			code += '<th width="11%">Flags</th>';
-			code += '<th width="10%">Learned</th>';
+			if (frrOverlayEnabled)
+				code += '<th width="10%">Learned</th>';
 			code += '<th width="10%">Metric</th>';
 			code += '<th width="8%">Ref</th>';
 			code += '<th width="8%">Use</th>';
@@ -124,7 +149,8 @@
 					code += '<td>' + line[1] + '</td>';
 					code += '<td>' + line[2] + '</td>';
 					code += '<td>' + line[3] + '</td>';
-					code += '<td>' + format_route_badge(meta) + '</td>';
+					if (frrOverlayEnabled)
+						code += '<td>' + format_route_badge(meta) + '</td>';
 					code += '<td>' + line[4] + '</td>';
 					code += '<td>' + line[5] + '</td>';
 					code += '<td>' + line[6] + '</td>';
@@ -132,7 +158,7 @@
 					code += '</tr>';
 				}
 			} else {
-				code += '<tr><td colspan="9"><span>No IPv4 routes.</span></td></tr>';
+				code += '<tr><td colspan="' + (frrOverlayEnabled ? '9' : '8') + '"><span>No IPv4 routes.</span></td></tr>';
 			}
 
 			code += '</tr></table>';
@@ -144,10 +170,11 @@
 			var code, i, line;
 
 			code = '<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3" class="FormTable_table">';
-			code += '<thead><tr><td colspan="8">IPv6 Routing table</td></tr></thead>';
+			code += '<thead><tr><td colspan="' + (frrOverlayEnabled ? '8' : '7') + '">IPv6 Routing table</td></tr></thead>';
 			code += '<tr><th width="40%">Destination<br><span style="color:#FFCC00;">Next Hop</span></th>';
 			code += '<th width="10%">Flags</th>';
-			code += '<th width="10%">Learned</th>';
+			if (frrOverlayEnabled)
+				code += '<th width="10%">Learned</th>';
 			code += '<th width="10%">Metric</th>';
 			code += '<th width="10%">Ref</th>';
 			code += '<th width="10%">Use</th>';
@@ -163,7 +190,8 @@
 					code += '<tr>';
 					code += '<td>' + line[0] + '<br><span style="color:#FFCC00;">' + line[1] + '</span></td>';
 					code += '<td>' + line[2] + '</td>';
-					code += '<td>' + format_route_badge(meta) + '</td>';
+					if (frrOverlayEnabled)
+						code += '<td>' + format_route_badge(meta) + '</td>';
 					code += '<td>' + line[3] + '</td>';
 					code += '<td>' + line[4] + '</td>';
 					code += '<td>' + line[5] + '</td>';
@@ -172,7 +200,7 @@
 					code += '</tr>';
 				}
 			} else {
-				code += '<tr><td colspan="8"><span>No IPv6 routes.</span></td></tr>';
+				code += '<tr><td colspan="' + (frrOverlayEnabled ? '8' : '7') + '"><span>No IPv6 routes.</span></td></tr>';
 			}
 
 			code += '</tr></table>';
@@ -225,12 +253,11 @@
 											<div class="formfontdesc">
 												<#Route_title#>
 											</div>
-											<div style="margin:6px 5px 0 5px;color:#C9D4D9;font-size:12px;">
-												Dynamic route labels: BGP, OSPF, RIP, ISIS. Active routes are marked
-												with <span style="color:#7CFC7C;">+</span>.
-												&nbsp;&nbsp;<a href="Advanced_FRR_Content.asp"
-													style="color:#6ED0FF;">Open Dynamic Routing (FRR)</a>
-											</div>
+											<script>
+												if (frrOverlayEnabled) {
+													document.write('<div style="margin:6px 5px 0 5px;color:#C9D4D9;font-size:12px;">Dynamic route labels: BGP, OSPF, RIP, ISIS. Active routes are marked with <span style="color:#7CFC7C;">+</span>.&nbsp;&nbsp;<a href="Advanced_FRR_Content.asp" style="color:#6ED0FF;">Open Dynamic Routing (FRR)</a></div>');
+												}
+											</script>
 											<div style="margin-top:8px">
 												<div id="routev4block"></div>
 											</div>

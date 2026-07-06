@@ -188,6 +188,7 @@ define(function(){
 					//{url: "DNSFilter.asp", tabName: "DNSFilter"},
 					{url: "Advanced_MultiSubnet_Content.asp", tabName: "<#menu5_2_2#>"},
 					{url: "Advanced_GWStaticRoute_Content.asp", tabName: "<#menu5_2_3#>"},
+					{url: "Advanced_FRR_Content.asp", tabName: "<#menu5_2_4#>"},
 					{url: "Advanced_IPTV_Content.asp", tabName: "IPTV"},
 					{url: "Advanced_SwitchCtrl_Content.asp", tabName: "<#Switch_itemname#>"},
 					{url: "NULL", tabName: "__INHERIT__"}
@@ -232,7 +233,6 @@ define(function(){
 				menuName: "VPN",
 				index: "menu_VPN", 
 				tab: [
-					{url: "Advanced_VPN_PPTP.asp", tabName: "<#BOP_isp_heart_item#>"},
 					{url: "Advanced_VPN_OpenVPN.asp", tabName: "__INHERIT__"},
 					{url: "Advanced_VPN_IPSec.asp", tabName: "__INHERIT__"},
 					{url: "Advanced_VPNClient_Content.asp", tabName: (vpn_fusion_support) ? "<#VPN_Fusion#>" : "<#vpnc_title#>"},
@@ -491,7 +491,6 @@ define(function(){
 				}
 
 				if(!pptpd_support){
-					retArray.push("Advanced_VPN_PPTP.asp");
 				}
 
 				if(!openvpnd_support){
@@ -677,6 +676,7 @@ define(function(){
 					retArray.push("Advanced_DHCP_Content.asp");
 					retArray.push("Advanced_MultiSubnet_Content.asp");
 					retArray.push("Advanced_GWStaticRoute_Content.asp");
+					retArray.push("Advanced_FRR_Content.asp");
 					retArray.push("Advanced_IPTV_Content.asp");
 					retArray.push("Main_DHCPStatus_Content.asp");
 					retArray.push("Main_IPV6Status_Content.asp");
@@ -704,6 +704,7 @@ define(function(){
 					}
 					retArray.push("Advanced_MultiSubnet_Content.asp");
 					retArray.push("Advanced_GWStaticRoute_Content.asp");
+					retArray.push("Advanced_FRR_Content.asp");
 					retArray.push("Advanced_IPTV_Content.asp");
 					retArray.push("Main_DHCPStatus_Content.asp");
 					retArray.push("Main_IPV6Status_Content.asp");
@@ -723,6 +724,7 @@ define(function(){
 					retArray.push("Advanced_DHCP_Content.asp");
 					retArray.push("Advanced_MultiSubnet_Content.asp");
 					retArray.push("Advanced_GWStaticRoute_Content.asp");
+					retArray.push("Advanced_FRR_Content.asp");
 					retArray.push("Advanced_IPTV_Content.asp");
 					retArray.push("Main_DHCPStatus_Content.asp");
 					retArray.push("Main_IPV6Status_Content.asp");
