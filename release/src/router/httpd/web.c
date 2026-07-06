@@ -33004,6 +33004,11 @@ struct ej_handler ej_handlers[] = {
 	{ "get_wan_unit", get_wan_unit_hook},
 	{ "get_parameter", ej_get_parameter},
 	{ "get_ascii_parameter", ej_get_ascii_parameter},
+	{ "get_frr_enabled", ej_get_frr_enabled},
+	{ "get_frr_daemon_status", ej_get_frr_daemon_status},
+	{ "get_frr_bgp_config", ej_get_frr_bgp_config},
+	{ "get_frr_ospf_config", ej_get_frr_ospf_config},
+	{ "get_frr_bfd_config", ej_get_frr_bfd_config},
 	{ "login_state_hook", login_state_hook},
 	{ "is_logined_hook", ej_is_logined_hook},
 #ifdef RTCONFIG_FANCTRL
