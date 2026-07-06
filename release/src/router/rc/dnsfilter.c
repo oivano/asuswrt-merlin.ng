@@ -386,9 +386,12 @@ void dnsfilter6_dot_rules(FILE *fp)
 
 	fprintf(fp, "-A FORWARD -i br+ -m tcp -p tcp --dport 853 -j DNSFILTER_DOT\n");
 
+#ifdef HND_ROUTER
 	nv = nvp = malloc(255 * 6 + 1);
 	if (nv) nvram_split_get("dnsfilter_rulelist", nv, 255 * 6 + 1, 5);
-
+#else
+	nv = nvp = strdup(nvram_safe_get("dnsfilter_rulelist"));
+#endif
 	while (nv && (rule = strsep(&nvp, "<")) != NULL) {
 		if (vstrsep(rule, ">", &name, &mac, &mode) != 3)
 			continue;
