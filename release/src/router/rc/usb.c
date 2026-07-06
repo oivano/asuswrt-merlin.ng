@@ -5760,12 +5760,16 @@ void start_nfsd(void)
 	mkdir_if_none("/var/lib/nfs/v4recovery");
 	mount("nfsd", "/proc/fs/nfsd", "nfsd", MS_MGC_VAL, NULL);
 #endif
+	/* create statd state directories */
+	mkdir_if_none("/var/lib/nfs/sm");
+	mkdir_if_none("/var/lib/nfs/sm.bak");
 	unlink("/var/lib/nfs/etab");
 	unlink("/var/lib/nfs/xtab");
 	unlink("/var/lib/nfs/rmtab");
 	close(creat("/var/lib/nfs/etab", 0644));
 	close(creat("/var/lib/nfs/xtab", 0644));
 	close(creat("/var/lib/nfs/rmtab", 0644));
+	close(creat("/var/lib/nfs/state", 0644));
 
 	/* (re-)create /etc/exports */
 	if (stat(NFS_EXPORT, &st_buf) == 0)	{
