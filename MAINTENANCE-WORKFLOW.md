@@ -48,27 +48,41 @@ Fetch and inspect both upstream sources.
     git fetch merlin
     git fetch upstream
 
-Run the intake helper to generate a candidate list.
+Run the intake helper in report-only mode to review candidates before touching any branch.
 
-    tools/release/intake-filter.sh --no-apply
+    tools/release/intake-filter.sh
 
 The helper produces:
 
-- an eligibility report;
-- a list of commits that are likely safe to consider for intake;
-- a list of commits that require manual review;
-- a list of commits that should be rejected for this target.
+- an eligibility report (`intake-candidates.txt`);
+- a triage report with ACCEPT / REVIEW / REJECT classification (`intake-triage.txt`);
+- an apply-feasibility report showing CLEAN / CONFLICT status (`intake-apply-check.txt`);
+- a promotion-ready list of ACCEPT+CLEAN candidates (`intake-promote-ready.txt`);
+- an auto-rejected prebuilt list (`intake-rejected-prebuilt.txt`).
+
+When the report looks acceptable, rerun with `--apply` to automatically cherry-pick
+ACCEPT+CLEAN candidates onto DEV-refactor in chronological order.
+
+    tools/release/intake-filter.sh --apply
+
+Successfully applied local SHAs are appended to `tools/release/validated-commits.txt`
+for use as an audit trail during promotion.
 
 ### 2. Integrate On DEV-refactor
 
-For accepted candidates, cherry-pick into DEV-refactor or merge selectively if the change set is intentionally grouped.
+`--apply` mode handles ACCEPT+CLEAN candidates automatically.  For REVIEW candidates
+or commits that conflicted during the apply check, cherry-pick manually.
+
+    git cherry-pick -x <sha>
 
 Rules:
 
 - prefer cherry-picking over broad merges when the change is narrow;
 - keep conflict resolution local and documented;
 - avoid importing newer-kernel assumptions into the legacy target branch;
-- reject driver, kernel, and build-system churn unless there is a target-specific reason.
+- reject driver, kernel, and build-system churn unless there is a target-specific reason;
+- local commits authored directly on DEV-refactor (not sourced from upstream) are also
+  eligible for promotion and will be classified as `[local]` by the promotion helper.
 
 ### 3. Validate On Hardware
 
@@ -86,22 +100,44 @@ DEV-refactor may contain work in progress, but any commit promoted beyond this p
 
 ### 4. Promote To DEV-nextrelease
 
-Prepare a SHA list from the validated commits, then run the promotion helper.
+First do a dry run to review exactly what will be promoted.
 
-    tools/release/promote-validated.sh --list tools/release/validated-commits.txt
+    tools/release/promote-validated.sh --dry-run
+
+The helper computes the full gap between DEV-refactor and DEV-nextrelease and
+classifies every commit:
+
+- `[validated]` — present in `tools/release/validated-commits.txt` (applied via `--apply`);
+- `[local]` — authored directly on DEV-refactor, not sourced from upstream intake.
+
+Both classes are promoted.  `validated-commits.txt` serves as an audit cross-reference,
+not as a gate.
+
+To skip specific commits (for example a local experiment not ready for release):
+
+    tools/release/promote-validated.sh --dry-run --exclude <sha> [--exclude <sha> ...]
+
+Short SHAs are accepted.  Excluded commits appear as `[excluded]` in the listing and
+are logged as skipped.
+
+When the dry run output is satisfactory, run without `--dry-run`.
+
+    tools/release/promote-validated.sh [--exclude <sha> ...]
 
 The helper:
 
+- enforces that source is DEV-refactor (two-stage gate — commits must land and be
+  validated on DEV-refactor before DEV-nextrelease accepts them);
 - checks out DEV-nextrelease;
-- cherry-picks each listed commit;
-- writes a promotion log;
-- records the source SHA, destination branch, and result.
+- cherry-picks all commits from the gap in chronological order;
+- writes a promotion log to `tools/release/promotion-log.txt`.
 
 Rules:
 
 - no wholesale merge from DEV-refactor to DEV-nextrelease;
 - no unrelated refactors during release stabilization;
-- if a change is risky but necessary, isolate it in its own promotion batch.
+- if a change is risky but necessary, isolate it with `--exclude` and promote it
+  in a separate batch after additional validation.
 
 ### 5. Stabilize And Release
 
