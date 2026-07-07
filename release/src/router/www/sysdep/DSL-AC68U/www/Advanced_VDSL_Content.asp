@@ -44,7 +44,7 @@ if(load_wan_unit.length == 3)
 
 if(dnspriv_support){
 	//var dot_servers_array = [];
-	var dnspriv_rulelist_array = '<% nvram_get("dnspriv_rulelist"); %>';
+	var dnspriv_rulelist_array = "";
 }
 
 if(dualWAN_support){
@@ -360,6 +360,10 @@ function showDSLWANList(){
 function initial(){
 	show_menu();
 
+	if(dnspriv_support){
+		dnspriv_rulelist_array = decodeURIComponent(document.form.dnspriv_rulelist.value || "");
+	}
+
 	document.form.dsl_dhcp_clientid.value = decodeURIComponent('<% nvram_char_to_ascii("", "dsl_dhcp_clientid"); %>');
 
 	// WAN port
@@ -378,7 +382,7 @@ function initial(){
 		disable_all_ctrl();
 	}
 
-	$.getJSON("https://nw-dlcdnet.asus.com/plugin/js/dns_db.json",
+	$.getJSON("/ajax/dns_db.json",
 		function(data){
 			var dns_db_translation_mapping = [
 				{tag:"#ADGUARD_1",text:"<#IPConnection_x_DNS_DB_ADGUARD_1#>"},
@@ -1315,7 +1319,7 @@ function showDiableDHCPclientID(clientid_enable){
 <input type="hidden" name="wan_enable" value="" disabled>
 <input type="hidden" name="add_pvc_flag" value="0">
 <input type="hidden" name="dsl_dhcp_clientid_type" value="">
-<input type="hidden" name="dnspriv_rulelist" value="<% nvram_get("dnspriv_rulelist"); %>" disabled>
+<input type="hidden" name="dnspriv_rulelist" value="<% nvram_char_to_ascii("", "dnspriv_rulelist"); %>" disabled>
 <span id="bridgePPPoE_relay"></span>
 <table class="content" align="center" cellpadding="0" cellspacing="0">
 	<tr>
