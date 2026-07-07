@@ -54,7 +54,7 @@ stop)
 
 restart|force-reload)
 	daemon_stop watchfrr
-	all_stop --reallyall
+	all_stop --reallyall --keep-routes
 
 	daemon_list daemons
 	watchfrr_options="$watchfrr_options $daemons"

@@ -215,6 +215,25 @@ daemon_stop() {
 	fi
 }
 
+flush_frr_routes() {
+	local ip_cmd flushed proto
+
+	ip_cmd="$(command -v ip 2>/dev/null)"
+	[ -n "$ip_cmd" ] || ip_cmd="/sbin/ip"
+	[ -x "$ip_cmd" ] || return 0
+
+	for proto in 11 42 186 187 188 189 190 191 192 193 194 195 196 197 198; do
+		if "$ip_cmd" route flush proto "$proto" >/dev/null 2>&1; then
+			flushed=1
+		fi
+		if "$ip_cmd" -6 route flush proto "$proto" >/dev/null 2>&1; then
+			flushed=1
+		fi
+	done
+
+	[ -n "$flushed" ] && log_success_msg "Flushed FRR kernel routes"
+}
+
 daemon_status() {
 	local dmninst daemon inst pidfile pid fail
 	daemon_inst "$1"
@@ -252,10 +271,11 @@ all_start() {
 }
 
 all_stop() {
-	local pids reversed
+	local pids reversed keep_routes
 
 	daemon_list daemons disabled
 	[ "$1" = "--reallyall" ] && daemons="$daemons $disabled"
+	[ "$2" = "--keep-routes" ] && keep_routes=1
 
 	reversed=""
 	for dmninst in $daemons; do
@@ -269,6 +289,7 @@ all_stop() {
 	for pid in $pids; do
 		wait $pid
 	done
+	[ -z "$still_running" ] && [ -z "$keep_routes" ] && flush_frr_routes
 }
 
 all_status() {
