@@ -26,13 +26,13 @@ start() {
 	daemon_start watchfrr
 }
 stop() {
-	daemon_stop watchfrr
+	stop_watchfrr_first || exit ${still_running:-1}
 	all_stop --reallyall
 	exit ${still_running:-0}
 }
 
 restart() {
-	daemon_stop watchfrr
+	stop_watchfrr_first || exit ${still_running:-1}
 	all_stop --reallyall
 
 	daemon_list daemons
@@ -65,4 +65,42 @@ reload() {
 	"$RELOAD_SCRIPT" --reload "$NEW_CONFIG_FILE"
 	exit $?
 }
+
+try_service_action() {
+	local svc="$1"
+
+	if [ -x "/sbin/service" ]; then
+		/sbin/service "$svc"
+		return $?
+	fi
+
+	if command -v service >/dev/null 2>&1; then
+		service "$svc"
+		return $?
+	fi
+
+	return 127
+}
+
+case "$1" in
+start)
+	try_service_action start_frr || start
+	;;
+stop)
+	try_service_action stop_frr || stop
+	;;
+restart|force-reload)
+	try_service_action restart_frr || restart
+	;;
+status)
+	status
+	;;
+reload)
+	reload
+	;;
+*)
+	log_failure_msg "Unknown command: $1"
+	exit 1
+	;;
+esac
 

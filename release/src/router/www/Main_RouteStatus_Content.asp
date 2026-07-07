@@ -38,6 +38,43 @@
 		var frrOverlayEnabled = (typeof frr_route_overlay_enabled != 'undefined' && frr_route_overlay_enabled == 1 &&
 			(has_route_origin_data(frr_route_origin_v4) || has_route_origin_data(frr_route_origin_v6)));
 
+		function cidr_to_mask(prefix) {
+			var p = parseInt(prefix, 10);
+			var octets = [0, 0, 0, 0];
+			var i;
+
+			if (isNaN(p) || p < 0 || p > 32)
+				return '0.0.0.0';
+
+			for (i = 0; i < 4; i++) {
+				if (p >= 8) {
+					octets[i] = 255;
+					p -= 8;
+				}
+				else if (p > 0) {
+					octets[i] = 256 - Math.pow(2, 8 - p);
+					p = 0;
+				}
+			}
+
+			return octets.join('.');
+		}
+
+		function split_ipv4_prefix(prefix) {
+			var parts;
+
+			if (!prefix)
+				return null;
+			if (prefix == 'default' || prefix == '0.0.0.0/0')
+				return { dest: 'default', mask: '0.0.0.0' };
+
+			parts = prefix.split('/');
+			if (parts.length != 2)
+				return null;
+
+			return { dest: parts[0], mask: cidr_to_mask(parts[1]) };
+		}
+
 		function mask_to_cidr(mask) {
 			var parts = mask.split('.');
 			var i;
@@ -115,6 +152,175 @@
 			return '<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:9px;background:' + color + ';color:#1b1b1b;font-size:11px;line-height:14px;">' + proto + activeMark + '</span>';
 		}
 
+		function route_proto_rank(proto) {
+			switch (proto) {
+				case 'CONNECTED':
+					return 1;
+				case 'LOCAL':
+					return 2;
+				case 'STATIC':
+					return 3;
+				case 'KERNEL':
+					return 4;
+				case 'OSPF':
+					return 5;
+				case 'RIP':
+					return 6;
+				case 'ISIS':
+					return 7;
+				case 'BGP':
+					return 8;
+				default:
+					return 9;
+			}
+		}
+
+		function ipv4_to_number(addr) {
+			var parts, i, value = 0, num;
+
+			if (!addr || addr == 'default')
+				return -1;
+
+			parts = addr.split('.');
+			if (parts.length != 4)
+				return 0;
+
+			for (i = 0; i < 4; i++) {
+				num = parseInt(parts[i], 10);
+				if (isNaN(num) || num < 0 || num > 255)
+					return 0;
+				value = (value * 256) + num;
+			}
+
+			return value;
+		}
+
+		function compare_text(a, b) {
+			if (a == b)
+				return 0;
+			return a < b ? -1 : 1;
+		}
+
+		function compare_frr_ipv4_rows(a, b) {
+			var metaA = route_meta_v4(a[0], a[2]) || {};
+			var metaB = route_meta_v4(b[0], b[2]) || {};
+			var rankA, rankB, diff;
+
+			if (a[0] == 'default' && b[0] != 'default')
+				return -1;
+			if (b[0] == 'default' && a[0] != 'default')
+				return 1;
+
+			rankA = route_proto_rank(metaA.proto || '');
+			rankB = route_proto_rank(metaB.proto || '');
+			if (rankA != rankB)
+				return rankA - rankB;
+
+			diff = ipv4_to_number(a[0]) - ipv4_to_number(b[0]);
+			if (diff != 0)
+				return diff;
+
+			diff = mask_to_cidr(b[2]) - mask_to_cidr(a[2]);
+			if (diff != 0)
+				return diff;
+
+			diff = parseInt(a[4], 10) - parseInt(b[4], 10);
+			if (!isNaN(diff) && diff != 0)
+				return diff;
+
+			return compare_text(a[7] || '', b[7] || '');
+		}
+
+		function compare_frr_ipv6_rows(a, b) {
+			var metaA = route_meta_v6(a[0]) || {};
+			var metaB = route_meta_v6(b[0]) || {};
+			var rankA, rankB, diff;
+
+			if (a[0] == 'default' && b[0] != 'default')
+				return -1;
+			if (b[0] == 'default' && a[0] != 'default')
+				return 1;
+
+			rankA = route_proto_rank(metaA.proto || '');
+			rankB = route_proto_rank(metaB.proto || '');
+			if (rankA != rankB)
+				return rankA - rankB;
+
+			diff = compare_text(a[0], b[0]);
+			if (diff != 0)
+				return diff;
+
+			diff = parseInt(a[3], 10) - parseInt(b[3], 10);
+			if (!isNaN(diff) && diff != 0)
+				return diff;
+
+			return compare_text(a[6] || '', b[6] || '');
+		}
+
+		function build_frr_ipv4_rows() {
+			var rows = [];
+			var origin, key, parsed, meta;
+
+			if (!frrOverlayEnabled)
+				return rows;
+
+			origin = frr_route_origin_v4 || {};
+			for (key in origin) {
+				if (!origin.hasOwnProperty(key))
+					continue;
+
+				parsed = split_ipv4_prefix(key);
+				if (!parsed)
+					continue;
+
+				meta = origin[key] || {};
+				rows.push([
+					parsed.dest,
+					meta.nexthop ? meta.nexthop : '*',
+					parsed.mask,
+					meta.active ? 'U' : '',
+					meta.metric ? meta.metric : '0',
+					'0',
+					'0',
+					meta.iface ? meta.iface : ''
+				]);
+			}
+
+			rows.sort(compare_frr_ipv4_rows);
+
+			return rows;
+		}
+
+		function build_frr_ipv6_rows() {
+			var rows = [];
+			var origin, key, meta;
+
+			if (!frrOverlayEnabled)
+				return rows;
+
+			origin = frr_route_origin_v6 || {};
+			for (key in origin) {
+				if (!origin.hasOwnProperty(key))
+					continue;
+
+				meta = origin[key] || {};
+				rows.push([
+					key,
+					meta.nexthop ? meta.nexthop : '',
+					meta.active ? 'U' : '',
+					meta.metric ? meta.metric : '0',
+					'0',
+					'0',
+					meta.iface ? meta.iface : '',
+					meta.iface ? meta.iface : ''
+				]);
+			}
+
+			rows.sort(compare_frr_ipv6_rows);
+
+			return rows;
+		}
+
 		function initial() {
 			show_menu();
 			show_routev4();
@@ -124,6 +330,7 @@
 
 		function show_routev4() {
 			var code, i, line;
+			var rows = frrOverlayEnabled ? build_frr_ipv4_rows() : routearray.slice(0, routearray.length - 1);
 
 			code = '<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3" class="FormTable_table">';
 			code += '<thead><tr><td colspan="' + (frrOverlayEnabled ? '9' : '8') + '">IPv4 Routing table</td></tr></thead>';
@@ -139,9 +346,9 @@
 			code += '<th width="9%">Iface</th>';
 			code += '</tr>';
 
-			if (routearray.length > 1) {
-				for (i = 0; i < routearray.length - 1; ++i) {
-					line = routearray[i];
+			if (rows.length > 0) {
+				for (i = 0; i < rows.length; ++i) {
+					line = rows[i];
 					var meta = route_meta_v4(line[0], line[2]);
 
 					code += '<tr>';
@@ -168,6 +375,7 @@
 
 		function show_routev6() {
 			var code, i, line;
+			var rows = frrOverlayEnabled ? build_frr_ipv6_rows() : routev6array.slice(0, routev6array.length - 1);
 
 			code = '<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3" class="FormTable_table">';
 			code += '<thead><tr><td colspan="' + (frrOverlayEnabled ? '8' : '7') + '">IPv6 Routing table</td></tr></thead>';
@@ -182,9 +390,9 @@
 			code += '<th width="10%">Iface</th>';
 			code += '</tr>';
 
-			if (routev6array.length > 1) {
-				for (i = 0; i < routev6array.length - 1; ++i) {
-					line = routev6array[i];
+			if (rows.length > 0) {
+				for (i = 0; i < rows.length; ++i) {
+					line = rows[i];
 					var meta = route_meta_v6(line[0]);
 
 					code += '<tr>';

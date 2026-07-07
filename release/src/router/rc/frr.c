@@ -146,10 +146,11 @@ static int frr_invoke_script(const char *action)
 
 	setenv("FRR_CONFIG_DIR", frr_get_config_dir(cfg_dir, sizeof(cfg_dir)), 1);
 
-	if (f_exists(FRR_SCRIPT))
-		ret = eval(FRR_SCRIPT, action);
-	else if (f_exists(FRR_INIT_SCRIPT))
+	/* Prefer the init script: /usr/sbin/frr can be a no-op on some targets. */
+	if (f_exists(FRR_INIT_SCRIPT))
 		ret = eval(FRR_INIT_SCRIPT, action);
+	else if (f_exists(FRR_SCRIPT))
+		ret = eval(FRR_SCRIPT, action);
 	else {
 		logmessage("FRR", "Init script not found: %s or %s", FRR_SCRIPT, FRR_INIT_SCRIPT);
 		_dprintf("FRR init script not found: %s or %s\n", FRR_SCRIPT, FRR_INIT_SCRIPT);
@@ -183,10 +184,11 @@ static int frr_invoke_script_capture(const char *action, const char *stderr_log,
 
 	setenv("FRR_CONFIG_DIR", frr_get_config_dir(cfg_dir, sizeof(cfg_dir)), 1);
 
-	if (f_exists(FRR_SCRIPT))
-		ret = frr_exec_script_capture_stderr(FRR_SCRIPT, action, stderr_log, append);
-	else if (f_exists(FRR_INIT_SCRIPT))
+	/* Prefer the init script: /usr/sbin/frr can be a no-op on some targets. */
+	if (f_exists(FRR_INIT_SCRIPT))
 		ret = frr_exec_script_capture_stderr(FRR_INIT_SCRIPT, action, stderr_log, append);
+	else if (f_exists(FRR_SCRIPT))
+		ret = frr_exec_script_capture_stderr(FRR_SCRIPT, action, stderr_log, append);
 	else {
 		logmessage("FRR", "Init script not found: %s or %s", FRR_SCRIPT, FRR_INIT_SCRIPT);
 		_dprintf("FRR init script not found: %s or %s\n", FRR_SCRIPT, FRR_INIT_SCRIPT);
@@ -229,7 +231,8 @@ static const char *frr_get_config_dir(char *buf, size_t len)
 
 	strlcpy(buf, cfg_dir, len);
 	n = strlen(buf);
-	while (n > 1 && buf[n - 1] == '/') {
+	while (n > 1 && (buf[n - 1] == '/' || buf[n - 1] == '.')) {
+		/* Handle accidental trailing dot from UI/NVRAM path entry. */
 		buf[n - 1] = '\0';
 		n--;
 	}
@@ -743,19 +746,40 @@ void start_frr(void)
 	frr_create_dirs();
 	frr_write_default_config();
 
-	/* If already running, do a controlled restart so config changes always apply. */
+	/*
+	 * If already running, do an explicit stop/start cycle so config changes
+	 * always apply even when script-level restart behaves like a no-op.
+	 */
 	if (running) {
-		_dprintf("FRR watchfrr already running - invoking restart\n");
-		logmessage("FRR", "watchfrr already running, invoking restart to apply config changes");
-		if (frr_invoke_script_capture("restart", FRR_STDERR_LOG_FILE, 1) != 0) {
+		_dprintf("FRR watchfrr already running - forcing stop/start\n");
+		logmessage("FRR", "watchfrr already running, forcing stop/start to apply config changes");
+		if (frr_invoke_script_capture("stop", FRR_STDERR_LOG_FILE, 1) != 0) {
 			have_stderr = 1;
-			_dprintf("FRR restart via init script failed - forcing stop/start\n");
-			logmessage("FRR", "restart command failed, forcing daemon stop/start fallback");
+			_dprintf("FRR stop via init script failed - forcing daemon stop\n");
+			logmessage("FRR", "stop command failed, forcing daemon stop fallback");
 			frr_force_stop_daemons();
+		}
+		else {
+			have_stderr = 1;
+		}
+
+		if (pidof("watchfrr") > 0) {
+			logmessage("FRR", "watchfrr still running after stop, forcing daemon stop");
+			frr_force_stop_daemons();
+		}
+
+		sleep(1);
+
+		if (frr_invoke_script_capture("start", FRR_STDERR_LOG_FILE, 1) != 0) {
+			have_stderr = 1;
+			_dprintf("FRR start failed after stop/start cycle\n");
+			logmessage("FRR", "start command failed after stop/start cycle");
+			frr_force_stop_daemons();
+			sleep(1);
 			if (frr_invoke_script_capture("start", FRR_STDERR_LOG_FILE, 1) != 0) {
 				have_stderr = 1;
-				_dprintf("FRR start failed after forced stop\n");
-				logmessage("FRR", "start command failed after forced stop fallback");
+				_dprintf("FRR start retry failed after forced stop\n");
+				logmessage("FRR", "start retry failed after forced stop fallback");
 			}
 		}
 		else {
@@ -807,6 +831,15 @@ void stop_frr(void)
 		_dprintf("FRR stopped\n");
 	}
 	else {
+		logmessage("FRR", "stop: watchfrr still running after stop command, forcing daemon stop");
+		frr_force_stop_daemons();
+
+		if (pidof("watchfrr") <= 0) {
+			logmessage("FRR", "stop completed successfully after forced daemon stop");
+			_dprintf("FRR stopped after forced daemon stop\n");
+			return;
+		}
+
 		logmessage("FRR", "stop completed but watchfrr is still running");
 		if (have_stderr)
 			frr_log_captured_stderr(FRR_STDERR_LOG_FILE);
@@ -816,6 +849,7 @@ void stop_frr(void)
 
 void restart_frr(void)
 {
+	int was_running;
 	int have_stderr = 0;
 
 	if (!is_frr_enabled()) {
@@ -825,19 +859,42 @@ void restart_frr(void)
 		return;
 	}
 
+	was_running = (pidof("watchfrr") > 0);
 	unlink(FRR_STDERR_LOG_FILE);
 
 	/* Ensure latest UI/NVRAM settings are materialized before restart. */
 	frr_create_dirs();
 	frr_write_default_config();
 
-	if (frr_invoke_script_capture("restart", FRR_STDERR_LOG_FILE, 1) != 0) {
+	/*
+	 * Use an explicit stop/start cycle for deterministic restart behavior.
+	 * Some init script restart implementations can be a no-op in practice.
+	 */
+	if (was_running) {
+		if (frr_invoke_script_capture("stop", FRR_STDERR_LOG_FILE, 1) != 0) {
+			have_stderr = 1;
+			logmessage("FRR", "restart: stop command failed, forcing daemon stop fallback");
+			frr_force_stop_daemons();
+		}
+		else {
+			have_stderr = 1;
+		}
+
+		if (pidof("watchfrr") > 0) {
+			logmessage("FRR", "restart: watchfrr still running after stop, forcing daemon stop");
+			frr_force_stop_daemons();
+		}
+	}
+
+	sleep(1);
+
+	if (frr_invoke_script_capture("start", FRR_STDERR_LOG_FILE, 1) != 0) {
 		have_stderr = 1;
-		_dprintf("FRR restart via init script failed - fallback stop/start\n");
-		logmessage("FRR", "restart command failed, using stop/start fallback");
-		stop_frr();
+		logmessage("FRR", "restart: start command failed, retrying after forced stop");
+		frr_force_stop_daemons();
 		sleep(1);
-		start_frr();
+		if (frr_invoke_script_capture("start", FRR_STDERR_LOG_FILE, 1) != 0)
+			have_stderr = 1;
 	}
 	else {
 		have_stderr = 1;
@@ -846,7 +903,7 @@ void restart_frr(void)
 	if (pidof("watchfrr") > 0)
 		logmessage("FRR", "restart completed successfully");
 	else {
-		logmessage("FRR", "restart completed but watchfrr is not running");
+		logmessage("FRR", "restart failed: watchfrr is not running after stop/start cycle");
 		if (have_stderr)
 			frr_log_captured_stderr(FRR_STDERR_LOG_FILE);
 	}

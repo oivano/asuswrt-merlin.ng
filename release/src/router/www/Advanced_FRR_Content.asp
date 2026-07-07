@@ -27,6 +27,7 @@
 		var frr_bgp_neighbor_as_array = '<% get_frr_bgp_neighbor_as_list(); %>';
 		var frr_bgp_neighbor_desc_array = '<% get_frr_bgp_neighbor_desc_list(); %>';
 		var frr_bgp_neighbor_src_array = '<% get_frr_bgp_neighbor_src_list(); %>';
+		var frr_bfd_config = <% get_frr_bfd_config(); %>;
 		var frrDefaultConfigDir = '/jffs/configs/frr';
 
 		function initial() {
@@ -38,9 +39,24 @@
 
 			// Load BGP neighbor table
 			show_bgp_neighbor_list();
+			apply_bfd_config();
 
 			// Start status refresh (will show stopped if FRR disabled)
 			setTimeout(refresh_frr_status, 1000);
+		}
+
+		function apply_bfd_config() {
+			if (!document.form || !frr_bfd_config)
+				return;
+
+			if (document.form.frr_bfd_peer && document.form.frr_bfd_peer.value == '' && frr_bfd_config.peer)
+				document.form.frr_bfd_peer.value = frr_bfd_config.peer;
+
+			if (document.form.frr_bfd_tx && document.form.frr_bfd_tx.value == '' && frr_bfd_config.tx)
+				document.form.frr_bfd_tx.value = frr_bfd_config.tx;
+
+			if (document.form.frr_bfd_rx && document.form.frr_bfd_rx.value == '' && frr_bfd_config.rx)
+				document.form.frr_bfd_rx.value = frr_bfd_config.rx;
 		}
 
 		function routeStatusLink() {
@@ -331,7 +347,7 @@
 		<input type="hidden" name="action_mode" value="apply">
 		<input type="hidden" name="action_script" value="restart_frr">
 		<input type="hidden" name="action_wait" value="10">
-		<input type="hidden" name="preferred_lang" id="preferred_lang" value="<% nvram_get(" preferred_lang"); %>">
+		<input type="hidden" name="preferred_lang" id="preferred_lang" value="< nvram_get(" preferred_lang"); %>">
 		<input type="hidden" name="firmver" value="<% nvram_get(" firmver"); %>">
 		<input type="hidden" name="frr_bgp_neighbor" value="">
 		<input type="hidden" name="frr_bgp_neighbor_as" value="">

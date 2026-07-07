@@ -75,6 +75,27 @@ static const char *frr_vtysh_path(void)
 	return cached_path;
 }
 
+static int frr_wait_child_until(pid_t pid, int *wait_status, time_t deadline)
+{
+	while (1) {
+		pid_t rc = waitpid(pid, wait_status, WNOHANG);
+
+		if (rc == pid)
+			return 1;
+
+		if (rc < 0) {
+			if (errno == EINTR)
+				continue;
+			return 0;
+		}
+
+		if (time(NULL) >= deadline)
+			return 0;
+
+		usleep(20000);
+	}
+}
+
 static int frr_command_capture(const char *cmd, struct frr_command_output *output)
 {
 	int pipefd[2];
@@ -136,8 +157,10 @@ static int frr_command_capture(const char *cmd, struct frr_command_output *outpu
 		time_t now = time(NULL);
 		int remaining;
 
-		if (now >= deadline)
+		if (now >= deadline) {
+			timed_out = 1;
 			break;
+		}
 
 		remaining = (int)(deadline - now);
 		FD_ZERO(&rfds);
@@ -187,17 +210,13 @@ static int frr_command_capture(const char *cmd, struct frr_command_output *outpu
 
 	close(pipefd[0]);
 
+	if (!timed_out && !frr_wait_child_until(pid, &wait_status, deadline))
+		timed_out = 1;
+
 	if (timed_out) {
 		kill(pid, SIGKILL);
-		waitpid(pid, &wait_status, 0);
-		free(output->data);
-		output->data = NULL;
-		output->len = 0;
-		frr_vtysh_backoff_until = time(NULL) + FRR_VTYSH_RETRY_DELAY_SEC;
-		return 0;
-	}
-
-	if (waitpid(pid, &wait_status, 0) < 0) {
+		while (waitpid(pid, &wait_status, 0) < 0 && errno == EINTR)
+			;
 		free(output->data);
 		output->data = NULL;
 		output->len = 0;
@@ -283,14 +302,115 @@ static int frr_is_route_prefix_token(const char *token)
 	return 0;
 }
 
+static void frr_copy_trimmed_token(char *dst, size_t dst_len, const char *src)
+{
+	const char *start;
+	const char *end;
+	size_t len;
+
+	if (!dst || dst_len == 0) {
+		return;
+	}
+
+	dst[0] = '\0';
+	if (!src || !*src)
+		return;
+
+	start = src;
+	while (*start && isspace((unsigned char)*start))
+		start++;
+
+	end = start;
+	while (*end && !isspace((unsigned char)*end) && *end != ',')
+		end++;
+
+	len = end - start;
+	if (len >= dst_len)
+		len = dst_len - 1;
+
+	memcpy(dst, start, len);
+	dst[len] = '\0';
+}
+
+static void frr_parse_route_details(const char *line, char *nexthop, size_t nexthop_len,
+		char *metric, size_t metric_len, char *iface, size_t iface_len)
+{
+	const char *via;
+	const char *connected;
+	const char *metric_start;
+	const char *slash;
+	const char *metric_end;
+	const char *comma;
+
+	if (nexthop && nexthop_len > 0)
+		nexthop[0] = '\0';
+	if (metric && metric_len > 0)
+		metric[0] = '\0';
+	if (iface && iface_len > 0)
+		iface[0] = '\0';
+
+	if (!line || !*line)
+		return;
+
+	metric_start = strchr(line, '[');
+	if (metric_start) {
+		slash = strchr(metric_start, '/');
+		metric_end = strchr(metric_start, ']');
+		if (slash && metric_end && slash < metric_end) {
+			char metric_buf[16];
+			size_t len = metric_end - slash - 1;
+
+			if (len >= sizeof(metric_buf))
+				len = sizeof(metric_buf) - 1;
+
+			memcpy(metric_buf, slash + 1, len);
+			metric_buf[len] = '\0';
+			frr_copy_trimmed_token(metric, metric_len, metric_buf);
+		}
+	}
+
+	via = strstr(line, " via ");
+	if (via) {
+		const char *iface_start;
+
+		via += 5;
+		frr_copy_trimmed_token(nexthop, nexthop_len, via);
+
+		comma = strchr(via, ',');
+		if (comma) {
+			iface_start = comma + 1;
+			while (*iface_start && (isspace((unsigned char)*iface_start) || *iface_start == ','))
+				iface_start++;
+			frr_copy_trimmed_token(iface, iface_len, iface_start);
+		}
+		return;
+	}
+
+	connected = strstr(line, " is directly connected");
+	if (connected) {
+		comma = strchr(connected, ',');
+		if (comma) {
+			const char *iface_start = comma + 1;
+			while (*iface_start && (isspace((unsigned char)*iface_start) || *iface_start == ','))
+				iface_start++;
+			frr_copy_trimmed_token(iface, iface_len, iface_start);
+		}
+	}
+}
+
 static int frr_write_route_origin_object(webs_t wp, const char *var_name, const char *cmd)
 {
 	struct frr_command_output output;
 	char line[512];
 	char *cursor;
-	char prefixes[256][64];
-	char protos[256][16];
-	int active_flags[256];
+	struct {
+		char prefix[64];
+		char proto[16];
+		char nexthop[64];
+		char metric[16];
+		char iface[32];
+		int active;
+	} routes[256];
 	int route_count = 0;
 	int i;
 	int ret = 0;
@@ -314,11 +434,13 @@ static int frr_write_route_origin_object(webs_t wp, const char *var_name, const 
 		char *token_start;
 		char *token_end;
 		char *prefix;
-		char *prefix_end;
 		char code = '\0';
 		int active = 0;
 		const char *proto;
 		size_t line_len;
+		char nexthop[64];
+		char metric[16];
+		char iface[32];
 
 		if (line_end)
 			line_len = line_end - cursor + 1;
@@ -388,15 +510,20 @@ static int frr_write_route_origin_object(webs_t wp, const char *var_name, const 
 		if (code == '\0' || !prefix)
 			continue;
 
-		prefix_end = p;
-		*prefix_end = '\0';
+		frr_parse_route_details(line, nexthop, sizeof(nexthop), metric, sizeof(metric), iface, sizeof(iface));
 
 		proto = frr_route_proto_name(code);
 
 		for (i = 0; i < route_count; i++) {
-			if (!strcmp(prefixes[i], prefix)) {
+			if (!strcmp(routes[i].prefix, prefix)) {
 				if (active)
-					active_flags[i] = 1;
+					routes[i].active = 1;
+				if (!routes[i].nexthop[0] && nexthop[0])
+					strlcpy(routes[i].nexthop, nexthop, sizeof(routes[i].nexthop));
+				if (!routes[i].metric[0] && metric[0])
+					strlcpy(routes[i].metric, metric, sizeof(routes[i].metric));
+				if (!routes[i].iface[0] && iface[0])
+					strlcpy(routes[i].iface, iface, sizeof(routes[i].iface));
 				break;
 			}
 		}
@@ -407,9 +534,13 @@ static int frr_write_route_origin_object(webs_t wp, const char *var_name, const 
 		if (route_count >= 256)
 			continue;
 
-		strlcpy(prefixes[route_count], prefix, sizeof(prefixes[route_count]));
-		strlcpy(protos[route_count], proto, sizeof(protos[route_count]));
-		active_flags[route_count] = active ? 1 : 0;
+		memset(&routes[route_count], 0, sizeof(routes[route_count]));
+		strlcpy(routes[route_count].prefix, prefix, sizeof(routes[route_count].prefix));
+		strlcpy(routes[route_count].proto, proto, sizeof(routes[route_count].proto));
+		strlcpy(routes[route_count].nexthop, nexthop, sizeof(routes[route_count].nexthop));
+		strlcpy(routes[route_count].metric, metric, sizeof(routes[route_count].metric));
+		strlcpy(routes[route_count].iface, iface, sizeof(routes[route_count].iface));
+		routes[route_count].active = active ? 1 : 0;
 		route_count++;
 	}
 
@@ -417,8 +548,9 @@ static int frr_write_route_origin_object(webs_t wp, const char *var_name, const 
 
 	for (i = 0; i < route_count; i++) {
 		ret += websWrite(wp,
-			"\"%s\":{\"proto\":\"%s\",\"active\":%d},\n",
-			prefixes[i], protos[i], active_flags[i]);
+			"\"%s\":{\"proto\":\"%s\",\"active\":%d,\"nexthop\":\"%s\",\"metric\":\"%s\",\"iface\":\"%s\"},\n",
+			routes[i].prefix, routes[i].proto, routes[i].active,
+			routes[i].nexthop, routes[i].metric, routes[i].iface);
 	}
 
 	ret += websWrite(wp, "};\n");
@@ -671,6 +803,111 @@ static int frr_bgp_runtime_ready(void)
 	return 1;
 }
 
+static int frr_bfd_runtime_ready(void)
+{
+	if (!frr_daemon_running("watchfrr"))
+		return 0;
+	if (!frr_daemon_running("bfdd"))
+		return 0;
+
+	return 1;
+}
+
+static int frr_extract_bfd_config_from_conf(char *peer, size_t peer_len,
+		char *tx, size_t tx_len,
+		char *rx, size_t rx_len)
+{
+	char line[256];
+	char *cursor;
+	int in_bfd = 0;
+	int found_peer = 0;
+	struct frr_command_output output;
+
+	if (!peer || !tx || !rx || peer_len == 0 || tx_len == 0 || rx_len == 0)
+		return 0;
+
+	peer[0] = '\0';
+	tx[0] = '\0';
+	rx[0] = '\0';
+
+	if (!frr_bfd_runtime_ready())
+		return 0;
+
+	if (!frr_command_capture(FRR_RUNNING_CONFIG_CMD, &output))
+		return 0;
+
+	cursor = output.data;
+	while (cursor && *cursor) {
+		char *p = line;
+		char *line_end = strchr(cursor, '\n');
+		size_t line_len;
+
+		if (line_end)
+			line_len = line_end - cursor + 1;
+		else
+			line_len = strlen(cursor);
+
+		if (line_len >= sizeof(line))
+			line_len = sizeof(line) - 1;
+
+		memcpy(line, cursor, line_len);
+		line[line_len] = '\0';
+
+		if (line_end)
+			cursor = line_end + 1;
+		else
+			cursor += line_len;
+
+		while (*p && isspace((unsigned char)*p))
+			p++;
+
+		if (!*p || *p == '\n' || *p == '\r')
+			continue;
+
+		if (*p == '!' || *p == '#') {
+			if (in_bfd)
+				break;
+			continue;
+		}
+
+		if (!strcmp(p, "bfd")) {
+			in_bfd = 1;
+			continue;
+		}
+
+		if (!in_bfd)
+			continue;
+
+		if (!strncmp(p, "peer", 4) && isspace((unsigned char)p[4])) {
+			char *value = p + 4;
+			while (*value && isspace((unsigned char)*value))
+				value++;
+			strlcpy(peer, value, peer_len);
+			found_peer = (*peer != '\0');
+			continue;
+		}
+
+		if (!strncmp(p, "transmit-interval", 17) && isspace((unsigned char)p[17])) {
+			char *value = p + 17;
+			while (*value && isspace((unsigned char)*value))
+				value++;
+			strlcpy(tx, value, tx_len);
+			continue;
+		}
+
+		if (!strncmp(p, "receive-interval", 16) && isspace((unsigned char)p[16])) {
+			char *value = p + 16;
+			while (*value && isspace((unsigned char)*value))
+				value++;
+			strlcpy(rx, value, rx_len);
+			continue;
+		}
+	}
+
+	frr_command_output_free(&output);
+	return found_peer;
+}
+
 /* Check if a FRR daemon is running */
 int frr_daemon_running(const char *daemon_name)
 {
@@ -890,10 +1127,37 @@ int ej_get_frr_ospf_config(int eid, webs_t wp, int argc, char_t **argv)
 int ej_get_frr_bfd_config(int eid, webs_t wp, int argc, char_t **argv)
 {
 	char *bfd_enable = nvram_safe_get("frr_bfd_enable");
+	char *bfd_peer = nvram_safe_get("frr_bfd_peer");
+	char *bfd_tx = nvram_safe_get("frr_bfd_tx");
+	char *bfd_rx = nvram_safe_get("frr_bfd_rx");
+	char parsed_peer[64];
+	char parsed_tx[16];
+	char parsed_rx[16];
+	const char *peer_value = bfd_peer;
+	const char *tx_value = bfd_tx;
+	const char *rx_value = bfd_rx;
 	int ret = 0;
 
+	parsed_peer[0] = '\0';
+	parsed_tx[0] = '\0';
+	parsed_rx[0] = '\0';
+
+	if ((!*bfd_peer || !*bfd_tx || !*bfd_rx) &&
+	    frr_extract_bfd_config_from_conf(parsed_peer, sizeof(parsed_peer),
+	    parsed_tx, sizeof(parsed_tx), parsed_rx, sizeof(parsed_rx))) {
+		if (!*bfd_peer && parsed_peer[0])
+			peer_value = parsed_peer;
+		if (!*bfd_tx && parsed_tx[0])
+			tx_value = parsed_tx;
+		if (!*bfd_rx && parsed_rx[0])
+			rx_value = parsed_rx;
+	}
+
 	ret += websWrite(wp, "{\n");
-	ret += websWrite(wp, "  \"enabled\": %d\n", atoi(bfd_enable));
+	ret += websWrite(wp, "  \"enabled\": %d,\n", atoi(bfd_enable));
+	ret += websWrite(wp, "  \"peer\": \"%s\",\n", peer_value);
+	ret += websWrite(wp, "  \"tx\": \"%s\",\n", tx_value);
+	ret += websWrite(wp, "  \"rx\": \"%s\"\n", rx_value);
 	ret += websWrite(wp, "}\n");
 
 	return ret;

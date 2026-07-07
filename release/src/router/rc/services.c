@@ -15345,19 +15345,11 @@ check_ddr_done:
 	{
 		if(action&RC_SERVICE_STOP) stop_uam_srv();
 		if(action&RC_SERVICE_START) start_uam_srv();
-	}
-#endif
-#ifdef RTCONFIG_FREERADIUS
-	else if (strcmp(script, "radiusd") == 0)
 	{
 		if(action&RC_SERVICE_STOP) stop_radiusd();
 		if(action&RC_SERVICE_START) start_radiusd();
 	}
-#endif
-#ifdef RTCONFIG_WEBDAV
-	else if (strcmp(script, "webdav") == 0)
-	{
-		if(action & RC_SERVICE_STOP){
+	}
 			stop_webdav();
 		}
 		if(action & RC_SERVICE_START) {
@@ -17773,6 +17765,14 @@ start_write_smb_conf();
 	{
 		restart_frr();
 	}
+	else if (strcmp(script, "start_frr") == 0)
+	{
+		start_frr();
+	}
+	else if (strcmp(script, "stop_frr") == 0)
+	{
+		stop_frr();
+	}
 #endif
 #ifdef RTCONFIG_CAPTIVE_PORTAL
 	else if (strcmp(script, "uam_srv") == 0)
@@ -20026,9 +20026,19 @@ void start_ecoguard(void)
 
 int service_main(int argc, char *argv[])
 {
-	if (argc != 2) usage_exit(argv[0], "<action_service>");
-	notify_rc(argv[1]);
-	printf("\nDone.\n");
+	char action_service[64];
+
+	if (argc == 2)
+		notify_rc(argv[1]);
+	else if (argc == 3) {
+		if (snprintf(action_service, sizeof(action_service), "%s_%s", argv[2], argv[1]) >= sizeof(action_service))
+			usage_exit(argv[0], "<action_service> | <service> <action>");
+		notify_rc(action_service);
+	}
+	else
+		usage_exit(argv[0], "<action_service> | <service> <action>");
+
+	printf("\nRequest queued.\n");
 	return 0;
 }
 

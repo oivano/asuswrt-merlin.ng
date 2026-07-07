@@ -40,13 +40,13 @@ start)
   daemon_start watchfrr
   ;;
 stop)
-  daemon_stop watchfrr
+  stop_watchfrr_first || exit ${still_running:-1}
   all_stop --reallyall
   exit ${still_running:-0}
   ;;
 
 restart|force-reload)
-  daemon_stop watchfrr
+  stop_watchfrr_first || exit ${still_running:-1}
   all_stop --reallyall
 
   daemon_list daemons

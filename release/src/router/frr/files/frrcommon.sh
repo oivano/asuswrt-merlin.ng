@@ -22,7 +22,11 @@ nsopt="${FRR_PATHSPACE:+-N ${FRR_PATHSPACE}}"
 
 PATH=/bin:/usr/bin:/sbin:/usr/sbin
 D_PATH="/usr/sbin"
-C_PATH="/etc"
+DEFAULT_C_PATH="/etc"
+C_PATH="$DEFAULT_C_PATH"
+PRIMARY_C_PATH=""
+DAEMONS_C_PATH=""
+RUNTIME_C_PATH=""
 V_PATH="/var/run/frr"
 VTYSH="/usr/sbin/vtysh"
 FRR_USER="nobody"
@@ -31,10 +35,63 @@ FRR_VTY_GROUP=""
 FRR_CONFIG_MODE="0600"
 FRR_DEFAULT_PROFILE="traditional"
 MAX_FDS=1024
+STOP_GRACE_TIMEOUT=10
+STOP_TERM_TIMEOUT=5
+STOP_KILL_TIMEOUT=2
 
 if [ -n "$FRR_CONFIG_DIR" ]; then
-	C_PATH="$FRR_CONFIG_DIR${suffix}"
+	cfg_dir="$FRR_CONFIG_DIR${suffix}"
+	if [ -d "$cfg_dir" ]; then
+		PRIMARY_C_PATH="$cfg_dir"
+	fi
+elif command -v nvram >/dev/null 2>&1; then
+	NVRAM_FRR_CONFIG_DIR="$(nvram get frr_config_dir 2>/dev/null)"
+
+	case "$NVRAM_FRR_CONFIG_DIR" in
+	/*)
+		case "$NVRAM_FRR_CONFIG_DIR" in
+		*..*) NVRAM_FRR_CONFIG_DIR="" ;;
+		esac
+		;;
+	*)
+		NVRAM_FRR_CONFIG_DIR=""
+		;;
+	esac
+
+	while [ -n "$NVRAM_FRR_CONFIG_DIR" ] && [ "$NVRAM_FRR_CONFIG_DIR" != "/" ]; do
+		old_cfg_dir="$NVRAM_FRR_CONFIG_DIR"
+		NVRAM_FRR_CONFIG_DIR="${NVRAM_FRR_CONFIG_DIR%/}"
+		NVRAM_FRR_CONFIG_DIR="${NVRAM_FRR_CONFIG_DIR%.}"
+		[ "$NVRAM_FRR_CONFIG_DIR" = "$old_cfg_dir" ] && break
+	done
+
+	[ "$NVRAM_FRR_CONFIG_DIR" = "/etc" ] && NVRAM_FRR_CONFIG_DIR=""
+	if [ -n "$NVRAM_FRR_CONFIG_DIR" ]; then
+		cfg_dir="$NVRAM_FRR_CONFIG_DIR${suffix}"
+		if [ -d "$cfg_dir" ]; then
+			PRIMARY_C_PATH="$cfg_dir"
+		fi
+	fi
 fi
+
+if [ -n "$PRIMARY_C_PATH" ] && [ -r "$PRIMARY_C_PATH/daemons" ]; then
+	DAEMONS_C_PATH="$PRIMARY_C_PATH"
+else
+	DAEMONS_C_PATH="$DEFAULT_C_PATH"
+fi
+
+if [ -n "$PRIMARY_C_PATH" ] && [ -r "$PRIMARY_C_PATH/frr.conf" ]; then
+	# Prefer integrated config when present in configured directory.
+	RUNTIME_C_PATH="$PRIMARY_C_PATH"
+elif [ -r "$DEFAULT_C_PATH/frr.conf" ]; then
+	RUNTIME_C_PATH="$DEFAULT_C_PATH"
+elif [ -n "$PRIMARY_C_PATH" ]; then
+	RUNTIME_C_PATH="$PRIMARY_C_PATH"
+else
+	RUNTIME_C_PATH="$DEFAULT_C_PATH"
+fi
+
+C_PATH="$DAEMONS_C_PATH"
 
 # ORDER MATTERS FOR $DAEMONS!
 # - keep zebra first
@@ -72,11 +129,11 @@ chownfrr() {
 
 vtysh_b () {
 	[ "$1" = "watchfrr" ] && return 0
-	[ -r "$C_PATH/frr.conf" ] || return 0
+	[ -r "$RUNTIME_C_PATH/frr.conf" ] || return 0
 	if [ -n "$1" ]; then
-		"$VTYSH" --config_dir "$C_PATH" `echo $nsopt` -b -d "$1"
+		"$VTYSH" --config_dir "$RUNTIME_C_PATH" `echo $nsopt` -b -d "$1"
 	else
-		"$VTYSH" --config_dir "$C_PATH" `echo $nsopt` -b
+		"$VTYSH" --config_dir "$RUNTIME_C_PATH" `echo $nsopt` -b
 	fi
 }
 
@@ -144,12 +201,18 @@ daemon_prep() {
 		log_failure_msg "cannot start $daemon${inst:+ (instance $inst)}: daemon binary not installed"
 		return 1
 	}
-	[ -r "$C_PATH/frr.conf" ] && return 0
+	[ -r "$RUNTIME_C_PATH/frr.conf" ] && return 0
 
-	cfg="$C_PATH/$daemon${inst:+-$inst}.conf"
+	cfg="$RUNTIME_C_PATH/$daemon${inst:+-$inst}.conf"
 	if [ ! -r "$cfg" ]; then
-		touch "$cfg"
-		chownfrr "$cfg"
+		touch "$cfg" || {
+			log_failure_msg "cannot prepare $daemon${inst:+ (instance $inst)} config: failed to create $cfg"
+			return 1
+		}
+		chownfrr "$cfg" || {
+			log_failure_msg "cannot prepare $daemon${inst:+ (instance $inst)} config: failed to set ownership/permissions on $cfg"
+			return 1
+		}
 	fi
 	return 0
 }
@@ -178,8 +241,23 @@ daemon_start() {
 	fi
 }
 
+wait_for_pid_exit() {
+	local pid timeout
+
+	pid="$1"
+	timeout="$2"
+
+	while kill -0 "$pid" 2>/dev/null; do
+		[ "$timeout" -gt 0 ] || return 1
+		sleep 1
+		timeout=$((timeout - 1))
+	done
+
+	return 0
+}
+
 daemon_stop() {
-	local dmninst daemon inst pidfile vtyfile pid cnt fail
+	local dmninst daemon inst pidfile vtyfile pid fail
 	daemon_inst "$1"
 
 	pidfile="$V_PATH/$daemon${inst:+-$inst}.pid"
@@ -196,12 +274,19 @@ daemon_stop() {
 	fi
 
 	debug "kill -2 $pid"
-	kill -2 "$pid"
-	cnt=1200
-	while kill -0 "$pid" 2>/dev/null; do
-		sleep 1
-		[ $(( cnt -= 1 )) -gt 0 ] || break
-	done
+	kill -2 "$pid" 2>/dev/null || fail="failed to send SIGINT"
+	if [ -z "$fail" ] && ! wait_for_pid_exit "$pid" "$STOP_GRACE_TIMEOUT"; then
+		log_warning_msg "Timed out waiting for $dmninst to exit after SIGINT, escalating"
+		debug "kill -15 $pid"
+		kill -15 "$pid" 2>/dev/null || true
+		if ! wait_for_pid_exit "$pid" "$STOP_TERM_TIMEOUT"; then
+			log_warning_msg "$dmninst did not exit after SIGTERM, sending SIGKILL"
+			debug "kill -9 $pid"
+			kill -9 "$pid" 2>/dev/null || true
+			wait_for_pid_exit "$pid" "$STOP_KILL_TIMEOUT" || fail="pid $pid still running"
+		fi
+	fi
+	[ -z "$fail" ] || log_failure_msg "Failed to stop $dmninst: $fail"
 	if kill -0 "$pid" 2>/dev/null; then
 		log_failure_msg "Failed to stop $dmninst, pid $pid still running"
 		still_running=1
@@ -224,6 +309,19 @@ daemon_status() {
 	[ -z "$pid" ] && return 1
 	kill -0 "$pid" 2>/dev/null || return 1
 	return 0
+}
+
+stop_watchfrr_first() {
+	local rv
+
+	daemon_status watchfrr
+	rv=$?
+	if [ "$rv" -eq 3 ] || [ "$rv" -eq 1 ]; then
+		return 0
+	fi
+	[ "$rv" -eq 0 ] || return "$rv"
+
+	daemon_stop watchfrr
 }
 
 print_status() {
@@ -300,14 +398,18 @@ load_old_config() {
 	for dmn in $DAEMONS; do eval "test \$_new_$dmn != no && $dmn=\$_new_$dmn; unset _new_$dmn"; done
 }
 
-[ -r "$C_PATH/daemons" ] || {
-	log_failure_msg "cannot run $@: $C_PATH/daemons does not exist"
+[ -r "$DAEMONS_C_PATH/daemons" ] || {
+	if [ -n "$PRIMARY_C_PATH" ]; then
+		log_failure_msg "cannot run $@: $PRIMARY_C_PATH/daemons and $DEFAULT_C_PATH/daemons do not exist"
+	else
+		log_failure_msg "cannot run $@: $DEFAULT_C_PATH/daemons does not exist"
+	fi
 	exit 1
 }
-. "$C_PATH/daemons"
+. "$DAEMONS_C_PATH/daemons"
 
-if [ -z "$FRR_PATHSPACE" ]; then
-	load_old_config "$C_PATH/daemons.conf"
+if [ -z "$FRR_PATHSPACE" ] && [ -z "$PRIMARY_C_PATH" ]; then
+	load_old_config "$DAEMONS_C_PATH/daemons.conf"
 	load_old_config "/etc/default/frr"
 	load_old_config "/etc/sysconfig/frr"
 fi
