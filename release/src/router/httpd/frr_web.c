@@ -26,8 +26,21 @@
 #define FRR_RUNNING_CONFIG_CMD "show running-config"
 #define FRR_SHOW_IP_ROUTE_CMD "show ip route"
 #define FRR_SHOW_IPV6_ROUTE_CMD "show ipv6 route"
-#define FRR_VTYSH_TIMEOUT_SEC 5
+#define FRR_VTYSH_TIMEOUT_SEC 2
 #define FRR_MAX_CAPTURE_SIZE 65536
+#define FRR_VTYSH_RETRY_DELAY_SEC 10
+
+struct frr_bgp_cache {
+	char neighbors[512];
+	char neighbor_as[512];
+	char neighbor_desc[768];
+	char neighbor_src[512];
+	time_t ts;
+	int valid;
+};
+
+static time_t frr_vtysh_backoff_until = 0;
+static struct frr_bgp_cache frr_bgp_cache = {{0}, {0}, {0}, {0}, 0, 0};
 
 struct frr_command_output {
 	char *data;
@@ -80,6 +93,9 @@ static int frr_command_capture(const char *cmd, struct frr_command_output *outpu
 	char *const *argv;
 
 	if (!cmd || !*cmd || !output)
+		return 0;
+
+	if (frr_vtysh_backoff_until > 0 && time(NULL) < frr_vtysh_backoff_until)
 		return 0;
 
 	vtysh = frr_vtysh_path();
@@ -177,6 +193,7 @@ static int frr_command_capture(const char *cmd, struct frr_command_output *outpu
 		free(output->data);
 		output->data = NULL;
 		output->len = 0;
+		frr_vtysh_backoff_until = time(NULL) + FRR_VTYSH_RETRY_DELAY_SEC;
 		return 0;
 	}
 
@@ -184,6 +201,7 @@ static int frr_command_capture(const char *cmd, struct frr_command_output *outpu
 		free(output->data);
 		output->data = NULL;
 		output->len = 0;
+		frr_vtysh_backoff_until = time(NULL) + FRR_VTYSH_RETRY_DELAY_SEC;
 		return 0;
 	}
 
@@ -194,6 +212,7 @@ static int frr_command_capture(const char *cmd, struct frr_command_output *outpu
 		free(output->data);
 		output->data = NULL;
 		output->len = 0;
+		frr_vtysh_backoff_until = time(NULL) + FRR_VTYSH_RETRY_DELAY_SEC;
 		return 0;
 	}
 
@@ -202,6 +221,8 @@ static int frr_command_capture(const char *cmd, struct frr_command_output *outpu
 		if (!output->data)
 			return 0;
 	}
+
+	frr_vtysh_backoff_until = 0;
 
 	return 1;
 }
@@ -596,6 +617,44 @@ static int frr_extract_bgp_neighbors_from_conf(char *neighbors, size_t neighbors
 	return strlen(neighbors) > 0;
 }
 
+static int frr_get_bgp_neighbors_cached(char *neighbors, size_t neighbors_len,
+		char *neighbor_as, size_t neighbor_as_len,
+		char *neighbor_desc, size_t neighbor_desc_len,
+		char *neighbor_src, size_t neighbor_src_len)
+{
+	time_t now = time(NULL);
+
+	if (frr_bgp_cache.valid && (now - frr_bgp_cache.ts) <= 2) {
+		strlcpy(neighbors, frr_bgp_cache.neighbors, neighbors_len);
+		strlcpy(neighbor_as, frr_bgp_cache.neighbor_as, neighbor_as_len);
+		strlcpy(neighbor_desc, frr_bgp_cache.neighbor_desc, neighbor_desc_len);
+		strlcpy(neighbor_src, frr_bgp_cache.neighbor_src, neighbor_src_len);
+		return (neighbors[0] != '\0');
+	}
+
+	neighbors[0] = '\0';
+	neighbor_as[0] = '\0';
+	neighbor_desc[0] = '\0';
+	neighbor_src[0] = '\0';
+
+	if (!frr_extract_bgp_neighbors_from_conf(neighbors, neighbors_len,
+	    neighbor_as, neighbor_as_len,
+	    neighbor_desc, neighbor_desc_len,
+	    neighbor_src, neighbor_src_len)) {
+		frr_bgp_cache.valid = 0;
+		return 0;
+	}
+
+	strlcpy(frr_bgp_cache.neighbors, neighbors, sizeof(frr_bgp_cache.neighbors));
+	strlcpy(frr_bgp_cache.neighbor_as, neighbor_as, sizeof(frr_bgp_cache.neighbor_as));
+	strlcpy(frr_bgp_cache.neighbor_desc, neighbor_desc, sizeof(frr_bgp_cache.neighbor_desc));
+	strlcpy(frr_bgp_cache.neighbor_src, neighbor_src, sizeof(frr_bgp_cache.neighbor_src));
+	frr_bgp_cache.ts = now;
+	frr_bgp_cache.valid = 1;
+
+	return 1;
+}
+
 static int frr_bgp_runtime_ready(void)
 {
 	/*
@@ -732,7 +791,7 @@ int ej_get_frr_bgp_neighbor_list(int eid, webs_t wp, int argc, char_t **argv)
 	if (*bgp_neighbors)
 		return websWrite(wp, "%s", bgp_neighbors);
 
-	if (frr_extract_bgp_neighbors_from_conf(parsed_neighbors, sizeof(parsed_neighbors),
+	if (frr_get_bgp_neighbors_cached(parsed_neighbors, sizeof(parsed_neighbors),
 	    parsed_neighbor_as, sizeof(parsed_neighbor_as),
 	    parsed_neighbor_desc, sizeof(parsed_neighbor_desc),
 	    parsed_neighbor_src, sizeof(parsed_neighbor_src)) > 0)
@@ -755,7 +814,7 @@ int ej_get_frr_bgp_neighbor_as_list(int eid, webs_t wp, int argc, char_t **argv)
 	if (*bgp_neighbor_as)
 		return websWrite(wp, "%s", bgp_neighbor_as);
 
-	if (frr_extract_bgp_neighbors_from_conf(parsed_neighbors, sizeof(parsed_neighbors),
+	if (frr_get_bgp_neighbors_cached(parsed_neighbors, sizeof(parsed_neighbors),
 	    parsed_neighbor_as, sizeof(parsed_neighbor_as),
 	    parsed_neighbor_desc, sizeof(parsed_neighbor_desc),
 	    parsed_neighbor_src, sizeof(parsed_neighbor_src)) > 0)
@@ -778,7 +837,7 @@ int ej_get_frr_bgp_neighbor_desc_list(int eid, webs_t wp, int argc, char_t **arg
 	if (*bgp_neighbor_desc)
 		return websWrite(wp, "%s", bgp_neighbor_desc);
 
-	if (frr_extract_bgp_neighbors_from_conf(parsed_neighbors, sizeof(parsed_neighbors),
+	if (frr_get_bgp_neighbors_cached(parsed_neighbors, sizeof(parsed_neighbors),
 	    parsed_neighbor_as, sizeof(parsed_neighbor_as),
 	    parsed_neighbor_desc, sizeof(parsed_neighbor_desc),
 	    parsed_neighbor_src, sizeof(parsed_neighbor_src)) > 0)
@@ -801,7 +860,7 @@ int ej_get_frr_bgp_neighbor_src_list(int eid, webs_t wp, int argc, char_t **argv
 	if (*bgp_neighbor_src)
 		return websWrite(wp, "%s", bgp_neighbor_src);
 
-	if (frr_extract_bgp_neighbors_from_conf(parsed_neighbors, sizeof(parsed_neighbors),
+	if (frr_get_bgp_neighbors_cached(parsed_neighbors, sizeof(parsed_neighbors),
 	    parsed_neighbor_as, sizeof(parsed_neighbor_as),
 	    parsed_neighbor_desc, sizeof(parsed_neighbor_desc),
 	    parsed_neighbor_src, sizeof(parsed_neighbor_src)) > 0)

@@ -484,7 +484,10 @@ define(function () {
 					retArray.push("Advanced_VPNClient_Content.asp");
 				}
 
-				if (!openconnect_cli_support) {
+				var openconnectCliSupported = (typeof openconnect_cli_support !== "undefined")
+					? openconnect_cli_support
+					: openconnect_support;
+				if (!openconnectCliSupported) {
 					retArray.push("Advanced_OpenConnect_Content.asp");
 				}
 
