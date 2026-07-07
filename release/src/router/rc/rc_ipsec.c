@@ -2828,9 +2828,44 @@ int write_ipc_resolv_dnsmasq(FILE* fp_servers)
 
 static void _get_my_ip_by_subnet(const char* subnet, char *ip, size_t len, int v6);
 
+static void _ipsec_log_policy_table(const char *table, const char *tag)
+{
+	char cmd[256] = {0};
+
+	if (!table || !*table || !tag || !*tag)
+		return;
+
+	snprintf(cmd, sizeof(cmd), "ip route show table %s | logger -t %s", table, tag);
+	system(cmd);
+}
+
+static void _ipsec_lan_exclude_route_set(const char *table)
+{
+	char lan_class[32] = {0};
+	char *lan_ifname = nvram_safe_get("lan_ifname");
+	char *lan_ipaddr = nvram_safe_get("lan_ipaddr");
+
+	ip2class(lan_ipaddr, nvram_safe_get("lan_netmask"), lan_class);
+	if (*table && *lan_class && *lan_ifname && *lan_ipaddr) {
+		eval("ip", "route", "replace", "table", table, lan_class,
+		     "dev", lan_ifname, "proto", "kernel", "scope", "link", "src", lan_ipaddr);
+	}
+}
+
+static void _ipsec_lan_exclude_route_del(const char *table)
+{
+	char lan_class[32] = {0};
+	char *lan_ipaddr = nvram_safe_get("lan_ipaddr");
+
+	ip2class(lan_ipaddr, nvram_safe_get("lan_netmask"), lan_class);
+	if (*table && *lan_class)
+		eval("ip", "route", "del", "table", table, lan_class);
+}
+
 static void _ipsec_updown_host_net_cli(int unit)
 {
 	char vif[IFNAMSIZ] = {0};
+	char lan_ifname[IFNAMSIZ] = {0};
 	char *verb = safe_getenv("PLUTO_VERB");
 	char *addr_peer = safe_getenv("PLUTO_PEER");
 	char *addr_me = safe_getenv("PLUTO_ME");
@@ -2852,6 +2887,7 @@ static void _ipsec_updown_host_net_cli(int unit)
 #endif
 
 	snprintf(vif, sizeof(vif), "%s%d", IPSEC_CLI_IF_PREFIX, unit);
+	snprintf(lan_ifname, sizeof(lan_ifname), "%s", nvram_safe_get("lan_ifname"));
 	if (v6) {
 		snprintf(wan_gateway, sizeof(wan_gateway), "%s", ipv6_gateway_address());
 		snprintf(buf, sizeof(buf), "/proc/sys/net/ipv6/conf/%s/disable_policy", vif);
@@ -2875,10 +2911,21 @@ static void _ipsec_updown_host_net_cli(int unit)
 		f_write_string(buf, "1", 0, 0);
 		// nat
 		eval("iptables", "-t", "nat", "-A", "POSTROUTING", "-o", vif, "!", "-s", my_ip4, "-j", "MASQUERADE");
+		// allow LAN clients to traverse the route-based IPsec interface
+		if (*lan_ifname) {
+			eval("iptables", "-I", "FORWARD", "-i", lan_ifname, "-o", vif, "-j", "ACCEPT");
+			eval("iptables", "-I", "FORWARD", "-i", vif, "-o", lan_ifname, "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT");
+		}
 		fp = fopen(FILE_PATH_IPSEC_IPTABLES_RULE, "a");
 		if (fp) {
 			fprintf(fp, "iptables -t nat -D POSTROUTING -o %s ! -s %s -j MASQUERADE\n", vif, my_ip4);
 			fprintf(fp, "iptables -t nat -A POSTROUTING -o %s ! -s %s -j MASQUERADE\n", vif, my_ip4);
+			if (*lan_ifname) {
+				fprintf(fp, "iptables -D FORWARD -i %s -o %s -j ACCEPT\n", lan_ifname, vif);
+				fprintf(fp, "iptables -I FORWARD -i %s -o %s -j ACCEPT\n", lan_ifname, vif);
+				fprintf(fp, "iptables -D FORWARD -i %s -o %s -m state --state RELATED,ESTABLISHED -j ACCEPT\n", vif, lan_ifname);
+				fprintf(fp, "iptables -I FORWARD -i %s -o %s -m state --state RELATED,ESTABLISHED -j ACCEPT\n", vif, lan_ifname);
+			}
 			fclose(fp);
 		}
 #ifdef RTCONFIG_VPN_FUSION
@@ -2904,8 +2951,7 @@ static void _ipsec_updown_host_net_cli(int unit)
 			logmessage("ipsec_route", "Adding server route: %s via %s dev %s table %s", addr_peer, wan_gateway, wan_if, table_str);
 			eval("ip", "route", "add", addr_peer, "via", wan_gateway, "dev", wan_if, "table", table_str);
 			
-			// ALWAYS add local subnet route to keep local traffic local
-			// This prevents router's IP and LAN clients from being routed into tunnel
+			// Keep local traffic local and always exclude LAN subnet from tunnel routing.
 			int local_route_added = 0;
 			if (my_net && *my_net) {
 				char my_srcip[64] = {0};
@@ -2916,6 +2962,7 @@ static void _ipsec_updown_host_net_cli(int unit)
 					local_route_added = 1;
 				}
 			}
+			_ipsec_lan_exclude_route_set(table_str);
 			// Fallback: add LAN route only if my_net route wasn't added
 			if (!local_route_added) {
 				char lan_class[32] = {0};
@@ -2948,7 +2995,7 @@ static void _ipsec_updown_host_net_cli(int unit)
 			if (dns4_1)
 				eval("ip", "route", "add", dns4_1, "dev", vif, "table", table_str);
 			if (dns4_2)
-				eval("ip", "route", "add", dns4_1, "dev", vif, "table", table_str);
+				eval("ip", "route", "add", dns4_2, "dev", vif, "table", table_str);
 			// vpnc ifname
 			snprintf(nv, sizeof(nv), "vpnc%d_ifname", vpnc_idx);
 			nvram_set(nv, vif);
@@ -2982,39 +3029,36 @@ static void _ipsec_updown_host_net_cli(int unit)
 			memset(buf, 0, sizeof(buf));
 		nvram_set("ipsec_client_dns", buf);
 		update_resolvconf();
-		// Charon installs LAN subnet -> ipsec0 in table 220; replace it with br0
-		// so LAN traffic is never routed into the tunnel.
-		{
-			char lan_class[32] = {0};
-			char *lan_ifname = nvram_safe_get("lan_ifname");
-			char *lan_ipaddr = nvram_safe_get("lan_ipaddr");
-			ip2class(lan_ipaddr, nvram_safe_get("lan_netmask"), lan_class);
-			if (*lan_class && *lan_ifname && *lan_ipaddr) {
-				eval("ip", "route", "replace", "table", "220", lan_class,
-				     "dev", lan_ifname, "proto", "kernel", "scope", "link", "src", lan_ipaddr);
-			}
-		}
+		// Charon may install LAN subnet into ipsec interface in table 220; force LAN back to br0.
+		_ipsec_lan_exclude_route_set("220");
+		logmessage("ipsec_route", "ipsec up: policy table 220 with LAN exclusion enforced");
+		_ipsec_log_policy_table("220", "ipsec_route");
 #endif
 	}
 	else {	//down
 		eval("ip", "link", "del", vif);
 		// nat
 		eval("iptables", "-t", "nat", "-D", "POSTROUTING", "-o", vif, "!", "-s", my_ip4, "-j", "MASQUERADE");
+		if (*lan_ifname) {
+			eval("iptables", "-D", "FORWARD", "-i", lan_ifname, "-o", vif, "-j", "ACCEPT");
+			eval("iptables", "-D", "FORWARD", "-i", vif, "-o", lan_ifname, "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT");
+		}
 		eval("sed", "-i", "/MASQUERADE/d", FILE_PATH_IPSEC_IPTABLES_RULE);
+		if (*lan_ifname) {
+			snprintf(buf, sizeof(buf), "/FORWARD -i .* -o %s -j ACCEPT/d", vif);
+			eval("sed", "-i", buf, FILE_PATH_IPSEC_IPTABLES_RULE);
+			snprintf(buf, sizeof(buf), "/FORWARD -i %s -o .* -m state --state RELATED,ESTABLISHED -j ACCEPT/d", vif);
+			eval("sed", "-i", buf, FILE_PATH_IPSEC_IPTABLES_RULE);
+		}
 #ifdef RTCONFIG_VPN_FUSION
 		vpnc_idx = _get_vpnc_idx_by_prof_idx(unit);
 		if (vpnc_idx) {
 			snprintf(table_str, sizeof(table_str), "%d", vpnc_idx);
+			_ipsec_lan_exclude_route_del(table_str);
 			// Cleanup local subnet routes (try both since only one was added)
 			if (my_net && *my_net) {
 				logmessage("ipsec_route", "Removing local subnet route: %s table %s", my_net, table_str);
 				eval("ip", "route", "del", my_net, "table", table_str);
-			}
-			char lan_class[32] = {0};
-			ip2class(nvram_safe_get("lan_ipaddr"), nvram_safe_get("lan_netmask"), lan_class);
-			if (*lan_class) {
-				logmessage("ipsec_route", "Removing LAN route: %s table %s", lan_class, table_str);
-				eval("ip", "route", "del", lan_class, "table", table_str);
 			}
 			// vpnc state
 			update_vpnc_state(vpnc_idx, WAN_STATE_STOPPED, 0);
@@ -3031,13 +3075,10 @@ static void _ipsec_updown_host_net_cli(int unit)
 		// dns
 		nvram_set("ipsec_client_dns", "");
 		update_resolvconf();
-		// Remove the br0 LAN route we added to table 220
-		{
-			char lan_class[32] = {0};
-			ip2class(nvram_safe_get("lan_ipaddr"), nvram_safe_get("lan_netmask"), lan_class);
-			if (*lan_class)
-				eval("ip", "route", "del", "table", "220", lan_class);
-		}
+		// Remove the LAN exclusion route from table 220.
+		_ipsec_lan_exclude_route_del("220");
+		logmessage("ipsec_route", "ipsec down: policy table 220 after LAN exclusion cleanup");
+		_ipsec_log_policy_table("220", "ipsec_route");
 #endif
 	}
 }
