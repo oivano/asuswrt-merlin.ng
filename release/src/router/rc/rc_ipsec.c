@@ -2862,6 +2862,62 @@ static void _ipsec_lan_exclude_route_del(const char *table)
 		eval("ip", "route", "del", "table", table, lan_class);
 }
 
+static void _ipsec_lan_bypass_rule_del(void)
+{
+	char lan_class[32] = {0};
+	char *lan_ipaddr = nvram_safe_get("lan_ipaddr");
+	int i;
+
+	ip2class(lan_ipaddr, nvram_safe_get("lan_netmask"), lan_class);
+	if (!*lan_class)
+		return;
+
+	/* Remove duplicates that may have been left by repeated reconnects. */
+	for (i = 0; i < 4; ++i) {
+		eval("ip", "rule", "del", "pref", "100", "to", lan_class, "lookup", "main");
+		eval("ip", "rule", "del", "pref", "101", "from", lan_class, "to", lan_class, "lookup", "main");
+	}
+}
+
+static void _ipsec_lan_bypass_rule_set(void)
+{
+	char lan_class[32] = {0};
+	char *lan_ipaddr = nvram_safe_get("lan_ipaddr");
+
+	ip2class(lan_ipaddr, nvram_safe_get("lan_netmask"), lan_class);
+	if (!*lan_class)
+		return;
+
+	_ipsec_lan_bypass_rule_del();
+	eval("ip", "rule", "add", "pref", "100", "to", lan_class, "lookup", "main");
+	eval("ip", "rule", "add", "pref", "101", "from", lan_class, "to", lan_class, "lookup", "main");
+}
+
+static void _ipsec_set_rp_filter(const char *ifname, const char *value)
+{
+	char path[128] = {0};
+
+	if (!ifname || !*ifname || !value || !*value)
+		return;
+
+	snprintf(path, sizeof(path), "/proc/sys/net/ipv4/conf/%s/rp_filter", ifname);
+	f_write_string(path, value, 0, 0);
+}
+
+static void _ipsec_tune_rpf_for_vti(const char *lan_ifname, const char *vif)
+{
+	/*
+	 * Route-based tunnels with table 220 policy-routing can fail return-path
+	 * validation for forwarded LAN flows unless rp_filter is disabled.
+	 */
+	_ipsec_set_rp_filter("all", "0");
+	_ipsec_set_rp_filter("default", "0");
+	if (lan_ifname && *lan_ifname)
+		_ipsec_set_rp_filter(lan_ifname, "0");
+	if (vif && *vif)
+		_ipsec_set_rp_filter(vif, "0");
+}
+
 static void _ipsec_updown_host_net_cli(int unit)
 {
 	char vif[IFNAMSIZ] = {0};
@@ -2909,12 +2965,22 @@ static void _ipsec_updown_host_net_cli(int unit)
 		eval("ip", "link", "set", vif, "up");
 		// disable policy
 		f_write_string(buf, "1", 0, 0);
+		// relax rp_filter for policy-routed route-based tunnel traffic
+		_ipsec_tune_rpf_for_vti(lan_ifname, vif);
+		// always keep LAN destinations local before rule 220 catch-all
+		_ipsec_lan_bypass_rule_set();
 		// nat
 		eval("iptables", "-t", "nat", "-A", "POSTROUTING", "-o", vif, "!", "-s", my_ip4, "-j", "MASQUERADE");
 		// allow LAN clients to traverse the route-based IPsec interface
 		if (*lan_ifname) {
 			eval("iptables", "-I", "FORWARD", "-i", lan_ifname, "-o", vif, "-j", "ACCEPT");
 			eval("iptables", "-I", "FORWARD", "-i", vif, "-o", lan_ifname, "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT");
+		#ifdef RTCONFIG_BCMARM
+			if (nvram_match("ctf_disable", "0")) {
+				eval("iptables", "-t", "mangle", "-A", "FORWARD", "-i", lan_ifname, "-o", vif, "-j", "MARK", "--set-mark", "0x01/0x7");
+				eval("iptables", "-t", "mangle", "-A", "FORWARD", "-i", vif, "-o", lan_ifname, "-j", "MARK", "--set-mark", "0x01/0x7");
+			}
+		#endif
 		}
 		fp = fopen(FILE_PATH_IPSEC_IPTABLES_RULE, "a");
 		if (fp) {
@@ -2925,6 +2991,14 @@ static void _ipsec_updown_host_net_cli(int unit)
 				fprintf(fp, "iptables -I FORWARD -i %s -o %s -j ACCEPT\n", lan_ifname, vif);
 				fprintf(fp, "iptables -D FORWARD -i %s -o %s -m state --state RELATED,ESTABLISHED -j ACCEPT\n", vif, lan_ifname);
 				fprintf(fp, "iptables -I FORWARD -i %s -o %s -m state --state RELATED,ESTABLISHED -j ACCEPT\n", vif, lan_ifname);
+			#ifdef RTCONFIG_BCMARM
+				if (nvram_match("ctf_disable", "0")) {
+					fprintf(fp, "iptables -t mangle -D FORWARD -i %s -o %s -j MARK --set-mark 0x01/0x7\n", lan_ifname, vif);
+					fprintf(fp, "iptables -t mangle -A FORWARD -i %s -o %s -j MARK --set-mark 0x01/0x7\n", lan_ifname, vif);
+					fprintf(fp, "iptables -t mangle -D FORWARD -i %s -o %s -j MARK --set-mark 0x01/0x7\n", vif, lan_ifname);
+					fprintf(fp, "iptables -t mangle -A FORWARD -i %s -o %s -j MARK --set-mark 0x01/0x7\n", vif, lan_ifname);
+				}
+			#endif
 			}
 			fclose(fp);
 		}
@@ -3037,17 +3111,28 @@ static void _ipsec_updown_host_net_cli(int unit)
 	}
 	else {	//down
 		eval("ip", "link", "del", vif);
+		_ipsec_lan_bypass_rule_del();
 		// nat
 		eval("iptables", "-t", "nat", "-D", "POSTROUTING", "-o", vif, "!", "-s", my_ip4, "-j", "MASQUERADE");
 		if (*lan_ifname) {
 			eval("iptables", "-D", "FORWARD", "-i", lan_ifname, "-o", vif, "-j", "ACCEPT");
 			eval("iptables", "-D", "FORWARD", "-i", vif, "-o", lan_ifname, "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT");
+		#ifdef RTCONFIG_BCMARM
+			if (nvram_match("ctf_disable", "0")) {
+				eval("iptables", "-t", "mangle", "-D", "FORWARD", "-i", lan_ifname, "-o", vif, "-j", "MARK", "--set-mark", "0x01/0x7");
+				eval("iptables", "-t", "mangle", "-D", "FORWARD", "-i", vif, "-o", lan_ifname, "-j", "MARK", "--set-mark", "0x01/0x7");
+			}
+		#endif
 		}
 		eval("sed", "-i", "/MASQUERADE/d", FILE_PATH_IPSEC_IPTABLES_RULE);
 		if (*lan_ifname) {
 			snprintf(buf, sizeof(buf), "/FORWARD -i .* -o %s -j ACCEPT/d", vif);
 			eval("sed", "-i", buf, FILE_PATH_IPSEC_IPTABLES_RULE);
 			snprintf(buf, sizeof(buf), "/FORWARD -i %s -o .* -m state --state RELATED,ESTABLISHED -j ACCEPT/d", vif);
+			eval("sed", "-i", buf, FILE_PATH_IPSEC_IPTABLES_RULE);
+			snprintf(buf, sizeof(buf), "/-t mangle -.* -i %s -o %s -j MARK --set-mark 0x01\\/0x7/d", lan_ifname, vif);
+			eval("sed", "-i", buf, FILE_PATH_IPSEC_IPTABLES_RULE);
+			snprintf(buf, sizeof(buf), "/-t mangle -.* -i %s -o %s -j MARK --set-mark 0x01\\/0x7/d", vif, lan_ifname);
 			eval("sed", "-i", buf, FILE_PATH_IPSEC_IPTABLES_RULE);
 		}
 #ifdef RTCONFIG_VPN_FUSION
