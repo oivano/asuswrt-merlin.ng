@@ -3661,6 +3661,13 @@ NOIP:
 #endif
 #endif
 
+#ifdef RTCONFIG_FRR
+	if (wan_unit == wan_primary_ifunit() &&
+	    (wan_proto == WAN_PPPOE || wan_proto == WAN_PPTP || wan_proto == WAN_L2TP)) {
+		start_frr();
+	}
+#endif
+
 #if defined(RTCONFIG_MULTISERVICE_WAN)
 	if (nvram_match("iptv_ifname", wan_ifname))
 	{

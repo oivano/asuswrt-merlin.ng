@@ -341,6 +341,25 @@ static int is_frr_enabled(void)
 	return nvram_match("frr_enable", "1");
 }
 
+static int frr_should_defer_until_pppd(void)
+{
+	char prefix[] = "wanX_";
+	int wan_unit;
+	int wan_proto;
+
+	for (wan_unit = WAN_UNIT_FIRST; wan_unit < WAN_UNIT_MAX; ++wan_unit) {
+		prefix[3] = '0' + wan_unit;
+		wan_proto = get_wan_proto(prefix);
+		if (wan_proto == WAN_PPPOE || wan_proto == WAN_PPTP || wan_proto == WAN_L2TP) {
+			if (pidof("pppd") <= 0)
+				return 1;
+			return 0;
+		}
+	}
+
+	return 0;
+}
+
 /* Create necessary directories */
 static void frr_create_dirs(void)
 {
@@ -734,6 +753,12 @@ void start_frr(void)
 
 	if (!is_frr_enabled()) {
 		_dprintf("FRR is not enabled\n");
+		return;
+	}
+
+	if (frr_should_defer_until_pppd()) {
+		logmessage("FRR", "deferring startup until pppd is running");
+		_dprintf("FRR startup deferred: PPP WAN configured but pppd not running yet\n");
 		return;
 	}
 
