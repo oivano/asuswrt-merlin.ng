@@ -1365,7 +1365,7 @@ void ipsec_conf_local_set(FILE *fp, int prof_idx, ipsec_prof_type_t prof_type)
 			|| (VPN_TYPE_NET_NET_PEER == prof[prof_type][prof_idx].vpn_type)
 	) {
 		fprintf(fp, "  leftsubnet=%s\n", prof[prof_type][prof_idx].local_subnet);
-//		fprintf(fp, "  leftupdown=\"%s %d %u\"\n", FILE_PATH_IPSEC_UPDOWN, prof_idx + 1, prof[prof_type][prof_idx].vpn_type);
+		fprintf(fp, "  leftupdown=\"%s %d %u\"\n", FILE_PATH_IPSEC_UPDOWN, prof_idx + 1, prof[prof_type][prof_idx].vpn_type);
 	}
 	else {
 	fprintf(fp, "  leftsubnet=%s\n"
@@ -3227,8 +3227,14 @@ static void _ipsec_updown_net_net()
 		_get_my_ip_by_subnet(my_net, my_srcip, sizeof(my_srcip), v6);
 		cprintf("my ip: [%s]\n", my_srcip);
 		eval("ip", "route", "add", peer_net, "via", wan_gateway, "dev", wan_if, "proto", "static", "src", my_srcip);
+		_ipsec_lan_exclude_route_set("220");
+		logmessage("ipsec_route", "ipsec up: policy table 220 with LAN exclusion enforced");
+		_ipsec_log_policy_table("220", "ipsec_route");
 	}
 	else { //down
+		_ipsec_lan_exclude_route_del("220");
+		logmessage("ipsec_route", "ipsec down: policy table 220 after LAN exclusion cleanup");
+		_ipsec_log_policy_table("220", "ipsec_route");
 		eval("ip", "route", "del", peer_net);
 	}
 }

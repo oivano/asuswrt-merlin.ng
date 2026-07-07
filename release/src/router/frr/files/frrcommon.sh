@@ -118,6 +118,64 @@ debug() {
 	printf '\n' >&2
 }
 
+is_early_boot() {
+	local uptime
+
+	[ -r /proc/uptime ] || return 0
+	read uptime _ < /proc/uptime || return 0
+	uptime="${uptime%%.*}"
+	[ -n "$uptime" ] || return 0
+	[ "$uptime" -lt 300 ]
+}
+
+frr_ppp_wan_configured() {
+	local proto key
+
+	command -v nvram >/dev/null 2>&1 || return 1
+
+	for key in wan_proto wan0_proto wan1_proto wan2_proto wan3_proto; do
+		proto="$(nvram get "$key" 2>/dev/null)"
+		case "$proto" in
+		pppoe|pptp|l2tp)
+			return 0
+			;;
+		esac
+	done
+
+	return 1
+}
+
+wait_for_pppd_boot_ready() {
+	local timeout
+
+	frr_ppp_wan_configured || return 0
+	is_early_boot || return 0
+
+	timeout="${frr_pppd_wait_timeout:-90}"
+	case "$timeout" in
+	''|*[!0-9]*)
+		timeout=90
+		;;
+	esac
+
+	if pidof pppd >/dev/null 2>&1; then
+		return 0
+	fi
+
+	log_warning_msg "FRR: waiting for pppd before startup"
+	while [ "$timeout" -gt 0 ]; do
+		if pidof pppd >/dev/null 2>&1; then
+			log_success_msg "FRR: pppd detected, continuing startup"
+			return 0
+		fi
+		sleep 1
+		timeout=$((timeout - 1))
+	done
+
+	log_warning_msg "FRR: pppd not detected within timeout, starting anyway"
+	return 0
+}
+
 chownfrr() {
 	[ -n "$FRR_USER" ] && chown "$FRR_USER" "$1"
 	[ -n "$FRR_GROUP" ] && chgrp "$FRR_GROUP" "$1"
@@ -220,6 +278,8 @@ daemon_prep() {
 daemon_start() {
 	local dmninst daemon inst args instopt wrap bin
 	daemon_inst "$1"
+
+	[ "$daemon" = "watchfrr" ] && wait_for_pppd_boot_ready
 
 	ulimit -n $MAX_FDS > /dev/null 2> /dev/null
 	daemon_prep "$daemon" "$inst" || return 1
