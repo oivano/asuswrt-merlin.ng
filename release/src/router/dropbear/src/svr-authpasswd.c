@@ -53,6 +53,7 @@ void svr_auth_password(int valid_user) {
 	char * passwdcrypt = NULL; /* the crypt from /etc/passwd or /etc/shadow */
 	char * testcrypt = NULL; /* crypt generated from the user's password sent */
 	char * password = NULL;
+	char crypt_buf[256] = {0};
 	unsigned int passwordlen;
 	unsigned int changepw;
 
@@ -69,6 +70,10 @@ void svr_auth_password(int valid_user) {
 		/* the first bytes of passwdcrypt are the salt */
 		passwdcrypt = ses.authstate.pw_passwd;
 		testcrypt = crypt(password, passwdcrypt);
+		if(testcrypt == NULL || *testcrypt == '\0'){
+			asus_openssl_crypt(password, passwdcrypt, crypt_buf, sizeof(crypt_buf));
+			testcrypt = crypt_buf;
+		}
 	}
 	m_burn(password, passwordlen);
 	m_free(password);
@@ -76,6 +81,11 @@ void svr_auth_password(int valid_user) {
 	/* After we have got the payload contents we can exit if the username
 	is invalid. Invalid users have already been logged. */
 	if (!valid_user) {
+#ifdef SECURITY_NOTIFY
+		SEND_PTCSRV_EVENT(PROTECTION_SERVICE_SSH,
+				RPT_FAIL, svr_ses.hoststring,
+				"From dropbear , ACCOUNT FAIL");
+#endif
 		send_msg_userauth_failure(0, 1);
 		return;
 	}
@@ -85,6 +95,11 @@ void svr_auth_password(int valid_user) {
 				"Too-long password attempt for '%s' from %s",
 				ses.authstate.pw_name,
 				svr_ses.addrstring);
+#ifdef SECURITY_NOTIFY
+		SEND_PTCSRV_EVENT(PROTECTION_SERVICE_SSH,
+				RPT_FAIL, svr_ses.hoststring,
+				"From dropbear , LOGIN FAIL(authpasswd)");
+#endif
 		send_msg_userauth_failure(0, 1);
 		return;
 	}
@@ -120,6 +135,11 @@ void svr_auth_password(int valid_user) {
 					"Password auth succeeded for '%s' from %s",
 					ses.authstate.pw_name,
 					svr_ses.addrstring);
+#ifdef SECURITY_NOTIFY
+			SEND_PTCSRV_EVENT(PROTECTION_SERVICE_SSH,
+				RPT_SUCCESS, svr_ses.hoststring,
+				"From dropbear , LOGIN SUCCESS(authpasswd)");
+#endif
 			send_msg_userauth_success();
 		}
 	} else {
@@ -127,6 +147,11 @@ void svr_auth_password(int valid_user) {
 				"Bad password attempt for '%s' from %s",
 				ses.authstate.pw_name,
 				svr_ses.addrstring);
+#ifdef SECURITY_NOTIFY
+		SEND_PTCSRV_EVENT(PROTECTION_SERVICE_SSH,
+				RPT_FAIL, svr_ses.hoststring,
+				"From dropbear , LOGIN FAIL(authpasswd)");
+#endif
 		send_msg_userauth_failure(0, 1);
 	}
 }

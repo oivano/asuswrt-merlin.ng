@@ -141,8 +141,8 @@
 #endif
 
 #ifdef BUNDLED_LIBTOM
-#include "../libtomcrypt/src/headers/tomcrypt.h"
-#include "../libtommath/tommath.h"
+#include "libtomcrypt/src/headers/tomcrypt.h"
+#include "libtommath/tommath.h"
 #else
 #include <tomcrypt.h>
 #include <tommath.h>
@@ -184,7 +184,9 @@ typedef u_int32_t uint32_t;
 #include <dlfcn.h>
 #endif
 
+#ifndef environ
 extern char** environ;
+#endif
 
 #include "fake-rfc2553.h"
 
@@ -202,6 +204,10 @@ extern char** environ;
 # define UNUSED(x) /*@unused@*/ x 
 #else 
 # define UNUSED(x) x 
+#endif
+
+#ifdef SECURITY_NOTIFY
+#include <libptcsrv.h>
 #endif
 
 /* static_assert() is a keyword in c23, earlier libc often supports

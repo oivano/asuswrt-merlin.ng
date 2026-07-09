@@ -1391,7 +1391,8 @@ Optional Features:
   --disable-openpty       Don't use openpty, use alternative method
   --disable-syslog        Don't include syslog support
   --disable-shadow        Don't use shadow passwords (if available)
-  --enable-plugin         Enable support for External Public Key
+  --enable-plugin-deprecated
+                          Enable support for External Public Key
                           Authentication plug-in
   --enable-fuzz           Build fuzzing. Not recommended for deployment.
   --enable-bundled-libtom Force using bundled libtomcrypt/libtommath even if a
@@ -2816,7 +2817,7 @@ as_fn_append ac_header_c_list " sys/socket.h sys_socket_h HAVE_SYS_SOCKET_H"
 ac_aux_files="install-sh config.guess config.sub"
 
 # Locations in which to look for auxiliary files.
-ac_aux_dir_candidates="${srcdir}/src${PATH_SEPARATOR}${srcdir}/.."
+ac_aux_dir_candidates="${srcdir}/src"
 
 # Search for a directory containing all of the required auxiliary files,
 # $ac_aux_files, from the $PATH-style list $ac_aux_dir_candidates.
@@ -2978,13 +2979,6 @@ ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $
 ac_compiler_gnu=$ac_cv_c_compiler_gnu
 
 
-
-# Record which revision is being built
-if test -s "`which hg`" && test -d "$srcdir/.hg"; then
-	hgrev=`hg id -i -R "$srcdir"`
-	{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: Source directory Mercurial base revision $hgrev" >&5
-printf "%s\n" "$as_me: Source directory Mercurial base revision $hgrev" >&6;}
-fi
 
 ORIGCFLAGS="$CFLAGS"
 LATE_CFLAGS=""
@@ -5843,6 +5837,7 @@ printf "%s\n" "$as_me: Using shadow passwords if available" >&6;}
 fi
 
 
+# Plugin support will be removed soon. Open a github issue if you're using it.
 # Check whether --enable-plugin was given.
 if test ${enable_plugin+y}
 then :
@@ -7594,6 +7589,13 @@ ac_fn_c_check_func "$LINENO" "logwtmp" "ac_cv_func_logwtmp"
 if test "x$ac_cv_func_logwtmp" = xyes
 then :
   printf "%s\n" "#define HAVE_LOGWTMP 1" >>confdefs.h
+
+fi
+
+ac_fn_c_check_func "$LINENO" "setresgid" "ac_cv_func_setresgid"
+if test "x$ac_cv_func_setresgid" = xyes
+then :
+  printf "%s\n" "#define HAVE_SETRESGID 1" >>confdefs.h
 
 fi
 
@@ -10113,15 +10115,17 @@ fi
 if test "x$ac_cv_func_getpass" != xyes; then
 { printf "%s\n" "$as_me:${as_lineno-$LINENO}: " >&5
 printf "%s\n" "$as_me: " >&6;}
-{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: getpass() not available, dbclient will only have public-key authentication" >&5
-printf "%s\n" "$as_me: getpass() not available, dbclient will only have public-key authentication" >&6;}
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: getpass() not available, dbclient will only have public-key authentication" >&5
+printf "%s\n" "$as_me: WARNING: getpass() not available, dbclient will only have public-key authentication" >&2;}
 fi
 
 if test "t$found_crypt_func" != there; then
 { printf "%s\n" "$as_me:${as_lineno-$LINENO}: " >&5
 printf "%s\n" "$as_me: " >&6;}
-{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: crypt() not available, dropbear server will not have password authentication" >&5
-printf "%s\n" "$as_me: crypt() not available, dropbear server will not have password authentication" >&6;}
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: crypt() is not available, dropbear server will not have password authentication" >&5
+printf "%s\n" "$as_me: WARNING: crypt() is not available, dropbear server will not have password authentication" >&2;}
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: Some platforms require libcrypt-dev package or similar" >&5
+printf "%s\n" "$as_me: Some platforms require libcrypt-dev package or similar" >&6;}
 fi
 
 { printf "%s\n" "$as_me:${as_lineno-$LINENO}: " >&5

@@ -5,14 +5,8 @@
 # of the platform checks have been taken straight from OpenSSH's configure.ac
 # Huge thanks to them for dealing with the horrible platform-specifics :)
 
-AC_PREREQ([2.59])
+AC_PREREQ([2.70])
 AC_INIT
-
-# Record which revision is being built
-if test -s "`which hg`" && test -d "$srcdir/.hg"; then
-	hgrev=`hg id -i -R "$srcdir"`
-	AC_MSG_NOTICE([Source directory Mercurial base revision $hgrev])
-fi
 
 ORIGCFLAGS="$CFLAGS"
 LATE_CFLAGS=""
@@ -350,8 +344,9 @@ AC_ARG_ENABLE(shadow,
 	]
 )
 
+# Plugin support will be removed soon. Open a github issue if you're using it.
 AC_ARG_ENABLE(plugin,
-	[AS_HELP_STRING([--enable-plugin], [Enable support for External Public Key Authentication plug-in])],
+	[AS_HELP_STRING([--enable-plugin-deprecated], [Enable support for External Public Key Authentication plug-in])],
 	[
 		AC_DEFINE(DROPBEAR_PLUGIN, 1, External Public Key Authentication)
 		AC_MSG_NOTICE(Enabling support for External Public Key Authentication)
@@ -545,6 +540,7 @@ AC_CHECK_FUNCS(utmpname)
 AC_CHECK_FUNCS(endutxent getutxent getutxid getutxline pututxline )
 AC_CHECK_FUNCS(setutxent utmpxname)
 AC_CHECK_FUNCS(logout updwtmp logwtmp)
+AC_CHECK_FUNCS(setresgid)
 
 # Might be a macro. Might be sys/endian.h on BSDs
 AC_CHECK_HEADERS([endian.h])
@@ -947,12 +943,13 @@ fi
 
 if test "x$ac_cv_func_getpass" != xyes; then
 AC_MSG_NOTICE()
-AC_MSG_NOTICE([getpass() not available, dbclient will only have public-key authentication])
+AC_MSG_WARN([getpass() not available, dbclient will only have public-key authentication])
 fi
 
 if test "t$found_crypt_func" != there; then
 AC_MSG_NOTICE()
-AC_MSG_NOTICE([crypt() not available, dropbear server will not have password authentication])
+AC_MSG_WARN([crypt() is not available, dropbear server will not have password authentication])
+AC_MSG_NOTICE([Some platforms require libcrypt-dev package or similar])
 fi
 
 AC_MSG_NOTICE()

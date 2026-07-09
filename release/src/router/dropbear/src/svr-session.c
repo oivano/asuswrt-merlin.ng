@@ -35,7 +35,7 @@
 #include "channel.h"
 #include "chansession.h"
 #include "atomicio.h"
-#include "tcpfwd.h"
+#include "forward.h"
 #include "service.h"
 #include "auth.h"
 #include "runopts.h"
@@ -55,7 +55,7 @@ static const packettype svr_packettypes[] = {
 	{SSH_MSG_KEXINIT, recv_msg_kexinit},
 	{SSH_MSG_KEXDH_INIT, recv_msg_kexdh_init}, /* server */
 	{SSH_MSG_NEWKEYS, recv_msg_newkeys},
-	{SSH_MSG_GLOBAL_REQUEST, recv_msg_global_request_remotetcp},
+	{SSH_MSG_GLOBAL_REQUEST, svr_recv_msg_global_request},
 	{SSH_MSG_CHANNEL_REQUEST, recv_msg_channel_request},
 	{SSH_MSG_CHANNEL_OPEN, recv_msg_channel_open},
 	{SSH_MSG_CHANNEL_EOF, recv_msg_channel_eof},
@@ -84,10 +84,13 @@ static const struct ChanType *svr_chantypes[] = {
 
 static void
 svr_session_cleanup(void) {
-	/* free potential public key options */
-	svr_pubkey_options_cleanup();
+	svr_pubkey_options_cleanup(ses.authstate.pubkey_options);
+	ses.authstate.pubkey_options = NULL;
 
 	m_free(svr_ses.addrstring);
+#ifdef SECURITY_NOTIFY
+	m_free(svr_ses.hoststring);
+#endif
 	m_free(svr_ses.remotehost);
 	m_free(svr_ses.childpids);
 	svr_ses.childpidsize = 0;
@@ -122,7 +125,11 @@ void svr_session(int sock, int childpipe) {
 	len = strlen(host) + strlen(port) + 2;
 	svr_ses.addrstring = m_malloc(len);
 	snprintf(svr_ses.addrstring, len, "%s:%s", host, port);
+#ifdef SECURITY_NOTIFY
+	svr_ses.hoststring = host;
+#else
 	m_free(host);
+#endif
 	m_free(port);
 
 #if DROPBEAR_PLUGIN
