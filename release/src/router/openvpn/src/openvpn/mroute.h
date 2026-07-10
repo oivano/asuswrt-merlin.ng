@@ -112,13 +112,13 @@ struct mroute_addr
 };
 
 /* Double-check that struct packing works as expected */
-static_assert(offsetof(struct mroute_addr, v4.port) == offsetof(struct mroute_addr, v4) + 4,
-              "Unexpected struct packing of v4");
-static_assert(offsetof(struct mroute_addr, v6.port) == offsetof(struct mroute_addr, v6) + 16,
-              "Unexpected struct packing of v6");
-static_assert(offsetof(struct mroute_addr, v4mappedv6.addr)
-                  == offsetof(struct mroute_addr, v4mappedv6) + 12,
-              "Unexpected struct packing of v4mappedv6");
+typedef char mroute_assert_v4_port_packing[
+    (offsetof(struct mroute_addr, v4.port) == offsetof(struct mroute_addr, v4) + 4) ? 1 : -1];
+typedef char mroute_assert_v6_port_packing[
+    (offsetof(struct mroute_addr, v6.port) == offsetof(struct mroute_addr, v6) + 16) ? 1 : -1];
+typedef char mroute_assert_v4mappedv6_addr_packing[
+    (offsetof(struct mroute_addr, v4mappedv6.addr)
+     == offsetof(struct mroute_addr, v4mappedv6) + 12) ? 1 : -1];
 
 /*
  * Number of bits in an address.  Should be raised for IPv6.
