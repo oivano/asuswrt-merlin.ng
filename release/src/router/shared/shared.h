@@ -4546,6 +4546,9 @@ extern struct devif_spdled devif_spdled_list[];
 
 #endif
 
+extern char *make_salt(char *scheme_id, char *buf, size_t size);
+extern int asus_openssl_crypt(char *key, char *salt, char *out, int out_len);
+
 #if defined(XT8_V2)
 int check_pkgtb_boardid(char *ptr_pkgtb);
 #endif

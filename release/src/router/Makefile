@@ -5214,7 +5214,8 @@ dropbear/config.h: dropbear/config.h.in
 		CPPFLAGS="-O2 -Wall $(EXTRACFLAGS) -DARGTYPE=3 -ffunction-sections -fdata-sections -I$(STAGEDIR)/usr/include \
 			$(if $(RTCONFIG_PROTECTION_SERVER),-DSECURITY_NOTIFY,)" \
 		LDFLAGS="-Wl,--gc-sections -L$(STAGEDIR)/usr/lib" \
-		LIBS="$(if $(RTCONFIG_PROTECTION_SERVER),-lptcsrv)" \
+		LIBS="$(if $(RTCONFIG_PROTECTION_SERVER),-lptcsrv) \
+		-L$(TOP_PLATFORM)/nvram$(BCMEX)${EX7} ${EXTRA_NV_LDFLAGS} -lnvram -L$(TOP)/shared -lshared" \
 		$(CONFIGURE) --disable-harden --disable-zlib --disable-pam \
 		--enable-openpty --enable-syslog --enable-shadow --enable-bundled-libtom \
 		--disable-lastlog \

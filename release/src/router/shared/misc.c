@@ -7198,6 +7198,78 @@ int is_account_bound()
 }
 #endif
 
+char *make_salt(char *scheme_id, char *buf, size_t size)
+{
+	unsigned char tmp[12];
+	char *p = NULL;
+	int n = 0, tmp_len = 0;
+
+	if (buf == NULL)
+		return NULL;
+
+	if(!strcmp(scheme_id, "1")){
+		n = strlcpy(buf, "$1$", size);
+		tmp_len = 6;
+	}else if(!strcmp(scheme_id, "5")){
+		n = strlcpy(buf, "$5$", size);
+		tmp_len = 12;
+	}else
+		return buf;
+
+	n = (size - n - 1) / 4 * 3;
+	if (n > 0) {
+		if (n > tmp_len)
+			n = tmp_len;
+		f_read("/dev/urandom", tmp, n);
+		n = base64_encode(tmp, buf + 3, n);
+		buf[3 + n] = '\0';
+	}
+
+	for (p = buf; *p; p++) {
+		if (*p == '+')
+			*p = '.';
+	}
+
+	return buf;
+}
+
+int asus_openssl_crypt(char *key, char *salt, char *out, int out_len)
+{
+	dbg("asus_openssl_crypt: check toolchain crypt() support\n");
+	int scheme_id = 0, ret = 0;
+	FILE *p_fp = NULL;
+	char cmd_line[256] = {0}, crypt_buf[256] = {0};
+
+	if(salt && strlen(salt) > 4){
+		if(!strncmp(salt, "$1$", 3))
+			scheme_id = 1;
+		else if(!strncmp(salt, "$5$", 3))
+			scheme_id = 5;
+		else
+			return ret;
+	}else
+		return ret;
+
+	snprintf(cmd_line, sizeof(cmd_line), "openssl passwd -%d -salt %s %s", scheme_id, salt+3, key);
+
+	if((p_fp = popen(cmd_line, "r")) != NULL){
+		if(fgets(crypt_buf, sizeof(crypt_buf), p_fp)){
+			if (strlen(crypt_buf) > 0)
+				crypt_buf[strlen(crypt_buf)-1] = '\0';
+		}
+		pclose(p_fp);
+	}
+
+	if(crypt_buf[0] != '\0'){
+		if(!strncmp(crypt_buf, salt, strlen(salt))){
+			strlcpy(out, crypt_buf, out_len);
+			ret = 1;
+		}
+	}
+
+	return ret;
+}
+
 int adjust_62_nv_list(char *name)
 {
 	char nv[2048] = {0}, nv_tmp[2048] = {0};

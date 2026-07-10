@@ -850,33 +850,6 @@ void setup_passwd(void)
 	create_passwd();
 }
 
-static char *make_salt(char *buf, size_t size)
-{
-	unsigned char tmp[6];
-	char *p;
-	int n;
-
-	if (buf == NULL)
-		return NULL;
-
-	n = strlcpy(buf, "$1$", size);
-	n = (size - n - 1) / 4 * 3;
-	if (n > 0) {
-		if (n > sizeof(tmp))
-			n = sizeof(tmp);
-		f_read("/dev/urandom", tmp, n);
-		n = base64_encode(tmp, buf + 3, n);
-		buf[3 + n] = '\0';
-	}
-
-	for (p = buf; *p; p++) {
-		if (*p == '+')
-			*p = '.';
-	}
-
-	return buf;
-}
-
 static void
 nvram_fsafe_get(const char *nvram, char *nvram_buf, size_t len)
 {
@@ -890,6 +863,13 @@ nvram_fsafe_get(const char *nvram, char *nvram_buf, size_t len)
 		strlcpy(nvram_buf, nvram_safe_get(nvram), len);
 		try--;
 	} while(strlen(nvram_buf) == 0 && try > 0);
+}
+
+static char *make_md5_salt(char *buf, size_t size)
+{
+	char scheme_id[] = "1";
+
+	return make_salt(scheme_id, buf, size);
 }
 
 void create_passwd(void)
@@ -988,10 +968,10 @@ void create_passwd(void)
 	/* /etc/shadow */
 	if ((fp = fopen("/etc/shadow", "w")) != NULL) {
 		fprintf(fp, "%s:%s:0:0:99999:7:0:0:\n",
-			http_user, crypt(http_passwd, make_salt(salt, sizeof(salt))));
+			http_user, crypt(http_passwd, make_md5_salt(salt, sizeof(salt))));
 		if (*shell_user && *shell_passwd) {
 			fprintf(fp, "%s:%s:0:0:99999:7:0:0:\n",
-				shell_user, crypt(shell_passwd, make_salt(salt, sizeof(salt))));
+				shell_user, crypt(shell_passwd, make_md5_salt(salt, sizeof(salt))));
 		}
 #ifdef RTCONFIG_SAMBASRV	//!!TB
 		fprintf(fp, "%s:%s:0:0:99999:7:0:0:\n", smbd_user, "*");

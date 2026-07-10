@@ -5,7 +5,7 @@
 # of the platform checks have been taken straight from OpenSSH's configure.ac
 # Huge thanks to them for dealing with the horrible platform-specifics :)
 
-AC_PREREQ([2.70])
+AC_PREREQ([2.69])
 AC_INIT
 
 ORIGCFLAGS="$CFLAGS"
