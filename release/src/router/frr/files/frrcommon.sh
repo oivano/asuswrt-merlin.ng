@@ -348,6 +348,13 @@ daemon_stop() {
 	[ -n "$fail" ] || kill -0 "$pid" 2>/dev/null || fail="pid $pid not running"
 
 	if [ -n "$fail" ]; then
+		case "$fail" in
+		"pid file not found"|"pid file is empty"|"pid "*" not running")
+			# Already stopped/stale pid state, do not treat as a stop failure.
+			log_success_msg "$dmninst already stopped ($fail)"
+			return 0
+			;;
+		esac
 		log_failure_msg "Cannot stop $dmninst: $fail"
 		return 1
 	fi
@@ -426,7 +433,7 @@ all_start() {
 }
 
 all_stop() {
-	local pids reversed keep_routes
+	local reversed keep_routes rc
 
 	daemon_list daemons disabled
 	[ "$1" = "--reallyall" ] && daemons="$daemons $disabled"
@@ -438,11 +445,11 @@ all_stop() {
 	done
 
 	for dmninst in $reversed; do
-		daemon_stop "$dmninst" &
-		pids="$pids $!"
-	done
-	for pid in $pids; do
-		wait $pid
+		daemon_stop "$dmninst"
+		rc=$?
+		if [ "$rc" -ne 0 ]; then
+			still_running=1
+		fi
 	done
 	[ -z "$still_running" ] && [ -z "$keep_routes" ] && flush_frr_routes
 }
