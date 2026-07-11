@@ -1,0 +1,108 @@
+#
+# ospf6d
+#
+
+if OSPF6D
+noinst_LIBRARIES += ospf6d/libospf6.a
+sbin_PROGRAMS += ospf6d/ospf6d
+vtysh_scan += \
+	ospf6d/ospf6_nssa.c \
+	ospf6d/ospf6_abr.c \
+	ospf6d/ospf6_asbr.c \
+	ospf6d/ospf6_area.c \
+	ospf6d/ospf6_bfd.c \
+	ospf6d/ospf6_flood.c \
+	ospf6d/ospf6_gr.c \
+	ospf6d/ospf6_gr_helper.c \
+	ospf6d/ospf6_interface.c \
+	ospf6d/ospf6_intra.c \
+	ospf6d/ospf6_lsa.c \
+	ospf6d/ospf6_message.c \
+	ospf6d/ospf6_neighbor.c \
+	ospf6d/ospf6_route.c \
+	ospf6d/ospf6_spf.c \
+	ospf6d/ospf6_top.c \
+	ospf6d/ospf6_zebra.c \
+	ospf6d/ospf6d.c \
+	# end
+vtysh_daemons += ospf6d
+if SNMP
+module_LTLIBRARIES += ospf6d/ospf6d_snmp.la
+endif
+man8 += $(MANBUILD)/frr-ospf6d.8
+endif
+
+ospf6d_libospf6_a_SOURCES = \
+	ospf6d/ospf6_nssa.c \
+	ospf6d/ospf6_abr.c \
+	ospf6d/ospf6_area.c \
+	ospf6d/ospf6_asbr.c \
+	ospf6d/ospf6_routemap_nb.c \
+	ospf6d/ospf6_routemap_nb_config.c \
+	ospf6d/ospf6_bfd.c \
+	ospf6d/ospf6_flood.c \
+	ospf6d/ospf6_gr.c \
+	ospf6d/ospf6_gr_helper.c \
+	ospf6d/ospf6_interface.c \
+	ospf6d/ospf6_intra.c \
+	ospf6d/ospf6_lsa.c \
+	ospf6d/ospf6_lsdb.c \
+	ospf6d/ospf6_message.c \
+	ospf6d/ospf6_neighbor.c \
+	ospf6d/ospf6_network.c \
+	ospf6d/ospf6_proto.c \
+	ospf6d/ospf6_route.c \
+	ospf6d/ospf6_spf.c \
+	ospf6d/ospf6_top.c \
+	ospf6d/ospf6_zebra.c \
+	ospf6d/ospf6d.c \
+	# end
+
+noinst_HEADERS += \
+	ospf6d/ospf6_nssa.h \
+	ospf6d/ospf6_abr.h \
+	ospf6d/ospf6_area.h \
+	ospf6d/ospf6_asbr.h \
+	ospf6d/ospf6_bfd.h \
+	ospf6d/ospf6_flood.h \
+	ospf6d/ospf6_gr.h \
+	ospf6d/ospf6_interface.h \
+	ospf6d/ospf6_intra.h \
+	ospf6d/ospf6_lsa.h \
+	ospf6d/ospf6_lsdb.h \
+	ospf6d/ospf6_message.h \
+	ospf6d/ospf6_neighbor.h \
+	ospf6d/ospf6_network.h \
+	ospf6d/ospf6_proto.h \
+	ospf6d/ospf6_route.h \
+	ospf6d/ospf6_routemap_nb.h \
+	ospf6d/ospf6_spf.h \
+	ospf6d/ospf6_top.h \
+	ospf6d/ospf6_zebra.h \
+	ospf6d/ospf6d.h \
+	# end
+
+ospf6d_ospf6d_LDADD = ospf6d/libospf6.a lib/libfrr.la $(LIBCAP)
+ospf6d_ospf6d_SOURCES = \
+	ospf6d/ospf6_main.c \
+	# end
+
+ospf6d_ospf6d_snmp_la_SOURCES = ospf6d/ospf6_snmp.c
+ospf6d_ospf6d_snmp_la_CFLAGS = $(AM_CFLAGS) $(SNMP_CFLAGS) -std=gnu11
+ospf6d_ospf6d_snmp_la_LDFLAGS = $(MODULE_LDFLAGS)
+ospf6d_ospf6d_snmp_la_LIBADD = lib/libfrrsnmp.la
+
+clippy_scan += \
+	ospf6d/ospf6_top.c \
+	ospf6d/ospf6_area.c \
+	ospf6d/ospf6_asbr.c \
+	ospf6d/ospf6_lsa.c \
+	ospf6d/ospf6_gr_helper.c \
+	ospf6d/ospf6_gr.c \
+	ospf6d/ospf6_route.c \
+	# end
+
+nodist_ospf6d_ospf6d_SOURCES = \
+	yang/frr-ospf-route-map.yang.c \
+	yang/frr-ospf6-route-map.yang.c \
+	# end
