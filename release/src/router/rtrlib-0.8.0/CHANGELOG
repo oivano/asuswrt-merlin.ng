@@ -1,0 +1,177 @@
+For details, please check the commit history:
+https://github.com/rtrlib/rtrlib/commits/master
+
+Release History:
+
+* Version 0.8.0
+    - Fix blocking when stopping sockets in some cases
+    - Add callback to allow user created sockets
+    - Add ability to change the connect timeout
+    - Add support for password authentication to ssh transport
+    - Update tools to allow for password authentication when using ssh transport
+    - Improve error handling in ssh transport
+    - Improve error output in TCP transport
+    - Improve libssh detection when running configure
+    - Initialise structures properly in rtrclient
+    - Fix several compiler warnings
+    - Extend log messages to include prefixes when using ssh transport
+    - Fix bug that constantly called tr_recv because of ignoring timeout argument when using ssh transport
+    - Apply kernel coding style in all source files
+
+* Version 0.7.0
+    - Fix to ensure shadow tables are only freed when initialized before
+    - Fix SSH transport w/o bind address and add host key verification
+    - Fix bug in cache groups to ensure uniqueness of cache server preferences
+    - Fix race condition in rtr_stop
+    - Remove error PDU null termination check
+    - Update tommyds implementation to version 2.2
+    - tools/rpki-rov: improve validation of command line arguments
+    - tools/rtrclient: add ROA export with templates, support for CSV and JSON
+    - Output log messages to stderr instead of stdout
+    - style: increase max line length to 120 characters
+
+* Version 0.6.3
+    - Fix IPv4 string conversion to support big endian systems
+
+* Version 0.6.2
+    - Add C++ support by disabling name mangling for RTRlib symbols
+    - Make pfx_table, pfx_table_init(), pfx_table_add(),
+      pfx_table_free(), pfx_table_src_remove() public; to use RTRlib
+      without online connection to an RPKI cache server
+    - Hide symbols of Tommy hash table without using forward declaration,
+      to resolve dependency on C11
+    - Fix cmake build errors in Debian and OpenBSD
+    - Add connection timeout in tests/test_dynamic_groups
+
+* Version 0.6.1
+    - Fix for cmake versions >= 2.8
+    - Fix rpm build
+    - Fix Ubuntu 12.04 build
+
+* Version 0.6.0
+    - Change default symbol visibility: Hide all symbols per default,
+      export public symbols explicitly
+    - Add API to configure interval mode: {set,get}_interval_mod
+    - Change naming of interval enumerations in rtr.h: add prefixes to
+      prevent name collisions
+    - Fix Debian packages: merge rtrclient and rtr-validator into one
+      package, use libjs-jquery, fix copyright format, fix version
+      numbering and source package format
+    - Fix bug in trie structure where deletion of inner nodes may lead
+      to incorrect reordering, i.e., a node with longer prefix length
+      overrules nodes with shorter prefix length, which then will not
+      be found anymore
+    - Rename cli-validator to rpki-rov
+    - Fix wrong length of error text in error pdu
+    - Add atomtic reset for pfx table and spki table
+    - Improve code for packets
+    - Add rpm package build infrastructure
+    - Add cppcheck suppressions for public api functions
+    - Add new test to verify correctness of prefix removal
+    - Remove function rtr_mgr_find_group in RTR Manager because it is
+      not used
+    - Disable unittests for Apple macOS
+    - Add man pages for tools
+
+* Version 0.5.0
+    - Add support for dynamic add and remove of socket groups in rtr_mgr
+    - add memory handling wrappers (i.e. alloc utils) for FRR integration
+    - extend tests to verify dynamic groups feature
+    - fix duplicate socket configuration on init in {tcp,ssh}_transport
+    - Improve documentation on trie implementation and for util functions
+
+* Version 0.4.0
+    - Fix bug in prefix origin AS validation caused by LPFST, which lead to
+      incrrect validation results in corner caes, and change prefix storage
+      structure to Trie
+    - Fix memory leaks in lpfst_get_children
+    - Fix memory leak in rtr_mgr_get_spki
+    - Fix memory leak in rtr_mgr_init
+    - Fix memory leak in pfx_table_append_elem
+    - Fix memory leak in pfx_table_del_elem
+    - Fix byte order for encapsulated error PDUs
+    - Fix error PDU handling, do not send encapsulated PDUs on internal errors
+    - Improve testing:
+        - add extensive unit tests based on the Cmocka framework
+        - add runtime tests, e.g. live validation of RIPE RIS BGP beacons
+    - Improve overall coding style and documentation
+    - Add static code analysis (cppcheck, codecov.io) to Travis CI config
+    - Add backward compatibility for libssh 0.5.0 and Ubuntu 12.04 LTS
+    - Update Debian package build files
+
+* Version 0.3.6
+    - rtrlib/lib/*: Change API and add lrtr_ prefix to prevent namespace
+      conflicts with third party applications
+    - Change API for rtr_mgr_init and rtr_init to improve error handling
+    - Change preference order of finding cache servers, according to
+      RFC 6810
+    - Improve behavior of cache server groups, switch to preferred
+      group as soon as cache server is online again
+    - Improve error handling in rtr_mgr_init
+    - Improve timing behavior (expire interval, refresh interval etc.)
+    - Fix bug in rtr_mgr_close_all_groups_except_one to prevent deadlock
+    - Fix memory leaks, race condition, and buffer overflow/underflow
+    - Improve debugging and status values
+    - Update SSH transport to new LibSSH API
+
+* Version 0.3.5
+    - Change license from LGPLv3 to MIT license
+    - Fix bug in pfx_table_src_remove, a lock was not released
+    - Fix bug in rtr_purge_outdated_records that removed prefixes
+      incorrectly
+    - Create and install rtrlib.pc pkg-config
+    - Update code style
+    - Add support for OS X (10.10)
+    - Add new tool cli-validator
+
+* Version 0.3.0
+    - Added support for IETF draft draft-ietf-sidr-rpki-rtr-rfc6810-bis-02
+    - Minor changes of the library API (see doxygen documentation).
+
+* Version 0.2.4
+    - rtrclient: fix rtrclient didn't compile when libssh wasn't
+      installed and found by cmake
+
+* Version 0.2.3
+    - rtrclient: increase polling period from 1 to 30 seconds
+    - rtrclient: bug fix for segfault caused by out-of-scope variable access
+    - rtrclient: fix wrong ssh example in usage output
+    - transport: remove const modifier from tr_ssh_config and
+      tr_tcp_config struct members
+    - cmake: install doxygen documentation to $PREFIX/share/doc/rtrlib/
+    - add debian packaging files
+
+* Version 0.2.2
+    - Fixed a bug in ipv6_get_bits(..), specific IPv6 records couldn't
+      be addded to the pfx_table
+
+* Version 0.2.1
+    - Nonce variable renamed to session_id to conform with
+      draft-ietf-sidr-rpki-rtr-26
+    - Warning message added if the Zero field of a prefix PDU doesn't
+      contain 0
+    - pfx_validate_r function added, returns list of prefixes which
+      affected the validation state BGP route
+    - Fixed bug in lpfst_remove that could cause that an pfx_record in the
+      pfx_table could not be found.
+    - Added state rollback to the prefix synchronization function to
+      assure that the last correct state is recovered if an error occurs
+      during synchronization
+    - Few smaller bugfixes and debug formatting corrections
+
+* Version 0.2
+    - Support of RTR-Server failover mechanisms (RTR manager component
+      implemented)
+    - Automatic reconnect of rtr_socket in case of errors
+    - Renamed rtr_update_fp callback to pfx_update_fp. Callback will be
+      executed only if a pfx_record has been added or deleted.
+    - Representation of IP addresses in host byte order within pfx_table
+    - New convenience function to transform an IP address string into a
+      struct ip_addr and vice versa
+    - support for the IETF drafts draft-ietf-sidr-rpki-rtr-19 and
+      draft-ietf-sidr-pfx-validate-03
+    - Extended debug messages
+    - Many bug fixes
+
+* Version 0.1
+    - Beta version

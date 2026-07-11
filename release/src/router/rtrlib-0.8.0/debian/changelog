@@ -1,0 +1,179 @@
+librtr0 (0.8.0) stable; urgency=high
+    * Fix blocking when stopping sockets in some cases
+    * Add callback to allow user created sockets
+    * Add ability to change the connect timeout
+    * Add support for password authentication to ssh transport
+    * Update tools to allow for password authentication when using ssh transport
+    * Improve error handling in ssh transport
+    * Improve error output in TCP transport
+    * Improve libssh detection when running configure
+    * Initialise structures properly in rtrclient
+    * Fix several compiler warnings
+    * Extend log messages to include prefixes when using ssh transport
+    * Fix bug that constantly called tr_recv because of ignoring timeout argument when using ssh transport
+    * Apply kernel coding style in all source files
+
+ -- Marcel Röthke <marcel.roethke@haw-hamburg.de>  Tue, 7 Sep 2021 12:00:00 +0200
+
+librtr0 (0.7.0.0) stable; urgency=high
+    * Fix to ensure shadow tables are only freed when initialized before
+    * Fix SSH transport w/o bind address and add host key verification
+    * Fix bug in cache groups to ensure uniqueness of cache server preferences
+    * Fix race condition in rtr_stop
+    * Remove error PDU null termination check
+    * Update tommyds implementation to version 2.2
+    * tools/rpki-rov: improve validation of command line arguments
+    * tools/rtrclient: add ROA export with templates, support for CSV and JSON
+    * Output log messages to stderr instead of stdout
+    * style: increase max line length to 120 characters
+
+ -- Sebastian Meiling <sebastian.meiling@haw-hamburg.de>  Wed, 10 Jul 2019 10:00:00 +0200
+
+librtr0 (0.6.3.0) stable; urgency=high
+  * Fix IPv4 string conversion to support big endian systems
+
+ -- Matthias Waehlisch <m.waehlisch@fu-berlin.de>  Sun,  9 Dec 2018 12:45:00 +0100
+
+librtr0 (0.6.2.0) stable; urgency=high
+  * Add C++ support by disabling name mangling for RTRlib symbols
+  * Make pfx_table, pfx_table_init(), pfx_table_add(),
+    pfx_table_free(), pfx_table_src_remove() public; to use RTRlib
+    without online connection to an RPKI cache server
+  * Hide symbols of Tommy hash table without using forward declaration,
+    to resolve dependency on C11
+  * Fix cmake build errors in Debian and OpenBSD
+  * Add connection timeout in tests/test_dynamic_groups
+
+ -- Matthias Waehlisch <m.waehlisch@fu-berlin.de>  Fri,  30 Nov 2018 17:31:00 +0100
+
+librtr0 (0.6.1.0) stable; urgency=high
+  * Fix for cmake versions >= 2.8
+  * Fix rpm build
+  * Fix Ubuntu 12.04 build
+
+ -- Marcel Röthke <marcel.roethke@haw-hamburg.de>  Fri,  12 Oct 2018 19:10:00 +0200
+
+librtr0 (0.6.0.0) stable; urgency=high
+  * Change default symbol visibility: Hide all symbols per default,
+      export public symbols explicitly
+  * Change API for interval mode {set,get}_interval_mod and enumerations
+    in rtr.h: add prefixes to prevent name collisions
+  * Fix Debian packages: merge rtrclient and rtr-validator into one
+    package, use libjs-jquery, fix copyright format, fix version
+    numbering and source package format
+  * Fix bug in trie structure where deletion of inner nodes may lead
+    to incorrect reordering, i.e., a node with longer prefix length
+    overrules nodes with shorter prefix length, which then will not
+    be found anymore
+  * Rename cli-validator to rpki-rov
+  * Fix wrong length of error text in error pdu
+  * Add atomtic reset for pfx table and spki table
+  * Improve code for packets
+  * Add rpm package build infrastructure
+  * Add cppcheck suppressions for public api functions
+  * Add new test to verify correctness of prefix removal
+  * Remove function rtr_mgr_find_group in RTR Manager because it is
+    not used
+  * Disable unittests for Apple macOS
+  * Add man pages for tools
+
+ -- Matthias Waehlisch <m.waehlisch@fu-berlin.de>  Fri,  5 Oct 2018 11:12:00 +0100
+
+librtr0 (0.5.0.0) stable; urgency=high
+
+  * Gratuitous un-official non-release to change package version number format:
+    this is a "native" package, so we must omit the "debian_revision" field.
+    Feel free to replace this example with the 0.5.1 entry when that's cooked.
+
+ -- Rob Austein <sra@arrcus.com>  Fri, 31 Aug 2018 21:40:00 +0000
+
+librtr0 (0.5.0-1) stable; urgency=high
+
+  * Add support for dynamic add and remove of socket groups in rtr_mgr
+  * add memory handling wrappers (i.e. alloc utils) for FRR integration
+  * extend tests to verify dynamic groups feature
+  * fix duplicate socket configuration on init in {tcp,ssh}_transport
+  * Improve documentation on trie implementation and for util functions
+
+ -- Sebastian Meiling <s@mlng.net>  Tue,  7 Nov 2017 15:45:00 +0100
+
+librtr0 (0.4.0-1) stable; urgency=high
+
+  * Fix bug in prefix origin AS validation caused by LPFST, which lead to
+    incrrect validation results in corner caes, and change prefix storage
+    structure to Trie
+  * Fix memory leaks in lpfst_get_children
+  * Fix memory leak in rtr_mgr_get_spki
+  * Fix memory leak in rtr_mgr_init
+  * Fix memory leak in pfx_table_append_elem
+  * Fix memory leak in pfx_table_del_elem
+  * Fix byte order for encapsulated error PDUs
+  * Fix error PDU handling, do not send encapsulated PDUs on internal errors
+  * Improve testing:
+      * add extensive unit tests based on the Cmocka framework
+      * add runtime tests, e.g. live validation of RIPE RIS BGP beacons
+  * Improve overall coding style and documentation
+  * Add static code analysis (cppcheck, codecov.io) to Travis CI config
+  * Add backward compatibility for libssh 0.5.0 and Ubuntu 12.04 LTS
+  * Update Debian package build files
+
+ -- Matthias Waehlisch <waehlisch@ieee.org>  Mon, 24 Jul 2017 21:24:00 -0700
+
+librtr0 (0.3.6-1) stable; urgency=low
+
+  * New upstream version 0.3.6
+  * rtrlib/lib/ Change API and add lrtr_ prefix to prevent namespace
+    conflicts with third party applications
+  * Change API for rtr_mgr_init and rtr_init to improve error handling
+  * Change preference order of finding cache servers, according to RFC 6810
+  * Improve behavior of cache server groups, switch to preferred
+    group as soon as cache server is online again
+  * Improve error handling in rtr_mgr_init
+  * Improve timing behavior (expire interval, refresh interval etc.)
+  * Fix bug in rtr_mgr_close_all_groups_except_one to prevent deadlock
+  * Fix memory leaks, race condition, and buffer overflow/underflow
+  * Improve debugging and status values
+  * Update SSH transport to new LibSSH API
+
+ -- Matthias Waehlisch <waehlisch@ieee.org>  Tue,  5 Apr 2016 12:55:56 -0700
+
+librtr0 (0.3.5-1) stable; urgency=low
+
+  * New upstream version 0.3.5
+  * Change license from LGPLv3 to MIT license
+  * Fix bug in pfx_table_src_remove, a lock was not released
+  * Fix bug in rtr_purge_outdated_records that removed prefixes incorrectly
+  * Create and install rtrlib.pc pkg-config
+  * Update code style
+  * Add support for OS X (10.10)
+  * Add new tool cli-validator
+
+ -- Matthias Waehlisch <waehlisch@ieee.org>  Thu, 20 Aug 2015 04:05:48 -0700
+
+librtr0 (0.3.0-1) stable; urgency=low
+
+  * New upstream version 0.3.0
+  * Added support for IETF draft draft-ietf-sidr-rpki-rtr-rfc6810-bis-02
+  * Minor changes of the library API (see doxygen documentation).
+
+ -- Nils Bars <nils.bars@haw-hamburg.de>  Sun, 28 Dec 2014 18:30:00 +0000
+
+librtr0 (0.2.4-1) stable; urgency=low
+
+  * New upstream version 0.2.4
+
+ -- Fabian Holler <mail@fholler.de>  Sun, 24 Nov 2013 18:30:09 +0000
+
+librtr0 (0.2.3-1) stable; urgency=low
+
+  * New upstream version 0.2.3
+  * Remove unused variable from debian/rules
+  * Deactivate make test run during package build
+
+ -- Fabian Holler <git@fholler.de>  Thu, 17 Oct 2013 17:10:00 +1000
+
+librtr0 (0.2.2-1) unstable; urgency=low
+
+  * Initial Release.
+
+ -- Fabian Holler <inet@fholler.de>  Thu, 16 Jun 2013 22:36:16 +1000

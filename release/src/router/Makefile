@@ -339,9 +339,10 @@ KDIR=$(TOP)/kernel_header
 KERNEL_HEADER_DIR=$(TOP)/kernel_header/include
 else
 ifeq ($(HND_ROUTER),y)
-KDIR=$(TOOLCHAIN)/arm-buildroot-linux-gnueabi/sysroot/usr
+TOOL_SYSROOT=$(TOOLCHAIN)/arm-brcm-linux-uclibcgnueabi/sysroot
+KDIR=$(TOOL_SYSROOT)/usr
 KERNEL_HEADER_DIR=$(KDIR)/include
-TOOL_SYS_INCLUDE=$(TOOLCHAIN)/arm-buildroot-linux-gnueabi/sysroot/usr/include
+TOOL_SYS_INCLUDE=$(TOOL_SYSROOT)/usr/include
 export SRCBASE_ROUTER=$(SRCBASE)/router
 ifeq ($(RTCONFIG_VISUALIZATION),y)
 export TOOLCHAIN_LIB_DIR=$(KDIR)/lib
@@ -375,6 +376,8 @@ else
 export PATH:=$(PATH):/opt/toolchains/crosstools-aarch64-gcc-5.3-linux-4.1-glibc-2.22-binutils-2.25/usr/bin
 endif
 else
+TOOL_SYSROOT=$(TOOLCHAIN)/arm-brcm-linux-uclibcgnueabi/sysroot
+TOOL_SYS_INCLUDE=$(TOOL_SYSROOT)/usr/include
 KDIR=$(LINUXDIR)
 KERNEL_HEADER_DIR=$(LINUXDIR)/include
 endif
@@ -385,7 +388,7 @@ export PATH:=$(PATH):$(BUILD_DIR)/bcmdrivers/broadcom/net/wl/bcm9$(BRCM_CHIP)/ma
 endif
 
 ifeq ($(HND_ROUTER),y)
-export LINUX_INC_DIR := $(TOOLCHAIN)/arm-buildroot-linux-gnueabi/sysroot/usr
+export LINUX_INC_DIR := $(TOOL_SYSROOT)/usr
 else
 export LINUX_INC_DIR := $(LINUXDIR)
 endif
@@ -1424,10 +1427,55 @@ obj-$(RTCONFIG_FRR) += libcap
 obj-$(RTCONFIG_FRR) += libcap-ng
 obj-$(RTCONFIG_FRR) += json-c
 obj-$(RTCONFIG_FRR) += pcre-8.31
-obj-$(RTCONFIG_FRR) += libyang
+FRR_USE_LIBYANG2 ?= y
+FRR_LIBYANG_DEP := libyang
+ifeq ($(FRR_USE_LIBYANG2),y)
+FRR_LIBYANG_DEP := libyang2
+endif
+obj-$(RTCONFIG_FRR) += $(FRR_LIBYANG_DEP)
 obj-$(RTCONFIG_FRR) += zlib
 obj-$(RTCONFIG_FRR) += readline-8.1
 obj-$(RTCONFIG_FRR) += ncurses-6.0
+
+# FRR experimental northbound/RPKI knobs (default off for legacy toolchain lane)
+FRR_EXPERIMENTAL_RPKI ?= n
+FRR_EXPERIMENTAL_GRPC ?= n
+FRR_USE_EXTERNAL_FRR ?= y
+FRR_VERSION ?= 8.1
+
+FRR_SRC_DIR := $(TOP)/frr-$(FRR_VERSION)
+FRR_ACTIVE_SRC := $(TOP)/frr
+FRR_SRC_DEP :=
+FRR_HOSTLIB_COMPAT_DIR := $(TOP)/hostlib-compat
+FRR_HOSTLIB_PATH := $(FRR_HOSTLIB_COMPAT_DIR):/usr/lib/x86_64-linux-gnu
+FRR_TARGET_TRIPLET := $(if $(CROSS_COMPILE),$(patsubst %-,%,$(notdir $(CROSS_COMPILE))),arm-linux)
+ifeq ($(FRR_USE_EXTERNAL_FRR),y)
+FRR_ACTIVE_SRC := $(FRR_SRC_DIR)
+FRR_SRC_DEP := frr-src-local
+endif
+
+FRR_EXTRA_DEPS :=
+FRR_EXTRA_ENV :=
+FRR_RPKI_CONF := --disable-rpki
+FRR_GRPC_CONF := --disable-grpc
+FRR_ENABLE_GRPC_UNSAFE ?= n
+
+ifeq ($(FRR_EXPERIMENTAL_RPKI),y)
+FRR_EXTRA_DEPS += rtrlib
+FRR_EXTRA_ENV += RTRLIB_CFLAGS="-I$(STAGEDIR)/usr/include" RTRLIB_LIBS="-L$(STAGEDIR)/usr/lib -lrtr"
+FRR_RPKI_CONF := --enable-rpki
+endif
+
+ifeq ($(FRR_EXPERIMENTAL_GRPC),y)
+ifeq ($(FRR_ENABLE_GRPC_UNSAFE),y)
+FRR_EXTRA_DEPS += protobuf-c grpc
+FRR_EXTRA_ENV += PROTOBUF_C_CFLAGS="-I$(STAGEDIR)/usr/include" PROTOBUF_C_LIBS="-L$(STAGEDIR)/usr/lib -lprotobuf-c"
+FRR_EXTRA_ENV += GRPC_CFLAGS="-I$(STAGEDIR)/usr/include" GRPC_LIBS="-L$(STAGEDIR)/usr/lib -lgrpc++ -lgrpc -lprotobuf"
+FRR_GRPC_CONF := --enable-protobuf --enable-grpc
+else
+$(warning FRR_EXPERIMENTAL_GRPC=y requested but grpc target does not build/install local gRPC yet; keeping grpc disabled. Set FRR_ENABLE_GRPC_UNSAFE=y to force-enable.)
+endif
+endif
 
 #obj-$(RTCONFIG_IPP2P) += ipp2p
 ifeq ($(HND_ROUTER_AX_6756),y)
@@ -2065,21 +2113,21 @@ reinstall:
 	# extra install in case build-process skip them
 # why precompiled?
 	install -D $(TOOLCHAIN)/lib/libexpat.so $(INSTALLDIR)/lib/public/libexpat.so
-	install -D $(TOOLCHAIN)/arm-buildroot-linux-gnueabi/sysroot/lib/ld-linux.so.3 $(INSTALLDIR)/lib/ld-linux.so.3
-	install -D $(TOOLCHAIN)/arm-buildroot-linux-gnueabi/sysroot/lib/libresolv.so.2 $(INSTALLDIR)/lib/libresolv.so.2
-	install -D $(TOOLCHAIN)/arm-buildroot-linux-gnueabi/sysroot/lib/libcrypt.so.1 $(INSTALLDIR)/lib/libcrypt.so.1
+	install -D $(TOOL_SYSROOT)/lib/ld-linux.so.3 $(INSTALLDIR)/lib/ld-linux.so.3
+	install -D $(TOOL_SYSROOT)/lib/libresolv.so.2 $(INSTALLDIR)/lib/libresolv.so.2
+	install -D $(TOOL_SYSROOT)/lib/libcrypt.so.1 $(INSTALLDIR)/lib/libcrypt.so.1
 ifeq ($(RTL8198D),y)
 else
-	install -D $(TOOLCHAIN)/arm-buildroot-linux-gnueabi/sysroot/lib/libutil.so.1 $(INSTALLDIR)/lib/libutil.so.1
+	install -D $(TOOL_SYSROOT)/lib/libutil.so.1 $(INSTALLDIR)/lib/libutil.so.1
 endif
-	install -D $(TOOLCHAIN)/arm-buildroot-linux-gnueabi/sysroot/lib/libm.so.6 $(INSTALLDIR)/lib/libm.so.6
-	install -D $(TOOLCHAIN)/arm-buildroot-linux-gnueabi/sysroot/lib/libnss_dns.so.2 $(INSTALLDIR)/lib/libnss_dns.so.2
-	install -D $(TOOLCHAIN)/arm-buildroot-linux-gnueabi/sysroot/lib/libnsl.so.1 $(INSTALLDIR)/lib/libnsl.so.1
-	install -D $(TOOLCHAIN)/arm-buildroot-linux-gnueabi/sysroot/lib/libnss_files.so.2 $(INSTALLDIR)/lib/libnss_files.so.2
-	install -D $(TOOLCHAIN)/arm-buildroot-linux-gnueabi/sysroot/lib/libc.so.6 $(INSTALLDIR)/lib/libc.so.6
-	install -D $(TOOLCHAIN)/arm-buildroot-linux-gnueabi/sysroot/lib/libpthread.so.0 $(INSTALLDIR)/lib/libpthread.so.0
-	install -D $(TOOLCHAIN)/arm-buildroot-linux-gnueabi/sysroot/lib/libdl.so.2 $(INSTALLDIR)/lib/libdl.so.2
-	install -D $(TOOLCHAIN)/arm-buildroot-linux-gnueabi/sysroot/lib/libgcc_s.so.1 $(INSTALLDIR)/lib/libgcc_s.so.1
+	install -D $(TOOL_SYSROOT)/lib/libm.so.6 $(INSTALLDIR)/lib/libm.so.6
+	install -D $(TOOL_SYSROOT)/lib/libnss_dns.so.2 $(INSTALLDIR)/lib/libnss_dns.so.2
+	install -D $(TOOL_SYSROOT)/lib/libnsl.so.1 $(INSTALLDIR)/lib/libnsl.so.1
+	install -D $(TOOL_SYSROOT)/lib/libnss_files.so.2 $(INSTALLDIR)/lib/libnss_files.so.2
+	install -D $(TOOL_SYSROOT)/lib/libc.so.6 $(INSTALLDIR)/lib/libc.so.6
+	install -D $(TOOL_SYSROOT)/lib/libpthread.so.0 $(INSTALLDIR)/lib/libpthread.so.0
+	install -D $(TOOL_SYSROOT)/lib/libdl.so.2 $(INSTALLDIR)/lib/libdl.so.2
+	install -D $(TOOL_SYSROOT)/lib/libgcc_s.so.1 $(INSTALLDIR)/lib/libgcc_s.so.1
 ifeq ($(BRCM_CHIP),$(filter $(BRCM_CHIP),4908 4912))
 	install -D $(TOOLCHAIN_64)/aarch64-buildroot-linux-gnu/sysroot/lib/ld-linux-aarch64.so.1 $(INSTALLDIR)/lib/ld-linux-aarch64.so.1
 	install -D $(TOOLCHAIN_64)/aarch64-buildroot-linux-gnu/sysroot/lib/libc.so.6 $(INSTALLDIR)/lib/aarch64/libc.so.6
@@ -4508,23 +4556,26 @@ inadyn-clean:
 	[ ! -f inadyn/Makefile ] || $(MAKE) -C inadyn distclean
 	@rm -f inadyn/Makefile
 
-frr/stamp-h1: ncurses-6.0 json-c readline-8.1 libyang libcap libcap-ng
-	@echo "Setting up toolchain library compatibility for FRR build..."
-	@if [ ! -e /usr/lib/x86_64-linux-gnu/libmpfr.so.4 ] && [ -e /usr/lib/x86_64-linux-gnu/libmpfr.so.6 ]; then \
-		sudo ln -sf /usr/lib/x86_64-linux-gnu/libmpfr.so.6 /usr/lib/x86_64-linux-gnu/libmpfr.so.4; \
-	fi
-	@if [ ! -e /usr/lib/x86_64-linux-gnu/libmpc.so.2 ] && [ -e /usr/lib/x86_64-linux-gnu/libmpc.so.3 ]; then \
-		sudo ln -sf /usr/lib/x86_64-linux-gnu/libmpc.so.3 /usr/lib/x86_64-linux-gnu/libmpc.so.2; \
-	fi
-	@rm -rf $(TOP)/frr/build && mkdir -p $(TOP)/frr/build
-	cd frr && autoreconf -i -f && cd $(TOP)/frr/build && \
+frr-src-local:
+	@[ -d $(FRR_SRC_DIR) ] || (echo "Missing local FRR source tree: $(FRR_SRC_DIR)" ; false)
+
+frr/stamp-h1: ncurses-6.0 json-c readline-8.1 $(FRR_LIBYANG_DEP) libcap libcap-ng $(FRR_EXTRA_DEPS) $(FRR_SRC_DEP)
+	@echo "Setting up host library compatibility for FRR build (non-root)..."
+	@mkdir -p $(FRR_HOSTLIB_COMPAT_DIR)
+	@[ -e /usr/lib/x86_64-linux-gnu/libmpfr.so.6 ] && ln -sf /usr/lib/x86_64-linux-gnu/libmpfr.so.6 $(FRR_HOSTLIB_COMPAT_DIR)/libmpfr.so.4 || true
+	@[ -e /usr/lib/x86_64-linux-gnu/libmpc.so.3 ] && ln -sf /usr/lib/x86_64-linux-gnu/libmpc.so.3 $(FRR_HOSTLIB_COMPAT_DIR)/libmpc.so.2 || true
+	@[ -e /usr/lib/x86_64-linux-gnu/libelf.so.1 ] && ln -sf /usr/lib/x86_64-linux-gnu/libelf.so.1 $(FRR_HOSTLIB_COMPAT_DIR)/libelf.so || true
+	@rm -rf $(FRR_ACTIVE_SRC)/build && mkdir -p $(FRR_ACTIVE_SRC)/build
+	cd $(FRR_ACTIVE_SRC) && autoreconf -i -f && cd $(FRR_ACTIVE_SRC)/build && \
 	( unset AR LD NM RANLIB OBJDUMP; \
-	CC=$(CC) \
-	HOST_CC=/usr/bin/gcc HOST_CFLAGS="-O2 -DBUILDING_CLIPPY" HOST_LDFLAGS="" \
-	CFLAGS="-I$(TOP)/frr/lib -I$(STAGEDIR)/usr/include $(CFLAGS) -Os -Wall -ffunction-sections -fdata-sections -fPIC -std=gnu99" \
+	LD_LIBRARY_PATH="$(FRR_HOSTLIB_PATH):$$LD_LIBRARY_PATH" \
+	CC=$(CROSS_COMPILE)gcc CXX=$(CROSS_COMPILE)g++ AR=$(CROSS_COMPILE)ar AS=$(CROSS_COMPILE)as LD=$(CROSS_COMPILE)ld NM=$(CROSS_COMPILE)nm RANLIB=$(CROSS_COMPILE)ranlib STRIP=$(CROSS_COMPILE)strip \
+	HOST_CC=/usr/bin/gcc HOST_CFLAGS="-O2 -DBUILDING_CLIPPY" HOST_LDFLAGS="-L$(FRR_HOSTLIB_COMPAT_DIR)" \
+	CFLAGS="--sysroot=$(TOOL_SYSROOT) -I$(FRR_ACTIVE_SRC)/lib -I$(STAGEDIR)/usr/include $(CFLAGS) -Os -Wall -ffunction-sections -fdata-sections -fPIC -std=gnu99" \
+	 PKG_CONFIG_PATH="$(STAGEDIR)/usr/lib/pkgconfig" \
 	CPPFLAGS="-I$(STAGEDIR)/usr/include/readline -I$(STAGEDIR)/usr/include" \
-	LDFLAGS="-L$(TOP)/ncurses-6.0/lib -L$(STAGEDIR)/usr/lib -ffunction-sections -fdata-sections -Wl,--gc-sections,--as-needed" \
-	LIBS="-lyang -lpcre -lcap -lcap-ng -ljson-c -lreadline -lncurses -lpthread" \
+	LDFLAGS="--sysroot=$(TOOL_SYSROOT) -L$(TOP)/ncurses-6.0/lib -L$(STAGEDIR)/usr/lib -ffunction-sections -fdata-sections -Wl,--gc-sections,--as-needed" \
+	LIBS="-lpthread" \
 	LIBYANG_CFLAGS="-I$(STAGEDIR)/usr/include" \
 	LIBYANG_LIBS="-L$(STAGEDIR)/usr/lib -lyang" \
 	LIBREADLINE_CFLAGS="-I$(STAGEDIR)/usr/include" \
@@ -4532,7 +4583,8 @@ frr/stamp-h1: ncurses-6.0 json-c readline-8.1 libyang libcap libcap-ng
 	JSON_C_CFLAGS="-I$(STAGEDIR)/usr/include/json-c" \
 	JSON_C_LIBS="-L$(STAGEDIR)/usr/lib -ljson-c" \
 	ac_cv_path_PERL=/usr/bin/perl \
-	../configure --build=x86_64-pc-linux-gnu --host=arm-linux \
+	 $(FRR_EXTRA_ENV) \
+	../configure --build=x86_64-pc-linux-gnu --host=$(FRR_TARGET_TRIPLET) \
 		--prefix=/usr \
 		--sysconfdir=/etc \
 		--enable-shared \
@@ -4544,16 +4596,23 @@ frr/stamp-h1: ncurses-6.0 json-c readline-8.1 libyang libcap libcap-ng
 		--disable-babeld \
 		--disable-eigrpd \
 		--disable-pbrd \
+		--disable-sharpd \
+		--disable-pathd \
+		--disable-vrrpd \
 		--disable-doc \
 		--disable-ripngd \
 		--disable-rtadv \
 		--disable-pimd \
 		--disable-ripd \
 		--disable-irdp \
+		--disable-fpm \
+		--disable-snmp \
 		--disable-bgp-vnc \
 		--disable-ospfclient \
 		--disable-ospfapi \
 		--disable-ospf6d \
+		$(FRR_RPKI_CONF) \
+		$(FRR_GRPC_CONF) \
 		--disable-config-rollbacks \
 		--disable-version-build-config \
 		--disable-ldpd \
@@ -4564,48 +4623,26 @@ frr/stamp-h1: ncurses-6.0 json-c readline-8.1 libyang libcap libcap-ng
 		--disable-clippy-only )
 	@touch $@
 
-frr: frr/stamp-h1
-	@$(SEP)
-	@$(MAKE) -C frr/build $(PARALLEL_BUILD)
-	@echo "Cleaning up toolchain library symlinks..."
-	@[ -L /usr/lib/x86_64-linux-gnu/libmpfr.so.4 ] && sudo rm -f /usr/lib/x86_64-linux-gnu/libmpfr.so.4 || true
-	@[ -L /usr/lib/x86_64-linux-gnu/libmpc.so.2 ] && sudo rm -f /usr/lib/x86_64-linux-gnu/libmpc.so.2 || true
+frr-extra-src-local:
+	@[ -d $(TOP)/rtrlib-0.8.0 ] || (echo "Missing local FRR dependency source tree: $(TOP)/rtrlib-0.8.0" ; false)
+	@[ -d $(TOP)/protobuf-c-1.4.1 ] || (echo "Missing local FRR dependency source tree: $(TOP)/protobuf-c-1.4.1" ; false)
+	@[ -d $(TOP)/protobuf-3.20.3 ] || (echo "Missing local FRR dependency source tree: $(TOP)/protobuf-3.20.3" ; false)
+	@[ -d $(TOP)/grpc-1.46.7 ] || (echo "Missing local FRR dependency source tree: $(TOP)/grpc-1.46.7" ; false)
 
-frr-clean:
-	-@$(MAKE) -C frr clean
-	@rm -f frr/stamp-h1
-	@echo "Cleaning up toolchain library symlinks..."
-	@[ -L /usr/lib/x86_64-linux-gnu/libmpfr.so.4 ] && sudo rm -f /usr/lib/x86_64-linux-gnu/libmpfr.so.4 || true
-	@[ -L /usr/lib/x86_64-linux-gnu/libmpc.so.2 ] && sudo rm -f /usr/lib/x86_64-linux-gnu/libmpc.so.2 || true
+rtrlib/stamp-h1: frr-extra-src-local
+	cd rtrlib-0.8.0 && autoreconf -i -f && \
+		CC=$(CC) CFLAGS="-Os $(CFLAGS) -I$(STAGEDIR)/usr/include -fPIC" \
+		LDFLAGS="-L$(STAGEDIR)/usr/lib" \
+		./$(CONFIGURE) --prefix=/usr --host=arm-linux --disable-dependency-tracking --enable-shared --disable-static
+	touch $@
 
-frr-install:
-	@$(SEP)
-	@echo "Installing FRR libraries..."
-	install -d $(INSTALLDIR)/frr/usr/lib/
-	# Install all FRR shared libraries (libfrr, libfrrsnmp, etc.)
-	find frr/build/lib/.libs -name 'libfrr*.so*' -type f -exec \
-		install -m 755 -t $(INSTALLDIR)/frr/usr/lib/ {} +
-	find frr/build/lib/.libs -name 'libfrr*.so*' -type l -exec \
-		cp -fa -t $(INSTALLDIR)/frr/usr/lib/ {} +
-	$(STRIP) $(INSTALLDIR)/frr/usr/lib/libfrr*.so*
-	@echo "Installing FRR daemons and tools..."
-	install -d $(INSTALLDIR)/frr/usr/sbin
-	libtool --mode=install install -c frr/build/zebra/zebra $(INSTALLDIR)/frr/usr/sbin
-	libtool --mode=install install -c frr/build/staticd/staticd $(INSTALLDIR)/frr/usr/sbin
-	libtool --mode=install install -c frr/build/bgpd/bgpd $(INSTALLDIR)/frr/usr/sbin
-	libtool --mode=install install -c frr/build/bfdd/bfdd $(INSTALLDIR)/frr/usr/sbin
-	libtool --mode=install install -c frr/build/vtysh/vtysh $(INSTALLDIR)/frr/usr/sbin
-	libtool --mode=install install -c frr/build/ospfd/ospfd $(INSTALLDIR)/frr/usr/sbin
-	libtool --mode=install install -c frr/build/watchfrr/watchfrr $(INSTALLDIR)/frr/usr/sbin
-	$(STRIP) $(INSTALLDIR)/frr/usr/sbin/{zebra,staticd,bgpd,bfdd,vtysh,ospfd,watchfrr}
-	# Create symlink for vtysh in /usr/bin (vtysh expects to find itself there)
-	install -d $(INSTALLDIR)/frr/usr/bin
-	ln -sf ../sbin/vtysh $(INSTALLDIR)/frr/usr/bin/vtysh
-	@echo "Installing FRR configuration files..."
-	#mkdir -p $(TARGETDIR)/rom/etc
-	install -m 0644 frr/files/{frr.conf,daemons,vtysh.conf} $(TARGETDIR)/rom/etc/
-	@echo "Installing FRR helper scripts..."
-	install -m 0555 frr/files/{frr,watchfrr.sh,frrinit.sh,frrcommon.sh} $(INSTALLDIR)/frr/usr/sbin/
+rtrlib: rtrlib/stamp-h1
+	@$(MAKE) -C rtrlib-0.8.0
+	@$(MAKE) -C rtrlib-0.8.0 DESTDIR=$(STAGEDIR) install
+
+rtrlib-clean:
+	-@$(MAKE) -C rtrlib-0.8.0 clean
+	@rm -f rtrlib/stamp-h1
 
 ifneq ($(RTCONFIG_MUSL_LIBC),y)
 	mkdir -p $(TARGETDIR)/lib
@@ -4615,14 +4652,14 @@ ifneq ($(HND_ROUTER),y)
 else
 ifeq ($(HND_ROUTER_AX),y)
 ifeq ($(HND_ROUTER_AX_6756),y)
-	install -D $(TOOLCHAIN)/arm-buildroot-linux-gnueabi/sysroot/lib/librt-2.30.so $(INSTALLDIR)/lib/librt.so.1
+	install -D $(TOOL_SYSROOT)/lib/librt-2.30.so $(INSTALLDIR)/lib/librt.so.1
 else ifeq ($(BCM_502L07P2),y)
-	install -D $(TOOLCHAIN)/arm-buildroot-linux-gnueabi/sysroot/lib/librt-2.26.so $(INSTALLDIR)/lib/librt.so.1
+	install -D $(TOOL_SYSROOT)/lib/librt-2.26.so $(INSTALLDIR)/lib/librt.so.1
 else
-	install -D $(TOOLCHAIN)/arm-buildroot-linux-gnueabi/sysroot/lib/librt-2.24.so $(INSTALLDIR)/lib/librt.so.1
+	install -D $(TOOL_SYSROOT)/lib/librt-2.24.so $(INSTALLDIR)/lib/librt.so.1
 endif
 else
-	install -D $(TOOLCHAIN)/arm-buildroot-linux-gnueabi/sysroot/lib/librt-2.22.so $(INSTALLDIR)/lib/librt.so.1
+	install -D $(TOOL_SYSROOT)/lib/librt-2.22.so $(INSTALLDIR)/lib/librt.so.1
 endif
 endif
 endif	#RTCONFIG_MUSL_LIBC
@@ -4756,52 +4793,66 @@ socat-install:
 	install -D socat/socat $(INSTALLDIR)/socat/usr/sbin/socat
 	$(STRIP) $(INSTALLDIR)/socat/usr/sbin/socat
 
-#	$(STRIP) $(INSTALLDIR)/tr/sbin/*
-
-#	libnet:
-#		@$(SEP)
-#		@-mkdir -p libnet/lib
-#		@$(MAKE) -C libnet CC=$(CC) AR=$(AR) RANLIB=$(RANLIB)
-
-fprobe-1.1:
-	@$(SEP)
-	@$(MAKE) -C fprobe-1.1 CC=$(CC) AR=$(AR) RANLIB=$(RANLIB)
-
-fprobe-1.1-install: fprobe-1.1
-	install -D fprobe-1.1/fprobe $(INSTALLDIR)/fprobe-1.1/usr/bin/fprobe
-
-fprobe-1.1-clean:
-	@$(SEP)
-	@$(MAKE) -C fprobe-1.1 clean
-
-libev-4.33/stamp-h1:
-	cd libev-4.33 && $(CONFIGURE) --prefix='' $(if $(or $(RTCONFIG_QCA),$(RTCONFIG_RALINK)),,--host=arm-linux)
+protobuf-c/stamp-h1: frr-extra-src-local
+	cd protobuf-c-1.4.1 && autoreconf -i -f && \
+		CC=$(CC) CFLAGS="-Os $(CFLAGS) -I$(STAGEDIR)/usr/include -fPIC" \
+		LDFLAGS="-L$(STAGEDIR)/usr/lib" \
+		./$(CONFIGURE) --prefix=/usr --host=arm-linux --disable-dependency-tracking --enable-shared --disable-static
 	touch $@
 
-libev-4.33: libev-4.33/stamp-h1
+protobuf-c: protobuf-c/stamp-h1
+	@$(MAKE) -C protobuf-c-1.4.1
+	@$(MAKE) -C protobuf-c-1.4.1 DESTDIR=$(STAGEDIR) install
+
+protobuf-c-clean:
+	-@$(MAKE) -C protobuf-c-1.4.1 clean
+	@rm -f protobuf-c/stamp-h1
+
+grpc: frr-extra-src-local
+	@echo "gRPC local source directory is available at $(TOP)/grpc-1.46.7"
+
+grpc-clean:
+	@true
+
+frr: frr/stamp-h1
 	@$(SEP)
-	@$(MAKE) -C libev-4.33 CC=$(CC)
+	@LD_LIBRARY_PATH="$(FRR_HOSTLIB_PATH):$$LD_LIBRARY_PATH" $(MAKE) -C $(FRR_ACTIVE_SRC)/build $(PARALLEL_BUILD)
+	@if [ -f "$(FRR_ACTIVE_SRC)/build/lib/.libs/libfrr.so" ]; then \
+		echo "FRR build successful"; \
+	fi
 
-libev-4.33-install: libev-4.33
+frr-clean:
+	-@$(MAKE) -C $(FRR_ACTIVE_SRC) clean
+	@rm -rf $(FRR_ACTIVE_SRC)/build
+	@rm -f frr/stamp-h1
+
+frr-install:
 	@$(SEP)
-	install -D libev-4.33/.libs/libev.so.4.0.0 $(INSTALLDIR)/$</usr/lib/libev.so.4.0.0
-	$(if $(RTCONFIG_DEBUG),,$(STRIP) $(INSTALLDIR)/$</usr/lib/libev.so.4.0.0)
-	cd $(INSTALLDIR)/$</usr/lib && ln -sf libev.so.4.0.0 libev.so.4
-
-libev-4.33-clean:
-	[ ! -f libev-4.33/Makefile ] || $(MAKE) -C libev-4.33 clean
-	@rm -f libev-4.33/stamp-h1
-
-nfcm/stamp-h1:
-	touch $@
-
-nfcm: nfcm/stamp-h1 libev-4.33 sqlite3 json-c libnfnetlink-1.0.1 libmnl-1.0.4 libnetfilter_conntrack-1.0.7 $(if $(HND_ROUTER),ethswctl_lib,)
-	@$(SEP)
-	@$(MAKE) -C nfcm CC=$(CC) QCA=$(if $(QCA),y,n) HND=$(if $(HND_ROUTER),y,n) AX=$(if $(RTCONFIG_HND_ROUTER_AX),y,n)
-
-nfcm-install: nfcm
-	@echo INSTALLDIR=$(INSTALLDIR)
-	install -D nfcm/nfcm $(INSTALLDIR)/$</usr/bin/nfcm
+	@echo "Installing FRR libraries..."
+	install -d $(INSTALLDIR)/frr/usr/lib/
+	# Install all FRR shared libraries (libfrr, libfrrsnmp, etc.)
+	find $(FRR_ACTIVE_SRC)/build/lib/.libs -name 'libfrr*.so*' -type f -exec \
+		install -m 755 -t $(INSTALLDIR)/frr/usr/lib/ {} +
+	find $(FRR_ACTIVE_SRC)/build/lib/.libs -name 'libfrr*.so*' -type l -exec \
+		cp -fa -t $(INSTALLDIR)/frr/usr/lib/ {} +
+	$(STRIP) $(INSTALLDIR)/frr/usr/lib/libfrr*.so*
+	@echo "Installing FRR daemons and tools..."
+	install -d $(INSTALLDIR)/frr/usr/sbin
+	libtool --mode=install install -c $(FRR_ACTIVE_SRC)/build/zebra/zebra $(INSTALLDIR)/frr/usr/sbin
+	libtool --mode=install install -c $(FRR_ACTIVE_SRC)/build/staticd/staticd $(INSTALLDIR)/frr/usr/sbin
+	libtool --mode=install install -c $(FRR_ACTIVE_SRC)/build/bgpd/bgpd $(INSTALLDIR)/frr/usr/sbin
+	libtool --mode=install install -c $(FRR_ACTIVE_SRC)/build/bfdd/bfdd $(INSTALLDIR)/frr/usr/sbin
+	libtool --mode=install install -c $(FRR_ACTIVE_SRC)/build/vtysh/vtysh $(INSTALLDIR)/frr/usr/sbin
+	libtool --mode=install install -c $(FRR_ACTIVE_SRC)/build/ospfd/ospfd $(INSTALLDIR)/frr/usr/sbin
+	libtool --mode=install install -c $(FRR_ACTIVE_SRC)/build/watchfrr/watchfrr $(INSTALLDIR)/frr/usr/sbin
+	$(STRIP) $(INSTALLDIR)/frr/usr/sbin/{zebra,staticd,bgpd,bfdd,vtysh,ospfd,watchfrr}
+	# Create symlink for vtysh in /usr/bin (vtysh expects to find itself there)
+	install -d $(INSTALLDIR)/frr/usr/bin
+	ln -sf ../sbin/vtysh $(INSTALLDIR)/frr/usr/bin/vtysh
+	@echo "Installing FRR configuration files..."
+	install -m 0644 frr/files/{frr.conf,daemons,vtysh.conf} $(TARGETDIR)/rom/etc/
+	@echo "Installing FRR helper scripts..."
+	install -m 0555 frr/files/{frr,watchfrr.sh,frrinit.sh,frrcommon.sh} $(INSTALLDIR)/frr/usr/sbin/
 
 nfcm-clean:
 	@$(SEP)
@@ -6671,33 +6722,45 @@ pcre-8.31-clean:
 	-@$(MAKE) -C pcre-8.31 clean
 	@rm -f pcre-8.31/stamp-h1
 
-pcre2/stamp-h1:
+PCRE2_VERSION := 10.21
+PCRE2_SRC_DIR := $(TOP)/pcre2-$(PCRE2_VERSION)
+
+pcre2-src-local:
+	@[ -d $(PCRE2_SRC_DIR) ] || (echo "Missing local PCRE2 source tree: $(PCRE2_SRC_DIR)" ; false)
+
+pcre2/stamp-h1: pcre2-src-local
 	@$(SEP)
-	cd pcre2 ; ./autogen.sh ;  \
+	@mkdir -p $(dir $@)
+	cd $(PCRE2_SRC_DIR) ; \
+		if [ -f ./autogen.sh ]; then /bin/sh ./autogen.sh ; fi ; \
+		chmod +x ./configure ; \
 		CFLAGS="-Os $(CFLAGS) -I$(STAGEDIR)/usr/include -std=gnu99 -fPIC" \
 		LDFLAGS="-Wl,--gc-sections" \
 		LIBS="-lpthread -lc" \
-		$(CONFIGURE) --prefix=/usr --enable-shared --enable-static \
-		--disable-percent-zt --enable-pcre2-8 --enable-pcre2-16 --enable-pcre2-32 \
+		./$(CONFIGURE) --prefix=/usr --enable-shared \
+		--enable-pcre2-8 --enable-pcre2-16 --enable-pcre2-32 \
 		--enable-unicode
 	touch $@
 
 pcre2: pcre2/stamp-h1
-	$(MAKE) -C pcre2 all
+	$(MAKE) -C $(PCRE2_SRC_DIR) all && $(MAKE) $@-stage
+
+pcre2-stage:
+	$(MAKE) -C $(PCRE2_SRC_DIR) install DESTDIR=$(STAGEDIR)
 
 pcre2-install: pcre2
-	ls $(TOP)/pcre2/.libs/
-	install -D pcre2/.libs/libpcre2-8.so* $(INSTALLDIR)/usr/lib/
+	ls $(PCRE2_SRC_DIR)/.libs/
+	install -D $(PCRE2_SRC_DIR)/.libs/libpcre2-8.so* $(INSTALLDIR)/usr/lib/
 	cd $(INSTALLDIR)/usr/lib && ln -sf libpcre2-8.so* libpcre2-8.so.0
 	cd $(INSTALLDIR)/usr/lib && ln -sf libpcre2-8.so* libpcre2-8.so
 	$(STRIP) -s $(INSTALLDIR)/usr/lib/libpcre2-8.so*
-	install -D pcre2/.libs/libpcre2-posix.so* $(INSTALLDIR)/usr/lib/
+	install -D $(PCRE2_SRC_DIR)/.libs/libpcre2-posix.so* $(INSTALLDIR)/usr/lib/
 	cd $(INSTALLDIR)/usr/lib && ln -sf libpcre2-posix.so* libpcre2-posix.so.3
 	cd $(INSTALLDIR)/usr/lib && ln -sf libpcre2-posix.so* libpcre2-posix.so
 	$(STRIP) -s $(INSTALLDIR)/usr/lib/libpcre2-posix.so*
 
 pcre2-clean:
-	-@$(MAKE) -C pcre2 clean
+	-@$(MAKE) -C $(PCRE2_SRC_DIR) clean
 	@rm -f pcre2/stamp-h1
 
 # Use prebuilt libyang if available, otherwise build from source
@@ -6776,6 +6839,57 @@ else
 	fi
 endif
 	@rm -rf libyang/build
+
+LIBYANG2_VERSION := 2.1.148
+LIBYANG2_SRC_DIR := $(TOP)/libyang-$(LIBYANG2_VERSION)
+LIBYANG2_BUILD_DIR := $(TOP)/libyang2/build
+LIBYANG2_TOOL_SYSROOT := $(patsubst %/usr/include,%,$(TOOL_SYS_INCLUDE))
+LIBYANG2_SYSROOT := $(if $(LIBYANG2_TOOL_SYSROOT),$(LIBYANG2_TOOL_SYSROOT),$(TOOL_SYSROOT))
+
+libyang2-src-local:
+	@[ -d $(LIBYANG2_SRC_DIR) ] || (echo "Missing local libyang2 source tree: $(LIBYANG2_SRC_DIR)" ; false)
+
+libyang2/build/Makefile: pcre2 libyang2-src-local
+	@rm -rf libyang2/build && mkdir -p libyang2/build
+	@cd libyang2/build && \
+	$(call CMAKE_CrossOptions, crosscompiled.cmake) && \
+	echo 'SET(CMAKE_SYSROOT "$(LIBYANG2_SYSROOT)")' >>crosscompiled.cmake && \
+	echo 'SET(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)' >>crosscompiled.cmake && \
+	echo 'SET(CMAKE_FIND_ROOT_PATH "$${CMAKE_FIND_ROOT_PATH};$(LIBYANG2_SYSROOT);$(LIBYANG2_SYSROOT)/usr;$(STAGEDIR);$(STAGEDIR)/usr")' >>crosscompiled.cmake && \
+	cmake -DCMAKE_TOOLCHAIN_FILE=crosscompiled.cmake \
+		-DCMAKE_INSTALL_PREFIX:PATH=/usr \
+		-DCMAKE_C_FLAGS="--sysroot=$(LIBYANG2_SYSROOT) -I$(LIBYANG2_SYSROOT)/usr/include -O3 $(CFLAGS) -Wall -Wextra -Wno-missing-field-initializers -DNDEBUG -ffunction-sections -fdata-sections -std=gnu99" \
+		-DCMAKE_EXE_LINKER_FLAGS="--sysroot=$(LIBYANG2_SYSROOT) -Wl,--gc-sections -L$(STAGEDIR)/usr/lib -L$(LIBYANG2_SYSROOT)/usr/lib" \
+		-DCMAKE_SHARED_LINKER_FLAGS="--sysroot=$(LIBYANG2_SYSROOT) -Wl,--gc-sections -L$(STAGEDIR)/usr/lib -L$(LIBYANG2_SYSROOT)/usr/lib" \
+		-DCMAKE_SKIP_RPATH=TRUE \
+		-DCMAKE_PREFIX_PATH="$(STAGEDIR)/usr;$(LIBYANG2_SYSROOT)/usr" \
+		-DPCRE2_LIBRARY="$(STAGEDIR)/usr/lib/libpcre2-8.so" \
+		-DPCRE2_INCLUDE_DIR="$(STAGEDIR)/usr/include" \
+		-DBUILD_SHARED_LIBS=TRUE \
+		-DCMAKE_BUILD_TYPE:String="Release" \
+		-DENABLE_TESTS=OFF \
+		-DENABLE_BUILD_TESTS=OFF \
+		$(LIBYANG2_SRC_DIR)
+	@touch $@
+
+libyang2: libyang2/build/Makefile
+	@$(SEP)
+	$(MAKE) -C libyang2/build && $(MAKE) $@-stage
+
+libyang2-stage:
+	@echo ">>> Installing libyang2 into $(STAGEDIR)"
+	$(MAKE) -C libyang2/build install DESTDIR=$(STAGEDIR)
+
+libyang2-install: libyang2
+	@$(SEP)
+	install -d $(INSTALLDIR)/libyang2/usr/lib
+	find libyang2/build -name 'libyang.so*' -type f -exec install -m 755 -t $(INSTALLDIR)/libyang2/usr/lib {} +
+	find libyang2/build -name 'libyang.so*' -type l -exec cp -fa -t $(INSTALLDIR)/libyang2/usr/lib {} +
+	$(STRIP) $(INSTALLDIR)/libyang2/usr/lib/libyang.so* 2>/dev/null || true
+
+libyang2-clean:
+	-@$(MAKE) -C libyang2/build clean
+	@rm -f libyang2/stamp-h1
 
 libxml2/stamp-h1:
 	cd libxml2 && mkdir -p m4 && autoreconf -i -f && \
