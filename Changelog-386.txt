@@ -2,6 +2,32 @@ ion release asuswrt merlin changelog
 ========================
 
 
+386.15-ion (XX-Jul-2026)
+  - CHANGED: Firmware tree streamlined for DSL-AC68U-only maintenance;
+             unsupported model-specific prebuilt content was removed.
+  - ADDED:   FRR WebUI support is now fully functional (backend handlers,
+             route status, startup/restart flow, and proper stop-time route cleanup).
+  - UPDATED: FRR stack refreshed (stable 7.5 line with newer libyang),
+             with additional startup sequencing for PPP WAN environments.
+  - ADDED:   OpenConnect VPN client support (dual-client UI, service control,
+             status integration, and protocol support for AnyConnect/Juniper/
+             Pulse/GlobalProtect/F5/Fortinet).
+  - CHANGED: Legacy VPN surface reduced by removing PPTP/L2TP paths and
+             modernizing IPsec handling.
+  - FIXED:   Route-based IPsec reliability improvements (table 220 routing,
+             LAN route correction, rp_filter tuning, and CTF bypass handling).
+  - UPDATED: dnsmasq to 2.93.
+  - UPDATED: OpenVPN to 2.7.5 (plus build portability fixes and safer defaults).
+  - UPDATED: dropbear to 2026.92 (plus build compatibility fix).
+  - UPDATED: miniupnpd to 2.3.10.
+  - UPDATED: haveged to 1.9.22.
+  - CHANGED: BWDPI dependency removed from Traffic Analyzer visibility;
+             bwdpi was disabled in this branch.
+  - FIXED:   Multiple WebUI/service quality fixes (Connections/Traffic Monitor,
+             VPN status pages, WISP NTP display, AP-mode aaews crashloop,
+             UPnP rule handling, and DHCP event ordering).
+
+
 386.14_4-ion (11-Oct-2025)
   - FIXED: CVE-2025-9230 fix for OpenSSL 1.1.1w (Ubuntu backport by RSDNTWK)
   - ADDED:  dropbear openssh-sftpserver support (sftp-server built from OpenSSH 10.0p1)
