@@ -16,6 +16,7 @@ ion release asuswrt merlin changelog
              modernizing IPsec handling.
   - FIXED:   Route-based IPsec reliability improvements (table 220 routing,
              LAN route correction, rp_filter tuning, and CTF bypass handling).
+  - UPDATED: curl to 8.17.0.     
   - UPDATED: dnsmasq to 2.93.
   - UPDATED: OpenVPN to 2.7.5.
   - UPDATED: dropbear to 2026.92.
