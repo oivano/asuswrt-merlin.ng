@@ -772,44 +772,13 @@ void start_frr(void)
 	frr_write_default_config();
 
 	/*
-	 * If already running, do an explicit stop/start cycle so config changes
-	 * always apply even when script-level restart behaves like a no-op.
+	 * Keep start idempotent: WAN/PPP link events can call start_frr() while
+	 * FRR is healthy, and forcing a full stop/start there destabilizes peers.
 	 */
 	if (running) {
-		_dprintf("FRR watchfrr already running - forcing stop/start\n");
-		logmessage("FRR", "watchfrr already running, forcing stop/start to apply config changes");
-		if (frr_invoke_script_capture("stop", FRR_STDERR_LOG_FILE, 1) != 0) {
-			have_stderr = 1;
-			_dprintf("FRR stop via init script failed - forcing daemon stop\n");
-			logmessage("FRR", "stop command failed, forcing daemon stop fallback");
-			frr_force_stop_daemons();
-		}
-		else {
-			have_stderr = 1;
-		}
-
-		if (pidof("watchfrr") > 0) {
-			logmessage("FRR", "watchfrr still running after stop, forcing daemon stop");
-			frr_force_stop_daemons();
-		}
-
-		sleep(1);
-
-		if (frr_invoke_script_capture("start", FRR_STDERR_LOG_FILE, 1) != 0) {
-			have_stderr = 1;
-			_dprintf("FRR start failed after stop/start cycle\n");
-			logmessage("FRR", "start command failed after stop/start cycle");
-			frr_force_stop_daemons();
-			sleep(1);
-			if (frr_invoke_script_capture("start", FRR_STDERR_LOG_FILE, 1) != 0) {
-				have_stderr = 1;
-				_dprintf("FRR start retry failed after forced stop\n");
-				logmessage("FRR", "start retry failed after forced stop fallback");
-			}
-		}
-		else {
-			have_stderr = 1;
-		}
+		logmessage("FRR", "watchfrr already running, leaving daemons untouched");
+		_dprintf("FRR watchfrr already running - no restart required\n");
+		return;
 	}
 	else {
 		if (frr_invoke_script_capture("start", FRR_STDERR_LOG_FILE, 1) != 0) {
