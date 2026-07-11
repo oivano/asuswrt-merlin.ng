@@ -1,0 +1,35 @@
+##  ion Asus Merlin changelog  ##
+
+Date: July 11, 2026
+Release: 386.15-ion
+
+  - CHANGED: Firmware tree streamlined for DSL-AC68U-only maintenance;
+             unsupported model-specific prebuilt content was removed.
+  - ADDED:   FRR WebUI support is now fully functional (backend handlers,
+             route status, startup/restart flow, and proper stop-time route cleanup).
+  - UPDATED: FRR stack refreshed (stable 7.5 line with newer libyang),
+             with additional startup sequencing for PPP WAN environments.
+  - ADDED:   OpenConnect VPN client support (dual-client UI, service control,
+             status integration, and protocol support for AnyConnect/Juniper/
+             Pulse/GlobalProtect/F5/Fortinet).
+  - CHANGED: Legacy VPN surface reduced by removing PPTP/L2TP paths and
+             modernizing IPsec handling.
+  - FIXED:   Route-based IPsec reliability improvements (table 220 routing,
+             LAN route correction, rp_filter tuning, and CTF bypass handling).
+  - UPDATED: curl to 8.17.0.     
+  - UPDATED: dnsmasq to 2.93.
+  - UPDATED: OpenVPN to 2.7.5.
+  - UPDATED: dropbear to 2026.92.
+  - UPDATED: miniupnpd to 2.3.10.
+  - UPDATED: haveged to 1.9.22.
+  - FIXED:   Batch cherry-picks from upstream Merlin with severity-based inclusion;
+             includes relevant security/high-impact fixes (notably OpenSSL backports)
+             plus selected stability and compatibility fixes.
+  - CHANGED: BWDPI dependency removed from Traffic Analyzer visibility;
+             bwdpi was disabled in this branch.
+  - FIXED:   Multiple WebUI/service quality fixes (Connections/Traffic Monitor,
+             VPN status pages, WISP NTP display, AP-mode aaews crashloop,
+             UPnP rule handling, and DHCP event ordering).
+
+
+
