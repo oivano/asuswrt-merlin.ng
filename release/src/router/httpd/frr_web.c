@@ -626,9 +626,6 @@ static int frr_extract_bgp_neighbors_from_conf(char *neighbors, size_t neighbors
 	neighbor_desc[0] = '\0';
 	neighbor_src[0] = '\0';
 
-	if (!frr_route_overlay_ready())
-		return 0;
-
 	if (!frr_command_capture(FRR_RUNNING_CONFIG_CMD, &output))
 		return 0;
 
@@ -787,32 +784,6 @@ static int frr_get_bgp_neighbors_cached(char *neighbors, size_t neighbors_len,
 	return 1;
 }
 
-static int frr_bgp_runtime_ready(void)
-{
-	/*
-	 * If FRR stack isn't healthy, avoid showing stale values from NVRAM
-	 * or static config; UI should reflect current daemon status.
-	 */
-	if (!frr_daemon_running("watchfrr"))
-		return 0;
-	if (!frr_daemon_running("zebra"))
-		return 0;
-	if (!frr_daemon_running("bgpd"))
-		return 0;
-
-	return 1;
-}
-
-static int frr_bfd_runtime_ready(void)
-{
-	if (!frr_daemon_running("watchfrr"))
-		return 0;
-	if (!frr_daemon_running("bfdd"))
-		return 0;
-
-	return 1;
-}
-
 static int frr_extract_bfd_config_from_conf(char *peer, size_t peer_len,
 		char *tx, size_t tx_len,
 		char *rx, size_t rx_len)
@@ -829,9 +800,6 @@ static int frr_extract_bfd_config_from_conf(char *peer, size_t peer_len,
 	peer[0] = '\0';
 	tx[0] = '\0';
 	rx[0] = '\0';
-
-	if (!frr_bfd_runtime_ready())
-		return 0;
 
 	if (!frr_command_capture(FRR_RUNNING_CONFIG_CMD, &output))
 		return 0;
@@ -1022,9 +990,6 @@ int ej_get_frr_bgp_neighbor_list(int eid, webs_t wp, int argc, char_t **argv)
 	char parsed_neighbor_desc[768];
 	char parsed_neighbor_src[512];
 
-	if (!frr_bgp_runtime_ready())
-		return 0;
-
 	if (*bgp_neighbors)
 		return websWrite(wp, "%s", bgp_neighbors);
 
@@ -1044,9 +1009,6 @@ int ej_get_frr_bgp_neighbor_as_list(int eid, webs_t wp, int argc, char_t **argv)
 	char parsed_neighbor_as[512];
 	char parsed_neighbor_desc[768];
 	char parsed_neighbor_src[512];
-
-	if (!frr_bgp_runtime_ready())
-		return 0;
 
 	if (*bgp_neighbor_as)
 		return websWrite(wp, "%s", bgp_neighbor_as);
@@ -1068,9 +1030,6 @@ int ej_get_frr_bgp_neighbor_desc_list(int eid, webs_t wp, int argc, char_t **arg
 	char parsed_neighbor_desc[768];
 	char parsed_neighbor_src[512];
 
-	if (!frr_bgp_runtime_ready())
-		return 0;
-
 	if (*bgp_neighbor_desc)
 		return websWrite(wp, "%s", bgp_neighbor_desc);
 
@@ -1090,9 +1049,6 @@ int ej_get_frr_bgp_neighbor_src_list(int eid, webs_t wp, int argc, char_t **argv
 	char parsed_neighbor_as[512];
 	char parsed_neighbor_desc[768];
 	char parsed_neighbor_src[512];
-
-	if (!frr_bgp_runtime_ready())
-		return 0;
 
 	if (*bgp_neighbor_src)
 		return websWrite(wp, "%s", bgp_neighbor_src);
