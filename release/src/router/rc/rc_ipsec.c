@@ -2873,6 +2873,35 @@ static void _ipsec_cleanup_policy_table_vif_routes(const char *table, const char
 	eval("ip", "route", "del", "table", table, "128.0.0.0/1", "dev", vif);
 }
 
+/*
+ * "ip route add/del <peer> via <gw> dev <if>" collapses to operating on the
+ * *default* route when <peer> is empty, because iproute2 treats a missing
+ * prefix as "default". strongSwan can invoke the updown "down" event with an
+ * empty PLUTO_PEER, which then wipes the WAN default route (via <wan_gateway>
+ * dev <wan_if>) and kills the WAN. Only accept a concrete host address.
+ */
+static int _ipsec_valid_route_host(const char *addr)
+{
+	if (!addr || !*addr)
+		return 0;
+	if (strchr(addr, '/'))			/* a subnet, not a host */
+		return 0;
+	if (!strcmp(addr, "0.0.0.0") || !strcmp(addr, "0.0.0.0/0") ||
+	    !strcmp(addr, "default") || !strcmp(addr, "::") || !strcmp(addr, "::/0"))
+		return 0;
+	return 1;
+}
+
+static int _ipsec_valid_route_prefix(const char *prefix)
+{
+	if (!prefix || !*prefix)
+		return 0;
+	if (!strcmp(prefix, "0.0.0.0") || !strcmp(prefix, "0.0.0.0/0") ||
+	    !strcmp(prefix, "default") || !strcmp(prefix, "::") || !strcmp(prefix, "::/0"))
+		return 0;
+	return 1;
+}
+
 static void _ipsec_lan_bypass_rule_del(void)
 {
 	char lan_class[32] = {0};
@@ -3033,8 +3062,12 @@ static void _ipsec_updown_host_net_cli(int unit)
 				unlink("/tmp/route_tmp");
 			}
 			// server route
-			logmessage("ipsec_route", "Adding server route: %s via %s dev %s table %s", addr_peer, wan_gateway, wan_if, table_str);
-			eval("ip", "route", "add", addr_peer, "via", wan_gateway, "dev", wan_if, "table", table_str);
+			if (_ipsec_valid_route_host(addr_peer)) {
+				logmessage("ipsec_route", "Adding server route: %s via %s dev %s table %s", addr_peer, wan_gateway, wan_if, table_str);
+				eval("ip", "route", "add", addr_peer, "via", wan_gateway, "dev", wan_if, "table", table_str);
+			}
+			else
+				logmessage("ipsec_route", "skip server route add: invalid peer address '%s' table %s", addr_peer, table_str);
 			
 			// Keep local traffic local and always exclude LAN subnet from tunnel routing.
 			int local_route_added = 0;
@@ -3096,7 +3129,10 @@ static void _ipsec_updown_host_net_cli(int unit)
 		}
 #else
 		// server route
-		eval("ip", "route", "add", addr_peer, "via", wan_gateway, "dev", wan_if);
+		if (_ipsec_valid_route_host(addr_peer))
+			eval("ip", "route", "add", addr_peer, "via", wan_gateway, "dev", wan_if);
+		else
+			logmessage("ipsec_route", "skip server route add: invalid peer address '%s'", addr_peer);
 		// server subnet
 		if (!strcmp(peer_net, "0.0.0.0/0")) {
 			eval("ip", "route", "add", "0.0.0.0/1", "dev", vif);
@@ -3167,7 +3203,10 @@ static void _ipsec_updown_host_net_cli(int unit)
 		}
 #else
 		// server route
-		eval("ip", "route", "del", addr_peer, "via", wan_gateway, "dev", wan_if);
+		if (_ipsec_valid_route_host(addr_peer))
+			eval("ip", "route", "del", addr_peer, "via", wan_gateway, "dev", wan_if);
+		else
+			logmessage("ipsec_route", "skip server route del: invalid peer address '%s' (would hit WAN default route)", addr_peer);
 		// dns
 		nvram_set("ipsec_client_dns", "");
 		update_resolvconf();
@@ -3238,7 +3277,10 @@ static void _ipsec_updown_net_net()
 	if (strstr(verb, "up")) {
 		_get_my_ip_by_subnet(my_net, my_srcip, sizeof(my_srcip), v6);
 		cprintf("my ip: [%s]\n", my_srcip);
-		eval("ip", "route", "add", peer_net, "via", wan_gateway, "dev", wan_if, "proto", "static", "src", my_srcip);
+		if (_ipsec_valid_route_prefix(peer_net))
+			eval("ip", "route", "add", peer_net, "via", wan_gateway, "dev", wan_if, "proto", "static", "src", my_srcip);
+		else
+			logmessage("ipsec_route", "skip peer route add: invalid peer prefix '%s'", peer_net);
 		_ipsec_lan_exclude_route_set("220");
 		logmessage("ipsec_route", "ipsec up: policy table 220 with LAN exclusion enforced");
 		_ipsec_log_policy_table("220", "ipsec_route");
@@ -3247,7 +3289,10 @@ static void _ipsec_updown_net_net()
 		_ipsec_lan_exclude_route_del("220");
 		logmessage("ipsec_route", "ipsec down: policy table 220 after LAN exclusion cleanup");
 		_ipsec_log_policy_table("220", "ipsec_route");
-		eval("ip", "route", "del", peer_net);
+		if (_ipsec_valid_route_prefix(peer_net))
+			eval("ip", "route", "del", peer_net);
+		else
+			logmessage("ipsec_route", "skip peer route del: invalid peer prefix '%s' (would hit WAN default route)", peer_net);
 	}
 }
 
