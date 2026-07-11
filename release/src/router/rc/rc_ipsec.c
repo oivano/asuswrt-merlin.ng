@@ -2862,6 +2862,17 @@ static void _ipsec_lan_exclude_route_del(const char *table)
 		eval("ip", "route", "del", "table", table, lan_class);
 }
 
+static void _ipsec_cleanup_policy_table_vif_routes(const char *table, const char *vif)
+{
+	if (!table || !*table || !vif || !*vif)
+		return;
+
+	/* Remove stale catch-all routes left by policy-routing teardown. */
+	eval("ip", "route", "del", "table", table, "default", "dev", vif);
+	eval("ip", "route", "del", "table", table, "0.0.0.0/1", "dev", vif);
+	eval("ip", "route", "del", "table", table, "128.0.0.0/1", "dev", vif);
+}
+
 static void _ipsec_lan_bypass_rule_del(void)
 {
 	char lan_class[32] = {0};
@@ -3160,6 +3171,7 @@ static void _ipsec_updown_host_net_cli(int unit)
 		// dns
 		nvram_set("ipsec_client_dns", "");
 		update_resolvconf();
+		_ipsec_cleanup_policy_table_vif_routes("220", vif);
 		// Remove the LAN exclusion route from table 220.
 		_ipsec_lan_exclude_route_del("220");
 		logmessage("ipsec_route", "ipsec down: policy table 220 after LAN exclusion cleanup");
