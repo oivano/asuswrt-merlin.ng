@@ -17,10 +17,13 @@ ion release asuswrt merlin changelog
   - FIXED:   Route-based IPsec reliability improvements (table 220 routing,
              LAN route correction, rp_filter tuning, and CTF bypass handling).
   - UPDATED: dnsmasq to 2.93.
-  - UPDATED: OpenVPN to 2.7.5 (plus build portability fixes and safer defaults).
-  - UPDATED: dropbear to 2026.92 (plus build compatibility fix).
+  - UPDATED: OpenVPN to 2.7.5.
+  - UPDATED: dropbear to 2026.92.
   - UPDATED: miniupnpd to 2.3.10.
   - UPDATED: haveged to 1.9.22.
+  - FIXED:   Batch cherry-picks from upstream Merlin with severity-based inclusion;
+             includes relevant security/high-impact fixes (notably OpenSSL backports)
+             plus selected stability and compatibility fixes.
   - CHANGED: BWDPI dependency removed from Traffic Analyzer visibility;
              bwdpi was disabled in this branch.
   - FIXED:   Multiple WebUI/service quality fixes (Connections/Traffic Monitor,
