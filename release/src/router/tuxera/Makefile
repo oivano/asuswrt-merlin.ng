@@ -99,10 +99,10 @@ DSTDIR = $(INSTALLDIR)/lib/modules/2.6.22.19/kernel/fs
 endif
 endif
 
-#ifeq ($(BUILD_NAME),DSL-AC68U)
-#SRCFILE = broadcom_arm_dsl_ac68u
-#DSTDIR = $(INSTALLDIR)/lib/modules/2.6.36.4brcmarm/kernel/fs
-#endif
+ifeq ($(BUILD_NAME),DSL-AC68U)
+SRCFILE = broadcom_arm_dsl_ac68u
+DSTDIR = $(INSTALLDIR)/lib/modules/2.6.36.4brcmarm/kernel/fs
+endif
 
 export DSTDIR
 
