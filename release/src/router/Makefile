@@ -1431,6 +1431,7 @@ FRR_USE_LIBYANG2 ?= y
 FRR_LIBYANG_DEP := libyang
 ifeq ($(FRR_USE_LIBYANG2),y)
 FRR_LIBYANG_DEP := libyang2
+obj-$(RTCONFIG_FRR) += pcre2
 endif
 obj-$(RTCONFIG_FRR) += $(FRR_LIBYANG_DEP)
 obj-$(RTCONFIG_FRR) += zlib
@@ -3350,7 +3351,7 @@ rc: shared $(if $(BCM_502L07P2),ethctl_lib) nvram$(BCMEX)$(EX7) libdisk $(if $(R
 rc-install:
 	$(MAKE) -C rc INSTALLDIR=$(INSTALLDIR)/rc install
 
-networkmap: shared json-c libasc libletsencrypt $(if $(BCM_502L07P2),ethctl_lib) $(if $(RTCONFIG_BWDPI),bwdpi_source) 
+networkmap: shared json-c libasc libletsencrypt $(if $(BCM_502L07P2),ethctl_lib) $(if $(RTCONFIG_BWDPI),bwdpi_source)
 
 networkmap-install:
 	$(MAKE) -C networkmap INSTALLDIR=$(INSTALLDIR)/networkmap install
@@ -4573,8 +4574,8 @@ frr/stamp-h1: ncurses-6.0 json-c readline-8.1 $(FRR_LIBYANG_DEP) libcap libcap-n
 	HOST_CC=/usr/bin/gcc HOST_CFLAGS="-O2 -DBUILDING_CLIPPY" HOST_LDFLAGS="-L$(FRR_HOSTLIB_COMPAT_DIR)" \
 	CFLAGS="--sysroot=$(TOOL_SYSROOT) -I$(FRR_ACTIVE_SRC)/lib -I$(STAGEDIR)/usr/include $(CFLAGS) -Os -Wall -ffunction-sections -fdata-sections -fPIC -std=gnu99" \
 	 PKG_CONFIG_PATH="$(STAGEDIR)/usr/lib/pkgconfig" \
-	CPPFLAGS="-I$(STAGEDIR)/usr/include/readline -I$(STAGEDIR)/usr/include" \
-	LDFLAGS="--sysroot=$(TOOL_SYSROOT) -L$(TOP)/ncurses-6.0/lib -L$(STAGEDIR)/usr/lib -ffunction-sections -fdata-sections -Wl,--gc-sections,--as-needed" \
+	CPPFLAGS="-DFRR_RUNTIME_NO_SECTION_SYMS -I$(STAGEDIR)/usr/include/readline -I$(STAGEDIR)/usr/include" \
+	LDFLAGS="--sysroot=$(TOOL_SYSROOT) -L$(TOP)/ncurses-6.0/lib -L$(STAGEDIR)/usr/lib -ffunction-sections -fdata-sections -Wl,--as-needed" \
 	LIBS="-lpthread" \
 	LIBYANG_CFLAGS="-I$(STAGEDIR)/usr/include" \
 	LIBYANG_LIBS="-L$(STAGEDIR)/usr/lib -lyang" \
@@ -4820,6 +4821,27 @@ frr: frr/stamp-h1
 	@if [ -f "$(FRR_ACTIVE_SRC)/build/lib/.libs/libfrr.so" ]; then \
 		echo "FRR build successful"; \
 	fi
+	@set -e; \
+	for frr_artifact in \
+		"$(FRR_ACTIVE_SRC)/build/lib/.libs/libfrr.so" \
+		"$(FRR_ACTIVE_SRC)/build/zebra/zebra" \
+		"$(FRR_ACTIVE_SRC)/build/staticd/staticd" \
+		"$(FRR_ACTIVE_SRC)/build/bgpd/bgpd" \
+		"$(FRR_ACTIVE_SRC)/build/bfdd/bfdd" \
+		"$(FRR_ACTIVE_SRC)/build/vtysh/vtysh" \
+		"$(FRR_ACTIVE_SRC)/build/ospfd/ospfd" \
+		"$(FRR_ACTIVE_SRC)/build/watchfrr/watchfrr"; do \
+		if [ ! -e "$$frr_artifact" ]; then \
+			echo "FRR verification failed: missing artifact $$frr_artifact"; \
+			exit 1; \
+		fi; \
+		if $(CROSS_COMPILE)nm -u "$$frr_artifact" 2>/dev/null | grep -Eq '__start_xref_array|__stop_xref_array'; then \
+			echo "FRR verification failed: $$frr_artifact still references unresolved xref section symbols"; \
+			$(CROSS_COMPILE)nm -u "$$frr_artifact" 2>/dev/null | grep -E '__start_xref_array|__stop_xref_array'; \
+			exit 1; \
+		fi; \
+	done; \
+	echo "FRR xref symbol verification passed"
 
 frr-clean:
 	-@$(MAKE) -C $(FRR_ACTIVE_SRC) clean
@@ -4830,6 +4852,18 @@ frr-install:
 	@$(SEP)
 	@echo "Installing FRR libraries..."
 	install -d $(INSTALLDIR)/frr/usr/lib/
+	# Bundle FRR runtime deps that are not guaranteed by the base image.
+	@for rtlib in "$(TARGETDIR)/lib/librt.so.0" "$(LIBDIR)/librt.so.0" "$(TOOL_SYSROOT)/lib/librt.so.0" "$(shell dirname $(shell which $(CXX)))/../lib/librt.so.0"; do \
+		if [ -e "$$rtlib" ]; then \
+			install -m 755 -D "$$rtlib" "$(INSTALLDIR)/frr/usr/lib/librt.so.0"; \
+			break; \
+		fi; \
+	done
+	@for pcre2lib in libpcre2-8.so libpcre2-8.so.0 libpcre2-posix.so libpcre2-posix.so.3; do \
+		if [ -e "$(STAGEDIR)/usr/lib/$$pcre2lib" ]; then \
+			install -m 755 -D "$(STAGEDIR)/usr/lib/$$pcre2lib" "$(INSTALLDIR)/frr/usr/lib/$$pcre2lib"; \
+		fi; \
+	done
 	# Install all FRR shared libraries (libfrr, libfrrsnmp, etc.)
 	find $(FRR_ACTIVE_SRC)/build/lib/.libs -name 'libfrr*.so*' -type f -exec \
 		install -m 755 -t $(INSTALLDIR)/frr/usr/lib/ {} +
@@ -6750,13 +6784,10 @@ pcre2-stage:
 
 pcre2-install: pcre2
 	ls $(PCRE2_SRC_DIR)/.libs/
-	install -D $(PCRE2_SRC_DIR)/.libs/libpcre2-8.so* $(INSTALLDIR)/usr/lib/
-	cd $(INSTALLDIR)/usr/lib && ln -sf libpcre2-8.so* libpcre2-8.so.0
-	cd $(INSTALLDIR)/usr/lib && ln -sf libpcre2-8.so* libpcre2-8.so
+	install -d $(INSTALLDIR)/usr/lib
+	cp -df $(PCRE2_SRC_DIR)/.libs/libpcre2-8.so* $(INSTALLDIR)/usr/lib/
 	$(STRIP) -s $(INSTALLDIR)/usr/lib/libpcre2-8.so*
-	install -D $(PCRE2_SRC_DIR)/.libs/libpcre2-posix.so* $(INSTALLDIR)/usr/lib/
-	cd $(INSTALLDIR)/usr/lib && ln -sf libpcre2-posix.so* libpcre2-posix.so.3
-	cd $(INSTALLDIR)/usr/lib && ln -sf libpcre2-posix.so* libpcre2-posix.so
+	cp -df $(PCRE2_SRC_DIR)/.libs/libpcre2-posix.so* $(INSTALLDIR)/usr/lib/
 	$(STRIP) -s $(INSTALLDIR)/usr/lib/libpcre2-posix.so*
 
 pcre2-clean:

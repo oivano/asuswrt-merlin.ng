@@ -2054,7 +2054,7 @@ bool subgroup_announce_check(struct bgp_dest *dest, struct bgp_path_info *pi,
 		if ((CHECK_FLAG(peer->af_flags[afi][safi],
 				PEER_FLAG_NEXTHOP_LOCAL_UNCHANGED)
 		     && IN6_IS_ADDR_LINKLOCAL(&attr->mp_nexthop_local))
-		    || (!reflect
+		    || (!reflect && !transparent
 			&& IN6_IS_ADDR_LINKLOCAL(&peer->nexthop.v6_local)
 			&& peer->shared_network
 			&& (from == bgp->peer_self
@@ -2115,10 +2115,11 @@ bool subgroup_announce_check(struct bgp_dest *dest, struct bgp_path_info *pi,
 		if (ret == RMAP_DENYMATCH) {
 			if (bgp_debug_update(NULL, p, subgrp->update_group, 0))
 				zlog_debug(
-					"%s [Update:SEND] %pFX is filtered by route-map",
-					peer->host, p);
+					"%s [Update:SEND] %pFX is filtered by route-map '%s'",
+					peer->host, p,
+					ROUTE_MAP_OUT_NAME(filter));
 
-			bgp_attr_flush(attr);
+			bgp_attr_flush(&dummy_attr);
 			return false;
 		}
 	}
@@ -3811,6 +3812,7 @@ int bgp_update(struct peer *peer, const struct prefix *p, uint32_t addpath_id,
 	if (bgp_mac_entry_exists(p) || bgp_mac_exist(&attr->rmac)) {
 		peer->stat_pfx_nh_invalid++;
 		reason = "self mac;";
+		bgp_attr_flush(&new_attr);
 		goto filtered;
 	}
 
@@ -3827,13 +3829,15 @@ int bgp_update(struct peer *peer, const struct prefix *p, uint32_t addpath_id,
 	    && (!CHECK_FLAG(dest->flags, BGP_NODE_FIB_INSTALLED)))
 		SET_FLAG(dest->flags, BGP_NODE_FIB_INSTALL_PENDING);
 
-	attr_new = bgp_attr_intern(&new_attr);
-
 	/* If maximum prefix count is configured and current prefix
 	 * count exeed it.
 	 */
-	if (bgp_maximum_prefix_overflow(peer, afi, safi, 0))
+	if (bgp_maximum_prefix_overflow(peer, afi, safi, 0)) {
+		bgp_attr_flush(&new_attr);
 		return -1;
+	}
+
+	attr_new = bgp_attr_intern(&new_attr);
 
 	/* If the update is implicit withdraw. */
 	if (pi) {
@@ -6770,6 +6774,7 @@ static bool aggr_suppress_map_test(struct bgp *bgp,
 	bgp->peer_self->rmap_type = 0;
 
 	bgp_attr_flush(&attr);
+	aspath_unintern(&attr.aspath);
 
 	return rmr == RMAP_PERMITMATCH;
 }
@@ -7382,15 +7387,14 @@ void bgp_aggregate_delete(struct bgp *bgp, const struct prefix *p, afi_t afi,
 			if (pi->sub_type == BGP_ROUTE_AGGREGATE)
 				continue;
 
-			if (aggregate->summary_only && pi->extra
-			    && AGGREGATE_MED_VALID(aggregate)) {
-				if (aggr_unsuppress_path(aggregate, pi))
-					match++;
-			}
-
-			if (aggregate->suppress_map_name
-			    && AGGREGATE_MED_VALID(aggregate)
-			    && aggr_suppress_map_test(bgp, aggregate, pi)) {
+			/*
+			 * This route is suppressed: attempt to unsuppress it.
+			 *
+			 * `aggr_unsuppress_path` will fail if this particular
+			 * aggregate route was not the suppressor.
+			 */
+			if (pi->extra && pi->extra->aggr_suppressors &&
+			    listcount(pi->extra->aggr_suppressors)) {
 				if (aggr_unsuppress_path(aggregate, pi))
 					match++;
 			}
@@ -12461,7 +12465,7 @@ DEFPY (show_ip_bgp_instance_all,
        JSON_STR
       "Increase table width for longer prefixes\n")
 {
-	afi_t afi = AFI_IP;
+	afi_t afi = AFI_IP6;
 	safi_t safi = SAFI_UNICAST;
 	struct bgp *bgp = NULL;
 	int idx = 0;
@@ -13748,7 +13752,11 @@ static int peer_adj_routes(struct vty *vty, struct peer *peer, afi_t afi,
 			       &output_count, &filtered_count);
 
 	if (use_json) {
-		json_object_object_add(json, "advertisedRoutes", json_ar);
+		if (type == bgp_show_adj_route_advertised)
+			json_object_object_add(json, "advertisedRoutes",
+					       json_ar);
+		else
+			json_object_object_add(json, "receivedRoutes", json_ar);
 		json_object_int_add(json, "totalPrefixCounter", output_count);
 		json_object_int_add(json, "filteredPrefixCounter",
 				    filtered_count);
@@ -14084,7 +14092,7 @@ DEFUN (show_ip_bgp_flowspec_routes_detailed,
        "Detailed information on flowspec entries\n"
        JSON_STR)
 {
-	afi_t afi = AFI_IP;
+	afi_t afi = AFI_IP6;
 	safi_t safi = SAFI_UNICAST;
 	struct bgp *bgp = NULL;
 	int idx = 0;
