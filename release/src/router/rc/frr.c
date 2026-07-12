@@ -454,11 +454,11 @@ static void frr_write_default_config(void)
 		fprintf(fp, "bfdd=%s\n", nvram_match("frr_bfd_enable", "1") ? "yes" : "no");
 		fprintf(fp, "#\n");
 		fprintf(fp, "vtysh_enable=yes\n");
-		fprintf(fp, "zebra_options=\" -s 90000000 --daemon -A 127.0.0.1\"\n");
-		fprintf(fp, "bgpd_options=\" --daemon -A 127.0.0.1\"\n");
-		fprintf(fp, "ospfd_options=\" --daemon -A 127.0.0.1\"\n");
-		fprintf(fp, "staticd_options=\" --daemon -A 127.0.0.1\"\n");
-		fprintf(fp, "bfdd_options=\" --daemon -A 127.0.0.1\"\n");
+		fprintf(fp, "zebra_options=\" -s 90000000 --daemon\"\n");
+		fprintf(fp, "bgpd_options=\" --daemon\"\n");
+		fprintf(fp, "ospfd_options=\" --daemon\"\n");
+		fprintf(fp, "staticd_options=\" --daemon\"\n");
+		fprintf(fp, "bfdd_options=\" --daemon\"\n");
 
 			/* Support for custom config additions */
 			append_custom_config("frr_daemons", fp);

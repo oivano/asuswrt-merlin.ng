@@ -135,8 +135,16 @@ extern void xref_gcc_workaround(const struct xref *xref);
  * much NOT _pointers_, rather the symbol *value* is the pointer.  Declaring
  * them as size-1 arrays is the "best" / "right" thing.
  */
+#ifdef FRR_RUNTIME_NO_SECTION_SYMS
+static const struct xref * const _frr_xref_array_empty[1] = { NULL };
+#define FRR_XREF_START _frr_xref_array_empty
+#define FRR_XREF_STOP _frr_xref_array_empty
+#else
 extern const struct xref * const __start_xref_array[1] DSO_LOCAL;
 extern const struct xref * const __stop_xref_array[1] DSO_LOCAL;
+#define FRR_XREF_START __start_xref_array
+#define FRR_XREF_STOP __stop_xref_array
+#endif
 
 #if defined(__has_feature)
 #if __has_feature(address_sanitizer)
@@ -170,8 +178,8 @@ extern const struct xref * const __stop_xref_array[1] DSO_LOCAL;
 			_xref_init(void) {                                     \
 		static struct xref_block _xref_block = {                       \
 			.next = NULL,                                          \
-			.start = __start_xref_array,                           \
-			.stop = __stop_xref_array,                             \
+			.start = FRR_XREF_START,                               \
+			.stop = FRR_XREF_STOP,                                 \
 		};                                                             \
 		xref_block_add(&_xref_block);                                  \
 	}                                                                      \
@@ -195,7 +203,7 @@ extern const struct xref * const __stop_xref_array[1] DSO_LOCAL;
  * some build issue with it just add -DFRR_XREF_NO_NOTE to your build flags
  * to disable it.
  */
-#ifdef FRR_XREF_NO_NOTE
+#if defined(FRR_XREF_NO_NOTE) || defined(FRR_RUNTIME_NO_SECTION_SYMS)
 #define XREF_NOTE ""
 #else
 
