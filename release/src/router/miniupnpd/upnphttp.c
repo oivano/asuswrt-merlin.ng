@@ -39,13 +39,6 @@
 #include <openssl/conf.h>
 static SSL_CTX *ssl_ctx = NULL;
 
-#ifndef HTTPS_CERTFILE
-#define HTTPS_CERTFILE "/etc/ssl/certs/ssl-cert-snakeoil.pem"
-#endif
-#ifndef HTTPS_KEYFILE
-#define HTTPS_KEYFILE "/etc/ssl/private/ssl-cert-snakeoil.key"
-#endif
-
 static void
 syslogsslerr(void)
 {
@@ -269,9 +262,10 @@ ParseHttpHeaders(struct upnphttp * h)
 					p++;
 				while(p[n]>=' ')
 					n++;
-				if((p[0] == '"' && p[n-1] == '"')
-				  || (p[0] == '\'' && p[n-1] == '\''))
+				if((n >= 2) && ((p[0] == '"' && p[n-1] == '"')
+				             || (p[0] == '\'' && p[n-1] == '\'')))
 				{
+					/* remove the quotes */
 					p++; n -= 2;
 				}
 				h->req_soapActionOff = p - h->req_buf;
