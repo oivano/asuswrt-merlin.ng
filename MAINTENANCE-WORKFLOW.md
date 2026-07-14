@@ -21,14 +21,14 @@ The goal is to:
 
 ## Branch Roles
 
-- DEV-refactor: upstream-sync and integration branch.
+- DEV: upstream-sync and integration branch.
 - DEV-nextrelease: target-main and release-candidate branch.
 - feature/*: short-lived development branches.
 - hotfix/*: short-lived release repair branches.
 
 ## Structural Model
 
-DEV-refactor is allowed to absorb upstream churn, conflict resolution, and partial integration work.
+DEV is allowed to absorb upstream churn, conflict resolution, and partial integration work.
 
 DEV-nextrelease must stay close to releasable at all times. Changes enter DEV-nextrelease only by explicit cherry-pick after validation.
 
@@ -44,7 +44,7 @@ This separation is intentional:
 
 Fetch and inspect both upstream sources.
 
-    git checkout DEV-refactor
+    git checkout DEV
     git fetch merlin
     git fetch upstream
 
@@ -61,14 +61,14 @@ The helper produces:
 - an auto-rejected prebuilt list (`intake-rejected-prebuilt.txt`).
 
 When the report looks acceptable, rerun with `--apply` to automatically cherry-pick
-ACCEPT+CLEAN candidates onto DEV-refactor in chronological order.
+ACCEPT+CLEAN candidates onto DEV in chronological order.
 
     tools/release/intake-filter.sh --apply
 
 Successfully applied local SHAs are appended to `tools/release/validated-commits.txt`
 for use as an audit trail during promotion.
 
-### 2. Integrate On DEV-refactor
+### 2. Integrate On DEV
 
 `--apply` mode handles ACCEPT+CLEAN candidates automatically.  For REVIEW candidates
 or commits that conflicted during the apply check, cherry-pick manually.
@@ -81,7 +81,7 @@ Rules:
 - keep conflict resolution local and documented;
 - avoid importing newer-kernel assumptions into the legacy target branch;
 - reject driver, kernel, and build-system churn unless there is a target-specific reason;
-- local commits authored directly on DEV-refactor (not sourced from upstream) are also
+- local commits authored directly on DEV (not sourced from upstream) are also
   eligible for promotion and will be classified as `[local]` by the promotion helper.
 
 ### 3. Validate On Hardware
@@ -96,7 +96,7 @@ Minimum validation gate on the actual target device:
 - settings persistence;
 - target-specific core features.
 
-DEV-refactor may contain work in progress, but any commit promoted beyond this point must pass the target gate.
+DEV may contain work in progress, but any commit promoted beyond this point must pass the target gate.
 
 ### 4. Promote To DEV-nextrelease
 
@@ -104,11 +104,11 @@ First do a dry run to review exactly what will be promoted.
 
     tools/release/promote-validated.sh --dry-run
 
-The helper computes the full gap between DEV-refactor and DEV-nextrelease and
+The helper computes the full gap between DEV and DEV-nextrelease and
 classifies every commit:
 
 - `[validated]` — present in `tools/release/validated-commits.txt` (applied via `--apply`);
-- `[local]` — authored directly on DEV-refactor, not sourced from upstream intake.
+- `[local]` — authored directly on DEV, not sourced from upstream intake.
 
 Both classes are promoted.  `validated-commits.txt` serves as an audit cross-reference,
 not as a gate.
@@ -126,15 +126,15 @@ When the dry run output is satisfactory, run without `--dry-run`.
 
 The helper:
 
-- enforces that source is DEV-refactor (two-stage gate — commits must land and be
-  validated on DEV-refactor before DEV-nextrelease accepts them);
+- enforces that source is DEV (two-stage gate — commits must land and be
+  validated on DEV before DEV-nextrelease accepts them);
 - checks out DEV-nextrelease;
 - cherry-picks all commits from the gap in chronological order;
 - writes a promotion log to `tools/release/promotion-log.txt`.
 
 Rules:
 
-- no wholesale merge from DEV-refactor to DEV-nextrelease;
+- no wholesale merge from DEV to DEV-nextrelease;
 - no unrelated refactors during release stabilization;
 - if a change is risky but necessary, isolate it with `--exclude` and promote it
   in a separate batch after additional validation.
@@ -181,7 +181,7 @@ Example:
 
 ## Guardrails
 
-- DEV-refactor should stay buildable.
+- DEV should stay buildable.
 - DEV-nextrelease should stay releasable.
 - Prefer revert over risky fix-forward during release freeze.
 - Keep a release ledger for each promoted commit.
@@ -202,7 +202,7 @@ The promotion helper writes a log file for this purpose, but release notes shoul
 ## Suggested Cadence
 
 1. Intake window: fetch and evaluate upstream changes.
-2. Integration window: land target-suitable changes in DEV-refactor.
+2. Integration window: land target-suitable changes in DEV.
 3. Validation window: test on hardware.
 4. Promotion window: cherry-pick to DEV-nextrelease.
 5. Release window: tag and publish.
