@@ -2,7 +2,13 @@ ion release asuswrt merlin changelog
 ========================
 
 
-386.15-ion (XX-Jul-2026)
+386.15_2-ion (XX-Jul-2026)
+  - UPDATED: miniupnpd to 2.3.10.
+  - UPDATED: FRR to 8.1 build with refreshed vendored tree from
+             FRRouting stable/8.1.
+
+
+386.15-ion (11-Jul-2026)
   - CHANGED: Firmware tree streamlined for DSL-AC68U-only maintenance;
              unsupported model-specific prebuilt content was removed.
   - ADDED:   FRR WebUI support is now fully functional (backend handlers,
