@@ -22,6 +22,7 @@ extern int ej_get_frr_bgp_neighbor_list(int eid, webs_t wp, int argc, char_t **a
 extern int ej_get_frr_bgp_neighbor_as_list(int eid, webs_t wp, int argc, char_t **argv);
 extern int ej_get_frr_bgp_neighbor_desc_list(int eid, webs_t wp, int argc, char_t **argv);
 extern int ej_get_frr_bgp_neighbor_src_list(int eid, webs_t wp, int argc, char_t **argv);
+extern int ej_get_frr_bgp_neighbor_status_map(int eid, webs_t wp, int argc, char_t **argv);
 
 /* Get OSPF configuration */
 extern int ej_get_frr_ospf_config(int eid, webs_t wp, int argc, char_t **argv);

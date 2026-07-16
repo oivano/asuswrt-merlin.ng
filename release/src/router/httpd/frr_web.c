@@ -22,13 +22,15 @@
 
 #include "httpd.h"
 #include "frr_web.h"
+#include <json.h>
 
-#define FRR_RUNNING_CONFIG_CMD "show running-config"
-#define FRR_SHOW_IP_ROUTE_CMD "show ip route"
-#define FRR_SHOW_IPV6_ROUTE_CMD "show ipv6 route"
-#define FRR_VTYSH_TIMEOUT_SEC 2
+#define FRR_RUNNING_CONFIG_CMD  "show running-config"
+#define FRR_BGP_SUMMARY_CMD     "show bgp summary json"
+#define FRR_SHOW_IP_ROUTE_CMD   "show ip route json"
+#define FRR_SHOW_IPV6_ROUTE_CMD "show ipv6 route json"
+#define FRR_VTYSH_TIMEOUT_SEC 5
 #define FRR_MAX_CAPTURE_SIZE 65536
-#define FRR_VTYSH_RETRY_DELAY_SEC 10
+#define FRR_VTYSH_RETRY_DELAY_SEC 5
 
 struct frr_bgp_cache {
 	char neighbors[512];
@@ -73,27 +75,6 @@ static const char *frr_vtysh_path(void)
 
 	checked = 1;
 	return cached_path;
-}
-
-static int frr_wait_child_until(pid_t pid, int *wait_status, time_t deadline)
-{
-	while (1) {
-		pid_t rc = waitpid(pid, wait_status, WNOHANG);
-
-		if (rc == pid)
-			return 1;
-
-		if (rc < 0) {
-			if (errno == EINTR)
-				continue;
-			return 0;
-		}
-
-		if (time(NULL) >= deadline)
-			return 0;
-
-		usleep(20000);
-	}
 }
 
 static int frr_command_capture(const char *cmd, struct frr_command_output *output)
@@ -210,9 +191,6 @@ static int frr_command_capture(const char *cmd, struct frr_command_output *outpu
 
 	close(pipefd[0]);
 
-	if (!timed_out && !frr_wait_child_until(pid, &wait_status, deadline))
-		timed_out = 1;
-
 	if (timed_out) {
 		kill(pid, SIGKILL);
 		while (waitpid(pid, &wait_status, 0) < 0 && errno == EINTR)
@@ -222,6 +200,34 @@ static int frr_command_capture(const char *cmd, struct frr_command_output *outpu
 		output->len = 0;
 		frr_vtysh_backoff_until = time(NULL) + FRR_VTYSH_RETRY_DELAY_SEC;
 		return 0;
+	}
+
+	/*
+	 * We read EOF from the pipe — the child has exited (that is the only way
+	 * the write end closes).  Reap it now.  Handle ECHILD: httpd's own
+	 * SIGCHLD handler may have already called waitpid() on this pid, which
+	 * is a race that is impossible to avoid without blocking SIGCHLD around
+	 * the entire fork/exec/read sequence.  If we get ECHILD but captured
+	 * data, treat the exit as successful (exit code 0 synthesised).
+	 */
+	{
+		pid_t rc;
+		do {
+			rc = waitpid(pid, &wait_status, 0);
+		} while (rc < 0 && errno == EINTR);
+
+		if (rc < 0) {
+			if (errno == ECHILD && output->len > 0) {
+				/* Already reaped by SIGCHLD handler; we have valid data. */
+				wait_status = 0; /* synthesise normal exit 0 */
+			} else {
+				free(output->data);
+				output->data = NULL;
+				output->len = 0;
+				frr_vtysh_backoff_until = time(NULL) + FRR_VTYSH_RETRY_DELAY_SEC;
+				return 0;
+			}
+		}
 	}
 
 	if (WIFEXITED(wait_status))
@@ -258,162 +264,41 @@ static void frr_command_output_free(struct frr_command_output *output)
 
 static int frr_route_overlay_ready(void)
 {
-	if (!frr_daemon_running("watchfrr") || !frr_daemon_running("zebra"))
+	/*
+	 * Route queries rely on zebra via vtysh. Some deployments can run
+	 * zebra/bgpd without watchfrr supervision, so do not hard-require watchfrr.
+	 */
+	if (!frr_daemon_running("zebra"))
 		return 0;
 
 	return 1;
 }
 
-static const char *frr_route_proto_name(char code)
-{
-	switch (code) {
-	case 'B':
-		return "BGP";
-	case 'O':
-		return "OSPF";
-	case 'R':
-		return "RIP";
-	case 'I':
-		return "ISIS";
-	case 'S':
-		return "STATIC";
-	case 'K':
-		return "KERNEL";
-	case 'C':
-		return "CONNECTED";
-	case 'L':
-		return "LOCAL";
-	default:
-		return "DYNAMIC";
-	}
-}
-
-static int frr_is_route_prefix_token(const char *token)
-{
-	if (!token || !*token)
-		return 0;
-
-	if (strcmp(token, "default") == 0)
-		return 1;
-
-	if (strchr(token, '/'))
-		return 1;
-
-	return 0;
-}
-
-static void frr_copy_trimmed_token(char *dst, size_t dst_len, const char *src)
-{
-	const char *start;
-	const char *end;
-	size_t len;
-
-	if (!dst || dst_len == 0) {
-		return;
-	}
-
-	dst[0] = '\0';
-	if (!src || !*src)
-		return;
-
-	start = src;
-	while (*start && isspace((unsigned char)*start))
-		start++;
-
-	end = start;
-	while (*end && !isspace((unsigned char)*end) && *end != ',')
-		end++;
-
-	len = end - start;
-	if (len >= dst_len)
-		len = dst_len - 1;
-
-	memcpy(dst, start, len);
-	dst[len] = '\0';
-}
-
-static void frr_parse_route_details(const char *line, char *nexthop, size_t nexthop_len,
-		char *metric, size_t metric_len, char *iface, size_t iface_len)
-{
-	const char *via;
-	const char *connected;
-	const char *metric_start;
-	const char *slash;
-	const char *metric_end;
-	const char *comma;
-
-	if (nexthop && nexthop_len > 0)
-		nexthop[0] = '\0';
-	if (metric && metric_len > 0)
-		metric[0] = '\0';
-	if (iface && iface_len > 0)
-		iface[0] = '\0';
-
-	if (!line || !*line)
-		return;
-
-	metric_start = strchr(line, '[');
-	if (metric_start) {
-		slash = strchr(metric_start, '/');
-		metric_end = strchr(metric_start, ']');
-		if (slash && metric_end && slash < metric_end) {
-			char metric_buf[16];
-			size_t len = metric_end - slash - 1;
-
-			if (len >= sizeof(metric_buf))
-				len = sizeof(metric_buf) - 1;
-
-			memcpy(metric_buf, slash + 1, len);
-			metric_buf[len] = '\0';
-			frr_copy_trimmed_token(metric, metric_len, metric_buf);
-		}
-	}
-
-	via = strstr(line, " via ");
-	if (via) {
-		const char *iface_start;
-
-		via += 5;
-		frr_copy_trimmed_token(nexthop, nexthop_len, via);
-
-		comma = strchr(via, ',');
-		if (comma) {
-			iface_start = comma + 1;
-			while (*iface_start && (isspace((unsigned char)*iface_start) || *iface_start == ','))
-				iface_start++;
-			frr_copy_trimmed_token(iface, iface_len, iface_start);
-		}
-		return;
-	}
-
-	connected = strstr(line, " is directly connected");
-	if (connected) {
-		comma = strchr(connected, ',');
-		if (comma) {
-			const char *iface_start = comma + 1;
-			while (*iface_start && (isspace((unsigned char)*iface_start) || *iface_start == ','))
-				iface_start++;
-			frr_copy_trimmed_token(iface, iface_len, iface_start);
-		}
-	}
-}
-
+/*
+ * Write a JS variable containing full FRR route origin data.
+ *
+ * Output: per-prefix array of route entries, one entry per nexthop.
+ * Each entry carries: proto, active, nhactive, nexthop, iface,
+ *                     dist, metric, age, aspath.
+ *
+ *   var frr_route_origin_v4 = {
+ *   "0.0.0.0/0":[{"proto":"kernel","active":1,"nhactive":1,
+ *                 "nexthop":"<gw>","iface":"<wan>",
+ *                 "dist":0,"metric":0,"age":"HH:MM:SS","aspath":""}],
+ *   "192.168.0.0/24":[{"proto":"bgp","active":1,"nhactive":1,
+ *                      "nexthop":"<peer>","iface":"<lan>",
+ *                      "dist":20,"metric":0,"age":"HH:MM:SS","aspath":"<ASN>"}],
+ *   };
+ *
+ * Multiple entries per prefix represent ECMP nexthops or competing routes.
+ * The JS table marks active (FIB-selected) routes with '+'.
+ */
 static int frr_write_route_origin_object(webs_t wp, const char *var_name, const char *cmd)
 {
 	struct frr_command_output output;
-	char line[512];
-	char *cursor;
-	struct {
-		char prefix[64];
-		char proto[16];
-		char nexthop[64];
-		char metric[16];
-		char iface[32];
-		int active;
-	} routes[256];
-	int route_count = 0;
-	int i;
+	json_object *root = NULL;
 	int ret = 0;
+	int first_prefix = 1;
 
 	ret += websWrite(wp, "var %s = {\n", var_name);
 
@@ -427,132 +312,117 @@ static int frr_write_route_origin_object(webs_t wp, const char *var_name, const 
 		return ret;
 	}
 
-	cursor = output.data;
-	while (cursor && *cursor) {
-		char *p = line;
-		char *line_end = strchr(cursor, '\n');
-		char *token_start;
-		char *token_end;
-		char *prefix;
-		char code = '\0';
-		int active = 0;
-		const char *proto;
-		size_t line_len;
-		char nexthop[64];
-		char metric[16];
-		char iface[32];
+	root = json_tokener_parse(output.data);
+	frr_command_output_free(&output);
 
-		if (line_end)
-			line_len = line_end - cursor + 1;
-		else
-			line_len = strlen(cursor);
+	if (!root || !json_object_is_type(root, json_type_object)) {
+		if (root) json_object_put(root);
+		ret += websWrite(wp, "};\n");
+		return ret;
+	}
 
-		if (line_len >= sizeof(line))
-			line_len = sizeof(line) - 1;
+	json_object_object_foreach(root, prefix_key, routes_arr) {
+		int n, i, j;
+		int wrote_entry = 0;
 
-		memcpy(line, cursor, line_len);
-		line[line_len] = '\0';
-
-		if (line_end)
-			cursor = line_end + 1;
-		else
-			cursor += line_len;
-
-		while (*p && isspace((unsigned char)*p))
-			p++;
-
-		if (!*p || *p == '\n' || *p == '\r')
+		if (!json_object_is_type(routes_arr, json_type_array))
 			continue;
 
-		if (strncmp(p, "Codes:", 6) == 0 || strncmp(p, "Gateway", 7) == 0)
+		n = json_object_array_length(routes_arr);
+		if (n == 0)
 			continue;
 
-		prefix = NULL;
-		while (*p) {
-			while (*p && isspace((unsigned char)*p))
-				p++;
+		if (!first_prefix)
+			ret += websWrite(wp, ",\n");
+		first_prefix = 0;
 
-			if (!*p || *p == '\n' || *p == '\r')
-				break;
+		ret += websWrite(wp, "\"%s\":[", prefix_key);
 
-			token_start = p;
-			while (*p && !isspace((unsigned char)*p) && *p != ',' && *p != '\n' && *p != '\r')
-				p++;
+		/* Each element of the array is a route (protocol/nexthop combination) */
+		for (i = 0; i < n; i++) {
+			json_object *route_obj = json_object_array_get_idx(routes_arr, i);
+			json_object *tmp;
+			const char *proto = "kernel";
+			const char *age = "";
+			const char *aspath = "";
+			int active = 0;
+			int dist = 0;
+			int metric = 0;
 
-			token_end = p;
-			if (token_end == token_start)
+			if (!route_obj)
 				continue;
 
-			/* Learn protocol code/flags from first marker token(s). */
-			if (code == '\0') {
-				char *q;
-				for (q = token_start; q < token_end; q++) {
-					if (isalpha((unsigned char)*q) && code == '\0')
-						code = *q;
-					if (*q == '>' || *q == '*')
-						active = 1;
+			if (json_object_object_get_ex(route_obj, "protocol", &tmp))
+				proto = json_object_get_string(tmp);
+			if (json_object_object_get_ex(route_obj, "selected", &tmp))
+				active = json_object_get_boolean(tmp) ? 1 : 0;
+			if (json_object_object_get_ex(route_obj, "distance", &tmp))
+				dist = json_object_get_int(tmp);
+			if (json_object_object_get_ex(route_obj, "metric", &tmp))
+				metric = json_object_get_int(tmp);
+			if (json_object_object_get_ex(route_obj, "uptime", &tmp))
+				age = json_object_get_string(tmp);
+			if (json_object_object_get_ex(route_obj, "asPath", &tmp))
+				aspath = json_object_get_string(tmp);
+
+			/* Expand each nexthop into its own row for ECMP visibility */
+			if (json_object_object_get_ex(route_obj, "nexthops", &tmp) &&
+			    json_object_is_type(tmp, json_type_array)) {
+				int nh_n = json_object_array_length(tmp);
+
+				for (j = 0; j < nh_n; j++) {
+					json_object *nh = json_object_array_get_idx(tmp, j);
+					json_object *nh_val;
+					const char *nh_ip = "";
+					const char *nh_iface = "";
+					int nh_active = 0;
+					int direct = 0;
+
+					if (!nh) continue;
+
+					if (json_object_object_get_ex(nh, "ip", &nh_val))
+						nh_ip = json_object_get_string(nh_val);
+					if (json_object_object_get_ex(nh, "interfaceName", &nh_val))
+						nh_iface = json_object_get_string(nh_val);
+					if (json_object_object_get_ex(nh, "active", &nh_val))
+						nh_active = json_object_get_boolean(nh_val) ? 1 : 0;
+					if (json_object_object_get_ex(nh, "directlyConnected", &nh_val))
+						direct = json_object_get_boolean(nh_val) ? 1 : 0;
+
+					if (wrote_entry)
+						ret += websWrite(wp, ",");
+
+					ret += websWrite(wp,
+						"{\"proto\":\"%s\",\"active\":%d,\"nhactive\":%d,"
+						"\"nexthop\":\"%s\",\"direct\":%d,\"iface\":\"%s\","
+						"\"dist\":%d,\"metric\":%d,\"age\":\"%s\",\"aspath\":\"%s\"}",
+						proto, active, nh_active,
+						nh_ip, direct, nh_iface,
+						dist, metric, age, aspath);
+
+					wrote_entry = 1;
 				}
 			}
 
-			/* Additional standalone flags like '*' can appear as separate token. */
-			if ((token_end - token_start) == 1 &&
-			    (token_start[0] == '>' || token_start[0] == '*')) {
-				active = 1;
-				continue;
-			}
-
-			if (frr_is_route_prefix_token(token_start)) {
-				prefix = token_start;
-				break;
-			}
-		}
-
-		if (code == '\0' || !prefix)
-			continue;
-
-		frr_parse_route_details(line, nexthop, sizeof(nexthop), metric, sizeof(metric), iface, sizeof(iface));
-
-		proto = frr_route_proto_name(code);
-
-		for (i = 0; i < route_count; i++) {
-			if (!strcmp(routes[i].prefix, prefix)) {
-				if (active)
-					routes[i].active = 1;
-				if (!routes[i].nexthop[0] && nexthop[0])
-					strlcpy(routes[i].nexthop, nexthop, sizeof(routes[i].nexthop));
-				if (!routes[i].metric[0] && metric[0])
-					strlcpy(routes[i].metric, metric, sizeof(routes[i].metric));
-				if (!routes[i].iface[0] && iface[0])
-					strlcpy(routes[i].iface, iface, sizeof(routes[i].iface));
-				break;
+			/* Handle routes without nexthop entries (e.g. blackhole) */
+			if (!wrote_entry) {
+				ret += websWrite(wp,
+					"{\"proto\":\"%s\",\"active\":%d,\"nhactive\":%d,"
+					"\"nexthop\":\"\",\"direct\":0,\"iface\":\"\","
+					"\"dist\":%d,\"metric\":%d,\"age\":\"%s\",\"aspath\":\"%s\"}",
+					proto, active, active,
+					dist, metric, age, aspath);
+				wrote_entry = 1;
 			}
 		}
 
-		if (i < route_count)
-			continue;
-
-		if (route_count >= 256)
-			continue;
-
-		memset(&routes[route_count], 0, sizeof(routes[route_count]));
-		strlcpy(routes[route_count].prefix, prefix, sizeof(routes[route_count].prefix));
-		strlcpy(routes[route_count].proto, proto, sizeof(routes[route_count].proto));
-		strlcpy(routes[route_count].nexthop, nexthop, sizeof(routes[route_count].nexthop));
-		strlcpy(routes[route_count].metric, metric, sizeof(routes[route_count].metric));
-		strlcpy(routes[route_count].iface, iface, sizeof(routes[route_count].iface));
-		routes[route_count].active = active ? 1 : 0;
-		route_count++;
+		ret += websWrite(wp, "]");
 	}
 
-	frr_command_output_free(&output);
+	if (!first_prefix)
+		ret += websWrite(wp, "\n");
 
-	for (i = 0; i < route_count; i++) {
-		ret += websWrite(wp,
-			"\"%s\":{\"proto\":\"%s\",\"active\":%d,\"nexthop\":\"%s\",\"metric\":\"%s\",\"iface\":\"%s\"},\n",
-			routes[i].prefix, routes[i].proto, routes[i].active,
-			routes[i].nexthop, routes[i].metric, routes[i].iface);
-	}
-
+	json_object_put(root);
 	ret += websWrite(wp, "};\n");
 	return ret;
 }
@@ -584,37 +454,41 @@ static void frr_append_delimited(char *dst, size_t dst_len, const char *value)
 	dst[used + add] = '\0';
 }
 
-struct frr_neighbor_info {
-	char ip[64];
-	char asn[32];
-	char desc[96];
-	char src[64];
-};
-
-static int frr_find_neighbor(struct frr_neighbor_info *list, int count, const char *ip)
+static int frr_has_list_value(const char *value)
 {
-	int i;
+	const char *p = value;
 
-	for (i = 0; i < count; i++) {
-		if (!strcmp(list[i].ip, ip))
-			return i;
+	if (!p)
+		return 0;
+
+	while (*p) {
+		if (!isspace((unsigned char)*p) && *p != '>')
+			return 1;
+		p++;
 	}
 
-	return -1;
+	return 0;
 }
 
-/* Parse active lines like: neighbor <ip> remote-as <asn>, description, update-source. */
+/*
+ * Extract BGP peers from "show bgp summary json" via json-c.
+ *
+ * FRR 8.1 JSON structure:
+ *   {"ipv4Unicast":{"peers":{"<peer-ip>":{"remoteAs":<ASN>,"desc":"<name>","state":"Established"}}}}
+ *
+ * All configured peers (including non-Established) are returned so the WebUI
+ * shows the full configured neighbor list, not just active sessions.
+ */
 static int frr_extract_bgp_neighbors_from_conf(char *neighbors, size_t neighbors_len,
 		char *neighbor_as, size_t neighbor_as_len,
 		char *neighbor_desc, size_t neighbor_desc_len,
 		char *neighbor_src, size_t neighbor_src_len)
 {
-	char line[256];
-	char *cursor;
-	struct frr_neighbor_info entries[64];
-	int entry_count = 0;
-	int i;
 	struct frr_command_output output;
+	json_object *root = NULL;
+	json_object *afi_obj = NULL;
+	json_object *peers_obj = NULL;
+	int found = 0;
 
 	if (!neighbors || !neighbor_as || !neighbor_desc || !neighbor_src ||
 	    neighbors_len == 0 || neighbor_as_len == 0 ||
@@ -626,124 +500,56 @@ static int frr_extract_bgp_neighbors_from_conf(char *neighbors, size_t neighbors
 	neighbor_desc[0] = '\0';
 	neighbor_src[0] = '\0';
 
-	if (!frr_command_capture(FRR_RUNNING_CONFIG_CMD, &output))
+	if (!frr_command_capture(FRR_BGP_SUMMARY_CMD, &output))
 		return 0;
 
-	cursor = output.data;
-	while (cursor && *cursor) {
-		char *p = line;
-		char *line_end = strchr(cursor, '\n');
-		char ip[64];
-		char cmd[32];
-		char val[96];
-		int idx;
-		int i;
-		size_t line_len;
-
-		if (line_end)
-			line_len = line_end - cursor + 1;
-		else
-			line_len = strlen(cursor);
-
-		if (line_len >= sizeof(line))
-			line_len = sizeof(line) - 1;
-
-		memcpy(line, cursor, line_len);
-		line[line_len] = '\0';
-
-		if (line_end)
-			cursor = line_end + 1;
-		else
-			cursor += line_len;
-
-		while (*p && isspace((unsigned char)*p))
-			p++;
-
-		if (*p == '\0' || *p == '\n' || *p == '\r' || *p == '!' || *p == '#')
-			continue;
-
-		if (strncmp(p, "neighbor", 8) != 0 || !isspace((unsigned char)p[8]))
-			continue;
-
-		p += 8;
-		while (*p && isspace((unsigned char)*p))
-			p++;
-
-		i = 0;
-		while (*p && !isspace((unsigned char)*p) && i < (int)(sizeof(ip) - 1))
-			ip[i++] = *p++;
-		ip[i] = '\0';
-
-		while (*p && isspace((unsigned char)*p))
-			p++;
-
-		i = 0;
-		while (*p && !isspace((unsigned char)*p) && i < (int)(sizeof(cmd) - 1))
-			cmd[i++] = *p++;
-		cmd[i] = '\0';
-
-		while (*p && isspace((unsigned char)*p))
-			p++;
-
-		if (!*cmd || !*p)
-			continue;
-
-		i = 0;
-		while (*p && *p != '\n' && *p != '\r' && i < (int)(sizeof(val) - 1))
-			val[i++] = *p++;
-		val[i] = '\0';
-
-		/* trim trailing spaces */
-		for (i = strlen(val) - 1; i >= 0; i--) {
-			if (!isspace((unsigned char)val[i]))
-				break;
-			val[i] = '\0';
-		}
-
-		if (!*ip)
-			continue;
-
-		idx = frr_find_neighbor(entries, entry_count, ip);
-		if (idx < 0) {
-			if (entry_count >= 64)
-				continue;
-			idx = entry_count++;
-			memset(&entries[idx], 0, sizeof(entries[idx]));
-			strlcpy(entries[idx].ip, ip, sizeof(entries[idx].ip));
-		}
-
-		if (!strcmp(cmd, "remote-as")) {
-			char *v = val;
-			i = 0;
-			while (*v && !isspace((unsigned char)*v) && i < (int)(sizeof(entries[idx].asn) - 1))
-				entries[idx].asn[i++] = *v++;
-			entries[idx].asn[i] = '\0';
-		}
-		else if (!strcmp(cmd, "description")) {
-			strlcpy(entries[idx].desc, val, sizeof(entries[idx].desc));
-		}
-		else if (!strcmp(cmd, "update-source")) {
-			char *v = val;
-			i = 0;
-			while (*v && !isspace((unsigned char)*v) && i < (int)(sizeof(entries[idx].src) - 1))
-				entries[idx].src[i++] = *v++;
-			entries[idx].src[i] = '\0';
-		}
-	}
-
+	root = json_tokener_parse(output.data);
 	frr_command_output_free(&output);
 
-	for (i = 0; i < entry_count; i++) {
-		if (!entries[i].asn[0])
+	if (!root || !json_object_is_type(root, json_type_object))
+		goto out;
+
+	/*
+	 * FRR 8.1: top level has "ipv4Unicast" (and optionally "ipv6Unicast").
+	 * We only need IPv4 for the peer list — the same peer IP appears in both
+	 * address families; using only ipv4Unicast avoids duplicates.
+	 */
+	if (!json_object_object_get_ex(root, "ipv4Unicast", &afi_obj) ||
+	    !json_object_is_type(afi_obj, json_type_object))
+		goto out;
+
+	if (!json_object_object_get_ex(afi_obj, "peers", &peers_obj) ||
+	    !json_object_is_type(peers_obj, json_type_object))
+		goto out;
+
+	json_object_object_foreach(peers_obj, peer_ip, peer_obj) {
+		json_object *tmp;
+		char asn_buf[32];
+		const char *desc = "";
+
+		if (!json_object_is_type(peer_obj, json_type_object))
 			continue;
 
-		frr_append_delimited(neighbors, neighbors_len, entries[i].ip);
-		frr_append_delimited(neighbor_as, neighbor_as_len, entries[i].asn);
-		frr_append_delimited(neighbor_desc, neighbor_desc_len, entries[i].desc);
-		frr_append_delimited(neighbor_src, neighbor_src_len, entries[i].src);
+		/* remoteAs is required */
+		if (!json_object_object_get_ex(peer_obj, "remoteAs", &tmp))
+			continue;
+		snprintf(asn_buf, sizeof(asn_buf), "%d", json_object_get_int(tmp));
+
+		/* desc is optional */
+		if (json_object_object_get_ex(peer_obj, "desc", &tmp))
+			desc = json_object_get_string(tmp);
+
+		frr_append_delimited(neighbors,     neighbors_len,     peer_ip);
+		frr_append_delimited(neighbor_as,   neighbor_as_len,   asn_buf);
+		frr_append_delimited(neighbor_desc, neighbor_desc_len, desc);
+		frr_append_delimited(neighbor_src,  neighbor_src_len,  "");
+
+		found = 1;
 	}
 
-	return strlen(neighbors) > 0;
+out:
+	if (root) json_object_put(root);
+	return found;
 }
 
 static int frr_get_bgp_neighbors_cached(char *neighbors, size_t neighbors_len,
@@ -782,6 +588,67 @@ static int frr_get_bgp_neighbors_cached(char *neighbors, size_t neighbors_len,
 	frr_bgp_cache.valid = 1;
 
 	return 1;
+}
+
+static int frr_write_bgp_neighbor_status_map(webs_t wp)
+{
+	struct frr_command_output output;
+	json_object *root = NULL;
+	json_object *afi_obj = NULL;
+	json_object *peers_obj = NULL;
+	int ret = 0;
+	int first = 1;
+
+	ret += websWrite(wp, "{");
+
+	if (!frr_daemon_running("bgpd")) {
+		ret += websWrite(wp, "}");
+		return ret;
+	}
+
+	if (!frr_command_capture(FRR_BGP_SUMMARY_CMD, &output)) {
+		ret += websWrite(wp, "}");
+		return ret;
+	}
+
+	root = json_tokener_parse(output.data);
+	frr_command_output_free(&output);
+
+	if (!root || !json_object_is_type(root, json_type_object)) {
+		if (root)
+			json_object_put(root);
+		ret += websWrite(wp, "}");
+		return ret;
+	}
+
+	if (!json_object_object_get_ex(root, "ipv4Unicast", &afi_obj) ||
+	    !json_object_is_type(afi_obj, json_type_object))
+		goto out;
+
+	if (!json_object_object_get_ex(afi_obj, "peers", &peers_obj) ||
+	    !json_object_is_type(peers_obj, json_type_object))
+		goto out;
+
+	json_object_object_foreach(peers_obj, peer_ip, peer_obj) {
+		json_object *tmp;
+		const char *state = "Unknown";
+
+		if (!json_object_is_type(peer_obj, json_type_object))
+			continue;
+
+		if (json_object_object_get_ex(peer_obj, "state", &tmp))
+			state = json_object_get_string(tmp);
+
+		if (!first)
+			ret += websWrite(wp, ",");
+		first = 0;
+		ret += websWrite(wp, "\"%s\":\"%s\"", peer_ip, state ? state : "Unknown");
+	}
+
+out:
+	json_object_put(root);
+	ret += websWrite(wp, "}");
+	return ret;
 }
 
 static int frr_extract_bfd_config_from_conf(char *peer, size_t peer_len,
@@ -990,76 +857,103 @@ int ej_get_frr_bgp_neighbor_list(int eid, webs_t wp, int argc, char_t **argv)
 	char parsed_neighbor_desc[768];
 	char parsed_neighbor_src[512];
 
-	if (*bgp_neighbors)
+	/* If NVRAM has configured neighbors, use them */
+	if (frr_has_list_value(bgp_neighbors))
 		return websWrite(wp, "%s", bgp_neighbors);
 
-	if (frr_get_bgp_neighbors_cached(parsed_neighbors, sizeof(parsed_neighbors),
-	    parsed_neighbor_as, sizeof(parsed_neighbor_as),
-	    parsed_neighbor_desc, sizeof(parsed_neighbor_desc),
-	    parsed_neighbor_src, sizeof(parsed_neighbor_src)) > 0)
-		return websWrite(wp, "%s", parsed_neighbors);
+	/* If BGP daemon is running, try to extract runtime-discovered peers from running config */
+	if (frr_daemon_running("bgpd")) {
+		if (frr_get_bgp_neighbors_cached(parsed_neighbors, sizeof(parsed_neighbors),
+		    parsed_neighbor_as, sizeof(parsed_neighbor_as),
+		    parsed_neighbor_desc, sizeof(parsed_neighbor_desc),
+		    parsed_neighbor_src, sizeof(parsed_neighbor_src)) > 0)
+			return websWrite(wp, "%s", parsed_neighbors);
+	}
 
 	return 0;
 }
 
 int ej_get_frr_bgp_neighbor_as_list(int eid, webs_t wp, int argc, char_t **argv)
 {
+	char *bgp_neighbors = nvram_safe_get("frr_bgp_neighbor");
 	char *bgp_neighbor_as = nvram_safe_get("frr_bgp_neighbor_as");
 	char parsed_neighbors[512];
 	char parsed_neighbor_as[512];
 	char parsed_neighbor_desc[768];
 	char parsed_neighbor_src[512];
 
-	if (*bgp_neighbor_as)
-		return websWrite(wp, "%s", bgp_neighbor_as);
+	/*
+	 * If NVRAM owns the neighbor list, stay in NVRAM for all fields.
+	 * Never mix NVRAM neighbors with runtime AS numbers — mismatched
+	 * counts corrupt the JS table.
+	 */
+	if (frr_has_list_value(bgp_neighbors))
+		return frr_has_list_value(bgp_neighbor_as)
+			? websWrite(wp, "%s", bgp_neighbor_as) : 0;
 
-	if (frr_get_bgp_neighbors_cached(parsed_neighbors, sizeof(parsed_neighbors),
-	    parsed_neighbor_as, sizeof(parsed_neighbor_as),
-	    parsed_neighbor_desc, sizeof(parsed_neighbor_desc),
-	    parsed_neighbor_src, sizeof(parsed_neighbor_src)) > 0)
-		return websWrite(wp, "%s", parsed_neighbor_as);
+	/* Both lists come from runtime or neither does */
+	if (frr_daemon_running("bgpd")) {
+		if (frr_get_bgp_neighbors_cached(parsed_neighbors, sizeof(parsed_neighbors),
+		    parsed_neighbor_as, sizeof(parsed_neighbor_as),
+		    parsed_neighbor_desc, sizeof(parsed_neighbor_desc),
+		    parsed_neighbor_src, sizeof(parsed_neighbor_src)) > 0)
+			return websWrite(wp, "%s", parsed_neighbor_as);
+	}
 
 	return 0;
 }
 
 int ej_get_frr_bgp_neighbor_desc_list(int eid, webs_t wp, int argc, char_t **argv)
 {
+	char *bgp_neighbors = nvram_safe_get("frr_bgp_neighbor");
 	char *bgp_neighbor_desc = nvram_safe_get("frr_bgp_neighbor_desc");
 	char parsed_neighbors[512];
 	char parsed_neighbor_as[512];
 	char parsed_neighbor_desc[768];
 	char parsed_neighbor_src[512];
 
-	if (*bgp_neighbor_desc)
-		return websWrite(wp, "%s", bgp_neighbor_desc);
+	if (frr_has_list_value(bgp_neighbors))
+		return frr_has_list_value(bgp_neighbor_desc)
+			? websWrite(wp, "%s", bgp_neighbor_desc) : 0;
 
-	if (frr_get_bgp_neighbors_cached(parsed_neighbors, sizeof(parsed_neighbors),
-	    parsed_neighbor_as, sizeof(parsed_neighbor_as),
-	    parsed_neighbor_desc, sizeof(parsed_neighbor_desc),
-	    parsed_neighbor_src, sizeof(parsed_neighbor_src)) > 0)
-		return websWrite(wp, "%s", parsed_neighbor_desc);
+	if (frr_daemon_running("bgpd")) {
+		if (frr_get_bgp_neighbors_cached(parsed_neighbors, sizeof(parsed_neighbors),
+		    parsed_neighbor_as, sizeof(parsed_neighbor_as),
+		    parsed_neighbor_desc, sizeof(parsed_neighbor_desc),
+		    parsed_neighbor_src, sizeof(parsed_neighbor_src)) > 0)
+			return websWrite(wp, "%s", parsed_neighbor_desc);
+	}
 
 	return 0;
 }
 
 int ej_get_frr_bgp_neighbor_src_list(int eid, webs_t wp, int argc, char_t **argv)
 {
+	char *bgp_neighbors = nvram_safe_get("frr_bgp_neighbor");
 	char *bgp_neighbor_src = nvram_safe_get("frr_bgp_neighbor_src");
 	char parsed_neighbors[512];
 	char parsed_neighbor_as[512];
 	char parsed_neighbor_desc[768];
 	char parsed_neighbor_src[512];
 
-	if (*bgp_neighbor_src)
-		return websWrite(wp, "%s", bgp_neighbor_src);
+	if (frr_has_list_value(bgp_neighbors))
+		return frr_has_list_value(bgp_neighbor_src)
+			? websWrite(wp, "%s", bgp_neighbor_src) : 0;
 
-	if (frr_get_bgp_neighbors_cached(parsed_neighbors, sizeof(parsed_neighbors),
-	    parsed_neighbor_as, sizeof(parsed_neighbor_as),
-	    parsed_neighbor_desc, sizeof(parsed_neighbor_desc),
-	    parsed_neighbor_src, sizeof(parsed_neighbor_src)) > 0)
-		return websWrite(wp, "%s", parsed_neighbor_src);
+	if (frr_daemon_running("bgpd")) {
+		if (frr_get_bgp_neighbors_cached(parsed_neighbors, sizeof(parsed_neighbors),
+		    parsed_neighbor_as, sizeof(parsed_neighbor_as),
+		    parsed_neighbor_desc, sizeof(parsed_neighbor_desc),
+		    parsed_neighbor_src, sizeof(parsed_neighbor_src)) > 0)
+			return websWrite(wp, "%s", parsed_neighbor_src);
+	}
 
 	return 0;
+}
+
+int ej_get_frr_bgp_neighbor_status_map(int eid, webs_t wp, int argc, char_t **argv)
+{
+	return frr_write_bgp_neighbor_status_map(wp);
 }
 
 /* ASP function: Get OSPF configuration */
