@@ -27,8 +27,26 @@
 		var frr_bgp_neighbor_as_array = '<% get_frr_bgp_neighbor_as_list(); %>';
 		var frr_bgp_neighbor_desc_array = '<% get_frr_bgp_neighbor_desc_list(); %>';
 		var frr_bgp_neighbor_src_array = '<% get_frr_bgp_neighbor_src_list(); %>';
+		var frr_bgp_neighbor_status_map = <% get_frr_bgp_neighbor_status_map(); %>;
 		var frr_bfd_config = <% get_frr_bfd_config(); %>;
 		var frrDefaultConfigDir = '/jffs/configs/frr';
+
+		function bgp_status_badge(status) {
+			var s = (status || 'Configured').toString();
+			var l = s.toLowerCase();
+			var color = '#FFCC66';
+
+			if (l == 'established')
+				color = '#7CFC7C';
+			else if (l == 'active' || l == 'connect')
+				color = '#6ED0FF';
+			else if (l == 'idle')
+				color = '#FF9A9A';
+
+			return '<span style="display:inline-block;padding:1px 7px;border-radius:9px;'
+				+ 'background:' + color + ';color:#1b1b1b;font-size:11px;font-weight:600;">'
+				+ s + '</span>';
+		}
 
 		function initial() {
 			show_menu();
@@ -69,12 +87,16 @@
 			if (!cfgField)
 				return;
 
-			if (cfgField.value == '' || cfgField.value == '/etc')
-				cfgField.value = frrDefaultConfigDir;
+			// Clear the field when it holds the default so the placeholder shows instead
+			if (cfgField.value == '' || cfgField.value == '/etc' || cfgField.value == frrDefaultConfigDir)
+				cfgField.value = '';
 		}
 
 		function applyRule() {
-			normalize_frr_config_dir();
+			// Restore default before submit if the field was left empty
+			var cfgField = document.form.frr_config_dir;
+			if (cfgField && cfgField.value == '')
+				cfgField.value = frrDefaultConfigDir;
 
 			if (!validate_frr_config()) {
 				return false;
@@ -84,7 +106,6 @@
 			var neighbor_list = "";
 			var neighbor_as_list = "";
 			var neighbor_desc_list = "";
-			var neighbor_src_list = "";
 			var table = document.getElementById('bgp_neighbor_table');
 			var rule_num = table ? table.rows.length : 0;
 
@@ -96,18 +117,16 @@
 					neighbor_list += ">";
 					neighbor_as_list += ">";
 					neighbor_desc_list += ">";
-					neighbor_src_list += ">";
 				}
-				neighbor_list += table.rows[i].cells[0].innerHTML;
-				neighbor_as_list += table.rows[i].cells[1].innerHTML;
-				neighbor_desc_list += table.rows[i].cells[2].innerHTML;
-				neighbor_src_list += table.rows[i].cells[3].innerHTML;
+				neighbor_list += table.rows[i].cells[1].textContent;
+				neighbor_as_list += table.rows[i].cells[2].textContent;
+				neighbor_desc_list += table.rows[i].cells[3].textContent;
 			}
 
 			document.form.frr_bgp_neighbor.value = neighbor_list;
 			document.form.frr_bgp_neighbor_as.value = neighbor_as_list;
 			document.form.frr_bgp_neighbor_desc.value = neighbor_desc_list;
-			document.form.frr_bgp_neighbor_src.value = neighbor_src_list;
+			document.form.frr_bgp_neighbor_src.value = "";
 
 			showLoading();
 			document.form.submit();
@@ -185,7 +204,7 @@
 			var bgp_neighbors = frr_bgp_neighbor_array.split('>');
 			var bgp_neighbor_as = frr_bgp_neighbor_as_array.split('>');
 			var bgp_neighbor_desc = frr_bgp_neighbor_desc_array.split('>');
-			var bgp_neighbor_src = frr_bgp_neighbor_src_array.split('>');
+			var status_map = frr_bgp_neighbor_status_map || {};
 			var code = "";
 
 			if (bgp_neighbors.length == 0 || bgp_neighbors[0] == "") {
@@ -193,12 +212,14 @@
 			} else {
 				for (var i = 0; i < bgp_neighbors.length; i++) {
 					if (bgp_neighbors[i] != "") {
+						var n_ip = bgp_neighbors[i];
+						var n_status = status_map[n_ip] || 'Configured';
 						code += '<tr>';
-						code += '<td width="20%">' + bgp_neighbors[i] + '</td>';
+						code += '<td width="5%"><input type="button" class="remove_btn" onclick="del_bgp_neighbor(this);" value=""/></td>';
+						code += '<td width="25%">' + n_ip + '</td>';
 						code += '<td width="15%">' + (bgp_neighbor_as[i] || '') + '</td>';
-						code += '<td width="30%">' + (bgp_neighbor_desc[i] || '') + '</td>';
-						code += '<td width="20%">' + (bgp_neighbor_src[i] || '') + '</td>';
-						code += '<td width="15%"><input type="button" class="remove_btn" onclick="del_bgp_neighbor(this);" value=""/></td>';
+						code += '<td width="35%">' + (bgp_neighbor_desc[i] || '') + '</td>';
+						code += '<td width="20%">' + bgp_status_badge(n_status) + '</td>';
 						code += '</tr>';
 					}
 				}
@@ -211,8 +232,6 @@
 			var neighbor_ip = document.form.frr_bgp_neighbor_ip_x.value;
 			var neighbor_as = document.form.frr_bgp_neighbor_as_x.value;
 			var neighbor_desc = document.form.frr_bgp_neighbor_desc_x.value;
-			var neighbor_src = document.form.frr_bgp_neighbor_src_x.value;
-			var src_re = /^[A-Za-z0-9._:\/-]+$/;
 
 			// Validate IP address
 			if (!validator.validIPForm(document.form.frr_bgp_neighbor_ip_x, 0)) {
@@ -232,16 +251,10 @@
 				return false;
 			}
 
-			if (neighbor_src != "" && (!src_re.test(neighbor_src) || neighbor_src.indexOf(">") != -1)) {
-				alert("Update Source must be an IP or interface-like value (letters, digits, . _ - : /)");
-				document.form.frr_bgp_neighbor_src_x.focus();
-				return false;
-			}
-
 			// Check for duplicates
 			var table = document.getElementById('bgp_neighbor_table');
 			for (var i = 0; i < table.rows.length; i++) {
-				if (table.rows[i].cells[0].innerHTML == neighbor_ip) {
+				if (table.rows[i].cells[1] && table.rows[i].cells[1].textContent == neighbor_ip) {
 					alert("This BGP neighbor already exists");
 					return false;
 				}
@@ -249,11 +262,11 @@
 
 			// Add new row
 			var row_code = '<tr>';
-			row_code += '<td width="20%">' + neighbor_ip + '</td>';
+			row_code += '<td width="5%"><input type="button" class="remove_btn" onclick="del_bgp_neighbor(this);" value=""/></td>';
+			row_code += '<td width="25%">' + neighbor_ip + '</td>';
 			row_code += '<td width="15%">' + neighbor_as + '</td>';
-			row_code += '<td width="30%">' + neighbor_desc + '</td>';
-			row_code += '<td width="20%">' + neighbor_src + '</td>';
-			row_code += '<td width="15%"><input type="button" class="remove_btn" onclick="del_bgp_neighbor(this);" value=""/></td>';
+			row_code += '<td width="35%">' + neighbor_desc + '</td>';
+			row_code += '<td width="20%">' + bgp_status_badge('Configured') + '</td>';
 			row_code += '</tr>';
 
 			if (table.rows.length == 1 && table.rows[0].cells.length == 1) {
@@ -267,7 +280,6 @@
 			document.form.frr_bgp_neighbor_ip_x.value = "";
 			document.form.frr_bgp_neighbor_as_x.value = "";
 			document.form.frr_bgp_neighbor_desc_x.value = "";
-			document.form.frr_bgp_neighbor_src_x.value = "";
 		}
 
 		function del_bgp_neighbor(obj) {
@@ -332,6 +344,9 @@
 			});
 		}
 	</script>
+	<style>
+		input[name="frr_config_dir"]::placeholder { color: #888; }
+	</style>
 </head>
 
 <body onload="initial();" onunLoad="return unload_body();">
@@ -347,12 +362,13 @@
 		<input type="hidden" name="action_mode" value="apply">
 		<input type="hidden" name="action_script" value="restart_frr">
 		<input type="hidden" name="action_wait" value="10">
-		<input type="hidden" name="preferred_lang" id="preferred_lang" value="< nvram_get(" preferred_lang"); %>">
-		<input type="hidden" name="firmver" value="<% nvram_get(" firmver"); %>">
+		<input type="hidden" name="preferred_lang" id="preferred_lang" value="<% nvram_get("preferred_lang"); %>">
+		<input type="hidden" name="firmver" value="<% nvram_get("firmver"); %>">
 		<input type="hidden" name="frr_bgp_neighbor" value="">
 		<input type="hidden" name="frr_bgp_neighbor_as" value="">
 		<input type="hidden" name="frr_bgp_neighbor_desc" value="">
 		<input type="hidden" name="frr_bgp_neighbor_src" value="">
+		<input type="hidden" name="frr_force_regen" value="0">
 
 		<table class="content" align="center" cellpadding="0" cellspacing="0">
 			<tr>
@@ -433,7 +449,7 @@
 															<td>
 																<input type="password" maxlength="64"
 																	class="input_32_table" name="frr_passwd"
-																	value="<% nvram_get(" frr_passwd"); %>"
+																		value="<% nvram_get("frr_passwd"); %>"
 																autocomplete="off" autocorrect="off"
 																autocapitalize="off">
 															</td>
@@ -445,7 +461,7 @@
 															<td>
 																<input type="password" maxlength="64"
 																	class="input_32_table" name="frr_enpasswd"
-																	value="<% nvram_get(" frr_enpasswd"); %>"
+																		value="<% nvram_get("frr_enpasswd"); %>"
 																autocomplete="off" autocorrect="off"
 																autocapitalize="off">
 															</td>
@@ -526,17 +542,17 @@
 																		</tr>
 																	</thead>
 																	<tr>
-																		<th width="20%">
+																		<th width="5%">
+																			<#list_add_delete#>
+																		</th>
+																		<th width="25%">
 																			<#FRR_neighbor_ip#>
 																		</th>
 																		<th width="15%">
 																			<#FRR_neighbor_as#>
 																		</th>
-																		<th width="30%">Description</th>
-																		<th width="20%">Update Source</th>
-																		<th width="15%">
-																			<#list_add_delete#>
-																		</th>
+																		<th width="35%">Description</th>
+																		<th width="20%">Status</th>
 																	</tr>
 																	<tbody id="bgp_neighbor_table"></tbody>
 																</table>
@@ -553,12 +569,8 @@
 																	<input type="text" maxlength="63"
 																		class="input_20_table"
 																		name="frr_bgp_neighbor_desc_x"
-																		placeholder="ARTEMIS">
-																	<input type="text" maxlength="15"
-																		class="input_15_table"
-																		name="frr_bgp_neighbor_src_x"
-																		placeholder="192.168.0.2"
-																		onKeyPress="return validator.isIPAddr(this,event);">
+																		placeholder="ROUTER">
+
 																	<input type="button" class="add_btn"
 																		onClick="add_bgp_neighbor();" value="">
 																</div>
@@ -607,8 +619,8 @@
 															</th>
 															<td>
 																<input type="text" maxlength="15" class="input_15_table"
-																	name="frr_ospf_area" value="<% nvram_get("
-																	frr_ospf_area"); %>" placeholder="0.0.0.0">
+																	name="frr_ospf_area" value="<% nvram_get("frr_ospf_area"); %>"
+																placeholder="0.0.0.0">
 															</td>
 														</tr>
 														<tr>
@@ -663,18 +675,18 @@
 																			Peer: <input type="text" maxlength="15"
 																				class="input_15_table"
 																				name="frr_bfd_peer"
-																				value="<% nvram_get(" frr_bfd_peer");
+																				value="<% nvram_get("frr_bfd_peer");
 																				%>" placeholder="192.168.0.2"
 																			onKeyPress="return
 																			validator.isIPAddr(this,event);">
 																			TX(ms): <input type="text" maxlength="5"
 																				class="input_6_table" name="frr_bfd_tx"
-																				value="<% nvram_get(" frr_bfd_tx"); %>"
+																				value="<% nvram_get("frr_bfd_tx"); %>"
 																			onKeyPress="return
 																			validator.isNumber(this,event);">
 																			RX(ms): <input type="text" maxlength="5"
 																				class="input_6_table" name="frr_bfd_rx"
-																				value="<% nvram_get(" frr_bfd_rx"); %>"
+																				value="<% nvram_get("frr_bfd_rx"); %>"
 																			onKeyPress="return
 																			validator.isNumber(this,event);">
 																		</div>
@@ -694,40 +706,15 @@
 															</tr>
 														</thead>
 														<tr>
-															<th width="40%">Zebra</th>
-															<td><span id="zebra_status">
-																	<#Status_Checking#>
-																</span></td>
-														</tr>
-														<tr>
-															<th>BGP Daemon</th>
-															<td><span id="bgpd_status">
-																	<#Status_Checking#>
-																</span></td>
-														</tr>
-														<tr>
-															<th>OSPF Daemon</th>
-															<td><span id="ospfd_status">
-																	<#Status_Checking#>
-																</span></td>
-														</tr>
-														<tr>
-															<th>Static Route Daemon</th>
-															<td><span id="staticd_status">
-																	<#Status_Checking#>
-																</span></td>
-														</tr>
-														<tr>
-															<th>BFD Daemon</th>
-															<td><span id="bfdd_status">
-																	<#Status_Checking#>
-																</span></td>
-														</tr>
-														<tr>
-															<th>Watchfrr</th>
-															<td><span id="watchfrr_status">
-																	<#Status_Checking#>
-																</span></td>
+															<th width="40%"><#FRR_status#></th>
+															<td style="line-height:1.8;">
+																<span style="display:inline-block;min-width:125px;color:#FFFFFF;">Zebra: <span id="zebra_status"><#Status_Checking#></span></span>
+																<span style="display:inline-block;min-width:150px;color:#FFFFFF;">BGP: <span id="bgpd_status"><#Status_Checking#></span></span>
+																<span style="display:inline-block;min-width:150px;color:#FFFFFF;">OSPF: <span id="ospfd_status"><#Status_Checking#></span></span><br>
+																<span style="display:inline-block;min-width:125px;color:#FFFFFF;">Static: <span id="staticd_status"><#Status_Checking#></span></span>
+																<span style="display:inline-block;min-width:150px;color:#FFFFFF;">BFD: <span id="bfdd_status"><#Status_Checking#></span></span>
+																<span style="display:inline-block;min-width:150px;color:#FFFFFF;">Watchfrr: <span id="watchfrr_status"><#Status_Checking#></span></span>
+															</td>
 														</tr>
 													</table>
 
@@ -765,8 +752,7 @@
 															<td>
 																<input type="text" maxlength="128"
 																	class="input_32_table" name="frr_config_dir"
-																	value="<% nvram_get(" frr_config_dir"); %>"
-																autocomplete="off" autocorrect="off"
+																		value="<% nvram_get("frr_config_dir"); %>"																	placeholder="/jffs/configs/frr"																autocomplete="off" autocorrect="off"
 																autocapitalize="off">
 																<span style="color:#888;">
 																	<#FRR_custom_config_hint#>
@@ -775,9 +761,8 @@
 																	style="color:#9FAFB8;font-size:11px;margin-top:4px;">
 																	External integrated config: place <span
 																		style="color:#FFCC00;">frr.conf</span> in this
-																	directory. Optional companion files are <span
-																		style="color:#FFCC00;">daemons</span> and <span
-																		style="color:#FFCC00;">vtysh.conf</span>.
+																		directory. Optional companion file is <span
+																			style="color:#FFCC00;">daemons</span>.
 																</div>
 															</td>
 														</tr>

@@ -169,6 +169,8 @@ OBJS += $(if $(wildcard web_hook.c), web_hook.o, prebuild/web_hook.o)
 
 ifeq ($(RTCONFIG_FRR),y)
 OBJS += frr_web.o
+CFLAGS += -I$(TOP)/json-c
+LIBS += -L$(TOP)/json-c/.libs -ljson-c
 endif
 
 LIBS = -L$(TOP_PLATFORM)/nvram${BCMEX}$(EX7) -lnvram -L$(TOP)/shared -lshared

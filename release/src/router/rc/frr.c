@@ -24,10 +24,17 @@
 #define FRR_INIT_SCRIPT		"/usr/sbin/frrinit.sh"
 #define FRR_RUNTIME_DAEMONS	FRR_RUNTIME_CONFIG_DIR "/daemons"
 #define FRR_RUNTIME_CONF	FRR_RUNTIME_CONFIG_DIR "/frr.conf"
-#define FRR_RUNTIME_VTYSH_CONF	FRR_RUNTIME_CONFIG_DIR "/vtysh.conf"
 #define FRR_DAEMON_USER		"nobody"
 #define FRR_DAEMON_GROUP	"nobody"
 #define FRR_STDERR_LOG_FILE	"/tmp/frr-start.stderr.log"
+
+/*
+ * These markers delimit the WebUI-managed block inside frr.conf.
+ * Everything outside them is preserved across UI applies (user hand-edits,
+ * custom route-maps, prefix-lists, etc.).
+ */
+#define FRR_UI_BLOCK_START	"! ### ASUSWRT-MERLIN-UI-START ###"
+#define FRR_UI_BLOCK_END	"! ### ASUSWRT-MERLIN-UI-END ###"
 
 static const char *frr_get_config_dir(char *buf, size_t len);
 
@@ -245,13 +252,11 @@ static const char *frr_get_config_dir(char *buf, size_t len)
 
 static void frr_get_config_paths(char *cfg_dir, size_t cfg_dir_len,
 		char *daemons_path, size_t daemons_path_len,
-		char *conf_path, size_t conf_path_len,
-		char *vtysh_conf_path, size_t vtysh_conf_path_len)
+		char *conf_path, size_t conf_path_len)
 {
 	frr_get_config_dir(cfg_dir, cfg_dir_len);
 	snprintf(daemons_path, daemons_path_len, "%s/daemons", cfg_dir);
 	snprintf(conf_path, conf_path_len, "%s/frr.conf", cfg_dir);
-	snprintf(vtysh_conf_path, vtysh_conf_path_len, "%s/vtysh.conf", cfg_dir);
 }
 
 static int frr_copy_file(const char *src, const char *dst)
@@ -304,8 +309,7 @@ static int frr_should_regenerate_file(const char *path, int force_regen)
 
 static void frr_sync_runtime_config(const char *cfg_dir,
 		const char *daemons_path,
-		const char *conf_path,
-		const char *vtysh_conf_path)
+		const char *conf_path)
 {
 	if (!cfg_dir || !*cfg_dir)
 		return;
@@ -321,11 +325,6 @@ static void frr_sync_runtime_config(const char *cfg_dir,
 	if (f_exists(conf_path)) {
 		if (frr_copy_file(conf_path, FRR_RUNTIME_CONF))
 			chmod(FRR_RUNTIME_CONF, 0644);
-	}
-
-	if (f_exists(vtysh_conf_path)) {
-		if (frr_copy_file(vtysh_conf_path, FRR_RUNTIME_VTYSH_CONF))
-			chmod(FRR_RUNTIME_VTYSH_CONF, 0644);
 	}
 }
 
@@ -376,23 +375,284 @@ static void frr_create_dirs(void)
 	chmod(cfg_dir, 0755);
 }
 
-/* Write default configuration files if they don't exist */
+/*
+ * Write the UI-managed protocol block to an already-open FILE *.
+ * Called both when creating frr.conf from scratch and when merging
+ * into an existing file.
+ */
+static void frr_write_ui_block(FILE *fp,
+		const char *lan_ip, const char *wan_if,
+		const char *frr_passwd, const char *frr_enpasswd,
+		const char *hostname)
+{
+	fprintf(fp, "%s\n", FRR_UI_BLOCK_START);
+	fprintf(fp, "!\n");
+	fprintf(fp, "frr version 8.1\n");
+	fprintf(fp, "frr defaults traditional\n");
+	fprintf(fp, "hostname %s\n", hostname);
+	fprintf(fp, "password %s\n", frr_passwd);
+	fprintf(fp, "enable password %s\n", frr_enpasswd);
+	fprintf(fp, "!\n");
+	fprintf(fp, "log syslog informational\n");
+	fprintf(fp, "!\n");
+	fprintf(fp, "service integrated-vtysh-config\n");
+	fprintf(fp, "!\n");
+
+	/* === BGP Configuration === */
+	if (nvram_match("frr_bgp_enable", "1")) {
+		char *bgp_as        = nvram_safe_get("frr_bgp_as");
+		char *bgp_neighbor  = nvram_safe_get("frr_bgp_neighbor");
+		char *bgp_neighbor_as   = nvram_safe_get("frr_bgp_neighbor_as");
+		char *bgp_neighbor_desc = nvram_safe_get("frr_bgp_neighbor_desc");
+		char *bgp_networks  = nvram_safe_get("frr_bgp_networks");
+
+		if (*bgp_as) {
+			char *neighbor_list = NULL, *neighbor_as_list = NULL;
+			char *neighbor_desc_list = NULL, *activate_list = NULL;
+
+			fprintf(fp, "router bgp %s\n", bgp_as);
+			fprintf(fp, " bgp router-id %s\n", lan_ip);
+
+			if (*bgp_neighbor && *bgp_neighbor_as) {
+				char *n_cur, *a_cur, *d_cur;
+				char *tok_ip, *tok_as, *tok_desc;
+
+				fprintf(fp, " !\n");
+				neighbor_list      = strdup(bgp_neighbor);
+				neighbor_as_list   = strdup(bgp_neighbor_as);
+				neighbor_desc_list = strdup(bgp_neighbor_desc);
+
+				if (neighbor_list && neighbor_as_list) {
+					n_cur = neighbor_list;
+					a_cur = neighbor_as_list;
+					d_cur = neighbor_desc_list;
+
+					while ((tok_ip = strsep(&n_cur, ">")) != NULL &&
+					       (tok_as = strsep(&a_cur, ">")) != NULL) {
+						tok_desc = d_cur ? strsep(&d_cur, ">") : NULL;
+						if (!*tok_ip || !*tok_as)
+							continue;
+						fprintf(fp, " neighbor %s remote-as %s\n", tok_ip, tok_as);
+						if (tok_desc && *tok_desc)
+							fprintf(fp, " neighbor %s description %s\n", tok_ip, tok_desc);
+					}
+				}
+
+				fprintf(fp, " !\n");
+				fprintf(fp, " address-family ipv4 unicast\n");
+
+				if (*bgp_networks) {
+					char *netlist = strdup(bgp_networks);
+					char *nc = netlist, *net;
+					while (nc && (net = strsep(&nc, " \t\r\n")) != NULL) {
+						if (*net) fprintf(fp, "  network %s\n", net);
+					}
+					free(netlist);
+				}
+
+				activate_list = strdup(bgp_neighbor);
+				if (activate_list) {
+					char *ac = activate_list, *aip;
+					while ((aip = strsep(&ac, ">")) != NULL) {
+						if (*aip) fprintf(fp, "  neighbor %s activate\n", aip);
+					}
+					free(activate_list);
+				}
+
+				fprintf(fp, " exit-address-family\n");
+				free(neighbor_list);
+				free(neighbor_as_list);
+				free(neighbor_desc_list);
+			}
+			fprintf(fp, "!\n");
+		}
+	}
+
+	/* === OSPF Configuration === */
+	if (nvram_match("frr_ospf_enable", "1")) {
+		char *ospf_area     = nvram_safe_get("frr_ospf_area");
+		char *ospf_networks = nvram_safe_get("frr_ospf_networks");
+
+		if (!*ospf_area) ospf_area = "0";
+
+		fprintf(fp, "router ospf\n");
+		fprintf(fp, " ospf router-id %s\n", lan_ip);
+		fprintf(fp, " log-adjacency-changes\n");
+		fprintf(fp, " !\n");
+
+		if (*ospf_networks) {
+			char *nl = strdup(ospf_networks), *nc = nl, *net;
+			while (nc && (net = strsep(&nc, " \t\r\n>")) != NULL) {
+				if (*net) fprintf(fp, " network %s area %s\n", net, ospf_area);
+			}
+			free(nl);
+		} else {
+			fprintf(fp, " network 0.0.0.0/0 area %s\n", ospf_area);
+		}
+
+		fprintf(fp, " !\n");
+#if !defined(BLUECAVE)
+		fprintf(fp, " passive-interface vlan2\n");
+		fprintf(fp, " passive-interface vlan3\n");
+#else
+		fprintf(fp, " passive-interface eth1.2\n");
+		fprintf(fp, " passive-interface eth1.3\n");
+#endif
+		if (wan_if && *wan_if)
+			fprintf(fp, " passive-interface %s\n", wan_if);
+		fprintf(fp, "!\n");
+	}
+
+	/* === BFD Configuration === */
+	if (nvram_match("frr_bfd_enable", "1")) {
+		char *bfd_peer = nvram_safe_get("frr_bfd_peer");
+		char *bfd_tx   = nvram_safe_get("frr_bfd_tx");
+		char *bfd_rx   = nvram_safe_get("frr_bfd_rx");
+
+		fprintf(fp, "bfd\n");
+		if (*bfd_peer) {
+			int tx_ms = atoi(bfd_tx);
+			int rx_ms = atoi(bfd_rx);
+			fprintf(fp, " peer %s\n", bfd_peer);
+			if (rx_ms > 0 && rx_ms != 300)
+				fprintf(fp, "  receive-interval %d\n", rx_ms);
+			if (tx_ms > 0 && tx_ms != 300)
+				fprintf(fp, "  transmit-interval %d\n", tx_ms);
+			fprintf(fp, " !\n");
+		}
+		fprintf(fp, "!\n");
+	}
+
+	/* === Access Control === */
+	fprintf(fp, "access-list vty permit 127.0.0.0/8\n");
+	if (nvram_match("frr_allow_lan", "1")) {
+		char *lip = nvram_safe_get("lan_ipaddr");
+		char *lnm = nvram_safe_get("lan_netmask");
+		if (*lip && *lnm)
+			fprintf(fp, "access-list vty permit %s/%s\n", lip, lnm);
+	}
+	fprintf(fp, "access-list vty deny any\n");
+	fprintf(fp, "!\n");
+	fprintf(fp, "line vty\n");
+	fprintf(fp, " access-class vty\n");
+	fprintf(fp, " exec-timeout 0 0\n");
+	fprintf(fp, "!\n");
+
+	/* frr.conf.add appended inside the UI block */
+	append_custom_config("frr.conf", fp);
+
+	fprintf(fp, "%s\n", FRR_UI_BLOCK_END);
+}
+
+/*
+ * Merge the UI-managed block into conf_path.
+ *
+ * - File missing      → create it: static preamble + UI block.
+ * - Markers present   → replace only the content between them.
+ * - Markers absent    → append UI block at end (migration for hand-crafted
+ *                       configs that predate the UI).
+ *
+ * Everything outside the markers (user custom stanzas, route-maps,
+ * prefix-lists, …) is left completely untouched.
+ */
+static void frr_merge_ui_into_conf(const char *conf_path,
+		const char *lan_ip, const char *wan_if,
+		const char *frr_passwd, const char *frr_enpasswd,
+		const char *hostname)
+{
+	FILE *fp;
+	char *buf = NULL;
+	long fsize;
+	char *p_start = NULL, *p_end = NULL;
+
+	fp = fopen(conf_path, "r");
+	if (!fp) {
+		/* File does not exist — create from scratch */
+		fp = fopen(conf_path, "w");
+		if (!fp) return;
+		fprintf(fp, "!\n! FRR configuration — managed by AsusWRT-Merlin WebUI\n!\n");
+		frr_write_ui_block(fp, lan_ip, wan_if, frr_passwd, frr_enpasswd, hostname);
+		fclose(fp);
+		chmod(conf_path, 0644);
+		return;
+	}
+
+	/* Read entire existing file */
+	fseek(fp, 0, SEEK_END);
+	fsize = ftell(fp);
+	rewind(fp);
+
+	if (fsize > 0)
+		buf = malloc(fsize + 1);
+
+	if (!buf || fsize <= 0 || (long)fread(buf, 1, fsize, fp) != fsize) {
+		fclose(fp);
+		free(buf);
+		/* Fall back to creating fresh file */
+		fp = fopen(conf_path, "w");
+		if (!fp) return;
+		fprintf(fp, "!\n! FRR configuration — managed by AsusWRT-Merlin WebUI\n!\n");
+		frr_write_ui_block(fp, lan_ip, wan_if, frr_passwd, frr_enpasswd, hostname);
+		fclose(fp);
+		chmod(conf_path, 0644);
+		return;
+	}
+
+	fclose(fp);
+	buf[fsize] = '\0';
+
+	/* Locate markers */
+	p_start = strstr(buf, FRR_UI_BLOCK_START);
+	p_end   = strstr(buf, FRR_UI_BLOCK_END);
+
+	fp = fopen(conf_path, "w");
+	if (!fp) { free(buf); return; }
+
+	if (p_start && p_end && p_end > p_start) {
+		/* Advance p_end past the end-marker line (including newline) */
+		p_end += strlen(FRR_UI_BLOCK_END);
+		while (*p_end == '\r' || *p_end == '\n') p_end++;
+
+		/* Preserve everything before the start marker */
+		fwrite(buf, 1, p_start - buf, fp);
+		/* Write fresh UI block (includes start + end markers) */
+		frr_write_ui_block(fp, lan_ip, wan_if, frr_passwd, frr_enpasswd, hostname);
+		/* Preserve everything after the end marker */
+		if (*p_end)
+			fputs(p_end, fp);
+	} else {
+		/* No markers — preserve entire existing file, append UI block */
+		fputs(buf, fp);
+		if (buf[fsize - 1] != '\n')
+			fputc('\n', fp);
+		fputs("!\n", fp);
+		frr_write_ui_block(fp, lan_ip, wan_if, frr_passwd, frr_enpasswd, hostname);
+	}
+
+	fclose(fp);
+	free(buf);
+	chmod(conf_path, 0644);
+}
+
+/* Write/merge configuration files on start and UI apply */
 static void frr_write_default_config(void)
 {
 	FILE *fp;
 	int force_regen;
 	char *frr_passwd, *frr_enpasswd;
 	char *hostname;
+	char *lan_ip, *wan_if;
 	char cfg_dir[PATH_MAX];
 	char daemons_path[PATH_MAX];
 	char conf_path[PATH_MAX];
-	char vtysh_conf_path[PATH_MAX];
 
 	frr_get_config_paths(cfg_dir, sizeof(cfg_dir),
 		daemons_path, sizeof(daemons_path),
-		conf_path, sizeof(conf_path),
-		vtysh_conf_path, sizeof(vtysh_conf_path));
+		conf_path, sizeof(conf_path));
 	force_regen = nvram_match("frr_force_regen", "1");
+
+	lan_ip  = nvram_safe_get("lan_ipaddr");
+	wan_if  = get_wan_ifname(wan_primary_ifunit());
 	
 	/* Get passwords from NVRAM (compatible with old zebra_passwd) */
 	frr_passwd = nvram_safe_get("frr_passwd");
@@ -473,270 +733,21 @@ static void frr_write_default_config(void)
 	}
 	
 	/*
-	 * Preserve an existing integrated frr.conf in the configured directory unless
-	 * regeneration is explicitly requested. This is the authoritative config used
-	 * by vtysh for all daemons.
+	 * Always merge UI settings into frr.conf.  The merge function replaces
+	 * only the UI-managed block (between FRR_UI_BLOCK_START/END markers) and
+	 * leaves every other stanza the user may have added untouched.
 	 */
-	if (frr_should_regenerate_file(conf_path, force_regen)) {
-		fp = fopen(conf_path, "w");
-		if (fp) {
-			char *lan_ip, *wan_if;
-			char *bgp_as, *bgp_neighbor, *bgp_neighbor_as, *bgp_neighbor_desc, *bgp_neighbor_src, *bgp_networks;
-			char *ospf_area, *ospf_networks;
-			char *bfd_peer, *bfd_tx, *bfd_rx;
-			
-			lan_ip = nvram_safe_get("lan_ipaddr");
-			wan_if = get_wan_ifname(wan_primary_ifunit());
-			
-			fprintf(fp, "!\n");
-			fprintf(fp, "! FRR configuration\n");
-			fprintf(fp, "! Generated by AsusWRT for compiled daemons:\n");
-			fprintf(fp, "! zebra, bgpd, ospfd, staticd, bfdd\n");
-			fprintf(fp, "!\n");
-			fprintf(fp, "frr version 7.5.1\n");
-			fprintf(fp, "frr defaults traditional\n");
-			fprintf(fp, "hostname %s\n", hostname);
-			fprintf(fp, "password %s\n", frr_passwd);
-			fprintf(fp, "enable password %s\n", frr_enpasswd);
-			fprintf(fp, "!\n");
-			fprintf(fp, "log syslog informational\n");
-			fprintf(fp, "!\n");
-			fprintf(fp, "service integrated-vtysh-config\n");
-			fprintf(fp, "!\n");
-			
-			/* === ZEBRA Configuration (always enabled) === */
-			fprintf(fp, "! Zebra routing manager configuration\n");
-			fprintf(fp, "! Manages kernel routing table and redistributes routes\n");
-			fprintf(fp, "!\n");
-			
-			/* === STATIC Routes Configuration (staticd - always enabled) === */
-			fprintf(fp, "! Static routes configuration\n");
-			fprintf(fp, "! Add custom static routes via JFFS configs\n");
-			fprintf(fp, "!\n");
-			
-			/* === BGP Configuration === */
-			if (nvram_match("frr_bgp_enable", "1")) {
-				bgp_as = nvram_safe_get("frr_bgp_as");
-				bgp_neighbor = nvram_safe_get("frr_bgp_neighbor");
-				bgp_neighbor_as = nvram_safe_get("frr_bgp_neighbor_as");
-				bgp_neighbor_desc = nvram_safe_get("frr_bgp_neighbor_desc");
-				bgp_neighbor_src = nvram_safe_get("frr_bgp_neighbor_src");
-				bgp_networks = nvram_safe_get("frr_bgp_networks");
-				
-				if (*bgp_as) {
-					char *neighbor_list = NULL;
-					char *neighbor_as_list = NULL;
-					char *neighbor_desc_list = NULL;
-					char *neighbor_src_list = NULL;
-					char *activate_list = NULL;
-					fprintf(fp, "! BGP (Border Gateway Protocol) Configuration\n");
-					fprintf(fp, "router bgp %s\n", bgp_as);
-					fprintf(fp, " bgp router-id %s\n", lan_ip);
-					fprintf(fp, " bgp log-neighbor-changes\n");
-					
-					/* BGP neighbor configuration */
-					if (*bgp_neighbor && *bgp_neighbor_as) {
-						char *n_cur;
-						char *a_cur;
-						char *d_cur;
-						char *s_cur;
-						char *token_ip;
-						char *token_as;
-						char *token_desc;
-						char *token_src;
-						fprintf(fp, " !\n");
+	frr_merge_ui_into_conf(conf_path, lan_ip, wan_if, frr_passwd, frr_enpasswd, hostname);
 
-						neighbor_list = strdup(bgp_neighbor);
-						neighbor_as_list = strdup(bgp_neighbor_as);
-						neighbor_desc_list = strdup(bgp_neighbor_desc);
-						neighbor_src_list = strdup(bgp_neighbor_src);
+	/*
+	 * Allow a full config override: if /jffs/configs/frr.conf exists it
+	 * replaces the merged file entirely (same semantics as before the merge
+	 * feature was introduced).  run_postconf fires afterward regardless.
+	 */
+	use_custom_config("frr.conf", conf_path);
+	run_postconf("frr.conf", conf_path);
 
-						if (neighbor_list && neighbor_as_list) {
-							n_cur = neighbor_list;
-							a_cur = neighbor_as_list;
-							d_cur = neighbor_desc_list;
-							s_cur = neighbor_src_list;
-
-							while ((token_ip = strsep(&n_cur, ">")) != NULL &&
-							       (token_as = strsep(&a_cur, ">")) != NULL) {
-								token_desc = d_cur ? strsep(&d_cur, ">") : NULL;
-								token_src = s_cur ? strsep(&s_cur, ">") : NULL;
-								if (!*token_ip || !*token_as)
-									continue;
-
-								fprintf(fp, " neighbor %s remote-as %s\n", token_ip, token_as);
-								if (token_desc && *token_desc)
-									fprintf(fp, " neighbor %s description %s\n", token_ip, token_desc);
-								if (token_src && *token_src)
-									fprintf(fp, " neighbor %s update-source %s\n", token_ip, token_src);
-								fprintf(fp, " neighbor %s password %s\n", token_ip, frr_passwd);
-							}
-						}
-
-						fprintf(fp, " !\n");
-						fprintf(fp, " address-family ipv4 unicast\n");
-						if (*bgp_networks) {
-							char *netlist = strdup(bgp_networks);
-							char *net_cur = netlist;
-							char *net;
-
-							while (net_cur && (net = strsep(&net_cur, " \t\r\n")) != NULL) {
-								if (!*net)
-									continue;
-								fprintf(fp, "  network %s\n", net);
-							}
-
-							if (netlist)
-								free(netlist);
-						}
-						else {
-							fprintf(fp, "  network %s/24\n", lan_ip);
-						}
-
-						activate_list = strdup(bgp_neighbor);
-						if (activate_list) {
-							char *act_cur = activate_list;
-							char *act_ip;
-
-							while ((act_ip = strsep(&act_cur, ">")) != NULL) {
-								if (!*act_ip)
-									continue;
-
-								fprintf(fp, "  neighbor %s activate\n", act_ip);
-							}
-						}
-
-						fprintf(fp, " exit-address-family\n");
-
-						if (activate_list)
-							free(activate_list);
-						if (neighbor_as_list)
-							free(neighbor_as_list);
-						if (neighbor_src_list)
-							free(neighbor_src_list);
-						if (neighbor_desc_list)
-							free(neighbor_desc_list);
-						if (neighbor_list)
-							free(neighbor_list);
-					}
-					
-					fprintf(fp, "!\n");
-				}
-			}
-			
-			/* === OSPF Configuration === */
-			if (nvram_match("frr_ospf_enable", "1")) {
-				ospf_area = nvram_safe_get("frr_ospf_area");
-				ospf_networks = nvram_safe_get("frr_ospf_networks");
-				
-				if (!*ospf_area)
-					ospf_area = "0"; /* Default backbone area */
-				
-				fprintf(fp, "! OSPF (Open Shortest Path First) Configuration\n");
-				fprintf(fp, "router ospf\n");
-				fprintf(fp, " ospf router-id %s\n", lan_ip);
-				fprintf(fp, " log-adjacency-changes\n");
-				fprintf(fp, " !\n");
-				
-				/* Network statements */
-				if (*ospf_networks) {
-					/* User-defined networks from NVRAM */
-					fprintf(fp, " ! Custom networks from NVRAM\n");
-					fprintf(fp, " ! Set frr_ospf_networks to networks separated by spaces\n");
-					fprintf(fp, " ! Example: nvram set frr_ospf_networks=\"192.168.0.0/24 192.168.1.0/24\"\n");
-					/* Networks are added via custom config or postconf */
-				} else {
-					/* Default: advertise all connected networks */
-					fprintf(fp, " network 0.0.0.0/0 area %s\n", ospf_area);
-				}
-				
-				fprintf(fp, " !\n");
-				fprintf(fp, " ! Passive interfaces (don't send OSPF hello packets)\n");
-#if !defined(BLUECAVE)
-				fprintf(fp, " passive-interface vlan2\n");
-				fprintf(fp, " passive-interface vlan3\n");
-#else
-				fprintf(fp, " passive-interface eth1.2\n");
-				fprintf(fp, " passive-interface eth1.3\n");
-#endif
-				/* Add WAN interface as passive if exists */
-				if (wan_if && *wan_if) {
-					fprintf(fp, " passive-interface %s\n", wan_if);
-				}
-				
-				fprintf(fp, "!\n");
-			}
-			
-			/* === BFD Configuration === */
-			if (nvram_match("frr_bfd_enable", "1")) {
-				bfd_peer = nvram_safe_get("frr_bfd_peer");
-				bfd_tx = nvram_safe_get("frr_bfd_tx");
-				bfd_rx = nvram_safe_get("frr_bfd_rx");
-				fprintf(fp, "! BFD (Bidirectional Forwarding Detection) Configuration\n");
-				fprintf(fp, "! Provides fast failure detection for routing protocols\n");
-				fprintf(fp, "bfd\n");
-				if (*bfd_peer) {
-					fprintf(fp, " peer %s\n", bfd_peer);
-					fprintf(fp, "  transmit-interval %s\n", *bfd_tx ? bfd_tx : "150");
-					fprintf(fp, "  receive-interval %s\n", *bfd_rx ? bfd_rx : "150");
-					fprintf(fp, " !\n");
-				}
-				else {
-					fprintf(fp, " ! Configure peer and intervals from WebUI\n");
-				}
-				fprintf(fp, "!\n");
-			}
-			
-			/* === Access Control === */
-			fprintf(fp, "! Access control for vty (telnet/ssh) connections\n");
-			fprintf(fp, "access-list vty permit 127.0.0.0/8\n");
-			
-			/* Allow LAN access if configured */
-			if (nvram_match("frr_allow_lan", "1")) {
-				char *lan_netmask = nvram_safe_get("lan_netmask");
-				if (*lan_ip && *lan_netmask) {
-					fprintf(fp, "access-list vty permit %s/%s\n", lan_ip, lan_netmask);
-				}
-			}
-			
-			fprintf(fp, "access-list vty deny any\n");
-			fprintf(fp, "!\n");
-			fprintf(fp, "line vty\n");
-			fprintf(fp, " access-class vty\n");
-			fprintf(fp, " exec-timeout 0 0\n");
-			fprintf(fp, "!\n");
-			
-			/* === Per-daemon custom configs === */
-			fprintf(fp, "! Custom configurations\n");
-			fprintf(fp, "! Add custom FRR commands via JFFS:\n");
-			fprintf(fp, "! /jffs/configs/frr.conf.add\n");
-			fprintf(fp, "!\n");
-			
-			/* Support for custom config additions */
-			append_custom_config("frr.conf", fp);
-			fclose(fp);
-			
-			/* Allow custom config replacement */
-			use_custom_config("frr.conf", conf_path);
-			run_postconf("frr.conf", conf_path);
-			
-			chmod(conf_path, 0644);
-		}
-	}
-	
-	/* Create vtysh.conf if missing */
-	if (frr_should_regenerate_file(vtysh_conf_path, force_regen)) {
-		fp = fopen(vtysh_conf_path, "w");
-		if (fp) {
-			fprintf(fp, "!\n");
-			fprintf(fp, "service integrated-vtysh-config\n");
-			fprintf(fp, "!\n");
-			fclose(fp);
-			chmod(vtysh_conf_path, 0644);
-		}
-	}
-
-	frr_sync_runtime_config(cfg_dir, daemons_path, conf_path, vtysh_conf_path);
+	frr_sync_runtime_config(cfg_dir, daemons_path, conf_path);
 	nvram_unset("frr_force_regen");
 
 #ifdef RTCONFIG_NVRAM_ENCRYPT

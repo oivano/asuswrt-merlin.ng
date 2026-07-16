@@ -33011,6 +33011,7 @@ struct ej_handler ej_handlers[] = {
 	{ "get_frr_bgp_neighbor_as_list", ej_get_frr_bgp_neighbor_as_list},
 	{ "get_frr_bgp_neighbor_desc_list", ej_get_frr_bgp_neighbor_desc_list},
 	{ "get_frr_bgp_neighbor_src_list", ej_get_frr_bgp_neighbor_src_list},
+	{ "get_frr_bgp_neighbor_status_map", ej_get_frr_bgp_neighbor_status_map},
 	{ "get_frr_ospf_config", ej_get_frr_ospf_config},
 	{ "get_frr_bfd_config", ej_get_frr_bfd_config},
 	{ "get_frr_route_origin_array", ej_get_frr_route_origin_array},
