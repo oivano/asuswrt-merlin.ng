@@ -196,44 +196,6 @@ get_addr_or_mask(const char * s, struct in_addr * addr)
 	return s + i;
 }
 
-/* get_mask(s, mask)
- * parse a netmask which is either a bare CIDR bit count (e.g. "24" or "0")
- * or a dotted-quad mask (e.g. "255.255.255.0").
- * The bit-count form is detected and parsed with strtoul() *before* any
- * call to inet_aton(), because inet_aton()'s legacy support for "shorthand"
- * bare-number addresses (used by some code to funnel a bit count through
- * inet_aton()) is not guaranteed portable across libc implementations :
- * some reject a plain decimal number with no dots, which would otherwise
- * make every CIDR-style mask (e.g. "0.0.0.0/0") fail to parse. */
-static const char *
-get_mask(const char * s, struct in_addr * mask)
-{
-	const char * q;
-
-	if(!isdigit(*s))
-		return NULL;
-
-	for(q = s; isdigit(*q); q++)
-		;
-
-	if(*q == '.')
-	{
-		unsigned int dot_cnt;
-		return get_addr(s, mask, &dot_cnt);
-	}
-	else
-	{
-		char * end;
-		unsigned long n_bits;
-
-		n_bits = strtoul(s, &end, 10);
-		if(end != q || n_bits > 32)
-			return NULL;
-		mask->s_addr = !n_bits ? 0 : htonl(0xffffffffu << (32 - n_bits));
-		return q;
-	}
-}
-
 /* get_next_token(s, &token, raw)
  * put the unquoted/unescaped token in token and returns
  * a pointer to the begining of the next token
