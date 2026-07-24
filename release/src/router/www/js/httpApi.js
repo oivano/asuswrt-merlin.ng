@@ -1056,70 +1056,11 @@ var httpApi ={
 
 	"privateEula": {
 		"set": function(enable, callback){
-			$.ajax({
-				url: '/set_ASUS_privacy_policy.cgi',
-				data: {
-					"ASUS_privacy_policy": enable
-				},
-				async: false,
-				dataType: 'json',
-				success: function (response) {
-					if (callback)
-						callback(response);
-				}
-			});
+			if (callback) callback({});
 		},
 
 		"get": function(feature){
-			return new Promise((resolve, reject) =>{
-				if (feature == undefined || feature == "") feature = "ASUS_privacy_policy";
-
-				let retData = {
-					ASUS_PP: 0,
-					ASUS_PP_time: ""
-				};
-
-				$.ajax({
-					url: '/get_ASUS_privacy_policy.cgi',
-					dataType: 'json',
-					async: false,
-					success: function (resp) {
-						var ASUS_privacy_policy = resp.ASUS_privacy_policy;
-						var ASUS_privacy_policy_time = resp.ASUS_privacy_policy_time;
-
-						if (feature == "SIGNED") {
-							var securityUpdate = httpApi.securityUpdate.get()
-							var audoUpgrade = httpApi.nvramGet(["webs_update_enable"]).webs_update_enable == "1";
-
-							if (ASUS_privacy_policy == "0" && ASUS_privacy_policy_time != "") {
-								retData.ASUS_PP = "1";
-								retData.ASUS_PP_time = "";
-							} else if (
-								ASUS_privacy_policy_time == "" ||
-								ASUS_privacy_policy_time == undefined
-							) {
-								retData.ASUS_PP = "0";
-								retData.ASUS_PP_time = "";
-							} else if (
-								(ASUS_privacy_policy > "1" && resp.AHS > ASUS_privacy_policy && securityUpdate) ||
-								(ASUS_privacy_policy > "1" && resp.ASD > ASUS_privacy_policy && securityUpdate) ||
-								(ASUS_privacy_policy > "1" && resp.AUTOUPGRADE > ASUS_privacy_policy && audoUpgrade)
-							) {
-								retData.ASUS_PP = "0";
-								retData.ASUS_PP_time = ASUS_privacy_policy_time;
-							} else {
-								retData.ASUS_PP = "1";
-								retData.ASUS_PP_time = ASUS_privacy_policy_time;
-							}
-						} else {
-							retData.ASUS_PP = ASUS_privacy_policy;
-							retData.ASUS_PP_time = ASUS_privacy_policy_time;
-						}
-					}
-				});
-
-				resolve(retData);
-			});
+			return Promise.resolve({ ASUS_PP: "1", ASUS_PP_time: "2000-01-01T00:00:00" });
 		}
 	},
 
