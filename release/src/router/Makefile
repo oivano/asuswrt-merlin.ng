@@ -2406,7 +2406,7 @@ endif
 # !!TB - moved to run after libfoo.pl - to make sure shared libs include all symbols needed by extras
 # separated/copied extra stuff
 	@rm -rf $(PLATFORMDIR)/extras
-	@mkdir $(PLATFORMDIR)/extras
+	@mkdir -p $(PLATFORMDIR)/extras
 	@mv $(TARGETDIR)/lib/modules/*/kernel/net/ipv4/ip_gre.*o $(PLATFORMDIR)/extras/ || true
 
 	$(if $(RTCONFIG_OPENVPN),@cp -f,$(if $(RTCONFIG_USB_MODEM),@cp -f,@mv)) $(TARGETDIR)/lib/modules/*/kernel/drivers/net/tun.*o $(PLATFORMDIR)/extras/ || true
@@ -2620,7 +2620,7 @@ endif
 	install -D rom_lantiq/opt/lantiq/usr/lib/libhelper.so $(TARGETDIR)/usr/lib/
 	install -D rom_lantiq/opt/lantiq/lib/libfapiwave.so $(TARGETDIR)/usr/lib/
 	install -D rom_lantiq/etc/rc.d/wlan_discover $(TARGETDIR)/sbin/wlan_discover
-	mkdir $(TARGETDIR)/rom/etc/; cp -Rf rom_lantiq/etc/udev $(TARGETDIR)/rom/etc/
+	mkdir -p $(TARGETDIR)/rom/etc/; cp -Rf rom_lantiq/etc/udev $(TARGETDIR)/rom/etc/
 endif
 ifeq ($(RTCONFIG_ALPINE),y)
 	install -D qsr10g_image/qsr10g-pcie.ko $(TARGETDIR)/lib/firmware/qsr10g-pcie.ko

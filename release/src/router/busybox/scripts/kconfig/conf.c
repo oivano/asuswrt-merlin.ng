@@ -103,7 +103,8 @@ static void conf_askvalue(struct symbol *sym, const char *def)
 		check_stdin();
 	case ask_all:
 		fflush(stdout);
-		fgets(line, 128, stdin);
+		if (fgets(line, 128, stdin) == NULL && ferror(stdin))
+			perror("fgets");
 		return;
 	case set_default:
 		printf("%s\n", def);

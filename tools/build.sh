@@ -13,4 +13,11 @@ export MERLINUPDATE=y
 cd ${PROJECT_DIR}/release/${RELEASE_DIR}
 make clean
 make ${MODEL} | tee "/tmp/build.log" # | grep -i "error\|-e"
+
+# Verify build output exists
+if [ ! -d "${PROJECT_DIR}/release/${RELEASE_DIR}/image/" ]; then
+    echo "Error: Build output directory not found"
+    exit 1
+fi
+
 ls ${PROJECT_DIR}/release/${RELEASE_DIR}/image/

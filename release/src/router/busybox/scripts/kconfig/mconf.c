@@ -478,7 +478,10 @@ static int exec_conf(void)
 
 	*argptr++ = NULL;
 
-	pipe(pipefd);
+	if (pipe(pipefd) < 0) {
+		perror("pipe");
+		return;
+	}
 	pid = fork();
 	if (pid == 0) {
 		sigprocmask(SIG_SETMASK, &osset, NULL);

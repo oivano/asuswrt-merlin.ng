@@ -576,10 +576,10 @@ int conf_write(const char *name)
 	if (!name || basename != conf_def_filename) {
 		if (!name)
 			name = conf_def_filename;
-		sprintf(tmpname, "%s.old", name);
+		snprintf(tmpname, sizeof(tmpname)-1, "%s.old", name);
 		rename(name, tmpname);
 	}
-	sprintf(tmpname, "%s%s", dirname, basename);
+	snprintf(tmpname, sizeof(tmpname)-1, "%s%s", dirname, basename);
 	if (rename(newname, tmpname))
 		return 1;
 
