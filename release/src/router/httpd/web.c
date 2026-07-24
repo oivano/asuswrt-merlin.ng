@@ -389,8 +389,7 @@ extern void do_set_security_update_cgi(char *url, FILE *stream);
 extern void do_get_security_update_cgi(char *url, FILE *stream);
 #endif
 
-extern void do_set_ASUS_privacy_policy_cgi(char *url, FILE *stream);
-extern void do_get_ASUS_privacy_policy_cgi(char *url, FILE *stream);
+
 
 /*
 #define csprintf(fmt, args...) do{\

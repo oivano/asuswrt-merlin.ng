@@ -88,6 +88,7 @@ if (qos_type == 0 || qos_type == 3) {
         category_title = bwdpi_category_title;
 }
 
+var tcdata_filter_array = [];
 <% get_tcfilter_array(); %>
 
 var class_array=[tcdata_filter_array[9], tcdata_filter_array[8], tcdata_filter_array[4], tcdata_filter_array[5], tcdata_filter_array[24],
