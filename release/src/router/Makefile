@@ -3202,15 +3202,19 @@ openssl-1.1/Makefile:
 	$(if $(filter y,$(RTCONFIG_WTFAST)),-DRTCONFIG_WTFAST,) \
 	$(PRIORITY_CHACHA)
 	@$(MAKE) -C openssl-1.1 depend
-	@$(MAKE) -C openssl-1.1 clean
 	@touch $@
 
 openssl-1.1: openssl-1.1/Makefile
-	$(MAKE) -C openssl-1.1 $(PARALLEL_BUILD) && $(MAKE) $@-stage
+	@[ -f openssl-1.1/.rebuilt ] || $(MAKE) openssl-1.1-rebuild
+	@$(MAKE) $@-stage
+
+openssl-1.1-rebuild:
+	$(MAKE) -C openssl-1.1 $(PARALLEL_BUILD)
+	@touch openssl-1.1/.rebuilt
 
 openssl-1.1-clean:
 	[ ! -f openssl-1.1/Makefile ] || $(MAKE) -C openssl-1.1 clean
-	@rm -f openssl-1.1/Makefile
+	@rm -f openssl-1.1/Makefile openssl-1.1/.rebuilt
 
 openssl-1.1-install:
 ifneq ($(wildcard openssl-1.1/Makefile),)
