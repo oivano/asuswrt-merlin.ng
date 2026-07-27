@@ -319,7 +319,8 @@ private_key_t *openssl_ec_private_key_create(EVP_PKEY *key, bool engine)
 {
 	private_openssl_ec_private_key_t *this;
 
-	if (EVP_PKEY_base_id(key) != EVP_PKEY_EC)
+	if (EVP_PKEY_base_id(key) != EVP_PKEY_EC ||
+		openssl_check_explicit_params(key))
 	{
 		EVP_PKEY_free(key);
 		return NULL;

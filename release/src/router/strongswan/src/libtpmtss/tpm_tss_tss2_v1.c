@@ -642,7 +642,7 @@ METHOD(tpm_tss_t, get_public, chunk_t,
 							asn1_wrap(ASN1_SEQUENCE, "mm",
 								asn1_build_known_oid(OID_EC_PUBLICKEY),
 								asn1_build_known_oid(ecc->x.t.size == 32 ?
-										OID_PRIME256V1 : OID_SECT384R1)),
+										OID_PRIME256V1 : OID_SECP384R1)),
 							ecc_point);
 			break;
 		}

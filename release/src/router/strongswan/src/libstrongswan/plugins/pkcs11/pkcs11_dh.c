@@ -403,13 +403,13 @@ static chunk_t ecparams_lookup(key_exchange_method_t group)
 		case ECP_192_BIT:
 			return asn1_build_known_oid(OID_PRIME192V1);
 		case ECP_224_BIT:
-			return asn1_build_known_oid(OID_SECT224R1);
+			return asn1_build_known_oid(OID_SECP224R1);
 		case ECP_256_BIT:
 			return asn1_build_known_oid(OID_PRIME256V1);
 		case ECP_384_BIT:
-			return asn1_build_known_oid(OID_SECT384R1);
+			return asn1_build_known_oid(OID_SECP384R1);
 		case ECP_521_BIT:
-			return asn1_build_known_oid(OID_SECT521R1);
+			return asn1_build_known_oid(OID_SECP521R1);
 		default:
 			break;
 	}

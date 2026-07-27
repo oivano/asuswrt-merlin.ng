@@ -219,7 +219,7 @@ static status_t install_trap(child_sa_t *child_sa, linked_list_t *local,
 
 	/* we don't know the finally negotiated protocol (ESP|AH), we install
 	 * the SA with the protocol of the first proposal */
-	proposals = child->get_proposals(child, TRUE);
+	proposals = child->get_proposals(child, TRUE, FALSE);
 	if (proposals->get_first(proposals, (void**)&proposal) == SUCCESS)
 	{
 		proto = proposal->get_protocol(proposal);
@@ -557,6 +557,14 @@ METHOD(trap_manager_t, acquire, void,
 	}
 	wildcard = found->wildcard;
 
+	if (wildcard && (!data->dst || !data->src))
+	{
+		DBG1(DBG_CFG, "unable to process acquire without selectors for "
+			 "trap without destination address (reqid %u)", reqid);
+		this->lock->unlock(this->lock);
+		return;
+	}
+
 	this->mutex->lock(this->mutex);
 	if (wildcard)
 	{
@@ -579,12 +587,12 @@ METHOD(trap_manager_t, acquire, void,
 	}
 	if (!acquire)
 	{
+		seq = data->seq = data->seq ?: ref_get_nonzero(&this->acquire_seq);
 		INIT(acquire,
 			.dst = host,
 			.reqid = reqid,
 			.data = kernel_acquire_data_clone(data),
 		);
-		seq = data->seq = data->seq ?: ref_get_nonzero(&this->acquire_seq);
 		this->acquires->insert_last(this->acquires, acquire);
 	}
 	else if (data->seq && data->seq != acquire->data->seq)
@@ -809,6 +817,35 @@ METHOD(listener_t, child_state_change, bool,
 	}
 }
 
+METHOD(listener_t, ike_reestablish_pre, bool,
+	trap_listener_t *listener, ike_sa_t *old, ike_sa_t *new)
+{
+	private_trap_manager_t *this = listener->traps;
+	enumerator_t *enumerator;
+	acquire_t *acquire;
+
+	if (old->has_condition(old, COND_REDIRECTED))
+	{
+		/* if we get redirected during IKE_AUTH, we just migrate to the new SA.
+		 * we'd have to disable listening for child state changes otherwise (due
+		 * to task migration).  and if the initiation failed, the initial SA
+		 * couldn't be used anyway, so we can also just track the destruction of
+		 * of the new one in that case */
+		this->mutex->lock(this->mutex);
+		enumerator = this->acquires->create_enumerator(this->acquires);
+		while (enumerator->enumerate(enumerator, &acquire))
+		{
+			if (acquire->ike_sa == old)
+			{
+				acquire->ike_sa = new;
+			}
+		}
+		enumerator->destroy(enumerator);
+		this->mutex->unlock(this->mutex);
+	}
+	return TRUE;
+}
+
 METHOD(trap_manager_t, flush, void,
 	private_trap_manager_t *this)
 {
@@ -857,6 +894,7 @@ trap_manager_t *trap_manager_create(void)
 			.traps = this,
 			.listener = {
 				.ike_state_change = _ike_state_change,
+				.ike_reestablish_pre = _ike_reestablish_pre,
 				.child_state_change = _child_state_change,
 			},
 		},

@@ -1,5 +1,5 @@
-/* ANSI-C code produced by gperf version 3.1 */
-/* Command-line: /usr/bin/gperf -m 10 -D -C -G -t --output-file=stroke_keywords.c ./stroke_keywords.txt  */
+/* ANSI-C code produced by gperf version 3.2.1 */
+/* Command-line: gperf -m 10 -D -C -G -t --output-file=stroke_keywords.c ./stroke_keywords.txt  */
 /* Computed positions: -k'1,5,7' */
 
 #if !((' ' == 32) && ('!' == 33) && ('"' == 34) && ('#' == 35) \
@@ -109,10 +109,20 @@ hash (register const char *str, register size_t len)
     {
       default:
         hval += asso_values[(unsigned char)str[6]];
+#if (defined __cplusplus && (__cplusplus >= 201703L || (__cplusplus >= 201103L && defined __clang__ && __clang_major__ + (__clang_minor__ >= 9) > 3))) || (defined __STDC_VERSION__ && __STDC_VERSION__ >= 202000L && ((defined __GNUC__ && __GNUC__ >= 10) || (defined __clang__ && __clang_major__ >= 9)))
+      [[fallthrough]];
+#elif (defined __GNUC__ && __GNUC__ >= 7) || (defined __clang__ && __clang_major__ >= 10)
+      __attribute__ ((__fallthrough__));
+#endif
       /*FALLTHROUGH*/
       case 6:
       case 5:
         hval += asso_values[(unsigned char)str[4]];
+#if (defined __cplusplus && (__cplusplus >= 201703L || (__cplusplus >= 201103L && defined __clang__ && __clang_major__ + (__clang_minor__ >= 9) > 3))) || (defined __STDC_VERSION__ && __STDC_VERSION__ >= 202000L && ((defined __GNUC__ && __GNUC__ >= 10) || (defined __clang__ && __clang_major__ >= 9)))
+      [[fallthrough]];
+#elif (defined __GNUC__ && __GNUC__ >= 7) || (defined __clang__ && __clang_major__ >= 10)
+      __attribute__ ((__fallthrough__));
+#endif
       /*FALLTHROUGH*/
       case 4:
       case 3:
@@ -124,6 +134,10 @@ hash (register const char *str, register size_t len)
   return hval;
 }
 
+#if (defined __GNUC__ && __GNUC__ + (__GNUC_MINOR__ >= 6) > 4) || (defined __clang__ && __clang_major__ >= 3)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#endif
 static const struct stroke_token wordlist[] =
   {
 #line 28 "./stroke_keywords.txt"
@@ -223,6 +237,9 @@ static const struct stroke_token wordlist[] =
 #line 75 "./stroke_keywords.txt"
     {"resetcounters",   STROKE_COUNTERS_RESET}
   };
+#if (defined __GNUC__ && __GNUC__ + (__GNUC_MINOR__ >= 6) > 4) || (defined __clang__ && __clang_major__ >= 3)
+#pragma GCC diagnostic pop
+#endif
 
 static const signed char lookup[] =
   {
@@ -253,5 +270,5 @@ in_word_set (register const char *str, register size_t len)
             }
         }
     }
-  return 0;
+  return (struct stroke_token *) 0;
 }

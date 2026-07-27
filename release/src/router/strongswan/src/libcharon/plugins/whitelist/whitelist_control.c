@@ -25,6 +25,7 @@
 
 #include <daemon.h>
 #include <collections/linked_list.h>
+#include <processing/jobs/callback_job.h>
 
 #include "whitelist_msg.h"
 
@@ -93,18 +94,83 @@ static void list(private_whitelist_control_t *this,
 }
 
 /**
+ * Information about a client connection.
+ */
+typedef struct {
+	private_whitelist_control_t *this;
+	whitelist_msg_t msg;
+	size_t read;
+} whitelist_conn_t;
+
+/**
+ * Information needed for async disconnect job.
+ */
+typedef struct {
+	whitelist_conn_t *conn;
+	stream_t *stream;
+} disconnect_data_t;
+
+/**
+ * Asynchronous callback to disconnect client
+ */
+CALLBACK(disconnect_async, job_requeue_t,
+	disconnect_data_t *data)
+{
+	data->stream->destroy(data->stream);
+	free(data->conn);
+	return JOB_REQUEUE_NONE;
+}
+
+/**
+ * Disconnect a connected client
+ */
+static void disconnect(whitelist_conn_t *conn, stream_t *stream)
+{
+	disconnect_data_t *data;
+
+	INIT(data,
+		.conn = conn,
+		.stream = stream,
+	);
+	lib->processor->queue_job(lib->processor,
+			(job_t*)callback_job_create(disconnect_async, data, free, NULL));
+}
+
+/**
  * Dispatch a received message
  */
-static bool on_accept(private_whitelist_control_t *this, stream_t *stream)
+CALLBACK(on_read, bool,
+	whitelist_conn_t *conn, stream_t *stream)
 {
+	private_whitelist_control_t *this = conn->this;
 	identification_t *id;
-	whitelist_msg_t msg;
+	ssize_t len;
 
-	while (stream->read_all(stream, &msg, sizeof(msg)))
+	while (TRUE)
 	{
-		msg.id[sizeof(msg.id) - 1] = 0;
-		id = identification_create_from_string(msg.id);
-		switch (ntohl(msg.type))
+		while (conn->read < sizeof(conn->msg))
+		{
+			len = stream->read(stream, (char*)&conn->msg + conn->read,
+							   sizeof(conn->msg) - conn->read, FALSE);
+			if (len <= 0)
+			{
+				if (errno == EWOULDBLOCK)
+				{
+					return TRUE;
+				}
+				if (len != 0)
+				{
+					DBG1(DBG_CFG, "whitelist socket error: %s", strerror(errno));
+				}
+				disconnect(conn, stream);
+				return FALSE;
+			}
+			conn->read += len;
+		}
+
+		conn->msg.id[sizeof(conn->msg.id) - 1] = 0;
+		id = identification_create_from_string(conn->msg.id);
+		switch (ntohl(conn->msg.type))
 		{
 			case WHITELIST_ADD:
 				this->listener->add(this->listener, id);
@@ -129,9 +195,22 @@ static bool on_accept(private_whitelist_control_t *this, stream_t *stream)
 				break;
 		}
 		id->destroy(id);
+		conn->read = 0;
 	}
 
-	return FALSE;
+	return TRUE;
+}
+
+CALLBACK(on_accept, bool,
+	private_whitelist_control_t *this, stream_t *stream)
+{
+	whitelist_conn_t *conn;
+
+	INIT(conn,
+		.this = this,
+	);
+	stream->on_read(stream, on_read, conn);
+	return TRUE;
 }
 
 METHOD(whitelist_control_t, destroy, void,

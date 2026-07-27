@@ -207,8 +207,10 @@ static struct {
 	bool good;
 } permitted_san[] = {
 	{ ".strongswan.org", "test.strongswan.org", TRUE },
+	{ ".strongswan.org", "test.strongSwan.org", TRUE },
 	{ "strongswan.org", "test.strongswan.org", TRUE },
 	{ "a.b.c.strongswan.org", "d.a.b.c.strongswan.org", TRUE },
+	{ "a.b.c.strongswan.org", "d.A.b.C.strongswan.org", TRUE },
 	{ "a.b.c.strongswan.org", "a.b.c.d.strongswan.org", FALSE },
 	{ "strongswan.org", "strongswan.org.com", FALSE },
 	{ ".strongswan.org", "strongswan.org", FALSE },
@@ -216,8 +218,11 @@ static struct {
 	{ "strongswan.org", "swan.org", FALSE },
 	{ "strongswan.org", "swan.org", FALSE },
 	{ "tester@strongswan.org", "tester@strongswan.org", TRUE },
+	{ "tester@strongswan.org", "tester@strongSwan.org", TRUE },
+	{ "tester@strongswan.org", "TESTER@strongswan.org", TRUE },
 	{ "tester@strongswan.org", "atester@strongswan.org", FALSE },
 	{ "email:strongswan.org", "tester@strongswan.org", TRUE },
+	{ "email:strongswan.org", "tester@strongSwan.org", TRUE },
 	{ "email:strongswan.org", "tester@test.strongswan.org", FALSE },
 	{ "email:.strongswan.org", "tester@test.strongswan.org", TRUE },
 	{ "email:.strongswan.org", "tester@strongswan.org", FALSE },
@@ -248,11 +253,11 @@ static struct {
 	char *subject;
 	bool good;
 } excluded_dn[] = {
-	{ "C=CH, O=another", "C=CH, O=strongSwan, CN=tester", TRUE },
-	{ "C=CH, O=another", "C=CH, O=anot", TRUE },
-	{ "C=CH, O=another", "C=CH, O=anot, CN=tester", TRUE },
+	{ "C=CH, O=another", "C=CH, O=strongSwan, CN=tester", FALSE },
+	{ "C=CH, O=another", "C=CH, O=anot", FALSE },
+	{ "C=CH, O=another", "C=CH, O=anot, CN=tester", FALSE },
 	{ "C=CH, O=another", "C=CH, O=another, CN=tester", FALSE },
-	{ "C=CH, O=another", "C=CH, CN=tester, O=another", TRUE },
+	{ "C=CH, O=another", "C=CH, CN=tester, O=another", FALSE },
 };
 
 START_TEST(test_excluded_dn)
@@ -281,7 +286,9 @@ static struct {
 } excluded_san[] = {
 	{ ".strongswan.org", "test.strongswan.org", FALSE },
 	{ "strongswan.org", "test.strongswan.org", FALSE },
+	{ "strongswan.org", "test.strongSwan.org", FALSE },
 	{ "a.b.c.strongswan.org", "d.a.b.c.strongswan.org", FALSE },
+	{ "a.b.c.strongswan.org", "d.a.b.C.strongswan.org", FALSE },
 	{ "a.b.c.strongswan.org", "a.b.c.d.strongswan.org", TRUE },
 	{ "strongswan.org", "strongswan.org.com", TRUE },
 	{ ".strongswan.org", "strongswan.org", TRUE },
@@ -289,8 +296,10 @@ static struct {
 	{ "strongswan.org", "swan.org", TRUE },
 	{ "strongswan.org", "swan.org", TRUE },
 	{ "tester@strongswan.org", "tester@strongswan.org", FALSE },
+	{ "tester@strongswan.org", "TESTER@strongswan.org", FALSE },
 	{ "tester@strongswan.org", "atester@strongswan.org", TRUE },
 	{ "email:strongswan.org", "tester@strongswan.org", FALSE },
+	{ "email:strongswan.org", "tester@strongSwan.org", FALSE },
 	{ "email:strongswan.org", "tester@test.strongswan.org", TRUE },
 	{ "email:.strongswan.org", "tester@test.strongswan.org", FALSE },
 	{ "email:.strongswan.org", "tester@strongswan.org", TRUE },
@@ -418,9 +427,9 @@ static struct {
 	char *subject;
 	bool good;
 } excluded_dn_levels[] = {
-	{ "C=CH, O=strongSwan", "C=CH", "C=DE", TRUE },
+	{ "C=CH, O=strongSwan", "C=CH", "C=DE", FALSE },
 	{ "C=CH, O=strongSwan", "C=CH", "C=CH", FALSE },
-	{ "C=CH, O=strongSwan", "C=DE", "C=CH", TRUE },
+	{ "C=CH, O=strongSwan", "C=DE", "C=CH", FALSE },
 	{ "C=CH, O=strongSwan", "C=DE", "C=DE", FALSE },
 	{ "C=CH, O=strongSwan", "C=DE", "C=CH, O=strongSwan", FALSE },
 	{ NULL, "C=CH", "C=CH, O=strongSwan", FALSE },

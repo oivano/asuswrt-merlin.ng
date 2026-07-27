@@ -410,7 +410,7 @@ METHOD(child_sa_t, set_state, void,
 {
 	if (this->state != state)
 	{
-		DBG2(DBG_CHD, "CHILD_SA %s{%d} state change: %N => %N",
+		DBG2(DBG_CHD, "CHILD_SA %s{%u} state change: %N => %N",
 			 get_name(this), this->unique_id,
 			 child_sa_state_names, this->state,
 			 child_sa_state_names, state);
@@ -1121,6 +1121,7 @@ static status_t install_internal(private_child_sa_t *this, chunk_t encr,
 		.copy_ecn = !this->config->has_option(this->config, OPT_NO_COPY_ECN),
 		.copy_dscp = this->config->get_copy_dscp(this->config),
 		.iptfs_dont_frag = this->iptfs_dont_frag,
+		.forward_icmp = this->config->has_option(this->config, OPT_FORWARD_ICMP),
 		.label = label_for(this, LABEL_USE_SA),
 		.initiator = initiator,
 		.inbound = inbound,
@@ -1295,6 +1296,7 @@ static status_t install_policies_outbound(private_child_sa_t *this,
 		.src = my_addr,
 		.dst = other_addr,
 		.pcpu_acquires = this->per_cpu,
+		.forward_icmp = this->config->has_option(this->config, OPT_FORWARD_ICMP),
 		.sa = other_sa,
 	};
 	uint32_t reqid = other_sa->reqid;
@@ -1409,6 +1411,7 @@ static void del_policies_outbound(private_child_sa_t *this,
 		.src = my_addr,
 		.dst = other_addr,
 		.pcpu_acquires = this->per_cpu,
+		.forward_icmp = this->config->has_option(this->config, OPT_FORWARD_ICMP),
 		.sa = other_sa,
 	};
 	uint32_t reqid = other_sa->reqid;
@@ -1970,7 +1973,7 @@ METHOD(child_sa_t, update, status_t,
 				DBG1(DBG_CHD, "releasing reqid %u failed", this->reqid);
 			}
 			DBG1(DBG_CHD, "replaced reqid %u with reqid %u for updated "
-				 "CHILD_SA %s{%d}", this->reqid, new_reqid, get_name(this),
+				 "CHILD_SA %s{%u}", this->reqid, new_reqid, get_name(this),
 				 this->unique_id);
 			this->reqid = new_reqid;
 		}

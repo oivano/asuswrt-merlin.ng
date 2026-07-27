@@ -318,7 +318,7 @@ METHOD(ike_cfg_t, add_proposal, void,
 }
 
 METHOD(ike_cfg_t, get_proposals, linked_list_t*,
-	private_ike_cfg_t *this)
+	private_ike_cfg_t *this, bool log)
 {
 	enumerator_t *enumerator;
 	proposal_t *current;
@@ -333,8 +333,10 @@ METHOD(ike_cfg_t, get_proposals, linked_list_t*,
 	}
 	enumerator->destroy(enumerator);
 
-	DBG2(DBG_CFG, "configured proposals: %#P", proposals);
-
+	if (log)
+	{
+		DBG2(DBG_CFG, "configured proposals: %#P", proposals);
+	}
 	return proposals;
 }
 

@@ -617,6 +617,7 @@ static char *whitelist[] = {
 	"OSSL_DECODER_CTX_new_for_pkey",
 	"OSSL_ENCODER_do_all_provided",
 	"OSSL_PROVIDER_try_load",
+	"OSSL_PROVIDER_try_load_ex",
 	"OSSL_PROVIDER_load",
 	"RAND_get0_private",
 	"RAND_get0_public",
@@ -662,16 +663,37 @@ static char *whitelist[] = {
 	"TNC_IMC_NotifyConnectionChange",
 	"TNC_IMV_NotifyConnectionChange",
 	/* Botan */
-	"botan_public_key_load",
 	"botan_privkey_create",
-	"botan_privkey_load_ecdh",
-	"botan_privkey_load",
 	"botan_privkey_load_rsa_pkcs1",
-	"botan_kdf",
+	"botan_privkey_load",
+	"botan_private_key_load",
 	/* C++ due to Botan */
 	"__cxa_get_globals",
 	"__cxa_thread_atexit",
 };
+
+/**
+ * Functions that may free memory allocated before hooks were enabled
+ * (e.g. during init_static_allocations()).  If such a function appears
+ * in the backtrace of a free/realloc of unknown memory, we silently pass
+ * it through instead of printing a warning.
+ */
+static char *unknown_memory_whitelist[] = {
+	"tzset",
+	"OPENSSL_cleanup",
+};
+
+/**
+ * Check if the current call stack contains a function that is known to free
+ * pre-existing (i.e. unknown) memory.  The backtrace is returned and used to
+ * report the function if that's not the case.
+ */
+static bool allow_unknown_memory(backtrace_t **bt)
+{
+	*bt = backtrace_create(3);
+	return (*bt)->contains_function(*bt, unknown_memory_whitelist,
+									countof(unknown_memory_whitelist));
+}
 
 /**
  * Some functions are hard to whitelist, as they don't use a symbol directly.
@@ -943,7 +965,6 @@ HOOK(void, free, void *ptr)
 {
 	memory_header_t *hdr;
 	memory_tail_t *tail;
-	backtrace_t *backtrace;
 	bool before;
 
 	if (!enabled || thread_disabled->get(thread_disabled))
@@ -975,6 +996,7 @@ HOOK(void, free, void *ptr)
 	if (hdr->magic != MEMORY_HEADER_MAGIC ||
 		tail->magic != MEMORY_TAIL_MAGIC)
 	{
+		backtrace_t *backtrace = NULL;
 		bool bt = TRUE;
 
 		/* check if memory appears to be allocated by our hooks */
@@ -1001,7 +1023,7 @@ HOOK(void, free, void *ptr)
 			/* just free this block of unknown memory */
 			hdr = ptr;
 
-			if (ignore_unknown)
+			if (ignore_unknown || allow_unknown_memory(&backtrace))
 			{
 				bt = FALSE;
 			}
@@ -1012,10 +1034,13 @@ HOOK(void, free, void *ptr)
 		}
 		if (bt)
 		{
-			backtrace = backtrace_create(2);
+			if (!backtrace)
+			{
+				backtrace = backtrace_create(2);
+			}
 			backtrace->log(backtrace, stderr, TRUE);
-			backtrace->destroy(backtrace);
 		}
+		DESTROY_IF(backtrace);
 	}
 	else
 	{
@@ -1038,7 +1063,6 @@ HOOK(void*, realloc, void *old, size_t bytes)
 {
 	memory_header_t *hdr;
 	memory_tail_t *tail;
-	backtrace_t *backtrace;
 	bool before, have_backtrace = TRUE;
 
 	if (!enabled || thread_disabled->get(thread_disabled))
@@ -1064,6 +1088,7 @@ HOOK(void*, realloc, void *old, size_t bytes)
 	if (hdr->magic != MEMORY_HEADER_MAGIC ||
 		tail->magic != MEMORY_TAIL_MAGIC)
 	{
+		backtrace_t *backtrace = NULL;
 		bool bt = TRUE;
 
 		/* check if memory appears to be allocated by our hooks */
@@ -1094,7 +1119,7 @@ HOOK(void*, realloc, void *old, size_t bytes)
 			hdr = old;
 			have_backtrace = FALSE;
 
-			if (ignore_unknown)
+			if (ignore_unknown || allow_unknown_memory(&backtrace))
 			{
 				bt = FALSE;
 			}
@@ -1106,10 +1131,13 @@ HOOK(void*, realloc, void *old, size_t bytes)
 		}
 		if (bt)
 		{
-			backtrace = backtrace_create(2);
+			if (!backtrace)
+			{
+				backtrace = backtrace_create(2);
+			}
 			backtrace->log(backtrace, stderr, TRUE);
-			backtrace->destroy(backtrace);
 		}
+		DESTROY_IF(backtrace);
 	}
 	else
 	{

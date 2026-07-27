@@ -112,7 +112,7 @@ METHOD(enumerator_t, cert_enumerator_enumerate, bool,
 				}
 				else if (key.len == 96)
 				{
-					curve = OID_SECT384R1;
+					curve = OID_SECP384R1;
 				}
 				if (curve)
 				{

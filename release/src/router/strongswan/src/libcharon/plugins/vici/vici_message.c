@@ -183,13 +183,17 @@ METHOD(enumerator_t, parse_enumerate, bool,
 			this->list = TRUE;
 			break;
 		case VICI_LIST_ITEM:
-			this->reader->read_data16(this->reader, value);
+			if (!this->reader->read_data16(this->reader, value))
+			{
+				DBG1(DBG_ENC, "invalid '%N' encoding", vici_type_names, type);
+				return FALSE;
+			}
 			break;
 		case VICI_LIST_END:
 			this->list = FALSE;
 			break;
 		case VICI_END:
-			return TRUE;
+			break;
 		default:
 			DBG1(DBG_ENC, "unknown encoding type: %u", type);
 			return FALSE;

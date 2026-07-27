@@ -371,6 +371,11 @@ struct private_kernel_netlink_ipsec_t {
 	bool sa_lastused;
 
 	/**
+	 * Whether the kernel accepts XFRM_STATE_AF_UNSPEC for transport mode
+	 */
+	bool sa_unspec_transport;
+
+	/**
 	 * Whether the kernel supports setting the SA direction
 	 */
 	bool sa_dir;
@@ -470,7 +475,7 @@ static u_int ipsec_sa_hash(ipsec_sa_t *sa)
 						  chunk_hash_inc(chunk_from_thing(sa->mark),
 						  chunk_hash_inc(chunk_from_thing(sa->if_id),
 						  chunk_hash_inc(chunk_from_thing(sa->hw_offload),
-						  chunk_hash(chunk_from_thing(sa->cfg)))))));
+						  ipsec_sa_cfg_hash(&sa->cfg))))));
 }
 
 /**
@@ -554,6 +559,9 @@ struct policy_sa_t {
 	/** Whether to trigger per-CPU acquires for this policy */
 	bool pcpu_acquires;
 
+	/** Whether to forward certain ICMP error messages for this policy */
+	bool forward_icmp;
+
 	/** Assigned SA */
 	ipsec_sa_t *sa;
 };
@@ -577,19 +585,16 @@ struct policy_sa_out_t {
  * Create a policy_sa(_out)_t object
  */
 static policy_sa_t *policy_sa_create(private_kernel_netlink_ipsec_t *this,
-	policy_dir_t dir, policy_type_t type, host_t *src, host_t *dst,
-	traffic_selector_t *src_ts, traffic_selector_t *dst_ts, mark_t mark,
-	uint32_t if_id, hw_offload_t hw_offload, bool pcpu_acquires,
-	ipsec_sa_cfg_t *cfg)
+	kernel_ipsec_policy_id_t *id, kernel_ipsec_manage_policy_t *data)
 {
 	policy_sa_t *policy;
 
-	if (dir == POLICY_OUT)
+	if (id->dir == POLICY_OUT)
 	{
 		policy_sa_out_t *out;
 		INIT(out,
-			.src_ts = src_ts->clone(src_ts),
-			.dst_ts = dst_ts->clone(dst_ts),
+			.src_ts = id->src_ts->clone(id->src_ts),
+			.dst_ts = id->dst_ts->clone(id->dst_ts),
 		);
 		policy = &out->generic;
 	}
@@ -597,9 +602,11 @@ static policy_sa_t *policy_sa_create(private_kernel_netlink_ipsec_t *this,
 	{
 		INIT(policy, .priority = 0);
 	}
-	policy->type = type;
-	policy->pcpu_acquires = pcpu_acquires;
-	policy->sa = ipsec_sa_create(this, src, dst, mark, if_id, hw_offload, cfg);
+	policy->type = data->type;
+	policy->pcpu_acquires = data->pcpu_acquires;
+	policy->forward_icmp = data->forward_icmp;
+	policy->sa = ipsec_sa_create(this, data->src, data->dst, id->mark,
+								 id->if_id, data->hw_offload, data->sa);
 	return policy;
 }
 
@@ -1807,6 +1814,11 @@ METHOD(kernel_ipsec_t, add_sa, status_t,
 		sa->flags |= XFRM_STATE_NOECN;
 	}
 
+	if (data->inbound && data->forward_icmp)
+	{
+		sa->flags |= XFRM_STATE_ICMP;
+	}
+
 	if (data->inbound)
 	{
 		switch (data->copy_dscp)
@@ -1854,6 +1866,10 @@ METHOD(kernel_ipsec_t, add_sa, status_t,
 			if (original_mode == MODE_TUNNEL)
 			{	/* don't install selectors for switched SAs.  because only one
 				 * selector can be installed other traffic would get dropped */
+				if (this->sa_unspec_transport)
+				{
+					sa->flags |= XFRM_STATE_AF_UNSPEC;
+				}
 				break;
 			}
 			if (data->src_ts->get_first(data->src_ts,
@@ -2716,6 +2732,9 @@ METHOD(kernel_ipsec_t, update_sa, status_t,
 		{
 			ts->set_address(ts, data->new_dst);
 			ts2subnet(ts, &sa->sel.daddr, &sa->sel.prefixlen_d);
+			/* can't set this for src, otherwise selector2ts() will fail, but
+			 * if the family changes, both addresses need updating anyway */
+			sa->sel.family = data->new_dst->get_family(data->new_dst);
 		}
 		DESTROY_IF(ts);
 	}
@@ -3001,7 +3020,7 @@ static void install_route(private_kernel_netlink_ipsec_t *this,
 		policy->route = NULL;
 	}
 
-	DBG2(DBG_KNL, "installing route: %R via %H src %H dev %s", out->dst_ts,
+	DBG2(DBG_KNL, "installing route: %R via %+H src %H dev %s", out->dst_ts,
 		 route->gateway, route->src_ip, route->if_name);
 	switch (charon->kernel->add_route(charon->kernel, route->dst_net,
 									  route->prefixlen, route->gateway,
@@ -3064,6 +3083,12 @@ static status_t add_policy_internal(private_kernel_netlink_ipsec_t *this,
 	policy_info->action = mapping->type != POLICY_DROP ? XFRM_POLICY_ALLOW
 													   : XFRM_POLICY_BLOCK;
 	policy_info->share = XFRM_SHARE_ANY;
+
+	if (mapping->type == POLICY_IPSEC && policy->direction != POLICY_IN &&
+		mapping->forward_icmp)
+	{
+		policy_info->flags |= XFRM_POLICY_ICMP;
+	}
 
 	/* policies don't expire */
 	policy_info->lft.soft_byte_limit = XFRM_INF;
@@ -3262,10 +3287,7 @@ METHOD(kernel_ipsec_t, add_policy, status_t,
 	}
 
 	/* cache the assigned IPsec SA */
-	assigned_sa = policy_sa_create(this, id->dir, data->type, data->src,
-								   data->dst, id->src_ts, id->dst_ts, id->mark,
-								   id->if_id, data->hw_offload,
-								   data->pcpu_acquires, data->sa);
+	assigned_sa = policy_sa_create(this, id, data);
 	assigned_sa->auto_priority = get_priority(policy, data->prio, id->interface);
 	assigned_sa->priority = this->get_priority ? this->get_priority(id, data)
 											   : data->manual_prio;
@@ -3499,6 +3521,7 @@ METHOD(kernel_ipsec_t, del_policy, status_t,
 			auto_priority == mapping->auto_priority &&
 			data->type == mapping->type &&
 			data->pcpu_acquires == mapping->pcpu_acquires &&
+			data->forward_icmp == mapping->forward_icmp &&
 			ipsec_sa_equals(mapping->sa, &assigned_sa))
 		{
 			current->used_by->remove_at(current->used_by, enumerator);
@@ -4297,9 +4320,12 @@ static void check_kernel_features(private_kernel_netlink_ipsec_t *this)
 		{
 			case 2:
 			case 3:
-				/* before 6.2 the kernel only provided the last used time for
+				/* before 6.2, the kernel only provided the last used time for
 				 * specific outbound IPv6 SAs */
 				this->sa_lastused = a > 6 || (a == 6 && b >= 2);
+				/* before 6.3, the kernel rejected XFRM_STATE_AF_UNSPEC on
+				 * transport mode SAs */
+				this->sa_unspec_transport = a > 6 || (a == 6 && b >= 3);
 				/* 6.10 added support for SA direction and enforces certain
 				 * flags e.g. 0 replay window for outbound SAs */
 				this->sa_dir = a > 6 || (a == 6 && b >= 10);

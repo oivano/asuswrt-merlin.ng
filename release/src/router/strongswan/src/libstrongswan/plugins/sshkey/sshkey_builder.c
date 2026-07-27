@@ -41,11 +41,11 @@ static chunk_t parse_ec_identifier(chunk_t identifier)
 	}
 	else if (chunk_equals(identifier, chunk_from_str("nistp384")))
 	{
-		oid = asn1_build_known_oid(OID_SECT384R1);
+		oid = asn1_build_known_oid(OID_SECP384R1);
 	}
 	else if (chunk_equals(identifier, chunk_from_str("nistp521")))
 	{
-		oid = asn1_build_known_oid(OID_SECT521R1);
+		oid = asn1_build_known_oid(OID_SECP521R1);
 	}
 	else
 	{

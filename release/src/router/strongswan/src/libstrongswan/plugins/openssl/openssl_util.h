@@ -58,6 +58,15 @@ bool openssl_compute_shared_key(EVP_PKEY *priv, EVP_PKEY *pub, chunk_t *shared);
 bool openssl_fingerprint(EVP_PKEY *key, cred_encoding_type_t type, chunk_t *fp);
 
 /**
+ * Wrap the given OpenSSL private key in a type-specific private key object.
+ *
+ * @param key		key object to wrap
+ * @param engine	TRUE if key can't be accessed directly
+ * @returns			created object or NULL if key type is not supported
+ */
+private_key_t *openssl_wrap_private_key(EVP_PKEY *key, bool engine);
+
+/**
  * Concatenates two bignums into a chunk, thereby enforcing the length of
  * a single BIGNUM, if necessary, by prepending it with zeros.
  *
@@ -139,7 +148,7 @@ chunk_t openssl_asn1_int2chunk(const ASN1_INTEGER *asn1);
  * @param name		name to convert
  * @return			identification_t, NULL on error
  */
-identification_t *openssl_x509_name2id(X509_NAME *name);
+identification_t *openssl_x509_name2id(const X509_NAME *name);
 
 /**
  * Check if an ASN1 oid is a an OID known by libstrongswan.

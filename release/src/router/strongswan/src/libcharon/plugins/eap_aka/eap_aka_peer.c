@@ -244,7 +244,7 @@ static status_t process_challenge(private_eap_aka_peer_t *this,
 	}
 	enumerator->destroy(enumerator);
 
-	if (!rand.len || !autn.len)
+	if (rand.len != AKA_RAND_LEN || autn.len != AKA_AUTN_LEN)
 	{
 		DBG1(DBG_IKE, "received invalid EAP-AKA challenge message");
 		if (!create_client_error(this, out))

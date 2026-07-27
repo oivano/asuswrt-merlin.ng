@@ -396,7 +396,7 @@ static bool install(private_quick_mode_t *this)
 	other_ts = linked_list_create_from_enumerator(
 				this->child_sa->create_ts_enumerator(this->child_sa, FALSE));
 
-	DBG0(DBG_IKE, "CHILD_SA %s{%d} established "
+	DBG0(DBG_IKE, "CHILD_SA %s{%u} established "
 		 "with SPIs %.8x_i %.8x_o and TS %#R === %#R",
 		 this->child_sa->get_name(this->child_sa),
 		 this->child_sa->get_unique_id(this->child_sa),
@@ -802,7 +802,7 @@ static linked_list_t *get_proposals(private_quick_mode_t *this,
 	proposal_t *proposal;
 	enumerator_t *enumerator;
 
-	list = this->config->get_proposals(this->config, FALSE);
+	list = this->config->get_proposals(this->config, FALSE, TRUE);
 	enumerator = list->create_enumerator(list);
 	while (enumerator->enumerate(enumerator, &proposal))
 	{
@@ -864,7 +864,7 @@ METHOD(task_t, build_i, status_t,
 				}
 			}
 
-			list = this->config->get_proposals(this->config, FALSE);
+			list = this->config->get_proposals(this->config, FALSE, TRUE);
 			if (list->get_first(list, (void**)&proposal) == SUCCESS)
 			{
 				this->proto = proposal->get_protocol(proposal);

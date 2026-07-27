@@ -77,6 +77,7 @@ static inline void X509_get0_signature(ASN1_BIT_STRING **psig, X509_ALGOR **palg
 #define X509v3_addr_is_canonical v3_addr_is_canonical
 #define X509_get0_notBefore X509_get_notBefore
 #define X509_get0_notAfter X509_get_notAfter
+#define ASN1_STRING_get0_data ASN1_STRING_data
 #endif
 
 typedef struct private_openssl_x509_t private_openssl_x509_t;
@@ -725,12 +726,14 @@ static bool parse_keyUsage_ext(private_openssl_x509_t *this,
 	usage = X509V3_EXT_d2i(ext);
 	if (usage)
 	{
-		if (usage->length > 0)
+		const u_char *data = ASN1_STRING_get0_data(usage);
+		int length = ASN1_STRING_length(usage);
+		if (length > 0)
 		{
-			int flags = usage->data[0];
-			if (usage->length > 1)
+			int flags = data[0];
+			if (length > 1)
 			{
-				flags |= usage->data[1] << 8;
+				flags |= data[1] << 8;
 			}
 			if (flags & X509v3_KU_CRL_SIGN)
 			{
@@ -982,7 +985,7 @@ static bool parse_ipAddrBlock_ext(private_openssl_x509_t *this,
 
 	if (!X509v3_addr_is_canonical(blocks))
 	{
-		sk_IPAddressFamily_free(blocks);
+		sk_IPAddressFamily_pop_free(blocks, IPAddressFamily_free);
 		return FALSE;
 	}
 

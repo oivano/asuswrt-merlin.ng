@@ -1,5 +1,5 @@
-/* ANSI-C code produced by gperf version 3.1 */
-/* Command-line: /usr/bin/gperf -N proposal_get_token_static -m 10 -C -G -c -t -D --output-file=crypto/proposal/proposal_keywords_static.c ./crypto/proposal/proposal_keywords_static.txt  */
+/* ANSI-C code produced by gperf version 3.2.1 */
+/* Command-line: gperf -N proposal_get_token_static -m 10 -C -G -c -t -D --output-file=crypto/proposal/proposal_keywords_static.c ./crypto/proposal/proposal_keywords_static.txt  */
 /* Computed positions: -k'1,5,7,10,15,$' */
 
 #if !((' ' == 32) && ('!' == 33) && ('"' == 34) && ('#' == 35) \
@@ -114,6 +114,11 @@ hash (register const char *str, register size_t len)
     {
       default:
         hval += asso_values[(unsigned char)str[14]];
+#if (defined __cplusplus && (__cplusplus >= 201703L || (__cplusplus >= 201103L && defined __clang__ && __clang_major__ + (__clang_minor__ >= 9) > 3))) || (defined __STDC_VERSION__ && __STDC_VERSION__ >= 202000L && ((defined __GNUC__ && __GNUC__ >= 10) || (defined __clang__ && __clang_major__ >= 9)))
+      [[fallthrough]];
+#elif (defined __GNUC__ && __GNUC__ >= 7) || (defined __clang__ && __clang_major__ >= 10)
+      __attribute__ ((__fallthrough__));
+#endif
       /*FALLTHROUGH*/
       case 14:
       case 13:
@@ -121,15 +126,30 @@ hash (register const char *str, register size_t len)
       case 11:
       case 10:
         hval += asso_values[(unsigned char)str[9]];
+#if (defined __cplusplus && (__cplusplus >= 201703L || (__cplusplus >= 201103L && defined __clang__ && __clang_major__ + (__clang_minor__ >= 9) > 3))) || (defined __STDC_VERSION__ && __STDC_VERSION__ >= 202000L && ((defined __GNUC__ && __GNUC__ >= 10) || (defined __clang__ && __clang_major__ >= 9)))
+      [[fallthrough]];
+#elif (defined __GNUC__ && __GNUC__ >= 7) || (defined __clang__ && __clang_major__ >= 10)
+      __attribute__ ((__fallthrough__));
+#endif
       /*FALLTHROUGH*/
       case 9:
       case 8:
       case 7:
         hval += asso_values[(unsigned char)str[6]];
+#if (defined __cplusplus && (__cplusplus >= 201703L || (__cplusplus >= 201103L && defined __clang__ && __clang_major__ + (__clang_minor__ >= 9) > 3))) || (defined __STDC_VERSION__ && __STDC_VERSION__ >= 202000L && ((defined __GNUC__ && __GNUC__ >= 10) || (defined __clang__ && __clang_major__ >= 9)))
+      [[fallthrough]];
+#elif (defined __GNUC__ && __GNUC__ >= 7) || (defined __clang__ && __clang_major__ >= 10)
+      __attribute__ ((__fallthrough__));
+#endif
       /*FALLTHROUGH*/
       case 6:
       case 5:
         hval += asso_values[(unsigned char)str[4]];
+#if (defined __cplusplus && (__cplusplus >= 201703L || (__cplusplus >= 201103L && defined __clang__ && __clang_major__ + (__clang_minor__ >= 9) > 3))) || (defined __STDC_VERSION__ && __STDC_VERSION__ >= 202000L && ((defined __GNUC__ && __GNUC__ >= 10) || (defined __clang__ && __clang_major__ >= 9)))
+      [[fallthrough]];
+#elif (defined __GNUC__ && __GNUC__ >= 7) || (defined __clang__ && __clang_major__ >= 10)
+      __attribute__ ((__fallthrough__));
+#endif
       /*FALLTHROUGH*/
       case 4:
       case 3:
@@ -141,6 +161,10 @@ hash (register const char *str, register size_t len)
   return hval + asso_values[(unsigned char)str[len - 1]];
 }
 
+#if (defined __GNUC__ && __GNUC__ + (__GNUC_MINOR__ >= 6) > 4) || (defined __clang__ && __clang_major__ >= 3)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#endif
 static const struct proposal_token wordlist[] =
   {
 #line 33 "./crypto/proposal/proposal_keywords_static.txt"
@@ -450,6 +474,9 @@ static const struct proposal_token wordlist[] =
 #line 153 "./crypto/proposal/proposal_keywords_static.txt"
     {"modpnone",         KEY_EXCHANGE_METHOD, KE_NONE,                    0}
   };
+#if (defined __GNUC__ && __GNUC__ + (__GNUC_MINOR__ >= 6) > 4) || (defined __clang__ && __clang_major__ >= 3)
+#pragma GCC diagnostic pop
+#endif
 
 static const short lookup[] =
   {
@@ -504,5 +531,5 @@ proposal_get_token_static (register const char *str, register size_t len)
             }
         }
     }
-  return 0;
+  return (struct proposal_token *) 0;
 }

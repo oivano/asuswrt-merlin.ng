@@ -621,16 +621,16 @@ METHOD(tpm_tss_t, get_public, chunk_t,
 					curve_oid = OID_PRIME192V1;
 					break;
 				case TPM2_ECC_NIST_P224:
-					curve_oid = OID_SECT224R1;
+					curve_oid = OID_SECP224R1;
 					break;
 				case TPM2_ECC_NIST_P256:
 					curve_oid = OID_PRIME256V1;
 					break;
 				case TPM2_ECC_NIST_P384:
-					curve_oid = OID_SECT384R1;
+					curve_oid = OID_SECP384R1;
 					break;
 				case TPM2_ECC_NIST_P521:
-					curve_oid = OID_SECT521R1;
+					curve_oid = OID_SECP521R1;
 					break;
 				default:
 					DBG1(DBG_PTS, "ECC curve type not supported");
