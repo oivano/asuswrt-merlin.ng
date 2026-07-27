@@ -7,6 +7,11 @@
 #define SZ_TMP    512
 #define SZ_BUF    512
 #define SZ_128BUF 128
+
+/* Max IKE/ESP proposal string:
+ * ENCRYPTION_TYPE_MAX_NUM(5) x HASH_TYPE_MAX_NUM(5) x DH_GROUP_MAX_NUM(22)
+ * x max_entry_len(28) = ~15400 bytes; rounded up to next power of two. */
+#define IKE_PROPOSAL_BUF_SZ 16384
 #define SZ_64BUF  64
 #define SZ_4BUF   4
 #define SZ_MIN    32
@@ -219,10 +224,10 @@ typedef struct ipsec_prof_s{
     char eap_identity[SZ_128BUF];
 	uint16_t encryption_p1_ext;
 	uint16_t hash_p1_ext;
-	uint16_t dh_group;
+	uint32_t dh_group;  /* bitmask; groups 27-32 require bits 16-21, needs uint32_t */
 	uint16_t encryption_p2_ext;
 	uint16_t hash_p2_ext;
-	uint16_t pfs_group;
+	uint32_t pfs_group; /* bitmask; same range as dh_group */
 }ipsec_prof_t;
 
 
