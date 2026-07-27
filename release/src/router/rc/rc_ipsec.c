@@ -478,7 +478,7 @@ void ipsec_prof_fill_ext(int prof_idx, char *p_data, ipsec_prof_type_t prof_type
 	p_end += i; /*to shifft next '>'*/
 
 	/*dh_group*/
-    prof[prof_type][prof_idx].dh_group = (uint16_t)ipsec_profile_int_parse(FLAG_NONE,
+    prof[prof_type][prof_idx].dh_group = (uint32_t)ipsec_profile_int_parse(FLAG_NONE,
                                                                p_end, &i);
 	p_end += i; /*to shifft next '>'*/
 
@@ -493,7 +493,7 @@ void ipsec_prof_fill_ext(int prof_idx, char *p_data, ipsec_prof_type_t prof_type
 	p_end += i; /*to shifft next '>'*/
 
 	/*pfs_group*/
-    prof[prof_type][prof_idx].pfs_group= atoi(p_end); /*the last one doesn't need to parse ">".*/
+    prof[prof_type][prof_idx].pfs_group = (uint32_t)atoi(p_end); /*the last one doesn't need to parse ">".*/
 
 	/*the end of profile*/
 	return;
@@ -1482,17 +1482,23 @@ void ipsec_conf_remote_set(FILE *fp, int prof_idx, ipsec_prof_type_t prof_type)
 char* get_ike_esp_bit_convert(char *str, int size, int maxNum, int n, int type)
 {
 	int i;
-	char tmpStr[12];
+	char tmpStr[32];
+	size_t curLen, entryLen;
 	memset(str, 0, size);
 	for(i = 0; i < maxNum; i++){
 		if((n >> i) & 0x1 ){
 			if(type == FLAG_IKE_ENCRYPT)
-				sprintf(tmpStr, "-%s", encryp[i]);
+				snprintf(tmpStr, sizeof(tmpStr), "-%s", encryp[i]);
 			else if(type == FLAG_ESP_HASH)
-				sprintf(tmpStr, "-%s", hash[i]);
+				snprintf(tmpStr, sizeof(tmpStr), "-%s", hash[i]);
 			else if(type == FLAG_DH_GROUP)
-				sprintf(tmpStr, "-%s", dh_group[i]);
-			strcat(str, tmpStr);
+				snprintf(tmpStr, sizeof(tmpStr), "-%s", dh_group[i]);
+			else
+				continue;
+			curLen = strlen(str);
+			entryLen = strlen(tmpStr);
+			if(curLen + entryLen + 1 < (size_t)size)
+				strcat(str, tmpStr);
 		}
 	}
 	return str;
@@ -1501,6 +1507,7 @@ char* get_ike_esp_bit_convert1(char *str, int size, int n1, int n2, int n3)
 {
 	int i,j,k;
 	char tmpStr[SZ_MIN];
+	size_t curLen, entryLen;
 	memset(str, 0, size);
 	memset(tmpStr, 0, sizeof(tmpStr));
 	for(i = 0; i < ENCRYPTION_TYPE_MAX_NUM; i++){
@@ -1508,15 +1515,21 @@ char* get_ike_esp_bit_convert1(char *str, int size, int n1, int n2, int n3)
 			if(n3 !=0){
 				for(k = 0; k < DH_GROUP_MAX_NUM; k++){
 					if(((n1 >> i) & 0x1) && ((n2 >> j) & 0x1) && ((n3 >> k) & 0x1)){
-						sprintf(tmpStr, ",%s-%s-%s", encryp[i], hash[j], dh_group[k]);
-						strcat(str, tmpStr);
+						snprintf(tmpStr, sizeof(tmpStr), ",%s-%s-%s", encryp[i], hash[j], dh_group[k]);
+						curLen = strlen(str);
+						entryLen = strlen(tmpStr);
+						if(curLen + entryLen + 1 < (size_t)size)
+							strcat(str, tmpStr);
 					}
 				}
 			}
 			else{
 				if(((n1 >> i) & 0x1) && ((n2 >> j) & 0x1)){
-					sprintf(tmpStr, ",%s-%s", encryp[i], hash[j]);
-					strcat(str, tmpStr);
+					snprintf(tmpStr, sizeof(tmpStr), ",%s-%s", encryp[i], hash[j]);
+					curLen = strlen(str);
+					entryLen = strlen(tmpStr);
+					if(curLen + entryLen + 1 < (size_t)size)
+						strcat(str, tmpStr);
 				}
 			}
 		}
@@ -1526,7 +1539,7 @@ char* get_ike_esp_bit_convert1(char *str, int size, int n1, int n2, int n3)
 
 void ipsec_conf_phase1_set(FILE *fp, int prof_idx, ipsec_prof_type_t prof_type)
 {
-	char str[1024];
+	char str[IKE_PROPOSAL_BUF_SZ];
 	memset(str, 0, sizeof(str));
     fprintf(fp, "  ikelifetime=%d\n", prof[prof_type][prof_idx].keylife_p1);
 	fprintf(fp, "  ike=%s!\n", get_ike_esp_bit_convert1(str, sizeof(str), prof[prof_type][prof_idx].encryption_p1_ext, prof[prof_type][prof_idx].hash_p1_ext, prof[prof_type][prof_idx].dh_group) + 1);
@@ -1556,7 +1569,7 @@ void ipsec_conf_phase1_set(FILE *fp, int prof_idx, ipsec_prof_type_t prof_type)
 
 void ipsec_conf_phase2_set(FILE *fp, int prof_idx, ipsec_prof_type_t prof_type)
 {
-	char str[1024];
+	char str[IKE_PROPOSAL_BUF_SZ];
     fprintf(fp, "  keylife=%d\n", prof[prof_type][prof_idx].keylife_p2);
 	fprintf(fp, "  esp=%s!\n", get_ike_esp_bit_convert1(str, sizeof(str), prof[prof_type][prof_idx].encryption_p2_ext, prof[prof_type][prof_idx].hash_p2_ext, prof[prof_type][prof_idx].pfs_group) + 1);
 	//fprintf(fp, "  esp=%s", get_ike_esp_bit_convert(str, sizeof(str), ENCRYPTION_TYPE_MAX_NUM, prof[prof_type][prof_idx].encryption_p2_ext, FLAG_IKE_ENCRYPT) + 1);
