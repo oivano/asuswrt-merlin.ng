@@ -79,7 +79,7 @@ static void log_task_q(FILE *out, ike_sa_t *ike_sa, task_queue_t q, char *name)
 	{
 		if (!has)
 		{
-			fprintf(out, "%12s[%d]: Tasks %s: ", ike_sa->get_name(ike_sa),
+			fprintf(out, "%12s[%u]: Tasks %s: ", ike_sa->get_name(ike_sa),
 					ike_sa->get_unique_id(ike_sa), name);
 			has = TRUE;
 		}
@@ -100,7 +100,7 @@ static void log_ike_sa(FILE *out, ike_sa_t *ike_sa, bool all)
 	ike_sa_id_t *id = ike_sa->get_id(ike_sa);
 	time_t now = time_monotonic(NULL);
 
-	fprintf(out, "%12s[%d]: %N",
+	fprintf(out, "%12s[%u]: %N",
 			ike_sa->get_name(ike_sa), ike_sa->get_unique_id(ike_sa),
 			ike_sa_state_names, ike_sa->get_state(ike_sa));
 
@@ -125,7 +125,7 @@ static void log_ike_sa(FILE *out, ike_sa_t *ike_sa, bool all)
 
 		if (!eap_id->equals(eap_id, ike_sa->get_other_id(ike_sa)))
 		{
-			fprintf(out, "%12s[%d]: Remote %s identity: %Y\n",
+			fprintf(out, "%12s[%u]: Remote %s identity: %Y\n",
 					ike_sa->get_name(ike_sa), ike_sa->get_unique_id(ike_sa),
 					ike_sa->get_version(ike_sa) == IKEV1 ? "XAuth" : "EAP",
 					eap_id);
@@ -133,7 +133,7 @@ static void log_ike_sa(FILE *out, ike_sa_t *ike_sa, bool all)
 
 		ike_proposal = ike_sa->get_proposal(ike_sa);
 
-		fprintf(out, "%12s[%d]: %N SPIs: %.16"PRIx64"_i%s %.16"PRIx64"_r%s",
+		fprintf(out, "%12s[%u]: %N SPIs: %.16"PRIx64"_i%s %.16"PRIx64"_r%s",
 				ike_sa->get_name(ike_sa), ike_sa->get_unique_id(ike_sa),
 				ike_version_names, ike_sa->get_version(ike_sa),
 				be64toh(id->get_initiator_spi(id)),
@@ -188,7 +188,7 @@ static void log_ike_sa(FILE *out, ike_sa_t *ike_sa, bool all)
 			char buf[BUF_LEN];
 
 			snprintf(buf, BUF_LEN, "%P", ike_proposal);
-			fprintf(out, "%12s[%d]: IKE proposal: %s\n",
+			fprintf(out, "%12s[%u]: IKE proposal: %s\n",
 					ike_sa->get_name(ike_sa), ike_sa->get_unique_id(ike_sa),
 					buf+4);
 		}
@@ -213,7 +213,7 @@ static void log_child_sa(FILE *out, child_sa_t *child_sa, bool all)
 	config = child_sa->get_config(child_sa);
 	now = time_monotonic(NULL);
 
-	fprintf(out, "%12s{%d}:  %N, %N%s, reqid %u",
+	fprintf(out, "%12s{%u}:  %N, %N%s, reqid %u",
 			child_sa->get_name(child_sa), child_sa->get_unique_id(child_sa),
 			child_sa_state_names, child_sa->get_state(child_sa),
 			ipsec_mode_names, child_sa->get_mode(child_sa),
@@ -237,7 +237,7 @@ static void log_child_sa(FILE *out, child_sa_t *child_sa, bool all)
 
 		if (all)
 		{
-			fprintf(out, "\n%12s{%d}:  ", child_sa->get_name(child_sa),
+			fprintf(out, "\n%12s{%u}:  ", child_sa->get_name(child_sa),
 					child_sa->get_unique_id(child_sa));
 
 			proposal = child_sa->get_proposal(child_sa);
@@ -329,7 +329,7 @@ static void log_child_sa(FILE *out, child_sa_t *child_sa, bool all)
 							child_sa->create_ts_enumerator(child_sa, TRUE));
 	other_ts = linked_list_create_from_enumerator(
 							child_sa->create_ts_enumerator(child_sa, FALSE));
-	fprintf(out, "\n%12s{%d}:   %#R === %#R\n",
+	fprintf(out, "\n%12s{%u}:   %#R === %#R\n",
 			child_sa->get_name(child_sa), child_sa->get_unique_id(child_sa),
 			my_ts, other_ts);
 	my_ts->destroy(my_ts);

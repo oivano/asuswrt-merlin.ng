@@ -491,13 +491,13 @@ wolfssl_ec_private_key_t *wolfssl_ec_private_key_load(key_type_t type,
 						oid = OID_UNKNOWN;
 					}
 					break;
-				case OID_SECT384R1:
+				case OID_SECP384R1:
 					if (this->ec.dp->id != ECC_SECP384R1)
 					{
 						oid = OID_UNKNOWN;
 					}
 					break;
-				case OID_SECT521R1:
+				case OID_SECP521R1:
 					if (this->ec.dp->id != ECC_SECP521R1)
 					{
 						oid = OID_UNKNOWN;

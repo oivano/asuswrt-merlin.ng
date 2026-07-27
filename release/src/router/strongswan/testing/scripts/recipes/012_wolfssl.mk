@@ -2,7 +2,7 @@
 
 PKG = wolfssl
 SRC = https://github.com/wolfSSL/$(PKG).git
-REV = v5.8.0-stable
+REV = v5.9.1-stable
 
 NUM_CPUS := $(shell getconf _NPROCESSORS_ONLN)
 
@@ -26,7 +26,6 @@ CONFIG_OPTS = \
 	--enable-ed25519 \
 	--enable-ed448 \
 	--enable-keygen \
-	--enable-md4 \
 	--enable-mlkem \
 	--enable-rsapss \
 	--enable-sha3 \

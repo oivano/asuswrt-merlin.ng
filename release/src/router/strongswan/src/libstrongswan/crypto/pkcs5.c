@@ -113,6 +113,11 @@ static bool verify_padding(crypter_t *crypter, chunk_t *blob)
 {
 	uint8_t padding, count;
 
+	if (!blob->len)
+	{
+		return FALSE;
+	}
+
 	padding = count = blob->ptr[blob->len - 1];
 
 	if (padding > crypter->get_block_size(crypter))
@@ -344,7 +349,7 @@ METHOD(pkcs5_t, decrypt, bool,
 	chunk_t keymat, key, iv;
 	derive_t kdf;
 
-	if (!ensure_crypto_primitives(this, data) || !decrypted)
+	if (!data.len || !ensure_crypto_primitives(this, data) || !decrypted)
 	{
 		return FALSE;
 	}

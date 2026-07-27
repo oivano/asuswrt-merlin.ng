@@ -776,12 +776,15 @@ command.
 			nat-any = <yes, if any endpoint is behind a NAT (also if faked)>
 			if-id-in = <hex encoded default inbound XFRM interface ID>
 			if-id-out = <hex encoded default outbound XFRM interface ID>
-			encr-alg = <IKE encryption algorithm string>
+			encr-alg = <IKE encryption algorithm name>
 			encr-keysize = <key size for encr-alg, if applicable>
-			integ-alg = <IKE integrity algorithm string>
+			integ-alg = <IKE integrity algorithm name>
 			integ-keysize = <key size for encr-alg, if applicable>
-			prf-alg = <IKE pseudo random function string>
-			dh-group = <IKE Diffie-Hellman group string>
+			prf-alg = <IKE pseudo random function name>
+			dh-group = <IKE key exchange method name>
+			ake1 = <first additional IKE key exchange method name, if any>
+			...
+			ake7 = <seventh additional IKE key exchange method name, if any>
 			established = <seconds the IKE_SA has been established>
 			rekey-time = <seconds before IKE_SA gets rekeyed>
 			reauth-time = <seconds before IKE_SA gets re-authenticated>
@@ -827,7 +830,10 @@ command.
 					integ-alg = <ESP or AH integrity algorithm name, if any>
 					integ-keysize = <ESP or AH integrity key size, if applicable>
 					prf-alg = <CHILD_SA pseudo random function name>
-					dh-group = <CHILD_SA PFS rekeying DH group name, if any>
+					dh-group = <CHILD_SA key exchange method name, if any>
+					ake1 = <first additional CHILD_SA key exchange method name, if any>
+					...
+					ake7 = <seventh additional CHILD_SA key exchange method name, if any>
 					esn = <1 if using extended sequence numbers>
 					bytes-in = <number of input bytes processed>
 					packets-in = <number of input packets processed>
@@ -882,10 +888,23 @@ _list-conns_ command.
 			remote_addrs = [
 				<list of valid remote IKE endpoint addresses>
 			]
+			local_port = <local IKE endpoint port>
+			remote_port = <remote IKE endpoint port>
 			version = <IKE version as string, IKEv1|IKEv2 or 0 for any>
 			reauth_time = <IKE_SA reauthentication interval in seconds>
 			rekey_time = <IKE_SA rekeying interval in seconds>
-
+			proposals = { # numbered (zero-based) sub-sections for IKE proposal
+				<num> = { # lists with NAME[_KEYSIZE] for each transform type in proposal
+					encr = [ <list of encryption algorithms> ]
+					integ = [ <list of integrity algorithms> ]
+					prf = [ <list of pseudo random functions> ]
+					ke = [ <list of key exchange methods> ]
+					ake1 = [ <list of first additional key exchange methods> ]
+					...
+					ake7 = [ <list fo seventh additional key exchange methods> ]
+					sn = [ <list of sequence number transforms> ]
+				}
+			}
 			local*, remote* = { # multiple local and remote auth sections
 				class = <authentication type>
 				eap-type = <EAP type to authenticate if when using EAP>
@@ -913,6 +932,12 @@ _list-conns_ command.
 					rekey_time = <CHILD_SA rekeying interval in seconds>
 					rekey_bytes = <CHILD_SA rekeying interval in bytes>
 					rekey_packets = <CHILD_SA rekeying interval in packets>
+					esp_proposals = {
+						<sub-sections for ESP proposals, see above for details>
+					}
+					ah_proposals = {
+						<sub-sections for AH proposals, see above for details>
+					}
 					local-ts = [
 						<list of local traffic selectors>
 					]
@@ -1031,6 +1056,57 @@ The _child-rekey_ event is issued when a CHILD_SA is rekeyed.
 			}
 		}
 	}
+
+### alert ###
+
+The _alert_ event is issued for specific error conditions. Some alerts can
+be associated with an IKE_SA; if so, the IKE_SA details are included under an
+_ike-sa_ property.
+
+	{
+		type = <alert type>
+		ike-sa = {
+			<IKE_SA config name> = {
+				<same data as in list-sas event, but without child-sas section>
+			}
+		}
+	}
+
+The _type_ property currently has one of the following fixed string values:
+
+  * _authorization-failed_: an authorization hook failed
+  * _cert-exceeded-path-len_: Certificate trustchain length exceeds limit
+  * _cert-expired_: Certificate rejected; it has expired
+  * _cert-no-issuer_:  Certificate rejected; no trusted issuer found
+  * _cert-policy-violation_: Certificate rejected; other policy violation
+  * _cert-revoked_: Certificate rejected; it has been revoked
+  * _cert-untrusted-root_: Certificate rejected; root not trusted
+  * _cert-validation-failed_: Certificate rejected: Validating status failed
+  * _half-open-timeout_: received half-open timeout before IKE_SA established
+  * _ike-sa-expired_: IKE_SA hit hard lifetime limit before it could be rekeyed
+  * _install-child-policy-failed_: Installation of IPsec Policy failed
+  * _install-child-sa-failed_: Installation of IPsec SAs failed
+  * _invalid-ike-spi_: received IKE message with invalid SPI
+  * _keep-on-child-sa-failure_: IKE_SA kept on failed child SA establishment
+  * _local-auth-failed_: local peer authentication failed (by us or by peer)
+  * _parse-error-body_: received IKE message with invalid body
+  * _parse-error-header_: received IKE message with invalid header
+  * _peer-addr-failed_: failed to resolve peer address
+  * _peer-auth-failed_: peer authentication failed
+  * _peer-init-unreachable_: peer did not respond to initial message
+  * _proposal-mismatch-child_: CHILD proposals do not match
+  * _proposal-mismatch-ike_: IKE proposals do not match
+  * _radius-not-responding_: a RADIUS server did not respond
+  * _retransmit-receive_: received a retransmit for a message
+  * _retransmit-send_: sending a retransmit for a message
+  * _retransmit-send-cleared_: received response for retransmitted request
+  * _retransmit-send-timeout_: sending retransmits timed out
+  * _shutdown-signal_: a shutdown signal has been received
+  * _ts-mismatch_: traffic selectors do not match
+  * _ts-narrowed_: traffic selectors have been narrowed (by us or by peer)
+  * _unique-keep_: IKE_SA deleted because of "keep" unique policy
+  * _unique-replace_: IKE_SA deleted because of "replace" unique policy
+  * _vip-failure_: allocating virtual IP failed
 
 # libvici C client library #
 

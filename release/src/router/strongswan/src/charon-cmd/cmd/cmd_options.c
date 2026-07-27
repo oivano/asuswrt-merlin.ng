@@ -31,6 +31,8 @@ cmd_option_t cmd_options[CMD_OPT_COUNT] = {
 	  "set the default log level (-1..4, default: 1)", {}},
 	{ CMD_OPT_HOST, "host", required_argument, "hostname",
 	  "DNS name or address to connect to", {}},
+	{ CMD_OPT_HOST_LOCAL, "host-local", required_argument, "hostname",
+	  "DNS name or address to connect from (default: %any)", {}},
 	{ CMD_OPT_IDENTITY, "identity", required_argument, "identity",
 	  "identity the client uses for the IKE exchange", {}},
 	{ CMD_OPT_EAP_IDENTITY, "eap-identity", required_argument, "eap-identity",
@@ -63,9 +65,13 @@ cmd_option_t cmd_options[CMD_OPT_COUNT] = {
 	  "a single ESP proposal to offer instead of the default", {}},
 	{ CMD_OPT_AH_PROPOSAL, "ah-proposal", required_argument, "proposal",
 	  "a single AH proposal to offer instead of the default", {}},
+	{ CMD_OPT_CHILDLESS, "childless", optional_argument, "force",
+	  "use childless IKE SA initiation if supported by the responder, ", {
+		"passing 'force' aborts if that's not the case",
+	}},
 	{ CMD_OPT_PROFILE, "profile", required_argument, "name",
 	  "authentication profile to use, where name is one of:", {
-		"  ikev2-pub, ikev2-eap, ikev2-pub-eap",
+		"  ikev2-pub, ikev2-eap, ikev2-pub-eap, ikev2-psk",
 		"  ikev1-pub[-am], ikev1-xauth[-am],",
 		"  ikev1-xauth-psk[-am], ikev1-hybrid[-am]",
 	}},

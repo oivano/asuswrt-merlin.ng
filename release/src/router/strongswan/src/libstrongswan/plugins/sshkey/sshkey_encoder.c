@@ -35,10 +35,10 @@ static void write_ec_identifier(bio_writer_t *writer, char *prefix, int oid,
 		case OID_PRIME256V1:
 			curve = strdup("nistp256");
 			break;
-		case OID_SECT384R1:
+		case OID_SECP384R1:
 			curve = strdup("nistp384");
 			break;
-		case OID_SECT521R1:
+		case OID_SECP521R1:
 			curve = strdup("nistp521");
 			break;
 		default:

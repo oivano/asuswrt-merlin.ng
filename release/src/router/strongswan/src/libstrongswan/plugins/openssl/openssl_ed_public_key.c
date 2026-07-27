@@ -21,6 +21,7 @@
 #include <openssl/x509.h>
 
 #include "openssl_ed_public_key.h"
+#include "openssl_util.h"
 
 #include <utils/debug.h>
 
@@ -140,7 +141,6 @@ bool openssl_ed_fingerprint(EVP_PKEY *key, cred_encoding_type_t type,
 {
 	hasher_t *hasher;
 	chunk_t blob;
-	u_char *p;
 
 	if (lib->encoding->get_cache(lib->encoding, type, key, fp))
 	{
@@ -153,16 +153,14 @@ bool openssl_ed_fingerprint(EVP_PKEY *key, cred_encoding_type_t type,
 			{
 				return FALSE;
 			}
-			blob = chunk_alloca(blob.len);
+			blob = chunk_alloc(blob.len);
 			if (!EVP_PKEY_get_raw_public_key(key, blob.ptr, &blob.len))
 			{
 				return FALSE;
 			}
 			break;
 		case KEYID_PUBKEY_INFO_SHA1:
-			blob = chunk_alloca(i2d_PUBKEY(key, NULL));
-			p = blob.ptr;
-			i2d_PUBKEY(key, &p);
+			blob = openssl_i2chunk(PUBKEY, key);
 			break;
 		default:
 			return FALSE;
@@ -172,9 +170,11 @@ bool openssl_ed_fingerprint(EVP_PKEY *key, cred_encoding_type_t type,
 	{
 		DBG1(DBG_LIB, "SHA1 not supported, fingerprinting failed");
 		DESTROY_IF(hasher);
+		chunk_free(&blob);
 		return FALSE;
 	}
 	hasher->destroy(hasher);
+	chunk_free(&blob);
 	lib->encoding->cache(lib->encoding, type, key, fp);
 	return TRUE;
 }
@@ -189,11 +189,8 @@ METHOD(public_key_t, get_encoding, bool,
 	private_public_key_t *this, cred_encoding_type_t type, chunk_t *encoding)
 {
 	bool success = TRUE;
-	u_char *p;
 
-	*encoding = chunk_alloc(i2d_PUBKEY(this->key, NULL));
-	p = encoding->ptr;
-	i2d_PUBKEY(this->key, &p);
+	*encoding = openssl_i2chunk(PUBKEY, this->key);
 
 	if (type != PUBKEY_SPKI_ASN1_DER)
 	{

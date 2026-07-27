@@ -223,17 +223,19 @@ CALLBACK(conn_sn, int,
 }
 
 CALLBACK(conn_list, int,
-	hashtable_t *sa, vici_res_t *res, char *name, void *value, int len)
+	hashtable_t *ike, vici_res_t *res, char *name, void *value, int len)
 {
 	if (chunk_printable(chunk_create(value, len), NULL, ' '))
 	{
 		if (streq(name, "local_addrs"))
 		{
-			printf("  local:  %.*s\n", len, value);
+			printf("  local:  %.*s[%s]\n", len, value,
+				   ike->get(ike, "local_port"));
 		}
 		if (streq(name, "remote_addrs"))
 		{
-			printf("  remote: %.*s\n", len, value);
+			printf("  remote: %.*s[%s]\n", len, value,
+				   ike->get(ike, "remote_port"));
 		}
 	}
 	return 0;
@@ -244,15 +246,20 @@ CALLBACK(conns, int,
 {
 	int ret;
 	char *version, *reauth_time, *rekey_time, *dpd_delay, *ppk_id, *ppk_req;
+	char *local_port, *remote_port;
 	hashtable_t *ike;
 
 	version     = vici_find_str(res, "", "%s.version", name);
 	reauth_time = vici_find_str(res, "0", "%s.reauth_time", name);
 	rekey_time  = vici_find_str(res, "0", "%s.rekey_time", name);
 	dpd_delay   = vici_find_str(res, "0", "%s.dpd_delay", name);
+	local_port  = vici_find_str(res, "0", "%s.local_port", name);
+	remote_port = vici_find_str(res, "0", "%s.remote_port", name);
 
 	ike = hashtable_create(hashtable_hash_str, hashtable_equals_str, 1);
 	free(ike->put(ike,"dpd_delay", strdup(dpd_delay)));
+	free(ike->put(ike,"local_port", strdup(local_port)));
+	free(ike->put(ike,"remote_port", strdup(remote_port)));
 
 	printf("%s: %s, ", name, version);
 	if (streq(version, "IKEv1"))
@@ -322,7 +329,7 @@ static int list_conns(vici_conn_t *conn)
 	vici_req_t *req;
 	vici_res_t *res;
 	command_format_options_t format = COMMAND_FORMAT_NONE;
-	char *arg;
+	char *arg, *ike = NULL;
 	int ret;
 
 	while (TRUE)
@@ -331,6 +338,9 @@ static int list_conns(vici_conn_t *conn)
 		{
 			case 'h':
 				return command_usage(NULL);
+			case 'i':
+				ike = arg;
+				continue;
 			case 'P':
 				format |= COMMAND_FORMAT_PRETTY;
 				/* fall through to raw */
@@ -352,6 +362,10 @@ static int list_conns(vici_conn_t *conn)
 		return ret;
 	}
 	req = vici_begin("list-conns");
+	if (ike)
+	{
+		vici_add_key_valuef(req, "ike", "%s", ike);
+	}
 	res = vici_submit(req, conn);
 	if (!res)
 	{
@@ -375,9 +389,10 @@ static void __attribute__ ((constructor))reg()
 {
 	command_register((command_t) {
 		list_conns, 'L', "list-conns", "list loaded configurations",
-		{"[--raw|--pretty]"},
+		{"[--ike <name>] [--raw|--pretty]"},
 		{
 			{"help",		'h', 0, "show usage information"},
+			{"ike",			'i', 1, "filter connections by name"},
 			{"raw",			'r', 0, "dump raw response message"},
 			{"pretty",		'P', 0, "dump raw response message in pretty print"},
 		}

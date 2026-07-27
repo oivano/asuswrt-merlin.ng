@@ -90,13 +90,13 @@ static size_t basepoint_order_len(int oid)
 	{
 		case OID_PRIME192V1:
 			return 192;
-		case OID_SECT224R1:
+		case OID_SECP224R1:
 			return 224;
 		case OID_PRIME256V1:
 			return 256;
-		case OID_SECT384R1:
+		case OID_SECP384R1:
 			return 384;
-		case OID_SECT521R1:
+		case OID_SECP521R1:
 			return 521;
 		default:
 			return 0;

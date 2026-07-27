@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Tobias Brunner
+ * Copyright (C) 2013-2026 Tobias Brunner
  * Copyright (C) 2013 Martin Willi
  *
  * Copyright (C) secunet Security Networks AG
@@ -36,6 +36,7 @@ enum profile_t {
 	PROF_V2_PUB,
 	PROF_V2_EAP,
 	PROF_V2_PUB_EAP,
+	PROF_V2_PSK,
 	PROF_V1_PUB,
 	PROF_V1_PUB_AM,
 	PROF_V1_XAUTH,
@@ -50,6 +51,7 @@ ENUM(profile_names, PROF_V2_PUB, PROF_V1_HYBRID_AM,
 	"ikev2-pub",
 	"ikev2-eap",
 	"ikev2-pub-eap",
+	"ikev2-psk",
 	"ikev1-pub",
 	"ikev1-pub-am",
 	"ikev1-xauth",
@@ -101,6 +103,11 @@ struct private_cmd_connection_t {
 	char *host;
 
 	/**
+	 * Hostname to connect from
+	 */
+	char *host_local;
+
+	/**
 	 * Server identity, or NULL to use host
 	 */
 	char *server;
@@ -119,6 +126,11 @@ struct private_cmd_connection_t {
 	 * Is a private key configured
 	 */
 	bool key_seen;
+
+	/**
+	 * Whether to use childless IKE SA initiation
+	 */
+	childless_t childless;
 
 	/**
 	 * Selected connection profile
@@ -143,10 +155,11 @@ static peer_cfg_t* create_peer_cfg(private_cmd_connection_t *this)
 	peer_cfg_t *peer_cfg;
 	proposal_t *proposal;
 	ike_cfg_create_t ike = {
-		.local = "0.0.0.0",
+		.local = this->host_local ?: "%any",
 		.remote = this->host,
 		.remote_port = IKEV2_UDP_PORT,
 		.fragmentation = FRAGMENTATION_YES,
+		.childless = this->childless,
 	};
 	peer_cfg_create_t peer = {
 		.cert_policy = CERT_SEND_IF_ASKED,
@@ -164,6 +177,7 @@ static peer_cfg_t* create_peer_cfg(private_cmd_connection_t *this)
 		case PROF_V2_PUB:
 		case PROF_V2_EAP:
 		case PROF_V2_PUB_EAP:
+		case PROF_V2_PSK:
 			ike.version = IKEV2;
 			break;
 		case PROF_V1_PUB_AM:
@@ -244,8 +258,9 @@ static void add_auth_cfg(private_cmd_connection_t *this, peer_cfg_t *peer_cfg,
 		else
 		{
 			id = identification_create_from_string(this->host);
+			/* only use this if remote ID was not configured explicitly */
+			auth->add(auth, AUTH_RULE_IDENTITY_LOOSE, TRUE);
 		}
-		auth->add(auth, AUTH_RULE_IDENTITY_LOOSE, TRUE);
 	}
 	auth->add(auth, AUTH_RULE_IDENTITY, id);
 	peer_cfg->add_auth_cfg(peer_cfg, auth, local);
@@ -300,6 +315,10 @@ static bool add_auth_cfgs(private_cmd_connection_t *this, peer_cfg_t *peer_cfg)
 			add_auth_cfg(this, peer_cfg, TRUE, AUTH_CLASS_PUBKEY);
 			add_auth_cfg(this, peer_cfg, TRUE, AUTH_CLASS_EAP);
 			add_auth_cfg(this, peer_cfg, FALSE, AUTH_CLASS_ANY);
+			break;
+		case PROF_V2_PSK:
+			add_auth_cfg(this, peer_cfg, TRUE, AUTH_CLASS_PSK);
+			add_auth_cfg(this, peer_cfg, FALSE, AUTH_CLASS_PSK);
 			break;
 		case PROF_V1_PUB:
 		case PROF_V1_PUB_AM:
@@ -488,6 +507,9 @@ METHOD(cmd_connection_t, handle, bool,
 		case CMD_OPT_HOST:
 			this->host = arg;
 			break;
+		case CMD_OPT_HOST_LOCAL:
+			this->host_local = arg;
+			break;
 		case CMD_OPT_REMOTE_IDENTITY:
 			this->server = arg;
 			break;
@@ -534,6 +556,13 @@ METHOD(cmd_connection_t, handle, bool,
 			}
 			this->child_proposals->insert_last(this->child_proposals, proposal);
 			break;
+		case CMD_OPT_CHILDLESS:
+			this->childless = CHILDLESS_PREFER;
+			if (arg && streq("force", arg))
+			{
+				this->childless = CHILDLESS_FORCE;
+			}
+			break;
 		case CMD_OPT_PROFILE:
 			set_profile(this, arg);
 			break;
@@ -574,6 +603,7 @@ cmd_connection_t *cmd_connection_create()
 		.remote_ts = linked_list_create(),
 		.ike_proposals = linked_list_create(),
 		.child_proposals = linked_list_create(),
+		.childless = CHILDLESS_NEVER,
 		.profile = PROF_UNDEF,
 	);
 

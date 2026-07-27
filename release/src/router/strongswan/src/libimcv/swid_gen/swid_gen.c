@@ -16,10 +16,12 @@
 
 #define _GNU_SOURCE
 #include <stdio.h>
+#include <unistd.h>
 
 #include "swid_gen.h"
 
 #include <bio/bio_writer.h>
+#include <utils/process.h>
 
 #define SWID_GENERATOR	"/usr/local/bin/swid_generator"
 
@@ -57,31 +59,50 @@ METHOD(swid_gen_t, generate_tag, char*,
 	private_swid_gen_t *this, char *sw_id, char *package, char *version,
 	bool full, bool pretty)
 {
+	process_t *process;
 	char *tag = NULL;
 	size_t tag_buf_len = 8192;
-	char tag_buf[tag_buf_len], command[BUF_LEN];
+	char tag_buf[tag_buf_len], *argv[12] = {};
 	bio_writer_t *writer;
 	chunk_t swid_tag;
 	FILE *file;
+	int i = 0, out;
 
-	/* Compose the SWID generator command */
+	argv[i++] = this->generator;
+	argv[i++] = "swid";
+	argv[i++] = "--entity-name";
+	argv[i++] = this->entity;
+	argv[i++] = "--regid";
+	argv[i++] = this->regid;
+
 	if (full || !package || !version)
 	{
-		snprintf(command, BUF_LEN, "%s swid --entity-name \"%s\" "
-				 "--regid %s --software-id %s%s%s",
-				 this->generator, this->entity, this->regid, sw_id,
-				 full ? " --full" : "", pretty ? " --pretty" : "");
+		argv[i++] = "--software-id";
+		argv[i++] = sw_id;
+		if (full)
+		{
+			argv[i++] = "--full";
+		}
 	}
 	else
 	{
-		snprintf(command, BUF_LEN, "%s swid --entity-name \"%s\" "
-				 "--regid %s --name %s --version-string %s%s",
-				 this->generator, this->entity, this->regid, package,
-				 version, pretty ? " --pretty" : "");
+		argv[i++] = "--name";
+		argv[i++] = package;
+		argv[i++] = "--version-string";
+		argv[i++] = version;
+	}
+	if (pretty)
+	{
+		argv[i++] = "--pretty";
 	}
 
-	/* Open a pipe stream for reading the SWID generator output */
-	file = popen(command, "r");
+	process = process_start(argv, NULL, NULL, &out, NULL, TRUE);
+	if (!process)
+	{
+		DBG1(DBG_IMC, "failed to run swid_generator command");
+		return NULL;
+	}
+	file = fdopen(out, "r");
 	if (file)
 	{
 		writer = bio_writer_create(tag_buf_len);
@@ -93,7 +114,8 @@ METHOD(swid_gen_t, generate_tag, char*,
 			}
 			writer->write_data(writer, chunk_create(tag_buf, strlen(tag_buf)));
 		}
-		pclose(file);
+		fclose(file);
+
 		swid_tag = writer->extract_buf(writer);
 		writer->destroy(writer);
 
@@ -109,9 +131,9 @@ METHOD(swid_gen_t, generate_tag, char*,
 	}
 	else
 	{
-		DBG1(DBG_IMC, "failed to run swid_generator command");
+		close(out);
 	}
-
+	process->wait(process, NULL);
 	return tag;
 }
 

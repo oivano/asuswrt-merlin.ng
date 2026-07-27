@@ -486,7 +486,7 @@ static bool parse(private_pkcs7_signed_data_t *this, chunk_t content)
 				break;
 		}
 	}
-	success = parser->success(parser);
+	success = parser->success(parser) && this->content;
 	parser->destroy(parser);
 
 	return success;

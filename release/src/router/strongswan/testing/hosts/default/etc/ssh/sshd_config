@@ -12,5 +12,5 @@ PrintMotd no
 PrintLastLog no
 UsePAM no
 AcceptEnv LANG LC_*
-AcceptEnv LEAK_DETECTIVE_LOG
+AcceptEnv LEAK_DETECTIVE_*
 Subsystem	sftp	/usr/lib/openssh/sftp-server

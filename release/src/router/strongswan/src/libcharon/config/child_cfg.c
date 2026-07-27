@@ -216,7 +216,7 @@ CALLBACK(match_proposal, bool,
 }
 
 METHOD(child_cfg_t, get_proposals, linked_list_t*,
-	private_child_cfg_t *this, bool strip_ke)
+	private_child_cfg_t *this, bool strip_ke, bool log)
 {
 	enumerator_t *enumerator;
 	proposal_t *current;
@@ -241,8 +241,10 @@ METHOD(child_cfg_t, get_proposals, linked_list_t*,
 	}
 	enumerator->destroy(enumerator);
 
-	DBG2(DBG_CFG, "configured proposals: %#P", proposals);
-
+	if (log)
+	{
+		DBG2(DBG_CFG, "configured proposals: %#P", proposals);
+	}
 	return proposals;
 }
 

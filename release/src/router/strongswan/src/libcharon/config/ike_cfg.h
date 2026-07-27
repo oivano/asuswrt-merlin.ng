@@ -178,9 +178,10 @@ struct ike_cfg_t {
 	 *
 	 * Returned list and its proposals must be destroyed after use.
 	 *
+	 * @param log			whether to log the configured proposals
 	 * @return				list containing all the proposals
 	 */
-	linked_list_t* (*get_proposals) (ike_cfg_t *this);
+	linked_list_t *(*get_proposals)(ike_cfg_t *this, bool log);
 
 	/**
 	 * Select a proposal from a list of supplied proposals.

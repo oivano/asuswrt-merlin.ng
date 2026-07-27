@@ -28,6 +28,10 @@
 #include <openssl/dh.h>
 #endif
 
+#include "openssl_ec_private_key.h"
+#include "openssl_ed_private_key.h"
+#include "openssl_rsa_private_key.h"
+
 /* these were added with 1.1.0 when ASN1_OBJECT was made opaque */
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
 #define OBJ_get0_data(o) ((o)->data)
@@ -101,7 +105,6 @@ bool openssl_fingerprint(EVP_PKEY *key, cred_encoding_type_t type, chunk_t *fp)
 {
 	hasher_t *hasher;
 	chunk_t enc;
-	u_char *p;
 
 	if (lib->encoding->get_cache(lib->encoding, type, key, fp))
 	{
@@ -110,14 +113,10 @@ bool openssl_fingerprint(EVP_PKEY *key, cred_encoding_type_t type, chunk_t *fp)
 	switch (type)
 	{
 		case KEYID_PUBKEY_SHA1:
-			enc = chunk_alloc(i2d_PublicKey(key, NULL));
-			p = enc.ptr;
-			i2d_PublicKey(key, &p);
+			enc = openssl_i2chunk(PublicKey, key);
 			break;
 		case KEYID_PUBKEY_INFO_SHA1:
-			enc = chunk_alloc(i2d_PUBKEY(key, NULL));
-			p = enc.ptr;
-			i2d_PUBKEY(key, &p);
+			enc = openssl_i2chunk(PUBKEY, key);
 			break;
 		default:
 			return FALSE;
@@ -134,6 +133,38 @@ bool openssl_fingerprint(EVP_PKEY *key, cred_encoding_type_t type, chunk_t *fp)
 	hasher->destroy(hasher);
 	lib->encoding->cache(lib->encoding, type, key, fp);
 	return TRUE;
+}
+
+/*
+ * Described in header
+ */
+private_key_t *openssl_wrap_private_key(EVP_PKEY *key, bool engine)
+{
+	if (key)
+	{
+		switch (EVP_PKEY_base_id(key))
+		{
+#ifndef OPENSSL_NO_RSA
+			case EVP_PKEY_RSA:
+				return openssl_rsa_private_key_create(key, engine);
+#endif
+#ifndef OPENSSL_NO_ECDSA
+			case EVP_PKEY_EC:
+				return openssl_ec_private_key_create(key, engine);
+#endif
+#if OPENSSL_VERSION_NUMBER >= 0x1010100fL && !defined(OPENSSL_NO_EC)
+			case EVP_PKEY_ED25519:
+#ifndef OPENSSL_IS_AWSLC
+			case EVP_PKEY_ED448:
+#endif
+				return openssl_ed_private_key_create(key, engine);
+#endif /* OPENSSL_VERSION_NUMBER && !OPENSSL_NO_EC && !OPENSSL_IS_AWSLC */
+			default:
+				EVP_PKEY_free(key);
+				break;
+		}
+	}
+	return NULL;
 }
 
 /**
@@ -256,14 +287,18 @@ chunk_t openssl_asn1_int2chunk(const ASN1_INTEGER *asn1)
 /**
  * Convert a X509 name to a ID_DER_ASN1_DN identification_t
  */
-identification_t *openssl_x509_name2id(X509_NAME *name)
+identification_t *openssl_x509_name2id(const X509_NAME *name)
 {
 	if (name)
 	{
 		identification_t *id;
 		chunk_t chunk;
 
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
+		chunk = openssl_i2chunk(X509_NAME, (X509_NAME*)name);
+#else
 		chunk = openssl_i2chunk(X509_NAME, name);
+#endif
 		if (chunk.len)
 		{
 			id = identification_create_from_encoding(ID_DER_ASN1_DN, chunk);
@@ -295,15 +330,21 @@ int openssl_asn1_known_oid(const ASN1_OBJECT *obj)
 time_t openssl_asn1_to_time(const ASN1_TIME *time)
 {
 	chunk_t chunk;
+	int type;
 
 	if (time)
 	{
 		chunk = openssl_asn1_str2chunk(time);
-		switch (time->type)
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
+		type = ASN1_STRING_type((ASN1_TIME*)time);
+#else
+		type = ASN1_STRING_type(time);
+#endif
+		switch (type)
 		{
 			case V_ASN1_UTCTIME:
 			case V_ASN1_GENERALIZEDTIME:
-				return asn1_to_time(&chunk, time->type);
+				return asn1_to_time(&chunk, type);
 			default:
 				break;
 		}

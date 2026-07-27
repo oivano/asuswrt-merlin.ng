@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Tobias Brunner
+ * Copyright (C) 2018-2025 Tobias Brunner
  *
  * Copyright (C) secunet Security Networks AG
  *
@@ -17,6 +17,10 @@
 #include <openssl/evp.h>
 
 #if OPENSSL_VERSION_NUMBER >= 0x1010100fL && !defined(OPENSSL_NO_EC)
+
+#ifdef OPENSSL_IS_AWSLC
+#include <openssl/x509.h>
+#endif
 
 #include "openssl_ed_private_key.h"
 #include "openssl_util.h"
@@ -136,12 +140,12 @@ METHOD(private_key_t, get_public_key, public_key_t*,
 
 	if (!EVP_PKEY_get_raw_public_key(this->key, NULL, &key.len))
 	{
-		return FALSE;
+		return NULL;
 	}
 	key = chunk_alloca(key.len);
 	if (!EVP_PKEY_get_raw_public_key(this->key, key.ptr, &key.len))
 	{
-		return FALSE;
+		return NULL;
 	}
 	public = lib->creds->create(lib->creds, CRED_PUBLIC_KEY, this->type,
 								BUILD_EDDSA_PUB, key, BUILD_END);
@@ -170,7 +174,17 @@ METHOD(private_key_t, get_encoding, bool,
 		{
 			bool success = TRUE;
 
+#ifndef OPENSSL_IS_AWSLC
 			*encoding = openssl_i2chunk(PrivateKey, this->key);
+#else
+			/* AWS-LC currently doesn't implement i2d_PrivateKey for EdDSA */
+			PKCS8_PRIV_KEY_INFO *p8 = EVP_PKEY2PKCS8(this->key);
+			if (p8)
+			{
+				*encoding = openssl_i2chunk(PKCS8_PRIV_KEY_INFO, p8);
+				PKCS8_PRIV_KEY_INFO_free(p8);
+			}
+#endif
 
 			if (type == PRIVKEY_PEM)
 			{

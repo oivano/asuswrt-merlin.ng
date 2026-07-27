@@ -91,9 +91,10 @@ struct child_cfg_t {
 	 * Resulting list and all of its proposals must be freed after use.
 	 *
 	 * @param strip_ke		TRUE strip out key exchange methods
+	 * @param log			whether to log the configured proposals
 	 * @return				list of proposals
 	 */
-	linked_list_t* (*get_proposals)(child_cfg_t *this, bool strip_ke);
+	linked_list_t* (*get_proposals)(child_cfg_t *this, bool strip_ke, bool log);
 
 	/**
 	 * Select a proposal from a supplied list.
@@ -420,6 +421,9 @@ enum child_cfg_option_t {
 
 	/** Enable UDP encapsulation for per-CPU CHILD_SAs */
 	OPT_PER_CPU_SAS_ENCAP = (1<<10),
+
+	/** Enable automatic forwarding of certain ICMP errors */
+	OPT_FORWARD_ICMP = (1<<11),
 };
 
 /**

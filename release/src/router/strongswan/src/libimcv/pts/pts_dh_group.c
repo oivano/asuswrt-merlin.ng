@@ -76,7 +76,7 @@ bool pts_dh_group_probe(pts_dh_group_t *dh_groups, bool mandatory_dh_groups)
 	}
 	if (mandatory_dh_groups)
 	{
-		DBG1(DBG_PTS, "  mandatory PTS DH group %N[%s] available",
+		DBG1(DBG_PTS, "  mandatory PTS DH group %N not available",
 			 key_exchange_method_names, ECP_256_BIT);
 		return FALSE;
 	}

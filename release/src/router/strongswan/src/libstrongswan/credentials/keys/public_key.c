@@ -194,7 +194,7 @@ int signature_scheme_to_oid(signature_scheme_t scheme)
 		case SIGN_RSA_EMSA_PKCS1_SHA3_384:
 			return OID_RSASSA_PKCS1V15_WITH_SHA3_384;
 		case SIGN_RSA_EMSA_PKCS1_SHA3_512:
-			return OID_RSASSA_PKCS1V15_WITH_SHA3_384;
+			return OID_RSASSA_PKCS1V15_WITH_SHA3_512;
 		case SIGN_RSA_EMSA_PSS:
 			return OID_RSASSA_PSS;
 		case SIGN_ECDSA_WITH_SHA1_DER:

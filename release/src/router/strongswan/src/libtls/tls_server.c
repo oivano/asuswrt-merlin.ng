@@ -344,7 +344,6 @@ static status_t process_client_hello(private_tls_server_t *this,
 	key_share_t peer = {0};
 	chunk_t extension_data = chunk_empty;
 	bio_reader_t *extensions, *extension;
-	tls_cipher_suite_t *suites;
 	tls_version_t original_version_max;
 	int count, i;
 	rng_t *rng;
@@ -444,7 +443,7 @@ static status_t process_client_hello(private_tls_server_t *this,
 	if (this->tls->get_version_max(this->tls) >= TLS_1_3 && !this->hashsig.len)
 	{
 		DBG1(DBG_TLS, "no %N extension received", tls_extension_names,
-			 TLS_MISSING_EXTENSION);
+			 TLS_EXT_SIGNATURE_ALGORITHMS);
 		this->alert->add(this->alert, TLS_FATAL, TLS_MISSING_EXTENSION);
 		return NEED_MORE;
 	}
@@ -471,15 +470,12 @@ static status_t process_client_hello(private_tls_server_t *this,
 		bio_reader_t *client_versions;
 
 		client_versions = bio_reader_create(versions);
-		while (client_versions->remaining(client_versions))
+		while (client_versions->read_uint16(client_versions, &version))
 		{
-			if (client_versions->read_uint16(client_versions, &version))
+			if (this->tls->set_version(this->tls, version, version))
 			{
-				if (this->tls->set_version(this->tls, version, version))
-				{
-					this->client_version = version;
-					break;
-				}
+				this->client_version = version;
+				break;
 			}
 		}
 		client_versions->destroy(client_versions);
@@ -534,9 +530,10 @@ static status_t process_client_hello(private_tls_server_t *this,
 	else
 	{
 		tls_cipher_suite_t original_suite = this->suite;
+		tls_cipher_suite_t *suites;
 
 		count = ciphers.len / sizeof(uint16_t);
-		suites = alloca(count * sizeof(tls_cipher_suite_t));
+		suites = malloc(count * sizeof(tls_cipher_suite_t));
 		DBG2(DBG_TLS, "received %d TLS cipher suites:", count);
 		for (i = 0; i < count; i++)
 		{
@@ -546,8 +543,10 @@ static status_t process_client_hello(private_tls_server_t *this,
 		if (!select_suite_and_key(this, suites, count))
 		{
 			this->alert->add(this->alert, TLS_FATAL, TLS_HANDSHAKE_FAILURE);
+			free(suites);
 			return NEED_MORE;
 		}
+		free(suites);
 		if (retrying(this) && original_suite != this->suite)
 		{
 			DBG1(DBG_TLS, "selected %N instead of %N during retry",
@@ -860,7 +859,7 @@ static status_t process_key_exchange_dhe(private_tls_server_t *this,
 	group = this->dh->get_method(this->dh);
 	ec = key_exchange_is_ecdh(group);
 	if ((ec && !reader->read_data8(reader, &pub)) ||
-		(!ec && (!reader->read_data16(reader, &pub) || pub.len == 0)))
+		(!ec && !reader->read_data16(reader, &pub)) || pub.len == 0)
 	{
 		DBG1(DBG_TLS, "received invalid Client Key Exchange");
 		this->alert->add(this->alert, TLS_FATAL, TLS_DECODE_ERROR);

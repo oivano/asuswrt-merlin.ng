@@ -283,7 +283,8 @@ static auth_cfg_t *verify_signature(CMS_SignerInfo *si,
  */
 static bool verify_digest(CMS_ContentInfo *cms, CMS_SignerInfo *si, int hash_oid)
 {
-	ASN1_OCTET_STRING *os, **osp;
+	const ASN1_OCTET_STRING *os;
+	ASN1_OCTET_STRING **osp;
 	hash_algorithm_t hash_alg;
 	chunk_t digest, content, hash;
 	hasher_t *hasher;
@@ -448,7 +449,7 @@ METHOD(pkcs7_t, get_attribute, bool,
 	signature_enumerator_t *e;
 	CMS_SignerInfo *si;
 	X509_ATTRIBUTE *attr;
-	ASN1_TYPE *type;
+	const ASN1_TYPE *type;
 	chunk_t chunk, wrapped;
 	int i;
 
@@ -468,7 +469,11 @@ METHOD(pkcs7_t, get_attribute, bool,
 		{
 			/* get first value in SET */
 			type = X509_ATTRIBUTE_get0_type(attr, 0);
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
+			chunk = wrapped = openssl_i2chunk(ASN1_TYPE, (ASN1_TYPE*)type);
+#else
 			chunk = wrapped = openssl_i2chunk(ASN1_TYPE, type);
+#endif
 			if (asn1_unwrap(&chunk, &chunk) != 0x100 /* ASN1_INVALID */)
 			{
 				*value = chunk_clone(chunk);

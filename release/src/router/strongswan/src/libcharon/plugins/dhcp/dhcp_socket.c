@@ -641,14 +641,14 @@ CALLBACK(receive_dhcp, void,
 	int fd, chunk_t pkt)
 {
 	dhcp_packet_t *packet = (dhcp_packet_t*)pkt.ptr;
-	size_t optlen, origoptlen, optpos = 0, optsize;
+	size_t optoffset, optlen, origoptlen, optpos = 0, optsize;
 	dhcp_option_t *option;
 
-	if (pkt.len >= sizeof(struct ip) + sizeof(struct udphdr) +
-		offsetof(dhcp_t, options))
+	optoffset = sizeof(struct ip) + sizeof(struct udphdr) +
+				offsetof(dhcp_t, options);
+	if (pkt.len >= optoffset)
 	{
-		origoptlen = optlen = pkt.len - sizeof(struct ip) +
-							  sizeof(struct udphdr) + offsetof(dhcp_t, options);
+		origoptlen = optlen = pkt.len - optoffset;
 		while (optlen > sizeof(dhcp_option_t))
 		{
 			option = (dhcp_option_t*)&packet->dhcp.options[optpos];
@@ -803,7 +803,7 @@ dhcp_socket_t *dhcp_socket_create()
 	this->identity_lease = lib->settings->get_bool(lib->settings,
 								"%s.plugins.dhcp.identity_lease", FALSE,
 								lib->ns);
-	this->force_dst = lib->settings->get_str(lib->settings,
+	this->force_dst = lib->settings->get_bool(lib->settings,
 								"%s.plugins.dhcp.force_server_address", FALSE,
 								lib->ns);
 	this->dst = host_create_from_string(lib->settings->get_str(lib->settings,

@@ -45,7 +45,7 @@ The latest feature is an
 .B Online Certificate Status Protocol
 (OCSP) responder as defined by RFC 6960, interoperating with an
 .B OpenXPKI
-server by directly accessing its internal certificate datebase.
+server by directly accessing its internal certificate database.
 .
 .SH "COMMANDS"
 .
@@ -86,7 +86,7 @@ Extract the subject DN of an X.509 certificate.
 .B "\-p, \-\-pub"
 Extract a public key from a private key or certificate.
 .TP
-.B "\-v, \-\-verify"
+.B "\-V, \-\-verify"
 Verify a certificate using a CA certificate.
 .TP
 .B "\-S, \-\-scep"
@@ -103,6 +103,14 @@ Get CA certificate[s] from an EST server.
 .TP
 .B "\-o, \-\-ocsp"
 OCSP request parser and OCSP responder.
+.
+.SH GENERAL OPTIONS
+.TP
+.B "\-v, \-\-debug"
+set debug level, default: 1
+.TP
+.B "\-+, \-\-options"
+read command line options from file
 .
 .SH "EXAMPLES"
 .

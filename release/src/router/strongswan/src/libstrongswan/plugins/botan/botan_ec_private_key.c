@@ -316,11 +316,11 @@ botan_ec_private_key_t *botan_ec_private_key_gen(key_type_t type, va_list args)
 			break;
 		case 384:
 			curve = "secp384r1";
-			oid = OID_SECT384R1;
+			oid = OID_SECP384R1;
 			break;
 		case 521:
 			curve = "secp521r1";
-			oid = OID_SECT521R1;
+			oid = OID_SECP521R1;
 			break;
 		default:
 			DBG1(DBG_LIB, "EC private key size %d not supported via botan",

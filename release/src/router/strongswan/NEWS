@@ -1,3 +1,138 @@
+strongswan-6.0.7
+----------------
+
+- CVE-2026-47895 - Fixed a vulnerability in libstrongswan related to the cloning
+  of certain identities that can result in a double-free and potentially remote
+  code execution.
+
+- The validity of pre-trusted self-signed certificates is now enforced.
+
+- The validity of the last certificate in the incomplete trust chain of a
+  pre-trusted certificate is now also enforced.
+
+- The `list-conn` event now includes IKE and IPsec proposals.
+
+- The new `--ike` option for `swanctl --list-conns` allows filtering connections
+  by name.
+
+- Enable mixed-family IPComp configs on Linux 6.3 and newer.
+
+
+strongswan-6.0.6
+----------------
+
+- CVE-2026-35328 - Fixed a vulnerability in libtls related to the processing of
+  the supported_versions extension in TLS that can result in an infinite loop.
+
+- CVE-2026-35329 - Fixed a vulnerability in libstrongswan and the pkcs7 plugin
+  related to the processing of encrypted PKCS#7 containers that can result in
+  a crash.
+
+- CVE-2026-35330 - Fixed a vulnerability in in libsimaka related to the
+  processing of certain EAP-SIM/AKA attributes that can result in an infinite
+  loop or a heap-based buffer overflow and potentially remote code execution.
+
+- CVE-2026-35331 - Fixed a vulnerability in the constraints plugin related to
+  the processing of X.509 name constraints that can allow authentication with
+  certificates that violate the constraints.
+
+- CVE-2026-35332 - Fixed a vulnerability in libtls related to the processing of
+  ECDH public values in TLS < 1.3 that can result in a crash.
+
+- CVE-2026-35333 - Fixed a vulnerability in libradius related to the processing
+  of RADIUS attributes that can result in an infinite loop or an out-of-bounds
+  read that may cause a crash.
+
+- CVE-2026-35334 - Fixed a vulnerability in the gmp plugin related to RSA
+  decryption that can result in a crash.
+
+- Made the Botan RNG types used/provided by the botan plugin configurable.
+
+- The fix for the vulnerability in the constraints plugin now causes all
+  certificates that contain excluded name constraints of type directoryName (DN)
+  to get rejected.
+
+
+strongswan-6.0.5
+----------------
+
+- Fixed a vulnerability in the eap-ttls plugin related to processing EAP-TTLS
+  AVPs that can lead to a resource exhaustion or a crash.
+  This vulnerability has been registered as CVE-2026-25075.
+
+- Added support for forwarding certain ICMP errors even if their source address
+  doesn't match the traffic selectors, when running on Linux 6.9+.
+
+- The dhcp plugin now tracks leases across make-before-break reauthentications.
+
+- charon-cmd support childless IKE SA initiation and IKEv2 PSK authentication.
+
+- The kernel-netlink plugin now doesn't default to the peer's address as next
+  hop when installing routes if at least an interface was found.
+
+- organizationIdentifier RDNs are supported when parsing ASN.1 DN identities
+  from strings.
+
+- Options shared by all commands in the swanctl and pki tools (e.g. --debug) are
+  now parsed even if passed before the command. The log level is now always
+  changed before initializing the libraries and plugins. And due to conflicts,
+  the short options for swanctl's `--version` and `--uninstall` commands were
+  changed to `-V` and `-U`, respectively. Similarly, the short option for pki's
+  `--verify` command is now `-V`.
+
+- For distributions that package plugins separately a new configure option is
+  provided to change the log message if a plugin can't be loaded.
+
+
+strongswan-6.0.4
+----------------
+
+- Fixed a vulnerability in the NetworkManager plugin charon-nm that potentially
+  allows using credentials of other local users.
+  This vulnerability has been registered as CVE-2025-9615.
+
+- Concurrent requests to fetch the same CRL URI by multiple threads are now
+  combined.
+
+- Increased the max. supported length for section names in swanctl.conf to 256.
+
+
+strongswan-6.0.3
+----------------
+
+- Fixed a vulnerability in the eap-mschapv2 plugin related to processing Failure
+  Request packets on the client that can lead to a heap-based buffer overflow
+  and potentially remote code execution.
+  This vulnerability has been registered as CVE-2025-62291.
+
+- The new `alert` event for vici is raised for certain error conditions.
+
+- Only plugins with matching version number are loaded by programs.
+
+- IKE SAs redirected during IKE_AUTH are now properly tracked by controller and
+  trap-manager.
+
+- Fallback to the IKE identity for clients that don't provide an EAP-Identity to
+  fix a regression in 6.0.2.
+
+- Detecting unwrapped CKA_EC_POINTs has been improved in the pkcs11 plugin.
+
+- The whitelist plugin uses non-blocking I/O to avoid issues with clients that
+  stay connected for a long time.  The buffer size for IDs was increased to 256.
+
+- The certexpire plugins also uses 256 bytes for its identity buffer.
+
+- Convenient decorators for event handling are provided by the Python bindings
+  for vici.
+
+- The openssl plugin also supports Ed25519 via AWS-LC.  It also loads EdDSA keys
+  from PKCS#12 containers.
+
+- The testing environment is now based on Debian 13 (trixie), by default.
+
+- Support for MD2 has been removed.
+
+
 strongswan-6.0.2
 ----------------
 
