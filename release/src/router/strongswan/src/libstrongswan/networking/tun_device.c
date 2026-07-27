@@ -59,7 +59,13 @@ tun_device_t *tun_device_create(const char *name_tmpl)
 #elif defined(__linux__)
 #include <linux/types.h>
 #include <linux/if_tun.h>
-#include <linux/ipv6.h>
+/* Avoid linux/ipv6.h on legacy libc toolchains because it conflicts with
+ * netinet/in.h. Define the ioctl payload used below locally instead. */
+struct in6_ifreq {
+	struct in6_addr ifr6_addr;
+	u_int32_t ifr6_prefixlen;
+	int ifr6_ifindex;
+};
 #else
 #include <net/if_tun.h>
 #include <net/if_var.h>
