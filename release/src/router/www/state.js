@@ -2855,6 +2855,12 @@ var dpsta_band = parseInt('<% nvram_get("dpsta_band"); %>');
 function refreshStatus(xhr) {
 	if (xhr.responseText.search("Main_Login.asp") !== -1) top.location.href = "/";
 
+	// Handle null responseXML
+	if (!xhr.responseXML) {
+		setTimeout(function () { updateStatus(); }, 3000);
+		return;
+	}
+
 	setTimeout(function () { updateStatus(); }, 3000);	/* restart ajax */
 	var devicemapXML = xhr.responseXML.getElementsByTagName("devicemap");
 	var SysStatus = devicemapXML[0].getElementsByTagName("sys");
