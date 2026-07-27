@@ -30,7 +30,7 @@
  * OpenSSH), set the path below and set DROPBEAR_SFTPSERVER. 
  * The sftp-server program is not provided by Dropbear itself */
 #define DROPBEAR_SFTPSERVER 1
-#define SFTPSERVER_PATH "/opt/libexec/sftp-server"
+#define SFTPSERVER_PATH "/usr/libexec/sftp-server"
 
 /* The default path. This will often get replaced by the shell */
 #define DEFAULT_PATH "/bin:/sbin:/usr/bin:/usr/sbin:/opt/bin:/opt/sbin:/opt/usr/bin:/opt/usr/sbin"

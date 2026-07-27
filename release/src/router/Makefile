@@ -5353,8 +5353,8 @@ openssh: openssh-configure
 
 openssh-install:
 	@$(SEP)
-	install -D openssh/sftp-server $(INSTALLDIR)/openssh/usr/bin/sftp-server
-	$(STRIP) $(INSTALLDIR)/openssh/usr/bin/sftp-server
+	install -D openssh/sftp-server $(INSTALLDIR)/openssh/usr/libexec/sftp-server
+	$(STRIP) $(INSTALLDIR)/openssh/usr/libexec/sftp-server
 
 openssh-clean:
 	-@$(MAKE) -C openssh clean
