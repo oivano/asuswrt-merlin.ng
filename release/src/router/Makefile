@@ -1422,21 +1422,26 @@ obj-$(RTCONFIG_SSH) += dropbear
 obj-$(RTCONFIG_SSH) += openssh
 obj-$(RTCONFIG_WTFAST) += wtfast
 
-obj-$(RTCONFIG_FRR) += frr
-obj-$(RTCONFIG_FRR) += libcap
-obj-$(RTCONFIG_FRR) += libcap-ng
-obj-$(RTCONFIG_FRR) += json-c
-obj-$(RTCONFIG_FRR) += pcre-8.31
+# FRR dependency configuration and ordering
+# Build dependencies before FRR to avoid duplicate builds
 FRR_USE_LIBYANG2 ?= y
 FRR_LIBYANG_DEP := libyang
 ifeq ($(FRR_USE_LIBYANG2),y)
 FRR_LIBYANG_DEP := libyang2
-obj-$(RTCONFIG_FRR) += pcre2
 endif
-obj-$(RTCONFIG_FRR) += $(FRR_LIBYANG_DEP)
-obj-$(RTCONFIG_FRR) += zlib
-obj-$(RTCONFIG_FRR) += readline-8.1
+
+# FRR dependencies - build these BEFORE frr to prevent redundant rebuilds
 obj-$(RTCONFIG_FRR) += ncurses-6.0
+obj-$(RTCONFIG_FRR) += readline-8.1
+obj-$(RTCONFIG_FRR) += zlib
+obj-$(RTCONFIG_FRR) += $(FRR_LIBYANG_DEP)
+obj-$(RTCONFIG_FRR) += pcre-8.31
+obj-$(RTCONFIG_FRR) += json-c
+obj-$(RTCONFIG_FRR) += libcap-ng
+obj-$(RTCONFIG_FRR) += libcap
+
+# FRR itself - now all dependencies are available
+obj-$(RTCONFIG_FRR) += frr
 
 # FRR experimental northbound/RPKI knobs (default off for legacy toolchain lane)
 FRR_EXPERIMENTAL_RPKI ?= n
@@ -6403,17 +6408,20 @@ libcap-ng/configure:
 			--disable-static
 	touch $@
 
-libcap-ng: libcap-ng/configure
+libcap-ng/build.stamp: libcap-ng/configure
 	@$(SEP)
-	$(MAKE) -C $@ && $(MAKE) $@-stage
+	$(MAKE) -C libcap-ng && $(MAKE) libcap-ng-stage
+	@touch $@
 
-libcap-ng-stage:
+libcap-ng: libcap-ng/build.stamp
+
+libcap-ng-stage: libcap-ng/configure
 	@echo ">>> Installing libcap-ng into $(STAGEDIR)"
 	$(MAKE) -C libcap-ng install DESTDIR=$(STAGEDIR)
 
 libcap-ng-clean:
 	-$(MAKE) -C libcap-ng clean
-	@rm -f libcap-ng/configure
+	@rm -f libcap-ng/configure libcap-ng/build.stamp
 
 libcap-ng-install: libcap-ng
 	install -D libcap-ng/src/.libs/libcap-ng.so.0.0.0 $(INSTALLDIR)/libcap-ng/usr/lib/libcap-ng.so.0.0.0
@@ -6740,10 +6748,15 @@ pcre-8.31/stamp-h1:
 	touch $@
 	[ -d pcre-8.31/m4 ] || mkdir pcre-8.31/m4
 
-pcre-8.31: pcre-8.31/stamp-h1
+pcre-8.31/build.stamp: pcre-8.31/stamp-h1
 	@$(SEP)
-	@$(MAKE) -C pcre-8.31
-	$(MAKE) $@-stage
+	@$(MAKE) -C pcre-8.31 && $(MAKE) pcre-8.31-stage
+	@touch $@
+
+pcre-8.31: pcre-8.31/build.stamp
+
+pcre-8.31-stage: pcre-8.31/stamp-h1
+	@$(MAKE) -C pcre-8.31 install DESTDIR=$(STAGEDIR)
 
 pcre-8.31-install: pcre-8.31
 	@$(SEP)
@@ -6758,7 +6771,7 @@ pcre-8.31-install: pcre-8.31
 
 pcre-8.31-clean:
 	-@$(MAKE) -C pcre-8.31 clean
-	@rm -f pcre-8.31/stamp-h1
+	@rm -f pcre-8.31/stamp-h1 pcre-8.31/build.stamp
 
 PCRE2_VERSION := 10.21
 PCRE2_SRC_DIR := $(TOP)/pcre2-$(PCRE2_VERSION)
@@ -6780,10 +6793,13 @@ pcre2/stamp-h1: pcre2-src-local
 		--enable-unicode
 	touch $@
 
-pcre2: pcre2/stamp-h1
-	$(MAKE) -C $(PCRE2_SRC_DIR) all && $(MAKE) $@-stage
+pcre2/build.stamp: pcre2/stamp-h1
+	$(MAKE) -C $(PCRE2_SRC_DIR) all && $(MAKE) pcre2-stage
+	@touch $@
 
-pcre2-stage:
+pcre2: pcre2/build.stamp
+
+pcre2-stage: pcre2/stamp-h1
 	$(MAKE) -C $(PCRE2_SRC_DIR) install DESTDIR=$(STAGEDIR)
 
 pcre2-install: pcre2
@@ -6796,7 +6812,7 @@ pcre2-install: pcre2
 
 pcre2-clean:
 	-@$(MAKE) -C $(PCRE2_SRC_DIR) clean
-	@rm -f pcre2/stamp-h1
+	@rm -f pcre2/stamp-h1 pcre2/build.stamp
 
 # Use prebuilt libyang if available, otherwise build from source
 # This helps avoid toolchain compatibility issues with newer libyang versions
@@ -6907,11 +6923,14 @@ libyang2/build/Makefile: pcre2 libyang2-src-local
 		$(LIBYANG2_SRC_DIR)
 	@touch $@
 
-libyang2: libyang2/build/Makefile
+libyang2/build.stamp: libyang2/build/Makefile
 	@$(SEP)
-	$(MAKE) -C libyang2/build && $(MAKE) $@-stage
+	$(MAKE) -C libyang2/build && $(MAKE) libyang2-stage
+	@touch $@
 
-libyang2-stage:
+libyang2: libyang2/build.stamp
+
+libyang2-stage: libyang2/build/Makefile
 	@echo ">>> Installing libyang2 into $(STAGEDIR)"
 	$(MAKE) -C libyang2/build install DESTDIR=$(STAGEDIR)
 
@@ -6924,7 +6943,7 @@ libyang2-install: libyang2
 
 libyang2-clean:
 	-@$(MAKE) -C libyang2/build clean
-	@rm -f libyang2/stamp-h1
+	@rm -f libyang2/stamp-h1 libyang2/build.stamp
 
 libxml2/stamp-h1:
 	cd libxml2 && mkdir -p m4 && autoreconf -i -f && \
@@ -8394,12 +8413,16 @@ ncurses-6.0/Makefile: ncurses-6.0/configure
 		--disable-termcap --disable-database --with-fallbacks="xterm,vt100,vt200,linux,ansi,xterm-256color"
 #		--with-default-terminfo-dir=/usr/share/terminfo --with-terminfo-dirs=/usr/share/terminfo
 
-ncurses-6.0: ncurses-6.0/Makefile
+ncurses-6.0/build.stamp: ncurses-6.0/Makefile
 	@$(SEP)
 	cd ncurses-6.0 && $(MAKE) && $(MAKE) -C misc pc-files
+	@touch $@
+
+ncurses-6.0: ncurses-6.0/build.stamp
 
 ncurses-6.0-clean:
 	[ ! -f ncurses-6.0/Makefile ] || $(MAKE) -C ncurses-6.0 distclean
+	@rm -f ncurses-6.0/build.stamp
 
 ncurses-6.0-install: ncurses-6.0
 	install -D ncurses-6.0/lib/libform.so.6.0 $(INSTALLDIR)/ncurses-6.0/usr/lib/libform.so.6.0
@@ -8623,13 +8646,16 @@ readline-8.1/Makefile: ncurses-6.0 readline-8.1/configure
 	--sysconfdir=/etc --disable-static --enable-shared
 	touch $@
 
-readline-8.1: readline-8.1/Makefile
+readline-8.1/build.stamp: readline-8.1/Makefile
 	@$(SEP)
-	$(MAKE) SHLIB_LIBS="$(TOP)/ncurses-6.0/lib/libncurses.a" -C $@ && $(MAKE) $@-stage
-#	$(MAKE) -C $@ && $(MAKE) $@-stage
+	$(MAKE) SHLIB_LIBS="$(TOP)/ncurses-6.0/lib/libncurses.a" -C readline-8.1 && $(MAKE) readline-8.1-stage
+	@touch $@
+
+readline-8.1: readline-8.1/build.stamp
 
 readline-8.1-clean:
 	[ ! -f readline-8.1/Makefile ] || $(MAKE) -C readline-8.1 distclean
+	@rm -f readline-8.1/build.stamp
 
 readline-8.1-install: readline-8.1
 	install -D readline-8.1/shlib/libhistory.so.8.1 $(INSTALLDIR)/readline-8.1/usr/lib/libhistory.so.8.1
@@ -10199,7 +10225,7 @@ endif
 
 %-configure:
 	@$(eval TOPX_DIR:=$(firstword $(wildcard $(TOP_PLATFORM)/$*) $(wildcard $*)))
-	@[ ! -d "$(TOPX_DIR)" ] || ( cd $(TOPX_DIR) ; \
+	@[ ! -d "$(TOPX_DIR)" ] || [ ! -f "$(TOPX_DIR)/configure" ] || ( cd $(TOPX_DIR) ; \
 		$(CONFIGURE) \
 		--prefix=/usr \
 		--bindir=/usr/sbin \
