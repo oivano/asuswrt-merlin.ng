@@ -6762,9 +6762,8 @@ PCRE2_SRC_DIR := $(TOP)/pcre2-$(PCRE2_VERSION)
 pcre2-src-local:
 	@[ -d $(PCRE2_SRC_DIR) ] || (echo "Missing local PCRE2 source tree: $(PCRE2_SRC_DIR)" ; false)
 
-pcre2/stamp-h1: pcre2-src-local
+$(PCRE2_SRC_DIR)/stamp-h1: pcre2-src-local
 	@$(SEP)
-	@mkdir -p $(dir $@)
 	cd $(PCRE2_SRC_DIR) ; \
 		if [ -f ./autogen.sh ]; then /bin/sh ./autogen.sh ; fi ; \
 		chmod +x ./configure ; \
@@ -6776,7 +6775,7 @@ pcre2/stamp-h1: pcre2-src-local
 		--enable-unicode
 	touch $@
 
-pcre2: pcre2/stamp-h1
+pcre2: $(PCRE2_SRC_DIR)/stamp-h1
 	$(MAKE) -C $(PCRE2_SRC_DIR) all && $(MAKE) $@-stage
 
 pcre2-stage:
@@ -6792,7 +6791,8 @@ pcre2-install: pcre2
 
 pcre2-clean:
 	-@$(MAKE) -C $(PCRE2_SRC_DIR) clean
-	@rm -f pcre2/stamp-h1
+	@rm -f $(PCRE2_SRC_DIR)/stamp-h1
+	@rm -rf pcre2
 
 # Use prebuilt libyang if available, otherwise build from source
 # This helps avoid toolchain compatibility issues with newer libyang versions
@@ -10227,4 +10227,3 @@ $(obj-y) $(obj-n) $(obj-clean) $(obj-install): dummy
 .PHONY: all clean distclean mrproper install package image
 .PHONY: conf mconf oldconf kconf kmconf config menuconfig oldconfig
 .PHONY: dummy libnet libpcap
-
