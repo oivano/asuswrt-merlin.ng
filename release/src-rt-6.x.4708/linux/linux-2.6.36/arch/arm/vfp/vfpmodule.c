@@ -491,22 +491,36 @@ void vfp_flush_hwstate(struct thread_info *thread)
  */
 static int __init vfp_init(void)
 {
-	unsigned int vfpsid;
-	unsigned int cpu_arch = cpu_architecture();
+        unsigned int vfpsid;
+        unsigned int val;
+        unsigned int cpu_arch = cpu_architecture();
 
-	if (cpu_arch >= CPU_ARCH_ARMv6)
-		vfp_enable(NULL);
+        if (cpu_arch >= CPU_ARCH_ARMv6) {
+                vfp_enable(NULL);
+                printk(KERN_INFO "VFP: CPACR=%08x\n",
+                       get_copro_access());
 
-	/*
-	 * First check that there is a VFP that we can use.
-	 * The handler is already setup to just log calls, so
-	 * we just need to read the VFPSID register.
-	 */
-	vfp_vector = vfp_testing_entry;
-	barrier();
-	vfpsid = fmrx(FPSID);
-	barrier();
-	vfp_vector = vfp_null_entry;
+                asm volatile(
+                        "mrc p15, 0, %0, c1, c1, 2"
+                        : "=r" (val)
+                        :
+                        : "cc");
+
+                printk(KERN_INFO "VFP: NSACR=%08x\n", val);
+        }
+
+        vfp_vector = vfp_testing_entry;
+        barrier();
+
+        printk(KERN_INFO "VFP: MIDR=%08x\n", read_cpuid_id());
+
+        vfpsid = fmrx(FPSID);
+
+		printk(KERN_INFO "VFP: FPSID=%08x VFP_arch=%u\n",
+       			vfpsid, VFP_arch);
+
+        barrier();
+        vfp_vector = vfp_null_entry;
 
 	printk(KERN_INFO "VFP support v0.3: ");
 	if (VFP_arch)

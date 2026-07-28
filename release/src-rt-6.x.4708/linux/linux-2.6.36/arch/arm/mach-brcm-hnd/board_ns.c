@@ -248,6 +248,30 @@ static void __init board_fixup(
 	mi->bank[0].size = lo_size;
 	mi->nr_banks++;
 
+	/* Enable CP10 and CP11 (VFP/NEON coprocessors) very early.
+	 * Place this before any conditionals to guarantee execution.
+	 * For ARMv7 (Northstar/BCM5301x), we enable both CPACR and NSACR.
+	 */
+	early_printk("board_fixup: About to enable CP10/CP11 in CPACR/NSACR\n");
+	{
+		u32 cpacr_val;
+		u32 nsacr_val;
+
+		/* Enable CP10 and CP11 in CPACR via raw mrc/mcr */
+		asm volatile("mrc p15, 0, %0, c1, c0, 2" : "=r" (cpacr_val));
+		cpacr_val |= (0xF << 20);  /* CPACC_FULL(10) | CPACC_FULL(11) */
+		asm volatile("mcr p15, 0, %0, c1, c0, 2" : : "r" (cpacr_val) : "cc");
+		isb();
+		early_printk("board_fixup: CPACR write done\n");
+
+		/* Enable CP10/CP11 in NSACR via raw mrc/mcr p15, 0, %, c1, c1, 2 */
+		asm volatile("mrc p15, 0, %0, c1, c1, 2" : "=r" (nsacr_val));
+		nsacr_val |= ((1 << 10) | (1 << 11));
+		asm volatile("mcr p15, 0, %0, c1, c1, 2" : : "r" (nsacr_val) : "cc");
+		isb();
+		early_printk("board_fixup: NSACR write done\n");
+	}
+
 	if (lo_size == mem_size)
 		return;
 

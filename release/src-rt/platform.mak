@@ -88,7 +88,9 @@ export PLATFORM_ARCH := arm-uclibc
 export CROSS_COMPILE := arm-brcm-linux-uclibcgnueabi-
 export CROSS_COMPILER := $(CROSS_COMPILE)
 export CONFIGURE := ./configure --host=arm-linux --build=$(BUILD)
-export HOSTCONFIG := linux-armv4 -fomit-frame-pointer
+# BCM4708 is Cortex-A9 (ARMv7+NEON). linux-armv4 enables ARM ASM paths in OpenSSL;
+# -march=armv7-a/-mfpu=neon activates NEON-accelerated AES/SHA at runtime.
+export HOSTCONFIG := linux-armv4 -DL_ENDIAN -march=armv7-a -mtune=cortex-a9 -mfpu=neon -mfloat-abi=softfp -fomit-frame-pointer
 export BCMEX := _arm
 export EXTRA_FLAG := -lgcc_s
 export ARCH := arm
