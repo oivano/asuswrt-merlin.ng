@@ -128,6 +128,9 @@
 			document.form.frr_bgp_neighbor_desc.value = neighbor_desc_list;
 			document.form.frr_bgp_neighbor_src.value = "";
 
+			// Force config regeneration on next FRR restart (needed to pick up UI changes)
+			document.form.frr_force_regen.value = "1";
+
 			showLoading();
 			document.form.submit();
 		}
