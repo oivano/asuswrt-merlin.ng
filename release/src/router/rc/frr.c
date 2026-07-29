@@ -29,12 +29,26 @@
 #define FRR_STDERR_LOG_FILE	"/tmp/frr-start.stderr.log"
 
 /*
- * These markers delimit the WebUI-managed block inside frr.conf.
- * Everything outside them is preserved across UI applies (user hand-edits,
- * custom route-maps, prefix-lists, etc.).
+ * These markers delimit protocol-specific WebUI-managed blocks inside frr.conf.
+ * - Content between START and AUTO_END is auto-generated and will be replaced on UI Apply
+ * - Content between AUTO_END and END is user hand-edits within the block (preserved unless force_regen=1)
+ * - Everything outside markers is always preserved across UI applies
  */
-#define FRR_UI_BLOCK_START	"! ### ASUSWRT-MERLIN-UI-START ###"
-#define FRR_UI_BLOCK_END	"! ### ASUSWRT-MERLIN-UI-END ###"
+#define FRR_BGP_BLOCK_START	"! ### ASUSWRT-MERLIN-BGP-START ###"
+#define FRR_BGP_AUTO_END	"! ### ASUSWRT-MERLIN-BGP-AUTO-END ###"
+#define FRR_BGP_BLOCK_END	"! ### ASUSWRT-MERLIN-BGP-END ###"
+
+#define FRR_OSPF_BLOCK_START	"! ### ASUSWRT-MERLIN-OSPF-START ###"
+#define FRR_OSPF_AUTO_END	"! ### ASUSWRT-MERLIN-OSPF-AUTO-END ###"
+#define FRR_OSPF_BLOCK_END	"! ### ASUSWRT-MERLIN-OSPF-END ###"
+
+#define FRR_BFD_BLOCK_START	"! ### ASUSWRT-MERLIN-BFD-START ###"
+#define FRR_BFD_AUTO_END	"! ### ASUSWRT-MERLIN-BFD-AUTO-END ###"
+#define FRR_BFD_BLOCK_END	"! ### ASUSWRT-MERLIN-BFD-END ###"
+
+#define FRR_ACL_BLOCK_START	"! ### ASUSWRT-MERLIN-ACL-START ###"
+#define FRR_ACL_AUTO_END	"! ### ASUSWRT-MERLIN-ACL-AUTO-END ###"
+#define FRR_ACL_BLOCK_END	"! ### ASUSWRT-MERLIN-ACL-END ###"
 
 static const char *frr_get_config_dir(char *buf, size_t len);
 
@@ -376,29 +390,15 @@ static void frr_create_dirs(void)
 }
 
 /*
- * Write the UI-managed protocol block to an already-open FILE *.
- * Called both when creating frr.conf from scratch and when merging
- * into an existing file.
+ * Write the auto-generated BGP configuration block.
+ * Content between START and AUTO_END is replaced on every UI Apply.
+ * User can add custom BGP config after AUTO_END, within the block.
  */
-static void frr_write_ui_block(FILE *fp,
-		const char *lan_ip, const char *wan_if,
-		const char *frr_passwd, const char *frr_enpasswd,
-		const char *hostname)
+static void frr_write_bgp_block(FILE *fp, const char *lan_ip)
 {
-	fprintf(fp, "%s\n", FRR_UI_BLOCK_START);
-	fprintf(fp, "!\n");
-	fprintf(fp, "frr version 8.1\n");
-	fprintf(fp, "frr defaults traditional\n");
-	fprintf(fp, "hostname %s\n", hostname);
-	fprintf(fp, "password %s\n", frr_passwd);
-	fprintf(fp, "enable password %s\n", frr_enpasswd);
-	fprintf(fp, "!\n");
-	fprintf(fp, "log syslog informational\n");
-	fprintf(fp, "!\n");
-	fprintf(fp, "service integrated-vtysh-config\n");
+	fprintf(fp, "%s\n", FRR_BGP_BLOCK_START);
 	fprintf(fp, "!\n");
 
-	/* === BGP Configuration === */
 	if (nvram_match("frr_bgp_enable", "1")) {
 		char *bgp_as        = nvram_safe_get("frr_bgp_as");
 		char *bgp_neighbor  = nvram_safe_get("frr_bgp_neighbor");
@@ -468,7 +468,20 @@ static void frr_write_ui_block(FILE *fp,
 		}
 	}
 
-	/* === OSPF Configuration === */
+	fprintf(fp, "%s\n", FRR_BGP_AUTO_END);
+	fprintf(fp, "! User custom BGP config can be added here\n");
+	fprintf(fp, "%s\n", FRR_BGP_BLOCK_END);
+	fprintf(fp, "!\n");
+}
+
+/*
+ * Write the auto-generated OSPF configuration block.
+ */
+static void frr_write_ospf_block(FILE *fp, const char *lan_ip, const char *wan_if)
+{
+	fprintf(fp, "%s\n", FRR_OSPF_BLOCK_START);
+	fprintf(fp, "!\n");
+
 	if (nvram_match("frr_ospf_enable", "1")) {
 		char *ospf_area     = nvram_safe_get("frr_ospf_area");
 		char *ospf_networks = nvram_safe_get("frr_ospf_networks");
@@ -503,7 +516,20 @@ static void frr_write_ui_block(FILE *fp,
 		fprintf(fp, "!\n");
 	}
 
-	/* === BFD Configuration === */
+	fprintf(fp, "%s\n", FRR_OSPF_AUTO_END);
+	fprintf(fp, "! User custom OSPF config can be added here\n");
+	fprintf(fp, "%s\n", FRR_OSPF_BLOCK_END);
+	fprintf(fp, "!\n");
+}
+
+/*
+ * Write the auto-generated BFD configuration block.
+ */
+static void frr_write_bfd_block(FILE *fp)
+{
+	fprintf(fp, "%s\n", FRR_BFD_BLOCK_START);
+	fprintf(fp, "!\n");
+
 	if (nvram_match("frr_bfd_enable", "1")) {
 		char *bfd_peer = nvram_safe_get("frr_bfd_peer");
 		char *bfd_tx   = nvram_safe_get("frr_bfd_tx");
@@ -523,7 +549,19 @@ static void frr_write_ui_block(FILE *fp,
 		fprintf(fp, "!\n");
 	}
 
-	/* === Access Control === */
+	fprintf(fp, "%s\n", FRR_BFD_AUTO_END);
+	fprintf(fp, "! User custom BFD config can be added here\n");
+	fprintf(fp, "%s\n", FRR_BFD_BLOCK_END);
+	fprintf(fp, "!\n");
+}
+
+/*
+ * Write the auto-generated ACL and line vty configuration block.
+ */
+static void frr_write_acl_block(FILE *fp)
+{
+	fprintf(fp, "%s\n", FRR_ACL_BLOCK_START);
+	fprintf(fp, "!\n");
 	fprintf(fp, "access-list vty permit 127.0.0.0/8\n");
 	if (nvram_match("frr_allow_lan", "1")) {
 		char *lip = nvram_safe_get("lan_ipaddr");
@@ -532,46 +570,67 @@ static void frr_write_ui_block(FILE *fp,
 			fprintf(fp, "access-list vty permit %s/%s\n", lip, lnm);
 	}
 	fprintf(fp, "access-list vty deny any\n");
-	fprintf(fp, "!\n");
 	fprintf(fp, "line vty\n");
 	fprintf(fp, " access-class vty\n");
 	fprintf(fp, " exec-timeout 0 0\n");
 	fprintf(fp, "!\n");
-
-	/* frr.conf.add appended inside the UI block */
-	append_custom_config("frr.conf", fp);
-
-	fprintf(fp, "%s\n", FRR_UI_BLOCK_END);
+	fprintf(fp, "%s\n", FRR_ACL_AUTO_END);
+	fprintf(fp, "! User custom ACL rules can be added here\n");
+	fprintf(fp, "%s\n", FRR_ACL_BLOCK_END);
+	fprintf(fp, "!\n");
 }
 
 /*
- * Merge the UI-managed block into conf_path.
+ * Merge multi-block UI-managed sections into conf_path.
  *
- * - File missing      → create it: static preamble + UI block.
- * - Markers present   → replace only the content between them.
- * - Markers absent    → append UI block at end (migration for hand-crafted
- *                       configs that predate the UI).
+ * Protocol blocks (BGP, OSPF, BFD, ACL) each have three sections:
+ * - START marker: beginning of block
+ * - AUTO_END marker: end of auto-generated section
+ * - END marker: end of block
  *
- * Everything outside the markers (user custom stanzas, route-maps,
- * prefix-lists, …) is left completely untouched.
+ * On normal Apply (force_regen=0):
+ *   - Replace auto-generated section (between START and AUTO_END)
+ *   - Preserve user additions (between AUTO_END and END)
+ * On Force Regen (force_regen=1):
+ *   - Replace entire block (between START and END)
+ * If block doesn't exist:
+ *   - Append new block
+ *
+ * Everything outside blocks is always preserved.
  */
 static void frr_merge_ui_into_conf(const char *conf_path,
 		const char *lan_ip, const char *wan_if,
 		const char *frr_passwd, const char *frr_enpasswd,
-		const char *hostname)
+		const char *hostname, int force_regen)
 {
 	FILE *fp;
 	char *buf = NULL;
 	long fsize;
-	char *p_start = NULL, *p_end = NULL;
 
 	fp = fopen(conf_path, "r");
 	if (!fp) {
 		/* File does not exist — create from scratch */
 		fp = fopen(conf_path, "w");
 		if (!fp) return;
-		fprintf(fp, "!\n! FRR configuration — managed by AsusWRT-Merlin WebUI\n!\n");
-		frr_write_ui_block(fp, lan_ip, wan_if, frr_passwd, frr_enpasswd, hostname);
+		fprintf(fp, "!\n! FRR configuration — managed by AsusWRT-Merlin WebUI\n");
+		fprintf(fp, "! Blocks marked with ###ASUSWRT-MERLIN-*-START/END### are UI-managed\n");
+		fprintf(fp, "! User additions within blocks after ###-AUTO-END### are preserved\n");
+		fprintf(fp, "!\n");
+		fprintf(fp, "frr version 8.1\n");
+		fprintf(fp, "frr defaults traditional\n");
+		fprintf(fp, "hostname %s\n", hostname);
+		fprintf(fp, "password %s\n", frr_passwd);
+		fprintf(fp, "enable password %s\n", frr_enpasswd);
+		fprintf(fp, "!\n");
+		fprintf(fp, "log syslog informational\n");
+		fprintf(fp, "!\n");
+		fprintf(fp, "service integrated-vtysh-config\n");
+		fprintf(fp, "!\n");
+		frr_write_bgp_block(fp, lan_ip);
+		frr_write_ospf_block(fp, lan_ip, wan_if);
+		frr_write_bfd_block(fp);
+		frr_write_acl_block(fp);
+		append_custom_config("frr.conf", fp);
 		fclose(fp);
 		chmod(conf_path, 0644);
 		return;
@@ -591,8 +650,25 @@ static void frr_merge_ui_into_conf(const char *conf_path,
 		/* Fall back to creating fresh file */
 		fp = fopen(conf_path, "w");
 		if (!fp) return;
-		fprintf(fp, "!\n! FRR configuration — managed by AsusWRT-Merlin WebUI\n!\n");
-		frr_write_ui_block(fp, lan_ip, wan_if, frr_passwd, frr_enpasswd, hostname);
+		fprintf(fp, "!\n! FRR configuration — managed by AsusWRT-Merlin WebUI\n");
+		fprintf(fp, "! Blocks marked with ###ASUSWRT-MERLIN-*-START/END### are UI-managed\n");
+		fprintf(fp, "! User additions within blocks after ###-AUTO-END### are preserved\n");
+		fprintf(fp, "!\n");
+		fprintf(fp, "frr version 8.1\n");
+		fprintf(fp, "frr defaults traditional\n");
+		fprintf(fp, "hostname %s\n", hostname);
+		fprintf(fp, "password %s\n", frr_passwd);
+		fprintf(fp, "enable password %s\n", frr_enpasswd);
+		fprintf(fp, "!\n");
+		fprintf(fp, "log syslog informational\n");
+		fprintf(fp, "!\n");
+		fprintf(fp, "service integrated-vtysh-config\n");
+		fprintf(fp, "!\n");
+		frr_write_bgp_block(fp, lan_ip);
+		frr_write_ospf_block(fp, lan_ip, wan_if);
+		frr_write_bfd_block(fp);
+		frr_write_acl_block(fp);
+		append_custom_config("frr.conf", fp);
 		fclose(fp);
 		chmod(conf_path, 0644);
 		return;
@@ -601,35 +677,161 @@ static void frr_merge_ui_into_conf(const char *conf_path,
 	fclose(fp);
 	buf[fsize] = '\0';
 
-	/* Locate markers */
-	p_start = strstr(buf, FRR_UI_BLOCK_START);
-	p_end   = strstr(buf, FRR_UI_BLOCK_END);
-
-	fp = fopen(conf_path, "w");
-	if (!fp) { free(buf); return; }
-
-	if (p_start && p_end && p_end > p_start) {
-		/* Advance p_end past the end-marker line (including newline) */
-		p_end += strlen(FRR_UI_BLOCK_END);
-		while (*p_end == '\r' || *p_end == '\n') p_end++;
-
-		/* Preserve everything before the start marker */
-		fwrite(buf, 1, p_start - buf, fp);
-		/* Write fresh UI block (includes start + end markers) */
-		frr_write_ui_block(fp, lan_ip, wan_if, frr_passwd, frr_enpasswd, hostname);
-		/* Preserve everything after the end marker */
-		if (*p_end)
-			fputs(p_end, fp);
-	} else {
-		/* No markers — preserve entire existing file, append UI block */
-		fputs(buf, fp);
-		if (buf[fsize - 1] != '\n')
-			fputc('\n', fp);
-		fputs("!\n", fp);
-		frr_write_ui_block(fp, lan_ip, wan_if, frr_passwd, frr_enpasswd, hostname);
+	/* For simplicity and robustness, rewrite the entire file from scratch,
+	 * but preserve user additions within blocks (after AUTO_END markers)
+	 * and everything outside blocks.
+	 *
+	 * Strategy: Process input sequentially, writing output and substituting
+	 * auto-generated sections with fresh ones from NVRAM.
+	 */
+	FILE *out = fopen(conf_path, "w");
+	if (!out) {
+		free(buf);
+		return;
 	}
 
-	fclose(fp);
+	char *p = buf;
+	char *bgp_start = strstr(buf, FRR_BGP_BLOCK_START);
+	char *ospf_start = strstr(buf, FRR_OSPF_BLOCK_START);
+	char *bfd_start = strstr(buf, FRR_BFD_BLOCK_START);
+	char *acl_start = strstr(buf, FRR_ACL_BLOCK_START);
+
+	/* Find which block comes first */
+	#define MIN_PTR(a, b) ((a && b) ? (a < b ? a : b) : (a ? a : b))
+	char *next_block = NULL;
+
+	/* Copy content before first block */
+	next_block = bgp_start;
+	next_block = MIN_PTR(next_block, ospf_start);
+	next_block = MIN_PTR(next_block, bfd_start);
+	next_block = MIN_PTR(next_block, acl_start);
+
+	if (next_block) {
+		fwrite(buf, 1, next_block - buf, out);
+		p = next_block;
+	} else {
+		/* No blocks found, preserve entire file and append blocks at end */
+		fwrite(buf, 1, fsize, out);
+		frr_write_bgp_block(out, lan_ip);
+		frr_write_ospf_block(out, lan_ip, wan_if);
+		frr_write_bfd_block(out);
+		frr_write_acl_block(out);
+		append_custom_config("frr.conf", out);
+		goto finish;
+	}
+
+	/* Process BGP block */
+	if (bgp_start) {
+		char *bgp_auto_end = strstr(bgp_start, FRR_BGP_AUTO_END);
+		char *bgp_end = strstr(bgp_start, FRR_BGP_BLOCK_END);
+		
+		if (bgp_auto_end && bgp_end && bgp_end > bgp_auto_end) {
+			/* Block exists with user section - write fresh auto section, preserve user section */
+			frr_write_bgp_block(out, lan_ip);
+			if (!force_regen) {
+				/* Preserve user additions: from AUTO_END marker to END marker */
+				char *user_start = bgp_auto_end + strlen(FRR_BGP_AUTO_END);
+				char *user_end = bgp_end;
+				fwrite(user_start, 1, user_end - user_start, out);
+			}
+			p = bgp_end + strlen(FRR_BGP_BLOCK_END);
+			while (*p == '\r' || *p == '\n') p++;
+		}
+	}
+
+	/* Find next block to process */
+	next_block = ospf_start;
+	next_block = MIN_PTR(next_block, bfd_start);
+	next_block = MIN_PTR(next_block, acl_start);
+	if (next_block && next_block > p) {
+		fwrite(p, 1, next_block - p, out);
+		p = next_block;
+	}
+
+	/* Process OSPF block */
+	if (ospf_start) {
+		char *ospf_auto_end = strstr(ospf_start, FRR_OSPF_AUTO_END);
+		char *ospf_end = strstr(ospf_start, FRR_OSPF_BLOCK_END);
+		
+		if (ospf_auto_end && ospf_end && ospf_end > ospf_auto_end) {
+			frr_write_ospf_block(out, lan_ip, wan_if);
+			if (!force_regen) {
+				char *user_start = ospf_auto_end + strlen(FRR_OSPF_AUTO_END);
+				char *user_end = ospf_end;
+				fwrite(user_start, 1, user_end - user_start, out);
+			}
+			p = ospf_end + strlen(FRR_OSPF_BLOCK_END);
+			while (*p == '\r' || *p == '\n') p++;
+		}
+	}
+
+	/* Find next block to process */
+	next_block = bfd_start;
+	next_block = MIN_PTR(next_block, acl_start);
+	if (next_block && next_block > p) {
+		fwrite(p, 1, next_block - p, out);
+		p = next_block;
+	}
+
+	/* Process BFD block */
+	if (bfd_start) {
+		char *bfd_auto_end = strstr(bfd_start, FRR_BFD_AUTO_END);
+		char *bfd_end = strstr(bfd_start, FRR_BFD_BLOCK_END);
+		
+		if (bfd_auto_end && bfd_end && bfd_end > bfd_auto_end) {
+			frr_write_bfd_block(out);
+			if (!force_regen) {
+				char *user_start = bfd_auto_end + strlen(FRR_BFD_AUTO_END);
+				char *user_end = bfd_end;
+				fwrite(user_start, 1, user_end - user_start, out);
+			}
+			p = bfd_end + strlen(FRR_BFD_BLOCK_END);
+			while (*p == '\r' || *p == '\n') p++;
+		}
+	}
+
+	/* Find ACL block */
+	if (acl_start && acl_start > p) {
+		fwrite(p, 1, acl_start - p, out);
+		p = acl_start;
+	}
+
+	/* Process ACL block */
+	if (acl_start) {
+		char *acl_auto_end = strstr(acl_start, FRR_ACL_AUTO_END);
+		char *acl_end = strstr(acl_start, FRR_ACL_BLOCK_END);
+		
+		if (acl_auto_end && acl_end && acl_end > acl_auto_end) {
+			frr_write_acl_block(out);
+			if (!force_regen) {
+				char *user_start = acl_auto_end + strlen(FRR_ACL_AUTO_END);
+				char *user_end = acl_end;
+				fwrite(user_start, 1, user_end - user_start, out);
+			}
+			p = acl_end + strlen(FRR_ACL_BLOCK_END);
+			while (*p == '\r' || *p == '\n') p++;
+		}
+	}
+
+	/* Copy any remaining content */
+	if (p < buf + fsize) {
+		fwrite(p, 1, (buf + fsize) - p, out);
+	}
+
+	/* Add any missing blocks */
+	if (!bgp_start)
+		frr_write_bgp_block(out, lan_ip);
+	if (!ospf_start)
+		frr_write_ospf_block(out, lan_ip, wan_if);
+	if (!bfd_start)
+		frr_write_bfd_block(out);
+	if (!acl_start)
+		frr_write_acl_block(out);
+
+	append_custom_config("frr.conf", out);
+
+finish:
+	fclose(out);
 	free(buf);
 	chmod(conf_path, 0644);
 }
@@ -734,10 +936,10 @@ static void frr_write_default_config(void)
 	
 	/*
 	 * Always merge UI settings into frr.conf.  The merge function replaces
-	 * only the UI-managed block (between FRR_UI_BLOCK_START/END markers) and
-	 * leaves every other stanza the user may have added untouched.
+	 * only the auto-generated portions (between START and AUTO_END markers)
+	 * and leaves user additions (after AUTO_END) untouched unless force_regen=1.
 	 */
-	frr_merge_ui_into_conf(conf_path, lan_ip, wan_if, frr_passwd, frr_enpasswd, hostname);
+	frr_merge_ui_into_conf(conf_path, lan_ip, wan_if, frr_passwd, frr_enpasswd, hostname, force_regen);
 
 	/*
 	 * Allow a full config override: if /jffs/configs/frr.conf exists it
@@ -867,9 +1069,22 @@ void restart_frr(void)
 	was_running = (pidof("watchfrr") > 0);
 	unlink(FRR_STDERR_LOG_FILE);
 
-	/* Ensure latest UI/NVRAM settings are materialized before restart. */
+	/*
+	 * Apply UI configuration updates only when explicitly requested:
+	 * - Only update config files if force_regen=1 (user clicked Apply on FRR page)
+	 * - Never update on daemon crashes (watchfrr restart) - use existing config
+	 * - Preserve existing config outside UI block if present
+	 *
+	 * This prevents unintended regeneration when watchfrr restarts a crashed daemon,
+	 * while ensuring UI changes (new BGP neighbors, etc.) are applied when users
+	 * explicitly click Apply on the FRR configuration page.
+	 */
 	frr_create_dirs();
-	frr_write_default_config();
+	
+	if (nvram_match("frr_force_regen", "1")) {
+		/* User explicitly requested config update via UI Apply */
+		frr_write_default_config();
+	}
 
 	/*
 	 * Use an explicit stop/start cycle for deterministic restart behavior.
