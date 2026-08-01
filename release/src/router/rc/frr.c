@@ -935,19 +935,25 @@ static void frr_write_default_config(void)
 	}
 	
 	/*
-	 * Always merge UI settings into frr.conf.  The merge function replaces
-	 * only the auto-generated portions (between START and AUTO_END markers)
-	 * and leaves user additions (after AUTO_END) untouched unless force_regen=1.
+	 * Preserve an existing external frr.conf unless the user explicitly
+	 * requests regeneration. This avoids rewriting/appending on normal starts
+	 * while still allowing initial creation and explicit refresh.
 	 */
-	frr_merge_ui_into_conf(conf_path, lan_ip, wan_if, frr_passwd, frr_enpasswd, hostname, force_regen);
+	if (frr_should_regenerate_file(conf_path, force_regen)) {
+		/*
+		 * Merge UI settings into frr.conf. The merge function replaces only the
+		 * auto-generated portions (between START and AUTO_END markers) and leaves
+		 * user additions untouched unless force_regen=1.
+		 */
+		frr_merge_ui_into_conf(conf_path, lan_ip, wan_if, frr_passwd, frr_enpasswd, hostname, force_regen);
 
-	/*
-	 * Allow a full config override: if /jffs/configs/frr.conf exists it
-	 * replaces the merged file entirely (same semantics as before the merge
-	 * feature was introduced).  run_postconf fires afterward regardless.
-	 */
-	use_custom_config("frr.conf", conf_path);
-	run_postconf("frr.conf", conf_path);
+		/*
+		 * Allow a full config override: if /jffs/configs/frr.conf exists it
+		 * replaces the merged file entirely. run_postconf fires afterward.
+		 */
+		use_custom_config("frr.conf", conf_path);
+		run_postconf("frr.conf", conf_path);
+	}
 
 	frr_sync_runtime_config(cfg_dir, daemons_path, conf_path);
 	nvram_unset("frr_force_regen");
