@@ -4851,6 +4851,42 @@ TRACE_PT("write wl filter\n");
 		// fprintf(fp_ipv6, "-A FORWARD -j VPNCF\n");
 #endif
 
+	// IPv4 inbound rules (allowed WAN-to-LAN traffic)
+	if (nvram_get_int("fw_enable_x")) {
+		char *nv4, *nvp4, *b4;
+		nv4 = nvp4 = strdup(nvram_safe_get("ipv4_fw_rulelist"));
+		while (nvp4 && (b4 = strsep(&nvp4, "<")) != NULL) {
+			char *desc4, *srcip4, *dstip4, *port4, *proto4, *iface4;
+			char *portv4, *portp4, *dstports4;
+			char srciprule4[64], dstiprule4[64];
+			int nfields4 = vstrsep(b4, ">", &desc4, &srcip4, &dstip4, &port4, &proto4, &iface4);
+			if (nfields4 < 5)
+				continue;
+			const char *ifname4 = (nfields4 >= 6 && iface4 && iface4[0] != '\0') ? iface4 : wan_if;
+			if (srcip4[0] != '\0')
+				snprintf(srciprule4, sizeof(srciprule4), "-s %s", srcip4);
+			else
+				srciprule4[0] = '\0';
+			if (dstip4[0] != '\0')
+				snprintf(dstiprule4, sizeof(dstiprule4), "-d %s", dstip4);
+			else
+				dstiprule4[0] = '\0';
+			portp4 = portv4 = strdup(port4);
+			while (portv4 && (dstports4 = strsep(&portp4, ",")) != NULL) {
+				if (strcmp(proto4, "TCP") == 0 || strcmp(proto4, "BOTH") == 0)
+					fprintf(fp, "-A FORWARD -i %s -m state --state NEW -p tcp -m tcp %s %s --dport %s -j %s\n", ifname4, srciprule4, dstiprule4, dstports4, logaccept);
+				if (strcmp(proto4, "UDP") == 0 || strcmp(proto4, "BOTH") == 0)
+					fprintf(fp, "-A FORWARD -i %s -m state --state NEW -p udp -m udp %s %s --dport %s -j %s\n", ifname4, srciprule4, dstiprule4, dstports4, logaccept);
+				if (strcmp(proto4, "OTHER") == 0) {
+					char *protono4 = strsep(&dstports4, ":");
+					fprintf(fp, "-A FORWARD -i %s -p %s %s %s -j %s\n", ifname4, protono4, srciprule4, dstiprule4, logaccept);
+				}
+			}
+			free(portv4);
+		}
+		free(nv4);
+	}
+
 	// Default rule
 	if (nvram_get_int("fw_enable_x"))
 		fprintf(fp, "-A FORWARD -j %s\n", logdrop);
@@ -6349,6 +6385,42 @@ TRACE_PT("write wl filter\n");
 	// if (ipv6_enabled())
 		// fprintf(fp_ipv6, "-A FORWARD -j VPNCF\n");
 #endif
+
+	// IPv4 inbound rules (allowed WAN-to-LAN traffic)
+	if (nvram_get_int("fw_enable_x")) {
+		char *nv4, *nvp4, *b4;
+		nv4 = nvp4 = strdup(nvram_safe_get("ipv4_fw_rulelist"));
+		while (nvp4 && (b4 = strsep(&nvp4, "<")) != NULL) {
+			char *desc4, *srcip4, *dstip4, *port4, *proto4, *iface4;
+			char *portv4, *portp4, *dstports4;
+			char srciprule4[64], dstiprule4[64];
+			int nfields4 = vstrsep(b4, ">", &desc4, &srcip4, &dstip4, &port4, &proto4, &iface4);
+			if (nfields4 < 5)
+				continue;
+			const char *ifname4 = (nfields4 >= 6 && iface4 && iface4[0] != '\0') ? iface4 : wan_if;
+			if (srcip4[0] != '\0')
+				snprintf(srciprule4, sizeof(srciprule4), "-s %s", srcip4);
+			else
+				srciprule4[0] = '\0';
+			if (dstip4[0] != '\0')
+				snprintf(dstiprule4, sizeof(dstiprule4), "-d %s", dstip4);
+			else
+				dstiprule4[0] = '\0';
+			portp4 = portv4 = strdup(port4);
+			while (portv4 && (dstports4 = strsep(&portp4, ",")) != NULL) {
+				if (strcmp(proto4, "TCP") == 0 || strcmp(proto4, "BOTH") == 0)
+					fprintf(fp, "-A FORWARD -i %s -m state --state NEW -p tcp -m tcp %s %s --dport %s -j %s\n", ifname4, srciprule4, dstiprule4, dstports4, logaccept);
+				if (strcmp(proto4, "UDP") == 0 || strcmp(proto4, "BOTH") == 0)
+					fprintf(fp, "-A FORWARD -i %s -m state --state NEW -p udp -m udp %s %s --dport %s -j %s\n", ifname4, srciprule4, dstiprule4, dstports4, logaccept);
+				if (strcmp(proto4, "OTHER") == 0) {
+					char *protono4 = strsep(&dstports4, ":");
+					fprintf(fp, "-A FORWARD -i %s -p %s %s %s -j %s\n", ifname4, protono4, srciprule4, dstiprule4, logaccept);
+				}
+			}
+			free(portv4);
+		}
+		free(nv4);
+	}
 
 	// Default rule
 	if (nvram_get_int("fw_enable_x"))
