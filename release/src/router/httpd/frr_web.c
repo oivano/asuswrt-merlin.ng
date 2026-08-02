@@ -28,8 +28,8 @@
 #define FRR_BGP_SUMMARY_CMD     "show bgp summary json"
 #define FRR_SHOW_IP_ROUTE_CMD   "show ip route json"
 #define FRR_SHOW_IPV6_ROUTE_CMD "show ipv6 route json"
-#define FRR_VTYSH_TIMEOUT_SEC 5
-#define FRR_MAX_CAPTURE_SIZE 65536
+#define FRR_VTYSH_TIMEOUT_SEC 8
+#define FRR_MAX_CAPTURE_SIZE 524288
 #define FRR_VTYSH_RETRY_DELAY_SEC 5
 
 struct frr_bgp_cache {
