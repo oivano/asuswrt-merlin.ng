@@ -2451,6 +2451,49 @@ DEFUN (no_default_vrf_vni_mapping,
 	return nb_cli_apply_changes(vty, NULL);
 }
 
+DEFUN (vrf_table,
+       vrf_table_cmd,
+       "table (1-4294967295)",
+       "Configure VRF kernel routing table\n"
+       "Table ID\n")
+{
+	ZEBRA_DECLVAR_CONTEXT(vrf, zvrf);
+	uint32_t table_id;
+
+	assert(vrf);
+	assert(zvrf);
+
+	table_id = strtoul(argv[1]->arg, NULL, 10);
+	if (!is_zebra_valid_kernel_table(table_id)) {
+		vty_out(vty, "%% Invalid routing table ID\n");
+		return CMD_WARNING;
+	}
+
+	if (zvrf_id(zvrf) == VRF_DEFAULT) {
+		vty_out(vty, "%% Cannot set table on default VRF\n");
+		return CMD_WARNING;
+	}
+
+	zvrf->table_id = table_id;
+	return CMD_SUCCESS;
+}
+
+DEFUN (no_vrf_table,
+       no_vrf_table_cmd,
+       "no table [(1-4294967295)]",
+       NO_STR
+       "Configure VRF kernel routing table\n"
+       "Table ID\n")
+{
+	ZEBRA_DECLVAR_CONTEXT(vrf, zvrf);
+
+	assert(vrf);
+	assert(zvrf);
+
+	zvrf->table_id = RT_TABLE_MAIN;
+	return CMD_SUCCESS;
+}
+
 DEFUN (vrf_vni_mapping,
        vrf_vni_mapping_cmd,
        "vni " CMD_VNI_RANGE "[prefix-routes-only]",
@@ -3941,6 +3984,8 @@ void zebra_vty_init(void)
 	install_element(CONFIG_NODE, &no_default_vrf_vni_mapping_cmd);
 	install_element(VRF_NODE, &vrf_vni_mapping_cmd);
 	install_element(VRF_NODE, &no_vrf_vni_mapping_cmd);
+	install_element(VRF_NODE, &vrf_table_cmd);
+	install_element(VRF_NODE, &no_vrf_table_cmd);
 
 	install_element(VIEW_NODE, &show_dataplane_cmd);
 	install_element(VIEW_NODE, &show_dataplane_providers_cmd);

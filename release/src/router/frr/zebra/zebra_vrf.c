@@ -525,6 +525,8 @@ static int vrf_config_write(struct vty *vty)
 						zvrf->l3vni)
 						? " prefix-routes-only"
 						: "");
+			if (zvrf->table_id != RT_TABLE_MAIN)
+				vty_out(vty, " table %u\n", zvrf->table_id);
 			zebra_ns_config_write(vty, (struct ns *)vrf->ns_ctxt);
 			if (zvrf->zebra_rnh_ip_default_route)
 				vty_out(vty, " ip nht resolve-via-default\n");
