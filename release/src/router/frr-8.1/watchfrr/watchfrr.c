@@ -204,6 +204,7 @@ static int wakeup_send_echo(struct thread *t_wakeup);
 static void try_restart(struct daemon *dmn);
 static void phase_check(void);
 static void restart_done(struct daemon *dmn);
+static void daemon_down(struct daemon *dmn, const char *why);
 
 static const char *progname;
 
@@ -580,6 +581,9 @@ static void restart_done(struct daemon *dmn)
 		zlog_warn(
 			"Daemon: %s: is in %s state but expected it to be in DAEMON_DOWN state",
 			dmn->name, state_str[dmn->state]);
+		/* Old instance wasn't killed in time; close the stale connection
+		 * and reconnect to the new instance that was just started. */
+		daemon_down(dmn, "stale connection after restart");
 		return;
 	}
 	THREAD_OFF(dmn->t_wakeup);
