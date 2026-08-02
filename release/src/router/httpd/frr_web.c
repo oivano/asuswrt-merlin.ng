@@ -389,6 +389,11 @@ static int frr_write_route_origin_object(webs_t wp, const char *var_name, const 
 					if (json_object_object_get_ex(nh, "directlyConnected", &nh_val))
 						direct = json_object_get_boolean(nh_val) ? 1 : 0;
 
+					/* Skip recursive nexthops — the resolved FIB nexthop appears alongside */
+					if (json_object_object_get_ex(nh, "recursive", &nh_val) &&
+					    json_object_get_boolean(nh_val))
+						continue;
+
 					if (wrote_entry)
 						ret += websWrite(wp, ",");
 

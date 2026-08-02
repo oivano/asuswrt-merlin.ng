@@ -150,6 +150,23 @@
 				.replace(/'/g, '&#39;');
 		}
 
+		/* Collapse repeated ASNs: "4323 4323 4323 64513" → "4323×3 64513" */
+		function compact_aspath(aspath) {
+			if (!aspath) return '';
+			var parts = aspath.trim().split(/\s+/);
+			var out = [];
+			var i = 0;
+			while (i < parts.length) {
+				var asn = parts[i];
+				var count = 1;
+				while (i + count < parts.length && parts[i + count] === asn)
+					count++;
+				out.push(count > 1 ? asn + '\u00d7' + count : asn);
+				i += count;
+			}
+			return out.join(' ');
+		}
+
 		/* ── FRR route table builder ──────────────────────────────────────── */
 
 		/*
@@ -369,7 +386,7 @@
 					c += '<td>' + proto_badge(r.proto) + '</td>';
 					c += '<td style="font-family:monospace;">' + active_mark + html_escape(r.prefix) + '</td>';
 					c += '<td style="font-family:monospace;">' + nh + '</td>';
-					c += '<td style="font-family:monospace;font-size:11px;">' + html_escape(r.aspath || '') + '</td>';
+					c += '<td style="font-family:monospace;font-size:11px;">' + html_escape(compact_aspath(r.aspath)) + '</td>';
 					c += '<td>' + html_escape(r.iface) + '</td>';
 					c += '<td style="font-family:monospace;">' + dm + '</td>';
 					c += '<td>' + html_escape(r.age || '') + '</td>';
@@ -605,7 +622,7 @@
 					c += '<td style="font-family:monospace;">' + active_mark + html_escape(r.prefix) + '</td>';
 					c += '<td style="font-family:monospace;">' + nh + '</td>';
 					c += '<td style="font-family:monospace;font-size:11px;">'
-						+ html_escape(r.aspath || '') + '</td>';
+						+ html_escape(compact_aspath(r.aspath)) + '</td>';
 					c += '<td>' + html_escape(r.iface) + '</td>';
 					c += '<td style="font-family:monospace;">' + dm + '</td>';
 					c += '<td>' + html_escape(r.age || '') + '</td>';
