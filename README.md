@@ -44,7 +44,7 @@ All releases:
 
 Latest Merlin firmware version: ![GitHub release](https://img.shields.io/github/v/tag/RMerl/asuswrt-merlin.ng.svg?style=plastic)
 
-Main branch build: [![CircleCI](https://circleci.com/gh/oivano/asuswrt-merlin.ng/tree/dsl-master.svg?style=svg)](https://circleci.com/gh/oivano/asuswrt-merlin.ng/tree/dsl-master)
+Main branch build: [![CircleCI](https://circleci.com/gh/oivano/asuswrt-merlin.ng/tree/DEV-nextrelease.svg?style=svg)](https://circleci.com/gh/oivano/asuswrt-merlin.ng/tree/DEV-nextrelease)
 
 ---------------------
 

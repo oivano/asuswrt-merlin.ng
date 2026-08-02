@@ -1,0 +1,10 @@
+# AI-generated documentation (not part of upstream)
+CLAUDE.md
+AGENTS.md
+CODEBASE-SUMMARY.md
+MAINTENANCE-WORKFLOW.md
+# Local maintenance scripts and generated release artifacts
+tools/release/
+
+# Local prompt customizations
+.github/prompts/
