@@ -526,6 +526,35 @@ test -n "$frr_profile" && frr_global_options="$frr_global_options -F $frr_profil
 # other defaults and dispatch
 #
 
+# Serialize restart operations to prevent watchfrr's concurrent "restart all"
+# and individual "restart <daemon>" from racing over the same daemon.
+_restart_lock_dir="$V_PATH/restart.lock"
+
+acquire_restart_lock() {
+	local timeout=60 pid_file lock_pid
+	pid_file="$_restart_lock_dir/pid"
+	mkdir -p "$V_PATH" 2>/dev/null
+	while ! mkdir "$_restart_lock_dir" 2>/dev/null; do
+		if [ -f "$pid_file" ]; then
+			lock_pid="$(cat "$pid_file" 2>/dev/null)"
+			if [ -n "$lock_pid" ] && ! kill -0 "$lock_pid" 2>/dev/null; then
+				rm -f "$pid_file"
+				rmdir "$_restart_lock_dir" 2>/dev/null
+				continue
+			fi
+		fi
+		[ "$timeout" -gt 0 ] || return 1
+		sleep 1
+		timeout=$((timeout - 1))
+	done
+	echo $$ > "$pid_file"
+}
+
+release_restart_lock() {
+	rm -f "$_restart_lock_dir/pid"
+	rmdir "$_restart_lock_dir" 2>/dev/null
+}
+
 frrcommon_main() {
 	local cmd
 
@@ -539,8 +568,12 @@ frrcommon_main() {
 		start)	all_start;;
 		stop)	all_stop;;
 		restart)
+			acquire_restart_lock
+			trap release_restart_lock EXIT INT TERM
 			all_stop
 			all_start
+			release_restart_lock
+			trap - EXIT INT TERM
 			;;
 		*)	$cmd "$@";;
 		esac
@@ -549,8 +582,12 @@ frrcommon_main() {
 		start)	daemon_start "$@";;
 		stop)	daemon_stop "$@";;
 		restart)
+			acquire_restart_lock
+			trap release_restart_lock EXIT INT TERM
 			daemon_stop "$@"
 			daemon_start "$@"
+			release_restart_lock
+			trap - EXIT INT TERM
 			;;
 		*)	$cmd "$@";;
 		esac
