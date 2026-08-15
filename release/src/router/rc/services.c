@@ -2781,6 +2781,8 @@ void start_dnscrypt_proxy(void)
 
 	if (!nvram_get_int("dnscrypt_enable") || !is_routing_enabled())
 		return;
+	if (!nvram_get_int("ntp_ready"))
+		return;
 
 	if (getpid() != 1) {
 		notify_rc("start_dnscrypt");
