@@ -32,6 +32,7 @@ var PROTOCOL = "ftp";
 var NN_status = get_cifs_status();  // Network-Neighborhood
 var FTP_status = get_ftp_status(); // FTP
 var FTP_WAN_status = <% nvram_get("ftp_wanac"); %>;
+var SFTP_status = <% nvram_get("sshd_sftp"); %>;
 var AM_to_cifs = get_share_management_status("cifs");  // Account Management for Network-Neighborhood
 var AM_to_ftp = get_share_management_status("ftp");  // Account Management for FTP
 var ftp_tls_orig = httpApi.nvramGet(["ftp_tls"]).ftp_tls;
@@ -517,6 +518,10 @@ function switchWanStatus(state){
 	document.form.submit();
 }
 
+function switchSftpStatus(state){
+	document.form.sshd_sftp.value = state;
+}
+
 function resultOfSwitchWanStatus(){
         refreshpage(1);
 }
@@ -794,6 +799,7 @@ function secure_check(flag){
 <input type="hidden" name="modified" value="0">
 <input type="hidden" name="current_page" value="Advanced_AiDisk_ftp.asp">
 <input type="hidden" name="ftp_wanac" value="<% nvram_get("ftp_wanac"); %>">
+<input type="hidden" name="sshd_sftp" value="<% nvram_get("sshd_sftp"); %>">
 <input type="hidden" name="flag" value="">
 
 <table id="content_table" border="0" align="center" cellpadding="0" cellspacing="0">
@@ -845,6 +851,24 @@ function secure_check(flag){
 						<span id="ftpPortConflict"></span>
 					</td>
 				</tr>										
+				<tr>
+					<th>Enable SFTP</th>
+					<td>
+						<div class="left" style="width:94px; float:left; cursor:pointer;" id="radio_sftp_enable"></div>
+						<div class="iphone_switch_container" style="height:32px; width:74px; position: relative; overflow: hidden">
+							<script type="text/javascript">
+								$('#radio_sftp_enable').iphoneSwitch(SFTP_status,
+									function() {
+										switchSftpStatus(1);
+									},
+									function() {
+										switchSftpStatus(0);
+									}
+								);
+							</script>
+						</div>
+					</td>
+				</tr>
 				<tr>
 				<th><#enableWANaccess#></th>
 					<td>

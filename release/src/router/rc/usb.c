@@ -5769,7 +5769,6 @@ void start_nfsd(void)
 	close(creat("/var/lib/nfs/etab", 0644));
 	close(creat("/var/lib/nfs/xtab", 0644));
 	close(creat("/var/lib/nfs/rmtab", 0644));
-	close(creat("/var/lib/nfs/state", 0644));
 
 	/* (re-)create /etc/exports */
 	if (stat(NFS_EXPORT, &st_buf) == 0)	{
