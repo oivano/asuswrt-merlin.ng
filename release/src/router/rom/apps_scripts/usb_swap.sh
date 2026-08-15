@@ -39,7 +39,7 @@ if [ "$SWAP_ENABLE" != "1" ]; then
 else
 	mem_size=`free |sed '1,3d' |awk '{print $4}'`
 	if [ "$SWAP_THRESHOLD" == "" ] || [ $mem_size -lt $SWAP_THRESHOLD ]; then
-		pool_size=`df /dev/$APPS_DEV |sed '1d' |awk '{print $4}'`
+		pool_size=`df "$USB_PATH" |sed '1d' |awk '{print $4}'`
 		if [ $pool_size -gt $SWAP_SIZE ]; then
 			if [ -e "$USB_PATH/$SWAP_FILE" ]; then
 				swapoff $USB_PATH/$SWAP_FILE
