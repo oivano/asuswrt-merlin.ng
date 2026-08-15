@@ -703,6 +703,10 @@ function applyRule(){
 			document.form.action_script.value += ";restart_stubby";
 		}
 
+		if(dnscrypt_support){
+			document.form.action_script.value += ";restart_dnscrypt";
+		}
+
 		if (document.form.dsl_unit.value=='0' && document.form.dsl_enable.value=='1') {
 			document.form.wan_enable.value = document.form.dsl_link_enable.value;
 			document.form.wan_unit.value = '0';
@@ -944,6 +948,17 @@ function enable_all_ctrl(pvc) {
 	else{
 		inputCtrl(document.form.dnspriv_enable, 0);
 		change_dnspriv_enable(0);
+	}
+
+	if(dnscrypt_support && pvc == 0){
+		document.getElementById("dnscrypt_enable_tr").style.display = "";
+		inputCtrl(document.form.dnscrypt_enable[0], 1);
+		inputCtrl(document.form.dnscrypt_enable[1], 1);
+		change_dnscrypt_enable(document.form.dnscrypt_enable[0].checked ? 1 : 0);
+	}
+	else{
+		document.getElementById("dnscrypt_enable_tr").style.display = "none";
+		change_dnscrypt_enable(0);
 	}
 }
 
@@ -1388,6 +1403,11 @@ function change_dnspriv_enable(flag){
 		document.getElementById("DNSPrivacy").style.display = "none";
 		document.getElementById("dnspriv_rulelist_Block").style.display = "none";
 	}
+}
+
+function change_dnscrypt_enable(flag){
+	inputCtrl(document.form.dnscrypt_server_names, flag);
+	document.getElementById("dnscrypt_server_names_tr").style.display = (flag == 1) ? "" : "none";
 }
 
 function addRow(obj, head){
@@ -1839,6 +1859,19 @@ function showDiableDHCPclientID(clientid_enable){
 											<td>
 												<input type="radio" name="dnspriv_profile" class="input" value="1" onclick="return change_common_radio(this, 'IPConnection', 'dnspriv_profile', 1)" <% nvram_match("dnspriv_profile", "1", "checked"); %> /><#WAN_DNS_over_TLS_Strict#>
 												<input type="radio" name="dnspriv_profile" class="input" value="0" onclick="return change_common_radio(this, 'IPConnection', 'dnspriv_profile', 0)" <% nvram_match("dnspriv_profile", "0", "checked"); %> /><#WAN_DNS_over_TLS_Opportunistic#>
+											</td>
+										</tr>
+										<tr id="dnscrypt_enable_tr" style="display:none">
+											<th>DNSCrypt</th>
+											<td align="left">
+												<input type="radio" name="dnscrypt_enable" class="input" value="1" onclick="change_dnscrypt_enable(1)" <% nvram_match("dnscrypt_enable", "1", "checked"); %> /><#checkbox_Yes#>
+												<input type="radio" name="dnscrypt_enable" class="input" value="0" onclick="change_dnscrypt_enable(0)" <% nvram_match("dnscrypt_enable", "0", "checked"); %> /><#checkbox_No#>
+											</td>
+										</tr>
+										<tr id="dnscrypt_server_names_tr" style="display:none">
+											<th>DNSCrypt Resolvers</th>
+											<td>
+												<input type="text" maxlength="255" class="input_32_table" name="dnscrypt_server_names" value="<% nvram_get("dnscrypt_server_names"); %>" placeholder="comma-separated resolver names, empty = auto-select" autocorrect="off" autocapitalize="off">
 											</td>
 										</tr>
 									</table>

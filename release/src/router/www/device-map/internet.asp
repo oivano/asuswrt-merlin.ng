@@ -84,6 +84,9 @@ if(yadns_support){
 if(dnspriv_support)
 	var dnspriv_enable = '<% nvram_get("dnspriv_enable"); %>';
 
+if(dnscrypt_support)
+	var dnscrypt_enable = '<% nvram_get("dnscrypt_enable"); %>';
+
 var wan_enable_orig = (parent.document.form.dual_wan_flag.value == 0)? '<% nvram_get("wan0_enable"); %>':'<% nvram_get("wan1_enable"); %>';
 
 function add_lanport_number(if_name)
@@ -257,7 +260,12 @@ function initial(){
 			var dnspriv_mode = "Disabled";
 
 		showtext(document.getElementById("dnspriv_mode"), dnspriv_mode);
+		if(dnspriv_enable != 0)
+			document.getElementById("dnspriv_enabled").style.display = "";
 	}
+
+	if(dnscrypt_support && dnscrypt_enable == 1)
+		document.getElementById("dnscrypt_enabled").style.display = "";
 
 	if(parent.wans_flag){
 		if(unit == 0){
@@ -957,12 +965,20 @@ function manualSetup(){
     </td>
 </tr>
 
-<tr id="dnspriv_enabled">
+<tr style="display:none;" id="dnscrypt_enabled">
     <td style="padding:5px 10px 5px 15px;">
-    		<p class="formfonttitle_nwm">DNS Privacy mode</p>
-    		<p class="tab_info_bg" style="padding-left:10px; margin-top:3px;line-height:20px;" id="dnspriv_mode"></p>
+			<p class="formfonttitle_nwm">DNSCrypt</p>
+			<p class="tab_info_bg" style="padding-left:10px; margin-top:3px;line-height:20px;">Enabled</p>
         <div style="margin-top:5px;" class="line_horizontal"></div>
     </td>
+</tr>
+
+<tr style="display:none;" id="dnspriv_enabled">
+	<td style="padding:5px 10px 5px 15px;">
+			<p class="formfonttitle_nwm">DNS Privacy mode</p>
+			<p class="tab_info_bg" style="padding-left:10px; margin-top:3px;line-height:20px;" id="dnspriv_mode"></p>
+		<div style="margin-top:5px;" class="line_horizontal"></div>
+	</td>
 </tr>
 
 <tr id="primary_DNS_ctrl">
