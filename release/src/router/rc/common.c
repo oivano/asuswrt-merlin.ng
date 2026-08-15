@@ -1170,7 +1170,6 @@ int gettzoffset(char *tzstr, char *tzstr1, int size1)
 #endif
 
 
-#ifdef HND_ROUTER
 #define LOCALTIME_FILE "/etc/localtime"
 #define ZONEINFO_PATH "/rom/usr/share/zoneinfo/"
 typedef struct zoneinfo {
@@ -1281,7 +1280,6 @@ const zoneinfo_t tz_list[] = {
 	{"UTC-13",      "Pacific/Tongatapu"},	// (GMT+13:00) Nuku'alofa
 	{ NULL }
 };
-#endif
 
 void time_zone_x_mapping(void)
 {
@@ -1290,7 +1288,6 @@ void time_zone_x_mapping(void)
 	char *ptr;
 	int len;
 
-#ifdef HND_ROUTER
 	int idx;
 	char cmd[128];
 	const zoneinfo_t *pzlist = tz_list;
@@ -1308,7 +1305,6 @@ void time_zone_x_mapping(void)
 			}
 		}
 	}
-#endif
 
 	/* pre mapping because time_zone area changed*/
 	if (nvram_match("time_zone", "UTC-3.30DST")){

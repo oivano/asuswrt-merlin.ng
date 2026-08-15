@@ -2850,6 +2850,12 @@ void start_dnscrypt_proxy(void)
 	run_postconf("dnscrypt-proxy", DNSCRYPT_CONFIG);
 	chmod(DNSCRYPT_CONFIG, 0644);
 
+	/* Go's time package ignores the system localtime file; give it TZ explicitly */
+#ifndef RTCONFIG_AVOID_TZ_ENV
+	time_zone_x_mapping();
+	setenv("TZ", ":/etc/localtime", 1);
+#endif
+
 	pid = 0;
 	_eval(argv, NULL, 0, &pid);
 	if (pid > 0) {
