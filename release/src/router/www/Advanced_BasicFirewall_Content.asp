@@ -18,6 +18,45 @@
 <script type="text/javascript" language="JavaScript" src="/validator.js"></script>
 <script type="text/javascript" src="/js/jquery.js"></script>
 <script type="text/javascript" src="/js/httpApi.js"></script>
+<style>
+/* Keep the entry and generated rule tables on the same column grid. */
+#ipv4_firewall_div .FormTable_table{
+	table-layout: fixed;
+}
+
+#ipv4_firewall_div .FormTable_table .input_12_table,
+#ipv4_firewall_div .FormTable_table .input_18_table,
+#ipv4_firewall_div .FormTable_table .input_option{
+	box-sizing: border-box;
+	width: 100%;
+	max-width: 100%;
+	margin-left: 0;
+}
+
+/* Keep IPv4 rule action icons visually consistent on this page only. */
+#ipv4_firewall_div .ipv4_rule_btn{
+	width: 32px;
+	height: 32px;
+	background-size: 32px 32px;
+	display: inline-block;
+	vertical-align: middle;
+}
+
+/* Match the input row's column split so list rows line up with headers. */
+#ipv4_fw_rulelist_table .ipv4_rule_action_cell{
+	width: 16%;
+	text-align: center;
+	vertical-align: middle;
+}
+
+/* Improve interface value alignment/readability in generated rule rows. */
+#ipv4_fw_rulelist_table .ipv4_rule_iface_cell{
+	text-align: left;
+	padding-left: 10px;
+	font-family: Arial, Helvetica, sans-serif;
+	white-space: nowrap;
+}
+</style>
 <script>
 var firewall_enable = '<% nvram_get("fw_enable_x"); %>';
 var ipv6_fw_enable = '<% nvram_get("ipv6_fw_enable"); %>';
@@ -606,7 +645,7 @@ function showipv4_fw_rulelist(){
 	var ipv4_fw_rulelist_row = decodeURIComponent(ipv4_fw_rulelist_array).split('<');
 	var code = "";
 
-	code +='<table width="100%" cellspacing="0" cellpadding="4" align="center" class="list_table" id="ipv4_fw_rulelist_table">';
+	code +='<table width="100%" cellspacing="0" cellpadding="4" align="center" class="list_table" id="ipv4_fw_rulelist_table" style="table-layout:fixed;">';
 	if(ipv4_fw_rulelist_row.length == 1)
 		code +='<tr><td style="color:#FFCC00;" colspan="7"><#IPConnection_VSList_Norule#></td></tr>';
 	else{
@@ -648,12 +687,15 @@ function showipv4_fw_rulelist(){
 								}else
 									code +='<td width="'+wid[j]+'%">'+ ipv4_fw_rulelist_col[j] +'</td>';
 						}else{
-							code +='<td width="'+wid[j]+'%">'+ ipv4_fw_rulelist_col[j] +'</td>';
+							if(j == 5)
+								code +='<td width="'+wid[j]+'%" class="ipv4_rule_iface_cell">'+ ipv4_fw_rulelist_col[j] +'</td>';
+							else
+								code +='<td width="'+wid[j]+'%">'+ ipv4_fw_rulelist_col[j] +'</td>';
 						}
 
 				}
-				code +='<td width="12%"><!--input class="edit_btn" onclick="edit_Row_ipv4(this);" value=""/-->';
-				code +='<input class="remove_btn" onclick="del_Row_ipv4(this);" value=""/></td></tr>';
+				code +='<td width="16%" class="ipv4_rule_action_cell"><!--input class="edit_btn" onclick="edit_Row_ipv4(this);" value=""/-->';
+				code +='<input class="remove_btn ipv4_rule_btn" onclick="del_Row_ipv4(this);" value=""/></td></tr>';
 		}
 	}
 	code +='</table>';
@@ -809,21 +851,21 @@ function ipv6_valid(obj, cidr) {
 										<div class="formfontdesc">You can leave the IP fields empty to allow traffic from/to any source. A subnet can also be specified. (192.168.1.0/24 for example)</div>
 									</div>
 
-									<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" class="FormTable_table">
+									<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" class="FormTable_table" style="table-layout:fixed;">
 										<thead>
 											<tr>
-												<td colspan="8">Inbound Firewall Rules&nbsp;(<#List_limit#>&nbsp;128)</td>
+												<td colspan="7">Inbound Firewall Rules&nbsp;(<#List_limit#>&nbsp;128)</td>
 											</tr>
 										</thead>
 
 										<tr>
-											<th><#BM_UserList1#></th>
-											<th>Remote IP/CIDR</th>
-											<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,25);"><#IPConnection_VServerIP_itemname#></a></th>
-											<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,24);"><#FirewallConfig_LanWanSrcPort_itemname#></a></th>
-											<th><#IPConnection_VServerProto_itemname#></th>
-											<th>Interface</th>
-											<th><#list_add_delete#></th>
+											<th width="12%"><#BM_UserList1#></th>
+											<th width="18%">Remote IP/CIDR</th>
+											<th width="18%"><a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,25);"><#IPConnection_VServerIP_itemname#></a></th>
+											<th width="12%"><a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,24);"><#FirewallConfig_LanWanSrcPort_itemname#></a></th>
+											<th width="10%"><#IPConnection_VServerProto_itemname#></th>
+											<th width="14%">Interface</th>
+											<th width="16%"><#list_add_delete#></th>
 										</tr>
 
 										<tr>
@@ -851,7 +893,7 @@ function ipv6_valid(obj, cidr) {
 												<input type="text" maxlength="16" class="input_12_table" name="ipv4_fw_iface_x_0" placeholder="WAN" autocorrect="off" autocapitalize="off"/>
 											</td>
 											<td width="16%">
-												<input type="button" class="add_btn" onClick="addRow_Group_ipv4(128);" name="ipv4_fw_rulelist2" value="">
+												<input type="button" class="add_btn ipv4_rule_btn" onClick="addRow_Group_ipv4(128);" name="ipv4_fw_rulelist2" value="">
 											</td>
 										</tr>
 									</table>
