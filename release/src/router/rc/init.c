@@ -17835,6 +17835,10 @@ int init_nvram(void)
 	add_rc_support("dnspriv");
 #endif
 
+#ifdef RTCONFIG_DNSCRYPT
+	add_rc_support("dnscrypt");
+#endif
+
 #ifdef RTCONFIG_DSL
 	set_wanscap_support("dsl");
 #elif defined(RTCONFIG_NO_WANPORT) || defined(RTCONFIG_NoETH)

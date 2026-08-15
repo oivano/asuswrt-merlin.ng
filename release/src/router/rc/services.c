@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <unistd.h>
 #include <errno.h>
 #include <sys/time.h>
@@ -47,6 +48,110 @@
 #endif
 #include <shared.h>
 #include "flash_mtd.h"
+
+#ifdef RTCONFIG_DNSMASQ_BLOCKLIST
+#define DNSMASQ_BLOCKLIST_LOG	"/var/log/dnsmasq_blocklist.log"
+#define DNSMASQ_BLOCKLIST_EXTERNAL_BYTES	(10 * 1024 * 1024)
+#endif
+
+#if defined(RTCONFIG_DNSMASQ_BLOCKLIST) || defined(RTCONFIG_DNSCRYPT)
+/* Parse MemAvailable (or MemFree as fallback) from /proc/meminfo, in kB */
+static long blocklist_free_kb(void)
+{
+	FILE *fp;
+	char line[128];
+	long free_kb = -1, avail_kb = -1;
+
+	if (!(fp = fopen("/proc/meminfo", "r")))
+		return -1;
+	while (fgets(line, sizeof(line), fp)) {
+		if (!strncmp(line, "MemAvailable:", 13))
+			sscanf(line + 13, "%ld", &avail_kb);
+		else if (!strncmp(line, "MemFree:", 8))
+			sscanf(line + 8, "%ld", &free_kb);
+	}
+	fclose(fp);
+	return (avail_kb >= 0) ? avail_kb : free_kb;
+}
+
+/* True if a swap device/file is currently active (more than just the /proc/swaps header line) */
+static int blocklist_swap_active(void)
+{
+	FILE *fp;
+	int lines = 0;
+	char line[256];
+
+	if (!(fp = fopen("/proc/swaps", "r")))
+		return 0;
+	while (fgets(line, sizeof(line), fp))
+		lines++;
+	fclose(fp);
+	return lines > 1;
+}
+
+/* True if any USB storage is mounted under /tmp/mnt */
+static int blocklist_usb_present(void)
+{
+	DIR *dir;
+	struct dirent *d;
+	int found = 0;
+
+	if (!(dir = opendir("/tmp/mnt")))
+		return 0;
+	while ((d = readdir(dir))) {
+		if (d->d_name[0] == '.')
+			continue;
+		found = 1;
+		break;
+	}
+	closedir(dir);
+	return found;
+}
+
+#ifdef RTCONFIG_DNSMASQ_BLOCKLIST
+/* Keep large lists on writable USB storage; JFFS is too small for them. */
+static int blocklist_get_paths(char *dir, size_t dir_len, char *file, size_t file_len)
+{
+	DIR *mounts;
+	struct dirent *entry;
+	struct statfs fs;
+	char mountpoint[PATH_MAX];
+
+	if ((mounts = opendir("/tmp/mnt")) != NULL) {
+		while ((entry = readdir(mounts)) != NULL) {
+			if (entry->d_name[0] == '.')
+				continue;
+			snprintf(mountpoint, sizeof(mountpoint), "/tmp/mnt/%s", entry->d_name);
+			if (access(mountpoint, W_OK) || statfs(mountpoint, &fs))
+				continue;
+			if (fs.f_bavail * fs.f_bsize < (unsigned long long)220 * 1024 * 1024)
+				continue;
+			snprintf(dir, dir_len, "%s/.asuswrt-dnsmasq-blocklist", mountpoint);
+			closedir(mounts);
+			snprintf(file, file_len, "%s/blockinglist.conf", dir);
+			return 1;
+		}
+		closedir(mounts);
+	}
+
+	return 0;
+}
+
+static int blocklist_external_path(const char *path)
+{
+	return !strncmp(path, "/tmp/mnt/", strlen("/tmp/mnt/"));
+}
+#endif
+
+/* Without swap or USB storage as a memory safety net, clamp to a much smaller cap
+ * regardless of the configured maximum, so a huge remote list can't take the router down. */
+static int blocklist_effective_max_domains(int configured_max, int noswap_max)
+{
+	if (blocklist_swap_active() || blocklist_usb_present())
+		return configured_max;
+	return (noswap_max > 0 && noswap_max < configured_max) ? noswap_max : configured_max;
+}
+#endif
 
 #if defined(RTCONFIG_CAPTIVE_PORTAL)
 #include "sqlite3.h"
@@ -1386,6 +1491,9 @@ void start_dnsmasq(void)
 #endif
 	char buf[sizeof("/rom/etc/resolv.conf")], *path;
 	int n;
+#ifdef RTCONFIG_DNSMASQ_BLOCKLIST
+	char blocklist_dir[PATH_MAX], blocklist_file[PATH_MAX];
+#endif
 
 	TRACE_PT("begin\n");
 
@@ -2142,6 +2250,35 @@ void start_dnsmasq(void)
 #endif
 	fprintf(fp, "edns-packet-max=1232\n");
 
+#ifdef RTCONFIG_DNSMASQ_BLOCKLIST
+	if (nvram_get_int("dnsmasq_blocklist_enable") &&
+	    blocklist_get_paths(blocklist_dir, sizeof(blocklist_dir), blocklist_file, sizeof(blocklist_file))) {
+		mkdir_if_none(blocklist_dir);
+		{
+			char allowlist_file[PATH_MAX], denylist_file[PATH_MAX];
+			snprintf(allowlist_file, sizeof(allowlist_file), "%s/allowlist.conf", blocklist_dir);
+			snprintf(denylist_file, sizeof(denylist_file), "%s/denylist.conf", blocklist_dir);
+			if (!f_exists(allowlist_file))
+				f_write(allowlist_file, NULL, 0, FW_APPEND, 0644);
+			if (!f_exists(denylist_file))
+				f_write(denylist_file, NULL, 0, FW_APPEND, 0644);
+			if (!f_exists(blocklist_file))
+			update_dnsmasq_blocklist();
+			fprintf(fp, "conf-file=%s\nconf-file=%s\nconf-file=%s\n",
+				allowlist_file, blocklist_file, denylist_file);
+		}
+
+		if (nvram_get_int("dnsmasq_blocklist_logging")) {
+			fprintf(fp,
+				"log-async=25\n"
+				"log-queries\n"
+				"log-facility=" DNSMASQ_BLOCKLIST_LOG "\n");
+		}
+	} else if (nvram_get_int("dnsmasq_blocklist_enable")) {
+		logmessage("dnsmasq_blocklist", "no writable USB storage with 220 MB free; blocklist disabled");
+	}
+#endif
+
 	/* close fp move to the last */
 	append_custom_config("dnsmasq.conf",fp);
 	fclose(fp);
@@ -2157,6 +2294,21 @@ void start_dnsmasq(void)
 
 #ifdef RTCONFIG_DNSPRIVACY
 	start_stubby();
+#endif
+#ifdef RTCONFIG_DNSCRYPT
+	start_dnscrypt_proxy();
+#endif
+#ifdef RTCONFIG_DNSMASQ_BLOCKLIST
+	if (nvram_get_int("dnsmasq_blocklist_enable")) {
+		char *cru_argv[] = { "/usr/sbin/cru", "a", "dnsmasq_blocklist",
+			"0 4 * * * service start_dnsmasq_blocklist", NULL };
+		_eval(cru_argv, NULL, 0, NULL);
+	}
+	if (nvram_get_int("dnsmasq_blocklist_enable") && nvram_get_int("dnsmasq_blocklist_logging")) {
+		char *cru_argv[] = { "/usr/sbin/cru", "a", "dnsmasq_blocklist_count",
+			"0 * * * * service start_dnsmasq_blocklist_count", NULL };
+		_eval(cru_argv, NULL, 0, NULL);
+	}
 #endif
 
 #if defined(RTCONFIG_BCM_7114)
@@ -2212,6 +2364,17 @@ void stop_dnsmasq(void)
 #ifdef RTCONFIG_DNSPRIVACY
 	stop_stubby();
 #endif
+#ifdef RTCONFIG_DNSCRYPT
+	stop_dnscrypt_proxy();
+#endif
+#ifdef RTCONFIG_DNSMASQ_BLOCKLIST
+	{
+		char *cru_argv[] = { "/usr/sbin/cru", "d", "dnsmasq_blocklist", NULL };
+		char *cru_argv2[] = { "/usr/sbin/cru", "d", "dnsmasq_blocklist_count", NULL };
+		_eval(cru_argv, NULL, 0, NULL);
+		_eval(cru_argv2, NULL, 0, NULL);
+	}
+#endif
 
 	TRACE_PT("end\n");
 }
@@ -2221,6 +2384,195 @@ void reload_dnsmasq(void)
 	/* notify dnsmasq */
 	kill_pidfile_s("/var/run/dnsmasq.pid", SIGHUP);
 }
+
+#ifdef RTCONFIG_DNSMASQ_BLOCKLIST
+/* domain is present (as a whole line "address=/domain/...") in an existing conf-file */
+static int dnsmasq_blocklist_allowed(const char *domain, FILE *allow)
+{
+	char line[512], *p;
+
+	if (!allow)
+		return 0;
+
+	rewind(allow);
+	while (fgets(line, sizeof(line), allow)) {
+		if (!(p = strchr(line, '/')))
+			continue;
+		p++;
+		if (!strncmp(p, domain, strlen(domain)) && p[strlen(domain)] == '/')
+			return 1;
+	}
+	return 0;
+}
+
+/* Fetch a plain domain list or a precompiled dnsmasq list, skipping anything
+ * in allowlist.conf. */
+void update_dnsmasq_blocklist(void)
+{
+	char *url = nvram_safe_get("dnsmasq_blocklist_url");
+	char *block_ip = nvram_safe_get("dnsmasq_blocklist_ip");
+	char maxsize[32];
+	char blocklist_dir[PATH_MAX], blocklist_file[PATH_MAX], temp_file[PATH_MAX], allowlist_file[PATH_MAX];
+	char *argv[13];
+	FILE *in, *out, *allow;
+	char line[512], *p, *domain, *compiled_end;
+	struct stat list_stat;
+	int max_domains, count = 0, truncated = 0;
+	int min_free_kb = nvram_get_int("dnsmasq_blocklist_min_free_kb") ? : 20000;
+
+	if (!nvram_get_int("dnsmasq_blocklist_enable") || !*url)
+		return;
+
+	if (getpid() != 1) {
+		notify_rc("start_dnsmasq_blocklist");
+		return;
+	}
+
+	/* Without swap/USB as a safety net, don't even attempt a rebuild if memory is already tight */
+	if (blocklist_free_kb() >= 0 && blocklist_free_kb() < min_free_kb) {
+		logmessage("dnsmasq_blocklist", "low free memory, skipping blocklist rebuild");
+		return;
+	}
+	if (!blocklist_get_paths(blocklist_dir, sizeof(blocklist_dir), blocklist_file, sizeof(blocklist_file))) {
+		logmessage("dnsmasq_blocklist", "no writable USB storage with 220 MB free; skipping update");
+		return;
+	}
+	mkdir_if_none(blocklist_dir);
+	snprintf(temp_file, sizeof(temp_file), "%s/blockinglist.download", blocklist_dir);
+	snprintf(allowlist_file, sizeof(allowlist_file), "%s/allowlist.conf", blocklist_dir);
+
+	max_domains = blocklist_effective_max_domains(
+		nvram_get_int("dnsmasq_blocklist_max_domains") ? : 4000000,
+		nvram_get_int("dnsmasq_blocklist_max_domains_noswap") ? : 40000);
+
+	snprintf(maxsize, sizeof(maxsize), "%d", nvram_get_int("dnsmasq_blocklist_max_bytes") ? : 134217728);
+	argv[0] = "/usr/sbin/curl";
+	argv[1] = "-fsSL";
+	argv[2] = "--connect-timeout";
+	argv[3] = "20";
+	argv[4] = "--max-filesize";
+	argv[5] = maxsize;
+	argv[6] = "-o";
+	argv[7] = temp_file;
+	argv[8] = url;
+	argv[9] = NULL;
+
+	unlink(temp_file);
+	if (_eval(argv, NULL, 0, NULL) || !(in = fopen(temp_file, "r")))
+		return;
+	if (!stat(temp_file, &list_stat) && list_stat.st_size > DNSMASQ_BLOCKLIST_EXTERNAL_BYTES &&
+	    !blocklist_external_path(temp_file)) {
+		fclose(in);
+		unlink(temp_file);
+		logmessage("dnsmasq_blocklist", "list exceeds 10 MB and is not on external USB storage");
+		return;
+	}
+
+	{
+		char new_file[PATH_MAX];
+		snprintf(new_file, sizeof(new_file), "%s.new", blocklist_file);
+		if (!(out = fopen(new_file, "w"))) {
+			fclose(in);
+			return;
+		}
+	}
+
+	allow = fopen(allowlist_file, "r");
+
+	while (fgets(line, sizeof(line), in)) {
+		/* Strip comments and hosts-file/AdBlock-style decoration down to a bare domain. */
+		if ((p = strchr(line, '\r')) || (p = strchr(line, '\n')))
+			*p = '\0';
+		if ((p = strchr(line, '#')))
+			*p = '\0';
+		domain = line;
+		if (!strncmp(domain, "local=/", 7) || !strncmp(domain, "address=/", 9)) {
+			/* Accept already compiled dnsmasq entries, such as local=/example.com/. */
+			p = strchr(domain, '/') + 1;
+			if (!(compiled_end = strchr(p, '/')))
+				continue;
+			*compiled_end = '\0';
+			if (dnsmasq_blocklist_allowed(p, allow)) {
+				*compiled_end = '/';
+				continue;
+			}
+			*compiled_end = '/';
+			if (count >= max_domains) {
+				truncated = 1;
+				break;
+			}
+			fprintf(out, "%s\n", domain);
+			count++;
+			continue;
+		}
+		if (!strncmp(domain, "||", 2))
+			domain += 2;
+		if ((p = strrchr(domain, ' ')) || (p = strrchr(domain, '\t')))
+			domain = p + 1;
+		if ((p = strchr(domain, '^')) || (p = strchr(domain, '$')))
+			*p = '\0';
+		while (isspace((int)*domain))
+			domain++;
+		if (!*domain || dnsmasq_blocklist_allowed(domain, allow))
+			continue;
+		if (count >= max_domains) {
+			truncated = 1;
+			break;
+		}
+		fprintf(out, "address=/%s/%s\n", domain, *block_ip ? block_ip : "0.0.0.0");
+		count++;
+	}
+	if (allow)
+		fclose(allow);
+	fclose(in);
+	fclose(out);
+	unlink(temp_file);
+	{
+		char new_file[PATH_MAX];
+		snprintf(new_file, sizeof(new_file), "%s.new", blocklist_file);
+		if (!stat(new_file, &list_stat) && list_stat.st_size > DNSMASQ_BLOCKLIST_EXTERNAL_BYTES &&
+		    !blocklist_external_path(new_file)) {
+			unlink(new_file);
+			logmessage("dnsmasq_blocklist", "generated list exceeds 10 MB and is not on external USB storage");
+			return;
+		}
+	}
+
+	if (truncated)
+		logmessage("dnsmasq_blocklist", "list exceeds %d domains (no swap/USB detected: %s), truncated",
+			max_domains, (blocklist_swap_active() || blocklist_usb_present()) ? "raise dnsmasq_blocklist_max_domains" : "add a USB swap file to raise this cap");
+
+	/* Refuse to apply a blocklist rebuild if memory is already tight; keep serving the last-known-good list */
+	if (blocklist_free_kb() >= 0 && blocklist_free_kb() < min_free_kb) {
+		char new_file[PATH_MAX];
+		snprintf(new_file, sizeof(new_file), "%s.new", blocklist_file);
+		unlink(new_file);
+		logmessage("dnsmasq_blocklist", "low free memory, keeping previous blocklist");
+		return;
+	}
+
+	{
+		char new_file[PATH_MAX];
+		snprintf(new_file, sizeof(new_file), "%s.new", blocklist_file);
+		rename(new_file, blocklist_file);
+	}
+
+	reload_dnsmasq();
+}
+
+/* Count blocked-domain NXDOMAIN hits since the last log rotation and log a summary */
+void dnsmasq_blocklist_count(void)
+{
+	char *argv[] = { "/bin/sh", "-c",
+		"n=$(grep -c ' config .* is NXDOMAIN' " DNSMASQ_BLOCKLIST_LOG " 2>/dev/null || echo 0); "
+		"logger -t dnsmasq_blocklist \"$n domains blocked since last log rotation\"", NULL };
+
+	if (!nvram_get_int("dnsmasq_blocklist_logging"))
+		return;
+
+	_eval(argv, NULL, 0, NULL);
+}
+#endif
 
 int dnsmasq_script_main(int argc, char **argv)
 {
@@ -2407,6 +2759,121 @@ void stop_stubby(void)
 	if (pids("stubby")) {
 		kill_pidfile_tk("/var/run/stubby.pid");
 		unlink("/var/run/stubby.pid");
+	}
+
+	TRACE_PT("end\n");
+}
+#endif
+
+#ifdef RTCONFIG_DNSCRYPT
+#define DNSCRYPT_CONFIG	"/etc/dnscrypt-proxy/dnscrypt-proxy.toml"
+#define DNSCRYPT_CACHE_DIR	"/var/lib/misc/dnscrypt-proxy"
+#define DNSCRYPT_PIDFILE	"/var/run/dnscrypt-proxy.pid"
+
+void start_dnscrypt_proxy(void)
+{
+	char *argv[] = { "/usr/sbin/dnscrypt-proxy", "-config", DNSCRYPT_CONFIG, NULL };
+	FILE *fp;
+	char *nv, *nvp, *name;
+	int pid;
+
+	TRACE_PT("begin\n");
+
+	if (!nvram_get_int("dnscrypt_enable") || !is_routing_enabled())
+		return;
+
+	if (getpid() != 1) {
+		notify_rc("start_dnscrypt");
+		return;
+	}
+
+	if (!pids("haveged"))
+		start_haveged();
+
+	stop_dnscrypt_proxy();
+
+	mkdir_if_none("/etc/dnscrypt-proxy");
+	mkdir_if_none(DNSCRYPT_CACHE_DIR);
+
+	if ((fp = fopen(DNSCRYPT_CONFIG, "w")) == NULL)
+		return;
+
+	fprintf(fp,
+		"listen_addresses = ['127.0.1.1:53']\n"
+		"max_clients = 100\n"
+		"ipv4_servers = true\n"
+		"ipv6_servers = %s\n"
+		"dnscrypt_servers = true\n"
+		"doh_servers = false\n"
+		"odoh_servers = false\n"
+		"require_dnssec = %s\n"
+		"require_nolog = %s\n"
+		"require_nofilter = true\n"
+		"force_tcp = false\n"
+		"timeout = 5000\n"
+		"cache = true\n"
+		"cache_size = 4096\n"
+		"cert_refresh_delay = 240\n"
+		"cert_ignore_timestamp = true\n"
+		"netprobe_timeout = 60\n"
+		"bootstrap_resolvers = ['1.1.1.1:53', '9.9.9.9:53']\n"
+		"ignore_system_dns = true\n",
+		nvram_get_int("dnscrypt_ipv6") ? "true" : "false",
+		nvram_get_int("dnscrypt_require_dnssec") ? "true" : "false",
+		nvram_get_int("dnscrypt_require_nolog") ? "true" : "false");
+
+	nv = nvram_safe_get("dnscrypt_server_names");
+	if (*nv) {
+		fprintf(fp, "server_names = [");
+		nvp = nv = strdup(nv);
+		while (nvp && (name = strsep(&nvp, ",")) != NULL) {
+			if (*name)
+				fprintf(fp, "%s'%s'", (name != nv) ? ", " : "", name);
+		}
+		free(nv);
+		fprintf(fp, "]\n");
+	}
+
+	/* Official dnscrypt-proxy resolvers/relays list, same source used upstream */
+	fprintf(fp,
+		"[sources.public-resolvers]\n"
+		"urls = ['https://raw.githubusercontent.com/DNSCrypt/dnscrypt-resolvers/master/v3/public-resolvers.md', "
+		"'https://download.dnscrypt.info/resolvers-list/v3/public-resolvers.md']\n"
+		"cache_file = '" DNSCRYPT_CACHE_DIR "/public-resolvers.md'\n"
+		"minisign_key = 'RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3'\n"
+		"refresh_delay = 73\n"
+		"prefix = ''\n");
+
+	append_custom_config("dnscrypt-proxy.toml", fp);
+	fclose(fp);
+	use_custom_config("dnscrypt-proxy.toml", DNSCRYPT_CONFIG);
+	run_postconf("dnscrypt-proxy", DNSCRYPT_CONFIG);
+	chmod(DNSCRYPT_CONFIG, 0644);
+
+	pid = 0;
+	_eval(argv, NULL, 0, &pid);
+	if (pid > 0) {
+		if ((fp = fopen(DNSCRYPT_PIDFILE, "w")) != NULL) {
+			fprintf(fp, "%d\n", pid);
+			fclose(fp);
+		}
+	}
+
+	TRACE_PT("end\n");
+}
+
+void stop_dnscrypt_proxy(void)
+{
+	TRACE_PT("begin\n");
+
+	if (getpid() != 1) {
+		notify_rc("stop_dnscrypt");
+		return;
+	}
+
+	if (pids("dnscrypt-proxy")) {
+		kill_pidfile_tk(DNSCRYPT_PIDFILE);
+		unlink(DNSCRYPT_PIDFILE);
 	}
 
 	TRACE_PT("end\n");
@@ -16111,6 +16578,31 @@ check_ddr_done:
 		if(action & RC_SERVICE_START) start_stubby();
 	}
 #endif
+#ifdef RTCONFIG_DNSCRYPT
+	else if (strcmp(script, "dnscrypt") == 0)
+	{
+		if(action & RC_SERVICE_STOP) stop_dnscrypt_proxy();
+		if(action & RC_SERVICE_START) start_dnscrypt_proxy();
+		update_resolvconf();
+	}
+#endif
+#ifdef RTCONFIG_DNSMASQ_BLOCKLIST
+	else if (strcmp(script, "dnsmasq_blocklist") == 0)
+	{
+		if(action & RC_SERVICE_START) update_dnsmasq_blocklist();
+	}
+	else if (strcmp(script, "dnsmasq_blocklist_count") == 0)
+	{
+		if(action & RC_SERVICE_START) dnsmasq_blocklist_count();
+	}
+#endif
+#ifdef RTCONFIG_USB_SWAP
+	else if (strcmp(script, "swap") == 0)
+	{
+		if(action & RC_SERVICE_STOP) stop_swap();
+		if(action & RC_SERVICE_START) restart_swap();
+	}
+#endif
 #ifdef RTCONFIG_DHCP_OVERRIDE
 	else if (strcmp(script, "dhcpd") == 0)
 	{
@@ -21919,6 +22411,23 @@ int stop_usb_swap(char *path)
 	int ret;
 	ret = eval("/usr/sbin/usb_swap.sh", path, "0");
 	return ret;
+}
+
+/* service restart_swap / stop_swap: resolve the mounted USB path from usb_path1_act */
+void restart_swap(void)
+{
+	char path[128];
+
+	snprintf(path, sizeof(path), "/tmp/mnt/%s", nvram_safe_get("usb_path1_act"));
+	start_usb_swap(path);
+}
+
+void stop_swap(void)
+{
+	char path[128];
+
+	snprintf(path, sizeof(path), "/tmp/mnt/%s", nvram_safe_get("usb_path1_act"));
+	stop_usb_swap(path);
 }
 #endif
 

@@ -2225,6 +2225,14 @@ extern void stop_stubby(void);
 extern void start_stubby(void);
 extern void stop_stubby(void);
 #endif
+#ifdef RTCONFIG_DNSCRYPT
+extern void start_dnscrypt_proxy(void);
+extern void stop_dnscrypt_proxy(void);
+#endif
+#ifdef RTCONFIG_DNSMASQ_BLOCKLIST
+extern void update_dnsmasq_blocklist(void);
+extern void dnsmasq_blocklist_count(void);
+#endif
 extern int ddns_updated_main(int argc, char *argv[]);
 #ifdef RTCONFIG_IPV6
 extern void add_ip6_lanaddr(void);
@@ -3244,6 +3252,8 @@ extern void start_erp_monitor();
 #ifdef RTCONFIG_USB_SWAP
 extern int stop_usb_swap(char *path);
 extern int start_usb_swap(char *path);
+extern void restart_swap(void);
+extern void stop_swap(void);
 #endif
 
 #ifdef RTCONFIG_HD_SPINDOWN

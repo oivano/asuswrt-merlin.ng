@@ -1542,6 +1542,14 @@ define RouterOptions
 		sed -i "/RTCONFIG_DNSPRIVACY/d" $(1); \
 		echo "RTCONFIG_DNSPRIVACY=y" >>$(1); \
 	fi; \
+	if [ "$(DNSCRYPT)" = "y" ]; then \
+		sed -i "/RTCONFIG_DNSCRYPT/d" $(1); \
+		echo "RTCONFIG_DNSCRYPT=y" >>$(1); \
+	fi; \
+	if [ "$(DNSMASQ_BLOCKLIST)" = "y" ]; then \
+		sed -i "/RTCONFIG_DNSMASQ_BLOCKLIST/d" $(1); \
+		echo "RTCONFIG_DNSMASQ_BLOCKLIST=y" >>$(1); \
+	fi; \
 	if [ "$(DNSSEC)" = "y" ]; then \
 		sed -i "/RTCONFIG_DNSSEC/d" $(1); \
 		echo "RTCONFIG_DNSSEC=y" >>$(1); \

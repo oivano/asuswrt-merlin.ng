@@ -2252,6 +2252,26 @@ struct nvram_tuple router_defaults[] = {
 	{ "dnspriv_rulelist", "", CKN_STR1024, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* ... */
 #endif
 
+#ifdef RTCONFIG_DNSCRYPT
+	{ "dnscrypt_enable", "0", CKN_STR1, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* 0: off 1: on */
+	{ "dnscrypt_server_names", "", CKN_STR1024, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* comma list, empty = auto pick */
+	{ "dnscrypt_ipv6", "0", CKN_STR1, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },
+	{ "dnscrypt_require_nolog", "1", CKN_STR1, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },
+	{ "dnscrypt_require_dnssec", "1", CKN_STR1, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },
+#endif
+
+#ifdef RTCONFIG_DNSMASQ_BLOCKLIST
+	{ "dnsmasq_blocklist_enable", "0", CKN_STR1, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* 0: off 1: on, Diversion-style dnsmasq-native blocking */
+	{ "dnsmasq_blocklist_url", "", CKN_STR_DEFAULT, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* user-supplied Diversion (or other) domain list URL */
+	{ "dnsmasq_blocklist_hours", "24", CKN_STR6, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },
+	{ "dnsmasq_blocklist_ip", "0.0.0.0", CKN_STR_DEFAULT, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* address= target for blocked domains */
+	{ "dnsmasq_blocklist_logging", "0", CKN_STR1, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* query logging for the ads-blocked counter */
+	{ "dnsmasq_blocklist_max_domains", "4000000", CKN_STR_DEFAULT, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* safety cap, raise only with USB storage or swap */
+	{ "dnsmasq_blocklist_max_domains_noswap", "40000", CKN_STR_DEFAULT, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* clamp applied when no swap/USB is present */
+	{ "dnsmasq_blocklist_max_bytes", "134217728", CKN_STR_DEFAULT, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* curl --max-filesize for raw or compiled list downloads */
+	{ "dnsmasq_blocklist_min_free_kb", "20000", CKN_STR_DEFAULT, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* skip rebuild below this free memory */
+#endif
+
 	/* Misc WAN parameters */
 	{ "wan_desc", "", CKN_STR_DEFAULT, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* WAN connection description */
 	{ "wan_upnp_enable", "1", CKN_STR1, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* upnp igd */

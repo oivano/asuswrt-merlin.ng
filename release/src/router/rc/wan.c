@@ -2598,8 +2598,14 @@ int update_resolvconf(void)
 #ifdef RTCONFIG_YANDEXDNS
 	int yadns_mode = nvram_get_int("yadns_enable_x") ? nvram_get_int("yadns_mode") : YADNS_DISABLED;
 #endif
+#if defined(RTCONFIG_DNSPRIVACY) || defined(RTCONFIG_DNSCRYPT)
+	int dnspriv_enable = 0;
 #ifdef RTCONFIG_DNSPRIVACY
-	int dnspriv_enable = nvram_get_int("dnspriv_enable");
+	dnspriv_enable |= nvram_get_int("dnspriv_enable");
+#endif
+#ifdef RTCONFIG_DNSCRYPT
+	dnspriv_enable |= nvram_get_int("dnscrypt_enable");
+#endif
 #endif
 
 #if defined(RTCONFIG_VPNC) && !defined(RTCONFIG_VPN_FUSION)
@@ -2661,7 +2667,7 @@ int update_resolvconf(void)
 				if (yadns_mode != YADNS_DISABLED)
 					break;
 #endif
-#ifdef RTCONFIG_DNSPRIVACY
+#if defined(RTCONFIG_DNSPRIVACY) || defined(RTCONFIG_DNSCRYPT)
 				if (dnspriv_enable)
 					break;
 #endif
@@ -2741,7 +2747,7 @@ int update_resolvconf(void)
 		}
 	}
 #endif
-#ifdef RTCONFIG_DNSPRIVACY
+#if defined(RTCONFIG_DNSPRIVACY) || defined(RTCONFIG_DNSCRYPT)
 	if (dnspriv_enable)
 		fprintf(fp_servers, "server=%s\n", "127.0.1.1");
 #endif
@@ -2797,7 +2803,7 @@ NOIP:
 				continue;
 			}
 #endif
-#ifdef RTCONFIG_DNSPRIVACY
+#if defined(RTCONFIG_DNSPRIVACY) || defined(RTCONFIG_DNSCRYPT)
 			if (dnspriv_enable)
 				continue;
 #endif
