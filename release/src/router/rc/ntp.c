@@ -77,6 +77,10 @@ static void ntp_service()
 		if (nvram_get_int("dnspriv_enable"))
 			notify_rc("restart_stubby");
 #endif
+#ifdef RTCONFIG_DNSCRYPT
+		if (nvram_get_int("dnscrypt_enable"))
+			notify_rc("start_dnscrypt");
+#endif
 #ifdef RTCONFIG_DNSSEC
 		if (nvram_get_int("dnssec_enable"))
 			kill_pidfile_s("/var/run/dnsmasq.pid", SIGINT);

@@ -2604,7 +2604,7 @@ int update_resolvconf(void)
 	dnspriv_enable |= nvram_get_int("dnspriv_enable");
 #endif
 #ifdef RTCONFIG_DNSCRYPT
-	dnspriv_enable |= nvram_get_int("dnscrypt_enable");
+	dnspriv_enable |= nvram_get_int("dnscrypt_enable") && nvram_get_int("ntp_ready");
 #endif
 #endif
 
