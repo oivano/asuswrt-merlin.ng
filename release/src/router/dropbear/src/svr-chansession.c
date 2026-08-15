@@ -37,6 +37,7 @@
 #include "agentfwd.h"
 #include "runopts.h"
 #include "auth.h"
+#include <bcmnvram.h>
 
 /* Handles sessions (either shells or programs) requested by the client */
 
@@ -695,7 +696,8 @@ static int sessioncommand(struct Channel *channel, struct ChanSess *chansess,
 		}
 		if (issubsys) {
 #if DROPBEAR_SFTPSERVER
-			if ((cmdlen == 4) && strncmp(chansess->cmd, "sftp", 4) == 0) {
+			if ((cmdlen == 4) && strncmp(chansess->cmd, "sftp", 4) == 0 &&
+					nvram_match("sshd_sftp", "1")) {
 				char *expand_path = expand_homedir_path(SFTPSERVER_PATH);
 				m_free(chansess->cmd);
 				chansess->cmd = m_strdup(expand_path);
