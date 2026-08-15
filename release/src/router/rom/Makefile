@@ -371,9 +371,9 @@ ifneq ($(BUILD_NAME), RP-AX56)
 endif
 endif
 
-ifeq ($(HND_ROUTER),y)
 	mkdir -p $(INSTALLDIR)/rom/usr/share/zoneinfo
 	cp -rf zoneinfo/* $(INSTALLDIR)/rom/usr/share/zoneinfo/
+ifeq ($(HND_ROUTER),y)
 	mkdir -p $(INSTALLDIR)/rom/scripts
 endif
 
