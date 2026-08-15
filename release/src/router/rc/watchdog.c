@@ -7364,6 +7364,19 @@ void dnsmasq_check()
 #endif
 	}
 #endif
+#ifdef RTCONFIG_DNSCRYPT
+	else if (nvram_get_int("dnscrypt_enable") && !pids("dnscrypt-proxy")) {
+#if defined(RTL_WTDOG)
+		stop_rtl_watchdog();
+#endif
+		start_dnscrypt_proxy();
+		TRACE_PT("watchdog: dnscrypt-proxy died. start dnscrypt-proxy...\n");
+
+#if defined(RTL_WTDOG)
+		start_rtl_watchdog();
+#endif
+	}
+#endif
 }
 
 #if defined(RPAX56)

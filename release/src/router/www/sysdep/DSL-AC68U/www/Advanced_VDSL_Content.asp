@@ -591,6 +591,10 @@ function applyRule(){
 			document.form.action_script.value += ";restart_stubby";
 		}
 
+		if(dnscrypt_support){
+			document.form.action_script.value += ";restart_dnscrypt";
+		}
+
 		document.form.wan_enable.value = document.form.dsl_link_enable.value;
 		document.form.dsl_enable.value = "1";
 		if(document.form.dslx_transmode.value != document.form.dsltmp_transmode.value) {
@@ -793,6 +797,17 @@ function enable_all_ctrl(pvc) {
 	else{
 		inputCtrl(document.form.dnspriv_enable, 0);
 		change_dnspriv_enable(0);
+	}
+
+	if(dnscrypt_support && pvc == 0){
+		document.getElementById("dnscrypt_enable_tr").style.display = "";
+		inputCtrl(document.form.dnscrypt_enable[0], 1);
+		inputCtrl(document.form.dnscrypt_enable[1], 1);
+		change_dnscrypt_enable(document.form.dnscrypt_enable[0].checked ? 1 : 0);
+	}
+	else{
+		document.getElementById("dnscrypt_enable_tr").style.display = "none";
+		change_dnscrypt_enable(0);
 	}
 }
 
@@ -1049,6 +1064,9 @@ function change_dsl_dhcp_enable(){
 		inputCtrl(document.form.dsl_ipaddr, !wan_dhcpenable);
 		inputCtrl(document.form.dsl_netmask, !wan_dhcpenable);
 		inputCtrl(document.form.dsl_gateway, !wan_dhcpenable);
+		document.getElementById("dsl_manual_ip_row").style.display = wan_dhcpenable ? "none" : "";
+		document.getElementById("dsl_manual_netmask_row").style.display = wan_dhcpenable ? "none" : "";
+		document.getElementById("dsl_manual_gateway_row").style.display = wan_dhcpenable ? "none" : "";
 		document.getElementById("IPsetting").style.display = "";
 
 		if(document.form.dsl_DHCPClient_x[1].checked)
@@ -1063,6 +1081,9 @@ function change_dsl_dhcp_enable(){
 		inputCtrl(document.form.dsl_ipaddr, 0);
 		inputCtrl(document.form.dsl_netmask, 0);
 		inputCtrl(document.form.dsl_gateway, 0);
+		document.getElementById("dsl_manual_ip_row").style.display = "none";
+		document.getElementById("dsl_manual_netmask_row").style.display = "none";
+		document.getElementById("dsl_manual_gateway_row").style.display = "none";
 		document.getElementById("IPsetting").style.display = "none";
 
 		if(document.form.dsl_dnsenable[1].checked)
@@ -1079,6 +1100,9 @@ function change_dsl_dhcp_enable(){
 		inputCtrl(document.form.dsl_ipaddr, 1);
 		inputCtrl(document.form.dsl_netmask, 1);
 		inputCtrl(document.form.dsl_gateway, 1);
+		document.getElementById("dsl_manual_ip_row").style.display = "";
+		document.getElementById("dsl_manual_netmask_row").style.display = "";
+		document.getElementById("dsl_manual_gateway_row").style.display = "";
 		document.getElementById("IPsetting").style.display = "";
 	}
 	else{	// dsl_type == bridge
@@ -1089,6 +1113,9 @@ function change_dsl_dhcp_enable(){
 		inputCtrl(document.form.dsl_ipaddr, 0);
 		inputCtrl(document.form.dsl_netmask, 0);
 		inputCtrl(document.form.dsl_gateway, 0);
+		document.getElementById("dsl_manual_ip_row").style.display = "none";
+		document.getElementById("dsl_manual_netmask_row").style.display = "none";
+		document.getElementById("dsl_manual_gateway_row").style.display = "none";
 		document.getElementById("IPsetting").style.display = "none";
 	}
 
@@ -1162,6 +1189,11 @@ function change_dnspriv_enable(flag){
 		document.getElementById("DNSPrivacy").style.display = "none";
 		document.getElementById("dnspriv_rulelist_Block").style.display = "none";
 	}
+}
+
+function change_dnscrypt_enable(flag){
+	inputCtrl(document.form.dnscrypt_server_names, flag);
+	document.getElementById("dnscrypt_server_names_tr").style.display = (flag == 1) ? "" : "none";
 }
 
 function addRow(obj, head){
@@ -1452,7 +1484,7 @@ function showDiableDHCPclientID(clientid_enable){
 												<input type="text" name="dsl_dot1p" maxlength="4" class="input_6_table" value="<% nvram_get("dsl_dot1p"); %>" onKeyPress="return validator.isNumber(this,event);"> 0 - 7
 											</td>
 										</tr>
-									<table>
+									</table>
 
 									<table id="IPsetting" width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3" class="FormTable">
 										<thead>
@@ -1469,7 +1501,7 @@ function showDiableDHCPclientID(clientid_enable){
 											</td>
 										</tr>
 
-										<tr>
+										<tr id="dsl_manual_ip_row">
 											<th>
 												<a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,1);"><#IPConnection_ExternalIPAddress_itemname#></a>
 											</th>
@@ -1478,7 +1510,7 @@ function showDiableDHCPclientID(clientid_enable){
 											</td>
 										</tr>
 
-										<tr>
+										<tr id="dsl_manual_netmask_row">
 											<th>
 												<a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,2);"><#IPConnection_x_ExternalSubnetMask_itemname#></a>
 											</th>
@@ -1487,7 +1519,7 @@ function showDiableDHCPclientID(clientid_enable){
 											</td>
 										</tr>
 
-										<tr>
+										<tr id="dsl_manual_gateway_row">
 											<th>
 												<a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,3);"><#IPConnection_x_ExternalGateway_itemname#></a>
 											</th>
@@ -1555,6 +1587,19 @@ function showDiableDHCPclientID(clientid_enable){
 												<input type="radio" name="dnspriv_profile" class="input" value="0" onclick="return change_common_radio(this, 'IPConnection', 'dnspriv_profile', 0)" <% nvram_match("dnspriv_profile", "0", "checked"); %> /><#WAN_DNS_over_TLS_Opportunistic#>
 											</td>
 										</tr>
+									<tr id="dnscrypt_enable_tr" style="display:none">
+										<th>DNSCrypt</th>
+										<td align="left">
+											<input type="radio" name="dnscrypt_enable" class="input" value="1" onclick="change_dnscrypt_enable(1)" <% nvram_match("dnscrypt_enable", "1", "checked"); %> /><#checkbox_Yes#>
+											<input type="radio" name="dnscrypt_enable" class="input" value="0" onclick="change_dnscrypt_enable(0)" <% nvram_match("dnscrypt_enable", "0", "checked"); %> /><#checkbox_No#>
+										</td>
+									</tr>
+									<tr id="dnscrypt_server_names_tr" style="display:none">
+										<th>DNSCrypt Resolvers</th>
+										<td>
+											<input type="text" maxlength="255" class="input_32_table" name="dnscrypt_server_names" value="<% nvram_get("dnscrypt_server_names"); %>" placeholder="comma-separated resolver names, empty = auto-select" autocorrect="off" autocapitalize="off">
+										</td>
+									</tr>
 									</table>
 
 									<table id="DNSPrivacy" width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3" class="FormTable_table" style="display:none">

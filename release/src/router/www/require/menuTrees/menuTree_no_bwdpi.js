@@ -184,6 +184,7 @@ define(function () {
 				tab: [
 					{ url: "Advanced_LAN_Content.asp", tabName: "<#menu5_2_1#>" },
 					{ url: "Advanced_DHCP_Content.asp", tabName: "<#menu5_2_2#>" },
+					{ url: "DNSDirector.asp", tabName: "DNS Director" },
 					//{url: "DNSFilter.asp", tabName: "DNSFilter"},
 					{ url: "Advanced_MultiSubnet_Content.asp", tabName: "<#menu5_2_2#>" },
 					{ url: "Advanced_GWStaticRoute_Content.asp", tabName: "Static Route" },
