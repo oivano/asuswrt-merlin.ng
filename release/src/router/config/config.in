@@ -473,6 +473,14 @@ config RTCONFIG_DNSPRIVACY
 	bool "DNS-over-TLS Support"
 	default n
 
+config RTCONFIG_DNSCRYPT
+	bool "DNSCrypt support"
+	default n
+
+config RTCONFIG_DNSMASQ_BLOCKLIST
+	bool "dnsmasq domain blocklist support"
+	default n
+
 config RTCONFIG_DSL
 	bool "DSL Support"
 	default n

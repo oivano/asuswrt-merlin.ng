@@ -463,7 +463,7 @@ void config_loopback(void)
 {
 	/* Bring up loopback interface */
 	ifconfig("lo", IFUP, "127.0.0.1", "255.0.0.0");
-#ifdef RTCONFIG_DNSPRIVACY
+#if defined(RTCONFIG_DNSPRIVACY) || defined(RTCONFIG_DNSCRYPT)
 	ifconfig("lo:0", IFUP, "127.0.1.1", "255.0.0.0");
 #endif
 

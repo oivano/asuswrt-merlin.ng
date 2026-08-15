@@ -1,0 +1,12 @@
+component: dnscrypt-proxy
+upstream: https://github.com/DNSCrypt/dnscrypt-proxy
+version: 2.1.18
+tag: 2.1.18 (pinned release tag, not master HEAD)
+commit: 458d2af16a8ece668d9453a3293004bdd08158e7
+commit_date: 2026-07-18T14:01:55+02:00
+built: 2026-08-15T08:40:55Z
+build_env: go1.22.6 linux/amd64 host toolchain (not this repo's uClibc/GCC4.5 toolchain)
+build_cmd: GOOS=linux GOARCH=arm GOARM=5 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dnscrypt-proxy .
+notes: GOARM=5 (soft-float) is REQUIRED.
+hardware_test: verified 2026-08-15 via SSH on a live DSL-AC68U (386.15,
+2.6.36.4brcmarm)

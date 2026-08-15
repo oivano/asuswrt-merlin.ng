@@ -1005,6 +1005,8 @@ endif
 obj-y += dnsmasq
 obj-$(RTCONFIG_DNSPRIVACY) += libyaml
 obj-$(RTCONFIG_DNSPRIVACY) += getdns
+obj-$(RTCONFIG_DNSCRYPT) += dnscrypt-proxy curl
+obj-$(RTCONFIG_DNSMASQ_BLOCKLIST) += curl
 ifneq ($(HND_ROUTER),y)
 obj-y += etc
 endif
@@ -3545,6 +3547,18 @@ dnsmasq:  $(if $(RTCONFIG_DNSSEC_OPENSSL),openssl,) $(if $(RTCONFIG_DNSSEC_NETTL
 dnsmasq-install:
 	install -D dnsmasq/src/dnsmasq $(INSTALLDIR)/dnsmasq/usr/sbin/dnsmasq
 	$(STRIP) $(INSTALLDIR)/dnsmasq/usr/sbin/dnsmasq
+
+# dnscrypt-proxy is Go, cross-built outside this toolchain; only the prebuilt
+# static binary for $(BUILD_NAME) is installed here (see prebuild/README).
+dnscrypt-proxy:
+	@true
+
+dnscrypt-proxy-install:
+	install -d $(INSTALLDIR)/dnscrypt-proxy/usr/sbin
+	install -D dnscrypt-proxy/prebuild/$(BUILD_NAME)/dnscrypt-proxy $(INSTALLDIR)/dnscrypt-proxy/usr/sbin/dnscrypt-proxy
+
+dnscrypt-proxy-clean:
+	@true
 
 libyaml/configure:
 	cd libyaml && autoreconf -fi
@@ -7253,7 +7267,7 @@ curl-install:
 	cd $(INSTALLDIR)/curl/usr/lib && \
 		ln -sf libcurl.so.4.8.0 libcurl.so && \
 		ln -sf libcurl.so.4.8.0 libcurl.so.4
-#ifeq ($(or $(RTCONFIG_SPEEDTEST),$(RTCONFIG_LETSENCRYPT)),y)
+#ifeq ($(or $(RTCONFIG_SPEEDTEST),$(RTCONFIG_LETSENCRYPT),$(RTCONFIG_DNSCRYPT),$(RTCONFIG_DNSMASQ_BLOCKLIST)),y)
 	# for speedtest
 	install -D curl/src/.libs/curl $(INSTALLDIR)/curl/usr/sbin/curl
 	$(if $(RTCONFIG_DEBUG),,$(STRIP) $(INSTALLDIR)/curl/usr/sbin/curl)
