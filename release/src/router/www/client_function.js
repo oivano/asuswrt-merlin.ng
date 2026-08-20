@@ -1742,7 +1742,8 @@ function select_image(type,  vender) {
 }
 
 function oui_query_card(mac) {
-	var queryStr = mac.replace(/\:/g, "").splice(6,6,"");
+	//OUI is the first 6 hex chars of the MAC; String has no splice(), only Array does
+	var queryStr = mac.replace(/\:/g, "").substring(0,6);
 	if(mac != document.getElementById("card_client_macaddr_field").value) //avoid click two device quickly
 		oui_query_card(document.getElementById("card_client_macaddr_field").value);
 	else{
@@ -1932,12 +1933,6 @@ var sorter = {
 			b_num = b[sorter.indexFlag].replace(/:/g, "");
 			return parseInt(a_num) - parseInt(b_num);
 		}
-		else if(sorter.indexFlag == 8){//Access time
-			var a_num = 0, b_num = 0;
-			a_num = sorter.convert_time_to_num(a[sorter.indexFlag]);
-			b_num = sorter.convert_time_to_num(b[sorter.indexFlag]);
-			return parseInt(a_num) - parseInt(b_num);
-		}
 		else {
 			return parseInt(a[sorter.indexFlag]) - parseInt(b[sorter.indexFlag]);
 		}
@@ -1959,12 +1954,6 @@ var sorter = {
 			var a_num = 0, b_num = 0;
 			a_num = a[sorter.indexFlag].replace(/:/g, "");
 			b_num = b[sorter.indexFlag].replace(/:/g, "");
-			return parseInt(b_num) - parseInt(a_num);
-		}
-		else if(sorter.indexFlag == 8){//Access time
-			var a_num = 0, b_num = 0;
-			a_num = sorter.convert_time_to_num(a[sorter.indexFlag]);
-			b_num = sorter.convert_time_to_num(b[sorter.indexFlag]);
 			return parseInt(b_num) - parseInt(a_num);
 		}
 		else {
@@ -2316,10 +2305,9 @@ function create_clientlist_listview() {
 			gn_list["gn"+i+""] = [];
 	}
 
-	if(document.getElementById("clientlist_viewlist_block") != null) {
-		removeElement(document.getElementById("clientlist_viewlist_block"));
-	}
-
+	//NOTE: the old block is removed further below, right before the newly-built divObj is
+	//inserted, so the visible list stays intact while the (rebuilt-from-scratch) markup below
+	//is being assembled instead of flashing empty for the duration of this function.
 	var divObj = document.createElement("div");
 	divObj.setAttribute("id","clientlist_viewlist_block");
 
@@ -2463,6 +2451,9 @@ function create_clientlist_listview() {
 	code += "</table>";
 
 	divObj.innerHTML = code;
+	if(document.getElementById("clientlist_viewlist_block") != null) {
+		removeElement(document.getElementById("clientlist_viewlist_block"));
+	}
 	document.getElementById("clientlist_viewlist_content").appendChild(divObj);
 
 	//register event to detect mouse click
@@ -2579,9 +2570,10 @@ function drawClientListBlock(objID) {
 	}
 
 	if(document.getElementById("clientlist_" + objID + "_Block") != null) {
-		if(document.getElementById("tb_" + objID) != null) {
-			removeElement(document.getElementById("tb_" + objID));
-		}
+		//NOTE: do NOT removeElement("tb_" + objID) here. The old table must stay visible while
+		//clientListCode is being built below (getUploadIcon does a blocking sync XHR per
+		//not-yet-cached client), otherwise the list flashes to zero rows during that gap.
+		//The block's innerHTML assignment at the end of this function replaces the old table anyway.
 		var obj_width_map = [["15%", "20%", "25%", "20%", "20%"],["10%", "10%", "30%", "20%", "20%", "10%"],["6%", "6%", "27%", "20%", "15%", "6%", "6%", "6%", "8%"]];
 		if(top.isIE8) obj_width_map = [["", "", "40%", "40%", "20%"],["", "", "40%", "30%", "20%", "10%"],["", "", "33%", "26%", "15%", "6%", "6%", "6%", "8%"]];
 		//var obj_width = (objID == "wired_list") ? obj_width_map[0] : ((stainfo_support) ? obj_width_map[2] : obj_width_map[1]);
@@ -3786,7 +3778,8 @@ function oui_query_full_vendor(mac){
 		}, 1);
 	}
 	else {
-			var queryStr = mac.replace(/\:/g, "").splice(6,6,"");
+			//OUI is the first 6 hex chars of the MAC; String has no splice(), only Array does
+			var queryStr = mac.replace(/\:/g, "").substring(0,6);
 			if (clientList[mac] != undefined)
 				var overlibStrTmp = retOverLibStr(clientList[mac]);
 			else
