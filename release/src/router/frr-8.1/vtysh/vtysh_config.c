@@ -441,6 +441,10 @@ void vtysh_config_parse_line(void *arg, const char *line)
 			    || strncmp(line, "domainname", strlen("domainname")) == 0
 			    || strncmp(line, "frr", strlen("frr")) == 0
 			    || strncmp(line, "agentx", strlen("agentx")) == 0
+			    || strncmp(line, "service password-encryption",
+				       strlen("service password-encryption")) == 0
+			    || strncmp(line, "no service password-encryption",
+				       strlen("no service password-encryption")) == 0
 			    || strncmp(line, "no log", strlen("no log")) == 0
 			    || strncmp(line, "no ip prefix-list", strlen("no ip prefix-list")) == 0
 			    || strncmp(line, "no ipv6 prefix-list", strlen("no ipv6 prefix-list")) == 0)
