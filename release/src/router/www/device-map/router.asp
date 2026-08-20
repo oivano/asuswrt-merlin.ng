@@ -370,13 +370,13 @@ function getInterface(){
 }
 
 function genElement(){
-	var code = '';
+	var code = '<form id="wireless_settings_form" onsubmit="return false;">';
 	var _temp = '';
 	if(isSwMode('mb')){
 		code += '<div class="unit-block">';
 		code += '<div class="info-title"><#APSurvey_action_search_again_hint2#></div>';
 		code += '<div class="button-right"><input type="button" class="button_gen" value="<#QIS_rescan#>" onclick="gotoSiteSurvey();"></div>';
-		code += '</div>';
+		code += '</div></form>';
 		$('#wl_settings_field').html(code);
 		$('#apply_button').hide();
 		return true;
@@ -546,7 +546,7 @@ function genElement(){
 		code += '</div>';
 	}
 
-	$('#wl_settings_field').html(code);
+	$('#wl_settings_field').html(code + '</form>');
 	var faq_fref = "https://nw-dlcdnet.asus.com/support/forward.html?model=&type=Faq&lang="+ui_lang+"&kw=&num=149";
 	$(".faq-link").attr('href', faq_fref);
 
