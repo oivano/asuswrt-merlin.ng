@@ -44,6 +44,10 @@ if (qos_enable > 0 && qos_ibw > 0 && qos_obw > 0) {
 var color_table = ["#c6dafc", "#7baaf7", "#4285f4", "#3367d6"];
 var led_table = ["<#btn_disable#>", "<#Priority_Level_3#>", "<#Medium#>", "<#High#>"];
 $(document).ready(function(){
+	setTimeout(initialize_status, 0);
+});
+
+function initialize_status(){
 	if(system.INTELplatform){
 		register_event();
 		var ledLv = httpApi.nvramGet(["bc_ledLv"]).bc_ledLv;
@@ -58,26 +62,27 @@ $(document).ready(function(){
 		$('#led_field').show();
 	}
 
-	getVariable();
-	genElement();
+	getVariable(function(){
+		genElement();
 
-	initiailzeParameter();
-	genCPUElement();
-	genRAMElement();
-	genNETelement();
-	get_ethernet_ports();
-	get_plc_ports();
-	detect_CPU_RAM();
-	update_traffic();
-	if(isSupport("ledg")){
-		$("#light_effect_tab").show();
-	}  
-});
+		initiailzeParameter();
+		genCPUElement();
+		genRAMElement();
+		genNETelement();
+		get_ethernet_ports();
+		get_plc_ports();
+		detect_CPU_RAM();
+		update_traffic();
+		if(isSupport("ledg")){
+			$("#light_effect_tab").show();
+		}
+	});
+}
 
-var model=httpApi.nvramGet(['productid']).productid;
+var model = '<% nvram_get("productid"); %>';
 var nvram = new Object();
 var variable = new Object();
-function getVariable(){
+function getVariable(callback){
 	var _array = new Array('sw_mode', 'lan_ipaddr_t', 'lan_ipaddr', 'secret_code', 'serial_no');
 	var _element = new Array();
 	if(system.band2gSupport){
@@ -104,13 +109,31 @@ function getVariable(){
 		_array.push.apply(_array, _element);
 	}
 	
-	nvram = httpApi.nvramGet(_array);
-	nvram['lan_hwaddr'] = (httpApi.hookGet('get_lan_hwaddr')) ? httpApi.hookGet('get_lan_hwaddr') : '';
-	if(system.yadnsSupport){
-		//nvram['yadns_clients'] = (httpApi.hookGet('yadns_clients')) ? httpApi.hookGet('yadns_clients') : '';
-		nvram['yadns_clients'] = [ <% yadns_clients(); %> ];
-	}
- 	variable = Object.assign(variable, nvram);
+	var complete = function(lan_hwaddr){
+		nvram['lan_hwaddr'] = lan_hwaddr || '';
+		if(system.yadnsSupport){
+			//nvram['yadns_clients'] = (httpApi.hookGet('yadns_clients')) ? httpApi.hookGet('yadns_clients') : '';
+			nvram['yadns_clients'] = [ <% yadns_clients(); %> ];
+		}
+		variable = Object.assign(variable, nvram);
+		callback();
+	};
+
+	httpApi.nvramGetAsync({
+		data: _array,
+		error: function(){
+			nvram = {};
+			complete();
+		},
+		success: function(data){
+			nvram = data;
+			httpApi.hookGetAsync({
+				data: 'get_lan_hwaddr',
+				error: function(){ complete(); },
+				success: complete
+			});
+		}
+	});
 }
 
 function genElement(){
@@ -585,7 +608,7 @@ function get_ethernet_ports() {
 			top.$("body").append(Get_Port_Status_Popup_Notice("port_status_popup_hint"));
 			top.adjust_panel_block_top(popup_id, 200);
 		};
-		var cap_mac = (httpApi.hookGet('get_lan_hwaddr')) ? httpApi.hookGet('get_lan_hwaddr') : '';
+		var cap_mac = variable.lan_hwaddr || '';
 		httpApi.get_port_status_array(cap_mac, function(port_info){
 			if(Object.keys(port_info).length == 0){
 				$('#phy_ports').hide();
@@ -674,7 +697,6 @@ function get_ethernet_ports() {
 	else{
 		$.ajax({
 			url: '/ajax_ethernet_ports.asp',
-			async: false,
 			dataType: 'script',
 			error: function(xhr) {
 				setTimeout("get_ethernet_ports();", 1000);

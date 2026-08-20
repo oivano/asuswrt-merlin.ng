@@ -492,11 +492,13 @@ function updateClientList(e){
 					<script>
 						function switchTab_drawClientList(wband){
 							pagesVar.resetVar();
-							drawClientList('wireless' + wband);
 							document.getElementById('tabOnline').className = 'tab_NW';
 							document.getElementById('tabWired').className = 'tab_NW';
 							document.getElementById('tabWireless').className = 'tabclick_NW';
 							document.getElementById('tabCustom').className = 'tab_NW';
+							setTimeout(function(){
+								drawClientList('wireless' + wband);
+							}, 0);
 						}
 
 						$('#tabWirelessSpan').click(function(){
