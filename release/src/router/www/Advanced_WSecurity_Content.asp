@@ -202,7 +202,7 @@ function checkWLReady(){
 			  	<#WLANAuthentication11a_ExAuthDBIPAddr_itemname#></a>
 			</th>
 			<td>
-				<input type="text" maxlength="39" class="input_32_table" name="wl_radius_ipaddr" value="<% nvram_get("wl_radius_ipaddr"); %>" onKeyPress="return validator.isIPAddr(this, event)" autocorrect="off" autocapitalize="off">
+				<input type="text" autocomplete="username" maxlength="39" class="input_32_table" name="wl_radius_ipaddr" value="<% nvram_get("wl_radius_ipaddr"); %>" onKeyPress="return validator.isIPAddr(this, event)" autocorrect="off" autocapitalize="off">
 			</td>
 		</tr>
 		<tr>
@@ -220,7 +220,7 @@ function checkWLReady(){
 				<#WLANAuthentication11a_ExAuthDBPassword_itemname#></a>
 			</th>
 			<td>
-				<input type="password" maxlength="64" class="input_32_table" name="wl_radius_key" value="<% nvram_get("wl_radius_key"); %>" autocorrect="off" autocapitalize="off">
+				<input type="password" autocomplete="current-password" maxlength="64" class="input_32_table" name="wl_radius_key" value="<% nvram_get("wl_radius_key"); %>" autocorrect="off" autocapitalize="off">
 			</td>
 		</tr>
 		</table>

@@ -370,13 +370,14 @@ function getInterface(){
 }
 
 function genElement(){
-	var code = '<form id="wireless_settings_form" onsubmit="return false;">';
+	var code = '';
 	var _temp = '';
 	if(isSwMode('mb')){
+		code += '<div id="wireless_settings_form">';
 		code += '<div class="unit-block">';
 		code += '<div class="info-title"><#APSurvey_action_search_again_hint2#></div>';
 		code += '<div class="button-right"><input type="button" class="button_gen" value="<#QIS_rescan#>" onclick="gotoSiteSurvey();"></div>';
-		code += '</div></form>';
+		code += '</div></div>';
 		$('#wl_settings_field').html(code);
 		$('#apply_button').hide();
 		return true;
@@ -427,7 +428,7 @@ function genElement(){
 		genSmartConnect();
 	}
 	
-	code = '';
+	code = '<div id="wireless_settings_form">';
 	if(system.INTELplatform || system.modelName == 'RT-AC87U'){
 		code += '<div id="wl_ready" class="wl-ready" style="display:none;">Wireless is setting...</div>';
 	}
@@ -546,7 +547,7 @@ function genElement(){
 		code += '</div>';
 	}
 
-	$('#wl_settings_field').html(code + '</form>');
+	$('#wl_settings_field').html(code + '</div>');
 	var faq_fref = "https://nw-dlcdnet.asus.com/support/forward.html?model=&type=Faq&lang="+ui_lang+"&kw=&num=149";
 	$(".faq-link").attr('href', faq_fref);
 
