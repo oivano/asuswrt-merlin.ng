@@ -1,7 +1,27 @@
+function loadStateAsset(type, url) {
+	var asset = document.createElement(type);
+	var parent = document.head || document.getElementsByTagName('head')[0] || document.documentElement;
+
+	if (type == 'script') {
+		asset.type = 'text/javascript';
+		asset.async = false;
+		asset.src = url;
+	}
+	else {
+		asset.rel = 'stylesheet';
+		asset.type = 'text/css';
+		asset.href = url;
+	}
+
+	parent.appendChild(asset);
+}
+
+// require.min.js must be available synchronously: code below (and callers of state.js) invoke require() immediately.
 document.write('<script type="text/javascript" src="/require/require.min.js"></script>');
+// Keep legacy dependency order: notification globals are used during page init (show_menu/initial).
 document.write('<script type="text/javascript" src="/js/support_site.js"></script>');
 document.write('<script type="text/javascript" src="/notification.js"></script>');
-document.write('<link rel="stylesheet" type="text/css" href="/notification.css"></link>');
+document.write('<link rel="stylesheet" type="text/css" href="/notification.css">');
 
 /* String splice function */
 String.prototype.splice = function (idx, rem, s) {
@@ -343,13 +363,13 @@ var isGundam = in_territory_code("GD") || CoBrand_flag == 1;
 var isKimetsu = (CoBrand_flag == '2');
 var isEva = (CoBrand_flag == '3');
 if (isGundam) {
-	document.write('<link rel="stylesheet" type="text/css" href="/css/gundam.css"></link>');
+	loadStateAsset('link', '/css/gundam.css');
 }
 else if (isKimetsu) {
-	document.write('<link rel="stylesheet" type="text/css" href="/css/kimetsu.css"></link>');
+	loadStateAsset('link', '/css/kimetsu.css');
 }
 else if (isEva) {
-	document.write('<link rel="stylesheet" type="text/css" href="/css/eva.css"></link>');
+	loadStateAsset('link', '/css/eva.css');
 }
 
 var is_RU_sku = (function () {
@@ -734,7 +754,7 @@ var wtfast_v2_support = isSupport("wtfast_v2");
 var amazon_wss_support = isSupport("amazon_wss");
 
 if (nt_center_support)
-	document.write('<script type="text/javascript" src="/client_function.js"></script>');
+	loadStateAsset('script', '/client_function.js');
 
 // Todo: Support repeater mode
 /*if(isMobile() && sw_mode != 2 && !dsl_support)
