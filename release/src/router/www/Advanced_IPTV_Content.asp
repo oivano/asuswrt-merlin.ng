@@ -137,7 +137,7 @@ function initial(){
 }
 
 function get_cloud_profiles(){
-	$.getJSON("http://nw-dlcdnet.asus.com/plugin/js/iptv_profile.json",
+	$.getJSON("https://nw-dlcdnet.asus.com/plugin/js/iptv_profile.json",
 		function(data){
 			Object.keys(data).forEach(function(profile_name) {
 				var newProfile = {};
@@ -1601,7 +1601,7 @@ function change_switch_stb(switch_stb_x){
             	<tr id="tr_pppoe_password">
               		<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,5);"><#PPPConnection_Password_itemname#></a></th>
               		<td>
-					<div style="margin-top:2px;"><input type="password" autocapitalize="off" maxlength="64" class="input_32_table" id="wan_pppoe_passwd_now" name="wan_pppoe_passwd_now" value=""></div>
+					<div style="margin-top:2px;"><input type="password" autocomplete="current-password" autocapitalize="off" maxlength="64" class="input_32_table" id="wan_pppoe_passwd_now" name="wan_pppoe_passwd_now" value=""></div>
 					<div style="margin-top:1px;"><input type="checkbox" name="show_pass_1" onclick="pass_checked(document.form.wan_pppoe_passwd_now);"><#QIS_show_pass#></div>
 					</td>
             	</tr>

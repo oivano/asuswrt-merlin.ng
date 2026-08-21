@@ -2370,7 +2370,7 @@ function build_boostkey_options() {
 	<tr>
 		<td>
 			<div style="display: flex; align-items: center;">
-				<div><input type="password" autocomplete="off" id="http_passwd_cur" tabindex="1" onkeydown="showtext(document.getElementById('pwd_msg'), '');" onpaste="setTimeout('paste_password();', 10)" class="input_18_table" style="width:200px;" maxlength="32" autocorrect="off" autocapitalize="off"/></div>
+				<div><input type="password" autocomplete="off" id="http_passwd_cur" form="ruleForm" tabindex="1" onkeydown="showtext(document.getElementById('pwd_msg'), '');" onpaste="setTimeout('paste_password();', 10)" class="input_18_table" style="width:200px;" maxlength="32" autocorrect="off" autocapitalize="off"/></div>
 				<div class="icon_eye_close" id="show_pass_1" type="password" for="http_passwd_cur http_passwd_new http_passwd_re" onclick="plain_text_check($('#show_pass_1'));"></div>
 			</div>
 		</td>
@@ -2388,7 +2388,7 @@ function build_boostkey_options() {
 	</tr>
 	<tr id="pwd_input" style="display: none;">
 		<td>
-			<input type="password" autocomplete="off" id="http_passwd_new" tabindex="2" onkeydown="" onKeyPress="return validator.isString(this, event);" onkeyup="chkPass(this.value, 'http_passwd'); check_password_length(this);" onblur="check_password_length(this);" onpaste="setTimeout('paste_password();', 10)" class="input_18_table" style="width:200px;" maxlength="33" onBlur="clean_scorebar(this);" autocorrect="off" autocapitalize="off"/>
+			<input type="password" autocomplete="off" id="http_passwd_new" form="ruleForm" tabindex="2" onkeydown="" onKeyPress="return validator.isString(this, event);" onkeyup="chkPass(this.value, 'http_passwd'); check_password_length(this);" onblur="check_password_length(this);" onpaste="setTimeout('paste_password();', 10)" class="input_18_table" style="width:200px;" maxlength="33" onBlur="clean_scorebar(this);" autocorrect="off" autocapitalize="off"/>
 			<div id="scorebarBorder" style="margin-left:224px; margin-top:-25px; display:none;" title="<#LANHostConfig_x_Password_itemSecur#>">
 				<div id="score" style="margin-top: 5px;"></div>
 				<div id="scorebar">&nbsp;</div>
@@ -2404,7 +2404,7 @@ function build_boostkey_options() {
 		<td align="left"><#Retype_New_Login_Password#></td>
 	</tr>
 	<tr id="pwd_confirm" style="display: none;">
-		<td><input type="password" autocomplete="off" id="http_passwd_re" tabindex="3" onkeydown="showtext(document.getElementById('alert_msg'), '');" onKeyPress="return validator.isString(this, event);" onpaste="setTimeout('paste_password();', 10)" class="input_18_table" style="width:200px;" maxlength="33" autocorrect="off" autocapitalize="off"/></td>
+		<td><input type="password" autocomplete="off" id="http_passwd_re" form="ruleForm" tabindex="3" onkeydown="showtext(document.getElementById('alert_msg'), '');" onKeyPress="return validator.isString(this, event);" onpaste="setTimeout('paste_password();', 10)" class="input_18_table" style="width:200px;" maxlength="33" autocorrect="off" autocapitalize="off"/></td>
 	</tr>
 	<tr id="name_input_title" style="display: none;">
 		<td align="left"><#New_Login_Name#></td>
