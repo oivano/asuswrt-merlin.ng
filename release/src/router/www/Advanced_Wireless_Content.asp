@@ -1559,7 +1559,7 @@ function ajax_wl_edmg_channel(){
 					<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(0, 7);"><#WLANConfig11b_x_PSKKey_itemname#></a></th>
 					<td>
 						<div class="wpa_psk_container">
-							<input id="wl_wpa_psk" name="wl_wpa_psk" maxlength="64" class="input_32_table" type="password" autocapitalization="off" onBlur="switchType(this, false);" onFocus="switchType(this, true);" value="<% nvram_get("wl_wpa_psk"); %>" autocomplete="new-password" autocorrect="off" autocapitalize="off">
+							<input id="wl_wpa_psk" name="wl_wpa_psk" maxlength="64" class="input_32_table" type="password" autocapitalization="off" onBlur="switchType(this, false);" onFocus="switchType(this, true);" value="<% nvram_get("wl_wpa_psk"); %>" autocomplete="current-password" autocorrect="off" autocapitalize="off">
 						</div>
 					</td>
 			  	</tr>
@@ -1638,7 +1638,7 @@ function ajax_wl_edmg_channel(){
 						<#WLANAuthentication11a_ExAuthDBPassword_itemname#></a>
 					</th>
 					<td>
-						<input type="password" maxlength="64" class="input_32_table" name="wl_radius_key" value="<% nvram_get("wl_radius_key"); %>" autocorrect="off" autocapitalize="off">
+						<input type="password" autocomplete="current-password" maxlength="64" class="input_32_table" name="wl_radius_key" value="<% nvram_get("wl_radius_key"); %>" autocorrect="off" autocapitalize="off">
 					</td>
 				</tr>
 				<tr style="display:none">
