@@ -35,6 +35,7 @@ FRR_VTY_GROUP=""
 FRR_CONFIG_MODE="0600"
 FRR_DEFAULT_PROFILE="traditional"
 MAX_FDS=1024
+VTYSH_RETRY_COUNT=10
 STOP_GRACE_TIMEOUT=10
 STOP_TERM_TIMEOUT=5
 STOP_KILL_TIMEOUT=2
@@ -177,8 +178,9 @@ wait_for_pppd_boot_ready() {
 }
 
 chownfrr() {
-	[ -n "$FRR_USER" ] && chown "$FRR_USER" "$1"
-	[ -n "$FRR_GROUP" ] && chgrp "$FRR_GROUP" "$1"
+	if [ -n "$FRR_USER" -o -n "$FRR_GROUP" ]; then
+		chown "${FRR_USER}${FRR_GROUP:+:$FRR_GROUP}" "$1"
+	fi
 	[ -n "$FRR_CONFIG_MODE" ] && chmod "$FRR_CONFIG_MODE" "$1"
 	if [ -d "$1" ]; then
 		chmod u+x "$1"
@@ -186,13 +188,32 @@ chownfrr() {
 }
 
 vtysh_b () {
-	[ "$1" = "watchfrr" ] && return 0
+	local daemon retries
+
+	daemon="$1"
+	[ "$daemon" = "watchfrr" ] && return 0
+	[ "$vtysh_enable" = "yes" ] || return 0
 	[ -r "$RUNTIME_C_PATH/frr.conf" ] || return 0
-	if [ -n "$1" ]; then
-		"$VTYSH" --config_dir "$RUNTIME_C_PATH" `echo $nsopt` -b -d "$1"
-	else
-		"$VTYSH" --config_dir "$RUNTIME_C_PATH" `echo $nsopt` -b
-	fi
+
+	retries="${frr_vtysh_retry_count:-$VTYSH_RETRY_COUNT}"
+	case "$retries" in
+	''|*[!0-9]*) retries="$VTYSH_RETRY_COUNT" ;;
+	esac
+
+	while :; do
+		if [ -n "$daemon" ]; then
+			"$VTYSH" --config_dir "$RUNTIME_C_PATH" `echo $nsopt` -b -d "$daemon" && return 0
+		else
+			"$VTYSH" --config_dir "$RUNTIME_C_PATH" `echo $nsopt` -b && return 0
+		fi
+
+		[ "$retries" -gt 0 ] || break
+		retries=$((retries - 1))
+		sleep 1
+	done
+
+	log_warning_msg "FRR: failed to apply $RUNTIME_C_PATH/frr.conf${daemon:+ to $daemon}"
+	return 1
 }
 
 daemon_inst() {
@@ -295,9 +316,11 @@ daemon_start() {
 
 	if eval "$all_wrap $wrap $bin $nsopt -d $frr_global_options $instopt $args"; then
 		log_success_msg "Started $dmninst"
-		vtysh_b "$daemon"
+		vtysh_b "$daemon" || log_warning_msg "FRR: $dmninst started without its configuration"
+		return 0
 	else
 		log_failure_msg "Failed to start $dmninst!"
+		return 1
 	fi
 }
 
@@ -520,6 +543,11 @@ if test -z "$frr_profile"; then
 	fi
 fi
 test -n "$frr_profile" && frr_global_options="$frr_global_options -F $frr_profile"
+
+# FRR 8.1 requires handlers for starting, restarting, and stopping watched daemons.
+# Keep configured options last so they can override these defaults.
+watchfrr_default_options="-s '$D_PATH/watchfrr.sh start %s' -r '$D_PATH/watchfrr.sh restart %s' -k '$D_PATH/watchfrr.sh stop %s'"
+watchfrr_options="$watchfrr_default_options $watchfrr_options"
 
 
 #
