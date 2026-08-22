@@ -1,0 +1,24 @@
+##  ion Asus Merlin changelog  ##
+
+Date: August 22, 2026
+Release: 386.15_3-ion
+
+  - ADDED:   Native DNSCrypt support for the DSL-AC68U, including WebUI
+             configuration, NTP-safe startup, USB-backed swap handling,
+             and local-time logging.
+  - ADDED:   Optional SFTP server support; it is disabled by default and
+             rejects subsystem requests until explicitly enabled.
+  - UPDATED: OpenVPN to 2.7.6.
+  - UPDATED: miniupnpd to 2.3.11.
+  - FIXED:   FRR watchfrr lifecycle handling and JFFS configuration loading;
+             suppresses unintended integrated-config additions.
+  - FIXED:   Client-list refresh no longer flashes empty, and OUI vendor
+             lookups work correctly.
+  - FIXED:   Device Map responsiveness and form semantics, state.js asset
+             loading, and HTML warnings across router pages.
+  - FIXED:   Shared-library buffer handling, netstat-nat option handling,
+             and an OpenVPN importer diagnostic.
+  - CHANGED: PCRE2 builds no longer require unavailable Autotools regeneration.
+
+
+
