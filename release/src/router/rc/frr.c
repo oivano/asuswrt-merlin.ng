@@ -916,6 +916,7 @@ static void frr_write_default_config(void)
 		fprintf(fp, "bfdd=%s\n", nvram_match("frr_bfd_enable", "1") ? "yes" : "no");
 		fprintf(fp, "#\n");
 		fprintf(fp, "vtysh_enable=yes\n");
+		fprintf(fp, "watchfrr_options=\"-s '/usr/sbin/watchfrr.sh start %%s' -r '/usr/sbin/watchfrr.sh restart %%s' -k '/usr/sbin/watchfrr.sh stop %%s'\"\n");
 		fprintf(fp, "zebra_options=\" -s 90000000 --daemon\"\n");
 		fprintf(fp, "bgpd_options=\" --daemon\"\n");
 		fprintf(fp, "ospfd_options=\" --daemon\"\n");
