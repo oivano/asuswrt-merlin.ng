@@ -2,10 +2,45 @@ ion release asuswrt merlin changelog
 ========================
 
 
-386.15_2-ion (XX-Jul-2026)
+386.15_3-ion (22-Aug-2026)
+  - ADDED:   Native DNSCrypt support for the DSL-AC68U, including WebUI
+             configuration, NTP-safe startup, USB-backed swap handling,
+             and local-time logging.
+  - ADDED:   Optional SFTP server support; it is disabled by default and
+             rejects subsystem requests until explicitly enabled.
+  - UPDATED: OpenVPN to 2.7.6.
+  - UPDATED: miniupnpd to 2.3.11.
+  - UPDATED: dropbear to 2026.94.
+  - UPDATED: openssh-sftp-server to 10.4p1.
+  - UPDATED: strongswan to 6.0.7
+  - FIXED:   FRR route status rendering for larger route tables; prevents
+             empty route views caused by truncated JSON output.
+  - FIXED:   FRR config regeneration reliability during restart, including
+             better preservation of existing config blocks.
+  - FIXED:   SFTP subsystem path handling for Dropbear/OpenSSH integration.
+  - FIXED:   StrongSwan stability issues, including a crash-triggering
+             stack overflow condition.
+  - FIXED:   FRR watchfrr lifecycle handling and JFFS configuration loading;
+             suppresses unintended integrated-config additions.
+  - FIXED:   Client-list refresh no longer flashes empty, and OUI vendor
+             lookups work correctly.
+  - FIXED:   Device Map responsiveness and form semantics, state.js asset
+             loading, and HTML warnings across router pages.
+  - FIXED:   Shared-library buffer handling, netstat-nat option handling,
+             and an OpenVPN importer diagnostic.
+  - CHANGED: PCRE2 builds no longer require unavailable Autotools regeneration.
+
+
+386.15_2-ion (24-Jul-2026)
   - UPDATED: miniupnpd to 2.3.10.
   - UPDATED: FRR to 8.1 build with refreshed vendored tree from
              FRRouting stable/8.1.
+  - FIXED:   FRR WebUI now shows runtime-discovered peers correctly, and
+             force-regeneration creates FRR 8.1-compatible BGP/BFD syntax.
+  - FIXED:   Connections Log sorting issues in the WebUI.
+  - FIXED:   Main Connections page JavaScript error
+             (sortHighlightColor undefined).
+  - FIXED:   miniupnpd CIDR mask parsing portability issue.
 
 
 386.15-ion (11-Jul-2026)
@@ -26,7 +61,12 @@ ion release asuswrt merlin changelog
   - UPDATED: OpenVPN to 2.7.5.
   - UPDATED: dropbear to 2026.92.
   - UPDATED: miniupnpd to 2.3.10.
+  - UPDATED: curl to 8.17.0.
   - UPDATED: haveged to 1.9.22.
+  - FIXED:   Additional OpenSSL 1.1.1w security backports were included
+             from Ubuntu ESM.
+  - FIXED:   FRR daemon restart reliability improvements reduce stop/start
+             race conditions and stale route state.
   - FIXED:   Batch cherry-picks from upstream Merlin with severity-based inclusion;
              includes relevant security/high-impact fixes (notably OpenSSL backports)
              plus selected stability and compatibility fixes.
