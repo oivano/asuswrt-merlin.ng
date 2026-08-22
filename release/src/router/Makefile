@@ -6790,6 +6790,10 @@ $(PCRE2_SRC_DIR)/stamp-h1: pcre2-src-local
 	touch $@
 
 pcre2: $(PCRE2_SRC_DIR)/stamp-h1
+	@# force deterministic mtimes so automake/autoconf are never re-invoked, regardless of checkout order
+	@touch -d '2000-01-01' $(PCRE2_SRC_DIR)/m4/*.m4 $(PCRE2_SRC_DIR)/configure.ac $(PCRE2_SRC_DIR)/Makefile.am
+	@touch -d '2000-01-02' $(PCRE2_SRC_DIR)/aclocal.m4 $(PCRE2_SRC_DIR)/configure
+	@touch -d '2000-01-03' $(PCRE2_SRC_DIR)/Makefile.in $(PCRE2_SRC_DIR)/Makefile
 	$(MAKE) -C $(PCRE2_SRC_DIR) all && $(MAKE) $@-stage
 
 pcre2-stage:
