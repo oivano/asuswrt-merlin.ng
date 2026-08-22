@@ -6790,6 +6790,7 @@ $(PCRE2_SRC_DIR)/stamp-h1: pcre2-src-local
 	touch $@
 
 pcre2: $(PCRE2_SRC_DIR)/stamp-h1
+	@touch $(PCRE2_SRC_DIR)/Makefile.in $(PCRE2_SRC_DIR)/aclocal.m4 $(PCRE2_SRC_DIR)/configure
 	$(MAKE) -C $(PCRE2_SRC_DIR) all && $(MAKE) $@-stage
 
 pcre2-stage:
