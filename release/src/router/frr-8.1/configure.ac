@@ -2623,14 +2623,8 @@ AC_CONFIG_FILES([Makefile],[
 
 AC_CONFIG_FILES([
 	  config.version
-	  redhat/frr.spec
-	  alpine/APKBUILD
-	  snapcraft/snapcraft.yaml
 	  lib/version.h
-	  tests/lib/cli/test_cli.refout
-	  pkgsrc/bgpd.sh pkgsrc/ospf6d.sh pkgsrc/ospfd.sh
-	  pkgsrc/ripd.sh pkgsrc/ripngd.sh pkgsrc/zebra.sh
-	  pkgsrc/eigrpd.sh])
+  ])
 
 AC_CONFIG_FILES([vtysh/extract.pl], [chmod +x vtysh/extract.pl])
 AC_CONFIG_FILES([tools/frr], [chmod +x tools/frr])

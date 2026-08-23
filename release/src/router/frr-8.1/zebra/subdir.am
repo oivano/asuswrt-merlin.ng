@@ -24,7 +24,9 @@ vtysh_scan += \
 
 # can be loaded as DSO - always include for vtysh
 vtysh_scan += zebra/irdp_interface.c
+if FPM
 vtysh_scan += zebra/zebra_fpm.c
+endif
 
 vtysh_daemons += zebra
 

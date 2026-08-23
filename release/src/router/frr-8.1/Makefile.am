@@ -156,17 +156,23 @@ $(AUTOMAKE_DUMMY)install-moduleLTLIBRARIES: install-libLTLIBRARIES
 $(AUTOMAKE_DUMMY)install-binPROGRAMS: install-libLTLIBRARIES
 $(AUTOMAKE_DUMMY)install-sbinPROGRAMS: install-libLTLIBRARIES
 
-include doc/subdir.am
-include doc/user/subdir.am
-include doc/manpages/subdir.am
-include doc/developer/subdir.am
+# Documentation subdirectories removed (not needed for firmware build)
+# include doc/subdir.am
+# include doc/user/subdir.am
+# include doc/manpages/subdir.am
+# include doc/developer/subdir.am
+
+# Initialize man pages variables (required even though doc/ is removed)
+man1 =
+man8 =
+
 include include/subdir.am
 include lib/subdir.am
 include mlag/subdir.am
 include zebra/subdir.am
 include watchfrr/subdir.am
 include qpb/subdir.am
-include fpm/subdir.am
+# include fpm/subdir.am  # FPM directory removed (not needed for firmware build)
 include grpc/subdir.am
 include tools/subdir.am
 
@@ -196,8 +202,10 @@ include pceplib/test/subdir.am
 include pathd/subdir.am
 
 include vtysh/subdir.am
-include tests/subdir.am
-include tests/topotests/subdir.am
+
+# Tests removed (not needed for firmware build)
+# include tests/subdir.am
+# include tests/topotests/subdir.am
 
 if PKGSRC
 rcdir=@pkgsrcrcdir@
