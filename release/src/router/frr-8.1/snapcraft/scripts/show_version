@@ -1,6 +1,0 @@
-#!/bin/sh
-
-$SNAP/sbin/zebra --version
-$SNAP/bin/cat $SNAP/doc/extra_version_info.txt
-
-exit 0
