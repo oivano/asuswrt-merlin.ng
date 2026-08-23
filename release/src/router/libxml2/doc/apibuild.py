@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # This is the API builder, it parses the C sources and build the
 # API formal description in XML.
@@ -23,15 +23,12 @@ ignored_files = {
   "trio.c": "too many non standard macros",
   "trionan.c": "too many non standard macros",
   "triostr.c": "too many non standard macros",
-  "acconfig.h": "generated portability layer",
   "config.h": "generated portability layer",
   "libxml.h": "internal only",
   "testOOM.c": "out of memory tester",
   "testOOMlib.h": "out of memory tester",
   "testOOMlib.c": "out of memory tester",
   "rngparser.c": "not yet integrated",
-  "rngparser.h": "not yet integrated",
-  "testAutomata.c": "test tool",
   "testModule.c": "test tool",
   "testThreads.c": "test tool",
   "testapi.c": "generated regression tests",
@@ -41,10 +38,6 @@ ignored_files = {
   "test.c": "not part of the library",
   "testdso.c": "test for dynamid shared libraries",
   "testrecurse.c": "test for entities recursions",
-  "xzlib.h": "Internal API only 2.8.0",
-  "buf.h": "Internal API only 2.9.0",
-  "enc.h": "Internal API only 2.9.0",
-  "/save.h": "Internal API only 2.9.0",
   "timsort.h": "Internal header only for xpath.c 2.9.0",
 }
 
@@ -57,9 +50,7 @@ ignored_words = {
   "XMLPUBFUN": (0, "Special macro for extern funcs for win32"),
   "XSLTPUBFUN": (0, "Special macro for extern funcs for win32"),
   "EXSLTPUBFUN": (0, "Special macro for extern funcs for win32"),
-  "XMLCALL": (0, "Special macro for win32 calls"),
   "XSLTCALL": (0, "Special macro for win32 calls"),
-  "XMLCDECL": (0, "Special macro for win32 calls"),
   "EXSLTCALL": (0, "Special macro for win32 calls"),
   "__declspec": (3, "Windows keyword"),
   "__stdcall": (0, "Windows keyword"),
@@ -72,7 +63,15 @@ ignored_words = {
   "LIBXML_ATTR_FORMAT": (5, "macro for gcc printf args checking extension"),
   "LIBXML_ATTR_ALLOC_SIZE": (3, "macro for gcc checking extension"),
   "ATTRIBUTE_NO_SANITIZE": (3, "macro keyword"),
+  "ATTRIBUTE_NO_SANITIZE_INTEGER": (0, "macro keyword"),
   "XML_DEPRECATED": (0, "macro keyword"),
+  "XML_GLOBALS_ALLOC": (0, "macro keyword"),
+  "XML_GLOBALS_ERROR": (0, "macro keyword"),
+  "XML_GLOBALS_HTML": (0, "macro keyword"),
+  "XML_GLOBALS_IO": (0, "macro keyword"),
+  "XML_GLOBALS_PARSER": (0, "macro keyword"),
+  "XML_GLOBALS_TREE": (0, "macro keyword"),
+  "XML_THREAD_LOCAL": (0, "macro keyword"),
 }
 
 def escape(raw):
@@ -192,10 +191,10 @@ class index:
         if name[0:2] == '__':
             return None
         d = None
-        try:
+        if name in self.identifiers:
            d = self.identifiers[name]
-           d.update(header, module, type, lineno, info, extra, conditionals)
-        except:
+           d.update(header, module, type, info, extra, conditionals)
+        else:
            d = identifier(name, header, module, type, lineno, info, extra, conditionals)
            self.identifiers[name] = d
 
@@ -214,10 +213,10 @@ class index:
         if name[0:2] == '__':
             return None
         d = None
-        try:
+        if name in self.identifiers:
            d = self.identifiers[name]
-           d.update(header, module, type, lineno, info, extra, conditionals)
-        except:
+           d.update(header, module, type, info, extra, conditionals)
+        else:
            d = identifier(name, header, module, type, lineno, info, extra, conditionals)
            self.identifiers[name] = d
 
@@ -301,7 +300,7 @@ class index:
                  continue
              if id in self.enums:
                  continue
-             if id in self.macros:
+             if id in self.macros and id != 'XML_OP':
                  print("macro %s from %s redeclared in %s" % (
                     id, self.macros[id].header, idx.macros[id].header))
              else:
@@ -330,7 +329,19 @@ class index:
          #     else:
          #         print "Function %s from %s is not declared in headers" % (
          #                id, idx.functions[id].module)
-         # TODO: do the same for variables.
+
+        for id in list(idx.variables.keys()):
+            if id in self.variables:
+                # check that variable condition agrees with header
+                # TODO: produces many false positives
+                #if idx.variables[id].conditionals != \
+                #   self.variables[id].conditionals:
+                #    print("Header condition differs from Variable for %s:" \
+                #       % id)
+                #    print("  H: %s" % self.variables[id].conditionals)
+                #    print("  C: %s" % idx.variables[id].conditionals)
+                up = idx.variables[id]
+                self.variables[id].update(None, up.module, up.type, up.info, up.extra)
 
     def analyze_dict(self, type, dict):
         count = 0
@@ -577,23 +588,25 @@ class CParser:
         self.last_comment = ""
         self.comment = None
         self.collect_ref = 0
-        self.no_error = 0
+        self.doc_disable = 0
         self.conditionals = []
         self.defines = []
 
     def collect_references(self):
         self.collect_ref = 1
 
-    def stop_error(self):
-        self.no_error = 1
+    def disable(self):
+        self.doc_disable = 1
 
-    def start_error(self):
-        self.no_error = 0
+    def enable(self):
+        self.doc_disable = 0
 
     def lineno(self):
         return self.lexer.getlineno()
 
     def index_add(self, name, module, static, type, info=None, extra = None):
+        if self.doc_disable:
+            return
         if self.is_header == 1:
             self.index.add(name, module, module, static, type, self.lineno(),
                            info, extra, self.conditionals)
@@ -611,12 +624,12 @@ class CParser:
                                info, extra, self.conditionals)
 
     def warning(self, msg):
-        if self.no_error:
+        if self.doc_disable:
             return
         print(msg)
 
     def error(self, msg, token=-1):
-        if self.no_error:
+        if self.doc_disable:
             return
 
         print("Parse Error: " + msg)
@@ -669,17 +682,17 @@ class CParser:
         token = self.lexer.token()
 
         if self.comment.find("DOC_DISABLE") != -1:
-            self.stop_error()
+            self.disable()
 
         if self.comment.find("DOC_ENABLE") != -1:
-            self.start_error()
+            self.enable()
 
         return token
 
     #
-    # Parse a comment block associate to a typedef
+    # Parse a simple comment block for typedefs or global variables
     #
-    def parseTypeComment(self, name, quiet = 0):
+    def parseSimpleComment(self, name, quiet = False):
         if name[0:2] == '__':
             quiet = 1
 
@@ -688,20 +701,20 @@ class CParser:
 
         if self.comment == None:
             if not quiet:
-                self.warning("Missing comment for type %s" % (name))
-            return((args, desc))
+                self.warning("Missing comment for %s" % (name))
+            return(None)
         if self.comment[0] != '*':
             if not quiet:
-                self.warning("Missing * in type comment for %s" % (name))
-            return((args, desc))
+                self.warning("Missing * in comment for %s" % (name))
+            return(None)
         lines = self.comment.split('\n')
         if lines[0] == '*':
             del lines[0]
         if lines[0] != "* %s:" % (name):
             if not quiet:
-                self.warning("Misformatted type comment for %s" % (name))
+                self.warning("Misformatted comment for %s" % (name))
                 self.warning("  Expecting '* %s:' got '%s'" % (name, lines[0]))
-            return((args, desc))
+            return(None)
         del lines[0]
         while len(lines) > 0 and lines[0] == '*':
             del lines[0]
@@ -718,7 +731,7 @@ class CParser:
 
         if quiet == 0:
             if desc == "":
-                self.warning("Type comment for %s lack description of the macro" % (name))
+                self.warning("Comment for %s lacks description" % (name))
 
         return(desc)
     #
@@ -935,7 +948,7 @@ class CParser:
                     name = name.split('(') [0]
                 except:
                     pass
-                info = self.parseMacroComment(name, not self.is_header)
+                info = self.parseMacroComment(name, True)
                 self.index_add(name, self.filename, not self.is_header,
                                 "macro", info)
                 return token
@@ -1068,7 +1081,7 @@ class CParser:
                         base_type = "struct " + name
                     else:
                         # TODO report missing or misformatted comments
-                        info = self.parseTypeComment(name, 1)
+                        info = self.parseSimpleComment(name, True)
                         self.index_add(name, self.filename, not self.is_header,
                                     "typedef", type, info)
                 token = self.token()
@@ -1103,7 +1116,6 @@ class CParser:
                 token = self.token()
                 token = self.parseBlock(token)
             elif token[0] == "sep" and token[1] == "}":
-                self.comment = None
                 token = self.token()
                 return token
             else:
@@ -1260,26 +1272,29 @@ class CParser:
         if token == None:
             return token
 
+        have_sign = 0
+        done = 0
+
         while token[0] == "name" and (
               token[1] == "const" or \
               token[1] == "unsigned" or \
               token[1] == "signed"):
+            if token[1] == "unsigned" or token[1] == "signed":
+                have_sign = 1
             if self.type == "":
                 self.type = token[1]
             else:
                 self.type = self.type + " " + token[1]
             token = self.token()
 
-        if token[0] == "name" and (token[1] == "long" or token[1] == "short"):
+        if token[0] == "name" and token[1] in ("char", "short", "int", "long"):
             if self.type == "":
                 self.type = token[1]
             else:
                 self.type = self.type + " " + token[1]
-            if token[0] == "name" and token[1] == "int":
-                if self.type == "":
-                    self.type = tmp[1]
-                else:
-                    self.type = self.type + " " + tmp[1]
+
+        elif have_sign:
+            done = 1
 
         elif token[0] == "name" and token[1] == "struct":
             if self.type == "":
@@ -1348,7 +1363,8 @@ class CParser:
             self.error("parsing type %s: expecting a name" % (self.type),
                        token)
             return token
-        token = self.token()
+        if not done:
+            token = self.token()
         while token != None and (token[0] == "op" or
               token[0] == "name" and token[1] == "const"):
             self.type = self.type + " " + token[1]
@@ -1518,25 +1534,24 @@ class CParser:
                     token = self.token()
                     token = self.parseBlock(token)
                 else:
-                    self.comment = None
                     while token != None and (token[0] != "sep" or \
                           (token[1] != ';' and token[1] != ',')):
                             token = self.token()
-                self.comment = None
                 if token == None or token[0] != "sep" or (token[1] != ';' and
                    token[1] != ','):
                     self.error("missing ';' or ',' after value")
 
             if token != None and token[0] == "sep":
                 if token[1] == ";":
-                    self.comment = None
-                    token = self.token()
                     if type == "struct":
                         self.index_add(self.name, self.filename,
                              not self.is_header, "struct", self.struct_fields)
                     else:
+                        info = self.parseSimpleComment(self.name, True)
                         self.index_add(self.name, self.filename,
-                             not self.is_header, "variable", type)
+                             not self.is_header, "variable", type, info)
+                    self.comment = None
+                    token = self.token()
                     break
                 elif token[1] == "(":
                     token = self.token()
@@ -1548,18 +1563,20 @@ class CParser:
                                 ((type, None), self.signature), 1)
                         self.index_add(self.name, self.filename, static,
                                         "function", d)
+                        self.comment = None
                         token = self.token()
                     elif token[0] == "sep" and token[1] == "{":
                         d = self.mergeFunctionComment(self.name,
                                 ((type, None), self.signature), static)
                         self.index_add(self.name, self.filename, static,
                                         "function", d)
+                        self.comment = None
                         token = self.token()
                         token = self.parseBlock(token);
                 elif token[1] == ',':
-                    self.comment = None
                     self.index_add(self.name, self.filename, static,
                                     "variable", type)
+                    self.comment = None
                     type = type_orig
                     token = self.token()
                     while token != None and token[0] == "sep":
@@ -1732,11 +1749,17 @@ class docBuilder:
     def serialize_variable(self, output, name):
         id = self.idx.variables[name]
         if id.info != None:
-            output.write("    <variable name='%s' file='%s' type='%s'/>\n" % (
+            output.write("    <variable name='%s' file='%s' type='%s'" % (
                     name, self.modulename_file(id.header), id.info))
         else:
-            output.write("    <variable name='%s' file='%s'/>\n" % (
+            output.write("    <variable name='%s' file='%s'" % (
                     name, self.modulename_file(id.header)))
+        desc = id.extra
+        if desc != None and desc != "":
+            output.write(">\n      <info>%s</info>\n" % (escape(desc)))
+            output.write("    </variable>\n")
+        else:
+            output.write("/>\n")
 
     def serialize_function(self, output, name):
         id = self.idx.functions[name]
