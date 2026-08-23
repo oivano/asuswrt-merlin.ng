@@ -1440,22 +1440,16 @@ obj-$(RTCONFIG_FRR) += zlib
 obj-$(RTCONFIG_FRR) += readline-8.1
 obj-$(RTCONFIG_FRR) += ncurses-6.0
 
-# FRR experimental northbound/RPKI knobs (default off for legacy toolchain lane)
+# FRR 8.1 configuration (only version supported)
 FRR_EXPERIMENTAL_RPKI ?= n
 FRR_EXPERIMENTAL_GRPC ?= n
-FRR_USE_EXTERNAL_FRR ?= y
-FRR_VERSION ?= 8.1
+FRR_VERSION := 8.1
 
-FRR_SRC_DIR := $(TOP)/frr-$(FRR_VERSION)
-FRR_ACTIVE_SRC := $(TOP)/frr
-FRR_SRC_DEP :=
+FRR_ACTIVE_SRC := $(TOP)/frr-$(FRR_VERSION)
+FRR_SRC_DEP := frr-src-local
 FRR_HOSTLIB_COMPAT_DIR := $(TOP)/hostlib-compat
 FRR_HOSTLIB_PATH := $(FRR_HOSTLIB_COMPAT_DIR):/usr/lib/x86_64-linux-gnu
 FRR_TARGET_TRIPLET := $(if $(CROSS_COMPILE),$(patsubst %-,%,$(notdir $(CROSS_COMPILE))),arm-linux)
-ifeq ($(FRR_USE_EXTERNAL_FRR),y)
-FRR_ACTIVE_SRC := $(FRR_SRC_DIR)
-FRR_SRC_DEP := frr-src-local
-endif
 
 FRR_EXTRA_DEPS :=
 FRR_EXTRA_ENV :=
@@ -4636,6 +4630,7 @@ frr/stamp-h1: ncurses-6.0 json-c readline-8.1 $(FRR_LIBYANG_DEP) libcap libcap-n
 		--disable-isisd \
 		--enable-shell-access \
 		--disable-clippy-only )
+	@mkdir -p $(dir $@)
 	@touch $@
 
 frr-extra-src-local:
@@ -4898,9 +4893,9 @@ frr-install:
 	install -d $(INSTALLDIR)/frr/usr/bin
 	ln -sf ../sbin/vtysh $(INSTALLDIR)/frr/usr/bin/vtysh
 	@echo "Installing FRR configuration files..."
-	install -m 0644 frr/files/{frr.conf,daemons,vtysh.conf} $(TARGETDIR)/rom/etc/
+	install -m 0644 $(FRR_ACTIVE_SRC)/files/{frr.conf,daemons,vtysh.conf} $(TARGETDIR)/rom/etc/
 	@echo "Installing FRR helper scripts..."
-	install -m 0555 frr/files/{frr,watchfrr.sh,frrinit.sh,frrcommon.sh} $(INSTALLDIR)/frr/usr/sbin/
+	install -m 0555 $(FRR_ACTIVE_SRC)/files/{frr,watchfrr.sh,frrinit.sh,frrcommon.sh} $(INSTALLDIR)/frr/usr/sbin/
 
 nfcm-clean:
 	@$(SEP)
