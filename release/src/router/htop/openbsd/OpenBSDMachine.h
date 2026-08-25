@@ -10,7 +10,7 @@ in the source distribution for its full text.
 
 #include <kvm.h>
 #include <stdbool.h>
-#include <sys/types.h>
+#include <stddef.h>
 
 #include "Machine.h"
 
@@ -41,12 +41,18 @@ typedef struct OpenBSDMachine_ {
    Machine super;
    kvm_t* kd;
 
+   memory_t wiredMem;
+   memory_t cacheMem;
+   memory_t activeMem;
+   memory_t pagingMem;
+   memory_t inactiveMem;
+
    CPUData* cpuData;
 
    long fscale;
    int cpuSpeed;
-   int pageSize;
-   int pageSizeKB;
+   size_t pageSize;
+   size_t pageSizeKB;
 
 } OpenBSDMachine;
 

@@ -35,7 +35,7 @@ InfoScreen* InfoScreen_init(InfoScreen* this, const Process* process, FunctionBa
    }
    this->display = Panel_new(0, 1, COLS, height, Class(ListItem), false, bar);
    this->inc = IncSet_new(bar);
-   this->lines = Vector_new(Vector_type(this->display->items), true, DEFAULT_SIZE);
+   this->lines = Vector_new(Vector_type(this->display->items), true, VECTOR_DEFAULT_SIZE);
    Panel_setHeader(this->display, panelHeader);
    return this;
 }
@@ -55,9 +55,11 @@ void InfoScreen_drawTitled(InfoScreen* this, const char* fmt, ...) {
    int len = vsnprintf(title, sizeof(title), fmt, ap);
    va_end(ap);
 
-   if (len > COLS) {
+   if (len > COLS && COLS >= 3) {
       memset(&title[COLS - 3], '.', 3);
    }
+
+   String_stripControlChars(title);
 
    attrset(CRT_colors[METER_TEXT]);
    mvhline(0, 0, ' ', COLS);
@@ -77,11 +79,17 @@ void InfoScreen_addLine(InfoScreen* this, const char* line) {
 }
 
 void InfoScreen_appendLine(InfoScreen* this, const char* line) {
-   ListItem* last = (ListItem*)Vector_get(this->lines, Vector_size(this->lines) - 1);
-   ListItem_append(last, line);
+   if (!Vector_size(this->lines)) {
+      InfoScreen_addLine(this, line);
+      return;
+   }
+
+   Object* last = Vector_get(this->lines, Vector_size(this->lines) - 1);
+   ListItem_append((ListItem*)last, line);
    const char* incFilter = IncSet_filter(this->inc);
-   if (incFilter && Panel_get(this->display, Panel_size(this->display) - 1) != (Object*)last && String_contains_i(line, incFilter, true)) {
-      Panel_add(this->display, (Object*)last);
+   Object* displayLast = Panel_size(this->display) ? Panel_get(this->display, Panel_size(this->display) - 1) : NULL;
+   if (incFilter && displayLast != last && String_contains_i(line, incFilter, true)) {
+      Panel_add(this->display, last);
    }
 }
 
@@ -98,6 +106,7 @@ void InfoScreen_run(InfoScreen* this) {
 
       Panel_draw(panel, false, true, true, false);
       IncSet_drawBar(this->inc, CRT_colors[FUNCTION_BAR]);
+      FunctionBar_setLabel(this->display->defaultBar, KEY_F(4), this->inc->filtering ? "FILTER " : "Filter ");
 
       int ch = Panel_getCh(panel);
 

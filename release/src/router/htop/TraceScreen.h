@@ -18,11 +18,12 @@ in the source distribution for its full text.
 
 typedef struct TraceScreen_ {
    InfoScreen super;
-   bool tracing;
-   pid_t child;
    FILE* strace;
+   pid_t child;
+   bool tracing;
    bool contLine;
    bool follow;
+   bool strace_alive;
 } TraceScreen;
 
 

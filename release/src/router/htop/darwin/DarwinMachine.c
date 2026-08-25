@@ -16,6 +16,7 @@ in the source distribution for its full text.
 #include <unistd.h>
 #include <sys/mman.h>
 #include <sys/sysctl.h>
+#include <Availability.h>
 
 #include "CRT.h"
 #include "Machine.h"
@@ -24,6 +25,10 @@ in the source distribution for its full text.
 #include "generic/openzfs_sysctl.h"
 #include "zfs/ZfsArcStats.h"
 
+// Compatibility for older SDKs.
+#if !defined(HAVE_DECL_KIOMAINPORTDEFAULT) || !HAVE_DECL_KIOMAINPORTDEFAULT
+#define kIOMainPortDefault kIOMasterPortDefault
+#endif
 
 static void DarwinMachine_getHostInfo(host_basic_info_data_t* p) {
    mach_msg_type_number_t info_size = HOST_BASIC_INFO_COUNT;
@@ -47,9 +52,9 @@ static void DarwinMachine_freeCPULoadInfo(processor_cpu_load_info_t* p) {
    *p = NULL;
 }
 
-static unsigned DarwinMachine_allocateCPULoadInfo(processor_cpu_load_info_t* p) {
+static unsigned int DarwinMachine_allocateCPULoadInfo(processor_cpu_load_info_t* p) {
    mach_msg_type_number_t info_size = sizeof(processor_cpu_load_info_t);
-   unsigned cpu_count;
+   natural_t cpu_count;
 
    // TODO Improving the accuracy of the load counts would help a lot.
    if (0 != host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO, &cpu_count, (processor_info_array_t*)p, &info_size)) {
@@ -59,12 +64,20 @@ static unsigned DarwinMachine_allocateCPULoadInfo(processor_cpu_load_info_t* p) 
    return cpu_count;
 }
 
-static void DarwinMachine_getVMStats(vm_statistics_t p) {
+static void DarwinMachine_getVMStats(DarwinMachine* this) {
+#ifdef HAVE_STRUCT_VM_STATISTICS64
+   mach_msg_type_number_t info_size = HOST_VM_INFO64_COUNT;
+
+   if (host_statistics64(mach_host_self(), HOST_VM_INFO64, (host_info_t)&this->vm_stats, &info_size) != 0) {
+      CRT_fatalError("Unable to retrieve VM statistics64");
+   }
+#else
    mach_msg_type_number_t info_size = HOST_VM_INFO_COUNT;
 
-   if (host_statistics(mach_host_self(), HOST_VM_INFO, (host_info_t)p, &info_size) != 0) {
+   if (host_statistics(mach_host_self(), HOST_VM_INFO, (host_info_t)&this->vm_stats, &info_size) != 0) {
       CRT_fatalError("Unable to retrieve VM statistics");
    }
+#endif
 }
 
 void Machine_scan(Machine* super) {
@@ -74,7 +87,7 @@ void Machine_scan(Machine* super) {
    DarwinMachine_freeCPULoadInfo(&host->prev_load);
    host->prev_load = host->curr_load;
    DarwinMachine_allocateCPULoadInfo(&host->curr_load);
-   DarwinMachine_getVMStats(&host->vm_stats);
+   DarwinMachine_getVMStats(host);
    openzfs_sysctl_updateArcStats(&host->zfs);
 }
 
@@ -91,17 +104,24 @@ Machine* Machine_new(UsersTable* usersTable, uid_t userId) {
    DarwinMachine_allocateCPULoadInfo(&this->curr_load);
 
    /* Initialize the VM statistics */
-   DarwinMachine_getVMStats(&this->vm_stats);
+   DarwinMachine_getVMStats(this);
 
    /* Initialize the ZFS kstats, if zfs.kext loaded */
    openzfs_sysctl_init(&this->zfs);
    openzfs_sysctl_updateArcStats(&this->zfs);
+
+   this->GPUService = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOGPU"));
+   if (!this->GPUService) {
+      CRT_debug("Cannot initialize IOGPU service");
+   }
 
    return super;
 }
 
 void Machine_delete(Machine* super) {
    DarwinMachine* this = (DarwinMachine*) super;
+
+   IOObjectRelease(this->GPUService);
 
    DarwinMachine_freeCPULoadInfo(&this->prev_load);
 
@@ -116,4 +136,16 @@ bool Machine_isCPUonline(const Machine* host, unsigned int id) {
    (void) host; (void) id;
 
    return true;
+}
+
+int Machine_getCPUPhysicalCoreID(const Machine* host, unsigned int id) {
+   assert(id < host->existingCPUs);
+   (void) host;
+   return (int)id;
+}
+
+int Machine_getCPUThreadIndex(const Machine* host, unsigned int id) {
+   assert(id < host->existingCPUs);
+   (void) host; (void) id;
+   return 0;
 }

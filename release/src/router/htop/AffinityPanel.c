@@ -10,6 +10,7 @@ in the source distribution for its full text.
 #include "AffinityPanel.h"
 
 #include <assert.h>
+#include <limits.h> // IWYU pragma: keep
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -46,6 +47,8 @@ typedef struct MaskItem_ {
 
 static void MaskItem_delete(Object* cast) {
    MaskItem* this = (MaskItem*) cast;
+   assert(this != NULL);
+
    free(this->text);
    free(this->indent);
    Vector_delete(this->children);
@@ -58,7 +61,8 @@ static void MaskItem_delete(Object* cast) {
 
 static void MaskItem_display(const Object* cast, RichString* out) {
    const MaskItem* this = (const MaskItem*)cast;
-   assert (this != NULL);
+   assert(this != NULL);
+
    RichString_appendAscii(out, CRT_colors[CHECK_BOX], "[");
    if (this->value == 2) {
       RichString_appendAscii(out, CRT_colors[CHECK_MARK], "x");
@@ -95,7 +99,7 @@ static MaskItem* MaskItem_newMask(const char* text, const char* indent, hwloc_bi
    this->ownCpuset = owner;
    this->cpuset = cpuset;
    this->sub_tree = hwloc_bitmap_weight(cpuset) > 1 ? 1 : 0;
-   this->children = Vector_new(Class(MaskItem), true, DEFAULT_SIZE);
+   this->children = Vector_new(Class(MaskItem), true, VECTOR_DEFAULT_SIZE);
    return this;
 }
 
@@ -106,7 +110,7 @@ static MaskItem* MaskItem_newSingleton(const char* text, int cpu, bool isSet) {
    this->text = xStrdup(text);
    this->indent = NULL; /* not a tree node */
    this->sub_tree = 0;
-   this->children = Vector_new(Class(MaskItem), true, DEFAULT_SIZE);
+   this->children = Vector_new(Class(MaskItem), true, VECTOR_DEFAULT_SIZE);
 
    #ifdef HAVE_LIBHWLOC
    this->ownCpuset = true;
@@ -136,20 +140,21 @@ typedef struct AffinityPanel_ {
 
 static void AffinityPanel_delete(Object* cast) {
    AffinityPanel* this = (AffinityPanel*) cast;
-   Panel* super = (Panel*) this;
-   Panel_done(super);
+   assert(this != NULL);
+
    Vector_delete(this->cpuids);
    #ifdef HAVE_LIBHWLOC
    hwloc_bitmap_free(this->workCpuset);
    MaskItem_delete((Object*) this->topoRoot);
    #endif
+   Panel_done(&this->super);
    free(this);
 }
 
 #ifdef HAVE_LIBHWLOC
 
 static void AffinityPanel_updateItem(AffinityPanel* this, MaskItem* item) {
-   Panel* super = (Panel*) this;
+   Panel* super = &this->super;
 
    item->value = hwloc_bitmap_isincluded(item->cpuset, this->workCpuset) ? 2 :
                  hwloc_bitmap_intersects(item->cpuset, this->workCpuset) ? 1 : 0;
@@ -170,7 +175,7 @@ static void AffinityPanel_updateTopo(AffinityPanel* this, MaskItem* item) {
 #endif
 
 static void AffinityPanel_update(AffinityPanel* this, bool keepSelected) {
-   Panel* super = (Panel*) this;
+   Panel* super = &this->super;
 
    FunctionBar_setLabel(super->currentBar, KEY_F(3), this->topoView ? "Collapse/Expand" : "");
 
@@ -197,14 +202,21 @@ static void AffinityPanel_update(AffinityPanel* this, bool keepSelected) {
 
 static HandlerResult AffinityPanel_eventHandler(Panel* super, int ch) {
    AffinityPanel* this = (AffinityPanel*) super;
+   assert(this != NULL);
+
    HandlerResult result = IGNORED;
    MaskItem* selected = (MaskItem*) Panel_getSelected(super);
+
    bool keepSelected = true;
 
    switch (ch) {
       case KEY_MOUSE:
       case KEY_RECLICK:
       case ' ':
+         if (!selected) {
+            return result;
+         }
+
          #ifdef HAVE_LIBHWLOC
          if (selected->value == 2) {
             /* Item was selected, so remove this mask from the top cpuset. */
@@ -240,8 +252,13 @@ static HandlerResult AffinityPanel_eventHandler(Panel* super, int ch) {
       case KEY_F(3):
       case '-':
       case '+':
-         if (selected->sub_tree)
+         if (!selected) {
+            break;
+         }
+
+         if (selected->sub_tree) {
             selected->sub_tree = 1 + !(selected->sub_tree - 1); /* toggle between 1 and 2 */
+         }
 
          result = HANDLED;
          break;
@@ -311,7 +328,9 @@ static MaskItem* AffinityPanel_addObject(AffinityPanel* this, hwloc_obj_t obj, u
    }
 
    /* "[x] " + "|- " * depth + ("- ")?(if root node) + name */
-   unsigned width = 4 + 3 * depth + (2 * !depth) + strlen(buf);
+   unsigned int indent_width = 4 + 3 * depth + (2 * !depth);
+   assert(sizeof(buf) <= INT_MAX - indent_width);
+   unsigned int width = indent_width + (unsigned int)strlen(buf);
    if (width > this->width) {
       this->width = width;
    }
@@ -359,7 +378,9 @@ static const int AffinityPanelEvents[] = {13, 27, KEY_F(1), KEY_F(2), KEY_F(3)};
 
 Panel* AffinityPanel_new(Machine* host, const Affinity* affinity, int* width) {
    AffinityPanel* this = AllocThis(AffinityPanel);
-   Panel* super = (Panel*) this;
+   Panel* super = &this->super;
+   assert(this != NULL);
+
    Panel_init(super, 1, 1, 1, 1, Class(MaskItem), false, FunctionBar_new(AffinityPanelFunctions, AffinityPanelKeys, AffinityPanelEvents));
 
    this->host = host;
@@ -367,7 +388,7 @@ Panel* AffinityPanel_new(Machine* host, const Affinity* affinity, int* width) {
     * but this will be added by the caller */
    this->width = 14;
 
-   this->cpuids   = Vector_new(Class(MaskItem), true, DEFAULT_SIZE);
+   this->cpuids   = Vector_new(Class(MaskItem), true, VECTOR_DEFAULT_SIZE);
 
    #ifdef HAVE_LIBHWLOC
    this->topoView = host->settings->topologyAffinity;
@@ -389,7 +410,7 @@ Panel* AffinityPanel_new(Machine* host, const Affinity* affinity, int* width) {
 
       char number[16];
       xSnprintf(number, 9, "CPU %d", Settings_cpuId(host->settings, i));
-      unsigned cpu_width = 4 + strlen(number);
+      unsigned int cpu_width = 4 + (unsigned int)strlen(number);
       if (cpu_width > this->width) {
          this->width = cpu_width;
       }

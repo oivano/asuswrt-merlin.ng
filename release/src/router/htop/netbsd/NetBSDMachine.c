@@ -118,8 +118,10 @@ Machine* Machine_new(UsersTable* usersTable, uid_t userId) {
       CRT_fatalError("fscale sysctl call failed");
    }
 
-   if ((this->pageSize = sysconf(_SC_PAGESIZE)) == -1)
+   long pageSize = sysconf(_SC_PAGESIZE);
+   if (pageSize <= 0)
       CRT_fatalError("pagesize sysconf call failed");
+   this->pageSize = (size_t)pageSize;
    this->pageSizeKB = this->pageSize / ONE_K;
 
    this->kd = kvm_openfiles(NULL, NULL, NULL, KVM_NO_FILES, errbuf);
@@ -153,10 +155,16 @@ static void NetBSDMachine_scanMemoryInfo(NetBSDMachine* this) {
       CRT_fatalError("uvmexp sysctl call failed");
    }
 
-   super->totalMem = uvmexp.npages * this->pageSizeKB;
-   super->buffersMem = 0;
-   super->cachedMem = (uvmexp.filepages + uvmexp.execpages) * this->pageSizeKB;
-   super->usedMem = (uvmexp.active + uvmexp.wired) * this->pageSizeKB;
+   // NOTE: it is wrong in NetBSD to represent the "cache" memory as a memory class by itself.
+   // The only page classes exposed by the kernel in the uvmexp struct are these.
+   // The "cached" memory can be obtained from another sysctl, but there is no simple way
+   // in NetBSD to determine which page classe(s) this "cached" memory should be substracted from.
+   this->wiredMem = this->pageSizeKB * uvmexp.wired;
+   this->activeMem = this->pageSizeKB * uvmexp.active;
+   this->pagedMem = this->pageSizeKB * uvmexp.paging;
+   this->inactiveMem = this->pageSizeKB * uvmexp.inactive;
+
+   super->totalMem  = this->pageSizeKB * uvmexp.npages;
    super->totalSwap = uvmexp.swpages * this->pageSizeKB;
    super->usedSwap = uvmexp.swpginuse * this->pageSizeKB;
 }
@@ -282,4 +290,16 @@ bool Machine_isCPUonline(const Machine* host, unsigned int id) {
 
    // TODO: Support detecting online / offline CPUs.
    return true;
+}
+
+int Machine_getCPUPhysicalCoreID(const Machine* host, unsigned int id) {
+   assert(id < host->existingCPUs);
+   (void) host;
+   return (int)id;
+}
+
+int Machine_getCPUThreadIndex(const Machine* host, unsigned int id) {
+   assert(id < host->existingCPUs);
+   (void) host; (void) id;
+   return 0;
 }

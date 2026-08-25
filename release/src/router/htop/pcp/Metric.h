@@ -26,6 +26,7 @@ typedef enum Metric_ {
    PCP_CONTROL_THREADS,         /* proc.control.perclient.threads */
 
    PCP_HINV_NCPU,               /* hinv.ncpu */
+   PCP_HINV_NDISK,              /* hinv.ndisk */
    PCP_HINV_CPUCLOCK,           /* hinv.cpu.clock */
    PCP_UNAME_SYSNAME,           /* kernel.uname.sysname */
    PCP_UNAME_RELEASE,           /* kernel.uname.release */
@@ -57,14 +58,23 @@ typedef enum Metric_ {
    PCP_PERCPU_GUESTNICE,        /* kernel.percpu.cpu.guest_nice */
    PCP_MEM_TOTAL,               /* mem.physmem */
    PCP_MEM_FREE,                /* mem.util.free */
+   PCP_MEM_ACTIVE,              /* mem.util.active */
+   PCP_MEM_AVAILABLE,           /* mem.util.available */
    PCP_MEM_BUFFERS,             /* mem.util.bufmem */
    PCP_MEM_CACHED,              /* mem.util.cached */
+   PCP_MEM_COMPRESSED,          /* mem.util.compressed */
+   PCP_MEM_EXTERNAL,            /* mem.util.external */
+   PCP_MEM_INACTIVE,            /* mem.util.inactive */
    PCP_MEM_SHARED,              /* mem.util.shared */
-   PCP_MEM_AVAILABLE,           /* mem.util.available */
+   PCP_MEM_PURGEABLE,           /* mem.util.purgeable */
+   PCP_MEM_SPECULATIVE,         /* mem.util.speculative */
    PCP_MEM_SRECLAIM,            /* mem.util.slabReclaimable */
+   PCP_MEM_WIRED,               /* mem.util.wired */
    PCP_MEM_SWAPCACHED,          /* mem.util.swapCached */
    PCP_MEM_SWAPTOTAL,           /* mem.util.swapTotal */
    PCP_MEM_SWAPFREE,            /* mem.util.swapFree */
+   PCP_SWAP_LENGTH,             /* swap.length */
+   PCP_SWAP_FREE,               /* swap.free */
    PCP_DISK_READB,              /* disk.all.read_bytes */
    PCP_DISK_WRITEB,             /* disk.all.write_bytes */
    PCP_DISK_ACTIVE,             /* disk.all.avactive */
@@ -166,13 +176,15 @@ bool Metric_enabled(Metric metric);
 
 void Metric_enableThreads(void);
 
-bool Metric_fetch(struct timeval* timestamp);
+bool Metric_fetch(struct timespec* timestamp);
 
-bool Metric_iterate(Metric metric, int* instp, int* offsetp);
+bool Metric_iterate(Metric metric, int* instp, int* offsetp, size_t entrylen);
 
 pmAtomValue* Metric_values(Metric metric, pmAtomValue* atom, int count, int type);
 
 const pmDesc* Metric_desc(Metric metric);
+
+static inline Metric Metric_fromId(size_t id) { return (Metric)id; }
 
 int Metric_type(Metric metric);
 
@@ -181,6 +193,10 @@ int Metric_instanceCount(Metric metric);
 int Metric_instanceOffset(Metric metric, int inst);
 
 pmAtomValue* Metric_instance(Metric metric, int inst, int offset, pmAtomValue* atom, int type);
+
+pmAtomValue* Metric_instance_kibibytes(Metric metric, int inst, int offset, pmAtomValue* atom);
+
+pmAtomValue* Metric_instance_milliseconds(Metric metric, int inst, int offset, pmAtomValue* atom);
 
 void Metric_externalName(Metric metric, int inst, char** externalName);
 

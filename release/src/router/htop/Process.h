@@ -8,6 +8,7 @@ Released under the GNU GPLv2+, see the COPYING file
 in the source distribution for its full text.
 */
 
+#include <limits.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <sys/types.h>
@@ -23,6 +24,16 @@ in the source distribution for its full text.
 #define PROCESS_FLAG_SCHEDPOL        0x00000004
 
 #define DEFAULT_HIGHLIGHT_SECS 5
+
+/* Sentinel value for an unknown niceness in Process.nice */
+#define PROCESS_NICE_UNKNOWN (-INT_MAX)
+
+typedef enum Tristate_ {
+   TRI_INITIAL = 0,
+   TRI_OFF = -1,
+   TRI_ON = 1,
+} Tristate;
+
 
 /* Core process states (shared by platforms)
  * NOTE: The enum has an ordering that is important!
@@ -87,7 +98,7 @@ typedef struct Process_ {
    bool isUserlandThread;
 
    /* This process is running inside a container */
-   bool isRunningInContainer;
+   Tristate isRunningInContainer;
 
    /* Controlling terminal identifier of the process */
    unsigned long int tty_nr;
@@ -106,7 +117,7 @@ typedef struct Process_ {
     *   - from file capabilities
     *   - inherited from the ambient set
     */
-   bool elevated_priv;
+   Tristate elevated_priv;
 
    /* Process runtime (in hundredth of a second) */
    unsigned long long int time;
@@ -118,10 +129,10 @@ typedef struct Process_ {
    char* cmdline;
 
    /* End Offset in cmdline of the process basename */
-   int cmdlineBasenameEnd;
+   size_t cmdlineBasenameEnd;
 
    /* Start Offset in cmdline of the process basename */
-   int cmdlineBasenameStart;
+   size_t cmdlineBasenameStart;
 
    /* The process' "command" name */
    char* procComm;
@@ -133,7 +144,7 @@ typedef struct Process_ {
    char* procCwd;
 
    /* Offset in procExe of the process basename */
-   int procExeBasenameOffset;
+   size_t procExeBasenameOffset;
 
    /* Tells if the executable has been replaced in the filesystem since start */
    bool procExeDeleted;
@@ -154,7 +165,7 @@ typedef struct Process_ {
    long int priority;
 
    /* Nice value */
-   long int nice;
+   int nice;
 
    /* Number of threads in this process */
    long int nlwp;
@@ -210,15 +221,18 @@ typedef struct ProcessFieldData_ {
 
    /* Whether the column width is dynamically adjusted (the minimum width is determined by the title length) */
    bool autoWidth;
+
+   /* Whether the title of a column with dynamically adjusted width is right aligned (default is left aligned) */
+   bool autoTitleRightAlign;
 } ProcessFieldData;
 
 #define LAST_PROCESSFIELD LAST_RESERVED_FIELD
 typedef int32_t ProcessField;  /* see ReservedField list in RowField.h */
 
 // Implemented in platform-specific code:
-void Process_writeField(const Process* row, RichString* str, ProcessField field);
+void Process_writeField(const Process* this, RichString* str, ProcessField field);
 int Process_compare(const void* v1, const void* v2);
-int Process_compareByParent(const Row* r1, const Row* v2);
+int Process_compareByParent(const Row* r1, const Row* r2);
 void Process_delete(Object* cast);
 extern const ProcessFieldData Process_fields[LAST_PROCESSFIELD];
 #define Process_pidDigits Row_pidDigits
@@ -293,8 +307,6 @@ void Process_init(Process* this, const struct Machine_* host);
 
 const char* Process_rowGetSortKey(Row* super);
 
-bool Process_rowSetPriority(Row* super, int priority);
-
 bool Process_rowChangePriorityBy(Row* super, Arg delta);
 
 bool Process_rowSendSignal(Row* super, Arg sgn);
@@ -314,7 +326,7 @@ int Process_compareByKey_Base(const Process* p1, const Process* p2, ProcessField
 const char* Process_getCommand(const Process* this);
 
 void Process_updateComm(Process* this, const char* comm);
-void Process_updateCmdline(Process* this, const char* cmdline, int basenameStart, int basenameEnd);
+void Process_updateCmdline(Process* this, const char* cmdline, size_t basenameStart, size_t basenameEnd);
 void Process_updateExe(Process* this, const char* exe);
 
 /* This function constructs the string that is displayed by

@@ -1,10 +1,16 @@
 /* config.h.in.  Generated from configure.ac by autoheader.  */
 
+/* Defined to the return type of the 'backtrace' function. */
+#undef BACKTRACE_RETURN_TYPE
+
 /* Define if building static binary. */
 #undef BUILD_STATIC
 
 /* Define if CPU temperature option should be enabled. */
 #undef BUILD_WITH_CPU_TEMP
+
+/* Configuration path. */
+#undef CONFIGDIR
 
 /* Copyright message. */
 #undef COPYRIGHT
@@ -15,9 +21,6 @@
 /* Define if sched_setaffinity and sched_getaffinity are to be used. */
 #undef HAVE_AFFINITY
 
-/* Define if ancient vserver support enabled. */
-#undef HAVE_ANCIENT_VSERVER
-
 /* The access attribute is supported. */
 #undef HAVE_ATTR_ACCESS
 
@@ -27,22 +30,30 @@
 /* The nonnull attribute is supported. */
 #undef HAVE_ATTR_NONNULL
 
-/* Define to 1 if you have the `clock_gettime' function. */
-#undef HAVE_CLOCK_GETTIME
+/* The returns_nonnull attribute is supported. */
+#undef HAVE_ATTR_RETNONNULL
+
+/* Define if the backtrace feature is enabled */
+#undef HAVE_BACKTRACE_SCREEN
+
+/* Define to 1 if the compiler supports '__builtin_ctz' function. */
+#undef HAVE_BUILTIN_CTZ
 
 /* Define to 1 if you have the <curses.h> header file. */
 #undef HAVE_CURSES_H
 
-/* Define to 1 if you have the declaration of `IOMainPort', and to 0 if you
-   don't. */
-#undef HAVE_DECL_IOMAINPORT
-
-/* Define to 1 if you have the declaration of `IOMasterPort', and to 0 if you
-   don't. */
-#undef HAVE_DECL_IOMASTERPORT
+/* Define to 1 if you have the declaration of `kIOMainPortDefault', and to 0
+   if you don't. */
+#undef HAVE_DECL_KIOMAINPORTDEFAULT
 
 /* Define if delay accounting support should be enabled. */
 #undef HAVE_DELAYACCT
+
+/* Define to 1 if you have the <demangle.h> header file. */
+#undef HAVE_DEMANGLE_H
+
+/* Define to 1 if the demangling is supported. */
+#undef HAVE_DEMANGLING
 
 /* Define to 1 if you have the <dirent.h> header file, and it defines `DIR'.
    */
@@ -66,6 +77,9 @@
 /* Define to 1 if you have the `host_get_clock_service' function. */
 #undef HAVE_HOST_GET_CLOCK_SERVICE
 
+/* Define to 1 if you have the `host_statistics64' function. */
+#undef HAVE_HOST_STATISTICS64
+
 /* Define to 1 if you have the <hwloc.h> header file. */
 #undef HAVE_HWLOC_H
 
@@ -75,16 +89,22 @@
 /* Define to 1 if you have the `cap' library (-lcap). */
 #undef HAVE_LIBCAP
 
+/* Define to 1 if libdemangle supports cplus_demangle function. */
+#undef HAVE_LIBDEMANGLE_CPLUS_DEMANGLE
+
 /* Define to 1 if you have the 'hwloc' library (-lhwloc). */
 #undef HAVE_LIBHWLOC
 
-/* Define to 1 if you have the `lzma' library (-llzma). */
-#undef HAVE_LIBLZMA
+/* Define to 1 if libiberty supports cplus_demangle function. */
+#undef HAVE_LIBIBERTY_CPLUS_DEMANGLE
 
-/* The library is present. */
+/* Define to 1 if you have the <libiberty/demangle.h> header file. */
+#undef HAVE_LIBIBERTY_DEMANGLE_H
+
+/* libcurses is present */
 #undef HAVE_LIBNCURSES
 
-/* The library is present. */
+/* libncursesw is present */
 #undef HAVE_LIBNCURSESW
 
 /* Define to 1 if you have the `sensors' library (-lsensors). */
@@ -93,14 +113,17 @@
 /* Define to 1 if you have the `systemd' library (-lsystemd). */
 #undef HAVE_LIBSYSTEMD
 
-/* Define to 1 if you have the `unwind' library (-lunwind). */
-#undef HAVE_LIBUNWIND
+/* Define if libunwind has unw_get_elf_filename */
+#undef HAVE_LIBUNWIND_ELF_FILENAME
 
 /* Define to 1 if you have the <libunwind.h> header file. */
 #undef HAVE_LIBUNWIND_H
 
-/* Define to 1 if you have the <libunwind/libunwind.h> header file. */
-#undef HAVE_LIBUNWIND_LIBUNWIND_H
+/* Define to 1 if libunwind-ptrace is present */
+#undef HAVE_LIBUNWIND_PTRACE
+
+/* Define to 1 if local unwinding is enabled. */
+#undef HAVE_LOCAL_UNWIND
 
 /* Define to 1 if you have the <mach/mach_time.h> header file. */
 #undef HAVE_MACH_MACH_TIME_H
@@ -138,17 +161,29 @@
 /* Define to 1 if you have the <ndir.h> header file, and it defines `DIR'. */
 #undef HAVE_NDIR_H
 
+/* Define to 1 if you have the <netlink/attr.h> header file. */
+#undef HAVE_NETLINK_ATTR_H
+
+/* Define to 1 if you have the <netlink/handlers.h> header file. */
+#undef HAVE_NETLINK_HANDLERS_H
+
+/* Define to 1 if you have the <netlink/msg.h> header file. */
+#undef HAVE_NETLINK_MSG_H
+
 /* Define to 1 if you have the `openat' function. */
 #undef HAVE_OPENAT
-
-/* Define if openvz support enabled. */
-#undef HAVE_OPENVZ
 
 /* Define to 1 if you have the <pcp/pmapi.h> header file. */
 #undef HAVE_PCP_PMAPI_H
 
 /* Define to 1 if you have the `pmLookupDescs' function. */
 #undef HAVE_PMLOOKUPDESCS
+
+/* Define to 1 if you have the `pmtimespecToReal' function. */
+#undef HAVE_PMTIMESPECTOREAL
+
+/* Define to 1 if you have the `pmtimevalTotimespec' function. */
+#undef HAVE_PMTIMEVALTOTIMESPEC
 
 /* Define to 1 if you have the `readlinkat' function. */
 #undef HAVE_READLINKAT
@@ -174,7 +209,7 @@
 /* Define to 1 if you have the <stdlib.h> header file. */
 #undef HAVE_STDLIB_H
 
-/* Define to 1 if you have the `strchrnul' function. */
+/* Define to 1 if you have the 'strchrnul' function. */
 #undef HAVE_STRCHRNUL
 
 /* Define to 1 if you have the <strings.h> header file. */
@@ -182,6 +217,20 @@
 
 /* Define to 1 if you have the <string.h> header file. */
 #undef HAVE_STRING_H
+
+/* Define to 1 if you have the `strnlen' function. */
+#undef HAVE_STRNLEN
+
+/* Define to 1 if the system has the type `struct vm_statistics64'. */
+#undef HAVE_STRUCT_VM_STATISTICS64
+
+/* Define to 1 if `compressor_page_count' is a member of `struct
+   vm_statistics64'. */
+#undef HAVE_STRUCT_VM_STATISTICS64_COMPRESSOR_PAGE_COUNT
+
+/* Define to 1 if `internal_page_count' is a member of `struct
+   vm_statistics64'. */
+#undef HAVE_STRUCT_VM_STATISTICS64_INTERNAL_PAGE_COUNT
 
 /* Define to 1 if you have the <sys/capability.h> header file. */
 #undef HAVE_SYS_CAPABILITY_H
@@ -212,11 +261,11 @@
 /* Define to 1 if you have the <term.h> header file. */
 #undef HAVE_TERM_H
 
+/* Define to 1 if the system has the type `thread_extended_info_data_t'. */
+#undef HAVE_THREAD_EXTENDED_INFO_DATA_T
+
 /* Define to 1 if you have the <unistd.h> header file. */
 #undef HAVE_UNISTD_H
-
-/* Define if VServer support enabled. */
-#undef HAVE_VSERVER
 
 /* Define to 1 if you have the <wchar.h> header file. */
 #undef HAVE_WCHAR_H
@@ -248,6 +297,9 @@
 /* Building for an unsupported platform. */
 #undef HTOP_UNSUPPORTED
 
+/* libnl-3 search path; use the default search paths if empty */
+#undef LIBNL3_LIBDIR
+
 /* Define to 1 if `major', `minor', and `makedev' are declared in <mkdev.h>.
    */
 #undef MAJOR_IN_MKDEV
@@ -256,8 +308,8 @@
    <sysmacros.h>. */
 #undef MAJOR_IN_SYSMACROS
 
-/* File with OS release details. */
-#undef OSRELEASEFILE
+/* Define to enable stdbool.h in ncurses */
+#undef NCURSES_ENABLE_STDBOOL_H
 
 /* Name of package */
 #undef PACKAGE
@@ -399,6 +451,13 @@
    <pthread.h>, or <semaphore.h> is not used. If the typedef were allowed, the
    #define below would cause a syntax error. */
 #undef _UINT8_T
+
+
+/* Enables XPG4v2 (SUSv1) interfaces if they are not enabled already with _XOPEN_SOURCE */
+#ifndef _XOPEN_SOURCE_EXTENDED
+#undef _XOPEN_SOURCE_EXTENDED
+#endif
+
 
 /* Define to `int' if <sys/types.h> doesn't define. */
 #undef gid_t
