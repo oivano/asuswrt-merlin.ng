@@ -169,8 +169,8 @@ OBJS += $(if $(wildcard web_hook.c), web_hook.o, prebuild/web_hook.o)
 
 ifeq ($(RTCONFIG_FRR),y)
 OBJS += frr_web.o
-CFLAGS += -I$(TOP)/json-c
-LIBS += -L$(TOP)/json-c/.libs -ljson-c
+CFLAGS += -I$(TOP)/json-c/build -I$(TOP)/json-c
+LIBS += -L$(TOP)/json-c/build -ljson-c
 endif
 
 LIBS = -L$(TOP_PLATFORM)/nvram${BCMEX}$(EX7) -lnvram -L$(TOP)/shared -lshared
@@ -218,7 +218,7 @@ endif
 endif
 
 ifeq ($(RTCONFIG_AMAS),y)
-LDFLAGS += -L$(TOP)/json-c/.libs -ljson-c
+LDFLAGS += -L$(TOP)/json-c/build -ljson-c
 endif
 
 ifeq ($(RTCONFIG_USB),y)
@@ -252,8 +252,8 @@ LIBS += -L$(TOP)/openssl -lssl -lcrypto -ldl
 endif
 endif
 
-CFLAGS += -I$(TOP)/json-c
-LIBS += -L$(TOP)/json-c/.libs -ljson-c
+CFLAGS += -I$(TOP)/json-c/build -I$(TOP)/json-c
+LIBS += -L$(TOP)/json-c/build -ljson-c
 
 ifeq ($(RTCONFIG_BWDPI),y)
 LIBS += -L$(TOP)/bwdpi_source/asus -lbwdpi
@@ -385,4 +385,6 @@ endif
 .%.depend: %.c
 	@$(CC) $(CFLAGS) -M $< > $@
 
+ifeq (,$(filter clean,$(MAKECMDGOALS)))
 -include $(OBJS:%.o=.%.depend)
+endif

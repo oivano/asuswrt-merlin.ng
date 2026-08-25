@@ -4369,7 +4369,7 @@ frr/stamp-h1: ncurses-6.0 json-c readline-8.1 $(FRR_LIBYANG_DEP) libcap libcap-n
 	CFLAGS="--sysroot=$(TOOL_SYSROOT) -I$(FRR_ACTIVE_SRC)/lib -I$(STAGEDIR)/usr/include $(CFLAGS) -Os -Wall -ffunction-sections -fdata-sections -fPIC -std=gnu99" \
 	 PKG_CONFIG_PATH="$(STAGEDIR)/usr/lib/pkgconfig" \
 	CPPFLAGS="-DFRR_RUNTIME_NO_SECTION_SYMS -I$(STAGEDIR)/usr/include/readline -I$(STAGEDIR)/usr/include" \
-	LDFLAGS="--sysroot=$(TOOL_SYSROOT) -L$(TOP)/ncurses-6.0/lib -L$(STAGEDIR)/usr/lib -ffunction-sections -fdata-sections -Wl,--as-needed" \
+	LDFLAGS="--sysroot=$(TOOL_SYSROOT) -L$(TOP)/ncurses-6.0/lib -L$(STAGEDIR)/usr/lib -Wl,-rpath-link,$(STAGEDIR)/usr/lib -Wl,--allow-shlib-undefined -ffunction-sections -fdata-sections -Wl,--as-needed" \
 	LIBS="-lpthread" \
 	LIBYANG_CFLAGS="-I$(STAGEDIR)/usr/include" \
 	LIBYANG_LIBS="-L$(STAGEDIR)/usr/lib -lyang" \
@@ -8416,35 +8416,45 @@ uploader-install:
 	fi
 
 json-c/stamp-h1:
-ifeq ($(RTCONFIG_LANTIQ),y)
+	@rm -rf json-c/build json-c/crosscompiled.cmake
+	$(call CMAKE_CrossOptions, json-c/crosscompiled.cmake)
 	cd $(TOP)/json-c && \
-	$(CONFIGURE) --prefix=/usr --enable-shared --disable-static \
-	ac_cv_func_realloc_0_nonnull=yes ac_cv_func_malloc_0_nonnull=yes ac_cv_have_decl__isnan=no \
-	CFLAGS="-Os -Wno-error $(EXTRACFLAGS)" \
-	LDFLAGS="$(EXTRALDFLAGS) -Wl,--as-needed -lm"
+	cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=crosscompiled.cmake \
+		-DCMAKE_INSTALL_PREFIX:PATH=/usr \
+		-DCMAKE_BUILD_TYPE=$(if $(RTCONFIG_DEBUG),Debug,MinSizeRel) \
+		-DCMAKE_SKIP_RPATH=TRUE \
+		-DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=OFF -DBUILD_APPS=OFF -DBUILD_TESTING=OFF \
+		-DDISABLE_EXTRA_LIBS=ON -DDISABLE_WERROR=ON \
+		-DCMAKE_C_FLAGS="$(if $(RTCONFIG_DEBUG),-g,-Os) -Wno-error $(EXTRACFLAGS)" \
+		-DCMAKE_EXE_LINKER_FLAGS="$(EXTRALDFLAGS) -Wl,--as-needed -lm"
+	ln -sfn build $(TOP)/json-c/.libs
+	ln -sfn build/json.h $(TOP)/json-c/json.h
+	ln -sfn build/json_config.h $(TOP)/json-c/json_config.h
 	touch $@
-else
-	cd $(TOP)/json-c && \
-	$(CONFIGURE) --prefix=/usr --enable-shared --disable-static \
-	ac_cv_func_realloc_0_nonnull=yes ac_cv_func_malloc_0_nonnull=yes \
-	CFLAGS="$(if $(RTCONFIG_DEBUG),-g,-Os) -Wno-error $(EXTRACFLAGS)" \
-	LDFLAGS="$(EXTRALDFLAGS) -Wl,--as-needed -lm"
-	touch $@
-endif
 
 json-c: json-c/stamp-h1
-	$(MAKE) -C $@ && $(MAKE) $@-stage
+	@if [ ! -f json-c/build/Makefile ]; then \
+		$(MAKE) json-c-clean; \
+		$(MAKE) json-c/stamp-h1; \
+	fi
+	ln -sfn build $(TOP)/json-c/.libs
+	ln -sfn build/json.h $(TOP)/json-c/json.h
+	ln -sfn build/json_config.h $(TOP)/json-c/json_config.h
+	$(MAKE) -C json-c/build && $(MAKE) $@-stage
+
+json-c-stage:
+	$(MAKE) -C json-c/build install DESTDIR=$(STAGEDIR)
 
 json-c-install:
-	install -D json-c/.libs/libjson-c.so.2.0.2 $(INSTALLDIR)/json-c/usr/lib/libjson-c.so.2.0.2
-	$(if $(RTCONFIG_DEBUG),,$(STRIP) $(INSTALLDIR)/json-c/usr/lib/libjson-c.so.2.0.2)
+	install -D json-c/build/libjson-c.so.5.5.0 $(INSTALLDIR)/json-c/usr/lib/libjson-c.so.5.5.0
+	$(if $(RTCONFIG_DEBUG),,$(STRIP) $(INSTALLDIR)/json-c/usr/lib/libjson-c.so.5.5.0)
 	cd $(INSTALLDIR)/json-c/usr/lib && \
-		ln -sf libjson-c.so.2.0.2 libjson-c.so && \
-		ln -sf libjson-c.so.2.0.2 libjson-c.so.2
+		ln -sf libjson-c.so.5.5.0 libjson-c.so && \
+		ln -sf libjson-c.so.5.5.0 libjson-c.so.5
 
 json-c-clean:
-	-@[ ! -f json-c/Makefile ] || $(MAKE) -C json-c clean
-	-@rm -f json-c/stamp-h1
+	-@rm -rf json-c/build json-c/crosscompiled.cmake json-c/stamp-h1
+	-@rm -f json-c/.libs json-c/json.h json-c/json_config.h
 
 phddns/stamp-h1:
 ifeq ($(HND_ROUTER),y)
@@ -9716,4 +9726,4 @@ $(obj-y) $(obj-n) $(obj-clean) $(obj-install): dummy
 
 .PHONY: all clean distclean mrproper install package image
 .PHONY: conf mconf oldconf kconf kmconf config menuconfig oldconfig
-.PHONY: dummy libnet libpcap
+.PHONY: dummy libnet libpcap json-c

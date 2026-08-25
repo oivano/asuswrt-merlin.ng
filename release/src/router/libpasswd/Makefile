@@ -41,5 +41,7 @@ clean:
 %.prep: %.c
 	@$(CC) $(CFLAGS) -E $< > $@
 
+ifeq (,$(filter clean,$(MAKECMDGOALS)))
 -include $(OBJS:%.o=.%.depend)
+endif
 
