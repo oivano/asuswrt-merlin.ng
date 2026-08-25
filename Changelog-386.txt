@@ -2,6 +2,10 @@ ion release asuswrt merlin changelog
 ========================
 
 
+386.15_4-ion (XX-Aug-2026)
+  - UPDATED: haveged to 1.9.26.
+
+
 386.15_3-ion (22-Aug-2026)
   - ADDED:   Native DNSCrypt support for the DSL-AC68U, including WebUI
              configuration, NTP-safe startup, USB-backed swap handling,
