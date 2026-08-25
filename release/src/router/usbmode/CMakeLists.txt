@@ -20,7 +20,7 @@ INCLUDE_DIRECTORIES(${ubox_include_dir} ${libusb10_include_dir})
 SET(libusb usb-1.0)
 SET(json json-c)
 
-LINK_DIRECTORIES(${TOP}/json-c/.libs ${TOP}/libubox ${TOP}/libusb10/libusb/.libs)
+LINK_DIRECTORIES(${TOP}/json-c/build ${TOP}/libubox ${TOP}/libusb10/libusb/.libs)
 SET(LIBS m ${json} ubox blobmsg_json ${libusb})
 
 IF(DEBUG)

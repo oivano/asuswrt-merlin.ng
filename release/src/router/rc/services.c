@@ -609,7 +609,7 @@ int build_temp_rootfs(const char *newroot)
 	const char *usrlib = "libnvram.so* libshared.so* libcrypto.so* libbcm.so*"
 #if defined(RTCONFIG_HND_ROUTER_AX)
 			     " libwpa_client.so* "
-			     " libsqlite3.so.0* libjson-c.so.2* libasc.so* libovpn.so* "
+			     " libsqlite3.so.0* libjson-c.so.5* libasc.so* libovpn.so* "
 #else
 			     " libjson*"
 #endif

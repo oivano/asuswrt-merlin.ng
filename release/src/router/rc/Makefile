@@ -711,8 +711,8 @@ endif
 endif
 
 ifeq ($(RTCONFIG_SOFTWIRE46),y)
-CFLAGS += -I$(TOP)/json-c
-LDFLAGS += -L$(TOP)/json-c/.libs -ljson-c
+CFLAGS += -I$(TOP)/json-c/build -I$(TOP)/json-c
+LDFLAGS += -L$(TOP)/json-c/build -ljson-c
 OBJS += v6plusd.o ocnvcd.o dslited.o
 endif
 
@@ -954,8 +954,8 @@ OBJS += antled.o
 endif
 
 OBJS += dhcpc_vc_query.o
-CFLAGS += -I$(TOP)/json-c
-LDFLAGS += -L$(TOP)/json-c/.libs -ljson-c
+CFLAGS += -I$(TOP)/json-c/build -I$(TOP)/json-c
+LDFLAGS += -L$(TOP)/json-c/build -ljson-c
 
 ifeq ($(RTCONFIG_MULTISERVICE_WAN),y)
 ifeq ($(CONFIG_BCMWL5),y)

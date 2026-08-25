@@ -1,5 +1,10 @@
 #!/bin/sh
 
+if [ ! -z "$JSONC_TEST_TRACE" ] ; then
+	VERBOSE=1
+	set -x
+	set -v
+fi
 # Make sure srcdir is an absolute path.  Supply the variable
 # if it does not exist.  We want to be able to run the tests
 # stand-alone!!
@@ -50,6 +55,14 @@ echo "=== Running test $progname"
 CMP="${CMP-cmp}"
 
 use_valgrind=${USE_VALGRIND-1}
+case "${use_valgrind}" in
+	[0Nn]*)
+		use_valgrind=0
+		;;
+	*)
+		use_valgrind=1
+		;;
+esac
 valgrind_path=$(which valgrind 2> /dev/null)
 if [ -z "${valgrind_path}" -o ! -x "${valgrind_path}" ] ; then
 	use_valgrind=0
@@ -70,20 +83,24 @@ fi
 #
 run_output_test()
 {
+	EXPECTED_EXITVAL=0
 	if [ "$1" = "-o" ] ; then
 		TEST_OUTPUT="$2"
-		shift
-		shift
+		shift 2
+	fi
+	if [ "$1" = "--exit" ] ; then
+		EXPECTED_EXITVAL="$2"
+		shift 2
 	fi
 	TEST_COMMAND="$1"
 	shift
-	if [ -z "${TEST_OUTPUT}" ] ; then	
+	if [ -z "${TEST_OUTPUT}" ] ; then
 		TEST_OUTPUT=${TEST_COMMAND}
 	fi
 
-	REDIR_OUTPUT="> \"${TEST_OUTPUT}.out\""
+	REDIR_OUTPUT="> \"${TEST_OUTPUT}.out\" 2>&1"
 	if [ $VERBOSE -gt 1 ] ; then
-		REDIR_OUTPUT="| tee \"${TEST_OUTPUT}.out\""
+		REDIR_OUTPUT="2>&1 | tee \"${TEST_OUTPUT}.out\""
 	fi
 
 	if [ $use_valgrind -eq 1 ] ; then
@@ -95,15 +112,16 @@ run_output_test()
 			--show-reachable=yes \
 			--run-libc-freeres=yes \
 		"\"${top_builddir}/${TEST_COMMAND}\"" \"\$@\" ${REDIR_OUTPUT}
-		err=$?
+		exitval=$?
 
 	else
 		eval "\"${top_builddir}/${TEST_COMMAND}"\" \"\$@\" ${REDIR_OUTPUT}
-		err=$?
+		exitval=$?
 	fi
 
-	if [ $err -ne 0 ] ; then
-		echo "ERROR: \"${TEST_COMMAND} $@\" exited with non-zero exit status: $err" 1>&2
+	if [ $exitval -ne $EXPECTED_EXITVAL ] ; then
+		echo "ERROR: \"${TEST_COMMAND} $@\" exited with incorrect exit status: $err != $EXPECTED_EXITVAL" 1>&2
+		err=1
 	fi
 
 	if [ $use_valgrind -eq 1 ] ; then
@@ -114,15 +132,13 @@ run_output_test()
 		fi
 	fi
 
-	if ! "$CMP" -s "${top_builddir}/${TEST_OUTPUT}.expected" "${TEST_OUTPUT}.out" ; then
+	if ! "$CMP" -s "${srcdir}/${TEST_OUTPUT}.expected" "${TEST_OUTPUT}.out" ; then
 		echo "ERROR: \"${TEST_COMMAND} $@\" (${TEST_OUTPUT}) failed (set VERBOSE=1 to see full output):" 1>&2
-		(cd "${CURDIR}" ; set -x ; diff "${top_builddir}/${TEST_OUTPUT}.expected" "$testsubdir/${TEST_OUTPUT}.out")
-		echo "cp \"$testsubdir/${TEST_OUTPUT}.out\" \"${top_builddir}/${TEST_OUTPUT}.expected\"" 1>&2
+		(cd "${CURDIR}" ; set -x ; diff "${srcdir}/${TEST_OUTPUT}.expected" "$testsubdir/${TEST_OUTPUT}.out")
+		echo "cp \"$testsubdir/${TEST_OUTPUT}.out\" \"${srcdir}/${TEST_OUTPUT}.expected\"" 1>&2
 
 		err=1
 	fi
 
 	return $err
 }
-
-
