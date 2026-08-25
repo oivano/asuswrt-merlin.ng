@@ -137,15 +137,15 @@ DECLARE_FAT_FUNC_VAR(aes256_encrypt, aes256_crypt_func, aesni)
 DECLARE_FAT_FUNC_VAR(aes256_decrypt, aes256_crypt_func, c)
 DECLARE_FAT_FUNC_VAR(aes256_decrypt, aes256_crypt_func, aesni)
 
-DECLARE_FAT_FUNC(nettle_cbc_aes128_encrypt, cbc_aes128_encrypt_func);
-DECLARE_FAT_FUNC_VAR(cbc_aes128_encrypt, cbc_aes128_encrypt_func, c);
-DECLARE_FAT_FUNC_VAR(cbc_aes128_encrypt, cbc_aes128_encrypt_func, aesni);
-DECLARE_FAT_FUNC(nettle_cbc_aes192_encrypt, cbc_aes192_encrypt_func);
-DECLARE_FAT_FUNC_VAR(cbc_aes192_encrypt, cbc_aes192_encrypt_func, c);
-DECLARE_FAT_FUNC_VAR(cbc_aes192_encrypt, cbc_aes192_encrypt_func, aesni);
-DECLARE_FAT_FUNC(nettle_cbc_aes256_encrypt, cbc_aes256_encrypt_func);
-DECLARE_FAT_FUNC_VAR(cbc_aes256_encrypt, cbc_aes256_encrypt_func, c);
-DECLARE_FAT_FUNC_VAR(cbc_aes256_encrypt, cbc_aes256_encrypt_func, aesni);
+DECLARE_FAT_FUNC(nettle_cbc_aes128_encrypt, cbc_aes128_encrypt_func)
+DECLARE_FAT_FUNC_VAR(cbc_aes128_encrypt, cbc_aes128_encrypt_func, c)
+DECLARE_FAT_FUNC_VAR(cbc_aes128_encrypt, cbc_aes128_encrypt_func, aesni)
+DECLARE_FAT_FUNC(nettle_cbc_aes192_encrypt, cbc_aes192_encrypt_func)
+DECLARE_FAT_FUNC_VAR(cbc_aes192_encrypt, cbc_aes192_encrypt_func, c)
+DECLARE_FAT_FUNC_VAR(cbc_aes192_encrypt, cbc_aes192_encrypt_func, aesni)
+DECLARE_FAT_FUNC(nettle_cbc_aes256_encrypt, cbc_aes256_encrypt_func)
+DECLARE_FAT_FUNC_VAR(cbc_aes256_encrypt, cbc_aes256_encrypt_func, c)
+DECLARE_FAT_FUNC_VAR(cbc_aes256_encrypt, cbc_aes256_encrypt_func, aesni)
 
 DECLARE_FAT_FUNC(nettle_memxor, memxor_func)
 DECLARE_FAT_FUNC_VAR(memxor, memxor_func, x86_64)
@@ -155,9 +155,9 @@ DECLARE_FAT_FUNC(nettle_sha1_compress, sha1_compress_func)
 DECLARE_FAT_FUNC_VAR(sha1_compress, sha1_compress_func, x86_64)
 DECLARE_FAT_FUNC_VAR(sha1_compress, sha1_compress_func, sha_ni)
 
-DECLARE_FAT_FUNC(_nettle_sha256_compress, sha256_compress_func)
-DECLARE_FAT_FUNC_VAR(sha256_compress, sha256_compress_func, x86_64)
-DECLARE_FAT_FUNC_VAR(sha256_compress, sha256_compress_func, sha_ni)
+DECLARE_FAT_FUNC(_nettle_sha256_compress_n, sha256_compress_n_func)
+DECLARE_FAT_FUNC_VAR(sha256_compress_n, sha256_compress_n_func, x86_64)
+DECLARE_FAT_FUNC_VAR(sha256_compress_n, sha256_compress_n_func, sha_ni)
 
 DECLARE_FAT_FUNC(_nettle_ghash_set_key, ghash_set_key_func)
 DECLARE_FAT_FUNC_VAR(ghash_set_key, ghash_set_key_func, c)
@@ -228,14 +228,14 @@ fat_init (void)
       if (verbose)
 	fprintf (stderr, "libnettle: using sha_ni instructions.\n");
       nettle_sha1_compress_vec = _nettle_sha1_compress_sha_ni;
-      _nettle_sha256_compress_vec = _nettle_sha256_compress_sha_ni;
+      _nettle_sha256_compress_n_vec = _nettle_sha256_compress_n_sha_ni;
     }
   else
     {
       if (verbose)
 	fprintf (stderr, "libnettle: not using sha_ni instructions.\n");
       nettle_sha1_compress_vec = _nettle_sha1_compress_x86_64;
-      _nettle_sha256_compress_vec = _nettle_sha256_compress_x86_64;
+      _nettle_sha256_compress_n_vec = _nettle_sha256_compress_n_x86_64;
     }
 
   if (features.have_pclmul)
@@ -315,9 +315,10 @@ DEFINE_FAT_FUNC(nettle_sha1_compress, void,
 		(uint32_t *state, const uint8_t *input),
 		(state, input))
 
-DEFINE_FAT_FUNC(_nettle_sha256_compress, void,
-		(uint32_t *state, const uint8_t *input, const uint32_t *k),
-		(state, input, k))
+DEFINE_FAT_FUNC(_nettle_sha256_compress_n, const uint8_t *,
+		(uint32_t *state, const uint32_t *k,
+		 size_t blocks, const uint8_t *input),
+		(state, k, blocks, input))
 
 DEFINE_FAT_FUNC(_nettle_ghash_set_key, void,
 		(struct gcm_key *ctx, const union nettle_block16 *key),
