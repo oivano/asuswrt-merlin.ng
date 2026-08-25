@@ -42,3 +42,5 @@ stamp-h1*
 /test/*.py.trs
 
 /mtr-*.tar.gz
+*.swp
+*~

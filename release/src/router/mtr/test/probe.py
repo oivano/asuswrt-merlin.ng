@@ -133,7 +133,7 @@ class TestProbeICMPv4(mtrpacket.MtrPacketTest):
         self.assertIn('round-trip-time', reply.argument)
 
     def test_timeout(self):
-        'Test timeouts when sending to a non-existant address'
+        'Test timeouts when sending to a non-existent address'
 
         #
         #  Probe a non-existent address, and expect no reply
@@ -262,7 +262,6 @@ class TestProbeICMPv4(mtrpacket.MtrPacketTest):
         #  occasionally dropped by the network without failing the test.
         required_success = int(loop_count * 0.90)
         self.assertGreaterEqual(success_count, required_success)
-
 
 class TestProbeICMPv6(mtrpacket.MtrPacketTest):
     '''Test sending probes using IP version 6'''

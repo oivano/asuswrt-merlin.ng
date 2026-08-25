@@ -23,6 +23,7 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <stdbool.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -100,10 +101,15 @@ int send_synchronous_command(
     if (read_length < 0) {
         return -1;
     }
+    if (read_length == 0) {
+        errno = EPIPE;
+        return -1;
+    }
 
     /*  Parse the query reply  */
     reply[read_length] = 0;
     if (parse_command(result, reply)) {
+        errno = EPROTO;
         return -1;
     }
 
@@ -145,6 +151,27 @@ int check_feature(
 }
 
 
+static
+const char *packet_protocol_name(
+    int protocol)
+{
+    switch (protocol) {
+    case IPPROTO_ICMP:
+        return COMMAND_PROTOCOL_ICMP;
+    case IPPROTO_UDP:
+        return COMMAND_PROTOCOL_UDP;
+    case IPPROTO_TCP:
+        return COMMAND_PROTOCOL_TCP;
+#ifdef HAS_SCTP
+    case IPPROTO_SCTP:
+        return COMMAND_PROTOCOL_SCTP;
+#endif
+    default:
+        return NULL;
+    }
+}
+
+
 /*
     Check the protocol selected against the mtr-packet we are using.
     Returns zero if everything is fine, or -1 with errno for either
@@ -155,13 +182,15 @@ int check_packet_features(
     struct mtr_ctl *ctl,
     struct packet_command_pipe_t *cmdpipe)
 {
+    const char *protocol;
+
     /*  Check the IP protocol version  */
     if (ctl->af == AF_INET6) {
-        if (check_feature(ctl, cmdpipe, "ip-6")) {
+        if (check_feature(ctl, cmdpipe, COMMAND_ARG_IP6)) {
             return -1;
         }
     } else if (ctl->af == AF_INET) {
-        if (check_feature(ctl, cmdpipe, "ip-4")) {
+        if (check_feature(ctl, cmdpipe, COMMAND_ARG_IP4)) {
             return -1;
         }
     } else {
@@ -170,38 +199,35 @@ int check_packet_features(
     }
 
     /*  Check the transport protocol  */
-    if (ctl->mtrtype == IPPROTO_ICMP) {
-        if (check_feature(ctl, cmdpipe, "icmp")) {
-            return -1;
-        }
-    } else if (ctl->mtrtype == IPPROTO_UDP) {
-        if (check_feature(ctl, cmdpipe, "udp")) {
-            return -1;
-        }
-    } else if (ctl->mtrtype == IPPROTO_TCP) {
-        if (check_feature(ctl, cmdpipe, "tcp")) {
-            return -1;
-        }
-#ifdef HAS_SCTP
-    } else if (ctl->mtrtype == IPPROTO_SCTP) {
-        if (check_feature(ctl, cmdpipe, "sctp")) {
-            return -1;
-        }
-#endif
-    } else {
+    protocol = packet_protocol_name(ctl->mtrtype);
+    if (protocol == NULL) {
         errno = EINVAL;
+        return -1;
+    }
+    if (check_feature(ctl, cmdpipe, protocol)) {
         return -1;
     }
 
 #ifdef SO_MARK
     if (ctl->mark) {
-        if (check_feature(ctl, cmdpipe, "mark")) {
+        if (check_feature(ctl, cmdpipe, COMMAND_ARG_MARK)) {
             return -1;
         }
     }
 #endif
 
     return 0;
+}
+
+
+static
+void fail_packet_startup(
+    int saved_errno)
+{
+    error(0, saved_errno, "Failure to start mtr-packet");
+    error(EXIT_FAILURE, 0,
+          "mtr-packet did not answer the startup check; "
+          "check that it is installed and allowed to open probe sockets");
 }
 
 
@@ -215,33 +241,50 @@ void execute_packet_child(
     void)
 {
     char buf[256];
+    char *path_end;
     /*
        Allow the MTR_PACKET environment variable to override
        the path to the mtr-packet executable.  This is necessary
        for debugging changes for mtr-packet.
      */
-    char *mtr_packet_path = getenv("MTR_PACKET");
-    if (mtr_packet_path == NULL) {
-        mtr_packet_path = "mtr-packet";
-    }
+    char * mtr_packet_path = NULL;
+
+    // In the rare case that mtr-packet is not setuid-root,
+    // and a select group of users has sudo privileges to run
+    // mtr and not much else, THEN create /etc/mtr.is.run.under.sudo
+    // to prevent a privilege escalation when one of those accounts
+    // is compromised.  CVE-2025-49809
+    if (access ("/etc/mtr.is.run.under.sudo", F_OK) != 0)
+        mtr_packet_path = getenv("MTR_PACKET");
+    if (mtr_packet_path == NULL)
+        mtr_packet_path = MTR_PACKET_NAME;
 
     /*
        First, try to execute mtr-packet from PATH
        or MTR_PACKET environment variable.
      */
-    execlp(mtr_packet_path, "mtr-packet", (char *) NULL);
+    execlp(mtr_packet_path, MTR_PACKET_NAME, (char *) NULL);
 
     /*
        Then try to find it where WE were executed from.
      */
-    strncpy (buf, myname, 240);
-    strcat (buf, "-packet");
-    mtr_packet_path = buf;
-    execl(mtr_packet_path, "mtr-packet", (char *) NULL);
+    path_end = strrchr(myname, '/');
+
+    if (path_end != NULL) {
+        size_t dir_length = path_end - myname + 1;
+
+        if (dir_length + strlen(MTR_PACKET_NAME) < sizeof(buf)) {
+            memcpy(buf, myname, dir_length);
+            strcpy(buf + dir_length, MTR_PACKET_NAME);
+            mtr_packet_path = buf;
+            execl(mtr_packet_path, MTR_PACKET_NAME, (char *) NULL);
+        }
+    }
 
     /*
        If mtr-packet is not found, try to use mtr-packet from current directory
      */
+    execl("./" MTR_PACKET_NAME, "./" MTR_PACKET_NAME, (char *) NULL);
     execl("./mtr-packet", "./mtr-packet", (char *) NULL);
 
     /*  Both exec attempts failed, so nothing to do but exit  */
@@ -305,8 +348,8 @@ int open_command_pipe(
            Check that we can communicate with the client.  If we failed to
            execute the mtr-packet binary, we will discover that here.
          */
-        if (check_feature(ctl, cmdpipe, "send-probe")) {
-            error(EXIT_FAILURE, errno, "Failure to start mtr-packet");
+        if (check_feature(ctl, cmdpipe, COMMAND_NAME_SEND_PROBE)) {
+            fail_packet_startup(errno);
         }
 
         if (check_packet_features(ctl, cmdpipe)) {
@@ -353,7 +396,7 @@ void construct_base_command(
     char local_ip_string[INET6_ADDRSTRLEN];
     const char *ip_type;
     const char *local_ip_type;
-    const char *protocol = NULL;
+    const char *protocol;
 
     /*  Convert the remote IP address to a string  */
     if (inet_ntop(ctl->af, address, ip_string, INET6_ADDRSTRLEN) == NULL) {
@@ -370,51 +413,66 @@ void construct_base_command(
     }
 
     if (ctl->af == AF_INET6) {
-        ip_type = "ip-6";
-        local_ip_type = "local-ip-6";
+        ip_type = COMMAND_ARG_IP6;
+        local_ip_type = COMMAND_ARG_LOCAL_IP6;
     } else {
-        ip_type = "ip-4";
-        local_ip_type = "local-ip-4";
+        ip_type = COMMAND_ARG_IP4;
+        local_ip_type = COMMAND_ARG_LOCAL_IP4;
     }
 
-    if (ctl->mtrtype == IPPROTO_ICMP) {
-        protocol = "icmp";
-    } else if (ctl->mtrtype == IPPROTO_UDP) {
-        protocol = "udp";
-    } else if (ctl->mtrtype == IPPROTO_TCP) {
-        protocol = "tcp";
-#ifdef HAS_SCTP
-    } else if (ctl->mtrtype == IPPROTO_SCTP) {
-        protocol = "sctp";
-#endif
-    } else {
+    protocol = packet_protocol_name(ctl->mtrtype);
+    if (protocol == NULL) {
         display_close(ctl);
         error(EXIT_FAILURE, 0,
               "protocol unsupported by mtr-packet interface");
     }
 
-    snprintf(command, buffer_size,
-             "%d send-probe %s %s %s %s protocol %s",
-             command_token,
-             ip_type, ip_string, local_ip_type, local_ip_string, protocol);
+    if (snprintf(command, buffer_size,
+                 "%d " COMMAND_NAME_SEND_PROBE " %s %s %s %s "
+                 COMMAND_ARG_PROTOCOL " %s",
+                 command_token, ip_type, ip_string, local_ip_type,
+                 local_ip_string, protocol) >= buffer_size) {
+        display_close(ctl);
+        error(EXIT_FAILURE, 0, "mtr-packet command too long");
+    }
 }
 
 
-/*  Append an argument to the "send-probe" command string  */
+/*  Append a formatted fragment to the "send-probe" command string  */
 static
-void append_command_argument(
+void append_command_format(
+    struct mtr_ctl *ctl,
     char *command,
     int buffer_size,
-    char *name,
-    int value)
+    const char *description,
+    const char *format,
+    ...)
 {
-    char argument[COMMAND_BUFFER_SIZE];
-    int remaining_size;
+    size_t command_length;
+    size_t remaining_size;
+    int written;
+    va_list args;
 
-    remaining_size = buffer_size - strlen(command) - 1;
+    command_length = strlen(command);
+    if (command_length >= (size_t) buffer_size) {
+        display_close(ctl);
+        error(EXIT_FAILURE, 0,
+              "mtr-packet command too long before appending %s",
+              description);
+    }
 
-    snprintf(argument, buffer_size, " %s %d", name, value);
-    strncat(command, argument, remaining_size);
+    remaining_size = (size_t) buffer_size - command_length;
+
+    va_start(args, format);
+    written = vsnprintf(command + command_length, remaining_size, format,
+                        args);
+    va_end(args);
+    if (written < 0 || (size_t) written >= remaining_size) {
+        display_close(ctl);
+        error(EXIT_FAILURE, 0,
+              "mtr-packet command too long while appending %s",
+              description);
+    }
 }
 
 
@@ -429,45 +487,60 @@ void send_probe_command(
     int time_to_live)
 {
     char command[COMMAND_BUFFER_SIZE];
-    int remaining_size;
     int timeout;
 
     construct_base_command(ctl, command, COMMAND_BUFFER_SIZE, sequence,
                            address, localaddress);
 
-    append_command_argument(command, COMMAND_BUFFER_SIZE, "size",
-                            packet_size);
+    append_command_format(ctl, command, COMMAND_BUFFER_SIZE,
+                          COMMAND_ARG_SIZE,
+                          " " COMMAND_ARG_SIZE " %d", packet_size);
 
-    append_command_argument(command, COMMAND_BUFFER_SIZE, "bit-pattern",
-                            ctl->bitpattern);
+    append_command_format(ctl, command, COMMAND_BUFFER_SIZE,
+                          COMMAND_ARG_BIT_PATTERN,
+                          " " COMMAND_ARG_BIT_PATTERN " %d",
+                          ctl->bitpattern);
 
-    append_command_argument(command, COMMAND_BUFFER_SIZE, "tos", ctl->tos);
+    append_command_format(ctl, command, COMMAND_BUFFER_SIZE,
+                          COMMAND_ARG_TOS,
+                          " " COMMAND_ARG_TOS " %d", ctl->tos);
 
-    append_command_argument(command, COMMAND_BUFFER_SIZE, "ttl",
-                            time_to_live);
+    append_command_format(ctl, command, COMMAND_BUFFER_SIZE,
+                          COMMAND_ARG_TTL,
+                          " " COMMAND_ARG_TTL " %d", time_to_live);
 
     timeout = ctl->probe_timeout / 1000000;
-    append_command_argument(command, COMMAND_BUFFER_SIZE, "timeout",
-                            timeout);
+    append_command_format(ctl, command, COMMAND_BUFFER_SIZE,
+                          COMMAND_ARG_TIMEOUT,
+                          " " COMMAND_ARG_TIMEOUT " %d", timeout);
 
     if (ctl->remoteport) {
-        append_command_argument(command, COMMAND_BUFFER_SIZE, "port",
-                                ctl->remoteport);
+        append_command_format(ctl, command, COMMAND_BUFFER_SIZE,
+                              COMMAND_ARG_PORT,
+                              " " COMMAND_ARG_PORT " %d", ctl->remoteport);
     }
 
     if (ctl->localport) {
-        append_command_argument(command, COMMAND_BUFFER_SIZE, "local-port",
-                                ctl->localport);
+        append_command_format(ctl, command, COMMAND_BUFFER_SIZE,
+                              COMMAND_ARG_LOCAL_PORT,
+                              " " COMMAND_ARG_LOCAL_PORT " %d",
+                              ctl->localport);
     }
 #ifdef SO_MARK
     if (ctl->mark) {
-        append_command_argument(command, COMMAND_BUFFER_SIZE, "mark",
-                                ctl->mark);
+        append_command_format(ctl, command, COMMAND_BUFFER_SIZE,
+                              COMMAND_ARG_MARK,
+                              " " COMMAND_ARG_MARK " %d", ctl->mark);
     }
 #endif
 
-    remaining_size = COMMAND_BUFFER_SIZE - strlen(command) - 1;
-    strncat(command, "\n", remaining_size);
+    if (ctl->InterfaceName) {
+        append_command_format(ctl, command, COMMAND_BUFFER_SIZE,
+                              COMMAND_ARG_LOCAL_DEVICE,
+                              " " COMMAND_ARG_LOCAL_DEVICE " %s",
+                              ctl->InterfaceName);
+    }
+    append_command_format(ctl, command, COMMAND_BUFFER_SIZE, "newline", "\n");
 
     /*  Send a probe using the mtr-packet subprocess  */
     if (write(cmdpipe->write_fd, command, strlen(command)) == -1) {
@@ -576,14 +649,14 @@ bool parse_reply_arguments(
 
         if (ctl->af == AF_INET6) {
             /*  IPv6 address of the responding host  */
-            if (!strcmp(arg_name, "ip-6")) {
+            if (!strcmp(arg_name, COMMAND_ARG_IP6)) {
                 if (inet_pton(AF_INET6, arg_value, fromaddress)) {
                     found_ip = true;
                 }
             }
         } else {
             /*  IPv4 address of the responding host  */
-            if (!strcmp(arg_name, "ip-4")) {
+            if (!strcmp(arg_name, COMMAND_ARG_IP4)) {
                 if (inet_pton(AF_INET, arg_value, fromaddress)) {
                     found_ip = true;
                 }
@@ -634,7 +707,8 @@ void handle_reply_errors(
 
     if (!strcmp(reply_name, "permission-denied")) {
         display_close(ctl);
-        error(EXIT_FAILURE, 0, "Permission denied");
+        error(EXIT_FAILURE, 0,
+              "mtr-packet reported permission denied while sending a probe");
     }
 
     if (!strcmp(reply_name, "address-in-use")) {
@@ -694,10 +768,14 @@ void handle_command_reply(
     if (!strcmp(reply_name, "reply")
             || !strcmp(reply_name, "ttl-expired")) {
         err = 0;
-    } else if (!strcmp(reply_name, "no-route")) {
-        err = ENETUNREACH;
     } else if (!strcmp(reply_name, "network-down")) {
         err = ENETDOWN;
+    } else if (!strcmp(reply_name, "host-down")) {
+        err = EHOSTDOWN;
+    } else if (!strcmp(reply_name, "no-route-network")) {
+        err = ENETUNREACH;
+    } else if (!strcmp(reply_name, "no-route-host")) {
+        err = EHOSTUNREACH;
     } else {
         /*  If the reply type is unknown, ignore it  */
         return;

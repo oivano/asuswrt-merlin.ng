@@ -20,7 +20,9 @@
 
 #include <sys/types.h>
 #include <stdio.h>
+#ifdef HAVE_NETDB_H
 #include <netdb.h>
+#endif
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <string.h>
@@ -40,6 +42,7 @@
 #include "net.h"
 #include "dns.h"
 #include "asn.h"
+#include "display.h"
 #include "utils.h"
 
 #define MAXLOADBAL 5
@@ -64,7 +67,7 @@ static size_t snprint_addr(
     if (addrcmp((void *) addr, (void *) &ctl->unspec_addr, ctl->af)) {
         struct hostent *host =
             ctl->dns ? addr2host((void *) addr, ctl->af) : NULL;
-        if (!host)
+        if (!host || !is_useful_hostname(host->h_name))
             return snprintf(dst, dst_len, "%s", strlongip(ctl->af, addr));
         else if (ctl->dns && ctl->show_ips)
             return snprintf(dst, dst_len, "%s (%s)", host->h_name,
@@ -75,6 +78,74 @@ static size_t snprint_addr(
         return snprintf(dst, dst_len, "%s", "???");
 }
 
+static size_t snprint_hop_name(
+    struct mtr_ctl *ctl,
+    char *dst,
+    size_t dst_len,
+    int at,
+    ip_t *addr)
+{
+    int err = net_err(at);
+
+    if (err != 0) {
+        return snprintf(dst, dst_len, "(%s)", host_error_to_string(err));
+    }
+
+    return snprint_addr(ctl, dst, dst_len, addr);
+}
+
+
+static void print_xml_attr(
+    const char *name,
+    const char *value)
+{
+    const unsigned char *p;
+
+    printf(" %s=\"", name);
+    for (p = (const unsigned char *) value; *p; p++) {
+        switch (*p) {
+        case '&':
+            printf("&amp;");
+            break;
+        case '<':
+            printf("&lt;");
+            break;
+        case '>':
+            printf("&gt;");
+            break;
+        case '"':
+            printf("&quot;");
+            break;
+        case '\'':
+            printf("&apos;");
+            break;
+        default:
+            putchar(*p);
+            break;
+        }
+    }
+    printf("\"");
+}
+
+
+static char *host_name_for_addr(
+    struct mtr_ctl *ctl,
+    ip_t *addr)
+{
+    struct hostent *host;
+
+    if (!ctl->dns)
+        return NULL;
+    if (!addrcmp((void *) addr, (void *) &ctl->unspec_addr, ctl->af))
+        return NULL;
+
+    host = addr2host((void *) addr, ctl->af);
+    if (!host)
+        return NULL;
+
+    return host->h_name;
+}
+
 
 #ifdef HAVE_IPINFO
 static void print_mpls(
@@ -82,8 +153,9 @@ static void print_mpls(
 {
     int k;
     for (k = 0; k < mpls->labels; k++)
-        printf("       [MPLS: Lbl %lu TC %u S %cu TTL %u]\n",
-               mpls->label[k], mpls->tc[k], mpls->s[k], mpls->ttl[k]);
+        printf("       [MPLS: Lbl %lu TC %u S %u TTL %u]\n",
+               mpls->label[k], (unsigned int) mpls->tc[k],
+               (unsigned int) mpls->s[k], (unsigned int) mpls->ttl[k]);
 }
 #endif
 
@@ -99,6 +171,7 @@ void report_close(
     char fmt[16];
     size_t len = 0;
     size_t len_hosts = 33;
+    size_t stat_start = len_hosts;
 #ifdef HAVE_IPINFO
     int len_tmp;
     const size_t iiwidth_len = get_iiwidth_len();
@@ -112,20 +185,18 @@ void report_close(
         for (; at < max; at++) {
             size_t nlen;
             addr = net_addr(at);
-            if ((nlen = snprint_addr(ctl, name, sizeof(name), addr)))
+            if ((nlen = snprint_hop_name(ctl, name, sizeof(name), at, addr)))
                 if (len_hosts < nlen)
                     len_hosts = nlen;
         }
     }
 #ifdef HAVE_IPINFO
     len_tmp = len_hosts;
-    if (ctl->ipinfo_no >= 0 && iiwidth_len) {
-        ctl->ipinfo_no %= iiwidth_len;
+    if (is_printii(ctl) && iiwidth_len) {
+        len_tmp += get_iiwidth_selected(ctl);
+        stat_start = len_tmp;
         if (ctl->reportwide) {
             len_hosts++;        /* space */
-            len_tmp += get_iiwidth(ctl->ipinfo_no);
-            if (!ctl->ipinfo_no)
-                len_tmp += 2;   /* align header: AS */
         }
     }
     snprintf(fmt, sizeof(fmt), "HOST: %%-%ds", len_tmp);
@@ -133,14 +204,14 @@ void report_close(
     snprintf(fmt, sizeof(fmt), "HOST: %%-%zus", len_hosts);
 #endif
     snprintf(buf, sizeof(buf), fmt, ctl->LocalHostname);
-    len = ctl->reportwide ? strlen(buf) : len_hosts;
+    len = ctl->reportwide ? strlen(buf) : stat_start;
     for (i = 0; i < MAXFLD; i++) {
         j = ctl->fld_index[ctl->fld_active[i]];
         if (j < 0)
             continue;
 
         snprintf(fmt, sizeof(fmt), "%%%ds", data_fields[j].length);
-        snprintf(buf + len, sizeof(buf), fmt, data_fields[j].title);
+        snprintf(buf + len, sizeof(buf) - len, fmt, data_fields[j].title);
         len += data_fields[j].length;
     }
     printf("%s\n", buf);
@@ -150,7 +221,7 @@ void report_close(
     for (; at < max; at++) {
         addr = net_addr(at);
         mpls = net_mpls(at);
-        snprint_addr(ctl, name, sizeof(name), addr);
+        snprint_hop_name(ctl, name, sizeof(name), at, addr);
 
 #ifdef HAVE_IPINFO
         if (is_printii(ctl)) {
@@ -164,7 +235,7 @@ void report_close(
 #ifdef HAVE_IPINFO
         }
 #endif
-        len = ctl->reportwide ? strlen(buf) : len_hosts;
+        len = ctl->reportwide ? strlen(buf) : stat_start;
         for (i = 0; i < MAXFLD; i++) {
             j = ctl->fld_index[ctl->fld_active[i]];
             if (j < 0)
@@ -172,10 +243,10 @@ void report_close(
 
             /* 1000.0 is a temporary hack for stats usec to ms, impacted net_loss. */
             if (strchr(data_fields[j].format, 'f')) {
-                snprintf(buf + len, sizeof(buf), data_fields[j].format,
+                snprintf(buf + len, sizeof(buf) - len, data_fields[j].format,
                          data_fields[j].net_xxx(at) / 1000.0);
             } else {
-                snprintf(buf + len, sizeof(buf), data_fields[j].format,
+                snprintf(buf + len, sizeof(buf) - len, data_fields[j].format,
                          data_fields[j].net_xxx(at));
             }
             len += data_fields[j].length;
@@ -185,7 +256,7 @@ void report_close(
         /* This feature shows 'loadbalances' on routes */
 
         /* Print list of all hosts that have responded from ttl = at + 1 away */
-        for (z = 0; z < MAX_PATH; z++) {
+        for (z = 0; z < ctl->maxDisplayPath; z++) {
             int found = 0;
             addr2 = net_addrs(at, z);
             mplss = net_mplss(at, z);
@@ -229,8 +300,9 @@ void report_close(
                     for (k = 0; k < mpls->labels; k++) {
                         printf
                             ("    |  |+-- [MPLS: Lbl %lu TC %u S %u TTL %u]\n",
-                             mpls->label[k], mpls->tc[k], mpls->s[k],
-                             mpls->ttl[k]);
+                             mpls->label[k], (unsigned int) mpls->tc[k],
+                             (unsigned int) mpls->s[k],
+                             (unsigned int) mpls->ttl[k]);
                     }
                 }
 
@@ -239,16 +311,18 @@ void report_close(
                     for (k = 0; k < mplss->labels && ctl->enablempls; k++) {
                         printf
                             ("    |   +-- [MPLS: Lbl %lu TC %u S %u TTL %u]\n",
-                             mplss->label[k], mplss->tc[k], mplss->s[k],
-                             mplss->ttl[k]);
+                             mplss->label[k], (unsigned int) mplss->tc[k],
+                             (unsigned int) mplss->s[k],
+                             (unsigned int) mplss->ttl[k]);
                     }
                 } else {
                     printf("    |   |-- %s\n", strlongip(ctl->af, addr2));
                     for (k = 0; k < mplss->labels && ctl->enablempls; k++) {
                         printf
                             ("    |   +-- [MPLS: Lbl %lu TC %u S %u TTL %u]\n",
-                             mplss->label[k], mplss->tc[k], mplss->s[k],
-                             mplss->ttl[k]);
+                             mplss->label[k], (unsigned int) mplss->tc[k],
+                             (unsigned int) mplss->s[k],
+                             (unsigned int) mplss->ttl[k]);
                     }
                 }
 #endif
@@ -266,8 +340,9 @@ void report_close(
             int k;
             for (k = 0; k < mpls->labels; k++) {
                 printf("    |   +-- [MPLS: Lbl %lu TC %u S %u TTL %u]\n",
-                       mpls->label[k], mpls->tc[k], mpls->s[k],
-                       mpls->ttl[k]);
+                       mpls->label[k], (unsigned int) mpls->tc[k],
+                       (unsigned int) mpls->s[k],
+                       (unsigned int) mpls->ttl[k]);
             }
         }
 #endif
@@ -337,15 +412,15 @@ void json_close(struct mtr_ctl *ctl)
     at = net_min(ctl);
     for (; at < max; at++) {
         addr = net_addr(at);
-        snprint_addr(ctl, name, sizeof(name), addr);
+        snprint_hop_name(ctl, name, sizeof(name), at, addr);
 
         jh = json_pack("{si ss}", "count", at + 1, "host", name);
         if (!jh)
             goto on_error;
 
 #ifdef HAVE_IPINFO
-        if (!ctl->ipinfo_no) {
-            char* fmtinfo = fmt_ipinfo(ctl, addr);
+        if (ipinfo_field_selected(ctl, 0)) {
+            char* fmtinfo = fmt_ipinfo_field(ctl, addr, 0);
             if (fmtinfo != NULL)
                 fmtinfo = trim(fmtinfo, '\0');
 
@@ -405,9 +480,12 @@ void xml_close(
 {
     int i, j, at, max;
     ip_t *addr;
+    char *host_name;
+    char host_addr[MAX_FORMAT_STR];
     char name[MAX_FORMAT_STR];
+    char buf[128];
 
-    printf("<?xml version=\"1.0\"?>\n");
+    printf("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n");
     printf("<MTR SRC=\"%s\" DST=\"%s\"", ctl->LocalHostname,
            ctl->Hostname);
     printf(" TOS=\"0x%X\"", ctl->tos);
@@ -429,17 +507,26 @@ void xml_close(
     for (; at < max; at++) {
         addr = net_addr(at);
         snprint_addr(ctl, name, sizeof(name), addr);
+        if (addrcmp((void *) addr, (void *) &ctl->unspec_addr, ctl->af)) {
+            snprintf(host_addr, sizeof(host_addr), "%s",
+                     strlongip(ctl->af, addr));
+        } else {
+            snprintf(host_addr, sizeof(host_addr), "%s", "???");
+        }
+        host_name = host_name_for_addr(ctl, addr);
 
-        printf("    <HUB COUNT=\"%d\" HOST=\"%s\">\n", at + 1, name);
+        printf("    <HUB COUNT=\"%d\"", at + 1);
+        print_xml_attr("HOST", name);
+        print_xml_attr("ADDR", host_addr);
+        if (host_name)
+            print_xml_attr("HOSTNAME", host_name);
+        printf(">\n");
         for (i = 0; i < MAXFLD; i++) {
             const char *title;
 
             j = ctl->fld_index[ctl->fld_active[i]];
             if (j <= 0)
                 continue;       /* Field nr 0, " " shouldn't be printed in this method. */
-
-            snprintf(name, sizeof(name), "%s%s%s", "        <%s>",
-                     data_fields[j].format, "</%s>\n");
 
             /* XML doesn't allow "%" in tag names, rename Loss% to just Loss */
             title = data_fields[j].title;
@@ -449,11 +536,12 @@ void xml_close(
 
             /* 1000.0 is a temporary hack for stats usec to ms, impacted net_loss. */
             if (strchr(data_fields[j].format, 'f')) {
-                printf(name,
-                       title, data_fields[j].net_xxx(at) / 1000.0, title);
+                snprintf(buf, sizeof(buf), data_fields[j].format, data_fields[j].net_xxx(at) / 1000.0);
             } else {
-                printf(name, title, data_fields[j].net_xxx(at), title);
+                snprintf(buf, sizeof(buf), data_fields[j].format, data_fields[j].net_xxx(at));
             }
+            trim(buf, 0);
+            printf("        <%s>%s</%s>\n", title, buf, title);
         }
         printf("    </HUB>\n");
     }
@@ -475,36 +563,34 @@ void csv_close(
     ip_t *addr2 = NULL;
     char name[MAX_FORMAT_STR];
 
-    for (i = 0; i < MAXFLD; i++) {
-        j = ctl->fld_index[ctl->fld_active[i]];
-        if (j < 0)
-            continue;
-    }
-
     max = net_max(ctl);
     at = net_min(ctl);
     for (; at < max; at++) {
         addr = net_addr(at);
-        snprint_addr(ctl, name, sizeof(name), addr);
+        snprint_hop_name(ctl, name, sizeof(name), at, addr);
 
         if (at == net_min(ctl)) {
-            printf("Mtr_Version,Start_Time,Status,Host,Hop,Ip,");
+            printf("Mtr_Version,Start_Time,Status,Host,Hop,Ip");
 #ifdef HAVE_IPINFO
-            if (!ctl->ipinfo_no) {
-                printf("Asn,");
+            if (ipinfo_field_selected(ctl, 0)) {
+                printf(",Asn");
             }
 #endif
             for (i = 0; i < MAXFLD; i++) {
                 j = ctl->fld_index[ctl->fld_active[i]];
                 if (j < 0)
                     continue;
-                printf("%s,", data_fields[j].title);
+                if (data_fields[j].key == ' ') {
+                    printf(",");
+                    continue;
+                }
+                printf(",%s", data_fields[j].title);
             }
             printf("\n");
         }
 #ifdef HAVE_IPINFO
-        if (!ctl->ipinfo_no) {
-            char *fmtinfo = fmt_ipinfo(ctl, addr);
+        if (ipinfo_field_selected(ctl, 0)) {
+            char *fmtinfo = fmt_ipinfo_field(ctl, addr, 0);
             fmtinfo = trim(fmtinfo, '\0');
             printf("MTR.%s,%lld,%s,%s,%d,%s,%s", PACKAGE_VERSION,
                    (long long) now, "OK", ctl->Hostname, at + 1, name,
@@ -518,7 +604,10 @@ void csv_close(
             j = ctl->fld_index[ctl->fld_active[i]];
             if (j < 0)
                 continue;
-
+            if (data_fields[j].key == ' ') {
+                printf(",");
+                continue;
+            }
             /* 1000.0 is a temporary hack for stats usec to ms, impacted net_loss. */
             if (strchr(data_fields[j].format, 'f')) {
                 printf(",%.2f",
@@ -531,7 +620,7 @@ void csv_close(
         if (ctl->reportwide == 0)
             continue;
         
-        for (z = 0; z < MAX_PATH; z++) {
+        for (z = 0; z < ctl->maxDisplayPath; z++) {
             int found = 0;
             addr2 = net_addrs(at, z);
             snprint_addr(ctl, name, sizeof(name), addr2);
@@ -555,8 +644,8 @@ void csv_close(
 
                 if (!found) {
 #ifdef HAVE_IPINFO
-                    if (!ctl->ipinfo_no) {
-                        char *fmtinfo = fmt_ipinfo(ctl, addr2);
+                    if (ipinfo_field_selected(ctl, 0)) {
+                        char *fmtinfo = fmt_ipinfo_field(ctl, addr2, 0);
                         fmtinfo = trim(fmtinfo, '\0');
                         printf("MTR.%s,%lld,%s,%s,%d,%s,%s", PACKAGE_VERSION,
                             (long long) now, "OK", ctl->Hostname, at + 1, name,
@@ -571,7 +660,10 @@ void csv_close(
                         j = ctl->fld_index[ctl->fld_active[i]];
                         if (j < 0)
                             continue;
-
+                        if (data_fields[j].key == ' ') {
+                            printf(",");
+                            continue;
+                        }
                         /* 1000.0 is a temporary hack for stats usec to ms, impacted net_loss. */
                         if (strchr(data_fields[j].format, 'f')) {
                             printf(",%.2f",

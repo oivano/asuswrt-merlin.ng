@@ -44,6 +44,8 @@
 #include <assert.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <locale.h>
+#include <signal.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 
@@ -67,7 +69,7 @@ char *myname;
 const struct fields data_fields[MAXFLD] = {
     /* key, Remark, Header, Format, Width, CallBackFunc */
     {' ', "<sp>: Space between fields", " ", " ", 1, &net_drop},
-    {'L', "L: Loss Ratio", "Loss%", " %4.1f%%", 6, &net_loss},
+    {'L', "L: Loss Ratio", "Loss%", " %6.2f%%", 8, &net_loss},
     {'D', "D: Dropped Packets", "Drop", " %4d", 5, &net_drop},
     {'R', "R: Received Packets", "Rcv", " %5d", 6, &net_returned},
     {'S', "S: Sent Packets", "Snt", " %5d", 6, &net_xmit},
@@ -86,92 +88,77 @@ const struct fields data_fields[MAXFLD] = {
 
 typedef struct names {
     char *name;
+    int remoteport;
     struct names *next;
 } names_t;
 
 static void __attribute__ ((__noreturn__)) usage(FILE * out)
 {
     fputs("\nUsage:\n", out);
-    fputs(" mtr [options] hostname\n", out);
+    fputs(" mtr [options] hostname[:port]\n", out);
     fputs("\n", out);
-    fputs(" -F, --filename FILE        read hostname(s) from a file\n",
+    fputs(" -F, --filename FILE              read hostname(s) from a file\n",
           out);
-    fputs(" -4                         use IPv4 only\n", out);
+    fputs(" -4                               use IPv4 only\n", out);
 #ifdef ENABLE_IPV6
-    fputs(" -6                         use IPv6 only\n", out);
+    fputs(" -6                               use IPv6 only\n", out);
 #endif
-    fputs(" -u, --udp                  use UDP instead of ICMP echo\n",
-          out);
-    fputs(" -T, --tcp                  use TCP instead of ICMP echo\n",
-          out);
-    fputs(" -I, --interface NAME       use named network interface\n",
-         out);
-    fputs
-        (" -a, --address ADDRESS      bind the outgoing socket to ADDRESS\n",
-         out);
-    fputs(" -f, --first-ttl NUMBER     set what TTL to start\n", out);
-    fputs(" -m, --max-ttl NUMBER       maximum number of hops\n", out);
-    fputs(" -U, --max-unknown NUMBER   maximum unknown host\n", out);
-    fputs
-        (" -P, --port PORT            target port number for TCP, SCTP, or UDP\n",
-         out);
-    fputs(" -L, --localport LOCALPORT  source port number for UDP\n", out);
-    fputs
-        (" -s, --psize PACKETSIZE     set the packet size used for probing\n",
-         out);
-    fputs
-        (" -B, --bitpattern NUMBER    set bit pattern to use in payload\n",
-         out);
-    fputs(" -i, --interval SECONDS     ICMP echo request interval\n", out);
-    fputs
-        (" -G, --gracetime SECONDS    number of seconds to wait for responses\n",
-         out);
-    fputs
-        (" -Q, --tos NUMBER           type of service field in IP header\n",
-         out);
-    fputs
-        (" -e, --mpls                 display information from ICMP extensions\n",
-         out);
-    fputs
-        (" -Z, --timeout SECONDS      seconds to keep probe sockets open\n",
-         out);
+    fputs(" -u, --udp                        use UDP instead of ICMP echo\n", out);
+    fputs(" -T, --tcp                        use TCP instead of ICMP echo\n", out);
+    fputs(" -I, --interface NAME             use named network interface\n", out);
+    fputs(" -a, --address ADDRESS            bind the outgoing socket to ADDRESS\n", out);
+    fputs(" -f, --first-ttl NUMBER           set what TTL to start\n", out);
+    fputs(" -m, --max-ttl NUMBER             maximum number of hops\n", out);
+    fputs(" -D, --due-ttl NUMBER             set what TTL must be reached\n", out);
+    fputs(" -U, --max-unknown NUMBER         maximum unknown host\n", out);
+    fputs(" -E, --max-display-path NUMBER    maximum number of ECMP paths to display\n", out);
+    fputs(" -P, --port PORT                  target port number for TCP, SCTP, or UDP\n", out);
+    fputs(" -L, --localport LOCALPORT        source port number for UDP\n", out);
+    fputs(" -s, --psize PACKETSIZE           set the packet size used for probing\n", out);
+    fputs(" -B, --bitpattern NUMBER          set bit pattern to use in payload\n", out);
+    fputs(" -i, --interval SECONDS           ICMP echo request interval\n", out);
+    fputs(" -G, --gracetime SECONDS          number of seconds to wait for responses\n", out);
+    fputs(" -Q, --tos NUMBER                 type of service field in IP header\n", out);
+    fputs(" -e, --mpls                       display information from ICMP extensions\n", out);
+    fputs(" -Z, --timeout SECONDS            seconds to keep probe sockets open\n", out);
+    fputs("     --cache SECONDS              skip recently seen hops for SECONDS\n", out);
 #ifdef SO_MARK
-    fputs(" -M, --mark MARK            mark each sent packet\n", out);
+    fputs(" -M, --mark MARK                  mark each sent packet\n", out);
 #endif
-    fputs(" -r, --report               output using report mode\n", out);
-    fputs(" -w, --report-wide          output wide report\n", out);
-    fputs(" -c, --report-cycles COUNT  set the number of pings sent\n",
-          out);
+    fputs(" -r, --report                     output using report mode\n", out);
+    fputs(" -w, --report-wide                output wide report\n", out);
+    fputs("     --report-on-exit             print report after curses exits\n", out);
+    fputs(" -c, --report-cycles COUNT        set the number of pings sent\n", out);
 #ifdef HAVE_JANSSON
-    fputs(" -j, --json                 output json\n", out);
+    fputs(" -j, --json                       output json\n", out);
 #endif
-    fputs(" -x, --xml                  output xml\n", out);
-    fputs(" -C, --csv                  output comma separated values\n",
-          out);
-    fputs(" -l, --raw                  output raw format\n", out);
-    fputs(" -p, --split                split output\n", out);
+    fputs(" -x, --xml                        output xml\n", out);
+    fputs(" -C, --csv                        output comma separated values\n", out);
+    fputs(" -l, --raw                        output raw format\n", out);
+    fputs(" -p, --split                      split output\n", out);
 #ifdef HAVE_CURSES
-    fputs(" -t, --curses               use curses terminal interface\n",
-          out);
+    fputs(" -t, --curses                     use curses terminal interface\n", out);
+    fputs("     --displaymode MODE           select initial display mode\n", out);
+    fputs("     --compact                    start curses interface in compact mode\n", out);
+    fputs("     --scale SCALE                set stripchart scale thresholds\n", out);
 #endif
-    fputs("     --displaymode MODE     select initial display mode\n",
-          out);
 #ifdef HAVE_GTK
-    fputs(" -g, --gtk                  use GTK+ xwindow interface\n", out);
+    fputs(" -g, --gtk                        use GTK+ xwindow interface\n", out);
 #endif
-    fputs(" -n, --no-dns               do not resolve host names\n", out);
-    fputs(" -b, --show-ips             show IP numbers and host names\n",
-          out);
-    fputs(" -o, --order FIELDS         select output fields\n", out);
+    fputs(" -n, --no-dns                     do not resolve host names\n", out);
+    fputs(" -b, --show-ips                   show IP numbers and host names\n", out);
+    fputs(" -o, --order FIELDS               select output fields\n", out);
 #ifdef HAVE_IPINFO
-    fputs(" -y, --ipinfo NUMBER        select IP information in output\n",
+    fputs(" -y, --ipinfo FIELDS              select IP information fields in output\n",
           out);
-    fputs(" -z, --aslookup             display AS number\n", out);
+    fputs(" -z, --aslookup                   display AS number\n", out);
+    fputs("     --ipinfo_provider4           provider for IPv4 AS lookups\n", out);
+#ifdef ENABLE_IPV6
+    fputs("     --ipinfo_provider6           provider for IPv6 AS lookups\n", out);
 #endif
-    fputs(" -h, --help                 display this help and exit\n", out);
-    fputs
-        (" -v, --version              output version information and exit\n",
-         out);
+#endif
+    fputs(" -h, --help                       display this help and exit\n", out);
+    fputs(" -v, --version                    output version information and exit\n", out);
     fputs("\n", out);
     fputs("See the 'man 8 mtr' for details.\n", out);
     exit(out == stderr ? EXIT_FAILURE : EXIT_SUCCESS);
@@ -198,6 +185,54 @@ static void append_to_names(
     *name_tail = name;
 }
 
+static int parse_target_port(
+    const char *port)
+{
+    int remoteport = strtoint_or_err(port, "invalid argument");
+
+    if (remoteport < 1 || MaxPort < remoteport) {
+        error(EXIT_FAILURE, 0, "Illegal port number: %d", remoteport);
+    }
+
+    return remoteport;
+}
+
+static void split_target_port(
+    names_t *names,
+    int mtrtype)
+{
+    if (mtrtype == IPPROTO_ICMP) {
+        return;
+    }
+
+    while (names != NULL) {
+        char *port = NULL;
+
+        if (names->name[0] == '[') {
+            char *close = strchr(names->name, ']');
+
+            if (close && close[1] == ':' && close[2] != '\0') {
+                port = close + 2;
+                *close = '\0';
+                memmove(names->name, names->name + 1, close - names->name);
+            }
+        } else {
+            char *colon = strchr(names->name, ':');
+
+            if (colon && strchr(colon + 1, ':') == NULL && colon[1] != '\0') {
+                port = colon + 1;
+                *colon = '\0';
+            }
+        }
+
+        if (port) {
+            names->remoteport = parse_target_port(port);
+        }
+
+        names = names->next;
+    }
+}
+
 static void read_from_file(
     names_t ** names,
     const char *filename)
@@ -205,15 +240,20 @@ static void read_from_file(
 
     FILE *in;
     char line[512];
+    int close_input;
+    int read_error;
+    int read_errno;
 
     if (!filename || strcmp(filename, "-") == 0) {
         clearerr(stdin);
         in = stdin;
+        close_input = 0;
     } else {
         in = fopen(filename, "r");
         if (!in) {
             error(EXIT_FAILURE, errno, "open %s", filename);
         }
+        close_input = 1;
     }
 
     while (fgets(line, sizeof(line), in)) {
@@ -221,12 +261,16 @@ static void read_from_file(
         append_to_names(names, name);
     }
 
-    if (ferror(in)) {
-        error(EXIT_FAILURE, errno, "ferror %s", filename);
+    read_error = ferror(in);
+    read_errno = errno;
+
+    if (close_input && fclose(in)) {
+        error(EXIT_FAILURE, errno, "close %s", filename);
     }
 
-    if (in != stdin)
-        fclose(in);
+    if (read_error) {
+        error(EXIT_FAILURE, read_errno, "ferror %s", filename);
+    }
 }
 
 /*
@@ -303,6 +347,148 @@ static void init_fld_options(
     ctl->available_options[i] = 0;
 }
 
+static void print_build_feature(
+    const char *name,
+    int enabled)
+{
+    printf("  %-8s %s\n", name, enabled ? "yes" : "no");
+}
+
+static void print_version(
+    int verbose)
+{
+    printf("mtr " PACKAGE_VERSION "\n");
+
+    if (verbose < 2) {
+        return;
+    }
+
+    puts("features:");
+#ifdef ENABLE_IPV6
+    print_build_feature("ipv6", 1);
+#else
+    print_build_feature("ipv6", 0);
+#endif
+#ifdef HAVE_CURSES
+    print_build_feature("curses", 1);
+#else
+    print_build_feature("curses", 0);
+#endif
+#ifdef HAVE_CURSESW
+    print_build_feature("cursesw", 1);
+#else
+    print_build_feature("cursesw", 0);
+#endif
+#ifdef ENABLE_BRAILLE
+    print_build_feature("braille", 1);
+#else
+    print_build_feature("braille", 0);
+#endif
+#ifdef HAVE_GTK
+    print_build_feature("gtk", 1);
+#else
+    print_build_feature("gtk", 0);
+#endif
+#ifdef HAVE_JANSSON
+    print_build_feature("json", 1);
+#else
+    print_build_feature("json", 0);
+#endif
+#ifdef HAVE_IPINFO
+    print_build_feature("ipinfo", 1);
+#else
+    print_build_feature("ipinfo", 0);
+#endif
+#ifdef SO_MARK
+    print_build_feature("mark", 1);
+#else
+    print_build_feature("mark", 0);
+#endif
+}
+
+
+#ifdef HAVE_CURSES
+static void set_fixed_scale(
+    struct mtr_ctl *ctl,
+    const int *thresholds)
+{
+    int i;
+
+    for (i = 0; i < MTR_SCALE_THRESHOLDS; i++) {
+        ctl->scale[i] = thresholds[i] * 1000;
+    }
+    ctl->fixed_scale = 1;
+}
+
+
+static void parse_scale(
+    struct mtr_ctl *ctl,
+    const char *scale_arg)
+{
+    static const int fast_scale[MTR_SCALE_THRESHOLDS] = {
+        1, 2, 3, 4, 5, 10, 20, 40, 80
+    };
+    static const int average_scale[MTR_SCALE_THRESHOLDS] = {
+        5, 15, 25, 35, 45, 55, 101, 200, 400
+    };
+    static const int slow_scale[MTR_SCALE_THRESHOLDS] = {
+        50, 100, 150, 200, 300, 500, 750, 1000, 2000
+    };
+    const char *cursor = scale_arg;
+    int thresholds[MTR_SCALE_THRESHOLDS];
+    int previous = -1;
+    int i;
+
+    if (!strcmp(scale_arg, "fast")) {
+        set_fixed_scale(ctl, fast_scale);
+        return;
+    }
+    if (!strcmp(scale_arg, "average")) {
+        set_fixed_scale(ctl, average_scale);
+        return;
+    }
+    if (!strcmp(scale_arg, "slow")) {
+        set_fixed_scale(ctl, slow_scale);
+        return;
+    }
+
+    for (i = 0; i < MTR_SCALE_THRESHOLDS; i++) {
+        char *end;
+        long threshold;
+
+        errno = 0;
+        threshold = strtol(cursor, &end, 10);
+        if (cursor == end || errno || threshold < 0 ||
+            threshold > INT_MAX / 1000) {
+            error(EXIT_FAILURE, 0, "invalid scale threshold: %s", scale_arg);
+        }
+        if (threshold <= previous) {
+            error(EXIT_FAILURE, 0,
+                  "scale thresholds must be strictly increasing: %s",
+                  scale_arg);
+        }
+
+        thresholds[i] = threshold;
+        previous = threshold;
+
+        if (i == MTR_SCALE_THRESHOLDS - 1) {
+            if (*end) {
+                error(EXIT_FAILURE, 0,
+                      "scale expects %d thresholds: %s",
+                      MTR_SCALE_THRESHOLDS, scale_arg);
+            }
+        } else if (*end != ':') {
+            error(EXIT_FAILURE, 0,
+                  "scale expects %d colon-separated thresholds: %s",
+                  MTR_SCALE_THRESHOLDS, scale_arg);
+        }
+        cursor = end + 1;
+    }
+
+    set_fixed_scale(ctl, thresholds);
+}
+#endif
+
 
 static void parse_arg(
     struct mtr_ctl *ctl,
@@ -319,7 +505,17 @@ static void parse_arg(
        3/ update the help message (see usage() function).
      */
     enum {
-        OPT_DISPLAYMODE = CHAR_MAX + 1
+        OPT_DISPLAYMODE = CHAR_MAX + 1,
+        OPT_REPORT_ON_EXIT = CHAR_MAX + 2,
+        OPT_SCALE = CHAR_MAX + 3,
+        OPT_IPINFO4 = CHAR_MAX + 4,
+        OPT_COMPACT = CHAR_MAX + 5,
+#ifdef ENABLE_IPV6
+        OPT_IPINFO6 = CHAR_MAX + 6,
+        OPT_CACHE = CHAR_MAX + 7,
+#else
+        OPT_CACHE = CHAR_MAX + 6,
+#endif /* ifdef ENABLE_IPV6 */
     };
     static const struct option long_options[] = {
         /* option name, has argument, NULL, short name */
@@ -334,6 +530,7 @@ static void parse_arg(
 
         {"report", 0, NULL, 'r'},
         {"report-wide", 0, NULL, 'w'},
+        {"report-on-exit", 0, NULL, OPT_REPORT_ON_EXIT},
         {"xml", 0, NULL, 'x'},
 #ifdef HAVE_CURSES
         {"curses", 0, NULL, 't'},
@@ -346,7 +543,11 @@ static void parse_arg(
 #ifdef HAVE_JANSSON
         {"json", 0, NULL, 'j'},
 #endif
+#ifdef HAVE_CURSES
         {"displaymode", 1, NULL, OPT_DISPLAYMODE},
+        {"compact", 0, NULL, OPT_COMPACT},
+        {"scale", 1, NULL, OPT_SCALE},
+#endif
         {"split", 0, NULL, 'p'},        /* BL */
         /* maybe above should change to -d 'x' */
 
@@ -356,19 +557,25 @@ static void parse_arg(
 #ifdef HAVE_IPINFO
         {"ipinfo", 1, NULL, 'y'},       /* IP info lookup */
         {"aslookup", 0, NULL, 'z'},     /* Do AS lookup (--ipinfo 0) */
+        {"ipinfo_provider4", 1, NULL, OPT_IPINFO4},
+#ifdef ENABLE_IPV6
+        {"ipinfo_provider6", 1, NULL, OPT_IPINFO6},
+#endif
 #endif
 
         {"interval", 1, NULL, 'i'},
         {"report-cycles", 1, NULL, 'c'},
         {"psize", 1, NULL, 's'},        /* overload psize<0, ->rand(min,max) */
-        {"bitpattern", 1, NULL, 'B'},   /* overload B>255, ->rand(0,255) */
+        {"bitpattern", 1, NULL, 'B'},   /* -1 random, otherwise 0..255 */
         {"tos", 1, NULL, 'Q'},  /* typeof service (0,255) */
         {"mpls", 0, NULL, 'e'},
         {"interface", 1, NULL, 'I'},
         {"address", 1, NULL, 'a'},
         {"first-ttl", 1, NULL, 'f'},    /* -f & -m are borrowed from traceroute */
         {"max-ttl", 1, NULL, 'm'},
+        {"due-ttl", 1, NULL, 'D'},
         {"max-unknown", 1, NULL, 'U'},
+        {"max-display-path", 1, NULL, 'E'},
         {"udp", 0, NULL, 'u'},  /* UDP (default is ICMP) */
         {"tcp", 0, NULL, 'T'},  /* TCP (default is ICMP) */
 #ifdef HAS_SCTP
@@ -378,6 +585,7 @@ static void parse_arg(
         {"localport", 1, NULL, 'L'},    /* source port number for UDP */
         {"timeout", 1, NULL, 'Z'},      /* timeout for probe sockets */
         {"gracetime", 1, NULL, 'G'},    /* gracetime for replies after last probe */
+        {"cache", 1, NULL, OPT_CACHE},  /* skip probes to recently seen hops */
 #ifdef SO_MARK
         {"mark", 1, NULL, 'M'}, /* use SO_MARK */
 #endif
@@ -386,6 +594,7 @@ static void parse_arg(
     enum { num_options = sizeof(long_options) / sizeof(struct option) };
     char short_options[num_options * 2];
     size_t n, p;
+    int version_count = 0;
 
     for (n = p = 0; n < num_options; n++) {
         if (CHAR_MAX < long_options[n].val) {
@@ -400,7 +609,6 @@ static void parse_arg(
         /* optional options need two ':', but ignore them now as they are not in use */
     }
 
-    opt = 0;
     while (1) {
         opt = getopt_long(argc, argv, short_options, long_options, NULL);
         if (opt == -1)
@@ -408,8 +616,7 @@ static void parse_arg(
 
         switch (opt) {
         case 'v':
-            printf("mtr " PACKAGE_VERSION "\n");
-            exit(EXIT_SUCCESS);
+            version_count++;
             break;
         case 'h':
             usage(stdout);
@@ -421,6 +628,9 @@ static void parse_arg(
         case 'w':
             ctl->reportwide = 1;
             ctl->DisplayMode = DisplayReport;
+            break;
+        case OPT_REPORT_ON_EXIT:
+            ctl->ReportOnExit = 1;
             break;
 #ifdef HAVE_CURSES
         case 't':
@@ -450,21 +660,32 @@ static void parse_arg(
             ctl->DisplayMode = DisplayXML;
             break;
 
+#ifdef HAVE_CURSES
         case OPT_DISPLAYMODE:
             ctl->display_mode =
-                strtonum_or_err(optarg, "invalid argument", STRTO_INT);
+                strtoint_or_err(optarg, "invalid argument");
             if ((DisplayModeMAX - 1) < ctl->display_mode)
                 error(EXIT_FAILURE, 0, "value out of range (%d - %d): %s",
                       DisplayModeDefault, (DisplayModeMAX - 1), optarg);
             break;
+        case OPT_COMPACT:
+            ctl->CompactLayout = 1;
+            break;
+        case OPT_SCALE:
+            parse_scale(ctl, optarg);
+            break;
+#endif
         case 'c':
             ctl->MaxPing =
-                strtonum_or_err(optarg, "invalid argument", STRTO_INT);
+                strtoint_or_err(optarg, "invalid argument");
             ctl->ForceMaxPing = 1;
             break;
         case 's':
             ctl->cpacketsize =
-                strtonum_or_err(optarg, "invalid argument", STRTO_INT);
+                strtoint_or_err(optarg, "invalid argument");
+            if (abs(ctl->cpacketsize) < MINPACKET || abs(ctl->cpacketsize) > MAXPACKET) {
+                error(EXIT_FAILURE, 0, "value of of range (%d - %d)", MINPACKET, MAXPACKET);
+            }
             break;
         case 'I':
             ctl->InterfaceName = optarg;
@@ -489,36 +710,46 @@ static void parse_arg(
             }
             break;
         case 'f':
-            ctl->fstTTL =
-                strtonum_or_err(optarg, "invalid argument", STRTO_INT);
-            if (ctl->fstTTL > ctl->maxTTL) {
-                ctl->fstTTL = ctl->maxTTL;
-            }
+            ctl->fstTTL = strtoint_or_err(optarg, "invalid argument");
             if (ctl->fstTTL < 1) {      /* prevent 0 hop */
                 ctl->fstTTL = 1;
             }
             break;
         case 'F':
-            read_from_file(names, optarg);
+            if (access ("/etc/mtr.is.run.under.sudo", F_OK) != 0)
+               read_from_file(names, optarg);
+            else
+               error (EXIT_FAILURE, 0, "-F option is disabled under sudo.\n");
             break;
         case 'm':
-            ctl->maxTTL =
-                strtonum_or_err(optarg, "invalid argument", STRTO_INT);
+            ctl->maxTTL = strtoint_or_err(optarg, "invalid argument");
             if (ctl->maxTTL > (MaxHost - 1)) {
                 ctl->maxTTL = MaxHost - 1;
             }
             if (ctl->maxTTL < 1) {      /* prevent 0 hop */
                 ctl->maxTTL = 1;
             }
-            if (ctl->fstTTL > ctl->maxTTL) {    /* don't know the pos of -m or -f */
-                ctl->fstTTL = ctl->maxTTL;
+            break;
+        case 'D':
+            ctl->dueTTL = strtoint_or_err(optarg, "invalid argument");
+            if (ctl->dueTTL > (MaxHost - 1)) {
+                ctl->dueTTL = MaxHost - 1;
+            }
+            if (ctl->dueTTL <= 0) {
+                error(EXIT_FAILURE, 0, "due TTL must be greater than 0");
             }
             break;
         case 'U':
             ctl->maxUnknown =
-                strtonum_or_err(optarg, "invalid argument", STRTO_INT);
+                strtoint_or_err(optarg, "invalid argument");
             if (ctl->maxUnknown < 1) {
                 ctl->maxUnknown = 1;
+            }
+            break;
+        case 'E':
+            ctl->maxDisplayPath = strtoint_or_err(optarg, "invalid argument");
+            if (ctl->maxDisplayPath > MAX_PATH) {
+                ctl->maxDisplayPath = MAX_PATH;
             }
             break;
         case 'o':
@@ -536,9 +767,11 @@ static void parse_arg(
             break;
         case 'B':
             ctl->bitpattern =
-                strtonum_or_err(optarg, "invalid argument", STRTO_INT);
-            if (ctl->bitpattern > 255)
-                ctl->bitpattern = -1;
+                strtoint_or_err(optarg, "invalid argument");
+            if (ctl->bitpattern < -1 || ctl->bitpattern > 255) {
+                error(EXIT_FAILURE, 0, "value out of range (-1 - 255): %s",
+                      optarg);
+            }
             break;
         case 'G':
             ctl->GraceTime = strtofloat_or_err(optarg, "invalid argument");
@@ -546,13 +779,20 @@ static void parse_arg(
                 error(EXIT_FAILURE, 0, "wait time must be positive");
             }
             break;
+        case OPT_CACHE:
+            ctl->cache_timeout =
+                strtoint_or_err(optarg, "invalid argument");
+            if (ctl->cache_timeout <= 0) {
+                error(EXIT_FAILURE, 0, "cache timeout must be positive");
+            }
+            ctl->cache = 1;
+            break;
         case 'Q':
             ctl->tos =
-                strtonum_or_err(optarg, "invalid argument", STRTO_INT);
+                strtoint_or_err(optarg, "invalid argument");
             if (ctl->tos > 255 || ctl->tos < 0) {
-                /* error message, should do more checking for valid values,
-                 * details in rfc2474 */
-                ctl->tos = 0;
+                error(EXIT_FAILURE, 0, "value out of range (0 - 255): %s",
+                      optarg);
             }
             break;
         case 'u':
@@ -589,7 +829,7 @@ static void parse_arg(
             break;
         case 'P':
             ctl->remoteport =
-                strtonum_or_err(optarg, "invalid argument", STRTO_INT);
+                strtoint_or_err(optarg, "invalid argument");
             if (ctl->remoteport < 1 || MaxPort < ctl->remoteport) {
                 error(EXIT_FAILURE, 0, "Illegal port number: %d",
                       ctl->remoteport);
@@ -597,7 +837,7 @@ static void parse_arg(
             break;
         case 'L':
             ctl->localport =
-                strtonum_or_err(optarg, "invalid argument", STRTO_INT);
+                strtoint_or_err(optarg, "invalid argument");
             if (ctl->localport < MinPort || MaxPort < ctl->localport) {
                 error(EXIT_FAILURE, 0, "Illegal port number: %d",
                       ctl->localport);
@@ -605,7 +845,7 @@ static void parse_arg(
             break;
         case 'Z':
             ctl->probe_timeout =
-                strtonum_or_err(optarg, "invalid argument", STRTO_INT);
+                strtoint_or_err(optarg, "invalid argument");
             ctl->probe_timeout *= 1000000;
             break;
         case '4':
@@ -618,26 +858,34 @@ static void parse_arg(
 #endif
 #ifdef HAVE_IPINFO
         case 'y':
-            ctl->ipinfo_no =
-                strtonum_or_err(optarg, "invalid argument", STRTO_INT);
-            if (ctl->ipinfo_no < 0 || 4 < ctl->ipinfo_no) {
-                error(EXIT_FAILURE, 0, "value %d out of range (0 - 4)",
-                      ctl->ipinfo_no);
-            }
+            parse_ipinfo_fields(ctl, optarg);
             break;
         case 'z':
-            ctl->ipinfo_no = 0;
+            set_ipinfo_field(ctl, 0);
             break;
+        case OPT_IPINFO4:
+            ctl->ipinfo_provider4 = optarg;
+            break;
+#ifdef ENABLE_IPV6
+        case OPT_IPINFO6:
+            ctl->ipinfo_provider6 = optarg;
+            break;
+#endif
 #endif
 #ifdef SO_MARK
         case 'M':
             ctl->mark =
-                strtonum_or_err(optarg, "invalid argument", STRTO_U32INT);
+                strtoulong_or_err(optarg, "invalid argument");
             break;
 #endif
         default:
             usage(stderr);
         }
+    }
+
+    if (version_count > 0) {
+        print_version(version_count);
+        exit(EXIT_SUCCESS);
     }
 
     if (ctl->DisplayMode == DisplayReport ||
@@ -648,6 +896,23 @@ static void parse_arg(
         ctl->DisplayMode == DisplayXML ||
         ctl->DisplayMode == DisplayRaw || ctl->DisplayMode == DisplayCSV)
         ctl->Interactive = 0;
+
+    if (ctl->fstTTL > ctl->maxTTL) {
+        fprintf (stderr, "%s: firstTTL(%d) cannot be larger than maxTTL(%d). \n",
+		argv[0], ctl->fstTTL, ctl->maxTTL);
+        exit (1);
+        //ctl->fstTTL = ctl->maxTTL;
+    }
+    if (ctl->dueTTL > 0 && ctl->dueTTL < ctl->fstTTL) {
+        fprintf (stderr, "%s: dueTTL(%d) cannot be less than firstTTL(%d). \n",
+                argv[0], ctl->dueTTL, ctl->fstTTL);
+        exit (1);
+    }
+    if (ctl->dueTTL > ctl->maxTTL) {
+        fprintf (stderr, "%s: dueTTL(%d) cannot be larger than maxTTL(%d). \n",
+                argv[0], ctl->dueTTL, ctl->maxTTL);
+        exit (1);
+    }
 
     if (optind > argc - 1)
         return;
@@ -661,22 +926,63 @@ static void parse_mtr_options(
     char *string)
 {
     int argc = 1;
-    char *argv[128], *p;
+    char *argv[128], *arg, *input, *output, *option_string;
+    int quote;
 
     if (!string)
         return;
     argv[0] = xstrdup(PACKAGE_NAME);
-    argc = 1;
-    p = strtok(string, " \t");
-    while (p != NULL && ((size_t) argc < (sizeof(argv) / sizeof(argv[0])))) {
-        argv[argc++] = p;
-        p = strtok(NULL, " \t");
+    option_string = xstrdup(string);
+    input = option_string;
+    output = option_string;
+
+    while ((size_t) argc < (sizeof(argv) / sizeof(argv[0]))) {
+        while (*input && isspace((unsigned char) *input))
+            input++;
+        if (!*input)
+            break;
+
+        arg = output;
+        quote = 0;
+        while (*input) {
+            if (quote) {
+                if (*input == quote) {
+                    input++;
+                    quote = 0;
+                } else if (*input == '\\' && input[1]) {
+                    input++;
+                    *output++ = *input++;
+                } else {
+                    *output++ = *input++;
+                }
+            } else if (isspace((unsigned char) *input)) {
+                break;
+            } else if (*input == '"' || *input == '\'') {
+                quote = *input++;
+            } else if (*input == '\\' && input[1]) {
+                input++;
+                *output++ = *input++;
+            } else {
+                *output++ = *input++;
+            }
+        }
+
+        if (quote) {
+            error(EXIT_FAILURE, 0, "unterminated quote in MTR_OPTIONS");
+        }
+        if (*input && isspace((unsigned char) *input)) {
+            input++;
+        }
+
+        *output++ = '\0';
+        argv[argc++] = arg;
     }
-    if (p != NULL) {
-        error(0, 0, "Warning: extra arguments ignored: %s", p);
+    if (*input) {
+        error(0, 0, "Warning: extra arguments ignored: %s", input);
     }
 
     parse_arg(ctl, names, argc, argv);
+    free(option_string);
     free(argv[0]);
     optind = 0;
 }
@@ -687,7 +993,66 @@ static void init_rand(
     struct timeval tv;
 
     gettimeofday(&tv, NULL);
-    srand((getpid() << 16) ^ getuid() ^ tv.tv_sec ^ tv.tv_usec);
+    srand(getpid() ^ (getuid() << 16) ^ tv.tv_sec ^ tv.tv_usec);
+}
+
+static void unmap_v4mapped_addrinfo(
+    int requested_family,
+    struct addrinfo *res)
+{
+#if defined(ENABLE_IPV6) && defined(IN6_IS_ADDR_V4MAPPED)
+    struct sockaddr_in6 *addr6;
+    struct sockaddr_in addr4;
+
+    if (requested_family != AF_UNSPEC ||
+        res == NULL ||
+        res->ai_family != AF_INET6 ||
+        res->ai_addr == NULL ||
+        res->ai_addrlen < sizeof(struct sockaddr_in6)) {
+        return;
+    }
+
+    addr6 = (struct sockaddr_in6 *) res->ai_addr;
+    if (!IN6_IS_ADDR_V4MAPPED(&addr6->sin6_addr)) {
+        return;
+    }
+
+    memset(&addr4, 0, sizeof(addr4));
+    addr4.sin_family = AF_INET;
+    addr4.sin_port = addr6->sin6_port;
+    memcpy(&addr4.sin_addr,
+           &addr6->sin6_addr.s6_addr[sizeof(addr6->sin6_addr.s6_addr) -
+                                     sizeof(addr4.sin_addr)],
+           sizeof(addr4.sin_addr));
+
+    memcpy(res->ai_addr, &addr4, sizeof(addr4));
+    res->ai_addrlen = sizeof(addr4);
+    res->ai_family = AF_INET;
+#else
+    (void) requested_family;
+    (void) res;
+#endif
+}
+
+static int mtr_getaddrinfo(
+    const char *name,
+    struct addrinfo *hints,
+    struct addrinfo **res)
+{
+    int gai_error;
+
+    gai_error = getaddrinfo(name, NULL, hints, res);
+#if defined(AI_IDN) && defined(EAI_BADFLAGS)
+    if (gai_error == EAI_BADFLAGS && hints != NULL &&
+        (hints->ai_flags & AI_IDN)) {
+        struct addrinfo fallback_hints = *hints;
+
+        fallback_hints.ai_flags &= ~AI_IDN;
+        gai_error = getaddrinfo(name, NULL, &fallback_hints, res);
+    }
+#endif
+
+    return gai_error;
 }
 
 /*
@@ -708,7 +1073,10 @@ int get_addrinfo_from_name(
     memset(&hints, 0, sizeof hints);
     hints.ai_family = ctl->af;
     hints.ai_socktype = SOCK_DGRAM;
-    gai_error = getaddrinfo(name, NULL, &hints, res);
+#ifdef AI_IDN
+    hints.ai_flags = AI_IDN;
+#endif
+    gai_error = mtr_getaddrinfo(name, &hints, res);
     if (gai_error) {
         if (gai_error == EAI_SYSTEM)
             error(0, 0, "Failed to resolve host: %s", name);
@@ -719,7 +1087,67 @@ int get_addrinfo_from_name(
         return -1;
     }
 
+    unmap_v4mapped_addrinfo(hints.ai_family, *res);
     ctl->af = (*res)->ai_family;
+    return 0;
+}
+
+
+static int count_names(
+    names_t *names)
+{
+    int count = 0;
+
+    while (names != NULL) {
+        count++;
+        names = names->next;
+    }
+
+    return count;
+}
+
+
+static int validate_report_targets(
+    struct mtr_ctl *ctl,
+    names_t *names)
+{
+    struct mtr_ctl lookup_ctl = *ctl;
+
+    while (names != NULL) {
+        int gai_error;
+        struct addrinfo hints;
+        struct addrinfo *res = NULL;
+
+        memset(&hints, 0, sizeof hints);
+        hints.ai_family = lookup_ctl.af;
+        hints.ai_socktype = SOCK_DGRAM;
+#ifdef AI_IDN
+        hints.ai_flags = AI_IDN;
+#endif
+        gai_error = mtr_getaddrinfo(names->name, &hints, &res);
+        if (gai_error) {
+            if (gai_error == EAI_SYSTEM) {
+                error(0, 0, "Failed to resolve host: %s", names->name);
+            } else {
+                error(0, 0, "Failed to resolve host: %s: %s", names->name,
+                      gai_strerror(gai_error));
+            }
+#if defined(ENABLE_IPV6) && defined(EAI_ADDRFAMILY)
+            if (gai_error == EAI_ADDRFAMILY && lookup_ctl.af != AF_UNSPEC) {
+                error(0, 0,
+                      "multiple report targets must use the same address family");
+            }
+#endif
+            return -1;
+        }
+
+        unmap_v4mapped_addrinfo(hints.ai_family, res);
+        lookup_ctl.af = res->ai_family;
+        freeaddrinfo(res);
+        names = names->next;
+    }
+
+    ctl->af = lookup_ctl.af;
     return 0;
 }
 
@@ -728,6 +1156,7 @@ int main(
     int argc,
     char **argv)
 {
+    int exit_val = EXIT_SUCCESS;
     names_t *names_head = NULL;
     names_t *names_walk;
 
@@ -739,6 +1168,7 @@ int main(
     ctl.MaxPing = 10;
     ctl.WaitTime = 1.0;
     ctl.GraceTime = 5.0;
+    ctl.cache_timeout = 60;
     ctl.dns = 1;
     ctl.use_dns = 1;
     ctl.cpacketsize = 64;
@@ -746,10 +1176,20 @@ int main(
     ctl.mtrtype = IPPROTO_ICMP;
     ctl.fstTTL = 1;
     ctl.maxTTL = 30;
+    ctl.dueTTL = 0;
     ctl.maxUnknown = 12;
+    ctl.maxDisplayPath = 8;
     ctl.probe_timeout = 10 * 1000000;
     ctl.ipinfo_no = -1;
+    ctl.ipinfo_field_count = 0;
     ctl.ipinfo_max = -1;
+#ifdef HAVE_IPINFO
+    ctl.ipinfo_provider4 = "origin.asn.cymru.com";
+#ifdef ENABLE_IPV6
+    ctl.ipinfo_provider6 = "origin6.asn.cymru.com";
+#endif
+#endif
+
     xstrncpy(ctl.fld_active, "LS NABWV", 2 * MAXFLD);
 
     /*
@@ -763,6 +1203,9 @@ int main(
 
     /* This will check if stdout/stderr writing is successful */
     atexit(close_stdout);
+
+    /* Set encoding for reports */
+    setlocale(LC_CTYPE, "C.UTF-8");
 
     /* reset the random seed */
     init_rand();
@@ -787,10 +1230,25 @@ int main(
     if (!names_head)
         append_to_names(&names_head, "localhost");
 
+    split_target_port(names_head, ctl.mtrtype);
+
+    /* Validate that port is not specified with ICMP protocol */
+    if (ctl.mtrtype == IPPROTO_ICMP && ctl.remoteport != 0) {
+        error(EXIT_FAILURE, 0, "port number specified (-P) but protocol is ICMP; use -T (TCP) or -u (UDP)");
+    }
+
+    if (!ctl.Interactive && count_names(names_head) > 1 &&
+        validate_report_targets(&ctl, names_head) != 0) {
+        return EXIT_FAILURE;
+    }
+
+    int default_remoteport = ctl.remoteport;
     names_walk = names_head;
     while (names_walk != NULL) {
 
         ctl.Hostname = names_walk->name;
+        ctl.remoteport =
+            names_walk->remoteport ? names_walk->remoteport : default_remoteport;
         if (gethostname(ctl.LocalHostname, sizeof(ctl.LocalHostname))) {
             xstrncpy(ctl.LocalHostname, "UNKNOWNHOST",
                      sizeof(ctl.LocalHostname));
@@ -801,6 +1259,7 @@ int main(
             if (ctl.Interactive)
                 exit(EXIT_FAILURE);
             else {
+                exit_val = EXIT_FAILURE;
                 names_walk = names_walk->next;
                 continue;
             }
@@ -811,6 +1270,7 @@ int main(
             if (ctl.Interactive)
                 exit(EXIT_FAILURE);
             else {
+                exit_val = EXIT_FAILURE;
                 names_walk = names_walk->next;
                 continue;
             }
@@ -826,8 +1286,13 @@ int main(
 
         net_end_transit();
         display_close(&ctl);
+        dns_close();
         unlock(stdout);
 
+        if (ctl.Interrupted) {
+            exit_val = 128 + SIGINT;
+            break;
+        }
         if (ctl.Interactive)
             break;
         else
@@ -846,5 +1311,5 @@ int main(
         item = NULL;
     }
 
-    return 0;
+    return exit_val;
 }

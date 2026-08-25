@@ -19,39 +19,13 @@ m4_ifdef([AM_SILENT_RULES],
 
 AC_CANONICAL_HOST
 AC_PROG_CC
-#m4_pattern_allow(AC_CONFIG_MACRO_PREPROC_FUNC)
-#AC_CONFIG_MACRO_PREPROC_FUNC([
-# Provide some information about the compiler.
-#$as_echo "$as_me:${as_lineno-$LINENO}: checking for C compiler version" >&5
-#set X $ac_compile
-#ac_compiler=$2
-#for ac_option in --version -v -V -qversion; do
-#  { { ac_try="$ac_compiler $ac_option >&5"
-#case "(($ac_try" in
-#  *\"* | *\`* | *\\*) ac_try_echo=\$ac_try;;
-#  *) ac_try_echo=$ac_try;;
-#esac
-#eval ac_try_echo="\"\$as_me:${as_lineno-$LINENO}: $ac_try_echo\""
-#$as_echo "$ac_try_echo"; } >&5
-#  (eval "$ac_compiler $ac_option >&5") 2>conftest.err
-#  ac_status=$?
-#  if test -s conftest.err; then
-#    sed '10a\
-#... rest of stderr output deleted ...
-#         10q' conftest.err >conftest.er1
-#    cat conftest.er1 >&5
-#    rm -f conftest.er1 conftest.err
-#  fi
-#  $as_echo "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
-#  if test $ac_status = 0; then break; fi}
-#done])
 
 # Check pkg-config availability.
 m4_ifndef([PKG_CHECK_MODULES], [m4_defun([PKG_CHECK_MODULES], [AC_MSG_ERROR(
 [Could not locate the pkg-config autoconf macros.  These are usually located
 in /usr/share/aclocal/pkg.m4.  If your macros are in a different location,
 try setting the environment variable ACLOCAL_OPTS="-I/other/macro/dir"
-before running ./bootstrap.sh again, or configure --without-gtk ----without-jansson ])])
+before running ./bootstrap.sh again, or configure --without-gtk --without-jansson ])])
 ])
 PKG_PROG_PKG_CONFIG
 
@@ -69,6 +43,7 @@ AC_CHECK_SIZEOF([unsigned long], [4])
 # Check headers.
 AC_CHECK_HEADERS([ \
   arpa/nameser_compat.h \
+  bsd/stdlib.h \
   curses.h \
   cursesX.h \
   error.h \
@@ -77,6 +52,7 @@ AC_CHECK_HEADERS([ \
   linux/errqueue.h \
   ncurses.h \
   ncurses/curses.h \
+  netdb.h \
   netinet/in.h \
   socket.h \
   sys/cdefs.h \
@@ -93,6 +69,9 @@ AC_CHECK_FUNCS([ \
   __fpending \
   fcntl \
 ])
+AC_SEARCH_LIBS([arc4random_uniform], [bsd],
+  [AC_DEFINE([HAVE_ARC4RANDOM_UNIFORM], [1],
+    [Define to 1 if arc4random_uniform is available.])])
 
 AC_CHECK_FUNC([error], [with_error=no],
   [AC_CHECK_FUNCS([verr verrx vwarn vwarnx], [with_error=yes],
@@ -138,6 +117,20 @@ AS_IF([test "x$with_jansson" = "xyes"],
     [with_jansson=no])
 ])
 
+# Find ncursesw
+AC_ARG_WITH([ncursesw],
+  [AS_HELP_STRING([--without-ncursesw], [Build without the ncursesw interface])],
+  [], [with_ncursesw=yes])
+AS_IF([test "x$with_ncursesw" = "xyes"],
+
+  # Prefer ncursesw, if available
+  [AC_SEARCH_LIBS(
+    [wprintw], [ncursesw],
+    [AC_DEFINE([HAVE_CURSESW], [1], [Define if a ncursesw library available])],
+    [with_ncursesw=no])
+])
+AM_CONDITIONAL([WITH_CURSESW], [test "x$with_ncursesw" = xyes])
+
 # Find ncurses
 AC_ARG_WITH([ncurses],
   [AS_HELP_STRING([--without-ncurses], [Build without the ncurses interface])],
@@ -147,15 +140,23 @@ AS_IF([test "x$with_ncurses" = "xyes"],
   # Prefer ncurses over curses, if both are available.
   # (On Solaris 11.3, ncurses builds and links for us, but curses does not.)
   [AC_SEARCH_LIBS(
-    [initscr], [ncurses curses],
+    [initscr], [ncursesw ncurses curses],
     [AC_DEFINE([HAVE_CURSES], [1], [Define if a curses library available])],
     [with_ncurses=no])
+   AC_SEARCH_LIBS(
+     [raw], [tinfow tinfo termcap],
+     [],
+     [with_ncurses=no])
 ])
 AM_CONDITIONAL([WITH_CURSES], [test "x$with_ncurses" = xyes])
 
-AC_CHECK_LIB([cap], [cap_set_proc], [have_cap="yes"],
-  AS_IF([test "$host_os" = linux-gnu],
-    AC_MSG_WARN([Capabilities support is strongly recommended for increased security.  See SECURITY for more information.])))
+have_cap="yes"
+AC_CHECK_LIB([cap], [cap_set_proc], [], [
+  have_cap="no"
+  AS_IF([test "$host_os" = linux-gnu], [
+    AC_MSG_WARN([Capabilities support is strongly recommended for increased security.  See SECURITY for more information.])
+  ])
+])
 
 # Enable ipinfo
 AC_ARG_WITH([ipinfo],
@@ -173,6 +174,15 @@ AC_ARG_ENABLE([ipv6],
 AS_IF([test "x$WANTS_IPV6" = "xyes"], [
   AC_DEFINE([ENABLE_IPV6], [1], [Define to enable IPv6])
   USES_IPV6=yes
+])
+
+AC_ARG_ENABLE([braille],
+  [AS_HELP_STRING([--disable-braille], [Do not enable barille character graphs])],
+  [WANTS_BRAILLE=$enableval], [WANTS_BRAILLE=yes])
+
+AS_IF([test "x$WANTS_BRAILLE" = "xyes"], [
+  AC_DEFINE([ENABLE_BRAILLE], [1], [Define to enable uncode braille character graphs])
+  USES_BRAILLE=yes
 ])
 
 AC_CHECK_FUNC([socket], [],
@@ -202,7 +212,6 @@ AC_CHECK_DECLS([errno], [], [], [[
 #include <errno.h>
 #include <sys/errno.h>
   ]])
-
 AC_CHECK_TYPE([socklen_t],
   [AC_DEFINE([HAVE_SOCKLEN_T], [], [Define if your system has socklen_t])], [],
   [[#include <netinet/in.h>
@@ -286,17 +295,35 @@ AC_ARG_ENABLE([bash-completion],
   [], [enable_bash_completion=yes]
 )
 AM_CONDITIONAL([BUILD_BASH_COMPLETION], [test "x$enable_bash_completion" = xyes])
+
+mtr_packet_prefix=
+mtr_packet_suffix=
+AS_IF([test "x$program_prefix" != "xNONE"], [
+  mtr_packet_prefix=$program_prefix
+])
+AS_IF([test "x$program_suffix" != "xNONE"], [
+  mtr_packet_suffix=$program_suffix
+])
+MTR_PACKET_NAME="${mtr_packet_prefix}mtr-packet${mtr_packet_suffix}"
+AC_SUBST([MTR_PACKET_NAME])
+AC_DEFINE_UNQUOTED(
+  [MTR_PACKET_NAME],
+  ["$MTR_PACKET_NAME"],
+  [Name of the installed mtr-packet executable after program transforms.])
+
 echo "build options:"
 echo "--------------"
-echo "libasan :$with_libasan"
-echo "ipv6    :$USES_IPV6"
-echo "ipinfo  :$with_ipinfo"
-echo "ncurses :$with_ncurses"
-echo "gtk     :$with_gtk"
-echo "jansson :$with_jansson"
-echo "cap     :$have_cap"
-echo "libs    :$LIBS"
-echo "cflags  :$CFLAGS"
+echo "libasan  :$with_libasan"
+echo "ipv6     :$USES_IPV6"
+echo "braille  :$USES_BRAILLE"
+echo "ipinfo   :$with_ipinfo"
+echo "ncursesw :$with_ncursesw"
+echo "ncurses  :$with_ncurses"
+echo "gtk      :$with_gtk"
+echo "jansson  :$with_jansson"
+echo "cap      :$have_cap"
+echo "libs     :$LIBS"
+echo "cflags   :$CFLAGS"
 echo "--------------"
 # Prepare config.h, Makefile, and output them.
 AC_CONFIG_HEADERS([config.h])

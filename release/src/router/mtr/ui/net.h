@@ -18,7 +18,9 @@
 
 /*  Prototypes for functions in net.c  */
 #include <sys/types.h>
+#ifdef HAVE_NETDB_H
 #include <netdb.h>
+#endif
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -34,7 +36,7 @@
 extern int net_open(
     struct mtr_ctl *ctl,
     struct addrinfo *res);
-extern void net_reopen(
+extern int net_reopen(
     struct mtr_ctl *ctl,
     struct addrinfo *res);
 extern void net_reset(

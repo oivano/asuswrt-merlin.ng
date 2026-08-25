@@ -70,28 +70,37 @@ char *trim(
 }
 
 /* Parse string, and return positive signed int. */
-int strtonum_or_err(
+int strtoint_or_err(
     const char *str,
-    const char *errmesg,
-    const int type)
+    const char *errmesg)
+{
+    int num;
+    char *end = NULL;
+
+    if (str != NULL && *str != '\0') {
+        errno = 0;
+        num = strtol(str, &end, 0);
+        if (errno == 0 && str != end && end != NULL && *end == '\0') {
+            return num;
+        }
+    }
+    error(EXIT_FAILURE, errno, "%s: '%s'", errmesg, str);
+    return 0;
+}
+
+/* Parse string, and return positive unsigned long int. */
+unsigned long strtoulong_or_err(
+    const char *str,
+    const char *errmesg)
 {
     unsigned long int num;
     char *end = NULL;
 
     if (str != NULL && *str != '\0') {
         errno = 0;
-        num = strtoul(str, &end, 10);
+        num = strtoul(str, &end, 0);
         if (errno == 0 && str != end && end != NULL && *end == '\0') {
-            switch (type) {
-            case STRTO_INT:
-                if (num < INT_MAX)
-                    return num;
-                break;
-            case STRTO_U32INT:
-                if (num < UINT32_MAX)
-                    return num;
-                break;
-            }
+            return num;
         }
     }
     error(EXIT_FAILURE, errno, "%s: '%s'", errmesg, str);
@@ -155,9 +164,12 @@ static inline int close_stream(
     const int some_pending = (__fpending(stream) != 0);
     const int prev_fail = (ferror(stream) != 0);
     const int fclose_fail = (fclose(stream) != 0);
+    const int fclose_errno = fclose_fail ? errno : 0;
 
-    if (prev_fail || (fclose_fail && (some_pending || errno != EBADF))) {
-        if (!fclose_fail && !(errno == EPIPE))
+    if (prev_fail || (fclose_fail && (some_pending || fclose_errno != EBADF))) {
+        if (fclose_fail)
+            errno = fclose_errno;
+        else
             errno = 0;
         return EOF;
     }

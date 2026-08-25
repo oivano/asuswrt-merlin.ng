@@ -17,18 +17,15 @@
     51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 */
 
-enum {
-    STRTO_INT,
-    STRTO_U32INT
-};
-
 extern char *trim(
     char *s,
     const char c);
-extern int strtonum_or_err(
+extern int strtoint_or_err(
     const char *str,
-    const char *errmesg,
-    const int type);
+    const char *errmesg);
+extern unsigned long strtoulong_or_err(
+    const char *str,
+    const char *errmesg);
 extern float strtofloat_or_err(
     const char *str,
     const char *errmesg);
@@ -41,6 +38,13 @@ static inline void xstrncpy(
 {
     strncpy(dest, src, n - 1);
     dest[n - 1] = 0;
+}
+
+static inline int is_useful_hostname(
+    const char *hostname)
+{
+    return hostname && hostname[0] != '\0'
+        && !(hostname[0] == '.' && hostname[1] == '\0');
 }
 
 extern void *xmalloc(

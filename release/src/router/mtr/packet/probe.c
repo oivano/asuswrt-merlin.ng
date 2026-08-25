@@ -232,9 +232,11 @@ void format_mpls_string(
             append_pos += strlen(append_pos);
         }
 
-        snprintf(append_pos, buffer_size, "%d,%d,%d,%d",
-                 mpls->label, mpls->traffic_class,
-                 mpls->bottom_of_stack, mpls->ttl);
+        snprintf(append_pos, buffer_size, "%u,%u,%u,%u",
+                 (unsigned int) mpls->label,
+                 (unsigned int) mpls->traffic_class,
+                 (unsigned int) mpls->bottom_of_stack,
+                 (unsigned int) mpls->ttl);
 
         buffer_size -= strlen(append_pos);
         append_pos += strlen(append_pos);
@@ -257,14 +259,14 @@ void respond_to_probe(
     char ip_text[INET6_ADDRSTRLEN];
     char response[COMMAND_BUFFER_SIZE];
     char mpls_str[COMMAND_BUFFER_SIZE];
-    int remaining_size;
     const char *result;
     const char *ip_argument;
 
     if (icmp_type == ICMP_TIME_EXCEEDED) {
         result = "ttl-expired";
     } else if (icmp_type == ICMP_DEST_UNREACH) {
-        result = "no-route";
+        /* XXX icmphdr->code is not known here, so assume that host is unreachable */
+        result = "no-route-host";
     } else {
         assert(icmp_type == ICMP_ECHOREPLY);
         result = "reply";
@@ -282,9 +284,13 @@ void respond_to_probe(
     }
 
     snprintf(response, COMMAND_BUFFER_SIZE,
-             "%d %s %s %s round-trip-time %d",
+             "%d %s %s %s round-trip-time %u",
              probe->token, result, ip_argument, ip_text, round_trip_us);
 
+#if 0
+// This is the old code. I think the new code should do the same, but to be
+// sure, I want one commit with both versions side-by-side.
+    int remaining_size;
     if (mpls_count) {
         format_mpls_string(mpls_str, COMMAND_BUFFER_SIZE, mpls_count,
                            mpls);
@@ -295,6 +301,19 @@ void respond_to_probe(
         remaining_size = COMMAND_BUFFER_SIZE - strlen(response) - 1;
         strncat(response, mpls_str, remaining_size);
     }
+#else
+    if (mpls_count) {
+        format_mpls_string(mpls_str, COMMAND_BUFFER_SIZE, mpls_count, mpls);
+
+        // Get the current length to use as an offset
+        size_t current_len = strlen(response);
+
+        // snprintf returns the number of chars it *would* have written,
+        // but it safely stops at COMMAND_BUFFER_SIZE - 1.
+        snprintf(response + current_len, COMMAND_BUFFER_SIZE - current_len,
+             " mpls %s", mpls_str);
+    }
+#endif
 
     puts(response);
     free_probe(net_state, probe);
@@ -316,7 +335,7 @@ int find_source_addr(
     const struct sockaddr_storage *destaddr)
 {
     int sock;
-    int len;
+    socklen_t len;
     struct sockaddr_storage dest_with_port;
 #ifdef __linux__
     // The Linux code needs these.

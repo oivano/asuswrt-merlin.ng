@@ -20,7 +20,7 @@
 
 /* Don't put a trailing comma in enumeration lists. Some compilers
    (notably the one on Irix 5.2) do not like that. */
-enum { ActionNone, ActionQuit, ActionReset, ActionDisplay,
+enum { ActionNone, ActionQuit, ActionReset, ActionDisplay, ActionCompact,
     ActionClear, ActionPause, ActionResume, ActionMPLS, ActionDNS,
 #ifdef HAVE_IPINFO
     ActionII, ActionAS,
@@ -46,10 +46,18 @@ enum {
 #endif
 };
 
+// if we have libncursesw and braille graphs were enabled, build with them
+#if HAVE_CURSESW && ENABLE_BRAILLE
+#define WITH_BRAILLE_DISPLAY 1
+#endif
+
 enum {
     DisplayModeDefault,
     DisplayModeBlockmap,
     DisplayModeBlockmapScale,
+#ifdef WITH_BRAILLE_DISPLAY
+    DisplayModeBraille,
+#endif
     DisplayModeMAX              /* this must be the last DisplayMode entry */
 };
 
@@ -71,7 +79,7 @@ extern void display_rawxmit(
 extern void display_rawping(
     struct mtr_ctl *ctl,
     int hostnum,
-    int msec,
+    int usec,
     int seq);
 extern void display_rawhost(
     struct mtr_ctl *ctl,
@@ -80,6 +88,8 @@ extern void display_rawhost(
     struct mplslen *mpls);
 extern int display_keyaction(
     struct mtr_ctl *ctl);
+extern char *host_error_to_string(
+    int err);
 extern void display_loop(
     struct mtr_ctl *ctl);
 extern void display_clear(
