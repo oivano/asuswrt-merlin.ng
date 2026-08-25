@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="US-ASCII"?>
 <testcase>
 <info>
 <keywords>
@@ -9,7 +10,7 @@ RETR
 # Server-side
 <reply>
 <servercmd>
-REPLY PASS 633 XXXXXXXX\x00\x00XXXXXXXX
+REPLY PASS 633 XXXXXXXXXXXXXXXX
 </servercmd>
 </reply>
 

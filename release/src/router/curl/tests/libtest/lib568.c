@@ -23,19 +23,17 @@
  ***************************************************************************/
 #include "first.h"
 
-#include "testutil.h"
-#include "memdebug.h"
-
 /*
  * Test the Client->Server ANNOUNCE functionality (PUT style)
  */
 static CURLcode test_lib568(const char *URL)
 {
-  CURLcode res;
+  CURLcode result;
   CURL *curl;
+  char errbuf[STRERROR_LEN];
   int sdp;
   FILE *sdpf = NULL;
-  struct_stat file_info;
+  curlx_struct_stat file_info;
   char *stream_uri = NULL;
   int request = 1;
   struct curl_slist *custom_headers = NULL;
@@ -52,109 +50,113 @@ static CURLcode test_lib568(const char *URL)
     return TEST_ERR_MAJOR_BAD;
   }
 
-  test_setopt(curl, CURLOPT_HEADERDATA, stdout);
-  test_setopt(curl, CURLOPT_WRITEDATA, stdout);
+  easy_setopt(curl, CURLOPT_HEADERDATA, stdout);
+  easy_setopt(curl, CURLOPT_WRITEDATA, stdout);
 
-  test_setopt(curl, CURLOPT_URL, URL);
+  easy_setopt(curl, CURLOPT_URL, URL);
 
   stream_uri = tutil_suburl(URL, request++);
   if(!stream_uri) {
-    res = TEST_ERR_MAJOR_BAD;
+    result = TEST_ERR_MAJOR_BAD;
     goto test_cleanup;
   }
-  test_setopt(curl, CURLOPT_RTSP_STREAM_URI, stream_uri);
+  easy_setopt(curl, CURLOPT_RTSP_STREAM_URI, stream_uri);
   curl_free(stream_uri);
   stream_uri = NULL;
 
   sdp = curlx_open(libtest_arg2, O_RDONLY);
   if(sdp == -1) {
-    curl_mfprintf(stderr, "can't open %s\n", libtest_arg2);
-    res = TEST_ERR_MAJOR_BAD;
+    curl_mfprintf(stderr, "open() failed with error (%d) %s\n",
+                  errno, curlx_strerror(errno, errbuf, sizeof(errbuf)));
+    curl_mfprintf(stderr, "Error opening file '%s'\n", libtest_arg2);
+    result = TEST_ERR_MAJOR_BAD;
     goto test_cleanup;
   }
-  fstat(sdp, &file_info);
-  close(sdp);
+  curlx_fstat(sdp, &file_info);
+  curlx_close(sdp);
 
   sdpf = curlx_fopen(libtest_arg2, "rb");
   if(!sdpf) {
-    curl_mfprintf(stderr, "can't fopen %s\n", libtest_arg2);
-    res = TEST_ERR_MAJOR_BAD;
+    curl_mfprintf(stderr, "fopen() failed with error (%d) %s\n",
+                  errno, curlx_strerror(errno, errbuf, sizeof(errbuf)));
+    curl_mfprintf(stderr, "Error opening file '%s'\n", libtest_arg2);
+    result = TEST_ERR_MAJOR_BAD;
     goto test_cleanup;
   }
-  test_setopt(curl, CURLOPT_RTSP_REQUEST, CURL_RTSPREQ_ANNOUNCE);
+  easy_setopt(curl, CURLOPT_RTSP_REQUEST, CURL_RTSPREQ_ANNOUNCE);
 
-  test_setopt(curl, CURLOPT_READDATA, sdpf);
-  test_setopt(curl, CURLOPT_UPLOAD, 1L);
-  test_setopt(curl, CURLOPT_INFILESIZE_LARGE, (curl_off_t) file_info.st_size);
-  test_setopt(curl, CURLOPT_VERBOSE, 1L);
+  easy_setopt(curl, CURLOPT_READDATA, sdpf);
+  easy_setopt(curl, CURLOPT_UPLOAD, 1L);
+  easy_setopt(curl, CURLOPT_INFILESIZE_LARGE, (curl_off_t)file_info.st_size);
+  easy_setopt(curl, CURLOPT_VERBOSE, 1L);
 
   /* Do the ANNOUNCE */
-  res = curl_easy_perform(curl);
-  if(res)
+  result = curl_easy_perform(curl);
+  if(result)
     goto test_cleanup;
 
-  test_setopt(curl, CURLOPT_UPLOAD, 0L);
+  easy_setopt(curl, CURLOPT_UPLOAD, 0L);
   curlx_fclose(sdpf);
   sdpf = NULL;
 
   /* Make sure we can do a normal request now */
   stream_uri = tutil_suburl(URL, request++);
   if(!stream_uri) {
-    res = TEST_ERR_MAJOR_BAD;
+    result = TEST_ERR_MAJOR_BAD;
     goto test_cleanup;
   }
-  test_setopt(curl, CURLOPT_RTSP_STREAM_URI, stream_uri);
+  easy_setopt(curl, CURLOPT_RTSP_STREAM_URI, stream_uri);
   curl_free(stream_uri);
   stream_uri = NULL;
 
-  test_setopt(curl, CURLOPT_RTSP_REQUEST, CURL_RTSPREQ_DESCRIBE);
-  res = curl_easy_perform(curl);
-  if(res)
+  easy_setopt(curl, CURLOPT_RTSP_REQUEST, CURL_RTSPREQ_DESCRIBE);
+  result = curl_easy_perform(curl);
+  if(result)
     goto test_cleanup;
 
   /* Now do a POST style one */
 
   stream_uri = tutil_suburl(URL, request++);
   if(!stream_uri) {
-    res = TEST_ERR_MAJOR_BAD;
+    result = TEST_ERR_MAJOR_BAD;
     goto test_cleanup;
   }
-  test_setopt(curl, CURLOPT_RTSP_STREAM_URI, stream_uri);
+  easy_setopt(curl, CURLOPT_RTSP_STREAM_URI, stream_uri);
   curl_free(stream_uri);
   stream_uri = NULL;
 
   custom_headers = curl_slist_append(custom_headers,
                                      "Content-Type: posty goodness");
   if(!custom_headers) {
-    res = TEST_ERR_MAJOR_BAD;
+    result = TEST_ERR_MAJOR_BAD;
     goto test_cleanup;
   }
-  test_setopt(curl, CURLOPT_RTSPHEADER, custom_headers);
-  test_setopt(curl, CURLOPT_RTSP_REQUEST, CURL_RTSPREQ_ANNOUNCE);
-  test_setopt(curl, CURLOPT_POSTFIELDS,
+  easy_setopt(curl, CURLOPT_RTSPHEADER, custom_headers);
+  easy_setopt(curl, CURLOPT_RTSP_REQUEST, CURL_RTSPREQ_ANNOUNCE);
+  easy_setopt(curl, CURLOPT_POSTFIELDS,
               "postyfield=postystuff&project=curl\n");
 
-  res = curl_easy_perform(curl);
-  if(res)
+  result = curl_easy_perform(curl);
+  if(result)
     goto test_cleanup;
 
-  test_setopt(curl, CURLOPT_POSTFIELDS, NULL);
-  test_setopt(curl, CURLOPT_RTSPHEADER, NULL);
+  easy_setopt(curl, CURLOPT_POSTFIELDS, NULL);
+  easy_setopt(curl, CURLOPT_RTSPHEADER, NULL);
   curl_slist_free_all(custom_headers);
   custom_headers = NULL;
 
   /* Make sure we can do a normal request now */
   stream_uri = tutil_suburl(URL, request++);
   if(!stream_uri) {
-    res = TEST_ERR_MAJOR_BAD;
+    result = TEST_ERR_MAJOR_BAD;
     goto test_cleanup;
   }
-  test_setopt(curl, CURLOPT_RTSP_STREAM_URI, stream_uri);
+  easy_setopt(curl, CURLOPT_RTSP_STREAM_URI, stream_uri);
   curl_free(stream_uri);
   stream_uri = NULL;
 
-  test_setopt(curl, CURLOPT_RTSP_REQUEST, CURL_RTSPREQ_OPTIONS);
-  res = curl_easy_perform(curl);
+  easy_setopt(curl, CURLOPT_RTSP_REQUEST, CURL_RTSPREQ_OPTIONS);
+  result = curl_easy_perform(curl);
 
 test_cleanup:
 
@@ -169,5 +171,5 @@ test_cleanup:
   curl_easy_cleanup(curl);
   curl_global_cleanup();
 
-  return res;
+  return result;
 }

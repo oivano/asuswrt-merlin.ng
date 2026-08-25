@@ -23,11 +23,9 @@
  ***************************************************************************/
 #include "first.h"
 
-#include "memdebug.h"
-
 static CURLcode test_lib1571(const char *URL)
 {
-  CURLcode res;
+  CURLcode result;
   CURL *curl;
 
   if(curl_global_init(CURL_GLOBAL_ALL) != CURLE_OK) {
@@ -42,31 +40,31 @@ static CURLcode test_lib1571(const char *URL)
     return TEST_ERR_MAJOR_BAD;
   }
 
-  test_setopt(curl, CURLOPT_HEADER, 1L);
-  test_setopt(curl, CURLOPT_VERBOSE, 1L);
-  test_setopt(curl, CURLOPT_URL, URL);
+  easy_setopt(curl, CURLOPT_HEADER, 1L);
+  easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+  easy_setopt(curl, CURLOPT_URL, URL);
   if((testnum == 1571) || (testnum == 1572) ||
      (testnum == 1575) || (testnum == 1581)) {
-    test_setopt(curl, CURLOPT_POSTFIELDS, "moo");
+    easy_setopt(curl, CURLOPT_POSTFIELDS, "moo");
   }
   if(testnum == 1581) {
-    test_setopt(curl, CURLOPT_POSTREDIR, CURL_REDIR_POST_301);
+    easy_setopt(curl, CURLOPT_POSTREDIR, CURL_REDIR_POST_301);
   }
 
-  test_setopt(curl, CURLOPT_CUSTOMREQUEST, "IGLOO");
+  easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "IGLOO");
   if((testnum == 1574) || (testnum == 1575)) {
-    test_setopt(curl, CURLOPT_FOLLOWLOCATION, CURLFOLLOW_FIRSTONLY);
+    easy_setopt(curl, CURLOPT_FOLLOWLOCATION, CURLFOLLOW_FIRSTONLY);
   }
   else {
-    test_setopt(curl, CURLOPT_FOLLOWLOCATION, CURLFOLLOW_OBEYCODE);
+    easy_setopt(curl, CURLOPT_FOLLOWLOCATION, CURLFOLLOW_OBEYCODE);
   }
 
-  res = curl_easy_perform(curl);
+  result = curl_easy_perform(curl);
 
 test_cleanup:
 
   curl_easy_cleanup(curl);
   curl_global_cleanup();
 
-  return res;
+  return result;
 }

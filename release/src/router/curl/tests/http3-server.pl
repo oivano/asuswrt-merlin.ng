@@ -102,7 +102,7 @@ while(@ARGV) {
         }
     }
     else {
-        print STDERR "\nWarning: http3-server.pl unknown parameter: $ARGV[0]\n";
+        print STDERR "\nWarning: http3-server.pl unknown parameter: '$ARGV[0]'\n";
     }
     shift @ARGV;
 }
@@ -110,7 +110,7 @@ while(@ARGV) {
 my $certfile = abs_path("certs/$cert.pem");
 my $keyfile = abs_path("certs/$cert.key");
 
-my $cmdline="$nghttpx --http2-proxy --backend=$connect ".
+my $cmdline = "$nghttpx --http2-proxy --backend=$connect ".
     "--backend-keep-alive-timeout=500ms ".
     "--frontend=\"*,$listenport\" ".
     "--frontend=\"*,$listenport;quic\" ".

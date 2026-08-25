@@ -64,10 +64,10 @@ use testutil qw(
     exerunner
     );
 
-our $logfile;  # server log file name, for logmsg
+our $logfile;  # server log filename, for logmsg
 
 #***************************************************************************
-# Just for convenience, test harness uses 'https' and 'httptls' literals as
+# For convenience, test harness uses 'https' and 'httptls' literals as
 # values for 'proto' variable in order to differentiate different servers.
 # 'https' literal is used for stunnel based https test servers, and 'httptls'
 # is used for non-stunnel https test servers.
@@ -77,19 +77,17 @@ our $logfile;  # server log file name, for logmsg
 #
 sub logmsg {
     my ($seconds, $usec) = Time::HiRes::gettimeofday();
-    my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) =
-        localtime($seconds);
+    my ($sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst) = localtime($seconds);
     my $now = sprintf("%02d:%02d:%02d.%06d ", $hour, $min, $sec, $usec);
     # we see warnings on Windows run that $logfile is used uninitialized
     # TODO: not found yet where this comes from
     $logfile = "serverhelp_uninitialized.log" if(!$logfile);
-    if(open(my $logfilefh, ">>", "$logfile")) {
+    if(open(my $logfilefh, ">>", $logfile)) {
         print $logfilefh $now;
         print $logfilefh @_;
         close($logfilefh);
     }
 }
-
 
 #***************************************************************************
 # Return server characterization factors given a server id string.
@@ -118,7 +116,6 @@ sub serverfactors {
     return($proto, $ipvnum, $idnum);
 }
 
-
 #***************************************************************************
 # Return server name string formatted for presentation purposes
 #
@@ -127,7 +124,7 @@ sub servername_str {
 
     $proto = uc($proto) if($proto);
     die "unsupported protocol: '$proto'" unless($proto &&
-        ($proto =~ /^(((DNS|FTP|HTTP|HTTP\/2|HTTP\/3|IMAP|POP3|GOPHER|SMTP|HTTPS-MTLS)S?)|(TFTP|SFTP|SOCKS|SSH|RTSP|HTTPTLS|DICT|SMB|SMBS|TELNET|MQTT))$/));
+        ($proto =~ /^(((DNS|FTP|HTTP|HTTP\/2|HTTP\/3|IMAP|POP3|GOPHER|SMTP|HTTPS-MTLS)S?)|(TFTP|SFTP|SOCKS|SSH|RTSP|HTTPTLS|DICT|SMB|SMBS|TELNET|MQTT|MQTTS))$/));
 
     $ipver = (not $ipver) ? 'ipv4' : lc($ipver);
     die "unsupported IP version: '$ipver'" unless($ipver &&
@@ -142,7 +139,6 @@ sub servername_str {
     return "${proto}${idnum}${ipver}";
 }
 
-
 #***************************************************************************
 # Return server name string formatted for identification purposes
 #
@@ -151,9 +147,8 @@ sub servername_id {
     return lc(servername_str($proto, $ipver, $idnum));
 }
 
-
 #***************************************************************************
-# Return server name string formatted for file name purposes
+# Return server name string formatted for filename purposes
 #
 sub servername_canon {
     my ($proto, $ipver, $idnum) = @_;
@@ -163,66 +158,60 @@ sub servername_canon {
     return $string;
 }
 
-
 #***************************************************************************
-# Return file name for server pid file.
+# Return filename for server pid file.
 #
 sub server_pidfilename {
     my ($piddir, $proto, $ipver, $idnum) = @_;
     my $trailer = '_server.pid';
-    return "${piddir}/". servername_canon($proto, $ipver, $idnum) ."$trailer";
+    return "${piddir}/". servername_canon($proto, $ipver, $idnum) . $trailer;
 }
 
 #***************************************************************************
-# Return file name for server port file.
+# Return filename for server port file.
 #
 sub server_portfilename {
     my ($piddir, $proto, $ipver, $idnum) = @_;
     my $trailer = '_server.port';
-    return "${piddir}/". servername_canon($proto, $ipver, $idnum) ."$trailer";
+    return "${piddir}/". servername_canon($proto, $ipver, $idnum) . $trailer;
 }
 
-
 #***************************************************************************
-# Return file name for server log file.
+# Return filename for server log file.
 #
 sub server_logfilename {
     my ($logdir, $proto, $ipver, $idnum) = @_;
     my $trailer = '_server.log';
     $trailer = '_stunnel.log' if(lc($proto) =~ /^(ftp|http|imap|pop3|smtp)s$/);
-    return "${logdir}/". servername_canon($proto, $ipver, $idnum) ."$trailer";
+    return "${logdir}/". servername_canon($proto, $ipver, $idnum) . $trailer;
 }
 
-
 #***************************************************************************
-# Return file name for server commands file.
+# Return filename for server commands file.
 #
 sub server_cmdfilename {
     my ($logdir, $proto, $ipver, $idnum) = @_;
     my $trailer = '_server.cmd';
-    return "${logdir}/". servername_canon($proto, $ipver, $idnum) ."$trailer";
+    return "${logdir}/". servername_canon($proto, $ipver, $idnum) . $trailer;
 }
 
-
 #***************************************************************************
-# Return file name for server input file.
+# Return filename for server input file.
 #
 sub server_inputfilename {
     my ($logdir, $proto, $ipver, $idnum) = @_;
     my $trailer = '_server.input';
-    return "${logdir}/". servername_canon($proto, $ipver, $idnum) ."$trailer";
+    return "${logdir}/". servername_canon($proto, $ipver, $idnum) . $trailer;
 }
 
-
 #***************************************************************************
-# Return file name for server output file.
+# Return filename for server output file.
 #
 sub server_outputfilename {
     my ($logdir, $proto, $ipver, $idnum) = @_;
     my $trailer = '_server.output';
-    return "${logdir}/". servername_canon($proto, $ipver, $idnum) ."$trailer";
+    return "${logdir}/". servername_canon($proto, $ipver, $idnum) . $trailer;
 }
-
 
 #***************************************************************************
 # Return filename for a server executable
@@ -234,7 +223,6 @@ sub server_exe {
     }
     return exerunner() . $SRVDIR . "servers" . exe_ext($ext) . " $name";
 }
-
 
 #***************************************************************************
 # Return filename for a server executable as an argument list
@@ -251,54 +239,49 @@ sub server_exe_args {
     return @cmd;
 }
 
-
 #***************************************************************************
-# Return file name for main or primary sockfilter pid file.
+# Return filename for main or primary sockfilter pid file.
 #
 sub mainsockf_pidfilename {
     my ($piddir, $proto, $ipver, $idnum) = @_;
     die "unsupported protocol: '$proto'" unless($proto &&
         (lc($proto) =~ /^(ftp|imap|pop3|smtp)s?$/));
-    my $trailer = (lc($proto) =~ /^ftps?$/) ? '_sockctrl.pid':'_sockfilt.pid';
-    return "${piddir}/". servername_canon($proto, $ipver, $idnum) ."$trailer";
+    my $trailer = (lc($proto) =~ /^ftps?$/) ? '_sockctrl.pid' : '_sockfilt.pid';
+    return "${piddir}/". servername_canon($proto, $ipver, $idnum) . $trailer;
 }
 
-
 #***************************************************************************
-# Return file name for main or primary sockfilter log file.
+# Return filename for main or primary sockfilter log file.
 #
 sub mainsockf_logfilename {
     my ($logdir, $proto, $ipver, $idnum) = @_;
     die "unsupported protocol: '$proto'" unless($proto &&
         (lc($proto) =~ /^(ftp|imap|pop3|smtp)s?$/));
-    my $trailer = (lc($proto) =~ /^ftps?$/) ? '_sockctrl.log':'_sockfilt.log';
-    return "${logdir}/". servername_canon($proto, $ipver, $idnum) ."$trailer";
+    my $trailer = (lc($proto) =~ /^ftps?$/) ? '_sockctrl.log' : '_sockfilt.log';
+    return "${logdir}/". servername_canon($proto, $ipver, $idnum) . $trailer;
 }
 
-
 #***************************************************************************
-# Return file name for data or secondary sockfilter pid file.
+# Return filename for data or secondary sockfilter pid file.
 #
 sub datasockf_pidfilename {
     my ($piddir, $proto, $ipver, $idnum) = @_;
     die "unsupported protocol: '$proto'" unless($proto &&
         (lc($proto) =~ /^ftps?$/));
     my $trailer = '_sockdata.pid';
-    return "${piddir}/". servername_canon($proto, $ipver, $idnum) ."$trailer";
+    return "${piddir}/". servername_canon($proto, $ipver, $idnum) . $trailer;
 }
 
-
 #***************************************************************************
-# Return file name for data or secondary sockfilter log file.
+# Return filename for data or secondary sockfilter log file.
 #
 sub datasockf_logfilename {
     my ($logdir, $proto, $ipver, $idnum) = @_;
     die "unsupported protocol: '$proto'" unless($proto &&
         (lc($proto) =~ /^ftps?$/));
     my $trailer = '_sockdata.log';
-    return "${logdir}/". servername_canon($proto, $ipver, $idnum) ."$trailer";
+    return "${logdir}/". servername_canon($proto, $ipver, $idnum) . $trailer;
 }
-
 
 #***************************************************************************
 # End of library

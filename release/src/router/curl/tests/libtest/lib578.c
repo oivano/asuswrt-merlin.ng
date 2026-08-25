@@ -23,8 +23,6 @@
  ***************************************************************************/
 #include "first.h"
 
-#include "memdebug.h"
-
 /* The size of data should be kept below MAX_INITIAL_POST_SIZE! */
 static char t578_testdata[] = "this is a short string.\n";
 
@@ -53,7 +51,7 @@ static int t578_progress_callback(void *clientp, double dltotal, double dlnow,
 static CURLcode test_lib578(const char *URL)
 {
   CURL *curl;
-  CURLcode res = CURLE_OK;
+  CURLcode result = CURLE_OK;
 
   if(curl_global_init(CURL_GLOBAL_ALL) != CURLE_OK) {
     curl_mfprintf(stderr, "curl_global_init() failed\n");
@@ -68,27 +66,27 @@ static CURLcode test_lib578(const char *URL)
   }
 
   /* First set the URL that is about to receive our POST. */
-  test_setopt(curl, CURLOPT_URL, URL);
+  easy_setopt(curl, CURLOPT_URL, URL);
 
   /* Now specify we want to POST data */
-  test_setopt(curl, CURLOPT_POST, 1L);
+  easy_setopt(curl, CURLOPT_POST, 1L);
 
   /* Set the expected POST size */
-  test_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)data_size);
-  test_setopt(curl, CURLOPT_POSTFIELDS, t578_testdata);
+  easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)data_size);
+  easy_setopt(curl, CURLOPT_POSTFIELDS, t578_testdata);
 
   /* we want to use our own progress function */
-  test_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-  test_setopt(curl, CURLOPT_PROGRESSFUNCTION, t578_progress_callback);
+  easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+  easy_setopt(curl, CURLOPT_PROGRESSFUNCTION, t578_progress_callback);
 
   /* get verbose debug output please */
-  test_setopt(curl, CURLOPT_VERBOSE, 1L);
+  easy_setopt(curl, CURLOPT_VERBOSE, 1L);
 
   /* include headers in the output */
-  test_setopt(curl, CURLOPT_HEADER, 1L);
+  easy_setopt(curl, CURLOPT_HEADER, 1L);
 
-  /* Perform the request, res will get the return code */
-  res = curl_easy_perform(curl);
+  /* Perform the request, result gets the return code */
+  result = curl_easy_perform(curl);
 
 test_cleanup:
 
@@ -96,5 +94,5 @@ test_cleanup:
   curl_easy_cleanup(curl);
   curl_global_cleanup();
 
-  return res;
+  return result;
 }

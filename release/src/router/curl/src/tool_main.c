@@ -49,7 +49,9 @@
  * the library level code from this client-side is ugly, but we do this
  * anyway for convenience.
  */
+#ifdef CURLDEBUG
 #include "memdebug.h" /* keep this as LAST include */
+#endif
 
 #ifdef __VMS
 /*

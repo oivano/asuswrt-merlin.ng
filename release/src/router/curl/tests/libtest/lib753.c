@@ -24,7 +24,6 @@
 #include "first.h"
 
 #include "testtrace.h"
-#include "memdebug.h"
 
 struct t753_transfer_status {
   CURL *curl;
@@ -66,7 +65,7 @@ static bool t753_setup(const char *URL, const char *name,
                        struct t753_transfer_status *st)
 {
   CURL *curl = NULL;
-  CURLcode res = CURLE_OK;
+  CURLcode result = CURLE_OK;
 
   *pcurl = NULL;
   memset(st, 0, sizeof(*st));
@@ -101,8 +100,8 @@ static CURLcode test_lib753(const char *URL)
   CURL *curl1 = NULL, *curl2 = NULL;
   CURLM *multi = NULL;
   struct t753_transfer_status st1, st2;
-  CURLcode res = CURLE_OK;
-  CURLMcode mres;
+  CURLcode result = CURLE_OK;
+  CURLMcode mresult;
   int still_running;
 
   start_test_timing();
@@ -115,7 +114,7 @@ static CURLcode test_lib753(const char *URL)
   curl_mfprintf(stderr, "init multi\n");
   multi = curl_multi_init();
   if(!multi) {
-    res = CURLE_OUT_OF_MEMORY;
+    result = CURLE_OUT_OF_MEMORY;
     goto test_cleanup;
   }
 
@@ -135,8 +134,8 @@ static CURLcode test_lib753(const char *URL)
      * 1. Violently cleanup EASY1 *without* removing it from the multi
      *    handle first. This MUST discard the connection that EASY1 holds,
      *    as EASY1 is not DONE at this point.
-     *    With the env var CURL_FTP_PWD_STOP set, the connection will
-     *    have no outstanding data at this point. This would allow
+     *    With the env var CURL_FTP_PWD_STOP set, the connection has
+     *    no outstanding data at this point. This would allow
      *    reuse if the connection is not terminated by the cleanup.
      * 2. Add EASY2 for the same URL and observe in the expected result
      *    that the connection is NOT reused, e.g. all FTP commands
@@ -153,10 +152,10 @@ static CURLcode test_lib753(const char *URL)
       }
     }
 
-    mres = curl_multi_wait(multi, NULL, 0, 1, &num);
-    if(mres != CURLM_OK) {
-      curl_mfprintf(stderr, "curl_multi_wait() returned %d\n", mres);
-      res = TEST_ERR_MAJOR_BAD;
+    mresult = curl_multi_wait(multi, NULL, 0, 1, &num);
+    if(mresult != CURLM_OK) {
+      curl_mfprintf(stderr, "curl_multi_wait() returned %d\n", mresult);
+      result = TEST_ERR_MAJOR_BAD;
       goto test_cleanup;
     }
 
@@ -170,8 +169,8 @@ static CURLcode test_lib753(const char *URL)
 
 test_cleanup:
 
-  if(res)
-    curl_mfprintf(stderr, "ERROR: %s\n", curl_easy_strerror(res));
+  if(result)
+    curl_mfprintf(stderr, "ERROR: %s\n", curl_easy_strerror(result));
 
   if(curl1)
     curl_easy_cleanup(curl1);
@@ -180,5 +179,5 @@ test_cleanup:
   curl_multi_cleanup(multi);
   curl_global_cleanup();
 
-  return res;
+  return result;
 }

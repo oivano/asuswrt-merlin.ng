@@ -34,7 +34,7 @@ static CURLcode recv_any(CURL *curl)
     return result;
 
   curl_mfprintf(stderr, "recv_any: got %zu bytes rflags %x\n", rlen,
-                meta->flags);
+                (unsigned int)meta->flags);
   return CURLE_OK;
 }
 
@@ -62,7 +62,7 @@ static CURLcode test_lib2304(const char *URL)
 {
 #ifndef CURL_DISABLE_WEBSOCKETS
   CURL *curl;
-  CURLcode res = CURLE_OK;
+  CURLcode result = CURLE_OK;
 
   global_init(CURL_GLOBAL_ALL);
 
@@ -74,17 +74,19 @@ static CURLcode test_lib2304(const char *URL)
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "websocket/2304");
     curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
     curl_easy_setopt(curl, CURLOPT_CONNECT_ONLY, 2L); /* websocket style */
-    res = curl_easy_perform(curl);
-    curl_mfprintf(stderr, "curl_easy_perform() returned %d\n", res);
-    if(res == CURLE_OK)
+    result = curl_easy_perform(curl);
+    curl_mfprintf(stderr, "curl_easy_perform() returned %d\n", (int)result);
+    if(result == CURLE_OK)
       t2304_websocket(curl);
 
     /* always cleanup */
     curl_easy_cleanup(curl);
   }
   curl_global_cleanup();
-  return res;
+  return result;
 #else
-  NO_SUPPORT_BUILT_IN
+  (void)URL;
+  curl_mfprintf(stderr, "Missing support\n");
+  return CURLE_UNSUPPORTED_PROTOCOL;
 #endif
 }

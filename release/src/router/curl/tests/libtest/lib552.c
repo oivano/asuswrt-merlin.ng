@@ -28,7 +28,6 @@
 #include "first.h"
 
 #include "testtrace.h"
-#include "memdebug.h"
 
 static size_t current_offset = 0;
 static char databuf[70000]; /* MUST be more than 64k OR
@@ -36,10 +35,10 @@ static char databuf[70000]; /* MUST be more than 64k OR
 
 static size_t t552_read_cb(char *ptr, size_t size, size_t nmemb, void *stream)
 {
-  size_t  amount = nmemb * size; /* Total bytes curl wants */
-  size_t  available = sizeof(databuf) - current_offset; /* What we have to
-                                                           give */
-  size_t  given = amount < available ? amount : available; /* What is given */
+  size_t amount = nmemb * size; /* Total bytes curl wants */
+  size_t available = sizeof(databuf) - current_offset; /* What we have to
+                                                          give */
+  size_t given = amount < available ? amount : available; /* What is given */
   (void)stream;
   memcpy(ptr, databuf + current_offset, given);
   current_offset += given;
@@ -70,7 +69,7 @@ static curlioerr ioctl_callback(CURL *curl, int cmd, void *clientp)
 static CURLcode test_lib552(const char *URL)
 {
   CURL *curl;
-  CURLcode res = CURLE_OK;
+  CURLcode result = CURLE_OK;
   size_t i;
   static const char fill[] = "test data";
 
@@ -80,41 +79,41 @@ static CURLcode test_lib552(const char *URL)
   global_init(CURL_GLOBAL_ALL);
   easy_init(curl);
 
-  test_setopt(curl, CURLOPT_DEBUGFUNCTION, libtest_debug_cb);
-  test_setopt(curl, CURLOPT_DEBUGDATA, &debug_config);
+  easy_setopt(curl, CURLOPT_DEBUGFUNCTION, libtest_debug_cb);
+  easy_setopt(curl, CURLOPT_DEBUGDATA, &debug_config);
   /* the DEBUGFUNCTION has no effect until we enable VERBOSE */
-  test_setopt(curl, CURLOPT_VERBOSE, 1L);
+  easy_setopt(curl, CURLOPT_VERBOSE, 1L);
 
   /* setup repeated data string */
   for(i = 0; i < sizeof(databuf); ++i)
     databuf[i] = fill[i % sizeof(fill)];
 
   /* Post */
-  test_setopt(curl, CURLOPT_POST, 1L);
+  easy_setopt(curl, CURLOPT_POST, 1L);
 
   /* Setup read callback */
-  test_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)sizeof(databuf));
-  test_setopt(curl, CURLOPT_READFUNCTION, t552_read_cb);
+  easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)sizeof(databuf));
+  easy_setopt(curl, CURLOPT_READFUNCTION, t552_read_cb);
 
   /* Write callback */
-  test_setopt(curl, CURLOPT_WRITEFUNCTION, t552_write_cb);
+  easy_setopt(curl, CURLOPT_WRITEFUNCTION, t552_write_cb);
 
   /* Ioctl function */
-  test_setopt(curl, CURLOPT_IOCTLFUNCTION, ioctl_callback);
+  easy_setopt(curl, CURLOPT_IOCTLFUNCTION, ioctl_callback);
 
-  test_setopt(curl, CURLOPT_PROXY, libtest_arg2);
+  easy_setopt(curl, CURLOPT_PROXY, libtest_arg2);
 
-  test_setopt(curl, CURLOPT_URL, URL);
+  easy_setopt(curl, CURLOPT_URL, URL);
 
   /* Accept any auth. But for this bug configure proxy with DIGEST, basic
      might work too, not NTLM */
-  test_setopt(curl, CURLOPT_PROXYAUTH, CURLAUTH_ANY);
+  easy_setopt(curl, CURLOPT_PROXYAUTH, CURLAUTH_ANY);
 
-  res = curl_easy_perform(curl);
+  result = curl_easy_perform(curl);
 
 test_cleanup:
 
   curl_easy_cleanup(curl);
   curl_global_cleanup();
-  return res;
+  return result;
 }

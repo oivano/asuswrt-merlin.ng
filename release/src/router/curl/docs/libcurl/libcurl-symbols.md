@@ -477,7 +477,7 @@ Introduced in 7.57.0. See curl_version_info(3).
 Introduced in 7.15.4. See curl_version_info(3).
 
 ## CURL_VERSION_CURLDEBUG
-Introduced in 7.19.6. See curl_version_info(3).
+Introduced in 7.19.6. Deprecated since 8.19.0.
 
 ## CURL_VERSION_DEBUG
 Introduced in 7.10.6. See curl_version_info(3).
@@ -609,7 +609,7 @@ Introduced in 7.61.0. See CURLOPT_HTTPAUTH(3).
 Introduced in 7.10.6. See CURLOPT_HTTPAUTH(3).
 
 ## CURLAUTH_DIGEST_IE
-Introduced in 7.19.3. See CURLOPT_HTTPAUTH(3).
+Introduced in 7.19.3. Deprecated since 8.21.0.
 
 ## CURLAUTH_GSSAPI
 Introduced in 7.55.0. See CURLOPT_HTTPAUTH(3).
@@ -1469,6 +1469,9 @@ Introduced in 7.20.0.
 ## CURLINFO_SCHEME
 Introduced in 7.52.0.
 
+## CURLINFO_SIZE_DELIVERED
+Introduced in 8.20.0.
+
 ## CURLINFO_SIZE_DOWNLOAD
 Introduced in 7.4.1. Deprecated since 7.55.0.
 
@@ -1673,6 +1676,9 @@ Introduced in 8.17.0.
 ## CURLMNOTIFY_INFO_READ
 Introduced in 8.17.0.
 
+## CURLMNWC_CLEAR_ALL
+Introduced in 8.20.0.
+
 ## CURLMNWC_CLEAR_CONNS
 Introduced in 8.16.0.
 
@@ -1723,6 +1729,12 @@ Introduced in 7.44.0. See CURLMOPT_PUSHDATA(3).
 
 ## CURLMOPT_PUSHFUNCTION
 Introduced in 7.44.0. See CURLMOPT_PUSHFUNCTION(3).
+
+## CURLMOPT_QUICK_EXIT
+Introduced in 8.20.0. See CURLMOPT_QUICK_EXIT(3).
+
+## CURLMOPT_RESOLVE_THREADS_MAX
+Introduced in 8.20.0. See CURLMOPT_RESOLVE_THREADS_MAX(3).
 
 ## CURLMOPT_SOCKETDATA
 Introduced in 7.15.4. See CURLMOPT_SOCKETDATA(3).
@@ -2628,10 +2640,10 @@ Introduced in 7.1. See CURLOPT_SSLVERSION(3).
 Introduced in 7.1. See CURLOPT_STDERR(3).
 
 ## CURLOPT_STREAM_DEPENDS
-Introduced in 7.46.0. See CURLOPT_STREAM_DEPENDS(3).
+Introduced in 7.46.0. Deprecated since 8.21.0.
 
 ## CURLOPT_STREAM_DEPENDS_E
-Introduced in 7.46.0. See CURLOPT_STREAM_DEPENDS_E(3).
+Introduced in 7.46.0. Deprecated since 8.21.0.
 
 ## CURLOPT_STREAM_WEIGHT
 Introduced in 7.46.0. See CURLOPT_STREAM_WEIGHT(3).
@@ -2904,22 +2916,22 @@ Introduced in 7.20.0. See CURLINFO_PROTOCOL(3).
 Introduced in 7.20.0. See CURLINFO_PROTOCOL(3).
 
 ## CURLPROTO_RTMP
-Introduced in 7.21.0. See CURLINFO_PROTOCOL(3).
+Introduced in 7.21.0. Deprecated since 8.20.0.
 
 ## CURLPROTO_RTMPE
-Introduced in 7.21.0. See CURLINFO_PROTOCOL(3).
+Introduced in 7.21.0. Deprecated since 8.20.0.
 
 ## CURLPROTO_RTMPS
-Introduced in 7.21.0. See CURLINFO_PROTOCOL(3).
+Introduced in 7.21.0. Deprecated since 8.20.0.
 
 ## CURLPROTO_RTMPT
-Introduced in 7.21.0. See CURLINFO_PROTOCOL(3).
+Introduced in 7.21.0. Deprecated since 8.20.0.
 
 ## CURLPROTO_RTMPTE
-Introduced in 7.21.0. See CURLINFO_PROTOCOL(3).
+Introduced in 7.21.0. Deprecated since 8.20.0.
 
 ## CURLPROTO_RTMPTS
-Introduced in 7.21.0. See CURLINFO_PROTOCOL(3).
+Introduced in 7.21.0. Deprecated since 8.20.0.
 
 ## CURLPROTO_RTSP
 Introduced in 7.20.0. See CURLINFO_PROTOCOL(3).
@@ -2959,6 +2971,9 @@ Introduced in 7.52.0. See CURLOPT_PROXYTYPE(3).
 
 ## CURLPROXY_HTTPS2
 Introduced in 8.1.0. See CURLOPT_PROXYTYPE(3).
+
+## CURLPROXY_HTTPS3
+Introduced in 8.21.0. See CURLOPT_PROXYTYPE(3).
 
 ## CURLPROXY_SOCKS4
 Introduced in 7.10. See CURLOPT_PROXYTYPE(3).

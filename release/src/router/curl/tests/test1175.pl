@@ -26,7 +26,7 @@
 use strict;
 use warnings;
 
-# we may get the dir root pointed out
+# we may get the directory root pointed out
 my $root = $ARGV[0] || ".";
 
 my %error; # from the include file
@@ -41,7 +41,7 @@ sub getdocserrors {
                 ;
             }
             else {
-                $docs{$symbol}=1;
+                $docs{$symbol} = 1;
             }
         }
     }
@@ -57,7 +57,7 @@ sub getincludeerrors {
                 # removed!
             }
             else {
-                $error{$symbol}=$added;
+                $error{$symbol} = $added;
             }
         }
     }

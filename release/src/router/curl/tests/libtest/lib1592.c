@@ -26,15 +26,14 @@
  *
  * This test case checks whether curl_multi_remove_handle() cancels
  * asynchronous DNS resolvers without blocking where possible.  Obviously, it
- * only tests whichever resolver cURL is actually built with.
+ * only tests whichever resolver curl is actually built with.
  */
 
-/* We're willing to wait a very generous two seconds for the removal.  This is
-   as low as we can go while still easily supporting SIGALRM timing for the
-   non-threaded blocking resolver.  It doesn't matter that much because when
-   the test passes, we never wait this long. We set it much higher via
-   the default TEST_HANG_TIMEOUT to avoid issues when running on overloaded
-   CI machines. */
+/* We are waiting a generous two seconds for the removal.  This is as low as we
+   can go while still easily supporting SIGALRM timing for the non-threaded
+   blocking resolver.  It does not matter that much because when the test
+   passes, we never wait this long. We set it much higher via the default
+   TEST_HANG_TIMEOUT to avoid issues when running on overloaded CI machines. */
 
 #include "first.h"
 
@@ -43,8 +42,8 @@ static CURLcode test_lib1592(const char *URL)
   int stillRunning;
   CURLM *multi = NULL;
   CURL *curl = NULL;
-  CURLcode res = CURLE_OK;
-  CURLMcode mres;
+  CURLcode result = CURLE_OK;
+  CURLMcode mresult;
   long timeout;
 
   global_init(CURL_GLOBAL_ALL);
@@ -56,34 +55,33 @@ static CURLcode test_lib1592(const char *URL)
   easy_setopt(curl, CURLOPT_VERBOSE, 1L);
   easy_setopt(curl, CURLOPT_URL, URL);
 
-  /* Set a DNS server that hopefully will not respond when using c-ares. */
+  /* Set a DNS server that hopefully does not respond when using c-ares. */
   if(curl_easy_setopt(curl, CURLOPT_DNS_SERVERS, "0.0.0.0") == CURLE_OK)
     /* Since we could set the DNS server, presume we are working with a
        resolver that can be cancelled (i.e. c-ares).  Thus,
        curl_multi_remove_handle() should not block even when the resolver
-       request is outstanding.  So, set a request timeout _longer_ than the
-       test hang timeout so we will fail if the handle removal call incorrectly
+       request is outstanding. Thus, set a request timeout _longer_ than the
+       test hang timeout so we fail if the handle removal call incorrectly
        blocks. */
     timeout = TEST_HANG_TIMEOUT * 2;
   else {
-    /* If we can't set the DNS server, presume that we are configured to use a
-       resolver that can't be cancelled (i.e. the threaded resolver or the
-       non-threaded blocking resolver).  So, we just test that the
+    /* If we cannot set the DNS server, presume that we are configured to use
+       a resolver that cannot be cancelled (i.e. the threaded resolver or the
+       non-threaded blocking resolver). Thus, we test that the
        curl_multi_remove_handle() call does finish well within our test
        timeout.
 
-       But, it is very unlikely that the resolver request will take any time at
-       all because we haven't been able to configure the resolver to use an
-       non-responsive DNS server.  At least we exercise the flow.
-       */
+       But, it is unlikely that the resolver request takes any time at
+       all because we have not been able to configure the resolver to use an
+       non-responsive DNS server. At least we exercise the flow. */
     curl_mfprintf(stderr,
                   "CURLOPT_DNS_SERVERS not supported; "
-                  "assuming curl_multi_remove_handle() will block\n");
+                  "assuming curl_multi_remove_handle() does block\n");
     timeout = TEST_HANG_TIMEOUT / 2;
   }
 
   /* Setting a timeout on the request should ensure that even if we have to
-     wait for the resolver during curl_multi_remove_handle(), it won't take
+     wait for the resolver during curl_multi_remove_handle(), it does not take
      longer than this, because the resolver request inherits its timeout from
      this. */
   easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout);
@@ -98,18 +96,18 @@ static CURLcode test_lib1592(const char *URL)
   /* Start measuring how long it takes to remove the handle. */
   curl_mfprintf(stderr, "curl_multi_remove_handle()...\n");
   start_test_timing();
-  mres = curl_multi_remove_handle(multi, curl);
-  if(mres) {
-    curl_mfprintf(stderr,
-                  "curl_multi_remove_handle() failed, with code %d\n", mres);
-    res = TEST_ERR_MULTI;
+  mresult = curl_multi_remove_handle(multi, curl);
+  if(mresult) {
+    curl_mfprintf(stderr, "curl_multi_remove_handle() failed, with code %d\n",
+                  mresult);
+    result = TEST_ERR_MULTI;
     goto test_cleanup;
   }
   curl_mfprintf(stderr, "curl_multi_remove_handle() succeeded\n");
 
   /* Fail the test if it took too long to remove.  This happens after the fact,
-     and says "it seems that it would have run forever", which isn't true, but
-     it's close enough, and simple to do. */
+     and says "it seems that it would have run forever", which is not true, but
+     it is close enough, and simple to do. */
   abort_on_test_timeout();
 
 test_cleanup:
@@ -117,5 +115,5 @@ test_cleanup:
   curl_multi_cleanup(multi);
   curl_global_cleanup();
 
-  return res;
+  return result;
 }

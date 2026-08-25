@@ -23,17 +23,15 @@
  ***************************************************************************/
 #include "first.h"
 
-#include "memdebug.h"
-
 struct t668_WriteThis {
   const char *readptr;
-  curl_off_t sizeleft;
+  size_t sizeleft;
 };
 
 static size_t t668_read_cb(char *ptr, size_t size, size_t nmemb, void *userp)
 {
   struct t668_WriteThis *pooh = (struct t668_WriteThis *)userp;
-  size_t len = strlen(pooh->readptr);
+  size_t len = pooh->sizeleft;
 
   (void)size; /* Always 1 */
 
@@ -42,6 +40,7 @@ static size_t t668_read_cb(char *ptr, size_t size, size_t nmemb, void *userp)
   if(len) {
     memcpy(ptr, pooh->readptr, len);
     pooh->readptr += len;
+    pooh->sizeleft -= len;
   }
   return len;
 }
@@ -53,7 +52,7 @@ static CURLcode test_lib668(const char *URL)
   CURL *curl = NULL;
   curl_mime *mime = NULL;
   curl_mimepart *part;
-  CURLcode res = TEST_ERR_FAILURE;
+  CURLcode result = TEST_ERR_FAILURE;
   struct t668_WriteThis pooh1, pooh2;
 
   /*
@@ -68,17 +67,17 @@ static CURLcode test_lib668(const char *URL)
   curl = curl_easy_init();
 
   /* First set the URL that is about to receive our POST. */
-  test_setopt(curl, CURLOPT_URL, URL);
+  easy_setopt(curl, CURLOPT_URL, URL);
 
   /* get verbose debug output please */
-  test_setopt(curl, CURLOPT_VERBOSE, 1L);
+  easy_setopt(curl, CURLOPT_VERBOSE, 1L);
 
   /* include headers in the output */
-  test_setopt(curl, CURLOPT_HEADER, 1L);
+  easy_setopt(curl, CURLOPT_HEADER, 1L);
 
   /* Prepare the callback structures. */
   pooh1.readptr = testdata;
-  pooh1.sizeleft = (curl_off_t) strlen(testdata);
+  pooh1.sizeleft = sizeof(testdata) - 1;
   pooh2 = pooh1;
 
   /* Build the mime tree. */
@@ -86,14 +85,13 @@ static CURLcode test_lib668(const char *URL)
   part = curl_mime_addpart(mime);
   curl_mime_name(part, "field1");
   /* Early end of data detection can be done because the data size is known. */
-  curl_mime_data_cb(part, (curl_off_t) strlen(testdata),
+  curl_mime_data_cb(part, (curl_off_t)pooh1.sizeleft,
                     t668_read_cb, NULL, NULL, &pooh1);
   part = curl_mime_addpart(mime);
   curl_mime_name(part, "field2");
   /* Using an undefined length forces chunked transfer and disables early
      end of data detection for this part. */
-  curl_mime_data_cb(part, (curl_off_t) -1, t668_read_cb,
-                    NULL, NULL, &pooh2);
+  curl_mime_data_cb(part, (curl_off_t)-1, t668_read_cb, NULL, NULL, &pooh2);
   part = curl_mime_addpart(mime);
   curl_mime_name(part, "field3");
   /* Regular file part sources early end of data can be detected because
@@ -101,11 +99,11 @@ static CURLcode test_lib668(const char *URL)
   curl_mime_filedata(part, libtest_arg2);
 
   /* Bind mime data to its easy handle. */
-  test_setopt(curl, CURLOPT_MIMEPOST, mime);
+  easy_setopt(curl, CURLOPT_MIMEPOST, mime);
 
   /* Send data. */
-  res = curl_easy_perform(curl);
-  if(res != CURLE_OK) {
+  result = curl_easy_perform(curl);
+  if(result != CURLE_OK) {
     curl_mfprintf(stderr, "curl_easy_perform() failed\n");
   }
 
@@ -113,5 +111,5 @@ test_cleanup:
   curl_easy_cleanup(curl);
   curl_mime_free(mime);
   curl_global_cleanup();
-  return res;
+  return result;
 }

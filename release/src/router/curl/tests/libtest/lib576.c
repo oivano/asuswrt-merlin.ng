@@ -23,8 +23,6 @@
  ***************************************************************************/
 #include "first.h"
 
-#include "memdebug.h"
-
 struct chunk_data {
   int remains;
   int print_content;
@@ -75,7 +73,7 @@ static long chunk_bgn(const void *f, void *ptr, int remains)
                  "-------------------------------------------"
                  "------------------\n");
   }
-  if(strcmp(finfo->filename, "someothertext.txt") == 0) {
+  if(!strcmp(finfo->filename, "someothertext.txt")) {
     curl_mprintf("# THIS CONTENT WAS SKIPPED IN CHUNK_BGN CALLBACK #\n");
     return CURL_CHUNK_BGN_FUNC_SKIP;
   }
@@ -99,26 +97,26 @@ static long chunk_end(void *ptr)
 static CURLcode test_lib576(const char *URL)
 {
   CURL *curl = NULL;
-  CURLcode res = CURLE_OK;
-  struct chunk_data chunk_data = {0, 0};
+  CURLcode result = CURLE_OK;
+  struct chunk_data chunk_data = { 0, 0 };
   curl_global_init(CURL_GLOBAL_ALL);
   curl = curl_easy_init();
   if(!curl) {
-    res = CURLE_OUT_OF_MEMORY;
+    result = CURLE_OUT_OF_MEMORY;
     goto test_cleanup;
   }
 
-  test_setopt(curl, CURLOPT_URL, URL);
-  test_setopt(curl, CURLOPT_WILDCARDMATCH, 1L);
-  test_setopt(curl, CURLOPT_CHUNK_BGN_FUNCTION, chunk_bgn);
-  test_setopt(curl, CURLOPT_CHUNK_END_FUNCTION, chunk_end);
-  test_setopt(curl, CURLOPT_CHUNK_DATA, &chunk_data);
+  easy_setopt(curl, CURLOPT_URL, URL);
+  easy_setopt(curl, CURLOPT_WILDCARDMATCH, 1L);
+  easy_setopt(curl, CURLOPT_CHUNK_BGN_FUNCTION, chunk_bgn);
+  easy_setopt(curl, CURLOPT_CHUNK_END_FUNCTION, chunk_end);
+  easy_setopt(curl, CURLOPT_CHUNK_DATA, &chunk_data);
 
-  res = curl_easy_perform(curl);
+  result = curl_easy_perform(curl);
 
 test_cleanup:
   if(curl)
     curl_easy_cleanup(curl);
   curl_global_cleanup();
-  return res;
+  return result;
 }

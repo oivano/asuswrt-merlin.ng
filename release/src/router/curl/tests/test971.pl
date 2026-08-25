@@ -24,7 +24,7 @@
 ###########################################################################
 #
 # - Get all options mentioned in the $cmddir.
-# - Make sure they're all mentioned in the $opts document
+# - Make sure they are all mentioned in the $opts document
 # - Make sure that the version in $opts matches the version in the file in
 #   $cmddir
 #
@@ -43,15 +43,15 @@ my %oiv;
 my $error = 0;
 
 sub cmdfiles {
-    my ($dir)=@_;
+    my ($dir) = @_;
 
-    opendir(my $dh, $dir) || die "Can't opendir $dir: $!";
+    opendir(my $dh, $dir) or die "Cannot opendir $dir: $!";
     my @opts = grep { /[a-z0-9].*\.md$/ && -f "$dir/$_" } readdir($dh);
     closedir $dh;
 
     for(@opts) {
         $_ =~ s/\.md$//;
-        $file{$_}=1;
+        $file{$_} = 1;
     }
     return @opts;
 }
@@ -59,11 +59,11 @@ sub cmdfiles {
 sub mentions {
     my ($f) = @_;
     my @options;
-    open(my $fh, "<", "$f");
+    open(my $fh, "<", $f);
     while(<$fh>) {
         chomp;
         if(/(.*) +([0-9.]+)/) {
-            my ($flag, $version)=($1, $2);
+            my ($flag, $version) = ($1, $2);
 
             # store the name without the leading dashes
             $flag =~ s/^--//;
@@ -85,7 +85,7 @@ sub mentions {
 }
 
 sub versioncheck {
-    my ($f, $v)=@_;
+    my ($f, $v) = @_;
     open(my $fh, "<", "$cmddir/$f.md");
     while(<$fh>) {
         chomp;
