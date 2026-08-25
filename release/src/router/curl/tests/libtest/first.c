@@ -27,7 +27,9 @@
 #include <locale.h> /* for setlocale() */
 #endif
 
-#include "memdebug.h"
+#if defined(UNITTESTS) && !defined(BUILDING_LIBCURL)
+#include "tool_stderr.h"  /* for tool_init_stderr() */
+#endif
 
 int select_wrapper(int nfds, fd_set *rd, fd_set *wr, fd_set *exc,
                    struct timeval *tv)
@@ -53,6 +55,7 @@ int select_wrapper(int nfds, fd_set *rd, fd_set *wr, fd_set *exc,
 const char *libtest_arg2 = NULL;
 const char *libtest_arg3 = NULL;
 const char *libtest_arg4 = NULL;
+const char *libtest_arg5 = NULL;
 int test_argc;
 const char **test_argv;
 int testnum;
@@ -76,7 +79,7 @@ int cgetopt(int argc, const char * const argv[], const char *optstring)
   }
 
   arg = argv[coptind];
-  if(arg && strcmp(arg, "--") == 0) {
+  if(arg && !strcmp(arg, "--")) {
     coptind++;
     return -1;
   }
@@ -85,7 +88,7 @@ int cgetopt(int argc, const char * const argv[], const char *optstring)
   }
   else {
     const char *opt = strchr(optstring, arg[optpos]);
-    coptopt = arg[optpos];
+    coptopt = (unsigned char)arg[optpos];
     if(!opt) {
       if(!arg[++optpos]) {
         coptind++;
@@ -124,32 +127,32 @@ int cgetopt(int argc, const char * const argv[], const char *optstring)
   }
 }
 
-#ifdef CURLDEBUG
+#ifdef CURL_MEMDEBUG
 static void memory_tracking_init(void)
 {
-  char *env;
+  const char *env;
   /* if CURL_MEMDEBUG is set, this starts memory tracking message logging */
   env = getenv("CURL_MEMDEBUG");
   if(env) {
-    /* use the value as file name */
+    /* use the value as filename */
     curl_dbg_memdebug(env);
   }
   /* if CURL_MEMLIMIT is set, this enables fail-on-alloc-number-N feature */
   env = getenv("CURL_MEMLIMIT");
   if(env) {
-    long num = atol(env);
-    if(num > 0)
-      curl_dbg_memlimit(num);
+    curl_off_t num;
+    if(!curlx_str_number(&env, &num, LONG_MAX) && num > 0)
+      curl_dbg_memlimit((long)num);
   }
 }
 #else
-#  define memory_tracking_init() Curl_nop_stmt
+#define memory_tracking_init() Curl_nop_stmt
 #endif
 
 /* returns a hexdump in a static memory area */
 char *hexdump(const unsigned char *buf, size_t len)
 {
-  static char dump[200 * 3 + 1];
+  static char dump[(200 * 3) + 1];
   char *p = dump;
   size_t i;
   if(len > 200)
@@ -165,8 +168,8 @@ CURLcode ws_send_ping(CURL *curl, const char *send_payload)
   size_t sent;
   CURLcode result = curl_ws_send(curl, send_payload, strlen(send_payload),
                                  &sent, 0, CURLWS_PING);
-  curl_mfprintf(stderr, "ws: curl_ws_send returned %u, sent %zu\n",
-                result, sent);
+  curl_mfprintf(stderr, "ws: curl_ws_send returned %d, sent %zu\n",
+                (int)result, sent);
   return result;
 }
 
@@ -177,14 +180,14 @@ CURLcode ws_recv_pong(CURL *curl, const char *expected_payload)
   char buffer[256];
   CURLcode result = curl_ws_recv(curl, buffer, sizeof(buffer), &rlen, &meta);
   if(result) {
-    curl_mfprintf(stderr, "ws: curl_ws_recv returned %u, received %zu\n",
-                  result, rlen);
+    curl_mfprintf(stderr, "ws: curl_ws_recv returned %d, received %zu\n",
+                  (int)result, rlen);
     return result;
   }
 
   if(!(meta->flags & CURLWS_PONG)) {
     curl_mfprintf(stderr, "recv_pong: wrong frame, got %zu bytes rflags %x\n",
-                  rlen, meta->flags);
+                  rlen, (unsigned int)meta->flags);
     return CURLE_RECV_ERROR;
   }
 
@@ -192,22 +195,21 @@ CURLcode ws_recv_pong(CURL *curl, const char *expected_payload)
   if(rlen == strlen(expected_payload) &&
      !memcmp(expected_payload, buffer, rlen)) {
     curl_mfprintf(stderr, "ws: got the same payload back\n");
-    return CURLE_OK;  /* lib2304 returned 'result' here. Intentional? */
+    return CURLE_OK;
   }
   curl_mfprintf(stderr, "ws: did NOT get the same payload back\n");
   return CURLE_RECV_ERROR;
 }
 
-/* just close the connection */
+/* close the connection */
 void ws_close(CURL *curl)
 {
   size_t sent;
   CURLcode result = curl_ws_send(curl, "", 0, &sent, 0, CURLWS_CLOSE);
-  curl_mfprintf(stderr, "ws: curl_ws_send returned %u, sent %zu\n",
-                result, sent);
+  curl_mfprintf(stderr, "ws: curl_ws_send returned %d, sent %zu\n",
+                (int)result, sent);
 }
 #endif /* CURL_DISABLE_WEBSOCKETS */
-
 
 int main(int argc, const char **argv)
 {
@@ -215,10 +217,10 @@ int main(int argc, const char **argv)
   CURLcode result;
   entry_func_t entry_func;
   const char *entry_name;
-  char *env;
+  const char *env;
   size_t tmp;
 
-  CURLX_SET_BINMODE(stdout);
+  CURL_BINMODE(stdout);
 
   memory_tracking_init();
 #ifdef _WIN32
@@ -246,7 +248,7 @@ int main(int argc, const char **argv)
   entry_name = argv[1];
   entry_func = NULL;
   for(tmp = 0; s_entries[tmp].ptr; ++tmp) {
-    if(strcmp(entry_name, s_entries[tmp].name) == 0) {
+    if(!strcmp(entry_name, s_entries[tmp].name)) {
       entry_func = s_entries[tmp].ptr;
       break;
     }
@@ -271,14 +273,23 @@ int main(int argc, const char **argv)
   if(argc > 5)
     libtest_arg4 = argv[5];
 
+  if(argc > 6)
+    libtest_arg5 = argv[6];
+
+  testnum = 0;
   env = getenv("CURL_TESTNUM");
-  if(env)
-    testnum = atoi(env);
-  else
-    testnum = 0;
+  if(env) {
+    curl_off_t num;
+    if(!curlx_str_number(&env, &num, INT_MAX) && num > 0)
+      testnum = (int)num;
+  }
+
+#if defined(UNITTESTS) && !defined(BUILDING_LIBCURL)
+  tool_init_stderr();
+#endif
 
   result = entry_func(URL);
-  curl_mfprintf(stderr, "Test ended with result %d\n", result);
+  curl_mfprintf(stderr, "Test ended with result %d\n", (int)result);
 
 #ifdef _WIN32
   /* flush buffers of all streams regardless of mode */
@@ -287,5 +298,5 @@ int main(int argc, const char **argv)
 
   /* Regular program status codes are limited to 0..127 and 126 and 127 have
    * special meanings by the shell, so limit a normal return code to 125 */
-  return (int)result <= 125 ? (int)result : 125;
+  return result <= 125 ? result : 125;
 }

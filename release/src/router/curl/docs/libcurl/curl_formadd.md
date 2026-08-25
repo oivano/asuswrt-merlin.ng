@@ -112,11 +112,17 @@ If you pass a 0 (zero) for this option, libcurl calls strlen() on the contents
 to figure out the size. If you really want to send a zero byte content then
 you must make sure strlen() on the data pointer returns zero.
 
+## CURLFORM_NAMELENGTH
+
+followed by a long giving the length of the name. Pass this option to set
+the length of *CURLFORM_COPYNAME* and *CURLFORM_PTRNAME* strings, if they are
+not null-terminated.
+
 ## CURLFORM_FILECONTENT
 
 followed by a filename, causes that file to be read and its contents used
 as data in this part. This part does *not* automatically become a file
-upload part simply because its data was read from a file.
+upload part due to its data being read from a file.
 
 The specified file needs to kept around until the associated transfer is done.
 
@@ -225,7 +231,7 @@ int main(void)
     char file2[] = "your-face.jpg";
     /* add null character into htmlbuffer, to demonstrate that
        transfers of buffers containing null characters actually work
-    */
+     */
     htmlbuffer[8] = '\0';
 
     /* Add simple name/content section */
@@ -278,7 +284,7 @@ int main(void)
                  CURLFORM_COPYNAME, "name",
                  CURLFORM_BUFFER, "data",
                  CURLFORM_BUFFERPTR, record,
-                 CURLFORM_BUFFERLENGTH, sizeof(record),
+                 CURLFORM_BUFFERLENGTH, (long)sizeof(record),
                  CURLFORM_END);
 
     /* no option needed for the end marker */

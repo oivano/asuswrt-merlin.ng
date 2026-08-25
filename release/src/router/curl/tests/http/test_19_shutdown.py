@@ -27,10 +27,9 @@
 import logging
 import os
 import re
+
 import pytest
-
-from testenv import Env, CurlClient, LocalClient
-
+from testenv import CurlClient, Env, LocalClient
 
 log = logging.getLogger(__name__)
 
@@ -40,9 +39,9 @@ class TestShutdown:
     @pytest.fixture(autouse=True, scope='class')
     def _class_scope(self, env, httpd):
         indir = httpd.docs_dir
-        env.make_data_file(indir=indir, fname="data-10k", fsize=10*1024)
-        env.make_data_file(indir=indir, fname="data-100k", fsize=100*1024)
-        env.make_data_file(indir=indir, fname="data-1m", fsize=1024*1024)
+        env.make_data_file(indir=indir, fname="data-10k", fsize=10 * 1024)
+        env.make_data_file(indir=indir, fname="data-100k", fsize=100 * 1024)
+        env.make_data_file(indir=indir, fname="data-1m", fsize=1024 * 1024)
 
     # check with `tcpdump` that we see curl TCP RST packets
     @pytest.mark.skipif(condition=not Env.tcpdump(), reason="tcpdump not available")
@@ -66,7 +65,7 @@ class TestShutdown:
 
     # check with `tcpdump` that we do NOT see TCP RST when CURL_GRACEFUL_SHUTDOWN set
     @pytest.mark.skipif(condition=not Env.tcpdump(), reason="tcpdump not available")
-    @pytest.mark.parametrize("proto", ['http/1.1', 'h2'])
+    @pytest.mark.parametrize("proto", Env.http_h1_h2_protos())
     def test_19_02_check_shutdown(self, env: Env, httpd, proto):
         if not env.curl_is_debug():
             pytest.skip('only works for curl debug builds')
@@ -123,7 +122,8 @@ class TestShutdown:
         if not client.exists():
             pytest.skip(f'example client not built: {client.name}')
         r = client.run(args=[
-             '-n', f'{count}', '-f', '-V', proto, url
+             '-n', f'{count}', '-f', '-C', env.ca.cert_file,
+             '-V', proto, url
         ])
         r.check_exit_code(0)
         shutdowns = [line for line in r.trace_lines
@@ -159,13 +159,11 @@ class TestShutdown:
         # check that all connection sockets were removed from event
         removes = [line for line in r.trace_lines
                    if re.match(r'.*socket cb: socket \d+ REMOVED', line)]
-        assert len(removes) == count, f'{removes}'
+        assert len(removes) >= count, f'{removes}'
 
     # check graceful shutdown on multiplexed http
-    @pytest.mark.parametrize("proto", ['h2', 'h3'])
+    @pytest.mark.parametrize("proto", Env.http_mplx_protos())
     def test_19_06_check_shutdown(self, env: Env, httpd, nghttpx, proto):
-        if proto == 'h3' and not env.have_h3():
-            pytest.skip("h3 not supported")
         if not env.curl_is_debug():
             pytest.skip('only works for curl debug builds')
         if not env.curl_is_verbose():
@@ -201,6 +199,7 @@ class TestShutdown:
             pytest.skip(f'example client not built: {client.name}')
         r = client.run(args=[
              '-n', f'{count}',  # that many transfers
+             '-C', env.ca.cert_file,
              '-f',  # forbid conn reuse
              '-m', '10',  # max parallel
              '-T', '5',  # max total conns at a time

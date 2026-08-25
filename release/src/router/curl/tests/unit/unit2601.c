@@ -22,7 +22,6 @@
  *
  ***************************************************************************/
 #include "unitcheck.h"
-
 #include "urldata.h"
 #include "bufq.h"
 #include "curl_trc.h"
@@ -80,7 +79,7 @@ static void check_bufq(size_t pool_spares,
                        size_t chunk_size, size_t max_chunks,
                        size_t wsize, size_t rsize, int opts)
 {
-  static unsigned char test_data[32*1024];
+  static unsigned char test_data[32 * 1024];
 
   struct bufq q;
   struct bufc_pool pool;
@@ -100,9 +99,9 @@ static void check_bufq(size_t pool_spares,
 
   fail_unless(q.chunk_size == chunk_size, "chunk_size init wrong");
   fail_unless(q.max_chunks == max_chunks, "max_chunks init wrong");
-  fail_unless(q.head == NULL, "init: head not NULL");
-  fail_unless(q.tail == NULL, "init: tail not NULL");
-  fail_unless(q.spare == NULL, "init: spare not NULL");
+  fail_unless(!q.head, "init: head not NULL");
+  fail_unless(!q.tail, "init: tail not NULL");
+  fail_unless(!q.spare, "init: spare not NULL");
   fail_unless(Curl_bufq_len(&q) == 0, "init: bufq length != 0");
 
   result = Curl_bufq_write(&q, test_data, wsize, &n2);
@@ -167,7 +166,7 @@ static void check_bufq(size_t pool_spares,
 
   /* Test SOFT_LIMIT option */
   Curl_bufq_free(&q);
-  Curl_bufq_init2(&q, chunk_size, max_chunks, (opts|BUFQ_OPT_SOFT_LIMIT));
+  Curl_bufq_init2(&q, chunk_size, max_chunks, (opts | BUFQ_OPT_SOFT_LIMIT));
   nwritten = 0;
   while(!Curl_bufq_is_full(&q)) {
     result = Curl_bufq_write(&q, test_data, wsize, &n2);
@@ -212,9 +211,9 @@ static CURLcode test_unit2601(const char *arg)
   struct bufq q;
   size_t n;
   CURLcode result;
-  unsigned char buf[16*1024];
+  unsigned char buf[16 * 1024];
 
-  Curl_bufq_init(&q, 8*1024, 12);
+  Curl_bufq_init(&q, 8 * 1024, 12);
   result = Curl_bufq_read(&q, buf, 128, &n);
   fail_unless(result && result == CURLE_AGAIN, "read empty fail");
   Curl_bufq_free(&q);
@@ -225,7 +224,7 @@ static CURLcode test_unit2601(const char *arg)
   check_bufq(0, 1024, 4, 16000, 3000, BUFQ_OPT_NONE);
 
   check_bufq(0, 8000, 10, 1234, 1234, BUFQ_OPT_NONE);
-  check_bufq(0, 8000, 10, 8*1024, 4*1024, BUFQ_OPT_NONE);
+  check_bufq(0, 8000, 10, 8 * 1024, 4 * 1024, BUFQ_OPT_NONE);
 
   check_bufq(0, 1024, 4, 128, 128, BUFQ_OPT_NO_SPARES);
   check_bufq(0, 1024, 4, 129, 127, BUFQ_OPT_NO_SPARES);

@@ -23,24 +23,20 @@
  ***************************************************************************/
 #include "first.h"
 
-#include "testutil.h"
-#include "memdebug.h"
-
 /*
  * Test Session ID capture
  */
 static CURLcode test_lib569(const char *URL)
 {
-  CURLcode res;
+  CURLcode result;
   CURL *curl;
   char *stream_uri = NULL;
-  char *rtsp_session_id;
   int request = 1;
   int i;
 
   FILE *idfile = curlx_fopen(libtest_arg2, "wb");
   if(!idfile) {
-    curl_mfprintf(stderr, "couldn't open the Session ID File\n");
+    curl_mfprintf(stderr, "Could not open the Session ID File\n");
     return TEST_ERR_MAJOR_BAD;
   }
 
@@ -58,37 +54,38 @@ static CURLcode test_lib569(const char *URL)
     return TEST_ERR_MAJOR_BAD;
   }
 
-  test_setopt(curl, CURLOPT_HEADERDATA, stdout);
-  test_setopt(curl, CURLOPT_WRITEDATA, stdout);
-  test_setopt(curl, CURLOPT_VERBOSE, 1L);
+  easy_setopt(curl, CURLOPT_HEADERDATA, stdout);
+  easy_setopt(curl, CURLOPT_WRITEDATA, stdout);
+  easy_setopt(curl, CURLOPT_VERBOSE, 1L);
 
-  test_setopt(curl, CURLOPT_URL, URL);
+  easy_setopt(curl, CURLOPT_URL, URL);
 
-  test_setopt(curl, CURLOPT_RTSP_REQUEST, CURL_RTSPREQ_SETUP);
-  res = curl_easy_perform(curl);
-  if(res != CURLE_BAD_FUNCTION_ARGUMENT) {
+  easy_setopt(curl, CURLOPT_RTSP_REQUEST, CURL_RTSPREQ_SETUP);
+  result = curl_easy_perform(curl);
+  if(result != CURLE_BAD_FUNCTION_ARGUMENT) {
     curl_mfprintf(stderr, "This should have failed. "
                   "Cannot setup without a Transport: header");
-    res = TEST_ERR_MAJOR_BAD;
+    result = TEST_ERR_MAJOR_BAD;
     goto test_cleanup;
   }
 
   /* Go through the various Session IDs */
   for(i = 0; i < 3; i++) {
+    const char *rtsp_session_id;
     stream_uri = tutil_suburl(URL, request++);
     if(!stream_uri) {
-      res = TEST_ERR_MAJOR_BAD;
+      result = TEST_ERR_MAJOR_BAD;
       goto test_cleanup;
     }
-    test_setopt(curl, CURLOPT_RTSP_STREAM_URI, stream_uri);
+    easy_setopt(curl, CURLOPT_RTSP_STREAM_URI, stream_uri);
     curl_free(stream_uri);
     stream_uri = NULL;
 
-    test_setopt(curl, CURLOPT_RTSP_REQUEST, CURL_RTSPREQ_SETUP);
-    test_setopt(curl, CURLOPT_RTSP_TRANSPORT,
+    easy_setopt(curl, CURLOPT_RTSP_REQUEST, CURL_RTSPREQ_SETUP);
+    easy_setopt(curl, CURLOPT_RTSP_TRANSPORT,
                 "Fake/NotReal/JustATest;foo=baz");
-    res = curl_easy_perform(curl);
-    if(res)
+    result = curl_easy_perform(curl);
+    if(result)
       goto test_cleanup;
 
     curl_easy_getinfo(curl, CURLINFO_RTSP_SESSION_ID, &rtsp_session_id);
@@ -97,20 +94,20 @@ static CURLcode test_lib569(const char *URL)
 
     stream_uri = tutil_suburl(URL, request++);
     if(!stream_uri) {
-      res = TEST_ERR_MAJOR_BAD;
+      result = TEST_ERR_MAJOR_BAD;
       goto test_cleanup;
     }
-    test_setopt(curl, CURLOPT_RTSP_STREAM_URI, stream_uri);
+    easy_setopt(curl, CURLOPT_RTSP_STREAM_URI, stream_uri);
     curl_free(stream_uri);
     stream_uri = NULL;
 
-    test_setopt(curl, CURLOPT_RTSP_REQUEST, CURL_RTSPREQ_TEARDOWN);
-    res = curl_easy_perform(curl);
-    if(res)
+    easy_setopt(curl, CURLOPT_RTSP_REQUEST, CURL_RTSPREQ_TEARDOWN);
+    result = curl_easy_perform(curl);
+    if(result)
       goto test_cleanup;
 
     /* Clear for the next go-round */
-    test_setopt(curl, CURLOPT_RTSP_SESSION_ID, NULL);
+    easy_setopt(curl, CURLOPT_RTSP_SESSION_ID, NULL);
   }
 
 test_cleanup:
@@ -122,5 +119,5 @@ test_cleanup:
   curl_easy_cleanup(curl);
   curl_global_cleanup();
 
-  return res;
+  return result;
 }

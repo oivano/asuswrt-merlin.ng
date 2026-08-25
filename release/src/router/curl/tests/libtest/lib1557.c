@@ -23,15 +23,13 @@
  ***************************************************************************/
 #include "first.h"
 
-#include "memdebug.h"
-
 static CURLcode test_lib1557(const char *URL)
 {
   CURLM *multi = NULL;
   CURL *curl1 = NULL;
   CURL *curl2 = NULL;
   int running_handles = 0;
-  CURLcode res = CURLE_OK;
+  CURLcode result = CURLE_OK;
 
   global_init(CURL_GLOBAL_ALL);
 
@@ -50,7 +48,7 @@ static CURLcode test_lib1557(const char *URL)
 
   multi_remove_handle(multi, curl2);
 
-  /* If curl2 is still in the connect-pending list, this will crash */
+  /* If curl2 is still in the connect-pending list, this crashes */
   multi_remove_handle(multi, curl1);
 
 test_cleanup:
@@ -58,5 +56,5 @@ test_cleanup:
   curl_easy_cleanup(curl2);
   curl_multi_cleanup(multi);
   curl_global_cleanup();
-  return res;
+  return result;
 }

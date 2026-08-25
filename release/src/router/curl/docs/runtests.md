@@ -5,7 +5,7 @@ Title: runtests.pl
 Section: 1
 Source: runtests
 See-also:
- - runtests.pl
+  - runtests.pl
 Added-in: 7.5
 ---
 
@@ -136,14 +136,14 @@ Force the test to run even if mentioned in DISABLED.
 
 Run the given test(s) with gdb. This is best used on a single test case and
 curl built --disable-shared. This then fires up gdb with command line set to
-run the specified test case. Simply (set a break-point and) type 'run' to
+run the specified test case. Set a break-point if needed and type 'run' to
 start.
 
 ## `-gl`
 
 Run the given test(s) with lldb. This is best used on a single test case and
 curl built --disable-shared. This then fires up lldb with command line set to
-run the specified test case. Simply (set a break-point and) type 'run' to
+run the specified test case. Set a break-point if needed and type 'run' to
 start.
 
 ## `-gw`
@@ -164,11 +164,6 @@ CPU cores is a good figure to start with, or 1.3 times if Valgrind is in use,
 or 5 times for torture tests. Enabling parallel tests is not recommended in
 conjunction with the -g option.
 
-## `-k`
-
-Keep output and log files in log/ after a test run, even if no error was
-detected. Useful for debugging.
-
 ## `-L \<file\>`
 
 Load and execute the specified file which should contain perl code. This
@@ -179,6 +174,15 @@ regression test suite.
 ## `-l`
 
 Lists all test case names.
+
+## `-m=[seconds]`
+
+Set timeout for curl commands in tests.
+
+## `--min=[count]`
+
+Set the minimum number of tests to run. This overrides the `CURL_TEST_MIN`
+environment variable, if any.
 
 ## `-n`
 
@@ -304,7 +308,7 @@ use.
 
 The test script checks most of these by itself to determine when it is safe to
 attempt to run each test. Those which cannot be run due to failed requirements
-are simply skipped and listed at the completion of all test cases. In some
+are skipped and listed at the completion of all test cases. In some
 unusual configurations, the test script cannot make the correct determination
 for all tests. In these cases, the problematic tests can be skipped using the
 "!keyword" skip feature documented earlier.
