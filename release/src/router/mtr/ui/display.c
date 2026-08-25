@@ -146,6 +146,8 @@ void display_close(
         asn_close(ctl);
 #endif
         mtr_curses_close();
+        if (ctl->ReportOnExit)
+            report_close(ctl);
         break;
 #endif
     case DisplaySplit:
@@ -218,11 +220,11 @@ void display_rawxmit(
 void display_rawping(
     struct mtr_ctl *ctl,
     int host,
-    int msec,
+    int usec,
     int seq)
 {
     if (ctl->DisplayMode == DisplayRaw)
-        raw_rawping(ctl, host, msec, seq);
+        raw_rawping(ctl, host, usec, seq);
 }
 
 
@@ -266,17 +268,16 @@ void display_clear(
 char *host_error_to_string(
     int err)
 {
-    if (err == ENETUNREACH) {
+    if (err == ENETDOWN)
+        return "network is down";
+    else if (err == EHOSTDOWN)
+        return "host is down";
+    else if (err == ENETUNREACH)
+        return "no route to network";
+    else if (err == EHOSTUNREACH)
         return "no route to host";
-    }
-
-    if (err == ENETDOWN) {
-        return "network down";
-    }
-
-    if (err == 0) {
+    else if (err == 0)
         return "waiting for reply";
-    }
 
     return strerror(err);
 }

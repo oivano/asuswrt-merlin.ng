@@ -5,11 +5,15 @@ mtr combines the functionality of the 'traceroute' and 'ping' programs
 in a single network diagnostic tool.
 
 As mtr starts, it investigates the network connection between the host
-mtr runs on and a user-specified destination host.  After it
-determines the address of each network hop between the machines,
-it sends a sequence of ICMP ECHO requests to each one to determine the
-quality of the link to each machine.  As it does this, it prints
-running statistics about each machine.
+mtr runs on and a user-specified destination host.  It sends probes to
+the destination with successively larger time-to-live values, and uses
+the responses from intervening routers to discover and measure the path.
+As it does this, it prints running statistics for each hop.
+
+Intermediate routers may be configured to never send these ICMP
+responses, or may rate-limit them, so apparent loss at an intermediate
+hop does not always mean that forwarded traffic is being lost at that
+point.
 
 mtr is distributed under the GNU General Public License version 2.
 See the COPYING file for details.
@@ -40,7 +44,7 @@ test mtr with
 
 	sudo ./mtr <host>
 
-(fill in a hostname or IP address where it says <host>) or
+(fill in a hostname or IP address where it says ``<host>``) or
 immediately continue on to installing:
 
 	make install
@@ -70,12 +74,29 @@ to the "trusted" directory.)
 
 Building on MacOS should not require any special steps.
 
-BUILDING FOR WINDOWS
+USING MTR ON WINDOWS
 ===
 
-Building for Windows requires Cygwin.  To obtain Cygwin, see
+Using mtr on Windows requires Windows Subsystem for Linux (WSL).
+To install WSL with Ubuntu distribution (Default), see
+[How to install Linux on Windows with WSL](https://learn.microsoft.com/en-us/windows/wsl/install).
+
+After complete initial process,
+simple as:
+
+	sudo apt-get -y install mtr
+
+
+
+BUILDING FOR WINDOWS (TRADITIONAL METHOD)
+===
+
+If you prefer traditional method.
+Obtain Cygwin, see
 https://cygwin.com/install.html.
+
 Next, re-run cygwin's `setup-x86.exe` (or `setup-x86_64.exe` if you're using 64bit cygwin) with the following arguments,
+
 which will install the packages required for building:
 
         setup-x86.exe --package-manager --wait --packages automake,pkg-config,make,gcc-core,libncurses-devel,libjansson-devel
@@ -87,6 +108,8 @@ Build as under Unix:
 Finally, install the built binaries:
 
         make install
+
+
 
 
 WHERE CAN I GET THE LATEST VERSION OR MORE INFORMATION?

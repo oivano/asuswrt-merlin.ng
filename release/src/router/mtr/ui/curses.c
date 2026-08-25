@@ -20,6 +20,13 @@
 
 #include "mtr.h"
 
+#include <limits.h>
+#include <locale.h>
+#ifdef __CYGWIN__
+#include <windows.h>
+#endif
+#include <assert.h>
+#include <errno.h>
 #include <strings.h>
 #include <unistd.h>
 
@@ -37,7 +44,11 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-#if defined(HAVE_NCURSES_H)
+/* On Cygwin, <ncurses.h> is the non-wide variant and lacks addwstr/add_wch.
+   Include <ncursesw/ncurses.h> directly when the braille display is built. */
+#if defined(__CYGWIN__) && defined(WITH_BRAILLE_DISPLAY)
+#include <ncursesw/ncurses.h>
+#elif defined(HAVE_NCURSES_H)
 #include <ncurses.h>
 #elif defined(HAVE_NCURSES_CURSES_H)
 #include <ncurses/curses.h>
@@ -62,25 +73,33 @@
 #include "dns.h"
 #include "asn.h"
 #include "display.h"
+#include "format.h"
 #include "utils.h"
 
 
-enum { NUM_FACTORS = 8 };
+enum { NUM_FACTORS = MTR_SCALE_FACTORS };
 static double factors[NUM_FACTORS];
 static int scale[NUM_FACTORS];
 static char block_map[NUM_FACTORS];
+#ifdef WITH_BRAILLE_DISPLAY
+static const wchar_t *braille_map[NUM_FACTORS] = {
+    L"⣀", L"⣀", L"⣤", L"⣤", L"⣦", L"⣦", L"⣶", L"⣶", L"⣿", L"⣿"
+};
+#endif
 
 enum { black = 1, red, green, yellow, blue, magenta, cyan, white };
 static const int block_col[NUM_FACTORS + 1] = {
     COLOR_PAIR(red) | A_BOLD,
-    A_NORMAL,
-    COLOR_PAIR(green),
+    COLOR_PAIR(green) | A_BOLD,
+    COLOR_PAIR(green) | A_BOLD,
     COLOR_PAIR(green) | A_BOLD,
     COLOR_PAIR(yellow) | A_BOLD,
+    COLOR_PAIR(yellow) | A_BOLD,
     COLOR_PAIR(magenta) | A_BOLD,
-    COLOR_PAIR(magenta),
+    COLOR_PAIR(red) | A_BOLD,
+    COLOR_PAIR(red) | A_BOLD,
     COLOR_PAIR(red),
-    COLOR_PAIR(red) | A_BOLD
+    COLOR_PAIR(red)
 };
 
 static void pwcenter(
@@ -96,32 +115,23 @@ static void pwcenter(
 }
 
 
-static char *format_number(
-    int n,
-    int w,
-    char *buf)
+static const char *probe_protocol_name(
+    int protocol)
 {
-    if (w != 5)
-        /* XXX todo: implement w != 5.. */
-        snprintf(buf, w + 1, "%s", "unimpl");
-    else if (n < 100000)
-        /* buf is good as-is */ ;
-    else if (n < 1000000)
-        snprintf(buf, w + 1, "%3dk%1d", n / 1000, (n % 1000) / 100);
-    else if (n < 10000000)
-        snprintf(buf, w + 1, "%1dM%03d", n / 1000000,
-                 (n % 1000000) / 1000);
-    else if (n < 100000000)
-        snprintf(buf, w + 1, "%2dM%02d", n / 1000000,
-                 (n % 1000000) / 10000);
-    else if (n < 1000000000)
-        snprintf(buf, w + 1, "%3dM%01d", n / 1000000,
-                 (n % 1000000) / 100000);
-    else                        /* if (n < 10000000000) */
-        snprintf(buf, w + 1, "%1dG%03d", n / 1000000000,
-                 (n % 1000000000) / 1000000);
-
-    return buf;
+    switch (protocol) {
+    case IPPROTO_ICMP:
+        return "ICMP";
+    case IPPROTO_UDP:
+        return "UDP";
+    case IPPROTO_TCP:
+        return "TCP";
+#ifdef HAS_SCTP
+    case IPPROTO_SCTP:
+        return "SCTP";
+#endif
+    default:
+        return "unknown";
+    }
 }
 
 
@@ -132,6 +142,25 @@ int mtr_curses_keyaction(
     int i = 0;
     float f = 0.0;
     char buf[MAXFLD + 1];
+
+#ifdef KEY_RESIZE
+    /*
+       Some curses implementations may queue many resize events while the
+       terminal is being dragged.  Drain a bounded batch so real key input
+       can be handled again after the resize settles.
+     */
+    if (c == KEY_RESIZE) {
+        int resize_events;
+
+        for (resize_events = 0; resize_events < 100 && c == KEY_RESIZE;
+             resize_events++) {
+            c = getch();
+        }
+        if (c == KEY_RESIZE) {
+            flushinp();
+        }
+    }
+#endif
 
     if (c == 'Q') {             /* must be checked before c = tolower(c) */
         mvprintw(2, 0, "Type of Service(tos): %d\n", ctl->tos);
@@ -172,6 +201,8 @@ int mtr_curses_keyaction(
         return ActionReset;
     case 'd':
         return ActionDisplay;
+    case 'c':
+        return ActionCompact;
     case 'e':
         return ActionMPLS;
     case 'n':
@@ -183,8 +214,12 @@ int mtr_curses_keyaction(
         return ActionAS;
 #endif
     case '+':
+    case KEY_NPAGE:
+    case KEY_DOWN:
         return ActionScrollDown;
     case '-':
+    case KEY_PPAGE:
+    case KEY_UP:
         return ActionScrollUp;
     case 's':
         mvprintw(2, 0, "Change Packet Size: %d\n", ctl->cpacketsize);
@@ -200,11 +235,17 @@ int mtr_curses_keyaction(
             buf[i++] = c;       /* need more checking on 'c' */
         }
         buf[i] = '\0';
-        ctl->cpacketsize = atoi(buf);
+        int new_packetsize = atoi(buf);
+        if (abs(new_packetsize) >= MINPACKET
+            && abs(new_packetsize) <= MAXPACKET) {
+            ctl->cpacketsize = new_packetsize;
+        } else {
+            printf("\a");
+        }
         return ActionNone;
     case 'b':
         mvprintw(2, 0, "Ping Bit Pattern: %d\n", ctl->bitpattern);
-        mvprintw(3, 0, "Pattern Range: 0(0x00)-255(0xff), <0 random.\n");
+        mvprintw(3, 0, "Pattern Range: 0(0x00)-255(0xff), -1 random.\n");
         move(2, 18);
         refresh();
         while ((c = getch()) != '\n' && i < MAXFLD) {
@@ -215,9 +256,15 @@ int mtr_curses_keyaction(
             buf[i++] = c;       /* need more checking on 'c' */
         }
         buf[i] = '\0';
-        ctl->bitpattern = atoi(buf);
-        if (ctl->bitpattern > 255)
-            ctl->bitpattern = -1;
+        char *end = NULL;
+        errno = 0;
+        long new_bitpattern = strtol(buf, &end, 10);
+        if (errno != 0 || buf == end || *end != '\0' ||
+            new_bitpattern < -1 || new_bitpattern > 255) {
+            printf("\a");
+            return ActionNone;
+        }
+        ctl->bitpattern = new_bitpattern;
         return ActionNone;
     case 'i':
         mvprintw(2, 0, "Interval : %0.0f\n\n", ctl->WaitTime);
@@ -345,6 +392,7 @@ int mtr_curses_keyaction(
         printw("  ?|h     help\n");
         printw("  p       pause (SPACE to resume)\n");
         printw("  d       switching display mode\n");
+        printw("  c       switching compact mode\n");
         printw("  e       toggle MPLS information on/off\n");
         printw("  n       toggle DNS on/off\n");
         printw("  r       reset all counters\n");
@@ -361,7 +409,7 @@ int mtr_curses_keyaction(
             ("  m <n>   set the max time-to-live, default n= # of hops\n");
         printw("  s <n>   set the packet size to n or random(n<0)\n");
         printw
-            ("  b <c>   set ping bit pattern to c(0..255) or random(c<0)\n");
+            ("  b <c>   set ping bit pattern to c(0..255) or random(c=-1)\n");
         printw("  Q <t>   set ping packet's TOS to t\n");
         printw("  u       switch between ICMP ECHO and UDP datagrams\n");
         printw("  t       switch between ICMP ECHO and TCP\n");
@@ -385,9 +433,9 @@ static void format_field(
     const char *format,
     int n)
 {
-    if (index(format, 'N')) {
+    if (strcmp(format, " %5d") == 0) {
         *dst++ = ' ';
-        format_number(n, 5, dst);
+        mtr_format_count(n, 5, dst);
     } else if (strchr(format, 'f')) {
         /* this is for fields where we measure integer microseconds but
            display floating point milliseconds. Convert to float here. */
@@ -421,8 +469,8 @@ static void mtr_curses_hosts(
     for (at = net_min(ctl) + ctl->display_offset; at < max; at++) {
         printw("%2d. ", at + 1);
         err = net_err(at);
-        addr = net_addr(at);
-        mpls = net_mpls(at);
+        addr = net_addrs(at, 0);
+        mpls = net_mplss(at, 0);
 
         addrcmp_result = addrcmp(addr, &ctl->unspec_addr, ctl->af);
 
@@ -466,12 +514,13 @@ static void mtr_curses_hosts(
 
             for (k = 0; k < mpls->labels && ctl->enablempls; k++) {
                 printw("\n    [MPLS: Lbl %lu TC %u S %u TTL %u]",
-                       mpls->label[k], mpls->tc[k], mpls->s[k],
-                       mpls->ttl[k]);
+                       mpls->label[k], (unsigned int) mpls->tc[k],
+                       (unsigned int) mpls->s[k],
+                       (unsigned int) mpls->ttl[k]);
             }
 
             /* Multi path */
-            for (i = 0; i < MAX_PATH; i++) {
+            for (i = 1; i < ctl->maxDisplayPath; i++) {
                 addrs = net_addrs(at, i);
                 mplss = net_mplss(at, i);
                 if (addrcmp(addrs, addr, ctl->af) == 0)
@@ -497,8 +546,9 @@ static void mtr_curses_hosts(
                 }
                 for (k = 0; k < mplss->labels && ctl->enablempls; k++) {
                     printw("\n    [MPLS: Lbl %lu TC %u S %u TTL %u]",
-                           mplss->label[k], mplss->tc[k], mplss->s[k],
-                           mplss->ttl[k]);
+                           mplss->label[k], (unsigned int) mplss->tc[k],
+                           (unsigned int) mplss->s[k],
+                           (unsigned int) mplss->ttl[k]);
                 }
                 attroff(A_BOLD);
             }
@@ -526,6 +576,14 @@ static void mtr_gen_scale(
     for (i = 0; i < NUM_FACTORS; i++) {
         scale[i] = 0;
     }
+    if (ctl->fixed_scale) {
+        for (i = 0; i < MTR_SCALE_THRESHOLDS; i++) {
+            scale[i] = ctl->scale[i];
+        }
+        scale[NUM_FACTORS - 1] = INT_MAX;
+        return;
+    }
+
     max = net_max(ctl);
     for (at = ctl->display_offset; at < max; at++) {
         saved = net_saved_pings(at);
@@ -559,7 +617,7 @@ static void mtr_curses_init(
     }
 
     /* Initialize block_map.  The block_split is always smaller than 9 */
-    block_split = (NUM_FACTORS - 2) / 2;
+    block_split = NUM_FACTORS / 2;
     for (i = 1; i <= block_split; i++) {
         block_map[i] = '0' + i;
     }
@@ -570,22 +628,178 @@ static void mtr_curses_init(
     block_map[NUM_FACTORS - 1] = '>';
 }
 
-static void mtr_print_scaled(
+static int ms_to_factor(
     int ms)
 {
     int i;
 
     for (i = 0; i < NUM_FACTORS; i++) {
-        if (ms <= scale[i]) {
-            attrset(block_col[i + 1]);
-            printw("%c", block_map[i]);
-            attrset(A_NORMAL);
-            return;
-        }
+        if (ms <= scale[i])
+            return i;
+    }
+
+    return NUM_FACTORS;
+}
+
+static void mtr_print_scaled(
+    int ms)
+{
+    int f = ms_to_factor(ms);
+
+    if ((unsigned)f < NUM_FACTORS) {
+        attrset(block_col[f + 1]);
+        printw("%c", block_map[f]);
+        attrset(A_NORMAL);
+        return;
     }
     printw(">");
 }
 
+#ifdef WITH_BRAILLE_DISPLAY
+static int current_host_range_low_ms = 1000000;
+static int current_host_range_high_ms = -1;
+
+static void compute_current_host_range(const int *ms_data, size_t length)
+{
+    current_host_range_low_ms = 1000000;
+    current_host_range_high_ms = -1;
+
+    for (int i=0; i<length; ++i) {
+        int ms = ms_data[i];
+        if (ms < 0)
+            continue;
+        if (current_host_range_low_ms > ms)
+            current_host_range_low_ms = ms;
+        if (current_host_range_high_ms < ms)
+            current_host_range_high_ms = ms;
+    }
+}
+
+static const int scale_ms_to_braille_factor(int ms)
+{
+    if (ms <= 0)
+        return 0;
+
+    int ms_range = current_host_range_high_ms - current_host_range_low_ms;
+    if (ms_range < 1)
+        return 0;
+
+    return (ms - current_host_range_low_ms) * 4 / ms_range;
+}
+
+static const wchar_t *braille_char_lookup(
+    int ms,
+    const wchar_t *braille_set[5])
+{
+    if (ms < 0)
+        return L"𜸲"; // this is an error in decoding
+
+    int i = scale_ms_to_braille_factor(ms);
+    if ((unsigned)i >= 4)
+        return L"⣿"; // max (U+28FF stays in BMP, safe on 16-bit wchar_t)
+
+    return braille_set[i];
+}
+
+// handle if left is not provided, but right is
+static const wchar_t *braille_char_left(
+    int left_ms)
+{
+    static const wchar_t *braille_left_lookup[5] =  {
+        L"⡀", L"⡄", L"⡆", L"⡇",
+    };
+
+    return braille_char_lookup(left_ms, braille_left_lookup);
+}
+
+
+// handle if right is not provided, but left is
+static const wchar_t *braille_char_right(
+    int right_ms)
+{
+    static const wchar_t *braille_right_lookup[5] =  {
+        L"⢀", L"⢠", L"⢰", L"⢸",
+    };
+
+    return braille_char_lookup(right_ms, braille_right_lookup);
+}
+
+// handle both left and right being provided
+static const wchar_t *braille_char_double(
+    int left_ms,
+    int right_ms)
+{
+    static const wchar_t *braille_double_lookup[5][5] =  {
+        { L"⣀", L"⣠", L"⣰", L"⣸", },
+        { L"⣄", L"⣤", L"⣴", L"⣼", },
+        { L"⣆", L"⣦", L"⣶", L"⣾", },
+        { L"⣇", L"⣧", L"⣷", L"⣿", }
+    };
+
+    int left_i = scale_ms_to_braille_factor(left_ms);
+    if ((unsigned)left_i >= 4)
+        return L"⣿"; // max (U+28FF stays in BMP, safe on 16-bit wchar_t)
+
+    return braille_char_lookup(right_ms, braille_double_lookup[left_i]);
+}
+
+static void mtr_print_braille(
+    int left_ms,
+    int right_ms)
+{
+    int ms_max = left_ms > right_ms ? left_ms : right_ms;
+    int f = ms_to_factor(ms_max);
+    f = ((unsigned)f < NUM_FACTORS) ? f : NUM_FACTORS - 1;
+
+    const wchar_t *wstr;
+    if (left_ms > 0 && right_ms > 0)
+        wstr = braille_char_double(left_ms, right_ms);
+    else if (left_ms > 0)
+        wstr = braille_char_left(left_ms);
+    else if (right_ms > 0)
+        wstr = braille_char_right(right_ms);
+    else
+        wstr = L"▁";
+
+    attrset(block_col[f + 1]);
+    addwstr(wstr);
+    attrset(A_NORMAL);
+}
+
+static void mtr_fill_graph_braille(
+    struct mtr_ctl *ctl,
+    int at,
+    int cols)
+{
+    const int *saved;
+    int i;
+
+    saved = net_saved_pings(at);
+
+    compute_current_host_range(saved, SAVED_PINGS);
+
+    // we can pack twice as many entries into a braille line
+
+    cols = cols * 2;
+    cols = cols <= SAVED_PINGS ? cols : SAVED_PINGS;
+
+    for (i = SAVED_PINGS - cols; i < SAVED_PINGS; i+=2) {
+        int a = saved[i];
+        int b = (i+1 < SAVED_PINGS) ? saved[i+1] : 0;
+
+        if (a == -2 && b == -2) {
+            printw(" ");
+        } else if (a == -1 || b == -1) {
+            attrset(block_col[0]);
+            printw("%c", '?');
+            attrset(A_NORMAL);
+        } else {
+            mtr_print_braille(a, b);
+        }
+    }
+
+}
+#endif
 
 static void mtr_fill_graph(
     struct mtr_ctl *ctl,
@@ -605,7 +819,7 @@ static void mtr_fill_graph(
             attrset(A_NORMAL);
         } else {
             if (ctl->display_mode == DisplayModeBlockmap) {
-                if (saved[i] > scale[6]) {
+                if (saved[i] > scale[NUM_FACTORS - 2]) {
                     printw("%c", block_map[NUM_FACTORS - 1]);
                 } else {
                     printw(".");
@@ -665,7 +879,14 @@ static void mtr_curses_graph(
         move(y, startstat);
 
         printw(" ");
-        mtr_fill_graph(ctl, at, cols);
+#ifdef WITH_BRAILLE_DISPLAY
+        if (ctl->display_mode == DisplayModeBraille) {
+            mtr_fill_graph_braille(ctl, at, cols);
+        } else
+#endif
+        {
+            mtr_fill_graph(ctl, at, cols);
+        }
         printw("\n");
     }
 }
@@ -689,43 +910,48 @@ void mtr_curses_redraw(
     erase();
     getmaxyx(stdscr, __unused_int, maxx);
 
-    rowstat = 5;
+    rowstat = !ctl->CompactLayout;
 
     move(0, 0);
     attron(A_BOLD);
-    snprintf(buf, sizeof(buf), "%s%s%s", "My traceroute  [v",
-             PACKAGE_VERSION, "]");
+    snprintf(buf, sizeof(buf), "My traceroute on %s  [v%s] %s",
+             ctl->LocalHostname, PACKAGE_VERSION,
+             probe_protocol_name(ctl->mtrtype));
     pwcenter(buf);
     attroff(A_BOLD);
 
-    mvprintw(1, 0, "%s (%s) -> %s (%s)",
+    mvprintw(rowstat, 0, "%s (%s) -> %s (%s)",
 	ctl->LocalHostname, net_localaddr(),
 	ctl->Hostname, net_remoteaddr());
     t = time(NULL);
-    mvprintw(1, maxx - 25, "%s", iso_time(&t));
-    printw("\n");
+    mvprintw(rowstat, maxx - 25, "%s", iso_time(&t));
+    if (rowstat) {
+        printw("\n");
 
-    printw("Keys:  ");
-    attron(A_BOLD);
-    printw("H");
-    attroff(A_BOLD);
-    printw("elp   ");
-    attron(A_BOLD);
-    printw("D");
-    attroff(A_BOLD);
-    printw("isplay mode   ");
-    attron(A_BOLD);
-    printw("R");
-    attroff(A_BOLD);
-    printw("estart statistics   ");
-    attron(A_BOLD);
-    printw("O");
-    attroff(A_BOLD);
-    printw("rder of fields   ");
-    attron(A_BOLD);
-    printw("q");
-    attroff(A_BOLD);
-    printw("uit\n");
+        printw("Keys:  ");
+        attron(A_BOLD);
+        printw("H");
+        attroff(A_BOLD);
+        printw("elp   ");
+        attron(A_BOLD);
+        printw("D");
+        attroff(A_BOLD);
+        printw("isplay mode   ");
+        attron(A_BOLD);
+        printw("R");
+        attroff(A_BOLD);
+        printw("estart statistics   ");
+        attron(A_BOLD);
+        printw("O");
+        attroff(A_BOLD);
+        printw("rder of fields   ");
+        attron(A_BOLD);
+        printw("q");
+        attroff(A_BOLD);
+        printw("uit\n");
+    }
+
+    rowstat = rowstat ? 5 : 1;
 
     if (ctl->display_mode == DisplayModeDefault) {
         for (i = 0; i < MAXFLD; i++) {
@@ -755,14 +981,16 @@ void mtr_curses_redraw(
 
 #ifdef HAVE_IPINFO
         if (is_printii(ctl))
-            padding += get_iiwidth(ctl->ipinfo_no);
+            padding += get_iiwidth_selected(ctl);
 #endif
         max_cols =
             maxx <= SAVED_PINGS + padding ? maxx - padding : SAVED_PINGS;
         startstat = padding - 2;
 
-        snprintf(msg, sizeof(msg), " Last %3d pings", max_cols);
-        mvprintw(rowstat - 1, startstat, "%s", msg);
+        if (rowstat > 1) {
+            snprintf(msg, sizeof(msg), " Last %3d pings", max_cols);
+            mvprintw(rowstat - 1, startstat, "%s", msg);
+        }
 
         attroff(A_BOLD);
         move(rowstat, 0);
@@ -775,17 +1003,27 @@ void mtr_curses_redraw(
         printw("Scale:");
         attroff(A_BOLD);
 
-        for (i = 0; i < NUM_FACTORS - 1; i++) {
+#ifdef WITH_BRAILLE_DISPLAY
+        bool use_braille_map = (ctl->display_mode == DisplayModeBraille);
+#endif
+
+        for (i = 0; i < NUM_FACTORS; i++) {
+            char latency[16];
+
             printw("  ");
             attrset(block_col[i + 1]);
-            printw("%c", block_map[i]);
+#ifdef WITH_BRAILLE_DISPLAY
+            if (use_braille_map)
+                addwstr(braille_map[i]);
+            else
+#endif
+                printw("%c", block_map[i]);
             attrset(A_NORMAL);
-            printw(":%d ms", scale[i] / 1000);
+            if (i < NUM_FACTORS-1)
+                printw(":%s ms",
+                       mtr_format_latency_ms(scale[i], latency,
+                                             sizeof(latency)));
         }
-        printw("  ");
-        attrset(block_col[NUM_FACTORS]);
-        printw("%c", block_map[NUM_FACTORS - 1]);
-        attrset(A_NORMAL);
     }
 
     refresh();
@@ -798,9 +1036,20 @@ void mtr_curses_open(
     int bg_col = 0;
     int i;
 
+#ifdef WITH_BRAILLE_DISPLAY
+    // initialize all locale variables, before ncurses starts
+#ifdef __CYGWIN__
+    SetConsoleOutputCP(65001);
+    SetConsoleCP(65001);
+#endif
+    if (!setlocale(LC_ALL, "C.UTF-8"))
+        setlocale(LC_ALL, "");
+#endif
+
     initscr();
     raw();
     noecho();
+    keypad(stdscr, TRUE);
     start_color();
     if (use_default_colors() == OK)
         bg_col = -1;

@@ -87,16 +87,21 @@ int send_packet(
     } else if (sockaddr->ss_family == AF_INET) {
         sockaddr_length = sizeof(struct sockaddr_in);
 
-        if (net_state->platform.ip4_socket_raw) {
-            send_socket = net_state->platform.ip4_send_socket;
-        } else {
-            if (param->protocol == IPPROTO_ICMP) {
-                if (param->is_probing_byte_order) {
-                    send_socket = net_state->platform.ip4_tmp_icmp_socket;;
-                } else {
-                    send_socket = net_state->platform.ip4_txrx_icmp_socket;
-                }
-            } else if (param->protocol == IPPROTO_UDP) {
+        if (param->protocol == IPPROTO_ICMP) {
+            if (net_state->platform.ip4_socket_raw) {
+                send_socket = net_state->platform.icmp4_send_socket;
+            } else {
+                send_socket = net_state->platform.ip4_txrx_icmp_socket;
+            }
+        } else if (param->protocol == IPPROTO_UDP) {
+            if (net_state->platform.ip4_socket_raw) {
+                send_socket = net_state->platform.udp4_send_socket;
+                /* we got a ipv4 udp raw socket
+                 * the remote port is in the payload
+                 * we do not set in the sockaddr
+                 */
+                *sockaddr_port_offset(&dst) = 0;
+            } else {
                 send_socket = net_state->platform.ip4_txrx_udp_socket;
                 if (param->dest_port) {
                     *sockaddr_port_offset(&dst) = htons(param->dest_port);
@@ -105,6 +110,7 @@ int send_packet(
                 }
             }
         }
+
     }
 
     if (send_socket == 0) {
@@ -236,26 +242,19 @@ static
 int open_ip4_sockets_raw(
     struct net_state_t *net_state)
 {
-    int send_socket;
+    int send_socket_icmp;
+    int send_socket_udp;
     int recv_socket;
-    int trueopt = 1;
 
-    send_socket = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
-    if (send_socket == -1) {
-        send_socket = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
-        if (send_socket == -1) {
-            return -1;
-        }
+    send_socket_icmp = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+    if (send_socket_icmp == -1) {
+        return -1;
     }
 
-    /*
-       We will be including the IP header in transmitted packets.
-       Linux doesn't require this, but BSD derived network stacks do.
-     */
-    if (setsockopt
-        (send_socket, IPPROTO_IP, IP_HDRINCL, &trueopt, sizeof(int))) {
+    send_socket_udp = socket(AF_INET, SOCK_RAW, IPPROTO_UDP);
+    if (send_socket_udp == -1) {
+        close(send_socket_icmp);
 
-        close(send_socket);
         return -1;
     }
 
@@ -265,13 +264,15 @@ int open_ip4_sockets_raw(
      */
     recv_socket = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
     if (recv_socket == -1) {
-        close(send_socket);
+        close(send_socket_icmp);
+        close(send_socket_udp);
         return -1;
     }
 
     net_state->platform.ip4_present = true;
     net_state->platform.ip4_socket_raw = true;
-    net_state->platform.ip4_send_socket = send_socket;
+    net_state->platform.icmp4_send_socket = send_socket_icmp;
+    net_state->platform.udp4_send_socket = send_socket_udp;
     net_state->platform.ip4_recv_socket = recv_socket;
 
     return 0;
@@ -295,6 +296,7 @@ int open_ip4_sockets_dgram(
     }
 #ifdef HAVE_LINUX_ERRQUEUE_H
     if (setsockopt(icmp_socket, SOL_IP, IP_RECVERR, &val, sizeof(val)) < 0) {
+        close(icmp_socket);
         return -1;
     }
 #endif
@@ -385,6 +387,7 @@ int open_ip6_sockets_dgram(
     }
 #ifdef HAVE_LINUX_ERRQUEUE_H
     if (setsockopt(icmp_socket, SOL_IPV6, IPV6_RECVERR, &val, sizeof(val)) < 0) {
+        close(icmp_socket);
         return -1;
     }
 #endif
@@ -533,16 +536,20 @@ void report_packet_error(
         printf("%d invalid-argument\n", command_token);
     } else if (errno == ENETDOWN) {
         printf("%d network-down\n", command_token);
+    } else if (errno == EHOSTDOWN) {
+        printf("%d host-down\n", command_token);
     } else if (errno == ENETUNREACH) {
-        printf("%d no-route\n", command_token);
+        printf("%d no-route-network\n", command_token);
     } else if (errno == EHOSTUNREACH) {
-        printf("%d no-route\n", command_token);
+        printf("%d no-route-host\n", command_token);
     } else if (errno == EPERM) {
         printf("%d permission-denied\n", command_token);
     } else if (errno == EADDRINUSE) {
         printf("%d address-in-use\n", command_token);
     } else if (errno == EADDRNOTAVAIL) {
         printf("%d address-not-available\n", command_token);
+    } else if (errno == ETIMEDOUT) {
+        printf("%d wait-tcp-respone-timeout\n", command_token);
     } else {
         printf("%d unexpected-error errno %d\n", command_token, errno);
     }
@@ -556,7 +563,7 @@ void send_probe(
     char packet[PACKET_BUFFER_SIZE];
     struct probe_t *probe;
     int trytimes;
-    int packet_size;
+    int packet_size = 0;
 
     probe = alloc_probe(net_state, param->command_token);
     if (probe == NULL) {
@@ -814,7 +821,8 @@ void receive_replies_from_recv_socket(
                     packet, packet_length, &timestamp);
         } else if (icmp_hostunreach_received) {
             /* handle packet based on send socket protocol */
-            int proto, length = sizeof(int);
+            int proto;
+            socklen_t length = sizeof(proto);
 
             if (getsockopt(socket, SOL_SOCKET, SO_PROTOCOL, &proto, &length) < 0) {
                 error(EXIT_FAILURE, errno, "getsockopt SO_PROTOCOL error");
@@ -848,7 +856,7 @@ void receive_replies_from_probe_socket(
     int probe_socket;
     struct timeval zero_time;
     int err;
-    int err_length = sizeof(int);
+    socklen_t err_length = sizeof(err);
     fd_set write_set;
 
     probe_socket = probe->platform.socket;
