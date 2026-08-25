@@ -626,7 +626,7 @@ microdesc_cache_clean(microdesc_cache_t *cache, time_t cutoff, int force)
                           (*mdp)->digest, DIGEST256_LEN)) {
               rs_match = "Microdesc digest in RS matches";
             } else {
-              rs_match = "Microdesc digest in RS does match";
+              rs_match = "Microdesc digest in RS does not match";
             }
             if (ns) {
               /* This should be impossible, but let's see! */
@@ -909,14 +909,16 @@ microdesc_free_(microdesc_t *md, const char *fname, int lineno)
   //tor_assert(md->held_in_map == 0);
   //tor_assert(md->held_by_nodes == 0);
 
-  if (md->onion_pkey)
-    tor_free(md->onion_pkey);
   tor_free(md->onion_curve25519_pkey);
   tor_free(md->ed25519_identity_pkey);
   if (md->body && md->saved_location != SAVED_IN_CACHE)
     tor_free(md->body);
 
   nodefamily_free(md->family);
+  if (md->family_ids) {
+    SMARTLIST_FOREACH(md->family_ids, char *, cp, tor_free(cp));
+    smartlist_free(md->family_ids);
+  }
   short_policy_free(md->exit_policy);
   short_policy_free(md->ipv6_exit_policy);
 

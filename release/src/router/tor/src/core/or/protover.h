@@ -37,6 +37,8 @@ struct smartlist_t;
 #define PROTOVER_RELAY_CANONICAL_IPV6 3
 /** The protover version number where relays can accept ntorv3 */
 #define PROTOVER_RELAY_NTOR_V3 4
+/** The protover that signals conflux support. */
+#define PROTOVER_CONFLUX_V1 1
 
 /** The protover version number that signifies HSv3 intro point support */
 #define PROTOVER_HS_INTRO_V3 4
@@ -56,6 +58,14 @@ struct smartlist_t;
 /** The protover that signals support for congestion control */
 #define PROTOVER_FLOWCTRL_CC 2
 
+/** The protover required for negotiating protovers as part of the circuit
+ * extension handshake. */
+#define PROTOVER_RELAY_NEGOTIATE_SUBPROTO 5
+
+/** The protover required for negotiating protovers as part of the circuit
+ * extension handshake. */
+#define PROTOVER_RELAY_CRYPT_CGO 6
+
 /** List of recognized subprotocols. */
 /// C_RUST_COUPLED: src/rust/protover/ffi.rs `translate_to_rust`
 /// C_RUST_COUPLED: src/rust/protover/protover.rs `Proto`
@@ -72,6 +82,7 @@ typedef enum protocol_type_t {
   PRT_CONS      = 9,
   PRT_PADDING   = 10,
   PRT_FLOWCTRL  = 11,
+  PRT_CONFLUX   = 12,
 } protocol_type_t;
 
 bool protover_list_is_invalid(const char *s);
