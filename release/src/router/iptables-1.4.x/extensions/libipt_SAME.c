@@ -2,7 +2,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <xtables.h>
-#include <net/netfilter/nf_nat.h>
+#include <linux/netfilter/nf_nat.h>
 #include <linux/netfilter_ipv4/ipt_SAME.h>
 
 enum {
@@ -37,7 +37,7 @@ static const struct xt_option_entry SAME_opts[] = {
 };
 
 /* Parses range of IPs */
-static void parse_to(const char *orig_arg, struct nf_nat_range *range)
+static void parse_to(const char *orig_arg, struct nf_nat_ipv4_range *range)
 {
 	char *dash, *arg;
 	const struct in_addr *ip;
@@ -113,7 +113,7 @@ static void SAME_print(const void *ip, const struct xt_entry_target *target,
 	printf(" same:");
 
 	for (count = 0; count < mr->rangesize; count++) {
-		const struct nf_nat_range *r = &mr->range[count];
+		const struct nf_nat_ipv4_range *r = &mr->range[count];
 		struct in_addr a;
 
 		a.s_addr = r->min_ip;
@@ -141,7 +141,7 @@ static void SAME_save(const void *ip, const struct xt_entry_target *target)
 	int random_selection = 0;
 
 	for (count = 0; count < mr->rangesize; count++) {
-		const struct nf_nat_range *r = &mr->range[count];
+		const struct nf_nat_ipv4_range *r = &mr->range[count];
 		struct in_addr a;
 
 		a.s_addr = r->min_ip;

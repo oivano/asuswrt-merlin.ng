@@ -6,7 +6,7 @@
 #include <iptables.h> /* get_kernel_version */
 #include <limits.h> /* INT_MAX in ip_tables.h */
 #include <linux/netfilter_ipv4/ip_tables.h>
-#include <net/netfilter/nf_nat.h>
+#include <linux/netfilter/nf_nat.h>
 
 enum {
 	O_TO_DEST = 0,
@@ -44,7 +44,7 @@ static const struct xt_option_entry DNAT_opts[] = {
 };
 
 static struct ipt_natinfo *
-append_range(struct ipt_natinfo *info, const struct nf_nat_range *range)
+	append_range(struct ipt_natinfo *info, const struct nf_nat_ipv4_range *range)
 {
 	unsigned int size;
 
@@ -66,7 +66,7 @@ append_range(struct ipt_natinfo *info, const struct nf_nat_range *range)
 static struct xt_entry_target *
 parse_to(const char *orig_arg, int portok, struct ipt_natinfo *info)
 {
-	struct nf_nat_range range;
+	struct nf_nat_ipv4_range range;
 	char *arg, *colon, *dash, *error;
 	const struct in_addr *ip;
 
@@ -191,7 +191,7 @@ static void DNAT_fcheck(struct xt_fcheck_call *cb)
 		mr->range[0].flags |= IP_NAT_RANGE_PROTO_RANDOM;
 }
 
-static void print_range(const struct nf_nat_range *r)
+static void print_range(const struct nf_nat_ipv4_range *r)
 {
 	if (r->flags & IP_NAT_RANGE_MAP_IPS) {
 		struct in_addr a;
