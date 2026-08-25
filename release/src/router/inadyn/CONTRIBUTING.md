@@ -20,8 +20,8 @@ issue or pull request with this project:
 3. Coding Style
 
    Lines are allowed to be longer than 72 characters these days, there
-   is no enforced max. length. 
-   
+   is no enforced max. length.
+
 > **Tip:** Always submit code that follows the style of surrounding code!
 
    The coding style itself is strictly Linux [KNF][], like GIT it is
@@ -50,7 +50,7 @@ issue or pull request with this project:
 
    See this helpful guide for how to write simple, readable commit
    messages, or have at least a look at the below example.
-   
+
    http://tbaggery.com/2008/04/19/a-note-about-git-commit-messages.html
 
 
@@ -61,27 +61,27 @@ Example commit message from the [Pro Git][gitbook] online book, notice
 how `git commit -s` is used to automatically add a `Signed-off-by`:
 
     Capitalized, short (50 chars or less) summary
-    
+
     More detailed explanatory text, if necessary.  Wrap it to about 72
     characters or so.  In some contexts, the first line is treated as the
     subject of an email and the rest of the text as the body.  The blank
     line separating the summary from the body is critical (unless you omit
     the body entirely); tools like rebase can get confused if you run the
     two together.
-    
+
     Write your commit message in the imperative: "Fix bug" and not "Fixed bug"
     or "Fixes bug."  This convention matches up with commit messages generated
     by commands like git merge and git revert.
-    
+
     Further paragraphs come after blank lines.
-    
+
     - Bullet points are okay, too
-    
+
     - Typically a hyphen or asterisk is used for the bullet, followed by a
       single space, with blank lines in between, but conventions vary here
-    
+
     - Use a hanging indent
-    
+
     Signed-off-by: Jane Doe <jane.doe@example.com>
 
 

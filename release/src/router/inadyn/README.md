@@ -2,7 +2,7 @@ Internet Automated Dynamic DNS Client
 =====================================
 [![License Badge][]][License] [![GitHub Status][]][GitHub] [![Coverity Status][]][Coverity Scan]
 
-The latest release is always available from GitHub at  
+The latest release is always available from GitHub at
 > https://github.com/troglobit/inadyn/releases
 
 
@@ -13,6 +13,7 @@ Table of Contents
   * [Supported Providers](#supported-providers)
   * [Configuration](#configuration)
   * [Custom DDNS Providers](#custom-ddns-providers)
+  * [Troubleshooting](#troubleshooting)
   * [Build & Install](#build--install)
   * [Building from GIT](#building-from-git)
   * [Origin & References](#origin--references)
@@ -47,7 +48,7 @@ the same IP address, use a combination of a script, the address from an
 Internet-facing interface, or default to using the IP address change
 detector of the DDNS provider.
 
-__  
+__
 ¹ Public IP address is the default, private addresses can also be used.
 
 
@@ -91,10 +92,17 @@ providers, ordered by the plugin that support them:
   * <https://www.dnspod.cn>
   * <https://connect.yandex.ru>
   * <https://www.cloudflare.com>
+  * <https://www.goip.de>
+  * <https://www.dnshome.de>
+  * <https://ipv64.net>
+  * <https://domene.shop>
+  * <https://www.simply.com>
+
+For the complete list, see `inadyn -L`, for machine friendly JSON
+output, use `inadyn -L -j`.
 
 DDNS providers not supported natively can be enabled using the custom,
-or generic, DDNS plugin.  E.g. <https://www.namecheap.com>.  See below
-for configuration examples.
+or generic, DDNS plugin. See below for configuration examples.
 
 In-A-Dyn defaults to HTTPS, but not all providers may support this, so
 try disabling SSL for the update (`ssl = false`) or the checkip phase
@@ -134,7 +142,7 @@ This looks for the default `.conf` file, to check any file, use:
     }
 
     # We override checkip server with the In-a-dyn built-in 'default',
-    # api.ipify.org, for details on this, see below.
+    # http://ifconfig.me/ip, for details on this, see below.
     provider freemyip {
         password       = YOUR_TOKEN
         hostname       = YOUR_DOMAIN.freemyip.com
@@ -169,7 +177,8 @@ This looks for the default `.conf` file, to check any file, use:
         password       = bond
         hostname       = spectre.no-ip.com
         checkip-ssl    = false
-        checkip-server = api.ipify.org
+        checkip-server = ifconfig.me
+        checkip-path   = /ip
     }
 
     # With multiple usernames at the same provider, index with :#
@@ -234,6 +243,12 @@ This looks for the default `.conf` file, to check any file, use:
         proxied = false # optional.
     }
 
+    provider goip.de {
+        username = user.name
+        password = user.password
+        hostname = hostname.zone.name
+    }
+
 Notice how the config has three different users of the No-IP provider --
 this is achieved by appending a `:ID` to the provider name.
 
@@ -260,12 +275,13 @@ configuration tab.
 > addr list scope global $device | grep -v " fd" | sed -n 's/.*inet6
 > \([0-9a-f:]\+\).*/\1/p' | head -n 1`
 
-Sometimes the default `checkip-server` for a DDNS provider can be very
-slow to respond, to this end In-a-dyn now support overriding it with a
-custom one, or a custom command.  The easiest way to change it is to set
-`checkip-server = default`, triggering In-a-dyn to use `api.ipify.org`,
-which it also use for custom DDNS providers.  See the man pages, or the
-below section, for more information.
+Sometimes the default `checkip-server` for a DDNS provider can be slow
+to respond, even time out.  In-a-Dyn support overriding the provider's
+default with a custom one, or a custom command.  The easiest way to
+change it is to set `checkip-server = default` in you provider config,
+triggering In-a-Dyn to use the default `http://ifconfig.me/ip`, which
+also is the default for any custom DDNS configuration.  See the man
+pages, or the below section, for more information.
 
 Some providers require using a specific browser to send updates, this
 can be worked around using the `user-agent = STRING` setting, as shown
@@ -307,7 +323,7 @@ The following variables can be substituted into the configuration:
      %p - password, if HTTP basic auth is not used
      %h - hostname
      %i - IP address
-    
+
 For <https://www.namecheap.com> it can look as follows.  Notice how the
 hostname syntax differs from above:
 
@@ -317,6 +333,7 @@ hostname syntax differs from above:
         ddns-server = dynamicdns.park-your-domain.com
         ddns-path   = "/update?domain=%u&password=%p&host=%h&ip=%i"
         hostname    = { "@", "www", "test" }
+        ddns-response = "<ErrCount>0</ErrCount>"
     }
 
 Here three hostnames are updated, one HTTP GET update request for every
@@ -346,19 +363,32 @@ under an API section, or similar.
 Here a fully custom `ddns-path` with format specifiers are used, see the
 `inadyn.conf(5)` man page for details on this.
 
+Another example:
+
+    # Custom configuration for dnsmadeeasy
+    custom dyn {
+        username    = DNSMADEEASYUSERNAME
+        password    = DNSMADEEASYPASSWORDFORTHISHOST
+        ddns-server = cp.dnsmadeeasy.com
+        ddns-path   = "/servlet/updateip?username=%u&password=%p&id=DNSMADEEASYHOSTID&ip=%i"
+        hostname    = HOST
+    }
+
 When using the generic plugin you should first inspect the response from
 the DDNS provider.  By default Inadyn looks for a `200 HTTP` response OK
-code and the strings `"good"`, `"OK"`, `"true"`, or `"updated"` in the
+code and the strings `"good"`, `"OK"`, `"true"`, `"success"`, or `"updated"` in the
 HTTP response body.  If the DDNS provider returns something else you can
 add a list of possible `ddns-response = { Arrr, kilroy }`, or just a
 single `ddns-response = Cool` -- if your provider does give any response
 then use `ddns-response = ""`.
 
 If your DDNS provider does not provide you with a `checkip-server`, you
-can use other services, like http://ipify.org, which is the default if
-you do not specify one for your custom provider config:
+can use other services, like http://ifconfig.me/ip, which is the default
+if you do not specify one for your custom provider config:
 
-    checkip-server = api.ipify.org
+    checkip-server = ifconfig.me
+    checkip-path   = /ip
+    checkip-ssl    = false
 
 or even use a script or command:
 
@@ -374,6 +404,32 @@ need to encode your DNS hostname in the `ddns-path` instead, as is done
 in the last example above.
 
 
+Troubleshooting
+---------------
+
+A common problem is getting started, which is understandable since In-a-Dyn
+has a lot of confusing options.
+
+### Initial Connection
+
+Having saved your `/etc/inadyn.conf`, first try starting it in the
+foreground with full debug logs:
+
+    inadyn -l debug --foreground --force
+
+Any misconfiguration or bad server responses should be a lot easier to
+spot.  Remember to censor your logs from any passwords and domain info
+if you file a bug report or ask a question in the forum/irc!
+
+### Not Updating
+
+Try clearing the cache:
+
+ 1. `sudo systemctl stop inadyn.service`
+ 2. `sudo rm -rf /var/cache/inadyn/*`
+ 3. `sudo systemctl restart inadyn.service`
+
+
 Build & Install
 ---------------
 
@@ -381,7 +437,7 @@ Build & Install
 
 For a long time, the project maintained its own `.deb` packaging and
 basic apt infrastructure.  However, the increasing level of features in
-In-a-dyn, and thus amount of dependencies, as well as the demands for
+In-a-Dyn, and thus amount of dependencies, as well as the demands for
 supporting more architectures and different distributions, the pre-built
 `.deb` support has been discontinued as of v2.9.1.
 
@@ -409,6 +465,19 @@ A Dockerfile is provided to simplify building and running `inadyn`.
     docker build -t inadyn:latest .
     docker run --rm -v "$PWD/inadyn.conf:/etc/inadyn.conf" inadyn:latest
 
+#### Periodic Update with Cron
+
+If you don't want to run In-a-dyn as a background daemon, you can set up
+a cronjob:
+
+  * Create your `inadyn.conf` file
+  * Create folder for cache
+  * Add the following line inside crontab `crontab -e`
+
+```bash
+* * * * * docker run --rm -v "path/to/inadyn.conf:/etc/inadyn.conf" -v "path/to/cache:/var/cache/inadyn" troglobit/inadyn:latest -1 --cache-dir=/var/cache/inadyn > /dev/null 2>&1
+```
+
 ### Homebrew (macOS)
 
 To run the latest stable version on macOS, type:
@@ -420,6 +489,14 @@ To run the latest version from the master branch, install the git tap instead:
     brew install --HEAD troglobit/inadyn/inadyn
 
 Either of these will install all dependencies.
+
+### MacPorts (macOS)
+
+You can also install In-A-Dyn on macOS using [MacPorts](https://www.macports.org):
+
+    sudo port install inadyn
+
+You can find more information at In-A-Dyn's [ports page](https://ports.macports.org/port/inadyn/).
 
 ### Building from Source
 
@@ -577,14 +654,13 @@ pull requests for bug fixes and proposed extensions at [GitHub][].
 > little D-Link DIR-645 router so I could get back on the interwebs :-)
 
 [original]:         http://www.inatech.eu/inadyn/
-[DDNS]:             http://en.wikipedia.org/wiki/Dynamic_DNS
+[DDNS]:             https://en.wikipedia.org/wiki/Dynamic_DNS
 [tunnelbroker]:     https://tunnelbroker.net/
-[Christian Eyrich]: http://eyrich-net.org/programmiertes.html
-[Joachim Wiberg]:   http://troglobit.com
+[Joachim Wiberg]:   https://troglobit.com
 [libConfuse]:       https://github.com/martinh/libconfuse
-[LibreSSL]:         http://www.libressl.org/
+[LibreSSL]:         https://www.libressl.org/
 [OpenSSL]:          https://www.openssl.org/
-[GnuTLS]:           http://www.gnutls.org/
+[GnuTLS]:           https://www.gnutls.org/
 [GitHub]:           https://github.com/troglobit/inadyn
 [buildsystem]:      https://airs.com/ian/configure/
 [License]:          https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html

@@ -34,10 +34,6 @@
 #include "error.h"
 #include "ssl.h"
 
-#ifdef ASUSWRT
-#include <bcmnvram.h>
-#endif
-
 int    once = 0;
 int    force = 0;		/* Only allowed with 'once' */
 int    ignore_errors = 0;
@@ -103,7 +99,6 @@ static int alloc_context(ddns_t **pctx)
 		ctx->update_period = DDNS_DEFAULT_PERIOD;
 		ctx->total_iterations = DDNS_DEFAULT_ITERATIONS;
 		ctx->cmd_check_period = DDNS_DEFAULT_CMD_CHECK_PERIOD;
-		ctx->force_addr_update = 0;
 
 		ctx->initialized = 0;
 	}
@@ -197,7 +192,7 @@ static void parse_privs(char *user)
 	}
 }
 
-static int compose_paths(void)
+static int compose_paths(int dryrun)
 {
 	/* Default .conf file path: "/etc" + '/' + "inadyn" + ".conf" */
 	if (!config) {
@@ -232,8 +227,14 @@ static int compose_paths(void)
 
 			home = getenv("HOME");
 			if (!home) {
-				logit(LOG_ERR, "Cannot create fallback cache dir: %s", strerror(errno));
-				return 0;
+				/* ignore this for --check-config: the service won't start if the
+				 * main process is not given the option */
+				if (dryrun)
+					return 0;
+				logit(LOG_ERR, "%s: not writable, $HOME missing, please use --cache-dir=PATH",
+				      cache_dir);
+				free(cache_dir);
+				return 1;
 			}
 
 			/* Fallback cache dir: $HOME + "/.cache/" + "inadyn" */
@@ -247,7 +248,7 @@ static int compose_paths(void)
 			}
 
 			snprintf(cache_dir, len, "%s/.cache/%s", home, ident);
-			if (mkdir(cache_dir, 0755) && EEXIST != errno) {
+			if (!dryrun && mkdir(cache_dir, 0755) && EEXIST != errno) {
 				snprintf(cache_dir, len, "%s/.%s", home, ident);
 				mkdir(cache_dir, 0755);
 			}
@@ -261,7 +262,7 @@ static int usage(int code)
 {
         char pidfn[80];
 
-	DO(compose_paths());
+	DO(compose_paths(1));
 	if (pidfile_name[0] != '/')
 		snprintf(pidfn, sizeof(pidfn), "%s/%s.pid", RUNSTATEDIR, pidfile_name);
 	else
@@ -289,13 +290,16 @@ static int usage(int code)
 		" -i, --iface=IFNAME             Check IP of IFNAME instead of external server\n"
 		" -I, --ident=NAME               Identity for config file, PID file, cache dir,\n"
 		"                                and syslog messages.  Defaults to: %s\n"
+		" -j, --json                     JSON output format (-L only)\n"
 		" -l, --loglevel=LEVEL           Set log level: none, err, info, notice*, debug\n"
+		" -L, --list-providers           List available DDNS providers\n"
 		" -n, --foreground               Run in foreground with logging to stdout/stderr\n"
 		" -p, --drop-privs=USER[:GROUP]  Drop privileges after start to USER:GROUP\n"
 		"     --no-pidfile               Do not create PID file, for use with systemd\n"
 		" -P, --pidfile=FILE             File to store process ID for signaling %s\n"
 		"                                Default uses ident NAME: %s\n"
 		" -s, --syslog                   Log to syslog, default unless --foreground\n"
+		" -S, --show-provider NAME       Show information about DDNS provider NAME\n"
 		" -t, --startup-delay=SEC        Initial startup delay, default none\n"
 		" -v, --version                  Show program version and exit\n\n"
 		"Bug report address: %s\n",
@@ -335,9 +339,8 @@ int main(int argc, char *argv[])
 {
 	int c, restart, rc = 0;
 	int use_syslog = 1;
-#ifndef DROP_CHECK_CONFIG
 	int check_config = 0;
-#endif
+	int list = 0, json = 0;
 	int background = 1;
 	static const struct option opt[] = {
 		{ "once",              0, 0, '1' },
@@ -351,13 +354,16 @@ int main(int argc, char *argv[])
 		{ "check-config",      0, 0, 129 },
 		{ "iface",             1, 0, 'i' },
 		{ "ident",             1, 0, 'I' },
+		{ "json",              0, 0, 'j' },
 		{ "loglevel",          1, 0, 'l' },
+		{ "list-providers",    0, 0, 'L' },
 		{ "help",              0, 0, 'h' },
 		{ "foreground",        0, 0, 'n' },
 		{ "no-pidfile",        0, 0, 'N' },
 		{ "pidfile",           1, 0, 'P' },
 		{ "drop-privs",        1, 0, 'p' },
 		{ "syslog",            0, 0, 's' },
+		{ "show-provider",     0, 0, 'S' },
 		{ "startup-delay",     1, 0, 't' },
 		{ "version",           0, 0, 'v' },
 		{ NULL,                0, 0, 0   }
@@ -368,7 +374,7 @@ int main(int argc, char *argv[])
 	parse_privs(NULL);
 
 	prognm = ident = progname(argv[0]);
-	while ((c = getopt_long(argc, argv, "1c:Ce:f:h?i:I:l:nNp:P:st:v", opt, NULL)) != EOF) {
+	while ((c = getopt_long(argc, argv, "1c:Ce:f:h?i:I:jl:LnNp:P:sS:t:v", opt, NULL)) != EOF) {
 		switch (c) {
 		case '1':	/* --once */
 			once = 1;
@@ -423,10 +429,18 @@ int main(int argc, char *argv[])
 			ident = optarg;
 			break;
 
+		case 'j':
+			json = 1;
+			break;
+
 		case 'l':	/* --loglevel=LEVEL */
 			rc = log_level(optarg);
 			if (-1 == rc)
 				return usage(1);
+			break;
+
+		case 'L':
+			list = 1;
 			break;
 
 		case 'n':	/* --foreground */
@@ -451,6 +465,9 @@ int main(int argc, char *argv[])
 			use_syslog++;
 			break;
 
+		case 'S':
+			return plugin_show(optarg);
+
 		case 't':	/* --startup-delay=SEC */
 			startup_delay = atoi(optarg);
 			break;
@@ -467,8 +484,11 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	if (list)
+		return plugin_list(json);
+
 	/* Figure out .conf file, cache directory, and PID file name */
-	DO(compose_paths());
+	DO(compose_paths(check_config));
 
 #ifndef DROP_CHECK_CONFIG
 	if (check_config) {
@@ -568,53 +588,13 @@ int main(int argc, char *argv[])
 
 	ssl_exit();
 leave:
+	if (rc)
+		logit(LOG_ERR, "Error code %d: %s", rc, error_str(rc));
+
 	log_exit();
 	free(config);
 	free(pidfile_name);
 	free(cache_dir);
-
-	if (rc)
-		logit(LOG_ERR, "Error code %d: %s", rc, error_str(rc));
-
-#ifdef ASUSWRT
-		if(nvram_match("ddns_return_code", "ddns_query") || nvram_match("ddns_return_code", ",0"))
-		{
-			switch (rc) {
-				case RC_OK:
-					nvram_set("ddns_return_code", "200");
-					nvram_set("ddns_return_code_chk", "200");
-					break;
-				case RC_TCP_INVALID_REMOTE_ADDR: /* Probably temporary DNS error. */
-				case RC_TCP_CONNECT_FAILED:      /* Cannot connect to DDNS server atm. */
-				case RC_TCP_SEND_ERROR:
-				case RC_TCP_RECV_ERROR:
-				case RC_OS_INVALID_IP_ADDRESS:
-				case RC_DDNS_RSP_RETRY_LATER:
-				case RC_DDNS_INVALID_CHECKIP_RSP:
-				case RC_DDNS_RSP_NOTOK:
-					nvram_set("ddns_return_code", "ddns_query"); /* for Retry mechanism */
-					nvram_set("ddns_return_code_chk", "Time-out");
-					break;
-				case RC_HTTPS_FAILED_CONNECT:
-				case RC_HTTPS_FAILED_GETTING_CERT:
-					nvram_set("ddns_return_code", "ddns_query"); /* for Retry mechanism */
-					nvram_set("ddns_return_code_chk", "connect_fail");
-					break;
-				case RC_DDNS_RSP_NOHOST:
-					nvram_set("ddns_return_code", "Update failed");
-					nvram_set("ddns_return_code_chk", "Update failed");
-					break;
-				case RC_DDNS_RSP_AUTH_FAIL:
-					nvram_set("ddns_return_code", "auth_fail");
-					nvram_set("ddns_return_code_chk", "auth_fail");
-					break;
-				default:
-					nvram_set("ddns_return_code", "unknown_error");
-					nvram_set("ddns_return_code_chk", "unknown_error");
-					break;
-			}
-		}
-#endif
 
 	return rc;
 }
