@@ -1,0 +1,117 @@
+#!/bin/bash
+#
+# Copyright © 2026 Ben Walsh
+#
+# This file is part of openconnect.
+#
+# This is free software; you can redistribute it and/or
+# modify it under the terms of the GNU Lesser General Public License
+# as published by the Free Software Foundation; either version 2.1 of
+# the License, or (at your option) any later version.
+#
+# This library is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>
+
+srcdir=${srcdir:-.}
+top_builddir=${top_builddir:-..}
+
+SERV=${srcdir}/fake-pulse-server.py
+CLI_PIDFILE=oc-pid.$$.tmp
+
+. `dirname $0`/common.sh
+
+finish() {
+    echo " * Cleaning up..."
+    [ -n "${PID}" ] && kill ${PID} >/dev/null 2>&1
+    if [ -f "$CLI_PIDFILE" ]
+    then
+        kill $(cat "$CLI_PIDFILE") >/dev/null 2>&1
+        rm -f "$CLI_PIDFILE"
+    fi
+}
+
+start_client() {
+    echo '' | $CMDNS1 ${OPENCONNECT} --protocol=pulse $FINGERPRINT \
+                  --interface $TUNDEV \
+                  -u test --passwd-on-stdin -s ${srcdir}/scripts/vpnc-script \
+                  --pid-file=$CLI_PIDFILE -b \
+                  --dump-http-traffic -vv ${SERVURL}
+
+    sleep 5
+
+    $CMDNS1 ip route add $VPNADDR dev $TUNDEV
+}
+
+# server address
+ADDRESS=10.202.2.1
+CLI_ADDRESS=10.202.1.1
+VPNNET=192.168.3.0/24
+VPNADDR=192.168.3.1
+VPNNET6=fd91:6d87:8341:dc6a::/112
+VPNADDR6=fd91:6d87:8341:dc6a::1
+USERNAME=test
+TUNDEV=oc-$$-tun0
+
+. `dirname $0`/ns.sh
+
+set -eu
+
+FINGERPRINT="--servercert=pin-sha256:xp3scfzy3rO"
+CERT=$certdir/server-cert.pem
+KEY=$certdir/server-key.pem
+FAKE_TOKEN="--token-mode=totp --token-secret=ABCD"
+
+echo "Testing Pulse auth against fake server ..."
+
+$CMDNS2 $SERV $ADDRESS 443 $VPNNET $CERT $KEY & PID="$!"
+
+sleep 5
+
+SERVURL="https://$ADDRESS:443"
+
+echo " * Doing ping over SSL..."
+
+$CMDNS1 curl -k "$SERVURL/CONFIGURE" -d ''
+
+start_client
+
+$CMDNS1 ping -c 1 $VPNADDR \
+    || fail "$PID" "Could not ping through tunnel"
+
+echo ok
+
+kill $(cat "$CLI_PIDFILE")
+
+sleep 2
+
+echo " * Checking SSL was used for tunnel..."
+
+$CMDNS1 curl -k "$SERVURL/STATUS" | grep 'ssl_ping=true' \
+    || fail "$PID" "ping was not over SSL"
+
+echo " * Doing ping over UDP..."
+
+$CMDNS1 curl -k "$SERVURL/CONFIGURE" -d 'enable_udp=true'
+
+start_client
+
+$CMDNS1 ping -c 1 $VPNADDR \
+    || fail "$PID" "Could not ping through tunnel"
+
+echo ok
+
+kill $(cat "$CLI_PIDFILE")
+
+sleep 2
+
+echo " * Checking UDP was used for tunnel..."
+
+$CMDNS1 curl -k "$SERVURL/STATUS" | grep 'udp_ping=true' \
+    || fail "$PID" "ping was not over UDP"
+
+exit 0

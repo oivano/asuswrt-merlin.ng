@@ -32,7 +32,7 @@ from dataclasses import dataclass
 
 host, port, *cert_and_maybe_keyfile = sys.argv[1:]
 
-context = ssl.SSLContext()
+context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 context.load_cert_chain(*cert_and_maybe_keyfile)
 
 app = Flask(__name__)
@@ -42,7 +42,7 @@ app.config.update(SECRET_KEY=b'fake', DEBUG=True, HOST=host, PORT=int(port), SES
 ########################################
 
 def cookify(jsonable):
-    return base64.urlsafe_b64encode(dumps(jsonable).encode())
+    return base64.urlsafe_b64encode(dumps(jsonable).encode()).decode()
 
 
 def require_DSID(fn):
@@ -83,6 +83,7 @@ class TestConfiguration:
     roles: list = ()
     confirm: bool = False
     token_form: str = None
+    expected_token: str = None
 C = TestConfiguration()
 
 
@@ -94,7 +95,8 @@ def configure():
             realms=request.form['realms'].split(',') if 'realms' in request.form else (),
             roles=request.form['roles'].split(',') if 'roles' in request.form else (),
             confirm=bool(request.form.get('confirm')),
-            token_form=request.form.get('token_form'))
+            token_form=request.form.get('token_form'),
+            expected_token=request.form.get('expected_token'))
         return '', 201
     else:
         return 'Current configuration of fake Juniper server:\n{}\n'.format(C)
@@ -152,6 +154,11 @@ def frmLogin_post():
     if C.token_form:
         need_token = request.form.get('btnAction') is None and request.form.get('totpactionEnter') is None and request.form.get('token_as_second_password') is None
         got_token = not need_token
+        # Validate token value if expected_token is configured
+        if got_token and C.expected_token:
+            token_val = request.form.get('token_code') or request.form.get('token_as_second_password') or ''
+            if token_val != C.expected_token:
+                return 'Token mismatch: got %s, expected %s' % (token_val, C.expected_token), 401
     session.update(got_token=got_token, got_confirm=got_confirm)
 
     if need_token and not got_confirm:

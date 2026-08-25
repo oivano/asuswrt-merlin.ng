@@ -6,7 +6,7 @@
 	<MENU topic="Mailing List / Help" link="mail.html" mode="VAR_SEL_MAIL" />
 	<MENU topic="Contribute" link="contribute.html" mode="VAR_SEL_CONTRIBUTE" />
 	<MENU topic="Protocols" link="protocols.html" mode="VAR_SEL_PROTOCOLS" />
-	<MENU topic="VPN Server" link="https://www.infradead.org/ocserv/" mode="VAR_SEL_SERVER" />
+	<MENU topic="VPN Server" link="https://ocserv.openconnect-vpn.net/" mode="VAR_SEL_SERVER" />
 	<MENU topic="OpenConnect VPN client" link="" mode="text" />
 	<ENDMENU />
 </PAGE>

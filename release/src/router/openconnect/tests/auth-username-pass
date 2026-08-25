@@ -32,13 +32,13 @@ PID=$!
 wait_server $PID
 
 echo -n "Connecting to obtain cookie... "
-( echo "test" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $ADDRESS:443 -u test --servercert=pin-sha256:xp3scfzy3rO --cookieonly >/dev/null 2>&1) ||
+( echo "test" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $SWRESOLVE sockwrap:443 -u test --servercert=pin-sha256:xp3scfzy3rO --cookieonly >/dev/null 2>&1) ||
 	fail $PID "Could not receive cookie from server"
 
 echo ok
 
 echo -n "Connecting to obtain cookie with wrong password... "
-( echo "tost" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $ADDRESS:443 -u test --servercert=pin-sha256:xp3scfzy3rO --cookieonly >/dev/null 2>&1) &&
+( echo "tost" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $SWRESOLVE sockwrap:443 -u test --servercert=pin-sha256:xp3scfzy3rO --cookieonly >/dev/null 2>&1) &&
 	fail $PID "Received cookie when we shouldn't"
 
 echo ok
@@ -46,13 +46,13 @@ echo ok
 #test special characters
 
 echo -n "Connecting to obtain cookie... "
-( echo "!@#$%^&*()<>" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $ADDRESS:443 -u "sp@c/al" --servercert=pin-sha256:xp3scfzy3rO --cookieonly >/dev/null 2>&1 ) ||
+( echo "!@#$%^&*()<>" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $SWRESOLVE sockwrap:443 -u "sp@c/al" --servercert=pin-sha256:xp3scfzy3rO --cookieonly >/dev/null 2>&1 ) ||
 	fail $PID "Could not receive cookie from server"
 
 echo ok
 
 echo -n "Connecting to obtain cookie with empty password... "
-( echo "" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $ADDRESS:443 -u "empty" --servercert=pin-sha256:xp3scfzy3rO --cookieonly >/dev/null 2>&1 ) ||
+( echo "" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $SWRESOLVE sockwrap:443 -u "empty" --servercert=pin-sha256:xp3scfzy3rO --cookieonly >/dev/null 2>&1 ) ||
 	fail $PID "Could not receive cookie from server"
 
 echo ok

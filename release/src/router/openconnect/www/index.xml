@@ -13,7 +13,7 @@
 
 <ul>
   <li><a href="anyconnect.html">Cisco AnyConnect</a> (<tt>--protocol=anyconnect</tt>)</li>
-  <li><a href="array.html">Array Networks AG SSL VPN</a> (<tt>--protocol=array</tt>)</li>
+  <li><a href="array.html">Array Networks SSL VPN</a> (<tt>--protocol=array</tt>)</li>
   <li><a href="juniper.html">Juniper SSL VPN</a> (<tt>--protocol=nc</tt>)</li>
   <li><a href="pulse.html">Pulse Connect Secure</a> (<tt>--protocol=pulse</tt>)</li>
   <li><a href="globalprotect.html">Palo Alto Networks GlobalProtect SSL VPN</a> (<tt>--protocol=gp</tt>)</li>

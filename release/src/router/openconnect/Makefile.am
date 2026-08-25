@@ -1,6 +1,7 @@
 SUBDIRS = tests
 # We kind of want openconnect to be built before we try to test it
-check-recursive: openconnect$(EXEEXT)
+# We also want to have wintun library when running wintun tests, if applicable
+check-recursive: openconnect$(EXEEXT) $(WINTUN_DLL)
 # And even *building* some of tests/*.c needs libopenconnect
 install-recursive: libopenconnect.la
 all-recursive: libopenconnect.la
@@ -18,6 +19,8 @@ endif
 lib_LTLIBRARIES = libopenconnect.la
 sbin_PROGRAMS = openconnect
 man8_MANS = openconnect.8
+bin_PROGRAMS :=
+sbin_SCRIPTS :=
 noinst_PROGRAMS :=
 
 AM_CFLAGS = @WFLAGS@
@@ -34,6 +37,7 @@ openconnect_LDADD = libopenconnect.la $(SSL_LIBS) $(LIBXML2_LIBS) \
 
 if OPENCONNECT_WIN32
 openconnect_SOURCES += openconnect.rc
+sbin_SCRIPTS += vpnc-script-win.js
 endif
 library_srcs = ssl.c http.c textbuf.c http-auth.c auth-common.c \
 	auth-html.c library.c compat.c lzs.c mainloop.c script.c \
@@ -59,7 +63,7 @@ library_srcs += $(lib_srcs_juniper) $(lib_srcs_cisco) $(lib_srcs_oath) \
 
 lib_srcs_gnutls = gnutls.c gnutls_tpm.c gnutls_tpm2.c
 lib_srcs_openssl = openssl.c openssl-pkcs11.c
-lib_srcs_win32 = wintun.c tun-win32.c sspi.c
+lib_srcs_win32 = wintun.c tun-win32.c sspi.c wintun.h
 lib_srcs_posix = tun.c
 lib_srcs_gssapi = gssapi.c
 lib_srcs_iconv = iconv.c
@@ -167,7 +171,16 @@ endif
 endif
 
 if OPENCONNECT_SYSTEM_KEYS
+if OPENCONNECT_WIN32
+#install list-system-keys on Windows
+bin_PROGRAMS += list-system-keys
+else
+#Don't install list-system-keys
+#It breaks the Linux COPR builds since the native RPM doesn't list it as
+#one of the files that are expected to be installed.
+#see commit 17887b53e171ec7223340092dc042298a29defb0
 noinst_PROGRAMS += list-system-keys
+endif #OPENCONNECT_WIN32
 list_system_keys_SOURCES = list-system-keys.c
 list_system_keys_CFLAGS = $(GNUTLS_CFLAGS)
 list_system_keys_LDADD = $(GNUTLS_LIBS)
@@ -184,6 +197,7 @@ EXTRA_DIST = AUTHORS version.sh COPYING.LGPL openconnect.ico $(POTFILES) opencon
 EXTRA_DIST += json/AUTHORS json/LICENSE json/json.c json/json.h libopenconnect5.symbols gensymbols.sed
 EXTRA_DIST += $(shell cd "$(top_srcdir)" && \
 		git ls-tree HEAD -r --name-only -- android/ java/ trojans/ bash/ 2>/dev/null)
+EXTRA_DIST += Makefile.dlldeps
 
 DISTCLEANFILES = $(pkgconfig_DATA) version.c
 
@@ -388,13 +402,18 @@ DISTCLEANFILES += .*.dll.d .*.exe.d file-list*.txt instfiles.nsh uninstfiles.nsh
 #EXTRA_DLLDIRS := $(OPENCONNECT_GUI_DIR)/bin $(libdir)/qt5/plugins/platforms $(libdir)/qt5/plugins/styles
 
 DLL_EXECUTABLES := openconnect$(EXEEXT) $(EXTRA_EXECUTABLES)
+endif
 
 if OPENCONNECT_WINTUN
 WINTUN_DLL = .libs/wintun.dll
 DISTCLEANFILES += $(WINTUN_DLL)
+sbin_SCRIPTS += .libs/wintun.dll
+if BUILD_NSIS
 DLL_EXECUTABLES += wintun.dll
 endif
+endif
 
+if BUILD_NSIS
 if OPENCONNECT_SYSTEM_KEYS
 DLL_EXECUTABLES += list-system-keys$(EXEEXT)
 endif
@@ -417,6 +436,7 @@ export V AM_DEFAULT_VERBOSITY bindir libdir OBJDUMP DLL_EXECUTABLES EXTRA_DLLDIR
 
 file-list.txt: Makefile.dlldeps openconnect$(EXEEXT) libopenconnect.la $(WINTUN_DLL)
 	@$(MAKE) --no-print-directory -f $< $@
+endif #BUILD_NSIS
 
 # Wintun Layer 3 TUN driver for Windows 7 and newer
 # (see https://wintun.net)
@@ -424,7 +444,7 @@ WINTUNDRIVER = wintun-0.14.1.zip
 WINTUNSHA256 = 07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51
 
 $(WINTUNDRIVER):
-	curl https://www.wintun.net/builds/$(WINTUNDRIVER) -o $@
+	( test -f "/opt/$(WINTUNDRIVER)" && cp "/opt/$(WINTUNDRIVER)" ./ ) || curl https://www.wintun.net/builds/$(WINTUNDRIVER) -o $@
 
 .libs/wintun.dll: $(WINTUNDRIVER)
 	echo $(WINTUNSHA256) $< | sha256sum -c
@@ -437,6 +457,7 @@ vpnc-script-win.js:
 	    jq -r '.[0] | "// This script matches the version found at " + (.web_url | sub("/commit/"; "/blob/")) + "/vpnc-script-win.js\n// Updated on " + .authored_date[:10] + " by " + .author_name + " <" + .author_email + "> (\"" + .title + "\")\n//"' > $@
 	curl https://gitlab.com/openconnect/vpnc-scripts/raw/master/vpnc-script-win.js >> $@
 
+if BUILD_NSIS
 # Let make find the file in VPATH
 file-list-%.txt: %
 	echo $< > $@
@@ -448,7 +469,7 @@ file-list-extra.txt:
 # just emit raw snippets to be included separately in the install
 # and uninstall sections.
 instfiles.nsh: file-list.txt file-list-vpnc-script-win.js.txt file-list-extra.txt
-	$(AM_V_GEN) ( grep -hv "^$(libdir)/qt5/plugins" $^ | sed 's%\(.*\)%File "\1"%' ; \
+	$(AM_V_GEN) ( for f in `grep -hv "^$(libdir)/qt5/plugins" $^`; do g=`$(CYGPATH_W) $$f`; echo File \"$$g\"; done; \
 	grep -h "^$(libdir)/qt5/plugins" $^ | sed 's%\(.*/qt5/plugins\)/\([^/]*\)/\([^/]*\)%SetOutPath "$$INSTDIR\\\\\2"\nFile "\1/\2/\3"%' ) > $@
 
 uninstfiles.nsh: file-list.txt file-list-vpnc-script-win.js.txt file-list-extra.txt
@@ -473,7 +494,7 @@ openconnect.nsi: version.c
 	  echo "VIAddVersionKey ProductVersion \"$$VERSION\""; \
 	  echo "VIAddVersionKey Comments \"OpenConnect multi-protocol VPN client for Windows (command-line version, built with $$TLS_LIBRARY). For more information, visit https://www.infradead.org/openconnect/\""; \
 	  echo "OutFile \"$$INSTALLER_NAME\""; \
-	  echo "!include $(srcdir)/openconnect.nsi.in" ) > $@
+	  cat "$(srcdir)/openconnect.nsi.in" ) > $@
 
 AM_V_MAKENSIS = $(am__v_MAKENSIS_$(V))
 am__v_MAKENSIS_ = $(am__v_MAKENSIS_$(AM_DEFAULT_VERBOSITY))
@@ -484,4 +505,4 @@ openconnect-installer-$(INSTALLER_SUFFIX).exe: openconnect.nsi instfiles.nsh uni
 	$(AM_V_MAKENSIS) $(MAKENSIS) $<
 	ln -f "$$(grep -E '^OutFile' openconnect.nsi | cut -f2 -d\")" $@
 
-endif
+endif #BUILD_NSIS

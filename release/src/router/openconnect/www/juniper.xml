@@ -17,7 +17,7 @@ is believed to be nearly complete. The most glaring problem with
 the Pulse protocol is that it does not support IPv6 at all.</p>
 
 <p>Following
-<a href="pulse.html https://www.juniper.net/content/dam/www/assets/solution-briefs/us/en/security/juniper-networks-and-pulse-secure-deliver-unified-secure-network-access.pdf">Juniper's
+<a href="https://www.juniper.net/content/dam/www/assets/solution-briefs/us/en/security/juniper-networks-and-pulse-secure-deliver-unified-secure-network-access.pdf">Juniper's
 2015 announcement</a>, the Juniper protocol has been largely
 deprecated and replaced with the <a href="pulse.html">Junos/Ivanti
 Pulse</a> protocol. However, as of 2023 Junos/Ivanti servers continue

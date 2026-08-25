@@ -154,5 +154,26 @@ int main(void)
 		}
 	}
 	buf_free(buf);
+
+	/* Regression test for #851: buf_append() infinite loop when
+	 * vsnprintf output exactly fills remaining space (ret == max_len).
+	 * BUF_CHUNK_SIZE is 4096, so a buffer at pos 4048 with buf_len 4096
+	 * has max_len=48. A format producing exactly 48 chars triggers the
+	 * boundary condition. */
+	buf = buf_alloc();
+	assert(!buf_error(buf));
+
+	/* Fill to 48 bytes short of a 4096 boundary */
+	while (buf->pos < 4096 - 48)
+		buf_append(buf, "AAAAAAAAAAAAAAAA");
+	/* Trim to exactly the target position */
+	buf->pos = 4096 - 48;
+
+	/* This format produces exactly 48 chars (would have looped forever) */
+	buf_append(buf, "%048d", 0);
+	assert(!buf_error(buf));
+	assert(buf->pos == 4096);
+
+	buf_free(buf);
 	return 0;
 }

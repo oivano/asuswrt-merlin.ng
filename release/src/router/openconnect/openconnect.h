@@ -269,6 +269,7 @@ struct oc_choice {
 	char *secondary_username;
 	int secondary_username_editable;
 	int noaaa;
+	int priority;
 #endif
 };
 

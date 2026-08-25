@@ -1,2 +1,4 @@
 # reported by glibc
 leak:__vasprintf_internal
+# There are unknown leaks in libcrypto.so.3
+leak:libcrypto.so.3

@@ -14,19 +14,11 @@
   <i>Updates to the information below are welcomed, especially for distributions (including *BSD etc.) which aren't yet mentioned.</i>
 </p>
 <ul>
-  <li><h2>Packages built from latest releases</h2>
-    <p>
-      <tt>openconnect</tt>, <tt>NetworkManager-openconnect</tt> (or <tt>network-manager-openconnect</tt>) and <tt>vpnc-scripts</tt>
-      packages are automatically built and published for all supported Linux distributions and architectures on the
-      <a href="https://software.opensuse.org/download.html?project=home%3Abluca%3Aopenconnect%3Arelease&amp;;package=openconnect">Open Build Service</a>.
-      Repositories can be added following instructions on OBS.
-    </p>
-  </li>
   <li><h2>Packages built from latest git HEAD</h2>
     <p>
       <tt>openconnect</tt>, <tt>NetworkManager-openconnect</tt> (or <tt>network-manager-openconnect</tt>) and <tt>vpnc-scripts</tt>
       packages are automatically built and published for all supported Linux distributions and architectures on the
-      <a href="https://software.opensuse.org/download.html?project=home%3Abluca%3Aopenconnect&amp;;package=openconnect">Open Build Service</a>.
+      <a href="https://software.opensuse.org/download.html?project=network%3Avpn%3Aopenconnect&amp;package=openconnect">Open Build Service</a>.
       Repositories can be added following instructions on OBS.
     </p>
   </li>

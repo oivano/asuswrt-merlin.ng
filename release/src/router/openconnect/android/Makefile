@@ -13,20 +13,19 @@
 # Last tested with https://dl.google.com/android/repository/android-ndk-r21b-linux-x86_64.zip
 
 
-NDK     := /opt/android-sdk-linux_x86/android-ndk-r21b
+NDK     := /opt/android-sdk-linux_x86/android-ndk-r27c
 ARCH    := x86_64
 API_LEVEL := 23
 
-EXTRA_CFLAGS :=
+EXTRA_CFLAGS := -D__ANDROID_API__=$(API_LEVEL) -O2 -Wno-macro-redefined
 
 # You should be able to just 'make ARCH=x86' and it should DTRT.
 ifeq ($(ARCH),arm)
-TRIPLET := arm-linux-androideabi
-EXTRA_CFLAGS := -march=armv7-a -mthumb
+TRIPLET := armv7a-linux-androideabi
+EXTRA_CFLAGS += -march=armv7-a -mthumb
 endif
 ifeq ($(ARCH),arm64)
 TRIPLET := aarch64-linux-android
-API_LEVEL := 26
 endif
 ifeq ($(ARCH),x86)
 TRIPLET := i686-linux-android
@@ -38,18 +37,22 @@ endif
 TOPDIR := $(shell pwd)
 DESTDIR := $(TOPDIR)/$(TRIPLET)/out
 
-EXTRA_CFLAGS += -D__ANDROID_API__=$(API_LEVEL) -O2
-
-TOOLCHAIN := $(TOPDIR)/$(TRIPLET)/toolchain
-TOOLCHAIN_BUILT := $(TOOLCHAIN)/.built
-TOOLCHAIN_OPTS := --platform=android-$(API_LEVEL) --arch=$(ARCH) \
-		  --install-dir=$(TOOLCHAIN)
+TOOLCHAIN := $(NDK)/toolchains/llvm/prebuilt/linux-x86_64
 PATH := $(TOOLCHAIN)/bin:$(PATH)
+OC_SYSROOT := $(TOPDIR)/$(TRIPLET)/sysroot/usr
+OC_SYSROOT_PATCHES := $(TOPDIR)/sysroot-patches
 
-OC_SYSROOT := $(TOOLCHAIN)/sysroot/usr
+AR := $(TOOLCHAIN)/bin/llvm-ar
+AS := $(TOOLCHAIN)/bin/llvm-as
+CC := $(TOOLCHAIN)/bin/$(TRIPLET)$(API_LEVEL)-clang --sysroot=$(OC_SYSROOT)/..
+CXX := $(TOOLCHAIN)/bin/$(TRIPLET)$(API_LEVEL)-clang++ --sysroot=$(OC_SYSROOT)/..
+LD := $(TOOLCHAIN)/bin/ld --sysroot=$(OC_SYSROOT)/..
+RANLIB := $(TOOLCHAIN)/bin/llvm-ranlib
+STRIP := $(TOOLCHAIN)/bin/llvm-strip
+
 PKG_CONFIG_LIBDIR := $(OC_SYSROOT)/lib/pkgconfig
 
-export PATH PKG_CONFIG_LIBDIR
+export PATH PKG_CONFIG_LIBDIR AR AS CC CXX LD RANLIB STRIP
 
 # PKG_CONFIG_LIBDIR gets exported to sub-makes, but not to $(shell
 PKG_CONFIG := PKG_CONFIG_LIBDIR=$(PKG_CONFIG_LIBDIR) pkg-config
@@ -59,7 +62,7 @@ FETCH=$(TOPDIR)/fetch.sh
 
 CONFIGURE_ARGS := --host=$(TRIPLET) --prefix=$(OC_SYSROOT) \
 		  --disable-shared --enable-static --with-pic \
-		  CC=$(TRIPLET)-clang CFLAGS="$(EXTRA_CFLAGS)"
+		  CFLAGS="$(EXTRA_CFLAGS)"
 
 SOURCE_LIST = $(LIBXML2_SRC)/configure $(GMP_SRC)/configure \
 	$(NETTLE_SRC)/configure $(GNUTLS_SRC)/configure \
@@ -74,25 +77,23 @@ all: openconnect run_pie
 
 #####################################################################
 #
-# Install a local cross toolchain + sysroot
+# Link NDK sysroot to local directory and apply patches
 #
-# (The fallback logic is because NDK versions <= r8e can fail after trying to
-# use 32-bit binaries on a 64-bit NDK installation.)
-#
-$(TOOLCHAIN_BUILT):
-	$(NDK)/build/tools/make-standalone-toolchain.sh $(TOOLCHAIN_OPTS) || \
-		$(NDK)/build/tools/make-standalone-toolchain.sh \
-			$(TOOLCHAIN_OPTS) --system=linux-x86_64
-	touch $@
+$(OC_SYSROOT):
+	mkdir -p $(OC_SYSROOT)/lib $(OC_SYSROOT)/include
+	ln -Ls $(TOOLCHAIN)/sysroot/usr/lib/* $(OC_SYSROOT)/lib
+	ln -Ls $(TOOLCHAIN)/sysroot/usr/include/* $(OC_SYSROOT)/include
+	find $(OC_SYSROOT_PATCHES) -type f -print0 | sort -z | xargs -0n 1 patch \
+		--follow-symlinks -p1 -d $(OC_SYSROOT) -i
 
 #####################################################################
 #
 # Build libxml2 with minimal configuration for OpenConnect
 #
 # http://xmlsoft.org/news.html
-LIBXML2_VER := 2.9.11
-LIBXML2_TAR := libxml2-$(LIBXML2_VER).tar.gz
-LIBXML2_SHA := 886f696d5d5b45d780b2880645edf9e0c62a4fd6841b853e824ada4e02b4d331
+LIBXML2_VER := 2.14.5
+LIBXML2_TAR := libxml2-$(LIBXML2_VER).tar.xz
+LIBXML2_SHA := 03d006f3537616833c16c53addcdc32a0eb20e55443cba4038307e3fa7d8d44b
 LIBXML2_SRC := sources/libxml2-$(LIBXML2_VER)
 LIBXML2_BUILD := $(TRIPLET)/libxml2
 
@@ -101,10 +102,10 @@ $(LIBXML2_TAR):
 
 $(LIBXML2_SRC)/configure: $(LIBXML2_TAR)
 	mkdir -p sources
-	tar xfz $<  -C sources
+	tar xfJ $< -C sources
 	touch $@
 
-$(LIBXML2_BUILD)/Makefile: $(TOOLCHAIN_BUILT) $(LIBXML2_SRC)/configure
+$(LIBXML2_BUILD)/Makefile: $(OC_SYSROOT) $(LIBXML2_SRC)/configure
 	mkdir -p $(LIBXML2_BUILD)
 	cd $(LIBXML2_BUILD) && ../../$(LIBXML2_SRC)/configure $(CONFIGURE_ARGS) \
 	    --without-c14n -without-catalog --without-debug --without-docbook \
@@ -139,9 +140,9 @@ libxml: $(LIBXML_DEPS)
 # Build GNU MP
 #
 # https://gmplib.org/
-GMP_VER := 6.2.1
+GMP_VER := 6.3.0
 GMP_TAR := gmp-$(GMP_VER).tar.xz
-GMP_SHA := fd4829912cddd12f84181c3451cc752be224643e87fac497b69edddadc49b4f2
+GMP_SHA := a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898
 GMP_SRC := sources/gmp-$(GMP_VER)
 GMP_BUILD := $(TRIPLET)/gmp
 
@@ -153,9 +154,15 @@ $(GMP_SRC)/configure: $(GMP_TAR)
 	tar -xJf $< -C sources
 	touch $@
 
-$(GMP_BUILD)/Makefile: $(TOOLCHAIN_BUILT) $(GMP_SRC)/configure
+# binvert_limb_table is not PIC on arm
+ifeq ($(ARCH),arm)
+GMP_EXTRA_FLAGS := --disable-assembly
+endif
+
+$(GMP_BUILD)/Makefile: $(OC_SYSROOT) $(GMP_SRC)/configure
 	mkdir -p $(GMP_BUILD)
-	cd $(GMP_BUILD) && ../../$(GMP_SRC)/configure $(CONFIGURE_ARGS)
+	cd $(GMP_BUILD) && ../../$(GMP_SRC)/configure \
+		$(CONFIGURE_ARGS) $(GMP_EXTRA_FLAGS)
 
 
 $(GMP_BUILD)/libgmp.la: $(GMP_BUILD)/Makefile
@@ -174,9 +181,9 @@ gmp: $(GMP_DEPS)
 # Build nettle
 #
 # https://ftp.gnu.org/gnu/nettle/
-NETTLE_VER := 3.6
+NETTLE_VER := 3.10
 NETTLE_TAR := nettle-$(NETTLE_VER).tar.gz
-NETTLE_SHA := d24c0d0f2abffbc8f4f34dcf114b0f131ec3774895f3555922fe2f40f3d5e3f1
+NETTLE_SHA := b4c518adb174e484cb4acea54118f02380c7133771e7e9beb98a0787194ee47c
 NETTLE_SRC := sources/nettle-$(NETTLE_VER)
 NETTLE_BUILD := $(TRIPLET)/nettle
 
@@ -188,7 +195,7 @@ $(NETTLE_SRC)/configure: $(NETTLE_TAR)
 	tar xfz $< -C sources
 	touch $@
 
-$(NETTLE_BUILD)/Makefile: $(TOOLCHAIN_BUILT) $(NETTLE_SRC)/configure $(GMP_DEPS)
+$(NETTLE_BUILD)/Makefile: $(OC_SYSROOT) $(NETTLE_SRC)/configure $(GMP_DEPS)
 	mkdir -p $(NETTLE_BUILD)
 	cd $(NETTLE_BUILD) && ../../$(NETTLE_SRC)/configure $(CONFIGURE_ARGS)
 
@@ -208,9 +215,9 @@ nettle: $(NETTLE_DEPS)
 # Build GnuTLS
 #
 # https://www.gnutls.org/download.html
-GNUTLS_VER := 3.6.16
+GNUTLS_VER := 3.7.11
 GNUTLS_TAR := gnutls-$(GNUTLS_VER).tar.xz
-GNUTLS_SHA := 1b79b381ac283d8b054368b335c408fedcb9b7144e0c07f531e3537d4328f3b3
+GNUTLS_SHA := 90e337504031ef7d3077ab1a52ca8bac9b2f72bc454c95365a1cd1e0e81e06e9
 GNUTLS_SRC := sources/gnutls-$(GNUTLS_VER)
 GNUTLS_BUILD := $(TRIPLET)/gnutls
 
@@ -222,25 +229,20 @@ $(GNUTLS_SRC)/configure: $(GNUTLS_TAR)
 	xz -d < $< | tar xf - -C sources
 	touch $@
 
-#$(GNUTLS_SRC)/configure.ac:
-#	mkdir -p sources
-#	cd sources && git clone git://gitorious.org/gnutls/gnutls.git
-
-#$(GNUTLS_SRC)/configure: $(GNUTLS_SRC)/configure.ac
-#	touch $(GNUTLS_SRC)/ChangeLog
-#	cd $(GNUTLS_SRC) && autoreconf -fvi
-
-$(GNUTLS_BUILD)/Makefile: $(TOOLCHAIN_BUILT) $(GNUTLS_SRC)/configure $(NETTLE_DEPS)
+$(GNUTLS_BUILD)/Makefile: $(OC_SYSROOT) $(GNUTLS_SRC)/configure $(NETTLE_DEPS)
 	mkdir -p $(GNUTLS_BUILD)
+	# ac_cv_func_*alloc_0_nonnull: malloc(0) returns a non-null value, as tested on
+	# arm64 target; however, GnuTLS fails to check for this.
 	cd $(GNUTLS_BUILD) && ../../$(GNUTLS_SRC)/configure $(CONFIGURE_ARGS) \
 		AUTOGEN=/bin/false \
 		--disable-threads --disable-tests --disable-nls \
 		--disable-doc --disable-openssl-compatibility --disable-cxx \
-		--disable-openssl-compatibility --disable-ocsp --disable-tools \
+		--disable-openssl-compatibility --disable-tools \
 		--disable-anon-authentication --with-included-libtasn1 \
 		--enable-psk-authentication --disable-srp-authentication \
 		--disable-dtls-srtp-support  --enable-dhe --enable-ecdhe \
-		--with-included-unistring --without-p11-kit --disable-guile
+		--with-included-unistring --without-p11-kit --disable-guile \
+		ac_cv_func_malloc_0_nonnull=yes ac_cv_func_realloc_0_nonnull=yes \
 
 $(GNUTLS_BUILD)/lib/libgnutls.la: $(GNUTLS_BUILD)/Makefile
 	$(MAKE) -C $(GNUTLS_BUILD)
@@ -258,9 +260,9 @@ gnutls: $(GNUTLS_DEPS)
 # Build libstoken
 #
 # https://sourceforge.net/projects/stoken/files/
-STOKEN_VER := 0.92
-STOKEN_TAR := stoken-$(STOKEN_VER).tar.gz
-STOKEN_SHA := aa2b481b058e4caf068f7e747a2dcf5772bcbf278a4f89bc9efcbf82bcc9ef5a
+STOKEN_VER := 0.93
+STOKEN_TAR := stoken-v$(STOKEN_VER).tar.gz
+STOKEN_SHA := 102e2d112b275efcdc20ef438670e4f24f08870b9072a81fda316efcc38aef9c
 STOKEN_SRC := sources/stoken-$(STOKEN_VER)
 STOKEN_BUILD := $(TRIPLET)/stoken
 
@@ -270,9 +272,9 @@ $(STOKEN_TAR):
 $(STOKEN_SRC)/configure: $(STOKEN_TAR)
 	mkdir -p sources
 	tar xfz $< -C sources
-	touch $@
+	cd $(STOKEN_SRC) && ./autogen.sh
 
-$(STOKEN_BUILD)/Makefile: $(TOOLCHAIN_BUILT) $(STOKEN_SRC)/configure $(NETTLE_DEPS)
+$(STOKEN_BUILD)/Makefile: $(OC_SYSROOT) $(STOKEN_SRC)/configure $(NETTLE_DEPS)
 	mkdir -p $(STOKEN_BUILD)
 	cd $(STOKEN_BUILD) && ../../$(STOKEN_SRC)/configure $(CONFIGURE_ARGS) \
 		--without-gtk
@@ -293,9 +295,9 @@ stoken: $(STOKEN_DEPS)
 # Build liblz4
 #
 # https://github.com/lz4/lz4/tags
-LZ4_VER := 1.9.3
+LZ4_VER := 1.10.0
 LZ4_TAR := lz4-v$(LZ4_VER).tar.gz
-LZ4_SHA := 030644df4611007ff7dc962d981f390361e6c97a34e5cbc393ddfbe019ffe2c1
+LZ4_SHA := 537512904744b35e232912055ccf8ec66d768639ff3abe5788d90d792ec5f48b
 LZ4_DIR := $(TRIPLET)/lz4-$(LZ4_VER)
 
 $(LZ4_TAR):
@@ -306,14 +308,17 @@ $(LZ4_DIR)/Makefile: $(LZ4_TAR)
 	tar xzf $< -C $(TRIPLET)
 	touch $@
 
-$(OC_SYSROOT)/lib/liblz4.a: $(TOOLCHAIN_BUILT) $(LZ4_DIR)/Makefile
+ifeq ($(ARCH),x86)
+LZ4_EXTRA_CFLAGS := -fPIC
+endif
+
+$(OC_SYSROOT)/lib/liblz4.a: $(OC_SYSROOT) $(LZ4_DIR)/Makefile
 	$(MAKE) -C $(LZ4_DIR)/lib \
-		CC="$(TRIPLET)-clang $(EXTRA_CFLAGS)" \
-		AR="$(TRIPLET)-ar" \
 		LIBDIR=$(OC_SYSROOT)/lib \
 		INCLUDEDIR=$(OC_SYSROOT)/include \
+		CFLAGS="$(EXTRA_CFLAGS) $(LZ4_EXTRA_CFLAGS)" \
+		BUILD_SHARED=no \
 		install
-	rm -f $(OC_SYSROOT)/lib/liblz4.so*
 
 LZ4_DEPS := $(OC_SYSROOT)/lib/liblz4.a
 
@@ -329,7 +334,7 @@ OPENCONNECT_BUILD := $(TRIPLET)/openconnect
 $(OPENCONNECT_SRC)/configure:
 	cd $(OPENCONNECT_SRC) && ./autogen.sh
 
-$(OPENCONNECT_BUILD)/Makefile: $(TOOLCHAIN_BUILT) $(GNUTLS_DEPS) $(LIBXML_DEPS) \
+$(OPENCONNECT_BUILD)/Makefile: $(OC_SYSROOT) $(GNUTLS_DEPS) $(LIBXML_DEPS) \
 		$(STOKEN_DEPS) $(LZ4_DEPS) $(OPENCONNECT_SRC)/configure
 	mkdir -p $(OPENCONNECT_BUILD)
 	cd $(OPENCONNECT_BUILD) && ../../../configure \
@@ -353,7 +358,7 @@ openconnect: $(OPENCONNECT_BUILD)/Makefile
 #
 $(DESTDIR)/sbin/run_pie: run_pie.c $(TOOLCHAIN_BUILT)
 	mkdir -p $(DESTDIR)/sbin
-	$(TRIPLET)-clang $< -o $@ -ldl
+	$(CC) $< -o $@ -ldl
 
 .PHONY: run_pie
 run_pie: $(DESTDIR)/sbin/run_pie

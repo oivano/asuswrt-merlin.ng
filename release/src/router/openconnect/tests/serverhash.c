@@ -49,7 +49,7 @@ static int validate_peer_cert(void *_vpninfo, const char *reason)
 /* We do this in a separate test tool because we *really* don't want
  * people scripting it to recover the --no-cert-check functionality.
  * Validate your server certs properly, people! */
-int main(int argc, char **argv)
+int main(int argc, char *argv[])
 {
 	struct openconnect_info *vpninfo;
 

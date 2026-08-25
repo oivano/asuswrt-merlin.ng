@@ -908,6 +908,7 @@ static int import_openssl_pem(struct openconnect_info *vpninfo, struct cert_info
 	return ret;
 }
 
+#if defined(HAVE_P11KIT)
 static void fill_token_info(char *buf, size_t s, unsigned char *dst, size_t dstlen)
 {
 	if (s && !gtls_ver(3,6,0))
@@ -918,6 +919,7 @@ static void fill_token_info(char *buf, size_t s, unsigned char *dst, size_t dstl
 	if (s < dstlen)
 		memset(dst + s, ' ', dstlen - s);
 }
+#endif
 
 struct gtls_cert_info {
 	gnutls_x509_crl_t crl;
@@ -2374,31 +2376,31 @@ int openconnect_open_https(struct openconnect_info *vpninfo)
 				       vpninfo->hostname,
 				       strlen(vpninfo->hostname));
 
-       /*
-	* If a ClientHello is between 256 and 511 bytes, the
-	* server cannot distinguish between a SSLv2 formatted
-	* packet and a SSLv3 formatted packet.
-	*
-	* F5 BIG-IP reverse proxies in particular will
-	* silently drop an ambiguous ClientHello.
-	*
-	* GnuTLS fixes this in v3.2.9+ by padding ClientHello
-	* packets to at least 512 bytes if %COMPAT or %DUMBFW
-	* is specified.
-	*
-	* Discussion:
-	* https://www.ietf.org/mail-archive/web/tls/current/msg10423.html
-	*
-	* GnuTLS commits:
-	* b6d29bb1737f96ac44a8ef9cc9fe7f9837e20465
-	* a9bd8c4d3a639c40adb964349297f891f583a21b
-	* 531bec47037e882af32963f8461988f8c724919e
-	* 7c45ebbdd877cd994b6b938bd6faef19558a01e1
-	* 8d28901a3ebd2589d0fc9941475d50f04047f6fe
-	* 28065ce3896b1b0f87972d0bce9b17641ebb69b9
-	*/
+	/*
+	 * If a ClientHello is between 256 and 511 bytes, the
+	 * server cannot distinguish between a SSLv2 formatted
+	 * packet and a SSLv3 formatted packet.
+	 *
+	 * F5 BIG-IP reverse proxies in particular will
+	 * silently drop an ambiguous ClientHello.
+	 *
+	 * GnuTLS fixes this in v3.2.9+ by padding ClientHello
+	 * packets to at least 512 bytes if %COMPAT or %DUMBFW
+	 * is specified.
+	 *
+	 * Discussion:
+	 * https://www.ietf.org/mail-archive/web/tls/current/msg10423.html
+	 *
+	 * GnuTLS commits:
+	 * b6d29bb1737f96ac44a8ef9cc9fe7f9837e20465
+	 * a9bd8c4d3a639c40adb964349297f891f583a21b
+	 * 531bec47037e882af32963f8461988f8c724919e
+	 * 7c45ebbdd877cd994b6b938bd6faef19558a01e1
+	 * 8d28901a3ebd2589d0fc9941475d50f04047f6fe
+	 * 28065ce3896b1b0f87972d0bce9b17641ebb69b9
+	 */
 
-        if (!vpninfo->ciphersuite_config) {
+	if (!vpninfo->ciphersuite_config) {
 		struct oc_text_buf *buf = buf_alloc();
 #ifdef DEFAULT_PRIO
 		buf_append(buf, "%s", DEFAULT_PRIO ":%COMPAT");
@@ -2442,7 +2444,7 @@ int openconnect_open_https(struct openconnect_info *vpninfo)
 		vpninfo->ciphersuite_config = buf->data;
 		buf->data = NULL;
 		buf_free(buf);
-        }
+	}
 
 	err = gnutls_priority_set_direct(vpninfo->https_sess,
 					 vpninfo->ciphersuite_config, NULL);
@@ -2562,7 +2564,7 @@ void openconnect_close_https(struct openconnect_info *vpninfo, int final)
 		gnutls_deinit(vpninfo->https_sess);
 		vpninfo->https_sess = NULL;
 	}
-	if (vpninfo->ssl_fd != -1) {
+	if (vpninfo->ssl_fd >= 0) {
 		unmonitor_fd(vpninfo, ssl);
 		closesocket(vpninfo->ssl_fd);
 		vpninfo->ssl_fd = -1;
@@ -2583,6 +2585,22 @@ int openconnect_init_ssl(void)
 #endif
 	if (gnutls_global_init())
 		return -EIO;
+
+#if defined(HAVE_P11KIT)
+	/*
+	 * From the manual:
+	 * https://www.gnutls.org/reference/gnutls-pkcs11.html#gnutls-pkcs11-init
+	 *   You don't need to call this function since GnuTLS 3.3.0
+	 *   because it is being called during the first request
+	 *   PKCS 11 operation.
+	 *
+	 * However, this has proven to be incorrect in current releases:
+	 * https://gitlab.com/gnutls/gnutls/-/issues/1798
+	 */
+	if (gnutls_pkcs11_init(GNUTLS_PKCS11_FLAG_AUTO, NULL) < 0) {
+		/* Non-fatal: continue even if PKCS#11 init fails */
+	}
+#endif
 
 	return 0;
 }
@@ -2777,7 +2795,7 @@ int hotp_hmac(struct openconnect_info *vpninfo, const void *challenge)
 	unsigned char hash[64]; /* Enough for a SHA256 */
 	gnutls_mac_algorithm_t alg;
 
-	switch(vpninfo->oath_hmac_alg) {
+	switch (vpninfo->oath_hmac_alg) {
 	case OATH_ALG_HMAC_SHA1:
 		alg = GNUTLS_MAC_SHA1;
 		hpos = 19;
@@ -3176,7 +3194,25 @@ void append_strap_verify(struct openconnect_info *vpninfo,
 
 	/* Concatenate our Finished message with our pubkey to be signed */
 	struct oc_text_buf *nonce = buf_alloc();
-	buf_append_bytes(nonce, vpninfo->finished, vpninfo->finished_len);
+	if (gnutls_protocol_get_version(vpninfo->https_sess) <= GNUTLS_TLS1_2) {
+		/* For TLSv1.2 and earlier, use RFC5929 'tls-unique' channel binding */
+		buf_append_bytes(nonce, vpninfo->finished, vpninfo->finished_len);
+	} else {
+		/* For TLSv1.3 use RFC9266 'tls-exporter' channel binding */
+		char channel_binding_buf[TLS_EXPORTER_KEY_SIZE];
+		err = gnutls_prf(vpninfo->https_sess, TLS_EXPORTER_LABEL_SIZE, TLS_EXPORTER_LABEL,
+				 0, 0, 0, TLS_EXPORTER_KEY_SIZE, channel_binding_buf);
+		if (err) {
+			vpn_progress(vpninfo, PRG_ERR,
+				     _("Failed to generate channel bindings for STRAP key: %s\n"),
+				     gnutls_strerror(err));
+			if (!buf_error(buf))
+				buf->error = -EIO;
+			buf_free(nonce);
+			return;
+		}
+		buf_append_bytes(nonce, channel_binding_buf, TLS_EXPORTER_KEY_SIZE);
+	}
 
 	if (rekey) {
 		/* We have a copy and we don't want it freed just yet */

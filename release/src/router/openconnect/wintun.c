@@ -65,8 +65,7 @@ static int init_wintun(struct openconnect_info *vpninfo)
 {
 	if (!vpninfo->wintun) {
 		vpninfo->wintun = LoadLibraryExW(L"wintun.dll", NULL,
-						 LOAD_LIBRARY_SEARCH_APPLICATION_DIR |
-						 LOAD_LIBRARY_SEARCH_SYSTEM32);
+						 LOAD_LIBRARY_SEARCH_APPLICATION_DIR);
 		if (!vpninfo->wintun) {
 			vpn_progress(vpninfo, PRG_DEBUG, _("Could not load wintun.dll\n"));
 			return -ENOENT;
@@ -113,12 +112,38 @@ int create_wintun(struct openconnect_info *vpninfo)
 	return (ret == ERROR_ACCESS_DENIED ? -EPERM : -EIO);
 }
 
+int get_wintun_adapter_guid(struct openconnect_info *vpninfo, char *buf, size_t buf_len)
+{
+	if (!vpninfo->wintun_adapter) {
+		vpn_progress(vpninfo, PRG_ERR, _("Wintun adapter has not been opened\n"));
+		return 1;
+	}
+
+	NET_LUID luid;
+	WintunGetAdapterLUID(vpninfo->wintun_adapter, &luid);
+
+	GUID guid;
+	DWORD ret = ConvertInterfaceLuidToGuid(&luid, &guid);
+	if (ret != NO_ERROR ) {
+		vpn_progress(vpninfo, PRG_ERR, _("Unable to get Wintun adapter Guid\n"));
+		return 1;
+	}
+
+	snprintf(buf, buf_len, "{%08lX-%04hX-%04hX-%02hhX%02hhX-%02hhX%02hhX%02hhX%02hhX%02hhX%02hhX}",
+		guid.Data1, guid.Data2, guid.Data3,
+		guid.Data4[0], guid.Data4[1], guid.Data4[2], guid.Data4[3],
+		guid.Data4[4], guid.Data4[5], guid.Data4[6], guid.Data4[7]
+	);
+
+	return 0;
+}
+
 intptr_t open_wintun(struct openconnect_info *vpninfo, char *guid, wchar_t *wname)
 {
 	intptr_t ret;
 
 	if (init_wintun(vpninfo))
-		return 0;
+		return OPEN_TUN_SOFTFAIL;
 
 	if (!vpninfo->wintun_adapter) {
 		vpninfo->wintun_adapter = WintunOpenAdapter(wname);
@@ -128,7 +153,7 @@ intptr_t open_wintun(struct openconnect_info *vpninfo, char *guid, wchar_t *wnam
 				     wname, errstr);
 			free(errstr);
 
-			ret = OPEN_TUN_SOFTFAIL;
+			ret = OPEN_TUN_HARDFAIL;
 			goto out;
 		}
 	}

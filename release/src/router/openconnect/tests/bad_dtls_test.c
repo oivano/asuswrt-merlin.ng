@@ -745,7 +745,7 @@ static struct {
     /* The last test should be NODROP, because a DROP wouldn't get tested. */
 };
 
-int main(int argc, char *argv[])
+int main(void)
 {
     SSL_SESSION *sess;
     SSL_CTX *ctx;
@@ -797,6 +797,7 @@ int main(int argc, char *argv[])
         printf("Failed to allocate SSL_CTX\n");
         goto end_md;
     }
+    SSL_CTX_set_security_level(ctx, 0);
 #endif
 
     if (!SSL_CTX_set_cipher_list(ctx, "AES128-SHA")) {

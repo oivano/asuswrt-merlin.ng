@@ -43,13 +43,13 @@ PID=$!
 wait_server $PID
 
 echo -n "Connecting with --pfs... "
-( echo "test" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $ADDRESS:$PORT -u test --servercert=pin-sha256:xp3scfzy3rO --pfs --cookieonly >/dev/null 2>&1) &&
+( echo "test" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $SWRESOLVE sockwrap:$PORT -u test --servercert=pin-sha256:xp3scfzy3rO --pfs --cookieonly >/dev/null 2>&1) &&
 	fail $PID "Connected successfully when we shouldn't"
 
 echo ok
 
 echo -n "Connecting without --pfs... "
-( echo "test" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $ADDRESS:$PORT -u test --servercert=pin-sha256:xp3scfzy3rO --cookieonly >/dev/null 2>&1) ||
+( echo "test" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $SWRESOLVE sockwrap:$PORT -u test --servercert=pin-sha256:xp3scfzy3rO --cookieonly >/dev/null 2>&1) ||
 	fail $PID "Could not connect and obtain cookie without --pfs"
 
 echo ok

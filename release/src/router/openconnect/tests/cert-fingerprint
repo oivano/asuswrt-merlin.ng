@@ -34,7 +34,7 @@ wait_server $PID
 expect_cert_fail() {
     SERVERCERT=$1
     echo -n "Testing with cert fingerprint $SERVERCERT..."
-    ( echo "test" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $ADDRESS:443 -u test --servercert $SERVERCERT --cookieonly >/dev/null 2>&1) &&
+    ( echo "test" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $SWRESOLVE sockwrap:443 -u test --servercert $SERVERCERT --cookieonly >/dev/null 2>&1) &&
 	fail $PID "Accepted wrong fingerprint $SERVERCERT"
 
     echo "ok (rejected)"
@@ -43,7 +43,7 @@ expect_cert_fail() {
 expect_cert_success() {
     SERVERCERT=$1
     echo -n "Testing with cert fingerprint $SERVERCERT..."
-    ( echo "test" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $ADDRESS:443 -u test --servercert $SERVERCERT --cookieonly >/dev/null 2>&1) ||
+    ( echo "test" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $SWRESOLVE sockwrap:443 -u test --servercert $SERVERCERT --cookieonly >/dev/null 2>&1) ||
 	fail $PID "Rejected good fingerprint $SERVERCERT"
 
     echo "ok (accepted)"

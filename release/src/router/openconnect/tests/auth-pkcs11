@@ -39,7 +39,7 @@ for TOKEN in ${pkcs11_tokens}; do
 	echo -n "Connecting to obtain cookie (token ${TOKEN} key ${KEY})... "
 	CERTURI="pkcs11:token=${TOKEN};${KEY};pin-value=1234"
 	( echo "test" | SOFTHSM2_CONF=softhsm2.conf LD_PRELOAD=libsocket_wrapper.so \
-			    $OPENCONNECT -q $ADDRESS:443 -u test -c "${CERTURI}" --key-password 1234 --servercert=pin-sha256:xp3scfzy3rO --cookieonly --passwd-on-stdin ) ||
+			    $OPENCONNECT -q $SWRESOLVE sockwrap:443 -u test -c "${CERTURI}" --key-password 1234 --servercert=pin-sha256:xp3scfzy3rO --cookieonly --passwd-on-stdin ) ||
 	    fail $PID "Could not connect with token ${TOKEN} key ${KEY##*/}!"
     done
 done

@@ -18,6 +18,47 @@
        <li><i>No changelog entries yet</i></li>
      </ul><br/>
   </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-9.21.tar.gz">OpenConnect v9.21</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-9.21.tar.gz.asc">PGP signature</a>)</i> &#8212; 2026-06-16
+     <ul>
+       <li>Fix infinite loop in <tt>buf_append()</tt> when output exactly fills available buffer space (<a href="https://gitlab.com/openconnect/openconnect/-/issues/851">#851</a>).</li>
+       <li>Accept base32 token secrets without trailing <tt>=</tt> padding (<a href="https://gitlab.com/openconnect/openconnect/-/issues/771">#771</a>).</li>
+       <li>Fix crash on NULL passphrase from TPM2 auth dialog (<a href="https://gitlab.com/openconnect/openconnect/-/issues/842">#842</a>).</li>
+     </ul><br/>
+  </li>
+  <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-9.20.tar.gz">OpenConnect v9.20</a></b>
+     <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-9.20.tar.gz.asc">PGP signature</a>)</i> &#8212; 2026-06-13
+     <ul>
+       <li>Use <tt>oc_text_buf</tt> for dynamic string construction instead of unsafe <tt>snprintf()</tt> cursor arithmetic.</li>
+       <li>Handle short reads from Pulse server during packet reassembly (<a href="https://gitlab.com/openconnect/openconnect/-/issues/456">#456</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/608">!608</a>).</li>
+       <li>Support non-default TOTP period from PSKC token data (<a href="https://gitlab.com/openconnect/openconnect/-/issues/843">#843</a>).</li>
+       <li>Support <tt>otpauth://</tt> URI format for HOTP/TOTP token secrets (<a href="https://gitlab.com/openconnect/openconnect/-/issues/843">#843</a>).</li>
+       <li>Fix Cisco Anyconnect STRAP channel bindings with TLSv1.3 (<a href="https://gitlab.com/openconnect/openconnect/-/issues/659">#659</a>).</li>
+       <li>Fix ASN.1 encoding of TPMv2 ECDSA signatures with GnuTLS &amp;lt; 3.6.0</li>
+       <li>Handle Pulse configuration packets that cannot fit in a single TLS frame (<a href="https://gitlab.com/openconnect/openconnect/-/issues/617">#617</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/480">!480</a>).</li>
+       <li>Send operating system information to Pulse servers (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/481">!481</a>).</li>
+       <li>Change default user-agent string to be compatible with newer Cisco servers (
+         <a href="https://gitlab.com/openconnect/openconnect/-/issues/544">#544</a>,
+         <a href="https://gitlab.com/openconnect/openconnect/-/issues/593">#593</a>,
+         <a href="https://gitlab.com/openconnect/openconnect/-/issues/602">#602</a>,
+         <a href="https://gitlab.com/openconnect/openconnect/-/issues/618">#618</a>,
+         <a href="https://gitlab.com/openconnect/openconnect/-/issues/635">#635</a>,
+         <a href="https://gitlab.com/openconnect/openconnect/-/issues/657">#657</a>,
+         <a href="https://gitlab.com/openconnect/openconnect/-/issues/662">#662</a>,
+         <a href="https://gitlab.com/openconnect/openconnect/-/issues/665">#665</a>,
+         <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/497">!497</a>).</li>
+       <li>Fix bug which has caused GlobalProtect split-include IPv6 routes to be broken since v9.00 (<a href="https://gitlab.com/openconnect/openconnect/-/commit/64f0c03d660f1d17834f7ff7ce9d0151704bb32f">64f0c03d</a>).</li>
+       <li>Sort GlobalProtect gateways according to portal's regionalized priority list (<a href="https://gitlab.com/openconnect/openconnect/-/issues/663">#663</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/498">!495</a>).</li>
+       <li>openconnect_disable_dtls() allows to disable DTLS unless it is already connected (<a href="https://gitlab.com/openconnect/openconnect/-/issues/697">#697</a>)</li>
+       <li>Enable DTLSv1.0 to continue working with OpenSSL v3.1.0 and newer (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/504">!504</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/536">!536</a>).</li>
+       <li>Fix bug that caused OpenConnect to incorrectly log the remaining time until a re-key or periodic Trojan (<a href="https://gitlab.com/openconnect/openconnect/-/issues/677">#677</a>, <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/539">!539</a>)</li>
+       <li>Fix bug that prevented GlobalProtect ESP from working correctly when the server sends both Legacy IP and IPv6 versions of the ESP "magic ping" address, but no IPv6 client address (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/565">!565</a>)</li>
+       <li>Use the full URI (including "usergroup" or path) as specified in <tt>--server</tt> for all requests during authentication instead of only the first one (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/560">!560</a>).</li>
+       <li>Deal with more Juniper NC framing idiocy (<a href="https://gitlab.com/openconnect/openconnect/-/issues/779">#779</a>).</li>
+       <li>Stop OpenConnect from exiting with SIGPIPE(<a href="https://gitlab.com/openconnect/openconnect/-/issues/783">#783</a>).</li>
+       <li>Fix Cisco DTLS MTU detection when servers don't send back the same DPD payload(<a href="https://gitlab.com/openconnect/openconnect/-/issues/823">#823</a>).</li>
+     </ul><br/>
+  </li>
   <li><b><a href="https://www.infradead.org/openconnect/download/openconnect-9.12.tar.gz">OpenConnect v9.12</a></b>
      <i>(<a href="https://www.infradead.org/openconnect/download/openconnect-9.12.tar.gz.asc">PGP signature</a>)</i> &#8212; 2023-05-20
      <ul>
@@ -259,7 +300,7 @@
        <li>Relax requirements for Juniper hostname packet response to support old gateways.</li>
        <li>Add API functions to query the supported protocols.</li>
        <li>Verify ESP sequence numbers and warn even if replay protection is disabled.</li>
-       <li>Add support for PAN GlobalProtect VPN protocol (<tt>--protocol=gp</tt>).</li>
+       <li>Add support for Palo Alto Networks (PAN) GlobalProtect VPN protocol (<tt>--protocol=gp</tt>).</li>
        <li>Reorganize listing of command-line options, and include information on supported protocols.</li>
        <li>SIGTERM cleans up the session similarly to SIGINT.</li>
      </ul><br/>

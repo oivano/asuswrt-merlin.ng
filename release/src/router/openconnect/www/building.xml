@@ -24,7 +24,7 @@ libraries and tools installed:</p>
   <li><b><tt>libxml2</tt></b></li>
   <li><b><tt>zlib</tt></b></li>
   <li>Either <b><tt>OpenSSL</tt></b> or <b><tt>GnuTLS</tt></b> <i>(v3.2.10+)</i></li>
-  <li><b><tt>pkg-config</tt></b></li>
+  <li><b><tt>automake</tt></b>, <b><tt>autoconf</tt></b>, <b><tt>pkg-config</tt></b></li>
 </ul>
 And <em>optionally</em> also:
 <ul>
@@ -84,19 +84,6 @@ If you want it to use OpenSSL instead, then add <tt>--without-gnutls</tt> to the
 <b>development</b> packages for all the required libraries mentioned above. If
 it still doesn't build, please send the full output in a plain-text mail to the
 <a href="mail.html">mailing list</a>.</p>
-
-
-<h2>Test suite</h2>
-
-<p>The included test suite can be run as <tt>make check</tt>.</p>
-
-<p>It depends on the following programs and libraries being available:</p>
-<ul>
-  <li><a href="/ocserv">ocserv</a></li>
-  <li><a href="https://cwrap.org/socket_wrapper.html">socket_wrapper</a></li>
-  <li><a href="https://cwrap.org/uid_wrapper.html">uid_wrapper</a></li>
-</ul>
-
 
 
 <h2>Test suite</h2>

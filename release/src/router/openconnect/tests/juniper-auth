@@ -46,42 +46,63 @@ echo -n "frmLogin with username/password"
 
 echo ok
 
+echo "Configuring fake server to present a choice of 3 realms."
+curl -sk $SERVURL/CONFIGURE -d realms=xyz,abc,def
+
 echo -n "frmLogin with username/password/authgroup"
-( echo "test" | $CLIENT $SERVURL/?realms=xyz,abc,def --authgroup=abc --cookieonly >/dev/null 2>&1) ||
+( echo "test" | $CLIENT $SERVURL --authgroup=abc --cookieonly >/dev/null 2>&1) ||
     fail $PID "Could not receive cookie from fake Juniper server"
 
 echo ok
+
+echo "Configuring fake server to require token as 2nd password in default frmLogin form."
+curl -sk $SERVURL/CONFIGURE -d token_form=frmLogin
 
 echo -n "frmLogin with username/password/token-as-2nd-password"
-( echo "test" | $CLIENT $SERVURL/?token_form=frmLogin $FAKE_TOKEN --cookieonly >/dev/null 2>&1) ||
+( echo "test" | $CLIENT $SERVURL $FAKE_TOKEN --cookieonly >/dev/null 2>&1) ||
     fail $PID "Could not receive cookie from fake Juniper server"
 
 echo ok
+
+echo "Configuring fake server to require token in separate frmTotpToken form."
+curl -sk $SERVURL/CONFIGURE -d token_form=frmTotpToken
 
 echo -n "frmLogin with username/password → frmTotpToken"
-( echo "test" | $CLIENT $SERVURL/?token_form=frmTotpToken $FAKE_TOKEN --cookieonly >/dev/null 2>&1) ||
+( echo "test" | $CLIENT $SERVURL $FAKE_TOKEN --cookieonly >/dev/null 2>&1) ||
     fail $PID "Could not receive cookie from fake Juniper server"
 
 echo ok
+
+echo "Configuring fake server to require token in separate frmDefender, and confirmation form."
+curl -sk $SERVURL/CONFIGURE -d 'token_form=frmDefender&confirm=1'
 
 echo -n "frmLogin with username/password → frmDefender → frmConfirmation"
-( echo "test" | $CLIENT "$SERVURL/?token_form=frmDefender&confirm=1" $FAKE_TOKEN --cookieonly >/dev/null 2>&1) ||
+( echo "test" | $CLIENT $SERVURL $FAKE_TOKEN --cookieonly >/dev/null 2>&1) ||
     fail $PID "Could not receive cookie from fake Juniper server"
 
 echo ok
 
+echo "Configuring fake server to require token in separate frmNextToken."
+curl -sk $SERVURL/CONFIGURE -d token_form=frmNextToken
+
 echo -n "frmLogin with username/password → frmNextToken"
-( echo "test" | $CLIENT $SERVURL/?token_form=frmNextToken $FAKE_TOKEN --cookieonly >/dev/null 2>&1) ||
+( echo "test" | $CLIENT $SERVURL $FAKE_TOKEN --cookieonly >/dev/null 2>&1) ||
     fail $PID "Could not receive cookie from fake Juniper server"
 
 ok
 
+echo "Configuring fake server to present confirmation form, and a choice of 3 roles."
+curl -sk $SERVURL/CONFIGURE -d 'confirm=1&roles=foo,bar,baz'
+
 # --authgroup will now fill in EITHER the role and/or the realm
 echo -n "frmLogin with username/password → frmConfirmation → frmSelectRoles"
-( echo "test" | $CLIENT "$SERVURL/?confirm=1&roles=foo,bar,baz" --authgroup=bar --cookieonly >/dev/null 2>&1) ||
+( echo "test" | $CLIENT $SERVURL --authgroup=bar --cookieonly >/dev/null 2>&1) ||
     fail $PID "Could not receive cookie from fake Juniper server"
 
 echo ok
+
+echo "Resetting fake server to default configuration."
+curl -sk $SERVURL/CONFIGURE -d ''
 
 echo -n "frmLogin with username/password, then proceeding to tunnel stage... "
 echo "test" | $CLIENT $SERVURL >/dev/null 2>&1

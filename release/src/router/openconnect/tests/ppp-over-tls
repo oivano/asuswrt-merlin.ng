@@ -54,7 +54,7 @@ echo "started in $(( $(date +%s) - start )) seconds"
 wait_server "$PID"
 echo -n "Connecting to it with openconnect --protocol=nullppp... "
 start=$(date +%s)
-LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q --protocol=nullppp $ADDRESS:443 -u test $FINGERPRINT --cookie "hdlc,term" -Ss '' >/dev/null 2>&1
+LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q --protocol=nullppp $SWRESOLVE sockwrap:443 -u test $FINGERPRINT --cookie "hdlc,term" -Ss '' >/dev/null 2>&1
 took=$(( $(date +%s) - start ))
 if grep -qF "$IPV4_SUCCESS_1" $LOGFILE && grep -qF "$IPV4_SUCCESS_2" $LOGFILE && grep -qF "$IPV6_SUCCESS_1" $LOGFILE && grep -qF "$IPV6_SUCCESS_2" $LOGFILE; then
     echo "ok (took $took seconds)"
@@ -75,7 +75,7 @@ echo "started in $(( $(date +%s) - start )) seconds"
 wait_server "$PID"
 echo -n "Connecting to it with openconnect --protocol=nullppp... "
 start=$(date +%s)
-LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q --protocol=nullppp $ADDRESS:443 -u test $FINGERPRINT --cookie "hdlc,term" -Ss '' >/dev/null 2>&1
+LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q --protocol=nullppp $SWRESOLVE sockwrap:443 -u test $FINGERPRINT --cookie "hdlc,term" -Ss '' >/dev/null 2>&1
 took=$(( $(date +%s) - start ))
 if grep -qF "$IPV4_SUCCESS_1" $LOGFILE && grep -qF "$IPV4_SUCCESS_2" $LOGFILE && grep -qF "$IPV6_SUCCESS_1" $LOGFILE && grep -qF "$IPV6_SUCCESS_2" $LOGFILE; then
     echo "ok (took $took seconds)"
@@ -96,7 +96,7 @@ echo "started in $(( $(date +%s) - start )) seconds"
 wait_server "$PID"
 echo -n "Connecting to it with openconnect --protocol=nullppp... "
 start=$(date +%s)
-LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q --protocol=nullppp $ADDRESS:443 -u test $FINGERPRINT --cookie "hdlc,term" -Ss '' >/dev/null 2>&1
+LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q --protocol=nullppp $SWRESOLVE sockwrap:443 -u test $FINGERPRINT --cookie "hdlc,term" -Ss '' >/dev/null 2>&1
 took=$(( $(date +%s) - start ))
 if grep -qF "$IPV4_SUCCESS_1" $LOGFILE && grep -qF "$IPV4_SUCCESS_2" $LOGFILE; then
     echo "ok (took $took seconds)"
@@ -117,7 +117,7 @@ echo "started in $(( $(date +%s) - start )) seconds"
 wait_server "$PID"
 echo -n "Connecting to it with openconnect --protocol=nullppp... "
 start=$(date +%s)
-LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q --protocol=nullppp $ADDRESS:443 -u test $FINGERPRINT --cookie "hdlc" -Ss '' >/dev/null 2>&1
+LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q --protocol=nullppp $SWRESOLVE sockwrap:443 -u test $FINGERPRINT --cookie "hdlc" -Ss '' >/dev/null 2>&1
 took=$(( $(date +%s) - start ))
 if grep -qF "$IPV6_SUCCESS_1" $LOGFILE && grep -qF "$IPV6_SUCCESS_2" $LOGFILE; then
     echo "ok (took $took seconds)"
@@ -128,6 +128,8 @@ else
     echo "===== END pppd log ====="
     fail "$PID" "Did not negotiate IP6CP successfully."
 fi
+
+sleep 3  # pppd exited with idle timeout. Give socat time to exit too.
 
 cleanup
 

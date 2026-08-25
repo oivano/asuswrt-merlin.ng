@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# openconnect will call this script with the follow command-line
+# openconnect will call this script with the following command-line
 # arguments, which are needed to populate the contents of the
 # HIP report:
 #
@@ -179,7 +179,7 @@ EOF
 			<list>
 				<entry>
 					<ProductInfo>
-						<Prod vendor="Apple Inc." name="Xprotect" version="2167" defver="235000000000000" engver="" datemon="$MONTH" dateday="$DAY" dateyear="$YAR" prodType="3" osType="4"/>
+						<Prod vendor="Apple Inc." name="Xprotect" version="2167" defver="235000000000000" engver="" datemon="$MONTH" dateday="$DAY" dateyear="$YEAR" prodType="3" osType="4"/>
 						<real-time-protection>yes</real-time-protection>
 						<last-full-scan-time>n/a</last-full-scan-time>
 					</ProductInfo>

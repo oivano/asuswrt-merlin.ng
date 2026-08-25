@@ -138,6 +138,13 @@ They may be specified in one of the following forms:</p>
   <li><b>&amp;lt;?xml version=...</b><br/>
   PSKC XML files conforming to <a href="https://tools.ietf.org/html/rfc6030">RFC6030</a>.
   These should be generally be imported from a file: '<tt>--token-secret @<i>FILE.PSKC</i></tt>'</li>
+  <li><b>otpauth://totp/Issuer:user@example.com?secret=BASE32SECRET&amp;period=30&amp;algorithm=SHA256&amp;issuer=Issuer</b><br/>
+  The <a href="https://github.com/google/google-authenticator/wiki/Key-Uri-Format"><tt>otpauth://</tt>
+  URI format</a> as used by Google Authenticator and
+  other token apps. The <tt>secret</tt> parameter (base32-encoded) is mandatory;
+  <tt>period</tt> (default 30), <tt>algorithm</tt> (SHA1, SHA256, SHA512), and
+  <tt>issuer</tt> are optional. This is the format typically provided by QR codes
+  for token enrollment.</li>
 </ul>
 
 <p>The default HMAC algorithm for TOTP tokens is SHA-1. SHA-256 and
@@ -147,7 +154,10 @@ Algorithms other than SHA-1 are not yet supported with PSKC files until
 the relevant standards have been updated to indicate how they shall be
 indicated in the PSKC file. See <a href="https://www.rfc-editor.org/errata_search.php?rfc=6238&amp;eid=4249">this erratum</a> to RFC6238 for current status.</p>
 
-
+<p>The default TOTP time step is 30 seconds. Tokens with a non-standard period
+(e.g. 60 seconds) will need to use the <tt>otpauth://</tt> URI format or a
+PSKC file to specify the period; the other secret formats do not carry this
+information.</p>
 
 <h2>HOTP (HMAC-Based One-Time Password)</h2>
 
@@ -165,6 +175,10 @@ generated.</p>
   <li><b>&amp;lt;?xml version=...</b><br/>
   PSKC XML files conforming to <a href="https://tools.ietf.org/html/rfc6030">RFC6030</a> will
   contain the <i>counter</i> value.</li>
+  <li><b>otpauth://hotp/Issuer:user@example.com?secret=BASE32SECRET&amp;counter=0&amp;algorithm=SHA256&amp;issuer=Issuer</b><br/>
+  The <a href="https://github.com/google/google-authenticator/wiki/Key-Uri-Format"><tt>otpauth://</tt>
+  URI format</a>. The <tt>counter</tt> parameter specifies
+  the current counter value and will be updated when the token is used.</li>
 </ul>
 
 <p>Although it is possible to specify HOTP tokens in their raw form

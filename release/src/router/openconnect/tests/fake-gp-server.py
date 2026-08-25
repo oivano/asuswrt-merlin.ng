@@ -29,7 +29,7 @@ from dataclasses import dataclass
 
 host, port, *cert_and_maybe_keyfile = sys.argv[1:]
 
-context = ssl.SSLContext()
+context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 context.load_cert_chain(*cert_and_maybe_keyfile)
 
 app = Flask(__name__)
@@ -39,7 +39,7 @@ app.config.update(SECRET_KEY=b'fake', DEBUG=True, HOST=host, PORT=int(port), SES
 ########################################
 
 def cookify(jsonable):
-    return base64.urlsafe_b64encode(dumps(jsonable).encode())
+    return base64.urlsafe_b64encode(dumps(jsonable).encode()).decode()
 
 
 def check_form_against_session(*fields, use_query=False, on_failure=None):
@@ -63,6 +63,8 @@ def check_form_against_session(*fields, use_query=False, on_failure=None):
 ########################################
 
 
+REGIONS = ['MERCURY', 'VENUS', 'EARTH', 'MARS', 'JUPITER', 'SATURN']
+
 if_path2name = {'global-protect': 'portal', 'ssl-vpn': 'gateway'}
 
 # Configure the fake server. These settings will persist unless/until reconfigured or restarted:
@@ -79,6 +81,10 @@ if_path2name = {'global-protect': 'portal', 'ssl-vpn': 'gateway'}
 #   portal_cookie: if set (to 'portal-userauthcookie' or 'portal-prelogonuserauthcookie'), then
 #                  the portal getconfig response will include the named "cookie" field which should
 #                  be used to automatically continue login on the gateway
+#   saml_comments_only: if set, then the SAML completion information will be sent *only* in XML
+#                       wrapped inside an XML comment (github.com/dlenski/gp-saml-gui/issues/51)
+#   saml_needs_js: if set, then the SAML authentication form requires JavaScript execution to complete
+
 @dataclass
 class TestConfiguration:
     gateways: list = ('Default gateway',)
@@ -87,6 +93,9 @@ class TestConfiguration:
     portal_cookie: str = None
     portal_saml: str = None
     gateway_saml: str = None
+    saml_comments_only: int = None
+    saml_needs_js: int = None
+    esp: bool = True
 C = TestConfiguration()
 OUTSTANDING_SAML_TOKENS = set()
 
@@ -95,13 +104,16 @@ OUTSTANDING_SAML_TOKENS = set()
 def configure():
     global C
     if request.method == 'POST':
-        gateways, portal_2fa, gw_2fa, portal_cookie, portal_saml, gateway_saml = request.form.get('gateways'), request.form.get('portal_2fa'), request.form.get('gw_2fa'), request.form.get('portal_cookie'), request.form.get('portal_saml'), request.form.get('gateway_saml')
+        gateways, portal_2fa, gw_2fa, portal_cookie, portal_saml, gateway_saml, saml_comments_only, saml_needs_js, esp = request.form.get('gateways'), request.form.get('portal_2fa'), request.form.get('gw_2fa'), request.form.get('portal_cookie'), request.form.get('portal_saml'), request.form.get('gateway_saml'), request.form.get('saml_comments_only'), request.form.get('saml_needs_js'), request.form.get('esp')
         C.gateways = gateways.split(',') if gateways else ('Default gateway',)
         C.portal_cookie = portal_cookie
         C.portal_2fa = portal_2fa and portal_2fa.strip().lower()
         C.gw_2fa = gw_2fa and gw_2fa.strip().lower()
         C.portal_saml = portal_saml
         C.gateway_saml = gateway_saml
+        C.saml_comments_only = int(saml_comments_only) if saml_comments_only else None
+        C.saml_needs_js = int(saml_needs_js) if saml_needs_js else None
+        C.esp = int(esp) if esp else None
         return '', 201
     else:
         return 'Current configuration of fake GP server configuration:\n{}\n'.format(C)
@@ -122,7 +134,7 @@ def prelogin(interface):
             base64.standard_b64encode(url_for('saml_handler', ifname=ifname, token=token, _external=True).encode()).decode())
     else:
         saml = ''
-    session.update(step='%s-prelogin' % ifname)
+    session.update(step='%s-prelogin' % ifname, region=choice(REGIONS))
     return '''
 <prelogin-response>
 <status>Success</status>
@@ -130,12 +142,12 @@ def prelogin(interface):
 <autosubmit>false</autosubmit>
 <msg/>
 <newmsg/>
-<authentication-message>Please login to this fake GP VPN {ifname}</authentication-message>
+<authentication-message>Greetings, user from {region}. Please login to this fake GP VPN {ifname}</authentication-message>
 <username-label>Username</username-label>
 <password-label>Password</password-label>
 <panos-version>1</panos-version>{saml}
-<region>EARTH</region>
-</prelogin-response>'''.format(ifname=ifname, saml=saml)
+<region>{region}</region>
+</prelogin-response>'''.format(ifname=ifname, saml=saml, region=session['region'])
 
 
 # In a "real" GP VPN with SAML, this lives on a completely different server like subdomain.okta.com
@@ -143,20 +155,23 @@ def prelogin(interface):
 # It will be opened by an external browser or SAML-wrangling script, *not* by OpenConnect.
 @app.route('/ANOTHER-HOST/SAML-ENDPOINT')
 def saml_handler():
+    global C
     ifname, token = request.args.get('ifname'), request.args.get('token')
 
     # Submit to saml_complete endpoint
     # In a "real" GP setup, this would be on a different server which is why we use _external=True
     saml_complete = url_for('saml_complete', _external=True)
 
-    return '''<html><body><p>Please login to this fake GP VPN {ifname} interface via SAML</p>
+    return f'''<html><body onload="document.forms.saml.elements.token_needs_js.name='token'">
+{"<noscript><b>JavaScript is disabled! This won't work!</b></noscript>" if C.saml_needs_js else ''}
+<p>Please login to this fake GP VPN {ifname} interface via SAML</p>
 <form name="saml" method="post" action="{saml_complete}">
 <input type="text" name="username" autofocus="1"/><br/>
 <input type="password" name="password"/><br/>
-<input type="hidden" name="token" value="{token}"/>
+<input type="hidden" name="{'token_needs_js' if C.saml_needs_js else 'token'}" value="{token}"/>
 <input type="hidden" name="ifname" value="{ifname}"/>
 <input type="submit" value="Login"/>
-</form></body></html>'''.format(ifname=ifname, saml_complete=saml_complete, token=token)
+</form></body></html>'''
 
 
 # This is the "return path" where SAML authentication ends up on real GP servers after
@@ -181,7 +196,10 @@ def saml_complete():
     }
 
     body = '<html><body>Login Successful!</body><!-- {} --></html>'.format(''.join('<{0}>{1}</{0}>'.format(*kv) for kv in saml_headers.items()))
-    return body, saml_headers
+    if C.saml_comments_only:
+        return body
+    else:
+        return body, saml_headers
 
 
 def challenge_2fa(where, variant):
@@ -229,8 +247,17 @@ def portal_config():
                    saml_user=None, saml_value=None,
                    # clear inputStr to ensure failure if same form fields are blindly retried on another challenge form:
                    inputStr=None)
-    gwlist = ''.join('<entry name="{}:{}"><description>{}</description></entry>'.format(app.config['HOST'], app.config['PORT'], gw)
-                     for gw in C.gateways)
+    gwlist = ''.join('''
+<entry name="{}:{}">
+  <description>{}</description>
+  <priority-rule>
+    {}
+  </priority-rule>
+</entry>'''.format(
+        app.config['HOST'], app.config['PORT'], gw,
+        '\n    '.join(f'<entry name="{region}"><priority>{99 if region=="Any" else randint(1, len(REGIONS))}</priority></entry>'
+                      for region in REGIONS + ['Any'] if randint(0, 1)))
+        for gw in C.gateways)
     if C.portal_cookie:
         val = session[C.portal_cookie] = 'portal-cookie-%d' % randint(1, 10)
         pc = '<{0}>{1}</{0}>'.format(C.portal_cookie, val)
@@ -284,7 +311,7 @@ def gateway_login():
                    ipv6_support=request.form.get('ipv6-support'), preferred_ipv6=preferred_ipv6)
     session.setdefault('portal-prelogonuserauthcookie', '')
     session.setdefault('portal-userauthcookie', '')
-    session['authcookie'] = cookify(dict(session)).decode()
+    session['authcookie'] = cookify(dict(session))
 
     return '''<?xml version="1.0" encoding="utf-8"?> <jnlp> <application-desc>
         <argument>(null)</argument>
@@ -315,9 +342,25 @@ def gateway_login():
 def getconfig():
     session.update(step='gateway-config')
     addrs = '<ip-address>{}</ip-address>'.format(session['preferred_ip'])
+    addrs += '<gw-address>127.0.0.1</gw-address>'
+    addrs += '<gw-address-v6>::1</gw-address-v6>'  # some(?) servers send the IPv6 address even if not otherwise configured for IPv6
     if session['ipv6_support'] == 'yes':
         addrs += '<ip-address-v6>{}</ip-address-v6>'.format(session['preferred_ipv6'])
-    return '''<response>{}<ssl-tunnel-url>/ssl-tunnel-connect.sslvpn</ssl-tunnel-url></response>'''.format(addrs)
+    ipsec = ''
+    if C.esp:
+        ipsec = '''<ipsec>
+            <udp-port>4501</udp-port>
+            <ipsec-mode>esp-tunnel</ipsec-mode>
+            <enc-algo>aes-128-cbc</enc-algo>
+            <hmac-algo>sha1</hmac-alog>
+            <c2s-spi>0xa5a5a5a5</c2s-spi>
+            <s2c-spi>0x5a5a5a5a</s2c-spi>
+            <akey-s2c><bits>160</bits><val>deadbeefdeadbeefdeadbeefdeadbeefdeadbeef</val></akey-s2c>
+            <akey-c2s><bits>160</bits><val>deadbeefdeadbeefdeadbeefdeadbeefdeadbee1</val></akey-c2s>
+            <ekey-s2c><bits>128</bits><val>deadbeefdeadbeefdeadbeefdeadbeef</val></ekey-s2c>
+            <ekey-c2s><bits>128</bits><val>deadbeefdeadbeefdeadbeefdeadbee1</val></ekey-c2s>
+        </ipsec>'''
+    return '''<response>{}{}<ssl-tunnel-url>/ssl-tunnel-connect.sslvpn</ssl-tunnel-url></response>'''.format(addrs, ipsec)
 
 
 # Respond to gateway hipreportcheck request
@@ -341,7 +384,7 @@ def tunnel():
 
 
 # Respond to 'GET /ssl-vpn/logout.esp' by clearing session and MRHSession
-@app.route('/ssl-vpn/logout.esp')
+@app.route('/ssl-vpn/logout.esp', methods=('POST',))
 # XX: real server really requires all these fields; see auth-globalprotect.c
 @check_form_against_session('authcookie', 'portal', 'user', 'computer')
 def logout():

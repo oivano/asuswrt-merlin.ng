@@ -85,9 +85,9 @@ It was originally written to support Cisco "AnyConnect" VPN servers,
 and has since been extended with experimental support for Juniper
 Network Connect
 .RB ( \-\-protocol=nc ),
-Junos/Ivanti Pulse VPN servers
+Pulse/Ivanti Connect Secure VPN servers
 .RB ( \-\-protocol=pulse ),
-PAN GlobalProtect VPN servers
+Palo Alto Networks GlobalProtect VPN servers
 .RB ( \-\-protocol=gp ),
 F5 Big-IP VPN servers
 .RB ( \-\-protocol=f5 ),
@@ -111,7 +111,7 @@ may be disabled with
 but is preferred when correctly supported by the server and network
 for performance reasons. (TCP performs poorly and unreliably over
 TCP-based tunnels; see
-.IR http://sites.inka.de/~W1011/devel/tcp-tcp.html .)
+.IR https://web.archive.org/web/20230228035749/https://sites.inka.de/~W1011/devel/tcp-tcp.html .)
 
 .SH OPTIONS
 .TAG opt-config
@@ -705,11 +705,11 @@ to be used for the connection. Supported protocols are
 for Cisco AnyConnect (the default),
 .I nc
 for experimental support for Juniper Network Connect (also supported
-by most Junos/Ivanti Pulse servers),
+by most Ivanti/Pulse Connect Secure servers),
 .I pulse
-for experimental support for Junos/Ivanti Pulse,
+for experimental support for Ivanti/Pulse Connect Secure,
 .I gp
-for experimental support for PAN GlobalProtect,
+for experimental support for Palo Alto Networks GlobalProtect,
 .I f5
 for experimental support for F5 Big-IP,
 .I fortinet

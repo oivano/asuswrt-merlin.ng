@@ -19,9 +19,6 @@
 
 #include "openconnect-internal.h"
 
-#include <libxml/parser.h>
-#include <libxml/tree.h>
-
 #include <ctype.h>
 #include <errno.h>
 
@@ -30,6 +27,7 @@ struct login_context {
 	char *alt_secret;			/* Alternative secret (DO NOT FREE) */
 	char *portal_userauthcookie;		/* portal-userauthcookie (from global-protect/getconfig.esp) */
 	char *portal_prelogonuserauthcookie;	/* portal-prelogonuserauthcookie (from global-protect/getconfig.esp) */
+	char *region;				/* Region (typically 2 characters, e.g. DE, US) */
 	struct oc_auth_form *form;
 };
 
@@ -51,10 +49,14 @@ void gpst_common_headers(struct openconnect_info *vpninfo,
  */
 const char *gpst_os_name(struct openconnect_info *vpninfo)
 {
-	if (!strcmp(vpninfo->platname, "mac-intel") || !strcmp(vpninfo->platname, "apple-ios"))
+	if (!strcmp(vpninfo->platname, "mac-intel"))
 		return "Mac";
-	else if (!strcmp(vpninfo->platname, "linux-64") || !strcmp(vpninfo->platname, "linux") || !strcmp(vpninfo->platname, "android"))
+	else if (!strcmp(vpninfo->platname, "apple-ios"))
+		return "iOS";
+	else if (!strcmp(vpninfo->platname, "linux-64") || !strcmp(vpninfo->platname, "linux"))
 		return "Linux";
+	else if (!strcmp(vpninfo->platname, "android"))
+		return "Android";
 	else
 		return "Windows";
 }
@@ -91,6 +93,7 @@ static int parse_prelogin_xml(struct openconnect_info *vpninfo, xmlNode *xml_nod
 		xmlnode_get_trimmed_val(xml_node, "authentication-message", &prompt);
 		xmlnode_get_trimmed_val(xml_node, "username-label", &username_label);
 		xmlnode_get_trimmed_val(xml_node, "password-label", &password_label);
+		xmlnode_get_trimmed_val(xml_node, "region", &ctx->region);
 		/* XX: should we save the certificate username from <ccusername/> ? */
 	}
 
@@ -117,6 +120,7 @@ static int parse_prelogin_xml(struct openconnect_info *vpninfo, xmlNode *xml_nod
 				if (!saml_path)
 					goto nomem;
 				saml_path[len] = '\0';
+				free(vpninfo->sso_login);
 				vpninfo->sso_login = strdup(saml_path);
 				prompt = strdup("SAML REDIRECT authentication in progress");
 				if (!vpninfo->sso_login || !prompt)
@@ -129,6 +133,7 @@ static int parse_prelogin_xml(struct openconnect_info *vpninfo, xmlNode *xml_nod
 					goto nomem;
 				memmove(saml_path + strlen(prefix), saml_path, strlen(saml_path) + 1);
 				memcpy(saml_path, prefix, strlen(prefix));
+				free(vpninfo->sso_login);
 				vpninfo->sso_login = strdup(saml_path);
 				prompt = strdup("SAML REDIRECT authentication in progress");
 				if (!vpninfo->sso_login || !prompt)
@@ -145,7 +150,7 @@ static int parse_prelogin_xml(struct openconnect_info *vpninfo, xmlNode *xml_nod
 			/* Legacy flow (when not called by n-m-oc) */
 			if (!vpninfo->open_webview) {
 				vpn_progress(vpninfo,
-					PRG_ERR, _("When SAML authentication is complete, specify destination form field by appending :field_name to login URL.\n"));
+					PRG_ERR, _("When SAML authentication is complete, specify destination form field by appending field_name to login URL.\n"));
 				goto out;
 			}
 		}
@@ -248,7 +253,7 @@ static int challenge_cb(struct openconnect_info *vpninfo, char *prompt, char *in
 	 * Currently using the heuristic that if the password field in
 	 * the preceding form wasn't treated as a token field, treat this
 	 * as a token field.
-        */
+	 */
 	if (!can_gen_tokencode(vpninfo, form, opt2) && opt2->type == OC_FORM_OPT_PASSWORD)
 		opt2->type = OC_FORM_OPT_TOKEN;
 	else
@@ -410,6 +415,13 @@ err_out:
 	return -EINVAL;
 }
 
+static int compare_choices(const void *a, const void *b)
+{
+	const struct oc_choice *const *_a = a, *c1 = *_a;
+	const struct oc_choice *const *_b = b, *c2 = *_b;
+	return (c1->priority - c2->priority);
+}
+
 /* Parse portal login/config response (POST /ssl-vpn/getconfig.esp)
  *
  * Extracts the list of gateways from the XML, writes them to the XML config,
@@ -474,7 +486,7 @@ static int parse_portal_xml(struct openconnect_info *vpninfo, xmlNode *xml_node,
 	 *   or repeated --servercert in order to allow non-interactive
 	 *   authentication to gateways whose certs aren't trusted by the
 	 *   system but ARE trusted by the portal (see example at
-         *   https://github.com/dlenski/openconnect/issues/128).
+	 *   https://github.com/dlenski/openconnect/issues/128).
 	 */
 	if (xmlnode_is_named(xml_node, "policy")) {
 		for (x = xml_node->children; x; x = x->next) {
@@ -534,14 +546,12 @@ no_gateways:
 	if (vpninfo->write_new_config) {
 		buf = buf_alloc();
 		buf_append(buf, "<GPPortal>\n  <ServerList>\n");
-		if (portal) {
-			buf_append(buf, "      <HostEntry><HostName>");
-			buf_append_xmlescaped(buf, portal ? : _("unknown"));
-			buf_append(buf, "</HostName><HostAddress>%s", vpninfo->hostname);
-			if (vpninfo->port!=443)
-				buf_append(buf, ":%d", vpninfo->port);
-			buf_append(buf, "/global-protect</HostAddress></HostEntry>\n");
-		}
+		buf_append(buf, "      <HostEntry><HostName>");
+		buf_append_xmlescaped(buf, portal ? : _("unknown"));
+		buf_append(buf, "</HostName><HostAddress>%s", vpninfo->hostname);
+		if (vpninfo->port!=443)
+			buf_append(buf, ":%d", vpninfo->port);
+		buf_append(buf, "/global-protect</HostAddress></HostEntry>\n");
 	}
 
 	/* first, count the number of gateways */
@@ -555,34 +565,74 @@ no_gateways:
 		goto out;
 	}
 
-	/* each entry looks like <entry name="host[:443]"><description>Label</description></entry> */
+	/* Each entry looks like:
+	 *   <entry name="host[:443]">
+	 *     <description>Label</description>
+	 *     <priority-rule>           <!-- This is optional -->
+	 *       <entry name="US"><priority>1</priority></entry>
+	 *       <entry name="DE"><priority>2</priority></entry>
+	 *       <entry name="Any"><priority>3</priority></entry>
+	 *     </priority-rule>
+	 *   </entry>
+	 */
 	vpn_progress(vpninfo, PRG_INFO, _("%d gateway servers available:\n"), max_choices);
 	for (x = gateways->children; x; x = x->next) {
 		if (xmlnode_is_named(x, "entry")) {
 			struct oc_choice *choice = calloc(1, sizeof(*choice));
+
 			if (!choice) {
 				result = -ENOMEM;
 				goto out;
 			}
 
+			choice->priority = INT_MAX;
 			xmlnode_get_prop(x, "name", &choice->name);
-			for (x2 = x->children; x2; x2=x2->next)
-				if (!xmlnode_get_val(x2, "description", &choice->label)) {
-					if (vpninfo->write_new_config) {
-						buf_append(buf, "      <HostEntry><HostName>");
-						buf_append_xmlescaped(buf, choice->label);
-						buf_append(buf, "</HostName><HostAddress>%s/ssl-vpn</HostAddress></HostEntry>\n",
-								   choice->name);
+			for (x2 = x->children; x2; x2 = x2->next) {
+				if (ctx->region && xmlnode_is_named(x2, "priority-rule")) {
+					/* Extract priority for our region (also matching to 'Any'). */
+					for (xmlNode *entry = x2->children; entry; entry = entry->next) {
+						char *entry_name = NULL;
+						if (xmlnode_is_named(entry, "entry") &&
+						    !xmlnode_get_prop(entry, "name", &entry_name)) {
+							if (!strcmp(ctx->region, entry_name) || !strcmp("Any", entry_name)) {
+								for (xmlNode *x3 = entry->children; x3; x3 = x3->next) {
+									if (xmlnode_is_named(x3, "priority")) {
+										/* Use lowest if there are multiple matches (e.g. both exact and 'Any') */
+										int p = xmlnode_bool_or_int_value(x3);
+										if (p < choice->priority)
+											choice->priority = p;
+									}
+								}
+							}
+						}
+						free(entry_name);
 					}
-				}
+				} else
+					xmlnode_get_val(x2, "description", &choice->label);
+			}
 
 			opt->choices[opt->nr_choices++] = choice;
-			vpn_progress(vpninfo, PRG_INFO, _("  %s (%s)\n"),
-				     choice->label, choice->name);
+			if (choice->priority != INT_MAX)
+				vpn_progress(vpninfo, PRG_INFO, _("  %s (%s) [priority %d]\n"),
+					     choice->label, choice->name, choice->priority);
+			else
+				vpn_progress(vpninfo, PRG_INFO, _("  %s (%s) [unprioritized]\n"),
+					     choice->label, choice->name);
 		}
 	}
 	if (!opt->nr_choices)
 		goto no_gateways;
+
+	qsort(opt->choices, opt->nr_choices, sizeof(*opt->choices), compare_choices);
+	if (vpninfo->write_new_config) {
+		for (int i = 0; i < opt->nr_choices; i++) {
+			buf_append(buf, "      <HostEntry><HostName>");
+			buf_append_xmlescaped(buf, opt->choices[i]->label);
+			buf_append(buf, "</HostName><HostAddress>%s/ssl-vpn</HostAddress></HostEntry>\n",
+					   opt->choices[i]->name);
+		}
+	}
+
 	if (!vpninfo->authgroup && opt->nr_choices)
 		vpninfo->authgroup = strdup(opt->choices[0]->name);
 
@@ -645,7 +695,10 @@ static int gpst_login(struct openconnect_info *vpninfo, int portal, struct login
 			}
 		}
 		/* submit prelogin request to get form */
-		result = do_https_request(vpninfo, "POST", NULL, NULL, &xml_buf, NULL, HTTP_REDIRECT);
+		buf_truncate(request_body);
+		if (!vpninfo->no_external_auth)
+			buf_append(request_body, "cas-support=yes");
+		result = do_https_request(vpninfo, "POST", "application/x-www-form-urlencoded", request_body, &xml_buf, NULL, HTTP_REDIRECT);
 		if (!keep_urlpath) {
 			free(vpninfo->urlpath);
 			vpninfo->urlpath = orig_path;
@@ -757,7 +810,7 @@ int gpst_obtain_cookie(struct openconnect_info *vpninfo)
 	int result;
 
 	/* An alternate password/secret field may be specified in the "URL path" (or --usergroup).
-        * Known possibilities are:
+	 * Known possibilities are:
 	 *     /portal:portal-userauthcookie
 	 *     /gateway:prelogin-cookie
 	 */
@@ -786,6 +839,7 @@ int gpst_obtain_cookie(struct openconnect_info *vpninfo)
 	free(ctx.alt_secret);
 	free(ctx.portal_userauthcookie);
 	free(ctx.portal_prelogonuserauthcookie);
+	free(ctx.region);
 	free_auth_form(ctx.form);
 	return result;
 }

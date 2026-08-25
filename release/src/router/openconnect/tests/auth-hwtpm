@@ -44,7 +44,7 @@ for KEY in ${hwtpm_list}; do
 	if [ ! -r "$CERT" ]; then CERT="${certdir}/$CERT"; fi
 	CERTARGS="--sslkey ${KEY} -c ${CERT}"
     fi
-    if ! echo "test" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $ADDRESS:443 -u test $CERTARGS --servercert=pin-sha256:xp3scfzy3rO --cookieonly -vvvvv --passwd-on-stdin; then
+    if ! echo "test" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $SWRESOLVE sockwrap:443 -u test $CERTARGS --servercert=pin-sha256:xp3scfzy3rO --cookieonly -vvvvv --passwd-on-stdin; then
 	fail $PID "Could not connect with key ${KEY##*/}!"
     fi
 done

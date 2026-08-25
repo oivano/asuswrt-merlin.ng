@@ -170,6 +170,11 @@ static const TPML_PCR_SELECTION allCreationPCR = {
 
 static void install_tpm_passphrase(struct openconnect_info *vpninfo, TPM2B_DIGEST *auth, char *pass)
 {
+	if (!pass) {
+		auth->size = 0;
+		return;
+	}
+
 	int pwlen = strlen(pass);
 
 	if (pwlen > sizeof(auth->buffer) - 1) {
@@ -191,7 +196,7 @@ static int init_tpm2_primary(struct openconnect_info *vpninfo, struct cert_info 
 	const char *hierarchy_name;
 	ESYS_TR hierarchy;
 
-	switch(certinfo->tpm2->parent) {
+	switch (certinfo->tpm2->parent) {
 	case TPM2_RH_OWNER:	hierarchy = ESYS_TR_RH_OWNER;	hierarchy_name = _("owner"); break;
 	case TPM2_RH_NULL:	hierarchy = ESYS_TR_RH_NULL;	hierarchy_name = _("null"); break;
 	case TPM2_RH_ENDORSEMENT:hierarchy = ESYS_TR_RH_ENDORSEMENT; hierarchy_name = _("endorsement"); break;
@@ -610,7 +615,7 @@ int install_tpm2_key(struct openconnect_info *vpninfo, struct cert_info *certinf
 	certinfo->tpm2->need_userauth = !emptyauth;
 	certinfo->tpm2->legacy_srk = legacy;
 
-	switch(certinfo->tpm2->pub.publicArea.type) {
+	switch (certinfo->tpm2->pub.publicArea.type) {
 	case TPM2_ALG_RSA: return GNUTLS_PK_RSA;
 	case TPM2_ALG_ECC: return GNUTLS_PK_ECC;
 	}

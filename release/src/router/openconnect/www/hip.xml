@@ -8,12 +8,13 @@
 
 	<INCLUDE file="inc/content.tmpl" />
 
-<h1>PAN GlobalProtect HIP</h1>
+<h1>Palo Alto Networks GlobalProtect HIP</h1>
 
 <p>The HIP ('Host Integrity Protection') mechanism is a security
-scanner for the <a href="globalprotect.html">PAN GlobalProtect</a>
-VPNs, in the same vein as <a href="csd.html">Cisco's CSD</a> and <a
-href="tncc.html">Juniper's Host Checker (tncc.jar)</a>.</p>
+scanner for the <a href="globalprotect.html">Palo Alto Networks
+GlobalProtect</a> VPNs, in the same vein as
+<a href="csd.html">Cisco's CSD</a> and <a href="tncc.html">Juniper's
+Host Checker (tncc.jar)</a>.</p>
 
 <h2>How it works</h2>
 

@@ -8,7 +8,7 @@
 
 	<INCLUDE file="inc/content.tmpl" />
 
-<h1>Install a <tt>vpnc-script</tt>.</h1>
+<h1>Install a <tt>vpnc-script</tt></h1>
 
 <p>OpenConnect just handles the communication with the VPN server; it does
 not know how to configure the network routing and name service (DNS) on all the

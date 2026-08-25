@@ -203,8 +203,11 @@ static struct oc_auth_form *parse_json_form(struct openconnect_info *vpninfo, js
 			continue;
 
 		struct oc_form_opt *opt = calloc(1, sizeof(*opt));
-		if (!opt)
+		if (!opt) {
+		nomem2:
+			free(opt);
 			goto nomem;
+		}
 
 		for (int j = 0; j < f->u.object.length; j++) {
 			json_value *subval = f->u.object.values[j].value;
@@ -225,7 +228,7 @@ static struct oc_auth_form *parse_json_form(struct openconnect_info *vpninfo, js
 				subval->type = json_null, subval->u.string.ptr = NULL; /* XX */
 			} else if (!strcmp(subname, "caption") && subval->type == json_string) {
 				if (asprintf(&opt->label, "%s:", subval->u.string.ptr) < 0)
-					goto nomem;
+					goto nomem2;
 			} else if (!strcmp(subname, "value") && subval->type == json_string && subval->u.string.length > 0) {
 				opt->_value = subval->u.string.ptr;
 				subval->type = json_null, subval->u.string.ptr = NULL; /* XX */
@@ -530,7 +533,7 @@ static int parse_options(struct openconnect_info *vpninfo, char *buf, int len,
 			int st = xmlnode_bool_or_int_value(xml_node);
 			vpn_progress(vpninfo, PRG_INFO, _("Got SplitTunneling0 value of %d\n"), st);
 			/* XX: Should we ignore split-{in,ex}cludes if this is zero? */
-                }
+		}
 		/* XX: This is an objectively stupid way to use XML, a hierarchical data format. */
 		else if (   (!strncmp((char *)xml_node->name, "DNS", 3) && isdigit(xml_node->name[3]))
 			 || (!strncmp((char *)xml_node->name, "DNS6_", 5) && isdigit(xml_node->name[5])) ) {
@@ -623,7 +626,7 @@ static int parse_options(struct openconnect_info *vpninfo, char *buf, int len,
 
 	if (ret || (*ipv4 < 1 && *ipv6 < 1) || !*ur_z || !*session_id) {
 		free_optlist(new_opts);
-                free_split_routes(&new_ip_info);
+		free_split_routes(&new_ip_info);
 	err:
 		vpn_progress(vpninfo, PRG_ERR,
 			     _("Failed to find VPN options\n"));
@@ -658,8 +661,8 @@ static int get_ip_address(struct openconnect_info *vpninfo, char *header, char *
 		if (!vpninfo->ip_info.addr6 && !vpninfo->ip_info.netmask6)
 			inet_pton(AF_INET6, val, &ppp->out_ipv6_addr);
 	}
-        /* XX: The server's IP address(es) X-VPN-server-{IP,IPv6} are also
-         * sent, but the utility of these is unclear. As remarked in oncp.c,
+	/* XX: The server's IP address(es) X-VPN-server-{IP,IPv6} are also
+	 * sent, but the utility of these is unclear. As remarked in oncp.c,
 	 * "this is a tunnel; having a gateway is meaningless." */
 	return 0;
 }

@@ -130,7 +130,7 @@ void  __attribute__ ((format (printf, 2, 3)))
 		} else if (ret < max_len) {
 			buf->pos += ret;
 			break;
-		} else if (buf_ensure_space(buf, ret))
+		} else if (buf_ensure_space(buf, ret + 1))
 			break;
 	}
 }

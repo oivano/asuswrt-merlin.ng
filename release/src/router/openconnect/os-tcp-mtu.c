@@ -29,6 +29,9 @@
 #if defined(__linux__)
 /* For TCP_INFO */
 # include <linux/tcp.h>
+# ifndef IP_MTU
+#  define IP_MTU 14
+# endif
 #endif
 
 union sa_ip46 {
@@ -43,7 +46,7 @@ static const char *ip46_ntop(union sa_ip46 *src, char *dst, socklen_t size) {
 			 dst, size);
 }
 
-int main(int argc, char **argv)
+int main(int argc, char *argv[])
 {
 	int ret;
 	socklen_t opt_size;
@@ -170,7 +173,7 @@ int main(int argc, char **argv)
 
 	fprintf(stderr, "OS estimates of MTU/MSS for connected TCP socket:\n");
 
-#ifdef IP_MTU
+#if defined(__linux__)
 	struct tcp_info ti;
 	opt_size = sizeof(ti);
 	ret = getsockopt(sock, IPPROTO_TCP, TCP_INFO, &ti, &opt_size);

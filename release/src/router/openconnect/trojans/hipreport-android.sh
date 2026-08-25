@@ -53,7 +53,7 @@ echo "			<os>$PLATFORM_NAME $PLATFORM_VERSION</os>"
 echo '			<os-vendor>Google</os-vendor>'
 echo "			<domain>$DOMAIN.internal</domain>"
 echo "			<host-name>$COMPUTER</host-name>"
-echo "			<host-id>$HOSTID</host-id>"
+echo "			<host-id>$HOST_ID</host-id>"
 echo '		</entry>'
 echo '	</categories>'
 echo '</hip-report>'

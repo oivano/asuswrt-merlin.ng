@@ -27,7 +27,12 @@
 
 struct openconnect_info {
 	char *ifname;
+	wchar_t *ifname_w;
 };
+
+/* don't link linkopenconnect in this test, just for this function
+ * it won't get loaded under wine when cross compiling anyway */
+#define openconnect__win32_strerror(err) (strdup("(Actual error text not present in tests)"))
 
 #define OPEN_TUN_SOFTFAIL 0
 #define OPEN_TUN_HARDFAIL -1
@@ -39,12 +44,23 @@ struct openconnect_info {
 static intptr_t print_tun(struct openconnect_info *vpninfo, int type, char *guid, wchar_t *wname)
 {
 	printf("Found %s device '%S' guid %s\n",
-	       type ? "Wintun" : "Tap", wname, guid);
+	       (type == ADAPTER_WINTUN) ? "Wintun" : "Tap", wname, guid);
 	return 0;
 }
 
 int main(void)
 {
-	search_taps(NULL, print_tun);
+	intptr_t ret;
+	struct oc_adapter_info *list = NULL;
+	struct openconnect_info empty_info = { NULL, NULL};
+
+	list = get_adapter_list(NULL);
+
+	if (!list)
+		return 1;
+
+	search_taps(&empty_info, list, print_tun);
+
+	free_adapter_list(list);
 	return 0;
 }
