@@ -141,7 +141,8 @@ STACK_OF(PKCS12_SAFEBAG) *PKCS12_unpack_p7encdata(PKCS7 *p7, const char *pass,
         return NULL;
 
     if (p7->d.encrypted == NULL) {
-        PKCS12err(PKCS12_F_PKCS12_UNPACK_P7DATA, PKCS12_R_DECODE_ERROR);
+        PKCS12err(PKCS12_F_PKCS12_UNPACK_P7ENCDATA,
+                  PKCS12_R_DECODE_ERROR);
         return NULL;
     }
 
