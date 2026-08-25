@@ -175,21 +175,9 @@ export KPATH_37_OR_ABOVE KPATH_314_OR_ABOVE
 INCLUDE_LINUX_VERSION_H = $(if $(or $(RTCONFIG_LANTIQ),$(KPATH_314_OR_ABOVE)),include/generated/uapi/linux/version.h,include/linux/version.h)
 
 ifneq ($(BASE_MODEL),)
-ifneq ($(findstring 4G-,$(BASE_MODEL)),)
-MODEL = RT$(subst -,,$(BASE_MODEL))
-else ifneq ($(findstring DSL,$(BASE_MODEL)),)
 MODEL = $(subst -,_,$(BASE_MODEL))
-else
-MODEL = $(subst -,,$(subst +,P,$(BASE_MODEL)))
-endif
 else ifneq ($(BUILD_NAME),)
-ifneq ($(findstring 4G-,$(BUILD_NAME)),)
-MODEL = RT$(subst -,,$(BUILD_NAME))
-else ifneq ($(findstring DSL,$(BUILD_NAME)),)
 MODEL = $(subst -,_,$(BUILD_NAME))
-else
-MODEL = $(subst -,,$(subst +,P,$(BUILD_NAME)))
-endif
 endif
 ifneq ($(MODEL),)
 export CFLAGS += -D$(MODEL)
@@ -897,41 +885,8 @@ IPTABLES := iptables-1.4.x
 IPTC_LIBDIR := $(TOP)/$(IPTABLES)/libiptc/.libs
 IPTC_LIBS := -lip4tc $(if $(RTCONFIG_IPV6),-lip6tc,) -liptc
 obj-y += iptables-1.4.x
-ifeq ($(HND_ROUTER),y)
-ifeq ($(or $(HND_ROUTER_AX_6756),$(HND_ROUTER_BE_4916)),y)
-obj-y += iproute2-5.7.0
-else
-obj-y += iproute2-4.3
-endif
-else ifeq ($(or $(RTAX53U),$(RTAX54),$(RT4GAX56),$(RTCONFIG_MT798X),$(if $(filter $(BUILD_NAME),XD4S),y,)),y)
-obj-y += iproute2-5.18.0
-else
 obj-y += iproute2-3.x
 endif
-else
-IPTABLES := iptables
-IPTC_LIBDIR := $(TOP)/$(IPTABLES)
-IPTC_LIBS := -liptc
-CFLAGS += -DIPTABLES_LEGACY
-obj-y += iptables
-obj-y += iproute2
-endif
-endif
-
-ifeq ($(RTCONFIG_ALPINE)$(RTCONFIG_LANTIQ),y)
-IPTABLES := iptables-1.4.21
-IPTC_LIBDIR := $(TOP)/$(IPTABLES)/libiptc/.libs
-IPTC_LIBS := -lip4tc $(if $(RTCONFIG_IPV6),-lip6tc,) -liptc
-obj-y += iptables-1.4.21
-obj-y += iproute2-3.15.0
-endif
-
-ifeq ($(RTL8198D),y)
-IPTABLES := iptables-1.4.18
-IPTC_LIBDIR := $(TOP)/$(IPTABLES)/libiptc/.libs
-IPTC_LIBS := -lip4tc $(if $(RTCONFIG_IPV6),-lip6tc,) -liptc
-obj-y += iptables-1.4.18
-obj-y += iproute2-4.4.0
 endif
 
 obj-$(RTCONFIG_CONNTRACK) += conntrack
@@ -1126,15 +1081,7 @@ endif
 ifeq ($(RTCONFIG_AMAS),y)
 obj-y  += jansson-2.7
 obj-y  += libevent-2.0.21
-ifeq ($(RTCONFIG_LLDPD_1_0_11),y)
-LLDPD := lldpd-1.0.11
-else ifeq ($(RTCONFIG_LLDPD_0_9_8),y)
-LLDPD := lldpd-0.9.8
-else
-$(error lldpd is not defined)
-endif
-obj-y += lldpd-1.0.17
-#obj-y  += $(LLDPD)
+obj-y  += lldpd-1.0.17
 obj-y  += libxml2
 endif
 
@@ -1362,12 +1309,6 @@ obj-$(RTCONFIG_TUNNEL) += asusnatnl
 obj-$(RTCONFIG_UPLOADER) += uploader
 
 
-ifeq ($(RTCONFIG_AMAS),y)
-#amas-utils
-obj-y += amas-utils
-
-endif
-
 #For timemachine
 obj-$(RTCONFIG_TIMEMACHINE) += openssl
 obj-$(RTCONFIG_TIMEMACHINE) += libgpg-error-1.10
@@ -1429,12 +1370,8 @@ obj-$(RTCONFIG_FRR) += libcap
 obj-$(RTCONFIG_FRR) += libcap-ng
 obj-$(RTCONFIG_FRR) += json-c
 obj-$(RTCONFIG_FRR) += pcre-8.31
-FRR_USE_LIBYANG2 ?= y
-FRR_LIBYANG_DEP := libyang
-ifeq ($(FRR_USE_LIBYANG2),y)
 FRR_LIBYANG_DEP := libyang2
 obj-$(RTCONFIG_FRR) += pcre2
-endif
 obj-$(RTCONFIG_FRR) += $(FRR_LIBYANG_DEP)
 obj-$(RTCONFIG_FRR) += zlib
 obj-$(RTCONFIG_FRR) += readline-8.1
@@ -1694,8 +1631,6 @@ obj-$(RTCONFIG_GETREALIP) += ministun
 CFGSYNC_PKG := openssl cfg_mnt
 obj-$(RTCONFIG_CFGSYNC) += $(CFGSYNC_PKG)
 
-#obj-$(RTCONFIG_WIREGUARD) += wireguard-tools
-obj-$(HND_ROUTER) += wireguard-tools
 obj-$(RTCONFIG_WIREGUARD) += zlib
 obj-$(RTCONFIG_WIREGUARD) += libpng
 obj-$(RTCONFIG_WIREGUARD) += qrencode
@@ -2777,7 +2712,7 @@ rmconf: config/mconf
 roldconf: config/conf
 	config/conf -o $(CONFIG_IN)
 	$(MAKE) shared-clean libdisk-clean rc-clean nvram$(BCMEX)$(EX7)-clean httpd-clean prebuilt-clean libbcmcrypto-clean
-	$(MAKE) dnsmasq-clean iproute2-clean networkmap-clean
+	$(MAKE) dnsmasq-clean iproute2-3.x-clean networkmap-clean
 ifeq ($(RTCONFIG_BCMARM),y)
 	$(MAKE) compressed-clean
 endif
@@ -3337,7 +3272,7 @@ wb: json-c openssl libxml2 curl
 wb-install:
 	$(MAKE) -C wb INSTALLDIR=$(INSTALLDIR)/wb install
 
-rc: shared $(if $(BCM_502L07P2),ethctl_lib) nvram$(BCMEX)$(EX7) libdisk $(if $(RTCONFIG_FBWIFI),fb_wifi) $(if $(RTCONFIG_QTN),libqcsapi_client) $(if $(CONFIG_LIBBCM),libbcm) $(if $(RTCONFIG_BWDPI),bwdpi_source) $(if $(RTCONFIG_USB_SMS_MODEM),smspdu) $(if $(RTCONFIG_HND_ROUTER),bcm_flashutil bcm_util bcm_boardctl) $(if $(RTCONFIG_OPENVPN),libvpn) $(if $(RTCONFIG_LANTIQ),libfapi-0.1) $(if $(RTCONFIG_CFGSYNC), $(CFGSYNC_PKG) $(if $(RTCONFIG_AMAS), amas-utils) $(if $(RTCONFIG_LANTIQ),hostapd-2.6)) json-c $(if $(or $(RTCONFIG_FRS_LIVE_UPDATE),$(RTCONFIG_FRS_FEEDBACK),$(RTCONFIG_URLFW),$(RTCONFIG_SOFTWIRE46)), curl) $(if $(and $(RTCONFIG_HND_ROUTER_AX_675X),$(RTCONFIG_BRCM_HOSTAPD)),sys_util gen_util) $(if $(and$(RTCONFIG_HND_ROUTER_AX_6756),$(RTCONFIG_BRCM_HOSTAPD)),sys_util gen_util) $(if $(and $(RTCONFIG_HND_ROUTER_AX_6710),$(RTCONFIG_BRCM_HOSTAPD)),sys_utilgen_util) $(if $(and $(RTCONFIG_BCM_502L07P2),$(RTCONFIG_BRCM_HOSTAPD)),sys_util gen_util) $(if $(RTCONFIG_BRCM_HOSTAPD),wpa_supplicant-2.7)
+rc: shared $(if $(BCM_502L07P2),ethctl_lib) nvram$(BCMEX)$(EX7) libdisk $(if $(RTCONFIG_FBWIFI),fb_wifi) $(if $(RTCONFIG_QTN),libqcsapi_client) $(if $(CONFIG_LIBBCM),libbcm) $(if $(RTCONFIG_BWDPI),bwdpi_source) $(if $(RTCONFIG_USB_SMS_MODEM),smspdu) $(if $(RTCONFIG_HND_ROUTER),bcm_flashutil bcm_util bcm_boardctl) $(if $(RTCONFIG_OPENVPN),libvpn) $(if $(RTCONFIG_LANTIQ),libfapi-0.1) $(if $(RTCONFIG_CFGSYNC), $(CFGSYNC_PKG) $(if $(RTCONFIG_LANTIQ),hostapd-2.6)) json-c $(if $(or $(RTCONFIG_FRS_LIVE_UPDATE),$(RTCONFIG_FRS_FEEDBACK),$(RTCONFIG_URLFW),$(RTCONFIG_SOFTWIRE46)), curl) $(if $(and $(RTCONFIG_HND_ROUTER_AX_675X),$(RTCONFIG_BRCM_HOSTAPD)),sys_util gen_util) $(if $(and$(RTCONFIG_HND_ROUTER_AX_6756),$(RTCONFIG_BRCM_HOSTAPD)),sys_util gen_util) $(if $(and $(RTCONFIG_HND_ROUTER_AX_6710),$(RTCONFIG_BRCM_HOSTAPD)),sys_utilgen_util) $(if $(and $(RTCONFIG_BCM_502L07P2),$(RTCONFIG_BRCM_HOSTAPD)),sys_util gen_util) $(if $(RTCONFIG_BRCM_HOSTAPD),wpa_supplicant-2.7)
 	@$(SEP)
 # Dig into our collection of prebuilt objects based on model
 	@-rm -f rc/prebuild/*.o || true
@@ -3612,155 +3547,6 @@ getdns-install:
 
 getdns-clean:
 	@rm -rf getdns/build
-
-iptables:
-	@$(SEP)
-	$(MAKE) -C iptables BINDIR=/usr/sbin LIBDIR=/usr/lib KERNEL_DIR=$(LINUX_INC_DIR) COPT_FLAGS="-Os $(EXTRACFLAGS) -U CONFIG_NVRAM_SIZE"
-
-iptables-install:
-	install -D iptables/iptables $(INSTALLDIR)/iptables/usr/sbin/iptables
-	cd $(INSTALLDIR)/iptables/usr/sbin && \
-		ln -sf iptables iptables-save && \
-		ln -sf iptables iptables-restore
-
-	install -d $(INSTALLDIR)/iptables/usr/lib/iptables
-	install -D iptables/extensions/*.so $(INSTALLDIR)/iptables/usr/lib/iptables/
-
-	install -D iptables/libiptc.so $(INSTALLDIR)/iptables/usr/lib/libiptc.so
-
-	$(STRIP) $(INSTALLDIR)/iptables/usr/sbin/iptables
-	$(STRIP) $(INSTALLDIR)/iptables/usr/lib/iptables/*.so
-	$(STRIP) $(INSTALLDIR)/iptables/usr/lib/libiptc.so
-
-ifeq ($(RTCONFIG_IPV6),y)
-	install iptables/ip6tables $(INSTALLDIR)/iptables/usr/sbin/ip6tables
-	$(STRIP) $(INSTALLDIR)/iptables/usr/sbin/ip6tables
-	cd $(INSTALLDIR)/iptables/usr/sbin && \
-		ln -sf ip6tables ip6tables-save && \
-		ln -sf ip6tables ip6tables-restore
-endif
-
-iptables-clean:
-	-@$(MAKE) -C iptables KERNEL_DIR=$(LINUX_INC_DIR) clean
-
-iptables-1.4.21/configure:
-	cd iptables-1.4.21 && ./autogen.sh
-
-ifeq ($(RTCONFIG_ALPINE)$(RTCONFIG_LANTIQ),y)
-iptables-1.4.21/remove_configure:
-	rm -f iptables-1.4.21/configure
-endif
-
-ifeq ($(RTCONFIG_ALPINE)$(RTCONFIG_LANTIQ),y)
-iptables-1.4.21/Makefile: iptables-1.4.21/remove_configure iptables-1.4.21/configure
-else
-iptables-1.4.21/Makefile: iptables-1.4.21/configure
-endif
-	cd iptables-1.4.21 && $(CONFIGURE) \
-		--prefix=/usr \
-		--bindir=/usr/sbin \
-		--libdir=/usr/lib \
-		--with-kernel=$(LINUXDIR) \
-		$(if $(RTCONFIG_IPV6),--enable-ipv6,--disable-ipv6) \
-		CFLAGS="-Os $(EXTRACFLAGS) -U CONFIG_NVRAM_SIZE"
-
-iptables-1.4.21: iptables-1.4.21/Makefile
-	@$(SEP)
-	$(MAKE) -C $@ KERNEL_DIR=$(LINUXDIR) COPT_FLAGS="-Os $(EXTRACFLAGS) -U CONFIG_NVRAM_SIZE"
-
-iptables-1.4.21-install:
-	install -D iptables-1.4.21/iptables/.libs/xtables-multi $(INSTALLDIR)/iptables-1.4.21/usr/sbin/xtables-multi
-	cd $(INSTALLDIR)/iptables-1.4.21/usr/sbin && \
-		ln -sf xtables-multi iptables-restore && \
-		ln -sf xtables-multi iptables-save && \
-		ln -sf xtables-multi iptables
-	install -d $(INSTALLDIR)/iptables-1.4.21/usr/lib/xtables
-	install -D iptables-1.4.21/libiptc/.libs/libiptc.so $(INSTALLDIR)/iptables-1.4.21/usr/lib/libiptc.so
-	install -D iptables-1.4.21/libiptc/.libs/libip4tc.so $(INSTALLDIR)/iptables-1.4.21/usr/lib/libip4tc.so
-	cd $(INSTALLDIR)/iptables-1.4.21/usr/lib && \
-		ln -sf libiptc.so  libiptc.so.0 && \
-		ln -sf libiptc.so  libiptc.so.0.0.0 && \
-		ln -sf libip4tc.so libip4tc.so.0 && \
-		ln -sf libip4tc.so libip4tc.so.0.0.0
-	install -D iptables-1.4.21/libxtables/.libs/lib*.so $(INSTALLDIR)/iptables-1.4.21/usr/lib/
-	cd $(INSTALLDIR)/iptables-1.4.21/usr/lib && \
-		ln -sf libxtables.so libxtables.so.10 && \
-		ln -sf libxtables.so libxtables.so.10.0.0
-	install -D iptables-1.4.21/extensions/*.so $(INSTALLDIR)/iptables-1.4.21/usr/lib/xtables
-ifeq ($(RTCONFIG_IPV6),y)
-	cd $(INSTALLDIR)/iptables-1.4.21/usr/sbin && \
-		ln -sf xtables-multi ip6tables-restore && \
-		ln -sf xtables-multi ip6tables-save && \
-		ln -sf xtables-multi ip6tables
-	install -D iptables-1.4.21/libiptc/.libs/libip6tc.so $(INSTALLDIR)/iptables-1.4.21/usr/lib/libip6tc.so
-	cd $(INSTALLDIR)/iptables-1.4.21/usr/lib && \
-		ln -sf libip6tc.so libip6tc.so.0 && \
-		ln -sf libip6tc.so libip6tc.so.0.0.0
-endif
-
-iptables-1.4.18/configure:
-	cd iptables-1.4.18 && ./autogen.sh
-
-ifeq ($(RTL8198D),y)
-iptables-1.4.18/remove_configure:
-	rm -f iptables-1.4.18/configure
-endif
-
-ifeq ($(RTL8198D),y)
-iptables-1.4.18/Makefile: iptables-1.4.18/remove_configure iptables-1.4.18/configure
-else
-iptables-1.4.18/Makefile: iptables-1.4.18/configure
-endif
-	cd iptables-1.4.18 && $(CONFIGURE) \
-		--prefix=/usr \
-		--bindir=/usr/sbin \
-		--libdir=/usr/lib \
-		--with-kernel=$(KDIR)/include \
-		$(if $(RTCONFIG_IPV6),--enable-ipv6,--disable-ipv6) \
-		CFLAGS="-Os $(EXTRACFLAGS) -U CONFIG_NVRAM_SIZEi -I$(KDIR)/include"
-
-
-iptables-1.4.18: iptables-1.4.18/Makefile
-	@$(SEP)
-	$(MAKE) -C $@ KERNEL_DIR=$(LINUX_INC_DIR) COPT_FLAGS="-Os $(EXTRACFLAGS) -U CONFIG_NVRAM_SIZE"
-
-iptables-1.4.18-install: iptables-1.4.18
-	install -D iptables-1.4.18/iptables/.libs/xtables-multi $(INSTALLDIR)/iptables-1.4.18/usr/sbin/xtables-multi
-	cd $(INSTALLDIR)/iptables-1.4.18/usr/sbin && \
-		ln -sf xtables-multi iptables-restore && \
-		ln -sf xtables-multi iptables-save && \
-		ln -sf xtables-multi iptables
-	install -d $(INSTALLDIR)/iptables-1.4.18/usr/lib/xtables
-	install -D iptables-1.4.18/libiptc/.libs/libiptc.so $(INSTALLDIR)/iptables-1.4.18/usr/lib/libiptc.so
-	install -D iptables-1.4.18/libiptc/.libs/libip4tc.so $(INSTALLDIR)/iptables-1.4.18/usr/lib/libip4tc.so
-	cd $(INSTALLDIR)/iptables-1.4.18/usr/lib && \
-		ln -sf libiptc.so libiptc.so.0 && \
-		ln -sf libiptc.so libiptc.so.0.0.0 && \
-		ln -sf libip4tc.so libip4tc.so.0 && \
-		ln -sf libip4tc.so libip4tc.so.0.0.0
-	install -D iptables-1.4.18/libxtables/.libs/lib*.so $(INSTALLDIR)/iptables-1.4.18/usr/lib/
-	cd $(INSTALLDIR)/iptables-1.4.18/usr/lib && \
-		ln -sf libxtables.so libxtables.so.10 && \
-		ln -sf libxtables.so libxtables.so.10.0.0
-	install -D iptables-1.4.18/extensions/*.so $(INSTALLDIR)/iptables-1.4.18/usr/lib/xtables
-
-ifeq ($(RTCONFIG_IPV6),y)
-	cd $(INSTALLDIR)/iptables-1.4.18/usr/sbin && \
-		ln -sf xtables-multi ip6tables-restore && \
-		ln -sf xtables-multi ip6tables
-	install -D iptables-1.4.18/libiptc/.libs/libip6tc.so $(INSTALLDIR)/iptables-1.4.18/usr/lib/libip6tc.so
-	cd $(INSTALLDIR)/iptables-1.4.18/usr/lib && \
-		ln -sf libip6tc.so libip6tc.so.0 && \
-		ln -sf libip6tc.so libip6tc.so.0.0.0
-endif
-
-	$(STRIP) $(INSTALLDIR)/iptables-1.4.18/usr/sbin/xtables-multi
-	$(STRIP) $(INSTALLDIR)/iptables-1.4.18/usr/lib/*.so*
-	$(STRIP) $(INSTALLDIR)/iptables-1.4.18/usr/lib/xtables/*.so*
-
-iptables-1.4.18-clean:
-	[ ! -f iptables-1.4.18/Makefile ] || $(MAKE) -C iptables-1.4.18 KERNEL_DIR=$(LINUX_INC_DIR) distclean
-	@rm -f iptables-1.4.18/Makefile
 
 iptables-1.4.x/configure:
 	cd iptables-1.4.x && ./autogen.sh
@@ -5025,62 +4811,6 @@ strace-4.8-install:
 	install -D strace-4.8/strace $(INSTALLDIR)/strace-4.8/usr/sbin/strace
 	$(STRIP) $(INSTALLDIR)/strace-4.8/usr/sbin/strace
 
-lldpd-0.9.8: $(if $(RTCONFIG_AMAS),json-c libevent-2.0.21) jansson-2.7 lldpd-0.9.8/Makefile
-	$(MAKE) -C $@
-
-lldpd-0.9.8/Makefile:
-	cd lldpd-0.9.8 && autoreconf -i -f && \
-	$(CONFIGURE) --prefix= --bindir=/usr/sbin --libdir=/usr/lib \
-	$(if $(RTCONFIG_QCA),--disable-hardening,) \
-	CFLAGS="-g -O2 -I$(STAGEDIR)/usr/include" \
-	LDFLAGS="-L$(TOP)/lldpd-0.9.8/lib -lm -L$(STAGEDIR)/usr/lib -ljansson $(if $(RTCONFIG_AMAS),-L$(TOP)/json-c/.libs,) -ldl" \
-	--with-privsep-user=nobody --with-privsep-group=root --with-privsep-path=/var/run/lldpd \
-	$(if $(filter y,$(HND_ROUTER)),,--enable-oldies) \
-	$(if $(RTCONFIG_AMAS),--with-json=yes,)
-
-lldpd-0.9.8-install: lldpd-0.9.8
-	install -D lldpd-0.9.8/src/client/.libs/lldpcli $(INSTALLDIR)/lldpd-0.9.8/usr/sbin/lldpcli
-	install -D lldpd-0.9.8/src/daemon/lldpd $(INSTALLDIR)/lldpd-0.9.8/usr/sbin/lldpd
-	install -D lldpd-0.9.8/src/lib/.libs/liblldpctl.so.4.8.0 $(INSTALLDIR)/lldpd-0.9.8/usr/lib/liblldpctl.so.4.8.0
-	$(if $(RTCONFIG_DEBUG),,$(STRIP) $(INSTALLDIR)/lldpd-0.9.8/usr/sbin/lldpcli)
-	$(if $(RTCONFIG_DEBUG),,$(STRIP) $(INSTALLDIR)/lldpd-0.9.8/usr/sbin/lldpd)
-	$(if $(RTCONFIG_DEBUG),,$(STRIP) $(INSTALLDIR)/lldpd-0.9.8/usr/lib/liblldpctl.so.4.8.0)
-	cd $(INSTALLDIR)/lldpd-0.9.8/usr/lib && ln -sf liblldpctl.so.4.8.0 liblldpctl.so && ln -sf liblldpctl.so.4.8.0 liblldpctl.so.4
-
-lldpd-0.9.8-clean:
-	[ ! -f lldpd-0.9.8/Makefile ] || $(MAKE) -C lldpd-0.9.8 clean
-	@rm -f lldpd-0.9.8/Makefile
-	[ ! -f lldpd-0.9.8/libevent/Makefile ] || $(MAKE) -C lldpd-0.9.8/libevent clean
-	@rm -f lldpd-0.9.8/libevent/Makefile
-
-lldpd-1.0.11: $(if $(RTCONFIG_AMAS),json-c libevent-2.0.21) libevent-2.0.21 jansson-2.7 lldpd-1.0.11/Makefile
-	$(MAKE) -C $@
-
-lldpd-1.0.11/Makefile:
-	cd lldpd-1.0.11 && autoreconf -i -f && \
-	$(CONFIGURE) --prefix= --bindir=/usr/sbin --libdir=/usr/lib \
-	$(if $(RTCONFIG_QCA),--disable-hardening,) \
-	CFLAGS="-g -O2 -I$(STAGEDIR)/usr/include" \
-	LDFLAGS="-L$(TOP)/lldpd-1.0.11/lib -lm -L$(STAGEDIR)/usr/lib -ljansson $(if $(RTCONFIG_AMAS),-L$(TOP)/json-c/.libs,) -ldl" \
-	--with-privsep-user=nobody --with-privsep-group=root --with-privsep-path=/var/run/lldpd \
-	$(if $(filter y,$(HND_ROUTER)),,--enable-oldies) \
-	$(if $(RTCONFIG_AMAS),--with-json=yes,)
-
-lldpd-1.0.11-install: lldpd-1.0.11
-	install -D lldpd-1.0.11/src/client/.libs/lldpcli $(INSTALLDIR)/lldpd-1.0.11/usr/sbin/lldpcli
-	install -D lldpd-1.0.11/src/daemon/lldpd $(INSTALLDIR)/lldpd-1.0.11/usr/sbin/lldpd
-	install -D lldpd-1.0.11/src/lib/.libs/liblldpctl.so.4.9.0 $(INSTALLDIR)/lldpd-1.0.11/usr/lib/liblldpctl.so.4.9.0
-	$(STRIP) $(INSTALLDIR)/lldpd-1.0.11/usr/sbin/lldpcli
-	$(STRIP) $(INSTALLDIR)/lldpd-1.0.11/usr/sbin/lldpd
-	$(STRIP) $(INSTALLDIR)/lldpd-1.0.11/usr/lib/liblldpctl.so.4.9.0
-	cd $(INSTALLDIR)/lldpd-1.0.11/usr/lib && ln -sf liblldpctl.so.4.9.0 liblldpctl.so && ln -sf liblldpctl.so.4.9.0 liblldpctl.so.4
-
-lldpd-1.0.11-clean:
-	[ ! -f lldpd-1.0.11/Makefile ] || $(MAKE) -C lldpd-1.0.11 clean
-	@rm -f lldpd-1.0.11/Makefile
-	[ ! -f lldpd-1.0.11/libevent/Makefile ] || $(MAKE) -C lldpd-1.0.11/libevent clean
-	@rm -f lldpd-1.0.11/libevent/Makefile
-
 lldpd-1.0.17: libevent-2.0.21 jansson-2.7 lldpd-1.0.17/Makefile
 	$(MAKE) -C $@
 
@@ -5147,18 +4877,6 @@ tor-clean:
 	[ ! -f tor/Makefile ] || $(MAKE) -C tor clean
 	@rm -f tor/Makefile
 
-iproute2:
-	@$(SEP)
-	@$(MAKE) -C $@ KERNEL_INCLUDE=$(LINUX_INC_DIR)/include EXTRACFLAGS="$(EXTRACFLAGS) $(if $(RTCONFIG_IPV6),-DUSE_IPV6,-DNO_IPV6)" $(PARALLEL_BUILD)
-
-iproute2-install: iproute2
-	install -D iproute2/tc/tc $(INSTALLDIR)/iproute2/usr/sbin/tc
-#	install -D iproute2/tc/tc $(INSTALLDIR)/iproute2/usr/sbin/realtc
-	$(STRIP) $(INSTALLDIR)/iproute2/usr/sbin/tc
-#	$(STRIP) $(INSTALLDIR)/iproute2/usr/sbin/realtc
-	install -D iproute2/ip/ip $(INSTALLDIR)/iproute2/usr/sbin/ip
-	$(STRIP) $(INSTALLDIR)/iproute2/usr/sbin/ip
-
 iproute2-3.x: kernel_header iptables-1.4.x
 	@$(SEP)
 	@$(MAKE) -C $@ IPTABLES_DIR=$(TOP)/iptables-1.4.x KERNEL_INCLUDE=$(TOP)/kernel_header/include EXTRACFLAGS="$(EXTRACFLAGS) $(if $(RTCONFIG_IPV6),-DUSE_IPV6,-DNO_IPV6)" && $(MAKE) -C $@ stage
@@ -5177,97 +4895,6 @@ iproute2-3.x-install: iproute2-3.x
 iproute2-3.x-clean:
 	-@$(MAKE) -C iproute2-3.x clean
 	-rm -f iproute2-3.x/Config
-
-iproute2-3.15.0: kernel_header iptables-1.4.21
-	@$(SEP)
-	@$(MAKE) -C $@ IPTABLES_DIR=$(TOP)/iptables-1.4.21 KERNEL_INCLUDE=$(TOP)/kernel_header/include EXTRACFLAGS="$(EXTRACFLAGS) $(if $(RTCONFIG_IPV6),-DUSE_IPV6,-DNO_IPV6)"
-
-iproute2-3.15.0-install: iproute2-3.15.0
-	install -D iproute2-3.15.0/tc/tc $(INSTALLDIR)/iproute2-3.15.0/usr/sbin/tc
-	install -D iproute2-3.15.0/ip/ip $(INSTALLDIR)/iproute2-3.15.0/usr/sbin/ip
-	$(STRIP) $(INSTALLDIR)/iproute2-3.15.0/usr/sbin/*
-	@if [ -e iproute2-3.15.0/tc/m_xt.so ] ; then \
-		install -D iproute2-3.15.0/tc/m_xt.so $(INSTALLDIR)/iproute2-3.15.0/usr/lib/tc/m_xt.so ; \
-		ln -sf m_xt.so $(INSTALLDIR)/iproute2-3.15.0/usr/lib/tc/m_ipt.so ; \
-		$(STRIP) $(INSTALLDIR)/iproute2-3.15.0/usr/lib/tc/*.so ; \
-	fi
-
-iproute2-3.15.0-clean:
-	-@$(MAKE) -C iproute2-3.15.0 clean
-	-rm -f iproute2-3.15.0/Config
-
-iproute2-4.3:
-	touch iproute2-4.3/iproute2/configure
-	$(MAKE) -C iproute2-4.3
-
-iproute2-4.3-install:
-	install -D iproute2-4.3/iproute2/tc/tc $(INSTALLDIR)/iproute2-4.3/usr/sbin/tc
-	install -D iproute2-4.3/iproute2/ip/ip $(INSTALLDIR)/iproute2-4.3/usr/sbin/ip
-	-$(STRIP) $(INSTALLDIR)/iproute2-4.3/usr/sbin/*
-	@if [ -e iproute2-4.3/iproute2/tc/m_xt.so ] ; then \
-		install -D iproute2-4.3/iproute2/tc/m_xt.so $(INSTALLDIR)/iproute2-4.3/usr/lib/tc/m_xt.so ; \
-		ln -sf m_xt.so $(INSTALLDIR)/iproute2-4.3/usr/lib/tc/m_ipt.so ; \
-		$(STRIP) $(INSTALLDIR)/iproute2-4.3/usr/lib/tc/*.so ; \
-	fi
-
-iproute2-4.3-clean:
-	-@$(MAKE) -C iproute2-4.3 clean
-	-rm -f $(INSTALL_DIR)/usr/sbin/tc
-#	-rm -f $(INSTALL_DIR)/usr/sbin/realtc
-	-rm -f $(INSTALL_DIR)/usr/sbin/ip
-	-rm -f iproute2-4.3/iproute2/Config
-
-iproute2-4.19.0:
-	touch iproute2-4.19.0/iproute2-4.19.0/configure
-	$(MAKE) -C iproute2-4.19.0
-
-iproute2-4.19.0-install:
-	install -D iproute2-4.19.0/iproute2-4.19.0/tc/tc $(INSTALLDIR)/iproute2-4.19.0/usr/sbin/tc
-	install -D iproute2-4.19.0/iproute2-4.19.0/ip/ip $(INSTALLDIR)/iproute2-4.19.0/usr/sbin/ip
-	-$(STRIP) $(INSTALLDIR)/iproute2-4.19.0/usr/sbin/*
-
-iproute2-4.19.0-clean:
-	-@$(MAKE) -C iproute2-4.19.0 clean
-	-rm -f iproute2-4.19.0/iproute2-4.19.0/Config
-
-iproute2-4.4.0:
-	touch iproute2-4.4.0/src/configure
-	$(MAKE) -C iproute2-4.4.0
-
-iproute2-4.4.0-install:
-	install -D iproute2-4.4.0/src/tc/tc $(INSTALLDIR)/iproute2-4.4.0/usr/sbin/tc
-	install -D iproute2-4.4.0/src/ip/ip $(INSTALLDIR)/iproute2-4.4.0/usr/sbin/ip
-	$(STRIP) $(INSTALLDIR)/iproute2-4.4.0/usr/sbin/*
-
-iproute2-4.4.0-clean:
-	-@$(MAKE) -C iproute2-4.4.0 clean
-	-rm -f iproute2-4.4.0/src/Config
-
-iproute2-5.18.0:
-	touch iproute2-5.18.0/configure
-	$(MAKE) -C $@ IPTABLES_DIR=$(TOP)/$(IPTABLES) KERNEL_INCLUDE=$(TOP)/kernel_header/include EXTRACFLAGS="$(EXTRACFLAGS) $(if $(RTCONFIG_IPV6),-DUSE_IPV6,-DNO_IPV6)" && $(MAKE) -C $@ stage
-
-iproute2-5.18.0-install:
-	install -D iproute2-5.18.0/tc/tc $(INSTALLDIR)/iproute2-5.18.0/usr/sbin/tc
-	install -D iproute2-5.18.0/ip/ip $(INSTALLDIR)/iproute2-5.18.0/usr/sbin/ip
-	-$(STRIP) $(INSTALLDIR)/iproute2-5.18.0/usr/sbin/*
-
-iproute2-5.18.0-clean:
-	-@$(MAKE) -C iproute2-5.18.0 clean
-	-rm -f iproute2-5.18.0/config.mk
-
-iproute2-5.7.0:
-	touch iproute2-5.7.0/iproute2-5.7.0/configure
-	$(MAKE) -C iproute2-5.7.0
-
-iproute2-5.7.0-install:
-	install -D iproute2-5.7.0/iproute2-5.7.0/tc/tc $(INSTALLDIR)/iproute2-5.7.0/usr/sbin/tc
-	install -D iproute2-5.7.0/iproute2-5.7.0/ip/ip $(INSTALLDIR)/iproute2-5.7.0/usr/sbin/ip
-	-$(STRIP) $(INSTALLDIR)/iproute2-5.7.0/usr/sbin/*
-
-iproute2-5.7.0-clean:
-	-@$(MAKE) -C iproute2-5.7.0 clean
-	-rm -f iproute2-5.7.0/iproute2-5.7.0/Config
 
 ntpclient: nvram$(BCMEX)$(EX7) shared $(if $(BCM_502L07P2),ethctl_lib)
 
@@ -6807,83 +6434,7 @@ pcre2-clean:
 	@rm -f $(PCRE2_SRC_DIR)/stamp-h1
 	@rm -rf pcre2
 
-# Use prebuilt libyang if available, otherwise build from source
-# This helps avoid toolchain compatibility issues with newer libyang versions
-ifeq ($(wildcard $(TOP)/libyang/prebuilt/arm_cortex-a9/libyang.so.*),)
-libyang/build/Makefile: pcre-8.31
-	rm -f $(TOP)/libyang/CMakeCache.txt
-	@rm -rf libyang/build && mkdir -p libyang/build
-	@cd libyang/build && \
-	$(call CMAKE_CrossOptions, crosscompiled.cmake) && \
-	echo 'SET(CMAKE_FIND_ROOT_PATH "$${CMAKE_FIND_ROOT_PATH};$(STAGEDIR);$(STAGEDIR)/usr")' >>crosscompiled.cmake && \
-	cmake -DCMAKE_TOOLCHAIN_FILE=crosscompiled.cmake \
-		-DCMAKE_INSTALL_PREFIX:PATH=/usr \
-		-DCMAKE_C_FLAGS="-O3 $(CFLAGS) -Wall -Wextra -Wno-missing-field-initializers -DNDEBUG -ffunction-sections -fdata-sections -std=gnu99" \
-		-DCMAKE_EXE_LINKER_FLAGS="-Wl,--gc-sections -L$(STAGEDIR)/usr/lib" \
-		-DCMAKE_SHARED_LINKER_FLAGS="-Wl,--gc-sections -L$(STAGEDIR)/usr/lib" \
-		-DCMAKE_SKIP_RPATH=TRUE \
-		-DCMAKE_PREFIX_PATH="$(STAGEDIR)/usr" \
-		-DBUILD_SHARED_LIBS=TRUE \
-		-DCMAKE_BUILD_TYPE:String="Release" \
-		-DENABLE_LYD_PRIV:BOOL=ON \
-		-DGEN_LANGUAGE_BINDINGS=OFF \
-		-DGEN_PYTHON_BINDINGS=OFF \
-		-DGEN_CPP_BINDINGS=OFF \
-		-DCMAKE_THREAD_LIBS_INIT="-lpthread" \
-		-DTHREADS_HAVE_PTHREAD_ARG=1 \
-	..
-	touch $@
-
-libyang: libyang/build/Makefile
-	@$(SEP)
-	$(MAKE) -C libyang/build && $(MAKE) $@-stage
-else
-# Using prebuilt libyang
-libyang:
-	@echo "Using prebuilt libyang from prebuilt/arm_cortex-a9/"
-	@$(MAKE) $@-stage
-endif
-
-libyang-stage:
-	@echo ">>> Installing libyang into $(STAGEDIR)"
-ifeq ($(wildcard $(TOP)/libyang/prebuilt/arm_cortex-a9/libyang.so.*),)
-	$(MAKE) -C libyang/build install DESTDIR=$(STAGEDIR)
-else
-	@echo "Using prebuilt libyang libraries"
-	install -d $(STAGEDIR)/usr/lib
-	install -d $(STAGEDIR)/usr/include/libyang
-	cp -a $(TOP)/libyang/prebuilt/arm_cortex-a9/libyang.so* $(STAGEDIR)/usr/lib/
-	cp -a $(TOP)/libyang/prebuilt/include/*.h $(STAGEDIR)/usr/include/libyang/ 2>/dev/null || true
-endif
-
-libyang-install:
-	@$(SEP)
-ifeq ($(wildcard $(TOP)/libyang/prebuilt/arm_cortex-a9/libyang.so.*),)
-	install -D libyang/build/libyang.so.1.10.44 $(INSTALLDIR)/libyang/usr/lib/libyang.so.1.10.44
-	$(STRIP) $(INSTALLDIR)/libyang/usr/lib/libyang.so.1.10.44
-	cd $(INSTALLDIR)/libyang/usr/lib && \
-		ln -sf libyang.so.1.10.44 libyang.so.1.10 && \
-		ln -sf libyang.so.1.10.44 libyang.so.1 && \
-		ln -sf libyang.so.1.10.44 libyang.so
-	# Install libyang plugins
-	install -d $(INSTALLDIR)/libyang/usr/lib/libyang1/extensions
-	install -d $(INSTALLDIR)/libyang/usr/lib/libyang1/user_types
-	if [ -d libyang/build/src/extensions ]; then \
-		find libyang/build/src/extensions -name 'metadata.so' -exec install -m 755 {} $(INSTALLDIR)/libyang/usr/lib/libyang1/extensions/ \; ; \
-	fi
-else
-	install -d $(INSTALLDIR)/libyang/usr/lib
-	cp -a $(TOP)/libyang/prebuilt/arm_cortex-a9/libyang.so* $(INSTALLDIR)/libyang/usr/lib/
-	$(STRIP) $(INSTALLDIR)/libyang/usr/lib/libyang.so.* 2>/dev/null || true
-	cd $(INSTALLDIR)/libyang/usr/lib && \
-		[ -e libyang.so ] || ln -sf libyang.so.* libyang.so
-	# Install prebuilt libyang plugins
-	if [ -d $(TOP)/libyang/prebuilt/arm_cortex-a9/libyang1 ]; then \
-		cp -a $(TOP)/libyang/prebuilt/arm_cortex-a9/libyang1 $(INSTALLDIR)/libyang/usr/lib/; \
-	fi
-endif
-	@rm -rf libyang/build
-
+# libyang2 - FRR 8.1 uses libyang 2.1.148
 LIBYANG2_VERSION := 2.1.148
 LIBYANG2_SRC_DIR := $(TOP)/libyang-$(LIBYANG2_VERSION)
 LIBYANG2_BUILD_DIR := $(TOP)/libyang2/build
@@ -7645,41 +7196,6 @@ avahi-clean:
 	[ ! -f avahi/Makefile ] || $(MAKE) -C avahi distclean
 	@rm -f avahi/Makefile
 
-#avahi-0.6.31
-avahi-0.6.31: shared $(if $(BCM_502L07P2),ethctl_lib) nvram$(BCMEX)$(EX7) expat-2.8.3 libdaemon avahi-0.6.31/Makefile
-	@$(SEP)
-	@$(MAKE) -C avahi-0.6.31 $(PARALLEL_BUILD)
-
-avahi-0.6.31/Makefile:
-	( cd avahi-0.6.31 ; $(CONFIGURE) LDFLAGS="$(LDFLAGS) -L$(STAGEDIR)/usr/lib -ldl -lpthread $(EXTRA_LDFLAGS)" \
-		CFLAGS="$(CFLAGS) -I$(STAGEDIR)/usr/include -I$(TOP)/shared -I$(SRCBASE)/include $(if $(RTCONFIG_BCMARM),-I$(SRCBASE)/shared/bcmwifi/include)" \
-		--prefix=/usr --with-distro=archlinux \
-		--disable-glib --disable-gobject --disable-qt3 --disable-qt4 --disable-gtk \
-		--disable-dbus --disable-gdbm --disable-python \
-		--disable-pygtk --disable-python-dbus --disable-mono --disable-monodoc \
-		--disable-gtk3 --with-xml=expat \
-		--disable-silent-rules \
-		LIBDAEMON_LIBS="-L$(STAGEDIR)/usr/lib -ldaemon -L$(TOP_PLATFORM)/nvram$(BCMEX)${EX7} ${EXTRA_NV_LDFLAGS} -lnvram -L$(TOP)/shared -lshared $(if $(BCM_502L07P2),-L$(TOP_PLATFORM)/ethctl_lib -lethctl) $(if $(RTCONFIG_QTN),-L$(TOP)/libqcsapi_client -lqcsapi_client)" \
-		LIBDAEMON_CFLAGS="-I$(STAGEDIR)/usr/include" --disable-autoipd --disable-stack-protector --with-avahi-user="admin" --with-avahi-group="root" \
-	)
-	touch $@
-
-avahi-0.6.31-install:
-	if [ -f avahi-0.6.31/Makefile ] ; then \
-		install -D avahi-0.6.31/avahi-daemon/.libs/avahi-daemon $(INSTALLDIR)/avahi-0.6.31/usr/sbin/avahi-daemon ; \
-		install -D avahi-0.6.31/avahi-common/.libs/libavahi-common.so.3.5.3 $(INSTALLDIR)/avahi-0.6.31/usr/lib/libavahi-common.so.3.5.3 ; \
-		install -D avahi-0.6.31/avahi-core/.libs/libavahi-core.so.7.0.2 $(INSTALLDIR)/avahi-0.6.31/usr/lib/libavahi-core.so.7.0.2 ; \
-		$(STRIP) $(INSTALLDIR)/avahi-0.6.31/usr/sbin/avahi-daemon ; \
-		$(STRIP) $(INSTALLDIR)/avahi-0.6.31/usr/lib/libavahi-common.so.3.5.3 ; \
-		$(STRIP) $(INSTALLDIR)/avahi-0.6.31/usr/lib/libavahi-core.so.7.0.2 ; \
-		cd $(INSTALLDIR)/avahi-0.6.31/usr/lib && ln -sf libavahi-common.so.3.5.3 libavahi-common.so.3 ; \
-		cd $(INSTALLDIR)/avahi-0.6.31/usr/lib && ln -sf libavahi-core.so.7.0.2 libavahi-core.so.7 ; \
-	fi
-
-avahi-0.6.31-clean:
-	[ ! -f avahi-0.6.31/Makefile ] || $(MAKE) -C avahi-0.6.31 clean
-	@rm -f avahi-0.6.31/Makefile
-
 ufsd: kernel_header kernel
 	@$(MAKE) -C ufsd all
 
@@ -7971,7 +7487,7 @@ wget-install:
 
 rtk_wifi_eventd: $(if $(RTCONFIG_CFGSYNC), cfg_mnt)
 
-cfg_mnt: $(if $(RTCONFIG_NOTIFICATION_CENTER),nt_center sqlite wlc_nt) $(if $(RTCONFIG_AMAS),$(LLDPD) amas-utils) $(if $(RTCONFIG_LANTIQ),libfapi-0.1) libasuslog \
+cfg_mnt: $(if $(RTCONFIG_NOTIFICATION_CENTER),nt_center sqlite wlc_nt) $(if $(RTCONFIG_AMAS),$(LLDPD)) $(if $(RTCONFIG_LANTIQ),libfapi-0.1) libasuslog \
 	$(if $(RTCONFIG_DMALLOC),dmalloc)
 
 batctl-2016.0: libnl-bf
@@ -8491,35 +8007,6 @@ samba-3.6.x: libiconv-1.14
 samba-3.5.8:
 	@$(MAKE) -C samba-3.5.8 $(PARALLEL_BUILD)
 
-ipset-6/stamp-h1: libmnl-1.0.4
-	cd $(TOP)/ipset-6 && CC=$(CC) STRIP=$(STRIP) \
-	autoreconf -i -f && \
-	CFLAGS="-Os -Wall $(EXTRACFLAGS) -ffunction-sections -fdata-sections -I$(TOP)/libmnl-1.0.4/include -I$(TOP)/libnfnetlink-1.0.1/include/" \
-	LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections" \
-	libmnl_CFLAGS="-L$(TOP)/libmnl-1.0.4/src/.libs" \
-	libmnl_LIBS="-lmnl" \
-	$(CONFIGURE) --prefix=/usr --with-kmod=no --with-kbuild=$(LINUXDIR)
-	touch ipset-6/stamp-h1
-
-ipset-6: ipset-6/stamp-h1
-	$(MAKE) -C ipset-6
-	$(MAKE) -C ipset-6 modules
-
-ipset-6-install:
-	install -D ipset-6/src/ipset $(INSTALLDIR)/ipset-6/usr/sbin/ipset
-	install -d $(INSTALLDIR)/ipset-6/usr/lib/
-	install ipset-6/lib/.libs/libipset.so.3.6.0 $(INSTALLDIR)/ipset-6/usr/lib/libipset.so.3.6.0
-	$(STRIP) $(INSTALLDIR)/ipset-6/usr/lib/libipset.so.3.6.0
-	$(STRIP) $(INSTALLDIR)/ipset-6/usr/sbin/ipset
-	cd $(INSTALLDIR)/ipset-6/usr/lib/ && \
-		ln -sf libipset.so.3.6.0 libipset.so.3 && \
-		ln -sf libipset.so.3.6.0 libipset.so
-
-ipset-6-clean:
-	-@$(MAKE) -C ipset-6 clean
-	-@$(MAKE) -C ipset-6 modules_clean
-	-@rm -rf ipset-6/Makefile ipset-6/stamp-h1
-
 nfs-utils/stamp-h1:
 	cd nfs-utils && CPPFLAGS="$(EXTRACFLAGS) -Os" knfsd_cv_bsd_signals=no \
 	CC_FOR_BUILD=$(CC) $(CONFIGURE) --enable-nfsv3 --disable-nfsv4 --disable-ipv6 \
@@ -8927,20 +8414,6 @@ uploader-install:
 		install -D uploader/uploader $(INSTALLDIR)/uploader/usr/sbin/uploader ; \
 		$(STRIP) -s $(INSTALLDIR)/uploader/usr/sbin/uploader ; \
 	fi
-
-amas-utils: json-c openssl nvram${BCMEX}$(EX7)
-	CC=$(CC) CXX=$(CXX) AR=$(AR) RANLIB=$(RANLIB) LD=$(LD) CFLAGS="$(if $(RTCONFIG_DEBUG),-g,-Os) -Wall $(EXTRACFLAGS)" \
-	$(MAKE) -C $@
-
-amas-utils-clean:
-	$(MAKE) -C amas-utils clean
-
-amas-utils-install:
-	install -d $(INSTALLDIR)/amas-utils/usr/lib/
-	install -D amas-utils/libamas-utils.so $(INSTALLDIR)/amas-utils/usr/lib/libamas-utils.so
-	$(if $(RTCONFIG_DEBUG),,$(STRIP) -s $(INSTALLDIR)/amas-utils/usr/lib/libamas-utils.so)
-	install -D amas-utils/amas-utils-cli $(INSTALLDIR)/amas-utils/usr/sbin/amas-utils-cli
-	$(if $(RTCONFIG_DEBUG),,$(STRIP) -s $(INSTALLDIR)/amas-utils/usr/sbin/amas-utils-cli)
 
 json-c/stamp-h1:
 ifeq ($(RTCONFIG_LANTIQ),y)
@@ -9909,16 +9382,6 @@ rsyslog-install:
 	$(STRIP) $(INSTALLDIR)/rsyslog/usr/lib/rsyslog/imtcp.so
 	install -D rsyslog/plugins/fmhttp/.libs/fmhttp.so $(INSTALLDIR)/rsyslog/usr/lib/rsyslog/fmhttp.so
 	$(STRIP) $(INSTALLDIR)/rsyslog/usr/lib/rsyslog/fmhttp.so
-
-wireguard-tools:
-	$(MAKE) -C wireguard-tools/src/
-
-wireguard-tools-install:
-	install -D wireguard-tools/src/wg $(INSTALLDIR)/wireguard-tools/usr/sbin/wg
-	$(STRIP) $(INSTALLDIR)/wireguard-tools/usr/sbin/wg
-
-wireguard-tools-clean:
-	$(MAKE) -C wireguard-tools/src/ clean
 
 libpng/build/Makefile:
 	@rm -rf libpng/build && mkdir -p libpng/build
