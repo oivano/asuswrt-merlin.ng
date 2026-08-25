@@ -2,8 +2,15 @@ ion release asuswrt merlin changelog
 ========================
 
 
-386.15_4-ion (XX-Aug-2026)
+386.15_4-ion (X-Aug-2026)
   - UPDATED: haveged to 1.9.26.
+  - UPDATED: wget to 1.25.0.
+  - UPDATED: htop to 3.5.3.
+  - UPDATED: mtr to 0.96.
+  - UPDATED: tor to 0.4.9.11.
+  - UPDATED: getdns to 1.7.3 and stubby to 0.4.3.
+  - UPDATED: inadyn to 2.13.0.
+  - UPDATED: nettle to 4.0.
 
 
 386.15_3-ion (22-Aug-2026)
