@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <getopt.h>
 #include <xtables.h>
-#include <net/netfilter/nf_nat.h>
+#include <linux/netfilter/nf_nat.h>
 
 #define MODULENAME "NETMAP"
 
@@ -54,7 +54,7 @@ static void NETMAP_init(struct xt_entry_target *t)
 static void NETMAP_parse(struct xt_option_call *cb)
 {
 	struct nf_nat_multi_range *mr = cb->data;
-	struct nf_nat_range *range = &mr->range[0];
+	struct nf_nat_ipv4_range *range = &mr->range[0];
 
 	xtables_option_parse(cb);
 	range->flags |= IP_NAT_RANGE_MAP_IPS;
@@ -66,7 +66,7 @@ static void NETMAP_print(const void *ip, const struct xt_entry_target *target,
                          int numeric)
 {
 	const struct nf_nat_multi_range *mr = (const void *)target->data;
-	const struct nf_nat_range *r = &mr->range[0];
+	const struct nf_nat_ipv4_range *r = &mr->range[0];
 	struct in_addr a;
 	int bits;
 

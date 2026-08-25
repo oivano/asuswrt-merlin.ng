@@ -3821,8 +3821,8 @@ iptables-1.4.x-install:
 		ln -sf libip4tc.so libip4tc.so.0.0.0
 	install -D iptables-1.4.x/libxtables/.libs/lib*.so $(INSTALLDIR)/iptables-1.4.x/usr/lib/
 	cd $(INSTALLDIR)/iptables-1.4.x/usr/lib && \
-		ln -sf libxtables.so libxtables.so.7 && \
-		ln -sf libxtables.so libxtables.so.7.0.0
+		ln -sf libxtables.so libxtables.so.10 && \
+		ln -sf libxtables.so libxtables.so.10.0.0
 	install -D iptables-1.4.x/extensions/*.so $(INSTALLDIR)/iptables-1.4.x/usr/lib/xtables
 
 ifeq ($(RTCONFIG_IPV6),y)

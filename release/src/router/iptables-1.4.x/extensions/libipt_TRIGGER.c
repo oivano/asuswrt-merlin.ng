@@ -13,7 +13,7 @@
 #include <getopt.h>
 #include <iptables.h>
 #include <xtables.h>
-#include <net/netfilter/nf_nat.h>
+#include <linux/netfilter/nf_nat.h>
 #include <linux/netfilter_ipv4/ip_tables.h>
 #include <linux/netfilter_ipv4/ipt_TRIGGER.h>
 

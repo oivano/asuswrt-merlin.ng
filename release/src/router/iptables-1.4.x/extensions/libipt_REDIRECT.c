@@ -4,7 +4,7 @@
 #include <xtables.h>
 #include <limits.h> /* INT_MAX in ip_tables.h */
 #include <linux/netfilter_ipv4/ip_tables.h>
-#include <net/netfilter/nf_nat.h>
+#include <linux/netfilter/nf_nat.h>
 
 enum {
 	O_TO_PORTS = 0,
@@ -108,7 +108,7 @@ static void REDIRECT_print(const void *ip, const struct xt_entry_target *target,
                            int numeric)
 {
 	const struct nf_nat_multi_range *mr = (const void *)target->data;
-	const struct nf_nat_range *r = &mr->range[0];
+	const struct nf_nat_ipv4_range *r = &mr->range[0];
 
 	if (r->flags & IP_NAT_RANGE_PROTO_SPECIFIED) {
 		printf(" redir ports ");
@@ -123,7 +123,7 @@ static void REDIRECT_print(const void *ip, const struct xt_entry_target *target,
 static void REDIRECT_save(const void *ip, const struct xt_entry_target *target)
 {
 	const struct nf_nat_multi_range *mr = (const void *)target->data;
-	const struct nf_nat_range *r = &mr->range[0];
+	const struct nf_nat_ipv4_range *r = &mr->range[0];
 
 	if (r->flags & IP_NAT_RANGE_PROTO_SPECIFIED) {
 		printf(" --to-ports ");
