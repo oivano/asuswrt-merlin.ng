@@ -98,7 +98,7 @@ SSL_SESSION *SSL_SESSION_new(void)
  * Create a new SSL_SESSION and duplicate the contents of |src| into it. If
  * ticket == 0 then no ticket information is duplicated, otherwise it is.
  */
-static SSL_SESSION *ssl_session_dup_intern(SSL_SESSION *src, int ticket)
+static SSL_SESSION *ssl_session_dup_intern(const SSL_SESSION *src, int ticket)
 {
     SSL_SESSION *dest;
 
@@ -216,7 +216,7 @@ static SSL_SESSION *ssl_session_dup_intern(SSL_SESSION *src, int ticket)
 
     return dest;
  err:
-    SSLerr(SSL_F_SSL_SESSION_DUP, ERR_R_MALLOC_FAILURE);
+    SSLerr(SSL_F_SSL_SESSION_DUP_INTERN, ERR_R_MALLOC_FAILURE);
     SSL_SESSION_free(dest);
     return NULL;
 }
