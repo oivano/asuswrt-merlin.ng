@@ -1,9 +1,9 @@
 
-AC_INIT([iptables], [1.4.15])
+AC_INIT([iptables], [1.4.21])
 
 # See libtool.info "Libtool's versioning system"
-libxtables_vcurrent=8
-libxtables_vage=1
+libxtables_vcurrent=10
+libxtables_vage=0
 
 AC_CONFIG_AUX_DIR([build-aux])
 AC_CONFIG_HEADERS([config.h])
@@ -126,5 +126,5 @@ AC_CONFIG_FILES([Makefile extensions/GNUmakefile include/Makefile
 	libiptc/Makefile libiptc/libiptc.pc
 	libiptc/libip4tc.pc libiptc/libip6tc.pc
 	libxtables/Makefile utils/Makefile
-	include/xtables.h include/iptables/internal.h])
+	include/xtables.h include/xtables-version.h include/iptables/internal.h])
 AC_OUTPUT
