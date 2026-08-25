@@ -89,6 +89,10 @@ struct or_options_t {
   char *KeyDirectory; /**< Where to store keys data, as modified. */
   int KeyDirectoryGroupReadable; /**< Boolean: Is the KeyDirectory g+r? */
 
+  char *FamilyKeyDirectory_option; /**< Where to look for family ID keys,
+                                    * as configured by the user. */
+  char *FamilyKeyDirectory; /**< Where to look for family ID keys. */
+
   char *CacheDirectory_option; /**< Where to store cached data, as
                                * configured by the user. */
   char *CacheDirectory; /**< Where to store cached data, as modified. */
@@ -141,6 +145,8 @@ struct or_options_t {
                                         * Includes OutboundBindAddresses and
                                         * configured ports. */
   int ReducedExitPolicy; /**<Should we use the Reduced Exit Policy? */
+  int ReevaluateExitPolicy; /**<Should we re-evaluate Exit Policy on existing
+                             * connections when it changes? */
   struct config_line_t *SocksPolicy; /**< Lists of socks policy components */
   struct config_line_t *DirPolicy; /**< Lists of dir policy components */
   /** Local address to bind outbound sockets */
@@ -202,6 +208,10 @@ struct or_options_t {
                             * for queues and buffers, run the OOM handler */
   /** Above this value, consider ourselves low on RAM. */
   uint64_t MaxMemInQueues_low_threshold;
+
+  uint64_t MaxHSDirCacheBytes;/**< If we have more memory than this allocated
+                                * for the hidden service directory cache,
+                                * run the HS cache OOM handler */
 
   /** @name port booleans
    *
@@ -396,8 +406,6 @@ struct or_options_t {
   /** List of suffixes for <b>AutomapHostsOnResolve</b>.  The special value
    * "." means "match everything." */
   struct smartlist_t *AutomapHostsSuffixes;
-  int RendPostPeriod; /**< How often do we post each rendezvous service
-                       * descriptor? Remember to publish them independently. */
   int KeepalivePeriod; /**< How often do we send padding cells to keep
                         * connections alive? */
   int SocksTimeout; /**< How long do we let a socks connection wait
@@ -493,6 +501,13 @@ struct or_options_t {
   struct config_line_t *MyFamily_lines; /**< Declared family for this OR. */
   struct config_line_t *MyFamily; /**< Declared family for this OR,
                                      normalized */
+  struct config_line_t *FamilyId_lines; /**< If set, IDs for family keys to use
+                      * to certify this OR's membership. */
+  struct smartlist_t *FamilyIds; /**< FamilyIds, parsed and converted
+                                  * to a list of ed25519_public_key_t */
+  bool AllFamilyIdsExpected; /**< If true, we should accept all the
+                              * FamilyIds in the FamilyKeyDirectory. */
+
   struct config_line_t *NodeFamilies; /**< List of config lines for
                                 * node families */
   /** List of parsed NodeFamilies values. */
@@ -724,6 +739,19 @@ struct or_options_t {
    * clients prefer IPv4. Use reachable_addr_prefer_ipv6_dirport() instead of
    * accessing this value directly.  */
   int ClientPreferIPv6DirPort;
+
+  /** If true, always use the compiled hash implementation. If false, always
+   * the interpreter. Default of "auto" allows a dynamic fallback from
+   * copmiler to interpreter. */
+  int CompiledProofOfWorkHash;
+
+  /** If true, the tor client will use conflux for its general purpose
+   * circuits which excludes onion service traffic. */
+  int ConfluxEnabled;
+
+  /** Has the UX integer value that the client will request from the exit. */
+  char *ConfluxClientUX_option;
+  int ConfluxClientUX;
 
   /** The length of time that we think a consensus should be fresh. */
   int V3AuthVotingInterval;

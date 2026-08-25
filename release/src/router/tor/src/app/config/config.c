@@ -77,6 +77,7 @@
 #include "core/or/circuitmux_ewma.h"
 #include "core/or/circuitstats.h"
 #include "core/or/connection_edge.h"
+#include "trunnel/conflux.h"
 #include "core/or/dos.h"
 #include "core/or/policies.h"
 #include "core/or/relay.h"
@@ -88,9 +89,11 @@
 #include "feature/control/control.h"
 #include "feature/control/control_auth.h"
 #include "feature/control/control_events.h"
+#include "feature/dircache/dirserv.h"
 #include "feature/dirclient/dirclient_modes.h"
 #include "feature/hibernate/hibernate.h"
 #include "feature/hs/hs_config.h"
+#include "feature/hs/hs_pow.h"
 #include "feature/metrics/metrics.h"
 #include "feature/nodelist/dirlist.h"
 #include "feature/nodelist/networkstatus.h"
@@ -179,7 +182,7 @@ static const char unix_q_socket_prefix[] = "unix:\"";
 #define MAX_CONSTRAINED_TCP_BUFFER 262144  /* 256k */
 
 /** macro to help with the bulk rename of *DownloadSchedule to
- * *DowloadInitialDelay . */
+ * *DownloadInitialDelay . */
 #ifndef COCCI
 #define DOWNLOAD_SCHEDULE(name) \
   { (#name "DownloadSchedule"), (#name "DownloadInitialDelay"), 0, 1 }
@@ -375,8 +378,12 @@ static const config_var_t option_vars_[] = {
   OBSOLETE("ClientAutoIPv6ORPort"),
   V(ClientRejectInternalAddresses, BOOL,   "1"),
   V(ClientTransportPlugin,       LINELIST, NULL),
-  V(ClientUseIPv6,               BOOL,     "0"),
+  V(ClientUseIPv6,               BOOL,     "1"),
   V(ClientUseIPv4,               BOOL,     "1"),
+  V(CompiledProofOfWorkHash,     AUTOBOOL, "auto"),
+  V(ConfluxEnabled,              AUTOBOOL, "auto"),
+  VAR("ConfluxClientUX",         STRING,   ConfluxClientUX_option,
+          "throughput"),
   V(ConnLimit,                   POSINT,     "1000"),
   V(ConnDirectionStatistics,     BOOL,     "0"),
   V(ConstrainedSockets,          BOOL,     "0"),
@@ -463,6 +470,9 @@ static const config_var_t option_vars_[] = {
   V(UseDefaultFallbackDirs,      BOOL,     "1"),
 
   OBSOLETE("FallbackNetworkstatusFile"),
+  VAR("FamilyId",                LINELIST, FamilyId_lines,   NULL),
+  VAR_IMMUTABLE("FamilyKeyDirectory",
+                FILENAME, FamilyKeyDirectory_option, NULL),
   V(FascistFirewall,             BOOL,     "0"),
   V(FirewallPorts,               CSV,      ""),
   OBSOLETE("FastFirstHopPK"),
@@ -476,6 +486,13 @@ static const config_var_t option_vars_[] = {
 #ifdef _WIN32
   V(GeoIPFile,                   FILENAME, "<default>"),
   V(GeoIPv6File,                 FILENAME, "<default>"),
+#elif defined(__ANDROID__)
+  /* Android apps use paths that are configured at runtime.
+   * /data/local/tmp is guaranteed to exist, but will only be
+   * usable by the 'shell' and 'root' users, so this fallback is
+   * for debugging only. */
+  V(GeoIPFile,                   FILENAME, "/data/local/tmp/geoip"),
+  V(GeoIPv6File,                 FILENAME, "/data/local/tmp/geoip6"),
 #else
   V(GeoIPFile,                   FILENAME,
     SHARE_DATADIR PATH_SEPARATOR "tor" PATH_SEPARATOR "geoip"),
@@ -507,6 +524,9 @@ static const config_var_t option_vars_[] = {
       LINELIST_S, RendConfigLines, NULL),
   VAR("HiddenServiceOnionBalanceInstance",
       LINELIST_S, RendConfigLines, NULL),
+  VAR("HiddenServicePoWDefensesEnabled", LINELIST_S, RendConfigLines, NULL),
+  VAR("HiddenServicePoWQueueRate", LINELIST_S, RendConfigLines, NULL),
+  VAR("HiddenServicePoWQueueBurst", LINELIST_S, RendConfigLines, NULL),
   VAR("HiddenServiceStatistics", BOOL, HiddenServiceStatistics_option, "1"),
   V(ClientOnionAuthDir,          FILENAME, NULL),
   OBSOLETE("CloseHSClientCircuitsImmediatelyOnTimeout"),
@@ -548,6 +568,7 @@ static const config_var_t option_vars_[] = {
   V(MaxClientCircuitsPending,    POSINT,     "32"),
   V(MaxConsensusAgeForDiffs,     INTERVAL, "0 seconds"),
   VAR("MaxMemInQueues",          MEMUNIT,   MaxMemInQueues_raw, "0"),
+  VAR("MaxHSDirCacheBytes",      MEMUNIT,   MaxHSDirCacheBytes, "0"),
   OBSOLETE("MaxOnionsPending"),
   V(MaxOnionQueueDelay,          MSEC_INTERVAL, "0"),
   V(MaxUnparseableDescSizeToLog, MEMUNIT, "10 MB"),
@@ -624,10 +645,10 @@ static const config_var_t option_vars_[] = {
   V(RejectPlaintextPorts,        CSV,      ""),
   V(RelayBandwidthBurst,         MEMUNIT,  "0"),
   V(RelayBandwidthRate,          MEMUNIT,  "0"),
-  V(RendPostPeriod,              INTERVAL, "1 hour"), /* Used internally. */
   V(RephistTrackTime,            INTERVAL, "24 hours"),
   V_IMMUTABLE(RunAsDaemon,       BOOL,     "0"),
   V(ReducedExitPolicy,           BOOL,     "0"),
+  V(ReevaluateExitPolicy,        BOOL,     "0"),
   OBSOLETE("RunTesting"), // currently unused
   V_IMMUTABLE(Sandbox,           BOOL,     "0"),
   V(SafeLogging,                 STRING,   "1"),
@@ -987,6 +1008,7 @@ set_options(or_options_t *new_val, char **msg)
     config_line_t *changes =
       config_get_changes(get_options_mgr(), old_options, new_val);
     control_event_conf_changed(changes);
+    connection_reapply_exit_policy(changes);
     config_free_lines(changes);
   }
 
@@ -1026,11 +1048,17 @@ options_clear_cb(const config_mgr_t *mgr, void *opts)
   }
   tor_free(options->DataDirectory);
   tor_free(options->CacheDirectory);
+  tor_free(options->FamilyKeyDirectory);
   tor_free(options->KeyDirectory);
   tor_free(options->BridgePassword_AuthDigest_);
   tor_free(options->command_arg);
   tor_free(options->master_key_fname);
   config_free_lines(options->MyFamily);
+  if (options->FamilyIds) {
+    SMARTLIST_FOREACH(options->FamilyIds,
+                      ed25519_public_key_t *, k, tor_free(k));
+    smartlist_free(options->FamilyIds);
+  }
 }
 
 /** Release all memory allocated in options
@@ -2470,6 +2498,9 @@ static const struct {
     .command=CMD_LIST_FINGERPRINT },
   { .name="--keygen",
     .command=CMD_KEYGEN },
+  { .name="--keygen-family",
+    .command=CMD_KEYGEN_FAMILY,
+    .takes_argument=ARGUMENT_NECESSARY },
   { .name="--key-expiration",
     .takes_argument=ARGUMENT_OPTIONAL,
     .command=CMD_KEY_EXPIRATION },
@@ -2728,11 +2759,19 @@ list_deprecated_options(void)
 static void
 list_enabled_modules(void)
 {
-  printf("%s: %s\n", "relay", have_module_relay() ? "yes" : "no");
-  printf("%s: %s\n", "dirauth", have_module_dirauth() ? "yes" : "no");
-  // We don't list dircache, because it cannot be enabled or disabled
-  // independently from relay.  Listing it here would proliferate
-  // test variants in test_parseconf.sh to no useful purpose.
+  static const struct {
+    const char *name;
+    bool have;
+  } list[] = {
+    { "relay", have_module_relay() },
+    { "dirauth", have_module_dirauth() },
+    { "dircache", have_module_dircache() },
+    { "pow", have_module_pow() }
+  };
+
+  for (unsigned i = 0; i < sizeof list / sizeof list[0]; i++) {
+    printf("%s: %s\n", list[i].name, list[i].have ? "yes" : "no");
+  }
 }
 
 /** Prints compile-time and runtime library versions. */
@@ -2974,18 +3013,10 @@ config_ensure_bandwidth_cap(uint64_t *value, const char *desc, char **msg)
   return 0;
 }
 
-/** Lowest allowable value for RendPostPeriod; if this is too low, hidden
- * services can overload the directory system. */
-#define MIN_REND_POST_PERIOD (10*60)
-#define MIN_REND_POST_PERIOD_TESTING (5)
-
 /** Highest allowable value for CircuitsAvailableTimeout.
  * If this is too large, client connections will stay open for too long,
  * incurring extra padding overhead. */
 #define MAX_CIRCS_AVAILABLE_TIME (24*60*60)
-
-/** Highest allowable value for RendPostPeriod. */
-#define MAX_DIR_PERIOD ((7*24*60*60)/2)
 
 /** Lowest allowable value for MaxCircuitDirtiness; if this is too low, Tor
  * will generate too many circuits and potentially overload the network. */
@@ -3540,26 +3571,26 @@ options_validate_cb(const void *old_options_, void *options_, char **msg)
     return -1;
   }
 
+ options->ConfluxClientUX = CONFLUX_UX_HIGH_THROUGHPUT;
+ if (options->ConfluxClientUX_option) {
+    if (!strcmp(options->ConfluxClientUX_option, "latency"))
+      options->ConfluxClientUX = CONFLUX_UX_MIN_LATENCY;
+    else if (!strcmp(options->ConfluxClientUX_option, "throughput"))
+      options->ConfluxClientUX = CONFLUX_UX_HIGH_THROUGHPUT;
+    else if (!strcmp(options->ConfluxClientUX_option, "latency_lowmem"))
+      options->ConfluxClientUX = CONFLUX_UX_LOW_MEM_LATENCY;
+    else if (!strcmp(options->ConfluxClientUX_option, "throughput_lowmem"))
+      options->ConfluxClientUX = CONFLUX_UX_LOW_MEM_THROUGHPUT;
+    else
+      REJECT("ConfluxClientUX must be 'latency', 'throughput, "
+             "'latency_lowmem', or 'throughput_lowmem'");
+  }
+
   if (options_validate_publish_server(old_options, options, msg) < 0)
     return -1;
 
   if (options_validate_relay_padding(old_options, options, msg) < 0)
     return -1;
-
-  const int min_rendpostperiod =
-    options->TestingTorNetwork ?
-    MIN_REND_POST_PERIOD_TESTING : MIN_REND_POST_PERIOD;
-  if (options->RendPostPeriod < min_rendpostperiod) {
-    log_warn(LD_CONFIG, "RendPostPeriod option is too short; "
-             "raising to %d seconds.", min_rendpostperiod);
-    options->RendPostPeriod = min_rendpostperiod;
-  }
-
-  if (options->RendPostPeriod > MAX_DIR_PERIOD) {
-    log_warn(LD_CONFIG, "RendPostPeriod is too large; clipping to %ds.",
-             MAX_DIR_PERIOD);
-    options->RendPostPeriod = MAX_DIR_PERIOD;
-  }
 
   /* Check the Single Onion Service options */
   if (options_validate_single_onion(options, msg) < 0)
@@ -4496,6 +4527,10 @@ options_init_from_torrc(int argc, char **argv)
 
   if (config_line_find(cmdline_only_options, "--version")) {
     printf("Tor version %s.\n",get_version());
+#ifdef ENABLE_GPL
+    printf("This build of Tor is covered by the GNU General Public License "
+            "(https://www.gnu.org/licenses/gpl-3.0.en.html)\n");
+#endif
     printf("Tor is running on %s with Libevent %s, "
             "%s %s, Zlib %s, Liblzma %s, Libzstd %s and %s %s as libc.\n",
             get_uname(),
@@ -6885,6 +6920,15 @@ get_data_directory(const char *val)
   } else {
     return tor_strdup(get_windows_conf_root());
   }
+#elif defined(__ANDROID__)
+  /* Android apps can only use paths that are configured at runtime.
+   * /data/local/tmp is guaranteed to exist, but is only usable by the
+   * 'shell' and 'root' users, so this fallback is for debugging only. */
+  if (val) {
+    return tor_strdup(val);
+  } else {
+    return tor_strdup("/data/local/tmp");
+  }
 #else /* !defined(_WIN32) */
   const char *d = val;
   if (!d)
@@ -6947,6 +6991,17 @@ validate_data_directories(or_options_t *options)
   } else {
     /* Default to the data directory. */
     options->CacheDirectory = tor_strdup(options->DataDirectory);
+  }
+
+  tor_free(options->FamilyKeyDirectory);
+  if (options->FamilyKeyDirectory_option) {
+    options->FamilyKeyDirectory =
+      get_data_directory(options->FamilyKeyDirectory_option);
+    if (!options->FamilyKeyDirectory)
+      return -1;
+  } else {
+    /* Default to the key directory. */
+    options->FamilyKeyDirectory = tor_strdup(options->KeyDirectory);
   }
 
   return 0;
@@ -7280,7 +7335,7 @@ getinfo_helper_config(control_connection_t *conn,
 }
 
 /* Check whether an address has already been set against the options
- * depending on address family and destination type. Any exsting
+ * depending on address family and destination type. Any existing
  * value will lead to a fail, even if it is the same value. If not
  * set and not only validating, copy it into this location too.
  * Returns 0 on success or -1 if this address is already set.

@@ -33,6 +33,8 @@
 #include "lib/crypt_ops/crypto_ope.h"
 #include "lib/crypt_ops/crypto_rand.h"
 #include "lib/crypt_ops/crypto_util.h"
+#include "lib/time/tvdiff.h"
+#include "lib/time/compat_time.h"
 
 #include "feature/hs/hs_circuit.h"
 #include "feature/hs/hs_common.h"
@@ -42,6 +44,7 @@
 #include "feature/hs/hs_ident.h"
 #include "feature/hs/hs_intropoint.h"
 #include "feature/hs/hs_metrics.h"
+#include "feature/hs/hs_metrics_entry.h"
 #include "feature/hs/hs_service.h"
 #include "feature/hs/hs_stats.h"
 #include "feature/hs/hs_ob.h"
@@ -144,7 +147,7 @@ hs_service_ht_hash(const hs_service_t *service)
                                    sizeof(service->keys.identity_pk.pubkey));
 }
 
-/** This is _the_ global hash map of hidden services which indexed the service
+/** This is _the_ global hash map of hidden services which indexes the services
  * contained in it by master public identity key which is roughly the onion
  * address of the service. */
 static struct hs_service_ht *hs_service_map;
@@ -170,9 +173,7 @@ is_client_auth_enabled(const hs_service_t *service)
 }
 
 /** Query the given service map with a public key and return a service object
- * if found else NULL. It is also possible to set a directory path in the
- * search query. If pk is NULL, then it will be set to zero indicating the
- * hash table to compare the directory path instead. */
+ * if found else NULL. */
 STATIC hs_service_t *
 find_service(hs_service_ht *map, const ed25519_public_key_t *pk)
 {
@@ -262,6 +263,63 @@ set_service_default_config(hs_service_config_t *c,
   c->has_dos_defense_enabled = HS_CONFIG_V3_DOS_DEFENSE_DEFAULT;
   c->intro_dos_rate_per_sec = HS_CONFIG_V3_DOS_DEFENSE_RATE_PER_SEC_DEFAULT;
   c->intro_dos_burst_per_sec = HS_CONFIG_V3_DOS_DEFENSE_BURST_PER_SEC_DEFAULT;
+  /* PoW default options. */
+  c->has_pow_defenses_enabled = HS_CONFIG_V3_POW_DEFENSES_DEFAULT;
+  c->pow_queue_rate = HS_CONFIG_V3_POW_QUEUE_RATE;
+  c->pow_queue_burst = HS_CONFIG_V3_POW_QUEUE_BURST;
+}
+
+/** Initialize PoW defenses */
+static void
+initialize_pow_defenses(hs_service_t *service)
+{
+  service->state.pow_state = tor_malloc_zero(sizeof(hs_pow_service_state_t));
+
+  /* Make life easier */
+  hs_pow_service_state_t *pow_state = service->state.pow_state;
+
+  pow_state->rend_request_pqueue = smartlist_new();
+  pow_state->pop_pqueue_ev = NULL;
+
+  /* If we are using the pqueue rate limiter, calculate min and max queue
+   * levels based on those programmed rates. If not, we have generic
+   * defaults */
+  pow_state->pqueue_low_level = 16;
+  pow_state->pqueue_high_level = 16384;
+
+  if (service->config.pow_queue_rate > 0 &&
+      service->config.pow_queue_burst >= service->config.pow_queue_rate) {
+    pow_state->using_pqueue_bucket = 1;
+    token_bucket_ctr_init(&pow_state->pqueue_bucket,
+                          service->config.pow_queue_rate,
+                          service->config.pow_queue_burst,
+                          (uint32_t) monotime_coarse_absolute_sec());
+
+    pow_state->pqueue_low_level = MAX(8, service->config.pow_queue_rate / 4);
+    pow_state->pqueue_high_level =
+      service->config.pow_queue_burst +
+      service->config.pow_queue_rate * MAX_REND_TIMEOUT * 2;
+  }
+
+  /* We recalculate and update the suggested effort every HS_UPDATE_PERIOD
+   * seconds. */
+  pow_state->suggested_effort = 0;
+  pow_state->rend_handled = 0;
+  pow_state->total_effort = 0;
+  pow_state->next_effort_update = (time(NULL) + HS_UPDATE_PERIOD);
+
+  /* Generate the random seeds. We generate both as we don't want the previous
+   * seed to be predictable even if it doesn't really exist yet, and it needs
+   * to be different to the current nonce for the replay cache scrubbing to
+   * function correctly. */
+  log_info(LD_REND, "Generating both PoW seeds...");
+  crypto_rand((char *)&pow_state->seed_current, HS_POW_SEED_LEN);
+  crypto_rand((char *)&pow_state->seed_previous, HS_POW_SEED_LEN);
+
+  pow_state->expiration_time =
+      (time(NULL) +
+       crypto_rand_int_range(HS_SERVICE_POW_SEED_ROTATE_TIME_MIN,
+                             HS_SERVICE_POW_SEED_ROTATE_TIME_MAX));
 }
 
 /** From a service configuration object config, clear everything from it
@@ -354,11 +412,6 @@ get_intro_point_max_introduce2(void)
 static int32_t
 get_intro_point_min_lifetime(void)
 {
-#define MIN_INTRO_POINT_LIFETIME_TESTING 10
-  if (get_options()->TestingTorNetwork) {
-    return MIN_INTRO_POINT_LIFETIME_TESTING;
-  }
-
   /* The [0, 2147483647] range is quite large to accommodate anything we decide
    * in the future. */
   return networkstatus_get_param(NULL, "hs_intro_min_lifetime",
@@ -371,11 +424,6 @@ get_intro_point_min_lifetime(void)
 static int32_t
 get_intro_point_max_lifetime(void)
 {
-#define MAX_INTRO_POINT_LIFETIME_TESTING 30
-  if (get_options()->TestingTorNetwork) {
-    return MAX_INTRO_POINT_LIFETIME_TESTING;
-  }
-
   /* The [0, 2147483647] range is quite large to accommodate anything we decide
    * in the future. */
   return networkstatus_get_param(NULL, "hs_intro_max_lifetime",
@@ -2107,7 +2155,7 @@ build_all_descriptors(time_t now)
       continue;
     }
 
-    /* Reaching this point means we are pass bootup so at runtime. We should
+    /* Reaching this point means we are past bootup so at runtime. We should
      * *never* have an empty current descriptor. If the next descriptor is
      * empty, we'll try to build it for the next time period. This only
      * happens when we rotate meaning that we are guaranteed to have a new SRV
@@ -2129,7 +2177,7 @@ build_all_descriptors(time_t now)
 /** Randomly pick a node to become an introduction point but not present in the
  * given exclude_nodes list. The chosen node is put in the exclude list
  * regardless of success or not because in case of failure, the node is simply
- * unsusable from that point on.
+ * unusable from that point on.
  *
  * If direct_conn is set, try to pick a node that our local firewall/policy
  * allows us to connect to directly. If we can't find any, return NULL.
@@ -2147,7 +2195,7 @@ pick_intro_point(unsigned int direct_conn, smartlist_t *exclude_nodes)
   const node_t *node;
   hs_service_intro_point_t *ip = NULL;
   /* Normal 3-hop introduction point flags. */
-  router_crn_flags_t flags = CRN_NEED_UPTIME | CRN_NEED_DESC;
+  router_crn_flags_t flags = CRN_NEED_UPTIME | CRN_NEED_DESC | CRN_FOR_HS;
   /* Single onion flags. */
   router_crn_flags_t direct_flags = flags | CRN_PREF_ADDR | CRN_DIRECT_CONN;
 
@@ -2250,6 +2298,14 @@ pick_needed_intro_points(hs_service_t *service,
                safe_str_client(service->onion_address));
       goto done;
     }
+
+    /* Save a copy of the specific version of the blinded ID that we
+     * use to reach this intro point. Needed to validate proof-of-work
+     * solutions that are bound to this specific service. */
+    tor_assert(desc->desc);
+    ed25519_pubkey_copy(&ip->blinded_id,
+                        &desc->desc->plaintext_data.blinded_pubkey);
+
     /* Valid intro point object, add it to the descriptor current map. */
     service_intro_point_add(desc->intro_points.map, ip);
   }
@@ -2367,6 +2423,88 @@ update_all_descriptors_intro_points(time_t now)
   } FOR_EACH_SERVICE_END;
 }
 
+/** Update or initialise PoW parameters in the descriptors if they do not
+ * reflect the current state of the PoW defenses. If the defenses have been
+ * disabled then remove the PoW parameters from the descriptors. */
+static void
+update_all_descriptors_pow_params(time_t now)
+{
+  FOR_EACH_SERVICE_BEGIN(service) {
+    int descs_updated = 0;
+    hs_pow_service_state_t *pow_state = service->state.pow_state;
+    hs_desc_encrypted_data_t *encrypted;
+    uint32_t previous_effort;
+
+    /* If PoW defenses have been disabled after previously being enabled, i.e
+     * via config change and SIGHUP, we need to remove the PoW parameters from
+     * the descriptors so clients stop attempting to solve the puzzle. */
+    FOR_EACH_DESCRIPTOR_BEGIN(service, desc) {
+      if (!service->config.has_pow_defenses_enabled &&
+          desc->desc->encrypted_data.pow_params) {
+        log_info(LD_REND, "PoW defenses have been disabled, clearing "
+                         "pow_params from a descriptor.");
+        tor_free(desc->desc->encrypted_data.pow_params);
+        /* Schedule for upload here as we can skip the following checks as PoW
+         * defenses are disabled. */
+        service_desc_schedule_upload(desc, now, 1);
+      }
+    } FOR_EACH_DESCRIPTOR_END;
+
+    /* Skip remaining checks if this service does not have PoW defenses
+     * enabled. */
+    if (!service->config.has_pow_defenses_enabled) {
+      continue;
+    }
+
+    FOR_EACH_DESCRIPTOR_BEGIN(service, desc) {
+      encrypted = &desc->desc->encrypted_data;
+      /* If this is a new service or PoW defenses were just enabled we need to
+       * initialise pow_params in the descriptors. If this runs the next if
+       * statement will run and set the correct values. */
+      if (!encrypted->pow_params) {
+        log_info(LD_REND, "Initializing pow_params in descriptor...");
+        encrypted->pow_params = tor_malloc_zero(sizeof(hs_pow_desc_params_t));
+      }
+
+      /* Update the descriptor any time the seed rotates, using expiration
+       * time as a proxy for parameters not including the suggested_effort,
+       * which gets special treatment below. */
+      if (encrypted->pow_params->expiration_time !=
+          pow_state->expiration_time) {
+        encrypted->pow_params->type = 0; /* use first version in the list */
+        memcpy(encrypted->pow_params->seed, &pow_state->seed_current,
+               HS_POW_SEED_LEN);
+        encrypted->pow_params->suggested_effort = pow_state->suggested_effort;
+        encrypted->pow_params->expiration_time = pow_state->expiration_time;
+        descs_updated = 1;
+      }
+
+      /* Services SHOULD NOT upload a new descriptor if the suggested
+       * effort value changes by less than 15 percent. */
+      previous_effort = encrypted->pow_params->suggested_effort;
+      if (pow_state->suggested_effort < previous_effort * 0.85 ||
+          previous_effort * 1.15 < pow_state->suggested_effort) {
+        log_info(LD_REND, "Suggested effort changed significantly, "
+                          "updating descriptors...");
+        encrypted->pow_params->suggested_effort = pow_state->suggested_effort;
+        descs_updated = 1;
+      } else if (previous_effort != pow_state->suggested_effort) {
+        /* The change in suggested effort was not significant enough to
+         * warrant updating the descriptors, return 0 to reflect they are
+         * unchanged. */
+        log_info(LD_REND, "Change in suggested effort didn't warrant "
+                          "updating descriptors.");
+      }
+    } FOR_EACH_DESCRIPTOR_END;
+
+    if (descs_updated) {
+      FOR_EACH_DESCRIPTOR_BEGIN(service, desc) {
+        service_desc_schedule_upload(desc, now, 1);
+      } FOR_EACH_DESCRIPTOR_END;
+    }
+  } FOR_EACH_SERVICE_END;
+}
+
 /** Return true iff the given intro point has expired that is it has been used
  * for too long or we've reached our max seen INTRODUCE2 cell. */
 STATIC int
@@ -2420,7 +2558,7 @@ should_remove_intro_point(hs_service_intro_point_t *ip, time_t now)
     goto end;
   }
 
-  /* Pass this point, even though we might be over the retry limit, we check
+  /* Past this point, even though we might be over the retry limit, we check
    * if a circuit (established or pending) exists. In that case, we should not
    * remove it because it might simply be valid and opened at the previous
    * scheduled event for the last retry. */
@@ -2506,6 +2644,133 @@ cleanup_intro_points(hs_service_t *service, time_t now)
   } SMARTLIST_FOREACH_END(ip);
 
   smartlist_free(ips_to_free);
+}
+
+/** Rotate the seeds used in the proof-of-work defenses. */
+static void
+rotate_pow_seeds(hs_service_t *service, time_t now)
+{
+  /* Make life easier */
+  hs_pow_service_state_t *pow_state = service->state.pow_state;
+
+  log_info(LD_REND,
+          "Current seed expired. Scrubbing replay cache, rotating PoW "
+          "seeds, generating new seed and updating descriptors.");
+
+  /* Before we overwrite the previous seed lets scrub entries corresponding
+   * to it in the nonce replay cache. */
+  hs_pow_remove_seed_from_cache(pow_state->seed_previous);
+
+  /* Keep track of the current seed that we are now rotating. */
+  memcpy(pow_state->seed_previous, pow_state->seed_current, HS_POW_SEED_LEN);
+
+  /* Generate a new random seed to use from now on. Make sure the seed head
+   * is different to that of the previous seed. The following while loop
+   * will run at least once as the seeds will initially be equal. */
+  while (fast_memeq(pow_state->seed_previous, pow_state->seed_current,
+                    HS_POW_SEED_HEAD_LEN)) {
+    crypto_rand((char *)pow_state->seed_current, HS_POW_SEED_LEN);
+  }
+
+  /* Update the expiration time for the new seed. */
+  pow_state->expiration_time =
+      (now +
+       crypto_rand_int_range(HS_SERVICE_POW_SEED_ROTATE_TIME_MIN,
+                             HS_SERVICE_POW_SEED_ROTATE_TIME_MAX));
+
+  {
+    char fmt_next_time[ISO_TIME_LEN + 1];
+    format_local_iso_time(fmt_next_time, pow_state->expiration_time);
+    log_debug(LD_REND, "PoW state expiration time set to: %s", fmt_next_time);
+  }
+}
+
+/** Every HS_UPDATE_PERIOD seconds, and while PoW defenses are enabled, the
+ * service updates its suggested effort for PoW solutions as SUGGESTED_EFFORT =
+ * TOTAL_EFFORT / (SVC_BOTTOM_CAPACITY * HS_UPDATE_PERIOD) where TOTAL_EFFORT
+ * is the sum of the effort of all valid requests that have been received since
+ * the suggested_effort was last updated. */
+static void
+update_suggested_effort(hs_service_t *service, time_t now)
+{
+  /* Make life easier */
+  hs_pow_service_state_t *pow_state = service->state.pow_state;
+
+  /* Calculate the new suggested effort, using an additive-increase
+   * multiplicative-decrease estimation scheme. */
+  enum {
+    NONE,
+    INCREASE,
+    DECREASE
+  } aimd_event = NONE;
+
+  if (pow_state->max_trimmed_effort > pow_state->suggested_effort) {
+    /* Increase when we notice that high-effort requests are trimmed */
+    aimd_event = INCREASE;
+  } else if (pow_state->had_queue) {
+    if (smartlist_len(pow_state->rend_request_pqueue) > 0 &&
+        top_of_rend_pqueue_is_worthwhile(pow_state)) {
+      /* Increase when the top of queue is high-effort */
+      aimd_event = INCREASE;
+    }
+  } else if (smartlist_len(pow_state->rend_request_pqueue) <
+             pow_state->pqueue_low_level) {
+    /* Dec when the queue is empty now and had_queue wasn't set this period */
+    aimd_event = DECREASE;
+  }
+
+  switch (aimd_event) {
+    case INCREASE:
+      if (pow_state->suggested_effort < UINT32_MAX) {
+        uint32_t avg =
+          pow_state->rend_handled ? /* check for div by 0 */
+            (uint32_t)(pow_state->total_effort / pow_state->rend_handled) : 0;
+        pow_state->suggested_effort =
+          MAX(pow_state->suggested_effort + 1, avg);
+      }
+      break;
+    case DECREASE:
+      pow_state->suggested_effort = 2*pow_state->suggested_effort/3;
+      break;
+    case NONE:
+      break;
+  }
+
+  hs_metrics_pow_suggested_effort(service, pow_state->suggested_effort);
+
+  log_debug(LD_REND, "Recalculated suggested effort: %u",
+            pow_state->suggested_effort);
+
+  /* Reset the total effort sum and number of rends for this update period. */
+  pow_state->total_effort = 0;
+  pow_state->rend_handled = 0;
+  pow_state->max_trimmed_effort = 0;
+  pow_state->had_queue = 0;
+  pow_state->next_effort_update = now + HS_UPDATE_PERIOD;
+}
+
+/** Run PoW defenses housekeeping. This MUST be called if the defenses are
+ * actually enabled for the given service. */
+static void
+pow_housekeeping(hs_service_t *service, time_t now)
+{
+  /* If the service is starting off or just been reset we need to
+   * initialize the state of the defenses. */
+  if (!service->state.pow_state) {
+    initialize_pow_defenses(service);
+  }
+
+  /* If the current PoW seed has expired then generate a new current
+   * seed, storing the old one in seed_previous. */
+  if (now >= service->state.pow_state->expiration_time) {
+    rotate_pow_seeds(service, now);
+  }
+
+  /* Update the suggested effort if HS_UPDATE_PERIOD seconds have passed
+   * since we last did so. */
+  if (now >= service->state.pow_state->next_effort_update) {
+    update_suggested_effort(service, now);
+  }
 }
 
 /** Set the next rotation time of the descriptors for the given service for the
@@ -2652,6 +2917,12 @@ run_housekeeping_event(time_t now)
       set_rotation_time(service);
     }
 
+    /* Check if we need to initialize or update PoW parameters, if the
+     * defenses are enabled. */
+    if (have_module_pow() && service->config.has_pow_defenses_enabled) {
+      pow_housekeeping(service, now);
+    }
+
     /* Cleanup invalid intro points from the service descriptor. */
     cleanup_intro_points(service, now);
 
@@ -2685,6 +2956,11 @@ run_build_descriptor_event(time_t now)
    * points. Missing introduction points will be picked in this function which
    * is useful for newly built descriptors. */
   update_all_descriptors_intro_points(now);
+
+  if (have_module_pow()) {
+    /* Update the PoW params if needed. */
+    update_all_descriptors_pow_params(now);
+  }
 }
 
 /** For the given service, launch any intro point circuits that could be
@@ -2756,13 +3032,6 @@ get_max_intro_circ_per_period(const hs_service_t *service)
   tor_assert(service);
   tor_assert(service->config.num_intro_points <=
              HS_CONFIG_V3_MAX_INTRO_POINTS);
-
-/** For a testing network, allow to do it for the maximum amount so circuit
- * creation and rotation and so on can actually be tested without limit. */
-#define MAX_INTRO_POINT_CIRCUIT_RETRIES_TESTING -1
-  if (get_options()->TestingTorNetwork) {
-    return MAX_INTRO_POINT_CIRCUIT_RETRIES_TESTING;
-  }
 
   num_wanted_ip = service->config.num_intro_points;
 
@@ -2997,9 +3266,8 @@ set_descriptor_revision_counter(hs_service_descriptor_t *hs_desc, time_t now,
 }
 
 /** Encode and sign the service descriptor desc and upload it to the
- * responsible hidden service directories. If for_next_period is true, the set
- * of directories are selected using the next hsdir_index. This does nothing
- * if PublishHidServDescriptors is false. */
+ * responsible hidden service directories.
+ * This does nothing if PublishHidServDescriptors is false. */
 STATIC void
 upload_descriptor_to_all(const hs_service_t *service,
                          hs_service_descriptor_t *desc)
@@ -3414,6 +3682,11 @@ service_rendezvous_circ_has_opened(origin_circuit_t *circ)
    * will even out the metric. */
   if (TO_CIRCUIT(circ)->purpose == CIRCUIT_PURPOSE_S_REND_JOINED) {
     hs_metrics_new_established_rdv(service);
+
+    struct timeval now;
+    tor_gettimeofday(&now);
+    int64_t duration = tv_mdiff(&TO_CIRCUIT(circ)->timestamp_began, &now);
+    hs_metrics_rdv_circ_build_time(service, duration);
   }
 
   goto done;
@@ -3467,8 +3740,13 @@ service_handle_intro_established(origin_circuit_t *circ,
     goto err;
   }
 
+  struct timeval now;
+  tor_gettimeofday(&now);
+  int64_t duration = tv_mdiff(&TO_CIRCUIT(circ)->timestamp_began, &now);
+
   /* Update metrics. */
   hs_metrics_new_established_intro(service);
+  hs_metrics_intro_circ_build_time(service, duration);
 
   log_info(LD_REND, "Successfully received an INTRO_ESTABLISHED cell "
                     "on circuit %u for service %s",
@@ -3511,6 +3789,9 @@ service_handle_introduce2(origin_circuit_t *circ, const uint8_t *payload,
                      "an INTRODUCE2 cell on circuit %u for service %s",
              TO_CIRCUIT(circ)->n_circ_id,
              safe_str_client(service->onion_address));
+
+    hs_metrics_reject_intro_req(service,
+                                HS_METRICS_ERR_INTRO_REQ_BAD_AUTH_KEY);
     goto err;
   }
   /* If we have an IP object, we MUST have a descriptor object. */
@@ -3527,6 +3808,7 @@ service_handle_introduce2(origin_circuit_t *circ, const uint8_t *payload,
 
   return 0;
  err:
+
   return -1;
 }
 
@@ -3784,6 +4066,9 @@ hs_service_add_ephemeral_status_t
 hs_service_add_ephemeral(ed25519_secret_key_t *sk, smartlist_t *ports,
                          int max_streams_per_rdv_circuit,
                          int max_streams_close_circuit,
+                         int pow_defenses_enabled,
+                         uint32_t pow_queue_rate,
+                         uint32_t pow_queue_burst,
                          smartlist_t *auth_clients_v3, char **address_out)
 {
   hs_service_add_ephemeral_status_t ret;
@@ -3803,6 +4088,9 @@ hs_service_add_ephemeral(ed25519_secret_key_t *sk, smartlist_t *ports,
   service->config.is_ephemeral = 1;
   smartlist_free(service->config.ports);
   service->config.ports = ports;
+  service->config.has_pow_defenses_enabled = pow_defenses_enabled;
+  service->config.pow_queue_rate = pow_queue_rate;
+  service->config.pow_queue_burst = pow_queue_burst;
 
   /* Handle the keys. */
   memcpy(&service->keys.identity_sk, sk, sizeof(service->keys.identity_sk));
@@ -4351,6 +4639,9 @@ hs_service_free_(hs_service_t *service)
   FOR_EACH_DESCRIPTOR_BEGIN(service, desc) {
     service_descriptor_free(desc);
   } FOR_EACH_DESCRIPTOR_END;
+
+  /* Free the state of the PoW defenses. */
+  hs_pow_free_service_state(service->state.pow_state);
 
   /* Free service configuration. */
   service_clear_config(&service->config);

@@ -21,7 +21,7 @@
  *   <li>signal_callback(), which handles incoming signals.
  *  </ul>
  * Other events are used for specific purposes, or for building more complex
- * control structures.  If you search for usage of tor_libevent_new(), you
+ * control structures.  If you search for usage of tor_event_new(), you
  * will find all the events that we construct in Tor.
  *
  * Tor has numerous housekeeping operations that need to happen
@@ -274,16 +274,8 @@ connection_add_impl(connection_t *conn, int is_connecting)
 void
 connection_unregister_events(connection_t *conn)
 {
-  if (conn->read_event) {
-    if (event_del(conn->read_event))
-      log_warn(LD_BUG, "Error removing read event for %d", (int)conn->s);
-    tor_free(conn->read_event);
-  }
-  if (conn->write_event) {
-    if (event_del(conn->write_event))
-      log_warn(LD_BUG, "Error removing write event for %d", (int)conn->s);
-    tor_free(conn->write_event);
-  }
+  tor_event_free(conn->read_event);
+  tor_event_free(conn->write_event);
   if (conn->type == CONN_TYPE_AP_DNS_LISTENER) {
     dnsserv_close_listener(conn);
   }
@@ -505,7 +497,7 @@ connection_watch_events(connection_t *conn, watchable_events_t events)
 
 /** Return true iff <b>conn</b> is listening for read events. */
 int
-connection_is_reading(connection_t *conn)
+connection_is_reading(const connection_t *conn)
 {
   tor_assert(conn);
 
@@ -566,7 +558,11 @@ get_main_loop_idle_count(void)
 
 /** Check whether <b>conn</b> is correct in having (or not having) a
  * read/write event (passed in <b>ev</b>). On success, return 0. On failure,
- * log a warning and return -1. */
+ * log a warning and return -1.
+ *
+ * In addition, if conn is a DNS request initiated by the DNSPort or the
+ * controller, it won't have an event associated with it, so the caller must
+ * not proceed. Return -1 in this case too to tell the caller the stop. */
 static int
 connection_check_event(connection_t *conn, struct event *ev)
 {
@@ -601,6 +597,14 @@ connection_check_event(connection_t *conn, struct event *ev)
     log_backtrace(LOG_WARN, LD_BUG, "Backtrace attached.");
     return -1;
   }
+
+  if (conn->type == CONN_TYPE_AP && TO_EDGE_CONN(conn)->is_dns_request) {
+    /* Be sure not to let the caller proceed if ev is NULL. Otherwise it
+     * will do things like call event_del on the NULL event. See tickets
+     * 16248 and 41265 for details. */
+    return -1;
+  }
+
   return 0;
 }
 
@@ -653,6 +657,16 @@ connection_start_reading,(connection_t *conn))
                "to watched: %s",
                (int)conn->s,
                tor_socket_strerror(tor_socket_errno(conn->s)));
+
+    /* Process the inbuf if it is not empty because the only way to empty it is
+     * through a read event or a SENDME which might not come if the package
+     * window is proper or if the application has nothing more for us to read.
+     *
+     * If this is not done here, we risk having data lingering in the inbuf
+     * forever. */
+    if (conn->inbuf && buf_datalen(conn->inbuf) > 0) {
+      connection_process_inbuf(conn, 1);
+    }
   }
 }
 
@@ -1269,8 +1283,8 @@ run_connection_housekeeping(int i, time_t now)
     log_fn(LOG_PROTOCOL_WARN,LD_PROTOCOL,
            "Expiring stuck OR connection to fd %d (%s:%d). (%d bytes to "
            "flush; %d seconds since last write)",
-           (int)conn->s, fmt_and_decorate_addr(&conn->addr), conn->port,
-           (int)connection_get_outbuf_len(conn),
+           (int)conn->s, safe_str(fmt_and_decorate_addr(&conn->addr)),
+           conn->port, (int)connection_get_outbuf_len(conn),
            (int)(now-conn->timestamp_last_write_allowed));
     connection_or_close_normally(TO_OR_CONN(conn), 0);
   } else if (past_keepalive && !connection_get_outbuf_len(conn)) {
@@ -2330,6 +2344,7 @@ ip_address_changed(int on_client_conn)
         reset_bandwidth_test();
       reset_uptime();
       router_reset_reachability();
+      pt_update_bridge_lines();
       /* All relays include their IP addresses as their ORPort addresses in
        * their descriptor.
        * Exit relays also incorporate interface addresses in their exit

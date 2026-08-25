@@ -34,10 +34,10 @@
 #include "feature/client/entrynodes.h"
 #include "feature/nodelist/networkstatus.h"
 #include "core/or/relay.h"
+#include "core/or/relay_msg.h"
 #include "lib/math/fp.h"
 #include "lib/math/laplace.h"
 
-#include "core/or/cell_st.h"
 #include "core/or/cpath_build_state_st.h"
 #include "core/or/crypt_path_st.h"
 #include "core/or/extend_info_st.h"
@@ -334,12 +334,23 @@ pathbias_should_count(origin_circuit_t *circ)
    * endpoint could be chosen maliciously.
    * Similarly, we can't count client-side intro attempts,
    * because clients can be manipulated into connecting to
-   * malicious intro points. */
+   * malicious intro points.
+   *
+   * Finally, avoid counting conflux circuits for now, because
+   * a malicious exit could cause us to reconnect and blame
+   * our guard...
+   *
+   * TODO-329-PURPOSE: This is not quite right, we could
+   * instead avoid sending usable probes on conflux circs,
+   * and count only linked circs as failures, but it is
+   * not 100% clear that would result in accurate counts. */
   if (get_options()->UseEntryGuards == 0 ||
           circ->base_.purpose == CIRCUIT_PURPOSE_TESTING ||
           circ->base_.purpose == CIRCUIT_PURPOSE_CONTROLLER ||
           circ->base_.purpose == CIRCUIT_PURPOSE_S_CONNECT_REND ||
           circ->base_.purpose == CIRCUIT_PURPOSE_S_REND_JOINED ||
+          circ->base_.purpose == CIRCUIT_PURPOSE_CONFLUX_UNLINKED ||
+          circ->base_.purpose == CIRCUIT_PURPOSE_CONFLUX_LINKED ||
           (circ->base_.purpose >= CIRCUIT_PURPOSE_C_INTRODUCING &&
            circ->base_.purpose <= CIRCUIT_PURPOSE_C_INTRODUCE_ACKED)) {
 
@@ -787,7 +798,7 @@ static int
 pathbias_send_usable_probe(circuit_t *circ)
 {
   /* Based on connection_ap_handshake_send_begin() */
-  char payload[CELL_PAYLOAD_SIZE];
+  char payload[RELAY_PAYLOAD_SIZE_MAX];
   int payload_len;
   origin_circuit_t *ocirc = TO_ORIGIN_CIRCUIT(circ);
   crypt_path_t *cpath_layer = NULL;
@@ -842,7 +853,7 @@ pathbias_send_usable_probe(circuit_t *circ)
     return -1;
   }
 
-  tor_snprintf(payload,RELAY_PAYLOAD_SIZE, "%s:25", probe_nonce);
+  tor_snprintf(payload,RELAY_PAYLOAD_SIZE_MAX, "%s:25", probe_nonce);
   payload_len = (int)strlen(payload)+1;
 
   // XXX: need this? Can we assume ipv4 will always be supported?
@@ -892,41 +903,37 @@ pathbias_send_usable_probe(circuit_t *circ)
  * If the response is valid, return 0. Otherwise return < 0.
  */
 int
-pathbias_check_probe_response(circuit_t *circ, const cell_t *cell)
+pathbias_check_probe_response(circuit_t *circ, const relay_msg_t *msg)
 {
   /* Based on connection_edge_process_relay_cell() */
-  relay_header_t rh;
   int reason;
   uint32_t ipv4_host;
   origin_circuit_t *ocirc = TO_ORIGIN_CIRCUIT(circ);
 
-  tor_assert(cell);
+  tor_assert(msg);
   tor_assert(ocirc);
   tor_assert(circ->purpose == CIRCUIT_PURPOSE_PATH_BIAS_TESTING);
 
-  relay_header_unpack(&rh, cell->payload);
+  reason = msg->length > 0 ? get_uint8(msg->body) : END_STREAM_REASON_MISC;
 
-  reason = rh.length > 0 ?
-        get_uint8(cell->payload+RELAY_HEADER_SIZE) : END_STREAM_REASON_MISC;
-
-  if (rh.command == RELAY_COMMAND_END &&
+  if (msg->command == RELAY_COMMAND_END &&
       reason == END_STREAM_REASON_EXITPOLICY &&
-      ocirc->pathbias_probe_id == rh.stream_id) {
+      ocirc->pathbias_probe_id == msg->stream_id) {
 
     /* Check length+extract host: It is in network order after the reason code.
      * See connection_edge_end(). */
-    if (rh.length < 9) { /* reason+ipv4+dns_ttl */
+    if (msg->length < 9) { /* reason+ipv4+dns_ttl */
       log_notice(LD_PROTOCOL,
-             "Short path bias probe response length field (%d).", rh.length);
+             "Short path bias probe response length field (%d).", msg->length);
       return - END_CIRC_REASON_TORPROTOCOL;
     }
 
-    ipv4_host = ntohl(get_uint32(cell->payload+RELAY_HEADER_SIZE+1));
+    ipv4_host = ntohl(get_uint32(msg->body + 1));
 
     /* Check nonce */
     if (ipv4_host == ocirc->pathbias_probe_nonce) {
       pathbias_mark_use_success(ocirc);
-      circuit_read_valid_data(ocirc, rh.length);
+      circuit_read_valid_data(ocirc, msg->length);
       circuit_mark_for_close(circ, END_CIRC_REASON_FINISHED);
       log_info(LD_CIRC,
                "Got valid path bias probe back for circ %d, stream %d.",
@@ -943,7 +950,7 @@ pathbias_check_probe_response(circuit_t *circ, const cell_t *cell)
   log_info(LD_CIRC,
              "Got another cell back back on pathbias probe circuit %d: "
              "Command: %d, Reason: %d, Stream-id: %d",
-             ocirc->global_identifier, rh.command, reason, rh.stream_id);
+             ocirc->global_identifier, msg->command, reason, msg->stream_id);
   return -1;
 }
 
@@ -952,58 +959,55 @@ pathbias_check_probe_response(circuit_t *circ, const cell_t *cell)
  * and if so, count it as valid.
  */
 void
-pathbias_count_valid_cells(circuit_t *circ, const cell_t *cell)
+pathbias_count_valid_cells(circuit_t *circ, const relay_msg_t *msg)
 {
   origin_circuit_t *ocirc = TO_ORIGIN_CIRCUIT(circ);
-  relay_header_t rh;
-
-  relay_header_unpack(&rh, cell->payload);
 
   /* Check to see if this is a cell from a previous connection,
    * or is a request to close the circuit. */
-  switch (rh.command) {
+  switch (msg->command) {
     case RELAY_COMMAND_TRUNCATED:
       /* Truncated cells can arrive on path bias circs. When they do,
        * just process them. This closes the circ, but it was junk anyway.
        * No reason to wait for the probe. */
-      circuit_read_valid_data(ocirc, rh.length);
-      circuit_truncated(TO_ORIGIN_CIRCUIT(circ),
-                        get_uint8(cell->payload + RELAY_HEADER_SIZE));
-
+      circuit_read_valid_data(ocirc, msg->length);
+      if (msg->length > 0) {
+        circuit_truncated(TO_ORIGIN_CIRCUIT(circ), get_uint8(msg->body));
+      }
       break;
 
     case RELAY_COMMAND_END:
       if (connection_half_edge_is_valid_end(ocirc->half_streams,
-                                             rh.stream_id)) {
-        circuit_read_valid_data(TO_ORIGIN_CIRCUIT(circ), rh.length);
+                                            msg->stream_id)) {
+        circuit_read_valid_data(TO_ORIGIN_CIRCUIT(circ), msg->length);
       }
       break;
 
     case RELAY_COMMAND_DATA:
       if (connection_half_edge_is_valid_data(ocirc->half_streams,
-                                             rh.stream_id)) {
-        circuit_read_valid_data(TO_ORIGIN_CIRCUIT(circ), rh.length);
+                                             msg->stream_id)) {
+        circuit_read_valid_data(TO_ORIGIN_CIRCUIT(circ), msg->length);
       }
       break;
 
     case RELAY_COMMAND_SENDME:
       if (connection_half_edge_is_valid_sendme(ocirc->half_streams,
-                                             rh.stream_id)) {
-        circuit_read_valid_data(TO_ORIGIN_CIRCUIT(circ), rh.length);
+                                               msg->stream_id)) {
+        circuit_read_valid_data(TO_ORIGIN_CIRCUIT(circ), msg->length);
       }
       break;
 
     case RELAY_COMMAND_CONNECTED:
       if (connection_half_edge_is_valid_connected(ocirc->half_streams,
-                                                  rh.stream_id)) {
-        circuit_read_valid_data(TO_ORIGIN_CIRCUIT(circ), rh.length);
+                                                  msg->stream_id)) {
+        circuit_read_valid_data(TO_ORIGIN_CIRCUIT(circ), msg->length);
       }
       break;
 
     case RELAY_COMMAND_RESOLVED:
       if (connection_half_edge_is_valid_resolved(ocirc->half_streams,
-                                                 rh.stream_id)) {
-        circuit_read_valid_data(TO_ORIGIN_CIRCUIT(circ), rh.length);
+                                                 msg->stream_id)) {
+        circuit_read_valid_data(TO_ORIGIN_CIRCUIT(circ), msg->length);
       }
       break;
   }

@@ -1,7 +1,7 @@
 /* Copyright (c) 2001 Matej Pfajfar.
  * Copyright (c) 2001-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2021, The Tor Project, Inc. */
+ * Copyright (c) 2007-2024, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -19,10 +19,12 @@
 #include "app/main/subsysmgr.h"
 #include "core/mainloop/connection.h"
 #include "core/mainloop/mainloop_pubsub.h"
+#include "core/mainloop/cpuworker.h"
 #include "core/or/channeltls.h"
 #include "core/or/circuitlist.h"
 #include "core/or/circuitmux_ewma.h"
 #include "core/or/circuitpadding.h"
+#include "core/or/conflux_pool.h"
 #include "core/or/connection_edge.h"
 #include "core/or/dos.h"
 #include "core/or/scheduler.h"
@@ -111,6 +113,7 @@ tor_free_all(int postfork)
   if (!postfork) {
     evdns_shutdown(1);
   }
+  cpuworker_free_all();
   geoip_free_all();
   geoip_stats_free_all();
   routerlist_free_all();
@@ -119,7 +122,9 @@ tor_free_all(int postfork)
   dirserv_free_all();
   rep_hist_free_all();
   bwhist_free_all();
+  conflux_notify_shutdown();
   circuit_free_all();
+  conflux_pool_free_all();
   circpad_machines_free();
   entry_guards_free_all();
   pt_free_all();

@@ -45,7 +45,7 @@ authority_cert_t *get_my_v3_legacy_cert(void);
 crypto_pk_t *get_my_v3_legacy_signing_key(void);
 void dup_onion_keys(crypto_pk_t **key, crypto_pk_t **last);
 void expire_old_onion_keys(void);
-void rotate_onion_key(void);
+bool rotate_onion_key(void);
 void v3_authority_check_key_expiry(void);
 int get_onion_key_lifetime(void);
 int get_onion_key_grace_period(void);
@@ -81,6 +81,8 @@ void consider_publishable_server(int force);
 int should_refuse_unknown_exits(const or_options_t *options);
 
 void router_new_consensus_params(const networkstatus_t *);
+bool should_publish_family_list(const networkstatus_t *ns);
+
 void router_upload_dir_desc_to_dirservers(int force);
 void mark_my_descriptor_dirty_if_too_old(time_t now);
 void mark_my_descriptor_dirty(const char *reason);

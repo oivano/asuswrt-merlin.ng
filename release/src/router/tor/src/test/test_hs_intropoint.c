@@ -14,6 +14,7 @@
 #include "test/test.h"
 #include "test/log_test_helpers.h"
 #include "lib/crypt_ops/crypto_rand.h"
+#include "lib/time/compat_time.h"
 
 #include "core/or/or.h"
 #include "core/or/channel.h"
@@ -127,7 +128,7 @@ helper_create_intro_circuit(void)
   tt_assert(circ);
   circuit_change_purpose(TO_CIRCUIT(circ), CIRCUIT_PURPOSE_OR);
   token_bucket_ctr_init(&circ->introduce2_bucket, 100, 100,
-                        (uint32_t) approx_time());
+                       (uint32_t) monotime_coarse_absolute_sec());
  done:
   return circ;
 }
@@ -543,7 +544,7 @@ test_intro_point_registration(void *arg)
 
   or_circuit_t *intro_circ = NULL;
   trn_cell_establish_intro_t *establish_intro_cell = NULL;
-  ed25519_public_key_t auth_key;
+  ed25519_public_key_t auth_key = {0};
 
   or_circuit_t *returned_intro_circ = NULL;
 

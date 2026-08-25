@@ -140,6 +140,41 @@ bridge_list_get(void)
 }
 
 /**
+ * Returns true if there are enough bridges to make a conflux set
+ * without re-using the same bridge.
+ */
+bool
+conflux_can_exclude_used_bridges(void)
+{
+  if (smartlist_len(bridge_list_get()) == 1) {
+    static bool warned_once = false;
+    bridge_info_t *bridge = smartlist_get(bridge_list_get(), 0);
+    tor_assert(bridge);
+
+    /* Snowflake is a special case. With one snowflake bridge,
+     * you are load balanced among many back-end bridges.
+     * So we do not need to warn the user for it. */
+    if (bridge->transport_name &&
+        strcasecmp(bridge->transport_name, "snowflake") == 0) {
+      return false;
+    }
+
+    if (!warned_once) {
+      log_warn(LD_CIRC, "Only one bridge (transport: '%s') is configured. "
+                        "You should have at least two for conflux, "
+                        "for any transport that is not 'snowflake'.",
+                        bridge->transport_name ?
+                          bridge->transport_name : "vanilla");
+      warned_once = true;
+    }
+
+    return false;
+  }
+
+  return true;
+}
+
+/**
  * Given a <b>bridge</b>, return a pointer to its RSA identity digest, or
  * NULL if we don't know one for it.
  */
@@ -281,7 +316,8 @@ addr_is_a_configured_bridge(const tor_addr_t *addr,
 /** If we have a bridge configured whose digest matches
  * <b>ei->identity_digest</b>, or a bridge with no known digest whose address
  * matches <b>ei->addr</b>:<b>ei->port</b>, return 1.  Else return 0.
- * If <b>ei->onion_key</b> is NULL, check for address/port matches only.
+ * If <b>ei</b> has no onion key configured, check for address/port matches
+ * only.
  *
  * Note that if the extend_info_t contains multiple addresses, we return true
  * only if _every_ address is a bridge.
@@ -289,7 +325,8 @@ addr_is_a_configured_bridge(const tor_addr_t *addr,
 int
 extend_info_is_a_configured_bridge(const extend_info_t *ei)
 {
-  const char *digest = ei->onion_key ? ei->identity_digest : NULL;
+  const char *digest = curve25519_public_key_is_ok(&ei->curve25519_onion_key)
+    ? ei->identity_digest : NULL;
   const tor_addr_port_t *ap1 = NULL, *ap2 = NULL;
   if (! tor_addr_is_null(&ei->orports[0].addr))
     ap1 = &ei->orports[0];

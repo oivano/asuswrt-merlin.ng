@@ -76,6 +76,9 @@ CONF_VAR(RecommendedClientVersions, LINELIST, 0, NULL)
 /** Which versions of tor should we tell users to run on relays? */
 CONF_VAR(RecommendedServerVersions, LINELIST, 0, NULL)
 
+/** Which minimal version of tor do we accept relay descriptors from? */
+CONF_VAR(MinimalAcceptedServerVersion, STRING, 0, "0.4.8.0-alpha-dev")
+
 /** Relays which should be voted Guard regardless of uptime and bandwidth. */
 CONF_VAR(AuthDirVoteGuard, ROUTERSET, 0, NULL)
 
@@ -86,11 +89,12 @@ CONF_VAR(AuthDirVoteGuard, ROUTERSET, 0, NULL)
 CONF_VAR(AuthDirVoteStableGuaranteeMinUptime, INTERVAL, 0, "30 days")
 
 /** If a relay's MTBF is at least this value, then it is always stable. See
- * above. */
+ * above. (Corresponds to about 7 days for current decay rates.) */
 CONF_VAR(AuthDirVoteStableGuaranteeMTBF, INTERVAL, 0, "5 days")
 
 /** A relay with at least this much weighted time known can be considered
- * familiar enough to be a guard. */
+ * familiar enough to be a guard. (Corresponds to about 20 days for current
+ * decay rates.) */
 CONF_VAR(AuthDirVoteGuardGuaranteeTimeKnown, INTERVAL, 0, "8 days")
 
 /** A relay with sufficient WFU is around enough to be a guard. */

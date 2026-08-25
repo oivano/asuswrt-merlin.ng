@@ -371,14 +371,17 @@ routerstatus_parse_entry_from_string(memarea_t *area,
     }
   }
 
+  time_t published_on;
   if (tor_snprintf(timebuf, sizeof(timebuf), "%s %s",
                    tok->args[3+offset], tok->args[4+offset]) < 0 ||
-      parse_iso_time(timebuf, &rs->published_on)<0) {
+      parse_iso_time(timebuf, &published_on)<0) {
     log_warn(LD_DIR, "Error parsing time '%s %s' [%d %d]",
              tok->args[3+offset], tok->args[4+offset],
              offset, (int)flav);
     goto err;
   }
+  if (vote_rs)
+    vote_rs->published_on = published_on;
 
   if (tor_inet_aton(tok->args[5+offset], &in) == 0) {
     log_warn(LD_DIR, "Error parsing router address in network-status %s",
@@ -1601,7 +1604,7 @@ networkstatus_parse_vote_from_string(const char *s,
       id_hexdigest = tok->args[1];
       sk_hexdigest = tok->args[2];
       a = crypto_digest_algorithm_parse_name(algname);
-      if (a<0) {
+      if (a < 0 || a >= N_COMMON_DIGEST_ALGORITHMS) {
         log_warn(LD_DIR, "Unknown digest algorithm %s; skipping",
                  escaped(algname));
         continue;

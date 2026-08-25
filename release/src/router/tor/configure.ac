@@ -4,7 +4,7 @@ dnl Copyright (c) 2007-2019, The Tor Project, Inc.
 dnl See LICENSE for licensing information
 
 AC_PREREQ([2.63])
-AC_INIT([tor],[0.4.7.16])
+AC_INIT([tor],[0.4.9.11])
 AC_CONFIG_SRCDIR([src/app/main/tor_main.c])
 AC_CONFIG_MACRO_DIR([m4])
 
@@ -18,7 +18,7 @@ AC_DEFINE_UNQUOTED([CONFIG_FLAGS], ["$configure_flags"], [Flags passed to config
 # version number changes.  Tor uses it to make sure that it
 # only shuts down for missing "required protocols" when those protocols
 # are listed as required by a consensus after this date.
-AC_DEFINE(APPROX_RELEASE_DATE, ["2023-11-03"], # for 0.4.7.16
+AC_DEFINE(APPROX_RELEASE_DATE, ["2026-06-25"], # for 0.4.9.11
           [Approximate date when this software was released. (Updated when the version changes.)])
 
 # "foreign" means we don't follow GNU package layout standards
@@ -50,6 +50,19 @@ if test "x$PKG_CONFIG_PATH" = "x" && test "x$prefix" != "xNONE" && test "$host" 
    export PKG_CONFIG_PATH=$prefix/lib/pkgconfig
    AC_MSG_NOTICE([set PKG_CONFIG_PATH=$PKG_CONFIG_PATH to support cross-compiling])
 fi
+
+# License options
+
+AC_ARG_ENABLE(gpl,
+  AS_HELP_STRING(--enable-gpl, [allow the inclusion of GPL-licensed code, building a version of tor and libtor covered by the GPL rather than its usual 3-clause BSD license]))
+license_option=BSD
+AS_IF([test "x$enable_gpl" = xyes],
+  [
+    AC_DEFINE(ENABLE_GPL, 1, [Defined if tor is building in GPL-licensed mode.])
+    license_option=GPL
+  ])
+
+# Optional features
 
 AC_ARG_ENABLE(openbsd-malloc,
    AS_HELP_STRING(--enable-openbsd-malloc, [use malloc code from OpenBSD.  Linux only. Deprecated: see --with-malloc]))
@@ -358,7 +371,7 @@ dnl Tor modules options. These options are namespaced with --disable-module-XXX
 dnl ---
 
 dnl All our modules.
-m4_define(MODULES, relay dirauth dircache)
+m4_define([MODULES], [relay dirauth dircache pow])
 
 # Some modules are only disabled through another option. For those, we don't
 # want to print the help in the summary at the end of the configure. Any entry
@@ -367,6 +380,9 @@ m4_define(MODULES, relay dirauth dircache)
 m4_set_add_all([MODULES_WITH_NO_OPTIONS], [dircache])
 
 dnl Relay module.
+m4_define([module_option_hints(relay)],
+  [AS_IF([test "x$value" = x1], [HINT_OPT([--disable-module-relay])],
+    [HINT_NONE])])
 AC_ARG_ENABLE([module-relay],
               AS_HELP_STRING([--disable-module-relay],
                              [Build tor without the Relay modules: tor can not run as a relay, bridge, or authority. Implies --disable-module-dirauth]))
@@ -384,6 +400,9 @@ AM_COND_IF(BUILD_MODULE_DIRCACHE,
                      [Compile with directory cache support]))
 
 dnl Directory Authority module.
+m4_define([module_option_hints(dirauth)],
+  [AS_IF([test "x$value" = x1], [HINT_OPT([--disable-module-dirauth])],
+    [HINT_NONE])])
 AC_ARG_ENABLE([module-dirauth],
               AS_HELP_STRING([--disable-module-dirauth],
                              [Build tor without the Directory Authority module: tor can not run as a directory authority or bridge authority]))
@@ -391,6 +410,19 @@ AM_CONDITIONAL(BUILD_MODULE_DIRAUTH,[test "x$enable_module_dirauth" != "xno" && 
 AM_COND_IF(BUILD_MODULE_DIRAUTH,
            AC_DEFINE([HAVE_MODULE_DIRAUTH], [1],
                      [Compile with Directory Authority feature support]))
+
+dnl Hidden Service Proof-of-Work module.
+m4_define([module_option_hints(pow)],
+  [AS_IF([test "x$value" = x1], [HINT_OPT([--disable-module-pow])],
+    [AS_IF([test "x$license_option" != "xGPL"], [HINT_OPT([requires --enable-gpl])],
+      [HINT_NONE])])])
+AC_ARG_ENABLE([module-pow],
+              AS_HELP_STRING([--disable-module-pow],
+                             [Build tor without proof-of-work denial of service mitigation, normally available when building with --enable-gpl]))
+AM_CONDITIONAL(BUILD_MODULE_POW,
+               [test "x$license_option" = "xGPL" && test "x$enable_module_pow" != "xno"])
+AM_COND_IF(BUILD_MODULE_POW,
+           AC_DEFINE([HAVE_MODULE_POW], [1], [Compile with proof-of-work support]))
 
 dnl Helper variables.
 TOR_MODULES_ALL_ENABLED=
@@ -536,6 +568,21 @@ CFLAGS="$saved_CFLAGS"
 
 if test "$tor_cv_c_attr_fallthrough" = "yes"; then
   AC_DEFINE(HAVE_ATTR_FALLTHROUGH, [1], [defined if we have the fallthrough attribute.])
+fi
+
+saved_CFLAGS="$CFLAGS"
+CFLAGS="$CFLAGS -Werror"
+AC_CACHE_CHECK([for __attribute__((nonstring))],
+      tor_cv_c_attr_nonstring,
+      [AC_COMPILE_IFELSE(
+         [AC_LANG_PROGRAM([],
+	       [[ __attribute__((nonstring)) const char foo[5] = "abcde"; ]])],
+	 [tor_cv_c_attr_nonstring=yes],
+	 [tor_cv_c_attr_nonstring=no] )])
+CFLAGS="$saved_CFLAGS"
+
+if test "$tor_cv_c_attr_nonstring" = "yes"; then
+  AC_DEFINE(HAVE_ATTR_NONSTRING, [1], [defined if we have the nonstring attribute.])
 fi
 
 TORUSER=_tor
@@ -947,6 +994,23 @@ if test "x$enable_nss" = "xyes"; then
      [have_nss=no; AC_MSG_ERROR([You asked for NSS but I can't find it, $pkg_config_user_action, or set NSS_CFLAGS and NSS_LIBS.])])
   AC_SUBST(NSS_CFLAGS)
   AC_SUBST(NSS_LIBS)
+
+  save_CFLAGS="$CFLAGS"
+  save_LIBS="$LIBS"
+  LIBS="$LIBS $NSS_LIBS"
+  CFLAGS="$CFLAGS $NSS_CFLAGS"
+  AC_MSG_CHECKING([whether NSS defines ssl_kea_ecdh_hybrid(_psk)])
+  AC_COMPILE_IFELSE([AC_LANG_SOURCE([[
+    #include <sslt.h>
+    int v = (int) ssl_kea_ecdh_hybrid_psk;
+    int v2 = (int) ssl_kea_ecdh_hybrid;
+    ]], [[]])],
+    [ AC_MSG_RESULT([yes]);
+      AC_DEFINE(NSS_HAS_ECDH_HYBRID, 1, [whether nss defines ecdh_hybrid key exchange.])
+    ],
+    [ AC_MSG_RESULT([no]) ])
+  LIBS="$save_LIBS"
+  CPPFLAGS="$save_CPPFLAGS"
 fi
 
 dnl ------------------------------------------------------
@@ -968,7 +1032,7 @@ AC_ARG_WITH(ssl-dir,
       fi
   ])
 
-AC_MSG_NOTICE([Now, we'll look for OpenSSL >= 1.0.1])
+AC_MSG_NOTICE([Now, we'll look for OpenSSL.])
 TOR_SEARCH_LIBRARY(openssl, $tryssldir, [-lssl -lcrypto $TOR_LIB_GDI $TOR_LIB_WS32 $TOR_LIB_CRYPT32],
     [#include <openssl/ssl.h>
      char *getenv(const char *);],
@@ -1008,38 +1072,58 @@ dnl and later.  We want to migrate away from them, but that will be a lot of
 dnl work. (See ticket tor#40166.)  For now, we disable the deprecation
 dnl warnings.
 
-AC_MSG_CHECKING([for OpenSSL >= 3.0.0])
-AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
-#include <openssl/opensslv.h>
-#if !defined(LIBRESSL_VERSION_NUMBER) && OPENSSL_VERSION_NUMBER >= 0x30000000L
-#error "you_have_version_3"
-#endif
-   ]], [[]])],
-   [ AC_MSG_RESULT([no]) ],
-   [ AC_MSG_RESULT([yes]);
-     AC_DEFINE(OPENSSL_SUPPRESS_DEPRECATED, 1, [disable openssl deprecated-function warnings]) ])
+dnl --- Check for OpenSSL engine header ---
+AC_CHECK_HEADERS([openssl/engine.h], [],
+  [AC_MSG_ERROR([Missing required header openssl/engine.h.
 
-AC_MSG_CHECKING([for OpenSSL < 1.0.1])
-AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
-#include <openssl/opensslv.h>
-#if !defined(LIBRESSL_VERSION_NUMBER) && OPENSSL_VERSION_NUMBER < 0x1000100fL
-#error "too old"
-#endif
-   ]], [[]])],
-   [ AC_MSG_RESULT([no]) ],
-   [ AC_MSG_ERROR([OpenSSL is too old. We require 1.0.1 or later. You can specify a path to a newer one with --with-openssl-dir.]) ])
+On Debian/Ubuntu install:   libssl-dev
+On Fedora/RHEL install:     openssl-devel-engine
 
-AC_MSG_CHECKING([whether LibreSSL TLS 1.3 APIs are busted])
+Then re-run configure.])])
+
+
+AC_MSG_CHECKING([for OpenSSL implementation])
 AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
 #include <openssl/opensslv.h>
-#if defined(LIBRESSL_VERSION_NUMBER) && \
-     LIBRESSL_VERSION_NUMBER >= 0x3020100fL && \
-     LIBRESSL_VERSION_NUMBER < 0x3040100fL
-#error "oh no"
+#if defined(LIBRESSL_VERSION_NUMBER)
+#error "this is libressl, no worries"
+#endif
+   ]], [[]])],
+   [ openssl_impl=openssl
+     AC_MSG_RESULT([OpenSSL])
+     AC_DEFINE(OPENSSL_SUPPRESS_DEPRECATED, 1, [disable openssl deprecated-function warnings])
+   ],
+   [ openssl_impl=libressl
+     AC_MSG_RESULT([LibreSSL])
+   ])
+
+if test "x$openssl_impl" = "xopenssl"; then
+AC_MSG_CHECKING([for OpenSSL < 1.1.1])
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
+#include <openssl/opensslv.h>
+#if !defined(LIBRESSL_VERSION_NUMBER) && OPENSSL_VERSION_NUMBER < 0x10101000L
+#error "openssl too old"
 #endif
    ]], [[]])],
    [ AC_MSG_RESULT([no]) ],
-   [ AC_MSG_ERROR([This version of LibreSSL won't work with Tor. Please upgrade to LibreSSL 3.4.1 or later. (Or downgrade to 3.2.0 if you really must.)]) ])
+   [ AC_MSG_RESULT([yes])
+     AC_MSG_ERROR([Your version of OpenSSL is too old. We require 1.1.1 or later, and you should use 3.5 if possible.])
+   ])
+fi
+
+if test "x$openssl_impl" = "xlibressl"; then
+AC_MSG_CHECKING([for LibreSSL < 3.7.0])
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
+#include <openssl/opensslv.h>
+#if defined(LIBRESSL_VERSION_NUMBER) && LIBRESSL_VERSION_NUMBER < 0x3070000fL
+#error "libressl too old"
+#endif
+   ]], [[]])],
+   [ AC_MSG_RESULT([no]) ],
+   [ AC_MSG_RESULT([yes])
+     AC_MSG_ERROR([Your version of LibreSSL is too old. We require 3.7.0 or later.])
+   ])
+fi
 
 AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
 #include <openssl/opensslv.h>
@@ -1076,34 +1160,14 @@ AC_RUN_IFELSE([AC_LANG_SOURCE([AC_LANG_PROGRAM([[
    fi], [openssl_ver_mismatch=cross])
 AC_MSG_RESULT([$openssl_ver_mismatch])
 
-AC_CHECK_MEMBERS([struct ssl_method_st.get_cipher_by_char], , ,
-[#include <openssl/ssl.h>
-])
-
 dnl OpenSSL functions which we might not have.  In theory, we could just
 dnl check the openssl version number, but in practice that gets pretty
 dnl confusing with LibreSSL, OpenSSL, and various distributions' patches
 dnl to them.
 AC_CHECK_FUNCS([ \
-		ERR_load_KDF_strings \
 		EVP_PBE_scrypt \
-		SSL_CIPHER_find \
-		SSL_CTX_set1_groups_list \
 		SSL_CTX_set_security_level \
-		SSL_SESSION_get_master_key \
-		SSL_get_client_ciphers \
-		SSL_get_client_random \
-		SSL_get_server_random \
-		TLS_method \
-	       ])
-
-dnl Check if OpenSSL structures are opaque
-AC_CHECK_MEMBERS([SSL.state], , ,
-[#include <openssl/ssl.h>
-])
-
-AC_CHECK_SIZEOF(SHA_CTX, , [AC_INCLUDES_DEFAULT()
-#include <openssl/sha.h>
+		SSL_set_ciphersuites
 ])
 
 fi # enable_nss
@@ -1441,6 +1505,17 @@ dnl for us, as GCC 4.6 and later do at many optimization levels), then
 dnl we should try to add -fasynchronous-unwind-tables so that our backtrace
 dnl code will work.
 TOR_CHECK_CFLAGS(-fasynchronous-unwind-tables)
+
+# From https://gcc.gnu.org/onlinedocs/gcc/Instrumentation-Options.html:
+#
+# Enable code instrumentation to increase program security by checking that
+# target addresses of control-flow transfer instructions are valid. This
+# prevents diverting the flow of control to an unexpected target. This is
+# intended to protect against such threats as Return-oriented Programming
+# (ROP), and similarly call/jmp-oriented programming (COP/JOP).
+TOR_CHECK_CFLAGS(-fcf-protection=full)
+# The equivalent for arm64 (#41139)
+TOR_CHECK_CFLAGS(-mbranch-protection=standard)
 
 dnl ============================================================
 dnl Check for libseccomp
@@ -2357,7 +2432,6 @@ if test "x$enable_gcc_warnings_advisory" != "xno"; then
      -Wexplicit-ownership-type
      -Wextern-initializer
      -Wextra
-     -Wextra-semi
      -Wextra-tokens
      -Wflexible-array-extensions
      -Wfloat-conversion
@@ -2505,6 +2579,8 @@ if test "x$enable_gcc_warnings_advisory" != "xno"; then
               [TOR_WARNING_FLAGS="$TOR_WARNING_FLAGS warning_flag" CFLAGS="$CFLAGS warning_flag"], true)
      ])
 
+  AX_CHECK_COMPILE_FLAG([-Wextra-semi], [CFLAGS="$CFLAGS -Wextra-semi"], [], [-Werror])
+
 dnl    We should re-enable this in some later version.  Clang doesn't
 dnl    mind, but it causes trouble with GCC.
 dnl     -Wstrict-overflow=2
@@ -2566,6 +2642,17 @@ if test "$enable_coverage" = "yes" && test "$have_clang" = "no"; then
       AC_MSG_WARN([Tried to enable coverage on OSX without using the clang compiler. This might not work! If coverage fails, use CC=clang when configuring with --enable-coverage.])
    esac
 fi
+
+# These HashX parameter definitions are needed in CPPFLAGS when compiling
+# the equix and hashx ext modules, but elsewhere in tor we can use orconfig.h
+
+m4_define([equix_hashx_size], [8])
+[HASHX_SIZE=]equix_hashx_size
+AC_SUBST([HASHX_SIZE])
+AC_DEFINE([HASHX_SIZE], equix_hashx_size,
+          [Output size in bytes for the internal customization of HashX])
+AC_DEFINE([HASHX_STATIC], [1], [We statically link with HashX])
+AC_DEFINE([EQUIX_STATIC], [1], [We statically link with EquiX])
 
 CPPFLAGS="$CPPFLAGS $TOR_CPPFLAGS_libevent $TOR_CPPFLAGS_openssl $TOR_CPPFLAGS_zlib"
 
@@ -2645,6 +2732,7 @@ PPRINT_SUBTITLE([Build Features])
 
 PPRINT_PROP_STRING([Compiler], [$CC])
 PPRINT_PROP_STRING([Host OS], [$host_os])
+PPRINT_PROP_STRING([License Option], [$license_option])
 AS_ECHO
 
 test "x$enable_fatal_warnings" = "xyes" && value=1 || value=0
@@ -2713,12 +2801,22 @@ PPRINT_PROP_BOOL([Fragile Hardening (--enable-fragile-hardening, dev only)], $va
 AS_ECHO
 PPRINT_SUBTITLE([Modules])
 
+# Modules have documentation hints indicating how they can be enabled
+# or disabled, and those hints can select which version of our message
+# to show based on variables at configure-time.
+#
+# Each "module_option_hints(<name>)" macro, if it exists, must
+# visit exactly one HINT_* macro using shell conditionals.
+
 m4_foreach_w([mname], MODULES,
   [
     AM_COND_IF(m4_join([], [BUILD_MODULE_], m4_toupper([]mname[])), value=1, value=0)
-    m4_set_contains([MODULES_WITH_NO_OPTIONS], mname,
-                    PPRINT_PROP_BOOL([mname], $value),
-                    PPRINT_PROP_BOOL([mname (--disable-module-mname)], $value))
+    m4_pushdef([HINT_OPT], [PPRINT_PROP_BOOL](mname ($1), [[$value]]))
+    m4_pushdef([HINT_NONE], [PPRINT_PROP_BOOL](mname, [[$value]]))
+    m4_ifdef([module_option_hints](mname),
+      [m4_indir([module_option_hints](mname))],
+      [HINT_NONE])
+    m4_popdef([HINT_OPT], [HINT_NONE])
   ]
 )
 

@@ -243,7 +243,6 @@ router_rebuild_store(int flags, desc_store_t *store)
   int r = -1;
   off_t offset = 0;
   smartlist_t *signed_descriptors = NULL;
-  int nocache=0;
   size_t total_expected_len = 0;
   int had_any;
   int force = flags & RRS_FORCE;
@@ -304,7 +303,6 @@ router_rebuild_store(int flags, desc_store_t *store)
         goto done;
       }
       if (sd->do_not_cache) {
-        ++nocache;
         continue;
       }
       c = tor_malloc(sizeof(sized_chunk_t));
@@ -558,8 +556,9 @@ router_can_choose_node(const node_t *node, int flags)
   const bool need_desc = (flags & CRN_NEED_DESC) != 0;
   const bool pref_addr = (flags & CRN_PREF_ADDR) != 0;
   const bool direct_conn = (flags & CRN_DIRECT_CONN) != 0;
-  const bool rendezvous_v3 = (flags & CRN_RENDEZVOUS_V3) != 0;
   const bool initiate_ipv6_extend = (flags & CRN_INITIATE_IPV6_EXTEND) != 0;
+  const bool need_conflux = (flags & CRN_CONFLUX) != 0;
+  const bool for_hs = (flags & CRN_FOR_HS) != 0;
 
   const or_options_t *options = get_options();
   const bool check_reach =
@@ -589,11 +588,10 @@ router_can_choose_node(const node_t *node, int flags)
    * 0.3.1.0-alpha. */
   if (node_allows_single_hop_exits(node))
     return false;
-  /* Exclude relays that can not become a rendezvous for a hidden service
-   * version 3. */
-  if (rendezvous_v3 &&
-      !node_supports_v3_rendezvous_point(node))
+  /* Exclude relay that don't do conflux if requested. */
+  if (need_conflux && !node_supports_conflux(node)) {
     return false;
+  }
   /* Choose a node with an OR address that matches the firewall rules */
   if (direct_conn && check_reach &&
       !reachable_addr_allows_node(node,
@@ -602,6 +600,10 @@ router_can_choose_node(const node_t *node, int flags)
     return false;
   if (initiate_ipv6_extend && !node_supports_initiating_ipv6_extends(node))
     return false;
+  /* MiddleOnly node should never be used for HS endpoints (IP, RP, HSDir). */
+  if (for_hs && node->is_middle_only) {
+    return false;
+  }
 
   return true;
 }
@@ -927,8 +929,8 @@ routerinfo_free_(routerinfo_t *router)
   tor_free(router->platform);
   tor_free(router->protocol_list);
   tor_free(router->contact_info);
-  if (router->onion_pkey)
-    tor_free(router->onion_pkey);
+  if (router->tap_onion_pkey)
+    tor_free(router->tap_onion_pkey);
   tor_free(router->onion_curve25519_pkey);
   if (router->identity_pkey)
     crypto_pk_free(router->identity_pkey);
@@ -936,6 +938,10 @@ routerinfo_free_(routerinfo_t *router)
   if (router->declared_family) {
     SMARTLIST_FOREACH(router->declared_family, char *, s, tor_free(s));
     smartlist_free(router->declared_family);
+  }
+  if (router->family_ids) {
+    SMARTLIST_FOREACH(router->family_ids, char *, cp, tor_free(cp));
+    smartlist_free(router->family_ids);
   }
   addr_policy_list_free(router->exit_policy);
   short_policy_free(router->ipv6_exit_policy);
@@ -1924,11 +1930,9 @@ routerlist_remove_old_routers(void)
     retain = digestset_new(n_max_retain);
   }
 
-  cutoff = now - OLD_ROUTER_DESC_MAX_AGE;
   /* Retain anything listed in the consensus. */
   if (consensus) {
     SMARTLIST_FOREACH(consensus->routerstatus_list, routerstatus_t *, rs,
-        if (rs->published_on >= cutoff)
           digestset_add(retain, rs->descriptor_digest));
   }
 
@@ -2653,7 +2657,7 @@ update_consensus_router_descriptor_downloads(time_t now, int is_vote,
   digestmap_t *map = NULL;
   smartlist_t *no_longer_old = smartlist_new();
   smartlist_t *downloadable = smartlist_new();
-  routerstatus_t *source = NULL;
+  const routerstatus_t *source = NULL;
   int authdir = authdir_mode(options);
   int n_delayed=0, n_have=0, n_would_reject=0, n_wouldnt_use=0,
     n_inprogress=0, n_in_oldrouters=0;
@@ -2669,10 +2673,17 @@ update_consensus_router_descriptor_downloads(time_t now, int is_vote,
     networkstatus_voter_info_t *voter = smartlist_get(consensus->voters, 0);
     tor_assert(voter);
     ds = trusteddirserver_get_by_v3_auth_digest(voter->identity_digest);
-    if (ds)
-      source = &(ds->fake_status);
-    else
+    if (ds) {
+      source = router_get_consensus_status_by_id(ds->digest);
+      if (!source) {
+        /* prefer to use the address in the consensus, but fall back to
+         * the hard-coded trusted_dir_server address if we don't have a
+         * consensus or this digest isn't in our consensus. */
+        source = &ds->fake_status;
+      }
+    } else {
       log_warn(LD_DIR, "couldn't lookup source from vote?");
+    }
   }
 
   map = digestmap_new();
@@ -2721,17 +2732,20 @@ update_consensus_router_descriptor_downloads(time_t now, int is_vote,
         continue; /* We would never use it ourself. */
       }
       if (is_vote && source) {
-        char time_bufnew[ISO_TIME_LEN+1];
-        char time_bufold[ISO_TIME_LEN+1];
+        char old_digest_buf[HEX_DIGEST_LEN+1];
+        const char *old_digest = "none";
         const routerinfo_t *oldrouter;
         oldrouter = router_get_by_id_digest(rs->identity_digest);
-        format_iso_time(time_bufnew, rs->published_on);
-        if (oldrouter)
-          format_iso_time(time_bufold, oldrouter->cache_info.published_on);
+        if (oldrouter) {
+          base16_encode(old_digest_buf, sizeof(old_digest_buf),
+                        oldrouter->cache_info.signed_descriptor_digest,
+                        DIGEST_LEN);
+          old_digest = old_digest_buf;
+        }
         log_info(LD_DIR, "Learned about %s (%s vs %s) from %s's vote (%s)",
                  routerstatus_describe(rs),
-                 time_bufnew,
-                 oldrouter ? time_bufold : "none",
+                 hex_str(rs->descriptor_digest, DIGEST_LEN),
+                 old_digest,
                  source->nickname, oldrouter ? "known" : "unknown");
       }
       smartlist_add(downloadable, rs->descriptor_digest);
@@ -2946,6 +2960,24 @@ router_reset_descriptor_download_failures(void)
 /** We allow uptime to vary from how much it ought to be by this much. */
 #define ROUTER_ALLOW_UPTIME_DRIFT (6*60*60)
 
+/** Return true iff r1 and r2 have the same TAP onion keys. */
+static int
+router_tap_onion_keys_eq(const routerinfo_t *r1, const routerinfo_t *r2)
+{
+  if (r1->tap_onion_pkey_len != r2->tap_onion_pkey_len)
+    return 0;
+
+  if ((r1->tap_onion_pkey == NULL) && (r2->tap_onion_pkey == NULL)) {
+    return 1;
+  } else if ((r1->tap_onion_pkey != NULL) && (r2->tap_onion_pkey != NULL)) {
+    return tor_memeq(r1->tap_onion_pkey, r2->tap_onion_pkey,
+                     r1->tap_onion_pkey_len);
+  } else {
+    /* One is NULL; one is not. */
+    return 0;
+  }
+}
+
 /** Return true iff the only differences between r1 and r2 are such that
  * would not cause a recent (post 0.1.1.6) dirserver to republish.
  */
@@ -2971,8 +3003,7 @@ router_differences_are_cosmetic(const routerinfo_t *r1, const routerinfo_t *r2)
       r1->ipv6_orport != r2->ipv6_orport ||
       r1->ipv4_dirport != r2->ipv4_dirport ||
       r1->purpose != r2->purpose ||
-      r1->onion_pkey_len != r2->onion_pkey_len ||
-      !tor_memeq(r1->onion_pkey, r2->onion_pkey, r1->onion_pkey_len) ||
+      !router_tap_onion_keys_eq(r1,r2) ||
       !crypto_pk_eq_keys(r1->identity_pkey, r2->identity_pkey) ||
       strcasecmp(r1->platform, r2->platform) ||
       (r1->contact_info && !r2->contact_info) || /* contact_info is optional */

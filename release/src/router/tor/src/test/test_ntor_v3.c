@@ -14,6 +14,8 @@
 #include "core/or/extend_info_st.h"
 #include "core/or/crypt_path_st.h"
 #define TOR_CONGESTION_CONTROL_PRIVATE
+#define TOR_CONGESTION_CONTROL_COMMON_PRIVATE
+#include "core/or/congestion_control_st.h"
 #include "core/or/congestion_control_common.h"
 #include "app/config/config.h"
 
@@ -190,6 +192,7 @@ run_full_handshake(circuit_params_t *serv_params_in,
   uint8_t client_keys[CELL_PAYLOAD_SIZE];
   uint8_t rend_auth[DIGEST_LEN];
 
+  info.supports_ntor_v3 = true;
   info.exit_supports_congestion_control = 1;
 
   unhex(relay_onion_key.seckey.secret_key,
@@ -216,18 +219,20 @@ run_full_handshake(circuit_params_t *serv_params_in,
 
   server_keys.junk_keypair = &handshake_state.u.ntor3->client_keypair;
 
+  size_t serv_keylen = sizeof(serv_keys);
+  size_t client_keylen = sizeof(serv_keys);
   reply_len = onion_skin_server_handshake(ONION_HANDSHAKE_TYPE_NTOR_V3,
                               onionskin, onionskin_len,
                               &server_keys, serv_params_in,
                               serv_reply, sizeof(serv_reply),
-                              serv_keys, sizeof(serv_keys),
+                              serv_keys, &serv_keylen,
                               rend_nonce, serv_params_out);
   tt_int_op(reply_len, OP_NE, -1);
 
   tt_int_op(onion_skin_client_handshake(ONION_HANDSHAKE_TYPE_NTOR_V3,
                               &handshake_state,
                               serv_reply, reply_len,
-                              client_keys, sizeof(client_keys),
+                              client_keys, &client_keylen,
                               rend_auth, client_params_out,
                               NULL), OP_EQ, 0);
 
@@ -262,6 +267,7 @@ test_ntor3_handshake(void *arg)
   tt_int_op(serv_params.cc_enabled, OP_EQ, 0);
 
   /* client off, serv on -> off */
+  congestion_control_set_cc_disabled();
   serv_ns_params.cc_enabled = 1;
   run_full_handshake(&serv_ns_params, &client_params, &serv_params);
   tt_int_op(client_params.cc_enabled, OP_EQ, 0);

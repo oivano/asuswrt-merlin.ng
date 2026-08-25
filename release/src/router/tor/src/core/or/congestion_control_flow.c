@@ -28,6 +28,7 @@
 #include "core/or/connection_st.h"
 #include "core/or/cell_st.h"
 #include "app/config/config.h"
+#include "core/or/conflux_util.h"
 
 /** Cache consensus parameters */
 static uint32_t xoff_client;
@@ -48,6 +49,33 @@ double cc_stats_flow_xon_outbuf_ma = 0;
  * and strange logic in connection_bucket_get_share(). */
 #define MAX_EXPECTED_CELL_BURST 32
 
+/* This is the grace period that we use to give the edge connection a chance to
+ * reduce its outbuf before we send an XOFF.
+ *
+ * The congestion control spec says:
+ * > If the length of an edge outbuf queue exceeds the size provided in the
+ * > appropriate client or exit XOFF consensus parameter, a
+ * > RELAY_COMMAND_STREAM_XOFF will be sent
+ *
+ * This doesn't directly adapt well to tor, where we process many incoming
+ * messages at once. We may buffer a lot of stream data before giving the
+ * mainloop a chance to flush the the edge connection's outbuf, even if the
+ * edge connection's socket is able to accept more bytes.
+ *
+ * Instead if we detect that we should send an XOFF (as described in the cc
+ * spec), we delay sending an XOFF for `XOFF_GRACE_PERIOD_USEC` microseconds.
+ * This gives the mainloop a chance to flush the buffer to the edge
+ * connection's socket. If this flush causes the outbuf queue to shrink under
+ * our XOFF limit, then we no longer need to send an XOFF. If after
+ * `XOFF_GRACE_PERIOD_USEC` we receive another message and the outbuf queue
+ * still exceeds the XOFF limit, we send an XOFF.
+ *
+ * The value of 5 milliseconds was chosen arbitrarily. In practice it should be
+ * enough time for the edge connection to get a chance to flush, but not too
+ * long to cause excessive buffering.
+ */
+#define XOFF_GRACE_PERIOD_USEC (5000)
+
 /* The following three are for dropmark rate limiting. They define when we
  * scale down our XON, XOFF, and xmit byte counts. Early scaling is beneficial
  * because it limits the ability of spurious XON/XOFF to be sent after large
@@ -59,27 +87,6 @@ double cc_stats_flow_xon_outbuf_ma = 0;
 #define XOFF_COUNT_SCALE_AT 200
 #define ONE_MEGABYTE (UINT64_C(1) << 20)
 #define TOTAL_XMIT_SCALE_AT (10 * ONE_MEGABYTE)
-
-/**
- * Return the congestion control object of the given edge connection.
- *
- * Returns NULL if the edge connection doesn't have a cpath_layer or not
- * attached to a circuit. But also if the cpath_layer or circuit doesn't have a
- * congestion control object.
- */
-static inline const congestion_control_t *
-edge_get_ccontrol(const edge_connection_t *edge)
-{
-  congestion_control_t *ccontrol = NULL;
-
-  if (edge->on_circuit && edge->on_circuit->ccontrol) {
-    ccontrol = edge->on_circuit->ccontrol;
-  } else if (edge->cpath_layer && edge->cpath_layer->ccontrol) {
-    ccontrol = edge->cpath_layer->ccontrol;
-  }
-
-  return ccontrol;
-}
 
 /**
  * Update global congestion control related consensus parameter values, every
@@ -97,7 +104,7 @@ flow_control_new_consensus_params(const networkstatus_t *ns)
   xoff_client = networkstatus_get_param(ns, "cc_xoff_client",
       CC_XOFF_CLIENT_DFLT,
       CC_XOFF_CLIENT_MIN,
-      CC_XOFF_CLIENT_MAX)*RELAY_PAYLOAD_SIZE;
+      CC_XOFF_CLIENT_MAX)*RELAY_PAYLOAD_SIZE_MIN;
 
 #define CC_XOFF_EXIT_DFLT 500
 #define CC_XOFF_EXIT_MIN 1
@@ -105,7 +112,7 @@ flow_control_new_consensus_params(const networkstatus_t *ns)
   xoff_exit = networkstatus_get_param(ns, "cc_xoff_exit",
       CC_XOFF_EXIT_DFLT,
       CC_XOFF_EXIT_MIN,
-      CC_XOFF_EXIT_MAX)*RELAY_PAYLOAD_SIZE;
+      CC_XOFF_EXIT_MAX)*RELAY_PAYLOAD_SIZE_MIN;
 
 #define CC_XON_CHANGE_PCT_DFLT 25
 #define CC_XON_CHANGE_PCT_MIN 1
@@ -121,7 +128,7 @@ flow_control_new_consensus_params(const networkstatus_t *ns)
   xon_rate_bytes = networkstatus_get_param(ns, "cc_xon_rate",
       CC_XON_RATE_BYTES_DFLT,
       CC_XON_RATE_BYTES_MIN,
-      CC_XON_RATE_BYTES_MAX)*RELAY_PAYLOAD_SIZE;
+      CC_XON_RATE_BYTES_MAX)*RELAY_PAYLOAD_SIZE_MAX;
 
 #define CC_XON_EWMA_CNT_DFLT (2)
 #define CC_XON_EWMA_CNT_MIN (2)
@@ -252,10 +259,8 @@ circuit_send_stream_xon(edge_connection_t *stream)
  */
 bool
 circuit_process_stream_xoff(edge_connection_t *conn,
-                            const crypt_path_t *layer_hint,
-                            const cell_t *cell)
+                            const crypt_path_t *layer_hint)
 {
-  (void)cell;
   bool retval = true;
 
   if (BUG(!conn)) {
@@ -265,13 +270,13 @@ circuit_process_stream_xoff(edge_connection_t *conn,
   }
 
   /* Make sure this XOFF came from the right hop */
-  if (layer_hint && layer_hint != conn->cpath_layer) {
+  if (!edge_uses_cpath(conn, layer_hint)) {
     log_fn(LOG_PROTOCOL_WARN, LD_EDGE,
             "Got XOFF from wrong hop.");
     return false;
   }
 
-  if (edge_get_ccontrol(conn) == NULL) {
+  if (!edge_uses_flow_control(conn)) {
     log_fn(LOG_PROTOCOL_WARN, LD_EDGE,
            "Got XOFF for non-congestion control circuit");
     return false;
@@ -347,7 +352,7 @@ circuit_process_stream_xoff(edge_connection_t *conn,
 bool
 circuit_process_stream_xon(edge_connection_t *conn,
                            const crypt_path_t *layer_hint,
-                           const cell_t *cell)
+                           const relay_msg_t *msg)
 {
   xon_cell_t *xon;
   bool retval = true;
@@ -359,20 +364,19 @@ circuit_process_stream_xon(edge_connection_t *conn,
   }
 
   /* Make sure this XON came from the right hop */
-  if (layer_hint && layer_hint != conn->cpath_layer) {
+  if (!edge_uses_cpath(conn, layer_hint)) {
     log_fn(LOG_PROTOCOL_WARN, LD_EDGE,
            "Got XON from wrong hop.");
     return false;
   }
 
-  if (edge_get_ccontrol(conn) == NULL) {
+  if (!edge_uses_flow_control(conn)) {
     log_fn(LOG_PROTOCOL_WARN, LD_EDGE,
            "Got XON for non-congestion control circuit");
     return false;
   }
 
-  if (xon_cell_parse(&xon, cell->payload+RELAY_HEADER_SIZE,
-                     CELL_PAYLOAD_SIZE-RELAY_HEADER_SIZE) < 0) {
+  if (xon_cell_parse(&xon, msg->body, msg->length) < 0) {
     log_fn(LOG_PROTOCOL_WARN, LD_EDGE,
           "Received malformed XON cell.");
     return false;
@@ -464,7 +468,7 @@ flow_control_decide_xoff(edge_connection_t *stream)
   size_t total_buffered = connection_get_outbuf_len(TO_CONN(stream));
   uint32_t buffer_limit_xoff = 0;
 
-  if (BUG(edge_get_ccontrol(stream) == NULL)) {
+  if (BUG(!edge_uses_flow_control(stream))) {
     log_err(LD_BUG, "Flow control called for non-congestion control circuit");
     return -1;
   }
@@ -479,20 +483,47 @@ flow_control_decide_xoff(edge_connection_t *stream)
 
   if (total_buffered > buffer_limit_xoff) {
     if (!stream->xoff_sent) {
-      log_info(LD_EDGE, "Sending XOFF: %"TOR_PRIuSZ" %d",
-                 total_buffered, buffer_limit_xoff);
-      tor_trace(TR_SUBSYS(cc), TR_EV(flow_decide_xoff_sending), stream);
+      uint64_t now = monotime_absolute_usec();
 
-      cc_stats_flow_xoff_outbuf_ma =
-        stats_update_running_avg(cc_stats_flow_xoff_outbuf_ma,
-                                 total_buffered);
+      if (stream->xoff_grace_period_start_usec == 0) {
+        /* If unset, we haven't begun the XOFF grace period. We need to start.
+         */
+        log_debug(LD_EDGE,
+                  "Exceeded XOFF limit; Beginning grace period: "
+                  "total-buffered=%" TOR_PRIuSZ " xoff-limit=%d",
+                  total_buffered, buffer_limit_xoff);
 
-      circuit_send_stream_xoff(stream);
+        stream->xoff_grace_period_start_usec = now;
+      } else if (now > stream->xoff_grace_period_start_usec +
+                           XOFF_GRACE_PERIOD_USEC) {
+        /* If we've exceeded our XOFF grace period, we need to send an XOFF. */
+        log_info(LD_EDGE,
+                 "Sending XOFF: total-buffered=%" TOR_PRIuSZ
+                 " xoff-limit=%d grace-period-dur=%" PRIu64 "usec",
+                 total_buffered, buffer_limit_xoff,
+                 now - stream->xoff_grace_period_start_usec);
+        tor_trace(TR_SUBSYS(cc), TR_EV(flow_decide_xoff_sending), stream);
 
-      /* Clear the drain rate. It is considered wrong if we
-       * got all the way to XOFF */
-      stream->ewma_drain_rate = 0;
+        cc_stats_flow_xoff_outbuf_ma =
+          stats_update_running_avg(cc_stats_flow_xoff_outbuf_ma,
+                                   total_buffered);
+
+        circuit_send_stream_xoff(stream);
+
+        /* Clear the drain rate. It is considered wrong if we
+         * got all the way to XOFF */
+        stream->ewma_drain_rate = 0;
+
+        /* Unset our grace period. */
+        stream->xoff_grace_period_start_usec = 0;
+      } else {
+        /* Else we're in the XOFF grace period, so don't do anything. */
+      }
     }
+  } else {
+    /* The outbuf length is less than the XOFF limit, so unset our grace
+     * period. */
+    stream->xoff_grace_period_start_usec = 0;
   }
 
   /* If the outbuf has accumulated more than the expected burst limit of
@@ -500,7 +531,7 @@ flow_control_decide_xoff(edge_connection_t *stream)
    * do this because writes only happen when the socket unblocks, so
    * may not otherwise notice accumulation of data in the outbuf for
    * advisory XONs. */
-   if (total_buffered > MAX_EXPECTED_CELL_BURST*RELAY_PAYLOAD_SIZE) {
+   if (total_buffered > MAX_EXPECTED_CELL_BURST*RELAY_PAYLOAD_SIZE_MIN) {
      flow_control_decide_xon(stream, 0);
    }
 
@@ -717,21 +748,6 @@ edge_uses_flow_control(const edge_connection_t *stream)
   return ret;
 }
 
-/**
- * Returns the max RTT for the circuit that carries this stream,
- * as observed by congestion control.
- */
-uint64_t
-edge_get_max_rtt(const edge_connection_t *stream)
-{
-  if (stream->on_circuit && stream->on_circuit->ccontrol)
-    return stream->on_circuit->ccontrol->max_rtt_usec;
-  else if (stream->cpath_layer && stream->cpath_layer->ccontrol)
-    return stream->cpath_layer->ccontrol->max_rtt_usec;
-
-  return 0;
-}
-
 /** Returns true if a connection is an edge conn that uses flow control */
 bool
 conn_uses_flow_control(connection_t *conn)
@@ -748,4 +764,3 @@ conn_uses_flow_control(connection_t *conn)
 
   return ret;
 }
-

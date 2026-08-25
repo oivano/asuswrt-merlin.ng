@@ -24,11 +24,16 @@ origin_circuit_t *origin_circuit_init(uint8_t purpose, int flags);
 origin_circuit_t *circuit_establish_circuit(uint8_t purpose,
                                             extend_info_t *exit,
                                             int flags);
+MOCK_DECL(origin_circuit_t *, circuit_establish_circuit_conflux, (
+                                            const uint8_t *nonce,
+                                            uint8_t purpose,
+                                            extend_info_t *exit,
+                                            int flags));
+
 struct circuit_guard_state_t *origin_circuit_get_guard_state(
                                             origin_circuit_t *circ);
 int circuit_handle_first_hop(origin_circuit_t *circ);
-void circuit_n_chan_done(channel_t *chan, int status,
-                         int close_origin_circuits);
+void circuit_n_chan_done(channel_t *chan, int status);
 int circuit_timeout_want_to_count_circ(const origin_circuit_t *circ);
 int circuit_send_next_onion_skin(origin_circuit_t *circ);
 void circuit_note_clock_jumped(int64_t seconds_elapsed, bool was_idle);
@@ -42,7 +47,6 @@ MOCK_DECL(int, circuit_all_predicted_ports_handled, (time_t now,
 
 int circuit_append_new_exit(origin_circuit_t *circ, extend_info_t *info);
 int circuit_extend_to_new_exit(origin_circuit_t *circ, extend_info_t *info);
-int circuit_can_use_tap(const origin_circuit_t *circ);
 int circuit_has_usable_onion_key(const origin_circuit_t *circ);
 const uint8_t *build_state_get_exit_rsa_id(cpath_build_state_t *state);
 MOCK_DECL(const node_t *,
@@ -51,7 +55,8 @@ const char *build_state_get_exit_nickname(cpath_build_state_t *state);
 
 struct circuit_guard_state_t;
 
-const node_t *choose_good_entry_server(uint8_t purpose,
+const node_t *choose_good_entry_server(const origin_circuit_t *circ,
+                           uint8_t purpose,
                            cpath_build_state_t *state,
                            struct circuit_guard_state_t **guard_state_out);
 void circuit_upgrade_circuits_from_guard_wait(void);
@@ -64,9 +69,11 @@ circuit_deliver_create_cell,(circuit_t *circ,
                              const struct create_cell_t *create_cell,
                              int relayed));
 
+struct circuit_params_t;
 int client_circ_negotiation_message(const extend_info_t *ei,
                                     uint8_t **msg_out,
-                                    size_t *msg_len_out);
+                                    size_t *msg_len_out,
+                                    struct circuit_params_t *params_out);
 
 #ifdef CIRCUITBUILD_PRIVATE
 STATIC circid_t get_unique_circ_id_by_chan(channel_t *chan);
@@ -78,8 +85,7 @@ MOCK_DECL(STATIC int, count_acceptable_nodes, (const smartlist_t *nodes,
 STATIC int onion_extend_cpath(origin_circuit_t *circ);
 
 STATIC int
-onion_pick_cpath_exit(origin_circuit_t *circ, extend_info_t *exit_ei,
-                      int is_hs_v3_rp_circuit);
+onion_pick_cpath_exit(origin_circuit_t *circ, extend_info_t *exit_ei);
 STATIC int cpath_build_state_to_crn_flags(const cpath_build_state_t *state);
 STATIC int cpath_build_state_to_crn_ipv6_extend_flag(
                                              const cpath_build_state_t *state,

@@ -28,11 +28,15 @@ struct edge_connection_t {
                        * circuit? */
   int deliver_window; /**< How many more relay cells can end at me? */
 
-  struct circuit_t *on_circuit; /**< The circuit (if any) that this edge
-                                 * connection is using. */
+  /** The circuit (if any) that this edge connection is using.
+   * Note that edges that use conflux should use the helpers
+   * in conflux_util.c instead of accessing this directly. */
+  struct circuit_t *on_circuit;
 
   /** A pointer to which node in the circ this conn exits at.  Set for AP
-   * connections and for hidden service exit connections. */
+   * connections and for hidden service exit connections.
+   * Note that edges that use conflux should use the helpers
+   * in conflux_util.c instead of accessing this directly. */
   struct crypt_path_t *cpath_layer;
 
   /* Hidden service connection identifier for edge connections. Used by the HS
@@ -66,9 +70,6 @@ struct edge_connection_t {
                          * connections.  Set once we've set the stream end,
                          * and check in connection_about_to_close_connection().
                          */
-  /** True iff we've blocked reading until the circuit has fewer queued
-   * cells. */
-  unsigned int edge_blocked_on_circ:1;
 
   /** Unique ID for directory requests; this used to be in connection_t, but
    * that's going away and being used on channels instead.  We still tag
@@ -86,6 +87,18 @@ struct edge_connection_t {
    * Monotime timestamp of the last time we sent a flow control message
    * for this edge, used to compute advisory rates */
   uint64_t drain_start_usec;
+
+  /**
+   * Monotime timestamp of when we started the XOFF grace period for this edge.
+   *
+   * See the comments on `XOFF_GRACE_PERIOD_USEC` for an explanation on how
+   * this is used.
+   *
+   * A value of 0 is considered "unset". This isn't great, but we set this
+   * field as the output from `monotime_absolute_usec()` which should only ever
+   * be 0 within the first 1 microsecond of initializing the monotonic timer
+   * subsystem. */
+  uint64_t xoff_grace_period_start_usec;
 
   /**
    * Number of bytes written since we either emptied our buffers,

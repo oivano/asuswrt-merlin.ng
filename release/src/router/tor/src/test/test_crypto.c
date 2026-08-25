@@ -6,10 +6,14 @@
 #include "orconfig.h"
 #define CRYPTO_CURVE25519_PRIVATE
 #define CRYPTO_RAND_PRIVATE
+#define USE_AES_RAW
+#define TOR_AES_PRIVATE
 #include "core/or/or.h"
 #include "test/test.h"
 #include "lib/crypt_ops/aes.h"
 #include "siphash.h"
+#include "ext/compat_blake2.h"
+#include "ext/equix/hashx/include/hashx.h"
 #include "lib/crypt_ops/crypto_curve25519.h"
 #include "lib/crypt_ops/crypto_dh.h"
 #include "lib/crypt_ops/crypto_ed25519.h"
@@ -19,6 +23,7 @@
 #include "lib/crypt_ops/crypto_init.h"
 #include "ed25519_vectors.inc"
 #include "test/log_test_helpers.h"
+#include "ext/polyval/polyval.h"
 
 #ifdef HAVE_SYS_STAT_H
 #include <sys/stat.h>
@@ -41,10 +46,10 @@ test_crypto_dh(void *arg)
   crypto_dh_t *dh1 = crypto_dh_new(DH_TYPE_CIRCUIT);
   crypto_dh_t *dh1_dup = NULL;
   crypto_dh_t *dh2 = crypto_dh_new(DH_TYPE_CIRCUIT);
-  char p1[DH1024_KEY_LEN];
-  char p2[DH1024_KEY_LEN];
-  char s1[DH1024_KEY_LEN];
-  char s2[DH1024_KEY_LEN];
+  char p1[DH2048_KEY_LEN];
+  char p2[DH2048_KEY_LEN];
+  char s1[DH2048_KEY_LEN];
+  char s2[DH2048_KEY_LEN];
   ssize_t s1len, s2len;
 #ifdef ENABLE_OPENSSL
   crypto_dh_t *dh3 = NULL;
@@ -180,27 +185,23 @@ test_crypto_dh(void *arg)
   {
     /* Make sure that our crypto library can handshake with openssl. */
     dh3 = crypto_dh_new(DH_TYPE_TLS);
-    tt_assert(!crypto_dh_get_public(dh3, p1, DH1024_KEY_LEN));
+    tt_assert(!crypto_dh_get_public(dh3, p1, sizeof(p1)));
 
     dh4 = crypto_dh_new_openssl_tls();
     tt_assert(DH_generate_key(dh4));
     const BIGNUM *pk=NULL;
-#ifdef OPENSSL_1_1_API
     const BIGNUM *sk=NULL;
     DH_get0_key(dh4, &pk, &sk);
-#else
-    pk = dh4->pub_key;
-#endif /* defined(OPENSSL_1_1_API) */
     tt_assert(pk);
-    tt_int_op(BN_num_bytes(pk), OP_LE, DH1024_KEY_LEN);
+    tt_int_op(BN_num_bytes(pk), OP_LE, DH_TLS_KEY_BITS / 8);
     tt_int_op(BN_num_bytes(pk), OP_GT, 0);
     memset(p2, 0, sizeof(p2));
     /* right-pad. */
-    BN_bn2bin(pk, (unsigned char *)(p2+DH1024_KEY_LEN-BN_num_bytes(pk)));
+    BN_bn2bin(pk, (unsigned char *)(p2+sizeof(p2)-BN_num_bytes(pk)));
 
-    s1len = crypto_dh_handshake(LOG_WARN, dh3, p2, DH1024_KEY_LEN,
+    s1len = crypto_dh_handshake(LOG_WARN, dh3, p2, DH_TLS_KEY_BITS / 8,
                                 (unsigned char *)s1, sizeof(s1));
-    pubkey_tmp = BN_bin2bn((unsigned char *)p1, DH1024_KEY_LEN, NULL);
+    pubkey_tmp = BN_bin2bn((unsigned char *)p1, DH_TLS_KEY_BITS / 8, NULL);
     s2len = DH_compute_key((unsigned char *)s2, pubkey_tmp, dh4);
 
     tt_int_op(s1len, OP_EQ, s2len);
@@ -258,14 +259,12 @@ test_crypto_openssl_version(void *arg)
 static void
 test_crypto_aes128(void *arg)
 {
+  (void)arg;
   char *data1 = NULL, *data2 = NULL, *data3 = NULL;
   crypto_cipher_t *env1 = NULL, *env2 = NULL;
   int i, j;
   char *mem_op_hex_tmp=NULL;
   char key[CIPHER_KEY_LEN];
-  int use_evp = !strcmp(arg,"evp");
-  evaluate_evp_for_aes(use_evp);
-  evaluate_ctr_for_aes();
 
   data1 = tor_malloc(1024);
   data2 = tor_malloc(1024);
@@ -1043,6 +1042,7 @@ test_crypto_mac_sha3(void *arg)
 {
   const char msg[] = "i am in a library somewhere using my computer";
   const char key[] = "i'm from the past talking to the future.";
+  char *mem_op_hex_tmp = NULL;
 
   uint8_t hmac_test[DIGEST256_LEN];
   char hmac_manual[DIGEST256_LEN];
@@ -1077,7 +1077,12 @@ test_crypto_mac_sha3(void *arg)
   /* Now compare the two results */
   tt_mem_op(hmac_test, OP_EQ, hmac_manual, DIGEST256_LEN);
 
- done: ;
+  /* Check against a known correct value (computed from python) */
+  test_memeq_hex(hmac_test,
+                  "753fba6d87d49497238a512a3772dd29"
+                  "1e55f7d1cd332c9fb5c967c7a10a13ca");
+ done:
+  tor_free(mem_op_hex_tmp);
 }
 
 /** Run unit tests for our public key crypto functions */
@@ -1627,13 +1632,11 @@ test_crypto_formats(void *arg)
 static void
 test_crypto_aes_iv(void *arg)
 {
+  (void)arg;
   char *plain, *encrypted1, *encrypted2, *decrypted1, *decrypted2;
   char plain_1[1], plain_15[15], plain_16[16], plain_17[17];
   char key1[16], key2[16];
   ssize_t encrypted_size, decrypted_size;
-
-  int use_evp = !strcmp(arg,"evp");
-  evaluate_evp_for_aes(use_evp);
 
   plain = tor_malloc(4095);
   encrypted1 = tor_malloc(4095 + 1 + 16);
@@ -2844,6 +2847,181 @@ test_crypto_siphash(void *arg)
   ;
 }
 
+static void
+test_crypto_blake2b(void *arg)
+{
+  (void)arg;
+
+  /* There is no official blake2b test vector set, but these are inspired
+   * by RFC7693 and OpenSSL. Note that we need to test shorter hash lengths
+   * separately even though they are implemented by truncating a 512-bit
+   * hash, because the requested length is included in the hash initial state.
+   */
+  static const struct {
+    const char *in_literal;
+    const char *out_hex;
+  } vectors[] = {
+    { "",
+      "786a02f742015903c6c6fd852552d272912f4740e15847618a86e217f71f5419"
+      "d25e1031afee585313896444934eb04b903a685b1448b755d56f701afe9be2ce"
+    },
+    { "a",
+      "333fcb4ee1aa7c115355ec66ceac917c8bfd815bf7587d325aec1864edd24e34"
+      "d5abe2c6b1b5ee3face62fed78dbef802f2a85cb91d455a8f5249d330853cb3c"
+    },
+    { "ab",
+      "b32c0573d242b3a987d8f66bd43266b7925cefab3a854950641a81ef6a3f4b97"
+      "928443850545770f64abac2a75f18475653fa3d9a52c66a840da3b8617ae9607"
+    },
+    { "abc",
+      "ba80a53f981c4d0d6a2797b69f12f6e94c212f14685ac4b74b12bb6fdbffa2d1"
+      "7d87c5392aab792dc252d5de4533cc9518d38aa8dbf1925ab92386edd4009923"
+    },
+    { "", "2e" },
+    { "a", "de" },
+    { "ab", "0e" },
+    { "abc", "6b" },
+    { "", "1271cf25" },
+    { "a", "ca234c55" },
+    { "ab", "3ae897a7" },
+    { "abc", "63906248" },
+    { "A somewhat longer test vector for blake2b xxxxxxxxxxxxxxxxxxxxxx"
+      "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+      "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz.",
+      "1d27b0988061a82ff7563a55f9289ff3d878783e688d9e001b3c4b99b675c7f7"
+      "1d4ae57805c6a8e670eb8145ba97960a7859451ab7b1558a60e5b7660d2f4639"
+    },
+    { "A somewhat longer test vector for blake2b xxxxxxxxxxxxxxxxxxxxxx"
+      "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+      "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz.",
+      "48600bb0"
+    }
+  };
+
+  static const struct {
+    int update_size;
+  } variations[] = {
+    {BLAKE2B_BLOCKBYTES*2},
+    {BLAKE2B_BLOCKBYTES},
+    {BLAKE2B_BLOCKBYTES-1},
+    {1},
+    {2},
+    {3}
+  };
+
+  const size_t num_vectors = sizeof vectors / sizeof vectors[0];
+  const size_t num_variations = sizeof variations / sizeof variations[0];
+
+  for (unsigned vec_i = 0; vec_i < num_vectors; vec_i++) {
+    const char *in_literal = vectors[vec_i].in_literal;
+    const char *out_hex = vectors[vec_i].out_hex;
+    const size_t in_len = strlen(in_literal);
+    const size_t out_hex_len = strlen(out_hex);
+    const size_t hash_size = out_hex_len / 2;
+
+    int retval = -1;
+    uint8_t out_expected[BLAKE2B_OUTBYTES] = { 0 };
+    tt_int_op(out_hex_len, OP_EQ, 2 * hash_size);
+    tt_int_op(hash_size, OP_LE, sizeof out_expected);
+    retval = base16_decode((char*)out_expected, hash_size,
+                           out_hex, out_hex_len);
+    tt_int_op(retval, OP_EQ, hash_size);
+
+    for (size_t vari_i = 0; vari_i < num_variations; vari_i++) {
+      const size_t update_size = variations[vari_i].update_size;
+      uint8_t out_actual[BLAKE2B_OUTBYTES] = { 0 };
+
+      blake2b_state b2_state;
+      retval = blake2b_init(&b2_state, hash_size);
+      tt_int_op(retval, OP_EQ, 0);
+
+      for (size_t in_off = 0; in_off < in_len;) {
+        const size_t this_update = MIN(update_size, in_len - in_off);
+        blake2b_update(&b2_state, (uint8_t*)in_literal + in_off, this_update);
+        in_off += this_update;
+      }
+
+      memset(out_actual, 0xa5, sizeof out_actual);
+      blake2b_final(&b2_state, out_actual, hash_size);
+      tt_mem_op(out_actual, OP_EQ, out_expected, hash_size);
+    }
+  }
+
+ done:
+  ;
+}
+
+static void
+test_crypto_hashx(void *arg)
+{
+  (void)arg;
+
+  /* Specifically test the embedded instance of HashX inside Equi-X.
+   * It uses a non-default setting of HASHX_SIZE=8 */
+  static const struct {
+    const char *seed_literal;
+    uint64_t hash_input;
+    const char *out_hex;
+  } vectors[] = {
+    { "", 0, "466cc2021c268560" },
+    { "a", 0, "b2a110ee695c475c" },
+    { "ab", 0, "57c77f7e0d2c1727" },
+    { "abc", 0, "ef560991338086d1" },
+    { "", 999, "304068b62bc4874e" },
+    { "a", 999, "c8b66a8eb4bba304" },
+    { "ab", 999, "26c1f7031f0b3645" },
+    { "abc", 999, "de84f9d286b39ab5" },
+    { "abc", UINT64_MAX, "f756c266a3cb3b5a" }
+  };
+
+  static const struct {
+    hashx_type type;
+  } variations[] = {
+    { HASHX_TYPE_INTERPRETED },
+#if defined(_M_X64) || defined(__x86_64__) || defined(__aarch64__)
+    { HASHX_TYPE_COMPILED },
+#endif
+  };
+
+  const unsigned num_vectors = sizeof vectors / sizeof vectors[0];
+  const unsigned num_variations = sizeof variations / sizeof variations[0];
+  hashx_ctx *ctx = NULL;
+
+  for (unsigned vec_i = 0; vec_i < num_vectors; vec_i++) {
+    const char *seed_literal = vectors[vec_i].seed_literal;
+    const uint64_t hash_input = vectors[vec_i].hash_input;
+    const char *out_hex = vectors[vec_i].out_hex;
+    const size_t seed_len = strlen(seed_literal);
+    const size_t out_hex_len = strlen(out_hex);
+
+    int retval = -1;
+    uint8_t out_expected[HASHX_SIZE] = { 0 };
+    tt_int_op(out_hex_len, OP_EQ, 2 * HASHX_SIZE);
+    retval = base16_decode((char*)out_expected, HASHX_SIZE,
+                           out_hex, out_hex_len);
+    tt_int_op(retval, OP_EQ, HASHX_SIZE);
+
+    for (unsigned vari_i = 0; vari_i < num_variations; vari_i++) {
+      uint8_t out_actual[HASHX_SIZE] = { 0 };
+
+      hashx_free(ctx);
+      ctx = hashx_alloc(variations[vari_i].type);
+
+      tt_ptr_op(ctx, OP_NE, NULL);
+      retval = hashx_make(ctx, seed_literal, seed_len);
+      tt_int_op(retval, OP_EQ, HASHX_OK);
+
+      memset(out_actual, 0xa5, sizeof out_actual);
+      retval = hashx_exec(ctx, hash_input, out_actual);
+      tt_int_op(retval, OP_EQ, HASHX_OK);
+      tt_mem_op(out_actual, OP_EQ, out_expected, sizeof out_actual);
+    }
+  }
+
+ done:
+  hashx_free(ctx);
+}
+
 /* We want the likelihood that the random buffer exhibits any regular pattern
  * to be far less than the memory bit error rate in the int return value.
  * Using 2048 bits provides a failure rate of 1/(3 * 10^616), and we call
@@ -3009,6 +3187,253 @@ test_crypto_failure_modes(void *arg)
   ;
 }
 
+static void
+test_crypto_polyval(void *arg)
+{
+  (void)arg;
+  polyval_t pv;
+  uint8_t key[16];
+  uint8_t input[48];
+  uint8_t output[16];
+  uint8_t output2[16];
+  char *mem_op_hex_tmp=NULL;
+  uint8_t *longer = NULL;
+
+  // From RFC 8452
+  const char *key_hex = "25629347589242761d31f826ba4b757b";
+  const char *input_hex =
+    "4f4f95668c83dfb6401762bb2d01a262"
+    "d1a24ddd2721d006bbe45f20d3c9f362";
+  memset(input, 0, sizeof(input));
+  base16_decode((char*)key,sizeof(key), key_hex, strlen(key_hex));
+  base16_decode((char*)input,sizeof(input), input_hex, strlen(input_hex));
+
+  // Two blocks, directly.
+  polyval_init(&pv, key);
+  polyval_add_block(&pv, input);
+  polyval_add_block(&pv, input+16);
+  polyval_get_tag(&pv, output);
+  test_memeq_hex(output, "f7a3b47b846119fae5b7866cf5e5b77e");
+  // Two blocks, as a string.
+  polyval_reset(&pv);
+  polyval_add_zpad(&pv, input, 32);
+  polyval_get_tag(&pv, output);
+  test_memeq_hex(output, "f7a3b47b846119fae5b7866cf5e5b77e");
+
+  // Now make sure that zero-padding works.
+  input[32] = 77;
+  polyval_reset(&pv);
+  polyval_add_block(&pv, input);
+  polyval_add_block(&pv, input+16);
+  polyval_add_block(&pv, input+32);
+  polyval_get_tag(&pv, output);
+
+  polyval_reset(&pv);
+  polyval_add_zpad(&pv, input, 33);
+  polyval_get_tag(&pv, output2);
+  tt_mem_op(output, OP_EQ, output2, 16);
+
+  // Try a long input both ways, and make sure the answer is the same.
+  longer = tor_malloc_zero(4096);
+  crypto_rand((char *)longer, 4090); // leave zeros at the end.
+  polyval_reset(&pv);
+  polyval_add_zpad(&pv, longer, 4090);
+  polyval_get_tag(&pv, output);
+
+  polyval_reset(&pv);
+  const uint8_t *cp;
+  for (cp = longer; cp < longer + 4096; cp += 16) {
+    polyval_add_block(&pv, cp);
+  }
+  polyval_get_tag(&pv, output2);
+  tt_mem_op(output, OP_EQ, output2, 16);
+
+  // Now the same with polyvalx.
+  polyvalx_t pvx;
+  polyvalx_init(&pvx, key);
+  polyvalx_add_zpad(&pvx, longer, 4090);
+  polyvalx_get_tag(&pvx, output2);
+  tt_mem_op(output, OP_EQ, output2, 16);
+
+  polyvalx_reset(&pvx);
+  for (cp = longer; cp < longer + 4096; cp += 16) {
+    polyvalx_add_block(&pvx, cp);
+  }
+  polyvalx_get_tag(&pvx, output2);
+  tt_mem_op(output, OP_EQ, output2, 16);
+
+ done:
+  tor_free(mem_op_hex_tmp);
+  tor_free(longer);
+}
+
+static void
+test_aes_raw_one(int keybits,
+                 const char *key_hex,
+                 const char *plaintext_hex,
+                 const char *ciphertext_hex)
+{
+  aes_raw_t *enc = NULL;
+  aes_raw_t *dec = NULL;
+  uint8_t key[32]; // max key size.
+  uint8_t pt[16], ct[16], block[16];
+  tt_int_op(keybits, OP_EQ, strlen(key_hex) * 8 / 2);
+  base16_decode((char*)key, sizeof(key), key_hex, strlen(key_hex));
+  base16_decode((char*)pt, sizeof(pt), plaintext_hex, strlen(plaintext_hex));
+  base16_decode((char*)ct, sizeof(ct), ciphertext_hex, strlen(ciphertext_hex));
+
+  enc = aes_raw_new(key, keybits, true);
+  dec = aes_raw_new(key, keybits, false);
+  memcpy(block, pt, sizeof(pt));
+  aes_raw_encrypt(enc, block);
+  tt_mem_op(block, OP_EQ, ct, 16);
+  aes_raw_decrypt(dec, block);
+  tt_mem_op(block, OP_EQ, pt, 16);
+
+ done:
+  aes_raw_free(enc);
+  aes_raw_free(dec);
+}
+
+static void
+test_crypto_aes_raw(void *arg)
+{
+  (void)arg;
+
+#define T test_aes_raw_one
+
+  /* From https://csrc.nist.gov/CSRC/media/Projects/
+     Cryptographic-Algorithm-Validation-Program/documents/aes/AESAVS.pdf */
+  const char *z128 =
+    "00000000000000000000000000000000";
+  const char *z192 =
+    "00000000000000000000000000000000"
+    "0000000000000000";
+  const char *z256 =
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000";
+
+  T(128, z128,
+    "f34481ec3cc627bacd5dc3fb08f273e6",
+    "0336763e966d92595a567cc9ce537f5e");
+  T(192, z192,
+    "1b077a6af4b7f98229de786d7516b639",
+    "275cfc0413d8ccb70513c3859b1d0f72");
+  T(256, z256,
+    "014730f80ac625fe84f026c60bfd547d",
+    "5c9d844ed46f9885085e5d6a4f94c7d7");
+  T(128,
+    "10a58869d74be5a374cf867cfb473859", z128,
+    "6d251e6944b051e04eaa6fb4dbf78465");
+  T(192,
+    "e9f065d7c13573587f7875357dfbb16c53489f6a4bd0f7cd", z128,
+    "0956259c9cd5cfd0181cca53380cde06");
+  T(256,
+    "c47b0294dbbbee0fec4757f22ffeee35"
+    "87ca4730c3d33b691df38bab076bc558", z128,
+    "46f2fb342d6f0ab477476fc501242c5f");
+
+#undef T
+}
+
+/** Make sure that we can set keys on live AES instances correctly. */
+static void
+test_crypto_aes_keymanip_cnt(void *arg)
+{
+  (void) arg;
+  uint8_t k1[16] = "123456780123678";
+  uint8_t k2[16] = "abcdefghijklmno";
+  int kbits = 128;
+  uint8_t iv1[16]= "{return 4;}////";
+  uint8_t iv2[16] = {0};
+  uint8_t buf[128] = {0};
+  uint8_t buf2[128] = {0};
+
+  aes_cnt_cipher_t *aes = aes_new_cipher(k1, iv1, kbits);
+  aes_crypt_inplace(aes, (char*)buf, sizeof(buf));
+
+  aes_cnt_cipher_t *aes2 = aes_new_cipher(k2, iv2, kbits);
+  // 128-5 to make sure internal buf is cleared when we set key.
+  aes_crypt_inplace(aes2, (char*)buf2, sizeof(buf2)-5);
+  aes_cipher_set_key(aes2, k1, kbits);
+  aes_cipher_set_iv_aligned(aes2, iv1); // should work in this case.
+  memset(buf2, 0, sizeof(buf2));
+  aes_crypt_inplace(aes2, (char*)buf2, sizeof(buf2));
+  tt_mem_op(buf, OP_EQ, buf2, sizeof(buf));
+
+ done:
+  aes_cipher_free(aes);
+  aes_cipher_free(aes2);
+}
+
+static void
+test_crypto_aes_keymanip_ecb(void *arg)
+{
+  (void) arg;
+  uint8_t k1[16] = "123456780123678";
+  uint8_t k2[16] = "abcdefghijklmno";
+  int kbits = 128;
+  uint8_t buf_orig[16] = {1,2,3,0};
+  uint8_t buf1[16];
+  uint8_t buf2[16];
+
+  aes_raw_t *aes1 = aes_raw_new(k1, kbits, true);
+  aes_raw_t *aes2 = aes_raw_new(k1, kbits, false);
+  aes_raw_set_key(&aes2, k2, kbits, false);
+
+  memcpy(buf1, buf_orig, 16);
+  memcpy(buf2, buf_orig, 16);
+
+  aes_raw_encrypt(aes1, buf1);
+  aes_raw_encrypt(aes1, buf2);
+  tt_mem_op(buf1, OP_EQ, buf2, 16);
+
+  aes_raw_decrypt(aes2, buf1);
+  aes_raw_set_key(&aes2, k1, kbits, false);
+  aes_raw_decrypt(aes2, buf2);
+
+  tt_mem_op(buf1, OP_NE, buf2, 16);
+  tt_mem_op(buf2, OP_EQ, buf_orig, 16);
+
+ done:
+  aes_raw_free(aes1);
+  aes_raw_free(aes2);
+}
+
+static void
+test_crypto_aes_cnt_set_iv(void *arg)
+{
+  (void)arg;
+  uint8_t k1[16] = "123456780123678";
+  uint8_t iv_zero[16] = {0};
+  int kbits = 128;
+  const int iters = 100;
+  uint8_t buf1[128];
+  uint8_t buf2[128];
+
+  aes_cnt_cipher_t *aes1, *aes2 = NULL;
+  aes1 = aes_new_cipher(k1, iv_zero, kbits);
+
+  for (int i = 0; i < iters; ++i) {
+    uint8_t iv[16];
+    crypto_rand((char*) iv, sizeof(iv));
+    memset(buf1, 0, sizeof(buf1));
+    memset(buf2, 0, sizeof(buf2));
+
+    aes_cipher_set_iv_aligned(aes1, iv);
+    aes2 = aes_new_cipher(k1, iv, kbits);
+
+    aes_crypt_inplace(aes1, (char*)buf1, sizeof(buf1));
+    aes_crypt_inplace(aes2, (char*)buf1, sizeof(buf2));
+    tt_mem_op(buf1, OP_EQ, buf2, sizeof(buf1));
+
+    aes_cipher_free(aes2);
+  }
+ done:
+  aes_cipher_free(aes1);
+  aes_cipher_free(aes2);
+}
+
 #ifndef COCCI
 #define CRYPTO_LEGACY(name)                                            \
   { #name, test_crypto_ ## name , 0, NULL, NULL }
@@ -3025,8 +3450,7 @@ test_crypto_failure_modes(void *arg)
 struct testcase_t crypto_tests[] = {
   CRYPTO_LEGACY(formats),
   { "openssl_version", test_crypto_openssl_version, TT_FORK, NULL, NULL },
-  { "aes_AES", test_crypto_aes128, TT_FORK, &passthrough_setup, (void*)"aes" },
-  { "aes_EVP", test_crypto_aes128, TT_FORK, &passthrough_setup, (void*)"evp" },
+  { "aes", test_crypto_aes128, TT_FORK, NULL, NULL },
   { "aes128_ctr_testvec", test_crypto_aes_ctr_testvec, 0,
     &passthrough_setup, (void*)"128" },
   { "aes192_ctr_testvec", test_crypto_aes_ctr_testvec, 0,
@@ -3047,10 +3471,7 @@ struct testcase_t crypto_tests[] = {
   { "sha3_xof", test_crypto_sha3_xof, TT_FORK, NULL, NULL},
   { "mac_sha3", test_crypto_mac_sha3, TT_FORK, NULL, NULL},
   CRYPTO_LEGACY(dh),
-  { "aes_iv_AES", test_crypto_aes_iv, TT_FORK, &passthrough_setup,
-    (void*)"aes" },
-  { "aes_iv_EVP", test_crypto_aes_iv, TT_FORK, &passthrough_setup,
-    (void*)"evp" },
+  { "aes_iv_EVP", test_crypto_aes_iv, TT_FORK, NULL, NULL },
   CRYPTO_LEGACY(base32_decode),
   { "kdf_TAP", test_crypto_kdf_TAP, 0, NULL, NULL },
   { "hkdf_sha256", test_crypto_hkdf_sha256, 0, NULL, NULL },
@@ -3073,6 +3494,13 @@ struct testcase_t crypto_tests[] = {
   ED25519_TEST(validation, 0),
   { "ed25519_storage", test_crypto_ed25519_storage, 0, NULL, NULL },
   { "siphash", test_crypto_siphash, 0, NULL, NULL },
+  { "blake2b", test_crypto_blake2b, 0, NULL, NULL },
+  { "hashx", test_crypto_hashx, 0, NULL, NULL },
   { "failure_modes", test_crypto_failure_modes, TT_FORK, NULL, NULL },
+  { "polyval", test_crypto_polyval, 0, NULL, NULL },
+  { "aes_raw", test_crypto_aes_raw, 0, NULL, NULL },
+  { "aes_keymanip_cnt", test_crypto_aes_keymanip_cnt, 0, NULL, NULL },
+  { "aes_keymanip_ecb", test_crypto_aes_keymanip_ecb, 0, NULL, NULL },
+  { "aes_cnt_set_iv", test_crypto_aes_cnt_set_iv, 0, NULL, NULL },
   END_OF_TESTCASES
 };

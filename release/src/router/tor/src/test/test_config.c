@@ -2003,10 +2003,10 @@ test_config_adding_default_trusted_dir_servers(void *arg)
   tt_int_op(get_n_authorities(BRIDGE_DIRINFO), OP_EQ, 1);
   tt_int_op(smartlist_len(router_get_fallback_dir_servers()), OP_EQ, 1);
 
-  /* Assume we have eight V3 authorities */
+  /* Assume we have nine V3 authorities */
   add_default_trusted_dir_authorities(V3_DIRINFO);
-  tt_int_op(get_n_authorities(V3_DIRINFO), OP_EQ, 8);
-  tt_int_op(smartlist_len(router_get_fallback_dir_servers()), OP_EQ, 9);
+  tt_int_op(get_n_authorities(V3_DIRINFO), OP_EQ, 9);
+  tt_int_op(smartlist_len(router_get_fallback_dir_servers()), OP_EQ, 10);
 
  done:
   clear_dir_servers();
@@ -6321,14 +6321,14 @@ test_config_check_bridge_distribution_setting_valid(void *arg)
   tt_int_op(check_bridge_distribution_setting("any"), OP_EQ, 0);
   tt_int_op(check_bridge_distribution_setting("https"), OP_EQ, 0);
   tt_int_op(check_bridge_distribution_setting("email"), OP_EQ, 0);
-  tt_int_op(check_bridge_distribution_setting("moat"), OP_EQ, 0);
+  tt_int_op(check_bridge_distribution_setting("settings"), OP_EQ, 0);
 
   // Check all the possible values we support right now with weird casing.
   tt_int_op(check_bridge_distribution_setting("NoNe"), OP_EQ, 0);
   tt_int_op(check_bridge_distribution_setting("anY"), OP_EQ, 0);
   tt_int_op(check_bridge_distribution_setting("hTTps"), OP_EQ, 0);
   tt_int_op(check_bridge_distribution_setting("emAIl"), OP_EQ, 0);
-  tt_int_op(check_bridge_distribution_setting("moAt"), OP_EQ, 0);
+  tt_int_op(check_bridge_distribution_setting("setTIngS"), OP_EQ, 0);
 
   // Invalid values.
   tt_int_op(check_bridge_distribution_setting("x\rx"), OP_EQ, -1);
@@ -6435,7 +6435,7 @@ test_config_include_opened_file_list(void *data)
   tt_int_op(smartlist_len(opened_files), OP_EQ, 4);
   tt_int_op(smartlist_contains_string(opened_files, torrcd), OP_EQ, 1);
   tt_int_op(smartlist_contains_string(opened_files, subfolder), OP_EQ, 1);
-  // files inside subfolders are not opended, only the subfolder is opened
+  // files inside subfolders are not opened, only the subfolder is opened
   tt_int_op(smartlist_contains_string(opened_files, empty), OP_EQ, 1);
   tt_int_op(smartlist_contains_string(opened_files, file), OP_EQ, 1);
   // dot files are not opened as we ignore them when we get their name from

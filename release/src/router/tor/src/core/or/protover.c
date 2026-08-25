@@ -55,6 +55,7 @@ static const struct {
   { PRT_PADDING, "Padding"},
   { PRT_CONS, "Cons" },
   { PRT_FLOWCTRL, "FlowCtrl"},
+  { PRT_CONFLUX, "Conflux"},
 };
 
 #define N_PROTOCOL_NAMES ARRAY_LENGTH(PROTOCOL_NAMES)
@@ -385,23 +386,20 @@ protocol_list_supports_protocol_or_later(const char *list,
 /*
  * XXX START OF HAZARDOUS ZONE XXX
  */
-/* All protocol version that this relay version supports. */
+/* All protocol version that this version of tor supports. */
+#define PR_CONFLUX_V   "1"
 #define PR_CONS_V      "1-2"
-#define PR_DESC_V      "1-2"
+#define PR_DESC_V      "1-4"
 #define PR_DIRCACHE_V  "2"
 #define PR_FLOWCTRL_V  "1-2"
 #define PR_HSDIR_V     "2"
 #define PR_HSINTRO_V   "4-5"
 #define PR_HSREND_V    "1-2"
-#define PR_LINK_V      "1-5"
-#ifdef HAVE_WORKING_TOR_TLS_GET_TLSSECRETS
-#define PR_LINKAUTH_V  "1,3"
-#else
+#define PR_LINK_V      "3-5"
 #define PR_LINKAUTH_V  "3"
-#endif
-#define PR_MICRODESC_V "1-2"
+#define PR_MICRODESC_V "1-3"
 #define PR_PADDING_V   "2"
-#define PR_RELAY_V     "1-4"
+#define PR_RELAY_V     "2-6"
 
 /** Return the string containing the supported version for the given protocol
  * type. */
@@ -409,6 +407,7 @@ const char *
 protover_get_supported(const protocol_type_t type)
 {
   switch (type) {
+  case PRT_CONFLUX: return PR_CONFLUX_V;
   case PRT_CONS: return PR_CONS_V;
   case PRT_DESC: return PR_DESC_V;
   case PRT_DIRCACHE: return PR_DIRCACHE_V;
@@ -471,6 +470,7 @@ protover_get_supported_protocols(void)
    */
 
   return
+    "Conflux=" PR_CONFLUX_V " "
     "Cons=" PR_CONS_V " "
     "Desc=" PR_DESC_V " "
     "DirCache=" PR_DIRCACHE_V " "
@@ -517,8 +517,8 @@ protover_get_supported_protocols(void)
 const char *
 protover_get_recommended_client_protocols(void)
 {
-  return "Cons=2 Desc=2 DirCache=2 HSDir=2 HSIntro=4 HSRend=2 "
-         "Link=4-5 Microdesc=2 Relay=2";
+  return "Cons=2 Desc=2 DirCache=2 FlowCtrl=1-2 HSDir=2 HSIntro=4 HSRend=2 "
+         "Link=4-5 Microdesc=2 Relay=2-4";
 }
 
 /** Return the recommended relay protocols list that directory authorities
@@ -526,8 +526,8 @@ protover_get_recommended_client_protocols(void)
 const char *
 protover_get_recommended_relay_protocols(void)
 {
-  return "Cons=2 Desc=2 DirCache=2 HSDir=2 HSIntro=4 HSRend=2 "
-         "Link=4-5 LinkAuth=3 Microdesc=2 Relay=2";
+  return "Cons=2 Desc=2 DirCache=2 FlowCtrl=1-2 HSDir=2 HSIntro=4-5 HSRend=2 "
+         "Link=4-5 LinkAuth=3 Microdesc=2 Relay=2-4";
 }
 
 /** Return the required client protocols list that directory authorities
@@ -535,7 +535,7 @@ protover_get_recommended_relay_protocols(void)
 const char *
 protover_get_required_client_protocols(void)
 {
-  return "Cons=2 Desc=2 Link=4 Microdesc=2 Relay=2";
+  return "Cons=2 Desc=2 FlowCtrl=1 Link=4 Microdesc=2 Relay=2";
 }
 
 /** Return the required relay protocols list that directory authorities
@@ -543,8 +543,8 @@ protover_get_required_client_protocols(void)
 const char *
 protover_get_required_relay_protocols(void)
 {
-  return "Cons=2 Desc=2 DirCache=2 HSDir=2 HSIntro=4 HSRend=2 "
-         "Link=4-5 LinkAuth=3 Microdesc=2 Relay=2";
+  return "Cons=2 Desc=2 DirCache=2 FlowCtrl=1-2 HSDir=2 HSIntro=4-5 HSRend=2 "
+         "Link=4-5 LinkAuth=3 Microdesc=2 Relay=2-4";
 }
 
 /*
