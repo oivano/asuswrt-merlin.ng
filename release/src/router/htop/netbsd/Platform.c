@@ -37,8 +37,6 @@ in the source distribution for its full text.
 #include <sys/types.h>
 
 #include "CPUMeter.h"
-#include "ClockMeter.h"
-#include "DateMeter.h"
 #include "DateTimeMeter.h"
 #include "FileDescriptorMeter.h"
 #include "HostnameMeter.h"
@@ -152,6 +150,22 @@ const SignalItem Platform_signals[] = {
 
 const unsigned int Platform_numberOfSignals = ARRAYSIZE(Platform_signals);
 
+enum {
+   MEMORY_CLASS_WIRED = 0,
+   MEMORY_CLASS_ACTIVE,
+   MEMORY_CLASS_PAGED,
+   MEMORY_CLASS_INACTIVE,
+}; // N.B. the chart will display categories in this order
+
+const MemoryClass Platform_memoryClasses[] = {
+   [MEMORY_CLASS_WIRED] = { .label = "wired", .countsAsUsed = true, .countsAsCache = false, .color = MEMORY_1 },
+   [MEMORY_CLASS_ACTIVE] = { .label = "active", .countsAsUsed = true, .countsAsCache = false, .color = MEMORY_2 },
+   [MEMORY_CLASS_PAGED] = { .label = "paged", .countsAsUsed = true, .countsAsCache = false, .color = MEMORY_3 },
+   [MEMORY_CLASS_INACTIVE] = { .label = "inactive", .countsAsUsed = false, .countsAsCache = true, .color = MEMORY_4 },
+};
+
+const unsigned int Platform_numberOfMemoryClasses = ARRAYSIZE(Platform_memoryClasses);
+
 const MeterClass* const Platform_meterTypes[] = {
    &CPUMeter_class,
    &ClockMeter_class,
@@ -164,6 +178,7 @@ const MeterClass* const Platform_meterTypes[] = {
    &MemorySwapMeter_class,
    &TasksMeter_class,
    &UptimeMeter_class,
+   &SecondsUptimeMeter_class,
    &BatteryMeter_class,
    &HostnameMeter_class,
    &SysArchMeter_class,
@@ -180,6 +195,8 @@ const MeterClass* const Platform_meterTypes[] = {
    &LeftCPUs8Meter_class,
    &RightCPUs8Meter_class,
    &BlankMeter_class,
+   &DiskIORateMeter_class,
+   &DiskIOTimeMeter_class,
    &DiskIOMeter_class,
    &NetworkIOMeter_class,
    &FileDescriptorMeter_class,
@@ -272,21 +289,18 @@ double Platform_setCPUValues(Meter* this, int cpu) {
 
 void Platform_setMemoryValues(Meter* this) {
    const Machine* host = this->host;
+   const NetBSDMachine* nhost = (const NetBSDMachine*) host;
    this->total = host->totalMem;
-   this->values[MEMORY_METER_USED] = host->usedMem;
-   // this->values[MEMORY_METER_SHARED] = "shared memory, like tmpfs and shm"
-   // this->values[MEMORY_METER_COMPRESSED] = "compressed memory, like zswap on linux"
-   this->values[MEMORY_METER_BUFFERS] = host->buffersMem;
-   this->values[MEMORY_METER_CACHE] = host->cachedMem;
-   // this->values[MEMORY_METER_AVAILABLE] = "available memory"
+   this->values[MEMORY_CLASS_WIRED]    = nhost->wiredMem;
+   this->values[MEMORY_CLASS_ACTIVE]   = nhost->activeMem;
+   this->values[MEMORY_CLASS_PAGED]    = nhost->pagedMem;
+   this->values[MEMORY_CLASS_INACTIVE] = nhost->inactiveMem;
 }
 
 void Platform_setSwapValues(Meter* this) {
    const Machine* host = this->host;
    this->total = host->totalSwap;
    this->values[SWAP_METER_USED] = host->usedSwap;
-   // this->values[SWAP_METER_CACHE] = "pages that are both in swap and RAM, like SwapCached on linux"
-   // this->values[SWAP_METER_FRONTSWAP] = "pages that are accounted to swap but stored elsewhere, like frontswap on linux"
 }
 
 char* Platform_getProcessEnv(pid_t pid) {
@@ -384,6 +398,7 @@ bool Platform_getDiskIO(DiskIOData* data) {
    uint64_t bytesReadSum = 0;
    uint64_t bytesWriteSum = 0;
    uint64_t busyTimeSum = 0;
+   uint64_t numDisks = 0;
 
    for (size_t i = 0, count = size / sizeof(struct io_sysctl); i < count; i++) {
       /* ignore NFS activity */
@@ -393,11 +408,13 @@ bool Platform_getDiskIO(DiskIOData* data) {
       bytesReadSum += iostats[i].rbytes;
       bytesWriteSum += iostats[i].wbytes;
       busyTimeSum += iostats[i].busysum_usec;
+      numDisks++;
    }
 
    data->totalBytesRead = bytesReadSum;
    data->totalBytesWritten = bytesWriteSum;
    data->totalMsTimeSpend = busyTimeSum / 1000;
+   data->numDisks = numDisks;
 
    free(iostats);
    return true;
@@ -509,8 +526,7 @@ void Platform_getBattery(double* percent, ACPresence* isOnAC) {
          *isOnAC = isConnected ? AC_PRESENT : AC_ABSENT;
       }
    }
-
-   *percent = ((double)totalCharge / (double)totalCapacity) * 100.0;
+   *percent = totalCapacity > 0 ? ((double)totalCharge / (double)totalCapacity) * 100.0 : NAN;
 
 error:
    if (fd != -1)

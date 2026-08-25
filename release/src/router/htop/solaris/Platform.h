@@ -12,7 +12,7 @@ in the source distribution for its full text.
 #include <kstat.h>
 
 /* On OmniOS /usr/include/sys/regset.h redefines ERR to 13 - \r, breaking the Enter key.
- * Since ncruses macros use the ERR macro, we can not use another name.
+ * Since ncurses macros use the ERR macro, we cannot use another name.
  */
 #undef ERR
 #include <libproc.h>
@@ -31,6 +31,7 @@ in the source distribution for its full text.
 #include "CommandLine.h"
 #include "DiskIOMeter.h"
 #include "Hashtable.h"
+#include "MemoryMeter.h"
 #include "NetworkIOMeter.h"
 #include "ProcessLocksScreen.h"
 #include "SignalsPanel.h"
@@ -57,6 +58,10 @@ extern const unsigned int Platform_numberOfDefaultScreens;
 extern const SignalItem Platform_signals[];
 
 extern const unsigned int Platform_numberOfSignals;
+
+extern const MemoryClass Platform_memoryClasses[];
+
+extern const unsigned int Platform_numberOfMemoryClasses;
 
 extern const MeterClass* const Platform_meterTypes[];
 
@@ -98,8 +103,12 @@ static inline void Platform_getHostname(char* buffer, size_t size) {
    Generic_hostname(buffer, size);
 }
 
-static inline void Platform_getRelease(char** string) {
-   *string = Generic_uname();
+static inline const char* Platform_getRelease(void) {
+   return Generic_uname();
+}
+
+static inline const char* Platform_getFailedState(void) {
+   return NULL;
 }
 
 #define PLATFORM_LONG_OPTIONS
@@ -110,7 +119,7 @@ static inline CommandLineStatus Platform_getLongOption(ATTR_UNUSED int opt, ATTR
    return STATUS_ERROR_EXIT;
 }
 
-static inline void Platform_gettime_realtime(struct timeval* tv, uint64_t* msec) {
+static inline void Platform_gettime_realtime(struct timespec* tv, uint64_t* msec) {
    Generic_gettime_realtime(tv, msec);
 }
 

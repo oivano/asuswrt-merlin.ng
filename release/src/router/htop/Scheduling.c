@@ -47,13 +47,13 @@ Panel* Scheduling_newPolicyPanel(int preSelectedPolicy) {
    Panel_add(this, (Object*) ListItem_new(reset_on_fork ? "Reset on fork: on" : "Reset on fork: off", -1));
 #endif
 
-   for (unsigned i = 0; i < ARRAYSIZE(policies); i++) {
+   for (size_t i = 0; i < ARRAYSIZE(policies); i++) {
       if (!policies[i].name)
          continue;
 
       Panel_add(this, (Object*) ListItem_new(policies[i].name, policies[i].id));
       if (policies[i].id == preSelectedPolicy)
-         Panel_setSelected(this, i);
+         Panel_setSelected(this, (int) i);
    }
 
    return this;
@@ -72,7 +72,7 @@ void Scheduling_togglePolicyPanelResetOnFork(Panel* schedPanel) {
 }
 
 Panel* Scheduling_newPriorityPanel(int policy, int preSelectedPriority) {
-   if (policy < 0 || (unsigned)policy >= ARRAYSIZE(policies) || policies[policy].name == NULL)
+   if (policy < 0 || (size_t)policy >= ARRAYSIZE(policies) || policies[policy].name == NULL)
       return NULL;
 
    if (!policies[policy].prioritySupport)
@@ -82,7 +82,7 @@ Panel* Scheduling_newPriorityPanel(int policy, int preSelectedPriority) {
    if (min < 0)
       return NULL;
    int max = sched_get_priority_max(policy);
-   if (max < 0 )
+   if (max < 0)
       return NULL;
 
    Panel* this = Panel_new(0, 0, 0, 0, Class(ListItem), true, FunctionBar_newEnterEsc("Select ", "Cancel "));
@@ -104,14 +104,14 @@ static bool Scheduling_setPolicy(Process* p, Arg arg) {
    int policy = sarg->policy;
 
    assert(policy >= 0);
-   assert((unsigned)policy < ARRAYSIZE(policies));
+   assert((size_t)policy < ARRAYSIZE(policies));
    assert(policies[policy].name);
 
    const struct sched_param param = { .sched_priority = policies[policy].prioritySupport ? sarg->priority : 0 };
 
    #ifdef SCHED_RESET_ON_FORK
    if (reset_on_fork)
-      policy &= SCHED_RESET_ON_FORK;
+      policy |= SCHED_RESET_ON_FORK;
    #endif
 
    int r = sched_setscheduler(Process_getPid(p), policy, &param);
@@ -156,6 +156,9 @@ const char* Scheduling_formatPolicy(int policy) {
    }
 }
 
+/*
+ * Gather scheduling policy (thread-specific data)
+ */
 void Scheduling_readProcessPolicy(Process* proc) {
    proc->scheduling_policy = sched_getscheduler(Process_getPid(proc));
 }

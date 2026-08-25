@@ -10,6 +10,7 @@ in the source distribution for its full text.
 #include "Action.h"
 
 #include <assert.h>
+#include <errno.h>
 #include <pwd.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -27,7 +28,11 @@ in the source distribution for its full text.
 #include "ListItem.h"
 #include "Macros.h"
 #include "MainPanel.h"
+#include "MemoryMeter.h"
+#include "Object.h"
 #include "OpenFilesScreen.h"
+#include "Panel.h"
+#include "Platform.h"
 #include "Process.h"
 #include "ProcessLocksScreen.h"
 #include "ProvideCurses.h"
@@ -45,6 +50,10 @@ in the source distribution for its full text.
 #if (defined(HAVE_LIBHWLOC) || defined(HAVE_AFFINITY))
 #include "Affinity.h"
 #include "AffinityPanel.h"
+#endif
+
+#if defined(HAVE_BACKTRACE_SCREEN)
+#include "BacktraceScreen.h"
 #endif
 
 
@@ -365,18 +374,27 @@ static Htop_Reaction actionExpandCollapseOrSortColumn(State* st) {
    return st->host->settings->ss->treeView ? actionExpandOrCollapse(st) : actionSetSortColumn(st);
 }
 
-static inline void setActiveScreen(Settings* settings, State* st, unsigned int ssIdx) {
+static inline bool setActiveScreen(Settings* settings, State* st, unsigned int ssIdx) {
    assert(settings->ssIndex == ssIdx);
    Machine* host = st->host;
+
+   // Save following state from current table before switching screens
+   int following = host->activeTable->following;
 
    settings->ss = settings->screens[ssIdx];
    if (!settings->ss->table)
       settings->ss->table = host->processTable;
    host->activeTable = settings->ss->table;
 
+   // Transfer following state to new table if it doesn't already have one
+   if (following != -1 && host->activeTable->following == -1)
+      host->activeTable->following = following;
+
    // set correct functionBar - readonly if requested, and/or with non-process screens
    bool readonly = Settings_isReadonly() || (host->activeTable != host->processTable);
    MainPanel_setFunctionBar(st->mainPanel, readonly);
+
+   return host->activeTable->following != -1;
 }
 
 static Htop_Reaction actionNextScreen(State* st) {
@@ -385,8 +403,10 @@ static Htop_Reaction actionNextScreen(State* st) {
    if (settings->ssIndex == settings->nScreens) {
       settings->ssIndex = 0;
    }
-   setActiveScreen(settings, st, settings->ssIndex);
-   return HTOP_UPDATE_PANELHDR | HTOP_REFRESH | HTOP_REDRAW_BAR;
+   Htop_Reaction reaction = HTOP_UPDATE_PANELHDR | HTOP_REFRESH | HTOP_REDRAW_BAR;
+   if (setActiveScreen(settings, st, settings->ssIndex))
+      reaction |= HTOP_KEEP_FOLLOWING;
+   return reaction;
 }
 
 static Htop_Reaction actionPrevScreen(State* st) {
@@ -396,25 +416,38 @@ static Htop_Reaction actionPrevScreen(State* st) {
    } else {
       settings->ssIndex--;
    }
-   setActiveScreen(settings, st, settings->ssIndex);
-   return HTOP_UPDATE_PANELHDR | HTOP_REFRESH | HTOP_REDRAW_BAR;
+   Htop_Reaction reaction = HTOP_UPDATE_PANELHDR | HTOP_REFRESH | HTOP_REDRAW_BAR;
+   if (setActiveScreen(settings, st, settings->ssIndex))
+      reaction |= HTOP_KEEP_FOLLOWING;
+   return reaction;
 }
 
 Htop_Reaction Action_setScreenTab(State* st, int x) {
    Settings* settings = st->host->settings;
-   int s = 2;
+   const int bracketWidth = (int)strlen("[]");
+
+   if (x < SCREEN_TAB_MARGIN_LEFT) {
+      return 0;
+   }
+
+   int rem = x - SCREEN_TAB_MARGIN_LEFT;
    for (unsigned int i = 0; i < settings->nScreens; i++) {
-      if (x < s) {
+      const char* tab = settings->screens[i]->heading;
+      int width = rem >= bracketWidth ? (int)strnlen(tab, rem - bracketWidth + 1) : 0;
+      if (width >= rem - bracketWidth + 1) {
+         settings->ssIndex = i;
+         Htop_Reaction reaction = HTOP_UPDATE_PANELHDR | HTOP_REFRESH | HTOP_REDRAW_BAR;
+         if (setActiveScreen(settings, st, i))
+            reaction |= HTOP_KEEP_FOLLOWING;
+         return reaction;
+      }
+
+      rem -= bracketWidth + width;
+      if (rem < SCREEN_TAB_COLUMN_GAP) {
          return 0;
       }
-      const char* tab = settings->screens[i]->heading;
-      int len = strlen(tab);
-      if (x <= s + len + 1) {
-         settings->ssIndex = i;
-         setActiveScreen(settings, st, i);
-         return HTOP_UPDATE_PANELHDR | HTOP_REFRESH | HTOP_REDRAW_BAR;
-      }
-      s += len + 3;
+
+      rem -= SCREEN_TAB_COLUMN_GAP;
    }
    return 0;
 }
@@ -549,7 +582,14 @@ static Htop_Reaction actionFilterByUser(State* st) {
 }
 
 Htop_Reaction Action_follow(State* st) {
-   st->host->activeTable->following = MainPanel_selectedRow(st->mainPanel);
+   int selectedRow = MainPanel_selectedRow(st->mainPanel);
+   if (st->host->activeTable->following == selectedRow) {
+      /* Toggle: unfollow when F is pressed on the already-followed process */
+      st->host->activeTable->following = -1;
+      Panel_setSelectionColor((Panel*)st->mainPanel, PANEL_SELECTION_FOCUS);
+      return HTOP_OK;
+   }
+   st->host->activeTable->following = selectedRow;
    Panel_setSelectionColor((Panel*)st->mainPanel, PANEL_SELECTION_FOLLOW);
    return HTOP_KEEP_FOLLOWING;
 }
@@ -595,6 +635,35 @@ static Htop_Reaction actionShowLocks(State* st) {
    return HTOP_REFRESH | HTOP_REDRAW_BAR;
 }
 
+#if defined(HAVE_BACKTRACE_SCREEN)
+static Htop_Reaction actionBacktrace(State *st) {
+   Process* selectedProcess = (Process *) Panel_getSelected((Panel *)st->mainPanel);
+   const Vector* allProcesses = st->mainPanel->super.items;
+
+   Vector* processes = Vector_new(Class(Process), false, VECTOR_DEFAULT_SIZE);
+   if (selectedProcess && !Process_isUserlandThread(selectedProcess)) {
+      for (int i = 0; i < Vector_size(allProcesses); i++) {
+         Process* process = (Process *)Vector_get(allProcesses, i);
+         if (process && Process_getThreadGroup(process) == Process_getThreadGroup(selectedProcess)) {
+            Vector_add(processes, process);
+         }
+      }
+   } else {
+      Vector_add(processes, selectedProcess);
+   }
+
+   BacktracePanel* panel = BacktracePanel_new(processes, st->host->settings);
+   ScreenManager* screenManager = ScreenManager_new(NULL, st->host, st, false);
+   ScreenManager_add(screenManager, (Panel *)panel, 0);
+
+   ScreenManager_run(screenManager, NULL, NULL, NULL);
+   BacktracePanel_delete((Object *)panel);
+   ScreenManager_delete(screenManager);
+
+   return HTOP_REFRESH | HTOP_REDRAW_BAR | HTOP_UPDATE_PANELHDR;
+}
+#endif
+
 static Htop_Reaction actionStrace(State* st) {
    if (!Action_writeableProcess(st))
       return HTOP_OK;
@@ -607,9 +676,14 @@ static Htop_Reaction actionStrace(State* st) {
 
    TraceScreen* ts = TraceScreen_new(p);
    bool ok = TraceScreen_forkTracer(ts);
-   if (ok) {
-      InfoScreen_run((InfoScreen*)ts);
+   if (!ok) {
+      char errmsg[256];
+      int saved_errno = errno;
+      // Using snprintf instead of xSnprintf as the latter is meant to fail and crash htop on error
+      snprintf(errmsg, sizeof(errmsg), "Failed to start tracer: %s", strerror(saved_errno));
+      InfoScreen_addLine(&ts->super, errmsg);
    }
+   InfoScreen_run((InfoScreen*)ts);
    TraceScreen_delete((Object*)ts);
    clear();
    CRT_enableDelay();
@@ -634,7 +708,7 @@ static Htop_Reaction actionRedraw(ATTR_UNUSED State* st) {
 
 static Htop_Reaction actionTogglePauseUpdate(State* st) {
    st->pauseUpdate = !st->pauseUpdate;
-   return HTOP_REFRESH | HTOP_REDRAW_BAR;
+   return HTOP_REFRESH | HTOP_REDRAW_BAR | HTOP_KEEP_FOLLOWING;
 }
 
 static const struct {
@@ -678,6 +752,9 @@ static const struct {
    { .key = "   F8 [: ", .roInactive = true,  .info = "lower priority (+ nice)" },
 #if (defined(HAVE_LIBHWLOC) || defined(HAVE_AFFINITY))
    { .key = "      a: ", .roInactive = true, .info = "set CPU affinity" },
+#endif
+#if defined(HAVE_BACKTRACE_SCREEN)
+   { .key = "      b: ", .roInactive = false, .info = "show process backtrace" },
 #endif
    { .key = "      e: ", .roInactive = false, .info = "show process environment" },
    { .key = "      i: ", .roInactive = true,  .info = "set IO priority" },
@@ -733,20 +810,32 @@ static Htop_Reaction actionHelp(State* st) {
       addbartext(CRT_colors[CPU_IOWAIT], "/", "io-wait");
       addbartext(CRT_colors[BAR_SHADOW], " ", "used%");
    } else {
-      addbartext(CRT_colors[CPU_GUEST], "/", "guest");
-      addbartext(CRT_colors[BAR_SHADOW], "                  ", "used%");
+      addbartext(CRT_colors[CPU_GUEST], "/", "virt");
+      addbartext(CRT_colors[BAR_SHADOW], "                             ", "used%");
    }
    addattrstr(CRT_colors[BAR_BORDER], "]");
 
    attrset(CRT_colors[DEFAULT_COLOR]);
    mvaddstr(line++, 0, "Memory bar:    ");
    addattrstr(CRT_colors[BAR_BORDER], "[");
-   addbartext(CRT_colors[MEMORY_USED], "", "used");
-   addbartext(CRT_colors[MEMORY_SHARED], "/", "shared");
-   addbartext(CRT_colors[MEMORY_COMPRESSED], "/", "compressed");
-   addbartext(CRT_colors[MEMORY_BUFFERS_TEXT], "/", "buffers");
-   addbartext(CRT_colors[MEMORY_CACHE], "/", "cache");
-   addbartext(CRT_colors[BAR_SHADOW], "          ", "used");
+   // memory classes are OS-specific and provided in their <os>/Platform.c implementation
+   // ideal length of memory bar == 56 chars. Any length < 45 requires padding to 45.
+   // [0        1         2         3         4         5      ]
+   // [12345678901234567890123456789012345678901234567890123456]
+   // [                                            ^    5      ]
+   // [class1/class2/class3/.../classN               used/total]
+   int barTxtLen = 0;
+   for (unsigned int i = 0; i < Platform_numberOfMemoryClasses; i++) {
+      if (!st->host->settings->showCachedMemory && Platform_memoryClasses[i].countsAsCache)
+         continue; // skip reclaimable cache memory classes if "show cached memory" is not ticked
+      if (!Platform_memoryClasses[i].countsAsUsed && !Platform_memoryClasses[i].countsAsCache)
+         continue; // skip available memory class (special case for the Linux platform)
+      addbartext(CRT_colors[Platform_memoryClasses[i].color], (i == 0 ? "" : "/"), Platform_memoryClasses[i].label);
+      barTxtLen += (i == 0 ? 0 : 1) + strlen (Platform_memoryClasses[i].label);
+   }
+   for (int i = barTxtLen; i < 45; i++)
+      addattrstr(CRT_colors[BAR_SHADOW], " "); // pad to 45 chars if necessary
+   addbartext(CRT_colors[BAR_SHADOW], " ", "used");
    addbartext(CRT_colors[BAR_SHADOW], "/", "total");
    addattrstr(CRT_colors[BAR_BORDER], "]");
 
@@ -758,7 +847,7 @@ static Htop_Reaction actionHelp(State* st) {
    addbartext(CRT_colors[SWAP_CACHE], "/", "cache");
    addbartext(CRT_colors[SWAP_FRONTSWAP], "/", "frontswap");
 #else
-   addbartext(CRT_colors[SWAP_CACHE], "      ", "");
+   addbartext(CRT_colors[BAR_SHADOW], "                ", "");
 #endif
    addbartext(CRT_colors[BAR_SHADOW], "                          ", "used");
    addbartext(CRT_colors[BAR_SHADOW], "/", "total");
@@ -918,6 +1007,9 @@ void Action_setBindings(Htop_Action* keys) {
    keys['\\'] = actionIncFilter;
    keys[']'] = actionHigherPriority;
    keys['a'] = actionSetAffinity;
+#if defined(HAVE_BACKTRACE_SCREEN)
+   keys['b'] = actionBacktrace;
+#endif
    keys['c'] = actionTagAllChildren;
    keys['e'] = actionShowEnvScreen;
    keys['h'] = actionHelp;

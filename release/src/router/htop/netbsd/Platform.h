@@ -19,7 +19,7 @@ in the source distribution for its full text.
 #include "Action.h"
 #include "BatteryMeter.h"
 #include "DiskIOMeter.h"
-#include "Meter.h"
+#include "MemoryMeter.h"
 #include "NetworkIOMeter.h"
 #include "Process.h"
 #include "ProcessLocksScreen.h"
@@ -42,6 +42,10 @@ extern const unsigned int Platform_numberOfDefaultScreens;
 extern const SignalItem Platform_signals[];
 
 extern const unsigned int Platform_numberOfSignals;
+
+extern const MemoryClass Platform_memoryClasses[];
+
+extern const unsigned int Platform_numberOfMemoryClasses;
 
 extern const MeterClass* const Platform_meterTypes[];
 
@@ -79,8 +83,12 @@ static inline void Platform_getHostname(char* buffer, size_t size) {
    Generic_hostname(buffer, size);
 }
 
-static inline void Platform_getRelease(char** string) {
-   *string = Generic_uname();
+static inline const char* Platform_getRelease(void) {
+   return Generic_uname();
+}
+
+static inline const char* Platform_getFailedState(void) {
+   return NULL;
 }
 
 static inline void Platform_longOptionsUsage(ATTR_UNUSED const char* name) { }
@@ -89,7 +97,7 @@ static inline CommandLineStatus Platform_getLongOption(ATTR_UNUSED int opt, ATTR
    return STATUS_ERROR_EXIT;
 }
 
-static inline void Platform_gettime_realtime(struct timeval* tv, uint64_t* msec) {
+static inline void Platform_gettime_realtime(struct timespec* tv, uint64_t* msec) {
    Generic_gettime_realtime(tv, msec);
 }
 

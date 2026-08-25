@@ -16,6 +16,7 @@ in the source distribution for its full text.
 #include "CPUMeter.h"
 #include "DiskIOMeter.h"
 #include "Hashtable.h"
+#include "MemoryMeter.h"
 #include "NetworkIOMeter.h"
 #include "ProcessLocksScreen.h"
 #include "SignalsPanel.h"
@@ -34,12 +35,16 @@ extern const SignalItem Platform_signals[];
 
 extern const unsigned int Platform_numberOfSignals;
 
+extern const MemoryClass Platform_memoryClasses[];
+
+extern const unsigned int Platform_numberOfMemoryClasses;
+
 extern const MeterClass* const Platform_meterTypes[];
 
 bool Platform_init(void);
 
 // Converts ticks in the Mach "timebase" to nanoseconds.
-// See `mach_timebase_info`, as used to define the `Platform_nanosecondsPerMachTick` constant.
+// See `mach_timebase_info`, as used to define the `Platform_nanosecondsPerMachTick*` constants.
 uint64_t Platform_machTicksToNanoseconds(uint64_t mach_ticks);
 
 // Converts "scheduler ticks" to nanoseconds.
@@ -57,6 +62,8 @@ void Platform_getLoadAverage(double* one, double* five, double* fifteen);
 pid_t Platform_getMaxPid(void);
 
 double Platform_setCPUValues(Meter* mtr, unsigned int cpu);
+
+void Platform_setGPUValues(Meter* mtr, double* totalUsage, unsigned long long* totalGPUTimeDiff);
 
 void Platform_setMemoryValues(Meter* mtr);
 
@@ -82,8 +89,10 @@ static inline void Platform_getHostname(char* buffer, size_t size) {
    Generic_hostname(buffer, size);
 }
 
-static inline void Platform_getRelease(char** string) {
-   *string = Generic_uname();
+const char* Platform_getRelease(void);
+
+static inline const char* Platform_getFailedState(void) {
+   return NULL;
 }
 
 #define PLATFORM_LONG_OPTIONS
@@ -94,7 +103,7 @@ static inline CommandLineStatus Platform_getLongOption(ATTR_UNUSED int opt, ATTR
    return STATUS_ERROR_EXIT;
 }
 
-static inline void Platform_gettime_realtime(struct timeval* tv, uint64_t* msec) {
+static inline void Platform_gettime_realtime(struct timespec* tv, uint64_t* msec) {
    Generic_gettime_realtime(tv, msec);
 }
 

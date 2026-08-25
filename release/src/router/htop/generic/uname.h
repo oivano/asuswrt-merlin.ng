@@ -7,6 +7,12 @@ Released under the GNU GPLv2+, see the COPYING file
 in the source distribution for its full text.
 */
 
-char* Generic_uname(void);
+#include <stddef.h>
+
+typedef void (*Platform_FetchReleaseFunction)(char* buffer, size_t length);
+
+const char* Generic_unameRelease(Platform_FetchReleaseFunction fetchRelease);
+
+const char* Generic_uname(void);
 
 #endif

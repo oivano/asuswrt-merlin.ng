@@ -105,7 +105,7 @@ static void NetBSDProcessTable_updateProcessName(kvm_t* kd, const struct kinfo_p
    }
 
    size_t len = 0;
-   for (int i = 0; arg[i] != NULL; i++) {
+   for (size_t i = 0; arg[i] != NULL; i++) {
       len += strlen(arg[i]) + 1;   /* room for arg and trailing space or NUL */
    }
 
@@ -118,14 +118,14 @@ static void NetBSDProcessTable_updateProcessName(kvm_t* kd, const struct kinfo_p
 
    *s = '\0';
 
-   int start = 0;
-   int end = 0;
-   for (int i = 0; arg[i] != NULL; i++) {
+   size_t start = 0;
+   size_t end = 0;
+   for (size_t i = 0; arg[i] != NULL; i++) {
       size_t n = strlcat(s, arg[i], len);
       if (i == 0) {
          end = MINIMUM(n, len - 1);
          /* check if cmdline ended earlier, e.g 'kdeinit5: Running...' */
-         for (int j = end; j > 0; j--) {
+         for (size_t j = end; j > 0; j--) {
             if (arg[0][j] == ' ' && arg[0][j - 1] != '\\') {
                end = (arg[0][j - 1] == ':') ? (j - 1) : j;
             }
@@ -148,6 +148,24 @@ static double getpcpu(const NetBSDMachine* nhost, const struct kinfo_proc2* kp) 
       return 0.0;
 
    return 100.0 * (double)kp->p_pctcpu / nhost->fscale;
+}
+
+static ProcessState get_active_status(const NetBSDMachine* nhost, const struct kinfo_proc2* kproc) {
+   int nlwps = 0;
+   const struct kinfo_lwp* klwps = kvm_getlwps(nhost->kd, kproc->p_pid, kproc->p_paddr, sizeof(struct kinfo_lwp), &nlwps);
+   if (!klwps) {
+      return UNKNOWN;
+   }
+   // We only consider the first LWP that has one of the states below.
+   for (int j = 0; j < nlwps; j++) {
+      switch (klwps[j].l_stat) {
+         case LSONPROC: return RUNNING;
+         case LSRUN:    return RUNNABLE;
+         case LSSLEEP:  return SLEEPING;
+         case LSSTOP:   return STOPPED;
+      }
+   }
+   return UNKNOWN;
 }
 
 void ProcessTable_goThroughEntries(ProcessTable* super) {
@@ -224,34 +242,11 @@ void ProcessTable_goThroughEntries(ProcessTable* super) {
       proc->minflt = kproc->p_uru_minflt;
       proc->majflt = kproc->p_uru_majflt;
 
-      int nlwps = 0;
-      const struct kinfo_lwp* klwps = kvm_getlwps(nhost->kd, kproc->p_pid, kproc->p_paddr, sizeof(struct kinfo_lwp), &nlwps);
-
       /* TODO: According to the link below, SDYING should be a regarded state */
       /* Taken from: https://ftp.netbsd.org/pub/NetBSD/NetBSD-current/src/sys/sys/proc.h */
       switch (kproc->p_realstat) {
          case SIDL:     proc->state = IDLE; break;
-         case SACTIVE:
-            // We only consider the first LWP with a one of the below states.
-            for (int j = 0; j < nlwps; j++) {
-               if (klwps) {
-                  switch (klwps[j].l_stat) {
-                     case LSONPROC: proc->state = RUNNING; break;
-                     case LSRUN:    proc->state = RUNNABLE; break;
-                     case LSSLEEP:  proc->state = SLEEPING; break;
-                     case LSSTOP:   proc->state = STOPPED; break;
-                     default:       proc->state = UNKNOWN;
-                  }
-
-                  if (proc->state != UNKNOWN) {
-                     break;
-                  }
-               } else {
-                  proc->state = UNKNOWN;
-                  break;
-               }
-            }
-            break;
+         case SACTIVE:  proc->state = get_active_status(nhost, kproc); break;
          case SSTOP:    proc->state = STOPPED; break;
          case SZOMB:    proc->state = ZOMBIE; break;
          case SDEAD:    proc->state = DEFUNCT; break;

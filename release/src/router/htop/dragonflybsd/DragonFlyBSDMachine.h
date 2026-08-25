@@ -42,10 +42,11 @@ typedef struct DragonFlyBSDMachine_ {
    int pageSizeKb;
    int kernelFScale;
 
-   unsigned long long int memWire;
-   unsigned long long int memActive;
-   unsigned long long int memInactive;
-   unsigned long long int memFree;
+   memory_t wiredMem;
+   memory_t buffersMem;
+   memory_t activeMem;
+   memory_t inactiveMem;
+   memory_t cacheMem;
 
    CPUData* cpus;
 
@@ -56,6 +57,6 @@ typedef struct DragonFlyBSDMachine_ {
    unsigned long* cp_times_n;
 } DragonFlyBSDMachine;
 
-char* DragonFlyBSDMachine_readJailName(DragonFlyBSDMachine* host, int jailid);
+char* DragonFlyBSDMachine_readJailName(const DragonFlyBSDMachine* host, int jailid);
 
 #endif

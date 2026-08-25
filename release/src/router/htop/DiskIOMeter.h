@@ -16,7 +16,12 @@ typedef struct DiskIOData_ {
    uint64_t totalBytesRead;
    uint64_t totalBytesWritten;
    uint64_t totalMsTimeSpend;
+   uint64_t numDisks;
 } DiskIOData;
+
+extern const MeterClass DiskIORateMeter_class;
+
+extern const MeterClass DiskIOTimeMeter_class;
 
 extern const MeterClass DiskIOMeter_class;
 

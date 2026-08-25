@@ -34,6 +34,8 @@ typedef struct Table_ {
    const char* incFilter;
    bool needsSort;
    int following;         /* -1 or row being visually tracked in the user interface */
+   int stableId;          /* stable tree view: row ID to keep at fixed screen position (-1 = inactive) */
+   int stableLastIdx;     /* panel index where stableId row was placed in the last rebuild */
 
    struct Panel_* panel;
 } Table;
@@ -68,8 +70,6 @@ void Table_printHeader(const Settings* settings, RichString* header);
 
 void Table_add(Table* this, struct Row_* row);
 
-void Table_removeIndex(Table* this, const struct Row_* row, int idx);
-
 void Table_updateDisplayList(Table* this);
 
 void Table_expandTree(Table* this);
@@ -86,10 +86,11 @@ void Table_prepareEntries(Table* this);
 
 void Table_cleanupEntries(Table* this);
 
-void Table_cleanupRow(Table* this, Row* row, int idx);
+Row* Table_cleanupRow(Table* this, Row* row, int idx);
 
-static inline void Table_compact(Table* this) {
-   Vector_compact(this->rows);
+static inline void Table_compact(Table* this, int dirtyIndex) {
+   Vector_compact(this->rows, dirtyIndex);
+   this->needsSort = true;
 }
 
 #endif

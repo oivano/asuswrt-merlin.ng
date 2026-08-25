@@ -19,6 +19,7 @@ in the source distribution for its full text.
 #include <sys/param.h>
 #include <sys/proc.h>
 #include <sys/sched.h>
+#include <sys/stat.h>
 #include <sys/sysctl.h>
 #include <sys/types.h>
 #include <uvm/uvmexp.h>
@@ -41,7 +42,7 @@ ProcessTable* ProcessTable_new(Machine* host, Hashtable* pidMatchList) {
    ProcessTable* super = &this->super;
    ProcessTable_init(super, Class(OpenBSDProcess), host, pidMatchList);
 
-   return this;
+   return super;
 }
 
 void ProcessTable_delete(Object* cast) {
@@ -84,7 +85,7 @@ static void OpenBSDProcessTable_updateProcessName(kvm_t* kd, const struct kinfo_
    }
 
    size_t len = 0;
-   for (int i = 0; arg[i] != NULL; i++) {
+   for (size_t i = 0; arg[i] != NULL; i++) {
       len += strlen(arg[i]) + 1;   /* room for arg and trailing space or NUL */
    }
 
@@ -97,14 +98,14 @@ static void OpenBSDProcessTable_updateProcessName(kvm_t* kd, const struct kinfo_
 
    *s = '\0';
 
-   int start = 0;
-   int end = 0;
-   for (int i = 0; arg[i] != NULL; i++) {
+   size_t start = 0;
+   size_t end = 0;
+   for (size_t i = 0; arg[i] != NULL; i++) {
       size_t n = strlcat(s, arg[i], len);
       if (i == 0) {
          end = MINIMUM(n, len - 1);
          /* check if cmdline ended earlier, e.g 'kdeinit5: Running...' */
-         for (int j = end; j > 0; j--) {
+         for (size_t j = end; j > 0; j--) {
             if (arg[0][j] == ' ' && arg[0][j - 1] != '\\') {
                end = (arg[0][j - 1] == ':') ? (j - 1) : j;
             }
@@ -200,7 +201,7 @@ static void OpenBSDProcessTable_scanProcs(OpenBSDProcessTable* this) {
       proc->nice = kproc->p_nice - 20;
       proc->time = 100 * (kproc->p_rtime_sec + ((kproc->p_rtime_usec + 500000) / 1000000));
       proc->priority = kproc->p_priority - PZERO;
-      proc->processor = kproc->p_cpuid;
+      proc->processor = (int) kproc->p_cpuid;
       proc->minflt = kproc->p_uru_minflt;
       proc->majflt = kproc->p_uru_majflt;
       proc->nlwp = 1;

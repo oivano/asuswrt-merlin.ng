@@ -24,7 +24,7 @@ pixmap_DATA = htop.png
 appicondir = $(datadir)/icons/hicolor/scalable/apps
 appicon_DATA = htop.svg
 
-AM_CFLAGS += -D_XOPEN_SOURCE_EXTENDED -DSYSCONFDIR="\"$(sysconfdir)\"" -I"$(top_srcdir)/$(my_htop_platform)"
+AM_CFLAGS += -DSYSCONFDIR="\"$(sysconfdir)\"" -I"$(top_srcdir)/$(my_htop_platform)"
 AM_LDFLAGS =
 
 myhtopsources = \
@@ -35,15 +35,12 @@ myhtopsources = \
 	AvailableMetersPanel.c \
 	BatteryMeter.c \
 	CategoriesPanel.c \
-	ClockMeter.c \
 	ColorsPanel.c \
 	ColumnsPanel.c \
 	CommandLine.c \
 	CommandScreen.c \
-	Compat.c \
 	CPUMeter.c \
 	CRT.c \
-	DateMeter.c \
 	DateTimeMeter.c \
 	DiskIOMeter.c \
 	DisplayOptionsPanel.c \
@@ -57,8 +54,10 @@ myhtopsources = \
 	Header.c \
 	HeaderOptionsPanel.c \
 	HostnameMeter.c \
+	History.c \
 	IncSet.c \
 	InfoScreen.c \
+	LineEditor.c \
 	ListItem.c \
 	LoadAverageMeter.c \
 	Machine.c \
@@ -103,14 +102,12 @@ myhtopheaders = \
 	CPUMeter.h \
 	CRT.h \
 	CategoriesPanel.h \
-	ClockMeter.h \
 	ColorsPanel.h \
 	ColumnsPanel.h \
 	CommandLine.h \
 	CommandScreen.h \
-	Compat.h \
-	DateMeter.h \
 	DateTimeMeter.h \
+	Debug.h \
 	DiskIOMeter.h \
 	DisplayOptionsPanel.h \
 	DynamicColumn.h \
@@ -119,13 +116,16 @@ myhtopheaders = \
 	EnvScreen.h \
 	FileDescriptorMeter.h \
 	FunctionBar.h \
+	GPUMeter.h \
 	Hashtable.h \
 	Header.h \
 	HeaderLayout.h \
 	HeaderOptionsPanel.h \
 	HostnameMeter.h \
+	History.h \
 	IncSet.h \
 	InfoScreen.h \
+	LineEditor.h \
 	ListItem.h \
 	LoadAverageMeter.h \
 	Machine.h \
@@ -134,6 +134,7 @@ myhtopheaders = \
 	MemoryMeter.h \
 	MemorySwapMeter.h \
 	Meter.h \
+	MeterMode.h \
 	MetersPanel.h \
 	NetworkIOMeter.h \
 	Object.h \
@@ -162,7 +163,23 @@ myhtopheaders = \
 	UptimeMeter.h \
 	UsersTable.h \
 	Vector.h \
-	XUtils.h
+	XUtils.h \
+	generic/ProvideDemangle.h
+
+if HAVE_BACKTRACE_SCREEN
+myhtopheaders += \
+	BacktraceScreen.h \
+	generic/UnwindPtrace.h
+
+myhtopsources += \
+	BacktraceScreen.c \
+	generic/UnwindPtrace.c
+
+if HAVE_DEMANGLING
+myhtopheaders += generic/Demangle.h
+myhtopsources += generic/Demangle.c
+endif
+endif
 
 # Linux
 # -----
@@ -172,6 +189,8 @@ linux_platform_headers = \
 	generic/hostname.h \
 	generic/uname.h \
 	linux/CGroupUtils.h \
+	linux/Compat.h \
+	linux/GPU.h \
 	linux/HugePageMeter.h \
 	linux/IOPriority.h \
 	linux/IOPriorityPanel.h \
@@ -179,6 +198,7 @@ linux_platform_headers = \
 	linux/LinuxMachine.h \
 	linux/LinuxProcess.h \
 	linux/LinuxProcessTable.h \
+	linux/OpenRCMeter.h \
 	linux/Platform.h \
 	linux/PressureStallMeter.h \
 	linux/ProcessField.h \
@@ -186,29 +206,40 @@ linux_platform_headers = \
 	linux/SystemdMeter.h \
 	linux/ZramMeter.h \
 	linux/ZramStats.h \
+	linux/ZswapMeter.h \
 	linux/ZswapStats.h \
 	zfs/ZfsArcMeter.h \
 	zfs/ZfsArcStats.h \
 	zfs/ZfsCompressedArcMeter.h
 
 linux_platform_sources = \
+	GPUMeter.c \
 	generic/gettime.c \
 	generic/hostname.c \
 	generic/uname.c \
 	linux/CGroupUtils.c \
+	linux/Compat.c \
+	linux/GPU.c \
 	linux/HugePageMeter.c \
 	linux/IOPriorityPanel.c \
 	linux/LibSensors.c \
 	linux/LinuxMachine.c \
 	linux/LinuxProcess.c \
 	linux/LinuxProcessTable.c \
+	linux/OpenRCMeter.c \
 	linux/Platform.c \
 	linux/PressureStallMeter.c \
 	linux/SELinuxMeter.c \
 	linux/SystemdMeter.c \
 	linux/ZramMeter.c \
+	linux/ZswapMeter.c \
 	zfs/ZfsArcMeter.c \
 	zfs/ZfsCompressedArcMeter.c
+
+if HAVE_DELAYACCT
+linux_platform_headers += linux/LibNl.h
+linux_platform_sources += linux/LibNl.c
+endif
 
 if HTOP_LINUX
 AM_LDFLAGS += -rdynamic
@@ -357,6 +388,7 @@ darwin_platform_headers = \
 	zfs/ZfsCompressedArcMeter.h
 
 darwin_platform_sources = \
+	GPUMeter.c \
 	darwin/Platform.c \
 	darwin/PlatformHelpers.c \
 	darwin/DarwinMachine.c \
@@ -495,13 +527,17 @@ coverage:
 	$(MAKE) all AM_CPPFLAGS="-fprofile-arcs -ftest-coverage" AM_LDFLAGS="-lgcov"
 
 cppcheck:
-	cppcheck -q -v . --enable=all -DHAVE_OPENVZ
+	cppcheck -q -v . --enable=all
 
 dist-hook: $(top_distdir)/configure
-	@if grep 'pkg_m4_absent' '$(top_distdir)/configure'; then \
-	   echo 'configure is generated without pkg.m4. Please supply pkg.m4 and run ./autogen.sh to rebuild the configure script.'>&2; \
+	@if test "x$$FORCE_MAKE_DIST" != x || \
+	   grep 'pkg_m4_included' '$(top_distdir)/configure' >/dev/null; then :; \
+	else \
+	   echo 'ERROR: The configure script has incomplete pkg-config support and regenerating it is advised. Set FORCE_MAKE_DIST=1 to ignore this warning.'>&2; \
 	   (exit 1); \
-	else :; \
+	fi
+	@if grep 'PACKAGE_VERSION.*-g' '$(top_distdir)/configure'; then \
+	  echo 'WARNING: You are building a dist from a git version. Better run make dist outside of a .git repo on a tagged release.'>&2; \
 	fi
 
 .PHONY: lcov

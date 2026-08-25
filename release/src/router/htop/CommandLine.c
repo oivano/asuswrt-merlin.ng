@@ -13,6 +13,7 @@ in the source distribution for its full text.
 #include <assert.h>
 #include <ctype.h>
 #include <getopt.h>
+#include <limits.h>
 #include <locale.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -37,6 +38,8 @@ in the source distribution for its full text.
 #include "Process.h"
 #include "ProcessTable.h"
 #include "ScreenManager.h"
+#include "ScreensPanel.h"
+#include "ScreenTabsPanel.h"
 #include "Settings.h"
 #include "Table.h"
 #include "UsersTable.h"
@@ -54,16 +57,18 @@ static void printHelpFlag(const char* name) {
           "-C --no-color                   Use a monochrome color scheme\n"
           "-d --delay=DELAY                Set the delay between updates, in tenths of seconds\n"
           "-F --filter=FILTER              Show only the commands matching the given filter\n"
+          "   --no-function-bar            Hide the function bar\n"
           "-h --help                       Print this help screen\n"
           "-H --highlight-changes[=DELAY]  Highlight new and old processes\n", name);
 #ifdef HAVE_GETMOUSE
    printf("-M --no-mouse                   Disable the mouse\n");
 #endif
-   printf("-n --max-iterations=NUMBER      Exit htop after NUMBER iterations/frame updates\n"
+   printf("   --no-meters                  Hide meters\n"
+          "-n --max-iterations=NUMBER      Exit htop after NUMBER iterations/frame updates\n"
           "-p --pid=PID[,PID,PID...]       Show only the given PIDs\n"
           "   --readonly                   Disable all system and process changing features\n"
           "-s --sort-key=COLUMN            Sort by COLUMN in list view (try --sort-key=help for a list)\n"
-          "-t --tree                       Show the tree view (can be combined with -s)\n"
+          "-t --tree[=MODE]                Show the tree view (MODE: classic|soft|hard); can be combined with -s\n"
           "-u --user[=USERNAME]            Show only processes for a given user (or $USER)\n"
           "-U --no-unicode                 Do not use unicode but plain ASCII\n"
           "-V --version                    Print version info\n");
@@ -87,11 +92,33 @@ typedef struct CommandLineSettings_ {
    bool enableMouse;
 #endif
    bool treeView;
+   int stableTreeView;
    bool allowUnicode;
    bool highlightChanges;
    int highlightDelaySecs;
    bool readonly;
+   bool hideMeters;
+   bool hideFunctionBar;
 } CommandLineSettings;
+
+static bool parseTreeStableMode(const char* arg, int* stableTreeView) {
+   if (String_eq(arg, "0") || String_eq(arg, "classic") || String_eq(arg, "legacy") || String_eq(arg, "jumpy")) {
+      *stableTreeView = 0;
+      return true;
+   }
+
+   if (String_eq(arg, "1") || String_eq(arg, "soft") || String_eq(arg, "stable")) {
+      *stableTreeView = 1;
+      return true;
+   }
+
+   if (String_eq(arg, "2") || String_eq(arg, "hard") || String_eq(arg, "STABLE")) {
+      *stableTreeView = 2;
+      return true;
+   }
+
+   return false;
+}
 
 static CommandLineStatus parseArguments(int argc, char** argv, CommandLineSettings* flags) {
 
@@ -108,10 +135,21 @@ static CommandLineStatus parseArguments(int argc, char** argv, CommandLineSettin
 #endif
       .treeView = false,
       .allowUnicode = true,
+      .stableTreeView = -1,
       .highlightChanges = false,
       .highlightDelaySecs = -1,
       .readonly = false,
+      .hideMeters = false,
+      .hideFunctionBar = false,
    };
+
+   {
+      // Implement NO_COLOR env support, cf. https://no-color.org/
+      const char* no_color = getenv("NO_COLOR");
+      if (no_color && no_color[0] != '\0') {
+         flags->useColors = false;
+      }
+   }
 
    const struct option long_opts[] =
    {
@@ -125,9 +163,12 @@ static CommandLineStatus parseArguments(int argc, char** argv, CommandLineSettin
       {"no-colour",  no_argument,         0, 'C'},
       {"no-mouse",   no_argument,         0, 'M'},
       {"no-unicode", no_argument,         0, 'U'},
-      {"tree",       no_argument,         0, 't'},
+      {"no-meters",  no_argument,         0, 129},
+      {"tree",       optional_argument,   0, 't'},
       {"pid",        required_argument,   0, 'p'},
       {"filter",     required_argument,   0, 'F'},
+      {"no-functionbar", no_argument,     0, 130},
+      {"no-function-bar", no_argument,    0, 130},
       {"highlight-changes", optional_argument, 0, 'H'},
       {"readonly",   no_argument,         0, 128},
       PLATFORM_LONG_OPTIONS
@@ -136,7 +177,7 @@ static CommandLineStatus parseArguments(int argc, char** argv, CommandLineSettin
 
    int opt, opti = 0;
    /* Parse arguments */
-   while ((opt = getopt_long(argc, argv, "hVMCs:td:n:u::Up:F:H::", long_opts, &opti))) {
+   while ((opt = getopt_long(argc, argv, "hVMCs:t::d:n:u::Up:F:H::", long_opts, &opti))) {
       if (opt == EOF)
          break;
 
@@ -148,7 +189,9 @@ static CommandLineStatus parseArguments(int argc, char** argv, CommandLineSettin
             printVersionFlag(program);
             return STATUS_OK_EXIT;
          case 's':
-            assert(optarg); /* please clang analyzer, cause optarg can be NULL in the 'u' case */
+            if (!optarg)
+               return STATUS_ERROR_EXIT;
+
             if (String_eq(optarg, "help")) {
                for (int j = 1; j < LAST_PROCESSFIELD; j++) {
                   const char* name = Process_fields[j].name;
@@ -173,6 +216,9 @@ static CommandLineStatus parseArguments(int argc, char** argv, CommandLineSettin
             }
             break;
          case 'd':
+            if (!optarg)
+               return STATUS_ERROR_EXIT;
+
             if (sscanf(optarg, "%16d", &(flags->delay)) == 1) {
                if (flags->delay < 1)
                   flags->delay = 1;
@@ -184,6 +230,9 @@ static CommandLineStatus parseArguments(int argc, char** argv, CommandLineSettin
             }
             break;
          case 'n':
+            if (!optarg)
+               return STATUS_ERROR_EXIT;
+
             if (sscanf(optarg, "%16d", &flags->iterationsRemaining) == 1) {
                if (flags->iterationsRemaining <= 0) {
                   fprintf(stderr, "Error: maximum iteration count must be positive.\n");
@@ -204,12 +253,14 @@ static CommandLineStatus parseArguments(int argc, char** argv, CommandLineSettin
             if (!username) {
                flags->userId = geteuid();
             } else if (!Action_setUserOnly(username, &(flags->userId))) {
-               for (const char* itr = username; *itr; ++itr)
-                  if (!isdigit((unsigned char)*itr)) {
-                     fprintf(stderr, "Error: invalid user \"%s\".\n", username);
-                     return STATUS_ERROR_EXIT;
-                  }
-               flags->userId = atol(username);
+               char* endptr;
+               /* using strtoll as strtoul negative value handling is not what we want */
+               long long val = strtoll(username, &endptr, 10);
+               if (*endptr != '\0' || username == endptr || val < 0 || val >= UINT_MAX) {
+                  fprintf(stderr, "Error: invalid user \"%s\".\n", username);
+                  return STATUS_ERROR_EXIT;
+               }
+               flags->userId = (uid_t)val;
             }
             break;
          }
@@ -224,7 +275,24 @@ static CommandLineStatus parseArguments(int argc, char** argv, CommandLineSettin
          case 'U':
             flags->allowUnicode = false;
             break;
+         case 129:
+            flags->hideMeters = true;
+            break;
          case 't':
+            if (!optarg && optind < argc &&
+                (argv[optind][0] != '\0' && argv[optind][0] != '-')) {
+               int stableTreeView = -1;
+               if (parseTreeStableMode(argv[optind], &stableTreeView)) {
+                  flags->stableTreeView = stableTreeView;
+                  optarg = argv[optind++];
+               }
+            }
+            if (optarg) {
+               if (!parseTreeStableMode(optarg, &flags->stableTreeView)) {
+                  fprintf(stderr, "Error: invalid tree mode \"%s\" (expected: classic, soft, hard (or 0, 1, 2)).\n", optarg);
+                  return STATUS_ERROR_EXIT;
+               }
+            }
             flags->treeView = true;
             break;
          case 'p': {
@@ -248,8 +316,17 @@ static CommandLineStatus parseArguments(int argc, char** argv, CommandLineSettin
             break;
          }
          case 'F':
-            assert(optarg);
+            if (!optarg)
+               return STATUS_ERROR_EXIT;
+
+            if (optarg[0] == '\0' || optarg[0] == '|') {
+               fprintf(stderr, "Error: invalid filter value \"%s\".\n", optarg);
+               return STATUS_ERROR_EXIT;
+            }
             free_and_xStrdup(&flags->commFilter, optarg);
+            break;
+         case 130:
+            flags->hideFunctionBar = true;
             break;
          case 'H': {
             const char* delay = optarg;
@@ -293,16 +370,6 @@ static CommandLineStatus parseArguments(int argc, char** argv, CommandLineSettin
    return STATUS_OK;
 }
 
-static void CommandLine_delay(Machine* host, unsigned long millisec) {
-   struct timespec req = {
-      .tv_sec = 0,
-      .tv_nsec = millisec * 1000000L
-   };
-   while (nanosleep(&req, &req) == -1)
-      continue;
-   Platform_gettime_realtime(&host->realtime, &host->realtimeMs);
-}
-
 static void setCommFilter(State* state, char** commFilter) {
    Table* table = state->host->activeTable;
    IncSet* inc = state->mainPanel->inc;
@@ -342,11 +409,13 @@ int CommandLine_run(int argc, char** argv) {
 
    Machine* host = Machine_new(ut, flags.userId);
    ProcessTable* pt = ProcessTable_new(host, flags.pidMatchList);
-   Settings* settings = Settings_new(host->activeCPUs, dm, dc, ds);
+   Settings* settings = Settings_new(host, dm, dc, ds);
    Machine_populateTablesFromSettings(host, settings, &pt->super);
 
    Header* header = Header_new(host, 2);
    Header_populateFromSettings(header);
+
+   int colorSchemeFromConfig = settings->colorScheme;
 
    if (flags.delay != -1)
       settings->delay = flags.delay;
@@ -358,6 +427,8 @@ int CommandLine_run(int argc, char** argv) {
 #endif
    if (flags.treeView)
       settings->ss->treeView = true;
+   if (flags.stableTreeView != -1)
+      settings->ss->stableTreeView = flags.stableTreeView;
    if (flags.highlightChanges)
       settings->highlightChanges = true;
    if (flags.highlightDelaySecs != -1)
@@ -370,9 +441,17 @@ int CommandLine_run(int argc, char** argv) {
       }
       ScreenSettings_setSortKey(settings->ss, flags.sortKey);
    }
+   if (flags.hideFunctionBar)
+      settings->hideFunctionBar = 2;
 
    host->iterationsRemaining = flags.iterationsRemaining;
    CRT_init(settings, flags.allowUnicode, flags.iterationsRemaining != -1);
+
+   // Do not save the color scheme override to 'htoprc'.
+   // 'settings' will keep the original color scheme until the user
+   // changes it in the Setup.
+   // ('CRT_colorScheme' holds the current, active color scheme.)
+   settings->colorScheme = colorSchemeFromConfig;
 
    MainPanel* panel = MainPanel_new();
    Machine_setTablesPanel(host, (Panel*) panel);
@@ -383,21 +462,33 @@ int CommandLine_run(int argc, char** argv) {
       .host = host,
       .mainPanel = panel,
       .header = header,
+      .failedUpdate = NULL,
       .pauseUpdate = false,
       .hideSelection = false,
-      .hideMeters = false,
+      .hideMeters = flags.hideMeters,
    };
 
    MainPanel_setState(panel, &state);
    if (flags.commFilter)
       setCommFilter(&state, &(flags.commFilter));
 
+   /* Set up shared search/filter history, stored next to the config file */
+   const char* rcPath = settings->filename;
+   const char* lastSlash = strrchr(rcPath, '/');
+   char historyPath[PATH_MAX];
+   if (lastSlash) {
+      int dirLen = (int)(lastSlash - rcPath + 1);
+      xSnprintf(historyPath, sizeof(historyPath), "%.*s" "htop_history", dirLen, rcPath);
+   } else {
+   /* no history file saved unless we have a sane rcPath */
+      historyPath[0] = '\0';
+   }
+
+   IncSet_setHistoryFile(panel->inc, historyPath);
+
    ScreenManager* scr = ScreenManager_new(header, host, &state, true);
    ScreenManager_add(scr, (Panel*) panel, -1);
 
-   Machine_scan(host);
-   Machine_scanTables(host);
-   CommandLine_delay(host, 75);
    Machine_scan(host);
    Machine_scanTables(host);
 
@@ -411,9 +502,13 @@ int CommandLine_run(int argc, char** argv) {
    CRT_done();
 
    if (settings->changed) {
+#ifndef NDEBUG
+      if (!String_eq(settings->initialFilename, settings->filename))
+         fprintf(stderr, "Configuration %s was resolved to %s\n", settings->initialFilename, settings->filename);
+#endif /* NDEBUG */
       int r = Settings_write(settings, false);
       if (r < 0)
-         fprintf(stderr, "Can not save configuration to %s: %s\n", settings->filename, strerror(-r));
+         fprintf(stderr, "Cannot save configuration to %s: %s\n", settings->filename, strerror(-r));
    }
 
    Header_delete(header);
@@ -421,6 +516,8 @@ int CommandLine_run(int argc, char** argv) {
 
    ScreenManager_delete(scr);
    MetersPanel_cleanup();
+   ScreensPanel_cleanup();
+   ScreenTabsPanel_cleanup();
 
    UsersTable_delete(ut);
 
