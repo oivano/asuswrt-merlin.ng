@@ -41,7 +41,6 @@ static void default_stubby_verror(getdns_loglevel_type level, const char *fmt, v
 {
         (void) level;
         (void) vfprintf(stderr, fmt, ap);
-        (void) fputc('\n', stderr);
 }
 
 long log_level = GETDNS_LOG_DEBUG + 1;
@@ -56,16 +55,14 @@ static void default_stubby_vlog(void *userarg, uint64_t system,
 #if defined(STUBBY_ON_WINDOWS)
         struct _timeb timeb;
         time_t tsec;
+	if (level > log_level) return;
 
         _ftime_s(&timeb);
-        if (level > log_level) return;
         tsec = (time_t)timeb.time;
         tv.tv_usec = timeb.millitm * 1000;
         gmtime_s(&tm, &tsec);
 #else
-        if (level > log_level) return;
-	if (use_syslog)
-		(void) vsyslog(level, fmt, ap);
+	if (level > log_level) return;
         gettimeofday(&tv, NULL);
         gmtime_r(&tv.tv_sec, &tm);
 #endif
@@ -73,7 +70,6 @@ static void default_stubby_vlog(void *userarg, uint64_t system,
         (void)userarg; (void)system; (void)level;
         (void) fprintf(stderr, "[%s.%.6d] STUBBY: ", buf, (int)tv.tv_usec);
         (void) vfprintf(stderr, fmt, ap);
-        (void) fputc('\n', stderr);
 }
 
 static stubby_verror_t stubby_verror = default_stubby_verror;
