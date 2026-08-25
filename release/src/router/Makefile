@@ -4970,12 +4970,12 @@ traceroute-2.1.0-clean:
 mtr/stamp-h1: shared ncurses-6.0 jansson-2.7
 	cd mtr && ./bootstrap.sh && \
 	$(CONFIGURE) --prefix=/usr --bindir=/usr/sbin --libdir=/usr/lib \
-	--without-gtk --disable-ipv6 ac_cv_lib_cap_cap_set_proc=no \
+	--without-gtk --disable-ipv6 --disable-braille ac_cv_lib_cap_cap_set_proc=no \
 	CFLAGS="$(CFLAGS) -Os -Wall -ffunction-sections -fdata-sections -std=gnu99 -I$(TOP)/shared -I$(STAGEDIR)/usr/include -I$(TOP)/ncurses-6.0/include" \
 	LDFLAGS="-L$(STAGEDIR)/usr/lib $(EXTRALDFLAGS) $(EXTRALDFLAGS2) -Wl,--gc-sections,--as-needed" \
 	JANSSON_LIBS="-L$(STAGEDIR)/usr/lib -ljansson" \
-	LIBS="-lc $(EXTRALDFLAGS) $(EXTRALDFLAGS2) -L$(TOP)/ncurses-6.0/lib -lncurses" \
-	touch $@
+	LIBS="-lc $(EXTRALDFLAGS) $(EXTRALDFLAGS2) -L$(TOP)/ncurses-6.0/lib -lncurses"; \
+	touch $(notdir $@)
 
 mtr: mtr/stamp-h1
 	$(MAKE) -C mtr

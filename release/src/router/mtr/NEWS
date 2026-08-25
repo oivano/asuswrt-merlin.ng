@@ -1,9 +1,128 @@
 WHAT'S NEW?
 
-The new release script will do a "git shortlog" to add 
-the commit messages here. 
+The new release script will do a "git shortlog" to add
+the commit messages here.
 
-#NEW_STUFF_HERE this is a tag my script looks for. 
+#NEW_STUFF_HERE this is a tag my script looks for.
+V0.96
+   23hiro (1):
+         Merge branch 'traviscross:master' into master
+
+   Alarig Le Lay (1):
+         Change UDP and ICMP sockets binding to accept a source IP from the -a CLI option
+
+   Andrew Marshall (1):
+         Adjust MIN_PORT to match other implementations
+
+   Arkadiusz Miśkiewicz (1):
+         Handle EHOSTDOWN and refine error handling better granularity
+
+   Bart Trojanowski (3):
+         add braille graph support with --displaymode 3
+         fix legend for braille display
+         fix documentation/comment for ENABLE_BRAILLE
+
+   Brandon Ewing (2):
+         use addrs for static host ordering in curses
+         add --max-display-paths option
+
+   Denis Afonin (1):
+         Add a compact mode in curses
+
+   Denis Ovsienko (1):
+         mtr.8.in: spell --mark argument type properly
+
+   Denys Fedoryshchenko (1):
+         Fix tiny typo in target
+
+   Evan Pratten (1):
+         Implement ASN lookups in well-known nat64 prefix
+
+   James Lu (2):
+         net: implement addrcmp for AF_UNSPEC
+         Initialize lines to empty string in split mode
+
+   Jian Cheng (1):
+         Add error code ETIMEOUT(110) handle logic
+
+   Marcus Meissner (1):
+         fixed the sizes passed into snprintf
+
+   Marek Küthe (6):
+         Allow signed integers in the utils function
+         Split the strtonum function into two parts to create a better structure
+         Remove redundant code
+         Fix https://github.com/traviscross/mtr/issues/475
+         xml report: remove leading spaces
+         Set UTF-8 encoding for XML reports
+
+   Matt Kimball (1):
+         Update Cygwin ICMP service thread for asynchronous pipes
+
+   Michal Sekletar (1):
+         Prevent icmp_socket leak on error
+
+   R.E. Wolff (9):
+         Markus pointed out useless statement.
+         merged
+         Merge branch 'master' of github.com:traviscross/mtr
+         Fixed typo noted by @szczot3k
+         Changed how conflicitng first/max TTL works.
+         Increased max probes
+         Added protection against use of MTR_PACKET under special circumstances
+         Merge branch 'master' of github.com:traviscross/mtr
+         Added Arad Cohen to NEWS
+
+   Robert Vollmer (2):
+         Set SO_BINDTODEVICE for -I
+         Check if SO_BINDTODEVICE is defined
+
+   Sami Kerola (1):
+         ui: make interactive and non-interactive exit code the same
+
+   Tony Lewis Hiroaki URAHAMA (3):
+         Add WSL method to Windows Install
+         Add Ubuntu as specific distribution
+         Update section title
+
+   darless (1):
+         Github actions added to perform lint and compile
+
+   eater (1):
+         configure.ac: fix broken cap check
+
+   famfo (1):
+         Add option to use custom ipinfo provider
+
+   flu0r1ne (10):
+         Fix Capability Management, Retain CAP_NET_ADMIN
+         Fix interface binding by retaining CAP_NET_RAW
+         Linux-Only Interface, Marking, and IP Unit Tests
+         Annotate `set_privileged_socket_opt` with UNUSED
+         Drop capabilities when `setsockopt` errors
+         Fix flake8 linting
+         Change B101->S101 to reflect flake8
+         Use a uint32 for the type of a Linux mark
+         Use Packet Marking for IP Address Selection
+         Support Hexadecimal Arguments for Packet Marking
+
+   hiro (1):
+         ipv6 udp checksums like ipv4 but with ipv6 pseudoheader
+
+   lilinjie (1):
+         fix typo
+
+   verrens (1):
+         Merge branch 'master' into compact-layout
+
+   wenlxie (1):
+         Add help info for option -E
+
+
+   Arad Cohen:
+         Brought an unlikely privilege escalation
+         scenario to my attention.
+
 V0.95
    Aaron Lipinski (27):
          move net_send_batch call to its caller
@@ -31,41 +150,41 @@ V0.95
          make Hostname as const
          rename function
          dont show json option if not available
-   
+
    Egor Panov (1):
          Updated Readme
-   
+
    R.E. Wolff (2):
          Slight cleanup, but no fix for code that came up in a bugreport.
          increased max length suggested by YVS2014
-   
+
    Roger Wolff (12):
-   
+
    Rogier Wolff (2):
          Code formatting for Zenithal pull
          added clarification to readme suggested by Zenithal
-   
+
    Sergei Trofimovich (1):
          ui/curses: always use "%s"-style format for printf()-style functions
-   
+
    Vincent Bernat (3):
          ui: don't cast to void* when calling display_rawhost()
          net: fix MPLS display for curses and report
          report: fix display of MPLS labels when using --report
-   
+
    Zenithal (1):
          Add display of destination with resolved addr under curses mode
-   
+
    a1346054 (5):
          fix wrong bash completion flag
          fix shellcheck warnings
          unify codestyle
          fix spelling
          trim trailing whitespace
-   
+
    gaamox@tutanota.com (1):
          Report secondary servers when CSV + wide report is enabled
-   
+
 V0.94
    Aaron Lipinski (10):
          gtk_menu_append -> gtk_menu_shell_append
@@ -78,23 +197,23 @@ V0.94
          rely on final return NULL
          introduce libasan
          avoid stack use after scope
-   
+
    Alejandro Leal (2):
          few updates to manual page and README.md
          Updating some comments
-   
+
    Chongyu Zhu (1):
          probe: fix find_source_addr
-   
+
    Konrad Bucheli (1):
          fix segmentation fault if there is no IP address on an interface (fixes #320)
-   
+
    Kulemin Alexander (1):
          report: json: reworked with libjansson
-   
+
    Mark Egan-Fuller (1):
          Add display of destination.
-   
+
    Markus Kötter (6):
          simplification - remove sockaddrtop
          simplification - remove addrcpy
@@ -102,7 +221,7 @@ V0.94
          simplification - address addrcmp
          simplification - improve readability
          ip6 udp - fix probes with local or remote port
-   
+
    R.E. Wolff (29):
          fix warning on recent compilers.
          Merge branch 'master' of github.com:traviscross/mtr
@@ -118,48 +237,48 @@ V0.94
          Merge branch 'gtk3_with_fallback' of https://github.com/krisl/mtr
          Merge branch 'master' of github.com:traviscross/mtr
          in hindsight my previous patch wasn't so nice. And nobody told me.
-   
+
    Sean Wei (1):
          Fix parameter in ui/net.c
-   
+
    Siyuan Miao (1):
          show mpls information in raw output
-   
+
    atib (1):
          Added code to print multiple addresses regitered on the same hop count
-   
+
    atibdialpad (2):
          Change TTL dynamically to adjust for path changes
          TODO list changes
-   
+
    meingtsla (2):
          asn_{open,close}: Always initialize ipinfo hash table
          Merge branch 'master' of https://github.com/traviscross/mtr into asn-open-always-hcreate
-   
+
 V0.93
     Adam (1):
           Update README
-    
+
     Adrien Gallouët (1):
           Add a help line for the t command in curses
-    
+
     Alexander Blesius (1):
           convert README to markdown
-    
+
     Arkadiusz Miśkiewicz (2):
           Also try SOCK_RAW/IPPROTO_ICMP when other fail.
           mtr to a unreachable host is possible again.
-    
+
     Ben Williams (2):
           added UI hotkeys description (from internal help) to NOTES section in mtr man page
           renamed NOTES to INTERACTIVE CONTROL as per discussion in pull request
-    
+
     Chonggang Li (4):
           mtr-packet: use ICMP and UDP without privilege on linux
           mtr-packet: fix Windows compilation
           mtr-packet: fix compilation on OS X
           mtr-packet: fix a bug causing IPv6 raw socket not working
-    
+
     Markus Kötter (7):
           set udp checksum
           automake - configure show build options
@@ -168,7 +287,7 @@ V0.93
           probe - extend matching to src/dst host&port
           sockaddr - save a cast accessing the port
           construct - fix set port
-    
+
     Matt Kimball (7):
           mtr-packet: report ICMP destination unreachable probes as "no route to host"
           ui: display "no route to host" error as host entry rather than abort
@@ -177,11 +296,11 @@ V0.93
           Link portability/error.c with mtr-packet when missing on MacOS
           Mention Python mtrpacket package in mtr-packet man page
           Rework Cygwin mtr-packet to respond to signals (such as SIGTERM)
-    
+
     R.E. Wolff (15):
           fixed some outdated text in README.
           minor changes top help Windows compilation on 32 bit machines
-          fix #204 : added exec of mtr-packet in the place where mtr was started 
+          fix #204 : added exec of mtr-packet in the place where mtr was started
                 from. Quick and dirty, There is probably a better place to declare variables.
           Alternative 'skip uid 0 checks on cygwin' to adpoliak's implmentation
           fix stupid typo. Thanks adpoliak!
@@ -195,15 +314,15 @@ V0.93
           fixed typo
           Netbsd build fixes thanks to yvs2014
           Merge branch 'master' of github.com:traviscross/mtr
-    
+
     Robert Scheck (1):
           Update incorrect FSF address
-    
+
     Rogier Wolff (3):
           Fixed issue #286
           Manpage fix for Darwin by Matt. Rewritten by REW
           Added parentheses
-    
+
     SaintBol (9):
           Update protocols.h
           Update deconstruct_unix.c
@@ -214,41 +333,41 @@ V0.93
           Update mtr.h
           Update report.c
           Update mtr-packet.8.in
-    
+
     Sami Kerola (1):
           mtr-packet: make address-not-available errors less likely
-    
+
     Samuel Henrique (1):
           [typo]mtr.8.in: s/allows to/allows one to/
-    
+
     Tobias Rittweiler (2):
           Add a .dir-locals.el file for Emacs.
           Replace perror(...); exit(...); by error(...);
-    
+
     divinity76 (1):
           use setup.exe's package manager mode, replacing apt-cyg
-    
+
     tk (1):
           Fix typo (resove -> resolve)
-    
+
     weiyixuan (3):
           Option -y can not work properly
           Option --ipinfo 1 can not work properly
           for tcp, fix : bind port failed, try next sequence
-    
+
 V0.92
    added a few arguments to calls added by fmazu. Allows it to compile.
 
 V0.91
    only made the tag point to the proper commit.  --REW
-   script now handles that situation (aborted release script) better. 
+   script now handles that situation (aborted release script) better.
 
 V0.90
-   only fixed the release script. Should now contain fmaxullo's 
+   only fixed the release script. Should now contain fmaxullo's
    patch. --rew
    fmazullo (1):
          Add AS number to json output
-   
+
 V0.89
    only made the tag point to the proper commit.  --REW
 
@@ -257,24 +376,24 @@ V0.88
          Merge remote-tracking branch 'origin/master' into newdns
          Need to error check getnameinfo().
          Merge remote-tracking branch 'origin/master' into newdns
-   
+
    David Hill (1):
          include <sys/select.h> for fd_set
-   
+
    Jakub Wilk (1):
          Fix typos
-   
+
    Joe Bruggeman (2):
          Replace all tabs tabs in net.c with spaces
          cleanup the if blocks in net.c to improve readability
-   
+
    Jürgen Weigert (1):
          Mention + and - keys in the man page
-   
+
    Kacper Michajłow (2):
          Relax mtr-packet search rules.
          Add missing errno.h include.
-   
+
    Matt Kimball (20):
          Added mtr-packet subprocess
          test: Fix mtr-packet tests for Python 3
@@ -296,11 +415,11 @@ V0.88
          mtr-packet: Report probe status on host unreachable (Cygwin)
          cleanup: Fix #ifdef structure which confuses 'ident'
          cleanup: reindented C source with GNU indent
-   
+
    Narthorn (2):
          Initialize dns process before opening display
          Add displaymode 2 back in
-   
+
    R.E. Wolff (19):
          Merge branch 'newdns' of https://github.com/traviscross/mtr into newdns
          Merge branch 'newdns'
@@ -321,7 +440,7 @@ V0.88
          put ifdefs around IPV6 only part. Fixes #184
          More whitespace mangling for consistency in net.c
          The release script bumped the version number
-   
+
    Roger Wolff (22):
          New DNS works for IPV4....
          moved towards IPV6 compatibilty...
@@ -331,14 +450,14 @@ V0.88
          AQ: Added include for redhat, and fixed salen for BSD
          removed last debug output from dns.c
          One more patch to fix a getnameinfo corruption problem. -- AQ
-   
+
    Rogier Wolff (5):
          removed AC check for features newdns doesn't use
          Fixed pull #133 another way....
          fixed #27 and #35 where the fix was tested a long time ago.
          fixed #141 compile without SCTP if not available
          fixed typo.
-   
+
    Sami Kerola (122):
          warnings: remove unnecessary file
          usage: add short and long options and descriptions to usage()
@@ -354,9 +473,9 @@ V0.88
          build-sys: default to ,/configure --enable-silent-rules
          warnings: do not take abs() when data type is unsigned
          warnings: mark unused function input variables
-         warnings: fix couple unsigned vs signed variable comparisions
+         warnings: fix couple unsigned vs signed variable comparisons
          warnings: multiply timeval seconds only when the value is small
-         warnings: fix some missed unsigned vs signed variable comparisions
+         warnings: fix some missed unsigned vs signed variable comparisons
          comment: add value range note to initialization
          cast: do not downgrade to float when double should be used
          warnings: remove dead code
@@ -462,19 +581,19 @@ V0.88
          smatch: fix couple warnings
          build-sys: update .gitignore file
          docs: FSF moved back in 2005
-   
+
    Vlad Glagolev (1):
          respect theme foreground color
-   
+
    aquerubin (5):
          Correct psize for IPv6.
          Merge updates from branch 'master' into newdns
          Merge branch 'master' into newdns
          Merge branch 'newdns' of https://github.com/aquerubin/mtr into newdns
          Fix standard deviation calculation.
-   
+
    rewolff (22):
-   
+
 
 V0.87
 Antonio Querubin (1):
@@ -566,21 +685,21 @@ swordfeng (3):
       fix sctp header structure
 
 =======
-#this is a tag my script looks for. 
+#this is a tag my script looks for.
 #NEW_STUFF_HERE
 V0.87
    Antonio Querubin (1):
          Use setcap instead of setuid when installing the binary.
-   
+
    Baptiste Jonglez (4):
          Allow enabling IP info and ASN lookup from the curses interface
          Document the -y option in the manpage
          Cosmetic cleanup of the option-parsing code
          Fix wrap-around bug when displaying IP info (-y option)
-   
+
    Danek Duvall (1):
          Fix issue #76: rationalize the discovery of a terminal handling library
-   
+
    Gareth Randall (6):
          Corrected the "without gtk" reference to "./configure --without-gtk"
          Filled in some of the missing man page sections.
@@ -588,25 +707,25 @@ V0.87
          Fix typos and update mailing list references.
          Add a section about granting limited security capabilities.
          State that Github is the preferred way to report bugs.
-   
+
    Guo Yixuan (1):
          Raw output: add x for a ping-packet-sent event.
-   
+
    Hajimu UMEMOTO (1):
          Add aslookup support to gtk interface
-   
+
    Jakub Wilk (1):
          Fix typos.
-   
+
    Kris Coward (1):
          Added --displaymode option
-   
+
    Narthorn (1):
          curses: Fix background transparency in terminal
-   
+
    Nikolai R Kristiansen (1):
          Add support for JSON as report output format
-   
+
    R.E. Wolff (9):
          explanation of the version numbers in NEWS.
          Merge branch 'master' of github.com:traviscross/mtr
@@ -617,31 +736,31 @@ V0.87
          net.c fix from AQ.
          issue 128: compile should be in .gitignore
          The release script bumped the version number
-   
+
    Rogier Wolff (1):
          added use-default-colors...
-   
+
    Theo Baschak (1):
          Update asn.c - 32bit asn widths
-   
+
    Tobias Rittweiler (5):
          Fix typo in csv_close() that prevented any of the data columns from being printed.
          --csv: Don't print spaces in columns.
          --csv: Print a header line as the first line which names all columns.
          asn.h: Guard against being included twice.
          Fix setting length field of UDP header to broken value on BSD systems.
-   
+
    Vojtech Kurka (1):
          Fixed behaviour of Pause button
-   
+
    aquerubin (3):
          Correct psize for IPv6.
          Fix Avg and Best column order to match column headers in GTK display.
          Update Tony's email address in the GTK credits.
-   
+
    penyu (1):
          add max-unknown option
-   
+
    russor (10):
          allow setting local and remote port for UDP probing
          fix checksum for odd sized packets
@@ -653,29 +772,29 @@ V0.87
          copy odd byte into a 16-bit temp value; used bit-sized types for calrity
          correct checksum calculation when adding the overflow overflows
          add option to set graceperiod
-   
+
    swordfeng (3):
          Add SCTP support (same way with tcp)
          remove comment
          fix sctp header structure
-   
 
-V0.86 Fixed default hostname logic. 
+
+V0.86 Fixed default hostname logic.
       Fix for NetBSD: 64bit time_t -- Thomas Klausner
-      Fix unnecessary runtime dependency on glib from VSYakovetsky through 
+      Fix unnecessary runtime dependency on glib from VSYakovetsky through
            Thomas
-      Inverted IPINFO define in the code. Removes double negatives. 
+      Inverted IPINFO define in the code. Removes double negatives.
          -- Vladimir Yakovetsky, REW.
       Fixed failure on IPv4 only systems when IPv6 was available at
          compile time. -- REW.
-      Fixed (longstanding) bug that mtr used 100% cpu when paused. 
-      Cosmetic changes from Richard Hartman. 
+      Fixed (longstanding) bug that mtr used 100% cpu when paused.
+      Cosmetic changes from Richard Hartman.
 
 V0.85 Fixed asn support. (better compile time detection of required features)
       support for multiple hostnames. (fixed in 0.86)
       support for TCP probes
 
-V0.84 Fix some glib things by Thomas. 
+V0.84 Fix some glib things by Thomas.
 
 V0.83 Move to github. Mostly done by Travis.
 

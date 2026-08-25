@@ -25,7 +25,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/select.h>
+#include <time.h>
 #include <unistd.h>
+
+#if defined(HAVE_ARC4RANDOM_UNIFORM) && defined(HAVE_BSD_STDLIB_H)
+#include <bsd/stdlib.h>
+#endif
 
 #ifdef HAVE_ERROR_H
 #include <error.h>
@@ -46,6 +51,16 @@
 
 static int packetsize;          /* packet size used by ping */
 
+static int random_uniform(
+    int upper_bound)
+{
+#ifdef HAVE_ARC4RANDOM_UNIFORM
+    return (int) arc4random_uniform((unsigned int) upper_bound);
+#else
+    return rand() % upper_bound;
+#endif
+}
+
 struct nethost {
     ip_t addr;                  /* Latest host to respond */
     ip_t addrs[MAX_PATH];        /* For Multi paths/Path Changes: List of all hosts that have responded */
@@ -65,6 +80,7 @@ struct nethost {
     int jworst;                 /* max jitter */
     int jinta;                  /* estimated variance,? rfc1889's "Interarrival Jitter" */
     int transit;
+    time_t seen;
     int saved[SAVED_PINGS];
     int saved_seq_offset;
     struct mplslen mpls;
@@ -258,12 +274,23 @@ static void net_process_ping(
             display_rawhost(ctl, index, &nh->addrs[i], mpls);
         }
 
-        /* Always save the latest host in nh->addr. This
+        /* Save the latest host in nh->addr only, if the answer was from remotehost and option -D enabled.
+           This allows to see responses coming through routes with different TTLs and from the target host.
+        */
+        if ((ctl->dueTTL > 0) && (addrcmp(&addrcopy, remoteaddress, ctl->af) == 0)) {
+           if (ctl->dueTTL <= (index + 1)) {
+                 memcpy(&nh->addr, addrcopy, sockaddr_addr_size(sourcesockaddr));
+                 nh->mpls = *mpls;
+                 display_rawhost(ctl, index, &nh->addr, mpls);
+           }
+        } else {
+        /* Save the latest host in nh->addr. This
          * allows maxTTL to change whenever path changes.
          */
         memcpy(&nh->addr, addrcopy, sockaddr_addr_size(sourcesockaddr));
         nh->mpls = *mpls;
         display_rawhost(ctl, index, &nh->addr, mpls);
+        }
     }
 
     nh->jitter = totusec - nh->last;
@@ -314,6 +341,9 @@ static void net_process_ping(
     nh->sent = 0;
     nh->up = 1;
     nh->transit = 0;
+    if (ctl->cache) {
+        nh->seen = time(NULL);
+    }
 
     net_save_return(index, sequence[seq].saved_seq, totusec);
     display_rawping(ctl, index, totusec, seq);
@@ -561,18 +591,27 @@ int net_send_batch(
                smaller (reasonable packet sizes), and our rand() range much
                larger, this effect is insignificant. Oh! That other formula
                didn't work. */
-            packetsize =
-                MINPACKET + rand() % (-ctl->cpacketsize - MINPACKET);
+            if (-ctl->cpacketsize <= MINPACKET) {
+                /* There is no room to introduce randomness. */
+                packetsize = MINPACKET;
+            } else {
+                packetsize =
+                    MINPACKET + random_uniform(-ctl->cpacketsize - MINPACKET);
+            }
         } else {
             packetsize = ctl->cpacketsize;
         }
         if (ctl->bitpattern < 0) {
             ctl->bitpattern =
-                -(int) (256 + 255 * (rand() / (RAND_MAX + 0.1)));
+                -(256 + random_uniform(256));
         }
     }
 
-    net_send_query(ctl, batch_at, abs(packetsize));
+    if (!ctl->cache || !host[batch_at].up ||
+        host[batch_at].seen == 0 ||
+        time(NULL) - host[batch_at].seen > ctl->cache_timeout) {
+        net_send_query(ctl, batch_at, abs(packetsize));
+    }
 
     for (i = ctl->fstTTL - 1; i < batch_at; i++) {
         if (host_addr_cmp(i, &ctl->unspec_addr, ctl->af) == 0)
@@ -582,22 +621,25 @@ int net_send_batch(
            but I don't remember why. It makes mtr stop skipping sections of unknown
            hosts. Removed in 0.65.
            If the line proves necessary, it should at least NOT trigger that line
-           when host[i].addr == 0 */
-        if (host_addr_cmp(i, remoteaddress, ctl->af) == 0) {
+           when host[i].addr == 0
+           Overall, this "if" statement terminates the batch immediately after
+           receiving the first response from "remoteaddress".
+           Keep this behavior, but take into account the state of added -D (dueTTL) option. */
+        if (host_addr_cmp(i, remoteaddress, ctl->af) == 0 && ctl->dueTTL <= (i + 1)) {
             restart = 1;
-            numhosts = i + 1; /* Saves batch_at - index number of probes in the next round!*/
+            numhosts = i - ctl->fstTTL + 2; /* Saves batch_at - index number of probes in the next round!*/
             break;
         }
     }
 
     if (                        /* success in reaching target */
-           (host_addr_cmp(batch_at, remoteaddress, ctl->af) == 0) ||
+           (host_addr_cmp(batch_at, remoteaddress, ctl->af) == 0 && ctl->dueTTL <= (batch_at + 1)) ||
            /* fail in consecutive maxUnknown (firewall?) */
-           (n_unknown > ctl->maxUnknown) ||
+           (n_unknown > ctl->maxUnknown && ctl->dueTTL <= (batch_at + 1)) ||
            /* or reach limit  */
            (batch_at >= ctl->maxTTL - 1)) {
         restart = 1;
-        numhosts = batch_at + 1;
+        numhosts = batch_at - ctl->fstTTL + 2;
     }
 
     if (restart) {
@@ -687,8 +729,8 @@ static void net_find_interface_address_from_name(
   host by connecting a UDP socket and checking the address
   the socket is bound to.
 */
-static void net_find_local_address(
-    void)
+static
+void net_find_local_address(struct mtr_ctl * ctl)
 {
     int udp_socket;
     int addr_length;
@@ -699,6 +741,15 @@ static void net_find_local_address(
     if (udp_socket == -1) {
         error(EXIT_FAILURE, errno, "udp socket creation failed");
     }
+
+#ifdef SO_MARK
+    /* On Linux, the packet mark can affect the selection of the source address */
+    if(ctl->mark) {
+        if(setsockopt(udp_socket, SOL_SOCKET, SO_MARK, &ctl->mark, sizeof(ctl->mark))) {
+            error(EXIT_FAILURE, errno, "failed to set the packet mark");
+        }
+    }
+#endif
 
     /*
        We need to set the port to a non-zero value for the connect
@@ -740,23 +791,27 @@ int net_open(
 {
     int err;
 
+    if (!addrcmp(sockaddr_addr_offset(res->ai_addr), &ctl->unspec_addr, res->ai_family))
+        return -1;
+
     /*  Spawn the mtr-packet child process  */
     err = open_command_pipe(ctl, &packet_command_pipe);
     if (err) {
         return err;
     }
 
-    net_reopen(ctl, res);
-
-    return 0;
+    return net_reopen(ctl, res);
 }
 
 
-void net_reopen(
+int net_reopen(
     struct mtr_ctl *ctl,
     struct addrinfo *res)
 {
     int at;
+
+    if (!addrcmp(sockaddr_addr_offset(res->ai_addr), &ctl->unspec_addr, res->ai_family))
+        return -1;
 
     for (at = 0; at < MaxHost; at++) {
         memset(&host[at], 0, sizeof(host[at]));
@@ -778,9 +833,10 @@ void net_reopen(
             &sourcesockaddr_struct, ctl->af, ctl->InterfaceName);
         inet_ntop(sourcesockaddr->sa_family, sourceaddress, localaddr, sizeof(localaddr));
     } else {
-        net_find_local_address();
+        net_find_local_address(ctl);
     }
 
+    return 0;
 }
 
 
@@ -881,6 +937,7 @@ int addrcmp(
         break;
 #ifdef ENABLE_IPV6
     case AF_INET6:
+    case AF_UNSPEC:
         rc = memcmp(a, b, sizeof(struct in6_addr));
         break;
 #endif

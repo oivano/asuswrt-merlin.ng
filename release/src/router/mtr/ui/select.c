@@ -28,6 +28,7 @@
 #include <string.h>
 #include <math.h>
 #include <errno.h>
+#include <signal.h>
 #ifdef HAVE_ERROR_H
 #include <error.h>
 #else
@@ -40,6 +41,65 @@
 #include "asn.h"
 #include "display.h"
 #include "select.h"
+
+#define MIN_DISPLAY_REDRAW_USEC 100000
+
+static volatile sig_atomic_t interrupted;
+
+static void interrupt_handler(
+    int signum ATTRIBUTE_UNUSED)
+{
+    interrupted = 1;
+}
+
+
+static int timeval_after_or_equal(
+    const struct timeval *a,
+    const struct timeval *b)
+{
+    if (a->tv_sec > b->tv_sec)
+        return 1;
+    if (a->tv_sec < b->tv_sec)
+        return 0;
+
+    return a->tv_usec >= b->tv_usec;
+}
+
+static void timeval_add_usec(
+    struct timeval *timeval,
+    int usec)
+{
+    timeval->tv_usec += usec;
+    timeval->tv_sec += timeval->tv_usec / 1000000;
+    timeval->tv_usec %= 1000000;
+}
+
+static void timeval_subtract(
+    struct timeval *result,
+    const struct timeval *end,
+    const struct timeval *start)
+{
+    result->tv_usec = end->tv_usec - start->tv_usec;
+    result->tv_sec = end->tv_sec - start->tv_sec;
+
+    if (result->tv_usec < 0) {
+        --result->tv_sec;
+        result->tv_usec += 1000000;
+    }
+
+    if (result->tv_sec < 0) {
+        result->tv_sec = 0;
+        result->tv_usec = 0;
+    }
+}
+
+static void timeval_min(
+    struct timeval *timeval,
+    const struct timeval *limit)
+{
+    if (timeval_after_or_equal(timeval, limit))
+        *timeval = *limit;
+}
 
 void select_loop(
     struct mtr_ctl *ctl)
@@ -56,17 +116,27 @@ void select_loop(
     int paused = 0;
     struct timeval lasttime, thistime, selecttime;
     struct timeval startgrace;
+    struct timeval nextredraw;
     int dt;
     int rv;
     int graceperiod = 0;
     struct timeval intervaltime;
     static double dnsinterval = 0;
 
+    interrupted = 0;
+    signal(SIGINT, interrupt_handler);
+
     memset(&startgrace, 0, sizeof(startgrace));
 
     gettimeofday(&lasttime, NULL);
+    nextredraw = lasttime;
 
     while (1) {
+        if (interrupted) {
+            ctl->Interrupted = 1;
+            return;
+        }
+
         dt = calc_deltatime(ctl->WaitTime);
         intervaltime.tv_sec = dt / 1000000;
         intervaltime.tv_usec = dt % 1000000;
@@ -120,10 +190,14 @@ void select_loop(
                             &selecttime);
 
             } else {
-                if (ctl->Interactive)
-                    display_redraw(ctl);
-
                 gettimeofday(&thistime, NULL);
+
+                if (ctl->Interactive
+                    && timeval_after_or_equal(&thistime, &nextredraw)) {
+                    display_redraw(ctl);
+                    nextredraw = thistime;
+                    timeval_add_usec(&nextredraw, MIN_DISPLAY_REDRAW_USEC);
+                }
 
                 if (thistime.tv_sec > lasttime.tv_sec + intervaltime.tv_sec
                     || (thistime.tv_sec ==
@@ -178,10 +252,26 @@ void select_loop(
                     }
                 }
 
+                if (ctl->Interactive) {
+                    struct timeval redrawtime;
+
+                    /*
+                     * Packet and resolver events must still be handled
+                     * immediately; only terminal repainting is capped.
+                     */
+                    timeval_subtract(&redrawtime, &nextredraw, &thistime);
+                    timeval_min(&selecttime, &redrawtime);
+                }
+
                 rv = select(maxfd, (void *) &readfd, NULL, NULL,
                             &selecttime);
             }
-        } while ((rv < 0) && (errno == EINTR));
+        } while ((rv < 0) && (errno == EINTR) && !interrupted);
+
+        if (interrupted) {
+            ctl->Interrupted = 1;
+            return;
+        }
 
         if (rv < 0) {
             error(EXIT_FAILURE, errno, "Select failed");
@@ -224,6 +314,10 @@ void select_loop(
                 ctl->display_mode =
                     (ctl->display_mode + 1) % DisplayModeMAX;
                 break;
+            case ActionCompact:
+                ctl->CompactLayout = !ctl->CompactLayout;
+                display_clear(ctl);
+                break;
             case ActionClear:
                 display_clear(ctl);
                 break;
@@ -248,9 +342,16 @@ void select_loop(
                 ctl->ipinfo_no++;
                 if (ctl->ipinfo_no > ctl->ipinfo_max)
                     ctl->ipinfo_no = 0;
+                set_ipinfo_field(ctl, ctl->ipinfo_no);
                 break;
             case ActionAS:
-                ctl->ipinfo_no = ctl->ipinfo_no ? 0 : ctl->ipinfo_max;
+                if (ctl->ipinfo_no == 0 && ctl->ipinfo_max >= 0)
+                    set_ipinfo_field(ctl, ctl->ipinfo_max);
+                else if (ctl->ipinfo_no == 0) {
+                    ctl->ipinfo_no = -1;
+                    ctl->ipinfo_field_count = 0;
+                } else
+                    set_ipinfo_field(ctl, 0);
                 break;
 #endif
 
