@@ -51,4 +51,6 @@ endif
 .%.depend: %.c
 	@$(CC) $(CFLAGS) -M $< > $@
 
+ifeq (,$(filter clean,$(MAKECMDGOALS)))
 -include $(OBJS:%.o=.%.depend)
+endif
