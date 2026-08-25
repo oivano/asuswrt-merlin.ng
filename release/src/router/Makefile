@@ -7927,10 +7927,13 @@ GeoIP-1.6.2-clean:
 	@rm -f GeoIP-1.6.2/stamp-h1
 
 wget/Makefile.in: wget/Makefile.am
-	cd wget && autoreconf -fi
+	cd wget && aclocal -I m4 && automake --add-missing --copy && autoconf
 
 wget/Makefile: wget/Makefile.in
-	cd wget && $(CONFIGURE) \
+	cd wget && gl_cv_header_working_byteswap_h=yes \
+		gl_cv_func_btowc_nul=yes gl_cv_func_btowc_eof=yes \
+		gl_cv_func_btowc_consistent=yes gl_cv_func_mbrtowc_C_locale_sans_EILSEQ=yes \
+		$(CONFIGURE) \
 		--with-ssl=openssl --prefix=/usr --sysconfdir=/etc \
 		--disable-opie --disable-ntlm --disable-debug --disable-nls --disable-rpath \
 		$(if $(RTCONFIG_IPV6),,--disable-ipv6) --disable-iri --without-included-regex  \
