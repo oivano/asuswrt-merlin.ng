@@ -101,7 +101,7 @@ dir_conn_purpose_to_string(int purpose)
     case DIR_PURPOSE_UPLOAD_DIR:
       return "server descriptor upload";
     case DIR_PURPOSE_UPLOAD_VOTE:
-      return "server vote upload";
+      return "consensus vote upload";
     case DIR_PURPOSE_UPLOAD_SIGNATURES:
       return "consensus signature upload";
     case DIR_PURPOSE_FETCH_SERVERDESC:
@@ -242,14 +242,21 @@ directory_post_to_dirservers(uint8_t dir_purpose, uint8_t router_purpose,
    * harmless, and we may as well err on the side of getting things uploaded.
    */
   SMARTLIST_FOREACH_BEGIN(dirservers, dir_server_t *, ds) {
-      routerstatus_t *rs = &(ds->fake_status);
+      const routerstatus_t *rs = router_get_consensus_status_by_id(ds->digest);
+      if (!rs) {
+        /* prefer to use the address in the consensus, but fall back to
+         * the hard-coded trusted_dir_server address if we don't have a
+         * consensus or this digest isn't in our consensus. */
+        rs = &ds->fake_status;
+      }
+
       size_t upload_len = payload_len;
 
       if ((type & ds->type) == 0)
         continue;
 
       if (exclude_self && router_digest_is_me(ds->digest)) {
-        /* we don't upload to ourselves, but at least there's now at least
+        /* we don't upload to ourselves, but there's now at least
          * one authority of this type that has what we wanted to upload. */
         found = 1;
         continue;
@@ -276,10 +283,8 @@ directory_post_to_dirservers(uint8_t dir_purpose, uint8_t router_purpose,
       }
       if (purpose_needs_anonymity(dir_purpose, router_purpose, NULL)) {
         indirection = DIRIND_ANONYMOUS;
-      } else if (!reachable_addr_allows_dir_server(ds,
-                                                     FIREWALL_DIR_CONNECTION,
-                                                     0)) {
-        if (reachable_addr_allows_dir_server(ds, FIREWALL_OR_CONNECTION, 0))
+      } else if (!reachable_addr_allows_rs(rs, FIREWALL_DIR_CONNECTION, 0)) {
+        if (reachable_addr_allows_rs(rs, FIREWALL_OR_CONNECTION, 0))
           indirection = DIRIND_ONEHOP;
         else
           indirection = DIRIND_ANONYMOUS;
@@ -590,7 +595,13 @@ directory_get_from_all_authorities(uint8_t dir_purpose,
         continue;
       if (!(ds->type & V3_DIRINFO))
         continue;
-      const routerstatus_t *rs = &ds->fake_status;
+      const routerstatus_t *rs = router_get_consensus_status_by_id(ds->digest);
+      if (!rs) {
+        /* prefer to use the address in the consensus, but fall back to
+         * the hard-coded trusted_dir_server address if we don't have a
+         * consensus or this digest isn't in our consensus. */
+        rs = &ds->fake_status;
+      }
       directory_request_t *req = directory_request_new(dir_purpose);
       directory_request_set_routerstatus(req, rs);
       directory_request_set_router_purpose(req, router_purpose);
@@ -677,7 +688,6 @@ directory_choose_address_routerstatus(const routerstatus_t *status,
   /* We rejected all addresses in the relay's status. This means we can't
    * connect to it. */
   if (!have_or && !have_dir) {
-    static int logged_backtrace = 0;
     char *ipv6_str = tor_addr_to_str_dup(&status->ipv6_addr);
     log_info(LD_BUG, "Rejected all OR and Dir addresses from %s when "
              "launching an outgoing directory connection to: IPv4 %s OR %d "
@@ -686,10 +696,7 @@ directory_choose_address_routerstatus(const routerstatus_t *status,
              status->ipv4_dirport, ipv6_str, status->ipv6_orport,
              status->ipv4_dirport);
     tor_free(ipv6_str);
-    if (!logged_backtrace) {
-      log_backtrace(LOG_INFO, LD_BUG, "Addresses came from");
-      logged_backtrace = 1;
-    }
+    log_backtrace_once(LOG_INFO, LD_BUG, "Addresses came from");
     return -1;
   }
 
@@ -752,6 +759,11 @@ connection_dir_client_request_failed(dir_connection_t *conn)
              "directory server at %s; will retry",
              connection_describe_peer(TO_CONN(conn)));
     connection_dir_download_routerdesc_failed(conn);
+  } else if (conn->base_.purpose == DIR_PURPOSE_UPLOAD_VOTE ||
+             conn->base_.purpose == DIR_PURPOSE_UPLOAD_SIGNATURES) {
+    log_warn(LD_DIR, "Failed to post %s to %s.",
+             dir_conn_purpose_to_string(conn->base_.purpose),
+             connection_describe_peer(TO_CONN(conn)));
   }
 }
 
@@ -1309,15 +1321,11 @@ directory_initiate_request,(directory_request_t *request))
 
   /* Make sure that the destination addr and port we picked is viable. */
   if (!port || tor_addr_is_null(&addr)) {
-    static int logged_backtrace = 0;
     log_warn(LD_DIR,
              "Cannot make an outgoing %sconnection without a remote %sPort.",
              use_begindir ? "begindir " : "",
              use_begindir ? "OR" : "Dir");
-    if (!logged_backtrace) {
-      log_backtrace(LOG_INFO, LD_BUG, "Address came from");
-      logged_backtrace = 1;
-    }
+    log_backtrace_once(LOG_INFO, LD_BUG, "Address came from");
     return;
   }
 

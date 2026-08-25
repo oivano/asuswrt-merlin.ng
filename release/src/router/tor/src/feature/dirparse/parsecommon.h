@@ -45,6 +45,8 @@ typedef enum {
   K_UPTIME,
   K_DIR_SIGNING_KEY,
   K_FAMILY,
+  K_FAMILY_CERT,
+  K_FAMILY_IDS,
   K_FINGERPRINT,
   K_HIBERNATING,
   K_READ_HISTORY,
@@ -173,6 +175,7 @@ typedef enum {
   R3_DESC_AUTH_CLIENT,
   R3_ENCRYPTED,
   R3_FLOW_CONTROL,
+  R3_POW_PARAMS,
 
   R_IPO_IDENTIFIER,
   R_IPO_IP_ADDRESS,
@@ -219,6 +222,7 @@ typedef struct directory_token_t {
 typedef enum {
   NO_OBJ,        /**< No object, ever. */
   NEED_OBJ,      /**< Object is required. */
+  OPT_KEY_1024,  /**< If object is present, it must be a 1024 bit public key */
   NEED_KEY_1024, /**< Object is required, and must be a 1024 bit public key */
   NEED_KEY,      /**< Object is required, and must be a public key. */
   OBJ_OK,        /**< Object is optional. */

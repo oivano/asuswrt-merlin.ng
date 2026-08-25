@@ -89,12 +89,15 @@
  * old transports from the circuitbuild.c subsystem.
  **/
 
+#include "lib/string/printf.h"
+#include "lib/evloop/compat_libevent.h"
 #define PT_PRIVATE
 #include "core/or/or.h"
 #include "feature/client/bridges.h"
 #include "app/config/config.h"
 #include "core/mainloop/connection.h"
 #include "core/or/circuitbuild.h"
+#include "feature/hibernate/hibernate.h"
 #include "feature/client/transports.h"
 #include "feature/relay/router.h"
 #include "feature/relay/relay_find_addr.h"
@@ -491,7 +494,9 @@ proxy_needs_restart(const managed_proxy_t *mp)
      launched: */
 
   tor_assert(smartlist_len(mp->transports_to_launch) > 0);
-  tor_assert(mp->conf_state == PT_PROTO_COMPLETED);
+  if (BUG(mp->conf_state != PT_PROTO_COMPLETED)) {
+    goto needs_restart;
+  }
 
   if (smartlist_len(mp->transports_to_launch) != smartlist_len(mp->transports))
     goto needs_restart;
@@ -516,11 +521,22 @@ proxy_prepare_for_restart(managed_proxy_t *mp)
 {
   transport_t *t_tmp = NULL;
 
-  tor_assert(mp->conf_state == PT_PROTO_COMPLETED);
+  /* Rate limit this log as a regurlarly dying PT would log this once every
+   * second (retry time). Every 5 minutes is likely loud enough to notice. */
+  static ratelim_t log_died_lim = RATELIM_INIT(300);
+  log_fn_ratelim(&log_died_lim, LOG_WARN, LD_PT,
+                 "Managed proxy at '%s' died in state %s", mp->argv[0],
+                 managed_proxy_state_to_string(mp->conf_state));
 
   /* destroy the process handle and terminate the process. */
-  process_set_data(mp->process, NULL);
-  process_terminate(mp->process);
+  if (mp->process) {
+    process_set_data(mp->process, NULL);
+    if (we_are_shutting_down())
+      log_notice(LD_CONFIG, "Managed proxy \"%s\" having PID %" PRIu64 " "
+                            "is being terminated...", mp->argv[0],
+                            process_get_pid(mp->process));
+    process_terminate(mp->process);
+  }
 
   /* destroy all its registered transports, since we will no longer
      use them. */
@@ -540,9 +556,11 @@ proxy_prepare_for_restart(managed_proxy_t *mp)
   mp->proxy_uri = get_pt_proxy_uri();
   mp->proxy_supported = 0;
 
+  if (mp->conf_state == PT_PROTO_COMPLETED)
+    unconfigured_proxies_n++;
+
   /* flag it as an infant proxy so that it gets launched on next tick */
-  mp->conf_state = PT_PROTO_INFANT;
-  unconfigured_proxies_n++;
+  managed_proxy_set_state(mp, PT_PROTO_INFANT);
 }
 
 /** Launch managed proxy <b>mp</b>. */
@@ -554,6 +572,8 @@ launch_managed_proxy(managed_proxy_t *mp)
   smartlist_t *env = create_managed_proxy_environment(mp);
 
   /* Configure our process. */
+  tor_assert(mp->process == NULL);
+  mp->process = process_new(mp->argv[0]);
   process_set_data(mp->process, mp);
   process_set_stdout_read_callback(mp->process, managed_proxy_stdout_callback);
   process_set_stderr_read_callback(mp->process, managed_proxy_stderr_callback);
@@ -578,7 +598,7 @@ launch_managed_proxy(managed_proxy_t *mp)
   log_info(LD_CONFIG,
            "Managed proxy at '%s' has spawned with PID '%" PRIu64 "'.",
            mp->argv[0], process_get_pid(mp->process));
-  mp->conf_state = PT_PROTO_LAUNCHED;
+  managed_proxy_set_state(mp, PT_PROTO_LAUNCHED);
 
   return 0;
 }
@@ -638,6 +658,25 @@ pt_configure_remaining_proxies(void)
     mark_my_descriptor_dirty("configured managed proxies");
 }
 
+/** event callback to launch managed proxy after a delay */
+STATIC void
+launch_proxy_ev(mainloop_event_t *event, void *v)
+{
+  managed_proxy_t *mp = v;
+
+  (void) event;
+
+  tor_assert(mp);
+  if (BUG(mp->conf_state != PT_PROTO_WAITING)) {
+    return;
+  }
+
+  if (launch_managed_proxy(mp) < 0) { /* launch fail */
+    managed_proxy_set_state(mp, PT_PROTO_FAILED_LAUNCH);
+    handle_finished_proxy(mp);
+  }
+}
+
 /** Attempt to continue configuring managed proxy <b>mp</b>.
  *  Return 1 if the transport configuration finished, and return 0
  *  otherwise (if we still have more configuring to do for this
@@ -647,10 +686,13 @@ configure_proxy(managed_proxy_t *mp)
 {
   /* if we haven't launched the proxy yet, do it now */
   if (mp->conf_state == PT_PROTO_INFANT) {
-    if (launch_managed_proxy(mp) < 0) { /* launch fail */
-      mp->conf_state = PT_PROTO_FAILED_LAUNCH;
-      handle_finished_proxy(mp);
+    const struct timeval delay_tv = { 1, 0 };
+    if (!mp->process_launch_ev) {
+      mp->process_launch_ev = mainloop_event_new(launch_proxy_ev, mp);
     }
+    mainloop_event_schedule(mp->process_launch_ev, &delay_tv);
+    managed_proxy_set_state(mp, PT_PROTO_WAITING);
+
     return 0;
   }
 
@@ -671,6 +713,7 @@ register_server_proxy(const managed_proxy_t *mp)
                t->name, fmt_addrport(&t->addr, t->port));
     control_event_transport_launched("server", t->name, &t->addr, t->port);
   } SMARTLIST_FOREACH_END(t);
+  pt_update_bridge_lines();
 }
 
 /** Register all the transports supported by client managed proxy
@@ -737,6 +780,10 @@ managed_proxy_destroy(managed_proxy_t *mp,
   /* free the outgoing proxy URI */
   tor_free(mp->proxy_uri);
 
+  /* free our version, if any is set. */
+  tor_free(mp->version);
+  tor_free(mp->implementation);
+
   /* do we want to terminate our process if it's still running? */
   if (also_terminate_process && mp->process) {
     /* Note that we do not call process_free(mp->process) here because we let
@@ -745,6 +792,9 @@ managed_proxy_destroy(managed_proxy_t *mp,
     process_set_data(mp->process, NULL);
     process_terminate(mp->process);
   }
+
+  if (mp->process_launch_ev)
+    mainloop_event_free(mp->process_launch_ev);
 
   tor_free(mp);
 }
@@ -810,10 +860,15 @@ handle_finished_proxy(managed_proxy_t *mp)
       managed_proxy_destroy(mp, 1); /* annihilate it. */
       break;
     }
-    register_proxy(mp); /* register its transports */
-    mp->conf_state = PT_PROTO_COMPLETED; /* and mark it as completed. */
+
+    /* register its transports */
+    register_proxy(mp);
+
+    /* and mark it as completed. */
+    managed_proxy_set_state(mp, PT_PROTO_COMPLETED);
     break;
   case PT_PROTO_INFANT:
+  case PT_PROTO_WAITING:
   case PT_PROTO_LAUNCHED:
   case PT_PROTO_ACCEPTING_METHODS:
   case PT_PROTO_COMPLETED:
@@ -857,7 +912,7 @@ handle_methods_done(const managed_proxy_t *mp)
 STATIC void
 handle_proxy_line(const char *line, managed_proxy_t *mp)
 {
-  log_info(LD_GENERAL, "Got a line from managed proxy '%s': (%s)",
+  log_info(LD_PT, "Got a line from managed proxy '%s': (%s)",
            mp->argv[0], line);
 
   if (!strcmpstart(line, PROTO_ENV_ERROR)) {
@@ -881,7 +936,7 @@ handle_proxy_line(const char *line, managed_proxy_t *mp)
       goto err;
 
     tor_assert(mp->conf_protocol != 0);
-    mp->conf_state = PT_PROTO_ACCEPTING_METHODS;
+    managed_proxy_set_state(mp, PT_PROTO_ACCEPTING_METHODS);
     return;
   } else if (!strcmpstart(line, PROTO_CMETHODS_DONE)) {
     if (mp->conf_state != PT_PROTO_ACCEPTING_METHODS)
@@ -889,7 +944,7 @@ handle_proxy_line(const char *line, managed_proxy_t *mp)
 
     handle_methods_done(mp);
 
-    mp->conf_state = PT_PROTO_CONFIGURED;
+    managed_proxy_set_state(mp, PT_PROTO_CONFIGURED);
     return;
   } else if (!strcmpstart(line, PROTO_SMETHODS_DONE)) {
     if (mp->conf_state != PT_PROTO_ACCEPTING_METHODS)
@@ -897,7 +952,7 @@ handle_proxy_line(const char *line, managed_proxy_t *mp)
 
     handle_methods_done(mp);
 
-    mp->conf_state = PT_PROTO_CONFIGURED;
+    managed_proxy_set_state(mp, PT_PROTO_CONFIGURED);
     return;
   } else if (!strcmpstart(line, PROTO_CMETHOD_ERROR)) {
     if (mp->conf_state != PT_PROTO_ACCEPTING_METHODS)
@@ -968,7 +1023,7 @@ handle_proxy_line(const char *line, managed_proxy_t *mp)
   return;
 
  err:
-  mp->conf_state = PT_PROTO_BROKEN;
+  managed_proxy_set_state(mp, PT_PROTO_BROKEN);
   log_warn(LD_CONFIG, "Managed proxy at '%s' failed the configuration protocol"
            " and will be destroyed.", mp->argv[0]);
 }
@@ -1275,15 +1330,8 @@ parse_status_line(const char *line, managed_proxy_t *mp)
     goto done;
   }
 
-  /* We check if we received the TRANSPORT parameter, which is the only
-   * *required* value. */
-  const config_line_t *type = config_line_find(values, "TRANSPORT");
-
-  if (! type) {
-    log_warn(LD_PT, "Managed proxy \"%s\" wrote a STATUS line without "
-                    "TRANSPORT: %s", mp->argv[0], escaped(data));
-    goto done;
-  }
+  /* Handle the different messages. */
+  handle_status_message(values, mp);
 
   /* Prepend the PT name. */
   config_line_prepend(&values, "PT", mp->argv[0]);
@@ -1296,6 +1344,52 @@ parse_status_line(const char *line, managed_proxy_t *mp)
  done:
   config_free_lines(values);
   tor_free(status_message);
+}
+
+STATIC void
+handle_status_message(const config_line_t *values,
+                      managed_proxy_t *mp)
+{
+  if (config_count_key(values, "TYPE") > 1) {
+      log_warn(LD_PT, "Managed proxy \"%s\" has multiple TYPE key which "
+                      "is not allowed.", mp->argv[0]);
+      return;
+  }
+  const config_line_t *message_type = config_line_find(values, "TYPE");
+
+  /* Check if we have a TYPE field? */
+  if (message_type == NULL) {
+    log_debug(LD_PT, "Managed proxy \"%s\" wrote a STATUS line without "
+                     "a defined message TYPE", mp->argv[0]);
+    return;
+  }
+
+  /* Handle VERSION messages. */
+  if (! strcasecmp(message_type->value, "version")) {
+    const config_line_t *version = config_line_find(values, "VERSION");
+    const config_line_t *implementation = config_line_find(values,
+                                                           "IMPLEMENTATION");
+
+    if (version == NULL) {
+      log_warn(LD_PT, "Managed proxy \"%s\" wrote a STATUS TYPE=version line "
+                      "with a missing VERSION field", mp->argv[0]);
+      return;
+    }
+
+    if (implementation == NULL) {
+      log_warn(LD_PT, "Managed proxy \"%s\" wrote a STATUS TYPE=version line "
+                      "with a missing IMPLEMENTATION field", mp->argv[0]);
+      return;
+    }
+
+    tor_free(mp->version);
+    mp->version = tor_strdup(version->value);
+
+    tor_free(mp->implementation);
+    mp->implementation = tor_strdup(implementation->value);
+
+    return;
+  }
 }
 
 /** Return a newly allocated string that tor should place in
@@ -1529,12 +1623,14 @@ managed_proxy_create(const smartlist_t *with_transport_list,
                      char **proxy_argv, int is_server)
 {
   managed_proxy_t *mp = tor_malloc_zero(sizeof(managed_proxy_t));
-  mp->conf_state = PT_PROTO_INFANT;
+  managed_proxy_set_state(mp, PT_PROTO_INFANT);
   mp->is_server = is_server;
   mp->argv = proxy_argv;
   mp->transports = smartlist_new();
   mp->proxy_uri = get_pt_proxy_uri();
-  mp->process = process_new(proxy_argv[0]);
+
+  /* Gets set in launch_managed_proxy(). */
+  mp->process = NULL;
 
   mp->transports_to_launch = smartlist_new();
   SMARTLIST_FOREACH(with_transport_list, const char *, transport,
@@ -1738,9 +1834,28 @@ pt_get_extra_info_descriptor_string(void)
                              "transport %s %s%s",
                              t->name, addrport,
                              transport_args ? transport_args : "");
+
       tor_free(transport_args);
     } SMARTLIST_FOREACH_END(t);
 
+    /* Set transport-info line. */
+    {
+      char *version = NULL;
+      char *impl = NULL;
+
+      if (mp->version) {
+        tor_asprintf(&version, " version=%s", mp->version);
+      }
+      if (mp->implementation) {
+        tor_asprintf(&impl, " implementation=%s", mp->implementation);
+      }
+      /* Always put in the line even if empty. Else, we don't know to which
+       * transport this applies to. */
+      smartlist_add_asprintf(string_chunks, "transport-info%s%s",
+                             version ? version: "", impl ? impl: "");
+      tor_free(version);
+      tor_free(impl);
+    }
   } SMARTLIST_FOREACH_END(mp);
 
   if (smartlist_len(string_chunks) == 0) {
@@ -1755,6 +1870,92 @@ pt_get_extra_info_descriptor_string(void)
   smartlist_free(string_chunks);
 
   return the_string;
+}
+
+/** Log the bridge lines that clients can use to connect. */
+void
+pt_update_bridge_lines(void)
+{
+  char fingerprint[FINGERPRINT_LEN+1];
+  smartlist_t *string_chunks = NULL;
+
+  if (!server_identity_key_is_set() || !managed_proxy_list)
+    return;
+
+  if (crypto_pk_get_fingerprint(get_server_identity_key(), fingerprint, 0)<0) {
+    log_err(LD_BUG, "Error computing fingerprint");
+    return;
+  }
+
+  string_chunks = smartlist_new();
+
+  SMARTLIST_FOREACH_BEGIN(managed_proxy_list, const managed_proxy_t *, mp) {
+    if (!mp->is_server)
+      continue;
+
+    tor_assert(mp->transports);
+
+    SMARTLIST_FOREACH_BEGIN(mp->transports, const transport_t *, t) {
+      char *transport_args = NULL;
+      const char *saddr = NULL;
+
+      /* If the transport proxy returned "0.0.0.0" as its address, display
+       * our external address if we know it, or a placeholder if we don't */
+      if (tor_addr_is_null(&t->addr)) {
+        tor_addr_t addr;
+        /* Attempt to find the IPv4 and then attempt to find the IPv6 if we
+         * can't find it. */
+        bool found = relay_find_addr_to_publish(get_options(), AF_INET,
+                                                RELAY_FIND_ADDR_NO_FLAG,
+                                                &addr);
+        if (!found) {
+          found = relay_find_addr_to_publish(get_options(), AF_INET6,
+                                             RELAY_FIND_ADDR_NO_FLAG, &addr);
+        }
+        if (found && !tor_addr_is_null(&addr)) {
+          saddr = fmt_and_decorate_addr(&addr);
+        } else {
+          saddr = "<IP ADDRESS>";
+        }
+      } else {
+        saddr = fmt_and_decorate_addr(&t->addr);
+      }
+
+      /* If this transport has any arguments with it, prepend a space
+       * to them so that we can add them to the transport line, and replace
+       * commas with spaces to make it a valid bridge line. */
+      if (t->extra_info_args) {
+        tor_asprintf(&transport_args, " %s", t->extra_info_args);
+        for (int i = 0; transport_args[i]; i++) {
+          if (transport_args[i] == ',') {
+            transport_args[i] = ' ';
+          }
+        }
+      }
+
+      smartlist_add_asprintf(string_chunks, "Bridge %s %s:%d %s%s",
+                             t->name, saddr, t->port, fingerprint,
+                             transport_args ? transport_args : "");
+      tor_free(transport_args);
+    } SMARTLIST_FOREACH_END(t);
+  } SMARTLIST_FOREACH_END(mp);
+
+  /* If we have any valid bridgelines, join them into a single string, and
+   * save them to disk. Don't create an empty file. */
+  if (smartlist_len(string_chunks) != 0) {
+    char *str = smartlist_join_strings(string_chunks, "\n", 1, NULL);
+    char *fname = get_datadir_fname("bridgelines");
+    if (write_str_to_file_if_not_equal(fname, str)) {
+      log_warn(LD_FS, "Couldn't save bridge lines to disk");
+    } else {
+      log_info(LD_FS, "Saved bridge lines to disk");
+    }
+    tor_free(fname);
+    tor_free(str);
+  }
+
+  SMARTLIST_FOREACH(string_chunks, char *, s, tor_free(s));
+  smartlist_free(string_chunks);
 }
 
 /** Stringify the SOCKS arguments in <b>socks_args</b> according to
@@ -1945,9 +2146,30 @@ managed_proxy_exit_callback(process_t *process, process_exit_code_t exit_code)
 {
   tor_assert(process);
 
-  log_warn(LD_PT,
-          "Pluggable Transport process terminated with status code %" PRIu64,
-          exit_code);
+  managed_proxy_t *mp = process_get_data(process);
+  const char *name = mp ? mp->argv[0] : "N/A";
+
+  if (!we_are_shutting_down())
+    log_warn(LD_PT, "Managed proxy \"%s\" having PID %" PRIu64 " "
+                    "terminated with status code %" PRIu64,
+                    name, process_get_pid(process), exit_code);
+  else
+    log_notice(LD_PT, "Managed proxy \"%s\" having PID %" PRIu64 " "
+                      "has exited.", name, process_get_pid(process));
+
+  if (mp) {
+    /* We remove this process_t from the mp. */
+    tor_assert(mp->process == process);
+    mp->process = NULL;
+
+    /* Prepare the proxy for restart. */
+    proxy_prepare_for_restart(mp);
+
+    if (!we_are_shutting_down()) {
+      /* We have proxies we want to restart? */
+      pt_configure_remaining_proxies();
+    }
+  }
 
   /* Returning true here means that the process subsystem will take care of
    * calling process_free() on our process_t. */
@@ -2022,4 +2244,48 @@ managed_proxy_outbound_address(const or_options_t *options, sa_family_t family)
 
   /* The user have not specified a preference for outgoing connections. */
   return NULL;
+}
+
+STATIC const char *
+managed_proxy_state_to_string(enum pt_proto_state state)
+{
+  switch (state) {
+  case PT_PROTO_INFANT:
+    return "Infant";
+  case PT_PROTO_WAITING:
+    return "Waiting";
+  case PT_PROTO_LAUNCHED:
+    return "Launched";
+  case PT_PROTO_ACCEPTING_METHODS:
+    return "Accepting methods";
+  case PT_PROTO_CONFIGURED:
+    return "Configured";
+  case PT_PROTO_COMPLETED:
+    return "Completed";
+  case PT_PROTO_BROKEN:
+    return "Broken";
+  case PT_PROTO_FAILED_LAUNCH:
+    return "Failed to launch";
+  }
+
+  /* LCOV_EXCL_START */
+  tor_assert_unreached();
+  return NULL;
+  /* LCOV_EXCL_STOP */
+}
+
+/** Set the internal state of the given <b>mp</b> to the given <b>new_state</b>
+ * value. */
+STATIC void
+managed_proxy_set_state(managed_proxy_t *mp, enum pt_proto_state new_state)
+{
+  if (mp->conf_state == new_state)
+    return;
+
+  tor_log(LOG_INFO, LD_PT, "Managed proxy \"%s\" changed state: %s -> %s",
+          mp->argv[0],
+          managed_proxy_state_to_string(mp->conf_state),
+          managed_proxy_state_to_string(new_state));
+
+  mp->conf_state = new_state;
 }

@@ -41,7 +41,7 @@ compute_introduce_mac(const uint8_t *encoded_cell, size_t encoded_cell_len,
 {
   size_t offset = 0;
   size_t mac_msg_len;
-  uint8_t mac_msg[RELAY_PAYLOAD_SIZE] = {0};
+  uint8_t mac_msg[RELAY_PAYLOAD_SIZE_MAX] = {0};
 
   tor_assert(encoded_cell);
   tor_assert(encrypted);
@@ -289,9 +289,11 @@ introduce1_set_encrypted_padding(const trn_cell_introduce1_t *cell,
 /** Encrypt the ENCRYPTED payload and encode it in the cell using the enc_cell
  * and the INTRODUCE1 data.
  *
- * This can't fail but it is very important that the caller sets every field
- * in data so the computation of the INTRODUCE1 keys doesn't fail. */
-static void
+ * It is very important that the caller sets every field
+ * in data so the computation of the INTRODUCE1 keys doesn't fail.
+ *
+ * Return 0 on success, -1 if we should fail the circuit. */
+static int
 introduce1_encrypt_and_encode(trn_cell_introduce1_t *cell,
                               const trn_cell_introduce_encrypted_t *enc_cell,
                               const hs_cell_introduce1_data_t *data)
@@ -299,8 +301,8 @@ introduce1_encrypt_and_encode(trn_cell_introduce1_t *cell,
   size_t offset = 0;
   ssize_t encrypted_len;
   ssize_t encoded_cell_len, encoded_enc_cell_len;
-  uint8_t encoded_cell[RELAY_PAYLOAD_SIZE] = {0};
-  uint8_t encoded_enc_cell[RELAY_PAYLOAD_SIZE] = {0};
+  uint8_t encoded_cell[RELAY_PAYLOAD_SIZE_MAX] = {0};
+  uint8_t encoded_enc_cell[RELAY_PAYLOAD_SIZE_MAX] = {0};
   uint8_t *encrypted = NULL;
   uint8_t mac[DIGEST256_LEN];
   crypto_cipher_t *cipher = NULL;
@@ -310,7 +312,7 @@ introduce1_encrypt_and_encode(trn_cell_introduce1_t *cell,
   tor_assert(enc_cell);
   tor_assert(data);
 
-  /* Encode the cells up to now of what we have to we can perform the MAC
+  /* Encode the cells up to now of what we have so we can perform the MAC
    * computation on it. */
   encoded_cell_len = trn_cell_introduce1_encode(encoded_cell,
                                                 sizeof(encoded_cell), cell);
@@ -327,7 +329,9 @@ introduce1_encrypt_and_encode(trn_cell_introduce1_t *cell,
   if (hs_ntor_client_get_introduce1_keys(data->auth_pk, data->enc_pk,
                                          data->client_kp,
                                          data->subcredential, &keys) < 0) {
-    tor_assert_unreached();
+    /* this can happen in practice if e.g. the onion service is rude
+     * and sets one of its introduction keys to all-zero. */
+    return -1;
   }
 
   /* Prepare cipher with the encryption key just computed. */
@@ -339,7 +343,7 @@ introduce1_encrypt_and_encode(trn_cell_introduce1_t *cell,
    * ENCRYPTED_DATA and MAC length. */
   encrypted_len = sizeof(data->client_kp->pubkey) + encoded_enc_cell_len +
                   sizeof(mac);
-  tor_assert(encrypted_len < RELAY_PAYLOAD_SIZE);
+  tor_assert(encrypted_len < RELAY_PAYLOAD_SIZE_MAX);
   encrypted = tor_malloc_zero(encrypted_len);
 
   /* Put the CLIENT_PK first. */
@@ -369,9 +373,84 @@ introduce1_encrypt_and_encode(trn_cell_introduce1_t *cell,
   /* Cleanup. */
   memwipe(&keys, 0, sizeof(keys));
   memwipe(mac, 0, sizeof(mac));
-  memwipe(encrypted, 0, sizeof(encrypted_len));
+  memwipe(encrypted, 0, encrypted_len);
   memwipe(encoded_enc_cell, 0, sizeof(encoded_enc_cell));
   tor_free(encrypted);
+  return 0;
+}
+
+/** Build the PoW cell extension and put it in the given extensions object.
+ * Return 0 on success, -1 on failure. */
+static int
+build_introduce_pow_extension(const hs_pow_solution_t *pow_solution,
+                              trn_extension_t *extensions)
+{
+  ssize_t ret;
+  size_t pow_ext_encoded_len;
+  uint8_t *field_array;
+  trn_extension_field_t *field = NULL;
+  trn_cell_extension_pow_t *pow_ext = NULL;
+
+  tor_assert(pow_solution);
+  tor_assert(extensions);
+
+  /* We are creating a cell extension field of type PoW solution. */
+  field = trn_extension_field_new();
+  trn_extension_field_set_field_type(field, TRUNNEL_EXT_TYPE_POW);
+
+  /* Build PoW extension field. */
+  pow_ext = trn_cell_extension_pow_new();
+
+  /* Copy PoW solution values into PoW extension cell. */
+
+  /* Equi-X base scheme */
+  trn_cell_extension_pow_set_pow_version(pow_ext, TRUNNEL_POW_VERSION_EQUIX);
+
+  memcpy(trn_cell_extension_pow_getarray_pow_nonce(pow_ext),
+         &pow_solution->nonce, TRUNNEL_POW_NONCE_LEN);
+
+  trn_cell_extension_pow_set_pow_effort(pow_ext, pow_solution->effort);
+
+  memcpy(trn_cell_extension_pow_getarray_pow_seed(pow_ext),
+         pow_solution->seed_head, TRUNNEL_POW_SEED_HEAD_LEN);
+  memcpy(trn_cell_extension_pow_getarray_pow_solution(pow_ext),
+         pow_solution->equix_solution, TRUNNEL_POW_SOLUTION_LEN);
+
+  /* Set the field with the encoded PoW extension. */
+  ret = trn_cell_extension_pow_encoded_len(pow_ext);
+  if (BUG(ret <= 0)) {
+    goto err;
+  }
+  pow_ext_encoded_len = ret;
+
+  /* Set length field and the field array size length. */
+  trn_extension_field_set_field_len(field, pow_ext_encoded_len);
+  trn_extension_field_setlen_field(field, pow_ext_encoded_len);
+  /* Encode the PoW extension into the cell extension field. */
+  field_array = trn_extension_field_getarray_field(field);
+  ret = trn_cell_extension_pow_encode(field_array,
+                 trn_extension_field_getlen_field(field), pow_ext);
+  if (BUG(ret <= 0)) {
+    goto err;
+  }
+  tor_assert(ret == (ssize_t)pow_ext_encoded_len);
+
+  /* Finally, encode field into the cell extension. */
+  trn_extension_add_fields(extensions, field);
+
+  /* We've just add an extension field to the cell extensions so increment the
+   * total number. */
+  trn_extension_set_num(extensions, trn_extension_get_num(extensions) + 1);
+
+  /* Cleanup. PoW extension has been encoded at this point. */
+  trn_cell_extension_pow_free(pow_ext);
+
+  return 0;
+
+err:
+  trn_extension_field_free(field);
+  trn_cell_extension_pow_free(pow_ext);
+  return -1;
 }
 
 /** Build and set the INTRODUCE congestion control extension in the given
@@ -384,7 +463,7 @@ build_introduce_cc_extension(trn_extension_t *extensions)
   /* Build CC request extension. */
   field = trn_extension_field_new();
   trn_extension_field_set_field_type(field,
-                                     TRUNNEL_EXT_TYPE_CC_FIELD_REQUEST);
+                                     TRUNNEL_EXT_TYPE_CC_REQUEST);
 
   /* No payload indicating a request to use congestion control. */
   trn_extension_field_set_field_len(field, 0);
@@ -395,8 +474,8 @@ build_introduce_cc_extension(trn_extension_t *extensions)
 }
 
 /** Using the INTRODUCE1 data, setup the ENCRYPTED section in cell. This means
- * set it, encrypt it and encode it. */
-static void
+ * set it, encrypt it, and encode it. Return 0 on success, -1 on failure. */
+static int
 introduce1_set_encrypted(trn_cell_introduce1_t *cell,
                          const hs_cell_introduce1_data_t *data)
 {
@@ -412,9 +491,13 @@ introduce1_set_encrypted(trn_cell_introduce1_t *cell,
   /* Setup extension(s) if any. */
   ext = trn_extension_new();
   tor_assert(ext);
-  /* Build congestion control extension is enabled. */
+  /* Build congestion control extension if enabled. */
   if (data->cc_enabled) {
     build_introduce_cc_extension(ext);
+  }
+  /* Build PoW extension if present. */
+  if (data->pow_solution) {
+    build_introduce_pow_extension(data->pow_solution, ext);
   }
   trn_cell_introduce_encrypted_set_extensions(enc_cell, ext);
 
@@ -432,10 +515,12 @@ introduce1_set_encrypted(trn_cell_introduce1_t *cell,
   introduce1_set_encrypted_padding(cell, enc_cell);
 
   /* Encrypt and encode it in the cell. */
-  introduce1_encrypt_and_encode(cell, enc_cell, data);
+  if (introduce1_encrypt_and_encode(cell, enc_cell, data) < 0)
+    return -1;
 
   /* Cleanup. */
   trn_cell_introduce_encrypted_free(enc_cell);
+  return 0;
 }
 
 /** Set the authentication key in the INTRODUCE1 cell from the given data. */
@@ -631,7 +716,7 @@ hs_cell_build_establish_intro(const char *circ_nonce,
     ssize_t tmp_cell_mac_offset =
       sig_len + sizeof(cell->sig_len) +
       trn_cell_establish_intro_getlen_handshake_mac(cell);
-    uint8_t tmp_cell_enc[RELAY_PAYLOAD_SIZE] = {0};
+    uint8_t tmp_cell_enc[RELAY_PAYLOAD_SIZE_MAX] = {0};
     uint8_t mac[TRUNNEL_SHA3_256_LEN], *handshake_ptr;
 
     /* We first encode the current fields we have in the cell so we can
@@ -660,7 +745,7 @@ hs_cell_build_establish_intro(const char *circ_nonce,
   {
     ssize_t tmp_cell_enc_len = 0;
     ssize_t tmp_cell_sig_offset = (sig_len + sizeof(cell->sig_len));
-    uint8_t tmp_cell_enc[RELAY_PAYLOAD_SIZE] = {0}, *sig_ptr;
+    uint8_t tmp_cell_enc[RELAY_PAYLOAD_SIZE_MAX] = {0}, *sig_ptr;
     ed25519_signature_t sig;
 
     /* We first encode the current fields we have in the cell so we can
@@ -686,7 +771,8 @@ hs_cell_build_establish_intro(const char *circ_nonce,
   }
 
   /* Encode the cell. Can't be bigger than a standard cell. */
-  cell_len = trn_cell_establish_intro_encode(cell_out, RELAY_PAYLOAD_SIZE,
+  cell_len = trn_cell_establish_intro_encode(cell_out,
+                                             RELAY_PAYLOAD_SIZE_MAX,
                                              cell);
 
  done:
@@ -716,6 +802,70 @@ hs_cell_parse_intro_established(const uint8_t *payload, size_t payload_len)
   return ret;
 }
 
+/** Parse the cell PoW solution extension. Return 0 on success and data
+ * structure is updated with the PoW effort. Return -1 on any kind of error
+ * including if PoW couldn't be verified. */
+static int
+handle_introduce2_encrypted_cell_pow_extension(const hs_service_t *service,
+                                const hs_service_intro_point_t *ip,
+                                const trn_extension_field_t *field,
+                                hs_cell_introduce2_data_t *data)
+{
+  int ret = -1;
+  trn_cell_extension_pow_t *pow = NULL;
+  hs_pow_solution_t sol;
+
+  tor_assert(field);
+  tor_assert(ip);
+
+  if (!service->state.pow_state) {
+    log_info(LD_REND, "Unsolicited PoW solution in INTRODUCE2 request.");
+    goto end;
+  }
+
+  if (trn_cell_extension_pow_parse(&pow,
+               trn_extension_field_getconstarray_field(field),
+               trn_extension_field_getlen_field(field)) < 0) {
+    goto end;
+  }
+
+  /* There is only one version supported at the moment so validate we at least
+   * have that. */
+  if (trn_cell_extension_pow_get_pow_version(pow) !=
+      TRUNNEL_POW_VERSION_EQUIX) {
+    log_debug(LD_REND, "Unsupported PoW version. Malformed INTRODUCE2");
+    goto end;
+  }
+
+  /* Effort E */
+  sol.effort = trn_cell_extension_pow_get_pow_effort(pow);
+  /* Seed C */
+  memcpy(sol.seed_head, trn_cell_extension_pow_getconstarray_pow_seed(pow),
+         HS_POW_SEED_HEAD_LEN);
+  /* Nonce N */
+  memcpy(sol.nonce, trn_cell_extension_pow_getconstarray_pow_nonce(pow),
+         HS_POW_NONCE_LEN);
+  /* Solution S */
+  memcpy(sol.equix_solution,
+         trn_cell_extension_pow_getconstarray_pow_solution(pow),
+         HS_POW_EQX_SOL_LEN);
+
+  if (hs_pow_verify(&ip->blinded_id, service->state.pow_state, &sol)) {
+    log_info(LD_REND, "PoW INTRODUCE2 request failed to verify.");
+    goto end;
+  }
+
+  log_info(LD_REND, "PoW INTRODUCE2 request successfully verified.");
+  data->rdv_data.pow_effort = sol.effort;
+
+  /* Successfully parsed and verified the PoW solution */
+  ret = 0;
+
+ end:
+  trn_cell_extension_pow_free(pow);
+  return ret;
+}
+
 /** For the encrypted INTRO2 cell in <b>encrypted_section</b>, use the crypto
  * material in <b>data</b> to compute the right ntor keys. Also validate the
  * INTRO2 MAC to ensure that the keys are the right ones.
@@ -735,7 +885,7 @@ get_introduce2_keys_and_verify_mac(hs_cell_introduce2_data_t *data,
                                            data->n_subcredentials,
                                            data->subcredentials,
                                            encrypted_section,
-                                           &data->client_pk);
+                                           &data->rdv_data.client_pk);
   if (intro_keys == NULL) {
     log_info(LD_REND, "Invalid INTRODUCE2 encrypted data. Unable to "
              "compute key material");
@@ -785,28 +935,42 @@ get_introduce2_keys_and_verify_mac(hs_cell_introduce2_data_t *data,
 }
 
 /** Parse the given INTRODUCE cell extension. Update the data object
- * accordingly depending on the extension. */
-static void
-parse_introduce_cell_extension(hs_cell_introduce2_data_t *data,
+ * accordingly depending on the extension. Return 0 if it validated
+ * correctly, or return -1 if it is malformed (for example because it
+ * includes a PoW that doesn't verify). */
+static int
+parse_introduce_cell_extension(const hs_service_t *service,
+                               const hs_service_intro_point_t *ip,
+                               hs_cell_introduce2_data_t *data,
                                const trn_extension_field_t *field)
 {
+  int ret = 0;
   trn_extension_field_cc_t *cc_field = NULL;
 
   tor_assert(data);
   tor_assert(field);
 
   switch (trn_extension_field_get_field_type(field)) {
-  case TRUNNEL_EXT_TYPE_CC_FIELD_REQUEST:
+  case TRUNNEL_EXT_TYPE_CC_REQUEST:
     /* CC requests, enable it. */
-    data->cc_enabled = 1;
+    data->rdv_data.cc_enabled = 1;
     data->pv.protocols_known = 1;
-    data->pv.supports_congestion_control = data->cc_enabled;
+    data->pv.supports_congestion_control = data->rdv_data.cc_enabled;
+    break;
+  case TRUNNEL_EXT_TYPE_POW:
+    /* PoW request. If successful, the effort is put in the data. */
+    if (handle_introduce2_encrypted_cell_pow_extension(service, ip,
+                                                       field, data) < 0) {
+      log_fn(LOG_PROTOCOL_WARN, LD_REND, "Invalid PoW cell extension.");
+      ret = -1;
+    }
     break;
   default:
     break;
   }
 
   trn_extension_field_cc_free(cc_field);
+  return ret;
 }
 
 /** Parse the INTRODUCE2 cell using data which contains everything we need to
@@ -816,7 +980,8 @@ parse_introduce_cell_extension(hs_cell_introduce2_data_t *data,
 ssize_t
 hs_cell_parse_introduce2(hs_cell_introduce2_data_t *data,
                          const origin_circuit_t *circ,
-                         const hs_service_t *service)
+                         const hs_service_t *service,
+                         const hs_service_intro_point_t *ip)
 {
   int ret = -1;
   time_t elapsed;
@@ -867,7 +1032,7 @@ hs_cell_parse_introduce2(hs_cell_introduce2_data_t *data,
    * guaranteed to exist because of the length check above). We are gonna use
    * the client public key to compute the ntor keys and decrypt the payload:
    */
-  memcpy(&data->client_pk.public_key, encrypted_section,
+  memcpy(&data->rdv_data.client_pk.public_key, encrypted_section,
          CURVE25519_PUBKEY_LEN);
 
   /* Get the right INTRODUCE2 ntor keys and verify the cell MAC */
@@ -883,12 +1048,13 @@ hs_cell_parse_introduce2(hs_cell_introduce2_data_t *data,
   {
     /* The ENCRYPTED_DATA section starts just after the CLIENT_PK. */
     const uint8_t *encrypted_data =
-      encrypted_section + sizeof(data->client_pk);
+      encrypted_section + sizeof(data->rdv_data.client_pk);
     /* It's symmetric encryption so it's correct to use the ENCRYPTED length
      * for decryption. Computes the length of ENCRYPTED_DATA meaning removing
      * the CLIENT_PK and MAC length. */
     size_t encrypted_data_len =
-      encrypted_section_len - (sizeof(data->client_pk) + DIGEST256_LEN);
+      encrypted_section_len -
+      (sizeof(data->rdv_data.client_pk) + DIGEST256_LEN);
 
     /* This decrypts the ENCRYPTED_DATA section of the cell. */
     decrypted = decrypt_introduce2(intro_keys->enc_key,
@@ -915,12 +1081,12 @@ hs_cell_parse_introduce2(hs_cell_introduce2_data_t *data,
 
   /* Extract onion key and rendezvous cookie from the cell used for the
    * rendezvous point circuit e2e encryption. */
-  memcpy(data->onion_pk.public_key,
+  memcpy(data->rdv_data.onion_pk.public_key,
          trn_cell_introduce_encrypted_getconstarray_onion_key(enc_cell),
          CURVE25519_PUBKEY_LEN);
-  memcpy(data->rendezvous_cookie,
+  memcpy(data->rdv_data.rendezvous_cookie,
          trn_cell_introduce_encrypted_getconstarray_rend_cookie(enc_cell),
-         sizeof(data->rendezvous_cookie));
+         sizeof(data->rdv_data.rendezvous_cookie));
 
   /* Extract rendezvous link specifiers. */
   for (size_t idx = 0;
@@ -934,7 +1100,7 @@ hs_cell_parse_introduce2(hs_cell_introduce2_data_t *data,
     if (BUG(!lspec_dup)) {
       goto done;
     }
-    smartlist_add(data->link_specifiers, lspec_dup);
+    smartlist_add(data->rdv_data.link_specifiers, lspec_dup);
   }
 
   /* Extract any extensions. */
@@ -948,19 +1114,22 @@ hs_cell_parse_introduce2(hs_cell_introduce2_data_t *data,
         /* The number of extensions should match the number of fields. */
         break;
       }
-      parse_introduce_cell_extension(data, field);
+      if (parse_introduce_cell_extension(service, ip, data, field) < 0) {
+        goto done;
+      }
     }
   }
 
   /* If the client asked for congestion control, but we don't support it,
    * that's a failure. It should not have asked, based on our descriptor. */
-  if (data->cc_enabled && !congestion_control_enabled()) {
+  if (data->rdv_data.cc_enabled && !congestion_control_enabled()) {
     goto done;
   }
 
   /* Success. */
   ret = 0;
-  log_info(LD_REND, "Valid INTRODUCE2 cell. Launching rendezvous circuit.");
+  log_info(LD_REND,
+           "Valid INTRODUCE2 cell. Willing to launch rendezvous circuit.");
 
  done:
   if (intro_keys) {
@@ -1000,7 +1169,8 @@ hs_cell_build_rendezvous1(const uint8_t *rendezvous_cookie,
   memcpy(trn_cell_rendezvous1_getarray_handshake_info(cell),
          rendezvous_handshake_info, rendezvous_handshake_info_len);
   /* Encoding. */
-  cell_len = trn_cell_rendezvous1_encode(cell_out, RELAY_PAYLOAD_SIZE, cell);
+  cell_len = trn_cell_rendezvous1_encode(cell_out,
+                                         RELAY_PAYLOAD_SIZE_MAX, cell);
   tor_assert(cell_len > 0);
 
   trn_cell_rendezvous1_free(cell);
@@ -1036,10 +1206,12 @@ hs_cell_build_introduce1(const hs_cell_introduce1_data_t *data,
 
   /* Set the encrypted section. This will set, encrypt and encode the
    * ENCRYPTED section in the cell. After this, we'll be ready to encode. */
-  introduce1_set_encrypted(cell, data);
+  if (introduce1_set_encrypted(cell, data) < 0)
+    return -1;
 
   /* Final encoding. */
-  cell_len = trn_cell_introduce1_encode(cell_out, RELAY_PAYLOAD_SIZE, cell);
+  cell_len = trn_cell_introduce1_encode(cell_out,
+                                        RELAY_PAYLOAD_SIZE_MAX, cell);
 
   trn_cell_introduce1_free(cell);
   return cell_len;

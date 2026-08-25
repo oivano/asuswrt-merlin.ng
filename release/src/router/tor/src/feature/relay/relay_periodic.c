@@ -102,7 +102,9 @@ rotate_onion_key_callback(time_t now, const or_options_t *options)
     }
 
     log_info(LD_GENERAL,"Rotating onion key.");
-    rotate_onion_key();
+    if (!rotate_onion_key()) {
+      return ONION_KEY_CONSENSUS_CHECK_INTERVAL;
+    }
     cpuworkers_rotate_keyinfo();
     if (!router_rebuild_descriptor(1)) {
       log_info(LD_CONFIG, "Couldn't rebuild router descriptor");
@@ -239,7 +241,7 @@ reachability_warnings_callback(time_t now, const or_options_t *options)
           log_warn(LD_CONFIG,
                    "Your server has not managed to confirm reachability for "
                    "its ORPort(s) at %s%s%s. Relays do not publish "
-                   "descriptors until their ORPort and DirPort are "
+                   "descriptors until their ORPort(s) are "
                    "reachable. Please check your firewalls, ports, address, "
                    "/etc/hosts file, etc.",
                    where4?where4:"",

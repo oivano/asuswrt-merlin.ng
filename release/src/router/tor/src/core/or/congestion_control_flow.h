@@ -13,14 +13,15 @@
 #include "core/or/circuit_st.h"
 #include "core/or/edge_connection_st.h"
 
+struct relay_msg_t;
+
 void flow_control_new_consensus_params(const struct networkstatus_t *);
 
 bool circuit_process_stream_xoff(edge_connection_t *conn,
-                                 const crypt_path_t *layer_hint,
-                                 const cell_t *cell);
+                                 const crypt_path_t *layer_hint);
 bool circuit_process_stream_xon(edge_connection_t *conn,
                                 const crypt_path_t *layer_hint,
-                                const cell_t *cell);
+                                const struct relay_msg_t *msg);
 
 int flow_control_decide_xoff(edge_connection_t *stream);
 void flow_control_decide_xon(edge_connection_t *stream, size_t n_written);
@@ -30,8 +31,6 @@ void flow_control_note_sent_data(edge_connection_t *stream, size_t len);
 bool edge_uses_flow_control(const edge_connection_t *stream);
 
 bool conn_uses_flow_control(connection_t *stream);
-
-uint64_t edge_get_max_rtt(const edge_connection_t *);
 
 /** Metricsport externs */
 extern uint64_t cc_stats_flow_num_xoff_sent;

@@ -78,6 +78,8 @@
 #include "core/crypto/relay_crypto.h"
 #include "feature/nodelist/nodelist.h"
 
+#include "src/core/or/conflux_util.h"
+
 #include "app/config/config.h"
 
 static inline circpad_circuit_state_t circpad_circuit_state(
@@ -251,8 +253,11 @@ circpad_marked_circuit_for_padding(circuit_t *circ, int reason)
      * has shut down, but using the MaxCircuitDirtiness timer instead of
      * the idle circuit timer (again, we want this because we're not
      * supposed to look idle to Guard nodes that can see our lifespan). */
-    if (!circ->timestamp_dirty)
+    if (!circ->timestamp_dirty) {
       circ->timestamp_dirty = approx_time();
+      if (circ->conflux && CIRCUIT_IS_ORIGIN(circ))
+        conflux_sync_circ_fields(circ->conflux, TO_ORIGIN_CIRCUIT(circ));
+    }
 
     /* Take ownership of the circuit */
     circuit_change_purpose(circ, CIRCUIT_PURPOSE_C_CIRCUIT_PADDING);
@@ -1841,22 +1846,21 @@ circpad_cell_event_nonpadding_sent(circuit_t *on_circ)
  *  not need any other consideration, otherwise return 1.
  */
 int
-circpad_check_received_cell(cell_t *cell, circuit_t *circ,
-                            crypt_path_t *layer_hint,
-                            const relay_header_t *rh)
+circpad_check_received_cell(const relay_msg_t *msg, circuit_t *circ,
+                            crypt_path_t *layer_hint)
 {
   /* First handle the padding commands, since we want to ignore any other
    * commands if this circuit is padding-specific. */
-  switch (rh->command) {
+  switch (msg->command) {
     case RELAY_COMMAND_DROP:
       /* Already examined in circpad_deliver_recognized_relay_cell_events */
       return 0;
     case RELAY_COMMAND_PADDING_NEGOTIATE:
-      circpad_handle_padding_negotiate(circ, cell);
+      circpad_handle_padding_negotiate(circ, msg);
       return 0;
     case RELAY_COMMAND_PADDING_NEGOTIATED:
-      if (circpad_handle_padding_negotiated(circ, cell, layer_hint) == 0)
-        circuit_read_valid_data(TO_ORIGIN_CIRCUIT(circ), rh->length);
+      if (circpad_handle_padding_negotiated(circ, msg, layer_hint) == 0)
+        circuit_read_valid_data(TO_ORIGIN_CIRCUIT(circ), msg->length);
       return 0;
   }
 
@@ -1883,7 +1887,7 @@ circpad_check_received_cell(cell_t *cell, circuit_t *circ,
   if (circ->purpose == CIRCUIT_PURPOSE_C_CIRCUIT_PADDING) {
     log_fn(LOG_PROTOCOL_WARN, LD_CIRC,
            "Ignored cell (%d) that arrived in padding circuit "
-                      " %u.", rh->command, CIRCUIT_IS_ORIGIN(circ) ?
+                      " %u.", msg->command, CIRCUIT_IS_ORIGIN(circ) ?
                            TO_ORIGIN_CIRCUIT(circ)->global_identifier : 0);
     return 0;
   }
@@ -2964,7 +2968,7 @@ circpad_padding_negotiated(circuit_t *circ,
  * Returns -1 on error, 0 on success.
  */
 signed_error_t
-circpad_handle_padding_negotiate(circuit_t *circ, cell_t *cell)
+circpad_handle_padding_negotiate(circuit_t *circ, const relay_msg_t *msg)
 {
   int retval = 0;
   /* Should we send back a STOP cell? */
@@ -2978,8 +2982,7 @@ circpad_handle_padding_negotiate(circuit_t *circ, cell_t *cell)
     return -1;
   }
 
-  if (circpad_negotiate_parse(&negotiate, cell->payload+RELAY_HEADER_SIZE,
-                               CELL_PAYLOAD_SIZE-RELAY_HEADER_SIZE) < 0) {
+  if (circpad_negotiate_parse(&negotiate, msg->body, msg->length) < 0) {
     log_fn(LOG_PROTOCOL_WARN, LD_CIRC,
           "Received malformed PADDING_NEGOTIATE cell; dropping.");
     return -1;
@@ -3052,7 +3055,7 @@ circpad_handle_padding_negotiate(circuit_t *circ, cell_t *cell)
  * Returns -1 on error, 0 on success.
  */
 signed_error_t
-circpad_handle_padding_negotiated(circuit_t *circ, cell_t *cell,
+circpad_handle_padding_negotiated(circuit_t *circ, const relay_msg_t *msg,
                                   crypt_path_t *layer_hint)
 {
   circpad_negotiated_t *negotiated;
@@ -3071,8 +3074,7 @@ circpad_handle_padding_negotiated(circuit_t *circ, cell_t *cell,
     return -1;
   }
 
-  if (circpad_negotiated_parse(&negotiated, cell->payload+RELAY_HEADER_SIZE,
-                               CELL_PAYLOAD_SIZE-RELAY_HEADER_SIZE) < 0) {
+  if (circpad_negotiated_parse(&negotiated, msg->body, msg->length) < 0) {
     log_fn(LOG_PROTOCOL_WARN, LD_CIRC,
           "Received malformed PADDING_NEGOTIATED cell on circuit %u; "
           "dropping.", TO_ORIGIN_CIRCUIT(circ)->global_identifier);

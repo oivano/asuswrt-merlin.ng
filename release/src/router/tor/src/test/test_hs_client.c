@@ -15,6 +15,7 @@
 #define CIRCUITLIST_PRIVATE
 #define CONNECTION_PRIVATE
 #define CRYPT_PATH_PRIVATE
+#define TOR_CONGESTION_CONTROL_COMMON_PRIVATE
 
 #include "test/test.h"
 #include "test/test_helpers.h"
@@ -54,7 +55,7 @@
 #include "core/or/origin_circuit_st.h"
 #include "core/or/socks_request_st.h"
 
-#define TOR_CONGESTION_CONTROL_PRIVATE
+#include "core/or/congestion_control_st.h"
 #include "core/or/congestion_control_common.h"
 
 static int
@@ -177,6 +178,7 @@ helper_get_circ_and_stream_for_test(origin_circuit_t **circ_out,
 
   /* prop224: Setup hs ident on the circuit */
   or_circ->hs_ident = hs_ident_circuit_new(&service_pk);
+  or_circ->hs_ident->intro_auth_pk.pubkey[0] = 42;
 
   TO_CIRCUIT(or_circ)->state = CIRCUIT_STATE_OPEN;
 
@@ -244,12 +246,14 @@ test_e2e_rend_circuit_setup(void *arg)
   tt_int_op(retval, OP_EQ, 1);
 
   /* Check that the crypt path has prop224 algorithm parameters */
-  tt_int_op(crypto_digest_get_algorithm(or_circ->cpath->pvt_crypto.f_digest),
+  tt_int_op(crypto_digest_get_algorithm(
+                             or_circ->cpath->pvt_crypto.c.tor1.f_digest),
             OP_EQ, DIGEST_SHA3_256);
-  tt_int_op(crypto_digest_get_algorithm(or_circ->cpath->pvt_crypto.b_digest),
+  tt_int_op(crypto_digest_get_algorithm(
+                             or_circ->cpath->pvt_crypto.c.tor1.b_digest),
             OP_EQ, DIGEST_SHA3_256);
-  tt_assert(or_circ->cpath->pvt_crypto.f_crypto);
-  tt_assert(or_circ->cpath->pvt_crypto.b_crypto);
+  tt_assert(or_circ->cpath->pvt_crypto.c.tor1.f_crypto);
+  tt_assert(or_circ->cpath->pvt_crypto.c.tor1.b_crypto);
 
   /* Ensure that circ purpose was changed */
   tt_int_op(or_circ->base_.purpose, OP_EQ, CIRCUIT_PURPOSE_C_REND_JOINED);
@@ -1090,7 +1094,7 @@ test_socks_hs_errors(void *arg)
   char *desc_encoded = NULL;
   circuit_t *circ = NULL;
   origin_circuit_t *ocirc = NULL;
-  tor_addr_t addr;
+  tor_addr_t addr = TOR_ADDR_NULL;
   ed25519_keypair_t service_kp;
   ed25519_keypair_t signing_kp;
   entry_connection_t *socks_conn = NULL;
@@ -1186,10 +1190,11 @@ test_socks_hs_errors(void *arg)
   circ->purpose = CIRCUIT_PURPOSE_C_REND_READY;
   ocirc = TO_ORIGIN_CIRCUIT(circ);
   ocirc->hs_ident = hs_ident_circuit_new(&service_kp.pubkey);
+  ocirc->hs_ident->intro_auth_pk.pubkey[0] = 42;
   ocirc->build_state = tor_malloc_zero(sizeof(cpath_build_state_t));
   /* Code path will log this exit so build it. */
   ocirc->build_state->chosen_exit = extend_info_new("TestNickname", digest,
-                                                    NULL, NULL, NULL, &addr,
+                                                    NULL, NULL, &addr,
                                                     4242, NULL, false);
   /* Attach socks connection to this rendezvous circuit. */
   ocirc->p_streams = ENTRY_TO_EDGE_CONN(socks_conn);
@@ -1263,7 +1268,7 @@ test_close_intro_circuit_failure(void *arg)
   circuit_t *circ = NULL;
   ed25519_keypair_t service_kp, intro_kp;
   origin_circuit_t *ocirc = NULL;
-  tor_addr_t addr;
+  tor_addr_t addr = TOR_ADDR_NULL;
   const hs_cache_intro_state_t *entry;
 
   (void) arg;
@@ -1284,7 +1289,7 @@ test_close_intro_circuit_failure(void *arg)
   ocirc->build_state = tor_malloc_zero(sizeof(cpath_build_state_t));
   /* Code path will log this exit so build it. */
   ocirc->build_state->chosen_exit = extend_info_new("TestNickname", digest,
-                                                    NULL, NULL, NULL, &addr,
+                                                    NULL, NULL, &addr,
                                                     4242, NULL, false);
   ed25519_pubkey_copy(&ocirc->hs_ident->intro_auth_pk, &intro_kp.pubkey);
 
@@ -1311,7 +1316,7 @@ test_close_intro_circuit_failure(void *arg)
   ocirc->build_state = tor_malloc_zero(sizeof(cpath_build_state_t));
   /* Code path will log this exit so build it. */
   ocirc->build_state->chosen_exit = extend_info_new("TestNickname", digest,
-                                                    NULL, NULL, NULL, &addr,
+                                                    NULL, NULL, &addr,
                                                     4242, NULL, false);
   ed25519_pubkey_copy(&ocirc->hs_ident->intro_auth_pk, &intro_kp.pubkey);
 
@@ -1334,7 +1339,7 @@ test_close_intro_circuit_failure(void *arg)
   ocirc->build_state = tor_malloc_zero(sizeof(cpath_build_state_t));
   /* Code path will log this exit so build it. */
   ocirc->build_state->chosen_exit = extend_info_new("TestNickname", digest,
-                                                    NULL, NULL, NULL, &addr,
+                                                    NULL, NULL, &addr,
                                                     4242, NULL, false);
   ed25519_pubkey_copy(&ocirc->hs_ident->intro_auth_pk, &intro_kp.pubkey);
 
