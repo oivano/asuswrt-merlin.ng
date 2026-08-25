@@ -64,6 +64,8 @@ C aes192_decrypt(const struct aes192_ctx *ctx,
 C                size_t length, uint8_t *dst,
 C                const uint8_t *src)
 
+    .text
+    ALIGN(16)
 PROLOGUE(nettle_aes192_decrypt)
     ld1            {K0.4s,K1.4s,K2.4s,K3.4s},[KEYS],#64
     ld1            {K4.4s,K5.4s,K6.4s,K7.4s},[KEYS],#64
@@ -76,18 +78,18 @@ PROLOGUE(nettle_aes192_decrypt)
 L4B_loop:
     ld1            {S0.16b,S1.16b,S2.16b,S3.16b},[SRC],#64
     
-    AESD_ROUND_4B(S0,S1,S2,S3,K0)
-    AESD_ROUND_4B(S0,S1,S2,S3,K1)
-    AESD_ROUND_4B(S0,S1,S2,S3,K2)
-    AESD_ROUND_4B(S0,S1,S2,S3,K3)
-    AESD_ROUND_4B(S0,S1,S2,S3,K4)
-    AESD_ROUND_4B(S0,S1,S2,S3,K5)
-    AESD_ROUND_4B(S0,S1,S2,S3,K6)
-    AESD_ROUND_4B(S0,S1,S2,S3,K7)
-    AESD_ROUND_4B(S0,S1,S2,S3,K8)
-    AESD_ROUND_4B(S0,S1,S2,S3,K9)
+    AESD_ROUND_4B(S0,S1,S2,S3,K12)
+    AESD_ROUND_4B(S0,S1,S2,S3,K11)
     AESD_ROUND_4B(S0,S1,S2,S3,K10)
-    AESD_LAST_ROUND_4B(S0,S1,S2,S3,K11,K12)
+    AESD_ROUND_4B(S0,S1,S2,S3,K9)
+    AESD_ROUND_4B(S0,S1,S2,S3,K8)
+    AESD_ROUND_4B(S0,S1,S2,S3,K7)
+    AESD_ROUND_4B(S0,S1,S2,S3,K6)
+    AESD_ROUND_4B(S0,S1,S2,S3,K5)
+    AESD_ROUND_4B(S0,S1,S2,S3,K4)
+    AESD_ROUND_4B(S0,S1,S2,S3,K3)
+    AESD_ROUND_4B(S0,S1,S2,S3,K2)
+    AESD_LAST_ROUND_4B(S0,S1,S2,S3,K1,K0)
 
     st1            {S0.16b,S1.16b,S2.16b,S3.16b},[DST],#64
 
@@ -102,18 +104,18 @@ L1B:
 L1B_loop:
     ld1            {S0.16b},[SRC],#16
     
-    AESD_ROUND_1B(S0,K0)
-    AESD_ROUND_1B(S0,K1)
-    AESD_ROUND_1B(S0,K2)
-    AESD_ROUND_1B(S0,K3)
-    AESD_ROUND_1B(S0,K4)
-    AESD_ROUND_1B(S0,K5)
-    AESD_ROUND_1B(S0,K6)
-    AESD_ROUND_1B(S0,K7)
-    AESD_ROUND_1B(S0,K8)
-    AESD_ROUND_1B(S0,K9)
+    AESD_ROUND_1B(S0,K12)
+    AESD_ROUND_1B(S0,K11)
     AESD_ROUND_1B(S0,K10)
-    AESD_LAST_ROUND_1B(S0,K11,K12)
+    AESD_ROUND_1B(S0,K9)
+    AESD_ROUND_1B(S0,K8)
+    AESD_ROUND_1B(S0,K7)
+    AESD_ROUND_1B(S0,K6)
+    AESD_ROUND_1B(S0,K5)
+    AESD_ROUND_1B(S0,K4)
+    AESD_ROUND_1B(S0,K3)
+    AESD_ROUND_1B(S0,K2)
+    AESD_LAST_ROUND_1B(S0,K1,K0)
 
     st1            {S0.16b},[DST],#16
 

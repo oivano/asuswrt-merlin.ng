@@ -78,7 +78,7 @@ _eddsa_sign (const struct ecc_curve *ecc,
   eddsa->dom (ctx);
   eddsa->update (ctx, nbytes, k1);
   eddsa->update (ctx, length, msg);
-  eddsa->digest (ctx, 2*nbytes, hash);
+  eddsa->digest (ctx, hash);
   _eddsa_hash (&ecc->q, rp, 2*nbytes, hash);
 
   ecc->mul_g (ecc, P, rp, scratch_out);
@@ -88,7 +88,7 @@ _eddsa_sign (const struct ecc_curve *ecc,
   eddsa->update (ctx, nbytes, signature);
   eddsa->update (ctx, nbytes, pub);
   eddsa->update (ctx, length, msg);
-  eddsa->digest (ctx, 2*nbytes, hash);
+  eddsa->digest (ctx, hash);
   _eddsa_hash (&ecc->q, hp, 2*nbytes, hash);
 
   ecc_mod_mul (&ecc->q, sp, hp, k2, sp);
@@ -116,9 +116,9 @@ _eddsa_sign (const struct ecc_curve *ecc,
     }
 
   cy = mpn_submul_1 (sp, ecc->q.m, ecc->p.size, q);
-  assert (cy < 2);
+  assert_maybe (cy < 2);
   cy -= mpn_cnd_add_n (cy, sp, sp, ecc->q.m, ecc->p.size);
-  assert (cy == 0);
+  assert_maybe (cy == 0);
 
   mpn_get_base256_le (signature + nbytes, nbytes, sp, ecc->q.size);
 #undef rp

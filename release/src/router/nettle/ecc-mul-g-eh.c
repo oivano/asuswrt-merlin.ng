@@ -68,9 +68,7 @@ ecc_mul_g_eh (const struct ecc_curve *ecc, mp_limb_t *r,
       for (j = 0; j * c < bit_rows; j++)
 	{
 	  unsigned bits;
-	  /* Avoid the mp_bitcnt_t type for compatibility with older GMP
-	     versions. */
-	  unsigned bit_index;
+	  mp_bitcnt_t bit_index;
 	  
 	  /* Extract c bits from n, stride k, starting at i + kcj,
 	     ending at i + k (cj + c - 1)*/
@@ -88,10 +86,10 @@ ecc_mul_g_eh (const struct ecc_curve *ecc, mp_limb_t *r,
 	      shift = bit_index % GMP_NUMB_BITS;
 	      bits = (bits << 1) | ((np[limb_index] >> shift) & 1);
 	    }
-	  sec_tabselect (tp, 2*ecc->p.size,
-			 (ecc->pippenger_table
-			  + (2*ecc->p.size * (mp_size_t) j << c)),
-			 1<<c, bits);
+	  mpn_sec_tabselect (tp,
+			     (ecc->pippenger_table
+			      + (2*ecc->p.size * (mp_size_t) j << c)),
+			      2*ecc->p.size, 1<<c, bits);
 
 	  ecc->add_hh (ecc, r, r, tp, scratch_out);
 	}

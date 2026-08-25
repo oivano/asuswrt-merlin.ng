@@ -66,21 +66,18 @@ ecc_mul_a_eh (const struct ecc_curve *ecc,
   
   for (i = ecc->p.size; i-- > 0; )
     {
-      mp_limb_t w = np[i];
-      mp_limb_t bit;
+      mp_limb_t w = np[i] << (GMP_LIMB_BITS - GMP_NUMB_BITS);
+      unsigned j;
 
-      for (bit = (mp_limb_t) 1 << (GMP_NUMB_BITS - 1);
-	   bit > 0;
-	   bit >>= 1)
+      for (j = 0; j < GMP_NUMB_BITS; j++, w <<= 1)
 	{
-	  int digit;
-
+	  int bit;
 	  ecc->dup (ecc, r, r, scratch_out);
 	  ecc->add_hh (ecc, tp, r, pe, scratch_out);
 
-	  digit = (w & bit) > 0;
+	  bit = w >> (GMP_LIMB_BITS - 1);
 	  /* If we had a one-bit, use the sum. */
-	  cnd_copy (digit, r, tp, 3*ecc->p.size);
+	  cnd_copy (bit, r, tp, 3*ecc->p.size);
 	}
     }
 }
@@ -122,10 +119,8 @@ ecc_mul_a_eh (const struct ecc_curve *ecc,
 #define table (scratch + 3*ecc->p.size)
   mp_limb_t *scratch_out = table + (3*ecc->p.size << ECC_MUL_A_EH_WBITS);
 
-  /* Avoid the mp_bitcnt_t type for compatibility with older GMP
-     versions. */
-  unsigned blocks = (ecc->p.bit_size + ECC_MUL_A_EH_WBITS - 1) / ECC_MUL_A_EH_WBITS;
-  unsigned bit_index = (blocks-1) * ECC_MUL_A_EH_WBITS;
+  mp_bitcnt_t blocks = (ecc->p.bit_size + ECC_MUL_A_EH_WBITS - 1) / ECC_MUL_A_EH_WBITS;
+  mp_bitcnt_t bit_index = (blocks-1) * ECC_MUL_A_EH_WBITS;
 
   mp_size_t limb_index = bit_index / GMP_NUMB_BITS;
   unsigned shift = bit_index % GMP_NUMB_BITS;
@@ -140,7 +135,7 @@ ecc_mul_a_eh (const struct ecc_curve *ecc,
 
   assert (bits < TABLE_SIZE);
 
-  sec_tabselect (r, 3*ecc->p.size, table, TABLE_SIZE, bits);
+  mpn_sec_tabselect (r, table, 3*ecc->p.size, TABLE_SIZE, bits);
 
   for (;;)
     {
@@ -166,7 +161,7 @@ ecc_mul_a_eh (const struct ecc_curve *ecc,
 	ecc->dup (ecc, r, r, scratch_out);
 
       bits &= TABLE_MASK;
-      sec_tabselect (tp, 3*ecc->p.size, table, TABLE_SIZE, bits);
+      mpn_sec_tabselect (tp, table, 3*ecc->p.size, TABLE_SIZE, bits);
       ecc->add_hhh (ecc, r, r, tp, scratch_out);
     }
 #undef table

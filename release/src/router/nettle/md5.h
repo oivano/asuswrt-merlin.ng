@@ -44,11 +44,10 @@ extern "C" {
 #define md5_init nettle_md5_init
 #define md5_update nettle_md5_update
 #define md5_digest nettle_md5_digest
+#define md5_compress nettle_md5_compress
 
 #define MD5_DIGEST_SIZE 16
 #define MD5_BLOCK_SIZE 64
-/* For backwards compatibility */
-#define MD5_DATA_SIZE MD5_BLOCK_SIZE
 
 /* Digest is kept internally as 4 32-bit words. */
 #define _MD5_DIGEST_LENGTH 4
@@ -71,15 +70,12 @@ md5_update(struct md5_ctx *ctx,
 
 void
 md5_digest(struct md5_ctx *ctx,
-	   size_t length,
 	   uint8_t *digest);
 
-/* Internal compression function. STATE points to 4 uint32_t words,
+/* MD5 compression function. STATE points to 4 uint32_t words,
    and DATA points to 64 bytes of input data, possibly unaligned. */
 void
-nettle_md5_compress(uint32_t *state, const uint8_t *data);
-
-#define _nettle_md5_compress nettle_md5_compress
+md5_compress(uint32_t *state, const uint8_t *data);
 
 #ifdef __cplusplus
 }

@@ -36,28 +36,17 @@
 # include "config.h"
 #endif
 
-#include <stddef.h>
-#include <string.h>
-
 #include "sha3.h"
 #include "sha3-internal.h"
 
-#include "nettle-write.h"
+void
+sha3_256_shake (struct sha3_ctx *ctx, size_t length, uint8_t *dst)
+{
+  _nettle_sha3_shake (ctx, SHA3_256_BLOCK_SIZE >> 3, length, dst);
+}
 
 void
-sha3_256_shake (struct sha3_256_ctx *ctx,
-		size_t length,
-		uint8_t *dst)
+sha3_256_shake_output (struct sha3_ctx *ctx, size_t length, uint8_t *digest)
 {
-  _sha3_pad_shake (&ctx->state, SHA3_256_BLOCK_SIZE, ctx->block, ctx->index);
-  while (length > SHA3_256_BLOCK_SIZE)
-    {
-      _nettle_write_le64 (SHA3_256_BLOCK_SIZE, dst, ctx->state.a);
-      length -= SHA3_256_BLOCK_SIZE;
-      dst += SHA3_256_BLOCK_SIZE;
-      sha3_permute (&ctx->state);
-    }
-  _nettle_write_le64 (length, dst, ctx->state.a);
-
-  sha3_256_init (ctx);
+  _nettle_sha3_shake_output (ctx, SHA3_256_BLOCK_SIZE >> 3, length, digest);
 }

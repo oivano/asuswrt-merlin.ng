@@ -1,4 +1,4 @@
-C x86_64/ecc-25519-modp.asm
+C x86_64/ecc-curve25519-modp.asm
 
 ifelse(`
    Copyright (C) 2014 Niels Möller
@@ -30,7 +30,7 @@ ifelse(`
    not, see http://www.gnu.org/licenses/.
 ')
 
-	.file "ecc-25519-modp.asm"
+	.file "ecc-curve25519-modp.asm"
 
 define(`RP', `%rsi')
 define(`XP', `%rdx')	C Overlaps with mul register
@@ -42,6 +42,8 @@ define(`T0', `%r10')
 define(`T1', `%r11')
 define(`M', `%rbx')
 
+	.text
+	ALIGN(16)
 PROLOGUE(_nettle_ecc_curve25519_modp)
 	W64_ENTRY(3, 0)
 	push	%rbx
