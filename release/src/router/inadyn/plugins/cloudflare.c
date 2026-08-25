@@ -27,20 +27,31 @@
 #define API_HOST "api.cloudflare.com"
 #define API_URL "/client/v4"
 
+/* https://developers.cloudflare.com/api/operations/zones-get */
 static const char *CLOUDFLARE_ZONE_ID_REQUEST = "GET " API_URL "/zones?name=%s HTTP/1.0\r\n"	\
 	"Host: " API_HOST "\r\n"		\
 	"User-Agent: %s\r\n"			\
 	"Accept: */*\r\n"				\
 	"Authorization: Bearer %s\r\n"	\
 	"Content-Type: application/json\r\n\r\n";
-	
-static const char *CLOUDFLARE_HOSTNAME_ID_REQUEST	= "GET " API_URL "/zones/%s/dns_records?type=%s&name=%s HTTP/1.0\r\n"	\
+
+/* https://developers.cloudflare.com/api/operations/dns-records-for-a-zone-dns-record-details */
+static const char *CLOUDFLARE_HOSTNAME_NAME_REQUEST_BY_ID	= "GET " API_URL "/zones/%s/dns_records/%s HTTP/1.0\r\n"	\
 	"Host: " API_HOST "\r\n"		\
 	"User-Agent: %s\r\n"			\
 	"Accept: */*\r\n"				\
 	"Authorization: Bearer %s\r\n"	\
 	"Content-Type: application/json\r\n\r\n";
-	
+
+/* https://developers.cloudflare.com/api/operations/dns-records-for-a-zone-list-dns-records */
+static const char *CLOUDFLARE_HOSTNAME_ID_REQUEST_BY_NAME	= "GET " API_URL "/zones/%s/dns_records?type=%s&name=%s%s HTTP/1.0\r\n"	\
+	"Host: " API_HOST "\r\n"		\
+	"User-Agent: %s\r\n"			\
+	"Accept: */*\r\n"				\
+	"Authorization: Bearer %s\r\n"	\
+	"Content-Type: application/json\r\n\r\n";
+
+/* https://developers.cloudflare.com/api/operations/dns-records-for-a-zone-create-dns-record */
 static const char *CLOUDFLARE_HOSTNAME_CREATE_REQUEST	= "POST " API_URL "/zones/%s/dns_records HTTP/1.0\r\n"	\
 	"Host: " API_HOST "\r\n"		\
 	"User-Agent: %s\r\n"			\
@@ -50,7 +61,8 @@ static const char *CLOUDFLARE_HOSTNAME_CREATE_REQUEST	= "POST " API_URL "/zones/
 	"Content-Length: %zd\r\n\r\n" \
 	"%s";
 
-static const char *CLOUDFLARE_HOSTNAME_UPDATE_REQUEST	= "PUT " API_URL "/zones/%s/dns_records/%s HTTP/1.0\r\n"	\
+/* https://developers.cloudflare.com/api/operations/dns-records-for-a-zone-update-dns-record */
+static const char *CLOUDFLARE_HOSTNAME_UPDATE_REQUEST	= "PATCH " API_URL "/zones/%s/dns_records/%s HTTP/1.0\r\n"	\
 	"Host: " API_HOST "\r\n"		\
 	"User-Agent: %s\r\n"			\
 	"Accept: */*\r\n"				\
@@ -58,8 +70,8 @@ static const char *CLOUDFLARE_HOSTNAME_UPDATE_REQUEST	= "PUT " API_URL "/zones/%
 	"Content-Type: application/json\r\n" \
 	"Content-Length: %zd\r\n\r\n" \
 	"%s";
-	
-static const char *CLOUDFLARE_UPDATE_JSON_FORMAT = "{\"type\":\"%s\",\"name\":\"%s\",\"content\":\"%s\",\"ttl\":%li,\"proxied\":%s}";
+
+static const char *CLOUDFLARE_UPDATE_JSON_FORMAT = "{\"type\":\"%s\",\"name\":\"%s%s\",\"content\":\"%s\"%s}";
 
 static const char *IPV4_RECORD_TYPE = "A";
 static const char *IPV6_RECORD_TYPE = "AAAA";
@@ -141,10 +153,10 @@ static int check_success(const char *json, const jsmntok_t tokens[], const int n
 
 		if (i < num_tokens - 1 && json_bool(json, tokens + i + 1, &set) == 0)
 			return set ? 0 : -1;
-				
+
 		return -1;
 	}
-	
+
 	return -1;
 }
 
@@ -153,8 +165,8 @@ static int check_success_only(const char *json)
 	jsmntok_t *tokens;
 	int num_tokens;
 	int result;
-	
-	num_tokens = parse_json(json, &tokens);	
+
+	num_tokens = parse_json(json, &tokens);
 	if (num_tokens == -1)
 		return -1;
 
@@ -168,21 +180,21 @@ static int get_result_value(const char *json, const char *key, jsmntok_t *out_re
 {
 	jsmntok_t *tokens;
 	int i, num_tokens;
-	
+
 	num_tokens = parse_json(json, &tokens);
 	if (num_tokens < 0)
 		return -1;
-	
+
 	if (tokens[0].type != JSMN_OBJECT) {
 		logit(LOG_ERR, "JSON response contained no objects.");
 		goto cleanup;
 	}
-	
+
 	if (check_success(json, tokens, num_tokens) == -1) {
 		logit(LOG_ERR, "Request was unsuccessful.");
 		goto cleanup;
 	}
-	
+
 	for (i = 1; i < num_tokens; i++) {
 		if (jsoneq(json, tokens + i, key) != 0)
 			continue;
@@ -193,7 +205,7 @@ static int get_result_value(const char *json, const char *key, jsmntok_t *out_re
 			return 0;
 		}
 	}
-	
+
 	logit(LOG_INFO, "Could not find key '%s'.", key);
 
 cleanup:
@@ -207,21 +219,21 @@ static int json_copy_value(char *dest, size_t dest_size, const char *json, const
 
 	if (token->type != JSMN_STRING)
 		return -1;
-	
+
 	length = token->end - token->start + 1;
 	if (length > dest_size)
 		return -2;
-	
+
 	strlcpy(dest, json + token->start, length);
 
 	return 0;
 }
 
-static int get_id(char *dest, size_t dest_size, const ddns_info_t *info, char *request, size_t request_len)
+static int json_extract(char *dest, size_t dest_size, const ddns_info_t *info, char *request, size_t request_len, const char *key)
 {
 	const char   *body;
 	http_trans_t  trans;
-	jsmntok_t     id;
+	jsmntok_t     key_value;
 	http_t        client;
 	char         *response_buf;
 	size_t        response_buflen = DDNS_HTTP_RESPONSE_BUFFER_SIZE;
@@ -237,7 +249,7 @@ static int get_id(char *dest, size_t dest_size, const ddns_info_t *info, char *r
 	http_set_remote_name(&client, info->server_name.name);
 
 	client.ssl_enabled = info->ssl_enabled;
-	CHECK(http_init(&client, "Id query"));
+	CHECK(http_init(&client, "Json query", ddns_get_tcp_force(info)));
 
 	trans.req = request;
 	trans.req_len = request_len;
@@ -254,16 +266,16 @@ static int get_id(char *dest, size_t dest_size, const ddns_info_t *info, char *r
 	CHECK(check_response_code(trans.status));
 
 	body = trans.rsp_body;
-	if (get_result_value(body, "id", &id) < 0) {
+	if (get_result_value(body, key, &key_value) < 0) {
 		rc = RC_DDNS_RSP_NOHOST;
 		goto cleanup;
 	}
 
-	if (json_copy_value(dest, dest_size, body, &id) < 0) {
-		logit(LOG_ERR, "Id did not fit into buffer.");
+	if (json_copy_value(dest, dest_size, body, &key_value) < 0) {
+		logit(LOG_ERR, "Key value did not fit into buffer.");
 		rc = RC_BUFFER_OVERFLOW;
 	}
-	logit(LOG_DEBUG, "ID value: %s", dest);
+	logit(LOG_DEBUG, "Key '%s' = %s", key, dest);
 
 cleanup:
 	free(response_buf);
@@ -316,28 +328,59 @@ static int setup(ddns_t *ctx, ddns_info_t *info, ddns_alias_t *hostname)
 		return RC_BUFFER_OVERFLOW;
 	}
 
-	rc = get_id(data->zone_id, MAX_ID, info, ctx->request_buf, len);
+	rc = json_extract(data->zone_id, MAX_ID, info, ctx->request_buf, len, "id");
 	if (rc != RC_OK) {
 		logit(LOG_ERR, "Zone '%s' not found.", zone_name);
 		return rc;
 	}
-	
+
 	logit(LOG_DEBUG, "Cloudflare Zone: '%s' Id: %s", zone_name, data->zone_id);
 
-	len = snprintf(ctx->request_buf, ctx->request_buflen,
-		       CLOUDFLARE_HOSTNAME_ID_REQUEST,
-		       data->zone_id,
-		       record_type,
-		       hostname->name,
-		       info->user_agent,
-		       info->creds.password);
-	if (len >= ctx->request_buflen) {
-		logit(LOG_ERR, "Request for zone '%s', id %s did not fit into buffer.",
-		      zone_name, data->zone_id);
-		return RC_BUFFER_OVERFLOW;
+	if (strlen(hostname->name) == 32 && strtoull(hostname->name, NULL, 16) == ULLONG_MAX) {
+		/* hostname contains a cloudflare id (32 chars and only hex digits).
+
+		   This is needed to update Round-Robin DNS entries.
+		   https://developers.cloudflare.com/dns/manage-dns-records/how-to/round-robin-dns */
+
+		/* Use the id already provided by the user */
+		strcpy(data->hostname_id, hostname->name);
+
+		/* Query the hostname */
+		len = snprintf(ctx->request_buf, ctx->request_buflen,
+				CLOUDFLARE_HOSTNAME_NAME_REQUEST_BY_ID,
+				data->zone_id,
+				data->hostname_id,
+				info->user_agent,
+				info->creds.password);
+		if (len >= ctx->request_buflen) {
+			logit(LOG_ERR, "Request for zone '%s', id %s did not fit into buffer.",
+				zone_name, data->zone_id);
+			return RC_BUFFER_OVERFLOW;
+		}
+
+		rc = json_extract(hostname->name, MAX_ID, info, ctx->request_buf, ctx->request_buflen, "name");
+	} else {
+		/* hostname contains a hostname. This is the default inadyn behavior across all plugins. */
+
+		/* Query the unique cloudflare id from hostname.
+		   If more than one record is returned (round-robin dns) use only the first and ignore the others. */
+		len = snprintf(ctx->request_buf, ctx->request_buflen,
+				CLOUDFLARE_HOSTNAME_ID_REQUEST_BY_NAME,
+				data->zone_id,
+				record_type,
+				info->wildcard ? "*." : "",
+				hostname->name,
+				info->user_agent,
+				info->creds.password);
+		if (len >= ctx->request_buflen) {
+			logit(LOG_ERR, "Request for zone '%s', id %s did not fit into buffer.",
+				zone_name, data->zone_id);
+			return RC_BUFFER_OVERFLOW;
+		}
+
+		rc = json_extract(data->hostname_id, MAX_ID, info, ctx->request_buf, ctx->request_buflen, "id");
 	}
 
-	rc = get_id(data->hostname_id, MAX_ID, info, ctx->request_buf, ctx->request_buflen);
 	if (rc == RC_OK) {
 		logit(LOG_DEBUG, "Cloudflare Host: '%s' Id: %s", hostname->name, data->hostname_id);
 	} else if (rc == RC_DDNS_RSP_NOHOST) {
@@ -356,16 +399,27 @@ static int request(ddns_t *ctx, ddns_info_t *info, ddns_alias_t *hostname)
 	struct cfdata *data = (struct cfdata *)info->data;
 	size_t content_len;
 	char json_data[256];
+	char additional_fields[64] = "";
 
 	record_type = get_record_type(hostname->address);
-	content_len = snprintf(json_data, sizeof(json_data),
-			       CLOUDFLARE_UPDATE_JSON_FORMAT,
-			       record_type,
-			       hostname->name,
-			       hostname->address,
-			       info->ttl >= 0 ? info-> ttl : 1, // Time to live for DNS record. Value of 1 is 'automatic'
-			       info->proxied ? "true" : "false");
 
+	if (info->proxied != -1)
+		snprintf(additional_fields, sizeof(additional_fields),
+				",\"proxied\":%s",
+				info->proxied ? "true" : "false");
+
+	if (info->ttl != -1)
+		snprintf(additional_fields, sizeof(additional_fields),
+				",\"ttl\":%li",
+				info->ttl);
+
+	content_len = snprintf(json_data, sizeof(json_data),
+			CLOUDFLARE_UPDATE_JSON_FORMAT,
+			record_type,
+			info->wildcard ? "*." : "",
+			hostname->name,
+			hostname->address,
+			additional_fields);
 
 	if (strlen(data->hostname_id) == 0)
 		return snprintf(ctx->request_buf, ctx->request_buflen,
@@ -376,7 +430,7 @@ static int request(ddns_t *ctx, ddns_info_t *info, ddns_alias_t *hostname)
 			content_len, json_data);
 
 	return snprintf(ctx->request_buf, ctx->request_buflen,
-			CLOUDFLARE_HOSTNAME_UPDATE_REQUEST,
+			info->system->server_req,
 			data->zone_id,
 			data->hostname_id,
 			info->user_agent,
@@ -400,7 +454,8 @@ static int response(http_trans_t *trans, ddns_info_t *info, ddns_alias_t *hostna
 
 PLUGIN_INIT(plugin_init)
 {
-	plugin_register(&plugin);
+	plugin_register(&plugin, CLOUDFLARE_HOSTNAME_UPDATE_REQUEST);
+	plugin_register_v6(&plugin, CLOUDFLARE_HOSTNAME_UPDATE_REQUEST);
 }
 
 PLUGIN_EXIT(plugin_exit)

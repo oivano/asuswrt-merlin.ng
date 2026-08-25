@@ -203,7 +203,7 @@ static int get_acme_challenge(char *buf, size_t size)
 
 	if ((fd = open("/tmp/acme.txt", O_RDONLY)) < 0)
 		return 0;
-	
+
 	n = read(fd, buf, size - 1);
 	close(fd);
 
