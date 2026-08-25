@@ -20,9 +20,6 @@
 
 #include "openconnect-internal.h"
 
-#include <libxml/parser.h>
-#include <libxml/tree.h>
-
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/types.h>

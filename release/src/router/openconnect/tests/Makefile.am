@@ -69,14 +69,15 @@ EXTRA_DIST = certs/ca.pem certs/ca-key.pem certs/user-cert.pem $(USER_KEYS) $(US
 	softhsm2.conf.in softhsm ns.sh configs/test-dtls-psk.config \
 	scripts/vpnc-script scripts/vpnc-script-detect-disconnect \
 	suppressions.lsan fake-fortinet-server.py fake-f5-server.py fake-juniper-server.py \
-	fake-juniper-sso-server.py fake-tncc.py fake-gp-server.py fake-cisco-server.py
+	fake-juniper-sso-server.py fake-tncc.py fake-gp-server.py fake-cisco-server.py \
+	fake-pulse-server.py
 
 dist_check_SCRIPTS = autocompletion symbols
 TESTS = autocompletion symbols
 
-dist_check_SCRIPTS += dtls-psk sigterm
+dist_check_SCRIPTS += dtls-psk sigterm pulse-ping
 if HAVE_NETNS
-TESTS += dtls-psk sigterm
+TESTS += dtls-psk sigterm pulse-ping
 endif
 
 dist_check_SCRIPTS += ppp-over-tls ppp-over-tls-sync
@@ -87,7 +88,7 @@ endif
 dist_check_SCRIPTS += auth-username-pass auth-certificate auth-nonascii cert-fingerprint \
 	id-test obsolete-server-crypto pfs auth-swtpm auth-hwtpm fortinet-auth-and-config \
 	f5-auth-and-config juniper-auth juniper-sso-auth gp-auth-and-config auth-pkcs11 \
-	auth-multicert
+	auth-multicert oath-token
 
 if HAVE_CWRAP
 TESTS += auth-username-pass auth-certificate auth-nonascii cert-fingerprint id-test \
@@ -110,7 +111,7 @@ endif
 if HAVE_PYTHON36_FLASK
 TESTS += juniper-sso-auth auth-multicert
 if HAVE_PYTHON37_DATACLASSES
-TESTS += juniper-auth gp-auth-and-config f5-auth-and-config fortinet-auth-and-config
+TESTS += juniper-auth gp-auth-and-config f5-auth-and-config fortinet-auth-and-config oath-token
 endif
 endif
 
@@ -140,10 +141,6 @@ TESTS_ENVIRONMENT = srcdir="$(srcdir)" \
 	top_srcdir="$(top_srcdir)" \
 	top_builddir="$(top_builddir)" \
 	key_list="$(USER_KEYS)" \
-	SSL_CFLAGS="-I$(STAGEDIR)/usr/include/openssl" \
-	SSL_LIBS="-L$(STAGEDIR)/usr/lib -lcrypto -lssl" \
-	LIBXML2_LIBS="-L$(STAGEDIR)/usr/lib -lxml2" \
-	LZ4_LIBS="-L$(TOP)/lz4/lib -llz4" \
 	swtpm_list="$(SWTPM_KEYS)" \
 	hwtpm_list="$(HWTPM_KEYS)" \
 	SWTPM="$(SWTPM)" \
@@ -151,19 +148,36 @@ TESTS_ENVIRONMENT = srcdir="$(srcdir)" \
 	pkcs11_keys="$(PKCS11_KEYS)" \
 	pkcs11_tokens="$(PKCS11_TOKENS)" \
 	EXEEXT=$(EXEEXT) \
-	LSAN_OPTIONS=$(srcdir)/suppressions=suppressions.lsan
+	LSAN_OPTIONS=suppressions=$(srcdir)/suppressions.lsan
 
 C_TESTS = lzstest seqtest buftest
 
+DISTCLEANFILES =
+
 if OPENCONNECT_WIN32
-C_TESTS += list-taps
-endif
+C_TESTS += list-taps adapter-fallback
+
+list_taps_SOURCES = list-taps.c
+adapter_fallback_SOURCES = adapter-fallback.c
+
+if OPENCONNECT_WINTUN
+C_TESTS += wintun-names
+
+wintun_names_SOURCES = wintun-names.c
+
+#list wintun as a script so it is "rebuilt" (copied from top-level) when the tests run
+nodist_check_SCRIPTS = $(WINTUN_DLL)
+
+WINTUN_DLL = .libs/wintun.dll
+DISTCLEANFILES += $(WINTUN_DLL)
+endif # OPENCONNECT_WINTUN
+endif # OPENCONNECT_WIN32
 
 if CHECK_DTLS
 C_TESTS += bad_dtls_test
 bad_dtls_test_SOURCES = bad_dtls_test.c
-bad_dtls_test_CFLAGS = $(SSL_CFLAGS)
-bad_dtls_test_LDADD = $(SSL_LIBS) $(LIBXML2_LIBS)
+bad_dtls_test_CFLAGS = $(OPENSSL_CFLAGS)
+bad_dtls_test_LDADD = $(OPENSSL_LIBS)
 
 if DTLS_XFAIL
 XFAIL_TESTS = bad_dtls_test
@@ -175,7 +189,7 @@ TESTS += $(C_TESTS)
 noinst_PROGRAMS = $(C_TESTS) serverhash
 
 serverhash_SOURCES = serverhash.c
-serverhash_LDADD = ../libopenconnect.la $(SSL_LIBS) $(LIBXML2_LIBS)
+serverhash_LDADD = ../libopenconnect.la $(SSL_LIBS)
 
 # Nothing actually *depends* on the cert files; they are created manually
 # and considered part of the sources, committed to the git tree. But for
@@ -186,6 +200,9 @@ keyfiles: $(USER_KEYS) $(USER_CERTS) $(certsdir)/server-cert.pem
 OPENSSL = openssl
 OSSLARGS = -in $(firstword $|) -out $@ -passout pass:password
 OSSLARGSP12 = -inkey $(firstword $|) -out $@ -in $${KEYFILE%-key-pkcs8.pem}-cert.pem -passout pass:$${PASSWORD:-password}
+
+.libs/wintun.dll: ../.libs/wintun.dll
+	cp -f ../$@ $@
 
 # Strictly speaking this is only PKCS#1 for RSA. For EC it's probably
 # best described as RFC5915§4, and no idea what defines it for DSA.
@@ -283,11 +300,12 @@ $(certsdir)/ca.pem: | $(certsdir)/ca-key.pem
 
 SWTPM_TMPDIR := $(shell echo swtpm.$$$$.tmp)
 SWTPM_PRELOAD := LD_PRELOAD=libsocket_wrapper.so SOCKET_WRAPPER_DIR=$(SWTPM_TMPDIR) \
+	SOCKET_WRAPPER_DIR_ALLOW_ORIG=1 \
 	TPM_INTERFACE_TYPE=socsim TPM2TSSENGINE_TCTI=swtpm
 
 SWTPM_IOCTL_RUN = $(SWTPM_PRELOAD) $(SWTPM_IOCTL) --tcp 127.0.0.1:2322
 
-# This isn't safe for parallel builds, as it is invoked in mulltiple
+# This isn't safe for parallel builds, as it is invoked in multiple
 # places and has an obvious race condition.  However, this is only for
 # the one-time setup of the persistent swtpm state, and I can remember
 # not to use 'make -j' that one time. Fixing it to be a proper

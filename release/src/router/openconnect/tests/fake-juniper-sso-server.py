@@ -27,7 +27,7 @@ import sys
 
 host, port, *cert_and_maybe_keyfile = sys.argv[1:]
 
-context = ssl.SSLContext()
+context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 context.load_cert_chain(*cert_and_maybe_keyfile)
 
 app = Flask(__name__)

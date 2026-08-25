@@ -54,59 +54,214 @@ struct openconnect_info *openconnect_vpninfo_new(const char *useragent,
 #ifdef HAVE_ICONV
 	char *charset = nl_langinfo(CODESET);
 #endif
+	char hostname[256] = {'\0'};
 
 	if (!vpninfo)
 		return NULL;
 
+	/* Simple initialisations of member variables, no resources acquired!
+	 * The calloc() call initializes integer variables to 0. */
+	vpninfo->proto = NULL;
 #ifdef HAVE_ICONV
-	if (charset && strcmp(charset, "UTF-8")) {
-		vpninfo->ic_utf8_to_legacy = iconv_open(charset, "UTF-8");
-		vpninfo->ic_legacy_to_utf8 = iconv_open("UTF-8", charset);
-	} else {
-		vpninfo->ic_utf8_to_legacy = (iconv_t)-1;
-		vpninfo->ic_legacy_to_utf8 = (iconv_t)-1;
-	}
+	vpninfo->ic_utf8_to_legacy = (iconv_t)-1;
+	vpninfo->ic_legacy_to_utf8 = (iconv_t)-1;
 #endif
-#ifdef HAVE_VHOST
-	vpninfo->vhost_fd = vpninfo->vhost_call_fd = vpninfo->vhost_kick_fd = -1;
+	vpninfo->redirect_url = NULL;
+	vpninfo->ppp = NULL;
+	vpninfo->ppp_tls_connect_req = NULL;
+	vpninfo->ppp_dtls_connect_req = NULL;
+	vpninfo->tncc_fd = -1;
+	vpninfo->platname = NULL;
+	vpninfo->mobile_platform_version = NULL;
+	vpninfo->mobile_device_type = NULL;
+	vpninfo->mobile_device_uniqueid = NULL;
+	vpninfo->csd_token = NULL;
+	vpninfo->csd_stuburl = NULL;
+	vpninfo->csd_starturl = NULL;
+	vpninfo->csd_waiturl = NULL;
+	vpninfo->csd_preurl = NULL;
+	vpninfo->csd_scriptname = NULL;
+	vpninfo->opaque_srvdata = NULL;
+	vpninfo->profile_url = NULL;
+	vpninfo->profile_sha1 = NULL;
+#ifdef LIBPROXY_HDR
+	vpninfo->proxy_factory = NULL;
 #endif
-#ifndef _WIN32
-	vpninfo->tun_fd = -1;
-#endif
+	vpninfo->proxy_type = NULL;
+	vpninfo->proxy = NULL;
+	vpninfo->proxy_fd = -1;
+	vpninfo->proxy_user = NULL;
+	vpninfo->proxy_pass = NULL;
+	vpninfo->bearer_token = NULL;
+	vpninfo->try_http_auth = 1;
+	vpninfo->proxy_auth[AUTH_TYPE_BASIC].state = AUTH_DEFAULT_DISABLED;
+	vpninfo->http_auth[AUTH_TYPE_BASIC].state = AUTH_DEFAULT_DISABLED;
 #if defined(DEFAULT_EXTERNAL_BROWSER)
 	vpninfo->external_browser = DEFAULT_EXTERNAL_BROWSER;
+#else
+	vpninfo->external_browser = NULL;
 #endif
+	vpninfo->localname = NULL;
+	vpninfo->unique_hostname = NULL;
+	vpninfo->port = 443;
+	vpninfo->urlpath = NULL;
+	vpninfo->sni = NULL;
+	vpninfo->connect_urlbuf = NULL;
+	vpninfo->cert_expire_warning = 60 * 86400;
+	vpninfo->cafile = NULL;
+	vpninfo->xmlconfig = NULL;
+	vpninfo->authgroup = NULL;
+	vpninfo->xmlpost = 1;
+	vpninfo->dtls_ciphers = NULL;
+	vpninfo->dtls12_ciphers = NULL;
+	vpninfo->csd_wrapper = NULL;
+#ifdef HAVE_LIBSTOKEN
+	vpninfo->stoken_ctx = NULL;
+	vpninfo->stoken_pin = NULL;
+#endif
+#ifdef HAVE_LIBPSKC
+	vpninfo->pskc = NULL;
+	vpninfo->pskc_key = NULL;
+#endif
+	vpninfo->oath_secret = NULL;
+#ifdef HAVE_LIBPCSCLITE
+	vpninfo->pcsc = NULL;
+#endif
+	vpninfo->tok_cbdata = NULL;
+	vpninfo->peer_cert = NULL;
+	vpninfo->peer_cert_hash = NULL;
+	vpninfo->cert_list_handle = NULL;
+	vpninfo->cookie = NULL;
+	vpninfo->cstp_options = NULL;
+	vpninfo->dtls_options = NULL;
+	vpninfo->script_env = NULL;
+	vpninfo->csd_env = NULL;
+#if defined(OPENCONNECT_OPENSSL)
+#ifdef HAVE_LIBP11
+	vpninfo->pkcs11_ctx = NULL;
+	vpninfo->pkcs11_slot_list = NULL;
+	vpninfo->pkcs11_cert_slot = NULL;
+	vpninfo->pkcs11_cert_id = NULL;
+#endif
+	vpninfo->cert_x509 = NULL;
+	vpninfo->https_ctx = NULL;
+	vpninfo->https_ssl = NULL;
+	vpninfo->ttls_bio_meth = NULL;
+	vpninfo->strap_key = NULL;
+	vpninfo->strap_dh_key = NULL;
+#endif
+	vpninfo->strap_pubkey = NULL;
+	vpninfo->strap_dh_pubkey = NULL;
+	vpninfo->ciphersuite_config = NULL;
+	vpninfo->ttls_pushbuf = NULL;
+	vpninfo->ttls_recvbuf = NULL;
+	vpninfo->pin_cache = NULL;
+	vpninfo->deflate_pkt = NULL;
+	vpninfo->pending_deflated_pkt = NULL;
+	vpninfo->current_ssl_pkt = NULL;
+	vpninfo->cstp_pkt = NULL;
+	vpninfo->dtls_pkt = NULL;
+	vpninfo->tun_pkt = NULL;
+#if defined(OPENCONNECT_OPENSSL)
+	vpninfo->dtls_ctx = NULL;
+	vpninfo->dtls_ssl = NULL;
+#endif
+	vpninfo->cstp_cipher = NULL;
+	vpninfo->dtls_cipher_desc = NULL;
+	vpninfo->dtls_cipher = NULL;
+	vpninfo->vpnc_script = NULL;
+	vpninfo->ifname = NULL;
+	vpninfo->cmd_ifname = NULL;
+	vpninfo->banner = NULL;
+	vpninfo->ip_info.gateway_addr = NULL;
+#ifdef HAVE_EPOLL
+	vpninfo->epoll_fd = -1;
+#endif
+#ifdef __sun__
+	vpninfo->ip_fd = -1;
+	vpninfo->ip6_fd = -1;
+#endif
+#ifdef HAVE_VHOST
+	vpninfo->vhost_fd = -1;
+	vpninfo->vhost_call_fd = -1;
+	vpninfo->vhost_kick_fd = -1;
+#endif
+#ifdef _WIN32
+	vpninfo->ifname_w = NULL;
+	vpninfo->tun_fh = INVALID_HANDLE_VALUE;
+#else
+	vpninfo->tun_fd = -1;
+#endif
+	vpninfo->ssl_fd = -1;
+	vpninfo->dtls_fd = -1;
+	vpninfo->need_poll_cmd_fd = -1;
+	vpninfo->cmd_fd = -1;
 	init_pkt_queue(&vpninfo->free_queue);
 	init_pkt_queue(&vpninfo->incoming_queue);
 	init_pkt_queue(&vpninfo->outgoing_queue);
 	init_pkt_queue(&vpninfo->tcp_control_queue);
-	vpninfo->dtls_tos_current = 0;
-	vpninfo->dtls_pass_tos = 0;
-	vpninfo->ssl_fd = vpninfo->dtls_fd = -1;
-	vpninfo->cmd_fd = vpninfo->cmd_fd_write = -1;
-	vpninfo->tncc_fd = -1;
-	vpninfo->cert_expire_warning = 60 * 86400;
-	vpninfo->req_compr = COMPR_STATELESS;
 	vpninfo->max_qlen = 32;	  /* >=16 will enable vhost-net on Linux */
-	vpninfo->localname = strdup("localhost");
-	vpninfo->port = 443;
-	vpninfo->useragent = openconnect_create_useragent(useragent);
+	vpninfo->peer_addr = NULL;
+	vpninfo->dtls_addr = NULL;
+	vpninfo->req_compr = COMPR_STATELESS;
+	vpninfo->useragent = NULL;
+	vpninfo->version_string = NULL;
+	vpninfo->quit_reason = NULL;
+	vpninfo->delay_tunnel_reason = NULL;
+	vpninfo->sso_login = NULL;
+	vpninfo->sso_login_final = NULL;
+	vpninfo->sso_username = NULL;
+	vpninfo->sso_token_cookie = NULL;
+	vpninfo->sso_error_cookie = NULL;
+	vpninfo->sso_cookie_value = NULL;
+	vpninfo->sso_browser_mode = NULL;
+	vpninfo->verbose = PRG_TRACE;
+	vpninfo->cbdata = privdata ? : vpninfo;
+
+	if (gethostname(hostname, sizeof(hostname)) == 0 && hostname[0]) {
+		char *localname;
+
+		localname = openconnect_legacy_to_utf8(vpninfo, hostname);
+		if (localname == hostname)
+			vpninfo->localname = strdup(hostname);
+		else
+			vpninfo->localname = localname;
+	} else {
+		vpninfo->localname = strdup("localhost");
+	}
+
+	if (!vpninfo->localname)
+		goto err;
+
 	vpninfo->validate_peer_cert = validate_peer_cert;
 	vpninfo->write_new_config = write_new_config;
 	vpninfo->process_auth_form = process_auth_form;
 	vpninfo->progress = progress;
-	vpninfo->cbdata = privdata ? : vpninfo;
-	vpninfo->xmlpost = 1;
-	vpninfo->verbose = PRG_TRACE;
-	vpninfo->try_http_auth = 1;
-	vpninfo->proxy_auth[AUTH_TYPE_BASIC].state = AUTH_DEFAULT_DISABLED;
-	vpninfo->http_auth[AUTH_TYPE_BASIC].state = AUTH_DEFAULT_DISABLED;
-	openconnect_set_reported_os(vpninfo, NULL);
-#ifdef HAVE_EPOLL
-	vpninfo->epoll_fd = epoll_create1(EPOLL_CLOEXEC);
+	vpninfo->ssl_read = NULL;
+	vpninfo->ssl_gets = NULL;
+	vpninfo->ssl_write = NULL;
+#ifdef HAVE_VHOST
+	vpninfo->vhost_fd = vpninfo->vhost_call_fd = vpninfo->vhost_kick_fd = -1;
 #endif
-	if (!vpninfo->localname || !vpninfo->useragent)
+
+	/* Initialisations of member variables that acquire resources. */
+#ifdef HAVE_ICONV
+	if (charset && strcmp(charset, "UTF-8")) {
+		if ((vpninfo->ic_utf8_to_legacy = iconv_open(charset, "UTF-8")) == (iconv_t)-1)
+			goto err;
+		if ((vpninfo->ic_legacy_to_utf8 = iconv_open("UTF-8", charset)) == (iconv_t)-1)
+			goto err;
+	}
+#endif
+	if (!(vpninfo->useragent = openconnect_create_useragent(useragent)))
 		goto err;
+	openconnect_set_reported_os(vpninfo, NULL);
+	if (!vpninfo->platname)
+		goto err;
+#ifdef HAVE_EPOLL
+	if ((vpninfo->epoll_fd = epoll_create1(EPOLL_CLOEXEC)) == -1)
+		goto err;
+#endif
 
 #ifdef ENABLE_NLS
 	bindtextdomain("openconnect", LOCALEDIR);
@@ -115,9 +270,7 @@ struct openconnect_info *openconnect_vpninfo_new(const char *useragent,
 	return vpninfo;
 
 err:
-	free(vpninfo->localname);
-	free(vpninfo->useragent);
-	free(vpninfo);
+	openconnect_vpninfo_free(vpninfo);
 	return NULL;
 }
 
@@ -282,12 +435,12 @@ int openconnect_get_supported_protocols(struct oc_vpn_proto **protos)
 	struct oc_vpn_proto *pr;
 	int i, j;
 
-        /* The original version of this function included an all-zero
-         * sentinel value at the end of the array, so we must continue
-         * to do so for ABI compatibility even though it's
-         * functionally redundant as a marker of the array's length,
-         * along with the explicit length in the return value.
-         */
+	/* The original version of this function included an all-zero
+	 * sentinel value at the end of the array, so we must continue
+	 * to do so for ABI compatibility even though it's
+	 * functionally redundant as a marker of the array's length,
+	 * along with the explicit length in the return value.
+	 */
 	*protos = pr = calloc(NR_PROTOS + 1, sizeof(*pr));
 	if (!pr)
 		return -ENOMEM;
@@ -620,9 +773,9 @@ void openconnect_vpninfo_free(struct openconnect_info *vpninfo)
 	openconnect_close_https(vpninfo, 1);
 	if (vpninfo->proto->udp_shutdown)
 		vpninfo->proto->udp_shutdown(vpninfo);
-	if (vpninfo->tncc_fd != -1)
+	if (vpninfo->tncc_fd >= 0)
 		closesocket(vpninfo->tncc_fd);
-	if (vpninfo->cmd_fd_write != -1) {
+	if (vpninfo->cmd_fd_write >= 0) {
 		closesocket(vpninfo->cmd_fd);
 		closesocket(vpninfo->cmd_fd_write);
 	}
@@ -730,7 +883,6 @@ void openconnect_vpninfo_free(struct openconnect_info *vpninfo)
 #elif defined(OPENCONNECT_GNUTLS)
 		gnutls_x509_crt_deinit(vpninfo->peer_cert);
 #endif
-		vpninfo->peer_cert = NULL;
 	}
 	while (vpninfo->pin_cache) {
 		struct pin_cache *cache = vpninfo->pin_cache;
@@ -757,7 +909,10 @@ void openconnect_vpninfo_free(struct openconnect_info *vpninfo)
 			pskc_done(vpninfo->pskc);
 		else
 #endif /* HAVE_LIBPSKC */
-		free_pass(&vpninfo->oath_secret);
+		{
+			clear_mem(vpninfo->oath_secret, vpninfo->oath_secret_len);
+			free(vpninfo->oath_secret);
+		}
 	}
 #ifdef HAVE_LIBPCSCLITE
 	release_pcsc_ctx(vpninfo);
@@ -927,13 +1082,12 @@ int openconnect_disable_dtls(struct openconnect_info *vpninfo)
 	 * connection is currently connected or has been
 	 * connected previously.
 	 *
-	 * XX: It would be better to allow it when DTLS is not
-	 * in use, but other than DTLS already being disabled,
-	 * we currently do not have a reliable indicator of
-	 * this.
+	 * We allow to disable DTLS if not yet connected to
+	 * allow clients using the library disable DTLS if it
+	 * fails to connect, similarly to what openconnect does.
 	 */
-	if (vpninfo->dtls_state != DTLS_NOSECRET
-	    || vpninfo->ssl_times.last_tx != 0)
+	if (vpninfo->dtls_state == DTLS_ESTABLISHED
+	    || vpninfo->dtls_state == DTLS_CONNECTED)
 		return -EINVAL;
 	vpninfo->dtls_state = DTLS_DISABLED;
 	return 0;
@@ -1486,7 +1640,7 @@ const char *openconnect_get_dtls_cipher(struct openconnect_info *vpninfo)
 			return NULL;
 #endif
 	}
-    return vpninfo->dtls_cipher_desc;
+	return vpninfo->dtls_cipher_desc;
 }
 
 int openconnect_set_csd_environ(struct openconnect_info *vpninfo,
@@ -1607,7 +1761,7 @@ const char *openconnect_get_peer_cert_hash(struct openconnect_info *vpninfo)
 int openconnect_set_compression_mode(struct openconnect_info *vpninfo,
 				     oc_compression_mode_t mode)
 {
-	switch(mode) {
+	switch (mode) {
 	case OC_COMPRESSION_MODE_NONE:
 		vpninfo->req_compr = 0;
 		return 0;

@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 #
 # Symbol version checking OpenConnect
 #
@@ -30,11 +30,7 @@ SYMBOLSFILE="${SYMBOLESFILE:-${top_srcdir}/libopenconnect5.symbols}"
 
 TMPSYMBOLS=symbols.$$.tmp
 
-function cleanup {
-    rm -f ${TMPSYMBOLS}
-}
-
-trap cleanup EXIT
+trap "rm -f ${TMPSYMBOLS}" EXIT
 
 ( sed -Enf ${SEDFILE} ${OPENCONNECT_H} | \
       sed -Enf- ${MAPFILE} ) > $TMPSYMBOLS
@@ -64,7 +60,7 @@ APIMAJOR="$(sed -n 's/^#define OPENCONNECT_API_VERSION_MAJOR \(.*\)/\1/p' ${OPEN
 APIMINOR="$(sed -n 's/^#define OPENCONNECT_API_VERSION_MINOR \(.*\)/\1/p' ${OPENCONNECT_H})"
 
 LASTVER="$(sed -En "/^ \* API version [0-9]+.[0-9]+.*/{p;q;}" ${OPENCONNECT_H})"
-if ! grep -q "API version $APIMAJOR.$APIMINOR" <<< "$LASTVER"; then
+if ! echo "$LASTVER" | grep -q "API version $APIMAJOR.$APIMINOR";  then
    echo "API $APIMAJOR.$APIMINOR is not the latest?"
    exit 1
 fi

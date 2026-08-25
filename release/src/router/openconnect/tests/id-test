@@ -32,31 +32,31 @@ PID=$!
 wait_server $PID
 
 echo -n "Connecting with legacy hash... "
-( echo "test" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $ADDRESS:443 -u test --servercert=e597837de5390ba6eaa0f9d656f035c8be6ec02b --cookieonly >/dev/null 2>&1) ||
+( echo "test" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $SWRESOLVE sockwrap:443 -u test --servercert=e597837de5390ba6eaa0f9d656f035c8be6ec02b --cookieonly >/dev/null 2>&1) ||
 	fail $PID "Could not receive cookie from server"
 
 echo ok
 
 echo -n "Connecting with SHA1 ID... "
-( echo "test" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $ADDRESS:443 -u test --servercert=sha1:a82547f68f44d6351bef6cacd1d7b96e84f9dfa3 --cookieonly >/dev/null 2>&1) ||
+( echo "test" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $SWRESOLVE sockwrap:443 -u test --servercert=sha1:a82547f68f44d6351bef6cacd1d7b96e84f9dfa3 --cookieonly >/dev/null 2>&1) ||
 	fail $PID "Could not receive cookie from server"
 
 echo ok
 
 echo -n "Connecting with SHA256 ID... "
-( echo "test" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $ADDRESS:443 -u test --servercert=sha256:c69dec71fcf2deb390b2ff4d70ebdeffc61556ffa91ebe2a3425c45eb365e6cf --cookieonly >/dev/null 2>&1) ||
+( echo "test" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $SWRESOLVE sockwrap:443 -u test --servercert=sha256:c69dec71fcf2deb390b2ff4d70ebdeffc61556ffa91ebe2a3425c45eb365e6cf --cookieonly >/dev/null 2>&1) ||
 	fail $PID "Could not receive cookie from server"
 
 echo ok
 
 echo -n "Connecting with SHA256 partial ID... "
-( echo "test" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $ADDRESS:443 -u test --servercert=sha256:c69dec --cookieonly >/dev/null 2>&1) ||
+( echo "test" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $SWRESOLVE sockwrap:443 -u test --servercert=sha256:c69dec --cookieonly >/dev/null 2>&1) ||
 	fail $PID "Could not receive cookie from server"
 
 echo ok
 
 echo -n "Connecting with wrong SHA256 ID... "
-( echo "test" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $ADDRESS:443 -u test --servercert=sha256:c69ded --cookieonly >/dev/null 2>&1) &&
+( echo "test" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $SWRESOLVE sockwrap:443 -u test --servercert=sha256:c69ded --cookieonly >/dev/null 2>&1) &&
 	fail $PID "Did connect to the server with wrong ID"
 
 echo ok

@@ -418,7 +418,7 @@ int set_yubikey_mode(struct openconnect_info *vpninfo, const char *token_str)
 			unsigned char mode, hash;
 
 			tlvlen = buf_tlv(buf, &tlvpos, &type);
-			if (type != NAME_LIST_TAG || tlvlen < 1) {
+			if (tlvlen < 1 || type != NAME_LIST_TAG) {
 			bad_applet:
 				vpn_progress(vpninfo, PRG_ERR,
 					     _("Unrecognised response from ykneo-oath applet\n"));

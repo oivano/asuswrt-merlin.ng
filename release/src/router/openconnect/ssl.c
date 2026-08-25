@@ -268,8 +268,8 @@ int connect_https_socket(struct openconnect_info *vpninfo)
 	int err;
 
 	/* If we're talking to a server which told us it has dynamic DNS, don't
-	   just re-use its previous IP address. If we're talking to a proxy, we
-	   can use *its* previous IP address. We expect it'll re-do the DNS
+	   just reuse its previous IP address. If we're talking to a proxy, we
+	   can use *its* previous IP address. We expect it'll redo the DNS
 	   lookup for the server anyway. */
 	if (vpninfo->peer_addr && (!vpninfo->is_dyndns || vpninfo->proxy)) {
 	reconnect:
@@ -867,7 +867,7 @@ int keystore_fetch(const char *key, unsigned char **result)
 
 void cmd_fd_set(struct openconnect_info *vpninfo, fd_set *fds, int *maxfd)
 {
-	if (vpninfo->cmd_fd != -1) {
+	if (vpninfo->cmd_fd >= 0) {
 		FD_SET(vpninfo->cmd_fd, fds);
 		if (vpninfo->cmd_fd > *maxfd)
 			*maxfd = vpninfo->cmd_fd;

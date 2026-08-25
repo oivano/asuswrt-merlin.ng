@@ -383,11 +383,11 @@ static void free_vring(struct openconnect_info *vpninfo,
 
 void shutdown_vhost(struct openconnect_info *vpninfo)
 {
-	if (vpninfo->vhost_fd != -1)
+	if (vpninfo->vhost_fd >= 0)
 		close(vpninfo->vhost_fd);
-	if (vpninfo->vhost_kick_fd != -1)
+	if (vpninfo->vhost_kick_fd >= 0)
 		close(vpninfo->vhost_kick_fd);
-	if (vpninfo->vhost_call_fd != -1)
+	if (vpninfo->vhost_call_fd >= 0)
 		close(vpninfo->vhost_call_fd);
 
 	vpninfo->vhost_fd = vpninfo->vhost_kick_fd = vpninfo->vhost_call_fd = -1;

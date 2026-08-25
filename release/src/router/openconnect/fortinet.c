@@ -102,6 +102,7 @@ int fortinet_obtain_cookie(struct openconnect_info *vpninfo)
 	struct oc_auth_form *form = NULL;
 	struct oc_form_opt *opt, *opt2;
 	char *resp_buf = NULL, *realm = NULL, *tokeninfo_fields = NULL, *ti;
+	char *js_top_location = NULL;
 
 	req_buf = buf_alloc();
 	if (buf_error(req_buf)) {
@@ -109,9 +110,34 @@ int fortinet_obtain_cookie(struct openconnect_info *vpninfo)
 		goto out;
 	}
 
+again:
 	ret = do_https_request(vpninfo, "GET", NULL, NULL, &resp_buf, NULL, HTTP_REDIRECT);
 	if (ret < 0)
 		goto out;
+
+	/* Starting with FortiOS 7.4 server returns a javascript redirect request, so let's
+	 * check it here and set it manually:
+	 *
+	 * <html><script type="text/javascript">
+	 * if (window!=top) top.location=window.location;top.location="/remote/login";
+	 * </script></html>
+	 */
+	js_top_location = strstr(resp_buf, "top.location=\"");
+	if (js_top_location) {
+		int top_location_str_len = strlen("top.location=\"");
+		const char *js_top_location_end = strchrnul(js_top_location + top_location_str_len, '"');
+		char *location = strndup(js_top_location + top_location_str_len, js_top_location_end - js_top_location - top_location_str_len);
+
+		/* Skip leading / if necessary */
+		if (location && location[0] == '/') {
+			vpninfo->urlpath = strdup(location + 1);
+			free(location);
+		} else {
+			vpninfo->urlpath = location;
+		}
+
+		goto again;
+	}
 
 	/* XX: Fortinet's initial 'GET /' normally redirects to /remote/login.
 	 * If a valid, non-default "realm" is specified (~= usergroup or authgroup),
@@ -474,18 +500,21 @@ static int parse_fortinet_xml_config(struct openconnect_info *vpninfo, char *buf
 						     "openconnect-devel@lists.infradead.org");
 			}
 		} else if (xmlnode_is_named(xml_node, "fos")) {
-			char platform[80], *p = platform, *e = platform + 80;
+			struct oc_text_buf *platform = buf_alloc();
 			if (!xmlnode_get_prop(xml_node, "platform", &s)) {
-				p+=snprintf(p, e-p, "%s", s);
-				if (!xmlnode_get_prop(xml_node, "major", &s))  p+=snprintf(p, e-p, " v%s", s);
-				if (!xmlnode_get_prop(xml_node, "minor", &s))  p+=snprintf(p, e-p, ".%s", s);
-				if (!xmlnode_get_prop(xml_node, "patch", &s))  p+=snprintf(p, e-p, ".%s", s);
-				if (!xmlnode_get_prop(xml_node, "build", &s))  p+=snprintf(p, e-p, " build %s", s);
-				if (!xmlnode_get_prop(xml_node, "branch", &s)) p+=snprintf(p, e-p, " branch %s", s);
-				if (!xmlnode_get_prop(xml_node, "mr_num", &s))    snprintf(p, e-p, " mr_num %s", s);
-				vpn_progress(vpninfo, PRG_INFO,
-					     _("Reported platform is %s\n"), platform);
+				buf_append(platform, "%s", s);
+				if (!xmlnode_get_prop(xml_node, "major", &s))  buf_append(platform, " v%s", s);
+				if (!xmlnode_get_prop(xml_node, "minor", &s))  buf_append(platform, ".%s", s);
+				if (!xmlnode_get_prop(xml_node, "patch", &s))  buf_append(platform, ".%s", s);
+				if (!xmlnode_get_prop(xml_node, "build", &s))  buf_append(platform, " build %s", s);
+				if (!xmlnode_get_prop(xml_node, "branch", &s)) buf_append(platform, " branch %s", s);
+				if (!xmlnode_get_prop(xml_node, "mr_num", &s)) buf_append(platform, " mr_num %s", s);
+				if (!buf_error(platform))
+					vpn_progress(vpninfo, PRG_INFO,
+						     _("Reported platform is %s\n"),
+						     platform->data);
 			}
+			buf_free(platform);
 		} else if (xmlnode_is_named(xml_node, "ipv4")) {
 			for (x = xml_node->children; x; x=x->next) {
 				if (xmlnode_is_named(x, "assigned-addr") && !xmlnode_get_prop(x, "ipv4", &s)) {

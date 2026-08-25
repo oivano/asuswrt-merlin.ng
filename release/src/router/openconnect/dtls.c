@@ -101,7 +101,7 @@ static int connect_dtls_socket(struct openconnect_info *vpninfo, int *timeout)
 	int dtls_fd, ret;
 
 	/* Sanity check for the removal of new_dtls_{fd,ssl} */
-	if (vpninfo->dtls_fd != -1) {
+	if (vpninfo->dtls_fd >= 0) {
 		vpn_progress(vpninfo, PRG_ERR, _("DTLS connection attempted with an existing fd\n"));
 		vpninfo->dtls_attempt_period = 0;
 		return -EINVAL;
@@ -205,7 +205,7 @@ int udp_tos_update(struct openconnect_info *vpninfo, struct pkt *pkt)
 	int tos;
 
 	/* Extract TOS field from IP header (IPv4 and IPv6 differ) */
-	switch(pkt->data[0] >> 4) {
+	switch (pkt->data[0] >> 4) {
 	case 4:
 		tos = pkt->data[1];
 		break;
@@ -474,7 +474,6 @@ static int probe_mtu(struct openconnect_info *vpninfo, unsigned char *buf)
 {
 	int max, min, cur, ret, absolute_min, last;
 	int tries = 0; /* Number of loops in bin search - includes resends */
-	uint32_t id, id_len;
 	struct timeval start_tv, now_tv, last_tv;
 
 	absolute_min = 576;
@@ -492,12 +491,10 @@ static int probe_mtu(struct openconnect_info *vpninfo, unsigned char *buf)
 	if (max <= min)
 		goto fail;
 
-	/* Generate unique ID */
-	if (openconnect_random(&id, sizeof(id)) < 0)
-		goto fail;
-
 	vpn_progress(vpninfo, PRG_DEBUG,
 		     _("Initiating MTU detection (min=%d, max=%d)\n"), min, max);
+
+	memset(buf, 0x5a, max + 1);
 
 	gettimeofday(&start_tv, NULL);
 	last_tv = start_tv;
@@ -527,11 +524,10 @@ static int probe_mtu(struct openconnect_info *vpninfo, unsigned char *buf)
 #endif
 
 		buf[0] = AC_PKT_DPD_OUT;
-		id_len = id + cur;
-		memcpy(&buf[1], &id_len, sizeof(id_len));
 
-		vpn_progress(vpninfo, PRG_TRACE,
+		vpn_progress(vpninfo, PRG_DEBUG,
 			     _("Sending MTU DPD probe (%u bytes)\n"), cur);
+		dump_buf_hex(vpninfo, PRG_TRACE, '>', buf, cur + 1);
 		ret = openconnect_dtls_write(vpninfo, buf, cur + 1);
 		if (ret != cur + 1) {
 			vpn_progress(vpninfo, PRG_ERR,
@@ -550,22 +546,21 @@ static int probe_mtu(struct openconnect_info *vpninfo, unsigned char *buf)
 			last = cur;
 		}
 
-		memset(buf, 0, sizeof(id)+1);
 	keep_waiting:
 		gettimeofday(&now_tv, NULL);
 
 		if (now_tv.tv_sec > start_tv.tv_sec + 10) {
-                        if (absolute_min == min) {
-                                /* Hm, we never got *anything* back successfully? */
-                                vpn_progress(vpninfo, PRG_ERR,
-                                             _("Too long time in MTU detect loop; assuming negotiated MTU.\n"));
-                                goto fail;
-                        } else {
-                                vpn_progress(vpninfo, PRG_ERR,
-                                             _("Too long time in MTU detect loop; MTU set to %d.\n"), min);
+			if (absolute_min == min) {
+				/* Hm, we never got *anything* back successfully? */
+				vpn_progress(vpninfo, PRG_ERR,
+				             _("Too long time in MTU detect loop; assuming negotiated MTU.\n"));
+				goto fail;
+			} else {
+				vpn_progress(vpninfo, PRG_ERR,
+				             _("Too long time in MTU detect loop; MTU set to %d.\n"), min);
 				ret = min;
 				goto out;
-                        }
+			}
 		}
 
 
@@ -576,30 +571,36 @@ static int probe_mtu(struct openconnect_info *vpninfo, unsigned char *buf)
 			wait_ms = PKT_INTERVAL_MS;
 
 		ret = openconnect_dtls_read(vpninfo, buf, max+1, wait_ms);
-		if (ret > 0 && (buf[0] != AC_PKT_DPD_RESP || !memcpy(&id_len, &buf[1], sizeof(id_len)) ||
-				id_len != id + ret - 1)) {
-			vpn_progress(vpninfo, PRG_DEBUG,
-				     _("Received unexpected packet (%.2x) in MTU detection; skipping.\n"), (unsigned)buf[0]);
-			goto keep_waiting;
-		}
-
-		if (ret == -ETIMEDOUT) {
-			if (tries >= 6) {
+		if (ret > 0) {
+			dump_buf_hex(vpninfo, PRG_TRACE, '<', buf, ret);
+			if (buf[0] != AC_PKT_DPD_RESP || ret != cur + 1) {
 				vpn_progress(vpninfo, PRG_DEBUG,
-					     _("No response to size %u after %d tries; declare MTU is %u\n"),
-					     last, tries, min);
-				ret = min;
-				goto out;
+					     _("Received unexpected packet (type 0x%02x, %d bytes, expected %d) in MTU detection; skipping.\n"),
+					     buf[0], ret, cur + 1);
+				goto keep_waiting;
 			}
-		} else if (ret < 0) {
-			vpn_progress(vpninfo, PRG_ERR,
-				     _("Failed to recv DPD request (%d)\n"), ret);
-			goto fail;
-		} else if (ret > 0) {
-			vpn_progress(vpninfo, PRG_TRACE,
+
+			vpn_progress(vpninfo, PRG_DEBUG,
 				     _("Received MTU DPD probe (%u bytes)\n"), ret - 1);
 			ret--;
 			tries = 0;
+		} else if (ret == -ETIMEDOUT) {
+			if (tries < 6)
+				continue;
+
+			vpn_progress(vpninfo, PRG_DEBUG,
+				     _("No response to size %u after %d tries (min %d max %d)\n"),
+				     last, tries, min, max);
+			if (cur <= max)
+				max = cur - 1;
+			if (cur <= min + 1) {
+				ret = min;
+				goto out;
+			}
+		} else {
+			vpn_progress(vpninfo, PRG_ERR,
+				     _("Failed to recv DPD request (%d)\n"), ret);
+			goto fail;
 		}
 
 		if (ret == max)

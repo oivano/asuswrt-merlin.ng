@@ -39,6 +39,14 @@
 # define GNUTLS_CIPHER_CHACHA20_POLY1305 23
 #endif
 
+#if GNUTLS_VERSION_NUMBER >= 0x030801 && !defined(GNUTLS_NO_EXTENSIONS)
+/* XX: GNUTLS_NO_EXTENSIONS was renamed in GnuTLS v3.8.1. A
+ * backwards-compatibility shim was added in a subsequent commit, but
+ * not yet released.
+ */
+# define GNUTLS_NO_EXTENSIONS GNUTLS_NO_DEFAULT_EXTENSIONS
+#endif
+
 /* sets the DTLS MTU and returns the actual tunnel MTU */
 unsigned dtls_set_mtu(struct openconnect_info *vpninfo, unsigned mtu)
 {
@@ -339,7 +347,7 @@ static int start_dtls_anon_handshake(struct openconnect_info *vpninfo, gnutls_se
 	 * precisely the same cert that we get from the HTTPS service,
 	 * but we tried that for EAP-TTLS in the Pulse protocol and the
 	 * theory was disproven, so we ended up doing this there too.
-         */
+	 */
 	gnutls_credentials_set(dtls_ssl, GNUTLS_CRD_CERTIFICATE, vpninfo->https_cred);
 
 	/* The F5 BIG-IP server before v16, will crap itself if we

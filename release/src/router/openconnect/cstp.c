@@ -131,7 +131,7 @@ static void calculate_dtls_mtu(struct openconnect_info *vpninfo, int *base_mtu, 
 		int mss;
 		socklen_t mss_size = sizeof(mss);
 		if (!getsockopt(vpninfo->ssl_fd, IPPROTO_TCP, TCP_MAXSEG,
-				&mss, &mss_size)) {
+				(void *)&mss, &mss_size)) {
 			vpn_progress(vpninfo, PRG_DEBUG, _("TCP_MAXSEG %d\n"), mss);
 			*base_mtu = mss - 13;
 		}
@@ -249,6 +249,10 @@ static int start_cstp_connection(struct openconnect_info *vpninfo, int strap_rek
 	buf_append(reqbuf, "Cookie: webvpn=%s\r\n", http_get_cookie(vpninfo, "webvpn"));
 	buf_append(reqbuf, "X-CSTP-Version: 1\r\n");
 	buf_append(reqbuf, "X-CSTP-Hostname: %s\r\n", vpninfo->localname);
+
+	/* Some servers only allow connection if they see a shibboleth in the form of a standard copyright blurb: */
+	buf_append(reqbuf, "X-CSTP-Protocol: Copyright (c) %d %s\r\n",
+		2004, "Cisco Systems, Inc.");
 
 #ifdef HAVE_HPKE_SUPPORT
 	if (!vpninfo->no_external_auth && vpninfo->strap_pubkey)
@@ -802,7 +806,7 @@ int decompress_and_queue_packet(struct openconnect_info *vpninfo, int compr_type
 	   space to handle that */
 	int receive_mtu = MAX(16384, vpninfo->ip_info.mtu);
 	struct pkt *new = alloc_pkt(vpninfo, receive_mtu);
-	const char *comprname = "";
+	const char *comprname;
 
 	if (!new)
 		return -ENOMEM;
@@ -841,7 +845,7 @@ int decompress_and_queue_packet(struct openconnect_info *vpninfo, int compr_type
 		comprname = "LZS";
 
 		new->len = lzs_decompress(new->data, receive_mtu, buf, len);
-		if (new->len < 0) {
+		if (new->len <= 0) {
 			len = new->len;
 			if (len == 0)
 				len = -EINVAL;
@@ -1309,7 +1313,7 @@ int cstp_sso_detect_done(struct openconnect_info *vpninfo,
 	int i;
 
 	/* Note that, at least with some backends (eg: Google's), empty cookies might be set */
-	for (i=0; result->cookies[i] != NULL; i+=2) {
+	for (i=0; result->cookies != NULL && result->cookies[i] != NULL; i+=2) {
 		const char *cname = result->cookies[i], *cval = result->cookies[i+1];
 		if (!strcmp(vpninfo->sso_token_cookie, cname) && cval && cval[0] != '\0') {
 			vpninfo->sso_cookie_value = strdup(cval);
@@ -1323,7 +1327,7 @@ int cstp_sso_detect_done(struct openconnect_info *vpninfo,
 
 	/* If we're not at the final URI, tell the webview to keep going.
 	 * Note that we might find the cookie at any time, not only on the last page. */
-	if (strcmp(result->uri, vpninfo->sso_login_final))
+	if (result->uri == NULL || strcmp(result->uri, vpninfo->sso_login_final))
 		return -EAGAIN;
 
 	/* Tell the webview to terminate */

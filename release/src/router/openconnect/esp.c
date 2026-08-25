@@ -35,7 +35,7 @@ int print_esp_keys(struct openconnect_info *vpninfo, const char *name, struct es
 	const char *enctype, *mactype;
 	char enckey[256], mackey[256];
 
-	switch(vpninfo->esp_enc) {
+	switch (vpninfo->esp_enc) {
 	case ENC_AES_128_CBC:
 		enctype = "AES-128-CBC (RFC3602)";
 		break;
@@ -45,7 +45,7 @@ int print_esp_keys(struct openconnect_info *vpninfo, const char *name, struct es
 	default:
 		return -EINVAL;
 	}
-	switch(vpninfo->esp_hmac) {
+	switch (vpninfo->esp_hmac) {
 	case HMAC_MD5:
 		mactype = "HMAC-MD5-96 (RFC2403)";
 		break;
@@ -144,7 +144,7 @@ int esp_mainloop(struct openconnect_info *vpninfo, int *timeout, int readable)
 	   reserve some extra space to handle that */
 	int receive_mtu = MAX(2048, vpninfo->ip_info.mtu + 256);
 
-	while (readable && vpninfo->dtls_fd != -1) {
+	while (readable && vpninfo->dtls_fd >= 0) {
 		int len = receive_mtu + vpninfo->pkt_trailer;
 		int i;
 		struct pkt *pkt;
@@ -446,7 +446,7 @@ void esp_close(struct openconnect_info *vpninfo)
 {
 	/* We close and reopen the socket in case we roamed and our
 	   local IP address has changed. */
-	if (vpninfo->dtls_fd != -1) {
+	if (vpninfo->dtls_fd >= 0) {
 		unmonitor_fd(vpninfo, dtls);
 		closesocket(vpninfo->dtls_fd);
 		vpninfo->dtls_fd = -1;

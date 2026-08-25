@@ -40,7 +40,7 @@ for KEY in ${key_list}; do
     else
 	CERTARGS="--sslkey ${KEY} --key-password password -c ${KEY%-key-*}-cert.pem"
     fi
-    ( echo "test" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $ADDRESS:443 -u test $CERTARGS --servercert=pin-sha256:xp3scfzy3rO --cookieonly --passwd-on-stdin ) ||
+    ( echo "test" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT -q $SWRESOLVE sockwrap:443 -u test $CERTARGS --servercert=pin-sha256:xp3scfzy3rO --cookieonly --passwd-on-stdin --allow-insecure-crypto ) ||
 	fail $PID "Could not connect with key ${KEY##*/}!"
 done
 

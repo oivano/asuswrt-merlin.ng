@@ -6505,7 +6505,8 @@ openconnect: shared openssl lz4 libxml2 openconnect/Makefile
 	$(MAKE) -C $@ $(PARALLEL_BUILD)
 
 openconnect/Makefile:
-	( cd openconnect ; ./autogen.sh ; \
+	( cd openconnect ; \
+		if [ -f ./autogen.sh ]; then /bin/sh ./autogen.sh ; fi ; \
 		SSL_CFLAGS="-I$(STAGEDIR)/usr/include/openssl" \
 		SSL_LIBS="-L$(STAGEDIR)/usr/lib -lcrypto -lssl" \
 		LIBLZ4_CFLAGS="-I$(TOP)/lz4/lib" \
@@ -6515,7 +6516,7 @@ openconnect/Makefile:
 			-DASUSWRT -I$(TOP)/openssl/include -I$(STAGEDIR)/usr/include" \
 		LDFLAGS="-L$(TOP)/openssl -L$(STAGEDIR)/usr/lib $(EXTRALDFLAGS) $(EXTRALDFLAGS2) -ffunction-sections -fdata-sections \
 			-Wl,--gc-sections -lpthread -ldl" \
-		$(CONFIGURE) --prefix=/usr \
+		/bin/sh $(CONFIGURE) --prefix=/usr \
 			--disable-shared \
 			--enable-silent-rules \
 			--without-libpcsclite \
@@ -6524,6 +6525,7 @@ openconnect/Makefile:
 			--without-gssapi \
 			--without-gnutls \
 			--with-openssl \
+			--disable-maintainer-mode \
 			--disable-dsa-tests \
 			--with-vpnc-script=/etc/vpnc/vpnc-script \
 	)
@@ -6535,8 +6537,6 @@ openconnect-clean:
 
 openconnect-install:
 	if [ -f openconnect/Makefile ] ; then \
-		install -D openconnect/libopenconnect.la $(INSTALLDIR)/openconnect/usr/lib/libopenconnect.la ; \
-		$(STRIP) $(INSTALLDIR)/openconnect/usr/lib/* ; \
 		install -D openconnect/openconnect $(INSTALLDIR)/openconnect/usr/sbin/openconnect ; \
 		$(STRIP) -s $(INSTALLDIR)/openconnect/usr/sbin/openconnect ; \
 		chmod 0500 $(INSTALLDIR)/openconnect/usr/sbin/openconnect ; \

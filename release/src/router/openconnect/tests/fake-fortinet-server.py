@@ -45,7 +45,7 @@ from dataclasses import dataclass
 
 host, port, *cert_and_maybe_keyfile = sys.argv[1:]
 
-context = ssl.SSLContext()
+context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 context.load_cert_chain(*cert_and_maybe_keyfile)
 
 app = Flask(__name__)
@@ -55,7 +55,7 @@ app.config.update(SECRET_KEY=b'fake', DEBUG=True, HOST=host, PORT=int(port), SES
 ########################################
 
 def cookify(jsonable):
-    return base64.urlsafe_b64encode(dumps(jsonable).encode())
+    return base64.urlsafe_b64encode(dumps(jsonable).encode()).decode()
 
 
 def require_SVPNCOOKIE(fn):

@@ -1,6 +1,6 @@
 #!/bin/sh
 
-v="v9.12"
+v="v9.21"
 
 if [ -d ${GIT_DIR:-.git} ] && tag=`git describe --tags`; then
 	v="$tag"
@@ -14,7 +14,7 @@ if [ -d ${GIT_DIR:-.git} ] && tag=`git describe --tags`; then
 elif [ -n "$RPM_PACKAGE_VERSION" ] && [ -n "$RPM_PACKAGE_RELEASE" ]; then
 	v="v$RPM_PACKAGE_VERSION-$RPM_PACKAGE_RELEASE"
 else # XXX: Equivalent for .deb packages?
-	v="$v"-asuswrt-merlin
+	v="$v"-unknown
 fi
 
 echo "const char openconnect_version_str[] = \"$v\";" > $1

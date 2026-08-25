@@ -32,7 +32,7 @@ int set_oidc_token(struct openconnect_info *vpninfo, const char *token_str)
 	if (!token_str)
 		return -ENOENT;
 
-	switch(token_str[0]) {
+	switch (token_str[0]) {
 	case '@':
 		token_str++;
 		/* fall through */

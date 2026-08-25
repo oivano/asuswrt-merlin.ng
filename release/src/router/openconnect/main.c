@@ -48,7 +48,6 @@
 #include <wtypes.h>
 #include <wincon.h>
 #else
-#include <sys/utsname.h>
 #include <pwd.h>
 #include <termios.h>
 #endif
@@ -243,7 +242,7 @@ static const struct option long_options[] = {
 	OPTION("csd-user", 1, OPT_CSD_USER),
 	OPTION("csd-wrapper", 1, OPT_CSD_WRAPPER),
 #endif
-#ifdef HAVE_POSIX_SPAWN
+#if defined(HAVE_POSIX_SPAWN) || defined(_WIN32)
 	OPTION("external-browser", 1, OPT_EXT_BROWSER),
 #endif
 	OPTION("no-external-auth", 0, OPT_NO_EXTERNAL_AUTH),
@@ -699,7 +698,7 @@ static void print_build_opts(void)
 		printf("%sRSA software token", sep);
 		sep = comma;
 	}
-	switch(openconnect_has_oath_support()) {
+	switch (openconnect_has_oath_support()) {
 	case 2:
 		printf("%sHOTP software token", sep);
 		sep = comma;
@@ -737,7 +736,7 @@ static void print_supported_protocols(void)
 	int n;
 
 	n = openconnect_get_supported_protocols(&protos);
-        if (n>=0) {
+	if (n>=0) {
 		printf(_("Supported protocols:"));
 		for (p=protos; n; p++, n--) {
 			printf("%s%s%s", sep, p->name, p==protos ? _(" (default)") : "");
@@ -754,7 +753,7 @@ static void print_supported_protocols_usage(void)
 	int n;
 
 	n = openconnect_get_supported_protocols(&protos);
-        if (n>=0) {
+	if (n>=0) {
 		printf("\n%s:\n", _("Set VPN protocol"));
 		for (p=protos; n; p++, n--)
 			printf("      --protocol=%-16s %s%s\n",
@@ -868,7 +867,7 @@ static void set_default_vpncscript(void)
 			exit(1);
 		}
 	} else {
-		default_vpncscript = "cscript " DEFAULT_VPNCSCRIPT;
+		default_vpncscript = DEFAULT_VPNCSCRIPT;
 	}
 }
 
@@ -910,21 +909,103 @@ static void print_default_vpncscript(void)
 
 static struct oc_vpn_option *gai_overrides;
 
+static struct addrinfo *gai_add_or_free(struct addrinfo *list, struct addrinfo *elem)
+{
+	struct addrinfo **lp = &list;
+
+	while (*lp) {
+		struct addrinfo *p = *lp;
+		if (p->ai_family == elem->ai_family &&
+		    p->ai_socktype == elem->ai_socktype &&
+		    p->ai_protocol == elem->ai_protocol &&
+		    p->ai_addrlen == elem->ai_addrlen &&
+		    !memcmp(p->ai_addr, elem->ai_addr, p->ai_addrlen)) {
+			freeaddrinfo(elem);
+			return list;
+		}
+		lp = &((*lp)->ai_next);
+	}
+	*lp = elem;
+	return list;
+}
+
+static struct addrinfo *gai_merge(struct addrinfo *list1, struct addrinfo *list2)
+{
+	while (list2) {
+		struct addrinfo *elem = list2;
+		list2 = elem->ai_next;
+		elem->ai_next = NULL;
+
+		list1 = gai_add_or_free(list1, elem);
+	}
+	return list1;
+}
+
 static int gai_override_cb(void *cbdata, const char *node,
-			    const char *service, const struct addrinfo *hints,
-			    struct addrinfo **res)
+			   const char *service, const struct addrinfo *hints,
+			   struct addrinfo **res)
 {
 	struct openconnect_info *vpninfo = cbdata;
 	struct oc_vpn_option *p = gai_overrides;
+	struct addrinfo *results = NULL;
+	int ret = 0;
 
 	while (p) {
 		if (!strcmp(node, p->option)) {
+			struct addrinfo *this_res = NULL;
+			int this_ret = 0;
+
 			vpn_progress(vpninfo, PRG_TRACE, _("Override hostname '%s' to '%s'\n"),
 				     node, p->value);
-			node = p->value;
-			break;
+
+			this_ret = getaddrinfo(p->value, service, hints, &this_res);
+			/*
+			 * Accumulate non-fatal results by precedence: If anything *works*,
+			 * return success. If anything returns EAI_ADDRFAMILY, return that.
+			 * Next EAI_NODATA, and finally return EAI_NONAME only if *every*
+			 * lookup returned that. Any other errors are fatal.
+			 */
+			if (!this_ret) {
+				/* As we process the list in reverse of the order they were
+				 * given on the command line, *prepend* results. */
+				results = gai_merge(this_res, results);
+				ret = 0;
+			} else {
+#ifdef _WIN32
+				char *errstr = openconnect__win32_strerror(this_ret);
+#else
+				const char *errstr = gai_strerror(this_ret);
+#endif
+				vpn_progress(vpninfo, PRG_DEBUG,
+					     _("getaddrinfo failed for host '%s': %s\n"),
+					     p->value, errstr);
+#ifdef _WIN32
+				free(errstr);
+#endif
+
+#ifdef EAI_ADDRFAMILY /* Missing in MinGW */
+				if (this_ret == EAI_ADDRFAMILY || ret == EAI_ADDRFAMILY) {
+					ret = EAI_ADDRFAMILY;
+				} else
+#endif
+				if (this_ret == EAI_NODATA || ret == EAI_NODATA) {
+					ret = EAI_NODATA;
+				} else if (this_ret == EAI_NONAME || ret == EAI_NONAME) {
+					ret = EAI_NONAME;
+				} else {
+					/* Fatal errors abort the lookup */
+					freeaddrinfo(results);
+					return this_ret;
+				}
+			}
 		}
 		p = p->next;
+	}
+
+	/* Any override will set *either* 'results' on success, or 'ret' on failure. */
+	if (results || ret) {
+		*res = results;
+		return ret;
 	}
 
 	return getaddrinfo(node, service, hints, res);
@@ -1046,7 +1127,7 @@ static void usage(void)
 
 	printf("\n%s:\n", _("Server bugs"));
 	printf("      --no-external-auth          %s\n", _("Do not offer or use auth methods requiring external browser"));
-	printf("      --no-http-keepalive         %s\n", _("Disable HTTP connection re-use"));
+	printf("      --no-http-keepalive         %s\n", _("Disable HTTP connection reuse"));
 	printf("      --no-xmlpost                %s\n", _("Do not attempt XML POST authentication"));
 	printf("      --allow-insecure-crypto     %s\n", _("Allow use of the ancient, insecure 3DES and RC4 ciphers"));
 
@@ -1117,7 +1198,7 @@ static inline char *__dup_config_arg(char **argv, char *config_arg)
 
 static int next_option(int argc, char **argv, char **config_arg)
 {
-	/* These get re-used */
+	/* These get reused */
 	static char *line_buf; /* static variable initialised to NULL */
 	static size_t line_size; /* static variable initialised to 0 */
 
@@ -1584,9 +1665,14 @@ static void print_connection_info(struct openconnect_info *vpninfo)
 		     ssl_state,
 		     vpninfo->proto->udp_protocol ? : "UDP", udp_compr ? " + " : "", udp_compr ? : "",
 		     dtls_state);
-	if (vpninfo->auth_expiration != 0)
-		vpn_progress(vpninfo, PRG_INFO, _("Session authentication will expire at %s\n"),
-			     ctime(&vpninfo->auth_expiration));
+	if (vpninfo->auth_expiration != 0) {
+		char buf[80];
+		struct tm *tm = localtime(&vpninfo->auth_expiration);
+		strftime(buf, 80, "%a, %d %b %Y %H:%M:%S %Z", tm);
+		vpn_progress(vpninfo, PRG_INFO,
+			     _("Session authentication will expire at %s\n"),
+			     buf);
+	}
 }
 
 static void print_connection_stats(void *_vpninfo, const struct oc_stats *stats)
@@ -1602,21 +1688,21 @@ static void print_connection_stats(void *_vpninfo, const struct oc_stats *stats)
 		     _("RX: %"PRIu64" packets (%"PRIu64" B); TX: %"PRIu64" packets (%"PRIu64" B)\n"),
 		       stats->rx_pkts, stats->rx_bytes, stats->tx_pkts, stats->tx_bytes);
 
-	if (vpninfo->ssl_fd != -1)
+	if (vpninfo->ssl_fd >= 0)
 		vpn_progress(vpninfo, PRG_INFO, _("SSL ciphersuite: %s\n"), openconnect_get_cstp_cipher(vpninfo));
 	if (vpninfo->dtls_state == DTLS_CONNECTED)
 		vpn_progress(vpninfo, PRG_INFO, _("%s ciphersuite: %s\n"),
 		     vpninfo->proto->udp_protocol ? : "UDP", openconnect_get_dtls_cipher(vpninfo));
 	if (vpninfo->ssl_times.last_rekey && vpninfo->ssl_times.rekey)
 		vpn_progress(vpninfo, PRG_INFO, _("Next SSL rekey in %ld seconds\n"),
-			     (long)(time(NULL) - vpninfo->ssl_times.last_rekey + vpninfo->ssl_times.rekey));
+			     (long)(vpninfo->ssl_times.last_rekey + vpninfo->ssl_times.rekey - time(NULL)));
 	if (vpninfo->dtls_times.last_rekey && vpninfo->dtls_times.rekey)
 		vpn_progress(vpninfo, PRG_INFO, _("Next %s rekey in %ld seconds\n"),
 			     vpninfo->proto->udp_protocol ? : "UDP",
-			     (long)(time(NULL) - vpninfo->ssl_times.last_rekey + vpninfo->ssl_times.rekey));
+			     (long)(vpninfo->ssl_times.last_rekey + vpninfo->ssl_times.rekey - time(NULL)));
 	if (vpninfo->trojan_interval && vpninfo->last_trojan)
 		vpn_progress(vpninfo, PRG_INFO, _("Next Trojan invocation in %ld seconds\n"),
-			     (long)(time(NULL) - vpninfo->last_trojan + vpninfo->trojan_interval));
+			     (long)(vpninfo->last_trojan + vpninfo->trojan_interval - time(NULL)));
 
 	/* XX: restore loglevel */
 	openconnect_set_loglevel(vpninfo, saved_loglevel);
@@ -1685,7 +1771,7 @@ static void fully_up_cb(void *_vpninfo)
 #endif /* !_WIN32 */
 }
 
-int main(int argc, char **argv)
+int main(int argc, char *argv[])
 {
 	struct openconnect_info *vpninfo;
 	char *urlpath = NULL;
@@ -1709,7 +1795,6 @@ int main(int argc, char **argv)
 #endif
 #ifndef _WIN32
 	struct sigaction sa;
-	struct utsname utsbuf;
 #endif
 
 #ifdef ENABLE_NLS
@@ -1774,7 +1859,7 @@ int main(int argc, char **argv)
 
 	openconnect_init_ssl();
 
-	vpninfo = openconnect_vpninfo_new("Open AnyConnect VPN Agent",
+	vpninfo = openconnect_vpninfo_new("AnyConnect-compatible OpenConnect VPN Agent",
 		validate_peer_cert, NULL, process_auth_form_cb, write_progress, NULL);
 	if (!vpninfo) {
 		fprintf(stderr, _("Failed to allocate vpninfo structure\n"));
@@ -1788,10 +1873,6 @@ int main(int argc, char **argv)
 	vpninfo->use_tun_script = 0;
 	vpninfo->uid = getuid();
 	vpninfo->gid = getgid();
-
-	if (!uname(&utsbuf)) {
-		openconnect_set_localname(vpninfo, utsbuf.nodename);
-	}
 #endif
 
 	while ((opt = next_option(argc, argv, &config_arg))) {
@@ -1964,6 +2045,7 @@ int main(int argc, char **argv)
 			break;
 		case OPT_AUTHGROUP:
 			authgroup = keep_config_arg();
+			vpninfo->authgroup = strdup(authgroup);
 			break;
 		case 'C':
 			vpninfo->cookie = dup_config_arg();
@@ -2046,7 +2128,7 @@ int main(int argc, char **argv)
 			break;
 		case OPT_NO_HTTP_KEEPALIVE:
 			fprintf(stderr,
-				_("Disabling all HTTP connection re-use due to --no-http-keepalive option.\n"
+				_("Disabling all HTTP connection reuse due to --no-http-keepalive option.\n"
 				  "If this helps, please report to <%s>.\n"),
 				"openconnect-devel@lists.infradead.org");
 			vpninfo->no_http_keepalive = 1;
@@ -2159,9 +2241,9 @@ int main(int argc, char **argv)
 			if (!strcmp(config_arg, "android") || !strcmp(config_arg, "apple-ios")) {
 				/* generic defaults */
 				openconnect_set_mobile_info(vpninfo,
-					xstrdup("1.0"),
-					dup_config_arg(),
-					xstrdup("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"));
+					"1.0",
+					config_arg,
+					"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
 			}
 			break;
 		case OPT_PASSTOS:
@@ -2261,6 +2343,9 @@ int main(int argc, char **argv)
 	checked_sigaction(SIGHUP, &sa, NULL);
 	checked_sigaction(SIGUSR1, &sa, NULL);
 	checked_sigaction(SIGUSR2, &sa, NULL);
+
+	sa.sa_handler = SIG_IGN;
+	checked_sigaction(SIGPIPE, &sa, NULL);
 #else /* _WIN32 */
 	SetConsoleCtrlHandler(console_ctrl_handler, TRUE /* Add */);
 #endif
@@ -2917,7 +3002,7 @@ static void init_token(struct openconnect_info *vpninfo,
 
 	if (token_str && (token_mode == OC_TOKEN_MODE_TOTP ||
 			  token_mode == OC_TOKEN_MODE_HOTP)) {
-		switch(token_str[0]) {
+		switch (token_str[0]) {
 		case '@':
 			token_str++;
 			/* fall through... */
@@ -2980,7 +3065,7 @@ static void init_token(struct openconnect_info *vpninfo,
 		break;
 
 	case OC_TOKEN_MODE_YUBIOATH:
-		switch(ret) {
+		switch (ret) {
 		case 0:
 			return;
 		case -ENOENT:

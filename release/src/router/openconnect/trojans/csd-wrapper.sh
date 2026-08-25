@@ -46,7 +46,6 @@ BINS=("cscan" "cstub" "cnotify")
 # parsing command line
 shift
 
-URL=
 TICKET=
 STUB=
 GROUP=
@@ -62,6 +61,8 @@ while [ "$1" ]; do
     if [ "$1" == "-langselen" ];then shift; LANGSELEN=$1; fi
     shift
 done
+
+URL=$(echo $URL | sed 's,/sdesktop/.*,,')
 
 OS="$(uname -s)"
 ARCH="$(uname -m)"

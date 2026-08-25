@@ -43,7 +43,7 @@ echo -n "Authenticating using multiple certificate authentication... "
 ( echo "test" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT --cafile $CAFILE \
 	--certificate $USERCERT --sslkey $USERKEY \
 	--mca-certificate $USERCERT --mca-key $USERKEY \
-	-q $ADDRESS:443 $FINGERPRINT --authenticate >/dev/null 2>&1) ||
+	-q $SWRESOLVE sockwrap:443 $FINGERPRINT --authenticate >/dev/null 2>&1) ||
     fail $PID "Could not receive cookie from fake Cisco server"
 
 echo ok

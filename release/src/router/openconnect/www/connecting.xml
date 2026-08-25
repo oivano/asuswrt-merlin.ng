@@ -17,7 +17,7 @@
    <li><tt>openconnect https://vpn.mycompany.com/</tt></li>
  </ul>
  For one of the other <a href="protocols.html">supported protocols</a>, you'll need to add <tt>--protocol</tt>.
- For example, for a PAN GlobalProtect VPN:
+ For example, for a Palo Alto Networks GlobalProtect VPN:
  <ul>
    <li><tt>openconnect --protocol=gp https://vpn.mycompany.com/</tt></li>
  </ul>

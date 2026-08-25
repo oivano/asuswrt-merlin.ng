@@ -20,18 +20,13 @@
 
 <p>
 <!-- latest-release-start -->
-The latest release is <a href="https://www.infradead.org/openconnect/download/openconnect-9.12.tar.gz">OpenConnect v9.12</a>
-<i>(<a href="https://www.infradead.org/openconnect/download/openconnect-9.12.tar.gz.asc">PGP signature</a>)</i>,
-released on 2023-05-20 with the following changelog:</p>
+The latest release is <a href="https://www.infradead.org/openconnect/download/openconnect-9.21.tar.gz">OpenConnect v9.21</a>
+<i>(<a href="https://www.infradead.org/openconnect/download/openconnect-9.21.tar.gz.asc">PGP signature</a>)</i>,
+released on 2026-06-16 with the following changelog:</p>
      <ul>
-       <li>Fix FreeBSD build and tests.</li>
-       <li>Add <tt>libopenconnect5.symbols</tt> file for Debian-style packaging (<i><a href="https://gitlab.com/openconnect/openconnect/-/issues/611#note_1395003963">discussion</a></i>).</li>
-       <li>Explicitly reject overly long tun device names.</li>
-       <li>Work around ambiguity between <tt>&amp;lt;json.h&amp;gt;</tt> from json-parser vs json-c (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/476">!476</a>).</li>
-       <li>Fix symbol versioning for <tt>openconnect_set_sni()</tt>.</li>
-       <li>Increase maximum input size from <tt>stdin</tt> (<a href="https://gitlab.com/openconnect/openconnect/-/issues/579">#579</a>).</li>
-       <li>Ignore 0.0.0.0 as NBNS address (<a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/446">!446</a>, <a href="https://gitlab.com/openconnect/vpnc-scripts/-/issues/58">vpnc-scripts#58</a>).</li>
-       <li>Fix Mac OS build of <tt>os-tcp-mtu</tt> tool (<a href="https://gitlab.com/openconnect/openconnect/-/issues/612">#612</a>).</li>
+       <li>Fix infinite loop in <tt>buf_append()</tt> when output exactly fills available buffer space (<a href="https://gitlab.com/openconnect/openconnect/-/issues/851">#851</a>).</li>
+       <li>Accept base32 token secrets without trailing <tt>=</tt> padding (<a href="https://gitlab.com/openconnect/openconnect/-/issues/771">#771</a>).</li>
+       <li>Fix crash on NULL passphrase from TPM2 auth dialog (<a href="https://gitlab.com/openconnect/openconnect/-/issues/842">#842</a>).</li>
      </ul>
 <!-- latest-release-end -->
 

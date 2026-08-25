@@ -114,7 +114,7 @@ int oncp_send_tncc_command(struct openconnect_info *vpninfo, int start)
 		return -EIO;
 	}
 
-       /* Mainloop timers need to know the last Trojan was invoked */
+	/* Mainloop timers need to know the last Trojan was invoked */
 	vpninfo->last_trojan = time(NULL);
 	return buf_free(buf);
 }
@@ -145,7 +145,7 @@ static int check_cookie_success(struct openconnect_info *vpninfo)
 	if (!dsid)
 		return -ENOENT;
 
-	if (vpninfo->tncc_fd != -1) {
+	if (vpninfo->tncc_fd >= 0) {
 		/* update TNCC once we get a DSID cookie */
 		oncp_send_tncc_command(vpninfo, 0);
 	}
