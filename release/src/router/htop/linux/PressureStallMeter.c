@@ -48,7 +48,7 @@ static void PressureStallMeter_updateValues(Meter* this) {
 
    Platform_getPressureStall(file, some, &this->values[0], &this->values[1], &this->values[2]);
 
-   /* only print bar for ten (not sixty and threehundred), cause the sum is meaningless */
+   /* only print bar for ten (not sixty and three hundred), cause the sum is meaningless */
    this->curItems = 1;
 
    xSnprintf(this->txtBuffer, sizeof(this->txtBuffer), "%s %s %5.2lf%% %5.2lf%% %5.2lf%%", some ? "some" : "full", file, this->values[0], this->values[1], this->values[2]);
@@ -75,7 +75,9 @@ const MeterClass PressureStallCPUSomeMeter_class = {
    },
    .updateValues = PressureStallMeter_updateValues,
    .defaultMode = TEXT_METERMODE,
+   .supportedModes = METERMODE_DEFAULT_SUPPORTED,
    .maxItems = 3,
+   .isPercentChart = true,
    .total = 100.0,
    .attributes = PressureStallMeter_attributes,
    .name = "PressureStallCPUSome",
@@ -92,7 +94,9 @@ const MeterClass PressureStallIOSomeMeter_class = {
    },
    .updateValues = PressureStallMeter_updateValues,
    .defaultMode = TEXT_METERMODE,
+   .supportedModes = METERMODE_DEFAULT_SUPPORTED,
    .maxItems = 3,
+   .isPercentChart = true,
    .total = 100.0,
    .attributes = PressureStallMeter_attributes,
    .name = "PressureStallIOSome",
@@ -109,7 +113,9 @@ const MeterClass PressureStallIOFullMeter_class = {
    },
    .updateValues = PressureStallMeter_updateValues,
    .defaultMode = TEXT_METERMODE,
+   .supportedModes = METERMODE_DEFAULT_SUPPORTED,
    .maxItems = 3,
+   .isPercentChart = true,
    .total = 100.0,
    .attributes = PressureStallMeter_attributes,
    .name = "PressureStallIOFull",
@@ -126,7 +132,9 @@ const MeterClass PressureStallIRQFullMeter_class = {
    },
    .updateValues = PressureStallMeter_updateValues,
    .defaultMode = TEXT_METERMODE,
+   .supportedModes = METERMODE_DEFAULT_SUPPORTED,
    .maxItems = 3,
+   .isPercentChart = true,
    .total = 100.0,
    .attributes = PressureStallMeter_attributes,
    .name = "PressureStallIRQFull",
@@ -143,7 +151,9 @@ const MeterClass PressureStallMemorySomeMeter_class = {
    },
    .updateValues = PressureStallMeter_updateValues,
    .defaultMode = TEXT_METERMODE,
+   .supportedModes = METERMODE_DEFAULT_SUPPORTED,
    .maxItems = 3,
+   .isPercentChart = true,
    .total = 100.0,
    .attributes = PressureStallMeter_attributes,
    .name = "PressureStallMemorySome",
@@ -160,7 +170,9 @@ const MeterClass PressureStallMemoryFullMeter_class = {
    },
    .updateValues = PressureStallMeter_updateValues,
    .defaultMode = TEXT_METERMODE,
+   .supportedModes = METERMODE_DEFAULT_SUPPORTED,
    .maxItems = 3,
+   .isPercentChart = true,
    .total = 100.0,
    .attributes = PressureStallMeter_attributes,
    .name = "PressureStallMemoryFull",

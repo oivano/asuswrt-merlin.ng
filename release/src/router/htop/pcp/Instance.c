@@ -67,11 +67,12 @@ static void Instance_writeField(const Row* super, RichString* str, RowField fiel
 
    pmAtomValue atom;
    pmAtomValue* ap = &atom;
-   const pmDesc* descp = Metric_desc(cp->id);
-   if (!Metric_instance(cp->id, instid, this->offset, ap, descp->type))
+   Metric metric = Metric_fromId(cp->id);
+   const pmDesc* descp = Metric_desc(metric);
+   if (!Metric_instance(metric, instid, this->offset, ap, descp->type))
       ap = NULL;
 
-   PCPDynamicColumn_writeAtomValue(cp, str, settings, cp->id, instid, descp, ap);
+   PCPDynamicColumn_writeAtomValue(cp, str, settings, metric, instid, descp, ap);
 
    if (ap && descp->type == PM_TYPE_STRING)
       free(ap->cp);
@@ -98,12 +99,12 @@ static int Instance_compareByKey(const Row* v1, const Row* v2, int key) {
    if (!column)
       return -1;
 
-   size_t metric = column->id;
+   Metric metric = Metric_fromId(column->id);
    unsigned int type = Metric_type(metric);
 
    pmAtomValue atom1 = {0}, atom2 = {0};
-   if (!Metric_instance(metric, i1->offset, i1->offset, &atom1, type) ||
-       !Metric_instance(metric, i2->offset, i2->offset, &atom2, type)) {
+   if (!Metric_instance(metric, Instance_getId(i1), i1->offset, &atom1, type) ||
+       !Metric_instance(metric, Instance_getId(i2), i2->offset, &atom2, type)) {
       if (type == PM_TYPE_STRING) {
          free(atom1.cp);
          free(atom2.cp);

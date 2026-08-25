@@ -13,8 +13,6 @@ in the source distribution for its full text.
 #include <math.h>
 
 #include "CPUMeter.h"
-#include "ClockMeter.h"
-#include "DateMeter.h"
 #include "DateTimeMeter.h"
 #include "FileDescriptorMeter.h"
 #include "HostnameMeter.h"
@@ -44,6 +42,18 @@ const SignalItem Platform_signals[] = {
 
 const unsigned int Platform_numberOfSignals = ARRAYSIZE(Platform_signals);
 
+enum {
+   MEMORY_CLASS_USED = 0,
+   MEMORY_CLASS_CACHED,
+}; // N.B. the chart will display categories in this order
+
+const MemoryClass Platform_memoryClasses[] = {
+   [MEMORY_CLASS_USED] = { .label = "used", .countsAsUsed = true, .countsAsCache = false, .color = MEMORY_1 },
+   [MEMORY_CLASS_CACHED] = { .label = "cached", .countsAsUsed = false, .countsAsCache = true, .color = MEMORY_2 },
+};
+
+const unsigned int Platform_numberOfMemoryClasses = ARRAYSIZE(Platform_memoryClasses);
+
 const MeterClass* const Platform_meterTypes[] = {
    &CPUMeter_class,
    &ClockMeter_class,
@@ -59,6 +69,7 @@ const MeterClass* const Platform_meterTypes[] = {
    &HostnameMeter_class,
    &SysArchMeter_class,
    &UptimeMeter_class,
+   &SecondsUptimeMeter_class,
    &AllCPUsMeter_class,
    &AllCPUs2Meter_class,
    &AllCPUs4Meter_class,
@@ -119,7 +130,11 @@ double Platform_setCPUValues(Meter* this, unsigned int cpu) {
 }
 
 void Platform_setMemoryValues(Meter* this) {
-   (void) this;
+   double* v = this->values;
+   v[MEMORY_CLASS_USED] = NAN;
+   v[MEMORY_CLASS_CACHED] = NAN;
+
+   this->curItems = 2;
 }
 
 void Platform_setSwapValues(Meter* this) {
@@ -160,6 +175,6 @@ void Platform_getHostname(char* buffer, size_t size) {
    String_safeStrncpy(buffer, Platform_unsupported, size);
 }
 
-void Platform_getRelease(char** string) {
-   *string = xStrdup(Platform_unsupported);
+const char* Platform_getRelease(void) {
+   return Platform_unsupported;
 }

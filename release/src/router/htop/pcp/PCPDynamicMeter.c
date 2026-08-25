@@ -30,9 +30,8 @@ in the source distribution for its full text.
 
 
 static PCPDynamicMetric* PCPDynamicMeter_lookupMetric(PCPDynamicMeters* meters, PCPDynamicMeter* meter, const char* name) {
-   size_t bytes = 16 + strlen(meter->super.name) + strlen(name);
-   char* metricName = xMalloc(bytes);
-   xSnprintf(metricName, bytes, "htop.meter.%s.%s", meter->super.name, name);
+   char* metricName = NULL;
+   xAsprintf(&metricName, "htop.meter.%s.%s", meter->super.name, name);
 
    PCPDynamicMetric* metric;
    for (size_t i = 0; i < meter->totalMetrics; i++) {
@@ -54,7 +53,7 @@ static PCPDynamicMetric* PCPDynamicMeter_lookupMetric(PCPDynamicMeters* meters, 
    metric->id = meters->offset + meters->cursor;
    meters->cursor++;
 
-   Platform_addMetric(metric->id, metricName);
+   Platform_addMetric(Metric_fromId(metric->id), metricName);
 
    return metric;
 }
@@ -74,7 +73,7 @@ static void PCPDynamicMeter_parseMetric(PCPDynamicMeters* meters, PCPDynamicMete
       /* use derived metrics in dynamic meters for simplicity */
       char* error;
       if (pmRegisterDerivedMetric(metric->name, value, &error) < 0) {
-         char* note;
+         char* note = NULL;
          xAsprintf(&note,
                    "%s: failed to parse expression in %s at line %u\n%s\n%s",
                    pmGetProgname(), path, line, error, pmGetProgname());
@@ -157,7 +156,8 @@ static bool PCPDynamicMeter_uniqueName(char* key, PCPDynamicMeters* meters) {
 static PCPDynamicMeter* PCPDynamicMeter_new(PCPDynamicMeters* meters, const char* name) {
    PCPDynamicMeter* meter = xCalloc(1, sizeof(*meter));
    String_safeStrncpy(meter->super.name, name, sizeof(meter->super.name));
-   Hashtable_put(meters->table, ++meters->count, meter);
+   ht_key_t key = (ht_key_t) ++meters->count;
+   Hashtable_put(meters->table, key, meter);
    return meter;
 }
 
@@ -168,7 +168,6 @@ static void PCPDynamicMeter_parseFile(PCPDynamicMeters* meters, const char* path
 
    PCPDynamicMeter* meter = NULL;
    unsigned int lineno = 0;
-   bool ok = true;
    for (;;) {
       char* line = String_readLine(file);
       if (!line)
@@ -184,7 +183,7 @@ static void PCPDynamicMeter_parseFile(PCPDynamicMeters* meters, const char* path
       }
 
       size_t n;
-      char** config = String_split(trimmed, '=', &n);
+      char** config = String_splitFirst(trimmed, '=', &n);
       free(trimmed);
       if (config == NULL)
          continue;
@@ -192,23 +191,26 @@ static void PCPDynamicMeter_parseFile(PCPDynamicMeters* meters, const char* path
       char* key = String_trim(config[0]);
       char* value = n > 1 ? String_trim(config[1]) : NULL;
       if (key[0] == '[') {  /* new section heading - i.e. new meter */
-         ok = PCPDynamicMeter_validateMeterName(key + 1, path, lineno);
+         meter = NULL;
+         bool ok = PCPDynamicMeter_validateMeterName(key + 1, path, lineno);
          if (ok)
             ok = PCPDynamicMeter_uniqueName(key + 1, meters);
          if (ok)
             meter = PCPDynamicMeter_new(meters, key + 1);
-      } else if (!ok) {
-         ;  /* skip this one, we're looking for a new header */
-      } else if (value && meter && String_eq(key, "caption")) {
+      } else if (!meter) {
+         /* skip this one, we're looking for a new header */
+      } else if (!value) {
+         /* skip this one as we always need value strings */
+      } else if (String_eq(key, "caption")) {
          char* caption = String_cat(value, ": ");
          if (caption) {
             free_and_xStrdup(&meter->super.caption, caption);
             free(caption);
             caption = NULL;
          }
-      } else if (value && meter && String_eq(key, "description")) {
+      } else if (String_eq(key, "description")) {
          free_and_xStrdup(&meter->super.description, value);
-      } else if (value && meter && String_eq(key, "type")) {
+      } else if (String_eq(key, "type")) {
          if (String_eq(config[1], "bar"))
             meter->super.type = BAR_METERMODE;
          else if (String_eq(config[1], "text"))
@@ -217,9 +219,9 @@ static void PCPDynamicMeter_parseFile(PCPDynamicMeters* meters, const char* path
             meter->super.type = GRAPH_METERMODE;
          else if (String_eq(config[1], "led"))
             meter->super.type = LED_METERMODE;
-      } else if (value && meter && String_eq(key, "maximum")) {
+      } else if (String_eq(key, "maximum")) {
          meter->super.maximum = strtod(value, NULL);
-      } else if (value && meter) {
+      } else {
          PCPDynamicMeter_parseMetric(meters, meter, path, lineno, key, value);
       }
       String_freeArray(config);
@@ -273,7 +275,7 @@ void PCPDynamicMeters_init(PCPDynamicMeters* meters) {
    if (xdgConfigHome)
       path = String_cat(xdgConfigHome, "/htop/meters/");
    else if (home)
-      path = String_cat(home, "/.config/htop/meters/");
+      path = String_cat(home, CONFIGDIR "/htop/meters/");
    else
       path = NULL;
    if (path) {
@@ -310,24 +312,28 @@ void PCPDynamicMeters_done(Hashtable* table) {
 
 void PCPDynamicMeter_enable(PCPDynamicMeter* this) {
    for (size_t i = 0; i < this->totalMetrics; i++)
-      Metric_enable(this->metrics[i].id, true);
+      Metric_enable(Metric_fromId(this->metrics[i].id), true);
 }
 
 void PCPDynamicMeter_updateValues(PCPDynamicMeter* this, Meter* meter) {
-   char* buffer = meter->txtBuffer;
-   size_t size = sizeof(meter->txtBuffer);
+   char* const buffer = meter->txtBuffer;
+   const size_t size = sizeof(meter->txtBuffer);
    size_t bytes = 0;
+   size_t bytes_old;
 
    for (size_t i = 0; i < this->totalMetrics; i++) {
+      bytes_old = bytes;
+
       if (i > 0 && bytes < size - 1)
          buffer[bytes++] = '/';  /* separator */
 
       PCPDynamicMetric* metric = &this->metrics[i];
-      const pmDesc* desc = Metric_desc(metric->id);
+      Metric base = Metric_fromId(metric->id);
+      const pmDesc* desc = Metric_desc(base);
       pmAtomValue atom, raw;
 
-      if (!Metric_values(metric->id, &raw, 1, desc->type)) {
-         bytes--; /* clear the separator */
+      if (!Metric_values(base, &raw, 1, desc->type)) {
+         bytes = bytes_old; /* clear the separator */
          continue;
       }
 
@@ -339,56 +345,58 @@ void PCPDynamicMeter_updateValues(PCPDynamicMeter* this, Meter* meter) {
       if (desc->type == PM_TYPE_STRING)
          atom = raw;
       else if (pmConvScale(desc->type, &raw, &desc->units, &atom, &conv) < 0) {
-         bytes--; /* clear the separator */
+         bytes = bytes_old; /* clear the separator */
          continue;
       }
 
       size_t saved = bytes;
       switch (desc->type) {
          case PM_TYPE_STRING:
-            bytes += xSnprintf(buffer + bytes, size - bytes, "%s", atom.cp);
+            bytes += pmsprintf(buffer + bytes, size - bytes, "%s", atom.cp);
             free(atom.cp);
             break;
          case PM_TYPE_32:
             bytes += conv.dimSpace ?
                Meter_humanUnit(buffer + bytes, (double) atom.l, size - bytes) :
-               xSnprintf(buffer + bytes, size - bytes, "%d", atom.l);
+               pmsprintf(buffer + bytes, size - bytes, "%d", atom.l);
             break;
          case PM_TYPE_U32:
             bytes += conv.dimSpace ?
                Meter_humanUnit(buffer + bytes, (double) atom.ul, size - bytes) :
-               xSnprintf(buffer + bytes, size - bytes, "%u", atom.ul);
+               pmsprintf(buffer + bytes, size - bytes, "%u", atom.ul);
             break;
          case PM_TYPE_64:
             bytes += conv.dimSpace ?
                Meter_humanUnit(buffer + bytes, (double) atom.ll, size - bytes) :
-               xSnprintf(buffer + bytes, size - bytes, "%lld", (long long) atom.ll);
+               pmsprintf(buffer + bytes, size - bytes, "%lld", (long long) atom.ll);
             break;
          case PM_TYPE_U64:
             bytes += conv.dimSpace ?
                Meter_humanUnit(buffer + bytes, (double) atom.ull, size - bytes) :
-               xSnprintf(buffer + bytes, size - bytes, "%llu", (unsigned long long) atom.ull);
+               pmsprintf(buffer + bytes, size - bytes, "%llu", (unsigned long long) atom.ull);
             break;
          case PM_TYPE_FLOAT:
             bytes += conv.dimSpace ?
                Meter_humanUnit(buffer + bytes, (double) atom.f, size - bytes) :
-               xSnprintf(buffer + bytes, size - bytes, "%.2f", (double) atom.f);
+               pmsprintf(buffer + bytes, size - bytes, "%.2f", (double) atom.f);
             break;
          case PM_TYPE_DOUBLE:
             bytes += conv.dimSpace ?
                Meter_humanUnit(buffer + bytes, atom.d, size - bytes) :
-               xSnprintf(buffer + bytes, size - bytes, "%.2f", atom.d);
+               pmsprintf(buffer + bytes, size - bytes, "%.2f", atom.d);
             break;
          default:
             break;
       }
 
-      if (saved != bytes && metric->suffix)
-         bytes += xSnprintf(buffer + bytes, size - bytes, "%s", metric->suffix);
+      if (saved != bytes && metric->suffix && bytes < size)
+         bytes += pmsprintf(buffer + bytes, size - bytes, "%s", metric->suffix);
    }
 
+   buffer[CLAMP(bytes, 0u, size - 1)] = '\0';
+
    if (!bytes)
-      xSnprintf(buffer, size, "no data");
+      pmsprintf(buffer, size, "no data");
 }
 
 void PCPDynamicMeter_display(PCPDynamicMeter* this, ATTR_UNUSED const Meter* meter, RichString* out) {
@@ -396,11 +404,12 @@ void PCPDynamicMeter_display(PCPDynamicMeter* this, ATTR_UNUSED const Meter* met
 
    for (size_t i = 0; i < this->totalMetrics; i++) {
       PCPDynamicMetric* metric = &this->metrics[i];
-      const pmDesc* desc = Metric_desc(metric->id);
+      Metric base = Metric_fromId(metric->id);
+      const pmDesc* desc = Metric_desc(base);
       pmAtomValue atom, raw;
       char buffer[64];
 
-      if (!Metric_values(metric->id, &raw, 1, desc->type))
+      if (!Metric_values(base, &raw, 1, desc->type))
          continue;
 
       pmUnits conv = desc->units;  /* convert to canonical units */
@@ -416,7 +425,7 @@ void PCPDynamicMeter_display(PCPDynamicMeter* this, ATTR_UNUSED const Meter* met
       nodata = 0;  /* we will use this metric so *some* data will be added */
 
       if (i > 0)
-         RichString_appendnAscii(out, CRT_colors[metric->color], " ", 1);
+         RichString_appendAscii(out, CRT_colors[metric->color], " ");
 
       if (metric->label)
          RichString_appendAscii(out, CRT_colors[METER_TEXT], metric->label);
@@ -424,38 +433,38 @@ void PCPDynamicMeter_display(PCPDynamicMeter* this, ATTR_UNUSED const Meter* met
       int len = 0;
       switch (desc->type) {
          case PM_TYPE_STRING:
-            len = xSnprintf(buffer, sizeof(buffer), "%s", atom.cp);
+            len = pmsprintf(buffer, sizeof(buffer), "%s", atom.cp);
             free(atom.cp);
             break;
          case PM_TYPE_32:
             len = conv.dimSpace ?
                Meter_humanUnit(buffer, (double) atom.l, sizeof(buffer)) :
-               xSnprintf(buffer, sizeof(buffer), "%d", atom.l);
+               pmsprintf(buffer, sizeof(buffer), "%d", atom.l);
             break;
          case PM_TYPE_U32:
             len = conv.dimSpace ?
                Meter_humanUnit(buffer, (double) atom.ul, sizeof(buffer)) :
-               xSnprintf(buffer, sizeof(buffer), "%u", atom.ul);
+               pmsprintf(buffer, sizeof(buffer), "%u", atom.ul);
             break;
          case PM_TYPE_64:
             len = conv.dimSpace ?
                Meter_humanUnit(buffer, (double) atom.ll, sizeof(buffer)) :
-               xSnprintf(buffer, sizeof(buffer), "%lld", (long long) atom.ll);
+               pmsprintf(buffer, sizeof(buffer), "%lld", (long long) atom.ll);
             break;
          case PM_TYPE_U64:
             len = conv.dimSpace ?
                Meter_humanUnit(buffer, (double) atom.ull, sizeof(buffer)) :
-               xSnprintf(buffer, sizeof(buffer), "%llu", (unsigned long long) atom.ull);
+               pmsprintf(buffer, sizeof(buffer), "%llu", (unsigned long long) atom.ull);
             break;
          case PM_TYPE_FLOAT:
             len = conv.dimSpace ?
                Meter_humanUnit(buffer, (double) atom.f, sizeof(buffer)) :
-               xSnprintf(buffer, sizeof(buffer), "%.2f", (double) atom.f);
+               pmsprintf(buffer, sizeof(buffer), "%.2f", (double) atom.f);
             break;
          case PM_TYPE_DOUBLE:
             len = conv.dimSpace ?
                Meter_humanUnit(buffer, atom.d, sizeof(buffer)) :
-               xSnprintf(buffer, sizeof(buffer), "%.2f", atom.d);
+               pmsprintf(buffer, sizeof(buffer), "%.2f", atom.d);
             break;
          default:
             break;

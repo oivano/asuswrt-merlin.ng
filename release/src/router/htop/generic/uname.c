@@ -21,28 +21,40 @@ in the source distribution for its full text.
 #endif
 
 
-#ifndef OSRELEASEFILE
-#define OSRELEASEFILE "/etc/os-release"
-#endif
-
 static void parseOSRelease(char* buffer, size_t bufferLen) {
-   FILE* stream = fopen(OSRELEASEFILE, "r");
-   if (!stream) {
-      xSnprintf(buffer, bufferLen, "No OS Release");
+   static const char* const osfiles[] = {
+#ifdef OSRELEASEFILE
+      OSRELEASEFILE /* Custom path for testing; undefined by default */,
+#endif
+      "/etc/os-release",
+      "/usr/lib/os-release",
+   };
+
+   if (!bufferLen)
+      return;
+
+   FILE* fp = NULL;
+   for (size_t i = 0; i < ARRAYSIZE(osfiles); i++) {
+      fp = fopen(osfiles[i], "r");
+      if (fp)
+         break;
+   }
+   if (!fp) {
+      buffer[0] = '\0';
       return;
    }
 
    char name[64] = {'\0'};
    char version[64] = {'\0'};
    char lineBuffer[256];
-   while (fgets(lineBuffer, sizeof(lineBuffer), stream)) {
+   while (fgets(lineBuffer, sizeof(lineBuffer), fp)) {
       if (String_startsWith(lineBuffer, "PRETTY_NAME=\"")) {
          const char* start = lineBuffer + strlen("PRETTY_NAME=\"");
          const char* stop = strrchr(lineBuffer, '"');
          if (!stop || stop <= start)
             continue;
          String_safeStrncpy(buffer, start, MINIMUM(bufferLen, (size_t)(stop - start + 1)));
-         fclose(stream);
+         fclose(fp);
          return;
       }
       if (String_startsWith(lineBuffer, "NAME=\"")) {
@@ -62,19 +74,19 @@ static void parseOSRelease(char* buffer, size_t bufferLen) {
          continue;
       }
    }
-   fclose(stream);
+   fclose(fp);
 
-   snprintf(buffer, bufferLen, "%s%s%s", name[0] ? name : "", name[0] && version[0] ? " " : "", version);
+   snprintf(buffer, bufferLen, "%s%s%s", name, name[0] && version[0] ? " " : "", version);
 }
 
-char* Generic_uname(void) {
+const char* Generic_unameRelease(Platform_FetchReleaseFunction fetchRelease) {
    static char savedString[
       /* uname structure fields - manpages recommend sizeof */
       sizeof(((struct utsname*)0)->sysname) +
       sizeof(((struct utsname*)0)->release) +
       sizeof(((struct utsname*)0)->machine) +
       16/*markup*/ +
-      128/*distro*/] = {'\0'};
+      128/*distro*/] = "No information";
    static bool loaded_data = false;
 
    if (!loaded_data) {
@@ -82,13 +94,13 @@ char* Generic_uname(void) {
       int uname_result = uname(&uname_info);
 
       char distro[128];
-      parseOSRelease(distro, sizeof(distro));
+      fetchRelease(distro, sizeof(distro));
 
       if (uname_result == 0) {
          size_t written = xSnprintf(savedString, sizeof(savedString), "%s %s [%s]", uname_info.sysname, uname_info.release, uname_info.machine);
-         if (!String_contains_i(savedString, distro, false) && sizeof(savedString) > written)
+         if (distro[0] && sizeof(savedString) > written && !String_contains_i(savedString, distro, false))
             snprintf(savedString + written, sizeof(savedString) - written, " @ %s", distro);
-      } else {
+      } else if (distro[0]) {
          snprintf(savedString, sizeof(savedString), "%s", distro);
       }
 
@@ -96,4 +108,8 @@ char* Generic_uname(void) {
    }
 
    return savedString;
+}
+
+const char* Generic_uname(void) {
+   return Generic_unameRelease(parseOSRelease);
 }

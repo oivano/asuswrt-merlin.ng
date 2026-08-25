@@ -37,13 +37,13 @@ static const char* const ColorSchemeNames[] = {
    "MC",
    "Black Night",
    "Broken Gray",
+   "Nord",
    NULL
 };
 
 static void ColorsPanel_delete(Object* object) {
-   Panel* super = (Panel*) object;
    ColorsPanel* this = (ColorsPanel*) object;
-   Panel_done(super);
+   Panel_done(&this->super);
    free(this);
 }
 
@@ -91,7 +91,8 @@ const PanelClass ColorsPanel_class = {
 
 ColorsPanel* ColorsPanel_new(Settings* settings) {
    ColorsPanel* this = AllocThis(ColorsPanel);
-   Panel* super = (Panel*) this;
+   Panel* super = &this->super;
+
    FunctionBar* fuBar = FunctionBar_new(ColorsFunctions, NULL, NULL);
    Panel_init(super, 1, 1, 1, 1, Class(CheckItem), true, fuBar);
 
@@ -103,6 +104,6 @@ ColorsPanel* ColorsPanel_new(Settings* settings) {
    for (int i = 0; ColorSchemeNames[i] != NULL; i++) {
       Panel_add(super, (Object*) CheckItem_newByVal(ColorSchemeNames[i], false));
    }
-   CheckItem_set((CheckItem*)Panel_get(super, settings->colorScheme), true);
+   CheckItem_set((CheckItem*)Panel_get(super, (int)CRT_colorScheme), true);
    return this;
 }

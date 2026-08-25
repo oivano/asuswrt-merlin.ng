@@ -89,7 +89,7 @@ void Row_setPidColumnWidth(pid_t maxPid) {
       return;
    }
 
-   Row_pidDigits = (int)log10(maxPid) + 1;
+   Row_pidDigits = (int)countDigits((size_t)maxPid, 10);
    assert(Row_pidDigits <= ROW_MAX_PID_DIGITS);
 }
 
@@ -99,7 +99,7 @@ void Row_setUidColumnWidth(uid_t maxUid) {
       return;
    }
 
-   Row_uidDigits = (int)log10(maxUid) + 1;
+   Row_uidDigits = (int)countDigits((size_t)maxUid, 10);
    assert(Row_uidDigits <= ROW_MAX_UID_DIGITS);
 }
 
@@ -154,7 +154,7 @@ static const char* alignedTitleProcessField(ProcessField field, char* titleBuffe
    }
 
    if (Process_fields[field].autoWidth) {
-      if (field == PERCENT_CPU)
+      if (Process_fields[field].autoTitleRightAlign)
          xSnprintf(titleBuffer, titleBufferSize, "%*s ", Row_fieldWidths[field], title);
       else
          xSnprintf(titleBuffer, titleBufferSize, "%-*.*s ", Row_fieldWidths[field], Row_fieldWidths[field], title);
@@ -177,15 +177,15 @@ const char* RowField_alignedTitle(const Settings* settings, RowField field) {
 }
 
 RowField RowField_keyAt(const Settings* settings, int at) {
-   const RowField* fields = (const RowField*) settings->ss->fields;
+   const RowField* fields = settings->ss->fields;
    RowField field;
-   int x = 0;
+   int rem = at;
    for (int i = 0; (field = fields[i]); i++) {
-      int len = strlen(RowField_alignedTitle(settings, field));
-      if (at >= x && at <= x + len) {
+      int len = rem > 0 ? (int)strnlen(RowField_alignedTitle(settings, field), rem) : 0;
+      if (rem <= len) {
          return field;
       }
-      x += len;
+      rem -= len;
    }
    return COMM;
 }
@@ -256,18 +256,16 @@ void Row_printKBytes(RichString* str, unsigned long long number, bool coloring) 
    number = hundredths / 100;
    hundredths %= 100;
    if (number < 100) {
+      len = xSnprintf(buffer, sizeof(buffer), "%u", (unsigned int)number);
+      RichString_appendnAscii(str, color, buffer, len);
       if (number < 10) {
          // 1 digit + decimal point + 2 digits
          // "9.76G", "9.99G", "9.76T", "9.99T", etc.
-         len = xSnprintf(buffer, sizeof(buffer), "%1u", (unsigned int)number);
-         RichString_appendnAscii(str, color, buffer, len);
          len = xSnprintf(buffer, sizeof(buffer), ".%02u", (unsigned int)hundredths);
       } else {
          // 2 digits + decimal point + 1 digit
          // "97.6M", "99.9M", "10.0G", "99.9G", etc.
-         len = xSnprintf(buffer, sizeof(buffer), "%2u", (unsigned int)number);
-         RichString_appendnAscii(str, color, buffer, len);
-         len = xSnprintf(buffer, sizeof(buffer), ".%1u", (unsigned int)hundredths / 10);
+         len = xSnprintf(buffer, sizeof(buffer), ".%u", (unsigned int)hundredths / 10);
       }
       RichString_appendnAscii(str, prevUnitColor, buffer, len);
       len = xSnprintf(buffer, sizeof(buffer), "%c ", unitPrefixes[i]);
@@ -280,7 +278,7 @@ void Row_printKBytes(RichString* str, unsigned long long number, bool coloring) 
       // "1000M", "9999M", "1000G", "9999G", etc.
       assert(number < 10000);
 
-      len = xSnprintf(buffer, sizeof(buffer), "%1u", (unsigned int)number / 1000);
+      len = xSnprintf(buffer, sizeof(buffer), "%u", (unsigned int)number / 1000);
       RichString_appendnAscii(str, nextUnitColor, buffer, len);
       len = xSnprintf(buffer, sizeof(buffer), "%03u%c ", (unsigned int)number % 1000, unitPrefixes[i]);
    }
@@ -292,7 +290,6 @@ invalidNumber:
       color = CRT_colors[PROCESS_SHADOW];
 
    RichString_appendAscii(str, color, "  N/A ");
-   return;
 }
 
 void Row_printBytes(RichString* str, unsigned long long number, bool coloring) {
@@ -337,6 +334,13 @@ void Row_printTime(RichString* str, unsigned long long totalHundredths, bool col
    char buffer[10];
    int len;
 
+   if (totalHundredths == 0) {
+      int shadowColor = coloring ? CRT_colors[PROCESS_SHADOW] : CRT_colors[PROCESS];
+
+      RichString_appendAscii(str, shadowColor, " 0:00.00 ");
+      return;
+   }
+
    int yearColor = coloring ? CRT_colors[LARGE_NUMBER]      : CRT_colors[PROCESS];
    int dayColor  = coloring ? CRT_colors[PROCESS_GIGABYTES] : CRT_colors[PROCESS];
    int hourColor = coloring ? CRT_colors[PROCESS_MEGABYTES] : CRT_colors[PROCESS];
@@ -365,7 +369,7 @@ void Row_printTime(RichString* str, unsigned long long totalHundredths, bool col
    unsigned long long totalDays = totalHours / 24;
    unsigned int hours = totalHours % 24;
    if (totalDays < 10) {
-      len = xSnprintf(buffer, sizeof(buffer), "%1ud", (unsigned int)totalDays);
+      len = xSnprintf(buffer, sizeof(buffer), "%ud", (unsigned int)totalDays);
       RichString_appendnAscii(str, dayColor, buffer, len);
       len = xSnprintf(buffer, sizeof(buffer), "%02uh", hours);
       RichString_appendnAscii(str, hourColor, buffer, len);
@@ -396,6 +400,65 @@ void Row_printTime(RichString* str, unsigned long long totalHundredths, bool col
    }
 }
 
+void Row_printNanoseconds(RichString* str, unsigned long long totalNanoseconds, bool coloring) {
+   if (totalNanoseconds == 0) {
+      int shadowColor = coloring ? CRT_colors[PROCESS_SHADOW] : CRT_colors[PROCESS];
+
+      RichString_appendAscii(str, shadowColor, "     0ns ");
+      return;
+   }
+
+   char buffer[10];
+   int len;
+   int baseColor = CRT_colors[PROCESS];
+
+   if (totalNanoseconds < 1000000) {
+      len = xSnprintf(buffer, sizeof(buffer), "%6luns ", (unsigned long)totalNanoseconds);
+      RichString_appendnAscii(str, baseColor, buffer, len);
+      return;
+   }
+
+   if (totalNanoseconds < 10000000) {
+      // The precision is 0.1 microseconds here.
+      // We print the unit in "ms" rather than microseconds in order
+      // to save the code of choosing the Greek "mu" or Latin "u".
+      uint32_t fraction = (uint32_t)totalNanoseconds / 100;
+      unsigned int milliseconds = (unsigned int)(fraction / 10000);
+      fraction %= 10000;
+      len = xSnprintf(buffer, sizeof(buffer), "%u.%04ums ", milliseconds, (unsigned int)fraction);
+      RichString_appendnAscii(str, baseColor, buffer, len);
+      return;
+   }
+
+   unsigned long long totalMicroseconds = totalNanoseconds / 1000;
+   unsigned long long totalSeconds = totalMicroseconds / 1000000;
+   uint32_t microseconds = totalMicroseconds % 1000000;
+   if (totalSeconds < 60) {
+      int width = 6;
+      uint32_t fraction = microseconds;
+      for (unsigned long long limit = 1; totalSeconds >= limit; limit *= 10) {
+         width--;
+         fraction /= 10;
+      }
+      // "%.u" prints no digits if (totalSeconds == 0).
+      len = xSnprintf(buffer, sizeof(buffer), "%.u.%0*lus ", (unsigned int)totalSeconds, width, (unsigned long)fraction);
+      RichString_appendnAscii(str, baseColor, buffer, len);
+      return;
+   }
+
+   if (totalSeconds < 600) {
+      unsigned int minutes = (unsigned int)totalSeconds / 60;
+      unsigned int seconds = (unsigned int)totalSeconds % 60;
+      unsigned int milliseconds = (unsigned int)(microseconds / 1000);
+      len = xSnprintf(buffer, sizeof(buffer), "%u:%02u.%03u ", minutes, seconds, milliseconds);
+      RichString_appendnAscii(str, baseColor, buffer, len);
+      return;
+   }
+
+   unsigned long long totalHundredths = totalMicroseconds / 1000 / 10;
+   Row_printTime(str, totalHundredths, coloring);
+}
+
 void Row_printRate(RichString* str, double rate, bool coloring) {
    char buffer[16];
 
@@ -411,28 +474,27 @@ void Row_printRate(RichString* str, double rate, bool coloring) {
 
    if (!isNonnegative(rate)) {
       RichString_appendAscii(str, shadowColor, "        N/A ");
-   } else if (rate < 0.005) {
-      int len = snprintf(buffer, sizeof(buffer), "%7.2f B/s ", rate);
-      RichString_appendnAscii(str, shadowColor, buffer, len);
-   } else if (rate < ONE_K) {
-      int len = snprintf(buffer, sizeof(buffer), "%7.2f B/s ", rate);
-      RichString_appendnAscii(str, baseColor, buffer, len);
-   } else if (rate < ONE_M) {
-      int len = snprintf(buffer, sizeof(buffer), "%7.2f K/s ", rate / ONE_K);
-      RichString_appendnAscii(str, baseColor, buffer, len);
-   } else if (rate < ONE_G) {
-      int len = snprintf(buffer, sizeof(buffer), "%7.2f M/s ", rate / ONE_M);
-      RichString_appendnAscii(str, megabytesColor, buffer, len);
-   } else if (rate < ONE_T) {
-      int len = snprintf(buffer, sizeof(buffer), "%7.2f G/s ", rate / ONE_G);
-      RichString_appendnAscii(str, largeNumberColor, buffer, len);
-   } else if (rate < ONE_P) {
-      int len = snprintf(buffer, sizeof(buffer), "%7.2f T/s ", rate / ONE_T);
-      RichString_appendnAscii(str, largeNumberColor, buffer, len);
-   } else {
-      int len = snprintf(buffer, sizeof(buffer), "%7.2f P/s ", rate / ONE_P);
-      RichString_appendnAscii(str, largeNumberColor, buffer, len);
+      return;
    }
+
+   size_t i = 0;
+   double scaled = rate;
+   while (scaled >= ONE_K && i < ARRAYSIZE(unitPrefixes)) {
+      scaled /= ONE_K;
+      i++;
+   }
+
+   int color = baseColor;
+   if (rate < 0.005)
+      color = shadowColor;
+   else if (i == 2)
+      color = megabytesColor;
+   else if (i >= 3)
+      color = largeNumberColor;
+
+   char prefix = (i == 0) ? 'B' : unitPrefixes[i - 1];
+   int len = xSnprintf(buffer, sizeof(buffer), "%7.2f %c/s ", scaled, prefix);
+   RichString_appendnAscii(str, color, buffer, len);
 }
 
 void Row_printLeftAlignedField(RichString* str, int attr, const char* content, unsigned int width) {
@@ -442,6 +504,11 @@ void Row_printLeftAlignedField(RichString* str, int attr, const char* content, u
 }
 
 int Row_printPercentage(float val, char* buffer, size_t n, uint8_t width, int* attr) {
+   assert(n >= 6 && width >= 4 && "Invalid width in Row_printPercentage()");
+   // truncate in favour of abort in xSnprintf()
+   width = (uint8_t)CLAMP(width, 4, n - 2);
+   assert(width < n - 1 && "Insufficient space to print column");
+
    if (isNonnegative(val)) {
       if (val < 0.05F)
          *attr = CRT_colors[PROCESS_SHADOW];

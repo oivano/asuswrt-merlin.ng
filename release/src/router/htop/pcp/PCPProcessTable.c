@@ -78,15 +78,15 @@ static inline unsigned long long Metric_instance_u64(int metric, int pid, int of
 
 static inline unsigned long long Metric_instance_time(int metric, int pid, int offset) {
    pmAtomValue value;
-   if (Metric_instance(metric, pid, offset, &value, PM_TYPE_U64))
-      return value.ull / 10;
+   if (Metric_instance_milliseconds(metric, pid, offset, &value))
+      return value.ull / 10; /* centiseconds used by callers */
    return 0;
 }
 
 static inline unsigned long long Metric_instance_ONE_K(int metric, int pid, int offset) {
    pmAtomValue value;
-   if (Metric_instance(metric, pid, offset, &value, PM_TYPE_U64))
-      return value.ull / ONE_K;
+   if (Metric_instance_kibibytes(metric, pid, offset, &value))
+      return value.ull;
    return ULLONG_MAX;
 }
 
@@ -131,8 +131,8 @@ static inline ProcessState PCPProcessTable_getProcessState(char state) {
 }
 
 static void PCPProcessTable_updateID(Process* process, int pid, int offset) {
-   Process_setThreadGroup(process, Metric_instance_u32(PCP_PROC_TGID, pid, offset, 1));
-   Process_setParent(process, Metric_instance_u32(PCP_PROC_PPID, pid, offset, 1));
+   Process_setThreadGroup(process, (pid_t) Metric_instance_u32(PCP_PROC_TGID, pid, offset, 1));
+   Process_setParent(process, (pid_t) Metric_instance_u32(PCP_PROC_PPID, pid, offset, 1));
    process->state = PCPProcessTable_getProcessState(Metric_instance_char(PCP_PROC_STATE, pid, offset, '?'));
 }
 
@@ -145,10 +145,10 @@ static void PCPProcessTable_updateInfo(PCPProcess* pp, int pid, int offset, char
    String_safeStrncpy(command, value.cp, commLen);
    free(value.cp);
 
-   process->pgrp = Metric_instance_u32(PCP_PROC_PGRP, pid, offset, 0);
-   process->session = Metric_instance_u32(PCP_PROC_SESSION, pid, offset, 0);
+   process->pgrp = (int) Metric_instance_u32(PCP_PROC_PGRP, pid, offset, 0);
+   process->session = (int) Metric_instance_u32(PCP_PROC_SESSION, pid, offset, 0);
    process->tty_nr = Metric_instance_u32(PCP_PROC_TTY, pid, offset, 0);
-   process->tpgid = Metric_instance_u32(PCP_PROC_TTYPGRP, pid, offset, 0);
+   process->tpgid = (int) Metric_instance_u32(PCP_PROC_TTYPGRP, pid, offset, 0);
    process->minflt = Metric_instance_u32(PCP_PROC_MINFLT, pid, offset, 0);
    pp->cminflt = Metric_instance_u32(PCP_PROC_CMINFLT, pid, offset, 0);
    process->majflt = Metric_instance_u32(PCP_PROC_MAJFLT, pid, offset, 0);
@@ -158,10 +158,10 @@ static void PCPProcessTable_updateInfo(PCPProcess* pp, int pid, int offset, char
    pp->cutime = Metric_instance_time(PCP_PROC_CUTIME, pid, offset);
    pp->cstime = Metric_instance_time(PCP_PROC_CSTIME, pid, offset);
    process->priority = Metric_instance_u32(PCP_PROC_PRIORITY, pid, offset, 0);
-   process->nice = Metric_instance_s32(PCP_PROC_NICE, pid, offset, 0);
+   process->nice = (int) Metric_instance_s32(PCP_PROC_NICE, pid, offset, 0);
    process->nlwp = Metric_instance_u32(PCP_PROC_THREADS, pid, offset, 0);
    process->starttime_ctime = Metric_instance_time(PCP_PROC_STARTTIME, pid, offset);
-   process->processor = Metric_instance_u32(PCP_PROC_PROCESSOR, pid, offset, 0);
+   process->processor = (int) Metric_instance_u32(PCP_PROC_PROCESSOR, pid, offset, 0);
 
    process->time = pp->utime + pp->stime;
 }
@@ -175,7 +175,8 @@ static void PCPProcessTable_updateIO(PCPProcess* pp, int pid, int offset, unsign
    pp->io_syscw = Metric_instance_u64(PCP_PROC_IO_SYSCW, pid, offset, ULLONG_MAX);
    pp->io_cancelled_write_bytes = Metric_instance_ONE_K(PCP_PROC_IO_CANCELLED, pid, offset);
 
-   if (Metric_instance(PCP_PROC_IO_READB, pid, offset, &value, PM_TYPE_U64)) {
+   if (Metric_instance(PCP_PROC_IO_READB, pid, offset, &value, PM_TYPE_U64) &&
+         (now - pp->io_last_scan_time != 0)) {
       unsigned long long last_read = pp->io_read_bytes;
       pp->io_read_bytes = value.ull / ONE_K;
       pp->io_rate_read_bps = ONE_K * (pp->io_read_bytes - last_read) /
@@ -185,7 +186,8 @@ static void PCPProcessTable_updateIO(PCPProcess* pp, int pid, int offset, unsign
       pp->io_rate_read_bps = NAN;
    }
 
-   if (Metric_instance(PCP_PROC_IO_WRITEB, pid, offset, &value, PM_TYPE_U64)) {
+   if (Metric_instance(PCP_PROC_IO_WRITEB, pid, offset, &value, PM_TYPE_U64) &&
+         (now - pp->io_last_scan_time != 0)) {
       unsigned long long last_write = pp->io_write_bytes;
       pp->io_write_bytes = value.ull;
       pp->io_rate_write_bps = ONE_K * (pp->io_write_bytes - last_write) /
@@ -216,12 +218,12 @@ static void PCPProcessTable_updateSmaps(PCPProcess* pp, pid_t pid, int offset) {
 }
 
 static void PCPProcessTable_readOomData(PCPProcess* pp, int pid, int offset) {
-   pp->oom = Metric_instance_u32(PCP_PROC_OOMSCORE, pid, offset, 0);
+   pp->oom = (unsigned int) Metric_instance_u32(PCP_PROC_OOMSCORE, pid, offset, 0);
 }
 
 static void PCPProcessTable_readAutogroup(PCPProcess* pp, int pid, int offset) {
    pp->autogroup_id = Metric_instance_s64(PCP_PROC_AUTOGROUP_ID, pid, offset, -1);
-   pp->autogroup_nice = Metric_instance_s32(PCP_PROC_AUTOGROUP_NICE, pid, offset, 0);
+   pp->autogroup_nice = (int) Metric_instance_s32(PCP_PROC_AUTOGROUP_NICE, pid, offset, 0);
 }
 
 static void PCPProcessTable_readCtxtData(PCPProcess* pp, int pid, int offset) {
@@ -296,7 +298,7 @@ static void PCPProcessTable_readCwd(PCPProcess* pp, int pid, int offset) {
 }
 
 static void PCPProcessTable_updateUsername(Process* process, int pid, int offset, UsersTable* users) {
-   process->st_uid = Metric_instance_u32(PCP_PROC_ID_UID, pid, offset, 0);
+   process->st_uid = (uid_t) Metric_instance_u32(PCP_PROC_ID_UID, pid, offset, 0);
    process->user = setUser(users, process->st_uid, pid, offset);
 }
 
@@ -310,22 +312,22 @@ static void PCPProcessTable_updateCmdline(Process* process, int pid, int offset,
    }
 
    char* command = value.cp;
-   int length = strlen(command);
+   size_t length = strlen(command);
    if (command[0] != '(') {
       process->isKernelThread = false;
    } else {
-      ++command;
-      --length;
       if (command[length - 1] == ')')
          command[--length] = '\0';
+      ++command;
+      --length;
       process->isKernelThread = true;
    }
 
-   int tokenEnd = 0;
-   int tokenStart = 0;
+   size_t tokenEnd = 0;
+   size_t tokenStart = 0;
    bool argSepSpace = false;
 
-   for (int i = 0; i < length; i++) {
+   for (size_t i = 0; i < length; i++) {
       /* htop considers the next character after the last / that is before
        * basenameOffset, as the start of the basename in cmdline - see
        * Process_writeCommand */
@@ -364,7 +366,7 @@ static bool PCPProcessTable_updateProcesses(PCPProcessTable* this) {
    int pid = -1, offset = -1;
 
    /* for every process ... */
-   while (Metric_iterate(PCP_PROC_PID, &pid, &offset)) {
+   while (Metric_iterate(PCP_PROC_PID, &pid, &offset, sizeof(PCPProcess))) {
 
       bool preExisting;
       Process* proc = ProcessTable_getProcess(pt, pid, &preExisting, PCPProcess_new);
@@ -410,7 +412,7 @@ static bool PCPProcessTable_updateProcesses(PCPProcessTable* this) {
       }
 
       char command[MAX_NAME + 1];
-      unsigned int tty_nr = proc->tty_nr;
+      unsigned long tty_nr = proc->tty_nr;
       unsigned long long int lasttimes = pp->utime + pp->stime;
 
       PCPProcessTable_updateInfo(pp, pid, offset, command, sizeof(command));

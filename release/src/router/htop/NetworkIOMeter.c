@@ -41,7 +41,7 @@ static void NetworkIOMeter_updateValues(Meter* this) {
    static uint64_t cached_last_update = 0;
    uint64_t passedTimeInMs = host->realtimeMs - cached_last_update;
    bool hasNewData = false;
-   NetworkIOData data;
+   NetworkIOData data = {0};
 
    /* update only every 500ms to have a sane span for rate calculation */
    if (passedTimeInMs > 500) {
@@ -79,7 +79,7 @@ static void NetworkIOMeter_updateValues(Meter* this) {
 
          if (data.packetsReceived > cached_rxp_total) {
             diff = data.packetsReceived - cached_rxp_total;
-            diff = (1000 * diff) / passedTimeInMs; /* convert to pkts/s */
+            diff = (1000 * diff) / passedTimeInMs; /* convert to pkt/s */
             cached_rxp_diff = (uint32_t)diff;
          } else {
             cached_rxp_diff = 0;
@@ -96,7 +96,7 @@ static void NetworkIOMeter_updateValues(Meter* this) {
 
          if (data.packetsTransmitted > cached_txp_total) {
             diff = data.packetsTransmitted - cached_txp_total;
-            diff = (1000 * diff) / passedTimeInMs; /* convert to pkts/s */
+            diff = (1000 * diff) / passedTimeInMs; /* convert to pkt/s */
             cached_txp_diff = (uint32_t)diff;
          } else {
             cached_txp_diff = 0;
@@ -111,9 +111,6 @@ static void NetworkIOMeter_updateValues(Meter* this) {
 
    this->values[0] = cached_rxb_diff;
    this->values[1] = cached_txb_diff;
-   if (cached_rxb_diff + cached_txb_diff > this->total) {
-      this->total = cached_rxb_diff + cached_txb_diff;
-   }
 
    if (status == RATESTATUS_NODATA) {
       xSnprintf(this->txtBuffer, sizeof(this->txtBuffer), "no data");
@@ -128,7 +125,7 @@ static void NetworkIOMeter_updateValues(Meter* this) {
       return;
    }
 
-   xSnprintf(this->txtBuffer, sizeof(this->txtBuffer), "rx:%siB/s tx:%siB/s %u/%upkts/s",
+   xSnprintf(this->txtBuffer, sizeof(this->txtBuffer), "rx:%siB/s tx:%siB/s (%u/%upps)",
       cached_rxb_diff_str, cached_txb_diff_str, cached_rxp_diff, cached_txp_diff);
 }
 
@@ -157,8 +154,13 @@ static void NetworkIOMeter_display(ATTR_UNUSED const Object* cast, RichString* o
    RichString_appendAscii(out, CRT_colors[METER_VALUE_IOWRITE], cached_txb_diff_str);
    RichString_appendAscii(out, CRT_colors[METER_VALUE_IOWRITE], "iB/s");
 
-   int len = xSnprintf(buffer, sizeof(buffer), " (%u/%u pkts/s) ", cached_rxp_diff, cached_txp_diff);
-   RichString_appendnAscii(out, CRT_colors[METER_TEXT], buffer, len);
+   RichString_appendAscii(out, CRT_colors[METER_TEXT], " (");
+   int len = xSnprintf(buffer, sizeof(buffer), "%u", (unsigned int)cached_rxp_diff);
+   RichString_appendnAscii(out, CRT_colors[METER_VALUE_IOREAD], buffer, len);
+   RichString_appendAscii(out, CRT_colors[METER_TEXT], "/");
+   len = xSnprintf(buffer, sizeof(buffer), "%u", (unsigned int)cached_txp_diff);
+   RichString_appendnAscii(out, CRT_colors[METER_VALUE_IOWRITE], buffer, len);
+   RichString_appendAscii(out, CRT_colors[METER_TEXT], " pps)");
 }
 
 const MeterClass NetworkIOMeter_class = {
@@ -169,10 +171,13 @@ const MeterClass NetworkIOMeter_class = {
    },
    .updateValues = NetworkIOMeter_updateValues,
    .defaultMode = TEXT_METERMODE,
+   .supportedModes = METERMODE_DEFAULT_SUPPORTED,
    .maxItems = 2,
-   .total = 100.0,
+   .isPercentChart = false,
+   .total = 1.0,
    .attributes = NetworkIOMeter_attributes,
    .name = "NetworkIO",
    .uiName = "Network IO",
-   .caption = "Network: "
+   .description = "Network bytes & packets received/sent per second",
+   .caption = "Net: "
 };

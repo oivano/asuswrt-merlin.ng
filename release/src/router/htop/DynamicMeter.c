@@ -10,6 +10,7 @@ in the source distribution for its full text.
 
 #include "DynamicMeter.h"
 
+#include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
@@ -47,8 +48,8 @@ void DynamicMeters_delete(Hashtable* dynamics) {
 }
 
 typedef struct {
-   unsigned int key;
    const char* name;
+   ht_key_t key;
    bool found;
 } DynamicIterator;
 
@@ -61,7 +62,7 @@ static void DynamicMeter_compare(ht_key_t key, void* value, void* data) {
    }
 }
 
-bool DynamicMeter_search(Hashtable* dynamics, const char* name, unsigned int* key) {
+bool DynamicMeter_search(Hashtable* dynamics, const char* name, ht_key_t* key) {
    DynamicIterator iter = { .key = 0, .name = name, .found = false };
    if (dynamics)
       Hashtable_foreach(dynamics, DynamicMeter_compare, &iter);
@@ -70,7 +71,7 @@ bool DynamicMeter_search(Hashtable* dynamics, const char* name, unsigned int* ke
    return iter.found;
 }
 
-const char* DynamicMeter_lookup(Hashtable* dynamics, unsigned int key) {
+const char* DynamicMeter_lookup(Hashtable* dynamics, ht_key_t key) {
    const DynamicMeter* meter = Hashtable_get(dynamics, key);
    return meter ? meter->name : NULL;
 }
@@ -97,17 +98,20 @@ static const char* DynamicMeter_getCaption(const Meter* this) {
 }
 
 static void DynamicMeter_getUiName(const Meter* this, char* name, size_t length) {
+   assert(length > 0);
+
    const Settings* settings = this->host->settings;
    const DynamicMeter* meter = Hashtable_get(settings->dynamicMeters, this->param);
    if (meter) {
       const char* uiName = meter->caption;
       if (uiName) {
-         int len = strlen(uiName);
-         if (len > 2 && uiName[len - 2] == ':')
-            len -= 2;
-         xSnprintf(name, length, "%.*s", len, uiName);
+         size_t uiNameLen = strlen(uiName);
+         if (uiNameLen > 2 && uiName[uiNameLen - 2] == ':')
+            uiNameLen -= 2;
+
+         String_safeStrncpy(name, uiName, MINIMUM(length, uiNameLen + 1));
       } else {
-         xSnprintf(name, length, "%s", meter->name);
+         String_safeStrncpy(name, meter->name, length);
       }
    }
 }
@@ -123,6 +127,7 @@ const MeterClass DynamicMeter_class = {
    .getCaption = DynamicMeter_getCaption,
    .getUiName = DynamicMeter_getUiName,
    .defaultMode = TEXT_METERMODE,
+   .supportedModes = METERMODE_DEFAULT_SUPPORTED,
    .maxItems = 0,
    .total = 100.0,
    .attributes = DynamicMeter_attributes,

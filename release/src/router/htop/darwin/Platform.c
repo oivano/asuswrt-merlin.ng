@@ -10,15 +10,17 @@ in the source distribution for its full text.
 
 #include "darwin/Platform.h"
 
+#include <assert.h>
 #include <errno.h>
 #include <math.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <net/if.h>
 #include <net/if_types.h>
 #include <net/route.h>
 #include <sys/socket.h>
-#include <sys/_types/_mach_port_t.h>
+#include <sys/time.h>
+#include <mach/port.h>
+#include <net/if.h> // After `sys/socket.h` for struct `sockaddr` (for iOS6 SDK)
 
 #include <CoreFoundation/CFBase.h>
 #include <CoreFoundation/CFDictionary.h>
@@ -32,12 +34,11 @@ in the source distribution for its full text.
 #include <IOKit/ps/IOPSKeys.h>
 #include <IOKit/storage/IOBlockStorageDriver.h>
 
-#include "ClockMeter.h"
 #include "CPUMeter.h"
 #include "CRT.h"
-#include "DateMeter.h"
 #include "DateTimeMeter.h"
 #include "FileDescriptorMeter.h"
+#include "GPUMeter.h"
 #include "HostnameMeter.h"
 #include "LoadAverageMeter.h"
 #include "Macros.h"
@@ -112,6 +113,26 @@ const SignalItem Platform_signals[] = {
 
 const unsigned int Platform_numberOfSignals = ARRAYSIZE(Platform_signals);
 
+enum {
+   MEMORY_CLASS_WIRED = 0,
+   MEMORY_CLASS_SPECULATIVE,
+   MEMORY_CLASS_ACTIVE,
+   MEMORY_CLASS_PURGEABLE,
+   MEMORY_CLASS_COMPRESSED,
+   MEMORY_CLASS_INACTIVE,
+}; // N.B. the chart will display categories in this order
+
+const MemoryClass Platform_memoryClasses[] = {
+    [MEMORY_CLASS_WIRED] = { .label = "wired", .countsAsUsed = true, .countsAsCache = false, .color = MEMORY_1 }, // pages wired down to physical memory (kernel)
+   [MEMORY_CLASS_SPECULATIVE] = { .label = "speculative", .countsAsUsed = false, .countsAsCache = true, .color = MEMORY_2 }, // readahead optimization caches
+   [MEMORY_CLASS_ACTIVE] = { .label = "active", .countsAsUsed = true, .countsAsCache = false, .color = MEMORY_3 }, // userland pages actively being used
+   [MEMORY_CLASS_PURGEABLE] = { .label = "purgeable", .countsAsUsed = false, .countsAsCache = true, .color = MEMORY_4 }, // userland pages voluntarily marked "discardable" by apps
+   [MEMORY_CLASS_COMPRESSED] = { .label = "compressed", .countsAsUsed = true, .countsAsCache = false, .color = MEMORY_5 }, // userland pages being compressed (means memory pressure++)
+   [MEMORY_CLASS_INACTIVE] = { .label = "inactive", .countsAsUsed = false, .countsAsCache = true, .color = MEMORY_6 }, // pages no longer actively referenced
+};
+
+const unsigned int Platform_numberOfMemoryClasses = ARRAYSIZE(Platform_memoryClasses);
+
 const MeterClass* const Platform_meterTypes[] = {
    &CPUMeter_class,
    &ClockMeter_class,
@@ -127,6 +148,7 @@ const MeterClass* const Platform_meterTypes[] = {
    &HostnameMeter_class,
    &SysArchMeter_class,
    &UptimeMeter_class,
+   &SecondsUptimeMeter_class,
    &AllCPUsMeter_class,
    &AllCPUs2Meter_class,
    &AllCPUs4Meter_class,
@@ -141,22 +163,82 @@ const MeterClass* const Platform_meterTypes[] = {
    &RightCPUs8Meter_class,
    &ZfsArcMeter_class,
    &ZfsCompressedArcMeter_class,
+   &DiskIORateMeter_class,
+   &DiskIOTimeMeter_class,
    &DiskIOMeter_class,
    &NetworkIOMeter_class,
    &FileDescriptorMeter_class,
+   &GPUMeter_class,
    &BlankMeter_class,
    NULL
 };
 
-static double Platform_nanosecondsPerMachTick = 1.0;
+static uint64_t Platform_nanosecondsPerMachTickNumer = 1;
+static uint64_t Platform_nanosecondsPerMachTickDenom = 1;
 
 static double Platform_nanosecondsPerSchedulerTick = -1;
 
-static bool iokit_available = false;
 static mach_port_t iokit_port; // the mach port used to initiate communication with IOKit
 
+static void Platform_calculateNanosecondsPerMachTick(uint64_t* numer, uint64_t* denom) {
+   // Check if we can determine the timebase used on this system.
+
+#ifdef __x86_64__
+   /* WORKAROUND for `mach_timebase_info` giving incorrect values on M1 under Rosetta 2.
+    *    rdar://FB9546856 http://www.openradar.appspot.com/FB9546856
+    *
+    *    We don't know exactly what feature/attribute of the M1 chip causes this mistake under Rosetta 2.
+    *    Until we have more Apple ARM chips to compare against, the best we can do is special-case
+    *    the "Apple M1" chip specifically when running under Rosetta 2.
+    *
+    *    Rosetta 2 only supports x86-64, so skip this workaround when building for other architectures.
+    */
+
+   bool isRunningUnderRosetta2 = Platform_isRunningTranslated();
+
+   // Kernel versions >= 20.0.0 (macOS 11.0 AKA Big Sur) affected
+   bool isBuggedVersion = 0 <= Platform_CompareKernelVersion((KernelVersion) {20, 0, 0});
+
+   if (isRunningUnderRosetta2 && isBuggedVersion) {
+      // In this case `mach_timebase_info` provides the wrong value, so we hard-code the correct factor,
+      // as determined from `mach_timebase_info` as if the process was running natively.
+      *numer = 125;
+      *denom = 3;
+      return;
+   }
+#endif
+
+#ifdef HAVE_MACH_TIMEBASE_INFO
+   mach_timebase_info_data_t info = { 0 };
+   if (mach_timebase_info(&info) == KERN_SUCCESS) {
+      *numer = info.numer;
+      *denom = info.denom;
+      return;
+   }
+#endif
+
+   // No info on actual timebase found; assume timebase in nanoseconds.
+   *numer = 1;
+   *denom = 1;
+}
+
+// Converts ticks in the Mach "timebase" to nanoseconds.
+// See `mach_timebase_info`, as used to define the `Platform_nanosecondsPerMachTick` constant.
+uint64_t Platform_machTicksToNanoseconds(uint64_t mach_ticks) {
+   uint64_t ticks_quot = mach_ticks / Platform_nanosecondsPerMachTickDenom;
+   uint64_t ticks_rem  = mach_ticks % Platform_nanosecondsPerMachTickDenom;
+
+   uint64_t part1 = ticks_quot * Platform_nanosecondsPerMachTickNumer;
+
+   // When Platform_nanosecondsPerMachTickDenom * Platform_nanosecondsPerMachTickNumer is less than 2^64, ticks_rem *
+   // Platform_nanosecondsPerMachTickNumer will be less than 2^64 as well, i.e. never overflows.
+   uint64_t part2 = (ticks_rem * Platform_nanosecondsPerMachTickNumer) / Platform_nanosecondsPerMachTickDenom;
+
+   return part1 + part2;
+}
+
 bool Platform_init(void) {
-   Platform_nanosecondsPerMachTick = Platform_calculateNanosecondsPerMachTick();
+   Platform_calculateNanosecondsPerMachTick(&Platform_nanosecondsPerMachTickNumer, &Platform_nanosecondsPerMachTickDenom);
 
    // Determine the number of scheduler clock ticks per second
    errno = 0;
@@ -169,24 +251,7 @@ bool Platform_init(void) {
    const double nanos_per_sec = 1e9;
    Platform_nanosecondsPerSchedulerTick = nanos_per_sec / scheduler_ticks_per_sec;
 
-   // Since macOS 12.0, IOMasterPort is deprecated, and one should use IOMainPort instead
-   #if defined(HAVE_DECL_IOMAINPORT) && HAVE_DECL_IOMAINPORT
-   if (!IOMainPort(bootstrap_port, &iokit_port)) {
-      iokit_available = true;
-   }
-   #elif defined(HAVE_DECL_IOMASTERPORT) && HAVE_DECL_IOMASTERPORT
-   if (!IOMasterPort(bootstrap_port, &iokit_port)) {
-      iokit_available = true;
-   }
-   #endif
-
    return true;
-}
-
-// Converts ticks in the Mach "timebase" to nanoseconds.
-// See `mach_timebase_info`, as used to define the `Platform_nanosecondsPerMachTick` constant.
-uint64_t Platform_machTicksToNanoseconds(uint64_t mach_ticks) {
-   return (uint64_t) ((double) mach_ticks * Platform_nanosecondsPerMachTick);
 }
 
 // Converts "scheduler ticks" to nanoseconds.
@@ -272,12 +337,18 @@ double Platform_setCPUValues(Meter* mtr, unsigned int cpu) {
       total += (double)curr->cpu_ticks[i] - (double)prev->cpu_ticks[i];
    }
 
-   mtr->values[CPU_METER_NICE]
-      = ((double)curr->cpu_ticks[CPU_STATE_NICE] - (double)prev->cpu_ticks[CPU_STATE_NICE]) * 100.0 / total;
-   mtr->values[CPU_METER_NORMAL]
-      = ((double)curr->cpu_ticks[CPU_STATE_USER] - (double)prev->cpu_ticks[CPU_STATE_USER]) * 100.0 / total;
-   mtr->values[CPU_METER_KERNEL]
-      = ((double)curr->cpu_ticks[CPU_STATE_SYSTEM] - (double)prev->cpu_ticks[CPU_STATE_SYSTEM]) * 100.0 / total;
+   if (total > 1e-6) {
+      mtr->values[CPU_METER_NICE]
+         = ((double)curr->cpu_ticks[CPU_STATE_NICE] - (double)prev->cpu_ticks[CPU_STATE_NICE]) * 100.0 / total;
+      mtr->values[CPU_METER_NORMAL]
+         = ((double)curr->cpu_ticks[CPU_STATE_USER] - (double)prev->cpu_ticks[CPU_STATE_USER]) * 100.0 / total;
+      mtr->values[CPU_METER_KERNEL]
+         = ((double)curr->cpu_ticks[CPU_STATE_SYSTEM] - (double)prev->cpu_ticks[CPU_STATE_SYSTEM]) * 100.0 / total;
+   } else {
+      mtr->values[CPU_METER_NICE] = 0.0;
+      mtr->values[CPU_METER_NORMAL] = 0.0;
+      mtr->values[CPU_METER_KERNEL] = 0.0;
+   }
 
    mtr->curItems = 3;
 
@@ -290,18 +361,91 @@ double Platform_setCPUValues(Meter* mtr, unsigned int cpu) {
    return CLAMP(total, 0.0, 100.0);
 }
 
+void Platform_setGPUValues(Meter* mtr, double* totalUsage, unsigned long long* totalGPUTimeDiff) {
+   const Machine* host = mtr->host;
+   const DarwinMachine* dhost = (const DarwinMachine *)host;
+
+   assert(*totalGPUTimeDiff == -1ULL);
+   (void)totalGPUTimeDiff;
+
+   mtr->curItems = 1;
+   mtr->values[0] = NAN;
+
+   if (!dhost->GPUService)
+      return;
+
+   static uint64_t prevMonotonicMs;
+
+   // Ensure there is a small time interval between the creation of the
+   // CF property tables. If this function is called in quick successions
+   // (e.g. for multiple meter instances), we might get "0% utilization"
+   // as a result.
+   if (host->monotonicMs <= prevMonotonicMs) {
+      mtr->values[0] = *totalUsage;
+      return;
+   }
+
+   CFDictionaryRef perfStats = IORegistryEntryCreateCFProperty(dhost->GPUService, CFSTR("PerformanceStatistics"), kCFAllocatorDefault, kNilOptions);
+   if (!perfStats)
+      return;
+
+   assert(CFGetTypeID(perfStats) == CFDictionaryGetTypeID());
+
+   CFNumberRef deviceUtil = CFDictionaryGetValue(perfStats, CFSTR("Device Utilization %"));
+   if (!deviceUtil)
+      goto cleanup;
+
+   int device = -1;
+   CFNumberGetValue(deviceUtil, kCFNumberIntType, &device);
+   *totalUsage = (double)device;
+
+   prevMonotonicMs = host->monotonicMs;
+
+cleanup:
+   CFRelease(perfStats);
+
+   mtr->values[0] = *totalUsage;
+}
+
 void Platform_setMemoryValues(Meter* mtr) {
    const DarwinMachine* dhost = (const DarwinMachine*) mtr->host;
-   const struct vm_statistics* vm = &dhost->vm_stats;
+   const Settings* settings = mtr->host->settings;
    double page_K = (double)vm_page_size / (double)1024;
 
+#ifdef HAVE_STRUCT_VM_STATISTICS64
+   const struct vm_statistics64* vm = &dhost->vm_stats;
+   #ifdef HAVE_STRUCT_VM_STATISTICS64_INTERNAL_PAGE_COUNT
+   const natural_t internal_page_count = vm->internal_page_count;
+   #else
+   const natural_t internal_page_count = vm->active_count;
+   #endif
+   #ifdef HAVE_STRUCT_VM_STATISTICS64_COMPRESSOR_PAGE_COUNT
+   const natural_t compressor_page_count = vm->compressor_page_count;
+   #else
+   const natural_t compressor_page_count = 0;
+   #endif
+#else
+   const struct vm_statistics* vm = &dhost->vm_stats;
+   const natural_t internal_page_count = vm->active_count;
+   const natural_t compressor_page_count = 0;
+#endif // HAVE_STRUCT_VM_STATISTICS64
+
    mtr->total = dhost->host_info.max_mem / 1024;
-   mtr->values[MEMORY_METER_USED] = (double)(vm->active_count + vm->wire_count) * page_K;
-   // mtr->values[MEMORY_METER_SHARED] = "shared memory, like tmpfs and shm"
-   // mtr->values[MEMORY_METER_COMPRESSED] = "compressed memory, like zswap on linux"
-   mtr->values[MEMORY_METER_BUFFERS] = (double)vm->purgeable_count * page_K;
-   mtr->values[MEMORY_METER_CACHE] = (double)vm->inactive_count * page_K;
-   // mtr->values[MEMORY_METER_AVAILABLE] = "available memory"
+   mtr->values[MEMORY_CLASS_WIRED]       = page_K * vm->wire_count;
+
+   if (settings->showCachedMemory) {
+      mtr->values[MEMORY_CLASS_SPECULATIVE] = page_K * vm->speculative_count;
+      mtr->values[MEMORY_CLASS_ACTIVE]      = page_K * saturatingSub(internal_page_count, vm->purgeable_count);
+      mtr->values[MEMORY_CLASS_PURGEABLE]   = page_K * vm->purgeable_count;
+      mtr->values[MEMORY_CLASS_INACTIVE]    = page_K * vm->inactive_count;
+   }
+   else {
+      mtr->values[MEMORY_CLASS_SPECULATIVE] = 0;
+      mtr->values[MEMORY_CLASS_ACTIVE]      = page_K * saturatingSub(internal_page_count, vm->purgeable_count);
+      mtr->values[MEMORY_CLASS_PURGEABLE]   = 0;
+      mtr->values[MEMORY_CLASS_INACTIVE]    = 0;
+   }
+   mtr->values[MEMORY_CLASS_COMPRESSED]  = page_K * compressor_page_count;
 }
 
 void Platform_setSwapValues(Meter* mtr) {
@@ -312,8 +456,6 @@ void Platform_setSwapValues(Meter* mtr) {
 
    mtr->total = swapused.xsu_total / 1024;
    mtr->values[SWAP_METER_USED] = swapused.xsu_used / 1024;
-   // mtr->values[SWAP_METER_CACHE] = "pages that are both in swap and RAM, like SwapCached on linux"
-   // mtr->values[SWAP_METER_FRONTSWAP] = "pages that are accounted to swap but stored elsewhere, like frontswap on linux"
 }
 
 void Platform_setZfsArcValues(Meter* this) {
@@ -389,8 +531,6 @@ void Platform_getFileDescriptors(double* used, double* max) {
 }
 
 bool Platform_getDiskIO(DiskIOData* data) {
-   if (!iokit_available)
-      return false;
 
    io_iterator_t drive_list;
 
@@ -398,7 +538,8 @@ bool Platform_getDiskIO(DiskIOData* data) {
    if (IOServiceGetMatchingServices(iokit_port, IOServiceMatching("IOBlockStorageDriver"), &drive_list))
       return false;
 
-   unsigned long long int read_sum = 0, write_sum = 0, timeSpend_sum = 0;
+   uint64_t read_sum = 0, write_sum = 0, timeSpend_sum = 0;
+   uint64_t numDisks = 0;
 
    io_registry_entry_t drive;
    while ((drive = IOIteratorNext(drive_list)) != 0) {
@@ -427,8 +568,10 @@ bool Platform_getDiskIO(DiskIOData* data) {
          continue;
       }
 
+      numDisks++;
+
       CFNumberRef number;
-      unsigned long long int value;
+      uint64_t value;
 
       /* Get bytes read */
       number = (CFNumberRef) CFDictionaryGetValue(statistics, CFSTR(kIOBlockStorageDriverStatisticsBytesReadKey));
@@ -465,6 +608,7 @@ bool Platform_getDiskIO(DiskIOData* data) {
    data->totalBytesRead = read_sum;
    data->totalBytesWritten = write_sum;
    data->totalMsTimeSpend = timeSpend_sum / 1e6; /* Convert from ns to ms */
+   data->numDisks = numDisks;
 
    if (drive_list)
       IOObjectRelease(drive_list);
@@ -478,7 +622,7 @@ bool Platform_getDiskIO(DiskIOData* data) {
 bool Platform_getNetworkIO(NetworkIOData* data) {
    int mib[6] = {CTL_NET,
       PF_ROUTE, /* routing messages */
-      0, /* protocal number, currently always 0 */
+      0, /* protocol number, currently always 0 */
       0, /* select all address families */
       NET_RT_IFLIST2, /* interface list with addresses */
       0};
@@ -551,7 +695,8 @@ void Platform_getBattery(double* percent, ACPresence* isOnAC) {
    double cap_max = 0.0;
 
    /* Get the battery */
-   for (int i = 0, len = CFArrayGetCount(list); i < len; ++i) {
+   size_t len = CFArrayGetCount(list);
+   for (size_t i = 0; i < len; ++i) {
       CFDictionaryRef power_source = IOPSGetPowerSourceDescription(power_sources, CFArrayGetValueAtIndex(list, i)); /* GET rule */
 
       if (!power_source)
@@ -606,4 +751,75 @@ void Platform_gettime_monotonic(uint64_t* msec) {
 
 #endif
 
+}
+
+static void Platform_getOSRelease(char* buffer, size_t bufferLen) {
+   static const CFStringRef osfiles[] = {
+#ifdef OSRELEASEFILE
+      CFSTR(OSRELEASEFILE) /* Custom path for testing; undefined by default */,
+#endif
+      CFSTR("/System/Library/CoreServices/SystemVersion.plist"),
+   };
+
+   if (!bufferLen)
+      return;
+
+   CFPropertyListRef plist = NULL;
+   for (size_t i = 0; i < ARRAYSIZE(osfiles); i++) {
+      CFURLRef url = CFURLCreateWithFileSystemPath(kCFAllocatorDefault, osfiles[i], kCFURLPOSIXPathStyle, /*isDirectory*/false);
+      if (!url)
+         continue;
+
+      CFReadStreamRef stream = CFReadStreamCreateWithFile(kCFAllocatorDefault, url);
+      CFRelease(url);
+
+      if (!stream)
+         continue;
+
+      bool canRead = CFReadStreamOpen(stream);
+      if (canRead) {
+         plist = CFPropertyListCreateWithStream(kCFAllocatorDefault, stream, 0, kCFPropertyListImmutable, NULL, NULL);
+         CFReadStreamClose(stream);
+      }
+      CFRelease(stream);
+
+      if (canRead)
+         break;
+   }
+
+   if (!plist)
+      goto fail;
+
+   CFStringRef str = NULL;
+   if (CFGetTypeID(plist) == CFDictionaryGetTypeID()) {
+      CFDictionaryRef dict = (CFDictionaryRef)plist;
+
+      CFStringRef productName = CFDictionaryGetValue(dict, CFSTR("ProductName"));
+      CFStringRef productVersion = CFDictionaryGetValue(dict, CFSTR("ProductVersion"));
+      CFStringRef separator = productName && productVersion ? CFSTR(" ") : CFSTR("");
+
+      if (!productName)
+         productName = CFSTR("");
+      if (!productVersion)
+         productVersion = CFSTR("");
+
+      str = CFStringCreateWithFormat(kCFAllocatorDefault, NULL, CFSTR("%@%@%@"), productName, separator, productVersion);
+   }
+   CFRelease(plist);
+
+   if (!str)
+      goto fail;
+
+   bool ok = CFStringGetCString(str, buffer, bufferLen, kCFStringEncodingUTF8);
+   CFRelease(str);
+
+   if (ok)
+      return;
+
+fail:
+   buffer[0] = '\0';
+}
+
+const char* Platform_getRelease(void) {
+   return Generic_unameRelease(Platform_getOSRelease);
 }

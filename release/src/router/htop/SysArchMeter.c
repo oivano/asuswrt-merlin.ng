@@ -20,10 +20,7 @@ in the source distribution for its full text.
 static const int SysArchMeter_attributes[] = {HOSTNAME};
 
 static void SysArchMeter_updateValues(Meter* this) {
-   static char* string;
-
-   if (string == NULL)
-      Platform_getRelease(&string);
+   const char* string = Platform_getRelease();
 
    String_safeStrncpy(this->txtBuffer, string, sizeof(this->txtBuffer));
 }
@@ -35,8 +32,9 @@ const MeterClass SysArchMeter_class = {
    },
    .updateValues = SysArchMeter_updateValues,
    .defaultMode = TEXT_METERMODE,
+   .supportedModes = (1 << TEXT_METERMODE),
    .maxItems = 0,
-   .total = 100.0,
+   .total = 0.0,
    .attributes = SysArchMeter_attributes,
    .name = "System",
    .uiName = "System",

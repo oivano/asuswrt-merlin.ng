@@ -19,8 +19,6 @@ in the source distribution for its full text.
 
 
 #define PROCESS_FLAG_LINUX_IOPRIO    0x00000100
-#define PROCESS_FLAG_LINUX_OPENVZ    0x00000200
-#define PROCESS_FLAG_LINUX_VSERVER   0x00000400
 #define PROCESS_FLAG_LINUX_CGROUP    0x00000800
 #define PROCESS_FLAG_LINUX_OOM       0x00001000
 #define PROCESS_FLAG_LINUX_SMAPS     0x00002000
@@ -29,6 +27,8 @@ in the source distribution for its full text.
 #define PROCESS_FLAG_LINUX_LRS_FIX   0x00010000
 #define PROCESS_FLAG_LINUX_DELAYACCT 0x00040000
 #define PROCESS_FLAG_LINUX_AUTOGROUP 0x00080000
+#define PROCESS_FLAG_LINUX_GPU       0x00100000
+#define PROCESS_FLAG_LINUX_CONTAINER 0x00200000
 
 typedef struct LinuxProcess_ {
    Process super;
@@ -44,6 +44,7 @@ typedef struct LinuxProcess_ {
    long m_pss;
    long m_swap;
    long m_psswp;
+   long m_epss;
    long m_trs;
    long m_drs;
    long m_lrs;
@@ -81,13 +82,6 @@ typedef struct LinuxProcess_ {
    /* Storage data written (in bytes per second) */
    double io_rate_write_bps;
 
-   #ifdef HAVE_OPENVZ
-   char* ctid;
-   pid_t vpid;
-   #endif
-   #ifdef HAVE_VSERVER
-   unsigned int vxid;
-   #endif
    char* cgroup;
    char* cgroup_short;
    char* container_short;
@@ -105,6 +99,13 @@ typedef struct LinuxProcess_ {
    unsigned long ctxt_diff;
    char* secattr;
    unsigned long long int last_mlrs_calctime;
+
+   /* Total GPU time used in nano seconds */
+   unsigned long long int gpu_time;
+   /* GPU utilization in percent */
+   float gpu_percent;
+   /* Activity of GPU: 0 if active, otherwise time of last scan in milliseconds */
+   uint64_t gpu_activityMs;
 
    /* Autogroup scheduling (CFS) information */
    long int autogroup_id;

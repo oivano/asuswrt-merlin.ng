@@ -11,7 +11,7 @@ in the source distribution for its full text.
 #include <limits.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <sys/time.h>
+#include <time.h>
 #include <sys/types.h>
 
 #include "Panel.h"
@@ -38,9 +38,10 @@ typedef unsigned long long int memory_t;
 typedef struct Machine_ {
    struct Settings_* settings;
 
-   struct timeval realtime;   /* time of the current sample */
+   struct timespec realtime;  /* time of the current sample */
    uint64_t realtimeMs;       /* current time in milliseconds */
    uint64_t monotonicMs;      /* same, but from monotonic clock */
+   uint64_t prevMonotonicMs;  /* time in milliseconds from monotonic clock of previous scan */
 
    int64_t iterationsRemaining;
 
@@ -50,11 +51,6 @@ typedef struct Machine_ {
    #endif
 
    memory_t totalMem;
-   memory_t usedMem;
-   memory_t buffersMem;
-   memory_t cachedMem;
-   memory_t sharedMem;
-   memory_t availableMem;
 
    memory_t totalSwap;
    memory_t usedSwap;
@@ -67,6 +63,8 @@ typedef struct Machine_ {
    uid_t htopUserId;
    uid_t maxUserId;  /* recently observed */
    uid_t userId;  /* selected row user ID */
+
+   pid_t maxProcessId; /* largest PID seen at runtime */
 
    size_t tableCount;
    Table **tables;
@@ -85,9 +83,13 @@ void Machine_done(Machine* this);
 
 bool Machine_isCPUonline(const Machine* this, unsigned int id);
 
+int Machine_getCPUPhysicalCoreID(const Machine* this, unsigned int id);
+
+int Machine_getCPUThreadIndex(const Machine* this, unsigned int id);
+
 void Machine_populateTablesFromSettings(Machine* this, Settings* settings, Table* processTable);
 
-void Machine_setTablesPanel(Machine* host, Panel* panel);
+void Machine_setTablesPanel(Machine* this, Panel* panel);
 
 void Machine_scan(Machine* this);
 

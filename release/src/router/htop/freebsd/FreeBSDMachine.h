@@ -36,8 +36,11 @@ typedef struct FreeBSDMachine_ {
    int pageSizeKb;
    int kernelFScale;
 
-   unsigned long long int memWire;
-   unsigned long long int memActive;
+   memory_t wiredMem;
+   memory_t activeMem;
+   memory_t laundryMem;
+   memory_t cacheMem;
+   memory_t inactiveMem;
 
    ZfsArcStats zfs;
 

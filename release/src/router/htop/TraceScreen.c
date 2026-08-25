@@ -39,6 +39,7 @@ TraceScreen* TraceScreen_new(const Process* process) {
    TraceScreen* this = xCalloc(1, sizeof(TraceScreen));
    Object_setClass(this, Class(TraceScreen));
    this->tracing = true;
+   this->strace_alive = false;
    FunctionBar* fuBar = FunctionBar_new(TraceScreenFunctions, TraceScreenKeys, TraceScreenEvents);
    CRT_disableDelay();
    return (TraceScreen*) InfoScreen_init(&this->super, process, fuBar, LINES - 2, " ");
@@ -48,9 +49,7 @@ void TraceScreen_delete(Object* cast) {
    TraceScreen* this = (TraceScreen*) cast;
    if (this->child > 0) {
       kill(this->child, SIGTERM);
-      while (waitpid(this->child, NULL, 0) == -1)
-         if (errno != EINTR)
-            break;
+      xWaitpid(this->child, NULL, 0, false);
    }
 
    if (this->strace) {
@@ -66,9 +65,9 @@ static void TraceScreen_draw(InfoScreen* this) {
 }
 
 bool TraceScreen_forkTracer(TraceScreen* this) {
-   int fdpair[2] = {0, 0};
+   int fdpair[2] = {-1, -1};
 
-   if (pipe(fdpair) == -1)
+   if (pipe(fdpair) < 0)
       return false;
 
    if (fcntl(fdpair[0], F_SETFL, O_NONBLOCK) < 0)
@@ -78,7 +77,7 @@ bool TraceScreen_forkTracer(TraceScreen* this) {
       goto err;
 
    pid_t child = fork();
-   if (child == -1)
+   if (child < 0)
       goto err;
 
    if (child == 0) {
@@ -110,42 +109,53 @@ bool TraceScreen_forkTracer(TraceScreen* this) {
          (void)! write(STDERR_FILENO, message, strlen(message));
       #endif
 
-      exit(127);
+      _exit(127);
    }
 
-   FILE* fd = fdopen(fdpair[0], "r");
-   if (!fd)
+   this->child = child;
+
+   FILE* fp = fdopen(fdpair[0], "r");
+   if (!fp)
       goto err;
 
    close(fdpair[1]);
 
-   this->child = child;
-   this->strace = fd;
+   this->strace = fp;
+   this->strace_alive = true;
+
    return true;
 
 err:
-   close(fdpair[1]);
-   close(fdpair[0]);
+   {
+      int saved_errno = errno;
+      close(fdpair[1]);
+      close(fdpair[0]);
+      errno = saved_errno;
+   }
    return false;
 }
 
 static void TraceScreen_updateTrace(InfoScreen* super) {
    TraceScreen* this = (TraceScreen*) super;
-   char buffer[1025];
 
-   int fd_strace = fileno(this->strace);
-   assert(fd_strace != -1);
+   int fd_strace = -1;
+   if (this->strace) {
+      fd_strace = fileno(this->strace);
+   }
 
    fd_set fds;
    FD_ZERO(&fds);
-// FD_SET(STDIN_FILENO, &fds);
-   FD_SET(fd_strace, &fds);
+   FD_SET(STDIN_FILENO, &fds);
+   if (this->strace_alive && fd_strace >= 0) {
+      FD_SET(fd_strace, &fds);
+   }
 
    struct timeval tv = { .tv_sec = 0, .tv_usec = 500 };
-   int ready = select(fd_strace + 1, &fds, NULL, NULL, &tv);
+   int ready = select(MAXIMUM(STDIN_FILENO, fd_strace) + 1, &fds, NULL, NULL, &tv);
 
+   char buffer[1025];
    size_t nread = 0;
-   if (ready > 0 && FD_ISSET(fd_strace, &fds))
+   if (fd_strace >= 0 && ready > 0 && FD_ISSET(fd_strace, &fds))
       nread = fread(buffer, 1, sizeof(buffer) - 1, this->strace);
 
    if (nread && this->tracing) {
@@ -170,6 +180,10 @@ static void TraceScreen_updateTrace(InfoScreen* super) {
       }
       if (this->follow) {
          Panel_setSelected(this->super.display, Panel_size(this->super.display) - 1);
+      }
+   } else {
+      if (this->strace_alive && xWaitpid(this->child, NULL, WNOHANG, false) != 0) {
+         this->strace_alive = false;
       }
    }
 }

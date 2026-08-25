@@ -17,6 +17,14 @@ in the source distribution for its full text.
 #include "Object.h"
 
 
+static const int ClockMeter_attributes[] = {
+   CLOCK
+};
+
+static const int DateMeter_attributes[] = {
+   DATE
+};
+
 static const int DateTimeMeter_attributes[] = {
    DATETIME
 };
@@ -26,15 +34,46 @@ static void DateTimeMeter_updateValues(Meter* this) {
 
    struct tm result;
    const struct tm* lt = localtime_r(&host->realtime.tv_sec, &result);
-   int year = lt->tm_year + 1900;
-   if (((year % 4 == 0) && (year % 100 != 0)) || (year % 400 == 0)) {
-      this->total = 366;
+   if (As_Meter(this) == &ClockMeter_class) {
+      strftime(this->txtBuffer, sizeof(this->txtBuffer), "%H:%M:%S", lt);
+   } else if (As_Meter(this) == &DateMeter_class) {
+      strftime(this->txtBuffer, sizeof(this->txtBuffer), "%F", lt);
    } else {
-      this->total = 365;
+      strftime(this->txtBuffer, sizeof(this->txtBuffer), "%F %H:%M:%S", lt);
    }
-   this->values[0] = lt->tm_yday;
-   strftime(this->txtBuffer, sizeof(this->txtBuffer), "%F %H:%M:%S", lt);
 }
+
+const MeterClass ClockMeter_class = {
+   .super = {
+      .extends = Class(Meter),
+      .delete = Meter_delete
+   },
+   .updateValues = DateTimeMeter_updateValues,
+   .defaultMode = TEXT_METERMODE,
+   .supportedModes = (1 << TEXT_METERMODE) | (1 << LED_METERMODE),
+   .maxItems = 0,
+   .total = 0.0,
+   .attributes = ClockMeter_attributes,
+   .name = "Clock",
+   .uiName = "Clock",
+   .caption = "Time: ",
+};
+
+const MeterClass DateMeter_class = {
+   .super = {
+      .extends = Class(Meter),
+      .delete = Meter_delete
+   },
+   .updateValues = DateTimeMeter_updateValues,
+   .defaultMode = TEXT_METERMODE,
+   .supportedModes = (1 << TEXT_METERMODE) | (1 << LED_METERMODE),
+   .maxItems = 0,
+   .total = 0.0,
+   .attributes = DateMeter_attributes,
+   .name = "Date",
+   .uiName = "Date",
+   .caption = "Date: ",
+};
 
 const MeterClass DateTimeMeter_class = {
    .super = {
@@ -43,8 +82,9 @@ const MeterClass DateTimeMeter_class = {
    },
    .updateValues = DateTimeMeter_updateValues,
    .defaultMode = TEXT_METERMODE,
-   .maxItems = 1,
-   .total = 365,
+   .supportedModes = (1 << TEXT_METERMODE) | (1 << LED_METERMODE),
+   .maxItems = 0,
+   .total = 0.0,
    .attributes = DateTimeMeter_attributes,
    .name = "DateTime",
    .uiName = "Date and Time",

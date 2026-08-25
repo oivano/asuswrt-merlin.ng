@@ -33,6 +33,7 @@ in the source distribution for its full text.
 #ifdef BUILD_STATIC
 
 #define sym_sd_bus_open_system sd_bus_open_system
+#define sym_sd_bus_open_user sd_bus_open_user
 #define sym_sd_bus_get_property_string sd_bus_get_property_string
 #define sym_sd_bus_get_property_trivial sd_bus_get_property_trivial
 #define sym_sd_bus_unref sd_bus_unref
@@ -216,7 +217,7 @@ static void updateViaExec(bool user) {
    if (Settings_isReadonly())
       return;
 
-   int fdpair[2];
+   int fdpair[2] = {-1, -1};
    if (pipe(fdpair) < 0)
       return;
 
@@ -233,7 +234,7 @@ static void updateViaExec(bool user) {
       close(fdpair[1]);
       int fdnull = open("/dev/null", O_WRONLY);
       if (fdnull < 0)
-         exit(1);
+         _exit(1);
       dup2(fdnull, STDERR_FILENO);
       close(fdnull);
       // Use of NULL in variadic functions must have a pointer cast.
@@ -249,12 +250,12 @@ static void updateViaExec(bool user) {
          "--property=NJobs",
          "--property=NInstalledJobs",
          (char*)NULL);
-      exit(127);
+      _exit(127);
    }
    close(fdpair[1]);
 
    int wstatus;
-   if (waitpid(child, &wstatus, 0) < 0 || !WIFEXITED(wstatus) || WEXITSTATUS(wstatus) != 0) {
+   if (xWaitpid(child, &wstatus, 0, false) < 0 || !WIFEXITED(wstatus) || WEXITSTATUS(wstatus) != 0) {
       close(fdpair[0]);
       return;
    }
@@ -267,6 +268,7 @@ static void updateViaExec(bool user) {
 
    char lineBuffer[128];
    while (fgets(lineBuffer, sizeof(lineBuffer), commandOutput)) {
+      char* endptr;
       if (String_startsWith(lineBuffer, "SystemState=")) {
          char* newline = strchr(lineBuffer + strlen("SystemState="), '\n');
          if (newline) {
@@ -274,13 +276,21 @@ static void updateViaExec(bool user) {
          }
          free_and_xStrdup(&ctx->systemState, lineBuffer + strlen("SystemState="));
       } else if (String_startsWith(lineBuffer, "NFailedUnits=")) {
-         ctx->nFailedUnits = strtoul(lineBuffer + strlen("NFailedUnits="), NULL, 10);
+         unsigned long value = strtoul(lineBuffer + strlen("NFailedUnits="), &endptr, 10);
+         if (value <= UINT_MAX && (*endptr == '\n' || *endptr == '\0'))
+            ctx->nFailedUnits = (unsigned int) value;
       } else if (String_startsWith(lineBuffer, "NNames=")) {
-         ctx->nNames = strtoul(lineBuffer + strlen("NNames="), NULL, 10);
+         unsigned long value = strtoul(lineBuffer + strlen("NNames="), &endptr, 10);
+         if (value <= UINT_MAX && (*endptr == '\n' || *endptr == '\0'))
+            ctx->nNames = (unsigned int) value;
       } else if (String_startsWith(lineBuffer, "NJobs=")) {
-         ctx->nJobs = strtoul(lineBuffer + strlen("NJobs="), NULL, 10);
+         unsigned long value = strtoul(lineBuffer + strlen("NJobs="), &endptr, 10);
+         if (value <= UINT_MAX && (*endptr == '\n' || *endptr == '\0'))
+            ctx->nJobs = (unsigned int) value;
       } else if (String_startsWith(lineBuffer, "NInstalledJobs=")) {
-         ctx->nInstalledJobs = strtoul(lineBuffer + strlen("NInstalledJobs="), NULL, 10);
+         unsigned long value = strtoul(lineBuffer + strlen("NInstalledJobs="), &endptr, 10);
+         if (value <= UINT_MAX && (*endptr == '\n' || *endptr == '\0'))
+            ctx->nInstalledJobs = (unsigned int) value;
       }
    }
 
@@ -328,7 +338,7 @@ static int valueDigitColor(unsigned int value) {
 }
 
 
-static void _SystemdMeter_display(ATTR_UNUSED const Object* cast, RichString* out, SystemdMeterContext_t* ctx) {
+static void SystemdMeter_display(ATTR_UNUSED const Object* cast, RichString* out, SystemdMeterContext_t* ctx) {
    char buffer[16];
    int len;
    int color = METER_VALUE_ERROR;
@@ -386,12 +396,12 @@ static void _SystemdMeter_display(ATTR_UNUSED const Object* cast, RichString* ou
    RichString_appendAscii(out, CRT_colors[METER_TEXT], " jobs)");
 }
 
-static void SystemdMeter_display(ATTR_UNUSED const Object* cast, RichString* out) {
-   _SystemdMeter_display(cast, out, &ctx_system);
+static void SystemdMeter_display_system(ATTR_UNUSED const Object* cast, RichString* out) {
+   SystemdMeter_display(cast, out, &ctx_system);
 }
 
-static void SystemdUserMeter_display(ATTR_UNUSED const Object* cast, RichString* out) {
-   _SystemdMeter_display(cast, out, &ctx_user);
+static void SystemdMeter_display_user(ATTR_UNUSED const Object* cast, RichString* out) {
+   SystemdMeter_display(cast, out, &ctx_user);
 }
 
 static const int SystemdMeter_attributes[] = {
@@ -402,13 +412,14 @@ const MeterClass SystemdMeter_class = {
    .super = {
       .extends = Class(Meter),
       .delete = Meter_delete,
-      .display = SystemdMeter_display
+      .display = SystemdMeter_display_system,
    },
    .updateValues = SystemdMeter_updateValues,
    .done = SystemdMeter_done,
    .defaultMode = TEXT_METERMODE,
+   .supportedModes = (1 << TEXT_METERMODE),
    .maxItems = 0,
-   .total = 100.0,
+   .total = 0.0,
    .attributes = SystemdMeter_attributes,
    .name = "Systemd",
    .uiName = "Systemd state",
@@ -420,13 +431,14 @@ const MeterClass SystemdUserMeter_class = {
    .super = {
       .extends = Class(Meter),
       .delete = Meter_delete,
-      .display = SystemdUserMeter_display
+      .display = SystemdMeter_display_user,
    },
    .updateValues = SystemdMeter_updateValues,
    .done = SystemdMeter_done,
    .defaultMode = TEXT_METERMODE,
+   .supportedModes = (1 << TEXT_METERMODE),
    .maxItems = 0,
-   .total = 100.0,
+   .total = 0.0,
    .attributes = SystemdMeter_attributes,
    .name = "SystemdUser",
    .uiName = "Systemd user state",

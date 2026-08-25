@@ -36,7 +36,7 @@ void MainPanel_updateLabels(MainPanel* this, bool list, bool filter) {
 }
 
 static void MainPanel_idSearch(MainPanel* this, int ch) {
-   Panel* super = (Panel*) this;
+   Panel* super = &this->super;
    pid_t id = ch - 48 + this->idSearch;
    for (int i = 0; i < Panel_size(super); i++) {
       const Row* row = (const Row*) Panel_get(super, i);
@@ -79,6 +79,12 @@ static HandlerResult MainPanel_eventHandler(Panel* super, int ch) {
    Settings* settings = host->settings;
    ScreenSettings* ss = settings->ss;
 
+   if ((ch == KEY_UP || ch == KEY_DOWN || ch == KEY_PPAGE || ch == KEY_NPAGE) &&
+       host->activeTable->following != -1 && !settings->stickyFollow) {
+      host->activeTable->following = -1;
+      Panel_setSelectionColor(super, PANEL_SELECTION_FOCUS);
+   }
+
    if (EVENT_IS_HEADER_CLICK(ch)) {
       int x = EVENT_HEADER_CLICK_GET_X(ch);
       int hx = super->scrollH + x + 1;
@@ -92,31 +98,47 @@ static HandlerResult MainPanel_eventHandler(Panel* super, int ch) {
       } else {
          reaction |= Action_setSortKey(settings, field);
       }
-      reaction |= HTOP_RECALCULATE | HTOP_REDRAW_BAR | HTOP_SAVE_SETTINGS;
+      reaction |= HTOP_RECALCULATE | HTOP_REDRAW_BAR | HTOP_UPDATE_PANELHDR | HTOP_SAVE_SETTINGS;
       result = HANDLED;
    } else if (EVENT_IS_SCREEN_TAB_CLICK(ch)) {
       int x = EVENT_SCREEN_TAB_GET_X(ch);
       reaction |= Action_setScreenTab(this->state, x);
       result = HANDLED;
    } else if (ch != ERR && this->inc->active) {
+      const bool wasSearch = !this->inc->active->isFilter;
       bool filterChanged = IncSet_handleKey(this->inc, ch, super, MainPanel_getValue, NULL);
       if (filterChanged) {
          host->activeTable->incFilter = IncSet_filter(this->inc);
          reaction = HTOP_REFRESH | HTOP_REDRAW_BAR;
       }
-      if (this->inc->found) {
-         reaction |= Action_follow(this->state);
+      /* Keep the active-search match separate from the Enter-confirm edge:
+       * IncSet_handleKey() may confirm the search and clear inc->active. */
+      const bool activeSearchMatch = this->inc->active && this->inc->found && !this->inc->active->isFilter;
+      const bool confirmedSearch = !this->inc->active && wasSearch && (ch == '\r' || ch == KEY_ENTER);
+      if (activeSearchMatch || confirmedSearch) {
+         host->activeTable->following = MainPanel_selectedRow(this);
+         Panel_setSelectionColor(super, PANEL_SELECTION_FOLLOW);
          reaction |= HTOP_KEEP_FOLLOWING;
+         if (confirmedSearch)
+            reaction |= HTOP_REFRESH;
+      } else {
+         host->activeTable->following = -1;
       }
       result = HANDLED;
    } else if (ch == 27) {
       this->state->hideSelection = true;
+      if (host->activeTable->following != -1) {
+         host->activeTable->following = -1;
+         Panel_setSelectionColor(super, PANEL_SELECTION_FOCUS);
+      }
       return HANDLED;
    } else if (ch != ERR && ch > 0 && ch < KEY_MAX && this->keys[ch]) {
       reaction |= (this->keys[ch])(this->state);
       result = HANDLED;
    } else if (0 < ch && ch < 255 && isdigit((unsigned char)ch)) {
       MainPanel_idSearch(this, ch);
+   } else if (ch == KEY_LEFT || ch == KEY_RIGHT) {
+      reaction |= HTOP_KEEP_FOLLOWING;
    } else {
       if (ch != ERR) {
          this->idSearch = 0;
@@ -146,8 +168,7 @@ static HandlerResult MainPanel_eventHandler(Panel* super, int ch) {
    if ((reaction & HTOP_QUIT) == HTOP_QUIT) {
       return BREAK_LOOP;
    }
-   if ((reaction & HTOP_KEEP_FOLLOWING) != HTOP_KEEP_FOLLOWING) {
-      host->activeTable->following = -1;
+   if (host->activeTable->following == -1) {
       Panel_setSelectionColor(super, PANEL_SELECTION_FOCUS);
    }
    return result;
@@ -159,7 +180,7 @@ int MainPanel_selectedRow(MainPanel* this) {
 }
 
 bool MainPanel_foreachRow(MainPanel* this, MainPanel_foreachRowFn fn, Arg arg, bool* wasAnyTagged) {
-   Panel* super = (Panel*) this;
+   Panel* super = &this->super;
    bool ok = true;
    bool anyTagged = false;
    for (int i = 0; i < Panel_size(super); i++) {
@@ -192,6 +213,8 @@ static void MainPanel_drawFunctionBar(Panel* super, bool hideFunctionBar) {
    IncSet_drawBar(this->inc, CRT_colors[FUNCTION_BAR]);
    if (this->state->pauseUpdate) {
       FunctionBar_append("PAUSED", CRT_colors[PAUSED]);
+   } else if (this->state->failedUpdate) {
+      FunctionBar_append(this->state->failedUpdate, CRT_colors[FAILED_READ]);
    }
 }
 
@@ -236,12 +259,11 @@ void MainPanel_setFunctionBar(MainPanel* this, bool readonly) {
 }
 
 void MainPanel_delete(Object* object) {
-   Panel* super = (Panel*) object;
    MainPanel* this = (MainPanel*) object;
    MainPanel_setFunctionBar(this, false);
    FunctionBar_delete(this->readonlyBar);
-   Panel_done(super);
    IncSet_delete(this->inc);
    free(this->keys);
+   Panel_done(&this->super);
    free(this);
 }

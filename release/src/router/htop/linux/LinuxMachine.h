@@ -8,6 +8,7 @@ in the source distribution for its full text.
 */
 
 #include <stdbool.h>
+#include <stddef.h>
 
 #include "Machine.h"
 #include "linux/ZramStats.h"
@@ -50,15 +51,27 @@ typedef struct CPUData_ {
    double temperature;
    #endif
 
+   int physicalID;      /* different for each CPU socket */
+   int coreID;          /* same for hyperthreading */
+   int ccdID;           /* same for each AMD chiplet */
+   int coreIndex;       /* Normalized physical core ID */
+   int threadIndex;     /* SMT thread index: 0 for first thread, 1 for second, etc. */
+
    bool online;
 } CPUData;
+
+typedef struct GPUEngineData_ {
+   unsigned long long int prevTime, curTime;  /* absolute GPU time in nano seconds */
+   char* key;                                 /* engine name */
+   struct GPUEngineData_* next;
+} GPUEngineData;
 
 typedef struct LinuxMachine_ {
    Machine super;
 
    long jiffies;
-   int pageSize;
-   int pageSizeKB;
+   size_t pageSize;
+   size_t pageSizeKB;
 
    /* see Linux kernel source for further detail, fs/proc/stat.c */
    unsigned int runningTasks;   /* procs_running from /proc/stat */
@@ -66,12 +79,22 @@ typedef struct LinuxMachine_ {
 
    double period;
 
+   memory_t cachedMem;
+   memory_t sharedMem;
+   memory_t usedMem;
+   memory_t buffersMem;
+   memory_t availableMem;
+
    CPUData* cpuData;
+
+   int maxPhysicalID;
+   int maxCoreID;
 
    memory_t totalHugePageMem;
    memory_t usedHugePageMem[HTOP_HUGEPAGE_COUNT];
 
-   memory_t availableMem;
+   unsigned long long int prevGpuTime, curGpuTime;  /* total absolute GPU time in nano seconds */
+   GPUEngineData* gpuEngineData;
 
    ZfsArcStats zfs;
    ZramStats zram;

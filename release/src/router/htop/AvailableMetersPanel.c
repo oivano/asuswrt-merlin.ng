@@ -29,11 +29,12 @@ in the source distribution for its full text.
 #include "XUtils.h"
 
 
+static const char* const AvailableMetersFunctions[] = {"      ", "      ", "      ", "      ", "Add Lt", "Add Rt", "      ", "      ", "      ", "Done  ", NULL};
+
 static void AvailableMetersPanel_delete(Object* object) {
-   Panel* super = (Panel*) object;
    AvailableMetersPanel* this = (AvailableMetersPanel*) object;
-   Panel_done(super);
    free(this->meterPanels);
+   Panel_done(&this->super);
    free(this);
 }
 
@@ -41,7 +42,6 @@ static inline void AvailableMetersPanel_addMeter(Header* header, MetersPanel* pa
    const Meter* meter = Header_addMeterByClass(header, type, param, column);
    Panel_add((Panel*)panel, (Object*) Meter_toListItem(meter, false));
    Panel_setSelected((Panel*)panel, Panel_size((Panel*)panel) - 1);
-   MetersPanel_setMoving(panel, true);
 }
 
 static HandlerResult AvailableMetersPanel_eventHandler(Panel* super, int ch) {
@@ -71,6 +71,7 @@ static HandlerResult AvailableMetersPanel_eventHandler(Panel* super, int ch) {
       case KEY_F(6):
       case 'r':
       case 'R':
+      case KEY_RECLICK:
          AvailableMetersPanel_addMeter(header, this->meterPanels[this->columns - 1], Platform_meterTypes[type], param, this->columns - 1);
          result = (KEY_LEFT << 16) | SYNTH_KEY;
          update = true;
@@ -132,7 +133,7 @@ static void AvailableMetersPanel_addDynamicMeter(ATTR_UNUSED ht_key_t key, void*
 // Handle (&DynamicMeter_class) entries in the AvailableMetersPanel
 static void AvailableMetersPanel_addDynamicMeters(Panel* super, const Settings* settings, unsigned int offset) {
    DynamicIterator iter = { .super = super, .id = 1, .offset = offset };
-   Hashtable* dynamicMeters = settings->dynamicColumns;
+   Hashtable* dynamicMeters = settings->dynamicMeters;
    assert(dynamicMeters != NULL);
    Hashtable_foreach(dynamicMeters, AvailableMetersPanel_addDynamicMeter, &iter);
 }
@@ -145,8 +146,9 @@ static void AvailableMetersPanel_addPlatformMeter(Panel* super, const MeterClass
 
 AvailableMetersPanel* AvailableMetersPanel_new(Machine* host, Header* header, size_t columns, MetersPanel** meterPanels, ScreenManager* scr) {
    AvailableMetersPanel* this = AllocThis(AvailableMetersPanel);
-   Panel* super = (Panel*) this;
-   FunctionBar* fuBar = FunctionBar_newEnterEsc("Add   ", "Done   ");
+   Panel* super = &this->super;
+
+   FunctionBar* fuBar = FunctionBar_new(AvailableMetersFunctions, NULL, NULL);
    Panel_init(super, 1, 1, 1, 1, Class(ListItem), true, fuBar);
 
    this->host = host;

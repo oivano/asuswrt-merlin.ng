@@ -1,3 +1,241 @@
+What's new in version 3.5.3
+
+* docs: document CPU meter segments in the man page
+* Improve the settings parser (htoprc) to avoid segfaults on tampered files
+  includes fixing CVE-2024-37676
+* Fix Clang MSan sanitizer security issue
+* linux: fix out-of-bounds access when parsing power supply type
+* linux: mark a CPU offline when it is unplugged from the middle
+* linux: release CPU data when a CPU is hot-unplugged
+* XUtils: use strchr instead strstr
+* darwin: fix blank STARTTIME and wrong ELAPSED for threads
+* Exit follow mode when search or filter is cancelled
+* Extend man page to include a External Libraries section on libnl-3 / libnl-genl-3
+* Add zswap pool usage meters
+
+What's new in version 3.5.2
+
+* Scheduling: OR in SCHED_RESET_ON_FORK instead of ANDing it
+* linux: fix reading zram values
+* systemd: fix SystemdMeter parsing when falling back to systemctl show
+* freebsd: unifying buffer/cache memory usage for all filesystem cache
+* desktop: add trailing semicolon to Keywords and expand keyword list
+* Remove obsolete OpenVZ and VServer support
+* linux: add M_EPSS column (effective proportional set size)
+* Fix segfault when vCPUs are hot-added: resize AllCPUsMeter data->meters array on CPU count change
+* Introduce sticky_follow setting / Unfollow when moving cursor
+* Show error message when trace feature fails on fork
+* Avoid memory leak on error when listing open files
+* Simplify interrupted waitpid handling
+* Properly terminate forked process for TraceScreen
+* Avoid running atexit handlers for forked children
+* Split runlevel and service count queries
+* Skip displaying service counts if both values are missing
+* darwin: fix Mach port leak in DarwinProcess_scanThreads()
+* linux: resolve actual executable path for Flatpak processes
+* Handle unavailable OOM scores as N/A
+* pcp: NULL-guard Metric_instanceCount/Offset
+* Keep search selection followed on confirm
+* darwin: fix used memory calculation to match Activity Monitor
+* Strip control characters from info screen titles
+* Guard title truncation against narrow terminal widths
+* Cap VLA length in RichString wide-character functions
+* Prevent integer overflow in drawScreenTab()
+* linux: fix core ID normalization
+* Make Shift (or Alt)-UP / Shift (or Alt)-DOWN scroll the Panel without changing the selection
+* Add optional stable tree mode argument to -t, document in man page
+* Implement stable tree view
+* Improve following function to work across screens and to be reset with F on an already followed process
+* SELinuxMeter: improve SELinux detection in constrained environments
+* linux: avoid repeated zram ENOENT probes
+
+What's new in version 3.5.1
+
+* Consolidate ClockMeter code into DateTimeMeter code
+* Darwin: Fix unsigned underflow in memory meter on ARM64 (Apple Silicon 16K pages showing ~64TB used)
+* Linux/PCP: Replace M_SHARE (SHR) with M_PRIV (PRIV) in default Main screen columns
+* PCP: Fix dynamic screen column (instance) sorting (incorrect cast and field offsets)
+* PCP: Fix units used when printing M_PRIV memory column values
+* PCP: Add Darwin swap metric values and a fallback on Linux for SwapMeter
+* Fix null pointer dereference in actionBacktrace() (GCC LTO -O2 -flto, Ubuntu 24.04)
+* Make search function activate following on find consistently
+* Make a panel click abort the search function
+
+What's new in version 3.5.0
+
+* Implement line editor for Search, Filter and (re)naming Screens
+* Add digits editing for numeric options
+* Backtrace screen feature (using libunwind-ptrace)
+* Add CPU SMT label option
+* MemoryMeter: rework to allow full platform-specific control
+* Fix CPU virtualization bar color and help text in non-detailed mode
+* Add --no-meters option to hide meters
+* Implement explicit NO_COLOR env support
+* fix: support *-256color in $TERM key detection
+* Add COLORSCHEME_NORD: Nordic inspired theme
+* Add Tctl temperature reading
+* Add SecondsUptimeMeter
+* Adjust GPUMeter text display
+* Make Ctrl-U clear the current Filter or Search string while editing it
+* Make empty --filter= command line arguments invalid
+* Make Infoscreen also show uppercase FILTER when filtering (F4) is active
+* Graph meter dynamic scaling and percent graph drawing
+* Update "total" value for non-percent bar meters
+* Fix logic bug while iterating processes
+* Change NetworkIOMeter "packets per second" display
+* Add NetworkIOMeter description
+* Rework DiskIOMeter into a combined display of 2 sub-meters
+* Introduce DiskIORateMeter and DiskIOTimeMeter
+* DiskIOMeter: Adjust code indent and formatting
+* DiskIOMeter: Move cache update code to a new function
+* Add --no-function-bar option to hide functionbar
+* Fix function bar labels in Screens panel rename mode
+* Make Meters function bar consistent with the Screens one
+* Display a FAILED message in the FunctionBar on host scan failure
+* Cancel pending renaming action for a screen in dtor of ScreensPanel
+* Move prevSelected from ScreensPanel to Panel
+* Only issue KEY_RECLICK when the focussed item has not changed
+* Track oldFocus correctly in ScreensPanel
+* Add lost focus event, make mouse actions consistent, handle rename and move explicitly across screens / meters / columns
+* Make Cancel (F2, Esc) remove a newly added screen tab and not only abort the implicit rename
+* Use default key list for DisplayOptions "Dec/Inc" function bar
+* Make first click select option line but not toggle it, toggle with next click, handle right click
+* Make the Panel items actually match what receives a mouse click
+* No need for "phantom" CPU threads
+* Simplify offline CPU marking
+* Make the physicalID default to 0 because old Intel processors only have that
+* Don't draw Meter caption if width is not enough (bar & graph)
+* CPUMeter: Fix negative "x" positions of sub-meters
+* Add sensors logic for Snapdragon 410
+* Add sensors logic for Amlogic S905W support
+* Add foot terminal to terminalSupportsDefinedKeys
+* No longer write to htoprc file if it's not owned by EUID
+* Remove initial enforced delay to reduce startup latency
+* Improve bootup time by caching all getpwuid result
+* Fix a small file descriptor leak in Settings_write()
+* Keep track of the biggest PID and scale the column accordingly
+* Allocate COMMAND (cmdline) and comm buffers dynamically
+* Improve "comm" string highlighting in Process_makeCommandStr()
+* Improve process cmdline basename matching with procExe path
+* Don't make highlights of zero-length cmdline basename
+* Shadow path prefixes used by NixOS
+* Improve Generic_unameRelease() related code
+* Linux: Check for CPU number on s390
+* Linux: Handle special cases for CPU frequency data in /proc/cpuinfo
+* Linux: Added support for OpenRC init system and metrics
+* Linux: fix detection of NUL argument separator
+* Linux: Skip loopback and MD (multi-device) driver entries in /proc/diskstats
+* Darwin: Add GPUMeter code for macOS
+* Darwin: Rewrite & improve Platform_getOSRelease() code
+* Darwin: implement macOS version reporting in SysArchMeter
+* Darwin: Handle legacy references to kIOMainPortDefault
+* Darwin: Bring back conversion of process CPU time on macOS (#1638)
+* PCP: Automatically reconnect PCP metrics contexts on disconnect
+* PCP: Fixes to use units-based scaling in pcp-htop on macOS
+* PCP: Fix PCPDynamicColumn parsing after a bad section name
+* FreeBSD: Update the internal priority reference point
+* NetBSD: Improve process state retrieval code
+* OpenBSD: Check on AC power value being nonzero
+* OpenBSD: Document sysctl indices for ACPI battery & AC code
+* Solaris: Update memory info on every refresh
+* Add v1.0 of the AI-Assisted Contributions Policy
+* Add a Code of Conduct document for the project
+* README: Add Quick Start section
+* README: update instructions for those who use Arch
+* Add Japanese support in htop.desktop
+* Add Armenian support in htop.desktop
+* docs: fix COLORS bullet list formatting and capitalization in man page
+* CI: Add Github Action workflow for Coverity checking
+* CI: Add libiberty and demangling support to backtrace screen build
+* CI: Update LLVM/Clang versions to 22
+* CI: Update FreeBSD to 15.0
+* CI: Update to use OpenBSD 7.7
+* build: Add packages for OpenSUSE/SLES
+* build: Fix Autoconf 2.69 compatibility regressions
+* build: Simplify curses header checking code
+* build: remove the --with-os-release configure option
+* build: Fix redundant newlines in configure help strings
+* build: Allow custom search path for libnl; try pkg-config when needed
+* build: Use HTOP_PKG_CHECK_MODULES in hwloc and libnl checking
+* build: Introduce HTOP_PKG_CHECK_MODULES wrapper macro
+* build: Introduce 'htop_search_header_dir' configure function
+* build: Add configure check on whether local unwinding works
+* build: Automatically detect backtrace(3) return type
+* build: Use pkg-config to detect libnl3 header path
+* build: Also check libunwind through pkg-config
+* build: Simplify configure netlink/*.h detection code
+* build: Fix netlink/*.h detection logic in configure
+* build: Fix '-ffinite-math-only' configure warning
+* build: Fix configure '--enable-delayacct' help text
+* build: Fix a macOS AC_COMPILE_IFELSE misquoting
+
+What's new in version 3.4.1
+
+* Support for PMAPI v3 for PCP
+* PCP code cleanups
+* Proper checks for strchrnul
+* Code cleanup in the NetworkIOMeter
+* Improved documentation for the --user option
+* Display stuck processes on Darwin
+* Handle issues when the monotonic clock runs backwards
+* Fix builds using native curses on NetBSD
+
+What's new in version 3.4.0
+
+* More expressive version tag generated for development versions (htop --version, help screen)
+* Improve Darwin support for ARM-based systems
+* Fix static linking with libsystemd
+* Various build fixes for DragonFlyBSD, Darwin, NetBSD, OpenBSD & Solaris
+* Fix running task display (count)
+* Fix sort order handling in tree mode
+* Add warning when exiting with a signal (not saving .htoprc)
+* Add Disk I/O and Network I/O meter for DragonFlyBSD
+* Improve handling of invalid Unicode strings
+* Disable basename checking for kernel tasks
+* Updated documentation for pcp-htop
+* Disable FOCUS_IN/FOCUS_OUT event handling
+* Add GPU meter for Linux and PCP
+* Add column for GPU time per process on Linux and PCP
+* Avoid glibc FILE API voodoo
+* Ignore previously unhandled signals USR1 and USR2
+* Force locating the config file to only use absolute paths
+* Prefer reading htoprc from ~/.config/htop/htoprc over legacy ~/.htoprc
+* Force writing the configuration to a regular file
+* Use distinct config files for htop and pcp-htop
+* Link libnl3 at runtime
+* Gather permitted capabilities via capget(2)
+* Avoid fetching certain process information for each thread on Linux (speed up)
+* Improved handling for invalid data in /proc/tty/drivers on Linux
+* Various changes to avoid memory allocations inside signal handlers
+* Add single column header layout
+* Fix DivByZero bug on startup on Darwin
+* Include thread information on Darwin
+* Show process state on Darwin
+* Update compat check for C23 compilers
+* Improved detail in help screen
+* Unicode support for CGROUP, CCGROUP, CONTAINER and SECATTR columns
+* Mark newline characters in the process command line display
+* Resolve nested derived metrics for PCP
+* Make supported modes/styles specific to each meter
+* Refined checks for terminals supporting to redefine keys
+* Fix handling of the NICE value on FreeBSD
+* Fix display of CPU utilization on FreeBSD
+* Honour update interval adjustments properly without restart
+* Force rebuild of display table after item removals
+* Reworked handling for various temperature sensors
+* Fix high CPU load when the strace'd process exits prematurely
+* Document --drop-capabilities to require a compile time support
+* Always call PKG_PROG_PKG_CONFIG in configure
+* Make configure warn when pkg.m4 is absent
+* Rewrite curses/terminfo detection code in configure
+* Keep following a process when resuming process updates (Z key)
+* Normalize Disk I/O usage and allow utilization above 100%
+* Plug several memory leaks and improve performance for information parsing
+* Allow to show or hide cache and buffers in memory usage meter
+* Visibility hint and UX improvements in status bar of display options panel
+* Remove IOKit / IOMainPort / IOMMasterPort logic for Darwin builds
+* Replace BCC with metrics from BPF for pcp-htop
+
 What's new in version 3.3.0
 
 * Multiple refactorings and code improvements

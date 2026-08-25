@@ -91,11 +91,24 @@ build_triplet = @build@
 host_triplet = @host@
 @HTOP_PCP_FALSE@bin_PROGRAMS = htop$(EXEEXT)
 @HTOP_PCP_TRUE@bin_PROGRAMS = pcp-htop$(EXEEXT)
-@HTOP_LINUX_TRUE@am__append_1 = -rdynamic
-@HTOP_DARWIN_TRUE@am__append_2 = -framework IOKit -framework CoreFoundation
+@HAVE_BACKTRACE_SCREEN_TRUE@am__append_1 = \
+@HAVE_BACKTRACE_SCREEN_TRUE@	BacktraceScreen.h \
+@HAVE_BACKTRACE_SCREEN_TRUE@	generic/UnwindPtrace.h
+
+@HAVE_BACKTRACE_SCREEN_TRUE@am__append_2 = \
+@HAVE_BACKTRACE_SCREEN_TRUE@	BacktraceScreen.c \
+@HAVE_BACKTRACE_SCREEN_TRUE@	generic/UnwindPtrace.c
+
+@HAVE_BACKTRACE_SCREEN_TRUE@@HAVE_DEMANGLING_TRUE@am__append_3 = generic/Demangle.h
+@HAVE_BACKTRACE_SCREEN_TRUE@@HAVE_DEMANGLING_TRUE@am__append_4 = generic/Demangle.c
+@HAVE_DELAYACCT_TRUE@am__append_5 = linux/LibNl.h
+@HAVE_DELAYACCT_TRUE@am__append_6 = linux/LibNl.c
+@HTOP_LINUX_TRUE@am__append_7 = -rdynamic
+@HTOP_DARWIN_TRUE@am__append_8 = -framework IOKit -framework CoreFoundation
 subdir = .
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
-am__aclocal_m4_deps = $(top_srcdir)/configure.ac
+am__aclocal_m4_deps = $(top_srcdir)/m4/ax_check_compile_flag.m4 \
+	$(top_srcdir)/configure.ac
 am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
 	$(ACLOCAL_M4)
 DIST_COMMON = $(srcdir)/Makefile.am $(top_srcdir)/configure \
@@ -112,22 +125,25 @@ am__installdirs = "$(DESTDIR)$(bindir)" "$(DESTDIR)$(man1dir)" \
 PROGRAMS = $(bin_PROGRAMS)
 am__htop_SOURCES_DIST = htop.c pcp-htop.c Action.h Affinity.h \
 	AffinityPanel.h AvailableColumnsPanel.h AvailableMetersPanel.h \
-	BatteryMeter.h CPUMeter.h CRT.h CategoriesPanel.h ClockMeter.h \
+	BatteryMeter.h CPUMeter.h CRT.h CategoriesPanel.h \
 	ColorsPanel.h ColumnsPanel.h CommandLine.h CommandScreen.h \
-	Compat.h DateMeter.h DateTimeMeter.h DiskIOMeter.h \
-	DisplayOptionsPanel.h DynamicColumn.h DynamicMeter.h \
-	DynamicScreen.h EnvScreen.h FileDescriptorMeter.h \
-	FunctionBar.h Hashtable.h Header.h HeaderLayout.h \
-	HeaderOptionsPanel.h HostnameMeter.h IncSet.h InfoScreen.h \
-	ListItem.h LoadAverageMeter.h Machine.h Macros.h MainPanel.h \
-	MemoryMeter.h MemorySwapMeter.h Meter.h MetersPanel.h \
-	NetworkIOMeter.h Object.h OpenFilesScreen.h OptionItem.h \
-	Panel.h Process.h ProcessLocksScreen.h ProcessTable.h \
-	ProvideCurses.h ProvideTerm.h RichString.h Row.h RowField.h \
-	Scheduling.h ScreenManager.h ScreensPanel.h ScreenTabsPanel.h \
-	Settings.h SignalsPanel.h SwapMeter.h SysArchMeter.h Table.h \
-	TasksMeter.h TraceScreen.h UptimeMeter.h UsersTable.h Vector.h \
-	XUtils.h darwin/DarwinMachine.h darwin/DarwinProcess.h \
+	DateTimeMeter.h Debug.h DiskIOMeter.h DisplayOptionsPanel.h \
+	DynamicColumn.h DynamicMeter.h DynamicScreen.h EnvScreen.h \
+	FileDescriptorMeter.h FunctionBar.h GPUMeter.h Hashtable.h \
+	Header.h HeaderLayout.h HeaderOptionsPanel.h HostnameMeter.h \
+	History.h IncSet.h InfoScreen.h LineEditor.h ListItem.h \
+	LoadAverageMeter.h Machine.h Macros.h MainPanel.h \
+	MemoryMeter.h MemorySwapMeter.h Meter.h MeterMode.h \
+	MetersPanel.h NetworkIOMeter.h Object.h OpenFilesScreen.h \
+	OptionItem.h Panel.h Process.h ProcessLocksScreen.h \
+	ProcessTable.h ProvideCurses.h ProvideTerm.h RichString.h \
+	Row.h RowField.h Scheduling.h ScreenManager.h ScreensPanel.h \
+	ScreenTabsPanel.h Settings.h SignalsPanel.h SwapMeter.h \
+	SysArchMeter.h Table.h TasksMeter.h TraceScreen.h \
+	UptimeMeter.h UsersTable.h Vector.h XUtils.h \
+	generic/ProvideDemangle.h BacktraceScreen.h \
+	generic/UnwindPtrace.h generic/Demangle.h \
+	darwin/DarwinMachine.h darwin/DarwinProcess.h \
 	darwin/DarwinProcessTable.h darwin/Platform.h \
 	darwin/PlatformHelpers.h darwin/ProcessField.h \
 	generic/fdstat_sysctl.h generic/gettime.h generic/hostname.h \
@@ -139,22 +155,22 @@ am__htop_SOURCES_DIST = htop.c pcp-htop.c Action.h Affinity.h \
 	dragonflybsd/ProcessField.h freebsd/FreeBSDMachine.h \
 	freebsd/FreeBSDProcessTable.h freebsd/FreeBSDProcess.h \
 	freebsd/Platform.h freebsd/ProcessField.h linux/CGroupUtils.h \
-	linux/HugePageMeter.h linux/IOPriority.h \
-	linux/IOPriorityPanel.h linux/LibSensors.h \
+	linux/Compat.h linux/GPU.h linux/HugePageMeter.h \
+	linux/IOPriority.h linux/IOPriorityPanel.h linux/LibSensors.h \
 	linux/LinuxMachine.h linux/LinuxProcess.h \
-	linux/LinuxProcessTable.h linux/Platform.h \
+	linux/LinuxProcessTable.h linux/OpenRCMeter.h linux/Platform.h \
 	linux/PressureStallMeter.h linux/ProcessField.h \
 	linux/SELinuxMeter.h linux/SystemdMeter.h linux/ZramMeter.h \
-	linux/ZramStats.h linux/ZswapStats.h netbsd/Platform.h \
-	netbsd/ProcessField.h netbsd/NetBSDMachine.h \
-	netbsd/NetBSDProcess.h netbsd/NetBSDProcessTable.h \
-	openbsd/OpenBSDMachine.h openbsd/OpenBSDProcessTable.h \
-	openbsd/OpenBSDProcess.h openbsd/Platform.h \
-	openbsd/ProcessField.h pcp/Instance.h pcp/InDomTable.h \
-	pcp/Metric.h pcp/Platform.h pcp/ProcessField.h \
-	pcp/PCPDynamicColumn.h pcp/PCPDynamicMeter.h \
-	pcp/PCPDynamicScreen.h pcp/PCPMachine.h pcp/PCPProcess.h \
-	pcp/PCPProcessTable.h solaris/ProcessField.h \
+	linux/ZramStats.h linux/ZswapMeter.h linux/ZswapStats.h \
+	linux/LibNl.h netbsd/Platform.h netbsd/ProcessField.h \
+	netbsd/NetBSDMachine.h netbsd/NetBSDProcess.h \
+	netbsd/NetBSDProcessTable.h openbsd/OpenBSDMachine.h \
+	openbsd/OpenBSDProcessTable.h openbsd/OpenBSDProcess.h \
+	openbsd/Platform.h openbsd/ProcessField.h pcp/Instance.h \
+	pcp/InDomTable.h pcp/Metric.h pcp/Platform.h \
+	pcp/ProcessField.h pcp/PCPDynamicColumn.h \
+	pcp/PCPDynamicMeter.h pcp/PCPDynamicScreen.h pcp/PCPMachine.h \
+	pcp/PCPProcess.h pcp/PCPProcessTable.h solaris/ProcessField.h \
 	solaris/Platform.h solaris/SolarisMachine.h \
 	solaris/SolarisProcess.h solaris/SolarisProcessTable.h \
 	unsupported/Platform.h unsupported/ProcessField.h \
@@ -162,21 +178,22 @@ am__htop_SOURCES_DIST = htop.c pcp-htop.c Action.h Affinity.h \
 	unsupported/UnsupportedProcess.h \
 	unsupported/UnsupportedProcessTable.h Action.c Affinity.c \
 	AffinityPanel.c AvailableColumnsPanel.c AvailableMetersPanel.c \
-	BatteryMeter.c CategoriesPanel.c ClockMeter.c ColorsPanel.c \
-	ColumnsPanel.c CommandLine.c CommandScreen.c Compat.c \
-	CPUMeter.c CRT.c DateMeter.c DateTimeMeter.c DiskIOMeter.c \
-	DisplayOptionsPanel.c DynamicColumn.c DynamicMeter.c \
-	DynamicScreen.c EnvScreen.c FileDescriptorMeter.c \
-	FunctionBar.c Hashtable.c Header.c HeaderOptionsPanel.c \
-	HostnameMeter.c IncSet.c InfoScreen.c ListItem.c \
-	LoadAverageMeter.c Machine.c MainPanel.c MemoryMeter.c \
-	MemorySwapMeter.c Meter.c MetersPanel.c NetworkIOMeter.c \
-	Object.c OpenFilesScreen.c OptionItem.c Panel.c Process.c \
-	ProcessLocksScreen.c ProcessTable.c Row.c RichString.c \
-	Scheduling.c ScreenManager.c ScreensPanel.c ScreenTabsPanel.c \
-	Settings.c SignalsPanel.c SwapMeter.c SysArchMeter.c Table.c \
-	TasksMeter.c TraceScreen.c UptimeMeter.c UsersTable.c Vector.c \
-	XUtils.c darwin/Platform.c darwin/PlatformHelpers.c \
+	BatteryMeter.c CategoriesPanel.c ColorsPanel.c ColumnsPanel.c \
+	CommandLine.c CommandScreen.c CPUMeter.c CRT.c DateTimeMeter.c \
+	DiskIOMeter.c DisplayOptionsPanel.c DynamicColumn.c \
+	DynamicMeter.c DynamicScreen.c EnvScreen.c \
+	FileDescriptorMeter.c FunctionBar.c Hashtable.c Header.c \
+	HeaderOptionsPanel.c HostnameMeter.c History.c IncSet.c \
+	InfoScreen.c LineEditor.c ListItem.c LoadAverageMeter.c \
+	Machine.c MainPanel.c MemoryMeter.c MemorySwapMeter.c Meter.c \
+	MetersPanel.c NetworkIOMeter.c Object.c OpenFilesScreen.c \
+	OptionItem.c Panel.c Process.c ProcessLocksScreen.c \
+	ProcessTable.c Row.c RichString.c Scheduling.c ScreenManager.c \
+	ScreensPanel.c ScreenTabsPanel.c Settings.c SignalsPanel.c \
+	SwapMeter.c SysArchMeter.c Table.c TasksMeter.c TraceScreen.c \
+	UptimeMeter.c UsersTable.c Vector.c XUtils.c BacktraceScreen.c \
+	generic/UnwindPtrace.c generic/Demangle.c GPUMeter.c \
+	darwin/Platform.c darwin/PlatformHelpers.c \
 	darwin/DarwinMachine.c darwin/DarwinProcess.c \
 	darwin/DarwinProcessTable.c generic/fdstat_sysctl.c \
 	generic/gettime.c generic/hostname.c generic/openzfs_sysctl.c \
@@ -186,19 +203,20 @@ am__htop_SOURCES_DIST = htop.c pcp-htop.c Action.h Affinity.h \
 	dragonflybsd/DragonFlyBSDProcess.c dragonflybsd/Platform.c \
 	freebsd/Platform.c freebsd/FreeBSDMachine.c \
 	freebsd/FreeBSDProcessTable.c freebsd/FreeBSDProcess.c \
-	linux/CGroupUtils.c linux/HugePageMeter.c \
-	linux/IOPriorityPanel.c linux/LibSensors.c \
-	linux/LinuxMachine.c linux/LinuxProcess.c \
-	linux/LinuxProcessTable.c linux/Platform.c \
+	linux/CGroupUtils.c linux/Compat.c linux/GPU.c \
+	linux/HugePageMeter.c linux/IOPriorityPanel.c \
+	linux/LibSensors.c linux/LinuxMachine.c linux/LinuxProcess.c \
+	linux/LinuxProcessTable.c linux/OpenRCMeter.c linux/Platform.c \
 	linux/PressureStallMeter.c linux/SELinuxMeter.c \
-	linux/SystemdMeter.c linux/ZramMeter.c netbsd/Platform.c \
-	netbsd/NetBSDMachine.c netbsd/NetBSDProcess.c \
-	netbsd/NetBSDProcessTable.c openbsd/OpenBSDMachine.c \
-	openbsd/OpenBSDProcessTable.c openbsd/OpenBSDProcess.c \
-	openbsd/Platform.c pcp/Instance.c pcp/InDomTable.c \
-	pcp/Metric.c pcp/Platform.c pcp/PCPDynamicColumn.c \
-	pcp/PCPDynamicMeter.c pcp/PCPDynamicScreen.c pcp/PCPMachine.c \
-	pcp/PCPProcess.c pcp/PCPProcessTable.c solaris/Platform.c \
+	linux/SystemdMeter.c linux/ZramMeter.c linux/ZswapMeter.c \
+	linux/LibNl.c netbsd/Platform.c netbsd/NetBSDMachine.c \
+	netbsd/NetBSDProcess.c netbsd/NetBSDProcessTable.c \
+	openbsd/OpenBSDMachine.c openbsd/OpenBSDProcessTable.c \
+	openbsd/OpenBSDProcess.c openbsd/Platform.c pcp/Instance.c \
+	pcp/InDomTable.c pcp/Metric.c pcp/Platform.c \
+	pcp/PCPDynamicColumn.c pcp/PCPDynamicMeter.c \
+	pcp/PCPDynamicScreen.c pcp/PCPMachine.c pcp/PCPProcess.c \
+	pcp/PCPProcessTable.c solaris/Platform.c \
 	solaris/SolarisMachine.c solaris/SolarisProcess.c \
 	solaris/SolarisProcessTable.c unsupported/Platform.c \
 	unsupported/UnsupportedMachine.c \
@@ -207,30 +225,36 @@ am__htop_SOURCES_DIST = htop.c pcp-htop.c Action.h Affinity.h \
 @HTOP_PCP_FALSE@am__objects_1 = htop.$(OBJEXT)
 @HTOP_PCP_TRUE@am__objects_1 = pcp-htop.$(OBJEXT)
 am__objects_2 =
-@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_FALSE@@HTOP_FREEBSD_FALSE@@HTOP_LINUX_FALSE@@HTOP_NETBSD_FALSE@@HTOP_OPENBSD_FALSE@@HTOP_PCP_FALSE@@HTOP_SOLARIS_FALSE@@HTOP_UNSUPPORTED_TRUE@am__objects_3 = $(am__objects_2)
-@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_FALSE@@HTOP_FREEBSD_FALSE@@HTOP_LINUX_FALSE@@HTOP_NETBSD_FALSE@@HTOP_OPENBSD_FALSE@@HTOP_PCP_FALSE@@HTOP_SOLARIS_TRUE@am__objects_3 = $(am__objects_2)
-@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_FALSE@@HTOP_FREEBSD_FALSE@@HTOP_LINUX_FALSE@@HTOP_NETBSD_FALSE@@HTOP_OPENBSD_FALSE@@HTOP_PCP_TRUE@am__objects_3 = $(am__objects_2)
-@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_FALSE@@HTOP_FREEBSD_FALSE@@HTOP_LINUX_FALSE@@HTOP_NETBSD_FALSE@@HTOP_OPENBSD_TRUE@am__objects_3 = $(am__objects_2)
-@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_FALSE@@HTOP_FREEBSD_FALSE@@HTOP_LINUX_FALSE@@HTOP_NETBSD_TRUE@am__objects_3 = $(am__objects_2)
-@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_FALSE@@HTOP_FREEBSD_FALSE@@HTOP_LINUX_TRUE@am__objects_3 = $(am__objects_2)
-@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_FALSE@@HTOP_FREEBSD_TRUE@am__objects_3 = $(am__objects_2)
-@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_TRUE@am__objects_3 =  \
+am__objects_3 = $(am__objects_2) $(am__objects_2)
+am__objects_4 = $(am__objects_2)
+@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_FALSE@@HTOP_FREEBSD_FALSE@@HTOP_LINUX_FALSE@@HTOP_NETBSD_FALSE@@HTOP_OPENBSD_FALSE@@HTOP_PCP_FALSE@@HTOP_SOLARIS_FALSE@@HTOP_UNSUPPORTED_TRUE@am__objects_5 = $(am__objects_2)
+@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_FALSE@@HTOP_FREEBSD_FALSE@@HTOP_LINUX_FALSE@@HTOP_NETBSD_FALSE@@HTOP_OPENBSD_FALSE@@HTOP_PCP_FALSE@@HTOP_SOLARIS_TRUE@am__objects_5 = $(am__objects_2)
+@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_FALSE@@HTOP_FREEBSD_FALSE@@HTOP_LINUX_FALSE@@HTOP_NETBSD_FALSE@@HTOP_OPENBSD_FALSE@@HTOP_PCP_TRUE@am__objects_5 = $(am__objects_2)
+@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_FALSE@@HTOP_FREEBSD_FALSE@@HTOP_LINUX_FALSE@@HTOP_NETBSD_FALSE@@HTOP_OPENBSD_TRUE@am__objects_5 = $(am__objects_2)
+@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_FALSE@@HTOP_FREEBSD_FALSE@@HTOP_LINUX_FALSE@@HTOP_NETBSD_TRUE@am__objects_5 = $(am__objects_2)
+@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_FALSE@@HTOP_FREEBSD_FALSE@@HTOP_LINUX_TRUE@am__objects_5 = $(am__objects_4)
+@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_FALSE@@HTOP_FREEBSD_TRUE@am__objects_5 = $(am__objects_2)
+@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_TRUE@am__objects_5 =  \
 @HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_TRUE@	$(am__objects_2)
-@HTOP_DARWIN_TRUE@am__objects_3 = $(am__objects_2)
-am__objects_4 = Action.$(OBJEXT) Affinity.$(OBJEXT) \
+@HTOP_DARWIN_TRUE@am__objects_5 = $(am__objects_2)
+am__dirstamp = $(am__leading_dot)dirstamp
+@HAVE_BACKTRACE_SCREEN_TRUE@am__objects_6 = BacktraceScreen.$(OBJEXT) \
+@HAVE_BACKTRACE_SCREEN_TRUE@	generic/UnwindPtrace.$(OBJEXT)
+@HAVE_BACKTRACE_SCREEN_TRUE@@HAVE_DEMANGLING_TRUE@am__objects_7 = generic/Demangle.$(OBJEXT)
+am__objects_8 = Action.$(OBJEXT) Affinity.$(OBJEXT) \
 	AffinityPanel.$(OBJEXT) AvailableColumnsPanel.$(OBJEXT) \
 	AvailableMetersPanel.$(OBJEXT) BatteryMeter.$(OBJEXT) \
-	CategoriesPanel.$(OBJEXT) ClockMeter.$(OBJEXT) \
-	ColorsPanel.$(OBJEXT) ColumnsPanel.$(OBJEXT) \
-	CommandLine.$(OBJEXT) CommandScreen.$(OBJEXT) Compat.$(OBJEXT) \
-	CPUMeter.$(OBJEXT) CRT.$(OBJEXT) DateMeter.$(OBJEXT) \
+	CategoriesPanel.$(OBJEXT) ColorsPanel.$(OBJEXT) \
+	ColumnsPanel.$(OBJEXT) CommandLine.$(OBJEXT) \
+	CommandScreen.$(OBJEXT) CPUMeter.$(OBJEXT) CRT.$(OBJEXT) \
 	DateTimeMeter.$(OBJEXT) DiskIOMeter.$(OBJEXT) \
 	DisplayOptionsPanel.$(OBJEXT) DynamicColumn.$(OBJEXT) \
 	DynamicMeter.$(OBJEXT) DynamicScreen.$(OBJEXT) \
 	EnvScreen.$(OBJEXT) FileDescriptorMeter.$(OBJEXT) \
 	FunctionBar.$(OBJEXT) Hashtable.$(OBJEXT) Header.$(OBJEXT) \
 	HeaderOptionsPanel.$(OBJEXT) HostnameMeter.$(OBJEXT) \
-	IncSet.$(OBJEXT) InfoScreen.$(OBJEXT) ListItem.$(OBJEXT) \
+	History.$(OBJEXT) IncSet.$(OBJEXT) InfoScreen.$(OBJEXT) \
+	LineEditor.$(OBJEXT) ListItem.$(OBJEXT) \
 	LoadAverageMeter.$(OBJEXT) Machine.$(OBJEXT) \
 	MainPanel.$(OBJEXT) MemoryMeter.$(OBJEXT) \
 	MemorySwapMeter.$(OBJEXT) Meter.$(OBJEXT) \
@@ -244,9 +268,9 @@ am__objects_4 = Action.$(OBJEXT) Affinity.$(OBJEXT) \
 	SignalsPanel.$(OBJEXT) SwapMeter.$(OBJEXT) \
 	SysArchMeter.$(OBJEXT) Table.$(OBJEXT) TasksMeter.$(OBJEXT) \
 	TraceScreen.$(OBJEXT) UptimeMeter.$(OBJEXT) \
-	UsersTable.$(OBJEXT) Vector.$(OBJEXT) XUtils.$(OBJEXT)
-am__dirstamp = $(am__leading_dot)dirstamp
-am__objects_5 = darwin/Platform.$(OBJEXT) \
+	UsersTable.$(OBJEXT) Vector.$(OBJEXT) XUtils.$(OBJEXT) \
+	$(am__objects_6) $(am__objects_7)
+am__objects_9 = GPUMeter.$(OBJEXT) darwin/Platform.$(OBJEXT) \
 	darwin/PlatformHelpers.$(OBJEXT) \
 	darwin/DarwinMachine.$(OBJEXT) darwin/DarwinProcess.$(OBJEXT) \
 	darwin/DarwinProcessTable.$(OBJEXT) \
@@ -254,13 +278,13 @@ am__objects_5 = darwin/Platform.$(OBJEXT) \
 	generic/hostname.$(OBJEXT) generic/openzfs_sysctl.$(OBJEXT) \
 	generic/uname.$(OBJEXT) zfs/ZfsArcMeter.$(OBJEXT) \
 	zfs/ZfsCompressedArcMeter.$(OBJEXT)
-am__objects_6 = dragonflybsd/DragonFlyBSDMachine.$(OBJEXT) \
+am__objects_10 = dragonflybsd/DragonFlyBSDMachine.$(OBJEXT) \
 	dragonflybsd/DragonFlyBSDProcessTable.$(OBJEXT) \
 	dragonflybsd/DragonFlyBSDProcess.$(OBJEXT) \
 	dragonflybsd/Platform.$(OBJEXT) \
 	generic/fdstat_sysctl.$(OBJEXT) generic/gettime.$(OBJEXT) \
 	generic/hostname.$(OBJEXT) generic/uname.$(OBJEXT)
-am__objects_7 = freebsd/Platform.$(OBJEXT) \
+am__objects_11 = freebsd/Platform.$(OBJEXT) \
 	freebsd/FreeBSDMachine.$(OBJEXT) \
 	freebsd/FreeBSDProcessTable.$(OBJEXT) \
 	freebsd/FreeBSDProcess.$(OBJEXT) \
@@ -268,25 +292,29 @@ am__objects_7 = freebsd/Platform.$(OBJEXT) \
 	generic/hostname.$(OBJEXT) generic/openzfs_sysctl.$(OBJEXT) \
 	generic/uname.$(OBJEXT) zfs/ZfsArcMeter.$(OBJEXT) \
 	zfs/ZfsCompressedArcMeter.$(OBJEXT)
-am__objects_8 = generic/gettime.$(OBJEXT) generic/hostname.$(OBJEXT) \
-	generic/uname.$(OBJEXT) linux/CGroupUtils.$(OBJEXT) \
-	linux/HugePageMeter.$(OBJEXT) linux/IOPriorityPanel.$(OBJEXT) \
-	linux/LibSensors.$(OBJEXT) linux/LinuxMachine.$(OBJEXT) \
-	linux/LinuxProcess.$(OBJEXT) linux/LinuxProcessTable.$(OBJEXT) \
+@HAVE_DELAYACCT_TRUE@am__objects_12 = linux/LibNl.$(OBJEXT)
+am__objects_13 = GPUMeter.$(OBJEXT) generic/gettime.$(OBJEXT) \
+	generic/hostname.$(OBJEXT) generic/uname.$(OBJEXT) \
+	linux/CGroupUtils.$(OBJEXT) linux/Compat.$(OBJEXT) \
+	linux/GPU.$(OBJEXT) linux/HugePageMeter.$(OBJEXT) \
+	linux/IOPriorityPanel.$(OBJEXT) linux/LibSensors.$(OBJEXT) \
+	linux/LinuxMachine.$(OBJEXT) linux/LinuxProcess.$(OBJEXT) \
+	linux/LinuxProcessTable.$(OBJEXT) linux/OpenRCMeter.$(OBJEXT) \
 	linux/Platform.$(OBJEXT) linux/PressureStallMeter.$(OBJEXT) \
 	linux/SELinuxMeter.$(OBJEXT) linux/SystemdMeter.$(OBJEXT) \
-	linux/ZramMeter.$(OBJEXT) zfs/ZfsArcMeter.$(OBJEXT) \
-	zfs/ZfsCompressedArcMeter.$(OBJEXT)
-am__objects_9 = generic/fdstat_sysctl.$(OBJEXT) \
+	linux/ZramMeter.$(OBJEXT) linux/ZswapMeter.$(OBJEXT) \
+	zfs/ZfsArcMeter.$(OBJEXT) zfs/ZfsCompressedArcMeter.$(OBJEXT) \
+	$(am__objects_12)
+am__objects_14 = generic/fdstat_sysctl.$(OBJEXT) \
 	generic/gettime.$(OBJEXT) generic/hostname.$(OBJEXT) \
 	generic/uname.$(OBJEXT) netbsd/Platform.$(OBJEXT) \
 	netbsd/NetBSDMachine.$(OBJEXT) netbsd/NetBSDProcess.$(OBJEXT) \
 	netbsd/NetBSDProcessTable.$(OBJEXT)
-am__objects_10 = generic/gettime.$(OBJEXT) generic/hostname.$(OBJEXT) \
+am__objects_15 = generic/gettime.$(OBJEXT) generic/hostname.$(OBJEXT) \
 	generic/uname.$(OBJEXT) openbsd/OpenBSDMachine.$(OBJEXT) \
 	openbsd/OpenBSDProcessTable.$(OBJEXT) \
 	openbsd/OpenBSDProcess.$(OBJEXT) openbsd/Platform.$(OBJEXT)
-am__objects_11 = linux/CGroupUtils.$(OBJEXT) \
+am__objects_16 = linux/CGroupUtils.$(OBJEXT) \
 	linux/PressureStallMeter.$(OBJEXT) linux/ZramMeter.$(OBJEXT) \
 	pcp/Instance.$(OBJEXT) pcp/InDomTable.$(OBJEXT) \
 	pcp/Metric.$(OBJEXT) pcp/Platform.$(OBJEXT) \
@@ -294,50 +322,53 @@ am__objects_11 = linux/CGroupUtils.$(OBJEXT) \
 	pcp/PCPDynamicScreen.$(OBJEXT) pcp/PCPMachine.$(OBJEXT) \
 	pcp/PCPProcess.$(OBJEXT) pcp/PCPProcessTable.$(OBJEXT) \
 	zfs/ZfsArcMeter.$(OBJEXT) zfs/ZfsCompressedArcMeter.$(OBJEXT)
-am__objects_12 = generic/gettime.$(OBJEXT) generic/hostname.$(OBJEXT) \
+am__objects_17 = generic/gettime.$(OBJEXT) generic/hostname.$(OBJEXT) \
 	generic/uname.$(OBJEXT) solaris/Platform.$(OBJEXT) \
 	solaris/SolarisMachine.$(OBJEXT) \
 	solaris/SolarisProcess.$(OBJEXT) \
 	solaris/SolarisProcessTable.$(OBJEXT) \
 	zfs/ZfsArcMeter.$(OBJEXT) zfs/ZfsCompressedArcMeter.$(OBJEXT)
-am__objects_13 = generic/gettime.$(OBJEXT) \
+am__objects_18 = generic/gettime.$(OBJEXT) \
 	unsupported/Platform.$(OBJEXT) \
 	unsupported/UnsupportedMachine.$(OBJEXT) \
 	unsupported/UnsupportedProcess.$(OBJEXT) \
 	unsupported/UnsupportedProcessTable.$(OBJEXT)
-@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_FALSE@@HTOP_FREEBSD_FALSE@@HTOP_LINUX_FALSE@@HTOP_NETBSD_FALSE@@HTOP_OPENBSD_FALSE@@HTOP_PCP_FALSE@@HTOP_SOLARIS_FALSE@@HTOP_UNSUPPORTED_TRUE@am__objects_14 = $(am__objects_13)
-@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_FALSE@@HTOP_FREEBSD_FALSE@@HTOP_LINUX_FALSE@@HTOP_NETBSD_FALSE@@HTOP_OPENBSD_FALSE@@HTOP_PCP_FALSE@@HTOP_SOLARIS_TRUE@am__objects_14 = $(am__objects_12)
-@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_FALSE@@HTOP_FREEBSD_FALSE@@HTOP_LINUX_FALSE@@HTOP_NETBSD_FALSE@@HTOP_OPENBSD_FALSE@@HTOP_PCP_TRUE@am__objects_14 = $(am__objects_11)
-@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_FALSE@@HTOP_FREEBSD_FALSE@@HTOP_LINUX_FALSE@@HTOP_NETBSD_FALSE@@HTOP_OPENBSD_TRUE@am__objects_14 = $(am__objects_10)
-@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_FALSE@@HTOP_FREEBSD_FALSE@@HTOP_LINUX_FALSE@@HTOP_NETBSD_TRUE@am__objects_14 = $(am__objects_9)
-@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_FALSE@@HTOP_FREEBSD_FALSE@@HTOP_LINUX_TRUE@am__objects_14 = $(am__objects_8)
-@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_FALSE@@HTOP_FREEBSD_TRUE@am__objects_14 = $(am__objects_7)
-@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_TRUE@am__objects_14 =  \
-@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_TRUE@	$(am__objects_6)
-@HTOP_DARWIN_TRUE@am__objects_14 = $(am__objects_5)
-am_htop_OBJECTS = $(am__objects_1) $(am__objects_2) $(am__objects_3) \
-	$(am__objects_4) $(am__objects_14)
+@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_FALSE@@HTOP_FREEBSD_FALSE@@HTOP_LINUX_FALSE@@HTOP_NETBSD_FALSE@@HTOP_OPENBSD_FALSE@@HTOP_PCP_FALSE@@HTOP_SOLARIS_FALSE@@HTOP_UNSUPPORTED_TRUE@am__objects_19 = $(am__objects_18)
+@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_FALSE@@HTOP_FREEBSD_FALSE@@HTOP_LINUX_FALSE@@HTOP_NETBSD_FALSE@@HTOP_OPENBSD_FALSE@@HTOP_PCP_FALSE@@HTOP_SOLARIS_TRUE@am__objects_19 = $(am__objects_17)
+@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_FALSE@@HTOP_FREEBSD_FALSE@@HTOP_LINUX_FALSE@@HTOP_NETBSD_FALSE@@HTOP_OPENBSD_FALSE@@HTOP_PCP_TRUE@am__objects_19 = $(am__objects_16)
+@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_FALSE@@HTOP_FREEBSD_FALSE@@HTOP_LINUX_FALSE@@HTOP_NETBSD_FALSE@@HTOP_OPENBSD_TRUE@am__objects_19 = $(am__objects_15)
+@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_FALSE@@HTOP_FREEBSD_FALSE@@HTOP_LINUX_FALSE@@HTOP_NETBSD_TRUE@am__objects_19 = $(am__objects_14)
+@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_FALSE@@HTOP_FREEBSD_FALSE@@HTOP_LINUX_TRUE@am__objects_19 = $(am__objects_13)
+@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_FALSE@@HTOP_FREEBSD_TRUE@am__objects_19 = $(am__objects_11)
+@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_TRUE@am__objects_19 =  \
+@HTOP_DARWIN_FALSE@@HTOP_DRAGONFLYBSD_TRUE@	$(am__objects_10)
+@HTOP_DARWIN_TRUE@am__objects_19 = $(am__objects_9)
+am_htop_OBJECTS = $(am__objects_1) $(am__objects_3) $(am__objects_5) \
+	$(am__objects_8) $(am__objects_19)
 nodist_htop_OBJECTS =
 htop_OBJECTS = $(am_htop_OBJECTS) $(nodist_htop_OBJECTS)
 htop_LDADD = $(LDADD)
 am__pcp_htop_SOURCES_DIST = htop.c pcp-htop.c Action.h Affinity.h \
 	AffinityPanel.h AvailableColumnsPanel.h AvailableMetersPanel.h \
-	BatteryMeter.h CPUMeter.h CRT.h CategoriesPanel.h ClockMeter.h \
+	BatteryMeter.h CPUMeter.h CRT.h CategoriesPanel.h \
 	ColorsPanel.h ColumnsPanel.h CommandLine.h CommandScreen.h \
-	Compat.h DateMeter.h DateTimeMeter.h DiskIOMeter.h \
-	DisplayOptionsPanel.h DynamicColumn.h DynamicMeter.h \
-	DynamicScreen.h EnvScreen.h FileDescriptorMeter.h \
-	FunctionBar.h Hashtable.h Header.h HeaderLayout.h \
-	HeaderOptionsPanel.h HostnameMeter.h IncSet.h InfoScreen.h \
-	ListItem.h LoadAverageMeter.h Machine.h Macros.h MainPanel.h \
-	MemoryMeter.h MemorySwapMeter.h Meter.h MetersPanel.h \
-	NetworkIOMeter.h Object.h OpenFilesScreen.h OptionItem.h \
-	Panel.h Process.h ProcessLocksScreen.h ProcessTable.h \
-	ProvideCurses.h ProvideTerm.h RichString.h Row.h RowField.h \
-	Scheduling.h ScreenManager.h ScreensPanel.h ScreenTabsPanel.h \
-	Settings.h SignalsPanel.h SwapMeter.h SysArchMeter.h Table.h \
-	TasksMeter.h TraceScreen.h UptimeMeter.h UsersTable.h Vector.h \
-	XUtils.h darwin/DarwinMachine.h darwin/DarwinProcess.h \
+	DateTimeMeter.h Debug.h DiskIOMeter.h DisplayOptionsPanel.h \
+	DynamicColumn.h DynamicMeter.h DynamicScreen.h EnvScreen.h \
+	FileDescriptorMeter.h FunctionBar.h GPUMeter.h Hashtable.h \
+	Header.h HeaderLayout.h HeaderOptionsPanel.h HostnameMeter.h \
+	History.h IncSet.h InfoScreen.h LineEditor.h ListItem.h \
+	LoadAverageMeter.h Machine.h Macros.h MainPanel.h \
+	MemoryMeter.h MemorySwapMeter.h Meter.h MeterMode.h \
+	MetersPanel.h NetworkIOMeter.h Object.h OpenFilesScreen.h \
+	OptionItem.h Panel.h Process.h ProcessLocksScreen.h \
+	ProcessTable.h ProvideCurses.h ProvideTerm.h RichString.h \
+	Row.h RowField.h Scheduling.h ScreenManager.h ScreensPanel.h \
+	ScreenTabsPanel.h Settings.h SignalsPanel.h SwapMeter.h \
+	SysArchMeter.h Table.h TasksMeter.h TraceScreen.h \
+	UptimeMeter.h UsersTable.h Vector.h XUtils.h \
+	generic/ProvideDemangle.h BacktraceScreen.h \
+	generic/UnwindPtrace.h generic/Demangle.h \
+	darwin/DarwinMachine.h darwin/DarwinProcess.h \
 	darwin/DarwinProcessTable.h darwin/Platform.h \
 	darwin/PlatformHelpers.h darwin/ProcessField.h \
 	generic/fdstat_sysctl.h generic/gettime.h generic/hostname.h \
@@ -349,22 +380,22 @@ am__pcp_htop_SOURCES_DIST = htop.c pcp-htop.c Action.h Affinity.h \
 	dragonflybsd/ProcessField.h freebsd/FreeBSDMachine.h \
 	freebsd/FreeBSDProcessTable.h freebsd/FreeBSDProcess.h \
 	freebsd/Platform.h freebsd/ProcessField.h linux/CGroupUtils.h \
-	linux/HugePageMeter.h linux/IOPriority.h \
-	linux/IOPriorityPanel.h linux/LibSensors.h \
+	linux/Compat.h linux/GPU.h linux/HugePageMeter.h \
+	linux/IOPriority.h linux/IOPriorityPanel.h linux/LibSensors.h \
 	linux/LinuxMachine.h linux/LinuxProcess.h \
-	linux/LinuxProcessTable.h linux/Platform.h \
+	linux/LinuxProcessTable.h linux/OpenRCMeter.h linux/Platform.h \
 	linux/PressureStallMeter.h linux/ProcessField.h \
 	linux/SELinuxMeter.h linux/SystemdMeter.h linux/ZramMeter.h \
-	linux/ZramStats.h linux/ZswapStats.h netbsd/Platform.h \
-	netbsd/ProcessField.h netbsd/NetBSDMachine.h \
-	netbsd/NetBSDProcess.h netbsd/NetBSDProcessTable.h \
-	openbsd/OpenBSDMachine.h openbsd/OpenBSDProcessTable.h \
-	openbsd/OpenBSDProcess.h openbsd/Platform.h \
-	openbsd/ProcessField.h pcp/Instance.h pcp/InDomTable.h \
-	pcp/Metric.h pcp/Platform.h pcp/ProcessField.h \
-	pcp/PCPDynamicColumn.h pcp/PCPDynamicMeter.h \
-	pcp/PCPDynamicScreen.h pcp/PCPMachine.h pcp/PCPProcess.h \
-	pcp/PCPProcessTable.h solaris/ProcessField.h \
+	linux/ZramStats.h linux/ZswapMeter.h linux/ZswapStats.h \
+	linux/LibNl.h netbsd/Platform.h netbsd/ProcessField.h \
+	netbsd/NetBSDMachine.h netbsd/NetBSDProcess.h \
+	netbsd/NetBSDProcessTable.h openbsd/OpenBSDMachine.h \
+	openbsd/OpenBSDProcessTable.h openbsd/OpenBSDProcess.h \
+	openbsd/Platform.h openbsd/ProcessField.h pcp/Instance.h \
+	pcp/InDomTable.h pcp/Metric.h pcp/Platform.h \
+	pcp/ProcessField.h pcp/PCPDynamicColumn.h \
+	pcp/PCPDynamicMeter.h pcp/PCPDynamicScreen.h pcp/PCPMachine.h \
+	pcp/PCPProcess.h pcp/PCPProcessTable.h solaris/ProcessField.h \
 	solaris/Platform.h solaris/SolarisMachine.h \
 	solaris/SolarisProcess.h solaris/SolarisProcessTable.h \
 	unsupported/Platform.h unsupported/ProcessField.h \
@@ -372,21 +403,22 @@ am__pcp_htop_SOURCES_DIST = htop.c pcp-htop.c Action.h Affinity.h \
 	unsupported/UnsupportedProcess.h \
 	unsupported/UnsupportedProcessTable.h Action.c Affinity.c \
 	AffinityPanel.c AvailableColumnsPanel.c AvailableMetersPanel.c \
-	BatteryMeter.c CategoriesPanel.c ClockMeter.c ColorsPanel.c \
-	ColumnsPanel.c CommandLine.c CommandScreen.c Compat.c \
-	CPUMeter.c CRT.c DateMeter.c DateTimeMeter.c DiskIOMeter.c \
-	DisplayOptionsPanel.c DynamicColumn.c DynamicMeter.c \
-	DynamicScreen.c EnvScreen.c FileDescriptorMeter.c \
-	FunctionBar.c Hashtable.c Header.c HeaderOptionsPanel.c \
-	HostnameMeter.c IncSet.c InfoScreen.c ListItem.c \
-	LoadAverageMeter.c Machine.c MainPanel.c MemoryMeter.c \
-	MemorySwapMeter.c Meter.c MetersPanel.c NetworkIOMeter.c \
-	Object.c OpenFilesScreen.c OptionItem.c Panel.c Process.c \
-	ProcessLocksScreen.c ProcessTable.c Row.c RichString.c \
-	Scheduling.c ScreenManager.c ScreensPanel.c ScreenTabsPanel.c \
-	Settings.c SignalsPanel.c SwapMeter.c SysArchMeter.c Table.c \
-	TasksMeter.c TraceScreen.c UptimeMeter.c UsersTable.c Vector.c \
-	XUtils.c darwin/Platform.c darwin/PlatformHelpers.c \
+	BatteryMeter.c CategoriesPanel.c ColorsPanel.c ColumnsPanel.c \
+	CommandLine.c CommandScreen.c CPUMeter.c CRT.c DateTimeMeter.c \
+	DiskIOMeter.c DisplayOptionsPanel.c DynamicColumn.c \
+	DynamicMeter.c DynamicScreen.c EnvScreen.c \
+	FileDescriptorMeter.c FunctionBar.c Hashtable.c Header.c \
+	HeaderOptionsPanel.c HostnameMeter.c History.c IncSet.c \
+	InfoScreen.c LineEditor.c ListItem.c LoadAverageMeter.c \
+	Machine.c MainPanel.c MemoryMeter.c MemorySwapMeter.c Meter.c \
+	MetersPanel.c NetworkIOMeter.c Object.c OpenFilesScreen.c \
+	OptionItem.c Panel.c Process.c ProcessLocksScreen.c \
+	ProcessTable.c Row.c RichString.c Scheduling.c ScreenManager.c \
+	ScreensPanel.c ScreenTabsPanel.c Settings.c SignalsPanel.c \
+	SwapMeter.c SysArchMeter.c Table.c TasksMeter.c TraceScreen.c \
+	UptimeMeter.c UsersTable.c Vector.c XUtils.c BacktraceScreen.c \
+	generic/UnwindPtrace.c generic/Demangle.c GPUMeter.c \
+	darwin/Platform.c darwin/PlatformHelpers.c \
 	darwin/DarwinMachine.c darwin/DarwinProcess.c \
 	darwin/DarwinProcessTable.c generic/fdstat_sysctl.c \
 	generic/gettime.c generic/hostname.c generic/openzfs_sysctl.c \
@@ -396,27 +428,28 @@ am__pcp_htop_SOURCES_DIST = htop.c pcp-htop.c Action.h Affinity.h \
 	dragonflybsd/DragonFlyBSDProcess.c dragonflybsd/Platform.c \
 	freebsd/Platform.c freebsd/FreeBSDMachine.c \
 	freebsd/FreeBSDProcessTable.c freebsd/FreeBSDProcess.c \
-	linux/CGroupUtils.c linux/HugePageMeter.c \
-	linux/IOPriorityPanel.c linux/LibSensors.c \
-	linux/LinuxMachine.c linux/LinuxProcess.c \
-	linux/LinuxProcessTable.c linux/Platform.c \
+	linux/CGroupUtils.c linux/Compat.c linux/GPU.c \
+	linux/HugePageMeter.c linux/IOPriorityPanel.c \
+	linux/LibSensors.c linux/LinuxMachine.c linux/LinuxProcess.c \
+	linux/LinuxProcessTable.c linux/OpenRCMeter.c linux/Platform.c \
 	linux/PressureStallMeter.c linux/SELinuxMeter.c \
-	linux/SystemdMeter.c linux/ZramMeter.c netbsd/Platform.c \
-	netbsd/NetBSDMachine.c netbsd/NetBSDProcess.c \
-	netbsd/NetBSDProcessTable.c openbsd/OpenBSDMachine.c \
-	openbsd/OpenBSDProcessTable.c openbsd/OpenBSDProcess.c \
-	openbsd/Platform.c pcp/Instance.c pcp/InDomTable.c \
-	pcp/Metric.c pcp/Platform.c pcp/PCPDynamicColumn.c \
-	pcp/PCPDynamicMeter.c pcp/PCPDynamicScreen.c pcp/PCPMachine.c \
-	pcp/PCPProcess.c pcp/PCPProcessTable.c solaris/Platform.c \
+	linux/SystemdMeter.c linux/ZramMeter.c linux/ZswapMeter.c \
+	linux/LibNl.c netbsd/Platform.c netbsd/NetBSDMachine.c \
+	netbsd/NetBSDProcess.c netbsd/NetBSDProcessTable.c \
+	openbsd/OpenBSDMachine.c openbsd/OpenBSDProcessTable.c \
+	openbsd/OpenBSDProcess.c openbsd/Platform.c pcp/Instance.c \
+	pcp/InDomTable.c pcp/Metric.c pcp/Platform.c \
+	pcp/PCPDynamicColumn.c pcp/PCPDynamicMeter.c \
+	pcp/PCPDynamicScreen.c pcp/PCPMachine.c pcp/PCPProcess.c \
+	pcp/PCPProcessTable.c solaris/Platform.c \
 	solaris/SolarisMachine.c solaris/SolarisProcess.c \
 	solaris/SolarisProcessTable.c unsupported/Platform.c \
 	unsupported/UnsupportedMachine.c \
 	unsupported/UnsupportedProcess.c \
 	unsupported/UnsupportedProcessTable.c
-@HTOP_PCP_TRUE@am_pcp_htop_OBJECTS = $(am__objects_1) $(am__objects_2) \
-@HTOP_PCP_TRUE@	$(am__objects_3) $(am__objects_4) \
-@HTOP_PCP_TRUE@	$(am__objects_14)
+@HTOP_PCP_TRUE@am_pcp_htop_OBJECTS = $(am__objects_1) $(am__objects_3) \
+@HTOP_PCP_TRUE@	$(am__objects_5) $(am__objects_8) \
+@HTOP_PCP_TRUE@	$(am__objects_19)
 pcp_htop_OBJECTS = $(am_pcp_htop_OBJECTS)
 pcp_htop_LDADD = $(LDADD)
 AM_V_P = $(am__v_P_@AM_V@)
@@ -438,37 +471,38 @@ am__depfiles_remade = ./$(DEPDIR)/Action.Po ./$(DEPDIR)/Affinity.Po \
 	./$(DEPDIR)/AffinityPanel.Po \
 	./$(DEPDIR)/AvailableColumnsPanel.Po \
 	./$(DEPDIR)/AvailableMetersPanel.Po \
-	./$(DEPDIR)/BatteryMeter.Po ./$(DEPDIR)/CPUMeter.Po \
-	./$(DEPDIR)/CRT.Po ./$(DEPDIR)/CategoriesPanel.Po \
-	./$(DEPDIR)/ClockMeter.Po ./$(DEPDIR)/ColorsPanel.Po \
+	./$(DEPDIR)/BacktraceScreen.Po ./$(DEPDIR)/BatteryMeter.Po \
+	./$(DEPDIR)/CPUMeter.Po ./$(DEPDIR)/CRT.Po \
+	./$(DEPDIR)/CategoriesPanel.Po ./$(DEPDIR)/ColorsPanel.Po \
 	./$(DEPDIR)/ColumnsPanel.Po ./$(DEPDIR)/CommandLine.Po \
-	./$(DEPDIR)/CommandScreen.Po ./$(DEPDIR)/Compat.Po \
-	./$(DEPDIR)/DateMeter.Po ./$(DEPDIR)/DateTimeMeter.Po \
+	./$(DEPDIR)/CommandScreen.Po ./$(DEPDIR)/DateTimeMeter.Po \
 	./$(DEPDIR)/DiskIOMeter.Po ./$(DEPDIR)/DisplayOptionsPanel.Po \
 	./$(DEPDIR)/DynamicColumn.Po ./$(DEPDIR)/DynamicMeter.Po \
 	./$(DEPDIR)/DynamicScreen.Po ./$(DEPDIR)/EnvScreen.Po \
 	./$(DEPDIR)/FileDescriptorMeter.Po ./$(DEPDIR)/FunctionBar.Po \
-	./$(DEPDIR)/Hashtable.Po ./$(DEPDIR)/Header.Po \
-	./$(DEPDIR)/HeaderOptionsPanel.Po ./$(DEPDIR)/HostnameMeter.Po \
+	./$(DEPDIR)/GPUMeter.Po ./$(DEPDIR)/Hashtable.Po \
+	./$(DEPDIR)/Header.Po ./$(DEPDIR)/HeaderOptionsPanel.Po \
+	./$(DEPDIR)/History.Po ./$(DEPDIR)/HostnameMeter.Po \
 	./$(DEPDIR)/IncSet.Po ./$(DEPDIR)/InfoScreen.Po \
-	./$(DEPDIR)/ListItem.Po ./$(DEPDIR)/LoadAverageMeter.Po \
-	./$(DEPDIR)/Machine.Po ./$(DEPDIR)/MainPanel.Po \
-	./$(DEPDIR)/MemoryMeter.Po ./$(DEPDIR)/MemorySwapMeter.Po \
-	./$(DEPDIR)/Meter.Po ./$(DEPDIR)/MetersPanel.Po \
-	./$(DEPDIR)/NetworkIOMeter.Po ./$(DEPDIR)/Object.Po \
-	./$(DEPDIR)/OpenFilesScreen.Po ./$(DEPDIR)/OptionItem.Po \
-	./$(DEPDIR)/Panel.Po ./$(DEPDIR)/Process.Po \
-	./$(DEPDIR)/ProcessLocksScreen.Po ./$(DEPDIR)/ProcessTable.Po \
-	./$(DEPDIR)/RichString.Po ./$(DEPDIR)/Row.Po \
-	./$(DEPDIR)/Scheduling.Po ./$(DEPDIR)/ScreenManager.Po \
-	./$(DEPDIR)/ScreenTabsPanel.Po ./$(DEPDIR)/ScreensPanel.Po \
-	./$(DEPDIR)/Settings.Po ./$(DEPDIR)/SignalsPanel.Po \
-	./$(DEPDIR)/SwapMeter.Po ./$(DEPDIR)/SysArchMeter.Po \
-	./$(DEPDIR)/Table.Po ./$(DEPDIR)/TasksMeter.Po \
-	./$(DEPDIR)/TraceScreen.Po ./$(DEPDIR)/UptimeMeter.Po \
-	./$(DEPDIR)/UsersTable.Po ./$(DEPDIR)/Vector.Po \
-	./$(DEPDIR)/XUtils.Po ./$(DEPDIR)/htop.Po \
-	./$(DEPDIR)/pcp-htop.Po darwin/$(DEPDIR)/DarwinMachine.Po \
+	./$(DEPDIR)/LineEditor.Po ./$(DEPDIR)/ListItem.Po \
+	./$(DEPDIR)/LoadAverageMeter.Po ./$(DEPDIR)/Machine.Po \
+	./$(DEPDIR)/MainPanel.Po ./$(DEPDIR)/MemoryMeter.Po \
+	./$(DEPDIR)/MemorySwapMeter.Po ./$(DEPDIR)/Meter.Po \
+	./$(DEPDIR)/MetersPanel.Po ./$(DEPDIR)/NetworkIOMeter.Po \
+	./$(DEPDIR)/Object.Po ./$(DEPDIR)/OpenFilesScreen.Po \
+	./$(DEPDIR)/OptionItem.Po ./$(DEPDIR)/Panel.Po \
+	./$(DEPDIR)/Process.Po ./$(DEPDIR)/ProcessLocksScreen.Po \
+	./$(DEPDIR)/ProcessTable.Po ./$(DEPDIR)/RichString.Po \
+	./$(DEPDIR)/Row.Po ./$(DEPDIR)/Scheduling.Po \
+	./$(DEPDIR)/ScreenManager.Po ./$(DEPDIR)/ScreenTabsPanel.Po \
+	./$(DEPDIR)/ScreensPanel.Po ./$(DEPDIR)/Settings.Po \
+	./$(DEPDIR)/SignalsPanel.Po ./$(DEPDIR)/SwapMeter.Po \
+	./$(DEPDIR)/SysArchMeter.Po ./$(DEPDIR)/Table.Po \
+	./$(DEPDIR)/TasksMeter.Po ./$(DEPDIR)/TraceScreen.Po \
+	./$(DEPDIR)/UptimeMeter.Po ./$(DEPDIR)/UsersTable.Po \
+	./$(DEPDIR)/Vector.Po ./$(DEPDIR)/XUtils.Po \
+	./$(DEPDIR)/htop.Po ./$(DEPDIR)/pcp-htop.Po \
+	darwin/$(DEPDIR)/DarwinMachine.Po \
 	darwin/$(DEPDIR)/DarwinProcess.Po \
 	darwin/$(DEPDIR)/DarwinProcessTable.Po \
 	darwin/$(DEPDIR)/Platform.Po \
@@ -480,20 +514,22 @@ am__depfiles_remade = ./$(DEPDIR)/Action.Po ./$(DEPDIR)/Affinity.Po \
 	freebsd/$(DEPDIR)/FreeBSDMachine.Po \
 	freebsd/$(DEPDIR)/FreeBSDProcess.Po \
 	freebsd/$(DEPDIR)/FreeBSDProcessTable.Po \
-	freebsd/$(DEPDIR)/Platform.Po \
+	freebsd/$(DEPDIR)/Platform.Po generic/$(DEPDIR)/Demangle.Po \
+	generic/$(DEPDIR)/UnwindPtrace.Po \
 	generic/$(DEPDIR)/fdstat_sysctl.Po \
 	generic/$(DEPDIR)/gettime.Po generic/$(DEPDIR)/hostname.Po \
 	generic/$(DEPDIR)/openzfs_sysctl.Po generic/$(DEPDIR)/uname.Po \
-	linux/$(DEPDIR)/CGroupUtils.Po \
-	linux/$(DEPDIR)/HugePageMeter.Po \
-	linux/$(DEPDIR)/IOPriorityPanel.Po \
+	linux/$(DEPDIR)/CGroupUtils.Po linux/$(DEPDIR)/Compat.Po \
+	linux/$(DEPDIR)/GPU.Po linux/$(DEPDIR)/HugePageMeter.Po \
+	linux/$(DEPDIR)/IOPriorityPanel.Po linux/$(DEPDIR)/LibNl.Po \
 	linux/$(DEPDIR)/LibSensors.Po linux/$(DEPDIR)/LinuxMachine.Po \
 	linux/$(DEPDIR)/LinuxProcess.Po \
 	linux/$(DEPDIR)/LinuxProcessTable.Po \
-	linux/$(DEPDIR)/Platform.Po \
+	linux/$(DEPDIR)/OpenRCMeter.Po linux/$(DEPDIR)/Platform.Po \
 	linux/$(DEPDIR)/PressureStallMeter.Po \
 	linux/$(DEPDIR)/SELinuxMeter.Po \
 	linux/$(DEPDIR)/SystemdMeter.Po linux/$(DEPDIR)/ZramMeter.Po \
+	linux/$(DEPDIR)/ZswapMeter.Po \
 	netbsd/$(DEPDIR)/NetBSDMachine.Po \
 	netbsd/$(DEPDIR)/NetBSDProcess.Po \
 	netbsd/$(DEPDIR)/NetBSDProcessTable.Po \
@@ -619,8 +655,7 @@ am__distuninstallcheck_listfiles = $(distuninstallcheck_listfiles) \
 distcleancheck_listfiles = find . -type f -print
 ACLOCAL = @ACLOCAL@
 AMTAR = @AMTAR@
-AM_CFLAGS = @AM_CFLAGS@ -D_XOPEN_SOURCE_EXTENDED \
-	-DSYSCONFDIR="\"$(sysconfdir)\"" \
+AM_CFLAGS = @AM_CFLAGS@ -DSYSCONFDIR="\"$(sysconfdir)\"" \
 	-I"$(top_srcdir)/$(my_htop_platform)"
 AM_CPPFLAGS = @AM_CPPFLAGS@
 AM_DEFAULT_VERBOSITY = @AM_DEFAULT_VERBOSITY@
@@ -635,6 +670,8 @@ CPP = @CPP@
 CPPFLAGS = @CPPFLAGS@
 CSCOPE = @CSCOPE@
 CTAGS = @CTAGS@
+CURSES_CFLAGS = @CURSES_CFLAGS@
+CURSES_LIBS = @CURSES_LIBS@
 CYGPATH_W = @CYGPATH_W@
 DEFS = @DEFS@
 DEPDIR = @DEPDIR@
@@ -653,12 +690,12 @@ INSTALL_PROGRAM = @INSTALL_PROGRAM@
 INSTALL_SCRIPT = @INSTALL_SCRIPT@
 INSTALL_STRIP_PROGRAM = @INSTALL_STRIP_PROGRAM@
 LDFLAGS = @LDFLAGS@
-LIBNL3GENL_CFLAGS = @LIBNL3GENL_CFLAGS@
-LIBNL3GENL_LIBS = @LIBNL3GENL_LIBS@
 LIBNL3_CFLAGS = @LIBNL3_CFLAGS@
 LIBNL3_LIBS = @LIBNL3_LIBS@
 LIBOBJS = @LIBOBJS@
 LIBS = @LIBS@
+LIBUNWIND_CFLAGS = @LIBUNWIND_CFLAGS@
+LIBUNWIND_LIBS = @LIBUNWIND_LIBS@
 LTLIBOBJS = @LTLIBOBJS@
 MAKEINFO = @MAKEINFO@
 MKDIR_P = @MKDIR_P@
@@ -750,190 +787,66 @@ pixmapdir = $(datadir)/pixmaps
 pixmap_DATA = htop.png
 appicondir = $(datadir)/icons/hicolor/scalable/apps
 appicon_DATA = htop.svg
-AM_LDFLAGS = $(am__append_1) $(am__append_2)
-myhtopsources = \
-	Action.c \
-	Affinity.c \
-	AffinityPanel.c \
-	AvailableColumnsPanel.c \
-	AvailableMetersPanel.c \
-	BatteryMeter.c \
-	CategoriesPanel.c \
-	ClockMeter.c \
-	ColorsPanel.c \
-	ColumnsPanel.c \
-	CommandLine.c \
-	CommandScreen.c \
-	Compat.c \
-	CPUMeter.c \
-	CRT.c \
-	DateMeter.c \
-	DateTimeMeter.c \
-	DiskIOMeter.c \
-	DisplayOptionsPanel.c \
-	DynamicColumn.c \
-	DynamicMeter.c \
-	DynamicScreen.c \
-	EnvScreen.c \
-	FileDescriptorMeter.c \
-	FunctionBar.c \
-	Hashtable.c \
-	Header.c \
-	HeaderOptionsPanel.c \
-	HostnameMeter.c \
-	IncSet.c \
-	InfoScreen.c \
-	ListItem.c \
-	LoadAverageMeter.c \
-	Machine.c \
-	MainPanel.c \
-	MemoryMeter.c \
-	MemorySwapMeter.c \
-	Meter.c \
-	MetersPanel.c \
-	NetworkIOMeter.c \
-	Object.c \
-	OpenFilesScreen.c \
-	OptionItem.c \
-	Panel.c \
-	Process.c \
-	ProcessLocksScreen.c \
-	ProcessTable.c \
-	Row.c \
-	RichString.c \
-	Scheduling.c \
-	ScreenManager.c \
-	ScreensPanel.c \
-	ScreenTabsPanel.c \
-	Settings.c \
-	SignalsPanel.c \
-	SwapMeter.c \
-	SysArchMeter.c \
-	Table.c \
-	TasksMeter.c \
-	TraceScreen.c \
-	UptimeMeter.c \
-	UsersTable.c \
-	Vector.c \
-	XUtils.c
-
-myhtopheaders = \
-	Action.h \
-	Affinity.h \
-	AffinityPanel.h \
-	AvailableColumnsPanel.h \
-	AvailableMetersPanel.h \
-	BatteryMeter.h \
-	CPUMeter.h \
-	CRT.h \
-	CategoriesPanel.h \
-	ClockMeter.h \
-	ColorsPanel.h \
-	ColumnsPanel.h \
-	CommandLine.h \
-	CommandScreen.h \
-	Compat.h \
-	DateMeter.h \
-	DateTimeMeter.h \
-	DiskIOMeter.h \
-	DisplayOptionsPanel.h \
-	DynamicColumn.h \
-	DynamicMeter.h \
-	DynamicScreen.h \
-	EnvScreen.h \
-	FileDescriptorMeter.h \
-	FunctionBar.h \
-	Hashtable.h \
-	Header.h \
-	HeaderLayout.h \
-	HeaderOptionsPanel.h \
-	HostnameMeter.h \
-	IncSet.h \
-	InfoScreen.h \
-	ListItem.h \
-	LoadAverageMeter.h \
-	Machine.h \
-	Macros.h \
-	MainPanel.h \
-	MemoryMeter.h \
-	MemorySwapMeter.h \
-	Meter.h \
-	MetersPanel.h \
-	NetworkIOMeter.h \
-	Object.h \
-	OpenFilesScreen.h \
-	OptionItem.h \
-	Panel.h \
-	Process.h \
-	ProcessLocksScreen.h \
-	ProcessTable.h \
-	ProvideCurses.h \
-	ProvideTerm.h \
-	RichString.h \
-	Row.h \
-	RowField.h \
-	Scheduling.h \
-	ScreenManager.h \
-	ScreensPanel.h \
-	ScreenTabsPanel.h \
-	Settings.h \
-	SignalsPanel.h \
-	SwapMeter.h \
-	SysArchMeter.h \
-	Table.h \
-	TasksMeter.h \
-	TraceScreen.h \
-	UptimeMeter.h \
-	UsersTable.h \
-	Vector.h \
-	XUtils.h
-
+AM_LDFLAGS = $(am__append_7) $(am__append_8)
+myhtopsources = Action.c Affinity.c AffinityPanel.c \
+	AvailableColumnsPanel.c AvailableMetersPanel.c BatteryMeter.c \
+	CategoriesPanel.c ColorsPanel.c ColumnsPanel.c CommandLine.c \
+	CommandScreen.c CPUMeter.c CRT.c DateTimeMeter.c DiskIOMeter.c \
+	DisplayOptionsPanel.c DynamicColumn.c DynamicMeter.c \
+	DynamicScreen.c EnvScreen.c FileDescriptorMeter.c \
+	FunctionBar.c Hashtable.c Header.c HeaderOptionsPanel.c \
+	HostnameMeter.c History.c IncSet.c InfoScreen.c LineEditor.c \
+	ListItem.c LoadAverageMeter.c Machine.c MainPanel.c \
+	MemoryMeter.c MemorySwapMeter.c Meter.c MetersPanel.c \
+	NetworkIOMeter.c Object.c OpenFilesScreen.c OptionItem.c \
+	Panel.c Process.c ProcessLocksScreen.c ProcessTable.c Row.c \
+	RichString.c Scheduling.c ScreenManager.c ScreensPanel.c \
+	ScreenTabsPanel.c Settings.c SignalsPanel.c SwapMeter.c \
+	SysArchMeter.c Table.c TasksMeter.c TraceScreen.c \
+	UptimeMeter.c UsersTable.c Vector.c XUtils.c $(am__append_2) \
+	$(am__append_4)
+myhtopheaders = Action.h Affinity.h AffinityPanel.h \
+	AvailableColumnsPanel.h AvailableMetersPanel.h BatteryMeter.h \
+	CPUMeter.h CRT.h CategoriesPanel.h ColorsPanel.h \
+	ColumnsPanel.h CommandLine.h CommandScreen.h DateTimeMeter.h \
+	Debug.h DiskIOMeter.h DisplayOptionsPanel.h DynamicColumn.h \
+	DynamicMeter.h DynamicScreen.h EnvScreen.h \
+	FileDescriptorMeter.h FunctionBar.h GPUMeter.h Hashtable.h \
+	Header.h HeaderLayout.h HeaderOptionsPanel.h HostnameMeter.h \
+	History.h IncSet.h InfoScreen.h LineEditor.h ListItem.h \
+	LoadAverageMeter.h Machine.h Macros.h MainPanel.h \
+	MemoryMeter.h MemorySwapMeter.h Meter.h MeterMode.h \
+	MetersPanel.h NetworkIOMeter.h Object.h OpenFilesScreen.h \
+	OptionItem.h Panel.h Process.h ProcessLocksScreen.h \
+	ProcessTable.h ProvideCurses.h ProvideTerm.h RichString.h \
+	Row.h RowField.h Scheduling.h ScreenManager.h ScreensPanel.h \
+	ScreenTabsPanel.h Settings.h SignalsPanel.h SwapMeter.h \
+	SysArchMeter.h Table.h TasksMeter.h TraceScreen.h \
+	UptimeMeter.h UsersTable.h Vector.h XUtils.h \
+	generic/ProvideDemangle.h $(am__append_1) $(am__append_3)
 
 # Linux
 # -----
-linux_platform_headers = \
-	generic/gettime.h \
-	generic/hostname.h \
-	generic/uname.h \
-	linux/CGroupUtils.h \
-	linux/HugePageMeter.h \
-	linux/IOPriority.h \
-	linux/IOPriorityPanel.h \
-	linux/LibSensors.h \
-	linux/LinuxMachine.h \
-	linux/LinuxProcess.h \
-	linux/LinuxProcessTable.h \
-	linux/Platform.h \
-	linux/PressureStallMeter.h \
-	linux/ProcessField.h \
-	linux/SELinuxMeter.h \
-	linux/SystemdMeter.h \
-	linux/ZramMeter.h \
-	linux/ZramStats.h \
-	linux/ZswapStats.h \
-	zfs/ZfsArcMeter.h \
-	zfs/ZfsArcStats.h \
-	zfs/ZfsCompressedArcMeter.h
-
-linux_platform_sources = \
-	generic/gettime.c \
-	generic/hostname.c \
-	generic/uname.c \
-	linux/CGroupUtils.c \
-	linux/HugePageMeter.c \
-	linux/IOPriorityPanel.c \
-	linux/LibSensors.c \
-	linux/LinuxMachine.c \
-	linux/LinuxProcess.c \
-	linux/LinuxProcessTable.c \
-	linux/Platform.c \
-	linux/PressureStallMeter.c \
-	linux/SELinuxMeter.c \
-	linux/SystemdMeter.c \
-	linux/ZramMeter.c \
-	zfs/ZfsArcMeter.c \
-	zfs/ZfsCompressedArcMeter.c
-
+linux_platform_headers = generic/gettime.h generic/hostname.h \
+	generic/uname.h linux/CGroupUtils.h linux/Compat.h linux/GPU.h \
+	linux/HugePageMeter.h linux/IOPriority.h \
+	linux/IOPriorityPanel.h linux/LibSensors.h \
+	linux/LinuxMachine.h linux/LinuxProcess.h \
+	linux/LinuxProcessTable.h linux/OpenRCMeter.h linux/Platform.h \
+	linux/PressureStallMeter.h linux/ProcessField.h \
+	linux/SELinuxMeter.h linux/SystemdMeter.h linux/ZramMeter.h \
+	linux/ZramStats.h linux/ZswapMeter.h linux/ZswapStats.h \
+	zfs/ZfsArcMeter.h zfs/ZfsArcStats.h \
+	zfs/ZfsCompressedArcMeter.h $(am__append_5)
+linux_platform_sources = GPUMeter.c generic/gettime.c \
+	generic/hostname.c generic/uname.c linux/CGroupUtils.c \
+	linux/Compat.c linux/GPU.c linux/HugePageMeter.c \
+	linux/IOPriorityPanel.c linux/LibSensors.c \
+	linux/LinuxMachine.c linux/LinuxProcess.c \
+	linux/LinuxProcessTable.c linux/OpenRCMeter.c linux/Platform.c \
+	linux/PressureStallMeter.c linux/SELinuxMeter.c \
+	linux/SystemdMeter.c linux/ZramMeter.c linux/ZswapMeter.c \
+	zfs/ZfsArcMeter.c zfs/ZfsCompressedArcMeter.c $(am__append_6)
 @HTOP_DARWIN_TRUE@myhtopplatheaders = $(darwin_platform_headers)
 @HTOP_DRAGONFLYBSD_TRUE@myhtopplatheaders = $(dragonflybsd_platform_headers)
 @HTOP_FREEBSD_TRUE@myhtopplatheaders = $(freebsd_platform_headers)
@@ -1073,6 +986,7 @@ darwin_platform_headers = \
 	zfs/ZfsCompressedArcMeter.h
 
 darwin_platform_sources = \
+	GPUMeter.c \
 	darwin/Platform.c \
 	darwin/PlatformHelpers.c \
 	darwin/DarwinMachine.c \
@@ -1291,6 +1205,16 @@ installcheck-binPROGRAMS: $(bin_PROGRAMS)
 	    else echo "$$f does not support $$opt" 1>&2; bad=1; fi; \
 	  done; \
 	done; rm -f c$${pid}_.???; exit $$bad
+generic/$(am__dirstamp):
+	@$(MKDIR_P) generic
+	@: > generic/$(am__dirstamp)
+generic/$(DEPDIR)/$(am__dirstamp):
+	@$(MKDIR_P) generic/$(DEPDIR)
+	@: > generic/$(DEPDIR)/$(am__dirstamp)
+generic/UnwindPtrace.$(OBJEXT): generic/$(am__dirstamp) \
+	generic/$(DEPDIR)/$(am__dirstamp)
+generic/Demangle.$(OBJEXT): generic/$(am__dirstamp) \
+	generic/$(DEPDIR)/$(am__dirstamp)
 darwin/$(am__dirstamp):
 	@$(MKDIR_P) darwin
 	@: > darwin/$(am__dirstamp)
@@ -1307,12 +1231,6 @@ darwin/DarwinProcess.$(OBJEXT): darwin/$(am__dirstamp) \
 	darwin/$(DEPDIR)/$(am__dirstamp)
 darwin/DarwinProcessTable.$(OBJEXT): darwin/$(am__dirstamp) \
 	darwin/$(DEPDIR)/$(am__dirstamp)
-generic/$(am__dirstamp):
-	@$(MKDIR_P) generic
-	@: > generic/$(am__dirstamp)
-generic/$(DEPDIR)/$(am__dirstamp):
-	@$(MKDIR_P) generic/$(DEPDIR)
-	@: > generic/$(DEPDIR)/$(am__dirstamp)
 generic/fdstat_sysctl.$(OBJEXT): generic/$(am__dirstamp) \
 	generic/$(DEPDIR)/$(am__dirstamp)
 generic/gettime.$(OBJEXT): generic/$(am__dirstamp) \
@@ -1372,6 +1290,10 @@ linux/$(DEPDIR)/$(am__dirstamp):
 	@: > linux/$(DEPDIR)/$(am__dirstamp)
 linux/CGroupUtils.$(OBJEXT): linux/$(am__dirstamp) \
 	linux/$(DEPDIR)/$(am__dirstamp)
+linux/Compat.$(OBJEXT): linux/$(am__dirstamp) \
+	linux/$(DEPDIR)/$(am__dirstamp)
+linux/GPU.$(OBJEXT): linux/$(am__dirstamp) \
+	linux/$(DEPDIR)/$(am__dirstamp)
 linux/HugePageMeter.$(OBJEXT): linux/$(am__dirstamp) \
 	linux/$(DEPDIR)/$(am__dirstamp)
 linux/IOPriorityPanel.$(OBJEXT): linux/$(am__dirstamp) \
@@ -1384,6 +1306,8 @@ linux/LinuxProcess.$(OBJEXT): linux/$(am__dirstamp) \
 	linux/$(DEPDIR)/$(am__dirstamp)
 linux/LinuxProcessTable.$(OBJEXT): linux/$(am__dirstamp) \
 	linux/$(DEPDIR)/$(am__dirstamp)
+linux/OpenRCMeter.$(OBJEXT): linux/$(am__dirstamp) \
+	linux/$(DEPDIR)/$(am__dirstamp)
 linux/Platform.$(OBJEXT): linux/$(am__dirstamp) \
 	linux/$(DEPDIR)/$(am__dirstamp)
 linux/PressureStallMeter.$(OBJEXT): linux/$(am__dirstamp) \
@@ -1393,6 +1317,10 @@ linux/SELinuxMeter.$(OBJEXT): linux/$(am__dirstamp) \
 linux/SystemdMeter.$(OBJEXT): linux/$(am__dirstamp) \
 	linux/$(DEPDIR)/$(am__dirstamp)
 linux/ZramMeter.$(OBJEXT): linux/$(am__dirstamp) \
+	linux/$(DEPDIR)/$(am__dirstamp)
+linux/ZswapMeter.$(OBJEXT): linux/$(am__dirstamp) \
+	linux/$(DEPDIR)/$(am__dirstamp)
+linux/LibNl.$(OBJEXT): linux/$(am__dirstamp) \
 	linux/$(DEPDIR)/$(am__dirstamp)
 netbsd/$(am__dirstamp):
 	@$(MKDIR_P) netbsd
@@ -1508,17 +1436,15 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/AffinityPanel.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/AvailableColumnsPanel.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/AvailableMetersPanel.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/BacktraceScreen.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/BatteryMeter.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/CPUMeter.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/CRT.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/CategoriesPanel.Po@am__quote@ # am--include-marker
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ClockMeter.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ColorsPanel.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ColumnsPanel.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/CommandLine.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/CommandScreen.Po@am__quote@ # am--include-marker
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/Compat.Po@am__quote@ # am--include-marker
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/DateMeter.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/DateTimeMeter.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/DiskIOMeter.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/DisplayOptionsPanel.Po@am__quote@ # am--include-marker
@@ -1528,12 +1454,15 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/EnvScreen.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/FileDescriptorMeter.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/FunctionBar.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/GPUMeter.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/Hashtable.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/Header.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/HeaderOptionsPanel.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/History.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/HostnameMeter.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/IncSet.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/InfoScreen.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/LineEditor.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ListItem.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/LoadAverageMeter.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/Machine.Po@am__quote@ # am--include-marker
@@ -1582,23 +1511,30 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@freebsd/$(DEPDIR)/FreeBSDProcess.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@freebsd/$(DEPDIR)/FreeBSDProcessTable.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@freebsd/$(DEPDIR)/Platform.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@generic/$(DEPDIR)/Demangle.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@generic/$(DEPDIR)/UnwindPtrace.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@generic/$(DEPDIR)/fdstat_sysctl.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@generic/$(DEPDIR)/gettime.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@generic/$(DEPDIR)/hostname.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@generic/$(DEPDIR)/openzfs_sysctl.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@generic/$(DEPDIR)/uname.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@linux/$(DEPDIR)/CGroupUtils.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@linux/$(DEPDIR)/Compat.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@linux/$(DEPDIR)/GPU.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@linux/$(DEPDIR)/HugePageMeter.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@linux/$(DEPDIR)/IOPriorityPanel.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@linux/$(DEPDIR)/LibNl.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@linux/$(DEPDIR)/LibSensors.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@linux/$(DEPDIR)/LinuxMachine.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@linux/$(DEPDIR)/LinuxProcess.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@linux/$(DEPDIR)/LinuxProcessTable.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@linux/$(DEPDIR)/OpenRCMeter.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@linux/$(DEPDIR)/Platform.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@linux/$(DEPDIR)/PressureStallMeter.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@linux/$(DEPDIR)/SELinuxMeter.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@linux/$(DEPDIR)/SystemdMeter.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@linux/$(DEPDIR)/ZramMeter.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@linux/$(DEPDIR)/ZswapMeter.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@netbsd/$(DEPDIR)/NetBSDMachine.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@netbsd/$(DEPDIR)/NetBSDProcess.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@netbsd/$(DEPDIR)/NetBSDProcessTable.Po@am__quote@ # am--include-marker
@@ -2059,17 +1995,15 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/AffinityPanel.Po
 	-rm -f ./$(DEPDIR)/AvailableColumnsPanel.Po
 	-rm -f ./$(DEPDIR)/AvailableMetersPanel.Po
+	-rm -f ./$(DEPDIR)/BacktraceScreen.Po
 	-rm -f ./$(DEPDIR)/BatteryMeter.Po
 	-rm -f ./$(DEPDIR)/CPUMeter.Po
 	-rm -f ./$(DEPDIR)/CRT.Po
 	-rm -f ./$(DEPDIR)/CategoriesPanel.Po
-	-rm -f ./$(DEPDIR)/ClockMeter.Po
 	-rm -f ./$(DEPDIR)/ColorsPanel.Po
 	-rm -f ./$(DEPDIR)/ColumnsPanel.Po
 	-rm -f ./$(DEPDIR)/CommandLine.Po
 	-rm -f ./$(DEPDIR)/CommandScreen.Po
-	-rm -f ./$(DEPDIR)/Compat.Po
-	-rm -f ./$(DEPDIR)/DateMeter.Po
 	-rm -f ./$(DEPDIR)/DateTimeMeter.Po
 	-rm -f ./$(DEPDIR)/DiskIOMeter.Po
 	-rm -f ./$(DEPDIR)/DisplayOptionsPanel.Po
@@ -2079,12 +2013,15 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/EnvScreen.Po
 	-rm -f ./$(DEPDIR)/FileDescriptorMeter.Po
 	-rm -f ./$(DEPDIR)/FunctionBar.Po
+	-rm -f ./$(DEPDIR)/GPUMeter.Po
 	-rm -f ./$(DEPDIR)/Hashtable.Po
 	-rm -f ./$(DEPDIR)/Header.Po
 	-rm -f ./$(DEPDIR)/HeaderOptionsPanel.Po
+	-rm -f ./$(DEPDIR)/History.Po
 	-rm -f ./$(DEPDIR)/HostnameMeter.Po
 	-rm -f ./$(DEPDIR)/IncSet.Po
 	-rm -f ./$(DEPDIR)/InfoScreen.Po
+	-rm -f ./$(DEPDIR)/LineEditor.Po
 	-rm -f ./$(DEPDIR)/ListItem.Po
 	-rm -f ./$(DEPDIR)/LoadAverageMeter.Po
 	-rm -f ./$(DEPDIR)/Machine.Po
@@ -2133,23 +2070,30 @@ distclean: distclean-am
 	-rm -f freebsd/$(DEPDIR)/FreeBSDProcess.Po
 	-rm -f freebsd/$(DEPDIR)/FreeBSDProcessTable.Po
 	-rm -f freebsd/$(DEPDIR)/Platform.Po
+	-rm -f generic/$(DEPDIR)/Demangle.Po
+	-rm -f generic/$(DEPDIR)/UnwindPtrace.Po
 	-rm -f generic/$(DEPDIR)/fdstat_sysctl.Po
 	-rm -f generic/$(DEPDIR)/gettime.Po
 	-rm -f generic/$(DEPDIR)/hostname.Po
 	-rm -f generic/$(DEPDIR)/openzfs_sysctl.Po
 	-rm -f generic/$(DEPDIR)/uname.Po
 	-rm -f linux/$(DEPDIR)/CGroupUtils.Po
+	-rm -f linux/$(DEPDIR)/Compat.Po
+	-rm -f linux/$(DEPDIR)/GPU.Po
 	-rm -f linux/$(DEPDIR)/HugePageMeter.Po
 	-rm -f linux/$(DEPDIR)/IOPriorityPanel.Po
+	-rm -f linux/$(DEPDIR)/LibNl.Po
 	-rm -f linux/$(DEPDIR)/LibSensors.Po
 	-rm -f linux/$(DEPDIR)/LinuxMachine.Po
 	-rm -f linux/$(DEPDIR)/LinuxProcess.Po
 	-rm -f linux/$(DEPDIR)/LinuxProcessTable.Po
+	-rm -f linux/$(DEPDIR)/OpenRCMeter.Po
 	-rm -f linux/$(DEPDIR)/Platform.Po
 	-rm -f linux/$(DEPDIR)/PressureStallMeter.Po
 	-rm -f linux/$(DEPDIR)/SELinuxMeter.Po
 	-rm -f linux/$(DEPDIR)/SystemdMeter.Po
 	-rm -f linux/$(DEPDIR)/ZramMeter.Po
+	-rm -f linux/$(DEPDIR)/ZswapMeter.Po
 	-rm -f netbsd/$(DEPDIR)/NetBSDMachine.Po
 	-rm -f netbsd/$(DEPDIR)/NetBSDProcess.Po
 	-rm -f netbsd/$(DEPDIR)/NetBSDProcessTable.Po
@@ -2231,17 +2175,15 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/AffinityPanel.Po
 	-rm -f ./$(DEPDIR)/AvailableColumnsPanel.Po
 	-rm -f ./$(DEPDIR)/AvailableMetersPanel.Po
+	-rm -f ./$(DEPDIR)/BacktraceScreen.Po
 	-rm -f ./$(DEPDIR)/BatteryMeter.Po
 	-rm -f ./$(DEPDIR)/CPUMeter.Po
 	-rm -f ./$(DEPDIR)/CRT.Po
 	-rm -f ./$(DEPDIR)/CategoriesPanel.Po
-	-rm -f ./$(DEPDIR)/ClockMeter.Po
 	-rm -f ./$(DEPDIR)/ColorsPanel.Po
 	-rm -f ./$(DEPDIR)/ColumnsPanel.Po
 	-rm -f ./$(DEPDIR)/CommandLine.Po
 	-rm -f ./$(DEPDIR)/CommandScreen.Po
-	-rm -f ./$(DEPDIR)/Compat.Po
-	-rm -f ./$(DEPDIR)/DateMeter.Po
 	-rm -f ./$(DEPDIR)/DateTimeMeter.Po
 	-rm -f ./$(DEPDIR)/DiskIOMeter.Po
 	-rm -f ./$(DEPDIR)/DisplayOptionsPanel.Po
@@ -2251,12 +2193,15 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/EnvScreen.Po
 	-rm -f ./$(DEPDIR)/FileDescriptorMeter.Po
 	-rm -f ./$(DEPDIR)/FunctionBar.Po
+	-rm -f ./$(DEPDIR)/GPUMeter.Po
 	-rm -f ./$(DEPDIR)/Hashtable.Po
 	-rm -f ./$(DEPDIR)/Header.Po
 	-rm -f ./$(DEPDIR)/HeaderOptionsPanel.Po
+	-rm -f ./$(DEPDIR)/History.Po
 	-rm -f ./$(DEPDIR)/HostnameMeter.Po
 	-rm -f ./$(DEPDIR)/IncSet.Po
 	-rm -f ./$(DEPDIR)/InfoScreen.Po
+	-rm -f ./$(DEPDIR)/LineEditor.Po
 	-rm -f ./$(DEPDIR)/ListItem.Po
 	-rm -f ./$(DEPDIR)/LoadAverageMeter.Po
 	-rm -f ./$(DEPDIR)/Machine.Po
@@ -2305,23 +2250,30 @@ maintainer-clean: maintainer-clean-am
 	-rm -f freebsd/$(DEPDIR)/FreeBSDProcess.Po
 	-rm -f freebsd/$(DEPDIR)/FreeBSDProcessTable.Po
 	-rm -f freebsd/$(DEPDIR)/Platform.Po
+	-rm -f generic/$(DEPDIR)/Demangle.Po
+	-rm -f generic/$(DEPDIR)/UnwindPtrace.Po
 	-rm -f generic/$(DEPDIR)/fdstat_sysctl.Po
 	-rm -f generic/$(DEPDIR)/gettime.Po
 	-rm -f generic/$(DEPDIR)/hostname.Po
 	-rm -f generic/$(DEPDIR)/openzfs_sysctl.Po
 	-rm -f generic/$(DEPDIR)/uname.Po
 	-rm -f linux/$(DEPDIR)/CGroupUtils.Po
+	-rm -f linux/$(DEPDIR)/Compat.Po
+	-rm -f linux/$(DEPDIR)/GPU.Po
 	-rm -f linux/$(DEPDIR)/HugePageMeter.Po
 	-rm -f linux/$(DEPDIR)/IOPriorityPanel.Po
+	-rm -f linux/$(DEPDIR)/LibNl.Po
 	-rm -f linux/$(DEPDIR)/LibSensors.Po
 	-rm -f linux/$(DEPDIR)/LinuxMachine.Po
 	-rm -f linux/$(DEPDIR)/LinuxProcess.Po
 	-rm -f linux/$(DEPDIR)/LinuxProcessTable.Po
+	-rm -f linux/$(DEPDIR)/OpenRCMeter.Po
 	-rm -f linux/$(DEPDIR)/Platform.Po
 	-rm -f linux/$(DEPDIR)/PressureStallMeter.Po
 	-rm -f linux/$(DEPDIR)/SELinuxMeter.Po
 	-rm -f linux/$(DEPDIR)/SystemdMeter.Po
 	-rm -f linux/$(DEPDIR)/ZramMeter.Po
+	-rm -f linux/$(DEPDIR)/ZswapMeter.Po
 	-rm -f netbsd/$(DEPDIR)/NetBSDMachine.Po
 	-rm -f netbsd/$(DEPDIR)/NetBSDProcess.Po
 	-rm -f netbsd/$(DEPDIR)/NetBSDProcessTable.Po
@@ -2409,13 +2361,17 @@ coverage:
 	$(MAKE) all AM_CPPFLAGS="-fprofile-arcs -ftest-coverage" AM_LDFLAGS="-lgcov"
 
 cppcheck:
-	cppcheck -q -v . --enable=all -DHAVE_OPENVZ
+	cppcheck -q -v . --enable=all
 
 dist-hook: $(top_distdir)/configure
-	@if grep 'pkg_m4_absent' '$(top_distdir)/configure'; then \
-	   echo 'configure is generated without pkg.m4. Please supply pkg.m4 and run ./autogen.sh to rebuild the configure script.'>&2; \
+	@if test "x$$FORCE_MAKE_DIST" != x || \
+	   grep 'pkg_m4_included' '$(top_distdir)/configure' >/dev/null; then :; \
+	else \
+	   echo 'ERROR: The configure script has incomplete pkg-config support and regenerating it is advised. Set FORCE_MAKE_DIST=1 to ignore this warning.'>&2; \
 	   (exit 1); \
-	else :; \
+	fi
+	@if grep 'PACKAGE_VERSION.*-g' '$(top_distdir)/configure'; then \
+	  echo 'WARNING: You are building a dist from a git version. Better run make dist outside of a .git repo on a tagged release.'>&2; \
 	fi
 
 .PHONY: lcov

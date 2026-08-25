@@ -1,11 +1,11 @@
-.TH "HTOP" "1" "2024" "@PACKAGE_STRING@" "User Commands"
+.TH "HTOP" "1" "2026" "@PACKAGE_STRING@" "User Commands"
 .SH "NAME"
 htop, pcp-htop \- interactive process viewer
 .SH "SYNOPSIS"
 .B htop
 .RB [ \-dCFhpustvH ]
 .br
-.B pcp\ htop
+.B pcp-htop
 .RB [ \-dCFhpustvH ]
 .RB [ \-\-host/-h\ host ]
 .SH "DESCRIPTION"
@@ -53,6 +53,9 @@ in monochrome mode
 Filter processes by terms matching the commands. The terms are matched
 case-insensitive and as fixed strings (not regexs). You can separate multiple terms with "|".
 .TP
+\fB\-\-no-function-bar\fR
+Hide the function bar
+.TP
 \fB\-h \-\-help
 Display a help message and exit
 .TP
@@ -62,9 +65,10 @@ Show only the given PIDs
 \fB\-s \-\-sort\-key COLUMN\fR
 Sort by this column (use \-\-sort\-key help for a column list).
 This will force a list view unless you specify -t at the same time.
+Sorting in tree mode applies to the direct children of each process.
 .TP
-\fB\-u \-\-user=USERNAME|UID\fR
-Show only the processes of a given user
+\fB\-u \-\-user[=USERNAME|UID]\fR
+Show only the processes of a given user, or self if omitted
 .TP
 \fB\-U \-\-no-unicode\fR
 Do not use unicode but ASCII characters for graph meters
@@ -72,26 +76,35 @@ Do not use unicode but ASCII characters for graph meters
 \fB\-M \-\-no-mouse\fR
 Disable support of mouse control
 .TP
+\fB\-\-no-meters\fR
+Hide graph meters
+.TP
 \fB\-\-readonly\fR
 Disable all system and process changing features
 .TP
 \fB\-V \-\-version
 Output version information and exit
 .TP
-\fB\-t \-\-tree
-Show processes in tree view. This can be used to force a tree view when
-requesting a sort order with -s.
+\fB\-t \-\-tree[=MODE]
+Show processes in tree view.
+This can be used to force a tree view when requesting a sort order with -s.
+The optional MODE can used to set the stable tree mode (0/classic ;
+1/soft/stable ; 2/hard/STABLE).
+Soft mode will try to stabilize the current PID line visually on the screen.
+Hard mode will additionally allow to move the whole tree down, creating
+empty space above the root when necessary.
 .TP
 \fB\-H \-\-highlight-changes=DELAY\fR
 Highlight new and old processes
 .TP
-\fB   \-\-drop-capabilities[=off|basic|strict]\fR
-Linux only; requires libcap support.
+\fB\-\-drop-capabilities[=off|basic|strict]\fR
+Linux only; this option needs to have been enabled at compile-time and
+requires libcap support at runtime.
 .br
 Drop unneeded Linux capabilities.
-In strict mode features like killing, changing process priorities, and reading
-process delay accounting information will not work, due to less capabilities
-held.
+In strict mode features like killing, changing process priorities and reading
+process delay accounting information will not work due to fewer capabilities
+being held.
 .SH "INTERACTIVE COMMANDS"
 The following commands are supported while in
 .BR htop :
@@ -128,6 +141,18 @@ Scroll left to the beginning of the process entry (i.e. beginning of line).
 .TP
 .B Ctrl-E, $
 Scroll right to the end of the process entry (i.e. end of line).
+.TP
+.B Shift-Up, Alt-Up
+Pan the process list view up.
+The Shift-Up key combination is often grabbed by the terminal emulator
+for scrollback handling. You may need to change its keybindings if you
+want to free the key combination for htop.
+.TP
+.B Shift-Down, Alt-Down
+Pan the process list view down.
+The Shift-Down key combination is often grabbed by the terminal emulator
+for scrollback handling. You may need to change its keybindings if you
+want to free the key combination for htop.
 .TP
 .B Space
 Tag or untag a process. Commands that can operate on multiple processes,
@@ -247,7 +272,13 @@ Sort by time (top compatibility key).
 "Follow" process: if the sort order causes the currently selected process
 to move in the list, make the selection bar follow it. This is useful for
 monitoring a process: this way, you can keep a process always visible on
-screen. When a movement key is used, "follow" loses effect.
+screen. The behavior of the movement keys depends on the sticky follow setting.
+You can press Shift or Alt plus the Up and Down cursor keys to pan the view
+when following a process.
+When the sticky follow setting is enabled (the default), follow mode remains
+active until Shift+F is pressed again. If sticky follow is disabled, pressing
+movement keys like Up, Down, PgUp, and PgDn will end follow mode immediately,
+while Shift+Up and Shift+Down still pan without disabling follow.
 .TP
 .B K
 Hide kernel threads: prevent the threads belonging the kernel to be
@@ -270,6 +301,10 @@ Pause/resume process updates.
 .TP
 .B m
 Merge exe, comm and cmdline, where applicable. (This is a toggle key.)
+.TP
+.B b
+Show the backtrace of a process. (This feature requires enabling
+at compile time.)
 .TP
 .B Ctrl-L
 Refresh: redraw screen and recalculate values.
@@ -297,6 +332,19 @@ is active, the executable path (/proc/[pid]/exe) and the command name
 
 The program basename is highlighted if set in the configuration. Additional
 highlighting can be configured for stale executables (cf. EXE column below).
+
+The Command column should be the last column in each screen as can get very long
+and profits from being able to extend its length dynamically.
+
+Additional color highlighting:
+.RS
+.IP \[bu] 2
+Magenta: regular process command names
+.IP \[bu] 2
+Bold blue: userland thread names
+.IP \[bu] 2
+Bold gray: kernel threads or processes with no command name
+.RE
 .TP
 .B COMM
 The command name of the process obtained from /proc/[pid]/comm, if readable.
@@ -409,6 +457,10 @@ process's used physical memory).
 .B M_SHARE (SHR)
 The size of the process's shared pages.
 .TP
+.B M_PRIV (PRIV)
+The private memory size of the process (i.e. the resident set size minus the
+shared memory size).
+.TP
 .B M_TRS (CODE)
 The text resident set size of the process (i.e. the size of the process's
 executable instructions).
@@ -430,6 +482,11 @@ number of processes sharing it.
 .B M_M_PSSWP (PSSWP)
 The proportional swap share of this mapping, unlike M_SWAP this does not take
 into account swapped out page of underlying shmem objects.
+.TP
+.B M_EPSS (EPSS)
+The effective proportional set size of the process - the proportional set size
+plus the proportional swap share. Like M_PSSWP, the swap part does not take
+into account swapped out pages of underlying shmem objects.
 .TP
 .B ST_UID (UID)
 The user ID of the process owner.
@@ -458,6 +515,16 @@ On Linux the username is highlighted if the process has elevated privileges,
 i.e. if it has been started from binaries with file capabilities set or
 retained Linux capabilities, via the ambient set, after switching from the
 root user.
+
+Additional color highlighting:
+.RS
+.IP \[bu] 2
+Magenta: elevated privilege processes
+.IP \[bu] 2
+Bold gray: processes owned by other users
+.IP \[bu] 2
+White (default): processes owned by the current user
+.RE
 .TP
 .B TIME (TIME+)
 The time, measured in clock ticks that the process has spent in user and system
@@ -468,15 +535,6 @@ The number of Light-Weight Processes (=threads) in the process.
 .TP
 .B TGID
 The thread group ID.
-.TP
-.B CTID
-OpenVZ container ID, a.k.a virtual environment ID.
-.TP
-.B VPID
-OpenVZ process ID.
-.TP
-.B VXID
-VServer process ID.
 .TP
 .B RCHAR (RD_CHAR)
 The number of bytes the process has read.
@@ -556,10 +614,60 @@ The autogroup nice value for the process autogroup. Requires Linux CFS to be ena
 .TP
 .B All other flags
 Currently unsupported (always displays '-').
+.SH "METERS"
+Header meters (configured in Setup, F2) show live host statistics. The
+.B CPU
+meter is a bar (or text, depending on display mode) that stacks several kinds
+of CPU time. Left-to-right segments match the on-screen legend
+.RB ( F1 / h
+help also shows this in color).
+.PP
+Default
+.B CPU
+bar segments (\"default\" color scheme). In monochrome mode the same segments
+use text attributes instead of hues:
+.TP
+.B low (nice)
+Blue; monochrome: normal intensity. Time running at nice > 0.
+.TP
+.B normal (user)
+Green; monochrome: bold. Ordinary user-mode time.
+.TP
+.B kernel (system)
+Red; monochrome: bold. Kernel / system time.
+.TP
+.B irq
+Yellow; monochrome: bold. Hardware interrupt time (detailed CPU time).
+.TP
+.B soft-irq
+Magenta; monochrome: bold. Software interrupt time (detailed CPU time).
+.TP
+.B steal
+Cyan; monochrome: dim. Time stolen by the hypervisor (detailed CPU time).
+.TP
+.B guest / virt
+Cyan; monochrome: dim. Guest VM time when detailed CPU time is on.
+Labeled
+.B virt
+when it is off (Linux and PCP: steal plus guest combined).
+.TP
+.B io-wait
+Gray; monochrome: normal. Waiting on block I/O (detailed CPU time).
+.PP
+With
+.B Detailed CPU time
+enabled in Setup, the bar expands to show irq, soft-irq, steal, guest and
+io-wait separately. Otherwise Linux and PCP fold steal and guest into
+.B virt
+and some of the finer classes are folded into the main segments.
+.PP
+Exact hues depend on the selected color scheme; monochrome maps the same
+segments to bold / normal / dim as noted above. The interactive help always
+shows the live legend for your current scheme.
 .SH "EXTERNAL LIBRARIES"
 While
 .B htop
-depends on most of the libraries it uses at build time there are two
+depends on most of the libraries it uses at build time there are three
 noteworthy exceptions to this rule. These exceptions both relate to
 data displayed in meters displayed in the header of
 .B htop
@@ -597,6 +705,26 @@ Summary: build time dependency on
 C header files, optional runtime dependency on
 .B libsensors(3)
 via dynamic loading.
+.TP
+.B libnl-3 / libnl-genl-3
+The bindings for libnl-3 and libnl-genl-3 (Netlink socket libraries) are
+used to collect delay accounting data when the delay accounting columns
+(e.g. PERCENT_CPU_DELAY, PERCENT_IO_DELAY, PERCENT_SWAP_DELAY) are enabled.
+Support for these columns must be compiled in with the
+.B \-\-enable-delayacct
+configure flag.
+
+Summary: build time dependency on
+.B libnl-3
+and
+.B libnl-genl-3
+C header files (when built with
+.BR \-\-enable-delayacct ),
+optional runtime dependency on
+.B libnl-3-200
+and
+.B libnl-genl-3-200
+via dynamic loading.
 .SH "CONFIG FILES"
 By default
 .B htop
@@ -619,12 +747,23 @@ The
 .B pcp-htop
 utility makes use of
 .I htoprc
-in exactly the same way.
-In addition, it supports additional configuration files allowing
-new meters and columns to be added to the display via the usual
-Setup function, which will display additional Available Meters
-and Available Column entries for each runtime configured meter
-or column.
+in a similar way.
+However,
+.B pcp-htop
+reads its configuration from a path more conventionally used by
+Performance Co-Pilot tools,
+.IR ~/.pcp/htop/htoprc ,
+in order to provide separate configuration when both
+.B htop
+and
+.B pcp-htop
+are installed and in use.
+.B pcp-htop
+supports additional configuration files below the same directory
+allowing new meters, columns and screen tabs to be added via the
+Setup screen (F2).
+This displays additional Available Meters, Available Column and
+Screen Tabs for each meter, column or screen configuration file.
 .LP
 These
 .B pcp-htop
@@ -687,7 +826,7 @@ communities, and forms part of the Performance Co-Pilot suite of tools.
 .SH "COPYRIGHT"
 Copyright \(co 2004-2019 Hisham Muhammad.
 .br
-Copyright \(co 2020-2024 htop dev team.
+Copyright \(co 2020-2026 htop dev team.
 .LP
 License GPLv2+: GNU General Public License version 2 or, at your option, any later version.
 .LP

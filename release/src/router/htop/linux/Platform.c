@@ -24,13 +24,11 @@ in the source distribution for its full text.
 #include <sys/sysmacros.h>
 
 #include "BatteryMeter.h"
-#include "ClockMeter.h"
-#include "Compat.h"
 #include "CPUMeter.h"
-#include "DateMeter.h"
 #include "DateTimeMeter.h"
 #include "DiskIOMeter.h"
 #include "FileDescriptorMeter.h"
+#include "GPUMeter.h"
 #include "HostnameMeter.h"
 #include "HugePageMeter.h"
 #include "LoadAverageMeter.h"
@@ -50,15 +48,17 @@ in the source distribution for its full text.
 #include "SysArchMeter.h"
 #include "TasksMeter.h"
 #include "UptimeMeter.h"
-#include "XUtils.h"
+#include "linux/Compat.h"
 #include "linux/IOPriority.h"
 #include "linux/IOPriorityPanel.h"
 #include "linux/LinuxMachine.h"
 #include "linux/LinuxProcess.h"
+#include "linux/OpenRCMeter.h"
 #include "linux/SELinuxMeter.h"
 #include "linux/SystemdMeter.h"
 #include "linux/ZramMeter.h"
 #include "linux/ZramStats.h"
+#include "linux/ZswapMeter.h"
 #include "linux/ZswapStats.h"
 #include "zfs/ZfsArcMeter.h"
 #include "zfs/ZfsArcStats.h"
@@ -90,7 +90,7 @@ bool Running_containerized = false;
 const ScreenDefaults Platform_defaultScreens[] = {
    {
       .name = "Main",
-      .columns = "PID USER PRIORITY NICE M_VIRT M_RESIDENT M_SHARE STATE PERCENT_CPU PERCENT_MEM TIME Command",
+      .columns = "PID USER PRIORITY NICE M_VIRT M_RESIDENT M_PRIV STATE PERCENT_CPU PERCENT_MEM TIME Command",
       .sortKey = "PERCENT_CPU",
    },
    {
@@ -140,6 +140,26 @@ const SignalItem Platform_signals[] = {
 };
 
 const unsigned int Platform_numberOfSignals = ARRAYSIZE(Platform_signals);
+
+enum {
+   MEMORY_CLASS_USED = 0,
+   MEMORY_CLASS_SHARED,
+   MEMORY_CLASS_COMPRESSED,
+   MEMORY_CLASS_BUFFERS,
+   MEMORY_CLASS_CACHE,
+   MEMORY_CLASS_AVAILABLE,
+}; // N.B. the chart will display categories in this order
+
+const MemoryClass Platform_memoryClasses[] = {
+   [MEMORY_CLASS_USED] = { .label = "used", .countsAsUsed = true, .countsAsCache = false, .color = MEMORY_1 },
+   [MEMORY_CLASS_SHARED] = { .label = "shared", .countsAsUsed = true, .countsAsCache = false, .color = MEMORY_2 },
+   [MEMORY_CLASS_COMPRESSED] = { .label = "compressed", .countsAsUsed = true, .countsAsCache = false, .color = MEMORY_3 },
+   [MEMORY_CLASS_BUFFERS] = { .label = "buffers", .countsAsUsed = false, .countsAsCache = true, .color = MEMORY_4 },
+   [MEMORY_CLASS_CACHE] = { .label = "cache", .countsAsUsed = false, .countsAsCache = true, .color = MEMORY_5 },
+   [MEMORY_CLASS_AVAILABLE] = { .label = "available", .countsAsUsed = false, .countsAsCache = false, .color = MEMORY_6 },
+};
+
+const unsigned int Platform_numberOfMemoryClasses = ARRAYSIZE(Platform_memoryClasses);
 
 static enum { BAT_PROC, BAT_SYS, BAT_ERR } Platform_Battery_method = BAT_PROC;
 static time_t Platform_Battery_cacheTime;
@@ -222,6 +242,7 @@ const MeterClass* const Platform_meterTypes[] = {
    &HugePageMeter_class,
    &TasksMeter_class,
    &UptimeMeter_class,
+   &SecondsUptimeMeter_class,
    &BatteryMeter_class,
    &HostnameMeter_class,
    &AllCPUsMeter_class,
@@ -246,60 +267,80 @@ const MeterClass* const Platform_meterTypes[] = {
    &ZfsArcMeter_class,
    &ZfsCompressedArcMeter_class,
    &ZramMeter_class,
+   &ZswapMeter_class,
+   &ZswapStatsMeter_class,
+   &DiskIORateMeter_class,
+   &DiskIOTimeMeter_class,
    &DiskIOMeter_class,
    &NetworkIOMeter_class,
    &SELinuxMeter_class,
    &SystemdMeter_class,
    &SystemdUserMeter_class,
+   &OpenRCMeter_class,
+   &OpenRCUserMeter_class,
    &FileDescriptorMeter_class,
+   &GPUMeter_class,
    NULL
 };
 
 int Platform_getUptime(void) {
-   double uptime = 0;
-   FILE* fd = fopen(PROCDIR "/uptime", "r");
-   if (fd) {
-      int n = fscanf(fd, "%64lf", &uptime);
-      fclose(fd);
-      if (n <= 0) {
-         return 0;
-      }
+   char uptimedata[64] = {0};
+
+   ssize_t uptimeread = Compat_readfile(PROCDIR "/uptime", uptimedata, sizeof(uptimedata));
+   if (uptimeread < 1) {
+      return 0;
    }
+
+   double uptime = 0;
+   double idle = 0;
+
+   int n = sscanf(uptimedata, "%lf %lf", &uptime, &idle);
+   if (n != 2) {
+      return 0;
+   }
+
    return floor(uptime);
 }
 
 void Platform_getLoadAverage(double* one, double* five, double* fifteen) {
-   FILE* fd = fopen(PROCDIR "/loadavg", "r");
-   if (!fd)
-      goto err;
+   char loaddata[128] = {0};
 
-   double scanOne, scanFive, scanFifteen;
-   int r = fscanf(fd, "%lf %lf %lf", &scanOne, &scanFive, &scanFifteen);
-   fclose(fd);
+   *one = NAN;
+   *five = NAN;
+   *fifteen = NAN;
+
+   ssize_t loadread = Compat_readfile(PROCDIR "/loadavg", loaddata, sizeof(loaddata));
+   if (loadread < 1)
+      return;
+
+   double scanOne = NAN;
+   double scanFive = NAN;
+   double scanFifteen = NAN;
+   int r = sscanf(loaddata, "%lf %lf %lf", &scanOne, &scanFive, &scanFifteen);
    if (r != 3)
-      goto err;
+      return;
 
    *one = scanOne;
    *five = scanFive;
    *fifteen = scanFifteen;
-   return;
-
-err:
-   *one = NAN;
-   *five = NAN;
-   *fifteen = NAN;
 }
 
 pid_t Platform_getMaxPid(void) {
-   pid_t maxPid = 4194303;
-   FILE* file = fopen(PROCDIR "/sys/kernel/pid_max", "r");
-   if (!file)
-      return maxPid;
+   char piddata[32] = {0};
 
-   int match = fscanf(file, "%32d", &maxPid);
-   (void) match;
-   fclose(file);
-   return maxPid;
+   ssize_t pidread = Compat_readfile(PROCDIR "/sys/kernel/pid_max", piddata, sizeof(piddata));
+   if (pidread < 1)
+      goto err;
+
+   int pidmax = 0;
+   int match = sscanf(piddata, "%32d", &pidmax);
+   if (match != 1)
+      goto err;
+
+   return pidmax;
+
+err:
+   return 0x3FFFFF; // 4194303
 }
 
 double Platform_setCPUValues(Meter* this, unsigned int cpu) {
@@ -354,31 +395,77 @@ double Platform_setCPUValues(Meter* this, unsigned int cpu) {
    return percent;
 }
 
+void Platform_setGPUValues(Meter* this, double* totalUsage, unsigned long long* totalGPUTimeDiff) {
+   const Machine* host = this->host;
+   const LinuxMachine* lhost = (const LinuxMachine*) host;
+
+   // Must match the index as used in GPUMeter_attributes
+   const size_t residueIndex = 4;
+   assert(ARRAYSIZE(GPUMeter_engineData) == residueIndex);
+
+   static uint64_t prevMonotonicMs;
+   static double residuePercentage;
+   static unsigned long long int prevResidueTime;
+
+   // The results are cached so that we can update values of multiple meter
+   // instances. We also need a local cache of the monotonic timestamp, thus we
+   // don't use host->prevMonotonicMs.
+   if (host->monotonicMs > prevMonotonicMs) {
+      uint64_t monotonictimeDelta = host->monotonicMs - prevMonotonicMs;
+
+      unsigned long long int curResidueTime = lhost->curGpuTime;
+
+      const GPUEngineData* gpuEngineData;
+      size_t i;
+      for (gpuEngineData = lhost->gpuEngineData, i = 0; gpuEngineData && i < ARRAYSIZE(GPUMeter_engineData); gpuEngineData = gpuEngineData->next, i++) {
+         GPUMeter_engineData[i].key        = gpuEngineData->key;
+         GPUMeter_engineData[i].timeDiff   = saturatingSub(gpuEngineData->curTime, gpuEngineData->prevTime);
+         GPUMeter_engineData[i].percentage = 100.0 * GPUMeter_engineData[i].timeDiff / (1000 * 1000) / monotonictimeDelta;
+
+         curResidueTime = saturatingSub(curResidueTime, gpuEngineData->curTime);
+      }
+
+      residuePercentage = 100.0 * saturatingSub(curResidueTime, prevResidueTime) / (1000 * 1000) / monotonictimeDelta;
+
+      *totalGPUTimeDiff = saturatingSub(lhost->curGpuTime, lhost->prevGpuTime);
+      *totalUsage = 100.0 * (*totalGPUTimeDiff) / (1000 * 1000) / monotonictimeDelta;
+
+      prevResidueTime = curResidueTime;
+      prevMonotonicMs = host->monotonicMs;
+   }
+
+   this->curItems = residueIndex + 1;
+   for (size_t i = 0; i < ARRAYSIZE(GPUMeter_engineData); i++) {
+      this->values[i] = GPUMeter_engineData[i].percentage;
+   }
+   this->values[residueIndex] = residuePercentage;
+}
+
 void Platform_setMemoryValues(Meter* this) {
    const Machine* host = this->host;
    const LinuxMachine* lhost = (const LinuxMachine*) host;
 
    this->total = host->totalMem;
-   this->values[MEMORY_METER_USED] = host->usedMem;
-   this->values[MEMORY_METER_SHARED] = host->sharedMem;
-   this->values[MEMORY_METER_COMPRESSED] = 0; /* compressed */
-   this->values[MEMORY_METER_BUFFERS] = host->buffersMem;
-   this->values[MEMORY_METER_CACHE] = host->cachedMem;
-   this->values[MEMORY_METER_AVAILABLE] = host->availableMem;
+   this->values[MEMORY_CLASS_USED]       = lhost->usedMem;
+   this->values[MEMORY_CLASS_SHARED]     = lhost->sharedMem;
+   this->values[MEMORY_CLASS_COMPRESSED] = 0; /* compressed */
+   this->values[MEMORY_CLASS_BUFFERS]    = lhost->buffersMem;
+   this->values[MEMORY_CLASS_CACHE]      = lhost->cachedMem;
+   this->values[MEMORY_CLASS_AVAILABLE]  = lhost->availableMem;
 
    if (lhost->zfs.enabled != 0 && !Running_containerized) {
       // ZFS does not shrink below the value of zfs_arc_min.
       unsigned long long int shrinkableSize = 0;
       if (lhost->zfs.size > lhost->zfs.min)
          shrinkableSize = lhost->zfs.size - lhost->zfs.min;
-      this->values[MEMORY_METER_USED] -= shrinkableSize;
-      this->values[MEMORY_METER_CACHE] += shrinkableSize;
-      this->values[MEMORY_METER_AVAILABLE] += shrinkableSize;
+      this->values[MEMORY_CLASS_USED] -= shrinkableSize;
+      this->values[MEMORY_CLASS_CACHE] += shrinkableSize;
+      this->values[MEMORY_CLASS_AVAILABLE] += shrinkableSize;
    }
 
    if (lhost->zswap.usedZswapOrig > 0 || lhost->zswap.usedZswapComp > 0) {
-      this->values[MEMORY_METER_USED] -= lhost->zswap.usedZswapComp;
-      this->values[MEMORY_METER_COMPRESSED] += lhost->zswap.usedZswapComp;
+      this->values[MEMORY_CLASS_USED] -= lhost->zswap.usedZswapComp;
+      this->values[MEMORY_CLASS_COMPRESSED] += lhost->zswap.usedZswapComp;
    }
 }
 
@@ -435,8 +522,8 @@ void Platform_setZfsCompressedArcValues(Meter* this) {
 char* Platform_getProcessEnv(pid_t pid) {
    char procname[128];
    xSnprintf(procname, sizeof(procname), PROCDIR "/%d/environ", pid);
-   FILE* fd = fopen(procname, "r");
-   if (!fd)
+   FILE* fp = fopen(procname, "r");
+   if (!fp)
       return NULL;
 
    char* env = NULL;
@@ -449,9 +536,9 @@ char* Platform_getProcessEnv(pid_t pid) {
       size += bytes;
       capacity += 4096;
       env = xRealloc(env, capacity);
-   } while ((bytes = fread(env + size, 1, capacity - size, fd)) > 0);
+   } while (!ferror(fp) && !feof(fp) && (bytes = fread(env + size, 1, capacity - size, fp)) > 0);
 
-   fclose(fd);
+   fclose(fp);
 
    if (bytes < 0) {
       free(env);
@@ -493,20 +580,21 @@ FileLocks_ProcessData* Platform_getProcessLocks(pid_t pid) {
 
       errno = 0;
       char* end = de->d_name;
-      int file = strtoull(de->d_name, &end, 10);
-      if (errno || *end)
+      unsigned long int fdstr = strtoul(de->d_name, &end, 10);
+      if (errno || *end || fdstr >= INT_MAX)
          continue;
+      int file = (int)fdstr;
 
       int fd = openat(dfd, de->d_name, O_RDONLY | O_CLOEXEC);
       if (fd == -1)
          continue;
-      FILE* f = fdopen(fd, "r");
-      if (!f) {
+      FILE* fp = fdopen(fd, "r");
+      if (!fp) {
          close(fd);
          continue;
       }
 
-      for (char buffer[1024]; fgets(buffer, sizeof(buffer), f); ) {
+      for (char buffer[1024]; fgets(buffer, sizeof(buffer), fp); ) {
          if (!strchr(buffer, '\n'))
             continue;
 
@@ -544,7 +632,7 @@ FileLocks_ProcessData* Platform_getProcessLocks(pid_t pid) {
          data_ref = &(*data_ref)->next;
       }
 
-      fclose(f);
+      fclose(fp);
    }
 
    closedir(dirp);
@@ -559,55 +647,57 @@ void Platform_getPressureStall(const char* file, bool some, double* ten, double*
    *ten = *sixty = *threehundred = 0;
    char procname[128];
    xSnprintf(procname, sizeof(procname), PROCDIR "/pressure/%s", file);
-   FILE* fd = fopen(procname, "r");
-   if (!fd) {
+   FILE* fp = fopen(procname, "r");
+   if (!fp) {
       *ten = *sixty = *threehundred = NAN;
       return;
    }
-   int total = fscanf(fd, "some avg10=%32lf avg60=%32lf avg300=%32lf total=%*f ", ten, sixty, threehundred);
-   if (!some) {
-      total = fscanf(fd, "full avg10=%32lf avg60=%32lf avg300=%32lf total=%*f ", ten, sixty, threehundred);
+   int total = fscanf(fp, "some avg10=%32lf avg60=%32lf avg300=%32lf total=%*f ", ten, sixty, threehundred);
+   if (total != EOF && !some) {
+      total = fscanf(fp, "full avg10=%32lf avg60=%32lf avg300=%32lf total=%*f ", ten, sixty, threehundred);
    }
    (void) total;
    assert(total == 3);
-   fclose(fd);
+   fclose(fp);
 }
 
 void Platform_getFileDescriptors(double* used, double* max) {
+   char buffer[128] = {0};
+
    *used = NAN;
    *max = 65536;
 
-   FILE* fd = fopen(PROCDIR "/sys/fs/file-nr", "r");
-   if (!fd)
+   ssize_t fdread = Compat_readfile(PROCDIR "/sys/fs/file-nr", buffer, sizeof(buffer));
+   if (fdread < 1)
       return;
 
    unsigned long long v1, v2, v3;
-   int total = fscanf(fd, "%llu %llu %llu", &v1, &v2, &v3);
+   int total = sscanf(buffer, "%llu %llu %llu", &v1, &v2, &v3);
    if (total == 3) {
       *used = v1;
       *max = v3;
    }
-
-   fclose(fd);
 }
 
 bool Platform_getDiskIO(DiskIOData* data) {
-   FILE* fd = fopen(PROCDIR "/diskstats", "r");
-   if (!fd)
+   FILE* fp = fopen(PROCDIR "/diskstats", "r");
+   if (!fp)
       return false;
 
    char lastTopDisk[32] = { '\0' };
 
-   unsigned long long int read_sum = 0, write_sum = 0, timeSpend_sum = 0;
+   uint64_t read_sum = 0, write_sum = 0, timeSpend_sum = 0;
+   uint64_t numDisks = 0;
+
    char lineBuffer[256];
-   while (fgets(lineBuffer, sizeof(lineBuffer), fd)) {
+   while (fgets(lineBuffer, sizeof(lineBuffer), fp)) {
       char diskname[32];
       unsigned long long int read_tmp, write_tmp, timeSpend_tmp;
       if (sscanf(lineBuffer, "%*d %*d %31s %*u %*u %llu %*u %*u %*u %llu %*u %*u %llu", diskname, &read_tmp, &write_tmp, &timeSpend_tmp) == 4) {
-         if (String_startsWith(diskname, "dm-"))
-            continue;
-
-         if (String_startsWith(diskname, "zram"))
+         if (String_startsWith(diskname, "dm-") ||
+             String_startsWith(diskname, "loop") ||
+             String_startsWith(diskname, "md") ||
+             String_startsWith(diskname, "zram"))
             continue;
 
          /* only count root disks, e.g. do not count IO from sda and sda1 twice */
@@ -620,24 +710,25 @@ bool Platform_getDiskIO(DiskIOData* data) {
          read_sum += read_tmp;
          write_sum += write_tmp;
          timeSpend_sum += timeSpend_tmp;
+         numDisks++;
       }
    }
-   fclose(fd);
+   fclose(fp);
    /* multiply with sector size */
    data->totalBytesRead = 512 * read_sum;
    data->totalBytesWritten = 512 * write_sum;
    data->totalMsTimeSpend = timeSpend_sum;
+   data->numDisks = numDisks;
    return true;
 }
 
 bool Platform_getNetworkIO(NetworkIOData* data) {
-   FILE* fd = fopen(PROCDIR "/net/dev", "r");
-   if (!fd)
+   FILE* fp = fopen(PROCDIR "/net/dev", "r");
+   if (!fp)
       return false;
 
-   memset(data, 0, sizeof(NetworkIOData));
    char lineBuffer[512];
-   while (fgets(lineBuffer, sizeof(lineBuffer), fd)) {
+   while (fgets(lineBuffer, sizeof(lineBuffer), fp)) {
       char interfaceName[32];
       unsigned long long int bytesReceived, packetsReceived, bytesTransmitted, packetsTransmitted;
       if (sscanf(lineBuffer, "%31s %llu %llu %*u %*u %*u %*u %*u %*u %llu %llu",
@@ -657,7 +748,7 @@ bool Platform_getNetworkIO(NetworkIOData* data) {
       data->packetsTransmitted += packetsTransmitted;
    }
 
-   fclose(fd);
+   fclose(fp);
 
    return true;
 }
@@ -690,13 +781,13 @@ static double Platform_Battery_getProcBatInfo(void) {
       char filePath[256];
       char bufInfo[1024] = {0};
       xSnprintf(filePath, sizeof(filePath), "%s/%s/info", PROC_BATTERY_DIR, entryName);
-      ssize_t r = xReadfile(filePath, bufInfo, sizeof(bufInfo));
+      ssize_t r = Compat_readfile(filePath, bufInfo, sizeof(bufInfo));
       if (r < 0)
          continue;
 
       char bufState[1024] = {0};
       xSnprintf(filePath, sizeof(filePath), "%s/%s/state", PROC_BATTERY_DIR, entryName);
-      r = xReadfile(filePath, bufState, sizeof(bufState));
+      r = Compat_readfile(filePath, bufState, sizeof(bufState));
       if (r < 0)
          continue;
 
@@ -738,7 +829,7 @@ static double Platform_Battery_getProcBatInfo(void) {
 
 static ACPresence procAcpiCheck(void) {
    char buffer[1024] = {0};
-   ssize_t r = xReadfile(PROC_POWERSUPPLY_ACSTATE_FILE, buffer, sizeof(buffer));
+   ssize_t r = Compat_readfile(PROC_POWERSUPPLY_ACSTATE_FILE, buffer, sizeof(buffer));
    if (r < 1)
       return AC_ERROR;
 
@@ -770,7 +861,7 @@ static void Platform_Battery_getSysData(double* percent, ACPresence* isOnAC) {
       const char* entryName = dirEntry->d_name;
 
 #ifdef HAVE_OPENAT
-      int entryFd = openat(dirfd(dir), entryName, O_DIRECTORY | O_PATH);
+      int entryFd = openat(xDirfd(dir), entryName, O_DIRECTORY | O_PATH);
       if (entryFd < 0)
          continue;
 #else
@@ -785,13 +876,14 @@ static void Platform_Battery_getSysData(double* percent, ACPresence* isOnAC) {
          type = AC;
       } else {
          char buffer[32];
-         ssize_t ret = xReadfileat(entryFd, "type", buffer, sizeof(buffer));
-         if (ret <= 0)
+         ssize_t ret = Compat_readfileat(entryFd, "type", buffer, sizeof(buffer));
+         if (ret <= 0 || (size_t)ret > sizeof(buffer))
             goto next;
 
-         /* drop optional trailing newlines */
-         for (char* buf = &buffer[(size_t)ret - 1]; *buf == '\n'; buf--)
-            *buf = '\0';
+         /* truncate on non-printable characters */
+         for (size_t idx = 0; idx < (size_t)ret; idx++)
+            if (buffer[idx] <= ' ')
+               buffer[idx] = 0;
 
          if (String_eq(buffer, "Battery"))
             type = BAT;
@@ -803,7 +895,7 @@ static void Platform_Battery_getSysData(double* percent, ACPresence* isOnAC) {
 
       if (type == BAT) {
          char buffer[1024];
-         ssize_t r = xReadfileat(entryFd, "uevent", buffer, sizeof(buffer));
+         ssize_t r = Compat_readfileat(entryFd, "uevent", buffer, sizeof(buffer));
          if (r < 0)
             goto next;
 
@@ -852,7 +944,7 @@ static void Platform_Battery_getSysData(double* percent, ACPresence* isOnAC) {
             goto next;
 
          char buffer[2];
-         ssize_t r = xReadfileat(entryFd, "online", buffer, sizeof(buffer));
+         ssize_t r = Compat_readfileat(entryFd, "online", buffer, sizeof(buffer));
          if (r < 1) {
             *isOnAC = AC_ERROR;
             goto next;
@@ -977,19 +1069,19 @@ static int dropCapabilities(enum CapMode mode) {
 
    cap_t caps = cap_init();
    if (caps == NULL) {
-      fprintf(stderr, "Error: can not initialize capabilities: %s\n", strerror(errno));
+      fprintf(stderr, "Error: cannot initialize capabilities: %s\n", strerror(errno));
       return -1;
    }
 
    if (cap_clear(caps) < 0) {
-      fprintf(stderr, "Error: can not clear capabilities: %s\n", strerror(errno));
+      fprintf(stderr, "Error: cannot clear capabilities: %s\n", strerror(errno));
       cap_free(caps);
       return -1;
    }
 
    cap_t currCaps = cap_get_proc();
    if (currCaps == NULL) {
-      fprintf(stderr, "Error: can not get current process capabilities: %s\n", strerror(errno));
+      fprintf(stderr, "Error: cannot get current process capabilities: %s\n", strerror(errno));
       cap_free(caps);
       return -1;
    }
@@ -998,9 +1090,9 @@ static int dropCapabilities(enum CapMode mode) {
       if (!CAP_IS_SUPPORTED(keepcaps[i]))
          continue;
 
-      cap_flag_value_t current;
+      cap_flag_value_t current = CAP_CLEAR;
       if (cap_get_flag(currCaps, keepcaps[i], CAP_PERMITTED, &current) < 0) {
-         fprintf(stderr, "Error: can not get current value of capability %d: %s\n", keepcaps[i], strerror(errno));
+         fprintf(stderr, "Error: cannot get current value of capability %d: %s\n", keepcaps[i], strerror(errno));
          cap_free(currCaps);
          cap_free(caps);
          return -1;
@@ -1010,14 +1102,14 @@ static int dropCapabilities(enum CapMode mode) {
          continue;
 
       if (cap_set_flag(caps, CAP_PERMITTED, 1, &keepcaps[i], CAP_SET) < 0) {
-         fprintf(stderr, "Error: can not set permitted capability %d: %s\n", keepcaps[i], strerror(errno));
+         fprintf(stderr, "Error: cannot set permitted capability %d: %s\n", keepcaps[i], strerror(errno));
          cap_free(currCaps);
          cap_free(caps);
          return -1;
       }
 
       if (cap_set_flag(caps, CAP_EFFECTIVE, 1, &keepcaps[i], CAP_SET) < 0) {
-         fprintf(stderr, "Error: can not set effective capability %d: %s\n", keepcaps[i], strerror(errno));
+         fprintf(stderr, "Error: cannot set effective capability %d: %s\n", keepcaps[i], strerror(errno));
          cap_free(currCaps);
          cap_free(caps);
          return -1;
@@ -1025,7 +1117,7 @@ static int dropCapabilities(enum CapMode mode) {
    }
 
    if (cap_set_proc(caps) < 0) {
-      fprintf(stderr, "Error: can not set process capabilities: %s\n", strerror(errno));
+      fprintf(stderr, "Error: cannot set process capabilities: %s\n", strerror(errno));
       cap_free(currCaps);
       cap_free(caps);
       return -1;
@@ -1064,18 +1156,18 @@ bool Platform_init(void) {
       }
    }
 
-   FILE* fd = fopen(PROCDIR "/1/mounts", "r");
-   if (fd) {
+   FILE* fp = fopen(PROCDIR "/1/mounts", "r");
+   if (fp) {
       char lineBuffer[256];
-      while (fgets(lineBuffer, sizeof(lineBuffer), fd)) {
+      while (fgets(lineBuffer, sizeof(lineBuffer), fp)) {
          // detect lxc or overlayfs and guess that this means we are running containerized
          if (String_startsWith(lineBuffer, "lxcfs /proc") || String_startsWith(lineBuffer, "overlay / overlay")) {
             Running_containerized = true;
             break;
          }
       }
-      fclose(fd);
-   } // if (fd)
+      fclose(fp);
+   }
 
    return true;
 }

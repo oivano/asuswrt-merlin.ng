@@ -23,15 +23,14 @@ in the source distribution for its full text.
 #include <unistd.h>
 #include <time.h>
 
-#include "Compat.h"
 #include "CRT.h"
 #include "Macros.h"
 #include "ProcessTable.h"
 #include "Row.h"
 #include "Settings.h"
 #include "UsersTable.h"
-#include "XUtils.h"
 
+#include "linux/Compat.h"
 #include "linux/Platform.h" // needed for GNU/hurd to get PATH_MAX  // IWYU pragma: keep
 
 #ifdef HAVE_SENSORS_SENSORS_H
@@ -63,6 +62,7 @@ static void LinuxMachine_updateCPUcount(LinuxMachine* this) {
       return;
 
    unsigned int currExisting = super->existingCPUs;
+   unsigned int maxSeen = 0;
 
    const struct dirent* entry;
    while ((entry = readdir(dir)) != NULL) {
@@ -73,12 +73,13 @@ static void LinuxMachine_updateCPUcount(LinuxMachine* this) {
          continue;
 
       char* endp;
-      unsigned long int id = strtoul(entry->d_name + 3, &endp, 10);
-      if (id == ULONG_MAX || endp == entry->d_name + 3 || *endp != '\0')
+      unsigned long int sysid = strtoul(entry->d_name + 3, &endp, 10);
+      if (sysid >= UINT_MAX || endp == entry->d_name + 3 || *endp != '\0')
          continue;
+      unsigned int cpuid = (unsigned int)sysid + 1;
 
 #ifdef HAVE_OPENAT
-      int cpuDirFd = openat(dirfd(dir), entry->d_name, O_DIRECTORY | O_PATH | O_NOFOLLOW);
+      int cpuDirFd = openat(xDirfd(dir), entry->d_name, O_DIRECTORY | O_PATH | O_NOFOLLOW);
       if (cpuDirFd < 0)
          continue;
 #else
@@ -88,8 +89,22 @@ static void LinuxMachine_updateCPUcount(LinuxMachine* this) {
 
       existing++;
 
+      /* The scan only writes `online` for CPUs it actually finds, so a CPU
+       * unplugged from the middle of the range would keep its last value for
+       * the rest of the session: the count cannot shrink (the array still has
+       * to reach the highest id) and nothing else ever clears the flag.
+       * Clear them once, then let the rest of this scan turn back on whatever
+       * is still there. This sits on the first CPU we count rather than before
+       * the loop so that the "no CPU found" case below still leaves the
+       * previous state alone, instead of marking every CPU offline. */
+      if (existing == 1) {
+         for (unsigned int i = 1; i <= currExisting; i++)
+            this->cpuData[i].online = false;
+      }
+
       /* readdir() iterates with no specific order */
-      unsigned int max = MAXIMUM(existing, id + 1);
+      unsigned int max = MAXIMUM(existing, cpuid);
+      maxSeen = MAXIMUM(maxSeen, max);
       if (max > currExisting) {
          this->cpuData = xReallocArrayZero(this->cpuData, currExisting ? (currExisting + 1) : 0, max + /* aggregate */ 1, sizeof(CPUData));
          this->cpuData[0].online = true; /* average is always "online" */
@@ -97,13 +112,13 @@ static void LinuxMachine_updateCPUcount(LinuxMachine* this) {
       }
 
       char buffer[8];
-      ssize_t res = xReadfileat(cpuDirFd, "online", buffer, sizeof(buffer));
+      ssize_t res = Compat_readfileat(cpuDirFd, "online", buffer, sizeof(buffer));
       /* If the file "online" does not exist or on failure count as active */
       if (res < 1 || buffer[0] != '0') {
          active++;
-         this->cpuData[id + 1].online = true;
+         this->cpuData[cpuid].online = true;
       } else {
-         this->cpuData[id + 1].online = false;
+         this->cpuData[cpuid].online = false;
       }
 
       Compat_openatArgClose(cpuDirFd);
@@ -115,6 +130,16 @@ static void LinuxMachine_updateCPUcount(LinuxMachine* this) {
    if (existing < 1)
       return;
 
+   /* The array is only ever grown inside the loop, because readdir() gives no
+    * ordering guarantee and a CPU may still show up later in the same scan.
+    * Shrinking therefore has to wait until every entry has been seen. Without
+    * this, a hot-unplugged CPU is never released: existingCPUs keeps the old
+    * value forever, so htop goes on drawing a meter for a CPU that is gone. */
+   if (maxSeen < currExisting) {
+      this->cpuData = xReallocArrayZero(this->cpuData, currExisting + 1, maxSeen + /* aggregate */ 1, sizeof(CPUData));
+      currExisting = maxSeen;
+   }
+
 #ifdef HAVE_SENSORS_SENSORS_H
    /* When started with offline CPUs, libsensors does not monitor those,
     * even when they become online. */
@@ -123,7 +148,7 @@ static void LinuxMachine_updateCPUcount(LinuxMachine* this) {
 #endif
 
    super->activeCPUs = active;
-   assert(existing == currExisting);
+   assert(existing <= currExisting);
    super->existingCPUs = currExisting;
 }
 
@@ -141,6 +166,8 @@ static void LinuxMachine_scanMemoryInfo(LinuxMachine* this) {
    memory_t sreclaimableMem = 0;
    memory_t zswapCompMem = 0;
    memory_t zswapOrigMem = 0;
+   bool zswapCompAvailable = false;
+   bool zswapOrigAvailable = false;
 
    FILE* file = fopen(PROCMEMINFOFILE, "r");
    if (!file)
@@ -153,6 +180,15 @@ static void LinuxMachine_scanMemoryInfo(LinuxMachine* this) {
          if (String_startsWith(buffer, label)) {                             \
             memory_t parsed_;                                                \
             if (sscanf(buffer + strlen(label), "%llu kB", &parsed_) == 1) {  \
+               (variable) = parsed_;                                         \
+            }                                                                \
+            break;                                                           \
+         } else (void) 0 /* Require a ";" after the macro use. */
+      #define tryReadFlag(label, variable, flag)                             \
+         if (String_startsWith(buffer, label)) {                             \
+            memory_t parsed_;                                                \
+            (flag) = sscanf(buffer + strlen(label), "%llu kB", &parsed_) == 1; \
+            if (flag) {                                                       \
                (variable) = parsed_;                                         \
             }                                                                \
             break;                                                           \
@@ -186,11 +222,12 @@ static void LinuxMachine_scanMemoryInfo(LinuxMachine* this) {
             }
             break;
          case 'Z':
-            tryRead("Zswap:", zswapCompMem);
-            tryRead("Zswapped:", zswapOrigMem);
+            tryReadFlag("Zswap:", zswapCompMem, zswapCompAvailable);
+            tryReadFlag("Zswapped:", zswapOrigMem, zswapOrigAvailable);
             break;
       }
 
+      #undef tryReadFlag
       #undef tryRead
    }
 
@@ -205,22 +242,49 @@ static void LinuxMachine_scanMemoryInfo(LinuxMachine* this) {
     *    do not show twice by subtracting from Cached and do not subtract twice from used.
     */
    host->totalMem = totalMem;
-   host->cachedMem = cachedMem + sreclaimableMem - sharedMem;
-   host->sharedMem = sharedMem;
+   this->cachedMem = cachedMem + sreclaimableMem - sharedMem;
+   this->sharedMem = sharedMem;
    const memory_t usedDiff = freeMem + cachedMem + sreclaimableMem + buffersMem;
-   host->usedMem = (totalMem >= usedDiff) ? totalMem - usedDiff : totalMem - freeMem;
-   host->buffersMem = buffersMem;
-   host->availableMem = availableMem != 0 ? MINIMUM(availableMem, totalMem) : freeMem;
+   this->usedMem = (totalMem >= usedDiff) ? totalMem - usedDiff : totalMem - freeMem;
+   this->buffersMem = buffersMem;
+   this->availableMem = availableMem != 0 ? MINIMUM(availableMem, totalMem) : freeMem;
    host->totalSwap = swapTotalMem;
    host->usedSwap = swapTotalMem - swapFreeMem - swapCacheMem;
    host->cachedSwap = swapCacheMem;
+   this->zswap.available = zswapCompAvailable && zswapOrigAvailable;
    this->zswap.usedZswapComp = zswapCompMem;
    this->zswap.usedZswapOrig = zswapOrigMem;
 }
 
+static void LinuxMachine_scanZswapInfo(LinuxMachine* this) {
+   ZswapStats* zswap = &this->zswap;
+
+   zswap->enabled = false;
+   zswap->hasPoolLimit = false;
+   zswap->totalZswapPool = 0;
+
+   if (!zswap->available)
+      return;
+
+   /* If the parameter is unavailable, counters from /proc/meminfo imply enabled. */
+   char buffer[16];
+   ssize_t enabledRead = Compat_readfile("/sys/module/zswap/parameters/enabled", buffer, sizeof(buffer));
+   zswap->enabled = enabledRead <= 0 || (buffer[0] != 'N' && buffer[0] != 'n');
+
+   if (!zswap->enabled)
+      return;
+
+   ssize_t limitRead = Compat_readfile("/sys/module/zswap/parameters/max_pool_percent", buffer, sizeof(buffer));
+   unsigned int maxPoolPercent;
+   if (limitRead > 0 && sscanf(buffer, "%u", &maxPoolPercent) == 1 && maxPoolPercent <= 100) {
+      zswap->hasPoolLimit = true;
+      zswap->totalZswapPool = this->super.totalMem * maxPoolPercent / 100;
+   }
+}
+
 static void LinuxMachine_scanHugePages(LinuxMachine* this) {
    this->totalHugePageMem = 0;
-   for (unsigned i = 0; i < HTOP_HUGEPAGE_COUNT; i++) {
+   for (size_t i = 0; i < HTOP_HUGEPAGE_COUNT; i++) {
       this->usedHugePageMem[i] = MEMORY_MAX;
    }
 
@@ -249,7 +313,7 @@ static void LinuxMachine_scanHugePages(LinuxMachine* this) {
       ssize_t r;
 
       xSnprintf(hugePagePath, sizeof(hugePagePath), "/sys/kernel/mm/hugepages/%s/nr_hugepages", name);
-      r = xReadfile(hugePagePath, content, sizeof(content));
+      r = Compat_readfile(hugePagePath, content, sizeof(content));
       if (r <= 0)
          continue;
 
@@ -258,7 +322,7 @@ static void LinuxMachine_scanHugePages(LinuxMachine* this) {
          continue;
 
       xSnprintf(hugePagePath, sizeof(hugePagePath), "/sys/kernel/mm/hugepages/%s/free_hugepages", name);
-      r = xReadfile(hugePagePath, content, sizeof(content));
+      r = Compat_readfile(hugePagePath, content, sizeof(content));
       if (r <= 0)
          continue;
 
@@ -274,47 +338,75 @@ static void LinuxMachine_scanHugePages(LinuxMachine* this) {
    closedir(dir);
 }
 
+static bool LinuxMachine_isZramBlockName(const char* name) {
+   if (!String_startsWith(name, "zram"))
+      return false;
+
+   name += strlen("zram");
+   if (*name == '\0')
+      return false;
+
+   for (; *name != '\0'; name++) {
+      if (*name < '0' || *name > '9')
+         return false;
+   }
+
+   return true;
+}
+
+static void LinuxMachine_scanZramDevice(openat_arg_t blockDirFd, const char* name, memory_t* totalZram, memory_t* usedZramComp, memory_t* usedZramOrig) {
+#ifdef HAVE_OPENAT
+   int zramDirFd = Compat_openat(blockDirFd, name, O_DIRECTORY | O_PATH);
+   if (zramDirFd < 0)
+      return;
+#else
+   char zramDirFd[4096];
+   xSnprintf(zramDirFd, sizeof(zramDirFd), "%s/%s", blockDirFd, name);
+#endif
+
+   memory_t size = 0;
+   memory_t orig_data_size = 0;
+   memory_t compr_data_size = 0;
+   char disksize[64];
+   char mm_stat[256];
+
+   ssize_t disksizeRead = Compat_readfileat(zramDirFd, "disksize", disksize, sizeof(disksize));
+   ssize_t mmStatRead = Compat_readfileat(zramDirFd, "mm_stat", mm_stat, sizeof(mm_stat));
+
+   if (disksizeRead > 0 && mmStatRead > 0 &&
+       1 == sscanf(disksize, "%llu", &size) &&
+       2 == sscanf(mm_stat, "%llu %llu", &orig_data_size, &compr_data_size)) {
+      *totalZram += size;
+      *usedZramComp += compr_data_size;
+      *usedZramOrig += orig_data_size;
+   }
+
+   Compat_openatArgClose(zramDirFd);
+}
+
 static void LinuxMachine_scanZramInfo(LinuxMachine* this) {
    memory_t totalZram = 0;
    memory_t usedZramComp = 0;
    memory_t usedZramOrig = 0;
 
-   char mm_stat[34];
-   char disksize[34];
+   DIR* dir = opendir("/sys/block");
+   if (dir) {
+#ifdef HAVE_OPENAT
+      openat_arg_t blockDirFd = xDirfd(dir);
+#else
+      openat_arg_t blockDirFd = "/sys/block";
+#endif
+      const struct dirent* entry;
+      while ((entry = readdir(dir)) != NULL) {
+         /* zram devices are named zramN; enumerate existing sysfs entries
+          * instead of probing zram0, zram1, ... until an absent device. */
+         if (!LinuxMachine_isZramBlockName(entry->d_name))
+            continue;
 
-   unsigned int i = 0;
-   for (;;) {
-      xSnprintf(mm_stat, sizeof(mm_stat), "/sys/block/zram%u/mm_stat", i);
-      xSnprintf(disksize, sizeof(disksize), "/sys/block/zram%u/disksize", i);
-      i++;
-      FILE* disksize_file = fopen(disksize, "r");
-      FILE* mm_stat_file = fopen(mm_stat, "r");
-      if (disksize_file == NULL || mm_stat_file == NULL) {
-         if (disksize_file) {
-            fclose(disksize_file);
-         }
-         if (mm_stat_file) {
-            fclose(mm_stat_file);
-         }
-         break;
-      }
-      memory_t size = 0;
-      memory_t orig_data_size = 0;
-      memory_t compr_data_size = 0;
-
-      if (!fscanf(disksize_file, "%llu\n", &size) ||
-          !fscanf(mm_stat_file, "    %llu       %llu", &orig_data_size, &compr_data_size)) {
-         fclose(disksize_file);
-         fclose(mm_stat_file);
-         break;
+         LinuxMachine_scanZramDevice(blockDirFd, entry->d_name, &totalZram, &usedZramComp, &usedZramOrig);
       }
 
-      totalZram += size;
-      usedZramComp += compr_data_size;
-      usedZramOrig += orig_data_size;
-
-      fclose(disksize_file);
-      fclose(mm_stat_file);
+      closedir(dir);
    }
 
    this->zram.totalZram = totalZram / 1024;
@@ -342,10 +434,10 @@ static void LinuxMachine_scanZfsArcstats(LinuxMachine* this) {
             sscanf(buffer + strlen(label), " %*2u %32llu", variable);          \
             break;                                                             \
          } else (void) 0 /* Require a ";" after the macro use. */
-      #define tryReadFlag(label, variable, flag)                               \
-         if (String_startsWith(buffer, label)) {                               \
-            (flag) = sscanf(buffer + strlen(label), " %*2u %32llu", variable); \
-            break;                                                             \
+      #define tryReadFlag(label, variable, flag)                                      \
+         if (String_startsWith(buffer, label)) {                                      \
+            (flag) = (1 == sscanf(buffer + strlen(label), " %*2u %32llu", variable)); \
+            break;                                                                    \
          } else (void) 0 /* Require a ";" after the macro use. */
 
       switch (buffer[0]) {
@@ -408,7 +500,10 @@ static void LinuxMachine_scanCPUTime(LinuxMachine* this) {
    if (!file)
       CRT_fatalError("Cannot open " PROCSTATFILE);
 
-   unsigned int lastAdjCpuId = 0;
+   // One thread per CPU thread + one for the average
+   assert(super->existingCPUs < UINT_MAX - 1);
+   bool adjCpuIdProcessed[super->existingCPUs + 1];
+   memset(adjCpuIdProcessed, 0, sizeof(adjCpuIdProcessed));
 
    for (unsigned int i = 0; i <= super->existingCPUs; i++) {
       char buffer[PROC_LINE_LENGTH + 1];
@@ -433,17 +528,13 @@ static void LinuxMachine_scanCPUTime(LinuxMachine* this) {
       } else {
          unsigned int cpuid;
          (void) sscanf(buffer, "cpu%4u %16llu %16llu %16llu %16llu %16llu %16llu %16llu %16llu %16llu %16llu", &cpuid, &usertime, &nicetime, &systemtime, &idletime, &ioWait, &irq, &softIrq, &steal, &guest, &guestnice);
+         if (cpuid >= super->existingCPUs)
+            break;
          adjCpuId = cpuid + 1;
       }
 
       if (adjCpuId > super->existingCPUs)
          break;
-
-      for (unsigned int j = lastAdjCpuId + 1; j < adjCpuId; j++) {
-         // Skipped an ID, but /proc/stat is ordered => got offline CPU
-         memset(&(this->cpuData[j]), '\0', sizeof(CPUData));
-      }
-      lastAdjCpuId = adjCpuId;
 
       // Guest time is already accounted in usertime
       usertime -= guest;
@@ -482,16 +573,26 @@ static void LinuxMachine_scanCPUTime(LinuxMachine* this) {
       cpuData->stealTime = steal;
       cpuData->guestTime = virtalltime;
       cpuData->totalTime = totaltime;
+
+      adjCpuIdProcessed[adjCpuId] = true;
+   }
+
+   for (unsigned int i = 0; i <= super->existingCPUs; i++) {
+      if (!adjCpuIdProcessed[i]) {
+         // Skipped an ID, but /proc/stat is ordered => threads in between are offline
+         memset(&this->cpuData[i], 0, sizeof(CPUData));
+      }
    }
 
    this->period = (double)this->cpuData[0].totalPeriod / super->activeCPUs;
 
-   char buffer[PROC_LINE_LENGTH + 1];
-   while (fgets(buffer, sizeof(buffer), file)) {
-      if (String_startsWith(buffer, "procs_running")) {
-         ProcessTable* pt = (ProcessTable*) super->processTable;
-         pt->runningTasks = strtoul(buffer + strlen("procs_running"), NULL, 10);
-         break;
+   if (!ferror(file) && !feof(file)) {
+      char buffer[PROC_LINE_LENGTH + 1];
+      while (fgets(buffer, sizeof(buffer), file)) {
+         if (String_startsWith(buffer, "procs_running")) {
+            this->runningTasks = (unsigned int) strtoul(buffer + strlen("procs_running"), NULL, 10);
+            break;
+         }
       }
    }
 
@@ -578,10 +679,15 @@ static void scanCPUFrequencyFromCPUinfo(LinuxMachine* this) {
       if (fgets(buffer, PROC_LINE_LENGTH, file) == NULL)
          break;
 
-      if (sscanf(buffer, "processor : %d", &cpuid) == 1) {
+      if (
+         (sscanf(buffer, "processor : %d", &cpuid) == 1) ||
+         (sscanf(buffer, "cpu number : %d", &cpuid) == 1) // s390: https://github.com/torvalds/linux/blob/v6.15/arch/s390/kernel/processor.c#L349
+      ) {
          continue;
       } else if (
          (sscanf(buffer, "cpu MHz : %lf", &frequency) == 1) ||
+         (sscanf(buffer, "CPU MHz : %lf", &frequency) == 1) || // LooooongArch: https://github.com/torvalds/linux/blob/v6.15/arch/loongarch/kernel/proc.c#L42
+         (sscanf(buffer, "cpu MHz dynamic : %lf", &frequency) == 1) || // s390: https://github.com/torvalds/linux/blob/v6.15/arch/s390/kernel/processor.c#L335
          (sscanf(buffer, "clock : %lfMHz", &frequency) == 1)
       ) {
          if (cpuid < 0 || (unsigned int)cpuid > (super->existingCPUs - 1)) {
@@ -606,6 +712,143 @@ static void scanCPUFrequencyFromCPUinfo(LinuxMachine* this) {
    }
 }
 
+static void LinuxMachine_fetchCPUTopologyFromCPUinfo(LinuxMachine* this) {
+   const Machine* super = &this->super;
+
+   FILE* file = fopen(PROCCPUINFOFILE, "r");
+   if (file == NULL)
+      return;
+
+   int cpuid = -1;
+   int coreid = -1;
+   int physicalid = -1;
+
+   int max_physicalid = -1;
+   int max_coreid = -1;
+
+   while (!feof(file)) {
+      char *buffer = String_readLine(file);
+      if (!buffer)
+         break;
+
+      if (buffer[0] == '\0') {	/* empty line after each cpu */
+         if (cpuid >= 0 && (unsigned int)cpuid < super->existingCPUs) {
+            CPUData* cpuData = &(this->cpuData[cpuid + 1]);
+            cpuData->coreID = coreid;
+            cpuData->physicalID = physicalid;
+
+            if (coreid > max_coreid)
+               max_coreid = coreid;
+            if (physicalid > max_physicalid)
+               max_physicalid = physicalid;
+
+            cpuid = -1;
+            coreid = -1;
+            physicalid = -1;
+         }
+      } else if (String_startsWith(buffer, "processor")) {
+         sscanf(buffer, "processor : %d", &cpuid);
+      } else if (String_startsWith(buffer, "physical id")) {
+         sscanf(buffer, "physical id : %d", &physicalid);
+      } else if (String_startsWith(buffer, "core id")) {
+         sscanf(buffer, "core id : %d", &coreid);
+      }
+
+      free(buffer);
+   }
+
+   this->maxPhysicalID = max_physicalid;
+   this->maxCoreID = max_coreid;
+
+   fclose(file);
+}
+
+static void LinuxMachine_assignCCDs(LinuxMachine* this, int ccds) {
+   /* For AMD k10temp/zenpower, temperatures are provided for CCDs only,
+      which is an aggregate of multiple cores.
+      There's no obvious mapping between hwmon sensors and sockets and CCDs.
+      Assume both are iterated in order.
+      Hypothesis: Each CCD has same size N = #Cores/#CCD
+      and is assigned N coreID in sequence.
+      Also assume all CPUs have same number of CCDs. */
+
+   const Machine* super = &this->super;
+   CPUData *cpus = this->cpuData;
+
+   if (ccds == 0) {
+      for (size_t i = 0; i < super->existingCPUs + 1; i++) {
+         cpus[i].ccdID = -1;
+      }
+      return;
+   }
+
+   int coresPerCCD = super->existingCPUs / ccds;
+
+   int ccd = 0;
+   int nc = coresPerCCD;
+   for (int p = 0; p <= (int)this->maxPhysicalID; p++) {
+      for (int c = 0; c <= (int)this->maxCoreID; c++) {
+         for (size_t i = 1; i <= super->existingCPUs; i++) {
+            if (cpus[i].physicalID != p || cpus[i].coreID != c)
+               continue;
+
+            cpus[i].ccdID = ccd;
+
+            if (--nc <= 0) {
+               nc = coresPerCCD;
+               ccd++;
+            }
+         }
+      }
+   }
+}
+
+static void LinuxMachine_computeThreadIndices(LinuxMachine* this) {
+   /* For SMT/Hyperthreading: compute the thread index for each CPU.
+      CPUs sharing the same physicalID and coreID are SMT siblings.
+      threadIndex is 0 for the first thread, 1 for the second, etc. */
+
+   const Machine* super = &this->super;
+   CPUData* cpus = this->cpuData;
+
+   /* CPU 0 is the average, skip it. For each CPU, count how many
+      lower-indexed CPUs share the same physicalID and coreID. */
+   for (size_t i = 1; i <= super->existingCPUs; i++) {
+      int threadIndex = 0;
+      for (size_t j = 1; j < i; j++) {
+         if (cpus[i].physicalID == cpus[j].physicalID &&
+             cpus[i].coreID == cpus[j].coreID) {
+            threadIndex++;
+         }
+      }
+      cpus[i].threadIndex = threadIndex;
+   }
+
+   /* Now compute a normalized physical core index for each CPU.
+      On many systems, this index will match the following:
+        physicalID*(maxCoreID+1)+coreID
+      But there are some systems where this is not true, either
+      because CoreIDs are not contiguous or because cpus are
+      enumerated in an alternative order, or both. */
+   int maxCoreIndex = 0;
+   for (size_t i = 1; i <= super->existingCPUs; i++) {
+      cpus[i].coreIndex = maxCoreIndex++;
+      for (size_t j = i - 1; j >= 1; j--) {
+         if (cpus[i].physicalID == cpus[j].physicalID &&
+             cpus[i].coreID == cpus[j].coreID) {
+            assert(cpus[i].threadIndex != cpus[j].threadIndex);
+            cpus[i].coreIndex = cpus[j].coreIndex;
+            maxCoreIndex--;
+            break;
+         }
+      }
+   }
+
+   /* Set core & thread indices to zero for cpu0 (average) */
+   cpus[0].coreIndex = 0;
+   cpus[0].threadIndex = 0;
+}
+
 static void LinuxMachine_scanCPUFrequency(LinuxMachine* this) {
    const Machine* super = &this->super;
 
@@ -622,13 +865,18 @@ void Machine_scan(Machine* super) {
    LinuxMachine* this = (LinuxMachine*) super;
 
    LinuxMachine_scanMemoryInfo(this);
+   LinuxMachine_scanZswapInfo(this);
    LinuxMachine_scanHugePages(this);
    LinuxMachine_scanZfsArcstats(this);
    LinuxMachine_scanZramInfo(this);
    LinuxMachine_scanCPUTime(this);
 
    const Settings* settings = super->settings;
-   if (settings->showCPUFrequency)
+   if (settings->showCPUFrequency
+#ifdef HAVE_SENSORS_SENSORS_H
+       || settings->showCPUTemperature
+#endif
+   )
       LinuxMachine_scanCPUFrequency(this);
 
    #ifdef HAVE_SENSORS_SENSORS_H
@@ -644,8 +892,10 @@ Machine* Machine_new(UsersTable* usersTable, uid_t userId) {
    Machine_init(super, usersTable, userId);
 
    // Initialize page size
-   if ((this->pageSize = sysconf(_SC_PAGESIZE)) == -1)
+   long pageSize = sysconf(_SC_PAGESIZE);
+   if (pageSize <= 0)
       CRT_fatalError("Cannot get pagesize by sysconf(_SC_PAGESIZE)");
+   this->pageSize = (size_t)pageSize;
    this->pageSizeKB = this->pageSize / ONE_K;
 
    // Initialize clock ticks
@@ -677,12 +927,31 @@ Machine* Machine_new(UsersTable* usersTable, uid_t userId) {
    // Initialize CPU count
    LinuxMachine_updateCPUcount(this);
 
+   // Fetch CPU topology
+   int ccds = 0;
+   LinuxMachine_fetchCPUTopologyFromCPUinfo(this);
+   #ifdef HAVE_SENSORS_SENSORS_H
+   ccds = LibSensors_countCCDs();
+   #endif
+   LinuxMachine_assignCCDs(this, ccds);
+   LinuxMachine_computeThreadIndices(this);
+
    return super;
 }
 
 void Machine_delete(Machine* super) {
    LinuxMachine* this = (LinuxMachine*) super;
+   GPUEngineData* gpuEngineData = this->gpuEngineData;
+
    Machine_done(super);
+
+   while (gpuEngineData) {
+      GPUEngineData* next = gpuEngineData->next;
+      free(gpuEngineData->key);
+      free(gpuEngineData);
+      gpuEngineData = next;
+   }
+
    free(this->cpuData);
    free(this);
 }
@@ -692,4 +961,18 @@ bool Machine_isCPUonline(const Machine* super, unsigned int id) {
 
    assert(id < super->existingCPUs);
    return this->cpuData[id + 1].online;
+}
+
+int Machine_getCPUPhysicalCoreID(const Machine* super, unsigned int id) {
+   const LinuxMachine* this = (const LinuxMachine*) super;
+
+   assert(id < super->existingCPUs);
+   return this->cpuData[id + 1].coreIndex;
+}
+
+int Machine_getCPUThreadIndex(const Machine* super, unsigned int id) {
+   const LinuxMachine* this = (const LinuxMachine*) super;
+
+   assert(id < super->existingCPUs);
+   return this->cpuData[id + 1].threadIndex;
 }

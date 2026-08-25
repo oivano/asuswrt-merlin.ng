@@ -27,8 +27,6 @@ in the source distribution for its full text.
 #include <vm/vm_param.h>
 
 #include "CPUMeter.h"
-#include "ClockMeter.h"
-#include "DateMeter.h"
 #include "DateTimeMeter.h"
 #include "DiskIOMeter.h"
 #include "FileDescriptorMeter.h"
@@ -100,6 +98,24 @@ const SignalItem Platform_signals[] = {
 
 const unsigned int Platform_numberOfSignals = ARRAYSIZE(Platform_signals);
 
+enum {
+   MEMORY_CLASS_WIRED = 0,
+   MEMORY_CLASS_ACTIVE,
+   MEMORY_CLASS_LAUNDRY,
+   MEMORY_CLASS_CACHE,
+   MEMORY_CLASS_INACTIVE,
+}; // N.B. the chart will display categories in this order
+
+const MemoryClass Platform_memoryClasses[] = {
+   [MEMORY_CLASS_WIRED] = { .label = "wired", .countsAsUsed = true, .countsAsCache = false, .color = MEMORY_1 },
+   [MEMORY_CLASS_ACTIVE] = { .label = "active", .countsAsUsed = true, .countsAsCache = false, .color = MEMORY_2 },
+   [MEMORY_CLASS_LAUNDRY] = { .label = "laundry", .countsAsUsed = true, .countsAsCache = false, .color = MEMORY_3 },
+   [MEMORY_CLASS_CACHE] = { .label = "cache", .countsAsUsed = false, .countsAsCache = true, .color = MEMORY_4 },
+   [MEMORY_CLASS_INACTIVE] = { .label = "inactive", .countsAsUsed = false, .countsAsCache = true, .color = MEMORY_5 },
+};
+
+const unsigned int Platform_numberOfMemoryClasses = ARRAYSIZE(Platform_memoryClasses);
+
 const MeterClass* const Platform_meterTypes[] = {
    &CPUMeter_class,
    &ClockMeter_class,
@@ -112,6 +128,7 @@ const MeterClass* const Platform_meterTypes[] = {
    &MemorySwapMeter_class,
    &TasksMeter_class,
    &UptimeMeter_class,
+   &SecondsUptimeMeter_class,
    &BatteryMeter_class,
    &HostnameMeter_class,
    &SysArchMeter_class,
@@ -130,6 +147,8 @@ const MeterClass* const Platform_meterTypes[] = {
    &BlankMeter_class,
    &ZfsArcMeter_class,
    &ZfsCompressedArcMeter_class,
+   &DiskIORateMeter_class,
+   &DiskIOTimeMeter_class,
    &DiskIOMeter_class,
    &FileDescriptorMeter_class,
    &NetworkIOMeter_class,
@@ -210,7 +229,7 @@ double Platform_setCPUValues(Meter* this, unsigned int cpu) {
       this->curItems = 4;
       percent = v[CPU_METER_NICE] + v[CPU_METER_NORMAL] + v[CPU_METER_KERNEL] + v[CPU_METER_IRQ];
    } else {
-      v[CPU_METER_NORMAL] = cpuData->systemAllPercent;
+      v[CPU_METER_KERNEL] = cpuData->systemAllPercent;
       this->curItems = 3;
       percent = v[CPU_METER_NICE] + v[CPU_METER_NORMAL] + v[CPU_METER_KERNEL];
    }
@@ -228,22 +247,16 @@ void Platform_setMemoryValues(Meter* this) {
    const FreeBSDMachine* fhost = (const FreeBSDMachine*) host;
 
    this->total = host->totalMem;
-   this->values[MEMORY_METER_USED] = host->usedMem;
-   this->values[MEMORY_METER_SHARED] = host->sharedMem;
-   // this->values[MEMORY_METER_COMPRESSED] = "compressed memory, like zswap on linux"
-   this->values[MEMORY_METER_BUFFERS] = host->buffersMem;
-   this->values[MEMORY_METER_CACHE] = host->cachedMem;
-   // this->values[MEMORY_METER_AVAILABLE] = "available memory"
-
-   if (fhost->zfs.enabled) {
-      // ZFS does not shrink below the value of zfs_arc_min.
-      unsigned long long int shrinkableSize = 0;
-      if (fhost->zfs.size > fhost->zfs.min)
-         shrinkableSize = fhost->zfs.size - fhost->zfs.min;
-      this->values[MEMORY_METER_USED] -= shrinkableSize;
-      this->values[MEMORY_METER_CACHE] += shrinkableSize;
-      // this->values[MEMORY_METER_AVAILABLE] += shrinkableSize;
+   if (host->settings->showCachedMemory) {
+      this->values[MEMORY_CLASS_WIRED]    = fhost->wiredMem;
+      this->values[MEMORY_CLASS_CACHE]    = fhost->cacheMem;
+   } else { // if showCachedMemory is disabled, merge cache into the wired pages
+      this->values[MEMORY_CLASS_WIRED]    = fhost->wiredMem + fhost->cacheMem;
+      this->values[MEMORY_CLASS_CACHE]    = 0;
    }
+   this->values[MEMORY_CLASS_ACTIVE]   = fhost->activeMem;
+   this->values[MEMORY_CLASS_LAUNDRY]  = fhost->laundryMem;
+   this->values[MEMORY_CLASS_INACTIVE] = fhost->inactiveMem;
 }
 
 void Platform_setSwapValues(Meter* this) {
@@ -251,8 +264,6 @@ void Platform_setSwapValues(Meter* this) {
 
    this->total = host->totalSwap;
    this->values[SWAP_METER_USED] = host->usedSwap;
-   // this->values[SWAP_METER_CACHE] = "pages that are both in swap and RAM, like SwapCached on linux"
-   // this->values[SWAP_METER_FRONTSWAP] = "pages that are accounted to swap but stored elsewhere, like frontswap on linux"
 }
 
 void Platform_setZfsArcValues(Meter* this) {
@@ -312,7 +323,8 @@ bool Platform_getDiskIO(DiskIOData* data) {
 
    int count = current.dinfo->numdevs;
 
-   unsigned long long int bytesReadSum = 0, bytesWriteSum = 0, timeSpendSum = 0;
+   uint64_t bytesReadSum = 0, bytesWriteSum = 0, timeSpendSum = 0;
+   uint64_t numDisks = 0;
 
    // get data
    for (int i = 0; i < count; i++) {
@@ -330,11 +342,13 @@ bool Platform_getDiskIO(DiskIOData* data) {
       bytesReadSum += bytes_read;
       bytesWriteSum += bytes_write;
       timeSpendSum += 1000 * busy_time;
+      numDisks++;
    }
 
    data->totalBytesRead = bytesReadSum;
    data->totalBytesWritten = bytesWriteSum;
    data->totalMsTimeSpend = timeSpendSum;
+   data->numDisks = numDisks;
    return true;
 }
 
@@ -348,7 +362,6 @@ bool Platform_getNetworkIO(NetworkIOData* data) {
    if (r < 0)
       return false;
 
-   memset(data, 0, sizeof(NetworkIOData));
    for (int i = 1; i <= count; i++) {
       struct ifmibdata ifmd;
       size_t ifmdLen = sizeof(ifmd);

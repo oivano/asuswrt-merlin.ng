@@ -8,10 +8,10 @@ in the source distribution for its full text.
 */
 
 #include <stdbool.h>
+#include <stdint.h>
 
 
 typedef struct FunctionBar_ {
-   int size;
    char** functions;
    union {
       char** keys;
@@ -34,6 +34,8 @@ int FunctionBar_draw(const FunctionBar* this);
 int FunctionBar_drawExtra(const FunctionBar* this, const char* buffer, int attr, bool setCursor);
 
 void FunctionBar_append(const char* buffer, int attr);
+
+int FunctionBar_getWidth(const FunctionBar* this);
 
 int FunctionBar_synthesizeEvent(const FunctionBar* this, int pos);
 

@@ -27,8 +27,6 @@ in the source distribution for its full text.
 #include <uvm/uvmexp.h>
 
 #include "CPUMeter.h"
-#include "ClockMeter.h"
-#include "DateMeter.h"
 #include "DateTimeMeter.h"
 #include "FileDescriptorMeter.h"
 #include "HostnameMeter.h"
@@ -100,6 +98,24 @@ const SignalItem Platform_signals[] = {
 
 const unsigned int Platform_numberOfSignals = ARRAYSIZE(Platform_signals);
 
+enum {
+   MEMORY_CLASS_WIRED = 0,
+   MEMORY_CLASS_CACHE,
+   MEMORY_CLASS_ACTIVE,
+   MEMORY_CLASS_PAGING,
+   MEMORY_CLASS_INACTIVE,
+}; // N.B. the chart will display categories in this order
+
+const MemoryClass Platform_memoryClasses[] = {
+   [MEMORY_CLASS_WIRED] = { .label = "wired", .countsAsUsed = true, .countsAsCache = false, .color = MEMORY_1 },
+   [MEMORY_CLASS_CACHE] = { .label = "cache", .countsAsUsed = true, .countsAsCache = true, .color = MEMORY_2 },
+   [MEMORY_CLASS_ACTIVE] = { .label = "active", .countsAsUsed = true, .countsAsCache = false, .color = MEMORY_3 },
+   [MEMORY_CLASS_PAGING] = { .label = "paging", .countsAsUsed = true, .countsAsCache = false, .color = MEMORY_4 },
+   [MEMORY_CLASS_INACTIVE] = { .label = "inactive", .countsAsUsed = false, .countsAsCache = true, .color = MEMORY_5 },
+};
+
+const unsigned int Platform_numberOfMemoryClasses = ARRAYSIZE(Platform_memoryClasses);
+
 const MeterClass* const Platform_meterTypes[] = {
    &CPUMeter_class,
    &ClockMeter_class,
@@ -112,6 +128,7 @@ const MeterClass* const Platform_meterTypes[] = {
    &MemorySwapMeter_class,
    &TasksMeter_class,
    &UptimeMeter_class,
+   &SecondsUptimeMeter_class,
    &BatteryMeter_class,
    &HostnameMeter_class,
    &SysArchMeter_class,
@@ -225,25 +242,24 @@ double Platform_setCPUValues(Meter* this, unsigned int cpu) {
 
 void Platform_setMemoryValues(Meter* this) {
    const Machine* host = this->host;
-   long int usedMem = host->usedMem;
-   long int buffersMem = host->buffersMem;
-   long int cachedMem = host->cachedMem;
-   usedMem -= buffersMem + cachedMem;
+   const OpenBSDMachine* ohost = (const OpenBSDMachine*) host;
    this->total = host->totalMem;
-   this->values[MEMORY_METER_USED] = usedMem;
-   // this->values[MEMORY_METER_SHARED] = "shared memory, like tmpfs and shm"
-   // this->values[MEMORY_METER_COMPRESSED] = "compressed memory, like zswap on linux"
-   this->values[MEMORY_METER_BUFFERS] = buffersMem;
-   this->values[MEMORY_METER_CACHE] = cachedMem;
-   // this->values[MEMORY_METER_AVAILABLE] = "available memory"
+   if (host->settings->showCachedMemory) {
+      this->values[MEMORY_CLASS_WIRED]    = ohost->wiredMem;
+      this->values[MEMORY_CLASS_CACHE]    = ohost->cacheMem;
+   } else { // if showCachedMemory is disabled, merge cache into the wired pages
+      this->values[MEMORY_CLASS_WIRED]    = ohost->wiredMem + ohost->cacheMem;
+      this->values[MEMORY_CLASS_CACHE]    = 0;
+   }
+   this->values[MEMORY_CLASS_ACTIVE]   = ohost->activeMem;
+   this->values[MEMORY_CLASS_PAGING]   = ohost->pagingMem;
+   this->values[MEMORY_CLASS_INACTIVE] = ohost->inactiveMem;
 }
 
 void Platform_setSwapValues(Meter* this) {
    const Machine* host = this->host;
    this->total = host->totalSwap;
    this->values[SWAP_METER_USED] = host->usedSwap;
-   // this->values[SWAP_METER_CACHE] = "pages that are both in swap and RAM, like SwapCached on linux"
-   // this->values[SWAP_METER_FRONTSWAP] = "pages that are accounted to swap but stored elsewhere, like frontswap on linux"
 }
 
 char* Platform_getProcessEnv(pid_t pid) {
@@ -368,16 +384,16 @@ void Platform_getBattery(double* percent, ACPresence* isOnAC) {
 
    *percent = NAN;
    if (found) {
-      /* last full capacity */
-      mib[3] = 7;
-      mib[4] = 0;
+      /* See "sys/dev/acpi/acpibat.c" of OpenBSD source code for the indices
+         of the last field. */
+      mib[3] = SENSOR_WATTHOUR;
+      mib[4] = 0; /* "last full capacity" */
       double last_full_capacity = 0;
       if (sysctl(mib, 5, &s, &slen, NULL, 0) != -1)
          last_full_capacity = s.value;
       if (last_full_capacity > 0) {
-         /*  remaining capacity */
-         mib[3] = 7;
-         mib[4] = 3;
+         mib[3] = SENSOR_WATTHOUR;
+         mib[4] = 3; /* "remaining capacity" */
          if (sysctl(mib, 5, &s, &slen, NULL, 0) != -1) {
             double charge = s.value;
             *percent = 100 * (charge / last_full_capacity);
@@ -392,9 +408,11 @@ void Platform_getBattery(double* percent, ACPresence* isOnAC) {
 
    *isOnAC = AC_ERROR;
    if (found) {
-      mib[3] = 9;
-      mib[4] = 0;
+      /* See "sys/dev/acpi/acpiac.c" of OpenBSD source code.
+         There is only one "sensor" for this device. */
+      mib[3] = SENSOR_INDICATOR;
+      mib[4] = 0; /* "power supply" (status indicator) */
       if (sysctl(mib, 5, &s, &slen, NULL, 0) != -1)
-         *isOnAC = s.value;
+         *isOnAC = s.value != 0 ? AC_PRESENT : AC_ABSENT;
    }
 }

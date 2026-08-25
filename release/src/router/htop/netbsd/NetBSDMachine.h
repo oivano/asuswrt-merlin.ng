@@ -12,7 +12,7 @@ in the source distribution for its full text.
 
 #include <kvm.h>
 #include <stdbool.h>
-#include <sys/types.h>
+#include <stddef.h>
 
 #include "Machine.h"
 #include "ProcessTable.h"
@@ -45,8 +45,13 @@ typedef struct NetBSDMachine_ {
    kvm_t* kd;
 
    long fscale;
-   int pageSize;
-   int pageSizeKB;
+   size_t pageSize;
+   size_t pageSizeKB;
+
+   memory_t wiredMem;
+   memory_t activeMem;
+   memory_t pagedMem;
+   memory_t inactiveMem;
 
    CPUData* cpuData;
 } NetBSDMachine;

@@ -38,7 +38,7 @@ static void MemorySwapMeter_draw(Meter* this, int x, int y, int w) {
 
    /* Use the same width for each sub meter to align with CPU meter */
    const int colwidth = w / 2;
-   const int diff = w - colwidth * 2;
+   const int diff = w % 2;
 
    assert(data->memoryMeter->draw);
    data->memoryMeter->draw(data->memoryMeter, x, y, colwidth);
@@ -47,31 +47,25 @@ static void MemorySwapMeter_draw(Meter* this, int x, int y, int w) {
 }
 
 static void MemorySwapMeter_init(Meter* this) {
-   MemorySwapMeterData* data = this->meterData;
+   if (!this->meterData)
+      this->meterData = xCalloc(1, sizeof(MemorySwapMeterData));
 
-   if (!data) {
-      data = this->meterData = xMalloc(sizeof(MemorySwapMeterData));
-      data->memoryMeter = NULL;
-      data->swapMeter = NULL;
-   }
+   MemorySwapMeterData* data = this->meterData;
 
    if (!data->memoryMeter)
       data->memoryMeter = Meter_new(this->host, 0, (const MeterClass*) Class(MemoryMeter));
    if (!data->swapMeter)
       data->swapMeter = Meter_new(this->host, 0, (const MeterClass*) Class(SwapMeter));
 
-   if (Meter_initFn(data->memoryMeter))
+   if (Meter_initFn(data->memoryMeter)) {
       Meter_init(data->memoryMeter);
-   if (Meter_initFn(data->swapMeter))
+   }
+   if (Meter_initFn(data->swapMeter)) {
       Meter_init(data->swapMeter);
-
-   if (this->mode == 0)
-      this->mode = BAR_METERMODE;
-
-   this->h = MAXIMUM(Meter_modes[data->memoryMeter->mode]->h, Meter_modes[data->swapMeter->mode]->h);
+   }
 }
 
-static void MemorySwapMeter_updateMode(Meter* this, int mode) {
+static void MemorySwapMeter_updateMode(Meter* this, MeterModeId mode) {
    MemorySwapMeterData* data = this->meterData;
 
    this->mode = mode;
@@ -79,7 +73,7 @@ static void MemorySwapMeter_updateMode(Meter* this, int mode) {
    Meter_setMode(data->memoryMeter, mode);
    Meter_setMode(data->swapMeter, mode);
 
-   this->h = MAXIMUM(Meter_modes[data->memoryMeter->mode]->h, Meter_modes[data->swapMeter->mode]->h);
+   this->h = MAXIMUM(data->memoryMeter->h, data->swapMeter->h);
 }
 
 static void MemorySwapMeter_done(Meter* this) {
@@ -97,7 +91,8 @@ const MeterClass MemorySwapMeter_class = {
       .delete = Meter_delete,
    },
    .updateValues = MemorySwapMeter_updateValues,
-   .defaultMode = CUSTOM_METERMODE,
+   .defaultMode = BAR_METERMODE,
+   .supportedModes = METERMODE_DEFAULT_SUPPORTED,
    .isMultiColumn = true,
    .name = "MemorySwap",
    .uiName = "Memory & Swap",

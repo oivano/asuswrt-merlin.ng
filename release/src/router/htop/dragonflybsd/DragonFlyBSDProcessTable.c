@@ -15,6 +15,7 @@ in the source distribution for its full text.
 #include <string.h>
 #include <unistd.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/sysctl.h>
 #include <sys/user.h>
 #include <sys/param.h>
@@ -37,7 +38,7 @@ ProcessTable* ProcessTable_new(Machine* host, Hashtable* pidMatchList) {
 }
 
 void ProcessTable_delete(Object* cast) {
-   const DragonFlyBSDProcessTable* this = (DragonFlyBSDProcessTable*) cast;
+   DragonFlyBSDProcessTable* this = (DragonFlyBSDProcessTable*) cast;
    ProcessTable_done(&this->super);
    free(this);
 }
@@ -106,18 +107,18 @@ static void DragonFlyBSDProcessTable_updateProcessName(kvm_t* kd, const struct k
    }
 
    size_t len = 0;
-   for (int i = 0; argv[i]; i++) {
+   for (size_t i = 0; argv[i]; i++) {
       len += strlen(argv[i]) + 1;
    }
 
    char* cmdline = xMalloc(len);
 
    char* at = cmdline;
-   int end = 0;
-   for (int i = 0; argv[i]; i++) {
+   size_t end = 0;
+   for (size_t i = 0; argv[i]; i++) {
       at = stpcpy(at, argv[i]);
       if (end == 0) {
-         end = at - cmdline;
+         end = (size_t)(at - cmdline);
       }
       *at++ = ' ';
    }
@@ -130,8 +131,8 @@ static void DragonFlyBSDProcessTable_updateProcessName(kvm_t* kd, const struct k
 }
 
 void ProcessTable_goThroughEntries(ProcessTable* super) {
-   const Machine* host = super->host;
-   const DragonFlyMachine* dhost = (const DragonFlyMachine*) host;
+   const Machine* host = super->super.host;
+   const DragonFlyBSDMachine* dhost = (const DragonFlyBSDMachine*) host;
    const Settings* settings = host->settings;
 
    bool hideKernelThreads = settings->hideKernelThreads;
@@ -216,7 +217,7 @@ void ProcessTable_goThroughEntries(ProcessTable* super) {
       proc->time = (kproc->kp_lwp.kl_uticks + kproc->kp_lwp.kl_sticks + kproc->kp_lwp.kl_iticks) / 10000;
 
       proc->percent_cpu = 100.0 * ((double)kproc->kp_lwp.kl_pctcpu / (double)dhost->kernelFScale);
-      proc->percent_mem = 100.0 * proc->m_resident / (double)(super->totalMem);
+      proc->percent_mem = 100.0 * proc->m_resident / (double)(host->totalMem);
       Process_updateCPUFieldWidths(proc->percent_cpu);
 
       if (proc->percent_cpu > 0.1) {

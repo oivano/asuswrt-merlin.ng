@@ -28,7 +28,7 @@ in the source distribution for its full text.
 #include "BatteryMeter.h"
 #include "DiskIOMeter.h"
 #include "Hashtable.h"
-#include "Meter.h"
+#include "MemoryMeter.h"
 #include "NetworkIOMeter.h"
 #include "Process.h"
 #include "ProcessLocksScreen.h"
@@ -44,6 +44,7 @@ in the source distribution for its full text.
 
 typedef struct Platform_ {
    int context;               /* PMAPI(3) context identifier */
+   bool reconnect;            /* need to reconnect the context */
    size_t totalMetrics;       /* total number of all metrics */
    const char** names;        /* name array indexed by Metric */
    pmID* pmids;               /* all known metric identifiers */
@@ -53,12 +54,20 @@ typedef struct Platform_ {
    PCPDynamicMeters meters;   /* dynamic meters via configuration files */
    PCPDynamicColumns columns; /* dynamic columns via configuration files */
    PCPDynamicScreens screens; /* dynamic screens via configuration files */
-   struct timeval offset;     /* time offset used in archive mode only */
+   struct timespec offset;    /* time offset used in archive mode only */
    long long btime;           /* boottime in seconds since the epoch */
    char* release;             /* uname and distro from this context */
    int pidmax;                /* maximum platform process identifier */
    unsigned int ncpu;         /* maximum processor count configured */
 } Platform;
+
+/* older pcp/pmapi.h versions lack these libpcp declarations */
+#ifndef HAVE_PMTIMEVALTOTIMESPEC
+void pmtimevalTotimespec(struct timeval *, struct timespec *);
+#endif
+#ifndef HAVE_PMTIMESPECTOREAL
+double pmtimespecToReal(const struct timespec *);
+#endif
 
 extern const ScreenDefaults Platform_defaultScreens[];
 
@@ -67,6 +76,10 @@ extern const unsigned int Platform_numberOfDefaultScreens;
 extern const SignalItem Platform_signals[];
 
 extern const unsigned int Platform_numberOfSignals;
+
+extern MemoryClass Platform_memoryClasses[];
+
+extern const unsigned int Platform_numberOfMemoryClasses;
 
 extern const MeterClass* const Platform_meterTypes[];
 
@@ -112,7 +125,9 @@ void Platform_getBattery(double* percent, ACPresence* isOnAC);
 
 void Platform_getHostname(char* buffer, size_t size);
 
-void Platform_getRelease(char** string);
+const char* Platform_getRelease(void);
+
+const char* Platform_getFailedState(void);
 
 enum {
    PLATFORM_LONGOPT_HOST = 128,
@@ -135,7 +150,7 @@ size_t Platform_addMetric(Metric id, const char* name);
 
 void Platform_getFileDescriptors(double* used, double* max);
 
-void Platform_gettime_realtime(struct timeval* tv, uint64_t* msec);
+void Platform_gettime_realtime(struct timespec* tv, uint64_t* msec);
 
 void Platform_gettime_monotonic(uint64_t* msec);
 

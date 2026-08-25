@@ -12,12 +12,15 @@ in the source distribution for its full text.
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <math.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+#include <sys/wait.h>
 
 #include "CRT.h"
 #include "Macros.h"
@@ -63,9 +66,16 @@ void* xCalloc(size_t nmemb, size_t size) {
 
 void* xRealloc(void* ptr, size_t size) {
    assert(size > 0);
-   void* data = realloc(ptr, size); // deepcode ignore MemoryLeakOnRealloc: this goes to fail()
+   void* data = realloc(ptr, size);
    if (!data) {
-      free(ptr);
+      /* free'ing ptr here causes an indirect memory leak if pointers
+       * are held as part of an potential array referenced in ptr.
+       * In GCC 14 -fanalyzer recognizes this leak, but fails to
+       * ignore it given that this path ends in a noreturn function.
+       * Thus to avoid this confusing diagnostic we opt to leave
+       * that pointer alone instead.
+       */
+      // free(ptr);
       fail();
    }
    return data;
@@ -98,7 +108,7 @@ void* xReallocArrayZero(void* ptr, size_t prevmemb, size_t newmemb, size_t size)
 
 inline bool String_contains_i(const char* s1, const char* s2, bool multi) {
    // we have a multi-string search term, handle as special case for performance reasons
-   if (multi && strstr(s2, "|")) {
+   if (multi && strchr(s2, '|')) {
       size_t nNeedles;
       char** needles = String_split(s2, '|', &nNeedles);
       for (size_t i = 0; i < nNeedles; i++) {
@@ -169,6 +179,29 @@ char** String_split(const char* s, char sep, size_t* n) {
    return out;
 }
 
+/* same as String_split() but only split on first occurrence of sep */
+char** String_splitFirst(const char* s, char sep, size_t* n) {
+   char** out = xCalloc(3, sizeof(char*));
+   size_t ctr = 0;
+   const char* where;
+   if ((where = strchr(s, sep)) != NULL) {
+      size_t size = (size_t)(where - s);
+      out[ctr] = xStrndup(s, size);
+      ctr++;
+      s += size + 1;
+   }
+   if (s[0] != '\0') {
+      out[ctr] = xStrdup(s);
+      ctr++;
+   }
+   out[ctr] = NULL;
+
+   if (n)
+      *n = ctr;
+
+   return out;
+}
+
 void String_freeArray(char** s) {
    if (!s) {
       return;
@@ -179,13 +212,13 @@ void String_freeArray(char** s) {
    free(s);
 }
 
-char* String_readLine(FILE* fd) {
+char* String_readLine(FILE* fp) {
    const size_t step = 1024;
    size_t bufSize = step;
    char* buffer = xMalloc(step + 1);
    char* at = buffer;
    for (;;) {
-      const char* ok = fgets(at, step + 1, fd);
+      const char* ok = fgets(at, step + 1, fp);
       if (!ok) {
          free(buffer);
          return NULL;
@@ -195,7 +228,7 @@ char* String_readLine(FILE* fd) {
          *newLine = '\0';
          return buffer;
       } else {
-         if (feof(fd)) {
+         if (feof(fp)) {
             return buffer;
          }
       }
@@ -217,7 +250,20 @@ size_t String_safeStrncpy(char* restrict dest, const char* restrict src, size_t 
    return i;
 }
 
+#ifndef HAVE_STRNLEN
+size_t strnlen(const char* str, size_t maxLen) {
+   for (size_t len = 0; len < maxLen; len++) {
+      if (!str[len]) {
+         return len;
+      }
+   }
+   return maxLen;
+}
+#endif
+
 int xAsprintf(char** strp, const char* fmt, ...) {
+   *strp = NULL;
+
    va_list vl;
    va_start(vl, fmt);
    int r = vasprintf(strp, fmt, vl);
@@ -231,6 +277,11 @@ int xAsprintf(char** strp, const char* fmt, ...) {
 }
 
 int xSnprintf(char* buf, size_t len, const char* fmt, ...) {
+   assert(len > 0);
+
+   // POSIX says snprintf() can fail if (len > INT_MAX).
+   len = MINIMUM(INT_MAX, len);
+
    va_list vl;
    va_start(vl, fmt);
    int n = vsnprintf(buf, len, fmt, vl);
@@ -267,57 +318,27 @@ char* xStrndup(const char* str, size_t len) {
    return data;
 }
 
-ATTR_ACCESS3_W(2, 3)
-static ssize_t readfd_internal(int fd, void* buffer, size_t count) {
-   if (!count) {
-      close(fd);
-      return -EINVAL;
+pid_t xWaitpid(pid_t pid, int* wstatus, int options, bool wait_for_exit) {
+   int status = 0;
+   pid_t ret;
+
+   do {
+      ret = waitpid(pid, &status, options);
+   } while (ret == -1 && errno == EINTR);
+
+   while (wait_for_exit && (ret == 0 || (ret > 0 && !WIFEXITED(status) && !WIFSIGNALED(status)))) {
+      if (options & WNOHANG)
+         options &= ~WNOHANG;
+
+      do {
+         ret = waitpid(pid, &status, options);
+      } while (ret == -1 && errno == EINTR);
    }
 
-   ssize_t alreadyRead = 0;
-   count--; // reserve one for null-terminator
+   if (wstatus)
+      *wstatus = status;
 
-   for (;;) {
-      ssize_t res = read(fd, buffer, count);
-      if (res == -1) {
-         if (errno == EINTR)
-            continue;
-
-         close(fd);
-         *((char*)buffer) = '\0';
-         return -errno;
-      }
-
-      if (res > 0) {
-         assert((size_t)res <= count);
-
-         buffer = ((char*)buffer) + res;
-         count -= (size_t)res;
-         alreadyRead += res;
-      }
-
-      if (count == 0 || res == 0) {
-         close(fd);
-         *((char*)buffer) = '\0';
-         return alreadyRead;
-      }
-   }
-}
-
-ssize_t xReadfile(const char* pathname, void* buffer, size_t count) {
-   int fd = open(pathname, O_RDONLY);
-   if (fd < 0)
-      return -errno;
-
-   return readfd_internal(fd, buffer, count);
-}
-
-ssize_t xReadfileat(openat_arg_t dirfd, const char* pathname, void* buffer, size_t count) {
-   int fd = Compat_openat(dirfd, pathname, O_RDONLY);
-   if (fd < 0)
-      return -errno;
-
-   return readfd_internal(fd, buffer, count);
+   return ret;
 }
 
 ssize_t full_write(int fd, const void* buf, size_t count) {
@@ -364,3 +385,32 @@ double sumPositiveValues(const double* array, size_t count) {
    }
    return sum;
 }
+
+/* Counts the number of digits needed to print "n" with a given base.
+   If "n" is zero, returns 1. This function expects small numbers to
+   appear often, hence it uses a O(log(n)) time algorithm. */
+size_t countDigits(size_t n, size_t base) {
+   assert(base > 1);
+   size_t res = 1;
+   for (size_t limit = base; n >= limit; limit *= base) {
+      res++;
+      if (base && limit > SIZE_MAX / base) {
+         break;
+      }
+   }
+   return res;
+}
+
+#if !defined(HAVE_BUILTIN_CTZ)
+// map a bit value mod 37 to its position
+static const uint8_t mod37BitPosition[] = {
+  32, 0, 1, 26, 2, 23, 27, 0, 3, 16, 24, 30, 28, 11, 0, 13, 4,
+  7, 17, 0, 25, 22, 31, 15, 29, 10, 12, 6, 0, 21, 14, 9, 5,
+  20, 8, 19, 18
+};
+
+/* Returns the number of trailing zero bits */
+unsigned int countTrailingZeros(unsigned int x) {
+   return mod37BitPosition[(-x & x) % 37];
+}
+#endif
