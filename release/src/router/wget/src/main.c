@@ -41,9 +41,6 @@ as that of the covered work.  */
 #include <assert.h>
 #include <errno.h>
 #include <time.h>
-#ifdef ASUSWRT
-#include <sys/types.h>
-#endif
 
 #include "exits.h"
 #include "utils.h"
@@ -1254,102 +1251,7 @@ format_and_print_line (const char *prefix, const char *line,
 _Noreturn static void
 print_version (void)
 {
-  const char *wgetrc_title  = _("Wgetrc: ");
-  const char *locale_title  = _("Locale: ");
-  const char *compile_title = _("Compile: ");
-  const char *link_title    = _("Link: ");
-  char *env_wgetrc, *user_wgetrc;
-  int i;
-
-  if (printf (_("GNU Wget %s built on %s.\n\n"), version_string, OS_TYPE) < 0)
-    exit (WGET_EXIT_IO_FAIL);
-
-  for (i = 0; compiled_features[i] != NULL; )
-    {
-      int line_length = MAX_CHARS_PER_LINE;
-      while ((line_length > 0) && (compiled_features[i] != NULL))
-        {
-          if (printf ("%s ", compiled_features[i]) < 0)
-            exit (WGET_EXIT_IO_FAIL);
-          line_length -= (int) strlen (compiled_features[i]) + 2;
-          i++;
-        }
-      if (printf ("\n") < 0)
-        exit (WGET_EXIT_IO_FAIL);
-    }
-  if (printf ("\n") < 0)
-    exit (WGET_EXIT_IO_FAIL);
-
-  /* Print VMS-specific version info. */
-#ifdef __VMS
-  if (vms_version_supplement() < 0)
-    exit (WGET_EXIT_IO_FAIL);
-#endif /* def __VMS */
-
-  /* Handle the case when $WGETRC is unset and $HOME/.wgetrc is
-     absent. */
-  if (printf ("%s\n", wgetrc_title) < 0)
-    exit (WGET_EXIT_IO_FAIL);
-
-  env_wgetrc = wgetrc_env_file_name ();
-  if (env_wgetrc && *env_wgetrc)
-    {
-      if (printf (_("    %s (env)\n"), env_wgetrc) < 0)
-        exit (WGET_EXIT_IO_FAIL);
-      xfree (env_wgetrc);
-    }
-  user_wgetrc = wgetrc_user_file_name ();
-  if (user_wgetrc)
-    {
-      if (printf (_("    %s (user)\n"), user_wgetrc) < 0)
-        exit (WGET_EXIT_IO_FAIL);
-      xfree (user_wgetrc);
-    }
-#ifdef SYSTEM_WGETRC
-  if (printf (_("    %s (system)\n"), SYSTEM_WGETRC) < 0)
-    exit (WGET_EXIT_IO_FAIL);
-#endif
-
-#ifdef ENABLE_NLS
-  if (format_and_print_line (locale_title,
-                             LOCALEDIR,
-                             MAX_CHARS_PER_LINE) < 0)
-    exit (WGET_EXIT_IO_FAIL);
-#endif /* def ENABLE_NLS */
-
-  if (compilation_string != NULL)
-    if (format_and_print_line (compile_title,
-                               compilation_string,
-                               MAX_CHARS_PER_LINE) < 0)
-      exit (WGET_EXIT_IO_FAIL);
-
-  if (link_string != NULL)
-    if (format_and_print_line (link_title,
-                               link_string,
-                               MAX_CHARS_PER_LINE) < 0)
-      exit (WGET_EXIT_IO_FAIL);
-
-  if (printf ("\n") < 0)
-    exit (WGET_EXIT_IO_FAIL);
-
-  /* TRANSLATORS: When available, an actual copyright character
-     (circle-c) should be used in preference to "(C)". */
-  if (printf (_("\
-Copyright (C) %s Free Software Foundation, Inc.\n"), "2015") < 0)
-    exit (WGET_EXIT_IO_FAIL);
-  if (fputs (_("\
-License GPLv3+: GNU GPL version 3 or later\n\
-<http://www.gnu.org/licenses/gpl.html>.\n\
-This is free software: you are free to change and redistribute it.\n\
-There is NO WARRANTY, to the extent permitted by law.\n"), stdout) < 0)
-    exit (WGET_EXIT_IO_FAIL);
-  /* TRANSLATORS: When available, please use the proper diacritics for
-     names such as this one. See en_US.po for reference. */
-  if (fputs (_("\nOriginally written by Hrvoje Niksic <hniksic@xemacs.org>.\n"),
-             stdout) < 0)
-    exit (WGET_EXIT_IO_FAIL);
-  if (fputs (_("Please send bug reports and questions to <bug-wget@gnu.org>.\n"),
-             stdout) < 0)
+  if (printf (_("GNU Wget %s built on %s.\n"), version_string, OS_TYPE) < 0)
     exit (WGET_EXIT_IO_FAIL);
 
   exit (WGET_EXIT_SUCCESS);
@@ -1359,79 +1261,6 @@ const char *program_name; /* Needed by lib/error.c. */
 const char *program_argstring; /* Needed by wget_warc.c. */
 struct ptimer *timer;
 int cleaned_up;
-
-#ifdef ASUSWRT
-static int _check_asus_server(const char *str)
-{
-       if(str)
-       {
-               if(strstr(str, "https://dlcdnets.asus.com"))
-                       return 1;
-       }
-       return 0;
-}
-
-static int _get_cmdline(const int pid, char *cmdline, const size_t cmdline_len)
-{
-	FILE *fp;
-	char path[512], buf[2048] = {0}, *ptr;
-	long int fsize;
-	
-	if(!cmdline)
-		return 0;
-
-	snprintf(path, sizeof(path), "/proc/%d/cmdline", pid);
-	fp = fopen(path, "r");
-	if(fp)
-	{
-		memset(cmdline, 0, cmdline_len);
-		
-		fsize = fread(buf, 1, sizeof(buf), fp);
-		ptr = buf;
-		while(ptr - buf <  fsize)
-		{
-			if(*ptr == '\0')
-			{
-				++ptr;
-				continue;
-			}
-
-			snprintf(cmdline + strlen(cmdline), cmdline_len - strlen(cmdline), ptr == buf? "%s": " %s", ptr);
-			ptr += strlen(ptr);
-		}
-		fclose(fp);
-		return strlen(cmdline);
-	}
-	return 0;
-}
-
-static int _get_ppid(const int pid)
-{
-	FILE *fp;
-	char path[512], buf[512] = {0}, name[128], val[512];
-	int ppid = 0;
-
-	snprintf(path, sizeof(path), "/proc/%d/status", pid);
-
-	fp = fopen(path, "r");
-	if(fp)
-	{
-		while(fgets(buf, sizeof(buf), fp))
-		{
-			memset(name, 0, sizeof(name));
-			memset(val, 0, sizeof(val));
-			sscanf(buf, "%[^:]: %s", name, val);
-			if(!strcmp(name, "PPid"))
-			{
-				ppid = atoi(val);
-				break;
-			}
-		}
-		fclose(fp);
-	}
-	return ppid;
-}
-#endif
 
 int
 main (int argc, char **argv)
@@ -1465,55 +1294,6 @@ main (int argc, char **argv)
 #ifdef WINDOWS
   /* Drop extension (typically .EXE) from executable filename. */
   windows_main ((char **) &exec_name);
-#endif
-
-#ifdef ASUSWRT
-	pid_t ppid, pid;
-       FILE *fp = fopen("/jffs/wglst", "r");
-       long int log_size;
-	char cmdline[2048];
-       if(fp)
-       {
-               fseek(fp, 0, SEEK_END);
-               log_size = ftell(fp);
-               fclose(fp);
-               if(log_size >= 10 * 1024)
-               {
-                       unlink("/jffs/wglst.1");
-                       system("mv /jffs/wglst /jffs/wglst.1");
-               }
-       }
-
-       fp = fopen("/jffs/wglst", "a");
-       if(fp)
-       {
-               fseek(fp, 0, SEEK_END);
-
-               char buf[2048] = {0};
-               int flag = 0;
-               for(i = 0; i < argc; ++i)
-               {
-                       if(_check_asus_server(argv[i]))
-                       {
-                               flag = 1;
-                               break;
-                       }
-               }
-               if(!flag)
-               {
-			   //get parent process information
-			   pid = getpid();
-			   while(_get_cmdline(pid, cmdline, sizeof(cmdline)) > 0)
-			   {
-				ppid = _get_ppid(pid);
-				fprintf(fp, "(%d)%s\n", ppid, cmdline);
-				pid = ppid;
-			   	if(!ppid)
-					break;
-			   }
-               }
-               fclose(fp);
-       }
 #endif
 
   /* Construct the arguments string. */
@@ -2251,7 +2031,7 @@ only if outputting to a regular file.\n"));
       struct iri *iri = iri_new ();
       struct url *url_parsed;
 
-      t = rewrite_shorthand_url (argv[optind]);
+      t = maybe_prepend_scheme (argv[optind]);
       if (!t)
         t = argv[optind];
 
