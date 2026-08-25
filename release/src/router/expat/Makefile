@@ -19,10 +19,11 @@ BUILD_DIR:=$(HND_SRC)
 
 include $(BUILD_DIR)/make.common
 
-# Download from http://sourceforge.net/projects/expat/files/expat/2.1.0/expat-2.1.0.tar.gz/download
-APP = expat-2.1.0
+# Download from https://github.com/libexpat/libexpat/releases/tag/R_2_8_3
+APP = expat-2.8.3
 LIB = libexpat
 INCLUDE_DIR = $(BCM_FSBUILD_DIR)/public/include/expat
+DO_BUILD_EXPAT = y
 
 .PHONY: check_untar_patch_configure conditional_build check_versions
 
@@ -45,7 +46,8 @@ $(APP)/Makefile: $(APP)/configure
 	if [ -e $(APP) ]; then \
 	    cd $(APP); \
 	    ac_cv_func_malloc_0_nonnull=yes ac_cv_func_realloc_0_nonnull=yes \
-	    ./configure --enable-static=no --host=$(TOOLCHAIN_PREFIX) --prefix=$(BCM_FSBUILD_DIR)/public/; \
+	    ./configure --enable-static=no --host=$(TOOLCHAIN_PREFIX) --prefix=$(BCM_FSBUILD_DIR)/public/ \
+	        --without-tests --without-examples --without-xmlwf --without-docbook --with-dev-urandom; \
 	    cd ..; \
 	fi;
 	@echo "$(APP) is configured"

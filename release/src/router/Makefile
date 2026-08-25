@@ -853,7 +853,7 @@ obj-$(RTCONFIG_BT_CONN) += rtk_bluetooth_firmware
 endif
 endif
 obj-$(RTCONFIG_BT_CONN) += libiconv-1.14
-obj-$(RTCONFIG_BT_CONN) += expat-2.0.1
+obj-$(RTCONFIG_BT_CONN) += expat-2.8.3
 obj-$(RTCONFIG_BT_CONN) += dbus-1.8.8
 obj-$(RTCONFIG_BT_CONN) += libffi-3.0.11
 obj-$(RTCONFIG_BT_CONN) += zlib
@@ -1377,7 +1377,7 @@ obj-$(RTCONFIG_TIMEMACHINE) += libevent-2.0.21
 obj-$(RTCONFIG_TIMEMACHINE) += netatalk-3.0.5
 ifeq ($(or $(RTCONFIG_TIMEMACHINE),$(RTCONFIG_MDNS)),y)
 obj-y += libdaemon
-obj-y += expat-2.0.1
+obj-y += expat-2.8.3
 obj-y += avahi
 else
 ifeq ($(or $(RTCONFIG_MEDIA_SERVER),$(RTCONFIG_BWDPI)),y)
@@ -7574,26 +7574,37 @@ netatalk-3.0.5-clean:
 hndck:
 	echo $(obj-y)
 
-expat-2.0.1/stamp-h1:
-	cd $(TOP)/expat-2.0.1 && \
-	$(CONFIGURE) --prefix=/usr
+expat-2.8.3/stamp-h1:
+	cd $(TOP)/expat/expat-2.8.3 && \
+	$(CONFIGURE) --prefix=/usr \
+		--without-tests \
+		--without-examples \
+		--without-xmlwf \
+		--without-docbook \
+		--with-dev-urandom
+	touch $(TOP)/expat/expat-2.8.3/Makefile.in
+	mkdir -p $(@D)
 	touch $@
 
-expat-2.0.1: expat-2.0.1/stamp-h1
+expat-2.8.3: expat-2.8.3/stamp-h1
 	@$(SEP)
-	@$(MAKE) -C expat-2.0.1 $(PARALLEL_BUILD) && $(MAKE) $@-stage
+	@$(MAKE) -C expat/expat-2.8.3 $(PARALLEL_BUILD)
+	@$(MAKE) expat-2.8.3-stage
 	sed 's|/usr/lib|$(STAGEDIR)/usr/lib|g' -i $(STAGEDIR)/usr/lib/libexpat.la
 
-expat-2.0.1-install:
-	install -D expat-2.0.1/.libs/libexpat.so.1.5.2 $(INSTALLDIR)/expat-2.0.1/usr/lib/libexpat.so.1.5.2
-	$(STRIP) $(INSTALLDIR)/expat-2.0.1/usr/lib/libexpat.so.1.5.2
-	cd $(INSTALLDIR)/expat-2.0.1/usr/lib && ln -sf libexpat.so.1.5.2 libexpat.so.1
+expat-2.8.3-stage:
+	$(MAKE) -C expat/expat-2.8.3 install DESTDIR=$(STAGEDIR)
 
-expat-2.0.1-clean:
-	-@$(MAKE) -C expat-2.0.1 clean
-	@rm -f expat-2.0.1/stamp-h1
+expat-2.8.3-install:
+	install -D expat/expat-2.8.3/lib/.libs/libexpat.so.1.12.3 $(INSTALLDIR)/expat-2.8.3/usr/lib/libexpat.so.1.12.3
+	$(STRIP) $(INSTALLDIR)/expat-2.8.3/usr/lib/libexpat.so.1.12.3
+	cd $(INSTALLDIR)/expat-2.8.3/usr/lib && ln -sf libexpat.so.1.12.3 libexpat.so.1
 
-avahi: expat-2.0.1 libdaemon libevent-2.0.21 avahi/Makefile
+expat-2.8.3-clean:
+	-@$(MAKE) -C expat/expat-2.8.3 clean
+	@rm -f expat-2.8.3/stamp-h1
+
+avahi: expat-2.8.3 libdaemon libevent-2.0.21 avahi/Makefile
 	@$(SEP)
 	@$(MAKE) -j 8 -C $@
 
@@ -7635,7 +7646,7 @@ avahi-clean:
 	@rm -f avahi/Makefile
 
 #avahi-0.6.31
-avahi-0.6.31: shared $(if $(BCM_502L07P2),ethctl_lib) nvram$(BCMEX)$(EX7) expat-2.0.1 libdaemon avahi-0.6.31/Makefile
+avahi-0.6.31: shared $(if $(BCM_502L07P2),ethctl_lib) nvram$(BCMEX)$(EX7) expat-2.8.3 libdaemon avahi-0.6.31/Makefile
 	@$(SEP)
 	@$(MAKE) -C avahi-0.6.31 $(PARALLEL_BUILD)
 
@@ -9639,7 +9650,7 @@ bcm_bootstate:
 
 .PHONY : bcm_bootstate
 
-#bcm_sslconf: expat-2.0.1 openssl
+#bcm_sslconf: expat-2.8.3 openssl
 #	$(MAKE) -C bcm_sslconf
 
 #.PHONY : bcm_sslconf
