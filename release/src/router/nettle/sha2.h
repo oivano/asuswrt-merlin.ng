@@ -46,21 +46,17 @@ extern "C" {
 #define sha256_init nettle_sha256_init
 #define sha256_update nettle_sha256_update
 #define sha256_digest nettle_sha256_digest
+#define sha256_compress nettle_sha256_compress
 #define sha384_init nettle_sha384_init
 #define sha384_digest nettle_sha384_digest
 #define sha512_init nettle_sha512_init
 #define sha512_update nettle_sha512_update
 #define sha512_digest nettle_sha512_digest
+#define sha512_compress nettle_sha512_compress
 #define sha512_224_init   nettle_sha512_224_init
 #define sha512_224_digest nettle_sha512_224_digest
 #define sha512_256_init   nettle_sha512_256_init
 #define sha512_256_digest nettle_sha512_256_digest
-
-/* For backwards compatibility */
-#define SHA224_DATA_SIZE SHA256_BLOCK_SIZE
-#define SHA256_DATA_SIZE SHA256_BLOCK_SIZE
-#define SHA512_DATA_SIZE SHA512_BLOCK_SIZE
-#define SHA384_DATA_SIZE SHA512_BLOCK_SIZE
 
 /* SHA256 */
 
@@ -88,9 +84,10 @@ sha256_update(struct sha256_ctx *ctx,
 
 void
 sha256_digest(struct sha256_ctx *ctx,
-	      size_t length,
 	      uint8_t *digest);
 
+void
+sha256_compress(uint32_t *state, const uint8_t *input);
 
 /* SHA224, a truncated SHA256 with different initial state. */
 
@@ -105,7 +102,6 @@ sha224_init(struct sha256_ctx *ctx);
 
 void
 sha224_digest(struct sha256_ctx *ctx,
-	      size_t length,
 	      uint8_t *digest);
 
 
@@ -135,9 +131,10 @@ sha512_update(struct sha512_ctx *ctx,
 
 void
 sha512_digest(struct sha512_ctx *ctx,
-	      size_t length,
 	      uint8_t *digest);
 
+void
+sha512_compress(uint64_t *state, const uint8_t *input);
 
 /* SHA384, a truncated SHA512 with different initial state. */
 
@@ -152,7 +149,6 @@ sha384_init(struct sha512_ctx *ctx);
 
 void
 sha384_digest(struct sha512_ctx *ctx,
-	      size_t length,
 	      uint8_t *digest);
 
 
@@ -170,7 +166,6 @@ sha512_224_init(struct sha512_224_ctx *ctx);
 
 void
 sha512_224_digest(struct sha512_224_ctx *ctx,
-                  size_t length,
                   uint8_t *digest);
 
 #define SHA512_256_DIGEST_SIZE 32
@@ -184,9 +179,8 @@ sha512_256_init(struct sha512_256_ctx *ctx);
 
 void
 sha512_256_digest(struct sha512_256_ctx *ctx,
-                  size_t length,
                   uint8_t *digest);
-  
+
 #ifdef __cplusplus
 }
 #endif
