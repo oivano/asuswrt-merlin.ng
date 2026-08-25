@@ -226,7 +226,7 @@ int openconnect_ppp_new(struct openconnect_info *vpninfo,
 	if (vpninfo->ip_info.addr)
 		ppp->out_ipv4_addr.s_addr = inet_addr(vpninfo->ip_info.addr);
 	if (vpninfo->ip_info.netmask6) {
-		char *slash = strchr(vpninfo->ip_info.netmask6, '/');
+		char *slash = (char *)strchr(vpninfo->ip_info.netmask6, '/');
 		if (slash) *slash=0;
 		inet_pton(AF_INET6, vpninfo->ip_info.netmask6, &ppp->out_ipv6_addr);
 		if (slash) *slash='/';
@@ -630,7 +630,7 @@ static int queue_config_request(struct openconnect_info *vpninfo, int proto)
 	}
 
 out:
-        buf_free(buf);
+	buf_free(buf);
 	return ret;
 }
 
@@ -790,7 +790,7 @@ static int handle_config_packet(struct openconnect_info *vpninfo,
 		len = load_be16(p + 2);
 	}
 
-        if (code > 0 && code <= 11)
+	if (code > 0 && code <= 11)
 		vpn_progress(vpninfo, PRG_TRACE, _("Received %s/id %d %s from server\n"), proto_names(proto), id, lcp_names[code]);
 	switch (code) {
 	case CONFREQ:
@@ -1568,7 +1568,7 @@ int ppp_tcp_mainloop(struct openconnect_info *vpninfo, int *timeout, int readabl
 	/* If we're still attempting DTLS, do nothing yet. */
 	switch (vpninfo->dtls_state) {
 	case DTLS_ESTABLISHED:
-		if (vpninfo->ssl_fd != -1) {
+		if (vpninfo->ssl_fd >= 0) {
 			openconnect_close_https(vpninfo, 0); /* don't keep stale HTTPS socket */
 			vpn_progress(vpninfo, PRG_INFO,
 				     _("DTLS tunnel connected; exiting HTTPS mainloop.\n"));
@@ -1615,7 +1615,7 @@ int ppp_tcp_mainloop(struct openconnect_info *vpninfo, int *timeout, int readabl
 		 * gets invoked. When f5_connect() actually establishes the tunnel,
 		 * it does so to start the PPP state machine for the TCP connection.
 		 */
-		if (vpninfo->ssl_fd != -1 && vpninfo->ppp->ppp_state != PPPS_DEAD)
+		if (vpninfo->ssl_fd >= 0 && vpninfo->ppp->ppp_state != PPPS_DEAD)
 			return ppp_mainloop(vpninfo, 0, &vpninfo->ssl_times, timeout, readable);
 
 		/* This will call *back* into the protocol's ->tcp_connect()
@@ -1651,7 +1651,7 @@ int ppp_udp_mainloop(struct openconnect_info *vpninfo, int *timeout, int readabl
 	int work_done = 0;
 	time_t now = time(NULL);
 
-	switch(vpninfo->dtls_state) {
+	switch (vpninfo->dtls_state) {
 	case DTLS_CONNECTING:
 		if (vpninfo->ppp->ppp_state == PPPS_DEAD)
 			vpninfo->delay_tunnel_reason = "DTLS connecting";
@@ -1663,7 +1663,7 @@ int ppp_udp_mainloop(struct openconnect_info *vpninfo, int *timeout, int readabl
 
 	case DTLS_CONNECTED:
 		/* First, see if there's a response for us. */
-		while(readable) {
+		while (readable) {
 			int receive_mtu = MAX(16384, vpninfo->ip_info.mtu);
 			int len;
 

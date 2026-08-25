@@ -100,7 +100,7 @@ socket to that program.</p>
 such as <a href="https://savannah.nongnu.org/projects/lwip/">lwip</a>
 to provide SOCKS access to the VPN, without requiring root privileges
 at all.</p>
-<p>SOCKS proxy implementions suitable for being used from OpenConnect
+<p>SOCKS proxy implementations suitable for being used from OpenConnect
 include:</p>
 <ul>
   <li><a href="https://github.com/cernekee/ocproxy">ocproxy</a></li>

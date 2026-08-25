@@ -422,6 +422,7 @@ int process_http_response(struct openconnect_info *vpninfo, int connect,
 		char clen_buf[16];
 		/* ... else, chunked */
 		while ((i = vpninfo->ssl_gets(vpninfo, clen_buf, sizeof(clen_buf)))) {
+			char *endp;
 			int lastchunk = 0;
 			long chunklen;
 
@@ -431,8 +432,20 @@ int process_http_response(struct openconnect_info *vpninfo, int connect,
 				ret = i;
 				goto err;
 			}
-			chunklen = strtol(clen_buf, NULL, 16);
+			chunklen = strtol(clen_buf, &endp, 16);
+			if (endp != clen_buf)
+				/* Be lenient with extraneous trailing spaces in chunk-size */
+				while (*endp && isspace(*endp))
+					++endp;
+			if (endp == clen_buf || (*endp && *endp != ';')) {
+				/* XX: Anything other than a non-negative hex integer followed by EOL or ';' is an error. */
+				vpn_progress(vpninfo, PRG_ERR,
+					     _("Error in chunked decoding. Expected hexadecimal chunk length, got: '%s'\n"),
+					     clen_buf);
+				goto err;
+			}
 			if (!chunklen) {
+				/* Zero indicates the last chunk */
 				lastchunk = 1;
 				goto skip;
 			}
@@ -673,13 +686,13 @@ int handle_redirect(struct openconnect_info *vpninfo)
 		free(vpninfo->redirect_url);
 		vpninfo->redirect_url = NULL;
 		return 0;
-        } else if (vpninfo->redirect_url[0] == '/') {
-                /* Absolute redirect within same host */
-                free(vpninfo->urlpath);
-                vpninfo->urlpath = strdup(vpninfo->redirect_url + 1);
-                free(vpninfo->redirect_url);
-                vpninfo->redirect_url = NULL;
-                return 0;
+	} else if (vpninfo->redirect_url[0] == '/') {
+		/* Absolute redirect within same host */
+		free(vpninfo->urlpath);
+		vpninfo->urlpath = strdup(vpninfo->redirect_url + 1);
+		free(vpninfo->redirect_url);
+		vpninfo->redirect_url = NULL;
+		return 0;
 	} else if (strstr(vpninfo->redirect_url, "://")) {
 		vpn_progress(vpninfo, PRG_ERR,
 			     _("Cannot follow redirection to non-https URL '%s'\n"),
@@ -966,9 +979,13 @@ int do_https_request(struct openconnect_info *vpninfo, const char *method, const
 		goto out;
 	}
 	if (!buf->pos || result != 200) {
-		vpn_progress(vpninfo, PRG_ERR,
-			     _("Unexpected %d result from server\n"),
-			     result);
+		if (!buf->pos)
+			vpn_progress(vpninfo, PRG_ERR,
+				     _("Unexpected empty response body from server\n"));
+		else
+			vpn_progress(vpninfo, PRG_ERR,
+				     _("Unexpected %d result from server\n"),
+				     result);
 		if (result == 401 || result == 403)
 			result = -EPERM;
 		else if (result == 512) /* GlobalProtect invalid username/password */

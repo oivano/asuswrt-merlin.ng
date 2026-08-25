@@ -18,11 +18,11 @@ See <a href="manual.xml">the <tt>--protocol</tt> option</a> for how to use a dif
 <ul>
   <li><a href="anyconnect.html">Details</a> on support for
   Cisco's <a href="https://www.cisco.com/site/us/en/products/security/secure-client/index.html">AnyConnect SSL VPN</a> (<tt>--protocol=anyconnect</tt>).
-  The OpenConnect VPN server, <a href="https://ocserv.gitlab.io/www/index.html">ocserv</a>, now implements an improved version of this protocol.</li>
+  <a href="https://ocserv.openconnect-vpn.net/">The OpenConnect VPN server</a>, ocserv, now implements an improved version of this protocol.</li>
   <li><a href="juniper.html">Details</a> on support for
   Juniper SSL VPN (<tt>--protocol=nc</tt>)</li>
   <li><a href="juniper.html">Details</a> on support for
-  <a href="https://www.ivanti.com/products/connect-secure-vpn">Pulse Connect Secure</a> SSL VPN (<tt>--protocol=pulse</tt>;
+  <a href="https://www.ivanti.com/products/connect-secure-vpn">Pulse/Ivanti Connect Secure</a> SSL VPN (<tt>--protocol=pulse</tt>;
   most Pulse VPNs also support the older Juniper protocol, unless explicitly disabled)</li>
   <li><a href="globalprotect.html">Details</a> on support for
   <a href="https://www.paloaltonetworks.com/features/vpn">Palo Alto Networks GlobalProtect SSL VPN</a> (<tt>--protocol=gp</tt>)</li>
@@ -32,6 +32,10 @@ See <a href="manual.xml">the <tt>--protocol</tt> option</a> for how to use a dif
   <a href="https://www.fortinet.com/products/vpn">Fortinet Fortigate SSL VPN</a> (<tt>--protocol=fortinet</tt>; PPP-based)</li>
   <li><a href="array.html">Details</a> on support for <a href="https://arraynetworks.com/products-secure-access-gateways-ag-series.html">Array Networks AG SSL VPN</a> (<tt>--protocol=array</tt>)</li>
 </ul>
+
+<p>If you are interested in adding support for additional protocols to
+OpenConnect, see <a href="contribute.html#new-protocols">the "New
+Protocols" section of the Contribute page</a>.</p>
 
 	<INCLUDE file="inc/footer.tmpl" />
 </PAGE>

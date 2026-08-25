@@ -176,7 +176,7 @@ int openconnect_mainloop(struct openconnect_info *vpninfo,
 	vpninfo->reconnect_timeout = reconnect_timeout;
 	vpninfo->reconnect_interval = reconnect_interval;
 
-	if (vpninfo->cmd_fd != -1) {
+	if (vpninfo->cmd_fd >= 0) {
 		monitor_fd_new(vpninfo, cmd);
 		monitor_read_fd(vpninfo, cmd);
 	}
@@ -234,7 +234,7 @@ int openconnect_mainloop(struct openconnect_info *vpninfo,
 			while ((this = dequeue_packet(&vpninfo->incoming_queue)))
 				free_pkt(vpninfo, this);
 #ifdef HAVE_VHOST
-		} else if (vpninfo->vhost_fd != -1) {
+		} else if (vpninfo->vhost_fd >= 0) {
 			did_work += vhost_tun_mainloop(vpninfo, &timeout, vhost_r, did_work);
 			/* If it returns zero *then* it will have read the eventfd
 			 * and there's no need to do so again until we poll again. */

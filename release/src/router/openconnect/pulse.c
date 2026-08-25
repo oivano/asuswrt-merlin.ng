@@ -55,11 +55,11 @@
 #define EAP_SUCCESS 3
 #define EAP_FAILURE 4
 
-#define EAP_TYPE_IDENTITY 1
-#define EAP_TYPE_GTC 6
-#define EAP_TYPE_TLS 0x0d
-#define EAP_TYPE_TTLS 0x15
-#define EAP_TYPE_EXPANDED 0xfe
+#define EAP_TYPE_IDENTITY ((uint32_t)1)
+#define EAP_TYPE_GTC ((uint32_t)6)
+#define EAP_TYPE_TLS ((uint32_t)0x0d)
+#define EAP_TYPE_TTLS ((uint32_t)0x15)
+#define EAP_TYPE_EXPANDED ((uint32_t)0xfe)
 
 #define EXPANDED_JUNIPER ((EAP_TYPE_EXPANDED << 24) | VENDOR_JUNIPER)
 
@@ -501,6 +501,16 @@ static int process_attr(struct openconnect_info *vpninfo, struct oc_vpn_option *
 		add_option_dup(new_opts, "gateway6", buf, -1);
 		break;
 
+	case 0x4009:
+		vpn_progress(vpninfo, PRG_INFO,
+			     _("Received proxy auto-config (PAC) payload of size %d\n"), attrlen);
+		break;
+
+	case 0x4023:
+		vpn_progress(vpninfo, PRG_INFO,
+			     _("Received proxy auto-config (PAC) URL: %.*s\n"), attrlen, data);
+		break;
+
 	case 0x4024:
 	        /* This flag is supposed to be available starting with Pulse server 9.1R9 (see
 		 * https://help.ivanti.com/ps/legacy/pcs/9.1rx/9.1r9/ps-pcs-sa-9.1r9.0-releasenotes.pdf),
@@ -521,8 +531,8 @@ static int process_attr(struct openconnect_info *vpninfo, struct oc_vpn_option *
 	   0x4008: proxy (string)
 	   0x4000: disconnect when routes changed
 	   0x4015: tos copy
-	   0x4001:  tunnel routes take precedence
-	   0x401f:  tunnel routes with subnet access (also 4001 set)
+	   0x4001: tunnel routes take precedence
+	   0x401f: tunnel routes with subnet access (also 4001 set)
 	   0x4020: Enforce IPv4
 	   0x4021: Enforce IPv6
 	   0x0014: Prefer FQDN resources over IP resources in case of a split tunneling conflict
@@ -536,7 +546,7 @@ static int process_attr(struct openconnect_info *vpninfo, struct oc_vpn_option *
 			sprintf(buf + strlen(buf), "...");
 
 		vpn_progress(vpninfo, PRG_DEBUG,
-			     _("Unknown attr 0x%x len %d:%s\n"),
+			     _("Unknown attr 0x%04x len %d:%s\n"),
 			     type, attrlen, buf);
 	}
 	return 0;
@@ -1439,6 +1449,7 @@ static int pulse_authenticate(struct openconnect_info *vpninfo, int connecting)
 	}
 	if (bytes[0])
 		buf_append(reqbuf, " clientIp=%s", bytes);
+	buf_append(reqbuf, " clientCapabilities={}");
 	buf_append(reqbuf, "\n%c", 0);
 	ret = send_ift_packet(vpninfo, reqbuf);
 	if (ret)
@@ -1612,6 +1623,11 @@ static int pulse_authenticate(struct openconnect_info *vpninfo, int connecting)
 	buf_append_avp_string(reqbuf, 0xd6c, "\x02\xe9\xa7\x51\x92\x4e");
 	buf_append_avp_be32(reqbuf, 0xd84, 0);
 #else
+	/* XX: We don't actually know what string the Pulse clients send for OSes other than
+	 * Windows, but Windows/Linux/Mac (like GP clients use) seems likely.
+	 */
+	buf_append_avp_string(reqbuf, 0xd5e, gpst_os_name(vpninfo));
+
 	/* XX: "Only the Pulse client supports IPv6", both according to user reports and
 	 * https://help.ivanti.com/ps/help/en_US/PCS/9.1R14/ag/network_n_host_admin.htm#network_and_host_administration_1399867268_681155
 	 *
@@ -2337,7 +2353,7 @@ static int handle_attr_elements(struct openconnect_info *vpninfo,
    address range is in bytes 8-11 (starting address) and the highest address
    of the range (traditionally a broadcast address) is in bytes 12-15.
 
-   After the routing inforamation (in this example at 0xa4) comes another
+   After the routing information (in this example at 0xa4) comes another
    length field, this time for the information elements which comprise
    the rest of the packet. Not sure what the 03 00 00 00 at 0xa8 means;
    it *could* be an element type 0x3000 with payload length zero but if it
@@ -2633,7 +2649,7 @@ static int handle_esp_config_packet(struct openconnect_info *vpninfo,
 int pulse_connect(struct openconnect_info *vpninfo)
 {
 	struct oc_text_buf *reqbuf;
-	unsigned char bytes[TLS_RECORD_MAX];
+	unsigned char *bytes = NULL;
 	int ret;
 
 	/* If we already have a channel open, it's because we have just
@@ -2645,25 +2661,49 @@ int pulse_connect(struct openconnect_info *vpninfo)
 	}
 
 	while (1) {
-		uint32_t pkt_type;
+		uint32_t pkt_type, config_len;
 
-		ret = recv_ift_packet(vpninfo, (void *)bytes, sizeof(bytes));
-		if (ret < 0)
-			return ret;
+	next_pkt:
+		free(bytes);
+		config_len = TLS_RECORD_MAX;
+		bytes = malloc(config_len);
 
-		if (ret < 16 || load_be32(bytes + 8) != ret) {
-			vpn_progress(vpninfo, PRG_ERR,
-				     _("Bad IF-T/TLS packet when expecting configuration:\n"));
-			dump_buf_hex(vpninfo, PRG_ERR, '<', bytes, ret);
-			return -EINVAL;
-		}
+		for (int ii = 0; ii < config_len; ii += ret) {
+			if (!bytes)
+				return -ENOMEM;
 
-		if (load_be32(bytes) != VENDOR_JUNIPER) {
-			vpn_progress(vpninfo, PRG_INFO,
-				     _("Unexpected IF-T/TLS packet when expecting configuration: wrong vendor\n"));
-		bad_pkt:
-			dump_buf_hex(vpninfo, PRG_DEBUG, '<', bytes, ret);
-			continue;
+			ret = recv_ift_packet(vpninfo, bytes + ii, MAX(config_len - ii, TLS_RECORD_MAX));
+			if (ret < 0)
+				goto out;
+
+			if (ii == 0) {
+				/* Check header, and reallocate if it exceeds one TLS record */
+				if (ret < 16) {
+					vpn_progress(vpninfo, PRG_ERR,
+						     _("Short IF-T/TLS packet when expecting configuration:\n"));
+					dump_buf_hex(vpninfo, PRG_ERR, '<', bytes, ret);
+					ret = -EINVAL;
+					goto out;
+				}
+
+				if (load_be32(bytes) != VENDOR_JUNIPER) {
+					vpn_progress(vpninfo, PRG_INFO,
+						     _("Unexpected IF-T/TLS packet when expecting configuration: wrong vendor\n"));
+				bad_pkt:
+					dump_buf_hex(vpninfo, PRG_DEBUG, '<', bytes, ret);
+					goto next_pkt;
+				}
+
+				config_len = load_be32(bytes + 8);
+				if (config_len > 0x100000) {
+					vpn_progress(vpninfo, PRG_ERR,
+						     _("Unreasonably large IF-T/TLS packet (%u > 1 MiB) when expecting configuration"),
+						     config_len);
+					ret = -EINVAL;
+					goto out;
+				} else if (config_len > TLS_RECORD_MAX)
+					realloc_inplace(bytes, config_len);
+			}
 		}
 
 		pkt_type = load_be32(bytes + 4);
@@ -2687,7 +2727,7 @@ int pulse_connect(struct openconnect_info *vpninfo)
 				     _("Unexpected Pulse configuration packet: %s\n"),
 				     _("wrong type field (!= 1)"));
 			goto bad_pkt;
-		} else if (ret < 0x2c) {
+		} else if (config_len < 0x2c) {
 			vpn_progress(vpninfo, PRG_INFO,
 				     _("Unexpected Pulse configuration packet: %s\n"),
 				     _("too short"));
@@ -2699,24 +2739,24 @@ int pulse_connect(struct openconnect_info *vpninfo)
 				     _("Unexpected Pulse configuration packet: %s\n"),
 				     _("non-zero values at offsets 0x10, 0x14, 0x18, 0x1c, or 0x24"));
 			goto bad_pkt;
-		} else if (load_be32(bytes + 0x28) != ret - 0x10) {
+		} else if (load_be32(bytes + 0x28) != config_len - 0x10) {
 			vpn_progress(vpninfo, PRG_INFO,
 				     _("Unexpected Pulse configuration packet: %s\n"),
 				     _("length at offset 0x28 != packet length - 0x10"));
 			goto bad_pkt;
 		}
 
-		switch(load_be32(bytes + 0x20)) {
+		switch (load_be32(bytes + 0x20)) {
 		case 0x2c20f000:
 		case 0x2e20f000: /* Variant seen on Pulse 9.1R14 */
-			ret = handle_main_config_packet(vpninfo, bytes, ret);
+			ret = handle_main_config_packet(vpninfo, bytes, config_len);
 			if (ret)
-				return ret;
+				goto out;
 
 			break;
 
 		case 0x21202400:
-			ret = handle_esp_config_packet(vpninfo, bytes, ret);
+			ret = handle_esp_config_packet(vpninfo, bytes, config_len);
 			if (ret) {
 				vpninfo->dtls_state = DTLS_DISABLED;
 				continue;
@@ -2725,7 +2765,7 @@ int pulse_connect(struct openconnect_info *vpninfo)
 			/* It has created a response packet to send. */
 			ret = send_ift_bytes(vpninfo, bytes, load_be32(bytes + 8));
 			if (ret)
-				return ret;
+				goto out;
 
 			/* Tell server to enable ESP handling */
 			reqbuf = buf_alloc();
@@ -2734,7 +2774,7 @@ int pulse_connect(struct openconnect_info *vpninfo)
 			ret = send_ift_packet(vpninfo, reqbuf);
 			buf_free(reqbuf);
 			if (ret)
-				return ret;
+				goto out;
 
 			break;
 
@@ -2749,12 +2789,15 @@ int pulse_connect(struct openconnect_info *vpninfo)
 	if (!vpninfo->ip_info.mtu ||
 	    (!vpninfo->ip_info.addr && !vpninfo->ip_info.addr6)) {
 		vpn_progress(vpninfo, PRG_ERR, _("Insufficient configuration found\n"));
-		return -EINVAL;
+		ret = -EINVAL;
+		goto out;
 	}
 
 	/* This should never happen, but be defensive and shut Coverity up */
-	if (vpninfo->ssl_fd == -1)
-		return -EIO;
+	if (vpninfo->ssl_fd == -1) {
+		ret = -EIO;
+		goto out;
+	}
 
 	ret = 0;
 	monitor_fd_new(vpninfo, ssl);
@@ -2764,6 +2807,8 @@ int pulse_connect(struct openconnect_info *vpninfo)
 	free_pkt(vpninfo, vpninfo->cstp_pkt);
 	vpninfo->cstp_pkt = NULL;
 
+ out:
+	free(bytes);
 	return ret;
 }
 
@@ -2788,7 +2833,7 @@ int pulse_mainloop(struct openconnect_info *vpninfo, int *timeout, int readable)
 		   handle that */
 		int receive_mtu = MAX(16384, vpninfo->deflate_pkt_size ? : vpninfo->ip_info.mtu);
 		struct pkt *pkt = vpninfo->cstp_pkt;
-		int len, payload_len;
+		int pkt_len, payload_len;
 
 		if (!pkt) {
 			pkt = vpninfo->cstp_pkt = alloc_pkt(vpninfo, receive_mtu);
@@ -2796,51 +2841,59 @@ int pulse_mainloop(struct openconnect_info *vpninfo, int *timeout, int readable)
 				vpn_progress(vpninfo, PRG_ERR, _("Allocation failed\n"));
 				break;
 			}
+			pkt->len = 0;
 		}
 
-		/* Receive packet header, if there's anything there... */
-		len = ssl_nonblock_read(vpninfo, 0, &pkt->pulse.vendor, 16);
-		if (!len)
-			break;
-		if (len < 0)
-			goto do_reconnect;
-		if (len < 16) {
-			vpn_progress(vpninfo, PRG_ERR, _("Short packet received (%d bytes)\n"), len);
-			vpninfo->quit_reason = "Short packet received";
-			return 1;
+		/* Until we pass it up the stack, we use cstp_pkt->len to show
+		 * the amount of data received *including* the header. */
+		if (pkt->len < 0x10) {
+			pkt_len = 0x10;
+		} else {
+			pkt_len = load_be32(&pkt->pulse.len);
+			if (pkt_len < 0x10 || pkt_len > receive_mtu + 0x10) {
+				/* This doesn't look right. Pull the rest of the SSL record
+				 * and complain about it (which we will, since the length
+				 * won't match the header */
+				pkt_len = receive_mtu + 0x10;
+			}
 		}
 
-		/* Packets shouldn't cross SSL record boundaries (we hope!), so if there
-		 * was a header there, then rest of that packet should be there too. */
-		if (load_be32(&pkt->pulse.len) > receive_mtu + 0x10) {
-			/* This doesn't look right. Pull the rest of the SSL record
-			 * and complain about it (which we will, since the length
-			 * won't match the header */
-			len = receive_mtu;
-		} else
-			len = load_be32(&pkt->pulse.len) - 0x10;
+		if (pkt_len > pkt->len) {
+			ret = ssl_nonblock_read(vpninfo, 0,
+						((char *)&pkt->pulse.vendor) + pkt->len,
+						pkt_len - pkt->len);
+			if (!ret)
+				break;
+			if (ret < 0)
+				goto do_reconnect;
 
-		payload_len = ssl_nonblock_read(vpninfo, 0, &pkt->data, len);
-		if (payload_len != load_be32(&pkt->pulse.len) - 0x10) {
-			if (payload_len < 0)
-				len = 0x10;
-			else
-				len = payload_len + 0x10;
+			pkt->len += ret;
+
+			if (pkt_len > pkt->len)
+				vpn_progress(vpninfo, PRG_TRACE,
+					     _("Short packet received (%d bytes)\n"), ret);
+
+			continue;  /* Check if we need more data */
+		}
+
+		pkt->len = 0;  /* Allow new data to be read next time */
+
+		if (pkt_len != load_be32(&pkt->pulse.len))
 			goto unknown_pkt;
-		}
 
 		if (load_be32(&pkt->pulse.vendor) != VENDOR_JUNIPER)
 			goto unknown_pkt;
 
 		vpninfo->ssl_times.last_rx = time(NULL);
-		len = payload_len + 0x10;
 
-		switch(load_be32(&pkt->pulse.type)) {
+		payload_len = pkt_len - 0x10;
+
+		switch (load_be32(&pkt->pulse.type)) {
 		case 4:
 			vpn_progress(vpninfo, PRG_TRACE,
 				     _("Received data packet of %d bytes\n"),
 				     payload_len);
-			dump_buf_hex(vpninfo, PRG_TRACE, '<', (void *)&vpninfo->cstp_pkt->pulse.vendor, len);
+			dump_buf_hex(vpninfo, PRG_TRACE, '<', (void *)&vpninfo->cstp_pkt->pulse.vendor, pkt_len);
 			vpninfo->cstp_pkt->len = payload_len;
 			queue_packet(&vpninfo->incoming_queue, pkt);
 			vpninfo->cstp_pkt = pkt = NULL;
@@ -2855,9 +2908,9 @@ int pulse_mainloop(struct openconnect_info *vpninfo, int *timeout, int readable)
 			    load_be16(pkt->data + 0x28) != 0x40)
 				goto unknown_pkt;
 
-			dump_buf_hex(vpninfo, PRG_TRACE, '<', (void *)&vpninfo->cstp_pkt->pulse.vendor, len);
+			dump_buf_hex(vpninfo, PRG_TRACE, '<', (void *)&vpninfo->cstp_pkt->pulse.vendor, pkt_len);
 
-			ret = handle_esp_config_packet(vpninfo, (void *)&pkt->pulse.vendor, len);
+			ret = handle_esp_config_packet(vpninfo, (void *)&pkt->pulse.vendor, pkt_len);
 			if (ret) {
 				vpn_progress(vpninfo, PRG_ERR,
 					     _("ESP rekey failed\n"));
@@ -2908,9 +2961,9 @@ int pulse_mainloop(struct openconnect_info *vpninfo, int *timeout, int readable)
 		unknown_pkt:
 			vpn_progress(vpninfo, PRG_ERR,
 				     _("Unknown Pulse packet of %d bytes (vendor 0x%03x, type 0x%02x, hdr_len %d, ident %d)\n"),
-				     len, load_be32(&pkt->pulse.vendor), load_be32(&pkt->pulse.type),
+				     pkt_len, load_be32(&pkt->pulse.vendor), load_be32(&pkt->pulse.type),
 				     load_be32(&pkt->pulse.len), load_be32(&pkt->pulse.ident));
-			dump_buf_hex(vpninfo, PRG_TRACE, '<', (void *)&vpninfo->cstp_pkt->pulse.vendor, len);
+			dump_buf_hex(vpninfo, PRG_TRACE, '<', (void *)&vpninfo->cstp_pkt->pulse.vendor, pkt_len);
 			continue;
 		}
 	}
@@ -3101,7 +3154,7 @@ int pulse_mainloop(struct openconnect_info *vpninfo, int *timeout, int readable)
 int pulse_bye(struct openconnect_info *vpninfo, const char *reason)
 {
 	int ret = -1;
-	if (vpninfo->ssl_fd != -1) {
+	if (vpninfo->ssl_fd >= 0) {
 		struct oc_text_buf *buf = buf_alloc();
 		buf_append_ift_hdr(buf, VENDOR_JUNIPER, 0x89);
 		if (!buf_error(buf))

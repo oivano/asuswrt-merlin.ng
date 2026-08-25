@@ -1,4 +1,4 @@
-AC_INIT([openconnect], [9.12])
+AC_INIT([openconnect], [9.21])
 AC_LANG([C])
 AC_CONFIG_HEADERS([config.h])
 m4_ifdef([AC_CONFIG_MACRO_DIRS], [AC_CONFIG_MACRO_DIRS([m4])])
@@ -37,6 +37,9 @@ AC_PROG_CC
 # compilers if you want C99 support. Starting with 2.70, it is obsolete.
 m4_version_prereq([2.70], [:], [AC_PROG_CC_C99])
 
+# pre-check for standard headers
+m4_version_prereq([2.70], [AC_CHECK_INCLUDES_DEFAULT], [:])
+
 default_browser=xdg-open
 have_vhost=no
 case $host_os in
@@ -72,7 +75,15 @@ case $host_os in
     system_pcsc_libs="-lwinscard"
     system_pcsc_cflags=
     AC_CHECK_TOOL([WINDRES], [windres], [])
-    AC_CHECK_TOOL([MAKENSIS], [makensis], [])
+
+    AC_ARG_ENABLE([nsis-installer],
+	AS_HELP_STRING([--disable-nsis-installer], [Do not build an NSIS installer]),
+	[USE_NSIS=$enableval], [USE_NSIS=yes])
+
+    if test "$USE_NSIS" = "yes"; then
+        AC_CHECK_TOOL([MAKENSIS], [makensis], [])
+    fi
+
     default_browser=open
 
     case $host_cpu in
@@ -114,19 +125,34 @@ case $host_os in
     ;;
 esac
 AM_CONDITIONAL(OPENCONNECT_WIN32,  [ test "$have_win" = "yes" ])
-build_nsis=no
-if test "${MAKENSIS}" != ""; then
+
+if test "$have_win" = "yes"; then
+   #required for vpnc-script-win.js and wintun
    AC_CHECK_PROG(have_curl, curl, yes)
-   if test "${have_curl}" = "yes"; then
-      build_nsis=yes
-      if test "${wintun_arch}" != ""; then
-	 AC_CHECK_PROG(have_unzip, unzip, yes)
-	 if test "${have_unzip}" != "yes"; then
-	    wintun_arch=
-	 fi
+   AC_CHECK_PROG(have_unzip, unzip, yes)
+   AC_CHECK_PROG(have_jq, jq, yes)
+
+   if test "${wintun_arch}" != ""; then
+      if test "${have_curl}" != "yes"; then
+         wintun_arch=
+      else
+         if test "${have_unzip}" != "yes"; then
+            wintun_arch=
+         fi
       fi
    fi
 fi
+
+build_nsis=no
+if test "$MAKENSIS" != ""; then
+    #disable NSIS build if we cannot extract wintun
+    if test "${wintun_arch}" != ""; then
+        build_nsis=yes
+    else
+	AC_MSG_WARN([Disabling NSIS installer since wintun cannot be included])
+    fi
+fi
+
 AM_CONDITIONAL(BUILD_NSIS, [ test "$build_nsis" = "yes" ])
 AM_CONDITIONAL(OPENCONNECT_WINTUN, [ test "${wintun_arch}" != "" ])
 
@@ -160,6 +186,17 @@ if test "$with_vpnc_script" = "yes" || test "$with_vpnc_script" = ""; then
    AC_MSG_CHECKING([for vpnc-script in standard locations])
    if test "$have_win" = "yes"; then
       with_vpnc_script=vpnc-script-win.js
+
+      #downloading and amending vpnc-script-win.js depends on curl and jq. Disable it if they are missing, which *should* cause configure to stop
+
+      if test "${have_curl}" != "yes"; then
+         with_vpnc_script=no
+      else
+         if test "${have_jq}" != "yes"; then
+            with_vpnc_script=no
+         fi
+      fi
+      AC_MSG_RESULT([${with_vpnc_script}])
    else
       for with_vpnc_script in /usr/local/share/vpnc-scripts/vpnc-script /usr/local/sbin/vpnc-script /usr/share/vpnc-scripts/vpnc-script /usr/sbin/vpnc-script /etc/vpnc/vpnc-script; do
          if test -x "$with_vpnc_script"; then
@@ -185,7 +222,8 @@ if test "$with_vpnc_script" = "yes" || test "$with_vpnc_script" = ""; then
          AC_MSG_RESULT([${with_vpnc_script}])
       fi
    fi
-elif test "$with_vpnc_script" = "no"; then
+fi
+if test "$with_vpnc_script" = "no"; then
    AC_MSG_ERROR(You cannot disable vpnc-script.
    OpenConnect will not function correctly without it.
    See https://www.infradead.org/openconnect/vpnc-script.html)
@@ -195,7 +233,7 @@ elif test "$have_win" = "yes"; then
    with_vpnc_script="$(echo "${with_vpnc_script}" | sed s/\\\\/\\\\\\\\/g)"
 fi
 
-AC_DEFINE_UNQUOTED(DEFAULT_VPNCSCRIPT, "${with_vpnc_script}", [Default vpnc-script locatin])
+AC_DEFINE_UNQUOTED(DEFAULT_VPNCSCRIPT, "${with_vpnc_script}", [Default vpnc-script location])
 AC_SUBST(DEFAULT_VPNCSCRIPT, "${with_vpnc_script}")
 
 AC_CHECK_FUNC(fdevname_r, [AC_DEFINE(HAVE_FDEVNAME_R, 1, [Have fdevname_r() function])], [])
@@ -259,7 +297,9 @@ AS_COMPILER_FLAGS(WFLAGS,
          -Wmissing-declarations
          -Wmissing-include-dirs
          -Wnested-externs
+         -Wparentheses
          -Wpointer-arith
+         -Wunused-function
          -Wwrite-strings")
 AC_SUBST(WFLAGS, [$WFLAGS])
 
@@ -1500,7 +1540,12 @@ SUMMARY([DSA tests], [$enable_dsa_tests])
 SUMMARY([PPP tests], [$enable_ppp_tests])
 SUMMARY([Flask tests], [$have_python36_flask])
 SUMMARY([Insecure debugging], [$insecure_debugging])
-SUMMARY([NSIS installer], [$build_nsis])
+if test "$have_win" = "yes"; then
+ SUMMARY([NSIS installer], [$build_nsis])
+ SUMMARY([wintun architecture], [$wintun_arch])
+fi
+SUMMARY([External browser], [${with_external_browser}])
+SUMMARY([VPNC script], [${with_vpnc_script}])
 
 if test "$ssl_library" = "OpenSSL"; then
     AC_MSG_WARN([[

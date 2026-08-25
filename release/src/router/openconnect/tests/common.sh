@@ -36,9 +36,11 @@ test $(id -u) -eq 0 && SUDO= || SUDO=sudo
 top_builddir=${top_builddir:-..}
 SOCKDIR="./sockwrap.$$.tmp"
 mkdir -p $SOCKDIR
+export SOCKET_WRAPPER_DIR_ALLOW_ORIG=1
 export SOCKET_WRAPPER_DIR=$SOCKDIR
 export SOCKET_WRAPPER_DEFAULT_IFACE=2
 ADDRESS=127.0.0.$SOCKET_WRAPPER_DEFAULT_IFACE
+SWRESOLVE="--resolve sockwrap:fd00::5357:5f0$SOCKET_WRAPPER_DEFAULT_IFACE --resolve sockwrap:127.0.0.$SOCKET_WRAPPER_DEFAULT_IFACE"
 OPENCONNECT="${OPENCONNECT:-${top_builddir}/openconnect}"${EXEEXT}
 LOGFILE="$SOCKDIR/log.$$.tmp"
 OCCTL_SOCKET="${OCCTL_SOCKET:-./occtl-comp-$$.socket}"
@@ -66,6 +68,7 @@ update_config() {
 }
 
 launch_simple_sr_server() {
+       mkdir -p $SOCKDIR
        LD_PRELOAD=libsocket_wrapper.so:libuid_wrapper.so UID_WRAPPER=1 UID_WRAPPER_ROOT=1 $OCSERV $* &
 }
 
@@ -103,7 +106,8 @@ launch_simple_pppd() {
        #    the config packets exchanged, causing retries and leading to a longer negotiation period.
        #    [use `socat -x` for a hex log of I/O to/from the connected sockets]
 
-       LD_PRELOAD=libsocket_wrapper.so socat \
+       mkdir -p $SOCKDIR
+       LD_PRELOAD=libsocket_wrapper.so socat -t 120 -T 120 -d -d \
 		 SYSTEM:"LD_PRELOAD= $SUDO $PPPD noauth local debug nodefaultroute logfile '$LOGFILE' $*",pty,raw,echo=0 \
 		 OPENSSL-LISTEN:443,verify=0,cert="$CERT",key="$KEY" 2>&1 &
        PID=$!
@@ -122,7 +126,7 @@ cleanup() {
 		ret=1
 	fi
 	wait
-	test -n "$SOCKDIR" && rm -rf $SOCKDIR && mkdir -p $SOCKDIR
+	test -n "$SOCKDIR" && rm -rf $SOCKDIR
 	return $ret
 }
 

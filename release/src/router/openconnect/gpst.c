@@ -412,11 +412,9 @@ static int gpst_parse_config_xml(struct openconnect_info *vpninfo, xmlNode *xml_
 	int ii;
 
 #ifdef HAVE_ESP
-	int esp_keys = 0, esp_magic_af = 0;
-	union {
-		struct in6_addr v6;
-		struct in_addr v4;
-	} esp_magic;
+	int esp_keys = 0, have_esp_magic_v4 = 0, have_esp_magic_v6 = 0;
+	struct in6_addr esp_magic_v6;
+	struct in_addr esp_magic_v4;
 #endif /* HAVE_ESP */
 
 	if (!xml_node || !xmlnode_is_named(xml_node, "response"))
@@ -426,7 +424,6 @@ static int gpst_parse_config_xml(struct openconnect_info *vpninfo, xmlNode *xml_
 	struct oc_vpn_option *new_opts = NULL;
 	struct oc_ip_info new_ip_info = {};
 
-	memset(vpninfo->esp_magic, 0, sizeof(vpninfo->esp_magic));
 	vpninfo->esp_replay_protect = 1;
 	vpninfo->ssl_times.rekey_method = REKEY_NONE;
 
@@ -464,28 +461,27 @@ static int gpst_parse_config_xml(struct openconnect_info *vpninfo, xmlNode *xml_
 			vpninfo->ssl_times.last_rekey = time(NULL);
 			vpninfo->ssl_times.rekey = sec - 60;
 			vpninfo->ssl_times.rekey_method = REKEY_TUNNEL;
-		} else if (!xmlnode_get_val(xml_node, "gw-address", &s) ||
-			   !xmlnode_get_val(xml_node, "gw-address-v6", &s)) {
+		} else if (!xmlnode_get_val(xml_node, "gw-address", &s)) {
 			/* As remarked in oncp.c, "this is a tunnel; having a
 			 * gateway is meaningless." See esp_send_probes_gp for the
 			 * gory details of what this field actually means.
-			 *
-			 * If we get both Legacy IP and IPv6 tags, then we must use the IPv6
-			 * value in order for both AFs to work over the tunnel (see 5b98b628
-			 * "GlobalProtect IPv6 ESP support").
 			 */
-			int legacy = xmlnode_is_named(xml_node, "gw-address");
-			if (vpninfo->peer_addr->sa_family == (legacy ? IPPROTO_IP : IPPROTO_IPV6) &&
+			if (vpninfo->peer_addr->sa_family == IPPROTO_IP &&
 			    vpninfo->ip_info.gateway_addr && strcmp(s, vpninfo->ip_info.gateway_addr))
 				vpn_progress(vpninfo, PRG_DEBUG,
-					     _("Gateway address in config XML (%s) differs from external gateway address (%s).\n"), s, vpninfo->ip_info.gateway_addr);
+					     _("Legacy IP gateway address in config XML (%s) differs from external gateway address (%s).\n"), s, vpninfo->ip_info.gateway_addr);
 #ifdef HAVE_ESP
-			if (esp_magic_af == AF_INET6 && legacy) {
-				/* We ignore the Legacy IP tag <gw-address> if we've already gotten the IPv6 tag <gw-address-v6>. */
-			} else {
-				esp_magic_af = legacy ? AF_INET : AF_INET6;
-				inet_pton(esp_magic_af, s, &esp_magic);
-			}
+			have_esp_magic_v4 = 1;
+			inet_pton(AF_INET, s, &esp_magic_v4);
+#endif /* HAVE_ESP */
+		} else if (!xmlnode_get_val(xml_node, "gw-address-v6", &s)) {
+			if (vpninfo->peer_addr->sa_family == IPPROTO_IPV6 &&
+			    vpninfo->ip_info.gateway_addr && strcmp(s, vpninfo->ip_info.gateway_addr))
+				vpn_progress(vpninfo, PRG_DEBUG,
+					     _("IPv6 gateway address in config XML (%s) differs from external gateway address (%s).\n"), s, vpninfo->ip_info.gateway_addr);
+#ifdef HAVE_ESP
+			have_esp_magic_v6 = 1;
+			inet_pton(AF_INET6, s, &esp_magic_v6);
 #endif /* HAVE_ESP */
 		} else if (!xmlnode_get_val(xml_node, "connected-gw-ip", &s)) {
 			if (vpninfo->ip_info.gateway_addr && strcmp(s, vpninfo->ip_info.gateway_addr))
@@ -524,12 +520,13 @@ static int gpst_parse_config_xml(struct openconnect_info *vpninfo, xmlNode *xml_
 			   xmlnode_is_named(xml_node, "access-routes") || xmlnode_is_named(xml_node, "exclude-access-routes")) {
 			for (member = xml_node->children; member; member=member->next) {
 				if (!xmlnode_get_val(member, "member", &s)) {
+					int is_exclude = (xml_node->name[0] == 'e');
 					struct oc_split_include *inc = malloc(sizeof(*inc));
 					if (!inc) {
 						ret = -ENOMEM;
 						goto err;
 					}
-					if (xmlnode_is_named(xml_node, "access-routes")) {
+					if (!is_exclude) {
 						inc->route = add_option_steal(&new_opts, "split-include", &s);
 						inc->next = new_ip_info.split_includes;
 						new_ip_info.split_includes = inc;
@@ -601,12 +598,21 @@ static int gpst_parse_config_xml(struct openconnect_info *vpninfo, xmlNode *xml_
 			     _("GlobalProtect IPv6 support is experimental. Please report results to <%s>.\n"),
 			     "openconnect-devel@lists.infradead.org");
 #ifdef HAVE_ESP
-	if (esp_keys &&
-	    ((esp_magic_af == AF_INET6 && new_ip_info.addr6) ||
-	     (esp_magic_af == AF_INET && new_ip_info.addr))) {
-		/* We got ESP keys, an IPvX esp_magic address, and an IPvX address */
-		vpninfo->esp_magic_af = esp_magic_af;
-		memcpy(vpninfo->esp_magic, &esp_magic, sizeof(esp_magic));
+	if (esp_keys) {
+		/* If we get both Legacy IP and IPv6 magic addresses, then we must use the IPv6
+		 * value in order for both AFs to work over the tunnel (see 5b98b628
+		 * "GlobalProtect IPv6 ESP support").
+		 */
+		if (have_esp_magic_v6 && new_ip_info.addr6) {
+			/* We got ESP keys, an IPv6 esp_magic address, and an IPv6 client address */
+			vpninfo->esp_magic_af = AF_INET6;
+			memcpy(vpninfo->esp_magic, &esp_magic_v6, sizeof(esp_magic_v6));
+		} else if (have_esp_magic_v4 && new_ip_info.addr) {
+			/* We got ESP keys, a Legacy IP esp_magic address, and a Legacy IP client address */
+			vpninfo->esp_magic_af = AF_INET;
+			memcpy(vpninfo->esp_magic, &esp_magic_v4, sizeof(esp_magic_v4));
+		} else
+			goto cannot_esp;
 
 		if (openconnect_setup_esp_keys(vpninfo, 0)) {
 			vpn_progress(vpninfo, PRG_ERR, "Failed to setup ESP keys.\n");
@@ -616,6 +622,7 @@ static int gpst_parse_config_xml(struct openconnect_info *vpninfo, xmlNode *xml_
 			vpninfo->delay_tunnel_reason = "awaiting GPST ESP connection";
 		}
 	} else if (vpninfo->dtls_state != DTLS_DISABLED)
+cannot_esp:
 		vpn_progress(vpninfo, PRG_ERR,
 			     _("Did not receive ESP keys and matching gateway in GlobalProtect config; tunnel will be TLS only.\n"));
 #endif
@@ -644,7 +651,7 @@ static int gpst_get_config(struct openconnect_info *vpninfo)
 
 	/* submit getconfig request */
 	buf_append(request_body, "client-type=1&protocol-version=p1&internal=no");
-	append_opt(request_body, "app-version", vpninfo->csd_ticket ? : "5.1.5-8");
+	append_opt(request_body, "app-version", vpninfo->csd_ticket ? : "6.3.0-33");
 	append_opt(request_body, "ipv6-support", vpninfo->disable_ipv6 ? "no" : "yes");
 	append_opt(request_body, "clientos", gpst_os_name(vpninfo));
 	append_opt(request_body, "os-version", vpninfo->platname);
@@ -713,7 +720,7 @@ static int gpst_connect(struct openconnect_info *vpninfo)
 {
 	int ret;
 	struct oc_text_buf *reqbuf;
-	static const char start_tunnel[12] = "START_TUNNEL"; /* NOT zero-terminated */
+	static const char start_tunnel[12] __attribute__((nonstring)) = "START_TUNNEL"; /* NOT NUL-terminated */
 	char buf[256];
 
 	/* We do NOT actually start the HTTPS tunnel if ESP is enabled and we received
@@ -762,6 +769,7 @@ static int gpst_connect(struct openconnect_info *vpninfo)
 		if (ret==sizeof(start_tunnel)) {
 			ret = vpninfo->ssl_gets(vpninfo, buf+sizeof(start_tunnel), sizeof(buf)-sizeof(start_tunnel));
 			ret = (ret>0 ? ret : 0) + sizeof(start_tunnel);
+			dump_buf(vpninfo, '<', buf);
 		}
 		int status = check_http_status(buf, ret);
 		/* XX: GP servers return 502 when they don't like the cookie */
@@ -1081,10 +1089,10 @@ int gpst_setup(struct openconnect_info *vpninfo)
 	if (ret)
 		goto out;
 
-        /* XX: last_trojan is used both as a sentinel to detect the
-         * first time we check/submit HIP, and for the mainloop to timeout
-         * when periodic re-checking is required.
-         */
+	/* XX: last_trojan is used both as a sentinel to detect the
+	 * first time we check/submit HIP, and for the mainloop to timeout
+	 * when periodic re-checking is required.
+	 */
 	vpninfo->last_trojan = time(NULL);
 
 	/* Default HIP re-checking to 3600 seconds unless already set by
@@ -1145,9 +1153,9 @@ int gpst_mainloop(struct openconnect_info *vpninfo, int *timeout, int readable)
 				     _("Failed to connect ESP tunnel; using HTTPS instead.\n"));
 		/* XX: gpst_connect does nothing if ESP is enabled and has secrets */
 		vpninfo->dtls_state = DTLS_NOSECRET;
-		if (gpst_connect(vpninfo)) {
+		if ((ret = gpst_connect(vpninfo))) {
 			vpninfo->quit_reason = "GPST connect failed";
-			return 1;
+			return ret;
 		}
 		break;
 	case DTLS_NOSECRET:
@@ -1303,9 +1311,9 @@ int gpst_mainloop(struct openconnect_info *vpninfo, int *timeout, int readable)
 			return ret;
 		}
 		/* XX: no need to do_reconnect, since ESP doesn't need reconnection */
-		if (gpst_connect(vpninfo))
+		if ((ret = gpst_connect(vpninfo)))
 			vpninfo->quit_reason = "GPST connect failed";
-		return 1;
+		return ret;
 	}
 
 	switch (keepalive_action(&vpninfo->ssl_times, timeout)) {
@@ -1422,7 +1430,7 @@ static inline uint16_t csum(void *buf, int nwords)
 	return csum_finish(csum_partial(buf, nwords));
 }
 
-static char magic_ping_payload[16] = "monitor\x00\x00pan ha ";
+static char magic_ping_payload[16] __attribute__((nonstring)) = "monitor\x00\x00pan ha "; /* NOT NUL-terminated */
 
 int gpst_esp_send_probes(struct openconnect_info *vpninfo)
 {

@@ -95,7 +95,7 @@ fi
 if [ -n "$XMLSTARLET" ]; then
     URL="https://$CSD_HOSTNAME/CACHE/sdesktop/data.xml"
 
-    curl $PINNEDPUBKEY -s "$URL" | xmlstarlet sel -t -v '/data/hostscan/field/@value' | while read -r ENTRY; do
+    curl $PINNEDPUBKEY -s "$URL" | xmlstarlet sel -t -v '/data/hostscan/field/@value' -n | while read -r ENTRY; do
 	# XX: How are ' and , characters escaped in this?
 	TYPE="$(sed "s/^'\(.*\)','\(.*\)','\(.*\)'$/\1/" <<< "$ENTRY")"
 	NAME="$(sed "s/^'\(.*\)','\(.*\)','\(.*\)'$/\2/" <<< "$ENTRY")"

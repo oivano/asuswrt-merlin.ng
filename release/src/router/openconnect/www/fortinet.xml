@@ -24,7 +24,7 @@ to the command line:
   openconnect --protocol=fortinet fortigate.example.com
 </pre></p>
 
-<p>Since <a href="http://sites.inka.de/~W1011/devel/tcp-tcp.html">TCP over
+<p>Since <a href="https://web.archive.org/web/20230228035749/https://sites.inka.de/~W1011/devel/tcp-tcp.html">TCP over
 TCP is very suboptimal</a>, OpenConnect tries to always use PPP-over-DTLS,
 and will only fall over to the PPP-over-TLS tunnel if that fails, or if
 disabled via the <tt>--no-dtls</tt> argument.</p>

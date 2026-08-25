@@ -115,9 +115,12 @@ some help with testing these would be particularly welcome:</p>
 protocol to the point where it basically works to send and receive traffic is only a
 few hours of work, and can be very rewarding.</p>
 
-<p>For some protocols we already know how they work on the wire and it's mostly just
-a matter of writing the code. For others we might have to <a href="mitm.html">observe
-the existing clients</a> to learn how they work.</p>
+<p>For some protocols we already know how they work on the wire and
+it's mostly just a matter of writing the code. For others we might
+have to <a href="mitm.html">observe the existing clients</a> to learn
+how they work. For ongoing examples of this work, see GitLab issues <a
+href="https://gitlab.com/openconnect/openconnect/issues?label_name%5B%5D=New%20Protocol">with
+the <tt>New Protocol</tt> tag</a>.</p>
 
 <p>These would be great projects for someone to take on as a learning exercise, or
 perhaps even Google Summer of Code projects.</p>

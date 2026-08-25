@@ -43,7 +43,7 @@ int set_libstoken_mode(struct openconnect_info *vpninfo, const char *token_str)
 	}
 
 	if (token_str) {
-		switch(token_str[0]) {
+		switch (token_str[0]) {
 		case '@':
 			token_str++;
 			/* fall through */

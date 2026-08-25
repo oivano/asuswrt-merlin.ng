@@ -17,9 +17,7 @@
 
 set -e
 
-libxml2_MIRROR_0=ftp://xmlsoft.org/libxml2
-libxml2_MIRROR_1=http://gd.tuwien.ac.at/pub/libxml
-libxml2_MIRROR_2=http://distfiles.macports.org/libxml2
+libxml2_MIRROR_0=https://download.gnome.org/sources/libxml2/2.14
 
 gmp_MIRROR_0=http://ftp.gnu.org/gnu/gmp
 gmp_MIRROR_1=https://gmplib.org/download/gmp
@@ -29,12 +27,11 @@ nettle_MIRROR_0=http://www.lysator.liu.se/~nisse/archive
 nettle_MIRROR_1=http://ftp.gnu.org/gnu/nettle
 nettle_MIRROR_2=http://gd.tuwien.ac.at/gnu/gnusrc/nettle
 
-gnutls_MIRROR_0=https://www.gnupg.org/ftp/gcrypt/gnutls/v3.6
-gnutls_MIRROR_1=http://ftp.heanet.ie/mirrors/ftp.gnupg.org/gcrypt/gnutls/v3.6
-gnutls_MIRROR_2=http://gd.tuwien.ac.at/pub/gnupg/gnutls/v3.6
+gnutls_MIRROR_0=https://www.gnupg.org/ftp/gcrypt/gnutls/v3.7
+gnutls_MIRROR_1=http://ftp.heanet.ie/mirrors/ftp.gnupg.org/gcrypt/gnutls/v3.7
+gnutls_MIRROR_2=http://gd.tuwien.ac.at/pub/gnupg/gnutls/v3.7
 
-stoken_MIRROR_0=http://sourceforge.net/projects/stoken/files
-stoken_SUFFIX_0=/download
+stoken_MIRROR_0=https://github.com/stoken-dev/stoken/archive/refs/tags
 
 oath_toolkit_MIRROR_0=http://download.savannah.gnu.org/releases/oath-toolkit
 oath_toolkit_MIRROR_1=https://download-mirror.savannah.gnu.org/releases/oath-toolkit

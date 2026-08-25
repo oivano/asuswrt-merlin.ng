@@ -249,9 +249,13 @@ int handle_external_browser(struct openconnect_info *vpninfo)
 
 		/* Finally, send the response to redirect to the success page */
 		if (returl) {
-			line[sizeof(line) - 1] = 0;
-			ret = snprintf(line, sizeof(line) - 1, response_302, returl);
-			ret = cancellable_send(vpninfo, accept_fd, line, ret);
+			struct oc_text_buf *resp = buf_alloc();
+			buf_append(resp, response_302, returl);
+			if (!buf_error(resp))
+				ret = cancellable_send(vpninfo, accept_fd, resp->data, resp->pos);
+			else
+				ret = -EIO;
+			buf_free(resp);
 			free(returl);
 			returl = NULL;
 		} else {

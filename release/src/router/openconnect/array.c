@@ -48,37 +48,37 @@
 
 static struct oc_auth_form *plain_auth_form(void)
 {
-        struct oc_auth_form *form;
-        struct oc_form_opt *opt, *opt2, *opt3;
+	struct oc_auth_form *form;
+	struct oc_form_opt *opt, *opt2, *opt3;
 
-        form = calloc(1, sizeof(*form));
-        if (!form) {
-        nomem:
-                free_auth_form(form);
-                return NULL;
-        }
+	form = calloc(1, sizeof(*form));
+	if (!form) {
+	nomem:
+		free_auth_form(form);
+		return NULL;
+	}
 	form->auth_id = strdup("form");
-        opt = form->opts = calloc(1, sizeof(*opt));
-        if (!opt)
-                goto nomem;
-        opt->label = strdup("authgroup:");
-        opt->name = strdup("method");
-        opt->type = OC_FORM_OPT_TEXT;
+	opt = form->opts = calloc(1, sizeof(*opt));
+	if (!opt)
+		goto nomem;
+	opt->label = strdup("authgroup:");
+	opt->name = strdup("method");
+	opt->type = OC_FORM_OPT_TEXT;
 
-        opt2 = opt->next = calloc(1, sizeof(*opt2));
-        if (!opt2)
-                goto nomem;
-        opt2->label = strdup("username:");
-        opt2->name = strdup("uname");
-        opt2->type = OC_FORM_OPT_TEXT;
+	opt2 = opt->next = calloc(1, sizeof(*opt2));
+	if (!opt2)
+		goto nomem;
+	opt2->label = strdup("username:");
+	opt2->name = strdup("uname");
+	opt2->type = OC_FORM_OPT_TEXT;
 
-        opt3 = opt2->next = calloc(1, sizeof(*opt3));
-        if (!opt3)
-                goto nomem;
-        opt3->label = strdup("password:");
-        opt3->name = strdup("pwd");
-        opt3->type = OC_FORM_OPT_PASSWORD;
-        return form;
+	opt3 = opt2->next = calloc(1, sizeof(*opt3));
+	if (!opt3)
+		goto nomem;
+	opt3->label = strdup("password:");
+	opt3->name = strdup("pwd");
+	opt3->type = OC_FORM_OPT_PASSWORD;
+	return form;
 }
 
 int array_obtain_cookie(struct openconnect_info *vpninfo)
@@ -89,8 +89,8 @@ int array_obtain_cookie(struct openconnect_info *vpninfo)
 
 	struct oc_text_buf *req_buf = buf_alloc();
 	int ret;
-        if ((ret = buf_error(req_buf)))
-                goto out;
+	if ((ret = buf_error(req_buf)))
+		goto out;
 
 	do {
 		ret = process_auth_form(vpninfo, form);
@@ -131,10 +131,10 @@ int array_obtain_cookie(struct openconnect_info *vpninfo)
 	ret = -EPERM;
 
  out:
-        if (form) free_auth_form(form);
-        if (req_buf) buf_free(req_buf);
+	if (form) free_auth_form(form);
+	if (req_buf) buf_free(req_buf);
 	printf("obtain return %d\n", ret);
-        return ret;
+	return ret;
 }
 
 /* XXX: Lifted from oncp.c. Share it. */
@@ -487,7 +487,7 @@ static int parse_interface_info(struct openconnect_info *vpninfo,
  out:
 	if (ret) {
 		free_optlist(new_opts);
-                free_split_routes(&new_ip_info);
+		free_split_routes(&new_ip_info);
 	}
 	return ret;
 }
@@ -862,7 +862,7 @@ int array_mainloop(struct openconnect_info *vpninfo, int *timeout, int readable)
 			continue;
 		}
 
-		switch(buf[0] >> 4) {
+		switch (buf[0] >> 4) {
 		case 4:
 			iplen = load_be16(buf + 2);
 			break;
@@ -1106,7 +1106,7 @@ int array_dtls_mainloop(struct openconnect_info *vpninfo, int *timeout, int read
 	/* Nothing to do here for Cisco DTLS as it is preauthenticated */
 	if (vpninfo->dtls_state == DTLS_CONNECTED) {
 		/* First, see if there's a response for us. */
-		while(readable) {
+		while (readable) {
 			int receive_mtu = MAX(16384, vpninfo->ip_info.mtu);
 			int len;
 

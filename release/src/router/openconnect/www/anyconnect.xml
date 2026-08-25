@@ -30,7 +30,7 @@ then pass traffic over that connection. IP addresses and routing
 information are passed back and forth in the headers of that
 <tt>CONNECT</tt> request.</p>
 
-<p>Since <a href="http://sites.inka.de/~W1011/devel/tcp-tcp.html">TCP
+<p>Since <a href="https://web.archive.org/web/20230228035749/https://sites.inka.de/~W1011/devel/tcp-tcp.html">TCP
 over TCP is very suboptimal</a>, the VPN also attempts to use UDP
 datagrams, and will only <em>actually</em> pass traffic over the HTTPS
 connection if that fails. The UDP connectivity is done using Datagram

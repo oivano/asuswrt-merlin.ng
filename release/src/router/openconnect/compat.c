@@ -30,16 +30,16 @@
 #include <sec_api/stdlib_s.h> /* errno_t, size_t */
 #ifndef HAVE_GETENV_S_DECL
 errno_t getenv_s(
-    size_t     *ret_required_buf_size,
-    char       *buf,
-    size_t      buf_size_in_bytes,
-    const char *name
+	size_t     *ret_required_buf_size,
+	char       *buf,
+	size_t      buf_size_in_bytes,
+	const char *name
 );
 #endif
 #ifndef HAVE_PUTENV_S_DECL
 errno_t _putenv_s(
-   const char *varname,
-   const char *value_string
+	const char *varname,
+	const char *value_string
 );
 #endif
 #endif
@@ -440,7 +440,7 @@ int dumb_socketpair(OPENCONNECT_CMD_SOCKET socks[2], int make_overlapped)
              */
             LARGE_INTEGER ticks;
             DWORD n;
-            int bind_try = 0;
+            int bind_try = 0, rc;
 
             for (;;) {
                 switch (bind_try++) {
@@ -453,15 +453,24 @@ int dumb_socketpair(OPENCONNECT_CMD_SOCKET socks[2], int make_overlapped)
                      * "This path does not end with a backslash unless the Windows directory is the root directory.."
                      */
                     n = GetWindowsDirectory(a.unaddr.sun_path, UNIX_PATH_MAX);
-                    n += snprintf(a.unaddr.sun_path + n, UNIX_PATH_MAX - n, "\\Temp\\");
+                    if (n == 0 || n >= UNIX_PATH_MAX)
+                        continue;
+                    rc = snprintf(a.unaddr.sun_path + n, UNIX_PATH_MAX - n, "\\Temp\\");
+                    if (rc < 0 || rc >= (int)(UNIX_PATH_MAX - n))
+                        continue;
+                    n += rc;
                     break;
                 case 2:
-                    n = snprintf(a.unaddr.sun_path, UNIX_PATH_MAX, "C:\\Temp\\");
+                    rc = snprintf(a.unaddr.sun_path, UNIX_PATH_MAX, "C:\\Temp\\");
+                    if (rc < 0 || rc >= UNIX_PATH_MAX)
+                        continue;
+                    n = rc;
                     break;
                 case 3:
                     n = 0; /* Current directory */
                     break;
                 case 4:
+                default:
                     goto fallback;
                 }
 
@@ -472,9 +481,13 @@ int dumb_socketpair(OPENCONNECT_CMD_SOCKET socks[2], int make_overlapped)
                  * seems to offers no other apparent advantages. So we will
                  * use high-res timer ticks and PID for filename.
                  */
+                if (n >= UNIX_PATH_MAX)
+                    continue;
                 QueryPerformanceCounter(&ticks);
-                snprintf(a.unaddr.sun_path + n, UNIX_PATH_MAX - n,
-                         "%"PRIx64"-%lu.$$$", ticks.QuadPart, GetCurrentProcessId());
+                rc = snprintf(a.unaddr.sun_path + n, UNIX_PATH_MAX - n,
+                              "%"PRIx64"-%lu.$$$", ticks.QuadPart, GetCurrentProcessId());
+                if (rc < 0 || rc >= (int)(UNIX_PATH_MAX - n))
+                    continue;
                 a.unaddr.sun_family = AF_UNIX;
 
                 if (bind(listener, &a.addr, addrlen) != SOCKET_ERROR)

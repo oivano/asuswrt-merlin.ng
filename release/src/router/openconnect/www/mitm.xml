@@ -25,7 +25,7 @@ understand how they work.</p>
 <p>Modern VPN protocols almost always support a UDP-based transport
 for tunneled packets, e.g. DTLS for the Cisco AnyConnect protocol, or
 ESP for the GlobalProtect protocol. This is because <a
-href="http://sites.inka.de/~W1011/devel/tcp-tcp.html">TCP over TCP is
+href="https://web.archive.org/web/20230228035749/https://sites.inka.de/~W1011/devel/tcp-tcp.html">TCP over TCP is
 very suboptimal</a> in terms of performance. However, most VPN
 protocols also support TLS/SSL for connection initiation and as a
 fallback, due to its universal availability even in highly filtered or

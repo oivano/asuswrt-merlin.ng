@@ -541,7 +541,7 @@ int install_tpm2_key(struct openconnect_info *vpninfo, struct cert_info *certinf
 		goto err_out;
 	}
 
-	switch(certinfo->tpm2->pub.publicArea.type) {
+	switch (certinfo->tpm2->pub.publicArea.type) {
 	case TPM_ALG_RSA: return GNUTLS_PK_RSA;
 	case TPM_ALG_ECC: return GNUTLS_PK_ECC;
 	}

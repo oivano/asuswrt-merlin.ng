@@ -22,6 +22,8 @@ ShowUninstDetails hide
 SetCompressor /FINAL lzma
 
 VIAddVersionKey ProductName "OpenConnect"
+VIAddVersionKey FileVersion "${VERSION}"
+VIAddVersionKey FileDescription "OpenConnect installer"
 
 XPStyle on
 

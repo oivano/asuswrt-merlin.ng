@@ -24,7 +24,7 @@ to the command line:
   openconnect --protocol=f5 big-ip.example.com
 </pre></p>
 
-<p>Since <a href="http://sites.inka.de/~W1011/devel/tcp-tcp.html">TCP over
+<p>Since <a href="https://web.archive.org/web/20230228035749/https://sites.inka.de/~W1011/devel/tcp-tcp.html">TCP over
 TCP is very suboptimal</a>, OpenConnect tries to always use PPP-over-DTLS,
 and will only fall over to the PPP-over-TLS tunnel if that fails, or if
 disabled via the <tt>--no-dtls</tt> argument.</p>
@@ -52,10 +52,25 @@ or similar (see issue for details on how this was determined).</p>
 RSA or OATH tokens), please send information to <a href="mail.html">the mailing
 list</a> so that we add support to OpenConnect.</p>
 
+<h3>DTLS</h3>
+
 <p>Connectivity over DTLS is supported. On BIG-IP server v16, it is possible to use
 either DTLSv1.0 or DTLSv1.2, if configured correctly. On BIG-IP server v15, it is limited to
 DTLSv1.0 because experiments show that BIG-IP server v15 cannot negotiate correctly down to
 DTLSv1.0 when a newer version of DTLS is attempted.</p>
+
+<h3>Interpreting <tt>f5-vpn://</tt> URIs</h3>
+
+<p>Some proprietary F5 VPN clients use a web-based front-end for authentication.
+This authentication flow terminates in a URI that starts with <tt>f5-vpn://</tt>,
+for which the proprietary F5 client is registered as a handler.</p>
+
+<p>We do not yet understand how to interpret these URIs in a way that is sufficient to
+allow OpenConnect to use them to establish a connection. See
+<a href="https://gitlab.com/openconnect/openconnect/-/issues/639">GitLab issue #639</a> and
+<a href="https://lists.infradead.org/pipermail/openconnect-devel/2021-August/005035.html">this
+August 2021 discussion</a> on <a href="mail.html">the mailing list</a>. Please contribute if
+you have information that can help us understand how to use these URIs.</p>
 
 	<INCLUDE file="inc/footer.tmpl" />
 </PAGE>

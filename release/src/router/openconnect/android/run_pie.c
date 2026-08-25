@@ -42,7 +42,7 @@
 typedef int (*main_t)(int, char**);
 
 
-int main(int argc, char** argv) {
+int main(int argc, char *argv[]) {
   if (argc < 2) {
     printf("Usage: %s path_to_pie_executable [args]\n", argv[0]);
     return -1;
