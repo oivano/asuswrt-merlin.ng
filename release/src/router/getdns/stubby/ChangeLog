@@ -1,3 +1,10 @@
+* 2022-12-22: version 0.4.3
+  * Fix Issue #330 and PR#324: PrivateUsers=false needed in systemd
+    stubby.service file for stubby to start.
+    Thanks Archcan and Petr Menšík
+  * PR #323: Reduce log messages when interface is offline.
+    Thanks Russ Bubley and Andre Heider
+
 * 2022-08-19: version 0.4.2
   * Fix Issue #320: Stubby doesn't start without "log_level"
     entry. Thanks Johnny S. Lee
@@ -10,7 +17,7 @@
        A recommendation is made that users choose additional servers
        from the list available.
      * Additional Quad9 servers added (thanks pataquets).
-     * LDN servers removed as the service is now stopped. 
+     * LDN servers removed as the service is now stopped.
      * Tidy up of remaining server data.
      * Change `comment` lines on Uncensored server data to more clearly
        be comments (not valid YAML)
@@ -27,7 +34,7 @@
     setting
 
 * 2021-06-04: Version 0.4.0
-  * We announce the intention to remove the dnsovertls*.sinodun.com 
+  * We announce the intention to remove the dnsovertls*.sinodun.com
     servers from the default resolver list in the next release,
     see https://github.com/getdnsapi/stubby/issues/286 for details.
   * Add ability to run Stubby as a full Windows service
@@ -114,15 +121,15 @@
 * 2017-10-20: Version 0.1.4
  *  '-i' option of stubby no longer tries to bind to the listen addresses so
     it can be run without requiring root privileges. Makes it easier to validate
-    the configuration file syntax. 
+    the configuration file syntax.
  *  Fix incorrect IP addresses for some servers in the config file. Add note that
-    IPv6 addresses ending in :: are not supported (must use ::0). Also add 
+    IPv6 addresses ending in :: are not supported (must use ::0). Also add
     example of using a specific port in a listen address.
  *  Fixes for Windows support
 
 
 * 2017-09-29: Version 0.1.3
-  * Change the default configuration file format to be YAML. A default file 
+  * Change the default configuration file format to be YAML. A default file
     'stubby.yml' will be installed. The JSON dict format is still supported when
     specifying a custom configuration file on the command line.
   * Add a -v flag to let users specify the logging level they want to see

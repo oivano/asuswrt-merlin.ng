@@ -54,10 +54,6 @@
 #define STUBBYPIDFILE RUNSTATEDIR"/stubby.pid"
 #endif
 
-#if !defined(STUBBY_ON_WINDOWS) && !defined(GETDNS_ON_WINDOWS)
-int use_syslog = 0;
-#endif
-
 void
 print_usage(FILE *out)
 {
@@ -119,6 +115,7 @@ main(int argc, char **argv)
 #endif
 	getdns_context  *context = NULL;
 	getdns_return_t r;
+	getdns_return_t previous_schedule_r = GETDNS_RETURN_GOOD;
 	int opt;
 	long config_log_level = NO_LOGGING;
 	char *ep;
@@ -165,13 +162,6 @@ main(int argc, char **argv)
 			exit(EXIT_FAILURE);
 		}
 	}
-
-#if !defined(STUBBY_ON_WINDOWS) && !defined(GETDNS_ON_WINDOWS)
-	use_syslog = log_connections || !run_in_foreground;
-	if (use_syslog)
-		openlog(STUBBY_PACKAGE, LOG_PID, LOG_DAEMON);
-#endif
-
 #if defined(ENABLE_WINDOWS_SERVICE)
 	if ( windows_service ) {
 		windows_service_command(windows_service_arg, log_connections ? log_level : 0, custom_config_fn);
@@ -195,7 +185,7 @@ main(int argc, char **argv)
 		log_level = config_log_level;
 	}
 	stubby_log(NULL,GETDNS_LOG_UPSTREAM_STATS, GETDNS_LOG_INFO,
-		   "Stubby version: %s", STUBBY_PACKAGE_STRING);
+		   "Stubby version: %s\n", STUBBY_PACKAGE_STRING);
 
 	if (print_api_info) {
 		char *api_information_str = config_get_api_info(context);
@@ -206,7 +196,7 @@ main(int argc, char **argv)
 		goto tidy_and_exit;
 	}
 
-	if ( !server_listen(context, dnssec_validation) ) {
+	if ( !server_listen(context, (void *)&previous_schedule_r, dnssec_validation)) {
 		r = EXIT_FAILURE;
 		goto tidy_and_exit;
 	}
@@ -266,13 +256,13 @@ main(int argc, char **argv)
 	{
 		/* Report basic config options which specifically affect privacy and validation*/
 		stubby_log(NULL,GETDNS_LOG_UPSTREAM_STATS, GETDNS_LOG_INFO,
-			   "DNSSEC Validation is %s", dnssec_validation==1 ? "ON":"OFF");
+			   "DNSSEC Validation is %s\n", dnssec_validation==1 ? "ON":"OFF");
 		size_t transport_count = 0;
 		getdns_transport_list_t *transport_list;
 		getdns_context_get_dns_transport_list(context, 
 		                                 &transport_count, &transport_list);
 		stubby_log(NULL,GETDNS_LOG_UPSTREAM_STATS, GETDNS_LOG_INFO,
-			   "Transport list is:");
+			   "Transport list is:\n");
 		for (size_t i = 0; i < transport_count; i++) {
 			char* transport_name;
 			switch (transport_list[i]) {
@@ -290,19 +280,19 @@ main(int argc, char **argv)
 					break;
 				}
 			stubby_log(NULL,GETDNS_LOG_UPSTREAM_STATS, GETDNS_LOG_INFO,
-			                 "  - %s", transport_name);
+			                 "  - %s\n", transport_name);
 		}
 		free(transport_list);
 		getdns_tls_authentication_t auth;
 		getdns_context_get_tls_authentication(context, &auth);
 		stubby_log(NULL,GETDNS_LOG_UPSTREAM_STATS, GETDNS_LOG_INFO,
-			   "Privacy Usage Profile is %s",
+			   "Privacy Usage Profile is %s\n",
 			   auth==GETDNS_AUTHENTICATION_REQUIRED ?
 			   "Strict (Authentication required)":"Opportunistic");
 		stubby_log(NULL,GETDNS_LOG_UPSTREAM_STATS, GETDNS_LOG_INFO,
-			   "(NOTE a Strict Profile only applies when TLS is the ONLY transport!!)");
+			   "(NOTE a Strict Profile only applies when TLS is the ONLY transport!!)\n");
 		stubby_log(NULL,GETDNS_LOG_UPSTREAM_STATS, GETDNS_LOG_DEBUG,
-			   "Starting DAEMON....");
+			   "Starting DAEMON....\n");
 #ifdef SIGPIPE
 		(void)signal(SIGPIPE, SIG_IGN);
 #endif

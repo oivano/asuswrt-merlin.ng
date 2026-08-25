@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.16 FATAL_ERROR)
 
 if (POLICY CMP0075)
   cmake_policy(SET CMP0075 NEW)
@@ -13,7 +13,7 @@ endif ()
 
 set(PACKAGE "getdns")
 set(PACKAGE_NAME "getdns")
-set(PACKAGE_VERSION "1.7.2")
+set(PACKAGE_VERSION "1.7.3")
 set(PACKAGE_BUGREPORT "team@getdnsapi.net")
 set(PACKAGE_URL "https://getdnsapi.net")
 
@@ -262,6 +262,7 @@ check_include_file(inttypes.h HAVE_INTTYPES_H)
 check_include_file(limits.h HAVE_LIMITS_H)
 check_include_file(sys/limits.h HAVE_SYS_LIMITS_H)
 check_include_file(stdarg.h HAVE_STDARG_H)
+check_include_file(stddef.h HAVE_STDDEF_H)
 check_include_file(stdint.h HAVE_STDINT_H)
 check_include_file(stdio.h HAVE_STDIO_H)
 check_include_file(stdlib.h HAVE_STDLIB_H)
@@ -1025,12 +1026,6 @@ if (BUILD_TESTING)
   endif()
 endif ()
 
-# Does the compiler accept the "unused" attribute?
-try_compile(HAVE_ATTR_UNUSED
-  ${CMAKE_CURRENT_BINARY_DIR}
-  ${CMAKE_CURRENT_SOURCE_DIR}/cmake/tests/test_unused_attr.c
-  )
-
 # Substitutions in files.
 string(TOUPPER "${CMAKE_BUILD_TYPE}" GETDNS_BUILD_RELTYPE)
 string(REPLACE "\"" "\\\"" GETDNS_BUILD_CFLAGS "${CMAKE_C_FLAGS} ${CMAKE_C_FLAGS_${GETDNS_BUILD_RELTYPE}}")
@@ -1066,8 +1061,8 @@ foreach (man ${mans})
 endforeach()
 
 set(prefix ${CMAKE_INSTALL_PREFIX})
-#cmake_path(APPEND libdir_for_pc_file "\${prefix}" "${CMAKE_INSTALL_LIBDIR}")
-#cmake_path(APPEND includedir_for_pc_file "\${prefix}" "${CMAKE_INSTALL_INCLUDEDIR}")
+set(libdir_for_pc_file "\${prefix}/${CMAKE_INSTALL_LIBDIR}")
+set(includedir_for_pc_file "\${prefix}/${CMAKE_INSTALL_INCLUDEDIR}")
 configure_file(getdns.pc.in getdns.pc @ONLY)
 
 # Installing.
