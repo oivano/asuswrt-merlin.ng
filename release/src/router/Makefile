@@ -4635,7 +4635,7 @@ frr/stamp-h1: ncurses-6.0 json-c readline-8.1 $(FRR_LIBYANG_DEP) libcap libcap-n
 
 frr-extra-src-local:
 	@[ -d $(TOP)/rtrlib-0.8.0 ] || (echo "Missing local FRR dependency source tree: $(TOP)/rtrlib-0.8.0" ; false)
-	@[ -d $(TOP)/protobuf-c-1.4.1 ] || (echo "Missing local FRR dependency source tree: $(TOP)/protobuf-c-1.4.1" ; false)
+	@[ -d $(TOP)/protobuf-c-1.5.2 ] || (echo "Missing local FRR dependency source tree: $(TOP)/protobuf-c-1.5.2" ; false)
 	@[ -d $(TOP)/protobuf-3.20.3 ] || (echo "Missing local FRR dependency source tree: $(TOP)/protobuf-3.20.3" ; false)
 	@[ -d $(TOP)/grpc-1.46.7 ] || (echo "Missing local FRR dependency source tree: $(TOP)/grpc-1.46.7" ; false)
 
@@ -4804,18 +4804,18 @@ socat-install:
 	$(STRIP) $(INSTALLDIR)/socat/usr/sbin/socat
 
 protobuf-c/stamp-h1: frr-extra-src-local
-	cd protobuf-c-1.4.1 && autoreconf -i -f && \
+	cd protobuf-c-1.5.2 && autoreconf -i -f && \
 		CC=$(CC) CFLAGS="-Os $(CFLAGS) -I$(STAGEDIR)/usr/include -fPIC" \
 		LDFLAGS="-L$(STAGEDIR)/usr/lib" \
 		./$(CONFIGURE) --prefix=/usr --host=arm-linux --disable-dependency-tracking --enable-shared --disable-static
 	touch $@
 
 protobuf-c: protobuf-c/stamp-h1
-	@$(MAKE) -C protobuf-c-1.4.1
-	@$(MAKE) -C protobuf-c-1.4.1 DESTDIR=$(STAGEDIR) install
+	@$(MAKE) -C protobuf-c-1.5.2
+	@$(MAKE) -C protobuf-c-1.5.2 DESTDIR=$(STAGEDIR) install
 
 protobuf-c-clean:
-	-@$(MAKE) -C protobuf-c-1.4.1 clean
+	-@$(MAKE) -C protobuf-c-1.5.2 clean
 	@rm -f protobuf-c/stamp-h1
 
 grpc: frr-extra-src-local
