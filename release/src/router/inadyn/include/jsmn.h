@@ -38,10 +38,10 @@ extern "C" {
 
 /**
  * JSON type identifier. Basic types are:
- * 	o Object
- * 	o Array
- * 	o String
- * 	o Other primitive: number, boolean (true/false) or null
+ *	o Object
+ *	o Array
+ *	o String
+ *	o Other primitive: number, boolean (true/false) or null
  */
 typedef enum {
   JSMN_UNDEFINED = 0,
