@@ -1328,7 +1328,8 @@ static void command_match(struct iptables_command_state *cs)
 					     m->extra_opts, &m->option_offset);
 }
 
-int do_command6(int argc, char *argv[], char **table, struct xtc_handle **handle)
+int do_command6(int argc, char *argv[], char **table, struct xtc_handle **handle,
+		bool restore)
 {
 	struct iptables_command_state cs;
 	struct ip6t_entry *e = NULL;
@@ -1347,6 +1348,8 @@ int do_command6(int argc, char *argv[], char **table, struct xtc_handle **handle
 	struct xtables_rule_match *matchp;
 	struct xtables_target *t;
 	unsigned long long cnt;
+
+	(void)restore;
 
 	memset(&cs, 0, sizeof(cs));
 	cs.jumpto = "";

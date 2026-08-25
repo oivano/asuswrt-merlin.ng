@@ -13,7 +13,6 @@
 #include <xtables.h>
 #include <limits.h> /* INT_MAX in ip_tables.h */
 #include <linux/netfilter_ipv6/ip6_tables.h>
-#include <net/netfilter/nf_conntrack_tuple.h>
 #include <linux/netfilter/nf_nat.h>
 
 enum {
