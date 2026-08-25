@@ -25,16 +25,19 @@
  * Multiplexed HTTP/2 uploads over a single connection
  * </DESC>
  */
+#ifdef _MSC_VER
+#ifndef _CRT_SECURE_NO_WARNINGS
+#define _CRT_SECURE_NO_WARNINGS  /* for _snprintf(), fopen(), localtime(),
+                                    strerror() */
+#endif
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
 #include <sys/stat.h>
-#ifdef UNDER_CE
-#define strerror(e) "?"
-#else
 #include <errno.h>
-#endif
 
 /* somewhat Unix-specific */
 #ifndef _MSC_VER
@@ -42,19 +45,6 @@
 #include <unistd.h>
 #endif
 
-#ifdef _WIN32
-#undef stat
-#define stat _stat
-#undef fstat
-#define fstat _fstat
-#define fileno _fileno
-#endif
-
-#if defined(_MSC_VER) && (_MSC_VER < 1900)
-#define snprintf _snprintf
-#endif
-
-/* curl stuff */
 #include <curl/curl.h>
 
 #ifndef CURLPIPE_MULTIPLEX
@@ -64,14 +54,26 @@
 #define CURLPIPE_MULTIPLEX 0L
 #endif
 
+#ifdef _WIN32
+#undef stat
+#define stat _stati64
+#undef fstat
+#define fstat _fstati64
+#define fileno _fileno
+#endif
+
+#if defined(_MSC_VER) && (_MSC_VER < 1900)
+#define snprintf _snprintf
+#endif
+
 #ifdef _MSC_VER
-#define gettimeofday(a, b) my_gettimeofday((a), (b))
+#define gettimeofday(a, b) my_gettimeofday(a, b)
 static int my_gettimeofday(struct timeval *tp, void *tzp)
 {
   (void)tzp;
   if(tp) {
-    /* Offset between 1601-01-01 and 1970-01-01 in 100 nanosec units */
-    #define WIN32_FT_OFFSET (116444736000000000)
+/* Offset between 1601-01-01 and 1970-01-01 in 100 nanosec units */
+#define WIN32_FT_OFFSET 116444736000000000
     union {
       CURL_TYPEOF_CURL_OFF_T ns100; /* time since 1 Jan 1601 in 100ns units */
       FILETIME ft;
@@ -92,7 +94,7 @@ struct input {
   int num;
 };
 
-static void dump(const char *text, int num, unsigned char *ptr,
+static void dump(const char *text, int num, const unsigned char *ptr,
                  size_t size, char nohex)
 {
   size_t i;
@@ -128,7 +130,7 @@ static void dump(const char *text, int num, unsigned char *ptr,
       }
       fprintf(stderr, "%c",
               (ptr[i + c] >= 0x20) && (ptr[i + c] < 0x80) ? ptr[i + c] : '.');
-      /* check again for 0D0A, to avoid an extra \n if it's at width */
+      /* check again for 0D0A, to avoid an extra \n if it is at width */
       if(nohex && (i + c + 2 < size) && ptr[i + c + 1] == 0x0D &&
          ptr[i + c + 2] == 0x0A) {
         i += (c + 3 - width);
@@ -159,7 +161,7 @@ static int my_trace(CURL *curl, curl_infotype type,
     known_offset = 1;
   }
   secs = epoch_offset + tv.tv_sec;
-  now = localtime(&secs);  /* not thread safe but we do not care */
+  now = localtime(&secs);  /* not thread-safe but we do not care */
   snprintf(timebuf, sizeof(timebuf), "%02d:%02d:%02d.%06ld",
            now->tm_hour, now->tm_min, now->tm_sec, (long)tv.tv_usec);
 
@@ -189,7 +191,7 @@ static int my_trace(CURL *curl, curl_infotype type,
     return 0;
   }
 
-  dump(text, num, (unsigned char *)data, size, 1);
+  dump(text, num, (const unsigned char *)data, size, 1);
   return 0;
 }
 
@@ -203,7 +205,7 @@ static size_t read_cb(char *ptr, size_t size, size_t nmemb, void *userp)
 
 static int setup(struct input *t, int num, const char *upload)
 {
-  char url[256];
+  char upload_url[256];
   char filename[128];
   struct stat file_info;
   curl_off_t uploadsize;
@@ -215,30 +217,26 @@ static int setup(struct input *t, int num, const char *upload)
   snprintf(filename, sizeof(filename), "dl-%d", num);
   t->out = fopen(filename, "wb");
   if(!t->out) {
-    fprintf(stderr, "error: could not open file %s for writing: %s\n",
-            upload, strerror(errno));
+    fprintf(stderr, "error: could not open file %s for writing: %s\n", upload,
+            strerror(errno));
     return 1;
   }
 
-  snprintf(url, sizeof(url), "https://localhost:8443/upload-%d", num);
+  snprintf(upload_url, sizeof(upload_url), "https://localhost:8443/upload-%d",
+           num);
 
   t->in = fopen(upload, "rb");
   if(!t->in) {
-    fprintf(stderr, "error: could not open file %s for reading: %s\n",
-            upload, strerror(errno));
+    fprintf(stderr, "error: could not open file %s for reading: %s\n", upload,
+            strerror(errno));
     fclose(t->out);
     t->out = NULL;
     return 1;
   }
 
-#ifdef UNDER_CE
-  /* !checksrc! disable BANNEDFUNC 1 */
-  if(stat(upload, &file_info) != 0) {
-#else
-  if(fstat(fileno(t->in), &file_info) != 0) {
-#endif
-    fprintf(stderr, "error: could not stat file %s: %s\n",
-            upload, strerror(errno));
+  if(fstat(fileno(t->in), &file_info)) {
+    fprintf(stderr, "error: could not stat file %s: %s\n", upload,
+            strerror(errno));
     fclose(t->out);
     t->out = NULL;
     return 1;
@@ -260,7 +258,7 @@ static int setup(struct input *t, int num, const char *upload)
     curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE, uploadsize);
 
     /* send in the URL to store the upload as */
-    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_URL, upload_url);
 
     /* upload please */
     curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
@@ -277,7 +275,7 @@ static int setup(struct input *t, int num, const char *upload)
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
 
-#if (CURLPIPE_MULTIPLEX > 0)
+#if CURLPIPE_MULTIPLEX > 0
     /* wait for pipe connection to confirm */
     curl_easy_setopt(curl, CURLOPT_PIPEWAIT, 1L);
 #endif
@@ -288,9 +286,9 @@ static int setup(struct input *t, int num, const char *upload)
 /*
  * Upload all files over HTTP/2, using the same physical connection!
  */
-int main(int argc, char **argv)
+int main(int argc, const char **argv)
 {
-  CURLcode res;
+  CURLcode result;
   struct input *trans;
   CURLM *multi = NULL;
   int i;
@@ -305,15 +303,15 @@ int main(int argc, char **argv)
       num_transfers = 3;  /* a suitable low default */
 
     if(argc > 2)
-      /* if given a file name, upload this! */
+      /* if given a filename, upload this! */
       filename = argv[2];
   }
   else
     num_transfers = 3;  /* a suitable low default */
 
-  res = curl_global_init(CURL_GLOBAL_ALL);
-  if(res)
-    return (int)res;
+  result = curl_global_init(CURL_GLOBAL_ALL);
+  if(result != CURLE_OK)
+    return (int)result;
 
   trans = calloc(num_transfers, sizeof(*trans));
   if(!trans) {
@@ -341,13 +339,13 @@ int main(int argc, char **argv)
   curl_multi_setopt(multi, CURLMOPT_MAX_HOST_CONNECTIONS, 1L);
 
   do {
-    CURLMcode mc = curl_multi_perform(multi, &still_running);
+    CURLMcode mresult = curl_multi_perform(multi, &still_running);
 
     if(still_running)
       /* wait for activity, timeout or "nothing" */
-      mc = curl_multi_poll(multi, NULL, 0, 1000, NULL);
+      mresult = curl_multi_poll(multi, NULL, 0, 1000, NULL);
 
-    if(mc)
+    if(mresult)
       break;
 
   } while(still_running);

@@ -36,7 +36,7 @@
 # Forward slashes are simpler processed in Perl, do not require extra escaping
 # for shell (unlike back slashes) and accepted by Windows native programs, so
 # all functions return paths with only forward slashes.
-# All returned paths don't contain any duplicated slashes, only single slashes
+# All returned paths do not contain any duplicated slashes, only single slashes
 # are used as directory separators on output.
 # On non-Windows platforms functions acts as transparent wrappers for similar
 # Perl's functions or return unmodified string (depending on functionality),
@@ -67,15 +67,14 @@ BEGIN {
     );
 }
 
-
 #######################################################################
 # Block for cached static variables
 #
 {
     # Cached static variable, Perl 5.0-compatible.
-    my $is_win = $^O eq 'MSWin32'
-              || $^O eq 'cygwin'
-              || $^O eq 'msys';
+    my $is_win = $^O eq 'MSWin32' ||
+                 $^O eq 'cygwin' ||
+                 $^O eq 'msys';
 
     # Returns boolean true if OS is any form of Windows.
     sub os_is_win {
@@ -174,8 +173,8 @@ sub exe_ext {
     if($ENV{'CURL_TEST_EXE_EXT'}) {
         return $ENV{'CURL_TEST_EXE_EXT'};
     }
-    if($ENV{'CURL_TEST_EXE_EXT_'.$component}) {
-        return $ENV{'CURL_TEST_EXE_EXT_'.$component};
+    if($ENV{'CURL_TEST_EXE_EXT_' . $component}) {
+        return $ENV{'CURL_TEST_EXE_EXT_' . $component};
     }
     if($^O eq 'MSWin32' || $^O eq 'cygwin' || $^O eq 'msys' ||
        $^O eq 'dos' || $^O eq 'os2') {
@@ -195,10 +194,10 @@ sub dirsepadd {
 
 #######################################################################
 # Quote an argument for passing safely to a Bourne shell
-# This does the same thing as String::ShellQuote but doesn't need a package.
+# This does the same thing as String::ShellQuote but does not need a package.
 #
 sub shell_quote {
-    my ($s)=@_;
+    my ($s) = @_;
     if($^O eq 'MSWin32') {
         $s = '"' . $s . '"';
     }

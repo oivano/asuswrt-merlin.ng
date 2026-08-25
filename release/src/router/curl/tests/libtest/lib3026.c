@@ -42,7 +42,7 @@ static CURLcode test_lib3026(const char *URL)
   CURLcode results[NUM_THREADS];
   HANDLE thread_handles[NUM_THREADS];
   unsigned tid_count = NUM_THREADS, i;
-  CURLcode test_failure = CURLE_OK;
+  CURLcode result = CURLE_OK;
   curl_version_info_data *ver;
   (void)URL;
 
@@ -59,11 +59,11 @@ static CURLcode test_lib3026(const char *URL)
     results[i] = CURL_LAST; /* initialize with invalid value */
     th = CreateThread(NULL, 0, t3026_run_thread, &results[i], 0, NULL);
     if(!th) {
-      curl_mfprintf(stderr, "%s:%d Couldn't create thread, "
+      curl_mfprintf(stderr, "%s:%d Could not create thread, "
                     "GetLastError 0x%08lx\n",
                     __FILE__, __LINE__, GetLastError());
       tid_count = i;
-      test_failure = TEST_ERR_MAJOR_BAD;
+      result = TEST_ERR_MAJOR_BAD;
       goto cleanup;
     }
     thread_handles[i] = th;
@@ -76,16 +76,15 @@ cleanup:
     if(results[i] != CURLE_OK) {
       curl_mfprintf(stderr, "%s:%d thread[%u]: curl_global_init() failed,"
                     "with code %d (%s)\n", __FILE__, __LINE__,
-                    i, results[i], curl_easy_strerror(results[i]));
-      test_failure = TEST_ERR_MAJOR_BAD;
+                    i, (int)results[i], curl_easy_strerror(results[i]));
+      result = TEST_ERR_MAJOR_BAD;
     }
   }
 
-  return test_failure;
+  return result;
 }
 
-#elif defined(HAVE_PTHREAD_H)
-#include <pthread.h>
+#elif defined(HAVE_THREADS_POSIX)
 
 static void *t3026_run_thread(void *ptr)
 {
@@ -103,7 +102,7 @@ static CURLcode test_lib3026(const char *URL)
   CURLcode results[NUM_THREADS];
   pthread_t tids[NUM_THREADS];
   unsigned tid_count = NUM_THREADS, i;
-  CURLcode test_failure = CURLE_OK;
+  CURLcode result = CURLE_OK;
   curl_version_info_data *ver;
   (void)URL;
 
@@ -120,10 +119,10 @@ static CURLcode test_lib3026(const char *URL)
     results[i] = CURL_LAST; /* initialize with invalid value */
     res = pthread_create(&tids[i], NULL, t3026_run_thread, &results[i]);
     if(res) {
-      curl_mfprintf(stderr, "%s:%d Couldn't create thread, errno %d\n",
+      curl_mfprintf(stderr, "%s:%d Could not create thread, errno %d\n",
                     __FILE__, __LINE__, res);
       tid_count = i;
-      test_failure = TEST_ERR_MAJOR_BAD;
+      result = TEST_ERR_MAJOR_BAD;
       goto cleanup;
     }
   }
@@ -134,15 +133,15 @@ cleanup:
     if(results[i] != CURLE_OK) {
       curl_mfprintf(stderr, "%s:%d thread[%u]: curl_global_init() failed,"
                     "with code %d (%s)\n", __FILE__, __LINE__,
-                    i, results[i], curl_easy_strerror(results[i]));
-      test_failure = TEST_ERR_MAJOR_BAD;
+                    i, (int)results[i], curl_easy_strerror(results[i]));
+      result = TEST_ERR_MAJOR_BAD;
     }
   }
 
-  return test_failure;
+  return result;
 }
 
-#else /* without pthread or Windows, this test doesn't work */
+#else /* without pthread or Windows, this test does not work */
 static CURLcode test_lib3026(const char *URL)
 {
   curl_version_info_data *ver;

@@ -26,7 +26,6 @@
 #include "first.h"
 
 #include "testtrace.h"
-#include "memdebug.h"
 
 static size_t total_read = 0;
 
@@ -66,7 +65,9 @@ static int progress_callback(void *clientp,
   {
     CURL *curl = (CURL *)clientp;
     curl_easy_pause(curl, CURLPAUSE_CONT);
-    /* curl_easy_pause(curl, CURLPAUSE_RECV_CONT); */
+#if 0
+    curl_easy_pause(curl, CURLPAUSE_RECV_CONT);
+#endif
   }
 #endif
   return 0;
@@ -154,8 +155,8 @@ static CURLcode test_cli_upload_pausing(const char *URL)
     result = (CURLcode)1;
     goto cleanup;
   }
-  memset(&resolve, 0, sizeof(resolve));
-  curl_msnprintf(resolve_buf, sizeof(resolve_buf)-1, "%s:%s:127.0.0.1",
+
+  curl_msnprintf(resolve_buf, sizeof(resolve_buf) - 1, "%s:%s:127.0.0.1",
                  host, port);
   resolve = curl_slist_append(resolve, resolve_buf);
 
@@ -168,12 +169,12 @@ static CURLcode test_cli_upload_pausing(const char *URL)
   /* We want to use our own read function. */
   curl_easy_setopt(curl, CURLOPT_READFUNCTION, read_callback);
 
-  /* It will help us to continue the read function. */
+  /* It helps us to continue the read function. */
   curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progress_callback);
   curl_easy_setopt(curl, CURLOPT_XFERINFODATA, curl);
   curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
 
-  /* It will help us to ensure that keepalive does not help. */
+  /* It helps us to ensure that keepalive does not help. */
   curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
   curl_easy_setopt(curl, CURLOPT_TCP_KEEPIDLE, 1L);
   curl_easy_setopt(curl, CURLOPT_TCP_KEEPINTVL, 1L);

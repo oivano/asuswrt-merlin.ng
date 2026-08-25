@@ -23,12 +23,10 @@
  ***************************************************************************/
 #include "first.h"
 
-#include "memdebug.h"
-
 static CURLcode test_lib1959(const char *URL)
 {
   CURL *curl;
-  CURLcode res = TEST_ERR_MAJOR_BAD;
+  CURLcode result = TEST_ERR_MAJOR_BAD;
   struct curl_slist *list = NULL;
   struct curl_slist *connect_to = NULL;
 
@@ -44,24 +42,24 @@ static CURLcode test_lib1959(const char *URL)
     return TEST_ERR_MAJOR_BAD;
   }
 
-  test_setopt(curl, CURLOPT_VERBOSE, 1L);
-  test_setopt(curl, CURLOPT_AWS_SIGV4, "xxx");
-  test_setopt(curl, CURLOPT_USERPWD, "xxx");
-  test_setopt(curl, CURLOPT_HEADER, 0L);
-  test_setopt(curl, CURLOPT_URL, URL);
+  easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+  easy_setopt(curl, CURLOPT_AWS_SIGV4, "xxx");
+  easy_setopt(curl, CURLOPT_USERPWD, "xxx");
+  easy_setopt(curl, CURLOPT_HEADER, 0L);
+  easy_setopt(curl, CURLOPT_URL, URL);
   list = curl_slist_append(list, "Content-Type: application/json");
   if(!list)
     goto test_cleanup;
   if(libtest_arg2) {
     connect_to = curl_slist_append(connect_to, libtest_arg2);
   }
-  test_setopt(curl, CURLOPT_CONNECT_TO, connect_to);
+  easy_setopt(curl, CURLOPT_CONNECT_TO, connect_to);
   curl_slist_append(list, "X-Xxx-Content-Sha256: "
       "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
-  test_setopt(curl, CURLOPT_HTTPHEADER, list);
+  easy_setopt(curl, CURLOPT_HTTPHEADER, list);
 
-  res = curl_easy_perform(curl);
+  result = curl_easy_perform(curl);
 
 test_cleanup:
 
@@ -70,5 +68,5 @@ test_cleanup:
   curl_easy_cleanup(curl);
   curl_global_cleanup();
 
-  return res;
+  return result;
 }

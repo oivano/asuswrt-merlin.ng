@@ -159,8 +159,7 @@ am__aclocal_m4_deps = $(top_srcdir)/m4/curl-amissl.m4 \
 	$(top_srcdir)/m4/xc-lt-iface.m4 \
 	$(top_srcdir)/m4/xc-val-flgs.m4 \
 	$(top_srcdir)/m4/zz40-xc-ovr.m4 \
-	$(top_srcdir)/m4/zz50-xc-ovr.m4 \
-	$(top_srcdir)/m4/zz60-xc-ovr.m4 $(top_srcdir)/acinclude.m4 \
+	$(top_srcdir)/m4/zz50-xc-ovr.m4 $(top_srcdir)/acinclude.m4 \
 	$(top_srcdir)/configure.ac
 am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
 	$(ACLOCAL_M4)
@@ -241,6 +240,7 @@ CC = @CC@
 CCDEPMODE = @CCDEPMODE@
 CFLAGS = @CFLAGS@
 CFLAG_CURL_SYMBOL_HIDING = @CFLAG_CURL_SYMBOL_HIDING@
+CLANG_TIDY = @CLANG_TIDY@
 CONFIGURE_OPTIONS = @CONFIGURE_OPTIONS@
 CPP = @CPP@
 CPPFLAGS = @CPPFLAGS@
@@ -274,6 +274,7 @@ FILECMD = @FILECMD@
 FISH_FUNCTIONS_DIR = @FISH_FUNCTIONS_DIR@
 GCOV = @GCOV@
 GREP = @GREP@
+H2O = @H2O@
 HAVE_LIBZ = @HAVE_LIBZ@
 HTTPD = @HTTPD@
 HTTPD_NGHTTPX = @HTTPD_NGHTTPX@
@@ -323,7 +324,9 @@ RANLIB = @RANLIB@
 RC = @RC@
 SED = @SED@
 SET_MAKE = @SET_MAKE@
+SFTPD = @SFTPD@
 SHELL = @SHELL@
+SSHD = @SSHD@
 SSL_BACKENDS = @SSL_BACKENDS@
 STRIP = @STRIP@
 SUPPORT_FEATURES = @SUPPORT_FEATURES@
@@ -449,6 +452,7 @@ AUTOMAKE_OPTIONS = foreign no-dependencies
 @BUILD_DOCS_TRUE@  CURLINFO_RTSP_SERVER_CSEQ.3                   \
 @BUILD_DOCS_TRUE@  CURLINFO_RTSP_SESSION_ID.3                    \
 @BUILD_DOCS_TRUE@  CURLINFO_SCHEME.3                             \
+@BUILD_DOCS_TRUE@  CURLINFO_SIZE_DELIVERED.3                     \
 @BUILD_DOCS_TRUE@  CURLINFO_SIZE_DOWNLOAD.3                      \
 @BUILD_DOCS_TRUE@  CURLINFO_SIZE_DOWNLOAD_T.3                    \
 @BUILD_DOCS_TRUE@  CURLINFO_SIZE_UPLOAD.3                        \
@@ -487,6 +491,8 @@ AUTOMAKE_OPTIONS = foreign no-dependencies
 @BUILD_DOCS_TRUE@  CURLMOPT_PIPELINING_SITE_BL.3                 \
 @BUILD_DOCS_TRUE@  CURLMOPT_PUSHDATA.3                           \
 @BUILD_DOCS_TRUE@  CURLMOPT_PUSHFUNCTION.3                       \
+@BUILD_DOCS_TRUE@  CURLMOPT_QUICK_EXIT.3                         \
+@BUILD_DOCS_TRUE@  CURLMOPT_RESOLVE_THREADS_MAX.3                \
 @BUILD_DOCS_TRUE@  CURLMOPT_SOCKETDATA.3                         \
 @BUILD_DOCS_TRUE@  CURLMOPT_SOCKETFUNCTION.3                     \
 @BUILD_DOCS_TRUE@  CURLMOPT_TIMERDATA.3                          \

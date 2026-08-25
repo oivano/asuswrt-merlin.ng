@@ -21,11 +21,9 @@
  * SPDX-License-Identifier: curl
  *
  ***************************************************************************/
-#include "testutil.h"
+#include "first.h"
 
-#include "memdebug.h"
-
-/* build request url */
+/* build request URL */
 char *tutil_suburl(const char *base, int i)
 {
   return curl_maprintf("%s%.4d", base, i);
@@ -40,16 +38,20 @@ void tutil_rlim2str(char *buf, size_t len, rlim_t val)
     return;
   }
 #endif
-#ifdef HAVE_LONGLONG
-  if(sizeof(rlim_t) > sizeof(long))
-    curl_msnprintf(buf, len, "%llu", (unsigned long long)val);
+  if(sizeof(rlim_t) == SIZEOF_INT)
+    curl_msnprintf(buf, len, "%u", (unsigned int)val);
   else
-#endif
-  {
-    if(sizeof(rlim_t) < sizeof(long))
-      curl_msnprintf(buf, len, "%u", (unsigned int)val);
-    else
-      curl_msnprintf(buf, len, "%lu", (unsigned long)val);
-  }
+    curl_msnprintf(buf, len, "%lu", (unsigned long)val);
 }
 #endif
+
+/*
+ * Handy CURLOPT_WRITEFUNCTION for tests that do not need to keep received
+ * data.
+ */
+size_t tutil_throwaway_cb(char *data, size_t n, size_t l, void *userp)
+{
+  (void)data;
+  (void)userp;
+  return n * l;
+}

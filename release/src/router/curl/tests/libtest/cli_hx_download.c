@@ -25,9 +25,7 @@
 
 #include "testtrace.h"
 
-#include "curl_mem_undef.h"
-
-#if defined(USE_QUICHE) || defined(USE_OPENSSL)
+#ifdef USE_OPENSSL
 #include <openssl/ssl.h>
 #endif
 #ifdef USE_WOLFSSL
@@ -44,8 +42,11 @@
 #ifdef USE_RUSTLS
 #include <rustls.h>
 #endif
-
-#include "memdebug.h"
+#ifdef USE_SCHANNEL
+#include <sspi.h>  /* for CtxtHandle, QueryContextAttributes() */
+#include <schannel.h>  /* for SecPkgContext_ConnectionInfo,
+                          SECPKG_ATTR_CONNECTION_INFO */
+#endif
 
 static int verbose_d = 1;
 
@@ -84,15 +85,15 @@ static size_t my_write_d_cb(char *buf, size_t nitems, size_t buflen,
                             void *userdata)
 {
   struct transfer_d *t = userdata;
-  size_t blen = (nitems * buflen);
+  curl_off_t blen = nitems * buflen;
   size_t nwritten;
 
-  curl_mfprintf(stderr, "[t-%zu] RECV %zu bytes, "
+  curl_mfprintf(stderr, "[t-%zu] RECV %" CURL_FORMAT_CURL_OFF_T " bytes, "
                 "total=%" CURL_FORMAT_CURL_OFF_T ", "
                 "pause_at=%" CURL_FORMAT_CURL_OFF_T "\n",
                 t->idx, blen, t->recv_size, t->pause_at);
   if(!t->out) {
-    curl_msnprintf(t->filename, sizeof(t->filename)-1, "download_%zu.data",
+    curl_msnprintf(t->filename, sizeof(t->filename) - 1, "download_%zu.data",
                    t->idx);
     t->out = curlx_fopen(t->filename, "wb");
     if(!t->out)
@@ -107,19 +108,19 @@ static size_t my_write_d_cb(char *buf, size_t nitems, size_t buflen,
     return CURL_WRITEFUNC_PAUSE;
   }
 
-  nwritten = fwrite(buf, nitems, buflen, t->out);
-  if(nwritten < blen) {
+  nwritten = fwrite(buf, buflen, nitems, t->out);
+  if(nwritten < nitems) {
     curl_mfprintf(stderr, "[t-%zu] write failure\n", t->idx);
     return 0;
   }
-  t->recv_size += (curl_off_t)nwritten;
+  t->recv_size += blen;
   if(t->fail_at > 0 && t->recv_size >= t->fail_at) {
     curl_mfprintf(stderr, "[t-%zu] FAIL by write callback at "
                   "%" CURL_FORMAT_CURL_OFF_T " bytes\n", t->idx, t->recv_size);
     return CURL_WRITEFUNC_ERROR;
   }
 
-  return (size_t)nwritten;
+  return (size_t)blen;
 }
 
 static int my_progress_d_cb(void *userdata,
@@ -136,24 +137,24 @@ static int my_progress_d_cb(void *userdata,
     return 1;
   }
 
-#if defined(USE_QUICHE) || defined(USE_OPENSSL) || defined(USE_WOLFSSL) || \
-  defined(USE_GNUTLS) || defined(USE_MBEDTLS) || defined(USE_RUSTLS)
+#if defined(USE_OPENSSL) || defined(USE_GNUTLS) || defined(USE_WOLFSSL) || \
+  defined(USE_MBEDTLS) || defined(USE_RUSTLS) || defined(USE_SCHANNEL)
   if(!t->checked_ssl && dlnow > 0) {
     struct curl_tlssessioninfo *tls;
-    CURLcode res;
+    CURLcode result;
 
     t->checked_ssl = TRUE;
-    res = curl_easy_getinfo(t->curl, CURLINFO_TLS_SSL_PTR, &tls);
-    if(res) {
+    result = curl_easy_getinfo(t->curl, CURLINFO_TLS_SSL_PTR, &tls);
+    if(result) {
       curl_mfprintf(stderr, "[t-%zu] info CURLINFO_TLS_SSL_PTR failed: %d\n",
-                    t->idx, res);
+                    t->idx, (int)result);
       assert(0);
     }
     else {
       switch(tls->backend) {
-#if defined(USE_QUICHE) || defined(USE_OPENSSL)
+#ifdef USE_OPENSSL
       case CURLSSLBACKEND_OPENSSL: {
-        const char *version = SSL_get_version((SSL*)tls->internals);
+        const char *version = SSL_get_version((SSL *)tls->internals);
         assert(version);
         assert(strcmp(version, "unknown"));
         curl_mfprintf(stderr, "[t-%zu] info OpenSSL using %s\n",
@@ -163,7 +164,7 @@ static int my_progress_d_cb(void *userdata,
 #endif
 #ifdef USE_WOLFSSL
       case CURLSSLBACKEND_WOLFSSL: {
-        const char *version = wolfSSL_get_version((WOLFSSL*)tls->internals);
+        const char *version = wolfSSL_get_version((WOLFSSL *)tls->internals);
         assert(version);
         assert(strcmp(version, "unknown"));
         curl_mfprintf(stderr, "[t-%zu] info wolfSSL using %s\n",
@@ -173,7 +174,8 @@ static int my_progress_d_cb(void *userdata,
 #endif
 #ifdef USE_GNUTLS
       case CURLSSLBACKEND_GNUTLS: {
-        int v = gnutls_protocol_get_version((gnutls_session_t)tls->internals);
+        gnutls_protocol_t v = gnutls_protocol_get_version(
+          (gnutls_session_t)tls->internals);
         assert(v);
         curl_mfprintf(stderr, "[t-%zu] info GnuTLS using %s\n",
                       t->idx, gnutls_protocol_get_name(v));
@@ -182,8 +184,8 @@ static int my_progress_d_cb(void *userdata,
 #endif
 #ifdef USE_MBEDTLS
       case CURLSSLBACKEND_MBEDTLS: {
-        const char *version = mbedtls_ssl_get_version(
-          (mbedtls_ssl_context*)tls->internals);
+        const char *version =
+          mbedtls_ssl_get_version((mbedtls_ssl_context *)tls->internals);
         assert(version);
         assert(strcmp(version, "unknown"));
         curl_mfprintf(stderr, "[t-%zu] info mbedTLS using %s\n",
@@ -194,16 +196,31 @@ static int my_progress_d_cb(void *userdata,
 #ifdef USE_RUSTLS
       case CURLSSLBACKEND_RUSTLS: {
         int v = rustls_connection_get_protocol_version(
-          (struct rustls_connection*)tls->internals);
+          (struct rustls_connection *)tls->internals);
         assert(v);
         curl_mfprintf(stderr, "[t-%zu] info rustls TLS version 0x%x\n",
-                      t->idx, v);
+                      t->idx, (unsigned int)v);
+        break;
+      }
+#endif
+#ifdef USE_SCHANNEL
+      case CURLSSLBACKEND_SCHANNEL: {
+        CtxtHandle *ctxt_handle = (CtxtHandle *)tls->internals;
+        SecPkgContext_ConnectionInfo info;
+        SECURITY_STATUS sspi_status;
+        sspi_status = QueryContextAttributes(ctxt_handle,
+                                             SECPKG_ATTR_CONNECTION_INFO,
+                                             &info);
+        assert(sspi_status == SEC_E_OK);
+        (void)sspi_status;
+        curl_mfprintf(stderr, "[t-%zu] info Schannel TLS version 0x%08lx\n",
+                      t->idx, (unsigned long)info.dwProtocol);
         break;
       }
 #endif
       default:
         curl_mfprintf(stderr, "[t-%zu] info SSL_PTR backend=%d, ptr=%p\n",
-                      t->idx, tls->backend, (void *)tls->internals);
+                      t->idx, (int)tls->backend, tls->internals);
         break;
       }
     }
@@ -215,13 +232,13 @@ static int my_progress_d_cb(void *userdata,
 static int setup_hx_download(CURL *curl, const char *url, struct transfer_d *t,
                              long http_version, struct curl_slist *host,
                              CURLSH *share, int use_earlydata,
-                             int fresh_connect)
+                             int fresh_connect, const char *cafile)
 {
   curl_easy_setopt(curl, CURLOPT_SHARE, share);
   curl_easy_setopt(curl, CURLOPT_URL, url);
   curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, http_version);
-  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+  if(cafile)
+    curl_easy_setopt(curl, CURLOPT_CAINFO, cafile);
   curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
   curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, (long)(128 * 1024));
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, my_write_d_cb);
@@ -256,7 +273,7 @@ static void usage_hx_download(const char *msg)
     curl_mfprintf(stderr, "%s\n", msg);
   curl_mfprintf(stderr,
     "usage: [options] url\n"
-    "  download a url with following options:\n"
+    "  download a URL with following options:\n"
     "  -a         abort paused transfer\n"
     "  -m number  max parallel downloads\n"
     "  -e         use TLS early data when possible\n"
@@ -270,6 +287,7 @@ static void usage_hx_download(const char *msg)
     "  -r <host>:<port>:<addr>  resolve information\n"
     "  -T number  max concurrent connections total\n"
     "  -V http_version (http/1.1, h2, h3) http version to use\n"
+    "  -6 use ipv6 for resolving the FIRST URL\n"
   );
 }
 
@@ -296,12 +314,16 @@ static CURLcode test_cli_hx_download(const char *URL)
   size_t max_host_conns = 0;
   size_t max_total_conns = 0;
   int fresh_connect = 0;
+  char *cafile = NULL;
+  bool first_ipv6 = FALSE;
   CURLcode result = CURLE_OK;
 
   (void)URL;
 
-  while((ch = cgetopt(test_argc, test_argv, "aefhm:n:xA:F:M:P:r:T:V:"))
+  while((ch = cgetopt(test_argc, test_argv, "aefhm:n:xA:C:F:M:P:r:T:V:6"))
         != -1) {
+    const char *opt = coptarg;
+    curl_off_t num;
     switch(ch) {
     case 'h':
       usage_hx_download(NULL);
@@ -317,32 +339,43 @@ static CURLcode test_cli_hx_download(const char *URL)
       forbid_reuse_d = 1;
       break;
     case 'm':
-      max_parallel = (size_t)atol(coptarg);
+      if(!curlx_str_number(&opt, &num, LONG_MAX))
+        max_parallel = (size_t)num;
       break;
     case 'n':
-      transfer_count_d = (size_t)atol(coptarg);
+      if(!curlx_str_number(&opt, &num, LONG_MAX))
+        transfer_count_d = (size_t)num;
       break;
     case 'x':
       fresh_connect = 1;
       break;
     case 'A':
-      abort_offset = (size_t)atol(coptarg);
+      if(!curlx_str_number(&opt, &num, LONG_MAX))
+        abort_offset = (size_t)num;
+      break;
+    case 'C':
+      curlx_free(cafile);
+      cafile = curlx_strdup(coptarg);
       break;
     case 'F':
-      fail_offset = (size_t)atol(coptarg);
+      if(!curlx_str_number(&opt, &num, LONG_MAX))
+        fail_offset = (size_t)num;
       break;
     case 'M':
-      max_host_conns = (size_t)atol(coptarg);
+      if(!curlx_str_number(&opt, &num, LONG_MAX))
+        max_host_conns = (size_t)num;
       break;
     case 'P':
-      pause_offset = (size_t)atol(coptarg);
+      if(!curlx_str_number(&opt, &num, LONG_MAX))
+        pause_offset = (size_t)num;
       break;
     case 'r':
-      free(resolve);
-      resolve = strdup(coptarg);
+      curlx_free(resolve);
+      resolve = curlx_strdup(coptarg);
       break;
     case 'T':
-      max_total_conns = (size_t)atol(coptarg);
+      if(!curlx_str_number(&opt, &num, LONG_MAX))
+        max_total_conns = (size_t)num;
       break;
     case 'V': {
       if(!strcmp("http/1.1", coptarg))
@@ -358,6 +391,9 @@ static CURLcode test_cli_hx_download(const char *URL)
       }
       break;
     }
+    case '6':
+      first_ipv6 = TRUE;
+      break;
     default:
       usage_hx_download("invalid option");
       result = (CURLcode)1;
@@ -394,11 +430,13 @@ static CURLcode test_cli_hx_download(const char *URL)
   curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_COOKIE);
   curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_DNS);
   curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_SSL_SESSION);
-  /* curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_CONNECT); */
+#if 0
+  curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_CONNECT);
+#endif
   curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_PSL);
   curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_HSTS);
 
-  transfer_d = calloc(transfer_count_d, sizeof(*transfer_d));
+  transfer_d = curlx_calloc(transfer_count_d, sizeof(*transfer_d));
   if(!transfer_d) {
     curl_mfprintf(stderr, "error allocating transfer structs\n");
     result = (CURLcode)1;
@@ -427,11 +465,13 @@ static CURLcode test_cli_hx_download(const char *URL)
     t->curl = curl_easy_init();
     if(!t->curl ||
        setup_hx_download(t->curl, url, t, http_version, host, share,
-                         use_earlydata, fresh_connect)) {
+                         use_earlydata, fresh_connect, cafile)) {
       curl_mfprintf(stderr, "[t-%zu] FAILED setup\n", i);
       result = (CURLcode)1;
       goto cleanup;
     }
+    if(!i && first_ipv6)
+      curl_easy_setopt(t->curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V6);
     curl_multi_add_handle(multi, t->curl);
     t->started = 1;
     ++active_transfers;
@@ -440,14 +480,14 @@ static CURLcode test_cli_hx_download(const char *URL)
 
   do {
     int still_running; /* keep number of running handles */
-    CURLMcode mc = curl_multi_perform(multi, &still_running);
+    CURLMcode mresult = curl_multi_perform(multi, &still_running);
 
     if(still_running) {
       /* wait for activity, timeout or "nothing" */
-      mc = curl_multi_poll(multi, NULL, 0, 1000, NULL);
+      mresult = curl_multi_poll(multi, NULL, 0, 500, NULL);
     }
 
-    if(mc)
+    if(mresult)
       break;
 
     do {
@@ -462,7 +502,7 @@ static CURLcode test_cli_hx_download(const char *URL)
           t->done = 1;
           t->result = m->data.result;
           curl_mfprintf(stderr, "[t-%zu] FINISHED with result %d\n",
-                        t->idx, t->result);
+                        t->idx, (int)t->result);
           if(use_earlydata) {
             curl_off_t sent;
             curl_easy_getinfo(easy, CURLINFO_EARLYDATA_SENT_T, &sent);
@@ -509,8 +549,8 @@ static CURLcode test_cli_hx_download(const char *URL)
           if(!t->started) {
             t->curl = curl_easy_init();
             if(!t->curl ||
-              setup_hx_download(t->curl, url, t, http_version, host, share,
-                                use_earlydata, fresh_connect)) {
+               setup_hx_download(t->curl, url, t, http_version, host, share,
+                                 use_earlydata, fresh_connect, cafile)) {
               curl_mfprintf(stderr, "[t-%zu] FAILED setup\n", i);
               result = (CURLcode)1;
               goto cleanup;
@@ -547,10 +587,10 @@ cleanup:
       }
       if(t->result)
         result = t->result;
-      else /* on success we expect ssl to have been checked */
+      else /* on success we expect SSL to have been checked */
         assert(t->checked_ssl);
     }
-    free(transfer_d);
+    curlx_free(transfer_d);
   }
 
   curl_share_cleanup(share);
@@ -560,7 +600,8 @@ cleanup:
 
 optcleanup:
 
-  free(resolve);
+  curlx_free(resolve);
+  curlx_free(cafile);
 
   return result;
 }

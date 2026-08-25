@@ -23,8 +23,6 @@
  ***************************************************************************/
 #include "first.h"
 
-#include "memdebug.h"
-
 static size_t t1507_read_cb(char *ptr, size_t size, size_t nmemb, void *userp)
 {
   (void)ptr;
@@ -38,7 +36,7 @@ static CURLcode test_lib1507(const char *URL)
 {
   static const int MULTI_PERFORM_HANG_TIMEOUT = 60 * 1000;
 
-  CURLcode res = CURLE_OK;
+  CURLcode result = CURLE_OK;
   CURL *curl = NULL;
   CURLM *multi = NULL;
   int still_running = 1;
@@ -107,12 +105,12 @@ static CURLcode test_lib1507(const char *URL)
     /* In a real-world program you OF COURSE check the return code of the
        function calls.  On success, the value of maxfd is guaranteed to be
        greater or equal than -1.  We call select(maxfd + 1, ...), specially in
-       case of (maxfd == -1), we call select(0, ...), which is basically equal
-       to sleep. */
+       case of (maxfd == -1), we call select(0, ...), which is equal to sleep.
+     */
 
     rc = select(maxfd + 1, &fdread, &fdwrite, &fdexcep, &timeout);
 
-    if(curlx_timediff(curlx_now(), mp_start) > MULTI_PERFORM_HANG_TIMEOUT) {
+    if(curlx_timediff_ms(curlx_now(), mp_start) > MULTI_PERFORM_HANG_TIMEOUT) {
       curl_mfprintf(stderr, "ABORTING TEST, since it seems "
                     "that it would have run forever.\n");
       break;
@@ -137,5 +135,5 @@ test_cleanup:
   curl_easy_cleanup(curl);
   curl_global_cleanup();
 
-  return res;
+  return result;
 }

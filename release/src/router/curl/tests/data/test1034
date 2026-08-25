@@ -6,17 +6,14 @@ HTTP
 HTTP GET
 HTTP proxy
 IDN
-FAILURE
 config file
 </keywords>
 </info>
 
-#
 # Server-side
 <reply>
 </reply>
 
-#
 # Client-side
 <client>
 <features>
@@ -29,10 +26,10 @@ codeset-utf8
 LC_ALL=C.UTF-8
 </setenv>
 <name>
-HTTP over proxy with malformatted IDN host name
+HTTP over proxy with malformatted IDN hostname
 </name>
 
-# This host name contains an invalid UTF-8 byte sequence that can't be
+# This hostname contains an invalid UTF-8 byte sequence that cannot be
 # converted into an IDN name
 <stdin>
 url = "http://invalid-utf8-%hex[%e2%90]hex%.local/page/%TESTNUMBER"
@@ -42,7 +39,6 @@ url = "http://invalid-utf8-%hex[%e2%90]hex%.local/page/%TESTNUMBER"
 </command>
 </client>
 
-#
 <verify>
 <errorcode>
 3
