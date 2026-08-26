@@ -925,6 +925,7 @@ obj-$(RTCONFIG_LETSENCRYPT) += socat
 #obj-$(RTCONFIG_SYSSTATE) += sysstate
 obj-y += sysstate
 
+obj-y += json-c-0.12.1
 obj-$(RTCONFIG_LIBASC) += libasc
 
 obj-$(RTCONFIG_AHS) += openssl
@@ -8456,6 +8457,26 @@ json-c-clean:
 	-@rm -rf json-c/build json-c/crosscompiled.cmake json-c/stamp-h1
 	-@rm -f json-c/.libs json-c/json.h json-c/json_config.h
 
+json-c-0.12.1/stamp-h1:
+	cd $(TOP)/json-c-0.12.1 && \
+	$(CONFIGURE) --prefix=/usr --enable-shared --disable-static \
+	ac_cv_func_realloc_0_nonnull=yes ac_cv_func_malloc_0_nonnull=yes \
+	CFLAGS="$(if $(RTCONFIG_DEBUG),-g,-Os) -Wno-error $(EXTRACFLAGS)" \
+	LDFLAGS="$(EXTRALDFLAGS) -Wl,--as-needed -lm"
+	touch $@
+
+json-c-0.12.1: json-c-0.12.1/stamp-h1
+	$(MAKE) -C $@
+
+json-c-0.12.1-install:
+	install -D json-c-0.12.1/.libs/libjson-c.so.2.0.2 $(INSTALLDIR)/json-c/usr/lib/libjson-c.so.2.0.2
+	$(if $(RTCONFIG_DEBUG),,$(STRIP) $(INSTALLDIR)/json-c/usr/lib/libjson-c.so.2.0.2)
+	ln -sf libjson-c.so.2.0.2 $(INSTALLDIR)/json-c/usr/lib/libjson-c.so.2
+
+json-c-0.12.1-clean:
+	-@[ ! -f json-c-0.12.1/Makefile ] || $(MAKE) -C json-c-0.12.1 clean
+	-@rm -f json-c-0.12.1/stamp-h1
+
 phddns/stamp-h1:
 ifeq ($(HND_ROUTER),y)
 	cd phddns && $(CONFIGURE) --prefix="" \
@@ -9725,5 +9746,5 @@ endif
 $(obj-y) $(obj-n) $(obj-clean) $(obj-install): dummy
 
 .PHONY: all clean distclean mrproper install package image
-.PHONY: conf mconf oldconf kconf kmconf config menuconfig oldconfig
+.PHONY: conf mconf oldconf kconf kmconf config menuconfig oldconfig json-c-0.12.1
 .PHONY: dummy libnet libpcap json-c
