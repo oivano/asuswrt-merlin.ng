@@ -68,7 +68,7 @@ $(WSLIB_OBJS): $(OUTPUT)/%.o: %.c
 
 install: all
 	$(STRIP) $(WSLIB)
-	install -D $(WSLIB) $(INSTALLDIR)/lib/$(WSLIB)
+	install -D $(WSLIB) $(INSTALLDIR)/usr/lib/$(WSLIB)
 
 clean:
 	rm -rf *.o  *.so output
