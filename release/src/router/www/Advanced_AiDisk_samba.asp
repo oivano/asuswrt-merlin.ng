@@ -20,7 +20,6 @@
 <script type="text/javascript" src="/disk_functions.js"></script>
 <script type="text/javascript" src="/js/jquery.js"></script>
 <script type="text/javascript" src="/js/httpApi.js"></script>
-<script type="text/javascript" src="/switcherplugin/jquery.iphone-switch.js"></script>
 <style>
 .charToUpperCase{
 	text-transform: uppercase;
@@ -840,12 +839,11 @@ function switchUserType(flag){
 		<td>
 			<table width="99%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3" class="FormTable">
 				<tr>
-				<th><#enableCIFS#></th>
+				<th id="samba_enable_label"><#enableCIFS#></th>
 					<td>
-						<div class="left" style="width:94px; float:left; cursor:pointer;" id="radio_samba_enable"></div>
-						<div class="iphone_switch_container" style="height:32px; width:74px; position: relative; overflow: hidden">
+						<button type="button" class="css_switch" id="radio_samba_enable" role="switch" aria-labelledby="samba_enable_label" aria-checked="false"></button>
 							<script type="text/javascript">
-								$('#radio_samba_enable').iphoneSwitch(NN_status, 
+								init_css_switch("radio_samba_enable", NN_status == 1,
 									 function() {
 									 	switchAppStatus(PROTOCOL);
 									 },
@@ -854,17 +852,15 @@ function switchUserType(flag){
 									 }
 								);
 							</script>			
-						</div>	
 					</td>
 				</tr>										
 
 				<tr id="radio_anonymous_enable_tr" style="height:60px;">
-				<th><#AiDisk_Guest_Login#></th>
+				<th id="samba_anonymous_label"><#AiDisk_Guest_Login#></th>
 					<td>
-						<div class="left" style="margin-top:5px;width:94px;float:left; cursor:pointer;" id="radio_anonymous_enable"></div>
-						<div class="iphone_switch_container" style="display:table-cell;vertical-align:middle;height:45px;position:relative;overflow:hidden">
+						<button type="button" class="css_switch" id="radio_anonymous_enable" role="switch" aria-labelledby="samba_anonymous_label" aria-checked="false"></button>
 							<script type="text/javascript">
-								$('#radio_anonymous_enable').iphoneSwitch(!get_manage_type(PROTOCOL), 
+								init_css_switch("radio_anonymous_enable", !get_manage_type(PROTOCOL),
 									 function() {
 									 	switchAccount(PROTOCOL);
 									 },
@@ -874,7 +870,6 @@ function switchUserType(flag){
 								);
 							</script>			
 							<span id="loginMethod" style="color:#FC0"></span>
-						</div>
 					</td>
 				</tr>
 				<tr>

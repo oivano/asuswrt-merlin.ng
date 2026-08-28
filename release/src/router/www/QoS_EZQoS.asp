@@ -21,7 +21,6 @@
 <script type="text/javascript" src="/js/jquery.js"></script>
 <script type="text/javascript" src="/calendar/jquery-ui.js"></script>
 <script type="text/javascript" src="/general.js"></script>
-<script type="text/javascript" src="/switcherplugin/jquery.iphone-switch.js"></script>
 <script type="text/javascript" src="/form.js"></script>
 <script type="text/javascript" src="client_function.js"></script>
 <script type="text/javascript" src="/js/httpApi.js"></script>
@@ -1976,11 +1975,11 @@ function set_overhead(entry) {
 											</td>
 										</tr>
 										<tr>
-											<th><#Enable_QoS#></th>
+											<th id="qos_enable_label"><#Enable_QoS#></th>
 											<td colspan="2">
-												<div class="left" style="width:94px; float:left; cursor:pointer;" id="radio_qos_enable"></div>
+												<button type="button" class="css_switch" id="radio_qos_enable" role="switch" aria-labelledby="qos_enable_label" aria-checked="false"></button>
 													<script type="text/javascript">
-														$('#radio_qos_enable').iphoneSwitch('<% nvram_get("qos_enable"); %>',
+														init_css_switch("radio_qos_enable", document.form.qos_enable.value == "1",
 															 function() {
 																document.form.qos_enable.value = "1";
 																if(document.form.qos_enable_orig.value != "1"){

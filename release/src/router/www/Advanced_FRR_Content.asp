@@ -17,7 +17,6 @@
 	<link rel="stylesheet" type="text/css" href="form_style.css">
 	<link rel="stylesheet" type="text/css" href="css/icon.css">
 	<script type="text/javascript" src="/js/jquery.js"></script>
-	<script type="text/javascript" src="/switcherplugin/jquery.iphone-switch.js"></script>
 	<script language="JavaScript" type="text/javascript" src="/state.js"></script>
 	<script language="JavaScript" type="text/javascript" src="/general.js"></script>
 	<script language="JavaScript" type="text/javascript" src="/popup.js"></script>
@@ -787,28 +786,24 @@
 														</tr>
 													</thead>
 													<tr>
-														<th>
+														<th id="frr_enable_label">
 															<#FRR_enable#>
 														</th>
 														<td>
 															<input type="hidden" name="frr_enable" value="<% nvram_get("frr_enable"); %>">
-															<div align="center" class="left" style="width:94px; float:left; cursor:pointer;" id="radio_frr_enable"></div>
-															<div class="iphone_switch_container" style="height:32px; width:74px; position:relative; overflow:hidden;">
-																<script type="text/javascript">
-																	$('#radio_frr_enable').iphoneSwitch(document.form.frr_enable.value,
-																		function() {
-																			document.form.frr_enable.value = 1;
-																			showhide('frr_settings', 1);
-																		},
-																		function() {
-																			document.form.frr_enable.value = 0;
-																			showhide('frr_settings', 0);
-																		},
-																		{
-																			switch_on_container_path: '/switcherplugin/iphone_switch_container_off.png'
-																		});
-																</script>
-															</div>
+															<button type="button" class="css_switch" id="radio_frr_enable" role="switch" aria-labelledby="frr_enable_label" aria-checked="false"></button>
+															<script type="text/javascript">
+																init_css_switch("radio_frr_enable", document.form.frr_enable.value == "1",
+																	function() {
+																		document.form.frr_enable.value = 1;
+																		showhide('frr_settings', 1);
+																	},
+																	function() {
+																		document.form.frr_enable.value = 0;
+																		showhide('frr_settings', 0);
+																	}
+																);
+															</script>
 														</td>
 													</tr>
 												</table>

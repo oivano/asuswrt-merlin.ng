@@ -74,7 +74,6 @@
 <script language="JavaScript" type="text/javascript" src="/popup.js"></script>
 <script language="JavaScript" type="text/javascript" src="/validator.js"></script>
 <script type="text/javascript" src="/js/jquery.js"></script>
-<script type="text/javascript" src="/switcherplugin/jquery.iphone-switch.js"></script>
 <script type="text/javascript" language="JavaScript" src="/js/table/table.js"></script>
 <script type="text/javascript" src="/js/httpApi.js"></script>
 <script>
@@ -1647,12 +1646,12 @@ function remain_origins(){
 			  						</thead>
 			  						
 										<tr id="wans_mode_enable_tr">
-										<th><#dualwan_enable#></th>
+										<th id="dualwan_enable_label"><#dualwan_enable#></th>
 											<td>
-												<div class="left" style="width:94px; float:left; cursor:pointer;" id="ad_radio_dualwan_enable"></div>
+												<button type="button" class="css_switch" id="ad_radio_dualwan_enable" role="switch" aria-labelledby="dualwan_enable_label" aria-checked="false"></button>
 												<div class="iphone_switch_container" style="height:32px; width:74px; position: relative; overflow: hidden">
 												<script type="text/javascript">
-													$('#ad_radio_dualwan_enable').iphoneSwitch(wans_dualwan_array[1] != 'none',
+													init_css_switch("ad_radio_dualwan_enable", wans_dualwan_array[1] != 'none',
 														function() {
 															if(wan_bonding_support && orig_bond_wan == "1"){
 																var msg = "<#WANAggregation_disable_WANAggregation#>";
@@ -1661,7 +1660,6 @@ function remain_origins(){
 																	document.form.bond_wan.value = "0";
 																}
 																else{
-																	$('#ad_radio_dualwan_enable').find('.iphone_switch').animate({backgroundPosition: "-38px"}, "slow");
 																	return false;
 																}
 															}
@@ -1690,7 +1688,6 @@ function remain_origins(){
 
 																if(!confirm(confirm_str)){
 																	curState = "1";
-																	$('#ad_radio_dualwan_enable').find('.iphone_switch').animate({backgroundPosition: 0}, "slow");
 																	return false;
 																}
 																else{

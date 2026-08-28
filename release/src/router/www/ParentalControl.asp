@@ -23,7 +23,6 @@
 <script type="text/javascript" src="/validator.js"></script>
 <script type="text/javascript" src="/js/jquery.js"></script>
 <script type="text/javascript" src="/calendar/jquery-ui.js"></script> 
-<script type="text/javascript" src="/switcherplugin/jquery.iphone-switch.js"></script>
 <script type="text/javascript" src="/js/httpApi.js"></script>
 <style>
   #selectable .ui-selecting { background: #FECA40; }
@@ -1016,12 +1015,12 @@ function show_inner_tab(){
 				<div style="font-size:14px;margin-left:6px;margin-bottom:6px;"><#Block_All_Device_Desc#></div>
 				<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3" class="FormTable">
 					<tr>
-						<th><#Block_All_Device#></th>
+						<th id="block_all_label"><#Block_All_Device#></th>
 						<td>
-							<div align="center" class="left" style="width:94px; float:left; cursor:pointer;" id="radio_block_all"></div>
+							<button type="button" class="css_switch" id="radio_block_all" role="switch" aria-labelledby="block_all_label" aria-checked="false"></button>
 							<div class="iphone_switch_container" style="height:32px; width:74px; position: relative; overflow: hidden">
 								<script type="text/javascript">
-									$('#radio_block_all').iphoneSwitch('<% nvram_get("MULTIFILTER_BLOCK_ALL"); %>',
+									init_css_switch("radio_block_all", '<% nvram_get("MULTIFILTER_BLOCK_ALL"); %>' == "1",
 										function(){
 											httpApi.nvramSet({
 												"action_mode": "apply",
@@ -1077,12 +1076,12 @@ function show_inner_tab(){
 			<div id="edit_time_anchor"></div>
 			<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable">
 				<tr>
-					<th id="PC_enable"><#ParentalCtrl_Enable#></th>
+						<th id="PC_enable"><#ParentalCtrl_Enable#></th>
 					<td>
-						<div align="center" class="left" style="width:94px; float:left; cursor:pointer;" id="radio_ParentControl_enable"></div>
+						<button type="button" class="css_switch" id="radio_ParentControl_enable" role="switch" aria-labelledby="PC_enable" aria-checked="false"></button>
 						<div class="iphone_switch_container" style="height:32px; width:74px; position: relative; overflow: hidden">
 							<script type="text/javascript">
-								$('#radio_ParentControl_enable').iphoneSwitch('<% nvram_get("MULTIFILTER_ALL"); %>',
+								init_css_switch("radio_ParentControl_enable", '<% nvram_get("MULTIFILTER_ALL"); %>' == "1",
 									function(){
 											document.form.MULTIFILTER_ALL.value = 1;
 											showhide("list_table",1);	

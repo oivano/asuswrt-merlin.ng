@@ -19,7 +19,6 @@
 <script language="JavaScript" type="text/javascript" src="/validator.js"></script>
 <script language="JavaScript" type="text/javascript" src="/client_function.js"></script>
 <script language="JavaScript" type="text/javascript" src="/js/jquery.js"></script>
-<script language="JavaScript" type="text/javascript" src="/switcherplugin/jquery.iphone-switch.js"></script>
 <script language="JavaScript" type="text/javascript" src="/js/httpApi.js"></script>
 <style type="text/css">
 .contentM_qis{
@@ -95,6 +94,42 @@
 	width: 40px;
 	height: 27px;
 	background-size: 50%;
+}
+.icon_switch{
+	-webkit-appearance:none;
+	appearance:none;
+	border:0;
+	padding:0;
+	border-radius:10px;
+	width:40px;
+	height:20px;
+	position:relative;
+	background:#808080;
+	cursor:pointer;
+	vertical-align:middle;
+	transition:background-color .2s ease;
+}
+.icon_switch.on{
+	background:#1ea2ff;
+}
+.icon_switch:before{
+	content:"";
+	display:block;
+	position:absolute;
+	left:4px;
+	top:4px;
+	width:12px;
+	height:12px;
+	border-radius:50%;
+	background:#f7f7f7;
+	transition:transform .2s ease;
+}
+.icon_switch.on:before{
+	transform:translateX(20px);
+}
+.icon_switch:focus-visible{
+	outline:2px solid #fff;
+	outline-offset:3px;
 }
 </style>
 <script>
@@ -181,10 +216,36 @@ var digestsarray = [
 
 var clientlist_array = "<% nvram_char_to_ascii("", "vpndirector_rulelist"); %>";
 
+function setClientServiceSwitch(enabled){
+	var service_switch = document.getElementById("radio_service_enable");
+	if(enabled)
+		service_switch.classList.add("on");
+	else
+		service_switch.classList.remove("on");
+	service_switch.setAttribute("aria-checked", enabled ? "true" : "false");
+}
+
+function toggleClientService(){
+	var was_enabled = document.getElementById("radio_service_enable").classList.contains("on");
+	var enable = !was_enabled;
+	setClientServiceSwitch(enable);
+	document.form.action_script.value = (enable ? "start_vpnclient" : "stop_vpnclient") + openvpn_unit;
+	document.form.action_wait.value = 10;
+
+	if(applyRule(1) === false){
+		setClientServiceSwitch(was_enabled);
+		return false;
+	}
+
+	parent.showLoading();
+	return true;
+}
+
 
 function initial()
 {
 	show_menu();
+	setClientServiceSwitch(client_state > 0);
 
 	if(vpnc_support || ipsec_cli_support) {
 		var vpn_client_array = {"OpenVPN" : ["OpenVPN", "Advanced_OpenVPNClient_Content.asp"], "IPSec" : ["IPSec", "Advanced_VPNClient_Content.asp"], "OpenConnect" : ["OpenConnect", "Advanced_OpenConnect_Content.asp"]};
@@ -956,38 +1017,9 @@ function refreshVPNIP() {
 						</td>
 					</tr>
 					<tr id="service_enable_button">
-						<th>Service state</th>
+						<th id="client_service_label">Service state</th>
 						<td>
-							<div class="left" style="width:94px; float:left; cursor:pointer;" id="radio_service_enable"></div>
-							<script type="text/javascript">
-
-								$('#radio_service_enable').iphoneSwitch((client_state > 0),
-									 function() {
-										document.form.action_script.value = "start_vpnclient" + openvpn_unit;
-										document.form.action_wait.value = 10;
-										if (applyRule(1) == false) {
-											$('#iphone_switch').animate({backgroundPosition: -37}, "slow", function() {});
-											curState = 0;
-											return false;
-										} else {
-											parent.showLoading();
-											return true;
-										}
-									 },
-									 function() {
-										document.form.action_script.value = "stop_vpnclient" + openvpn_unit;
-										document.form.action_wait.value = 10;
-										if (applyRule(1)) {
-											parent.showLoading();
-											return true;
-										} else
-											return false;
-									 },
-									 {
-										switch_on_container_path: '/switcherplugin/iphone_switch_container_off.png'
-									 }
-								);
-							</script>
+							<button type="button" class="icon_switch" id="radio_service_enable" role="switch" aria-labelledby="client_service_label" aria-checked="false" onclick="toggleClientService();"></button>
 							<div style="height:30px;line-height:30px;" id="vpn_state_msg"></div>
 					    </td>
 					</tr>

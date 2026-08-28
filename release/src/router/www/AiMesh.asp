@@ -14,6 +14,7 @@
 <link rel="stylesheet" type="text/css" href="/device-map/device-map.css" />
 <link rel="stylesheet" type="text/css" href="/aimesh/aimesh_topology.css" />
 <script type="text/javascript" src="/js/jquery.js"></script>
+<script type="text/javascript" src="/general.js"></script>
 <script type="text/javascript" src="/calendar/jquery-ui.js"></script>
 <script type="text/javascript" src="/js/jstree/jstree.min.js"></script>
 <script type="text/javascript" src="/js/jstree/jstree_customize.js"></script>

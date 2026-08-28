@@ -16,7 +16,6 @@
 <script type="text/javascript" src="/help.js"></script>
 <script type="text/javascript" src="/popup.js"></script>
 <script type="text/javascript" src="/js/jquery.js"></script>
-<script type="text/javascript" src="/switcherplugin/jquery.iphone-switch.js"></script>
 <script><% wl_get_parameter(); %>
 $(function () {
 	if(amesh_support && (isSwMode("rt") || isSwMode("ap")) && ameshRouter_support) {
@@ -782,7 +781,7 @@ function checkWLReady(){
 
 		<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0"  class="FormTable">
 			<tr>
-			  	<th width="30%"><a class="hintstyle" href="javascript:void(0);" onClick="openHint(13,1);"><#WLANConfig11b_x_WPS_itemname#></a></th>
+			<th id="wps_enable_label" width="30%"><a class="hintstyle" href="javascript:void(0);" onClick="openHint(13,1);"><#WLANConfig11b_x_WPS_itemname#></a></th>
 			  	<td>
 			    	<div id="wps_enable_block" style="display:none;">
 			    		<span style="color:#FFF;" id="wps_enable_word">&nbsp;&nbsp;</span>
@@ -790,10 +789,10 @@ function checkWLReady(){
 			    		<br>
 			    	</div>
 						
-			    	<div class="left" style="width: 94px;" id="radio_wps_enable"></div>
+					<button type="button" class="css_switch" id="radio_wps_enable" role="switch" aria-labelledby="wps_enable_label" aria-checked="false"></button>
 						<div class="clear"></div>					
 						<script type="text/javascript">
-							$('#radio_wps_enable').iphoneSwitch('<% nvram_get("wps_enable"); %>', 
+							init_css_switch("radio_wps_enable", '<% nvram_get("wps_enable"); %>' == "1",
 								 function() {
 									if(wl_ssid_closed == 1){
 										alert(band_string + " : <#note_hide_SSID_WPS#>");

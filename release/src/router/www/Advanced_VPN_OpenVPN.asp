@@ -18,9 +18,8 @@
 <script language="JavaScript" type="text/javascript" src="/general.js"></script>
 <script language="JavaScript" type="text/javascript" src="/popup.js"></script>
 <script language="JavaScript" type="text/javascript" src="/validator.js"></script>
-<script type="text/javascript" src="/js/jquery.js"></script>
-<script type="text/javascript" src="/switcherplugin/jquery.iphone-switch.js"></script>
 <script language="JavaScript" type="text/javascript" src="/form.js"></script>
+<script type="text/javascript" src="/js/jquery.js"></script>
 <script type="text/javascript" src="/js/httpApi.js"></script>
 <style type="text/css">
 .contentM_qis{
@@ -75,6 +74,55 @@
         background-position: 50%;
         display: none;
 }
+.clientKeyPanel{
+	width:600px;
+	margin-top:400px;
+	margin-left:380px;
+	position:absolute;
+	border-radius: 5px;
+	z-index:200;
+	background-color:#2B373B;
+	box-shadow: 3px 3px 10px #000;
+	display:none;
+}
+.icon_switch {
+	-webkit-appearance: none;
+	appearance: none;
+	border: 0;
+	padding: 0;
+	border-radius: 10px;
+	width: 40px;
+	height: 20px;
+	position: relative;
+	background: #808080;
+	cursor: pointer;
+	vertical-align: middle;
+	transition: background-color .2s ease;
+}
+
+.icon_switch.on {
+	background: #1ea2ff;
+}
+.icon_switch:before {
+	content: "";
+	display: block;
+	position: absolute;
+	left: 4px;
+	top: 4px;
+	width: 12px;
+	height: 12px;
+	border-radius: 50%;
+	background: #f7f7f7;
+	transition: transform .2s ease;
+}
+.icon_switch.on:before {
+	transform: translateX(20px);
+}
+.icon_switch:focus-visible {
+	outline: 2px solid #fff;
+	outline-offset: 3px;
+}
+
 </style>
 <script>
 window.onresize = function() {
@@ -148,6 +196,23 @@ var faq_href_iPhone = "https://nw-dlcdnet.asus.com/support/forward.html?model=&t
 var faq_href_android = "https://nw-dlcdnet.asus.com/support/forward.html?model=&type=Faq&lang="+ui_lang+"&kw=&num=122";
 var faq_href_port_forwarding = "https://nw-dlcdnet.asus.com/support/forward.html?model=&type=Faq&lang="+ui_lang+"&kw=&num=118";
 
+function setOpenVPNServerSwitch(enabled){
+	var server_switch = document.getElementById("radio_VPNServer_enable");
+	if(enabled)
+		server_switch.classList.add("on");
+	else
+		server_switch.classList.remove("on");
+	server_switch.setAttribute("aria-checked", enabled ? "true" : "false");
+}
+
+function toggleOpenVPNServer(){
+	var enable = !document.getElementById("radio_VPNServer_enable").classList.contains("on");
+	setOpenVPNServerSwitch(enable);
+	enable_openvpn(enable ? 1 : 0);
+	document.form.VPNServer_enable.value = enable ? "1" : "0";
+	formShowAndHide(enable ? 1 : 0, "openvpn");
+}
+
 function initial(){
 	var current_server_igncrt = "<% nvram_get("vpn_server_igncrt"); %>";
 	var currentcipher = "<% nvram_get("vpn_server_cipher"); %>";
@@ -182,6 +247,7 @@ function initial(){
 
 	// We don't use the global switch, so set it to current instance state instead
 	document.form.VPNServer_enable.value = vpn_server_enable;
+	setOpenVPNServerSwitch(vpn_server_enable == "1");
 
 	updateCRTValue();
 	enable_server_igncrt(current_server_igncrt);
@@ -1550,23 +1616,9 @@ function handle_ipv6_submit_settings(){
 											</td>
 										</tr>
 										<tr>
-											<th><#vpn_openvpn_enable#></th>
+											<th id="vpn_server_enable_label"><#vpn_openvpn_enable#></th>
 											<td>
-												<div align="center" class="left" style="width:94px; float:left; cursor:pointer;" id="radio_VPNServer_enable"></div>												
-												<script type="text/javascript">													
-													$('#radio_VPNServer_enable').iphoneSwitch(vpn_server_enable,
-													function(){
-														enable_openvpn(1);
-														document.form.VPNServer_enable.value = "1";
-														formShowAndHide(1, "openvpn");
-													},
-													function(){
-														enable_openvpn(0);
-														document.form.VPNServer_enable.value = "0";
-														formShowAndHide(0, "openvpn");
-													}
-													);
-												</script>
+												<button type="button" class="icon_switch" id="radio_VPNServer_enable" role="switch" aria-labelledby="vpn_server_enable_label" aria-checked="false" onclick="toggleOpenVPNServer();"></button>
 											</td>
 										</tr>
 										<tr id="trVPNServerMode">
@@ -1705,33 +1757,6 @@ function handle_ipv6_submit_settings(){
 												<td colspan="2"><#menu5#></td>
 											</tr>
 											</thead>
-											<tr style="display:none;">
-												<th>Service state</th>
-												<td>
-													<div class="left" style="width:94px; float:left; cursor:pointer;" id="radio_service_enable"></div>
-													<script type="text/javascript">
-														if (openvpn_unit == '1')
-															var service_state_advanced = (<% sysinfo("pid.vpnserver1"); %> > 0);
-														else if (openvpn_unit == '2')
-															var service_state_advanced = (<% sysinfo("pid.vpnserver2"); %> > 0);
-														else
-															var service_state_advanced = false;
-															
-														$('#radio_service_enable').iphoneSwitch(service_state_advanced,
-															function() {
-																document.form.action_script.value = "start_vpnserver"+openvpn_unit;
-																parent.showLoading();
-																document.form.submit();
-															},
-															function() {
-																document.form.action_script.value = "stop_vpnserver"+openvpn_unit;
-																parent.showLoading();
-																document.form.submit();
-															}
-														);
-													</script>
-												</td>
-											</tr>
 											<tr>
 												<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(32,4);"><#vpn_openvpn_interface#></a></th>
 												<td>

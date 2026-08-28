@@ -16,7 +16,7 @@
 <script type="text/javascript" src="/popup.js"></script>
 <script type="text/javascript" src="/help.js"></script>
 <script type="text/javascript" src="/js/jquery.js"></script>
-<script type="text/javascript" src="/switcherplugin/jquery.iphone-switch.js"></script>
+<script type="text/javascript" src="/general.js"></script>
 <script type="text/javascript" src="/disk_functions.js"></script>
 <style type="text/css">
 /* folder tree */
@@ -681,12 +681,12 @@ function check_dir_path(){
 
 								<table class="FormTable" width="100%" cellspacing="1">
 									<tr>
-									<th>Enable NFSD</th>
+									<th id="nfsd_enable_label">Enable NFSD</th>
 										<td>
-											<div class="left" style="width:94px; position:relative; left:3%;" id="radio_nfsd_enable"></div>
+										<button type="button" class="css_switch" id="radio_nfsd_enable" role="switch" aria-labelledby="nfsd_enable_label" aria-checked="false"></button>
 											<div class="clear"></div>
 											<script type="text/javascript">
-												$('#radio_nfsd_enable').iphoneSwitch('<% nvram_get("nfsd_enable"); %>',
+											init_css_switch("radio_nfsd_enable", '<% nvram_get("nfsd_enable"); %>' == "1",
 													 function() {
 														submit_server(0);
 													 },
