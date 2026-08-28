@@ -21,7 +21,6 @@
 <script type="text/javascript" src="/client_function.js"></script>
 <script type="text/javascript" src="/js/jquery.js"></script>
 <script type="text/javascript" src="/validator.js"></script>
-<script type="text/javascript" src="/switcherplugin/jquery.iphone-switch.js"></script>
 <script>
 
 <% login_state_hook(); %>
@@ -462,12 +461,11 @@ function showhide_settings(state) {
 			<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable">
 				<thead><tr><td colspan="3">Settings</td></tr></thead>
 				<tr>
-					<th>Enable DNS Director</th>
+					<th id="dnsfilter_enable_label">Enable DNS Director</th>
 					<td>
-						<div align="center" class="left" style="width:94px; float:left; cursor:pointer;" id="radio_dnsfilter_enable"></div>
-						<div class="iphone_switch_container" style="height:32px; width:74px; position: relative; overflow: hidden">
+						<button type="button" class="css_switch" id="radio_dnsfilter_enable" role="switch" aria-labelledby="dnsfilter_enable_label" aria-checked="false"></button>
 							<script type="text/javascript">
-								$('#radio_dnsfilter_enable').iphoneSwitch(document.form.dnsfilter_enable_x.value,
+								init_css_switch("radio_dnsfilter_enable", document.form.dnsfilter_enable_x.value == "1",
 									function(){
 										document.form.dnsfilter_enable_x.value = 1;
 										showhide_settings(1);
@@ -475,12 +473,8 @@ function showhide_settings(state) {
 									function(){
 										document.form.dnsfilter_enable_x.value = 0;
 										showhide_settings(0);
-									},
-										{
-											switch_on_container_path: '/switcherplugin/iphone_switch_container_off.png'
 									});
 							</script>
-						</div>
 					</td>
 				</tr>
 				<tr id="dnsfilter_mode_tr">

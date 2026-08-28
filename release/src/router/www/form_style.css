@@ -56,6 +56,43 @@
 	padding:20px 0 0 50px; /* Control the position of product name */
 }
 
+.css_switch {
+	-webkit-appearance: none;
+	appearance: none;
+	border: 0;
+	padding: 0;
+	border-radius: 10px;
+	width: 40px;
+	height: 20px;
+	position: relative;
+	background: #808080;
+	cursor: pointer;
+	vertical-align: middle;
+	transition: background-color .2s ease;
+}
+.css_switch.on {
+	background: #1ea2ff;
+}
+.css_switch:before {
+	content: "";
+	display: block;
+	position: absolute;
+	left: 4px;
+	top: 4px;
+	width: 12px;
+	height: 12px;
+	border-radius: 50%;
+	background: #f7f7f7;
+	transition: transform .2s ease;
+}
+.css_switch.on:before {
+	transform: translateX(20px);
+}
+.css_switch:focus-visible {
+	outline: 2px solid #fff;
+	outline-offset: 3px;
+}
+
 /*=================Form Style===================*/
 .FormTitle{
 	line-height:160%;

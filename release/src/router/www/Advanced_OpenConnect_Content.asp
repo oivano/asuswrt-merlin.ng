@@ -22,7 +22,6 @@
 	<script type="text/javascript" src="/help.js"></script>
 	<script type="text/javascript" src="/js/jquery.js"></script>
 	<script type="text/javascript" src="/validator.js"></script>
-	<script type="text/javascript" src="/switcherplugin/jquery.iphone-switch.js"></script>
 	<script language="JavaScript" type="text/javascript" src="/client_function.js"></script>
 	<script language="JavaScript" type="text/javascript" src="/js/httpApi.js"></script>
 
@@ -43,6 +42,47 @@
 			width: 740px;
 			box-shadow: 3px 3px 10px #000;
 			display: none;
+		}
+
+		.icon_switch {
+			-webkit-appearance: none;
+			appearance: none;
+			border: 0;
+			padding: 0;
+			border-radius: 10px;
+			width: 40px;
+			height: 20px;
+			position: relative;
+			background: #808080;
+			cursor: pointer;
+			vertical-align: middle;
+			transition: background-color .2s ease;
+		}
+
+		.icon_switch.on {
+			background: #1ea2ff;
+		}
+
+		.icon_switch:before {
+			content: "";
+			display: block;
+			position: absolute;
+			left: 4px;
+			top: 4px;
+			width: 12px;
+			height: 12px;
+			border-radius: 50%;
+			background: #f7f7f7;
+			transition: transform .2s ease;
+		}
+
+		.icon_switch.on:before {
+			transform: translateX(20px);
+		}
+
+		.icon_switch:focus-visible {
+			outline: 2px solid #fff;
+			outline-offset: 3px;
 		}
 	</style>
 
@@ -72,8 +112,34 @@
 			["fortinet", "Fortinet"]
 		];
 
+		function setOpenConnectServiceSwitch(enabled) {
+			var service_switch = document.getElementById("radio_openconnect_enable");
+			if (enabled)
+				service_switch.classList.add("on");
+			else
+				service_switch.classList.remove("on");
+			service_switch.setAttribute("aria-checked", enabled ? "true" : "false");
+		}
+
+		function toggleOpenConnectService() {
+			var was_enabled = document.getElementById("radio_openconnect_enable").classList.contains("on");
+			var enable = !was_enabled;
+			setOpenConnectServiceSwitch(enable);
+			document.form.action_script.value = (enable ? "start_openconnect_client" : "stop_openconnect_client") + openconnect_client_unit;
+			document.form.action_wait.value = 10;
+
+			if (applyRule(1) === false) {
+				setOpenConnectServiceSwitch(was_enabled);
+				return false;
+			}
+
+			parent.showLoading();
+			return true;
+		}
+
 		function initial() {
 			show_menu();
+			setOpenConnectServiceSwitch(client_state > 0);
 
 			if (openvpnd_support || vpnc_support || ipsec_cli_support) {
 				var vpn_client_array = { "OpenVPN": ["OpenVPN", "Advanced_OpenVPNClient_Content.asp"], "IPSec": ["IPSec", "Advanced_VPNClient_Content.asp"], "OpenConnect": ["OpenConnect", "Advanced_OpenConnect_Content.asp"] };
@@ -86,32 +152,6 @@
 			// Initialize protocol dropdown
 			add_protocol_options();
 
-			// Initialize service state switch
-			$('#radio_openconnect_enable').iphoneSwitch((client_state > 0),
-				function () {
-					document.form.action_script.value = "start_openconnect_client" + openconnect_client_unit;
-					document.form.action_wait.value = 10;
-					if (applyRule(1) == false) {
-						$('#iphone_switch').animate({ backgroundPosition: -37 }, "slow", function () { });
-						return false;
-					} else {
-						parent.showLoading();
-						return true;
-					}
-				},
-				function () {
-					document.form.action_script.value = "stop_openconnect_client" + openconnect_client_unit;
-					document.form.action_wait.value = 10;
-					if (applyRule(1)) {
-						parent.showLoading();
-						return true;
-					} else
-						return false;
-				},
-				{
-					switch_on_container_path: '/switcherplugin/iphone_switch_container_off.png'
-				}
-			);
 		}
 
 		function add_protocol_options() {
@@ -509,11 +549,9 @@
 													</thead>
 
 													<tr>
-														<th>Service state</th>
+														<th id="openconnect_service_label">Service state</th>
 														<td>
-															<div class="left"
-																style="width:94px; float:left; cursor:pointer;"
-																id="radio_openconnect_enable"></div>
+															<button type="button" class="icon_switch" id="radio_openconnect_enable" role="switch" aria-labelledby="openconnect_service_label" aria-checked="false" onclick="toggleOpenConnectService();"></button>
 														</td>
 													</tr>
 

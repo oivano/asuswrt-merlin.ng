@@ -1704,6 +1704,32 @@ function wl_auth_mode_change(isload){
 	wl_wep_change();
 }
 
+function init_css_switch(id, enabled, on_enable, on_disable)
+{
+	var switch_element = document.getElementById(id);
+	if (!switch_element)
+		return;
+
+	var set_state = function(state) {
+		if (state)
+			switch_element.classList.add("on");
+		else
+			switch_element.classList.remove("on");
+		switch_element.setAttribute("aria-checked", state ? "true" : "false");
+	};
+	var initial_state = (enabled === true || enabled === 1 || enabled === "1");
+	set_state(initial_state);
+
+	switch_element.onclick = function() {
+		var current_state = (switch_element.getAttribute("aria-checked") == "true");
+		var next_state = !current_state;
+		set_state(next_state);
+		var callback = next_state ? on_enable : on_disable;
+		if (callback && callback() === false)
+			set_state(current_state);
+	};
+}
+
 function showhide(element, sh)
 {
 	var status;

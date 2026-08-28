@@ -21,7 +21,6 @@
 <script language="JavaScript" type="text/javascript" src="/form.js"></script>
 <script type="text/javascript" language="JavaScript" src="/js/jquery.js"></script>
 <script type="text/javascript" src="/js/httpApi.js"></script>
-<script type="text/javascript" src="/switcherplugin/jquery.iphone-switch.js"></script>
 <style type="text/css">
 .contentM_qis{
 	position:absolute;
@@ -858,11 +857,11 @@ function cancelProfile() {
 										</tr>
 									</thead>
 									<tr>
-										<th><#IPConnection_VServerEnable_itemname#><input type="hidden" name="vts_num_x_0" value="<% nvram_get("vts_num_x"); %>" readonly="1" /></th>
+										<th id="vts_enable_label"><#IPConnection_VServerEnable_itemname#><input type="hidden" name="vts_num_x_0" value="<% nvram_get("vts_num_x"); %>" readonly="1" /></th>
 										<td>
-											<div align="center" class="left" style="width:94px; float:left; cursor:pointer;" id="radio_VTS_enable"></div>
+											<button type="button" class="css_switch" id="radio_VTS_enable" role="switch" aria-labelledby="vts_enable_label" aria-checked="false"></button>
 											<script type="text/javascript">
-												$('#radio_VTS_enable').iphoneSwitch('<% nvram_get("vts_enable_x"); %>',
+												init_css_switch("radio_VTS_enable", '<% nvram_get("vts_enable_x"); %>' == "1",
 													function(){
 														applyRule(1);
 													},

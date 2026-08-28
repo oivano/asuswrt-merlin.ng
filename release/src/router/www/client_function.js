@@ -682,24 +682,24 @@ function popClientListEditTable(event) {
 		code += '<div class="clientList_line"></div>';
 		code += '<div style="height:33px;width:100%;margin:5px 0;">';
 		code += '<div style="width:65%;float:left;line-height:33px;">';
-		code += "<span onmouseover='return overlib(\"" + htmlEnDeCode.htmlEncode(block_internet_hint) +"\");' onmouseout='return nd();'><#Clientlist_block_internet#></span>";
+		code += "<span id='card_block_internet_title' onmouseover='return overlib(\"" + htmlEnDeCode.htmlEncode(block_internet_hint) +"\");' onmouseout='return nd();'><#Clientlist_block_internet#></span>";
 		code += '</div>';
-		code += '<div class="left" style="cursor:pointer;float:right;" id="card_radio_BlockInternet_enable"></div>';
+		code += '<button type="button" class="css_switch" style="float:right;" id="card_radio_BlockInternet_enable" role="switch" aria-labelledby="card_block_internet_title" aria-checked="false"></button>';
 		code += '</div>';
 		code += '<div class="clientList_line"></div>';
 		code += '<div style="height:33px;width:100%;margin:5px 0;">';
 		code += '<div style="width:65%;float:left;line-height:33px;">';
-		code += "<span onmouseover='return overlib(\"" + htmlEnDeCode.htmlEncode(time_scheduling_hint) + "\");' onmouseout='return nd();'>" + internetTimeScheduling_title + "</span>";
+		code += "<span id='card_time_scheduling_title' onmouseover='return overlib(\"" + htmlEnDeCode.htmlEncode(time_scheduling_hint) + "\");' onmouseout='return nd();'>" + internetTimeScheduling_title + "</span>";
 		code += '</div>';
-		code += '<div align="center" class="left" style="cursor:pointer;float:right;" id="card_radio_TimeScheduling_enable"></div>';
+		code += '<button type="button" class="css_switch" style="float:right;" id="card_radio_TimeScheduling_enable" role="switch" aria-labelledby="card_time_scheduling_title" aria-checked="false"></button>';
 		code += '<div id="card_internetTimeScheduling" class="internetTimeEdit" style="float:right;margin-right:10px;" title="<#Time_Scheduling#>"></div>';
 		code += '</div>';
 		code += '<div class="clientList_line"></div>';
 		code += '<div style="height:33px;width:100%;margin:5px 0;">';
 		code += '<div style="width:65%;float:left;line-height:33px;">';
-		code += "<span onmouseover='return overlib(\"" + htmlEnDeCode.htmlEncode(ip_binding_hint) +"\");' onmouseout='return nd();'><#Clientlist_IPMAC_Binding#></span>";
+		code += "<span id='card_ip_binding_title' onmouseover='return overlib(\"" + htmlEnDeCode.htmlEncode(ip_binding_hint) +"\");' onmouseout='return nd();'><#Clientlist_IPMAC_Binding#></span>";
 		code += '</div>';
-		code += '<div align="center" class="left" style="cursor:pointer;float:right;" id="card_radio_IPBinding_enable" ></div>';
+		code += '<button type="button" class="css_switch" style="float:right;" id="card_radio_IPBinding_enable" role="switch" aria-labelledby="card_ip_binding_title" aria-checked="false"></button>';
 		code += '</div>';
 		code += '<div class="clientList_line"></div>';
 		code += '</td>';
@@ -922,7 +922,7 @@ function popClientListEditTable(event) {
 		var setRadioControl = function (state, mode, mac) {
 			switch (mode) {
 				case "ipBinding" :
-					$('#edit_client_block #card_radio_IPBinding_enable').iphoneSwitch(state,
+					init_css_switch("card_radio_IPBinding_enable", state,
 						function(){
 							if(card_client_variable.manual_dhcp_list[mac] == undefined) {
 								if(manual_dhcp_list_num == 64) {
@@ -946,7 +946,7 @@ function popClientListEditTable(event) {
 					);
 					break;
 				case "blockInternet" :
-					$('#edit_client_block #card_radio_BlockInternet_enable').iphoneSwitch(state,
+					init_css_switch("card_radio_BlockInternet_enable", state,
 						function(){
 							if(card_client_variable.MULTIFILTER_MAC.search(mac) == -1) {
 								if(client_MULTIFILTER_num == 16) {
@@ -970,7 +970,7 @@ function popClientListEditTable(event) {
 					);
 					break;
 				case "timeScheduling" :
-					$('#edit_client_block #card_radio_TimeScheduling_enable').iphoneSwitch(state,
+					init_css_switch("card_radio_TimeScheduling_enable", state,
 						function(){
 							if(card_client_variable.MULTIFILTER_MAC.search(mac) == -1) {
 								if(client_MULTIFILTER_num == 16) {

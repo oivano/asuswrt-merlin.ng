@@ -145,7 +145,6 @@
 <script language="JavaScript" type="text/javascript" src="/js/jquery.js"></script>
 <script language="JavaScript" type="text/javascript" src="/client_function.js"></script>
 <script language="JavaScript" type="text/javascript" src="/js/httpApi.js"></script>
-<script type="text/javascript" src="/switcherplugin/jquery.iphone-switch.js"></script>
 <script language="JavaScript" type="text/javascript" src="/form.js"></script>
 <script>
 if(usb_support) addNewScript("/disk_functions.js");
@@ -1719,7 +1718,7 @@ function popupEditBlock(clientObj){
 		var setRadioIPBinding = function (state, mode, mac) {
 			switch (mode) {
 				case "ipBinding" :
-					$('#radio_IPBinding_enable').iphoneSwitch(state,
+					init_css_switch("radio_IPBinding_enable", state,
 						function(){
 							if(dhcp_staticlist_orig.search(mac) == -1) {
 								if(dhcp_staticlist_num == 64) {
@@ -1743,7 +1742,7 @@ function popupEditBlock(clientObj){
 					);
 					break;
 				case "blockInternet" :
-					$('#radio_BlockInternet_enable').iphoneSwitch(state,
+					init_css_switch("radio_BlockInternet_enable", state,
 						function(){
 							if(MULTIFILTER_MAC_orig.search(mac) == -1) {
 								if(MULTIFILTER_num == 16) {
@@ -1767,7 +1766,7 @@ function popupEditBlock(clientObj){
 					);
 					break;
 				case "timeScheduling" :
-					$('#radio_TimeScheduling_enable').iphoneSwitch(state,
+					init_css_switch("radio_TimeScheduling_enable", state,
 						function(){
 							if(MULTIFILTER_MAC_orig.search(mac) == -1) {
 								if(MULTIFILTER_num == 16) {
@@ -2446,24 +2445,24 @@ function notice_apply(){
 				<div class="clientList_line"></div>
 				<div style="height:32px;width:100%;margin:5px 0;">
 					<div style="width:65%;float:left;line-height:32px;">
-						<span onmouseover="return overlib('Enable this button to block this device to access internet.');" onmouseout="return nd();"><#Clientlist_block_internet#></span><!--untranslated-->
+						<span id="block_internet_title" onmouseover="return overlib('Enable this button to block this device to access internet.');" onmouseout="return nd();"><#Clientlist_block_internet#></span><!--untranslated-->
 					</div>
-					<div class="left" style="cursor:pointer;float:right;" id="radio_BlockInternet_enable"></div>
+					<button type="button" class="css_switch" style="float:right;" id="radio_BlockInternet_enable" role="switch" aria-labelledby="block_internet_title" aria-checked="false"></button>
 				</div>
 				<div class="clientList_line"></div>
 				<div style="height:32px;width:100%;margin:5px 0;">
 					<div style="width:65%;float:left;line-height:32px;">
 						<span id="time_scheduling_title" onmouseover='return overlib("<#ParentalCtrl_Desc_TS#>");' onmouseout="return nd();"><#Parental_Control#></span><!--untranslated-->
 					</div>
-					<div align="center" class="left" style="cursor:pointer;float:right;" id="radio_TimeScheduling_enable"></div>
+					<button type="button" class="css_switch" style="float:right;" id="radio_TimeScheduling_enable" role="switch" aria-labelledby="time_scheduling_title" aria-checked="false"></button>
 					<div id="internetTimeScheduling" class="internetTimeEdit" style="float:right;margin-right:10px;" title="<#Time_Scheduling#>" onclick="redirectTimeScheduling(document.getElementById('macaddr_field').value);" ></div>
 				</div>
 				<div class="clientList_line"></div>
 				<div style="height:32px;width:100%;margin:5px 0;">
 					<div style="width:65%;float:left;line-height:32px;">
-						<span onmouseover="return overlib('Enable this button to bind specific IP with MAC Address of this device.');" onmouseout="return nd();"><#Clientlist_IPMAC_Binding#></span><!--untranslated-->
+						<span id="ip_binding_title" onmouseover="return overlib('Enable this button to bind specific IP with MAC Address of this device.');" onmouseout="return nd();"><#Clientlist_IPMAC_Binding#></span><!--untranslated-->
 					</div>
-					<div align="center" class="left" style="cursor:pointer;float:right;" id="radio_IPBinding_enable" ></div>
+					<button type="button" class="css_switch" style="float:right;" id="radio_IPBinding_enable" role="switch" aria-labelledby="ip_binding_title" aria-checked="false"></button>
 				</div>
 				<div class="clientList_line"></div>
 			</td>
@@ -2671,10 +2670,9 @@ function notice_apply(){
 						<input type="button" class="button_gen" value="<#View_List#>" style="margin-top:15px;" onClick="pop_clientlist_listview(true)">
 
 						<div id="networkmap_switch" style="display:none">
-							<div align="center" class="left" style="width:94px; cursor:pointer;margin-top:10px" id="networkmap_enable_t"></div>
-							<div class="iphone_switch_container" style="height:32px; width:74px; position: relative; overflow: hidden">
+							<button type="button" class="css_switch" style="margin-top:10px;" id="networkmap_enable_t" role="switch" aria-label="Network Map" aria-checked="false"></button>
 								<script type="text/javascript">
-									$('#networkmap_enable_t').iphoneSwitch('<% nvram_get("networkmap_enable"); %>',
+									init_css_switch("networkmap_enable_t", '<% nvram_get("networkmap_enable"); %>' == "1",
 										function(){
 											document.stopNetworkmapd.networkmap_enable.value = 1;
 											document.stopNetworkmapd.submit()
@@ -2685,7 +2683,6 @@ function notice_apply(){
 										}
 									);
 								</script>			
-							</div>
 						</div>
 
 						<div id="ameshContainer" onclick="showstausframe('AMesh');"></div>

@@ -14,7 +14,6 @@
 <script type="text/javascript" src="/general.js"></script>
 <script type="text/javascript" src="/state.js"></script>
 <script type="text/javascript" src="/js/jquery.js"></script>
-<script type="text/javascript" src="/switcherplugin/jquery.iphone-switch.js"></script>
 <script type="text/javascript" src="/js/httpApi.js"></script>
 <script>
 if(parent.location.pathname.search("index") === -1) top.location.href = "../"+'<% networkmap_page(); %>';
@@ -761,11 +760,11 @@ function manualSetup(){
 </tr>	
 <tr id="wan_enable_button">
     <td height="50" style="padding:10px 15px 0px 15px;">
-    		<p class="formfonttitle_nwm" style="float:left;width:98px;"><#menu5_3_1#></p>
-    		<div class="left" style="width:94px; float:right;" id="radio_wan_enable"></div>
+			<p id="wan_enable_label" class="formfonttitle_nwm" style="float:left;width:98px;"><#menu5_3_1#></p>
+			<button type="button" class="css_switch" style="float:right;" id="radio_wan_enable" role="switch" aria-labelledby="wan_enable_label" aria-checked="false"></button>
 				<div class="clear"></div>
 				<script type="text/javascript">
-						$('#radio_wan_enable').iphoneSwitch(wan_enable_orig,
+						init_css_switch("radio_wan_enable", wan_enable_orig,
 							 function() {
 								document.internetForm.wan_enable.value = "1";
 								if(parent.wans_flag){
@@ -790,11 +789,11 @@ function manualSetup(){
 
 <tr id="dualwan_enable_button">
     <td height="50" style="padding:10px 15px 0px 15px;">
-    		<p class="formfonttitle_nwm" style="float:left;width:98px;"><#dualwan_enable#></p>
-			<div class="left" style="width:94px; float:right;" id="nm_radio_dualwan_enable"></div>
+			<p id="dualwan_enable_label" class="formfonttitle_nwm" style="float:left;width:98px;"><#dualwan_enable#></p>
+			<button type="button" class="css_switch" style="float:right;" id="nm_radio_dualwan_enable" role="switch" aria-labelledby="dualwan_enable_label" aria-checked="false"></button>
 				<div class="clear"></div>
 				<script type="text/javascript">
-						$('#nm_radio_dualwan_enable').iphoneSwitch(parent.wans_flag,
+						init_css_switch("nm_radio_dualwan_enable", parent.wans_flag,
 							 function() {
 								if(wan_bonding_support && orig_bond_wan == "1"){
 									var msg = "Your router is enabling WAN Aggregation. If you want to enable Dual WAN, WAN Aggregation will be disabled. Are you sure you want to continue?";
@@ -815,7 +814,6 @@ function manualSetup(){
 										document.internetForm.action_script.value = "reboot";
 									}
 									else{
-										$('#nm_radio_dualwan_enable').find('.iphone_switch').animate({backgroundPosition: "-38px"}, "slow");
 										return false;
 									}
 								}

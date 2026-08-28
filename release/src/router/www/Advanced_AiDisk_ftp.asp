@@ -19,7 +19,6 @@
 <script type="text/javascript" src="/validator.js"></script>
 <script type="text/javascript" src="/disk_functions.js"></script>
 <script type="text/javascript" src="/js/jquery.js"></script>
-<script type="text/javascript" src="/switcherplugin/jquery.iphone-switch.js"></script>
 <script type="text/javascript" src="/js/httpApi.js"></script>
 <script type="text/javascript">
 <% get_AiDisk_status(); %>
@@ -833,12 +832,12 @@ function secure_check(flag){
 		<td>
 			<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3" class="FormTable">
 				<tr>
-				<th><#enableFTP#></th>
+				<th id="ftp_enable_label"><#enableFTP#></th>
 					<td>
-						<div class="left" style="width:94px; float:left; cursor:pointer;" id="radio_ftp_enable"></div>
+						<button type="button" class="css_switch" id="radio_ftp_enable" role="switch" aria-labelledby="ftp_enable_label" aria-checked="false"></button>
 						<div class="iphone_switch_container" style="height:32px; width:74px; position: relative; overflow: hidden">
 							<script type="text/javascript">
-								$('#radio_ftp_enable').iphoneSwitch(FTP_status, 
+								init_css_switch("radio_ftp_enable", FTP_status == 1,
 									function() {
 										switchAppStatus(PROTOCOL);
 									},
@@ -852,12 +851,12 @@ function secure_check(flag){
 					</td>
 				</tr>										
 				<tr>
-					<th>Enable SFTP</th>
+					<th id="sftp_enable_label">Enable SFTP</th>
 					<td>
-						<div class="left" style="width:94px; float:left; cursor:pointer;" id="radio_sftp_enable"></div>
+						<button type="button" class="css_switch" id="radio_sftp_enable" role="switch" aria-labelledby="sftp_enable_label" aria-checked="false"></button>
 						<div class="iphone_switch_container" style="height:32px; width:74px; position: relative; overflow: hidden">
 							<script type="text/javascript">
-								$('#radio_sftp_enable').iphoneSwitch(SFTP_status,
+								init_css_switch("radio_sftp_enable", SFTP_status == 1,
 									function() {
 										switchSftpStatus(1);
 									},
@@ -870,20 +869,17 @@ function secure_check(flag){
 					</td>
 				</tr>
 				<tr>
-				<th><#enableWANaccess#></th>
+				<th id="ftp_wan_enable_label"><#enableWANaccess#></th>
 					<td>
-						<div class="left" style="width:94px; float:left; cursor:pointer;" id="radio_wan_ftp_enable"></div>
+						<button type="button" class="css_switch" id="radio_wan_ftp_enable" role="switch" aria-labelledby="ftp_wan_enable_label" aria-checked="false"></button>
 						<div class="iphone_switch_container" style="height:32px; width:74px; position: relative; overflow: hidden">
 							<script type="text/javascript">
-								$('#radio_wan_ftp_enable').iphoneSwitch(FTP_WAN_status,
+								init_css_switch("radio_wan_ftp_enable", FTP_WAN_status == 1,
 									function() {
 										switchWanStatus(1);
 									},
 									function() {
 										switchWanStatus(0);
-									},
-									{
-										switch_on_container_path: '/switcherplugin/iphone_switch_container_off.png'
 									}
 								);
 							</script>
@@ -892,12 +888,12 @@ function secure_check(flag){
 				</tr>
 
 				<tr id="radio_anonymous_enable_tr" style="height: 60px;">
-				<th><#AiDisk_Anonymous_Login#></th>
+				<th id="ftp_anonymous_label"><#AiDisk_Anonymous_Login#></th>
 					<td>
-						<div class="left" style="margin-top:5px;width:94px; float:left; cursor:pointer;" id="radio_anonymous_enable"></div>
+						<button type="button" class="css_switch" style="margin-top:5px;" id="radio_anonymous_enable" role="switch" aria-labelledby="ftp_anonymous_label" aria-checked="false"></button>
 						<div class="iphone_switch_container" style="display: table-cell;vertical-align: middle;height:45px; position: relative; overflow: hidden">
 							<script type="text/javascript">
-								$('#radio_anonymous_enable').iphoneSwitch(!get_manage_type(PROTOCOL), 
+								init_css_switch("radio_anonymous_enable", !get_manage_type(PROTOCOL),
 									function() {
 										if(ftp_ssl_support && ftp_tls_orig=="1"){
 											alert("<#usb_tls_conflict#>");

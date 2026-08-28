@@ -20,7 +20,6 @@
 <script type="text/javascript" src="js/jquery.js"></script>
 <script language="JavaScript" type="text/javascript" src="form.js"></script>
 <script language="JavaScript" type="text/javascript" src="validator.js"></script>
-<script language="JavaScript" type="text/javascript" src="switcherplugin/jquery.iphone-switch.js"></script>
 <script type="text/javascript" src="/js/httpApi.js"></script>
 <style type="text/css">
 .ipsec_view_log_panel {
@@ -950,21 +949,17 @@ function export_cert(_mode) {
 										</tr>
 										</thead>
 										<tr>
-											<th><#vpn_ipsec_enable#></th>
+											<th id="ipsec_server_enable_label"><#vpn_ipsec_enable#></th>
 											<td>
-												<div align="center" class="left" style="float:left;cursor:pointer;" id="radio_ipsec_enable"></div>
-												<div class="iphone_switch_container" style="height:32px; width:74px; position: relative; overflow: hidden;"></div>
+												<button type="button" class="css_switch" id="radio_ipsec_enable" role="switch" aria-labelledby="ipsec_server_enable_label" aria-checked="false"></button>
 												<script type="text/javascript">
-												$('#radio_ipsec_enable').iphoneSwitch('<% nvram_get("ipsec_server_enable"); %>',
+												init_css_switch("radio_ipsec_enable", '<% nvram_get("ipsec_server_enable"); %>' == "1",
 													function() {
 														ipsecShowAndHide(1);
 													},
 													function() {
-														ipsecShowAndHide(0);
-													},
-													{
-														switch_on_container_path: '/switcherplugin/iphone_switch_container_off.png'
-													}
+													ipsecShowAndHide(0);
+												}
 												);
 											</script>
 											</td>
