@@ -55,6 +55,9 @@
 #define DEFAULT_MIN_RESTART	60
 #define DEFAULT_MAX_RESTART	600
 
+/* give up re-signaling an unreapable child after this many attempts */
+#define MAX_KILL_ATTEMPTS	15
+
 #define DEFAULT_RESTART_CMD	WATCHFRR_SH_PATH " restart %s"
 #define DEFAULT_START_CMD	WATCHFRR_SH_PATH " start %s"
 #define DEFAULT_STOP_CMD	WATCHFRR_SH_PATH " stop %s"
@@ -355,6 +358,25 @@ static int restart_kill(struct thread *t_kill)
 	struct restart_info *restart = THREAD_ARG(t_kill);
 	struct timeval delay;
 
+	restart->t_kill = NULL;
+
+	/* pid 0/1 would turn kill(-pid, ...) into a broadcast to our own
+	 * process group or a signal to init -- never act on that. */
+	if (restart->pid <= 1) {
+		flog_err(EC_WATCHFRR_CONNECTION,
+			 "%s %s has invalid pid %d, not signaling",
+			 restart->what, restart->name, (int)restart->pid);
+		return 0;
+	}
+
+	if (restart->kills >= MAX_KILL_ATTEMPTS) {
+		flog_err(EC_WATCHFRR_CONNECTION,
+			 "%s %s child process %d still unreaped after %d kill attempts, giving up",
+			 restart->what, restart->name, (int)restart->pid,
+			 restart->kills);
+		return 0;
+	}
+
 	time_elapsed(&delay, &restart->time);
 	zlog_warn(
 		"%s %s child process %d still running after %ld seconds, sending signal %d",
@@ -362,7 +384,6 @@ static int restart_kill(struct thread *t_kill)
 		(long)delay.tv_sec, (restart->kills ? SIGKILL : SIGTERM));
 	kill(-restart->pid, (restart->kills ? SIGKILL : SIGTERM));
 	restart->kills++;
-	restart->t_kill = NULL;
 	thread_add_timer(master, restart_kill, restart, gs.restart_timeout,
 			 &restart->t_kill);
 	return 0;
@@ -390,67 +411,71 @@ static void sigchild(void)
 	struct restart_info *restart;
 	struct daemon *dmn;
 
-	switch (child = waitpid(-1, &status, WNOHANG)) {
-	case -1:
+	/*
+	 * Standard signals are not queued, so a single SIGCHLD can announce
+	 * more than one exited child. Reap every exited child available right
+	 * now instead of just one, otherwise a coalesced SIGCHLD leaves the
+	 * other child(ren) as permanent zombies with no future SIGCHLD to
+	 * trigger reaping them.
+	 */
+	while ((child = waitpid(-1, &status, WNOHANG)) > 0) {
+		if (child == integrated_write_pid) {
+			integrated_write_sigchld(status);
+			continue;
+		}
+
+		if ((restart = find_child(child)) != NULL) {
+			name = restart->name;
+			what = restart->what;
+			restart->pid = 0;
+			gs.numpids--;
+			thread_cancel(&restart->t_kill);
+
+			/* Update restart time to reflect the time the command
+			 * completed. */
+			gettimeofday(&restart->time, NULL);
+		} else {
+			flog_err_sys(
+				EC_LIB_SYSTEM_CALL,
+				"waitpid returned status for an unknown child process %d",
+				(int)child);
+			name = "(unknown)";
+			what = "background";
+		}
+		if (WIFSTOPPED(status))
+			zlog_warn("%s %s process %d is stopped", what, name,
+				  (int)child);
+		else if (WIFSIGNALED(status))
+			zlog_warn("%s %s process %d terminated due to signal %d",
+				  what, name, (int)child, WTERMSIG(status));
+		else if (WIFEXITED(status)) {
+			if (WEXITSTATUS(status) != 0)
+				zlog_warn(
+					"%s %s process %d exited with non-zero status %d",
+					what, name, (int)child, WEXITSTATUS(status));
+			else {
+				zlog_debug("%s %s process %d exited normally",
+					   what, name, (int)child);
+
+				if (restart && restart != &gs.restart) {
+					dmn = container_of(restart, struct daemon,
+							   restart);
+					restart_done(dmn);
+				} else if (restart)
+					for (dmn = gs.daemons; dmn; dmn = dmn->next)
+						restart_done(dmn);
+			}
+		} else
+			flog_err_sys(
+				EC_LIB_SYSTEM_CALL,
+				"cannot interpret %s %s process %d wait status 0x%x",
+				what, name, (int)child, status);
+	}
+
+	if (child == -1 && errno != ECHILD)
 		flog_err_sys(EC_LIB_SYSTEM_CALL, "waitpid failed: %s",
 			     safe_strerror(errno));
-		return;
-	case 0:
-		zlog_warn("SIGCHLD received, but waitpid did not reap a child");
-		return;
-	}
 
-	if (child == integrated_write_pid) {
-		integrated_write_sigchld(status);
-		return;
-	}
-
-	if ((restart = find_child(child)) != NULL) {
-		name = restart->name;
-		what = restart->what;
-		restart->pid = 0;
-		gs.numpids--;
-		thread_cancel(&restart->t_kill);
-
-		/* Update restart time to reflect the time the command
-		 * completed. */
-		gettimeofday(&restart->time, NULL);
-	} else {
-		flog_err_sys(
-			EC_LIB_SYSTEM_CALL,
-			"waitpid returned status for an unknown child process %d",
-			(int)child);
-		name = "(unknown)";
-		what = "background";
-	}
-	if (WIFSTOPPED(status))
-		zlog_warn("%s %s process %d is stopped", what, name,
-			  (int)child);
-	else if (WIFSIGNALED(status))
-		zlog_warn("%s %s process %d terminated due to signal %d", what,
-			  name, (int)child, WTERMSIG(status));
-	else if (WIFEXITED(status)) {
-		if (WEXITSTATUS(status) != 0)
-			zlog_warn(
-				"%s %s process %d exited with non-zero status %d",
-				what, name, (int)child, WEXITSTATUS(status));
-		else {
-			zlog_debug("%s %s process %d exited normally", what,
-				   name, (int)child);
-
-			if (restart && restart != &gs.restart) {
-				dmn = container_of(restart, struct daemon,
-						   restart);
-				restart_done(dmn);
-			} else if (restart)
-				for (dmn = gs.daemons; dmn; dmn = dmn->next)
-					restart_done(dmn);
-		}
-	} else
-		flog_err_sys(
-			EC_LIB_SYSTEM_CALL,
-			"cannot interpret %s %s process %d wait status 0x%x",
-			what, name, (int)child, status);
 	phase_check();
 }
 
