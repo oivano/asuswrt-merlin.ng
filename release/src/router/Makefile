@@ -6048,7 +6048,7 @@ libcap-ng-clean:
 	-$(MAKE) -C libcap-ng clean
 	@rm -f libcap-ng/configure
 
-libcap-ng-install: libcap-ng
+libcap-ng-install:
 	install -D libcap-ng/src/.libs/libcap-ng.so.0.0.0 $(INSTALLDIR)/libcap-ng/usr/lib/libcap-ng.so.0.0.0
 	$(STRIP) $(INSTALLDIR)/libcap-ng/usr/lib/libcap-ng.so.0.0.0
 	cd $(INSTALLDIR)/libcap-ng/usr/lib && ln -sf libcap-ng.so.0.0.0 libcap-ng.so.0 && ln -sf libcap-ng.so.0.0.0 libcap-ng.so
@@ -6378,7 +6378,7 @@ pcre-8.31: pcre-8.31/stamp-h1
 	@$(MAKE) -C pcre-8.31
 	$(MAKE) $@-stage
 
-pcre-8.31-install: pcre-8.31
+pcre-8.31-install:
 	@$(SEP)
 	install -D pcre-8.31/.libs/libpcre.so.1.0.1 $(INSTALLDIR)/pcre-8.31/usr/lib/libpcre.so.1.0.1
 	cd $(INSTALLDIR)/pcre-8.31/usr/lib && ln -sf libpcre.so.1.0.1 libpcre.so.1
@@ -6422,7 +6422,7 @@ pcre2: $(PCRE2_SRC_DIR)/stamp-h1
 pcre2-stage:
 	$(MAKE) -C $(PCRE2_SRC_DIR) install DESTDIR=$(STAGEDIR)
 
-pcre2-install: pcre2
+pcre2-install:
 	ls $(PCRE2_SRC_DIR)/.libs/
 	install -d $(INSTALLDIR)/usr/lib
 	cp -df $(PCRE2_SRC_DIR)/.libs/libpcre2-8.so* $(INSTALLDIR)/usr/lib/
@@ -6476,7 +6476,7 @@ libyang2-stage:
 	@echo ">>> Installing libyang2 into $(STAGEDIR)"
 	$(MAKE) -C libyang2/build install DESTDIR=$(STAGEDIR)
 
-libyang2-install: libyang2
+libyang2-install:
 	@$(SEP)
 	install -d $(INSTALLDIR)/libyang2/usr/lib
 	find libyang2/build -name 'libyang.so*' -type f -exec install -m 755 -t $(INSTALLDIR)/libyang2/usr/lib {} +
@@ -7941,7 +7941,7 @@ ncurses-6.0: ncurses-6.0/Makefile
 ncurses-6.0-clean:
 	[ ! -f ncurses-6.0/Makefile ] || $(MAKE) -C ncurses-6.0 distclean
 
-ncurses-6.0-install: ncurses-6.0
+ncurses-6.0-install:
 	install -D ncurses-6.0/lib/libform.so.6.0 $(INSTALLDIR)/ncurses-6.0/usr/lib/libform.so.6.0
 	install -D ncurses-6.0/lib/libmenu.so.6.0 $(INSTALLDIR)/ncurses-6.0/usr/lib/libmenu.so.6.0
 	install -D ncurses-6.0/lib/libncurses.so.6.0 $(INSTALLDIR)/ncurses-6.0/usr/lib/libncurses.so.6.0
@@ -8142,7 +8142,7 @@ readline-8.1: readline-8.1/Makefile
 readline-8.1-clean:
 	[ ! -f readline-8.1/Makefile ] || $(MAKE) -C readline-8.1 distclean
 
-readline-8.1-install: readline-8.1
+readline-8.1-install:
 	install -D readline-8.1/shlib/libhistory.so.8.1 $(INSTALLDIR)/readline-8.1/usr/lib/libhistory.so.8.1
 	install -D readline-8.1/shlib/libreadline.so.8.1 $(INSTALLDIR)/readline-8.1/usr/lib/libreadline.so.8.1
 	$(STRIP) $(INSTALLDIR)/readline-8.1/usr/lib/libhistory.so.8.1
