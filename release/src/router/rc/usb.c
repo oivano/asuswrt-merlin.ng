@@ -5742,6 +5742,7 @@ void start_nfsd(void)
 	FILE 		*fp;
         char *nv, *nvp, *b, *c;
 	char *dir, *access, *options;
+	int i;
 
 	if (nvram_match("nfsd_enable", "0")) return;
 
@@ -5799,8 +5800,18 @@ void start_nfsd(void)
 	append_custom_config("exports", fp);
 	fclose(fp);
 	run_postconf("exports", NFS_EXPORT);
-	if (!pids("portmap"))
+	if (!pids("portmap")) {
 		eval("/usr/sbin/portmap");
+		/* portmap daemonizes (double-fork) and isn't necessarily ready to
+		 * accept RPC registrations the instant eval() returns. On a fresh
+		 * boot this is the only place portmap gets started, so statd/nfsd/
+		 * mountd below can race a still-initializing portmap and silently
+		 * fail to register -- unlike a later manual re-apply, where portmap
+		 * is already up and this whole branch is skipped. Wait for it.
+		 */
+		for (i = 0; i < 10 && !pids("portmap"); i++)
+			usleep(200000);
+	}
 	eval("/usr/sbin/statd");
 
 	if (nvram_match("nfsd_enable_v2", "1")) {
