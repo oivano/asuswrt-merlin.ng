@@ -5,6 +5,7 @@ CODEBASE-SUMMARY.md
 MAINTENANCE-WORKFLOW.md
 # Local maintenance scripts and generated release artifacts
 tools/release/
+tools/build/
 
 # Local prompt customizations
 .github/prompts/
