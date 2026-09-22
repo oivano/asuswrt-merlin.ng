@@ -323,7 +323,7 @@ OBJS += format.o
 ifeq ($(RTCONFIG_SINGLEIMG_B),y)
 OBJS += fwupg_flashing.o
 endif
-ifeq ($(RTCONFIG_CONNTRACK),y)
+ifeq ($(and $(RTCONFIG_CONNTRACK),$(RTCONFIG_PARENTALCTRL)),y)
 OBJS += pctime.o
 endif
 
@@ -1055,7 +1055,7 @@ endif
 ifeq ($(RTCONFIG_SINGLEIMG_B),y)
 	@cd $(INSTALLDIR)/sbin && ln -sf rc fwupg_flashing
 endif
-ifeq ($(RTCONFIG_CONNTRACK),y)
+ifeq ($(and $(RTCONFIG_CONNTRACK),$(RTCONFIG_PARENTALCTRL)),y)
 	@cd $(INSTALLDIR)/sbin && ln -sf rc pctime
 endif
 	@cd $(INSTALLDIR)/sbin && ln -sf rc wave_monitor

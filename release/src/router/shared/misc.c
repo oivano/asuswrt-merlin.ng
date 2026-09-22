@@ -3856,6 +3856,41 @@ END:
 
 	return 0;
 }
+#else
+int is_dpsr(int unit)
+{
+	return 0;
+}
+
+int is_psta(int unit)
+{
+	return 0;
+}
+
+int is_psr(int unit)
+{
+	return 0;
+}
+
+int psta_exist(void)
+{
+	return 0;
+}
+
+int psta_exist_except(int unit)
+{
+	return 0;
+}
+
+int psr_exist(void)
+{
+	return 0;
+}
+
+int psr_exist_except(int unit)
+{
+	return 0;
+}
 #endif
 
 #if defined(RTCONFIG_OPENVPN) || defined(RTCONFIG_IPSEC)
@@ -6172,9 +6207,7 @@ int is_valid_email_address(char *address)
 
 int get_discovery_ssid(char *ssid_g, int size)
 {
-#if defined(RTCONFIG_WIRELESSREPEATER) || defined(RTCONFIG_PROXYSTA)
 	char tmp[100] = {0}, prefix[] = "wlXXXXXXXXXXXXXX";
-#endif
 #ifdef RTCONFIG_DPSTA
 	char word[80], *next;
 	int unit;

@@ -3353,10 +3353,18 @@ rc: shared $(if $(BCM_502L07P2),ethctl_lib) nvram$(BCMEX)$(EX7) libdisk $(if $(R
 rc-install:
 	$(MAKE) -C rc INSTALLDIR=$(INSTALLDIR)/rc install
 
-networkmap: shared json-c libasc libletsencrypt $(if $(BCM_502L07P2),ethctl_lib) $(if $(RTCONFIG_BWDPI),bwdpi_source)
+networkmap-libnt: sqlite
+	$(MAKE) -C nt_center/lib
+
+networkmap: shared json-c libasc libletsencrypt sqlite networkmap-libnt $(if $(BCM_502L07P2),ethctl_lib) $(if $(RTCONFIG_BWDPI),bwdpi_source)
 
 networkmap-install:
 	$(MAKE) -C networkmap INSTALLDIR=$(INSTALLDIR)/networkmap install
+	install -D nt_center/lib/libnt.so $(INSTALLDIR)/networkmap/usr/lib/libnt.so
+	install -D sqlite/.libs/libsqlite3.so.0.8.6 $(INSTALLDIR)/networkmap/usr/lib/libsqlite3.so.0.8.6
+	$(if $(RTCONFIG_DEBUG),,$(STRIP) $(INSTALLDIR)/networkmap/usr/lib/libnt.so)
+	$(if $(RTCONFIG_DEBUG),,$(STRIP) $(INSTALLDIR)/networkmap/usr/lib/libsqlite3.so.0.8.6)
+	cd $(INSTALLDIR)/networkmap/usr/lib && ln -sf libsqlite3.so.0.8.6 libsqlite3.so.0 && ln -sf libsqlite3.so.0.8.6 libsqlite3.so
 
 aura_rgb_nt:
 	@$(SEP)
@@ -4232,7 +4240,7 @@ ndisc6: ndisc6/stamp-h1
 ndisc6-clean:
 	-@[ ! -f ndisc6/Makefile ] || $(MAKE) -C ndisc6 clean
 	-@[ ! -f ndisc6/Makefile ] || $(MAKE) -C ndisc6 distclean
-	-@[ -f ndisc6/stamp-h1 ] || rm -f ndisc6/stamp-h1
+	@rm -f ndisc6/stamp-h1
 
 ndisc6-install: ndisc6
 	install -D ndisc6/src/rdisc6 $(INSTALLDIR)/ndisc6/usr/sbin/rdisc6
@@ -6786,7 +6794,11 @@ $(PCRE2_SRC_DIR)/stamp-h1: pcre2-src-local
 		LIBS="-lpthread -lc" \
 		./$(CONFIGURE) --prefix=/usr --enable-shared \
 		--enable-pcre2-8 --enable-pcre2-16 --enable-pcre2-32 \
-		--enable-unicode
+		--enable-unicode ; \
+		find m4 -type f -name '*.m4' -exec touch -d '2020-01-01 00:00:00' {} + ; \
+		touch -d '2020-01-01 00:00:00' configure.ac Makefile.am ; \
+		touch -d '2020-01-01 00:00:01' aclocal.m4 configure ; \
+		touch -d '2020-01-01 00:00:02' Makefile.in Makefile
 	touch $@
 
 pcre2: $(PCRE2_SRC_DIR)/stamp-h1
@@ -6941,7 +6953,7 @@ libxml2/stamp-h1:
 	CC=$(CC) AR=$(AR) RANLIB=$(RANLIB) \
 	CFLAGS="$(if $(RTCONFIG_DEBUG),-g,-Os) -Wall $(EXTRACFLAGS)" LDFLAGS="-ldl $(EXTRALDFLAGS)" \
 	./$(CONFIGURE) --prefix=/usr --without-python --disable-dependency-tracking \
-	--without-zlib
+	--without-zlib --disable-maintainer-mode
 	touch $@
 
 libxml2: libxml2/stamp-h1
@@ -7091,6 +7103,13 @@ strongswan/Makefile: strongswan/configure
 
 strongswan: openssl strongswan/Makefile
 	@$(SEP)
+	find strongswan -name Makefile.am -exec touch -d '2000-01-01 00:00:00' {} +
+	find strongswan/m4 -name '*.m4' -exec touch -d '2000-01-01 00:00:00' {} +
+	touch -d '2000-01-01 00:00:00' strongswan/configure.ac
+	touch -d '2000-01-01 00:00:01' strongswan/aclocal.m4
+	find strongswan -name Makefile.in -exec touch -d '2000-01-01 00:00:02' {} +
+	touch -d '2000-01-01 00:00:02' strongswan/configure
+	find strongswan -name Makefile -exec touch {} +
 	$(MAKE) -j 8 -C strongswan $(PARALLEL_BUILD)
 
 strongswan-install: strongswan
@@ -8929,7 +8948,12 @@ amas-utils-install:
 	install -D amas-utils/amas-utils-cli $(INSTALLDIR)/amas-utils/usr/sbin/amas-utils-cli
 	$(if $(RTCONFIG_DEBUG),,$(STRIP) -s $(INSTALLDIR)/amas-utils/usr/sbin/amas-utils-cli)
 
-json-c/stamp-h1:
+json-c-state-check:
+	@if [ -f $(TOP)/json-c/Makefile ] && [ ! -d $(TOP)/json-c/.deps ]; then \
+		rm -f $(TOP)/json-c/Makefile $(TOP)/json-c/stamp-h1; \
+	fi
+
+json-c/stamp-h1: json-c-state-check
 ifeq ($(RTCONFIG_LANTIQ),y)
 	cd $(TOP)/json-c && \
 	$(CONFIGURE) --prefix=/usr --enable-shared --disable-static \
@@ -8946,7 +8970,7 @@ else
 	touch $@
 endif
 
-json-c: json-c/stamp-h1
+json-c: json-c-state-check json-c/stamp-h1
 	$(MAKE) -C $@ && $(MAKE) $@-stage
 
 json-c-install:
@@ -8958,7 +8982,7 @@ json-c-install:
 
 json-c-clean:
 	-@[ ! -f json-c/Makefile ] || $(MAKE) -C json-c clean
-	-@rm -f json-c/stamp-h1
+	-@rm -f json-c/Makefile json-c/stamp-h1
 
 phddns/stamp-h1:
 ifeq ($(HND_ROUTER),y)

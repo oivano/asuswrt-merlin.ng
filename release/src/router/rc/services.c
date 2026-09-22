@@ -1266,7 +1266,7 @@ int get_dhcpd_lmax()
 }
 #endif
 
-#ifdef RTCONFIG_CONNTRACK
+#if defined(RTCONFIG_CONNTRACK) && defined(RTCONFIG_PARENTALCTRL)
 void stop_pctime_service()
 {
         killall("pctime", SIGTERM);
@@ -6325,7 +6325,7 @@ stop_misc(void)
 #ifdef RTCONFIG_ASD
 	stop_asd();
 #endif
-#ifdef RTCONFIG_CONNTRACK
+#if defined(RTCONFIG_CONNTRACK) && defined(RTCONFIG_PARENTALCTRL)
 	stop_pctime_service();
 #endif
 	if (pids("infosvr"))
@@ -11413,7 +11413,7 @@ start_services(void)
 	start_bwdpi_check();
 	start_hour_monitor_service();
 #endif
-#ifdef RTCONFIG_CONNTRACK
+#if defined(RTCONFIG_CONNTRACK) && defined(RTCONFIG_PARENTALCTRL)
 	start_pctime_service();
 #endif
 
@@ -11613,7 +11613,7 @@ stop_services(void)
 #ifdef RTCONFIG_INTERNAL_GOBI
 	stop_lteled();
 #endif
-#ifdef RTCONFIG_CONNTRACK
+#if defined(RTCONFIG_CONNTRACK) && defined(RTCONFIG_PARENTALCTRL)
 	stop_pctime_service();
 #endif
 #if defined(RTCONFIG_BWDPI)
@@ -11973,7 +11973,7 @@ stop_services_mfg(void)
 	stop_lpd();
 	stop_u2ec();
 #endif
-#ifdef RTCONFIG_CONNTRACK
+#if defined(RTCONFIG_CONNTRACK) && defined(RTCONFIG_PARENTALCTRL)
 	stop_pctime_service();
 #endif
 #ifdef RTCONFIG_USB_MODEM
