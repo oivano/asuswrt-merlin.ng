@@ -2712,7 +2712,7 @@ define RouterOptions
 		sed -i "/RTCONFIG_PROTECTION_SERVER/d" $(1); \
 		echo "RTCONFIG_PROTECTION_SERVER=y" >>$(1); \
 	fi;
-	if [ "$(WLCEVENTD)" = "y" ] || [ "$(CONFIG_BCMWL5)" = "y" ]; then \
+	if [ "$(WLCEVENTD)" = "y" ] || { [ "$(CONFIG_BCMWL5)" = "y" ] && [ "$(WLCEVENTD)" != "n" ]; }; then \
 		sed -i "/RTCONFIG_WLCEVENTD/d" $(1); \
 		echo "RTCONFIG_WLCEVENTD=y" >>$(1); \
 	fi;
@@ -4001,6 +4001,10 @@ define RouterOptions
 	elif [ "$(LLDPD_0_9_8)" = "y" ]; then \
 		sed -i "/RTCONFIG_LLDPD/d" $(1); \
 		echo "RTCONFIG_LLDPD_0_9_8=y" >>$(1); \
+		echo "# RTCONFIG_LLDPD_1_0_11 is not set" >>$(1); \
+	elif [ "$(LLDPD_1_0_11)" = "n" ]; then \
+		sed -i "/RTCONFIG_LLDPD/d" $(1); \
+		echo "# RTCONFIG_LLDPD_0_9_8 is not set" >>$(1); \
 		echo "# RTCONFIG_LLDPD_1_0_11 is not set" >>$(1); \
 	fi;
 	if [ "$(QUADBAND)" = "y" ]; then \

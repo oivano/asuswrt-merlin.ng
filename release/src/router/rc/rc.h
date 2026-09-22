@@ -1770,7 +1770,7 @@ extern void erase_nvram(void);
 extern int init_toggle(void);
 extern void btn_check(void);
 extern int watchdog_main(int argc, char *argv[]);
-#ifdef RTCONFIG_CONNTRACK
+#if defined(RTCONFIG_CONNTRACK) && defined(RTCONFIG_PARENTALCTRL)
 extern int pctime_main(int argc, char *argv[]);
 #endif
 extern int watchdog02_main(int argc, char *argv[]);

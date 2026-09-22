@@ -3023,7 +3023,6 @@ extern int add_nat_rule_for_gpon_sfp_module(FILE *fp);
 extern int add_filter_rule_for_gpon_sfp_module(FILE *fp);
 #endif
 extern int get_wifi_unit(char *wif);
-#if defined(RTCONFIG_BCMWL6) && defined(RTCONFIG_PROXYSTA)
 #ifdef RTCONFIG_DPSTA
 extern int is_dpsta(int unit);
 #endif
@@ -3034,7 +3033,6 @@ extern int psta_exist(void);
 extern int psta_exist_except(int unit);
 extern int psr_exist(void);
 extern int psr_exist_except(int unit);
-#endif
 
 struct ifino_s {
 	char ifname[IFNAMSIZ];
