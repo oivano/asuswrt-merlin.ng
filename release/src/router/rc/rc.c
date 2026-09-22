@@ -1991,7 +1991,7 @@ static const applets_t applets[] = {
 	{ "watchdog",			watchdog_main			},
 	{ "check_watchdog",		check_watchdog_main		},
 	{ "fwupg_flashing",		fwupg_flashing_main		},
-#ifdef RTCONFIG_CONNTRACK
+#if defined(RTCONFIG_CONNTRACK) && defined(RTCONFIG_PARENTALCTRL)
 	{ "pctime",			pctime_main			},
 #endif
 #if ! (defined(RTCONFIG_QCA) || defined(RTCONFIG_RALINK))
