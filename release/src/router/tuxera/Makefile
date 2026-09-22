@@ -99,7 +99,7 @@ DSTDIR = $(INSTALLDIR)/lib/modules/2.6.22.19/kernel/fs
 endif
 endif
 
-ifeq ($(BUILD_NAME),DSL-AC68U)
+ifneq ($(or $(RTCONFIG_DSL),$(filter DSL-AC68U,$(BUILD_NAME) $(_BUILD_NAME_))),)
 SRCFILE = broadcom_arm_dsl_ac68u
 DSTDIR = $(INSTALLDIR)/lib/modules/2.6.36.4brcmarm/kernel/fs
 endif
@@ -116,6 +116,7 @@ clean:
 
 install:
 	@echo "[tuxera] Installing..."
+	@echo "[tuxera] Using $(SRCFILE)"
 	@install -d $(DSTDIR)
 	@install -d $(INSTALLDIR)/usr/sbin
 ifeq ($(RTCONFIG_TFAT),y)
