@@ -44,7 +44,8 @@ jobs:
           command: |
             if [ -z "${CIRCLE_TAG}" ]; then
               DATESTAMP=$(date +%Y%m%d)
-              sed -i "s/EXTENDNO=.*/EXTENDNO=DEV-${DATESTAMP}/g" release/src-rt/version.conf
+              SAFE_BRANCH=$(echo "${CIRCLE_BRANCH}" | sed -E 's/[^A-Za-z0-9._-]+/-/g')
+              sed -i "s/EXTENDNO=.*/EXTENDNO=${SAFE_BRANCH}-${DATESTAMP}/g" release/src-rt/version.conf
             else
               MAJOR_VER=$(echo "${CIRCLE_TAG}" | sed -E 's/([0-9.]*)[_-]?(.*)/\1/')
               MINOR_VER=$(echo "${CIRCLE_TAG}" | sed -E 's/([0-9.]*)[_-]?(.*)/\2/')
@@ -213,9 +214,9 @@ workflows:
           filters:
             tags:
               only:
-               - /ion-snapshot-.*/
-               - /[0-9]+.*ion_beta[0-9]+/
-               - /[0-9]+.*ion_alpha[0-9]+/
+                - /ion-snapshot-.*/
+                - /[0-9]+.*ion_beta[0-9]+/
+                - /[0-9]+.*ion_alpha[0-9]+/
             branches:
               ignore: /.*/
           requires:
