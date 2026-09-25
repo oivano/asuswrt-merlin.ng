@@ -70,6 +70,73 @@ var pagesVar = {
 var mapscanning = 0;
 
 var clientMacUploadIcon = new Array();
+var onlineClientMisses = {};
+
+function isClientOnline(client){
+	return client && String(client.isOnline) == "1";
+}
+
+function getClientEntry(clientListData, mac){
+	if(clientListData[mac] != undefined)
+		return {key: mac, client: clientListData[mac]};
+
+	for(var i = 0; i < clientListData.maclist.length; i++){
+		var listMac = clientListData.maclist[i];
+		if(String(listMac).toUpperCase() == String(mac).toUpperCase())
+			return {key: listMac, client: clientListData[listMac]};
+	}
+
+	return null;
+}
+
+function hasUsableClientSnapshot(data){
+	return data && data.fromNetworkmapd && data.fromNetworkmapd.length > 0 &&
+		data.fromNetworkmapd[0] && $.isArray(data.fromNetworkmapd[0].maclist) &&
+		data.nmpClient && data.nmpClient.length > 0 && data.nmpClient[0] &&
+		$.isArray(data.nmpClient[0].maclist);
+}
+
+function preserveTransientOnlineClients(){
+	var previousList = originDataTmp && originDataTmp.fromNetworkmapd && originDataTmp.fromNetworkmapd[0];
+	var currentList = originData.fromNetworkmapd && originData.fromNetworkmapd[0];
+	if(!previousList || !previousList.maclist || !currentList || !currentList.maclist)
+		return;
+	var scanInProgress = networkmap_fullscan != "0";
+
+	for(var i = 0; i < previousList.maclist.length; i++){
+		var mac = previousList.maclist[i];
+		var previousClient = previousList[mac];
+		if(!isClientOnline(previousClient))
+			continue;
+
+		var currentEntry = getClientEntry(currentList, mac);
+		if(currentEntry && isClientOnline(currentEntry.client)){
+			delete onlineClientMisses[mac];
+			continue;
+		}
+
+		if(scanInProgress){
+			if(currentEntry)
+				currentList[currentEntry.key] = previousClient;
+			else{
+				currentList.maclist.push(mac);
+				currentList[mac] = previousClient;
+			}
+			continue;
+		}
+
+		onlineClientMisses[mac] = (onlineClientMisses[mac] || 0) + 1;
+		if(onlineClientMisses[mac] < 3){
+			if(!currentEntry){
+				currentList.maclist.push(mac);
+				currentEntry = {key: mac};
+			}
+			currentList[currentEntry.key] = previousClient;
+		}
+		else
+			delete onlineClientMisses[mac];
+	}
+}
 
 var wl_nband_isWL_map = {"2.4 GHz":"1", "5 GHz":"2", "5 GHz-1":"2", "5 GHz-2":"3", "6 GHz":"4"};
 function generate_wireless_band_list(){
@@ -95,10 +162,6 @@ function initial(){
 	parent.hideEditBlock();
 	generate_wireless_band_list();
 	updateClientList();
-	setTimeout(function(){parent.httpApi.updateClientList();}, 5000);//delay to update client list, in order to avoiding the wired client disappeared
-	setInterval(function(){
-		parent.httpApi.updateClientList();
-	}, 1000*60*3);
 
 	reset_NM_height();
 }
@@ -420,6 +483,12 @@ function updateClientList(e){
 		},
 		success: function(response){
 			document.getElementById("loadingIcon").style.visibility = (networkmap_fullscan == 1 && parent.manualUpdate) ? "visible" : "hidden";
+			if(!hasUsableClientSnapshot(originData)){
+				originData = originDataTmp;
+				setTimeout("updateClientList();", 3000);
+				return;
+			}
+			preserveTransientOnlineClients();
 
 			if(isJsonChanged(originData, originDataTmp) || originData.fromNetworkmapd == ""){
 				drawClientList();
