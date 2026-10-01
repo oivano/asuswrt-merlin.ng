@@ -2,7 +2,8 @@ ion release asuswrt merlin changelog
 ========================
 
 
-386.15_4-ion (XX-XXX-2026)
+386.15_4-ion (01-Oct-2026)
+  - ADDED:   IPv4 inbound firewall rule management in the WebUI.
   - UPDATED: json-c to 0.19-20260627 
   - UPDATED: haveged to 1.9.26.
   - UPDATED: wget to 1.25.0.
@@ -18,7 +19,12 @@ ion release asuswrt merlin changelog
   - UPDATED: curl to 8.21.0.
   - UPDATED: OpenConnect to 9.21.
   - UPDATED: protobuf-c to 1.5.2.
-  - FIXED: Ported the missing OpenSSL 1.1.1w extended-security fixes into openssl-1.1.1w
+  - UPDATED: iptables to 1.4.21.
+  - FIXED:   Ported missing OpenSSL 1.1.1w extended-security fixes.
+  - FIXED:   A json-c release-build leak that caused httpds memory growth.
+  - FIXED:   Network Map no longer drops clients during transient scans.
+  - FIXED:   NFS startup now waits for portmap readiness after boot.
+  - FIXED:   FRR watchdog child reaping and bounded restart handling.
 
 
 386.15_3-ion (22-Aug-2026)
