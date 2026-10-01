@@ -3,8 +3,8 @@ CLAUDE.md
 AGENTS.md
 CODEBASE-SUMMARY.md
 MAINTENANCE-WORKFLOW.md
-# Local maintenance scripts and generated release artifacts
-tools/release/
+# Generated release artifacts
+tools/release/*.txt
 tools/build/
 
 # Local prompt customizations

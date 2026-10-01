@@ -13,7 +13,7 @@ latest_changes = list()
 
 with open(CHANGELOG_FILE) as f:
     
-    rx = re.compile('^(\d[^()]+)\s.*$')
+    rx = re.compile(r'^(\d[^()]+)\s.*$')
 
     for line in f:
         release_search = rx.search(line)
