@@ -22,6 +22,13 @@ if [ ! -f /.dockerenv ]; then
     REPO_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
     OUTPUT_DIR="${REPO_DIR}/tools/build"
     mkdir -p "${OUTPUT_DIR}"
+    if [ "${1:-}" = "--make" ]; then
+        exec docker run --rm \
+            -v "${REPO_DIR}:${CONTAINER_PROJECT_DIR}" \
+            -w "${CONTAINER_PROJECT_DIR}" \
+            -u "$(id -u):$(id -g)" \
+            "$IMAGE" "${CONTAINER_PROJECT_DIR}/tools/build.sh" "$@"
+    fi
     docker pull "$IMAGE"
 
     if [ "${1:-}" = "--shell" ]; then
@@ -73,9 +80,6 @@ LOG_FILE="${PROJECT_DIR}/tools/build/build.log"
 # run -- never touches tracked files (git clean can't remove those, modified or not) or gitignored
 # ones (no -x), only untracked-and-not-ignored build cruft under release/, so no manual cleanup is
 # needed.
-echo "Removing untracked build artifacts under release/ ..."
-git -C "${PROJECT_DIR}" clean -fd -- release/
-
 # release/src-rt-6.x.4708/toolchains is a *committed* relative symlink; do NOT recreate/rewrite it
 # here -- it's tracked in git and a machine-specific rewrite just dirties the tree; read it
 # instead, with a same-image fallback if it doesn't resolve (e.g. run outside this container).
@@ -98,6 +102,16 @@ export MAKEFLAGS MERLINUPDATE=y
 # system ones and break autoreconf (missing Autom4te::C4che) if placed first on PATH.
 export PATH="${PATH}:${TOOLCHAIN_BIN_DIR}/bin"
 export LD_LIBRARY_PATH="${TOOLCHAIN_BIN_DIR}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+if [ "${1:-}" = "--make" ]; then
+    shift
+    if [ "$#" -eq 0 ]; then
+        echo "Usage: tools/build.sh --make <router make targets and assignments>" >&2
+        exit 2
+    fi
+    exec make -C "${BUILD_ROOT}/router" SRCBASE="${BUILD_ROOT}" ARM=y BUILD_NAME="${MODEL^^}" PARALLEL_BUILD=-j1 "$@"
+fi
+echo "Removing untracked build artifacts under release/ ..."
+git -C "${PROJECT_DIR}" clean -fd -- release/
 cd "${BUILD_ROOT}"
 # Force stdin closed for the actual build: "make dsl-ac68u" walks kernel/router Kconfig-style
 # prompts via config/conf, and any symbol not yet answered in the checked-in .config shows as

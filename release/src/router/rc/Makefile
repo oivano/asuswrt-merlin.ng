@@ -499,6 +499,10 @@ ifeq ($(RTCONFIG_FRR),y)
 OBJS += frr.o
 endif
 
+ifeq ($(RTCONFIG_SKYNET),y)
+OBJS += skynet.o
+endif
+
 CFLAGS += -DRTCONFIG_CROND
 ifeq ($(RTCONFIG_OPENVPN),y)
 CFLAGS += -I$(TOP)/libovpn

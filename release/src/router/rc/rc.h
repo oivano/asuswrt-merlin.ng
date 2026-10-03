@@ -3249,6 +3249,12 @@ extern void stop_erp_monitor();
 extern void start_erp_monitor();
 #endif
 
+#ifdef RTCONFIG_SKYNET
+extern void start_skynet(char *path);
+extern int stop_skynet(char *path);
+extern int skynet_webui_action(const char *action);
+#endif
+
 #ifdef RTCONFIG_USB_SWAP
 extern int stop_usb_swap(char *path);
 extern int start_usb_swap(char *path);

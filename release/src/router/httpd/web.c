@@ -22325,6 +22325,9 @@ struct mime_handler mime_handlers[] =
 	{ "**.htc", "text/x-component", NULL, NULL, do_file, NULL  },
 	// end Viz
 	{ "**.js", "text/javascript", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
+#ifdef RTCONFIG_SKYNET
+	{ "**/skynet/status.json", "application/json", no_cache_IE7, NULL, do_file, do_auth },
+#endif
 	{ "**.json", "application/json", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
 	{ "**.cab", "text/txt", NULL, NULL, do_file, do_auth },
 	{ "**.CFG", "application/octet-stream", NULL, do_html_post_and_get, do_prf_file, do_auth },

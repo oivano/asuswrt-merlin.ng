@@ -62,6 +62,13 @@ update:
 
 clean:
 
+skynet-pages:
+ifeq ($(and $(filter DSL-AC68U,$(BUILD_NAME)),$(RTCONFIG_SKYNET)),y)
+	install -D -m 0644 Advanced_Skynet_Content.asp $(INSTALLDIR)/www/Advanced_Skynet_Content.asp
+else
+	rm -f $(INSTALLDIR)/www/Advanced_Skynet_Content.asp
+endif
+
 install:
 	echo $(VISWWW)
 	rm -rf $(INSTALLDIR)/www
@@ -99,6 +106,7 @@ endif
 	rm -rf $(INSTALLDIR)/www/temp.dict
 	rm -rf $(INSTALLDIR)/www/model_patch
 	rm -rf $(INSTALLDIR)/www/.gitignore
+	$(MAKE) skynet-pages INSTALLDIR=$(INSTALLDIR)
 	rm -rf `find $(INSTALLDIR) -name "*.bak"`
 	rm -rf $(INSTALLDIR)/www/device-map/compatibility.asp
 	cp -rf $(INSTALLDIR)/www/images/new/* $(INSTALLDIR)/www/images/
