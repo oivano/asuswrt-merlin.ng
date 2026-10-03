@@ -1889,6 +1889,12 @@ _dprintf("%s: stop_cloudsync.\n", __func__);
 		stop_app();
 #endif
 	
+#ifdef RTCONFIG_SKYNET
+	if (stop_skynet(mnt->mnt_dir)) {
+		logmessage("Skynet", "USB unmount deferred: native teardown failed");
+		return 0;
+	}
+#endif
 #ifdef RTCONFIG_USB_SWAP	
 		stop_usb_swap(mnt->mnt_dir);
 #endif	
@@ -2244,6 +2250,10 @@ _dprintf("usb_path: 4. don't set %s.\n", tmp);
 #endif
 #ifdef RTCONFIG_USB_SWAP
 			start_usb_swap(mountpoint);
+#endif
+#ifdef RTCONFIG_SKYNET
+		if (ret == MOUNT_VAL_RW)
+			start_skynet(mountpoint);
 #endif
 #ifdef RTCONFIG_DSL
 		if(ret == MOUNT_VAL_RW) {

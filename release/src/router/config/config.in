@@ -481,6 +481,10 @@ config RTCONFIG_DNSMASQ_BLOCKLIST
 	bool "dnsmasq domain blocklist support"
 	default n
 
+config RTCONFIG_SKYNET
+	bool "Native Skynet firewall support"
+	default n
+
 config RTCONFIG_DSL
 	bool "DSL Support"
 	default n

@@ -1007,6 +1007,7 @@ obj-$(RTCONFIG_DNSPRIVACY) += libyaml
 obj-$(RTCONFIG_DNSPRIVACY) += getdns
 obj-$(RTCONFIG_DNSCRYPT) += dnscrypt-proxy curl
 obj-$(RTCONFIG_DNSMASQ_BLOCKLIST) += curl
+obj-$(RTCONFIG_SKYNET) += skynet curl sqlite
 ifneq ($(HND_ROUTER),y)
 obj-y += etc
 endif
@@ -3081,6 +3082,7 @@ ipset-7.6/Makefile: ipset-7.6/configure
 		--with-kmod=no --with-kbuild=$(LINUXDIR)
 
 ipset-7.6: libmnl-1.0.4 ipset-7.6/Makefile
+	@$(SEP)
 	$(MAKE) -C $@ && $(MAKE) $@-stage
 
 ipset-7.6-install:
@@ -3567,6 +3569,20 @@ dnscrypt-proxy-install:
 
 dnscrypt-proxy-clean:
 	@true
+
+skynet: curl sqlite ipset-7.6 nvram$(BCMEX)$(EX7) shared
+	@$(SEP)
+	$(MAKE) -C skynet
+
+skynet-install:
+	install -D -m 0755 skynet/skynet $(INSTALLDIR)/skynet/usr/sbin/skynet
+	$(STRIP) $(INSTALLDIR)/skynet/usr/sbin/skynet
+
+skynet-check:
+	$(MAKE) -C skynet check
+
+skynet-clean:
+	$(MAKE) -C skynet clean
 
 libyaml/configure:
 	cd libyaml && autoreconf -fi
@@ -5420,6 +5436,7 @@ sqlite/stamp-h1:
 	touch $@
 
 sqlite: sqlite/stamp-h1
+	@$(SEP)
 	@$(MAKE) -C sqlite all
 
 sqlite-clean:

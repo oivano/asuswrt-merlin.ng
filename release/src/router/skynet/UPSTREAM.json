@@ -1,0 +1,72 @@
+{
+  "repository": "https://github.com/Adamm00/IPSet_ASUS.git",
+  "commit": "166850143a4d786e522f15f6817131b9e6f07046",
+  "version": "9.0.5",
+  "native_schema": 3,
+  "features": [
+    {
+      "name": "IP and CIDR policy",
+      "state": "ported-core",
+      "upstream_functions": ["Normalize_IPSet_Entry", "Normalize_IPSet_Entries", "Dispatch_Ban", "Dispatch_Unban", "Dispatch_Whitelist"],
+      "native_files": ["core.c", "store.c"],
+      "contracts": ["decimal IPv4 normalization", "CIDR masking including /0", "global whitelist precedence", "transaction rollback"]
+    },
+    {
+      "name": "Threat feeds",
+      "state": "ported-core",
+      "upstream_functions": ["Curl_Fetch", "Download_File", "Build_Threat_Feed_Manifest", "Dispatch_BanMalware"],
+      "native_files": ["core.c", "feeds.c", "store.c", "../www/Advanced_Skynet_Content.asp"],
+      "contracts": ["eight pinned upstream built-in sources", "canonical filename/URL identity", "atomic source selection and default restoration", "excluded caches retained but not enforced", "source counts and refresh failure health", "retain last-good data on failure", "reject malformed and empty lists", "bounded IPv4-only streaming", "deduplication"],
+      "differences": ["HTTPS-only plain IP/CIDR feeds", "opt-in native refresh interval with retry backoff", "successful feeds and failed-source caches published in one transaction; partial refresh reports operation failure", "valid IPv6 entries skipped in mixed-family feeds", "no remote filter-list template import yet", "no content hash/change tracking yet"]
+    },
+    {
+      "name": "Kernel policy and lifecycle",
+      "state": "ported-core",
+      "upstream_functions": ["Create_Sized_IPSet", "Reconcile_Firewall_Rules", "Dispatch_Start", "Dispatch_Disable", "Whitelist_Blocked_Private_IPs"],
+      "native_files": ["backend.c", "core.c", "main.c"],
+      "contracts": ["offline cached startup", "reuse unchanged sets", "preserve unrelated firewall state", "private network exclusions", "bounded teardown"],
+      "differences": ["native SKN_ namespace", "atomic filter-table chain replacement", "active WAN only"]
+    },
+    {
+      "name": "Configuration and presentation",
+      "state": "native-replacement",
+      "upstream_functions": ["Load_Config", "Write_Config", "Install_WebUI_Page", "Dispatch_WebUI"],
+      "native_files": ["store.c", "main.c", "../www/Advanced_Skynet_Content.asp"],
+      "differences": ["SQLite policy, not sourced shell configuration", "native authenticated WebUI actions with numeric request correlation", "Overview/Updates/Protection/IPv4 Rules views only; upstream page parity remains incomplete", "no executable auto-update", "no automatic NVRAM changes"]
+    },
+    {
+      "name": "Temporary bans and native maintenance",
+      "state": "ported-core",
+      "upstream_functions": ["Prune_Expired_Rules", "Dispatch_Maintenance", "Load_Cron", "Activate_Time_Dependent_State"],
+      "native_files": ["core.c", "store.c", "backend.c", "schedule.c"],
+      "contracts": ["schema-v1 migration preserves permanent rules", "temporary bans require synchronized time", "kernel timeout expiry", "permanent policy is not shortened", "expiry rollback", "refresh backoff"],
+      "differences": ["native singleton worker instead of shell cron jobs", "ban duration supplied in seconds", "temporary bans limited to one week"]
+    },
+    {
+      "name": "Domain and DNS policy",
+      "state": "not-ported",
+      "upstream_functions": ["Update_Domain_Rules", "Restore_Domain_Dnsmasq_Config"],
+      "native_files": []
+    },
+    {
+      "name": "IoT controls",
+      "state": "not-ported",
+      "upstream_functions": ["Apply_WebUI_IOT", "Revalidate_IOT_Connections"],
+      "native_files": []
+    },
+    {
+      "name": "Packet history and statistics",
+      "state": "not-ported",
+      "upstream_functions": ["History_Parse_Batch", "Archive_Block_Logs", "Generate_Stats"],
+      "native_files": []
+    },
+    {
+      "name": "Upstream executable installation and updates",
+      "state": "intentionally-replaced",
+      "upstream_functions": ["Dispatch_Install", "Dispatch_Update", "Dispatch_Uninstall", "Maintain_Script_Hooks"],
+      "native_files": ["main.c", "Makefile"],
+      "differences": ["firmware owns executable updates", "no JFFS hooks or shell runtime"]
+    }
+  ],
+  "additional_unported_features": ["ASN and country policy", "VPN server interface policy", "shared whitelists", "backup/restore UI", "v8/v9 addon data migration"]
+}

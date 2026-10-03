@@ -11576,6 +11576,9 @@ start_services(void)
 	start_frr();
 #endif
 
+#ifdef RTCONFIG_SKYNET
+	start_skynet(NULL);
+#endif
 	run_custom_script("services-start", 0, NULL, NULL);
 
 	return 0;
@@ -11586,6 +11589,9 @@ stop_services(void)
 {
 	run_custom_script("services-stop", 0, NULL, NULL);
 
+#ifdef RTCONFIG_SKYNET
+	stop_skynet(NULL);
+#endif
 #ifdef RTCONFIG_WIREGUARD
 	stop_wgsall();
 #endif
@@ -13450,6 +13456,16 @@ again:
 
 	TRACE_PT("running: %d %s\n", action, script);
 
+#ifdef RTCONFIG_SKYNET
+	if (!strcmp(script, "skynet")) {
+		if ((action & RC_SERVICE_STOP) && stop_skynet(NULL)) goto skip;
+		if (action & RC_SERVICE_START) start_skynet(NULL);
+		goto skip;
+	}
+	if (action == RC_SERVICE_START && skynet_webui_action(script)) {
+		goto skip;
+	}
+#endif
 	run_custom_script("service-event", 120, actionstr, script);
 
 #ifdef RTCONFIG_USB_MODEM

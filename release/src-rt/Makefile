@@ -1550,6 +1550,10 @@ define RouterOptions
 		sed -i "/RTCONFIG_DNSMASQ_BLOCKLIST/d" $(1); \
 		echo "RTCONFIG_DNSMASQ_BLOCKLIST=y" >>$(1); \
 	fi; \
+	if [ "$(SKYNET)" = "y" ]; then \
+		sed -i "/RTCONFIG_SKYNET/d" $(1); \
+		echo "RTCONFIG_SKYNET=y" >>$(1); \
+	fi; \
 	if [ "$(DNSSEC)" = "y" ]; then \
 		sed -i "/RTCONFIG_DNSSEC/d" $(1); \
 		echo "RTCONFIG_DNSSEC=y" >>$(1); \

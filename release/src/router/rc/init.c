@@ -17823,6 +17823,9 @@ int init_nvram(void)
 #endif
 
 	add_rc_support("am_addons");
+#ifdef RTCONFIG_SKYNET
+	add_rc_support("skynet");
+#endif
 #ifdef HND_ROUTER
 	add_rc_support("cake");
 #endif
