@@ -24570,9 +24570,8 @@ int ej_apps_fsck_log(int eid, webs_t wp, int argc, char **argv)
 	int ret, all_disk;
 
 	disk_list = read_disk_data();
-	if(disk_list == NULL){
-		return -1;
-	}
+	if(disk_list == NULL)
+		return 0;
 
 	all_disk = (atoi(port_path) == -1)? 1 : 0;
 	for(disk_info = disk_list; disk_info != NULL; disk_info = disk_info->next){
@@ -24607,6 +24606,8 @@ int ej_get_disk_format_log(int eid, webs_t wp, int argc, char **argv)
 	char file_name[32], d_port[16]/*, *d_dot*/;
 	char *port_path = websGetVar(wp, "diskmon_usbport", "-1");
 	int ret = 0, all_disk;
+	int log_char;
+	FILE *log_file;
 
 	disk_list = read_disk_data();
 	if(disk_list == NULL){
@@ -24627,8 +24628,19 @@ int ej_get_disk_format_log(int eid, webs_t wp, int argc, char **argv)
 		for(partition_info = disk_info->partitions; partition_info != NULL; partition_info = partition_info->next){
 			memset(file_name, 0, 32);
 			snprintf(file_name, sizeof(file_name), "/tmp/disk_format/%s.log", partition_info->device);
-			if(check_if_file_exist(file_name)) {
-				ret = dump_file(wp, file_name);
+			ret = 0;
+			if ((log_file = fopen(file_name, "r")) != NULL) {
+				while ((log_char = fgetc(log_file)) != EOF) {
+					if (log_char == '&')
+						ret += websWrite(wp, "&amp;");
+					else if (log_char == '<')
+						ret += websWrite(wp, "&lt;");
+					else if (log_char == '>')
+						ret += websWrite(wp, "&gt;");
+					else if (log_char >= 0x20 || log_char == '\t' || log_char == '\n' || log_char == '\r')
+						ret += websWrite(wp, "%c", log_char);
+				}
+				fclose(log_file);
 			}
 
 			if(ret)
