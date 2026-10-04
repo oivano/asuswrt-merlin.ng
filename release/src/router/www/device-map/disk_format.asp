@@ -38,16 +38,10 @@ function initial(){
 	set_disk_info(parent.usbPorts[diskOrder-1]);
 
 	var disk_list_array = new Array();
-	var usb_fatfs_mod = '<% nvram_get("usb_fatfs_mod"); %>';
-	var usb_ntfs_mod = '<% nvram_get("usb_ntfs_mod"); %>';
-	var usb_hfs_mod = '<% nvram_get("usb_hfs_mod"); %>';
 
 	disk_list_array = { "info" : ["<#diskUtility_information#>", "disk.asp"], "health" : ["<#diskUtility#>", "disk_utility.asp"], "format" : ["<#CTL_format#>", "disk_format.asp"]};
 	if(!parent.diskUtility_support) {
 		delete disk_list_array.health;
-		delete disk_list_array.format;
-	}
-	if(usb_fatfs_mod != "tuxera" && usb_ntfs_mod != "tuxera" && usb_hfs_mod != "tuxera") {
 		delete disk_list_array.format;
 	}
 	$('#diskTab').html(parent.gen_tab_menu(disk_list_array, "format"));
@@ -78,31 +72,19 @@ function set_disk_info(device) {
 	
 	switch(disk_system) {
 		case "tfat" :
+		case "fat" :
+		case "vfat" :
 			document.form.disk_name.maxLength = 11;
-			disk_system = "tfat";
+			disk_system = "fat";
 			break;
-		case "tntfs" :
-			document.form.disk_name.maxLength = 32;
-			disk_system = "tntfs";
-			break;
-		case "thfsplus" :
-			document.form.disk_name.maxLength = 30;
-			disk_system = "thfsplus";
+		case "ext4" :
+			document.form.disk_name.maxLength = 16;
+			disk_system = "ext4";
 			break;
 		default :
 			document.form.disk_name.maxLength = 11;
-			disk_system = "tfat";
+			disk_system = "fat";
 	}
-
-	var usb_fatfs_mod = '<% nvram_get("usb_fatfs_mod"); %>';
-	var usb_ntfs_mod = '<% nvram_get("usb_ntfs_mod"); %>';
-	var usb_hfs_mod = '<% nvram_get("usb_hfs_mod"); %>';
-	if(usb_fatfs_mod != "tuxera")
-		$("#disk_system option[value='tfat']").remove();
-	if(usb_ntfs_mod != "tuxera")
-		$("#disk_system option[value='tntfs']").remove();
-	if(usb_hfs_mod != "tuxera")
-		$("#disk_system option[value='thfsplus']").remove();
 
 	var selected_disk_system = document.form.disk_system;
 	selected_disk_system.selectedIndex = 0; 
@@ -178,14 +160,12 @@ function go_format() {
 
 	var disk_system = document.form.disk_system.value;
 	var temp_label = document.form.disk_name.value;
-	if(disk_system == "tfat") {
+	if(disk_system == "fat") {
 		if(temp_label.length > 12)
 			document.form.disk_name.value = temp_label.substr(0, 11);
 	}
-	else if(disk_system == "thfsplus") {
-		if(temp_label.length > 31)
-			document.form.disk_name.value = temp_label.substr(0, 30);
-	}
+	else if(disk_system == "ext4" && temp_label.length > 16)
+		document.form.disk_name.value = temp_label.substr(0, 16);
 
 	if(!Block_chars(document.form.disk_name, ["~", "`", "!", "#", "$", "%", "^", "&", "*", "(", ")", "+", "=", "{", "[", "}", "]", "|", "\\", ":", ";", "\"", "'", "<", ">", ",", ".", "?", "/", " "]))
 		return false;
@@ -211,18 +191,15 @@ function go_format() {
 function change_disk_system() {
 	var disk_system = document.form.disk_system.value;
 	var temp_label = document.form.disk_name.value;
-	if(disk_system == "tfat") {
+	if(disk_system == "fat") {
 		document.form.disk_name.maxLength = 11;
 		if(temp_label.length > 12)
 			document.form.disk_name.value = temp_label.substr(0, 11);
 	}
-	else if(disk_system == "tntfs") {
-		document.form.disk_name.maxLength = 32;
-	}
-	else if(disk_system == "thfsplus") {
-		document.form.disk_name.maxLength = 30;
-		if(temp_label.length > 31)
-			document.form.disk_name.value = temp_label.substr(0, 30);
+	else if(disk_system == "ext4") {
+		document.form.disk_name.maxLength = 16;
+		if(temp_label.length > 16)
+			document.form.disk_name.value = temp_label.substr(0, 16);
 	}
 }
 function show_loadingBar_field(){
@@ -244,7 +221,7 @@ function showLoadingUpdate(){
 		url: '../ajax_disk_format.xml?diskmon_usbport=' + parent.usbPorts[diskOrder-1].node,
 		dataType: 'xml',
 		error: function(xhr) {
-			showLoadingUpdate();
+			setTimeout(showLoadingUpdate, 500);
 		},
 		success: function(xml) {
 			var disk_format_flag = $(xml).find('disk_flag').text();
@@ -290,13 +267,13 @@ function showLoadingUpdate(){
 					parent.document.getElementById('iconUSBdisk_'+diskOrder).style.backgroundPosition = '1px -206px';
 				}
 				document.getElementById('btn_format').disabled = false;
-				$('#textarea_disk0').html($(xml).find('disk_log').text());
+				$('#textarea_disk0').text(disk_format_log);
 				return false;
 			}
 			progressBar++;
 			document.getElementById("updateProgress").style.width = progressBar + "%";
 			document.getElementById('progress_bar_no').innerHTML = progressBar + "%";
-			$('#textarea_disk0').html($(xml).find('disk_log').text());
+			$('#textarea_disk0').text(disk_format_log);
 			if(progressBar > 100) {
 				document.getElementById('progressBar').style.display = "none";
 				document.getElementById('scan_status_field').style.display = "";
@@ -373,9 +350,8 @@ function showLoadingUpdate(){
 			<div class="formfonttitle_nwm"><#format_type#> :</div>
 			<div>
 				<select name="disk_system" id="disk_system" class="input_option" style="margin-left:2px;" onChange="change_disk_system();">
-					<option value="tntfs">NTFS</option>
-					<option value="tfat">FAT</option>
-					<option value="thfsplus">HFS</option>
+					<option value="fat">FAT32</option>
+					<option value="ext4">EXT4</option>
 				</select>
 			</div>
 		</div>

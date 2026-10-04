@@ -783,19 +783,8 @@ void start_usb(int mode)
 			}
 
 			if (nvram_get_int("usb_fs_fat")) {
-#ifdef RTCONFIG_OPENPLUS_TFAT
-				if(nvram_match("usb_fatfs_mod", "tuxera"))
-					modprobe("tfat");
-				else{
-					modprobe("fat");
-					modprobe("vfat");
-				}
-#elif defined(RTCONFIG_TFAT)
-				modprobe("tfat");
-#else
 				modprobe("fat");
 				modprobe("vfat");
-#endif
 			}
 #ifdef RTCONFIG_NTFS
 			if(nvram_get_int("usb_fs_ntfs")){
@@ -914,19 +903,8 @@ void remove_usb_storage_module(void)
 #ifdef LINUX26
 	modprobe_r("mbcache");
 #endif
-#ifdef RTCONFIG_OPENPLUS_TFAT
-	if(nvram_match("usb_fatfs_mod", "tuxera"))
-		modprobe_r("tfat");
-	else{
-		modprobe_r("vfat");
-		modprobe_r("fat");
-	}
-#elif defined(RTCONFIG_TFAT)
-	modprobe_r("tfat");
-#else
 	modprobe_r("vfat");
 	modprobe_r("fat");
-#endif
 #ifdef RTCONFIG_NTFS
 #ifdef RTCONFIG_TUXERA_NTFS
 #if defined(RTCONFIG_OPENPLUSTUXERA_NTFS)
@@ -5060,10 +5038,9 @@ static void start_diskformat(char *port_path)
 		dbg("disk_format: Can't unmount %d partition(s) of device %s\n", di->device, mount_counter);
 		logmessage("disk_format", "Can't unmount %d partition(s) of device %s", di->device, mount_counter);
 	} else {
-#if defined(RTCONFIG_TFAT) || defined(RTCONFIG_TUXERA_NTFS) || defined(RTCONFIG_TUXERA_HFS)
-		char *tfat_cmd[] = { "mkfatfs", "-l", disk_label, "-v", devpath, NULL };
-		char *tntfs_cmd[] = {"mkntfs", "-F", "-L", disk_label, "-v", devpath, NULL };
-		char *thfsplus_cmd[] = { "newfs_hfs", "-v", disk_label, devpath, NULL };
+		char *fat_cmd[] = { "mkfs.vfat", "-n", disk_label, devpath, NULL };
+#if defined(RTCONFIG_EXT4FS)
+		char *ext4_cmd[] = { "mkfs.ext4", "-F", "-L", disk_label, devpath, NULL };
 #endif
 		// format partition.
 		snprintf(devpath, sizeof(devpath), "/dev/%s", di->device);
@@ -5079,19 +5056,13 @@ static void start_diskformat(char *port_path)
 			unlink(write_file_name);
 
 		cmd = NULL;
-#if defined(RTCONFIG_TFAT) || defined(RTCONFIG_TUXERA_NTFS) || defined(RTCONFIG_TUXERA_HFS)
-		if (!strcmp(disk_system, "tfat") && nvram_match("usb_fatfs_mod", "tuxera")) {
-			cmd = tfat_cmd;
-		}
-		else if(!strcmp(disk_system, "tntfs") && nvram_match("usb_ntfs_mod", "tuxera")) {
-			cmd = tntfs_cmd;
-		}
-		else if(!strcmp(disk_system, "thfsplus") && nvram_match("usb_hfs_mod", "tuxera")) {
-			cmd = thfsplus_cmd;
-		}
-		else
+		if (!strcmp(disk_system, "fat"))
+			cmd = fat_cmd;
+#if defined(RTCONFIG_EXT4FS)
+		else if (!strcmp(disk_system, "ext4"))
+			cmd = ext4_cmd;
 #endif
-		{
+		if (cmd == NULL) {
 			dbg("disk_format: Can't format [%s] as filesystem [%s] w/o tool.\n", devpath, disk_system);
 			logmessage("disk_format", "Can't format %s as filesystem %s w/o tool.", devpath, disk_system);
 		}

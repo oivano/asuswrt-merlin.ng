@@ -1196,8 +1196,6 @@ obj-$(RTCONFIG_USB_MULTIMODEM) += usb-modeswitch
 obj-$(RTCONFIG_USB_SMS_MODEM) += libiconv-1.14
 obj-$(RTCONFIG_USB_SMS_MODEM) += smspdu
 
-# temporary
-RTCONFIG_EXT4FS := n
 obj-$(RTCONFIG_E2FSPROGS) += e2fsprogs # including libuuid
 obj-$(RTCONFIG_EXT4FS) += e2fsprogs
 
