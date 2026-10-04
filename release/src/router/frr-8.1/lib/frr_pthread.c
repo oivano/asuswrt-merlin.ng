@@ -161,9 +161,23 @@ static void *frr_pthread_inner(void *arg)
 int frr_pthread_run(struct frr_pthread *fpt, const pthread_attr_t *attr)
 {
 	int ret;
+	pthread_attr_t default_attr;
+	bool use_default_attr = !attr;
 	sigset_t oldsigs, blocksigs;
 
 	assert(frr_is_after_fork || !"trying to start thread before fork()");
+
+	if (use_default_attr) {
+		ret = pthread_attr_init(&default_attr);
+		if (ret != 0)
+			return ret;
+		ret = pthread_attr_setstacksize(&default_attr, 2 * 1024 * 1024);
+		if (ret != 0) {
+			pthread_attr_destroy(&default_attr);
+			return ret;
+		}
+		attr = &default_attr;
+	}
 
 	/* Ensure we never handle signals on a background thread by blocking
 	 * everything here (new thread inherits signal mask)
@@ -175,6 +189,8 @@ int frr_pthread_run(struct frr_pthread *fpt, const pthread_attr_t *attr)
 
 	fpt->rcu_thread = rcu_thread_prepare();
 	ret = pthread_create(&fpt->thread, attr, frr_pthread_inner, fpt);
+	if (use_default_attr)
+		pthread_attr_destroy(&default_attr);
 
 	/* Restore caller's signals */
 	pthread_sigmask(SIG_SETMASK, &oldsigs, NULL);
@@ -183,7 +199,7 @@ int frr_pthread_run(struct frr_pthread *fpt, const pthread_attr_t *attr)
 	 * Per pthread_create(3), the contents of fpt->thread are undefined if
 	 * pthread_create() did not succeed. Reset this value to zero.
 	 */
-	if (ret < 0) {
+	if (ret != 0) {
 		rcu_thread_unprepare(fpt->rcu_thread);
 		memset(&fpt->thread, 0x00, sizeof(fpt->thread));
 	}

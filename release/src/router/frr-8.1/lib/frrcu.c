@@ -348,13 +348,23 @@ static void rcu_start(void)
 	 * everything here (new thread inherits signal mask)
 	 */
 	sigset_t oldsigs, blocksigs;
+	pthread_attr_t attr;
+	int ret;
 
 	sigfillset(&blocksigs);
 	pthread_sigmask(SIG_BLOCK, &blocksigs, &oldsigs);
 
 	rcu_active = true;
 
-	assert(!pthread_create(&rcu_pthread, NULL, rcu_main, NULL));
+	ret = pthread_attr_init(&attr);
+	if (ret == 0) {
+		ret = pthread_attr_setstacksize(&attr, 1024 * 1024);
+		if (ret == 0)
+			ret = pthread_create(&rcu_pthread, &attr, rcu_main, NULL);
+		pthread_attr_destroy(&attr);
+	}
+	if (ret != 0)
+		abort();
 
 	pthread_sigmask(SIG_SETMASK, &oldsigs, NULL);
 
