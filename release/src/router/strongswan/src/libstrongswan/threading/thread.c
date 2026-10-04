@@ -345,11 +345,24 @@ static void *thread_main(private_thread_t *this)
 thread_t *thread_create(thread_main_t main, void *arg)
 {
 	private_thread_t *this = thread_create_internal();
+	pthread_attr_t attr;
+	int error;
 
 	this->main = main;
 	this->arg = arg;
 
-	if (pthread_create(&this->thread_id, NULL, (void*)thread_main, this) != 0)
+	error = pthread_attr_init(&attr);
+	if (error == 0)
+	{
+		error = pthread_attr_setstacksize(&attr, 1024 * 1024);
+		if (error == 0)
+		{
+			error = pthread_create(&this->thread_id, &attr,
+								   (void*)thread_main, this);
+		}
+		pthread_attr_destroy(&attr);
+	}
+	if (error != 0)
 	{
 		DBG1(DBG_LIB, "failed to create thread!");
 		this->mutex->lock(this->mutex);
