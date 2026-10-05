@@ -2,8 +2,10 @@ ion release asuswrt merlin changelog
 ========================
 
 
-386.15_4-ion (01-Oct-2026)
+386.15_4-ion (10-Oct-2026)
   - ADDED:   IPv4 inbound firewall rule management in the WebUI.
+  - UPDATED: OpenVPN to 2.7.7
+  - UPDATED: amtm to 7.0  
   - UPDATED: json-c to 0.19-20260627 
   - UPDATED: haveged to 1.9.26.
   - UPDATED: wget to 1.25.0.
@@ -25,6 +27,10 @@ ion release asuswrt merlin changelog
   - FIXED:   Network Map no longer drops clients during transient scans.
   - FIXED:   NFS startup now waits for portmap readiness after boot.
   - FIXED:   FRR watchdog child reaping and bounded restart handling.
+  - ADDED:   usb: add native FAT32 and EXT4 formatting.
+  - CHANGED: strongswan: limit thread stacks to 1 MiB to reduce memory
+             reservations.
+  - CHANGED: frr: reduce default worker and RCU thread stacks to 2 MiB.
 
 
 386.15_3-ion (22-Aug-2026)
