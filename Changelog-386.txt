@@ -25,6 +25,10 @@ ion release asuswrt merlin changelog
   - FIXED:   Network Map no longer drops clients during transient scans.
   - FIXED:   NFS startup now waits for portmap readiness after boot.
   - FIXED:   FRR watchdog child reaping and bounded restart handling.
+  - ADDED:   usb: add native FAT32 and EXT4 formatting.
+  - CHANGED: strongswan: limit thread stacks to 1 MiB to reduce memory
+             reservations.
+  - CHANGED: frr: reduce default worker and RCU thread stacks to 2 MiB.
 
 
 386.15_3-ion (22-Aug-2026)
