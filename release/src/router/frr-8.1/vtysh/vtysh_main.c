@@ -65,6 +65,7 @@ static gid_t elevgid, realgid;
 
 #define VTYSH_CONFIG_NAME "vtysh.conf"
 #define FRR_CONFIG_NAME "frr.conf"
+#define FRR_CONFIG_DIR_DEFAULT "/jffs/configs/frr"
 
 /* Configuration file name and directory. */
 static char vtysh_config[MAXPATHLEN * 3];
@@ -86,6 +87,17 @@ static int jmpflag = 0;
 
 /* A static variable for holding the line. */
 static char *line_read;
+
+static const char *vtysh_get_frr_config_dir(void)
+{
+	const char *config_dir = getenv("FRR_CONFIG_DIR");
+
+	if (!config_dir || config_dir[0] != '/' || strstr(config_dir, "..") ||
+	    strcmp(config_dir, "/etc") == 0)
+		return FRR_CONFIG_DIR_DEFAULT;
+
+	return config_dir;
+}
 
 /* Master of threads. */
 struct thread_master *master;
@@ -449,8 +461,8 @@ int main(int argc, char **argv, char **env)
 
 	snprintf(vtysh_config, sizeof(vtysh_config), "%s%s%s", sysconfdir,
 		 pathspace, VTYSH_CONFIG_NAME);
-	snprintf(frr_config, sizeof(frr_config), "%s%s%s", sysconfdir,
-		 pathspace, FRR_CONFIG_NAME);
+	snprintf(frr_config, sizeof(frr_config), "%s/%s%s",
+		 vtysh_get_frr_config_dir(), pathspace, FRR_CONFIG_NAME);
 
 	if (pathspace_arg) {
 		strlcat(vtydir, "/", sizeof(vtydir));
