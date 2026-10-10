@@ -23,33 +23,98 @@
 	<script type="text/javascript" language="JavaScript" src="/validator.js"></script>
 	<script type="text/javascript" language="JavaScript" src="/js/frr_config.js"></script>
 	<script>
-		var frr_bgp_neighbor_array = '<% get_frr_bgp_neighbor_list(); %>';
-		var frr_bgp_neighbor_as_array = '<% get_frr_bgp_neighbor_as_list(); %>';
-		var frr_bgp_neighbor_desc_array = '<% get_frr_bgp_neighbor_desc_list(); %>';
-		var frr_bgp_neighbor_src_array = '<% get_frr_bgp_neighbor_src_list(); %>';
 		var frr_bgp_neighbor_status_map = <% get_frr_bgp_neighbor_status_map(); %>;
-		var frr_bfd_config = <% get_frr_bfd_config(); %>;
+		var frr_bgp_config = <% get_frr_bgp_config(); %>;
 		var frrDefaultConfigDir = '/jffs/configs/frr';
+		var frrInitialConfig = '';
+
+		function frr_html_escape(value) {
+			return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+				.replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+		}
+
+		function frr_valid_cidr(value) {
+			if (!/^(\d{1,3}\.){3}\d{1,3}\/(3[0-2]|[12]?\d)$/.test(value))
+				return false;
+			var octets = value.split('/')[0].split('.');
+			for (var i = 0; i < octets.length; i++)
+				if (Number(octets[i]) > 255) return false;
+			return true;
+		}
+
+		function frr_valid_interval(value) {
+			return /^\d+$/.test(value) && Number(value) >= 10 && Number(value) <= 60000;
+		}
+
+		function frr_valid_area(value) {
+			if (value == '') return true;
+			if (/^\d+$/.test(value)) return Number(value) <= 4294967295;
+			return frr_valid_cidr(value + '/32');
+		}
+
+		function frr_config_signature() {
+			return JSON.stringify(frr_collect_config());
+		}
+
+		function frr_collect_config() {
+			var fields = ['frr_enable', 'frr_passwd', 'frr_enpasswd', 'frr_allow_lan',
+				'frr_bgp_enable', 'frr_bgp_as', 'frr_bgp_networks', 'frr_ospf_enable',
+				'frr_ospf_area', 'frr_ospf_networks', 'frr_bfd_enable', 'frr_config_dir'];
+			var values = {bgp_peers: {}, bfd_peers: {}};
+			for (var i = 0; i < fields.length; i++)
+				values[fields[i]] = document.form[fields[i]].value;
+			values.frr_config_dir = values.frr_config_dir || frrDefaultConfigDir;
+			var table = document.getElementById('bgp_neighbor_table');
+			for (var row = 0; row < table.rows.length; row++) {
+				if (table.rows[row].cells.length < 5) continue;
+				var ip = frr_cell_value(table.rows[row].cells[1]);
+				values.bgp_peers[ip] = {
+					as_number: frr_cell_value(table.rows[row].cells[2]),
+					description: frr_cell_value(table.rows[row].cells[3]),
+					source: table.rows[row].getAttribute('data-update-source') || ''
+				};
+			}
+			var bfd = document.getElementById('bfd_peer_table');
+			for (var peer = 0; peer < bfd.rows.length; peer++) {
+				if (bfd.rows[peer].cells.length < 4) continue;
+				values.bfd_peers[frr_cell_value(bfd.rows[peer].cells[1])] = {
+					tx: frr_cell_value(bfd.rows[peer].cells[2]) || '300',
+					rx: frr_cell_value(bfd.rows[peer].cells[3]) || '300',
+					options: bfd.rows[peer].getAttribute('data-options') || ''
+				};
+			}
+			return values;
+		}
+
+		function frr_cell_value(cell) {
+			var input = cell.querySelector('input[type="text"]');
+			return input ? input.value : cell.textContent;
+		}
 
 		function bgp_status_badge(status) {
 			var s = (status || 'Configured').toString();
 			var l = s.toLowerCase();
 			var color = '#FFCC66';
 
-			if (l == 'established')
+			if (l == 'established' || l == 'up')
 				color = '#7CFC7C';
 			else if (l == 'active' || l == 'connect')
 				color = '#6ED0FF';
-			else if (l == 'idle')
+			else if (l == 'idle' || l == 'down' || l == 'shutdown')
 				color = '#FF9A9A';
 
 			return '<span style="display:inline-block;padding:1px 7px;border-radius:9px;'
 				+ 'background:' + color + ';color:#1b1b1b;font-size:11px;font-weight:600;">'
-				+ s + '</span>';
+				+ frr_html_escape(s) + '</span>';
 		}
 
 		function initial() {
 			show_menu();
+			var fields = ['frr_passwd', 'frr_enpasswd', 'frr_bgp_enable', 'frr_bgp_as',
+				'frr_bgp_networks', 'frr_ospf_enable', 'frr_ospf_area', 'frr_ospf_networks',
+				'frr_bfd_enable', 'frr_allow_lan', 'frr_config_dir'];
+			for (var i = 0; i < fields.length; i++)
+				document.form[fields[i]].value = frr_bgp_config[fields[i]] || '';
 			normalize_frr_config_dir();
 
 			// Show/hide protocol sections based on enable status
@@ -57,24 +122,11 @@
 
 			// Load BGP neighbor table
 			show_bgp_neighbor_list();
-			apply_bfd_config();
+			show_bfd_peer_list();
+			frrInitialConfig = frr_config_signature();
 
 			// Start status refresh (will show stopped if FRR disabled)
 			setTimeout(refresh_frr_status, 1000);
-		}
-
-		function apply_bfd_config() {
-			if (!document.form || !frr_bfd_config)
-				return;
-
-			if (document.form.frr_bfd_peer && document.form.frr_bfd_peer.value == '' && frr_bfd_config.peer)
-				document.form.frr_bfd_peer.value = frr_bfd_config.peer;
-
-			if (document.form.frr_bfd_tx && document.form.frr_bfd_tx.value == '' && frr_bfd_config.tx)
-				document.form.frr_bfd_tx.value = frr_bfd_config.tx;
-
-			if (document.form.frr_bfd_rx && document.form.frr_bfd_rx.value == '' && frr_bfd_config.rx)
-				document.form.frr_bfd_rx.value = frr_bfd_config.rx;
 		}
 
 		function routeStatusLink() {
@@ -93,43 +145,32 @@
 		}
 
 		function applyRule() {
+			if (frr_bgp_config.error) {
+				alert(frr_bgp_config.error);
+				return false;
+			}
+			if (!validate_frr_config())
+				return false;
+			var regenerate = document.form.frr_force_regen_choice.value == '1';
+			var changed = frr_config_signature() != frrInitialConfig;
+			var config = frr_collect_config();
+			var original = JSON.parse(frrInitialConfig || '{}');
+			config.frr_passwd_changed = config.frr_passwd != original.frr_passwd ? '1' : '0';
+			config.frr_enpasswd_changed = config.frr_enpasswd != original.frr_enpasswd ? '1' : '0';
+			delete config.frr_passwd;
+			delete config.frr_enpasswd;
+			var request = JSON.stringify(config);
+			if (unescape(encodeURIComponent(request)).length > 8191) {
+				alert('FRR settings exceed the supported request size');
+				return false;
+			}
+			document.form.frr_ui_request.value = request;
 			// Restore default before submit if the field was left empty
 			var cfgField = document.form.frr_config_dir;
 			if (cfgField && cfgField.value == '')
 				cfgField.value = frrDefaultConfigDir;
 
-			if (!validate_frr_config()) {
-				return false;
-			}
-
-			// Build BGP neighbor lists
-			var neighbor_list = "";
-			var neighbor_as_list = "";
-			var neighbor_desc_list = "";
-			var table = document.getElementById('bgp_neighbor_table');
-			var rule_num = table ? table.rows.length : 0;
-
-			for (var i = 0; i < rule_num; i++) {
-				// Skip "no rules" message row (has only 1 cell with colspan)
-				if (!table.rows[i].cells || table.rows[i].cells.length < 2) continue;
-
-				if (neighbor_list != "") {
-					neighbor_list += ">";
-					neighbor_as_list += ">";
-					neighbor_desc_list += ">";
-				}
-				neighbor_list += table.rows[i].cells[1].textContent;
-				neighbor_as_list += table.rows[i].cells[2].textContent;
-				neighbor_desc_list += table.rows[i].cells[3].textContent;
-			}
-
-			document.form.frr_bgp_neighbor.value = neighbor_list;
-			document.form.frr_bgp_neighbor_as.value = neighbor_as_list;
-			document.form.frr_bgp_neighbor_desc.value = neighbor_desc_list;
-			document.form.frr_bgp_neighbor_src.value = "";
-
-			// Force config regeneration on next FRR restart (needed to pick up UI changes)
-			document.form.frr_force_regen.value = "1";
+			document.form.frr_force_regen.value = regenerate ? "1" : (changed ? "2" : "0");
 
 			showLoading();
 			document.form.submit();
@@ -158,14 +199,8 @@
 			if (document.form.frr_bgp_enable.value == "1") {
 				var as_num = document.form.frr_bgp_as.value;
 				var bgp_networks = document.form.frr_bgp_networks ? document.form.frr_bgp_networks.value : "";
-				var cidr_re = /^(\d{1,3}\.){3}\d{1,3}\/(3[0-2]|[12]?\d)$/;
-				if (as_num == "" || as_num == "0") {
+				if (!/^\d+$/.test(as_num) || Number(as_num) < 1 || Number(as_num) > 4294967295) {
 					alert("Please enter a valid BGP AS number (1-4294967295)");
-					document.form.frr_bgp_as.focus();
-					return false;
-				}
-				if (parseInt(as_num) < 1 || parseInt(as_num) > 4294967295) {
-					alert("BGP AS number must be between 1 and 4294967295");
 					document.form.frr_bgp_as.focus();
 					return false;
 				}
@@ -174,7 +209,7 @@
 					for (var n = 0; n < nets.length; n++) {
 						if (nets[n] == "")
 							continue;
-						if (!cidr_re.test(nets[n])) {
+						if (!frr_valid_cidr(nets[n])) {
 							alert("BGP networks must be in CIDR format (example: 192.168.0.0/24)");
 							document.form.frr_bgp_networks.focus();
 							return false;
@@ -183,45 +218,76 @@
 				}
 			}
 
-			if (document.form.frr_bfd_enable.value == "1") {
-				if (document.form.frr_bfd_peer.value != "" && !validator.validIPForm(document.form.frr_bfd_peer, 0))
-					return false;
-
-				if (document.form.frr_bfd_tx.value != "" && parseInt(document.form.frr_bfd_tx.value, 10) <= 0) {
-					alert("BFD transmit interval must be a positive number");
-					document.form.frr_bfd_tx.focus();
+			if (document.form.frr_ospf_enable.value == '1') {
+				if (!frr_valid_area(document.form.frr_ospf_area.value)) {
+					alert('OSPF area must be an IPv4 address or integer between 0 and 4294967295');
+					document.form.frr_ospf_area.focus();
 					return false;
 				}
+				var ospf_networks = document.form.frr_ospf_networks.value.split(/[\s>]+/);
+				for (var o = 0; o < ospf_networks.length; o++) {
+					if (ospf_networks[o] && !frr_valid_cidr(ospf_networks[o])) {
+						alert('OSPF networks must be valid IPv4 CIDR prefixes');
+						document.form.frr_ospf_networks.focus();
+						return false;
+					}
+				}
+			}
 
-				if (document.form.frr_bfd_rx.value != "" && parseInt(document.form.frr_bfd_rx.value, 10) <= 0) {
-					alert("BFD receive interval must be a positive number");
-					document.form.frr_bfd_rx.focus();
+			var config = frr_collect_config();
+			for (var ip in config.bgp_peers) {
+				var peer = config.bgp_peers[ip];
+				var asn = peer.as_number;
+				if ((!/^\d+$/.test(asn) || Number(asn) < 1 || Number(asn) > 4294967295) &&
+					asn != 'internal' && asn != 'external') {
+					alert('Each BGP peer requires a valid remote AS');
 					return false;
 				}
+				if (/[\r\n]/.test(peer.description)) {
+					alert('Peer descriptions cannot contain line breaks');
+					return false;
+				}
+			}
+			for (var address in config.bfd_peers) {
+				var bfd = config.bfd_peers[address];
+				if (!frr_valid_interval(bfd.tx) || !frr_valid_interval(bfd.rx)) {
+					alert('BFD intervals must be integers between 10 and 60000 ms');
+					return false;
+				}
+			}
+			if (/[\r\n]/.test(document.form.frr_passwd.value + document.form.frr_enpasswd.value)) {
+				alert('Passwords cannot contain line breaks');
+				return false;
 			}
 
 			return true;
 		}
 
 		function show_bgp_neighbor_list() {
-			var bgp_neighbors = frr_bgp_neighbor_array.split('>');
-			var bgp_neighbor_as = frr_bgp_neighbor_as_array.split('>');
-			var bgp_neighbor_desc = frr_bgp_neighbor_desc_array.split('>');
+			var bgp_neighbors = [];
+			var configured = frr_bgp_config.bgp_peers || {};
+			for (var ip in configured) {
+				if (!Object.prototype.hasOwnProperty.call(configured, ip) || !configured[ip].is_peer) continue;
+				var entry = configured[ip];
+				entry.ip = ip;
+				bgp_neighbors.push(entry);
+			}
 			var status_map = frr_bgp_neighbor_status_map || {};
 			var code = "";
 
-			if (bgp_neighbors.length == 0 || bgp_neighbors[0] == "") {
+			if (bgp_neighbors.length == 0) {
 				code = '<tr><td colspan="5" style="text-align:center;color:#FFCC00;"><#IPConnection_VSList_Norule#></td></tr>';
 			} else {
 				for (var i = 0; i < bgp_neighbors.length; i++) {
-					if (bgp_neighbors[i] != "") {
-						var n_ip = bgp_neighbors[i];
+					if (bgp_neighbors[i].ip) {
+						var peer = bgp_neighbors[i];
+						var n_ip = peer.ip;
 						var n_status = status_map[n_ip] || 'Configured';
-						code += '<tr>';
+						code += '<tr data-update-source="' + frr_html_escape(peer.source || '') + '">';
 						code += '<td width="5%"><input type="button" class="remove_btn" onclick="del_bgp_neighbor(this);" value=""/></td>';
-						code += '<td width="25%">' + n_ip + '</td>';
-						code += '<td width="15%">' + (bgp_neighbor_as[i] || '') + '</td>';
-						code += '<td width="35%">' + (bgp_neighbor_desc[i] || '') + '</td>';
+						code += '<td width="25%">' + frr_html_escape(n_ip) + '</td>';
+						code += '<td width="15%"><input type="text" maxlength="10" style="width:95%;" value="' + frr_html_escape(peer.as_number || '') + '" /></td>';
+						code += '<td width="35%"><input type="text" maxlength="63" style="width:95%;" value="' + frr_html_escape(peer.description || '') + '" /></td>';
 						code += '<td width="20%">' + bgp_status_badge(n_status) + '</td>';
 						code += '</tr>';
 					}
@@ -242,14 +308,14 @@
 			}
 
 			// Validate AS number
-			if (neighbor_as == "" || parseInt(neighbor_as) < 1 || parseInt(neighbor_as) > 4294967295) {
+			if (!/^\d+$/.test(neighbor_as) || Number(neighbor_as) < 1 || Number(neighbor_as) > 4294967295) {
 				alert("Please enter a valid AS number (1-4294967295)");
 				document.form.frr_bgp_neighbor_as_x.focus();
 				return false;
 			}
 
-			if (neighbor_desc.indexOf(">") != -1) {
-				alert("Description cannot contain '>' character");
+			if (/[\r\n]/.test(neighbor_desc)) {
+				alert("Description cannot contain line breaks");
 				document.form.frr_bgp_neighbor_desc_x.focus();
 				return false;
 			}
@@ -266,9 +332,9 @@
 			// Add new row
 			var row_code = '<tr>';
 			row_code += '<td width="5%"><input type="button" class="remove_btn" onclick="del_bgp_neighbor(this);" value=""/></td>';
-			row_code += '<td width="25%">' + neighbor_ip + '</td>';
-			row_code += '<td width="15%">' + neighbor_as + '</td>';
-			row_code += '<td width="35%">' + neighbor_desc + '</td>';
+			row_code += '<td width="25%">' + frr_html_escape(neighbor_ip) + '</td>';
+			row_code += '<td width="15%">' + frr_html_escape(neighbor_as) + '</td>';
+			row_code += '<td width="35%">' + frr_html_escape(neighbor_desc) + '</td>';
 			row_code += '<td width="20%">' + bgp_status_badge('Configured') + '</td>';
 			row_code += '</tr>';
 
@@ -296,14 +362,68 @@
 			}
 		}
 
+		function bfd_peer_row(ip, tx, rx, options) {
+			return '<tr data-options="' + frr_html_escape(options || '') + '">'
+				+ '<td><input type="button" class="remove_btn" onclick="this.parentNode.parentNode.parentNode.removeChild(this.parentNode.parentNode);" value="" /></td>'
+				+ '<td>' + frr_html_escape(ip) + '</td>'
+				+ '<td><input type="text" maxlength="5" style="width:70px;" value="' + frr_html_escape(tx || '300') + '" /></td>'
+				+ '<td><input type="text" maxlength="5" style="width:70px;" value="' + frr_html_escape(rx || '300') + '" /></td>'
+				+ '<td>' + bgp_status_badge('Configured') + '</td></tr>';
+		}
+
+		function show_bfd_peer_list() {
+			var peers = frr_bgp_config.bfd_peers || {};
+			var code = '';
+			for (var ip in peers) {
+				if (Object.prototype.hasOwnProperty.call(peers, ip))
+					code += bfd_peer_row(ip, peers[ip].tx, peers[ip].rx, peers[ip].options);
+			}
+			document.getElementById('bfd_peer_table').innerHTML = code;
+		}
+
+		function add_bfd_peer() {
+			var ip = document.form.frr_bfd_peer_x;
+			var tx = document.form.frr_bfd_tx_x.value || '300';
+			var rx = document.form.frr_bfd_rx_x.value || '300';
+			if (!validator.validIPForm(ip, 0)) return false;
+			if (!frr_valid_interval(tx) || !frr_valid_interval(rx)) {
+				alert('BFD intervals must be integers between 10 and 60000 ms');
+				return false;
+			}
+			var table = document.getElementById('bfd_peer_table');
+			for (var row = 0; row < table.rows.length; row++) {
+				if (frr_cell_value(table.rows[row].cells[1]) == ip.value) {
+					alert('This BFD peer already exists');
+					return false;
+				}
+			}
+			table.insertAdjacentHTML('beforeend', bfd_peer_row(ip.value, tx, rx, ''));
+			ip.value = '';
+		}
+
+		function update_peer_status(table_id, statuses, fallback) {
+			var table = document.getElementById(table_id);
+			for (var row = 0; row < table.rows.length; row++) {
+				if (table.rows[row].cells.length < 5) continue;
+				var ip = frr_cell_value(table.rows[row].cells[1]);
+				table.rows[row].cells[4].innerHTML = bgp_status_badge((statuses || {})[ip] || fallback);
+			}
+		}
+
 		function refresh_frr_status() {
 			$.ajax({
 				url: '/ajax_frr_status.asp',
 				dataType: 'json',
+				cache: false,
+				timeout: 5000,
 				error: function (xhr) {
+					update_peer_status('bgp_neighbor_table', {}, 'Unknown');
+					update_peer_status('bfd_peer_table', {}, 'Unknown');
 					setTimeout(refresh_frr_status, 5000);
 				},
 				success: function (data) {
+					update_peer_status('bgp_neighbor_table', data.bgp_peer_status, 'Configured');
+					update_peer_status('bfd_peer_table', data.bfd_peer_status, 'Configured');
 					// Update status indicators
 					if (data.zebra_running) {
 						document.getElementById('zebra_status').innerHTML = '<span style="color:#0F0;">Running</span>';
@@ -367,11 +487,8 @@
 		<input type="hidden" name="action_wait" value="10">
 		<input type="hidden" name="preferred_lang" id="preferred_lang" value="<% nvram_get("preferred_lang"); %>">
 		<input type="hidden" name="firmver" value="<% nvram_get("firmver"); %>">
-		<input type="hidden" name="frr_bgp_neighbor" value="">
-		<input type="hidden" name="frr_bgp_neighbor_as" value="">
-		<input type="hidden" name="frr_bgp_neighbor_desc" value="">
-		<input type="hidden" name="frr_bgp_neighbor_src" value="">
 		<input type="hidden" name="frr_force_regen" value="0">
+		<input type="hidden" name="frr_ui_request" value="">
 
 		<table class="content" align="center" cellpadding="0" cellspacing="0">
 			<tr>
@@ -452,7 +569,7 @@
 															<td>
 																<input type="password" maxlength="64"
 																	class="input_32_table" name="frr_passwd"
-																		value="<% nvram_get("frr_passwd"); %>"
+																		value=""
 																autocomplete="off" autocorrect="off"
 																autocapitalize="off">
 															</td>
@@ -464,7 +581,7 @@
 															<td>
 																<input type="password" maxlength="64"
 																	class="input_32_table" name="frr_enpasswd"
-																		value="<% nvram_get("frr_enpasswd"); %>"
+																			value=""
 																autocomplete="off" autocorrect="off"
 																autocapitalize="off">
 															</td>
@@ -519,8 +636,7 @@
 															</th>
 															<td>
 																<input type="text" maxlength="10" class="input_12_table"
-																	name="frr_bgp_as" value="<% nvram_get("
-																	frr_bgp_as"); %>" onKeyPress="return
+																		name="frr_bgp_as" value="" onKeyPress="return
 																validator.isNumber(this,event);">
 																<span style="color:#888;"> (1-4294967295)</span>
 																<div
@@ -585,7 +701,7 @@
 																		class="textarea_ssh_table"
 																		style="width:98%;height:56px;"
 																		autocomplete="off" autocorrect="off"
-																		autocapitalize="off"><% nvram_get("frr_bgp_networks"); %></textarea>
+																				autocapitalize="off"></textarea>
 																</div>
 															</td>
 														</tr>
@@ -622,7 +738,7 @@
 															</th>
 															<td>
 																<input type="text" maxlength="15" class="input_15_table"
-																	name="frr_ospf_area" value="<% nvram_get("frr_ospf_area"); %>"
+																		name="frr_ospf_area" value=""
 																placeholder="0.0.0.0">
 															</td>
 														</tr>
@@ -635,7 +751,7 @@
 																	class="textarea_ssh_table"
 																	style="width:98%;height:80px;" autocomplete="off"
 																	autocorrect="off"
-																	autocapitalize="off"><% nvram_get("frr_ospf_networks"); %></textarea>
+																			autocapitalize="off"></textarea>
 																<span style="color:#888;">
 																	<#FRR_ospf_networks_hint#>
 																</span>
@@ -677,22 +793,23 @@
 																		<div style="margin-top:8px;">
 																			Peer: <input type="text" maxlength="15"
 																				class="input_15_table"
-																				name="frr_bfd_peer"
-																				value="<% nvram_get("frr_bfd_peer");
-																				%>" placeholder="192.168.0.2"
+																				name="frr_bfd_peer_x"
+																				value="" placeholder="192.168.0.2"
 																			onKeyPress="return
 																			validator.isIPAddr(this,event);">
 																			TX(ms): <input type="text" maxlength="5"
-																				class="input_6_table" name="frr_bfd_tx"
-																				value="<% nvram_get("frr_bfd_tx"); %>"
+																				class="input_6_table" name="frr_bfd_tx_x"
+																				value=""
 																			onKeyPress="return
 																			validator.isNumber(this,event);">
 																			RX(ms): <input type="text" maxlength="5"
-																				class="input_6_table" name="frr_bfd_rx"
-																				value="<% nvram_get("frr_bfd_rx"); %>"
+																				class="input_6_table" name="frr_bfd_rx_x"
+																				value=""
 																			onKeyPress="return
 																			validator.isNumber(this,event);">
+																			<input type="button" class="add_btn" onclick="add_bfd_peer();" value="">
 																		</div>
+																		<table class="FormTable_table" width="100%"><thead><tr><th></th><th>Peer</th><th>TX(ms)</th><th>RX(ms)</th><th>Status</th></tr></thead><tbody id="bfd_peer_table"></tbody></table>
 															</td>
 														</tr>
 													</table>
@@ -737,10 +854,10 @@
 																<#FRR_force_regen#>
 															</th>
 															<td>
-																<input type="radio" value="1" name="frr_force_regen"
+																<input type="radio" value="1" name="frr_force_regen_choice"
 																	class="input">
 																<#checkbox_Yes#>
-																	<input type="radio" value="0" name="frr_force_regen"
+																	<input type="radio" value="0" name="frr_force_regen_choice"
 																		class="input" checked>
 																	<#checkbox_No#>
 																		<span style="color:#888;">
