@@ -1,0 +1,36 @@
+##  ion Asus Merlin changelog  ##
+
+Date: October 10, 2026
+Release: 386.15_4-ion
+
+  - ADDED:   IPv4 inbound firewall rule management in the WebUI.
+  - UPDATED: OpenVPN to 2.7.7
+  - UPDATED: amtm to 7.0  
+  - UPDATED: json-c to 0.19-20260627 
+  - UPDATED: haveged to 1.9.26.
+  - UPDATED: wget to 1.25.0.
+  - UPDATED: htop to 3.5.3.
+  - UPDATED: mtr to 0.96.
+  - UPDATED: tor to 0.4.9.11.
+  - UPDATED: getdns to 1.7.3 and stubby to 0.4.3.
+  - UPDATED: inadyn to 2.13.0.
+  - UPDATED: nettle to 4.0.
+  - UPDATED: expat to 2.8.3.
+  - UPDATED: zlib to 1.3.2.
+  - UPDATED: libxml2 to 2.12.10
+  - UPDATED: curl to 8.21.0.
+  - UPDATED: OpenConnect to 9.21.
+  - UPDATED: protobuf-c to 1.5.2.
+  - UPDATED: iptables to 1.4.21.
+  - FIXED:   Ported missing OpenSSL 1.1.1w extended-security fixes.
+  - FIXED:   A json-c release-build leak that caused httpds memory growth.
+  - FIXED:   Network Map no longer drops clients during transient scans.
+  - FIXED:   NFS startup now waits for portmap readiness after boot.
+  - FIXED:   FRR watchdog child reaping and bounded restart handling.
+  - ADDED:   usb: add native FAT32 and EXT4 formatting.
+  - CHANGED: strongswan: limit thread stacks to 1 MiB to reduce memory
+             reservations.
+  - CHANGED: frr: reduce default worker and RCU thread stacks to 2 MiB.
+
+
+
