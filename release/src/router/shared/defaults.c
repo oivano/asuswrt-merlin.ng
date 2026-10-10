@@ -4233,6 +4233,7 @@ struct nvram_tuple router_defaults[] = {
 	{ "frr_allow_lan", "0", CKN_STR1, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* Allow LAN vty access */
 	{ "frr_config_dir", "/jffs/configs/frr", CKN_STR128, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* Writable FRR config source directory mirrored into runtime files */
 	{ "frr_force_regen", "0", CKN_STR1, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* Force config regen */
+	{ "frr_ui_request", "", CKN_STR8192, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },
 #endif
 #if defined(RTCONFIG_QCA)
 	/* 0: MSG_INFO (default debug level in hostapd/wpa_supplicant), 1: MSG_DEBUG, 2: MSG_MSGDUMP, 3: MSG_EXCESSIVE */

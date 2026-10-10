@@ -515,7 +515,7 @@
 		function getRefresh() {
 			var val = parseInt(cookie.get('awrtm_routerefresh'));
 
-			if ((val != 0) && (val != 10) && (val != 15) && (val != 30) && (val != 60))
+			if ((val != 0) && (val != 1) && (val != 3) && (val != 5) && (val != 10))
 				val = 0;
 
 			document.getElementById('refreshrate').value = val;
@@ -836,10 +836,10 @@
 														<select name="refreshrate" class="input_option"
 															onchange="setRefresh(this);" id="refreshrate">
 															<option value="0" selected>No refresh</option>
+															<option value="1">1 second</option>
+															<option value="3">3 seconds</option>
+															<option value="5">5 seconds</option>
 															<option value="10">10 seconds</option>
-															<option value="15">15 seconds</option>
-															<option value="30">30 seconds</option>
-															<option value="60">60 seconds</option>
 														</select>
 														<span id="route_refresh_spinner" style="display:none;margin-left:8px;vertical-align:middle;">
 															<span style="display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,0.25);border-top-color:#fff;border-radius:50%;animation:route_spin 0.75s linear infinite;vertical-align:middle;"></span>

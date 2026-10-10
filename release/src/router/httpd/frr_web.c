@@ -9,10 +9,8 @@
 #include <ctype.h>
 #include <unistd.h>
 #include <errno.h>
-#include <signal.h>
 #include <fcntl.h>
 #include <sys/types.h>
-#include <sys/wait.h>
 #include <sys/select.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
@@ -21,20 +19,34 @@
 
 #include <bcmnvram.h>
 #include <shutils.h>
+#include <shared.h>
 
 #include "httpd.h"
 #include "frr_web.h"
 #include <json.h>
+#include <frr_ui_config.h>
 
 #define FRR_RUNNING_CONFIG_CMD  "show running-config"
 #define FRR_BGP_SUMMARY_CMD     "show bgp summary json"
+#define FRR_BFD_PEERS_CMD       "show bfd peers json"
 #define FRR_SHOW_IP_ROUTE_CMD   "show ip route json"
 #define FRR_SHOW_IPV6_ROUTE_CMD "show ipv6 route json"
-#define FRR_VTYSH_TIMEOUT_SEC 8
 #define FRR_MAX_CAPTURE_SIZE 524288
-#define FRR_VTYSH_RETRY_DELAY_SEC 5
-#define FRR_ZEBRA_SOCKET "/var/run/frr/zebra.vty"
-#define FRR_ZEBRA_TIMEOUT_SEC 2
+#define FRR_DAEMON_RETRY_DELAY_SEC 5
+#define FRR_DAEMON_TIMEOUT_SEC 2
+
+enum frr_vty_daemon {
+	FRR_VTY_ZEBRA,
+	FRR_VTY_BGPD,
+	FRR_VTY_BFDD,
+	FRR_VTY_COUNT
+};
+
+static const char *const frr_vty_sockets[FRR_VTY_COUNT] = {
+	"/var/run/frr/zebra.vty",
+	"/var/run/frr/bgpd.vty",
+	"/var/run/frr/bfdd.vty"
+};
 
 struct frr_bgp_cache {
 	char neighbors[512];
@@ -45,8 +57,7 @@ struct frr_bgp_cache {
 	int valid;
 };
 
-static time_t frr_vtysh_backoff_until = 0;
-static time_t frr_zebra_backoff_until = 0;
+static time_t frr_daemon_backoff_until[FRR_VTY_COUNT] = {0};
 static struct frr_bgp_cache frr_bgp_cache = {{0}, {0}, {0}, {0}, 0, 0};
 
 struct frr_command_output {
@@ -77,7 +88,8 @@ static int frr_socket_wait(int fd, int writing, time_t deadline)
 	}
 }
 
-static int frr_zebra_capture(const char *cmd, struct frr_command_output *output)
+static int frr_daemon_capture(enum frr_vty_daemon daemon, const char *cmd,
+			      struct frr_command_output *output)
 {
 	struct sockaddr_un address;
 	time_t deadline;
@@ -92,17 +104,23 @@ static int frr_zebra_capture(const char *cmd, struct frr_command_output *output)
 	ssize_t count;
 	char *terminator;
 	char *new_data;
+	const char *request;
+	int enabling;
 
 	if (!output)
 		return 0;
 	memset(output, 0, sizeof(*output));
-	if (!cmd || (strcmp(cmd, FRR_SHOW_IP_ROUTE_CMD) != 0 &&
-		     strcmp(cmd, FRR_SHOW_IPV6_ROUTE_CMD) != 0))
+	if (!cmd || (unsigned int)daemon >= FRR_VTY_COUNT)
 		return 0;
-	if (time(NULL) < frr_zebra_backoff_until)
+	if (!((daemon == FRR_VTY_ZEBRA &&
+	       (!strcmp(cmd, FRR_SHOW_IP_ROUTE_CMD) || !strcmp(cmd, FRR_SHOW_IPV6_ROUTE_CMD))) ||
+	      (daemon == FRR_VTY_BGPD && !strcmp(cmd, FRR_BGP_SUMMARY_CMD)) ||
+	      (daemon == FRR_VTY_BFDD && (!strcmp(cmd, FRR_RUNNING_CONFIG_CMD) || !strcmp(cmd, FRR_BFD_PEERS_CMD)))))
+		return 0;
+	if (time(NULL) < frr_daemon_backoff_until[daemon])
 		return 0;
 
-	deadline = time(NULL) + FRR_ZEBRA_TIMEOUT_SEC;
+	deadline = time(NULL) + FRR_DAEMON_TIMEOUT_SEC;
 	fd = socket(AF_UNIX, SOCK_STREAM, 0);
 	if (fd < 0)
 		goto fail;
@@ -111,7 +129,7 @@ static int frr_zebra_capture(const char *cmd, struct frr_command_output *output)
 		goto fail;
 	memset(&address, 0, sizeof(address));
 	address.sun_family = AF_UNIX;
-	strcpy(address.sun_path, FRR_ZEBRA_SOCKET);
+	strcpy(address.sun_path, frr_vty_sockets[daemon]);
 	if (connect(fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
 		if (errno != EINPROGRESS || !frr_socket_wait(fd, 1, deadline))
 			goto fail;
@@ -120,11 +138,14 @@ static int frr_zebra_capture(const char *cmd, struct frr_command_output *output)
 			goto fail;
 	}
 
-	command_len = strlen(cmd) + 1;
+	enabling = daemon == FRR_VTY_BFDD;
+	request = enabling ? "enable" : cmd;
+execute:
+	command_len = strlen(request) + 1;
 	while (sent < command_len) {
 		if (!frr_socket_wait(fd, 1, deadline))
 			goto fail;
-		count = send(fd, cmd + sent, command_len - sent, MSG_NOSIGNAL);
+		count = send(fd, request + sent, command_len - sent, MSG_NOSIGNAL);
 		if (count < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK))
 			continue;
 		if (count <= 0)
@@ -166,8 +187,17 @@ static int frr_zebra_capture(const char *cmd, struct frr_command_output *output)
 			if (used - output->len != 4 || output->len >= FRR_MAX_CAPTURE_SIZE ||
 			    memcmp(output->data + output->len, "\0\0\0\0", 4) != 0)
 				goto fail;
+			if (enabling) {
+				free(output->data);
+				memset(output, 0, sizeof(*output));
+				sent = used = 0;
+				capacity = 4096;
+				trailer_seen = enabling = 0;
+				request = cmd;
+				goto execute;
+			}
 			close(fd);
-			frr_zebra_backoff_until = 0;
+			frr_daemon_backoff_until[daemon] = 0;
 			return 1;
 		}
 	}
@@ -177,211 +207,8 @@ fail:
 		close(fd);
 	free(output->data);
 	memset(output, 0, sizeof(*output));
-	frr_zebra_backoff_until = time(NULL) + FRR_VTYSH_RETRY_DELAY_SEC;
+	frr_daemon_backoff_until[daemon] = time(NULL) + FRR_DAEMON_RETRY_DELAY_SEC;
 	return 0;
-}
-
-static const char *frr_vtysh_path(void)
-{
-	static const char *cached_path = NULL;
-	static int checked = 0;
-	static const char *const candidates[] = {
-		"/usr/bin/vtysh",
-		"/usr/sbin/vtysh",
-		"/bin/vtysh",
-		"/sbin/vtysh",
-		"/usr/lib/frr/vtysh",
-		NULL
-	};
-	int i;
-
-	if (checked)
-		return cached_path;
-
-	for (i = 0; candidates[i] != NULL; i++) {
-		if (access(candidates[i], X_OK) == 0) {
-			cached_path = candidates[i];
-			break;
-		}
-	}
-
-	checked = 1;
-	return cached_path;
-}
-
-static int frr_command_capture(const char *cmd, struct frr_command_output *output)
-{
-	int pipefd[2];
-	int nullfd = -1;
-	pid_t pid;
-	int exit_code = -1;
-	int wait_status;
-	int sel;
-	int timed_out = 0;
-	fd_set rfds;
-	struct timeval tv;
-	char buffer[1024];
-	ssize_t bytes_read;
-	time_t deadline;
-	const char *vtysh;
-	char *const *argv;
-
-	if (!cmd || !*cmd || !output)
-		return 0;
-
-	if (frr_vtysh_backoff_until > 0 && time(NULL) < frr_vtysh_backoff_until)
-		return 0;
-
-	vtysh = frr_vtysh_path();
-	if (!vtysh)
-		return 0;
-
-	argv = (char *const[]){ (char *)vtysh, "-c", (char *)cmd, NULL };
-
-	memset(output, 0, sizeof(*output));
-
-	if (pipe(pipefd) != 0)
-		return 0;
-
-	pid = fork();
-	if (pid < 0) {
-		close(pipefd[0]);
-		close(pipefd[1]);
-		return 0;
-	}
-
-	if (pid == 0) {
-		nullfd = open("/dev/null", O_WRONLY);
-		if (nullfd >= 0) {
-			dup2(nullfd, STDERR_FILENO);
-			close(nullfd);
-		}
-		dup2(pipefd[1], STDOUT_FILENO);
-		close(pipefd[0]);
-		close(pipefd[1]);
-		execv(vtysh, argv);
-		_exit(127);
-	}
-
-	close(pipefd[1]);
-	deadline = time(NULL) + FRR_VTYSH_TIMEOUT_SEC;
-
-	while (1) {
-		time_t now = time(NULL);
-		int remaining;
-
-		if (now >= deadline) {
-			timed_out = 1;
-			break;
-		}
-
-		remaining = (int)(deadline - now);
-		FD_ZERO(&rfds);
-		FD_SET(pipefd[0], &rfds);
-		tv.tv_sec = remaining;
-		tv.tv_usec = 0;
-
-		sel = select(pipefd[0] + 1, &rfds, NULL, NULL, &tv);
-		if (sel < 0) {
-			if (errno == EINTR)
-				continue;
-			break;
-		}
-
-		if (sel == 0) {
-			timed_out = 1;
-			break;
-		}
-
-		bytes_read = read(pipefd[0], buffer, sizeof(buffer) - 1);
-		if (bytes_read < 0) {
-			if (errno == EINTR)
-				continue;
-			break;
-		}
-
-		if (bytes_read == 0)
-			break;
-
-		if ((output->len + bytes_read) >= FRR_MAX_CAPTURE_SIZE)
-			bytes_read = FRR_MAX_CAPTURE_SIZE - output->len - 1;
-
-		if (bytes_read > 0) {
-			char *new_buf = realloc(output->data, output->len + bytes_read + 1);
-			if (!new_buf)
-				break;
-
-			output->data = new_buf;
-			memcpy(output->data + output->len, buffer, bytes_read);
-			output->len += bytes_read;
-			output->data[output->len] = '\0';
-		}
-
-		if (output->len >= (FRR_MAX_CAPTURE_SIZE - 1))
-			break;
-	}
-
-	close(pipefd[0]);
-
-	if (timed_out) {
-		kill(pid, SIGKILL);
-		while (waitpid(pid, &wait_status, 0) < 0 && errno == EINTR)
-			;
-		free(output->data);
-		output->data = NULL;
-		output->len = 0;
-		frr_vtysh_backoff_until = time(NULL) + FRR_VTYSH_RETRY_DELAY_SEC;
-		return 0;
-	}
-
-	/*
-	 * We read EOF from the pipe — the child has exited (that is the only way
-	 * the write end closes).  Reap it now.  Handle ECHILD: httpd's own
-	 * SIGCHLD handler may have already called waitpid() on this pid, which
-	 * is a race that is impossible to avoid without blocking SIGCHLD around
-	 * the entire fork/exec/read sequence.  If we get ECHILD but captured
-	 * data, treat the exit as successful (exit code 0 synthesised).
-	 */
-	{
-		pid_t rc;
-		do {
-			rc = waitpid(pid, &wait_status, 0);
-		} while (rc < 0 && errno == EINTR);
-
-		if (rc < 0) {
-			if (errno == ECHILD && output->len > 0) {
-				/* Already reaped by SIGCHLD handler; we have valid data. */
-				wait_status = 0; /* synthesise normal exit 0 */
-			} else {
-				free(output->data);
-				output->data = NULL;
-				output->len = 0;
-				frr_vtysh_backoff_until = time(NULL) + FRR_VTYSH_RETRY_DELAY_SEC;
-				return 0;
-			}
-		}
-	}
-
-	if (WIFEXITED(wait_status))
-		exit_code = WEXITSTATUS(wait_status);
-
-	if (exit_code != 0) {
-		free(output->data);
-		output->data = NULL;
-		output->len = 0;
-		frr_vtysh_backoff_until = time(NULL) + FRR_VTYSH_RETRY_DELAY_SEC;
-		return 0;
-	}
-
-	if (!output->data) {
-		output->data = strdup("");
-		if (!output->data)
-			return 0;
-	}
-
-	frr_vtysh_backoff_until = 0;
-
-	return 1;
 }
 
 static void frr_command_output_free(struct frr_command_output *output)
@@ -441,7 +268,7 @@ static int frr_write_route_origin_object(webs_t wp, const char *var_name, const 
 		return ret;
 	}
 
-	if (!frr_zebra_capture(cmd, &output)) {
+	if (!frr_daemon_capture(FRR_VTY_ZEBRA, cmd, &output)) {
 		ret += websWrite(wp, "};\n");
 		return ret;
 	}
@@ -567,19 +394,19 @@ static int frr_write_route_origin_object(webs_t wp, const char *var_name, const 
 	return ret;
 }
 
-static void frr_append_delimited(char *dst, size_t dst_len, const char *value)
+static void frr_append_delimited(char *dst, size_t dst_len, const char *value, int separator)
 {
 	size_t used;
 	size_t add;
 
-	if (!dst || dst_len == 0 || !value || !*value)
+	if (!dst || dst_len == 0 || !value)
 		return;
 
 	used = strlen(dst);
 	if (used >= (dst_len - 1))
 		return;
 
-	if (used > 0) {
+	if (separator) {
 		if (used + 1 >= dst_len)
 			return;
 		dst[used++] = '>';
@@ -640,7 +467,7 @@ static int frr_extract_bgp_neighbors_from_conf(char *neighbors, size_t neighbors
 	neighbor_desc[0] = '\0';
 	neighbor_src[0] = '\0';
 
-	if (!frr_command_capture(FRR_BGP_SUMMARY_CMD, &output))
+	if (!frr_daemon_capture(FRR_VTY_BGPD, FRR_BGP_SUMMARY_CMD, &output))
 		return 0;
 
 	root = json_tokener_parse(output.data);
@@ -673,16 +500,17 @@ static int frr_extract_bgp_neighbors_from_conf(char *neighbors, size_t neighbors
 		/* remoteAs is required */
 		if (!json_object_object_get_ex(peer_obj, "remoteAs", &tmp))
 			continue;
-		snprintf(asn_buf, sizeof(asn_buf), "%d", json_object_get_int(tmp));
+		snprintf(asn_buf, sizeof(asn_buf), "%llu",
+			 (unsigned long long)json_object_get_int64(tmp));
 
 		/* desc is optional */
 		if (json_object_object_get_ex(peer_obj, "desc", &tmp))
 			desc = json_object_get_string(tmp);
 
-		frr_append_delimited(neighbors,     neighbors_len,     peer_ip);
-		frr_append_delimited(neighbor_as,   neighbor_as_len,   asn_buf);
-		frr_append_delimited(neighbor_desc, neighbor_desc_len, desc);
-		frr_append_delimited(neighbor_src,  neighbor_src_len,  "");
+		frr_append_delimited(neighbors,     neighbors_len,     peer_ip, found);
+		frr_append_delimited(neighbor_as,   neighbor_as_len,   asn_buf, found);
+		frr_append_delimited(neighbor_desc, neighbor_desc_len, desc ? desc : "", found);
+		frr_append_delimited(neighbor_src,  neighbor_src_len,  "", found);
 
 		found = 1;
 	}
@@ -746,7 +574,7 @@ static int frr_write_bgp_neighbor_status_map(webs_t wp)
 		return ret;
 	}
 
-	if (!frr_command_capture(FRR_BGP_SUMMARY_CMD, &output)) {
+	if (!frr_daemon_capture(FRR_VTY_BGPD, FRR_BGP_SUMMARY_CMD, &output)) {
 		ret += websWrite(wp, "}");
 		return ret;
 	}
@@ -791,6 +619,31 @@ out:
 	return ret;
 }
 
+static int frr_write_bfd_peer_status(webs_t wp)
+{
+	struct frr_command_output output;
+	json_object *root = NULL;
+	json_object *map = json_object_new_object();
+	size_t index;
+	int ret;
+	if (!map) return websWrite(wp, "{}");
+	if (frr_daemon_running("bfdd") && frr_daemon_capture(FRR_VTY_BFDD, FRR_BFD_PEERS_CMD, &output)) {
+		root = json_tokener_parse(output.data);
+		frr_command_output_free(&output);
+	}
+	if (root && json_object_is_type(root, json_type_array)) {
+		for (index = 0; index < json_object_array_length(root); index++) {
+			json_object *peer = json_object_array_get_idx(root, index);
+			const char *address = frr_ui_string(peer, "peer");
+			if (*address) frr_ui_set(map, address, frr_ui_string(peer, "status"));
+		}
+	}
+	ret = websWrite(wp, "%s", json_object_to_json_string_ext(map, JSON_C_TO_STRING_PLAIN));
+	if (root) json_object_put(root);
+	json_object_put(map);
+	return ret;
+}
+
 static int frr_extract_bfd_config_from_conf(char *peer, size_t peer_len,
 		char *tx, size_t tx_len,
 		char *rx, size_t rx_len)
@@ -808,7 +661,7 @@ static int frr_extract_bfd_config_from_conf(char *peer, size_t peer_len,
 	tx[0] = '\0';
 	rx[0] = '\0';
 
-	if (!frr_command_capture(FRR_RUNNING_CONFIG_CMD, &output))
+	if (!frr_daemon_capture(FRR_VTY_BFDD, FRR_RUNNING_CONFIG_CMD, &output))
 		return 0;
 
 	cursor = output.data;
@@ -836,6 +689,10 @@ static int frr_extract_bfd_config_from_conf(char *peer, size_t peer_len,
 		while (*p && isspace((unsigned char)*p))
 			p++;
 
+		line_len = strlen(p);
+		while (line_len > 0 && isspace((unsigned char)p[line_len - 1]))
+			p[--line_len] = '\0';
+
 		if (!*p || *p == '\n' || *p == '\r')
 			continue;
 
@@ -855,8 +712,11 @@ static int frr_extract_bfd_config_from_conf(char *peer, size_t peer_len,
 
 		if (!strncmp(p, "peer", 4) && isspace((unsigned char)p[4])) {
 			char *value = p + 4;
+			if (found_peer)
+				break;
 			while (*value && isspace((unsigned char)*value))
 				value++;
+			value[strcspn(value, " \t")] = '\0';
 			strlcpy(peer, value, peer_len);
 			found_peer = (*peer != '\0');
 			continue;
@@ -966,6 +826,10 @@ int ej_get_frr_daemon_status(int eid, webs_t wp, int argc, char_t **argv)
 		ret += websWrite(wp, "  \"timestamp\": %lu\n", (unsigned long)time(NULL));
 	}
 
+	ret += websWrite(wp, ",\n  \"bgp_peer_status\": ");
+	ret += frr_enabled ? frr_write_bgp_neighbor_status_map(wp) : websWrite(wp, "{}");
+	ret += websWrite(wp, ",\n  \"bfd_peer_status\": ");
+	ret += frr_enabled ? frr_write_bfd_peer_status(wp) : websWrite(wp, "{}");
 	ret += websWrite(wp, "}\n");
 	return ret;
 }
@@ -973,19 +837,40 @@ int ej_get_frr_daemon_status(int eid, webs_t wp, int argc, char_t **argv)
 /* ASP function: Get BGP configuration */
 int ej_get_frr_bgp_config(int eid, webs_t wp, int argc, char_t **argv)
 {
-	char *bgp_enable = nvram_safe_get("frr_bgp_enable");
-	char *bgp_as = nvram_safe_get("frr_bgp_as");
-	char *bgp_neighbors = nvram_safe_get("frr_bgp_neighbor");
-	char *bgp_neighbor_as = nvram_safe_get("frr_bgp_neighbor_as");
-	int ret = 0;
-
-	ret += websWrite(wp, "{\n");
-	ret += websWrite(wp, "  \"enabled\": %d,\n", atoi(bgp_enable));
-	ret += websWrite(wp, "  \"as_number\": \"%s\",\n", bgp_as);
-	ret += websWrite(wp, "  \"neighbors\": \"%s\",\n", bgp_neighbors);
-	ret += websWrite(wp, "  \"neighbor_as\": \"%s\"\n", bgp_neighbor_as);
-	ret += websWrite(wp, "}\n");
-
+	char directory[160];
+	char path[192];
+	char *data;
+	char *daemons;
+	size_t length;
+	json_object *config;
+	int ret;
+	int read_error = 0;
+	strlcpy(directory, nvram_safe_get("frr_config_dir"), sizeof(directory));
+	if (!*directory || directory[0] != '/' || strstr(directory, ".."))
+		strlcpy(directory, "/jffs/configs/frr", sizeof(directory));
+	length = strlen(directory);
+	while (length > 1 && (directory[length - 1] == '/' || directory[length - 1] == '.'))
+		directory[--length] = '\0';
+	if (!strcmp(directory, "/etc")) strlcpy(directory, "/jffs/configs/frr", sizeof(directory));
+	snprintf(path, sizeof(path), "%s/frr.conf", directory);
+	data = frr_ui_read_file(path);
+	if (!data && errno == ENOENT) data = frr_ui_read_file("/etc/frr.conf");
+	if (!data && errno != ENOENT) read_error = 1;
+	config = frr_ui_parse(data ? data : "");
+	if (!config) { free(data); return websWrite(wp, "{\"error\":\"FRR configuration could not be parsed\"}"); }
+	json_object_object_add(config, "exists", json_object_new_boolean(data != NULL));
+	if (read_error) frr_ui_set(config, "error", "FRR configuration could not be read safely");
+	frr_ui_set(config, "frr_config_dir", directory);
+	frr_ui_set(config, "frr_enable", nvram_safe_get("frr_enable"));
+	snprintf(path, sizeof(path), "%s/daemons", directory);
+	daemons = frr_ui_read_file(path);
+	if (!daemons && errno == ENOENT) daemons = frr_ui_read_file("/etc/daemons");
+	if (daemons) frr_ui_parse_daemons(config, daemons);
+	else if (errno != ENOENT) frr_ui_set(config, "error", "FRR daemon configuration could not be read safely");
+	ret = websWrite(wp, "%s", json_object_to_json_string_ext(config, JSON_C_TO_STRING_PLAIN));
+	json_object_put(config);
+	free(data);
+	free(daemons);
 	return ret;
 }
 
