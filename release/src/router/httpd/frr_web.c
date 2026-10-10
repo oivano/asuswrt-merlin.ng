@@ -15,6 +15,8 @@
 #include <sys/wait.h>
 #include <sys/select.h>
 #include <sys/stat.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <time.h>
 
 #include <bcmnvram.h>
@@ -31,6 +33,8 @@
 #define FRR_VTYSH_TIMEOUT_SEC 8
 #define FRR_MAX_CAPTURE_SIZE 524288
 #define FRR_VTYSH_RETRY_DELAY_SEC 5
+#define FRR_ZEBRA_SOCKET "/var/run/frr/zebra.vty"
+#define FRR_ZEBRA_TIMEOUT_SEC 2
 
 struct frr_bgp_cache {
 	char neighbors[512];
@@ -42,12 +46,140 @@ struct frr_bgp_cache {
 };
 
 static time_t frr_vtysh_backoff_until = 0;
+static time_t frr_zebra_backoff_until = 0;
 static struct frr_bgp_cache frr_bgp_cache = {{0}, {0}, {0}, {0}, 0, 0};
 
 struct frr_command_output {
 	char *data;
 	size_t len;
 };
+
+static int frr_socket_wait(int fd, int writing, time_t deadline)
+{
+	fd_set fds;
+	struct timeval tv;
+	int result;
+	time_t now;
+
+	for (;;) {
+		now = time(NULL);
+		if (now >= deadline)
+			return 0;
+		FD_ZERO(&fds);
+		FD_SET(fd, &fds);
+		tv.tv_sec = deadline - now;
+		tv.tv_usec = 0;
+		result = select(fd + 1, writing ? NULL : &fds,
+				writing ? &fds : NULL, NULL, &tv);
+		if (result < 0 && errno == EINTR)
+			continue;
+		return result > 0;
+	}
+}
+
+static int frr_zebra_capture(const char *cmd, struct frr_command_output *output)
+{
+	struct sockaddr_un address;
+	time_t deadline;
+	int fd = -1;
+	int socket_error;
+	int trailer_seen = 0;
+	socklen_t error_len = sizeof(socket_error);
+	size_t sent = 0;
+	size_t used = 0;
+	size_t capacity = 4096;
+	size_t command_len;
+	ssize_t count;
+	char *terminator;
+	char *new_data;
+
+	if (!output)
+		return 0;
+	memset(output, 0, sizeof(*output));
+	if (!cmd || (strcmp(cmd, FRR_SHOW_IP_ROUTE_CMD) != 0 &&
+		     strcmp(cmd, FRR_SHOW_IPV6_ROUTE_CMD) != 0))
+		return 0;
+	if (time(NULL) < frr_zebra_backoff_until)
+		return 0;
+
+	deadline = time(NULL) + FRR_ZEBRA_TIMEOUT_SEC;
+	fd = socket(AF_UNIX, SOCK_STREAM, 0);
+	if (fd < 0)
+		goto fail;
+	if (fd >= FD_SETSIZE || fcntl(fd, F_SETFL, O_NONBLOCK) < 0 ||
+	    fcntl(fd, F_SETFD, FD_CLOEXEC) < 0)
+		goto fail;
+	memset(&address, 0, sizeof(address));
+	address.sun_family = AF_UNIX;
+	strcpy(address.sun_path, FRR_ZEBRA_SOCKET);
+	if (connect(fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+		if (errno != EINPROGRESS || !frr_socket_wait(fd, 1, deadline))
+			goto fail;
+		if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &socket_error, &error_len) < 0 ||
+		    socket_error != 0)
+			goto fail;
+	}
+
+	command_len = strlen(cmd) + 1;
+	while (sent < command_len) {
+		if (!frr_socket_wait(fd, 1, deadline))
+			goto fail;
+		count = send(fd, cmd + sent, command_len - sent, MSG_NOSIGNAL);
+		if (count < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK))
+			continue;
+		if (count <= 0)
+			goto fail;
+		sent += count;
+	}
+
+	output->data = malloc(capacity);
+	if (!output->data)
+		goto fail;
+	for (;;) {
+		if (used == capacity) {
+			if (capacity == FRR_MAX_CAPTURE_SIZE + 4)
+				goto fail;
+			capacity *= 2;
+			if (capacity > FRR_MAX_CAPTURE_SIZE + 4)
+				capacity = FRR_MAX_CAPTURE_SIZE + 4;
+			new_data = realloc(output->data, capacity);
+			if (!new_data)
+				goto fail;
+			output->data = new_data;
+		}
+		if (!frr_socket_wait(fd, 0, deadline))
+			goto fail;
+		count = recv(fd, output->data + used, capacity - used, 0);
+		if (count < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK))
+			continue;
+		if (count <= 0)
+			goto fail;
+		terminator = trailer_seen ? NULL : memchr(output->data + used, '\0', count);
+		used += count;
+		if (terminator) {
+			output->len = terminator - output->data;
+			trailer_seen = 1;
+		}
+		if (trailer_seen) {
+			if (used - output->len < 4)
+				continue;
+			if (used - output->len != 4 || output->len >= FRR_MAX_CAPTURE_SIZE ||
+			    memcmp(output->data + output->len, "\0\0\0\0", 4) != 0)
+				goto fail;
+			close(fd);
+			frr_zebra_backoff_until = 0;
+			return 1;
+		}
+	}
+
+fail:
+	if (fd >= 0)
+		close(fd);
+	free(output->data);
+	memset(output, 0, sizeof(*output));
+	frr_zebra_backoff_until = time(NULL) + FRR_VTYSH_RETRY_DELAY_SEC;
+	return 0;
+}
 
 static const char *frr_vtysh_path(void)
 {
@@ -265,7 +397,7 @@ static void frr_command_output_free(struct frr_command_output *output)
 static int frr_route_overlay_ready(void)
 {
 	/*
-	 * Route queries rely on zebra via vtysh. Some deployments can run
+	 * Route queries use zebra's native VTY socket. Some deployments can run
 	 * zebra/bgpd without watchfrr supervision, so do not hard-require watchfrr.
 	 */
 	if (!frr_daemon_running("zebra"))
@@ -293,13 +425,15 @@ static int frr_route_overlay_ready(void)
  * Multiple entries per prefix represent ECMP nexthops or competing routes.
  * The JS table marks active (FIB-selected) routes with '+'.
  */
-static int frr_write_route_origin_object(webs_t wp, const char *var_name, const char *cmd)
+static int frr_write_route_origin_object(webs_t wp, const char *var_name, const char *cmd,
+					 int *valid)
 {
 	struct frr_command_output output;
 	json_object *root = NULL;
 	int ret = 0;
 	int first_prefix = 1;
 
+	*valid = 0;
 	ret += websWrite(wp, "var %s = {\n", var_name);
 
 	if (!frr_route_overlay_ready()) {
@@ -307,7 +441,7 @@ static int frr_write_route_origin_object(webs_t wp, const char *var_name, const 
 		return ret;
 	}
 
-	if (!frr_command_capture(cmd, &output)) {
+	if (!frr_zebra_capture(cmd, &output)) {
 		ret += websWrite(wp, "};\n");
 		return ret;
 	}
@@ -321,6 +455,7 @@ static int frr_write_route_origin_object(webs_t wp, const char *var_name, const 
 		return ret;
 	}
 
+	*valid = 1;
 	json_object_object_foreach(root, prefix_key, routes_arr) {
 		int n, i, j;
 		int wrote_entry = 0;
@@ -1021,10 +1156,12 @@ int ej_get_frr_bfd_config(int eid, webs_t wp, int argc, char_t **argv)
 int ej_get_frr_route_origin_array(int eid, webs_t wp, int argc, char_t **argv)
 {
 	int ret = 0;
+	int valid_v4 = 0;
+	int valid_v6 = 0;
 
-	ret += websWrite(wp, "var frr_route_overlay_enabled = %d;\n", frr_route_overlay_ready() ? 1 : 0);
-	ret += frr_write_route_origin_object(wp, "frr_route_origin_v4", FRR_SHOW_IP_ROUTE_CMD);
-	ret += frr_write_route_origin_object(wp, "frr_route_origin_v6", FRR_SHOW_IPV6_ROUTE_CMD);
+	ret += frr_write_route_origin_object(wp, "frr_route_origin_v4", FRR_SHOW_IP_ROUTE_CMD, &valid_v4);
+	ret += frr_write_route_origin_object(wp, "frr_route_origin_v6", FRR_SHOW_IPV6_ROUTE_CMD, &valid_v6);
+	ret += websWrite(wp, "var frr_route_overlay_enabled = %d;\n", valid_v4 && valid_v6);
 
 	return ret;
 }
