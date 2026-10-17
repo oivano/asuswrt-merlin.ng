@@ -114,7 +114,8 @@ static int frr_daemon_capture(enum frr_vty_daemon daemon, const char *cmd,
 		return 0;
 	if (!((daemon == FRR_VTY_ZEBRA &&
 	       (!strcmp(cmd, FRR_SHOW_IP_ROUTE_CMD) || !strcmp(cmd, FRR_SHOW_IPV6_ROUTE_CMD))) ||
-	      (daemon == FRR_VTY_BGPD && !strcmp(cmd, FRR_BGP_SUMMARY_CMD)) ||
+	      (daemon == FRR_VTY_BGPD && (!strcmp(cmd, FRR_BGP_SUMMARY_CMD) ||
+					  !strcmp(cmd, FRR_RUNNING_CONFIG_CMD))) ||
 	      (daemon == FRR_VTY_BFDD && (!strcmp(cmd, FRR_RUNNING_CONFIG_CMD) || !strcmp(cmd, FRR_BFD_PEERS_CMD)))))
 		return 0;
 	if (time(NULL) < frr_daemon_backoff_until[daemon])
@@ -558,36 +559,31 @@ static int frr_get_bgp_neighbors_cached(char *neighbors, size_t neighbors_len,
 	return 1;
 }
 
-static int frr_write_bgp_neighbor_status_map(webs_t wp)
+static int frr_write_bgp_peer_info(webs_t wp)
 {
 	struct frr_command_output output;
 	json_object *root = NULL;
 	json_object *afi_obj = NULL;
 	json_object *peers_obj = NULL;
-	int ret = 0;
-	int first = 1;
+	json_object *map = json_object_new_object();
+	int available = 0;
+	int ret;
 
-	ret += websWrite(wp, "{");
+	if (!map)
+		return websWrite(wp, "null");
 
 	if (!frr_daemon_running("bgpd")) {
-		ret += websWrite(wp, "}");
-		return ret;
+		available = 1;
+		goto out;
 	}
-
-	if (!frr_daemon_capture(FRR_VTY_BGPD, FRR_BGP_SUMMARY_CMD, &output)) {
-		ret += websWrite(wp, "}");
-		return ret;
-	}
+	if (!frr_daemon_capture(FRR_VTY_BGPD, FRR_BGP_SUMMARY_CMD, &output))
+		goto out;
 
 	root = json_tokener_parse(output.data);
 	frr_command_output_free(&output);
 
-	if (!root || !json_object_is_type(root, json_type_object)) {
-		if (root)
-			json_object_put(root);
-		ret += websWrite(wp, "}");
-		return ret;
-	}
+	if (!root || !json_object_is_type(root, json_type_object))
+		goto out;
 
 	if (!json_object_object_get_ex(root, "ipv4Unicast", &afi_obj) ||
 	    !json_object_is_type(afi_obj, json_type_object))
@@ -597,29 +593,48 @@ static int frr_write_bgp_neighbor_status_map(webs_t wp)
 	    !json_object_is_type(peers_obj, json_type_object))
 		goto out;
 
+	available = 1;
 	json_object_object_foreach(peers_obj, peer_ip, peer_obj) {
 		json_object *tmp;
+		json_object *peer_info;
+		json_object *status;
 		const char *state = "Unknown";
 
 		if (!json_object_is_type(peer_obj, json_type_object))
 			continue;
 
-		if (json_object_object_get_ex(peer_obj, "state", &tmp))
+		if (json_object_object_get_ex(peer_obj, "state", &tmp)) {
 			state = json_object_get_string(tmp);
+			if (!state)
+				state = "Unknown";
+		}
 
-		if (!first)
-			ret += websWrite(wp, ",");
-		first = 0;
-		ret += websWrite(wp, "\"%s\":\"%s\"", peer_ip, state ? state : "Unknown");
+		peer_info = json_object_new_object();
+		if (!peer_info)
+			continue;
+		status = json_object_new_string(state);
+		if (status)
+			json_object_object_add(peer_info, "status", status);
+		if (!strcmp(state, "Established") &&
+		    json_object_object_get_ex(peer_obj, "peerUptimeMsec", &tmp) &&
+		    json_object_is_type(tmp, json_type_int)) {
+			json_object *uptime = json_object_new_int64(json_object_get_int64(tmp) / 1000);
+			if (uptime)
+				json_object_object_add(peer_info, "uptime", uptime);
+		}
+		json_object_object_add(map, peer_ip, peer_info);
 	}
 
 out:
-	json_object_put(root);
-	ret += websWrite(wp, "}");
+	if (root)
+		json_object_put(root);
+	ret = websWrite(wp, "%s", available ?
+		json_object_to_json_string_ext(map, JSON_C_TO_STRING_PLAIN) : "null");
+	json_object_put(map);
 	return ret;
 }
 
-static int frr_write_bfd_peer_status(webs_t wp)
+static int frr_write_bfd_peer_info(webs_t wp)
 {
 	struct frr_command_output output;
 	json_object *root = NULL;
@@ -634,8 +649,24 @@ static int frr_write_bfd_peer_status(webs_t wp)
 	if (root && json_object_is_type(root, json_type_array)) {
 		for (index = 0; index < json_object_array_length(root); index++) {
 			json_object *peer = json_object_array_get_idx(root, index);
+			json_object *peer_info;
+			json_object *status;
+			json_object *uptime;
 			const char *address = frr_ui_string(peer, "peer");
-			if (*address) frr_ui_set(map, address, frr_ui_string(peer, "status"));
+
+			if (!*address || !(peer_info = json_object_new_object()))
+				continue;
+
+			status = json_object_new_string(frr_ui_string(peer, "status"));
+			if (status)
+				json_object_object_add(peer_info, "status", status);
+			if (json_object_object_get_ex(peer, "uptime", &uptime) &&
+			    json_object_is_type(uptime, json_type_int)) {
+				json_object *seconds = json_object_new_int64(json_object_get_int64(uptime));
+				if (seconds)
+					json_object_object_add(peer_info, "uptime", seconds);
+			}
+			json_object_object_add(map, address, peer_info);
 		}
 	}
 	ret = websWrite(wp, "%s", json_object_to_json_string_ext(map, JSON_C_TO_STRING_PLAIN));
@@ -826,10 +857,10 @@ int ej_get_frr_daemon_status(int eid, webs_t wp, int argc, char_t **argv)
 		ret += websWrite(wp, "  \"timestamp\": %lu\n", (unsigned long)time(NULL));
 	}
 
-	ret += websWrite(wp, ",\n  \"bgp_peer_status\": ");
-	ret += frr_enabled ? frr_write_bgp_neighbor_status_map(wp) : websWrite(wp, "{}");
-	ret += websWrite(wp, ",\n  \"bfd_peer_status\": ");
-	ret += frr_enabled ? frr_write_bfd_peer_status(wp) : websWrite(wp, "{}");
+	ret += websWrite(wp, ",\n  \"bgp_peers\": ");
+	ret += frr_enabled ? frr_write_bgp_peer_info(wp) : websWrite(wp, "{}");
+	ret += websWrite(wp, ",\n  \"bfd_peers\": ");
+	ret += frr_enabled ? frr_write_bfd_peer_info(wp) : websWrite(wp, "{}");
 	ret += websWrite(wp, "}\n");
 	return ret;
 }
@@ -843,7 +874,9 @@ int ej_get_frr_bgp_config(int eid, webs_t wp, int argc, char_t **argv)
 	char *daemons;
 	size_t length;
 	json_object *config;
+	struct frr_command_output running_output;
 	int ret;
+	size_t index;
 	int read_error = 0;
 	strlcpy(directory, nvram_safe_get("frr_config_dir"), sizeof(directory));
 	if (!*directory || directory[0] != '/' || strstr(directory, ".."))
@@ -858,6 +891,22 @@ int ej_get_frr_bgp_config(int eid, webs_t wp, int argc, char_t **argv)
 	if (!data && errno != ENOENT) read_error = 1;
 	config = frr_ui_parse(data ? data : "");
 	if (!config) { free(data); return websWrite(wp, "{\"error\":\"FRR configuration could not be parsed\"}"); }
+	if (frr_daemon_running("bgpd") &&
+	    frr_daemon_capture(FRR_VTY_BGPD, FRR_RUNNING_CONFIG_CMD, &running_output)) {
+		json_object *running = frr_ui_parse(running_output.data);
+		if (running) {
+			const char *keys[] = {"frr_bgp_enable", "frr_bgp_as", "frr_bgp_networks", "bgp_peers"};
+			for (index = 0; index < sizeof(keys) / sizeof(keys[0]); index++) {
+				json_object *value;
+				if (json_object_object_get_ex(running, keys[index], &value))
+					json_object_object_add(config, keys[index], json_object_get(value));
+				else
+					json_object_object_del(config, keys[index]);
+			}
+			json_object_put(running);
+		}
+		frr_command_output_free(&running_output);
+	}
 	json_object_object_add(config, "exists", json_object_new_boolean(data != NULL));
 	if (read_error) frr_ui_set(config, "error", "FRR configuration could not be read safely");
 	frr_ui_set(config, "frr_config_dir", directory);
@@ -978,7 +1027,7 @@ int ej_get_frr_bgp_neighbor_src_list(int eid, webs_t wp, int argc, char_t **argv
 
 int ej_get_frr_bgp_neighbor_status_map(int eid, webs_t wp, int argc, char_t **argv)
 {
-	return frr_write_bgp_neighbor_status_map(wp);
+	return frr_write_bgp_peer_info(wp);
 }
 
 /* ASP function: Get OSPF configuration */

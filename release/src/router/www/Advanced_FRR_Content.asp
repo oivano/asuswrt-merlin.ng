@@ -15,7 +15,9 @@
 	</title>
 	<link rel="stylesheet" type="text/css" href="index_style.css">
 	<link rel="stylesheet" type="text/css" href="form_style.css">
+	<link rel="stylesheet" type="text/css" href="css/icon.css">
 	<script type="text/javascript" src="/js/jquery.js"></script>
+	<script type="text/javascript" src="/switcherplugin/jquery.iphone-switch.js"></script>
 	<script language="JavaScript" type="text/javascript" src="/state.js"></script>
 	<script language="JavaScript" type="text/javascript" src="/general.js"></script>
 	<script language="JavaScript" type="text/javascript" src="/popup.js"></script>
@@ -24,9 +26,14 @@
 	<script type="text/javascript" language="JavaScript" src="/js/frr_config.js"></script>
 	<script>
 		var frr_bgp_neighbor_status_map = <% get_frr_bgp_neighbor_status_map(); %>;
+		var frr_bgp_status_time = frr_bgp_neighbor_status_map ? Date.now() : 0;
 		var frr_bgp_config = <% get_frr_bgp_config(); %>;
 		var frrDefaultConfigDir = '/jffs/configs/frr';
 		var frrInitialConfig = '';
+		var frr_bgp_edit_source = '';
+		var frr_bgp_edit_enabled = '1';
+		var frr_bfd_edit_options = '';
+		var frr_bfd_edit_enabled = '1';
 
 		function frr_html_escape(value) {
 			return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -56,6 +63,43 @@
 			return JSON.stringify(frr_collect_config());
 		}
 
+		function frr_peer_state_only_changed(original, current) {
+			var peerMaps = ['bgp_peers', 'bfd_peers'];
+			var stateChanged = false;
+			var key;
+			for (key in original) {
+				if (Object.prototype.hasOwnProperty.call(original, key) && key != 'bgp_peers' && key != 'bfd_peers' &&
+					original[key] !== current[key]) return false;
+			}
+			for (key in current) {
+				if (Object.prototype.hasOwnProperty.call(current, key) && key != 'bgp_peers' && key != 'bfd_peers' &&
+					original[key] !== current[key]) return false;
+			}
+			for (var mapIndex = 0; mapIndex < peerMaps.length; mapIndex++) {
+				var mapName = peerMaps[mapIndex];
+				var oldPeers = original[mapName] || {};
+				var newPeers = current[mapName] || {};
+				for (var ip in oldPeers) {
+					if (!Object.prototype.hasOwnProperty.call(oldPeers, ip)) continue;
+					if (!Object.prototype.hasOwnProperty.call(newPeers, ip)) return false;
+					for (key in oldPeers[ip]) {
+						if (Object.prototype.hasOwnProperty.call(oldPeers[ip], key) && key != 'enabled' &&
+							oldPeers[ip][key] !== newPeers[ip][key]) return false;
+					}
+					for (key in newPeers[ip]) {
+						if (Object.prototype.hasOwnProperty.call(newPeers[ip], key) && key != 'enabled' &&
+							oldPeers[ip][key] !== newPeers[ip][key]) return false;
+					}
+					if (oldPeers[ip].enabled !== newPeers[ip].enabled) stateChanged = true;
+				}
+				for (ip in newPeers) {
+					if (Object.prototype.hasOwnProperty.call(newPeers, ip) &&
+						!Object.prototype.hasOwnProperty.call(oldPeers, ip)) return false;
+				}
+			}
+			return stateChanged;
+		}
+
 		function frr_collect_config() {
 			var fields = ['frr_enable', 'frr_passwd', 'frr_enpasswd', 'frr_allow_lan',
 				'frr_bgp_enable', 'frr_bgp_as', 'frr_bgp_networks', 'frr_ospf_enable',
@@ -66,21 +110,23 @@
 			values.frr_config_dir = values.frr_config_dir || frrDefaultConfigDir;
 			var table = document.getElementById('bgp_neighbor_table');
 			for (var row = 0; row < table.rows.length; row++) {
-				if (table.rows[row].cells.length < 5) continue;
+				if (table.rows[row].cells.length < 7) continue;
 				var ip = frr_cell_value(table.rows[row].cells[1]);
 				values.bgp_peers[ip] = {
 					as_number: frr_cell_value(table.rows[row].cells[2]),
 					description: frr_cell_value(table.rows[row].cells[3]),
-					source: table.rows[row].getAttribute('data-update-source') || ''
+					source: table.rows[row].getAttribute('data-update-source') || '',
+					enabled: table.rows[row].getAttribute('data-enabled') || '1'
 				};
 			}
 			var bfd = document.getElementById('bfd_peer_table');
 			for (var peer = 0; peer < bfd.rows.length; peer++) {
-				if (bfd.rows[peer].cells.length < 4) continue;
+				if (bfd.rows[peer].cells.length < 7) continue;
 				values.bfd_peers[frr_cell_value(bfd.rows[peer].cells[1])] = {
 					tx: frr_cell_value(bfd.rows[peer].cells[2]) || '300',
 					rx: frr_cell_value(bfd.rows[peer].cells[3]) || '300',
-					options: bfd.rows[peer].getAttribute('data-options') || ''
+					options: bfd.rows[peer].getAttribute('data-options') || '',
+					enabled: bfd.rows[peer].getAttribute('data-enabled') || '1'
 				};
 			}
 			return values;
@@ -91,25 +137,89 @@
 			return input ? input.value : cell.textContent;
 		}
 
+		function frr_peer_row_from_action(obj) {
+			while (obj && obj.tagName && obj.tagName.toLowerCase() != 'tr')
+				obj = obj.parentNode;
+			return obj;
+		}
+
 		function bgp_status_badge(status) {
 			var s = (status || 'Configured').toString();
 			var l = s.toLowerCase();
-			var color = '#FFCC66';
+			var state = 'configured';
 
 			if (l == 'established' || l == 'up')
-				color = '#7CFC7C';
+				state = 'up';
 			else if (l == 'active' || l == 'connect')
-				color = '#6ED0FF';
-			else if (l == 'idle' || l == 'down' || l == 'shutdown')
-				color = '#FF9A9A';
+				state = 'connecting';
+			else if (l == 'idle' || l == 'down' || l == 'shutdown' || l == 'stopped')
+				state = 'down';
 
-			return '<span style="display:inline-block;padding:1px 7px;border-radius:9px;'
-				+ 'background:' + color + ';color:#1b1b1b;font-size:11px;font-weight:600;">'
+			return '<span class="frr-peer-status frr-peer-status-' + state + '">'
 				+ frr_html_escape(s) + '</span>';
+		}
+
+		function frr_peer_toggle(enabled) {
+			var isEnabled = enabled != '0';
+			var stateClass = isEnabled ? 'check' : 'cancel';
+			var iconClass = isEnabled ? 'icon_check' : 'icon_cancel';
+			var label = isEnabled ? 'Disable peer' : 'Enable peer';
+			return '<div class="frr-peer-toggle ' + stateClass + '" role="button" tabindex="0"'
+				+ ' aria-pressed="' + (isEnabled ? 'true' : 'false') + '" title="' + label + '"'
+				+ ' onclick="toggle_frr_peer(this);"><div class="' + iconClass + '"></div></div>';
+		}
+
+		function frr_set_peer_enabled(row, enabled) {
+			var value = enabled ? '1' : '0';
+			row.setAttribute('data-enabled', value);
+			row.className = enabled ? '' : 'frr-peer-disabled';
+			var toggle = row.cells[0].getElementsByTagName('div')[0];
+			toggle.className = 'frr-peer-toggle ' + (enabled ? 'check' : 'cancel');
+			toggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+			toggle.title = enabled ? 'Disable peer' : 'Enable peer';
+			toggle.getElementsByTagName('div')[0].className = enabled ? 'icon_check' : 'icon_cancel';
+			row.cells[4].innerHTML = bgp_status_badge(enabled ? 'Configured' : 'Shutdown');
+			row.cells[5].textContent = 'N/A';
+		}
+
+		function frr_update_peer_all(table_id, control_id) {
+			var table = document.getElementById(table_id);
+			var control = document.getElementById(control_id);
+			var allEnabled = true;
+			var count = 0;
+			for (var row = 0; row < table.rows.length; row++) {
+				if (table.rows[row].cells.length < 7) continue;
+				count++;
+				if (table.rows[row].getAttribute('data-enabled') == '0') allEnabled = false;
+			}
+			control.className = 'frr-peer-all ' + (count && !allEnabled ? 'all_enable' : 'all_disable');
+		}
+
+		function frr_toggle_all_peers(table_id, control_id) {
+			var table = document.getElementById(table_id);
+			var control = document.getElementById(control_id);
+			var enable = control.className.indexOf('all_enable') >= 0;
+			for (var row = 0; row < table.rows.length; row++) {
+				if (table.rows[row].cells.length < 7) continue;
+				frr_set_peer_enabled(table.rows[row], enable);
+			}
+			frr_update_peer_all(table_id, control_id);
+		}
+
+		function toggle_frr_peer(obj) {
+			var row = obj.parentNode.parentNode;
+			var enabled = row.getAttribute('data-enabled') == '0';
+			frr_set_peer_enabled(row, enabled);
+			var table_id = row.parentNode.id;
+			frr_update_peer_all(table_id, table_id == 'bgp_neighbor_table' ? 'bgp_peer_toggle_all' : 'bfd_peer_toggle_all');
 		}
 
 		function initial() {
 			show_menu();
+			$('#divRoutingSwitchMenu').html(gen_switch_menu({
+				'Routing Table': ['Routing Table', 'Main_RouteStatus_Content.asp'],
+				'Dynamic Routing': ['Dynamic Routing', 'Advanced_FRR_Content.asp']
+			}, 'Dynamic Routing'));
 			var fields = ['frr_passwd', 'frr_enpasswd', 'frr_bgp_enable', 'frr_bgp_as',
 				'frr_bgp_networks', 'frr_ospf_enable', 'frr_ospf_area', 'frr_ospf_networks',
 				'frr_bfd_enable', 'frr_allow_lan', 'frr_config_dir'];
@@ -127,10 +237,6 @@
 
 			// Start status refresh (will show stopped if FRR disabled)
 			setTimeout(refresh_frr_status, 1000);
-		}
-
-		function routeStatusLink() {
-			location.href = 'Main_RouteStatus_Content.asp';
 		}
 
 		function normalize_frr_config_dir() {
@@ -155,6 +261,7 @@
 			var changed = frr_config_signature() != frrInitialConfig;
 			var config = frr_collect_config();
 			var original = JSON.parse(frrInitialConfig || '{}');
+			var peerStateOnly = !regenerate && changed && frr_peer_state_only_changed(original, config);
 			config.frr_passwd_changed = config.frr_passwd != original.frr_passwd ? '1' : '0';
 			config.frr_enpasswd_changed = config.frr_enpasswd != original.frr_enpasswd ? '1' : '0';
 			delete config.frr_passwd;
@@ -170,7 +277,7 @@
 			if (cfgField && cfgField.value == '')
 				cfgField.value = frrDefaultConfigDir;
 
-			document.form.frr_force_regen.value = regenerate ? "1" : (changed ? "2" : "0");
+			document.form.frr_force_regen.value = regenerate ? "1" : (peerStateOnly ? "3" : (changed ? "2" : "0"));
 
 			showLoading();
 			document.form.submit();
@@ -276,25 +383,30 @@
 			var code = "";
 
 			if (bgp_neighbors.length == 0) {
-				code = '<tr><td colspan="5" style="text-align:center;color:#FFCC00;"><#IPConnection_VSList_Norule#></td></tr>';
+				code = '<tr><td colspan="7" class="hint-color" style="text-align:center;"><#IPConnection_VSList_Norule#></td></tr>';
 			} else {
 				for (var i = 0; i < bgp_neighbors.length; i++) {
 					if (bgp_neighbors[i].ip) {
 						var peer = bgp_neighbors[i];
 						var n_ip = peer.ip;
-						var n_status = status_map[n_ip] || 'Configured';
-						code += '<tr data-update-source="' + frr_html_escape(peer.source || '') + '">';
-						code += '<td width="5%"><input type="button" class="remove_btn" onclick="del_bgp_neighbor(this);" value=""/></td>';
-						code += '<td width="25%">' + frr_html_escape(n_ip) + '</td>';
-						code += '<td width="15%"><input type="text" maxlength="10" style="width:95%;" value="' + frr_html_escape(peer.as_number || '') + '" /></td>';
-						code += '<td width="35%"><input type="text" maxlength="63" style="width:95%;" value="' + frr_html_escape(peer.description || '') + '" /></td>';
-						code += '<td width="20%">' + bgp_status_badge(n_status) + '</td>';
+						var peer_info = status_map[n_ip] || {};
+						var enabled = peer.enabled || '1';
+						var n_status = enabled == '0' ? 'shutdown' : (peer_info.status || (frr_bgp_neighbor_status_map ? 'Configured' : 'Unknown'));
+						code += '<tr data-enabled="' + enabled + '" data-update-source="' + frr_html_escape(peer.source || '') + '" class="' + (enabled == '0' ? 'frr-peer-disabled' : '') + '">';
+						code += '<td width="6%">' + frr_peer_toggle(enabled) + '</td>';
+						code += '<td width="18%">' + frr_html_escape(n_ip) + '</td>';
+						code += '<td width="14%">' + frr_html_escape(peer.as_number || '') + '</td>';
+						code += '<td width="24%">' + frr_html_escape(peer.description || '') + '</td>';
+						code += '<td width="13%">' + bgp_status_badge(n_status) + '</td>';
+						code += '<td width="13%" class="frr-peer-uptime">' + (enabled == '0' ? 'N/A' : format_peer_uptime(peer_info.uptime)) + '</td>';
+						code += '<td width="12%"><div class="frr-peer-actions"><input type="button" class="edit_btn" onclick="edit_bgp_neighbor(this);" value=""/><div class="remove" role="button" tabindex="0" title="Delete peer" onclick="del_bgp_neighbor(this);"></div></div></td>';
 						code += '</tr>';
 					}
 				}
 			}
 
 			document.getElementById('bgp_neighbor_table').innerHTML = code;
+			frr_update_peer_all('bgp_neighbor_table', 'bgp_peer_toggle_all');
 		}
 
 		function add_bgp_neighbor() {
@@ -330,12 +442,17 @@
 			}
 
 			// Add new row
-			var row_code = '<tr>';
-			row_code += '<td width="5%"><input type="button" class="remove_btn" onclick="del_bgp_neighbor(this);" value=""/></td>';
-			row_code += '<td width="25%">' + frr_html_escape(neighbor_ip) + '</td>';
-			row_code += '<td width="15%">' + frr_html_escape(neighbor_as) + '</td>';
-			row_code += '<td width="35%">' + frr_html_escape(neighbor_desc) + '</td>';
-			row_code += '<td width="20%">' + bgp_status_badge('Configured') + '</td>';
+			var enabled = frr_bgp_edit_enabled || '1';
+			var row_code = '<tr data-enabled="' + enabled + '" data-update-source="' + frr_html_escape(frr_bgp_edit_source || '') + '" class="' + (enabled == '0' ? 'frr-peer-disabled' : '') + '">';
+			row_code += '<td width="6%">' + frr_peer_toggle(enabled) + '</td>';
+			row_code += '<td width="18%">' + frr_html_escape(neighbor_ip) + '</td>';
+			row_code += '<td width="14%">' + frr_html_escape(neighbor_as) + '</td>';
+			row_code += '<td width="24%">' + frr_html_escape(neighbor_desc) + '</td>';
+			row_code += '<td width="13%">' + bgp_status_badge(enabled == '0' ? 'shutdown' : 'Configured') + '</td>';
+			row_code += '<td width="13%" class="frr-peer-uptime">N/A</td>';
+			row_code += '<td width="12%"><div class="frr-peer-actions"><input type="button" class="edit_btn" onclick="edit_bgp_neighbor(this);" value=""/><div class="remove" role="button" tabindex="0" title="Delete peer" onclick="del_bgp_neighbor(this);"></div></div></td>';
+			frr_bgp_edit_source = '';
+			frr_bgp_edit_enabled = '1';
 			row_code += '</tr>';
 
 			if (table.rows.length == 1 && table.rows[0].cells.length == 1) {
@@ -344,6 +461,7 @@
 			} else {
 				document.getElementById('bgp_neighbor_table').innerHTML += row_code;
 			}
+			frr_update_peer_all('bgp_neighbor_table', 'bgp_peer_toggle_all');
 
 			// Clear input fields
 			document.form.frr_bgp_neighbor_ip_x.value = "";
@@ -351,24 +469,43 @@
 			document.form.frr_bgp_neighbor_desc_x.value = "";
 		}
 
+		function edit_bgp_neighbor(obj) {
+			var row = frr_peer_row_from_action(obj);
+			if (!row) return false;
+			var cells = row.cells;
+			document.form.frr_bgp_neighbor_ip_x.value = cells[1].textContent;
+			document.form.frr_bgp_neighbor_as_x.value = cells[2].textContent;
+			document.form.frr_bgp_neighbor_desc_x.value = cells[3].textContent;
+			frr_bgp_edit_source = row.getAttribute('data-update-source') || '';
+			frr_bgp_edit_enabled = row.getAttribute('data-enabled') || '1';
+			del_bgp_neighbor(obj);
+			document.form.frr_bgp_neighbor_ip_x.focus();
+		}
+
 		function del_bgp_neighbor(obj) {
-			var row = obj.parentNode.parentNode;
+			var row = frr_peer_row_from_action(obj);
+			if (!row) return false;
 			row.parentNode.removeChild(row);
 
 			// If table is empty, show "no rules" message
 			var table = document.getElementById('bgp_neighbor_table');
 			if (table.rows.length == 0) {
-				table.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#FFCC00;"><#IPConnection_VSList_Norule#></td></tr>';
+				table.innerHTML = '<tr><td colspan="7" class="hint-color" style="text-align:center;"><#IPConnection_VSList_Norule#></td></tr>';
 			}
+			frr_update_peer_all('bgp_neighbor_table', 'bgp_peer_toggle_all');
 		}
 
-		function bfd_peer_row(ip, tx, rx, options) {
-			return '<tr data-options="' + frr_html_escape(options || '') + '">'
-				+ '<td><input type="button" class="remove_btn" onclick="this.parentNode.parentNode.parentNode.removeChild(this.parentNode.parentNode);" value="" /></td>'
-				+ '<td>' + frr_html_escape(ip) + '</td>'
-				+ '<td><input type="text" maxlength="5" style="width:70px;" value="' + frr_html_escape(tx || '300') + '" /></td>'
-				+ '<td><input type="text" maxlength="5" style="width:70px;" value="' + frr_html_escape(rx || '300') + '" /></td>'
-				+ '<td>' + bgp_status_badge('Configured') + '</td></tr>';
+		function bfd_peer_row(ip, tx, rx, options, enabled) {
+			enabled = enabled || '1';
+			return '<tr data-enabled="' + enabled + '" data-options="' + frr_html_escape(options || '') + '" class="' + (enabled == '0' ? 'frr-peer-disabled' : '') + '">'
+				+ '<td width="6%">' + frr_peer_toggle(enabled) + '</td>'
+				+ '<td width="24%">' + frr_html_escape(ip) + '</td>'
+				+ '<td width="12%">' + frr_html_escape(tx || '300') + '</td>'
+				+ '<td width="12%">' + frr_html_escape(rx || '300') + '</td>'
+				+ '<td width="14%">' + bgp_status_badge(enabled == '0' ? 'shutdown' : 'Configured') + '</td>'
+				+ '<td width="20%" class="frr-bfd-uptime">N/A</td>'
+				+ '<td width="12%"><div class="frr-peer-actions"><input type="button" class="edit_btn" onclick="edit_bfd_peer(this);" value="" />'
+				+ '<div class="remove" role="button" tabindex="0" title="Delete peer" onclick="del_bfd_peer(this);"></div></div></td></tr>';
 		}
 
 		function show_bfd_peer_list() {
@@ -376,9 +513,10 @@
 			var code = '';
 			for (var ip in peers) {
 				if (Object.prototype.hasOwnProperty.call(peers, ip))
-					code += bfd_peer_row(ip, peers[ip].tx, peers[ip].rx, peers[ip].options);
+					code += bfd_peer_row(ip, peers[ip].tx, peers[ip].rx, peers[ip].options, peers[ip].enabled);
 			}
 			document.getElementById('bfd_peer_table').innerHTML = code;
+			frr_update_peer_all('bfd_peer_table', 'bfd_peer_toggle_all');
 		}
 
 		function add_bfd_peer() {
@@ -397,17 +535,88 @@
 					return false;
 				}
 			}
-			table.insertAdjacentHTML('beforeend', bfd_peer_row(ip.value, tx, rx, ''));
+			table.insertAdjacentHTML('beforeend', bfd_peer_row(ip.value, tx, rx, frr_bfd_edit_options, frr_bfd_edit_enabled));
+			frr_bfd_edit_options = '';
+			frr_bfd_edit_enabled = '1';
+			frr_update_peer_all('bfd_peer_table', 'bfd_peer_toggle_all');
 			ip.value = '';
+		}
+
+		function edit_bfd_peer(obj) {
+			var row = frr_peer_row_from_action(obj);
+			if (!row) return false;
+			var cells = row.cells;
+			document.form.frr_bfd_peer_x.value = cells[1].textContent;
+			document.form.frr_bfd_tx_x.value = cells[2].textContent;
+			document.form.frr_bfd_rx_x.value = cells[3].textContent;
+			frr_bfd_edit_options = row.getAttribute('data-options') || '';
+			frr_bfd_edit_enabled = row.getAttribute('data-enabled') || '1';
+			row.parentNode.removeChild(row);
+			frr_update_peer_all('bfd_peer_table', 'bfd_peer_toggle_all');
+			document.form.frr_bfd_peer_x.focus();
+		}
+
+		function del_bfd_peer(obj) {
+			var row = frr_peer_row_from_action(obj);
+			if (!row) return false;
+			row.parentNode.removeChild(row);
+			frr_update_peer_all('bfd_peer_table', 'bfd_peer_toggle_all');
 		}
 
 		function update_peer_status(table_id, statuses, fallback) {
 			var table = document.getElementById(table_id);
 			for (var row = 0; row < table.rows.length; row++) {
-				if (table.rows[row].cells.length < 5) continue;
+				if (table.rows[row].cells.length < 7) continue;
 				var ip = frr_cell_value(table.rows[row].cells[1]);
-				table.rows[row].cells[4].innerHTML = bgp_status_badge((statuses || {})[ip] || fallback);
+				var peer = (statuses || {})[ip];
+				var status = peer && typeof peer == 'object' ? peer.status : peer;
+				if (table.rows[row].getAttribute('data-enabled') == '0') status = 'shutdown';
+				table.rows[row].cells[4].innerHTML = bgp_status_badge(status || fallback);
 			}
+		}
+
+		function format_peer_uptime(seconds) {
+			if (typeof seconds != 'number' || seconds < 0)
+				return 'N/A';
+
+			var days = Math.floor(seconds / 86400);
+			var hours = Math.floor((seconds % 86400) / 3600);
+			var minutes = Math.floor((seconds % 3600) / 60);
+			var remaining = seconds % 60;
+			var parts = [];
+			if (days) parts.push(days + 'd');
+			if (hours || days) parts.push(hours + 'h');
+			if (minutes || hours || days) parts.push(minutes + 'm');
+			parts.push(remaining + 's');
+			return parts.join(' ');
+		}
+
+		function update_peer_uptime(table_id, peers) {
+			var table = document.getElementById(table_id);
+			for (var row = 0; row < table.rows.length; row++) {
+				if (table.rows[row].cells.length < 7) continue;
+				var ip = frr_cell_value(table.rows[row].cells[1]);
+				var peer = (peers || {})[ip];
+				table.rows[row].cells[5].textContent = table.rows[row].getAttribute('data-enabled') == '0'
+					? 'N/A' : format_peer_uptime(peer && peer.uptime);
+			}
+		}
+
+		function update_bgp_status(peers, running) {
+			var table = document.getElementById('bgp_neighbor_table');
+			if (running !== false && !peers) {
+				table.title = 'BGP status unavailable; last successful update is stale';
+				if (frr_bgp_status_time && Date.now() - frr_bgp_status_time < 15000)
+					return;
+				update_peer_status('bgp_neighbor_table', {}, 'Unknown');
+				update_peer_uptime('bgp_neighbor_table', {});
+				return;
+			}
+			table.title = '';
+			frr_bgp_status_time = Date.now();
+			update_peer_status('bgp_neighbor_table', running === false ? {} : peers,
+				running === false ? 'Stopped' : 'Configured');
+			update_peer_uptime('bgp_neighbor_table', running === false ? {} : peers);
 		}
 
 		function refresh_frr_status() {
@@ -417,48 +626,50 @@
 				cache: false,
 				timeout: 5000,
 				error: function (xhr) {
-					update_peer_status('bgp_neighbor_table', {}, 'Unknown');
+					update_bgp_status(null);
 					update_peer_status('bfd_peer_table', {}, 'Unknown');
+						update_peer_uptime('bfd_peer_table', {});
 					setTimeout(refresh_frr_status, 5000);
 				},
 				success: function (data) {
-					update_peer_status('bgp_neighbor_table', data.bgp_peer_status, 'Configured');
-					update_peer_status('bfd_peer_table', data.bfd_peer_status, 'Configured');
+					update_bgp_status(data.bgp_peers, !!data.bgpd_running);
+						update_peer_status('bfd_peer_table', data.bfd_peers, 'Configured');
+						update_peer_uptime('bfd_peer_table', data.bfd_peers);
 					// Update status indicators
 					if (data.zebra_running) {
-						document.getElementById('zebra_status').innerHTML = '<span style="color:#0F0;">Running</span>';
+						document.getElementById('zebra_status').innerHTML = '<span class="frr-running">Running</span>';
 					} else {
-						document.getElementById('zebra_status').innerHTML = '<span style="color:#F00;">Stopped</span>';
+						document.getElementById('zebra_status').innerHTML = '<span class="frr-stopped">Stopped</span>';
 					}
 
 					if (data.bgpd_running) {
-						document.getElementById('bgpd_status').innerHTML = '<span style="color:#0F0;">Running</span>';
+						document.getElementById('bgpd_status').innerHTML = '<span class="frr-running">Running</span>';
 					} else {
-						document.getElementById('bgpd_status').innerHTML = '<span style="color:#F00;">Stopped</span>';
+						document.getElementById('bgpd_status').innerHTML = '<span class="frr-stopped">Stopped</span>';
 					}
 
 					if (data.ospfd_running) {
-						document.getElementById('ospfd_status').innerHTML = '<span style="color:#0F0;">Running</span>';
+						document.getElementById('ospfd_status').innerHTML = '<span class="frr-running">Running</span>';
 					} else {
-						document.getElementById('ospfd_status').innerHTML = '<span style="color:#F00;">Stopped</span>';
+						document.getElementById('ospfd_status').innerHTML = '<span class="frr-stopped">Stopped</span>';
 					}
 
 					if (data.staticd_running) {
-						document.getElementById('staticd_status').innerHTML = '<span style="color:#0F0;">Running</span>';
+						document.getElementById('staticd_status').innerHTML = '<span class="frr-running">Running</span>';
 					} else {
-						document.getElementById('staticd_status').innerHTML = '<span style="color:#F00;">Stopped</span>';
+						document.getElementById('staticd_status').innerHTML = '<span class="frr-stopped">Stopped</span>';
 					}
 
 					if (data.bfdd_running) {
-						document.getElementById('bfdd_status').innerHTML = '<span style="color:#0F0;">Running</span>';
+						document.getElementById('bfdd_status').innerHTML = '<span class="frr-running">Running</span>';
 					} else {
-						document.getElementById('bfdd_status').innerHTML = '<span style="color:#F00;">Stopped</span>';
+						document.getElementById('bfdd_status').innerHTML = '<span class="frr-stopped">Stopped</span>';
 					}
 
 					if (data.watchfrr_running) {
-						document.getElementById('watchfrr_status').innerHTML = '<span style="color:#0F0;">Running</span>';
+						document.getElementById('watchfrr_status').innerHTML = '<span class="frr-running">Running</span>';
 					} else {
-						document.getElementById('watchfrr_status').innerHTML = '<span style="color:#F00;">Stopped</span>';
+						document.getElementById('watchfrr_status').innerHTML = '<span class="frr-stopped">Stopped</span>';
 					}
 
 					// Schedule next refresh
@@ -467,12 +678,58 @@
 			});
 		}
 	</script>
-	<style>
+	<style type="text/css">
 		input[name="frr_config_dir"]::placeholder { color: #888; }
+		.FormTable_table td .frr-peer-status {
+			display: inline-block;
+			padding: 1px 7px;
+			border-radius: 9px;
+			color: #1b1b1b;
+			font-size: 11px;
+			font-weight: 600;
+		}
+		.FormTable_table td .frr-peer-status-configured { background: #FFCC66; }
+		.FormTable_table td .frr-peer-status-up { background: #7CFC7C; }
+		.FormTable_table td .frr-peer-status-connecting { background: #6ED0FF; }
+		.FormTable_table td .frr-peer-status-down { background: #FF9A9A; }
+		.frr-peer-toggle {
+			width: 22px;
+			height: 22px;
+			margin: 0 auto;
+			border-radius: 50%;
+			cursor: pointer;
+			transition: .35s;
+		}
+		.frr-peer-toggle.check { border: 2px solid #093; background: #093; }
+		.frr-peer-toggle.cancel { border: 2px solid #898989; background: #898989; }
+		.frr-peer-toggle:active { transform: scale(1.5); opacity: .5; transition: 0; }
+		.frr-peer-toggle > div { width: 16px; height: 16px; margin: 3px auto; }
+		.frr-peer-disabled td { color: #A0A0A0; }
+		.frr-peer-all {
+			width: 40px;
+			margin: auto;
+			cursor: pointer;
+		}
+		.frr-peer-all.all_enable { border: 1px solid #393; color: #393; }
+		.frr-peer-all.all_disable { border: 1px solid #999; color: #999; }
+		.frr-peer-actions {
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			gap: 4px;
+			min-height: 32px;
+		}
+		.frr-peer-actions .edit_btn,
+		.frr-peer-actions .remove { flex: 0 0 auto; margin: 0; }
+		table.FormTable_table.frr-bgp-table thead th { color: #FFFFFF; }
+		table.FormTable_table.frr-bfd-table thead th { color: #FFFFFF; }
+		.frr-daemon-status { display: inline-block; min-width: 125px; color: #FFFFFF; }
+		.FormTable td .frr-running { color: #7CFC7C; }
+		.FormTable td .frr-stopped { color: #FF9A9A; }
 	</style>
 </head>
 
-<body onload="initial();" onunLoad="return unload_body();">
+<body onload="initial();" onunLoad="return unload_body();" class="bg">
 	<div id="TopBanner"></div>
 	<div id="Loading" class="popup_bg"></div>
 
@@ -504,7 +761,7 @@
 					<table width="98%" border="0" align="left" cellpadding="0" cellspacing="0">
 						<tr>
 							<td align="left" valign="top">
-								<table width="760px" border="0" cellpadding="5" cellspacing="0" class="FormTitle"
+								<table width="98%" style="max-width:760px;" border="0" cellpadding="5" cellspacing="0" class="FormTitle"
 									id="FormTitle">
 									<tbody>
 										<tr>
@@ -513,13 +770,10 @@
 												<div class="formfonttitle">
 													<#menu5_2#> - <#menu5_2_4#>
 												</div>
+													<div id="divRoutingSwitchMenu" style="margin-top:-40px;float:right;"></div>
 												<div style="margin:10px 0 10px 5px;" class="splitLine"></div>
 												<div class="formfontdesc">
 													<#FRR_desc#>
-												</div>
-												<div style="margin:6px 0 10px 5px;">
-													<input type="button" class="button_gen" value="Routing Table"
-														onclick="routeStatusLink();" style="width:220px;">
 												</div>
 
 												<!-- Enable FRR -->
@@ -537,14 +791,24 @@
 															<#FRR_enable#>
 														</th>
 														<td>
-															<input type="radio" value="1" name="frr_enable"
-																class="input" <% nvram_match("frr_enable", "1"
-																, "checked" ); %> onclick="showhide('frr_settings',
-															1);"><#checkbox_Yes#>
-																<input type="radio" value="0" name="frr_enable"
-																	class="input" <% nvram_match("frr_enable", "0"
-																	, "checked" ); %> onclick="showhide('frr_settings',
-																0);"><#checkbox_No#>
+															<input type="hidden" name="frr_enable" value="<% nvram_get("frr_enable"); %>">
+															<div align="center" class="left" style="width:94px; float:left; cursor:pointer;" id="radio_frr_enable"></div>
+															<div class="iphone_switch_container" style="height:32px; width:74px; position:relative; overflow:hidden;">
+																<script type="text/javascript">
+																	$('#radio_frr_enable').iphoneSwitch(document.form.frr_enable.value,
+																		function() {
+																			document.form.frr_enable.value = 1;
+																			showhide('frr_settings', 1);
+																		},
+																		function() {
+																			document.form.frr_enable.value = 0;
+																			showhide('frr_settings', 0);
+																		},
+																		{
+																			switch_on_container_path: '/switcherplugin/iphone_switch_container_off.png'
+																		});
+																</script>
+															</div>
 														</td>
 													</tr>
 												</table>
@@ -568,7 +832,7 @@
 															</th>
 															<td>
 																<input type="password" maxlength="64"
-																	class="input_32_table" name="frr_passwd"
+																	class="input_25_table" name="frr_passwd"
 																		value=""
 																autocomplete="off" autocorrect="off"
 																autocapitalize="off">
@@ -580,7 +844,7 @@
 															</th>
 															<td>
 																<input type="password" maxlength="64"
-																	class="input_32_table" name="frr_enpasswd"
+																	class="input_25_table" name="frr_enpasswd"
 																			value=""
 																autocomplete="off" autocorrect="off"
 																autocapitalize="off">
@@ -598,7 +862,7 @@
 																		class="input" <%
 																		nvram_match("frr_allow_lan", "0" , "checked" );
 																		%>><#checkbox_No#>
-																		<span style="color:#FFCC00;">
+																		<span class="hint-color">
 																			<#FRR_allow_lan_hint#>
 																		</span>
 															</td>
@@ -638,74 +902,53 @@
 																<input type="text" maxlength="10" class="input_12_table"
 																		name="frr_bgp_as" value="" onKeyPress="return
 																validator.isNumber(this,event);">
-																<span style="color:#888;"> (1-4294967295)</span>
+																<span class="hint-color"> (1-4294967295)</span>
 																<div
-																	style="color:#9FAFB8;font-size:11px;margin-top:4px;">
+																	class="hint-color" style="font-size:11px;margin-top:4px;">
 																	Supports multiple neighbors. Runtime-discovered
 																	peers appear when FRR daemons are running.</div>
 															</td>
 														</tr>
-														<tr>
-															<th>
-																<#FRR_bgp_neighbors#>
-															</th>
-															<td>
-																<table width="100%" border="1" align="center"
-																	cellpadding="4" cellspacing="0"
-																	class="FormTable_table" style="margin-top:8px;">
-																	<thead>
-																		<tr>
-																			<td colspan="5">
-																				<#FRR_bgp_neighbor_list#>
-																			</td>
-																		</tr>
-																	</thead>
-																	<tr>
-																		<th width="5%">
-																			<#list_add_delete#>
-																		</th>
-																		<th width="25%">
-																			<#FRR_neighbor_ip#>
-																		</th>
-																		<th width="15%">
-																			<#FRR_neighbor_as#>
-																		</th>
-																		<th width="35%">Description</th>
-																		<th width="20%">Status</th>
-																	</tr>
-																	<tbody id="bgp_neighbor_table"></tbody>
-																</table>
-																<div style="margin-top:8px;">
-																	<input type="text" maxlength="15"
-																		class="input_15_table"
-																		name="frr_bgp_neighbor_ip_x"
-																		placeholder="192.168.0.1"
-																		onKeyPress="return validator.isIPAddr(this,event);">
-																	<input type="text" maxlength="10"
-																		class="input_12_table"
-																		name="frr_bgp_neighbor_as_x" placeholder="65001"
-																		onKeyPress="return validator.isNumber(this,event);">
-																	<input type="text" maxlength="63"
-																		class="input_20_table"
-																		name="frr_bgp_neighbor_desc_x"
-																		placeholder="ROUTER">
-
-																	<input type="button" class="add_btn"
-																		onClick="add_bgp_neighbor();" value="">
-																</div>
-																<div style="margin-top:8px;">
-																	<span style="color:#888;">BGP Networks (CIDR,
-																		space/newline separated, e.g.
-																		192.168.0.0/24)</span><br>
-																	<textarea name="frr_bgp_networks"
-																		class="textarea_ssh_table"
-																		style="width:98%;height:56px;"
-																		autocomplete="off" autocorrect="off"
-																				autocapitalize="off"></textarea>
-																</div>
-															</td>
-														</tr>
+													<tr>
+														<th>
+															BGP Networks
+														</th>
+														<td>
+															<span class="hint-color">CIDR, space/newline separated, e.g. 192.168.0.0/24</span><br>
+															<textarea name="frr_bgp_networks"
+																class="textarea_ssh_table"
+																style="width:98%;height:56px;"
+																autocomplete="off" autocorrect="off"
+																		autocapitalize="off"></textarea>
+														</td>
+													</tr>
 													</table>
+												<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" class="FormTable_table frr-bgp-table" style="margin-top:8px;">
+													<thead>
+														<tr><td colspan="7"><#FRR_bgp_neighbor_list#></td></tr>
+														<tr>
+															<th width="6%"><div id="bgp_peer_toggle_all" class="frr-peer-all all_disable" onclick="frr_toggle_all_peers('bgp_neighbor_table','bgp_peer_toggle_all');"><#All#></div></th>
+															<th width="18%"><#FRR_neighbor_ip#></th>
+															<th width="14%"><#FRR_neighbor_as#></th>
+															<th width="24%">Description</th>
+															<th width="13%">Status</th>
+															<th width="13%">Uptime</th>
+															<th width="12%"><#list_add_delete#></th>
+														</tr>
+													</thead>
+													<tbody id="bgp_neighbor_form">
+													<tr>
+														<td></td>
+														<td><input type="text" maxlength="15" class="input_15_table" name="frr_bgp_neighbor_ip_x" placeholder="192.168.0.1" onKeyPress="return validator.isIPAddr(this,event);"></td>
+														<td><input type="text" maxlength="10" class="input_12_table" name="frr_bgp_neighbor_as_x" placeholder="65001" onKeyPress="return validator.isNumber(this,event);"></td>
+														<td><input type="text" maxlength="63" class="input_20_table" name="frr_bgp_neighbor_desc_x" placeholder="ROUTER"></td>
+														<td></td>
+														<td></td>
+														<td><input type="button" class="add_btn" onClick="add_bgp_neighbor();" value=""></td>
+													</tr>
+													</tbody>
+													<tbody id="bgp_neighbor_table"></tbody>
+												</table>
 
 													<!-- OSPF Configuration -->
 													<table width="100%" border="1" align="center" cellpadding="4"
@@ -752,11 +995,11 @@
 																	style="width:98%;height:80px;" autocomplete="off"
 																	autocorrect="off"
 																			autocapitalize="off"></textarea>
-																<span style="color:#888;">
+																<span class="hint-color">
 																	<#FRR_ospf_networks_hint#>
 																</span>
 																<div
-																	style="color:#9FAFB8;font-size:11px;margin-top:4px;">
+																	class="hint-color" style="font-size:11px;margin-top:4px;">
 																	One CIDR per line. Learned OSPF routes are labeled
 																	on the Routing Table page.</div>
 															</td>
@@ -786,33 +1029,38 @@
 																		class="input" <%
 																		nvram_match("frr_bfd_enable", "0" , "checked" );
 																		%>><#checkbox_No#>
-																		<div
-																			style="color:#9FAFB8;font-size:11px;margin-top:4px;">
-																			BFD is critical for fast failure detection
-																			with dynamic routing peers.</div>
-																		<div style="margin-top:8px;">
-																			Peer: <input type="text" maxlength="15"
-																				class="input_15_table"
-																				name="frr_bfd_peer_x"
-																				value="" placeholder="192.168.0.2"
-																			onKeyPress="return
-																			validator.isIPAddr(this,event);">
-																			TX(ms): <input type="text" maxlength="5"
-																				class="input_6_table" name="frr_bfd_tx_x"
-																				value=""
-																			onKeyPress="return
-																			validator.isNumber(this,event);">
-																			RX(ms): <input type="text" maxlength="5"
-																				class="input_6_table" name="frr_bfd_rx_x"
-																				value=""
-																			onKeyPress="return
-																			validator.isNumber(this,event);">
-																			<input type="button" class="add_btn" onclick="add_bfd_peer();" value="">
-																		</div>
-																		<table class="FormTable_table" width="100%"><thead><tr><th></th><th>Peer</th><th>TX(ms)</th><th>RX(ms)</th><th>Status</th></tr></thead><tbody id="bfd_peer_table"></tbody></table>
+																	<div class="hint-color" style="font-size:11px;margin-top:4px;">
+																		BFD is critical for fast failure detection with dynamic routing peers.
+																	</div>
 															</td>
 														</tr>
 													</table>
+														<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" class="FormTable_table frr-bfd-table" style="margin-top:8px;">
+															<thead>
+																<tr><td colspan="7">BFD Peers</td></tr>
+																<tr>
+																	<th width="6%"><div id="bfd_peer_toggle_all" class="frr-peer-all all_disable" onclick="frr_toggle_all_peers('bfd_peer_table','bfd_peer_toggle_all');"><#All#></div></th>
+																	<th width="24%">Peer</th>
+																	<th width="12%">TX(ms)</th>
+																	<th width="12%">RX(ms)</th>
+																	<th width="14%">Status</th>
+																	<th width="20%">Uptime</th>
+																	<th width="12%"><#list_add_delete#></th>
+																</tr>
+															</thead>
+															<tbody id="bfd_peer_form">
+																<tr>
+																	<td></td>
+																	<td><input type="text" maxlength="15" class="input_15_table" name="frr_bfd_peer_x" placeholder="192.168.0.2" onKeyPress="return validator.isIPAddr(this,event);"></td>
+																	<td><input type="text" maxlength="5" class="input_6_table" name="frr_bfd_tx_x" onKeyPress="return validator.isNumber(this,event);"></td>
+																	<td><input type="text" maxlength="5" class="input_6_table" name="frr_bfd_rx_x" onKeyPress="return validator.isNumber(this,event);"></td>
+																	<td></td>
+																	<td></td>
+																	<td><input type="button" class="add_btn" onclick="add_bfd_peer();" value=""></td>
+																</tr>
+															</tbody>
+															<tbody id="bfd_peer_table"></tbody>
+														</table>
 
 													<!-- Status Display -->
 													<table width="100%" border="1" align="center" cellpadding="4"
@@ -828,12 +1076,12 @@
 														<tr>
 															<th width="40%"><#FRR_status#></th>
 															<td style="line-height:1.8;">
-																<span style="display:inline-block;min-width:125px;color:#FFFFFF;">Zebra: <span id="zebra_status"><#Status_Checking#></span></span>
-																<span style="display:inline-block;min-width:150px;color:#FFFFFF;">BGP: <span id="bgpd_status"><#Status_Checking#></span></span>
-																<span style="display:inline-block;min-width:150px;color:#FFFFFF;">OSPF: <span id="ospfd_status"><#Status_Checking#></span></span><br>
-																<span style="display:inline-block;min-width:125px;color:#FFFFFF;">Static: <span id="staticd_status"><#Status_Checking#></span></span>
-																<span style="display:inline-block;min-width:150px;color:#FFFFFF;">BFD: <span id="bfdd_status"><#Status_Checking#></span></span>
-																<span style="display:inline-block;min-width:150px;color:#FFFFFF;">Watchfrr: <span id="watchfrr_status"><#Status_Checking#></span></span>
+																<span class="frr-daemon-status">Zebra: <span id="zebra_status"><#Status_Checking#></span></span>
+																<span class="frr-daemon-status">BGP: <span id="bgpd_status"><#Status_Checking#></span></span>
+																<span class="frr-daemon-status">OSPF: <span id="ospfd_status"><#Status_Checking#></span></span><br>
+																<span class="frr-daemon-status">Static: <span id="staticd_status"><#Status_Checking#></span></span>
+																<span class="frr-daemon-status">BFD: <span id="bfdd_status"><#Status_Checking#></span></span>
+																<span class="frr-daemon-status">Watchfrr: <span id="watchfrr_status"><#Status_Checking#></span></span>
 															</td>
 														</tr>
 													</table>
@@ -860,7 +1108,7 @@
 																	<input type="radio" value="0" name="frr_force_regen_choice"
 																		class="input" checked>
 																	<#checkbox_No#>
-																		<span style="color:#888;">
+																		<span class="hint-color">
 																			<#FRR_force_regen_hint#>
 																		</span>
 															</td>
@@ -874,11 +1122,11 @@
 																	class="input_32_table" name="frr_config_dir"
 																		value="<% nvram_get("frr_config_dir"); %>"																	placeholder="/jffs/configs/frr"																autocomplete="off" autocorrect="off"
 																autocapitalize="off">
-																<span style="color:#888;">
+																<span class="hint-color">
 																	<#FRR_custom_config_hint#>
 																</span>
 																<div
-																	style="color:#9FAFB8;font-size:11px;margin-top:4px;">
+																	class="hint-color" style="font-size:11px;margin-top:4px;">
 																	External integrated config: place <span
 																		style="color:#FFCC00;">frr.conf</span> in this
 																		directory. Optional companion file is <span
