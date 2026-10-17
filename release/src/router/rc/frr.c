@@ -771,7 +771,8 @@ static void frr_write_default_config(void)
 	 * requests regeneration. This lets a JFFS-hosted integrated FRR config set
 	 * remain authoritative across reboots.
 	 */
-	if (frr_should_regenerate_file(daemons_path, force_regen || nvram_match("frr_force_regen", "2"))) {
+	if (frr_should_regenerate_file(daemons_path, force_regen || nvram_match("frr_force_regen", "2") ||
+					 nvram_match("frr_force_regen", "3"))) {
 		int merged = frr_merge_daemon_settings(daemons_path);
 		if (merged < 0) {
 			logmessage("FRR", "UI daemon settings merge failed; original daemon settings preserved");
@@ -815,7 +816,8 @@ static void frr_write_default_config(void)
 	 * requests regeneration. This avoids rewriting/appending on normal starts
 	 * while still allowing initial creation and explicit refresh.
 	 */
-	if (frr_should_regenerate_file(conf_path, force_regen || nvram_match("frr_force_regen", "2"))) {
+	if (frr_should_regenerate_file(conf_path, force_regen || nvram_match("frr_force_regen", "2") ||
+					 nvram_match("frr_force_regen", "3"))) {
 		/*
 		 * Merge UI settings into frr.conf. The merge function replaces only the
 		 * auto-generated portions (between START and AUTO_END markers) and leaves
@@ -940,10 +942,77 @@ void stop_frr(void)
 	}
 }
 
+static int frr_apply_peer_states_live(json_object *request)
+{
+	json_object *bgp = NULL;
+	json_object *bfd = NULL;
+	json_object *peers;
+	char path[] = "/tmp/frr-peer-state-XXXXXX";
+	const char *asn;
+	FILE *fp;
+	int fd;
+	int has_bgp;
+	int has_bfd;
+	int file_error;
+	int result;
+
+	if (!frr_ui_request_valid(request))
+		return 0;
+	json_object_object_get_ex(request, "bgp_peers", &bgp);
+	json_object_object_get_ex(request, "bfd_peers", &bfd);
+	has_bgp = !strcmp(frr_ui_string(request, "frr_bgp_enable"), "1") &&
+		bgp && json_object_object_length(bgp) > 0;
+	has_bfd = !strcmp(frr_ui_string(request, "frr_bfd_enable"), "1") &&
+		bfd && json_object_object_length(bfd) > 0;
+	if (!has_bgp && !has_bfd)
+		return 0;
+	if ((has_bgp && pidof("bgpd") <= 0) || (has_bfd && pidof("bfdd") <= 0))
+		return 0;
+
+	fd = mkstemp(path);
+	if (fd < 0)
+		return 0;
+	fp = fdopen(fd, "w");
+	if (!fp) {
+		close(fd);
+		unlink(path);
+		return 0;
+	}
+	if (has_bgp) {
+		asn = frr_ui_string(request, "frr_bgp_as");
+		fprintf(fp, "configure terminal\nrouter bgp %s\n", asn);
+		json_object_object_foreach(bgp, address, peer) {
+			fprintf(fp, " neighbor %s %sshutdown\n", address,
+				!strcmp(frr_ui_string(peer, "enabled"), "0") ? "" : "no ");
+		}
+		fprintf(fp, "exit\n");
+	}
+	if (has_bfd) {
+		fprintf(fp, "configure terminal\nbfd\n");
+		json_object_object_foreach(bfd, address, peer) {
+			fprintf(fp, " peer %s\n  %sshutdown\n exit\n", address,
+				!strcmp(frr_ui_string(peer, "enabled"), "0") ? "" : "no ");
+		}
+		fprintf(fp, "exit\n");
+	}
+	file_error = fflush(fp) != 0 || ferror(fp);
+	if (fclose(fp) != 0)
+		file_error = 1;
+	if (file_error) {
+		unlink(path);
+		return 0;
+	}
+	result = eval("/usr/bin/vtysh", "-f", path, NULL);
+	unlink(path);
+	return result == 0;
+}
+
 void restart_frr(void)
 {
 	int was_running;
 	int have_stderr = 0;
+	int peer_state_apply = nvram_match("frr_force_regen", "3");
+	json_object *peer_request = NULL;
 
 	if (!is_frr_enabled()) {
 		_dprintf("FRR restart requested while disabled - stopping daemons\n");
@@ -954,6 +1023,19 @@ void restart_frr(void)
 
 	was_running = (pidof("watchfrr") > 0);
 	unlink(FRR_STDERR_LOG_FILE);
+	if (peer_state_apply) {
+		peer_request = json_tokener_parse(nvram_safe_get("frr_ui_request"));
+		if (peer_request) {
+			frr_create_dirs();
+			frr_write_default_config();
+			if (!nvram_match("frr_force_regen", "3") && frr_apply_peer_states_live(peer_request)) {
+				json_object_put(peer_request);
+				logmessage("FRR", "BGP/BFD peer state applied without restarting services");
+				return;
+			}
+			json_object_put(peer_request);
+		}
+	}
 
 	/*
 	 * Apply UI configuration updates only when explicitly requested:
@@ -967,7 +1049,8 @@ void restart_frr(void)
 	 */
 	frr_create_dirs();
 	
-	if (nvram_match("frr_force_regen", "1") || nvram_match("frr_force_regen", "2")) {
+	if (nvram_match("frr_force_regen", "1") || nvram_match("frr_force_regen", "2") ||
+	    nvram_match("frr_force_regen", "3")) {
 		/* User explicitly requested config update via UI Apply */
 		frr_write_default_config();
 	}

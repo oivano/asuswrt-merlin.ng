@@ -27,6 +27,8 @@
 		var frr_route_origin_v4 = {};
 		var frr_route_origin_v6 = {};
 		var frr_route_overlay_enabled = 0;
+		var frrEnabled = <% get_frr_enabled(); %> == 1;
+		var frrNavMenuRendered = false;
 
 		/*
 		 * frrOverlayEnabled is true only when:
@@ -325,8 +327,20 @@
 				legacyRefresh.style.display = visible ? 'none' : '';
 
 			var frrButton = document.getElementById('frr_nav_button');
+			var showFrrButton = visible && frrEnabled;
 			if (frrButton)
-				frrButton.style.display = visible ? '' : 'none';
+				frrButton.style.display = showFrrButton ? '' : 'none';
+
+			if (showFrrButton && !frrNavMenuRendered) {
+				$('#divRoutingSwitchMenu').html(gen_switch_menu({
+					'Routing Table': ['Routing Table', 'Main_RouteStatus_Content.asp'],
+					'Dynamic Routing': ['Dynamic Routing', 'Advanced_FRR_Content.asp']
+				}, 'Routing Table'));
+				frrNavMenuRendered = true;
+			} else if (!showFrrButton && frrNavMenuRendered) {
+				$('#divRoutingSwitchMenu').empty();
+				frrNavMenuRendered = false;
+			}
 		}
 
 		function maybe_fadein_route_blocks() {
@@ -804,6 +818,9 @@
 											<div class="formfonttitle">
 												<#System_Log#> - <#menu5_7_6#>
 											</div>
+													<div id="frr_nav_button" style="display:none;margin-top:-40px;float:right;">
+														<div id="divRoutingSwitchMenu"></div>
+													</div>
 											<div style="margin:10px 0 10px 5px;" class="splitLine"></div>
 											<div class="formfontdesc">
 												<#Route_title#>
@@ -818,11 +835,6 @@
 													}
 												} catch (e) { }
 											</script>
-											<div style="margin:6px 0 10px 5px;" id="frr_nav_button">
-												<input type="button" class="button_gen" value="Dynamic Routing"
-													onclick="location.href='Advanced_FRR_Content.asp';"
-													style="width:220px;">
-											</div>
 											<div id="route_controls" style="display:none;">
 											<table cellpadding="4" width="100%" class="FormTable">
 												<thead>

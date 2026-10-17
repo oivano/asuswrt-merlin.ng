@@ -173,13 +173,17 @@ static json_object *frr_ui_parse(const char *data)
 		}
 		if (section == 1 && !strncmp(text, "neighbor ", 9)) {
 			fields = sscanf(text + 9, "%127s %63s %1023[^\n]", name, command, argument);
-			if (fields < 3) continue;
+			if (fields < 2) continue;
 			peer = frr_ui_entry(bgp, name);
-			if (!strcmp(command, "remote-as")) {
-				frr_ui_set(peer, "as_number", frr_ui_as(argument, asn, sizeof(asn)) ? asn : argument);
-			} else if (!strcmp(command, "description")) frr_ui_set(peer, "description", argument);
-			else if (!strcmp(command, "update-source")) frr_ui_set(peer, "source", argument);
-			else if (!strcmp(command, "peer-group")) frr_ui_set(peer, "group", argument);
+			if (!strcmp(command, "shutdown")) frr_ui_set(peer, "enabled", "0");
+			else if (fields >= 3) {
+				if (!*frr_ui_string(peer, "enabled")) frr_ui_set(peer, "enabled", "1");
+				if (!strcmp(command, "remote-as")) {
+					frr_ui_set(peer, "as_number", frr_ui_as(argument, asn, sizeof(asn)) ? asn : argument);
+				} else if (!strcmp(command, "description")) frr_ui_set(peer, "description", argument);
+				else if (!strcmp(command, "update-source")) frr_ui_set(peer, "source", argument);
+				else if (!strcmp(command, "peer-group")) frr_ui_set(peer, "group", argument);
+			}
 		} else if (section == 1 && family && !strncmp(text, "network ", 8)) {
 			if (sscanf(text + 8, "%127s", name) == 1 && strchr(name, '.'))
 				frr_ui_network(config, "frr_bgp_networks", name);
@@ -189,13 +193,16 @@ static json_object *frr_ui_parse(const char *data)
 		} else if (section == 3 && !strncmp(text, "peer ", 5)) {
 			if (sscanf(text + 5, "%127s", name) != 1) continue;
 			peer = frr_ui_entry(bfd, name);
+			if (!*frr_ui_string(peer, "enabled")) frr_ui_set(peer, "enabled", "1");
 			if (*frr_ui_string(peer, "tx") && strcmp(frr_ui_string(peer, "options"), text + 5 + strlen(name)))
 				frr_ui_set(config, "error", "Multiple BFD sessions share a peer address; edit the configuration file directly");
 			frr_ui_set(peer, "options", text + 5 + strlen(name));
 			frr_ui_set(peer, "tx", "300");
 			frr_ui_set(peer, "rx", "300");
 		} else if (section == 3 && peer) {
-			if (!strncmp(text, "transmit-interval ", 18)) frr_ui_set(peer, "tx", text + 18);
+			if (!strcmp(text, "shutdown")) frr_ui_set(peer, "enabled", "0");
+			else if (!strcmp(text, "no shutdown")) frr_ui_set(peer, "enabled", "1");
+			else if (!strncmp(text, "transmit-interval ", 18)) frr_ui_set(peer, "tx", text + 18);
 			else if (!strncmp(text, "receive-interval ", 17)) frr_ui_set(peer, "rx", text + 17);
 		}
 	}
@@ -206,8 +213,10 @@ static json_object *frr_ui_parse(const char *data)
 		int index;
 		const char *group_name = frr_ui_string(peer_config, "group");
 		unsigned char address[16];
-		json_object_object_add(peer_config, "is_peer", json_object_new_boolean(
-			inet_pton(AF_INET, peer_name, address) == 1 || inet_pton(AF_INET6, peer_name, address) == 1));
+		int is_peer = inet_pton(AF_INET, peer_name, address) == 1 || inet_pton(AF_INET6, peer_name, address) == 1;
+		json_object_object_add(peer_config, "is_peer", json_object_new_boolean(is_peer));
+		if (is_peer && !*frr_ui_string(peer_config, "enabled"))
+			frr_ui_set(peer_config, "enabled", "1");
 		if (*group_name) json_object_object_get_ex(bgp, group_name, &group);
 		for (index = 0; group && index < 3; index++) {
 			if (!json_object_object_get_ex(peer_config, keys[index], &field) &&
@@ -267,8 +276,10 @@ static int frr_ui_request_valid(json_object *config)
 			if (!json_object_is_type(peer_config, json_type_object)) return 0;
 			json_object_object_foreach(peer_config, property, field) {
 				if (strcmp(property, "as_number") && strcmp(property, "description") && strcmp(property, "source") &&
-				    strcmp(property, "tx") && strcmp(property, "rx") && strcmp(property, "options")) return 0;
+					    strcmp(property, "tx") && strcmp(property, "rx") && strcmp(property, "options") && strcmp(property, "enabled")) return 0;
 				if (!json_object_is_type(field, json_type_string) || strpbrk(json_object_get_string(field), "\r\n")) return 0;
+					if (!strcmp(property, "enabled") && strcmp(json_object_get_string(field), "0") &&
+					    strcmp(json_object_get_string(field), "1")) return 0;
 			}
 			if (!index) {
 				const char *remote = frr_ui_string(peer_config, "as_number");
@@ -314,6 +325,7 @@ static int frr_ui_generate(FILE *out, json_object *config, const char *lan_ip,
 				fprintf(out, " neighbor %s remote-as %s\n", peer_name, frr_ui_string(peer_config, "as_number"));
 				if (*frr_ui_string(peer_config, "description")) fprintf(out, " neighbor %s description %s\n", peer_name, frr_ui_string(peer_config, "description"));
 				if (*frr_ui_string(peer_config, "source")) fprintf(out, " neighbor %s update-source %s\n", peer_name, frr_ui_string(peer_config, "source"));
+				if (!strcmp(frr_ui_string(peer_config, "enabled"), "0")) fprintf(out, " neighbor %s shutdown\n", peer_name);
 			}
 		}
 		fprintf(out, " address-family ipv4 unicast\n");
@@ -345,8 +357,10 @@ static int frr_ui_generate(FILE *out, json_object *config, const char *lan_ip,
 		fprintf(out, "bfd\n");
 		if (json_object_object_get_ex(config, "bfd_peers", &peers)) {
 			json_object_object_foreach(peers, peer_name, peer_config) {
-				fprintf(out, " peer %s%s\n  transmit-interval %s\n  receive-interval %s\n exit\n", peer_name,
+				fprintf(out, " peer %s%s\n  transmit-interval %s\n  receive-interval %s\n", peer_name,
 					frr_ui_string(peer_config, "options"), frr_ui_string(peer_config, "tx"), frr_ui_string(peer_config, "rx"));
+				if (!strcmp(frr_ui_string(peer_config, "enabled"), "0")) fprintf(out, "  shutdown\n");
+				fprintf(out, " exit\n");
 			}
 		}
 		fprintf(out, "exit\n!\n");
@@ -440,21 +454,37 @@ static int frr_ui_merge(FILE *out, const char *original, const char *generated)
 		} else if (section == 1 && !strcmp(frr_ui_string(next, "frr_bgp_enable"), "1") && !strncmp(text, "neighbor ", 9)) {
 			fields = sscanf(text + 9, "%127s %63s %1023[^\n]", name, command, argument);
 			if (fields >= 2 && (inet_pton(AF_INET, name, address) == 1 || inet_pton(AF_INET6, name, address) == 1) &&
+			    !strcmp(command, "shutdown") && json_object_object_get_ex(next_bgp, name, &entry)) {
+				json_object *seen_shutdown;
+				if (!strcmp(frr_ui_string(entry, "enabled"), "0") &&
+				    !json_object_object_get_ex(entry, "peer_shutdown", &seen_shutdown))
+					fprintf(out, "%s\n", line);
+				json_object_object_add(entry, "peer_shutdown", json_object_new_boolean(1));
+				handled = 1;
+			} else if (fields >= 2 && (inet_pton(AF_INET, name, address) == 1 || inet_pton(AF_INET6, name, address) == 1) &&
 			    json_object_object_get_ex(old_bgp, name, &previous) &&
 			    *frr_ui_string(previous, "as_number")) {
 				if (!json_object_object_get_ex(next_bgp, name, &entry)) handled = 1;
 				else {
+					json_object *seen_shutdown;
+					if (!strcmp(frr_ui_string(entry, "enabled"), "0") &&
+					    strcmp(frr_ui_string(previous, "enabled"), "0") &&
+					    !json_object_object_get_ex(entry, "peer_shutdown", &seen_shutdown)) {
+						fprintf(out, " neighbor %s shutdown\n", name);
+						json_object_object_add(entry, "peer_shutdown", json_object_new_boolean(1));
+					}
 					const char *key = NULL;
-					if (!strcmp(command, "remote-as")) key = "as_number";
-					else if (!strcmp(command, "description")) key = "description";
-					else if (!strcmp(command, "update-source")) key = "source";
+					const char *marker = NULL;
+					if (!strcmp(command, "remote-as")) { key = "as_number"; marker = "seen_remote_as"; }
+					else if (!strcmp(command, "description")) { key = "description"; marker = "seen_description"; }
+					else if (!strcmp(command, "update-source")) { key = "source"; marker = "seen_update_source"; }
 					if (key) {
 						if (!strcmp(frr_ui_string(entry, key), frr_ui_string(previous, key))) {
 							fprintf(out, "%s\n", line);
 						} else if (*frr_ui_string(entry, key)) {
 							fprintf(out, " neighbor %s %s %s\n", name, command, frr_ui_string(entry, key));
 						}
-						json_object_object_add(entry, command, json_object_new_boolean(1));
+						json_object_object_add(entry, marker, json_object_new_boolean(1));
 						handled = 1;
 					}
 				}
@@ -474,7 +504,29 @@ static int frr_ui_merge(FILE *out, const char *original, const char *generated)
 		} else if (section == 3 && !strcmp(frr_ui_string(next, "frr_bfd_enable"), "1") && !strncmp(text, "peer ", 5)) {
 			if (sscanf(text + 5, "%127s", bfd_name) == 1) {
 				drop_peer = !json_object_object_get_ex(next_bfd, bfd_name, &entry);
-				if (!drop_peer) json_object_object_add(entry, "seen_peer", json_object_new_boolean(1));
+				if (!drop_peer) {
+					json_object_object_add(entry, "seen_peer", json_object_new_boolean(1));
+					previous = NULL;
+					if (json_object_object_get_ex(old_bfd, bfd_name, &previous) &&
+					    strcmp(frr_ui_string(previous, "enabled"), frr_ui_string(entry, "enabled")) &&
+					    !strcmp(frr_ui_string(entry, "enabled"), "0")) {
+						fprintf(out, "%s\n  shutdown\n", line);
+						json_object_object_add(entry, "peer_shutdown", json_object_new_boolean(1));
+						handled = 1;
+					}
+				}
+			}
+		} else if (section == 3 && !strcmp(frr_ui_string(next, "frr_bfd_enable"), "1") &&
+			   !drop_peer && (!strcmp(text, "shutdown") || !strcmp(text, "no shutdown"))) {
+			if (json_object_object_get_ex(next_bfd, bfd_name, &entry)) {
+				json_object *seen_shutdown;
+				if (!strcmp(frr_ui_string(entry, "enabled"), "0") &&
+				    !json_object_object_get_ex(entry, "peer_shutdown", &seen_shutdown))
+					fprintf(out, "  shutdown\n");
+				else if (!strcmp(text, "no shutdown"))
+					fprintf(out, "%s\n", line);
+				json_object_object_add(entry, "peer_shutdown", json_object_new_boolean(1));
+				handled = 1;
 			}
 		} else if (section == 3 && !strcmp(frr_ui_string(next, "frr_bfd_enable"), "1") && (!strncmp(text, "transmit-interval ", 18) ||
 					 !strncmp(text, "receive-interval ", 17))) {
@@ -493,15 +545,15 @@ static int frr_ui_merge(FILE *out, const char *original, const char *generated)
 	if (!seen_enable_password && *frr_ui_string(next, "frr_enpasswd")) fprintf(out, "enable password %s\n", frr_ui_string(next, "frr_enpasswd"));
 	json_object_object_foreach(next_bgp, peer_name, peer_config) {
 		const char *keys[] = {"as_number", "description", "source"};
-		const char *verbs[] = {"remote-as", "description", "update-source"};
+		const char *markers[] = {"seen_remote_as", "seen_description", "seen_update_source"};
 		json_object *seen;
 		int index;
 		previous = NULL;
 		json_object_object_get_ex(old_bgp, peer_name, &previous);
 		for (index = 0; index < 3; index++) {
-			if (*frr_ui_string(peer_config, keys[index]) && !json_object_object_get_ex(peer_config, verbs[index], &seen)) {
+			if (*frr_ui_string(peer_config, keys[index]) && !json_object_object_get_ex(peer_config, markers[index], &seen)) {
 				if (previous && !strcmp(frr_ui_string(peer_config, keys[index]), frr_ui_string(previous, keys[index])))
-					json_object_object_add(peer_config, verbs[index], json_object_new_boolean(1));
+					json_object_object_add(peer_config, markers[index], json_object_new_boolean(1));
 				else pending_bgp = 1;
 			}
 		}
@@ -522,13 +574,17 @@ static int frr_ui_merge(FILE *out, const char *original, const char *generated)
 		json_object_object_foreach(next_bgp, peer_name, peer_config) {
 			const char *keys[] = {"as_number", "description", "source"};
 			const char *verbs[] = {"remote-as", "description", "update-source"};
+			const char *markers[] = {"seen_remote_as", "seen_description", "seen_update_source"};
 			int index;
 			json_object *seen;
 			for (index = 0; index < 3; index++) {
 				if (*frr_ui_string(peer_config, keys[index]) &&
-				    !json_object_object_get_ex(peer_config, verbs[index], &seen))
+				    !json_object_object_get_ex(peer_config, markers[index], &seen))
 					fprintf(out, " neighbor %s %s %s\n", peer_name, verbs[index], frr_ui_string(peer_config, keys[index]));
 			}
+			if (!strcmp(frr_ui_string(peer_config, "enabled"), "0") &&
+			    !json_object_object_get_ex(peer_config, "peer_shutdown", &seen))
+				fprintf(out, " neighbor %s shutdown\n", peer_name);
 		}
 		fprintf(out, " address-family ipv4 unicast\n");
 		{
@@ -582,6 +638,8 @@ static int frr_ui_merge(FILE *out, const char *original, const char *generated)
 			fprintf(out, " peer %s%s\n", peer_name, frr_ui_string(peer_config, "options"));
 			if (new_peer || tx_pending) fprintf(out, "  transmit-interval %s\n", frr_ui_string(peer_config, "tx"));
 			if (new_peer || rx_pending) fprintf(out, "  receive-interval %s\n", frr_ui_string(peer_config, "rx"));
+			if (new_peer && !strcmp(frr_ui_string(peer_config, "enabled"), "0"))
+				fprintf(out, "  shutdown\n");
 			fprintf(out, " exit\n");
 		}
 		if (pending_bfd) fprintf(out, "exit\n!\n");
