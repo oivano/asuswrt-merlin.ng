@@ -124,9 +124,10 @@ jobs:
             git config --global user.email "bot@ion.org"
             git config --global user.name "Circle CI BOT"
             git config --global push.default simple
-            git clone -b master --single-branch git@github.com:oivano/asuswrt-merlin.ng.git
+            git clone -b DEV-nextrelease --single-branch git@github.com:oivano/asuswrt-merlin.ng.git
             cd asuswrt-merlin.ng
             UPDATE_DIR=updates
+            mkdir -p "${UPDATE_DIR}"
             MAJOR_VER=$(echo "${CIRCLE_TAG}" | sed -E 's/([0-9.]*)[_-]?(.*)/\1/')
             MINOR_VER=$(echo "${CIRCLE_TAG}" | sed -E 's/([0-9.]*)[_-]?(.*)/\2/')
             RELEASE_NOTE_FILE=$(echo "${MAJOR_VER}_${MINOR_VER}_note.txt" | sed "s/\./_/")
@@ -136,7 +137,7 @@ jobs:
             echo "Uploading to github manifest and ${RELEASE_NOTE_FILE}"
             git add ${UPDATE_DIR}
             git commit -m "Updating Notes and manifest to version:${MAJOR_VER} ${MINOR_VER} [ci skip]" -a
-            git push origin
+            git push origin HEAD:refs/heads/DEV-nextrelease
   publish-github-release:
     docker:
       - image: cibuilds/github:latest
