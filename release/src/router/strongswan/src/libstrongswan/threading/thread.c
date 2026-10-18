@@ -358,7 +358,7 @@ thread_t *thread_create(thread_main_t main, void *arg)
 		if (error == 0)
 		{
 			error = pthread_create(&this->thread_id, &attr,
-								   (void*)thread_main, this);
+								  (void*)thread_main, this);
 		}
 		pthread_attr_destroy(&attr);
 	}

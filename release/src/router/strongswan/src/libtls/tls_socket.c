@@ -230,17 +230,7 @@ static bool exchange(private_tls_socket_t *this, bool wr, bool block)
 		in = recv(this->fd, buf, sizeof(buf), flags);
 		if (in < 0)
 		{
-			if (errno == EAGAIN || errno == EWOULDBLOCK)
-			{
-				if (this->app.in_done == 0)
-				{
-					/* reading, nothing got yet, and call would block */
-					errno = EWOULDBLOCK;
-					this->app.in_done = -1;
-				}
-				return TRUE;
-			}
-			return FALSE;
+			return errno == EAGAIN || errno == EWOULDBLOCK;
 		}
 		if (in == 0)
 		{	/* EOF */
@@ -299,6 +289,10 @@ METHOD(tls_socket_t, read_, ssize_t,
 METHOD(tls_socket_t, write_, ssize_t,
 	private_tls_socket_t *this, void *buf, size_t len)
 {
+	/* clear data from a previous read() call */
+	this->app.in = chunk_empty;
+	this->app.in_done = 0;
+
 	this->app.out.ptr = buf;
 	this->app.out.len = len;
 	this->app.out_done = 0;

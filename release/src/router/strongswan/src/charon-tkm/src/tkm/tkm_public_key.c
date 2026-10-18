@@ -58,6 +58,8 @@ METHOD(public_key_t, verify, bool,
 	private_tkm_public_key_t *this, signature_scheme_t scheme, void *params,
 	chunk_t data, chunk_t signature)
 {
+	/* this is an intentional dummy implementation because the actual signature
+	 * and trust chain verification happens in the TKM via authorize() hook */
 	return TRUE;
 }
 

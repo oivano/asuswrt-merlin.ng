@@ -14,6 +14,8 @@
  * for more details.
  */
 
+#include <inttypes.h>
+
 #include "pkcs5.h"
 
 #include <utils/debug.h>
@@ -21,6 +23,15 @@
 #include <asn1/asn1.h>
 #include <asn1/asn1_parser.h>
 #include <credentials/containers/pkcs12.h>
+
+/** maximum accepted length for salts in parsed parameters */
+#define PKCS5_SALT_LEN_MAX			128
+
+/** maximum accepted iteration count in parsed parameters */
+#define PKCS5_ITERATIONS_MAX		1000000
+
+/** maximum key length accepted in parsed parameters */
+#define PKCS5_KEY_LEN_MAX			64
 
 typedef struct private_pkcs5_t private_pkcs5_t;
 
@@ -380,6 +391,41 @@ METHOD(pkcs5_t, decrypt, bool,
 }
 
 /**
+ * Make sure the salt has an appropriate length
+ */
+static bool validate_salt_length(chunk_t salt)
+{
+	if (salt.len > PKCS5_SALT_LEN_MAX)
+	{
+		DBG1(DBG_ASN, "  salt length %zu exceeds maximum of %zu bytes",
+			 salt.len, (size_t)PKCS5_SALT_LEN_MAX);
+		return FALSE;
+	}
+	return TRUE;
+}
+
+/**
+ * Validate that parsed parameters are in an allowed range
+ */
+static bool validate_params(private_pkcs5_t *this)
+{
+	if (!this->iterations || this->iterations > PKCS5_ITERATIONS_MAX)
+	{
+		DBG1(DBG_ASN, "  iteration count %" PRIu64 " is out of range "
+			 "(1-%" PRIu64 ")", this->iterations,
+			 (uint64_t)PKCS5_ITERATIONS_MAX);
+		return FALSE;
+	}
+	if (this->keylen > PKCS5_KEY_LEN_MAX)
+	{
+		DBG1(DBG_ASN, "  key length %zu exceeds maximum of %zu bytes",
+			 this->keylen, (size_t)PKCS5_KEY_LEN_MAX);
+		return FALSE;
+	}
+	return TRUE;
+}
+
+/**
  * ASN.1 definition of a PBEParameter structure
  */
 static const asn1Object_t pbeParameterObjects[] = {
@@ -399,7 +445,7 @@ static bool parse_pbes1_params(private_pkcs5_t *this, chunk_t blob, int level0)
 	asn1_parser_t *parser;
 	chunk_t object;
 	int objectID;
-	bool success;
+	bool success = FALSE;
 
 	parser = asn1_parser_create(pbeParameterObjects, blob);
 	parser->set_top_level(parser, level0);
@@ -410,6 +456,10 @@ static bool parse_pbes1_params(private_pkcs5_t *this, chunk_t blob, int level0)
 		{
 			case PBEPARAM_SALT:
 			{
+				if (!validate_salt_length(object))
+				{
+					goto end;
+				}
 				this->salt = chunk_clone(object);
 				break;
 			}
@@ -421,6 +471,11 @@ static bool parse_pbes1_params(private_pkcs5_t *this, chunk_t blob, int level0)
 		}
 	}
 	success = parser->success(parser);
+	if (success)
+	{
+		success = validate_params(this);
+	}
+end:
 	parser->destroy(parser);
 	return success;
 }
@@ -471,6 +526,10 @@ static bool parse_pbkdf2_params(private_pkcs5_t *this, chunk_t blob, int level0)
 		{
 			case PBKDF2_SALT:
 			{
+				if (!validate_salt_length(object))
+				{
+					goto end;
+				}
 				this->salt = chunk_clone(object);
 				break;
 			}
@@ -500,6 +559,10 @@ static bool parse_pbkdf2_params(private_pkcs5_t *this, chunk_t blob, int level0)
 		}
 	}
 	success = parser->success(parser);
+	if (success)
+	{
+		success = validate_params(this);
+	}
 end:
 	parser->destroy(parser);
 	return success;

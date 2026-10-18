@@ -1,4 +1,5 @@
 /*
+ * Copyright (C) 2014-2026 Tobias Brunner
  * Copyright (C) 2013 Martin Willi
  *
  * Copyright (C) secunet Security Networks AG
@@ -73,11 +74,6 @@ struct private_thread_t {
 	hashtable_t *tls;
 
 	/**
-	 * Thread terminated?
-	 */
-	bool terminated;
-
-	/**
 	 * Thread detached?
 	 */
 	bool detached;
@@ -112,6 +108,11 @@ static hashtable_t *threads;
  * Lock for threads table
  */
 static spinlock_t *threads_lock;
+
+/**
+ * Lock for setting condvars on threads
+ */
+static spinlock_t *condvar_lock;
 
 /**
  * Counter to assign printable thread IDs
@@ -238,9 +239,7 @@ void* thread_tls_remove(void *key)
 	thread = get_current_thread();
 
 	old = set_leak_detective(FALSE);
-	threads_lock->lock(threads_lock);
 	value = thread->tls->remove(thread->tls, key);
-	threads_lock->unlock(threads_lock);
 	set_leak_detective(old);
 
 	return value;
@@ -274,7 +273,6 @@ static void docleanup(private_thread_t *this)
 		set_leak_detective(FALSE);
 	}
 
-	threads_lock->lock(threads_lock);
 	enumerator = this->tls->create_enumerator(this->tls);
 	while (enumerator->enumerate(enumerator, NULL, &tls))
 	{
@@ -285,19 +283,16 @@ static void docleanup(private_thread_t *this)
 		set_leak_detective(FALSE);
 	}
 	enumerator->destroy(enumerator);
-	threads_lock->unlock(threads_lock);
 
 	set_leak_detective(old);
 }
 
 /**
- * Clean up and destroy a thread
+ * Destroy a thread
  */
 static void destroy(private_thread_t *this)
 {
 	bool old;
-
-	docleanup(this);
 
 	old = set_leak_detective(FALSE);
 
@@ -313,19 +308,16 @@ static void destroy(private_thread_t *this)
 }
 
 /**
- * End a thread, destroy when detached
+ * End and cleanup a thread, destroy when detached
  */
 static void end_thread(private_thread_t *this)
 {
+	docleanup(this);
+	remove_thread(this);
+
 	if (this->detached)
 	{
-		remove_thread(this);
 		destroy(this);
-	}
-	else
-	{
-		this->terminated = TRUE;
-		docleanup(this);
 	}
 }
 
@@ -338,9 +330,9 @@ void thread_set_active_condvar(CONDITION_VARIABLE *condvar)
 
 	thread = get_current_thread();
 
-	threads_lock->lock(threads_lock);
+	condvar_lock->lock(condvar_lock);
 	thread->condvar = condvar;
-	threads_lock->unlock(threads_lock);
+	condvar_lock->unlock(condvar_lock);
 
 	/* this is a cancellation point, as condvar wait is one */
 	SleepEx(0, TRUE);
@@ -353,10 +345,6 @@ static void WINAPI docancel(ULONG_PTR dwParam)
 {
 	private_thread_t *this = (private_thread_t*)dwParam;
 
-	/* make sure cancel() does not access this anymore */
-	threads_lock->lock(threads_lock);
-	threads_lock->unlock(threads_lock);
-
 	end_thread(this);
 	ExitThread(0);
 }
@@ -364,20 +352,20 @@ static void WINAPI docancel(ULONG_PTR dwParam)
 METHOD(thread_t, cancel, void,
 	private_thread_t *this)
 {
-	this->canceled = TRUE;
-	if (this->cancelability)
+	atomic_set_bool(&this->canceled, TRUE);
+	if (atomic_get_bool(&this->cancelability) &&
+		cas_bool(&this->cancel_pending, FALSE, TRUE))
 	{
-		threads_lock->lock(threads_lock);
-		if (!this->cancel_pending)
+		CONDITION_VARIABLE *cv;
+
+		condvar_lock->lock(condvar_lock);
+		cv = this->condvar;
+		QueueUserAPC(docancel, this->handle, (uintptr_t)this);
+		if (cv)
 		{
-			this->cancel_pending = TRUE;
-			QueueUserAPC(docancel, this->handle, (uintptr_t)this);
-			if (this->condvar)
-			{
-				WakeAllConditionVariable(this->condvar);
-			}
+			WakeAllConditionVariable(cv);
 		}
-		threads_lock->unlock(threads_lock);
+		condvar_lock->unlock(condvar_lock);
 	}
 }
 
@@ -402,15 +390,14 @@ METHOD(thread_t, join, void*,
 		return NULL;
 	}
 
-	while (!this->terminated)
+	/* join is a cancellation point, use alertable wait until thread exited */
+	while (WaitForSingleObjectEx(this->handle, INFINITE,
+								 TRUE) == WAIT_IO_COMPLETION)
 	{
-		/* join is a cancellation point, use alertable wait */
-		WaitForSingleObjectEx(this->handle, INFINITE, TRUE);
 	}
 
 	ret = this->ret;
 
-	remove_thread(this);
 	destroy(this);
 
 	return ret;
@@ -422,10 +409,10 @@ METHOD(thread_t, join, void*,
 static DWORD thread_cb(private_thread_t *this)
 {
 	/* Enable cancelability once the thread starts. We must check for any
-	 * pending cancellation request an queue the APC that gets executed
+	 * pending cancellation request and queue the APC that gets executed
 	 * at the first cancellation point. */
-	this->cancelability = TRUE;
-	if (this->canceled)
+	atomic_set_bool(&this->cancelability, TRUE);
+	if (atomic_get_bool(&this->canceled))
 	{
 		cancel(this);
 	}
@@ -593,10 +580,10 @@ bool thread_cancelability(bool enable)
 	bool old;
 
 	this = get_current_thread();
-	old = this->cancelability;
-	this->cancelability = enable;
+	old = atomic_get_bool(&this->cancelability);
+	atomic_set_bool(&this->cancelability, enable);
 
-	if (enable && !old && this->canceled)
+	if (enable && !old && atomic_get_bool(&this->canceled))
 	{
 		cancel(this);
 	}
@@ -635,7 +622,6 @@ void thread_exit(void *val)
 static void cleanup_tls()
 {
 	private_thread_t *this;
-	bool old;
 
 	/* ignore this if called for the thread that called threads_deinit() */
 	if (!threads_lock)
@@ -643,23 +629,17 @@ static void cleanup_tls()
 		return;
 	}
 
-	old = set_leak_detective(FALSE);
+	/* we target externally spawned threads only here, our threads remove
+	 * themselves in end_thread(), which runs before DLL_THREAD_DETACH */
 	threads_lock->lock(threads_lock);
-
-	this = threads->remove(threads, (void*)(uintptr_t)GetCurrentThreadId());
-
+	this = threads->get(threads, (void*)(uintptr_t)GetCurrentThreadId());
 	threads_lock->unlock(threads_lock);
-	set_leak_detective(old);
 
 	if (this)
 	{
-		/* If the thread exited, but has not been joined, it is in terminated
-		 * state. We must not mangle it, as we target externally spawned
-		 * threads only. */
-		if (!this->terminated && !this->detached)
-		{
-			destroy(this);
-		}
+		docleanup(this);
+		remove_thread(this);
+		destroy(this);
 	}
 }
 
@@ -685,6 +665,7 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 void threads_init()
 {
 	threads_lock = spinlock_create();
+	condvar_lock = spinlock_create();
 	threads = hashtable_create(hashtable_hash_ptr, hashtable_equals_ptr, 4);
 
 	/* reset counter should we initialize more than once */
@@ -700,10 +681,14 @@ void threads_deinit()
 {
 	private_thread_t *this;
 
-	this = threads->remove(threads, (void*)(uintptr_t)GetCurrentThreadId());
+	this = get_current_thread();
+	docleanup(this);
+	remove_thread(this);
 	destroy(this);
 
 	threads_lock->destroy(threads_lock);
 	threads_lock = NULL;
+	condvar_lock->destroy(condvar_lock);
+	condvar_lock = NULL;
 	threads->destroy(threads);
 }

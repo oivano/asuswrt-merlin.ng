@@ -236,7 +236,10 @@ METHOD(aead_t, decrypt, bool,
 		default:
 			break;
 	}
-
+	if (!success && plain)
+	{
+		chunk_free(plain);
+	}
 	memwipe(nonce.ptr, nonce.len);
 	return success;
 }

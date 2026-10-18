@@ -15,13 +15,13 @@ subsection.
 Section for an IKE connection named <conn>.
 
 .TP
-.BR connections.<conn>.version " [0]"
+.BR connections.<conn>.version " [2]"
 IKE major version to use for connection.
 .RI "" "1" ""
 uses IKEv1 aka ISAKMP,
 .RI "" "2" ""
 uses
-IKEv2. A connection using the default of
+IKEv2 (the default). A connection using
 .RI "" "0" ""
 accepts both IKEv1 and IKEv2 as
 responder, and initiates the connection actively with IKEv2.

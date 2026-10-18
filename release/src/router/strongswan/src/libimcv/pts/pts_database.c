@@ -180,11 +180,18 @@ METHOD(pts_database_t, add_file_measurement, bool,
 {
 	enumerator_t *e;
 	char *name;
-	uint8_t hash_buf[HASH_SIZE_SHA512];
 	uint8_t hex_meas_buf[2*HASH_SIZE_SHA512+1], *hex_hash_buf;
-	chunk_t hash, hex_hash, hex_meas;
+	chunk_t hex_hash, hex_meas;
 	int hash_id, fid;
 	bool success = TRUE;
+
+	if (measurement.len > HASH_SIZE_SHA512 ||
+		measurement.len != pts_meas_algo_hash_size(algo))
+	{
+		DBG1(DBG_PTS, "invalid %N file measurement length %zu for '%s'",
+			 pts_meas_algorithm_names, algo, measurement.len, filename);
+		return FALSE;
+	}
 
 	if (is_dir)
 	{
@@ -245,14 +252,14 @@ METHOD(pts_database_t, add_file_measurement, bool,
 	if (e->enumerate(e, &hash_id, &hex_hash_buf))
 	{
 		hex_hash = chunk_from_str(hex_hash_buf);
-		hash = chunk_from_hex(hex_hash, hash_buf);
+		hex_meas = chunk_to_hex(measurement, hex_meas_buf, FALSE);
 
-		if (!chunk_equals(measurement, hash))
+		if (!chunk_equals(hex_hash, hex_meas))
 		{
 			/* update hash measurement value */
 			if (this->db->execute(this->db, &hash_id,
 					"UPDATE file_hashes SET hash = ? WHERE id = ?",
-					 DB_BLOB, measurement, DB_INT, hash_id) != 1)
+					 DB_TEXT, hex_meas_buf, DB_INT, hash_id) != 1)
 			{
 				success = FALSE;
 			}
@@ -260,8 +267,7 @@ METHOD(pts_database_t, add_file_measurement, bool,
 	}
 	else
 	{
-		hex_meas = chunk_to_hex(measurement, hex_meas_buf, FALSE);
-		hex_meas_buf[hex_meas.len] = '\0';
+		chunk_to_hex(measurement, hex_meas_buf, FALSE);
 
 		/* insert hash measurement value */
 		if (this->db->execute(this->db, &hash_id,

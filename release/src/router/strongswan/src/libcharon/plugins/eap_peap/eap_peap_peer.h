@@ -38,6 +38,13 @@ struct eap_peap_peer_t {
 	 * Implements the TLS application data handler.
 	 */
 	tls_application_t application;
+
+	/**
+	 * Get authentication details of this EAP method and its inner method(s).
+	 *
+	 * @return				auth method, internal data
+	 */
+	auth_cfg_t *(*get_auth)(eap_peap_peer_t *this);
 };
 
 /**

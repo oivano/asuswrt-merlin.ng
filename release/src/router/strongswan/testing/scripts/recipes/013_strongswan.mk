@@ -22,6 +22,7 @@ CONFIG_OPTS = \
 	--with-strongswan-conf=/etc/strongswan.conf.testing \
 	--with-random-device=/dev/urandom \
 	--disable-load-warning \
+	--enable-ikev1 \
 	--enable-curl \
 	--enable-ldap \
 	--enable-eap-aka \
@@ -39,13 +40,10 @@ CONFIG_OPTS = \
 	--enable-eap-ttls \
 	--enable-eap-peap \
 	--enable-eap-tnc \
-	--enable-tnc-ifmap \
 	--enable-tnc-pdp \
 	--enable-tnc-imc \
 	--enable-tnc-imv \
-	--enable-tnccs-11 \
 	--enable-tnccs-20 \
-	--enable-tnccs-dynamic \
 	--enable-imc-test \
 	--enable-imv-test \
 	--enable-imc-scanner \
@@ -63,13 +61,11 @@ CONFIG_OPTS = \
 	--enable-attr-sql \
 	--enable-mediation \
 	--enable-botan \
-	--enable-blowfish \
 	--enable-kernel-pfkey \
 	--enable-integrity-test \
 	--enable-leak-detective \
 	--enable-load-tester \
 	--enable-test-vectors \
-	--enable-gcrypt \
 	--enable-socket-default \
 	--enable-socket-dynamic \
 	--enable-dhcp \
@@ -83,7 +79,6 @@ CONFIG_OPTS = \
 	--enable-hmac \
 	--enable-chapoly \
 	--enable-ha \
-	--enable-af-alg \
 	--enable-whitelist \
 	--enable-xauth-generic \
 	--enable-xauth-eap \

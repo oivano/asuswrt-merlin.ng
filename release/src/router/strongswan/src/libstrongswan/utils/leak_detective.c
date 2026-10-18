@@ -555,8 +555,6 @@ static char *whitelist[] = {
 	"mysql_init_character_set",
 	"init_client_errs",
 	"my_thread_init",
-	/* fastcgi library */
-	"FCGX_Init",
 	/* libxml */
 	"xmlInitCharEncodingHandlers",
 	"xmlInitParser",
@@ -565,14 +563,7 @@ static char *whitelist[] = {
 	"Curl_client_write",
 	/* libldap */
 	"ldap_int_initialize",
-	/* ClearSilver */
-	"nerr_init",
-	/* libgcrypt */
-	"gcrypt_plugin_create",
-	"gcry_control",
-	"gcry_check_version",
-	"gcry_randomize",
-	"gcry_create_nonce",
+	"ldap_pvt_tls_set_option",
 	/* OpenSSL: These are needed for unit-tests only, the openssl plugin
 	 * does properly clean up any memory during destroy(). */
 	"ECDSA_do_sign_ex",

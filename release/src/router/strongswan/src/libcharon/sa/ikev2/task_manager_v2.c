@@ -927,7 +927,8 @@ static status_t process_response(private_task_manager_t *this,
  * Handle exchange collisions, returns TRUE if the given passive task was
  * adopted by the active task and the task manager lost control over it.
  */
-static bool handle_collisions(private_task_manager_t *this, task_t *task)
+static bool handle_collisions(private_task_manager_t *this, task_t *task,
+							  bool done)
 {
 	enumerator_t *enumerator;
 	task_t *active;
@@ -951,7 +952,7 @@ static bool handle_collisions(private_task_manager_t *this, task_t *task)
 					if (type == TASK_IKE_REKEY || type == TASK_IKE_DELETE)
 					{
 						ike_rekey_t *rekey = (ike_rekey_t*)active;
-						adopted = rekey->collide(rekey, task);
+						adopted = rekey->collide(rekey, task, done);
 						break;
 					}
 					continue;
@@ -959,7 +960,7 @@ static bool handle_collisions(private_task_manager_t *this, task_t *task)
 					if (type == TASK_CHILD_REKEY)
 					{
 						child_rekey_t *rekey = (child_rekey_t*)active;
-						adopted = rekey->collide(rekey, task);
+						adopted = rekey->collide(rekey, task, done);
 						break;
 					}
 					continue;
@@ -1011,14 +1012,14 @@ static status_t build_response(private_task_manager_t *this, message_t *request)
 			case SUCCESS:
 				/* task completed, remove it */
 				array_remove_at(this->passive_tasks, enumerator);
-				if (!handle_collisions(this, task))
+				if (!handle_collisions(this, task, TRUE))
 				{
 					task->destroy(task);
 				}
 				break;
 			case NEED_MORE:
 				/* processed, but task needs another exchange */
-				if (handle_collisions(this, task))
+				if (handle_collisions(this, task, FALSE))
 				{
 					array_remove_at(this->passive_tasks, enumerator);
 				}
@@ -1029,7 +1030,7 @@ static status_t build_response(private_task_manager_t *this, message_t *request)
 				/* FALL */
 			case DESTROY_ME:
 				/* destroy IKE_SA, but SEND response first */
-				if (handle_collisions(this, task))
+				if (handle_collisions(this, task, FALSE))
 				{
 					array_remove_at(this->passive_tasks, enumerator);
 				}
@@ -1121,6 +1122,44 @@ static status_t build_response(private_task_manager_t *this, message_t *request)
 }
 
 /**
+ * Send a notify back to the sender
+ */
+static void send_notify_response(private_task_manager_t *this,
+								 message_t *request, notify_type_t type,
+								 chunk_t data)
+{
+	message_t *response;
+	packet_t *packet;
+	host_t *me, *other;
+
+	response = message_create(IKEV2_MAJOR_VERSION, IKEV2_MINOR_VERSION);
+	response->set_exchange_type(response, request->get_exchange_type(request));
+	response->set_request(response, FALSE);
+	response->set_message_id(response, request->get_message_id(request));
+	response->add_notify(response, FALSE, type, data);
+	me = this->ike_sa->get_my_host(this->ike_sa);
+	if (me->is_anyaddr(me))
+	{
+		me = request->get_destination(request);
+		this->ike_sa->set_my_host(this->ike_sa, me->clone(me));
+	}
+	other = this->ike_sa->get_other_host(this->ike_sa);
+	if (other->is_anyaddr(other))
+	{
+		other = request->get_source(request);
+		this->ike_sa->set_other_host(this->ike_sa, other->clone(other));
+	}
+	response->set_source(response, me->clone(me));
+	response->set_destination(response, other->clone(other));
+	if (this->ike_sa->generate_message(this->ike_sa, response,
+									   &packet) == SUCCESS)
+	{
+		charon->sender->send(charon->sender, packet);
+	}
+	response->destroy(response);
+}
+
+/**
  * handle an incoming request message
  */
 static status_t process_request(private_task_manager_t *this,
@@ -1133,8 +1172,9 @@ static status_t process_request(private_task_manager_t *this,
 	delete_payload_t *delete;
 	ike_sa_state_t state;
 
+	/* create tasks depending on request type, if not already some queued */
 	if (array_count(this->passive_tasks) == 0)
-	{	/* create tasks depending on request type, if not already some queued */
+	{
 		state = this->ike_sa->get_state(this->ike_sa);
 		switch (message->get_exchange_type(message))
 		{
@@ -1175,14 +1215,6 @@ static status_t process_request(private_task_manager_t *this,
 			case CREATE_CHILD_SA:
 			{	/* FIXME: we should prevent this on mediation connections */
 				bool notify_found = FALSE, ts_found = FALSE;
-
-				if (state == IKE_CREATED ||
-					state == IKE_CONNECTING)
-				{
-					DBG1(DBG_IKE, "received CREATE_CHILD_SA request for "
-						 "unestablished IKE_SA, rejected");
-					return FAILED;
-				}
 
 				enumerator = message->create_payload_enumerator(message);
 				while (enumerator->enumerate(enumerator, &payload))
@@ -1231,6 +1263,14 @@ static status_t process_request(private_task_manager_t *this,
 				}
 				array_insert(this->passive_tasks, ARRAY_TAIL, task);
 				break;
+			}
+			case IKE_FOLLOWUP_KE:
+			{
+				/* receiving this when we don't have an active rekey task is
+				 * an error, we send back a notify accordingly */
+				send_notify_response(this, message, STATE_NOT_FOUND,
+									 chunk_empty);
+				return SUCCESS;
 			}
 			case INFORMATIONAL:
 			{
@@ -1524,44 +1564,6 @@ static status_t handle_fragment(private_task_manager_t *this,
 }
 
 /**
- * Send a notify back to the sender
- */
-static void send_notify_response(private_task_manager_t *this,
-								 message_t *request, notify_type_t type,
-								 chunk_t data)
-{
-	message_t *response;
-	packet_t *packet;
-	host_t *me, *other;
-
-	response = message_create(IKEV2_MAJOR_VERSION, IKEV2_MINOR_VERSION);
-	response->set_exchange_type(response, request->get_exchange_type(request));
-	response->set_request(response, FALSE);
-	response->set_message_id(response, request->get_message_id(request));
-	response->add_notify(response, FALSE, type, data);
-	me = this->ike_sa->get_my_host(this->ike_sa);
-	if (me->is_anyaddr(me))
-	{
-		me = request->get_destination(request);
-		this->ike_sa->set_my_host(this->ike_sa, me->clone(me));
-	}
-	other = this->ike_sa->get_other_host(this->ike_sa);
-	if (other->is_anyaddr(other))
-	{
-		other = request->get_source(request);
-		this->ike_sa->set_other_host(this->ike_sa, other->clone(other));
-	}
-	response->set_source(response, me->clone(me));
-	response->set_destination(response, other->clone(other));
-	if (this->ike_sa->generate_message(this->ike_sa, response,
-									   &packet) == SUCCESS)
-	{
-		charon->sender->send(charon->sender, packet);
-	}
-	response->destroy(response);
-}
-
-/**
  * Send an INVALID_SYNTAX notify and destroy the IKE_SA for authenticated
  * messages.
  */
@@ -1717,7 +1719,7 @@ static inline bool reject_request(private_task_manager_t *this,
 	state = this->ike_sa->get_state(this->ike_sa);
 	type = msg->get_exchange_type(msg);
 
-	/* reject initial messages if not received in specific states */
+	/* reject messages if not received in specific states */
 	switch (type)
 	{
 		case IKE_SA_INIT:
@@ -1730,6 +1732,10 @@ static inline bool reject_request(private_task_manager_t *this,
 			break;
 		case IKE_AUTH:
 			reject = state != IKE_CONNECTING;
+			break;
+		case CREATE_CHILD_SA:
+		case IKE_FOLLOWUP_KE:
+			reject = state == IKE_CREATED || state == IKE_CONNECTING;
 			break;
 		default:
 			break;
@@ -1948,7 +1954,7 @@ METHOD(task_manager_t, process_message, status_t,
 	if (msg->get_request(msg))
 	{
 		/* special handling for requests happens in is_retransmit()
-		 * reject initial messages if not received in specific states,
+		 * reject messages if not received in specific states,
 		 * after rekeying we only expect a DELETE in an INFORMATIONAL */
 		if (reject_request(this, msg))
 		{

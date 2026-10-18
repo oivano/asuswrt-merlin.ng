@@ -20,8 +20,6 @@ options = \
 	options/imcv.opt \
 	options/imv_policy_manager.opt \
 	options/iptfs.opt \
-	options/manager.opt \
-	options/medsrv.opt \
 	options/pki.opt \
 	options/pool.opt \
 	options/starter.opt \
@@ -43,7 +41,6 @@ plugins = \
 	plugins/dhcp.opt \
 	plugins/dnscert.opt \
 	plugins/drbg.opt \
-	plugins/duplicheck.opt \
 	plugins/eap-aka.opt \
 	plugins/eap-aka-3gpp.opt \
 	plugins/eap-aka-3gpp2.opt \
@@ -59,7 +56,6 @@ plugins = \
 	plugins/error-notify.opt \
 	plugins/ext-auth.opt \
 	plugins/forecast.opt \
-	plugins/gcrypt.opt \
 	plugins/ha.opt \
 	plugins/imc-attestation.opt \
 	plugins/imc-hcd.opt \
@@ -73,7 +69,6 @@ plugins = \
 	plugins/imv-swima.opt \
 	plugins/imv-test.opt \
 	plugins/ipseckey.opt \
-	plugins/led.opt \
 	plugins/kernel-libipsec.opt \
 	plugins/kernel-netlink.opt \
 	plugins/kernel-pfkey.opt \
@@ -94,11 +89,9 @@ plugins = \
 	plugins/sql.opt \
 	plugins/stroke.opt \
 	plugins/systime-fix.opt \
-	plugins/tnc-ifmap.opt \
 	plugins/tnc-imc.opt \
 	plugins/tnc-imv.opt \
 	plugins/tnc-pdp.opt \
-	plugins/tnccs-11.opt \
 	plugins/tnccs-20.opt \
 	plugins/tpm.opt \
 	plugins/unbound.opt \

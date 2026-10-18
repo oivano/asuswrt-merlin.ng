@@ -47,6 +47,13 @@ struct eap_peap_server_t {
 	 * @param tls		TLS connection
 	 */
 	void (*set_tls)(eap_peap_server_t *this, tls_t *tls);
+
+	/**
+	 * Get authentication details of this EAP method and its inner method(s).
+	 *
+	 * @return				auth method, internal data
+	 */
+	auth_cfg_t *(*get_auth)(eap_peap_server_t *this);
 };
 
 /**

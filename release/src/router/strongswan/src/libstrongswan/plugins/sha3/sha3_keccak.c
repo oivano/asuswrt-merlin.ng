@@ -59,17 +59,17 @@ struct private_sha3_keccak_t {
 	/**
 	 * Internal state of 1600 bits as defined by FIPS-202
 	 */
-	uint8_t state[KECCAK_STATE_SIZE];
+	uint8_t state[KECCAK_STATE_SIZE] __attribute__((aligned(8)));
+
+	/**
+	 * Rate input buffer
+	 */
+	uint8_t rate_buffer[KECCAK_MAX_RATE] __attribute__((aligned(8)));
 
 	/**
 	 * Rate in bytes
 	 */
 	u_int rate;
-
-	/**
-	 * Rate input buffer
-	 */
-	uint8_t rate_buffer[KECCAK_MAX_RATE];
 
 	/**
 	 * Index pointing to the current position in the rate buffer
@@ -435,7 +435,7 @@ METHOD(sha3_keccak_t, finalize, void,
 	 * optimizations */
 	rate_lanes = (this->rate - 1) / sizeof(uint64_t);
 	remainder = (this->rate - 1) % sizeof(uint64_t);
-	state_lanes[rate_lanes] ^= (0x80ULL << remainder * 8);
+	state_lanes[rate_lanes] ^= htole64(0x80ULL << remainder * 8);
 
 	/* Switch to the squeezing phase */
 	keccak_f1600_state_permute(this->state);

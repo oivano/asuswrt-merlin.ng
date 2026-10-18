@@ -152,6 +152,7 @@ static status_t process_sasl(private_pt_tls_server_t *this,
 			writer->write_uint8(writer, PT_TLS_SASL_RESULT_ABORT);
 			pt_tls_write(this->tls, PT_TLS_SASL_RESULT,
 						 this->identifier++, writer->get_buf(writer));
+			writer->destroy(writer);
 			return FAILED;
 	}
 }
@@ -405,7 +406,7 @@ static status_t assess(private_pt_tls_server_t *this, tls_t *tnccs)
 {
 	size_t msglen;
 	size_t buflen = PT_TLS_MAX_MESSAGE_LEN;
-	char buf[buflen];
+	char *buf;
 	bio_reader_t *reader;
 	uint32_t vendor, type, identifier;
 	chunk_t data;
@@ -439,7 +440,7 @@ static status_t assess(private_pt_tls_server_t *this, tls_t *tnccs)
 			case FAILED:
 			default:
 				reader->destroy(reader);
-				return FALSE;
+				return FAILED;
 			case NEED_MORE:
 				break;
 		}
@@ -450,6 +451,11 @@ static status_t assess(private_pt_tls_server_t *this, tls_t *tnccs)
 	}
 	reader->destroy(reader);
 
+	buf = malloc(buflen);
+	if (!buf)
+	{
+		return FAILED;
+	}
 	status = tnccs->build(tnccs, buf, &buflen, &msglen);
 	if (status == ALREADY_DONE)
 	{
@@ -457,9 +463,11 @@ static status_t assess(private_pt_tls_server_t *this, tls_t *tnccs)
 		if (!pt_tls_write(this->tls, PT_TLS_PB_TNC_BATCH,
 						  this->identifier++, data))
 		{
+			free(buf);
 			return FAILED;
 		}
 	}
+	free(buf);
 	return status;
 }
 

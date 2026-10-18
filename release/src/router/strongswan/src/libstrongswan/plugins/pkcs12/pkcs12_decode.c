@@ -337,7 +337,7 @@ static bool verify_mac_pw(signer_t *signer, hash_algorithm_t hash, chunk_t salt,
 	if (pkcs12_derive_key(hash, pw, salt, iterations, PKCS12_KEY_MAC, key) &&
 		signer->set_key(signer, key) &&
 		signer->get_signature(signer, data, calculated.ptr) &&
-		chunk_equals_const(mac, calculated))
+		chunk_equals_const(calculated, mac))
 	{
 		success = TRUE;
 	}
@@ -349,7 +349,8 @@ static bool verify_mac_pw(signer_t *signer, hash_algorithm_t hash, chunk_t salt,
  * Verify the given MAC with available passwords.
  */
 static bool verify_mac(hash_algorithm_t hash, chunk_t salt,
-					   uint64_t iterations, chunk_t data, chunk_t mac)
+					   uint64_t iterations, chunk_t data, chunk_t mac,
+					   mem_cred_t *creds)
 {
 	enumerator_t *enumerator;
 	shared_key_t *shared;
@@ -363,10 +364,11 @@ static bool verify_mac(hash_algorithm_t hash, chunk_t salt,
 		return FALSE;
 	}
 
-	/* try without and with an empty password, which is not the same thing */
-	if (verify_mac_pw(signer, hash, salt, iterations, data, mac, chunk_empty) ||
-		verify_mac_pw(signer, hash, salt, iterations, data, mac, chunk_from_str("")))
+	if (verify_mac_pw(signer, hash, salt, iterations, data, mac, chunk_from_str("")))
 	{
+		shared = shared_key_create(SHARED_PRIVATE_KEY_PASS,
+								   chunk_clone(chunk_from_str("")));
+		creds->add_shared(creds, shared, NULL);
 		signer->destroy(signer);
 		return TRUE;
 	}
@@ -378,6 +380,7 @@ static bool verify_mac(hash_algorithm_t hash, chunk_t salt,
 		if (verify_mac_pw(signer, hash, salt, iterations, data, mac,
 						  shared->get_key(shared)))
 		{
+			creds->add_shared(creds, shared->get_ref(shared), NULL);
 			success = TRUE;
 			break;
 		}
@@ -470,6 +473,7 @@ static bool parse_PFX(private_pkcs12_t *this, chunk_t blob)
 			data = chunk_empty;
 	hash_algorithm_t hash = HASH_UNKNOWN;
 	container_t *container = NULL;
+	mem_cred_t *creds = NULL;
 	uint64_t iterations = 0;
 	bool success = FALSE;
 
@@ -526,11 +530,14 @@ end_parse:
 			{
 				goto end;
 			}
-			if (!verify_mac(hash, salt, iterations, data, digest))
+			creds = mem_cred_create();
+			if (!verify_mac(hash, salt, iterations, data, digest, creds))
 			{
 				DBG1(DBG_ASN, "  MAC verification of PKCS#12 container failed");
 				goto end;
 			}
+			/* only use the password that verified the MAC */
+			lib->credmgr->add_local_set(lib->credmgr, &creds->set, TRUE);
 		}
 		else
 		{
@@ -555,6 +562,11 @@ end_parse:
 	}
 end:
 	DBG2(DBG_ASN, "-- < --");
+	if (creds)
+	{
+		lib->credmgr->remove_local_set(lib->credmgr, &creds->set);
+		creds->destroy(creds);
+	}
 	DESTROY_IF(container);
 	chunk_free(&data);
 	return success;

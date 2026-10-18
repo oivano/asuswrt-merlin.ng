@@ -53,6 +53,11 @@ struct private_eap_peap_peer_t {
 	eap_method_t *ph2_method;
 
 	/**
+	 * Auth data for phase 2 methods
+	 */
+	auth_cfg_t *auth;
+
+	/**
      * Pending outbound EAP message
 	 */
 	eap_payload_t *out;
@@ -166,6 +171,12 @@ METHOD(tls_application_t, process, status_t,
 	switch (status)
 	{
 		case SUCCESS:
+			if (this->ph2_method->get_auth)
+			{
+				this->auth->merge(this->auth,
+								  this->ph2_method->get_auth(this->ph2_method),
+								  FALSE);
+			}
 			this->ph2_method->destroy(this->ph2_method);
 			this->ph2_method = NULL;
 			/* fall through to NEED_MORE */
@@ -220,11 +231,18 @@ METHOD(tls_application_t, build, status_t,
 	return INVALID_STATE;
 }
 
+METHOD(eap_peap_peer_t, get_auth, auth_cfg_t*,
+	private_eap_peap_peer_t *this)
+{
+	return this->auth;
+}
+
 METHOD(tls_application_t, destroy, void,
 	private_eap_peap_peer_t *this)
 {
 	this->server->destroy(this->server);
 	this->peer->destroy(this->peer);
+	this->auth->destroy(this->auth);
 	DESTROY_IF(this->ph2_method);
 	DESTROY_IF(this->out);
 	this->avp->destroy(this->avp);
@@ -247,10 +265,12 @@ eap_peap_peer_t *eap_peap_peer_create(identification_t *server,
 				.build = _build,
 				.destroy = _destroy,
 			},
+			.get_auth = _get_auth,
 		},
 		.server = server->clone(server),
 		.peer = peer->clone(peer),
 		.ph1_method = eap_method,
+		.auth = auth_cfg_create(),
 		.avp = eap_peap_avp_create(FALSE),
 	);
 

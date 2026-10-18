@@ -113,6 +113,42 @@ START_TEST(test_asn1_parser_loop)
 END_TEST
 
 /*******************************************************************************
+ * stalled loop
+ */
+
+/* IMPORTANT: these rules are faulty on purpose. if no CHOICE matches, this
+ * caused an infinite loop (now prevented). use proper ASN1_CHOICE|CH flags! */
+static const asn1Object_t stalledLoopObjects[] = {
+	{ 0, "stalledLoop",		ASN1_SEQUENCE,		ASN1_LOOP          }, /* 0 */
+	{ 1,   "choice1",		ASN1_OCTET_STRING,	ASN1_OPT|ASN1_BODY }, /* 1 */
+	{ 1,   "end opt",		ASN1_EOC,			ASN1_END           }, /* 2 */
+	{ 1,   "choice2",		ASN1_INTEGER,		ASN1_OPT|ASN1_BODY }, /* 3 */
+	{ 1,   "end opt",		ASN1_EOC,			ASN1_END           }, /* 4 */
+	{ 1,   "choice3",		ASN1_UTF8STRING,	ASN1_OPT|ASN1_BODY }, /* 5 */
+	{ 1,   "end opt",		ASN1_EOC,			ASN1_END           }, /* 6 */
+	{ 0, "end loop",		ASN1_EOC,			ASN1_END           }, /* 7 */
+	{ 0, "exit",			ASN1_EOC,			ASN1_EXIT          }
+};
+
+asn1_test_t stalled_loop_tests[] = {
+	/* empty SEQUENCE: loop skipped entirely */
+	{ TRUE,  0, chunk_from_chars(0x30, 0x00) },
+	/* single valid OCTET STRING: handled normally */
+	{ TRUE,  1, chunk_from_chars(0x30, 0x03, 0x04, 0x01, 0xaa) },
+	/* first valid OCTET STRING, then BIT STRING: stall on second iteration */
+	{ FALSE, 1, chunk_from_chars(0x30, 0x07, 0x04, 0x01, 0xaa,
+											 0x03, 0x02, 0x00, 0x01) },
+	/* single BIT STRING: no choice matches, stall on first iteration */
+	{ FALSE, 0, chunk_from_chars(0x30, 0x04, 0x03, 0x02, 0x00, 0x01) },
+};
+
+START_TEST(test_asn1_parser_stalled_loop)
+{
+	run_parser_test(stalledLoopObjects, 1, &stalled_loop_tests[_i]);
+}
+END_TEST
+
+/*******************************************************************************
  * default
  */
 
@@ -378,6 +414,7 @@ Suite *asn1_parser_suite_create()
 
 	tc = tcase_create("loop");
 	tcase_add_loop_test(tc, test_asn1_parser_loop, 0, countof(loop_tests));
+	tcase_add_loop_test(tc, test_asn1_parser_stalled_loop, 0, countof(stalled_loop_tests));
 	suite_add_tcase(s, tc);
 
 	tc = tcase_create("default");

@@ -201,7 +201,7 @@ error:
 METHOD(key_exchange_t, set_public_key, bool,
 	private_openssl_ec_diffie_hellman_t *this, chunk_t value)
 {
-	if (!key_exchange_verify_pubkey(this->group, value))
+	if (!key_exchange_check_pubkey_len(this->group, value))
 	{
 		return FALSE;
 	}
@@ -290,7 +290,7 @@ int openssl_ecdh_group_to_nid(key_exchange_method_t group)
 		case ECP_521_BIT:
 			return NID_secp521r1;
 /* added with 1.0.2 */
-#if OPENSSL_VERSION_NUMBER >= 0x10002000L
+#if OPENSSL_VERSION_NUMBER >= 0x10002000L || defined(OPENSSL_IS_AWSLC)
 		case ECP_224_BP:
 			return NID_brainpoolP224r1;
 		case ECP_256_BP:

@@ -40,6 +40,25 @@ struct private_eap_ttls_t {
 	 * TLS stack, wrapped by EAP helper
 	 */
 	tls_eap_t *tls_eap;
+
+	/**
+	 * Role
+	 */
+	bool is_server;
+
+	/**
+	 * Actual server/client implementation
+	 */
+	union {
+		tls_application_t *application;
+		eap_ttls_server_t *server;
+		eap_ttls_peer_t *client;
+	} impl;
+
+	/**
+	 * Cached auth data for TLS and inner EAP methods
+	 */
+	auth_cfg_t *auth;
 };
 
 /** Maximum number of EAP-TTLS messages/fragments allowed */
@@ -116,13 +135,31 @@ METHOD(eap_method_t, is_mutual, bool,
 METHOD(eap_method_t, get_auth, auth_cfg_t*,
 	private_eap_ttls_t *this)
 {
-	return this->tls_eap->get_auth(this->tls_eap);
+	if (!this->auth)
+	{
+		auth_cfg_t *inner;
+
+		this->auth = auth_cfg_create();
+		this->auth->merge(this->auth,
+						  this->tls_eap->get_auth(this->tls_eap), FALSE);
+		if (this->is_server)
+		{
+			inner = this->impl.server->get_auth(this->impl.server);
+		}
+		else
+		{
+			inner = this->impl.client->get_auth(this->impl.client);
+		}
+		this->auth->merge(this->auth, inner, FALSE);
+	}
+	return this->auth;
 }
 
 METHOD(eap_method_t, destroy, void,
 	private_eap_ttls_t *this)
 {
 	this->tls_eap->destroy(this->tls_eap);
+	DESTROY_IF(this->auth);
 	free(this);
 }
 
@@ -152,6 +189,10 @@ static eap_ttls_t *eap_ttls_create(identification_t *server,
 				.get_auth = _get_auth,
 				.destroy = _destroy,
 			},
+		},
+		.is_server = is_server,
+		.impl = {
+			.application = application,
 		},
 	);
 	if (is_server && !lib->settings->get_bool(lib->settings,

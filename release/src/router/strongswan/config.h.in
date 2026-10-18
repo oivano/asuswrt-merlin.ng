@@ -104,9 +104,6 @@
 /* have GCC __sync_* operations */
 #undef HAVE_GCC_SYNC_OPERATIONS
 
-/* have GCRY_CIPHER_CAMELLIA128 */
-#undef HAVE_GCRY_CIPHER_CAMELLIA
-
 /* Define to 1 if you have the 'getgrnam_r' function. */
 #undef HAVE_GETGRNAM_R
 

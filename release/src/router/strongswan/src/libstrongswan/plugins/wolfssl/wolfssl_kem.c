@@ -25,10 +25,7 @@
 
 #ifdef WOLFSSL_HAVE_MLKEM
 
-#include <wolfssl/wolfcrypt/mlkem.h>
-#ifdef WOLFSSL_WC_MLKEM
 #include <wolfssl/wolfcrypt/wc_mlkem.h>
-#endif
 
 typedef struct private_key_exchange_t private_key_exchange_t;
 
@@ -244,8 +241,12 @@ METHOD(key_exchange_t, set_public_key, bool,
 METHOD(key_exchange_t, get_shared_secret, bool,
 	private_key_exchange_t *this, chunk_t *secret)
 {
-	*secret = chunk_clone(this->shared_secret);
-	return TRUE;
+	if (this->shared_secret.ptr != NULL)
+	{
+		*secret = chunk_clone(this->shared_secret);
+		return TRUE;
+	}
+	return FALSE;
 }
 
 METHOD(key_exchange_t, get_method, key_exchange_method_t,

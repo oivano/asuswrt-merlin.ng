@@ -20,6 +20,8 @@
 #include <utils/debug.h>
 #include <daemon.h>
 
+#include <sa/eap/eap_inner_method.h>
+
 typedef struct private_eap_peap_server_t private_eap_peap_server_t;
 
 /**
@@ -78,6 +80,16 @@ struct private_eap_peap_server_t {
 	eap_method_t *ph2_method;
 
 	/**
+	 * Type of the completed phase 2 EAP method
+	 */
+	eap_type_t phase2_type;
+
+	/**
+	 * Auth data for phase 2 method
+	 */
+	auth_cfg_t *auth;
+
+	/**
      * Pending outbound EAP message
 	 */
 	eap_payload_t *out;
@@ -106,7 +118,8 @@ static status_t start_phase2_auth(private_eap_peap_server_t *this)
 		return FAILED;
 	}
 	DBG1(DBG_IKE, "phase2 method %N selected", eap_type_names, type);
-		this->ph2_method = charon->eap->create_instance(charon->eap, type, 0,
+	this->phase2_result = EAP_FAILURE;
+	this->ph2_method = charon->eap->create_instance(charon->eap, type, 0,
 								EAP_SERVER, this->server, this->peer);
 	if (this->ph2_method == NULL)
 	{
@@ -125,19 +138,23 @@ static status_t start_phase2_auth(private_eap_peap_server_t *this)
 	else
 	{
 		DBG1(DBG_IKE, "%N method failed", eap_type_names, type);
-			return FAILED;
+		return FAILED;
 	}
 }
 
 /**
  * If configured, start EAP-TNC protocol
  */
-static status_t start_phase2_tnc(private_eap_peap_server_t *this)
+static status_t start_phase2_tnc(private_eap_peap_server_t *this,
+								 eap_type_t auth_type)
 {
+	eap_inner_method_t *inner_method;
+
 	if (this->start_phase2_tnc && lib->settings->get_bool(lib->settings,
 						"%s.plugins.eap-peap.phase2_tnc", FALSE, lib->ns))
 	{
 		DBG1(DBG_IKE, "phase2 method %N selected", eap_type_names, EAP_TNC);
+		this->phase2_result = EAP_FAILURE;
 		this->ph2_method = charon->eap->create_instance(charon->eap, EAP_TNC,
 									0, EAP_SERVER, this->server, this->peer);
 		if (this->ph2_method == NULL)
@@ -145,6 +162,8 @@ static status_t start_phase2_tnc(private_eap_peap_server_t *this)
 			DBG1(DBG_IKE, "%N method not available", eap_type_names, EAP_TNC);
 			return FAILED;
 		}
+		inner_method = (eap_inner_method_t *)this->ph2_method;
+		inner_method->set_auth_type(inner_method, auth_type);
 		this->start_phase2_tnc = FALSE;
 
 		/* synchronize EAP message identifiers of inner protocol with outer */
@@ -218,9 +237,14 @@ METHOD(tls_application_t, process, status_t,
 		DBG1(DBG_IKE, "received tunneled EAP-PEAP AVP [EAP/%N]",
 								eap_code_short_names, code);
 		in->destroy(in);
-		/* if EAP_SUCCESS check if to continue phase2 with EAP-TNC */
-		return (this->phase2_result == EAP_SUCCESS && code == EAP_SUCCESS) ?
-			   start_phase2_tnc(this) : FAILED;
+
+		if (this->phase2_result == EAP_SUCCESS && code == EAP_SUCCESS)
+		{
+			/* only accept SUCCESS once after a successful inner method */
+			this->phase2_result = EAP_FAILURE;
+			return start_phase2_tnc(this, this->phase2_type);
+		}
+		return FAILED;
 	}
 
 	if (this->ph2_method)
@@ -245,6 +269,10 @@ METHOD(tls_application_t, process, status_t,
 	if (!received_vendor && received_type == EAP_IDENTITY)
 	{
 		chunk_t eap_id;
+		bool peer_auth;
+
+		peer_auth = lib->settings->get_bool(lib->settings,
+					"%s.plugins.eap-peap.request_peer_auth", FALSE, lib->ns);
 
 		if (this->ph2_method == NULL)
 		{
@@ -271,9 +299,22 @@ METHOD(tls_application_t, process, status_t,
 
 		if (this->ph2_method->get_msk(this->ph2_method, &eap_id) == SUCCESS)
 		{
-			this->peer->destroy(this->peer);
-			this->peer = identification_create_from_data(eap_id);
-			DBG1(DBG_IKE, "received EAP identity '%Y'", this->peer);
+			identification_t *id;
+
+			id = identification_create_from_data(eap_id);
+			if (peer_auth && !id->equals(id, this->peer))
+			{
+				DBG1(DBG_IKE, "received tunneled EAP identity '%Y', keeping "
+					 "certificate-authenticated identity '%Y'", id, this->peer);
+				id->destroy(id);
+			}
+			else
+			{
+				DBG1(DBG_IKE, "received EAP identity '%Y'", id);
+				this->auth->add(this->auth, AUTH_RULE_EAP_IDENTITY, id);
+				this->peer->destroy(this->peer);
+				this->peer = id->clone(id);
+			}
 		}
 
 		in->destroy(in);
@@ -281,10 +322,9 @@ METHOD(tls_application_t, process, status_t,
 		this->ph2_method = NULL;
 
 		/* Start Phase 2 of EAP-PEAP authentication */
-		if (lib->settings->get_bool(lib->settings,
-					"%s.plugins.eap-peap.request_peer_auth", FALSE, lib->ns))
+		if (peer_auth)
 		{
-			return start_phase2_tnc(this);
+			return start_phase2_tnc(this, EAP_TLS);
 		}
 		else
 		{
@@ -292,7 +332,7 @@ METHOD(tls_application_t, process, status_t,
 		}
 	}
 
-	if (this->ph2_method == 0)
+	if (this->ph2_method == NULL)
 	{
 		DBG1(DBG_IKE, "no %N phase2 method installed", eap_type_names, EAP_PEAP);
 		in->destroy(in);
@@ -305,11 +345,26 @@ METHOD(tls_application_t, process, status_t,
 	switch (status)
 	{
 		case SUCCESS:
+			if (this->ph2_method->get_auth)
+			{
+				identification_t *id;
+				auth_cfg_t *auth;
+
+				auth = this->ph2_method->get_auth(this->ph2_method);
+				id = auth->get(auth, AUTH_RULE_EAP_IDENTITY);
+				if (id)
+				{
+					this->peer->destroy(this->peer);
+					this->peer = id->clone(id);
+				}
+				this->auth->merge(this->auth, auth, FALSE);
+			}
 			DBG1(DBG_IKE, "%N phase2 authentication of '%Y' with %N successful",
 							eap_type_names, EAP_PEAP, this->peer,
 							eap_type_names, type);
 			this->ph2_method->destroy(this->ph2_method);
 			this->ph2_method = NULL;
+			this->phase2_type = type;
 
 			/* EAP-PEAP requires the sending of an inner EAP_SUCCESS message */
 			this->phase2_result = EAP_SUCCESS;
@@ -407,11 +462,18 @@ METHOD(eap_peap_server_t, set_tls, void,
 	this->tls = tls;
 }
 
+METHOD(eap_peap_server_t, get_auth, auth_cfg_t*,
+	private_eap_peap_server_t *this)
+{
+	return this->auth;
+}
+
 METHOD(tls_application_t, destroy, void,
 	private_eap_peap_server_t *this)
 {
 	this->server->destroy(this->server);
 	this->peer->destroy(this->peer);
+	this->auth->destroy(this->auth);
 	DESTROY_IF(this->ph2_method);
 	DESTROY_IF(this->out);
 	this->avp->destroy(this->avp);
@@ -435,10 +497,12 @@ eap_peap_server_t *eap_peap_server_create(identification_t *server,
 				.destroy = _destroy,
 			},
 			.set_tls = _set_tls,
+			.get_auth = _get_auth,
 		},
 		.server = server->clone(server),
 		.peer = peer->clone(peer),
 		.ph1_method = eap_method,
+		.auth = auth_cfg_create(),
 		.start_phase2 = TRUE,
 		.start_phase2_tnc = TRUE,
 		.start_phase2_id = lib->settings->get_bool(lib->settings,

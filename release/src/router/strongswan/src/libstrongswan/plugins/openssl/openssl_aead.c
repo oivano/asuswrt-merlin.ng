@@ -163,6 +163,7 @@ METHOD(aead_t, decrypt, bool,
 	chunk_t *plain)
 {
 	u_char *out;
+	bool valid;
 
 	if (encrypted.len < this->icv_size)
 	{
@@ -176,7 +177,12 @@ METHOD(aead_t, decrypt, bool,
 		*plain = chunk_alloc(encrypted.len);
 		out = plain->ptr;
 	}
-	return crypt_data(this, encrypted, assoc, iv, out, 0);
+	valid = crypt_data(this, encrypted, assoc, iv, out, 0);
+	if (!valid && plain)
+	{
+		chunk_free(plain);
+	}
+	return valid;
 }
 
 METHOD(aead_t, get_block_size, size_t,

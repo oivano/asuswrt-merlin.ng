@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2020 Tobias Brunner
+ * Copyright (C) 2016-2026 Tobias Brunner
  *
  * Copyright (C) secunet Security Networks AG
  *
@@ -21,6 +21,154 @@
 #include <tests/utils/exchange_test_asserts.h>
 #include <tests/utils/job_asserts.h>
 #include <tests/utils/sa_asserts.h>
+
+#include <encoding/payloads/nonce_payload.h>
+#include <encoding/payloads/sa_payload.h>
+
+/**
+ * Convert the IKE_AUTH request to a minimal CREATE_CHILD_SA request
+ */
+static bool fake_create_child_sa(listener_t *listener, ike_sa_t *ike_sa,
+								 message_t *message, bool incoming, bool plain)
+{
+	if (plain && !incoming &&
+		message->get_exchange_type(message) == IKE_AUTH &&
+		message->get_request(message))
+	{
+		enumerator_t *enumerator = message->create_payload_enumerator(message);
+		nonce_payload_t *nonce;
+		sa_payload_t *sa;
+		payload_t *pld;
+
+		while (enumerator->enumerate(enumerator, &pld))
+		{
+			message->remove_payload_at(message, enumerator);
+			pld->destroy(pld);
+		}
+		enumerator->destroy(enumerator);
+
+		/* an SA and a nonce payload are necessary to pass exchange rules */
+		message->set_exchange_type(message, CREATE_CHILD_SA);
+		sa = sa_payload_create(PLV2_SECURITY_ASSOCIATION);
+		message->add_payload(message, (payload_t*)sa);
+		nonce = nonce_payload_create(PLV2_NONCE);
+		nonce->set_nonce(nonce, chunk_from_chars(0x00,0x00,0x00,0x00,0x00,0x00,
+												 0x00,0x00,0x00,0x00,0x00,0x00,
+												 0x00,0x00,0x00,0x00));
+		message->add_payload(message, (payload_t*)nonce);
+		free(listener);
+		return FALSE;
+	}
+	return TRUE;
+}
+
+#define send_fake_create_child_sa() ({ \
+	listener_t *_msg_listener; \
+	INIT(_msg_listener, \
+		.message = fake_create_child_sa, \
+	); \
+	exchange_test_helper->add_listener(exchange_test_helper, _msg_listener); \
+})
+
+/**
+ * This ensures we don't accept a CREATE_CHILD_SA request before the IKE SA is
+ * established.
+ */
+START_TEST(test_pre_establish)
+{
+	exchange_test_sa_conf_t conf = {
+		.initiator = {
+			.eap = TRUE,
+		},
+	};
+	ike_sa_t *a, *b;
+	ike_sa_id_t *id_a, *id_b;
+	child_cfg_t *child_cfg;
+	message_t *msg;
+	status_t s;
+
+	child_cfg = exchange_test_helper->create_sa(exchange_test_helper, &a, &b,
+												&conf);
+	id_a = a->get_id(a);
+	id_b = b->get_id(b);
+
+	call_ikesa(a, initiate, child_cfg, NULL);
+
+	/* IKE_SA_INIT --> */
+	id_b->set_initiator_spi(id_b, id_a->get_initiator_spi(id_a));
+	exchange_test_helper->process_message(exchange_test_helper, b, NULL);
+	/* <-- IKE_SA_INIT */
+	assert_notify(IN, CHILDLESS_IKEV2_SUPPORTED);
+	id_a->set_responder_spi(id_a, id_b->get_responder_spi(id_b));
+	exchange_test_helper->process_message(exchange_test_helper, a, NULL);
+
+	/* IKE_AUTH --> */
+	assert_payload(IN, PLV2_SECURITY_ASSOCIATION);
+	assert_payload(IN, PLV2_TS_INITIATOR);
+	assert_payload(IN, PLV2_TS_RESPONDER);
+	assert_no_payload(IN, PLV2_AUTH);
+	exchange_test_helper->process_message(exchange_test_helper, b, NULL);
+
+	if (_i == 0)
+	{	/* test the regular case with EAP authentication */
+		/* <-- IKE_AUTH */
+		assert_payload(IN, PLV2_EAP);
+		assert_payload(IN, PLV2_AUTH);
+		assert_no_payload(IN, PLV2_SECURITY_ASSOCIATION);
+		assert_no_payload(IN, PLV2_TS_INITIATOR);
+		assert_no_payload(IN, PLV2_TS_RESPONDER);
+		exchange_test_helper->process_message(exchange_test_helper, a, NULL);
+
+		/* IKE_AUTH --> */
+		assert_single_payload(IN, PLV2_EAP);
+		exchange_test_helper->process_message(exchange_test_helper, b, NULL);
+
+		/* <-- IKE_AUTH */
+		assert_single_payload(IN, PLV2_EAP);
+		exchange_test_helper->process_message(exchange_test_helper, a, NULL);
+
+		/* IKE_AUTH --> */
+		assert_single_payload(IN, PLV2_AUTH);
+		exchange_test_helper->process_message(exchange_test_helper, b, NULL);
+		assert_child_sa_count(b, 1);
+		assert_ipsec_sas_installed(b, 1, 2);
+
+		/* <-- IKE_AUTH */
+		assert_payload(IN, PLV2_SECURITY_ASSOCIATION);
+		assert_payload(IN, PLV2_TS_INITIATOR);
+		assert_payload(IN, PLV2_TS_RESPONDER);
+		assert_payload(IN, PLV2_AUTH);
+		exchange_test_helper->process_message(exchange_test_helper, a, NULL);
+		assert_child_sa_count(a, 1);
+		assert_ipsec_sas_installed(a, 1, 2);
+
+		assert_sa_idle(a);
+		assert_sa_idle(b);
+	}
+	else
+	{	/* after processing the IKE_AUTH response, we modify the next request to
+		 * simulate an attacker that sends a CREATE_CHILD_SA request for the
+		 * incomplete IKE SA */
+		send_fake_create_child_sa();
+		/* <-- IKE_AUTH */
+		assert_payload(IN, PLV2_EAP);
+		assert_payload(IN, PLV2_AUTH);
+		assert_no_payload(IN, PLV2_SECURITY_ASSOCIATION);
+		assert_no_payload(IN, PLV2_TS_INITIATOR);
+		assert_no_payload(IN, PLV2_TS_RESPONDER);
+		exchange_test_helper->process_message(exchange_test_helper, a, NULL);
+
+		/* CREATE_CHILD_SA --> must be rejected without a response */
+		s = exchange_test_helper->process_message(exchange_test_helper, b, NULL);
+		ck_assert_int_eq(FAILED, s);
+		msg = exchange_test_helper->sender->dequeue(exchange_test_helper->sender);
+		ck_assert(!msg);
+	}
+
+	call_ikesa(a, destroy);
+	call_ikesa(b, destroy);
+}
+END_TEST
 
 /**
  * The peers try to create a new CHILD_SA that looks exactly the same
@@ -208,6 +356,10 @@ Suite *child_create_suite_create()
 	TCase *tc;
 
 	s = suite_create("child create");
+
+	tc = tcase_create("pre-establish");
+	tcase_add_loop_test(tc, test_pre_establish, 0, 2);
+	suite_add_tcase(s, tc);
 
 	tc = tcase_create("initiate duplicate");
 	tcase_add_test(tc, test_duplicate);

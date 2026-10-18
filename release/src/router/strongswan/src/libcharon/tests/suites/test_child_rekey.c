@@ -2547,6 +2547,142 @@ START_TEST(test_collision_delayed_response_multi_ke)
 END_TEST
 
 /**
+ * Remove the KE payload from the IKE_FOLLOWUP_KE request
+ */
+static bool remove_ke(listener_t *listener, ike_sa_t *ike_sa,
+					  message_t *message, bool incoming, bool plain)
+{
+	if (plain && incoming &&
+		message->get_exchange_type(message) == IKE_FOLLOWUP_KE &&
+		message->get_request(message))
+	{
+		enumerator_t *enumerator = message->create_payload_enumerator(message);
+		payload_t *pld;
+
+		while (enumerator->enumerate(enumerator, &pld))
+		{
+			if (pld->get_type(pld) == PLV2_KEY_EXCHANGE)
+			{
+				message->remove_payload_at(message, enumerator);
+				pld->destroy(pld);
+				break;
+			}
+		}
+		enumerator->destroy(enumerator);
+		free(listener);
+		return FALSE;
+	}
+	return TRUE;
+}
+
+#define remove_ke_from_ike_followup_ke() ({ \
+	listener_t *_ke_listener; \
+	INIT(_ke_listener, \
+		.message = remove_ke, \
+	); \
+	exchange_test_helper->add_listener(exchange_test_helper, _ke_listener); \
+})
+
+/**
+ * This simulates an incorrect behavior by the peer.  It triggers a collision by
+ * not responding to the initial CREATE_CHILD_SA and then sends an invalid
+ * IKE_FOLLOWUP_KE (in this case the KE payload is missing).  The initiator
+ * has to correctly track and then untrack the passive rekey task.
+ *
+ *           Peer A                   Peer B
+ *            rekey ----\       /---- rekey
+ *                       \-----/----> detect collision and withhold response
+ * detect collision <---------/
+ *                  ---------------->
+ *   handle failure <---------------- send invalid additional KE
+ *     handle rekey <---------------- send withheld response
+ */
+START_TEST(test_collision_delayed_response_multi_ke_failure)
+{
+	ike_sa_t *a, *b;
+	message_t *msg;
+
+	assert_track_sas_start();
+
+	exchange_test_helper->establish_sa(exchange_test_helper,
+									   &a, &b, &multi_ke_conf);
+
+	/* make sure the responder wins the collision so it continues */
+	exchange_test_helper->nonce_first_byte = 0x00;
+	initiate_rekey(a, 1);
+	assert_ipsec_sas_installed(a, 1, 2);
+	exchange_test_helper->nonce_first_byte = 0xff;
+	initiate_rekey(b, 2);
+	assert_ipsec_sas_installed(b, 1, 2);
+
+	/* these should not get called as no SA goes down or gets rekeyed */
+	assert_hook_not_called(child_updown);
+	assert_hook_not_called(child_rekey);
+
+	/* CREATE_CHILD_SA { N(REKEY_SA), SA, Ni, [KEi,] TSi, TSr } --> */
+	exchange_test_helper->nonce_first_byte = 0xff;
+	exchange_test_helper->process_message(exchange_test_helper, b, NULL);
+	assert_child_sa_state(b, 2, CHILD_REKEYING, CHILD_OUTBOUND_INSTALLED);
+	assert_ipsec_sas_installed(b, 1, 2);
+
+	/* <-- CREATE_CHILD_SA { N(REKEY_SA), SA, Ni, [KEi,] TSi, TSr } */
+	exchange_test_helper->nonce_first_byte = 0xff;
+	exchange_test_helper->process_message(exchange_test_helper, a, NULL);
+	assert_child_sa_state(a, 1, CHILD_REKEYING, CHILD_OUTBOUND_INSTALLED);
+	assert_ipsec_sas_installed(a, 1, 2);
+
+	/* the responder is not responding */
+	msg = exchange_test_helper->sender->dequeue(exchange_test_helper->sender);
+
+	/* CREATE_CHILD_SA { SA, Nr, [KEr,] TSi, TSr } --> */
+	exchange_test_helper->process_message(exchange_test_helper, b, NULL);
+	assert_num_tasks(b, 0, TASK_QUEUE_PASSIVE);
+	assert_num_tasks(b, 1, TASK_QUEUE_ACTIVE);
+	assert_child_sa_state(b, 2, CHILD_REKEYING, CHILD_OUTBOUND_INSTALLED);
+	assert_ipsec_sas_installed(b, 1, 2);
+
+	/* remove the KE payload in the IKE_FOLLOWUP_KE request */
+	remove_ke_from_ike_followup_ke();
+
+	/* <-- IKE_FOLLOWUP_KE { N(ADD_KE) } */
+	assert_no_payload(IN, PLV2_KEY_EXCHANGE);
+	assert_single_notify(OUT, INVALID_SYNTAX);
+	exchange_test_helper->process_message(exchange_test_helper, a, NULL);
+	assert_child_sa_state(a, 1, CHILD_REKEYING, CHILD_OUTBOUND_INSTALLED);
+	assert_ipsec_sas_installed(a, 1, 2);
+	assert_num_tasks(a, 0, TASK_QUEUE_PASSIVE);
+
+	/* <-- CREATE_CHILD_SA { SA, Nr, [KEr,] TSi, TSr } (delayed) */
+	exchange_test_helper->process_message(exchange_test_helper, a, msg);
+	assert_num_tasks(a, 0, TASK_QUEUE_PASSIVE);
+	assert_num_tasks(a, 1, TASK_QUEUE_ACTIVE);
+	assert_child_sa_state(a, 1, CHILD_REKEYING, CHILD_OUTBOUND_INSTALLED);
+	assert_ipsec_sas_installed(a, 1, 2);
+
+	/* drop the STATE_NOT_FOUND error message from the initiator */
+	msg = exchange_test_helper->sender->dequeue(exchange_test_helper->sender);
+	msg->destroy(msg);
+
+	/* since we explicitly forced the responder to win, it already removed
+	 * the passive task it won't accept the request */
+
+	/* IKE_FOLLOWUP_KE { KEi, N(ADD_KE) } --> */
+	assert_payload(IN, PLV2_KEY_EXCHANGE);
+	assert_notify(IN, ADDITIONAL_KEY_EXCHANGE);
+	assert_single_notify(OUT, STATE_NOT_FOUND);
+	exchange_test_helper->process_message(exchange_test_helper, b, NULL);
+
+	/* child_rekey/child_updown */
+	assert_hook();
+	assert_hook();
+	assert_track_sas(2, 2);
+
+	call_ikesa(a, destroy);
+	call_ikesa(b, destroy);
+}
+END_TEST
+
+/**
  * In this scenario one of the peers does not notice that there is a
  * rekey collision:
  *
@@ -4436,6 +4572,7 @@ Suite *child_rekey_suite_create()
 	tcase_add_loop_test(tc, test_collision_delayed_response, 0, 4);
 	tcase_add_loop_test(tc, test_collision_delayed_response_delete, 0, 4);
 	tcase_add_loop_test(tc, test_collision_delayed_response_multi_ke, 0, 4);
+	tcase_add_test(tc, test_collision_delayed_response_multi_ke_failure);
 	tcase_add_loop_test(tc, test_collision_delayed_request, 0, 6);
 	tcase_add_loop_test(tc, test_collision_delayed_request_more, 0, 3);
 	tcase_add_loop_test(tc, test_collision_delayed_request_more_delete, 0, 3);

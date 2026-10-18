@@ -9,6 +9,17 @@ charon.plugins.ha.buflen = 2048
 	also transmitted so depending on the DH group the HA messages can get quite
 	big (the default should be fine up to _modp4096_).
 
+charon.plugins.ha.receive_buffer_size = 8388608
+	Maximum receive buffer size for the HA socket in bytes.
+
+	Maximum receive buffer size for the HA socket in bytes. This value controls
+	how many bytes of HA messages can be queued to the socket. If set to 0, the
+	default from `/proc/sys/net/core/rmem_default` will apply. Note that the
+	kernel doubles the configured value to account for overhead. To exceed the
+	system-wide maximum from `/proc/sys/net/core/rmem_max`, special privileges
+	(CAP_NET_ADMIN) are necessary, otherwise, the kernel silently caps the
+	value.
+
 charon.plugins.ha.fifo_interface = yes
 
 charon.plugins.ha.heartbeat_delay = 1000

@@ -140,6 +140,7 @@ METHOD(certificate_t, get_validity, bool,
 	time_t *not_after)
 {
 	time_t t, until;
+	uint64_t expiry = 0;
 
 	if (when)
 	{
@@ -155,18 +156,22 @@ METHOD(certificate_t, get_validity, bool,
 	}
 	if (this->valid)
 	{
-		until = this->valid + this->created * 24 * 60 * 60;
+		expiry = this->created + this->valid * 24 * 60 * 60;
 	}
-	else
+	if (!expiry || (sizeof(time_t) == 4 && expiry > TIME_32_BIT_SIGNED_MAX))
 	{
 		/* Jan 19 03:14:07 UTC 2038 */
 		until = TIME_32_BIT_SIGNED_MAX;
+	}
+	else
+	{
+		until = expiry;
 	}
 	if (not_after)
 	{
 		*not_after = until;
 	}
-	return (t >= this->valid && t <= until);
+	return (t >= this->created && t <= until);
 }
 
 METHOD(certificate_t, get_encoding, bool,

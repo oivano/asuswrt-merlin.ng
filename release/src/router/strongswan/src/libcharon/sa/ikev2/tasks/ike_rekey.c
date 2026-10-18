@@ -582,8 +582,7 @@ static bool collision_lost(private_ike_rekey_t *this, bool multi_ke)
 
 	/* the SA with the lowest nonce should be deleted (if already complete),
 	 * check if we or the peer created that */
-	if (memcmp(this_nonce.ptr, other_nonce.ptr,
-			   min(this_nonce.len, other_nonce.len)) < 0)
+	if (chunk_compare_prefix(this_nonce, other_nonce) < 0)
 	{
 		if (multi_ke)
 		{
@@ -743,8 +742,23 @@ METHOD(ike_rekey_t, did_collide, bool,
 	return this->collision != NULL;
 }
 
+/**
+ * Clear the colliding passive task if it did not complete successfully.
+ */
+static bool clear_collision(private_ike_rekey_t *this,
+							private_ike_rekey_t *other)
+{
+	if (this->collision == other)
+	{
+		DBG1(DBG_IKE, "colliding passive rekeying failed, ignore");
+		this->collision = NULL;
+		return TRUE;
+	}
+	return FALSE;
+}
+
 METHOD(ike_rekey_t, collide, bool,
-	private_ike_rekey_t* this, task_t *other)
+	private_ike_rekey_t* this, task_t *other, bool done)
 {
 	DBG1(DBG_IKE, "detected %N collision with %N", task_type_names,
 		 TASK_IKE_REKEY, task_type_names, other->get_type(other));
@@ -760,23 +774,30 @@ METHOD(ike_rekey_t, collide, bool,
 
 			if (!rekey->ike_init)
 			{
-				DBG1(DBG_IKE, "colliding exchange did not result in an IKE_SA, "
-					 "ignore");
-				if (this->collision == rekey)
+				if (!clear_collision(this, rekey))
 				{
-					this->collision = NULL;
+					DBG1(DBG_IKE, "colliding exchange did not result in an "
+						 "IKE_SA, ignore");
 				}
 				break;
 			}
-			/* we keep track of the passive exchange in any case, if not
-			 * complete yet, this method might be called again later */
-			this->collision = rekey;
+			/* we keep track of the passive exchange, if not complete yet, this
+			 * method might be called again later */
 			if (rekey->flags & IKE_REKEY_DONE)
 			{
+				this->collision = rekey;
 				this->flags |= IKE_REKEY_ADOPTED_PASSIVE;
 				return TRUE;
 			}
-			DBG1(DBG_IKE, "colliding passive exchange is not yet complete");
+			else if (done)
+			{	/* passive task failed, clear it if necessary */
+				clear_collision(this, rekey);
+			}
+			else
+			{
+				DBG1(DBG_IKE, "colliding passive exchange is not yet complete");
+				this->collision = rekey;
+			}
 			break;
 		}
 		default:

@@ -57,11 +57,6 @@ struct private_watcher_t {
 	u_int count;
 
 	/**
-	 * Pending update of FD list?
-	 */
-	bool pending;
-
-	/**
 	 * Running state of watcher
 	 */
 	watcher_state_t state;
@@ -177,7 +172,6 @@ static void update_and_unlock(private_watcher_t *this)
 	char buf[1] = { 'u' };
 	int error = 0;
 
-	this->pending = TRUE;
 	if (this->notify[1] != -1)
 	{
 		if (write(this->notify[1], buf, sizeof(buf)) == -1)
@@ -461,7 +455,6 @@ static job_requeue_t watch(private_watcher_t *this)
 						break;
 					}
 				}
-				this->pending = FALSE;
 				DBG2(DBG_WCH, "watcher got notification, rebuilding");
 				break;
 			}
@@ -521,12 +514,10 @@ static job_requeue_t watch(private_watcher_t *this)
 				break;
 			}
 		}
-		else
+		else if (errno != EINTR)
 		{
-			if (!this->pending && errno != EINTR)
-			{	/* complain only if no pending updates */
-				DBG1(DBG_WCH, "watcher poll() error: %s", strerror(errno));
-			}
+			/* rebuild FDSET on errors, just retry if interrupted */
+			DBG1(DBG_WCH, "watcher poll() error: %s", strerror(errno));
 			break;
 		}
 	}
@@ -570,12 +561,12 @@ METHOD(watcher_t, add, void,
 METHOD(watcher_t, remove_, void,
 	private_watcher_t *this, int fd)
 {
-	entry_t *entry, *prev = NULL;
 	watcher_event_t found = 0;
 
 	this->mutex->lock(this->mutex);
 	while (TRUE)
 	{
+		entry_t *entry, *prev = NULL;
 		bool is_in_callback = FALSE;
 
 		entry = this->fds;
