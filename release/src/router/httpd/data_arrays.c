@@ -57,6 +57,12 @@
 #include "iptraffic.h"
 
 #include <net/route.h>
+#ifdef RTCONFIG_STRONGSWAN
+#include <net/if.h>
+#include <linux/netlink.h>
+#include <linux/rtnetlink.h>
+#include <sys/time.h>
+#endif
 
 #ifdef RTCONFIG_BWDPI
 #define __USE_GNU
@@ -65,6 +71,10 @@
 #endif
 
 #include <json.h>
+
+#ifdef RTCONFIG_FRR
+#include "frr_web.h"
+#endif
 
 int
 ej_get_leases_array(int eid, webs_t wp, int argc, char_t **argv)
@@ -532,6 +542,274 @@ again:
 #endif
 
 
+#ifdef RTCONFIG_STRONGSWAN
+static int route_status_wait(int fd, const struct timeval *started)
+{
+	struct timeval now, timeout;
+	fd_set readers;
+	long remaining;
+	int result;
+
+	do {
+		gettimeofday(&now, NULL);
+		remaining = 1000000 - (now.tv_sec - started->tv_sec) * 1000000
+			- (now.tv_usec - started->tv_usec);
+		if (remaining <= 0 || remaining > 1000000 || fd >= FD_SETSIZE)
+			return 0;
+		timeout.tv_sec = remaining / 1000000;
+		timeout.tv_usec = remaining % 1000000;
+		FD_ZERO(&readers);
+		FD_SET(fd, &readers);
+		result = select(fd + 1, &readers, NULL, NULL, &timeout);
+	} while (result < 0 && errno == EINTR);
+	return result > 0;
+}
+
+static int ipsec_client_child_installed(char *status)
+{
+	char key[40], profile[4096], *field, *cursor, *name, *enabled;
+	char *line, *next, *child;
+	int unit, index;
+
+	for (unit = 1; unit <= 5; unit++) {
+		snprintf(key, sizeof(key), "ipsec_profile_client_%d", unit);
+		if (strlen(nvram_safe_get(key)) >= sizeof(profile))
+			continue;
+		strlcpy(profile, nvram_safe_get(key), sizeof(profile));
+		cursor = profile;
+		name = enabled = NULL;
+		for (index = 0; (field = strsep(&cursor, ">")) != NULL; index++) {
+			if (index == 1)
+				name = field;
+			if (index == 37)
+				enabled = field;
+		}
+		if (!name || !*name || !enabled || strcmp(enabled, "1"))
+			continue;
+		for (line = status; *line; line = next) {
+			next = strchr(line, '\n');
+			if (!next)
+				next = line + strlen(line);
+			else
+				next++;
+			while (line < next && isspace((unsigned char)*line))
+				line++;
+			if (strncmp(line, name, strlen(name)))
+				continue;
+			child = line + strlen(name);
+			if (*child != '{')
+				continue;
+			while (++child < next && isdigit((unsigned char)*child))
+				;
+			if (next - child >= 14 && !strncmp(child, "}:  INSTALLED,", 14))
+				return 1;
+		}
+	}
+	return 0;
+}
+
+static int ipsec_route_client_active(void)
+{
+	int pipes[2], nullfd, child_status, complete = 0;
+	pid_t child;
+	ssize_t count;
+	size_t used = 0;
+	char *status;
+	struct timeval started;
+	sigset_t blocked, previous;
+
+	if (!nvram_match("ipsec_client_enable", "1") || !pids("charon"))
+		return 0;
+	status = malloc(65536);
+	if (!status)
+		return 0;
+	if (pipe(pipes) < 0) {
+		free(status);
+		return 0;
+	}
+	gettimeofday(&started, NULL);
+	sigemptyset(&blocked);
+	sigaddset(&blocked, SIGCHLD);
+	sigprocmask(SIG_BLOCK, &blocked, &previous);
+	child = fork();
+	if (child == 0) {
+		sigprocmask(SIG_SETMASK, &previous, NULL);
+		close(pipes[0]);
+		dup2(pipes[1], STDOUT_FILENO);
+		close(pipes[1]);
+		nullfd = open("/dev/null", O_RDWR);
+		if (nullfd >= 0) {
+			dup2(nullfd, STDIN_FILENO);
+			dup2(nullfd, STDERR_FILENO);
+			if (nullfd > STDERR_FILENO)
+				close(nullfd);
+		}
+		execl("/usr/lib/ipsec/stroke", "stroke", "status", (char *)NULL);
+		_exit(127);
+	}
+	close(pipes[1]);
+	if (child > 0) {
+		while (used < 65535 && route_status_wait(pipes[0], &started)) {
+			count = read(pipes[0], status + used, 65535 - used);
+			if (count == 0) {
+				complete = 1;
+				break;
+			}
+			if (count < 0) {
+				if (errno == EINTR)
+					continue;
+				break;
+			}
+			used += count;
+		}
+		if (waitpid(child, &child_status, WNOHANG) == 0) {
+			kill(child, SIGKILL);
+			waitpid(child, &child_status, WNOHANG);
+		}
+	}
+	close(pipes[0]);
+	sigprocmask(SIG_SETMASK, &previous, NULL);
+	status[used] = '\0';
+	complete = complete && ipsec_client_child_installed(status);
+	free(status);
+	return complete;
+}
+
+/* Same LAN/WAN/MAN labels as ipv4_route_table_array() and INET6_displayroutes_array() */
+static const char *ipsec_route_dev_label(int family, const char *ifname)
+{
+	char tmp[100], prefix[] = "wanXXXXXXXXXX_";
+	int unit;
+
+	if (!*ifname)
+		return "";
+	if (nvram_match("lan_ifname", ifname))
+		return "LAN";
+	if (family == AF_INET) {
+		for (unit = WAN_UNIT_FIRST; unit < WAN_UNIT_MAX; unit++) {
+			snprintf(prefix, sizeof(prefix), "wan%d_", unit);
+			if (nvram_match(strcat_r(prefix, "pppoe_ifname", tmp), ifname))
+				return "WAN";
+			if (nvram_match(strcat_r(prefix, "ifname", tmp), ifname)) {
+				char *wan_proto = nvram_safe_get(strcat_r(prefix, "proto", tmp));
+				return (!strcmp(wan_proto, "dhcp") || !strcmp(wan_proto, "static")) ? "WAN" : "MAN";
+			}
+		}
+		return ifname;
+	}
+#ifdef RTCONFIG_IPV6
+	if (is_routing_enabled() && !strcmp(get_wan6face(), ifname))
+		return "WAN";
+#endif
+	return "";
+}
+
+static int ipsec_route_dump(int family, struct json_object *routes)
+{
+	struct {
+		struct nlmsghdr header;
+		struct rtmsg route;
+	} request;
+	struct sockaddr_nl address;
+	struct timeval started;
+	struct nlmsghdr *header;
+	struct rtmsg *route;
+	struct rtattr *attr;
+	struct json_object *entry;
+	union {
+		struct nlmsghdr alignment;
+		char data[16384];
+	} buffer;
+	char destination[INET6_ADDRSTRLEN], gateway[INET6_ADDRSTRLEN];
+	char source[INET6_ADDRSTRLEN], prefix[INET6_ADDRSTRLEN + 8], iface[IFNAMSIZ];
+	unsigned int table, metric, interface;
+	int fd, length, attrlen, remaining, complete = 0, bytes = 0;
+	int addrlen = family == AF_INET ? 4 : 16;
+
+	fd = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
+	if (fd < 0)
+		return 0;
+	memset(&address, 0, sizeof(address));
+	address.nl_family = AF_NETLINK;
+	memset(&request, 0, sizeof(request));
+	request.header.nlmsg_len = NLMSG_LENGTH(sizeof(struct rtmsg));
+	request.header.nlmsg_type = RTM_GETROUTE;
+	request.header.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
+	request.header.nlmsg_seq = 1;
+	request.route.rtm_family = family;
+	if (bind(fd, (struct sockaddr *)&address, sizeof(address)) < 0 ||
+	    sendto(fd, &request, request.header.nlmsg_len, 0,
+		(struct sockaddr *)&address, sizeof(address)) < 0)
+		goto finished;
+	gettimeofday(&started, NULL);
+	while (route_status_wait(fd, &started)) {
+		length = recv(fd, buffer.data, sizeof(buffer.data), MSG_TRUNC);
+		if (length <= 0 || length > sizeof(buffer.data) || (bytes += length) > 524288)
+			break;
+		remaining = length;
+		for (header = (struct nlmsghdr *)buffer.data; NLMSG_OK(header, remaining);
+		     header = NLMSG_NEXT(header, remaining)) {
+			if (header->nlmsg_seq != 1)
+				continue;
+			if (header->nlmsg_type == NLMSG_DONE) {
+				complete = 1;
+				goto finished;
+			}
+			if (header->nlmsg_type == NLMSG_ERROR)
+				goto finished;
+			if (header->nlmsg_type != RTM_NEWROUTE ||
+			    header->nlmsg_len < NLMSG_LENGTH(sizeof(struct rtmsg)))
+				continue;
+			route = NLMSG_DATA(header);
+			if (route->rtm_family != family || route->rtm_dst_len > addrlen * 8)
+				continue;
+			table = route->rtm_table;
+			metric = interface = 0;
+			strlcpy(destination, family == AF_INET ? "0.0.0.0" : "::", sizeof(destination));
+			gateway[0] = source[0] = iface[0] = '\0';
+			attrlen = RTM_PAYLOAD(header);
+			for (attr = RTM_RTA(route); RTA_OK(attr, attrlen); attr = RTA_NEXT(attr, attrlen)) {
+				if (RTA_PAYLOAD(attr) == sizeof(unsigned int)) {
+					if (attr->rta_type == RTA_TABLE)
+						memcpy(&table, RTA_DATA(attr), sizeof(table));
+					if (attr->rta_type == RTA_PRIORITY)
+						memcpy(&metric, RTA_DATA(attr), sizeof(metric));
+					if (attr->rta_type == RTA_OIF)
+						memcpy(&interface, RTA_DATA(attr), sizeof(interface));
+				}
+				if (RTA_PAYLOAD(attr) != addrlen)
+					continue;
+				if (attr->rta_type == RTA_DST)
+					inet_ntop(family, RTA_DATA(attr), destination, sizeof(destination));
+				if (attr->rta_type == RTA_GATEWAY)
+					inet_ntop(family, RTA_DATA(attr), gateway, sizeof(gateway));
+				if (attr->rta_type == RTA_PREFSRC)
+					inet_ntop(family, RTA_DATA(attr), source, sizeof(source));
+			}
+			if (table != 220 || attrlen)
+				continue;
+			if (interface)
+				if_indextoname(interface, iface);
+			snprintf(prefix, sizeof(prefix), "%s/%u", destination, route->rtm_dst_len);
+			entry = json_object_new_object();
+			json_object_object_add(entry, "prefix", json_object_new_string(prefix));
+			json_object_object_add(entry, "nexthop", json_object_new_string(gateway));
+			json_object_object_add(entry, "iface", json_object_new_string(iface));
+			json_object_object_add(entry, "dev", json_object_new_string(ipsec_route_dev_label(family, iface)));
+			json_object_object_add(entry, "source", json_object_new_string(source));
+			json_object_object_add(entry, "metric", json_object_new_int64(metric));
+			json_object_object_add(entry, "type", json_object_new_int(route->rtm_type));
+			json_object_object_add(entry, "protocol", json_object_new_int(route->rtm_protocol));
+			json_object_object_add(entry, "onlink", json_object_new_boolean(route->rtm_flags & RTNH_F_ONLINK));
+			json_object_array_add(routes, entry);
+		}
+	}
+finished:
+	close(fd);
+	return complete;
+}
+#endif
+
 int
 ej_get_route_array(int eid, webs_t wp, int argc, char_t **argv)
 {
@@ -549,6 +827,29 @@ ej_get_route_array(int eid, webs_t wp, int argc, char_t **argv)
 #endif
 
 	ret += websWrite(wp, "[]];\n");
+	ret += websWrite(wp, "var ipsec_route_active = false; var ipsec_route_v4 = []; var ipsec_route_v6 = [];\n");
+	ret += websWrite(wp, "var frr_ipsec_overlay_enabled = 0; var frr_ipsec_route_v4 = {}; var frr_ipsec_route_v6 = {};\n");
+#ifdef RTCONFIG_STRONGSWAN
+	if (ipsec_route_client_active()) {
+		struct json_object *routes4 = json_object_new_array();
+		struct json_object *routes6 = json_object_new_array();
+		int valid = ipsec_route_dump(AF_INET, routes4);
+#ifdef RTCONFIG_IPV6
+		if (get_ipv6_service() != IPV6_DISABLED)
+			valid = ipsec_route_dump(AF_INET6, routes6) && valid;
+#endif
+		if (valid) {
+			ret += websWrite(wp, "ipsec_route_active = true; ipsec_route_v4 = %s; ipsec_route_v6 = %s;\n",
+				json_object_to_json_string(routes4), json_object_to_json_string(routes6));
+#ifdef RTCONFIG_FRR
+			if (nvram_match("frr_enable", "1"))
+				ret += frr_write_ipsec_route_origin(wp);
+#endif
+		}
+		json_object_put(routes4);
+		json_object_put(routes6);
+	}
+#endif
 	return ret;
 }
 

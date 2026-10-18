@@ -33,6 +33,9 @@ extern int ej_get_frr_bfd_config(int eid, webs_t wp, int argc, char_t **argv);
 /* Get route origin/active metadata from live FRR routing tables */
 extern int ej_get_frr_route_origin_array(int eid, webs_t wp, int argc, char_t **argv);
 
+/* Write zebra's view of IPsec routing table 220 as JS variables */
+extern int frr_write_ipsec_route_origin(webs_t wp);
+
 /* Helper function to check if a daemon PID file exists and process is running */
 extern int frr_daemon_running(const char *daemon_name);
 

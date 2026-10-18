@@ -31,6 +31,8 @@
 #define FRR_BFD_PEERS_CMD       "show bfd peers json"
 #define FRR_SHOW_IP_ROUTE_CMD   "show ip route json"
 #define FRR_SHOW_IPV6_ROUTE_CMD "show ipv6 route json"
+#define FRR_SHOW_IP_ROUTE_IPSEC_CMD   "show ip route table 220 json"
+#define FRR_SHOW_IPV6_ROUTE_IPSEC_CMD "show ipv6 route table 220 json"
 #define FRR_MAX_CAPTURE_SIZE 524288
 #define FRR_DAEMON_RETRY_DELAY_SEC 5
 #define FRR_DAEMON_TIMEOUT_SEC 2
@@ -113,7 +115,8 @@ static int frr_daemon_capture(enum frr_vty_daemon daemon, const char *cmd,
 	if (!cmd || (unsigned int)daemon >= FRR_VTY_COUNT)
 		return 0;
 	if (!((daemon == FRR_VTY_ZEBRA &&
-	       (!strcmp(cmd, FRR_SHOW_IP_ROUTE_CMD) || !strcmp(cmd, FRR_SHOW_IPV6_ROUTE_CMD))) ||
+	       (!strcmp(cmd, FRR_SHOW_IP_ROUTE_CMD) || !strcmp(cmd, FRR_SHOW_IPV6_ROUTE_CMD) ||
+	        !strcmp(cmd, FRR_SHOW_IP_ROUTE_IPSEC_CMD) || !strcmp(cmd, FRR_SHOW_IPV6_ROUTE_IPSEC_CMD))) ||
 	      (daemon == FRR_VTY_BGPD && (!strcmp(cmd, FRR_BGP_SUMMARY_CMD) ||
 					  !strcmp(cmd, FRR_RUNNING_CONFIG_CMD))) ||
 	      (daemon == FRR_VTY_BFDD && (!strcmp(cmd, FRR_RUNNING_CONFIG_CMD) || !strcmp(cmd, FRR_BFD_PEERS_CMD)))))
@@ -1096,6 +1099,19 @@ int ej_get_frr_route_origin_array(int eid, webs_t wp, int argc, char_t **argv)
 	ret += frr_write_route_origin_object(wp, "frr_route_origin_v4", FRR_SHOW_IP_ROUTE_CMD, &valid_v4);
 	ret += frr_write_route_origin_object(wp, "frr_route_origin_v6", FRR_SHOW_IPV6_ROUTE_CMD, &valid_v6);
 	ret += websWrite(wp, "var frr_route_overlay_enabled = %d;\n", valid_v4 && valid_v6);
+
+	return ret;
+}
+
+int frr_write_ipsec_route_origin(webs_t wp)
+{
+	int ret = 0;
+	int valid_v4 = 0;
+	int valid_v6 = 0;
+
+	ret += frr_write_route_origin_object(wp, "frr_ipsec_route_v4", FRR_SHOW_IP_ROUTE_IPSEC_CMD, &valid_v4);
+	ret += frr_write_route_origin_object(wp, "frr_ipsec_route_v6", FRR_SHOW_IPV6_ROUTE_IPSEC_CMD, &valid_v6);
+	ret += websWrite(wp, "var frr_ipsec_overlay_enabled = %d;\n", valid_v4 && valid_v6);
 
 	return ret;
 }

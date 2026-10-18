@@ -24,6 +24,13 @@
 	<script>
 		var routearray = [];
 		var routev6array = [];
+		var ipsec_route_active = false;
+		var ipsec_route_v4 = [];
+		var ipsec_route_v6 = [];
+		var frr_ipsec_overlay_enabled = 0;
+		var frr_ipsec_route_v4 = {};
+		var frr_ipsec_route_v6 = {};
+		var routeTable = 'main';
 		var frr_route_origin_v4 = {};
 		var frr_route_origin_v6 = {};
 		var frr_route_overlay_enabled = 0;
@@ -67,6 +74,61 @@
 		}
 
 		update_frr_overlay_flag();
+
+		var RTN_NOTE = { 6: 'blackhole', 7: 'unreachable', 8: 'prohibit', 9: 'throw' };
+
+		function ipsec_frr_available() {
+			var v = frr_ipsec_overlay_enabled;
+			return v === 1 || v === '1' || v === true;
+		}
+
+		/* Zebra drops RTN_THROW and "proto kernel" (RTPROT_KERNEL) routes, e.g. the outer-peer throw and br0 LAN route */
+		function ipsec_route_rows(family) {
+			var origin = (family === 4 ? frr_ipsec_route_v4 : frr_ipsec_route_v6) || {};
+			var kernelRows = (family === 4 ? ipsec_route_v4 : ipsec_route_v6) || [];
+			var rows = frr_flatten_routes(origin);
+			for (var i = 0; i < kernelRows.length; i++) {
+				var k = kernelRows[i];
+				if (origin.hasOwnProperty(k.prefix))
+					continue;
+				rows.push({
+					prefix: k.prefix,
+					note: RTN_NOTE[k.type] || '',
+					proto: 'kernel',
+					active: 1,
+					nhactive: 1,
+					nexthop: k.nexthop || '',
+					direct: (!k.nexthop && k.iface) ? 1 : 0,
+					iface: k.iface || '',
+					dist: 0,
+					metric: k.metric || 0,
+					age: '',
+					aspath: ''
+				});
+			}
+			return rows;
+		}
+
+		/* Kernel table 220 rows in the same array format as routearray/routev6array */
+		function ipsec_legacy_rows(family) {
+			var kernelRows = (family === 4 ? ipsec_route_v4 : ipsec_route_v6) || [];
+			var rows = [];
+			for (var i = 0; i < kernelRows.length; i++) {
+				var k = kernelRows[i];
+				var parts = k.prefix.split('/');
+				var bits = parseInt(parts[1], 10);
+				var host = family === 4 ? 32 : 128;
+				var dest = bits === 0 ? 'default' : (family === 6 && bits !== host ? k.prefix : parts[0]);
+				var flags = 'U' + (k.nexthop ? 'G' : '') + (bits === host ? 'H' : '');
+				if (RTN_NOTE[k.type])
+					dest += ' (' + RTN_NOTE[k.type] + ')';
+				if (family === 4)
+					rows.push([dest, k.nexthop || '*', cidr_to_mask(bits), flags, String(k.metric), '0', '0', k.dev || k.iface || '']);
+				else
+					rows.push([dest, k.nexthop || '', flags, String(k.metric), '', '', k.dev || '', k.iface || '']);
+			}
+			return rows;
+		}
 
 		/* ── Protocol helpers ─────────────────────────────────────────────── */
 
@@ -320,11 +382,14 @@
 		function set_controls_visibility(visible) {
 			var controls = document.getElementById('route_controls');
 			if (controls)
-				controls.style.display = visible ? '' : 'none';
+				controls.style.display = '';
+			update_route_selector();
+			var frrLayout = routeTable === 'ipsec' ? ipsec_frr_available() : visible;
+			document.getElementById('route_filters').style.display = frrLayout ? '' : 'none';
 
 			var legacyRefresh = document.getElementById('route_controls_legacy_refresh');
 			if (legacyRefresh)
-				legacyRefresh.style.display = visible ? 'none' : '';
+				legacyRefresh.style.display = 'none';
 
 			var frrButton = document.getElementById('frr_nav_button');
 			var showFrrButton = visible && frrEnabled;
@@ -359,7 +424,7 @@
 
 		/* ── Table renderers ─────────────────────────────────────────────── */
 
-		function frr_route_table_v4(rows) {
+		function frr_route_table_v4(rows, title) {
 			var cols = 7;
 			var totalRows = rows.length;
 			rows = apply_route_filter(rows);
@@ -367,7 +432,7 @@
 
 			var c = '<table width="100%" border="1" cellpadding="4" cellspacing="0"'
 				+ ' bordercolor="#6b8fa3" class="FormTable_table">';
-			c += '<thead><tr><td colspan="' + cols + '">IPv4 Routing Table</td></tr></thead>';
+			c += '<thead><tr><td colspan="' + cols + '">' + (title || 'IPv4 Routing Table') + '</td></tr></thead>';
 			c += '<tr>'
 				+ '<th width="10%" id="v4_header_0" style="cursor:pointer;" onclick="setsort_v4(0); show_routev4();">Protocol</th>'
 				+ '<th width="24%" id="v4_header_1" style="cursor:pointer;font-family:monospace;" onclick="setsort_v4(1); show_routev4();">Destination</th>'
@@ -398,7 +463,7 @@
 
 					c += '<tr' + row_style + '>';
 					c += '<td>' + proto_badge(r.proto) + '</td>';
-					c += '<td style="font-family:monospace;">' + active_mark + html_escape(r.prefix) + '</td>';
+					c += '<td style="font-family:monospace;">' + active_mark + html_escape(r.prefix) + (r.note ? ' (' + html_escape(r.note) + ')' : '') + '</td>';
 					c += '<td style="font-family:monospace;">' + nh + '</td>';
 					c += '<td style="font-family:monospace;font-size:11px;">' + html_escape(compact_aspath(r.aspath)) + '</td>';
 					c += '<td>' + html_escape(r.iface) + '</td>';
@@ -548,8 +613,31 @@
 				timedEvent = 0;
 			}
 
-			if (refreshRate > 0 && update_frr_overlay_flag())
+			if (refreshRate > 0)
 				timedEvent = setTimeout('get_route_status();', refreshRate * 1000);
+		}
+
+		function update_route_selector() {
+			var select = document.getElementById('route_table');
+			select.options[0].text = 'Main';
+			if (ipsec_route_active) {
+				if (select.options.length === 1)
+					select.options.add(new Option('220', 'ipsec'));
+			} else {
+				if (select.options.length > 1)
+					select.remove(1);
+				if (routeTable === 'ipsec')
+					select_route_table('main');
+			}
+			select.value = routeTable;
+			document.getElementById('route_table_row').style.display = select.options.length > 1 ? '' : 'none';
+		}
+
+		function select_route_table(value) {
+			routeTable = value === 'ipsec' && ipsec_route_active ? 'ipsec' : 'main';
+			show_routev4();
+			show_routev6();
+			set_controls_visibility(frrOverlayEnabled);
 		}
 
 		function refresh_route_page() {
@@ -595,14 +683,14 @@
 			});
 		}
 
-		function frr_route_table_v6(rows) {
+		function frr_route_table_v6(rows, title) {
 			var totalRows = rows.length;
 			rows = apply_route_filter(rows);
 			var shownRows = rows.length;
 
 			var c = '<table width="100%" border="1" cellpadding="4" cellspacing="0"'
 				+ ' bordercolor="#6b8fa3" class="FormTable_table">';
-			c += '<thead><tr><td colspan="7">IPv6 Routing Table</td></tr></thead>';
+			c += '<thead><tr><td colspan="7">' + (title || 'IPv6 Routing Table') + '</td></tr></thead>';
 			c += '<tr>'
 				+ '<th width="10%" id="v6_header_0" style="cursor:pointer;" onclick="setsort_v6(0); show_routev6();">Protocol</th>'
 				+ '<th width="35%" id="v6_header_1" style="cursor:pointer;font-family:monospace;" onclick="setsort_v6(1); show_routev6();">Destination</th>'
@@ -633,7 +721,7 @@
 
 					c += '<tr' + row_style + '>';
 					c += '<td>' + proto_badge(r.proto) + '</td>';
-					c += '<td style="font-family:monospace;">' + active_mark + html_escape(r.prefix) + '</td>';
+					c += '<td style="font-family:monospace;">' + active_mark + html_escape(r.prefix) + (r.note ? ' (' + html_escape(r.note) + ')' : '') + '</td>';
 					c += '<td style="font-family:monospace;">' + nh + '</td>';
 					c += '<td style="font-family:monospace;font-size:11px;">'
 						+ html_escape(compact_aspath(r.aspath)) + '</td>';
@@ -650,12 +738,12 @@
 		}
 
 		/* Strict legacy path: exact non-FRR renderer semantics */
-		function legacy_show_routev4() {
+		function legacy_show_routev4(sourceRows, title) {
 			var code, i, line;
-			var v4rows = normalize_route_rows(routearray || []);
+			var v4rows = sourceRows || normalize_route_rows(routearray || []);
 
 			code = '<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3" class="FormTable_table">';
-			code += '<thead><tr><td colspan="8">IPv4 Routing table</td></tr></thead>';
+			code += '<thead><tr><td colspan="8">' + (title || 'IPv4 Routing table') + '</td></tr></thead>';
 			code += '<tr><th width="19%">Destination</th>';
 			code += '<th width="19%">Gateway</th>';
 			code += '<th width="16%">Genmask</th>';
@@ -689,12 +777,12 @@
 			document.getElementById('routev4block').innerHTML = code;
 		}
 
-		function legacy_show_routev6() {
+		function legacy_show_routev6(sourceRows, title) {
 			var code, i, line;
-			var v6rows = normalize_route_rows(routev6array || []);
+			var v6rows = sourceRows || normalize_route_rows(routev6array || []);
 
 			code = '<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3" class="FormTable_table">';
-			code += '<thead><tr><td colspan="7">IPv6 Routing table</td></tr></thead>';
+			code += '<thead><tr><td colspan="7">' + (title || 'IPv6 Routing table') + '</td></tr></thead>';
 			code += '<tr><th width="40%">Destination<br><span style="color:#FFCC00;">Next Hop</span></th>';
 			code += '<th width="10%">Flags</th>';
 			code += '<th width="10%">Metric</th>';
@@ -738,15 +826,24 @@
 		}
 
 		function show_routev4() {
-			if (!frrOverlayEnabled) {
+			var rows;
+			if (routeTable === 'ipsec' && !ipsec_frr_available()) {
+				legacy_show_routev4(ipsec_legacy_rows(4), 'IPv4 Routing table - IPsec (table 220)');
+				maybe_fadein_route_blocks();
+				return;
+			} else if (routeTable === 'ipsec') {
+				rows = ipsec_route_rows(4);
+				rows.sort(route_rows_sort_v4);
+				document.getElementById('routev4block').innerHTML = frr_route_table_v4(rows, 'IPv4 Routing Table - IPsec (table 220)');
+			} else if (!frrOverlayEnabled) {
 				legacy_show_routev4();
 				maybe_fadein_route_blocks();
 				return;
+			} else {
+				rows = frr_flatten_routes(frr_route_origin_v4 || {});
+				rows.sort(route_rows_sort_v4);
+				document.getElementById('routev4block').innerHTML = frr_route_table_v4(rows);
 			}
-
-			var rows = frr_flatten_routes(frr_route_origin_v4 || {});
-			rows.sort(route_rows_sort_v4);
-			document.getElementById('routev4block').innerHTML = frr_route_table_v4(rows);
 
 			var h = document.getElementById('v4_header_' + sortfield_v4);
 			if (h && typeof sortHighlightColor !== 'undefined')
@@ -756,15 +853,24 @@
 		}
 
 		function show_routev6() {
-			if (!frrOverlayEnabled) {
+			var rows;
+			if (routeTable === 'ipsec' && !ipsec_frr_available()) {
+				legacy_show_routev6(ipsec_legacy_rows(6), 'IPv6 Routing table - IPsec (table 220)');
+				maybe_fadein_route_blocks();
+				return;
+			} else if (routeTable === 'ipsec') {
+				rows = ipsec_route_rows(6);
+				rows.sort(route_rows_sort_v6);
+				document.getElementById('routev6block').innerHTML = frr_route_table_v6(rows, 'IPv6 Routing Table - IPsec (table 220)');
+			} else if (!frrOverlayEnabled) {
 				legacy_show_routev6();
 				maybe_fadein_route_blocks();
 				return;
+			} else {
+				rows = frr_flatten_routes(frr_route_origin_v6 || {});
+				rows.sort(route_rows_sort_v6);
+				document.getElementById('routev6block').innerHTML = frr_route_table_v6(rows);
 			}
-
-			var rows = frr_flatten_routes(frr_route_origin_v6 || {});
-			rows.sort(route_rows_sort_v6);
-			document.getElementById('routev6block').innerHTML = frr_route_table_v6(rows);
 
 			var h = document.getElementById('v6_header_' + sortfield_v6);
 			if (h && typeof sortHighlightColor !== 'undefined')
@@ -776,6 +882,7 @@
 	</script>
 	<style>
 		@keyframes route_spin { to { transform: rotate(360deg); } }
+		#route_filters input[type="text"] { width: 90%; box-sizing: border-box; }
 	</style>
 </head>
 
@@ -842,6 +949,10 @@
 														<td colspan="2">Display options</td>
 													</tr>
 												</thead>
+												<tr id="route_table_row" style="display:none;">
+													<th><label for="route_table">Routing table</label></th>
+													<td><select id="route_table" class="input_option" onchange="select_route_table(this.value);"><option value="main">Main</option></select></td>
+												</tr>
 												<tr>
 													<th>Refresh frequency</th>
 													<td>
@@ -867,18 +978,18 @@
 											<table cellpadding="4" width="100%" class="FormTable_table" id="route_filters">
 												<thead>
 													<tr>
-														<td colspan="5">Filter routes</td>
+														<td colspan="5" id="route_filter_title">Filter routes</td>
 													</tr>
 												</thead>
 												<tr>
-													<th width="14%">Protocol</th>
+													<th width="14%" class="frr_filter">Protocol</th>
 													<th width="32%">Destination</th>
 													<th width="24%">Next-hop</th>
-													<th width="20%">AS Path</th>
+													<th width="20%" class="frr_filter">AS Path</th>
 													<th width="10%">Longest match</th>
 												</tr>
 												<tr>
-													<td>
+													<td class="frr_filter">
 														<select class="input_option" onchange="set_route_filter('proto', this);">
 															<option value="">any</option>
 															<option value="bgp">bgp</option>
@@ -893,7 +1004,7 @@
 													</td>
 													<td><input type="text" class="input_15_table" maxlength="64" oninput="set_route_filter('destination', this);"></td>
 													<td><input type="text" class="input_15_table" maxlength="64" oninput="set_route_filter('nexthop', this);"></td>
-													<td><input type="text" class="input_15_table" maxlength="64" oninput="set_route_filter('aspath', this);"></td>
+													<td class="frr_filter"><input type="text" class="input_15_table" maxlength="64" oninput="set_route_filter('aspath', this);"></td>
 													<td style="text-align:center;"><input type="checkbox" onchange="set_route_filter('longestMatch', this);"></td>
 												</tr>
 											</table>
