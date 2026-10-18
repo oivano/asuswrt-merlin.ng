@@ -35,6 +35,7 @@ exchange_tests_SOURCES = \
   utils/exchange_test_asserts.h utils/exchange_test_asserts.c \
   utils/exchange_test_helper.h utils/exchange_test_helper.c \
   utils/job_asserts.h \
+  utils/mock_eap.h utils/mock_eap.c \
   utils/mock_dh.h utils/mock_dh.c \
   utils/mock_ipsec.h utils/mock_ipsec.c \
   utils/mock_net.h utils/mock_net.c \

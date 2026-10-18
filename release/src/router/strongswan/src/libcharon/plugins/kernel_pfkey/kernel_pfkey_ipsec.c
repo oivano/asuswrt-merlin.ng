@@ -2007,7 +2007,7 @@ METHOD(kernel_ipsec_t, update_sa, status_t,
 	size_t len;
 	status_t status = FAILED;
 
-	if (data->new_reqid)
+	if (data->old_reqid != data->new_reqid)
 	{
 		DBG1(DBG_KNL, "unable to update SAD entry with SPI %.8x: reqid "
 			 "change is not supported", ntohl(id->spi));
@@ -2564,6 +2564,7 @@ static bool install_route(private_kernel_pfkey_ipsec_t *this,
 				 "%R === %R %N", out->src_ts, out->dst_ts,
 				policy_dir_names, policy->direction);
 		}
+		remove_exclude_route(this, old);
 		route_entry_destroy(old);
 		policy->route = NULL;
 	}

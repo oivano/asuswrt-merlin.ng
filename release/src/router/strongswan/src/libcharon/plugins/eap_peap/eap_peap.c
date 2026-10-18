@@ -40,6 +40,25 @@ struct private_eap_peap_t {
 	 * TLS stack, wrapped by EAP helper
 	 */
 	tls_eap_t *tls_eap;
+
+	/**
+	 * Role
+	 */
+	bool is_server;
+
+	/**
+	 * Actual server/client implementation
+	 */
+	union {
+		tls_application_t *application;
+		eap_peap_server_t *server;
+		eap_peap_peer_t *client;
+	} impl;
+
+	/**
+	 * Cached auth data for TLS and inner EAP methods
+	 */
+	auth_cfg_t *auth;
 };
 
 /** Maximum number of EAP-PEAP messages/fragments allowed */
@@ -113,10 +132,34 @@ METHOD(eap_method_t, is_mutual, bool,
 	return TRUE;
 }
 
+METHOD(eap_method_t, get_auth, auth_cfg_t*,
+	private_eap_peap_t *this)
+{
+	if (!this->auth)
+	{
+		auth_cfg_t *inner;
+
+		this->auth = auth_cfg_create();
+		this->auth->merge(this->auth,
+						  this->tls_eap->get_auth(this->tls_eap), FALSE);
+		if (this->is_server)
+		{
+			inner = this->impl.server->get_auth(this->impl.server);
+		}
+		else
+		{
+			inner = this->impl.client->get_auth(this->impl.client);
+		}
+		this->auth->merge(this->auth, inner, FALSE);
+	}
+	return this->auth;
+}
+
 METHOD(eap_method_t, destroy, void,
 	private_eap_peap_t *this)
 {
 	this->tls_eap->destroy(this->tls_eap);
+	DESTROY_IF(this->auth);
 	free(this);
 }
 
@@ -135,6 +178,7 @@ static private_eap_peap_t *eap_peap_create_empty(void)
 				.get_type = _get_type,
 				.is_mutual = _is_mutual,
 				.get_msk = _get_msk,
+				.get_auth = _get_auth,
 				.get_identifier = _get_identifier,
 				.set_identifier = _set_identifier,
 				.destroy = _destroy,
@@ -147,7 +191,7 @@ static private_eap_peap_t *eap_peap_create_empty(void)
 /**
  * Generic private constructor
  */
-static eap_peap_t *eap_peap_create(private_eap_peap_t * this,
+static eap_peap_t *eap_peap_create(private_eap_peap_t *this,
 								   identification_t *server,
 								   identification_t *peer, bool is_server,
 								   tls_application_t *application)
@@ -156,6 +200,9 @@ static eap_peap_t *eap_peap_create(private_eap_peap_t * this,
 	int max_msg_count;
 	bool include_length;
 	tls_t *tls;
+
+	this->is_server = is_server;
+	this->impl.application = application;
 
 	if (is_server && !lib->settings->get_bool(lib->settings,
 								"%s.plugins.eap-peap.request_peer_auth", FALSE,

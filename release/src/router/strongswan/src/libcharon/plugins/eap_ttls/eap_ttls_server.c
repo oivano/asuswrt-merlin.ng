@@ -61,6 +61,11 @@ struct private_eap_ttls_server_t {
 	eap_method_t *method;
 
 	/**
+	 * Auth data for phase 2 method
+	 */
+	auth_cfg_t *auth;
+
+	/**
      * Pending outbound EAP message
 	 */
 	eap_payload_t *out;
@@ -220,6 +225,10 @@ METHOD(tls_application_t, process, status_t,
 	if (!received_vendor && received_type == EAP_IDENTITY)
 	{
 		chunk_t eap_id;
+		bool peer_auth;
+
+		peer_auth = lib->settings->get_bool(lib->settings,
+					"%s.plugins.eap-ttls.request_peer_auth", FALSE, lib->ns);
 
 		if (this->method == NULL)
 		{
@@ -231,22 +240,36 @@ METHOD(tls_application_t, process, status_t,
 			{
 				DBG1(DBG_IKE, "%N method not available",
 							   eap_type_names, EAP_IDENTITY);
+				in->destroy(in);
 				return FAILED;
 			}
 		}
 
 		if (this->method->process(this->method, in, &this->out) != SUCCESS)
 		{
-
 			DBG1(DBG_IKE, "%N method failed", eap_type_names, EAP_IDENTITY);
+			in->destroy(in);
 			return FAILED;
 		}
 
 		if (this->method->get_msk(this->method, &eap_id) == SUCCESS)
 		{
-			this->peer->destroy(this->peer);
-			this->peer = identification_create_from_data(eap_id);
-			DBG1(DBG_IKE, "received EAP identity '%Y'", this->peer);
+			identification_t *id;
+
+			id = identification_create_from_data(eap_id);
+			if (peer_auth && !id->equals(id, this->peer))
+			{
+				DBG1(DBG_IKE, "received tunneled EAP identity '%Y', keeping "
+					 "certificate-authenticated identity '%Y'", id, this->peer);
+				id->destroy(id);
+			}
+			else
+			{
+				DBG1(DBG_IKE, "received EAP identity '%Y'", id);
+				this->auth->add(this->auth, AUTH_RULE_EAP_IDENTITY, id);
+				this->peer->destroy(this->peer);
+				this->peer = id->clone(id);
+			}
 		}
 
 		in->destroy(in);
@@ -254,8 +277,7 @@ METHOD(tls_application_t, process, status_t,
 		this->method = NULL;
 
 		/* Start Phase 2 of EAP-TTLS authentication */
-		if (lib->settings->get_bool(lib->settings,
-					"%s.plugins.eap-ttls.request_peer_auth", FALSE, lib->ns))
+		if (peer_auth)
 		{
 			return start_phase2_tnc(this, EAP_TLS);
 		}
@@ -278,6 +300,20 @@ METHOD(tls_application_t, process, status_t,
 	switch (status)
 	{
 		case SUCCESS:
+			if (this->method->get_auth)
+			{
+				identification_t *id;
+				auth_cfg_t *auth;
+
+				auth = this->method->get_auth(this->method);
+				id = auth->get(auth, AUTH_RULE_EAP_IDENTITY);
+				if (id)
+				{
+					this->peer->destroy(this->peer);
+					this->peer = id->clone(id);
+				}
+				this->auth->merge(this->auth, auth, FALSE);
+			}
 			DBG1(DBG_IKE, "%N phase2 authentication of '%Y' with %N successful",
 							eap_type_names, EAP_TTLS, this->peer,
 							eap_type_names, type);
@@ -348,11 +384,18 @@ METHOD(tls_application_t, build, status_t,
 	return INVALID_STATE;
 }
 
+METHOD(eap_ttls_server_t, get_auth, auth_cfg_t*,
+	private_eap_ttls_server_t *this)
+{
+	return this->auth;
+}
+
 METHOD(tls_application_t, destroy, void,
 	private_eap_ttls_server_t *this)
 {
 	this->server->destroy(this->server);
 	this->peer->destroy(this->peer);
+	this->auth->destroy(this->auth);
 	DESTROY_IF(this->method);
 	DESTROY_IF(this->out);
 	this->avp->destroy(this->avp);
@@ -374,11 +417,13 @@ eap_ttls_server_t *eap_ttls_server_create(identification_t *server,
 				.build = _build,
 				.destroy = _destroy,
 			},
+			.get_auth = _get_auth,
 		},
 		.server = server->clone(server),
-		.peer = peer->clone(peer),
+		.auth = auth_cfg_create(),
 		.start_phase2 = TRUE,
 		.start_phase2_tnc = TRUE,
+		.peer = peer->clone(peer),
 		.avp = eap_ttls_avp_create(),
 	);
 

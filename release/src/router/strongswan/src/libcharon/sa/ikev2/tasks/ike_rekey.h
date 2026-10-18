@@ -54,10 +54,11 @@ struct ike_rekey_t {
 	 * are going on and notifies the active task by passing the passive.
 	 *
 	 * @param other		passive task
+	 * @param done		passive task is done and gets destroyed if not adopted
 	 * @return			whether the task was adopted and should be removed from
 	 *					the task manager's control
 	 */
-	bool (*collide)(ike_rekey_t* this, task_t *other);
+	bool (*collide)(ike_rekey_t* this, task_t *other, bool done);
 };
 
 /**

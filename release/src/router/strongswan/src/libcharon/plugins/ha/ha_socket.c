@@ -28,6 +28,13 @@
 #include <threading/thread.h>
 #include <processing/jobs/callback_job.h>
 
+/**
+ * Default receive buffer size
+ */
+#ifndef HA_SOCKET_RCVBUF_DEFAULT
+#define HA_SOCKET_RCVBUF_DEFAULT (8 * 1024 * 1024)
+#endif
+
 typedef struct private_ha_socket_t private_ha_socket_t;
 
 /**
@@ -174,6 +181,8 @@ METHOD(ha_socket_t, pull, ha_message_t*,
  */
 static bool open_socket(private_ha_socket_t *this)
 {
+	int rcvbuf_size = 0;
+
 	this->fd = socket(this->local->get_family(this->local), SOCK_DGRAM, 0);
 	if (this->fd == -1)
 	{
@@ -189,6 +198,26 @@ static bool open_socket(private_ha_socket_t *this)
 		this->fd = -1;
 		return FALSE;
 	}
+
+	rcvbuf_size = lib->settings->get_int(lib->settings,
+										 "%s.plugins.ha.receive_buffer_size",
+										 HA_SOCKET_RCVBUF_DEFAULT, lib->ns);
+	if (rcvbuf_size)
+	{
+#ifdef SO_RCVBUFFORCE
+		if (setsockopt(this->fd, SOL_SOCKET, SO_RCVBUFFORCE, &rcvbuf_size,
+					   sizeof(rcvbuf_size)) == -1)
+#endif
+		{
+			if (setsockopt(this->fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf_size,
+						   sizeof(rcvbuf_size)) == -1)
+			{
+				DBG1(DBG_CFG, "failed to set receive buffer size to %d: %s",
+					 rcvbuf_size, strerror(errno));
+			}
+		}
+	}
+
 	if (connect(this->fd, this->remote->get_sockaddr(this->remote),
 				*this->remote->get_sockaddr_len(this->remote)) == -1)
 	{

@@ -112,6 +112,8 @@ struct exchange_test_sa_conf_t {
 		char *esp;
 		/** Support for childless IKE_SAs */
 		childless_t childless;
+		/** Use EAP authentication */
+		bool eap;
 	} initiator, responder;
 };
 

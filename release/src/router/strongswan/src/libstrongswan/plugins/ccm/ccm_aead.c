@@ -283,16 +283,21 @@ METHOD(aead_t, decrypt, bool,
 		return FALSE;
 	}
 	encrypted.len -= this->icv_size;
-	if (plain)
+	if (!plain)
 	{
-		*plain = chunk_alloc(encrypted.len);
-		return crypt_data(this, iv, encrypted, *plain) &&
-			   verify_icv(this, *plain, assoc, iv,
+		return crypt_data(this, iv, encrypted, encrypted) &&
+			   verify_icv(this, encrypted, assoc, iv,
 						  encrypted.ptr + encrypted.len);
 	}
-	return crypt_data(this, iv, encrypted, encrypted) &&
-		   verify_icv(this, encrypted, assoc, iv,
-					  encrypted.ptr + encrypted.len);
+	*plain = chunk_alloc(encrypted.len);
+	if (crypt_data(this, iv, encrypted, *plain) &&
+		verify_icv(this, *plain, assoc, iv,
+				   encrypted.ptr + encrypted.len))
+	{
+		return TRUE;
+	}
+	chunk_free(plain);
+	return FALSE;
 }
 
 METHOD(aead_t, get_block_size, size_t,

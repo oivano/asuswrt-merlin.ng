@@ -344,6 +344,7 @@ METHOD(task_t, process_r, status_t,
 			{
 				DBG1(DBG_IKE, "received ME_CONNECT without ID_PEER payload"
 					 ", aborting");
+				this->invalid_syntax = TRUE;
 				break;
 			}
 			this->peer_id = id_payload->get_identification(id_payload);
@@ -476,8 +477,12 @@ METHOD(task_t, process_i, status_t,
 			{	/* FIXME: should we accept this endpoint even if we did not send
 				 * a request? */
 				host_t *endpoint = reflexive->get_host(reflexive);
-				endpoint = endpoint->clone(endpoint);
-				this->ike_sa->set_server_reflexive_host(this->ike_sa, endpoint);
+				if (endpoint)
+				{
+					endpoint = endpoint->clone(endpoint);
+					this->ike_sa->set_server_reflexive_host(this->ike_sa,
+															endpoint);
+				}
 			}
 			break;
 		}
@@ -696,6 +701,7 @@ METHOD(task_t, build_r_ms, status_t,
 									chunk_empty);
 				break;
 			}
+			peer_sa->destroy(peer_sa);
 
 			job_t *job = (job_t*)mediation_job_create(this->peer_id,
 					this->ike_sa->get_other_id(this->ike_sa), this->connect_id,

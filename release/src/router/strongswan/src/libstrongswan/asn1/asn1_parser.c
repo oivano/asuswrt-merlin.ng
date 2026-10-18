@@ -73,6 +73,11 @@ struct private_asn1_parser_t {
 	int loopAddr[ASN1_MAX_LEVEL + 1];
 
 	/**
+	 * Blob pointer at start of loop iteration, to detect stalled loops
+	 */
+	u_char *loopPtr[ASN1_MAX_LEVEL + 1];
+
+	/**
 	 * Current parsing pointer for each level
 	 */
 	chunk_t blobs[ASN1_MAX_LEVEL + 2];
@@ -107,7 +112,20 @@ METHOD(asn1_parser_t, iterate, bool,
 	{
 		if (this->loopAddr[obj.level] && this->blobs[obj.level+1].len > 0)
 		{
-			this->line = this->loopAddr[obj.level]; /* another iteration */
+			/* prevent infinite loops by ensuring that there was progress during
+			 * the last iteration.  if the parsing rules are incorrect (e.g.
+			 * using only OPT instead of CHOICE), this might not be the case */
+			if (this->loopPtr[obj.level] == this->blobs[obj.level+1].ptr)
+			{
+				DBG1(DBG_ASN, "L%d - %s:  loop made no progress, aborting",
+					this->level0 + obj.level,
+					this->objects[this->loopAddr[obj.level]-1].name);
+				this->success = FALSE;
+				goto end;
+			}
+			/* another iteration */
+			this->loopPtr[obj.level] = this->blobs[obj.level+1].ptr;
+			this->line = this->loopAddr[obj.level];
 			obj = this->objects[this->line];
 		}
 		else
@@ -236,6 +254,7 @@ METHOD(asn1_parser_t, iterate, bool,
 		{
 			/* at least one item, start the loop */
 			this->loopAddr[obj.level] = this->line + 1;
+			this->loopPtr[obj.level] = blob1->ptr;
 		}
 		else
 		{

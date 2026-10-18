@@ -107,6 +107,7 @@ static GVariant* handler_to_variant(nm_handler_t *handler, char *variant_type,
 							 configuration_attribute_type_t type)
 {
 	GVariantBuilder builder;
+	GVariant *variant;
 	enumerator_t *enumerator;
 	chunk_t *chunk;
 
@@ -115,7 +116,11 @@ static GVariant* handler_to_variant(nm_handler_t *handler, char *variant_type,
 	enumerator = handler->create_enumerator(handler, type);
 	while (enumerator->enumerate(enumerator, &chunk))
 	{
-		g_variant_builder_add_value (&builder, addr_to_variant(*chunk));
+		variant = addr_to_variant(*chunk);
+		if (variant)
+		{
+			g_variant_builder_add_value (&builder, variant);
+		}
 	}
 	enumerator->destroy(enumerator);
 
@@ -516,6 +521,7 @@ static chunk_t read_safe_file(NMStrongswanPluginPrivate *priv,
 						NM_VPN_PLUGIN_ERROR_BAD_ARGUMENTS,
 						"Unable to open '%s': %s", safe_path, strerror(errno));
 		}
+		g_free(safe_path);
 	}
 	return chunk;
 }
@@ -583,7 +589,7 @@ static bool add_auth_cfg_cert(NMStrongswanPluginPrivate *priv,
 	identification_t *id = NULL;
 	certificate_t *cert = NULL;
 	auth_cfg_t *auth;
-	const char *str, *method, *cert_source, *agent_user;
+	const char *str, *method, *cert_source;
 	chunk_t safe_file;
 
 	method = nm_setting_vpn_get_data_item(vpn, "method");
@@ -633,15 +639,13 @@ static bool add_auth_cfg_cert(NMStrongswanPluginPrivate *priv,
 		str = nm_setting_vpn_get_secret(vpn, "agent");
 		if (agent && str)
 		{
-			agent_user = nm_setting_vpn_get_secret(vpn, "agent-user");
-
 			public = cert->get_public_key(cert);
 			if (public)
 			{
 				private = lib->creds->create(lib->creds, CRED_PRIVATE_KEY,
 											 public->get_type(public),
 											 BUILD_AGENT_SOCKET, str,
-											 BUILD_AGENT_USER, agent_user ?: user,
+											 BUILD_AGENT_USER, user,
 											 BUILD_PUBLIC_KEY, public,
 											 BUILD_END);
 				public->destroy(public);
@@ -667,6 +671,7 @@ static bool add_auth_cfg_cert(NMStrongswanPluginPrivate *priv,
 			safe_file = read_safe_file(priv, str, user, err);
 			if (!safe_file.ptr)
 			{
+				DESTROY_IF(cert);
 				return FALSE;
 			}
 			private = lib->creds->create(lib->creds, CRED_PRIVATE_KEY,
@@ -765,7 +770,7 @@ static bool add_auth_cfg_pw(NMStrongswanPluginPrivate *priv,
 	str = nm_setting_vpn_get_secret(vpn, "password");
 	if (streq(method, "psk"))
 	{
-		if (strlen(str) < 20)
+		if (!str || strlen(str) < 20)
 		{
 			g_set_error(err, NM_VPN_PLUGIN_ERROR,
 						NM_VPN_PLUGIN_ERROR_BAD_ARGUMENTS,
@@ -1034,7 +1039,6 @@ static gboolean connect_(NMVpnServicePlugin *plugin, NMConnection *connection,
 		if (!add_auth_cfg_cert(priv, vpn, peer_cfg, user, err))
 		{
 			peer_cfg->destroy(peer_cfg);
-			ike_cfg->destroy(ike_cfg);
 			gateway->destroy(gateway);
 			return FALSE;
 		}
@@ -1045,7 +1049,6 @@ static gboolean connect_(NMVpnServicePlugin *plugin, NMConnection *connection,
 		if (!add_auth_cfg_pw(priv, vpn, peer_cfg, err))
 		{
 			peer_cfg->destroy(peer_cfg);
-			ike_cfg->destroy(ike_cfg);
 			gateway->destroy(gateway);
 			return FALSE;
 		}
@@ -1055,7 +1058,6 @@ static gboolean connect_(NMVpnServicePlugin *plugin, NMConnection *connection,
 		g_set_error(err, NM_VPN_PLUGIN_ERROR, NM_VPN_PLUGIN_ERROR_BAD_ARGUMENTS,
 					"Configuration parameters missing.");
 		peer_cfg->destroy(peer_cfg);
-		ike_cfg->destroy(ike_cfg);
 		gateway->destroy(gateway);
 		return FALSE;
 	}
@@ -1206,7 +1208,6 @@ static gboolean need_secrets(NMVpnServicePlugin *plugin, NMConnection *connectio
 				if (!priv->agent_requested)
 				{
 					nm_setting_vpn_remove_secret(settings, "agent");
-					nm_setting_vpn_remove_secret(settings, "agent-user");
 					priv->agent_requested = TRUE;
 				}
 			}

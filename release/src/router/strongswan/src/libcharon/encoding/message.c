@@ -69,6 +69,11 @@
 #define MAX_NAT_D_PAYLOADS 10
 
 /**
+ * Max number of unknown payloads per message
+ */
+#define MAX_UNKNOWN_PAYLOADS 5
+
+/**
  * A payload rule defines the rules for a payload
  * in a specific message rule. It defines if and how
  * many times a payload must/can occur in a message
@@ -129,6 +134,7 @@ static payload_rule_t ike_sa_init_i_rules[] = {
 	{PLV2_KEY_EXCHANGE,				1,	1,						FALSE,	FALSE},
 	{PLV2_NONCE,					1,	1,						FALSE,	FALSE},
 	{PLV2_VENDOR_ID,				0,	MAX_VID_PAYLOADS,		FALSE,	FALSE},
+	{PL_UNKNOWN,					0,  MAX_UNKNOWN_PAYLOADS,   FALSE,  FALSE},
 };
 
 /**
@@ -157,6 +163,7 @@ static payload_rule_t ike_sa_init_r_rules[] = {
 	{PLV2_NONCE,					1,	1,						FALSE,	FALSE},
 	{PLV2_CERTREQ,					0,	MAX_CERTREQ_PAYLOADS,	FALSE,	FALSE},
 	{PLV2_VENDOR_ID,				0,	MAX_VID_PAYLOADS,		FALSE,	FALSE},
+	{PL_UNKNOWN,					0,  MAX_UNKNOWN_PAYLOADS,   FALSE,  FALSE},
 };
 
 /**
@@ -199,6 +206,7 @@ static payload_rule_t ike_auth_i_rules[] = {
 #endif /* ME */
 	{PLV2_CONFIGURATION,			0,	1,						TRUE,	FALSE},
 	{PLV2_VENDOR_ID,				0,	MAX_VID_PAYLOADS,		TRUE,	FALSE},
+	{PL_UNKNOWN,					0,  MAX_UNKNOWN_PAYLOADS,   TRUE,   FALSE},
 };
 
 /**
@@ -247,6 +255,7 @@ static payload_rule_t ike_auth_r_rules[] = {
 	{PLV2_TS_RESPONDER,				0,	1,						TRUE,	FALSE},
 	{PLV2_CONFIGURATION,			0,	1,						TRUE,	FALSE},
 	{PLV2_VENDOR_ID,				0,	MAX_VID_PAYLOADS,		TRUE,	FALSE},
+	{PL_UNKNOWN,					0,  MAX_UNKNOWN_PAYLOADS,   TRUE,   FALSE},
 };
 
 /**
@@ -286,6 +295,7 @@ static payload_rule_t informational_i_rules[] = {
 	{PLV2_CONFIGURATION,			0,	1,						TRUE,	FALSE},
 	{PLV2_DELETE,					0,	MAX_DELETE_PAYLOADS,	TRUE,	FALSE},
 	{PLV2_VENDOR_ID,				0,	MAX_VID_PAYLOADS,		TRUE,	FALSE},
+	{PL_UNKNOWN,					0,  MAX_UNKNOWN_PAYLOADS,   TRUE,   FALSE},
 };
 
 /**
@@ -313,6 +323,7 @@ static payload_rule_t informational_r_rules[] = {
 	{PLV2_CONFIGURATION,			0,	1,						TRUE,	FALSE},
 	{PLV2_DELETE,					0,	MAX_DELETE_PAYLOADS,	TRUE,	FALSE},
 	{PLV2_VENDOR_ID,				0,	MAX_VID_PAYLOADS,		TRUE,	FALSE},
+	{PL_UNKNOWN,					0,  MAX_UNKNOWN_PAYLOADS,   TRUE,   FALSE},
 };
 
 /**
@@ -344,6 +355,7 @@ static payload_rule_t create_child_sa_i_rules[] = {
 	{PLV2_TS_RESPONDER,				0,	1,						TRUE,	FALSE},
 	{PLV2_CONFIGURATION,			0,	1,						TRUE,	FALSE},
 	{PLV2_VENDOR_ID,				0,	MAX_VID_PAYLOADS,		TRUE,	FALSE},
+	{PL_UNKNOWN,					0,  MAX_UNKNOWN_PAYLOADS,   TRUE,   FALSE},
 };
 
 /**
@@ -379,6 +391,7 @@ static payload_rule_t create_child_sa_r_rules[] = {
 	{PLV2_TS_RESPONDER,				0,	1,						TRUE,	FALSE},
 	{PLV2_CONFIGURATION,			0,	1,						TRUE,	FALSE},
 	{PLV2_VENDOR_ID,				0,	MAX_VID_PAYLOADS,		TRUE,	FALSE},
+	{PL_UNKNOWN,					0,  MAX_UNKNOWN_PAYLOADS,   TRUE,   FALSE},
 };
 
 /**
@@ -408,6 +421,7 @@ static payload_rule_t ike_intermediate_i_rules[] = {
 	{PLV2_FRAGMENT,					0,	1,						TRUE,	TRUE},
 	{PLV2_NOTIFY,					0,	MAX_NOTIFY_PAYLOADS,	TRUE,	FALSE},
 	{PLV2_KEY_EXCHANGE,				0,	1,						TRUE,	FALSE},
+	{PL_UNKNOWN,					0,  MAX_UNKNOWN_PAYLOADS,   TRUE,   FALSE},
 };
 
 /**
@@ -428,6 +442,7 @@ static payload_rule_t ike_intermediate_r_rules[] = {
 	{PLV2_FRAGMENT,					0,	1,						TRUE,	TRUE},
 	{PLV2_NOTIFY,					0,	MAX_NOTIFY_PAYLOADS,	TRUE,	TRUE},
 	{PLV2_KEY_EXCHANGE,				0,	1,						TRUE,	FALSE},
+	{PL_UNKNOWN,					0,  MAX_UNKNOWN_PAYLOADS,   TRUE,   FALSE},
 };
 
 /**
@@ -448,6 +463,7 @@ static payload_rule_t ike_followup_ke_i_rules[] = {
 	{PLV2_FRAGMENT,					0,	1,						TRUE,	TRUE},
 	{PLV2_NOTIFY,					0,	MAX_NOTIFY_PAYLOADS,	TRUE,	FALSE},
 	{PLV2_KEY_EXCHANGE,				1,	1,						TRUE,	FALSE},
+	{PL_UNKNOWN,					0,  MAX_UNKNOWN_PAYLOADS,   TRUE,   FALSE},
 };
 
 /**
@@ -468,6 +484,7 @@ static payload_rule_t ike_followup_ke_r_rules[] = {
 	{PLV2_FRAGMENT,					0,	1,						TRUE,	TRUE},
 	{PLV2_NOTIFY,					0,	MAX_NOTIFY_PAYLOADS,	TRUE,	TRUE},
 	{PLV2_KEY_EXCHANGE,				1,	1,						TRUE,	FALSE},
+	{PL_UNKNOWN,					0,  MAX_UNKNOWN_PAYLOADS,   TRUE,   FALSE},
 };
 
 /**
@@ -488,7 +505,8 @@ static payload_rule_t me_connect_i_rules[] = {
 /*	payload type					min	max						encr	suff */
 	{PLV2_NOTIFY,					0,	MAX_NOTIFY_PAYLOADS,	TRUE,	TRUE},
 	{PLV2_ID_PEER,					1,	1,						TRUE,	FALSE},
-	{PLV2_VENDOR_ID,				0,	MAX_VID_PAYLOADS,		TRUE,	FALSE}
+	{PLV2_VENDOR_ID,				0,	MAX_VID_PAYLOADS,		TRUE,	FALSE},
+	{PL_UNKNOWN,					0,  MAX_UNKNOWN_PAYLOADS,   TRUE,   FALSE},
 };
 
 /**
@@ -507,7 +525,8 @@ static payload_order_t me_connect_i_order[] = {
 static payload_rule_t me_connect_r_rules[] = {
 /*	payload type					min	max						encr	suff */
 	{PLV2_NOTIFY,					0,	MAX_NOTIFY_PAYLOADS,	TRUE,	TRUE},
-	{PLV2_VENDOR_ID,				0,	MAX_VID_PAYLOADS,		TRUE,	FALSE}
+	{PLV2_VENDOR_ID,				0,	MAX_VID_PAYLOADS,		TRUE,	FALSE},
+	{PL_UNKNOWN,					0,  MAX_UNKNOWN_PAYLOADS,   TRUE,   FALSE},
 };
 
 /**
@@ -534,6 +553,7 @@ static payload_rule_t id_prot_i_rules[] = {
 	{PLV1_CERTREQ,					0,	MAX_CERTREQ_PAYLOADS,	FALSE,	FALSE},
 	{PLV1_NAT_D,					0,	MAX_NAT_D_PAYLOADS,		FALSE,	FALSE},
 	{PLV1_NAT_D_DRAFT_00_03,		0,	MAX_NAT_D_PAYLOADS,		FALSE,	FALSE},
+	{PL_UNKNOWN,					0,  MAX_UNKNOWN_PAYLOADS,   FALSE,  FALSE},
 	{PLV1_ID,						0,	1,						TRUE,	FALSE},
 	{PLV1_CERTIFICATE,				0,	MAX_CERT_PAYLOADS,		TRUE,	FALSE},
 	{PLV1_SIGNATURE,				0,	1,						TRUE,	FALSE},
@@ -574,6 +594,7 @@ static payload_rule_t id_prot_r_rules[] = {
 	{PLV1_CERTREQ,					0,	MAX_CERTREQ_PAYLOADS,	FALSE,	FALSE},
 	{PLV1_NAT_D,					0,	MAX_NAT_D_PAYLOADS,		FALSE,	FALSE},
 	{PLV1_NAT_D_DRAFT_00_03,		0,	MAX_NAT_D_PAYLOADS,		FALSE,	FALSE},
+	{PL_UNKNOWN,					0,  MAX_UNKNOWN_PAYLOADS,   FALSE,  FALSE},
 	{PLV1_ID,						0,	1,						TRUE,	FALSE},
 	{PLV1_CERTIFICATE,				0,	MAX_CERT_PAYLOADS,		TRUE,	FALSE},
 	{PLV1_SIGNATURE,				0,	1,						TRUE,	FALSE},
@@ -615,6 +636,7 @@ static payload_rule_t aggressive_i_rules[] = {
 	{PLV1_NAT_D,					0,	MAX_NAT_D_PAYLOADS,		FALSE,	FALSE},
 	{PLV1_NAT_D_DRAFT_00_03,		0,	MAX_NAT_D_PAYLOADS,		FALSE,	FALSE},
 	{PLV1_ID,						0,	1,						FALSE,	FALSE},
+	{PL_UNKNOWN,					0,  MAX_UNKNOWN_PAYLOADS,   FALSE,  FALSE},
 	{PLV1_CERTIFICATE,				0,	MAX_CERT_PAYLOADS,		TRUE,	FALSE},
 	{PLV1_SIGNATURE,				0,	1,						TRUE,	FALSE},
 	{PLV1_HASH,						0,	1,						TRUE,	FALSE},
@@ -658,6 +680,7 @@ static payload_rule_t aggressive_r_rules[] = {
 	{PLV1_CERTIFICATE,				0,	MAX_CERT_PAYLOADS,		FALSE,	FALSE},
 	{PLV1_SIGNATURE,				0,	1,						FALSE,	FALSE},
 	{PLV1_HASH,						0,	1,						FALSE,	FALSE},
+	{PL_UNKNOWN,					0,  MAX_UNKNOWN_PAYLOADS,   FALSE,  FALSE},
 	{PLV1_FRAGMENT,					0,	1,						FALSE,	TRUE},
 };
 
@@ -687,6 +710,7 @@ static payload_order_t aggressive_r_order[] = {
 static payload_rule_t informational_i_rules_v1[] = {
 /*	payload type					min	max						encr	suff */
 	{PLV1_NOTIFY,					0,	MAX_NOTIFY_PAYLOADS,	FALSE,	FALSE},
+	{PL_UNKNOWN,					0,  MAX_UNKNOWN_PAYLOADS,   FALSE,  FALSE},
 	{PLV1_NOTIFY,					0,	MAX_NOTIFY_PAYLOADS,	TRUE,	FALSE},
 	{PLV1_DELETE,					0,	MAX_DELETE_PAYLOADS,	TRUE,	FALSE},
 	{PLV1_VENDOR_ID,				0,	MAX_VID_PAYLOADS,		TRUE,	FALSE},
@@ -708,6 +732,7 @@ static payload_order_t informational_i_order_v1[] = {
 static payload_rule_t informational_r_rules_v1[] = {
 /*	payload type					min	max						encr	suff */
 	{PLV1_NOTIFY,					0,	MAX_NOTIFY_PAYLOADS,	FALSE,	FALSE},
+	{PL_UNKNOWN,					0,  MAX_UNKNOWN_PAYLOADS,   FALSE,  FALSE},
 	{PLV1_NOTIFY,					0,	MAX_NOTIFY_PAYLOADS,	TRUE,	FALSE},
 	{PLV1_DELETE,					0,	MAX_DELETE_PAYLOADS,	TRUE,	FALSE},
 	{PLV1_VENDOR_ID,				0,	MAX_VID_PAYLOADS,		TRUE,	FALSE},
@@ -737,6 +762,7 @@ static payload_rule_t quick_mode_i_rules[] = {
 	{PLV1_ID,						0,	2,						TRUE,	FALSE},
 	{PLV1_NAT_OA,					0,	2,						TRUE,	FALSE},
 	{PLV1_NAT_OA_DRAFT_00_03,		0,	2,						TRUE,	FALSE},
+	{PL_UNKNOWN,					0,  MAX_UNKNOWN_PAYLOADS,   TRUE,   FALSE},
 	{PLV1_FRAGMENT,					0,	1,						FALSE,	TRUE},
 };
 
@@ -771,6 +797,7 @@ static payload_rule_t quick_mode_r_rules[] = {
 	{PLV1_ID,						0,	2,						TRUE,	FALSE},
 	{PLV1_NAT_OA,					0,	2,						TRUE,	FALSE},
 	{PLV1_NAT_OA_DRAFT_00_03,		0,	2,						TRUE,	FALSE},
+	{PL_UNKNOWN,					0,  MAX_UNKNOWN_PAYLOADS,   TRUE,   FALSE},
 	{PLV1_FRAGMENT,					0,	1,						FALSE,	TRUE},
 };
 
@@ -796,8 +823,9 @@ static payload_order_t quick_mode_r_order[] = {
  */
 static payload_rule_t transaction_payload_rules_v1[] = {
 /*	payload type					min	max	encr	suff */
-	{PLV1_HASH,						0,	1,	TRUE,	FALSE},
-	{PLV1_CONFIGURATION,			1,	1,	FALSE,	FALSE},
+	{PLV1_HASH,						0,	1,						TRUE,	FALSE},
+	{PLV1_CONFIGURATION,			1,	1,						FALSE,	FALSE},
+	{PL_UNKNOWN,					0,  MAX_UNKNOWN_PAYLOADS,   FALSE,  FALSE},
 };
 
 /**
@@ -1398,7 +1426,7 @@ static char* get_string(private_message_t *this, char *buf, int len)
 						   payload->get_type(payload));
 		if (written >= len || written < 0)
 		{
-			return buf;
+			goto err;
 		}
 		pos += written;
 		len -= written;
@@ -1424,7 +1452,7 @@ static char* get_string(private_message_t *this, char *buf, int len)
 			}
 			if (written >= len || written < 0)
 			{
-				return buf;
+				goto err;
 			}
 			pos += written;
 			len -= written;
@@ -1454,7 +1482,7 @@ static char* get_string(private_message_t *this, char *buf, int len)
 							   eap->get_code(eap), method);
 			if (written >= len || written < 0)
 			{
-				return buf;
+				goto err;
 			}
 			pos += written;
 			len -= written;
@@ -1495,7 +1523,8 @@ static char* get_string(private_message_t *this, char *buf, int len)
 								   attribute->get_type(attribute));
 				if (written >= len || written < 0)
 				{
-					return buf;
+					attributes->destroy(attributes);
+					goto err;
 				}
 				pos += written;
 				len -= written;
@@ -1507,7 +1536,7 @@ static char* get_string(private_message_t *this, char *buf, int len)
 				written = snprintf(pos, len, ")");
 				if (written >= len || written < 0)
 				{
-					return buf;
+					goto err;
 				}
 				pos += written;
 				len -= written;
@@ -1529,7 +1558,7 @@ static char* get_string(private_message_t *this, char *buf, int len)
 			}
 			if (written >= len || written < 0)
 			{
-				return buf;
+				goto err;
 			}
 			pos += written;
 			len -= written;
@@ -1544,7 +1573,7 @@ static char* get_string(private_message_t *this, char *buf, int len)
 							   frag->get_total_fragments(frag));
 			if (written >= len || written < 0)
 			{
-				return buf;
+				goto err;
 			}
 			pos += written;
 			len -= written;
@@ -1557,16 +1586,16 @@ static char* get_string(private_message_t *this, char *buf, int len)
 			written = snprintf(pos, len, "(%d)", unknown->get_type(unknown));
 			if (written >= len || written < 0)
 			{
-				return buf;
+				goto err;
 			}
 			pos += written;
 			len -= written;
 		}
 	}
-	enumerator->destroy(enumerator);
-
-	/* remove last space */
 	snprintf(pos, len, " ]");
+
+err:
+	enumerator->destroy(enumerator);
 	return buf;
 }
 #endif

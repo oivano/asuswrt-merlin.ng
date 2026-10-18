@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Tobias Brunner
+ * Copyright (C) 2016-2026 Tobias Brunner
  *
  * Copyright (C) secunet Security Networks AG
  *
@@ -15,6 +15,7 @@
  */
 
 #include "exchange_test_helper.h"
+#include "mock_eap.h"
 #include "mock_dh.h"
 #include "mock_ipsec.h"
 #include "mock_net.h"
@@ -163,16 +164,24 @@ static child_cfg_t *create_child_cfg(bool initiator,
 	return child_cfg;
 }
 
-static void add_auth_cfg(peer_cfg_t *peer_cfg, bool initiator, bool local)
+static void add_auth_cfg(peer_cfg_t *peer_cfg, bool initiator, bool local,
+						 exchange_test_sa_conf_t *conf)
 {
 	auth_cfg_t *auth;
 	char *id = "init";
+	bool eap = conf ? conf->initiator.eap : FALSE;
 
-	auth = auth_cfg_create();
-	auth->add(auth, AUTH_RULE_AUTH_CLASS, AUTH_CLASS_PSK);
-	if (initiator ^ local)
+	if (initiator != local)
 	{
 		id = "resp";
+		eap = conf ? conf->responder.eap : FALSE;
+	}
+
+	auth = auth_cfg_create();
+	auth->add(auth, AUTH_RULE_AUTH_CLASS, eap ? AUTH_CLASS_EAP : AUTH_CLASS_PSK);
+	if (eap)
+	{
+		auth->add(auth, AUTH_RULE_EAP_TYPE, EAP_GTC);
 	}
 	auth->add(auth, AUTH_RULE_IDENTITY, identification_create_from_string(id));
 	peer_cfg->add_auth_cfg(peer_cfg, auth, local);
@@ -190,8 +199,8 @@ static peer_cfg_t *create_peer_cfg(bool initiator,
 
 	peer_cfg = peer_cfg_create(initiator ? "init" : "resp",
 							   create_ike_cfg(initiator, conf), &peer);
-	add_auth_cfg(peer_cfg, initiator, TRUE);
-	add_auth_cfg(peer_cfg, initiator, FALSE);
+	add_auth_cfg(peer_cfg, initiator, TRUE, conf);
+	add_auth_cfg(peer_cfg, initiator, FALSE, conf);
 	return peer_cfg;
 }
 
@@ -380,6 +389,10 @@ void exchange_test_helper_init(char *plugins)
 		PLUGIN_REGISTER(NONCE_GEN, create_nonce_gen),
 			PLUGIN_PROVIDE(NONCE_GEN),
 				PLUGIN_DEPENDS(RNG, RNG_WEAK),
+		PLUGIN_CALLBACK(eap_method_register, mock_eap_create_server),
+			PLUGIN_PROVIDE(EAP_SERVER, EAP_GTC),
+		PLUGIN_CALLBACK(eap_method_register, mock_eap_create_peer),
+			PLUGIN_PROVIDE(EAP_PEER, EAP_GTC),
 	};
 
 	INIT(backend,

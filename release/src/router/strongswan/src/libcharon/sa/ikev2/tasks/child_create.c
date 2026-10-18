@@ -2226,13 +2226,13 @@ static bool key_exchange_done_and_install_r(private_child_create_t *this,
 			case SUCCESS:
 				break;
 			case NOT_FOUND:
-				message->add_notify(message, TRUE, TS_UNACCEPTABLE,
+				message->add_notify(message, FALSE, TS_UNACCEPTABLE,
 									chunk_empty);
 				handle_child_sa_failure(this, message);
 				return TRUE;
 			case FAILED:
 			default:
-				message->add_notify(message, TRUE, NO_PROPOSAL_CHOSEN,
+				message->add_notify(message, FALSE, NO_PROPOSAL_CHOSEN,
 									chunk_empty);
 				handle_child_sa_failure(this, message);
 				return TRUE;
@@ -2712,6 +2712,13 @@ METHOD(task_t, process_i, status_t,
 
 	process_payloads(this, message);
 
+	if (!this->tsi || !this->tsr)
+	{
+		DBG1(DBG_IKE, "TS payloads missing in message");
+		handle_child_sa_failure(this, message);
+		return delete_failed_sa(this);
+	}
+
 	if (!select_proposal(this, no_ke))
 	{
 		handle_child_sa_failure(this, message);
@@ -2950,8 +2957,7 @@ METHOD(child_create_t, get_config, child_cfg_t*,
 METHOD(child_create_t, get_lower_nonce, chunk_t,
 	private_child_create_t *this)
 {
-	if (memcmp(this->my_nonce.ptr, this->other_nonce.ptr,
-			   min(this->my_nonce.len, this->other_nonce.len)) < 0)
+	if (chunk_compare_prefix(this->my_nonce, this->other_nonce) < 0)
 	{
 		return this->my_nonce;
 	}

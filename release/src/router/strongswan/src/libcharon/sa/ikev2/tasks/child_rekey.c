@@ -403,7 +403,7 @@ METHOD(task_t, build_r, status_t,
 	child_sa_t *child_sa, *old_replacement;
 	child_sa_state_t state = CHILD_INSTALLED;
 	uint32_t reqid;
-	bool followup_sent = FALSE;
+	bool active, followup_sent = FALSE;
 
 	if (!this->child_sa)
 	{
@@ -423,7 +423,8 @@ METHOD(task_t, build_r, status_t,
 		message->add_notify(message, TRUE, TEMPORARY_FAILURE, chunk_empty);
 		return SUCCESS;
 	}
-	if (actively_rekeying(this, &followup_sent) && followup_sent)
+	active = actively_rekeying(this, &followup_sent);
+	if (active && followup_sent)
 	{
 		DBG1(DBG_IKE, "peer initiated rekeying, but we did too and already "
 			 "sent IKE_FOLLOWUP_KE");
@@ -483,8 +484,9 @@ METHOD(task_t, build_r, status_t,
 		/* like installing the outbound SA, we only trigger the child-rekey
 		 * event once the old SA is deleted */
 	}
-	else if (this->child_sa->get_state(this->child_sa) == CHILD_REKEYING)
-	{	/* rekeying failed, reuse old child */
+	else if (!active &&
+			 this->child_sa->get_state(this->child_sa) == CHILD_REKEYING)
+	{	/* rekeying failed, reuse old child, unless we are actively rekeying */
 		this->child_sa->set_state(this->child_sa, state);
 	}
 	return SUCCESS;
@@ -562,8 +564,7 @@ static bool lost_collision(private_child_rekey_t *this)
 	this_nonce = this->child_create->get_lower_nonce(this->child_create);
 	other_nonce = other->child_create->get_lower_nonce(other->child_create);
 
-	return memcmp(this_nonce.ptr, other_nonce.ptr,
-				  min(this_nonce.len, other_nonce.len)) < 0;
+	return chunk_compare_prefix(this_nonce, other_nonce) < 0;
 }
 
 /**
@@ -1127,8 +1128,22 @@ METHOD(child_rekey_t, handle_delete, child_rekey_collision_t,
 	return CHILD_REKEY_COLLISION_NONE;
 }
 
+/**
+ * Clear the colliding passive task if it did not complete successfully.
+ */
+static void clear_collision(private_child_rekey_t *this, task_t *other)
+{
+	if (this->collision == other)
+	{
+		DBG1(DBG_IKE, "colliding passive rekeying for CHILD_SA %s{%u} "
+			 "failed", this->child_sa->get_name(this->child_sa),
+			 this->child_sa->get_unique_id(this->child_sa));
+		this->collision = NULL;
+	}
+}
+
 METHOD(child_rekey_t, collide, bool,
-	private_child_rekey_t *this, task_t *other)
+	private_child_rekey_t *this, task_t *other, bool done)
 {
 	private_child_rekey_t *rekey = (private_child_rekey_t*)other;
 	child_sa_t *other_child;
@@ -1142,16 +1157,25 @@ METHOD(child_rekey_t, collide, bool,
 	other_child = rekey->child_create->get_child(rekey->child_create);
 	if (!other_child)
 	{
-		/* ignore passive tasks that did not successfully create a CHILD_SA */
+		/* ignore passive tasks that did not successfully create a CHILD_SA,
+		 * if we are already tracking it in the multi-KE case, clear it */
+		clear_collision(this, other);
 		return FALSE;
 	}
 	if (other_child->get_state(other_child) != CHILD_INSTALLED)
 	{
-		DBG1(DBG_IKE, "colliding passive rekeying for CHILD_SA %s{%u} is not "
-			 "yet complete", this->child_sa->get_name(this->child_sa),
-			 this->child_sa->get_unique_id(this->child_sa));
-		/* we do reference the task to check its state later */
-		this->collision = other;
+		if (done)
+		{	/* passive task failed, clear it if necessary */
+			clear_collision(this, other);
+		}
+		else
+		{
+			DBG1(DBG_IKE, "colliding passive rekeying for CHILD_SA %s{%u} is "
+				 "not yet complete", this->child_sa->get_name(this->child_sa),
+				 this->child_sa->get_unique_id(this->child_sa));
+			/* we do reference the task to check its state later */
+			this->collision = other;
+		}
 		return FALSE;
 	}
 	if (this->collision && this->collision != other)

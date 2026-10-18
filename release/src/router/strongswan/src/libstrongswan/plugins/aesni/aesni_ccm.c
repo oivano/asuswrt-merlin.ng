@@ -760,6 +760,7 @@ METHOD(aead_t, decrypt, bool,
 	chunk_t *plain)
 {
 	u_char *out, icv[this->icv_size];
+	bool valid;
 
 	if (!this->key || iv.len != IV_SIZE || encr.len < this->icv_size)
 	{
@@ -772,10 +773,14 @@ METHOD(aead_t, decrypt, bool,
 		*plain = chunk_alloc(encr.len);
 		out = plain->ptr;
 	}
-
 	this->decrypt(this, encr.len, encr.ptr, out, iv.ptr,
 				  assoc.len, assoc.ptr, icv);
-	return memeq_const(icv, encr.ptr + encr.len, this->icv_size);
+	valid = memeq_const(icv, encr.ptr + encr.len, this->icv_size);
+	if (!valid && plain)
+	{
+		chunk_free(plain);
+	}
+	return valid;
 }
 
 METHOD(aead_t, get_block_size, size_t,

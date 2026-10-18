@@ -229,7 +229,7 @@ METHOD(esp_packet_t, decrypt, status_t,
 {
 	bio_reader_t *reader;
 	uint32_t spi, seq;
-	chunk_t data, iv, icv, aad, ciphertext, plaintext;
+	chunk_t data, iv, icv, aad, ciphertext, plaintext = chunk_empty;
 	aead_t *aead;
 
 	DESTROY_IF(this->payload);
@@ -246,6 +246,7 @@ METHOD(esp_packet_t, decrypt, status_t,
 		reader->remaining(reader) % aead->get_block_size(aead))
 	{
 		DBG1(DBG_ESP, "ESP decryption failed: invalid length");
+		reader->destroy(reader);
 		return PARSE_ERROR;
 	}
 	ciphertext = reader->peek(reader);
@@ -269,6 +270,7 @@ METHOD(esp_packet_t, decrypt, status_t,
 	if (!aead->decrypt(aead, ciphertext, aad, iv, &plaintext))
 	{
 		DBG1(DBG_ESP, "ESP decryption or ICV verification failed");
+		chunk_free(&plaintext);
 		return FAILED;
 	}
 	esp_context->set_authenticated_seqno(esp_context, seq);

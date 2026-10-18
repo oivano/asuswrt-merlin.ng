@@ -426,7 +426,7 @@ static status_t process_challenge(private_eap_aka_server_t *this,
 	enumerator->destroy(enumerator);
 
 	/* compare received RES against stored XRES */
-	if (!chunk_equals_const(res, this->xres))
+	if (!chunk_equals_const(this->xres, res))
 	{
 		DBG1(DBG_IKE, "received RES does not match XRES");
 		return FAILED;
@@ -487,7 +487,7 @@ static status_t process_reauthentication(private_eap_aka_server_t *this,
 		this->crypto->clear_keys(this->crypto);
 		return challenge(this, out);
 	}
-	if (!chunk_equals_const(counter, this->counter))
+	if (!chunk_equals_const(this->counter, counter))
 	{
 		DBG1(DBG_IKE, "received counter does not match");
 		return FAILED;
@@ -505,6 +505,12 @@ static status_t process_synchronize(private_eap_aka_server_t *this,
 	simaka_attribute_t type;
 	chunk_t data, auts = chunk_empty;
 
+	if (this->pending != AKA_CHALLENGE)
+	{
+		DBG1(DBG_IKE, "received %N, but not expected",
+			 simaka_subtype_names, AKA_SYNCHRONIZATION_FAILURE);
+		return FAILED;
+	}
 	if (this->synchronized)
 	{
 		DBG1(DBG_IKE, "received %N, but peer did already resynchronize",

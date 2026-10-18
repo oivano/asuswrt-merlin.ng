@@ -292,13 +292,6 @@ if MONOLITHIC
 endif
 endif
 
-if USE_SMP
-  SUBDIRS += plugins/smp
-if MONOLITHIC
-  libcharon_la_LIBADD += plugins/smp/libstrongswan-smp.la
-endif
-endif
-
 if USE_SQL
   SUBDIRS += plugins/sql
 if MONOLITHIC
@@ -488,13 +481,6 @@ if MONOLITHIC
 endif
 endif
 
-if USE_TNC_IFMAP
-  SUBDIRS += plugins/tnc_ifmap
-if MONOLITHIC
-  libcharon_la_LIBADD += plugins/tnc_ifmap/libstrongswan-tnc-ifmap.la
-endif
-endif
-
 if USE_TNC_PDP
   SUBDIRS += plugins/tnc_pdp
 if MONOLITHIC
@@ -506,20 +492,6 @@ if USE_LIBTNCCS
 if MONOLITHIC
   # otherwise this library is linked to the respective plugins
   libcharon_la_LIBADD += $(top_builddir)/src/libtnccs/libtnccs.la
-endif
-endif
-
-if USE_MEDSRV
-  SUBDIRS += plugins/medsrv
-if MONOLITHIC
-  libcharon_la_LIBADD += plugins/medsrv/libstrongswan-medsrv.la
-endif
-endif
-
-if USE_MEDCLI
-  SUBDIRS += plugins/medcli
-if MONOLITHIC
-  libcharon_la_LIBADD += plugins/medcli/libstrongswan-medcli.la
 endif
 endif
 
@@ -541,13 +513,6 @@ if USE_P_CSCF
   SUBDIRS += plugins/p_cscf
 if MONOLITHIC
   libcharon_la_LIBADD += plugins/p_cscf/libstrongswan-p-cscf.la
-endif
-endif
-
-if USE_ANDROID_DNS
-  SUBDIRS += plugins/android_dns
-if MONOLITHIC
-  libcharon_la_LIBADD += plugins/android_dns/libstrongswan-android-dns.la
 endif
 endif
 
@@ -639,20 +604,6 @@ if USE_SYSTIME_FIX
   SUBDIRS += plugins/systime_fix
 if MONOLITHIC
   libcharon_la_LIBADD += plugins/systime_fix/libstrongswan-systime-fix.la
-endif
-endif
-
-if USE_LED
-  SUBDIRS += plugins/led
-if MONOLITHIC
-  libcharon_la_LIBADD += plugins/led/libstrongswan-led.la
-endif
-endif
-
-if USE_DUPLICHECK
-  SUBDIRS += plugins/duplicheck
-if MONOLITHIC
-  libcharon_la_LIBADD += plugins/duplicheck/libstrongswan-duplicheck.la
 endif
 endif
 

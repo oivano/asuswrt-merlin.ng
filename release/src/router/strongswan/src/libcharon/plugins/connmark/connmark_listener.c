@@ -64,7 +64,7 @@ static bool ts2in(traffic_selector_t *ts,
 	{
 		memcpy(&addr->s_addr, net->get_address(net).ptr, 4);
 		net->destroy(net);
-		mask->s_addr = htonl(0xffffffffU << (32 - bits));
+		mask->s_addr = bits ? htonl(0xffffffffU << (32 - bits)) : 0;
 		return TRUE;
 	}
 	return FALSE;
@@ -408,11 +408,15 @@ static bool manage_policies(private_connmark_listener_t *this,
 	mark = child_sa->get_mark(child_sa, TRUE).value;
 	mask = child_sa->get_mark(child_sa, TRUE).mask;
 
+	if (!manage_pre(this, ipth, add, mark, mask, spi, encap, dst, src))
+	{
+		return FALSE;
+	}
+
 	enumerator = child_sa->create_policy_enumerator(child_sa);
 	while (enumerator->enumerate(enumerator, &local, &remote))
 	{
-		if (!manage_pre(this, ipth, add, mark, mask, spi, encap, dst, src) ||
-			!manage_in(this, ipth, add, mark, mask, spi, local, remote) ||
+		if (!manage_in(this, ipth, add, mark, mask, spi, local, remote) ||
 			!manage_out(this, ipth, add, mask, remote, local))
 		{
 			done = FALSE;
@@ -499,7 +503,11 @@ METHOD(listener_t, ike_update, bool,
 	struct iptc_handle *ipth;
 	enumerator_t *enumerator;
 	child_sa_t *child_sa;
+	host_t *oldlocal, *oldremote;
 	bool oldencap, newencap;
+
+	oldlocal = ike_sa->get_my_host(ike_sa);
+	oldremote = ike_sa->get_other_host(ike_sa);
 
 	/* during ike_update(), has_encap() on the CHILD_SA has not yet been
 	 * updated, but shows the old state. */
@@ -514,7 +522,7 @@ METHOD(listener_t, ike_update, bool,
 			ipth = init_handle();
 			if (ipth)
 			{
-				if (manage_policies(this, ipth, local, remote, oldencap,
+				if (manage_policies(this, ipth, oldlocal, oldremote, oldencap,
 									child_sa, FALSE) &&
 					manage_policies(this, ipth, local, remote, newencap,
 									child_sa, TRUE))

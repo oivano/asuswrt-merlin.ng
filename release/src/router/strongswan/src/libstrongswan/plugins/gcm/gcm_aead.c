@@ -106,8 +106,8 @@ static void sr_block(char *block)
  */
 static void mult_block(char *x, char *y, char *res)
 {
-	char z[BLOCK_SIZE], v[BLOCK_SIZE], r;
-	int bit, byte;
+	uint8_t z[BLOCK_SIZE], v[BLOCK_SIZE], r, mask;
+	int bit, byte, i;
 
 	r = 0xE1;
 	memset(z, 0, BLOCK_SIZE);
@@ -117,19 +117,14 @@ static void mult_block(char *x, char *y, char *res)
 	{
 		for (bit = 7; bit >= 0; bit--)
 		{
-			if (x[byte] & (1 << bit))
+			mask = constant_time_mask(x[byte] & (1 << bit));
+			for (i = 0; i < BLOCK_SIZE; i++)
 			{
-				memxor(z, v, BLOCK_SIZE);
+				z[i] ^= v[i] & mask;
 			}
-			if (v[BLOCK_SIZE - 1] & 0x01)
-			{
-				sr_block(v);
-				v[0] ^= r;
-			}
-			else
-			{
-				sr_block(v);
-			}
+			mask = constant_time_mask(v[BLOCK_SIZE - 1] & 0x01);
+			sr_block(v);
+			v[0] ^= r & mask;
 		}
 	}
 	memcpy(res, z, BLOCK_SIZE);

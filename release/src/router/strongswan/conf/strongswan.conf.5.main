@@ -738,14 +738,6 @@ Number of pseudo\-random bit requests from the DRBG before an automatic reseedin
 occurs.
 
 .TP
-.BR charon.plugins.duplicheck.enable " [yes]"
-Enable duplicheck plugin (if loaded).
-
-.TP
-.BR charon.plugins.duplicheck.socket " [unix://${piddir}/charon.dck]"
-Socket provided by the duplicheck plugin.
-
-.TP
 .BR charon.plugins.eap-aka.request_identity " [yes]"
 .TP
 .BR charon.plugins.eap-aka-3gpp.seq_check " []"
@@ -1023,10 +1015,8 @@ Maximum number of processed EAP\-TNC packets (0 = no limit).
 .TP
 .BR charon.plugins.eap-tnc.protocol " [tnccs-2.0]"
 IF\-TNCCS protocol version to be used 
-.RI "(" "tnccs\-1.1" ","
-.RI "" "tnccs\-2.0" ","
-.RI "" "tnccs\-dynamic" ")."
-
+.RI "(" "tnccs\-2.0" ""
+is the only option).
 
 .TP
 .BR charon.plugins.eap-ttls.fragment_size " [1024]"
@@ -1117,10 +1107,6 @@ received over a tunnel are injected to the local network only, but not to other
 IPsec clients.
 
 .TP
-.BR charon.plugins.gcrypt.quick_random " [no]"
-Use faster random numbers in gcrypt; for testing only, produces weak keys!
-
-.TP
 .BR charon.plugins.ha.autobalance " [0]"
 Interval in seconds to automatically balance handled segments between nodes. Set
 to 0 to disable.
@@ -1145,6 +1131,15 @@ default should be fine up to
 .BR charon.plugins.ha.monitor " [yes]"
 .TP
 .BR charon.plugins.ha.pools " []"
+.TP
+.BR charon.plugins.ha.receive_buffer_size " [8388608]"
+Maximum receive buffer size for the HA socket in bytes. This value controls how
+many bytes of HA messages can be queued to the socket. If set to 0, the default
+from `/proc/sys/net/core/rmem_default` will apply. Note that the kernel doubles
+the configured value to account for overhead. To exceed the system\-wide maximum
+from `/proc/sys/net/core/rmem_max`, special privileges (CAP_NET_ADMIN) are
+necessary, otherwise, the kernel silently caps the value.
+
 .TP
 .BR charon.plugins.ha.remote " []"
 .TP
@@ -1342,10 +1337,6 @@ MTU to set on TUN devices created for virtual IPs.
 .BR charon.plugins.kernel-pfroute.vip_wait " [1000]"
 Time in ms to wait until virtual IP addresses appear/disappear before failing.
 
-.TP
-.BR charon.plugins.led.activity_led " []"
-.TP
-.BR charon.plugins.led.blink_time " [50]"
 .TP
 .B charon.plugins.load-tester
 .br
@@ -1802,35 +1793,6 @@ How long to wait for a valid system time if an interval is configured. 0 to
 recheck indefinitely.
 
 .TP
-.BR charon.plugins.tnc-ifmap.client_cert " []"
-Path to X.509 certificate file of IF\-MAP client.
-
-.TP
-.BR charon.plugins.tnc-ifmap.client_key " []"
-Path to private key file of IF\-MAP client.
-
-.TP
-.BR charon.plugins.tnc-ifmap.device_name " []"
-Unique name of strongSwan server as a PEP and/or PDP device.
-
-.TP
-.BR charon.plugins.tnc-ifmap.renew_session_interval " [150]"
-Interval in seconds between periodic IF\-MAP RenewSession requests.
-
-.TP
-.BR charon.plugins.tnc-ifmap.server_cert " []"
-Path to X.509 certificate file of IF\-MAP server.
-
-.TP
-.BR charon.plugins.tnc-ifmap.server_uri " [https://localhost:8444/imap]"
-URI of the form [https://]servername[:port][/path].
-
-.TP
-.BR charon.plugins.tnc-ifmap.username_password " []"
-Credentials of IF\-MAP client of the form username:password. If set, make sure to
-adjust the permissions of the config file accordingly.
-
-.TP
 .BR charon.plugins.tnc-imc.dlclose " [yes]"
 Unload IMC after use.
 
@@ -1883,10 +1845,6 @@ Name of the strongSwan PDP as contained in the AAA certificate.
 .TP
 .BR charon.plugins.tnc-pdp.timeout " []"
 Timeout in seconds before closing incomplete connections.
-
-.TP
-.BR charon.plugins.tnccs-11.max_message_size " [45000]"
-Maximum size of a PA\-TNC message (XML & Base64 encoding).
 
 .TP
 .BR charon.plugins.tnccs-20.max_batch_size " [65522]"
@@ -2772,68 +2730,6 @@ Name of the tagCreator entity.
 .TP
 .BR libimcv.swid_gen.tag_creator.regid " [strongswan.org]"
 regid of the tagCreator entity.
-
-.TP
-.BR manager.database " []"
-Credential database URI for manager. If it contains a password, make sure to
-adjust the permissions of the config file accordingly.
-
-.TP
-.BR manager.debug " [no]"
-Enable debugging in manager.
-
-.TP
-.BR manager.load " []"
-Plugins to load in manager.
-
-.TP
-.BR manager.socket " []"
-FastCGI socket of manager, to run it statically.
-
-.TP
-.BR manager.threads " [10]"
-Threads to use for request handling.
-
-.TP
-.BR manager.timeout " [15m]"
-Session timeout for manager.
-
-.TP
-.BR medsrv.database " []"
-Mediation server database URI. If it contains a password, make sure to adjust
-the permissions of the config file accordingly.
-
-.TP
-.BR medsrv.debug " [no]"
-Debugging in mediation server web application.
-
-.TP
-.BR medsrv.dpd " [5m]"
-DPD timeout to use in mediation server plugin.
-
-.TP
-.BR medsrv.load " []"
-Plugins to load in mediation server plugin.
-
-.TP
-.BR medsrv.password_length " [6]"
-Minimum password length required for mediation server user accounts.
-
-.TP
-.BR medsrv.rekey " [20m]"
-Rekeying time on mediation connections in mediation server plugin.
-
-.TP
-.BR medsrv.socket " []"
-Run Mediation server web application statically on socket.
-
-.TP
-.BR medsrv.threads " [5]"
-Number of thread for mediation service web application.
-
-.TP
-.BR medsrv.timeout " [15m]"
-Session timeout for mediation service.
 
 .TP
 .BR pki.load " []"

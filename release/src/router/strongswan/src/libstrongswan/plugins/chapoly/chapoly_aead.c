@@ -216,6 +216,8 @@ METHOD(aead_t, decrypt, bool,
 	chunk_t *plain)
 {
 	u_char *out, icv[POLY_ICV_SIZE];
+	bool valid;
+
 	if (iv.len != CHACHA_IV_SIZE || encr.len < POLY_ICV_SIZE)
 	{
 		return FALSE;
@@ -233,7 +235,12 @@ METHOD(aead_t, decrypt, bool,
 		memcpy(out, encr.ptr, encr.len);
 	}
 	do_decrypt(this, encr.len, out, iv.ptr, assoc.len, assoc.ptr, icv);
-	return memeq_const(icv, encr.ptr + encr.len, POLY_ICV_SIZE);
+	valid = memeq_const(icv, encr.ptr + encr.len, POLY_ICV_SIZE);
+	if (!valid && plain)
+	{
+		chunk_free(plain);
+	}
+	return valid;
 }
 
 METHOD(aead_t, get_block_size, size_t,

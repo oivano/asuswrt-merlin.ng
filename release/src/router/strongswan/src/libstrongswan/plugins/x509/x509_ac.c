@@ -186,41 +186,25 @@ extern bool x509_parse_generalNames(chunk_t blob, int level0, bool implicit,
 static bool parse_directoryName(chunk_t blob, int level, bool implicit,
 								identification_t **name)
 {
-	identification_t *directoryName;
-	enumerator_t *enumerator;
-	bool first = TRUE;
 	linked_list_t *list;
 
 	list = linked_list_create();
 	if (!x509_parse_generalNames(blob, level, implicit, list))
 	{
+		list->destroy_offset(list, offsetof(identification_t, destroy));
+		return FALSE;
+	}
+	if (list->remove_first(list, (void**)name) != SUCCESS)
+	{
+		DBG1(DBG_ASN, "no directoryName found");
 		list->destroy(list);
 		return FALSE;
 	}
-
-	enumerator = list->create_enumerator(list);
-	while (enumerator->enumerate(enumerator, &directoryName))
+	if (list->get_count(list))
 	{
-		if (first)
-		{
-			*name = directoryName;
-			first = FALSE;
-		}
-		else
-		{
-			DBG1(DBG_ASN, "more than one directory name - first selected");
-			directoryName->destroy(directoryName);
-			break;
-		}
+		DBG1(DBG_ASN, "more than one directory name - first selected");
 	}
-	enumerator->destroy(enumerator);
-	list->destroy(list);
-
-	if (first)
-	{
-		DBG1(DBG_ASN, "no directoryName found");
-		return FALSE;
-	}
+	list->destroy_offset(list, offsetof(identification_t, destroy));
 	return TRUE;
 }
 
@@ -265,26 +249,24 @@ static void parse_roleSyntax(chunk_t blob, int level0)
  */
 static const asn1Object_t ietfAttrSyntaxObjects[] =
 {
-	{ 0, "ietfAttrSyntax",		ASN1_SEQUENCE,		ASN1_NONE }, /*  0 */
-	{ 1,   "policyAuthority",	ASN1_CONTEXT_C_0,	ASN1_OPT |
-													ASN1_BODY }, /*  1 */
-	{ 1,   "end opt",			ASN1_EOC,			ASN1_END  }, /*  2 */
-	{ 1,   "values",			ASN1_SEQUENCE,		ASN1_LOOP }, /*  3 */
-	{ 2,     "octets",			ASN1_OCTET_STRING,	ASN1_OPT |
-													ASN1_BODY }, /*  4 */
-	{ 2,     "end choice",		ASN1_EOC,			ASN1_END  }, /*  5 */
-	{ 2,     "oid",				ASN1_OID,			ASN1_OPT |
-													ASN1_BODY }, /*  6 */
-	{ 2,     "end choice",		ASN1_EOC,			ASN1_END  }, /*  7 */
-	{ 2,     "string",			ASN1_UTF8STRING,	ASN1_OPT |
-													ASN1_BODY }, /*  8 */
-	{ 2,     "end choice",		ASN1_EOC,			ASN1_END  }, /*  9 */
-	{ 1,   "end loop",			ASN1_EOC,			ASN1_END  }, /* 10 */
-	{ 0, "exit",				ASN1_EOC,			ASN1_EXIT }
+	{ 0, "ietfAttrSyntax",		ASN1_SEQUENCE,		ASN1_NONE            }, /*  0 */
+	{ 1,   "policyAuthority",	ASN1_CONTEXT_C_0,	ASN1_OPT|ASN1_BODY   }, /*  1 */
+	{ 1,   "end opt",			ASN1_EOC,			ASN1_END             }, /*  2 */
+	{ 1,   "values",			ASN1_SEQUENCE,		ASN1_LOOP            }, /*  3 */
+	{ 2,     "value choice",	ASN1_EOC,			ASN1_CHOICE          }, /*  4 */
+	{ 3,       "octets",		ASN1_OCTET_STRING,	ASN1_OPT|ASN1_BODY   }, /*  5 */
+	{ 3,       "end choice",	ASN1_EOC,			ASN1_END|ASN1_CH     }, /*  6 */
+	{ 3,       "oid",			ASN1_OID,			ASN1_OPT|ASN1_BODY   }, /*  7 */
+	{ 3,       "end choice",	ASN1_EOC,			ASN1_END|ASN1_CH     }, /*  8 */
+	{ 3,       "string",		ASN1_UTF8STRING,	ASN1_OPT|ASN1_BODY   }, /*  9 */
+	{ 3,       "end choice",	ASN1_EOC,			ASN1_END|ASN1_CH     }, /* 10 */
+	{ 2,     "end choices",		ASN1_EOC,			ASN1_END|ASN1_CHOICE }, /* 11 */
+	{ 1,   "end loop",			ASN1_EOC,			ASN1_END             }, /* 12 */
+	{ 0, "exit",				ASN1_EOC,			ASN1_EXIT            }
 };
-#define IETF_ATTR_OCTETS	 4
-#define IETF_ATTR_OID		 6
-#define IETF_ATTR_STRING	 8
+#define IETF_ATTR_OCTETS	 5
+#define IETF_ATTR_OID		 7
+#define IETF_ATTR_STRING	 9
 
 /**
  * Parse group memberships, IETF attributes
@@ -539,6 +521,7 @@ static bool parse_certificate(private_x509_ac_t *this)
 						DBG2(DBG_ASN, "  need to parse crlDistributionPoints");
 						break;
 					case OID_AUTHORITY_KEY_ID:
+						chunk_free(&this->authKeyIdentifier);
 						this->authKeyIdentifier =
 								x509_parse_authorityKeyIdentifier(object,
 											level, &this->authKeySerialNumber);
@@ -913,15 +896,19 @@ METHOD(certificate_t, has_issuer, id_match_t,
 	{
 		return ID_MATCH_PERFECT;
 	}
-	return this->issuerName->matches(this->issuerName, issuer);
+	if (this->issuerName)
+	{
+		return this->issuerName->matches(this->issuerName, issuer);
+	}
+	return ID_MATCH_NONE;
 }
 
 METHOD(certificate_t, issued_by, bool,
 	private_x509_ac_t *this, certificate_t *issuer,
 	signature_params_t **scheme)
 {
-	public_key_t *key;
-	bool valid;
+	public_key_t *key = NULL;
+	bool valid = FALSE;
 	x509_t *x509 = (x509_t*)issuer;
 
 	/* check if issuer is an X.509 AA certificate */
@@ -945,29 +932,32 @@ METHOD(certificate_t, issued_by, bool,
 		if (!key->get_fingerprint(key, KEYID_PUBKEY_SHA1, &fingerprint) ||
 			!chunk_equals(fingerprint, this->authKeyIdentifier))
 		{
-			return FALSE;
+			goto out;
 		}
 	}
 	else
 	{
-		if (!this->issuerName->equals(this->issuerName,
+		if (!this->issuerName ||
+			!this->issuerName->equals(this->issuerName,
 									  issuer->get_subject(issuer)))
 		{
-			return FALSE;
+			goto out;
 		}
 	}
 
 	if (!key)
 	{
-		return FALSE;
+		goto out;
 	}
 	valid = key->verify(key, this->scheme->scheme, this->scheme->params,
 						this->certificateInfo, this->signature);
-	key->destroy(key);
 	if (valid && scheme)
 	{
 		*scheme = signature_params_clone(this->scheme);
 	}
+
+out:
+	DESTROY_IF(key);
 	return valid;
 }
 

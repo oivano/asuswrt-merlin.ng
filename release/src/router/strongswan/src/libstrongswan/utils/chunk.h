@@ -331,10 +331,25 @@ static inline chunk_t chunk_skip_zero(chunk_t chunk)
 chunk_t chunk_copy_pad(chunk_t dst, chunk_t src, u_char chr);
 
 /**
- *  Compare two chunks, returns zero if a equals b
- *  or negative/positive if a is small/greater than b
+ * Compare two chunks, returns zero if they are equal or negative/positive if
+ * a is smaller/greater than b.
+ *
+ * Note that if the chunks are not of equal length, their prefix is not
+ * compared, only their lengths.
  */
 int chunk_compare(chunk_t a, chunk_t b);
+
+/**
+ * Compare two chunks, returns zero if they are equal or negative/positive if
+ * a is smaller/greater than b.
+ *
+ * Unlike chunk_compare(), this first compares the two chunks' prefix and only
+ * then falls back to comparing their lengths (shorter is "lower") if the
+ * prefix is equal.
+ *
+ * This can e.g. be used to compare nonces.
+ */
+int chunk_compare_prefix(chunk_t a, chunk_t b);
 
 /**
  * Compare two chunks for equality,
@@ -347,16 +362,34 @@ static inline bool chunk_equals(chunk_t a, chunk_t b)
 }
 
 /**
- * Compare two chunks for equality, constant time for cryptographic purposes.
+ * Compare a secret chunk against some arbitrary input in constant time for
+ * cryptographic purposes.
  *
- * Note that this function is constant time only for chunks with the same
- * length, i.e. it does not protect against guessing the length of one of the
- * chunks.
+ * If neither chunk is NULL, this function is always constant time and bound by
+ * the secret's length.  If the length is known to be equal, the order of the
+ * arguments doesn't matter.
+ *
+ * @param secret        expected/reference value (loop bound)
+ * @param input         value to verify against secret
+ * @return              TRUE if the chunks are equal
  */
-static inline bool chunk_equals_const(chunk_t a, chunk_t b)
+static inline bool chunk_equals_const(chunk_t secret, chunk_t input)
 {
-	return a.ptr != NULL  && b.ptr != NULL &&
-			a.len == b.len && memeq_const(a.ptr, b.ptr, a.len);
+	u_int diff = 0;
+	size_t i;
+
+	if (!secret.ptr || !input.ptr)
+	{
+		return FALSE;
+	}
+	diff |= constant_time_neq64(secret.len, input.len);
+	for (i = 0; i < secret.len; i++)
+	{
+		/* the ternary here is OK as the input length is known to the attacker
+		 * and the overall time is always bound by the secret's length */
+		diff |= secret.ptr[i] ^ (i < input.len ? input.ptr[i]: 0);
+	}
+	return !diff;
 }
 
 /**
