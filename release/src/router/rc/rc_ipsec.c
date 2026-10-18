@@ -1212,6 +1212,16 @@ void rc_ipsec_secrets_set()
 					else if(strcmp(prof[prof_count][i].local_public_interface,"wan2") == 0){
 						strcpy(prof[prof_count][i].local_pub_ip,nvram_safe_get("wan1_ipaddr"));
 					}
+					else if(strcmp(prof[prof_count][i].local_public_interface,"lan") == 0 ||
+						strcmp(prof[prof_count][i].local_public_interface,"dsl") == 0){
+						unit = get_wanunit_by_type(strcmp(prof[prof_count][i].local_public_interface,"dsl") == 0 ?
+							WANS_DUALWAN_IF_DSL : WANS_DUALWAN_IF_LAN);
+						prof[prof_count][i].local_pub_ip[0] = '\0';
+						if(unit >= WAN_UNIT_FIRST && unit < WAN_UNIT_MAX){
+							wan_prefix(unit, prefix);
+							strcpy(prof[prof_count][i].local_pub_ip,nvram_safe_get(strcat_r(prefix, "ipaddr", tmp)));
+						}
+					}
 					else if(strcmp(prof[prof_count][i].local_public_interface,"usb") == 0) {
 						for(unit = WAN_UNIT_FIRST; unit < WAN_UNIT_MAX; ++unit){
 							if (dualwan_unit__usbif(unit)) {
@@ -1334,9 +1344,14 @@ void ipsec_conf_local_set(FILE *fp, int prof_idx, ipsec_prof_type_t prof_type)
 	else if(0 == strcmp(prof[prof_type][prof_idx].local_public_interface, "wan2")){
 		strcpy(left_ipaddr, nvram_safe_get("wan1_ipaddr"));
 	}
-	else if(0 == strcmp(prof[prof_type][prof_idx].local_public_interface, "lan")){
-		
-		strcpy(left_ipaddr, nvram_safe_get("lan_ipaddr"));
+	else if(0 == strcmp(prof[prof_type][prof_idx].local_public_interface, "lan") ||
+		0 == strcmp(prof[prof_type][prof_idx].local_public_interface, "dsl")){
+		unit = get_wanunit_by_type(strcmp(prof[prof_type][prof_idx].local_public_interface, "dsl") == 0 ?
+			WANS_DUALWAN_IF_DSL : WANS_DUALWAN_IF_LAN);
+		if(unit >= WAN_UNIT_FIRST && unit < WAN_UNIT_MAX){
+			snprintf(tmp_str, sizeof(tmp_str), "wan%d_ipaddr", unit);
+			snprintf(left_ipaddr, sizeof(left_ipaddr), "%s", nvram_safe_get(tmp_str));
+		}
 	}
 	else if(0 == strcmp(prof[prof_type][prof_idx].local_public_interface, "usb")){
 		tmp_str[0]='\0';
@@ -2429,7 +2444,7 @@ void rc_ipsec_set(ipsec_conn_status_t conn_status, ipsec_prof_type_t prof_type)
     uint32_t i = 0; //, cur_bitmap_en= 0;
 	int prof_count = 0;
     FILE *fp = NULL, *fp1 = NULL;
-    char interface[4];
+	char interface[SZ_MIN];
 	char *argv[3];
 	int unit = 0;
 	char word[80], *next;
@@ -2534,8 +2549,16 @@ void rc_ipsec_set(ipsec_conn_status_t conn_status, ipsec_prof_type_t prof_type)
 				else if(strcmp(prof[prof_count][i].local_public_interface,"wan2") == 0){
 					strcpy(interface,nvram_safe_get("wan1_gw_ifname"));
 				}
-				else if(strcmp(prof[prof_count][i].local_public_interface,"lan") == 0) 
-				strcpy(interface,"br0");
+				else if(strcmp(prof[prof_count][i].local_public_interface,"lan") == 0 ||
+					strcmp(prof[prof_count][i].local_public_interface,"dsl") == 0){
+					unit = get_wanunit_by_type(strcmp(prof[prof_count][i].local_public_interface,"dsl") == 0 ?
+						WANS_DUALWAN_IF_DSL : WANS_DUALWAN_IF_LAN);
+					interface[0] = '\0';
+					if(unit >= WAN_UNIT_FIRST && unit < WAN_UNIT_MAX){
+						snprintf(tmpStr, sizeof(tmpStr), "wan%d_gw_ifname", unit);
+						strcpy(interface,nvram_safe_get(tmpStr));
+					}
+				}
 				else if(strcmp(prof[prof_count][i].local_public_interface,"usb") == 0){ 
 					foreach(word, nvram_safe_get("wan_ifnames"), next) {
 						if (0 == strcmp(word,"usb")){
@@ -2971,6 +2994,111 @@ static void _ipsec_tune_rpf_for_vti(const char *lan_ifname, const char *vif)
 		_ipsec_set_rp_filter(vif, "0");
 }
 
+static int _ipsec_get_wan_underlay(char *wan_if, char *gateway, size_t size,
+		char *wan_net)
+{
+	int wan_unit = wan_ifunit(wan_if);
+	char prefix[16];
+	struct in_addr address, mask;
+	uint32_t mask_bits;
+
+	snprintf(prefix, sizeof(prefix), "wan%d_", wan_primary_ifunit());
+	snprintf(gateway, size, "%s", nvram_pf_safe_get(prefix, "gateway"));
+	if (wan_unit < WAN_UNIT_FIRST || wan_unit >= WAN_UNIT_MAX ||
+	    wan_unit != get_wanunit_by_type(WANS_DUALWAN_IF_LAN))
+		return 0;
+	snprintf(prefix, sizeof(prefix), "wan%d_", wan_unit);
+	snprintf(gateway, size, "%s", nvram_pf_safe_get(prefix, "gateway"));
+	if (inet_pton(AF_INET, nvram_pf_safe_get(prefix, "ipaddr"), &address) != 1 ||
+	    address.s_addr == INADDR_ANY ||
+	    inet_pton(AF_INET, nvram_pf_safe_get(prefix, "netmask"), &mask) != 1)
+		return 0;
+	mask_bits = ntohl(mask.s_addr);
+	if (!mask_bits || ((~mask_bits) & ((~mask_bits) + 1)))
+		return 0;
+	ip2class(nvram_pf_safe_get(prefix, "ipaddr"), nvram_pf_safe_get(prefix, "netmask"), wan_net);
+	return 1;
+}
+
+static int _ipsec_wan_rules(const char *action, const char *pref,
+		const char *network, const char *gateway)
+{
+	struct in_addr address;
+	int ret;
+
+	ret = eval("ip", "-4", "rule", action, "pref", pref, "to", network, "lookup", "main");
+	if (inet_pton(AF_INET, gateway, &address) == 1 && address.s_addr != INADDR_ANY)
+		ret |= eval("ip", "-4", "rule", action, "pref", pref, "to", gateway, "lookup", "main");
+	return ret;
+}
+
+static void _ipsec_underlay_bypass_rules(int unit, int up, int ethernet_wan,
+		const char *gateway, const char *wan_net)
+{
+	char pref[16], path[64], temporary[68];
+	char network[32] = {0}, saved_gateway[16] = {0};
+	unsigned int refs = 0;
+	int lock, written, install;
+	FILE *fp;
+
+	if (unit < 1 || unit > MAX_PROF_NUM)
+		return;
+	lock = file_lock("ipsec-wan");
+	if (lock < 0)
+		return;
+	snprintf(pref, sizeof(pref), "%d", 130 + unit);
+	snprintf(path, sizeof(path), "/tmp/ipsec-wan-%d", unit);
+	snprintf(temporary, sizeof(temporary), "%s.new", path);
+	fp = fopen(path, "r");
+	if (fp) {
+		if (fscanf(fp, "%u %31s %15s", &refs, network, saved_gateway) != 3 ||
+		    refs > 1024 || !_ipsec_valid_route_prefix(network)) {
+			refs = 0;
+			network[0] = '\0';
+		}
+		fclose(fp);
+	}
+	if (!refs && (!up || !ethernet_wan))
+		goto done;
+	if (!up || !ethernet_wan) {
+		if (!ethernet_wan && up)
+			refs = 0;
+		else
+			--refs;
+		if (!refs) {
+			_ipsec_wan_rules("del", pref, network, saved_gateway);
+			unlink(path);
+			goto done;
+		}
+	}
+	else {
+		install = !refs || strcmp(network, wan_net) ||
+			strcmp(saved_gateway, *gateway ? gateway : "-");
+		if (refs && install)
+			_ipsec_wan_rules("del", pref, network, saved_gateway);
+		snprintf(network, sizeof(network), "%s", wan_net);
+		snprintf(saved_gateway, sizeof(saved_gateway), "%s", *gateway ? gateway : "-");
+		if (install && _ipsec_wan_rules("add", pref, network, saved_gateway))
+			goto failed;
+		++refs;
+	}
+	fp = fopen(temporary, "w");
+	if (!fp)
+		goto failed;
+	written = fprintf(fp, "%u %s %s\n", refs, network, saved_gateway);
+	if (fclose(fp) || written < 0 || rename(temporary, path))
+		goto failed;
+	goto done;
+
+failed:
+	_ipsec_wan_rules("del", pref, network, saved_gateway);
+	unlink(path);
+	unlink(temporary);
+	logmessage("ipsec_route", "cannot retain Ethernet WAN exclusions for client %d", unit);
+done:
+	file_unlock(lock);
+}
+
 static void _ipsec_updown_host_net_cli(int unit)
 {
 	char vif[IFNAMSIZ] = {0};
@@ -3268,12 +3396,13 @@ static void _get_my_ip_by_subnet(const char* subnet, char *ip, size_t len, int v
 	}
 }
 
-static void _ipsec_updown_net_net()
+static void _ipsec_updown_net_net(int unit, int vpn_type)
 {
 	char *verb = safe_getenv("PLUTO_VERB");
 	int v6 = strstr(verb, "v6") ? 1 : 0;
-	char nv[16] = {0};
 	char wan_gateway[64] = {0};
+	char wan_net[32] = {0};
+	int ethernet_wan = 0;
 	char *wan_if = safe_getenv("PLUTO_INTERFACE");
 	char *peer_net = safe_getenv("PLUTO_PEER_CLIENT");
 	char *my_net = safe_getenv("PLUTO_MY_CLIENT");
@@ -3283,11 +3412,12 @@ static void _ipsec_updown_net_net()
 		snprintf(wan_gateway, sizeof(wan_gateway), "%s", ipv6_gateway_address());
 	}
 	else {
-		snprintf(nv, sizeof(nv), "wan%d_gateway", wan_primary_ifunit());
-		snprintf(wan_gateway, sizeof(wan_gateway), "%s", nvram_safe_get(nv));
+		ethernet_wan = _ipsec_get_wan_underlay(wan_if, wan_gateway, sizeof(wan_gateway), wan_net);
 	}
 
 	if (strstr(verb, "up")) {
+		if (!v6 && vpn_type == VPN_TYPE_NET_NET_CLI)
+			_ipsec_underlay_bypass_rules(unit, 1, ethernet_wan, wan_gateway, wan_net);
 		_get_my_ip_by_subnet(my_net, my_srcip, sizeof(my_srcip), v6);
 		cprintf("my ip: [%s]\n", my_srcip);
 		if (_ipsec_valid_route_prefix(peer_net))
@@ -3299,6 +3429,8 @@ static void _ipsec_updown_net_net()
 		_ipsec_log_policy_table("220", "ipsec_route");
 	}
 	else { //down
+		if (!v6 && vpn_type == VPN_TYPE_NET_NET_CLI)
+			_ipsec_underlay_bypass_rules(unit, 0, ethernet_wan, wan_gateway, wan_net);
 		_ipsec_lan_exclude_route_del("220");
 		logmessage("ipsec_route", "ipsec down: policy table 220 after LAN exclusion cleanup");
 		_ipsec_log_policy_table("220", "ipsec_route");
@@ -3332,7 +3464,7 @@ int ipsec_updown_main(int argc, char *argv[])
 		_ipsec_updown_host_net_cli(unit);
 	}
 	else {
-		_ipsec_updown_net_net();
+		_ipsec_updown_net_net(unit, vpn_type);
 	}
 
 	return 0;
