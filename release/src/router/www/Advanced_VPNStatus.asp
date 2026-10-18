@@ -55,15 +55,14 @@ function initial(){
 		showhide("client5", 0);
 	}
 
-	if (ipsec_srv_support)
-		setTimeout("refresh_ipsec_data()",1200);
-	else
+	if (!ipsec_srv_support)
 		showhide("ipsecsrv", 0);
 
-	if (ipsec_cli_support)
-		setTimeout("refresh_ipsec_data()",1200);
-	else
+	if (!ipsec_cli_support)
 		showhide("ipsecclnt", 0);
+
+	if (ipsec_srv_support || ipsec_cli_support)
+		setTimeout("refresh_ipsec_data()",1200);
 
 	if (!openconnect_cli_support) {
 		showhide("openconnect1", 0);
@@ -77,7 +76,7 @@ function refreshData(){
 		url: 'ajax_vpn_status.asp',
 		dataType: 'script',
 		error: function(xhr){
-			refreshData();
+			setTimeout("refreshData()",2000);
 		},
 		success: function(response){
 			displayData();
@@ -463,6 +462,19 @@ function parseIPSecData(profileName){
 		document.getElementById('ipsec_cli_Block').innerHTML += code;
 }
 
+function getIPSecClientStatus(profileStatus){
+	var clientRows = profileStatus.split("<");
+	var hasClients = false;
+	for(var i = 0; i < clientRows.length; i++){
+		if(clientRows[i] == "")
+			continue;
+		hasClients = true;
+		if(clientRows[i].split(">")[1] == "1")
+			return "connected";
+	}
+	return hasClients ? "connecting" : "none";
+}
+
 function show_vpnc_rulelist(){
 	if(vpnc_clientlist_array[0] == "<")
 		vpnc_clientlist_array = vpnc_clientlist_array.split("<")[1];
@@ -532,15 +544,14 @@ function refresh_ipsec_data() {
 			for(var i = 0; i < ipsec_connect_status.length; i += 1) {
 				ipsec_connect_status_array[ipsec_connect_status[i][0]] = ipsec_connect_status[i][1];
 			}
+			document.getElementById('ipsec_srv_Block').innerHTML = "";
 			if(ipsec_connect_status_array["Host-to-Net"] != undefined) {
-				document.getElementById('ipsec_srv_Block').innerHTML = "";
 				var connected_count = (ipsec_connect_status_array["Host-to-Net"].split("<").length);
 				if(connected_count > 0) {
 					parseIPSecData("Host-to-Net");
 				}
 			}
 			if(ipsec_connect_status_array["Host-to-Netv2"] != undefined) {
-				document.getElementById('ipsec_srv_Block').innerHTML = "";
 				var connected_count = (ipsec_connect_status_array["Host-to-Netv2"].split("<").length);
 				if(connected_count > 0) {
 					parseIPSecData("Host-to-Netv2");
@@ -548,12 +559,14 @@ function refresh_ipsec_data() {
 			}
 			if(ipsec_connect_status_array["other"] != undefined) {
 				document.getElementById('ipsec_cli_Block').innerHTML = "";
-				var connected_count = (ipsec_connect_status_array["other"].split("<").length);
-				if(connected_count > 0) {
+				var ipsec_client_status = getIPSecClientStatus(ipsec_connect_status_array["other"]);
+				if(ipsec_client_status != "none") {
 					parseIPSecData("other");
-					// Update status to connected
 					if(document.getElementById("ipsec_cli_Block_Running")) {
-						document.getElementById("ipsec_cli_Block_Running").innerHTML = " - Connected";
+						if(ipsec_client_status == "connected")
+							document.getElementById("ipsec_cli_Block_Running").innerHTML = " - Connected";
+						else
+							document.getElementById("ipsec_cli_Block_Running").innerHTML = " - Connecting...";
 					}
 				}
 				else {
