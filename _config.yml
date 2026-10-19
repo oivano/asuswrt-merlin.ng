@@ -1,0 +1,11 @@
+title: asuswrt-merlin.ng
+description: Custom Asus Merlin firmware for DSL-AC68U routers
+show_downloads: false
+theme: jekyll-theme-minimal
+exclude:
+  - release/**
+  - tools/**
+  - .circleci/**
+  - AGENTS.md
+  - CLAUDE.md
+  - CODEBASE-SUMMARY.md
