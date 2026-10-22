@@ -1,246 +1,299 @@
+v1.9.27 (Oct 18, 2026) [Jirka Hladky]
+
+- Fix signed integer overflow and undefined shifts in vfs topology parsing [liweiganga]
+- Fix out-of-bounds write in vfs_parseMask with masks of more than 8 words
+  (more than 256 possible CPUs) and stale msw after bitmap clear [liweiganga]
+- vfs_parseList: avoid signed overflow and negative bitmap index on huge numbers
+
 v1.9.26 (Jun 24, 2026) [Jirka Hladky]
-* Fix 100% CPU spin when --no-command is used (BZ#2492029)
-* Initialize socket_fd to -1 so daemon loop skips accept() correctly
+
+- Fix 100% CPU spin when --no-command is used (BZ#2492029)
+- Initialize socket_fd to -1 so daemon loop skips accept() correctly
 
 v1.9.25 (Jun 24, 2026) [Jirka Hladky]
-* Add haveged-initramfs.service for use inside the initramfs (BZ#2491739)
-* Update dracut module to use initramfs-specific service file
-* Fix: --no-command in initramfs broke switch-root handoff, causing
+
+- Add haveged-initramfs.service for use inside the initramfs (BZ#2491739)
+- Update dracut module to use initramfs-specific service file
+- Fix: --no-command in initramfs broke switch-root handoff, causing
   emergency mode on systems where haveged was started but not enabled
 
 v1.9.24 (Jun 19, 2026) [Jirka Hladky]
-* Add --no-command / -C flag to disable command mode at runtime
-* Disable command mode in haveged.service and haveged-once.service
-* Enable PrivateNetwork=true and remove ReadWritePaths=/dev/shm in service files
+
+- Add --no-command / -C flag to disable command mode at runtime
+- Disable command mode in haveged.service and haveged-once.service
+- Enable PrivateNetwork=true and remove ReadWritePaths=/dev/shm in service files
 
 v1.9.23 (Jun 18, 2026) [Jirka Hladky]
-* Use O_EXCL with sem_open to prevent semaphore pre-planting attacks [pyllyukko]
-* Recover stale semaphores after SIGKILL by unlinking and retrying
-* Add sem_close before sem_unlink for proper cleanup ordering
-* Fix compilation when NO_COMMAND_MODE is defined
-* Fix out-of-bounds memory access in safein()/safeout() on socket errors
-* Reject command socket connections from different user namespaces
-* Use O_NOFOLLOW for PID file to prevent symlink attacks
-* Open random device with O_CLOEXEC to prevent fd leak across execv
-* Restrict semaphore permissions from 0644 to 0600
+
+- Use O_EXCL with sem_open to prevent semaphore pre-planting attacks [pyllyukko]
+- Recover stale semaphores after SIGKILL by unlinking and retrying
+- Add sem_close before sem_unlink for proper cleanup ordering
+- Fix compilation when NO_COMMAND_MODE is defined
+- Fix out-of-bounds memory access in safein()/safeout() on socket errors
+- Reject command socket connections from different user namespaces
+- Use O_NOFOLLOW for PID file to prevent symlink attacks
+- Open random device with O_CLOEXEC to prevent fd leak across execv
+- Restrict semaphore permissions from 0644 to 0600
 
 v1.9.22 (May 21, 2026) [Jirka Hladky]
-* Add ReadWritePaths=/dev/shm to systemd service for semaphore creation
+
+- Add ReadWritePaths=/dev/shm to systemd service for semaphore creation
   under ProtectSystem=full sandboxing
 
 v1.9.21 (May 14, 2026) [Jirka Hladky]
-* Fix privilege escalation via command socket (CVE-2026-41054)
-* Check peer credentials before reading command (CVE-2026-41054)
-* Handle failing opening of semaphore [Werner Fink]
-* Fix /dev/shm permissions to use sticky bit [Dirk Müller]
-* Use chmod after mkdir to ensure correct /dev/shm permissions
-* Update libtool: add lib64 search paths, remove dead code
+
+- Fix privilege escalation via command socket (CVE-2026-41054)
+- Check peer credentials before reading command (CVE-2026-41054)
+- Handle failing opening of semaphore [Werner Fink]
+- Fix /dev/shm permissions to use sticky bit [Dirk Müller]
+- Use chmod after mkdir to ensure correct /dev/shm permissions
+- Update libtool: add lib64 search paths, remove dead code
 
 v1.9.20 (Apr 29, 2026) [Jirka Hladky]
-* Only warn when creating of named semaphore fails
-* Creating /dev/shm if its not existing, otherwise haveged fails to start
-* Fixed several typos
+
+- Only warn when creating of named semaphore fails
+- Creating /dev/shm if its not existing, otherwise haveged fails to start
+- Fixed several typos
 
 v1.9.19 (Oct 02, 2024) [Jirka Hladky]
-* Added --time_interval N to add entropy unconditionally every N seconds
+
+- Added --time_interval N to add entropy unconditionally every N seconds
 
 v1.9.18 (Apr 09, 2022) [Jirka Hladky]
-* Round bits up and target full pool size [Jason A. Donenfeld]
-* Specify right kernel commit in README [Jason A. Donenfeld]
+
+- Round bits up and target full pool size [Jason A. Donenfeld]
+- Specify right kernel commit in README [Jason A. Donenfeld]
 
 v1.9.17 (Jan 08, 2022)
-* Added new verbose mode [Jirka Hladky]
-* haveged-once.service - use @SBIN_DIR@ instead of hard-coded path [Jirka Hladky]
+
+- Added new verbose mode [Jirka Hladky]
+- haveged-once.service - use @SBIN_DIR@ instead of hard-coded path [Jirka Hladky]
 
 v1.9.16 (Jan 02, 2022)
-* Allow newuname syscall [Jirka Hladky]
-* Fix: haveged cannot be run as an application if also running as a daemon [Günther Brunthaler]
-* Add entropy unconditionally at the start and then every 60 seconds [Jirka Hladky]
-* New parameter --once to refill entropy once and quit immediately [Jirka Hladky]
-* Added haveged-once.service to provide entropy once (intended for initramfs) [Jirka Hladky]
+
+- Allow newuname syscall [Jirka Hladky]
+- Fix: haveged cannot be run as an application if also running as a daemon [Günther Brunthaler]
+- Add entropy unconditionally at the start and then every 60 seconds [Jirka Hladky]
+- New parameter --once to refill entropy once and quit immediately [Jirka Hladky]
+- Added haveged-once.service to provide entropy once (intended for initramfs) [Jirka Hladky]
 
 v1.9.15 (Sep 30, 2021)
-* Check for sys/auxv.h before using it. [Peter Seiderer]
-* fix build on uclibc (origin/pr/58) [Pierre-Jean Texier]
-* Improved make check tests [Jirka Hladky]
-* Removed old init.d files. Configs are under contrib directory [Jirka Hladky]
-* Support for Linux kernel LRNG patch set
+
+- Check for sys/auxv.h before using it. [Peter Seiderer]
+- fix build on uclibc (origin/pr/58) [Pierre-Jean Texier]
+- Improved make check tests [Jirka Hladky]
+- Removed old init.d files. Configs are under contrib directory [Jirka Hladky]
+- Support for Linux kernel LRNG patch set
 
 v1.9.14 (Jan 01, 2021)
-* made enttest configurable
-* havegecmd.c - new command added to close the communication socket [Werner Fink]
+
+- made enttest configurable
+- havegecmd.c - new command added to close the communication socket [Werner Fink]
 
 v1.9.13 (Jun 28, 2020)
-* added support for --version [Jirka Hladky]
-* updated systemd service file [Jirka Hladky]
+
+- added support for --version [Jirka Hladky]
+- updated systemd service file [Jirka Hladky]
 
 v1.9.12 (Jun 18, 2020)
-* fix a memory leak in havege_destroy [Anakin Zhang]
+
+- fix a memory leak in havege_destroy [Anakin Zhang]
 
 v1.9.11 (Jun 11, 2020)
-* updated version reported by program [Jirka Hladky]
+
+- updated version reported by program [Jirka Hladky]
 
 v1.9.10 (Jun 11, 2020)
-* fix ordering cycle with private tmp [Christian Hesse]
+
+- fix ordering cycle with private tmp [Christian Hesse]
 
 v1.9.9 (Jun 9, 2020)
-* Updated systemd service file [nicoo]
-* Bump soname [nicoo]
-* Fix crash on shutdown in threaded mode [Sergei Trofimovich]
-* Fix compilation with --enable-threads [Lars Wendler]
+
+- Updated systemd service file [nicoo]
+- Bump soname [nicoo]
+- Fix crash on shutdown in threaded mode [Sergei Trofimovich]
+- Fix compilation with --enable-threads [Lars Wendler]
 
 v1.9.8 (Sep 30, 2019)
-* Fix for Unresolved symbol error_exit in libhavege #20 by pld-gitsync [Jirka Hladky]
-* order after systemd-tmpfiles-setup-dev.service (origin/pr/21) [Christian Hesse]
-* use systemd security features [Christian Hesse]
-* do not run in container [Christian Hesse]
-* do not use carriage return in line break [Christian Hesse]
-* Fixed invalid UTF-8 codes in ChangeLog [Jirka Hladky]
 
+- Fix for Unresolved symbol error_exit in libhavege #20 by pld-gitsync [Jirka Hladky]
+- order after systemd-tmpfiles-setup-dev.service (origin/pr/21) [Christian Hesse]
+- use systemd security features [Christian Hesse]
+- do not run in container [Christian Hesse]
+- do not use carriage return in line break [Christian Hesse]
+- Fixed invalid UTF-8 codes in ChangeLog [Jirka Hladky]
 
 v1.9.5 (Aug 20, 2019)
- * Added test for /dev/random symlink [Jirka Hladky]
- * Update to automake 1.16 [Jirka Hladky]
- * Fix segv at start [Andrew]
- * Fixed built issue on Cygwin [jbaker6953]
- * Fix segfault on arm machines (origin/pr/7) [Natanael Copa]
- * init.d/Makefile.am - add missing dependency [Jackie Huang]
- * service.redhat - update PIDFile [Pierre-Jean Texier]
- * Fix type mismatch in get_poolsize [Andreas Schwab]
- * Fixup upstream changelog [Nicolas Braud-Santoni]
- * Remove support for CPUID on ia64 (origin/pr/19) [Jeremy Bobbio]
- * Output some progress during CUSUM and RANDOM EXCURSION test [Sven Hartge]
- * Diagnostics capture mode now works correctly [Ethan Rahn]
+
+- Added test for /dev/random symlink [Jirka Hladky]
+- Update to automake 1.16 [Jirka Hladky]
+- Fix segv at start [Andrew]
+- Fixed built issue on Cygwin [jbaker6953]
+- Fix segfault on arm machines (origin/pr/7) [Natanael Copa]
+- init.d/Makefile.am - add missing dependency [Jackie Huang]
+- service.redhat - update PIDFile [Pierre-Jean Texier]
+- Fix type mismatch in get_poolsize [Andreas Schwab]
+- Fixup upstream changelog [Nicolas Braud-Santoni]
+- Remove support for CPUID on ia64 (origin/pr/19) [Jeremy Bobbio]
+- Output some progress during CUSUM and RANDOM EXCURSION test [Sven Hartge]
+- Diagnostics capture mode now works correctly [Ethan Rahn]
 
 v1.9.4 (Aug 11, 2018)
- * Avoid misleading message if cmd socket is in use
+
+- Avoid misleading message if cmd socket is in use
 
 v1.9.3 (Aug 10, 2018)
- * Implemented a command mode and use it for chroot - contributed Dr. Werner Fink
+
+- Implemented a command mode and use it for chroot - contributed Dr. Werner Fink
 
 v1.9.2 (Nov 16, 2017)
- * Add cross compile fixes contributed by Robert Schwebel
- * Limit watermark max to less than pool size to avoid 100% cpu condition
- * Add service.suse init script contributed by Tomas Chvatal
- 
+
+- Add cross compile fixes contributed by Robert Schwebel
+- Limit watermark max to less than pool size to avoid 100% cpu condition
+- Add service.suse init script contributed by Tomas Chvatal
+
 v1.9.1 (Feb 11, 2014)
- * Documentation and sample file touch-up for v1.9.
- 
-v1.9  (Feb 10, 2014)
- * Fix dead man limit in test procedure B. Fix broken AIS retry logic.
- * Correct online test defaults
- * Improve diagnostic display of test results, output summary, testing retries
- * Add test/output summary to all abnormal app terminations
- * Add required <stddef.h> include to havege.h. Add quick version check for lib users.
- * Improve diagnostic build for testing online tests. Fix broken inject features.
- * Rework major portions of havegetest,c for better performance with -fpic
- * Correct test procedure B to match independent clean room implementation of reference
- * Tweak configure.ac for arm build, make --disable-clock_gettime consistent
- * Major edit of man pages, haveged.8 and libhavege.3
- * Many other documentation changes: havege.h, README, etc...
- 
-v1.8   (Jan 02, 2014)
- * Fix return code for signalled termination.
- * Update init.d/service.fedora - new return code + simple, not forking
- * Add --enable_unitdir as DESTDIR for systemd install
+
+- Documentation and sample file touch-up for v1.9.
+
+v1.9 (Feb 10, 2014)
+
+- Fix dead man limit in test procedure B. Fix broken AIS retry logic.
+- Correct online test defaults
+- Improve diagnostic display of test results, output summary, testing retries
+- Add test/output summary to all abnormal app terminations
+- Add required <stddef.h> include to havege.h. Add quick version check for lib users.
+- Improve diagnostic build for testing online tests. Fix broken inject features.
+- Rework major portions of havegetest,c for better performance with -fpic
+- Correct test procedure B to match independent clean room implementation of reference
+- Tweak configure.ac for arm build, make --disable-clock_gettime consistent
+- Major edit of man pages, haveged.8 and libhavege.3
+- Many other documentation changes: havege.h, README, etc...
+
+v1.8 (Jan 02, 2014)
+
+- Fix return code for signalled termination.
+- Update init.d/service.fedora - new return code + simple, not forking
+- Add --enable_unitdir as DESTDIR for systemd install
 
 v1.7c (Jun 08, 2013)
- * Fix alignment fault on mips in havegetest.c, procedure B.
+
+- Fix alignment fault on mips in havegetest.c, procedure B.
 
 v1.7b (Jun 06, 2013)
- * Fix alignment fault on sparc in havegetest.c, procedure A, test5XOR().
- * Fix build ppc detection in configure.ac
+
+- Fix alignment fault on sparc in havegetest.c, procedure A, test5XOR().
+- Fix build ppc detection in configure.ac
 
 v1.7a (Feb 13, 2013)
- * Fix parallel build (LDADD fix + VPATH fixes to test programs)
- * Fix check target for automake v1.13 and previous (use check-local)
- * Add option to suppress tuning code build
- * Improve sample spec file for library
 
-v1.7  (Jan 15, 2013)
- * Add havege_status_dump() as basis for haveged diagnostics
- * Provide sample spec to build haveged and haveged-devel
- * Add contrib/build to provide build support
- * Modify build to use libtool
- * Rename base types to alias stdint.h types to allow 'fixes' if necessary
- * Rename all public functions to follow havege_* naming convention
- * Sanitize havege.h to be include file for devel package
- * Add destroy() to havege for library use.
- * Move all remaining static vars to allocated memory.
- * Rework include file structure to eliminate include sequence errors.
- * Fix (rare) segfault in test0 caused by 1.6 alignment fix
- 
+- Fix parallel build (LDADD fix + VPATH fixes to test programs)
+- Fix check target for automake v1.13 and previous (use check-local)
+- Add option to suppress tuning code build
+- Improve sample spec file for library
+
+v1.7 (Jan 15, 2013)
+
+- Add havege_status_dump() as basis for haveged diagnostics
+- Provide sample spec to build haveged and haveged-devel
+- Add contrib/build to provide build support
+- Modify build to use libtool
+- Rename base types to alias stdint.h types to allow 'fixes' if necessary
+- Rename all public functions to follow havege\_\* naming convention
+- Sanitize havege.h to be include file for devel package
+- Add destroy() to havege for library use.
+- Move all remaining static vars to allocated memory.
+- Rework include file structure to eliminate include sequence errors.
+- Fix (rare) segfault in test0 caused by 1.6 alignment fix
+
 v1.6a (Dec 18, 2012)
- * Fix typo in configure.ac
- 
+
+- Fix typo in configure.ac
+
 v1.6 (Dec 15, 2012)
- * Correct makefile encoding and defaults description
- * Make clock_gettime a build option and correct dependencies when used.
- * Fix alignment fault on arm64 in procedure A test0.
+
+- Correct makefile encoding and defaults description
+- Make clock_gettime a build option and correct dependencies when used.
+- Fix alignment fault on arm64 in procedure A test0.
 
 v1.5 (Aug 12, 2012)
- * Add online tests based on AIS-31 controlled by --enable-olt build option
- * Add -o option to specify online tests to perform
- * Add -p option to specify the pid location.
- * Fix -F option to not take argument - i.e. now a switch
- * Factor diagnostic methods for capture and inject for better performance
- * Fix install target, move to bin and eliminate script if not daemon, now use sysv and systemd templates 
- 
+
+- Add online tests based on AIS-31 controlled by --enable-olt build option
+- Add -o option to specify online tests to perform
+- Add -p option to specify the pid location.
+- Fix -F option to not take argument - i.e. now a switch
+- Factor diagnostic methods for capture and inject for better performance
+- Fix install target, move to bin and eliminate script if not daemon, now use sysv and systemd templates
+
 v1.4 (Feb 07, 2012)
- * Add s390 architecture. Thanks to Dan Horak and Jiri Hladky
- * Add generic architecture with clock_gettime() timer.
- * Rewrite collection loop to support multiple instances and new diagnostics
- * Rewrite tuning mechanism to add virtual file system mining and correct cpuid bugs
- * Add prototype multi-thread collection option
- * Reduce collection buffer size to .5MB
- * Improve/correct build and install
- * Add new invocation options to support new features.
- 
+
+- Add s390 architecture. Thanks to Dan Horak and Jiri Hladky
+- Add generic architecture with clock_gettime() timer.
+- Rewrite collection loop to support multiple instances and new diagnostics
+- Rewrite tuning mechanism to add virtual file system mining and correct cpuid bugs
+- Add prototype multi-thread collection option
+- Reduce collection buffer size to .5MB
+- Improve/correct build and install
+- Add new invocation options to support new features.
+
 v1.3 (Oct 23, 2011)
- * Integrate contributions by Jirka Hladky to fine tune collection implementation.
- * Add non-daemon interface with option to send continuous stream of output to stdout.
+
+- Integrate contributions by Jirka Hladky to fine tune collection implementation.
+- Add non-daemon interface with option to send continuous stream of output to stdout.
 
 v1.2 (June 26, 2011))
- * Address compiler issues by using compiler intrinsics.
- * Fix cpuid pic issues once again.
+
+- Address compiler issues by using compiler intrinsics.
+- Fix cpuid pic issues once again.
 
 v1.01 (Jan 04,2011)
- * Add detached option for those who use a supervising daemon
- * Build cleanup for non-cpuid environments
+
+- Add detached option for those who use a supervising daemon
+- Build cleanup for non-cpuid environments
 
 v1.0 (Nov 28,2010)
- * Fix gcc 4.5 optimization of HARDCLOCK
- * Add contrib section
+
+- Fix gcc 4.5 optimization of HARDCLOCK
+- Add contrib section
 
 v0.9 (Sep 01, 2009)
- * Refine collection for gcc 4.4 on Intel  i7 (gentoo)
- * Update auto tune to Intel latest cpuid spec
- * Add check for cpuid instruction on i386
- * Add man(8) page
- * Cleanup check target to build with -Wall
+
+- Refine collection for gcc 4.4 on Intel i7 (gentoo)
+- Update auto tune to Intel latest cpuid spec
+- Add check for cpuid instruction on i386
+- Add man(8) page
+- Cleanup check target to build with -Wall
 
 v0.8 (Jul 30, 2009)
- * Correct pool size related calculations.
+
+- Correct pool size related calculations.
 
 v0.7 (May 1, 2009)
- * More package contents confusion.
+
+- More package contents confusion.
 
 v0.6 (Apr 29, 2009)
- * Correct mix up in package contents
+
+- Correct mix up in package contents
 
 v0.5 (Apr 28, 2009)
- * Migrated project to GNU build
+
+- Migrated project to GNU build
 
 v04 (Apr 26, 2009)
- * Fix documentation typos!
+
+- Fix documentation typos!
 
 v03 (Apr 24, 2009)
- * Reworked build/test for more general install.
- * Integrate init script changes from A Bartlett
+
+- Reworked build/test for more general install.
+- Integrate init script changes from A Bartlett
 
 v02 (Jan 19, 2009)
- * Reworked daemon with run-time loop tuning.
- * Submitted to freshmeat
+
+- Reworked daemon with run-time loop tuning.
+- Submitted to freshmeat
 
 v (Jan 10, 2009)
- * Original daemon based on libhavege.
+
+- Original daemon based on libhavege.
