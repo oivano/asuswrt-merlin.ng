@@ -124,6 +124,7 @@ static FILE *conn_fp;
 char host_name[64];
 char referer_host[64];
 static char *request_referer;
+static char *request_origin;
 char current_page_name[128];
 char user_agent[1024];
 char gen_token[32];
@@ -1090,10 +1091,69 @@ int wave_handle_flag(char *url)
 int max_lock_time = MAX_LOGIN_BLOCK_TIME;
 
 int
-httpd_check_apply_origin(void)
+httpd_check_request_origin(void)
 {
-	return request_referer != NULL && *request_referer != '\0' &&
-	       referer_check(request_referer, 0) == 0;
+	char normalized_origin[256];
+	size_t length;
+
+	if (request_origin) {
+		length = strcspn(request_origin, "\r\n");
+		if (!length || length >= sizeof(normalized_origin) - 1)
+			return 0;
+		memcpy(normalized_origin, request_origin, length);
+		normalized_origin[length] = '/';
+		normalized_origin[length + 1] = '\0';
+		return referer_check(normalized_origin, 0) == 0;
+	}
+	return request_referer != NULL && *request_referer != '\0' && referer_check(request_referer, 0) == 0;
+}
+
+const char *
+httpd_get_csrf_token(void)
+{
+	static char token[33];
+	const char *name = "asus_token", *cursor, *value;
+	size_t name_length, value_length;
+
+	token[0] = '\0';
+#ifdef RTCONFIG_HTTPS
+	if (do_ssl)
+		name = "asus_s_token";
+#endif
+	name_length = strlen(name);
+	cursor = cookies_buf;
+	while (*cursor) {
+		while (*cursor == ' ' || *cursor == '\t' || *cursor == ';')
+			++cursor;
+		if (!*cursor)
+			break;
+		if (!strncmp(cursor, name, name_length) && cursor[name_length] == '=') {
+			value = cursor + name_length + 1;
+			value_length = strspn(value, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
+			if (value_length > 0 && value_length < sizeof(token) &&
+			    (value[value_length] == '\0' || value[value_length] == ';' ||
+			    value[value_length] == ' ' || value[value_length] == '\t' || value[value_length] == '\r' ||
+			    value[value_length] == '\n')) {
+				memcpy(token, value, value_length);
+				token[value_length] = '\0';
+				return token;
+			}
+			return "";
+		}
+		cursor = strchr(cursor, ';');
+		if (!cursor)
+			break;
+		++cursor;
+	}
+	return "";
+}
+
+int
+httpd_check_csrf_token(const char *token)
+{
+	const char *expected = httpd_get_csrf_token();
+
+	return token && *expected && strlen(token) == strlen(expected) && !strcmp(token, expected);
 }
 
 static void
@@ -1122,6 +1182,8 @@ handle_request(void)
 
 	/* Initialize the request variables. */
 	request_referer = NULL;
+	request_origin = NULL;
+	cookies_buf[0] = '\0';
 	auth_result = 1;
 	url_do_auth = 0;
 	authorization = boundary = cookies = referer = useragent = NULL;
@@ -1252,6 +1314,13 @@ handle_request(void)
 			request_referer = referer;
 			cur = cp + strlen(cp) + 1;
 			//_dprintf("httpd referer = %s\n", referer);
+		}
+		else if ( strncasecmp( cur, "Origin:", 7 ) == 0 )
+		{
+			cp = &cur[7];
+			cp += strspn( cp, " \t" );
+			request_origin = cp;
+			cur = cp + strlen(cp) + 1;
 		}
 		else if ( strncasecmp( cur, "Host:", 5 ) == 0 )
 		{
@@ -1519,6 +1588,11 @@ handle_request(void)
 							while (cl--) (void)fgetc(conn_fp);
 
 						send_login_page(fromapp, auth_result, url, file, auth_check_dt, add_try);
+						return;
+					}
+					if (!fromapp && strcasecmp(method, "post") == 0 && handler->input &&
+					    !httpd_check_request_origin()) {
+						send_error(403, "Forbidden", NULL, "Invalid request origin.");
 						return;
 					}
 					browser_session_touch(cookies);
