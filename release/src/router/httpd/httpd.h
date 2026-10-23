@@ -610,6 +610,7 @@ extern int last_time_lock_warning(void);
 extern int check_lock_status(time_t *dt);
 extern char *wl_nband_to_wlx(char *nv_name, char *wl_name, size_t len);
 extern int gen_asus_token_cookie(char *asus_token, int asus_token_len, char *token_cookie, int cookie_len);
+extern void browser_session_register(const char *token, int fromapp);
 extern void check_lock_state();
 extern void gen_random_string_v2(char *out, size_t len);
 #ifdef RTCONFIG_FRR
