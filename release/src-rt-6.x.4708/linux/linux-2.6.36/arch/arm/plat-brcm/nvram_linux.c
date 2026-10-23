@@ -1018,6 +1018,15 @@ dev_nvram_mmap(struct file *file, struct vm_area_struct *vma)
 	if (!capable(CAP_SYS_ADMIN))
 		return -EPERM;
 
+	if (vma->vm_pgoff ||
+	    vma->vm_end - vma->vm_start > PAGE_ALIGN(sizeof(nvram_buf)))
+		return -EINVAL;
+
+	if (vma->vm_flags & VM_WRITE)
+		return -EPERM;
+
+	vma->vm_flags &= ~VM_MAYWRITE;
+
 	if (remap_pfn_range(vma, vma->vm_start, offset,
 	                    vma->vm_end - vma->vm_start,
 	                    vma->vm_page_prot))
