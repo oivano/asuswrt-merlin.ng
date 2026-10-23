@@ -2820,6 +2820,7 @@ extern int jffs_nvram_set(const char *name, const char *value);
 extern int jffs_nvram_unset(const char *name);
 extern int large_nvram(const char *name);
 extern void jffs_nvram_init();
+extern int jffs_nvram_secure(void);
 extern int jffs_nvram_getall(int len_nvram, char *buf, int count);
 #endif
 #ifdef RTCONFIG_VAR_NVRAM

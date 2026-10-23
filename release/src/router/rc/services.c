@@ -4748,7 +4748,8 @@ void write_static_leases(FILE *fp)
 		if ((vstrsep(b, ">", &mac, &ip, &dns, &hostname) < 2))
 			continue;
 
-		if (!ether_atoe(mac, ea))
+		if (strlen(mac) != 17 || strspn(mac, "0123456789abcdefABCDEF:") != 17 ||
+		    !ether_atoe(mac, ea))
 			continue;
 
 		if (dns) {

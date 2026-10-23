@@ -464,7 +464,15 @@ void start_jffs2(void)
 
 #ifdef RTCONFIG_JFFS_NVRAM
 	system("rm -rf /jffs/nvram_war");
+	if (jffs_nvram_secure() != 0) {
+		logmessage("jffs", "Unable to secure JFFS NVRAM storage");
+		return;
+	}
 	jffs_nvram_init();
+	if (jffs_nvram_secure() != 0) {
+		logmessage("jffs", "Unable to secure migrated JFFS NVRAM values");
+		return;
+	}
 	system("touch /jffs/nvram_war");
 #endif
 
