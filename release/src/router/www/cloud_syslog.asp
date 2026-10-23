@@ -65,7 +65,7 @@ function initial(){
 									<tr>
 										<td>
 											<div style="margin-top:8px">
-												<textarea cols="63" rows="27" wrap="off" readonly="readonly" id="textarea" class="content_bg" style="width:99%; font-family:'Courier New', Courier, mono; font-size:11px;color:#FFFFFF;"><% nvram_dump("clouddisk.log",""); %></textarea>
+												<textarea cols="63" rows="27" wrap="off" readonly="readonly" id="textarea" class="content_bg" style="width:99%; font-family:'Courier New', Courier, mono; font-size:11px;color:#FFFFFF;"><% nvram_dump_html("clouddisk.log",""); %></textarea>
 											</div>
 										</td>
 									</tr>

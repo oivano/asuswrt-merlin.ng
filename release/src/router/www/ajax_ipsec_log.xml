@@ -1,4 +1,2 @@
 ﻿<?xml version="1.0" ?>
-<ipsec>
-<% nvram_dump("ipsec.log",""); %>
-</ipsec>
+<ipsec><% nvram_dump_html("ipsec.log",""); %></ipsec>
