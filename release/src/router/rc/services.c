@@ -18192,7 +18192,7 @@ start_write_smb_conf();
 			        sprintf(upload_value, "%s",
                                       nvram_safe_get("ca_manage_upload_ca"));
 
-                                if((fp = fopen(file_path, "w")) != NULL) {
+								if((fp = rc_ipsec_cert_open(file_path)) != NULL) {
                                     fprintf(fp, "%s", upload_value);
                                     fclose(fp);
                                 }
@@ -18211,7 +18211,7 @@ start_write_smb_conf();
                                         filename);
                                 sprintf(upload_value, "%s",
                                 nvram_safe_get("ca_manage_upload_private_key"));
-                                if((fp = fopen(file_path, "w")) != NULL) {
+								if((fp = rc_ipsec_cert_open(file_path)) != NULL) {
                                     fprintf(fp, "%s", upload_value);
                                     fclose(fp);
                                 }
@@ -18229,7 +18229,7 @@ start_write_smb_conf();
                                 DBG(("file_path: %s\n", file_path));
                                 DBG(("verify code: %s\n",
                                      nvram_safe_get("ca_manage_profile")));
-                                if((fp = fopen(file_path, "w")) != NULL) {
+								if((fp = rc_ipsec_cert_open(file_path)) != NULL) {
                                     //fprintf(fp, "%s", upload_value);
                                     fwrite(upload_value, sizeof(char),
                                            sizeof(char) * SZ_MAX, fp);
