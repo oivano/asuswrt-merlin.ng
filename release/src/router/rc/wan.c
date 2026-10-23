@@ -4615,15 +4615,14 @@ start_wan(void)
 #endif
 
 	/* Create links */
-	mkdir("/tmp/ppp", 0777);
-	mkdir("/tmp/ppp/peers", 0777);
+	mkdir("/tmp/ppp", 0755);
+	mkdir("/tmp/ppp/peers", 0755);
 	symlink("/sbin/rc", "/tmp/ppp/ip-up");
 	symlink("/sbin/rc", "/tmp/ppp/ip-down");
 	symlink("/sbin/rc", "/tmp/ppp/ip-pre-up");
 #ifdef RTCONFIG_IPV6
 	symlink("/sbin/rc", "/tmp/ppp/ipv6-up");
 	symlink("/sbin/rc", "/tmp/ppp/ipv6-down");
-	symlink("/sbin/rc", "/tmp/dhcp6c");
 #endif
 	symlink("/sbin/rc", "/tmp/ppp/auth-fail");
 #ifdef RTCONFIG_VPNC
@@ -4641,8 +4640,6 @@ start_wan(void)
 	symlink("/sbin/rc", "/etc/openvpn/ovpnc-route-pre-down");
 #endif
 #endif
-	symlink("/sbin/rc", "/tmp/udhcpc_wan");
-	symlink("/sbin/rc", "/tmp/zcip");
 #ifdef RTCONFIG_EAPOL
 	symlink("/sbin/rc", "/tmp/wpa_cli");
 #endif
@@ -4795,15 +4792,12 @@ stop_wan(void)
 #ifdef RTCONFIG_EAPOL
 	unlink("/tmp/wpa_cli");
 #endif
-	unlink("/tmp/udhcpc_wan");
-	unlink("/tmp/zcip");
 	unlink("/tmp/ppp/ip-up");
 	unlink("/tmp/ppp/ip-down");
 	unlink("/tmp/ppp/ip-pre-up");
 #ifdef RTCONFIG_IPV6
 	unlink("/tmp/ppp/ipv6-up");
 	unlink("/tmp/ppp/ipv6-down");
-	unlink("/tmp/dhcp6c");
 #endif
 	unlink("/tmp/ppp/auth-fail");
 #ifdef RTCONFIG_VPNC
@@ -4812,7 +4806,6 @@ stop_wan(void)
 	unlink("/tmp/ppp/vpnc-ip-pre-up");
 	unlink("/tmp/ppp/vpnc-auth-fail");
 #endif
-	rmdir("/tmp/ppp");
 
 #ifdef RTCONFIG_BCM9
 	/* Clean up all ipct entry */
