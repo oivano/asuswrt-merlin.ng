@@ -60,113 +60,113 @@ static int IN_EXEC = 0;
 /* --------------------------------------------- *
  *           vpopen/vpclose Function Begin       *
  * --------------------------------------------- */
-static pid_t    *childpid = NULL;  /* ptr to array allocated at run-time */
-static int      maxfd;             /* from our open_max(), {Prog openmax} */
-static long     openmax = 0;
-/*
- * If OPEN_MAX is indeterminate, we're not 
- * guaranteed that this is adequate.
- */ 
-#define OPEN_MAX_GUESS 1024
-long open_max(void)
-{
-	if (openmax == 0) { /* first time through */
-		errno = 0;
-		if ((openmax = sysconf(_SC_OPEN_MAX)) < 0) {
-			if (errno == 0)
-				openmax = OPEN_MAX_GUESS;    /* it's indeterminate */
-			else
-				MyDBG("sysconf error for _SC_OPEN_MAX");
-		}
-	}
-	return(openmax);
-}
-
-FILE *vpopen(const char* cmdstring, const char *type)
+static FILE *vpopen(char *const argv[], pid_t *child)
 {
 	int pfd[2];
 	FILE *fp;
-	pid_t   pid;
-	
-	if ((type[0]!='r' && type[0]!='w')||type[1]!=0) {
-		errno = EINVAL;
-		return(NULL);
-	}
-	
-	if (childpid == NULL) {     /* first time through */
-		/* allocate zeroed out array for child pids */
-		maxfd = open_max();
-		if ((childpid = (pid_t *)calloc(maxfd, sizeof(pid_t))) == NULL) 
-			return(NULL);
-	}
-	
-	if (pipe(pfd)!=0) {
+	pid_t pid;
+	int status;
+
+	if (pipe(pfd) != 0)
 		return NULL;
-	}
-	
-	if ((pid = vfork())<0) {
-		return NULL; /* errno set by fork() */
-	} else if (pid == 0) {    /* child */
-		if (*type == 'r') {
-			close(pfd[0]);
-			if (pfd[1] != STDOUT_FILENO) {
-				dup2(pfd[1], STDOUT_FILENO);
-				close(pfd[1]);
-			}
-		} else {
+	fcntl(pfd[0], F_SETFD, FD_CLOEXEC);
+	fcntl(pfd[1], F_SETFD, FD_CLOEXEC);
+	pid = fork();
+	if (pid == 0) {
+		close(pfd[0]);
+		if (dup2(pfd[1], STDOUT_FILENO) < 0 ||
+		    dup2(pfd[1], STDERR_FILENO) < 0)
+			_exit(127);
+		if (pfd[1] != STDOUT_FILENO && pfd[1] != STDERR_FILENO)
 			close(pfd[1]);
-			if (pfd[0] != STDIN_FILENO) {
-				dup2(pfd[0], STDIN_FILENO);
-				close(pfd[0]);
-			}
-		}
-		
-		/* close all descriptors in childpid[] */
-		int i;
-		for (i = 0; i < maxfd; i++) 
-			if (childpid[ i ] > 0)
-				close(i);
-		
-		execl("/bin/sh", "sh", "-c", cmdstring, (char *) 0);
+		execvp(argv[0], argv);
 		_exit(127);
 	}
-	
-	if (*type == 'r') { 
-		close(pfd[1]);
-		if ( (fp = fdopen(pfd[0], type)) == NULL)
-			return(NULL);
-	} else {
+	close(pfd[1]);
+	if (pid < 0) {
 		close(pfd[0]);
-		if ( (fp = fdopen(pfd[1], type)) == NULL)
-			return(NULL);
+		return NULL;
 	}
-	
-	childpid[fileno(fp)] = pid; /* remember child pid for this fd */
-	return(fp);
+	fp = fdopen(pfd[0], "r");
+	if (!fp) {
+		close(pfd[0]);
+		while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
+			;
+		return NULL;
+	}
+	*child = pid;
+	return fp;
 }
 
-int vpclose(FILE *fp)
+static int vpclose(FILE *fp, pid_t child)
 {
-	int     fd, stat; 
-	pid_t   pid;
-	
-	if (childpid == NULL) 
-		return -1; /* popen() has never been called */
-	
-	fd = fileno(fp);
-	if ( (pid = childpid[fd]) == 0)
-		return(-1); /* fp wasn't opened by popen() */
-	
-	childpid[fd] = 0;
-	if (fclose(fp) == EOF)
-		return(-1);
-	
-	while (waitpid(pid, &stat, 0) < 0)
+	int status;
+	fclose(fp);
+	while (waitpid(child, &status, 0) < 0)
 		if (errno != EINTR)
-			return(-1); /* error other than EINTR from waitpid() */
-	
-	return(stat);   /* return child's termination status */
-	
+			return -1;
+	return status;
+}
+
+static void probe_argv(REQUEST_INFO_T *req, char **argv, char numbers[3][16], int normal)
+{
+	int count = 0;
+	int ping = req->type == REQ_PING_MODE || req->type == REQ_PING_NORMAL_MODE;
+	int ipv6 = !strcmp(req->ver, "v6");
+
+	snprintf(numbers[0], 16, "%d", ping ? req->ping_cnt : req->hops);
+	snprintf(numbers[1], 16, "%d", req->response);
+	if (ping) {
+		argv[count++] = ipv6 ? "ping6" : "ping";
+	} else {
+#ifdef RTCONFIG_TRACEROUTE
+		argv[count++] = TRACEROUTE;
+		argv[count++] = ipv6 ? "-6" : "-4";
+#else
+		argv[count++] = ipv6 ? "traceroute6" : TRACEROUTE;
+#endif
+	}
+	if (*req->interface) {
+		argv[count++] = ping ? "-I" : "-i";
+		argv[count++] = req->interface;
+	}
+	argv[count++] = ping ? "-c" : "-m";
+	argv[count++] = numbers[0];
+	argv[count++] = ping && normal ? "-W" : "-w";
+	argv[count++] = numbers[1];
+	if (!normal)
+		argv[count++] = ping ? "-q" : "-n";
+	argv[count++] = req->target;
+	argv[count] = NULL;
+}
+
+static int log_tool(char *const argv[], const char *name, int always_marker)
+{
+	char result_path[128];
+	char buffer[1024];
+	size_t length;
+	FILE *output, *input;
+	pid_t child;
+	int status;
+
+	snprintf(result_path, sizeof(result_path), NETOOL_RESULT_DIR"/%s", name);
+	unlink(result_path);
+	output = fopen(result_path, "w");
+	if (!output)
+		return -1;
+	fcntl(fileno(output), F_SETFD, FD_CLOEXEC);
+	input = vpopen(argv, &child);
+	if (!input) {
+		fclose(output);
+		return -1;
+	}
+	while ((length = fread(buffer, 1, sizeof(buffer), input)) > 0)
+		fwrite(buffer, 1, length, output);
+	status = vpclose(input, child);
+	if (always_marker || status == 0)
+		fputs("XU6J03M6\n", output);
+	fclose(output);
+	return status;
 }
 /* --------------------------------------------- *
  *           vpopen/vpclose Function End         *
@@ -174,10 +174,11 @@ int vpclose(FILE *fp)
 static int do_ping(void *rInfo)
 {
 	FILE *fp, *fp_w;
-	char cmd[256]={0};
+	char *argv[16];
+	char numbers[3][16];
+	pid_t child;
 	char buf[256]={0};
-	char ifpara[16]={0};
-	char result_path[64]={0};
+	char result_path[sizeof(NETOOL_RESULT_DIR) + 128];
 	char jitter_tmp[64]={0};
 	char *pk_loss;
 	char *ping, *p, *end;
@@ -188,11 +189,7 @@ static int do_ping(void *rInfo)
 	
 	snprintf(result_path, sizeof(result_path), NETOOL_RESULT_DIR"/%s", req->target);
 	
-	if (!strcmp(req->interface, "")) {
-		snprintf(ifpara, sizeof(ifpara), "%s", "");
-	} else {
-		snprintf(ifpara, sizeof(ifpara), "-I %s", req->interface);
-	}
+	probe_argv(req, argv, numbers, 0);
 	
 	loop = req->exec_cnt;
 	
@@ -206,14 +203,11 @@ static int do_ping(void *rInfo)
 		}
 		
 		len = strlen("min/avg/max = ");
-		snprintf(cmd, sizeof(cmd), "%s %s -c %d -w %d -q %s &",
-			(!strcmp(req->ver, "v6")) ? "ping6" : "ping", ifpara, req->ping_cnt, req->response, req->target);
 		
 		fprintf(fp_w, "[");
 		
 		while (loop > 0) {
-			MyDBG("Cmd: %s\n", cmd);
-			if ((fp = vpopen(cmd, "r")) != NULL) {
+			if ((fp = vpopen(argv, &child)) != NULL) {
 				while(fgets(buf, sizeof(buf), fp)) {
 					pk_loss = strstr(buf, "received,");
 					if (pk_loss != NULL) {
@@ -240,7 +234,7 @@ static int do_ping(void *rInfo)
 				
 			} else {
 				ErrorMsg("fp = %p\n", fp); 
-				perror(cmd);
+				perror(argv[0]);
 			}
 			loop--;
 			
@@ -248,7 +242,7 @@ static int do_ping(void *rInfo)
 				fprintf(fp_w, ",");
 				
 			if (fp)
-				vpclose(fp);
+				vpclose(fp, child);
 		}
 		
 		fprintf(fp_w, "]");
@@ -260,86 +254,27 @@ static int do_ping(void *rInfo)
 
 static int do_ping_normal(void *rInfo)
 {
-	char cmd[256]={0};
-	char ifpara[16]={0};
-	char result_path[64]={0};
-	
+	char *argv[16];
+	char numbers[3][16];
 	REQUEST_INFO_T *req = rInfo;
-	
-	snprintf(result_path, sizeof(result_path), NETOOL_RESULT_DIR"/%s", NETOOL_RESULT_PING_NORMAL_LOG);
-	unlink(result_path);
-	
-	if (!strcmp(req->interface, "")) {
-		snprintf(ifpara, sizeof(ifpara), "%s", "");
-	} else {
-		snprintf(ifpara, sizeof(ifpara), "-I %s", req->interface);
-	}
-	
-	snprintf(cmd, sizeof(cmd), "%s %s -c %d -W %d %s > %s 2>&1 || true && echo 'XU6J03M6' >> %s &",
-				   (!strcmp(req->ver, "v6")) ? "ping6" : "ping", ifpara, req->ping_cnt,
-				   req->response, req->target, result_path, result_path);
-	
-	MyDBG("Cmd: %s\n", cmd);
-	if (system(cmd) < 0) {
-		ErrorMsg("error :%s\n", strerror(errno));
-	}
-	
-	return 0;
+	probe_argv(req, argv, numbers, 1);
+	return log_tool(argv, NETOOL_RESULT_PING_NORMAL_LOG, 1);
 }
 
 static int do_traceroute_normal(void *rInfo)
 {
-	char cmd[256]={0};
-	char ifpara[16]={0};
-	char result_path[64]={0};
-	
+	char *argv[16];
+	char numbers[3][16];
 	REQUEST_INFO_T *req = rInfo;
-	
-	snprintf(result_path, sizeof(result_path), NETOOL_RESULT_DIR"/%s", NETOOL_RESULT_TRACERT_NORMAL_LOG);
-	unlink(result_path);
-	
-	if (!strcmp(req->interface, "")) {
-		snprintf(ifpara, sizeof(ifpara), "%s", "");
-	} else {
-		snprintf(ifpara, sizeof(ifpara), "-i %s", req->interface);
-	}
-	
-#ifdef RTCONFIG_TRACEROUTE
-	snprintf(cmd, sizeof(cmd), TRACEROUTE" %s %s -m %d -w %d %s > %s 2>&1 && echo 'XU6J03M6' >> %s &", 
-				  (!strcmp(req->ver, "v6")) ? "-6" : "-4", ifpara, req->hops, req->response,
-				  req->target, result_path, result_path);
-#else
-	snprintf(cmd, sizeof(cmd), TRACEROUTE"%s %s -m %d -w %d %s > %s 2>&1 && echo 'XU6J03M6' >> %s &", 
-				  (!strcmp(req->ver, "v6")) ? "6" : "", ifpara, req->hops, req->response,
-				  req->target, result_path, result_path);
-#endif
-	
-	MyDBG("Cmd: %s\n", cmd);
-	if (system(cmd) < 0) {
-		ErrorMsg("error :%s\n", strerror(errno));
-	}
-	
-	return 0;
+	probe_argv(req, argv, numbers, 1);
+	return log_tool(argv, NETOOL_RESULT_TRACERT_NORMAL_LOG, 0);
 }
 
 static int do_nslookup(void *rInfo)
 {
-	char cmd[256]={0};
-	char result_path[64]={0};
-	
 	REQUEST_INFO_T *req = rInfo;
-	
-	snprintf(result_path, sizeof(result_path), NETOOL_RESULT_DIR"/%s", NETOOL_RESULT_NSLOOKUP_LOG);
-	unlink(result_path);
-	
-	snprintf(cmd, sizeof(cmd), "nslookup %s > %s 2>&1 && echo 'XU6J03M6' >> %s &", 
-				    req->target, result_path, result_path);
-	MyDBG("Cmd: %s\n", cmd);
-	if (system(cmd) < 0) {
-		ErrorMsg("error :%s\n", strerror(errno));
-	}
-	
-	return 0;
+	char *argv[] = { "nslookup", req->target, NULL };
+	return log_tool(argv, NETOOL_RESULT_NSLOOKUP_LOG, 0);
 }
 
 static char *get_netstat_option(const int opt)
@@ -391,60 +326,41 @@ static char *get_netstat_nat_option(const int opt)
 
 static int do_netstat(void *rInfo)
 {
-	char cmd[256]={0};
-	char result_path[64]={0};
-	
+	char options[16];
 	REQUEST_INFO_T *req = rInfo;
-	
-	snprintf(result_path, sizeof(result_path), NETOOL_RESULT_DIR"/%s", NETOOL_RESULT_NETSTAT_LOG);
-	unlink(result_path);
-	
-	snprintf(cmd, sizeof(cmd), "netstat -W%s > %s 2>&1 && echo 'XU6J03M6' >> %s &", 
-				    get_netstat_option(req->netst), result_path, result_path);
-	MyDBG("Cmd: %s\n", cmd);
-	if (system(cmd) < 0) {
-		ErrorMsg("error :%s\n", strerror(errno));
-	}
-	
-	return 0;
+	char *argv[] = { "netstat", options, NULL };
+	snprintf(options, sizeof(options), "-W%s", get_netstat_option(req->netst));
+	return log_tool(argv, NETOOL_RESULT_NETSTAT_LOG, 0);
 }
 
 static int do_netstat_nat(void *rInfo)
 {
-	char cmd[256]={0};
-	char sort[12]={0};
-	char proto[8]={0};
-	char srchost[64]={0};
-	char dsthost[64]={0};
-	char result_path[64]={0};
-	
+	char options[16];
+	char *argv[12];
+	int count = 0;
 	REQUEST_INFO_T *req = rInfo;
-	
-	snprintf(result_path, sizeof(result_path), NETOOL_RESULT_DIR"/%s", NETOOL_RESULT_NETSTAT_NAT_LOG);
-	unlink(result_path);
-	
-	if (strcmp(req->sort, "")) {
-		snprintf(sort, sizeof(sort), "-r %s", req->sort);
+	argv[count++] = "netstat-nat";
+	snprintf(options, sizeof(options), "%s", get_netstat_nat_option(req->netst));
+	if (*options)
+		argv[count++] = options;
+	if (*req->sort) {
+		argv[count++] = "-r";
+		argv[count++] = req->sort;
 	}
-	if (strcmp(req->proto, "")) {
-		snprintf(proto, sizeof(proto), "-p %s", req->proto);
+	if (*req->proto) {
+		argv[count++] = "-p";
+		argv[count++] = req->proto;
 	}
-	if (strcmp(req->srchost, "")) {
-		snprintf(srchost, sizeof(srchost), "-s %s", req->srchost);
+	if (*req->srchost) {
+		argv[count++] = "-s";
+		argv[count++] = req->srchost;
 	}
-	if (strcmp(req->dsthost, "")) {
-		snprintf(dsthost, sizeof(dsthost), "-d %s", req->dsthost);
+	if (*req->dsthost) {
+		argv[count++] = "-d";
+		argv[count++] = req->dsthost;
 	}
-	
-	snprintf(cmd, sizeof(cmd), "netstat-nat %s %s %s %s %s > %s 2>&1 && echo 'XU6J03M6' >> %s &", 
-				    get_netstat_nat_option(req->netst), sort, proto, srchost, dsthost,
-				    result_path, result_path);
-	MyDBG("Cmd: %s\n", cmd);
-	if (system(cmd) < 0) {
-		ErrorMsg("error :%s\n", strerror(errno));
-	}
-	
-	return 0;
+	argv[count] = NULL;
+	return log_tool(argv, NETOOL_RESULT_NETSTAT_NAT_LOG, 0);
 }
 
 static double get_last_tracert(char *xxx)
@@ -485,10 +401,11 @@ static double get_last_tracert(char *xxx)
 static int do_traceroute(void *rInfo)
 {
 	FILE *fp, *fp_w;
-	char cmd[256]={0};
+	char *argv[16];
+	char numbers[3][16];
+	pid_t child;
 	char buf[256]={0};
-	char ifpara[16]={0};
-	char result_path[64]={0};
+	char result_path[sizeof(NETOOL_RESULT_DIR) + 128];
 	char lastpingbuf[128] = {0};
 	char *unping;
 	int i = 0;
@@ -498,11 +415,7 @@ static int do_traceroute(void *rInfo)
 	
 	snprintf(result_path, sizeof(result_path), NETOOL_RESULT_DIR"/%s", req->target);
 	
-	if (!strcmp(req->interface, "")) {
-		snprintf(ifpara, sizeof(ifpara), "%s", "");
-	} else {
-		snprintf(ifpara, sizeof(ifpara), "-i %s", req->interface);
-	}
+	probe_argv(req, argv, numbers, 0);
 	
 	fp_w = fopen(result_path, "w");
 	
@@ -513,18 +426,9 @@ static int do_traceroute(void *rInfo)
 			return -1;
 		}
 		
-#ifdef RTCONFIG_TRACEROUTE
-		snprintf(cmd, sizeof(cmd), TRACEROUTE" %s %s -n -m %d -w %d %s",
-			(!strcmp(req->ver, "v6")) ? "-6" : "-4", ifpara, req->hops, req->response, req->target);
-#else
-		snprintf(cmd, sizeof(cmd), TRACEROUTE"%s %s -n -m %d -w %d %s",
-			(!strcmp(req->ver, "v6")) ? "6" : "", ifpara, req->hops, req->response, req->target);
-#endif
-		MyDBG("Cmd: %s\n", cmd);
-		
 		fprintf(fp_w, "[");
 		
-		if ((fp = vpopen(cmd, "r")) != NULL) {
+		if ((fp = vpopen(argv, &child)) != NULL) {
 			while(fgets(buf, sizeof(buf), fp)) {
 				printf("%s", buf);
 				unping = strstr(buf, "*");
@@ -540,10 +444,10 @@ static int do_traceroute(void *rInfo)
 			MyDBG("Lastping:%s\n", lastpingbuf);
 		} else {
 			ErrorMsg("fp = %p\n", fp); 
-			perror(cmd);
+			perror(argv[0]);
 		}
 		if (fp)
-			vpclose(fp);
+			vpclose(fp, child);
 		
 		if (strlen(lastpingbuf) && strstr(lastpingbuf, "ms") != NULL) {
 			//MyDBG("Last ping Avg: [%3.3f]\n", get_last_tracert((ln > 10) ? lastpingbuf : lastpingbuf+1));
@@ -553,7 +457,8 @@ static int do_traceroute(void *rInfo)
 		}
 		fprintf(fp_w, "]");
 		fclose(fp_w);
-		
+	}
+
 #ifndef NON_P_THREAD
 		REQUEST_INFO_T *req_task;
 		struct listnode *lt;
@@ -571,13 +476,14 @@ static int do_traceroute(void *rInfo)
 				}
 			}
 			
-			if (del) listnode_delete(task_list, req_task);
+			if (del) {
+				listnode_delete(task_list, req_task);
+				free(req_task);
+			}
 			MUTEXUNLOCK(&task_list_lock);
-			IN_EXEC = 0;
 		}
+		IN_EXEC = 0;
 #endif
-
-	}
 	return 0;
 }
 
@@ -585,22 +491,84 @@ REQUEST_INFO_T *task_listcreate(REQUEST_INFO_T input)
 {
 	REQUEST_INFO_T *new=malloc(sizeof(*new));
 	
-	memcpy(new,&input,sizeof(*new));
+	if (new)
+		memcpy(new,&input,sizeof(*new));
 	return new;
+}
+
+static int valid_token(const char *value, size_t size, const char *extra)
+{
+	const unsigned char *cursor = (const unsigned char *)value;
+	if (!memchr(value, '\0', size) || *value == '-' ||
+	    !strcmp(value, ".") || !strcmp(value, ".."))
+		return 0;
+	while (*cursor) {
+		if (!((*cursor >= 'a' && *cursor <= 'z') ||
+		      (*cursor >= 'A' && *cursor <= 'Z') ||
+		      (*cursor >= '0' && *cursor <= '9') || strchr(extra, *cursor)))
+			return 0;
+		cursor++;
+	}
+	return 1;
+}
+
+static int valid_request(REQUEST_INFO_T *req)
+{
+	if (req->type <= REQ_GET_RESULT || req->type >= REQ_MODE_TOTAL ||
+	    !valid_token(req->ver, sizeof(req->ver), "") ||
+	    !valid_token(req->sort, sizeof(req->sort), "-") ||
+	    !valid_token(req->proto, sizeof(req->proto), "") ||
+	    !valid_token(req->srchost, sizeof(req->srchost), ".-:_") ||
+	    !valid_token(req->dsthost, sizeof(req->dsthost), ".-:_") ||
+	    !valid_token(req->interface, sizeof(req->interface), ".-:_") ||
+	    !valid_token(req->target, sizeof(req->target), ".-:_%"))
+		return 0;
+	if ((*req->ver && strcmp(req->ver, "v4") && strcmp(req->ver, "v6")) ||
+	    (*req->sort && strcmp(req->sort, "src") && strcmp(req->sort, "dst") &&
+	     strcmp(req->sort, "src-port") && strcmp(req->sort, "dst-port") &&
+	     strcmp(req->sort, "state")) ||
+	    (*req->proto && strcmp(req->proto, "tcp") && strcmp(req->proto, "udp") &&
+	     strcmp(req->proto, "icmp") && strcmp(req->proto, "igmp")))
+		return 0;
+	if (req->type <= REQ_NSLOOKUP_MODE && !*req->target)
+		return 0;
+	if (req->type <= REQ_TRACEROUTE_NORMAL_MODE &&
+	    (req->response < 1 || req->response > 60))
+		return 0;
+	if ((req->type == REQ_PING_MODE || req->type == REQ_PING_NORMAL_MODE) &&
+	    req->ping_cnt < 1)
+		return 0;
+	if (req->type == REQ_PING_MODE && req->exec_cnt < 1)
+		return 0;
+	if ((req->type == REQ_TRACEROUTE_MODE || req->type == REQ_TRACEROUTE_NORMAL_MODE) &&
+	    (req->hops < 1 || req->hops > 64))
+		return 0;
+	if ((req->type == REQ_NETSTAT_MODE || req->type == REQ_NETSTAT_NAT_MODE) &&
+	    (req->netst < 0 || (req->netst & ~0xff)))
+		return 0;
+	return 1;
 }
 
 void rcv_socket(int newsockfd)
 {
 	int    n;
+	struct { pid_t pid; uid_t uid; gid_t gid; } peer;
+	socklen_t peer_len = sizeof(peer);
+	struct timeval timeout = { 2, 0 };
 	time_t now;
 	char   date[30];
 	
 	REQUEST_INFO_T req_t;
+	if (getsockopt(newsockfd, SOL_SOCKET, SO_PEERCRED, &peer, &peer_len) < 0 ||
+	    peer_len != sizeof(peer) || peer.uid != 0)
+		return;
 	
 	bzero(&req_t,sizeof(REQUEST_INFO_T));
 	
-	n = read( newsockfd, &req_t, sizeof(REQUEST_INFO_T));
-	if ( n < 0 )
+	if (setsockopt(newsockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0)
+		return;
+	n = recv(newsockfd, &req_t, sizeof(req_t), MSG_WAITALL);
+	if (n != sizeof(req_t) || !valid_request(&req_t))
 	{
 		MyDBG("ERROR reading from socket.\n");
 		return;
@@ -608,11 +576,6 @@ void rcv_socket(int newsockfd)
 	
 	req_t.tstamp = time(&now);
 	StampToDate(req_t.tstamp, date);
-	
-	if ( req_t.type >= REQ_MODE_TOTAL || req_t.type == REQ_GET_RESULT) {
-		MyDBG("ERROR Type. REQ_TYPE:[%d]\n", req_t.type);
-		return;
-	}
 	
 	MyDBG("[%s] REQ_TYPE[%d] PING_CNT:[%d] HOPS:[%d] RESPONSE_T:[%d] EXEC_CNT:[%d] \n \
 	      \t\t\tVER:[%s] NETST:[0x%x] SORT:[%s] PROTO:[%s] SRC:[%s] DST:[%s] Interface:[%s] TARGET:[%s]\n", 
@@ -647,6 +610,7 @@ void rcv_socket(int newsockfd)
 			
 			}
 			MUTEXUNLOCK(&task_list_lock);
+			return;
 		}
 	}
 #endif 
@@ -657,12 +621,15 @@ static int start_local_socket(void)
 {
 	struct sockaddr_un addr;
 	int sockfd, newsockfd;
+	int bind_result;
+	mode_t old_umask;
 	
 	if ( (sockfd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
 		ErrorMsg("socket error\n");
 		perror("socket error");
 		exit(-1);
 	}
+	fcntl(sockfd, F_SETFD, FD_CLOEXEC);
 	
 	memset(&addr, 0, sizeof(addr));
 	addr.sun_family = AF_UNIX;
@@ -670,7 +637,10 @@ static int start_local_socket(void)
 	
 	unlink(NETOOL_SOCKET_PATH);
 	
-	if (bind(sockfd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
+	old_umask = umask(077);
+	bind_result = bind(sockfd, (struct sockaddr*)&addr, sizeof(addr));
+	umask(old_umask);
+	if (bind_result == -1 || chmod(NETOOL_SOCKET_PATH, 0600) == -1) {
 		ErrorMsg("socket bind error\n");
 		perror("socket bind error");
 		exit(-1);
@@ -688,14 +658,48 @@ static int start_local_socket(void)
 			perror("accept error");
 			continue;
 		}
+		fcntl(newsockfd, F_SETFD, FD_CLOEXEC);
 		
 		rcv_socket(newsockfd);
 		close(newsockfd);
 	}
 }
 
+static void *request_worker(void *rInfo)
+{
+	REQUEST_INFO_T *req = rInfo;
+	switch (req->type) {
+	case REQ_PING_MODE:
+		do_ping(req);
+		break;
+	case REQ_TRACEROUTE_MODE:
+		do_traceroute(req);
+		break;
+	case REQ_PING_NORMAL_MODE:
+		do_ping_normal(req);
+		break;
+	case REQ_TRACEROUTE_NORMAL_MODE:
+		do_traceroute_normal(req);
+		break;
+	case REQ_NSLOOKUP_MODE:
+		do_nslookup(req);
+		break;
+	case REQ_NETSTAT_MODE:
+		do_netstat(req);
+		break;
+	case REQ_NETSTAT_NAT_MODE:
+		do_netstat_nat(req);
+		break;
+	}
+	free(req);
+	return NULL;
+}
+
 static void start_req_thread(void *rInfo, int type)
 {
+	REQUEST_INFO_T *request = task_listcreate(*(REQUEST_INFO_T *)rInfo);
+	if (!request)
+		return;
 #ifdef NON_P_THREAD
 	
 	int status;
@@ -704,35 +708,15 @@ static void start_req_thread(void *rInfo, int type)
 	pid = fork();
 	
 	if (pid == -1) {
+		free(request);
 		ErrorMsg("fork error\n");
-		exit(EXIT_FAILURE);
+		return;
 	}
 	if (pid == 0) {
-		MyDBG("[Child Process] PID is %ld\n", (long) getpid());
-		if (type == REQ_PING_MODE) {
-		
-			do_ping(rInfo);
-		} else if (type == REQ_TRACEROUTE_MODE) {
-			
-			do_traceroute(rInfo);
-		} else if (type == REQ_PING_NORMAL_MODE) {
-		
-			do_ping_normal(rInfo);
-		} else if (type == REQ_TRACEROUTE_NORMAL_MODE) {
-		
-			do_traceroute_normal(rInfo);
-		} else if (type == REQ_NSLOOKUP_MODE) {
-		
-			do_nslookup(rInfo);
-		} else if (type == REQ_NETSTAT_MODE) {
-		
-			do_netstat(rInfo);
-		} else if (type == REQ_NETSTAT_NAT_MODE) {
-		
-			do_netstat_nat(rInfo);
-		}
+		request_worker(request);
 		_exit(0);
 	} else {
+		free(request);
 		w = waitpid(pid, &status, WUNTRACED | WCONTINUED);
 		if (w == -1) {
 			ErrorMsg("waitpid error\n");
@@ -744,38 +728,21 @@ static void start_req_thread(void *rInfo, int type)
 	pthread_attr_t attr;
 	int ret = 0;
 	
-	pthread_attr_init(&attr);
-	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-	//ret = pthread_attr_setstacksize(&attr, 128 * 1024);
-	//if (ret != 0) {
-	//	ErrorMsg("Error %d %s\n", ret, strerror(errno))
-	//	perror("Thread stacksize failed\n");
-	//}
-	
-	if (type == REQ_PING_MODE) {
-	
-		ret = pthread_create(&thread,NULL,(void *)&do_ping, rInfo);
-	} else if (type == REQ_TRACEROUTE_MODE) {
-		IN_EXEC = 1;
-		ret = pthread_create(&thread,NULL,(void *)&do_traceroute, rInfo);
-	} else if (type == REQ_PING_NORMAL_MODE) {
-	
-		ret = pthread_create(&thread,NULL,(void *)&do_ping_normal, rInfo);
-	} else if (type == REQ_TRACEROUTE_NORMAL_MODE) {
-	
-		ret = pthread_create(&thread,NULL,(void *)&do_traceroute_normal, rInfo);
-	} else if (type == REQ_NSLOOKUP_MODE) {
-	
-		ret = pthread_create(&thread,NULL,(void *)&do_nslookup, rInfo);
-	} else if (type == REQ_NETSTAT_MODE) {
-	
-		ret = pthread_create(&thread,NULL,(void *)&do_netstat, rInfo);
-	} else if (type == REQ_NETSTAT_NAT_MODE) {
-	
-		ret = pthread_create(&thread,NULL,(void *)&do_netstat_nat, rInfo);
+	ret = pthread_attr_init(&attr);
+	if (ret != 0) {
+		free(request);
+		return;
 	}
+	ret = pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+	if (type == REQ_TRACEROUTE_MODE)
+		IN_EXEC = 1;
+	if (ret == 0)
+		ret = pthread_create(&thread, &attr, request_worker, request);
 	
 	if (ret != 0) {
+		free(request);
+		if (type == REQ_TRACEROUTE_MODE)
+			IN_EXEC = 0;
 		ErrorMsg("Error %d %s\n", ret, strerror(errno))
 		perror("Thread create failed\n");
 	}
