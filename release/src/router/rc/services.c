@@ -40,6 +40,7 @@
 #include <sys/reboot.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include <fcntl.h>
 #include <sys/utsname.h>
 #include <sys/param.h>
 #include <net/ethernet.h>
@@ -7009,6 +7010,34 @@ void start_spectrum(void)
 #endif
 //Ren.E
 
+static int upnp_config_dir_ready(void)
+{
+	struct stat st;
+
+	if (lstat("/etc/upnp", &st) < 0) {
+		if (errno != ENOENT ||
+		    (mkdir("/etc/upnp", 0700) < 0 && errno != EEXIST) ||
+		    lstat("/etc/upnp", &st) < 0)
+			return 0;
+	}
+
+	if (!S_ISDIR(st.st_mode) || st.st_uid != 0)
+		return 0;
+
+	if ((st.st_mode & 0777) != 0700 && chmod("/etc/upnp", 0700) < 0)
+		return 0;
+
+	return 1;
+}
+
+static int upnp_config_file_trusted(const char *path)
+{
+	struct stat st;
+
+	return lstat(path, &st) == 0 && S_ISREG(st.st_mode) &&
+	       st.st_uid == 0 && !(st.st_mode & 022);
+}
+
 // TODO: so far, support wan0 only
 
 void start_upnp(void)
@@ -7021,6 +7050,8 @@ void start_upnp(void)
 	char *nv, *nvp, *b;
 	int upnp_mnp_enable, upnp_port;
 	int unit, httpx_port, cnt;
+	int config_fd;
+	mode_t old_umask;
 #if defined(RTCONFIG_APP_PREINSTALLED) || defined(RTCONFIG_APP_NETINSTALLED)
 	FILE *ifp = NULL;
 	char tmpstr[80];
@@ -7099,11 +7130,18 @@ void start_upnp(void)
 #endif
 
 	if ( run_upnpd ) {
-		mkdir("/etc/upnp", 0777);
-		if (f_exists("/etc/upnp/config.alt")) {
+		old_umask = umask(077);
+		if (!upnp_config_dir_ready()) {
+			umask(old_umask);
+			return;
+		}
+		if (upnp_config_file_trusted("/etc/upnp/config.alt")) {
 			xstart("miniupnpd", "-f", "/etc/upnp/config.alt");
 		} else {
-			if ((f = fopen("/etc/upnp/config", "w")) != NULL) {
+			config_fd = -1;
+			if ((unlink("/etc/upnp/config") == 0 || errno == ENOENT) &&
+			    (config_fd = open("/etc/upnp/config", O_WRONLY | O_CREAT | O_EXCL, 0600)) >= 0 &&
+			    (f = fdopen(config_fd, "w")) != NULL) {
 				char *lanip = nvram_safe_get("lan_ipaddr");
 				char *lanmask = nvram_safe_get("lan_netmask");
 
@@ -7166,7 +7204,7 @@ void start_upnp(void)
 					"ASUS Wireless Router",
 					get_productid(),
 					nvram_get("serial_no") ? : serial, uuid,
-					"/tmp/upnp.leases");
+					"/etc/upnp/upnp.leases");
 
 				if (nvram_get_int("upnp_clean")) {
 					int interval = nvram_get_int("upnp_clean_interval");
@@ -7332,15 +7370,19 @@ void start_upnp(void)
 					fprintf(f, "ext_ip=%s\n", nvram_safe_get(strcat_r(prefix, "realip_ip", tmp)));
 #endif
 
-				fappend(f, "/etc/upnp/config.custom");
+				if (upnp_config_file_trusted("/etc/upnp/config.custom"))
+					fappend(f, "/etc/upnp/config.custom");
 				append_custom_config("upnp", f);
 
 				fclose(f);
 				use_custom_config("upnp", "/etc/upnp/config");
 				run_postconf("upnp", "/etc/upnp/config");
 				xstart("miniupnpd", "-f", "/etc/upnp/config");
+			} else if (config_fd >= 0) {
+				close(config_fd);
 			}
 		}
+		umask(old_umask);
 	}
 }
 
