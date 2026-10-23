@@ -110,19 +110,23 @@ int get_active_wan_unit(void)
 /*param 1: char *p_end , IN : the src of string buf */
 /*param 2: char *p_tmp , OUT: the dest of string buf*/
 /*param 3: int *nsize_shifft , OUT: the size of shifft*/
-void ipsec_profile_str_parse(char *p_end, char *p_tmp, int *nsize_shifft)
+int ipsec_profile_str_parse(char *p_end, char *p_tmp, size_t capacity, int *nsize_shifft)
 {
-    int i = 1;
-    while(*p_end != '\0' && *p_end != '>'){
-        *p_tmp = *p_end;
-        p_tmp++;
-        p_end++;
-        i++;
-    }
-    *p_tmp = '\0';
-    *p_end = '\0';
-    *nsize_shifft = i;
-    return;
+	char *end = strchr(p_end, '>');
+	size_t length = end ? (size_t)(end - p_end) : strlen(p_end);
+
+	*nsize_shifft = 0;
+	if(length >= capacity){
+		if(capacity)
+			*p_tmp = '\0';
+		return 0;
+	}
+	memcpy(p_tmp, p_end, length);
+	p_tmp[length] = '\0';
+	*nsize_shifft = length + (end != NULL);
+	if(end)
+		*end = '\0';
+	return 1;
 }
 
 static int ipsec_ipv4_prefix_valid(const char *value);
@@ -142,6 +146,66 @@ ipsec_profile_field_count_valid(const char *profile_data)
 
 static int ipsec_ike_type_idx_get(char *data);
 static int ipsec_esp_type_idx_get(char *data);
+static int
+ipsec_profile_valid(const char *data, int extended)
+{
+	static const size_t capacities[] = {
+		11, SZ_MIN, SZ_MIN, SZ_128BUF, SZ_MIN, SZ_128BUF, 11,
+		SZ_MIN + 1, SZ_128BUF + 1, 11, SZ_128BUF + 1, 11,
+		SZ_MIN, SZ_MIN, SZ_MIN, 11, 11, 11, 11, 11,
+		SZ_128BUF, SZ_128BUF, 11, 11, SZ_MIN + 1, SZ_MIN + 1,
+		SZ_MIN, 11, 11, 11, 11, 11, 11, 11, 11, 11,
+		SZ_64BUF, 11, SZ_MIN, SZ_128BUF, SZ_128BUF, SZ_128BUF, SZ_128BUF
+	};
+	const char *field = data, *end, *part, *separator;
+	size_t length, capacity;
+	int index = 0, parts;
+
+	if(!data || strnlen(data, SZ_BUF) >= SZ_BUF)
+		return 0;
+	if(!extended && !ipsec_profile_field_count_valid(data))
+		return 0;
+	do {
+		end = strchr(field, '>');
+		length = end ? (size_t)(end - field) : strlen(field);
+		if(index >= (extended ? 6 : 43))
+			return 0;
+		capacity = extended ? 11 : capacities[index];
+		if(length >= capacity)
+			return 0;
+		if(!extended){
+				if((index == 8 || index == 10) &&
+					!(length == 4 && !memcmp(field, "null", 4)) &&
+					(!length || *field != '<'))
+				return 0;
+			if(index == 14 && length && !memchr(field, '/', length) &&
+			   length + sizeof(".0/24") > capacity)
+				return 0;
+			if(index == 36 && !(length == 4 && !memcmp(field, "null", 4))){
+				if(!length || *field != '<')
+					return 0;
+				part = field + 1;
+				parts = 0;
+				while(part <= field + length){
+					separator = memchr(part, '<', (size_t)(field + length - part));
+					if((size_t)((separator ? separator : field + length) - part) >= SZ_MIN)
+						return 0;
+					parts++;
+					if(!separator)
+						break;
+					part = separator + 1;
+				}
+				if(parts != 4)
+					return 0;
+			}
+		}
+		index++;
+		if(end)
+			field = end + 1;
+	} while(end);
+	return extended ? index == 6 : (index == 38 || index == 43);
+}
+
 /*param 1: char *p_end , IN : the src of string buf */
 /*param 2: int *nsize_shifft , OUT: nsize_shifft: OUTPUT*/
 int ipsec_profile_int_parse(int ike_esp_type, char *p_end, int *nsize_shifft)
@@ -149,22 +213,23 @@ int ipsec_profile_int_parse(int ike_esp_type, char *p_end, int *nsize_shifft)
     int i = 1, i_value = -1;
     char *p_head = p_end;
     if('n' == *p_head){ i_value = 0; }
-    while(*p_end++ != '>'){ i++; }
-    *(p_end - 1) = '\0';
-    *nsize_shifft = i;
+	while(*p_end && *p_end != '>'){ p_end++; }
+	i = p_end - p_head;
+	*nsize_shifft = i + (*p_end == '>');
+	*p_end = '\0';
     if(0 != i_value){
         if(FLAG_IKE_ENCRYPT == ike_esp_type){
-            i_value = ipsec_ike_type_idx_get(strndup(p_head, i));
+			i_value = ipsec_ike_type_idx_get(p_head);
         } else if(FLAG_ESP_HASH == ike_esp_type){
-            i_value = ipsec_esp_type_idx_get(strndup(p_head, i));
+			i_value = ipsec_esp_type_idx_get(p_head);
         } else if(FLAG_KEY_CHAG_VER == ike_esp_type){
             if(('a' == *p_head) && ('u' == *(p_head + 1))){
                i_value = IKE_TYPE_AUTO; 
             } else {
-               i_value = atoi(strndup(p_head, (size_t)i));
+			   i_value = atoi(p_head);
             }
         } else if(FLAG_NONE == ike_esp_type){
-            i_value = atoi(strndup(p_head, (size_t)i));
+			i_value = atoi(p_head);
         }
     }
     return i_value;
@@ -242,22 +307,22 @@ void ipsec_samba_prof_fill(char *p_data)
 	p_end += i;/*to shifft next '>'*/
     /*DNS1*/
     p_tmp = &(samba_prof.dns1[0]);
-    ipsec_profile_str_parse(p_end, p_tmp, &i);
+	if(!ipsec_profile_str_parse(p_end, p_tmp, sizeof(samba_prof.dns1), &i)) return;
 //DBG(("dns1:%s\n", samba_prof.dns1));
     p_end += i;/*to shifft next '>'*/
     /*DNS2*/
     p_tmp = &(samba_prof.dns2[0]);
-    ipsec_profile_str_parse(p_end, p_tmp, &i);
+	if(!ipsec_profile_str_parse(p_end, p_tmp, sizeof(samba_prof.dns2), &i)) return;
 //DBG(("dns2:%s\n", samba_prof.dns2));
     p_end += i ;/*to shifft next '>'*/
     /*NBIOS1*/
     p_tmp = &(samba_prof.nbios1[0]);
-    ipsec_profile_str_parse(p_end, p_tmp, &i);
+	if(!ipsec_profile_str_parse(p_end, p_tmp, sizeof(samba_prof.nbios1), &i)) return;
 //DBG(("nbios1:%s\n", samba_prof.nbios1));
     p_end += i;/*to shifft next '>'*/
     /*NBIOS2*/
     p_tmp = &(samba_prof.nbios2[0]);
-    ipsec_profile_str_parse(p_end, p_tmp, &i);
+	if(!ipsec_profile_str_parse(p_end, p_tmp, sizeof(samba_prof.nbios2), &i)) return;
 //DBG(("nbios2:%s\n", samba_prof.nbios2));
     //p_end += i;
     return;
@@ -267,7 +332,7 @@ void ipsec_prof_fill(int prof_idx, char *p_data, ipsec_prof_type_t prof_type)
 {
     int i = 1;
     char *p_end = NULL, *p_tmp = NULL, *ptr=NULL;;
-	if(!ipsec_profile_field_count_valid(p_data)){
+	if(!ipsec_profile_valid(p_data, 0)){
 		memset(&prof[prof_type][prof_idx], 0, sizeof(prof[prof_type][prof_idx]));
 		return;
 	}
@@ -279,23 +344,23 @@ void ipsec_prof_fill(int prof_idx, char *p_data, ipsec_prof_type_t prof_type)
     p_end += i; /*to shifft next '>'*/
     /*profilename*/    
     p_tmp = &(prof[prof_type][prof_idx].profilename[0]);
-    ipsec_profile_str_parse(p_end, p_tmp, &i);
+	ipsec_profile_str_parse(p_end, p_tmp, sizeof(prof[prof_type][prof_idx].profilename), &i);
     p_end += i ;
     /*remote_gateway_method*/
     p_tmp = &(prof[prof_type][prof_idx].remote_gateway_method[0]);
-    ipsec_profile_str_parse(p_end, p_tmp, &i);
+	ipsec_profile_str_parse(p_end, p_tmp, sizeof(prof[prof_type][prof_idx].remote_gateway_method), &i);
     p_end += i ;
     /*remote gateway*/
     p_tmp = &(prof[prof_type][prof_idx].remote_gateway[0]);
-    ipsec_profile_str_parse(p_end, p_tmp, &i);
+	ipsec_profile_str_parse(p_end, p_tmp, sizeof(prof[prof_type][prof_idx].remote_gateway), &i);
     p_end += i ;
     /*local public interface*/
     p_tmp = &(prof[prof_type][prof_idx].local_public_interface[0]);
-    ipsec_profile_str_parse(p_end, p_tmp, &i);
+	ipsec_profile_str_parse(p_end, p_tmp, sizeof(prof[prof_type][prof_idx].local_public_interface), &i);
     p_end += i ;
     /*local public ip*/
     p_tmp = &(prof[prof_type][prof_idx].local_pub_ip[0]);
-    ipsec_profile_str_parse(p_end, p_tmp, &i);
+	ipsec_profile_str_parse(p_end, p_tmp, sizeof(prof[prof_type][prof_idx].local_pub_ip), &i);
     p_end += i ;
     /*auth_method*/
     prof[prof_type][prof_idx].auth_method = (uint8_t)ipsec_profile_int_parse(FLAG_NONE,
@@ -303,13 +368,13 @@ void ipsec_prof_fill(int prof_idx, char *p_data, ipsec_prof_type_t prof_type)
     p_end += i; /*to shifft next '>'*/
     /*auth method value -- psk password or private key of rsa*/
     p_tmp = &(prof[prof_type][prof_idx].auth_method_key[0]);
-    ipsec_profile_str_parse(p_end, p_tmp, &i);
+	ipsec_profile_str_parse(p_end, p_tmp, sizeof(prof[prof_type][prof_idx].auth_method_key), &i);
     p_end += i;
 	/*p_end+1 for skipping '<'*/
-    p_end += 1;
+	if(*p_end == '<') p_end += 1;
     /*to parse local subnet e.g.192.168.2.1/24> [local_port] 0>*/
     p_tmp = &(prof[prof_type][prof_idx].local_subnet[0]);
-    ipsec_profile_str_parse(p_end, p_tmp, &i);
+	ipsec_profile_str_parse(p_end, p_tmp, sizeof(prof[prof_type][prof_idx].local_subnet), &i);
 	 /*to replace '<' to ',' e.g. 192.168.3.1/16,192.168.2.1/24*/
 	while ((ptr=strchr(p_tmp, '<'))!=NULL) *ptr = ',';
 	
@@ -321,9 +386,9 @@ void ipsec_prof_fill(int prof_idx, char *p_data, ipsec_prof_type_t prof_type)
     /*remote subnet*/
     /*to parse remote subnet e.g. <192.168.3.1/16>3600>*/
     /*p_end+1 for skipping '<'*/
-    p_end += 1;
+	if(*p_end == '<') p_end += 1;
     p_tmp = &(prof[prof_type][prof_idx].remote_subnet[0]);
-    ipsec_profile_str_parse(p_end, p_tmp, &i);
+	ipsec_profile_str_parse(p_end, p_tmp, sizeof(prof[prof_type][prof_idx].remote_subnet), &i);
     /*to replace '<' to ',' e.g. 192.168.3.1/16,192.168.2.1/24*/
 	while ((ptr=strchr(p_tmp, '<'))!=NULL) *ptr = ',';
     
@@ -334,19 +399,19 @@ void ipsec_prof_fill(int prof_idx, char *p_data, ipsec_prof_type_t prof_type)
     p_end += i; /*to shifft next '>'*/
     /*tunnel type: transport or tunnel*/
     p_tmp = &(prof[prof_type][prof_idx].tun_type[0]);
-    ipsec_profile_str_parse(p_end, p_tmp, &i);
+	ipsec_profile_str_parse(p_end, p_tmp, sizeof(prof[prof_type][prof_idx].tun_type), &i);
     p_end += i;
     /*virtual ip en */
     p_tmp = &(prof[prof_type][prof_idx].virtual_ip_en[0]);
-    ipsec_profile_str_parse(p_end, p_tmp, &i);
+	ipsec_profile_str_parse(p_end, p_tmp, sizeof(prof[prof_type][prof_idx].virtual_ip_en), &i);
     p_end += i;
 	
     /*virtual ip subnet*/
     p_tmp = &(prof[prof_type][prof_idx].virtual_subnet[0]);
-    ipsec_profile_str_parse(p_end, p_tmp, &i);
+	ipsec_profile_str_parse(p_end, p_tmp, sizeof(prof[prof_type][prof_idx].virtual_subnet), &i);
 	/* if virtual_subnet=x.x.x, convert to x.x.x.0/24 */
 	if(0 != strcmp(p_tmp, "") && 0 == strstr(p_tmp, "/"))	
-		strcat(prof[prof_type][prof_idx].virtual_subnet, ".0/24");
+		strlcat(prof[prof_type][prof_idx].virtual_subnet, ".0/24", sizeof(prof[prof_type][prof_idx].virtual_subnet));
 	
     p_end += i;
     /*accessible_networks*/
@@ -371,11 +436,11 @@ void ipsec_prof_fill(int prof_idx, char *p_data, ipsec_prof_type_t prof_type)
     p_end += i; /*to shifft next '>'*/
     /*local id*/
     p_tmp = &(prof[prof_type][prof_idx].local_id[0]);
-    ipsec_profile_str_parse(p_end, p_tmp, &i);
+	ipsec_profile_str_parse(p_end, p_tmp, sizeof(prof[prof_type][prof_idx].local_id), &i);
     p_end += i;
     /*remote_id*/
     p_tmp = &(prof[prof_type][prof_idx].remote_id[0]);
-    ipsec_profile_str_parse(p_end, p_tmp, &i);
+	ipsec_profile_str_parse(p_end, p_tmp, sizeof(prof[prof_type][prof_idx].remote_id), &i);
     p_end += i;
     /*keylife_p1*/
     prof[prof_type][prof_idx].keylife_p1 = (uint32_t)ipsec_profile_int_parse(FLAG_NONE,
@@ -387,15 +452,15 @@ void ipsec_prof_fill(int prof_idx, char *p_data, ipsec_prof_type_t prof_type)
     p_end += i;
     /*xauth_account*/
     p_tmp = &(prof[prof_type][prof_idx].xauth_account[0]);
-    ipsec_profile_str_parse(p_end, p_tmp, &i);
+	ipsec_profile_str_parse(p_end, p_tmp, sizeof(prof[prof_type][prof_idx].xauth_account), &i);
     p_end += i;
     /*xauth_password*/
     p_tmp = &(prof[prof_type][prof_idx].xauth_password[0]);
-    ipsec_profile_str_parse(p_end, p_tmp, &i);
+	ipsec_profile_str_parse(p_end, p_tmp, sizeof(prof[prof_type][prof_idx].xauth_password), &i);
     p_end += i;
     /*xauth_server_type,USER auth: auth2meth for IKEv2*/
     p_tmp = &(prof[prof_type][prof_idx].rightauth2_method[0]);
-    ipsec_profile_str_parse(p_end, p_tmp, &i);
+	ipsec_profile_str_parse(p_end, p_tmp, sizeof(prof[prof_type][prof_idx].rightauth2_method), &i);
     p_end += i;
     /* leftauth_method = rightauth2_method if leftauth_method is not given */
     snprintf(prof[prof_type][prof_idx].leftauth_method, sizeof(prof[prof_type][prof_idx].leftauth_method), "%s", prof[prof_type][prof_idx].rightauth2_method);
@@ -438,7 +503,7 @@ void ipsec_prof_fill(int prof_idx, char *p_data, ipsec_prof_type_t prof_type)
     p_end += i; /*to shifft next '>'*/
 	/*samba settings*/
 	p_tmp = &(prof[prof_type][prof_idx].samba_settings[0]);
-    ipsec_profile_str_parse(p_end, p_tmp, &i);
+	ipsec_profile_str_parse(p_end, p_tmp, sizeof(prof[prof_type][prof_idx].samba_settings), &i);
 	while ((ptr=strchr(p_tmp, '<'))!=NULL) *ptr = '>';  /*to replace '<' to '>' e.g. >1.1.1.1>2.2.2.2>3.3.3.3>4.4.4.4*/
 
     p_end += i; /*to shifft next '>'*/
@@ -456,23 +521,23 @@ void ipsec_prof_fill(int prof_idx, char *p_data, ipsec_prof_type_t prof_type)
         p_end += i;
 
         p_tmp = &(prof[prof_type][prof_idx].leftauth_method[0]);
-        ipsec_profile_str_parse(p_end, p_tmp, &i);
+		ipsec_profile_str_parse(p_end, p_tmp, sizeof(prof[prof_type][prof_idx].leftauth_method), &i);
         p_end += i;
 
         p_tmp = &(prof[prof_type][prof_idx].leftcert[0]);
-        ipsec_profile_str_parse(p_end, p_tmp, &i);
+		ipsec_profile_str_parse(p_end, p_tmp, sizeof(prof[prof_type][prof_idx].leftcert), &i);
         p_end += i;
         
         p_tmp = &(prof[prof_type][prof_idx].leftsendcert[0]);
-        ipsec_profile_str_parse(p_end, p_tmp, &i);
+		ipsec_profile_str_parse(p_end, p_tmp, sizeof(prof[prof_type][prof_idx].leftsendcert), &i);
         p_end += i;
         
         p_tmp = &(prof[prof_type][prof_idx].leftkey[0]);
-        ipsec_profile_str_parse(p_end, p_tmp, &i);
+		ipsec_profile_str_parse(p_end, p_tmp, sizeof(prof[prof_type][prof_idx].leftkey), &i);
         p_end += i;
         
         p_tmp = &(prof[prof_type][prof_idx].eap_identity[0]);
-        ipsec_profile_str_parse(p_end, p_tmp, &i);
+		ipsec_profile_str_parse(p_end, p_tmp, sizeof(prof[prof_type][prof_idx].eap_identity), &i);
 		/*the last one doesn't need to parse ">".*/
     }
 
@@ -498,6 +563,10 @@ void ipsec_prof_fill_ext(int prof_idx, char *p_data, ipsec_prof_type_t prof_type
 {
 	int i = 1;
     char *p_end = NULL;
+	if(!ipsec_profile_valid(p_data, 1)){
+		memset(&prof[prof_type][prof_idx], 0, sizeof(prof[prof_type][prof_idx]));
+		return;
+	}
     p_end = p_data;
 
     /*encryption_p1_ext*/
@@ -554,7 +623,13 @@ int pre_ipsec_prof_set()
 				sprintf(&buf_ext[0], "ipsec_profile_client_%d_ext", i);
 			}
 
+			memset(&prof[prof_count][i-1], 0, sizeof(prof[prof_count][i-1]));
 			if(strlen(nvram_safe_get(&buf[0])) > 0 && strlen(nvram_safe_get(&buf_ext[0])) > 0){
+				if(!ipsec_profile_valid(nvram_safe_get(buf), 0) ||
+				   !ipsec_profile_valid(nvram_safe_get(buf_ext), 1)){
+					logmessage("ipsec", "Ignoring malformed profile %s", buf);
+					continue;
+				}
 				strlcpy(p_tmp, nvram_safe_get(&buf[0]), sizeof(buf1));
 				strlcpy(p_tmp_ext, nvram_safe_get(&buf_ext[0]), sizeof(buf1_ext));
 				/*to avoid nvram that it has not been inited ready*/
@@ -584,7 +659,7 @@ int pre_ipsec_samba_prof_set()
 	for(i = 0; i < MAX_PROF_NUM; i++){
 		if((0 != strcmp(prof[PROF_SVR][i].samba_settings, "null")) && IPSEC_CONN_EN_UP == prof[PROF_SVR][i].ipsec_conn_en
 			&& VPN_TYPE_HOST_NET == prof[PROF_SVR][i].vpn_type){
-				strcpy(p_tmp, prof[PROF_SVR][i].samba_settings);
+				strlcpy(p_tmp, prof[PROF_SVR][i].samba_settings, sizeof(buf));
         //DBG(("pre_ipsec_samba_prof_set#%s\n", p_tmp));
         if('\0' != *p_tmp){
             ipsec_samba_prof_fill(p_tmp);
@@ -1664,9 +1739,9 @@ void rc_ipsec_topology_set()
 			else if(PROF_CLI == prof_count)
 				sprintf(&buf[0], "ipsec_profile_client_%d", i+1);
 	        memset(s_tmp, '\0', SZ_BUF);
-	        if(NULL != nvram_safe_get(&buf[0])){
-	            strcpy(s_tmp, nvram_safe_get(&buf[0]));
-	        }
+				if(!ipsec_profile_valid(nvram_safe_get(buf), 0))
+					continue;
+				strlcpy(s_tmp, nvram_safe_get(buf), sizeof(buf1));
 	        if('\0' == *s_tmp){
 	            memset((ipsec_prof_t *)&prof[prof_count][i], 0, sizeof(ipsec_prof_t));
 	            prof[prof_count][i].ipsec_conn_en = IPSEC_CONN_EN_DEFAULT;
@@ -2040,9 +2115,9 @@ void rc_ipsec_topology_set_XML()
 				else if(PROF_CLI == prof_count)
 					sprintf(&buf[0], "ipsec_profile_client_%d", i+1);
 		        memset(s_tmp, '\0', SZ_BUF);
-		        if(NULL != nvram_safe_get(&buf[0])){
-		            strcpy(s_tmp, nvram_safe_get(&buf[0]));
-		        }
+				if(!ipsec_profile_valid(nvram_safe_get(buf), 0))
+				    continue;
+				strlcpy(s_tmp, nvram_safe_get(buf), sizeof(buf1));
 		        if('\0' == *s_tmp){
 		            memset((ipsec_prof_t *)&prof[prof_count][i], 0, sizeof(ipsec_prof_t));
 		            prof[prof_count][i].ipsec_conn_en = IPSEC_CONN_EN_DEFAULT;
@@ -2071,7 +2146,7 @@ void rc_ipsec_topology_set_XML()
 					if(0 != strcmp(prof[prof_count][i].local_subnet,lan_class))
 						strncpy(prof[prof_count][i].local_subnet, lan_class, 32);
 					fprintf(fp,"      <subnet>%s</subnet>\n", prof[prof_count][i].local_subnet);
-					strcpy(buf, prof[prof_count][i].virtual_subnet);
+					strlcpy(buf, prof[prof_count][i].virtual_subnet, sizeof(buf));
 					virtual_ip = get_virtual_ip_format(buf);
 					//DBG(("virtual_subnet=%s\n",prof[prof_count][i].virtual_subnet));
 					fprintf(fp,"      <address netmask=\"%s\">%s-%s</address>\n", virtual_ip.subnet, virtual_ip.ip_start,virtual_ip.ip_end);					
@@ -2106,19 +2181,18 @@ void rc_ipsec_topology_set_XML()
 						p_str1 = &xauth_tmp[0];
 						memset(xauth_buf, 0, sizeof(char) * SZ_MAX);
 						memset(xauth_tmp, 0, sizeof(char) * SZ_MAX);
-						strcpy(xauth_buf, nvram_safe_get(ipsec_client_list_name));
+						if(strlcpy(xauth_buf, nvram_safe_get(ipsec_client_list_name), sizeof(xauth_buf)) >= sizeof(xauth_buf))
+							continue;
 						while('\0' != *p_str){
 							if('<' == *p_str){
 								*p_str = '\n';
 							}
 							if('>' == *p_str){
-								*p_str1 = *p_str++ = '\n';
-								
-								p_str1 +=  1;
+								*p_str = '\n';
 							}
 							*p_str1++ = *p_str++;
 						}
-						p_str1 = '\0';
+						*p_str1 = '\0';
 						pch = strtok(xauth_tmp,delim);
 						while (pch != NULL)
 						{
