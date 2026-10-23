@@ -735,7 +735,7 @@ start_udhcpc(char *wan_ifname, int unit, pid_t *ppid)
 	char *dhcp_argv[] = { "/sbin/udhcpc",
 		"-i", wan_ifname,
 		"-p", (snprintf(pid, sizeof(pid), "/var/run/udhcpc%d.pid", unit), pid),
-		"-s", "/tmp/udhcpc_wan",
+		"-s", "/usr/libexec/rc-hooks/udhcpc_wan",
 		NULL,		/* -t2 */
 		NULL,		/* -T5 */
 		NULL,		/* -A120 */
@@ -1019,7 +1019,7 @@ start_zcip(char *wan_ifname, int unit, pid_t *ppid)
 	char *zcip_argv[] = { "/sbin/zcip",
 		"-p", (snprintf(pid, sizeof(pid), "/var/run/zcip%d.pid", unit), pid),
 		wan_ifname,
-		"/tmp/zcip",
+		"/usr/libexec/rc-hooks/zcip",
 		NULL };
 
 	return _eval(zcip_argv, NULL, 0, ppid);
@@ -2128,7 +2128,7 @@ start_dhcp6c(void)
 	char *dhcp6c_argv[] = { "odhcp6c",
 		"-df",
 		"-R",
-		"-s", "/tmp/dhcp6c",
+		"-s", "/usr/libexec/rc-hooks/dhcp6c",
 		"-N", mode,
 		NULL, NULL,	/* -c duid */
 		NULL, NULL,	/* -P len:iaidhex */

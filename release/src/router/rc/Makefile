@@ -1027,6 +1027,12 @@ endif
 	@cd $(INSTALLDIR)/sbin && ln -sf rc reboot
 	@cd $(INSTALLDIR)/sbin && ln -sf rc halt
 	@cd $(INSTALLDIR)/sbin && ln -sf rc netool
+	install -d -m 0755 $(INSTALLDIR)/usr/libexec/rc-hooks
+	ln -sf /sbin/rc $(INSTALLDIR)/usr/libexec/rc-hooks/udhcpc_wan
+	ln -sf /sbin/rc $(INSTALLDIR)/usr/libexec/rc-hooks/zcip
+ifeq ($(RTCONFIG_IPV6),y)
+	ln -sf /sbin/rc $(INSTALLDIR)/usr/libexec/rc-hooks/dhcp6c
+endif
 ifeq ($(HND_ROUTER),y)
 	@cd $(INSTALLDIR)/sbin && ln -sf rc hnd-write
 	@cd $(INSTALLDIR)/sbin && ln -sf rc hnd-erase

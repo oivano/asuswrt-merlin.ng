@@ -19751,6 +19751,7 @@ static void sysinit(void)
 
 	static const char *mkd[] = {
 		"/tmp/etc", "/tmp/var", "/tmp/home",
+		"/tmp/ppp", "/tmp/ppp/peers",
 #ifdef RTCONFIG_USB
 		POOL_MOUNT_ROOT,
 		NOTIFY_DIR,
@@ -19781,16 +19782,16 @@ static void sysinit(void)
 		mkdir(mkd[i], 0755);
 	}
 	// LPRng support
-	mkdir("/var/state", 0777);
-	mkdir("/var/state/parport", 0777);
-	mkdir("/var/state/parport/svr_statue", 0777);
+	mkdir("/var/state", 01777);
+	mkdir("/var/state/parport", 01777);
+	mkdir("/var/state/parport/svr_statue", 01777);
 
-	mkdir("/var/lock", 0777);
-	mkdir("/var/tmp/dhcp", 0777);
+	mkdir("/var/lock", 01777);
+	mkdir("/var/tmp/dhcp", 01777);
 	mkdir("/home/root", 0700);
 	chmod("/tmp", 01777);
 #ifdef RTCONFIG_USB
-	chmod(POOL_MOUNT_ROOT, 0777);
+	chmod(POOL_MOUNT_ROOT, 01777);
 #endif
 	f_write("/etc/hosts", NULL, 0, 0, 0644);			// blank
 	f_write("/etc/fstab", NULL, 0, 0, 0644);			// !!TB - blank
