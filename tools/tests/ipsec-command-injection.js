@@ -23,6 +23,8 @@ assert.match(clientHandler, /ipsec_client_name_valid\(name\)/);
 assert.ok(clientHandler.indexOf('ipsec_client_name_valid(key)') < clientHandler.indexOf('nvram_set("ipsec_client_list_1"'));
 
 const profileHandler = web.slice(web.indexOf('do_set_ipsec_profile_cgi('), web.indexOf('#ifdef RTCONFIG_INSTANT_GUARD', web.indexOf('do_set_ipsec_profile_cgi(')));
+assert.match(profileHandler, /virtual_subnet\[128\] = \{0\}/);
+assert.match(profileHandler, /normalized_virtual_subnet\[sizeof\(virtual_subnet\)\] = \{0\}/);
 assert.match(profileHandler, /ipsec_auth_method_key_valid\(auth_method_key\)/);
 assert.match(profileHandler, /ipsec_virtual_subnet_normalize\(virtual_subnet/);
 assert.ok(profileHandler.indexOf('ipsec_virtual_subnet_normalize(virtual_subnet') < profileHandler.indexOf('nvram_set("ipsec_profile_1"'));

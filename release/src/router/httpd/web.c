@@ -17244,8 +17244,8 @@ do_set_ipsec_profile_cgi(char *url, FILE *stream)
 	char *do_rc = NULL, *samba_dns1_ptr = NULL, *samba_dns2_ptr = NULL, *samba_win1_ptr = NULL, *samba_win2_ptr = NULL;
 	char *samba_dns1_ptr_t = NULL, *samba_dns2_ptr_t = NULL, *samba_win1_ptr_t = NULL, *samba_win2_ptr_t = NULL;
 
-	char ipsec_server_enable[2] = {0}, auth_method_key[33] = {0}, dead_peer_detection[2] = {0}, ipsec_dpd[4] = {0}, virtual_subnet[SZ_128BUF] = {0};
-	char normalized_virtual_subnet[SZ_128BUF] = {0};
+	char ipsec_server_enable[2] = {0}, auth_method_key[33] = {0}, dead_peer_detection[2] = {0}, ipsec_dpd[4] = {0}, virtual_subnet[128] = {0};
+	char normalized_virtual_subnet[sizeof(virtual_subnet)] = {0};
 	char samba_dns1[16] = {0}, samba_dns2[16] = {0}, samba_win1[16] = {0}, samba_win2[16] = {0};
 
 	struct json_object *root = json_object_new_object();

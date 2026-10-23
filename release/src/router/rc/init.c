@@ -19788,7 +19788,7 @@ static void sysinit(void)
 	mkdir("/var/lock", 0777);
 	mkdir("/var/tmp/dhcp", 0777);
 	mkdir("/home/root", 0700);
-	chmod("/tmp", 0777);
+	chmod("/tmp", 01777);
 #ifdef RTCONFIG_USB
 	chmod(POOL_MOUNT_ROOT, 0777);
 #endif
@@ -19796,7 +19796,7 @@ static void sysinit(void)
 	f_write("/etc/fstab", NULL, 0, 0, 0644);			// !!TB - blank
 	f_write("/tmp/settings", NULL, 0, 0, 0644);
 
-	//umask(022);
+	umask(022);
 
 	if ((d = opendir("/rom/etc")) != NULL) {
 		while ((de = readdir(d)) != NULL) {

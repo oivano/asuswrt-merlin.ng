@@ -8,6 +8,8 @@
 #include <syslog.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include <fcntl.h>
+#include <dirent.h>
 #include <network_utility.h>
 #include "rc_ipsec.h"
 
@@ -21,6 +23,159 @@
 #define wan_prefix(unit, prefix)	snprintf(prefix, sizeof(prefix), "wan%d_", unit)
 
 void rc_ipsec_topology_set();
+
+static int ipsec_private_dir(const char *path)
+{
+	struct stat st;
+	int descriptor, result;
+
+	if (mkdir(path, 0700) < 0 && errno != EEXIST)
+		return -1;
+	descriptor = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (descriptor < 0)
+		return -1;
+	result = fstat(descriptor, &st);
+	if (result == 0 && st.st_uid == 0 && st.st_gid == 0)
+		result = fchmod(descriptor, 0700);
+	else
+		result = -1;
+	close(descriptor);
+	return result;
+}
+
+static int ipsec_secure_ca_files(void)
+{
+	DIR *directory;
+	struct dirent *entry;
+	struct stat st;
+	char path[512];
+	int descriptor, result = 0;
+	size_t length;
+
+	directory = opendir("/jffs/ca_files");
+	if (!directory)
+		return -1;
+	while ((entry = readdir(directory)) != NULL) {
+		if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
+			continue;
+		if (snprintf(path, sizeof(path), "%s%s", FILE_PATH_CA_ETC,
+					 entry->d_name) >= sizeof(path)) {
+			result = -1;
+			break;
+		}
+		if (lstat(path, &st) < 0) {
+			result = -1;
+			break;
+		}
+		length = strlen(entry->d_name);
+		if (!S_ISREG(st.st_mode) || st.st_uid != 0 || st.st_gid != 0 ||
+			st.st_nlink != 1 || (length >= 3 &&
+			!strcmp(entry->d_name + length - 3, ".sh") && (st.st_mode & 0077))) {
+			if (unlink(path) < 0) {
+				result = -1;
+				break;
+			}
+			continue;
+		}
+		descriptor = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+		if (descriptor < 0) {
+			result = -1;
+			break;
+		}
+		result = fchmod(descriptor, length >= 3 &&
+				!strcmp(entry->d_name + length - 3, ".sh") ? 0700 : 0600);
+		close(descriptor);
+		if (result < 0)
+			break;
+	}
+	closedir(directory);
+	return result;
+}
+
+static int ipsec_secure_dirs(void)
+{
+	struct stat st;
+
+	if (lstat("/tmp", &st) < 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
+		((st.st_mode & 0022) && !(st.st_mode & S_ISVTX)))
+		return -1;
+	if (lstat("/jffs", &st) < 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
+		(st.st_mode & 0022))
+		return -1;
+	if (ipsec_private_dir(FILE_PATH_IPSEC_PRIVATE_DIR) < 0 ||
+		ipsec_private_dir("/jffs/ca_files") < 0)
+		return -1;
+	return ipsec_secure_ca_files();
+}
+
+static FILE *ipsec_script_open(const char *path, int append)
+{
+	struct stat st;
+	FILE *stream;
+	int descriptor;
+
+	if (ipsec_secure_dirs() < 0)
+		return NULL;
+	if (!append && unlink(path) < 0 && errno != ENOENT)
+		return NULL;
+	descriptor = open(path, O_WRONLY | O_NOFOLLOW | O_NONBLOCK |
+					  (append ? O_APPEND : O_CREAT | O_EXCL), 0700);
+	if (descriptor < 0)
+		return NULL;
+	if (fstat(descriptor, &st) < 0 || !S_ISREG(st.st_mode) ||
+		st.st_uid != 0 || st.st_gid != 0 || st.st_nlink != 1 ||
+		(st.st_mode & 0077) || fchmod(descriptor, 0700) < 0) {
+		close(descriptor);
+		return NULL;
+	}
+	stream = fdopen(descriptor, append ? "a" : "w");
+	if (!stream)
+		close(descriptor);
+	return stream;
+}
+
+static int ipsec_run_script(const char *path)
+{
+	struct stat st;
+	mode_t saved_umask;
+	int descriptor, result;
+	char *arguments[] = { "/bin/sh", (char *)path, NULL };
+
+	if (ipsec_secure_dirs() < 0)
+		return -1;
+	descriptor = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+	if (descriptor < 0)
+		return -1;
+	result = fstat(descriptor, &st);
+	close(descriptor);
+	if (result < 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
+		st.st_gid != 0 || st.st_nlink != 1 || (st.st_mode & 0077)) {
+		logmessage("ipsec", "Refusing unsafe helper script");
+		return -1;
+	}
+	saved_umask = umask(077);
+	result = _eval(arguments, NULL, 0, NULL);
+	umask(saved_umask);
+	return result;
+}
+
+FILE *rc_ipsec_cert_open(const char *path)
+{
+	const char *name;
+	FILE *stream;
+
+	if (strncmp(path, FILE_PATH_CA_ETC, strlen(FILE_PATH_CA_ETC)))
+		return NULL;
+	name = path + strlen(FILE_PATH_CA_ETC);
+	if (!*name || !strcmp(name, ".") || !strcmp(name, "..") || strchr(name, '/'))
+		return NULL;
+	stream = ipsec_script_open(path, 0);
+	if (stream && fchmod(fileno(stream), 0600) < 0) {
+		fclose(stream);
+		return NULL;
+	}
+	return stream;
+}
 
 /*ike version : v1, v2, auto:ike*/
 char ikev[IKE_TYPE_MAX_NUM][SZ_MIN] = {
@@ -783,19 +938,15 @@ void rc_ipsec_ca2ipsecd_cp(FILE *fp, uint32_t idx)
 void rc_ipsec_pki_gen_exec(uint32_t idx)
 {
     FILE *fp = NULL;
-	char *argv[3];
-	argv[0] = "/bin/sh";
-	argv[1] = FILE_PATH_CA_GEN_SH"&";
-	argv[2] = NULL;
 
-    fp = fopen(FILE_PATH_CA_GEN_SH, "a+w");
+	fp = ipsec_script_open(FILE_PATH_CA_GEN_SH, 1);
 
     if(NULL != fp){
         rc_ipsec_ca2ipsecd_cp(fp, idx);
         fclose(fp);
         DBG(("to run %s in the background!\n", FILE_PATH_CA_GEN_SH));
         //system("."FILE_PATH_CA_GEN_SH"&");
-        _eval(argv, NULL, 0, NULL);
+		ipsec_run_script(FILE_PATH_CA_GEN_SH);
     }
     return;
 }
@@ -888,13 +1039,10 @@ int rc_ipsec_ca_fileidx_check()
     char awk_cmd[SZ_BUF], str_buf[SZ_MIN];
     FILE *fp = NULL;
     uint32_t file_idx_32bits = 0, i_tmp = 0;
-	char *argv[3];
-	
-	argv[0] = "/bin/sh";
-	argv[1] = FILE_PATH_CA_CHECK_SH;
-	argv[2] = NULL;
     
-    fp = fopen(FILE_PATH_CA_CHECK_SH, "w");
+	fp = ipsec_script_open(FILE_PATH_CA_CHECK_SH, 0);
+	if (!fp)
+		return file_idx_32bits;
     
     sprintf(awk_cmd, "awk '{for ( x = 0; x < %d; x++ )"
                      "{ if($1 == x\"_cliKey.pem\")"
@@ -905,9 +1053,9 @@ int rc_ipsec_ca_fileidx_check()
     if(NULL != fp){
         fclose(fp);
     }
-	chmod(FILE_PATH_CA_CHECK_SH, 0777);
     //system("."FILE_PATH_CA_CHECK_SH);
-    _eval(argv, NULL, 0, NULL);
+	if (ipsec_run_script(FILE_PATH_CA_CHECK_SH) != 0)
+		return file_idx_32bits;
 	
     fp = fopen(FILE_PATH_CA_TEMP, "r");
     if(NULL == fp){
@@ -1001,9 +1149,11 @@ int rc_ipsec_ca_gen()
     FILE *fp = NULL;
     int file_idx = 0;
 
-    fp = fopen(FILE_PATH_CA_GEN_SH,"w");
+	fp = ipsec_script_open(FILE_PATH_CA_GEN_SH, 0);
+	if (!fp)
+		return -1;
     file_idx = rc_ipsec_ca_txt_parse();
-    fprintf(fp,"#%s\npki --gen --outform pem > "FILE_PATH_CA_ETC"%d_ca.pem \n"
+	fprintf(fp,"#%s\numask 077\npki --gen --outform pem > "FILE_PATH_CA_ETC"%d_ca.pem \n"
                "pki --self --in "FILE_PATH_CA_ETC"%d_ca.pem --dn \"%s\""
                " --ca --outform pem > "FILE_PATH_CA_ETC"%d_asusCert.pem\n"
                "pki --gen --outform pem > "FILE_PATH_CA_ETC"%d_svrKey.pem\n"
@@ -1033,7 +1183,6 @@ int rc_ipsec_ca_gen()
     if(NULL != fp){
         fclose(fp);
     }
-	chmod(FILE_PATH_CA_GEN_SH, 0777);
     return file_idx;
 }
 
@@ -1148,6 +1297,8 @@ void rc_ipsec_gen_cert(int skip_checking)
     char ddns_name[128] = {0}, remote_id[128] = {0}, prefix[16] = {0};
     int ca_lifetime = 2200;
 
+	if (ipsec_secure_dirs() < 0)
+		return;
     if((skip_checking == 0) && check_if_file_exist(FILE_PATH_CA_ETC FILE_NAME_CERT_PEM)&&check_if_file_exist(FILE_PATH_CA_ETC FILE_NAME_SVR_PRIVATE_KEY)&&check_if_file_exist(FILE_PATH_CA_ETC FILE_NAME_SVR_CERT_PEM)){
         DBG(("CA files are ready there.\n"));
         return;
@@ -1191,9 +1342,11 @@ void rc_ipsec_gen_cert(int skip_checking)
     }else
         strlcpy(remote_id, ddns_name, sizeof(remote_id));
 
-    fp = fopen(FILE_PATH_CA_ETC"generate.sh", "w");
+	fp = ipsec_script_open(FILE_PATH_CA_ETC"generate.sh", 0);
+	if (!fp)
+		return;
     if(NULL != fp){
-        fprintf(fp, "#!/bin/sh\n\n");
+		fprintf(fp, "#!/bin/sh\numask 077\n\n");
         fprintf(fp, "pki --gen --size 2048 --outform pem > %s%s\n"
                     "pki --self --in %s%s --dn \"C=TW,O=ASUS,CN=ASUS %s Root CA\" --ca --lifetime %d --outform pem > %s%s\n"
                     "pki --gen --size 2048 --outform pem > %s%s\n"
@@ -1207,8 +1360,7 @@ void rc_ipsec_gen_cert(int skip_checking)
                     );
         fclose(fp);
     }
-    chmod(FILE_PATH_CA_ETC"generate.sh", 0777);
-    system(FILE_PATH_CA_ETC"generate.sh");
+	ipsec_run_script(FILE_PATH_CA_ETC"generate.sh");
     /* 0:nvram 1:openvpn 2:ipsec 3:usericon */
 	if(check_if_file_exist(FILE_PATH_CA_ETC FILE_NAME_CERT_PEM)&&check_if_file_exist(FILE_PATH_CA_ETC FILE_NAME_SVR_PRIVATE_KEY)&&check_if_file_exist(FILE_PATH_CA_ETC FILE_NAME_SVR_CERT_PEM)){
 		DBG(("CA files are generated properly.\n"));
@@ -1225,17 +1377,19 @@ void rc_ipsec_ca_init( )
 {
     FILE *fp = NULL;
 
-    fp = fopen(FILE_PATH_CA_ETC"ca_init.sh", "w");
+	fp = ipsec_script_open(FILE_PATH_CA_ETC"ca_init.sh", 0);
+	if (!fp)
+		return;
     if(NULL != fp){
-        fprintf(fp, "#!/bin/sh\n\n");
+		fprintf(fp, "#!/bin/sh\numask 077\n\n");
         fprintf(fp, "cp -r %sasusCert.pem /tmp/etc/ipsec.d/cacerts/\n"
                     "cp -r %ssvrCert.pem /tmp/etc/ipsec.d/certs/\n"
-                    "cp -r %ssvrKey.pem /tmp/etc/ipsec.d/private/\n",
+					"cp -r %ssvrKey.pem /tmp/etc/ipsec.d/private/\n"
+					"chmod 0600 /tmp/etc/ipsec.d/private/svrKey.pem\n",
                     FILE_PATH_CA_ETC, FILE_PATH_CA_ETC, FILE_PATH_CA_ETC);
         fclose(fp);
     }
-    chmod(FILE_PATH_CA_ETC"ca_init.sh", 0777);
-    system(FILE_PATH_CA_ETC"ca_init.sh");
+	ipsec_run_script(FILE_PATH_CA_ETC"ca_init.sh");
 }
 
 void rc_ipsec_conf_default_init()
@@ -1875,7 +2029,10 @@ void rc_ipsec_config_init(void)
     memset((void *)&pre_samba_prof, 0, sizeof(pre_samba_prof));
 	if(!d_exists("/etc/ipsec.d") || !d_exists("/etc/strongswan.d"))
 		system("cp -rf /usr/etc/* /tmp/etc/");
-    system("mkdir -p /jffs/ca_files");
+	if (ipsec_secure_dirs() < 0) {
+		logmessage("ipsec", "Cannot secure IPsec directories; initialization stopped");
+		return;
+	}
     /*ipsec.conf init*/    
     rc_ipsec_conf_default_init();
     rc_ipsec_psk_xauth_rw_init();
@@ -1925,13 +2082,7 @@ void get_bitmap_scan(int *cur_bitmap_en)
 }
 void run_ipsec_firewall_scripts(void)
 {
-	char *argv[3];
-	argv[0] = "/bin/sh";
-	argv[1] = FILE_PATH_IPSEC_IPTABLES_RULE;
-	argv[2] = NULL;
-
-	chmod(FILE_PATH_IPSEC_IPTABLES_RULE, 0777);
-	_eval(argv, NULL, 0, NULL);
+	ipsec_run_script(FILE_PATH_IPSEC_IPTABLES_RULE);
 	return;
 }
 
@@ -2597,7 +2748,6 @@ void rc_ipsec_set(ipsec_conn_status_t conn_status, ipsec_prof_type_t prof_type)
 	int prof_count = 0;
     FILE *fp = NULL, *fp1 = NULL;
 	char interface[SZ_MIN];
-	char *argv[3];
 	int unit = 0;
 	char word[80], *next;
 	uint32_t cur_bitmap_en_p[2]={0};
@@ -2609,11 +2759,11 @@ void rc_ipsec_set(ipsec_conn_status_t conn_status, ipsec_prof_type_t prof_type)
 	int nat_t_port = nvram_get_int("ipsec_nat_t_port");
 */
 
-	argv[0] = "/bin/sh";
-	argv[1] = FILE_PATH_IPSEC_SH;
-	argv[2] = NULL;
-
-    rc_ipsec_nvram_convert_check();
+	if (ipsec_secure_dirs() < 0) {
+		logmessage("ipsec", "Cannot secure IPsec directories; configuration stopped");
+		return;
+	}
+	rc_ipsec_nvram_convert_check();
     rc_ipsec_conf_set();
     rc_ipsec_secrets_set();
     rc_ipsec_gen_cert(0);
@@ -2623,13 +2773,14 @@ void rc_ipsec_set(ipsec_conn_status_t conn_status, ipsec_prof_type_t prof_type)
 #if defined(RTCONFIG_QUICKSEC)
 	rc_ipsec_topology_set_XML();
 #endif
-	if ((fp = fopen(FILE_PATH_IPSEC_SH, "w")) == NULL){
+	if ((fp = ipsec_script_open(FILE_PATH_IPSEC_SH, 0)) == NULL){
 		DBG(("OPEN %s FAIL!!\n", FILE_PATH_IPSEC_SH));
 		return;
 	}
 
-	if ((fp1 = fopen(FILE_PATH_IPSEC_IPTABLES_RULE, "w")) == NULL){
+	if ((fp1 = ipsec_script_open(FILE_PATH_IPSEC_IPTABLES_RULE, 0)) == NULL){
 		DBG(("OPEN %s FAIL!!\n", FILE_PATH_IPSEC_IPTABLES_RULE));
+		fclose(fp);
 		return;
 	}
 		
@@ -2651,7 +2802,12 @@ void rc_ipsec_set(ipsec_conn_status_t conn_status, ipsec_prof_type_t prof_type)
 	else
 		nvram_set_int("ipsec_client_enable",0);
         
-	symlink("/sbin/rc", FILE_PATH_IPSEC_UPDOWN);
+	unlink(FILE_PATH_IPSEC_UPDOWN);
+	if (symlink("/sbin/rc", FILE_PATH_IPSEC_UPDOWN) < 0) {
+		fclose(fp1);
+		fclose(fp);
+		return;
+	}
     
 	if((nvram_get_int("ipsec_server_enable") == 1 || nvram_get_int("ipsec_client_enable") == 1 )
 #ifdef RTCONFIG_INSTANT_GUARD
@@ -2930,8 +3086,7 @@ void rc_ipsec_set(ipsec_conn_status_t conn_status, ipsec_prof_type_t prof_type)
 	reinit_ecm(-1);
 #endif
 	DBG(("rc_ipsec_down_stat<<<< CLI: 0x%x, SVR: 0x%x\n", cur_bitmap_en_p[PROF_CLI],cur_bitmap_en_p[PROF_SVR]));
-	chmod(FILE_PATH_IPSEC_SH, 0777);
-	_eval(argv, NULL, 0, NULL);
+	ipsec_run_script(FILE_PATH_IPSEC_SH);
 	DBG(("rc_ipsec_down_stat<<<< CLI: 0x%x, SVR: 0x%x\n", cur_bitmap_en_p[PROF_CLI],cur_bitmap_en_p[PROF_SVR]));
 	run_ipsec_firewall_scripts();
 #ifdef RTCONFIG_UPNPC_NEW
@@ -3315,7 +3470,7 @@ static void _ipsec_updown_host_net_cli(int unit)
 			}
 		#endif
 		}
-		fp = fopen(FILE_PATH_IPSEC_IPTABLES_RULE, "a");
+		fp = ipsec_script_open(FILE_PATH_IPSEC_IPTABLES_RULE, 1);
 		if (fp) {
 			fprintf(fp, "iptables -t nat -D POSTROUTING -o %s ! -s %s -j MASQUERADE\n", vif, my_ip4);
 			fprintf(fp, "iptables -t nat -A POSTROUTING -o %s ! -s %s -j MASQUERADE\n", vif, my_ip4);
