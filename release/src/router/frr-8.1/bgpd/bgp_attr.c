@@ -1318,6 +1318,7 @@ bgp_attr_malformed(struct bgp_attr_parser_args *args, uint8_t subcode,
 	case BGP_ATTR_LARGE_COMMUNITIES:
 	case BGP_ATTR_ORIGINATOR_ID:
 	case BGP_ATTR_CLUSTER_LIST:
+	case BGP_ATTR_ENCAP:
 		return BGP_ATTR_PARSE_WITHDRAW;
 	case BGP_ATTR_MP_REACH_NLRI:
 	case BGP_ATTR_MP_UNREACH_NLRI:
@@ -2418,27 +2419,35 @@ bgp_attr_ipv6_ext_communities(struct bgp_attr_parser_args *args)
 	return BGP_ATTR_PARSE_PROCEED;
 }
 
-/* Parse Tunnel Encap attribute in an UPDATE */
-static int bgp_attr_encap(uint8_t type, struct peer *peer, /* IN */
-			  bgp_size_t length, /* IN: attr's length field */
-			  struct attr *attr, /* IN: caller already allocated */
-			  uint8_t flag,      /* IN: attr's flags field */
-			  uint8_t *startp)
+static bgp_attr_parse_ret_t
+bgp_attr_encap_malformed(struct bgp_attr_parser_args *args, uint8_t subcode)
 {
-	bgp_size_t total;
-	uint16_t tunneltype = 0;
+	if (args->type == BGP_ATTR_ENCAP)
+		return bgp_attr_malformed(args, subcode, args->total);
 
-	total = length + (CHECK_FLAG(flag, BGP_ATTR_FLAG_EXTLEN) ? 4 : 3);
+	bgp_notify_send_with_data(args->peer, BGP_NOTIFY_UPDATE_ERR, subcode,
+				  args->startp, args->total);
+	return BGP_ATTR_PARSE_ERROR;
+}
+
+/* Parse Tunnel Encap attribute in an UPDATE */
+static bgp_attr_parse_ret_t
+bgp_attr_encap(struct bgp_attr_parser_args *args)
+{
+	uint8_t type = args->type;
+	struct peer *peer = args->peer;
+	bgp_size_t length = args->length;
+	struct attr *attr = args->attr;
+	uint8_t flag = args->flags;
+	uint16_t tunneltype = 0;
 
 	if (!CHECK_FLAG(flag, BGP_ATTR_FLAG_TRANS)
 	    || !CHECK_FLAG(flag, BGP_ATTR_FLAG_OPTIONAL)) {
 		zlog_info(
 			"Tunnel Encap attribute flag isn't optional and transitive %d",
 			flag);
-		bgp_notify_send_with_data(peer, BGP_NOTIFY_UPDATE_ERR,
-					  BGP_NOTIFY_UPDATE_ATTR_FLAG_ERR,
-					  startp, total);
-		return -1;
+		return bgp_attr_encap_malformed(
+			args, BGP_NOTIFY_UPDATE_ATTR_FLAG_ERR);
 	}
 
 	if (BGP_ATTR_ENCAP == type) {
@@ -2448,10 +2457,8 @@ static int bgp_attr_encap(uint8_t type, struct peer *peer, /* IN */
 		if (length < 4) {
 			zlog_info(
 				"Tunnel Encap attribute not long enough to contain outer T,L");
-			bgp_notify_send_with_data(
-				peer, BGP_NOTIFY_UPDATE_ERR,
-				BGP_NOTIFY_UPDATE_OPT_ATTR_ERR, startp, total);
-			return -1;
+			return bgp_attr_encap_malformed(
+				args, BGP_NOTIFY_UPDATE_OPT_ATTR_ERR);
 		}
 		tunneltype = stream_getw(BGP_INPUT(peer));
 		tlv_length = stream_getw(BGP_INPUT(peer));
@@ -2484,10 +2491,8 @@ static int bgp_attr_encap(uint8_t type, struct peer *peer, /* IN */
 			zlog_info(
 				"Tunnel Encap attribute sub-tlv length %d exceeds remaining length %d",
 				sublength, length);
-			bgp_notify_send_with_data(
-				peer, BGP_NOTIFY_UPDATE_ERR,
-				BGP_NOTIFY_UPDATE_OPT_ATTR_ERR, startp, total);
-			return -1;
+			return bgp_attr_encap_malformed(
+				args, BGP_NOTIFY_UPDATE_OPT_ATTR_ERR);
 		}
 
 		/* alloc and copy sub-tlv */
@@ -2538,13 +2543,11 @@ static int bgp_attr_encap(uint8_t type, struct peer *peer, /* IN */
 		zlog_info(
 			"Tunnel Encap attribute length is bad: %d leftover octets",
 			length);
-		bgp_notify_send_with_data(peer, BGP_NOTIFY_UPDATE_ERR,
-					  BGP_NOTIFY_UPDATE_OPT_ATTR_ERR,
-					  startp, total);
-		return -1;
+		return bgp_attr_encap_malformed(
+			args, BGP_NOTIFY_UPDATE_OPT_ATTR_ERR);
 	}
 
-	return 0;
+	return BGP_ATTR_PARSE_PROCEED;
 }
 
 
@@ -3369,8 +3372,7 @@ bgp_attr_parse_ret_t bgp_attr_parse(struct peer *peer, struct attr *attr,
 		case BGP_ATTR_VNC:
 #endif
 		case BGP_ATTR_ENCAP:
-			ret = bgp_attr_encap(type, peer, length, attr, flag,
-					     startp);
+			ret = bgp_attr_encap(&attr_args);
 			break;
 		case BGP_ATTR_PREFIX_SID:
 			ret = bgp_attr_prefix_sid(&attr_args);
