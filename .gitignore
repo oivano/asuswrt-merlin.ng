@@ -7,7 +7,6 @@ MAINTENANCE-WORKFLOW.md
 tools/release/*.txt
 tools/build/
 docs/IPSEC-RUNTIME.md
-tests/
-
+tools/tests/
 # Local prompt customizations
 .github/prompts/

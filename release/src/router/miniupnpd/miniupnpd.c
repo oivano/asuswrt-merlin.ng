@@ -2122,6 +2122,8 @@ init(int argc, char * * argv, struct runtime_vars * v)
 		}
 	}
 
+	umask(077);
+
 #ifndef NO_BACKGROUND_NO_PIDFILE
 	if (debug_flag
 #ifdef USE_SYSTEMD
