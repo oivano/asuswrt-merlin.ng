@@ -3511,6 +3511,8 @@ bgp_attr_parse_ret_t bgp_attr_parse(struct peer *peer, struct attr *attr,
 
 	ret = BGP_ATTR_PARSE_PROCEED;
 done:
+	if (ret == BGP_ATTR_PARSE_WITHDRAW)
+		stream_set_getp(BGP_INPUT(peer), endp - STREAM_DATA(BGP_INPUT(peer)));
 
 	/*
 	 * At this stage, we have done all fiddling with as4, and the
