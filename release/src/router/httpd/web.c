@@ -16945,6 +16945,25 @@ do_get_ipsec_clientlist_cgi(char *url, FILE *stream)
 		json_object_put(ig_obj);
 }
 
+static int
+ipsec_client_name_valid(const char *name)
+{
+	const unsigned char *character;
+	size_t length = strlen(name);
+
+	if(length == 0 || length > 64)
+		return 0;
+	for(character = (const unsigned char *)name; *character; character++){
+		if(!((*character >= 'a' && *character <= 'z') ||
+		     (*character >= 'A' && *character <= 'Z') ||
+		     (*character >= '0' && *character <= '9') ||
+		     *character == '_' || *character == '-' ||
+		     *character == '.' || *character == '@'))
+			return 0;
+	}
+	return 1;
+}
+
 static void
 do_set_ipsec_clientlist_cgi(char *url, FILE *stream)
 {
@@ -16978,6 +16997,10 @@ do_set_ipsec_clientlist_cgi(char *url, FILE *stream)
 				ret = HTTP_OVER_MAX_RULE_LIMIT;
 				goto FINISH;
 			}
+			if(!ipsec_client_name_valid(key)){
+				ret = HTTP_INVALID_INPUT;
+				goto FINISH;
+			}
 
 			if(json_object_object_get_ex(val, "passwd", &passwd_obj) && json_object_object_get_ex(val, "ver", &version_obj))
 			{
@@ -17002,6 +17025,10 @@ do_set_ipsec_clientlist_cgi(char *url, FILE *stream)
 
 			if((vstrsep(word, ">", &name, &passwd, &version)) != 3)
 				continue;
+			if(!ipsec_client_name_valid(name)){
+				ret = HTTP_INVALID_INPUT;
+				goto FINISH;
+			}
 
 			snprintf(client_buf, sizeof(client_buf), "<%s>%s", name, passwd);
 			if(safe_atoi(version) & 1)
@@ -17025,6 +17052,73 @@ FINISH:
 	if(json_root)
 		json_object_put(json_root);
 	websWrite(stream, "{\"statusCode\":\"%d\"}", ret);
+}
+
+static int
+ipsec_auth_method_key_valid(const char *key)
+{
+	const unsigned char *character;
+
+	if(strlen(key) > 32)
+		return 0;
+	for(character = (const unsigned char *)key; *character; character++){
+		if(!((*character >= 'a' && *character <= 'z') ||
+		     (*character >= 'A' && *character <= 'Z') ||
+		     (*character >= '0' && *character <= '9') ||
+		     strchr("._+-@:/=", *character)))
+			return 0;
+	}
+	return 1;
+}
+
+static int
+ipsec_virtual_subnet_normalize(const char *input, char *output, size_t output_size)
+{
+	char address[32] = {0};
+	char candidate[32] = {0};
+	char *prefix;
+	struct in_addr parsed_address;
+	unsigned int prefix_length = 0;
+	const unsigned char *character;
+	int dots = 0;
+	int written;
+
+	if(strlen(input) == 0 || strlen(input) >= sizeof(address))
+		return 0;
+	strlcpy(address, input, sizeof(address));
+	prefix = strchr(address, '/');
+	if(prefix){
+		*prefix++ = '\0';
+		if(!*prefix)
+			return 0;
+		for(character = (const unsigned char *)prefix; *character; character++){
+			if(*character < '0' || *character > '9')
+				return 0;
+			prefix_length = prefix_length * 10 + (*character - '0');
+			if(prefix_length > 32)
+				return 0;
+		}
+	}
+	if(inet_pton(AF_INET, address, &parsed_address) == 1){
+		if(prefix)
+			written = snprintf(output, output_size, "%s/%u", address, prefix_length);
+		else
+			written = snprintf(output, output_size, "%s/32", address);
+		return written >= 0 && (size_t)written < output_size;
+	}
+	if(prefix)
+		return 0;
+	for(character = (const unsigned char *)address; *character; character++){
+		if(*character == '.')
+			dots++;
+		else if(*character < '0' || *character > '9')
+			return 0;
+	}
+	if(dots != 2 || snprintf(candidate, sizeof(candidate), "%s.0", address) >= sizeof(candidate) ||
+	   inet_pton(AF_INET, candidate, &parsed_address) != 1)
+		return 0;
+	written = snprintf(output, output_size, "%s.0/24", address);
+	return written >= 0 && (size_t)written < output_size;
 }
 
 static void
@@ -17150,7 +17244,8 @@ do_set_ipsec_profile_cgi(char *url, FILE *stream)
 	char *do_rc = NULL, *samba_dns1_ptr = NULL, *samba_dns2_ptr = NULL, *samba_win1_ptr = NULL, *samba_win2_ptr = NULL;
 	char *samba_dns1_ptr_t = NULL, *samba_dns2_ptr_t = NULL, *samba_win1_ptr_t = NULL, *samba_win2_ptr_t = NULL;
 
-	char ipsec_server_enable[2] = {0}, auth_method_key[33] = {0}, dead_peer_detection[2] = {0}, ipsec_dpd[4] = {0}, virtual_subnet[12] = {0};
+	char ipsec_server_enable[2] = {0}, auth_method_key[33] = {0}, dead_peer_detection[2] = {0}, ipsec_dpd[4] = {0}, virtual_subnet[SZ_128BUF] = {0};
+	char normalized_virtual_subnet[SZ_128BUF] = {0};
 	char samba_dns1[16] = {0}, samba_dns2[16] = {0}, samba_win1[16] = {0}, samba_win2[16] = {0};
 
 	struct json_object *root = json_object_new_object();
@@ -17242,6 +17337,13 @@ do_set_ipsec_profile_cgi(char *url, FILE *stream)
 		ret = HTTP_INVALID_IPADDR;
 		goto FINISH;
 	}
+	if((auth_method_key_ptr && strlen(auth_method_key_ptr) > 32) ||
+	   !ipsec_auth_method_key_valid(auth_method_key) ||
+	   !ipsec_virtual_subnet_normalize(virtual_subnet, normalized_virtual_subnet, sizeof(normalized_virtual_subnet))){
+		ret = HTTP_INVALID_INPUT;
+		goto FINISH;
+	}
+	strlcpy(virtual_subnet, normalized_virtual_subnet, sizeof(virtual_subnet));
 
 	snprintf(sambalist, sizeof(sambalist), "<%s<%s<%s<%s", samba_dns1, samba_dns2, samba_win1, samba_win2);
 	snprintf(ipsec_profile_1, sizeof(ipsec_profile_1), "4>Host-to-Net>null>null>wan>>1>%s>null>null>null>null>null>1>%s>null>1>null>null>0>null>null>null>1>>>eap-md5>1>500>4500>%s>%s>null>null>null>null>%s>1",

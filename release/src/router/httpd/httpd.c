@@ -1328,6 +1328,9 @@ handle_request(void)
 				break;
 			}
 		}
+		if (match("set_ipsec_clientlist.cgi*", url) ||
+		    match("set_ipsec_profile.cgi*", url))
+			do_referer = CHECK_REFERER;
 	}
 
 	x_Setting = nvram_get_int("x_Setting");

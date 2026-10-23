@@ -125,6 +125,21 @@ void ipsec_profile_str_parse(char *p_end, char *p_tmp, int *nsize_shifft)
     return;
 }
 
+static int ipsec_ipv4_prefix_valid(const char *value);
+static int ipsec_ipv4_prefix_list_valid(const char *value);
+
+static int
+ipsec_profile_field_count_valid(const char *profile_data)
+{
+	int field_count = 1;
+
+	for(; *profile_data; profile_data++){
+		if(*profile_data == '>')
+			field_count++;
+	}
+	return field_count == 38 || field_count == 43;
+}
+
 static int ipsec_ike_type_idx_get(char *data);
 static int ipsec_esp_type_idx_get(char *data);
 /*param 1: char *p_end , IN : the src of string buf */
@@ -252,6 +267,10 @@ void ipsec_prof_fill(int prof_idx, char *p_data, ipsec_prof_type_t prof_type)
 {
     int i = 1;
     char *p_end = NULL, *p_tmp = NULL, *ptr=NULL;;
+	if(!ipsec_profile_field_count_valid(p_data)){
+		memset(&prof[prof_type][prof_idx], 0, sizeof(prof[prof_type][prof_idx]));
+		return;
+	}
     p_end = p_data;
 
     /*vpn_type*/
@@ -456,6 +475,20 @@ void ipsec_prof_fill(int prof_idx, char *p_data, ipsec_prof_type_t prof_type)
         ipsec_profile_str_parse(p_end, p_tmp, &i);
 		/*the last one doesn't need to parse ">".*/
     }
+
+	if(prof[prof_type][prof_idx].ipsec_conn_en == IPSEC_CONN_EN_UP){
+		if(prof[prof_type][prof_idx].vpn_type == VPN_TYPE_HOST_NET &&
+		   !ipsec_ipv4_prefix_valid(prof[prof_type][prof_idx].virtual_subnet)){
+			prof[prof_type][prof_idx].ipsec_conn_en = IPSEC_CONN_EN_DOWN;
+			prof[prof_type][prof_idx].profilename[0] = '\0';
+		}
+		else if((prof[prof_type][prof_idx].vpn_type == VPN_TYPE_NET_NET_PEER ||
+		         prof[prof_type][prof_idx].vpn_type == VPN_TYPE_NET_NET_CLI) &&
+		        !ipsec_ipv4_prefix_list_valid(prof[prof_type][prof_idx].local_subnet)){
+			prof[prof_type][prof_idx].ipsec_conn_en = IPSEC_CONN_EN_DOWN;
+			prof[prof_type][prof_idx].profilename[0] = '\0';
+		}
+	}
 
     /*the end of profile*/
     return;
@@ -1825,6 +1858,51 @@ void run_ipsec_firewall_scripts(void)
 	chmod(FILE_PATH_IPSEC_IPTABLES_RULE, 0777);
 	_eval(argv, NULL, 0, NULL);
 	return;
+}
+
+static int
+ipsec_ipv4_prefix_valid(const char *value)
+{
+	char address[32] = {0};
+	char *prefix;
+	struct in_addr parsed_address;
+	unsigned int prefix_length = 0;
+	const unsigned char *character;
+
+	if(!value || !*value || strlen(value) >= sizeof(address))
+		return 0;
+	strlcpy(address, value, sizeof(address));
+	prefix = strchr(address, '/');
+	if(prefix){
+		*prefix++ = '\0';
+		if(!*prefix)
+			return 0;
+		for(character = (const unsigned char *)prefix; *character; character++){
+			if(*character < '0' || *character > '9')
+				return 0;
+			prefix_length = prefix_length * 10 + (*character - '0');
+			if(prefix_length > 32)
+				return 0;
+		}
+	}
+	return inet_pton(AF_INET, address, &parsed_address) == 1;
+}
+
+static int
+ipsec_ipv4_prefix_list_valid(const char *value)
+{
+	char subnets[SZ_128BUF] = {0};
+	char *subnet, *next;
+
+	if(!value || !*value || strlen(value) >= sizeof(subnets))
+		return 0;
+	strlcpy(subnets, value, sizeof(subnets));
+	next = subnets;
+	while((subnet = strsep(&next, ",")) != NULL){
+		if(!ipsec_ipv4_prefix_valid(subnet))
+			return 0;
+	}
+	return 1;
 }
 
 #if defined(RTCONFIG_QUICKSEC)
