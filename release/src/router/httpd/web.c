@@ -19885,6 +19885,7 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 		}
 
 		gen_asus_token_cookie(asus_token, sizeof(asus_token), token_cookie, sizeof(token_cookie));
+		browser_session_register(asus_token, fromapp_flag);
 
 		websWrite(wp,"Set-Cookie: %s\r\n",token_cookie);
 		websWrite(wp,"Connection: close\r\n" );

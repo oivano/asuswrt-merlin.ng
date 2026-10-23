@@ -2736,7 +2736,7 @@ function build_boostkey_options() {
 					<th><#System_AutoLogout#></th>
 					<td>
 						<input type="text" class="input_3_table" maxlength="3" name="http_autologout" value='<% nvram_get("http_autologout"); %>' onKeyPress="return validator.isNumber(this,event);" autocorrect="off" autocapitalize="off"> <#Minute#>
-						<span>(<#zero_disable#>)</span>
+						<span>(0: 24-hour session limit)</span>
 					</td>
 				</tr>
 				<tr id="nat_redirect_enable_tr">

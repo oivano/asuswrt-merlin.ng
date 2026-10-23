@@ -686,6 +686,112 @@ send_headers( int status, char* title, char* extra_header, char* mime_type, int 
     (void) fprintf( conn_fp, "\r\n" );
 }
 
+#define BROWSER_SESSION_LIMIT 64
+#define BROWSER_SESSION_MAX_AGE (24UL * 60 * 60)
+
+extern asus_token_t *head, *curr;
+
+static struct browser_session {
+	char token[33];
+	unsigned long created;
+	unsigned long active;
+} browser_sessions[BROWSER_SESSION_LIMIT];
+
+static void
+browser_session_remove(struct browser_session *session)
+{
+	asus_token_t *entry = head, *previous = NULL;
+
+	while (entry) {
+		if (!strcmp(entry->token, session->token)) {
+			if (previous)
+				previous->next = entry->next;
+			else
+				head = entry->next;
+			if (curr == entry)
+				curr = previous;
+			free(entry);
+			break;
+		}
+		previous = entry;
+		entry = entry->next;
+	}
+	memset(session, 0, sizeof(*session));
+}
+
+static void
+browser_session_expire(void)
+{
+	unsigned long now = uptime();
+	int minutes = nvram_get_int("http_autologout");
+	unsigned long idle;
+	int index;
+
+	if (minutes > 999)
+		minutes = 999;
+	idle = minutes > 0 ? (unsigned long)minutes * 60UL : 0;
+
+	for (index = 0; index < BROWSER_SESSION_LIMIT; ++index) {
+		struct browser_session *session = &browser_sessions[index];
+		if (!session->token[0])
+			continue;
+		if (now < session->created || now < session->active ||
+		    (idle && now - session->active >= idle) ||
+		    (!idle && now - session->created >= BROWSER_SESSION_MAX_AGE))
+			browser_session_remove(session);
+	}
+}
+
+void
+browser_session_register(const char *token, int fromapp)
+{
+	struct browser_session *slot = NULL;
+	int index;
+
+	if (fromapp || !token || !*token)
+		return;
+	browser_session_expire();
+	for (index = 0; index < BROWSER_SESSION_LIMIT; ++index) {
+		struct browser_session *session = &browser_sessions[index];
+		if (!session->token[0] || !strcmp(session->token, token)) {
+			slot = session;
+			break;
+		}
+		if (!slot || session->active < slot->active)
+			slot = session;
+	}
+	if (slot->token[0])
+		browser_session_remove(slot);
+	strlcpy(slot->token, token, sizeof(slot->token));
+	slot->created = slot->active = uptime();
+}
+
+static void
+browser_session_touch(const char *cookies)
+{
+	const char *name = "asus_token", *value;
+	size_t length;
+	int index;
+
+	if (!cookies)
+		return;
+#ifdef RTCONFIG_HTTPS
+	if (do_ssl)
+		name = "asus_s_token";
+#endif
+	value = strstr(cookies, name);
+	if (!value || value[strlen(name)] != '=')
+		return;
+	value += strlen(name) + 1;
+	length = strspn(value, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
+	for (index = 0; index < BROWSER_SESSION_LIMIT; ++index) {
+		struct browser_session *session = &browser_sessions[index];
+		if (session->token[0] && strlen(session->token) == length &&
+		    !strncmp(value, session->token, length))
+			session->active = uptime();
+	}
+}
+
 static void
 send_token_headers( int status, char* title, char* extra_header, char* mime_type, int fromapp)
 {
@@ -694,6 +800,7 @@ send_token_headers( int status, char* title, char* extra_header, char* mime_type
 	char asus_token[32]={0}, token_cookie[128] = {0};
 
 	gen_asus_token_cookie(asus_token, sizeof(asus_token), token_cookie, sizeof(token_cookie));
+	browser_session_register(asus_token, fromapp);
 
     (void) fprintf( conn_fp, "%s %d %s\r\n", PROTOCOL, status, title );
     (void) fprintf( conn_fp, "Server: %s\r\n", SERVER_NAME );
@@ -1270,6 +1377,7 @@ handle_request(void)
 		strlcpy(user_agent, "", sizeof(user_agent));
 
 	fromapp = check_user_agent(useragent);
+	browser_session_expire();
 
 	if(!strcmp(url, APPGETCGI))
 		json_support = 1;
@@ -1403,6 +1511,7 @@ handle_request(void)
 						send_login_page(fromapp, auth_result, url, file, auth_check_dt, add_try);
 						return;
 					}
+					browser_session_touch(cookies);
 				}
 
 				if(!fromapp) {
