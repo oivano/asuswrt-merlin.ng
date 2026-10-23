@@ -10250,11 +10250,6 @@ wdp:
 #ifdef HND_ROUTER
 	udhcpc_check();
 #endif
-#if 1   /* Do Function Test Script */
-		if(nvram_match("ci", "1")){
-			system("sh /tmp/mnt/sda1/auto_test.sh");
-		}
-#endif
 #ifdef RTCONFIG_FRS_FEEDBACK
 	feedback_check();
 #endif /* RTCONFIG_FRS_FEEDBACK */
