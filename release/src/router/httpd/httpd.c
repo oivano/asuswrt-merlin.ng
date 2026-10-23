@@ -123,6 +123,7 @@ typedef struct conn_list {
 static FILE *conn_fp;
 char host_name[64];
 char referer_host[64];
+static char *request_referer;
 char current_page_name[128];
 char user_agent[1024];
 char gen_token[32];
@@ -819,7 +820,7 @@ send_token_headers( int status, char* title, char* extra_header, char* mime_type
     if ( mime_type != (char*) 0 )
 	(void) fprintf( conn_fp, "Content-Type: %s\r\n", mime_type );
 
-    (void) fprintf( conn_fp, "Set-Cookie: %s\r\n", token_cookie);
+	(void) fprintf( conn_fp, "Set-Cookie: %s; SameSite=Strict\r\n", token_cookie);
 
     (void) fprintf( conn_fp, "Connection: close\r\n" );
     (void) fprintf( conn_fp, "\r\n" );
@@ -1088,6 +1089,13 @@ int wave_handle_flag(char *url)
 
 int max_lock_time = MAX_LOGIN_BLOCK_TIME;
 
+int
+httpd_check_apply_origin(void)
+{
+	return request_referer != NULL && *request_referer != '\0' &&
+	       referer_check(request_referer, 0) == 0;
+}
+
 static void
 handle_request(void)
 {
@@ -1113,6 +1121,7 @@ handle_request(void)
 	char inviteCode[512];
 
 	/* Initialize the request variables. */
+	request_referer = NULL;
 	auth_result = 1;
 	url_do_auth = 0;
 	authorization = boundary = cookies = referer = useragent = NULL;
@@ -1240,6 +1249,7 @@ handle_request(void)
 			cp = &cur[8];
 			cp += strspn( cp, " \t" );
 			referer = cp;
+			request_referer = referer;
 			cur = cp + strlen(cp) + 1;
 			//_dprintf("httpd referer = %s\n", referer);
 		}
