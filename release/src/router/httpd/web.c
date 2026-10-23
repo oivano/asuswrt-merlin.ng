@@ -2291,11 +2291,11 @@ const char *syslog_msg_filter[] = {
 };
 #endif
 
-static int dump_file_filter(webs_t wp, char *filename, const char **filter)
+static int dump_file_filter_mode(webs_t wp, char *filename, const char **filter, int escape_html)
 {
 	FILE *fp;
 	char buf[MAX_LINE_SIZE];
-	int ret, len;
+	int ret, len, offset, start;
 
 	fp = fopen(filename, "r");
 	if (fp == NULL)
@@ -2313,11 +2313,35 @@ static int dump_file_filter(webs_t wp, char *filename, const char **filter)
 				continue;
 		}
 		len = strlen(buf);
-		ret += websWriteData(wp, buf, len);
+		if (!escape_html) {
+			ret += websWriteData(wp, buf, len);
+			continue;
+		}
+		start = 0;
+		for (offset = 0; offset < len; offset++) {
+			const char *entity;
+			switch (buf[offset]) {
+			case '&': entity = "&amp;"; break;
+			case '<': entity = "&lt;"; break;
+			case '>': entity = "&gt;"; break;
+			case '"': entity = "&quot;"; break;
+			case '\'': entity = "&#39;"; break;
+			default: continue;
+			}
+			ret += websWriteData(wp, buf + start, offset - start);
+			ret += websWrite(wp, "%s", entity);
+			start = offset + 1;
+		}
+		ret += websWriteData(wp, buf + start, len - start);
 	}
 	fclose(fp);
 
 	return ret;
+}
+
+static int dump_file_filter(webs_t wp, char *filename, const char **filter)
+{
+	return dump_file_filter_mode(wp, filename, filter, 0);
 }
 
 static int dump_file(webs_t wp, char *filename)
@@ -2327,8 +2351,20 @@ static int dump_file(webs_t wp, char *filename)
 
 extern int wl_wps_info(int eid, webs_t wp, int argc, char_t **argv, int unit);
 
+static int ej_dump_impl(int eid, webs_t wp, int argc, char_t **argv, int escape_html);
+
+static int ej_dump(int eid, webs_t wp, int argc, char_t **argv)
+{
+	return ej_dump_impl(eid, wp, argc, argv, 0);
+}
+
+static int ej_dump_html(int eid, webs_t wp, int argc, char_t **argv)
+{
+	return ej_dump_impl(eid, wp, argc, argv, 1);
+}
+
 static int
-ej_dump(int eid, webs_t wp, int argc, char_t **argv)
+ej_dump_impl(int eid, webs_t wp, int argc, char_t **argv, int escape_html)
 {
 //	FILE *fp;
 //	char buf[MAX_LINE_SIZE];
@@ -2338,6 +2374,13 @@ ej_dump(int eid, webs_t wp, int argc, char_t **argv)
 
 	if (ejArgs(argc, argv, "%s %s", &file, &script) < 2) {
 		websError(wp, 400, "Insufficient args\n");
+		return -1;
+	}
+
+	if (escape_html && strcmp(file, "ipsec.log") && strcmp(file, "syslog.log") &&
+	    strcmp(file, "syscmd.log") && strcmp(file, "cloudsync.log") &&
+	    strcmp(file, "clouddisk.log") && strcmp(file, "connect.log")) {
+		websError(wp, 400, "Unsupported HTML log\n");
 		return -1;
 	}
 
@@ -2378,22 +2421,22 @@ ej_dump(int eid, webs_t wp, int argc, char_t **argv)
 	if (strcmp(file, "syslog.log")==0)
 	{
 		snprintf(filename, sizeof(filename), "%s/%s-1", path, file);
-		ret += dump_file_filter(wp, filename, syslog_msg_filter);
+		ret += dump_file_filter_mode(wp, filename, syslog_msg_filter, escape_html);
 		snprintf(filename, sizeof(filename), "%s/%s", path, file);
-		ret += dump_file_filter(wp, filename, syslog_msg_filter);
+		ret += dump_file_filter_mode(wp, filename, syslog_msg_filter, escape_html);
 	}
 //#ifdef RTCONFIG_CLOUDSYNC
 	else if(!strcmp(file, "cloudsync.log")){
 		snprintf(filename, sizeof(filename), "/tmp/smartsync/.logs/system.log");
-		ret += dump_file(wp, filename);
+		ret += dump_file_filter_mode(wp, filename, NULL, escape_html);
 		snprintf(filename, sizeof(filename), "/tmp/%s", file);
-		ret += dump_file(wp, filename);
+		ret += dump_file_filter_mode(wp, filename, NULL, escape_html);
 	}
 	else if(!strcmp(file, "clouddisk.log")){
 		snprintf(filename, sizeof(filename), "/tmp/lighttpd/syslog.log");
-		ret += dump_file(wp, filename);
+		ret += dump_file_filter_mode(wp, filename, NULL, escape_html);
 		snprintf(filename, sizeof(filename), "/tmp/%s", file);
-		ret += dump_file(wp, filename);
+		ret += dump_file_filter_mode(wp, filename, NULL, escape_html);
 	}
 //#endif
 #ifdef RTCONFIG_OPENVPN
@@ -2493,13 +2536,13 @@ ej_dump(int eid, webs_t wp, int argc, char_t **argv)
 #ifdef RTCONFIG_IPSEC
 	else if (strcmp(file, "ipsec.log")==0) {
 		strlcpy(filename, FILE_PATH_IPSEC_LOG, sizeof(filename));
-		ret += dump_file(wp, filename);
+		ret += dump_file_filter_mode(wp, filename, NULL, escape_html);
 	}
 #endif
 	else if (strcmp(file, "connect.log")==0) {
 		snprintf(filename, sizeof(filename), "/tmp/%s", file);
 		system("/usr/sbin/netstat-nat -r state -xn > /tmp/connect.log 2>&1");
-		ret += dump_file(wp, filename);
+		ret += dump_file_filter_mode(wp, filename, NULL, escape_html);
 	}
 	else if ( strcmp(file, "syscmd.log")==0
 		|| strcmp(file, "pptp_connected")==0
@@ -2514,7 +2557,7 @@ ej_dump(int eid, webs_t wp, int argc, char_t **argv)
 #endif
 	){
 		snprintf(filename, sizeof(filename), "/tmp/%s", file);
-		ret += dump_file(wp, filename);
+		ret += dump_file_filter_mode(wp, filename, NULL, escape_html);
 	}
 #ifdef RTCONFIG_WIREGUARD
 	else if (strcmp(file, "wgc.log") == 0) {
@@ -32938,6 +32981,7 @@ struct ej_handler ej_handlers[] = {
 	{ "uptime", ej_uptime},
 	{ "sysuptime", ej_sysuptime},
 	{ "nvram_dump", ej_dump},
+	{ "nvram_dump_html", ej_dump_html},
 	//{ "load_script", ej_load},
 	{ "dhcpLeaseInfo", ej_dhcpLeaseInfo},
 	{ "dhcpLeaseMacList", ej_dhcpLeaseMacList},
