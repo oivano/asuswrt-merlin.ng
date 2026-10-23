@@ -29,6 +29,7 @@
 #include <linux/kernel.h>
 #include <linux/string.h>
 #include <linux/interrupt.h>
+#include <linux/capability.h>
 #include <linux/spinlock.h>
 #include <linux/slab.h>
 #include <linux/bootmem.h>
@@ -895,6 +896,9 @@ dev_nvram_read(struct file *file, char *buf, size_t count, loff_t *ppos)
 	ssize_t ret;
 	unsigned long off;
 
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+
 	if ((count+1) > sizeof(tmp)) {
 		if (!(name = kmalloc(count+1, GFP_KERNEL)))
 			return -ENOMEM;
@@ -946,6 +950,9 @@ dev_nvram_write(struct file *file, const char *buf, size_t count, loff_t *ppos)
 	char tmp[512], *name = tmp, *value;
 	ssize_t ret;
 
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+
 	if ((count+1) > sizeof(tmp)) {
 		if (!(name = kmalloc(count+1, GFP_KERNEL)))
 			return -ENOMEM;
@@ -985,6 +992,9 @@ dev_nvram_ioctl(
 	unsigned int cmd, 
 	unsigned long arg)
 {
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+
 	if (cmd != NVRAM_MAGIC)
 		return -EINVAL;
 
@@ -1005,6 +1015,9 @@ dev_nvram_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	unsigned long offset = __pa(nvram_buf) >> PAGE_SHIFT;
 
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+
 	if (remap_pfn_range(vma, vma->vm_start, offset,
 	                    vma->vm_end - vma->vm_start,
 	                    vma->vm_page_prot))
@@ -1016,6 +1029,9 @@ dev_nvram_mmap(struct file *file, struct vm_area_struct *vma)
 static int
 dev_nvram_open(struct inode *inode, struct file * file)
 {
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+
 	return 0;
 }
 

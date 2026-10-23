@@ -19883,7 +19883,7 @@ static void sysinit(void)
 	};
 	for (i = 0; dn[i]; ++i) {
 		snprintf(s, sizeof(s), "/dev/%s", dn[i]);
-		chmod(s, 0666);
+		chmod(s, !strcmp(dn[i], "nvram") ? 0600 : 0666);
 	}
 #ifndef HND_ROUTER
 	chmod("/dev/gpio", 0660);
