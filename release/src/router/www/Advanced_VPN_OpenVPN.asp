@@ -1999,6 +1999,7 @@ function handle_ipv6_submit_settings(){
 
 <iframe name="hidden_import_cert_frame" id="hidden_import_cert_frame" src="" width="0" height="0" frameborder="0"></iframe>
 <form method="post" name="import_cert_form" action="upload_server_ovpn_cert.cgi" target="hidden_import_cert_frame" enctype="multipart/form-data">
+<input type="hidden" name="csrf_token" value="<% httpd_csrf_token(); %>"/>
 <input type="file" name="import_cert_file" style="display:none;" onchange="importCert();"/>
 </form>
 <div id="footer"></div>

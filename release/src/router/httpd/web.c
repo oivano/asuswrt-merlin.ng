@@ -2881,6 +2881,12 @@ _get_vpn_crt_value(int eid, webs_t wp, int type, int cert, int idx) {
 }
 
 static int
+ej_httpd_csrf_token(int eid, webs_t wp, int argc, char_t **argv)
+{
+	return websWrite(wp, "%s", httpd_get_csrf_token());
+}
+
+static int
 ej_vpn_crt_server(int eid, webs_t wp, int argc, char **argv) {
 	int idx = 0;
 
@@ -5334,7 +5340,7 @@ static int ej_update_variables(int eid, webs_t wp, int argc, char_t **argv)
 	int usb_modem_plug = usb_modem_plugged();
 #endif
 
-	if (!httpd_check_apply_origin())
+	if (!httpd_check_request_origin())
 		return 0;
 
 #if defined(RTCONFIG_RALINK)
@@ -15348,6 +15354,188 @@ do_upload_cgi(char *url, FILE *stream)
 #define OPENVPN_UPLOAD_FLODER	"/tmp/server_ovpn_file"
 #define OPENVPN_UPLOAD_FILE	"/tmp/server_ovpn_file/server_ovpn.tgz"
 
+static int openvpn_upload_csrf_valid;
+
+static int
+openvpn_tar_read(FILE *archive, unsigned char *buffer, size_t length)
+{
+	size_t offset = 0;
+
+	while (offset < length) {
+		size_t count = fread(buffer + offset, 1, length - offset, archive);
+		if (!count)
+			return -1;
+		offset += count;
+	}
+	return 0;
+}
+
+static int
+openvpn_tar_octal(const unsigned char *field, size_t length, unsigned long *value)
+{
+	unsigned long result = 0;
+	size_t index = 0;
+	int digits = 0;
+
+	while (index < length && (field[index] == ' ' || field[index] == '\0'))
+		++index;
+	for (; index < length && field[index] >= '0' && field[index] <= '7'; ++index) {
+		if (result > (ULONG_MAX - (field[index] - '0')) / 8)
+			return -1;
+		result = result * 8 + field[index] - '0';
+		++digits;
+	}
+	for (; index < length; ++index)
+		if (field[index] != ' ' && field[index] != '\0')
+			return -1;
+	if (!digits)
+		return -1;
+	*value = result;
+	return 0;
+}
+
+static int
+openvpn_tar_name_slot(const unsigned char *name, size_t length, int unit)
+{
+	static const char *types[] = {
+		"ca", "ca_key", "client_crt", "client_key", "crt",
+		"dh", "key", "crl", "extra", "static"
+	};
+	char expected[64];
+	int index;
+
+	for (index = 0; index < ARRAY_SIZE(types); ++index) {
+		snprintf(expected, sizeof(expected), "vpn_crt_server%d_%s", unit, types[index]);
+		if (strlen(expected) == length && !memcmp(name, expected, length))
+			return index;
+	}
+	return -1;
+}
+
+static int
+openvpn_extract_server_cert_archive(int unit)
+{
+	unsigned char header[512], buffer[1024];
+	char path[256];
+	FILE *archive;
+	struct stat st;
+	unsigned long size, member_size, stored_sum, sum, trailer_size = 0;
+	unsigned int seen = 0;
+	unsigned long total_size = 0;
+	int members = 0, result = -1, status, fd = -1;
+
+	if (unit < 1 || unit > 2 ||
+	    lstat(OPENVPN_UPLOAD_FLODER, &st) != 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
+	    (st.st_mode & 077) != 0 || lstat(OPENVPN_UPLOAD_FILE, &st) != 0 ||
+	    !S_ISREG(st.st_mode) || st.st_uid != 0 || st.st_nlink != 1 || st.st_size > 102400)
+		return -1;
+
+	archive = popen("gzip -dc " OPENVPN_UPLOAD_FILE, "r");
+	if (!archive)
+		return -1;
+
+	for (;;) {
+		size_t name_length = 0;
+		int slot, index, all_zero = 1;
+		ssize_t written;
+
+		if (openvpn_tar_read(archive, header, sizeof(header)) != 0)
+			goto done;
+		for (index = 0; index < sizeof(header); ++index)
+			if (header[index] != 0) {
+				all_zero = 0;
+				break;
+			}
+		if (all_zero) {
+			if (openvpn_tar_read(archive, header, sizeof(header)) != 0)
+				goto done;
+			for (index = 0; index < sizeof(header); ++index)
+				if (header[index] != 0)
+					goto done;
+			for (;;) {
+				size_t count = fread(buffer, 1, sizeof(buffer), archive);
+				if (!count)
+					break;
+				if (trailer_size + count > 11264)
+					goto done;
+				trailer_size += count;
+				for (index = 0; index < count; ++index)
+					if (buffer[index] != 0)
+						goto done;
+			}
+			if (ferror(archive) || !members)
+				goto done;
+			result = 0;
+			break;
+		}
+
+		for (index = 0; index < 100 && header[index]; ++index)
+			++name_length;
+		if (!name_length || index == 100 || (header[156] != '\0' && header[156] != '0'))
+			goto done;
+		for (index = 157; index < 257; ++index)
+			if (header[index] != 0)
+				goto done;
+		for (index = 345; index < 500; ++index)
+			if (header[index] != 0)
+				goto done;
+		if (openvpn_tar_octal(header + 148, 8, &stored_sum) != 0)
+			goto done;
+		sum = 0;
+		for (index = 0; index < sizeof(header); ++index)
+			sum += index >= 148 && index < 156 ? ' ' : header[index];
+		if (sum != stored_sum || openvpn_tar_octal(header + 124, 12, &size) != 0 ||
+		    size > 102400 || total_size > 102400 - size)
+			goto done;
+		member_size = size;
+		slot = openvpn_tar_name_slot(header, name_length, unit);
+		if (slot < 0 || (seen & (1U << slot)))
+			goto done;
+		seen |= 1U << slot;
+		snprintf(path, sizeof(path), "%s/%.*s", OPENVPN_UPLOAD_FLODER, (int)name_length, header);
+		fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+		if (fd < 0 || fchmod(fd, 0600) != 0)
+			goto done;
+		while (size) {
+			size_t count = size < sizeof(buffer) ? size : sizeof(buffer);
+			if (openvpn_tar_read(archive, buffer, count) != 0)
+				goto done;
+			{
+				size_t offset = 0;
+				while (offset < count) {
+					written = write(fd, buffer + offset, count - offset);
+					if (written < 0 && errno == EINTR)
+						continue;
+					if (written <= 0)
+						goto done;
+					offset += written;
+				}
+			}
+			size -= count;
+		}
+		if (close(fd) != 0) {
+			fd = -1;
+			goto done;
+		}
+		fd = -1;
+		total_size += member_size;
+		++members;
+		{
+			unsigned long padding = (512 - (member_size & 511)) & 511;
+			if (padding && openvpn_tar_read(archive, buffer, padding) != 0)
+				goto done;
+		}
+	}
+
+done:
+	if (fd >= 0)
+		close(fd);
+	status = pclose(archive);
+	if (status != 0)
+		result = -1;
+	return result;
+}
+
 static void
 do_vpnupload_post(char *url, FILE *stream, int len, char *boundary)
 {
@@ -15576,35 +15764,57 @@ do_upload_server_ovpn_cert_post(char *url, FILE *stream, int len, char *boundary
 {
 	char upload_fifo[] = OPENVPN_UPLOAD_FILE;
 	FILE *fifo = NULL;
-	int ret = EINVAL, ch, i;
-	int iCurrentBufLen = 0;
+	struct stat st;
+	int ret = EINVAL, ch, i, fd = -1, csrf_seen = 0, file_seen = 0, boundary_found = 0;
+	size_t boundary_length, marker_length, pending_length = 0;
 	char post_buf[1024];
+	char marker[256], pending[256];
 	int limit_file_size = 102400;//10kb
 
 	memset(post_buf, 0, sizeof(post_buf));
-
-	if (!check_if_dir_exist(OPENVPN_UPLOAD_FLODER))
-		mkdir(OPENVPN_UPLOAD_FLODER, 0755);
+	openvpn_upload_csrf_valid = 0;
+	nvram_set("upload_server_ovpn_cert_temp", "0");
 
 	while (len > 0) {
 		if (!fgets(post_buf, MIN(len + 1, sizeof(post_buf)), stream)) {
-			nvram_set("upload_server_ovpn_cert_temp", "0");
 			goto err;
 		}
 
 		len -= strlen(post_buf);
 
 		if (!strncasecmp(post_buf, "Content-Disposition:", 20)){
-			if(strstr(post_buf, "name=\"import_cert_file\"")){
+			if (strstr(post_buf, "name=\"csrf_token\"") && !csrf_seen) {
+				while (len > 0) {
+					if (!fgets(post_buf, MIN(len + 1, sizeof(post_buf)), stream))
+						goto err;
+					len -= strlen(post_buf);
+					if (!strcmp(post_buf, "\n") || !strcmp(post_buf, "\r\n"))
+						break;
+				}
+				if (!len || !fgets(post_buf, MIN(len + 1, sizeof(post_buf)), stream))
+					goto err;
+				len -= strlen(post_buf);
+				i = strcspn(post_buf, "\r\n");
+				post_buf[i] = '\0';
+				if (!httpd_check_csrf_token(post_buf))
+					goto err;
+				csrf_seen = 1;
+				openvpn_upload_csrf_valid = 1;
+			}
+			else if (strstr(post_buf, "name=\"import_cert_file\"")) {
+				if (!csrf_seen)
+					goto err;
+				file_seen = 1;
 				break;
 			}
 		}
 	}
+	if (!csrf_seen || !file_seen)
+		goto err;
 
 	/* Skip boundary and headers */
 	while (len > 0) {
 		if (!fgets(post_buf, MIN(len + 1, sizeof(post_buf)), stream)) {
-			nvram_set("upload_server_ovpn_cert_temp", "0");
 			goto err;
 		}
 
@@ -15614,34 +15824,61 @@ do_upload_server_ovpn_cert_post(char *url, FILE *stream, int len, char *boundary
 		}
 	}
 
-	if (!(fifo = fopen(upload_fifo, "wb"))) {
-		nvram_set("upload_server_ovpn_cert_temp", "0");
+	if (len > limit_file_size)
+		goto err;
+	if (!boundary || !*boundary)
+		goto err;
+	if (*boundary == '"')
+		++boundary;
+	boundary_length = strcspn(boundary, "\";\r\n");
+	if (!boundary_length || boundary_length + 4 >= sizeof(marker))
+		goto err;
+	memcpy(marker, "\r\n--", 4);
+	memcpy(marker + 4, boundary, boundary_length);
+	marker_length = boundary_length + 4;
+	if (lstat(OPENVPN_UPLOAD_FLODER, &st) != 0) {
+		if (errno != ENOENT || mkdir(OPENVPN_UPLOAD_FLODER, 0700) != 0)
+			goto err;
+	}
+	if (lstat(OPENVPN_UPLOAD_FLODER, &st) != 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
+	    chmod(OPENVPN_UPLOAD_FLODER, 0700) != 0)
+		goto err;
+	fd = open(upload_fifo, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+	if (fd < 0 || fchmod(fd, 0600) != 0 || !(fifo = fdopen(fd, "wb"))) {
+		if (fd >= 0 && !fifo)
+			close(fd);
+		fd = -1;
 		goto err;
 	}
+	fd = -1;
 
-	if ( len > limit_file_size ) {
-		nvram_set("upload_server_ovpn_cert_temp", "0");
-		goto err;
-	}
-
-	while ( len > 0 ) {
-		//get the current buffer length of stream
-		iCurrentBufLen = fread(post_buf, 1, MIN(len, sizeof(post_buf)), stream);
-		for (i=0; i<iCurrentBufLen; i++) {
-			/* Skip last boundary, \r\n------ */
-			if ((unsigned char)post_buf[i] == 0x0d && (unsigned char)post_buf[i+1] == 0x0a &&
-				(unsigned char)post_buf[i+2] == 0x2d && (unsigned char)post_buf[i+3] == 0x2d) {
-				break;
-			}
-			else {
-				fputc(post_buf[i], fifo);
-			}
+	while (len > 0) {
+		int byte = fgetc(stream);
+		if (byte == EOF)
+			goto err;
+		--len;
+		pending[pending_length++] = byte;
+		while (pending_length && memcmp(pending, marker, pending_length)) {
+			if (fputc(pending[0], fifo) == EOF)
+				goto err;
+			memmove(pending, pending + 1, --pending_length);
 		}
-
-		len -= iCurrentBufLen;
+		if (pending_length == marker_length) {
+			boundary_found = 1;
+			break;
+		}
 	}
+	if (!boundary_found || ferror(fifo))
+		goto err;
+	if (fclose(fifo) != 0) {
+		fifo = NULL;
+		goto err;
+	}
+	fifo = NULL;
 	nvram_set("upload_server_ovpn_cert_temp", "1");
 err:
+	if (fd >= 0)
+		close(fd);
 	if (fifo)
 		fclose(fifo);
 
@@ -15658,9 +15895,11 @@ err:
 static void
 do_upload_server_ovpn_cert_cgi(char *url, FILE *stream)
 {
+	if (!openvpn_upload_csrf_valid) {
+		websWrite(stream, "<script>parent.callback_upload_cert(0);</script>\n");
+		return;
+	}
 	if (nvram_get_int("upload_server_ovpn_cert_temp")) {
-		char cmd[1024];
-		memset(cmd, 0, sizeof(cmd));
 		if (check_if_dir_exist(OPENVPN_UPLOAD_FLODER)) {
 			if(check_if_file_exist(OPENVPN_UPLOAD_FILE)) {
 				int i, unit;
@@ -15674,25 +15913,27 @@ do_upload_server_ovpn_cert_cgi(char *url, FILE *stream)
 					"dh",
 					"key",
 					"crl",
-					"extra"
+					"extra",
 					"static",
 					NULL
 				};
-				snprintf(cmd, sizeof(cmd), "tar -xzf %s -C %s", OPENVPN_UPLOAD_FILE, OPENVPN_UPLOAD_FLODER);
-				system(cmd);
-
 				unit = nvram_get_int("vpn_server_unit");
-				for (i = 0; i < ARRAY_SIZE(lists) && lists[i] != NULL; ++i) {
-					memset(file_path, 0, sizeof(file_path));
-					snprintf(file_path, sizeof(file_path), "%s/vpn_crt_server%d_%s", OPENVPN_UPLOAD_FLODER, unit, lists[i]);
-					if(check_if_file_exist(file_path)) {
-						eval("mv", "-f", file_path, JFFS_OPENVPN);
+				if (openvpn_extract_server_cert_archive(unit) == 0) {
+					char cmd[32];
+					for (i = 0; i < ARRAY_SIZE(lists) && lists[i] != NULL; ++i) {
+						memset(file_path, 0, sizeof(file_path));
+						snprintf(file_path, sizeof(file_path), "%s/vpn_crt_server%d_%s", OPENVPN_UPLOAD_FLODER, unit, lists[i]);
+						if(check_if_file_exist(file_path))
+							eval("mv", "-f", file_path, JFFS_OPENVPN);
 					}
+					websWrite(stream, "<script>parent.callback_upload_cert(1);</script>\n");
+					snprintf(cmd, sizeof(cmd), "restart_vpnserver%d", unit);
+					notify_rc(cmd);
+					notify_rc("restart_chpass");
 				}
-				websWrite(stream, "<script>parent.callback_upload_cert(1);</script>\n");
-				snprintf(cmd, sizeof(cmd), "restart_vpnserver%d", unit);
-				notify_rc(cmd);
-				notify_rc("restart_chpass");
+				else {
+					websWrite(stream, "<script>parent.callback_upload_cert(0);</script>\n");
+				}
 			}
 			else {
 				websWrite(stream, "<script>parent.callback_upload_cert(0);</script>\n");
@@ -33429,6 +33670,7 @@ struct ej_handler ej_handlers[] = {
 	{ "radio_status", ej_radio_status},
 	{ "asus_sysinfo", ej_sysinfo},
 #ifdef RTCONFIG_OPENVPN
+	{ "httpd_csrf_token", ej_httpd_csrf_token},
 	{ "vpn_server_get_parameter", ej_vpn_server_get_parameter},
 	{ "vpn_client_get_parameter", ej_vpn_client_get_parameter},
 	{ "vpn_crt_server", ej_vpn_crt_server},

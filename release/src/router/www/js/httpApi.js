@@ -329,6 +329,7 @@ var httpApi ={
 		delete postData.isError;
 
 		var formData = new FormData();
+		formData.append('csrf_token', document.import_cert_form.csrf_token.value);
 		for(var key in postData){
 			if(postData.hasOwnProperty(key)){
 				formData.append(key, postData[key]);

@@ -556,7 +556,9 @@ extern char* ipisdomain(char* hostname, char* str);
 extern char* iscap(char* str);
 #endif
 extern int referer_check(char* referer, int fromapp_flag);
-extern int httpd_check_apply_origin(void);
+extern int httpd_check_request_origin(void);
+extern const char *httpd_get_csrf_token(void);
+extern int httpd_check_csrf_token(const char *token);
 extern int auth_check(char* url, char* file, char* cookies, int fromapp_flag, int *add_count);
 extern int check_noauth_referrer(char* referer, int fromapp_flag);
 extern char current_page_name[128];
