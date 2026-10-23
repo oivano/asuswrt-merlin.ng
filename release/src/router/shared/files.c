@@ -5,6 +5,10 @@
 
 */
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -119,6 +123,75 @@ int f_write_excl(const char *path, const void *buffer, int len, unsigned flags, 
 	return r;
 }
 
+#ifdef RTCONFIG_JFFS_NVRAM
+static int jffs_nvram_dir_open(void)
+{
+	struct stat st;
+	int fd;
+
+	if (geteuid() != 0 || lstat("/jffs", &st) != 0 ||
+	    !S_ISDIR(st.st_mode) || st.st_uid != 0 || (st.st_mode & 0022))
+		return -1;
+	if (mkdir("/jffs/nvram", 0700) != 0 && errno != EEXIST)
+		return -1;
+	fd = open("/jffs/nvram", O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (fd < 0)
+		return -1;
+	if (fchown(fd, 0, 0) != 0 || fchmod(fd, 0700) != 0) {
+		close(fd);
+		return -1;
+	}
+	return fd;
+}
+
+int jffs_nvram_secure(void)
+{
+	DIR *dir;
+	struct dirent *entry;
+	struct stat st;
+	char path[PATH_MAX];
+	int fd, ret = -1;
+
+	fd = jffs_nvram_dir_open();
+	if (fd < 0)
+		return -1;
+	close(fd);
+	dir = opendir("/jffs/nvram");
+	if (!dir)
+		return -1;
+	for (;;) {
+		errno = 0;
+		entry = readdir(dir);
+		if (!entry) {
+			ret = errno ? -1 : 0;
+			break;
+		}
+		if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
+			continue;
+		if (snprintf(path, sizeof(path), "/jffs/nvram/%s", entry->d_name) >= sizeof(path))
+			break;
+		if (lstat(path, &st) != 0)
+			break;
+		if (!S_ISREG(st.st_mode) || st.st_nlink != 1) {
+			if (unlink(path) != 0)
+				break;
+			continue;
+		}
+		fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+		if (fd < 0)
+			break;
+		if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_nlink != 1 ||
+		    fchown(fd, 0, 0) != 0 || fchmod(fd, 0600) != 0) {
+			close(fd);
+			break;
+		}
+		close(fd);
+	}
+	closedir(dir);
+	return ret;
+}
+#endif
+
 /**
  * Write @buffer, length len, to file specified by @path.
  * @path:
@@ -139,10 +212,38 @@ int f_write(const char *path, const void *buffer, int len, unsigned flags, unsig
 	size_t wlen;
 	ssize_t r;
 	mode_t m;
+#ifdef RTCONFIG_JFFS_NVRAM
+	int nvram_file = !strncmp(path, "/jffs/nvram/", 12);
+	struct stat st;
+
+	if (nvram_file) {
+		const char *name = path + 12;
+		if (!*name || strchr(name, '/') || !strcmp(name, ".") || !strcmp(name, ".."))
+			return -1;
+		f = jffs_nvram_dir_open();
+		if (f < 0)
+			return -1;
+		close(f);
+		cmode = 0600;
+	}
+#endif
 
 	m = umask(0);
 	if (cmode == 0) cmode = 0666;
-	if ((f = open(path, (flags & FW_APPEND) ? (O_WRONLY|O_CREAT|O_APPEND) : (O_WRONLY|O_CREAT|O_TRUNC), cmode)) >= 0) {
+#ifdef RTCONFIG_JFFS_NVRAM
+	if (nvram_file) {
+		f = open(path, O_WRONLY | O_CREAT | O_NOFOLLOW | O_NONBLOCK |
+			 ((flags & FW_APPEND) ? O_APPEND : 0), cmode);
+		if (f >= 0 && (fstat(f, &st) != 0 || !S_ISREG(st.st_mode) || st.st_nlink != 1 ||
+		    fchown(f, 0, 0) != 0 || fchmod(f, 0600) != 0 ||
+		    (!(flags & FW_APPEND) && ftruncate(f, 0) != 0))) {
+			close(f);
+			f = -1;
+		}
+	} else
+#endif
+		f = open(path, (flags & FW_APPEND) ? (O_WRONLY|O_CREAT|O_APPEND) : (O_WRONLY|O_CREAT|O_TRUNC), cmode);
+	if (f >= 0) {
 		if ((buffer == NULL)) {
 			if (flags & FW_NEWLINE) {
 				if (write(f, &nl, 1) == 1)

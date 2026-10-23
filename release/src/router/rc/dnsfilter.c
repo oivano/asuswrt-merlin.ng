@@ -361,7 +361,8 @@ void dnsfilter_setup_dnsmasq(FILE *fp) {
 			continue;
 		if (enable && atoi(enable) == 0)
 			continue;
-		if (!*mac || !*mode || !ether_atoe(mac, ea))
+		if (!*mode || strlen(mac) != 17 || strspn(mac, "0123456789abcdefABCDEF:") != 17 ||
+		    !ether_atoe(mac, ea))
 			continue;
 		dnsmode = atoi(mode);
 		/* Skip unfiltered, default, or non-IPv6 capable levels */
