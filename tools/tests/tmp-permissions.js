@@ -24,6 +24,7 @@ for (const directory of ['/tmp/etc', '/tmp/var', '/tmp/ppp', '/tmp/ppp/peers'])
     assert.ok(bootDirectories.includes(`"${directory}"`), directory);
 assert.match(bootDirectories, /mkdir\(mkd\[i\], 0755\)/);
 assert.ok(init.indexOf('umask(022);') > init.indexOf('chmod("/tmp", 01777)'));
+assert.match(init, /var_nvram_init\(\);\s*chmod\("\/tmp\/var\/nvram", 0700\);/);
 for (const directory of ['/tmp/ppp', '/tmp/ppp/peers']) {
     assert.ok(wan.includes(`mkdir("${directory}", 0755)`));
     assert.ok(!wan.includes(`rmdir("${directory}")`));
@@ -87,6 +88,18 @@ if (process.getuid() !== 0) {
         fs.chmodSync(shared, 0o777);
         asNobody(`require('node:fs').unlinkSync(${JSON.stringify(hook)});`);
         assert.throws(() => fs.lstatSync(hook), { code: 'ENOENT' });
+        const nvram = path.join(shared, 'var/nvram');
+        fs.mkdirSync(nvram);
+        fs.writeFileSync(path.join(nvram, 'rc_service'), 'restart_upgrade', { mode: 0o666 });
+        fs.chmodSync(nvram, 0o700);
+        asNobody(`
+            const fs = require('node:fs'), assert = require('node:assert/strict');
+            const directory = ${JSON.stringify(nvram)};
+            const service = directory + '/rc_service';
+            assert.throws(() => fs.openSync(service, 'w'), { code: 'EACCES' });
+            assert.throws(() => fs.writeFileSync(directory + '/forged', 'value'), { code: 'EACCES' });
+            assert.throws(() => fs.unlinkSync(service), { code: 'EACCES' });
+        `);
         console.log('PASS: real root/nobody denial tests, shared-file access and vulnerable-mode negative control');
     } finally {
         fs.rmSync(temporary, { recursive: true, force: true });

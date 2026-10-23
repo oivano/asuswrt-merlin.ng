@@ -19824,6 +19824,7 @@ static void sysinit(void)
 
 #ifdef RTCONFIG_VAR_NVRAM
 	var_nvram_init();
+	chmod("/tmp/var/nvram", 0700);
 #endif
 
 #ifdef RTCONFIG_WLMODULE_MT7663E_AP
