@@ -9,7 +9,7 @@ const packetSource = fs.readFileSync(path.join(root, 'release/src/router/frr-8.1
 const parser = source.slice(source.indexOf('bgp_attr_parse_ret_t bgp_attr_parse('),
     source.indexOf('/*\n * Extract the tunnel type'));
 const exit = parser.slice(parser.indexOf('\ndone:'));
-const alignment = exit.match(/done:\s*(if \(ret == BGP_ATTR_PARSE_WITHDRAW\)\s*stream_set_getp\(BGP_INPUT\(peer\), endp - STREAM_DATA\(BGP_INPUT\(peer\)\)\);)/);
+const alignment = exit.match(/done:\s*(if \(ret == BGP_ATTR_PARSE_WITHDRAW \|\| ret == BGP_ATTR_PARSE_EOR\)\s*stream_set_getp\(BGP_INPUT\(peer\), endp - STREAM_DATA\(BGP_INPUT\(peer\)\)\);)/);
 assert(alignment, 'shared WITHDRAW exit must align to the complete attribute field');
 const parserCode = parser.replace(/\/\*[\s\S]*?\*\//g, '');
 assert.equal((parserCode.match(/\breturn\b[^;]*;/g) || []).length, 1, 'no early returns bypass cleanup');
@@ -28,6 +28,7 @@ assert(packetSource.indexOf('if (stream_pnt(s) + attribute_len > end)')
 const stream = { base: 4096, getp: 0 };
 const align = vm.runInNewContext(`(function(ret, endp) { ${alignment[1]} })`, {
     BGP_ATTR_PARSE_WITHDRAW: -2,
+    BGP_ATTR_PARSE_EOR: -4,
     peer: {},
     BGP_INPUT: () => stream,
     STREAM_DATA: input => input.base,

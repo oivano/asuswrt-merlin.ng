@@ -1667,6 +1667,15 @@ static int bgp_update_receive(struct peer *peer, bgp_size_t size)
 		}
 	}
 
+	/* Empty-attribute, GR, MP_UNREACH and EoR exemptions never cover NLRI:
+	 * without the mandatory attributes it is treat-as-withdraw.
+	 */
+	if (attr_parse_ret != BGP_ATTR_PARSE_WITHDRAW
+	    && (stream_pnt(s) < end || nlris[NLRI_MP_UPDATE].length)
+	    && (attr_parse_ret == BGP_ATTR_PARSE_EOR
+		|| bgp_attr_mandatory_missing(peer, &attr)))
+		attr_parse_ret = BGP_ATTR_PARSE_WITHDRAW;
+
 	/* Logging the attribute. */
 	if (attr_parse_ret == BGP_ATTR_PARSE_WITHDRAW
 	    || BGP_DEBUG(update, UPDATE_IN)

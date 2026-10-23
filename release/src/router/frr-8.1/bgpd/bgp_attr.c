@@ -3093,24 +3093,10 @@ static bgp_attr_parse_ret_t bgp_attr_unknown(struct bgp_attr_parser_args *args)
 	return BGP_ATTR_PARSE_PROCEED;
 }
 
-/* Well-known attribute check. */
-static int bgp_attr_check(struct peer *peer, struct attr *attr)
+/* Returns true and logs if a well-known mandatory attribute is absent. */
+bool bgp_attr_mandatory_missing(struct peer *peer, struct attr *attr)
 {
 	uint8_t type = 0;
-
-	/* BGP Graceful-Restart End-of-RIB for IPv4 unicast is signaled as an
-	 * empty UPDATE.  */
-	if (CHECK_FLAG(peer->cap, PEER_CAP_RESTART_RCV) && !attr->flag)
-		return BGP_ATTR_PARSE_PROCEED;
-
-	/* "An UPDATE message that contains the MP_UNREACH_NLRI is not required
-	   to carry any other path attributes.", though if MP_REACH_NLRI or NLRI
-	   are present, it should.  Check for any other attribute being present
-	   instead.
-	 */
-	if ((!CHECK_FLAG(attr->flag, ATTR_FLAG_BIT(BGP_ATTR_MP_REACH_NLRI)) &&
-	     CHECK_FLAG(attr->flag, ATTR_FLAG_BIT(BGP_ATTR_MP_UNREACH_NLRI))))
-		return BGP_ATTR_PARSE_PROCEED;
 
 	if (!CHECK_FLAG(attr->flag, ATTR_FLAG_BIT(BGP_ATTR_ORIGIN)))
 		type = BGP_ATTR_ORIGIN;
@@ -3137,9 +3123,32 @@ static int bgp_attr_check(struct peer *peer, struct attr *attr)
 		flog_warn(EC_BGP_MISSING_ATTRIBUTE,
 			  "%s Missing well-known attribute %s.", peer->host,
 			  lookup_msg(attr_str, type, NULL));
-		return BGP_ATTR_PARSE_WITHDRAW;
+		return true;
 	}
-	return BGP_ATTR_PARSE_PROCEED;
+	return false;
+}
+
+/* Well-known attribute check.  The exemptions below only cover UPDATEs
+ * without NLRI; bgp_update_receive() re-checks once NLRI length is known.
+ */
+static int bgp_attr_check(struct peer *peer, struct attr *attr)
+{
+	/* BGP Graceful-Restart End-of-RIB for IPv4 unicast is signaled as an
+	 * empty UPDATE.  */
+	if (CHECK_FLAG(peer->cap, PEER_CAP_RESTART_RCV) && !attr->flag)
+		return BGP_ATTR_PARSE_PROCEED;
+
+	/* "An UPDATE message that contains the MP_UNREACH_NLRI is not required
+	   to carry any other path attributes.", though if MP_REACH_NLRI or NLRI
+	   are present, it should.  Check for any other attribute being present
+	   instead.
+	 */
+	if ((!CHECK_FLAG(attr->flag, ATTR_FLAG_BIT(BGP_ATTR_MP_REACH_NLRI)) &&
+	     CHECK_FLAG(attr->flag, ATTR_FLAG_BIT(BGP_ATTR_MP_UNREACH_NLRI))))
+		return BGP_ATTR_PARSE_PROCEED;
+
+	return bgp_attr_mandatory_missing(peer, attr) ? BGP_ATTR_PARSE_WITHDRAW
+						       : BGP_ATTR_PARSE_PROCEED;
 }
 
 /* Read attribute of update packet.  This function is called from
@@ -3511,7 +3520,7 @@ bgp_attr_parse_ret_t bgp_attr_parse(struct peer *peer, struct attr *attr,
 
 	ret = BGP_ATTR_PARSE_PROCEED;
 done:
-	if (ret == BGP_ATTR_PARSE_WITHDRAW)
+	if (ret == BGP_ATTR_PARSE_WITHDRAW || ret == BGP_ATTR_PARSE_EOR)
 		stream_set_getp(BGP_INPUT(peer), endp - STREAM_DATA(BGP_INPUT(peer)));
 
 	/*

@@ -387,7 +387,12 @@ static int assegment_count_asns(struct assegment *seg, int from)
 unsigned int aspath_count_confeds(struct aspath *aspath)
 {
 	int count = 0;
-	struct assegment *seg = aspath->segments;
+	struct assegment *seg;
+
+	if (!aspath)
+		return 0;
+
+	seg = aspath->segments;
 
 	while (seg) {
 		if (seg->type == AS_CONFED_SEQUENCE)
@@ -403,7 +408,12 @@ unsigned int aspath_count_confeds(struct aspath *aspath)
 unsigned int aspath_count_hops(const struct aspath *aspath)
 {
 	int count = 0;
-	struct assegment *seg = aspath->segments;
+	struct assegment *seg;
+
+	if (!aspath)
+		return 0;
+
+	seg = aspath->segments;
 
 	while (seg) {
 		if (seg->type == AS_SEQUENCE)
@@ -2044,8 +2054,10 @@ unsigned int aspath_key_make(const void *p)
 /* If two aspath have same value then return 1 else return 0 */
 bool aspath_cmp(const void *arg1, const void *arg2)
 {
-	const struct assegment *seg1 = ((const struct aspath *)arg1)->segments;
-	const struct assegment *seg2 = ((const struct aspath *)arg2)->segments;
+	const struct aspath *aspath1 = arg1;
+	const struct aspath *aspath2 = arg2;
+	const struct assegment *seg1 = aspath1 ? aspath1->segments : NULL;
+	const struct assegment *seg2 = aspath2 ? aspath2->segments : NULL;
 
 	while (seg1 || seg2) {
 		int i;
