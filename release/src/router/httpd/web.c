@@ -5334,6 +5334,9 @@ static int ej_update_variables(int eid, webs_t wp, int argc, char_t **argv)
 	int usb_modem_plug = usb_modem_plugged();
 #endif
 
+	if (!httpd_check_apply_origin())
+		return 0;
+
 #if defined(RTCONFIG_RALINK)
 	sleep1 = 10;
 	sleep2 = 5;
@@ -19887,7 +19890,7 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 		gen_asus_token_cookie(asus_token, sizeof(asus_token), token_cookie, sizeof(token_cookie));
 		browser_session_register(asus_token, fromapp_flag);
 
-		websWrite(wp,"Set-Cookie: %s\r\n",token_cookie);
+		websWrite(wp,"Set-Cookie: %s; SameSite=Strict\r\n",token_cookie);
 		websWrite(wp,"Connection: close\r\n" );
 		websWrite(wp,"\r\n" );
 		if (fromapp_flag == 0){
