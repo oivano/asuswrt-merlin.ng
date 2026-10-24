@@ -2585,6 +2585,9 @@ int dnsmasq_script_main(int argc, char **argv)
 #if defined(RTCONFIG_AMAS)
 	amaslib_lease_main(argc, argv);
 #endif
+#ifdef CONFIG_BCMWL5
+	guest_arp_filter_refresh();
+#endif
 	nmp_get_vendorclass(argc, argv);
 	return 0;
 }

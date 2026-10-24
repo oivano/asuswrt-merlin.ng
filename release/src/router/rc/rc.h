@@ -1482,6 +1482,9 @@ extern void start_lan_wl(void);
 extern void restart_wl(void);
 extern void lanaccess_mssid(const char *ifname_in, int mode);
 extern void lanaccess_wl(void);
+#ifdef CONFIG_BCMWL5
+extern void guest_arp_filter_refresh(void);
+#endif
 #ifdef RTCONFIG_FBWIFI
 extern void stop_fbwifi_check();
 extern void start_fbwifi_check();

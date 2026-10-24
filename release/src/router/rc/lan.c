@@ -5394,6 +5394,318 @@ void restart_wl(void)
 #endif
 }
 
+#ifdef CONFIG_BCMWL5
+#define GUEST_ARP_LEASE_FILE "/var/lib/misc/dnsmasq.leases"
+#define GUEST_ARP_STATE_FILE "/tmp/guest-arp-bindings"
+#define GUEST_ARP_STATE_TMP_FILE "/tmp/guest-arp-bindings.tmp"
+#define GUEST_ARP_MAX_IFACES 32
+#define GUEST_ARP_MAX_BINDINGS 512
+
+#define GUEST_ARP_EBTABLES(...) \
+	eval("ebtables", "--concurrent", "-t", "filter", __VA_ARGS__, NULL)
+
+typedef struct {
+	char ifname[IFNAMSIZ];
+	char mac[18];
+	char ip[INET_ADDRSTRLEN];
+} guest_arp_binding_t;
+
+static void guest_arp_add_ifname(char ifnames[][IFNAMSIZ], int *count, const char *ifname)
+{
+	int i;
+
+	if (!*ifname || *count >= GUEST_ARP_MAX_IFACES)
+		return;
+
+	for (i = 0; i < *count; ++i) {
+		if (!strcmp(ifnames[i], ifname))
+			return;
+	}
+
+	strlcpy(ifnames[*count], ifname, IFNAMSIZ);
+	++*count;
+}
+
+static int guest_arp_ifname_find(char ifnames[][IFNAMSIZ], int count, const char *ifname)
+{
+	int i;
+
+	for (i = 0; i < count; ++i) {
+		if (!strcmp(ifnames[i], ifname))
+			return i;
+	}
+	return -1;
+}
+
+static int guest_arp_station_present(char *ifname, unsigned char *ea)
+{
+	char buf[sizeof(sta_info_t)];
+
+	strcpy(buf, "sta_info");
+	memcpy(buf + sizeof("sta_info"), ea, ETHER_ADDR_LEN);
+	return wl_ioctl(ifname, WLC_GET_VAR, buf, sizeof(buf)) == 0;
+}
+
+static int guest_arp_binding_find(guest_arp_binding_t *bindings, int count,
+	const char *ifname, const char *mac, const char *ip)
+{
+	int i;
+
+	for (i = 0; i < count; ++i) {
+		if (!strcmp(bindings[i].ifname, ifname) &&
+		    !strcmp(bindings[i].mac, mac) && !strcmp(bindings[i].ip, ip))
+			return i;
+	}
+	return -1;
+}
+
+static int guest_arp_binding_add(guest_arp_binding_t *bindings, int *count,
+	const char *ifname, const char *mac, const char *ip)
+{
+	if (guest_arp_binding_find(bindings, *count, ifname, mac, ip) >= 0)
+		return 0;
+	if (*count >= GUEST_ARP_MAX_BINDINGS)
+		return -1;
+
+	strlcpy(bindings[*count].ifname, ifname, sizeof(bindings[*count].ifname));
+	strlcpy(bindings[*count].mac, mac, sizeof(bindings[*count].mac));
+	strlcpy(bindings[*count].ip, ip, sizeof(bindings[*count].ip));
+	++*count;
+	return 0;
+}
+
+static int guest_arp_collect_lease_bindings(guest_arp_binding_t *bindings,
+	int *count, char *ifname)
+{
+	FILE *fp;
+	char line[256], mac[18], ip[INET_ADDRSTRLEN], mac_text[18], ip_text[INET_ADDRSTRLEN];
+	unsigned long expires;
+	time_t now = time(NULL);
+
+	if (guest_arp_binding_add(bindings, count, ifname, "-", "-") != 0)
+		return -1;
+
+	fp = fopen(GUEST_ARP_LEASE_FILE, "r");
+	if (!fp)
+		return 0;
+
+	while (fgets(line, sizeof(line), fp)) {
+		unsigned char ea[ETHER_ADDR_LEN];
+		struct in_addr addr;
+
+		if (sscanf(line, "%lu %17s %15s", &expires, mac, ip) != 3)
+			continue;
+		if (expires && expires <= (unsigned long)now)
+			continue;
+		if (!ether_atoe(mac, ea) || !inet_aton(ip, &addr))
+			continue;
+		if (!guest_arp_station_present(ifname, ea))
+			continue;
+
+		ether_etoa(ea, mac_text);
+		strlcpy(ip_text, inet_ntoa(addr), sizeof(ip_text));
+		if (guest_arp_binding_add(bindings, count, ifname, mac_text, ip_text) != 0) {
+			fclose(fp);
+			return -1;
+		}
+	}
+
+	fclose(fp);
+	return 0;
+}
+
+static int guest_arp_load_state(guest_arp_binding_t *bindings, int *count)
+{
+	FILE *fp;
+	char ifname[IFNAMSIZ], mac[18], ip[INET_ADDRSTRLEN], mac_text[18], ip_text[INET_ADDRSTRLEN];
+
+	*count = 0;
+	fp = fopen(GUEST_ARP_STATE_FILE, "r");
+	if (!fp)
+		return 0;
+
+	while (fscanf(fp, "%15s %17s %15s", ifname, mac, ip) == 3) {
+		unsigned char ea[ETHER_ADDR_LEN];
+		struct in_addr addr;
+
+		if (!strcmp(mac, "-") && !strcmp(ip, "-")) {
+			strlcpy(mac_text, "-", sizeof(mac_text));
+			strlcpy(ip_text, "-", sizeof(ip_text));
+		} else {
+			if (!ether_atoe(mac, ea) || !inet_aton(ip, &addr))
+				continue;
+			ether_etoa(ea, mac_text);
+			strlcpy(ip_text, inet_ntoa(addr), sizeof(ip_text));
+		}
+		if (guest_arp_binding_add(bindings, count, ifname, mac_text, ip_text) != 0) {
+			fclose(fp);
+			return -1;
+		}
+	}
+
+	fclose(fp);
+	return 0;
+}
+
+static int guest_arp_save_state(guest_arp_binding_t *bindings, int count)
+{
+	FILE *fp;
+	int i, ret = 0;
+
+	fp = fopen(GUEST_ARP_STATE_TMP_FILE, "w");
+	if (!fp)
+		return -1;
+
+	for (i = 0; i < count; ++i) {
+		if (fprintf(fp, "%s %s %s\n", bindings[i].ifname,
+			bindings[i].mac, bindings[i].ip) < 0) {
+			ret = -1;
+			break;
+		}
+	}
+	if (fclose(fp) != 0)
+		ret = -1;
+	if (ret == 0 && chmod(GUEST_ARP_STATE_TMP_FILE, 0600) == 0 &&
+	    rename(GUEST_ARP_STATE_TMP_FILE, GUEST_ARP_STATE_FILE) == 0)
+		return 0;
+
+	unlink(GUEST_ARP_STATE_TMP_FILE);
+	return -1;
+}
+
+void guest_arp_filter_refresh(void)
+{
+	char ifnames[GUEST_ARP_MAX_IFACES][IFNAMSIZ] = {{0}};
+	char active_ifnames[GUEST_ARP_MAX_IFACES][IFNAMSIZ] = {{0}};
+	char cleanup_ifnames[GUEST_ARP_MAX_IFACES][IFNAMSIZ] = {{0}};
+	char buf[512], vifnames[256], nvname[32], lan_ifnames[512];
+	char *ifname, *cursor, *vif_cursor;
+	guest_arp_binding_t old_bindings[GUEST_ARP_MAX_BINDINGS];
+	guest_arp_binding_t current_bindings[GUEST_ARP_MAX_BINDINGS];
+	int count = 0, active_count = 0, cleanup_count = 0;
+	int old_count, current_count = 0, i, unit, subunit, lock;
+
+	lock = file_lock("guest-arp");
+	if (lock < 0)
+		return;
+	if (guest_arp_load_state(old_bindings, &old_count) != 0)
+		goto fail;
+
+	strlcpy(lan_ifnames, nvram_safe_get("lan_ifnames"), sizeof(lan_ifnames));
+	strlcpy(buf, lan_ifnames, sizeof(buf));
+	cursor = buf;
+	while ((ifname = strsep(&cursor, " ")) != NULL)
+		guest_arp_add_ifname(ifnames, &count, ifname);
+
+	strlcpy(buf, nvram_safe_get("wl_ifnames"), sizeof(buf));
+	cursor = buf;
+	while ((ifname = strsep(&cursor, " ")) != NULL) {
+		unit = get_wifi_unit(ifname);
+		if (unit < 0)
+			continue;
+
+		snprintf(nvname, sizeof(nvname), "wl%d_vifnames", unit);
+		strlcpy(vifnames, nvram_safe_get(nvname), sizeof(vifnames));
+		vif_cursor = vifnames;
+		while ((ifname = strsep(&vif_cursor, " ")) != NULL)
+			guest_arp_add_ifname(ifnames, &count, ifname);
+	}
+
+	for (i = 0; i < count; ++i) {
+		char key[32];
+		int active;
+
+		if (!guest_wlif(ifnames[i]) ||
+		    get_ifname_unit(ifnames[i], &unit, &subunit) < 0 || subunit < 1)
+			continue;
+
+		snprintf(key, sizeof(key), "wl%d.%d_lanaccess", unit, subunit);
+		active = is_router_mode() && find_in_list(lan_ifnames, ifnames[i]) &&
+			nvram_match(key, "off");
+
+		guest_arp_add_ifname(cleanup_ifnames, &cleanup_count, ifnames[i]);
+		if (!active)
+			continue;
+
+		guest_arp_add_ifname(active_ifnames, &active_count, ifnames[i]);
+		if (guest_arp_collect_lease_bindings(current_bindings, &current_count,
+			ifnames[i]) != 0)
+			goto fail;
+	}
+
+	for (i = 0; i < old_count; ++i)
+		guest_arp_add_ifname(cleanup_ifnames, &cleanup_count, old_bindings[i].ifname);
+
+	for (i = 0; i < active_count; ++i) {
+		if (guest_arp_binding_find(old_bindings, old_count,
+			active_ifnames[i], "-", "-") >= 0)
+			continue;
+		while (GUEST_ARP_EBTABLES("-D", "INPUT", "-i", active_ifnames[i], "-p", "arp",
+			"-j", "DROP") == 0)
+			;
+		while (GUEST_ARP_EBTABLES("-D", "INPUT", "-i", active_ifnames[i], "-p", "arp",
+			"--arp-ip-src", "0.0.0.0", "-j", "ACCEPT") == 0)
+			;
+		if (GUEST_ARP_EBTABLES("-I", "INPUT", "1", "-i", active_ifnames[i], "-p", "arp",
+			"-j", "DROP") != 0 ||
+		    GUEST_ARP_EBTABLES("-I", "INPUT", "1", "-i", active_ifnames[i], "-p", "arp",
+			"--arp-ip-src", "0.0.0.0", "-j", "ACCEPT") != 0)
+			goto fail;
+	}
+
+	for (i = 0; i < old_count; ++i) {
+		guest_arp_binding_t *binding = &old_bindings[i];
+		if (!strcmp(binding->mac, "-") && !strcmp(binding->ip, "-"))
+			continue;
+		if (guest_arp_binding_find(current_bindings, current_count,
+			binding->ifname, binding->mac, binding->ip) >= 0)
+			continue;
+		while (GUEST_ARP_EBTABLES("-D", "INPUT", "-i", binding->ifname,
+			"-s", binding->mac, "-p", "arp", "--arp-mac-src", binding->mac,
+			"--arp-ip-src", binding->ip, "-j", "ACCEPT") == 0)
+			;
+	}
+
+	for (i = 0; i < current_count; ++i) {
+		guest_arp_binding_t *binding = &current_bindings[i];
+		if (!strcmp(binding->mac, "-") && !strcmp(binding->ip, "-"))
+			continue;
+		if (guest_arp_binding_find(old_bindings, old_count, binding->ifname,
+			binding->mac, binding->ip) >= 0)
+			continue;
+		while (GUEST_ARP_EBTABLES("-D", "INPUT", "-i", binding->ifname,
+			"-s", binding->mac, "-p", "arp", "--arp-mac-src", binding->mac,
+			"--arp-ip-src", binding->ip, "-j", "ACCEPT") == 0)
+			;
+		if (GUEST_ARP_EBTABLES("-I", "INPUT", "1", "-i", binding->ifname,
+			"-s", binding->mac, "-p", "arp", "--arp-mac-src", binding->mac,
+			"--arp-ip-src", binding->ip, "-j", "ACCEPT") != 0)
+			goto fail;
+	}
+
+	for (i = 0; i < cleanup_count; ++i) {
+		if (guest_arp_ifname_find(active_ifnames, active_count, cleanup_ifnames[i]) >= 0)
+			continue;
+		while (GUEST_ARP_EBTABLES("-D", "INPUT", "-i", cleanup_ifnames[i], "-p", "arp",
+			"--arp-ip-src", "0.0.0.0", "-j", "ACCEPT") == 0)
+			;
+		while (GUEST_ARP_EBTABLES("-D", "INPUT", "-i", cleanup_ifnames[i], "-p", "arp",
+			"-j", "DROP") == 0)
+			;
+	}
+
+	if (guest_arp_save_state(current_bindings, current_count) != 0)
+		goto fail;
+	goto out;
+fail:
+	syslog(LOG_ERR, "guest ARP filter update failed");
+out:
+	file_unlock(lock);
+}
+
+#undef GUEST_ARP_EBTABLES
+#endif
+
 void lanaccess_mssid(const char *limited_ifname, int mode)
 {
 	char lan_subnet[32], lifname[IFNAMSIZ];
@@ -5751,6 +6063,9 @@ void lanaccess_wl(void)
 #endif
 #ifdef RTCONFIG_CAPTIVE_PORTAL
 	CP_lanaccess_wl();
+#endif
+#ifdef CONFIG_BCMWL5
+	guest_arp_filter_refresh();
 #endif
 	setup_leds();   // Refresh LED state if in Stealth Mode
 }
