@@ -35,6 +35,7 @@
 #include <arpa/inet.h>
 #include <sys/types.h>
 #include <dirent.h>
+#include <ifaddrs.h>
 #include <bcmnvram.h>
 #include <shutils.h>
 
@@ -70,6 +71,76 @@
 #define ACCESS_SSH    0x02
 #define ACCESS_TELNET 0x04
 #define ACCESS_ALL    0x07
+
+static int ipv4_rule_is_local(const char *destination, const char *lan_ip,
+		const struct ifaddrs *addresses)
+{
+	struct in_addr address, lan_address;
+	const struct ifaddrs *entry;
+	char host[INET_ADDRSTRLEN];
+	size_t length = strcspn(destination, "/");
+
+	if (length == 0 || length >= sizeof(host) ||
+	    (destination[length] && strcmp(destination + length, "/32") != 0))
+		return 0;
+	memcpy(host, destination, length);
+	host[length] = '\0';
+	if (inet_pton(AF_INET, host, &address) != 1)
+		return 0;
+	if (lan_ip && inet_pton(AF_INET, lan_ip, &lan_address) == 1 &&
+	    address.s_addr == lan_address.s_addr)
+		return 1;
+	for (entry = addresses; entry; entry = entry->ifa_next) {
+		if (entry->ifa_addr && entry->ifa_addr->sa_family == AF_INET &&
+		    address.s_addr == ((struct sockaddr_in *)entry->ifa_addr)->sin_addr.s_addr)
+			return 1;
+	}
+	return 0;
+}
+
+static void write_ipv4_inbound_rules(FILE *fp, const char *wan_if,
+		const char *lan_ip, const char *chain, const char *logaccept)
+{
+	struct ifaddrs *addresses = NULL;
+	char *rules, *cursor, *rule;
+
+	if (!nvram_get_int("fw_enable_x"))
+		return;
+	if (getifaddrs(&addresses) != 0)
+		addresses = NULL;
+	rules = cursor = strdup(nvram_safe_get("ipv4_fw_rulelist"));
+	while (cursor && (rule = strsep(&cursor, "<")) != NULL) {
+		char *description, *source, *destination, *ports, *protocol, *interface;
+		char *port_list, *port_cursor, *port;
+		char source_rule[64], destination_rule[64];
+		const char *ifname;
+		int fields = vstrsep(rule, ">", &description, &source, &destination,
+				&ports, &protocol, &interface);
+
+		if (fields < 5)
+			continue;
+		if ((strcmp(chain, "INPUT") == 0) != ipv4_rule_is_local(destination, lan_ip, addresses))
+			continue;
+		ifname = (fields >= 6 && interface && interface[0]) ? interface : wan_if;
+		snprintf(source_rule, sizeof(source_rule), source[0] ? "-s %s" : "%s", source);
+		snprintf(destination_rule, sizeof(destination_rule), destination[0] ? "-d %s" : "%s", destination);
+		port_list = port_cursor = strdup(ports);
+		while (port_list && (port = strsep(&port_cursor, ",")) != NULL) {
+			if (strcmp(protocol, "TCP") == 0 || strcmp(protocol, "BOTH") == 0)
+				fprintf(fp, "-A %s -i %s -m state --state NEW -p tcp -m tcp %s %s --dport %s -j %s\n", chain, ifname, source_rule, destination_rule, port, logaccept);
+			if (strcmp(protocol, "UDP") == 0 || strcmp(protocol, "BOTH") == 0)
+				fprintf(fp, "-A %s -i %s -m state --state NEW -p udp -m udp %s %s --dport %s -j %s\n", chain, ifname, source_rule, destination_rule, port, logaccept);
+			if (strcmp(protocol, "OTHER") == 0) {
+				char *number = strsep(&port, ":");
+				fprintf(fp, "-A %s -i %s -p %s %s %s -j %s\n", chain, ifname, number, source_rule, destination_rule, logaccept);
+			}
+		}
+		free(port_list);
+	}
+	free(rules);
+	if (addresses)
+		freeifaddrs(addresses);
+}
 
 
 #define STOP_TIME  0
@@ -4148,6 +4219,7 @@ TRACE_PT("writing Parental Control\n");
 			fprintf(fp_ipv6, "-A INPUT -j SSLVPNCI\n");
 		}
 #endif
+		write_ipv4_inbound_rules(fp, wan_if, lan_ip, "INPUT", logaccept);
 		fprintf(fp, "-A INPUT -j %s\n", logdrop);
 	}
 
@@ -4846,41 +4918,7 @@ TRACE_PT("write wl filter\n");
 		// fprintf(fp_ipv6, "-A FORWARD -j VPNCF\n");
 #endif
 
-	// IPv4 inbound rules (allowed WAN-to-LAN traffic)
-	if (nvram_get_int("fw_enable_x")) {
-		char *nv4, *nvp4, *b4;
-		nv4 = nvp4 = strdup(nvram_safe_get("ipv4_fw_rulelist"));
-		while (nvp4 && (b4 = strsep(&nvp4, "<")) != NULL) {
-			char *desc4, *srcip4, *dstip4, *port4, *proto4, *iface4;
-			char *portv4, *portp4, *dstports4;
-			char srciprule4[64], dstiprule4[64];
-			int nfields4 = vstrsep(b4, ">", &desc4, &srcip4, &dstip4, &port4, &proto4, &iface4);
-			if (nfields4 < 5)
-				continue;
-			const char *ifname4 = (nfields4 >= 6 && iface4 && iface4[0] != '\0') ? iface4 : wan_if;
-			if (srcip4[0] != '\0')
-				snprintf(srciprule4, sizeof(srciprule4), "-s %s", srcip4);
-			else
-				srciprule4[0] = '\0';
-			if (dstip4[0] != '\0')
-				snprintf(dstiprule4, sizeof(dstiprule4), "-d %s", dstip4);
-			else
-				dstiprule4[0] = '\0';
-			portp4 = portv4 = strdup(port4);
-			while (portv4 && (dstports4 = strsep(&portp4, ",")) != NULL) {
-				if (strcmp(proto4, "TCP") == 0 || strcmp(proto4, "BOTH") == 0)
-					fprintf(fp, "-A FORWARD -i %s -m state --state NEW -p tcp -m tcp %s %s --dport %s -j %s\n", ifname4, srciprule4, dstiprule4, dstports4, logaccept);
-				if (strcmp(proto4, "UDP") == 0 || strcmp(proto4, "BOTH") == 0)
-					fprintf(fp, "-A FORWARD -i %s -m state --state NEW -p udp -m udp %s %s --dport %s -j %s\n", ifname4, srciprule4, dstiprule4, dstports4, logaccept);
-				if (strcmp(proto4, "OTHER") == 0) {
-					char *protono4 = strsep(&dstports4, ":");
-					fprintf(fp, "-A FORWARD -i %s -p %s %s %s -j %s\n", ifname4, protono4, srciprule4, dstiprule4, logaccept);
-				}
-			}
-			free(portv4);
-		}
-		free(nv4);
-	}
+	write_ipv4_inbound_rules(fp, wan_if, lan_ip, "FORWARD", logaccept);
 
 	// Default rule
 	if (nvram_get_int("fw_enable_x"))
@@ -5650,6 +5688,7 @@ TRACE_PT("writing Parental Control\n");
 		}
 #endif
 
+		write_ipv4_inbound_rules(fp, get_wan_ifname(wan_primary_ifunit()), lan_ip, "INPUT", logaccept);
 		fprintf(fp, "-A INPUT -j %s\n", logdrop);
 	}
 
@@ -6381,41 +6420,7 @@ TRACE_PT("write wl filter\n");
 		// fprintf(fp_ipv6, "-A FORWARD -j VPNCF\n");
 #endif
 
-	// IPv4 inbound rules (allowed WAN-to-LAN traffic)
-	if (nvram_get_int("fw_enable_x")) {
-		char *nv4, *nvp4, *b4;
-		nv4 = nvp4 = strdup(nvram_safe_get("ipv4_fw_rulelist"));
-		while (nvp4 && (b4 = strsep(&nvp4, "<")) != NULL) {
-			char *desc4, *srcip4, *dstip4, *port4, *proto4, *iface4;
-			char *portv4, *portp4, *dstports4;
-			char srciprule4[64], dstiprule4[64];
-			int nfields4 = vstrsep(b4, ">", &desc4, &srcip4, &dstip4, &port4, &proto4, &iface4);
-			if (nfields4 < 5)
-				continue;
-			const char *ifname4 = (nfields4 >= 6 && iface4 && iface4[0] != '\0') ? iface4 : wan_if;
-			if (srcip4[0] != '\0')
-				snprintf(srciprule4, sizeof(srciprule4), "-s %s", srcip4);
-			else
-				srciprule4[0] = '\0';
-			if (dstip4[0] != '\0')
-				snprintf(dstiprule4, sizeof(dstiprule4), "-d %s", dstip4);
-			else
-				dstiprule4[0] = '\0';
-			portp4 = portv4 = strdup(port4);
-			while (portv4 && (dstports4 = strsep(&portp4, ",")) != NULL) {
-				if (strcmp(proto4, "TCP") == 0 || strcmp(proto4, "BOTH") == 0)
-					fprintf(fp, "-A FORWARD -i %s -m state --state NEW -p tcp -m tcp %s %s --dport %s -j %s\n", ifname4, srciprule4, dstiprule4, dstports4, logaccept);
-				if (strcmp(proto4, "UDP") == 0 || strcmp(proto4, "BOTH") == 0)
-					fprintf(fp, "-A FORWARD -i %s -m state --state NEW -p udp -m udp %s %s --dport %s -j %s\n", ifname4, srciprule4, dstiprule4, dstports4, logaccept);
-				if (strcmp(proto4, "OTHER") == 0) {
-					char *protono4 = strsep(&dstports4, ":");
-					fprintf(fp, "-A FORWARD -i %s -p %s %s %s -j %s\n", ifname4, protono4, srciprule4, dstiprule4, logaccept);
-				}
-			}
-			free(portv4);
-		}
-		free(nv4);
-	}
+	write_ipv4_inbound_rules(fp, get_wan_ifname(wan_primary_ifunit()), lan_ip, "FORWARD", logaccept);
 
 	// Default rule
 	if (nvram_get_int("fw_enable_x"))
