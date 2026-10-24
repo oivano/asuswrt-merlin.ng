@@ -19996,6 +19996,19 @@ FINISH:
 unsigned int login_fail_num = 0;
 #endif
 
+void
+httpd_login_notify(const char *address)
+{
+#ifdef RTCONFIG_NOTIFICATION_CENTER
+	char event[INET6_ADDRSTRLEN + 16];
+#endif
+	logmessage("httpd login lock", "Detect abnormal logins at %d times from %s in login.", DEFAULT_LOGIN_MAX_NUM, address);
+#ifdef RTCONFIG_NOTIFICATION_CENTER
+	snprintf(event, sizeof(event), "{\"IP\":\"%s\"}", address);
+	SEND_NT_EVENT(ADMIN_LOGIN_FAIL_LAN_WEB_EVENT, event);
+#endif
+}
+
 static int
 login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 		char_t *url, char_t *path, char_t *query)
@@ -20003,8 +20016,7 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 	int l = 0, fromapp_flag = 0, lock_status = 0;
 	int authpass_fail = 0, auth_pass = 0;
 	char authinfo[500] = {0}, asus_token[32]={0}, filename[128] = {0}, timebuf[100] = {0}, token_cookie[128] = {0};
-	char *authorization_t = NULL, *authpass = NULL, *temp_ip_str = NULL, *next_page = NULL;
-	struct in_addr temp_ip_addr;
+	char *authorization_t = NULL, *authpass = NULL, *next_page = NULL;
 	time_t now = 0, dt = 0;
 	now = time( (time_t*) 0 );
 #ifdef RTCONFIG_CAPTCHA
@@ -20039,14 +20051,9 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 	captcha_text[l] = '\0';
 #endif
 
-	lock_status = check_lock_status(&dt);
-
-	if(lock_status == FORCELOCK){
-		send_login_page(fromapp_flag, lock_status, NULL, NULL, 0, NOLOGINTRY);
-		return FORCELOCK;
-	}
-	else if(lock_status == LOGINLOCK){
-		send_login_page(fromapp_flag, lock_status, NULL, NULL, dt, LOGINTRY);
+	lock_status = httpd_login_status(&dt);
+	if(lock_status == LOGINLOCK){
+		send_login_page(fromapp_flag, lock_status, NULL, NULL, dt, NOLOGINTRY);
 		return LOGINLOCK;
 	}
 
@@ -20072,9 +20079,9 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 	}
 
 #ifdef RTCONFIG_CAPTCHA
-	if(!nvram_match("captcha_enable", "0")){
-		if( login_fail_num < CAPTCHA_MAX_LOGIN_NUM ||
-			(login_fail_num >= CAPTCHA_MAX_LOGIN_NUM && is_captcha_match(captcha_text)) )
+	if(fromapp_flag != FROM_DUTUtil && !nvram_match("captcha_enable", "0")){
+		if( httpd_login_attempts() < CAPTCHA_MAX_LOGIN_NUM ||
+			(httpd_login_attempts() >= CAPTCHA_MAX_LOGIN_NUM && is_captcha_match(captcha_text)) )
 		{
 			captcha_right = 1;
 		}
@@ -20083,9 +20090,12 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 			HTTPD_DBG("Wrong captcha!\n");
 			websWrite(wp,"Connection: close\r\n" );
 			websWrite(wp,"\r\n" );
-			login_error_status = WRONGCAPTCHA;
+			login_error_status = httpd_login_failed(WRONGCAPTCHA);
 			if(fromapp_flag != 0){
-				websWrite(wp, "{\n\"error_status\":\"%d\", \"last_time_lock_warning\":\"%d\"\n}\n", login_error_status, last_time_lock_warning());
+				if (login_error_status == LOGINLOCK)
+					websWrite(wp, "{\n\"error_status\":\"%d\",\"remaining_lock_time\":\"%d\"\n}\n", login_error_status, MAX_LOGIN_BLOCK_TIME);
+				else
+					websWrite(wp, "{\n\"error_status\":\"%d\", \"last_time_lock_warning\":\"%d\"\n}\n", login_error_status, last_time_lock_warning());
 			}else{
 				websWrite(wp,"<HTML><HEAD>\n" );
 				websWrite(wp,"<script>parent.location.href='/Main_Login.asp';</script>\n");
@@ -20117,35 +20127,8 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 		)
 	{
 		HTTPD_DBG("authpass!\n");
-#ifdef RTCONFIG_CAPTCHA
-		login_fail_num = 0;
-		HTTPD_DBG("authpass: login_fail_num = %d\n", login_fail_num);
-#endif
-#if 0
-		if(	!strncmp(nvram_safe_get("territory_code"), "AA", 2) ||
-			!strncmp(nvram_safe_get("territory_code"), "SG", 2) ){
-			lock_num = 0;
-			HTTPD_DBG("reset lock_num\n");
-		}
-#else	//SG define new rule
-		if(nvram_get_int("SG_mode") == 1){
-			if(nvram_get_int(HTTPD_LOCK_NUM) != 0){
-				nvram_set_int(HTTPD_LOCK_NUM, 0);
-				HTTPD_DBG("reset %s\n", HTTPD_LOCK_NUM);
-			}
-		}
-#endif
+		httpd_login_reset();
 		if (fromapp_flag == FROM_BROWSER){
-			if(!cur_login_ip_type)
-			{
-				login_try = 0;
-				last_login_timestamp = 0;
-			}
-			else
-			{
-				login_try_wan = 0;
-				last_login_timestamp_wan = 0;
-			}
 			set_referer_host();
 		}
 
@@ -20193,69 +20176,10 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 		}
 		return 1;
 	}else{
-#ifdef RTCONFIG_CAPTCHA
-		if(!nvram_match("captcha_enable", "0") && fromapp_flag != FROM_DUTUtil){
-			login_fail_num++;
-		}
-		HTTPD_DBG("authfail: login_fail_num = %d\n", login_fail_num);
-#endif
 		websWrite(wp,"Connection: close\r\n" );
 		websWrite(wp,"\r\n" );
-		if(!cur_login_ip_type)
-		{
-			login_try++;
-			last_login_timestamp = login_timestamp_tmp;
-		}
-		else
-		{
-			login_try_wan++;
-			last_login_timestamp_wan = login_timestamp_tmp_wan;
-		}
-		if((cur_login_ip_type? login_try_wan: login_try) >= DEFAULT_LOGIN_MAX_NUM){
-			lock_flag |= (cur_login_ip_type? LOCK_LOGIN_WAN: LOCK_LOGIN_LAN);
-			temp_ip_addr.s_addr = login_ip_tmp;
-			temp_ip_str = inet_ntoa(temp_ip_addr);
-			logmessage("httpd login lock", "Detect abnormal logins at %d times. The newest one was from %s in login.", (cur_login_ip_type? login_try_wan: login_try), temp_ip_str);
-#ifdef RTCONFIG_NOTIFICATION_CENTER
-			json_object *root = NULL;
-			root = json_object_new_object();
-			if (root == NULL) {
-				_dprintf("[%s(%d)]new json object error", __FUNCTION__, __LINE__);
-				char nt_tmp[MAX_EVENT_INFO_LEN];
-				snprintf(nt_tmp, sizeof(nt_tmp), "{\"IP\":\"%s\"}", temp_ip_str);
-				SEND_NT_EVENT(ADMIN_LOGIN_FAIL_LAN_WEB_EVENT, nt_tmp);
-			} else {
-				json_object_object_add(root, "IP", json_object_new_string(temp_ip_str));
-				SEND_NT_EVENT(ADMIN_LOGIN_FAIL_LAN_WEB_EVENT, json_object_to_json_string(root));
-			}
-			json_object_put(root);
-#endif
-			login_error_status = LOGINLOCK;
-
-#if 0
-			if(	!strncmp(nvram_safe_get("territory_code"), "AA", 2)||
-				!strncmp(nvram_safe_get("territory_code"), "SG", 2)){
-				if(max_lock_time < 900)//MAX: 15 mins
-					max_lock_time = MAX_LOGIN_BLOCK_TIME + (120 * lock_num);
-				lock_num++;
-			}
-#else	//SG define new rule
-			if(nvram_get_int("SG_mode") == 1){
-				if(nvram_get_int(HTTPD_LOCK_NUM) > 0){
-					nvram_set_int("httpd_force_lock", 1);
-					nvram_commit();
-					login_error_status = FORCELOCK;
-				}else
-					nvram_set_int(HTTPD_LOCK_NUM, 1);
-			}
-#endif
-			else
-				max_lock_time = MAX_LOGIN_BLOCK_TIME;
-
-			HTTPD_DBG("max_lock_time = %d\n", max_lock_time);
-		}else{
-			login_error_status = ACCOUNTFAIL;
-		}
+		login_error_status = httpd_login_failed(ACCOUNTFAIL);
+		login_dt = 0;
 #if defined(RTCONFIG_RGBLED) && defined(GTAC2900)
 		send_aura_event("LoginFail");
 #endif
@@ -31500,19 +31424,26 @@ static int
 ej_login_error_info(int eid, webs_t wp, int argc, char **argv)
 {
 	struct json_object *item = json_object_new_object();
+	int error_status = httpd_login_status(&login_dt);
+	if (!error_status && login_error_status != ACCOUNTFAIL && login_error_status != LOGINLOCK
+#ifdef RTCONFIG_CAPTCHA
+	    && login_error_status != WRONGCAPTCHA
+#endif
+	   )
+		error_status = login_error_status;
 
 	/* lock time */
-	json_object_object_add(item,"lock_time", json_object_new_int(max_lock_time - login_dt));
+	json_object_object_add(item,"lock_time", json_object_new_int(error_status == LOGINLOCK ? MAX_LOGIN_BLOCK_TIME - login_dt : 0));
 
 	/* error status */
-	json_object_object_add(item,"error_status", json_object_new_int(login_error_status));
+	json_object_object_add(item,"error_status", json_object_new_int(error_status));
 
 	/* last time lock warning */
 	json_object_object_add(item,"last_time_lock_warning", json_object_new_int(last_time_lock_warning()));
 
 #ifdef RTCONFIG_CAPTCHA
 	/* number of login fail */
-	json_object_object_add(item,"error_num", json_object_new_int(login_fail_num));
+	json_object_object_add(item,"error_num", json_object_new_int(httpd_login_attempts()));
 #endif
 
 	/* url */
