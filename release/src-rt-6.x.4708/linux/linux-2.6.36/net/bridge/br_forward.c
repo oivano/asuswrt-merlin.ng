@@ -82,9 +82,36 @@ static void __br_deliver(const struct net_bridge_port *to, struct sk_buff *skb)
 		br_forward_finish);
 }
 
+static int br_is_modem_console(const struct sk_buff *skb)
+{
+	__be16 protocol = skb->protocol;
+	struct vlan_hdr header, *tag;
+	int offset = 0;
+	int depth;
+
+	for (depth = 0; depth < 2; depth++) {
+		if (protocol != htons(ETH_P_8021Q) &&
+		    protocol != htons(0x88a8) && protocol != htons(0x9100))
+			break;
+		tag = skb_header_pointer(skb, offset, sizeof(header), &header);
+		if (!tag)
+			return 1;
+		protocol = tag->h_vlan_encapsulated_proto;
+		offset += VLAN_HLEN;
+	}
+
+	return protocol == htons(0xaaaa) || protocol == htons(ETH_P_8021Q) ||
+	       protocol == htons(0x88a8) || protocol == htons(0x9100);
+}
+
 static void __br_forward(const struct net_bridge_port *to, struct sk_buff *skb)
 {
 	struct net_device *indev;
+
+	if (br_is_modem_console(skb)) {
+		kfree_skb(skb);
+		return;
+	}
 
 	if (skb_warn_if_lro(skb)) {
 		kfree_skb(skb);
