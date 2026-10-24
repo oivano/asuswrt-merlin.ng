@@ -558,6 +558,9 @@ extern char* iscap(char* str);
 #endif
 extern int referer_check(char* referer, int fromapp_flag);
 extern int httpd_check_request_origin(void);
+#ifdef RTCONFIG_IPSEC
+extern int httpd_ipsec_upload_ok(void);
+#endif
 extern const char *httpd_get_csrf_token(void);
 extern int httpd_check_csrf_token(const char *token);
 extern int auth_check(char* url, char* file, char* cookies, int fromapp_flag, int *add_count);
