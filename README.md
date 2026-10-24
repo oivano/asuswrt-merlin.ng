@@ -82,6 +82,26 @@ not make the entire platform current or eliminate security risks. Do not assume
 that features available on newer Asuswrt-Merlin platforms are available here.
 This is a community fork, not an official ASUS or upstream Asuswrt-Merlin release.
 
+## USB Swap
+
+Firmware-managed swap is shared by all userland services, including DNSCrypt;
+applications do not need their own swap files. USB mount and app startup use the
+same helper, with the existing `apps_swap_enable`, size and threshold settings.
+Stopping or switching an app leaves shared swap available to other services.
+
+On supported filesystems, the helper uses `<mountpoint>/.asus-swap/.swap`
+(or the configured `apps_swap_file` basename), with a root-only directory and
+root-owned `0600` file. Writable partition roots gain the sticky bit; normal
+shared writes remain available. Filesystems that cannot enforce these protections
+are refused. Samba vetoes the private directory and does not follow symlinks.
+
+Fstab swap files must use this private location and configured basename; arbitrary
+swap-file paths are refused. Dedicated swap partitions remain supported, and
+fstab `noauto` entries are skipped. Failed legacy-swap deactivation preserves the
+old file rather than deleting active backing storage. USB unmount is refused if
+the shared helper cannot safely stop swap. These changes require device testing
+before release promotion; swap is neither encrypted nor securely erased on disk.
+
 ## Development Status
 
 | Branch                                                                                  | Purpose                                          |

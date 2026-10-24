@@ -65,6 +65,38 @@ char *usb_dev_file = "/proc/bus/usb/devices";
 
 char *find_sddev_by_mountpoint(char *mountpoint);
 
+static void activate_fstab_swap(const char *dev_name, const char *uuid, const char *label, int activate_devices)
+{
+	FILE *fp;
+	struct mntent *entry;
+	struct stat st;
+
+	fp = setmntent("/etc/fstab", "r");
+	if (!fp)
+		return;
+	while ((entry = getmntent(fp)) != NULL) {
+		if (strcmp(entry->mnt_type, "swap") || hasmntopt(entry, "noauto"))
+			continue;
+		if (activate_devices && ((!strncmp(entry->mnt_fsname, "UUID=", 5) &&
+		     !strcmp(entry->mnt_fsname + 5, uuid)) ||
+		    (!strncmp(entry->mnt_fsname, "LABEL=", 6) &&
+		     !strcmp(entry->mnt_fsname + 6, label)))) {
+			eval("swapon", dev_name);
+			continue;
+		}
+		if (stat(entry->mnt_fsname, &st))
+			continue;
+		if (activate_devices && S_ISBLK(st.st_mode))
+			eval("swapon", entry->mnt_fsname);
+#ifdef RTCONFIG_USB_SWAP
+		else if (S_ISREG(st.st_mode) &&
+			 eval("/usr/sbin/usb_swap.sh", "--activate", entry->mnt_fsname))
+			logmessage("USB swap", "Refused unsafe or unavailable fstab swap file");
+#endif
+	}
+	endmntent(fp);
+}
+
 /* Adjust bdflush parameters.
  * Do this here, because Tomato doesn't have the sysctl command.
  * With these values, a disk block should be written to disk within 2 seconds.
@@ -1867,9 +1899,12 @@ _dprintf("%s: stop_cloudsync.\n", __func__);
 		stop_app();
 #endif
 	
-#ifdef RTCONFIG_USB_SWAP	
-		stop_usb_swap(mnt->mnt_dir);
-#endif	
+#ifdef RTCONFIG_USB_SWAP
+	if (stop_usb_swap(mnt->mnt_dir)) {
+		logmessage("USB swap", "Cannot stop swap safely; refusing USB unmount");
+		return -1;
+	}
+#endif
 
 	run_custom_script("unmount", 120, mnt->mnt_dir, NULL);
 
@@ -2025,11 +2060,11 @@ static inline void remove_disk_log(char *device) { }
 
 /* Mount this partition on this disc.
  * If the device is already mounted on any mountpoint, don't mount it again.
- * If this is a swap partition, try swapon -a.
+ * If this is a swap partition, activate checked fstab swap entries.
  * If this is a regular partition, try mount -a.
  *
  * Before we mount any partitions:
- *	If the type is swap and /etc/fstab exists, do "swapon -a"
+ *	If the type is swap and /etc/fstab exists, activate checked swap entries.
  *	If /etc/fstab exists, try mounting using fstab.
  *  We delay invoking mount because mount will probe all the partitions
  *	to read the labels, and we don't want it to do that early on.
@@ -2059,12 +2094,11 @@ int mount_partition(char *dev_name, int host_num, char *dsc_name, char *pt_name,
 
 #if !defined(RTCONFIG_HND_ROUTER_AX_6710) && !defined(RTCONFIG_BCM_502L07P2) && !defined(BCM4912) && !defined(BCM4906_504)
 	char *end;
-	static char *swp_argv[] = { "swapon", "-a", NULL };
 	struct mntent *mnt;
 
 	if (f_exists("/etc/fstab")) {
 		if (strcmp(type, "swap") == 0) {
-			_eval(swp_argv, NULL, 0, NULL);
+			activate_fstab_swap(dev_name, uuid, the_label, 1);
 			return 0;
 		}
 		if (mount_r(dev_name, NULL, NULL) == MOUNT_VAL_EXIST)
@@ -2222,6 +2256,7 @@ _dprintf("usb_path: 4. don't set %s.\n", tmp);
 #endif
 #ifdef RTCONFIG_USB_SWAP
 			start_usb_swap(mountpoint);
+			activate_fstab_swap(dev_name, uuid, the_label, 0);
 #endif
 #ifdef RTCONFIG_DSL
 		if(ret == MOUNT_VAL_RW) {
