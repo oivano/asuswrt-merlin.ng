@@ -128,6 +128,55 @@ static void main_inetd() {
 #endif /* INETD_MODE */
 
 #if NON_INETD_MODE
+#define SSH_SOURCE_SLOTS 64
+#define SSH_SOURCE_CONNECTIONS 5
+#define SSH_SOURCE_WINDOW 60
+#define SSH_SOURCE_BLOCK 300
+
+static struct ssh_source_budget {
+	char host[128];
+	time_t started;
+	time_t blocked_until;
+	unsigned int connections;
+} ssh_source_budgets[SSH_SOURCE_SLOTS];
+
+static int ssh_source_allowed(const char *host, time_t now) {
+	struct ssh_source_budget *budget = NULL;
+	size_t source_index;
+
+	if (!host || strlen(host) >= sizeof(ssh_source_budgets[0].host)) {
+		return 0;
+	}
+	for (source_index = 0; source_index < SSH_SOURCE_SLOTS; source_index++) {
+		struct ssh_source_budget *entry = &ssh_source_budgets[source_index];
+		if (entry->connections && strcmp(entry->host, host) == 0) {
+			budget = entry;
+			break;
+		}
+		if (!budget && (!entry->connections ||
+				(now >= entry->blocked_until && now >= entry->started &&
+				now - entry->started >= SSH_SOURCE_WINDOW))) {
+			budget = entry;
+		}
+	}
+	if (!budget || now < budget->blocked_until) {
+		return 0;
+	}
+	if (!budget->connections || strcmp(budget->host, host) != 0 ||
+			now < budget->started || now - budget->started >= SSH_SOURCE_WINDOW) {
+		strcpy(budget->host, host);
+		budget->started = now;
+		budget->blocked_until = 0;
+		budget->connections = 0;
+	}
+	if (budget->connections >= SSH_SOURCE_CONNECTIONS) {
+		budget->blocked_until = now + SSH_SOURCE_BLOCK;
+		return 0;
+	}
+	budget->connections++;
+	return 1;
+}
+
 static void main_noinetd(int argc, char ** argv, const char* multipath) {
 	fd_set fds;
 	unsigned int i, j;
@@ -297,6 +346,10 @@ static void main_noinetd(int argc, char ** argv, const char* multipath) {
 
 			if (num_unauthed_total >= MAX_UNAUTH_CLIENTS
 					|| num_unauthed_for_addr >= MAX_UNAUTH_PER_IP) {
+				goto out;
+			}
+
+			if (!ssh_source_allowed(remote_host, monotonic_now())) {
 				goto out;
 			}
 
