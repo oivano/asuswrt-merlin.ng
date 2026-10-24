@@ -444,6 +444,9 @@ static int netlink_create(struct net *net, struct socket *sock, int protocol,
 	if (protocol < 0 || protocol >= MAX_LINKS)
 		return -EPROTONOSUPPORT;
 
+	if (protocol == 17 && !kern && !capable(CAP_NET_ADMIN))
+		return -EPERM;
+
 	netlink_lock_table();
 #ifdef CONFIG_MODULES
 	if (!nl_table[protocol].registered) {
@@ -1320,6 +1323,9 @@ static int netlink_sendmsg(struct kiocb *kiocb, struct socket *sock,
 	struct sk_buff *skb;
 	int err;
 	struct scm_cookie scm;
+
+	if (sk->sk_protocol == 17 && !capable(CAP_NET_ADMIN))
+		return -EPERM;
 
 	if (msg->msg_flags&MSG_OOB)
 		return -EOPNOTSUPP;
