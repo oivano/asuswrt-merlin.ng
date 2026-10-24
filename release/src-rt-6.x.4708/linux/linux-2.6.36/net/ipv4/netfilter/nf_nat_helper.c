@@ -165,8 +165,17 @@ int __nf_nat_mangle_tcp_packet(struct sk_buff *skb,
 	struct iphdr *iph;
 	struct tcphdr *tcph;
 	int oldlen, datalen;
+	unsigned int dataoff;
 
 	if (!skb_make_writable(skb, skb->len))
+		return 0;
+
+	iph = ip_hdr(skb);
+	tcph = (void *)iph + iph->ihl*4;
+	dataoff = iph->ihl*4 + tcph->doff*4;
+	if (dataoff > skb->len ||
+	    match_offset > skb->len - dataoff ||
+	    match_len > skb->len - dataoff - match_offset)
 		return 0;
 
 	if (rep_len > match_len &&

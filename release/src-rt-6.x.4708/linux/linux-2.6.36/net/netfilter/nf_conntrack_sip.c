@@ -1416,7 +1416,11 @@ static int sip_help_tcp(struct sk_buff *skb, unsigned int protoff,
 		if (end[0] != '\r' || end[1] != '\n' ||
 		    end[2] != '\r' || end[3] != '\n')
 			break;
-		end += strlen("\r\n\r\n") + clen;
+		end += strlen("\r\n\r\n");
+		/* Truncated or oversized message: leave it unparsed. */
+		if (clen > datalen - (end - dptr))
+			break;
+		end += clen;
 
 		msglen = origlen = end - dptr;
 
