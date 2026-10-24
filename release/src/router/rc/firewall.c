@@ -3579,6 +3579,10 @@ filter_setting(int wan_unit, char *lan_if, char *lan_ip, char *logaccept, char *
 	    ":logdrop - [0:0]\n",
 	    nvram_match("fw_enable_x", "1") ? "DROP" : "ACCEPT");
 
+#ifdef RTCONFIG_DSL_TCLINUX
+	fprintf(fp, "-A FORWARD -d 169.254.0.1/32 -j DROP\n");
+#endif
+
 #ifdef RTCONFIG_PROTECTION_SERVER
 	fprintf(fp, ":%sWAN - [0:0]\n", PROTECT_SRV_RULE_CHAIN);
 	fprintf(fp, ":%sLAN - [0:0]\n", PROTECT_SRV_RULE_CHAIN);
@@ -5050,6 +5054,10 @@ filter_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)
 #endif
 	    ":logaccept - [0:0]\n"
 	    ":logdrop - [0:0]\n");
+
+#ifdef RTCONFIG_DSL_TCLINUX
+	fprintf(fp, "-A FORWARD -d 169.254.0.1/32 -j DROP\n");
+#endif
 
 #ifdef RTCONFIG_PROTECTION_SERVER
 	fprintf(fp, ":%sWAN - [0:0]\n", PROTECT_SRV_RULE_CHAIN);
