@@ -2540,9 +2540,15 @@ ej_dump_impl(int eid, webs_t wp, int argc, char_t **argv, int escape_html)
 	}
 #endif
 	else if (strcmp(file, "connect.log")==0) {
-		snprintf(filename, sizeof(filename), "/tmp/%s", file);
-		system("/usr/sbin/netstat-nat -r state -xn > /tmp/connect.log 2>&1");
+		char command[PATH_MAX + 128];
+		if (httpd_create_tempfile(filename, sizeof(filename)) != 0) {
+			websError(wp, 500, "Unable to create connection log\n");
+			return -1;
+		}
+		snprintf(command, sizeof(command), "/usr/sbin/netstat-nat -r state -xn > %s 2>&1", filename);
+		system(command);
 		ret += dump_file_filter_mode(wp, filename, NULL, escape_html);
+		unlink(filename);
 	}
 	else if ( strcmp(file, "syscmd.log")==0
 		|| strcmp(file, "pptp_connected")==0
