@@ -717,7 +717,7 @@ static int handle_read(struct thread *t_read)
  */
 static void daemon_send_ready(int exitcode)
 {
-	FILE *fp;
+	int fd;
 	static int sent = 0;
 	char started[1024];
 
@@ -741,9 +741,9 @@ static void daemon_send_ready(int exitcode)
 
 	snprintf(started, sizeof(started), "%s/%s", frr_vtydir,
 		 "watchfrr.started");
-	fp = fopen(started, "w");
-	if (fp)
-		fclose(fp);
+	fd = open(started, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0644);
+	if (fd >= 0)
+		close(fd);
 
 	systemd_send_started(master);
 	systemd_send_status("FRR Operational");

@@ -4391,7 +4391,7 @@ frr/stamp-h1: ncurses-6.0 json-c readline-8.1 $(FRR_LIBYANG_DEP) libcap libcap-n
 		--sysconfdir=/etc \
 		--enable-shared \
 		--enable-static \
-		--localstatedir=/var/run/frr \
+		--localstatedir=/var/run/frr/daemons \
 		--enable-user=nobody \
 		--enable-group=nobody \
 		--disable-backtrace \

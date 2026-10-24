@@ -90,40 +90,12 @@ passwords. Configure and test an authorized key before upgrading a router that
 currently uses WAN password login; otherwise use the WebUI to configure a key or
 select LAN-only access. LAN-only mode retains optional password authentication.
 
-The Dropbear listener admits five connections per source address in a 60-second
-window. A further connection during that window starts a 300-second block on new
-connections. This applies to IPv4 and IPv6, password and key logins, independently
-of `protect_srv` and firewall settings. Existing sessions remain open. It limits
-connections, not individual authentication failures; successful connections also
-consume the budget. The 64-source table refuses untracked sources while full
-rather than evicting live budgets. Shared source addresses can therefore cause
-temporary denial of access. State resets when Dropbear restarts or the router
-reboots; distributed sources have separate budgets. Web and LAN SSH lockout state
-are not shared; WAN SSH cannot submit password guesses against the web credential.
-
-Source regression checks: `node tools/tests/ssh-auth-budget.js`. A built-image
-check and real IPv4/IPv6 reconnect, cooldown, key-login and LAN-password tests are
-still required before release promotion.
-
 ## USB Swap
 
 Firmware-managed swap is shared by all userland services, including DNSCrypt;
 applications do not need their own swap files. USB mount and app startup use the
 same helper, with the existing `apps_swap_enable`, size and threshold settings.
 Stopping or switching an app leaves shared swap available to other services.
-
-On supported filesystems, the helper uses `<mountpoint>/.asus-swap/.swap`
-(or the configured `apps_swap_file` basename), with a root-only directory and
-root-owned `0600` file. Writable partition roots gain the sticky bit; normal
-shared writes remain available. Filesystems that cannot enforce these protections
-are refused. Samba vetoes the private directory and does not follow symlinks.
-
-Fstab swap files must use this private location and configured basename; arbitrary
-swap-file paths are refused. Dedicated swap partitions remain supported, and
-fstab `noauto` entries are skipped. Failed legacy-swap deactivation preserves the
-old file rather than deleting active backing storage. USB unmount is refused if
-the shared helper cannot safely stop swap. These changes require device testing
-before release promotion; swap is neither encrypted nor securely erased on disk.
 
 ## Development Status
 

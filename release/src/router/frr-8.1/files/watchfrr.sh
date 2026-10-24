@@ -30,6 +30,9 @@ else
 	. "/usr/sbin/frrcommon.sh"
 fi
 
-chownfrr $V_PATH
+frr_prepare_run_dir || {
+	log_failure_msg "Cannot secure FRR runtime directories"
+	exit 1
+}
 
 frrcommon_main "$@"
