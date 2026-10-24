@@ -22,7 +22,7 @@ const request = httpd.slice(httpd.indexOf('handle_request(void)\n{'));
 assert(request.indexOf('request_referer = NULL;') < request.indexOf('fgets('));
 assert.match(request, /referer = cp;\s*request_referer = referer;/);
 assert.match(request, /Origin:", 7\s*\)[\s\S]*?request_origin = cp;/);
-const requestOriginGuard = request.indexOf('!httpd_check_request_origin()');
+const requestOriginGuard = request.indexOf('!httpd_check_request_origin()', request.indexOf('auth_result = auth_check('));
 assert(requestOriginGuard > request.indexOf('auth_result = auth_check('));
 assert(requestOriginGuard < request.indexOf('handler->input(file, conn_fp, cl, boundary)'));
 
@@ -249,4 +249,117 @@ for (const members of [
 ]) {
     assert.deepEqual(modelSafeExtract(archive(members), 1), { ok: false, extracted: [] });
 }
-console.log('httpd CSRF and OpenVPN upload: source contracts and source-derived checks passed (native C and device behavior not executed)');
+{
+    const net = require('node:net');
+    const parser = httpd.slice(httpd.indexOf('httpd_parse_authority('), httpd.indexOf('\nstatic int\nhttpd_host_allowed('));
+    const allowed = httpd.slice(httpd.indexOf('httpd_host_allowed('), httpd.indexOf('\nstatic int\nhttpd_setup_origin_allowed('));
+    const setupOrigin = httpd.slice(httpd.indexOf('httpd_setup_origin_allowed('), httpd.indexOf('\nvoid sethost('));
+    assert.match(parser, /bracketed && inet_pton\(AF_INET6, name, &address\) != 1/);
+    assert.match(parser, /number > 65535/);
+    assert.match(parser, /if \(!number\)/);
+    assert.match(parser, /end\[1\] && end\[1\] != ':'/);
+    assert.match(parser, /length >= size/);
+    assert.doesNotMatch(parser, /value\[-1\]/);
+    assert.match(allowed, /DUT_DOMAIN_NAME/);
+    assert.match(allowed, /OLD_DUT_DOMAIN_NAME/);
+    assert.match(allowed, /nvram_get_int\("misc_http_x"\)/);
+    assert.match(allowed, /unit = WAN_UNIT_FIRST; unit < WAN_UNIT_MAX/);
+    assert.match(allowed, /getsockname\(do_ssl \? ssl_stream_fd : fileno\(conn_fp\)/);
+    assert.match(allowed, /!memcmp\(&address, &local.sin6_addr, sizeof\(address\)\)/);
+    assert.doesNotMatch(allowed, /gethostbyname|getaddrinfo|strstr/);
+    assert.match(setupOrigin, /request_origin \? request_origin : request_referer/);
+    assert.match(setupOrigin, /do_ssl \? "https:\/\/" : "http:\/\/"/);
+    assert.match(setupOrigin, /!strcasecmp\(authority, host_name\)/);
+    assert.match(request, /host_seen\+\+ \|\| !host_length \|\| host_length >= sizeof\(host_name\)/);
+    const hostGuard = request.indexOf('!httpd_host_allowed(host_name)');
+    const missingHostGuard = request.indexOf('if (!host_seen)');
+    const factoryGuard = request.indexOf('!httpd_setup_origin_allowed()');
+    const auth = request.indexOf('auth_result = auth_check(');
+    assert(hostGuard > 0 && hostGuard < missingHostGuard);
+    assert(missingHostGuard < request.indexOf('if(HTS == 1'));
+    assert(missingHostGuard < auth && factoryGuard < auth);
+    assert(factoryGuard < request.indexOf('for (handler = &mime_handlers[0]'));
+    const setupPattern = request.match(/!x_Setting &&\s*!match\("([^"]+)", url\) &&\s*!httpd_setup_origin_allowed\(\)/)[1];
+    const hostnameKeys = [...allowed.matchAll(/!strcasecmp\(name, nvram_safe_get\("([^"]+)"\)\)/g)].map(match => match[1]);
+    assert.deepEqual(hostnameKeys, ['lan_ipaddr', 'lan_hostname', 'computer_name', 'ddns_hostname_x']);
+    const config = {
+        lan_ipaddr: '192.168.1.1', lan_hostname: 'gateway', computer_name: 'home-router',
+        ddns_hostname_x: 'home.example.net', wan: ['203.0.113.7', '198.51.100.8']
+    };
+    function authorityName(value) {
+        if (!value || value.length >= 64) return null;
+        const parsed = value.startsWith('[')
+            ? value.match(/^\[([^\]]+)\](?::([0-9]+))?$/)
+            : value.match(/^([a-z0-9.-]+)(?::([0-9]+))?$/i);
+        if (!parsed || parsed[1].startsWith('.') || parsed[1].endsWith('.')) return null;
+        if (value.startsWith('[') && net.isIP(parsed[1]) !== 6) return null;
+        if (parsed[2] !== undefined && (Number(parsed[2]) < 1 || Number(parsed[2]) > 65535)) return null;
+        return parsed[1].toLowerCase();
+    }
+    function canonicalIPv6(value) {
+        return new URL(`http://[${value}]/`).hostname;
+    }
+    function hostAllowed(value, remote = false, localIPv6 = 'fd00::1') {
+        const name = authorityName(value);
+        if (!name) return false;
+        if (['www.asusrouter.com', 'router.asus.com', ...hostnameKeys.map(key => config[key])].includes(name)) return true;
+        if (remote && name !== '0.0.0.0' && config.wan.includes(name)) return true;
+        return value.startsWith('[') && canonicalIPv6(name) === canonicalIPv6(localIPv6);
+    }
+    for (const value of ['192.168.1.1', '192.168.1.1:80', '192.168.1.1:8443',
+        'WWW.ASUSROUTER.COM', 'router.asus.com', 'gateway', 'home-router:443', 'home.example.net',
+        '[fd00::1]', '[fd00:0:0:0:0:0:0:1]:8443']) assert(hostAllowed(value), value);
+    for (const value of ['', 'evil.example', '192.168.1.1.evil.example', 'router.asus.com.evil.example',
+        '.router.asus.com', '192.168.1.1@evil.example', 'router.asus.com/evil', 'router.asus.com\\evil',
+        'router.asus.com:0', 'router.asus.com:', 'router.asus.com:65536', 'router.asus.com:+80',
+        'router.asus.com:80:90', 'router.asus.com\t', 'router.asus.com,evil.example',
+        'router.asus.com\r\nHost: evil.example', '[not-ipv6]', '[fd00::1]evil', 'fd00::1',
+        '[fd00::2]', '[::]', '[::ffff:192.168.1.1]', '0.0.0.0', 'a'.repeat(64)]) assert(!hostAllowed(value), value);
+    for (const wan of config.wan) {
+        assert(!hostAllowed(wan));
+        assert(hostAllowed(`${wan}:8443`, true));
+    }
+    function sameOrigin(value, host, tls) {
+        const scheme = tls ? 'https://' : 'http://';
+        if (!value || value.slice(0, scheme.length).toLowerCase() !== scheme) return false;
+        const authority = value.slice(scheme.length).split(/[\/\r\n]/, 1)[0];
+        return authorityName(authority) !== null && authority.toLowerCase() === host.toLowerCase();
+    }
+    const setupRegex = new RegExp('^(?:' + setupPattern.split('|').map(pattern => pattern
+        .replaceAll('.', '\\.').replaceAll('**', '\u0000').replaceAll('*', '[^/]*').replaceAll('\u0000', '.*')).join('|') + ')$');
+    function dispatch({ hosts, url, method = 'GET', factory = true, origin = null, referer = null, tls = false }) {
+        if (hosts.length !== 1 || !hostAllowed(hosts[0])) return false;
+        const trustedOrigin = sameOrigin(origin !== null ? origin : referer, hosts[0], tls);
+        if (factory && !setupRegex.test(url) && !trustedOrigin) return false;
+        if (['chpass.cgi', 'enable_remote_control.cgi'].includes(url) && (method !== 'POST' || !trustedOrigin)) return false;
+        return true;
+    }
+    for (const factory of [true, false]) {
+        for (const url of ['get_webdavInfo.asp', 'chpass.cgi', 'enable_remote_control.cgi', 'QIS_default.cgi']) {
+            for (const method of ['GET', 'POST']) {
+                assert(!dispatch({ hosts: ['evil.example'], url, method, factory, origin: 'http://evil.example' }));
+                assert(!dispatch({ hosts: [], url, method, factory }));
+                assert(!dispatch({ hosts: ['192.168.1.1', 'evil.example'], url, method, factory }));
+            }
+        }
+    }
+    for (const url of ['QIS_default.cgi', 'page_default.cgi', 'QIS_wizard.htm', 'qis/QIS_admin_pass.htm',
+        'jquery.js', 'js/httpApi.js', 'index_style.css', 'images/logo.png']) assert(dispatch({ hosts: ['192.168.1.1'], url }), url);
+    for (const url of ['get_webdavInfo.asp', 'chpass.cgi', 'enable_remote_control.cgi', 'apply.cgi']) {
+        for (const value of [null, '', 'null', 'http://evil.example/', 'http://192.168.1.1.evil.example/',
+            'http://192.168.1.1@evil.example/', 'https://192.168.1.1/', 'http://192.168.1.1:8080/']) {
+            const state = { password: 'unchanged', remoteAdmin: false };
+            if (dispatch({ hosts: ['192.168.1.1'], url, method: 'POST', referer: value })) {
+                state.password = 'changed';
+                state.remoteAdmin = true;
+            }
+            assert.deepEqual(state, { password: 'unchanged', remoteAdmin: false }, `${url}: ${value}`);
+        }
+        assert(dispatch({ hosts: ['192.168.1.1'], url, method: 'POST', referer: 'http://192.168.1.1/QIS_wizard.htm' }));
+        assert(!dispatch({ hosts: ['192.168.1.1'], url, method: 'POST', origin: 'null', referer: 'http://192.168.1.1/' }));
+    }
+    assert(dispatch({ hosts: ['192.168.1.1'], url: 'get_webdavInfo.asp', factory: false }));
+    assert(dispatch({ hosts: ['192.168.1.1'], url: 'get_webdavInfo.asp', referer: 'http://192.168.1.1/' }));
+    assert(sameOrigin('https://[fd00::1]:8443/qis/QIS_admin_pass.htm', '[fd00::1]:8443', true));
+}
+console.log('httpd CSRF, Host validation, factory setup and OpenVPN upload: source contracts and policy checks passed (C and device behavior not executed)');

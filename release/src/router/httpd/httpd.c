@@ -516,6 +516,115 @@ void Debug2File(const char *path, const char *fmt, ...)
 }
 #endif
 
+static int
+httpd_parse_authority(const char *value, char *name, size_t size)
+{
+	const char *end, *port = NULL, *cursor;
+	size_t length;
+	unsigned int number = 0;
+	int bracketed;
+	struct in6_addr address;
+
+	if (!value || !*value)
+		return 0;
+	bracketed = *value == '[';
+	if (bracketed) {
+		end = strchr(++value, ']');
+		if (!end || (end[1] && end[1] != ':'))
+			return 0;
+		if (end[1])
+			port = end + 2;
+	} else {
+		end = strchr(value, ':');
+		if (end)
+			port = end + 1;
+		else
+			end = value + strlen(value);
+		for (cursor = value; cursor < end; ++cursor)
+			if (!isalnum((unsigned char)*cursor) && *cursor != '-' && *cursor != '.')
+				return 0;
+	}
+	length = end - value;
+	if (!length || length >= size || *value == '.' || end[-1] == '.')
+		return 0;
+	memcpy(name, value, length);
+	name[length] = '\0';
+	if (bracketed && inet_pton(AF_INET6, name, &address) != 1)
+		return 0;
+	if (port) {
+		if (!*port)
+			return 0;
+		for (cursor = port; *cursor; ++cursor) {
+			if (*cursor < '0' || *cursor > '9')
+				return 0;
+			number = number * 10 + (*cursor - '0');
+			if (number > 65535)
+				return 0;
+		}
+		if (!number)
+			return 0;
+	}
+	return 1;
+}
+
+static int
+httpd_host_allowed(const char *authority)
+{
+	char name[sizeof(host_name)], key[32];
+	int unit;
+#ifdef RTCONFIG_IPV6
+	struct in6_addr address;
+	struct sockaddr_in6 local;
+	socklen_t length = sizeof(local);
+#endif
+
+	if (!httpd_parse_authority(authority, name, sizeof(name)))
+		return 0;
+	if (!strcasecmp(name, nvram_safe_get("lan_ipaddr")) ||
+	    !strcasecmp(name, DUT_DOMAIN_NAME) ||
+	    !strcasecmp(name, OLD_DUT_DOMAIN_NAME) ||
+	    !strcasecmp(name, nvram_safe_get("lan_hostname")) ||
+	    !strcasecmp(name, nvram_safe_get("computer_name")) ||
+	    !strcasecmp(name, nvram_safe_get("ddns_hostname_x")))
+		return 1;
+	if (nvram_get_int("misc_http_x")) {
+		for (unit = WAN_UNIT_FIRST; unit < WAN_UNIT_MAX; ++unit) {
+			snprintf(key, sizeof(key), "wan%d_ipaddr", unit);
+			if (strcmp(name, "0.0.0.0") && !strcmp(name, nvram_safe_get(key)))
+				return 1;
+		}
+	}
+#ifdef RTCONFIG_IPV6
+	if (authority[0] == '[' && inet_pton(AF_INET6, name, &address) == 1 &&
+	    getsockname(do_ssl ? ssl_stream_fd : fileno(conn_fp),
+	                (struct sockaddr *)&local, &length) == 0 &&
+	    local.sin6_family == AF_INET6 &&
+	    !memcmp(&address, &local.sin6_addr, sizeof(address)))
+		return 1;
+#endif
+	return 0;
+}
+
+static int
+httpd_setup_origin_allowed(void)
+{
+	const char *value = request_origin ? request_origin : request_referer;
+	const char *scheme = do_ssl ? "https://" : "http://";
+	char authority[sizeof(host_name)], name[sizeof(host_name)];
+	size_t length;
+
+	if (!value || strncasecmp(value, scheme, strlen(scheme)))
+		return 0;
+	value += strlen(scheme);
+	length = strcspn(value, "/\r\n");
+	if (!length || length >= sizeof(authority))
+		return 0;
+	memcpy(authority, value, length);
+	authority[length] = '\0';
+	return httpd_parse_authority(authority, name, sizeof(name)) &&
+	       !strcasecmp(authority, host_name);
+}
+
 void sethost(const char *host)
 {
 	char *p = host_name;
@@ -1296,6 +1405,7 @@ handle_request(void)
 	char *file;
 	char csrf_token[33] = "";
 	int csrf_header_seen = 0;
+	int host_seen = 0;
 	int len;
 	struct mime_handler *handler;
 	struct except_mime_handler *exhandler;
@@ -1469,8 +1579,22 @@ handle_request(void)
 		}
 		else if ( strncasecmp( cur, "Host:", 5 ) == 0 )
 		{
+			size_t host_length;
 			cp = &cur[5];
 			cp += strspn( cp, " \t" );
+			host_length = strcspn(cp, "\r\n");
+			while (host_length && (cp[host_length - 1] == ' ' || cp[host_length - 1] == '\t'))
+				--host_length;
+			if (host_seen++ || !host_length || host_length >= sizeof(host_name)) {
+				send_error(400, "Bad Request", NULL, "Invalid Host header.");
+				return;
+			}
+			memcpy(host_name, cp, host_length);
+			host_name[host_length] = '\0';
+			if (!httpd_host_allowed(host_name)) {
+				send_error(403, "Forbidden", NULL, "Unrecognized Host header.");
+				return;
+			}
 			sethost(cp);
 			cur = cp + strlen(cp) + 1;
 #ifdef RTCONFIG_FINDASUS
@@ -1511,6 +1635,11 @@ handle_request(void)
 	}
 
 	slowloris_check();
+
+	if (!host_seen) {
+		send_error(400, "Bad Request", NULL, "Host header required.");
+		return;
+	}
 
 	if ( strcasecmp( method, "get" ) != 0 && strcasecmp(method, "post") != 0 && strcasecmp(method, "head") != 0 ) {
 		send_error( 501, "Not Implemented", (char*) 0, "That method is not implemented." );
@@ -1657,6 +1786,13 @@ handle_request(void)
 	}
 
 	x_Setting = nvram_get_int("x_Setting");
+
+	if (!x_Setting &&
+	    !match("QIS_default.cgi|page_default.cgi|QIS_*.htm|QIS_*.asp|qis/*.htm|qis/*.asp|**.js|**.css|**.png|**.gif|**.jpg|**.ico", url) &&
+	    !httpd_setup_origin_allowed()) {
+		send_error(403, "Forbidden", NULL, "Setup request origin required.");
+		return;
+	}
 
 	for (handler = &mime_handlers[0]; handler->pattern; handler++) {
 #ifdef RTCONFIG_HTTPS
