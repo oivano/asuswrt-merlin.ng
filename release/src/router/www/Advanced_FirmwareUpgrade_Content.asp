@@ -120,12 +120,7 @@ if(cfg_sync_support){
 	var cfg_check = '<% nvram_get("cfg_check"); %>';
 	var cfg_upgrade = '<% nvram_get("cfg_upgrade"); %>';
 }
-var download_srv = '<% nvram_get("firmware_server"); %>';
-if (download_srv == "") {
-	download_url = "https://github.com/oivano/asuswrt-merlin.ng/releases";
-} else {
-	download_url = download_srv + "/" + based_modelid;
-}
+var download_url = "https://github.com/oivano/asuswrt-merlin.ng/releases";
 if(pipefw_support || urlfw_support){
 	var hndwr_status = '<% nvram_get("hndwr"); %>';
 }
@@ -1163,10 +1158,7 @@ function show_fw_release_note(event) {
 	document.amas_release_note.model.value = event.data.model_name;
 	if (event.data.isMerlin) {
 		document.amas_release_note.version.value = event.data.newfwver.replace("3.0.0.4.","");
-		if (event.data.model_name)
-			siteurl = "https://github.com/oivano/asuswrt-merlin.ng/releases" + event.data.model_name;
-		else
-			siteurl = download_url;
+		siteurl = download_url;
 	} else {
 		document.amas_release_note.version.value = event.data.newfwver;
 		siteurl = "";
@@ -1385,7 +1377,7 @@ function toggle_fw_check(state) {
 					<li><#FW_n0#></li>
 					<li><#FW_n1#></li>
 					<li id="fw_note2"><#FW_n2#>&nbsp;<#FW_n3#></li>
-					<li id="fw_note3">Get the latest firmware version from the download site at <a style="font-weight: bolder;text-decoration: underline;color:#FFFFFF;" href="https://oivano.github.io/asuswrt-merlin.ng/" target="_blank">https://github.com/oivano/asuswrt-merlin.ng/releases/latest</a></li>
+					<li id="fw_note3">Get the latest firmware version from the download site at <a style="font-weight: bolder;text-decoration: underline;color:#FFFFFF;" href="https://github.com/oivano/asuswrt-merlin.ng/releases" target="_blank" rel="noopener noreferrer">https://github.com/oivano/asuswrt-merlin.ng/releases</a></li>
 				</ol>
 		  </div>
 		  <br>
