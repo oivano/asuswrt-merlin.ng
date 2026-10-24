@@ -19518,7 +19518,7 @@ b64_decode( const char* str, unsigned char* space, int size )
     phase = 0;
     for ( cp = str; *cp != '\0'; ++cp )
 	{
-	d = b64_decode_table[(int)*cp];
+	d = b64_decode_table[(unsigned char)*cp];
 	if ( d != -1 )
 	    {
 	    switch ( phase )
@@ -19997,7 +19997,7 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 	HTTPD_DBG("authorization_t = %s\n", authorization_t);
 
 	/* Decode it. */
-	l = b64_decode( &(authorization_t[0]), (unsigned char*) authinfo, sizeof(authinfo) );
+	l = b64_decode( &(authorization_t[0]), (unsigned char*) authinfo, sizeof(authinfo) - 1 );
 	authinfo[l] = '\0';
 
 	authpass = strchr( authinfo, ':' );
@@ -20008,7 +20008,7 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 
 #ifdef RTCONFIG_CAPTCHA
 	captcha_t = websGetVar(wp, "login_captcha","");
-	l = b64_decode( &(captcha_t[0]), (unsigned char*) captcha_text, sizeof(captcha_text) );
+	l = b64_decode( &(captcha_t[0]), (unsigned char*) captcha_text, sizeof(captcha_text) - 1 );
 	captcha_text[l] = '\0';
 #endif
 
@@ -22470,14 +22470,14 @@ do_chpass_cgi(char *url, FILE *stream)
 		restart_httpd = safe_get_cgi_json("restart_httpd", root);
 		defpass_enable = safe_get_cgi_json("defpass_enable", root);
 
-		l = b64_decode( new_username, (unsigned char*) username_str, sizeof(username_str) );
+		l = b64_decode( new_username, (unsigned char*) username_str, sizeof(username_str) - 1 );
 		username_str[l] = '\0';
 
 		if(!strcmp(defpass_enable, "1") && is_def_pwd){
 			if(get_defpass(new_passwd, def_passwd, sizeof(def_passwd)))
 				strlcpy(passwd_str, def_passwd, sizeof(passwd_str));
 		}else{
-			l = b64_decode( new_passwd, (unsigned char*) passwd_str, sizeof(passwd_str) );
+			l = b64_decode( new_passwd, (unsigned char*) passwd_str, sizeof(passwd_str) - 1 );
 			passwd_str[l] = '\0';
 			if(passwd_str[0] != '\0')
 				reset_accpw();
