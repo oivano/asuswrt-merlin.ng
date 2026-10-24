@@ -20672,6 +20672,85 @@ FINISH:
 #endif
 
 static void
+do_feedback_mail_safe_cgi(char *url, FILE *stream)
+{
+#ifndef RTCONFIG_FRS_FEEDBACK
+	send_error(403, "Forbidden", NULL, "Feedback is not supported by this build.");
+#else
+	static const struct {
+		const char *name;
+		size_t max_length;
+	} fields[] = {
+		{ "fb_email", 64 },
+		{ "fb_country", 32 },
+		{ "fb_contact_type", 6 },
+		{ "fb_phone", 64 },
+		{ "fb_ptype", 64 },
+		{ "fb_pdesc", 64 },
+		{ "fb_when_occur", 32 },
+		{ "fb_which_band", 32 },
+		{ "fb_unstable_conn", 32 },
+		{ "fb_serviceno", 64 },
+		{ "fb_tech_account", 64 },
+		{ "fb_email_provider", 32 },
+		{ "fb_comment", 2048 },
+		{ "fb_browserInfo", 256 },
+		{ "fb_transid", 16 },
+		{ "fb_attach_syslog", 1 },
+		{ "fb_attach_cfgfile", 1 },
+		{ "fb_attach_modemlog", 1 },
+		{ "fb_attach_wlanlog", 1 },
+		{ "fb_ISP", 64 },
+		{ "fb_Subscribed_Info", 64 },
+		{ "fb_attach_iptables", 1 },
+		{ "fb_availability", 64 }
+	};
+	json_object *root = json_object_new_object();
+	const char *alphanumeric = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+	char *value, *email;
+	size_t field;
+
+	if (!root)
+		return;
+	do_json_decode(root);
+	if (nvram_match("fb_state", "0")) {
+		json_object_put(root);
+		return;
+	}
+	email = safe_get_cgi_json("fb_email", root);
+	if (!*email || !strchr(email, '@') || !strchr(strchr(email, '@'), '.') ||
+	    strspn(email, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@._+-") != strlen(email))
+		goto invalid;
+	for (field = 0; field < sizeof(fields) / sizeof(fields[0]); ++field) {
+		value = get_cgi_json((char *)fields[field].name, root);
+		if (!value)
+			continue;
+		if (strlen(value) > fields[field].max_length)
+			goto invalid;
+		if (!strncmp(fields[field].name, "fb_attach_", 10) && strcmp(value, "0") && strcmp(value, "1"))
+			goto invalid;
+		if ((!strcmp(fields[field].name, "fb_transid") || !strcmp(fields[field].name, "fb_serviceno")) &&
+		    strspn(value, alphanumeric) != strlen(value))
+			goto invalid;
+	}
+	for (field = 0; field < sizeof(fields) / sizeof(fields[0]); ++field) {
+		value = get_cgi_json((char *)fields[field].name, root);
+		if (value)
+			nvram_set(fields[field].name, value);
+	}
+	nvram_set("fb_state", "0");
+	nvram_commit();
+	notify_rc("start_sendfeedback");
+	json_object_put(root);
+	return;
+
+invalid:
+	json_object_put(root);
+	send_error(400, "Bad Request", NULL, "Invalid feedback fields.");
+#endif
+}
+
+static void
 do_enable_remote_control_cgi(char *url, FILE *stream)
 {
 #if defined(RTCONFIG_NOTIFICATION_CENTER) && (defined(RTCONFIG_IFTTT) || defined(RTCONFIG_ALEXA) || defined(RTCONFIG_GOOGLE_ASST))
@@ -22851,7 +22930,7 @@ struct mime_handler mime_handlers[] =
 	{ "cleanlog.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_cleanlog_cgi, do_auth },
 	{ "update_wlanlog.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_update_wlanlog_cgi, do_auth },
 	{ "rog_first_qos.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_rog_first_qos_cgi, do_auth },
-	{ "feedback_mail.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_feedback_mail_cgi, do_auth },
+	{ "feedback_mail.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_feedback_mail_safe_cgi, do_auth },
 	{ "dfb_log.cgi", "application/octet-stream", NULL, do_html_post_and_get, do_dfb_log_file, do_auth },
 	{ "clean_offline_clientlist.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_clean_offline_clientlist_cgi, do_auth },
 	{ "set_fw_path.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_set_fw_path_cgi, do_auth },
