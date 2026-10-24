@@ -206,6 +206,9 @@ unsigned int KeyMD5Encode(unsigned char* szEncoded, const unsigned char* szData,
 	unsigned char midResult[PADLEN + 16] = {0};
 	int i;
 
+  if (nKeyLen > PADLEN || nSize > MAXMD5SOURCESTRINGLEN)
+    return 0;
+
 	memset(ipad, 0x36, PADLEN);
 	memset(opad, 0x5c, PADLEN);
 	

@@ -21,7 +21,7 @@ int GenerateCrypt(char *szUser,
 	unsigned char szKey[256];
 	unsigned char szAscii[256];
 
-	unsigned int nDecodedLen;
+	int nDecodedLen;
 	long challengetime = 0;
 	int nMoveBits;
 	long challengetime_new = 0;
@@ -33,7 +33,10 @@ int GenerateCrypt(char *szUser,
 	int temp1, temp3, temp4, temp2, temp5;
 
 	//Base64 ¿¿
-	nDecodedLen =  lutil_b64_pton(szChallenge64, szDecoded, 256);
+	szResult[0] = '\0';
+	nDecodedLen = lutil_b64_pton(szChallenge64, szDecoded, sizeof(szDecoded));
+	if (nDecodedLen < PH_CHALLENGE_MIN_LEN || nDecodedLen > PH_CHALLENGE_MAX_LEN)
+		return -1;
 	uTemp = *(szDecoded +9);
 	uTemp = (uTemp << 24) & 0xff000000;
 	challengetime += uTemp;
@@ -58,6 +61,8 @@ int GenerateCrypt(char *szUser,
 
 	//KEY-MD5
 	nKey = KeyMD5Encode(szKey, (unsigned char*)szPassword, strlen((char*)szPassword), (unsigned char*)szDecoded, nDecodedLen);
+	if (nKey != 16)
+		return -1;
 	szKey[nKey] = 0;
 	
 	nUser = strlen((char *)szUser);

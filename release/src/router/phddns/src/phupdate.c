@@ -180,9 +180,14 @@ nvram_set("ddns_return_code", "connect_fail");
 nvram_set("ddns_return_code_chk", "connect_fail");
 		return errorConnectFailed;
 	}
-    LOG(1) (("SERVER SIDE KEY \"%s\" RECEIVED.\n"),buffer);
-
-	phglobal->nChallengeLen =  lutil_b64_pton(buffer+4, (unsigned char *)phglobal->szChallenge, 256);
+	phglobal->nChallengeLen = 0;
+	if (len < 6 || len >= sizeof(buffer) || strncmp(buffer, "334 ", 4) != 0)
+		goto invalid_challenge;
+	phglobal->nChallengeLen = lutil_b64_pton(buffer+4,
+		(unsigned char *)phglobal->szChallenge, sizeof(phglobal->szChallenge));
+	if (phglobal->nChallengeLen < PH_CHALLENGE_MIN_LEN ||
+		phglobal->nChallengeLen > PH_CHALLENGE_MAX_LEN)
+		goto invalid_challenge;
 
 
 	//////////////////////////////////////////////////////////////////////////
@@ -190,6 +195,17 @@ nvram_set("ddns_return_code_chk", "connect_fail");
 	//////////////////////////////////////////////////////////////////////////
 	//Generate encoded auth string
 	len = GenerateCrypt(phglobal->szUserID, phglobal->szUserPWD, buffer+4, phglobal->clientinfo, phglobal->challengekey, sendbuffer);
+	if (len <= 0 || len > sizeof(sendbuffer) - 3)
+	{
+invalid_challenge:
+		LOG(1) ("ExecuteUpdate invalid server challenge.\n");
+		phglobal->nChallengeLen = 0;
+		memset(phglobal->szChallenge, 0, sizeof(phglobal->szChallenge));
+		phClose(&phglobal->m_tcpsocket);
+		nvram_set("ddns_return_code", "connect_fail");
+		nvram_set("ddns_return_code_chk", "connect_fail");
+		return errorConnectFailed;
+	}
 	strcat(sendbuffer, "\r\n");
     //Generate ok.
 	//////////////////////////////////////////////////////////////////////////
