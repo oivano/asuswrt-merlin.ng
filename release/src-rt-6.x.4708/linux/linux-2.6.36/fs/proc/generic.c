@@ -564,6 +564,13 @@ static int proc_register(struct proc_dir_entry * dir, struct proc_dir_entry * dp
 		return -EAGAIN;
 	dp->low_ino = i;
 
+	if (dir == &proc_root && S_ISDIR(dp->mode) &&
+	    !strcmp(dp->name, "emf")) {
+		dp->mode = S_IFDIR | 0700;
+		dp->uid = 0;
+		dp->gid = 0;
+	}
+
 	if (S_ISDIR(dp->mode)) {
 		if (dp->proc_iops == NULL) {
 			dp->proc_fops = &proc_dir_operations;
