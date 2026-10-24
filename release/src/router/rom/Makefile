@@ -141,13 +141,13 @@ endif
 
 	mkdir -p $(INSTALLDIR)/usr/sbin
 ifeq ($(RTCONFIG_USB),y)
+ifeq ($(RTCONFIG_USB_SWAP),y)
+	install -m 0755 apps_scripts/usb_swap.sh $(INSTALLDIR)/usr/sbin
+endif
 ifneq ($(APP),none)
 	install -m 0755 apps_scripts/asusrouter $(INSTALLDIR)/rom/.asusrouter
 	install -m 0755 apps_scripts/app_*.sh $(INSTALLDIR)/usr/sbin
 	install -m 0755 apps_scripts/check_spectrum.sh $(INSTALLDIR)/usr/sbin
-ifeq ($(RTCONFIG_USB_SWAP),y)
-	install -m 0755 apps_scripts/usb_swap.sh $(INSTALLDIR)/usr/sbin
-endif
 else
 ifeq ($(RTCONFIG_DISK_MONITOR),y)
 	install -m 0755 apps_scripts/app_fsck*.sh $(INSTALLDIR)/usr/sbin

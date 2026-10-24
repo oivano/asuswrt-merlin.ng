@@ -6,8 +6,6 @@
 autorun_file=.asusrouter
 nonautorun_file=$autorun_file.disabled
 APPS_INSTALL_FOLDER=`nvram get apps_install_folder`
-SWAP_ENABLE=`nvram get apps_swap_enable`
-SWAP_FILE=`nvram get apps_swap_file`
 ORIG_APPS_MOUNTED_PATH=`nvram get apps_mounted_path`
 ORIG_APPS_INSTALL_PATH=$ORIG_APPS_MOUNTED_PATH/$APPS_INSTALL_FOLDER
 apps_local_space=`nvram get apps_local_space`
@@ -74,12 +72,7 @@ if [ -n "$ORIG_APPS_MOUNTED_PATH" ] && [ -d "$ORIG_APPS_INSTALL_PATH" ]; then
 fi
 
 
-nvram set apps_state_switch=2 # STOPPING swap
-if [ "$SWAP_ENABLE" != "1" ]; then
-	echo "Skip to swap off!"
-elif [ -f "$ORIG_APPS_INSTALL_PATH/$SWAP_FILE" ]; then
-	swapoff $ORIG_APPS_INSTALL_PATH/$SWAP_FILE
-fi
+nvram set apps_state_switch=2
 
 
 nvram set apps_state_switch=3 # CHECKING the chosed pool

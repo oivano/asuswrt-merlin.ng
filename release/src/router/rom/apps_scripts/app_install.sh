@@ -434,10 +434,6 @@ nvram set apps_state_error=0
 autorun_file=.asusrouter
 nonautorun_file=$autorun_file.disabled
 APPS_INSTALL_FOLDER=`nvram get apps_install_folder`
-SWAP_ENABLE=`nvram get apps_swap_enable`
-SWAP_THRESHOLD=`nvram get apps_swap_threshold`
-SWAP_FILE=`nvram get apps_swap_file`
-SWAP_SIZE=`nvram get apps_swap_size`
 PATH=$APPS_PATH/usr/bin:$APPS_PATH/bin:$APPS_PATH/usr/sbin:$APPS_PATH/sbin:/usr/bin:/bin:/usr/sbin:/sbin
 unset LD_LIBRARY_PATH
 unset LD_PRELOAD
@@ -592,31 +588,9 @@ fi
 
 
 nvram set apps_state_install=2 # CHECKING_SWAP
-if [ "$SWAP_ENABLE" != "1" ]; then
-	echo "Disable to swap!"
-else
-	mem_size=`free |sed '1,3d' |awk '{print $4}'`
-	if [ "$SWAP_THRESHOLD" == "" ] || [ $mem_size -lt $SWAP_THRESHOLD ]; then
-		pool_size=`df /dev/$APPS_DEV |sed '1d' |awk '{print $4}'`
-		if [ $pool_size -gt $SWAP_SIZE ]; then
-			if [ -e "$APPS_INSTALL_PATH/$SWAP_FILE" ]; then
-				swapoff $APPS_INSTALL_PATH/$SWAP_FILE
-				rm -rf $APPS_INSTALL_PATH/$SWAP_FILE
-			fi
-
-			swap_count=`expr $SWAP_SIZE / 1000 - 1`
-			echo "dd if=/dev/zero of=$APPS_INSTALL_PATH/$SWAP_FILE bs=1M count=$swap_count"
-			dd if=/dev/zero of=$APPS_INSTALL_PATH/$SWAP_FILE bs=1M count=$swap_count
-			echo "mkswap $APPS_INSTALL_PATH/$SWAP_FILE"
-			mkswap $APPS_INSTALL_PATH/$SWAP_FILE
-			echo "swapon $APPS_INSTALL_PATH/$SWAP_FILE"
-			swapon $APPS_INSTALL_PATH/$SWAP_FILE
-		else
-			echo "No enough partition size!"
-			nvram set apps_state_error=3
-			exit 1
-		fi
-	fi
+if ! /usr/sbin/usb_swap.sh "$APPS_MOUNTED_PATH"; then
+	nvram set apps_state_error=3
+	exit 1
 fi
 
 

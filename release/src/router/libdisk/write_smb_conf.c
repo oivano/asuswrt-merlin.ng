@@ -232,6 +232,7 @@ int main(int argc, char *argv[])
 	int dup, same_m_pt = 0;
 	char unique_share_name[PATH_MAX];
 	int st_samba_mode = nvram_get_int("st_samba_mode");
+	const char *swap_file = nvram_safe_get("apps_swap_file");
 #if defined(RTCONFIG_SAMBA36X)
 	spnego = 1;
 #endif
@@ -248,6 +249,13 @@ int main(int argc, char *argv[])
 	unlink(SAMBA_LOG);
 
 	fprintf(fp, "[global]\n");
+	fprintf(fp, "veto files = /.__*.txt*/asusware*/asus_lighttpdpasswd/.swap/.asus-swap/");
+	if (*swap_file && strcmp(swap_file, ".") && strcmp(swap_file, "..") &&
+	    strspn(swap_file, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-") == strlen(swap_file))
+		fprintf(fp, "%s/", swap_file);
+	fprintf(fp, "\n");
+	fprintf(fp, "delete veto files = no\n");
+	fprintf(fp, "follow symlinks = no\n");
 
 	strlcpy(p_computer_name, nvram_safe_get("computer_name"), sizeof(p_computer_name));
 	if (*p_computer_name == '\0' || !is_valid_netbios_name(p_computer_name)) {
@@ -524,10 +532,6 @@ int main(int argc, char *argv[])
 
 				fprintf(fp, "[%s]\n", mount_folder);
 				fprintf(fp, "comment = %s's %s\n", follow_disk->tag, mount_folder);
-#ifdef RTCONFIG_USB_CDROM
-				if(!is_cdrom_name(follow_partition->device))
-#endif
-				fprintf(fp, "veto files = /.__*.txt*/asusware*/asus_lighttpdpasswd/\n");
 				fprintf(fp, "path = %s\n", follow_partition->mount_point);
 				fprintf(fp, "writeable = %s\n", strcmp(follow_partition->permission, "rw") == 0 ? "yes" : "no");
 				fprintf(fp, "dos filetimes = yes\n");
