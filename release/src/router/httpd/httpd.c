@@ -300,6 +300,103 @@ unsigned int login_try_wan=0;
 int cur_login_ip_type = -1;	//0:LAN, 1:WAN, -1:ERROR
 int lock_flag = 0;
 
+#define LOGIN_SOURCE_LIMIT 256
+struct login_source {
+	char address[INET6_ADDRSTRLEN];
+	unsigned int failures;
+	int error_status;
+	unsigned long last_failure;
+	unsigned long blocked_at;
+};
+static struct login_source login_sources[LOGIN_SOURCE_LIMIT];
+
+static struct login_source *
+login_source_get(int create)
+{
+	char address[INET6_ADDRSTRLEN];
+	const void *peer;
+	int family = login_usa_tmp.sa.sa_family;
+	unsigned long now = (unsigned long)uptime();
+	struct login_source *slot = NULL;
+	int index;
+
+	if (family == AF_INET)
+		peer = &((struct sockaddr_in *)&login_usa_tmp.sa)->sin_addr;
+	else if (family == AF_INET6) {
+		const struct in6_addr *addr = &((struct sockaddr_in6 *)&login_usa_tmp.sa)->sin6_addr;
+		peer = addr;
+		if (IN6_IS_ADDR_V4MAPPED(addr)) {
+			family = AF_INET;
+			peer = &addr->s6_addr[12];
+		}
+	} else
+		return NULL;
+	if (!inet_ntop(family, peer, address, sizeof(address)))
+		return NULL;
+	for (index = 0; index < LOGIN_SOURCE_LIMIT; ++index) {
+		struct login_source *entry = &login_sources[index];
+		if (entry->address[0] &&
+		    (now < entry->last_failure ||
+		     now - entry->last_failure >= MAX_LOGIN_BLOCK_TIME))
+			memset(entry, 0, sizeof(*entry));
+		if (!strcmp(entry->address, address))
+			return entry;
+		if (!slot || !entry->address[0] ||
+		    (slot->address[0] && entry->last_failure < slot->last_failure))
+			slot = entry;
+	}
+	if (!create)
+		return NULL;
+	memset(slot, 0, sizeof(*slot));
+	strlcpy(slot->address, address, sizeof(slot->address));
+	return slot;
+}
+
+unsigned int
+httpd_login_attempts(void)
+{
+	struct login_source *entry = login_source_get(0);
+	return entry ? entry->failures : 0;
+}
+
+int
+httpd_login_status(time_t *elapsed)
+{
+	struct login_source *entry = login_source_get(0);
+	*elapsed = 0;
+	if (entry && entry->failures >= DEFAULT_LOGIN_MAX_NUM) {
+		*elapsed = (unsigned long)uptime() - entry->blocked_at;
+		return LOGINLOCK;
+	}
+	return entry ? entry->error_status : 0;
+}
+
+int
+httpd_login_failed(int error_status)
+{
+	struct login_source *entry = login_source_get(1);
+	if (!entry)
+		return LOGINLOCK;
+	if (entry->failures < DEFAULT_LOGIN_MAX_NUM) {
+		entry->error_status = error_status;
+		entry->last_failure = (unsigned long)uptime();
+		if (++entry->failures == DEFAULT_LOGIN_MAX_NUM) {
+			entry->blocked_at = entry->last_failure;
+			entry->error_status = LOGINLOCK;
+			httpd_login_notify(entry->address);
+		}
+	}
+	return entry->error_status;
+}
+
+void
+httpd_login_reset(void)
+{
+	struct login_source *entry = login_source_get(0);
+	if (entry)
+		memset(entry, 0, sizeof(*entry));
+}
+
 // 2008.08 magic {
 time_t request_timestamp = 0;
 time_t turn_off_auth_timestamp = 0;
@@ -524,21 +621,6 @@ send_login_page(int fromapp_flag, int error_status, char* url, char* file, int l
 	char *cp, *file_var=NULL;
 
 	HTTPD_DBG("error_status = %d, logintry = %d\n", error_status, logintry);
-
-	if(logintry){
-		if(!cur_login_ip_type)
-		{
-			++login_try;
-			if(error_status != LOGINLOCK)
-				last_login_timestamp = login_timestamp_tmp;
-		}
-		else
-		{
-			++login_try_wan;
-			if(error_status != LOGINLOCK)
-				last_login_timestamp_wan= login_timestamp_tmp_wan;
-		}
-	}
 
 	if(url == NULL)
 		strncpy(login_url, indexpage, sizeof(login_url));
@@ -1174,7 +1256,7 @@ handle_request(void)
 	int mime_exception, do_referer, login_state = -1;
 	int fromapp=0;
 	int cl = 0, flags;
-	int referer_result = 1, lock_status = 0, add_try = 0;
+	int referer_result = 1, add_try = 0;
 #ifdef RTCONFIG_FINDASUS
 	int i, isDeviceDiscovery=0;
 	char id_local[32],prouduct_id[32];
@@ -1500,15 +1582,6 @@ handle_request(void)
 	do_referer = 0;
 
 	if(!fromapp) {
-
-		lock_status = check_lock_status(&login_dt);
-
-		if(lock_status == FORCELOCK || lock_status == LOGINLOCK){
-			if(strncmp(file, "Main_Login.asp", 14) && !strstr(url, ".png")){
-				send_login_page(fromapp, lock_status, url, NULL, 0, NOLOGINTRY);
-				return;
-			}
-		}
 
 		http_login_timeout(&login_uip_tmp, cookies, fromapp);	// 2008.07 James.
 		login_state = http_login_check();
