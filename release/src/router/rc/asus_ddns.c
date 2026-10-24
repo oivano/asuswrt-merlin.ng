@@ -162,7 +162,7 @@ void delete_char(char str[], char ch)
 	str[j] = '\0';
 }
 
-static int _acquire_token(const char *res_path, const int check_CA)
+static int _acquire_token(const char *res_path)
 {
 	CURLcode res = -1;
 	char *cusid = NULL, *userticket = NULL, *auth_status = NULL;
@@ -311,8 +311,9 @@ static int _acquire_token(const char *res_path, const int check_CA)
 
 			curl_easy_setopt(curl, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS);
 
-			curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, check_CA); /* do not verify subject/hostname */
-			curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, check_CA); /* since most certs will be self-signed, do not verify against CA */
+			curl_easy_setopt(curl, CURLOPT_CAINFO, "/etc/ssl/certs/ca-certificates.crt");
+			curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+			curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
 
 			curl_easy_setopt(curl, CURLOPT_POSTFIELDS, auth_string);
 			curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, strlen(auth_string));
@@ -424,7 +425,7 @@ int update_asus_ddns_token()
 			return ASUSDDNS_ERR_NO_DM_REFRESH_TICKET;
 		}
 
-		ret = _acquire_token(ASUSDDNS_REQ_TOKEN_RES, 0);
+		ret = _acquire_token(ASUSDDNS_REQ_TOKEN_RES);
 	}
 	else {
 		ASUSDDNS_DBG("ddnstoken hasn't expired yet\n");
