@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const net = require('node:net');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '../..');
@@ -91,6 +92,21 @@ for (const encoded of ['!', 'AAAA!', 'A', 'AA=A', 'AB==']) {
 assert.match(generateBody, /if \(nKey != 16\)\s*return -1;/);
 assert(generateBody.indexOf('if (nKey != 16)') < generateBody.indexOf('szKey[nKey]'));
 
+const userGuardStart = generateBody.indexOf('nUser = strnlen(');
+const userCopyStart = generateBody.indexOf('memcpy(szAscii, szUser, nUser)');
+assert(userGuardStart > generateBody.indexOf('if (nKey != 16)'));
+assert(userCopyStart > userGuardStart);
+assert.match(generateBody, /size_t nUser;/);
+const userGuardJS = generateBody.slice(userGuardStart, userCopyStart)
+    .replace(/sizeof\(szAscii\)/g, '256');
+const userGuard = new Function('szUser', 'nKey', 'strnlen',
+    `let nUser; ${userGuardJS} return nUser;`);
+const boundedLength = (user, limit) => Math.min(user.indexOf('\0') < 0 ? user.length : user.indexOf('\0'), limit);
+for (const length of [0, 1, 128, 230, 231, 232, 255, 256, 760]) {
+    assert.equal(userGuard('A'.repeat(length), 16, boundedLength), length <= 231 ? length : -1);
+}
+assert.equal(userGuard('user\0' + 'A'.repeat(760), 16, boundedLength), 4);
+
 const executeBody = body(update, 'int ExecuteUpdate(');
 const framing = executeBody.match(/if \((len < 6[^\n]+)\)\s*goto invalid_challenge;/)[1];
 const framingJS = framing.replace(/sizeof\(buffer\)/g, '1024');
@@ -116,5 +132,78 @@ assert.match(failedSession, /return errorConnectFailed;/);
 assert.match(executeBody.slice(generateOffset), /if \(len <= 0 \|\| len > sizeof\(sendbuffer\) - 3\)/);
 assert.doesNotMatch(executeBody, /SERVER SIDE KEY/);
 
-console.log('phddns challenge: source-derived HMAC, challenge guards and disconnect contracts passed');
+const hostBody = body(update, 'static int ValidRedirectHost(');
+const hostJS = hostBody
+    .replace(/size_t offset, label = 0;/, 'let offset, label = 0;')
+    .replace(/int numeric = 1;/, 'let numeric = 1;')
+    .replace(/struct in_addr address;/, '')
+    .replace(/unsigned char value = host\[offset\];/, 'let value = host.charCodeAt(offset);')
+    .replace(/value == '\.'/g, 'value == 46')
+    .replace(/value == '-'/g, 'value == 45')
+    .replace(/value (>=|<=|<|>) '([a-zA-Z0-9])'/g,
+        (_, operator, character) => `value ${operator} ${character.charCodeAt(0)}`)
+    .replace(/inet_pton\(AF_INET, host, &address\)/, 'isIPv4(host)');
+const validHost = new Function('host', 'length', 'isIPv4', hostJS);
+const validate = host => Number(validHost(host, host.length, value => Number(net.isIP(value) === 4)));
+const maxHost = ['a'.repeat(63), 'b'.repeat(63), 'c'.repeat(63), 'd'.repeat(61)].join('.');
+for (const host of ['phddns60.oray.net', 'PHDDNS60.Oray.NET', '6.6.6.6', 'server', 'ddns-1.oray.net',
+    'ddns.oray.net.', maxHost]) {
+    assert.equal(validate(host), 1, host);
+}
+const badHosts = ['', 'A'.repeat(1000), '6.6.6.6 ' + 'A'.repeat(990),
+    'a'.repeat(64) + '.net', maxHost + 'e', '.oray.net', 'oray..net', '-oray.net',
+    'oray-.net', 'oray.net-', 'oray.net..', 'oray_net', '6.6.6.6:6060', '6.6.6.999',
+    '127.1', '12345', 'oray.net/path', 'oray.net\t', 'oray.net\r', 'oray.net\n',
+    'oray.net\0suffix', 'oray.net\xff', '::1', 'oray<net'];
+for (const host of badHosts) assert.equal(validate(host), 0, JSON.stringify(host));
+
+const redirectStart = executeBody.indexOf('if (strcmp(buffer,"536") == 0)');
+const redirectEnd = executeBody.indexOf('if (strcmp(buffer,"250") == 0)', redirectStart);
+const redirect = executeBody.slice(redirectStart, redirectEnd);
+assert.doesNotMatch(redirect, /strcpy/);
+assert.match(redirect, /hostlen < sizeof\(phglobal->szHost\) &&\s*ValidRedirectHost/);
+const redirectJS = redirect
+    .replace(/strcmp\(buffer,"536"\) == 0/, 'true')
+    .replace(/char \*pos0 = strchr\(buffer \+ 4, '<'\);/, "let pos0 = find(buffer, 4, '<');")
+    .replace(/char \*pos1 = strchr\(pos0 \+ 1, '>'\);/, "let pos1 = find(buffer, pos0 + 1, '>');")
+    .replace(/size_t hostlen/, 'let hostlen')
+    .replace(/\*pos1 = '\\0';/, 'buffer = buffer.slice(0, pos1);')
+    .replace(/sizeof\(phglobal->szHost\)/g, '256')
+    .replace(/ValidRedirectHost\(pos0 \+ 1, hostlen\)/, 'validate(buffer.slice(pos0 + 1))')
+    .replace(/memcpy\(phglobal->szHost, pos0 \+ 1, hostlen \+ 1\)/,
+        'store(buffer.slice(pos0 + 1), hostlen + 1)')
+    .replace(/&phglobal->m_tcpsocket/g, '0');
+const runRedirect = new Function('buffer', 'find', 'validate', 'store', 'phClose', 'nvram_set',
+    `const okRedirecting = 1, errorAuthFailed = -1; ${redirectJS}`);
+const find = (line, offset, delimiter) => {
+    const index = line.indexOf(delimiter, offset);
+    return index < 0 ? null : index;
+};
+for (const line of [...badHosts.map(host => `536 <${host}>`), '536 missing', '536 <missing',
+    '536 <phddns60.oray.net>', '536 <6.6.6.6>']) {
+    const state = Buffer.alloc(1284, 0xa5);
+    const before = Buffer.from(state);
+    let closes = 0;
+    const result = runRedirect(line, find, validate, (host, length) => {
+        assert(length <= 256);
+        Buffer.from(host + '\0', 'latin1').copy(state, 0);
+    }, () => closes++, () => {});
+    assert.equal(closes, 1);
+    assert.deepEqual(state.subarray(256), before.subarray(256), 'adjacent configuration unchanged');
+    if (['536 <phddns60.oray.net>', '536 <6.6.6.6>'].includes(line)) {
+        assert.equal(result, 1);
+    } else {
+        assert.equal(result, -1);
+        assert.deepEqual(state, before, 'invalid redirect leaves all configuration unchanged');
+    }
+}
+const responseGuard = executeBody.indexOf('if (len < 5 || len >= sizeof(buffer))');
+assert(responseGuard >= 0 && responseGuard < redirectStart);
+assert(executeBody.slice(responseGuard, redirectStart).includes('return errorConnectFailed;'));
+const responseExpression = executeBody.slice(responseGuard).match(/^if \(([^\n]+)\)/)[1];
+const invalidResponse = new Function('len', `return ${responseExpression.replace(/sizeof\(buffer\)/, '1024')};`);
+for (const length of [-1, 0, 3, 4, 1024]) assert.equal(invalidResponse(length), true);
+assert.equal(invalidResponse(1023), false);
+
+console.log('phddns challenge: source-derived HMAC, challenge/username bounds, redirect validation and disconnect contracts passed');
 console.log('Not compiled C, ASan, socket/fake-server, or hardware validation.');
