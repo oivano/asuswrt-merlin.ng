@@ -145,6 +145,53 @@ char HTTPD_LAST_LOGIN_TS_W[32] = {0};
 char CAPTCHA_FAIL_NUM[32] = {0};
 char HTTPD_LOCK_NUM[32] = {0};
 
+int httpd_create_tempfile(char *path, size_t path_size)
+{
+	const char *directory = "/tmp/httpd";
+	struct stat st;
+	int created = 0, fd;
+
+	if (!path || path_size == 0 || geteuid() != 0) {
+		errno = EPERM;
+		return -1;
+	}
+
+	if (mkdir(directory, 0700) == 0)
+		created = 1;
+	else if (errno != EEXIST)
+		return -1;
+
+	if (lstat(directory, &st) != 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0) {
+		errno = EPERM;
+		return -1;
+	}
+	if (created && chmod(directory, 0700) != 0)
+		return -1;
+	if (lstat(directory, &st) != 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
+	    (st.st_mode & 0777) != 0700) {
+		errno = EPERM;
+		return -1;
+	}
+
+	if (snprintf(path, path_size, "%s/output-XXXXXX", directory) >= path_size) {
+		errno = ENAMETOOLONG;
+		return -1;
+	}
+
+	fd = mkstemp(path);
+	if (fd < 0)
+		return -1;
+	if (fchmod(fd, 0600) != 0 || close(fd) != 0) {
+		int saved_errno = errno;
+		close(fd);
+		unlink(path);
+		errno = saved_errno;
+		return -1;
+	}
+
+	return 0;
+}
+
 #ifdef TRANSLATE_ON_FLY
 char Accept_Language[16];
 

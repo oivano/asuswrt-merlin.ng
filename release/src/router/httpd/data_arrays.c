@@ -53,6 +53,35 @@
 #include <linux/version.h>
 
 #include "data_arrays.h"
+
+static int websWriteJsonString(webs_t wp, const char *value)
+{
+	const unsigned char *p = (const unsigned char *)value;
+	int ret = websWrite(wp, "\"");
+
+	for (; *p; p++) {
+		switch (*p) {
+		case '"': ret += websWrite(wp, "\\\""); break;
+		case '\\': ret += websWrite(wp, "\\\\"); break;
+		case '/': ret += websWrite(wp, "\\/"); break;
+		case '<': ret += websWrite(wp, "\\u003c"); break;
+		case '>': ret += websWrite(wp, "\\u003e"); break;
+		case '&': ret += websWrite(wp, "\\u0026"); break;
+		case '\b': ret += websWrite(wp, "\\b"); break;
+		case '\f': ret += websWrite(wp, "\\f"); break;
+		case '\n': ret += websWrite(wp, "\\n"); break;
+		case '\r': ret += websWrite(wp, "\\r"); break;
+		case '\t': ret += websWrite(wp, "\\t"); break;
+		default:
+			if (*p < 0x20)
+				ret += websWrite(wp, "\\u%04x", *p);
+			else
+				ret += websWrite(wp, "%c", *p);
+		}
+	}
+
+	return ret + websWrite(wp, "\"");
+}
 #include "httpd.h"
 #include "iptraffic.h"
 
@@ -118,7 +147,10 @@ ej_get_leases_array(int eid, webs_t wp, int argc, char_t **argv)
 		} else if (inet_pton(AF_INET, ipaddr, &addr4) == 0)
 			continue;
 
-		ret += websWrite(wp, "[\"%d\", \"%s\", \"%s\", \"%s\"],\n", expires, hwaddr, ipaddr, name);
+		ret += websWrite(wp, "[\"%u\",", expires);
+		ret += websWriteJsonString(wp, hwaddr); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, ipaddr); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, name); ret += websWrite(wp, "],\n");
 	}
 	ret += websWrite(wp, "[]];\n");
 	fclose(fp);
@@ -133,6 +165,7 @@ int
 ej_ipv6_pinhole_array(int eid, webs_t wp, int argc, char_t **argv)
 {
 	FILE *fp;
+	char output_path[64];
 	char *ipt_argv[] = {"ip6tables", "-nxL", "UPNP", NULL};
 	char line[256], tmp[256];
 	char target[16], proto[16];
@@ -148,10 +181,16 @@ ej_ipv6_pinhole_array(int eid, webs_t wp, int argc, char_t **argv)
                 return ret;
         }
 
-	_eval(ipt_argv, ">/tmp/pinhole.log", 10, NULL);
+	if (httpd_create_tempfile(output_path, sizeof(output_path)) != 0) {
+		ret += websWrite(wp, "[];\n");
+		return ret;
+	}
+	snprintf(tmp, sizeof(tmp), ">%s", output_path);
+	_eval(ipt_argv, tmp, 10, NULL);
 
-	fp = fopen("/tmp/pinhole.log", "r");
+	fp = fopen(output_path, "r");
 	if (fp == NULL) {
+		unlink(output_path);
 		ret += websWrite(wp, "[];\n");
 		return ret;
 	}
@@ -197,14 +236,17 @@ ej_ipv6_pinhole_array(int eid, webs_t wp, int argc, char_t **argv)
 				sport = val + 5;
 		}
 
-		ret += websWrite(wp,
-			"[\"%s\", \"%s\", \"%s\", \"%s\", \"%s\"],\n",
-			src, sport, dst, dport, proto);
+		ret += websWrite(wp, "[");
+		ret += websWriteJsonString(wp, src); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, sport); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, dst); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, dport); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, proto); ret += websWrite(wp, "],\n");
 	}
 	ret += websWrite(wp, "[]];\n");
 
 	fclose(fp);
-	unlink("/tmp/pinhole.log");
+	unlink(output_path);
 
 	return ret;
 
@@ -217,7 +259,7 @@ int
 ej_get_upnp_array(int eid, webs_t wp, int argc, char_t **argv)
 {
 	FILE *fp;
-	char proto[4], eport[6], iaddr[sizeof("255.255.255.255")], iport[6], timestamp[15], desc[200], desc2[256];
+	char proto[4], eport[6], iaddr[sizeof("255.255.255.255")], iport[6], timestamp[15], desc[200];
 	int ret=0;
 	char line[256];
 
@@ -226,7 +268,7 @@ ej_get_upnp_array(int eid, webs_t wp, int argc, char_t **argv)
 
 	ret += websWrite(wp, "var upnparray = [");
 
-	fp = fopen("/tmp/upnp.leases", "r");
+	fp = fopen("/etc/upnp/upnp.leases", "r");
 	if (fp == NULL) {
 		ret += websWrite(wp, "[]];\n");
 		return ret;
@@ -245,11 +287,13 @@ ej_get_upnp_array(int eid, webs_t wp, int argc, char_t **argv)
 			"%199[^\n]",
 			proto, eport, iaddr, iport, timestamp, desc) < 5) continue;
 
-		if (str_escape_quotes(desc2, desc, sizeof(desc2)) == 0)
-			strlcpy(desc2, desc, sizeof(desc2));
-
-		ret += websWrite(wp, "[\"%s\", \"%s\", \"%s\", \"%s\", \"%s\", \"%s\"],\n",
-			proto, eport, iaddr, iport, timestamp, desc2);
+		ret += websWrite(wp, "[");
+		ret += websWriteJsonString(wp, proto); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, eport); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, iaddr); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, iport); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, timestamp); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, desc); ret += websWrite(wp, "],\n");
 	}
 
 	fclose(fp);
@@ -263,6 +307,7 @@ int
 ej_get_vserver_array(int eid, webs_t wp, int argc, char_t **argv)
 {
 	FILE *fp;
+	char output_path[64], redirect[80];
 	char *nat_argv[] = {"iptables", "-t", "nat", "-nxL", NULL};
 	char line[256], tmp[256];
 	char target[16], proto[16];
@@ -273,14 +318,20 @@ ej_get_vserver_array(int eid, webs_t wp, int argc, char_t **argv)
 	char chain[16];
 
 	/* dump nat table including VSERVER and VUPNP chains */
-	_eval(nat_argv, ">/tmp/vserver.log", 10, NULL);
+	if (httpd_create_tempfile(output_path, sizeof(output_path)) != 0) {
+		ret += websWrite(wp, "var vserverarray = [[]];\n");
+		return ret;
+	}
+	snprintf(redirect, sizeof(redirect), ">%s", output_path);
+	_eval(nat_argv, redirect, 10, NULL);
 
 	ret += websWrite(wp, "var vserverarray = [");
 
-	fp = fopen("/tmp/vserver.log", "r");
+	fp = fopen(output_path, "r");
 
 	if (fp == NULL) {
                 ret += websWrite(wp, "[]];\n");
+		unlink(output_path);
                 return ret;
         }
 
@@ -334,14 +385,17 @@ ej_get_vserver_array(int eid, webs_t wp, int argc, char_t **argv)
 			}
 		}
 
-		ret += websWrite(wp, "["
-			"\"%s\", "
-			"\"%s\", \"%s\", \"%s\", \"%s\", \"%s\", \"%s\"],\n",
-			src,
-			dst, proto, range, host, port ? : range, chain);
+		ret += websWrite(wp, "[");
+		ret += websWriteJsonString(wp, src); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, dst); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, proto); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, range); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, host); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, port ? : range); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, chain); ret += websWrite(wp, "],\n");
 	}
 	fclose(fp);
-	unlink("/tmp/vserver.log");
+	unlink(output_path);
 
         ret += websWrite(wp, "[]];\n");
 	return ret;
@@ -967,8 +1021,10 @@ ej_lan_ipv6_network_array(int eid, webs_t wp, int argc, char_t **argv)
 				p += snprintf(p, sizeof(ipaddrs) + ipaddrs - p, "%s%s", *ipaddrs ? ", " : "", next);
 		}
 
-		ret += websWrite(wp, "[\"%s\", \"%s\", \"%s\"],",
-				 hostname, macaddr, ipaddrs);
+		ret += websWrite(wp, "[");
+		ret += websWriteJsonString(wp, hostname); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, macaddr); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, ipaddrs); ret += websWrite(wp, "],");
 	}
 	fclose(fp);
 
@@ -1027,7 +1083,11 @@ ej_lan_ipv6_clients_array(int eid, webs_t wp, int argc, char_t **argv)
 					addrbuf[len-1] = '0';
 					addrbuf[len-2] = '0';
 				}
-				ret += websWrite(wp, "ipv6clientarray[\"%s\"] = \"%s\";\n", addrbuf, hostname);
+				ret += websWrite(wp, "ipv6clientarray[");
+				ret += websWriteJsonString(wp, addrbuf);
+				ret += websWrite(wp, "] = ");
+				ret += websWriteJsonString(wp, hostname);
+				ret += websWrite(wp, ";\n");
 			}
 		}
 	}
@@ -1102,7 +1162,7 @@ int ej_tcfilter_array(int eid, webs_t wp, int argc, char_t **argv) {
 int ej_tcclass_dump_array(int eid, webs_t wp, int argc, char_t **argv) {
 	FILE *fp;
 	int ret = 0;
-	char tmp[64];
+	char tmp[256], output_path[64];
 	int qos_type;
 	char wan_ifname[16];
 
@@ -1118,36 +1178,46 @@ int ej_tcclass_dump_array(int eid, webs_t wp, int argc, char_t **argv) {
 	}
 
 	if (qos_type == 0 || qos_type == 1 || qos_type == 3) {	// Traditional, Adaptive or Geforce Now
-		system("tc -s class show dev br0 > /tmp/tcclass.txt");
-		system("tc -s class show dev imq0 >> /tmp/tcclass.txt");
+		if (httpd_create_tempfile(output_path, sizeof(output_path)) == 0) {
+			snprintf(tmp, sizeof(tmp), "tc -s class show dev br0 > %s", output_path);
+			system(tmp);
+			snprintf(tmp, sizeof(tmp), "tc -s class show dev imq0 >> %s", output_path);
+			system(tmp);
 
-		ret += websWrite(wp, "var tcdata_lan_array = [\n");
+			ret += websWrite(wp, "var tcdata_lan_array = [\n");
 
-		fp = fopen("/tmp/tcclass.txt","r");
-		if (fp) {
-			ret += tcclass_dump(fp, wp);
-			fclose(fp);
+			fp = fopen(output_path, "r");
+			if (fp) {
+				ret += tcclass_dump(fp, wp);
+				fclose(fp);
+			} else {
+				ret += websWrite(wp, "[]];\n");
+			}
+			unlink(output_path);
 		} else {
-			ret += websWrite(wp, "[]];\n");
+			ret += websWrite(wp, "var tcdata_lan_array = [[]];\n");
 		}
-		unlink("/tmp/tcclass.txt");
 
 	}
 
 	if (qos_type != 2) {	// Must not be BW Limiter
-		snprintf(tmp, sizeof(tmp), "tc -s class show dev %s > /tmp/tcclass.txt", wan_ifname);
-		system(tmp);
+		if (httpd_create_tempfile(output_path, sizeof(output_path)) == 0) {
+			snprintf(tmp, sizeof(tmp), "tc -s class show dev %s > %s", wan_ifname, output_path);
+			system(tmp);
 
-	        ret += websWrite(wp, "var tcdata_wan_array = [\n");
+			ret += websWrite(wp, "var tcdata_wan_array = [\n");
 
-	        fp = fopen("/tmp/tcclass.txt","r");
-	        if (fp) {
-	                ret += tcclass_dump(fp, wp);
-			fclose(fp);
+			fp = fopen(output_path, "r");
+			if (fp) {
+				ret += tcclass_dump(fp, wp);
+				fclose(fp);
+			} else {
+				ret += websWrite(wp, "[]];\n");
+			}
+			unlink(output_path);
 		} else {
-			ret += websWrite(wp, "[]];\n");
+			ret += websWrite(wp, "var tcdata_wan_array = [[]];\n");
 	        }
-		unlink("/tmp/tcclass.txt");
 	}
 
 	return ret;
@@ -1189,7 +1259,9 @@ int tcclass_dump(FILE *fp, webs_t wp) {
 				break;
 			case 2: // Rates
 				if (sscanf(buf, " rate %15s %15s backlog %*s", ratebps, ratepps) == 2) {
-					ret += websWrite(wp, " \"%s\", \"%s\"],\n", ratebps, ratepps);
+					ret += websWrite(wp, " ");
+					ret += websWriteJsonString(wp, ratebps); ret += websWrite(wp, ", ");
+					ret += websWriteJsonString(wp, ratepps); ret += websWrite(wp, "],\n");
 					stage = 0;
 				}
 				break;
@@ -1482,6 +1554,7 @@ void ctvbuf(FILE *f) {
 
 int ej_connlist_array(int eid, webs_t wp, int argc, char **argv) {
 	FILE *fp;
+	char output_path[64], redirect[128];
 	char line[100];
 	int firstline = 1;
 	char proto[6], address[16], dest[16], state[15], port1[6], port2[6];
@@ -1489,11 +1562,17 @@ int ej_connlist_array(int eid, webs_t wp, int argc, char **argv) {
 
 	ret += websWrite(wp, "var connarray = [");
 
-	system("/usr/sbin/netstat-nat -r state -xn > /tmp/connect.log 2>&1");
+	if (httpd_create_tempfile(output_path, sizeof(output_path)) != 0) {
+		ret += websWrite(wp, "[]];\n");
+		return ret;
+	}
+	snprintf(redirect, sizeof(redirect), "/usr/sbin/netstat-nat -r state -xn > %s 2>&1", output_path);
+	system(redirect);
 
-	fp = fopen("/tmp/connect.log", "r");
+	fp = fopen(output_path, "r");
 	if (fp == NULL) {
-		websWrite(wp, "[]];\n");
+		unlink(output_path);
+		ret += websWrite(wp, "[]];\n");
 		return ret;
 	}
 
@@ -1522,11 +1601,16 @@ int ej_connlist_array(int eid, webs_t wp, int argc, char **argv) {
 			    proto, address, port1, dest, port2, state) != 6) continue;
 		}
 
-		ret += websWrite(wp, "[\"%s\", \"%s\", \"%s\", \"%s\", \"%s\", \"%s\"],\n",
-		                      proto, address, port1, dest, port2, state);
+		ret += websWrite(wp, "[");
+		ret += websWriteJsonString(wp, proto); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, address); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, port1); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, dest); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, port2); ret += websWrite(wp, ",");
+		ret += websWriteJsonString(wp, state); ret += websWrite(wp, "],\n");
 	}
 	fclose(fp);
-	unlink("/tmp/connect.log");
+	unlink(output_path);
 
 	ret += websWrite(wp, "[]];\n");
 

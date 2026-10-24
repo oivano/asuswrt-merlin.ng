@@ -53,6 +53,8 @@
 
 #define IPV6_CLIENT_LIST        "/tmp/ipv6_client_list"
 
+extern int httpd_create_tempfile(char *path, size_t path_size);
+
 /* Generic MIME type handler */
 struct mime_handler {
 	char *pattern;

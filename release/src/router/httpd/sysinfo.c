@@ -344,9 +344,7 @@ int ej_show_sysinfo(int eid, webs_t wp, int argc, char_t ** argv)
 			FILE* fp;
 			unsigned int established = 0;
 
-			eval("cp", "/proc/net/nf_conntrack", "/tmp/conntrack.tmp");
-
-			fp = fopen("/tmp/conntrack.tmp", "r");
+			fp = fopen("/proc/net/nf_conntrack", "r");
 			if (fp) {
 				while (fgets(buf, sizeof(buf), fp) != NULL) {
 					strlcpy(proto, buf, sizeof(proto));
@@ -356,7 +354,6 @@ int ej_show_sysinfo(int eid, webs_t wp, int argc, char_t ** argv)
 				}
 				fclose(fp);
 			}
-			unlink("/tmp/conntrack.tmp");
 			sprintf(result,"%u",established);
 
 		} else if(strcmp(type,"conn.max") == 0) {
@@ -395,16 +392,16 @@ int ej_show_sysinfo(int eid, webs_t wp, int argc, char_t ** argv)
 
 		} else if(strncmp(type,"driver_version",14) == 0 ) {
 			int radio = 0;
-			char buf[32], buf2[64];
+			char buf[32], buf2[256], output_path[64];
 
 			sscanf(type,"driver_version.%d", &radio);
 			sprintf(buf, "wl%d_ifname", radio);
 			tmp = nvram_safe_get(buf);
-			if (*tmp) {
-				snprintf(buf2, sizeof (buf2), "/usr/sbin/wl -i %s ver >/tmp/output.txt", tmp);
+			if (*tmp && httpd_create_tempfile(output_path, sizeof(output_path)) == 0) {
+				snprintf(buf2, sizeof(buf2), "/usr/sbin/wl -i %s ver > %s", tmp, output_path);
 				system(buf2);
 
-				char *buffer = read_whole_file("/tmp/output.txt");
+				char *buffer = read_whole_file(output_path);
 
 				if (buffer) {
 					if ((tmp = strstr(buffer, "\n")))
@@ -414,7 +411,7 @@ int ej_show_sysinfo(int eid, webs_t wp, int argc, char_t ** argv)
 					replace_char(result, '\n', ' ');
 					free(buffer);
 				}
-				unlink("/tmp/output.txt");
+				unlink(output_path);
 			}
 #ifdef RTCONFIG_QTN
                 } else if(strcmp(type,"qtn_version") == 0 ) {
@@ -426,21 +423,24 @@ int ej_show_sysinfo(int eid, webs_t wp, int argc, char_t ** argv)
 #if defined(RTCONFIG_CFEZ)
 			snprintf(result, sizeof result, "%s", nvram_get("bl_version"));
 #else
-			system("cat /dev/mtd0ro | grep bl_version >/tmp/output.txt");
-			char *buffer = read_whole_file("/tmp/output.txt");
-
 			strcpy(result,"Unknown");	// Default
-			if (buffer) {
-				tmp = strstr(buffer, "bl_version=");
+			char output_path[64], command[128];
+			if (httpd_create_tempfile(output_path, sizeof(output_path)) == 0) {
+				snprintf(command, sizeof(command), "cat /dev/mtd0ro | grep bl_version > %s", output_path);
+				system(command);
+				char *buffer = read_whole_file(output_path);
+				if (buffer) {
+					tmp = strstr(buffer, "bl_version=");
 
-				if (tmp) {
-					sscanf(tmp, "bl_version=%s", result);
-				} else {
-					snprintf(result, sizeof result, "%s", nvram_get("bl_version"));
+					if (tmp) {
+						sscanf(tmp, "bl_version=%s", result);
+					} else {
+						snprintf(result, sizeof result, "%s", nvram_get("bl_version"));
+					}
+					free(buffer);
 				}
-				free(buffer);
+				unlink(output_path);
 			}
-			unlink("/tmp/output.txt");
 #endif
 		} else if(strncmp(type,"pid",3) ==0 ) {
 			char service[32];
@@ -558,57 +558,71 @@ int ej_show_sysinfo(int eid, webs_t wp, int argc, char_t ** argv)
 		} else if(strcmp(type,"ethernet") == 0 ) {
 #ifndef HND_ROUTER
 			int len, j;
+			char output_path[64], command[128];
 
-			system("/usr/sbin/robocfg showports >/tmp/output.txt");
+			char *buffer = NULL;
+			if (httpd_create_tempfile(output_path, sizeof(output_path)) == 0) {
+				snprintf(command, sizeof(command), "/usr/sbin/robocfg showports > %s", output_path);
+				system(command);
+				buffer = read_whole_file(output_path);
+				if (buffer) {
+					len = strlen(buffer);
 
-			char *buffer = read_whole_file("/tmp/output.txt");
-			if (buffer) {
-				len = strlen(buffer);
-
-				for (j=0; (j < len); j++) {
-					if (buffer[j] == '\n') buffer[j] = '>';
-				}
+					for (j=0; (j < len); j++) {
+						if (buffer[j] == '\n') buffer[j] = '>';
+					}
 #ifdef RTCONFIG_QTN
-				j = GetPhyStatus_qtn();
-				snprintf(result, sizeof result, (j > 0 ? "%sPort 10: %dFD enabled stp: none vlan: 1 jumbo: off mac: 00:00:00:00:00:00>" :
-							 "%sPort 10: DOWN enabled stp: none vlan: 1 jumbo: off mac: 00:00:00:00:00:00>"),
+					j = GetPhyStatus_qtn();
+					snprintf(result, sizeof result, (j > 0 ? "%sPort 10: %dFD enabled stp: none vlan: 1 jumbo: off mac: 00:00:00:00:00:00>" :
+									 "%sPort 10: DOWN enabled stp: none vlan: 1 jumbo: off mac: 00:00:00:00:00:00>"),
 							  buffer, j);
 #else
                                 strlcpy(result, buffer, sizeof result);
 #endif
-                                free(buffer);
-
+					free(buffer);
+				}
+				unlink(output_path);
+			} else {
+				strcpy(result, "[]");
 			}
-			unlink("/tmp/output.txt");
 #else	// HND lacks robocfg support
 			strcpy(result, "[]");
 #endif
 		} else if(strlen(type) > 8 && strncmp(type,"hwaccel", 7) == 0 ) {
-			if (!strcmp(&type[8], "runner"))	// Also query Archer on 675x
+			char output_path[64], command[256];
+			char *buffer = NULL;
+			command[0] = '\0';
+			if (httpd_create_tempfile(output_path, sizeof(output_path)) == 0) {
+				if (!strcmp(&type[8], "runner"))	// Also query Archer on 675x
 #if defined(RTAC86U) || defined(GTAC2900)
-				system("cat /proc/modules | grep -m 1 -c pktrunner | sed -e \"s/0/Disabled/\" -e \"s/1/Enabled/\" >/tmp/output.txt");
+					snprintf(command, sizeof(command), "cat /proc/modules | grep -m 1 -c pktrunner | sed -e \"s/0/Disabled/\" -e \"s/1/Enabled/\" > %s", output_path);
 #else
-				system("/bin/fc status | grep \"HW Acceleration\" >/tmp/output.txt");
+					snprintf(command, sizeof(command), "/bin/fc status | grep \"HW Acceleration\" > %s", output_path);
 #endif
-			else if (!strcmp(&type[8], "fc"))
+				else if (!strcmp(&type[8], "fc"))
 #if defined(RTCONFIG_HND_ROUTER_AX_6756)
-				system("/bin/fc status | grep \"Flow Ucast Learning\" >/tmp/output.txt");
+					snprintf(command, sizeof(command), "/bin/fc status | grep \"Flow Ucast Learning\" > %s", output_path);
 #else
-				system("/bin/fc status | grep \"Flow Learning\" >/tmp/output.txt");
+					snprintf(command, sizeof(command), "/bin/fc status | grep \"Flow Learning\" > %s", output_path);
 #endif
-			char *buffer = read_whole_file("/tmp/output.txt");
-			if (buffer) {
-				if (strstr(buffer, "Enabled"))
-					strcpy(result,"Enabled");
-				else if (strstr(buffer, "Disabled"))
-					strcpy(result, "Disabled");
-				else
+				if (*command)
+					system(command);
+				buffer = read_whole_file(output_path);
+				if (buffer) {
+					if (strstr(buffer, "Enabled"))
+						strcpy(result,"Enabled");
+					else if (strstr(buffer, "Disabled"))
+						strcpy(result, "Disabled");
+					else
+						strcpy(result, "&lt;unknown&gt;");
+					free(buffer);
+				} else {
 					strcpy(result, "&lt;unknown&gt;");
-				free(buffer);
+				}
+				unlink(output_path);
 			} else {
 				strcpy(result, "&lt;unknown&gt;");
 			}
-			unlink("/tmp/output.txt");
 
 		} else {
 			strcpy(result,"Not implemented");
