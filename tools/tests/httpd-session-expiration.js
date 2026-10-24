@@ -14,7 +14,12 @@ const classification = source.indexOf('fromapp = check_user_agent(useragent);');
 const expiration = source.indexOf('browser_session_expire();', classification);
 const authentication = source.indexOf('auth_result = auth_check(');
 assert(expiration > classification && expiration < authentication);
-assert.match(source.slice(authentication), /if \(auth_result != 0\)[\s\S]*?return;\s*}\s*browser_session_touch\(cookies\);/);
+const failedAuth = source.slice(authentication).match(/if \(auth_result != 0\)\s*\{([\s\S]*?)\n\t{5}\}/);
+assert(failedAuth);
+assert.match(failedAuth[1], /return;/);
+assert.doesNotMatch(failedAuth[1], /browser_session_touch/);
+assert(source.indexOf('browser_session_touch(cookies);', authentication) >
+    authentication + failedAuth.index + failedAuth[0].length);
 assert.match(source, /gen_asus_token_cookie\([^;]+;\s*browser_session_register\(asus_token, fromapp\);/);
 assert.match(web, /gen_asus_token_cookie\([^;]+;\s*browser_session_register\(asus_token, fromapp_flag\);/);
 assert.equal((source.match(/gen_asus_token_cookie\(/g) || []).length, 1);

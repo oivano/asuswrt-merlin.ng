@@ -213,8 +213,10 @@ function get_real_ip(){
 
 function enable_remote_control(){
 	if(confirm("Are you sure you want to enable DDNS and Web Access from WAN?")){
-		require(['/require/modules/makeRequest.js'], function(makeRequest){
-			makeRequest.start('/enable_remote_control.cgi',hide_remote_control , function(){});
+		$.ajax({
+			url: '/enable_remote_control.cgi',
+			type: 'POST',
+			success: hide_remote_control
 		});
 	}
 }

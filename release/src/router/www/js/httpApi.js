@@ -2261,6 +2261,7 @@ var httpApi ={
 
 		$.ajax({
 			url: '/chpass.cgi',
+			type: 'POST',
 			dataType: 'json',
 			data: postData,
 			async: false,

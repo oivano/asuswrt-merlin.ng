@@ -416,6 +416,7 @@ extern int is_firsttime(void);
 extern char *generate_token(char *token_buf, size_t length);
 extern int match( const char* pattern, const char* string );
 extern int match_one( const char* pattern, int patternlen, const char* string );
+extern void send_error( int status, char* title, char* extra_header, char* text );
 extern void send_page( int status, char* title, char* extra_header, char* text , int fromapp);
 extern void send_content_page( int status, char* title, char* extra_header, char* text , int fromapp);
 extern char *get_referrer(char *referer, char *auth_referer, size_t length);

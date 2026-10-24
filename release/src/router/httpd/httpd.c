@@ -244,7 +244,6 @@ struct language_table language_tables[] = {
 static int initialize_listen_socket(int family, usockaddr* usa, const char *ifname);
 int check_noauth_referrer(char* referer, int fromapp_flag);
 char *get_referrer(char *referer, char *auth_referer, size_t length);
-static void send_error( int status, char* title, char* extra_header, char* text );
 //#ifdef RTCONFIG_CLOUDSYNC
 void send_page( int status, char* title, char* extra_header, char* text , int fromapp);
 //#endif
@@ -615,7 +614,7 @@ Error:
 	return auth_referer;
 }
 
-static void
+void
 send_error( int status, char* title, char* extra_header, char* text )
 {
 	send_headers( status, title, extra_header, "text/html", 0);
@@ -1166,6 +1165,8 @@ handle_request(void)
 	char *method, *path, *protocol, *authorization, *boundary, *alang, *cookies, *referer, *useragent;
 	char *cp;
 	char *file;
+	char csrf_token[33] = "";
+	int csrf_header_seen = 0;
 	int len;
 	struct mime_handler *handler;
 	struct except_mime_handler *exhandler;
@@ -1320,6 +1321,21 @@ handle_request(void)
 			cp = &cur[7];
 			cp += strspn( cp, " \t" );
 			request_origin = cp;
+			cur = cp + strlen(cp) + 1;
+		}
+		else if (strncasecmp(cur, "X-CSRF-Token:", 13) == 0)
+		{
+			size_t token_length;
+			cp = cur + 13;
+			cp += strspn(cp, " \t");
+			token_length = strcspn(cp, "\r\n");
+			if (csrf_header_seen || !token_length || token_length >= sizeof(csrf_token)) {
+				send_error(403, "Forbidden", NULL, "Invalid CSRF token header.");
+				return;
+			}
+			csrf_header_seen = 1;
+			memcpy(csrf_token, cp, token_length);
+			csrf_token[token_length] = '\0';
 			cur = cp + strlen(cp) + 1;
 		}
 		else if ( strncasecmp( cur, "Host:", 5 ) == 0 )
@@ -1570,17 +1586,6 @@ handle_request(void)
 				else if((mime_exception&MIME_EXCEPTION_NOAUTH_ALL)) {
 				}
 				else {
-					if(do_referer&CHECK_REFERER){
-						referer_result = referer_check(referer, fromapp);
-						if(referer_result != 0){
-							if(strcasecmp(method, "post") == 0 && handler->input)	//response post request
-								while (cl--) (void)fgetc(conn_fp);
-
-							send_login_page(fromapp, referer_result, NULL, NULL, 0, NOLOGINTRY);
-							//if(!fromapp) http_logout(&login_uip_tmp, cookies);
-							return;
-						}
-					}
 					auth_result = auth_check(url, file, cookies, fromapp, &add_try);
 					if (auth_result != 0)
 					{
@@ -1590,11 +1595,25 @@ handle_request(void)
 						send_login_page(fromapp, auth_result, url, file, auth_check_dt, add_try);
 						return;
 					}
-					if (!fromapp && strcasecmp(method, "post") == 0 && handler->input &&
-					    !httpd_check_request_origin()) {
+					if ((handler->input || (do_referer & CHECK_REFERER) || strstr(url, ".cgi")) &&
+					    !httpd_check_request_origin() && !httpd_check_csrf_token(csrf_token)) {
 						send_error(403, "Forbidden", NULL, "Invalid request origin.");
 						return;
 					}
+					if (strcasecmp(method, "post") != 0 &&
+					    (match("feedback_mail.cgi*", url) ||
+					     match("enable_remote_control.cgi*", url) ||
+					     match("block_device_internet.cgi*", url) ||
+					     match("chpass.cgi*", url))) {
+						send_error(403, "Forbidden", NULL, "POST required.");
+						return;
+					}
+#ifndef RTCONFIG_FRS_FEEDBACK
+					if (match("feedback_mail.cgi*", url)) {
+						send_error(403, "Forbidden", NULL, "Feedback is not supported by this build.");
+						return;
+					}
+#endif
 					browser_session_touch(cookies);
 				}
 
