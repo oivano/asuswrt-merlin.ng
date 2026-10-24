@@ -179,6 +179,12 @@ int main(int argc , char* argv[])
 	serv_addr.sin_port		= htons(SRV_PORT);
 
 	int flag=1;
+	if (setsockopt(sockfd, IPPROTO_IP, IP_PKTINFO, &flag, sizeof(flag)) < 0)
+	{
+		perror("IP_PKTINFO:");
+		close(sockfd);
+		return 1;
+	}
 	setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (char *)&flag, sizeof(flag));
 	if (bind(sockfd,(struct sockaddr *)&serv_addr , sizeof(serv_addr)) < 0)
 	{
@@ -253,8 +259,45 @@ int processReq(int sockfd)
 /***  Receive the socket	  ***/
 /***  with a timeout value	***/
 /************************************/
+static int lan_source_allowed(struct in_addr source, unsigned int ifindex)
+{
+	struct in_addr lan_addr, lan_mask;
+	unsigned int mask, host;
+	const char *ifname = nvram_safe_get("lan_ifname");
+
+	if (!*ifname)
+	ifname = LAN_DEV;
+	if (!ifindex || ifindex != if_nametoindex(ifname))
+	return 0;
+	if (!inet_aton(nvram_safe_get("lan_ipaddr"), &lan_addr) ||
+	!inet_aton(nvram_safe_get("lan_netmask"), &lan_mask))
+	return 0;
+
+	mask = ntohl(lan_mask.s_addr);
+	host = ntohl(source.s_addr);
+	if (!mask || ((~mask) & ((~mask) + 1)) || !host ||
+	(host >> 24) == 127 || (host >> 28) >= 14)
+	return 0;
+	if ((source.s_addr & lan_mask.s_addr) != (lan_addr.s_addr & lan_mask.s_addr) ||
+	!(host & ~mask) || (host & ~mask) == ~mask)
+	return 0;
+	return 1;
+}
+
 DWORD RECV(int sockfd , PBYTE pRcvbuf , DWORD dwlen , struct sockaddr *from, socklen_t *fromlen , DWORD timeout)
 {
+	struct msghdr message;
+	struct iovec payload;
+	union {
+	struct cmsghdr align;
+	char data[CMSG_SPACE(sizeof(struct in_pktinfo))];
+	} control;
+	struct cmsghdr *header;
+	struct in_pktinfo packet_info;
+	struct sockaddr_in *source;
+	int received;
+	unsigned int ifindex = 0;
+
     if ( waitsock(sockfd , timeout , 0) == 0)
     {
 	//timeout
@@ -262,7 +305,36 @@ DWORD RECV(int sockfd , PBYTE pRcvbuf , DWORD dwlen , struct sockaddr *from, soc
 	return -1;
     }
 
-    return recvfrom(sockfd, pRcvbuf , dwlen , 0 , from , fromlen );
+	memset(&message, 0, sizeof(message));
+	memset(&control, 0, sizeof(control));
+	payload.iov_base = pRcvbuf;
+	payload.iov_len = dwlen;
+	message.msg_name = from;
+	message.msg_namelen = *fromlen;
+	message.msg_iov = &payload;
+	message.msg_iovlen = 1;
+	message.msg_control = control.data;
+	message.msg_controllen = sizeof(control.data);
+	received = recvmsg(sockfd, &message, 0);
+	if (received != dwlen || (message.msg_flags & (MSG_TRUNC | MSG_CTRUNC)) ||
+	message.msg_namelen != sizeof(struct sockaddr_in))
+	return -1;
+
+	for (header = CMSG_FIRSTHDR(&message); header;
+	 header = CMSG_NXTHDR(&message, header))
+	{
+	if (header->cmsg_level == IPPROTO_IP && header->cmsg_type == IP_PKTINFO &&
+	    header->cmsg_len == CMSG_LEN(sizeof(packet_info)))
+	{
+	    memcpy(&packet_info, CMSG_DATA(header), sizeof(packet_info));
+	    ifindex = packet_info.ipi_ifindex;
+	}
+	}
+	source = (struct sockaddr_in *)from;
+	if (source->sin_family != AF_INET || !lan_source_allowed(source->sin_addr, ifindex))
+	return -1;
+	*fromlen = message.msg_namelen;
+	return received;
 }
 
 

@@ -186,6 +186,9 @@ char *processPacket(int sockfd, char *pdubuf, unsigned short cli_port, char *cli
     
     realOPCode = __constant_cpu_to_le16(phdr->OpCode); //translate endian
 
+	if (realOPCode == NET_CMD_ID_GETINFO_MANU)
+		return NULL;
+
 	if(!strcmp(client_ip, nvram_safe_get("lan_ipaddr"))){
 		//do not update
 	}
@@ -254,58 +257,6 @@ char *processPacket(int sockfd, char *pdubuf, unsigned short cli_port, char *cli
 
 	switch(realOPCode)
 	{
-		case NET_CMD_ID_GETINFO_MANU:
-//		case NET_CMD_ID_GETINFO:
-		     _dprintf("NET CMD GETINFO_MANU\n");	// tmp test
-		     ginfo=(PKT_GET_INFO *)(pdubuf_res+sizeof(IBOX_COMM_PKT_RES));
-		     memset(ginfo, 0, sizeof(*ginfo));
-#if 0
-#ifdef PRNINFO
-		     readPrnID(ginfo->PrinterInfo);
-#else
-		     memset(ginfo->PrinterInfo, 0, sizeof(ginfo->PrinterInfo));
-#endif
-#else
-			if (strlen(nvram_safe_get("u2ec_mfg")) && strlen(nvram_safe_get("u2ec_device")))
-			{
-				if (strstr(nvram_safe_get("u2ec_device"), nvram_safe_get("u2ec_mfg")))
-					sprintf(ginfo->PrinterInfo, "%s", nvram_safe_get("u2ec_device"));
-				else
-					sprintf(ginfo->PrinterInfo, "%s %s", nvram_safe_get("u2ec_mfg"), nvram_safe_get("u2ec_device"));
-			}
-#endif
-		     get_discovery_ssid(ssid_g, sizeof(ssid_g));
-		     strcpy(ginfo->NetMask, get_lan_netmask());
-		     strcpy(ginfo->ProductID, productid_g);	// disable for tmp
-		     strcpy(ginfo->FirmwareVersion, firmver_g);	// disable for tmp
-		     memcpy(ginfo->MacAddress, mac, 6);
-		     ginfo->sw_mode = get_sw_mode();
-#ifdef WCLIENT
-		     ginfo->OperationMode = OPERATION_MODE_WB;
-		     ginfo->Regulation = 0xff;
-#endif
-	#ifdef WAVESERVER
-	     st = (STORAGE_INFO_T *) (pdubuf_res + sizeof (IBOX_COMM_PKT_RES) + sizeof (PKT_GET_INFO) + sizeof(WS_INFO_T));
-	#else
-	     st = (STORAGE_INFO_T *) (pdubuf_res + sizeof (IBOX_COMM_PKT_RES) + sizeof (PKT_GET_INFO));
-	#endif
-	//printf("get storage status(1)\n");	// tmp test
-		     getStorageStatus(st);
-//#endif /* #ifdef WL700G */
- 		     /* Disable  WSC functions for MFG test*/
-		     nvram_set("asus_mfg", "1");
-/*
-		     nvram_set("wsc_config_state", "1");
-		     system("killall wsccmd");
-		     system("killall wsc");
-		     system("killall upnp");
-		     system("killall ntp");
-	 	     system("killall ntpclient");
-		     system("killall lld2d");
-*/
-		     sendInfo(sockfd, pdubuf_res, send_port);
-		     return pdubuf_res;
-
 		case NET_CMD_ID_GETINFO:
 			 //_dprintf("NET CMD GETINFO\n");
 		     ginfo=(PKT_GET_INFO *)(pdubuf_res+sizeof(IBOX_COMM_PKT_RES));
