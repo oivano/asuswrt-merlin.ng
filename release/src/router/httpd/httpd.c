@@ -1658,6 +1658,12 @@ handle_request(void)
 // 2007.11 James. for QISxxx.htm pages }
 			if (handler->input) {
 				handler->input(file, conn_fp, cl, boundary);
+#ifdef RTCONFIG_IPSEC
+				if (match("ipsecupload.cgi*", url) && !httpd_ipsec_upload_ok()) {
+					send_error(400, "Bad Request", NULL, "Invalid IPsec certificate upload.");
+					return;
+				}
+#endif
 #if defined(linux)
 				if ((flags = fcntl(fileno(conn_fp), F_GETFL)) != -1 &&
 						fcntl(fileno(conn_fp), F_SETFL, flags | O_NONBLOCK) != -1) {

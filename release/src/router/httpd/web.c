@@ -16807,28 +16807,48 @@ err:
 
 	fcntl(fileno(stream), F_SETOWN, -ret);	
 }
+static int ipsec_upload_complete;
+
+int
+httpd_ipsec_upload_ok(void)
+{
+	return ipsec_upload_complete;
+}
+
+static int
+ipsec_upload_profile_valid(const char *value)
+{
+	const char *digit;
+
+	if (strncmp(value, "ipsec_profile_", 14) != 0 ||
+	    strlen(value) <= 14 || strlen(value) >= 32)
+		return 0;
+	for (digit = value + 14; *digit; digit++) {
+		if (*digit < '0' || *digit > '9')
+			return 0;
+	}
+	return 1;
+}
+
 static void
 do_ipsecupload_post(char *url, FILE *stream, int len, char *boundary)
 {
-	char *filetype = nvram_safe_get("ipsec_profile_item");
-
-	//Check folder exist or not
-	if(!check_if_dir_exist(JFFS_IPSEC))
-		mkdir(JFFS_IPSEC, 0755);	
-
-	char upload_fifo[32];
+	char upload_fifo[64];
+	char temporary[] = "/jffs/ipsec/.upload-XXXXXX";
+	char marker[256];
+	char profile[32] = "";
 	FILE *fifo = NULL;
-	int ret = EINVAL, ch;
-	int offset;
-	char *name, *value, *p;
-	char filename[32];
-	memset(filename, 0, 32);
-	memset(upload_fifo, 0, 32);
+	int ch, fd = -1;
+	int path_length;
+	int boundary_found = 0, headers_found = 0;
+	struct stat directory;
+	char *end;
 
-	snprintf(filename, sizeof(filename), "/jffs/ipsec/%s.crt", filetype);
-
+	ipsec_upload_complete = 0;
 	memset(post_buf, 0, sizeof(post_buf));
-	nvram_set("ipsec_profile_item", "");
+	if (!boundary || !*boundary || strlen(boundary) > sizeof(marker) - 7)
+		goto err;
+	snprintf(marker, sizeof(marker), "--%s", boundary);
 	
 	/* Look for our part */
 	while (len > 0) {
@@ -16841,41 +16861,32 @@ do_ipsecupload_post(char *url, FILE *stream, int len, char *boundary)
 			if(strstr(post_buf, "name=\"file\""))
 				break;
 			else if(strstr(post_buf, "name=\"ipsec_profile_item\"")) {
-				offset = strlen(post_buf);
-				if(fgets(post_buf+offset, MIN(len + 1, sizeof(post_buf)-offset), stream))
-				{
-					len -= strlen(post_buf) - offset;
-					offset = strlen(post_buf);
-				}
-				if(fgets(post_buf+offset, MIN(len + 1, sizeof(post_buf)-offset), stream))
-				{
-					len -= strlen(post_buf) - offset;
-					p = post_buf;
-					name = strstr(p, "\"") + 1;
-					if(name)
-					{
-						p = strstr(name, "\"");
-						if(p)
-						{
-							*(p++) = '\0';
-							value = strstr(p, "\r\n\r\n") + 4;
-							if(value)
-							{
-								p = strstr(value, "\r");
-								if(p)
-								{
-									*p = '\0';
-								}
-								_dprintf("%s=%s\n", name, value);
-								nvram_set(name, value);
-								snprintf(upload_fifo, sizeof(upload_fifo), "/jffs/ipsec/%s.crt", value);
-							}
-						}
-					}
-				}
+				if (*profile || strcasecmp(post_buf,
+				    "Content-Disposition: form-data; name=\"ipsec_profile_item\"\r\n") != 0)
+					goto err;
+				if (len <= 0 || !fgets(post_buf, MIN(len + 1, sizeof(post_buf)), stream))
+					goto err;
+				len -= strlen(post_buf);
+				if (strcmp(post_buf, "\r\n") != 0)
+					goto err;
+				if (len <= 0 || !fgets(post_buf, MIN(len + 1, sizeof(post_buf)), stream))
+					goto err;
+				len -= strlen(post_buf);
+				end = strstr(post_buf, "\r\n");
+				if (!end || end[2] != '\0')
+					goto err;
+				*end = '\0';
+				if (!ipsec_upload_profile_valid(post_buf))
+					goto err;
+				strlcpy(profile, post_buf, sizeof(profile));
 			}
 		}
 	}
+	if (!*profile || len <= 0)
+		goto err;
+	path_length = snprintf(upload_fifo, sizeof(upload_fifo), "/jffs/ipsec/%s.crt", profile);
+	if (path_length < 0 || path_length >= sizeof(upload_fifo))
+		goto err;
 	
 	/* Skip boundary and headers */
 	while (len > 0) {
@@ -16885,12 +16896,29 @@ do_ipsecupload_post(char *url, FILE *stream, int len, char *boundary)
 
 		len -= strlen(post_buf);
 		if (!strcmp(post_buf, "\n") || !strcmp(post_buf, "\r\n")) {
+			headers_found = 1;
 			break;
 		}
 	}
 
-	if (!(fifo = fopen(upload_fifo, "w")))
+	if (!headers_found || len <= 0)
 		goto err;
+	if (lstat("/jffs", &directory) != 0 || !S_ISDIR(directory.st_mode) ||
+	    directory.st_uid != 0 || (directory.st_mode & 0022))
+		goto err;
+	if (mkdir("/jffs/ipsec", 0700) != 0 && errno != EEXIST)
+		goto err;
+	if (lstat("/jffs/ipsec", &directory) != 0 || !S_ISDIR(directory.st_mode) ||
+	    directory.st_uid != 0 || (directory.st_mode & 0022))
+		goto err;
+	fd = mkstemp(temporary);
+	if (fd < 0)
+		goto err;
+	if (!(fifo = fdopen(fd, "w"))) {
+		close(fd);
+		unlink(temporary);
+		goto err;
+	}
 
 	while (len > 0) {
 		if (!fgets(post_buf, MIN(len + 1, sizeof(post_buf)), stream)) {
@@ -16898,52 +16926,51 @@ do_ipsecupload_post(char *url, FILE *stream, int len, char *boundary)
 		}
 		len -= strlen(post_buf);
 
-		if(boundary) {
-			if (strstr(post_buf, boundary))
-				break;
+		if (strncmp(post_buf, marker, strlen(marker)) == 0 &&
+		    (!strcmp(post_buf + strlen(marker), "\r\n") ||
+		     !strcmp(post_buf + strlen(marker), "--\r\n"))) {
+			boundary_found = 1;
+			break;
 		}
-		fputs(post_buf, fifo);
+		if (fputs(post_buf, fifo) == EOF)
+			goto err;
 	}
 
-	ret = 0;
-
-	fclose(fifo);
+	if (!boundary_found)
+		goto err;
+	ch = fclose(fifo);
 	fifo = NULL;
+	if (ch != 0 || rename(temporary, upload_fifo) != 0)
+		goto err;
+	nvram_set("ipsec_profile_item", profile);
+	ipsec_upload_complete = 1;
 	
 	/*printf("done\n");*/
 
 err:
 	if (fifo)
 		fclose(fifo);
+	if (fd >= 0 && !ipsec_upload_complete)
+		unlink(temporary);
 
 	/* Slurp anything remaining in the request */
 	while (len-- > 0)
 		if((ch = fgetc(stream)) == EOF)
 			break;
 
-	fcntl(fileno(stream), F_SETOWN, -ret);
-	
 }
 static void
 do_ipsecupload_cgi(char *url, FILE *stream) {
-	int ret;
 	char *index;
 	char name[32];
-	char ca_name[16];
-	char ca_file_name[40];
+	char ca_name[48];
+	char ca_file_name[64];
 	memset(name, 0, 32);
-	memset(ca_name, 0, 16);
-	memset(ca_file_name, 0, 40);
+	memset(ca_name, 0, sizeof(ca_name));
+	memset(ca_file_name, 0, sizeof(ca_file_name));
 
 	strlcpy(name, nvram_safe_get("ipsec_profile_item"), sizeof(name));
-#ifdef RTCONFIG_HTTPS
-	if(do_ssl)
-		ret = fcntl(ssl_stream_fd , F_GETOWN, 0);
-	else
-#endif
-	ret = fcntl(fileno(stream), F_GETOWN, 0);
-
-	if (ret == 0) {
+	if (ipsec_upload_complete && ipsec_upload_profile_valid(name)) {
 			index = strtok(name, "_");//ipsec
 			index = strtok(NULL, "_");//profile
 			index = strtok(NULL, "_");//index
