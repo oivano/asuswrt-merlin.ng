@@ -113,20 +113,18 @@
 	-webkit-box-align: center;
 	-webkit-align-items: center;
 	align-items: center;
-	-webkit-flex-wrap: wrap;
-	flex-wrap: wrap;
-	background: #0d1117;
-	border: 1px solid #555;
-	border-left: 3px solid #888;
-	padding: 5px 10px;
+	-webkit-flex-wrap: nowrap;
+	flex-wrap: nowrap;
+	white-space: nowrap;
+	border-bottom: 1px solid #60777b;
+	padding: 0 0 7px;
 	margin-bottom: 8px;
-	border-radius: 2px;
 	font-size: 11px;
 }
 .ipsec_security_legend_title {
 	font-weight: bold;
 	color: #ffffff !important;
-	margin-right: 12px;
+	margin-right: 5px;
 	font-size: 11px;
 }
 .ipsec_legend_item {
@@ -136,11 +134,11 @@
 	-webkit-box-align: center;
 	-webkit-align-items: center;
 	align-items: center;
-	margin-right: 12px;
+	margin-right: 6px;
 	white-space: nowrap;
 	font-size: 11px;
 	font-weight: bold;
-	line-height: 1;
+	line-height: 1.3;
 }
 .ipsec_legend_item.leg_weak   { color: #e57373 !important; }
 .ipsec_legend_item.leg_legacy { color: #ffb74d !important; }
@@ -165,7 +163,16 @@
 .badge_modern      { background-color: #1e88e5; border: 1px solid #6ab7ff; }
 /* Checkbox Grid */
 .ipsec_checkbox_grid {
-	margin: 3px 0;
+	display: block;
+	display: -webkit-box;
+	display: -webkit-flex;
+	display: flex;
+	-webkit-flex-wrap: wrap;
+	flex-wrap: wrap;
+	-webkit-box-align: center;
+	-webkit-align-items: center;
+	align-items: center;
+	margin: 5px 0 0;
 }
 .ipsec_checkbox_grid label {
 	display: -webkit-inline-box;
@@ -174,12 +181,38 @@
 	-webkit-box-align: center;
 	-webkit-align-items: center;
 	align-items: center;
-	margin-right: 14px;
-	margin-bottom: 4px;
+	min-height: 28px;
+	margin-right: 6px;
+	margin-bottom: 5px;
+	padding: 2px 7px;
+	border: 1px solid transparent;
+	border-radius: 2px;
 	white-space: nowrap;
-	color: #dddddd !important;
+	color: #ffffff;
 	cursor: pointer;
-	font-size: 12px;
+	font-size: 13px;
+}
+.ipsec_checkbox_grid label:hover {
+	background: #4d6266;
+	border-color: #71898d;
+}
+#tr_adv_dh_group .ipsec_checkbox_grid label,
+#tr_adv_pfs_group .ipsec_checkbox_grid label {
+	-webkit-box-flex: 0;
+	-webkit-flex: 0 0 12.5%;
+	flex: 0 0 12.5%;
+	box-sizing: border-box;
+	min-width: 45px;
+	min-height: 22px;
+	margin: 0;
+	padding: 0 2px;
+}
+#tr_adv_dh_group .ipsec_checkbox_grid label .security_badge,
+#tr_adv_pfs_group .ipsec_checkbox_grid label .security_badge {
+	-webkit-box-flex: 0;
+	-webkit-flex: 0 0 10px;
+	flex: 0 0 10px;
+	top: 0;
 }
 .ipsec_checkbox_grid label .security_badge {
 	margin-left: 3px;
@@ -1904,7 +1937,7 @@ function save_ipsec_profile_panel() {
 		}
 
 		if($('input:checkbox[name=ipsec_dh_group_p1]:checked').length == 0) {
-			alert("Please choose at least one Diffile-Hellman Group");/*untranslated*/
+			alert("Please choose at least one Diffie-Hellman Group");/*untranslated*/
 			return false;
 		}
 
@@ -2666,7 +2699,7 @@ function changePFS() {
 							</td>
 						</tr>
 						<tr id="tr_adv_dh_group">
-							<th>Diffile-Hellman Groups<!--untranslated--></th>
+							<th>Diffie-Hellman Groups<!--untranslated--></th>
 							<td>
 								<div class="ipsec_checkbox_grid">
 									<label title="modp768 - 768 bits"><input type="checkbox" name="ipsec_dh_group_p1" value="1">1 <span class="security_badge badge_weak"></span></label>
