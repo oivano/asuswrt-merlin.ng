@@ -1871,6 +1871,11 @@ static void vty_serv_sock_addrinfo(const char *hostname, unsigned short port)
 	struct addrinfo *ainfo_save;
 	int sock;
 	char port_str[BUFSIZ];
+	if (!hostname) {
+		hostname = getenv("FRR_VTY_BIND_ADDRESS");
+		if (!hostname || !*hostname)
+			hostname = "127.0.0.1";
+	}
 
 	memset(&req, 0, sizeof(struct addrinfo));
 	req.ai_flags = AI_PASSIVE;

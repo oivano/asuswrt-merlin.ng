@@ -8,6 +8,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <arpa/inet.h>
+#include <errno.h>
 #include <unistd.h>
 #include <signal.h>
 #include <sys/stat.h>
@@ -544,9 +546,37 @@ static void frr_write_bfd_block(FILE *fp)
 	fprintf(fp, "!\n");
 }
 
-/*
- * Write the auto-generated ACL and line vty configuration block.
- */
+static int frr_lan_network_prefix(const char *ip, const char *netmask,
+				  char *network, size_t network_len)
+{
+	struct in_addr ip_addr, mask_addr, network_addr;
+	unsigned int mask;
+	int prefix = 0, saw_zero = 0, bit;
+
+	if (inet_pton(AF_INET, ip, &ip_addr) != 1 ||
+	    inet_pton(AF_INET, netmask, &mask_addr) != 1)
+		return -1;
+
+	mask = ntohl(mask_addr.s_addr);
+	for (bit = 31; bit >= 0; bit--) {
+		if (mask & (1U << bit)) {
+			if (saw_zero)
+				return -1;
+			prefix++;
+		} else {
+			saw_zero = 1;
+		}
+	}
+	if (prefix == 0)
+		return -1;
+
+	network_addr.s_addr = htonl(ntohl(ip_addr.s_addr) & mask);
+	if (!inet_ntop(AF_INET, &network_addr, network, network_len))
+		return -1;
+	return prefix;
+}
+
+/* Write the auto-generated ACL and line vty configuration block. */
 static void frr_write_acl_block(FILE *fp)
 {
 	fprintf(fp, "%s\n", FRR_ACL_BLOCK_START);
@@ -555,8 +585,12 @@ static void frr_write_acl_block(FILE *fp)
 	if (nvram_match("frr_allow_lan", "1")) {
 		char *lip = nvram_safe_get("lan_ipaddr");
 		char *lnm = nvram_safe_get("lan_netmask");
-		if (*lip && *lnm)
-			fprintf(fp, "access-list vty permit %s/%s\n", lip, lnm);
+		char network[INET_ADDRSTRLEN];
+		int prefix = frr_lan_network_prefix(lip, lnm, network,
+						    sizeof(network));
+		if (prefix > 0)
+			fprintf(fp, "access-list vty permit %s/%d\n", network,
+				prefix);
 	}
 	fprintf(fp, "access-list vty deny any\n");
 	fprintf(fp, "line vty\n");
@@ -617,7 +651,8 @@ static int frr_merge_daemon_settings(const char *path)
 
 static int frr_merge_settings_into_conf(const char *conf_path,
 		const char *lan_ip, const char *wan_if, const char *password,
-		const char *enable_password, const char *hostname)
+		const char *enable_password, const char *hostname,
+		int passwords_rotated)
 {
 	FILE *desired = tmpfile();
 	FILE *out = NULL;
@@ -638,8 +673,8 @@ static int frr_merge_settings_into_conf(const char *conf_path,
 		if (!request || !json_object_is_type(request, json_type_object)) goto done;
 		existing = frr_ui_parse(original ? original : "");
 		if (!existing) goto done;
-		frr_ui_set(request, "frr_passwd", !strcmp(frr_ui_string(request, "frr_passwd_changed"), "1") ? password : frr_ui_string(existing, "frr_passwd"));
-		frr_ui_set(request, "frr_enpasswd", !strcmp(frr_ui_string(request, "frr_enpasswd_changed"), "1") ? enable_password : frr_ui_string(existing, "frr_enpasswd"));
+		frr_ui_set(request, "frr_passwd", passwords_rotated || !strcmp(frr_ui_string(request, "frr_passwd_changed"), "1") ? password : frr_ui_string(existing, "frr_passwd"));
+		frr_ui_set(request, "frr_enpasswd", passwords_rotated || !strcmp(frr_ui_string(request, "frr_enpasswd_changed"), "1") ? enable_password : frr_ui_string(existing, "frr_enpasswd"));
 		json_object_put(existing);
 		if (!frr_ui_generate(desired, request, lan_ip, hostname)) goto done;
 	} else {
@@ -678,6 +713,75 @@ done:
 	return ok;
 }
 
+static int frr_generate_password(char *password, size_t password_len)
+{
+	static const char hex[] = "0123456789abcdef";
+	unsigned char bytes[16];
+	size_t offset = 0, index;
+	ssize_t count;
+	int fd;
+
+	if (password_len < sizeof(bytes) * 2 + 1)
+		return 0;
+	fd = open("/dev/urandom", O_RDONLY);
+	if (fd < 0)
+		return 0;
+	while (offset < sizeof(bytes)) {
+		count = read(fd, bytes + offset, sizeof(bytes) - offset);
+		if (count < 0 && errno == EINTR)
+			continue;
+		if (count <= 0) {
+			close(fd);
+			return 0;
+		}
+		offset += count;
+	}
+	close(fd);
+	for (index = 0; index < sizeof(bytes); index++) {
+		password[index * 2] = hex[bytes[index] >> 4];
+		password[index * 2 + 1] = hex[bytes[index] & 0x0f];
+	}
+	password[sizeof(bytes) * 2] = '\0';
+	return 1;
+}
+
+static int frr_store_password(const char *key, const char *password)
+{
+#ifdef RTCONFIG_NVRAM_ENCRYPT
+	char *encrypted;
+	int length = pw_enc_blen(password) + 1;
+	int result;
+
+	if (length <= 1)
+		return 0;
+	encrypted = malloc(length);
+	if (!encrypted)
+		return 0;
+	memset(encrypted, 0, length);
+	pw_enc(password, encrypted, 1);
+	result = nvram_set(key, encrypted);
+	free(encrypted);
+	return result == 0;
+#else
+	return nvram_set(key, password) == 0;
+#endif
+}
+
+static int frr_runtime_passwords_match(const char *password,
+				      const char *enable_password)
+{
+	char *contents = frr_ui_read_file(FRR_RUNTIME_CONF);
+	json_object *config = contents ? frr_ui_parse(contents) : NULL;
+	int matches = config &&
+		!strcmp(frr_ui_string(config, "frr_passwd"), password) &&
+		!strcmp(frr_ui_string(config, "frr_enpasswd"), enable_password);
+
+	if (config)
+		json_object_put(config);
+	free(contents);
+	return matches;
+}
+
 /* Write/merge configuration files on start and UI apply */
 static void frr_write_default_config(void)
 {
@@ -686,9 +790,15 @@ static void frr_write_default_config(void)
 	char *frr_passwd, *frr_enpasswd;
 	char *hostname;
 	char *lan_ip, *wan_if;
+	char random_passwd[33], random_enpasswd[33];
+	int replace_passwd, replace_enpasswd, passwords_rotated = 0;
+	int lan_vty_requested = 0;
+	const char *vty_addr = "127.0.0.1";
+	struct in_addr lan_addr;
 	char cfg_dir[PATH_MAX];
 	char daemons_path[PATH_MAX];
 	char conf_path[PATH_MAX];
+	setenv("FRR_VTY_BIND_ADDRESS", "127.0.0.1", 1);
 
 	frr_get_config_paths(cfg_dir, sizeof(cfg_dir),
 		daemons_path, sizeof(daemons_path),
@@ -739,6 +849,30 @@ static void frr_write_default_config(void)
 		}
 	}
 #endif
+	replace_passwd = !*frr_passwd || !strcmp(frr_passwd, "zebra");
+	replace_enpasswd = !*frr_enpasswd || !strcmp(frr_enpasswd, "zebra");
+	if ((replace_passwd && !frr_generate_password(random_passwd, sizeof(random_passwd))) ||
+	    (replace_enpasswd && !frr_generate_password(random_enpasswd, sizeof(random_enpasswd)))) {
+		logmessage("FRR", "Unable to generate unique VTY passwords");
+	} else if ((replace_passwd && !frr_store_password("frr_passwd", random_passwd)) ||
+		   (replace_enpasswd && !frr_store_password("frr_enpasswd", random_enpasswd))) {
+		logmessage("FRR", "Unable to persist unique VTY passwords");
+	} else if (replace_passwd || replace_enpasswd) {
+		if (replace_passwd)
+			frr_passwd = random_passwd;
+		if (replace_enpasswd)
+			frr_enpasswd = random_enpasswd;
+		nvram_commit();
+		passwords_rotated = 1;
+	}
+	if (nvram_match("frr_allow_lan", "1")) {
+		if (*frr_passwd && strcmp(frr_passwd, "zebra") &&
+		    *frr_enpasswd && strcmp(frr_enpasswd, "zebra") &&
+		    inet_pton(AF_INET, lan_ip, &lan_addr) == 1)
+			lan_vty_requested = 1;
+		else
+			logmessage("FRR", "LAN VTY access requires valid LAN IPv4 and custom login and enable passwords");
+	}
 	
 	/*
 	 * Preserve an existing external daemons file unless the user explicitly
@@ -790,14 +924,16 @@ static void frr_write_default_config(void)
 	 * requests regeneration. This avoids rewriting/appending on normal starts
 	 * while still allowing initial creation and explicit refresh.
 	 */
-	if (frr_should_regenerate_file(conf_path, force_regen || nvram_match("frr_force_regen", "2") ||
+	if (frr_should_regenerate_file(conf_path, passwords_rotated || force_regen || nvram_match("frr_force_regen", "2") ||
 					 nvram_match("frr_force_regen", "3"))) {
 		/*
 		 * Merge UI settings into frr.conf. The merge function replaces only the
 		 * auto-generated portions (between START and AUTO_END markers) and leaves
 		 * user additions untouched unless force_regen=1.
 		 */
-		if (!frr_merge_settings_into_conf(conf_path, lan_ip, wan_if, frr_passwd, frr_enpasswd, hostname)) {
+		if (!frr_merge_settings_into_conf(conf_path, lan_ip, wan_if,
+					  frr_passwd, frr_enpasswd, hostname,
+					  passwords_rotated)) {
 			logmessage("FRR", "UI configuration merge failed; original configuration preserved");
 			return;
 		}
@@ -811,6 +947,12 @@ static void frr_write_default_config(void)
 	}
 
 	frr_sync_runtime_config(cfg_dir, daemons_path, conf_path);
+	if (lan_vty_requested && frr_runtime_passwords_match(frr_passwd,
+									 frr_enpasswd))
+		vty_addr = lan_ip;
+	else if (lan_vty_requested)
+		logmessage("FRR", "LAN VTY access remains disabled because runtime passwords do not match NVRAM");
+	setenv("FRR_VTY_BIND_ADDRESS", vty_addr, 1);
 	nvram_unset("frr_force_regen");
 	nvram_unset("frr_ui_request");
 
