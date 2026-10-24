@@ -8,6 +8,51 @@
 #include <stdlib.h>
 #include <bcmnvram.h>
 
+#define PH_STAT_RESPONSE_MAX_LEN (64 * 1024)
+
+static char *ReadStatResponse(PHGlobal *phglobal)
+{
+	char buffer[1024];
+	char *xmldata, *grown, *nul;
+	size_t used = 0, size = MAX_PATH, need;
+	int len;
+
+	xmldata = (char *)malloc(size);
+	if (xmldata == NULL) return NULL;
+	xmldata[0] = '\0';
+
+	for (;;)
+	{
+		len = phReadOneLine(phglobal->m_tcpsocket, buffer, sizeof(buffer));
+		if (len <= 0 || buffer[0] == '.') break;
+		// a full 1024-byte read is not NUL-terminated
+		nul = memchr(buffer, '\0', len);
+		if (nul) len = nul - buffer;
+		need = used + len + 1;
+		if (need > PH_STAT_RESPONSE_MAX_LEN)
+		{
+			free(xmldata);
+			return NULL;
+		}
+		if (need > size)
+		{
+			size = need > size * 2 ? need : size * 2;
+			if (size > PH_STAT_RESPONSE_MAX_LEN) size = PH_STAT_RESPONSE_MAX_LEN;
+			grown = (char *)realloc(xmldata, size);
+			if (grown == NULL)
+			{
+				free(xmldata);
+				return NULL;
+			}
+			xmldata = grown;
+		}
+		memcpy(xmldata + used, buffer, len);
+		used += len;
+		xmldata[used] = '\0';
+	}
+	return xmldata;
+}
+
 BOOL InitializeSockets(PHGlobal *phglobal)
 {
 	DestroySockets(phglobal);
@@ -138,7 +183,6 @@ int ExecuteUpdate(PHGlobal *phglobal)
 	char *chatid = NULL;
 	char *startid = NULL;
 	char *xmldata = NULL;
-	int buflen = 0;
 
 	LOG(1) ("ExecuteUpdate Connecting %s.\n",phglobal->szHost);
 	
@@ -382,27 +426,16 @@ nvram_set("ddns_return_code_chk", "auth_fail");
 		return errorStatDetailInfoFailed;
 	}
 	
-	buflen = MAX_PATH;
-	xmldata = (char *)malloc(buflen);
-	memset(xmldata, 0, buflen);
-	
-	for (;;)
+	xmldata = ReadStatResponse(phglobal);
+	if (xmldata == NULL)
 	{
-		memset(buffer, 0, 1024);
-        len = phReadOneLine(phglobal->m_tcpsocket, buffer,1024);
-        if (buffer[0] == '.' || len <= 0) break;
-		if (buflen < strlen(xmldata) + len)
-		{
-			buflen += MAX_PATH;
-			xmldata = realloc(xmldata, buflen);
-			memset((xmldata + buflen) - MAX_PATH, 0, MAX_PATH);
-		}
-		strncat(xmldata, buffer, len);
+		LOG(1) ("ExecuteUpdate stat user response too large or out of memory.\n");
+		phClose(&phglobal->m_tcpsocket);
+		return errorStatDetailInfoFailed;
 	}
 	LOG(1) ("userinfo: \r\n%s\r\n", xmldata);
 	if (phglobal->cbOnUserInfo) phglobal->cbOnUserInfo(phglobal, xmldata, strlen(xmldata));
 	free(xmldata);
-	buflen = 0;
 	
 
 	phSend(phglobal->m_tcpsocket,(void *)COMMAND_STAT_DOM,sizeof(COMMAND_STAT_DOM),0);
@@ -416,27 +449,16 @@ nvram_set("ddns_return_code_chk", "auth_fail");
 		return errorStatDetailInfoFailed;
 	}
 	
-	buflen = MAX_PATH;
-	xmldata = (char *)malloc(buflen);
-	memset(xmldata, 0, buflen);
-
-	for (;;)
+	xmldata = ReadStatResponse(phglobal);
+	if (xmldata == NULL)
 	{
-		memset(buffer, 0, 1024);
-        len = phReadOneLine(phglobal->m_tcpsocket, buffer,1024);
-        if (buffer[0] == '.' || len <= 0) break;
-		if (buflen < strlen(xmldata) + len)
-		{
-			buflen += MAX_PATH;
-			xmldata = realloc(xmldata, buflen);
-			memset((xmldata + buflen) - MAX_PATH, 0, MAX_PATH);
-		}
-		strncat(xmldata, buffer, len);
+		LOG(1) ("ExecuteUpdate stat domain response too large or out of memory.\n");
+		phClose(&phglobal->m_tcpsocket);
+		return errorStatDetailInfoFailed;
 	}
 	LOG(1) ("domaininfo: \r\n%s\r\n", xmldata);
 	if (phglobal->cbOnAccountDomainInfo) phglobal->cbOnAccountDomainInfo(phglobal, xmldata, strlen(xmldata));
 	free(xmldata);
-	buflen = 0;
 
 	//////////////////////////////////////////////////////////////////////////
 	//good bye!
