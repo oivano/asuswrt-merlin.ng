@@ -35,12 +35,13 @@ pid_t pid_output(const char *path)
 	pid_t pid;
 	char buf[16];
 	struct flock lock;
+	struct stat st;
 	mode_t oldumask;
 
 	pid = getpid();
 
 	oldumask = umask(0777 & ~PIDFILE_MASK);
-	fd = open(path, O_RDWR | O_CREAT, PIDFILE_MASK);
+	fd = open(path, O_RDWR | O_CREAT | O_NOFOLLOW | O_NONBLOCK, PIDFILE_MASK);
 	if (fd < 0) {
 		flog_err_sys(EC_LIB_SYSTEM_CALL,
 			     "Can't create pid lock file %s (%s), exiting",
@@ -51,6 +52,14 @@ pid_t pid_output(const char *path)
 		size_t pidsize;
 
 		umask(oldumask);
+		if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode)
+		    || st.st_uid != geteuid() || st.st_nlink != 1
+		    || (st.st_mode & 0022)) {
+			flog_err(EC_LIB_SYSTEM_CALL,
+				 "Unsafe pid lock file %s, exiting", path);
+			close(fd);
+			exit(1);
+		}
 		memset(&lock, 0, sizeof(lock));
 
 		set_cloexec(fd);

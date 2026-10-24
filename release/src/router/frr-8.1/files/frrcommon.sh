@@ -27,7 +27,8 @@ C_PATH="$DEFAULT_C_PATH"
 PRIMARY_C_PATH=""
 DAEMONS_C_PATH=""
 RUNTIME_C_PATH=""
-V_PATH="/var/run/frr"
+ROOT_RUN_PATH="/var/run/frr"
+V_PATH="$ROOT_RUN_PATH/daemons"
 VTYSH="/usr/sbin/vtysh"
 FRR_USER="nobody"
 FRR_GROUP="nobody"
@@ -275,30 +276,62 @@ daemon_prep() {
 	return 0
 }
 
+frr_prepare_run_dir() {
+	[ ! -L "$ROOT_RUN_PATH" ] || return 1
+	mkdir -p "$ROOT_RUN_PATH" || return 1
+	[ -d "$ROOT_RUN_PATH" ] || return 1
+	chown 0:0 "$ROOT_RUN_PATH" && chmod 0755 "$ROOT_RUN_PATH" || return 1
+	[ ! -L "$V_PATH" ] || return 1
+	mkdir -p "$V_PATH" || return 1
+	[ -d "$V_PATH" ] || return 1
+	chown "$FRR_USER:$FRR_GROUP" "$V_PATH" && chmod 0755 "$V_PATH"
+}
+
+daemon_pidfile() {
+	if [ "$daemon" = watchfrr ]; then
+		printf '%s/watchfrr.pid\n' "$ROOT_RUN_PATH"
+	else
+		printf '%s/%s.pid\n' "$V_PATH" "$dmninst"
+	fi
+}
+
 daemon_start() {
-	local dmninst daemon inst args instopt wrap bin
+	local dmninst daemon inst args instopt wrap bin pidopt
 	daemon_inst "$1"
 
 	[ "$daemon" = "watchfrr" ] && wait_for_pppd_boot_ready
 
 	ulimit -n $MAX_FDS > /dev/null 2> /dev/null
 	daemon_prep "$daemon" "$inst" || return 1
-	if test ! -d "$V_PATH"; then
-		mkdir -p "$V_PATH"
-		chown $FRR_USER "$V_PATH"
-	fi
+	frr_prepare_run_dir || {
+		log_failure_msg "Cannot secure FRR runtime directories"
+		return 1
+	}
 
 	eval wrap="\$${daemon}_wrap"
 	bin="$D_PATH/$daemon"
 	instopt="${inst:+-n $inst}"
 	eval args="\$${daemon}_options"
+	pidopt=-i
+	[ "$daemon" = watchfrr ] && pidopt=-p
 
-	if eval "$all_wrap $wrap $bin $nsopt -d $frr_global_options $instopt $args"; then
+	if eval "$all_wrap $wrap $bin $nsopt -d $frr_global_options $instopt $args $pidopt $(daemon_pidfile)"; then
 		log_success_msg "Started $dmninst"
 		vtysh_b "$daemon"
 	else
 		log_failure_msg "Failed to start $dmninst!"
 	fi
+}
+
+daemon_pid_matches() {
+	local pid daemon exe
+	pid="$1"
+	daemon="$2"
+	case "$pid" in
+	''|*[!0-9]*|0|1|0*) return 1 ;;
+	esac
+	exe="$(readlink "/proc/$pid/exe" 2>/dev/null)" || return 1
+	[ "$exe" = "$D_PATH/$daemon" ]
 }
 
 wait_for_pid_exit() {
@@ -307,7 +340,7 @@ wait_for_pid_exit() {
 	pid="$1"
 	timeout="$2"
 
-	while kill -0 "$pid" 2>/dev/null; do
+	while daemon_pid_matches "$pid" "$3"; do
 		[ "$timeout" -gt 0 ] || return 1
 		sleep 1
 		timeout=$((timeout - 1))
@@ -339,12 +372,13 @@ daemon_stop() {
 	local dmninst daemon inst pidfile vtyfile pid fail
 	daemon_inst "$1"
 
-	pidfile="$V_PATH/$daemon${inst:+-$inst}.pid"
+	pidfile="$(daemon_pidfile)"
 	vtyfile="$V_PATH/$daemon${inst:+-$inst}.vty"
 
 	[ -r "$pidfile" ] || fail="pid file not found"
 	[ -z "$fail" ] && pid="`cat \"$pidfile\"`"
 	[ -z "$fail" -a -z "$pid" ] && fail="pid file is empty"
+	[ -n "$fail" ] || daemon_pid_matches "$pid" "$daemon" || fail="pid does not belong to $daemon"
 	[ -n "$fail" ] || kill -0 "$pid" 2>/dev/null || fail="pid $pid not running"
 
 	if [ -n "$fail" ]; then
@@ -360,20 +394,20 @@ daemon_stop() {
 	fi
 
 	debug "kill -2 $pid"
-	kill -2 "$pid" 2>/dev/null || fail="failed to send SIGINT"
-	if [ -z "$fail" ] && ! wait_for_pid_exit "$pid" "$STOP_GRACE_TIMEOUT"; then
+	daemon_pid_matches "$pid" "$daemon" && kill -2 "$pid" 2>/dev/null || fail="failed to send SIGINT"
+	if [ -z "$fail" ] && ! wait_for_pid_exit "$pid" "$STOP_GRACE_TIMEOUT" "$daemon"; then
 		log_warning_msg "Timed out waiting for $dmninst to exit after SIGINT, escalating"
 		debug "kill -15 $pid"
-		kill -15 "$pid" 2>/dev/null || true
-		if ! wait_for_pid_exit "$pid" "$STOP_TERM_TIMEOUT"; then
+		daemon_pid_matches "$pid" "$daemon" && kill -15 "$pid" 2>/dev/null
+		if ! wait_for_pid_exit "$pid" "$STOP_TERM_TIMEOUT" "$daemon"; then
 			log_warning_msg "$dmninst did not exit after SIGTERM, sending SIGKILL"
 			debug "kill -9 $pid"
-			kill -9 "$pid" 2>/dev/null || true
-			wait_for_pid_exit "$pid" "$STOP_KILL_TIMEOUT" || fail="pid $pid still running"
+			daemon_pid_matches "$pid" "$daemon" && kill -9 "$pid" 2>/dev/null
+			wait_for_pid_exit "$pid" "$STOP_KILL_TIMEOUT" "$daemon" || fail="pid $pid still running"
 		fi
 	fi
 	[ -z "$fail" ] || log_failure_msg "Failed to stop $dmninst: $fail"
-	if kill -0 "$pid" 2>/dev/null; then
+	if daemon_pid_matches "$pid" "$daemon"; then
 		log_failure_msg "Failed to stop $dmninst, pid $pid still running"
 		still_running=1
 		return 1
@@ -388,12 +422,12 @@ daemon_status() {
 	local dmninst daemon inst pidfile pid fail
 	daemon_inst "$1"
 
-	pidfile="$V_PATH/$daemon${inst:+-$inst}.pid"
+	pidfile="$(daemon_pidfile)"
 
 	[ -r "$pidfile" ] || return 3
 	pid="`cat \"$pidfile\"`"
 	[ -z "$pid" ] && return 1
-	kill -0 "$pid" 2>/dev/null || return 1
+	daemon_pid_matches "$pid" "$daemon" || return 1
 	return 0
 }
 

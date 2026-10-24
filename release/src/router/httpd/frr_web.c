@@ -45,9 +45,9 @@ enum frr_vty_daemon {
 };
 
 static const char *const frr_vty_sockets[FRR_VTY_COUNT] = {
-	"/var/run/frr/zebra.vty",
-	"/var/run/frr/bgpd.vty",
-	"/var/run/frr/bfdd.vty"
+	"/var/run/frr/daemons/zebra.vty",
+	"/var/run/frr/daemons/bgpd.vty",
+	"/var/run/frr/daemons/bfdd.vty"
 };
 
 struct frr_bgp_cache {
@@ -787,7 +787,10 @@ int frr_daemon_running(const char *daemon_name)
 	struct stat st;
 
 	/* Construct PID file path */
-	snprintf(pid_file, sizeof(pid_file), "/var/run/frr/%s.pid", daemon_name);
+	if (strcmp(daemon_name, "watchfrr") == 0)
+		strlcpy(pid_file, "/var/run/frr/watchfrr.pid", sizeof(pid_file));
+	else
+		snprintf(pid_file, sizeof(pid_file), "/var/run/frr/daemons/%s.pid", daemon_name);
 
 	/* Check if PID file exists */
 	fp = fopen(pid_file, "r");
@@ -816,7 +819,10 @@ unsigned long frr_daemon_uptime(const char *daemon_name)
 	struct stat st;
 	time_t now;
 
-	snprintf(pid_file, sizeof(pid_file), "/var/run/frr/%s.pid", daemon_name);
+	if (strcmp(daemon_name, "watchfrr") == 0)
+		strlcpy(pid_file, "/var/run/frr/watchfrr.pid", sizeof(pid_file));
+	else
+		snprintf(pid_file, sizeof(pid_file), "/var/run/frr/daemons/%s.pid", daemon_name);
 
 	if (stat(pid_file, &st) != 0)
 		return 0;

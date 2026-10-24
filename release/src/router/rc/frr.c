@@ -126,29 +126,6 @@ static void frr_log_captured_stderr(const char *stderr_log)
 	fclose(fp);
 }
 
-static void frr_fix_run_dir_owner(void)
-{
-	struct passwd *pw;
-	struct group *gr;
-	uid_t uid;
-	gid_t gid;
-
-	pw = getpwnam(FRR_DAEMON_USER);
-	if (!pw)
-		return;
-
-	uid = pw->pw_uid;
-	gid = pw->pw_gid;
-
-	gr = getgrnam(FRR_DAEMON_GROUP);
-	if (gr)
-		gid = gr->gr_gid;
-
-	/* Keep best-effort: startup script still has fallback behavior. */
-	if (chown(FRR_RUN_DIR, uid, gid) != 0)
-		_dprintf("FRR: failed to chown %s to %s:%s\n", FRR_RUN_DIR, FRR_DAEMON_USER, FRR_DAEMON_GROUP);
-}
-
 static int frr_invoke_script(const char *action)
 {
 	char cfg_dir[PATH_MAX];
@@ -381,12 +358,9 @@ static void frr_create_dirs(void)
 
 	frr_get_config_dir(cfg_dir, sizeof(cfg_dir));
 
-	mkdir_if_none(FRR_RUN_DIR);
 	mkdir_if_none(cfg_dir);
-	frr_fix_run_dir_owner();
 	
 	/* Set permissions */
-	chmod(FRR_RUN_DIR, 0755);
 	chmod(cfg_dir, 0755);
 }
 
