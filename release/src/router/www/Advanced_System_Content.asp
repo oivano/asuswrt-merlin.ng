@@ -839,7 +839,7 @@ function validForm(){
 		return false;
 	}
 
-	if(document.form.sshd_enable.value != "0" && document.form.sshd_pass[1].checked && document.form.sshd_authkeys.value == ""){		
+	if(document.form.sshd_enable.value != "0" && (document.form.sshd_enable.value == "1" || document.form.sshd_pass[1].checked) && document.form.sshd_authkeys.value.replace(/\s/g, "") == ""){
 		alert("<#JS_fieldblank#>");
 		document.form.sshd_authkeys.focus();
 		return false;
@@ -1618,6 +1618,12 @@ function clean_scorebar(obj){
 
 function check_sshd_enable(obj_value){
 	var state;
+
+	document.form.sshd_pass[0].disabled = (obj_value == "1");
+	if (obj_value == "1") {
+		document.form.sshd_pass[0].checked = false;
+		document.form.sshd_pass[1].checked = true;
+	}
 
 	if (obj_value != 0)
 		state = "";
@@ -2868,7 +2874,7 @@ function build_boostkey_options() {
 						<select name="sshd_enable" class="input_option" onchange="check_sshd_enable(this.value);">
 							<option value="0" <% nvram_match("sshd_enable", "0", "selected"); %>><#checkbox_No#></option>
 							<option value="2" <% nvram_match("sshd_enable", "2", "selected"); %>>LAN only</option>
-							<option value="1" <% nvram_match("sshd_enable", "1", "selected"); %>>LAN & WAN</option>
+							<option value="1" <% nvram_match("sshd_enable", "1", "selected"); %>>LAN & WAN (key only)</option>
 						</select>
 					</td>
 				</tr>

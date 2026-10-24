@@ -82,6 +82,29 @@ not make the entire platform current or eliminate security risks. Do not assume
 that features available on newer Asuswrt-Merlin platforms are available here.
 This is a community fork, not an official ASUS or upstream Asuswrt-Merlin release.
 
+## SSH Access
+
+SSH remains disabled by default. **LAN & WAN mode requires public-key
+authentication on all interfaces**, even if a saved `sshd_pass` setting enables
+passwords. Configure and test an authorized key before upgrading a router that
+currently uses WAN password login; otherwise use the WebUI to configure a key or
+select LAN-only access. LAN-only mode retains optional password authentication.
+
+The Dropbear listener admits five connections per source address in a 60-second
+window. A further connection during that window starts a 300-second block on new
+connections. This applies to IPv4 and IPv6, password and key logins, independently
+of `protect_srv` and firewall settings. Existing sessions remain open. It limits
+connections, not individual authentication failures; successful connections also
+consume the budget. The 64-source table refuses untracked sources while full
+rather than evicting live budgets. Shared source addresses can therefore cause
+temporary denial of access. State resets when Dropbear restarts or the router
+reboots; distributed sources have separate budgets. Web and LAN SSH lockout state
+are not shared; WAN SSH cannot submit password guesses against the web credential.
+
+Source regression checks: `node tools/tests/ssh-auth-budget.js`. A built-image
+check and real IPv4/IPv6 reconnect, cooldown, key-login and LAN-password tests are
+still required before release promotion.
+
 ## USB Swap
 
 Firmware-managed swap is shared by all userland services, including DNSCrypt;

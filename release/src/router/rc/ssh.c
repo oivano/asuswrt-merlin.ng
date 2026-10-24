@@ -72,7 +72,7 @@ int start_sshd(void)
 		port += snprintf(buf, sizeof(buf), "%s:", nvram_safe_get("lan_ipaddr"));
 	snprintf(port, sizeof(buf) - (port - buf), "%d", nvram_get_int("sshd_port") ? : 22);
 
-	if (!nvram_get_int("sshd_pass"))
+	if (nvram_get_int("sshd_enable") == 1 || !nvram_get_int("sshd_pass"))
 		dropbear_argv[index++] = "-s";
 
 	if (nvram_get_int("sshd_rwb")) {
