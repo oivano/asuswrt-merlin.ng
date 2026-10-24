@@ -45,10 +45,10 @@ function show_upnp() {
 			line = upnparray[i];
 
 			code += '<tr>';
-			code += '<td>' + line[0] + '</td>';
-			code += '<td>' + line[1] + '</td>';
-			code += '<td>' + line[2] + '</td>';
-			code += '<td>' + line[3] + '</td>';
+			code += '<td>' + htmlEnDeCode.htmlEncode(line[0]) + '</td>';
+			code += '<td>' + htmlEnDeCode.htmlEncode(line[1]) + '</td>';
+			code += '<td>' + htmlEnDeCode.htmlEncode(line[2]) + '</td>';
+			code += '<td>' + htmlEnDeCode.htmlEncode(line[3]) + '</td>';
 
 			if (line[4] != 0) {
 				Hours = Math.floor((line[4] / 3600));
@@ -59,7 +59,7 @@ function show_upnp() {
 				code += '<td>' + 'N/A' + '</td>';
 			}
 
-			code += '<td>' + line[5].shorter(45) + '</td>';
+			code += '<td>' + htmlEnDeCode.htmlEncode(line[5].shorter(45)) + '</td>';
 			code += '</tr>';
 		}
 	} else {
