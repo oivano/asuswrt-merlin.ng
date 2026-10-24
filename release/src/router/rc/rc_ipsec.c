@@ -134,6 +134,28 @@ static FILE *ipsec_script_open(const char *path, int append)
 	return stream;
 }
 
+static FILE *ipsec_config_open(const char *path, int append)
+{
+	struct stat st;
+	FILE *stream;
+	int descriptor;
+
+	descriptor = open(path, O_WRONLY | O_CREAT | O_NOFOLLOW | O_NONBLOCK |
+				  (append ? O_APPEND : 0), 0600);
+	if (descriptor < 0)
+		return NULL;
+	if (fstat(descriptor, &st) < 0 || !S_ISREG(st.st_mode) || st.st_nlink != 1 ||
+		fchmod(descriptor, 0600) < 0 || fchown(descriptor, 0, 0) < 0 ||
+		fchmod(descriptor, 0600) < 0 || (!append && ftruncate(descriptor, 0) < 0)) {
+		close(descriptor);
+		return NULL;
+	}
+	stream = fdopen(descriptor, append ? "a" : "w");
+	if (!stream)
+		close(descriptor);
+	return stream;
+}
+
 static int ipsec_run_script(const char *path)
 {
 	struct stat st;
@@ -1396,7 +1418,7 @@ void rc_ipsec_conf_default_init()
 {
 	FILE *fp;
 
-	fp = fopen("/etc/ipsec.conf", "w");
+	fp = ipsec_config_open("/etc/ipsec.conf", 0);
 	if (fp == NULL)
 		return;
 
@@ -1418,7 +1440,7 @@ void rc_ipsec_psk_xauth_rw_init()
 {
 	FILE *fp;
 
-	fp = fopen("/etc/ipsec.conf", "a+w");
+	fp = ipsec_config_open("/etc/ipsec.conf", 1);
 	if (fp == NULL)
 		return;
 
@@ -1454,7 +1476,7 @@ void rc_ipsec_secrets_set()
 	FILE *fp = NULL;
 	//char word[80], *next;
 	char tmp[100], prefix[] = "wanXXXXXXXXXX_";
-	fp = fopen("/tmp/etc/ipsec.secrets", "w");
+	fp = ipsec_config_open("/tmp/etc/ipsec.secrets", 0);
 	if(!fp)
 	{
 		DBG(("Cannot open ipsec.secrets!\n"));
@@ -1875,14 +1897,15 @@ void rc_ipsec_topology_set()
 {
     int i,prof_count = 0;
     FILE *fp = NULL;
-    char *p_tmp = NULL, buf[SZ_MIN];
+	char *p_tmp = NULL, buf[SZ_MIN];
     p_tmp = &buf[0];
 
-    char *s_tmp = NULL, buf1[SZ_BUF];
-    s_tmp = &buf1[0];
-
     memset(p_tmp, 0, sizeof(char) * SZ_MIN);
-    fp = fopen("/tmp/etc/ipsec.conf", "w");
+	fp = ipsec_config_open("/tmp/etc/ipsec.conf", 0);
+	if (!fp) {
+		logmessage("ipsec", "Cannot safely open ipsec.conf");
+		return;
+	}
     fprintf(fp,"conn %%default\n  keyexchange=ikev1\n  authby=secret\n  ike=aes256-sha1-modp1024\n");
 
 	for(prof_count = PROF_CLI; prof_count < PROF_ALL; prof_count++){
@@ -1892,33 +1915,14 @@ void rc_ipsec_topology_set()
 	        	sprintf(&buf[0], "ipsec_profile_%d", i+1);
 			else if(PROF_CLI == prof_count)
 				sprintf(&buf[0], "ipsec_profile_client_%d", i+1);
-	        memset(s_tmp, '\0', SZ_BUF);
 				if(!ipsec_profile_valid(nvram_safe_get(buf), 0))
 					continue;
-				strlcpy(s_tmp, nvram_safe_get(buf), sizeof(buf1));
-	        if('\0' == *s_tmp){
-	            memset((ipsec_prof_t *)&prof[prof_count][i], 0, sizeof(ipsec_prof_t));
-	            prof[prof_count][i].ipsec_conn_en = IPSEC_CONN_EN_DEFAULT;
-	            continue;
-	        }
-	        if(VPN_TYPE_NET_NET_SVR == prof[prof_count][i].vpn_type){
-            	fprintf(fp,"#Net-to-Net VPN SVR[prof#%d]:%s\n\n", i, s_tmp);
-	        }
-			else if(VPN_TYPE_NET_NET_CLI == prof[prof_count][i].vpn_type){
-            	fprintf(fp,"#Net-to-Net VPN CLI[prof#%d]:%s\n\n", i, s_tmp);
-	        }
-			else if(VPN_TYPE_NET_NET_PEER == prof[prof_count][i].vpn_type){
-            	fprintf(fp,"#Net-to-Net PEER[prof#%d]:%s\n\n", i, s_tmp);
-	        }
-			else if(VPN_TYPE_HOST_NET == prof[prof_count][i].vpn_type){
-            	fprintf(fp,"#Host-to-NET[prof#%d]:%s\n\n", i, s_tmp);
-			}
-			else if(VPN_TYPE_HOST_NET_CLI == prof[prof_count][i].vpn_type){
-				fprintf(fp,"#Host-to-NET CLI[prof#%d]:%s\n\n", i, s_tmp);
-			}
-			else {
-            	continue;
-        	}
+			if(VPN_TYPE_NET_NET_SVR != prof[prof_count][i].vpn_type &&
+			   VPN_TYPE_NET_NET_CLI != prof[prof_count][i].vpn_type &&
+			   VPN_TYPE_NET_NET_PEER != prof[prof_count][i].vpn_type &&
+			   VPN_TYPE_HOST_NET != prof[prof_count][i].vpn_type &&
+			   VPN_TYPE_HOST_NET_CLI != prof[prof_count][i].vpn_type)
+				continue;
 	        fprintf(fp,"\nconn %s\n", prof[prof_count][i].profilename);
 	        if(VPN_TYPE_HOST_NET != prof[prof_count][i].vpn_type){
             fprintf(fp,"##enforced UDP encapsulation (forceencaps=yes)\n"
