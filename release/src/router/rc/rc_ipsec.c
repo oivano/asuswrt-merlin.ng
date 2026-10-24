@@ -1897,6 +1897,7 @@ void rc_ipsec_topology_set()
 {
     int i,prof_count = 0;
     FILE *fp = NULL;
+	const char *server_ike = "aes256-sha256-modp2048,aes256-sha256-modp3072,aes256-sha256-ecp256!";
 	char *p_tmp = NULL, buf[SZ_MIN];
     p_tmp = &buf[0];
 
@@ -1906,7 +1907,7 @@ void rc_ipsec_topology_set()
 		logmessage("ipsec", "Cannot safely open ipsec.conf");
 		return;
 	}
-    fprintf(fp,"conn %%default\n  keyexchange=ikev1\n  authby=secret\n  ike=aes256-sha1-modp1024\n");
+	fprintf(fp,"conn %%default\n  keyexchange=ikev1\n  authby=secret\n  ike=%s\n", server_ike);
 
 	for(prof_count = PROF_CLI; prof_count < PROF_ALL; prof_count++){
 	    for(i = 0; i < MAX_PROF_NUM; i++){
@@ -1954,6 +1955,10 @@ void rc_ipsec_topology_set()
 	            ipsec_conf_phase1_set(fp, i, prof_count);
 	            ipsec_conf_phase2_set(fp, i, prof_count);
         	}
+			else if(VPN_TYPE_HOST_NET == prof[prof_count][i].vpn_type) {
+				fprintf(fp,"  ike=%s\n", server_ike);
+				fprintf(fp,"  dpdtimeout=30s\n");
+			}
 			else	{
 				fprintf(fp,"  ike=%s-%s-%s\n", encryp[ENCRYPTION_TYPE_AES256], hash[HASH_TYPE_SHA1], dh_group[DH_GROUP_2]);
 				fprintf(fp,"  dpdtimeout=30s\n");	
