@@ -26,7 +26,7 @@ int GenerateCrypt(char *szUser,
 	int nMoveBits;
 	long challengetime_new = 0;
 	unsigned int nKey;
-	int nUser;
+	size_t nUser;
 	unsigned int nEncoded;
 	int temp;
 	unsigned int uTemp;
@@ -65,7 +65,9 @@ int GenerateCrypt(char *szUser,
 		return -1;
 	szKey[nKey] = 0;
 	
-	nUser = strlen((char *)szUser);
+	nUser = strnlen(szUser, sizeof(szAscii));
+	if (nUser > sizeof(szAscii) - 9 - nKey)
+		return -1;
 
 	memcpy(szAscii, szUser, nUser);
 	szAscii[nUser] = ' ';

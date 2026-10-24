@@ -6,9 +6,38 @@
 #include "generate.h"
 #include "lutil.h"
 #include <stdlib.h>
+#include <arpa/inet.h>
 #include <bcmnvram.h>
 
 #define PH_STAT_RESPONSE_MAX_LEN (64 * 1024)
+
+static int ValidRedirectHost(const char *host, size_t length)
+{
+	size_t offset, label = 0;
+	int numeric = 1;
+	struct in_addr address;
+
+	if (length == 0 || length > 253) return 0;
+	for (offset = 0; offset < length; offset++)
+	{
+		unsigned char value = host[offset];
+		if (value == '.')
+		{
+			if (label == 0 || host[offset - 1] == '-') return 0;
+			label = 0;
+			continue;
+		}
+		if (!((value >= 'a' && value <= 'z') ||
+			(value >= 'A' && value <= 'Z') ||
+			(value >= '0' && value <= '9') || value == '-')) return 0;
+		if (label == 0 && value == '-') return 0;
+		if (++label > 63) return 0;
+		if (value < '0' || value > '9') numeric = 0;
+	}
+	if (host[length - 1] == '-') return 0;
+	if (numeric) return inet_pton(AF_INET, host, &address) == 1;
+	return 1;
+}
 
 static char *ReadStatResponse(PHGlobal *phglobal)
 {
@@ -266,7 +295,7 @@ invalid_challenge:
 	len = phReadOneLine(phglobal->m_tcpsocket, buffer,sizeof(buffer));
 	buffer[3] = 0;
 
-	if (len <=0 )
+	if (len < 5 || len >= sizeof(buffer))
 	{
 		LOG(1) (("ExecuteUpdate Recv server auth response failed.\n"));
 		phClose(&phglobal->m_tcpsocket);
@@ -294,13 +323,18 @@ nvram_set("ddns_return_code_chk", "auth_fail");
 			char *pos1 = strchr(pos0 + 1, '>');
 			if (pos1)
 			{
+				size_t hostlen = pos1 - (pos0 + 1);
 				*pos1 = '\0';
-				strcpy(phglobal->szHost, pos0 + 1);
-				
-				phClose(&phglobal->m_tcpsocket);
-				return okRedirecting;
+				if (hostlen < sizeof(phglobal->szHost) &&
+					ValidRedirectHost(pos0 + 1, hostlen))
+				{
+					memcpy(phglobal->szHost, pos0 + 1, hostlen + 1);
+					phClose(&phglobal->m_tcpsocket);
+					return okRedirecting;
+				}
 			}
 		}
+		phClose(&phglobal->m_tcpsocket);
 nvram_set("ddns_return_code", "auth_fail");
 nvram_set("ddns_return_code_chk", "auth_fail");
 		return errorAuthFailed;
