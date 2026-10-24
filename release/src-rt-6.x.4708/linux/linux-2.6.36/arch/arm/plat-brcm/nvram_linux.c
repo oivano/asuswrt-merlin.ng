@@ -31,6 +31,7 @@
 #include <linux/interrupt.h>
 #include <linux/capability.h>
 #include <linux/spinlock.h>
+#include <linux/mutex.h>
 #include <linux/slab.h>
 #include <linux/bootmem.h>
 #include <linux/fs.h>
@@ -155,6 +156,7 @@ static char *NLS_NVRAM_C2U="asusnlsc2u";
 __u16 unibuf[1024];
 char codebuf[1024];
 char tmpbuf[1024];
+static DEFINE_MUTEX(nvram_xfr_mutex);
 
 void
 asusnls_u2c(char *name)
@@ -183,9 +185,17 @@ asusnls_u2c(char *name)
                         {
                                 int i;
                                 for (i = 0; (i < ret) && unibuf[i]; i++) {
-                                        int charlen;
-                                        charlen = nls->uni2char(unibuf[i], &name[len], NLS_MAX_CHARSET_SIZE);
-                                        if (charlen > 0) {
+                                        int charlen, remaining;
+                                        remaining = (int)sizeof(tmpbuf) - 1 - len;
+                                        if (remaining > NLS_MAX_CHARSET_SIZE)
+                                                remaining = NLS_MAX_CHARSET_SIZE;
+                                        if (remaining <= 0) {
+                                                strcpy(name, "");
+                                                unload_nls(nls);
+                                                return;
+                                        }
+                                        charlen = nls->uni2char(unibuf[i], &name[len], remaining);
+                                        if (charlen > 0 && charlen <= remaining) {
                                                 len += charlen;
                                         }
                                         else {
@@ -248,7 +258,12 @@ asusnls_c2u(char *name)
                         }
                         unibuf[i] = 0;
                         //ret=utf8_wcstombs(name, unibuf, 1024);  /* unicode to utf-8, 1024 is size of array unibuf */
-                        ret=utf16s_to_utf8s(unibuf, i, UTF16_HOST_ENDIAN, name, 1024);  /* unicode to utf-8, 1024 is size of array unibuf */
+                        ret=utf16s_to_utf8s(unibuf, i, UTF16_HOST_ENDIAN, name, sizeof(tmpbuf) - 1);
+                        if (ret < 0 || ret >= (int)sizeof(tmpbuf)) {
+                                strcpy(name, "");
+                                unload_nls(nls);
+                                return;
+                        }
                         name[ret]=0;
                         unload_nls(nls);
                         if(!ret)
@@ -271,8 +286,13 @@ nvram_xfr(const char *buf)
         char *name = tmpbuf;
         ssize_t ret=0;
 
+        mutex_lock(&nvram_xfr_mutex);
         if (copy_from_user(name, buf, sizeof(tmpbuf))) {
                 ret = -EFAULT;
+                goto done;
+        }
+        if (!memchr(name, '\0', sizeof(tmpbuf))) {
+                ret = -EINVAL;
                 goto done;
         }
 
@@ -295,6 +315,7 @@ nvram_xfr(const char *buf)
                 goto done;
         }
 done:
+        mutex_unlock(&nvram_xfr_mutex);
         if(ret==0) return tmpbuf;
         else return NULL;
 }
