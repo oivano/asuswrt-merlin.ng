@@ -7,6 +7,22 @@ const root = path.resolve(__dirname, '../..');
 const read = name => fs.readFileSync(path.join(root, name), 'utf8');
 const source = read('release/src/router/infosvr/infosvr.c');
 const common = read('release/src/router/infosvr/common.c');
+const storage = read('release/src/router/infosvr/storage.c');
+
+const hostnameCopy = storage.match(/snprintf\(st->u\.wt\.HostName, sizeof\(st->u\.wt\.HostName\), "%s", nvram_safe_get\("ddns_hostname_x"\)\);/);
+assert(hostnameCopy, 'DDNS hostname must only be used as data');
+const copyHostname = new Function('st', 'snprintf', 'nvram_safe_get', hostnameCopy[0]
+    .replace('sizeof(st->u.wt.HostName)', '64').replace(/->/g, '.'));
+for (const value of ['%n%n%s%s%x%x', 'router.example', 'A'.repeat(80) + '%n']) {
+    const output = Buffer.alloc(64, 0xa5);
+    copyHostname({ u: { wt: { HostName: output } } }, (target, size, format, data) => {
+        assert.equal(format, '%s');
+        const bytes = Buffer.from(data);
+        bytes.copy(target, 0, 0, size - 1);
+        target[Math.min(bytes.length, size - 1)] = 0;
+    }, () => value);
+    assert.equal(output.subarray(0, output.indexOf(0)).toString(), value.slice(0, 63));
+}
 
 function body(text, name) {
     const match = new RegExp('(?:static )?(?:int|DWORD|char \\*)\\s*' + name + '\\([^;{]*\\)\\s*\\{').exec(text);
@@ -124,5 +140,5 @@ assert.equal(check('192.168.1.2'), 0, 'old subnet');
 settings.lan_ifname = '';
 assert.equal(check('10.0.1.2'), 1, 'default bridge fallback');
 
-console.log('PASS: infosvr manufacturing rejection, receive source contracts, and source-derived LAN policy');
+console.log('PASS: infosvr literal DDNS hostname copy, manufacturing rejection, receive source contracts, and source-derived LAN policy');
 console.log('Not compiled C or live UDP/firmware validation.');

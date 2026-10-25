@@ -157,6 +157,36 @@ const badHosts = ['', 'A'.repeat(1000), '6.6.6.6 ' + 'A'.repeat(990),
     'oray.net\0suffix', 'oray.net\xff', '::1', 'oray<net'];
 for (const host of badHosts) assert.equal(validate(host), 0, JSON.stringify(host));
 
+const ddnsBody = body(update, 'static int ValidDdnsHostname(')
+    .replace(/size_t length =/, 'let length =');
+const validDdns = new Function('host', 'strnlen', 'ValidRedirectHost', ddnsBody);
+const validateDdns = host => Number(validDdns(host, boundedLength,
+    (value, length) => validHost(value, length, address => Number(net.isIP(address) === 4))));
+const storeMatch = executeBody.match(/if\(ValidDdnsHostname\(phglobal->szActiveDomains\[i\]\)\)\s*nvram_set\("ddns_hostname_x", phglobal->szActiveDomains\[i\]\);/);
+assert(storeMatch, 'validate each server domain before writing NVRAM');
+assert.equal((executeBody.match(/nvram_set\("ddns_hostname_x"/g) || []).length, 1);
+const storeDdns = new Function('hostname', 'ValidDdnsHostname', 'nvram_set',
+    storeMatch[0].replace(/phglobal->szActiveDomains\[i\]/g, 'hostname'));
+const goodDdns = ['router.example', 'DDNS-1.Oray.NET', 'a'.repeat(63),
+    'a'.repeat(59) + '.net', 'router.example.'];
+const invalidDdns = [...badHosts.filter(host => !host.includes('\0')),
+    '%n%n%s%s%x%x', 'router%p.example', 'router".example',
+    "router'.example", 'a'.repeat(64), 'a'.repeat(60) + '.net', '.'];
+for (const [hosts, accepted] of [[goodDdns, true], [invalidDdns, false]]) {
+    for (const host of hosts) {
+        let stored = 'unchanged.example';
+        let writes = 0;
+        assert.equal(validateDdns(host), Number(accepted), JSON.stringify(host));
+        storeDdns(host, validateDdns, (key, value) => {
+            assert.equal(key, 'ddns_hostname_x');
+            stored = value;
+            writes++;
+        });
+        assert.equal(writes, Number(accepted), JSON.stringify(host));
+        assert.equal(stored, accepted ? host : 'unchanged.example', JSON.stringify(host));
+    }
+}
+
 const redirectStart = executeBody.indexOf('if (strcmp(buffer,"536") == 0)');
 const redirectEnd = executeBody.indexOf('if (strcmp(buffer,"250") == 0)', redirectStart);
 const redirect = executeBody.slice(redirectStart, redirectEnd);
@@ -205,5 +235,5 @@ const invalidResponse = new Function('len', `return ${responseExpression.replace
 for (const length of [-1, 0, 3, 4, 1024]) assert.equal(invalidResponse(length), true);
 assert.equal(invalidResponse(1023), false);
 
-console.log('phddns challenge: source-derived HMAC, challenge/username bounds, redirect validation and disconnect contracts passed');
+console.log('phddns challenge: source-derived HMAC, challenge/username bounds, DDNS hostname filtering, redirect validation and disconnect contracts passed');
 console.log('Not compiled C, ASan, socket/fake-server, or hardware validation.');

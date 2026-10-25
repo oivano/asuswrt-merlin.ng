@@ -61,7 +61,7 @@ int getStorageStatus(STORAGE_INFO_T *st)
 
 	if(nvram_get_int("ddns_enable_x")) {
 		st->u.wt.EnableDDNS = 1;
-		snprintf(st->u.wt.HostName, sizeof(st->u.wt.HostName), nvram_safe_get("ddns_hostname_x"));
+		snprintf(st->u.wt.HostName, sizeof(st->u.wt.HostName), "%s", nvram_safe_get("ddns_hostname_x"));
 	}
 	else {
 		st->u.wt.EnableDDNS = 0;
