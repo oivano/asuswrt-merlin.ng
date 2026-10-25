@@ -7612,8 +7612,11 @@ int generate_mdns_config(void)
 {
 	FILE *fp;
 	char avahi_config[80];
+	char wan_ifname_key[32];
+	char *wan_ifname;
+	int unit;
+	int first_wan_ifname = 1;
 	int ret = 0;
-	char *wan1_ifname;
 
 	sprintf(avahi_config, "%s/%s", AVAHI_CONFIG_PATH, AVAHI_CONFIG_FN);
 
@@ -7636,11 +7639,34 @@ int generate_mdns_config(void)
 #endif
 	fprintf(fp, "use-ipv4=yes\n");
 	fprintf(fp, "use-ipv6=no\n");
-	fprintf(fp, "deny-interfaces=%s", nvram_safe_get("wan0_ifname"));
+	fprintf(fp, "deny-interfaces=");
+	for (unit = WAN_UNIT_FIRST; unit < WAN_UNIT_MAX; ++unit) {
+		snprintf(wan_ifname_key, sizeof(wan_ifname_key), "wan%d_ifname", unit);
+		wan_ifname = nvram_safe_get(wan_ifname_key);
+		if (*wan_ifname) {
+			fprintf(fp, "%s%s", first_wan_ifname ? "" : ",", wan_ifname);
+			first_wan_ifname = 0;
+		}
+	}
+#ifdef RTCONFIG_MULTISERVICE_WAN
+	for (unit = WAN_UNIT_FIRST_MULTISRV_START; unit <= WAN_UNIT_FIRST_MULTISRV_END; ++unit) {
+		snprintf(wan_ifname_key, sizeof(wan_ifname_key), "wan%d_ifname", unit);
+		wan_ifname = nvram_safe_get(wan_ifname_key);
+		if (*wan_ifname) {
+			fprintf(fp, "%s%s", first_wan_ifname ? "" : ",", wan_ifname);
+			first_wan_ifname = 0;
+		}
+	}
 #ifdef RTCONFIG_DUALWAN
-	wan1_ifname = nvram_safe_get("wan1_ifname");
-	if (*wan1_ifname)
-		fprintf(fp, ",%s", wan1_ifname);
+	for (unit = WAN_UNIT_SECOND_MULTISRV_START; unit <= WAN_UNIT_SECOND_MULTISRV_END; ++unit) {
+		snprintf(wan_ifname_key, sizeof(wan_ifname_key), "wan%d_ifname", unit);
+		wan_ifname = nvram_safe_get(wan_ifname_key);
+		if (*wan_ifname) {
+			fprintf(fp, "%s%s", first_wan_ifname ? "" : ",", wan_ifname);
+			first_wan_ifname = 0;
+		}
+	}
+#endif
 #endif
 	fprintf(fp, "\n");
 	fprintf(fp, "ratelimit-interval-usec=1000000\n");
