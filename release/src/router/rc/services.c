@@ -7100,7 +7100,7 @@ void start_upnp(void)
 	}
 #endif
 	snprintf(prefix, sizeof(prefix), "wan%d_", unit);
-	upnp_mnp_enable = nvram_get_int("upnp_mnp");
+	upnp_mnp_enable = nvram_get_int("upnp_mnp") && !nvram_get_int("upnp_secure");
 
 	if (nvram_get_int(strcat_r(prefix, "upnp_enable", tmp)))
 		run_upnpd = 1;

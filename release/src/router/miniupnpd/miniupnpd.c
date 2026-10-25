@@ -2413,6 +2413,12 @@ main(int argc, char * * argv)
 	memset(&v, 0, sizeof(v));
 	if(init(argc, argv, &v) != 0)
 		return 1;
+#ifdef ENABLE_NATPMP
+	if(GETFLAG(SECUREMODEMASK) && GETFLAG(ENABLENATPMPMASK)) {
+		syslog(LOG_NOTICE, "NAT-PMP/PCP disabled in secure mode: UDP source ownership cannot be verified");
+		CLEARFLAG(ENABLENATPMPMASK);
+	}
+#endif
 	current_notify_interval = gen_current_notify_interval(v.notify_interval);
 #ifdef ENABLE_HTTPS
 	if(init_ssl() < 0)
@@ -2669,7 +2675,7 @@ main(int argc, char * * argv)
 #endif
 
 #if defined(ENABLE_IPV6) && defined(ENABLE_PCP)
-	if(!GETFLAG(IPV6DISABLEDMASK)) {
+	if(GETFLAG(ENABLENATPMPMASK) && !GETFLAG(IPV6DISABLEDMASK)) {
 		spcp_v6 = OpenAndConfPCPv6Socket();
 	}
 #endif

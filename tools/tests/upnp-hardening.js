@@ -9,6 +9,55 @@ const miniupnpd = fs.readFileSync(path.join(root, 'release/src/router/miniupnpd/
 const arrays = fs.readFileSync(path.join(root, 'release/src/router/httpd/data_arrays.c'), 'utf8');
 const page = fs.readFileSync(path.join(root, 'release/src/router/www/Main_IPTStatus_Content.asp'), 'utf8');
 const soap = fs.readFileSync(path.join(root, 'release/src/router/miniupnpd/upnpsoap.c'), 'utf8');
+const lan = fs.readFileSync(path.join(root, 'release/src/router/rc/lan.c'), 'utf8');
+const help = fs.readFileSync(path.join(root, 'release/src/router/www/help_content.js'), 'utf8');
+assert(help.includes('NAT-PMP and PCP are disabled in this mode'));
+
+const protocolSetting = services.match(/upnp_mnp_enable = (nvram_get_int\("upnp_mnp"\)[^;]*);/)[1];
+const configuredProtocols = vm.runInNewContext(`(function(settings) {
+	const nvram_get_int = key => settings[key];
+	return Boolean(${protocolSetting});
+})`);
+const protocolPolicy = miniupnpd.match(/\tif\(GETFLAG\(SECUREMODEMASK\) && GETFLAG\(ENABLENATPMPMASK\)\) \{[\s\S]*?\n\t\}/)[0];
+const enforceProtocolPolicy = vm.runInNewContext(`(function(secure, enabled) {
+	const SECUREMODEMASK = 1, ENABLENATPMPMASK = 2, LOG_NOTICE = 0;
+	const GETFLAG = mask => mask === SECUREMODEMASK ? secure : enabled;
+	const CLEARFLAG = mask => { if (mask === ENABLENATPMPMASK) enabled = false; };
+	const syslog = () => {};
+	${protocolPolicy}
+	return enabled;
+})`);
+for (const secure of [false, true]) {
+	for (const enabled of [false, true]) {
+		assert.equal(configuredProtocols({ upnp_secure: Number(secure), upnp_mnp: Number(enabled) }), enabled && !secure);
+		assert.equal(enforceProtocolPolicy(secure, enabled), enabled && !secure);
+	}
+}
+assert(miniupnpd.indexOf(protocolPolicy) > miniupnpd.indexOf('if(init(argc, argv, &v) != 0)'));
+assert(miniupnpd.indexOf(protocolPolicy) < miniupnpd.indexOf('OpenAndConfNATPMPSockets(snatpmp)'));
+assert.match(miniupnpd, /if\(GETFLAG\(ENABLENATPMPMASK\)\)\s*\{\s*if\(OpenAndConfNATPMPSockets\(snatpmp\)/);
+assert.match(miniupnpd, /if\(GETFLAG\(ENABLENATPMPMASK\) && !GETFLAG\(IPV6DISABLEDMASK\)\) \{\s*spcp_v6 = OpenAndConfPCPv6Socket\(\);/);
+
+const guestIsolation = lan.slice(lan.indexOf('\nvoid lanaccess_mssid('), lan.indexOf('\nvoid CP_lanaccess_wl('));
+const guestUdpRule = guestIsolation.match(/eval\("ebtables", mode \? "-A" : "-D", "INPUT",[^;]*"5351"[^;]*;/)[0];
+const generateGuestUdpRule = vm.runInNewContext(`(function(lifname, mode) {
+	let args;
+	const evalRule = (...values) => { args = values; };
+	${guestUdpRule.replace('eval(', 'evalRule(')}
+	return args;
+})`);
+for (const iface of ['wl0.1', 'wl0.2', 'wl1.1', 'wl1.3']) {
+	for (const mode of [0, 1]) {
+		assert.deepEqual(Array.from(generateGuestUdpRule(iface, mode)), [
+			'ebtables', mode ? '-A' : '-D', 'INPUT', '-i', iface, '-p', 'ipv4',
+			'--ip-proto', 'udp', '--ip-dport', '5351', '-j', 'DROP'
+		]);
+	}
+}
+assert(!guestUdpRule.includes('--ip-src'));
+assert(!guestUdpRule.includes('--ip-dst'));
+assert(guestIsolation.indexOf(guestUdpRule) > guestIsolation.indexOf('if (!is_router_mode()) return;'));
+assert(guestIsolation.indexOf(guestUdpRule) < guestIsolation.indexOf('#ifdef RTCONFIG_WIFI_SON'));
 
 const rangeDelete = soap.slice(soap.indexOf('\nDeletePortMappingRange('), soap.indexOf('\nGetGenericPortMappingEntry('));
 const deleteLoop = rangeDelete.match(/for\(i = 0; i < number; i\+\+\)[\s\S]*?\n\t\}\n\tfree\(port_list\);/)[0];
@@ -132,4 +181,4 @@ for (const payload of [
 	}
 }
 
-console.log('PASS: UPnP range-delete ownership, IGD action registration, config hardening, serialization, and lease rendering');
+console.log('PASS: secure-mode NAT-PMP/PCP policy, guest UDP isolation, UPnP ownership, config hardening, and lease rendering (source/model checks, not firmware execution)');
