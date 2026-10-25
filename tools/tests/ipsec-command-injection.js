@@ -70,6 +70,109 @@ assert.equal(validAuthKey('vpnKey_123+/='), true);
 for (const invalid of ['K>x', 'x;reboot;', '$(id)', 'two words'])
     assert.equal(validAuthKey(invalid), false, invalid);
 
+const tunables = ['ipsec_server_enable', 'auth_method_key', 'dead_peer_detection', 'ipsec_dpd', 'virtual_subnet'];
+const handlerCapacities = Object.fromEntries(tunables.map(name => [name,
+    Number(profileHandler.match(new RegExp(`\\b${name}\\[(\\d+)\\] = \\{0\\}`))[1])]));
+const fallbackFields = Object.fromEntries([...profileHandler.matchAll(/(\w+)_ptr = profile_fields\[(\d+)\];/g)]
+    .map(([, name, index]) => [name, Number(index)]));
+assert.deepEqual(fallbackFields, { auth_method_key: 7, dead_peer_detection: 31, ipsec_dpd: 30, virtual_subnet: 14 });
+const lengthGuard = profileHandler.match(/if\((!auth_method_key_ptr[^]*?)\)\{\s*ret = HTTP_INVALID_INPUT;/)[1];
+const countGuard = profileHandler.match(/if\((profile_next != NULL[^]*?)\)\{\s*ret = HTTP_INVALID_INPUT;/)[1];
+const enableGuard = profileHandler.match(/if\(((?:\(strcmp\(ipsec_server_enable)[^]*?)\)\{\s*HTTPD_DBG/)[1];
+const dpdGuard = profileHandler.match(/if\((!isValid_digit_string\(ipsec_dpd\)[^]*?)\)\{/)[1];
+const evaluateGuard = (expression, values) => new Function(...Object.keys(values), `
+    const strlen = value => Buffer.byteLength(value);
+    const strcmp = (left, right) => left === right ? 0 : 1;
+    const isValid_digit_string = value => /^[0-9]+$/.test(value);
+    const atoi = value => Number.parseInt(value, 10) || 0;
+    return Boolean(${expression.replace(/sizeof\((\w+)\)/g, (_, name) => handlerCapacities[name])
+        .replace(/\bNULL\b/g, 'null')});`)(...Object.values(values));
+for (const name of tunables) {
+    assert.match(lengthGuard, new RegExp(`strlen\\(${name}_ptr\\) >= sizeof\\(${name}\\)`));
+    assert.match(profileHandler, new RegExp(`strlcpy\\(${name}, ${name}_ptr, sizeof\\(${name}\\)\\);`));
+    assert.ok(profileHandler.indexOf(lengthGuard) < profileHandler.indexOf(`strlcpy(${name},`));
+}
+assert.doesNotMatch(profileHandler, /sizeof\(tmp_str\)|get_string_in_62/);
+assert.match(profileHandler, /strlcpy\(ipsec_profile_tmp,[^\n]+>= sizeof\(ipsec_profile_tmp\)/);
+assert.match(profileHandler, /while\(profile_count < 43 && profile_next != NULL\)\s*profile_fields\[profile_count\+\+\] = strsep\(&profile_next, ">"\);/);
+for (const guard of [lengthGuard, countGuard, enableGuard, dpdGuard])
+    assert.ok(profileHandler.indexOf(guard) < profileHandler.indexOf('nvram_set('));
+
+// Execute the C guard expressions with source-derived capacities/field indices, not native C.
+const profileUpdate = (stored, request = {}, enabled = '1') => {
+    const unchanged = { profile: stored, commits: 0, notifications: 0 };
+    if (Buffer.byteLength(stored) >= 1024) return unchanged;
+    const fields = stored ? stored.split('>') : [];
+    if (stored && evaluateGuard(countGuard, {
+        profile_count: Math.min(fields.length, 43), profile_next: fields.length > 43 ? '' : null
+    })) return unchanged;
+    const values = Object.fromEntries(tunables.map(name => [`${name}_ptr`, request[name] ??
+        (name === 'ipsec_server_enable' ? enabled : fields[fallbackFields[name]] ?? null)]));
+    if (evaluateGuard(lengthGuard, values)) return unchanged;
+    const effective = Object.fromEntries(tunables.map(name => [name, values[`${name}_ptr`]]));
+    if (evaluateGuard(enableGuard, effective) || evaluateGuard(dpdGuard, effective) ||
+        !validAuthKey(effective.auth_method_key) || !normalize(effective.virtual_subnet)) return unchanged;
+    return { profile: 'validated replacement', commits: 1, notifications: request.do_rc === '1' ? 1 : 0 };
+};
+const fallbackTemplate = profileHandler.match(/snprintf\(ipsec_profile_1,[^,]+,\s*"([^"]*)"/)[1];
+const fallbackProfile = fallbackTemplate.split('>').map((field, index) => field.replace(/%s/g,
+    ({ 7: 'vpnKey_123+/=', 14: '10.10.10', 30: '10', 31: '1', 36: '<<<<' })[index] ?? 'safe'));
+assert.equal(fallbackProfile.length, 38);
+assert.equal(profileUpdate(fallbackProfile.join('>')).commits, 1, 'omitted tunables use valid stored fields');
+assert.equal(profileUpdate(fallbackProfile.join('>'), { ipsec_dpd: '900' }).commits, 1, 'partial update');
+const expectRefused = (stored, request = {}, enabled = '1') => {
+    assert.deepEqual(profileUpdate(stored, request, enabled), { profile: stored, commits: 0, notifications: 0 });
+};
+for (const index of [7, 14, 30, 31]) {
+    const fields = [...fallbackProfile];
+    fields[index] = 'A'.repeat(127);
+    expectRefused(fields.join('>'));
+}
+const allOversized = [...fallbackProfile];
+for (const index of [7, 14, 30, 31]) allOversized[index] = 'A'.repeat(127);
+expectRefused(allOversized.join('>'), { samba_dns1: '', samba_dns2: '', samba_win1: '', samba_win2: '' });
+for (const name of tunables) {
+    expectRefused(fallbackProfile.join('>'), { [name]: '1'.repeat(handlerCapacities[name]), do_rc: '1' });
+    if (name !== 'virtual_subnet') {
+        const fields = [...fallbackProfile];
+        if (name === 'ipsec_server_enable') expectRefused(fields.join('>'), {}, '1'.repeat(127));
+        else {
+            fields[fallbackFields[name]] = '1'.repeat(handlerCapacities[name]);
+            expectRefused(fields.join('>'));
+        }
+    }
+}
+for (const key of ['>>>>>>>'.concat('A'.repeat(25)), '<key', '>key', 'A'.repeat(33),
+    ...Array.from({ length: 32 }, (_, code) => `key${String.fromCharCode(code)}x`), 'key\x7fx']) {
+    expectRefused(fallbackProfile.join('>'), { auth_method_key: key, do_rc: '1' });
+    const fields = [...fallbackProfile];
+    fields[7] = key;
+    expectRefused(fields.join('>'));
+}
+for (const invalid of ['', 'x', '2', '10', '-1']) {
+    expectRefused(fallbackProfile.join('>'), { ipsec_server_enable: invalid });
+    const fields = [...fallbackProfile];
+    fields[31] = invalid;
+    expectRefused(fields.join('>'));
+}
+for (const invalid of ['', '9', '901', '10x', '1000', '-10']) {
+    const fields = [...fallbackProfile];
+    fields[30] = invalid;
+    expectRefused(fields.join('>'));
+    expectRefused(fallbackProfile.join('>'), { ipsec_dpd: invalid });
+}
+for (const invalid of ['1.2.3.4/33', '1.2.3.4/2/3', '256.1.1.1', '10.0.0;id']) {
+    const fields = [...fallbackProfile];
+    fields[14] = invalid;
+    expectRefused(fields.join('>'));
+}
+for (const count of [1, 7, 14, 30, 31, 37, 39, 42, 44])
+    expectRefused(Array(count).fill('0').join('>'));
+expectRefused('');
+expectRefused('A'.repeat(1024));
+assert.equal(profileUpdate(fallbackProfile.join('>'), { auth_method_key: 'A'.repeat(32), ipsec_dpd: '10', do_rc: '1' }).notifications, 1);
+assert.equal(profileUpdate([...fallbackProfile, 'pubkey', 'svrCert.pem', 'always', 'svrKey.pem', '%identity'].join('>')).commits, 1);
+
 const validClient = value => value.length > 0 && value.length <= 64 && /^[A-Za-z0-9_.@-]+$/.test(value);
 assert.equal(validClient('client-01@example.net'), true);
 for (const invalid of ['name>evil', 'x;id', '$(reboot)', 'two words', '<client>'])

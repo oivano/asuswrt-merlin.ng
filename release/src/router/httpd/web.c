@@ -17515,7 +17515,9 @@ do_set_ipsec_profile_cgi(char *url, FILE *stream)
 {
 	int ret = 200;
 	char ipsec_profile_1[1024] = {0}, ipsec_profile_2[1024] = {0}, sambalist[128] = {0}, sambalist_tmp[128] = {0}, remote_id[128] = {0};
-	char ipsec_profile_tmp[1024] = {0}, tmp_str[128] = {0};
+	char ipsec_profile_tmp[1024] = {0};
+	char *profile_fields[43] = {0}, *profile_next;
+	int profile_count = 0;
 
 	char *ipsec_server_enable_ptr = NULL, *auth_method_key_ptr = NULL, *dead_peer_detection_ptr = NULL, *ipsec_dpd_ptr = NULL, *virtual_subnet_ptr = NULL;
 	char *do_rc = NULL, *samba_dns1_ptr = NULL, *samba_dns2_ptr = NULL, *samba_win1_ptr = NULL, *samba_win2_ptr = NULL;
@@ -17531,48 +17533,59 @@ do_set_ipsec_profile_cgi(char *url, FILE *stream)
 
 	do_rc = safe_get_cgi_json("do_rc", root);
 
-	strlcpy(ipsec_profile_tmp, nvram_safe_get("ipsec_profile_1"), sizeof(ipsec_profile_tmp));
-
-	if((ipsec_server_enable_ptr = get_cgi_json("ipsec_server_enable", root)) == NULL){
-		strlcpy(ipsec_server_enable, nvram_safe_get("ipsec_server_enable"), sizeof(tmp_str));
+	if(strlcpy(ipsec_profile_tmp, nvram_safe_get("ipsec_profile_1"), sizeof(ipsec_profile_tmp)) >= sizeof(ipsec_profile_tmp)){
+		ret = HTTP_INVALID_INPUT;
+		goto FINISH;
 	}
-	else
-		strlcpy(ipsec_server_enable, ipsec_server_enable_ptr, sizeof(ipsec_server_enable));
-
-	if((auth_method_key_ptr = get_cgi_json("auth_method_key", root)) == NULL){
-		memset(tmp_str, 0, sizeof(tmp_str));
-		get_string_in_62(ipsec_profile_tmp, 7, tmp_str, sizeof(tmp_str));
-		strlcpy(auth_method_key, tmp_str, sizeof(tmp_str));
+	if(*ipsec_profile_tmp){
+		profile_next = ipsec_profile_tmp;
+		while(profile_count < 43 && profile_next != NULL)
+			profile_fields[profile_count++] = strsep(&profile_next, ">");
+		if(profile_next != NULL || (profile_count != 38 && profile_count != 43)){
+			ret = HTTP_INVALID_INPUT;
+			goto FINISH;
+		}
 	}
-	else
-		strlcpy(auth_method_key, auth_method_key_ptr, sizeof(auth_method_key));
 
-	if((dead_peer_detection_ptr = get_cgi_json("dead_peer_detection", root)) == NULL){
-		memset(tmp_str, 0, sizeof(tmp_str));
-		get_string_in_62(ipsec_profile_tmp, 31, tmp_str, sizeof(tmp_str));
-		strlcpy(dead_peer_detection, tmp_str, sizeof(tmp_str));
+	if((ipsec_server_enable_ptr = get_cgi_json("ipsec_server_enable", root)) == NULL)
+		ipsec_server_enable_ptr = nvram_safe_get("ipsec_server_enable");
+	if((auth_method_key_ptr = get_cgi_json("auth_method_key", root)) == NULL)
+		auth_method_key_ptr = profile_fields[7];
+	if((dead_peer_detection_ptr = get_cgi_json("dead_peer_detection", root)) == NULL)
+		dead_peer_detection_ptr = profile_fields[31];
+	if((ipsec_dpd_ptr = get_cgi_json("ipsec_dpd", root)) == NULL)
+		ipsec_dpd_ptr = profile_fields[30];
+	if((virtual_subnet_ptr = get_cgi_json("virtual_subnet", root)) == NULL)
+		virtual_subnet_ptr = profile_fields[14];
+
+	if(!auth_method_key_ptr || !dead_peer_detection_ptr || !ipsec_dpd_ptr || !virtual_subnet_ptr ||
+	   strlen(ipsec_server_enable_ptr) >= sizeof(ipsec_server_enable) ||
+	   strlen(auth_method_key_ptr) >= sizeof(auth_method_key) ||
+	   strlen(dead_peer_detection_ptr) >= sizeof(dead_peer_detection) ||
+	   strlen(ipsec_dpd_ptr) >= sizeof(ipsec_dpd) ||
+	   strlen(virtual_subnet_ptr) >= sizeof(virtual_subnet)){
+		ret = HTTP_INVALID_INPUT;
+		goto FINISH;
 	}
-	else
-		strlcpy(dead_peer_detection, dead_peer_detection_ptr, sizeof(dead_peer_detection));
+	strlcpy(ipsec_server_enable, ipsec_server_enable_ptr, sizeof(ipsec_server_enable));
+	strlcpy(auth_method_key, auth_method_key_ptr, sizeof(auth_method_key));
+	strlcpy(dead_peer_detection, dead_peer_detection_ptr, sizeof(dead_peer_detection));
+	strlcpy(ipsec_dpd, ipsec_dpd_ptr, sizeof(ipsec_dpd));
+	strlcpy(virtual_subnet, virtual_subnet_ptr, sizeof(virtual_subnet));
 
-	if((ipsec_dpd_ptr = get_cgi_json("ipsec_dpd", root)) == NULL){
-		memset(tmp_str, 0, sizeof(tmp_str));
-		get_string_in_62(ipsec_profile_tmp, 30, tmp_str, sizeof(tmp_str));
-		strlcpy(ipsec_dpd, tmp_str, sizeof(tmp_str));
+	if(profile_fields[36]){
+		if(strlcpy(sambalist_tmp, profile_fields[36], sizeof(sambalist_tmp)) >= sizeof(sambalist_tmp) ||
+		   sambalist_tmp[0] != '<' ||
+		   vstrsep(sambalist_tmp+1, "<", &samba_dns1_ptr_t, &samba_dns2_ptr_t, &samba_win1_ptr_t, &samba_win2_ptr_t) != 4){
+			ret = HTTP_INVALID_INPUT;
+			goto FINISH;
+		}
 	}
-	else
-		strlcpy(ipsec_dpd, ipsec_dpd_ptr, sizeof(ipsec_dpd));
-
-	if((virtual_subnet_ptr = get_cgi_json("virtual_subnet", root)) == NULL){
-		memset(tmp_str, 0, sizeof(tmp_str));
-		get_string_in_62(ipsec_profile_tmp, 14, tmp_str, sizeof(tmp_str));
-		strlcpy(virtual_subnet, tmp_str, sizeof(tmp_str));
+	else if(!get_cgi_json("samba_dns1", root) || !get_cgi_json("samba_dns2", root) ||
+	        !get_cgi_json("samba_win1", root) || !get_cgi_json("samba_win2", root)){
+		ret = HTTP_INVALID_INPUT;
+		goto FINISH;
 	}
-	else
-		strlcpy(virtual_subnet, virtual_subnet_ptr, sizeof(virtual_subnet));
-
-	get_string_in_62(ipsec_profile_tmp, 36, sambalist_tmp, sizeof(sambalist_tmp));
-	vstrsep(sambalist_tmp+1, "<", &samba_dns1_ptr_t, &samba_dns2_ptr_t, &samba_win1_ptr_t, &samba_win2_ptr_t);
 
 	if((samba_dns1_ptr = get_cgi_json("samba_dns1", root)) == NULL)
 		strlcpy(samba_dns1, samba_dns1_ptr_t, sizeof(samba_dns1));
@@ -17594,7 +17607,8 @@ do_set_ipsec_profile_cgi(char *url, FILE *stream)
 	else
 		strlcpy(samba_win2, samba_win2_ptr, sizeof(samba_win2));
 
-	if(!isValidEnableOption(ipsec_server_enable, 1) || !isValidEnableOption(dead_peer_detection, 1)){
+	if((strcmp(ipsec_server_enable, "0") && strcmp(ipsec_server_enable, "1")) ||
+	   (strcmp(dead_peer_detection, "0") && strcmp(dead_peer_detection, "1"))){
 		HTTPD_DBG("invalid enabled option\n");
 		ret = HTTP_INVALID_ENABLE_OPT;
 		goto FINISH;
@@ -17614,8 +17628,7 @@ do_set_ipsec_profile_cgi(char *url, FILE *stream)
 		ret = HTTP_INVALID_IPADDR;
 		goto FINISH;
 	}
-	if((auth_method_key_ptr && strlen(auth_method_key_ptr) > 32) ||
-	   !ipsec_auth_method_key_valid(auth_method_key) ||
+	if(!ipsec_auth_method_key_valid(auth_method_key) ||
 	   !ipsec_virtual_subnet_normalize(virtual_subnet, normalized_virtual_subnet, sizeof(normalized_virtual_subnet))){
 		ret = HTTP_INVALID_INPUT;
 		goto FINISH;
