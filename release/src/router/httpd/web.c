@@ -28783,6 +28783,100 @@ struct ipsec_conn_token_table{
 	ipsec_conn_token_t *next;
 };
 
+static int ipsec_status_copy_span(char *dest, size_t dest_size, const char *start, const char *end)
+{
+	size_t len;
+
+	if(dest_size == 0 || start == NULL || end == NULL || end < start)
+		return 0;
+
+	len = end - start;
+	if(len >= dest_size)
+		len = dest_size - 1;
+	memcpy(dest, start, len);
+	dest[len] = '\0';
+	return 1;
+}
+
+static int ipsec_status_parse_peer(const char *line, char *ipaddr, size_t ipaddr_size,
+				   char *identity, size_t identity_size)
+{
+	const char *open[3], *close[3], *cursor, *status_comma, *address;
+	int i;
+
+	if(line == NULL || ipaddr == NULL || identity == NULL)
+		return 0;
+	while(*line == ' ' || *line == '\t')
+		line++;
+	if(strncmp(line, "Remote XAuth identity:", sizeof("Remote XAuth identity:") - 1) == 0 ||
+	   strncmp(line, "Remote EAP identity:", sizeof("Remote EAP identity:") - 1) == 0)
+		return 0;
+	cursor = line;
+
+	for(i = 0; i < 3; i++) {
+		open[i] = strchr(cursor, '[');
+		if(open[i] == NULL || (close[i] = strchr(open[i] + 1, ']')) == NULL)
+			return 0;
+		cursor = close[i] + 1;
+	}
+	if(strchr(cursor, '[') != NULL || strchr(cursor, ']') != NULL)
+		return 0;
+
+	status_comma = strchr(close[0] + 1, ',');
+	if(status_comma == NULL || status_comma > open[1] ||
+	   memchr(open[1] + 1, ',', close[1] - open[1] - 1) != NULL ||
+	   memchr(open[2] + 1, ',', close[2] - open[2] - 1) != NULL)
+		return 0;
+
+	if(strncmp(close[1] + 1, "...", 3) != 0 ||
+	   open[2] <= close[1] + 4)
+		return 0;
+	address = close[1] + 4;
+	if(memchr(address, ',', open[2] - address) != NULL)
+		return 0;
+
+	return ipsec_status_copy_span(ipaddr, ipaddr_size, address, open[2]) &&
+	       ipsec_status_copy_span(identity, identity_size, open[2] + 1, close[2]);
+}
+
+static int ipsec_status_read_line(FILE *stream, char *line, size_t capacity)
+{
+	size_t len;
+	int ch;
+
+	if(stream == NULL || line == NULL || capacity < 2)
+		return -1;
+	if(fgets(line, capacity, stream) == NULL) {
+		line[0] = '\0';
+		return 0;
+	}
+	len = strlen(line);
+	if(len > 0 && line[len - 1] == '\n')
+		return 1;
+
+	while((ch = fgetc(stream)) != EOF && ch != '\n')
+		;
+	line[0] = '\0';
+	return -1;
+}
+
+static void ipsec_status_copy_value(char *dest, size_t dest_size, const char *line, const char *label)
+{
+	const char *value, *end;
+
+	if(dest_size == 0)
+		return;
+	dest[0] = '\0';
+	value = strstr(line, label);
+	if(value == NULL)
+		return;
+	value += strlen(label);
+	while(*value == ' ' || *value == '\t')
+		value++;
+	end = value + strcspn(value, "\r\n");
+	ipsec_status_copy_span(dest, dest_size, value, end);
+}
+
 static int find_acc_in_IG_list(char *account, char *dev_name, int dev_name_len, char *group)
 {
 	char word[1024]={0}, *word_next=NULL;
@@ -28812,11 +28906,10 @@ static int find_acc_in_IG_list(char *account, char *dev_name, int dev_name_len, 
 static int
 get_ipsec_conn_info(struct json_object *ipsec_conn_obj, int for_json)
 {
-	int ret = 0, len = 0, change_to_new_profile = 0;
+	int ret = 0, len = 0, change_to_new_profile = 0, line_result;
 	char line[512] = {0};
-	char *tmp_ip_start = NULL, *tmp_name = NULL, *tmp_ip_end = NULL, *tmp_xauth = NULL,*tmp_period_s = NULL,*tmp_period_e = NULL,*tmp_reauth = NULL;
-	char *tmp_eap_start = NULL, *tmp_eap_end = NULL;
-	char dest_name[32] = {0},dest_ip[32] = {0},dest_xauth[33] = {0},dest_period[32] = {0},dest_reauth[32] = {0}, dev_name[33] = {0};
+	char *tmp_name = NULL, *tmp_period_s = NULL, *tmp_period_e = NULL;
+	char dest_name[32] = {0}, peer_identity[33] = {0}, dev_name[33] = {0};
 	char profile_name[PROFILE_NAME_LENTH] = {0}, ipaddr[16] = {0}, conn_status[8] = {0}, conn_period[16] = {0}, xauth_account[33] = {0}, eap_account[33] = {0}, psk_reauth_time[16] = {0};
 	char cmd[64] = {0}, bytes_buf[64] = {0}, bytes_i[64] = {0}, bytes_o[64] = {0};
 	char acc_group[16] = {0}, ig_account[33] = {0}, compare_account[33] = {0};
@@ -28842,8 +28935,11 @@ get_ipsec_conn_info(struct json_object *ipsec_conn_obj, int for_json)
 		{
 			if(change_to_new_profile != 1)
 			{
-				if(!fgets(line, sizeof(line), p_fp))
+				line_result = ipsec_status_read_line(p_fp, line, sizeof(line));
+				if(line_result == 0)
 					break;
+				if(line_result < 0)
+					continue;
 			}
 			else
 			{
@@ -28859,86 +28955,62 @@ get_ipsec_conn_info(struct json_object *ipsec_conn_obj, int for_json)
 				memset(xauth_account, 0, sizeof(xauth_account));
 				memset(eap_account, 0, sizeof(eap_account));
 				memset(psk_reauth_time, 0, sizeof(psk_reauth_time));
+				memset(peer_identity, 0, sizeof(peer_identity));
 
-				tmp_name = index(line,'[');
-				len = strlen(line)-strlen(tmp_name);
-				strncpy(dest_name,line,len);
+				tmp_name = strchr(line, '[');
+				if(tmp_name == NULL)
+					continue;
+				len = tmp_name - line;
+				if(len == 0 || len >= sizeof(dest_name))
+					continue;
+				memcpy(dest_name, line, len);
 				dest_name[len] = '\0';
-				while(strchr(dest_name,' ')!=NULL)
-					strlcpy(dest_name,dest_name+1, sizeof(dest_name));
+				while(dest_name[0] == ' ')
+					memmove(dest_name, dest_name + 1, strlen(dest_name));
 				strlcpy(profile_name, dest_name, sizeof(profile_name));
+				if(!ipsec_status_parse_peer(line, ipaddr, sizeof(ipaddr), peer_identity, sizeof(peer_identity)))
+					continue;
 
 				if(strstr(line,"ESTABLISHED") != NULL) {
 					strlcpy(conn_status, "3", sizeof(conn_status)); /* phase 1 established */
-					
-					/* ipaddr */
-					tmp_ip_start = index(line,',');
-					tmp_ip_start = index(tmp_ip_start,']');
-					tmp_ip_end = rindex(line,'[');
-					len = strlen(tmp_ip_start) - strlen(tmp_ip_end);
-					strncpy(dest_ip,tmp_ip_start,len);
-					dest_ip[len] = '\0';
-					strlcpy(dest_ip,dest_ip+4, sizeof(dest_ip));
-					strlcpy(ipaddr,dest_ip, sizeof(ipaddr));
-					
-					/* connected period */	
-					tmp_period_s = index(line,'D')+2;
-					tmp_period_e = index(line,',')-4;
-					len = strlen(tmp_period_s)-strlen(tmp_period_e);
-					strncpy(dest_period,tmp_period_s,len);
-					dest_period[len] = '\0';
-					strlcpy(conn_period,dest_period, sizeof(conn_period));
+					/* connected period */
+					tmp_period_s = strchr(line, 'D');
+					tmp_period_e = strchr(line, ',');
+					if(tmp_period_s != NULL && tmp_period_e != NULL && tmp_period_e - line >= 4) {
+						tmp_period_s += 2;
+						tmp_period_e -= 4;
+						ipsec_status_copy_span(conn_period, sizeof(conn_period), tmp_period_s, tmp_period_e);
+					}
 
 					/* eap users of IKEv2 in the first line */
 					if(strlen(eap_account) == 0)
-					{
-						tmp_eap_start = rindex(line,'[') + 1;
-						tmp_eap_end = rindex(line,']');
-						len = tmp_eap_end - tmp_eap_start;
-						if(len >= sizeof(dest_xauth))
-						{
-							len = sizeof(dest_xauth) - 1;
-						}
-						strncpy(dest_xauth, tmp_eap_start, len);
-						dest_xauth[len] = '\0';
-						strlcpy(eap_account, dest_xauth, sizeof(eap_account));
-					}
+						strlcpy(eap_account, peer_identity, sizeof(eap_account));
 
 					/* xauth users */
-					fgets(line, sizeof(line), p_fp);
-					if(strstr(line,"Remote XAuth identity:") != NULL){
-						tmp_xauth = rindex(line,' ') + 1;
-						len = strlen(tmp_xauth);
-						strncpy(dest_xauth,tmp_xauth,len);
-						dest_xauth[len-1] = '\0';
-						strlcpy(xauth_account,dest_xauth, sizeof(xauth_account));
-						fgets(line, sizeof(line), p_fp);
+					line_result = ipsec_status_read_line(p_fp, line, sizeof(line));
+					if(line_result > 0 && strstr(line,"Remote XAuth identity:") != NULL){
+						ipsec_status_copy_value(xauth_account, sizeof(xauth_account), line, "Remote XAuth identity:");
+						line_result = ipsec_status_read_line(p_fp, line, sizeof(line));
 					}
 					else
 						strlcpy(xauth_account, "", sizeof(xauth_account));
 
 					/* eap users of IKEv2 in the second line */
-					if(strstr(line,"Remote EAP identity:") != NULL){
-						tmp_xauth = rindex(line,' ') + 1;
-						len = strlen(tmp_xauth);
-						strncpy(dest_xauth,tmp_xauth,len);
-						dest_xauth[len-1] = '\0';
-						strlcpy(eap_account,dest_xauth, sizeof(eap_account));
-						fgets(line, sizeof(line), p_fp);
+					if(line_result > 0 && strstr(line,"Remote EAP identity:") != NULL){
+						ipsec_status_copy_value(eap_account, sizeof(eap_account), line, "Remote EAP identity:");
+						line_result = ipsec_status_read_line(p_fp, line, sizeof(line));
 					}
 
 					/* reauthentication times */
-					if(strstr(line,"reauthentication") != NULL){
-						tmp_reauth = strstr(line,"reauthentication in")+20;
-						len = strlen(tmp_reauth);
-						strncpy(dest_reauth,tmp_reauth,len);
-						dest_reauth[len-1] = '\0';
-						strlcpy(psk_reauth_time,dest_reauth, sizeof(psk_reauth_time));
-                    }
+					if(line_result > 0 && strstr(line,"reauthentication") != NULL){
+						ipsec_status_copy_value(psk_reauth_time, sizeof(psk_reauth_time), line, "reauthentication in");
+					}
 					else
 						strlcpy(psk_reauth_time,"", sizeof(psk_reauth_time));
 					
-					while (fgets(line, sizeof(line), p_fp)) {
+					while ((line_result = ipsec_status_read_line(p_fp, line, sizeof(line))) != 0) {
+						if(line_result < 0)
+							continue;
 						if(strstr(line, profile_name) == NULL){
 							change_to_new_profile=1;
 							break;
@@ -28959,7 +29031,7 @@ get_ipsec_conn_info(struct json_object *ipsec_conn_obj, int for_json)
 						if(strstr(line,"INSTALLED") != NULL){
 							//data->conn_status = 1;		/* phase 2 connected */
 							strlcpy(conn_status, "1", sizeof(conn_status));
-							if(fgets(line, sizeof(line), p_fp) && strstr(line,"rekeying") != NULL){
+							if(ipsec_status_read_line(p_fp, line, sizeof(line)) > 0 && strstr(line,"rekeying") != NULL){
 								foreach(word, line, next){
 									if(!strncmp(word, "bytes_i", 7))
 										strlcpy(bytes_i, bytes_buf, sizeof(bytes_i));
@@ -28976,22 +29048,15 @@ get_ipsec_conn_info(struct json_object *ipsec_conn_obj, int for_json)
 				else //if(strstr(line,"CONNECTING") != NULL)
 				{
 					strlcpy(conn_status, "2", sizeof(conn_status));
-					/* ipaddr */
-					tmp_ip_start = index(line,',');
-					tmp_ip_start = index(tmp_ip_start,']');
-					tmp_ip_end = rindex(line,'[');
-					len = strlen(tmp_ip_start) - strlen(tmp_ip_end);
-					strncpy(dest_ip,tmp_ip_start,len);
-					dest_ip[len] = '\0';
-					strlcpy(dest_ip,dest_ip+4, sizeof(dest_ip));
-					strlcpy(ipaddr,dest_ip, sizeof(ipaddr));
 
 					conn_period[0] = '\0';
 					xauth_account[0] = '0';
 					eap_account[0] = '\0';
 					psk_reauth_time[0] = '\0';
 
-					while (fgets(line, sizeof(line), p_fp)) {
+					while ((line_result = ipsec_status_read_line(p_fp, line, sizeof(line))) != 0) {
+						if(line_result < 0)
+							continue;
 						if(!(strstr(line,profile_name) != NULL)){
 							change_to_new_profile=1;
 							break;
