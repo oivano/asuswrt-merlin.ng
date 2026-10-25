@@ -1122,6 +1122,20 @@ DeletePortMappingRange(struct upnphttp * h, const char * action, const char * ns
 
 	for(i = 0; i < number; i++)
 	{
+		if(GETFLAG(SECUREMODEMASK))
+		{
+			char int_ip[32];
+			struct in_addr int_ip_addr;
+			unsigned short iport;
+			unsigned int leaseduration = 0;
+			r = upnp_get_redirection_infos(port_list[i], protocol, &iport,
+			                               int_ip, sizeof(int_ip),
+			                               NULL, 0, NULL, 0,
+			                               &leaseduration);
+			if(r < 0 || inet_pton(AF_INET, int_ip, &int_ip_addr) != 1 ||
+			   h->clientaddr.s_addr != int_ip_addr.s_addr)
+				continue;
+		}
 		r = upnp_delete_redirection(port_list[i], protocol);
 		syslog(LOG_INFO, "%s: deleting external port: %hu, protocol: %s: %s",
 		       action, port_list[i], protocol, r < 0 ? "failed" : "ok");
@@ -3462,9 +3476,11 @@ soapMethods[] =
 	{ "SetConnectionType", SetConnectionType},
 	{ "RequestConnection", RequestConnection},
 	{ "ForceTermination", ForceTermination},
+#ifdef IGD_V2
 	{ "AddAnyPortMapping", AddAnyPortMapping},
 	{ "DeletePortMappingRange", DeletePortMappingRange},
 	{ "GetListOfPortMappings", GetListOfPortMappings},
+#endif /* IGD_V2 */
 #ifdef ENABLE_L3F_SERVICE
 	/* Layer3Forwarding */
 	{ "SetDefaultConnectionService", SetDefaultConnectionService},
