@@ -256,6 +256,8 @@ int main(int argc, char *argv[])
 	fprintf(fp, "\n");
 	fprintf(fp, "delete veto files = no\n");
 	fprintf(fp, "follow symlinks = no\n");
+	fprintf(fp, "unix extensions = no\n");
+	fprintf(fp, "guest account = nobody\n");
 
 	strlcpy(p_computer_name, nvram_safe_get("computer_name"), sizeof(p_computer_name));
 	if (*p_computer_name == '\0' || !is_valid_netbios_name(p_computer_name)) {
@@ -315,7 +317,6 @@ int main(int argc, char *argv[])
 //#if defined(RTCONFIG_SAMBA3) && defined(RTCONFIG_SAMBA36X)
 #if defined(RTCONFIG_SAMBA36X)
 		fprintf(fp, "auth methods = guest\n");
-		fprintf(fp, "guest account = %s\n", nvram_get("http_username")? : "admin");
 		fprintf(fp, "map to guest = Bad Password\n");
 		fprintf(fp, "guest ok = yes\n");
 #else
