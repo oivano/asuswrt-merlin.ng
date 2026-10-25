@@ -7146,6 +7146,7 @@ hndck:
 expat-2.8.3/stamp-h1:
 	cd $(TOP)/expat/expat-2.8.3 && \
 	$(CONFIGURE) --prefix=/usr \
+		--disable-maintainer-mode \
 		--without-tests \
 		--without-examples \
 		--without-xmlwf \
