@@ -1524,6 +1524,7 @@ lcp_reqci(f, inp, lenp, reject_if_disagree)
     u_char *p;			/* Pointer to next char to parse */
     u_char *rejp;		/* Pointer to next char in reject frame */
     u_char *nakp;		/* Pointer to next char in Nak frame */
+	u_char *nakend;
     int l = *lenp;		/* Length left */
 
     /*
@@ -1536,6 +1537,7 @@ lcp_reqci(f, inp, lenp, reject_if_disagree)
      */
     next = inp;
     nakp = nak_buffer;
+	nakend = nak_buffer + (l < sizeof(nak_buffer) ? l : sizeof(nak_buffer));
     rejp = inp;
     while (l) {
 	orc = CONFACK;			/* Assume success */
@@ -1570,6 +1572,10 @@ lcp_reqci(f, inp, lenp, reject_if_disagree)
 	     * we'll just ignore it.
 	     */
 	    if (cishort < MINMRU) {
+		if (nakend - nakp < CILEN_SHORT) {
+		    orc = CONFREJ;
+		    break;
+		}
 		orc = CONFNAK;		/* Nak CI */
 		PUTCHAR(CI_MRU, nakp);
 		PUTCHAR(CILEN_SHORT, nakp);
@@ -1593,6 +1599,10 @@ lcp_reqci(f, inp, lenp, reject_if_disagree)
 	     * which are set in lcp_allowoptions[unit].asyncmap.
 	     */
 	    if ((ao->asyncmap & ~cilong) != 0) {
+		if (nakend - nakp < CILEN_LONG) {
+		    orc = CONFREJ;
+		    break;
+		}
 		orc = CONFNAK;
 		PUTCHAR(CI_ASYNCMAP, nakp);
 		PUTCHAR(CILEN_LONG, nakp);
@@ -1635,6 +1645,11 @@ lcp_reqci(f, inp, lenp, reject_if_disagree)
 		    break;
 		}
 		if (!ao->neg_upap) {	/* we don't want to do PAP */
+		    if (nakend - nakp < (ao->neg_eap ? CILEN_SHORT :
+					 CILEN_CHAP)) {
+			orc = CONFREJ;
+			break;
+		    }
 		    orc = CONFNAK;	/* NAK it and suggest CHAP or EAP */
 		    PUTCHAR(CI_AUTHTYPE, nakp);
 		    if (ao->neg_eap) {
@@ -1659,6 +1674,10 @@ lcp_reqci(f, inp, lenp, reject_if_disagree)
 		    break;
 		}
 		if (!ao->neg_chap) {	/* we don't want to do CHAP */
+		    if (nakend - nakp < CILEN_SHORT) {
+			orc = CONFREJ;
+			break;
+		    }
 		    orc = CONFNAK;	/* NAK it and suggest EAP or PAP */
 		    PUTCHAR(CI_AUTHTYPE, nakp);
 		    PUTCHAR(CILEN_SHORT, nakp);
@@ -1675,6 +1694,10 @@ lcp_reqci(f, inp, lenp, reject_if_disagree)
 		     * We can't/won't do the requested type,
 		     * suggest something else.
 		     */
+		    if (nakend - nakp < CILEN_CHAP) {
+			orc = CONFREJ;
+			break;
+		    }
 		    orc = CONFNAK;
 		    PUTCHAR(CI_AUTHTYPE, nakp);
 		    PUTCHAR(CILEN_CHAP, nakp);
@@ -1694,6 +1717,11 @@ lcp_reqci(f, inp, lenp, reject_if_disagree)
 		    break;
 		}
 		if (!ao->neg_eap) {	/* we don't want to do EAP */
+		    if (nakend - nakp < (ao->neg_chap ? CILEN_CHAP :
+					 CILEN_SHORT)) {
+			orc = CONFREJ;
+			break;
+		    }
 		    orc = CONFNAK;	/* NAK it and suggest CHAP or PAP */
 		    PUTCHAR(CI_AUTHTYPE, nakp);
 		    if (ao->neg_chap) {
@@ -1716,6 +1744,11 @@ lcp_reqci(f, inp, lenp, reject_if_disagree)
 	     * (At this point we know ao->neg_upap || ao->neg_chap ||
 	     * ao->neg_eap.)
 	     */
+	    if (nakend - nakp < (ao->neg_eap || !ao->neg_chap ? CILEN_SHORT :
+				 CILEN_CHAP)) {
+		orc = CONFREJ;
+		break;
+	    }
 	    orc = CONFNAK;
 	    PUTCHAR(CI_AUTHTYPE, nakp);
 	    if (ao->neg_eap) {
@@ -1746,6 +1779,10 @@ lcp_reqci(f, inp, lenp, reject_if_disagree)
 	     * XXX When should we Nak this, and what with?
 	     */
 	    if (cishort != PPP_LQR) {
+		if (nakend - nakp < CILEN_LQR) {
+		    orc = CONFREJ;
+		    break;
+		}
 		orc = CONFNAK;
 		PUTCHAR(CI_QUALITY, nakp);
 		PUTCHAR(CILEN_LQR, nakp);
@@ -1768,6 +1805,10 @@ lcp_reqci(f, inp, lenp, reject_if_disagree)
 	     */
 	    if (go->neg_magicnumber &&
 		cilong == go->magicnumber) {
+		if (nakend - nakp < CILEN_LONG) {
+		    orc = CONFREJ;
+		    break;
+		}
 		cilong = magic();	/* Don't put magic() inside macro! */
 		orc = CONFNAK;
 		PUTCHAR(CI_MAGICNUMBER, nakp);
