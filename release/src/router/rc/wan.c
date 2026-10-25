@@ -2737,11 +2737,13 @@ int update_resolvconf(void)
 
 			foreach(tmp, (*wan_dns ? wan_dns : wan_xdns), next) {
 				fprintf(fp, "nameserver %s\n", tmp);
-				fprintf(fp_servers, "server=%s\n", tmp);
+				if (!skip_wan_domain) {
+					fprintf(fp_servers, "server=%s\n", tmp);
 #ifdef RTCONFIG_YANDEXDNS
-				if (yadns_mode != YADNS_DISABLED)
-					fprintf(fp_servers, "server=/%s/%s\n", "local", tmp);
+					if (yadns_mode != YADNS_DISABLED)
+						fprintf(fp_servers, "server=/%s/%s\n", "local", tmp);
 #endif
+				}
 			}
 		}
 #endif
