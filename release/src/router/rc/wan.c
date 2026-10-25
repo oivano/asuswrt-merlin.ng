@@ -2594,7 +2594,7 @@ int update_resolvconf(void)
 	char wan_xdns_buf[sizeof("255.255.255.255 ")*2], wan_xdomain_buf[256];
 	char domain[64], *next_domain;
 	int primary_unit = wan_primary_ifunit();
-	int unit, lock;
+	int unit, lock, skip_wan_domain = 0;
 #ifdef RTCONFIG_YANDEXDNS
 	int yadns_mode = nvram_get_int("yadns_enable_x") ? nvram_get_int("yadns_mode") : YADNS_DISABLED;
 #endif
@@ -2611,6 +2611,13 @@ int update_resolvconf(void)
 #if defined(RTCONFIG_VPNC) && !defined(RTCONFIG_VPN_FUSION)
 	if (is_vpnc_dns_active())
 		return 0;
+#endif
+
+#if defined(RTCONFIG_DNSPRIVACY) || defined(RTCONFIG_DNSCRYPT)
+	skip_wan_domain = dnspriv_enable;
+#endif
+#ifdef RTCONFIG_OPENVPN
+	skip_wan_domain |= ovpn_skip_dnsmasq();
 #endif
 
 	lock = file_lock("resolv");
@@ -2692,27 +2699,30 @@ int update_resolvconf(void)
 				}
 			} while (0);
 
-			wan_domain = nvram_safe_get_r(strcat_r(prefix, "domain", tmp), wan_domain_buf, sizeof(wan_domain_buf));
-			foreach (tmp, wan_dns, next) {
-				foreach(domain, wan_domain, next_domain)
-					fprintf(fp_servers, "server=/%s/%s\n", domain, tmp);
+			if (!skip_wan_domain) {
+				wan_domain = nvram_safe_get_r(strcat_r(prefix, "domain", tmp), wan_domain_buf, sizeof(wan_domain_buf));
+				foreach (tmp, wan_dns, next) {
+					foreach(domain, wan_domain, next_domain)
+						if (is_valid_domainname(domain))
+							fprintf(fp_servers, "server=/%s/%s\n", domain, tmp);
 #ifdef RTCONFIG_YANDEXDNS
-				if (yadns_mode != YADNS_DISABLED)
-					fprintf(fp_servers, "server=/%s/%s\n", "local", tmp);
+					if (yadns_mode != YADNS_DISABLED)
+						fprintf(fp_servers, "server=/%s/%s\n", "local", tmp);
 #endif
-			}
-
-			wan_xdomain = nvram_safe_get_r(strcat_r(prefix, "xdomain", tmp), wan_xdomain_buf, sizeof(wan_xdomain_buf));
-			foreach (tmp, wan_xdns, next) {
-				int new = (find_word(wan_dns, tmp) == NULL);
-				foreach (domain, wan_xdomain, next_domain) {
-					if (new || find_word(wan_domain, domain) == NULL)
-						fprintf(fp_servers, "server=/%s/%s\n", domain, tmp);
 				}
+
+				wan_xdomain = nvram_safe_get_r(strcat_r(prefix, "xdomain", tmp), wan_xdomain_buf, sizeof(wan_xdomain_buf));
+				foreach (tmp, wan_xdns, next) {
+					int new = (find_word(wan_dns, tmp) == NULL);
+					foreach (domain, wan_xdomain, next_domain) {
+						if ((new || find_word(wan_domain, domain) == NULL) && is_valid_domainname(domain))
+							fprintf(fp_servers, "server=/%s/%s\n", domain, tmp);
+					}
 #ifdef RTCONFIG_YANDEXDNS
-				if (yadns_mode != YADNS_DISABLED && new)
-					fprintf(fp_servers, "server=/%s/%s\n", "local", tmp);
+					if (yadns_mode != YADNS_DISABLED && new)
+						fprintf(fp_servers, "server=/%s/%s\n", "local", tmp);
 #endif
+				}
 			}
 		}
 
@@ -2795,8 +2805,10 @@ NOIP:
 		foreach(tmp, wan_dns, next) {
 			if (inet_pton(AF_INET6, tmp, &addr) <= 0)
 				continue;
-			foreach(domain, wan_domain, next_domain)
-				fprintf(fp_servers, "server=/%s/%s\n", domain, tmp);
+			if (!skip_wan_domain)
+				foreach(domain, wan_domain, next_domain)
+					if (is_valid_domainname(domain))
+						fprintf(fp_servers, "server=/%s/%s\n", domain, tmp);
 #ifdef RTCONFIG_YANDEXDNS
 			if (yadns_mode != YADNS_DISABLED) {
 				fprintf(fp_servers, "server=/%s/%s\n", "local", tmp);
