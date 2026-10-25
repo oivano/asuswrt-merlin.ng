@@ -12,6 +12,71 @@ const dhcp = read('release/src/router/rc/udhcpc.c');
 const install = read('release/src/router/rc/Makefile');
 const applets = read('release/src/router/rc/rc.c');
 const ppp = read('release/src/router/pppd/pppd/pathnames.h');
+const cru = read('release/src/router/others/cru');
+
+const cronTemporary = fs.mkdtempSync(path.join(os.tmpdir(), 'cron-permissions-'));
+try {
+    fs.chmodSync(cronTemporary, 0o755);
+    const directory = path.join(cronTemporary, 'crontabs');
+    fs.mkdirSync(directory, { mode: 0o755 });
+    const crontab = path.join(directory, 'admin');
+    const observedMode = path.join(cronTemporary, 'mode');
+    const script = cru.replace('D="/var/spool/cron/crontabs"', `D="${directory}"`)
+        .replace('L="/var/lock/cron.lock"', `L="${cronTemporary}/cron.lock"`);
+    const runCru = (...args) => {
+        const result = spawnSync('/bin/bash', ['-c', `
+            umask 000
+            nvram() { printf '%s\\n' admin; }
+            mv() {
+                stat -c %a "$1" >"${observedMode}"
+                command mv "$@"
+            }
+            ${script}
+        `, 'cru', ...args], { encoding: 'utf8' });
+        assert.ifError(result.error);
+        assert.equal(result.status, 0, result.stderr);
+    };
+    const checkModes = () => {
+        assert.equal(fs.readFileSync(observedMode, 'utf8').trim(), '600', 'temporary crontab');
+        assert.equal(fs.statSync(crontab).mode & 0o777, 0o600, 'installed crontab');
+        assert.equal(fs.existsSync(`${crontab}.new`), false);
+    };
+    runCru('d', 'dnsmasq_blocklist');
+    checkModes();
+    assert.equal(fs.readFileSync(crontab, 'utf8'), '');
+    assert.equal(fs.statSync(path.join(directory, 'cron.update')).mode & 0o777, 0o600);
+    runCru('a', 'first', '* * * * * echo first');
+    checkModes();
+    runCru('a', 'second', '0 * * * * echo second');
+    checkModes();
+    runCru('a', 'first', '* * * * * echo replaced');
+    checkModes();
+    assert.equal(fs.readFileSync(crontab, 'utf8'),
+        '0 * * * * echo second #second#\n* * * * * echo replaced #first#\n');
+    fs.chmodSync(crontab, 0o666);
+    fs.writeFileSync(`${crontab}.new`, 'stale data');
+    fs.chmodSync(`${crontab}.new`, 0o666);
+    const staleDescriptor = fs.openSync(`${crontab}.new`, 'a');
+    try {
+        runCru('d', 'first');
+        fs.writeSync(staleDescriptor, '* * * * * echo stale writer\n');
+    } finally {
+        fs.closeSync(staleDescriptor);
+    }
+    checkModes();
+    assert.equal(fs.readFileSync(crontab, 'utf8'), '0 * * * * echo second #second#\n');
+    if (process.getuid() === 0) {
+        const result = spawnSync(process.execPath, ['-e', `
+            const fs = require('node:fs'), assert = require('node:assert/strict');
+            assert.throws(() => fs.openSync(${JSON.stringify(crontab)}, 'a'), { code: 'EACCES' });
+        `], { uid: 65534, gid: 65534, encoding: 'utf8' });
+        assert.ifError(result.error);
+        assert.equal(result.status, 0, result.stderr);
+    }
+    console.log('PASS: actual cru add/delete under umask 000 creates private temporary and installed crontabs');
+} finally {
+    fs.rmSync(cronTemporary, { recursive: true, force: true });
+}
 
 assert.match(init, /chmod\("\/tmp", 01777\)/);
 assert.doesNotMatch(init, /chmod\("\/tmp", 0777\)/);
@@ -23,6 +88,7 @@ const bootDirectories = init.slice(init.indexOf('static const char *mkd[]'), ini
 for (const directory of ['/tmp/etc', '/tmp/var', '/tmp/ppp', '/tmp/ppp/peers'])
     assert.ok(bootDirectories.includes(`"${directory}"`), directory);
 assert.match(bootDirectories, /mkdir\(mkd\[i\], 0755\)/);
+assert.match(init, /^\s*umask\(022\);/m);
 assert.ok(init.indexOf('umask(022);') > init.indexOf('chmod("/tmp", 01777)'));
 assert.match(init, /var_nvram_init\(\);\s*chmod\("\/tmp\/var\/nvram", 0700\);/);
 for (const directory of ['/tmp/ppp', '/tmp/ppp/peers']) {
