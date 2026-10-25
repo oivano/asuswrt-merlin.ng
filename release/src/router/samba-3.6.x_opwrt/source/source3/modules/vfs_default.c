@@ -290,6 +290,72 @@ static void vfswrap_init_search_op(vfs_handle_struct *handle,
 
 /* File operations */
 
+static int vfswrap_open_nosymlinks(connection_struct *conn,
+		const char *name, int flags, mode_t mode)
+{
+#if defined(__linux__) && defined(O_NOFOLLOW) && defined(O_DIRECTORY) && defined(AT_FDCWD)
+	char *path = NULL;
+	char *component = NULL;
+	char *separator = NULL;
+	int dir_fd = -1;
+	int next_fd = -1;
+	int result = -1;
+	int saved_errno;
+
+	if (name == NULL || name[0] == '\0' || name[0] == '/') {
+		errno = EACCES;
+		return -1;
+	}
+	path = talloc_strdup(talloc_tos(), name);
+	if (path == NULL) {
+		errno = ENOMEM;
+		return -1;
+	}
+	dir_fd = sys_open(conn->connectpath,
+			O_RDONLY | O_DIRECTORY | O_NOFOLLOW, 0);
+	if (dir_fd == -1) {
+		goto out;
+	}
+	component = path;
+	for (;;) {
+		separator = strchr(component, '/');
+		if (separator != NULL) {
+			*separator = '\0';
+		}
+		if (component[0] == '\0' || strcmp(component, "..") == 0) {
+			errno = EACCES;
+			goto out;
+		}
+		if (separator == NULL) {
+#ifdef O_LARGEFILE
+			flags |= O_LARGEFILE;
+#endif
+			result = openat(dir_fd, component, flags | O_NOFOLLOW, mode);
+			goto out;
+		}
+		next_fd = openat(dir_fd, component,
+				O_RDONLY | O_DIRECTORY | O_NOFOLLOW, 0);
+		if (next_fd == -1) {
+			goto out;
+		}
+		close(dir_fd);
+		dir_fd = next_fd;
+		component = separator + 1;
+	}
+out:
+	saved_errno = errno;
+	if (dir_fd != -1) {
+		close(dir_fd);
+	}
+	TALLOC_FREE(path);
+	errno = saved_errno;
+	return result;
+#else
+	errno = ENOSYS;
+	return -1;
+#endif
+}
+
 static int vfswrap_open(vfs_handle_struct *handle,
 			struct smb_filename *smb_fname,
 			files_struct *fsp, int flags, mode_t mode)
@@ -303,7 +369,12 @@ static int vfswrap_open(vfs_handle_struct *handle,
 		goto out;
 	}
 
-	result = sys_open(smb_fname->base_name, flags, mode);
+	if (!lp_symlinks(SNUM(handle->conn))) {
+		result = vfswrap_open_nosymlinks(handle->conn,
+				smb_fname->base_name, flags, mode);
+	} else {
+		result = sys_open(smb_fname->base_name, flags, mode);
+	}
  out:
 	END_PROFILE(syscall_open);
 	return result;

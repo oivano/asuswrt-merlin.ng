@@ -801,6 +801,13 @@ static NTSTATUS make_new_server_info_guest(struct auth_serversupplied_info **ser
 		goto done;
 	}
 
+	if ((*server_info)->utok.uid == 0) {
+		DEBUG(0, ("Refusing a uid-0 guest account\n"));
+		TALLOC_FREE(*server_info);
+		status = NT_STATUS_ACCESS_DENIED;
+		goto done;
+	}
+
 	/* annoying, but the Guest really does have a session key, and it is
 	   all zeros! */
 	(*server_info)->user_session_key = data_blob(zeros, sizeof(zeros));
