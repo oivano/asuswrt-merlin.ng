@@ -5745,6 +5745,7 @@ void lanaccess_mssid(const char *limited_ifname, int mode)
 	eval("ebtables", "-t", "broute", mode ? "-A" : "-D", "BROUTING", "-i", ifname_real, "-p", "ipv4", "--ip-dst", lan_subnet, "--ip-proto", "tcp", "-j", "DROP");
 #else
 	snprintf(cap_subnet, sizeof(cap_subnet), "%s/%s", nvram_safe_get("lan_ipaddr"), nvram_safe_get("lan_netmask"));
+	eval("ebtables", mode ? "-A" : "-D", "INPUT", "-i", lifname, "-p", "ipv4", "--ip-proto", "udp", "--ip-dport", "5351", "-j", "DROP");
 
 #ifdef RTCONFIG_WIFI_SON
 	if ((sw_mode()!=SW_MODE_REPEATER && strcmp(lifname, nvram_safe_get("wl0.1_ifname"))) && nvram_match("wifison_ready", "1"))
