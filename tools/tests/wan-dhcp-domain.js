@@ -16,6 +16,11 @@ assert.match(wan, /skip_wan_domain \|= ovpn_skip_dnsmasq\(\);/);
 assert.match(wan, /if \(!skip_wan_domain\)\s*\{[\s\S]*?is_valid_domainname\(domain\)[\s\S]*?server=\/%s\/%s/);
 assert.match(wan, /if \(!skip_wan_domain\)\s*foreach\(domain, wan_domain, next_domain\)\s*if \(is_valid_domainname\(domain\)\)\s*fprintf\(fp_servers, "server=\/%s\/%s\\n", domain, tmp\);/);
 
+const multiServiceLoop = wan.match(/#ifdef RTCONFIG_MULTISERVICE_WAN\s+for \(unit = 1; unit < WAN_MULTISRV_MAX; unit\+\+\) \{([\s\S]*?)\n\t\t\}\n#endif/);
+assert(multiServiceLoop, "multi-service WAN resolver loop must remain present");
+assert.match(multiServiceLoop[1], /fprintf\(fp, "nameserver %s\\n", tmp\);\s*if \(!skip_wan_domain\)\s*\{\s*fprintf\(fp_servers, "server=%s\\n", tmp\);/);
+assert.match(multiServiceLoop[1], /if \(yadns_mode != YADNS_DISABLED\)\s*fprintf\(fp_servers, "server=\/%s\/%s\\n", "local", tmp\);\s*#endif\s*\}/);
+
 const accepted = /^[A-Za-z0-9._-]+$/;
 for (const domain of ["bank.example", "router_lan", "x-1.example"]) {
   assert(accepted.test(domain), `expected valid token: ${domain}`);
