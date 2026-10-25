@@ -3460,6 +3460,19 @@ int enable_gre_for_ecm(int unit, FILE *fp)
 static inline int enable_gre_for_ecm(int unit, FILE *fp) { return 0; }
 #endif
 
+static char *multicast_upstream_ifname(void)
+{
+	char *ifname;
+
+#ifdef RTCONFIG_MULTISERVICE_WAN
+	ifname = nvram_safe_get("iptv_ifname");
+	if (*ifname)
+		return ifname;
+#endif
+	ifname = get_wan_ifname(wan_primary_ifunit());
+	return ifname && *ifname ? ifname : nvram_safe_get("wan0_ifname");
+}
+
 void
 filter_setting(int wan_unit, char *lan_if, char *lan_ip, char *logaccept, char *logdrop)
 {
@@ -3934,8 +3947,11 @@ TRACE_PT("writing Parental Control\n");
 
 		/* Pass multicast */
 		if (nvram_get_int("mr_enable_x") || nvram_get_int("udpxy_enable_x")) {
-			fprintf(fp, "-A INPUT -p 2 -d 224.0.0.0/4 -j %s\n", logaccept);
-			fprintf(fp, "-A INPUT -p udp -d 224.0.0.0/4 ! --dport 1900 -j %s\n", logaccept);
+			fprintf(fp, "-A INPUT -i %s -p udp -d 224.0.0.251 -j DROP\n", multicast_upstream_ifname());
+			fprintf(fp, "-A INPUT -i %s -p udp -d 224.0.0.252 -j DROP\n", multicast_upstream_ifname());
+			fprintf(fp, "-A INPUT -i %s -p udp -d 239.255.255.250 -j DROP\n", multicast_upstream_ifname());
+			fprintf(fp, "-A INPUT -i %s -p 2 -d 224.0.0.0/4 -j %s\n", multicast_upstream_ifname(), logaccept);
+			fprintf(fp, "-A INPUT -i %s -p udp -d 224.0.0.0/4 ! --dport 1900 -j %s\n", multicast_upstream_ifname(), logaccept);
 		}
 #ifdef RTCONFIG_IPV6
 		/* not necesary for now, udpxy is ipv4-only
@@ -5401,8 +5417,11 @@ TRACE_PT("writing Parental Control\n");
 
 		/* Pass multicast */
 		if (nvram_get_int("mr_enable_x") || nvram_get_int("udpxy_enable_x")) {
-			fprintf(fp, "-A INPUT -p 2 -d 224.0.0.0/4 -j %s\n", logaccept);
-			fprintf(fp, "-A INPUT -p udp -d 224.0.0.0/4 ! --dport 1900 -j %s\n", logaccept);
+			fprintf(fp, "-A INPUT -i %s -p udp -d 224.0.0.251 -j DROP\n", multicast_upstream_ifname());
+			fprintf(fp, "-A INPUT -i %s -p udp -d 224.0.0.252 -j DROP\n", multicast_upstream_ifname());
+			fprintf(fp, "-A INPUT -i %s -p udp -d 239.255.255.250 -j DROP\n", multicast_upstream_ifname());
+			fprintf(fp, "-A INPUT -i %s -p 2 -d 224.0.0.0/4 -j %s\n", multicast_upstream_ifname(), logaccept);
+			fprintf(fp, "-A INPUT -i %s -p udp -d 224.0.0.0/4 ! --dport 1900 -j %s\n", multicast_upstream_ifname(), logaccept);
 		}
 #ifdef RTCONFIG_IPV6
 		/* not necesary for now, udpxy is ipv4-only
