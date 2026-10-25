@@ -28,11 +28,6 @@
 #include <typedefs.h>
 #include <bcmdefs.h>
 
-#ifdef CONFIG_IP_NF_LFP
-typedef int (*lfpHitHook)(int pf, unsigned int hook, struct sk_buff *skb);
-extern lfpHitHook lfp_hit_hook;
-#endif
-
 static DEFINE_MUTEX(afinfo_mutex);
 
 const struct nf_afinfo *nf_afinfo[NFPROTO_NUMPROTO] __read_mostly;
@@ -177,13 +172,6 @@ int nf_hook_slow(u_int8_t pf, unsigned int hook, struct sk_buff *skb,
 	/* We may already have this, but read-locks nest anyway */
 	rcu_read_lock();
 
-#ifdef CONFIG_IP_NF_LFP
-	if(likely(lfp_hit_hook)) {
-		ret = lfp_hit_hook(pf, hook, skb);
-		if(unlikely(ret)) goto unlock;
-	}
-#endif
-
 	elem = &nf_hooks[pf][hook];
 next_hook:
 	verdict = nf_iterate(&nf_hooks[pf][hook], skb, hook, indev,
@@ -206,7 +194,6 @@ next_hook:
 		}
 		ret = 0;
 	}
-unlock:
 	rcu_read_unlock();
 	return ret;
 }

@@ -3597,13 +3597,9 @@ void init_switch()
 #ifdef RTCONFIG_SHP
 	if (nvram_get_int("qos_enable") == 1 || nvram_get_int("lfp_disable_force")) {
 		nvram_set("lfp_disable", "1");
-	} else {
-		nvram_set("lfp_disable", "0");
 	}
 
-	if (nvram_get_int("lfp_disable") == 0) {
-		restart_lfp();
-	}
+	restart_lfp();
 #endif
 
 #if defined(RTCONFIG_BCMFA) && !defined(RTCONFIG_BCM_7114)
