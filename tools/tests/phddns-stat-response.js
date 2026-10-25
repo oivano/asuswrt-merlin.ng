@@ -8,6 +8,9 @@ const root = path.resolve(__dirname, '../..');
 const source = name => fs.readFileSync(path.join(root, 'release/src/router/phddns/src', name), 'latin1');
 const update = source('phupdate.c');
 const socket = source('phsocket.c');
+const storage = fs.readFileSync(path.join(root, 'release/src/router/infosvr/storage.c'), 'utf8');
+const hostnameCopy = storage.match(/snprintf\(st->u\.wt\.HostName,[^;]+;/)[0];
+assert.match(hostnameCopy, /, "%s", nvram_safe_get\("ddns_hostname_x"\)\)/);
 
 function func(text, signature) {
     const begin = text.indexOf(signature);
@@ -35,9 +38,40 @@ const harness = `
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
+#include <arpa/inet.h>
 #define MAX_PATH 260
 #define PH_STAT_RESPONSE_MAX_LEN ${cap}
 typedef struct { int m_tcpsocket; } PHGlobal;
+${func(update, 'static int ValidRedirectHost(')}
+${func(update, 'static int ValidDdnsHostname(')}
+static const char *hostname;
+static const char *nvram_safe_get(const char *key) { (void)key; return hostname; }
+static int test_hostname(void)
+{
+	struct { struct { struct { char HostName[64]; } wt; } u; } status, *st = &status;
+	const char *valid[] = { "router.example", "DDNS-1.Oray.NET", "router.example." };
+	const char *invalid[] = { "", ".", "%n%n%s%s%x%x", "router%.net", "router\\\".net",
+		"router'.net", "-router.net", "router-.net", "router..net", "router_net", "router net", "router\\xff.net" };
+	char boundary[65];
+	size_t index;
+	for (index = 0; index < sizeof(valid) / sizeof(valid[0]); index++)
+		if (!ValidDdnsHostname(valid[index])) return 20;
+	for (index = 0; index < sizeof(invalid) / sizeof(invalid[0]); index++)
+		if (ValidDdnsHostname(invalid[index])) return 21;
+	memset(boundary, 'a', 63); boundary[63] = 0;
+	if (!ValidDdnsHostname(boundary)) return 22;
+	boundary[63] = 'a'; boundary[64] = 0;
+	if (ValidDdnsHostname(boundary)) return 23;
+	hostname = "%n%n%s%s%x%x";
+	${hostnameCopy}
+	if (strcmp(st->u.wt.HostName, hostname)) return 24;
+	hostname = boundary;
+	memset(&status, 0xa5, sizeof(status));
+	${hostnameCopy}
+	if (strlen(st->u.wt.HostName) != 63 || st->u.wt.HostName[63] != 0 ||
+		memcmp(st->u.wt.HostName, boundary, 63)) return 25;
+	return 0;
+}
 static int fail_realloc;
 static void *test_realloc(void *p, size_t n) { return fail_realloc ? NULL : realloc(p, n); }
 ${func(socket, 'int phDataReadable(')}
@@ -81,6 +115,8 @@ int main(void)
 {
 	char *in, *out;
 	size_t n;
+	int result = test_hostname();
+	if (result) return result;
 
 	in = lines(1, 1024, "", &n);
 	n -= 1;
@@ -124,12 +160,12 @@ try {
     const c = path.join(dir, 'harness.c');
     const bin = path.join(dir, 'harness');
     fs.writeFileSync(c, harness);
-    execFileSync('cc', ['-std=gnu99', '-Wall', '-Werror', '-g', '-fsanitize=address,undefined',
+	execFileSync('cc', ['-std=gnu99', '-Wall', '-Wformat=2', '-Werror', '-g', '-fsanitize=address,undefined',
         '-fno-sanitize-recover=all', '-o', bin, c], { stdio: 'inherit' });
     execFileSync(bin, { stdio: 'inherit', env: { ...process.env, ASAN_OPTIONS: 'detect_leaks=1' } });
 } finally {
     fs.rmSync(dir, { recursive: true, force: true });
 }
 
-console.log('phddns stat response: extracted ReadStatResponse/phReadOneLine passed host ASan/UBSan socket cases');
+console.log('phddns/infosvr: extracted hostname validators/copy and ReadStatResponse/phReadOneLine passed host ASan/UBSan and format-security checks');
 console.log('Not a cross-compiled build, real Oray session, or hardware validation.');

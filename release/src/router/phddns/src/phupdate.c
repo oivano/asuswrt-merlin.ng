@@ -39,6 +39,13 @@ static int ValidRedirectHost(const char *host, size_t length)
 	return 1;
 }
 
+static int ValidDdnsHostname(const char *host)
+{
+	size_t length = strnlen(host, 64);
+
+	return length <= 63 && ValidRedirectHost(host, length);
+}
+
 static char *ReadStatResponse(PHGlobal *phglobal)
 {
 	char buffer[1024];
@@ -506,7 +513,7 @@ nvram_set("ddns_return_code_chk", "auth_fail");
 	nvram_set("ddns_return_code_chk", "200");
         for (i=0,totaldomains=0;i<255;i++)
     	{
-                if(phglobal->szActiveDomains[i] && (phglobal->szActiveDomains[i][0] != '.') )
+		if(ValidDdnsHostname(phglobal->szActiveDomains[i]))
 			nvram_set("ddns_hostname_x", phglobal->szActiveDomains[i]);
 		LOG(1) (("Update Domain: %s\n", phglobal->szActiveDomains[i]));
 		if(phglobal->szActiveDomains[i][0] == '.')
