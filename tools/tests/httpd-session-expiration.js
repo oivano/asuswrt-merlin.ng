@@ -25,6 +25,19 @@ assert.match(web, /gen_asus_token_cookie\([^;]+;\s*browser_session_register\(asu
 assert.equal((source.match(/gen_asus_token_cookie\(/g) || []).length, 1);
 assert.equal((web.match(/gen_asus_token_cookie\(/g) || []).length, 1);
 
+for (const extension of ['png', 'conf']) {
+    const route = web.match(new RegExp(`\\{ "wgs_client\\.${extension}",([^}]+)\\}`));
+    assert(route, `WireGuard ${extension} download route exists`);
+    const fields = route[1].split(',').map(field => field.trim());
+    assert.equal(fields[2], 'NULL');
+    assert.equal(fields[3], `do_wgs_client_${extension}`);
+    assert.equal(fields[4], 'do_auth', `WireGuard ${extension} download requires authentication`);
+}
+const authGate = source.indexOf('if (handler->auth) {');
+const outputCall = source.indexOf('handler->output(file, conn_fp);', authentication);
+assert(authGate >= 0 && authGate < authentication);
+assert(outputCall > authentication + failedAuth.index + failedAuth[0].length);
+
 function translated(name, parameters) {
     const start = source.indexOf(`\n${name}(`);
     assert(start >= 0, name);
