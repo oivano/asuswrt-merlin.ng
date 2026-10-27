@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <fcntl.h>
 #include <dirent.h>
 #include <ctype.h>
 #include <sys/stat.h>	// for mkdir()
@@ -34,6 +35,8 @@
 #include "usb_info.h"
 #include "disk_initial.h"
 #include "disk_share.h"
+
+#define MAX_SHARE_FOLDERS 256
 
 #ifdef RTCONFIG_PERMISSION_MANAGEMENT
 #include <PMS_DBAPIs.h>
@@ -114,160 +117,48 @@ extern int check_file_integrity(const char *const file_name){
 }
 
 extern int get_folder_list(const char *const mount_path, int *sh_num, char ***folder_list){
-	char **tmp_folder_list, target[16];
-	int len, i;
-	char *list_file, *list_info;
-	char *follow_info, *follow_info_end, backup;
-	
-	// 1. get list file
-	len = strlen(mount_path)+strlen("/.__folder_list.txt");
-	list_file = (char *)malloc(sizeof(char)*(len+1));
-	if(list_file == NULL){
-		usb_dbg("Can't malloc \"list_file\".\n");
-		return -1;
-	}
-	snprintf(list_file, (len+1), "%s/.__folder_list.txt", mount_path);
-	list_file[len] = 0;
-	
-	// 2. check the file integrity.
-	if(!check_file_integrity(list_file)){
-		usb_dbg("Fail to check the folder list.\n");
-		if(initial_folder_list(mount_path) != 0){
-			usb_dbg("Can't initial the folder list.\n");
-			free(list_file);
-			return -1;
-		}
-	}
-	
-	// 3. read if the list file is existed
-	if(!check_if_file_exist(list_file)){
-#if 1
-		initial_folder_list(mount_path);
-#else
-		usb_dbg("No file: %s.\n", list_file);
-		free(list_file);
-		return -1;
-#endif
-	}
-	
-	list_info = read_whole_file(list_file);
-	if(list_info == NULL){
-		usb_dbg("No content in %s.\n", list_file);
-		free(list_file);
-		return -1;
-	}
-	
-	// 4. find sh_num
-	follow_info = strstr(list_info, "sh_num=");
-	if(follow_info == NULL){
-		usb_dbg("No sh_num in %s is wrong.\n", list_file);
-		free(list_file);
-		free(list_info);
-		return -1;
-	}
-	
-	follow_info += strlen("sh_num=");
-	follow_info_end = follow_info;
-	while(*follow_info_end != 0 && *follow_info_end != '\n')
-		++follow_info_end;
-	if(*follow_info_end == 0){
-		usb_dbg("The content in %s is wrong.\n", list_file);
-		free(list_file);
-		free(list_info);
-		return -1;
-	}
-	backup = *follow_info_end;
-	*follow_info_end = 0;
-	
-	*sh_num = atoi(follow_info);
-	*follow_info_end = backup;
-	
-	free(list_file);
-
-	if(*sh_num <= 0){
-		usb_dbg("There is no folder in %s.\n", mount_path);
-		free(list_info);
-		return 0;
-	}
-	
-	// 5. get folder list from the folder list file
-	tmp_folder_list = (char **)malloc(sizeof(char *)*((*sh_num)+1));
-	if(tmp_folder_list == NULL){
-		usb_dbg("Can't malloc \"tmp_folder_list\".\n");
-		free(list_info);
-		return -1;
-	}
-	
-	for(i = 0; i < *sh_num; ++i){
-		// 6. get folder name
-		snprintf(target, sizeof(target), "\nsh_name%d=", i);
-		follow_info = strstr(list_info, target);
-		if(follow_info == NULL){
-			usb_dbg("The list content in %s is wrong.\n", mount_path);
-			free(list_info);
-			free_2_dimension_list(sh_num, &tmp_folder_list);
-			return -1;
-		}
-		
-		follow_info += strlen(target);
-		follow_info_end = follow_info;
-		while(*follow_info_end != 0 && *follow_info_end != '\n')
-			++follow_info_end;
-		if(*follow_info_end == 0){
-			usb_dbg("The list content in %s is wrong.\n", mount_path);
-			free(list_info);
-			free_2_dimension_list(sh_num, &tmp_folder_list);
-			return -1;
-		}
-		backup = *follow_info_end;
-		*follow_info_end = 0;
-		
-		len = strlen(follow_info);
-		tmp_folder_list[i] = (char *)malloc(sizeof(char)*(len+1));
-		if(tmp_folder_list == NULL){
-			usb_dbg("Can't malloc \"tmp_folder_list\".\n");
-			*follow_info_end = backup;
-			free(list_info);
-			free_2_dimension_list(sh_num, &tmp_folder_list);
-			return -1;
-		}
-		strcpy(tmp_folder_list[i], follow_info);
-		tmp_folder_list[i][len] = 0;
-		
-		*follow_info_end = backup;
-	}
-	free(list_info);
-
-	*folder_list = tmp_folder_list;
-	
-	return *sh_num;
+	return get_all_folder(mount_path, sh_num, folder_list);
 }
 
 extern int get_all_folder(const char *const mount_path, int *sh_num, char ***folder_list){
 	DIR *pool_to_open;
 	struct dirent *dp;
 	char *testdir;
-	char **tmp_folder_list = NULL, **tmp_folder;
-	int len, i;
+	char **tmp_folder_list;
+	int len;
+
+	*sh_num = 0;
+	*folder_list = NULL;
 	
 	pool_to_open = opendir(mount_path);
 	if(pool_to_open == NULL){
 		usb_dbg("Can't opendir \"%s\".\n", mount_path);
 		return -1;
 	}
+	tmp_folder_list = calloc(MAX_SHARE_FOLDERS, sizeof(*tmp_folder_list));
+	if(tmp_folder_list == NULL){
+		closedir(pool_to_open);
+		return -1;
+	}
 	
-	*sh_num = 0;
 	while((dp = readdir(pool_to_open)) != NULL){
 		if(dp->d_name[0] == '.')
 			continue;
 		
 		if(test_if_System_folder(dp->d_name) == 1)
 			continue;
+		if(*sh_num >= MAX_SHARE_FOLDERS){
+			usb_dbg("Too many folders in \"%s\".\n", mount_path);
+			closedir(pool_to_open);
+			free_2_dimension_list(sh_num, &tmp_folder_list);
+			return -1;
+		}
 		
 		len = strlen(mount_path)+strlen("/")+strlen(dp->d_name);
 		testdir = (char *)malloc(sizeof(char)*(len+1));
 		if(testdir == NULL){
 			closedir(pool_to_open);
+			free_2_dimension_list(sh_num, &tmp_folder_list);
 			return -1;
 		}
 		snprintf(testdir, (len+1), "%s/%s", mount_path, dp->d_name);
@@ -278,35 +169,23 @@ extern int get_all_folder(const char *const mount_path, int *sh_num, char ***fol
 		}
 		free(testdir);
 		
-		tmp_folder = (char **)malloc(sizeof(char *)*(*sh_num+1));
-		if(tmp_folder == NULL){
-			usb_dbg("Can't malloc \"tmp_folder\".\n");
-			closedir(pool_to_open);
-			return -1;
-		}
-		
 		len = strlen(dp->d_name);
-		tmp_folder[*sh_num] = (char *)malloc(sizeof(char)*(len+1));
-		if(tmp_folder[*sh_num] == NULL){
+		tmp_folder_list[*sh_num] = (char *)malloc(sizeof(char)*(len+1));
+		if(tmp_folder_list[*sh_num] == NULL){
 			usb_dbg("Can't malloc \"tmp_folder[%d]\".\n", *sh_num);
 			closedir(pool_to_open);
-			free(tmp_folder);
+			free_2_dimension_list(sh_num, &tmp_folder_list);
 			return -1;
 		}
-		strcpy(tmp_folder[*sh_num], dp->d_name);
-		if(*sh_num != 0){
-			for(i = 0; i < *sh_num; ++i)
-				tmp_folder[i] = tmp_folder_list[i];
-
-			free(tmp_folder_list);
-			tmp_folder_list = tmp_folder;
-		}
-		else
-			tmp_folder_list = tmp_folder;
+		strcpy(tmp_folder_list[*sh_num], dp->d_name);
 		
 		++(*sh_num);
 	}
 	closedir(pool_to_open);
+	if(*sh_num == 0){
+		free(tmp_folder_list);
+		tmp_folder_list = NULL;
+	}
 	
 	*folder_list = tmp_folder_list;
 	
@@ -357,23 +236,20 @@ extern void free_2_dimension_list(int *num, char ***list){
 	int i;
 	char **target = *list;
 	
-	if(*num <= 0 || target == NULL){
-		*num = 0;
-		return;
+	if(target != NULL){
+		for(i = 0; i < *num; ++i)
+			if(target[i] != NULL)
+				free(target[i]);
+		free(target);
 	}
 	
-	for(i = 0; i < *num; ++i)
-		if(target[i] != NULL)
-			free(target[i]);
-	
-	if(target != NULL)
-		free(target);
-	
 	*num = 0;
+	*list = NULL;
 }
 
 extern int initial_folder_list(const char *const mount_path){
 	int sh_num;
+	int fd;
 	char **folder_list;
 	FILE *fp;
 	char *list_file;
@@ -404,9 +280,11 @@ extern int initial_folder_list(const char *const mount_path){
 	}
 	
 	// 3. write the folder info
-	fp = fopen(list_file, "w");
-	if(fp == NULL){
+	fd = open(list_file, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600);
+	if(fd < 0 || (fp = fdopen(fd, "w")) == NULL){
 		usb_dbg("Can't create folder_list, \"%s\".\n", list_file);
+		if(fd >= 0)
+			close(fd);
 		free_2_dimension_list(&sh_num, &folder_list);
 		free(list_file);
 		return -1;
@@ -415,11 +293,15 @@ extern int initial_folder_list(const char *const mount_path){
 	fprintf(fp, "sh_num=%d\n", sh_num);
 	for(i = 0; i < sh_num; ++i)
 		fprintf(fp, "sh_name%d=%s\n", i, folder_list[i]);
-	fclose(fp);
+	result = ferror(fp);
+	if(fclose(fp) != 0)
+		result = 1;
+	if(result){
+		free_2_dimension_list(&sh_num, &folder_list);
+		free(list_file);
+		return -1;
+	}
 	free_2_dimension_list(&sh_num, &folder_list);
-	
-	// 4. set the check target of file.
-	set_file_integrity(list_file);
 	free(list_file);
 	
 	return 0;
@@ -905,8 +787,42 @@ extern int modify_if_exist_new_folder(const char *const account, const char *con
 	}
 	
 	for (i = 0; i < sh_num; ++i) {
-		result = test_if_exist_share(mount_path, folder_list[i]);
-		if(result)
+		char line[PATH_MAX + 32];
+		char target_prefix[PATH_MAX + 3];
+		FILE *var_fp;
+		size_t prefix_len;
+		int found = 0;
+		int line_start = 1;
+
+		len = snprintf(target_prefix, sizeof(target_prefix), "*%s=", folder_list[i]);
+		if(len < 0 || (size_t)len >= sizeof(target_prefix)){
+			free_2_dimension_list(&sh_num, &folder_list);
+			free(var_file);
+			return -1;
+		}
+		prefix_len = (size_t)len;
+		var_fp = fopen(var_file, "r");
+		if(var_fp == NULL){
+			free_2_dimension_list(&sh_num, &folder_list);
+			free(var_file);
+			return -1;
+		}
+		while(fgets(line, sizeof(line), var_fp) != NULL){
+			if(line_start && strncmp(line, target_prefix, prefix_len) == 0){
+				found = 1;
+				break;
+			}
+			line_start = (strchr(line, '\n') != NULL);
+		}
+		if(ferror(var_fp))
+			found = -1;
+		fclose(var_fp);
+		if(found < 0){
+			free_2_dimension_list(&sh_num, &folder_list);
+			free(var_file);
+			return -1;
+		}
+		if(found)
 			continue;
 		
 		// 4. get the target
