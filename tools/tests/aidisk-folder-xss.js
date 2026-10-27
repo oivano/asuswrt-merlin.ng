@@ -191,7 +191,7 @@ for (const [page, endpoint] of [
     const dialog = readPage(`aidisk/${page}`);
     assert.match(dialog, new RegExp(`<form[^>]+method="post"[^>]+action="${endpoint}"`, 'i'));
 }
-assert.match(source, /\{ "\*\*\.asp\*", "text\/html", no_cache_IE7, do_html_post_and_get, do_ej, do_auth \}/);
+assert.match(source, /\{ "\*\*\.asp\*", "text\/html", no_cache, do_html_post_and_get, do_ej, do_auth \}/);
 const request = httpdSource.slice(httpdSource.indexOf('handle_request(void)\n{'));
 const requestGuard = request.match(/if \(\(handler->input \|\| \(do_referer & CHECK_REFERER\) \|\| strstr\(url, "\.cgi"\)\) &&\s*!httpd_check_request_origin\(\) && !httpd_check_csrf_token\(csrf_token\)\)/);
 assert(requestGuard);
