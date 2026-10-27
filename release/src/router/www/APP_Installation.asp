@@ -838,14 +838,14 @@ function show_partition(){
 					else
 						htmlcode += '<tr><td class="app_table_radius_left"><div class="iconUSBdisk_noquota"></div></td><td class="app_table_radius_right" style="width:300px;">\n';
 
-					htmlcode += '<div class="app_desc"><b>'+ usbDevicesList[i].partition[j].partName + ' (active)</b></div>';
+					htmlcode += '<div class="app_desc"><b>'+ htmlEnDeCode.htmlEncode(usbDevicesList[i].partition[j].partName) + ' (active)</b></div>';
 				}
 				else{
 					if(accessableSize > 1)
 						htmlcode += '<tr><td class="app_table_radius_left"><div class="iconUSBdisk" onclick="apps_form(\'switch\',\''+_appname+'\',\''+usbDevicesList[i].partition[j].mountPoint+'\');"></div></td><td class="app_table_radius_right" style="width:300px;">\n';
 					else
 						htmlcode += '<tr><td class="app_table_radius_left"><div class="iconUSBdisk_noquota"></div></td><td class="app_table_radius_right" style="width:300px;">\n';
-					htmlcode += '<div class="app_desc"><b>'+ usbDevicesList[i].partition[j].partName + '</b></div>'; 
+					htmlcode += '<div class="app_desc"><b>'+ htmlEnDeCode.htmlEncode(usbDevicesList[i].partition[j].partName) + '</b></div>';
 				}
 
 				if(accessableSize > 1)
@@ -854,7 +854,7 @@ function show_partition(){
 					htmlcode += '<div class="app_desc"><#Availablespace#>: <b>'+ accessableSize+" GB <span style=\'color:#FFCC00\'>(Disk quota can not less than 1GB)" + '</span></b></div>'; 
 
 				htmlcode += '<div class="app_desc"><#Totalspace#>: <b>'+ totalSize+" GB" + '</b></div>'; 
-				htmlcode += '<div class="app_desc"><b>' + usbDevicesList[i].deviceName + '</b></div>'; 
+				htmlcode += '<div class="app_desc"><b>' + htmlEnDeCode.htmlEncode(usbDevicesList[i].deviceName) + '</b></div>';
 				htmlcode += '</div><br/><br/></td></tr>\n';
 				mounted_partition++;	
 			}

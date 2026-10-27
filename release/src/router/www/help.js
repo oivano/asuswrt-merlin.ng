@@ -559,7 +559,7 @@ function overHint(itemNum){
 			for(var i=0; i<usbDevicesList.length; i++){
 				if(usbDevicesList[i].deviceType != "printer") continue;
 
-				statusmenu += "<div class='StatusHint' style='margin-top:8px'>" + usbDevicesList[i].deviceName + ":</div>";
+				statusmenu += "<div class='StatusHint' style='margin-top:8px'>" + htmlEnDeCode.htmlEncode(usbDevicesList[i].deviceName) + ":</div>";
 				if(usbDevicesList[i].serialNum == '<% nvram_get("u2ec_serial"); %>'){
 					statusmenu += "<div><#CTL_Enabled#></div>";
 
@@ -878,7 +878,7 @@ function overHint(itemNum){
 			for(var i=0; i<usbDevicesList.length; i++){
 				if(usbDevicesList[i].deviceType == "printer") continue;
 
-				statusmenu += "<div class='StatusHint' style='margin-top:8px'>" + usbDevicesList[i].deviceName + ":</div>";
+				statusmenu += "<div class='StatusHint' style='margin-top:8px'>" + htmlEnDeCode.htmlEncode(usbDevicesList[i].deviceName) + ":</div>";
 				statusmenu += "<div>" + usbDevicesList[i].deviceType.charAt(0).toUpperCase() + usbDevicesList[i].deviceType.substring(1).toLowerCase() + "</div>";
 
 				if(usbDevicesList[i].deviceType == "storage" && usbDevicesList[i].mountNumber == 0)
@@ -1076,7 +1076,7 @@ function openHint(hint_array_id, hint_show_id, flag){
 				for(var i=0; i<usbDevicesList.length; i++){
 					if(usbDevicesList[i].mountNumber > 0){
 						statusmenu += "<div style='margin-top:2px;' class='StatusClickHint' onclick='remove_disk("+ usbDevicesList[i].node +");' onmouseout='this.className=\"StatusClickHint\"' onmouseover='this.className=\"StatusClickHint_mouseover\"'>";
-						statusmenu += "<#Eject_usb_disk#> <span style='font-weight:normal'>"+ usbDevicesList[i].deviceName +"</span></div>";
+						statusmenu += "<#Eject_usb_disk#> <span style='font-weight:normal'>"+ htmlEnDeCode.htmlEncode(usbDevicesList[i].deviceName) +"</span></div>";
 					}
 				}
 

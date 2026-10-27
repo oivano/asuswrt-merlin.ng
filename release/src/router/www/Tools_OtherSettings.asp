@@ -203,7 +203,8 @@ function BuildTree(){
 		else
 			short_ItemText = ItemText;
 
-		shown_ItemText = showhtmlspace(short_ItemText);
+		shown_ItemText = showhtmlspace(htmlEnDeCode.htmlEncode(short_ItemText));
+		var encoded_ItemText = htmlEnDeCode.htmlEncode(ItemText);
 
 		if(layer == 1)
 			ItemIcon = 'disk';
@@ -247,7 +248,7 @@ function BuildTree(){
 			TempObject +='<img id="c'+ItemBarCode+'" onclick=\'document.getElementById("d'+ItemBarCode+'").onclick();\' src="/images/New_ui/advancesetting/'+ItemIcon+'.png">';
 			TempObject +='</td>';
 			TempObject +='<td>';
-			TempObject +='<span id="d'+ItemBarCode+'"'+SubClick+' title="'+ItemText+'">'+shown_ItemText+'</span>\n';
+			TempObject +='<span id="d'+ItemBarCode+'"'+SubClick+' title="'+encoded_ItemText+'">'+shown_ItemText+'</span>\n';
 			TempObject +='</td>';
 		}
 		else if(layer == 2){
@@ -258,7 +259,7 @@ function BuildTree(){
 			TempObject +='<img id="c'+ItemBarCode+'" onclick=\'document.getElementById("d'+ItemBarCode+'").onclick();\' src="/images/New_ui/advancesetting/'+ItemIcon+'.png">';
 			TempObject +='</td>';
 			TempObject +='<td class="FdText">';
-			TempObject +='<span id="d'+ItemBarCode+'"'+SubClick+' title="'+ItemText+'">'+shown_ItemText+'</span>';
+			TempObject +='<span id="d'+ItemBarCode+'"'+SubClick+' title="'+encoded_ItemText+'">'+shown_ItemText+'</span>';
 			TempObject +='</td>';
 			TempObject +='<td></td>';
 			TempObject +='</tr>';
@@ -274,7 +275,7 @@ function BuildTree(){
 			TempObject +='<table><tr><td>';
 			TempObject +='<img id="c'+ItemBarCode+'" onclick=\'document.getElementById("d'+ItemBarCode+'").onclick();\' src="/images/New_ui/advancesetting/'+ItemIcon+'.png">';
 			TempObject +='</td><td>';
-			TempObject +='<span id="d'+ItemBarCode+'"'+SubClick+' title="'+ItemText+'">'+shown_ItemText+'</span>';
+			TempObject +='<span id="d'+ItemBarCode+'"'+SubClick+' title="'+encoded_ItemText+'">'+shown_ItemText+'</span>';
 			TempObject +='</td></tr></table>';
 			TempObject +='</td>';
 			TempObject +='</tr>';

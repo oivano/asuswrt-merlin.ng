@@ -24418,6 +24418,7 @@ int ej_get_folder_tree(int eid, webs_t wp, int argc, char **argv){
 	disk_info_t *disks_info, *follow_disk;
 	partition_info_t *follow_partition;
 	char folder_name[1024] = {0};
+	char tree_item[PATH_MAX];
 
 	if (strlen(layer_order) <= 0){
 		printf("No input \"layer_order\"!\n");
@@ -24503,7 +24504,8 @@ int ej_get_folder_tree(int eid, webs_t wp, int argc, char **argv){
 			else
 				websWrite(wp, ", ");
 
-			websWrite(wp, "\"%s#%u#%u\"", follow_disk->tag, disk_count, partition_count);
+			snprintf(tree_item, sizeof(tree_item), "%s#%u#%u", follow_disk->tag, disk_count, partition_count);
+			aidisk_write_folder_string(wp, tree_item);
 		}
 
 		if (layer > 0 && disk_count == disk_order)
@@ -24524,6 +24526,7 @@ int ej_get_share_tree(int eid, webs_t wp, int argc, char **argv){
 	disk_info_t *disks_info, *follow_disk;
 	partition_info_t *follow_partition;
 	char folder_name[1024] = {0};
+	char tree_item[PATH_MAX];
 
 	if (strlen(layer_order) <= 0){
 		printf("No input \"layer_order\"!\n");
@@ -24609,7 +24612,8 @@ int ej_get_share_tree(int eid, webs_t wp, int argc, char **argv){
 			else
 				websWrite(wp, ", ");
 
-			websWrite(wp, "\"%s#%u#%u\"", follow_disk->tag, disk_count, partition_count);
+			snprintf(tree_item, sizeof(tree_item), "%s#%u#%u", follow_disk->tag, disk_count, partition_count);
+			aidisk_write_folder_string(wp, tree_item);
 		}
 
 		if (layer > 0 && disk_count == disk_order)

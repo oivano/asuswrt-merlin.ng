@@ -74,4 +74,43 @@ for (const file of ['device-map/disk.asp', 'Advanced_AiDisk_samba.asp', 'Advance
     const page = fs.readFileSync(path.join(root, 'release/src/router/www', file), 'utf8');
     assert.match(page, /<%\s*get_AiDisk_status\(\);\s*%>/);
 }
-console.log(`PASS: AiDisk folder encoder source/control-flow checks, ${names.length} literal round trips, generated function and raw-injection negative control (not compiled C or hardware)`);
+
+const folderTree = source.slice(source.indexOf('int ej_get_folder_tree('), source.indexOf('int ej_get_share_tree('));
+const shareTree = source.slice(source.indexOf('int ej_get_share_tree('), source.indexOf('int ej_set_share_mode('));
+for (const hook of [folderTree, shareTree]) {
+    assert.match(hook, /snprintf\(tree_item, sizeof\(tree_item\), "%s#%u#%u", follow_disk->tag, disk_count, partition_count\);/);
+    assert.match(hook, /aidisk_write_folder_string\(wp, tree_item\);/);
+    assert.doesNotMatch(hook, /websWrite\(wp, .*follow_disk->tag/);
+}
+
+const readPage = file => fs.readFileSync(path.join(root, 'release/src/router/www', file), 'utf8');
+const diskFunctions = readPage('disk_functions.js');
+const diskPage = readPage('device-map/disk.asp');
+const appPage = readPage('APP_Installation.asp');
+const help = readPage('help.js');
+const state = readPage('state.js');
+const otherSettings = readPage('Tools_OtherSettings.asp');
+const nfsPage = readPage('Advanced_AiDisk_NFS.asp');
+assert.match(diskFunctions, /showhtmlspace\(htmlEnDeCode\.htmlEncode\(short_ItemText\)\)/);
+assert.match(diskFunctions, /var encoded_ItemText = htmlEnDeCode\.htmlEncode\(ItemText\)/);
+assert.equal((diskFunctions.match(/title="'\+encoded_ItemText/g) || []).length, 3);
+for (const treePage of [otherSettings, nfsPage]) {
+    assert.match(treePage, /showhtmlspace\(htmlEnDeCode\.htmlEncode\(short_ItemText\)\)/);
+    assert.match(treePage, /var encoded_ItemText = htmlEnDeCode\.htmlEncode\(ItemText\)/);
+    assert.equal((treePage.match(/title="'\+encoded_ItemText/g) || []).length, 3);
+}
+assert.match(diskPage, /disk_model_name"\)\.textContent = device\.deviceName/);
+assert.match(appPage, /htmlEnDeCode\.htmlEncode\(usbDevicesList\[i\]\.deviceName\)/);
+assert.equal((appPage.match(/htmlEnDeCode\.htmlEncode\(usbDevicesList\[i\]\.partition\[j\]\.partName\)/g) || []).length, 2);
+assert.equal((help.match(/htmlEnDeCode\.htmlEncode\(usbDevicesList\[i\]\.deviceName\)/g) || []).length, 3);
+
+const htmlCodecSource = state.match(/var htmlEnDeCode = \(function \(\) \{[\s\S]*?\}\)\(\);/);
+assert(htmlCodecSource);
+const htmlCodec = vm.runInNewContext(`${htmlCodecSource[0]}; htmlEnDeCode`);
+for (const name of names) {
+    const encoded = htmlCodec.htmlEncode(name);
+    assert(!/[<>"']/.test(encoded));
+    assert.equal(htmlCodec.htmlDecode(encoded), name);
+}
+
+console.log(`PASS: AiDisk folder/tree hooks, ${names.length} JavaScript and HTML literal round trips, raw-injection negative control, and disk-view sink contracts (not compiled C or hardware)`);

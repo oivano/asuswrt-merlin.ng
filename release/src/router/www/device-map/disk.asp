@@ -102,7 +102,7 @@ function initial(){
 
 var thisForeignDisksIndex;
 function showDiskUsage(device){
-	document.getElementById("disk_model_name").innerHTML = device.deviceName;
+	document.getElementById("disk_model_name").textContent = device.deviceName;
 
 	if(device.mountNumber > 0){
 		showtext(document.getElementById("disk_total_size"), simpleNum(device.totalSize) + " GB");		

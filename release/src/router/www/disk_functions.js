@@ -351,7 +351,8 @@ function BuildTree(){
 		else
 			short_ItemText = ItemText;
 		
-		shown_ItemText = showhtmlspace(short_ItemText);
+		shown_ItemText = showhtmlspace(htmlEnDeCode.htmlEncode(short_ItemText));
+		var encoded_ItemText = htmlEnDeCode.htmlEncode(ItemText);
 		
 		if(layer == 1)
 			ItemIcon = 'disk';
@@ -392,7 +393,7 @@ function BuildTree(){
 	'<td>\n'+
 		'<div id="b'+ItemBarCode+'" class="FdText">\n'+		/* style="float:left; width:117px; overflow:hidden;"*/
 			'<img id="c'+ItemBarCode+'" onclick=\'document.getElementById("d'+ItemBarCode+'").onclick();\' src="/images/New_ui/advancesetting/'+ItemIcon+'.png">\n'+
-			'<span id="d'+ItemBarCode+'"'+SubClick+' title="'+ItemText+'">'+shown_ItemText+'</span>\n'+
+			'<span id="d'+ItemBarCode+'"'+SubClick+' title="'+encoded_ItemText+'">'+shown_ItemText+'</span>\n'+
 		'</div>\n'+
 	'</td>\n'+
 	
@@ -411,7 +412,7 @@ function BuildTree(){
 			'<img id="c'+ItemBarCode+'" onclick=\'document.getElementById("d'+ItemBarCode+'").onclick();\' src="/images/New_ui/advancesetting/'+ItemIcon+'.png">\n'+
 	'</td>\n'+
 	'<td class="FdText">\n'+
-			'<span id="d'+ItemBarCode+'"'+SubClick+' title="'+ItemText+'">'+shown_ItemText+'</span>\n'+
+			'<span id="d'+ItemBarCode+'"'+SubClick+' title="'+encoded_ItemText+'">'+shown_ItemText+'</span>\n'+
 	'</td>\n';
 			
 			/*if(PROTOCOL == "cifs")
@@ -440,7 +441,7 @@ function BuildTree(){
 	'<td>\n'+
 		'<div id="b'+ItemBarCode+'" class="FdText">\n'+		/* style="float:left; width:117px; overflow:hidden;"*/
 			'<img id="c'+ItemBarCode+'" onclick=\'document.getElementById("d'+ItemBarCode+'").onclick();\' src="/images/New_ui/advancesetting/'+ItemIcon+'.png">\n'+
-			'<span id="d'+ItemBarCode+'"'+SubClick+' title="'+ItemText+'">'+shown_ItemText+'</span>\n'+
+			'<span id="d'+ItemBarCode+'"'+SubClick+' title="'+encoded_ItemText+'">'+shown_ItemText+'</span>\n'+
 		'</div>\n'+
 	'</td>\n'+
 '</tr>\n';
