@@ -315,6 +315,16 @@ wl_status_array(int eid, webs_t wp, int argc, char_t **argv, int unit)
 	return retval;
 }
 
+static void
+wl_hostname_to_js(char *output, const char *hostname)
+{
+	size_t offset;
+
+	for (offset = 0; offset < 32 && hostname[offset]; offset++)
+		snprintf(output + offset * 4, 5, "\\x%02x", (unsigned char)hostname[offset]);
+	output[offset * 4] = '\0';
+}
+
 int
 ej_wl_unit_status_array(int eid, webs_t wp, int argc, char_t **argv, int unit)
 {
@@ -328,7 +338,7 @@ ej_wl_unit_status_array(int eid, webs_t wp, int argc, char_t **argv, int unit)
 	char *leaselist = NULL, *leaselistptr;
 	char *ipv6list = NULL, *ipv6listptr;
 	char *line;
-	char hostnameentry[65];
+	char hostnameentry[32 * 4 + 1];
 	char ipentry[1024], macentry[18];
 	unsigned int flagentry;
 	int found, foundipv6 = 0, noclients = 0;
@@ -561,8 +571,8 @@ sta_list:
 			}
 			if (leaselistptr) free(leaselistptr);
 
-			if ((found) && (str_escape_quotes(hostnameentry, tmp, sizeof(hostnameentry)) == 0 ))
-				strlcpy(hostnameentry, tmp, sizeof(hostnameentry));
+			if (found & 2)
+				wl_hostname_to_js(hostnameentry, tmp);
 
 			switch (found) {
 			case 0:	// Not in arplist nor in leaselist
@@ -737,8 +747,8 @@ sta_list:
 					}
 					if (leaselistptr) free(leaselistptr);
 
-					if ((found) && (str_escape_quotes(hostnameentry, tmp,sizeof(hostnameentry)) == 0 ))
-						strlcpy(hostnameentry, tmp, sizeof(hostnameentry));
+					if (found & 2)
+						wl_hostname_to_js(hostnameentry, tmp);
 
 					switch (found) {
 					case 0:	// Not in arplist nor in leaselist

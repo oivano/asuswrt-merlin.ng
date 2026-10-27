@@ -265,7 +265,7 @@ function display_clients(clientsarray, obj, unit) {
 			}
 
 			if (hostname.length > 24) {		// Name
-				code +='<br><span style="margin-top:-15px; color: cyan;" title="' + hostname + '">'+ hostname.substring(0,20) +'...</span></td>';
+				code +='<br><span style="margin-top:-15px; color: cyan;" title="' + htmlEnDeCode.htmlEncode(hostname) + '">'+ htmlEnDeCode.htmlEncode(hostname.substring(0,20)) +'...</span></td>';
 			} else {
 				code +='<br><span style="margin-top:-15px; color: cyan;">'+ htmlEnDeCode.htmlEncode(hostname) +'</span></td>';
 			}
