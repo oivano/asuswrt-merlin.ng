@@ -345,7 +345,7 @@ function get_disk_log(){
 			alert("Fail to get the log of fsck!");
 		},
 		success: function(xml){
-			$('#textarea_disk0').html($(xml).find('disk1').text());
+			$('#textarea_disk0').val($(xml).find('disk1').text());
 		}
 	});
 
