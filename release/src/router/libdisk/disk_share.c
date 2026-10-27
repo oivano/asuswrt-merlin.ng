@@ -2238,6 +2238,48 @@ extern int how_many_layer(const char *basedir, char **mount_path, char **share){
 	return layer;
 }
 
+int samba_account_name_valid(const char *account)
+{
+	size_t i, len;
+
+	if (account == NULL)
+		return 0;
+
+	len = strnlen(account, 33);
+	if (len == 0 || len > 32 ||
+	    !((*account >= 'a' && *account <= 'z') || (*account >= 'A' && *account <= 'Z')) ||
+	    !strcmp(account, "root") || !strcmp(account, "guest") || !strcmp(account, "anonymous"))
+		return 0;
+
+	for (i = 1; i < len; ++i) {
+		if (!((account[i] >= 'a' && account[i] <= 'z') ||
+		      (account[i] >= 'A' && account[i] <= 'Z') ||
+		      (account[i] >= '0' && account[i] <= '9') || account[i] == '-'))
+			return 0;
+	}
+
+	return 1;
+}
+
+int samba_account_password_valid(const char *password)
+{
+	size_t i, len;
+
+	if (password == NULL)
+		return 0;
+
+	len = strnlen(password, 33);
+	if (len == 0 || len > 32 || password[0] == '"' || password[len - 1] == '"')
+		return 0;
+
+	for (i = 0; i < len; ++i) {
+		if ((unsigned char)password[i] < 32 || (unsigned char)password[i] > 126)
+			return 0;
+	}
+
+	return 1;
+}
+
 #if defined(RTCONFIG_PERMISSION_MANAGEMENT)
 int add_account(const char *const account, const char *const password)
 {
@@ -2249,12 +2291,12 @@ int add_account(const char *const account, const char *const password)
 	int group_num;
 	PMS_ACCOUNT_GROUP_INFO_T *group_list;
 
-	if (account == NULL || strlen(account) <= 0) {
-		usb_dbg("No input, \"account\".\n");
+	if (!samba_account_name_valid(account)) {
+		usb_dbg("Invalid account name.\n");
 		return -1;
 	}
-	if (password == NULL || strlen(password) <= 0) {
-		usb_dbg("No input, \"password\".\n");
+	if (!samba_account_password_valid(password)) {
+		usb_dbg("Invalid account password.\n");
 		return -1;
 	}
 	if (test_if_exist_account(account)) {
@@ -2326,12 +2368,12 @@ extern int add_account(const char *const account, const char *const password){
 	char ascii_user[128], ascii_passwd[128];
 	int lock;
 
-	if(account == NULL || strlen(account) <= 0){
-		usb_dbg("No input, \"account\".\n");
+	if(!samba_account_name_valid(account)){
+		usb_dbg("Invalid account name.\n");
 		return -1;
 	}
-	if(password == NULL || strlen(password) <= 0){
-		usb_dbg("No input, \"password\".\n");
+	if(!samba_account_password_valid(password)){
+		usb_dbg("Invalid account password.\n");
 		return -1;
 	}
 	if(test_if_exist_account(account)){
@@ -2685,8 +2727,16 @@ extern int mod_account(const char *const account, const char *const new_account,
 	PMS_ACCOUNT_GROUP_INFO_T *group_list;
 	char *changed_user, *changed_pass;
 
-	if(account == NULL || strlen(account) <= 0){
-		usb_dbg("No input, \"account\".\n");
+	if(!samba_account_name_valid(account)){
+		usb_dbg("Invalid account name.\n");
+		return -1;
+	}
+	if(new_account != NULL && *new_account && !samba_account_name_valid(new_account)){
+		usb_dbg("Invalid account name.\n");
+		return -1;
+	}
+	if(new_password != NULL && *new_password && !samba_account_password_valid(new_password)){
+		usb_dbg("Invalid account password.\n");
 		return -1;
 	}
 	/*if(new_password == NULL || strlen(new_password) <= 0){
@@ -2816,8 +2866,16 @@ extern int mod_account(const char *const account, const char *const new_account,
 	char file1[PATH_MAX], file2[PATH_MAX];
 	int lock;
 
-	if(account == NULL || strlen(account) <= 0){
-		usb_dbg("No input, \"account\".\n");
+	if(!samba_account_name_valid(account)){
+		usb_dbg("Invalid account name.\n");
+		return -1;
+	}
+	if(new_account != NULL && *new_account && !samba_account_name_valid(new_account)){
+		usb_dbg("Invalid account name.\n");
+		return -1;
+	}
+	if(new_password != NULL && *new_password && !samba_account_password_valid(new_password)){
+		usb_dbg("Invalid account password.\n");
 		return -1;
 	}
 	/*if(new_password == NULL || strlen(new_password) <= 0){
