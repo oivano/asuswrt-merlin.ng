@@ -28,6 +28,7 @@
 #define OPENCONNECT_BIN "/usr/sbin/openconnect"
 #define OPENCONNECT_VPNC_SCRIPT "/etc/vpnc/vpnc-script"
 #define OPENCONNECT_CONF_DIR "/tmp/openconnect"
+#define OPENCONNECT_LOG_DIR "/tmp/ipsec-private"
 #define OPENCONNECT_PID_BASE "/var/run/openconnect_"
 
 static const char *protocol_names[] = {
@@ -55,6 +56,37 @@ int openconnect_client_enabled(int unit)
 static void get_pid_file(int unit, char *buf, size_t len)
 {
 	snprintf(buf, len, "%s%d.pid", OPENCONNECT_PID_BASE, unit);
+}
+
+static int openconnect_log_open(int unit)
+{
+	struct stat st;
+	char path[96];
+	int descriptor;
+
+	if (mkdir(OPENCONNECT_LOG_DIR, 0700) < 0 && errno != EEXIST)
+		return -1;
+	descriptor = open(OPENCONNECT_LOG_DIR, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (descriptor < 0)
+		return -1;
+	if (fstat(descriptor, &st) < 0 || !S_ISDIR(st.st_mode) ||
+		st.st_uid != 0 || st.st_gid != 0 || fchmod(descriptor, 0700) < 0) {
+		close(descriptor);
+		return -1;
+	}
+	close(descriptor);
+
+	snprintf(path, sizeof(path), OPENCONNECT_LOG_DIR "/openconnect_client%d.log", unit);
+	descriptor = open(path, O_WRONLY | O_CREAT | O_NOFOLLOW | O_NONBLOCK, 0600);
+	if (descriptor < 0)
+		return -1;
+	if (fstat(descriptor, &st) < 0 || !S_ISREG(st.st_mode) ||
+		st.st_uid != 0 || st.st_gid != 0 || st.st_nlink != 1 ||
+		fchmod(descriptor, 0600) < 0 || ftruncate(descriptor, 0) < 0) {
+		close(descriptor);
+		return -1;
+	}
+	return descriptor;
 }
 
 /* Check if OpenConnect client is running */
@@ -209,7 +241,7 @@ int write_openconnect_config(int unit)
 /* Start OpenConnect client */
 int start_openconnect_client(int unit)
 {
-	char varname[32], confdir[64], pidfile[64], logfile[64], authfile[128];
+	char varname[32], confdir[64], pidfile[64], authfile[128];
 	char certfile[128], keyfile[128], cafile[128];
 	char *server, *username, *password, *authgroup, *cert, *key, *ca;
 	char *protocol_str, *interface;
@@ -409,8 +441,7 @@ int start_openconnect_client(int unit)
 		}
 		
 		/* Redirect stdout/stderr to log file */
-		snprintf(logfile, sizeof(logfile), "/tmp/openconnect_client%d.log", unit);
-		int fd = open(logfile, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+		int fd = openconnect_log_open(unit);
 		if (fd >= 0) {
 			dup2(fd, STDOUT_FILENO);
 			dup2(fd, STDERR_FILENO);
