@@ -7671,6 +7671,7 @@ int generate_mdns_config(void)
 	fprintf(fp, "\n");
 	fprintf(fp, "ratelimit-interval-usec=1000000\n");
 	fprintf(fp, "ratelimit-burst=1000\n");
+	fprintf(fp, "cache-entries-max=1024\n");
 
 	/* Set [publish] configuration */
 	fprintf(fp, "\n[publish]\n");

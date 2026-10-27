@@ -58,10 +58,17 @@ static void remove_entry(AvahiCache *c, AvahiCacheEntry *e) {
 
     avahi_record_unref(e->record);
 
+    assert(c->n_bytes >= e->size);
+    c->n_bytes -= e->size;
+
     avahi_free(e);
 
     assert(c->n_entries >= 1);
     --c->n_entries;
+}
+
+static size_t entry_cost(AvahiRecord *r) {
+    return avahi_record_get_estimate_size(r) + sizeof(AvahiCacheEntry) + sizeof(AvahiRecord) + sizeof(AvahiKey);
 }
 
 AvahiCache *avahi_cache_new(AvahiServer *server, AvahiInterface *iface) {
@@ -84,6 +91,7 @@ AvahiCache *avahi_cache_new(AvahiServer *server, AvahiInterface *iface) {
 
     AVAHI_LLIST_HEAD_INIT(AvahiCacheEntry, c->entries);
     c->n_entries = 0;
+    c->n_bytes = 0;
 
     c->last_rand_timestamp = 0;
 
@@ -292,6 +300,12 @@ void avahi_cache_update(AvahiCache *c, AvahiRecord *r, int cache_flush, const Av
     } else {
         AvahiCacheEntry *e = NULL, *first;
         struct timeval now;
+        size_t cost;
+
+        if (avahi_record_get_estimate_size(r) > AVAHI_CACHE_RECORD_SIZE_MAX)
+            return;
+
+        cost = entry_cost(r);
 
         gettimeofday(&now, NULL);
 
@@ -330,6 +344,8 @@ void avahi_cache_update(AvahiCache *c, AvahiRecord *r, int cache_flush, const Av
             /* Update the record */
             avahi_record_unref(e->record);
             e->record = avahi_record_ref(r);
+            c->n_bytes = c->n_bytes - e->size + cost;
+            e->size = cost;
 
 /*             avahi_log_debug("cache: updating %s", txt);   */
 
@@ -341,6 +357,9 @@ void avahi_cache_update(AvahiCache *c, AvahiRecord *r, int cache_flush, const Av
             if (c->n_entries >= c->server->config.n_cache_entries_max)
                 return;
 
+            if (c->n_bytes + cost > AVAHI_CACHE_BYTES_MAX)
+                return;
+
             if (!(e = avahi_new(AvahiCacheEntry, 1))) {
                 avahi_log_error(__FILE__": Out of memory");
                 return;
@@ -349,6 +368,8 @@ void avahi_cache_update(AvahiCache *c, AvahiRecord *r, int cache_flush, const Av
             e->cache = c;
             e->time_event = NULL;
             e->record = avahi_record_ref(r);
+            e->size = cost;
+            c->n_bytes += cost;
 
             /* Append to hash table */
             AVAHI_LLIST_PREPEND(AvahiCacheEntry, by_key, first, e);
