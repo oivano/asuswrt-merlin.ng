@@ -13,7 +13,7 @@ const match = web.match(/static void do_captcha_file_memory\(char \*url, FILE \*
 assert.ok(match, 'source-owned CAPTCHA output handler exists');
 const handler = match[1];
 
-assert.match(web, /\{ "captcha\.gif", "image\/gif", no_cache_IE7, NULL, do_captcha_file_memory, NULL \}/);
+assert.match(web, /\{ "captcha\.gif", "image\/gif", no_cache, NULL, do_captcha_file_memory, NULL \}/);
 assert.doesNotMatch(web, /\bdo_captcha_file\s*\(/);
 assert.match(web, /extern char cur_captcha\[6\]/);
 assert.match(handler, /captcha\(image, text\)/);

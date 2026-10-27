@@ -214,9 +214,6 @@ function initial(){
 	var wan_proto = '<% nvram_get("wan_proto"); %>';
 	var wlc_band = '<% nvram_get("wlc_band"); %>';
 	show_menu();
-	var isIE6 = navigator.userAgent.search("MSIE 6") > -1;
-	if(isIE6)
-		alert("<#ALERT_TO_CHANGE_BROWSER#>");
 
 	if(dualWAN_support && sw_mode == 1){
 		check_dualwan(wans_flag);

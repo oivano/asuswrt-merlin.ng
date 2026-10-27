@@ -20073,16 +20073,10 @@ void do_get_timezone_cgi(char *url, FILE *stream){
 	json_object_put(res);
 }
 
-static char no_cache_IE7[] =
-"Cache-Control: no-cache, no-store, must-revalidate\r\n"
-"Pragma: no-cache\r\n"
-"Expires: 0"
-;
-
+/* Dynamic admin responses can contain secrets and must not be cached. */
 static char no_cache[] =
-"Cache-Control: no-cache, no-store, must-revalidate\r\n"
-"Pragma: no-cache\r\n"
-"Expires: 0"
+"Cache-Control: no-store\r\n"
+"Pragma: no-cache"
 ;
 
 static char syslog_txt[] =
@@ -23740,83 +23734,83 @@ do_s46reset_cgi(char *url, FILE *stream)
 //2008.08 magic{
 struct mime_handler mime_handlers[] =
 {
-	{ "Main_Login.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
+	{ "Main_Login.asp", "text/html", no_cache, do_html_post_and_get, do_ej, NULL },
 #ifdef RTCONFIG_CAPTCHA
-	{ "captcha.gif", "image/gif", no_cache_IE7, NULL, do_captcha_file_memory, NULL },
+	{ "captcha.gif", "image/gif", no_cache, NULL, do_captcha_file_memory, NULL },
 #endif
 #ifdef RTCONFIG_WIREGUARD
-	{ "wgs_client.png", "image/png", no_cache_IE7, NULL, do_wgs_client_png, do_auth },
+	{ "wgs_client.png", "image/png", no_cache, NULL, do_wgs_client_png, do_auth },
 	{ "wgs_client.conf", "application/octet-stream", NULL, NULL, do_wgs_client_conf, do_auth },
 #endif
-	{ "Nologin.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
-	{ "error_page.htm*", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
-	{ "blocking.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
+	{ "Nologin.asp", "text/html", no_cache, do_html_post_and_get, do_ej, NULL },
+	{ "error_page.htm*", "text/html", no_cache, do_html_post_and_get, do_ej, NULL },
+	{ "blocking.asp", "text/html", no_cache, do_html_post_and_get, do_ej, NULL },
 #ifdef RTCONFIG_WIFI_SON
-	{ "message.htm", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
+	{ "message.htm", "text/html", no_cache, do_html_post_and_get, do_ej, NULL },
 #endif
-	{ "gotoHomePage.htm", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
-	{ "ure_success.htm", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
-	{ "ureip.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
-	{ "remote.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
+	{ "gotoHomePage.htm", "text/html", no_cache, do_html_post_and_get, do_ej, NULL },
+	{ "ure_success.htm", "text/html", no_cache, do_html_post_and_get, do_ej, NULL },
+	{ "ureip.asp", "text/html", no_cache, do_html_post_and_get, do_ej, NULL },
+	{ "remote.asp", "text/html", no_cache, do_html_post_and_get, do_ej, NULL },
 	{ "js/jquery.js", "text/javascript", cache_object, NULL, do_file, NULL },
-	{ "js/https_redirect/https_redirect.js", "text/javascript", no_cache_IE7, NULL, do_ej, NULL },
+	{ "js/https_redirect/https_redirect.js", "text/javascript", no_cache, NULL, do_ej, NULL },
 	{ "ajax/ouiDB.json", "text/javascript", cache_object, NULL, do_file, NULL },
 	{ "js/chart.min.js", "text/javascript", cache_object, NULL, do_file, NULL },
 	{ "require/require.min.js", "text/javascript", cache_object, NULL, do_file, NULL },
 	{ "calendar/jquery-ui.js", "text/javascript", cache_object, NULL, do_file, NULL },
-	{ "httpd_check.xml", "text/xml", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
-	{ "repage.json", "application/json", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
-	{ "chdom.json", "application/json", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
-	{ "chdom.gif", "image/gif", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
+	{ "httpd_check.xml", "text/xml", no_cache, do_html_post_and_get, do_ej, NULL },
+	{ "repage.json", "application/json", no_cache, do_html_post_and_get, do_ej, NULL },
+	{ "chdom.json", "application/json", no_cache, do_html_post_and_get, do_ej, NULL },
+	{ "chdom.gif", "image/gif", no_cache, do_html_post_and_get, do_ej, NULL },
 #ifdef RTCONFIG_AMAS
-	{ "chcap.json", "application/json", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
-	{ "chcap.gif", "image/gif", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
-	{ "cfg_onboarding.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_cfg_onboarding_cgi, do_auth },
+	{ "chcap.json", "application/json", no_cache, do_html_post_and_get, do_ej, NULL },
+	{ "chcap.gif", "image/gif", no_cache, do_html_post_and_get, do_ej, NULL },
+	{ "cfg_onboarding.cgi", "text/html", no_cache, do_html_post_and_get, do_cfg_onboarding_cgi, do_auth },
 #endif
-	{ "wlc_status.json", "application/json", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
-	{ "get_webdavInfo.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
-	{ "appGet_image_path.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_appGet_image_path_cgi, NULL },
-	{ "login.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_login_cgi, NULL },
-	{ "update_clients.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
-	{ "update_networkmapd.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
-	{ "update_customList.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
-	{ "manifest.appcache", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
-	{ "offline.htm", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
-	{ "wcdma_list.js", "text/javascript", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
-	{ "help_content.js", "text/javascript", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
-	{ "httpd_check.htm", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
-	{ "manifest.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
-	{ "update_cloudstatus.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
-	{ "update_applist.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
-	{ "update_appstate.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
-	{ "WAN_info.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
-	{ "detwan.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_detwan_cgi, do_auth },
-	{ "message.htm", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
-	{ "fonts/*.ttf", "application/x-font-ttf", no_cache_IE7, NULL, do_file, NULL },
-	{ "fonts/*.otf", "application/x-font-otf", no_cache_IE7, NULL, do_file, NULL },
-	{ "fonts/*.woff", "application/font-woff", no_cache_IE7, NULL, do_file, NULL },
+	{ "wlc_status.json", "application/json", no_cache, do_html_post_and_get, do_ej, do_auth },
+	{ "get_webdavInfo.asp", "text/html", no_cache, do_html_post_and_get, do_ej, do_auth },
+	{ "appGet_image_path.cgi", "text/html", no_cache, do_html_post_and_get, do_appGet_image_path_cgi, NULL },
+	{ "login.cgi", "text/html", no_cache, do_html_post_and_get, do_login_cgi, NULL },
+	{ "update_clients.asp", "text/html", no_cache, do_html_post_and_get, do_ej, do_auth },
+	{ "update_networkmapd.asp", "text/html", no_cache, do_html_post_and_get, do_ej, do_auth },
+	{ "update_customList.asp", "text/html", no_cache, do_html_post_and_get, do_ej, do_auth },
+	{ "manifest.appcache", "text/html", no_cache, do_html_post_and_get, do_ej, NULL },
+	{ "offline.htm", "text/html", no_cache, do_html_post_and_get, do_ej, NULL },
+	{ "wcdma_list.js", "text/javascript", no_cache, do_html_post_and_get, do_ej, do_auth },
+	{ "help_content.js", "text/javascript", no_cache, do_html_post_and_get, do_ej, do_auth },
+	{ "httpd_check.htm", "text/html", no_cache, do_html_post_and_get, do_ej, NULL },
+	{ "manifest.asp", "text/html", no_cache, do_html_post_and_get, do_ej, NULL },
+	{ "update_cloudstatus.asp", "text/html", no_cache, do_html_post_and_get, do_ej, do_auth },
+	{ "update_applist.asp", "text/html", no_cache, do_html_post_and_get, do_ej, do_auth },
+	{ "update_appstate.asp", "text/html", no_cache, do_html_post_and_get, do_ej, NULL },
+	{ "WAN_info.asp", "text/html", no_cache, do_html_post_and_get, do_ej, NULL },
+	{ "detwan.cgi*", "text/html", no_cache, do_html_post_and_get, do_detwan_cgi, do_auth },
+	{ "message.htm", "text/html", no_cache, do_html_post_and_get, do_ej, NULL },
+	{ "fonts/*.ttf", "application/x-font-ttf", no_cache, NULL, do_file, NULL },
+	{ "fonts/*.otf", "application/x-font-otf", no_cache, NULL, do_file, NULL },
+	{ "fonts/*.woff", "application/font-woff", no_cache, NULL, do_file, NULL },
 #ifdef RTCONFIG_FINDASUS
-	{ "findasus.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_findasus_cgi, do_auth },
-	{ "find_device.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
+	{ "findasus.cgi", "text/html", no_cache, do_html_post_and_get, do_findasus_cgi, do_auth },
+	{ "find_device.asp", "text/html", no_cache, do_html_post_and_get, do_ej, do_auth },
 #endif
-	{ "blocking_request.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_blocking_request_cgi, NULL },
-	{ "blocking.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_blocking_cgi, do_auth },
-	{ "get_timezone.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_get_timezone_cgi, do_auth },
+	{ "blocking_request.cgi", "text/html", no_cache, do_html_post_and_get, do_blocking_request_cgi, NULL },
+	{ "blocking.cgi", "text/html", no_cache, do_html_post_and_get, do_blocking_cgi, do_auth },
+	{ "get_timezone.cgi", "text/html", no_cache, do_html_post_and_get, do_get_timezone_cgi, do_auth },
 #ifdef RTCONFIG_BWDPI
-	{ "AiProtection_MaliciousSitesBlocking.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_dpi_mals_ej, do_auth },
-	{ "AiProtection_IntrusionPreventionSystem.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_dpi_vp_ej, do_auth },
-	{ "AiProtection_InfectedDevicePreventBlock.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_dpi_cc_ej, do_auth },
-	{ "TrafficAnalyzer_Statistic.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_traffic_analyzer_ej, do_auth },
-	{ "AiProtection_WebProtector.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_webs_filter_ej, do_auth },
-	{ "AdaptiveQoS_WebHistory.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_web_history_ej, do_auth },
-	{ "AdaptiveQoS_Bandwidth_Monitor.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_bandwidth_monitor_ej, do_auth },
+	{ "AiProtection_MaliciousSitesBlocking.asp", "text/html", no_cache, do_html_post_and_get, do_dpi_mals_ej, do_auth },
+	{ "AiProtection_IntrusionPreventionSystem.asp", "text/html", no_cache, do_html_post_and_get, do_dpi_vp_ej, do_auth },
+	{ "AiProtection_InfectedDevicePreventBlock.asp", "text/html", no_cache, do_html_post_and_get, do_dpi_cc_ej, do_auth },
+	{ "TrafficAnalyzer_Statistic.asp", "text/html", no_cache, do_html_post_and_get, do_traffic_analyzer_ej, do_auth },
+	{ "AiProtection_WebProtector.asp", "text/html", no_cache, do_html_post_and_get, do_webs_filter_ej, do_auth },
+	{ "AdaptiveQoS_WebHistory.asp", "text/html", no_cache, do_html_post_and_get, do_web_history_ej, do_auth },
+	{ "AdaptiveQoS_Bandwidth_Monitor.asp", "text/html", no_cache, do_html_post_and_get, do_bandwidth_monitor_ej, do_auth },
 #endif
     { "images/Model_product.png", "image/png", cache_object, do_html_post_and_get, do_ModelProduct_png, NULL },
-	{ "**.xml", "text/xml", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
-	{ "**.htm*", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
-	{ "**.asp*", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
-	{ "**.appcache", "text/cache-manifest", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
-	{ "nt_content.json", "application/json", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
+	{ "**.xml", "text/xml", no_cache, do_html_post_and_get, do_ej, do_auth },
+	{ "**.htm*", "text/html", no_cache, do_html_post_and_get, do_ej, do_auth },
+	{ "**.asp*", "text/html", no_cache, do_html_post_and_get, do_ej, do_auth },
+	{ "**.appcache", "text/cache-manifest", no_cache, do_html_post_and_get, do_ej, do_auth },
+	{ "nt_content.json", "application/json", no_cache, do_html_post_and_get, do_ej, do_auth },
 #ifdef RTCONFIG_DSL_TCLINUX
 	{ "TCC.log.*", "application/octet-stream", NULL, NULL, do_diag_log_file, do_auth },
 #endif
@@ -23827,9 +23821,9 @@ struct mime_handler mime_handlers[] =
 	{ "**.ipk", "application/octet-stream", NULL, NULL, do_file, NULL },
 	{ "**.css", "text/css", cache_object, NULL, do_file, NULL },
 #if defined(RTCONFIG_IFTTT) || defined(RTCONFIG_ALEXA) || defined(RTCONFIG_GOOGLE_ASST)
-	{ "images/New_ui/asustitle.png", "image/png", no_cache_IE7, do_html_post_and_get, do_file, NULL },
-	{ "images/New_ui/smh_step_2_text.png", "image/png", no_cache_IE7, do_html_post_and_get, do_file, NULL },
-	{ "images/New_ui/smh_ifttt.png", "image/png", no_cache_IE7, do_html_post_and_get, do_file, NULL },
+	{ "images/New_ui/asustitle.png", "image/png", no_cache, do_html_post_and_get, do_file, NULL },
+	{ "images/New_ui/smh_step_2_text.png", "image/png", no_cache, do_html_post_and_get, do_file, NULL },
+	{ "images/New_ui/smh_ifttt.png", "image/png", no_cache, do_html_post_and_get, do_file, NULL },
 #endif
 	{ "**.png", "image/png", cache_object, NULL, do_file, NULL },
 	{ "**.gif", "image/gif", cache_object, NULL, do_file, NULL },
@@ -23839,8 +23833,8 @@ struct mime_handler mime_handlers[] =
 	{ "**.swf", "application/x-shockwave-flash", NULL, NULL, do_file, NULL  },
 	{ "**.htc", "text/x-component", NULL, NULL, do_file, NULL  },
 	// end Viz
-	{ "**.js", "text/javascript", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
-	{ "**.json", "application/json", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
+	{ "**.js", "text/javascript", no_cache, do_html_post_and_get, do_ej, do_auth },
+	{ "**.json", "application/json", no_cache, do_html_post_and_get, do_ej, do_auth },
 	{ "**.cab", "text/txt", NULL, NULL, do_file, do_auth },
 	{ "**.CFG", "application/octet-stream", NULL, do_html_post_and_get, do_prf_file, do_auth },
 	{ "uploadIconFile.tar", "application/x-tar", NULL, NULL, do_uploadIconFile_file, do_auth },
@@ -23848,48 +23842,48 @@ struct mime_handler mime_handlers[] =
 	{ "upnp.log", "application/octet-stream", NULL, NULL, do_upnp_file, do_auth },
 	{ "upnpc_xml.log", "application/octet-stream", NULL, NULL, do_upnpc_xml_file, do_auth },
 	{ "mDNSNetMonitor.log", "application/octet-stream", NULL, NULL, do_dnsnet_file, do_auth },
-	{ "ftpServerTree.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_ftpServerTree_cgi, do_auth },//andi
+	{ "ftpServerTree.cgi*", "text/html", no_cache, do_html_post_and_get, do_ftpServerTree_cgi, do_auth },//andi
 	{ "**.ovpn", "application/x-openvpn-profile", NULL, NULL, do_prf_ovpn_file, do_auth },
-	{ "QIS_default.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_qis_default, do_auth },
-	{ "page_default.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_page_default, do_auth },
-	{ "apply.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_apply_cgi, do_auth },
-	{ "applyapp.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_apply_cgi, do_auth },
-	{ "appGet.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_appGet_cgi, do_auth },
-	{ "upgrade.cgi*", "text/html", no_cache_IE7, do_upgrade_post, do_upgrade_cgi, do_auth},
-	{ "upload.cgi*", "text/html", no_cache_IE7, do_upload_post, do_upload_cgi, do_auth },
-	{ "set_ASUS_EULA.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_set_ASUS_EULA_cgi, do_auth },
-	{ "set_TM_EULA.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_set_TM_EULA_cgi, do_auth },
+	{ "QIS_default.cgi", "text/html", no_cache, do_html_post_and_get, do_qis_default, do_auth },
+	{ "page_default.cgi", "text/html", no_cache, do_html_post_and_get, do_page_default, do_auth },
+	{ "apply.cgi*", "text/html", no_cache, do_html_post_and_get, do_apply_cgi, do_auth },
+	{ "applyapp.cgi*", "text/html", no_cache, do_html_post_and_get, do_apply_cgi, do_auth },
+	{ "appGet.cgi*", "text/html", no_cache, do_html_post_and_get, do_appGet_cgi, do_auth },
+	{ "upgrade.cgi*", "text/html", no_cache, do_upgrade_post, do_upgrade_cgi, do_auth},
+	{ "upload.cgi*", "text/html", no_cache, do_upload_post, do_upload_cgi, do_auth },
+	{ "set_ASUS_EULA.cgi*", "text/html", no_cache, do_html_post_and_get, do_set_ASUS_EULA_cgi, do_auth },
+	{ "set_TM_EULA.cgi*", "text/html", no_cache, do_html_post_and_get, do_set_TM_EULA_cgi, do_auth },
 #if defined(RTCONFIG_BWDPI)
-	{ "wrs_wbl.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_wrs_wbl_cgi, do_auth },
-	{ "mobile_game_mode.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_mobile_game_mode_cgi, do_auth },
-	{ "mobile_dev_mode.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_mobile_dev_mode_cgi, do_auth },
+	{ "wrs_wbl.cgi*", "text/html", no_cache, do_html_post_and_get, do_wrs_wbl_cgi, do_auth },
+	{ "mobile_game_mode.cgi*", "text/html", no_cache, do_html_post_and_get, do_mobile_game_mode_cgi, do_auth },
+	{ "mobile_dev_mode.cgi*", "text/html", no_cache, do_html_post_and_get, do_mobile_dev_mode_cgi, do_auth },
 #endif
-	{ "unreg_ASUSDDNS.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_unreg_ASUSDDNS_cgi, do_auth },
+	{ "unreg_ASUSDDNS.cgi*", "text/html", no_cache, do_html_post_and_get, do_unreg_ASUSDDNS_cgi, do_auth },
 #ifdef RTCONFIG_HTTPS
-	{ "upload_cert_key.cgi*", "text/html", no_cache_IE7, do_upload_cert_key, do_upload_cert_key_cgi, do_auth },
+	{ "upload_cert_key.cgi*", "text/html", no_cache, do_upload_cert_key, do_upload_cert_key_cgi, do_auth },
 #endif
 	/* No auth, allow user to download root certificate in HTTP to HTTPS redirection page of AA sku. */
-	{ "cert.crt", "application/x-x509-ca-cert", no_cache_IE7, NULL, do_download_cacert_cgi, NULL },
+	{ "cert.crt", "application/x-x509-ca-cert", no_cache, NULL, do_download_cacert_cgi, NULL },
 
 	{ "cert_key.tar", "application/x-tar", NULL, do_html_post_and_get, do_download_cert_key_cgi, do_auth },
 	{ "cert.tar", "application/x-tar", NULL, do_html_post_and_get, do_download_cert_cgi, do_auth },
 #if defined(RTCONFIG_IFTTT) || defined(RTCONFIG_ALEXA) || defined(RTCONFIG_GOOGLE_ASST)
-	{ "get_IFTTTPincode.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_get_IFTTTPincode_cgi, do_auth },
-	{ "send_IFTTTPincode.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_send_IFTTTPincode_cgi, do_auth },
-	{ "get_IFTTTtoken.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_get_IFTTTtoken_cgi, NULL },
-	{ "alexa_block_internet.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_alexa_block_internet_cgi, do_auth },
+	{ "get_IFTTTPincode.cgi", "text/html", no_cache, do_html_post_and_get, do_get_IFTTTPincode_cgi, do_auth },
+	{ "send_IFTTTPincode.cgi", "text/html", no_cache, do_html_post_and_get, do_send_IFTTTPincode_cgi, do_auth },
+	{ "get_IFTTTtoken.cgi", "text/html", no_cache, do_html_post_and_get, do_get_IFTTTtoken_cgi, NULL },
+	{ "alexa_block_internet.cgi", "text/html", no_cache, do_html_post_and_get, do_alexa_block_internet_cgi, do_auth },
 #endif
 #ifdef RTCONFIG_NOTIFICATION_CENTER
-	{ "nc_new_wifi_notice.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_nc_new_wifi_notice_cgi, do_auth },
-	{ "nc_exist_wifi_notice.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_nc_exist_wifi_notice_cgi, do_auth },
-	{ "nc_new_wifi_notice_app.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_nc_new_wifi_notice_app_cgi, do_auth },
-	{ "nc_exist_wifi_notice_app.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_nc_exist_wifi_notice_app_cgi, do_auth },
-	{ "nc_notice.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_nc_notice_cgi, do_auth },
+	{ "nc_new_wifi_notice.cgi", "text/html", no_cache, do_html_post_and_get, do_nc_new_wifi_notice_cgi, do_auth },
+	{ "nc_exist_wifi_notice.cgi", "text/html", no_cache, do_html_post_and_get, do_nc_exist_wifi_notice_cgi, do_auth },
+	{ "nc_new_wifi_notice_app.cgi", "text/html", no_cache, do_html_post_and_get, do_nc_new_wifi_notice_app_cgi, do_auth },
+	{ "nc_exist_wifi_notice_app.cgi", "text/html", no_cache, do_html_post_and_get, do_nc_exist_wifi_notice_app_cgi, do_auth },
+	{ "nc_notice.cgi", "text/html", no_cache, do_html_post_and_get, do_nc_notice_cgi, do_auth },
 #endif
-	{ "block_device_internet.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_block_device_internet_cgi, do_auth },
-	{ "enable_remote_control.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_enable_remote_control_cgi, do_auth },
-	{ "check_Auth.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_check_Auth_cgi, do_auth },
-	{ "auto_guestnetwork.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_auto_guestnetwork_cgi, do_auth },
+	{ "block_device_internet.cgi", "text/html", no_cache, do_html_post_and_get, do_block_device_internet_cgi, do_auth },
+	{ "enable_remote_control.cgi", "text/html", no_cache, do_html_post_and_get, do_enable_remote_control_cgi, do_auth },
+	{ "check_Auth.cgi", "text/html", no_cache, do_html_post_and_get, do_check_Auth_cgi, do_auth },
+	{ "auto_guestnetwork.cgi", "text/html", no_cache, do_html_post_and_get, do_auto_guestnetwork_cgi, do_auth },
 	{ "syslog.txt*", "text/plain", syslog_txt, do_html_post_and_get, do_log_cgi, do_auth },
 #ifdef RTCONFIG_QTN  //RT-AC87U
 	{ "tmp/qtn_diagnostics.cgi*", "application/octet-stream", NULL, NULL, do_qtn_diagnostics, do_auth },
@@ -23905,131 +23899,131 @@ struct mime_handler mime_handlers[] =
 	{ "**.pcap*", "application/octet-stream", NULL, NULL, do_file, NULL },
 #endif
 #ifdef RTCONFIG_DSL
-	{ "dsllog.cgi*", "text/txt", no_cache_IE7, do_html_post_and_get, do_adsllog_cgi, do_auth },
+	{ "dsllog.cgi*", "text/txt", no_cache, do_html_post_and_get, do_adsllog_cgi, do_auth },
 #endif
 	// Viz 2010.08 vvvvv
-	{ "update.cgi*", "text/javascript", no_cache_IE7, do_html_post_and_get, do_update_cgi, do_auth }, // jerry5
+	{ "update.cgi*", "text/javascript", no_cache, do_html_post_and_get, do_update_cgi, do_auth }, // jerry5
 	{ "bwm/*.gz", NULL, no_cache, do_html_post_and_get, wo_bwmbackup, do_auth }, /* jerry5 */
 	// end Viz  ^^^^^^^^
 	{ "**.pac", "application/x-ns-proxy-autoconfig", NULL, NULL, do_file, NULL },
 	{ "wpad.dat", "application/x-ns-proxy-autoconfig", NULL, NULL, do_file, NULL },
 #ifdef TRANSLATE_ON_FLY
-	{ "change_lang.cgi*", "text/html", no_cache_IE7, do_lang_post, do_lang_cgi, do_auth },
-	{ "change_location.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_change_location_cgi, do_auth },
+	{ "change_lang.cgi*", "text/html", no_cache, do_lang_post, do_lang_cgi, do_auth },
+	{ "change_location.cgi*", "text/html", no_cache, do_html_post_and_get, do_change_location_cgi, do_auth },
 #endif //TRANSLATE_ON_FLY
 #if (defined(RTCONFIG_JFFS2) || defined(RTCONFIG_BRCM_NAND_JFFS2)) || defined(RTCONFIG_UBIFS)
 	{ "backup_jffs.tar", "application/octet-stream", NULL, NULL, do_jffs_file, do_auth },
-	{ "jffsupload.cgi*", "text/html", no_cache_IE7, do_jffsupload_post, do_jffsupload_cgi, do_auth },
+	{ "jffsupload.cgi*", "text/html", no_cache, do_jffsupload_post, do_jffsupload_cgi, do_auth },
 #endif
 #ifdef RTCONFIG_OPENVPN
-	{ "vpnupload.cgi*", "text/html", no_cache_IE7, do_vpnupload_post, do_vpnupload_cgi, do_auth },
+	{ "vpnupload.cgi*", "text/html", no_cache, do_vpnupload_post, do_vpnupload_cgi, do_auth },
 	{ "server_ovpn.cert", "application/x-x509-ca-cert", NULL, do_html_post_and_get, do_server_ovpn_file, do_auth },
-	{ "upload_server_ovpn_cert.cgi*", "text/html", no_cache_IE7, do_upload_server_ovpn_cert_post, do_upload_server_ovpn_cert_cgi, do_auth },
+	{ "upload_server_ovpn_cert.cgi*", "text/html", no_cache, do_upload_server_ovpn_cert_post, do_upload_server_ovpn_cert_cgi, do_auth },
 #endif
 #ifdef RTCONFIG_CAPTIVE_PORTAL
 	{ "jffs/customized_splash/**.json", "application/json", NULL, NULL, do_file, NULL }, /* */
-	{ "splash_page.cgi*", "text/html", no_cache_IE7, do_splash_page_post, do_splash_page_cgi, do_auth },
-	{ "splash_page_del.cgi*", "text/html", no_cache_IE7, do_splash_page_del, do_splash_page_cgi, do_auth },
+	{ "splash_page.cgi*", "text/html", no_cache, do_splash_page_post, do_splash_page_cgi, do_auth },
+	{ "splash_page_del.cgi*", "text/html", no_cache, do_splash_page_del, do_splash_page_cgi, do_auth },
 #endif
 #ifdef RTCONFIG_IPSEC
-	{ "get_ipsec_director_profiles.cgi*", "application/json", no_cache_IE7, do_html_post_and_get, do_get_ipsec_director_profiles_cgi, do_auth },
+	{ "get_ipsec_director_profiles.cgi*", "application/json", no_cache, do_html_post_and_get, do_get_ipsec_director_profiles_cgi, do_auth },
 	{ "ipsec.log", "application/octet-stream", NULL, NULL, do_ipsec_file, do_auth },
-	{ "clear_file.cgi*", "text/javascript", no_cache_IE7, do_html_post_and_get, do_clear_file_cgi, do_auth },
-	{ "ipsecupload.cgi*", "text/html", no_cache_IE7, do_ipsecupload_post, do_ipsecupload_cgi, do_auth },
-	{ "caupload.cgi*", "text/html", no_cache_IE7, do_caupload_post, NULL, do_auth },
-	{ "renew_ikev2_cert_key.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_renew_ikev2_cert_key, do_auth },
+	{ "clear_file.cgi*", "text/javascript", no_cache, do_html_post_and_get, do_clear_file_cgi, do_auth },
+	{ "ipsecupload.cgi*", "text/html", no_cache, do_ipsecupload_post, do_ipsecupload_cgi, do_auth },
+	{ "caupload.cgi*", "text/html", no_cache, do_caupload_post, NULL, do_auth },
+	{ "renew_ikev2_cert_key.cgi*", "text/html", no_cache, do_html_post_and_get, do_renew_ikev2_cert_key, do_auth },
 	{ "renew_ikev2_cert_mobile.pem", "application/x-pem-file", NULL, NULL, do_renew_ikev2_cert_pem, do_auth },
 	{ "renew_ikev2_cert_windows.der", "application/x-x509-ca-cert", NULL, NULL, do_renew_ikev2_cert_der, do_auth },
 	{ "ikev2_cert_mobile.pem", "application/x-pem-file", NULL, NULL, do_ikev2_cert_pem, do_auth },
 	{ "ikev2_cert_windows.der", "application/x-x509-ca-cert", NULL, NULL, do_ikev2_cert_der, do_auth },
-	{ "get_ipsec_clientlist.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_get_ipsec_clientlist_cgi, do_auth },
-	{ "set_ipsec_clientlist.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_set_ipsec_clientlist_cgi, do_auth },
-	{ "ipsec_cert_info.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_ipsec_cert_info_cgi, do_auth },
-	{ "get_ipsec_profile.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_get_ipsec_profile_cgi, do_auth },
-	{ "set_ipsec_profile.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_set_ipsec_profile_cgi, do_auth },
+	{ "get_ipsec_clientlist.cgi*", "text/html", no_cache, do_html_post_and_get, do_get_ipsec_clientlist_cgi, do_auth },
+	{ "set_ipsec_clientlist.cgi*", "text/html", no_cache, do_html_post_and_get, do_set_ipsec_clientlist_cgi, do_auth },
+	{ "ipsec_cert_info.cgi*", "text/html", no_cache, do_html_post_and_get, do_ipsec_cert_info_cgi, do_auth },
+	{ "get_ipsec_profile.cgi*", "text/html", no_cache, do_html_post_and_get, do_get_ipsec_profile_cgi, do_auth },
+	{ "set_ipsec_profile.cgi*", "text/html", no_cache, do_html_post_and_get, do_set_ipsec_profile_cgi, do_auth },
 #ifdef RTCONFIG_INSTANT_GUARD
-	{ "get_IG_pre_shared_key.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_get_IG_pre_shared_key_cgi, do_auth },
-	{ "get_ig_config.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_get_ig_config_cgi, do_auth },
-	{ "set_ig_config.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_set_ig_config_cgi, do_auth },
+	{ "get_IG_pre_shared_key.cgi*", "text/html", no_cache, do_html_post_and_get, do_get_IG_pre_shared_key_cgi, do_auth },
+	{ "get_ig_config.cgi*", "text/html", no_cache, do_html_post_and_get, do_get_ig_config_cgi, do_auth },
+	{ "set_ig_config.cgi*", "text/html", no_cache, do_html_post_and_get, do_set_ig_config_cgi, do_auth },
 #endif
 #endif
-	{ "deleteOfflineClient.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_deleteOfflineClient_cgi, do_auth },
+	{ "deleteOfflineClient.cgi*", "text/html", no_cache, do_html_post_and_get, do_deleteOfflineClient_cgi, do_auth },
 #ifdef RTCONFIG_QCA_PLC_UTILS
-	{ "plc.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_plc_cgi, do_auth },
+	{ "plc.cgi*", "text/html", no_cache, do_html_post_and_get, do_plc_cgi, do_auth },
 #endif
 #if defined(RTCONFIG_LP5523) || defined(RTCONFIG_FIXED_BRIGHTNESS_RGBLED)
-	{ "lp55xx.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_lp55xx_cgi, do_auth },
+	{ "lp55xx.cgi*", "text/html", no_cache, do_html_post_and_get, do_lp55xx_cgi, do_auth },
 #endif
 #if defined(RTCONFIG_WIFI_SON)
-	{ "athX_state.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_athX_state_cgi, do_auth },
+	{ "athX_state.cgi*", "text/html", no_cache, do_html_post_and_get, do_athX_state_cgi, do_auth },
 #endif
 
 #ifdef RTCONFIG_NETOOL
-	{ "netool.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_netool_cgi, do_auth },
+	{ "netool.cgi*", "text/html", no_cache, do_html_post_and_get, do_netool_cgi, do_auth },
 #endif
 #if defined(HND_ROUTER) && defined(RTCONFIG_VISUALIZATION)
-	{ "json.cgi*", "application/json", no_cache_IE7, (void *) vis_do_json_set, vis_do_json_get, do_auth },
+	{ "json.cgi*", "application/json", no_cache, (void *) vis_do_json_set, vis_do_json_get, do_auth },
 	{ "visdata.db*", "application/octet-stream", NULL, (void *) vis_do_visdbdwnld_cgi, NULL, do_auth },
 #endif
 #if 0 // obsoleted, RTCONFIG_RGBLED
-	{ "aurargb.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_aurargb_cgi, do_auth },
+	{ "aurargb.cgi*", "text/html", no_cache, do_html_post_and_get, do_aurargb_cgi, do_auth },
 #endif
 #if defined(RTCONFIG_RGBLED)
-	{ "enable_aura_rgb.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_enable_aura_rgb_cgi, do_auth },
-	{ "set_aura_rgb.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_set_aura_rgb_cgi, do_auth },
-	{ "get_aura_rgb.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_get_aura_rgb_cgi, do_auth },
+	{ "enable_aura_rgb.cgi*", "text/html", no_cache, do_html_post_and_get, do_enable_aura_rgb_cgi, do_auth },
+	{ "set_aura_rgb.cgi*", "text/html", no_cache, do_html_post_and_get, do_set_aura_rgb_cgi, do_auth },
+	{ "get_aura_rgb.cgi", "text/html", no_cache, do_html_post_and_get, do_get_aura_rgb_cgi, do_auth },
 #endif
-	{ "cleanlog.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_cleanlog_cgi, do_auth },
-	{ "update_wlanlog.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_update_wlanlog_cgi, do_auth },
-	{ "rog_first_qos.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_rog_first_qos_cgi, do_auth },
-	{ "feedback_mail.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_feedback_mail_safe_cgi, do_auth },
+	{ "cleanlog.cgi*", "text/html", no_cache, do_html_post_and_get, do_cleanlog_cgi, do_auth },
+	{ "update_wlanlog.cgi*", "text/html", no_cache, do_html_post_and_get, do_update_wlanlog_cgi, do_auth },
+	{ "rog_first_qos.cgi*", "text/html", no_cache, do_html_post_and_get, do_rog_first_qos_cgi, do_auth },
+	{ "feedback_mail.cgi*", "text/html", no_cache, do_html_post_and_get, do_feedback_mail_safe_cgi, do_auth },
 	{ "dfb_log.cgi", "application/octet-stream", NULL, do_html_post_and_get, do_dfb_log_file, do_auth },
-	{ "clean_offline_clientlist.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_clean_offline_clientlist_cgi, do_auth },
-	{ "set_fw_path.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_set_fw_path_cgi, do_auth },
+	{ "clean_offline_clientlist.cgi", "text/html", no_cache, do_html_post_and_get, do_clean_offline_clientlist_cgi, do_auth },
+	{ "set_fw_path.cgi", "text/html", no_cache, do_html_post_and_get, do_set_fw_path_cgi, do_auth },
 #ifdef RTCONFIG_IPERF3
-	{ "set_iperf3_svr.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_set_iperf3_svr_cgi, do_auth },
-	{ "set_iperf3_cli.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_set_iperf3_cli_cgi, do_auth },
-	{ "get_iperf3_state.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_get_iperf3_state_cgi, do_auth },
+	{ "set_iperf3_svr.cgi", "text/html", no_cache, do_html_post_and_get, do_set_iperf3_svr_cgi, do_auth },
+	{ "set_iperf3_cli.cgi", "text/html", no_cache, do_html_post_and_get, do_set_iperf3_cli_cgi, do_auth },
+	{ "get_iperf3_state.cgi", "text/html", no_cache, do_html_post_and_get, do_get_iperf3_state_cgi, do_auth },
 #endif
 #if defined(RTCONFIG_AMAZON_WSS)
-	{ "amazon_wss.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_amazon_wss_cgi, do_auth },
+	{ "amazon_wss.cgi*", "text/html", no_cache, do_html_post_and_get, do_amazon_wss_cgi, do_auth },
 #endif
 #ifdef RTCONFIG_INTERNETCTRL
-	{ "internet_ctrl.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_internet_ctrl_cgi, do_auth },
+	{ "internet_ctrl.cgi*", "text/html", no_cache, do_html_post_and_get, do_internet_ctrl_cgi, do_auth },
 #endif
 #ifdef RTCONFIG_ACCOUNT_BINDING
-	{ "get_eptoken.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_get_eptoken_cgi, NULL },
-	{ "asusrouter_request_token.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_asusrouter_request_token_cgi, NULL },
-	{ "asusrouter_request_access_token.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_asusrouter_request_access_token_cgi, NULL },
-	{ "endpoint_request_token.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_endpoint_request_token_cgi, NULL },
+	{ "get_eptoken.cgi*", "text/html", no_cache, do_html_post_and_get, do_get_eptoken_cgi, NULL },
+	{ "asusrouter_request_token.cgi*", "text/html", no_cache, do_html_post_and_get, do_asusrouter_request_token_cgi, NULL },
+	{ "asusrouter_request_access_token.cgi*", "text/html", no_cache, do_html_post_and_get, do_asusrouter_request_access_token_cgi, NULL },
+	{ "endpoint_request_token.cgi*", "text/html", no_cache, do_html_post_and_get, do_endpoint_request_token_cgi, NULL },
 #endif
 #ifdef RTCONFIG_WL_SCHED_V2
-	{ "get_wl_sched.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_get_wl_sched_cgi, do_auth },
-	{ "set_wl_sched.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_set_wl_sched_cgi, do_auth },
+	{ "get_wl_sched.cgi*", "text/html", no_cache, do_html_post_and_get, do_get_wl_sched_cgi, do_auth },
+	{ "set_wl_sched.cgi*", "text/html", no_cache, do_html_post_and_get, do_set_wl_sched_cgi, do_auth },
 #endif
 #if defined(RTCONFIG_OOKLA) || defined(RTCONFIG_OOKLA_LITE)
-	{ "ookla_speedtest_exe.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_ookla_speedtest_exe_cgi, do_auth },
-	{ "ookla_speedtest_write_history.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_ookla_speedtest_write_history_cgi, do_auth },
-	{ "set_ookla_speedtest_state.cgi", "text/html", no_cache_IE7, do_html_post_and_get, set_ookla_speedtest_state_cgi, do_auth },
-	{ "set_ookla_speedtest_start_time.cgi", "text/html", no_cache_IE7, do_html_post_and_get, set_ookla_speedtest_start_time_cgi, do_auth },
+	{ "ookla_speedtest_exe.cgi", "text/html", no_cache, do_html_post_and_get, do_ookla_speedtest_exe_cgi, do_auth },
+	{ "ookla_speedtest_write_history.cgi", "text/html", no_cache, do_html_post_and_get, do_ookla_speedtest_write_history_cgi, do_auth },
+	{ "set_ookla_speedtest_state.cgi", "text/html", no_cache, do_html_post_and_get, set_ookla_speedtest_state_cgi, do_auth },
+	{ "set_ookla_speedtest_start_time.cgi", "text/html", no_cache, do_html_post_and_get, set_ookla_speedtest_start_time_cgi, do_auth },
 #endif
-	{ "del_client_data.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_del_client_data_cgi, do_auth },
+	{ "del_client_data.cgi*", "text/html", no_cache, do_html_post_and_get, do_del_client_data_cgi, do_auth },
 #if defined(RTAX82U) || defined(DSL_AX82U) || defined(GSAX3000) || defined(GSAX5400) || defined(TUFAX5400) || defined(GTAX6000) || defined(GTAXE16000) || defined(GTAX11000_PRO) || defined(GT10) || defined(RTAX82U_V2) || defined(TUFAX5400_V2)
-	{ "set_ledg.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_set_ledg_cgi, do_auth },
+	{ "set_ledg.cgi*", "text/html", no_cache, do_html_post_and_get, do_set_ledg_cgi, do_auth },
 #endif
 #if defined(GTAX6000)
-         { "set_antled.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_set_antled_cgi, do_auth },
+         { "set_antled.cgi*", "text/html", no_cache, do_html_post_and_get, do_set_antled_cgi, do_auth },
 #endif
 #ifdef RTCONFIG_JFFS2USERICON
-	{ "get_usericon_md5.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_get_usericon_md5_cgi, do_auth },
+	{ "get_usericon_md5.cgi", "text/html", no_cache, do_html_post_and_get, do_get_usericon_md5_cgi, do_auth },
 #endif
-	{ "chpass.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_chpass_cgi, do_auth },
+	{ "chpass.cgi*", "text/html", no_cache, do_html_post_and_get, do_chpass_cgi, do_auth },
 #ifdef RTCONFIG_SOFTWIRE46
-	{ "s46reset.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_s46reset_cgi, do_auth },
+	{ "s46reset.cgi*", "text/html", no_cache, do_html_post_and_get, do_s46reset_cgi, do_auth },
 #endif
 #if defined(RTCONFIG_ASD) || defined(RTCONFIG_AHS)
-	{ "set_security_update.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_set_security_update_cgi, do_auth },
-	{ "get_security_update.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_get_security_update_cgi, do_auth },
+	{ "set_security_update.cgi*", "text/html", no_cache, do_html_post_and_get, do_set_security_update_cgi, do_auth },
+	{ "get_security_update.cgi*", "text/html", no_cache, do_html_post_and_get, do_get_security_update_cgi, do_auth },
 #endif
 	{ NULL, NULL, NULL, NULL, NULL, NULL }
 };

@@ -1740,15 +1740,7 @@ function showhide(element, sh)
 		status = "none"
 	}
 
-	if(document.getElementById){
-		document.getElementById(element).style.display = status;
-	}
-	else if (document.all){
-		document.all[element].style.display = status;
-	}
-	else if (document.layers){
-		document.layers[element].display = status;
-	}
+	document.getElementById(element).style.display = status;
 }
 
 function check_hwaddr_flag(obj, flag){  //check_hwaddr() remove alert()
