@@ -6,6 +6,9 @@ const { spawnSync } = require('node:child_process');
 
 const root = path.resolve(__dirname, '../..');
 const script = path.join(root, 'release/src/router/rom/apps_scripts/usb_swap.sh');
+const defaults = fs.readFileSync(path.join(root, 'release/src/router/shared/defaults.c'), 'utf8');
+const defaultSwapEnable = defaults.match(/#if defined \(RTCONFIG_DSL\)[^\n]*\n\s*\{ "apps_swap_enable", "([01])"/)[1];
+assert.equal(defaultSwapEnable, '1');
 const samba = fs.readFileSync(path.join(root, 'release/src/router/libdisk/write_smb_conf.c'), 'utf8');
 assert.equal(spawnSync('/bin/sh', ['-n', script]).status, 0);
 assert.equal((samba.match(/veto files = \//g) || []).length, 1);
@@ -47,7 +50,7 @@ const { spawnSync } = require('node:child_process');
 const command = path.basename(process.argv[1]), args = process.argv.slice(2);
 const env = process.env;
 if (command === 'nvram') {
-    const values = { apps_swap_file: env.SWAP_NAME || '.swap', apps_swap_enable: '1',
+    const values = { apps_swap_file: env.SWAP_NAME || '.swap', apps_swap_enable: env.SWAP_ENABLE || '1',
         apps_swap_threshold: env.THRESHOLD || '', apps_swap_size: env.SWAP_SIZE || '2000',
         apps_install_folder: 'asusware.arm', rc_support: 'bcmhnd' };
     console.log(values[args[1]] || '');
@@ -82,6 +85,7 @@ if (command === 'nvram') {
 } else {
     fs.appendFileSync(env.CALL_LOG, JSON.stringify([command, ...args]) + '\\n');
     if (env.FAIL_COMMAND === command) process.exit(1);
+    if (command === 'rm') process.exit(spawnSync('/bin/rm', args).status);
     if (command === 'chmod' && !(args[0] === '+t' && env.NO_STICKY))
         fs.chmodSync(args[1], args[0] === '+t' ? fs.statSync(args[1]).mode | 0o1000 : parseInt(args[0], 8));
     if (command === 'dd') {
@@ -91,12 +95,13 @@ if (command === 'nvram') {
     if (command === 'swapon' && env.STATE_FILE) fs.writeFileSync(env.STATE_FILE, args[0]);
 }
 `, { mode: 0o755 });
-for (const command of ['nvram', 'ls', 'free', 'df', 'awk', 'chown', 'chmod', 'dd', 'mkswap', 'swapon', 'swapoff'])
+for (const command of ['nvram', 'ls', 'free', 'df', 'awk', 'chown', 'chmod', 'dd', 'mkswap', 'swapon', 'swapoff', 'rm'])
     fs.symlinkSync(shim, path.join(bin, command));
 
 let cases = 0;
 function run(name, { mode = 0o755, setup = () => {}, env = {}, success = false, disable = false,
-    fstab = false, privateDirectoryExists = true, reuse = false } = {}) {
+    fstab = false, privateDirectoryExists = true, reuse = false, useDefault = false } = {}) {
+    const disabled = disable || (useDefault && defaultSwapEnable !== '1');
     const directory = path.join(temporary, name);
     const privateDirectory = path.join(directory, '.asus-swap');
     if (!reuse) {
@@ -108,17 +113,17 @@ function run(name, { mode = 0o755, setup = () => {}, env = {}, success = false, 
     setup(target, directory);
     fs.writeFileSync(log, '');
     const result = spawnSync('/bin/sh', [script, ...(fstab ? ['--activate', env.FSTAB_PATH || target]
-        : [directory, disable ? '0' : '1'])], {
+        : useDefault ? [directory] : [directory, disable ? '0' : '1'])], {
         encoding: 'utf8', env: { ...process.env, PATH: bin + ':' + process.env.PATH,
-            CALL_LOG: log, PARENT_PATH: temporary,
+            CALL_LOG: log, PARENT_PATH: temporary, SWAP_ENABLE: defaultSwapEnable,
             ACTIVE_SWAP: env.ACTIVE_LEGACY ? path.join(directory,
                 env.ACTIVE_LEGACY === 'app' ? 'asusware.arm/.swap' : '.swap')
-                : disable || env.ALREADY_ACTIVE ? target : '', ...env }
+                : disabled || env.ALREADY_ACTIVE ? target : '', ...env }
     });
     assert.ifError(result.error);
     assert.equal(result.status === 0, success, name + ': ' + result.stderr);
     const calls = fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
-    const activates = success && !disable && !env.ALREADY_ACTIVE && !env.THRESHOLD;
+    const activates = success && !disabled && !env.ALREADY_ACTIVE && !env.THRESHOLD;
     assert.equal(calls.some(call => call[0] === 'swapon'), activates, name);
     if (activates) {
         assert.equal(fs.statSync(target).mode & 0o777, 0o600, name);
@@ -127,7 +132,7 @@ function run(name, { mode = 0o755, setup = () => {}, env = {}, success = false, 
         assert.ok(calls.slice(0, activation).some(call => call[0] === 'chmod' && call[1] === '0600'));
         assert.equal(calls[activation][1], target);
     }
-    if (success && !disable && !env.THRESHOLD) {
+    if (success && !disabled && !env.THRESHOLD) {
         assert.equal(fs.statSync(privateDirectory).mode & 0o777, 0o700, name);
         assert.equal(fs.statSync(target).mode & 0o777, 0o600, name);
     }
@@ -152,6 +157,12 @@ try {
         }
     }
     run('normal path with spaces', { success: true });
+    const defaultMount = run('default-mount', { success: true, useDefault: true,
+        privateDirectoryExists: false, mode: 0o777 });
+    assert.ok(defaultMount.calls.some(call => call[0] === 'dd'));
+    assert.ok(defaultMount.calls.some(call => call[0] === 'mkswap'));
+    assert.ok(defaultMount.calls.some(call => call[0] === 'swapon'));
+    assert.equal(fs.statSync(defaultMount.directory).mode & 0o7777, 0o1777);
     run('first-boot', { success: true, privateDirectoryExists: false, mode: 0o777 });
     run('custom', { success: true, env: { SWAP_NAME: 'private.swap' } });
     run('small-pool', { success: true, env: { SWAP_SIZE: '20000', SPACE: '15000' } });
@@ -192,6 +203,23 @@ try {
     run('fstab-missing', { fstab: true });
     run('pending-leftover', { setup: target => fs.writeFileSync(target + '.pending', 'interrupted') });
     for (const location of ['root', 'app']) {
+        for (const dangling of [false, true]) {
+            let outside, link;
+            const rejected = run('legacy-link-' + location + '-' + dangling, {
+                setup: (target, directory) => {
+                    outside = path.join(temporary, path.basename(directory) + '-outside');
+                    if (!dangling) fs.writeFileSync(outside, 'untouched');
+                    const folder = location === 'app' ? path.join(directory, 'asusware.arm') : directory;
+                    if (location === 'app') fs.mkdirSync(folder);
+                    link = path.join(folder, '.swap');
+                    fs.symlinkSync(outside, link);
+                }
+            });
+            assert.ok(fs.lstatSync(link).isSymbolicLink());
+            assert.equal(fs.existsSync(outside), !dangling);
+            if (!dangling) assert.equal(fs.readFileSync(outside, 'utf8'), 'untouched');
+            assert.ok(!rejected.calls.some(call => ['dd', 'mkswap', 'swapon', 'rm', 'swapoff'].includes(call[0])));
+        }
         const migrated = run('legacy-' + location, { success: true, mode: 0o777,
             env: { ACTIVE_LEGACY: location }, setup: (target, directory) => {
                 if (location === 'app') fs.mkdirSync(path.join(directory, 'asusware.arm'), { mode: 0o777 });
@@ -206,6 +234,11 @@ try {
         setup: (target, directory) => fs.writeFileSync(path.join(directory, '.swap'), 'active', { mode: 0o666 }) });
     assert.equal(fs.readFileSync(path.join(legacyFailure.directory, '.swap'), 'utf8'), 'active');
     assert.equal(fs.statSync(path.join(legacyFailure.directory, '.swap')).mode & 0o777, 0o600);
+    const removalFailure = run('legacy-remove-failure', { env: { FAIL_COMMAND: 'rm' },
+        setup: (target, directory) => fs.writeFileSync(path.join(directory, '.swap'), 'keep') });
+    assert.equal(fs.readFileSync(path.join(removalFailure.directory, '.swap'), 'utf8'), 'keep');
+    assert.ok(removalFailure.calls.some(call => call[0] === 'rm'));
+    assert.ok(!removalFailure.calls.some(call => ['dd', 'mkswap', 'swapon'].includes(call[0])));
     for (const filename of ['../escape', '-option', 'bad/name', 'bad\nname', '*'])
         run('invalid-' + cases, { env: { SWAP_NAME: filename } });
     const stopped = run('disable', { disable: true, success: true,
