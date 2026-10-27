@@ -22801,7 +22801,7 @@ struct mime_handler mime_handlers[] =
 	{ "httpd_check.htm", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
 	{ "manifest.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
 	{ "update_cloudstatus.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
-	{ "update_applist.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
+	{ "update_applist.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
 	{ "update_appstate.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
 	{ "WAN_info.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
 	{ "detwan.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_detwan_cgi, do_auth },
@@ -25191,6 +25191,7 @@ int ej_get_disk_format_log(int eid, webs_t wp, int argc, char **argv)
 // apps_info: ["Name", "Version", "New Version", "Installed", "Enabled", "Source", "URL", "Description", "Depends", "Optional Utility", "New Optional Utility", "Help Path", "New File name"].
 int ej_apps_info(int eid, webs_t wp, int argc, char **argv)
 {
+#if defined(RTCONFIG_APP_PREINSTALLED) || defined(RTCONFIG_APP_NETINSTALLED) || defined(RTCONFIG_APP_FILEFLEX)
 	apps_info_t *follow_apps_info, *apps_info_list;
 	char *name;
 
@@ -25226,7 +25227,9 @@ int ej_apps_info(int eid, webs_t wp, int argc, char **argv)
 	}
 	websWrite(wp, "]");
 	free_apps_list(&apps_info_list);
-
+#else
+	websWrite(wp, "[]");
+#endif
 	return 0;
 }
 
