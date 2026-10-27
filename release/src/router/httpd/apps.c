@@ -3,6 +3,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <shared.h>
 
 #ifdef RTCONFIG_USB
@@ -107,12 +110,75 @@ void free_apps_list(apps_info_t **apps_info_list){
 	}
 }
 
+static FILE *open_apps_file(const char *path){
+	char *relative, *cursor, *component;
+	int dir_fd, fd = -1;
+	struct stat st;
+	FILE *fp = NULL;
+
+	if(strncmp(path, "/opt/", 5))
+		return NULL;
+	relative = strdup(path + 5);
+	if(relative == NULL)
+		return NULL;
+	dir_fd = open("/opt", O_RDONLY | O_DIRECTORY | O_NONBLOCK);
+	if(dir_fd < 0){
+		free(relative);
+		return NULL;
+	}
+	cursor = relative;
+	while((component = strsep(&cursor, "/")) != NULL){
+		if(!*component || !strcmp(component, ".") || !strcmp(component, "..") ||
+			fstat(dir_fd, &st) != 0 || !S_ISDIR(st.st_mode) ||
+			st.st_uid != 0 || (st.st_mode & (S_IWGRP | S_IWOTH)))
+			break;
+		fd = openat(dir_fd, component, O_RDONLY | O_NOFOLLOW | O_NONBLOCK |
+			(cursor ? O_DIRECTORY : 0));
+		if(fd < 0)
+			break;
+		if(cursor == NULL){
+			if(fstat(fd, &st) == 0 && S_ISREG(st.st_mode) &&
+				st.st_uid == 0 && st.st_nlink == 1 &&
+				!(st.st_mode & (S_IWGRP | S_IWOTH)))
+				fp = fdopen(fd, "r");
+			if(fp == NULL)
+				close(fd);
+			break;
+		}
+		close(dir_fd);
+		dir_fd = fd;
+	}
+	close(dir_fd);
+	free(relative);
+	return fp;
+}
+
+static int read_apps_stanza(FILE *fp, char *line, size_t line_size,
+		char *buf, size_t buf_size){
+	size_t used = 0, length;
+	int oversized = 0;
+
+	buf[0] = '\0';
+	do{
+		length = strlen(line);
+		if(length >= buf_size - used)
+			oversized = 1;
+		if(!oversized){
+			memcpy(buf + used, line, length + 1);
+			used += length;
+		}
+	}while(fgets(line, line_size, fp) != NULL &&
+		strcmp(line, "\n") && strcmp(line, "\r\n"));
+
+	return !oversized;
+}
+
 apps_info_t *get_apps_list(char *argv){
 
 	struct app_list_file *p_app_list = app_list;
 	apps_info_t *apps_info_list = NULL, **follow_apps_info_list = NULL, *follow_apps_info;
-	char *apps_info;
-	char *pkg_head, *pkg_tail;
+	char *pkg_head;
+	size_t info_size;
 	char info_name[128];
 	FILE *fp;
 	unsigned long file_size = 0;
@@ -124,7 +190,7 @@ apps_info_t *get_apps_list(char *argv){
 	char *STATUS;
 
 	for (; p_app_list->name != NULL; p_app_list++) {
-		if((fp = fopen(p_app_list->list_file, "r")) == NULL){
+		if((fp = open_apps_file(p_app_list->list_file)) == NULL){
 #ifdef RTCONFIG_APP_FILEFLEX
 			if(!strcmp(APP_OWNER_FILEFLEX, p_app_list->name))
 				_eval(cmd, NULL, 0, &pid);
@@ -148,13 +214,11 @@ apps_info_t *get_apps_list(char *argv){
 				continue;
 
 			memset(buf, 0, sizeof(buf));
-			pkg_tail = pkg_head = buf;
-			do{
-				snprintf(pkg_tail, sizeof(buf), "%s", line);
-				pkg_tail += strlen(line);
-
-				memset(line, 0, sizeof(line));
-			}while(fgets(line, sizeof(line), fp) != NULL && strlen(line) > 1);
+			pkg_head = buf;
+			if(!read_apps_stanza(fp, line, sizeof(line), buf, sizeof(buf))){
+				free(tmp_apps_name);
+				continue;
+			}
 
 			follow_apps_info = apps_info_list;
 			got_apps = 0;
@@ -206,7 +270,7 @@ apps_info_t *get_apps_list(char *argv){
 	}
 
 	// Get the name and version of the installed packages from APPS_STATUS.
-	if((fp = fopen(APPS_STATUS, "r")) == NULL)
+	if((fp = open_apps_file(APPS_STATUS)) == NULL)
 		return apps_info_list;
 
 	memset(line, 0, sizeof(line));
@@ -215,18 +279,19 @@ apps_info_t *get_apps_list(char *argv){
 			continue;
 
 		memset(buf, 0, sizeof(buf));
-		pkg_tail = pkg_head = buf;
-		do{
-			snprintf(pkg_tail, sizeof(buf), "%s", line);
-			pkg_tail += strlen(line);
-
-			memset(line, 0, sizeof(line));
-		}while(fgets(line, 128, fp) != NULL && strlen(line) > 1);
-
-		if((STATUS = get_status_field(pkg_head, FIELD_STATUS)) == NULL)
+		pkg_head = buf;
+		if(!read_apps_stanza(fp, line, sizeof(line), buf, sizeof(buf))){
+			free(tmp_apps_name);
 			continue;
+		}
+
+		if((STATUS = get_status_field(pkg_head, FIELD_STATUS)) == NULL){
+			free(tmp_apps_name);
+			continue;
+		}
 		if(strstr(STATUS, "not-installed")){
 			free(STATUS);
+			free(tmp_apps_name);
 			continue;
 		}
 		free(STATUS);
@@ -272,18 +337,28 @@ apps_info_t *get_apps_list(char *argv){
 	while(follow_apps_info != NULL){
 		// Get the source, description and depends of the installed packages from the control in APPS_INFO.
 		memset(info_name, 0, sizeof(info_name));
-		snprintf(info_name, sizeof(info_name), "%s/%s.control", APPS_INFO, follow_apps_info->name);
-		apps_info = read_whole_file(info_name);
-		if(apps_info != NULL){
-			if((tmp_apps_name = get_status_field(apps_info, FIELD_ENABLED)) != NULL){
+		if(!follow_apps_info->name || strchr(follow_apps_info->name, '/') ||
+			snprintf(info_name, sizeof(info_name), "%s/%s.control", APPS_INFO,
+				follow_apps_info->name) >= sizeof(info_name)){
+			follow_apps_info = follow_apps_info->next;
+			continue;
+		}
+		fp = open_apps_file(info_name);
+		if(fp != NULL){
+			info_size = fread(buf, 1, sizeof(buf) - 1, fp);
+			buf[info_size] = '\0';
+			if(ferror(fp) || fgetc(fp) != EOF){
+				fclose(fp);
+				follow_apps_info = follow_apps_info->next;
+				continue;
+			}
+			fclose(fp);
+			if((tmp_apps_name = get_status_field(buf, FIELD_ENABLED)) != NULL){
 				if(follow_apps_info->enabled != NULL)
 					free(follow_apps_info->enabled);
-				follow_apps_info->enabled = get_status_field(apps_info, FIELD_ENABLED);
-				free(tmp_apps_name);
+				follow_apps_info->enabled = tmp_apps_name;
 			}
-			follow_apps_info->optional_utility = get_status_field(apps_info, FIELD_OPTIONALUTILITY);
-
-			free(apps_info);
+			follow_apps_info->optional_utility = get_status_field(buf, FIELD_OPTIONALUTILITY);
 		}
 
 		follow_apps_info = follow_apps_info->next;
