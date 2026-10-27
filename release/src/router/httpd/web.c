@@ -23172,13 +23172,35 @@ void substr(char *dest, const char* src, unsigned int start, unsigned int cnt)
 
 //2008.08 magic}
 #ifdef RTCONFIG_USB
+static void aidisk_write_folder_string(webs_t wp, const char *name)
+{
+	const unsigned char *cursor = (const unsigned char *)name;
+
+	websWrite(wp, "\"");
+	while (*cursor) {
+		if (*cursor == 0xe2 && cursor[1] == 0x80 &&
+		    (cursor[2] == 0xa8 || cursor[2] == 0xa9)) {
+			websWrite(wp, "\\u202%u", cursor[2] - 0xa0);
+			cursor += 3;
+			continue;
+		}
+		if (*cursor < 0x20 || *cursor == 0x7f || *cursor == '\\' ||
+		    *cursor == '"' || *cursor == '\'' || *cursor == '<' ||
+		    *cursor == '>' || *cursor == '&')
+			websWrite(wp, "\\u%04x", (unsigned int)*cursor);
+		else
+			websWrite(wp, "%c", *cursor);
+		cursor++;
+	}
+	websWrite(wp, "\"");
+}
+
 int ej_get_AiDisk_status(int eid, webs_t wp, int argc, char **argv){
 	disk_info_t *disks_info, *follow_disk;
 	partition_info_t *follow_partition;
 	int sh_num;
 	char **folder_list = NULL;
 	int first_pool, result, i;
-	char folder_name[1024] = {0};
 
 	websWrite(wp, "function get_cifs_status(){\n");
 	//websWrite(wp, "    return %d;\n", nvram_get_int("samba_running"));
@@ -23253,9 +23275,7 @@ int ej_get_AiDisk_status(int eid, webs_t wp, int argc, char **argv){
 				for (i = 0; i < sh_num; ++i){
 					websWrite(wp, ", ");
 
-					memset(folder_name, 0, sizeof(folder_name));
-					string_to_htmlencode(folder_name, folder_list[i], sizeof(folder_name));
-					websWrite(wp, "\"%s\"", folder_list[i]);
+					aidisk_write_folder_string(wp, folder_list[i]);
 				}
 
 				websWrite(wp, "];\n");
