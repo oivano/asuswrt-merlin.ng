@@ -156,6 +156,29 @@ static FILE *ipsec_config_open(const char *path, int append)
 	return stream;
 }
 
+static FILE *ipsec_state_open(const char *path, int create)
+{
+	struct stat st;
+	FILE *stream;
+	int flags = O_NOFOLLOW | O_NONBLOCK;
+	int descriptor;
+
+	flags |= create ? O_WRONLY | O_CREAT | O_EXCL : O_RDONLY;
+	descriptor = open(path, flags, 0600);
+	if (descriptor < 0)
+		return NULL;
+	if (fstat(descriptor, &st) < 0 || !S_ISREG(st.st_mode) ||
+		st.st_uid != 0 || st.st_gid != 0 || st.st_nlink != 1 ||
+		(st.st_mode & 0077) || (create && fchmod(descriptor, 0600) < 0)) {
+		close(descriptor);
+		return NULL;
+	}
+	stream = fdopen(descriptor, create ? "w" : "r");
+	if (!stream)
+		close(descriptor);
+	return stream;
+}
+
 static int ipsec_run_script(const char *path)
 {
 	struct stat st;
@@ -3254,6 +3277,41 @@ static int _ipsec_valid_route_prefix(const char *prefix)
 	return 1;
 }
 
+static int _ipsec_valid_ipv4_prefix(const char *prefix)
+{
+	struct in_addr address;
+	char address_text[16], *end;
+	const char *slash;
+	unsigned long bits, mask;
+	size_t length, i;
+
+	if (!prefix || !(slash = strchr(prefix, '/')) || strchr(slash + 1, '/'))
+		return 0;
+	length = slash - prefix;
+	if (!length || length >= sizeof(address_text) || !slash[1])
+		return 0;
+	memcpy(address_text, prefix, length);
+	address_text[length] = '\0';
+	if (inet_pton(AF_INET, address_text, &address) != 1)
+		return 0;
+	for (i = 1; slash[i]; ++i)
+		if (slash[i] < '0' || slash[i] > '9')
+			return 0;
+	bits = strtoul(slash + 1, &end, 10);
+	if (*end || bits < 1 || bits > 32)
+		return 0;
+	mask = 0xffffffffUL << (32 - bits);
+	return (ntohl(address.s_addr) & mask) == ntohl(address.s_addr);
+}
+
+static int _ipsec_valid_ipv4_gateway(const char *gateway)
+{
+	struct in_addr address;
+
+	return gateway && inet_pton(AF_INET, gateway, &address) == 1 &&
+		address.s_addr != INADDR_ANY;
+}
+
 static void _ipsec_lan_bypass_rule_del(void)
 {
 	char lan_class[32] = {0};
@@ -3351,9 +3409,11 @@ static int _ipsec_wan_rules(const char *action, const char *pref,
 static void _ipsec_underlay_bypass_rules(int unit, int up, int ethernet_wan,
 		const char *gateway, const char *wan_net)
 {
-	char pref[16], path[64], temporary[68];
+	char pref[16], path[128], temporary[136], refs_token[16], extra;
 	char network[32] = {0}, saved_gateway[16] = {0};
 	unsigned int refs = 0;
+	unsigned long parsed_refs;
+	char *end;
 	int lock, written, install;
 	FILE *fp;
 
@@ -3363,14 +3423,37 @@ static void _ipsec_underlay_bypass_rules(int unit, int up, int ethernet_wan,
 	if (lock < 0)
 		return;
 	snprintf(pref, sizeof(pref), "%d", 130 + unit);
-	snprintf(path, sizeof(path), "/tmp/ipsec-wan-%d", unit);
+	if (ipsec_private_dir(FILE_PATH_IPSEC_PRIVATE_DIR) < 0)
+		goto done;
+	snprintf(path, sizeof(path), FILE_PATH_IPSEC_PRIVATE_DIR "/ipsec-wan-%d", unit);
 	snprintf(temporary, sizeof(temporary), "%s.new", path);
-	fp = fopen(path, "r");
+	fp = ipsec_state_open(path, 0);
 	if (fp) {
-		if (fscanf(fp, "%u %31s %15s", &refs, network, saved_gateway) != 3 ||
-		    refs > 1024 || !_ipsec_valid_route_prefix(network)) {
+		if (fscanf(fp, "%15s %31s %15s %c", refs_token, network,
+			   saved_gateway, &extra) != 3) {
 			refs = 0;
 			network[0] = '\0';
+			saved_gateway[0] = '\0';
+		} else {
+			for (end = refs_token; *end >= '0' && *end <= '9'; ++end)
+				;
+			if (end == refs_token || *end) {
+				parsed_refs = 0;
+			} else {
+				parsed_refs = strtoul(refs_token, &end, 10);
+				if (*end)
+					parsed_refs = 0;
+			}
+			if (!parsed_refs || parsed_refs > 1024 ||
+			    !_ipsec_valid_ipv4_prefix(network) ||
+			    (strcmp(saved_gateway, "-") &&
+			     !_ipsec_valid_ipv4_gateway(saved_gateway))) {
+				refs = 0;
+				network[0] = '\0';
+				saved_gateway[0] = '\0';
+			} else {
+				refs = parsed_refs;
+			}
 		}
 		fclose(fp);
 	}
@@ -3398,7 +3481,9 @@ static void _ipsec_underlay_bypass_rules(int unit, int up, int ethernet_wan,
 			goto failed;
 		++refs;
 	}
-	fp = fopen(temporary, "w");
+	if (unlink(temporary) < 0 && errno != ENOENT)
+		goto failed;
+	fp = ipsec_state_open(temporary, 1);
 	if (!fp)
 		goto failed;
 	written = fprintf(fp, "%u %s %s\n", refs, network, saved_gateway);
@@ -3679,37 +3764,45 @@ static void _ipsec_updown_host_net_cli(int unit)
 static void _get_my_ip_by_subnet(const char* subnet, char *ip, size_t len, int v6)
 {
 	char network[64] = {0};
+	char line[512], address[64];
 	char *p;
-	char buf[512] = {0};
-	FILE* fp;
+	FILE *fp;
+
+	if (!ip || !len)
+		return;
+	ip[0] = '\0';
 
 	strlcpy(network, subnet, sizeof(network));
 	if ((p = strchr(network, '/')) != NULL) {
 		*p = '\0';
 	}
+	if (!*network)
+		return;
 
-	if (v6) {
-		snprintf(buf, sizeof(buf), "ip -6 route show table local | grep %s | awk '{print $2}' > /tmp/ipsec_my_subnet", network);
-		system(buf);
-		fp = fopen("/tmp/ipsec_my_subnet", "r");
-		if (fp) {
-			while (fgets(ip, len, fp)) {
-				trimNL(ip);
-				if (*(ip + strlen(ip) - 1) == ':')
-					continue;
-				else
-					break;
-			}
-			fclose(fp);
+	fp = popen(v6 ? "ip -6 route show table local" :
+		   "ip -4 route show table local", "r");
+	if (!fp)
+		return;
+	while (fgets(line, sizeof(line), fp)) {
+		if (!strstr(line, network))
+			continue;
+		if (v6) {
+			if (sscanf(line, "%*s %63s", address) != 1)
+				continue;
+			trimNL(address);
+			if (!*address || address[strlen(address) - 1] == ':')
+				continue;
+		} else {
+			p = strstr(line, " src ");
+			if (!p || sscanf(p + 5, "%63s", address) != 1)
+				continue;
+			trimNL(address);
+			trimWS(address);
 		}
+		strlcpy(ip, address, len);
+		break;
 	}
-	else {
-		snprintf(buf, sizeof(buf), "ip -4 route show table local | grep %s | awk '{print $10}' > /tmp/ipsec_my_subnet", network);
-		system(buf);
-		f_read_string("/tmp/ipsec_my_subnet", ip, len);
-		trimNL(ip);
-		trimWS(ip);
-	}
+	pclose(fp);
 }
 
 static void _ipsec_updown_net_net(int unit, int vpn_type)
