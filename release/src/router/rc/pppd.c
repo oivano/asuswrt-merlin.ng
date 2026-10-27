@@ -28,6 +28,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <syslog.h>															
 #include <ctype.h>
 #include <string.h>
@@ -65,6 +66,36 @@ char *ppp_safe_escape(char *src, char *buf, size_t size)
 	return ppp_escape(src, buf, size) ? : "";
 }
 
+FILE *ppp_options_open(const char *path)
+{
+	struct stat st;
+	int descriptor;
+	FILE *stream;
+
+	if (geteuid() != 0 || strncmp(path, "/tmp/ppp/", 9) != 0 ||
+	    !path[9] || strchr(path + 9, '/') ||
+	    lstat("/tmp/ppp", &st) != 0 || !S_ISDIR(st.st_mode) ||
+	    st.st_uid != 0 || (st.st_mode & 0022))
+		return NULL;
+
+	if (unlink(path) != 0 && errno != ENOENT)
+		return NULL;
+	descriptor = open(path, O_WRONLY | O_CREAT | O_EXCL, 0600);
+	if (descriptor < 0)
+		return NULL;
+	if (fchown(descriptor, 0, 0) != 0 || fchmod(descriptor, 0600) != 0) {
+		close(descriptor);
+		unlink(path);
+		return NULL;
+	}
+	stream = fdopen(descriptor, "w");
+	if (stream == NULL) {
+		close(descriptor);
+		unlink(path);
+	}
+	return stream;
+}
+
 int
 start_pppd(int unit)
 {
@@ -73,7 +104,6 @@ start_pppd(int unit)
 	char *pppd_argv[] = { "/usr/sbin/pppd", "file", options, NULL};
 	char tmp[100], prefix[sizeof("wanXXXXXXXXXX_")];
 	char buf[256];	/* although maximum length of pppoe_username/pppoe_passwd is 64. pppd accepts up to 256 characters. */
-	mode_t mask;
 	int ret = 0;
 #ifdef RTCONFIG_DSL
 	char dsl_prefix[16] = {0};
@@ -97,16 +127,11 @@ start_pppd(int unit)
 	snprintf(prefix, sizeof(prefix), "wan%d_", unit);
 	sprintf(options, "/tmp/ppp/options.wan%d", unit);
 
-	mask = umask(0000);
-
 	/* Generate options file */
-	if (!(fp = fopen(options, "w"))) {
+	if (!(fp = ppp_options_open(options))) {
 		perror(options);
-		umask(mask);
 		return -1;
 	}
-
-	umask(mask);
 
 	/* do not authenticate peer and do not use eap */
 	fprintf(fp, "noauth\n");

@@ -1612,6 +1612,7 @@ extern int ppp_linkunit(char *linkname);
 extern char *ppp_escape(char *src, char *buf, size_t size);
 extern char *ppp_safe_escape(char *src, char *buf, size_t size);
 extern int start_pppd(int unit);
+extern FILE *ppp_options_open(const char *path);
 extern void stop_pppd(int unit);
 extern int start_demand_ppp(int unit, int wait);
 extern int start_pppoe_relay(char *wan_if);

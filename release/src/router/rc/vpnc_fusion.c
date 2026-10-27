@@ -1786,7 +1786,6 @@ start_vpnc_by_unit(const int unit)
 	char *pppd_argv[] = { "/usr/sbin/pppd", "file", options, NULL};
 	char tmp[100], prefix[] = "vpnc_", vpnc_prefix[] = "vpncXXXXXXXXXX_", wan_prefix[] = "wanXXXXXXXXXX_";
 	char buf[256];	/* although maximum length of pppoe_username/pppoe_passwd is 64. pppd accepts up to 256 characters. */
-	mode_t mask;
 	int ret = 0;
 	VPNC_PROFILE *prof;
 
@@ -1872,12 +1871,9 @@ start_vpnc_by_unit(const int unit)
 #if defined(RTCONFIG_PPTP) || defined(RTCONFIG_L2TP)
 	//Run PPTP/L2TP
 	if (VPNC_PROTO_PPTP == prof->protocol || VPNC_PROTO_L2TP == prof->protocol) {
-		mask = umask(0000);
-
 		/* Generate options file */
-		if (!(fp = fopen(options, "w"))) {
+		if (!(fp = ppp_options_open(options))) {
 			perror(options);
-			umask(mask);
 			return -1;
 		}
 
@@ -1896,8 +1892,6 @@ start_vpnc_by_unit(const int unit)
 			eval("fc", "config", "--gre", "0");
 		}
 #endif
-
-		umask(mask);
 
 		/* route for pptp/l2tp's server */
 		char *wan_ifname = nvram_safe_get(strlcat_r(wan_prefix, "pppoe_ifname", tmp, sizeof(tmp)));

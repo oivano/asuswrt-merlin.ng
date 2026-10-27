@@ -67,7 +67,6 @@ start_vpnc(void)
 	char tmp[100], prefix[] = "vpnc_", wan_prefix[] = "wanXXXXXXXXXX_";
 	char wan_proto[16];
 	char buf[256];	/* although maximum length of pppoe_username/pppoe_passwd is 64. pppd accepts up to 256 characters. */
-	mode_t mask;
 	int ret = 0;
 
 	snprintf(wan_prefix, sizeof(wan_prefix), "wan%d_", wan_primary_ifunit());
@@ -109,16 +108,11 @@ start_vpnc(void)
 
 	update_vpnc_state(prefix, WAN_STATE_INITIALIZING, 0);
 
-	mask = umask(0000);
-
 	/* Generate options file */
-	if (!(fp = fopen(options, "w"))) {
+	if (!(fp = ppp_options_open(options))) {
 		perror(options);
-		umask(mask);
 		return -1;
 	}
-
-	umask(mask);
 
 #ifdef VPNC_LEGACY
 	/* route for pptp/l2tp's server */
