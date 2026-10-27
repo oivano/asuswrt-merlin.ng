@@ -80,6 +80,8 @@ extern int add_account(const char *const account, const char *const password);
 extern int del_account(const char *const account);
 extern int mod_account(const char *const account, const char *const new_account, const char *const new_password);
 extern int test_if_exist_account(const char *const);
+extern int samba_account_name_valid(const char *account);
+extern int samba_account_password_valid(const char *password);
 #ifdef RTCONFIG_PERMISSION_MANAGEMENT
 extern int add_group(const char *const group);
 extern int del_group(const char *const group);

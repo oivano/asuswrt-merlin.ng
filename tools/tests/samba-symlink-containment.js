@@ -10,6 +10,8 @@ const vfs = read('release/src/router/samba-3.6.x_opwrt/source/source3/modules/vf
 const trans2 = read('release/src/router/samba-3.6.x_opwrt/source/source3/smbd/trans2.c');
 const auth = read('release/src/router/samba-3.6.x_opwrt/source/source3/auth/auth_util.c');
 const services = read('release/src/router/rc/services.c');
+const usb = read('release/src/router/rc/usb.c');
+const diskShare = read('release/src/router/libdisk/disk_share.c');
 for (const setting of ['follow symlinks = no', 'unix extensions = no', 'wide links = no', 'guest account = nobody']) {
     assert.ok(config.includes(`"${setting}\\n"`), setting);
 }
@@ -27,6 +29,23 @@ const link = trans2.slice(trans2.indexOf('static NTSTATUS smb_set_file_unix_link
 assert.ok(link.indexOf('if (!lp_symlinks(SNUM(conn)))') < link.indexOf('SMB_VFS_SYMLINK('));
 assert.match(link, /if \(!lp_symlinks\(SNUM\(conn\)\)\)\s*\{\s*return NT_STATUS_ACCESS_DENIED;/);
 assert.match(vfs, /if \(!lp_symlinks\(SNUM\(handle->conn\)\)\)\s*\{\s*result = vfswrap_open_nosymlinks/);
+
+const smbUpdateStart = usb.indexOf('static int update_smbpasswd_account(');
+const smbUpdateEnd = usb.indexOf('void add_usb_host_modules', smbUpdateStart);
+const smbUpdate = usb.slice(smbUpdateStart, smbUpdateEnd);
+assert.ok(smbUpdateStart >= 0 && smbUpdateEnd > smbUpdateStart);
+assert.match(smbUpdate, /char \*argv\[\] = \{ "\/usr\/sbin\/smbpasswd", \(char \*\)username, \(char \*\)password, NULL \}/);
+assert.match(smbUpdate, /_eval\(argv, NULL, 0, NULL\)/);
+assert.doesNotMatch(smbUpdate, /system\(|str_escape_quotes/);
+const startSamba = usb.slice(usb.indexOf('start_samba(void)'), usb.indexOf('stop_samba(int force)'));
+assert.equal((startSamba.match(/update_smbpasswd_account\(char_user, char_passwd\)/g) || []).length, 2);
+assert.doesNotMatch(startSamba, /str_escape_quotes|system\(cmd\)/);
+assert.match(diskShare, /int samba_account_name_valid\(const char \*account\)/);
+assert.match(diskShare, /int samba_account_password_valid\(const char \*password\)/);
+assert.equal((diskShare.match(/samba_account_name_valid\(account\)/g) || []).length, 4);
+assert.equal((diskShare.match(/samba_account_name_valid\(new_account\)/g) || []).length, 2);
+assert.equal((diskShare.match(/samba_account_password_valid\(password\)/g) || []).length, 2);
+assert.equal((diskShare.match(/samba_account_password_valid\(new_password\)/g) || []).length, 2);
 
 const helper = vfs.slice(vfs.indexOf('static int vfswrap_open_nosymlinks('), vfs.indexOf('static int vfswrap_open('));
 assert.match(helper, /defined\(__linux__\).*defined\(O_NOFOLLOW\).*defined\(O_DIRECTORY\).*defined\(AT_FDCWD\)/);

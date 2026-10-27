@@ -283,6 +283,20 @@ fill_smbpasswd_input_file(const char *passwd)
 }
 #endif
 
+static int update_smbpasswd_account(const char *username, const char *password)
+{
+#if defined(RTCONFIG_SAMBA36X)
+	char *argv[] = { "/usr/sbin/smbpasswd", (char *)username, (char *)password, NULL };
+#else
+	char *argv[] = { "smbpasswd", (char *)username, (char *)password, NULL };
+#endif
+
+	if (!samba_account_name_valid(username) || !samba_account_password_valid(password))
+		return -1;
+
+	return _eval(argv, NULL, 0, NULL);
+}
+
 void add_usb_host_modules(void)
 {
 #if defined(RTCONFIG_USB_XHCI)
@@ -3422,32 +3436,21 @@ start_samba(void)
 		if(!(follow_account->active))
 			continue;
 
-		char char_user[64], char_passwd[64], suit_user[64], suit_passwd[64];
+		char char_user[64], char_passwd[64];
 
 		memset(char_user, 0, 64);
 		ascii_to_char_safe(char_user, follow_account->name, 64);
-		memset(suit_user, 0, 64);
-		str_escape_quotes(suit_user, char_user, 64);
 
 		memset(char_passwd, 0, 64);
 		ascii_to_char_safe(char_passwd, follow_account->passwd, 64);
-		memset(suit_passwd, 0, 64);
-		str_escape_quotes(suit_passwd, char_passwd, 64);
-
-#if defined(RTCONFIG_SAMBA36X)
-		// use samba-3.6.x_opwrt to replace from samba-3.6.x
-		//snprintf(cmd, sizeof(cmd), "echo -e \"%s\n%s\n\"  |/usr/sbin/smbpasswd -s -a \"%s\"", suit_passwd, suit_passwd, suit_user);
-		snprintf(cmd, sizeof(cmd), "/usr/sbin/smbpasswd \"%s\" \"%s\"", suit_user, suit_passwd);
-#else
-		snprintf(cmd, sizeof(cmd), "smbpasswd \"%s\" \"%s\"", suit_user, suit_passwd);
-#endif
-		system(cmd);
+		if (update_smbpasswd_account(char_user, char_passwd) != 0)
+			usb_dbg("Failed to update Samba account.\n");
 	}
 
 	PMS_FreeAccInfo(&account_list, &group_list);
 #else
 	char *nv, *nvp, *b;
-	char char_user[64], char_passwd[64], suit_user[64], suit_passwd[64];
+	char char_user[64], char_passwd[64];
 	char *tmp_ascii_user, *tmp_ascii_passwd;
 	int i;
 
@@ -3464,8 +3467,6 @@ start_samba(void)
 
 			memset(char_user, 0, 64);
 			ascii_to_char_safe(char_user, tmp_ascii_user, 64);
-			memset(suit_user, 0, 64);
-			str_escape_quotes(suit_user, char_user, 64);
 #ifdef RTCONFIG_NVRAM_ENCRYPT
 			char dec_passwd[64];
 			memset(dec_passwd, 0, sizeof(dec_passwd));
@@ -3475,17 +3476,8 @@ start_samba(void)
 			memset(char_passwd, 0, 64);
 			ascii_to_char_safe(char_passwd, tmp_ascii_passwd, 64);
 
-			memset(suit_passwd, 0, 64);
-			str_escape_quotes(suit_passwd, char_passwd, 64);
-
-#if defined(RTCONFIG_SAMBA36X)
-			// use samba-3.6.x_opwrt to replace from samba-3.6.x
-			//snprintf(cmd, sizeof(cmd), "echo -e \"%s\n%s\n\"  |/usr/sbin/smbpasswd -s -a \"%s\"", suit_passwd, suit_passwd, suit_user);
-			snprintf(cmd, sizeof(cmd), "/usr/sbin/smbpasswd \"%s\" \"%s\"", suit_user, suit_passwd);
-#else
-			snprintf(cmd, sizeof(cmd), "smbpasswd \"%s\" \"%s\"", suit_user, suit_passwd);
-#endif
-			system(cmd);
+			if (update_smbpasswd_account(char_user, char_passwd) != 0)
+				usb_dbg("Failed to update Samba account.\n");
 
 			if(++i >= acc_num)
 				break;
