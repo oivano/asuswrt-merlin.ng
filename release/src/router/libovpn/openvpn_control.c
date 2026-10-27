@@ -41,6 +41,61 @@
 #include <arpa/inet.h>
 
 
+static int _ovpn_route_has_dev(char **route_args, int route_argc, const char *iface)
+{
+	int i;
+
+	if (!iface)
+		return 0;
+	for (i = 0; i + 1 < route_argc; i++) {
+		if (!strcmp(route_args[i], "dev") && !strcmp(route_args[i + 1], iface))
+			return 1;
+	}
+	return 0;
+}
+
+static void _ovpn_apply_route_listing(FILE *fp, int unit, const char *action,
+					      const char *iface, int verbose)
+{
+	char line[512], log_line[512], table[16];
+	char *route_args[64], *argv[70], *saveptr, *token;
+	int route_argc, argc, i;
+
+	snprintf(table, sizeof(table), "ovpnc%d", unit);
+	while (fgets(line, sizeof(line), fp) != NULL) {
+		if (!strchr(line, '\n') && !feof(fp)) {
+			int ch;
+			while ((ch = fgetc(fp)) != '\n' && ch != EOF)
+				;
+			continue;
+		}
+		line[strcspn(line, "\r\n")] = '\0';
+		strlcpy(log_line, line, sizeof(log_line));
+		route_argc = 0;
+		token = strtok_r(line, " \t", &saveptr);
+		while (token && route_argc < (int)(sizeof(route_args) / sizeof(route_args[0]))) {
+			route_args[route_argc++] = token;
+			token = strtok_r(NULL, " \t", &saveptr);
+		}
+		if (token || route_argc == 0 || (iface && !_ovpn_route_has_dev(route_args, route_argc, iface)))
+			continue;
+
+		argc = 0;
+		argv[argc++] = "/usr/sbin/ip";
+		argv[argc++] = "route";
+		argv[argc++] = (char *)action;
+		for (i = 0; i < route_argc; i++)
+			argv[argc++] = route_args[i];
+		argv[argc++] = "table";
+		argv[argc++] = table;
+		argv[argc] = NULL;
+		_eval(argv, NULL, 0, NULL);
+		if (verbose >= 6)
+			logmessage("openvpn-routing", "Copy main table route: %s", log_line);
+	}
+}
+
+
 int ovpn_skip_dnsmasq() {
 	int unit;
 	char filename[40], varname[32];
@@ -304,24 +359,11 @@ void ovpn_client_up_handler(int unit)
 		system(buffer);
 
 		// Copy main table routes
-		snprintf(buffer, sizeof (buffer), "/usr/sbin/ip route show table main > /tmp/vpnroute%d_tmp", unit);
-		system(buffer);
-
-		snprintf(buffer, sizeof (buffer), "/tmp/vpnroute%d_tmp", unit);
-		fp_route = fopen(buffer, "r");
-
+		fp_route = popen("/usr/sbin/ip route show table main", "r");
 		if (fp_route) {
-			while (fgets(buffer2, sizeof(buffer2), fp_route) != NULL) {
-				if (buffer2[strlen(buffer2)-1] == '\n')
-					buffer2[strlen(buffer2)-1] = '\0';
-				snprintf(buffer3, sizeof (buffer3), "/usr/sbin/ip route add %s table ovpnc%d", buffer2, unit);
-				system(buffer3);
-				if (verb >= 6)
-					logmessage("openvpn-routing", "Copy main table route: %s", buffer3);
-			}
-			fclose(fp_route);
+			_ovpn_apply_route_listing(fp_route, unit, "add", NULL, verb);
+			pclose(fp_route);
 		}
-		unlink(buffer);
 
 		// Apply pushed routes
 		dev_env = _safe_getenv("dev");
@@ -464,19 +506,16 @@ exit:
 // If unit is 0, then remove rules targetting main (i.e. WAN)
 void _clear_routing_rules(int unit) {
 	FILE *fp;
-	char buffer[128], buffer2[128], buffer3[128];
-	int prio, verb;
+	char buffer[128], buffer2[128], prio_str[16];
+	unsigned int prio;
+	int verb;
 	char table[12], *lookup;
 	char target_table[12];
 
 	snprintf(buffer, sizeof (buffer), "vpn_client%d_verb", unit);
 	verb = nvram_get_int(buffer);
 
-	snprintf(buffer, sizeof (buffer), "/usr/sbin/ip rule show > /tmp/vpnrules%d_tmp", unit);
-	system(buffer);
-
-	snprintf(buffer, sizeof (buffer), "/tmp/vpnrules%d_tmp", unit);
-	fp = fopen(buffer, "r");
+	fp = popen("/usr/sbin/ip rule show", "r");
 	if (fp) {
 		if (unit == 0)
 			strlcpy(target_table, "main", sizeof (target_table));
@@ -502,14 +541,13 @@ void _clear_routing_rules(int unit) {
 			if (strcmp(table, target_table))
 				continue;
 
-			snprintf(buffer3, sizeof (buffer3), "/usr/sbin/ip rule del prio %d", prio);
+			snprintf(prio_str, sizeof(prio_str), "%u", prio);
 			if (verb >= 6)
-				logmessage("openvpn-routing", "Removed rule %d", prio);
-			system(buffer3);
+				logmessage("openvpn-routing", "Removed rule %u", prio);
+			eval("/usr/sbin/ip", "rule", "del", "prio", prio_str);
 		}
-		fclose(fp);
+		pclose(fp);
 	}
-	unlink(buffer);
 }
 
 /*
@@ -1089,42 +1127,31 @@ void update_client_routes(char *server_iface, int addroute) {
 /* Server-agnostic, could eventually be reused for other servers like WG/IPSEC */
 
 void _add_server_routes(char *server_iface, int client_unit) {
-	char buffer[128], routecmd[128], line[128];
+	char buffer[64];
 	FILE *fp_route;
 
-	snprintf(buffer, sizeof (buffer), "/usr/sbin/ip route list table main | grep %s > /tmp/vpnroute%d_tmp", server_iface, client_unit);
-	system(buffer);
-
-	snprintf(buffer, sizeof (buffer), "/tmp/vpnroute%d_tmp", client_unit);
-	fp_route = fopen(buffer, "r");
+	if (!server_iface || client_unit < 1 || client_unit > OVPN_CLIENT_MAX)
+		return;
+	fp_route = popen("/usr/sbin/ip route list table main", "r");
 
 	if (fp_route) {
-		while (fgets(line, sizeof(line), fp_route) != NULL) {
-			snprintf(routecmd, sizeof (routecmd), "/usr/sbin/ip route add %s table ovpnc%d", trimNL(line), client_unit);
-			system(routecmd);
-		}
-		fclose(fp_route);
+		_ovpn_apply_route_listing(fp_route, client_unit, "add", server_iface, 0);
+		pclose(fp_route);
 	}
-	unlink(buffer);
 }
 
 
 void _del_server_routes(char *server_iface, int client_unit) {
-	char buffer[128], routecmd[128], line[128];
+	char buffer[64];
 	FILE *fp_route;
 
-	snprintf(buffer, sizeof (buffer), "/usr/sbin/ip route list table ovpnc%d | grep %s > /tmp/vpnroute%d_tmp", client_unit, server_iface, client_unit);
-	system(buffer);
-
-	snprintf(buffer, sizeof (buffer), "/tmp/vpnroute%d_tmp", client_unit);
-	fp_route = fopen(buffer, "r");
+	if (!server_iface || client_unit < 1 || client_unit > OVPN_CLIENT_MAX)
+		return;
+	snprintf(buffer, sizeof(buffer), "/usr/sbin/ip route list table ovpnc%d", client_unit);
+	fp_route = popen(buffer, "r");
 
 	if (fp_route) {
-		while (fgets(line, sizeof(line), fp_route) != NULL) {
-			snprintf(routecmd, sizeof (routecmd), "/usr/sbin/ip route del %s table ovpnc%d", trimNL(line), client_unit);
-			system(routecmd);
-		}
-		fclose(fp_route);
+		_ovpn_apply_route_listing(fp_route, client_unit, "del", server_iface, 0);
+		pclose(fp_route);
 	}
-	unlink(buffer);
 }
