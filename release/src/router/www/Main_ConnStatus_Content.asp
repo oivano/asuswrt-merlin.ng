@@ -198,22 +198,22 @@ function draw_table(type){
 
 		// Output row
 		code += "<tr><td style=\"text-align:left;\">" + dataarray[i][0] + "</td>" +
-		        "<td title=\"" + srctitle + "\"" + (srchost.length > 37 ? "style=\"font-size: 80%;text-align:left;white-space: nowrap;\"" : "style=\"text-align:left;white-space: nowrap;\"") +">";
+			"<td title=\"" + htmlEnDeCode.htmlEncode(srctitle) + "\"" + (srchost.length > 37 ? "style=\"font-size: 80%;text-align:left;white-space: nowrap;\"" : "style=\"text-align:left;white-space: nowrap;\"") +">";
 
 		if (!validator.isPrivateIP(dataarray[i][1])) {
-			code += "<a style=\"cursor:pointer; text-decoration:underline;\" href=\"https://whatismyipaddress.com/ip/" + dataarray[i][1] + "\" target=\"_blank\">" + srchost + "</a>"
+			code += "<a style=\"cursor:pointer; text-decoration:underline;\" href=\"https://whatismyipaddress.com/ip/" + dataarray[i][1] + "\" target=\"_blank\">" + htmlEnDeCode.htmlEncode(srchost) + "</a>"
 		} else {
-			code += srchost;
+			code += htmlEnDeCode.htmlEncode(srchost);
 		}
 
 		code += "</td>" +
 			    "<td style=\"text-align:left;\">" + dataarray[i][2] + "</td>" +
-		        "<td title=\"" + dsttitle + "\"" + (dsthost.length > 37 ? "style=\"font-size: 80%;text-align:left;white-space: nowrap;\"" : "style=\"text-align:left;white-space: nowrap;\"") +">";
+			"<td title=\"" + htmlEnDeCode.htmlEncode(dsttitle) + "\"" + (dsthost.length > 37 ? "style=\"font-size: 80%;text-align:left;white-space: nowrap;\"" : "style=\"text-align:left;white-space: nowrap;\"") +">";
 
 		if (!validator.isPrivateIP(dataarray[i][3])) {
-			code +="<a style=\"cursor:pointer; text-decoration:underline;\" href=\"https://whatismyipaddress.com/ip/" + dataarray[i][3] + "\" target=\"_blank\">" + dsthost + "</a>";
+			code +="<a style=\"cursor:pointer; text-decoration:underline;\" href=\"https://whatismyipaddress.com/ip/" + dataarray[i][3] + "\" target=\"_blank\">" + htmlEnDeCode.htmlEncode(dsthost) + "</a>";
 		} else {
-			code += dsthost;
+			code += htmlEnDeCode.htmlEncode(dsthost);
 		}
 
 		code += "</td>" +

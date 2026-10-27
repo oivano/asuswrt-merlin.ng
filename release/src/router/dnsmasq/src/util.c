@@ -213,13 +213,11 @@ static int check_name(char *in)
    for the tighter criteria. */
 static int check_hostname(char *name)
 {
-  char c, *at, *src = name;
+  char c, *src = name;
   int first;
 
   if (!check_name(name))
     return -1;
-
-  at = strchr(name, '@');
 
   for (first = 1; (c = *name); name++, first = 0)
     /* check for legal char a-z A-Z 0-9 - _ . */
@@ -232,10 +230,6 @@ static int check_hostname(char *name)
       if (!first && (c == '-' || c == '_'))
 	continue;
 
-      /* relax name part */
-      if (at && (name <= at) && (c >= 33) && (c < 127))
-	continue;
-      
       /* end of hostname part */
       if (c == '.')
 	break;

@@ -361,11 +361,11 @@ function draw_conntrack_table(){
 
 		// Output row
 		code += "<tr><td>" + bwdpi_conntrack[i][0] + "</td>";
-		code += "<td title=\"" + srctitle + "\"" + (srchost.length > 36 ? "style=\"font-size: 80%;\"" : "") +">" +
-	                  srchost + "</td>";
+		code += "<td title=\"" + htmlEnDeCode.htmlEncode(srctitle) + "\"" + (srchost.length > 36 ? "style=\"font-size: 80%;\"" : "") +">" +
+	                  htmlEnDeCode.htmlEncode(srchost) + "</td>";
 		code += "<td>" + bwdpi_conntrack[i][2] + "</td>";
-		code += "<td title=\"" + dsttitle + "\"" + (dsthost.length > 36 ? "style=\"font-size: 80%;\"" : "") + ">" +
-		          dsthost + "</td>";
+		code += "<td title=\"" + htmlEnDeCode.htmlEncode(dsttitle) + "\"" + (dsthost.length > 36 ? "style=\"font-size: 80%;\"" : "") + ">" +
+		          htmlEnDeCode.htmlEncode(dsthost) + "</td>";
 		code += "<td>" + bwdpi_conntrack[i][4] + "</td>";
 
 		if (bwdpi_conntrack[i][7] == 0 && bwdpi_conntrack[i][6] == 0) {
