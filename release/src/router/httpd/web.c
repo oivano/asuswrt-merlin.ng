@@ -25146,7 +25146,7 @@ int ej_apps_fsck_log(int eid, webs_t wp, int argc, char **argv)
 		for(partition_info = disk_info->partitions; partition_info != NULL; partition_info = partition_info->next){
 			memset(file_name, 0, 32);
 			snprintf(file_name, sizeof(file_name), "/tmp/fsck_ret/%s.log", partition_info->device);
-			ret = dump_file(wp, file_name);
+			ret = dump_file_filter_mode(wp, file_name, NULL, 1);
 
 			if(ret)
 				websWrite(wp, "\n\n");
