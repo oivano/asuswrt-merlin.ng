@@ -15146,11 +15146,83 @@ err:
 }
 #endif	/* RTCONFIG_SAVEJFFS */
 
+struct httpd_restore_spool {
+	char directory[64];
+	char path[80];
+	FILE *file;
+	struct stat identity;
+	int complete;
+};
+
+static struct httpd_restore_spool settings_spool;
+
+static void
+httpd_spool_clear(struct httpd_restore_spool *spool)
+{
+	if (spool->file)
+		fclose(spool->file);
+	if (spool->path[0])
+		unlink(spool->path);
+	if (spool->directory[0])
+		rmdir(spool->directory);
+	memset(spool, 0, sizeof(*spool));
+}
+
+static FILE *
+httpd_spool_create(struct httpd_restore_spool *spool)
+{
+	int fd;
+	struct stat st;
+
+	httpd_spool_clear(spool);
+	strlcpy(spool->directory, "/tmp/httpd-restore-XXXXXX", sizeof(spool->directory));
+	if (!mkdtemp(spool->directory)) {
+		spool->directory[0] = '\0';
+		return NULL;
+	}
+	if (lstat(spool->directory, &st) != 0 || !S_ISDIR(st.st_mode) ||
+	    st.st_uid != 0 || (st.st_mode & 077) != 0)
+		goto fail;
+	snprintf(spool->path, sizeof(spool->path), "%s/data", spool->directory);
+	fd = open(spool->path, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+	if (fd < 0)
+		goto fail;
+	if (fstat(fd, &spool->identity) != 0 || !S_ISREG(spool->identity.st_mode) ||
+	    spool->identity.st_uid != 0 || spool->identity.st_nlink != 1 ||
+	    fchmod(fd, 0600) != 0) {
+		close(fd);
+		goto fail;
+	}
+	spool->file = fdopen(fd, "w+");
+	if (!spool->file) {
+		close(fd);
+		goto fail;
+	}
+	return spool->file;
+fail:
+	httpd_spool_clear(spool);
+	return NULL;
+}
+
+static int
+httpd_spool_valid(struct httpd_restore_spool *spool)
+{
+	struct stat st, opened;
+
+	return spool->complete && spool->file &&
+		lstat(spool->directory, &st) == 0 && S_ISDIR(st.st_mode) &&
+		st.st_uid == 0 && (st.st_mode & 077) == 0 &&
+		fstat(fileno(spool->file), &opened) == 0 &&
+		lstat(spool->path, &st) == 0 && S_ISREG(st.st_mode) &&
+		st.st_uid == 0 && st.st_nlink == 1 && (st.st_mode & 077) == 0 &&
+		st.st_dev == spool->identity.st_dev && st.st_ino == spool->identity.st_ino &&
+		st.st_dev == opened.st_dev && st.st_ino == opened.st_ino;
+}
+
 static void
 do_upload_post(char *url, FILE *stream, int len, char *boundary)
 {
 	#define MAX_VERSION_LEN 64
-	char upload_fifo[] = "/tmp/settings_u.prf";
 	FILE *fifo = NULL;
 	char buf[1024];
 	int count, ret = EINVAL, ch;
@@ -15162,6 +15234,8 @@ do_upload_post(char *url, FILE *stream, int len, char *boundary)
 #if defined(RTCONFIG_SAVEJFFS)
 	int r;
 #endif
+
+	httpd_spool_clear(&settings_spool);
 
 	/* Look for our part */
 	while (len > 0) {
@@ -15188,7 +15262,7 @@ do_upload_post(char *url, FILE *stream, int len, char *boundary)
 		}
 	}
 
-	if (!(fifo = fopen(upload_fifo, "w")))
+	if (!(fifo = httpd_spool_create(&settings_spool)))
 		goto err;
 
 	filelen = len;
@@ -15263,7 +15337,8 @@ do_upload_post(char *url, FILE *stream, int len, char *boundary)
 		}
 
 		filelen -= count;
-		fwrite(buf, 1, count, fifo);
+		if (fwrite(buf, 1, count, fifo) != count)
+			goto err;
 	}
 
 #if defined(RTCONFIG_SAVEJFFS)
@@ -15280,21 +15355,24 @@ do_upload_post(char *url, FILE *stream, int len, char *boundary)
 			break;
 
 		if (filelen > 0) {
-			fputc(ch, fifo);
+			if (fputc(ch, fifo) == EOF)
+				goto err;
 			--filelen;
 		}
 	}
 
+	if (filelen > 0 || ferror(fifo) || fflush(fifo) != 0)
+		goto err;
+	settings_spool.complete = 1;
+	if (!httpd_spool_valid(&settings_spool))
+		goto err;
 	ret = 0;
-
-	fseek(fifo, 0, SEEK_END);
-	fclose(fifo);
 	fifo = NULL;
 	/*printf("done\n");*/
 
 err:
-	if (fifo)
-		fclose(fifo);
+	if (ret != 0)
+		httpd_spool_clear(&settings_spool);
 
 	/* Slurp anything remaining in the request */
 	while (len-- > 0)
@@ -15320,7 +15398,8 @@ do_upload_cgi(char *url, FILE *stream)
 	ret = fcntl(fileno(stream), F_GETOWN, 0);
 
 	/* Reboot if successful */
-	if (ret == 0)
+	if (ret == 0 && httpd_spool_valid(&settings_spool) &&
+	    sys_upload(settings_spool.path) == 0)
 	{
 		websApply(stream, "Uploading.asp");
 #ifdef RTCONFIG_HTTPS
@@ -15330,11 +15409,11 @@ do_upload_cgi(char *url, FILE *stream)
 #endif
 		shutdown(fileno(stream), SHUT_RDWR);
 #if defined(RTCONFIG_SAVEJFFS)
-		r = restore_jffs_cfgs("/tmp/settings_u.prf");
+		r = restore_jffs_cfgs(settings_spool.path);
 		dbg("Restore jffs cfgs to /jffs, return %d\n", r);
 		logmessage("savejffs", "Restore jffs cfgs to /jffs. (return %d)", r);
 #endif
-		sys_upload("/tmp/settings_u.prf");
+		httpd_spool_clear(&settings_spool);
 #ifdef RTCONFIG_LANTIQ
 		system("rm -f /jffs/db_*.tgz");
 #endif
@@ -15348,8 +15427,8 @@ do_upload_cgi(char *url, FILE *stream)
 	else
 	{
 		websApply(stream, "UploadError.asp");
-	   	//unlink("/tmp/settings_u.prf");
 	}
+	httpd_spool_clear(&settings_spool);
 }
 
 #ifdef RTCONFIG_OPENVPN
@@ -16489,6 +16568,8 @@ static void
 prf_file(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg, char_t *url, char_t *path, char_t *query)
 {
 	struct json_object *root = json_object_new_object();
+	struct httpd_restore_spool backup = { { 0 } };
+	int save_result;
 
 	do_json_decode(root);
 
@@ -16539,6 +16620,11 @@ prf_file(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg, char_t *url, cha
 	else
 		HTTPD_DBG("invalid ddns_flag option\n");
 
+	if (!httpd_spool_create(&backup)) {
+		json_object_put(root);
+		return;
+	}
+
 	model_name = get_model();
 
 	if(model_name == MODEL_RTN56U){
@@ -16569,32 +16655,39 @@ prf_file(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg, char_t *url, cha
 	nvram_commit();
 
 	if(rm_passwd_opt == 1){
-		sys_download_fb("/tmp/settings");
+		save_result = sys_download_fb(backup.path);
 	}
 	else if(!strcmp(mode_flag, "Router")){
-		sys_download("/tmp/settings");
+		save_result = sys_download(backup.path);
 	}
 	else if(!strcmp(mode_flag, "AP")){
-		sys_download_ap("/tmp/settings");
+		save_result = sys_download_ap(backup.path);
 	}
 	else if(!strcmp(mode_flag, "Repeater_2G")){
-		sys_download_rp_2g("/tmp/settings");
+		save_result = sys_download_rp_2g(backup.path);
 	}
 	else if(!strcmp(mode_flag, "Repeater_5G")){
-		sys_download_rp_5g("/tmp/settings");
+		save_result = sys_download_rp_5g(backup.path);
 	}
 #ifdef RTCONFIG_HAS_5G_2
 	else if(!strcmp(mode_flag, "Repeater_5G2")){
-		sys_download_rp_5g2("/tmp/settings");
+		save_result = sys_download_rp_5g2(backup.path);
 	}
 #endif
 	else{
-		sys_download("/tmp/settings");
+		save_result = sys_download(backup.path);
 	}
 
 	if(ddns_opt == 0){
 		nvram_set("ddns_hostname_x", ddns_hostname_tmp);
 		nvram_commit();
+	}
+
+	backup.complete = save_result == 0;
+	if (!httpd_spool_valid(&backup)) {
+		httpd_spool_clear(&backup);
+		json_object_put(root);
+		return;
 	}
 
 #if defined(RTCONFIG_SAVEJFFS)
@@ -16614,7 +16707,7 @@ prf_file(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg, char_t *url, cha
 		}
 		fp = popen(cmd, "r");
 		if (fp != NULL) {
-			r = append_jffs_cfgs(fp, "/tmp/settings");
+			r = append_jffs_cfgs(fp, backup.path);
 			pclose(fp);
 			if (r != 0) {
 				logmessage("savejffs", "append configurations in /jffs to setting file fail. (return %d)", r);
@@ -16626,7 +16719,9 @@ prf_file(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg, char_t *url, cha
 	}
 #endif
 
-	do_file("/tmp/settings", wp);
+	if (httpd_spool_valid(&backup))
+		do_file(backup.path, wp);
+	httpd_spool_clear(&backup);
 	
 	json_object_put(root);
 }
@@ -34323,14 +34418,21 @@ void write_encoded_crt(char *name, char *value){
 
 #if (defined(RTCONFIG_JFFS2) || defined(RTCONFIG_BRCM_NAND_JFFS2)) || defined(RTCONFIG_UBIFS)
 
-#define JFFS_BACKUP_FILE "/tmp/backup_jffs.tar"
+static struct httpd_restore_spool jffs_spool;
 
 static void
 do_jffs_file(char *url, FILE *stream)
 {
-        system("tar cf /tmp/backup_jffs.tar -C /jffs .");
-        do_file(JFFS_BACKUP_FILE, stream);
-        unlink(JFFS_BACKUP_FILE);
+	struct httpd_restore_spool backup = { { 0 } };
+
+	if (!httpd_spool_create(&backup))
+		return;
+	if (eval("tar", "cf", backup.path, "-C", "/jffs", ".") == 0) {
+		backup.complete = 1;
+		if (httpd_spool_valid(&backup))
+			do_file(backup.path, stream);
+	}
+	httpd_spool_clear(&backup);
 }
 
 static void
@@ -34345,13 +34447,17 @@ do_jffsupload_cgi(char *url, FILE *stream)
 #endif
 	ret = fcntl(fileno(stream), F_GETOWN, 0);
 
-	if (ret == 0)
+	if (ret == 0 && httpd_spool_valid(&jffs_spool))
 	{
-		if (f_size(JFFS_BACKUP_FILE) > 10) {
+		if (f_size(jffs_spool.path) > 10) {
 			logmessage("httpd", "Restoring JFFS backup...");
 			system("rm -rf /jffs/*"); /* */
-			system("/bin/tar -xf /tmp/backup_jffs.tar -C /jffs");
-			unlink(JFFS_BACKUP_FILE);
+			if (eval("/bin/tar", "-xf", jffs_spool.path, "-C", "/jffs") != 0) {
+				logmessage("httpd", "JFFS restore failed");
+				websApply(stream, "UploadError.asp");
+				httpd_spool_clear(&jffs_spool);
+				return;
+			}
 			logmessage("httpd", "JFFS restore completed");
 			websApply(stream, "UploadingJFFS.asp");
 #ifdef RTCONFIG_HTTPS
@@ -34362,14 +34468,13 @@ do_jffsupload_cgi(char *url, FILE *stream)
 				shutdown(fileno(stream), SHUT_RDWR);
 		} else {
 			logmessage("httpd", "Error while restoring JFFS backup - no change made");
-			unlink(JFFS_BACKUP_FILE);
 		}
 	}
 	else
 	{
 		websApply(stream, "UploadError.asp");
-		unlink(JFFS_BACKUP_FILE);
 	}
+	httpd_spool_clear(&jffs_spool);
 }
 
 static void
@@ -34378,6 +34483,14 @@ do_jffsupload_post(char *url, FILE *stream, int len, char *boundary)
 	FILE *fifo = NULL;
 	int count, ret = EINVAL, ch;
 	long filelen = 0;
+	char trailer[256], received[256];
+	size_t trailer_len;
+
+	httpd_spool_clear(&jffs_spool);
+	if (!boundary || !*boundary || strlen(boundary) > sizeof(trailer) - 9)
+		goto err;
+	snprintf(trailer, sizeof(trailer), "\r\n--%s--\r\n", boundary);
+	trailer_len = strlen(trailer);
 
 	/* Look for our part */
 	while (len > 0) {
@@ -34404,7 +34517,7 @@ do_jffsupload_post(char *url, FILE *stream, int len, char *boundary)
 		}
 	}
 
-	if (!(fifo = fopen(JFFS_BACKUP_FILE, "w")))
+	if (!(fifo = httpd_spool_create(&jffs_spool)))
 		goto err;
 
 	while (len > 0) {
@@ -34414,20 +34527,25 @@ do_jffsupload_post(char *url, FILE *stream, int len, char *boundary)
 
 		len -= count;
 		filelen += count;
-		fwrite(post_buf, 1, count, fifo);
+		if (fwrite(post_buf, 1, count, fifo) != count)
+			goto err;
 	}
 
+	if (filelen <= trailer_len || ferror(fifo) || fflush(fifo) != 0 ||
+	    fseek(fifo, -((long)trailer_len), SEEK_END) != 0 ||
+	    fread(received, 1, trailer_len, fifo) != trailer_len ||
+	    memcmp(received, trailer, trailer_len) != 0 ||
+	    ftruncate(fileno(fifo), filelen - trailer_len) != 0)
+		goto err;
+	jffs_spool.complete = 1;
+	if (!httpd_spool_valid(&jffs_spool))
+		goto err;
 	ret = 0;
-	fclose(fifo);
 	fifo = NULL;
 
-	/* Strip boundary from file */
-	if (boundary)
-		truncate(JFFS_BACKUP_FILE, filelen - strlen(boundary) - 8);
-
 err:
-	if (fifo)
-		fclose(fifo);
+	if (ret != 0)
+		httpd_spool_clear(&jffs_spool);
 
 	/* Slurp anything remaining in the request */
 	while (len-- > 0)

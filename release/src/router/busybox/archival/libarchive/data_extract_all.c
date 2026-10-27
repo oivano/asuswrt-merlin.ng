@@ -6,6 +6,66 @@
 #include "libbb.h"
 #include "bb_archive.h"
 
+/* Symlinks created by this extraction; pre-existing ones (e.g. /etc -> tmp/etc) are trusted. */
+static struct {
+	dev_t dev;
+	ino_t ino;
+} *created_links;
+static unsigned created_link_cnt;
+
+static void remember_created_link(const char *name)
+{
+	struct stat st;
+
+	if (lstat(name, &st) != 0 || !S_ISLNK(st.st_mode))
+		return;
+	created_links = xrealloc(created_links, (created_link_cnt + 1) * sizeof(*created_links));
+	created_links[created_link_cnt].dev = st.st_dev;
+	created_links[created_link_cnt].ino = st.st_ino;
+	created_link_cnt++;
+}
+
+static int is_created_link(const struct stat *st)
+{
+	unsigned i;
+
+	for (i = 0; i < created_link_cnt; i++) {
+		if (created_links[i].dev == st->st_dev && created_links[i].ino == st->st_ino)
+			return 1;
+	}
+	return 0;
+}
+
+static void check_extract_path(const char *name, int include_leaf)
+{
+	char *path = xstrdup(name);
+	char *component = path;
+	char *cursor;
+	struct stat st;
+
+	for (cursor = path; ; cursor++) {
+		char saved = *cursor;
+		if (saved != '/' && saved != '\0')
+			continue;
+		if (cursor - component == 2 && component[0] == '.' && component[1] == '.')
+			bb_error_msg_and_die("unsafe archive path: %s", name);
+		if (cursor != path && (saved == '/' || include_leaf)) {
+			*cursor = '\0';
+			if (lstat(path, &st) == 0) {
+				if (S_ISLNK(st.st_mode) && is_created_link(&st))
+					bb_error_msg_and_die("archive path traverses symlink: %s", name);
+			} else if (errno != ENOENT) {
+				bb_perror_msg_and_die("can't check archive path: %s", name);
+			}
+			*cursor = saved;
+		}
+		if (saved == '\0')
+			break;
+		component = cursor + 1;
+	}
+	free(path);
+}
+
 void FAST_FUNC data_extract_all(archive_handle_t *archive_handle)
 {
 	file_header_t *file_header = archive_handle->file_header;
@@ -67,6 +127,13 @@ void FAST_FUNC data_extract_all(archive_handle_t *archive_handle)
 	}
 #endif
 
+	check_extract_path(dst_name, S_ISDIR(file_header->mode));
+	if (hard_link) {
+		if (hard_link[0] == '/')
+			bb_error_msg_and_die("unsafe archive link: %s", hard_link);
+		check_extract_path(hard_link, 1);
+	}
+
 	if (archive_handle->ah_flags & ARCHIVE_CREATE_LEADING_DIRS) {
 		char *slash = strrchr(dst_name, '/');
 		if (slash) {
@@ -126,6 +193,8 @@ void FAST_FUNC data_extract_all(archive_handle_t *archive_handle)
 	/* Handle hard links separately */
 	if (hard_link) {
 		res = link(hard_link, dst_name);
+		if (res == 0)
+			remember_created_link(dst_name);
 		if (res != 0 && !(archive_handle->ah_flags & ARCHIVE_EXTRACT_QUIET)) {
 			bb_perror_msg("can't create %slink "
 					"from %s to %s", "hard",
@@ -144,6 +213,7 @@ void FAST_FUNC data_extract_all(archive_handle_t *archive_handle)
 		int flags = O_WRONLY | O_CREAT | O_EXCL;
 		if (archive_handle->ah_flags & ARCHIVE_O_TRUNC)
 			flags = O_WRONLY | O_CREAT | O_TRUNC;
+		flags |= O_NOFOLLOW;
 		dst_nameN = dst_name;
 #ifdef ARCHIVE_REPLACE_VIA_RENAME
 		if (archive_handle->ah_flags & ARCHIVE_REPLACE_VIA_RENAME)
@@ -178,6 +248,8 @@ void FAST_FUNC data_extract_all(archive_handle_t *archive_handle)
 		/* Symlink */
 //TODO: what if file_header->link_target == NULL (say, corrupted tarball?)
 		res = symlink(file_header->link_target, dst_name);
+		if (res == 0)
+			remember_created_link(dst_name);
 		if (res != 0
 		 && !(archive_handle->ah_flags & ARCHIVE_EXTRACT_QUIET)
 		) {
