@@ -40,11 +40,17 @@ typedef enum {
     AVAHI_CACHE_REPLACE_FINAL
 } AvahiCacheEntryState;
 
+/* RFC 6762 section 17: an mDNS packet must not exceed 9000 bytes, so no valid record can */
+#define AVAHI_CACHE_RECORD_SIZE_MAX 9000
+
+#define AVAHI_CACHE_BYTES_MAX (256*1024)
+
 typedef struct AvahiCacheEntry AvahiCacheEntry;
 
 struct AvahiCacheEntry {
     AvahiCache *cache;
     AvahiRecord *record;
+    size_t size;
     struct timeval timestamp;
     struct timeval poof_timestamp;
     struct timeval expiry;
@@ -72,6 +78,7 @@ struct AvahiCache {
     AVAHI_LLIST_HEAD(AvahiCacheEntry, entries);
 
     unsigned n_entries;
+    size_t n_bytes;
 
     int last_rand;
     time_t last_rand_timestamp;

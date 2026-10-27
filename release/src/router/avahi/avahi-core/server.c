@@ -673,6 +673,11 @@ static void handle_response_packet(AvahiServer *s, AvahiDnsPacket *p, AvahiInter
             break;
         }
 
+        if (avahi_record_get_estimate_size(record) > AVAHI_CACHE_RECORD_SIZE_MAX) {
+            avahi_log_debug(__FILE__": Ignoring oversized response record.");
+            goto unref;
+        }
+
         if (!avahi_key_is_pattern(record->key)) {
             /* Filter services that will be cached. Allow all local services */
             if (!from_local_iface && s->config.enable_reflector && s->config.reflect_filters != NULL) {

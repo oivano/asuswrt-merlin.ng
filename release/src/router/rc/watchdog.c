@@ -7379,6 +7379,30 @@ void dnsmasq_check()
 #endif
 }
 
+#if defined(RTCONFIG_MDNS)
+static void mdns_check(void)
+{
+	static int missing = 0;
+
+	if (!nvram_match("success_start_service", "1") || f_exists("/tmp/upgrade"))
+		return;
+#ifdef RTAC68U
+	if (!hw_usb_cap())
+		return;
+#endif
+	if (pids("avahi-daemon")) {
+		missing = 0;
+		return;
+	}
+	/* Require two consecutive misses so a restart_mdns in progress is not raced */
+	if (++missing < 2)
+		return;
+	missing = 0;
+	logmessage("watchdog", "avahi-daemon died, restarting");
+	notify_rc("start_mdns");
+}
+#endif
+
 #if defined(RPAX56)
 void amas_linkctrl()
 {
@@ -10140,6 +10164,9 @@ wdp:
 	networkmap_check();
 	httpd_check();
 	dnsmasq_check();
+#if defined(RTCONFIG_MDNS)
+	mdns_check();
+#endif
 #ifdef RTCONFIG_NEW_USER_LOW_RSSI
 	roamast_check();
 #endif
