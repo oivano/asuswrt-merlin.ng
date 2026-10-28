@@ -9003,6 +9003,14 @@ finish:
 			}
 		}
 	}
+
+	if (ruleIdxArray)
+		json_object_put(ruleIdxArray);
+	if (statusArray)
+		json_object_put(statusArray);
+	if (timeArray)
+		json_object_put(timeArray);
+
 	return have_data;
 }
 #ifdef RTCONFIG_PERMISSION_MANAGEMENT
