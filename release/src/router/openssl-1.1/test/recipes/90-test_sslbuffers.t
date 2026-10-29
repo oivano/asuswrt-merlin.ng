@@ -1,5 +1,5 @@
 #! /usr/bin/env perl
-# Copyright 2017 The OpenSSL Project Authors. All Rights Reserved.
+# Copyright 2017-2025 The OpenSSL Project Authors. All Rights Reserved.
 #
 # Licensed under the OpenSSL license (the "License").  You may not use
 # this file except in compliance with the License.  You can obtain a copy
@@ -14,6 +14,9 @@ setup("test_sslbuffers");
 
 plan skip_all => "No suitable TLS/SSL protocol is supported by this OpenSSL build"
     if alldisabled(available_protocols("tls"));
+
+plan skip_all => "Test will not work with no-autoload-config specified"
+    if disabled("autoload-config");
 
 plan tests => 1;
 

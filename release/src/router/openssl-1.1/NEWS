@@ -5,6 +5,86 @@
   This file gives a brief overview of the major changes between each OpenSSL
   release. For more details please read the CHANGES file.
 
+  Major changes between OpenSSL 1.1.1zg and OpenSSL 1.1.1zh [9 Jun 2026]
+
+      o Fixed heap use-after-free in PKCS7_verify().
+        (CVE-2026-45447)
+      o Fixed possible heap buffer overflow in ASN.1 multibyte string
+        conversion.
+        (CVE-2026-7383)
+      o Fixed out-of-bounds read in CMS password-based decryption.
+        (CVE-2026-9076)
+      o Fixed heap buffer over-read in ASN.1 content parsing.
+        (CVE-2026-34180)
+      o Fixed possible NULL dereference in password-dased CMS decryption.
+        (CVE-2026-42766)
+
+  Major changes between OpenSSL 1.1.1zf and OpenSSL 1.1.1zg [7 Apr 2026]
+
+      o Fixed potential use-after-free in DANE client code.
+        (CVE-2026-28387)
+      o Fixed NULL pointer dereference when processing a delta CRL.
+        (CVE-2026-28388)
+      o Fixed possible NULL dereference when processing CMS
+        KeyAgreeRecipientInfo.
+        (CVE-2026-28389)
+      o Fixed possible NULL dereference when processing CMS
+        KeyTransportRecipientInfo.
+        (CVE-2026-28390)
+
+  Major changes between OpenSSL 1.1.1ze and OpenSSL 1.1.1zf [3 Feb 2026]
+
+      o Fixed Missing ASN1_TYPE validation in TS_RESP_verify_response()
+        function.
+        (CVE-2025-69420)
+
+  Major changes between OpenSSL 1.1.1zd and OpenSSL 1.1.1ze [27 Jan 2026]
+
+      o Fixed Heap out-of-bounds write in BIO_f_linebuffer on short writes.
+        (CVE-2025-68160)
+      o Fixed Unauthenticated/unencrypted trailing bytes with low-level OCB
+        function calls.
+        (CVE-2025-69418)
+      o Fixed Out of bounds write in PKCS12_get_friendlyname() UTF-8 conversion.
+        (CVE-2025-69419)
+      o Fixed NULL Pointer Dereference in PKCS12_item_decrypt_d2i_ex() function.
+        (CVE-2025-69421)
+
+  Major changes between OpenSSL 1.1.1zc and OpenSSL 1.1.1zd [30 Sep 2025]
+
+      o Fix Out-of-Bounds read & write in RFC 3211 KEK Unwrap.
+        (CVE-2025-9230)
+
+  Major changes between OpenSSL 1.1.1zb and OpenSSL 1.1.1zc [1 Jul 2025]
+
+      o Correct patch version in Windows resource files
+
+  Major changes between OpenSSL 1.1.1za and OpenSSL 1.1.1zb [11 Feb 2025]
+
+      o Fixed timing side-channel in ECDSA signature computation
+        (CVE-2024-13176)
+      o Fixed possible OOB memory access with invalid low-level GF(2^m)
+        elliptic curve parameters
+        (CVE-2024-9143)
+
+  Major changes between OpenSSL 1.1.1y and OpenSSL 1.1.1za [3 Sep 2024]
+
+      o Fixed possible buffer overread in SSL_select_next_proto()
+        (CVE-2024-5535)
+
+  Major changes between OpenSSL 1.1.1x and OpenSSL 1.1.1y [4 Jun 2024]
+
+      o Fixed potential use after free after SSL_free_buffers() is called
+        (CVE-2024-4741)
+      o Fixed unbounded memory growth with session handling in TLSv1.3
+        (CVE-2024-2511)
+
+  Major changes between OpenSSL 1.1.1w and OpenSSL 1.1.1x [30 Jan 2024]
+
+      o Fixed PKCS12 Decoding crashes (CVE-2024-0727)
+      o Fix excessive time spent in DH check / generation with large Q parameter
+        value (CVE-2023-5678)
+
   Major changes between OpenSSL 1.1.1v and OpenSSL 1.1.1w [11 Sep 2023]
 
       o Fix POLY1305 MAC implementation corrupting XMM registers on Windows

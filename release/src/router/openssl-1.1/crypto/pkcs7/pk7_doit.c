@@ -1,5 +1,5 @@
 /*
- * Copyright 1995-2019 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1995-2026 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -158,13 +158,6 @@ static int pkcs7_decrypt_rinfo(unsigned char **pek, int *peklen,
         PKCS7err(PKCS7_F_PKCS7_DECRYPT_RINFO, PKCS7_R_CTRL_ERROR);
         goto err;
     }
-
-    if (EVP_PKEY_id(pkey) == EVP_PKEY_RSA)
-        /* upper layer pkcs7 code incorrectly assumes that a successful RSA
-         * decryption means that the key matches ciphertext (which never
-         * was the case, implicit rejection or not), so to make it work
-         * disable implicit rejection for RSA keys */
-        EVP_PKEY_CTX_ctrl(pctx, -1, -1, EVP_PKEY_CTRL_RSA_IMPLICIT_REJECTION, 0, NULL);
 
     if (EVP_PKEY_decrypt(pctx, NULL, &eklen,
                          ri->enc_key->data, ri->enc_key->length) <= 0)

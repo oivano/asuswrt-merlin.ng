@@ -7,6 +7,395 @@
  https://github.com/openssl/openssl/commits/ and pick the appropriate
  release branch.
 
+ Changes between 1.1.1zg and 1.1.1zh [9 Jun 2026]
+
+ *) Fixed heap use-after-free in PKCS7_verify().
+
+    Severity: High
+
+    Issue summary: A specially crafted PKCS#7 or S/MIME signed message could
+    trigger a use-after-free during PKCS#7 signature verification.
+
+    Impact summary: A use-after-free may result in process crashes, heap
+    corruption, or, potentially, remote code execution.
+
+    Reported by: Thai Duong (Calif.io in collaboration with Claude
+    and Anthropic Research).
+
+    (CVE-2026-45447)
+    [Igor Ustinov]
+
+ *) Fixed possible heap buffer overflow in ASN.1 multibyte string conversion.
+
+    Severity: Low
+
+    Issue summary: A signed integer overflow when sizing the destination
+    buffer for Unicode output in ASN1_mbstring_ncopy() can lead to a heap
+    buffer overflow.
+
+    Impact summary: A heap buffer overflow may lead to a crash or possibly
+    attacker controlled code execution or other undefined behaviour.
+
+    Reported by: Zehua Qiao and Jinwen He.
+
+    (CVE-2026-7383)
+    [Viktor Dukhovni]
+
+ *) Fixed out-of-bounds read in CMS password-based decryption.
+
+    Severity: Low
+
+    Issue summary: When CMS password-based decryption (RFC 3211/PWRI key
+    unwrap) processes attacker-supplied CMS data, an attacker-chosen stream-mode
+    KEK cipher can trigger a heap out-of-bounds read in kek_unwrap_key().
+
+    Impact summary: A heap buffer over-read may trigger a crash, which leads
+    to Denial of Service for an application if the input buffer ends at a memory
+    page boundary and the following page is unmapped.  There is no information
+    disclosure, as the over-read bytes are not revealed to the attacker.
+
+    Reported by: Bhabani Sankar Das and Haruki Oyama (Waseda University).
+
+    (CVE-2026-9076)
+    [Nikola Pajkovský]
+
+ *) Fixed heap buffer over-read in ASN.1 content parsing.
+
+    Severity: Low
+
+    Issue summary: Parsing a crafted DER-encoded ASN.1 structure
+    with a primitive element whose content exceeds 2 gigabytes in length
+    may cause a heap buffer over-read on 64-bit Unix and Unix-like platforms.
+
+    Impact summary: The heap buffer over-read may crash the application (Denial
+    of Service) or to load into the decoded ASN.1 object contents of memory
+    beyond the end of the input buffer.  More typically, such ASN.1 elements
+    would instead be truncated.
+
+    Reported by: Frank Buss.
+
+    (CVE-2026-34180)
+    [Viktor Dukhovni]
+
+ *) Fixed possible NULL dereference in password-dased CMS decryption.
+
+    Severity: Low
+
+    Issue summary: A specially crafted password-encrypted CMS message
+    could trigger a NULL pointer dereference during CMS decryption.
+
+    Impact summary: This NULL pointer dereference could lead to an application
+    crash and a Denial of Service.
+
+    Reported by: Mayank Jangid, Kushal Khemka, Hari Priandana,
+    Bhabani Sankar Das, and Qifan Zhang (Palo Alto Networks).
+
+    (CVE-2026-42766)
+    [Igor Ustinov]
+
+ Changes between 1.1.1zf and 1.1.1zg [7 Apr 2026]
+
+ *) Fixed potential use-after-free in DANE client code.
+
+    Severity: Low
+
+    Issue summary: An uncommon configuration of clients performing DANE
+    TLSA-based server authentication, when paired with uncommon server DANE TLSA
+    records, may result in a use-after-free and/or double-free on the client
+    side.
+
+    Impact summary: A use after free can have a range of potential consequences
+    such as the corruption of valid data, crashes, or execution of arbitrary
+    code.
+
+    Reported by: Igor Morgenstern (Aisle Research).
+
+    (CVE-2026-28387)
+    [Viktor Dukhovni]
+
+ *) Fixed NULL pointer dereference when processing a delta CRL.
+
+    Severity: Low
+
+    Issue summary: When a delta CRL that contains a Delta CRL Indicator extension
+    is processed, a NULL pointer dereference might happen if the required CRL
+    Number extension is missing.
+
+    Impact summary: A NULL pointer dereference can trigger a crash which
+    leads to a Denial of Service for an application.
+
+    Reported by: Igor Morgenstern (Aisle Research).
+
+    (CVE-2026-28388)
+    [Igor Morgenstern]
+
+ *) Fixed possible NULL dereference when processing CMS KeyAgreeRecipientInfo.
+
+    Severity: Low
+
+    Issue summary: During processing of a crafted CMS EnvelopedData message
+    with KeyAgreeRecipientInfo a NULL pointer dereference can happen.
+
+    Impact summary: Applications that process attacker-controlled CMS data may
+    crash before authentication or cryptographic operations occur resulting in
+    Denial of Service.
+
+    Reported by: Nathan Sportsman (Praetorian), Daniel Rhea,
+    Jaeho Nam (Seoul National University), Muhammad Daffa,
+    Zhanpeng Liu (Tencent Xuanwu Lab), Guannan Wang (Tencent Xuanwu Lab),
+    Guancheng Li (Tencent Xuanwu Lab), and Joshua Rogers.
+
+    (CVE-2026-28389)
+    [Neil Horman]
+
+ *) Fixed possible NULL dereference when processing CMS
+    KeyTransportRecipientInfo.
+
+    Severity: Low
+
+    Issue summary: During processing of a crafted CMS EnvelopedData message
+    with KeyTransportRecipientInfo a NULL pointer dereference can happen.
+
+    Impact summary: Applications that process attacker-controlled CMS data may
+    crash before authentication or cryptographic operations occur resulting in
+    Denial of Service.
+
+    Reported by: Muhammad Daffa, Zhanpeng Liu (Tencent Xuanwu Lab),
+    Guannan Wang (Tencent Xuanwu Lab), Guancheng Li (Tencent Xuanwu Lab),
+    Joshua Rogers, and Chanho Kim.
+
+    (CVE-2026-28390)
+    [Neil Horman]
+
+ Changes between 1.1.1ze and 1.1.1zf [3 Feb 2026]
+
+ *) Fixed Missing ASN1_TYPE validation in TS_RESP_verify_response() function.
+
+    Severity: Low
+
+    Issue summary: A type confusion vulnerability exists in the TimeStamp
+    Response verification code where an ASN1_TYPE union member is accessed
+    without first validating the type, causing an invalid or NULL pointer
+    dereference when processing a malformed TimeStamp Response file.
+
+    Impact summary: An application calling TS_RESP_verify_response()
+    with a malformed TimeStamp Response can be caused to dereference an invalid
+    or NULL pointer when reading, resulting in a Denial of Service.
+
+    Reported by: Luigino Camastra (Aisle Research)
+
+    (CVE-2025-69420)
+    [Bob Beck]
+
+ Changes between 1.1.1zd and 1.1.1ze [27 Jan 2026]
+
+ *) Fixed Unauthenticated/unecrypted trailing bytes with low-level OCB
+    function calls.
+
+    Severity: Low
+
+    Issue summary: When using the low-level OCB API directly with AES-NI or
+    other hardware-accelerated code paths, inputs whose length is not a multiple
+    of 16 bytes can leave the final partial block unencrypted and
+    unauthenticated.
+
+    Impact summary: The trailing 1-15 bytes of a message may be exposed in
+    cleartext on encryption and are not covered by the authentication tag,
+    allowing an attacker to read or tamper with those bytes without detection.
+
+    Reported by: Stanislav Fort (Aisle Research)
+
+    (CVE-2025-69418)
+    [Stanislav Fort]
+
+ *) Fixed Out of bounds write in PKCS12_get_friendlyname() UTF-8 conversion.
+
+    Severity: Low
+
+    Issue summary: Calling PKCS12_get_friendlyname() function on a maliciously
+    crafted PKCS#12 file with a BMPString (UTF-16BE) friendly name containing
+    non-ASCII BMP code point can trigger a one byte write before the allocated
+    buffer.
+
+    Impact summary: The out-of-bounds write can cause a memory corruption
+    which can have various consequences including a Denial of Service.
+
+    Reported by: Stanislav Fort (Aisle Research)
+
+    (CVE-2025-69419)
+    [Norbert Pócs]
+
+ *) Fixed NULL Pointer Dereference in PKCS12_item_decrypt_d2i_ex() function.
+
+    Severity: Low
+
+    Issue summary: Processing a malformed PKCS#12 file can trigger a NULL
+    pointer dereference in the PKCS12_item_decrypt_d2i_ex() function.
+
+    Impact summary: A NULL pointer dereference can trigger a crash which leads
+    to Denial of Service for an application processing PKCS#12 files.
+
+    Reported by: Luigino Camastra (Aisle Research)
+
+    (CVE-2025-69421)
+    [Luigino Camastra]
+
+ *) Fixed Heap out-of-bounds write in BIO_f_linebuffer on short writes.
+
+    Severity: Low
+
+    Issue summary: Writing large, newline-free data into a BIO chain using the
+    line-buffering filter where the next BIO performs short writes can trigger
+    a heap-based out-of-bounds write.
+
+    Impact summary: This out-of-bounds write can cause memory corruption
+    which typically results in a crash, leading to Denial of Service for
+    an application.
+
+    Reported by: Petr Simecek (Aisle Research) and Stanislav Fort (Aisle
+    Research)
+
+    (CVE-2025-68160)
+    [Neil Horman]
+
+ Changes between 1.1.1zc and 1.1.1zd [30 Sep 2025]
+
+ *) Fix Out-of-Bounds read & write in RFC 3211 KEK Unwrap
+
+    Issue summary: An application trying to decrypt CMS messages encrypted using
+    password based encryption can trigger an out-of-bounds read and write.
+
+    Impact summary: This out-of-bounds read may trigger a crash which leads to
+    Denial of Service for an application. The out-of-bounds write can cause
+    a memory corruption which can have various consequences including
+    a Denial of Service or Execution of attacker-supplied code.
+
+    The issue was reported by Stanislav Fort (Aisle Research).
+
+    (CVE-2025-9230)
+    [Viktor Dukhovni]
+
+ Changes between 1.1.1zb and 1.1.1zc [1 Jul 2025]
+
+ *) Correct patch version in Windows resource files
+
+    [Tomáš Mráz]
+
+ Changes between 1.1.1za and 1.1.1zb [11 Feb 2025]
+
+ *) Fixed timing side-channel in ECDSA signature computation.
+
+    There is a timing signal of around 300 nanoseconds when the top word of
+    the inverted ECDSA nonce value is zero. This can happen with significant
+    probability only for some of the supported elliptic curves. In particular
+    the NIST P-521 curve is affected. To be able to measure this leak, the
+    attacker process must either be located in the same physical computer or
+    must have a very fast network connection with low latency.
+
+    (CVE-2024-13176)
+    [Tomáš Mráz]
+
+ *) Fixed possible OOB memory access with invalid low-level GF(2^m) elliptic
+    curve parameters.
+
+    Use of the low-level GF(2^m) elliptic curve APIs with untrusted
+    explicit values for the field polynomial can lead to out-of-bounds memory
+    reads or writes.
+    Applications working with "exotic" explicit binary (GF(2^m)) curve
+    parameters, that make it possible to represent invalid field polynomials
+    with a zero constant term, via the above or similar APIs, may terminate
+    abruptly as a result of reading or writing outside of array bounds. Remote
+    code execution cannot easily be ruled out.
+
+    (CVE-2024-9143)
+    [Viktor Dukhovni]
+
+ Changes between 1.1.1y and 1.1.1za [3 Sep 2024]
+
+ *) Fixed possible buffer overread in SSL_select_next_proto().
+
+    Calling the OpenSSL API function SSL_select_next_proto with an empty
+    supported client protocols buffer may cause a crash or memory contents
+    to be sent to the peer.
+
+    (CVE-2024-5535)
+    [Matt Caswell]
+
+ Changes between 1.1.1x and 1.1.1y [4 Jun 2024]
+
+ *) Fixed potential use after free after SSL_free_buffers() is called.
+
+    The SSL_free_buffers function is used to free the internal OpenSSL
+    buffer used when processing an incoming record from the network.
+    The call is only expected to succeed if the buffer is not currently
+    in use. However, two scenarios have been identified where the buffer
+    is freed even when still in use.
+
+    The first scenario occurs where a record header has been received
+    from the network and processed by OpenSSL, but the full record body
+    has not yet arrived. In this case calling SSL_free_buffers will succeed
+    even though a record has only been partially processed and the buffer
+    is still in use.
+
+    The second scenario occurs where a full record containing application
+    data has been received and processed by OpenSSL but the application has
+    only read part of this data. Again a call to SSL_free_buffers will
+    succeed even though the buffer is still in use.
+
+    (CVE-2024-4741)
+    [Matt Caswell]
+
+ *) Fixed an issue where some non-default TLS server configurations can cause
+    unbounded memory growth when processing TLSv1.3 sessions. An attacker may
+    exploit certain server configurations to trigger unbounded memory growth that
+    would lead to a Denial of Service
+
+    This problem can occur in TLSv1.3 if the non-default SSL_OP_NO_TICKET option
+    is being used (but not if early_data is also configured and the default
+    anti-replay protection is in use). In this case, under certain conditions,
+    the session cache can get into an incorrect state and it will fail to flush
+    properly as it fills. The session cache will continue to grow in an unbounded
+    manner. A malicious client could deliberately create the scenario for this
+    failure to force a Denial of Service. It may also happen by accident in
+    normal operation.
+
+    (CVE-2024-2511)
+    [Matt Caswell]
+
+ Changes between 1.1.1w and 1.1.1x [30 Jan 2024]
+
+ *) A file in PKCS12 format can contain certificates and keys and may come from
+    an untrusted source. The PKCS12 specification allows certain fields to be
+    NULL, but OpenSSL did not correctly check for this case. A fix has been
+    applied to prevent a NULL pointer dereference that results in OpenSSL
+    crashing. If an application processes PKCS12 files from an untrusted source
+    using the OpenSSL APIs then that application will be vulnerable to this
+    issue prior to this fix.
+
+    OpenSSL APIs that were vulnerable to this are: PKCS12_parse(),
+    PKCS12_unpack_p7data(), PKCS12_unpack_p7encdata(), PKCS12_unpack_authsafes()
+    and PKCS12_newpass().
+
+    We have also fixed a similar issue in SMIME_write_PKCS7(). However since this
+    function is related to writing data we do not consider it security
+    significant.
+
+    (CVE-2024-0727)
+    [Matt Caswell]
+
+ *) Fix excessive time spent in DH check / generation with large Q parameter
+    value.
+
+    Applications that use the functions DH_generate_key() to generate an
+    X9.42 DH key may experience long delays. Likewise, applications that use
+    DH_check_pub_key(), DH_check_pub_key_ex() or EVP_PKEY_public_check()
+    to check an X9.42 DH key or X9.42 DH parameters may experience long delays.
+    Where the key or parameters that are being checked have been obtained from
+    an untrusted source this may lead to a Denial of Service.
+
+    (CVE-2023-5678)
+    [Richard Levitte]
+
  Changes between 1.1.1v and 1.1.1w [11 Sep 2023]
 
  *) Fix POLY1305 MAC implementation corrupting XMM registers on Windows.

@@ -1,4 +1,4 @@
-# Copyright 1999-2023 The OpenSSL Project Authors. All Rights Reserved.
+# Copyright 1999-2025 The OpenSSL Project Authors. All Rights Reserved.
 #
 # Licensed under the OpenSSL license (the "License").  You may not use
 # this file except in compliance with the License.  You can obtain a copy
@@ -214,6 +214,7 @@ BN_F_BN_LSHIFT:145:BN_lshift
 BN_F_BN_MOD_EXP2_MONT:118:BN_mod_exp2_mont
 BN_F_BN_MOD_EXP_MONT:109:BN_mod_exp_mont
 BN_F_BN_MOD_EXP_MONT_CONSTTIME:124:BN_mod_exp_mont_consttime
+BN_F_BN_MOD_EXP_MONT_FIXED_TOP:153:bn_mod_exp_mont_fixed_top
 BN_F_BN_MOD_EXP_MONT_WORD:117:BN_mod_exp_mont_word
 BN_F_BN_MOD_EXP_RECP:125:BN_mod_exp_recp
 BN_F_BN_MOD_EXP_SIMPLE:126:BN_mod_exp_simple
@@ -232,6 +233,9 @@ BN_F_BN_RSHIFT:146:BN_rshift
 BN_F_BN_SET_WORDS:144:bn_set_words
 BN_F_BN_STACK_PUSH:148:BN_STACK_push
 BN_F_BN_USUB:115:BN_usub
+BN_F_OSSL_BN_GEN_DSA_NONCE_FIXED_TOP:154:ossl_bn_gen_dsa_nonce_fixed_top
+BN_F_OSSL_BN_PRIV_RAND_RANGE_FIXED_TOP:152:ossl_bn_priv_rand_range_fixed_top
+BN_F_OSSL_BN_RSA_DO_UNBLIND:151:ossl_bn_rsa_do_unblind
 BUF_F_BUF_MEM_GROW:100:BUF_MEM_grow
 BUF_F_BUF_MEM_GROW_CLEAN:105:BUF_MEM_grow_clean
 BUF_F_BUF_MEM_NEW:101:BUF_MEM_new
@@ -404,6 +408,7 @@ DH_F_DH_BUILTIN_GENPARAMS:106:dh_builtin_genparams
 DH_F_DH_CHECK:126:DH_check
 DH_F_DH_CHECK_EX:121:DH_check_ex
 DH_F_DH_CHECK_PARAMS_EX:122:DH_check_params_ex
+DH_F_DH_CHECK_PUB_KEY:127:DH_check_pub_key
 DH_F_DH_CHECK_PUB_KEY_EX:123:DH_check_pub_key_ex
 DH_F_DH_CMS_DECRYPT:114:dh_cms_decrypt
 DH_F_DH_CMS_SET_PEERKEY:115:dh_cms_set_peerkey
@@ -969,6 +974,7 @@ PKCS12_F_PKCS12_SETUP_MAC:122:PKCS12_setup_mac
 PKCS12_F_PKCS12_SET_MAC:123:PKCS12_set_mac
 PKCS12_F_PKCS12_UNPACK_AUTHSAFES:130:PKCS12_unpack_authsafes
 PKCS12_F_PKCS12_UNPACK_P7DATA:131:PKCS12_unpack_p7data
+PKCS12_F_PKCS12_UNPACK_P7ENCDATA:134:PKCS12_unpack_p7encdata
 PKCS12_F_PKCS12_VERIFY_MAC:126:PKCS12_verify_mac
 PKCS12_F_PKCS8_ENCRYPT:125:PKCS8_encrypt
 PKCS12_F_PKCS8_SET0_PBE:132:PKCS8_set0_pbe
@@ -1185,7 +1191,7 @@ SSL_F_OSSL_STATEM_SERVER_CONSTRUCT_MESSAGE:431:*
 SSL_F_OSSL_STATEM_SERVER_POST_PROCESS_MESSAGE:601:\
 	ossl_statem_server_post_process_message
 SSL_F_OSSL_STATEM_SERVER_POST_WORK:602:ossl_statem_server_post_work
-SSL_F_OSSL_STATEM_SERVER_PRE_WORK:640:
+SSL_F_OSSL_STATEM_SERVER_PRE_WORK:640:ossl_statem_server_pre_work
 SSL_F_OSSL_STATEM_SERVER_PROCESS_MESSAGE:603:ossl_statem_server_process_message
 SSL_F_OSSL_STATEM_SERVER_READ_TRANSITION:418:ossl_statem_server_read_transition
 SSL_F_OSSL_STATEM_SERVER_WRITE_TRANSITION:604:\
@@ -1321,6 +1327,7 @@ SSL_F_SSL_RENEGOTIATE_ABBREVIATED:546:SSL_renegotiate_abbreviated
 SSL_F_SSL_SCAN_CLIENTHELLO_TLSEXT:320:*
 SSL_F_SSL_SCAN_SERVERHELLO_TLSEXT:321:*
 SSL_F_SSL_SESSION_DUP:348:ssl_session_dup
+SSL_F_SSL_SESSION_DUP_INTERN:641:ssl_session_dup_intern
 SSL_F_SSL_SESSION_NEW:189:SSL_SESSION_new
 SSL_F_SSL_SESSION_PRINT_FP:190:SSL_SESSION_print_fp
 SSL_F_SSL_SESSION_SET1_ID:423:SSL_SESSION_set1_id

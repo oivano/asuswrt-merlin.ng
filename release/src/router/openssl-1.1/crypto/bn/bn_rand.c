@@ -1,5 +1,5 @@
 /*
- * Copyright 1995-2019 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1995-2025 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -194,17 +194,57 @@ int BN_pseudo_rand_range(BIGNUM *r, const BIGNUM *range)
     return BN_rand_range(r, range);
 }
 
+int ossl_bn_priv_rand_range_fixed_top(BIGNUM *r, const BIGNUM *range)
+{
+    int n;
+    int count = 100;
+
+    if (range->neg || BN_is_zero(range)) {
+        BNerr(BN_F_OSSL_BN_PRIV_RAND_RANGE_FIXED_TOP, BN_R_INVALID_RANGE);
+        return 0;
+    }
+
+    n = BN_num_bits(range);     /* n > 0 */
+
+    /* BN_is_bit_set(range, n - 1) always holds */
+
+    if (n == 1) {
+        BN_zero(r);
+    } else {
+        BN_set_flags(r, BN_FLG_CONSTTIME);
+        do {
+            if (!bnrand(PRIVATE, r, n + 1, BN_RAND_TOP_ONE, BN_RAND_BOTTOM_ANY))
+                return 0;
+
+            if (!--count) {
+                BNerr(BN_F_OSSL_BN_PRIV_RAND_RANGE_FIXED_TOP,
+                      BN_R_TOO_MANY_ITERATIONS);
+                return 0;
+            }
+            ossl_bn_mask_bits_fixed_top(r, n);
+        }
+        while (BN_ucmp(r, range) >= 0);
+#ifdef BN_DEBUG
+        /* With BN_DEBUG on a fixed top number cannot be returned */
+        bn_correct_top(r);
+#endif
+    }
+
+    return 1;
+}
+
 /*
- * BN_generate_dsa_nonce generates a random number 0 <= out < range. Unlike
- * BN_rand_range, it also includes the contents of |priv| and |message| in
- * the generation so that an RNG failure isn't fatal as long as |priv|
+ * ossl_bn_gen_dsa_nonce_fixed_top generates a random number 0 <= out < range.
+ * Unlike BN_rand_range, it also includes the contents of |priv| and |message|
+ * in the generation so that an RNG failure isn't fatal as long as |priv|
  * remains secret. This is intended for use in DSA and ECDSA where an RNG
  * weakness leads directly to private key exposure unless this function is
  * used.
  */
-int BN_generate_dsa_nonce(BIGNUM *out, const BIGNUM *range,
-                          const BIGNUM *priv, const unsigned char *message,
-                          size_t message_len, BN_CTX *ctx)
+int ossl_bn_gen_dsa_nonce_fixed_top(BIGNUM *out, const BIGNUM *range,
+                                    const BIGNUM *priv,
+                                    const unsigned char *message,
+                                    size_t message_len, BN_CTX *ctx)
 {
     SHA512_CTX sha;
     /*
@@ -214,15 +254,19 @@ int BN_generate_dsa_nonce(BIGNUM *out, const BIGNUM *range,
     unsigned char random_bytes[64];
     unsigned char digest[SHA512_DIGEST_LENGTH];
     unsigned done, todo;
-    /* We generate |range|+8 bytes of random output. */
-    const unsigned num_k_bytes = BN_num_bytes(range) + 8;
+    /* We generate |range|+1 bytes of random output. */
+    const unsigned num_k_bytes = BN_num_bytes(range) + 1;
     unsigned char private_bytes[96];
-    unsigned char *k_bytes;
+    unsigned char *k_bytes = NULL;
+    const int max_n = 64;           /* Pr(failure to generate) < 2^max_n */
+    int n;
     int ret = 0;
 
     k_bytes = OPENSSL_malloc(num_k_bytes);
     if (k_bytes == NULL)
-        goto err;
+        goto end;
+    /* Ensure top byte is set to avoid non-constant time in bin2bn */
+    k_bytes[0] = 0xff;
 
     /* We copy |priv| into a local buffer to avoid exposing its length. */
     if (BN_bn2binpad(priv, private_bytes, sizeof(private_bytes)) < 0) {
@@ -231,35 +275,71 @@ int BN_generate_dsa_nonce(BIGNUM *out, const BIGNUM *range,
          * large and we don't handle this case in order to avoid leaking the
          * length of the private key.
          */
-        BNerr(BN_F_BN_GENERATE_DSA_NONCE, BN_R_PRIVATE_KEY_TOO_LARGE);
-        goto err;
+        BNerr(BN_F_OSSL_BN_GEN_DSA_NONCE_FIXED_TOP, BN_R_PRIVATE_KEY_TOO_LARGE);
+        goto end;
     }
 
-    for (done = 0; done < num_k_bytes;) {
-        if (RAND_priv_bytes(random_bytes, sizeof(random_bytes)) != 1)
-            goto err;
-        SHA512_Init(&sha);
-        SHA512_Update(&sha, &done, sizeof(done));
-        SHA512_Update(&sha, private_bytes, sizeof(private_bytes));
-        SHA512_Update(&sha, message, message_len);
-        SHA512_Update(&sha, random_bytes, sizeof(random_bytes));
-        SHA512_Final(digest, &sha);
+    for (n = 0; n < max_n; n++) {
+        unsigned char i = 0;
 
-        todo = num_k_bytes - done;
-        if (todo > SHA512_DIGEST_LENGTH)
-            todo = SHA512_DIGEST_LENGTH;
-        memcpy(k_bytes + done, digest, todo);
-        done += todo;
+        for (done = 0; done < num_k_bytes;) {
+            if (RAND_priv_bytes(random_bytes, sizeof(random_bytes)) != 1)
+                goto end;
+            SHA512_Init(&sha);
+            SHA512_Update(&sha, &i, sizeof(i));
+            SHA512_Update(&sha, private_bytes, sizeof(private_bytes));
+            SHA512_Update(&sha, message, message_len);
+            SHA512_Update(&sha, random_bytes, sizeof(random_bytes));
+            SHA512_Final(digest, &sha);
+
+            todo = num_k_bytes - done;
+            if (todo > SHA512_DIGEST_LENGTH)
+                todo = SHA512_DIGEST_LENGTH;
+            memcpy(k_bytes + done, digest, todo);
+            done += todo;
+            ++i;
+        }
+
+        if (!BN_bin2bn(k_bytes, num_k_bytes, out))
+            goto end;
+
+        /* Clear out the top bits and rejection filter into range */
+        BN_set_flags(out, BN_FLG_CONSTTIME);
+        ossl_bn_mask_bits_fixed_top(out, BN_num_bits(range));
+
+        if (BN_ucmp(out, range) < 0) {
+            ret = 1;
+#ifdef BN_DEBUG
+            /* With BN_DEBUG on a fixed top number cannot be returned */
+            bn_correct_top(out);
+#endif
+            goto end;
+        }
     }
+    /* Failed to generate anything */
+    BNerr(BN_F_OSSL_BN_GEN_DSA_NONCE_FIXED_TOP, ERR_R_INTERNAL_ERROR);
 
-    if (!BN_bin2bn(k_bytes, num_k_bytes, out))
-        goto err;
-    if (BN_mod(out, out, range, ctx) != 1)
-        goto err;
-    ret = 1;
-
- err:
-    OPENSSL_free(k_bytes);
+ end:
+    OPENSSL_clear_free(k_bytes, num_k_bytes);
+    OPENSSL_cleanse(digest, sizeof(digest));
+    OPENSSL_cleanse(random_bytes, sizeof(random_bytes));
     OPENSSL_cleanse(private_bytes, sizeof(private_bytes));
+    return ret;
+}
+
+int BN_generate_dsa_nonce(BIGNUM *out, const BIGNUM *range,
+                          const BIGNUM *priv, const unsigned char *message,
+                          size_t message_len, BN_CTX *ctx)
+{
+    int ret;
+
+    ret = ossl_bn_gen_dsa_nonce_fixed_top(out, range, priv, message,
+                                          message_len, ctx);
+    /*
+     * This call makes the BN_generate_dsa_nonce non-const-time, thus we
+     * do not use it internally. But fixed_top BNs currently cannot be returned
+     * from public API calls.
+     */
+    bn_correct_top(out);
     return ret;
 }

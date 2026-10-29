@@ -124,12 +124,6 @@ static int generate_key(DH *dh)
     if (ctx == NULL)
         goto err;
 
-    if (dh->q != NULL
-        && BN_num_bits(dh->q) > OPENSSL_DH_MAX_MODULUS_BITS) {
-        DHerr(DH_F_COMPUTE_KEY, DH_R_Q_TOO_LARGE);
-        goto err;
-    }
-
     if (dh->priv_key == NULL) {
         priv_key = BN_secure_new();
         if (priv_key == NULL)
@@ -216,6 +210,12 @@ static int compute_key(unsigned char *key, const BIGNUM *pub_key, DH *dh)
 
     if (BN_num_bits(dh->p) > OPENSSL_DH_MAX_MODULUS_BITS) {
         DHerr(DH_F_COMPUTE_KEY, DH_R_MODULUS_TOO_LARGE);
+        goto err;
+    }
+
+    if (dh->q != NULL
+        && BN_num_bits(dh->q) > OPENSSL_DH_MAX_MODULUS_BITS) {
+        DHerr(DH_F_COMPUTE_KEY, DH_R_Q_TOO_LARGE);
         goto err;
     }
 
