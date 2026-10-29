@@ -1,5 +1,5 @@
 /*
- * Copyright 2009-2018 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2009-2026 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -177,14 +177,18 @@ static int kek_unwrap_key(unsigned char *out, size_t *outlen,
                           const unsigned char *in, size_t inlen,
                           EVP_CIPHER_CTX *ctx)
 {
-    size_t blocklen = EVP_CIPHER_CTX_block_size(ctx);
+    int blocklen = EVP_CIPHER_CTX_block_size(ctx);
     unsigned char *tmp;
     int outl, rv = 0;
-    if (inlen < 2 * blocklen) {
+
+    if (blocklen < 4)
+        return 0;
+
+    if (inlen < 2 * (size_t)blocklen) {
         /* too small */
         return 0;
     }
-    if (inlen % blocklen) {
+    if (inlen > INT_MAX || inlen % blocklen) {
         /* Invalid size */
         return 0;
     }
@@ -336,9 +340,15 @@ int cms_RecipientInfo_pwri_crypt(CMS_ContentInfo *cms, CMS_RecipientInfo *ri,
 
     /* Finish password based key derivation to setup key in "ctx" */
 
+    if (algtmp == NULL) {
+        CMSerr(CMS_F_CMS_RECIPIENTINFO_PWRI_CRYPT,
+               CMS_R_INVALID_KEY_ENCRYPTION_PARAMETER);
+        goto err;
+    }
+
     if (EVP_PBE_CipherInit(algtmp->algorithm,
-                           (char *)pwri->pass, pwri->passlen,
-                           algtmp->parameter, kekctx, en_de) < 0) {
+            (char *)pwri->pass, (int)pwri->passlen,
+            algtmp->parameter, kekctx, en_de) < 0) {
         CMSerr(CMS_F_CMS_RECIPIENTINFO_PWRI_CRYPT, ERR_R_EVP_LIB);
         goto err;
     }

@@ -21,6 +21,7 @@ static const ERR_STRING_DATA DH_str_functs[] = {
     {ERR_PACK(ERR_LIB_DH, DH_F_DH_CHECK, 0), "DH_check"},
     {ERR_PACK(ERR_LIB_DH, DH_F_DH_CHECK_EX, 0), "DH_check_ex"},
     {ERR_PACK(ERR_LIB_DH, DH_F_DH_CHECK_PARAMS_EX, 0), "DH_check_params_ex"},
+    {ERR_PACK(ERR_LIB_DH, DH_F_DH_CHECK_PUB_KEY, 0), "DH_check_pub_key"},
     {ERR_PACK(ERR_LIB_DH, DH_F_DH_CHECK_PUB_KEY_EX, 0), "DH_check_pub_key_ex"},
     {ERR_PACK(ERR_LIB_DH, DH_F_DH_CMS_DECRYPT, 0), "dh_cms_decrypt"},
     {ERR_PACK(ERR_LIB_DH, DH_F_DH_CMS_SET_PEERKEY, 0), "dh_cms_set_peerkey"},

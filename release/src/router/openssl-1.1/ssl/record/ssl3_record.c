@@ -1,5 +1,5 @@
 /*
- * Copyright 1995-2022 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1995-2024 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -939,6 +939,7 @@ int tls1_enc(SSL *s, SSL3_RECORD *recs, size_t n_recs, int sending)
     EVP_CIPHER_CTX *ds;
     size_t reclen[SSL_MAX_PIPELINES];
     unsigned char buf[SSL_MAX_PIPELINES][EVP_AEAD_TLS1_AAD_LEN];
+    unsigned char *data[SSL_MAX_PIPELINES];
     int i, pad = 0, ret, tmpr;
     size_t bs, mac_size = 0, ctr, padnum, loop;
     unsigned char padval;
@@ -1034,6 +1035,24 @@ int tls1_enc(SSL *s, SSL3_RECORD *recs, size_t n_recs, int sending)
                 & EVP_CIPH_FLAG_AEAD_CIPHER) {
                 unsigned char *seq;
 
+                /* Reject publicly invalid lengths before AEAD processing. */
+                if (!sending) {
+                    size_t overhead = 0;
+
+                    if (EVP_CIPHER_mode(enc) == EVP_CIPH_GCM_MODE) {
+                        overhead = EVP_GCM_TLS_EXPLICIT_IV_LEN
+                                   + EVP_GCM_TLS_TAG_LEN;
+                    } else if (EVP_CIPHER_mode(enc) == EVP_CIPH_CCM_MODE) {
+                        overhead = EVP_CCM_TLS_EXPLICIT_IV_LEN
+                                   + s->s3->read_ccm_tag_len;
+                    } else if (EVP_CIPHER_nid(enc) == NID_chacha20_poly1305) {
+                        overhead = EVP_CHACHAPOLY_TLS_TAG_LEN;
+                    }
+                    /* TLS sends bad_record_mac; DTLS discards the record. */
+                    if (reclen[ctr] < overhead)
+                        return 0;
+                }
+
                 seq = sending ? RECORD_LAYER_get_write_sequence(&s->rlayer)
                     : RECORD_LAYER_get_read_sequence(&s->rlayer);
 
@@ -1096,8 +1115,6 @@ int tls1_enc(SSL *s, SSL3_RECORD *recs, size_t n_recs, int sending)
             }
         }
         if (n_recs > 1) {
-            unsigned char *data[SSL_MAX_PIPELINES];
-
             /* Set the output buffers */
             for (ctr = 0; ctr < n_recs; ctr++) {
                 data[ctr] = recs[ctr].data;
@@ -1812,8 +1829,11 @@ int dtls1_process_record(SSL *s, DTLS1_BITMAP *bitmap)
      *                         after use :-).
      */
 
-    /* we have pulled in a full packet so zero things */
-    RECORD_LAYER_reset_packet_length(&s->rlayer);
+    /*
+     * Leave s->rlayer.packet_length alone: ssl3_read_n() starts each new record
+     * by resetting it, and it must still describe this record's on-wire bytes
+     * for dtls1_buffer_record() should this record end up being buffered.
+     */
 
     /* Mark receipt of record. */
     dtls1_record_bitmap_update(s, bitmap);
@@ -2019,7 +2039,7 @@ int dtls1_get_record(SSL *s)
         if ((SSL_in_init(s) || ossl_statem_get_in_handshake(s))) {
             if (dtls1_buffer_record (s,
                     &(DTLS_RECORD_LAYER_get_unprocessed_rcds(&s->rlayer)),
-                    rr->seq_num) < 0) {
+                    rr->seq_num, DTLS1_MAX_UNPROCESSED_RECORDS) < 0) {
                 /* SSLfatal() already called */
                 return -1;
             }
@@ -2062,7 +2082,8 @@ int dtls_buffer_listen_record(SSL *s, size_t len, unsigned char *seq, size_t off
     rr->data = s->rlayer.packet + DTLS1_RT_HEADER_LENGTH;
 
     if (dtls1_buffer_record(s, &(s->rlayer.d->processed_rcds),
-                            SSL3_RECORD_get_seq_num(s->rlayer.rrec)) <= 0) {
+                            SSL3_RECORD_get_seq_num(s->rlayer.rrec),
+                            DTLS1_MAX_BUFFERED_RECORDS) <= 0) {
         /* SSLfatal() already called */
         return 0;
     }

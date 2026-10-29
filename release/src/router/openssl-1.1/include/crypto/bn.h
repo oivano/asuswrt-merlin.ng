@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2023 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2014-2025 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -17,6 +17,7 @@ BIGNUM *bn_wexpand(BIGNUM *a, int words);
 BIGNUM *bn_expand2(BIGNUM *a, int words);
 
 void bn_correct_top(BIGNUM *a);
+int bn_set_top_fixed(BIGNUM *a, int words);
 
 /*
  * Determine the modified width-(w+1) Non-Adjacent Form (wNAF) of 'scalar'.
@@ -89,5 +90,12 @@ int bn_lshift_fixed_top(BIGNUM *r, const BIGNUM *a, int n);
 int bn_rshift_fixed_top(BIGNUM *r, const BIGNUM *a, int n);
 int bn_div_fixed_top(BIGNUM *dv, BIGNUM *rem, const BIGNUM *m,
                      const BIGNUM *d, BN_CTX *ctx);
+int ossl_bn_mask_bits_fixed_top(BIGNUM *a, int n);
+int ossl_bn_is_word_fixed_top(const BIGNUM *a, BN_ULONG w);
+int ossl_bn_priv_rand_range_fixed_top(BIGNUM *r, const BIGNUM *range);
+int ossl_bn_gen_dsa_nonce_fixed_top(BIGNUM *out, const BIGNUM *range,
+                                    const BIGNUM *priv,
+                                    const unsigned char *message,
+                                    size_t message_len, BN_CTX *ctx);
 
 #endif

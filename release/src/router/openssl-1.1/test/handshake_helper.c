@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2020 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2016-2024 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -340,6 +340,12 @@ static int parse_protos(const char *protos, unsigned char **out, size_t *outlen)
     size_t len, i, prefix;
 
     len = strlen(protos);
+
+    if (len == 0) {
+        *out = NULL;
+        *outlen = 0;
+        return 1;
+    }
 
     /* Should never have reuse. */
     if (!TEST_ptr_null(*out)
