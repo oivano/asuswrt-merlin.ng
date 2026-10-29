@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2022 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2016-2024 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -1558,9 +1558,10 @@ EXT_RETURN tls_construct_stoc_next_proto_neg(SSL *s, WPACKET *pkt,
             return EXT_RETURN_FAIL;
         }
         s->s3->npn_seen = 1;
+        return EXT_RETURN_SENT;
     }
 
-    return EXT_RETURN_SENT;
+    return EXT_RETURN_NOT_SENT;
 }
 #endif
 

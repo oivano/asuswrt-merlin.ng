@@ -1,5 +1,5 @@
 /*
- * Copyright 1995-2022 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1995-2024 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -939,6 +939,7 @@ int tls1_enc(SSL *s, SSL3_RECORD *recs, size_t n_recs, int sending)
     EVP_CIPHER_CTX *ds;
     size_t reclen[SSL_MAX_PIPELINES];
     unsigned char buf[SSL_MAX_PIPELINES][EVP_AEAD_TLS1_AAD_LEN];
+    unsigned char *data[SSL_MAX_PIPELINES];
     int i, pad = 0, ret, tmpr;
     size_t bs, mac_size = 0, ctr, padnum, loop;
     unsigned char padval;
@@ -1114,8 +1115,6 @@ int tls1_enc(SSL *s, SSL3_RECORD *recs, size_t n_recs, int sending)
             }
         }
         if (n_recs > 1) {
-            unsigned char *data[SSL_MAX_PIPELINES];
-
             /* Set the output buffers */
             for (ctr = 0; ctr < n_recs; ctr++) {
                 data[ctr] = recs[ctr].data;
