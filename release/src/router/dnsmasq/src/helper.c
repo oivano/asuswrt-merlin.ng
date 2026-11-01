@@ -187,6 +187,7 @@ int create_helper(int event_fd, int err_fd, uid_t uid, gid_t gid, long max_fd)
       unsigned char *end, *extradata;
       int is6, err = 0;
       int pipeout[2];
+      size_t data_len;
 
       /* Free rarely-allocated memory from previous iteration. */
       if (alloc_buff)
@@ -252,13 +253,20 @@ int create_helper(int event_fd, int err_fd, uid_t uid, gid_t gid, long max_fd)
 	    p += sprintf(p, ":");
 	}
       
+      /* Lengths come from the unprivileged process; validate before arithmetic. */
+      if (data.clid_len < 0 || data.clid_len > MAXDNAMESTR ||
+          data.hostname_len < 0 || data.hostname_len > MAXDNAMESTR ||
+          data.ed_len < 0 || data.ed_len > MAXDNAMESTR)
+	continue;
+
+      data_len = (size_t)data.clid_len + (size_t)data.hostname_len + (size_t)data.ed_len;
+
       /* supplied data may just exceed normal buffer (unlikely) */
-      if ((data.hostname_len + data.ed_len + data.clid_len) > MAXDNAMESTR && 
-	  !(alloc_buff = buf = malloc(data.hostname_len + data.ed_len + data.clid_len)))
+      if (data_len > MAXDNAMESTR &&
+	  !(alloc_buff = buf = malloc(data_len)))
 	continue;
       
-      if (!read_write(pipefd[0], buf, 
-		      data.hostname_len + data.ed_len + data.clid_len, RW_READ))
+      if (!read_write(pipefd[0], buf, data_len, RW_READ))
 	continue;
 
       /* CLID into packet: limit to 100 bytes to avoid overflowing buffer. */
