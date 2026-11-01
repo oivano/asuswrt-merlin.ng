@@ -110,6 +110,10 @@ struct usockaddr {
 #define HTTPD_REQUEST_TIMEOUT 3
 #define HTTPD_SLOW_SOURCE_BLOCK 60
 #define HTTPD_SLOW_SOURCE_LIMIT 256
+#define HTTPD_SLOWLORIS_SOURCE_LIMIT 256
+#define HTTPD_SLOWLORIS_ATTEMPT_LIMIT 7
+#define HTTPD_SLOWLORIS_WINDOW 600
+#define HTTPD_SLOWLORIS_BLOCK 600
 
 static volatile sig_atomic_t request_deadline_active;
 static volatile sig_atomic_t request_deadline_expired;
@@ -135,8 +139,18 @@ struct httpd_slow_source {
 	int active;
 };
 
+struct httpd_slowloris_source {
+	char address[INET6_ADDRSTRLEN];
+	int family;
+	unsigned int attempts;
+	unsigned long first_attempt;
+	unsigned long blocked_until;
+};
+
 static struct httpd_slow_source httpd_slow_sources[HTTPD_SLOW_SOURCE_LIMIT];
+static struct httpd_slowloris_source httpd_slowloris_sources[HTTPD_SLOWLORIS_SOURCE_LIMIT];
 static usockaddr request_peer;
+static int request_headers_complete;
 
 static int
 httpd_same_peer(const usockaddr *left, const usockaddr *right)
@@ -233,6 +247,115 @@ httpd_slow_source_block(const usockaddr *peer)
 	entry->usa = *peer;
 	entry->blocked_until = now + HTTPD_SLOW_SOURCE_BLOCK;
 	entry->active = 1;
+}
+
+static struct httpd_slowloris_source *
+httpd_slowloris_source_get(const usockaddr *peer, int create)
+{
+	char address[INET6_ADDRSTRLEN];
+	const void *peer_address;
+	int family = peer->sa.sa_family;
+	unsigned long now = (unsigned long)uptime();
+	struct httpd_slowloris_source *slot = NULL, *oldest = NULL;
+	int index;
+
+	if (family == AF_INET) {
+		peer_address = &peer->sa_in.sin_addr;
+	} else
+#ifdef RTCONFIG_IPV6
+	if (family == AF_INET6) {
+		const struct in6_addr *addr = &peer->sa_in6.sin6_addr;
+		peer_address = addr;
+		if (IN6_IS_ADDR_V4MAPPED(addr)) {
+			family = AF_INET;
+			peer_address = &addr->s6_addr[12];
+		}
+	} else
+#endif
+		return NULL;
+
+	if (!inet_ntop(family, peer_address, address, sizeof(address)))
+		return NULL;
+
+	for (index = 0; index < HTTPD_SLOWLORIS_SOURCE_LIMIT; ++index) {
+		struct httpd_slowloris_source *entry = &httpd_slowloris_sources[index];
+		if (entry->address[0] &&
+		    (now < entry->first_attempt ||
+		     (now >= entry->blocked_until &&
+		      now - entry->first_attempt >= HTTPD_SLOWLORIS_WINDOW)))
+			memset(entry, 0, sizeof(*entry));
+		if (entry->address[0] && entry->family == family &&
+		    !strcmp(entry->address, address))
+			return entry;
+		if (!entry->address[0]) {
+			if (!slot)
+				slot = entry;
+		} else if (now >= entry->blocked_until &&
+			   (!oldest || entry->first_attempt < oldest->first_attempt)) {
+			oldest = entry;
+		}
+	}
+	if (!create)
+		return NULL;
+	if (!slot)
+		slot = oldest;
+	if (!slot)
+		return NULL;
+	memset(slot, 0, sizeof(*slot));
+	strlcpy(slot->address, address, sizeof(slot->address));
+	slot->family = family;
+	slot->first_attempt = now;
+	return slot;
+}
+
+static int
+httpd_slowloris_loopback(const usockaddr *peer)
+{
+	if (peer->sa.sa_family == AF_INET)
+		return (ntohl(peer->sa_in.sin_addr.s_addr) >> 24) == 127;
+#ifdef RTCONFIG_IPV6
+	if (peer->sa.sa_family == AF_INET6) {
+		const struct in6_addr *addr = &peer->sa_in6.sin6_addr;
+		if (IN6_IS_ADDR_LOOPBACK(addr))
+			return 1;
+		return IN6_IS_ADDR_V4MAPPED(addr) && addr->s6_addr[12] == 127;
+	}
+#endif
+	return 0;
+}
+
+static int
+httpd_slowloris_blocked(const usockaddr *peer)
+{
+	struct httpd_slowloris_source *entry = httpd_slowloris_source_get(peer, 0);
+	unsigned long now = (unsigned long)uptime();
+
+	if (!entry || !entry->blocked_until)
+		return 0;
+	if (now < entry->blocked_until)
+		return 1;
+	entry->blocked_until = 0;
+	return 0;
+}
+
+static void
+httpd_slowloris_record_timeout(const usockaddr *peer)
+{
+	struct httpd_slowloris_source *entry;
+	unsigned long now = (unsigned long)uptime();
+
+	if (httpd_slowloris_loopback(peer))
+		return;
+	entry = httpd_slowloris_source_get(peer, 1);
+	if (!entry || (entry->blocked_until && now < entry->blocked_until))
+		return;
+	if (now < entry->first_attempt ||
+	    now - entry->first_attempt >= HTTPD_SLOWLORIS_WINDOW) {
+		entry->attempts = 0;
+		entry->first_attempt = now;
+	}
+	if (++entry->attempts >= HTTPD_SLOWLORIS_ATTEMPT_LIMIT)
+		entry->blocked_until = now + HTTPD_SLOWLORIS_BLOCK;
 }
 
 /* Globals. */
@@ -1641,6 +1764,7 @@ handle_request(void)
 	{
 		//_dprintf("handle_request:cur = %s\n",cur);
 		if ( *cur == '\0' || strcmp( cur, "\n" ) == 0 || strcmp( cur, "\r\n" ) == 0 ) {
+			request_headers_complete = 1;
 			break;
 		}
 #ifdef TRANSLATE_ON_FLY
@@ -1832,8 +1956,6 @@ handle_request(void)
 
 	if (httpd_request_deadline_stop())
 		return;
-
-	slowloris_check();
 
 	if (!host_seen) {
 		send_error(400, "Bad Request", NULL, "Host header required.");
@@ -2938,6 +3060,7 @@ httpd_request_deadline_start(void)
 {
 	request_deadline_expired = 0;
 	request_deadline_timed_out = 0;
+	request_headers_complete = 0;
 	request_previous_alarm = alarm(HTTPD_REQUEST_TIMEOUT);
 	request_deadline_active = 1;
 }
@@ -2956,6 +3079,8 @@ httpd_request_deadline_stop(void)
 	request_deadline_timed_out = expired;
 	if (expired) {
 		httpd_slow_source_block(&request_peer);
+		if (!request_headers_complete)
+			httpd_slowloris_record_timeout(&request_peer);
 		alarm(20);
 	} else {
 		remaining = alarm(0);
@@ -3168,7 +3293,6 @@ reload_cert:
 
 		/* record alive flag */
 		if(check_alive_flag == 1){
-			clean_ban_ip_timeout();
 			alarm_tv.tv_sec = uptime();
 			check_alive_flag = 0;
 		}
@@ -3241,7 +3365,8 @@ reload_cert:
 				free(item);
 				continue;
 			}
-			if (httpd_slow_source_blocked(&item->usa)) {
+			if (httpd_slow_source_blocked(&item->usa) ||
+			    httpd_slowloris_blocked(&item->usa)) {
 				shutdown(item->fd, SHUT_RDWR);
 				close(item->fd);
 				free(item);
@@ -3318,10 +3443,7 @@ reload_cert:
 				if (!request_deadline_expired) {
 					http_login_cache(&item->usa);
 
-					if(filter_ban_ip())
-					{
-						handle_request();
-					}
+					handle_request();
 				}
 				request_timed_out = httpd_request_deadline_stop();
 				request_deadline_started = 0;
