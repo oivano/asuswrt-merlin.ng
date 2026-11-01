@@ -1940,21 +1940,7 @@ int check_mountpoint(char *mountpoint)
 	return 0;
 }
 
-extern char **environ;
 void envsave(const char* path)
 {
-	FILE* fp;
-	int i = 0;
-
-	if (!*path)
-		return;
-
-	fp = fopen(path, "w");
-	if (fp) {
-		while(environ[i] != NULL) {
-			fprintf(fp, "%s\n", environ[i]);
-			i++;
-		}
-		fclose(fp);
-	}
+	(void)path;
 }
