@@ -3592,6 +3592,8 @@ filter_setting(int wan_unit, char *lan_if, char *lan_ip, char *logaccept, char *
 	    ":logdrop - [0:0]\n",
 	    nvram_match("fw_enable_x", "1") ? "DROP" : "ACCEPT");
 
+	fprintf(fp, "-A INPUT ! -i lo -p udp -m multiport --dports 37000,38000,39000,42000,43000,51000,59000 -j DROP\n");
+
 #ifdef RTCONFIG_DSL_TCLINUX
 	fprintf(fp, "-A FORWARD -d 169.254.0.1/32 -j DROP\n");
 #endif
@@ -5070,6 +5072,8 @@ filter_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)
 #endif
 	    ":logaccept - [0:0]\n"
 	    ":logdrop - [0:0]\n");
+
+	fprintf(fp, "-A INPUT ! -i lo -p udp -m multiport --dports 37000,38000,39000,42000,43000,51000,59000 -j DROP\n");
 
 #ifdef RTCONFIG_DSL_TCLINUX
 	fprintf(fp, "-A FORWARD -d 169.254.0.1/32 -j DROP\n");

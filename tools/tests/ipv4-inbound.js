@@ -10,6 +10,27 @@ assert(!source.includes('IPV4_INBOUND'));
 for (const generator of generators) {
     const body = generator.slice(0, generator.indexOf('evalRet = eval("iptables-restore"'));
     const fallback = generator === generators[0] ? 'wan_if' : 'get_wan_ifname(wan_primary_ifunit())';
+    const eapdPorts = [37000, 38000, 39000, 42000, 43000, 51000, 59000];
+    const eapdGuard = `-A INPUT ! -i lo -p udp -m multiport --dports ${eapdPorts.join(',')} -j DROP`;
+    const eapdGuardSource = `fprintf(fp, "${eapdGuard}\\n");`;
+    const eapdGuardIndex = body.indexOf(eapdGuardSource);
+    assert(eapdGuardIndex >= 0, 'non-loopback eapd helper UDP is dropped');
+    assert(eapdGuardIndex < body.indexOf('"-A INPUT -i %s -m state --state NEW'),
+        'eapd guard precedes LAN INPUT accept');
+
+    function eapdVerdict(ingress, protocol, destinationPort) {
+        return ingress !== 'lo' && protocol === 'udp' && eapdPorts.includes(destinationPort)
+            ? 'DROP' : 'ACCEPT';
+    }
+    for (const ingress of ['br0', 'wl0.1', 'wl1.1', 'eth1', 'eth2']) {
+        for (const port of eapdPorts)
+            assert.equal(eapdVerdict(ingress, 'udp', port), 'DROP');
+    }
+    for (const port of eapdPorts)
+        assert.equal(eapdVerdict('lo', 'udp', port), 'ACCEPT');
+    assert.equal(eapdVerdict('br0', 'tcp', 37000), 'ACCEPT');
+    assert.equal(eapdVerdict('br0', 'udp', 37001), 'ACCEPT');
+
     const inputCall = `write_ipv4_inbound_rules(fp, ${fallback}, lan_ip, "INPUT", logaccept);`;
     const forwardCall = `write_ipv4_inbound_rules(fp, ${fallback}, lan_ip, "FORWARD", logaccept);`;
     assert(body.includes(inputCall + '\n\t\tfprintf(fp, "-A INPUT -j %s\\n", logdrop);'));
