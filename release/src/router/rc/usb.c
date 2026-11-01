@@ -293,6 +293,8 @@ static int update_smbpasswd_account(const char *username, const char *password)
 
 	if (!samba_account_name_valid(username) || !samba_account_password_valid(password))
 		return -1;
+	if (!strcmp(username, nvram_safe_get("http_username")))
+		return 0;
 
 	return _eval(argv, NULL, 0, NULL);
 }
