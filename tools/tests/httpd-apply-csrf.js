@@ -26,6 +26,21 @@ const requestOriginGuard = request.indexOf('!httpd_check_request_origin()', requ
 assert(requestOriginGuard > request.indexOf('auth_result = auth_check('));
 assert(requestOriginGuard < request.indexOf('handler->input(file, conn_fp, cl, boundary)'));
 
+const setupOriginGate = request.indexOf('if (!x_Setting &&');
+const authCheck = request.indexOf('auth_result = auth_check(');
+assert(setupOriginGate >= 0 && setupOriginGate < authCheck);
+assert.match(request, /!match\("QIS_default\.cgi\|page_default\.cgi\|\*\*\.js\|\*\*\.css\|\*\*\.png\|\*\*\.gif\|\*\*\.jpg\|\*\*\.ico", url\)/);
+assert.match(request, /!\(match\("QIS_\*\.htm\|QIS_\*\.asp\|qis\/\*\.htm\|qis\/\*\.asp", url\) && check_if_file_exist\(url\)\)/);
+const reflectedPath = "QIS_'-eval(location.hash.slice(1))-'.asp";
+assert(!/^[A-Za-z0-9._~/-]+$/.test(reflectedPath));
+const redirect = httpd.match(/page_default_redirect\(int fromapp_flag, char\* url\)\n\{([\s\S]*?)\n\}/)[1];
+assert.match(redirect, /httpd_login_redirect_page_valid\(url\) \? url : indexpage/);
+assert.doesNotMatch(redirect, /url=%s';<\/script>", url\)/);
+const redirectPage = /^[A-Za-z0-9._~/-]+$/.test(reflectedPath) ? reflectedPath : 'index.asp';
+const redirectBody = `<script>top.location.href='/page_default.cgi?url=${redirectPage}';</script>`;
+assert(!redirectBody.includes('alert'));
+assert(!redirectBody.includes("QIS_'-"));
+
 const dispatchGuard = request.match(/if \(\(handler->input \|\| \(do_referer & CHECK_REFERER\) \|\| strstr\(url, "\.cgi"\)\) &&\s*!httpd_check_request_origin\(\) && !httpd_check_csrf_token\(csrf_token\)\)/);
 assert(dispatchGuard, 'All authenticated input/CGI handlers require origin or session token, regardless of method/UA');
 const postOnlyGuard = request.match(/if \(strcasecmp\(method, "post"\) != 0 &&\s*\(match\("feedback_mail\.cgi\*", url\) \|\|\s*match\("enable_remote_control\.cgi\*", url\) \|\|\s*match\("block_device_internet\.cgi\*", url\) \|\|\s*match\("chpass\.cgi\*", url\)\)\)/);
@@ -279,7 +294,8 @@ for (const members of [
     assert(missingHostGuard < request.indexOf('if(HTS == 1'));
     assert(missingHostGuard < auth && factoryGuard < auth);
     assert(factoryGuard < request.indexOf('for (handler = &mime_handlers[0]'));
-    const setupPattern = request.match(/!x_Setting &&\s*!match\("([^"]+)", url\) &&\s*!httpd_setup_origin_allowed\(\)/)[1];
+    const setupPattern = request.match(/!x_Setting &&\s*!match\("([^"]+)", url\)/)[1];
+    const setupQisPattern = request.match(/!\(match\("([^"]+)", url\) && check_if_file_exist\(url\)\)/)[1];
     const hostnameKeys = [...allowed.matchAll(/!strcasecmp\(name, nvram_safe_get\("([^"]+)"\)\)/g)].map(match => match[1]);
     assert.deepEqual(hostnameKeys, ['lan_ipaddr', 'lan_hostname', 'computer_name', 'ddns_hostname_x']);
     const config = {
@@ -327,10 +343,12 @@ for (const members of [
     }
     const setupRegex = new RegExp('^(?:' + setupPattern.split('|').map(pattern => pattern
         .replaceAll('.', '\\.').replaceAll('**', '\u0000').replaceAll('*', '[^/]*').replaceAll('\u0000', '.*')).join('|') + ')$');
-    function dispatch({ hosts, url, method = 'GET', factory = true, origin = null, referer = null, tls = false }) {
+    const setupQisRegex = new RegExp('^(?:' + setupQisPattern.split('|').map(pattern => pattern
+        .replaceAll('.', '\\.').replaceAll('**', '\u0000').replaceAll('*', '[^/]*').replaceAll('\u0000', '.*')).join('|') + ')$');
+    function dispatch({ hosts, url, method = 'GET', factory = true, origin = null, referer = null, tls = false, fileExists = false }) {
         if (hosts.length !== 1 || !hostAllowed(hosts[0])) return false;
         const trustedOrigin = sameOrigin(origin !== null ? origin : referer, hosts[0], tls);
-        if (factory && !setupRegex.test(url) && !trustedOrigin) return false;
+        if (factory && !setupRegex.test(url) && !(setupQisRegex.test(url) && fileExists) && !trustedOrigin) return false;
         if (['chpass.cgi', 'enable_remote_control.cgi'].includes(url) && (method !== 'POST' || !trustedOrigin)) return false;
         return true;
     }
@@ -343,8 +361,14 @@ for (const members of [
             }
         }
     }
-    for (const url of ['QIS_default.cgi', 'page_default.cgi', 'QIS_wizard.htm', 'qis/QIS_admin_pass.htm',
-        'jquery.js', 'js/httpApi.js', 'index_style.css', 'images/logo.png']) assert(dispatch({ hosts: ['192.168.1.1'], url }), url);
+    for (const url of ['QIS_default.cgi', 'page_default.cgi', 'QIS_wizard_m.htm',
+        'jquery.js', 'js/httpApi.js', 'index_style.css', 'images/logo.png']) {
+        const fileExists = url.startsWith('QIS_') && fs.existsSync(path.join(root, 'release/src/router/www', url));
+        assert(dispatch({ hosts: ['192.168.1.1'], url, fileExists }), url);
+    }
+    assert(!dispatch({ hosts: ['192.168.1.1'], url: reflectedPath }));
+    assert(!dispatch({ hosts: ['192.168.1.1'], url: 'QIS_missing.asp' }));
+    assert(dispatch({ hosts: ['192.168.1.1'], url: 'QIS_missing.asp', origin: 'http://192.168.1.1' }));
     for (const url of ['get_webdavInfo.asp', 'chpass.cgi', 'enable_remote_control.cgi', 'apply.cgi']) {
         for (const value of [null, '', 'null', 'http://evil.example/', 'http://192.168.1.1.evil.example/',
             'http://192.168.1.1@evil.example/', 'https://192.168.1.1/', 'http://192.168.1.1:8080/']) {

@@ -757,7 +757,8 @@ page_default_redirect(int fromapp_flag, char* url)
 	char inviteCode[256]={0};
 
 	if(fromapp_flag == 0){
-		snprintf(inviteCode, sizeof(inviteCode), "<script>top.location.href='/page_default.cgi?url=%s';</script>", url);
+		snprintf(inviteCode, sizeof(inviteCode), "<script>top.location.href='/page_default.cgi?url=%s';</script>",
+			httpd_login_redirect_page_valid(url) ? url : indexpage);
 	}
 	send_page( 200, "OK", (char*) 0, inviteCode, fromapp_flag);
 }
@@ -1841,7 +1842,8 @@ handle_request(void)
 	x_Setting = nvram_get_int("x_Setting");
 
 	if (!x_Setting &&
-	    !match("QIS_default.cgi|page_default.cgi|QIS_*.htm|QIS_*.asp|qis/*.htm|qis/*.asp|**.js|**.css|**.png|**.gif|**.jpg|**.ico", url) &&
+	    !match("QIS_default.cgi|page_default.cgi|**.js|**.css|**.png|**.gif|**.jpg|**.ico", url) &&
+	    !(match("QIS_*.htm|QIS_*.asp|qis/*.htm|qis/*.asp", url) && check_if_file_exist(url)) &&
 	    !httpd_setup_origin_allowed()) {
 		send_error(403, "Forbidden", NULL, "Setup request origin required.");
 		return;
