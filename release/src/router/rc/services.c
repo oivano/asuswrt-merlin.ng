@@ -138,6 +138,52 @@ static int blocklist_get_paths(char *dir, size_t dir_len, char *file, size_t fil
 	return 0;
 }
 
+static int blocklist_prepare_directory(const char *dir)
+{
+	struct stat st;
+	char parent[PATH_MAX];
+	char *slash;
+	int fd, result = 0;
+
+	if (snprintf(parent, sizeof(parent), "%s", dir) >= sizeof(parent) ||
+	    !(slash = strrchr(parent, '/')) || slash == parent)
+		return 0;
+	*slash = '\0';
+	if (lstat(parent, &st) < 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
+	    ((st.st_mode & 0022) && !(st.st_mode & S_ISVTX)))
+		return 0;
+	if (mkdir(dir, 0700) < 0 && errno != EEXIST)
+		return 0;
+	fd = open(dir, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (fd < 0)
+		return 0;
+	if (fstat(fd, &st) == 0 && S_ISDIR(st.st_mode) && st.st_uid == 0 &&
+	    fchmod(fd, 0700) == 0 && fstat(fd, &st) == 0 && !(st.st_mode & 0077))
+		result = 1;
+	close(fd);
+	return result;
+}
+
+static int blocklist_prepare_file(const char *path, int create)
+{
+	struct stat st;
+	int fd;
+
+	fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+	if (fd < 0 && create && errno == ENOENT)
+		fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK, 0600);
+	if (fd < 0)
+		return 0;
+	if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
+	    st.st_nlink != 1 || fchmod(fd, 0600) < 0 || fstat(fd, &st) < 0 ||
+	    (st.st_mode & 0077)) {
+		close(fd);
+		return 0;
+	}
+	close(fd);
+	return 1;
+}
+
 static int blocklist_external_path(const char *path)
 {
 	return !strncmp(path, "/tmp/mnt/", strlen("/tmp/mnt/"));
@@ -2255,38 +2301,33 @@ void start_dnsmasq(void)
 #ifdef RTCONFIG_DNSMASQ_BLOCKLIST
 	if (nvram_get_int("dnsmasq_blocklist_enable") &&
 	    blocklist_get_paths(blocklist_dir, sizeof(blocklist_dir), blocklist_file, sizeof(blocklist_file))) {
-		mkdir_if_none(blocklist_dir);
-		{
+		if (blocklist_prepare_directory(blocklist_dir)) {
 			char allowlist_file[PATH_MAX], denylist_file[PATH_MAX];
-			FILE *list_fp;
+			struct stat blocklist_stat;
+			int have_blocklist, missing_blocklist;
 			snprintf(allowlist_file, sizeof(allowlist_file), "%s/allowlist.conf", blocklist_dir);
 			snprintf(denylist_file, sizeof(denylist_file), "%s/denylist.conf", blocklist_dir);
-			if (!f_exists(allowlist_file))
-				f_write(allowlist_file, NULL, 0, FW_APPEND, 0644);
-			if (!f_exists(denylist_file))
-				f_write(denylist_file, NULL, 0, FW_APPEND, 0644);
-			if (!f_exists(blocklist_file)) {
-				update_blocklist = 1;
-				if ((list_fp = fopen(blocklist_file, "w")) != NULL) {
-					if (fclose(list_fp) != 0)
-						unlink(blocklist_file);
-					else
-						chmod(blocklist_file, 0644);
-				}
-			}
-			if (f_exists(blocklist_file))
+			missing_blocklist = lstat(blocklist_file, &blocklist_stat) < 0 && errno == ENOENT;
+			have_blocklist = blocklist_prepare_file(blocklist_file, 1);
+			if (have_blocklist &&
+			    blocklist_prepare_file(allowlist_file, 1) &&
+			    blocklist_prepare_file(denylist_file, 1)) {
+				if (missing_blocklist)
+					update_blocklist = 1;
 				fprintf(fp, "conf-file=%s\nconf-file=%s\nconf-file=%s\n",
 					allowlist_file, blocklist_file, denylist_file);
-			else
-				fprintf(fp, "conf-file=%s\nconf-file=%s\n",
-					allowlist_file, denylist_file);
-		}
+			} else {
+				logmessage("dnsmasq_blocklist", "blocklist storage is not root-owned and private; skipping blocklist");
+			}
 
-		if (nvram_get_int("dnsmasq_blocklist_logging")) {
-			fprintf(fp,
-				"log-async=25\n"
-				"log-queries\n"
-				"log-facility=" DNSMASQ_BLOCKLIST_LOG "\n");
+			if (nvram_get_int("dnsmasq_blocklist_logging")) {
+				fprintf(fp,
+					"log-async=25\n"
+					"log-queries\n"
+					"log-facility=" DNSMASQ_BLOCKLIST_LOG "\n");
+			}
+		} else {
+			logmessage("dnsmasq_blocklist", "USB blocklist storage is not private; blocklist disabled");
 		}
 	} else if (nvram_get_int("dnsmasq_blocklist_enable")) {
 		logmessage("dnsmasq_blocklist", "no writable USB storage with 220 MB free; blocklist disabled");
@@ -2433,7 +2474,7 @@ static int update_dnsmasq_blocklist_worker(void)
 	char maxsize[32], new_file[PATH_MAX];
 	char blocklist_dir[PATH_MAX], blocklist_file[PATH_MAX], temp_file[PATH_MAX], allowlist_file[PATH_MAX];
 	char *argv[16];
-	FILE *in, *out, *allow;
+	FILE *in, *out = NULL, *allow;
 	char line[512], *p, *domain, *compiled_end;
 	struct stat list_stat;
 	int max_domains, count = 0, truncated = 0, write_error = 0;
@@ -2451,10 +2492,17 @@ static int update_dnsmasq_blocklist_worker(void)
 		logmessage("dnsmasq_blocklist", "no writable USB storage with 220 MB free; skipping update");
 		return 0;
 	}
-	mkdir_if_none(blocklist_dir);
+	if (!blocklist_prepare_directory(blocklist_dir)) {
+		logmessage("dnsmasq_blocklist", "blocklist directory is not root-owned and private; skipping update");
+		return 0;
+	}
 	snprintf(temp_file, sizeof(temp_file), "%s/blockinglist.download", blocklist_dir);
 	snprintf(allowlist_file, sizeof(allowlist_file), "%s/allowlist.conf", blocklist_dir);
 	snprintf(new_file, sizeof(new_file), "%s.new", blocklist_file);
+	if (!blocklist_prepare_file(allowlist_file, 1)) {
+		logmessage("dnsmasq_blocklist", "allowlist is not a root-owned regular file; skipping update");
+		return 0;
+	}
 
 	max_domains = blocklist_effective_max_domains(
 		nvram_get_int("dnsmasq_blocklist_max_domains") ? : 4000000,
@@ -2479,7 +2527,8 @@ static int update_dnsmasq_blocklist_worker(void)
 	argv[15] = NULL;
 
 	unlink(temp_file);
-	if (_eval(argv, NULL, 0, NULL) || !(in = fopen(temp_file, "r"))) {
+	if (_eval(argv, NULL, 0, NULL) || !blocklist_prepare_file(temp_file, 0) ||
+	    !(in = fopen(temp_file, "r"))) {
 		unlink(temp_file);
 		return 0;
 	}
@@ -2491,9 +2540,11 @@ static int update_dnsmasq_blocklist_worker(void)
 		return 0;
 	}
 
-	if (!(out = fopen(new_file, "w"))) {
+	if ((unlink(new_file) < 0 && errno != ENOENT) ||
+	    !blocklist_prepare_file(new_file, 1) || !(out = fopen(new_file, "w"))) {
 		fclose(in);
 		unlink(temp_file);
+		unlink(new_file);
 		return 0;
 	}
 
