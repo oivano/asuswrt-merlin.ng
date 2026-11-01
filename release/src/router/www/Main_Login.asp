@@ -362,6 +362,7 @@ var remaining_time_sec;
 var remaining_time_show;
 var countdownid, rtime_obj;
 var redirect_page = login_info.page;
+var redirect_file = login_info.cloud_file || "";
 
 if ('<% nvram_get("http_dut_redir"); %>' == '1') {
 var isRouterMode = (htmlEnDeCode.htmlEncode(decodeURIComponent('<% nvram_char_to_ascii("","sw_mode"); %>')) == '1') ? true : false;
@@ -515,7 +516,7 @@ function countdownfunc(){
 	rtime_obj.innerHTML = remaining_time_show;
 	if (remaining_time==0){
 		clearInterval(countdownid);
-		setTimeout("top.location.href='/Main_Login.asp';", 2000);
+		setTimeout("top.location.href='/Main_Login.asp'+window.location.search;", 2000);
 	}
 	remaining_time--;
 }
@@ -603,6 +604,7 @@ function login(){
 	catch(e){
 		document.form.next_page.value = "";
 	}
+	document.form.cloud_file.value = redirect_file;
 
 	document.form.submit();
 }
@@ -650,6 +652,7 @@ function regen_captcha(){
 <input type="hidden" name="action_wait" value="5">
 <input type="hidden" name="current_page" value="Main_Login.asp">
 <input type="hidden" name="next_page" value="Main_Login.asp">
+<input type="hidden" name="cloud_file" value="">
 <input type="hidden" name="login_authorization" value="">
 <input type="hidden" name="login_captcha" value="">
 <div class="div_table main_field_gap">

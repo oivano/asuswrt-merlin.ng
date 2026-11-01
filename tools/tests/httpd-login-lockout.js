@@ -14,6 +14,10 @@ function body(text, name) {
 }
 const login = body(web, 'login_cgi');
 const dispatch = body(source, 'handle_request');
+const sendLogin = body(source, 'send_login_page');
+const redirectPageValidator = body(source, 'httpd_login_redirect_page_valid');
+const redirectValueValidator = body(source, 'httpd_login_redirect_value_valid');
+const loginErrorInfo = body(web, 'ej_login_error_info');
 assert.doesNotMatch(dispatch, /check_lock_status|httpd_login_status|httpd_login_failed/);
 assert.match(dispatch, /auth_result = auth_check\(url, file, cookies, fromapp, &add_try\);/);
 assert.doesNotMatch(source + web, /(?:\+\+\s*\b(?:login_try(?:_wan)?|login_fail_num)\b|\b(?:login_try(?:_wan)?|login_fail_num)\s*\+\+|\block_flag\s*\|=)/);
@@ -26,6 +30,32 @@ assert.match(login, /httpd_login_failed\(WRONGCAPTCHA\)/);
 assert.match(login, /login_error_status = httpd_login_failed\(ACCOUNTFAIL\);/);
 assert.match(login, /HTTPD_DBG\("authpass!\\n"\);\s*httpd_login_reset\(\);/);
 assert.match(login, /dt, NOLOGINTRY/);
+assert.match(redirectPageValidator, /length >= 128/);
+assert.match(redirectPageValidator, /check_xss_blacklist\(page, 1\)/);
+assert.match(redirectPageValidator, /useful_redirect_page\(page\)/);
+assert.match(redirectValueValidator, /length >= 256/);
+assert.doesNotMatch(redirectValueValidator, /strncpy/);
+assert.match(sendLogin, /httpd_login_redirect_page_valid\(url\)/);
+assert.match(sendLogin, /httpd_login_redirect_value_valid\(file_var\)/);
+assert.doesNotMatch(sendLogin, /login_url|char cloud_file/);
+assert.match(loginErrorInfo, /websGetVar\(wp, "next_page"/);
+assert.match(loginErrorInfo, /websGetVar\(wp, "cloud_file"/);
+assert.match(loginErrorInfo, /strcmp\(page, "cfg_onboarding\.cgi"\).*strlen\(redirect_file\) != 12/);
+assert.doesNotMatch(loginErrorInfo, /login_url/);
+assert.doesNotMatch(source, /^char login_url\[128\];$/m);
+assert.match(login, /websGetVar\(wp, "cloud_file"/);
+assert.doesNotMatch(login, /, cloud_file\)/);
+assert.match(login, /httpd_login_redirect_page_valid\(next_page\)/);
+assert.match(login, /httpd_login_redirect_value_valid\(redirect_file\)/);
+assert.match(login, /strcmp\(next_page, "cfg_onboarding\.cgi"\).*strlen\(redirect_file\) != 12/);
+assert.match(login, /next_page=%s&cloud_file=%s/);
+assert.match(login, /url=%s[^\n]*indexpage/);
+assert.match(login.slice(login.indexOf('HTTPD_DBG("authfail:')), /parent\.location\.href='\/Main_Login\.asp\?next_page=%s&cloud_file=%s'/);
+assert.doesNotMatch(login, /, cloud_file\)/);
+const loginPage = fs.readFileSync(path.join(root, 'release/src/router/www/Main_Login.asp'), 'utf8');
+assert.match(loginPage, /name="cloud_file"/);
+assert.match(loginPage, /document\.form\.cloud_file\.value = redirect_file/);
+assert.match(loginPage, /window\.location\.search/);
 assert.match(header, /extern int httpd_login_failed\(int error_status\);/);
 assert.match(header, /extern void httpd_login_notify\(const char \*address\);/);
 assert.match(body(web, 'httpd_login_notify'), /SEND_NT_EVENT\(ADMIN_LOGIN_FAIL_LAN_WEB_EVENT, event\)/);
@@ -118,7 +148,9 @@ assert.equal(context.httpd_login_attempts(), 0);
 assert.equal(context.httpd_login_failed(3), 3);
 assert.equal(context.httpd_login_attempts(), 1);
 
-const errorInfo = body(web, 'ej_login_error_info').split('\n\t/* url */')[0]
+const errorInfo = body(web, 'ej_login_error_info').split('\n\t/* Keep redirect state on this login-page request, not in process globals. */')[0]
+    .replace(/char \*page = websGetVar\(wp, "next_page", ""\);/, 'let page = "";')
+    .replace(/char \*redirect_file = websGetVar\(wp, "cloud_file", ""\);/, 'let redirect_file = "";')
     .replace(/struct json_object \*item = json_object_new_object\(\);/, 'let item = {};')
     .replace(/int error_status/g, 'let error_status')
     .replace(/&login_dt/g, 'login_dt')

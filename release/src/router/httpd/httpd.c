@@ -322,7 +322,6 @@ int http_ipv6_only = 0;
 const int http_ipv6_only = 0;
 #endif
 time_t login_dt=0;
-char login_url[128];
 int login_error_status = 0;
 char cloud_file[256];
 char indexpage[128];
@@ -757,60 +756,114 @@ page_default_redirect(int fromapp_flag, char* url)
 {
 	char inviteCode[256]={0};
 
-	if(check_xss_blacklist(url, 1))
-		strncpy(login_url, indexpage, sizeof(login_url));
-	else
-		strncpy(login_url, url, sizeof(login_url));
-
 	if(fromapp_flag == 0){
 		snprintf(inviteCode, sizeof(inviteCode), "<script>top.location.href='/page_default.cgi?url=%s';</script>", url);
 	}
 	send_page( 200, "OK", (char*) 0, inviteCode, fromapp_flag);
 }
 
+int
+httpd_login_redirect_value_valid(const char *value)
+{
+	const unsigned char *cursor = (const unsigned char *)value;
+	size_t length;
+
+	if (!value || !*value)
+		return 0;
+	length = strlen(value);
+	if (length >= 256)
+		return 0;
+	for (; *cursor; ++cursor)
+		if (!((*cursor >= 'A' && *cursor <= 'Z') ||
+		      (*cursor >= 'a' && *cursor <= 'z') ||
+		      (*cursor >= '0' && *cursor <= '9') ||
+		      *cursor == '-' || *cursor == '.' || *cursor == '_' || *cursor == '~'))
+			return 0;
+	return 1;
+}
+
+int
+httpd_login_redirect_page_valid(char *page)
+{
+	const unsigned char *cursor;
+	const char *segment;
+	size_t length, segment_length;
+
+	if (!page || !*page)
+		return 0;
+	length = strlen(page);
+	if (length >= 128 || page[0] == '/' || page[length - 1] == '/')
+		return 0;
+	segment = page;
+	for (cursor = (const unsigned char *)page; ; ++cursor) {
+		if (*cursor == '/' || *cursor == '\0') {
+			segment_length = (const char *)cursor - segment;
+			if (segment_length == 0 ||
+			    (segment_length == 2 && segment[0] == '.' && segment[1] == '.'))
+				return 0;
+			if (*cursor == '\0')
+				break;
+			segment = (const char *)cursor + 1;
+		} else if (!((*cursor >= 'A' && *cursor <= 'Z') ||
+			    (*cursor >= 'a' && *cursor <= 'z') ||
+			    (*cursor >= '0' && *cursor <= '9') ||
+			    *cursor == '-' || *cursor == '.' || *cursor == '_' ||
+			    *cursor == '~'))
+			return 0;
+	}
+	if (check_xss_blacklist(page, 1))
+		return 0;
+	if (!strcmp(page, "cloud_sync.asp") || !strcmp(page, "cfg_onboarding.cgi"))
+		return 1;
+	return useful_redirect_page(page);
+}
+
 void
 send_login_page(int fromapp_flag, int error_status, char* url, char* file, int lock_time, int logintry)
 {
-	char inviteCode[256]={0};
+	char inviteCode[512]={0};
 	char buf[128] = {0};
-	//char url_tmp[64]={0};
+	char redirect_page[128] = {0}, redirect_file[256] = {0};
 	char *cp, *file_var=NULL;
 
 	HTTPD_DBG("error_status = %d, logintry = %d\n", error_status, logintry);
 
-	if(url == NULL)
-		strncpy(login_url, indexpage, sizeof(login_url));
+	if (httpd_login_redirect_page_valid(url))
+		strlcpy(redirect_page, url, sizeof(redirect_page));
 	else
-		strncpy(login_url, url, sizeof(login_url));
+		strlcpy(redirect_page, indexpage, sizeof(redirect_page));
 
 	login_dt = lock_time;
 
 	login_error_status = error_status;
 
 	if(fromapp_flag == 0){
-		if(strncmp(login_url, "cloud_sync.asp", strlen(login_url))==0){
+		if(!strcmp(redirect_page, "cloud_sync.asp")){
 			if(file != NULL){
 				cp = strstr(file,"flag=");
 				if(cp != (char*) 0){
 					file_var = &cp[5];
-					memset(cloud_file, 0, sizeof(cloud_file));
-					strncpy(cloud_file, file_var, sizeof(cloud_file));
+					if (httpd_login_redirect_value_valid(file_var))
+						strlcpy(redirect_file, file_var, sizeof(redirect_file));
 				}
 			}
 		}
-		else if(strncmp(login_url, "cfg_onboarding.cgi", strlen(login_url))==0){
+		else if(!strcmp(redirect_page, "cfg_onboarding.cgi")){
 			if(file != NULL){
 				cp = strstr(file,"id=");
 				if(cp != (char*) 0){
 					file_var = &cp[3];
-					if(!check_cmd_whitelist(file_var) && (strlen(file_var) == 12)){
-						memset(cloud_file, 0, sizeof(cloud_file));
-						strlcpy(cloud_file, file_var, sizeof(cloud_file));
+					if(!check_cmd_whitelist(file_var) && (strlen(file_var) == 12) &&
+					   httpd_login_redirect_value_valid(file_var)){
+						strlcpy(redirect_file, file_var, sizeof(redirect_file));
 					}
 				}
 			}
 		}
-		snprintf(inviteCode, sizeof(inviteCode), "<script>window.top.location.href='/Main_Login.asp';</script>");
+		if (redirect_file[0])
+			snprintf(inviteCode, sizeof(inviteCode), "<script>window.top.location.href='/Main_Login.asp?next_page=%s&cloud_file=%s';</script>", redirect_page, redirect_file);
+		else
+			snprintf(inviteCode, sizeof(inviteCode), "<script>window.top.location.href='/Main_Login.asp?next_page=%s';</script>", redirect_page);
 	}else{
 		snprintf(inviteCode, sizeof(inviteCode), "\"error_status\":\"%d\", \"last_time_lock_warning\":\"%d\"", error_status, last_time_lock_warning());
 		if(error_status == LOGINLOCK){
@@ -1996,8 +2049,8 @@ handle_request(void)
 
 	if (!handler->pattern){
 		if(strlen(file) > 50 && !(strstr(file, "findasus")) && !(strstr(file, "acme-challenge"))){
-			memset(cloud_file, 0, sizeof(cloud_file));
-			if(!check_xss_blacklist(file, 0))
+			char cloud_file[256] = {0};
+			if (httpd_login_redirect_value_valid(file))
 				strlcpy(cloud_file, file, sizeof(cloud_file));
 
 			snprintf(inviteCode, sizeof(inviteCode), "<meta http-equiv=\"refresh\" content=\"0; url=cloud_sync.asp?flag=%s\">\r\n", cloud_file);

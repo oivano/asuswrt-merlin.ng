@@ -476,9 +476,7 @@ extern int skip_auth;
 
 extern time_t login_timestamp; // the timestamp of the logined ip
 extern time_t login_dt;
-extern char login_url[128];
 extern int login_error_status;
-extern char cloud_file[256];
 unsigned int chpass_login_try=0;
 
 #ifdef RTCONFIG_LACP
@@ -20180,7 +20178,7 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 	int l = 0, fromapp_flag = 0, lock_status = 0;
 	int authpass_fail = 0, auth_pass = 0;
 	char authinfo[500] = {0}, asus_token[32]={0}, filename[128] = {0}, timebuf[100] = {0}, token_cookie[128] = {0};
-	char *authorization_t = NULL, *authpass = NULL, *next_page = NULL;
+	char *authorization_t = NULL, *authpass = NULL, *next_page = NULL, *redirect_file = NULL;
 	time_t now = 0, dt = 0;
 	now = time( (time_t*) 0 );
 #ifdef RTCONFIG_CAPTCHA
@@ -20194,6 +20192,16 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 	fromapp_flag = check_user_agent(user_agent);
 
 	next_page = websGetVar(wp, "next_page", "");
+	redirect_file = websGetVar(wp, "cloud_file", "");
+	if (!httpd_login_redirect_page_valid(next_page))
+		next_page = indexpage;
+	if (strcmp(next_page, "cloud_sync.asp") && strcmp(next_page, "cfg_onboarding.cgi"))
+		redirect_file = "";
+	else if (!httpd_login_redirect_value_valid(redirect_file) ||
+		 (!strcmp(next_page, "cfg_onboarding.cgi") && strlen(redirect_file) != 12)) {
+		next_page = indexpage;
+		redirect_file = "";
+	}
 
 	authorization_t = websGetVar(wp, "login_authorization","");
 
@@ -20262,7 +20270,7 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 					websWrite(wp, "{\n\"error_status\":\"%d\", \"last_time_lock_warning\":\"%d\"\n}\n", login_error_status, last_time_lock_warning());
 			}else{
 				websWrite(wp,"<HTML><HEAD>\n" );
-				websWrite(wp,"<script>parent.location.href='/Main_Login.asp';</script>\n");
+				websWrite(wp,"<script>parent.location.href='/Main_Login.asp?next_page=%s&cloud_file=%s';</script>\n", next_page, redirect_file);
 				websWrite(wp,"</HEAD></HTML>\n" );
 			}
 			return 0;
@@ -20319,10 +20327,10 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 			else
 #endif
 			{
-				if(strncmp(next_page, "cloud_sync.asp", 14)==0)
-					websWrite(wp, T("<meta http-equiv=\"refresh\" content=\"0; url=%s?flag=%s\">\r\n"), next_page, cloud_file);
+				if(!strcmp(next_page, "cloud_sync.asp"))
+					websWrite(wp, T("<meta http-equiv=\"refresh\" content=\"0; url=%s?flag=%s\">\r\n"), next_page, redirect_file);
 				else if(strcmp(next_page, "cfg_onboarding.cgi")==0){
-					websWrite(wp, T("<meta http-equiv=\"refresh\" content=\"0; url=cfg_onboarding.cgi?flag=AMesh&id=%s\">\r\n"), cloud_file);
+					websWrite(wp, T("<meta http-equiv=\"refresh\" content=\"0; url=cfg_onboarding.cgi?flag=AMesh&id=%s\">\r\n"), redirect_file);
 				}
 				else{
 					if(check_xss_blacklist(next_page, 1) || !useful_redirect_page(next_page))
@@ -20355,7 +20363,7 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 				websWrite(wp, "{\n\"error_status\":\"%d\", \"last_time_lock_warning\":\"%d\"\n}\n", login_error_status, last_time_lock_warning());
 		}else{
 			websWrite(wp,"<HTML><HEAD>\n" );
-			websWrite(wp,"<script>parent.location.href='/Main_Login.asp';</script>\n");
+			websWrite(wp,"<script>parent.location.href='/Main_Login.asp?next_page=%s&cloud_file=%s';</script>\n", next_page, redirect_file);
 			websWrite(wp,"</HEAD></HTML>\n" );
 		}
 		return 0;
@@ -31759,6 +31767,8 @@ static int
 ej_login_error_info(int eid, webs_t wp, int argc, char **argv)
 {
 	struct json_object *item = json_object_new_object();
+	char *page = websGetVar(wp, "next_page", "");
+	char *redirect_file = websGetVar(wp, "cloud_file", "");
 	int error_status = httpd_login_status(&login_dt);
 	if (!error_status && login_error_status != ACCOUNTFAIL && login_error_status != LOGINLOCK
 #ifdef RTCONFIG_CAPTCHA
@@ -31781,12 +31791,18 @@ ej_login_error_info(int eid, webs_t wp, int argc, char **argv)
 	json_object_object_add(item,"error_num", json_object_new_int(httpd_login_attempts()));
 #endif
 
-	/* url */
-	if(check_xss_blacklist(login_url, 1)){
-		json_object_object_add(item,"page", json_object_new_string(indexpage));
-	}else{
-		json_object_object_add(item,"page", json_object_new_string(login_url));
+	/* Keep redirect state on this login-page request, not in process globals. */
+	if (!httpd_login_redirect_page_valid(page))
+		page = indexpage;
+	if (strcmp(page, "cloud_sync.asp") && strcmp(page, "cfg_onboarding.cgi"))
+		redirect_file = "";
+	else if (!httpd_login_redirect_value_valid(redirect_file) ||
+		 (!strcmp(page, "cfg_onboarding.cgi") && strlen(redirect_file) != 12)) {
+		page = indexpage;
+		redirect_file = "";
 	}
+	json_object_object_add(item,"page", json_object_new_string(page));
+	json_object_object_add(item,"cloud_file", json_object_new_string(redirect_file));
 	websWrite(wp, "%s", json_object_to_json_string(item));
 	json_object_put(item);
 	login_error_status = 0;	//reset error status
