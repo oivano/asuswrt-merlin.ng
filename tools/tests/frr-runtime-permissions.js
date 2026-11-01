@@ -53,6 +53,12 @@ try {
 
     assert.match(common, /ROOT_RUN_PATH="\/var\/run\/frr"/);
     assert.match(common, /V_PATH="\$ROOT_RUN_PATH\/daemons"/);
+    assert.match(common, /if \[ -n "\$FRR_CONFIG_DIR" \]; then[\s\S]*?PRIMARY_C_PATH="\$cfg_dir"[\s\S]*?fi\nfi/);
+    assert.doesNotMatch(common, /nvram get frr_config_dir/);
+    assert.match(common, /\. "\$DAEMONS_C_PATH\/daemons"/);
+    assert.match(rc, /static int frr_config_dir_trusted\(const char \*path\)[\s\S]*?lstat\(checked, &st\)[\s\S]*?!S_ISDIR\(st\.st_mode\)[\s\S]*?st\.st_uid != 0[\s\S]*?st\.st_mode & 0022/);
+    assert.match(rc, /static int frr_daemons_file_trusted\(const char \*cfg_dir\)[\s\S]*?lstat\(path, &st\)[\s\S]*?errno == ENOENT[\s\S]*?S_ISREG\(st\.st_mode\)[\s\S]*?st\.st_uid == 0[\s\S]*?st\.st_mode & 0022/);
+    assert.match(rc, /!frr_config_dir_trusted\(buf\) \|\| !frr_daemons_file_trusted\(buf\)/);
     assert.match(common, /chown 0:0 "\$ROOT_RUN_PATH" && chmod 0755 "\$ROOT_RUN_PATH"/);
     assert.match(common, /\[ ! -L "\$ROOT_RUN_PATH" \]/);
     assert.match(common, /\[ ! -L "\$V_PATH" \]/);
