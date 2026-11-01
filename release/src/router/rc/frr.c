@@ -55,6 +55,54 @@
 
 static const char *frr_get_config_dir(char *buf, size_t len);
 
+static int frr_config_dir_trusted(const char *path)
+{
+	char checked[PATH_MAX];
+	char *cursor;
+	struct stat st;
+	size_t length;
+
+	if (!path || path[0] != '/' || !strcmp(path, "/"))
+		return 0;
+
+	length = strlcpy(checked, path, sizeof(checked));
+	if (length >= sizeof(checked))
+		return 0;
+
+	for (cursor = checked + 1; ; cursor++) {
+		int final_component;
+		char separator;
+
+		if (*cursor != '/' && *cursor != '\0')
+			continue;
+
+		separator = *cursor;
+		final_component = separator == '\0';
+		*cursor = '\0';
+		if (lstat(checked, &st) < 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
+		    ((st.st_mode & 0022) && (final_component || !(st.st_mode & S_ISVTX))))
+			return 0;
+		*cursor = separator;
+		if (final_component)
+			break;
+	}
+
+	return 1;
+}
+
+static int frr_daemons_file_trusted(const char *cfg_dir)
+{
+	char path[PATH_MAX];
+	struct stat st;
+
+	if (snprintf(path, sizeof(path), "%s/daemons", cfg_dir) >= sizeof(path))
+		return 0;
+	if (lstat(path, &st) < 0)
+		return errno == ENOENT;
+
+	return S_ISREG(st.st_mode) && st.st_uid == 0 && !(st.st_mode & 0022);
+}
+
 static int frr_exec_script_capture_stderr(const char *script, const char *action,
 		const char *stderr_log, int append)
 {
@@ -238,7 +286,8 @@ static const char *frr_get_config_dir(char *buf, size_t len)
 		n--;
 	}
 
-	if (!strcmp(buf, FRR_RUNTIME_CONFIG_DIR))
+	if (!strcmp(buf, "/") || !strcmp(buf, FRR_RUNTIME_CONFIG_DIR) ||
+	    !frr_config_dir_trusted(buf) || !frr_daemons_file_trusted(buf))
 		strlcpy(buf, FRR_CONFIG_DIR_DEFAULT, len);
 
 	return buf;

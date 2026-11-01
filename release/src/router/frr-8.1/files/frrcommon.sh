@@ -45,34 +45,6 @@ if [ -n "$FRR_CONFIG_DIR" ]; then
 	if [ -d "$cfg_dir" ]; then
 		PRIMARY_C_PATH="$cfg_dir"
 	fi
-elif command -v nvram >/dev/null 2>&1; then
-	NVRAM_FRR_CONFIG_DIR="$(nvram get frr_config_dir 2>/dev/null)"
-
-	case "$NVRAM_FRR_CONFIG_DIR" in
-	/*)
-		case "$NVRAM_FRR_CONFIG_DIR" in
-		*..*) NVRAM_FRR_CONFIG_DIR="" ;;
-		esac
-		;;
-	*)
-		NVRAM_FRR_CONFIG_DIR=""
-		;;
-	esac
-
-	while [ -n "$NVRAM_FRR_CONFIG_DIR" ] && [ "$NVRAM_FRR_CONFIG_DIR" != "/" ]; do
-		old_cfg_dir="$NVRAM_FRR_CONFIG_DIR"
-		NVRAM_FRR_CONFIG_DIR="${NVRAM_FRR_CONFIG_DIR%/}"
-		NVRAM_FRR_CONFIG_DIR="${NVRAM_FRR_CONFIG_DIR%.}"
-		[ "$NVRAM_FRR_CONFIG_DIR" = "$old_cfg_dir" ] && break
-	done
-
-	[ "$NVRAM_FRR_CONFIG_DIR" = "/etc" ] && NVRAM_FRR_CONFIG_DIR=""
-	if [ -n "$NVRAM_FRR_CONFIG_DIR" ]; then
-		cfg_dir="$NVRAM_FRR_CONFIG_DIR${suffix}"
-		if [ -d "$cfg_dir" ]; then
-			PRIMARY_C_PATH="$cfg_dir"
-		fi
-	fi
 fi
 
 if [ -n "$PRIMARY_C_PATH" ] && [ -r "$PRIMARY_C_PATH/daemons" ]; then
