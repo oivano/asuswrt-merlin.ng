@@ -18,8 +18,18 @@ const dispatch = source.slice(
 	source.indexOf("void update_dnsmasq_blocklist(void)"),
 	source.indexOf("void dnsmasq_blocklist_count(void)")
 );
+const trust = source.slice(
+	source.indexOf("static int blocklist_prepare_directory(const char *dir)"),
+	source.indexOf("static int blocklist_external_path(const char *path)")
+);
 
-assert(start.includes("fopen(blocklist_file, \"w\")"), "startup should create an empty initial list");
+assert(start.includes("blocklist_prepare_directory(blocklist_dir)"), "startup should require a private blocklist directory");
+assert(start.includes("blocklist_prepare_file(blocklist_file, 1)"), "startup should create an empty initial list safely");
+assert(start.includes("if (missing_blocklist)"), "only a successfully prepared missing list should trigger a rebuild");
+assert(start.indexOf("if (have_blocklist &&") < start.indexOf("conf-file=%s\\nconf-file=%s\\nconf-file=%s"), "list includes must require all files to be trusted");
+assert(trust.includes("O_NOFOLLOW") && trust.includes("st_uid != 0"), "blocklist paths must reject symlinks and non-root ownership");
+assert(trust.includes("st_mode & S_ISVTX"), "blocklist storage parent must prevent child-directory replacement");
+assert(trust.includes("fchmod(fd, 0700)") && trust.includes("fchmod(fd, 0600)"), "blocklist storage must have restrictive permissions");
 assert(
 	start.indexOf("eval(\"dnsmasq\", \"--log-async\")") < start.indexOf("if (update_blocklist)"),
 	"startup should launch the worker only after dnsmasq starts"
@@ -35,6 +45,8 @@ for (const [option, value] of [
 	assert(worker.includes(`"${option}"`) && worker.includes(`"${value}"`), `missing curl bound ${option} ${value}`);
 }
 assert(worker.includes("rename(new_file, blocklist_file) != 0"), "publication must check atomic rename failure");
+assert(worker.includes("blocklist_prepare_directory(blocklist_dir)"), "worker should reject an untrusted storage directory");
+assert(worker.includes("blocklist_prepare_file(temp_file, 0)"), "downloaded files should be validated before parsing");
 assert(worker.includes("if (ferror(in))") && worker.includes("if (ferror(out))"), "stream errors must block publication");
 assert(worker.includes("return 1;"), "worker should report successful publication");
 
