@@ -1191,8 +1191,10 @@ ej_nvram_get(int eid, webs_t wp, int argc, char_t **argv)
 
 	for (; *c; c++) {
 		if (isprint(*c) &&
-		    *c != '"' && *c != '&' && *c != '<' && *c != '>' && *c != '\\')
+		    *c != '"' && *c != '\'' && *c != '&' && *c != '<' && *c != '>' && *c != '\\')
 			ret += websWrite(wp, "%c", *c);
+		else if (*c == '\'')
+			ret += websWrite(wp, "&#39;");
 		else if(*c == '\\'){
 			if(from_app != 0)
 				ret += websWrite(wp, "\\\\");
