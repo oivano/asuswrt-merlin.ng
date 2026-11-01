@@ -473,6 +473,8 @@ extern void set_referer_host(void);
 extern int check_xss_blacklist(char* para, int check_www);
 extern int check_cmd_whitelist(char* para);
 extern int useful_redirect_page(char *next_page);
+extern int httpd_login_redirect_page_valid(char *page);
+extern int httpd_login_redirect_value_valid(const char *value);
 extern char* reverse_str( char *str );
 #ifdef RTCONFIG_AMAS
 extern int check_AiMesh_whitelist(char *page);
