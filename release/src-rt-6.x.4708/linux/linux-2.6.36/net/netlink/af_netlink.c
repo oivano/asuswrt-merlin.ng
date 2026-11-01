@@ -444,7 +444,8 @@ static int netlink_create(struct net *net, struct socket *sock, int protocol,
 	if (protocol < 0 || protocol >= MAX_LINKS)
 		return -EPROTONOSUPPORT;
 
-	if (protocol == 17 && !kern && !capable(CAP_NET_ADMIN))
+	if ((protocol == 17 || protocol == NETLINK_SCSITRANSPORT) &&
+	    !kern && !capable(CAP_NET_ADMIN))
 		return -EPERM;
 
 	netlink_lock_table();
@@ -1324,7 +1325,9 @@ static int netlink_sendmsg(struct kiocb *kiocb, struct socket *sock,
 	int err;
 	struct scm_cookie scm;
 
-	if (sk->sk_protocol == 17 && !capable(CAP_NET_ADMIN))
+	if ((sk->sk_protocol == 17 ||
+	     sk->sk_protocol == NETLINK_SCSITRANSPORT) &&
+	    !capable(CAP_NET_ADMIN))
 		return -EPERM;
 
 	if (msg->msg_flags&MSG_OOB)
