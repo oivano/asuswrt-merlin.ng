@@ -6,7 +6,7 @@ MAINTENANCE-WORKFLOW.md
 # Generated release artifacts
 tools/release/*.txt
 tools/build/
-docs/IPSEC-RUNTIME.md
+docs/
 tools/tests/
 # Local prompt customizations
 .github/prompts/
