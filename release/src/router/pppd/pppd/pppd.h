@@ -217,7 +217,7 @@ extern int	hungup;		/* Physical layer has disconnected */
 extern int	ifunit;		/* Interface unit number */
 extern char	ifname[];	/* Interface name */
 extern char	hostname[];	/* Our hostname */
-extern u_char	outpacket_buf[]; /* Buffer for outgoing packets */
+extern u_char	outpacket_buf[PPP_MRU + PPP_HDRLEN]; /* Buffer for outgoing packets */
 extern int	devfd;		/* fd of underlying device */
 extern int	fd_ppp;		/* fd for talking PPP */
 extern int	phase;		/* Current state of link - see values below */

@@ -803,12 +803,15 @@ fsm_sdata(f, code, id, data, datalen)
     int datalen;
 {
     u_char *outp;
-    int outlen;
+    int outlen, maxdatalen;
 
-    /* Adjust length to be smaller than MTU */
+    /* Keep the packet within the peer MRU and output buffer. */
     outp = outpacket_buf;
     if (datalen > peer_mru[f->unit] - HEADERLEN)
 	datalen = peer_mru[f->unit] - HEADERLEN;
+    maxdatalen = sizeof(outpacket_buf) - PPP_HDRLEN - HEADERLEN;
+    if (datalen > maxdatalen)
+	datalen = maxdatalen;
     if (datalen && data != outp + PPP_HDRLEN + HEADERLEN)
 	BCOPY(data, outp + PPP_HDRLEN + HEADERLEN, datalen);
     outlen = datalen + HEADERLEN;
