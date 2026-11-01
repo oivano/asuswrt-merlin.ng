@@ -31,6 +31,7 @@
 #include <bcmnvram.h>
 #include <shutils.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <dirent.h>
 #include <sys/mount.h>
 #include <sys/vfs.h>
@@ -53,6 +54,8 @@
 #ifdef RTCONFIG_DNSMASQ_BLOCKLIST
 #define DNSMASQ_BLOCKLIST_LOG	"/var/log/dnsmasq_blocklist.log"
 #define DNSMASQ_BLOCKLIST_EXTERNAL_BYTES	(10 * 1024 * 1024)
+#define DNSMASQ_BLOCKLIST_RUNTIME_DIR	"/tmp/dnsmasq-blocklist"
+#define DNSMASQ_BLOCKLIST_RUNTIME_CONF	DNSMASQ_BLOCKLIST_RUNTIME_DIR "/runtime.conf"
 #endif
 
 #if defined(RTCONFIG_DNSMASQ_BLOCKLIST) || defined(RTCONFIG_DNSCRYPT)
@@ -187,6 +190,217 @@ static int blocklist_prepare_file(const char *path, int create)
 static int blocklist_external_path(const char *path)
 {
 	return !strncmp(path, "/tmp/mnt/", strlen("/tmp/mnt/"));
+}
+
+static int blocklist_valid_domain(const char *domain)
+{
+	const unsigned char *p = (const unsigned char *)domain;
+	size_t label_len = 0, total_len = strlen(domain);
+
+	if (!total_len || total_len > 253)
+		return 0;
+	for (; *p; p++) {
+		if ((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
+		    (*p >= '0' && *p <= '9')) {
+			label_len++;
+		} else if (*p == '-') {
+			if (!label_len)
+				return 0;
+			label_len++;
+		} else if (*p == '.') {
+			if (!label_len || label_len > 63 || p[-1] == '-')
+				return 0;
+			label_len = 0;
+		} else {
+			return 0;
+		}
+	}
+	return label_len && label_len <= 63 && p[-1] != '-';
+}
+
+static int blocklist_safe_config_path(const char *path)
+{
+	const unsigned char *p = (const unsigned char *)path;
+
+	if (!*p)
+		return 0;
+	for (; *p; p++) {
+		if (*p < 0x20 || *p == 0x7f || *p == '#' || *p == '\\')
+			return 0;
+	}
+	return 1;
+}
+
+static int blocklist_parse_data_line(char *line, char **domain, char **address)
+{
+	char *p, *separator;
+	size_t len;
+	struct in_addr addr4;
+	struct in6_addr addr6;
+
+	len = strlen(line);
+	while (len && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+		line[--len] = '\0';
+	while (len && isspace((unsigned char)line[len - 1]))
+		line[--len] = '\0';
+	while (*line && isspace((unsigned char)*line))
+		line++;
+
+	*address = NULL;
+	if (!strncmp(line, "local=/", 7)) {
+		p = line + 7;
+		separator = strchr(p, '/');
+		if (!separator || separator[1] != '\0')
+			return 0;
+		*separator = '\0';
+		*domain = p;
+		return blocklist_valid_domain(*domain) ? 1 : 0;
+	}
+	if (strncmp(line, "address=/", 9))
+		return 0;
+	p = line + 9;
+	separator = strchr(p, '/');
+	if (!separator)
+		return 0;
+	*separator = '\0';
+	*domain = p;
+	*address = separator + 1;
+	if (strchr(*address, '/') || !blocklist_valid_domain(*domain) ||
+	    (inet_pton(AF_INET, *address, &addr4) != 1 &&
+	     inet_pton(AF_INET6, *address, &addr6) != 1))
+		return 0;
+	return 2;
+}
+
+static FILE *blocklist_open_data_file(const char *path)
+{
+	struct stat st;
+	FILE *fp;
+	int fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+
+	if (fd < 0)
+		return NULL;
+	if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
+	    st.st_nlink != 1 || (st.st_mode & 0077)) {
+		close(fd);
+		return NULL;
+	}
+	fp = fdopen(fd, "r");
+	if (!fp)
+		close(fd);
+	return fp;
+}
+
+static FILE *blocklist_create_data_file(const char *path)
+{
+	struct stat st;
+	FILE *fp;
+	int fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK, 0600);
+
+	if (fd < 0)
+		return NULL;
+	if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
+	    st.st_nlink != 1 || fchmod(fd, 0600) < 0 || fstat(fd, &st) < 0 ||
+	    (st.st_mode & 0077)) {
+		close(fd);
+		unlink(path);
+		return NULL;
+	}
+	fp = fdopen(fd, "w");
+	if (!fp) {
+		close(fd);
+		unlink(path);
+	}
+	return fp;
+}
+
+static int blocklist_write_data(FILE *input, FILE *config, FILE *hosts, int host_entries)
+{
+	char line[512], *domain, *address;
+	int type;
+
+	while (fgets(line, sizeof(line), input)) {
+		if (!strchr(line, '\n') && !feof(input)) {
+			while (fgets(line, sizeof(line), input) && !strchr(line, '\n'))
+				;
+			continue;
+		}
+		type = blocklist_parse_data_line(line, &domain, &address);
+		if (type == 1) {
+			if (fprintf(config, "local=/%s/\n", domain) < 0)
+				return 0;
+		} else if (type == 2) {
+			if (host_entries) {
+				if (fprintf(hosts, "%s %s\n", address, domain) < 0)
+					return 0;
+			} else if (fprintf(config, "address=/%s/%s\n", domain, address) < 0) {
+				return 0;
+		}
+	}
+	}
+	return !ferror(input);
+}
+
+static int blocklist_build_runtime_config(const char *dir, const char *blocklist_file,
+						  const char *allowlist_file, const char *denylist_file)
+{
+	char hosts_file[PATH_MAX], hosts_new[PATH_MAX], config_new[PATH_MAX];
+	FILE *allow = NULL, *block = NULL, *deny = NULL, *config = NULL, *hosts = NULL;
+	int ok = 0;
+
+	if (snprintf(hosts_file, sizeof(hosts_file), "%s/blockinglist.hosts", dir) >= sizeof(hosts_file) ||
+	    snprintf(hosts_new, sizeof(hosts_new), "%s.new", hosts_file) >= sizeof(hosts_new) ||
+	    snprintf(config_new, sizeof(config_new), "%s.new", DNSMASQ_BLOCKLIST_RUNTIME_CONF) >= sizeof(config_new) ||
+	    !blocklist_safe_config_path(hosts_file) ||
+	    !blocklist_prepare_directory(DNSMASQ_BLOCKLIST_RUNTIME_DIR))
+		return 0;
+	if (unlink(hosts_new) < 0 && errno != ENOENT)
+		return 0;
+	if (unlink(config_new) < 0 && errno != ENOENT)
+		return 0;
+	allow = blocklist_open_data_file(allowlist_file);
+	block = blocklist_open_data_file(blocklist_file);
+	deny = blocklist_open_data_file(denylist_file);
+	if (!allow || !block || !deny || !(hosts = blocklist_create_data_file(hosts_new)) ||
+	    !(config = blocklist_create_data_file(config_new)))
+		goto done;
+	if (!blocklist_write_data(allow, config, hosts, 0) ||
+	    fprintf(config, "addn-hosts=%s\n", hosts_file) < 0 ||
+	    !blocklist_write_data(block, config, hosts, 1) ||
+	    !blocklist_write_data(deny, config, hosts, 0) ||
+	    ferror(config) || ferror(hosts))
+		goto done;
+	if (fclose(hosts) != 0) {
+		hosts = NULL;
+		goto done;
+	}
+	hosts = NULL;
+	if (fclose(config) != 0) {
+		config = NULL;
+		goto done;
+	}
+	config = NULL;
+	if (rename(hosts_new, hosts_file) != 0 ||
+	    rename(config_new, DNSMASQ_BLOCKLIST_RUNTIME_CONF) != 0)
+		goto done;
+	ok = 1;
+
+done:
+	if (allow)
+		fclose(allow);
+	if (block)
+		fclose(block);
+	if (deny)
+		fclose(deny);
+	if (hosts)
+		fclose(hosts);
+	if (config)
+		fclose(config);
+	if (!ok) {
+		unlink(hosts_new);
+		unlink(config_new);
+	}
+	return ok;
 }
 #endif
 
@@ -1539,7 +1753,7 @@ void start_dnsmasq(void)
 	char buf[sizeof("/rom/etc/resolv.conf")], *path;
 	int n;
 #ifdef RTCONFIG_DNSMASQ_BLOCKLIST
-	char blocklist_dir[PATH_MAX], blocklist_file[PATH_MAX];
+	char blocklist_dir[PATH_MAX], blocklist_file[PATH_MAX], blocklist_config[PATH_MAX];
 	int update_blocklist = 0;
 #endif
 
@@ -2311,13 +2525,16 @@ void start_dnsmasq(void)
 			have_blocklist = blocklist_prepare_file(blocklist_file, 1);
 			if (have_blocklist &&
 			    blocklist_prepare_file(allowlist_file, 1) &&
-			    blocklist_prepare_file(denylist_file, 1)) {
+			    blocklist_prepare_file(denylist_file, 1) &&
+			    blocklist_build_runtime_config(blocklist_dir, blocklist_file,
+							   allowlist_file, denylist_file) &&
+			    snprintf(blocklist_config, sizeof(blocklist_config), "%s",
+				     DNSMASQ_BLOCKLIST_RUNTIME_CONF) < sizeof(blocklist_config)) {
 				if (missing_blocklist)
 					update_blocklist = 1;
-				fprintf(fp, "conf-file=%s\nconf-file=%s\nconf-file=%s\n",
-					allowlist_file, blocklist_file, denylist_file);
+				fprintf(fp, "conf-file=%s\n", blocklist_config);
 			} else {
-				logmessage("dnsmasq_blocklist", "blocklist storage is not root-owned and private; skipping blocklist");
+				logmessage("dnsmasq_blocklist", "blocklist data could not be safely prepared; skipping blocklist");
 			}
 
 			if (nvram_get_int("dnsmasq_blocklist_logging")) {
