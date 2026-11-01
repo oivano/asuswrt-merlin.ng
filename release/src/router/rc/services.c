@@ -7719,6 +7719,9 @@ int write_lltd_conf(void)
 
 int start_lltd(void)
 {
+#ifdef RTCONFIG_BCMARM
+	return 0;
+#else
 	chdir("/usr/sbin");
 
 #if defined(CONFIG_BCMWL5) && !defined(RTCONFIG_BCMARM)
@@ -7758,6 +7761,7 @@ int start_lltd(void)
 	chdir("/");
 
 	return 0;
+#endif
 }
 
 void stop_lltd(void)

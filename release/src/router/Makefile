@@ -1452,7 +1452,6 @@ endif
 obj-y += udpxy
 ifeq ($(CONFIG_BCMWL5),y)
 ifeq ($(RTCONFIG_BCMARM),y)
-obj-y += lltd.arm
 obj-y += taskset
 obj-$(RTCONFIG_COMA) += comad
 else
