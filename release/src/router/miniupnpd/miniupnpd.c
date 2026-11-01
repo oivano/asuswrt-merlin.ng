@@ -465,8 +465,49 @@ OpenAndConfHTTPSocket(unsigned short * port)
 	return s;
 }
 
+#define MAX_HTTP_CONNECTIONS 64
+#define MAX_HTTP_CONNECTIONS_PER_PEER 8
+#define HTTP_IDLE_TIMEOUT 10
+#define HTTP_ACCEPT_BACKOFF 1
+
+static time_t http_accept_backoff_until;
+
+static int
+count_peer_http_connections(struct upnphttp *head, const struct sockaddr *peer)
+{
+	struct upnphttp *entry;
+	int count = 0;
+
+	for(entry = head; entry != NULL; entry = entry->entries.le_next) {
+		if(entry->socket < 0 || entry->state >= EToDelete)
+			continue;
+#ifdef ENABLE_IPV6
+		if(peer->sa_family == AF_INET) {
+			const struct sockaddr_in *addr = (const struct sockaddr_in *)peer;
+			if(!entry->ipv6 && entry->clientaddr.s_addr == addr->sin_addr.s_addr)
+				count++;
+		} else if(peer->sa_family == AF_INET6) {
+			const struct sockaddr_in6 *addr = (const struct sockaddr_in6 *)peer;
+			if(IN6_IS_ADDR_V4MAPPED(&addr->sin6_addr)) {
+				if(!entry->ipv6 && memcmp(&entry->clientaddr,
+				                         &addr->sin6_addr.s6_addr[12], 4) == 0)
+					count++;
+			} else if(entry->ipv6 &&
+			          memcmp(&entry->clientaddr_v6, &addr->sin6_addr,
+			                 sizeof(entry->clientaddr_v6)) == 0) {
+				count++;
+			}
+		}
+#else
+		if(entry->clientaddr.s_addr == ((const struct sockaddr_in *)peer)->sin_addr.s_addr)
+			count++;
+#endif
+	}
+	return count;
+}
+
 static struct upnphttp *
-ProcessIncomingHTTP(int shttpl, const char * protocol)
+ProcessIncomingHTTP(int shttpl, const char * protocol, struct upnphttp *head)
 {
 	int shttp;
 	socklen_t clientnamelen;
@@ -481,7 +522,10 @@ ProcessIncomingHTTP(int shttpl, const char * protocol)
 	if(shttp<0)
 	{
 		/* ignore EAGAIN, EWOULDBLOCK, EINTR, we just try again later */
-		if(errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
+		if(errno == EMFILE || errno == ENFILE) {
+			http_accept_backoff_until = time(NULL) + HTTP_ACCEPT_BACKOFF;
+			syslog(LOG_WARNING, "accept(http): descriptor limit reached; pausing listener");
+		} else if(errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
 			syslog(LOG_ERR, "accept(http): %m");
 	}
 	else
@@ -503,6 +547,13 @@ ProcessIncomingHTTP(int shttpl, const char * protocol)
 		}
 		else
 		{
+			if(count_peer_http_connections(head, (struct sockaddr *)&clientname) >=
+			   MAX_HTTP_CONNECTIONS_PER_PEER) {
+				syslog(LOG_NOTICE, "%s peer %s exceeded the HTTP connection limit",
+				       protocol, addr_str);
+				close(shttp);
+				return NULL;
+			}
 			/* Create a new upnphttp object and add it to
 			 * the active upnphttp object list */
 			tmp = New_upnphttp(shttp);
@@ -2325,6 +2376,8 @@ main(int argc, char * * argv)
 	struct timeval timeout, timeofday, lasttimeofday = {0, 0};
 	int current_notify_interval;	/* with random variation */
 	int max_fd = -1;
+	int active_http_connections = 0;
+	time_t now;
 #ifdef USE_MINIUPNPDCTL
 	int sctl = -1;
 	LIST_HEAD(ctlstructhead, ctlelem) ctllisthead;
@@ -2928,6 +2981,11 @@ main(int argc, char * * argv)
 		/* select open sockets (SSDP, HTTP listen, and all HTTP soap sockets) */
 		FD_ZERO(&readset);
 		FD_ZERO(&writeset);
+		active_http_connections = 0;
+		for(e = upnphttphead.lh_first; e != NULL; e = e->entries.le_next) {
+			if(e->socket >= 0 && e->state < EToDelete)
+				active_http_connections++;
+		}
 
 		if (sudp >= 0)
 		{
@@ -2941,26 +2999,30 @@ main(int argc, char * * argv)
 			}
 #endif
 		}
-		if (shttpl >= 0)
+		if (shttpl >= 0 && active_http_connections < MAX_HTTP_CONNECTIONS &&
+		    time(NULL) >= http_accept_backoff_until)
 		{
 			FD_SET(shttpl, &readset);
 			max_fd = MAX( max_fd, shttpl);
 		}
 #if defined(V6SOCKETS_ARE_V6ONLY) && defined(ENABLE_IPV6)
-		if (shttpl_v4 >= 0)
+		if (shttpl_v4 >= 0 && active_http_connections < MAX_HTTP_CONNECTIONS &&
+		    time(NULL) >= http_accept_backoff_until)
 		{
 			FD_SET(shttpl_v4, &readset);
 			max_fd = MAX( max_fd, shttpl_v4);
 		}
 #endif
 #ifdef ENABLE_HTTPS
-		if (shttpsl >= 0)
+		if (shttpsl >= 0 && active_http_connections < MAX_HTTP_CONNECTIONS &&
+		    time(NULL) >= http_accept_backoff_until)
 		{
 			FD_SET(shttpsl, &readset);
 			max_fd = MAX( max_fd, shttpsl);
 		}
 #if defined(V6SOCKETS_ARE_V6ONLY) && defined(ENABLE_IPV6)
-		if (shttpsl_v4 >= 0)
+		if (shttpsl_v4 >= 0 && active_http_connections < MAX_HTTP_CONNECTIONS &&
+		    time(NULL) >= http_accept_backoff_until)
 		{
 			FD_SET(shttpsl_v4, &readset);
 			max_fd = MAX( max_fd, shttpsl_v4);
@@ -3070,6 +3132,10 @@ main(int argc, char * * argv)
 			}
 		}
 
+		if(timeout.tv_sec > 1 || (timeout.tv_sec == 1 && timeout.tv_usec > 0)) {
+			timeout.tv_sec = 1;
+			timeout.tv_usec = 0;
+		}
 		if(select(max_fd+1, &readset, &writeset, 0, &timeout) < 0)
 		{
 			if(quitting) goto shutdown;
@@ -3286,7 +3352,7 @@ main(int argc, char * * argv)
 		if(shttpl >= 0 && FD_ISSET(shttpl, &readset))
 		{
 			struct upnphttp * tmp;
-			tmp = ProcessIncomingHTTP(shttpl, "HTTP");
+			tmp = ProcessIncomingHTTP(shttpl, "HTTP", upnphttphead.lh_first);
 			if(tmp)
 			{
 				LIST_INSERT_HEAD(&upnphttphead, tmp, entries);
@@ -3296,7 +3362,7 @@ main(int argc, char * * argv)
 		if(shttpl_v4 >= 0 && FD_ISSET(shttpl_v4, &readset))
 		{
 			struct upnphttp * tmp;
-			tmp = ProcessIncomingHTTP(shttpl_v4, "HTTP");
+			tmp = ProcessIncomingHTTP(shttpl_v4, "HTTP", upnphttphead.lh_first);
 			if(tmp)
 			{
 				LIST_INSERT_HEAD(&upnphttphead, tmp, entries);
@@ -3307,7 +3373,7 @@ main(int argc, char * * argv)
 		if(shttpsl >= 0 && FD_ISSET(shttpsl, &readset))
 		{
 			struct upnphttp * tmp;
-			tmp = ProcessIncomingHTTP(shttpsl, "HTTPS");
+			tmp = ProcessIncomingHTTP(shttpsl, "HTTPS", upnphttphead.lh_first);
 			if(tmp)
 			{
 				InitSSL_upnphttp(tmp);
@@ -3318,7 +3384,7 @@ main(int argc, char * * argv)
 		if(shttpsl_v4 >= 0 && FD_ISSET(shttpsl_v4, &readset))
 		{
 			struct upnphttp * tmp;
-			tmp = ProcessIncomingHTTP(shttpsl_v4, "HTTPS");
+			tmp = ProcessIncomingHTTP(shttpsl_v4, "HTTPS", upnphttphead.lh_first);
 			if(tmp)
 			{
 				InitSSL_upnphttp(tmp);
@@ -3336,9 +3402,15 @@ main(int argc, char * * argv)
 		}
 #endif
 		/* delete finished HTTP connections */
+		now = time(NULL);
 		for(e = upnphttphead.lh_first; e != NULL; )
 		{
 			next = e->entries.le_next;
+			if(e->socket >= 0 && e->state < EToDelete &&
+			   now >= e->last_activity && now - e->last_activity >= HTTP_IDLE_TIMEOUT) {
+				syslog(LOG_DEBUG, "closing idle HTTP connection from %s", e->clientaddr_str);
+				e->state = EToDelete;
+			}
 			if(e->state >= EToDelete)
 			{
 				LIST_REMOVE(e, entries);

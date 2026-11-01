@@ -11,6 +11,7 @@
 
 #include <netinet/in.h>
 #include <sys/queue.h>
+#include <time.h>
 
 #include "config.h"
 
@@ -19,6 +20,9 @@
 #endif /* ENABLE_HTTPS */
 
 #define UPNP_VERSION_STRING "UPnP/" UPNP_VERSION_MAJOR_STR "." UPNP_VERSION_MINOR_STR
+#define UPNP_HTTP_MAX_HEADER_SIZE 8192
+#define UPNP_HTTP_MAX_BODY_SIZE 16384
+#define UPNP_HTTP_MAX_REQUEST_SIZE (UPNP_HTTP_MAX_HEADER_SIZE + UPNP_HTTP_MAX_BODY_SIZE)
 
 /* server: HTTP header returned in all HTTP responses : */
 #define MINIUPNPD_SERVER_STRING	OS_VERSION " " UPNP_VERSION_STRING " MiniUPnPd/" MINIUPNPD_VERSION
@@ -58,6 +62,7 @@ struct upnphttp {
 #endif /* ENABLE_HTTPS */
 	char clientaddr_str[64];	/* used for syslog() output */
 	enum httpStates state;
+	time_t last_activity;
 	char HttpVer[16];
 	/* request */
 	char * req_buf;
