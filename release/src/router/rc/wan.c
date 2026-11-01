@@ -850,23 +850,79 @@ void update_wan6_state(char *prefix, int state, int reason)
 // arp -na
 
 #ifdef RTCONFIG_DSL_REMOTE
-static int start_ipoa()
+static int ipoa_read_static_ipv4(int unit, const char *field, char *address)
+{
+	char name[64];
+	const char *value;
+	struct in_addr parsed;
+
+	snprintf(name, sizeof(name), "wan%d_%s_x", unit, field);
+	value = nvram_safe_get(name);
+	if (inet_pton(AF_INET, value, &parsed) != 1)
+		return -1;
+	snprintf(address, INET_ADDRSTRLEN, "%s", value);
+	return 0;
+}
+
+static int ipoa_get_static_config(int unit, char *gateway, char *neighbor_prefix,
+				  int *neighbor_count, int *neighbor_base)
+{
+	char ip_addr[INET_ADDRSTRLEN];
+	char ip_mask[INET_ADDRSTRLEN];
+	char *last_dot;
+	size_t prefix_len;
+	int last_ip_num;
+	int mask_last_ip_num;
+
+	if (ipoa_read_static_ipv4(unit, "gateway", gateway) != 0 ||
+	    ipoa_read_static_ipv4(unit, "ipaddr", ip_addr) != 0 ||
+	    ipoa_read_static_ipv4(unit, "netmask", ip_mask) != 0 ||
+	    strncmp(ip_mask, "255.255.255.", 12) != 0)
+		return -1;
+
+	last_dot = strrchr(ip_addr, '.');
+	if (last_dot == NULL)
+		return -1;
+	prefix_len = last_dot - ip_addr;
+	if (prefix_len >= INET_ADDRSTRLEN)
+		return -1;
+	memcpy(neighbor_prefix, ip_addr, prefix_len);
+	neighbor_prefix[prefix_len] = '\0';
+
+	last_ip_num = atoi(last_dot + 1);
+	last_dot = strrchr(ip_mask, '.');
+	if (last_dot == NULL)
+		return -1;
+	mask_last_ip_num = atoi(last_dot + 1);
+	if (mask_last_ip_num & (mask_last_ip_num + 1))
+		return -1;
+
+	*neighbor_count = ((~mask_last_ip_num) + 1) & 0xff;
+	*neighbor_base = last_ip_num & mask_last_ip_num;
+	return 0;
+}
+
+static void ipoa_report_config_error(void)
+{
+	FILE *fp_log = fopen("/tmp/adsl/ipoa_too_many_neighbors.txt", "w");
+
+	if (fp_log != NULL) {
+		fputs("ErrorMsg", fp_log);
+		fclose(fp_log);
+	}
+}
+
+static int start_ipoa(int unit)
 {
 	char tc_mac[32];
-	char ip_addr[32];
-	char ip_mask[32];
-	char ip_gateway[32];
+	char ip_gateway[INET_ADDRSTRLEN];
 	int try_cnt;
 	FILE* fp_dsl_mac;
-	FILE* fp_log;
 
 	int NeighborIpNum;
 	int i;
 	int NeiBaseIpNum;
-	int LastIpNum;
-	int NetMaskLastIpNum;
-	char NeighborIpPrefix[32];
-	int ip_addr_dot_cnt;
+	char NeighborIpPrefix[INET_ADDRSTRLEN];
 	char CmdBuf[128];
 
 	// mac address is adsl mac
@@ -882,54 +938,11 @@ static int start_ipoa()
 		usleep(1000*1000);
 	}
 
-#ifdef RTCONFIG_DUALWAN
-	if (get_dualwan_secondary()==WANS_DUALWAN_IF_DSL)
-	{
-		strcpy(ip_gateway, nvram_safe_get("wan1_gateway"));
-		strcpy(ip_addr, nvram_safe_get("wan1_ipaddr"));
-		strcpy(ip_mask, nvram_safe_get("wan1_netmask"));
-	}
-	else
-	{
-		strcpy(ip_gateway, nvram_safe_get("wan0_gateway"));
-		strcpy(ip_addr, nvram_safe_get("wan0_ipaddr"));
-		strcpy(ip_mask, nvram_safe_get("wan0_netmask"));
-	}
-#else
-	strcpy(ip_gateway, nvram_safe_get("wan0_gateway"));
-	strcpy(ip_addr, nvram_safe_get("wan0_ipaddr"));
-	strcpy(ip_mask, nvram_safe_get("wan0_netmask"));
-#endif
-
-	// we only support maximum 256 neighbor host
-	if (strncmp("255.255.255",ip_mask,11) != 0)
-	{
-		fp_log = fopen("/tmp/adsl/ipoa_too_many_neighbors.txt","w");
-		fputs("ErrorMsg",fp_log);
-		fclose(fp_log);
+	if (ipoa_get_static_config(unit, ip_gateway, NeighborIpPrefix,
+				   &NeighborIpNum, &NeiBaseIpNum) != 0) {
+		ipoa_report_config_error();
 		return -1;
 	}
-
-//
-// do not send arp to neighborhood and gateway
-//
-
-	ip_addr_dot_cnt = 0;
-	for (i=0; i<sizeof(NeighborIpPrefix); i++)
-	{
-		if (ip_addr[i] == '.')
-		{
-			ip_addr_dot_cnt++;
-			if (ip_addr_dot_cnt >= 3) break;
-		}
-		NeighborIpPrefix[i]=ip_addr[i];
-	}
-	NeighborIpPrefix[i] = 0;
-
-	LastIpNum = atoi(&ip_addr[i+1]);
-	NetMaskLastIpNum = atoi(&ip_mask[12]);
-	NeighborIpNum = ((~NetMaskLastIpNum) + 1)&0xff;
-	NeiBaseIpNum = LastIpNum & NetMaskLastIpNum;
 
 	//
 	// add gateway host
@@ -954,70 +967,21 @@ static int start_ipoa()
 	return 0;
 }
 
-static int stop_ipoa()
+static int stop_ipoa(int unit)
 {
-	char ip_addr[32];
-	char ip_mask[32];
-	char ip_gateway[32];
-	FILE* fp_log;
+	char ip_gateway[INET_ADDRSTRLEN];
 
 	int NeighborIpNum;
 	int i;
 	int NeiBaseIpNum;
-	int LastIpNum;
-	int NetMaskLastIpNum;
-	char NeighborIpPrefix[32];
-	int ip_addr_dot_cnt;
+	char NeighborIpPrefix[INET_ADDRSTRLEN];
 	char CmdBuf[128];
 
-#ifdef RTCONFIG_DUALWAN
-		if (get_dualwan_secondary()==WANS_DUALWAN_IF_DSL)
-		{
-			strcpy(ip_gateway, nvram_safe_get("wan1_gateway"));
-			strcpy(ip_addr, nvram_safe_get("wan1_ipaddr"));
-			strcpy(ip_mask, nvram_safe_get("wan1_netmask"));
-		}
-		else
-		{
-			strcpy(ip_gateway, nvram_safe_get("wan0_gateway"));
-			strcpy(ip_addr, nvram_safe_get("wan0_ipaddr"));
-			strcpy(ip_mask, nvram_safe_get("wan0_netmask"));
-		}
-#else
-		strcpy(ip_gateway, nvram_safe_get("wan0_gateway"));
-		strcpy(ip_addr, nvram_safe_get("wan0_ipaddr"));
-		strcpy(ip_mask, nvram_safe_get("wan0_netmask"));
-#endif
-
-	// we only support maximum 256 neighbor host
-	if (strncmp("255.255.255",ip_mask,11) != 0)
-	{
-		fp_log = fopen("/tmp/adsl/ipoa_too_many_neighbors.txt","w");
-		fputs("ErrorMsg",fp_log);
-		fclose(fp_log);
+	if (ipoa_get_static_config(unit, ip_gateway, NeighborIpPrefix,
+				   &NeighborIpNum, &NeiBaseIpNum) != 0) {
+		ipoa_report_config_error();
 		return -1;
 	}
-
-	//
-	// do not send arp to neighborhood and gateway
-	//
-
-	ip_addr_dot_cnt = 0;
-	for (i=0; i<sizeof(NeighborIpPrefix); i++)
-	{
-		if (ip_addr[i] == '.')
-		{
-			ip_addr_dot_cnt++;
-			if (ip_addr_dot_cnt >= 3) break;
-		}
-		NeighborIpPrefix[i]=ip_addr[i];
-	}
-	NeighborIpPrefix[i] = 0;
-
-	LastIpNum = atoi(&ip_addr[i+1]);
-	NetMaskLastIpNum = atoi(&ip_mask[12]);
-	NeighborIpNum = ((~NetMaskLastIpNum) + 1)&0xff;
-	NeiBaseIpNum = LastIpNum & NetMaskLastIpNum;
 
 	//
 	// delete gateway host
@@ -2129,7 +2093,7 @@ TRACE_PT("3g begin with %s.\n", wan_ifname);
 			if (get_dsl_prefix_by_wan_unit(unit, dsl_prefix, sizeof(dsl_prefix)) == 0)
 			{
 				if (nvram_pf_match(dsl_prefix, "proto", "ipoa"))
-					start_ipoa();
+					start_ipoa(unit);
 			}
 #endif
 
@@ -2454,7 +2418,7 @@ stop_wan_if(int unit)
 	if (get_dsl_prefix_by_wan_unit(unit, dsl_prefix, sizeof(dsl_prefix)) == 0)
 	{
 		if (nvram_pf_match(dsl_prefix, "proto", "ipoa"))
-			stop_ipoa();
+			stop_ipoa(unit);
 	}
 #endif
 

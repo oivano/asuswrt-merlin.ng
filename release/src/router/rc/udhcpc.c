@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -134,6 +135,50 @@ nvram_set_env(const char *name, const char *env)
 		evalue = trim_r(evalue);
 
 	return nvram_set_check(name, evalue ? : "");
+}
+
+static int
+first_ipv4_address(const char *list, char *address, size_t address_size)
+{
+	const char *start, *end;
+	char token[INET_ADDRSTRLEN];
+	struct in_addr parsed;
+	size_t len;
+
+	if (list == NULL || address == NULL || address_size == 0)
+		return 0;
+
+	while (*list) {
+		while (*list && isspace((unsigned char)*list))
+			list++;
+		if (!*list)
+			break;
+
+		start = list;
+		while (*list && !isspace((unsigned char)*list))
+			list++;
+		end = list;
+		len = end - start;
+		if (len < sizeof(token)) {
+			memcpy(token, start, len);
+			token[len] = '\0';
+			if (inet_pton(AF_INET, token, &parsed) == 1 && len < address_size) {
+				memcpy(address, token, len + 1);
+				return 1;
+			}
+		}
+	}
+
+	return 0;
+}
+
+static int
+nvram_set_env_ipv4(const char *name, const char *env)
+{
+	char address[INET_ADDRSTRLEN] = "";
+
+	first_ipv4_address(getenv(env), address, sizeof(address));
+	return nvram_set_check(name, address);
 }
 
 struct viopt_hdr {
@@ -363,12 +408,12 @@ bound(int renew)
 
 	if (dualwan_unit__usbif(ifunit) && nvram_match(strcat_r(prefix2, "act_type", tmp2), "gobi")) {
 		changed += nvram_set_check(strcat_r(prefix, "netmask", tmp), "255.255.255.255");
-		changed += nvram_set_env(strcat_r(prefix, "gateway", tmp), "ip");
+		changed += nvram_set_env_ipv4(strcat_r(prefix, "gateway", tmp), "ip");
 	} else
 #endif
 	{
-		changed += nvram_set_env(strcat_r(prefix, "netmask", tmp), "subnet");
-		changed += nvram_set_env(strcat_r(prefix, "gateway", tmp), "router");
+		changed += nvram_set_env_ipv4(strcat_r(prefix, "netmask", tmp), "subnet");
+		changed += nvram_set_env_ipv4(strcat_r(prefix, "gateway", tmp), "router");
 	}
 
 	// always backup received dns
