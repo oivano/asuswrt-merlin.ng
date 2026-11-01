@@ -82,7 +82,6 @@ void write_ovpn_resolv_dnsmasq(FILE* dnsmasq_conf) {
 void write_ovpn_dnsmasq_config(FILE* dnsmasq_conf) {
 	char prefix[16], filename[40], varname[32];
 	int unit, modeset = 0;
-	char *buffer;
 
 	// Add interfaces for servers that provide DNS services
 	for (unit = 1; unit <= OVPN_SERVER_MAX; unit++) {
@@ -108,11 +107,7 @@ void write_ovpn_dnsmasq_config(FILE* dnsmasq_conf) {
 		// Add WINS entries if any client provides it
 		sprintf(filename, "/etc/openvpn/client%d/client.conf", unit);
 		if (f_exists(filename)) {
-			buffer = read_whole_file(filename);
-			if (buffer) {
-				fwrite(buffer, 1, strlen(buffer),dnsmasq_conf);
-				free(buffer);
-			}
+			fprintf(dnsmasq_conf, "dhcp-optsfile=%s\n", filename);
 		}
 	}
 }
