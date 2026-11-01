@@ -27,8 +27,11 @@
 #include <tchar.h>
 #endif
 
-#ifndef UNDER_CE
 #include <signal.h>
+
+#ifdef __linux__
+#include <time.h>
+#include <unistd.h>
 #endif
 
 #ifdef HAVE_FCNTL_H
@@ -41,17 +44,7 @@
 #include "tool_operate.h"
 #include "tool_vms.h"
 #include "tool_main.h"
-#include "tool_libinfo.h"
 #include "tool_stderr.h"
-
-/*
- * This is low-level hard-hacking memory leak tracking and similar. Using
- * the library level code from this client-side is ugly, but we do this
- * anyway for convenience.
- */
-#ifdef CURLDEBUG
-#include "memdebug.h" /* keep this as LAST include */
-#endif
 
 #ifdef __VMS
 /*
@@ -69,7 +62,7 @@ int vms_show = 0;
 #else
 #define CURL_USED
 #endif
-static const char CURL_USED min_stack[] = "$STACK:16384";
+static const char CURL_USED min_stack[] = "$STACK:32768";
 #endif
 
 #ifdef __MINGW32__
@@ -85,12 +78,11 @@ int _CRT_glob = 0;
 /* if we build a static library for unit tests, there is no main() function */
 #ifndef UNITTESTS
 
-#if defined(HAVE_PIPE) && defined(HAVE_FCNTL)
 /*
  * Ensure that file descriptors 0, 1 and 2 (stdin, stdout, stderr) are
  * open before starting to run. Otherwise, the first three network
  * sockets opened by curl could be used for input sources, downloaded data
- * or error logs as they will effectively be stdin, stdout and/or stderr.
+ * or error logs as they are effectively stdin, stdout and/or stderr.
  *
  * fcntl's F_GETFD instruction returns -1 if the file descriptor is closed,
  * otherwise it returns "the file descriptor flags (which typically can only
@@ -98,19 +90,29 @@ int _CRT_glob = 0;
  */
 static int main_checkfds(void)
 {
-  int fd[2];
-  while((fcntl(STDIN_FILENO, F_GETFD) == -1) ||
-        (fcntl(STDOUT_FILENO, F_GETFD) == -1) ||
-        (fcntl(STDERR_FILENO, F_GETFD) == -1))
-    if(pipe(fd))
+#if defined(HAVE_FCNTL) && defined(HAVE_PIPE)
+  const char * const devnull = "/dev/null";
+  int fd;
+  while((fcntl(STDIN_FILENO, F_GETFD) == -1)) {
+    fd = curlx_open(devnull, O_RDONLY);
+    if(fd < 0)
       return 1;
+  }
+  while((fcntl(STDOUT_FILENO, F_GETFD) == -1)) {
+    fd = curlx_open(devnull, O_WRONLY);
+    if(fd < 0)
+      return 1;
+  }
+  while((fcntl(STDERR_FILENO, F_GETFD) == -1)) {
+    fd = curlx_open(devnull, O_WRONLY);
+    if(fd < 0)
+      return 1;
+  }
+#endif /* HAVE_FCNTL && HAVE_PIPE */
   return 0;
 }
-#else
-#define main_checkfds() 0
-#endif
 
-#ifdef CURLDEBUG
+#ifdef CURL_MEMDEBUG
 static void memory_tracking_init(void)
 {
   char *env;
@@ -119,13 +121,11 @@ static void memory_tracking_init(void)
   if(env) {
     /* use the value as filename */
     char fname[512];
-    if(strlen(env) >= sizeof(fname))
-      env[sizeof(fname)-1] = '\0';
-    strcpy(fname, env);
+    curlx_strcopy(fname, sizeof(fname), env, strlen(env));
     curl_free(env);
     curl_dbg_memdebug(fname);
     /* this weird stuff here is to make curl_free() get called before
-       curl_dbg_memdebug() as otherwise memory tracking will log a free()
+       curl_dbg_memdebug() as otherwise memory tracking logs a curlx_free()
        without an alloc! */
   }
   /* if CURL_MEMLIMIT is set, this enables fail-on-alloc-number-N feature */
@@ -141,298 +141,106 @@ static void memory_tracking_init(void)
 #else
 #  define memory_tracking_init() tool_nop_stmt
 #endif
-#if 1//def ASUSWRT
-static int _get_process_path(const int pid, char *real_path, const size_t real_path_len)
+
+#ifdef __linux__
+#define CURL_AUDIT_CMD_MAX 1024
+#define CURL_AUDIT_DEPTH_MAX 8
+
+static int curl_audit_read_cmdline(int pid, char *cmdline, size_t cmdline_size)
 {
-	char link_path[512];
+  char path[64];
+  FILE *fp;
+  size_t used = 0;
+  int ch;
 
-	if(!real_path)
-		return 0;
+  snprintf(path, sizeof(path), "/proc/%d/cmdline", pid);
+  fp = fopen(path, "r");
+  if(!fp)
+    return 0;
 
-	snprintf(link_path, sizeof(link_path), "/proc/%d/exe", pid);
-	memset(real_path, 0, real_path_len);
+  while((ch = fgetc(fp)) != EOF && used + 1 < cmdline_size) {
+    if(ch == '\0')
+      ch = ' ';
+    else if(ch < 32 || ch == 127)
+      ch = '?';
+    cmdline[used++] = (char)ch;
+  }
+  fclose(fp);
 
-	if(-1 == readlink(link_path, real_path, real_path_len))
-	{
-		return 0;
-	}
-	else
-	{
-		return 1;
-	}
+  while(used && cmdline[used - 1] == ' ')
+    --used;
+  cmdline[used] = '\0';
+  return used != 0;
 }
 
-static int _get_cmdline(const int pid, char *cmdline, const size_t cmdline_len)
+static int curl_audit_get_parent(int pid)
 {
-	FILE *fp;
-	char path[512], buf[2048] = {0}, *ptr;
-	long int fsize;
-	
-	if(!cmdline)
-		return 0;
+  char path[64];
+  char line[128];
+  FILE *fp;
+  int parent = 0;
 
-	snprintf(path, sizeof(path), "/proc/%d/cmdline", pid);
-	fp = fopen(path, "r");
-	if(fp)
-	{
-		memset(cmdline, 0, cmdline_len);
-		
-		fsize = fread(buf, 1, sizeof(buf), fp);
-		ptr = buf;
-		while(ptr - buf <  fsize)
-		{
-			if(*ptr == '\0')
-			{
-				++ptr;
-				continue;
-			}
+  snprintf(path, sizeof(path), "/proc/%d/status", pid);
+  fp = fopen(path, "r");
+  if(!fp)
+    return 0;
 
-			snprintf(cmdline + strlen(cmdline), cmdline_len - strlen(cmdline), ptr == buf? "%s": " %s", ptr);
-			ptr += strlen(ptr);
-		}
-		fclose(fp);
-		return strlen(cmdline);
-	}
-	return 0;
+  while(fgets(line, sizeof(line), fp)) {
+    if(!strncmp(line, "PPid:", 5)) {
+      (void)sscanf(line + 5, "%d", &parent);
+      break;
+    }
+  }
+  fclose(fp);
+  return parent;
 }
 
-static int _get_ppid(const int pid)
+static void curl_audit_log(void)
 {
-	FILE *fp;
-	char path[512], buf[512] = {0}, name[128], val[512];
-	int ppid = 0;
+  static const char log_path[] = "/jffs/curllst";
+  static const char backup_path[] = "/jffs/curllst.1";
+  FILE *fp;
+  long log_size = 0;
+  int pid = (int)getpid();
+  int depth;
 
-	snprintf(path, sizeof(path), "/proc/%d/status", pid);
+  fp = fopen(log_path, "r");
+  if(fp) {
+    if(fseek(fp, 0, SEEK_END) == 0)
+      log_size = ftell(fp);
+    fclose(fp);
+  }
+  if(log_size >= 10 * 1024) {
+    (void)remove(backup_path);
+    if(rename(log_path, backup_path))
+      return;
+  }
 
-	fp = fopen(path, "r");
-	if(fp)
-	{
-		while(fgets(buf, sizeof(buf), fp))
-		{
-			memset(name, 0, sizeof(name));
-			memset(val, 0, sizeof(val));
-			sscanf(buf, "%[^:]: %s", name, val);
-			if(!strcmp(name, "PPid"))
-			{
-				ppid = atoi(val);
-				break;
-			}
-		}
-		fclose(fp);
-	}
-	return ppid;
-}
+  fp = fopen(log_path, "a");
+  if(!fp)
+    return;
 
-static int _check_caller()
-{
-	pid_t ppid, pid;
-	char cmdline[2048];
-	const char *invalid_caller[] = {"/usr/sbin/httpd", "/usr/sbin/lighttpd", "hotplug2", NULL};
-	const char busybox_caller[] = "/bin/busybox";
-	const char *invalid_busybox[] = {"crond", NULL};
-	const char accept_caller[] = "/bin/sh /usr/sbin/app_";
-	int i, j, flag;
-	FILE *fp, *fp2;
-	char path[128], line[512];
+  for(depth = 0; depth < CURL_AUDIT_DEPTH_MAX && pid > 1; ++depth) {
+    char cmdline[CURL_AUDIT_CMD_MAX];
+    int parent;
 
-	//check accept list first
-	pid = getpid();
-	while(_get_cmdline(pid, cmdline, sizeof(cmdline)) > 0)
-	{
-		if(!strncmp(cmdline, accept_caller, strlen(accept_caller)))
-		{
-			fp = fopen("/jffs/curllst", "a");
-			if(fp)
-			{
-				fprintf(fp, "[%u]accept caller(app_)\n", (unsigned)time(NULL));
-				fclose(fp);
-			}
-			return 0;
-		}
-		ppid = _get_ppid(pid);
-		pid = ppid;
-		if(!ppid)
-			break;
-	}
-
-	pid = getpid();
-	while(_get_process_path(pid, cmdline, sizeof(cmdline)) > 0)
-	{
-		for(i = 0; invalid_caller[i]; ++i)
-		{
-			if((invalid_caller[i][0] == '/' && !strcmp(cmdline, invalid_caller[i])) ||
-				(invalid_caller[i][0] != '/' && strstr(cmdline, invalid_caller[i])))
-			{
-				fp = fopen("/jffs/curllst", "a");
-				if(fp)
-				{
-					fprintf(fp, "[%u]Invalid caller(%s)\n", (unsigned)time(NULL), invalid_caller[i]);
-					fclose(fp);
-				}
-				return 1;
-			}
-		}
-
-		if(!strcmp(cmdline, busybox_caller))
-		{
-			//check name
-			flag = 0;
-			snprintf(path, sizeof(path), "/proc/%d/status", pid);
-			fp = fopen(path, "r");
-			if(fp)
-			{
-				while(fgets(line, sizeof(line), fp))
-				{
-					if (strncmp(line, "Name:", 5) == 0)
-					{
-						char* token = strtok(line, " \t");
-						if (token != NULL)
-						{
-							token = strtok(NULL, " \t\n");
-							if (token != NULL)
-							{
-								for(j = 0; invalid_busybox[j]; ++j)
-								{
-									if(!strcmp(token, invalid_busybox[j]))
-									{
-										flag = 1;
-										fp2 = fopen("/jffs/curllst", "a");
-										if(fp2)
-										{
-											fprintf(fp2, "[%u]Invalid caller(%s)\n", (unsigned)time(NULL), invalid_busybox[j]);
-											fclose(fp2);
-										}
-										break;
-									}
-								}
-								if(flag)
-									break;
-							}
-						}
-					}
-				}
-				fclose(fp);
-				if(flag)
-				{
-					return 1;
-				}
-			}
-		}
-
-		ppid = _get_ppid(pid);
-		pid = ppid;
-		if(!ppid)
-		{
-			break;
-		}
-	}
-	return 0;
-}
-
-static int _check_invalid_dl_path()
-{
-	FILE *fp, *fp2;
-	char path[512], buf[2048] = {0}, *ptr, url[256];
-	char buf2[2048] = {0}, *token, *p;
-	int dots, port, ret = 0, num, i, flag;
-	long int fsize;
-
-	snprintf(path, sizeof(path), "/proc/%d/cmdline", getpid());
-	fp = fopen(path, "r");
-	if(fp)
-	{
-		fsize = fread(buf, 1, sizeof(buf), fp);
-		ptr = buf;
-		while(ptr - buf <  fsize)
-		{
-			if(*ptr == '\0')
-			{
-				++ptr;
-				continue;
-			}
-
-			//remove protocol
-			p = strstr(ptr, "://");
-			if(p)
-			{
-				p += 3;
-			}
-			else
-			{
-				p = ptr;
-			}
-			snprintf(buf2, sizeof(buf2), "%s", p);
-			//remove subpath
-			p = strchr(buf2, '/');
-			if(p)
-			{
-				*p = '\0';
-			}
-			snprintf(url, sizeof(url), "%s", buf2);
-			//check port number
-			p = strchr(buf2, ':');
-			if(p)
-			{
-				port = atoi(p + 1);
-				if(port < 0 || port > 65535)
-				{
-					ptr += strlen(ptr);
-					continue;
-				}
-				*p = '\0';
-			}
-			//check ip
-			token = strtok(buf2, ".");
-			dots = 0;
-			while (token != NULL)
-			{
-				++dots;
-				flag = 0;
-				for(i = 0; token[i] != '\0'; ++i)
-				{
-					if(token[i] < '0' || token[i] > '9')
-					{
-						flag = 1;
-						break;
-					}
-				}
-
-				if(flag)
-				{
-					break;
-				}
-
-				num = atoi(token);
-
-				if (num < 0 || num > 255)
-				{
-					break;
-				}
-				token = strtok(NULL, ".");
-			}
-			if(dots == 4)
-			{
-				fp2 = fopen("/jffs/curllst", "a");
-				if(fp2)
-				{
-					fprintf(fp2, "[%u]Invalid DL URL(%s)\n", (unsigned)time(NULL), url);
-					fclose(fp2);
-				}
-				ret = 1;
-				break;
-			}
-			ptr += strlen(ptr);
-		}
-		fclose(fp);
-	}
-	return ret;
+    if(!curl_audit_read_cmdline(pid, cmdline, sizeof(cmdline)))
+      break;
+    parent = curl_audit_get_parent(pid);
+    fprintf(fp, "[%u](%d)%s\n", (unsigned)time(NULL), parent, cmdline);
+    if(parent <= 1 || parent == pid)
+      break;
+    pid = parent;
+  }
+  fclose(fp);
 }
 #endif
+
 /*
-** curl tool main function.
-*/
-#if defined(_UNICODE) && !defined(UNDER_CE)
-#if defined(__GNUC__) || defined(__clang__)
+ * curl tool main function.
+ */
+#ifdef _UNICODE
+#ifdef CURL_HAVE_DIAG
 /* GCC does not know about wmain() */
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmissing-prototypes"
@@ -446,60 +254,26 @@ int main(int argc, char *argv[])
   CURLcode result = CURLE_OK;
 
   tool_init_stderr();
-#if 1//def ASUSWRT
-	pid_t ppid, pid;
-  FILE *fp = fopen("/jffs/curllst", "r");
-  long int log_size;
-	char cmdline[2048];
-  if(fp)
-  {
-    fseek(fp, 0, SEEK_END);
-    log_size = ftell(fp);
-    fclose(fp);
-    if(log_size >= 10 * 1024)
-    {
-      unlink("/jffs/curllst.1");
-      system("mv /jffs/curllst /jffs/curllst.1");
-    }
-  }
 
-  fp = fopen("/jffs/curllst", "a");
-  if(fp)
-  {
-    //get parent process information
-    pid = getpid();
-    while(_get_cmdline(pid, cmdline, sizeof(cmdline)) > 0)
-    {
-      ppid = _get_ppid(pid);
-      fprintf(fp, "[%u](%d)%s\n", (unsigned)time(NULL), ppid, cmdline);
-      pid = ppid;
-      if(!ppid)
-        break;
-    }
-    fclose(fp);
-  }
-//  if(_check_caller())
-//    return 0;
-//	if(_check_invalid_dl_path())
-//		return 0;
+#ifdef __linux__
+  curl_audit_log();
 #endif
 
-#if defined(_WIN32) && !defined(UNDER_CE)
+#ifdef _WIN32
   /* Undocumented diagnostic option to list the full paths of all loaded
      modules. This is purposely pre-init. */
-  if(argc == 2 && !_tcscmp(argv[1], _T("--dump-module-paths"))) {
+  if(argc == 2 && !_tcscmp(argv[1], _TEXT("--dump-module-paths"))) {
     struct curl_slist *item, *head = GetLoadedModulePaths();
     for(item = head; item; item = item->next)
       curl_mprintf("%s\n", item->data);
     curl_slist_free_all(head);
     return head ? 0 : 1;
   }
-#endif
-#ifdef _WIN32
+
   /* win32_init must be called before other init routines. */
   result = win32_init();
   if(result) {
-    errorf("(%d) Windows-specific init failed", result);
+    errorf("(%d) Windows-specific init failed", (int)result);
     return (int)result;
   }
 #endif
@@ -510,6 +284,9 @@ int main(int argc, char *argv[])
   }
 
 #if defined(HAVE_SIGNAL) && defined(SIGPIPE)
+#ifdef DEBUGBUILD
+  if(!curl_getenv("CURL_SIGPIPE_DEBUG"))
+#endif
   (void)signal(SIGPIPE, SIG_IGN);
 #endif
 
@@ -539,10 +316,10 @@ int main(int argc, char *argv[])
 #endif
 }
 
-#if defined(_UNICODE) && !defined(UNDER_CE)
-#if defined(__GNUC__) || defined(__clang__)
+#ifdef _UNICODE
+#ifdef CURL_HAVE_DIAG
 #pragma GCC diagnostic pop
 #endif
 #endif
 
-#endif /* ndef UNITTESTS */
+#endif /* !UNITTESTS */
