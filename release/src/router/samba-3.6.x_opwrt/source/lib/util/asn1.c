@@ -927,13 +927,13 @@ bool asn1_read_BitString(struct asn1_data *data, TALLOC_CTX *mem_ctx, DATA_BLOB 
 	}
 	if (!asn1_read_uint8(data, padding)) return false;
 
-	*blob = data_blob_talloc(mem_ctx, NULL, len);
+	*blob = data_blob_talloc(mem_ctx, NULL, (size_t)len + 1);
 	if (!blob->data) {
 		data->has_error = true;
 		return false;
 	}
 	if (asn1_read(data, blob->data, len - 1)) {
-		blob->length--;
+		blob->length = len - 1;
 		blob->data[len] = 0;
 		asn1_end_tag(data);
 	}
