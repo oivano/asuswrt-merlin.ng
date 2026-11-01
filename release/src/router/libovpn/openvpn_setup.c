@@ -25,6 +25,10 @@
  * for Asuswrt-Merlin's OpenVPN support.
  */
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
@@ -807,9 +811,73 @@ void ovpn_write_client_keys(ovpn_cconf_t *cconf, int unit) {
 }
 
 
+static void ovpn_generate_server_certificates(int unit, int key_size)
+{
+	char directory[] = "/tmp/ovpn-cert-XXXXXX";
+	char script_path[64];
+	struct stat st;
+	FILE *fp;
+	int fd, path_len, script_valid;
+
+	if (geteuid() != 0 || !mkdtemp(directory))
+		return;
+	if (lstat(directory, &st) < 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
+	    (st.st_mode & 0777) != 0700)
+		goto cleanup_directory;
+	path_len = snprintf(script_path, sizeof(script_path), "%s/genvpncert.XXXXXX", directory);
+	if (path_len < 0 || (size_t)path_len >= sizeof(script_path))
+		goto cleanup_directory;
+	fd = mkstemp(script_path);
+	if (fd < 0)
+		goto cleanup_directory;
+	if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
+	    st.st_nlink != 1 || fchmod(fd, 0700) < 0 || fstat(fd, &st) < 0 ||
+	    !S_ISREG(st.st_mode) || st.st_uid != 0 || st.st_nlink != 1 ||
+	    (st.st_mode & 0777) != 0700) {
+		close(fd);
+		goto cleanup_script;
+	}
+	fp = fdopen(fd, "w");
+	if (!fp) {
+		close(fd);
+		goto cleanup_script;
+	}
+	fprintf(fp, "#!/bin/sh\n");
+	fprintf(fp, "export OPENSSL=\"openssl\"\n");
+	fprintf(fp, "export GREP=\"grep\"\n");
+	fprintf(fp, "export KEY_CONFIG=\"/rom/easy-rsa/openssl-1.0.0.cnf\"\n");
+	fprintf(fp, "export KEY_DIR=\"/etc/openvpn/server%d\"\n", unit);
+	fprintf(fp, "export KEY_SIZE=%d\n", key_size);
+	fprintf(fp, "export CA_EXPIRE=3650\n");
+	fprintf(fp, "export KEY_EXPIRE=3650\n");
+	fprintf(fp, "export KEY_COUNTRY=\"TW\"\n");
+	fprintf(fp, "export KEY_PROVINCE=\"TW\"\n");
+	fprintf(fp, "export KEY_CITY=\"Taipei\"\n");
+	fprintf(fp, "export KEY_ORG=\"ASUS\"\n");
+	fprintf(fp, "export KEY_EMAIL=\"me@asusrouter.lan\"\n");
+	fprintf(fp, "export KEY_OU=\"Home/Office\"\n");
+	fprintf(fp, "export KEY_CN=\"%s\"\n", nvram_safe_get("productid"));
+	fprintf(fp, "touch /etc/openvpn/server%d/index.txt\n", unit);
+	fprintf(fp, "$OPENSSL rand -hex 16  >/etc/openvpn/server%d/serial\n", unit);
+	fprintf(fp, "/rom/easy-rsa/pkitool --initca\n");
+	fprintf(fp, "/rom/easy-rsa/pkitool --server server\n");
+	fprintf(fp, "export KEY_CN=\"\"\n");
+	fprintf(fp, "/rom/easy-rsa/pkitool client\n");
+	script_valid = !ferror(fp);
+	if (fclose(fp) != 0)
+		script_valid = 0;
+	if (script_valid)
+		eval(script_path);
+
+cleanup_script:
+	unlink(script_path);
+cleanup_directory:
+	rmdir(directory);
+}
+
 void ovpn_write_server_keys(ovpn_sconf_t *sconf, int unit) {
 	char buffer[64], buffer2[8000];
-	FILE *fp, *fp_client;
+	FILE *fp_client;
 	int valid_client_cert = 0;
 
 	// Need to append inline key/certs
@@ -824,38 +892,7 @@ void ovpn_write_server_keys(ovpn_sconf_t *sconf, int unit) {
 		     !ovpn_key_exists(OVPN_TYPE_SERVER, unit, OVPN_SERVER_KEY) &&
 		     !ovpn_key_exists(OVPN_TYPE_SERVER, unit, OVPN_SERVER_CERT))
 		{
-			sprintf(buffer, "/tmp/genvpncert.sh");
-			fp = fopen(buffer, "w");
-			if(fp) {
-				fprintf(fp, "#!/bin/sh\n");
-				fprintf(fp, "export OPENSSL=\"openssl\"\n");
-				fprintf(fp, "export GREP=\"grep\"\n");
-				fprintf(fp, "export KEY_CONFIG=\"/rom/easy-rsa/openssl-1.0.0.cnf\"\n");
-				fprintf(fp, "export KEY_DIR=\"/etc/openvpn/server%d\"\n", unit);
-				fprintf(fp, "export KEY_SIZE=%d\n", sconf->tls_keysize ? 2048 : 1024);
-				fprintf(fp, "export CA_EXPIRE=3650\n");
-				fprintf(fp, "export KEY_EXPIRE=3650\n");
-				fprintf(fp, "export KEY_COUNTRY=\"TW\"\n");
-				fprintf(fp, "export KEY_PROVINCE=\"TW\"\n");
-				fprintf(fp, "export KEY_CITY=\"Taipei\"\n");
-				fprintf(fp, "export KEY_ORG=\"ASUS\"\n");
-				fprintf(fp, "export KEY_EMAIL=\"me@asusrouter.lan\"\n");
-				fprintf(fp, "export KEY_OU=\"Home/Office\"\n");
-				fprintf(fp, "export KEY_CN=\"%s\"\n", nvram_safe_get("productid"));
-
-				fprintf(fp, "touch /etc/openvpn/server%d/index.txt\n", unit);
-				fprintf(fp, "$OPENSSL rand -hex 16  >/etc/openvpn/server%d/serial\n", unit);
-				fprintf(fp, "/rom/easy-rsa/pkitool --initca\n");
-				fprintf(fp, "/rom/easy-rsa/pkitool --server server\n");
-
-				fprintf(fp, "export KEY_CN=\"\"\n");
-				fprintf(fp, "/rom/easy-rsa/pkitool client\n");
-
-				fclose(fp);
-				chmod(buffer, 0700);
-				eval(buffer);
-				unlink(buffer);
-			}
+			ovpn_generate_server_certificates(unit, sconf->tls_keysize ? 2048 : 1024);
 
 			// save certificates and keys
 			ovpn_get_runtime_filename(OVPN_TYPE_SERVER, unit, OVPN_SERVER_CA_KEY, buffer2, sizeof(buffer2));
