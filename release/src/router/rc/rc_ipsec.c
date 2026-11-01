@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <arpa/inet.h>
 #include <utils.h>
 #include <bcmnvram.h>
 #include <shutils.h>
@@ -1334,10 +1335,37 @@ void rc_ipsec_ca_export(char *verify_pwd)
     return;
 }
 
+static int ipsec_cert_hostname_valid(const char *hostname)
+{
+	size_t length = strnlen(hostname, 64), offset, label = 0;
+
+	if (length == 0 || length > 63)
+		return 0;
+	for (offset = 0; offset < length; offset++) {
+		unsigned char value = hostname[offset];
+		if (value == '.') {
+			if (label == 0 || hostname[offset - 1] == '-')
+				return 0;
+			label = 0;
+		} else {
+			if (!((value >= 'a' && value <= 'z') ||
+				  (value >= 'A' && value <= 'Z') ||
+				  (value >= '0' && value <= '9') || value == '-'))
+				return 0;
+			if (label == 0 && value == '-')
+				return 0;
+			if (++label > 63)
+				return 0;
+		}
+	}
+	return hostname[length - 1] != '-';
+}
+
 void rc_ipsec_gen_cert(int skip_checking)
 {
     FILE *fp = NULL;
     struct utsname uts;
+	struct in_addr address;
     char device_cn[64] = {0};
     char ddns_name[128] = {0}, remote_id[128] = {0}, prefix[16] = {0};
     int ca_lifetime = 2200;
@@ -1366,6 +1394,8 @@ void rc_ipsec_gen_cert(int skip_checking)
             snprintf(device_cn, sizeof(device_cn), "%s", nvram_safe_get("productid"));
         }
     }
+    if (!ipsec_cert_hostname_valid(device_cn))
+        strlcpy(device_cn, "ASUS", sizeof(device_cn));
 
     if(nvram_get_int("ipsec_ca_lifetime") > 0){
         ca_lifetime = nvram_get_int("ipsec_ca_lifetime");
@@ -1373,14 +1403,18 @@ void rc_ipsec_gen_cert(int skip_checking)
 
     if(nvram_match("ddns_enable_x", "1"))
     {
-        snprintf(ddns_name, sizeof(ddns_name), "%s", nvram_safe_get("ddns_hostname_x"));
+		const char *hostname = nvram_safe_get("ddns_hostname_x");
+		if (ipsec_cert_hostname_valid(hostname))
+			strlcpy(ddns_name, hostname, sizeof(ddns_name));
+		else
+			logmessage("ipsec", "Invalid DDNS hostname, using WAN IPv4 address for certificate.");
     }
 
     if(strlen(ddns_name) == 0 )
     {
         snprintf(prefix, sizeof(prefix), "wan%d_", get_active_wan_unit());
         snprintf(remote_id, sizeof(remote_id), "%s", nvram_pf_safe_get(prefix, "ipaddr"));
-        if(strlen(remote_id) == 0){
+	if(inet_pton(AF_INET, remote_id, &address) != 1){
             DBG(("[Error]wan ip is not set yet, no any CAs will be created.\n"));
             return;
         }

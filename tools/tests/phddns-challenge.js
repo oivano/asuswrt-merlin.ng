@@ -171,7 +171,9 @@ const goodDdns = ['router.example', 'DDNS-1.Oray.NET', 'a'.repeat(63),
     'a'.repeat(59) + '.net', 'router.example.'];
 const invalidDdns = [...badHosts.filter(host => !host.includes('\0')),
     '%n%n%s%s%x%x', 'router%p.example', 'router".example',
-    "router'.example", 'a'.repeat(64), 'a'.repeat(60) + '.net', '.'];
+    "router'.example", 'a$(touch /tmp/pwn)', 'a`id`', 'a;b', 'a<b', 'a>b', 'two words',
+    'a'.repeat(64), 'a'.repeat(60) + '.net', '.'];
+assert.match(executeBody, /else\s*\{\s*LOG\(1\) \("ExecuteUpdate discarded invalid DDNS hostname\.\\n"\);\s*continue;/);
 for (const [hosts, accepted] of [[goodDdns, true], [invalidDdns, false]]) {
     for (const host of hosts) {
         let stored = 'unchanged.example';
