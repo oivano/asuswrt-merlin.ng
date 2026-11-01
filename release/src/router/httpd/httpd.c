@@ -106,6 +106,16 @@ struct usockaddr {
 #include "queue.h"
 #define MAX_CONN_ACCEPT 128
 #define MAX_CONN_TIMEOUT 5
+#define MAX_CONN_PER_SOURCE 8
+#define HTTPD_REQUEST_TIMEOUT 3
+#define HTTPD_SLOW_SOURCE_BLOCK 60
+#define HTTPD_SLOW_SOURCE_LIMIT 256
+
+static volatile sig_atomic_t request_deadline_active;
+static volatile sig_atomic_t request_deadline_expired;
+static volatile sig_atomic_t request_deadline_timed_out;
+static unsigned int request_previous_alarm;
+static int httpd_request_deadline_stop(void);
 
 typedef struct conn_item {
 	TAILQ_ENTRY(conn_item) entry;
@@ -118,6 +128,112 @@ typedef struct conn_list {
 	TAILQ_HEAD(, conn_item) head;
 	int count;
 } conn_list_t;
+
+struct httpd_slow_source {
+	usockaddr usa;
+	unsigned long blocked_until;
+	int active;
+};
+
+static struct httpd_slow_source httpd_slow_sources[HTTPD_SLOW_SOURCE_LIMIT];
+static usockaddr request_peer;
+
+static int
+httpd_same_peer(const usockaddr *left, const usockaddr *right)
+{
+	const void *left_address, *right_address;
+	int left_family = left->sa.sa_family;
+	int right_family = right->sa.sa_family;
+	size_t address_length;
+
+	if (left_family == AF_INET) {
+		left_address = &left->sa_in.sin_addr;
+		address_length = sizeof(left->sa_in.sin_addr);
+	} else
+#ifdef RTCONFIG_IPV6
+	if (left_family == AF_INET6) {
+		const struct in6_addr *address = &left->sa_in6.sin6_addr;
+		if (IN6_IS_ADDR_V4MAPPED(address)) {
+			left_family = AF_INET;
+			left_address = &address->s6_addr[12];
+			address_length = sizeof(struct in_addr);
+		} else {
+			left_address = address;
+			address_length = sizeof(*address);
+		}
+	} else
+#endif
+		return 0;
+
+	if (right_family == AF_INET) {
+		right_address = &right->sa_in.sin_addr;
+	} else
+#ifdef RTCONFIG_IPV6
+	if (right_family == AF_INET6) {
+		const struct in6_addr *address = &right->sa_in6.sin6_addr;
+		if (IN6_IS_ADDR_V4MAPPED(address)) {
+			right_family = AF_INET;
+			right_address = &address->s6_addr[12];
+		} else {
+			right_address = address;
+			if (address_length != sizeof(*address))
+				return 0;
+		}
+	} else
+#endif
+		return 0;
+
+	return left_family == right_family &&
+		!memcmp(left_address, right_address, address_length);
+}
+
+static int
+httpd_slow_source_blocked(const usockaddr *peer)
+{
+	unsigned long now = (unsigned long)uptime();
+	int index;
+
+	for (index = 0; index < HTTPD_SLOW_SOURCE_LIMIT; ++index) {
+		struct httpd_slow_source *entry = &httpd_slow_sources[index];
+		if (entry->active && httpd_same_peer(&entry->usa, peer)) {
+			if (now < entry->blocked_until) {
+				return 1;
+			}
+			entry->active = 0;
+			return 0;
+		}
+	}
+	return 0;
+}
+
+static void
+httpd_slow_source_block(const usockaddr *peer)
+{
+	unsigned long now = (unsigned long)uptime();
+	struct httpd_slow_source *entry = NULL, *oldest = NULL;
+	int index;
+
+	for (index = 0; index < HTTPD_SLOW_SOURCE_LIMIT; ++index) {
+		struct httpd_slow_source *candidate = &httpd_slow_sources[index];
+		if (candidate->active && httpd_same_peer(&candidate->usa, peer)) {
+			entry = candidate;
+			break;
+		}
+		if (!candidate->active) {
+			if (!entry)
+				entry = candidate;
+		} else if (!oldest || candidate->blocked_until < oldest->blocked_until) {
+			oldest = candidate;
+		}
+	}
+	if (!entry)
+		entry = oldest;
+	if (!entry)
+		return;
+	entry->usa = *peer;
+	entry->blocked_until = now + HTTPD_SLOW_SOURCE_BLOCK;
+	entry->active = 1;
+}
 
 /* Globals. */
 static FILE *conn_fp;
@@ -1497,7 +1613,7 @@ handle_request(void)
 	bzero( line, sizeof line );
 
 	/* Parse the first line of the request. */
-	if (fgets(line, sizeof(line), conn_fp) == NULL)
+	if (fgets(line, sizeof(line), conn_fp) == NULL || request_deadline_expired)
 		return;
 
 	method = path = line;
@@ -1521,7 +1637,7 @@ handle_request(void)
 #endif
 
 	/* Parse the rest of the request headers. */
-	while ( fgets( cur, line + sizeof(line) - cur, conn_fp ) != (char*) 0 )
+	while (!request_deadline_expired && fgets( cur, line + sizeof(line) - cur, conn_fp ) != (char*) 0)
 	{
 		//_dprintf("handle_request:cur = %s\n",cur);
 		if ( *cur == '\0' || strcmp( cur, "\n" ) == 0 || strcmp( cur, "\r\n" ) == 0 ) {
@@ -1713,6 +1829,9 @@ handle_request(void)
 			cur = ++cp;
 		}
 	}
+
+	if (httpd_request_deadline_stop())
+		return;
 
 	slowloris_check();
 
@@ -2781,6 +2900,12 @@ search_desc (pkw_t pkw, char *name)
 
 void check_alive()
 {
+	if (request_deadline_active) {
+		request_deadline_expired = 1;
+		alarm(20);
+		return;
+	}
+
 	check_alive_flag = 1;
 	static int check_alive_count = 0;
 
@@ -2806,6 +2931,43 @@ void check_alive()
 	}
 
 	alarm(20);
+}
+
+static void
+httpd_request_deadline_start(void)
+{
+	request_deadline_expired = 0;
+	request_deadline_timed_out = 0;
+	request_previous_alarm = alarm(HTTPD_REQUEST_TIMEOUT);
+	request_deadline_active = 1;
+}
+
+static int
+httpd_request_deadline_stop(void)
+{
+	int expired;
+	unsigned int remaining, elapsed;
+
+	if (!request_deadline_active)
+		return request_deadline_timed_out;
+
+	request_deadline_active = 0;
+	expired = request_deadline_expired;
+	request_deadline_timed_out = expired;
+	if (expired) {
+		httpd_slow_source_block(&request_peer);
+		alarm(20);
+	} else {
+		remaining = alarm(0);
+		elapsed = remaining < HTTPD_REQUEST_TIMEOUT ? HTTPD_REQUEST_TIMEOUT - remaining : 0;
+		if (request_previous_alarm > elapsed)
+			alarm(request_previous_alarm - elapsed);
+		else
+			alarm(request_previous_alarm ? 1 : 20);
+	}
+	request_previous_alarm = 0;
+	request_deadline_expired = 0;
+	return expired;
 }
 
 void httpd_exit(int sig)
@@ -3056,6 +3218,9 @@ reload_cert:
 
 		/* Check and accept new connection */
 		for (i = 0; count && i < ARRAY_SIZE(listen_fd); i++) {
+			conn_item_t *queued;
+			int source_count = 0;
+
 			if (listen_fd[i] < 0 || !FD_ISSET(listen_fd[i], &rfds))
 				continue;
 
@@ -3073,6 +3238,22 @@ reload_cert:
 			if (item->fd < 0) {
 				HTTPD_DBG("item->fd = %d (<0): continue\n", item->fd);
 				perror("accept");
+				free(item);
+				continue;
+			}
+			if (httpd_slow_source_blocked(&item->usa)) {
+				shutdown(item->fd, SHUT_RDWR);
+				close(item->fd);
+				free(item);
+				continue;
+			}
+			TAILQ_FOREACH(queued, &pool.head, entry) {
+				if (httpd_same_peer(&queued->usa, &item->usa) && ++source_count >= MAX_CONN_PER_SOURCE)
+					break;
+			}
+			if (source_count >= MAX_CONN_PER_SOURCE) {
+				shutdown(item->fd, SHUT_RDWR);
+				close(item->fd);
 				free(item);
 				continue;
 			}
@@ -3095,6 +3276,9 @@ reload_cert:
 
 		/* Check and process pending or expired requests */
 		TAILQ_FOREACH_SAFE(item, &pool.head, entry, next) {
+			int request_deadline_started = 0;
+			int request_timed_out = 0;
+
 			if (item->deadline > tv.tv_sec && !FD_ISSET(item->fd, &rfds))
 				continue;
 
@@ -3103,8 +3287,18 @@ reload_cert:
 			TAILQ_REMOVE(&pool.head, item, entry);
 			pool.count--;
 
+			if (httpd_slow_source_blocked(&item->usa)) {
+				shutdown(item->fd, SHUT_RDWR);
+				close(item->fd);
+				free(item);
+				continue;
+			}
+
 			/* Process request if any */
 			if (FD_ISSET(item->fd, &rfds)) {
+				request_peer = item->usa;
+				httpd_request_deadline_start();
+				request_deadline_started = 1;
 #ifdef RTCONFIG_HTTPS
 				if (do_ssl) {
 					ssl_stream_fd = item->fd;
@@ -3121,15 +3315,28 @@ reload_cert:
 					goto reset;
 				}
 
-				http_login_cache(&item->usa);
+				if (!request_deadline_expired) {
+					http_login_cache(&item->usa);
 
-				if(filter_ban_ip())
-				{
-					handle_request();
+					if(filter_ban_ip())
+					{
+						handle_request();
+					}
+				}
+				request_timed_out = httpd_request_deadline_stop();
+				request_deadline_started = 0;
+				if (request_timed_out) {
+					shutdown(item->fd, SHUT_RDWR);
+#ifdef RTCONFIG_HTTPS
+					if (!do_ssl)
+#endif
+						item->fd = -1;
 				}
 				fflush(conn_fp);
 #ifdef RTCONFIG_HTTPS
-				if (!do_ssl)
+				if (!do_ssl && !request_timed_out)
+#else
+				if (!request_timed_out)
 #endif
 				{
 					shutdown(item->fd, SHUT_RDWR);
@@ -3141,6 +3348,8 @@ reload_cert:
 			reset:
 				setsockopt(item->fd, SOL_SOCKET, SO_LINGER, &linger, sizeof(linger));
 			}
+			if (request_deadline_started)
+				httpd_request_deadline_stop();
 
 			/* Close timed out and/or still alive */
 			if (item->fd >= 0) {
