@@ -15514,12 +15514,12 @@ do_upload_cgi(char *url, FILE *stream)
 
 #ifdef RTCONFIG_OPENVPN
 
-#define VPN_CLIENT_UPLOAD	"/tmp/openvpn_file"
 #define JFFS_OPENVPN		"/jffs/openvpn/"
 #define OPENVPN_EXPORT_FILE	"/tmp/server_ovpn.cert"
 #define OPENVPN_UPLOAD_FLODER	"/tmp/server_ovpn_file"
 #define OPENVPN_UPLOAD_FILE	"/tmp/server_ovpn_file/server_ovpn.tgz"
 
+static struct httpd_restore_spool vpn_client_upload_spool;
 static int openvpn_upload_csrf_valid;
 
 static int
@@ -15705,12 +15705,12 @@ done:
 static void
 do_vpnupload_post(char *url, FILE *stream, int len, char *boundary)
 {
-	char upload_fifo[] = VPN_CLIENT_UPLOAD;
 	FILE *fifo = NULL;
 	int ret = EINVAL, ch;
 	int offset;
 	char *name, *value = NULL, *p;
 
+	httpd_spool_clear(&vpn_client_upload_spool);
 	memset(post_buf, 0, sizeof(post_buf));
 	nvram_set("vpn_upload_type", "");
 	nvram_set("vpn_upload_unit", "");
@@ -15774,7 +15774,7 @@ do_vpnupload_post(char *url, FILE *stream, int len, char *boundary)
 		}
 	}
 
-	if (!(fifo = fopen(upload_fifo, "w")))
+	if (!(fifo = httpd_spool_create(&vpn_client_upload_spool)))
 		goto err;
 
 	while (len > 0) {
@@ -15788,18 +15788,22 @@ do_vpnupload_post(char *url, FILE *stream, int len, char *boundary)
 				break;
 		}
 
-		fputs(post_buf, fifo);
+		if (fputs(post_buf, fifo) == EOF)
+			goto err;
 	}
 
+	if (ferror(fifo) || fflush(fifo) != 0)
+		goto err;
+	vpn_client_upload_spool.complete = 1;
+	if (!httpd_spool_valid(&vpn_client_upload_spool))
+		goto err;
 	ret = 0;
-
-	fclose(fifo);
 	fifo = NULL;
 	/*printf("done\n");*/
 
 err:
-	if (fifo)
-		fclose(fifo);
+	if (ret != 0)
+		httpd_spool_clear(&vpn_client_upload_spool);
 
 	/* Slurp anything remaining in the request */
 	while (len-- > 0)
@@ -15818,7 +15822,7 @@ do_vpnupload_cgi(char *url, FILE *stream)
 	long unit;
 
 	if(!filetype || !vpn_upload_unit) {
-		unlink(VPN_CLIENT_UPLOAD);
+		httpd_spool_clear(&vpn_client_upload_spool);
 		return;
 	}
 
@@ -15831,13 +15835,15 @@ do_vpnupload_cgi(char *url, FILE *stream)
 #endif
 	ret = fcntl(fileno(stream), F_GETOWN, 0);
 
-	if (ret == 0)
+	if (ret == 0 && !httpd_spool_valid(&vpn_client_upload_spool))
+		nvram_set("vpn_upload_state", "err");
+	else if (ret == 0)
 	{
 		//websApply(stream, "OvpnChecking.asp");
 
 		if(!strcmp(filetype, "ovpn")) {
 			reset_ovpn_setting(OVPN_TYPE_CLIENT, unit, 0);
-			ret = read_config_file(VPN_CLIENT_UPLOAD, unit);
+			ret = read_config_file(vpn_client_upload_spool.path, unit);
 			if (ret < 0)
 				nvram_set("vpn_upload_state", "err");
 			else
@@ -15845,37 +15851,37 @@ do_vpnupload_cgi(char *url, FILE *stream)
 			nvram_commit();
 		}
 		else if(!strcmp(filetype, "ca")) {
-			set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_CA, NULL, VPN_CLIENT_UPLOAD);
+			set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_CA, NULL, vpn_client_upload_spool.path);
 			state = nvram_get_int("vpn_upload_state");
 			nvram_set_int("vpn_upload_state", state & (~VPN_UPLOAD_NEED_CA_CERT));
 		}
 		else if(!strcmp(filetype, "cert")) {
-			set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_CERT, NULL, VPN_CLIENT_UPLOAD);
+			set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_CERT, NULL, vpn_client_upload_spool.path);
 			state = nvram_get_int("vpn_upload_state");
 			nvram_set_int("vpn_upload_state", state & (~VPN_UPLOAD_NEED_CERT));
 		}
 		else if(!strcmp(filetype, "extra")) {
-			set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_EXTRA, NULL, VPN_CLIENT_UPLOAD);
+			set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_EXTRA, NULL, vpn_client_upload_spool.path);
 			state = nvram_get_int("vpn_upload_state");
 			nvram_set_int("vpn_upload_state", state & (~VPN_UPLOAD_NEED_EXTRA));
 		}
 		else if(!strcmp(filetype, "key")) {
-			set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_KEY, NULL, VPN_CLIENT_UPLOAD);
+			set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_KEY, NULL, vpn_client_upload_spool.path);
 			state = nvram_get_int("vpn_upload_state");
 			nvram_set_int("vpn_upload_state", state & (~VPN_UPLOAD_NEED_KEY));
 		}
 		else if(!strcmp(filetype, "static")) {
-			set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_STATIC, NULL, VPN_CLIENT_UPLOAD);
+			set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_STATIC, NULL, vpn_client_upload_spool.path);
 			state = nvram_get_int("vpn_upload_state");
 			nvram_set_int("vpn_upload_state", state & (~VPN_UPLOAD_NEED_STATIC));
 		}
 		else if(!strcmp(filetype, "ccrl")) {
-			set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_CRL, NULL, VPN_CLIENT_UPLOAD);
+			set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_CRL, NULL, vpn_client_upload_spool.path);
 			state = nvram_get_int("vpn_upload_state");
 			nvram_set_int("vpn_upload_state", state & (~VPN_UPLOAD_NEED_CRL));
 		}
 		else if(!strcmp(filetype, "scrl")) {
-			set_ovpn_key(OVPN_TYPE_SERVER, unit, OVPN_SERVER_CRL, NULL, VPN_CLIENT_UPLOAD);
+			set_ovpn_key(OVPN_TYPE_SERVER, unit, OVPN_SERVER_CRL, NULL, vpn_client_upload_spool.path);
 		}
 
 	}
@@ -15883,7 +15889,7 @@ do_vpnupload_cgi(char *url, FILE *stream)
 	{
 		//websApply(stream, "OvpnError.asp");
 	}
-	unlink(VPN_CLIENT_UPLOAD);
+	httpd_spool_clear(&vpn_client_upload_spool);
 }
 
 static void

@@ -102,14 +102,18 @@ api.lstat = (name, result) => {
 
 try {
     for (const kind of ['fifo', 'symlink', 'regular']) {
-        const legacy = path.join(temp, `settings_u.prf-${kind}`);
-        const outside = path.join(temp, `outside-${kind}`);
-        fs.writeFileSync(outside, 'unchanged');
-        if (kind === 'fifo') execFileSync('mkfifo', [legacy]);
-        else if (kind === 'symlink') fs.symlinkSync(outside, legacy);
-        else fs.writeFileSync(legacy, 'attacker data', { mode: 0o666 });
-        assert.throws(() => fs.openSync(legacy, fs.constants.O_RDWR | fs.constants.O_CREAT |
-            fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600));
+        const legacyFiles = [];
+        for (const basename of ['settings_u.prf', 'openvpn_file']) {
+            const legacy = path.join(temp, `${basename}-${kind}`);
+            const outside = path.join(temp, `${basename}-outside-${kind}`);
+            fs.writeFileSync(outside, 'unchanged');
+            if (kind === 'fifo') execFileSync('mkfifo', [legacy]);
+            else if (kind === 'symlink') fs.symlinkSync(outside, legacy);
+            else fs.writeFileSync(legacy, 'attacker data', { mode: 0o666 });
+            assert.throws(() => fs.openSync(legacy, fs.constants.O_RDWR | fs.constants.O_CREAT |
+                fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600));
+            legacyFiles.push({ legacy, outside });
+        }
         const spool = activeSpool = emptySpool();
         assert(create(spool, api));
         assert.equal(fs.statSync(spool.directory).mode & 0o777, 0o700);
@@ -118,8 +122,10 @@ try {
         fs.writeSync(spool.file.fd, 'administrator backup');
         spool.complete = 1;
         assert(valid(spool, api));
-        assert.equal(fs.readFileSync(outside, 'utf8'), 'unchanged');
-        if (kind === 'regular') assert.equal(fs.readFileSync(legacy, 'utf8'), 'attacker data');
+        for (const { legacy, outside } of legacyFiles) {
+            assert.equal(fs.readFileSync(outside, 'utf8'), 'unchanged');
+            if (kind === 'regular') assert.equal(fs.readFileSync(legacy, 'utf8'), 'attacker data');
+        }
         const directory = spool.directory;
         api.httpd_spool_clear(spool);
         assert(!fs.existsSync(directory));
@@ -212,6 +218,8 @@ try {
 assert.doesNotMatch(web, /"\/tmp\/(?:settings_u\.prf|backup_jffs\.tar|settings)"/);
 const upload = body(web, 'do_upload_post');
 const restore = body(web, 'do_upload_cgi');
+const vpnUpload = body(web, 'do_vpnupload_post');
+const vpnCgi = body(web, 'do_vpnupload_cgi');
 assert.match(upload, /fwrite\(buf, 1, count, fifo\) != count/);
 assert.match(upload, /filelen > 0 \|\| ferror\(fifo\) \|\| fflush\(fifo\) != 0/);
 assert.match(upload, /httpd_spool_create\(&settings_spool\)/);
@@ -219,6 +227,19 @@ assert.match(upload, /if \(ret != 0\)\s*httpd_spool_clear\(&settings_spool\)/);
 assert.match(restore, /ret == 0 && httpd_spool_valid\(&settings_spool\) &&\s*sys_upload\(settings_spool.path\) == 0/);
 assert(restore.indexOf('sys_upload(') < restore.indexOf('nvram_commit()'));
 assert(restore.indexOf('sys_upload(') < restore.indexOf('sys_reboot()'));
+assert.match(web, /static struct httpd_restore_spool vpn_client_upload_spool;/);
+assert.doesNotMatch(web, /\/tmp\/openvpn_file|VPN_CLIENT_UPLOAD/);
+assert.match(vpnUpload, /httpd_spool_clear\(&vpn_client_upload_spool\)/);
+assert.match(vpnUpload, /httpd_spool_create\(&vpn_client_upload_spool\)/);
+assert.match(vpnUpload, /fputs\(post_buf, fifo\) == EOF/);
+assert.match(vpnUpload, /ferror\(fifo\) \|\| fflush\(fifo\) != 0/);
+assert.match(vpnUpload, /vpn_client_upload_spool\.complete = 1;\s*if \(!httpd_spool_valid\(&vpn_client_upload_spool\)\)/);
+assert.match(vpnUpload, /if \(ret != 0\)\s*httpd_spool_clear\(&vpn_client_upload_spool\)/);
+assert.match(vpnCgi, /ret == 0 && !httpd_spool_valid\(&vpn_client_upload_spool\)/);
+assert.match(vpnCgi, /read_config_file\(vpn_client_upload_spool\.path, unit\)/);
+assert.equal((vpnCgi.match(/set_ovpn_key\([^\n]*vpn_client_upload_spool\.path/g) || []).length, 7);
+assert(vpnCgi.indexOf('httpd_spool_valid') < vpnCgi.indexOf('read_config_file'));
+assert.match(vpnCgi, /httpd_spool_clear\(&vpn_client_upload_spool\);\s*$/);
 const jffsUpload = body(web, 'do_jffsupload_post');
 assert.match(jffsUpload, /fwrite\(post_buf, 1, count, fifo\) != count/);
 assert.match(jffsUpload, /filelen <= trailer_len \|\| ferror\(fifo\) \|\| fflush\(fifo\) != 0/);
