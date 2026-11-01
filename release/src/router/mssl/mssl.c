@@ -430,6 +430,8 @@ static FILE *_ssl_fopen(int sd, int client, const char *name)
 	return f;
 
 ERROR:
+	if (!client && kuki->ssl)
+		SSL_set_quiet_shutdown(kuki->ssl, 1);
 	mssl_close(kuki);
 	return NULL;
 }
