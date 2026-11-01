@@ -18,6 +18,11 @@ const applets = read('release/src/router/rc/rc.c');
 const ppp = read('release/src/router/pppd/pppd/pathnames.h');
 const cru = read('release/src/router/others/cru');
 
+const envsave = common.match(/void envsave\(const char\* path\)\s*\{([\s\S]*?)\n\}/);
+assert.ok(envsave, 'envsave compatibility function exists');
+assert.match(envsave[1], /\(void\)path;/);
+assert.doesNotMatch(envsave[1], /\b(?:fopen|open|fprintf|fwrite)\s*\(/);
+
 assert.match(common, /open\("\/tmp\/ppp", O_RDONLY \| O_DIRECTORY \| O_NOFOLLOW\)/);
 assert.match(common, /openat\(dirfd, "reboot",\s*O_WRONLY \| O_CREAT \| O_EXCL \| O_NOFOLLOW \| O_NONBLOCK, 0600\)/);
 assert.match(common, /openat\(dirfd, "reboot", O_RDONLY \| O_NOFOLLOW \| O_NONBLOCK\)/);
