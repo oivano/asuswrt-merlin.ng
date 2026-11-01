@@ -1791,6 +1791,50 @@ ej_nvram_char_to_ascii(int eid, webs_t wp, int argc, char_t **argv)
 	return ret;
 }
 
+static struct json_object *filter_client_json_text(struct json_object *value)
+{
+	const char *input = "";
+	char *filtered;
+	size_t length, i;
+	struct json_object *result;
+
+	if (value && json_object_get_type(value) == json_type_string)
+		input = json_object_get_string(value);
+	length = strlen(input);
+	filtered = malloc(length + 1);
+	if (filtered == NULL)
+		return json_object_new_string("");
+
+	for (i = 0; i < length; i++) {
+		unsigned char c = (unsigned char)input[i];
+		if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+		    c == ' ' || c == '-' || c == '_' || c == '(' || c == ')')
+			filtered[i] = c;
+		else
+			filtered[i] = ' ';
+	}
+	filtered[length] = '\0';
+	result = json_object_new_string(filtered);
+	free(filtered);
+	if (result == NULL)
+		return json_object_new_string("");
+	return result;
+}
+
+static void filter_client_json_field(struct json_object *client, const char *field)
+{
+	struct json_object *value = NULL;
+	struct json_object *filtered;
+
+	if (client && json_object_get_type(client) == json_type_object &&
+	    json_object_object_get_ex(client, field, &value) && value &&
+	    json_object_get_type(value) == json_type_string) {
+		filtered = filter_client_json_text(value);
+		if (filtered)
+			json_object_object_add(client, field, filtered);
+	}
+}
+
 static int
 ej_get_clientlist_from_json_database(int eid, webs_t wp, int argc, char_t **argv)
 {
@@ -1919,6 +1963,12 @@ ej_get_clientlist_from_json_database(int eid, webs_t wp, int argc, char_t **argv
 		}
 	}
 
+	json_object_object_foreach(clients, filter_key, filter_val) {
+		filter_client_json_field(filter_val, "name");
+		filter_client_json_field(filter_val, "nickName");
+		filter_client_json_field(filter_val, "vendor");
+	}
+
 	json_object_object_add(clients, "maclist", macArray);
 	json_object_object_add(clients, "ClientAPILevel", json_object_new_string(CLIENTAPILEVEL));
 	ret = websWrite(wp, "%s", json_object_to_json_string(clients));
@@ -1957,10 +2007,10 @@ ej_get_all_basic_clientlist(int eid, webs_t wp, int argc, char_t **argv)
 		macArray_tmp = json_object_new_array();
 		json_object_array_add(macArray_tmp, json_object_new_string(key));
 		if(customList_status && json_object_object_get_ex(customList, key, &custom_attr_get) && json_object_object_get_ex(custom_attr_get, "name", &custom_client_name)){
-			json_object_array_add(macArray_tmp, custom_client_name);
+			json_object_array_add(macArray_tmp, filter_client_json_text(custom_client_name));
 		}else{
 			json_object_object_get_ex(val, "name", &client_name);
-			json_object_array_add(macArray_tmp, client_name);
+			json_object_array_add(macArray_tmp, filter_client_json_text(client_name));
 		}
 		json_object_array_add(clients_array_obj, macArray_tmp);
 	}
