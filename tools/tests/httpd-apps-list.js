@@ -59,6 +59,20 @@ assert.deepEqual(parse('Package: bad\n' + 'Description: data\n'.repeat(1000) + '
 assert.deepEqual(parse('Package: x\n' + 'a'.repeat(127 * 100) + '\n\n' + valid), [valid]);
 const web = fs.readFileSync(path.join(root, 'release/src/router/httpd/web.c'), 'utf8');
 assert.match(web, /\{ "update_applist\.asp",[^\n]*do_ej, do_auth \}/);
+const cloudRoute = web.match(/\{ "update_cloudstatus\.asp"[^\n]+/);
+assert(cloudRoute, 'update_cloudstatus.asp MIME handler exists');
+assert.match(cloudRoute[0], /do_ej, do_auth \}/,
+    'update_cloudstatus.asp requires an authenticated session');
+const cloudStatusStart = web.indexOf('int ej_cloud_status(');
+const cloudStatusEnd = web.indexOf('//use for UI', cloudStatusStart);
+assert(cloudStatusStart >= 0 && cloudStatusEnd > cloudStatusStart,
+    'ej_cloud_status implementation exists');
+const cloudStatus = web.slice(cloudStatusStart, cloudStatusEnd);
+assert.doesNotMatch(cloudStatus, /websWrite\s*\([^;]*cloud_sync/,
+    'status response does not serialize cloud_sync');
+assert.match(cloudStatus, /websWrite\(wp, "cloud_status=/);
+assert.match(cloudStatus, /websWrite\(wp, "cloud_obj=/);
+assert.match(cloudStatus, /websWrite\(wp, "cloud_msg=/);
 const hook = web.match(/int ej_apps_info\([^]*?\n\}/)[0];
 assert.match(hook, /#if defined\(RTCONFIG_APP_PREINSTALLED\) \|\| defined\(RTCONFIG_APP_NETINSTALLED\) \|\| defined\(RTCONFIG_APP_FILEFLEX\)/);
 assert.match(hook, /#else\s+websWrite\(wp, "\[\]"\);\s+#endif/);
