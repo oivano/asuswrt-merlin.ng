@@ -50,11 +50,132 @@
 		system(info); \
 	}
 
-static const char *qosfn = "/tmp/qos";
-static const char *mangle_fn = "/tmp/mangle_rules";
+#define QOS_PRIVATE_DIR "/tmp/ppp/qos"
+static const char *qosfn = QOS_PRIVATE_DIR "/qos";
+static const char *mangle_fn = QOS_PRIVATE_DIR "/mangle_rules";
 #ifdef RTCONFIG_IPV6
-static const char *mangle_fn_ipv6 = "/tmp/mangle_rules_ipv6";
+static const char *mangle_fn_ipv6 = QOS_PRIVATE_DIR "/mangle_rules_ipv6";
 #endif
+
+int rc_qos_workdir_prepare(void)
+{
+	struct stat st;
+	int fd, result = 0;
+
+	if (lstat("/tmp", &st) < 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
+	    ((st.st_mode & 0022) && !(st.st_mode & S_ISVTX)) ||
+	    lstat("/tmp/ppp", &st) < 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
+	    (st.st_mode & 0022))
+		return 0;
+	if (mkdir(QOS_PRIVATE_DIR, 0700) < 0 && errno != EEXIST)
+		return 0;
+	fd = open(QOS_PRIVATE_DIR, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (fd < 0)
+		return 0;
+	if (fstat(fd, &st) == 0 && S_ISDIR(st.st_mode) && st.st_uid == 0 &&
+	    !(st.st_mode & 0077) && fchmod(fd, 0700) == 0 && fstat(fd, &st) == 0 &&
+	    !(st.st_mode & 0077))
+		result = 1;
+	close(fd);
+	return result;
+}
+
+static const char *qos_private_name(const char *path)
+{
+	const char *name;
+
+	if (!path || strncmp(path, QOS_PRIVATE_DIR, sizeof(QOS_PRIVATE_DIR) - 1) ||
+	    path[sizeof(QOS_PRIVATE_DIR) - 1] != '/')
+		return NULL;
+	name = path + sizeof(QOS_PRIVATE_DIR);
+	if (strchr(name, '/') ||
+	    (strcmp(name, "qos") && strcmp(name, "mangle_rules") &&
+	     strcmp(name, "mangle_rules_ipv6")))
+		return NULL;
+	return name;
+}
+
+static FILE *qos_file_open(const char *path)
+{
+	struct stat st;
+	const char *name = qos_private_name(path);
+	int dirfd, fd;
+	FILE *file;
+
+	if (!name || !rc_qos_workdir_prepare())
+		return NULL;
+	dirfd = open(QOS_PRIVATE_DIR, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (dirfd < 0)
+		return NULL;
+	if (fstat(dirfd, &st) < 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
+	    (st.st_mode & 0077) || (unlinkat(dirfd, name, 0) < 0 && errno != ENOENT)) {
+		close(dirfd);
+		return NULL;
+	}
+	fd = openat(dirfd, name, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK, 0600);
+	close(dirfd);
+	if (fd < 0)
+		return NULL;
+	if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
+	    st.st_nlink != 1 || fchmod(fd, 0600) < 0 || fstat(fd, &st) < 0 ||
+	    (st.st_mode & 0077)) {
+		close(fd);
+		return NULL;
+	}
+	file = fdopen(fd, "w");
+	if (!file) {
+		close(fd);
+		unlink(path);
+	}
+	return file;
+}
+
+static int qos_file_is_safe(const char *path, int executable)
+{
+	struct stat st;
+	const char *name = qos_private_name(path);
+	int dirfd, fd, result = 0;
+
+	if (!name || !rc_qos_workdir_prepare())
+		return 0;
+	dirfd = open(QOS_PRIVATE_DIR, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (dirfd < 0)
+		return 0;
+	if (fstat(dirfd, &st) == 0 && S_ISDIR(st.st_mode) && st.st_uid == 0 &&
+	    !(st.st_mode & 0077)) {
+		fd = openat(dirfd, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+		if (fd >= 0) {
+			if (fstat(fd, &st) == 0 && S_ISREG(st.st_mode) && st.st_uid == 0 &&
+			    st.st_nlink == 1 && !(st.st_mode & 0022) &&
+			    (!executable || (st.st_mode & 0100)))
+				result = 1;
+			close(fd);
+		}
+	}
+	close(dirfd);
+	return result;
+}
+
+static int qos_script_eval(const char *path, const char *action)
+{
+	if (!qos_file_is_safe(path, 1))
+		return -1;
+	return eval((char *)path, (char *)action);
+}
+
+static int qos_rules_restore(const char *program, const char *path)
+{
+	if (!qos_file_is_safe(path, 0))
+		return -1;
+	return eval((char *)program, (char *)path);
+}
+
+static int qos_rules_restore_noflush(const char *program, const char *path)
+{
+	if (!qos_file_is_safe(path, 0))
+		return -1;
+	return eval((char *)program, "-n", (char *)path);
+}
 
 int etable_flag = 0;
 int manual_return = 0;
@@ -543,9 +664,9 @@ static int add_qos_rules(char *pcWANIF)
 	const char *chain;
 	int v4v6_ok;
 
-	if((fn = fopen(mangle_fn, "w")) == NULL) return -2;
+	if((fn = qos_file_open(mangle_fn)) == NULL) return -2;
 #ifdef RTCONFIG_IPV6
-	if(ipv6_enabled() && (fn_ipv6 = fopen(mangle_fn_ipv6, "w")) == NULL){
+	if(ipv6_enabled() && (fn_ipv6 = qos_file_open(mangle_fn_ipv6)) == NULL){
 		fclose(fn);
 		return -3;
 	}
@@ -983,7 +1104,7 @@ static int add_qos_rules(char *pcWANIF)
 	fclose(fn);
 
 	chmod(mangle_fn, 0700);
-	evalRet = eval("iptables-restore", (char*)mangle_fn);
+	evalRet = qos_rules_restore("iptables-restore", mangle_fn);
 	rule_apply_checking("qos", __LINE__, (char*)mangle_fn, evalRet);
 #ifdef RTCONFIG_IPV6
 	if (fn_ipv6 && ipv6_enabled())
@@ -991,7 +1112,7 @@ static int add_qos_rules(char *pcWANIF)
 		fprintf(fn_ipv6, "COMMIT\n");
 		fclose(fn_ipv6);
 		chmod(mangle_fn_ipv6, 0700);
-		eval("ip6tables-restore", (char*)mangle_fn_ipv6);
+		qos_rules_restore("ip6tables-restore", mangle_fn_ipv6);
 	}
 #endif
 	run_custom_script("qos-start", 0, "rules", NULL);
@@ -1050,7 +1171,7 @@ static int start_tqos(void)
 	obw = strtoul(nvram_safe_get("qos_obw"), NULL, 10);
 	if(ibw==0||obw==0) return -1;
 
-	if((f = fopen(qosfn, "w")) == NULL) return -2;
+	if((f = qos_file_open(qosfn)) == NULL) return -2;
 
 	QOSDBG("[qos] tc START!\n");
 
@@ -1379,7 +1500,7 @@ static int start_tqos(void)
 	fclose(f);
 	chmod(qosfn, 0700);
 	run_custom_script("qos-start", 120, "init", NULL);
-	eval((char *)qosfn, "start");
+	qos_script_eval(qosfn, "start");
 	QOSDBG("[qos] tc done!\n");
 
 	return 0;
@@ -1388,7 +1509,7 @@ static int start_tqos(void)
 
 void stop_iQos(void)
 {
-	eval((char *)qosfn, "stop");
+	qos_script_eval(qosfn, "stop");
 
 #ifdef RTCONFIG_GEFORCENOW
 	nvgfn_kernel_setting(0);
@@ -1410,7 +1531,7 @@ static int add_bandwidth_limiter_rules(char *pcWANIF)
 	char *action = NULL;
 	int evalRet;
 
-	if ((fn = fopen(mangle_fn, "w")) == NULL) return -2;
+	if ((fn = qos_file_open(mangle_fn)) == NULL) return -2;
 	del_iQosRules(); // flush all rules in mangle table
 
 	if (qos_action_manual() == 0) {
@@ -1519,7 +1640,7 @@ static int add_bandwidth_limiter_rules(char *pcWANIF)
 	fprintf(fn, "COMMIT\n");
 	fclose(fn);
 	chmod(mangle_fn, 0700);
-	evalRet = eval("iptables-restore", (char*)mangle_fn);
+	evalRet = qos_rules_restore("iptables-restore", mangle_fn);
 	rule_apply_checking("qos", __LINE__, (char*)mangle_fn, evalRet);
 	QOSDBG("[BWLIT] Create iptables rules done.\n");
 
@@ -1549,7 +1670,7 @@ static int start_bandwidth_limiter(void)
 	qsched = "sfq perturb 10";
 #endif
 
-	if ((f = fopen(qosfn, "w")) == NULL) return -2;
+	if ((f = qos_file_open(qosfn)) == NULL) return -2;
 	fprintf(f,
 		"#!/bin/sh\n"
 		"SCH=\"%s\"\n"
@@ -1790,7 +1911,7 @@ static int start_bandwidth_limiter(void)
 
 	fclose(f);
 	chmod(qosfn, 0700);
-	eval((char *)qosfn, "start");
+	qos_script_eval(qosfn, "start");
 	QOSDBG("[BWLIT] Execute Bandwidth Limiter Done.\n");
 
 	return 0;
@@ -1802,7 +1923,7 @@ static int start_bandwidth_limiter_AMAS_WGN(void)
 	FILE *f = NULL;
 	char wl_ifname[IFNAMSIZ];
 
-	if ((f = fopen(qosfn, "w")) == NULL) return -2;
+	if ((f = qos_file_open(qosfn)) == NULL) return -2;
 
 	/* Start Function */
 	fprintf(f,
@@ -1929,7 +2050,7 @@ static int start_bandwidth_limiter_AMAS_WGN(void)
 
 	fclose(f);
 	chmod(qosfn, 0700);
-	eval((char *)qosfn, "start");
+	qos_script_eval(qosfn, "start");
 	QOSDBG("[BWLIT_RE] Execute Bandwidth Limiter Done.\n");
 
 	return 0;
@@ -2007,7 +2128,7 @@ static int start_GeForce_QoS(void)
 	if (mtu == 0)
 		mtu = 1500;
 
-	if ((f = fopen(qosfn, "w")) == NULL) return -2;
+	if ((f = qos_file_open(qosfn)) == NULL) return -2;
 	fprintf(f,
 		"#!/bin/sh\n"
 		"SCH='%s'\n"
@@ -2191,7 +2312,7 @@ static int start_GeForce_QoS(void)
 
 	fclose(f);
 	chmod(qosfn, 0700);
-	eval((char *)qosfn, "restart");
+	qos_script_eval(qosfn, "restart");
 	QOSDBG("[GeForce] Execute GeForceNow QoS Done.\n");
 
 	nvgfn_kernel_setting(1);
@@ -2230,9 +2351,9 @@ static int add_rog_qos_rules(char *pcWANIF)
 
 	del_iQosRules(); // flush related rules in mangle table
 
-	if((fn = fopen(mangle_fn, "w")) == NULL) return -2;
+	if((fn = qos_file_open(mangle_fn)) == NULL) return -2;
 #ifdef RTCONFIG_IPV6
-	if(ipv6_enabled() && (fn_ipv6 = fopen(mangle_fn_ipv6, "w")) == NULL){
+	if(ipv6_enabled() && (fn_ipv6 = qos_file_open(mangle_fn_ipv6)) == NULL){
 		fclose(fn);
 		return -3;
 	}
@@ -2334,7 +2455,7 @@ static int add_rog_qos_rules(char *pcWANIF)
 	fprintf(fn, "COMMIT\n");
 	fclose(fn);
 	chmod(mangle_fn, 0700);
-	evalRet = eval("iptables-restore", "-n", (char*)mangle_fn);
+	evalRet = qos_rules_restore_noflush("iptables-restore", mangle_fn);
 	rule_apply_checking("qos_multiwan", __LINE__, (char*)mangle_fn, evalRet);
 #ifdef RTCONFIG_IPV6
 	if (fn_ipv6 && ipv6_enabled())
@@ -2368,7 +2489,7 @@ static int start_rog_qos()
 
 #ifdef HND_ROUTER
 	if (wantype == WANS_DUALWAN_IF_WAN) {
-		eval((char *)qosfn, "stop");
+		qos_script_eval(qosfn, "stop");
 		config_obw();
 		nvram_set_int("fc_disable", nvram_get_int("fc_disable_force") ? 1 : 0);
 		if (nvram_get_int("fc_disable"))
@@ -2419,11 +2540,11 @@ static int start_rog_qos()
 	if (mtu == 0)
 		mtu = 1500;
 
-	if((f = fopen(qosfn, "w")) == NULL) return -2;
+	if((f = qos_file_open(qosfn)) == NULL) return -2;
 
 	strlcpy(wan, get_wan_ifname(wan_primary_ifunit()), sizeof(wan));
 
-	/* Create top-level /tmp/qos */
+	/* Create the top-level QoS dispatcher. */
 	QOSDBG("[qos] tc START!\n");
 
 	/* Egress OBW  -- set the HTB shaper (Classful Qdisc)
@@ -2479,7 +2600,7 @@ static int start_rog_qos()
 	fclose(f);
 	chmod(qosfn, 0700);
 
-	eval((char *)qosfn, "start");
+	qos_script_eval(qosfn, "start");
 	QOSDBG("[qos] tc done!\n");
 
 	return 0;
@@ -2711,7 +2832,7 @@ int start_cake(void)
 	fclose(f);
 
 
-	if((f = fopen(qosfn, "w")) == NULL) return -2;
+	if((f = qos_file_open(qosfn)) == NULL) return -2;
 
 	/* Stop/start rules */
 	fprintf(f,
@@ -2745,7 +2866,7 @@ int start_cake(void)
 	chmod("/etc/cake-qos.conf", 0755);
 	chmod(qosfn, 0755);
 	run_custom_script("qos-start", 120, "init", NULL);
-	eval((char *)qosfn, "start");
+	qos_script_eval(qosfn, "start");
 
 	return 0;
 }
