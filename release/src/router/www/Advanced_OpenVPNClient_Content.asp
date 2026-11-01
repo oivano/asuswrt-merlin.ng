@@ -735,7 +735,7 @@ function showConnStatus() {
 			if (policy_ori == 0)
 	                        code = "Connected (Local: "+ localip + " - Internet not redirected)";
 			else
-				code = "Connected (Local: "+ localip + " - Public: " + remoteip + ") <a href='#' style='padding-left:12px;text-decoration:underline;' onclick='refreshVPNIP();'>Refresh</a>";
+				code = "Connected (Local: "+ localip + " - Public: " + htmlEnDeCode.htmlEncode(remoteip) + ") <a href='#' style='padding-left:12px;text-decoration:underline;' onclick='refreshVPNIP();'>Refresh</a>";
 			break;
 		case "-1":
 			switch (client_errno) {

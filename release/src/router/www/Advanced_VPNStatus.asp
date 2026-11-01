@@ -414,7 +414,7 @@ function parseStatus(text, block, ipaddress, ripaddress){
 
 		if (ipaddress != "") {
 			code += '<tr><th class="statcell">Public IP</th>';
-			code += '<td class="statcell">' + ripaddress +'</td>';
+			code += '<td class="statcell">' + htmlEnDeCode.htmlEncode(ripaddress) +'</td>';
 			code += '<th class="statcell">Local IP</th>';
 			code += '<td class="statcell">' + ipaddress +'</td></tr>';
 		}

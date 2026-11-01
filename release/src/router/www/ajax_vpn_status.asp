@@ -16,11 +16,11 @@ vpn_client3_ip = "<% sysinfo("vpnip.3"); %>";
 vpn_client4_ip = "<% sysinfo("vpnip.4"); %>";
 vpn_client5_ip = "<% sysinfo("vpnip.5"); %>";
 
-vpn_client1_rip = "<% nvram_get("vpn_client1_rip"); %>";
-vpn_client2_rip = "<% nvram_get("vpn_client2_rip"); %>";
-vpn_client3_rip = "<% nvram_get("vpn_client3_rip"); %>";
-vpn_client4_rip = "<% nvram_get("vpn_client4_rip"); %>";
-vpn_client5_rip = "<% nvram_get("vpn_client5_rip"); %>";
+vpn_client1_rip = "<% nvram_get_js("vpn_client1_rip"); %>";
+vpn_client2_rip = "<% nvram_get_js("vpn_client2_rip"); %>";
+vpn_client3_rip = "<% nvram_get_js("vpn_client3_rip"); %>";
+vpn_client4_rip = "<% nvram_get_js("vpn_client4_rip"); %>";
+vpn_client5_rip = "<% nvram_get_js("vpn_client5_rip"); %>";
 
 /* OpenConnect Client Status */
 openconnect_client1_state = "<% nvram_get("openconnect_client1_state"); %>";
