@@ -1494,6 +1494,7 @@ void start_dnsmasq(void)
 	int n;
 #ifdef RTCONFIG_DNSMASQ_BLOCKLIST
 	char blocklist_dir[PATH_MAX], blocklist_file[PATH_MAX];
+	int update_blocklist = 0;
 #endif
 
 	TRACE_PT("begin\n");
@@ -2257,16 +2258,28 @@ void start_dnsmasq(void)
 		mkdir_if_none(blocklist_dir);
 		{
 			char allowlist_file[PATH_MAX], denylist_file[PATH_MAX];
+			FILE *list_fp;
 			snprintf(allowlist_file, sizeof(allowlist_file), "%s/allowlist.conf", blocklist_dir);
 			snprintf(denylist_file, sizeof(denylist_file), "%s/denylist.conf", blocklist_dir);
 			if (!f_exists(allowlist_file))
 				f_write(allowlist_file, NULL, 0, FW_APPEND, 0644);
 			if (!f_exists(denylist_file))
 				f_write(denylist_file, NULL, 0, FW_APPEND, 0644);
-			if (!f_exists(blocklist_file))
-			update_dnsmasq_blocklist();
-			fprintf(fp, "conf-file=%s\nconf-file=%s\nconf-file=%s\n",
-				allowlist_file, blocklist_file, denylist_file);
+			if (!f_exists(blocklist_file)) {
+				update_blocklist = 1;
+				if ((list_fp = fopen(blocklist_file, "w")) != NULL) {
+					if (fclose(list_fp) != 0)
+						unlink(blocklist_file);
+					else
+						chmod(blocklist_file, 0644);
+				}
+			}
+			if (f_exists(blocklist_file))
+				fprintf(fp, "conf-file=%s\nconf-file=%s\nconf-file=%s\n",
+					allowlist_file, blocklist_file, denylist_file);
+			else
+				fprintf(fp, "conf-file=%s\nconf-file=%s\n",
+					allowlist_file, denylist_file);
 		}
 
 		if (nvram_get_int("dnsmasq_blocklist_logging")) {
@@ -2345,6 +2358,11 @@ void start_dnsmasq(void)
 		symlink(path, "/etc/resolv.conf");
 	}
 
+#ifdef RTCONFIG_DNSMASQ_BLOCKLIST
+	if (update_blocklist)
+		update_dnsmasq_blocklist();
+#endif
+
 	TRACE_PT("end\n");
 }
 
@@ -2408,39 +2426,35 @@ static int dnsmasq_blocklist_allowed(const char *domain, FILE *allow)
 
 /* Fetch a plain domain list or a precompiled dnsmasq list, skipping anything
  * in allowlist.conf. */
-void update_dnsmasq_blocklist(void)
+static int update_dnsmasq_blocklist_worker(void)
 {
 	char *url = nvram_safe_get("dnsmasq_blocklist_url");
 	char *block_ip = nvram_safe_get("dnsmasq_blocklist_ip");
-	char maxsize[32];
+	char maxsize[32], new_file[PATH_MAX];
 	char blocklist_dir[PATH_MAX], blocklist_file[PATH_MAX], temp_file[PATH_MAX], allowlist_file[PATH_MAX];
-	char *argv[13];
+	char *argv[16];
 	FILE *in, *out, *allow;
 	char line[512], *p, *domain, *compiled_end;
 	struct stat list_stat;
-	int max_domains, count = 0, truncated = 0;
+	int max_domains, count = 0, truncated = 0, write_error = 0;
 	int min_free_kb = nvram_get_int("dnsmasq_blocklist_min_free_kb") ? : 20000;
 
 	if (!nvram_get_int("dnsmasq_blocklist_enable") || !*url)
-		return;
-
-	if (getpid() != 1) {
-		notify_rc("start_dnsmasq_blocklist");
-		return;
-	}
+		return 0;
 
 	/* Without swap/USB as a safety net, don't even attempt a rebuild if memory is already tight */
 	if (blocklist_free_kb() >= 0 && blocklist_free_kb() < min_free_kb) {
 		logmessage("dnsmasq_blocklist", "low free memory, skipping blocklist rebuild");
-		return;
+		return 0;
 	}
 	if (!blocklist_get_paths(blocklist_dir, sizeof(blocklist_dir), blocklist_file, sizeof(blocklist_file))) {
 		logmessage("dnsmasq_blocklist", "no writable USB storage with 220 MB free; skipping update");
-		return;
+		return 0;
 	}
 	mkdir_if_none(blocklist_dir);
 	snprintf(temp_file, sizeof(temp_file), "%s/blockinglist.download", blocklist_dir);
 	snprintf(allowlist_file, sizeof(allowlist_file), "%s/allowlist.conf", blocklist_dir);
+	snprintf(new_file, sizeof(new_file), "%s.new", blocklist_file);
 
 	max_domains = blocklist_effective_max_domains(
 		nvram_get_int("dnsmasq_blocklist_max_domains") ? : 4000000,
@@ -2451,31 +2465,36 @@ void update_dnsmasq_blocklist(void)
 	argv[1] = "-fsSL";
 	argv[2] = "--connect-timeout";
 	argv[3] = "20";
-	argv[4] = "--max-filesize";
-	argv[5] = maxsize;
-	argv[6] = "-o";
-	argv[7] = temp_file;
-	argv[8] = url;
-	argv[9] = NULL;
+	argv[4] = "--max-time";
+	argv[5] = "300";
+	argv[6] = "--speed-limit";
+	argv[7] = "1";
+	argv[8] = "--speed-time";
+	argv[9] = "30";
+	argv[10] = "--max-filesize";
+	argv[11] = maxsize;
+	argv[12] = "-o";
+	argv[13] = temp_file;
+	argv[14] = url;
+	argv[15] = NULL;
 
 	unlink(temp_file);
-	if (_eval(argv, NULL, 0, NULL) || !(in = fopen(temp_file, "r")))
-		return;
+	if (_eval(argv, NULL, 0, NULL) || !(in = fopen(temp_file, "r"))) {
+		unlink(temp_file);
+		return 0;
+	}
 	if (!stat(temp_file, &list_stat) && list_stat.st_size > DNSMASQ_BLOCKLIST_EXTERNAL_BYTES &&
 	    !blocklist_external_path(temp_file)) {
 		fclose(in);
 		unlink(temp_file);
 		logmessage("dnsmasq_blocklist", "list exceeds 10 MB and is not on external USB storage");
-		return;
+		return 0;
 	}
 
-	{
-		char new_file[PATH_MAX];
-		snprintf(new_file, sizeof(new_file), "%s.new", blocklist_file);
-		if (!(out = fopen(new_file, "w"))) {
-			fclose(in);
-			return;
-		}
+	if (!(out = fopen(new_file, "w"))) {
+		fclose(in);
+		unlink(temp_file);
+		return 0;
 	}
 
 	allow = fopen(allowlist_file, "r");
@@ -2525,18 +2544,25 @@ void update_dnsmasq_blocklist(void)
 	}
 	if (allow)
 		fclose(allow);
-	fclose(in);
-	fclose(out);
+	if (ferror(in))
+		write_error = 1;
+	if (fclose(in) != 0)
+		write_error = 1;
+	if (ferror(out))
+		write_error = 1;
+	if (fclose(out) != 0)
+		write_error = 1;
 	unlink(temp_file);
-	{
-		char new_file[PATH_MAX];
-		snprintf(new_file, sizeof(new_file), "%s.new", blocklist_file);
-		if (!stat(new_file, &list_stat) && list_stat.st_size > DNSMASQ_BLOCKLIST_EXTERNAL_BYTES &&
-		    !blocklist_external_path(new_file)) {
-			unlink(new_file);
-			logmessage("dnsmasq_blocklist", "generated list exceeds 10 MB and is not on external USB storage");
-			return;
-		}
+	if (write_error) {
+		unlink(new_file);
+		logmessage("dnsmasq_blocklist", "failed to write generated blocklist; keeping previous list");
+		return 0;
+	}
+	if (!stat(new_file, &list_stat) && list_stat.st_size > DNSMASQ_BLOCKLIST_EXTERNAL_BYTES &&
+	    !blocklist_external_path(new_file)) {
+		unlink(new_file);
+		logmessage("dnsmasq_blocklist", "generated list exceeds 10 MB and is not on external USB storage");
+		return 0;
 	}
 
 	if (truncated)
@@ -2545,20 +2571,71 @@ void update_dnsmasq_blocklist(void)
 
 	/* Refuse to apply a blocklist rebuild if memory is already tight; keep serving the last-known-good list */
 	if (blocklist_free_kb() >= 0 && blocklist_free_kb() < min_free_kb) {
-		char new_file[PATH_MAX];
-		snprintf(new_file, sizeof(new_file), "%s.new", blocklist_file);
 		unlink(new_file);
 		logmessage("dnsmasq_blocklist", "low free memory, keeping previous blocklist");
+		return 0;
+	}
+
+	if (rename(new_file, blocklist_file) != 0) {
+		logmessage("dnsmasq_blocklist", "failed to publish generated blocklist; keeping previous list");
+		unlink(new_file);
+		return 0;
+	}
+
+	return 1;
+}
+
+static int dnsmasq_blocklist_worker_lock(void)
+{
+	struct flock lock;
+	int fd = open("/var/lock/dnsmasq_blocklist", O_CREAT | O_RDWR, 0600);
+
+	if (fd < 0)
+		return -1;
+	memset(&lock, 0, sizeof(lock));
+	lock.l_type = F_WRLCK;
+	lock.l_whence = SEEK_SET;
+	if (fcntl(fd, F_SETLK, &lock) < 0) {
+		int err = errno;
+		close(fd);
+		if (err != EACCES && err != EAGAIN)
+			logmessage("dnsmasq_blocklist", "failed to lock blocklist worker: %s", strerror(err));
+		return -1;
+	}
+	return fd;
+}
+
+void update_dnsmasq_blocklist(void)
+{
+	pid_t pid;
+
+	if (!nvram_get_int("dnsmasq_blocklist_enable") || !*nvram_safe_get("dnsmasq_blocklist_url"))
+		return;
+	if (getpid() != 1) {
+		notify_rc("start_dnsmasq_blocklist");
 		return;
 	}
 
-	{
-		char new_file[PATH_MAX];
-		snprintf(new_file, sizeof(new_file), "%s.new", blocklist_file);
-		rename(new_file, blocklist_file);
+	pid = fork();
+	if (pid < 0) {
+		logmessage("dnsmasq_blocklist", "failed to start blocklist worker: %s", strerror(errno));
+		return;
 	}
+	if (pid == 0) {
+		int lockfd = dnsmasq_blocklist_worker_lock();
+		int updated;
 
-	reload_dnsmasq();
+		if (lockfd < 0)
+			_exit(0);
+		updated = update_dnsmasq_blocklist_worker();
+		close(lockfd);
+		if (updated) {
+			while (*nvram_safe_get("rc_service"))
+				usleep(100000);
+			notify_rc("restart_dnsmasq");
+		}
+		_exit(0);
+	}
 }
 
 /* Count blocked-domain NXDOMAIN hits since the last log rotation and log a summary */
