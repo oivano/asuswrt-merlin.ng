@@ -1066,7 +1066,7 @@ static struct param_mapping_s param_mapping_list[] __attribute__ ((unused)) = {
 	{ "bsd_bounce_detect", FT_WIRELESS, SUBFT_BSD_BOUNCE_DETECT,		"60 2 180"},
 	{ "bsd_bounce_detect_x", FT_WIRELESS, SUBFT_BSD_BOUNCE_DETECT_X,		"60 2 180"},
 	/* sub feature for WPS enable */
-	{ "wps_enable", FT_WIRELESS, SUBFT_WPS,		"1"},
+	{ "wps_enable", FT_WIRELESS, SUBFT_WPS, 	"0"},
 	/* sub feature for Reboot schedule */
 	{ "reboot_schedule_enable", FT_TIME, SUBFT_REBOOT_SCHEDULE,		"0"},
 	{ "reboot_schedule", FT_TIME, SUBFT_REBOOT_SCHEDULE,		"00000000000"},

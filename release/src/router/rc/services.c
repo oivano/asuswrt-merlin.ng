@@ -3909,6 +3909,11 @@ wps_gen_pin(char *devPwd, int devPwd_len)
 void
 check_wps_enable()
 {
+#ifdef RTCONFIG_DSL
+	nvram_set("wps_enable_x", "0");
+	nvram_set("wps_enable", "0");
+	nvram_set("wl_wps_mode", "disabled");
+#else
 	int wps_enable = nvram_get_int("wps_enable_x");
 	int unit = nvram_get_int("wps_band_x");
 
@@ -3924,6 +3929,7 @@ check_wps_enable()
 	}
 
 	nvram_set("wps_enable", (!wps_enable || wps_band_radio_off(get_radio_band(unit))) ? "0" : "1");
+#endif
 }
 
 int
@@ -4057,6 +4063,14 @@ extern int restore_defaults_g;
 int
 start_wps(void)
 {
+#ifdef RTCONFIG_DSL
+	nvram_set("wps_enable_x", "0");
+	nvram_set("wps_enable", "0");
+	nvram_set("wl_wps_mode", "disabled");
+	killall_tk("wps_monitor");
+	unlink("/tmp/wps_monitor.pid");
+	return 0;
+#endif
 #ifdef RTCONFIG_WPS
 #ifdef CONFIG_BCMWL5
 	char *wps_argv[] = {"/bin/wps_monitor", NULL};
