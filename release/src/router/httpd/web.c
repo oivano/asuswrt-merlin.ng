@@ -358,7 +358,23 @@ extern void replace_productid(char *GET_PID_STR, char *RP_PID_STR, int len);
 #endif
 
 #ifdef RTCONFIG_CAPTCHA
-extern void do_captcha_file(char *url, FILE *stream);
+extern void captcha(unsigned char im[70 * 200], unsigned char text[6]);
+extern void makegif(unsigned char im[70 * 200], unsigned char gif[GIFSIZE]);
+extern char cur_captcha[6];
+
+static void do_captcha_file_memory(char *url, FILE *stream)
+{
+	unsigned char image[70 * 200];
+	unsigned char text[6];
+	unsigned char gif[GIFSIZE];
+
+	(void)url;
+	captcha(image, text);
+	memcpy(cur_captcha, text, sizeof(cur_captcha));
+	makegif(image, gif);
+	if (fwrite(gif, 1, sizeof(gif), stream) != sizeof(gif) || fflush(stream) != 0)
+		_dprintf("%s: failed to write CAPTCHA response\n", __FUNCTION__);
+}
 #endif
 
 #if defined(CONFIG_BCMWL5)
@@ -22833,7 +22849,7 @@ struct mime_handler mime_handlers[] =
 {
 	{ "Main_Login.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
 #ifdef RTCONFIG_CAPTCHA
-	{ "captcha.gif", "image/gif", no_cache_IE7, NULL, do_captcha_file, NULL },
+	{ "captcha.gif", "image/gif", no_cache_IE7, NULL, do_captcha_file_memory, NULL },
 #endif
 #ifdef RTCONFIG_WIREGUARD
 	{ "wgs_client.png", "image/png", no_cache_IE7, NULL, do_wgs_client_png, do_auth },
