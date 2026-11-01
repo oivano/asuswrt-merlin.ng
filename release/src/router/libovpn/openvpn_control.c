@@ -343,6 +343,7 @@ void ovpn_client_up_handler(int unit)
 	char *option, *option2;
 	char *network_env, *netmask_env, *gateway_env, *metric_env, *remotegw_env, *dev_env;
 	char *remote_env, *localgw;
+	char address[INET_ADDRSTRLEN];
 	struct in_addr network, netmask;
 
 	if ((unit < 1) || (unit > OVPN_CLIENT_MAX))
@@ -448,26 +449,32 @@ void ovpn_client_up_handler(int unit)
 			break;
 
 		if (!strncmp(option, "dhcp-option WINS ", 17)) {
-			if (!inet_aton(&option[17], &network))
+			if (inet_pton(AF_INET, &option[17], &network) != 1 ||
+			    !inet_ntop(AF_INET, &network, address, sizeof(address))) {
+				logmessage("openvpn", "Ignoring invalid WINS address from client %d", unit);
 				continue;
+			}
 
 			if (!fp_conf) {
 				sprintf(buffer, "%s/client.conf", dirname);
 				if ((fp_conf = fopen(buffer, "w")) == NULL)
 					goto exit;
 			}
-			fprintf(fp_conf, "dhcp-option=44,%s\n", &option[17]);
+			fprintf(fp_conf, "dhcp-option=44,%s\n", address);
 
 		} else if (!strncmp(option, "dhcp-option DNS ", 16)) {
-			if (!inet_aton(&option[16], &network))
+			if (inet_pton(AF_INET, &option[16], &network) != 1 ||
+			    !inet_ntop(AF_INET, &network, address, sizeof(address))) {
+				logmessage("openvpn", "Ignoring invalid DNS address from client %d", unit);
 				continue;
+			}
 
 			if (!fp_resolv) {
 				sprintf(buffer, "%s/client.resolv", dirname);
 				if ((fp_resolv = fopen(buffer, "w")) == NULL)
 					goto exit;
 			}
-			fprintf(fp_resolv, "server=%s\n", &option[16]);
+			fprintf(fp_resolv, "server=%s\n", address);
 
 			// Any search domains for that server
 			j = 1;
@@ -477,7 +484,7 @@ void ovpn_client_up_handler(int unit)
 				if (!option2)
 					break;
 				if (!strncmp(option2, "dhcp-option DOMAIN ", 19)) {
-					fprintf(fp_resolv, "server=/%s/%s\n", &option2[19], &option[16]);
+					fprintf(fp_resolv, "server=/%s/%s\n", &option2[19], address);
 				}
 			}
 		}
