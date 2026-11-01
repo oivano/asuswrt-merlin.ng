@@ -9,6 +9,7 @@ const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 const init = read('release/src/router/rc/init.c');
 const common = read('release/src/router/rc/common.c');
 const services = read('release/src/router/rc/services.c');
+const firewall = read('release/src/router/rc/firewall.c');
 const checkWatchdog = read('release/src/router/rc/check_watchdog.c');
 const watchdog = read('release/src/router/rc/watchdog.c');
 const wan = read('release/src/router/rc/wan.c');
@@ -112,6 +113,94 @@ assert.match(bootDirectories, /mkdir\(mkd\[i\], 0755\)/);
 assert.match(init, /^\s*umask\(022\);/m);
 assert.ok(init.indexOf('umask(022);') > init.indexOf('chmod("/tmp", 01777)'));
 assert.match(init, /var_nvram_init\(\);\s*chmod\("\/tmp\/var\/nvram", 0700\);/);
+
+const leWorkdir = common.match(/int le_workdir_prepare\(void\)\s*\{([\s\S]*?)\n\}/);
+const leHookCheck = common.match(/int le_fw_script_is_safe\(void\)\s*\{([\s\S]*?)\n\}/);
+const leAcmeWrapper = common.match(/int le_acme_main_safe\(int argc, char \*\*argv\)\s*\{([\s\S]*?)\n\}/);
+assert.ok(leWorkdir, 'Let\'s Encrypt protected-directory helper exists');
+assert.ok(leHookCheck, 'Let\'s Encrypt firewall hook validator exists');
+assert.ok(leAcmeWrapper, 'Let\'s Encrypt ACME applet wrapper exists');
+assert.match(leWorkdir[1], /lstat\("\/", &st\)/);
+assert.match(leWorkdir[1], /lstat\("\/tmp", &st\)/);
+assert.match(leWorkdir[1], /mkdir\("\/tmp\/\.le", 0700\)/);
+assert.match(leWorkdir[1], /open\("\/tmp\/\.le", O_RDONLY \| O_DIRECTORY \| O_NOFOLLOW\)/);
+assert.match(leWorkdir[1], /st\.st_uid == 0/);
+assert.match(leWorkdir[1], /S_ISDIR\(st\.st_mode\) && st\.st_uid == 0 &&\s*!\(st\.st_mode & 0077\)/);
+assert.match(leWorkdir[1], /fchmod\(fd, 0700\)/);
+assert.match(leHookCheck[1], /nvram_match\("le_enable", "1"\)/);
+assert.match(leHookCheck[1], /lstat\("\/tmp\/\.le\/le-fw\.sh", &st\)/);
+assert.match(leHookCheck[1], /S_ISREG\(st\.st_mode\)/);
+assert.match(leHookCheck[1], /st\.st_uid != 0/);
+assert.match(leHookCheck[1], /st\.st_nlink != 1/);
+assert.match(leHookCheck[1], /st\.st_mode & 0022/);
+assert.match(firewall, /if \(nvram_match\("le_enable", "1"\) && le_fw_script_is_safe\(\)\)\s*run_le_fw_script\(\);/);
+assert.match(init, /chmod\("\/tmp", 01777\);\s*#ifdef RTCONFIG_LETSENCRYPT\s*if \(!le_workdir_prepare\(\)\)/);
+assert.equal((services.match(/start_letsencrypt_safe\(\);/g) || []).length, 3);
+assert.match(applets, /\{ "le_acme",\s*le_acme_main_safe\s*\}/);
+assert.equal((leAcmeWrapper[1].match(/le_workdir_prepare\(\)/g) || []).length, 2,
+    'work directory is protected before and restored after ACME cleanup');
+
+if (process.getuid() === 0) {
+    const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'letsencrypt-hook-'));
+    try {
+        fs.chmodSync(temporary, 0o1777);
+        const directory = path.join(temporary, '.le');
+        const script = path.join(directory, 'le-fw.sh');
+        const safeHook = (candidate = directory, enabled = true) => {
+            if (!enabled) return false;
+            try {
+                const rootStat = fs.lstatSync('/');
+            const parentStat = fs.lstatSync(path.dirname(candidate));
+            const directoryStat = fs.lstatSync(candidate);
+            const scriptStat = fs.lstatSync(path.join(candidate, 'le-fw.sh'));
+                return rootStat.isDirectory() && rootStat.uid === 0 && !(rootStat.mode & 0o022) &&
+                    parentStat.isDirectory() && parentStat.uid === 0 &&
+                    (!(parentStat.mode & 0o022) || (parentStat.mode & 0o1000)) &&
+                    directoryStat.isDirectory() && directoryStat.uid === 0 && !(directoryStat.mode & 0o077) &&
+                    scriptStat.isFile() && scriptStat.uid === 0 && scriptStat.nlink === 1 &&
+                    !(scriptStat.mode & 0o022) && (scriptStat.mode & 0o111);
+            } catch (error) {
+                if (error.code === 'ENOENT' || error.code === 'ELOOP') return false;
+                throw error;
+            }
+        };
+
+        fs.mkdirSync(directory, { mode: 0o700 });
+        fs.chmodSync(directory, 0o700);
+        fs.writeFileSync(script, '#!/bin/sh\n', { mode: 0o700 });
+        fs.chmodSync(script, 0o700);
+        assert.equal(safeHook(true), true);
+        assert.equal(safeHook(directory, false), false, 'disabled Let\'s Encrypt never executes a hook');
+        fs.chmodSync(directory, 0o755);
+        assert.equal(safeHook(true), false, 'permissive work directory is rejected');
+        fs.chmodSync(directory, 0o700);
+        fs.chmodSync(script, 0o777);
+        assert.equal(safeHook(true), false, 'group/other-writable hook is rejected');
+        fs.unlinkSync(script);
+        fs.symlinkSync('/bin/sh', script);
+        assert.equal(safeHook(true), false, 'symlink hook is rejected');
+        fs.unlinkSync(script);
+
+        const attackerDir = path.join(temporary, '.le-attacker');
+        const createAsNobody = spawnSync(process.execPath, ['-e', `
+            const fs = require('node:fs');
+            const directory = ${JSON.stringify(attackerDir)};
+            fs.mkdirSync(directory, { mode: 0o700 });
+            fs.writeFileSync(directory + '/le-fw.sh', '#!/bin/sh\\n', { mode: 0o700 });
+        `], { uid: 65534, gid: 65534, encoding: 'utf8' });
+        assert.ifError(createAsNobody.error);
+        assert.equal(createAsNobody.status, 0, createAsNobody.stderr);
+        assert.equal(safeHook(attackerDir), false, 'attacker-owned directory and hook are rejected');
+        fs.symlinkSync(attackerDir, path.join(temporary, '.le-link'));
+        assert.equal(safeHook(path.join(temporary, '.le-link')), false, 'symlink directory is rejected');
+        console.log('PASS: Let\'s Encrypt hook metadata rejects disabled, writable, symlink and attacker-owned paths');
+    } finally {
+        fs.rmSync(temporary, { recursive: true, force: true });
+    }
+} else {
+    console.log('SKIP: Let\'s Encrypt root/nobody fixtures require uid 0; source contracts passed');
+}
+
 for (const directory of ['/tmp/ppp', '/tmp/ppp/peers']) {
     assert.ok(wan.includes(`mkdir("${directory}", 0755)`));
     assert.ok(!wan.includes(`rmdir("${directory}")`));
@@ -192,4 +281,4 @@ if (process.getuid() !== 0) {
         fs.rmSync(temporary, { recursive: true, force: true });
     }
 }
-console.log('PASS: boot permissions, immutable DHCP hooks and reserved PPP path source contracts (not compiled firmware)');
+console.log('PASS: boot, DHCP, PPP and Let\'s Encrypt temporary-path source contracts (not compiled firmware)');

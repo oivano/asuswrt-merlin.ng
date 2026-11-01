@@ -19790,6 +19790,10 @@ static void sysinit(void)
 	mkdir("/var/tmp/dhcp", 01777);
 	mkdir("/home/root", 0700);
 	chmod("/tmp", 01777);
+#ifdef RTCONFIG_LETSENCRYPT
+	if (!le_workdir_prepare())
+		_dprintf("Unable to secure /tmp/.le\n");
+#endif
 #ifdef RTCONFIG_USB
 	chmod(POOL_MOUNT_ROOT, 01777);
 #endif

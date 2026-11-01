@@ -65,6 +65,63 @@
 
 void update_lan_status(int);
 
+#ifdef RTCONFIG_LETSENCRYPT
+int le_workdir_prepare(void)
+{
+	struct stat st;
+	int fd, result = 0;
+
+	if (lstat("/", &st) < 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
+	    (st.st_mode & 0022))
+		return 0;
+	if (lstat("/tmp", &st) < 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
+	    ((st.st_mode & 0022) && !(st.st_mode & S_ISVTX)))
+		return 0;
+	if (mkdir("/tmp/.le", 0700) < 0 && errno != EEXIST)
+		return 0;
+	fd = open("/tmp/.le", O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (fd < 0)
+		return 0;
+	if (fstat(fd, &st) == 0 && S_ISDIR(st.st_mode) && st.st_uid == 0 &&
+	    !(st.st_mode & 0077) && fchmod(fd, 0700) == 0 && fstat(fd, &st) == 0 &&
+	    !(st.st_mode & 0077))
+		result = 1;
+	close(fd);
+	return result;
+}
+
+int le_fw_script_is_safe(void)
+{
+	struct stat st;
+
+	if (!nvram_match("le_enable", "1") || !le_workdir_prepare() ||
+	    lstat("/tmp/.le/le-fw.sh", &st) < 0 || !S_ISREG(st.st_mode) ||
+	    st.st_uid != 0 || st.st_nlink != 1 || (st.st_mode & 0022) ||
+	    !(st.st_mode & 0111))
+		return 0;
+	return 1;
+}
+
+int start_letsencrypt_safe(void)
+{
+	if (!le_workdir_prepare())
+		return -1;
+	return start_letsencrypt();
+}
+
+int le_acme_main_safe(int argc, char **argv)
+{
+	int result;
+
+	if (!le_workdir_prepare())
+		return -1;
+	result = le_acme_main(argc, argv);
+	if (!le_workdir_prepare())
+		_dprintf("Unable to restore /tmp/.le after ACME run\n");
+	return result;
+}
+#endif
+
 /* remove space in the end of string */
 char *trim_r(char *str)
 {

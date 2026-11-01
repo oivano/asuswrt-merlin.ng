@@ -7556,7 +7556,8 @@ int start_firewall(int wanunit, int lanunit)
 		run_ipsec_firewall_scripts();
 #endif
 #ifdef RTCONFIG_LETSENCRYPT
-	run_le_fw_script();
+	if (nvram_match("le_enable", "1") && le_fw_script_is_safe())
+		run_le_fw_script();
 #endif
 
 #ifdef RTCONFIG_MULTISERVICE_WAN
