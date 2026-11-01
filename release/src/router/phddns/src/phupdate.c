@@ -8,6 +8,11 @@
 #include <stdlib.h>
 #include <arpa/inet.h>
 #include <bcmnvram.h>
+#include <errno.h>
+#include <grp.h>
+#include <signal.h>
+#include <sys/prctl.h>
+#include <unistd.h>
 
 #define PH_STAT_RESPONSE_MAX_LEN (64 * 1024)
 
@@ -46,6 +51,102 @@ static int ValidDdnsHostname(const char *host)
 	return length <= 63 && ValidRedirectHost(host, length);
 }
 
+static const char *ddns_nvram_keys[] = {
+	"ddns_return_code", "ddns_return_code_chk", "ddns_updated", "ddns_hostname_x"
+};
+static int ddns_nvram_socket = -1;
+
+struct ddns_nvram_request {
+	unsigned int key;
+	char value[64];
+};
+
+static int ValidDdnsNvramRequest(const struct ddns_nvram_request *request)
+{
+	if (request->key >= sizeof(ddns_nvram_keys) / sizeof(ddns_nvram_keys[0]) ||
+		memchr(request->value, '\0', sizeof(request->value)) == NULL) return 0;
+	if (request->key == 3) return ValidDdnsHostname(request->value);
+	if (request->key == 2) return strcmp(request->value, "1") == 0;
+	return strcmp(request->value, "connect_fail") == 0 ||
+		strcmp(request->value, "auth_fail") == 0 || strcmp(request->value, "200") == 0;
+}
+
+static int DdnsNvramSet(const char *key, const char *value)
+{
+	struct ddns_nvram_request request;
+	int result;
+	ssize_t received;
+
+	memset(&request, 0, sizeof(request));
+	for (request.key = 0; request.key < sizeof(ddns_nvram_keys) / sizeof(ddns_nvram_keys[0]); request.key++)
+		if (strcmp(key, ddns_nvram_keys[request.key]) == 0) break;
+	if (strnlen(value, sizeof(request.value)) >= sizeof(request.value)) return -1;
+	memcpy(request.value, value, strlen(value) + 1);
+	if (ddns_nvram_socket < 0 || !ValidDdnsNvramRequest(&request)) return -1;
+	if (send(ddns_nvram_socket, &request, sizeof(request), MSG_NOSIGNAL) != sizeof(request)) return -1;
+	do {
+		received = recv(ddns_nvram_socket, &result, sizeof(result), MSG_TRUNC);
+	} while (received < 0 && errno == EINTR);
+	return received == sizeof(result) ? result : -1;
+}
+
+static int StartDdnsPrivsep(PHGlobal *phglobal)
+{
+	int sockets[2], result;
+	ssize_t received;
+	pid_t child;
+	struct ddns_nvram_request request;
+
+	if (geteuid() != 0) return 0;
+	if (socketpair(AF_UNIX, SOCK_SEQPACKET, 0, sockets) != 0) return 0;
+	if (prctl(PR_SET_NAME, "phddns-nvram", 0, 0, 0) != 0)
+	{
+		close(sockets[0]);
+		close(sockets[1]);
+		return 0;
+	}
+	child = fork();
+	if (child < 0)
+	{
+		close(sockets[0]);
+		close(sockets[1]);
+		return 0;
+	}
+	if (child == 0)
+	{
+		close(sockets[0]);
+		ddns_nvram_socket = sockets[1];
+		if (setgroups(0, NULL) != 0 || setgid(65534) != 0 || setuid(65534) != 0 ||
+			getuid() != 65534 || geteuid() != 65534 || getgid() != 65534 || getegid() != 65534 ||
+			prctl(PR_SET_NAME, "phddns", 0, 0, 0) != 0)
+		{
+			close(ddns_nvram_socket);
+			ddns_nvram_socket = -1;
+			return 0;
+		}
+		return 1;
+	}
+	close(sockets[1]);
+	memset(phglobal, 0, sizeof(*phglobal));
+	log_close();
+	signal(SIGINT, SIG_DFL);
+	signal(SIGTERM, SIG_DFL);
+	for (;;)
+	{
+		received = recv(sockets[0], &request, sizeof(request), MSG_TRUNC);
+		if (received < 0 && errno == EINTR) continue;
+		if (received <= 0) break;
+		result = -1;
+		if (received == sizeof(request) && ValidDdnsNvramRequest(&request))
+			result = nvram_set(ddns_nvram_keys[request.key], request.value);
+		if (send(sockets[0], &result, sizeof(result), MSG_NOSIGNAL) != sizeof(result)) break;
+	}
+	close(sockets[0]);
+	_exit(0);
+}
+
+#define nvram_set DdnsNvramSet
+
 static char *ReadStatResponse(PHGlobal *phglobal)
 {
 	char buffer[1024];
@@ -60,8 +161,12 @@ static char *ReadStatResponse(PHGlobal *phglobal)
 	for (;;)
 	{
 		len = phReadOneLine(phglobal->m_tcpsocket, buffer, sizeof(buffer));
-		if (len <= 0 || buffer[0] == '.') break;
-		// a full 1024-byte read is not NUL-terminated
+		if (len <= 0)
+		{
+			free(xmldata);
+			return NULL;
+		}
+		if (strcmp(buffer, ".") == 0) break;
 		nul = memchr(buffer, '\0', len);
 		if (nul) len = nul - buffer;
 		need = used + len + 1;
@@ -364,35 +469,40 @@ nvram_set("ddns_return_code_chk", "auth_fail");
 	//list domains
 	for (i=0,totaldomains=0;i<255;i++)
     {
-        memset(domains[i], 0, 255);
-        phReadOneLine(phglobal->m_tcpsocket, domains[i],255);
+        len = phReadOneLine(phglobal->m_tcpsocket, domains[i], sizeof(domains[i]));
+        if (len <= 0) goto invalid_domain_list;
+        if (strcmp(domains[i], ".") == 0) break;
+        len = strlen(domains[i]);
+        if (len > sizeof(regicommand) - sizeof(COMMAND_REGI) - 3 ||
+            !ValidRedirectHost(domains[i], len)) goto invalid_domain_list;
         LOG(1) (("ExecuteUpdate domain \"%s\"\n"),domains[i]);
         totaldomains++;
-		strcpy(phglobal->szActiveDomains[i],domains[i]);
-        if (domains[i][0] == '.') break;
     }
-	if (totaldomains<=0)
+	if (i == 255 || totaldomains <= 0)
 	{
+invalid_domain_list:
 		LOG(1) (("ExecuteUpdate Domain List Failed.\n"));
+		memset(phglobal->szActiveDomains, 0, sizeof(phglobal->szActiveDomains));
+		strcpy(phglobal->szActiveDomains[0], ".");
 		phClose(&phglobal->m_tcpsocket);
+		nvram_set("ddns_return_code", "connect_fail");
+		nvram_set("ddns_return_code_chk", "connect_fail");
 		return errorDomainListFailed;
 	}
+	for (i = 0; i <= totaldomains; i++)
+		memcpy(phglobal->szActiveDomains[i], domains[i], strlen(domains[i]) + 1);
 
 	phglobal->cLastResult = okDomainListed;
 	if (phglobal->cbOnStatusChanged) phglobal->cbOnStatusChanged(phglobal, phglobal->cLastResult, 0);
 	//::SendMessage(theApp.m_hWndController,WM_DOMAIN_UPDATEMSG,okDomainListed,(long)domains);
 	//////////////////////////////////////////////////////////////////////////
 	//send domain regi commands list
-	for (i=0;;i++)
+	for (i=0;i<totaldomains;i++)
     {
-        if (domains[i][0] == '.') break;
-		memset(regicommand, 0, 128);
-        strcpy(regicommand, COMMAND_REGI);
-        strcat(regicommand, " ");
-        strcat(regicommand, domains[i]);
-        strcat(regicommand, "\r\n");
+		len = snprintf(regicommand, sizeof(regicommand), "%s %s\r\n", COMMAND_REGI, domains[i]);
+		if (len < 0 || len >= sizeof(regicommand)) goto invalid_domain_list;
         //printf("%s",regicommand);
-        phSend(phglobal->m_tcpsocket,regicommand,strlen(regicommand),0);
+		phSend(phglobal->m_tcpsocket,regicommand,len,0);
     }
 
 	//////////////////////////////////////////////////////////////////////////
@@ -401,7 +511,7 @@ nvram_set("ddns_return_code_chk", "auth_fail");
     phSend(phglobal->m_tcpsocket,(char*)COMMAND_CNFM,strlen(COMMAND_CNFM),0);
     LOG(1) (("OK\n"));
 	
-	for (i=0;i<totaldomains-1;i++)
+	for (i=0;i<totaldomains;i++)
     {
 		memset(buffer, 0, 128);
 		len = phReadOneLine(phglobal->m_tcpsocket, buffer,sizeof(buffer));
@@ -578,6 +688,16 @@ int get_keepalive_warn_seconds(int user_type) {
 int phddns_step(PHGlobal *phglobal)
 {
 	int ret = 0;
+	static int privsep_ready = 0;
+	if (!privsep_ready)
+	{
+		if (!StartDdnsPrivsep(phglobal))
+		{
+			LOG(1) ("phddns privilege separation failed.\n");
+			exit(EXIT_FAILURE);
+		}
+		privsep_ready = 1;
+	}
 	if (phglobal->bNeed_connect)
 	{
 		strcpy(phglobal->szActiveDomains[0],".");
