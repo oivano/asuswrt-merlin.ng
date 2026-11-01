@@ -345,6 +345,7 @@ static int frr_ui_generate(FILE *out, json_object *config, const char *lan_ip,
 	if (!strcmp(frr_ui_string(config, "frr_ospf_enable"), "1")) {
 		const char *area = frr_ui_string(config, "frr_ospf_area");
 		fprintf(out, "router ospf\n ospf router-id %s\n", lan_ip);
+		fprintf(out, " passive-interface br0\n");
 		copy = strdup(frr_ui_string(config, "frr_ospf_networks"));
 		if (!copy) return 0;
 		cursor = copy;
@@ -399,7 +400,7 @@ static int frr_ui_merge(FILE *out, const char *original, const char *generated)
 	int family = 1;
 	int drop_peer = 0;
 	int seen_password = 0, seen_enable_password = 0;
-	int seen_lan = 0;
+	int seen_lan = 0, seen_ospf_br0 = 0;
 	int pending_bgp = 0, pending_ospf = 0, pending_bfd = 0;
 	int fields;
 	unsigned char address[16];
@@ -489,6 +490,10 @@ static int frr_ui_merge(FILE *out, const char *original, const char *generated)
 					}
 				}
 			}
+		} else if (section == 2 && (!strcmp(text, "passive-interface br0") ||
+					   !strcmp(text, "no passive-interface br0"))) {
+			fprintf(out, " passive-interface br0\n");
+			seen_ospf_br0 = handled = 1;
 		} else if (((section == 1 && family) || section == 2) && !strncmp(text, "network ", 8)) {
 			const char *enable = section == 1 ? "frr_bgp_enable" : "frr_ospf_enable";
 			const char *key = section == 1 ? "frr_bgp_networks" : "frr_ospf_networks";
@@ -620,6 +625,7 @@ static int frr_ui_merge(FILE *out, const char *original, const char *generated)
 			}
 		}
 		if (pending_ospf) fprintf(out, "exit\n!\n");
+		if (!seen_ospf_br0) fprintf(out, "router ospf\n passive-interface br0\nexit\n!\n");
 		free(networks);
 	}
 	if (!strcmp(frr_ui_string(next, "frr_bfd_enable"), "1")) {
