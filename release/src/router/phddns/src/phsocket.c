@@ -275,44 +275,23 @@ int phrawSendTo(int m_hSocket, const void* lpBuf, int nBufLen, struct sockaddr_i
 int phReadOneLine(int m_hSocket, char * lpszBuf, int nBufLen)
 {
 	int nReadCount = 0;
-	int nRecv = 0;
+	char value;
+	if (lpszBuf == NULL || nBufLen <= 0) return -1;
 	lpszBuf[0] = '\0';
-	
-	for (; ; )
+	for (;;)
 	{
 		if (phDataReadable(m_hSocket, 30) <= 0) return 0;
-		nRecv = recv(m_hSocket, lpszBuf + nReadCount, 1, 0);
-		//printf("recvoneline:%s,count:%d\n",lpszBuf,nRecv);
-		//if (nRecv == 0) continue;
-		if (nRecv > 0)
+		if (recv(m_hSocket, &value, 1, 0) != 1 || value == '\0') return -1;
+		if (value == '\n')
 		{
-			nReadCount += nRecv;
-			
-			if (lpszBuf[nReadCount - 1] == '\n')
-			{
-				if (nReadCount > 1 && lpszBuf[nReadCount - 2] == '\r')
-				{
-					lpszBuf[nReadCount - 2] = '\0';
-				}
-				else
-				{
-					lpszBuf[nReadCount - 1] = '\0';
-				}
-				break;
-			}
-			
-			if (nReadCount == nBufLen)
-			{
-				break;
-			}
+			if (nReadCount > 0 && lpszBuf[nReadCount - 1] == '\r')
+				lpszBuf[nReadCount - 1] = '\0';
+			return nReadCount + 1;
 		}
-		else
-		{
-			nReadCount = -1;
-			break;
-		}
+		if (nReadCount >= nBufLen - 1) return -1;
+		lpszBuf[nReadCount++] = value;
+		lpszBuf[nReadCount] = '\0';
 	}
-	return nReadCount;
 }
 
 int phDataReadable(int m_hSocket, int nTimeout)

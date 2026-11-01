@@ -235,5 +235,168 @@ const invalidResponse = new Function('len', `return ${responseExpression.replace
 for (const length of [-1, 0, 3, 4, 1024]) assert.equal(invalidResponse(length), true);
 assert.equal(invalidResponse(1023), false);
 
-console.log('phddns challenge: source-derived HMAC, challenge/username bounds, DDNS hostname filtering, redirect validation and disconnect contracts passed');
+const readerBody = body(source('phsocket.c'), 'int phReadOneLine(');
+const readerJS = readerBody
+    .replace(/int nReadCount = 0;/, 'let nReadCount = 0;')
+    .replace(/char value;/, 'const value = [];')
+    .replace(/lpszBuf == NULL/g, 'lpszBuf == null')
+    .replace(/&value/g, 'value')
+    .replace(/value ==/g, 'value[0] ==')
+    .replace(/= value;/g, '= value[0];');
+const readLine = new Function('m_hSocket', 'lpszBuf', 'nBufLen', 'phDataReadable', 'recv', readerJS);
+function stream(input, size = 255, timeout = false) {
+    let offset = 0;
+    return () => {
+        const bytes = new Array(size).fill('\xa5');
+        const guarded = new Proxy(bytes, { set(target, index, value) {
+            assert(Number(index) >= 0 && Number(index) < size, 'socket buffer write is in bounds');
+            target[index] = value;
+            return true;
+        } });
+        const result = readLine(0, guarded, size, () => Number(!timeout), (fd, output) => {
+            if (offset === input.length) return 0;
+            output[0] = input[offset++];
+            return 1;
+        });
+        assert(bytes.includes('\0'), 'every returned buffer is terminated');
+        return { result, text: bytes.slice(0, bytes.indexOf('\0')).join('') };
+    };
+}
+for (const [input, result, text] of [['router.example\r\n', 16, 'router.example'],
+    ['router.example\n', 15, 'router.example'], ['.\r\n', 3, '.'], ['\n', 1, ''],
+    ['A'.repeat(254) + '\n', 255, 'A'.repeat(254)],
+    ['A'.repeat(255) + '\n', -1, 'A'.repeat(254)],
+    ['A'.repeat(1024), -1, 'A'.repeat(254)], ['partial', -1, 'partial'],
+    ['a\0suffix\n', -1, 'a']]) {
+    const actual = stream(input)();
+    assert.equal(actual.result, result);
+    assert.equal(actual.text, text);
+}
+assert.equal(stream('partial', 255, true)().result, 0);
+assert.equal(readLine(0, null, 255), -1);
+assert.equal(readLine(0, [], 0), -1);
+assert.equal(stream('\n', 1)().result, 1);
+assert.equal(stream('a\n', 1)().result, -1);
+
+const listStart = executeBody.indexOf('for (i=0,totaldomains=0;i<255;i++)');
+const listEnd = executeBody.indexOf('phglobal->cLastResult = okDomainListed;', listStart);
+const listBody = executeBody.slice(listStart, listEnd);
+assert.doesNotMatch(listBody, /strcpy\(phglobal->szActiveDomains\[i\]/);
+assert.match(listBody, /strcmp\(domains\[i\], "\."\) == 0/);
+assert.match(listBody, /i == 255/);
+const listJS = listBody
+    .replace(/goto invalid_domain_list;/g, 'return failed();')
+    .replace(/invalid_domain_list:/, '')
+    .replace(/sizeof\(domains\[i\]\)/g, '255')
+    .replace(/sizeof\(regicommand\)/g, '255')
+    .replace(/sizeof\(COMMAND_REGI\)/g, '7')
+    .replace(/len = phReadOneLine\([^;]+;/, 'const row = read(); len = row.result; domains[i] = row.text;')
+    .replace(/LOG\(1\)[^;]+;/g, '')
+    .replace(/memset\(phglobal->szActiveDomains, 0, sizeof\(phglobal->szActiveDomains\)\);/, '')
+    .replace(/strcpy\(phglobal->szActiveDomains\[0\], "\."\);/, '')
+    .replace(/phClose\(&phglobal->m_tcpsocket\);/, '')
+    .replace(/nvram_set\([^;]+;/g, '')
+    .replace(/return errorDomainListFailed;/, 'return failed();')
+    .replace(/memcpy\(phglobal->szActiveDomains\[i\], domains\[i\], strlen\(domains\[i\]\) \+ 1\);/,
+        'active.push(domains[i]);');
+const parseList = new Function('read', 'ValidRedirectHost', 'strcmp', 'strlen',
+    `let i, len, totaldomains; const domains = [], active = []; const failed = () => ({failed: true, active: []});
+    ${listJS} return {failed: false, active, totaldomains};`);
+const parse = input => parseList(stream(input), (host, length) => validHost(host, length,
+    value => Number(net.isIP(value) === 4)), (left, right) => Number(left !== right), value => value.length);
+const maxDomain = ['a'.repeat(63), 'b'.repeat(63), 'c'.repeat(63), 'd'.repeat(53)].join('.');
+assert.equal(maxDomain.length, 245);
+for (const input of ['A'.repeat(254) + '\n.\n', 'A'.repeat(255 * 3) + '\nshort\n.\n',
+    maxDomain + 'd\n.\n', 'router.example\n', '.\n', '.bad\n.\n', 'router example\n.\n',
+    'router\0.example\n.\n', 'router.example\rjunk\n.\n', 'router.example\n'.repeat(255) + '.\n']) {
+    assert.deepEqual(parse(input), {failed: true, active: []});
+}
+for (const domains of [['router.example'], [maxDomain], new Array(254).fill('router.example')]) {
+    const actual = parse(domains.join('\r\n') + '\r\n.\r\n');
+    assert.equal(actual.failed, false);
+    assert.equal(actual.totaldomains, domains.length);
+    assert.deepEqual(actual.active, [...domains, '.']);
+    for (const domain of domains) assert(Buffer.byteLength(`regi a ${domain}\r\n`) < 255);
+}
+const regiStart = executeBody.indexOf('//send domain regi commands list');
+const regiEnd = executeBody.indexOf('//send confirm', regiStart);
+const regiBody = executeBody.slice(regiStart, regiEnd);
+assert.match(regiBody, /for \(i=0;i<totaldomains;i\+\+\)/);
+assert.match(regiBody, /snprintf\(regicommand, sizeof\(regicommand\), "%s %s\\r\\n", COMMAND_REGI, domains\[i\]\)/);
+assert.match(regiBody, /len < 0 \|\| len >= sizeof\(regicommand\)/);
+assert.doesNotMatch(regiBody, /strcpy|strcat/);
+assert.match(listBody, /Domain List Failed/);
+assert.match(listBody, /phClose\(&phglobal->m_tcpsocket\)/);
+assert.match(executeBody.slice(regiEnd), /for \(i=0;i<totaldomains;i\+\+\)/);
+assert.match(body(update, 'static char *ReadStatResponse('), /if \(len <= 0\)\s*\{\s*free\(xmldata\);\s*return NULL;/);
+
+const keys = [...update.match(/ddns_nvram_keys\[\] = \{([^}]+)\}/)[1].matchAll(/"([^"]+)"/g)].map(match => match[1]);
+assert.deepEqual(keys, ['ddns_return_code', 'ddns_return_code_chk', 'ddns_updated', 'ddns_hostname_x']);
+const requestBody = body(update, 'static int ValidDdnsNvramRequest(')
+    .replace(/request->/g, 'request.')
+    .replace(/sizeof\(ddns_nvram_keys\) \/ sizeof\(ddns_nvram_keys\[0\]\)/g, '4')
+    .replace(/sizeof\(request.value\)/g, '64')
+    .replace(/NULL/g, 'null');
+const validRequest = new Function('request', 'ValidDdnsHostname', 'memchr', 'strcmp', requestBody);
+const checkRequest = (key, value) => Number(validRequest({key, value}, host => validateDdns(host),
+    (host, character, length) => host.slice(0, length).includes(character) ? 1 : null,
+    (left, right) => Number(left.split('\0')[0] !== right)));
+for (const key of [0, 1]) {
+    for (const value of ['connect_fail', 'auth_fail', '200']) assert.equal(checkRequest(key, value + '\0'), 1);
+    for (const value of ['1', '0', 'arbitrary', '200\ninjected']) assert.equal(checkRequest(key, value + '\0'), 0);
+}
+assert.equal(checkRequest(2, '1\0'), 1);
+assert.equal(checkRequest(2, '200\0'), 0);
+assert.equal(checkRequest(3, 'router.example\0'), 1);
+for (const value of ['%n%n\0', 'a'.repeat(64), 'router example\0', '../secret\0']) {
+    assert.equal(checkRequest(3, value), 0);
+}
+for (const key of [4, 255, 0xffffffff]) assert.equal(checkRequest(key, '200\0'), 0);
+assert.equal(checkRequest(0, '200'), 0);
+assert.equal(checkRequest(0, 'a'.repeat(64) + '\0'), 0);
+
+const privsep = body(update, 'static int StartDdnsPrivsep(');
+assert.match(privsep, /socketpair\(AF_UNIX, SOCK_SEQPACKET, 0, sockets\)/);
+assert.match(privsep, /prctl\(PR_SET_NAME, "phddns-nvram"/);
+const childStart = privsep.indexOf('if (child == 0)');
+const childEnd = privsep.indexOf('close(sockets[1]);', childStart);
+const childBody = privsep.slice(childStart, childEnd);
+assert.match(childBody, /setgroups\(0, NULL\).*setgid\(65534\).*setuid\(65534\)/s);
+assert.match(childBody, /getuid\(\) != 65534.*geteuid\(\) != 65534.*getgid\(\) != 65534.*getegid\(\) != 65534/s);
+const dropGuard = childBody.match(/if \((setgroups[^]+?)\)\s*\{/)[1].replace(/NULL/g, 'null');
+const failedDrop = new Function('setgroups', 'setgid', 'setuid', 'getuid', 'geteuid', 'getgid', 'getegid', 'prctl',
+    `const PR_SET_NAME = 15; return ${dropGuard};`);
+const dropCalls = ['setgroups', 'setgid', 'setuid', 'getuid', 'geteuid', 'getgid', 'getegid', 'prctl'];
+for (const failure of [null, ...dropCalls]) {
+    const calls = [];
+    const invalid = failedDrop(...dropCalls.map(name => (...args) => {
+        calls.push(name);
+        if (name === 'setgroups') assert.deepEqual(args, [0, null]);
+        if (name === 'setuid' || name === 'setgid') assert.deepEqual(args, [65534]);
+        if (name === failure) return name.startsWith('get') ? 0 : -1;
+        return name.startsWith('get') ? 65534 : 0;
+    }));
+    assert.equal(invalid, failure !== null, String(failure));
+    assert.deepEqual(calls, failure === null ? dropCalls : dropCalls.slice(0, dropCalls.indexOf(failure) + 1));
+}
+const broker = privsep.slice(childEnd);
+assert.match(broker, /received = recv\(sockets\[0\], &request, sizeof\(request\), MSG_TRUNC\)/);
+assert.match(broker, /received == sizeof\(request\) && ValidDdnsNvramRequest\(&request\)/);
+assert.match(broker, /nvram_set\(ddns_nvram_keys\[request.key\], request.value\)/);
+assert.match(broker, /if \(received <= 0\) break;/);
+assert.match(broker, /close\(sockets\[0\]\);\s*_exit\(0\);/);
+assert.match(broker, /memset\(phglobal, 0, sizeof\(\*phglobal\)\)/);
+assert.match(broker, /log_close\(\)/);
+const setter = body(update, 'static int DdnsNvramSet(');
+assert.match(setter, /strnlen\(value, sizeof\(request.value\)\) >= sizeof\(request.value\)/);
+assert.match(setter, /!ValidDdnsNvramRequest\(&request\)/);
+assert.match(setter, /MSG_NOSIGNAL/);
+assert.match(setter, /received == sizeof\(result\) \? result : -1/);
+assert.match(update, /#define nvram_set DdnsNvramSet/);
+assert(update.indexOf('#define nvram_set DdnsNvramSet') > update.indexOf('result = nvram_set(ddns_nvram_keys'));
+const step = body(update, 'int phddns_step(');
+assert(step.indexOf('StartDdnsPrivsep(phglobal)') < step.indexOf('InitializeSockets(phglobal)'));
+assert.match(step, /if \(!StartDdnsPrivsep\(phglobal\)\)[^]+?exit\(EXIT_FAILURE\)/);
+
+console.log('phddns challenge: challenge/redirect, bounded socket/domain/REGI parsing, NVRAM allowlist and fail-closed privilege-drop regressions passed');
 console.log('Not compiled C, ASan, socket/fake-server, or hardware validation.');

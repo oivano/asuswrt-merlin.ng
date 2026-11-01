@@ -121,12 +121,12 @@ int main(void)
 	in = lines(1, 1024, "", &n);
 	n -= 1;
 	out = run(in, n);
-	if (!out || strlen(out) != 1024) return 10;
+	if (out) return 10;
 	free(out); free(in);
 
 	in = lines(3, 1024, "tail\\r\\n.\\r\\n", &n);
 	out = run(in, n);
-	if (!out || strlen(out) != 3 * 1024 + 4 || strcmp(out + 3 * 1024, "tail")) return 11;
+	if (out) return 11;
 	free(out); free(in);
 
 	n = (${cap} - 1) / 1023;
@@ -140,7 +140,7 @@ int main(void)
 	free(in);
 
 	out = run("ab\\0cd\\nef\\r\\n.\\r\\nignored\\n", 21);
-	if (!out || strcmp(out, "abef")) return 14;
+	if (out) return 14;
 	free(out);
 
 	out = run(".\\r\\n", 3);
