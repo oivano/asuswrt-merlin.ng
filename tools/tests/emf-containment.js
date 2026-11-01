@@ -7,6 +7,7 @@ const kernel = 'release/src-rt-6.x.4708/linux/linux-2.6.36/';
 const read = file => fs.readFileSync(path.join(root, kernel, file), 'utf8');
 const netlink = read('net/netlink/af_netlink.c');
 const proc = read('fs/proc/generic.c');
+const config = fs.readFileSync(path.join(root, kernel, 'config_base.6a'), 'utf8');
 const body = (source, start, end) => {
     const offset = source.indexOf(start);
     assert.ok(offset >= 0, `missing ${start}`);
@@ -17,39 +18,46 @@ const body = (source, start, end) => {
 
 const create = body(netlink, 'static int netlink_create(', 'static int netlink_release(');
 const send = body(netlink, 'static int netlink_sendmsg(', 'static int netlink_recvmsg(');
-const createGuard = create.match(/if \((protocol == 17 && !kern && !capable\(CAP_NET_ADMIN\))\)\s*return -EPERM;/);
-const sendGuard = send.match(/if \((sk->sk_protocol == 17 && !capable\(CAP_NET_ADMIN\))\)\s*return -EPERM;/);
-assert.ok(createGuard, 'EMF socket creation requires CAP_NET_ADMIN except for kernel sockets');
-assert.ok(sendGuard, 'every EMF send requires current CAP_NET_ADMIN');
+const createGuard = create.match(/if \((\(protocol == 17 \|\| protocol == NETLINK_SCSITRANSPORT\) &&\s*!kern && !capable\(CAP_NET_ADMIN\))\)\s*return -EPERM;/);
+const sendGuard = send.match(/if \((\(sk->sk_protocol == 17 \|\|\s*sk->sk_protocol == NETLINK_SCSITRANSPORT\) &&\s*!capable\(CAP_NET_ADMIN\))\)\s*return -EPERM;/);
+assert.ok(createGuard, 'EMF and IGS socket creation requires CAP_NET_ADMIN except for kernel sockets');
+assert.ok(sendGuard, 'every EMF and IGS send requires current CAP_NET_ADMIN');
+assert.match(config, /^# CONFIG_SCSI_NETLINK is not set$/m,
+    'protocol 18 is reserved for IGS on the DSL-AC68U target');
 assert.ok(create.indexOf(createGuard[0]) < create.indexOf('netlink_lock_table();'));
 assert.ok(send.indexOf(sendGuard[0]) < send.indexOf('scm_send('));
 assert.ok(send.indexOf(sendGuard[0]) < send.indexOf('alloc_skb('));
 assert.ok(send.indexOf(sendGuard[0]) < send.indexOf('netlink_unicast('));
 
-const rejectCreate = new Function('protocol', 'kern', 'capable', 'CAP_NET_ADMIN',
+const rejectCreate = new Function('protocol', 'kern', 'capable', 'CAP_NET_ADMIN', 'NETLINK_SCSITRANSPORT',
     `return Boolean(${createGuard[1]});`);
-const rejectSend = new Function('sk', 'capable', 'CAP_NET_ADMIN',
+const rejectSend = new Function('sk', 'capable', 'CAP_NET_ADMIN', 'NETLINK_SCSITRANSPORT',
     `return Boolean(${sendGuard[1].replace(/sk->/g, 'sk.')});`);
 for (let protocol = 0; protocol < 32; protocol++) {
     for (const privileged of [false, true]) {
         for (const kern of [false, true]) {
-            assert.equal(rejectCreate(protocol, kern, () => privileged, 12),
-                protocol === 17 && !kern && !privileged);
+            assert.equal(rejectCreate(protocol, kern, () => privileged, 12, 18),
+                (protocol === 17 || protocol === 18) && !kern && !privileged);
         }
-        assert.equal(rejectSend({sk_protocol: protocol}, () => privileged, 12),
-            protocol === 17 && !privileged);
+        assert.equal(rejectSend({sk_protocol: protocol}, () => privileged, 12, 18),
+            (protocol === 17 || protocol === 18) && !privileged);
     }
 }
-for (const command of ['BR_ADD', 'IF_ADD', 'MFDB_ADD', 'MFDB_LIST']) {
-    for (const destination of ['explicit unicast', 'connected unicast', 'multicast']) {
-        assert.equal(rejectSend({sk_protocol: 17}, () => false, 12), true,
-            `${command}: ${destination} must fail, including inherited or passed sockets`);
+for (const protocol of [17, 18]) {
+    for (const command of ['BR_ADD', 'IF_ADD', 'MFDB_ADD', 'MFDB_LIST', 'IGSDB_LIST']) {
+        for (const destination of ['explicit unicast', 'connected unicast', 'multicast']) {
+            assert.equal(rejectSend({sk_protocol: protocol}, () => false, 12, 18), true,
+                `${command} protocol ${protocol}, ${destination} must fail, including inherited or passed sockets`);
+        }
     }
 }
-assert.equal(rejectCreate(17, false, () => true, 12), false);
-assert.equal(rejectSend({sk_protocol: 17}, () => false, 12), true,
+assert.equal(rejectCreate(17, false, () => true, 12, 18), false);
+assert.equal(rejectCreate(18, false, () => true, 12, 18), false);
+assert.equal(rejectSend({sk_protocol: 17}, () => false, 12, 18), true,
     'a socket opened with privileges cannot send after CAP_NET_ADMIN is dropped');
-console.log('PASS: netlink creation/send source contracts and capability models (not kernel execution)');
+assert.equal(rejectSend({sk_protocol: 18}, () => false, 12, 18), true,
+    'an IGS socket opened with privileges cannot send after CAP_NET_ADMIN is dropped');
+console.log('PASS: EMF/IGS netlink creation/send source contracts and capability models (not kernel execution)');
 
 const register = body(proc, 'static int proc_register(', 'static struct proc_dir_entry *__proc_create(');
 const directoryGuard = register.match(/if \((dir == &proc_root && S_ISDIR\(dp->mode\) &&\s*!strcmp\(dp->name, "emf"\))\) \{\s*dp->mode = S_IFDIR \| 0700;\s*dp->uid = 0;\s*dp->gid = 0;\s*\}/);
