@@ -609,9 +609,6 @@ extern void switch_ledg(int action);
 #endif
 extern int get_external_ip(void);
 extern int get_rtinfo();
-extern void clean_ban_ip_timeout();
-extern int filter_ban_ip();
-extern void slowloris_check();
 extern void slow_post_read_check();
 extern int check_chpass_auth(char *cur_username, char *cur_passwd);
 extern void reg_default_final_token();

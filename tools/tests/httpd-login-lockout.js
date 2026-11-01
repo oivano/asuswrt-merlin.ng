@@ -177,4 +177,53 @@ assert.equal(context.error_info().lock_time, 1);
 context.now += 1;
 assert.equal(context.error_info().error_status, 0);
 assert.equal(context.error_info().lock_time, 0);
-console.log('httpd login lockout: dispatcher contracts, source-derived cooldown and error-page checks passed (not compiled C)');
+const slowlorisSourceGet = body(source, 'httpd_slowloris_source_get');
+const slowlorisBlocked = body(source, 'httpd_slowloris_blocked');
+const slowlorisCheck = body(source, 'httpd_slowloris_record_timeout');
+const requestDeadlineStop = body(source, 'httpd_request_deadline_stop');
+assert.doesNotMatch(source + header, /\b(?:filter_ban_ip|slowloris_check|add_ban_ip|clean_ban_ip_timeout)\s*\(/);
+assert.match(slowlorisSourceGet, /inet_ntop\(family, peer_address, address, sizeof\(address\)\)/);
+assert.match(slowlorisSourceGet, /entry->family == family &&\s*!strcmp\(entry->address, address\)/);
+assert.match(slowlorisCheck, /httpd_slowloris_loopback\(peer\)/);
+assert.match(requestDeadlineStop, /if \(!request_headers_complete\)\s*httpd_slowloris_record_timeout\(&request_peer\)/);
+assert.match(slowlorisBlocked, /now < entry->blocked_until/);
+assert.match(source, /httpd_slowloris_blocked\(&item->usa\)/);
+assert.match(source, /#define HTTPD_SLOWLORIS_ATTEMPT_LIMIT 7/);
+assert.match(source, /#define HTTPD_SLOWLORIS_WINDOW 600/);
+assert.match(source, /#define HTTPD_SLOWLORIS_BLOCK 600/);
+assert.doesNotMatch(slowlorisSourceGet + slowlorisBlocked + slowlorisCheck, /nvram_(?:get|set)|slowloris_ip_list/);
+
+const slowlorisLimit = Number(source.match(/#define HTTPD_SLOWLORIS_ATTEMPT_LIMIT (\d+)/)[1]);
+const slowlorisWindow = Number(source.match(/#define HTTPD_SLOWLORIS_WINDOW (\d+)/)[1]);
+const slowlorisBlock = Number(source.match(/#define HTTPD_SLOWLORIS_BLOCK (\d+)/)[1]);
+const slowlorisSources = new Map();
+function slowlorisTimeout(family, address, now) {
+    const identity = `${family}:${address}`;
+    let entry = slowlorisSources.get(identity);
+    if (!entry) {
+        entry = { attempts: 0, firstAttempt: now, blockedUntil: 0 };
+        slowlorisSources.set(identity, entry);
+    }
+    if (now < entry.firstAttempt || now - entry.firstAttempt >= slowlorisWindow) {
+        entry.attempts = 0;
+        entry.firstAttempt = now;
+    }
+    if (++entry.attempts >= slowlorisLimit)
+        entry.blockedUntil = now + slowlorisBlock;
+}
+function slowlorisIsBlocked(family, address, now) {
+    const entry = slowlorisSources.get(`${family}:${address}`);
+    return Boolean(entry && entry.blockedUntil && now < entry.blockedUntil);
+}
+
+const slowlorisVictim = '192.168.1.100';
+const slowlorisAttacker = '2001:db8::c0a8:164';
+for (let index = 0; index < slowlorisLimit; ++index)
+    slowlorisTimeout('AF_INET6', slowlorisAttacker, 100 + index);
+assert(slowlorisIsBlocked('AF_INET6', slowlorisAttacker, 106));
+assert(!slowlorisIsBlocked('AF_INET', slowlorisVictim, 106));
+assert(!slowlorisIsBlocked('AF_INET6', slowlorisAttacker, 706));
+slowlorisTimeout('AF_INET', slowlorisVictim, 107);
+assert(!slowlorisIsBlocked('AF_INET', slowlorisVictim, 107));
+
+console.log('httpd login lockout and slowloris ban: per-source accounting, full-address family isolation and expiry checks passed (source contracts/model; not compiled C)');
