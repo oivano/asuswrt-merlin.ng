@@ -899,6 +899,12 @@ static NOINLINE int udhcp_recv_raw_packet(struct dhcp_packet *dhcp_pkt, int fd)
 		log1("packet is too short, ignoring");
 		return -2;
 	}
+	if (ntohs(packet.ip.tot_len) < sizeof(packet.ip) + sizeof(packet.udp)
+	 || ntohs(packet.udp.len) < sizeof(packet.udp)
+	) {
+		log1("packet is too short, ignoring");
+		return -2;
+	}
 
 	if (bytes < ntohs(packet.ip.tot_len)) {
 		/* packet is bigger than sizeof(packet), we did partial read */
