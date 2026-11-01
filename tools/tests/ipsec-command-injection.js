@@ -1,6 +1,10 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const net = require('node:net');
+const os = require('node:os');
+const util = require('node:util');
+const { spawnSync } = require('node:child_process');
 
 const root = path.resolve(__dirname, '../..');
 const read = file => fs.readFileSync(path.join(root, file), 'utf8');
@@ -8,6 +12,92 @@ const httpd = read('release/src/router/httpd/httpd.c');
 const web = read('release/src/router/httpd/web.c');
 const rc = read('release/src/router/rc/rc_ipsec.c');
 const rcHeader = read('release/src/router/rc/rc_ipsec.h');
+
+const certHostnameBody = rc.match(/static int ipsec_cert_hostname_valid\(const char \*hostname\)\s*\{([^]*?)\n\}/)[1];
+const certHostnameJS = certHostnameBody
+    .replace(/size_t length = strnlen\(hostname, 64\), offset, label = 0;/,
+        'let length = Math.min(hostname.length, 64), offset, label = 0;')
+    .replace(/unsigned char value = hostname\[offset\];/, 'let value = hostname.charCodeAt(offset);')
+    .replace(/value == '\.'/g, 'value == 46')
+    .replace(/value == '-'/g, 'value == 45')
+    .replace(/value (>=|<=) '([a-zA-Z0-9])'/g,
+        (_, operator, character) => `value ${operator} ${character.charCodeAt(0)}`);
+const validCertHostname = new Function('hostname', certHostnameJS);
+for (const hostname of ['router.oray.net', 'DDNS-1.Oray.NET', 'router.example.', 'a'.repeat(63)])
+    assert.equal(Boolean(validCertHostname(hostname)), true, hostname);
+const hostileCertHosts = ['', 'a'.repeat(64), 'a'.repeat(127), '.example', 'a..example',
+    '-a.example', 'a-.example', 'example..', 'example-', 'a$(touch /tmp/pwn)',
+    'a`touch /tmp/pwn`', 'a";touch /tmp/pwn;#', "a'", 'a;b', 'a<b', 'a>b', 'two words',
+    'a\\b', 'a\nb', 'a\rb', 'a\tb', 'a\0b', 'a\xffb', 'router_example'];
+for (const hostname of hostileCertHosts)
+    assert.equal(Boolean(validCertHostname(hostname)), false, JSON.stringify(hostname));
+const certGeneration = rc.slice(rc.indexOf('void rc_ipsec_gen_cert('), rc.indexOf('void rc_ipsec_ca_init('));
+assert.match(certGeneration, /if \(ipsec_cert_hostname_valid\(hostname\)\)\s*strlcpy\(ddns_name, hostname, sizeof\(ddns_name\)\);/);
+assert.doesNotMatch(certGeneration, /snprintf\(ddns_name/);
+assert.match(certGeneration, /if \(!ipsec_cert_hostname_valid\(device_cn\)\)\s*strlcpy\(device_cn, "ASUS", sizeof\(device_cn\)\);/);
+assert.match(certGeneration, /inet_pton\(AF_INET, remote_id, &address\) != 1/);
+assert(certGeneration.indexOf('inet_pton(') < certGeneration.indexOf('ipsec_script_open('));
+assert.match(rc, /#include <arpa\/inet.h>/);
+const selectCertIdentity = (enabled, hostname, wan) => enabled && validCertHostname(hostname)
+    ? hostname : net.isIP(wan) === 4 ? wan : null;
+for (const hostname of hostileCertHosts) {
+    assert.equal(selectCertIdentity(true, hostname, '192.0.2.1'), '192.0.2.1');
+    assert.equal(selectCertIdentity(true, hostname, '192.0.2.1$(touch /tmp/pwn)'), null);
+}
+assert.equal(selectCertIdentity(true, 'router.oray.net', ''), 'router.oray.net');
+assert.equal(selectCertIdentity(false, 'router.oray.net', '192.0.2.1'), '192.0.2.1');
+
+const certPrintf = certGeneration.match(/fprintf\(fp, ((?:"(?:\\.|[^"\\])*"\s*)+),([^]*?)\);/);
+assert(certPrintf, 'extract actual certificate-generation format and arguments');
+const certFormat = [...certPrintf[1].matchAll(/"(?:\\.|[^"\\])*"/g)]
+    .map(match => JSON.parse(match[0])).join('');
+const certArguments = certPrintf[2].split(',').map(argument => argument.trim());
+const certFiles = Object.fromEntries([...rcHeader.matchAll(/#define (FILE_NAME_\w+)\s+("[^"\n]*")/g)]
+    .map(([, name, value]) => [name, JSON.parse(value)]));
+const certTemporary = fs.mkdtempSync(path.join(os.tmpdir(), 'ipsec-cert-hostname-'));
+try {
+    const marker = path.join(certTemporary, 'pwn');
+    const capture = path.join(certTemporary, 'argv');
+    const shellStub = `pki() {
+    case "$1" in
+        --self|--issue) printf '%s\\n' "$@" > "$CAPTURE-$1" ;;
+    esac
+    printf 'stub certificate\\n'
+}
+openssl() { :; }
+`;
+    const executeCertScript = (remoteId, device = 'DSL-AC68U') => {
+        const values = { ...certFiles, FILE_PATH_CA_ETC: `${certTemporary}/`,
+            remote_id: remoteId, 'trimNL(device_cn)': device, ca_lifetime: 2200 };
+        const argumentsForScript = certArguments.map(argument => {
+            assert(Object.hasOwn(values, argument), `known certificate argument: ${argument}`);
+            return values[argument];
+        });
+        const script = '#!/bin/sh\numask 077\n' + shellStub + util.format(certFormat, ...argumentsForScript);
+        const result = spawnSync('/bin/sh', [], { input: script, encoding: 'utf8',
+            env: { ...process.env, CAPTURE: capture }, timeout: 5000 });
+        assert.equal(result.status, 0, result.stderr);
+        return fs.readFileSync(`${capture}---issue`, 'utf8').trimEnd().split('\n');
+    };
+    const payload = `a$(touch ${marker})`;
+    executeCertScript(payload);
+    assert(fs.existsSync(marker), 'negative control: original interpolation runs command substitution');
+    fs.unlinkSync(marker);
+    for (const hostname of [...hostileCertHosts, payload, 'router.example', 'a'.repeat(63)]) {
+        const remoteId = selectCertIdentity(true, hostname, '192.0.2.1');
+        const argumentsReceived = executeCertScript(remoteId);
+        assert.equal(argumentsReceived[argumentsReceived.indexOf('--dn') + 1], `C=TW,O=ASUS,CN=${remoteId}`);
+        assert(argumentsReceived.includes(`--san=${remoteId}`), 'SAN arrives as one literal argument');
+        assert(!fs.existsSync(marker), 'rejected hostname must not execute a command');
+    }
+    const devicePayload = `a$(touch ${marker})`;
+    executeCertScript('router.example', validCertHostname(devicePayload) ? devicePayload : 'ASUS');
+    const caArguments = fs.readFileSync(`${capture}---self`, 'utf8').trimEnd().split('\n');
+    assert(caArguments.includes('C=TW,O=ASUS,CN=ASUS ASUS Root CA'));
+    assert(!fs.existsSync(marker), 'invalid device CN must not execute a command');
+} finally {
+    fs.rmSync(certTemporary, { recursive: true, force: true });
+}
 
 assert.match(httpd, /match\("set_ipsec_clientlist\.cgi\*", url\)[\s\S]*?match\("set_ipsec_profile\.cgi\*", url\)[\s\S]*?do_referer = CHECK_REFERER;/);
 assert.match(web, /\{ "set_ipsec_clientlist\.cgi\*"[^\n]*do_set_ipsec_clientlist_cgi, do_auth \}/);

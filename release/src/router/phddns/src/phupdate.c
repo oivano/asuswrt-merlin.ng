@@ -623,11 +623,16 @@ invalid_domain_list:
 	nvram_set("ddns_return_code_chk", "200");
         for (i=0,totaldomains=0;i<255;i++)
     	{
-		if(ValidDdnsHostname(phglobal->szActiveDomains[i]))
-			nvram_set("ddns_hostname_x", phglobal->szActiveDomains[i]);
-		LOG(1) (("Update Domain: %s\n", phglobal->szActiveDomains[i]));
 		if(phglobal->szActiveDomains[i][0] == '.')
 			break;
+		if(ValidDdnsHostname(phglobal->szActiveDomains[i]))
+			nvram_set("ddns_hostname_x", phglobal->szActiveDomains[i]);
+		else
+		{
+			LOG(1) ("ExecuteUpdate discarded invalid DDNS hostname.\n");
+			continue;
+		}
+		LOG(1) (("Update Domain: %s\n", phglobal->szActiveDomains[i]));
     	}
 
     	memset(buffer, 0, 128);
