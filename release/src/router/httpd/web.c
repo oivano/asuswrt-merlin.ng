@@ -1152,7 +1152,7 @@ char *wl_nband_to_wlx(char *nv_name, char *wl_name, size_t len){
  * <% nvram_get("undefined"); %> produces ""
  */
 static int
-ej_nvram_get(int eid, webs_t wp, int argc, char_t **argv)
+ej_nvram_get_impl(int eid, webs_t wp, int argc, char_t **argv, int escape_backslash)
 {
 	char *name, *c;
 	int ret = 0;
@@ -1196,7 +1196,7 @@ ej_nvram_get(int eid, webs_t wp, int argc, char_t **argv)
 		else if (*c == '\'')
 			ret += websWrite(wp, "&#39;");
 		else if(*c == '\\'){
-			if(from_app != 0)
+			if(escape_backslash || from_app != 0)
 				ret += websWrite(wp, "\\\\");
 			else
 				ret += websWrite(wp, "%c", *c);
@@ -1206,6 +1206,18 @@ ej_nvram_get(int eid, webs_t wp, int argc, char_t **argv)
 	}
 
 	return ret;
+}
+
+static int
+ej_nvram_get(int eid, webs_t wp, int argc, char_t **argv)
+{
+	return ej_nvram_get_impl(eid, wp, argc, argv, 0);
+}
+
+static int
+ej_nvram_get_js(int eid, webs_t wp, int argc, char_t **argv)
+{
+	return ej_nvram_get_impl(eid, wp, argc, argv, 1);
 }
 
 
@@ -33701,6 +33713,7 @@ static int ej_dnsfilter_modes_list(int eid, webs_t wp, int argc, char_t **argv)
 
 struct ej_handler ej_handlers[] = {
 	{ "nvram_get", ej_nvram_get},
+	{ "nvram_get_js", ej_nvram_get_js},
 	{ "nvram_default_get", ej_nvram_default_get},
 	{ "nvram_match", ej_nvram_match},
 	{ "nvram_double_match", ej_nvram_double_match},
