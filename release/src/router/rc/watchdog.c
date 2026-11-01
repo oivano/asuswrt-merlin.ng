@@ -7379,6 +7379,51 @@ void dnsmasq_check()
 #endif
 }
 
+#ifdef CONFIG_BCMWL5
+static int nas_wpa_bss_enabled(int idx, int unit, int subunit, void *param)
+{
+	const char *mode = nvram_safe_get(wl_nvname("mode", unit, subunit));
+	const char *auth_mode = nvram_safe_get(wl_nvname("auth_mode_x", unit, subunit));
+
+	if (!nvram_get_int(wl_nvname("radio", unit, 0)) ||
+	    !strcmp(mode, "sta") || !strcmp(mode, "wet") || !strcmp(mode, "psta"))
+		return 0;
+	return strstr(auth_mode, "wpa") != NULL || strstr(auth_mode, "psk") != NULL;
+}
+
+static void nas_eapd_check(void)
+{
+	static int missing = 0;
+	static time_t last_restart = 0;
+	time_t now;
+
+	if (!nvram_match("success_start_service", "1") || f_exists("/tmp/upgrade"))
+		return;
+#ifdef RTCONFIG_BRCM_HOSTAPD
+	if (!nvram_match("hapd_enable", "0"))
+		return;
+#endif
+	if (!foreach_wif(1, NULL, nas_wpa_bss_enabled)) {
+		missing = 0;
+		return;
+	}
+	if (pids("nas") && pids("eapd")) {
+		missing = 0;
+		return;
+	}
+	if (++missing < 2)
+		return;
+	missing = 0;
+
+	now = time(NULL);
+	if (last_restart && now >= last_restart && now - last_restart < 60)
+		return;
+	last_restart = now;
+	logmessage("watchdog", "nas or eapd is missing, restarting wireless authentication");
+	notify_rc("restart_nas");
+}
+#endif
+
 #if defined(RTCONFIG_MDNS)
 static void mdns_check(void)
 {
@@ -10164,6 +10209,9 @@ wdp:
 	networkmap_check();
 	httpd_check();
 	dnsmasq_check();
+#ifdef CONFIG_BCMWL5
+	nas_eapd_check();
+#endif
 #if defined(RTCONFIG_MDNS)
 	mdns_check();
 #endif

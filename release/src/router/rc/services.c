@@ -4416,6 +4416,51 @@ void stop_eventd(void)
 }
 #endif /* BCM_EVENTD */
 
+#ifdef CONFIG_BCMWL5
+#define NAS_PREAUTH_CHAIN "NAS_PREAUTH"
+
+static int nas_preauth_add_bss(int idx, int unit, int subunit, void *param)
+{
+	const char *bssid;
+	unsigned char address[6];
+
+	if (!nvram_match(wl_nvname("preauth", unit, subunit), "1"))
+		return 0;
+	bssid = nvram_safe_get(wl_nvname("hwaddr", unit, subunit));
+	if (!ether_atoe(bssid, address))
+		return 0;
+
+	return eval("ebtables", "-t", "filter", "-I", NAS_PREAUTH_CHAIN, "1",
+		"-d", (char *)bssid, "-j", "RETURN");
+}
+
+static int update_nas_preauth_filter(void)
+{
+	eval("ebtables", "-t", "filter", "-N", NAS_PREAUTH_CHAIN);
+	if (eval("ebtables", "-t", "filter", "-F", NAS_PREAUTH_CHAIN) != 0 ||
+	    eval("ebtables", "-t", "filter", "-A", NAS_PREAUTH_CHAIN, "-j", "DROP") != 0 ||
+	    foreach_wif(1, NULL, nas_preauth_add_bss) != 0)
+		goto drop_all;
+	while (eval("ebtables", "-t", "filter", "-D", "INPUT", "-p", "0x88c7",
+		"-j", NAS_PREAUTH_CHAIN) == 0)
+		;
+	if (eval("ebtables", "-t", "filter", "-I", "INPUT", "1", "-p", "0x88c7",
+		"-j", NAS_PREAUTH_CHAIN) == 0)
+		return 0;
+
+drop_all:
+	while (eval("ebtables", "-t", "filter", "-D", "INPUT", "-p", "0x88c7",
+		"-j", NAS_PREAUTH_CHAIN) == 0)
+		;
+	if (eval("ebtables", "-t", "filter", "-I", "INPUT", "1", "-p", "0x88c7",
+		"-j", "DROP") != 0)
+		logmessage("wireless", "unable to install 0x88c7 drop rule; NAS pre-auth traffic may remain exposed");
+	else
+		logmessage("wireless", "selective NAS pre-auth filter unavailable; dropping all 0x88c7 frames");
+	return -1;
+}
+#endif
+
 int
 start_eapd(void)
 {
@@ -4426,6 +4471,9 @@ start_eapd(void)
 	if (!restore_defaults_g) {
 #ifdef RTCONFIG_PORT_BASED_VLAN
 		change_lan_ifnames();
+#endif
+#ifdef CONFIG_BCMWL5
+		update_nas_preauth_filter();
 #endif
 		ret = eval("/bin/eapd");
 	}
