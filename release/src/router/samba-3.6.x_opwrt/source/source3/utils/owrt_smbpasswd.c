@@ -185,7 +185,7 @@ out:
 
 int main(int argc, char **argv)
 {
-	unsigned uid;
+	int uid;
 	uchar new_nt_p16[NT_HASH_LEN];
 	int g;
 	char smbpasswd_line[256];
@@ -203,12 +203,12 @@ int main(int argc, char **argv)
 		return 0;
 	}
 	uid = find_uid_for_user(argv[1]);
-	if(uid == -1)
+	if(uid <= 0)
 		exit(2);
 
 	E_md4hash(argv[2], new_nt_p16);
 	s = smbpasswd_line;
-	s += snprintf(s, 256 - (s - smbpasswd_line), "%s:%u:XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX:", argv[1], uid);
+	s += snprintf(s, 256 - (s - smbpasswd_line), "%s:%d:XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX:", argv[1], uid);
 	for(g = 0; g < 16; g++)
 		s += snprintf(s, 256 - (s - smbpasswd_line), "%02X", new_nt_p16[g]);
 	snprintf(s, 256 - (s - smbpasswd_line), ":[U          ]:LCT-00000001:\n");
