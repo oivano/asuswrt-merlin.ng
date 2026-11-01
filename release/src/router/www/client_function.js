@@ -2926,12 +2926,13 @@ function saveClientName(index, type, mac) {
 	document.view_clientlist_form.submit();
 }
 
-function removeClient(_mac, _controlObj, _controlPanel) {
-	if (!e) 
-		var e = window.event; 
-	e.cancelBubble = true;
-	if (e.stopPropagation)
-		e.stopPropagation();
+function removeClient(_mac, _controlObj, _controlPanel, _evt) {
+	_evt = _evt || window.event;
+	if (_evt) {
+		_evt.cancelBubble = true;
+		if (_evt.stopPropagation)
+			_evt.stopPropagation();
+	}
 
 	if(document.getElementById("remove_nmpclientlist_form") != null) {
 		removeElement(document.getElementById("remove_nmpclientlist_form"));
@@ -3002,6 +3003,34 @@ function control_dropdown_client_block(_containerID, _pullArrowID, _evt) {
 	}
 }
 
+function clientListItemClick(_clientIndex, _callBackFun, _callBackFunParam) {
+	var clientObj = clientList[clientList[_clientIndex]];
+	var callback = window[_callBackFun];
+	var params = _callBackFunParam.split(">");
+	var callbackValues = [];
+
+	if(!clientObj || typeof callback != "function")
+		return;
+
+	for(var i = 0; i < params.length; i += 1) {
+		switch(params[i]) {
+			case "mac":
+				callbackValues.push(clientObj.mac);
+				break;
+			case "ip":
+				callbackValues.push((clientObj.ip == "offline") ? "" : clientObj.ip);
+				break;
+			case "name":
+				callbackValues.push(htmlEnDeCode.htmlDecode((clientObj.nickName == "") ? clientObj.name : clientObj.nickName));
+				break;
+			default:
+				callbackValues.push(params[i]);
+				break;
+		}
+	}
+	callback.apply(window, callbackValues);
+}
+
 //_callBackFunParam = mac>ip>..., _interfaceMode = all(wired, wll), wired, wl, _clientState = all, online, offline
 function showDropdownClientList(_callBackFun, _callBackFunParam, _interfaceMode, _containerID, _pullArrowID, _clientState) {
 	document.body.addEventListener("click", function(_evt) {control_dropdown_client_block(_containerID, _pullArrowID, _evt);})
@@ -3019,29 +3048,8 @@ function showDropdownClientList(_callBackFun, _callBackFunParam, _interfaceMode,
 	htmlCode += "<div id='" + _containerID + "_clientlist_offline'></div>";
 	document.getElementById(_containerID).innerHTML = htmlCode;
 
-	var param = _callBackFunParam.split(">");
 	var clientMAC = "";
 	var clientIP = "";
-	var getClientValue = function(_attribute, _clienyObj) {
-		var attribute_value = "";
-		switch(_attribute) {
-			case "mac" :
-				attribute_value = _clienyObj.mac;
-				break;
-			case "ip" :
-				if(clientObj.ip != "offline") {
-					attribute_value = _clienyObj.ip;
-				}
-				break;
-			case "name" :
-				attribute_value = (clientObj.nickName == "") ? clientObj.name : clientObj.nickName;
-				break;
-			default :
-				attribute_value = _attribute;
-				break;
-		}
-		return attribute_value;
-	};
 
 	var genClientItem = function(_state) {
 		var code = "";
@@ -3049,19 +3057,9 @@ function showDropdownClientList(_callBackFun, _callBackFunParam, _interfaceMode,
 		
 		code += '<a id=' + clientList[i] + ' title=' + clientList[i] + '>';
 		if(_state == "online")
-			code += '<div onclick="' + _callBackFun + '(\'';
+			code += '<div onclick="clientListItemClick(' + i + ', &quot;' + _callBackFun + '&quot;, &quot;' + _callBackFunParam + '&quot;);">';
 		else if(_state == "offline")
-			code += '<div style="color:#A0A0A0" onclick="' + _callBackFun + '(\'';
-		for(var j = 0; j < param.length; j += 1) {
-			if(j == 0) {
-				code += getClientValue(param[j], clientObj);
-			}
-			else {
-				code += '\', \'';
-				code += getClientValue(param[j], clientObj);
-			}
-		}
-		code += '\');">';
+			code += '<div style="color:#A0A0A0" onclick="clientListItemClick(' + i + ', &quot;' + _callBackFun + '&quot;, &quot;' + _callBackFunParam + '&quot;);">';
 		code += '<strong>';
 		if(clientName.length > 32) {
 			code += clientName.substring(0, 30) + "..";
