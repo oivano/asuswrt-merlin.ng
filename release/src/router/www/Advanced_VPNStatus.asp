@@ -435,31 +435,38 @@ function parseStatus(text, block, ipaddress, ripaddress){
 
 function parseIPSecData(profileName){
 	var ikeversion = (profileName == "Host-to-Netv2" ? "IKEv2" : "Net-to-Net")
-	var code = "<table width='100%' border='1' align='center' cellpadding='4' cellspacing='0' bordercolor='#6b8fa3' class='FormTable_table'><thead><tr><td colspan='5'>Connected Clients - " + ikeversion + "</td></tr></thead><tr>";
+	var code = "<table width='100%' border='1' align='center' cellpadding='4' cellspacing='0' bordercolor='#6b8fa3' class='FormTable_table'><thead><tr><td colspan='5'>Connected Clients - " + ikeversion + "</td></tr><tr>";
 	code += "<th style='text-align:left;white-space:nowrap;'>Remote IP</th>";
 	code += "<th style='text-align:left;white-space:nowrap;'><#statusTitle_Client#></th>";
 	code += "<th style='text-align:left;white-space:nowrap;'><#Access_Time#></th>";
 	code += "<th style='text-align:left;white-space:nowrap;'><#vpn_ipsec_XAUTH#> <#Permission_Management_Users#></th>";
-	code += "<th style='text-align:left;white-space:nowrap;'>PSKR Auth Time</th>";
+	code += "<th style='text-align:left;white-space:nowrap;'>PSKR Auth Time</th></tr></thead><tbody></tbody></table>";
 
 	var statusText = [[""], ["<#Connected#>"], ["<#Connecting_str#>"], ["<#Connecting_str#>"]];
 	var profileName_array = ipsec_connect_status_array[profileName].split("<");
+	var tableContainer = document.createElement("div");
+	tableContainer.innerHTML = code;
+	var table = tableContainer.firstChild;
+	var tableBody = table.getElementsByTagName("tbody")[0];
 	for (i = 0; i < profileName_array.length; i += 1) {
 		if(profileName_array[i] != "") {
 			var profileName_col = profileName_array[i].split(">");
-			code += "<tr><td style='text-align:left;'>" + profileName_col[0] + "</td>";
-			code += "<td style='text-align:left;'>" + statusText[profileName_col[1]] + "</td>";
-			code += "<td style='text-align:left;'>" + profileName_col[2] + "</td>";
-			code += "<td style='text-align:left;'>" + profileName_col[3] + "</td>";
-			code += "<td style='text-align:left;'>" + profileName_col[4] + "</td></tr>";
+			var row = document.createElement("tr");
+			var values = [profileName_col[0], statusText[profileName_col[1]], profileName_col[2], profileName_col[3], profileName_col[4]];
+			for (var column = 0; column < values.length; column++) {
+				var cell = document.createElement("td");
+				cell.style.textAlign = "left";
+				cell.textContent = values[column] || "";
+				row.appendChild(cell);
+			}
+			tableBody.appendChild(row);
 		}
 	}
 
-	code +='</table>';
 	if('<% nvram_get("ipsec_server_enable"); %>' == "1")
-		document.getElementById('ipsec_srv_Block').innerHTML += code;
+		document.getElementById('ipsec_srv_Block').appendChild(table);
     else 
-		document.getElementById('ipsec_cli_Block').innerHTML += code;
+		document.getElementById('ipsec_cli_Block').appendChild(table);
 }
 
 function getIPSecClientStatus(profileStatus){

@@ -28920,6 +28920,83 @@ static int ipsec_status_copy_span(char *dest, size_t dest_size, const char *star
 	return 1;
 }
 
+static int ipsec_status_get_state(const char *line)
+{
+	const char *state;
+	const char *separator;
+	size_t length;
+
+	if(line == NULL || (separator = strchr(line, ']')) == NULL || separator[1] != ':')
+		return 0;
+	state = separator + 2;
+	while(*state == ' ' || *state == '\t')
+		state++;
+	length = strcspn(state, " \t\r\n");
+	if(length == sizeof("ESTABLISHED") - 1 &&
+	   strncmp(state, "ESTABLISHED", length) == 0)
+		return 1;
+	if(length == sizeof("CONNECTING") - 1 &&
+	   strncmp(state, "CONNECTING", length) == 0)
+		return 2;
+	return 0;
+}
+
+static int ipsec_status_write_js_string(webs_t wp, const char *value)
+{
+	const unsigned char *cursor = (const unsigned char *)value;
+	const unsigned char *start = cursor;
+	int ret = 0;
+
+	while(*cursor) {
+		const char *escaped = NULL;
+		size_t skip = 1;
+
+		if(*cursor == '"')
+			escaped = "\\u0022";
+		else if(*cursor == '\'')
+			escaped = "\\u0027";
+		else if(*cursor == '&')
+			escaped = "\\u0026";
+		else if(*cursor == '<')
+			escaped = "\\u003c";
+		else if(*cursor == '>')
+			escaped = "\\u003e";
+		else if(*cursor == '\\')
+			escaped = "\\u005c";
+		else if(*cursor < 0x20) {
+			static const char hex[] = "0123456789abcdef";
+			char control[7] = "\\u0000";
+
+			control[4] = hex[*cursor >> 4];
+			control[5] = hex[*cursor & 0x0f];
+			if(cursor > start)
+				ret += websWrite(wp, "%.*s", (int)(cursor - start), start);
+			ret += websWrite(wp, "%s", control);
+			cursor++;
+			start = cursor;
+			continue;
+		}
+		else if(cursor[0] == 0xe2 && cursor[1] == 0x80 &&
+			(cursor[2] == 0xa8 || cursor[2] == 0xa9)) {
+			escaped = cursor[2] == 0xa8 ? "\\u2028" : "\\u2029";
+			skip = 3;
+		}
+
+		if(escaped != NULL) {
+			if(cursor > start)
+				ret += websWrite(wp, "%.*s", (int)(cursor - start), start);
+			ret += websWrite(wp, "%s", escaped);
+			cursor += skip;
+			start = cursor;
+		}
+		else
+			cursor++;
+	}
+	if(cursor > start)
+		ret += websWrite(wp, "%.*s", (int)(cursor - start), start);
+	return ret;
+}
+
 static int ipsec_status_parse_peer(const char *line, char *ipaddr, size_t ipaddr_size,
 				   char *identity, size_t identity_size)
 {
@@ -29028,7 +29105,7 @@ static int find_acc_in_IG_list(char *account, char *dev_name, int dev_name_len, 
 static int
 get_ipsec_conn_info(struct json_object *ipsec_conn_obj, int for_json)
 {
-	int ret = 0, len = 0, change_to_new_profile = 0, line_result;
+	int ret = 0, len = 0, change_to_new_profile = 0, line_result, connection_state;
 	char line[512] = {0};
 	char *tmp_name = NULL, *tmp_period_s = NULL, *tmp_period_e = NULL;
 	char dest_name[32] = {0}, peer_identity[33] = {0}, dev_name[33] = {0};
@@ -29068,7 +29145,8 @@ get_ipsec_conn_info(struct json_object *ipsec_conn_obj, int for_json)
 				change_to_new_profile=0;
 			}
 
-			if(strstr(line,"ESTABLISHED") != NULL || strstr(line,"CONNECTING") != NULL)
+			connection_state = ipsec_status_get_state(line);
+			if(connection_state != 0)
 			{
 				memset(profile_name, 0, sizeof(profile_name));
 				memset(ipaddr, 0, sizeof(ipaddr));
@@ -29093,7 +29171,7 @@ get_ipsec_conn_info(struct json_object *ipsec_conn_obj, int for_json)
 				if(!ipsec_status_parse_peer(line, ipaddr, sizeof(ipaddr), peer_identity, sizeof(peer_identity)))
 					continue;
 
-				if(strstr(line,"ESTABLISHED") != NULL) {
+				if(connection_state == 1) {
 					strlcpy(conn_status, "3", sizeof(conn_status)); /* phase 1 established */
 					/* connected period */
 					tmp_period_s = strchr(line, 'D');
@@ -29172,7 +29250,7 @@ get_ipsec_conn_info(struct json_object *ipsec_conn_obj, int for_json)
 					strlcpy(conn_status, "2", sizeof(conn_status));
 
 					conn_period[0] = '\0';
-					xauth_account[0] = '0';
+					xauth_account[0] = '\0';
 					eap_account[0] = '\0';
 					psk_reauth_time[0] = '\0';
 
@@ -29286,7 +29364,8 @@ ej_get_ipsec_conn(int eid, webs_t wp, int argc, char_t **argv)
 					strlcat(ipsec_info_buf, json_object_get_string(client_info_val), sizeof(ipsec_info_buf));
 				}
 			}
-			ret += websWrite(wp, "%s\"]", ipsec_info_buf);
+			ret += ipsec_status_write_js_string(wp, ipsec_info_buf);
+			ret += websWrite(wp, "\"]");
 		}
 	}
 	ret += websWrite(wp, "]");

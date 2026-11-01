@@ -789,6 +789,7 @@ function close_connect_status() {
 }
 function showIPSecClients(ipsec_conn_name_array, e) {
 	var html = "";
+	var rows = document.createDocumentFragment();
 
 	$("#connection_ipsec_profile_panel").fadeIn(300);
 	$("#connection_ipsec_profile_panel").css("position", "absolute");
@@ -812,19 +813,29 @@ function showIPSecClients(ipsec_conn_name_array, e) {
 	for(var i = 0; i < ipsec_conn_name_array.length; i += 1) {
 		ipsec_connect_status_array[ipsec_conn_name_array[i]].forEach(function(item, index, array){
 			if(item != "") {
-				html += "<div class='ipsec_connect_status_content_bg'>";
-				html += "<div class='ipsec_connect_status_content' style='width:240px;word-wrap:break-word;word-break:break-all;'>" + item[0] + "</div>";
-				html += "<div class='ipsec_connect_status_content'>" + statusText[item[1]] + "</div>";
-				html += "<div class='ipsec_connect_status_content'>" + item[2] + "</div>";
-				html += "<div class='ipsec_connect_status_content'>" + item[3] + "</div>";
-				html += "<div class='ipsec_connect_status_content'>" + item[4] + "</div>";
-				html += "</div>";
-				html += "<div style='clear:both;'></div>";
+				var content = document.createElement("div");
+				content.className = "ipsec_connect_status_content_bg";
+				var values = [item[0], statusText[item[1]], item[2], item[3], item[4]];
+				for(var column = 0; column < values.length; column++) {
+					var cell = document.createElement("div");
+					cell.className = "ipsec_connect_status_content";
+					if(column == 0) {
+						cell.style.width = "240px";
+						cell.style.wordWrap = "break-word";
+						cell.style.wordBreak = "break-all";
+					}
+					cell.textContent = values[column] || "";
+					content.appendChild(cell);
+				}
+				rows.appendChild(content);
+				var clear = document.createElement("div");
+				clear.style.clear = "both";
+				rows.appendChild(clear);
 			}
 		});
 	}
 
-	$("#connection_ipsec_profile_panel").append(html);
+	document.getElementById("connection_ipsec_profile_panel").appendChild(rows);
 }
 
 function export_cert(_mode) {

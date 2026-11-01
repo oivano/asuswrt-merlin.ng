@@ -134,6 +134,9 @@ function set_ig_config(_status){
 }
 function update_ipsec_conn(){
 	var statusText = [[""], ["<#Connected#>"], ["<#Connecting_str#>"], ["<#Connecting_str#>"]]
+	var encodeCell = function(value) {
+		return htmlEnDeCode.htmlEncode(value == undefined ? "" : String(value));
+	};
 	var get_ipsec_conn = httpApi.hookGet("get_ipsec_conn", true);
 	var parseArray = [];
 	get_ipsec_conn.forEach(function(item, index, array){
@@ -144,14 +147,14 @@ function update_ipsec_conn(){
 					var itemCol = itemRow[i].split('>');
 					var eachRuleArray = new Array();
 					if(itemCol[6].indexOf("IG") != -1){
-						eachRuleArray.push(itemCol[0]);//ipaddr
-						eachRuleArray.push(statusText[itemCol[1]]);//conn_status
-						eachRuleArray.push(itemCol[2]);//conn_period
+						eachRuleArray.push(encodeCell(itemCol[0]));//ipaddr
+						eachRuleArray.push(encodeCell(statusText[itemCol[1]]));//conn_status
+						eachRuleArray.push(encodeCell(itemCol[2]));//conn_period
 						var device = itemCol[3];
 						if(itemCol[7] != undefined && itemCol[7] != "")
 							device = itemCol[7];
-						eachRuleArray.push(device);//account or device name
-						eachRuleArray.push(itemCol[4]);//psk_reauth_time
+						eachRuleArray.push(encodeCell(device));//account or device name
+						eachRuleArray.push(encodeCell(itemCol[4]));//psk_reauth_time
 						parseArray.push(eachRuleArray);
 					}
 				}
