@@ -10,6 +10,7 @@ const md5 = source('md5.c');
 const generate = source('generate.c');
 const header = source('generate.h');
 const update = source('phupdate.c');
+const web = fs.readFileSync(path.join(root, 'release/src/router/httpd/web.c'), 'latin1');
 const minimum = Number(header.match(/#define PH_CHALLENGE_MIN_LEN (\d+)/)[1]);
 const maximum = Number(header.match(/#define PH_CHALLENGE_MAX_LEN (\d+)/)[1]);
 assert.equal(minimum, 10);
@@ -400,5 +401,17 @@ const step = body(update, 'int phddns_step(');
 assert(step.indexOf('StartDdnsPrivsep(phglobal)') < step.indexOf('InitializeSockets(phglobal)'));
 assert.match(step, /if \(!StartDdnsPrivsep\(phglobal\)\)[^]+?exit\(EXIT_FAILURE\)/);
 
+const nvramGet = body(web, 'ej_nvram_get(int eid, webs_t wp, int argc, char_t **argv)');
+const nvramOutput = nvramGet.slice(nvramGet.indexOf('for (; *c; c++)'));
+assert.match(nvramOutput, /\*c != '\\''/);
+assert.match(nvramOutput, /else if\s*\(\*c == '\\''\)\s*ret \+= websWrite\(wp, "&#39;"\);/);
+const encodedHostname = "router&#39;;globalThis.__ddns_xss = true;//";
+const vm = require('node:vm');
+const page = { __ddns_xss: false };
+vm.runInNewContext(`var ddns_hostname_x = '${encodedHostname}';`, page);
+assert.equal(page.__ddns_xss, false);
+assert.equal(page.ddns_hostname_x, encodedHostname);
+
 console.log('phddns challenge: challenge/redirect, bounded socket/domain/REGI parsing, NVRAM allowlist and fail-closed privilege-drop regressions passed');
+console.log('httpd nvram template output: single quote is encoded and script-string payload remains inert');
 console.log('Not compiled C, ASan, socket/fake-server, or hardware validation.');
