@@ -40,15 +40,12 @@ void check_watchdog()
 	struct stat sb;
 	time_t now;
 	static unsigned long ts_check = 0;
-	char reboot[sizeof("255")];
 	char upgrade[sizeof("255")];
 
-	memset(reboot, 0, sizeof("255"));
 	memset(upgrade, 0, sizeof("255"));
-	f_read_string("/tmp/reboot", reboot, sizeof(reboot));
 	f_read_string("/tmp/upgrade", upgrade, sizeof(upgrade));
 
-	if (atoi(reboot) || atoi(upgrade))
+	if (rc_reboot_flag_is_set() || atoi(upgrade))
 		return;
 
 #if 0

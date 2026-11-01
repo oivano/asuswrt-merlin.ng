@@ -29,6 +29,8 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <net/if_arp.h>
 #include <time.h>
 #include <bcmnvram.h>
@@ -44,6 +46,7 @@
 #include <dirent.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <shared.h>
 #if !defined(__GLIBC__) && !defined(__UCLIBC__) /* musl */
 #include <sys/syscall.h>
@@ -1013,6 +1016,88 @@ void simple_unlock(const char *name)
 
 	snprintf(fn, sizeof(fn), "/var/lock/%s.lock", name);
 	f_write(fn, NULL, 0, 0, 0600);
+}
+
+static int rc_reboot_flag_open_dir(void)
+{
+	struct stat st;
+	int fd;
+
+	if (geteuid() != 0)
+		return -1;
+	fd = open("/tmp/ppp", O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (fd < 0)
+		return -1;
+	if (fstat(fd, &st) < 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
+	    (st.st_mode & 0022)) {
+		close(fd);
+		return -1;
+	}
+	return fd;
+}
+
+int rc_reboot_flag_set(void)
+{
+	struct stat st;
+	char value = '1';
+	int dirfd, fd, result = -1;
+	ssize_t written;
+
+	dirfd = rc_reboot_flag_open_dir();
+	if (dirfd < 0)
+		return -1;
+	fd = openat(dirfd, "reboot",
+		    O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK, 0600);
+	if (fd < 0) {
+		if (errno == EEXIST && rc_reboot_flag_is_set())
+			result = 0;
+		close(dirfd);
+		return result;
+	}
+	if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
+	    st.st_nlink != 1 || fchmod(fd, 0600) < 0 || fstat(fd, &st) < 0 ||
+	    (st.st_mode & 0077))
+		goto done;
+	do {
+		written = write(fd, &value, sizeof(value));
+	} while (written < 0 && errno == EINTR);
+	if (written == (ssize_t)sizeof(value) && close(fd) == 0) {
+		fd = -1;
+		result = 0;
+	}
+done:
+	if (fd >= 0) {
+		close(fd);
+		if (result < 0)
+			unlinkat(dirfd, "reboot", 0);
+	}
+	close(dirfd);
+	return result;
+}
+
+int rc_reboot_flag_is_set(void)
+{
+	struct stat st;
+	char value[2];
+	int dirfd, fd, result = 0;
+	ssize_t count;
+
+	dirfd = rc_reboot_flag_open_dir();
+	if (dirfd < 0)
+		return 0;
+	fd = openat(dirfd, "reboot", O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+	if (fd >= 0) {
+		if (fstat(fd, &st) == 0 && S_ISREG(st.st_mode) && st.st_uid == 0 &&
+		    st.st_nlink == 1 && !(st.st_mode & 0077)) {
+			do {
+				count = read(fd, value, sizeof(value));
+			} while (count < 0 && errno == EINTR);
+			result = count == 1 && value[0] == '1';
+		}
+		close(fd);
+	}
+	close(dirfd);
+	return result;
 }
 
 void simple_lock(const char *name)

@@ -13525,7 +13525,7 @@ void factory_reset(void)
 	nvram_set_int("led_status", LED_FACTORY_RESET);
 #endif
 	g_reboot = 1;
-	f_write_string("/tmp/reboot", "1", 0, 0);
+	rc_reboot_flag_set();
 #ifdef RTCONFIG_REALTEK
 /* [MUST] : Need to Clarify ... */
 	set_led(LED_BLINK_SLOW, LED_BLINK_SLOW);
@@ -13970,7 +13970,7 @@ again:
 		}
 
 		g_reboot = 1;
-		f_write_string("/tmp/reboot", "1", 0, 0);
+		rc_reboot_flag_set();
 
 #ifdef RTCONFIG_HND_ROUTER_AX
 		nvram_set_int("wlready", 0);
