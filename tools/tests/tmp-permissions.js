@@ -11,6 +11,7 @@ const common = read('release/src/router/rc/common.c');
 const services = read('release/src/router/rc/services.c');
 const firewall = read('release/src/router/rc/firewall.c');
 const qos = read('release/src/router/rc/qos.c');
+const acme = read('release/src/router/acme.sh/acme.sh');
 const checkWatchdog = read('release/src/router/rc/check_watchdog.c');
 const watchdog = read('release/src/router/rc/watchdog.c');
 const wan = read('release/src/router/rc/wan.c');
@@ -117,9 +118,11 @@ assert.match(init, /var_nvram_init\(\);\s*chmod\("\/tmp\/var\/nvram", 0700\);/);
 
 const leWorkdir = common.match(/int le_workdir_prepare\(void\)\s*\{([\s\S]*?)\n\}/);
 const leHookCheck = common.match(/int le_fw_script_is_safe\(void\)\s*\{([\s\S]*?)\n\}/);
+const leStartWrapper = common.match(/int start_letsencrypt_safe\(void\)\s*\{([\s\S]*?)\n\}/);
 const leAcmeWrapper = common.match(/int le_acme_main_safe\(int argc, char \*\*argv\)\s*\{([\s\S]*?)\n\}/);
 assert.ok(leWorkdir, 'Let\'s Encrypt protected-directory helper exists');
 assert.ok(leHookCheck, 'Let\'s Encrypt firewall hook validator exists');
+assert.ok(leStartWrapper, 'Let\'s Encrypt startup wrapper exists');
 assert.ok(leAcmeWrapper, 'Let\'s Encrypt ACME applet wrapper exists');
 assert.match(leWorkdir[1], /lstat\("\/", &st\)/);
 assert.match(leWorkdir[1], /lstat\("\/tmp", &st\)/);
@@ -134,6 +137,7 @@ assert.match(leHookCheck[1], /S_ISREG\(st\.st_mode\)/);
 assert.match(leHookCheck[1], /st\.st_uid != 0/);
 assert.match(leHookCheck[1], /st\.st_nlink != 1/);
 assert.match(leHookCheck[1], /st\.st_mode & 0022/);
+assert.match(leStartWrapper[1], /if \(!le_workdir_prepare\(\)\)\s*return -1;\s*return start_letsencrypt\(\);/);
 assert.match(firewall, /if \(nvram_match\("le_enable", "1"\) && le_fw_script_is_safe\(\)\)\s*run_le_fw_script\(\);/);
 assert.match(init, /chmod\("\/tmp", 01777\);\s*if \(!rc_qos_workdir_prepare\(\)\)/);
 assert.match(init, /#ifdef RTCONFIG_LETSENCRYPT\s*if \(!le_workdir_prepare\(\)\)/);
@@ -141,6 +145,15 @@ assert.equal((services.match(/start_letsencrypt_safe\(\);/g) || []).length, 3);
 assert.match(applets, /\{ "le_acme",\s*le_acme_main_safe\s*\}/);
 assert.equal((leAcmeWrapper[1].match(/le_workdir_prepare\(\)/g) || []).length, 2,
     'work directory is protected before and restored after ACME cleanup');
+const leAcmeCall = leAcmeWrapper[1].indexOf('result = le_acme_main(argc, argv);');
+assert.ok(leAcmeCall > 0);
+assert.ok(leAcmeWrapper[1].lastIndexOf('le_workdir_prepare()', leAcmeCall) < leAcmeCall,
+    'work directory is validated before acme.sh runs');
+assert.ok(leAcmeWrapper[1].indexOf('le_workdir_prepare()', leAcmeCall) > leAcmeCall,
+    'work directory is restored after acme.sh cleanup');
+assert.match(acme, /if \[ -z "\$LE_CONFIG_HOME" \]; then\s*LE_CONFIG_HOME="\$LE_WORKING_DIR"/);
+assert.match(acme, /DEFAULT_CA_HOME="\$LE_CONFIG_HOME\/ca"/);
+assert.match(acme, /if \[ -f "\$CA_CONF" \]; then\s*\. "\$CA_CONF"/);
 
 const qosWorkdir = qos.match(/int rc_qos_workdir_prepare\(void\)\s*\{([\s\S]*?)\n\}/);
 const qosWriter = qos.match(/static FILE \*qos_file_open\(const char \*path\)\s*\{([\s\S]*?)\n\}/);
