@@ -3022,8 +3022,11 @@ static void do_html_post_and_get(char *url, FILE *stream, int len, char *boundar
 	if (fgets(post_buf, MIN(len+1, sizeof(post_buf)), stream)){
 		len -= strlen(post_buf);
 
-		while (len--)
-			(void)fgetc(stream);
+		while (len > 0) {
+			if (fgetc(stream) == EOF)
+				break;
+			--len;
+		}
 	}
 	strlcpy(post_json_buf, post_buf, sizeof(post_json_buf));
 

@@ -1447,6 +1447,18 @@ httpd_check_csrf_token(const char *token)
 	return token && *expected && strlen(token) == strlen(expected) && !strcmp(token, expected);
 }
 
+#define HTTPD_MAX_FORM_BODY (65535 - 1)
+#define HTTPD_MAX_UPLOAD_BODY (64 * 1024 * 1024)
+
+static int
+httpd_request_body_limit(const char *url)
+{
+	if (match("upgrade.cgi*|upload.cgi*|jffsupload.cgi*|vpnupload.cgi*|upload_server_ovpn_cert.cgi*|splash_page.cgi*|ipsecupload.cgi*|caupload.cgi*", url))
+		return HTTPD_MAX_UPLOAD_BODY;
+
+	return HTTPD_MAX_FORM_BODY;
+}
+
 static void
 handle_request(void)
 {
@@ -1466,7 +1478,7 @@ handle_request(void)
 	struct mime_referer *doreferer;
 	int mime_exception, do_referer, login_state = -1;
 	int fromapp=0;
-	int cl = 0, flags;
+	int cl = 0, flags, content_length_seen = 0;
 	int referer_result = 1, add_try = 0;
 #ifdef RTCONFIG_FINDASUS
 	int i, isDeviceDiscovery=0;
@@ -1664,13 +1676,27 @@ handle_request(void)
 #endif
 		}
 		else if (strncasecmp( cur, "Content-Length:", 15 ) == 0) {
+			char *end;
+			unsigned long parsed_length;
+
 			cp = &cur[15];
 			cp += strspn( cp, " \t" );
-			cl = strtoul( cp, NULL, 0 );
-			if(cl < 0){
+			if (content_length_seen++ || *cp < '0' || *cp > '9') {
 				send_error( 400, "Bad Request", (char*) 0, "Illegal HTTP Format." );
 				return;
 			}
+			parsed_length = strtoul(cp, &end, 10);
+			while (*end == ' ' || *end == '\t')
+				++end;
+			if (*end && *end != '\r' && *end != '\n') {
+				send_error( 400, "Bad Request", (char*) 0, "Illegal HTTP Format." );
+				return;
+			}
+			if (parsed_length > HTTPD_MAX_UPLOAD_BODY) {
+				send_error( 413, "Content Too Large", NULL, "Request body is too large." );
+				return;
+			}
+			cl = (int)parsed_length;
 		}
 		else if (strncasecmp( cur, "Transfer-Encoding:", 18 ) == 0) {
 			cp = &cur[18];
@@ -1749,6 +1775,10 @@ handle_request(void)
 	else
 	{
 		strncpy(url, file, sizeof(url)-1);
+	}
+	if (cl > httpd_request_body_limit(url)) {
+		send_error(413, "Content Too Large", NULL, "Request body is too large.");
+		return;
 	}
 
 	if( (strstr(url, ".asp") || strstr(url, ".htm")) && !strstr(url, "update_networkmapd.asp") && !strstr(url, "update_clients.asp") && !strstr(url, "update_customList.asp") ) {
@@ -1864,9 +1894,6 @@ handle_request(void)
 			if(login_state==3 && !fromapp) { // few pages can be shown even someone else login
 				 if(handler->auth || (!strncmp(file, "Main_Login.asp", 14) && login_error_status != 9) || mime_exception&MIME_EXCEPTION_NOPASS)
 				{
-					if(strcasecmp(method, "post") == 0 && handler->input)	//response post request
-						while (cl--) (void)fgetc(conn_fp);
-
 					send_login_page(fromapp, NOLOGIN, NULL, NULL, 0, NOLOGINTRY);
 					return;
 				}
@@ -1900,9 +1927,6 @@ handle_request(void)
 					auth_result = auth_check(url, file, cookies, fromapp, &add_try);
 					if (auth_result != 0)
 					{
-						if(strcasecmp(method, "post") == 0 && handler->input)	//response post request
-							while (cl--) (void)fgetc(conn_fp);
-
 						send_login_page(fromapp, auth_result, url, file, auth_check_dt, add_try);
 						return;
 					}
@@ -1947,9 +1971,6 @@ handle_request(void)
 				if(do_referer&CHECK_REFERER){
 					referer_result = check_noauth_referrer(referer, fromapp);
 					if(referer_result != 0){
-						if(strcasecmp(method, "post") == 0 && handler->input)	//response post request
-							while (cl--) (void)fgetc(conn_fp);
-
 						send_login_page(fromapp, referer_result, NULL, NULL, 0, NOLOGINTRY);
 						//if(!fromapp) http_logout(&login_uip_tmp, cookies);
 						return;
