@@ -39,6 +39,8 @@
 #include "upnputils.h"
 
 #ifdef ENABLE_EVENTS
+#define MAX_UPNP_SUBSCRIBERS 32
+#define UPNP_NOTIFY_TIMEOUT 10
 /*enum subscriber_service_enum {
  EWanCFG = 1,
  EWanIPC,
@@ -70,6 +72,7 @@ struct upnp_event_notify {
     int buffersize;
 	int tosend;
     int sent;
+	time_t deadline;
 	const char * path;
 #ifdef ENABLE_IPV6
 	int ipv6;
@@ -199,10 +202,18 @@ upnpevents_addSubscriber(const char * eventurl,
                          int timeout)
 {
 	struct subscriber * tmp;
+	struct subscriber * sub;
+	unsigned int subscriber_count = 0;
 	/*static char uuid[42];*/
 	/* "uuid:00000000-0000-0000-0000-000000000000"; 5+36+1=42bytes */
 	syslog(LOG_DEBUG, "addSubscriber(%s, %.*s, %d)",
 	       eventurl, callbacklen, callback, timeout);
+	for(sub = subscriberlist.lh_first; sub != NULL; sub = sub->entries.le_next)
+		subscriber_count++;
+	if(subscriber_count >= MAX_UPNP_SUBSCRIBERS) {
+		syslog(LOG_WARNING, "rejecting subscription: subscriber limit reached");
+		return NULL;
+	}
 	/*strncpy(uuid, uuidvalue, sizeof(uuid));
 	uuid[sizeof(uuid)-1] = '\0';*/
 	tmp = newSubscriber(eventurl, callback, callbacklen);
@@ -279,6 +290,7 @@ upnp_event_create_notify(struct subscriber * sub)
 	}
 	obj->sub = sub;
 	obj->state = ECreated;
+	obj->deadline = upnp_time() + UPNP_NOTIFY_TIMEOUT;
 #ifdef ENABLE_IPV6
 	obj->s = socket((obj->sub->callback[7] == '[') ? PF_INET6 : PF_INET,
 	                SOCK_STREAM, 0);
@@ -655,11 +667,14 @@ void upnpevents_processfds(fd_set *readset, fd_set *writeset)
 	struct subscriber * sub;
 	struct subscriber * subnext;
 	time_t curtime;
+	curtime = upnp_time();
 	for(obj = notifylist.lh_first; obj != NULL; obj = obj->entries.le_next) {
 		syslog(LOG_DEBUG, "%s: %p %d %d %d %d",
 		       "upnpevents_processfds", obj, obj->state, obj->s,
 		       FD_ISSET(obj->s, readset), FD_ISSET(obj->s, writeset));
-		if(obj->s >= 0) {
+		if(obj->deadline && curtime >= obj->deadline) {
+			obj->state = EError;
+		} else if(obj->s >= 0) {
 			if(FD_ISSET(obj->s, readset) || FD_ISSET(obj->s, writeset))
 				upnp_event_process_notify(obj);
 		}
@@ -689,7 +704,6 @@ void upnpevents_processfds(fd_set *readset, fd_set *writeset)
 		obj = next;
 	}
 	/* remove timeouted subscribers */
-	curtime = upnp_time();
 	for(sub = subscriberlist.lh_first; sub != NULL; ) {
 		subnext = sub->entries.le_next;
 		if(sub->timeout && curtime > sub->timeout && sub->notify == NULL) {

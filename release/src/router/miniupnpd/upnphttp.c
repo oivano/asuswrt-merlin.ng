@@ -19,10 +19,8 @@
 #include <syslog.h>
 #include <ctype.h>
 #include <errno.h>
-#include "config.h"
-#ifdef ENABLE_HTTP_DATE
 #include <time.h>
-#endif
+#include "config.h"
 #include "upnphttp.h"
 #include "upnpdescgen.h"
 #include "miniupnpdpath.h"
@@ -136,6 +134,7 @@ New_upnphttp(int s)
 		return NULL;
 	memset(ret, 0, sizeof(struct upnphttp));
 	ret->socket = s;
+	ret->last_activity = time(NULL);
 	if(!set_non_blocking(s))
 		syslog(LOG_WARNING, "New_upnphttp::set_non_blocking(): %m");
 	return ret;
@@ -208,15 +207,17 @@ Delete_upnphttp(struct upnphttp * h)
 /* parse HttpHeaders of the REQUEST
  * This function is called after the \r\n\r\n character
  * sequence has been found in h->req_buf */
-static void
+static int
 ParseHttpHeaders(struct upnphttp * h)
 {
 	char * line;
 	char * colon;
 	char * p;
+	char * endptr;
+	long content_length;
 	int n;
 	if((h->req_buf == NULL) || (h->req_contentoff <= 0))
-		return;
+		return 0;
 	line = h->req_buf;
 	while(line < (h->req_buf + h->req_contentoff))
 	{
@@ -234,14 +235,20 @@ ParseHttpHeaders(struct upnphttp * h)
 		{
 			if(strncasecmp(line, "Content-Length:", 15)==0)
 			{
-				p = colon;
-				while((*p < '0' || *p > '9') && (*p != '\r') && (*p != '\n'))
+				p = colon + 1;
+				while(*p == ' ' || *p == '\t')
 					p++;
-				h->req_contentlen = atoi(p);
-				if(h->req_contentlen < 0) {
-					syslog(LOG_WARNING, "ParseHttpHeaders() invalid Content-Length %d", h->req_contentlen);
-					h->req_contentlen = 0;
+				errno = 0;
+				content_length = strtol(p, &endptr, 10);
+				while(*endptr == ' ' || *endptr == '\t')
+					endptr++;
+				if(p == endptr || errno == ERANGE || content_length < 0 ||
+				   content_length > UPNP_HTTP_MAX_BODY_SIZE ||
+				   (*endptr != '\r' && *endptr != '\n')) {
+					syslog(LOG_WARNING, "ParseHttpHeaders() invalid or oversized Content-Length");
+					return -1;
 				}
+				h->req_contentlen = (int)content_length;
 				/*printf("*** Content-Lenght = %d ***\n", h->req_contentlen);
 				printf("    readbufflen=%d contentoff = %d\n",
 					h->req_buflen, h->req_contentoff);*/
@@ -382,6 +389,7 @@ intervening space) by either an integer or the keyword "infinite". */
 			line++;
 		line += 2;
 	}
+	return 0;
 }
 
 /* very minimalistic 404 error message */
@@ -694,8 +702,10 @@ ProcessHTTPSubscribe_upnphttp(struct upnphttp * h, const char * path)
 					syslog(LOG_DEBUG, "generated sid=%s", sid);
 					h->respflags |= FLAG_SID;
 					h->res_SID = sid;
+					BuildResp_upnphttp(h, 0, 0);
+				} else {
+					BuildResp2_upnphttp(h, 503, "Service Unavailable", 0, 0);
 				}
-				BuildResp_upnphttp(h, 0, 0);
 			} else {
 				syslog(LOG_WARNING, "Invalid Callback in SUBSCRIBE %.*s",
 				       h->req_CallbackLen, h->req_buf + h->req_CallbackOff);
@@ -817,7 +827,10 @@ ProcessHttpQuery_upnphttp(struct upnphttp * h)
 	HttpVer[i] = '\0';
 	syslog(LOG_INFO, "HTTP REQUEST from %s : %s %s (%s)",
 	       h->clientaddr_str, HttpCommand, HttpUrl, HttpVer);
-	ParseHttpHeaders(h);
+	if(ParseHttpHeaders(h) < 0) {
+		h->state = EToDelete;
+		return;
+	}
 	if(h->req_HostOff > 0 && h->req_HostLen > 0) {
 		syslog(LOG_DEBUG, "Host: %.*s", h->req_HostLen, h->req_buf + h->req_HostOff);
 		p = h->req_buf + h->req_HostOff;
@@ -991,6 +1004,11 @@ Process_upnphttp(struct upnphttp * h)
 		else
 		{
 			const char * endheaders;
+			if(h->req_buflen + n > UPNP_HTTP_MAX_REQUEST_SIZE) {
+				syslog(LOG_WARNING, "HTTP request exceeds maximum size");
+				h->state = EToDelete;
+				break;
+			}
 			/* if 1st arg of realloc() is null,
 			 * realloc behaves the same as malloc() */
 			h_tmp = (char *)realloc(h->req_buf, n + h->req_buflen + 1);
@@ -1002,19 +1020,28 @@ Process_upnphttp(struct upnphttp * h)
 			else
 			{
 				h->req_buf = h_tmp;
+				h->last_activity = time(NULL);
 				memcpy(h->req_buf + h->req_buflen, buf, n);
 				h->req_buflen += n;
 				h->req_buf[h->req_buflen] = '\0';
 			}
-			/* search for the string "\r\n\r\n" */
-			endheaders = findendheaders(h->req_buf, h->req_buflen);
-			if(endheaders)
+			if(h->state != EToDelete) {
+				/* search for the string "\r\n\r\n" */
+				endheaders = findendheaders(h->req_buf, h->req_buflen);
+				if(endheaders && endheaders - h->req_buf + 4 > UPNP_HTTP_MAX_HEADER_SIZE) {
+					syslog(LOG_WARNING, "HTTP headers exceed maximum size");
+					h->state = EToDelete;
+				} else if(!endheaders && h->req_buflen > UPNP_HTTP_MAX_HEADER_SIZE) {
+					syslog(LOG_WARNING, "HTTP headers exceed maximum size");
+					h->state = EToDelete;
+				} else if(endheaders)
 			{
 				/* at this point, the request buffer (h->req_buf)
 				 * is guaranteed to contain the \r\n\r\n character sequence */
 				h->req_contentoff = endheaders - h->req_buf + 4;
 				ProcessHttpQuery_upnphttp(h);
 			}
+		}
 		}
 		break;
 	case EWaitingForHttpContent:
@@ -1072,7 +1099,13 @@ Process_upnphttp(struct upnphttp * h)
 		}
 		else
 		{
-			void * tmp = realloc(h->req_buf, n + h->req_buflen);
+			void * tmp;
+			if(h->req_buflen + n > h->req_contentoff + UPNP_HTTP_MAX_BODY_SIZE) {
+				syslog(LOG_WARNING, "HTTP request body exceeds maximum size");
+				h->state = EToDelete;
+				break;
+			}
+			tmp = realloc(h->req_buf, n + h->req_buflen);
 			if(!tmp)
 			{
 				syslog(LOG_ERR, "memory allocation error %m");
@@ -1081,6 +1114,7 @@ Process_upnphttp(struct upnphttp * h)
 			else
 			{
 				h->req_buf = tmp;
+				h->last_activity = time(NULL);
 				memcpy(h->req_buf + h->req_buflen, buf, n);
 				h->req_buflen += n;
 				if((h->req_buflen - h->req_contentoff) >= h->req_contentlen)
