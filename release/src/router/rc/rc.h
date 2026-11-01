@@ -1329,6 +1329,8 @@ extern void dsl_defaults_x();
 // init.c
 extern int init_main(int argc, char *argv[]);
 extern int reboothalt_main(int argc, char *argv[]);
+extern int rc_reboot_flag_set(void);
+extern int rc_reboot_flag_is_set(void);
 extern int console_main(int argc, char *argv[]);
 extern int limit_page_cache_ratio(int ratio);
 extern int init_nvram(void);

@@ -7,12 +7,28 @@ const { spawnSync } = require('node:child_process');
 const root = path.resolve(__dirname, '../..');
 const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 const init = read('release/src/router/rc/init.c');
+const common = read('release/src/router/rc/common.c');
+const services = read('release/src/router/rc/services.c');
+const checkWatchdog = read('release/src/router/rc/check_watchdog.c');
+const watchdog = read('release/src/router/rc/watchdog.c');
 const wan = read('release/src/router/rc/wan.c');
 const dhcp = read('release/src/router/rc/udhcpc.c');
 const install = read('release/src/router/rc/Makefile');
 const applets = read('release/src/router/rc/rc.c');
 const ppp = read('release/src/router/pppd/pppd/pathnames.h');
 const cru = read('release/src/router/others/cru');
+
+assert.match(common, /open\("\/tmp\/ppp", O_RDONLY \| O_DIRECTORY \| O_NOFOLLOW\)/);
+assert.match(common, /openat\(dirfd, "reboot",\s*O_WRONLY \| O_CREAT \| O_EXCL \| O_NOFOLLOW \| O_NONBLOCK, 0600\)/);
+assert.match(common, /openat\(dirfd, "reboot", O_RDONLY \| O_NOFOLLOW \| O_NONBLOCK\)/);
+assert.match(common, /S_ISREG\(st\.st_mode\).*st\.st_uid != 0/);
+assert.match(common, /st\.st_nlink != 1[\s\S]*st\.st_mode & 0077/);
+assert.equal((init.match(/rc_reboot_flag_set\(\)/g) || []).length, 1);
+assert.equal((services.match(/rc_reboot_flag_set\(\)/g) || []).length, 2);
+assert.equal((checkWatchdog.match(/rc_reboot_flag_is_set\(\)/g) || []).length, 1);
+assert.equal((watchdog.match(/rc_reboot_flag_is_set\(\)/g) || []).length, 2);
+for (const source of [init, services, checkWatchdog, watchdog])
+    assert.doesNotMatch(source, /\/tmp\/reboot/);
 
 const cronTemporary = fs.mkdtempSync(path.join(os.tmpdir(), 'cron-permissions-'));
 try {

@@ -21595,7 +21595,7 @@ int reboothalt_main(int argc, char *argv[])
 	logmessage("system", reboot ? "Rebooting..." : "Shutting down...");
 	_dprintf(reboot ? "Rebooting..." : "Shutting down...");
 	g_reboot = 1;
-	f_write_string("/tmp/reboot", "1", 0, 0);
+	rc_reboot_flag_set();
 #ifdef RTCONFIG_HND_ROUTER_AX
 	nvram_set_int("wlready", 0);
 #endif

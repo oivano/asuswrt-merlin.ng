@@ -5019,15 +5019,12 @@ end_of_wl_sched:
 			{
 				if (timecheck_reboot(reboot_schedule))
 				{
-					char reboot[sizeof("255")];
 					char upgrade[sizeof("255")];
 
-					memset(reboot, 0, sizeof("255"));
 					memset(upgrade, 0, sizeof("255"));
-					f_read_string("/tmp/reboot", reboot, sizeof(reboot));
 					f_read_string("/tmp/upgrade", upgrade, sizeof(upgrade));
 
-					if (atoi(reboot) || atoi(upgrade))
+					if (rc_reboot_flag_is_set() || atoi(upgrade))
 						return;
 
 					nvram_set("sys_reboot_reason", "rbt_scheduler");
@@ -8705,15 +8702,12 @@ void onboarding_check()
 #ifdef RTCONFIG_CFGSYNC
 void cfgsync_check()
 {
-	char reboot[sizeof("255")];
 	char upgrade[sizeof("255")];
 
-	memset(reboot, 0, sizeof("255"));
 	memset(upgrade, 0, sizeof("255"));
-	f_read_string("/tmp/reboot", reboot, sizeof(reboot));
 	f_read_string("/tmp/upgrade", upgrade, sizeof(upgrade));
-	
-	if (atoi(reboot) || atoi(upgrade))
+
+	if (rc_reboot_flag_is_set() || atoi(upgrade))
 		return;
 
 	if (repeater_mode() || mediabridge_mode() || psr_mode())
