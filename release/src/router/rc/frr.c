@@ -475,6 +475,7 @@ static void frr_write_ospf_block(FILE *fp, const char *lan_ip, const char *wan_i
 		fprintf(fp, "router ospf\n");
 		fprintf(fp, " ospf router-id %s\n", lan_ip);
 		fprintf(fp, " log-adjacency-changes\n");
+		fprintf(fp, " passive-interface br0\n");
 		fprintf(fp, " !\n");
 
 		if (*ospf_networks) {
@@ -483,8 +484,6 @@ static void frr_write_ospf_block(FILE *fp, const char *lan_ip, const char *wan_i
 				if (*net) fprintf(fp, " network %s area %s\n", net, ospf_area);
 			}
 			free(nl);
-		} else {
-			fprintf(fp, " network 0.0.0.0/0 area %s\n", ospf_area);
 		}
 
 		fprintf(fp, " !\n");
