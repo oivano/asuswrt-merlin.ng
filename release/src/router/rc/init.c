@@ -19790,6 +19790,8 @@ static void sysinit(void)
 	mkdir("/var/tmp/dhcp", 01777);
 	mkdir("/home/root", 0700);
 	chmod("/tmp", 01777);
+	if (!rc_qos_workdir_prepare())
+		_dprintf("Unable to secure QoS temporary directory\n");
 #ifdef RTCONFIG_LETSENCRYPT
 	if (!le_workdir_prepare())
 		_dprintf("Unable to secure /tmp/.le\n");

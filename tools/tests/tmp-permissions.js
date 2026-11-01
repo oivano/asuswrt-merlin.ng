@@ -10,6 +10,7 @@ const init = read('release/src/router/rc/init.c');
 const common = read('release/src/router/rc/common.c');
 const services = read('release/src/router/rc/services.c');
 const firewall = read('release/src/router/rc/firewall.c');
+const qos = read('release/src/router/rc/qos.c');
 const checkWatchdog = read('release/src/router/rc/check_watchdog.c');
 const watchdog = read('release/src/router/rc/watchdog.c');
 const wan = read('release/src/router/rc/wan.c');
@@ -134,11 +135,42 @@ assert.match(leHookCheck[1], /st\.st_uid != 0/);
 assert.match(leHookCheck[1], /st\.st_nlink != 1/);
 assert.match(leHookCheck[1], /st\.st_mode & 0022/);
 assert.match(firewall, /if \(nvram_match\("le_enable", "1"\) && le_fw_script_is_safe\(\)\)\s*run_le_fw_script\(\);/);
-assert.match(init, /chmod\("\/tmp", 01777\);\s*#ifdef RTCONFIG_LETSENCRYPT\s*if \(!le_workdir_prepare\(\)\)/);
+assert.match(init, /chmod\("\/tmp", 01777\);\s*if \(!rc_qos_workdir_prepare\(\)\)/);
+assert.match(init, /#ifdef RTCONFIG_LETSENCRYPT\s*if \(!le_workdir_prepare\(\)\)/);
 assert.equal((services.match(/start_letsencrypt_safe\(\);/g) || []).length, 3);
 assert.match(applets, /\{ "le_acme",\s*le_acme_main_safe\s*\}/);
 assert.equal((leAcmeWrapper[1].match(/le_workdir_prepare\(\)/g) || []).length, 2,
     'work directory is protected before and restored after ACME cleanup');
+
+const qosWorkdir = qos.match(/int rc_qos_workdir_prepare\(void\)\s*\{([\s\S]*?)\n\}/);
+const qosWriter = qos.match(/static FILE \*qos_file_open\(const char \*path\)\s*\{([\s\S]*?)\n\}/);
+const qosFileCheck = qos.match(/static int qos_file_is_safe\(const char \*path, int executable\)\s*\{([\s\S]*?)\n\}/);
+const stopQos = qos.match(/void stop_iQos\(void\)\s*\{([\s\S]*?)\n\}/);
+assert.ok(qosWorkdir, 'QoS protected-directory helper exists');
+assert.ok(qosWriter, 'QoS exclusive file writer exists');
+assert.ok(qosFileCheck, 'QoS file validator exists');
+assert.ok(stopQos, 'QoS stop handler exists');
+assert.match(qos, /#define QOS_PRIVATE_DIR "\/tmp\/ppp\/qos"/);
+assert.match(qosWorkdir[1], /lstat\("\/tmp\/ppp", &st\)/);
+assert.match(qosWorkdir[1], /mkdir\(QOS_PRIVATE_DIR, 0700\)/);
+assert.match(qosWorkdir[1], /open\(QOS_PRIVATE_DIR, O_RDONLY \| O_DIRECTORY \| O_NOFOLLOW\)/);
+assert.match(qosWorkdir[1], /st\.st_uid == 0/);
+assert.match(qosWriter[1], /unlinkat\(dirfd, name, 0\)/);
+assert.match(qosWriter[1], /openat\(dirfd, name, O_WRONLY \| O_CREAT \| O_EXCL \| O_NOFOLLOW/);
+assert.match(qosWriter[1], /S_ISREG\(st\.st_mode\)/);
+assert.match(qosWriter[1], /st\.st_uid != 0/);
+assert.match(qosWriter[1], /st\.st_nlink != 1/);
+assert.match(qosFileCheck[1], /O_RDONLY \| O_NOFOLLOW \| O_NONBLOCK/);
+assert.match(qosFileCheck[1], /st\.st_nlink == 1/);
+assert.match(qosFileCheck[1], /!executable \|\| \(st\.st_mode & 0100\)/);
+assert.match(stopQos[1], /qos_script_eval\(qosfn, "stop"\)/);
+assert.doesNotMatch(qos, /eval\(\(char \*\)qosfn/);
+assert.doesNotMatch(qos, /fopen\((?:qosfn|mangle_fn|mangle_fn_ipv6), "w"\)/);
+assert.doesNotMatch(qos, /"\/tmp\/(?:qos|mangle_rules(?:_ipv6)?)"/);
+assert.equal((qos.match(/qos_rules_restore\("iptables-restore"/g) || []).length, 2);
+assert.equal((qos.match(/qos_rules_restore\("ip6tables-restore"/g) || []).length, 1);
+assert.equal((qos.match(/qos_rules_restore_noflush\("iptables-restore"/g) || []).length, 1);
+assert.match(init, /chmod\("\/tmp", 01777\);\s*if \(!rc_qos_workdir_prepare\(\)\)/);
 
 if (process.getuid() === 0) {
     const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'letsencrypt-hook-'));
@@ -281,4 +313,4 @@ if (process.getuid() !== 0) {
         fs.rmSync(temporary, { recursive: true, force: true });
     }
 }
-console.log('PASS: boot, DHCP, PPP and Let\'s Encrypt temporary-path source contracts (not compiled firmware)');
+console.log('PASS: boot, DHCP, PPP, QoS and Let\'s Encrypt temporary-path source contracts (not compiled firmware)');
