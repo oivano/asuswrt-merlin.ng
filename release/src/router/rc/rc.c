@@ -2197,7 +2197,7 @@ static const applets_t applets[] = {
 	{ "keyguard",			keyguard_main			},
 #endif
 #ifdef RTCONFIG_LETSENCRYPT
-	{ "le_acme",				le_acme_main			},
+	{ "le_acme", 				le_acme_main_safe		},
 #endif
 #if !(defined(RTCONFIG_QCA) || defined(RTCONFIG_RALINK) || defined(RTCONFIG_REALTEK)) \
  ||  (defined(RTCONFIG_SOC_IPQ8074))

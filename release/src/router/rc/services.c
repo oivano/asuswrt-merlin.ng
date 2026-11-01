@@ -5300,7 +5300,7 @@ ddns_updated_main(int argc, char *argv[])
 	if (nvram_match("le_rc_notify", "1")) {
 		nvram_set("le_rc_notify", "0");
 		stop_letsencrypt();
-		start_letsencrypt();
+		start_letsencrypt_safe();
 	}
 #endif
 
@@ -11772,7 +11772,7 @@ start_services(void)
 	start_cron();
 #endif
 #ifdef RTCONFIG_LETSENCRYPT
-	start_letsencrypt();
+	start_letsencrypt_safe();
 #endif
 #if defined(RTCONFIG_OPENVPN) && defined(RTCONFIG_TPVPN)
 	tpvpn_gen_hma_list();
@@ -18790,7 +18790,7 @@ start_write_smb_conf();
 	else if (strcmp(script, "letsencrypt") == 0)
 	{
 		if(action & RC_SERVICE_STOP) stop_letsencrypt();
-		if(action & RC_SERVICE_START) start_letsencrypt();
+		if(action & RC_SERVICE_START) start_letsencrypt_safe();
 	}
 #endif
 #ifdef RTCONFIG_SOFTWIRE46
