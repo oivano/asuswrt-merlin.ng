@@ -3787,11 +3787,48 @@ int validate_instance(webs_t wp, char *name, json_object *root)
 }
 
 static
+int rstats_path_valid(const char *path)
+{
+	const unsigned char *p, *component;
+	size_t length;
+
+	if (!path || !*path || !strcmp(path, "*nvram"))
+		return 1;
+	if (strncmp(path, "/mnt/", 5) != 0)
+		return 0;
+
+	component = (const unsigned char *)path + 5;
+	if (!*component)
+		return 0;
+	for (p = component; ; ++p) {
+		if (*p == '/' || *p == '\0') {
+			length = p - component;
+			if (length == 0 ||
+			    (length == 1 && component[0] == '.') ||
+			    (length == 2 && component[0] == '.' && component[1] == '.'))
+				return 0;
+			if (*p == '\0')
+				return 1;
+			component = p + 1;
+			if (!*component)
+				return 1;
+		} else if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
+		             (*p >= '0' && *p <= '9') || *p == '_' || *p == '-' || *p == '.')) {
+			return 0;
+		}
+	}
+}
+
+static
 int nvram_check(char *name, char *value, struct nvram_tuple *t, char *output)
 {
 	int ret = 0;
 
-	if(!strcmp(name, "vpn_serverx_clientlist") || !strcmp(name, "pptpd_clientlist"))
+	if (!strcmp(name, "rstats_path") && !rstats_path_valid(value)) {
+		ret = 1;
+		logmessage("httpd", "nvram_check fail: invalid rstats_path");
+	}
+	else if(!strcmp(name, "vpn_serverx_clientlist") || !strcmp(name, "pptpd_clientlist"))
 	{
 		char *str1 = NULL, *str2 = NULL, *buf = NULL, *val = NULL;
 		val = buf = strdup(value);

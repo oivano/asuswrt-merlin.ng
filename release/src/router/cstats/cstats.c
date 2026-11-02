@@ -25,9 +25,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
 #include <signal.h>
 #include <time.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <sys/sysinfo.h>
 #include <sys/stat.h>
 #include <stdint.h>
@@ -219,8 +222,10 @@ static void save(int quick) {
 
 static int load_history_to_tree(const char *fname) {
 	int n;
+	int fd, status;
+	int waited;
 	FILE *f;
-	char s[256];
+	pid_t pid;
 	Node tmp;
 	Node *ptr;
 	char *exclude;
@@ -233,9 +238,26 @@ static int load_history_to_tree(const char *fname) {
 	unlink(uncomp_fn);
 
 	n = -1;	// Initial value, will be returned if we failed to parse a data file
-	sprintf(s, "gzip -dc %s > %s", fname, uncomp_fn);
-	if (system(s) == 0) {
-		if ((f = fopen(uncomp_fn, "rb")) != NULL) {
+	pid = -1;
+	fd = open(uncomp_fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
+	if (fd >= 0) {
+		pid = fork();
+		if (pid == 0) {
+			if (fd != STDOUT_FILENO && dup2(fd, STDOUT_FILENO) < 0)
+				_exit(127);
+			if (fd != STDOUT_FILENO)
+				close(fd);
+			execlp("gzip", "gzip", "-dc", "--", fname, (char *)NULL);
+			_exit(127);
+		}
+		close(fd);
+	}
+	if (pid > 0) {
+		do {
+			waited = waitpid(pid, &status, 0);
+		} while (waited < 0 && errno == EINTR);
+		if (waited == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0 &&
+		    (f = fopen(uncomp_fn, "rb")) != NULL) {
 			n = 0;	// Initial counter
 			while (fread(&tmp, sizeof(Node), 1, f) > 0) {
 				if ((find_word(exclude, tmp.ipaddr))) {
@@ -296,7 +318,7 @@ static int load_history_to_tree(const char *fname) {
 	}
 #ifdef DEBUG_CSTATS
 	else {
-		_dprintf("%s: %s != 0\n", __FUNCTION__, s);
+		_dprintf("%s: gzip failed\n", __FUNCTION__);
 	}
 #endif
 	unlink(uncomp_fn);
