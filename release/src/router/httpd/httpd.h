@@ -619,6 +619,7 @@ extern int last_time_lock_warning(void);
 extern int check_lock_status(time_t *dt);
 extern unsigned int httpd_login_attempts(void);
 extern int httpd_login_status(time_t *elapsed);
+extern int httpd_login_attempt_admit(void);
 extern int httpd_login_failed(int error_status);
 extern void httpd_login_notify(const char *address);
 extern void httpd_login_reset(void);
