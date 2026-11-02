@@ -2702,6 +2702,87 @@ static const char *path_to_name(const char *path) {
  *	SCSI_HOST=<host_no>
  * If host_no is negative, we unmount all partions of *all* hosts.
  */
+static int hotplug_block_name_valid(const char *device)
+{
+	const char *ptr;
+
+	if (!device || !*device || strchr(device, '/'))
+		return 0;
+	if (!strncmp(device, "sd", 2)) {
+		if (device[2] < 'a' || device[2] > 'z')
+			return 0;
+		ptr = device + 3;
+	} else if (!strncmp(device, "sr", 2)) {
+		if (device[2] < '0' || device[2] > '9')
+			return 0;
+		ptr = device + 2;
+	} else if (!strncmp(device, "mmcblk", 6)) {
+		ptr = device + 6;
+		if (*ptr < '0' || *ptr > '9')
+			return 0;
+		while (*ptr >= '0' && *ptr <= '9')
+			ptr++;
+		if (*ptr == '\0')
+			return 1;
+		if (*ptr++ != 'p' || *ptr < '0' || *ptr > '9')
+			return 0;
+	} else {
+		return 0;
+	}
+	while (*ptr >= '0' && *ptr <= '9')
+		ptr++;
+	return *ptr == '\0';
+}
+
+static int hotplug_sysfs_block_numbers(const char *device, int *major, int *minor)
+{
+	char path[128], value[32], parent[32], *sep, *end;
+	unsigned long parsed_major, parsed_minor;
+	size_t parent_len;
+	FILE *fp;
+
+	if (!hotplug_block_name_valid(device) || strlen(device) >= sizeof(parent))
+		return 0;
+	if (!strncmp(device, "sd", 2))
+		parent_len = 3;
+	else if (!strncmp(device, "mmcblk", 6)) {
+		const char *partition = strchr(device, 'p');
+		parent_len = partition ? partition - device : strlen(device);
+	} else
+		parent_len = strlen(device);
+
+	if (parent_len >= strlen(device))
+		snprintf(path, sizeof(path), "/sys/block/%s/dev", device);
+	else {
+		memcpy(parent, device, parent_len);
+		parent[parent_len] = '\0';
+		snprintf(path, sizeof(path), "/sys/block/%s/%s/dev", parent, device);
+	}
+	fp = fopen(path, "r");
+	if (!fp)
+		return 0;
+	if (!fgets(value, sizeof(value), fp)) {
+		fclose(fp);
+		return 0;
+	}
+	fclose(fp);
+	sep = strchr(value, ':');
+	if (!sep)
+		return 0;
+	*sep++ = '\0';
+	errno = 0;
+	parsed_major = strtoul(value, &end, 10);
+	if (errno || end == value || *end || parsed_major > INT_MAX)
+		return 0;
+	errno = 0;
+	parsed_minor = strtoul(sep, &end, 10);
+	if (errno || end == sep || (*end && *end != '\n') || parsed_minor > INT_MAX)
+		return 0;
+	*major = (int)parsed_major;
+	*minor = (int)parsed_minor;
+	return 1;
+}
+
 void hotplug_usb(void)
 {
 	int add;
@@ -2713,7 +2794,7 @@ void hotplug_usb(void)
 	char *device = getenv("DEVICENAME");
 	char *subsystem = getenv("SUBSYSTEM");
 	int is_block = strcmp(subsystem ? : "", "block") == 0;
-	int major = safe_atoi(getenv("MAJOR") ? : "0");
+	int major = 0, minor = 0;
 #else
 	char *device = getenv("DEVICE");
 #endif
@@ -2747,6 +2828,23 @@ void hotplug_usb(void)
 	if (!interface || !action || !product)	/* Hubs bail out here. */
 #endif
 		return;
+	if (is_block) {
+		if (!hotplug_block_name_valid(device) ||
+		    (strcmp(action, "add") && strcmp(action, "remove")))
+			return;
+		if (product && !strcmp(product, "asus_mmc")) {
+			major = USB_DISK_MAJOR;
+		} else if (!strcmp(action, "add")) {
+			if (!hotplug_sysfs_block_numbers(device, &major, &minor))
+				return;
+		} else if (!strncmp(device, "sr", 2)) {
+#ifdef RTCONFIG_USB_CDROM
+			major = USB_CDROM_MAJOR;
+#endif
+		} else {
+			major = USB_DISK_MAJOR;
+		}
+	}
 
 	if (scsi_host)
 		host = safe_atoi(scsi_host);
@@ -2826,7 +2924,6 @@ void hotplug_usb(void)
 				if (major != USB_CDROM_MAJOR)
 #endif
 				{
-					int minor = safe_atoi(getenv("MINOR") ? : "0");
 					if ((minor % 16) == 0 && !is_no_partition(device)) {
 						/* This is a disc, and not a "no-partition" device,
 						 * like APPLE iPOD shuffle. We can't mount it.

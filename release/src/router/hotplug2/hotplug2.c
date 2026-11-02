@@ -15,6 +15,7 @@
 #include <errno.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/uio.h>
 #include <sys/un.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
@@ -746,10 +747,30 @@ end_rules:
 			if (ret < 0)
 				continue;
 #endif
-			size = recv(netlink_socket, &buffer, sizeof(buffer), 0);
+			{
+				struct sockaddr_nl sender;
+				struct iovec iov;
+				struct msghdr msg;
+
+				memset(&sender, 0, sizeof(sender));
+				memset(&msg, 0, sizeof(msg));
+				iov.iov_base = buffer;
+				iov.iov_len = sizeof(buffer);
+				msg.msg_name = &sender;
+				msg.msg_namelen = sizeof(sender);
+				msg.msg_iov = &iov;
+				msg.msg_iovlen = 1;
+				size = recvmsg(netlink_socket, &msg, 0);
+				if (size < 0)
+					continue;
+				if ((msg.msg_flags & MSG_TRUNC) ||
+				    msg.msg_namelen < sizeof(sender) ||
+				    sender.nl_family != AF_NETLINK || sender.nl_pid != 0) {
+					DBG("reading events", "Ignoring non-kernel or truncated uevent.");
+					continue;
+				}
+			}
 			recv_errno = errno;
-			if (size < 0)
-				continue;
 	
 			/*
 			 * Parse the event into an event structure

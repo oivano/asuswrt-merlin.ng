@@ -248,7 +248,7 @@ static char *replace_key_by_value(char *hay, struct hotplug2_event_t *event) {
  * Returns: 0 if success, non-zero otherwise
  */
 static int make_dev_from_event(struct hotplug2_event_t *event, char *path, mode_t devmode) {
-	char *subsystem, *major, *minor, *devpath;
+	char *subsystem, *major, *minor, *devpath, *devicename;
 	int rv = 1;
 	
 	major = get_hotplug2_value_by_key(event, "MAJOR");
@@ -262,8 +262,14 @@ static int make_dev_from_event(struct hotplug2_event_t *event, char *path, mode_
 	devpath = get_hotplug2_value_by_key(event, "DEVPATH");
 	if (devpath == NULL)
 		goto return_value;
+	devicename = get_hotplug2_value_by_key(event, "DEVICENAME");
+	if (devicename == NULL || *devicename == '\0' || strchr(devicename, '/') ||
+	    !strcmp(devicename, ".") || !strcmp(devicename, ".."))
+		goto return_value;
 	
 	subsystem = get_hotplug2_value_by_key(event, "SUBSYSTEM");
+	if (subsystem == NULL)
+		goto return_value;
 	if (!strcmp(subsystem, "block"))
 		devmode |= S_IFBLK;
 	else
@@ -282,6 +288,23 @@ static int make_dev_from_event(struct hotplug2_event_t *event, char *path, mode_
 	
 return_value:
 	return rv;
+}
+
+static int event_env_allowed(const char *key) {
+	static const char *const allowed[] = {
+		"ACTION", "BUSNUM", "DEVICENAME", "DEVNAME", "DEVPATH", "DEVTYPE",
+		"DEVNUM", "DRIVER", "FIRMWARE", "IFINDEX", "INTERFACE", "LINK",
+		"MAJOR", "MINOR", "MODALIAS", "PHYSDEVBUS", "PHYSDEVDRIVER",
+		"PHYSDEVPATH", "PRODUCT", "SEQNUM", "SCSI_HOST", "SUBSYSTEM",
+		"TYPE", "USBPORT", NULL
+	};
+	int i;
+
+	for (i = 0; allowed[i] != NULL; i++) {
+		if (!strcmp(key, allowed[i]))
+			return 1;
+	}
+	return 0;
 }
 
 /**
@@ -536,6 +559,10 @@ int rule_execute(struct hotplug2_event_t *event, struct rule_t *rule) {
 	
 	env = xmalloc(sizeof(char *) * event->env_vars_c);
 	for (i = 0; i < event->env_vars_c; i++) {
+		if (!event_env_allowed(event->env_vars[i].key)) {
+			env[i] = NULL;
+			continue;
+		}
 		env[i] = alloc_env(event->env_vars[i].key, event->env_vars[i].value);
 		putenv(env[i]);
 	}
@@ -592,8 +619,10 @@ int rule_execute(struct hotplug2_event_t *event, struct rule_t *rule) {
 	}
 	
 	for (i = 0; i < event->env_vars_c; i++) {
-		unsetenv(event->env_vars[i].key);
-		free(env[i]);
+		if (env[i] != NULL) {
+			unsetenv(event->env_vars[i].key);
+			free(env[i]);
+		}
 	}
 	free(env);
 	
