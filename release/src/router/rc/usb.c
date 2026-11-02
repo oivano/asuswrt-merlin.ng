@@ -1335,9 +1335,9 @@ int mount_r(char *mnt_dev, char *mnt_dir, char *_type)
 
 	if(strlen(type) > 0){
 #ifndef RTCONFIG_BCMARM
-		unsigned long flags = MS_NOATIME | MS_NODEV;
+		unsigned long flags = MS_NOATIME | MS_NODEV | MS_NOSUID;
 #else
-		unsigned long flags = MS_NODEV;
+		unsigned long flags = MS_NODEV | MS_NOSUID;
 #endif
 
 		if (strcmp(type, "swap") == 0 || strcmp(type, "mbr") == 0) {
@@ -1499,6 +1499,11 @@ int mount_r(char *mnt_dev, char *mnt_dir, char *_type)
 		}
 #endif
 
+		if (flags && strlcat(options, options[0] ? ",nosuid,nodev" : "nosuid,nodev", sizeof(options)) >= sizeof(options)) {
+			syslog(LOG_ERR, "USB %s mount options are too long; refusing mount", mnt_dev);
+			flags = 0;
+		}
+
 		if (flags) {
 			if ((dir_made = mkdir_if_none(mnt_dir))) {
 				/* Create the flag file for remove the directory on dismount. */
@@ -1631,7 +1636,7 @@ int mount_r(char *mnt_dev, char *mnt_dir, char *_type)
 #ifdef RTCONFIG_APFS
 #if defined(RTCONFIG_TUXERA_APFS)
 				if(ret != 0 && nvram_get_int("usb_fs_apfs")){
-					ret = eval("tapfs-u", mnt_dev, mnt_dir);
+					ret = eval("tapfs-u", "-o", "nosuid,nodev", mnt_dev, mnt_dir);
 					if(ret != 0){
 						syslog(LOG_INFO, "USB %s(%s) failed to mount as APFS!" , mnt_dev, type);
 						TRACE_PT("USB %s(%s) failed to mount as APFS!\n", mnt_dev, type);
@@ -1660,9 +1665,9 @@ int mount_r(char *mnt_dev, char *mnt_dir, char *_type)
 			if (ret != 0){ /* give it another try - guess fs */
 				TRACE_PT("give it another try - guess fs.\n");
 #ifndef RTCONFIG_BCMARM
-				ret = eval("mount", "-o", "noatime,nodev", mnt_dev, mnt_dir);
+				ret = eval("mount", "-o", "noatime,nodev,nosuid", mnt_dev, mnt_dir);
 #else
-				ret = eval("mount", "-o", "nodev", mnt_dev, mnt_dir);
+				ret = eval("mount", "-o", "nodev,nosuid", mnt_dev, mnt_dir);
 #endif
 			}
 
