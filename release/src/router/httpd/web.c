@@ -546,7 +546,7 @@ int get_fronthaul_network_capability_val();
 #define FB_FILE_WEB "/tmp/xdslissuestracking_web"
 
 /* networkmap CACHE FILE */
-#define NMP_CACHE_FILE	"/tmp/nmp_cache.js"
+#define NMP_CACHE_FILE	"/tmp/httpd/nmp_cache.js"
 /* DEBUG DEFINE */
 #define CLIENT_DEBUG	"/tmp/CLIENT_DEBUG"
 /* DEBUG FUNCTION */
@@ -9924,13 +9924,25 @@ static int get_client_detail_info(struct json_object *clients, struct json_objec
 static int ej_get_clientlist(int eid, webs_t wp, int argc, char_t **argv)
 {
 	struct json_object *clients;
-	if((nvram_match("refresh_networkmap", "1") || nvram_match("rescan_networkmap", "1")) && (check_if_file_exist(NMP_CACHE_FILE)))
-	{
-		clients = json_object_from_file(NMP_CACHE_FILE);
-		websWrite(wp, "%s", json_object_to_json_string(clients));
-		if(clients)
-			json_object_put(clients);	
-		return 0;
+	if (nvram_match("refresh_networkmap", "1") || nvram_match("rescan_networkmap", "1")) {
+		int fd;
+		struct stat st;
+
+		clients = NULL;
+		if (httpd_ensure_temp_dir() == 0 &&
+		    (fd = open(NMP_CACHE_FILE, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)) >= 0) {
+			if (fstat(fd, &st) == 0 && S_ISREG(st.st_mode) && st.st_uid == 0 &&
+			    st.st_nlink == 1 && (st.st_mode & 077) == 0)
+				clients = json_object_from_fd(fd);
+			close(fd);
+		}
+		if (clients && json_object_get_type(clients) == json_type_object) {
+			websWrite(wp, "%s", json_object_to_json_string(clients));
+			json_object_put(clients);
+			return 0;
+		}
+		if (clients)
+			json_object_put(clients);
 	}
 	
 	if(!pids("networkmap")){
@@ -9990,7 +10002,18 @@ static int ej_get_clientlist(int eid, webs_t wp, int argc, char_t **argv)
 	json_object_object_add(clients, "ClientAPILevel", json_object_new_string(CLIENTAPILEVEL));
 	websWrite(wp, "%s", json_object_to_json_string(clients));
 
-	json_object_to_file(NMP_CACHE_FILE, clients);
+	{
+		char cache_tmp[PATH_MAX];
+
+		if (httpd_create_tempfile(cache_tmp, sizeof(cache_tmp)) == 0) {
+			if (json_object_to_file(cache_tmp, clients) == 0) {
+				if (rename(cache_tmp, NMP_CACHE_FILE) != 0)
+					unlink(cache_tmp);
+			} else {
+				unlink(cache_tmp);
+			}
+		}
+	}
 	if(clients)
 		json_object_put(clients);
 	return 0;
