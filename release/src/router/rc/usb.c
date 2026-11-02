@@ -3525,9 +3525,9 @@ start_samba(void)
 #endif
 
 	if (prepare_samba_dir(SAMBA_RUNTIME_DIR, 0755) != 0 ||
-	    prepare_samba_dir(SAMBA_LOCK_DIR, 0700) != 0)
+	    prepare_samba_dir(SAMBA_LOCK_DIR, 0700) != 0 ||
+	    prepare_samba_dir("/etc/samba", 0700) != 0)
 		return;
-	mkdir_if_none("/etc/samba");
 
 	unlink("/etc/smb.conf");
 	unlink("/etc/samba/smbpasswd");

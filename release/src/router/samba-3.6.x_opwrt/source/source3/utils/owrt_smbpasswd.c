@@ -17,6 +17,7 @@
 
 #include "includes.h"
 #include <endian.h>
+#include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -90,11 +91,48 @@ out:
 
 static const char smbpasswd[] = "/etc/samba/smbpasswd";
 
+static FILE *open_smbpasswd_file(int create)
+{
+	int fd, flags = O_RDWR | O_NOFOLLOW | O_NONBLOCK;
+	struct stat st;
+	FILE *fp;
+	mode_t old_umask;
+
+	if (create) {
+		old_umask = umask(077);
+		fd = open(smbpasswd, flags | O_CREAT | O_EXCL, 0600);
+		umask(old_umask);
+		if (fd == -1 && errno == EEXIST)
+			fd = open(smbpasswd, flags);
+	} else {
+		fd = open(smbpasswd, flags);
+	}
+	if (fd == -1)
+		return NULL;
+
+	if (fstat(fd, &st) == -1)
+		goto fail;
+	if (!S_ISREG(st.st_mode) || st.st_uid != geteuid() || st.st_nlink != 1) {
+		errno = EPERM;
+		goto fail;
+	}
+	if (fchmod(fd, 0600) == -1)
+		goto fail;
+
+	fp = fdopen(fd, "r+");
+	if (!fp)
+		goto fail;
+	return fp;
+
+fail:
+	close(fd);
+	return NULL;
+}
+
 void insert_user_in_smbpasswd(char *user, char *line)
 {
 	char t[256];
-	struct stat st;
-	FILE *fp = fopen(smbpasswd, (stat(smbpasswd, &st) == 0) && (!S_ISDIR(st.st_mode)) ? "r+" : "w+");
+	FILE *fp = open_smbpasswd_file(1);
 
 	if(!fp)
 	{
@@ -126,7 +164,7 @@ out:
 void delete_user_from_smbpasswd(char *user)
 {
 	char t[256];
-	FILE *fp = fopen(smbpasswd, "r+");
+	FILE *fp = open_smbpasswd_file(0);
 
 	if(!fp)
 	{
