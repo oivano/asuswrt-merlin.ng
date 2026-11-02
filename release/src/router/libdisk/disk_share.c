@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <dirent.h>
 #include <ctype.h>
@@ -38,6 +39,90 @@
 
 #define MAX_SHARE_FOLDERS 256
 
+static int metadata_name_is_safe(const char *name)
+{
+	const unsigned char *p;
+
+	if (name == NULL || *name == '\0')
+		return 0;
+	for (p = (const unsigned char *)name; *p != '\0'; ++p)
+		if (*p < 0x20 || *p == 0x7f)
+			return 0;
+	return 1;
+}
+
+static FILE *open_metadata_file(const char *path, const char *mode)
+{
+	char directory[PATH_MAX];
+	const char *base;
+	const char *slash;
+	int directory_fd, fd, flags, writing, truncate_file;
+	struct stat st;
+	FILE *fp;
+	size_t directory_len;
+
+	if (path == NULL || mode == NULL)
+		return NULL;
+	if (!strcmp(mode, "r")) {
+		flags = O_RDONLY;
+		writing = 0;
+		truncate_file = 0;
+	} else if (!strcmp(mode, "w")) {
+		flags = O_WRONLY;
+		writing = 1;
+		truncate_file = 1;
+	} else if (!strcmp(mode, "a+")) {
+		flags = O_RDWR | O_APPEND;
+		writing = 1;
+		truncate_file = 0;
+	} else
+		return NULL;
+
+	slash = strrchr(path, '/');
+	if (slash == NULL) {
+		strcpy(directory, ".");
+		base = path;
+	} else {
+		base = slash + 1;
+		directory_len = (size_t)(slash - path);
+		if (directory_len == 0) {
+			strcpy(directory, "/");
+		} else {
+			if (directory_len >= sizeof(directory))
+				return NULL;
+			memcpy(directory, path, directory_len);
+			directory[directory_len] = '\0';
+		}
+	}
+	if (*base == '\0' || !strcmp(base, ".") || !strcmp(base, ".."))
+		return NULL;
+
+	directory_fd = open(directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (directory_fd < 0)
+		return NULL;
+
+	flags |= O_NOFOLLOW | O_NONBLOCK;
+	fd = openat(directory_fd, base, flags);
+	if (fd < 0 && writing && errno == ENOENT) {
+		fd = openat(directory_fd, base,
+			    flags | O_CREAT | O_EXCL, 0600);
+		if (fd < 0 && errno == EEXIST)
+			fd = openat(directory_fd, base, flags);
+	}
+	close(directory_fd);
+	if (fd < 0)
+		return NULL;
+	if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) ||
+	    (truncate_file && ftruncate(fd, 0) != 0)) {
+		close(fd);
+		return NULL;
+	}
+	fp = fdopen(fd, mode);
+	if (fp == NULL)
+		close(fd);
+	return fp;
+}
+
 #ifdef RTCONFIG_PERMISSION_MANAGEMENT
 #include <PMS_DBAPIs.h>
 // PMS_GetAccountInfo(PMS_ACTION_GET_FULL, &account_list, &group_list, &acc_num, &group_num);
@@ -51,6 +136,7 @@ extern void set_file_integrity(const char *const file_name){
 	unsigned long file_size;
 	char test_file[PATH_MAX], test_file_name[PATH_MAX];
 	FILE *fp;
+	struct stat st;
 	char target_dir[PATH_MAX], *ptr;
 	int len;
 	DIR *opened_dir;
@@ -64,13 +150,20 @@ extern void set_file_integrity(const char *const file_name){
 	memset(target_dir, 0, sizeof(target_dir));
 	strncpy(target_dir, file_name, len);
 
-	if((file_size = f_size(file_name)) == -1){
+	if((fp = open_metadata_file(file_name, "r")) == NULL ||
+	   fstat(fileno(fp), &st) != 0 || st.st_size < 0){
 		usb_dbg("Fail to get the size of the file.\n");
+		if (fp != NULL)
+			fclose(fp);
 		return;
 	}
+	file_size = (unsigned long)st.st_size;
+	fclose(fp);
 
-	snprintf(test_file, sizeof(test_file), "%s.%lu", file_name, file_size);
-	if((fp = fopen(test_file, "w")) != NULL)
+	if (snprintf(test_file, sizeof(test_file), "%s.%lu", file_name,
+		     file_size) >= (int)sizeof(test_file))
+		return;
+	if((fp = open_metadata_file(test_file, "w")) != NULL)
 		fclose(fp);
 
 	++ptr;
@@ -101,17 +194,28 @@ extern void set_file_integrity(const char *const file_name){
 extern int check_file_integrity(const char *const file_name){
 	unsigned long file_size;
 	char test_file[PATH_MAX];
+	FILE *fp;
+	struct stat st;
 
-	if((file_size = f_size(file_name)) == -1){
+	if((fp = open_metadata_file(file_name, "r")) == NULL ||
+	   fstat(fileno(fp), &st) != 0 || st.st_size < 0){
 		usb_dbg("Fail to get the size of the file.\n");
+		if (fp != NULL)
+			fclose(fp);
 		return 0;
 	}
+	file_size = (unsigned long)st.st_size;
+	fclose(fp);
 
-	snprintf(test_file, sizeof(test_file), "%s.%lu", file_name, file_size);
-	if(!check_if_file_exist(test_file)){
+	if (snprintf(test_file, sizeof(test_file), "%s.%lu", file_name,
+		     file_size) >= (int)sizeof(test_file))
+		return 0;
+	fp = open_metadata_file(test_file, "r");
+	if(fp == NULL){
 		usb_dbg("Fail to check the folder list.\n");
 		return 0;
 	}
+	fclose(fp);
 
 	return 1;
 }
@@ -143,6 +247,8 @@ extern int get_all_folder(const char *const mount_path, int *sh_num, char ***fol
 	
 	while((dp = readdir(pool_to_open)) != NULL){
 		if(dp->d_name[0] == '.')
+			continue;
+		if (!metadata_name_is_safe(dp->d_name))
 			continue;
 		
 		if(test_if_System_folder(dp->d_name) == 1)
@@ -249,7 +355,6 @@ extern void free_2_dimension_list(int *num, char ***list){
 
 extern int initial_folder_list(const char *const mount_path){
 	int sh_num;
-	int fd;
 	char **folder_list;
 	FILE *fp;
 	char *list_file;
@@ -280,11 +385,9 @@ extern int initial_folder_list(const char *const mount_path){
 	}
 	
 	// 3. write the folder info
-	fd = open(list_file, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600);
-	if(fd < 0 || (fp = fdopen(fd, "w")) == NULL){
+	fp = open_metadata_file(list_file, "w");
+	if(fp == NULL){
 		usb_dbg("Can't create folder_list, \"%s\".\n", list_file);
-		if(fd >= 0)
-			close(fd);
 		free_2_dimension_list(&sh_num, &folder_list);
 		free(list_file);
 		return -1;
@@ -368,7 +471,7 @@ extern int initial_var_file(const char *const account, const char *const mount_p
 	}
 
 	// 4. write the default content in the var file
-	if ((fp = fopen(var_file, "w")) == NULL) {
+	if ((fp = open_metadata_file(var_file, "w")) == NULL) {
 		usb_dbg("Can't create the var file, \"%s\".\n", var_file);
 		free_2_dimension_list(&sh_num, &folder_list);
 		free(var_file);
@@ -801,7 +904,7 @@ extern int modify_if_exist_new_folder(const char *const account, const char *con
 			return -1;
 		}
 		prefix_len = (size_t)len;
-		var_fp = fopen(var_file, "r");
+		var_fp = open_metadata_file(var_file, "r");
 		if(var_fp == NULL){
 			free_2_dimension_list(&sh_num, &folder_list);
 			free(var_file);
@@ -867,7 +970,7 @@ extern int modify_if_exist_new_folder(const char *const account, const char *con
 		}
 		
 		// 6. add the information of the new folder
-		fp = fopen(var_file, "a+");
+		fp = open_metadata_file(var_file, "a+");
 		if (fp == NULL) {
 			usb_dbg("Can't write \"%s\".\n", var_file);
 			free_2_dimension_list(&sh_num, &folder_list);
@@ -1136,6 +1239,8 @@ int set_permission(const char *const account,
 		usb_dbg("correct Rights is 0, 1, 2, 3.\n");
 		return -1;
 	}
+	if (folder != NULL && !metadata_name_is_safe(folder))
+		return -1;
 	// 1. get the var file
 	if (get_var_file_name(account, mount_path, &var_file, is_group)) {
 		usb_dbg("Can't malloc \"var_file\".\n");
@@ -1191,7 +1296,7 @@ int set_permission(const char *const account,
 				(folder == NULL ? "Pool" : folder), account);
 		free(var_info);
 
-		fp = fopen(var_file, "a+");
+		fp = open_metadata_file(var_file, "a+");
 		if (fp == NULL) {
 			usb_dbg("1. Can't rewrite the file, \"%s\".\n",
 				var_file);
@@ -1281,7 +1386,7 @@ int set_permission(const char *const account,
 	follow_info[0] = '0' + flag;
 
 	// 7. rewrite the var file.
-	fp = fopen(var_file, "w");
+	fp = open_metadata_file(var_file, "w");
 	if (fp == NULL) {
 		usb_dbg("2. Can't rewrite the file, \"%s\".\n", var_file);
 		free(var_file);
@@ -1311,6 +1416,8 @@ extern int set_permission(const char *const account,
 		usb_dbg("correct Rights is 0, 1, 2, 3.\n");
 		return -1;
 	}
+	if (folder != NULL && !metadata_name_is_safe(folder))
+		return -1;
 	
 	// 1. get the var file
 	if(get_var_file_name(account, mount_path, &var_file, 0)){
@@ -1365,7 +1472,7 @@ extern int set_permission(const char *const account,
 			usb_dbg("No right about \"%s\" with \"%s\".\n", (folder == NULL?"Pool":folder), account);
 		free(var_info);
 		
-		fp = fopen(var_file, "a+");
+		fp = open_metadata_file(var_file, "a+");
 		if (fp == NULL) {
 			usb_dbg("1. Can't rewrite the file, \"%s\".\n", var_file);
 			free(var_file);
@@ -1446,7 +1553,7 @@ extern int set_permission(const char *const account,
 	follow_info[0] = '0'+flag;
 	
 	// 7. rewrite the var file.
-	fp = fopen(var_file, "w");
+	fp = open_metadata_file(var_file, "w");
 	if (fp == NULL) {
 		usb_dbg("2. Can't rewrite the file, \"%s\".\n", var_file);
 		free(var_file);
@@ -1519,7 +1626,7 @@ int add_folder_at_var_file(const char *const account,
 	}
 	free(var_info);
 
-	fp = fopen(var_file, "a+");
+	fp = open_metadata_file(var_file, "a+");
 	if (fp == NULL) {
 		usb_dbg("%s: Can't write \"%s\".\n", __FUNCTION__, var_file);
 		free(var_file);
@@ -1730,7 +1837,7 @@ int del_folder_at_var_file(const char *const account,
 	backup = *follow_info;
 	*follow_info = 0;
 
-	fp = fopen(var_file, "w");
+	fp = open_metadata_file(var_file, "w");
 	if (fp == NULL) {
 		usb_dbg("%s: Can't write \"%s\".\n", __FUNCTION__, var_file);
 		*follow_info = backup;
@@ -1866,6 +1973,8 @@ int mod_folder_at_var_file(const char *const account,
 	char *target, *new_target;
 	FILE *fp;
 	char *follow_info, backup;
+	if (!metadata_name_is_safe(folder) || !metadata_name_is_safe(new_folder))
+		return -1;
 
 	result = get_var_file_name(account, mount_path, &var_file, is_group);
 	if (result) {
@@ -1924,7 +2033,7 @@ int mod_folder_at_var_file(const char *const account,
 		return -1;
 	}
 
-	fp = fopen(var_file, "w");
+	fp = open_metadata_file(var_file, "w");
 	if (fp == NULL) {
 		usb_dbg("%s: Can't write \"%s\".\n", __FUNCTION__, var_file);
 		free(var_file);
