@@ -258,6 +258,9 @@ int main(int argc, char *argv[])
 	fprintf(fp, "follow symlinks = no\n");
 	fprintf(fp, "unix extensions = no\n");
 	fprintf(fp, "guest account = nobody\n");
+	fprintf(fp, "lock directory = /var/run/samba/locks\n");
+	fprintf(fp, "state directory = /var/run/samba/locks\n");
+	fprintf(fp, "cache directory = /var/run/samba/locks\n");
 
 	strlcpy(p_computer_name, nvram_safe_get("computer_name"), sizeof(p_computer_name));
 	if (*p_computer_name == '\0' || !is_valid_netbios_name(p_computer_name)) {

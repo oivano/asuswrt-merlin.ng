@@ -74,7 +74,9 @@ CONFIGURE_ARGS = \
 	--with-rootsbindir=/usr/sbin \
 	--with-piddir=/var/run/samba \
 	--with-privatedir=/etc/samba \
-	--with-lockdir=/var/lock \
+	--with-lockdir=/var/run/samba/locks \
+	--with-statedir=/var/run/samba/locks \
+	--with-cachedir=/var/run/samba/locks \
 	--with-syslog \
 	--disable-avahi \
 	--disable-cups \

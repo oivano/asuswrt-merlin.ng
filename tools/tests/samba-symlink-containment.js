@@ -6,6 +6,8 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '../..');
 const read = name => fs.readFileSync(path.join(root, name), 'utf8');
 const config = read('release/src/router/libdisk/write_smb_conf.c');
+const sambaMakefile = read('release/src/router/samba-3.6.x_opwrt/Makefile');
+const tdb = read('release/src/router/samba-3.6.x_opwrt/source/lib/tdb/common/open.c');
 const vfs = read('release/src/router/samba-3.6.x_opwrt/source/source3/modules/vfs_default.c');
 const trans2 = read('release/src/router/samba-3.6.x_opwrt/source/source3/smbd/trans2.c');
 const auth = read('release/src/router/samba-3.6.x_opwrt/source/source3/auth/auth_util.c');
@@ -16,6 +18,24 @@ const diskShare = read('release/src/router/libdisk/disk_share.c');
 for (const setting of ['follow symlinks = no', 'unix extensions = no', 'wide links = no', 'guest account = nobody']) {
     assert.ok(config.includes(`"${setting}\\n"`), setting);
 }
+for (const setting of ['lock', 'state', 'cache']) {
+    assert.ok(config.includes(`"${setting} directory = /var/run/samba/locks\\n"`), `${setting} directory`);
+    assert.ok(sambaMakefile.includes(`--with-${setting}dir=/var/run/samba/locks`), `${setting} build directory`);
+}
+const prepareSambaDir = usb.slice(usb.indexOf('static int prepare_samba_dir('), usb.indexOf('void\nstart_samba(void)'));
+assert.match(prepareSambaDir, /mkdir\(path, mode\)/);
+assert.match(prepareSambaDir, /lstat\(path, &st\).*S_ISDIR\(st\.st_mode\).*st\.st_uid != 0/s);
+assert.match(prepareSambaDir, /st\.st_mode & 0022/);
+const sambaStartSection = usb.slice(usb.indexOf('start_samba(void)'), usb.indexOf('stop_samba(int force)'));
+assert.ok(sambaStartSection.indexOf('prepare_samba_dir(SAMBA_RUNTIME_DIR, 0755)') < sambaStartSection.indexOf('system("/sbin/write_smb_conf")'));
+assert.ok(sambaStartSection.indexOf('prepare_samba_dir(SAMBA_LOCK_DIR, 0700)') < sambaStartSection.indexOf('xstart("/usr/sbin/nmbd"'));
+assert.match(tdb, /open\(name, open_flags \| O_NOFOLLOW, mode\)/);
+assert.match(tdb, /tdb->open_flags \|= O_NOFOLLOW/);
+assert.match(tdb, /open\(tdb->name, tdb->open_flags & ~\(O_CREAT\|O_TRUNC\), 0\)/);
+const tdbNewDatabase = tdb.slice(tdb.indexOf('static int tdb_new_database('), tdb.indexOf('\n\n\nstatic int tdb_already_open'));
+assert.match(tdbNewDatabase, /fstat\(tdb->fd, &st\)/);
+assert.match(tdbNewDatabase, /!S_ISREG\(st\.st_mode\) \|\| st\.st_uid != geteuid\(\) \|\| st\.st_nlink != 1/);
+assert.ok(tdbNewDatabase.indexOf('st.st_nlink != 1') < tdbNewDatabase.indexOf('ftruncate(tdb->fd, 0)'));
 assert.equal((config.match(/guest account =/g) || []).length, 1);
 assert.match(services, /nobody:x:65534:65534:/);
 const guest = auth.slice(auth.indexOf('static NTSTATUS make_new_server_info_guest('), auth.indexOf('static NTSTATUS make_system_session_info_from_pw('));
@@ -85,7 +105,7 @@ const share = path.join(temporary, 'share');
 const outside = path.join(temporary, 'outside');
 fs.mkdirSync(share);
 fs.mkdirSync(outside);
-const { O_RDONLY, O_DIRECTORY, O_NOFOLLOW, O_WRONLY, O_CREAT, O_TRUNC, O_EXCL } = fs.constants;
+const { O_RDONLY, O_DIRECTORY, O_NOFOLLOW, O_WRONLY, O_RDWR, O_CREAT, O_TRUNC, O_EXCL } = fs.constants;
 let opened = new Set();
 let hook = () => {};
 function openAt(dirfd, component, flags, mode) {
@@ -120,6 +140,17 @@ function attempt(name, flags = O_WRONLY | O_CREAT | O_TRUNC) {
 }
 try {
     fs.mkdirSync(path.join(share, 'dir'));
+    const victim = path.join(outside, 'tdb-victim');
+    const tdbLink = path.join(share, 'locking.tdb');
+    fs.writeFileSync(victim, 'preserve this file');
+    fs.symlinkSync(victim, tdbLink);
+    assert.throws(() => fs.openSync(tdbLink, O_RDWR | O_NOFOLLOW), { code: 'ELOOP' });
+    assert.equal(fs.readFileSync(victim, 'utf8'), 'preserve this file');
+    fs.unlinkSync(tdbLink);
+    fs.linkSync(victim, tdbLink);
+    assert.equal(fs.statSync(tdbLink).nlink, 2);
+    assert.equal(fs.readFileSync(victim, 'utf8'), 'preserve this file');
+    fs.unlinkSync(tdbLink);
     assert.equal(attempt('dir/normal'), true);
     assert.equal(attempt('dir/normal', O_RDONLY), true);
     assert.equal(attempt('.', O_RDONLY | O_DIRECTORY), true);
