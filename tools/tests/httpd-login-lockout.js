@@ -26,6 +26,11 @@ assert.doesNotMatch(body(source, 'send_login_page'), /httpd_login_failed|login_t
 assert.match(login, /lock_status = httpd_login_status\(&dt\);\s*if\(lock_status == LOGINLOCK\)/);
 assert(login.indexOf('httpd_login_status(&dt)') < login.indexOf('is_captcha_match'));
 assert(login.indexOf('httpd_login_status(&dt)') < login.indexOf('compare_passwd_in_shadow'));
+assert.match(login, /if \(!httpd_login_attempt_admit\(\)\) \{\s*send_login_page\(fromapp_flag, ACCOUNTFAIL/);
+assert(login.indexOf('httpd_login_attempt_admit()') < login.indexOf('is_captcha_match'));
+assert(login.indexOf('httpd_login_attempt_admit()') < login.indexOf('compare_passwd_in_shadow'));
+assert.doesNotMatch(login.slice(login.indexOf('httpd_login_attempt_admit()') - 160,
+    login.indexOf('httpd_login_attempt_admit()')), /FROM_DUTUtil/);
 assert.match(login, /httpd_login_failed\(WRONGCAPTCHA\)/);
 assert.match(login, /login_error_status = httpd_login_failed\(ACCOUNTFAIL\);/);
 assert.match(login, /HTTPD_DBG\("authpass!\\n"\);\s*httpd_login_reset\(\);/);
@@ -58,6 +63,18 @@ assert.match(loginPage, /document\.form\.cloud_file\.value = redirect_file/);
 assert.match(loginPage, /window\.location\.search/);
 assert.match(header, /extern int httpd_login_failed\(int error_status\);/);
 assert.match(header, /extern void httpd_login_notify\(const char \*address\);/);
+assert.match(header, /extern int httpd_login_attempt_admit\(void\);/);
+assert.match(source, /#define LOGIN_GLOBAL_STATE_FILE "\/tmp\/httpd\/login-budget"/);
+assert.match(source, /flock\(fd, LOCK_EX\)/);
+assert.match(source, /flock\(fd, LOCK_UN\)/);
+assert.match(body(source, 'login_global_state_open'), /O_NOFOLLOW/);
+assert.match(body(source, 'login_global_state_open'), /st_uid != 0.*st_nlink != 1/s);
+assert.match(body(source, 'login_global_state_open'), /flock\(fd, LOCK_EX\)/);
+assert.match(body(source, 'httpd_login_attempt_admit'), /login_global_delay\(state\.attempts\)/);
+assert.match(body(source, 'httpd_login_attempt_admit'), /state\.last_attempt = now/);
+assert.match(body(source, 'httpd_login_attempt_admit'), /if \(fd < 0\)\s*return 0/);
+assert.match(body(source, 'httpd_login_attempt_admit'), /login_global_state_save\(fd, &state\) == 0/);
+assert.match(body(source, 'login_global_reset'), /memset\(&state, 0, sizeof\(state\)\)/);
 assert.match(body(web, 'httpd_login_notify'), /SEND_NT_EVENT\(ADMIN_LOGIN_FAIL_LAN_WEB_EVENT, event\)/);
 function translated(name, parameters) {
     const start = source.indexOf(`\n${name}(`);
@@ -82,12 +99,34 @@ const notifications = [];
 const context = vm.createContext({
     now: 100, currentAddress: '192.168.1.2', LOGIN_SOURCE_LIMIT: limit,
     MAX_LOGIN_BLOCK_TIME: 300, DEFAULT_LOGIN_MAX_NUM: 5, LOGINLOCK: 7, ACCOUNTFAIL: 3,
+    LOGIN_GLOBAL_MAX_DELAY: 30,
     login_sources: Array.from({ length: limit }, empty),
     uptime: () => context.now,
     httpd_login_notify: address => notifications.push(address),
     strcmp: (left, right) => left === right ? 0 : 1,
     memset: entry => Object.assign(entry, empty())
 });
+const globalBudget = { attempts: 0, lastAttempt: 0, nextAttempt: 0 };
+const globalDelayBody = body(source, 'login_global_delay')
+    .replace('unsigned int delay = 1;', 'let delay = 1;')
+    .replace('unsigned int level;', 'let level;')
+    .replace('level = (attempts - DEFAULT_LOGIN_MAX_NUM) / DEFAULT_LOGIN_MAX_NUM;',
+        'level = Math.floor((attempts - DEFAULT_LOGIN_MAX_NUM) / DEFAULT_LOGIN_MAX_NUM);');
+vm.runInContext(`function login_global_delay(attempts) ${globalDelayBody}`, context);
+context.login_global_attempt_admit = () => {
+    if (globalBudget.attempts &&
+        (context.now < globalBudget.lastAttempt || context.now - globalBudget.lastAttempt >= 300))
+        Object.assign(globalBudget, { attempts: 0, lastAttempt: 0, nextAttempt: 0 });
+    if (globalBudget.nextAttempt && context.now < globalBudget.nextAttempt) return false;
+    ++globalBudget.attempts;
+    globalBudget.lastAttempt = context.now;
+    const delay = context.login_global_delay(globalBudget.attempts);
+    globalBudget.nextAttempt = delay ? context.now + delay : 0;
+    return true;
+};
+context.httpd_login_attempt_admit = context.login_global_attempt_admit;
+context.login_global_reset = () =>
+    Object.assign(globalBudget, { attempts: 0, lastAttempt: 0, nextAttempt: 0 });
 vm.runInContext([
     translated('login_source_get', 'create'),
     translated('httpd_login_attempts', ''),
@@ -95,6 +134,15 @@ vm.runInContext([
     translated('httpd_login_failed', 'error_status'),
     translated('httpd_login_reset', '')
 ].join('\n'), context);
+context.now = 0;
+for (let attempt = 0; attempt < 5; ++attempt)
+    assert.equal(context.httpd_login_attempt_admit(), true);
+assert.equal(context.httpd_login_attempt_admit(), false);
+context.now = 300;
+assert.equal(context.httpd_login_attempt_admit(), true);
+assert.equal(globalBudget.attempts, 1, 'window expires when first attempt occurs at uptime zero');
+context.login_global_reset();
+context.now = 100;
 const elapsed = { value: 0 };
 for (let attempt = 1; attempt <= 5; ++attempt)
     assert.equal(context.httpd_login_failed(3), attempt === 5 ? 7 : 3);
@@ -147,6 +195,20 @@ context.now += 300;
 assert.equal(context.httpd_login_attempts(), 0);
 assert.equal(context.httpd_login_failed(3), 3);
 assert.equal(context.httpd_login_attempts(), 1);
+
+assert.deepEqual([4, 5, 9, 10, 15, 20, 25, 30, 100].map(context.login_global_delay),
+    [0, 1, 1, 2, 4, 8, 16, 30, 30]);
+const rotatingBudget = { attempts: 0, lastAttempt: 0, nextAttempt: 0 };
+let rotatingAttempts = 0;
+for (let seconds = 0; seconds < 300; ++seconds) {
+    if (rotatingBudget.nextAttempt > seconds) continue;
+    ++rotatingAttempts;
+    ++rotatingBudget.attempts;
+    rotatingBudget.lastAttempt = seconds;
+    const delay = context.login_global_delay(rotatingBudget.attempts);
+    rotatingBudget.nextAttempt = delay ? seconds + delay : 0;
+}
+assert(rotatingAttempts < 40, `rotating sources admitted ${rotatingAttempts} guesses in five minutes`);
 
 const errorInfo = body(web, 'ej_login_error_info').split('\n\t/* Keep redirect state on this login-page request, not in process globals. */')[0]
     .replace(/char \*page = websGetVar\(wp, "next_page", ""\);/, 'let page = "";')
