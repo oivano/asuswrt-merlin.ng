@@ -54,8 +54,25 @@ void tdb_header_hash(struct tdb_context *tdb,
 static int tdb_new_database(struct tdb_context *tdb, int hash_size)
 {
 	struct tdb_header *newdb;
+	struct stat st;
 	size_t size;
 	int ret = -1;
+
+	if (!(tdb->flags & TDB_INTERNAL)) {
+		if (fstat(tdb->fd, &st) == -1) {
+			TDB_LOG((tdb, TDB_DEBUG_ERROR,
+				 "tdb_new_database: fstat failed for %s: %s\n",
+				 tdb->name, strerror(errno)));
+			return -1;
+		}
+		if (!S_ISREG(st.st_mode) || st.st_uid != geteuid() || st.st_nlink != 1) {
+			TDB_LOG((tdb, TDB_DEBUG_ERROR,
+				 "tdb_new_database: refusing unsafe file %s (uid=%lu, links=%lu)\n",
+				 tdb->name, (unsigned long)st.st_uid, (unsigned long)st.st_nlink));
+			errno = EACCES;
+			return -1;
+		}
+	}
 
 	/* We make it up in memory, then write it out if not internal */
 	size = sizeof(struct tdb_header) + (hash_size+1)*sizeof(tdb_off_t);
@@ -190,6 +207,9 @@ _PUBLIC_ struct tdb_context *tdb_open_ex(const char *name, int hash_size, int td
 	tdb->map_ptr = NULL;
 	tdb->flags = tdb_flags;
 	tdb->open_flags = open_flags;
+#ifdef O_NOFOLLOW
+	tdb->open_flags |= O_NOFOLLOW;
+#endif
 	if (log_ctx) {
 		tdb->log = *log_ctx;
 	} else {
@@ -292,7 +312,13 @@ _PUBLIC_ struct tdb_context *tdb_open_ex(const char *name, int hash_size, int td
 		goto internal;
 	}
 
-	if ((tdb->fd = open(name, open_flags, mode)) == -1) {
+#ifdef O_NOFOLLOW
+	tdb->fd = open(name, open_flags | O_NOFOLLOW, mode);
+#else
+	errno = EACCES;
+	tdb->fd = -1;
+#endif
+	if (tdb->fd == -1) {
 		TDB_LOG((tdb, TDB_DEBUG_WARNING, "tdb_open_ex: could not open file %s: %s\n",
 			 name, strerror(errno)));
 		goto fail;	/* errno set by open(2) */

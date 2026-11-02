@@ -39,6 +39,8 @@ char *usb_dev_file = "/proc/bus/usb/devices";
 
 #define ERR_DISK_FS_RDONLY "1"
 #define ERR_DISK_SCSI_KILL "10"
+#define SAMBA_RUNTIME_DIR "/var/run/samba"
+#define SAMBA_LOCK_DIR SAMBA_RUNTIME_DIR "/locks"
 
 #define USB_CLS_PER_INTERFACE	0	/* for DeviceClass */
 #define USB_CLS_AUDIO		1
@@ -3349,6 +3351,33 @@ start_write_smb_conf(void)
 	system("/sbin/write_smb_conf");
 }
 
+static int prepare_samba_dir(const char *path, mode_t mode)
+{
+	struct stat st;
+
+	if (mkdir(path, mode) == -1 && errno != EEXIST)
+		goto fail;
+	if (lstat(path, &st) == -1 || !S_ISDIR(st.st_mode) || st.st_uid != 0) {
+		errno = EPERM;
+		goto fail;
+	}
+	if ((st.st_mode & 0022) || (mode == 0700 && (st.st_mode & 0077))) {
+		if (chmod(path, mode) == -1)
+			goto fail;
+	}
+	if (lstat(path, &st) == -1 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
+	    (st.st_mode & 0022) || (mode == 0700 && (st.st_mode & 0077))) {
+		errno = EPERM;
+		goto fail;
+	}
+	return 0;
+
+fail:
+	logmessage("Samba Server", "refusing unsafe runtime directory %s: %s",
+		   path, strerror(errno));
+	return -1;
+}
+
 void
 start_samba(void)
 {
@@ -3405,7 +3434,9 @@ start_samba(void)
 	tweak_smp_affinity(1);
 #endif
 
-	mkdir_if_none("/var/run/samba");
+	if (prepare_samba_dir(SAMBA_RUNTIME_DIR, 0755) != 0 ||
+	    prepare_samba_dir(SAMBA_LOCK_DIR, 0700) != 0)
+		return;
 	mkdir_if_none("/etc/samba");
 
 	unlink("/etc/smb.conf");
