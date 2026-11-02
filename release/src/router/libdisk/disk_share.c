@@ -51,6 +51,18 @@ static int metadata_name_is_safe(const char *name)
 	return 1;
 }
 
+int smb_share_name_is_safe(const char *name)
+{
+	const unsigned char *p;
+
+	if (name == NULL || *name == '\0')
+		return 0;
+	for (p = (const unsigned char *)name; *p != '\0'; ++p)
+		if (*p < 0x20 || *p == 0x7f || strchr("[];#=", *p) != NULL)
+			return 0;
+	return 1;
+}
+
 static FILE *open_metadata_file(const char *path, const char *mode)
 {
 	char directory[PATH_MAX];
@@ -248,8 +260,10 @@ extern int get_all_folder(const char *const mount_path, int *sh_num, char ***fol
 	while((dp = readdir(pool_to_open)) != NULL){
 		if(dp->d_name[0] == '.')
 			continue;
-		if (!metadata_name_is_safe(dp->d_name))
+		if (!smb_share_name_is_safe(dp->d_name)) {
+			usb_dbg("Skip folder with invalid SMB share name.\n");
 			continue;
+		}
 		
 		if(test_if_System_folder(dp->d_name) == 1)
 			continue;

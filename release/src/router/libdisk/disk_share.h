@@ -56,6 +56,7 @@ extern int check_file_integrity(const char *const file_name);
 
 extern int get_folder_list(const char *const, int *, char ***);
 extern int get_all_folder(const char *const, int *, char ***);
+extern int smb_share_name_is_safe(const char *);
 extern int get_var_file_name(const char *const account, const char *const path, char **file_name, const int is_group);
 extern void free_2_dimension_list(int *, char ***);
 
