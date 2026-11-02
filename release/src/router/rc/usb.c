@@ -13,6 +13,7 @@
 #ifdef RTCONFIG_USB
 #include <sys/types.h>
 #include <unistd.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <arpa/inet.h>
@@ -21,6 +22,7 @@
 #include <sys/time.h>
 #include <errno.h>
 #include <sys/mount.h>
+#include <sys/wait.h>
 #include <mntent.h>
 #include <dirent.h>
 #include <sys/file.h>
@@ -288,17 +290,100 @@ fill_smbpasswd_input_file(const char *passwd)
 static int update_smbpasswd_account(const char *username, const char *password)
 {
 #if defined(RTCONFIG_SAMBA36X)
-	char *argv[] = { "/usr/sbin/smbpasswd", (char *)username, (char *)password, NULL };
+	char *argv[] = { "/usr/sbin/smbpasswd", (char *)username, NULL };
+	char *envp[] = { NULL };
+	int password_pipe[2];
+	int status, result, write_error;
+	pid_t pid, waited;
+	sigset_t child_mask, old_mask;
+	struct sigaction ignore_sigpipe, old_sigpipe;
+	char input[34];
+	size_t input_length, offset;
 #else
 	char *argv[] = { "smbpasswd", (char *)username, (char *)password, NULL };
 #endif
 
-	if (!samba_account_name_valid(username) || !samba_account_password_valid(password))
+	if (!samba_account_name_valid(username) ||
+	    (!samba_account_password_valid(password) &&
+	     !(password && !*password && !strcmp(username, "nobody"))))
 		return -1;
 	if (!strcmp(username, nvram_safe_get("http_username")))
 		return 0;
 
+#if defined(RTCONFIG_SAMBA36X)
+	if (pipe(password_pipe) < 0)
+		return errno;
+	sigemptyset(&child_mask);
+	sigaddset(&child_mask, SIGCHLD);
+	if (sigprocmask(SIG_BLOCK, &child_mask, &old_mask) < 0) {
+		close(password_pipe[0]);
+		close(password_pipe[1]);
+		return errno;
+	}
+	memset(&ignore_sigpipe, 0, sizeof(ignore_sigpipe));
+	ignore_sigpipe.sa_handler = SIG_IGN;
+	sigemptyset(&ignore_sigpipe.sa_mask);
+	if (sigaction(SIGPIPE, &ignore_sigpipe, &old_sigpipe) < 0) {
+		result = errno;
+		goto restore_child_mask;
+	}
+
+	pid = fork();
+	if (pid == 0) {
+		close(password_pipe[1]);
+		if (dup2(password_pipe[0], STDIN_FILENO) < 0)
+			_exit(127);
+		if (password_pipe[0] != STDIN_FILENO)
+			close(password_pipe[0]);
+		sigaction(SIGPIPE, &old_sigpipe, NULL);
+		sigprocmask(SIG_SETMASK, &old_mask, NULL);
+		execve(argv[0], argv, envp);
+		_exit(127);
+	}
+	if (pid < 0) {
+		result = errno;
+		close(password_pipe[0]);
+		close(password_pipe[1]);
+		goto restore_sigpipe;
+	}
+
+	close(password_pipe[0]);
+	input_length = strlen(password);
+	memcpy(input, password, input_length);
+	input[input_length++] = '\n';
+	write_error = 0;
+	for (offset = 0; offset < input_length;) {
+		ssize_t written = write(password_pipe[1], input + offset, input_length - offset);
+		if (written < 0 && errno == EINTR)
+			continue;
+		if (written <= 0) {
+			write_error = written < 0 ? errno : EIO;
+			break;
+		}
+		offset += written;
+	}
+	close(password_pipe[1]);
+	do {
+		waited = waitpid(pid, &status, 0);
+	} while (waited < 0 && errno == EINTR);
+	if (waited < 0)
+		result = errno;
+	else if (write_error)
+		result = write_error;
+	else if (WIFEXITED(status))
+		result = WEXITSTATUS(status);
+	else
+		result = 128;
+
+restore_sigpipe:
+	sigaction(SIGPIPE, &old_sigpipe, NULL);
+restore_child_mask:
+	sigprocmask(SIG_SETMASK, &old_mask, NULL);
+	memset(input, 0, sizeof(input));
+	return result;
+#else
 	return _eval(argv, NULL, 0, NULL);
+#endif
 }
 
 void add_usb_host_modules(void)
@@ -3454,7 +3539,8 @@ start_samba(void)
 #if defined(RTCONFIG_SAMBA36X)
 	// use samba-3.6.x_opwrt to replace from samba-3.6.x
 	//system("echo -e \"\n\n\" |/usr/sbin/smbpasswd -s -a nobody");
-	system("/usr/sbin/smbpasswd nobody \"\"");
+	if (update_smbpasswd_account("nobody", "") != 0)
+		usb_dbg("Failed to update Samba account.\n");
 #else
 	system("smbpasswd nobody \"\"");
 #endif
