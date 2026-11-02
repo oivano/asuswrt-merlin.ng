@@ -1,48 +1,144 @@
 /* vi: set sw=4 ts=4: */
 /*
- *  ifupdown for busybox
- *  Copyright (c) 2002 Glenn McGrath
- *  Copyright (c) 2003-2004 Erik Andersen <andersen@codepoet.org>
+ * ifup/ifdown for busybox
+ * Copyright (c) 2002 Glenn McGrath
+ * Copyright (c) 2003-2004 Erik Andersen <andersen@codepoet.org>
  *
- *  Based on ifupdown v 0.6.4 by Anthony Towns
- *  Copyright (c) 1999 Anthony Towns <aj@azure.humbug.org.au>
+ * Based on ifupdown v 0.6.4 by Anthony Towns
+ * Copyright (c) 1999 Anthony Towns <aj@azure.humbug.org.au>
  *
- *  Changes to upstream version
- *  Remove checks for kernel version, assume kernel version 2.2.0 or better.
- *  Lines in the interfaces file cannot wrap.
- *  To adhere to the FHS, the default state file is /var/run/ifstate
- *  (defined via CONFIG_IFUPDOWN_IFSTATE_PATH) and can be overridden by build
- *  configuration.
+ * Changes to upstream version
+ * Remove checks for kernel version, assume kernel version 2.2.0 or better.
+ * Lines in the interfaces file cannot wrap.
+ * To adhere to the FHS, the default state file is /var/run/ifstate
+ * (defined via CONFIG_IFUPDOWN_IFSTATE_PATH) and can be overridden by build
+ * configuration.
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
+//config:config IFUP
+//config:	bool "ifup (14 kb)"
+//config:	default y
+//config:	help
+//config:	Activate the specified interfaces. This applet makes use
+//config:	of either "ifconfig" and "route" or the "ip" command to actually
+//config:	configure network interfaces. Therefore, you will probably also want
+//config:	to enable either IFCONFIG and ROUTE, or enable
+//config:	FEATURE_IFUPDOWN_IP and the various IP options. Of
+//config:	course you could use non-busybox versions of these programs, so
+//config:	against my better judgement (since this will surely result in plenty
+//config:	of support questions on the mailing list), I do not force you to
+//config:	enable these additional options. It is up to you to supply either
+//config:	"ifconfig", "route" and "run-parts" or the "ip" command, either
+//config:	via busybox or via standalone utilities.
+//config:
+//config:config IFDOWN
+//config:	bool "ifdown (13 kb)"
+//config:	default y
+//config:	help
+//config:	Deactivate the specified interfaces.
+//config:
+//config:config IFUPDOWN_IFSTATE_PATH
+//config:	string "Absolute path to ifstate file"
+//config:	default "/var/run/ifstate"
+//config:	depends on IFUP || IFDOWN
+//config:	help
+//config:	ifupdown keeps state information in a file called ifstate.
+//config:	Typically it is located in /var/run/ifstate, however
+//config:	some distributions tend to put it in other places
+//config:	(debian, for example, uses /etc/network/run/ifstate).
+//config:	This config option defines location of ifstate.
+//config:
+//config:config FEATURE_IFUPDOWN_IP
+//config:	bool "Use ip tool (else ifconfig/route is used)"
+//config:	default y
+//config:	depends on IFUP || IFDOWN
+//config:	help
+//config:	Use the iproute "ip" command to implement "ifup" and "ifdown", rather
+//config:	than the default of using the older "ifconfig" and "route" utilities.
+//config:
+//config:	If Y: you must install either the full-blown iproute2 package
+//config:	or enable "ip" applet in busybox, or the "ifup" and "ifdown" applets
+//config:	will not work.
+//config:
+//config:	If N: you must install either the full-blown ifconfig and route
+//config:	utilities, or enable these applets in busybox.
+//config:
+//config:config FEATURE_IFUPDOWN_IPV4
+//config:	bool "Support IPv4"
+//config:	default y
+//config:	depends on IFUP || IFDOWN
+//config:	help
+//config:	If you want ifup/ifdown to talk IPv4, leave this on.
+//config:
+//config:config FEATURE_IFUPDOWN_IPV6
+//config:	bool "Support IPv6"
+//config:	default y
+//config:	depends on (IFUP || IFDOWN) && FEATURE_IPV6
+//config:	help
+//config:	If you need support for IPv6, turn this option on.
+//config:
+//UNUSED:
+////////:config FEATURE_IFUPDOWN_IPX
+////////:	bool "Support IPX"
+////////:	default y
+////////:	depends on IFUP || IFDOWN
+////////:	help
+////////:	  If this option is selected you can use busybox to work with IPX
+////////:	  networks.
+//config:
+//config:config FEATURE_IFUPDOWN_MAPPING
+//config:	bool "Enable mapping support"
+//config:	default y
+//config:	depends on IFUP || IFDOWN
+//config:	help
+//config:	This enables support for the "mapping" stanza, unless you have
+//config:	a weird network setup you don't need it.
+//config:
+//config:config FEATURE_IFUPDOWN_EXTERNAL_DHCP
+//config:	bool "Support external DHCP clients"
+//config:	default n
+//config:	depends on IFUP || IFDOWN
+//config:	help
+//config:	This enables support for the external dhcp clients. Clients are
+//config:	tried in the following order: dhcpcd, dhclient, pump and udhcpc.
+//config:	Otherwise, if udhcpc applet is enabled, it is used.
+//config:	Otherwise, ifup/ifdown will have no support for DHCP.
+
+//                 APPLET_ODDNAME:name    main      location     suid_type     help
+//applet:IF_IFUP(  APPLET_ODDNAME(ifup,   ifupdown, BB_DIR_SBIN, BB_SUID_DROP, ifup))
+//applet:IF_IFDOWN(APPLET_ODDNAME(ifdown, ifupdown, BB_DIR_SBIN, BB_SUID_DROP, ifdown))
+
+//kbuild:lib-$(CONFIG_IFUP) += ifupdown.o
+//kbuild:lib-$(CONFIG_IFDOWN) += ifupdown.o
 
 //usage:#define ifup_trivial_usage
-//usage:       "[-an"IF_FEATURE_IFUPDOWN_MAPPING("m")"vf] [-i FILE] IFACE..."
+//usage:       "[-n"IF_FEATURE_IFUPDOWN_MAPPING("m")"vf] [-i FILE] -a | IFACE..."
 //usage:#define ifup_full_usage "\n\n"
-//usage:       "	-a	De/configure all interfaces automatically"
-//usage:     "\n	-i FILE	Use FILE for interface definitions"
-//usage:     "\n	-n	Print out what would happen, but don't do it"
+//usage:       "	-a	Configure all interfaces"
+//usage:     "\n	-i FILE	Use FILE instead of /etc/network/interfaces"
+//usage:     "\n	-n	Dry run"
 //usage:	IF_FEATURE_IFUPDOWN_MAPPING(
 //usage:     "\n		(note: doesn't disable mappings)"
 //usage:     "\n	-m	Don't run any mappings"
 //usage:	)
 //usage:     "\n	-v	Print out what would happen before doing it"
-//usage:     "\n	-f	Force de/configuration"
+//usage:     "\n	-f	Force"
 //usage:
 //usage:#define ifdown_trivial_usage
-//usage:       "[-an"IF_FEATURE_IFUPDOWN_MAPPING("m")"vf] [-i FILE] IFACE..."
+//usage:       "[-n"IF_FEATURE_IFUPDOWN_MAPPING("m")"vf] [-i FILE] -a | IFACE..."
 //usage:#define ifdown_full_usage "\n\n"
-//usage:       "	-a	De/configure all interfaces automatically"
-//usage:     "\n	-i FILE	Use FILE for interface definitions"
-//usage:     "\n	-n	Print out what would happen, but don't do it"
+//usage:       "	-a	Deconfigure all interfaces"
+//usage:     "\n	-i FILE	Use FILE instead of /etc/network/interfaces"
+//usage:     "\n	-n	Dry run"
 //usage:	IF_FEATURE_IFUPDOWN_MAPPING(
 //usage:     "\n		(note: doesn't disable mappings)"
 //usage:     "\n	-m	Don't run any mappings"
 //usage:	)
 //usage:     "\n	-v	Print out what would happen before doing it"
-//usage:     "\n	-f	Force de/configuration"
+//usage:     "\n	-f	Force"
 
+#include <net/if.h>
 #include "libbb.h"
 #include "common_bufsiz.h"
 /* After libbb.h, since it needs sys/types.h on some systems */
@@ -56,6 +152,7 @@
 #endif
 
 #define UDHCPC_CMD_OPTIONS CONFIG_IFUPDOWN_UDHCPC_CMD_OPTIONS
+#define IFSTATE_FILE_PATH  CONFIG_IFUPDOWN_IFSTATE_PATH
 
 #define debug_noise(args...) /*fprintf(stderr, args)*/
 
@@ -407,6 +504,8 @@ static int FAST_FUNC static_up6(struct interface_defn_t *ifd, execfn *exec)
 
 static int FAST_FUNC static_down6(struct interface_defn_t *ifd, execfn *exec)
 {
+	if (!if_nametoindex(ifd->iface))
+		return 1; /* already gone */
 # if ENABLE_FEATURE_IFUPDOWN_IP
 	return execute("ip link set %iface% down", ifd, exec);
 # else
@@ -433,7 +532,7 @@ static int FAST_FUNC v4tunnel_down(struct interface_defn_t * ifd, execfn * exec)
 }
 # endif
 
-static const struct method_t methods6[] = {
+static const struct method_t methods6[] ALIGN_PTR = {
 # if ENABLE_FEATURE_IFUPDOWN_IP
 	{ "v4tunnel" , v4tunnel_up     , v4tunnel_down   , },
 # endif
@@ -492,7 +591,7 @@ static int FAST_FUNC static_up(struct interface_defn_t *ifd, execfn *exec)
 	result = execute("ifconfig %iface%[[ hw %hwaddress%]][[ media %media%]][[ mtu %mtu%]] up",
 				ifd, exec);
 	result += execute("ifconfig %iface% %address% netmask %netmask%"
-				"[[ broadcast %broadcast%]][[ pointopoint %pointopoint%]] ",
+				"[[ broadcast %broadcast%]][[ pointopoint %pointopoint%]]",
 				ifd, exec);
 	result += execute("[[route add default gw %gateway%[[ metric %metric%]] %iface%]]", ifd, exec);
 	return ((result == 3) ? 3 : 0);
@@ -502,8 +601,14 @@ static int FAST_FUNC static_up(struct interface_defn_t *ifd, execfn *exec)
 static int FAST_FUNC static_down(struct interface_defn_t *ifd, execfn *exec)
 {
 	int result;
+
+	if (!if_nametoindex(ifd->iface))
+		return 2; /* already gone */
 # if ENABLE_FEATURE_IFUPDOWN_IP
-	result = execute("ip addr flush dev %iface%", ifd, exec);
+	/* Optional "label LBL" is necessary if interface is an alias (eth0:0),
+	 * otherwise "ip addr flush dev eth0:0" flushes all addresses on eth0.
+	 */
+	result = execute("ip addr flush dev %iface%[[ label %label%]]", ifd, exec);
 	result += execute("ip link set %iface% down", ifd, exec);
 # else
 	/* result = execute("[[route del default gw %gateway% %iface%]]", ifd, exec); */
@@ -522,7 +627,7 @@ struct dhcp_client_t {
 	const char *stopcmd;
 };
 
-static const struct dhcp_client_t ext_dhcp_clients[] = {
+static const struct dhcp_client_t ext_dhcp_clients[] ALIGN_PTR = {
 	{ "dhcpcd",
 		"dhcpcd[[ -h %hostname%]][[ -i %vendor%]][[ -I %client%]][[ -l %leasetime%]] %iface%",
 		"dhcpcd -k %iface%",
@@ -560,7 +665,7 @@ static int FAST_FUNC dhcp_up(struct interface_defn_t *ifd, execfn *exec)
 		if (executable_exists(ext_dhcp_clients[i].name))
 			return execute(ext_dhcp_clients[i].startcmd, ifd, exec);
 	}
-	bb_error_msg("no dhcp clients found");
+	bb_simple_error_msg("no dhcp clients found");
 	return 0;
 }
 # elif ENABLE_UDHCPC
@@ -602,7 +707,7 @@ static int FAST_FUNC dhcp_down(struct interface_defn_t *ifd, execfn *exec)
 	}
 
 	if (!result)
-		bb_error_msg("warning: no dhcp clients found and stopped");
+		bb_simple_error_msg("warning: no dhcp clients found and stopped");
 
 	/* Sleep a bit, otherwise static_down tries to bring down interface too soon,
 	   and it may come back up because udhcpc is still shutting down */
@@ -669,7 +774,7 @@ static int FAST_FUNC wvdial_down(struct interface_defn_t *ifd, execfn *exec)
 			"-p /var/run/wvdial.%iface% -s 2", ifd, exec);
 }
 
-static const struct method_t methods[] = {
+static const struct method_t methods[] ALIGN_PTR = {
 	{ "manual"  , manual_up_down, manual_up_down, },
 	{ "wvdial"  , wvdial_up     , wvdial_down   , },
 	{ "ppp"     , ppp_up        , ppp_down      , },
@@ -692,7 +797,7 @@ static int FAST_FUNC link_up_down(struct interface_defn_t *ifd UNUSED_PARAM, exe
 	return 1;
 }
 
-static const struct method_t link_methods[] = {
+static const struct method_t link_methods[] ALIGN_PTR = {
 	{ "none", link_up_down, link_up_down }
 };
 
@@ -917,6 +1022,22 @@ static struct interfaces_file_t *read_interfaces(const char *filename, struct in
 			currently_processing = NONE;
 		} else if (strcmp(first_word, "source") == 0) {
 			read_interfaces(next_word(&rest_of_line), defn);
+		} else if (is_prefixed_with(first_word, "source-dir")) {
+			const char *dirpath;
+			DIR *dir;
+			struct dirent *entry;
+
+			dirpath = next_word(&rest_of_line);
+			dir = xopendir(dirpath);
+			while ((entry = readdir(dir)) != NULL) {
+				char *path;
+				if (entry->d_name[0] == '.')
+					continue;
+				path = concat_path_file(dirpath, entry->d_name);
+				read_interfaces(path, defn);
+				free(path);
+			}
+			closedir(dir);
 		} else {
 			switch (currently_processing) {
 			case IFACE:
@@ -1056,8 +1177,15 @@ static int doit(char *str)
 
 static int execute_all(struct interface_defn_t *ifd, const char *opt)
 {
+	/* 'opt' is always short, the longest value is "post-down".
+	 * Can use on-stack buffer instead of xasprintf'ed one.
+	 */
+	char buf[sizeof("run-parts /etc/network/if-%s.d")
+		+ sizeof("post-down")
+		/*paranoia:*/ + 8
+	];
 	int i;
-	char *buf;
+
 	for (i = 0; i < ifd->n_options; i++) {
 		if (strcmp(ifd->option[i].name, opt) == 0) {
 			if (!doit(ifd->option[i].value)) {
@@ -1066,8 +1194,12 @@ static int execute_all(struct interface_defn_t *ifd, const char *opt)
 		}
 	}
 
-	buf = xasprintf("run-parts /etc/network/if-%s.d", opt);
-	/* heh, we don't bother free'ing it */
+	/* Tested on Debian Squeeze: "standard" ifup runs this without
+	 * checking that directory exists. If it doesn't, run-parts
+	 * complains, and this message _is_ annoyingly visible.
+	 * Don't "fix" this (unless newer Debian does).
+	 */
+	sprintf(buf, "run-parts /etc/network/if-%s.d", opt);
 	return doit(buf);
 }
 
@@ -1192,7 +1324,7 @@ static llist_t *find_iface_state(llist_t *state_list, const char *iface)
 static llist_t *read_iface_state(void)
 {
 	llist_t *state_list = NULL;
-	FILE *state_fp = fopen_for_read(CONFIG_IFUPDOWN_IFSTATE_PATH);
+	FILE *state_fp = fopen_for_read(IFSTATE_FILE_PATH);
 
 	if (state_fp) {
 		char *start, *end_ptr;
@@ -1207,6 +1339,37 @@ static llist_t *read_iface_state(void)
 	return state_list;
 }
 
+/* read the previous state from the state file */
+static FILE *open_new_state_file(void)
+{
+	int fd, flags, cnt;
+
+	cnt = 0;
+	flags = (O_WRONLY | O_CREAT | O_EXCL);
+	for (;;) {
+		fd = open(IFSTATE_FILE_PATH".new", flags, 0666);
+		if (fd >= 0)
+			break;
+		if (errno != EEXIST
+		 || flags == (O_WRONLY | O_CREAT | O_TRUNC)
+		) {
+			bb_perror_msg_and_die("can't open '%s'",
+					IFSTATE_FILE_PATH".new");
+		}
+		/* Someone else created the .new file */
+		if (cnt > 30) {
+			/* Waited for 30*30/2 = 450 milliseconds, still EEXIST.
+			 * Assuming a stale file, rewriting it.
+			 */
+			flags = (O_WRONLY | O_CREAT | O_TRUNC);
+			continue;
+		}
+		msleep(cnt);
+		cnt++;
+	}
+
+	return xfdopen_for_write(fd);
+}
 
 int ifupdown_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
 int ifupdown_main(int argc UNUSED_PARAM, char **argv)
@@ -1222,10 +1385,13 @@ int ifupdown_main(int argc UNUSED_PARAM, char **argv)
 	G.startup_PATH = getenv("PATH");
 	G.shell = xstrdup(get_shell_name());
 
-	cmds = iface_down;
-	if (applet_name[2] == 'u') {
+	if (ENABLE_IFUP
+	 && (!ENABLE_IFDOWN || applet_name[2] == 'u')
+	) {
 		/* ifup command */
 		cmds = iface_up;
+	} else {
+		cmds = iface_down;
 	}
 
 	getopt32(argv, OPTION_STR, &interfaces);
@@ -1340,7 +1506,7 @@ int ifupdown_main(int argc UNUSED_PARAM, char **argv)
 			any_failures = 1;
 		} else if (!NO_ACT) {
 			/* update the state file */
-			FILE *state_fp;
+			FILE *new_state_fp = open_new_state_file();
 			llist_t *state;
 			llist_t *state_list = read_iface_state();
 			llist_t *iface_state = find_iface_state(state_list, iface);
@@ -1360,15 +1526,15 @@ int ifupdown_main(int argc UNUSED_PARAM, char **argv)
 			}
 
 			/* Actually write the new state */
-			state_fp = xfopen_for_write(CONFIG_IFUPDOWN_IFSTATE_PATH);
 			state = state_list;
 			while (state) {
 				if (state->data) {
-					fprintf(state_fp, "%s\n", state->data);
+					fprintf(new_state_fp, "%s\n", state->data);
 				}
 				state = state->link;
 			}
-			fclose(state_fp);
+			fclose(new_state_fp);
+			xrename(IFSTATE_FILE_PATH".new", IFSTATE_FILE_PATH);
 			llist_free(state_list, free);
 		}
  next:

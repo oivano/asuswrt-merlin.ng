@@ -1,6 +1,6 @@
 /* vi: set sw=4 ts=4: */
 /*
- * adjtimex.c - read, and possibly modify, the Linux kernel `timex' variables.
+ * adjtimex.c - read, and possibly modify, the Linux kernel 'timex' variables.
  *
  * Originally written: October 1997
  * Last hack: March 2001
@@ -10,9 +10,19 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
+//config:config ADJTIMEX
+//config:	bool "adjtimex (4.7 kb)"
+//config:	default y
+//config:	help
+//config:	Adjtimex reads and optionally sets adjustment parameters for
+//config:	the Linux clock adjustment algorithm.
+
+//applet:IF_ADJTIMEX(APPLET_NOFORK(adjtimex, adjtimex, BB_DIR_SBIN, BB_SUID_DROP, adjtimex))
+
+//kbuild:lib-$(CONFIG_ADJTIMEX) += adjtimex.o
 
 //usage:#define adjtimex_trivial_usage
-//usage:       "[-q] [-o OFF] [-f FREQ] [-p TCONST] [-t TICK]"
+//usage:       "[-q] [-o OFS] [-f FREQ] [-p TCONST] [-t TICK]"
 //usage:#define adjtimex_full_usage "\n\n"
 //usage:       "Read or set kernel time variables. See adjtimex(2)\n"
 //usage:     "\n	-q	Quiet"
@@ -79,13 +89,15 @@ int adjtimex_main(int argc UNUSED_PARAM, char **argv)
 	unsigned opt;
 	char *opt_o, *opt_f, *opt_p, *opt_t;
 	struct timex txc;
-	int i, ret;
+	int ret;
 	const char *descript;
 
-	opt_complementary = "=0"; /* no valid non-option parameters */
-	opt = getopt32(argv, "qo:f:p:t:",
-			&opt_o, &opt_f, &opt_p, &opt_t);
-	txc.modes = 0;
+	memset(&txc, 0, sizeof(txc));
+
+	opt = getopt32(argv, "^" "qo:f:p:t:"
+			"\0" "=0"/*no valid non-option args*/,
+			&opt_o, &opt_f, &opt_p, &opt_t
+	);
 	//if (opt & 0x1) // -q
 	if (opt & 0x2) { // -o
 		txc.offset = xatol(opt_o);
@@ -104,15 +116,19 @@ int adjtimex_main(int argc UNUSED_PARAM, char **argv)
 		txc.modes |= ADJ_TICK;
 	}
 
-	ret = adjtimex(&txc);
+	/* It's NOFORK applet because the code is very simple:
+	 * just some printf. No opens, no allocs.
+	 * If you need to make it more complex, feel free to downgrade to NOEXEC
+	 */
 
-	if (ret < 0) {
+	ret = adjtimex(&txc);
+	if (ret < 0)
 		bb_perror_nomsg_and_die();
-	}
 
 	if (!(opt & OPT_quiet)) {
 		const char *sep;
 		const char *name;
+		int i;
 
 		printf(
 			"    mode:         %d\n"
@@ -121,8 +137,9 @@ int adjtimex_main(int argc UNUSED_PARAM, char **argv)
 			"    maxerror:     %ld\n"
 			"    esterror:     %ld\n"
 			"    status:       %d (",
-		txc.modes, txc.offset, txc.freq, txc.maxerror,
-		txc.esterror, txc.status);
+			txc.modes, txc.offset, txc.freq, txc.maxerror,
+			txc.esterror, txc.status
+		);
 
 		/* representative output of next code fragment:
 		 * "PLL | PPSTIME"
@@ -148,9 +165,11 @@ int adjtimex_main(int argc UNUSED_PARAM, char **argv)
 			"    time.tv_sec:  %ld\n"
 			"    time.tv_usec: %ld\n"
 			"    return value: %d (%s)\n",
-		txc.constant,
-		txc.precision, txc.tolerance, txc.tick,
-		(long)txc.time.tv_sec, (long)txc.time.tv_usec, ret, descript);
+			txc.constant,
+			txc.precision, txc.tolerance, txc.tick,
+			(long)txc.time.tv_sec, (long)txc.time.tv_usec,
+			ret, descript
+		);
 	}
 
 	return 0;

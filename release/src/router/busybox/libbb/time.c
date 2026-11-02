@@ -8,16 +8,68 @@
  */
 #include "libbb.h"
 
-void FAST_FUNC parse_datestr(const char *date_str, struct tm *ptm)
+/* Returns 0 if the time structure contains an absolute UTC time which
+ * should not be subject to DST adjustment by the caller. */
+int FAST_FUNC parse_datestr(const char *date_str, struct tm *ptm)
 {
 	char end = '\0';
+	time_t t;
+#if ENABLE_DESKTOP
+/*
+ * strptime is BIG: ~1k in uclibc, ~10k in glibc
+ * We need it for 'month_name d HH:MM:SS YYYY', supported by GNU date,
+ * but if we've linked it we might as well use it for everything.
+ */
+	static const char fmt_str[] ALIGN1 =
+		"%R" "\0"               /* HH:MM */
+		"%T" "\0"               /* HH:MM:SS */
+		"%m.%d-%R" "\0"         /* mm.dd-HH:MM */
+		"%m.%d-%T" "\0"         /* mm.dd-HH:MM:SS */
+		"%Y.%m.%d-%R" "\0"      /* yyyy.mm.dd-HH:MM */
+		"%Y.%m.%d-%T" "\0"      /* yyyy.mm.dd-HH:MM:SS */
+		"%b %d %T %Y" "\0"      /* month_name d HH:MM:SS YYYY */
+		"%Y-%m-%d %R" "\0"      /* yyyy-mm-dd HH:MM */
+		"%Y-%m-%d %T" "\0"      /* yyyy-mm-dd HH:MM:SS */
+# if ENABLE_FEATURE_TIMEZONE
+		"%Y-%m-%d %R %z" "\0"   /* yyyy-mm-dd HH:MM TZ */
+		"%Y-%m-%d %T %z" "\0"   /* yyyy-mm-dd HH:MM:SS TZ */
+# endif
+		"%Y-%m-%d %H" "\0"      /* yyyy-mm-dd HH */
+		"%Y-%m-%d" "\0"         /* yyyy-mm-dd */
+		/* extra NUL */;
+	struct tm save;
+	const char *fmt;
+	char *endp;
+
+	save = *ptm;
+	fmt = fmt_str;
+	while (*fmt) {
+		endp = strptime(date_str, fmt, ptm);
+		if (endp && *endp == '\0') {
+# if ENABLE_FEATURE_TIMEZONE
+			if (strchr(fmt, 'z')) {
+				/* we have timezone offset: obtain Unix time_t */
+				ptm->tm_sec -= ptm->tm_gmtoff;
+				ptm->tm_isdst = 0;
+				t = timegm(ptm);
+				if (t == (time_t)-1)
+					break;
+				/* convert Unix time_t to struct tm in user's locale */
+				goto localise;
+			}
+# endif
+			return 1;
+		}
+		*ptm = save;
+		while (*++fmt)
+			continue;
+		++fmt;
+	}
+#else
 	const char *last_colon = strrchr(date_str, ':');
 
 	if (last_colon != NULL) {
 		/* Parse input and assign appropriately to ptm */
-#if ENABLE_DESKTOP
-		const char *endp;
-#endif
 
 		/* HH:MM */
 		if (sscanf(date_str, "%u:%u%c",
@@ -50,14 +102,6 @@ void FAST_FUNC parse_datestr(const char *date_str, struct tm *ptm)
 			ptm->tm_year -= 1900; /* Adjust years */
 			ptm->tm_mon -= 1; /* Adjust month from 1-12 to 0-11 */
 		} else
-#if ENABLE_DESKTOP  /* strptime is BIG: ~1k in uclibc, ~10k in glibc */
-		/* month_name d HH:MM:SS YYYY. Supported by GNU date */
-		if ((endp = strptime(date_str, "%b %d %T %Y", ptm)) != NULL
-		 && *endp == '\0'
-		) {
-			return; /* don't fall through to end == ":" check */
-		} else
-#endif
 		{
 			bb_error_msg_and_die(bb_msg_invalid_date, date_str);
 		}
@@ -89,13 +133,19 @@ void FAST_FUNC parse_datestr(const char *date_str, struct tm *ptm)
 		ptm->tm_year -= 1900; /* Adjust years */
 		ptm->tm_mon -= 1; /* Adjust month from 1-12 to 0-11 */
 	} else
+#endif /* ENABLE_DESKTOP */
 	if (date_str[0] == '@') {
-		time_t t = bb_strtol(date_str + 1, NULL, 10);
+		if (sizeof(t) <= sizeof(long))
+			t = bb_strtol(date_str + 1, NULL, 10);
+		else /* time_t is 64 bits but longs are smaller */
+			t = bb_strtoll(date_str + 1, NULL, 10);
 		if (!errno) {
-			struct tm *lt = localtime(&t);
+			struct tm *lt;
+ IF_FEATURE_TIMEZONE(localise:)
+			lt = localtime(&t);
 			if (lt) {
 				*ptm = *lt;
-				return;
+				return 0;
 			}
 		}
 		end = '1';
@@ -184,6 +234,7 @@ void FAST_FUNC parse_datestr(const char *date_str, struct tm *ptm)
 			ptm->tm_year -= 1900; /* Adjust years */
 			ptm->tm_mon -= 1; /* Adjust month from 1-12 to 0-11 */
 		} else {
+ err:
 			bb_error_msg_and_die(bb_msg_invalid_date, date_str);
 		}
 		ptm->tm_sec = 0; /* assume zero if [.SS] is not given */
@@ -194,10 +245,24 @@ void FAST_FUNC parse_datestr(const char *date_str, struct tm *ptm)
 				end = '\0';
 			/* else end != NUL and we error out */
 		}
+		/* Users were confused by "date -s 20180923"
+		 * working (not in the way they were expecting).
+		 * It was interpreted as MMDDhhmm, and not bothered by
+		 * "month #20" in the least. Prevent such cases:
+		 */
+		if (ptm->tm_sec > 60 /* allow "23:60" leap second */
+		 || ptm->tm_min > 59
+		 || ptm->tm_hour > 23
+		 || ptm->tm_mday > 31
+		 || ptm->tm_mon > 11 /* month# is 0..11, not 1..12 */
+		) {
+			goto err;
+		}
 	}
 	if (end != '\0') {
 		bb_error_msg_and_die(bb_msg_invalid_date, date_str);
 	}
+	return 1;
 }
 
 time_t FAST_FUNC validate_tm_time(const char *date_str, struct tm *ptm)
@@ -232,19 +297,16 @@ char* FAST_FUNC strftime_YYYYMMDDHHMMSS(char *buf, unsigned len, time_t *tp)
 
 #if ENABLE_MONOTONIC_SYSCALL
 
-#include <sys/syscall.h>
 /* Old glibc (< 2.3.4) does not provide this constant. We use syscall
  * directly so this definition is safe. */
 #ifndef CLOCK_MONOTONIC
 #define CLOCK_MONOTONIC 1
 #endif
 
-/* libc has incredibly messy way of doing this,
- * typically requiring -lrt. We just skip all this mess */
 static void get_mono(struct timespec *ts)
 {
-	if (syscall(__NR_clock_gettime, CLOCK_MONOTONIC, ts))
-		bb_error_msg_and_die("clock_gettime(MONOTONIC) failed");
+	if (clock_gettime(CLOCK_MONOTONIC, ts))
+		bb_simple_error_msg_and_die("clock_gettime(MONOTONIC) failed");
 }
 unsigned long long FAST_FUNC monotonic_ns(void)
 {
@@ -276,19 +338,19 @@ unsigned FAST_FUNC monotonic_sec(void)
 unsigned long long FAST_FUNC monotonic_ns(void)
 {
 	struct timeval tv;
-	gettimeofday(&tv, NULL);
+	xgettimeofday(&tv);
 	return tv.tv_sec * 1000000000ULL + tv.tv_usec * 1000;
 }
 unsigned long long FAST_FUNC monotonic_us(void)
 {
 	struct timeval tv;
-	gettimeofday(&tv, NULL);
+	xgettimeofday(&tv);
 	return tv.tv_sec * 1000000ULL + tv.tv_usec;
 }
 unsigned long long FAST_FUNC monotonic_ms(void)
 {
 	struct timeval tv;
-	gettimeofday(&tv, NULL);
+	xgettimeofday(&tv);
 	return tv.tv_sec * 1000ULL + tv.tv_usec / 1000;
 }
 unsigned FAST_FUNC monotonic_sec(void)

@@ -9,6 +9,19 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
+//config:config CRONTAB
+//config:	bool "crontab (10 kb)"
+//config:	default y
+//config:	help
+//config:	Crontab manipulates the crontab for a particular user. Only
+//config:	the superuser may specify a different user and/or crontab directory.
+//config:	Note that busybox binary must be setuid root for this applet to
+//config:	work properly.
+
+/* Needs to be run by root or be suid root - needs to change /var/spool/cron* files: */
+//applet:IF_CRONTAB(APPLET(crontab, BB_DIR_USR_BIN, BB_SUID_REQUIRE))
+
+//kbuild:lib-$(CONFIG_CRONTAB) += crontab.o
 
 //usage:#define crontab_trivial_usage
 //usage:       "[-c DIR] [-u USER] [-ler]|[FILE]"
@@ -42,8 +55,8 @@ static void edit_file(const struct passwd *pas, const char *file)
 	/* initgroups, setgid, setuid */
 	change_identity(pas);
 	setup_environment(pas->pw_shell,
-			SETUP_ENV_CHANGEENV | SETUP_ENV_TO_TMP,
-			pas);
+		SETUP_ENV_CHANGEENV | SETUP_ENV_TO_TMP | SETUP_ENV_CHDIR,
+		pas);
 	ptr = getenv("VISUAL");
 	if (!ptr) {
 		ptr = getenv("EDITOR");
@@ -86,14 +99,15 @@ int crontab_main(int argc UNUSED_PARAM, char **argv)
 		OPT_ler = OPT_l + OPT_e + OPT_r,
 	};
 
-	opt_complementary = "?1:dr"; /* max one argument; -d implies -r */
-	opt_ler = getopt32(argv, "u:c:lerd", &user_name, &crontab_dir);
+	opt_ler = getopt32(argv, "^" "u:c:lerd" "\0" "?1:dr"/*max one arg; -d implies -r*/,
+				&user_name, &crontab_dir
+	);
 	argv += optind;
 
 	if (sanitize_env_if_suid()) { /* Clears dangerous stuff, sets PATH */
 		/* Run by non-root */
 		if (opt_ler & (OPT_u|OPT_c))
-			bb_error_msg_and_die(bb_msg_you_must_be_root);
+			bb_simple_error_msg_and_die(bb_msg_you_must_be_root);
 	}
 
 	if (opt_ler & OPT_u) {
@@ -151,8 +165,12 @@ int crontab_main(int argc UNUSED_PARAM, char **argv)
 			close(fd);
 			xlseek(src_fd, 0, SEEK_SET);
 		}
-		close_on_exec_on(src_fd); /* don't want editor to see this fd */
+		close(src_fd);
 		edit_file(pas, tmp_fname);
+		/* The src_fd needs to be reopened to handle editors that do
+		 * save the buffer as new file and rename it to tmp_fname (so
+		 * for example vim). */
+		src_fd = xopen3(tmp_fname, O_RDONLY, 0600);
 		/* fall through */
 
 	case 0: /* Replace (no -l, -e, or -r were given) */

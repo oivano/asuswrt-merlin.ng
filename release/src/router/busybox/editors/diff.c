@@ -12,7 +12,6 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
-
 /*
  * The following code uses an algorithm due to Harold Stone,
  * which finds a pair of longest identical subsequences in
@@ -75,33 +74,30 @@
  * 3*(number of k-candidates installed), typically about
  * 6n words for files of length n.
  */
-
 //config:config DIFF
-//config:	bool "diff"
+//config:	bool "diff (13 kb)"
 //config:	default y
 //config:	help
-//config:	  diff compares two files or directories and outputs the
-//config:	  differences between them in a form that can be given to
-//config:	  the patch command.
+//config:	diff compares two files or directories and outputs the
+//config:	differences between them in a form that can be given to
+//config:	the patch command.
 //config:
 //config:config FEATURE_DIFF_LONG_OPTIONS
 //config:	bool "Enable long options"
 //config:	default y
 //config:	depends on DIFF && LONG_OPTS
-//config:	help
-//config:	  Enable use of long options.
 //config:
 //config:config FEATURE_DIFF_DIR
 //config:	bool "Enable directory support"
 //config:	default y
 //config:	depends on DIFF
 //config:	help
-//config:	  This option enables support for directory and subdirectory
-//config:	  comparison.
-
-//kbuild:lib-$(CONFIG_DIFF) += diff.o
+//config:	This option enables support for directory and subdirectory
+//config:	comparison.
 
 //applet:IF_DIFF(APPLET(diff, BB_DIR_USR_BIN, BB_SUID_DROP))
+
+//kbuild:lib-$(CONFIG_DIFF) += diff.o
 
 //usage:#define diff_trivial_usage
 //usage:       "[-abBdiNqrTstw] [-L LABEL] [-S FILE] [-U LINES] FILE1 FILE2"
@@ -294,17 +290,6 @@ static int search(const int *c, int k, int y, const struct cand *list)
 				return l;
 		} else
 			return l + 1;
-	}
-}
-
-static unsigned isqrt(unsigned n)
-{
-	unsigned x = 1;
-	while (1) {
-		const unsigned y = x;
-		x = ((n / x) + x) >> 1;
-		if (x <= (y + 1) && x >= (y - 1))
-			return x;
 	}
 }
 
@@ -728,9 +713,19 @@ static int diffreg(char *file[2])
 	fp[0] = stdin;
 	fp[1] = stdin;
 	for (i = 0; i < 2; i++) {
-		int fd = open_or_warn_stdin(file[i]);
-		if (fd == -1)
-			goto out;
+		int fd = STDIN_FILENO;
+		if (!LONE_DASH(file[i])) {
+			if (!(option_mask32 & FLAG(N))) {
+				fd = open_or_warn(file[i], O_RDONLY);
+				if (fd == -1)
+					goto out;
+			} else {
+				/* -N: if some file does not exist compare it like empty */
+				fd = open(file[i], O_RDONLY);
+				if (fd == -1)
+					fd = xopen("/dev/null", O_RDONLY);
+			}
+		}
 		/* Our diff implementation is using seek.
 		 * When we meet non-seekable file, we must make a temp copy.
 		 */
@@ -808,11 +803,11 @@ struct dlist {
 };
 
 /* This function adds a filename to dl, the directory listing. */
-static int FAST_FUNC add_to_dirlist(const char *filename,
-		struct stat *sb UNUSED_PARAM,
-		void *userdata, int depth UNUSED_PARAM)
+static int FAST_FUNC add_to_dirlist(struct recursive_state *state,
+		const char *filename,
+		struct stat *sb UNUSED_PARAM)
 {
-	struct dlist *const l = userdata;
+	struct dlist *const l = state->userData;
 	const char *file = filename + l->len;
 	while (*file == '/')
 		file++;
@@ -825,12 +820,12 @@ static int FAST_FUNC add_to_dirlist(const char *filename,
 /* If recursion is not set, this function adds the directory
  * to the list and prevents recursive_action from recursing into it.
  */
-static int FAST_FUNC skip_dir(const char *filename,
-		struct stat *sb, void *userdata,
-		int depth)
+static int FAST_FUNC skip_dir(struct recursive_state *state,
+		const char *filename,
+		struct stat *sb)
 {
-	if (!(option_mask32 & FLAG(r)) && depth) {
-		add_to_dirlist(filename, sb, userdata, depth);
+	if (!(option_mask32 & FLAG(r)) && state->depth) {
+		add_to_dirlist(state, filename, sb);
 		return SKIP;
 	}
 	if (!(option_mask32 & FLAG(N))) {
@@ -838,7 +833,7 @@ static int FAST_FUNC skip_dir(const char *filename,
 		 * which do not exist on the "other side".
 		 * Testcase: diff -r /tmp /
 		 * (it would recurse deep into /proc without this code) */
-		struct dlist *const l = userdata;
+		struct dlist *const l = state->userData;
 		filename += l->len;
 		if (filename[0]) {
 			struct stat osb;
@@ -873,7 +868,7 @@ static void diffdir(char *p[2], const char *s_start)
 		 * add_to_dirlist will remove it. */
 		list[i].len = strlen(p[i]);
 		recursive_action(p[i], ACTION_RECURSE | ACTION_FOLLOWLINKS,
-				add_to_dirlist, skip_dir, &list[i], 0);
+				add_to_dirlist, skip_dir, &list[i]);
 		/* Sort dl alphabetically.
 		 * GNU diff does this ignoring any number of trailing dots.
 		 * We don't, so for us dotted files almost always are
@@ -970,6 +965,11 @@ static const char diff_longopts[] ALIGN1 =
 	"starting-file\0"            Required_argument "S"
 	"minimal\0"                  No_argument       "d"
 	;
+# define GETOPT32 getopt32long
+# define LONGOPTS ,diff_longopts
+#else
+# define GETOPT32 getopt32
+# define LONGOPTS
 #endif
 
 int diff_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
@@ -982,28 +982,31 @@ int diff_main(int argc UNUSED_PARAM, char **argv)
 	INIT_G();
 
 	/* exactly 2 params; collect multiple -L <label>; -U N */
-	opt_complementary = "=2:L::U+";
-#if ENABLE_FEATURE_DIFF_LONG_OPTIONS
-	applet_long_options = diff_longopts;
-#endif
-	getopt32(argv, "abdiL:NqrsS:tTU:wupBE",
+	GETOPT32(argv, "^" "abdiL:*NqrsS:tTU:+wupBE" "\0" "=2"
+			LONGOPTS,
 			&L_arg, &s_start, &opt_U_context);
 	argv += optind;
 	while (L_arg)
 		label[!!label[0]] = llist_pop(&L_arg);
+
+	/* Compat: "diff file name_which_doesnt_exist" exits with 2 */
 	xfunc_error_retval = 2;
 	for (i = 0; i < 2; i++) {
 		file[i] = argv[i];
-		/* Compat: "diff file name_which_doesnt_exist" exits with 2 */
 		if (LONE_DASH(file[i])) {
 			fstat(STDIN_FILENO, &stb[i]);
 			gotstdin++;
-		} else
+		} else if (option_mask32 & FLAG(N)) {
+			if (stat(file[i], &stb[i]))
+				xstat("/dev/null", &stb[i]);
+		} else {
 			xstat(file[i], &stb[i]);
+		}
 	}
 	xfunc_error_retval = 1;
+
 	if (gotstdin && (S_ISDIR(stb[0].st_mode) || S_ISDIR(stb[1].st_mode)))
-		bb_error_msg_and_die("can't compare stdin to a directory");
+		bb_simple_error_msg_and_die("can't compare stdin to a directory");
 
 	/* Compare metadata to check if the files are the same physical file.
 	 *
@@ -1034,7 +1037,7 @@ int diff_main(int argc UNUSED_PARAM, char **argv)
 #if ENABLE_FEATURE_DIFF_DIR
 		diffdir(file, s_start);
 #else
-		bb_error_msg_and_die("no support for directory comparison");
+		bb_simple_error_msg_and_die("no support for directory comparison");
 #endif
 	} else {
 		bool dirfile = S_ISDIR(stb[0].st_mode) || S_ISDIR(stb[1].st_mode);
@@ -1047,7 +1050,7 @@ int diff_main(int argc UNUSED_PARAM, char **argv)
 		/* diffreg can get non-regular files here */
 		print_status(gotstdin > 1 ? STATUS_SAME : diffreg(file), file);
 
-		if (dirfile)
+		if (ENABLE_FEATURE_CLEAN_UP && dirfile)
 			free(file[dir]);
 	}
 

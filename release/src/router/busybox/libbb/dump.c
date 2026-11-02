@@ -10,17 +10,22 @@
  *
  * Original copyright notice is retained at the end of this file.
  */
-
 #include "libbb.h"
 #include "dump.h"
 
-static const char index_str[] ALIGN1 = ".#-+ 0123456789";
-
-static const char size_conv_str[] ALIGN1 =
-"\x1\x4\x4\x4\x4\x4\x4\x8\x8\x8\x8\010cdiouxXeEfgG";
-
-static const char lcc[] ALIGN1 = "diouxX";
-
+#define	F_IGNORE	0x01		/* %_A */
+#define	F_SETREP	0x02		/* rep count set, not default */
+#define	F_ADDRESS	0x001		/* print offset */
+#define	F_BPAD		0x002		/* blank pad */
+#define	F_C		0x004		/* %_c */
+#define	F_CHAR		0x008		/* %c */
+#define	F_DBL		0x010		/* %[EefGf] */
+#define	F_INT		0x020		/* %[di] */
+#define	F_P		0x040		/* %_p */
+#define	F_STR		0x080		/* %s */
+#define	F_U		0x100		/* %_u */
+#define	F_UINT		0x200		/* %[ouXx] */
+#define	F_TEXT		0x400		/* no conversions */
 
 typedef struct priv_dumper_t {
 	dumper_t pub;
@@ -29,7 +34,6 @@ typedef struct priv_dumper_t {
 	FU *endfu;
 	off_t savaddress;        /* saved address/offset in stream */
 	off_t eaddress;          /* end address */
-	off_t address;           /* address/offset in stream */
 	int blocksize;
 	smallint exitval;        /* final exit value */
 
@@ -40,6 +44,13 @@ typedef struct priv_dumper_t {
 	unsigned char *get__savp;
 } priv_dumper_t;
 
+static const char dot_flags_width_chars[] ALIGN1 = ".#-+ 0123456789";
+
+static const char size_conv_str[] ALIGN1 =
+"\x1\x4\x4\x4\x4\x4\x4\x8\x8\x8\x8\010cdiouxXeEfgG";
+
+static const char int_convs[] ALIGN1 = "diouxX";
+
 dumper_t* FAST_FUNC alloc_dumper(void)
 {
 	priv_dumper_t *dumper = xzalloc(sizeof(*dumper));
@@ -49,7 +60,6 @@ dumper_t* FAST_FUNC alloc_dumper(void)
 	return &dumper->pub;
 }
 
-
 static NOINLINE int bb_dump_size(FS *fs)
 {
 	FU *fu;
@@ -58,7 +68,7 @@ static NOINLINE int bb_dump_size(FS *fs)
 	const char *p;
 	int prec;
 
-	/* figure out the data block bb_dump_size needed for each format unit */
+	/* figure out the data block size needed for each format unit */
 	for (cur_size = 0, fu = fs->nextfu; fu; fu = fu->nextfu) {
 		if (fu->bcnt) {
 			cur_size += fu->bcnt * fu->reps;
@@ -71,7 +81,7 @@ static NOINLINE int bb_dump_size(FS *fs)
 			 * skip any special chars -- save precision in
 			 * case it's a %s format.
 			 */
-			while (strchr(index_str + 1, *++fmt))
+			while (strchr(dot_flags_width_chars + 1, *++fmt))
 				continue;
 			if (*fmt == '.' && isdigit(*++fmt)) {
 				prec = atoi(fmt);
@@ -82,14 +92,15 @@ static NOINLINE int bb_dump_size(FS *fs)
 			if (!p) {
 				if (*fmt == 's') {
 					bcnt += prec;
-				} else if (*fmt == '_') {
+				}
+				if (*fmt == '_') {
 					++fmt;
 					if ((*fmt == 'c') || (*fmt == 'p') || (*fmt == 'u')) {
 						bcnt += 1;
 					}
 				}
 			} else {
-				bcnt += size_conv_str[p - (size_conv_str + 12)];
+				bcnt += p[-12];
 			}
 		}
 		cur_size += bcnt * fu->reps;
@@ -99,32 +110,30 @@ static NOINLINE int bb_dump_size(FS *fs)
 
 static NOINLINE void rewrite(priv_dumper_t *dumper, FS *fs)
 {
-	enum { NOTOKAY, USEBCNT, USEPREC } sokay;
 	FU *fu;
-	PR *pr;
-	char *p1, *p2, *p3;
-	char savech, *fmtp;
-	const char *byte_count_str;
-	int nconv, prec = 0;
 
 	for (fu = fs->nextfu; fu; fu = fu->nextfu) {
+		PR *pr;
+		char *p1, *p2, *p3;
+		char *fmtp;
+		int nconv = 0;
 		/*
 		 * break each format unit into print units; each
 		 * conversion character gets its own.
 		 */
-		for (nconv = 0, fmtp = fu->fmt; *fmtp; ) {
-			/* NOSTRICT */
-			/* DBU:[dvae@cray.com] zalloc so that forward ptrs start out NULL*/
-			pr = xzalloc(sizeof(PR));
+		for (fmtp = fu->fmt; *fmtp; ) {
+			unsigned len;
+			const char *prec;
+			const char *byte_count_str;
+
+			/* DBU:[dvae@cray.com] zalloc so that forward ptrs start out NULL */
+			pr = xzalloc(sizeof(*pr));
 			if (!fu->nextpr)
 				fu->nextpr = pr;
 
 			/* skip preceding text and up to the next % sign */
-			for (p1 = fmtp; *p1 && *p1 != '%'; ++p1)
-				continue;
-
-			/* only text in the string */
-			if (!*p1) {
+			p1 = strchr(fmtp, '%');
+			if (!p1) { /* only text in the string */
 				pr->fmt = fmtp;
 				pr->flags = F_TEXT;
 				break;
@@ -134,22 +143,20 @@ static NOINLINE void rewrite(priv_dumper_t *dumper, FS *fs)
 			 * get precision for %s -- if have a byte count, don't
 			 * need it.
 			 */
+			prec = NULL;
 			if (fu->bcnt) {
-				sokay = USEBCNT;
 				/* skip to conversion character */
-				for (++p1; strchr(index_str, *p1); ++p1)
+				while (strchr(dot_flags_width_chars, *++p1))
 					continue;
 			} else {
 				/* skip any special chars, field width */
-				while (strchr(index_str + 1, *++p1))
+				while (strchr(dot_flags_width_chars + 1, *++p1))
 					continue;
 				if (*p1 == '.' && isdigit(*++p1)) {
-					sokay = USEPREC;
-					prec = atoi(p1);
+					prec = p1;
 					while (isdigit(*++p1))
 						continue;
-				} else
-					sokay = NOTOKAY;
+				}
 			}
 
 			p2 = p1 + 1; /* set end pointer */
@@ -157,7 +164,7 @@ static NOINLINE void rewrite(priv_dumper_t *dumper, FS *fs)
 			/*
 			 * figure out the byte count for each conversion;
 			 * rewrite the format as necessary, set up blank-
-			 * pbb_dump_adding for end of data.
+			 * padding for end of data.
 			 */
 			if (*p1 == 'c') {
 				pr->flags = F_CHAR;
@@ -165,74 +172,73 @@ static NOINLINE void rewrite(priv_dumper_t *dumper, FS *fs)
 				byte_count_str = "\001";
  DO_BYTE_COUNT:
 				if (fu->bcnt) {
-					do {
-						if (fu->bcnt == *byte_count_str) {
+					for (;;) {
+						if (fu->bcnt == *byte_count_str)
 							break;
-						}
-					} while (*++byte_count_str);
+						if (*++byte_count_str == 0)
+							bb_error_msg_and_die("bad byte count for conversion character %s", p1);
+					}
 				}
 				/* Unlike the original, output the remainder of the format string. */
-				if (!*byte_count_str) {
-					bb_error_msg_and_die("bad byte count for conversion character %s", p1);
-				}
 				pr->bcnt = *byte_count_str;
-			} else if (*p1 == 'l') {
+			} else
+			if (*p1 == 'l') { /* %ld etc */
+				const char *e;
+
 				++p2;
 				++p1;
  DO_INT_CONV:
-				{
-					const char *e;
-					e = strchr(lcc, *p1);
-					if (!e) {
-						goto DO_BAD_CONV_CHAR;
-					}
-					pr->flags = F_INT;
-					if (e > lcc + 1) {
-						pr->flags = F_UINT;
-					}
-					byte_count_str = "\004\002\001";
-					goto DO_BYTE_COUNT;
-				}
-				/* NOTREACHED */
-			} else if (strchr(lcc, *p1)) {
+				e = strchr(int_convs, *p1); /* "diouxX"? */
+				if (!e)
+					goto DO_BAD_CONV_CHAR;
+				pr->flags = F_INT;
+				if (e > int_convs + 1) /* not d or i? */
+					pr->flags = F_UINT;
+				byte_count_str = "\004\002\001";
+				goto DO_BYTE_COUNT;
+			} else
+			if (strchr(int_convs, *p1)) { /* %d etc */
 				goto DO_INT_CONV;
-			} else if (strchr("eEfgG", *p1)) {
+			} else
+			if (strchr("eEfgG", *p1)) { /* floating point */
 				pr->flags = F_DBL;
 				byte_count_str = "\010\004";
 				goto DO_BYTE_COUNT;
-			} else if (*p1 == 's') {
+			} else
+			if (*p1 == 's') {
 				pr->flags = F_STR;
-				if (sokay == USEBCNT) {
-					pr->bcnt = fu->bcnt;
-				} else if (sokay == USEPREC) {
-					pr->bcnt = prec;
-				} else {   /* NOTOKAY */
-					bb_error_msg_and_die("%%s requires a precision or a byte count");
+				pr->bcnt = fu->bcnt;
+				if (fu->bcnt == 0) {
+					if (!prec)
+						bb_simple_error_msg_and_die("%s needs precision or byte count");
+					pr->bcnt = atoi(prec);
 				}
-			} else if (*p1 == '_') {
-				++p2;
+			} else
+			if (*p1 == '_') {
+				p2++;  /* move past a in "%_a" */
 				switch (p1[1]) {
-				case 'A':
+				case 'A':	/* %_A[dox]: print address and the end */
 					dumper->endfu = fu;
 					fu->flags |= F_IGNORE;
 					/* FALLTHROUGH */
-				case 'a':
+				case 'a':	/* %_a[dox]: current address */
 					pr->flags = F_ADDRESS;
-					++p2;
+					p2++;  /* move past x in "%_ax" */
 					if ((p1[2] != 'd') && (p1[2] != 'o') && (p1[2] != 'x')) {
 						goto DO_BAD_CONV_CHAR;
 					}
-					*p1 = p1[2];
+					*p1++ = 'l';
+					*p1++ = 'l';
 					break;
-				case 'c':
+				case 'c':	/* %_c: chars, \ooo, \n \r \t etc */
 					pr->flags = F_C;
 					/* *p1 = 'c';   set in conv_c */
 					goto DO_BYTE_COUNT_1;
-				case 'p':
+				case 'p':	/* %_p: chars, dots for nonprintable */
 					pr->flags = F_P;
 					*p1 = 'c';
 					goto DO_BYTE_COUNT_1;
-				case 'u':
+				case 'u':	/* %_p: chars, 'nul', 'esc' etc for nonprintable */
 					pr->flags = F_U;
 					/* *p1 = 'c';   set in conv_u */
 					goto DO_BYTE_COUNT_1;
@@ -248,13 +254,8 @@ static NOINLINE void rewrite(priv_dumper_t *dumper, FS *fs)
 			 * copy to PR format string, set conversion character
 			 * pointer, update original.
 			 */
-			savech = *p2;
-			p1[1] = '\0';
-			pr->fmt = xstrdup(fmtp);
-			*p2 = savech;
-			//Too early! xrealloc can move pr->fmt!
-			//pr->cchar = pr->fmt + (p1 - fmtp);
-
+			len = (p1 - fmtp) + 1;
+			pr->fmt = xstrndup(fmtp, len);
 			/* DBU:[dave@cray.com] w/o this, trailing fmt text, space is lost.
 			 * Skip subsequent text and up to the next % sign and tack the
 			 * additional text onto fmt: eg. if fmt is "%x is a HEX number",
@@ -262,28 +263,29 @@ static NOINLINE void rewrite(priv_dumper_t *dumper, FS *fs)
 			 */
 			for (p3 = p2; *p3 && *p3 != '%'; p3++)
 				continue;
-			if (p3 > p2) {
-				savech = *p3;
-				*p3 = '\0';
-				pr->fmt = xrealloc(pr->fmt, strlen(pr->fmt) + (p3-p2) + 1);
-				strcat(pr->fmt, p2);
-				*p3 = savech;
-				p2 = p3;
+			if ((p3 - p2) != 0) {
+				char *d;
+				pr->fmt = d = xrealloc(pr->fmt, len + (p3 - p2) + 1);
+				d += len;
+				do {
+					*d++ = *p2++;
+				} while (p2 != p3);
+				*d = '\0';
+				/* now p2 = p3 */
 			}
-
-			pr->cchar = pr->fmt + (p1 - fmtp);
+			pr->cchar = pr->fmt + len - 1; /* must be after realloc! */
 			fmtp = p2;
 
 			/* only one conversion character if byte count */
 			if (!(pr->flags & F_ADDRESS) && fu->bcnt && nconv++) {
-				bb_error_msg_and_die("byte count with multiple conversion characters");
+				bb_simple_error_msg_and_die("byte count with multiple conversion characters");
 			}
 		}
 		/*
 		 * if format unit byte count not specified, figure it out
 		 * so can adjust rep count later.
 		 */
-		if (!fu->bcnt)
+		if (fu->bcnt == 0)
 			for (pr = fu->nextpr; pr; pr = pr->nextpr)
 				fu->bcnt += pr->bcnt;
 	}
@@ -294,7 +296,9 @@ static NOINLINE void rewrite(priv_dumper_t *dumper, FS *fs)
 	 * repeat it as necessary.
 	 *
 	 * if rep count is greater than 1, no trailing whitespace
-	 * gets output from the last iteration of the format unit.
+	 * gets output from the last iteration of the format unit:
+	 * 2/1 "%02x " prints "XX XX", not "XX XX "
+	 * 2/1 "%02x\n" prints "XX\nXX", not "XX\nXX\n"
 	 */
 	for (fu = fs->nextfu; fu; fu = fu->nextfu) {
 		if (!fu->nextfu
@@ -305,66 +309,65 @@ static NOINLINE void rewrite(priv_dumper_t *dumper, FS *fs)
 			fu->reps += (dumper->blocksize - fs->bcnt) / fu->bcnt;
 		}
 		if (fu->reps > 1 && fu->nextpr) {
+			PR *pr;
+			char *p1, *p2;
+
 			for (pr = fu->nextpr;; pr = pr->nextpr)
 				if (!pr->nextpr)
 					break;
-			for (p1 = pr->fmt, p2 = NULL; *p1; ++p1)
+			p2 = NULL;
+			for (p1 = pr->fmt; *p1; ++p1)
 				p2 = isspace(*p1) ? p1 : NULL;
 			if (p2)
 				pr->nospace = p2;
 		}
-		if (!fu->nextfu)
-			break;
 	}
 }
 
-static void do_skip(priv_dumper_t *dumper, const char *fname, int statok)
+static void do_skip(priv_dumper_t *dumper, const char *fname)
 {
 	struct stat sbuf;
 
-	if (statok) {
-		xfstat(STDIN_FILENO, &sbuf, fname);
-		if (!(S_ISCHR(sbuf.st_mode) || S_ISBLK(sbuf.st_mode) || S_ISFIFO(sbuf.st_mode))
-		 && dumper->pub.dump_skip >= sbuf.st_size
-		) {
-			/* If bb_dump_size valid and pub.dump_skip >= size */
-			dumper->pub.dump_skip -= sbuf.st_size;
-			dumper->address += sbuf.st_size;
-			return;
-		}
+	xfstat(STDIN_FILENO, &sbuf, fname);
+	if (S_ISREG(sbuf.st_mode)
+	 && dumper->pub.dump_skip >= sbuf.st_size
+	) {
+		/* If st_size is valid and pub.dump_skip >= st_size */
+		dumper->pub.dump_skip -= sbuf.st_size;
+		dumper->pub.address += sbuf.st_size;
+		return;
 	}
 	if (fseeko(stdin, dumper->pub.dump_skip, SEEK_SET)) {
 		bb_simple_perror_msg_and_die(fname);
 	}
-	dumper->address += dumper->pub.dump_skip;
-	dumper->savaddress = dumper->address;
+	dumper->pub.address += dumper->pub.dump_skip;
+	dumper->savaddress = dumper->pub.address;
 	dumper->pub.dump_skip = 0;
 }
 
 static NOINLINE int next(priv_dumper_t *dumper)
 {
-	int statok;
-
 	for (;;) {
-		if (*dumper->argv) {
-			dumper->next__done = statok = 1;
-			if (!(freopen(*dumper->argv, "r", stdin))) {
-				bb_simple_perror_msg(*dumper->argv);
-				dumper->exitval = 1;
-				++dumper->argv;
-				continue;
+		const char *fname = *dumper->argv;
+
+		if (fname) {
+			dumper->argv++;
+			if (NOT_LONE_DASH(fname)) {
+				if (!freopen(fname, "r", stdin)) {
+					bb_simple_perror_msg(fname);
+					dumper->exitval = 1;
+					dumper->next__done = 1;
+					continue;
+				}
 			}
 		} else {
 			if (dumper->next__done)
 				return 0; /* no next file */
-			dumper->next__done = 1;
-			statok = 0;
 		}
+		dumper->next__done = 1;
 		if (dumper->pub.dump_skip)
-			do_skip(dumper, statok ? *dumper->argv : "stdin", statok);
-		if (*dumper->argv)
-			++dumper->argv;
-		if (!dumper->pub.dump_skip)
+			do_skip(dumper, fname ? fname : "stdin");
+		if (dumper->pub.dump_skip == 0)
 			return 1;
 	}
 	/* NOTREACHED */
@@ -377,7 +380,7 @@ static unsigned char *get(priv_dumper_t *dumper)
 	int blocksize = dumper->blocksize;
 
 	if (!dumper->get__curp) {
-		dumper->address = (off_t)0; /*DBU:[dave@cray.com] initialize,initialize..*/
+		dumper->pub.address = (off_t)0; /*DBU:[dave@cray.com] initialize,initialize..*/
 		dumper->get__curp = xmalloc(blocksize);
 		dumper->get__savp = xzalloc(blocksize); /* need to be initialized */
 	} else {
@@ -385,7 +388,7 @@ static unsigned char *get(priv_dumper_t *dumper)
 		dumper->get__curp = dumper->get__savp;
 		dumper->get__savp = tmp;
 		dumper->savaddress += blocksize;
-		dumper->address = dumper->savaddress;
+		dumper->pub.address = dumper->savaddress;
 	}
 	need = blocksize;
 	nread = 0;
@@ -399,19 +402,21 @@ static unsigned char *get(priv_dumper_t *dumper)
 			if (need == blocksize) {
 				return NULL;
 			}
-			if (dumper->pub.dump_vflag != ALL && !memcmp(dumper->get__curp, dumper->get__savp, nread)) {
+			if (dumper->pub.dump_vflag != ALL   /* not "show all"? */
+			 && dumper->pub.dump_vflag != FIRST /* not first line? */
+			 && memcmp(dumper->get__curp, dumper->get__savp, nread) == 0 /* same data? */
+			) {
 				if (dumper->pub.dump_vflag != DUP) {
 					puts("*");
 				}
-				return NULL;
 			}
 			memset(dumper->get__curp + nread, 0, need);
-			dumper->eaddress = dumper->address + nread;
+			dumper->eaddress = dumper->pub.address + nread;
 			return dumper->get__curp;
 		}
 		n = fread(dumper->get__curp + nread, sizeof(unsigned char),
 				dumper->pub.dump_length == -1 ? need : MIN(dumper->pub.dump_length, need), stdin);
-		if (!n) {
+		if (n == 0) {
 			if (ferror(stdin)) {
 				bb_simple_perror_msg(dumper->argv[-1]);
 			}
@@ -423,9 +428,10 @@ static unsigned char *get(priv_dumper_t *dumper)
 			dumper->pub.dump_length -= n;
 		}
 		need -= n;
-		if (!need) {
-			if (dumper->pub.dump_vflag == ALL || dumper->pub.dump_vflag == FIRST
-			 || memcmp(dumper->get__curp, dumper->get__savp, blocksize)
+		if (need == 0) {
+			if (dumper->pub.dump_vflag == ALL   /* "show all"? */
+			 || dumper->pub.dump_vflag == FIRST /* first line? */
+			 || memcmp(dumper->get__curp, dumper->get__savp, blocksize) != 0 /* not same data? */
 			) {
 				if (dumper->pub.dump_vflag == DUP || dumper->pub.dump_vflag == FIRST) {
 					dumper->pub.dump_vflag = WAIT;
@@ -437,7 +443,7 @@ static unsigned char *get(priv_dumper_t *dumper)
 			}
 			dumper->pub.dump_vflag = DUP;
 			dumper->savaddress += blocksize;
-			dumper->address = dumper->savaddress;
+			dumper->pub.address = dumper->savaddress;
 			need = blocksize;
 			nread = 0;
 		} else {
@@ -461,31 +467,29 @@ static void bpad(PR *pr)
 	for (p2 = ++p1; *p1 && strchr(" -0+#", *p1); ++p1)
 		if (pr->nospace)
 			pr->nospace--;
-	while ((*p2++ = *p1++) != 0)
+	while ((*p2++ = *p1++) != '\0')
 		continue;
 }
 
 static const char conv_str[] ALIGN1 =
-	"\0\\0\0"
-	"\007\\a\0"  /* \a */
-	"\b\\b\0"
-	"\f\\b\0"
-	"\n\\n\0"
-	"\r\\r\0"
-	"\t\\t\0"
-	"\v\\v\0"
+	"\0"  "\\""0""\0"
+	"\007""\\""a""\0"  /* \a */
+	"\b"  "\\""b""\0"
+	"\f"  "\\""f""\0"
+	"\n"  "\\""n""\0"
+	"\r"  "\\""r""\0"
+	"\t"  "\\""t""\0"
+	"\v"  "\\""v""\0"
 	;
-
 
 static void conv_c(PR *pr, unsigned char *p)
 {
 	const char *str = conv_str;
-	char buf[10];
 
 	do {
 		if (*p == *str) {
 			++str;
-			goto strpr;
+			goto strpr; /* map e.g. '\n' to "\\n" */
 		}
 		str += 4;
 	} while (*str);
@@ -494,7 +498,9 @@ static void conv_c(PR *pr, unsigned char *p)
 		*pr->cchar = 'c';
 		printf(pr->fmt, *p);
 	} else {
-		sprintf(buf, "%03o", (int) *p);
+		char buf[4];
+		/* gcc-8.0.1 needs lots of casts to shut up */
+		sprintf(buf, "%03o", (unsigned)(uint8_t)*p);
 		str = buf;
  strpr:
 		*pr->cchar = 's';
@@ -526,41 +532,48 @@ static void conv_u(PR *pr, unsigned char *p)
 	}
 }
 
-static void display(priv_dumper_t* dumper)
+static NOINLINE void display(priv_dumper_t* dumper)
 {
-	FS *fs;
-	FU *fu;
-	PR *pr;
-	int cnt;
-	unsigned char *bp, *savebp;
-	off_t saveaddress;
+	unsigned char *bp;
 	unsigned char savech = '\0';
 
 	while ((bp = get(dumper)) != NULL) {
+		FS *fs;
+		unsigned char *savebp;
+		off_t saveaddress;
+
 		fs = dumper->pub.fshead;
 		savebp = bp;
-		saveaddress = dumper->address;
-		for (; fs; fs = fs->nextfs, bp = savebp, dumper->address = saveaddress) {
+		saveaddress = dumper->pub.address;
+		for (; fs; fs = fs->nextfs, bp = savebp, dumper->pub.address = saveaddress) {
+			FU *fu;
 			for (fu = fs->nextfu; fu; fu = fu->nextfu) {
+				int cnt;
 				if (fu->flags & F_IGNORE) {
 					break;
 				}
 				for (cnt = fu->reps; cnt; --cnt) {
-					for (pr = fu->nextpr; pr; dumper->address += pr->bcnt,
+					PR *pr;
+					for (pr = fu->nextpr; pr; dumper->pub.address += pr->bcnt,
 								bp += pr->bcnt, pr = pr->nextpr) {
-						if (dumper->eaddress && dumper->address >= dumper->eaddress
-						 && !(pr->flags & (F_TEXT | F_BPAD))
+						if (dumper->eaddress
+						 && dumper->pub.address >= dumper->eaddress
 						) {
-							bpad(pr);
+							if (dumper->pub.xxd_eofstring) {
+								/* xxd support: requested to not pad incomplete blocks */
+								fputs_stdout(dumper->pub.xxd_eofstring);
+								return;
+							}
+							if (!(pr->flags & (F_TEXT | F_BPAD)))
+								bpad(pr);
 						}
 						if (cnt == 1 && pr->nospace) {
 							savech = *pr->nospace;
 							*pr->nospace = '\0';
 						}
-/*                      PRINT; */
 						switch (pr->flags) {
 						case F_ADDRESS:
-							printf(pr->fmt, (unsigned) dumper->address);
+							printf(pr->fmt, (unsigned long long) dumper->pub.address + dumper->pub.xxd_displayoff);
 							break;
 						case F_BPAD:
 							printf(pr->fmt, "");
@@ -646,21 +659,23 @@ static void display(priv_dumper_t* dumper)
 			}
 		}
 	}
+
 	if (dumper->endfu) {
+		PR *pr;
 		/*
 		 * if eaddress not set, error or file size was multiple
 		 * of blocksize, and no partial block ever found.
 		 */
 		if (!dumper->eaddress) {
-			if (!dumper->address) {
+			if (!dumper->pub.address) {
 				return;
 			}
-			dumper->eaddress = dumper->address;
+			dumper->eaddress = dumper->pub.address;
 		}
 		for (pr = dumper->endfu->nextpr; pr; pr = pr->nextpr) {
 			switch (pr->flags) {
 			case F_ADDRESS:
-				printf(pr->fmt, (unsigned) dumper->eaddress);
+				printf(pr->fmt, (unsigned long long) dumper->eaddress + dumper->pub.xxd_displayoff);
 				break;
 			case F_TEXT:
 				printf(pr->fmt);
@@ -676,7 +691,7 @@ int FAST_FUNC bb_dump_dump(dumper_t *pub_dumper, char **argv)
 	FS *tfs;
 	int blocksize;
 
-	/* figure out the data block bb_dump_size */
+	/* figure out the data block size */
 	blocksize = 0;
 	tfs = dumper->pub.fshead;
 	while (tfs) {
@@ -702,11 +717,8 @@ int FAST_FUNC bb_dump_dump(dumper_t *pub_dumper, char **argv)
 void FAST_FUNC bb_dump_add(dumper_t* pub_dumper, const char *fmt)
 {
 	const char *p;
-	char *p1;
-	char *p2;
 	FS *tfs;
-	FU *tfu, **nextfupp;
-	const char *savep;
+	FU **nextfupp;
 
 	/* start new linked list of format units */
 	tfs = xzalloc(sizeof(FS)); /*DBU:[dave@cray.com] start out NULL */
@@ -723,6 +735,9 @@ void FAST_FUNC bb_dump_add(dumper_t* pub_dumper, const char *fmt)
 	/* take the format string and break it up into format units */
 	p = fmt;
 	for (;;) {
+		FU *tfu;
+		const char *savep;
+
 		p = skip_whitespace(p);
 		if (*p == '\0') {
 			break;
@@ -764,6 +779,11 @@ void FAST_FUNC bb_dump_add(dumper_t* pub_dumper, const char *fmt)
 			if (!isspace(*p)) {
 				bb_error_msg_and_die("bad format {%s}", fmt);
 			}
+// Above check prohibits formats such as '/1"%02x"' - it requires space after 1.
+// Other than this, formats can be pretty much jammed together:
+// "%07_ax:"8/2 "%04x|""\n"
+// but this space is required. The check *can* be removed, but
+// keeping it to stay compat with util-linux hexdump.
 			tfu->bcnt = atoi(savep);
 			/* skip trailing white space */
 			p = skip_whitespace(p + 1);
@@ -779,29 +799,42 @@ void FAST_FUNC bb_dump_add(dumper_t* pub_dumper, const char *fmt)
 			}
 		}
 		tfu->fmt = xstrndup(savep, p - savep);
-/*      escape(tfu->fmt); */
-
-		p1 = tfu->fmt;
 
 		/* alphabetic escape sequences have to be done in place */
+		strcpy_and_process_escape_sequences(tfu->fmt, tfu->fmt);
+		/* unknown mappings are not changed: "\z" -> '\\' 'z' */
+		/* trailing backslash, if any, is preserved */
+#if 0
+		char *p1;
+		char *p2;
+		p1 = tfu->fmt;
 		for (p2 = p1;; ++p1, ++p2) {
-			if (*p1 == '\0') {
-				*p2 = *p1;
+			*p2 = *p1;
+			if (*p1 == '\0')
 				break;
-			}
+
 			if (*p1 == '\\') {
-				const char *cs = conv_str + 4;
-				++p1;
+				const char *cs;
+
+				p1++;
 				*p2 = *p1;
+				if (*p1 == '\0') {
+					/* "...\" trailing backslash. Eaten. */
+					break;
+				}
+				cs = conv_str + 4; /* skip NUL element */
 				do {
+					/* map e.g. "\n" -> '\n' */
 					if (*p1 == cs[2]) {
 						*p2 = cs[0];
 						break;
 					}
 					cs += 4;
 				} while (*cs);
+				/* unknown mappings remove bkslash: "\z" -> 'z' */
 			}
 		}
+#endif
 
 		p++;
 	}
@@ -823,7 +856,7 @@ void FAST_FUNC bb_dump_add(dumper_t* pub_dumper, const char *fmt)
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+ * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ''AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE

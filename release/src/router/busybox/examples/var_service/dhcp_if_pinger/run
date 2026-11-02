@@ -21,27 +21,27 @@ if test -f "$0.log"; then
 	mv "$0.log.new" "$0.log"
 fi
 
-test -f "/var/service/dhcp_$if/env.out" || exec env - sleep "$ping_time"
+test -f "../dhcp_$if/env.out" || exec env - sleep "$ping_time"
 
-. "/var/service/dhcp_$if/env.out"
+. "../dhcp_$if/env.out"
 test x"$router" != x"" || exec env - sleep "$ping_time"
 
 #msg "Pinging $router"
 failcnt=0
 while true; do
 	ping $ping_opts "$router" && exec env - sleep "$ping_time"
-	: $((failcnt++))
+	failcnt=$((failcnt+1))
 	msg "Failed to ping $router, fail count:$failcnt"
 	test $failcnt -ge $max_fail && break
 	env - sleep "$retry_time"
 done
 
-test -d "/var/service/dhcp_$if" && {
-	msg "Restarting /var/service/dhcp_$if"
-	sv t "/var/service/dhcp_$if"
+test -d "../dhcp_$if" && {
+	msg "Restarting dhcp_$if"
+	svc -t "dhcp_$if"
 }
-test -d "/var/service/supplicant_$if" && {
-	msg "Restarting /var/service/supplicant_$if"
-	sv t "/var/service/supplicant_$if"
+test -d "../supplicant_$if" && {
+	msg "Restarting supplicant_$if"
+	svc -t "supplicant_$if"
 }
 exec env - sleep "$ping_time"

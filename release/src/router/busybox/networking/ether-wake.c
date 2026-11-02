@@ -63,6 +63,15 @@
  *   doing so only works with adapters configured for unicast+broadcast Rx
  *   filter.  That configuration consumes more power.
  */
+//config:config ETHER_WAKE
+//config:	bool "ether-wake (4.9 kb)"
+//config:	default y
+//config:	help
+//config:	Send a magic packet to wake up sleeping machines.
+
+//applet:IF_ETHER_WAKE(APPLET_ODDNAME(ether-wake, ether_wake, BB_DIR_USR_SBIN, BB_SUID_DROP, ether_wake))
+
+//kbuild:lib-$(CONFIG_ETHER_WAKE) += ether-wake.o
 
 //usage:#define ether_wake_trivial_usage
 //usage:       "[-b] [-i IFACE] [-p aa:bb:cc:dd[:ee:ff]/a.b.c.d] MAC"
@@ -172,7 +181,7 @@ static int get_wol_pw(const char *ethoptarg, unsigned char *wol_passwd)
 		byte_cnt = sscanf(ethoptarg, "%u.%u.%u.%u",
 		                  &passwd[0], &passwd[1], &passwd[2], &passwd[3]);
 	if (byte_cnt < 4) {
-		bb_error_msg("can't read Wake-On-LAN pass");
+		bb_simple_error_msg("can't read Wake-On-LAN pass");
 		return 0;
 	}
 // TODO: check invalid numbers >255??
@@ -202,8 +211,7 @@ int ether_wake_main(int argc UNUSED_PARAM, char **argv)
 	struct whereto_t whereto;  /* who to wake up */
 
 	/* handle misc user options */
-	opt_complementary = "=1";
-	flags = getopt32(argv, "bi:p:", &ifname, &pass);
+	flags = getopt32(argv, "^" "bi:p:" "\0" "=1", &ifname, &pass);
 	if (flags & 4) /* -p */
 		wol_passwd_sz = get_wol_pw(pass, wol_passwd);
 	flags &= 1; /* we further interested only in -b [bcast] flag */
@@ -257,7 +265,7 @@ int ether_wake_main(int argc UNUSED_PARAM, char **argv)
 	/* This is necessary for broadcasts to work */
 	if (flags /* & 1 OPT_BROADCAST */) {
 		if (setsockopt_broadcast(s) != 0)
-			bb_perror_msg("SO_BROADCAST");
+			bb_simple_perror_msg("SO_BROADCAST");
 	}
 
 #if defined(PF_PACKET)

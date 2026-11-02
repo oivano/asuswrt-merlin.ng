@@ -5,6 +5,25 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
+//config:config SPLIT
+//config:	bool "split (5 kb)"
+//config:	default y
+//config:	help
+//config:	Split a file into pieces.
+//config:
+//config:config FEATURE_SPLIT_FANCY
+//config:	bool "Fancy extensions"
+//config:	default y
+//config:	depends on SPLIT
+//config:	help
+//config:	Add support for features not required by SUSv3.
+//config:	Supports additional suffixes 'b' for 512 bytes,
+//config:	'g' for 1GiB for the -b option.
+
+//applet:IF_SPLIT(APPLET(split, BB_DIR_USR_BIN, BB_SUID_DROP))
+
+//kbuild:lib-$(CONFIG_SPLIT) += split.o
+
 /* BB_AUDIT: SUSv3 compliant
  * SUSv3 requirements:
  * http://www.opengroup.org/onlinepubs/009695399/utilities/split.html
@@ -25,7 +44,7 @@
 #include "common_bufsiz.h"
 
 #if ENABLE_FEATURE_SPLIT_FANCY
-static const struct suffix_mult split_suffixes[] = {
+static const struct suffix_mult split_suffixes[] ALIGN_SUFFIX = {
 	{ "b", 512 },
 	{ "k", 1024 },
 	{ "m", 1024*1024 },
@@ -81,8 +100,11 @@ int split_main(int argc UNUSED_PARAM, char **argv)
 
 	setup_common_bufsiz();
 
-	opt_complementary = "?2:a+"; /* max 2 args; -a N */
-	opt = getopt32(argv, "l:b:a:", &count_p, &count_p, &suffix_len);
+	opt = getopt32(argv, "^"
+			"l:b:a:+" /* -a N */
+			"\0" "?2"/*max 2 args*/,
+			&count_p, &count_p, &suffix_len
+	);
 
 	if (opt & SPLIT_OPT_l)
 		cnt = XATOOFF(count_p);
@@ -105,7 +127,7 @@ int split_main(int argc UNUSED_PARAM, char **argv)
 	}
 
 	if (NAME_MAX < strlen(sfx) + suffix_len)
-		bb_error_msg_and_die("suffix too long");
+		bb_simple_error_msg_and_die("suffix too long");
 
 	{
 		char *char_p = xzalloc(suffix_len + 1);
@@ -125,7 +147,7 @@ int split_main(int argc UNUSED_PARAM, char **argv)
 		do {
 			if (!remaining) {
 				if (!pfx)
-					bb_error_msg_and_die("suffixes exhausted");
+					bb_simple_error_msg_and_die("suffixes exhausted");
 				xmove_fd(xopen(pfx, O_WRONLY | O_CREAT | O_TRUNC), 1);
 				pfx = next_file(pfx, suffix_len);
 				remaining = cnt;

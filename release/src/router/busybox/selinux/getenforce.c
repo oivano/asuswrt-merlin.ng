@@ -6,6 +6,16 @@
  *
  * Licensed under GPLv2, see file LICENSE in this source tree.
  */
+//config:config GETENFORCE
+//config:	bool "getenforce (1.7 kb)"
+//config:	default n
+//config:	depends on SELINUX
+//config:	help
+//config:	Enable support to get the current mode of SELinux.
+
+//applet:IF_GETENFORCE(APPLET(getenforce, BB_DIR_USR_SBIN, BB_SUID_DROP))
+
+//kbuild:lib-$(CONFIG_GETENFORCE) += getenforce.o
 
 //usage:#define getenforce_trivial_usage NOUSAGE_STR
 //usage:#define getenforce_full_usage ""
@@ -19,12 +29,12 @@ int getenforce_main(int argc UNUSED_PARAM, char **argv UNUSED_PARAM)
 
 	rc = is_selinux_enabled();
 	if (rc < 0)
-		bb_error_msg_and_die("is_selinux_enabled() failed");
+		bb_simple_error_msg_and_die("is_selinux_enabled() failed");
 
 	if (rc == 1) {
 		rc = security_getenforce();
 		if (rc < 0)
-			bb_error_msg_and_die("getenforce() failed");
+			bb_simple_error_msg_and_die("getenforce() failed");
 
 		if (rc)
 			puts("Enforcing");

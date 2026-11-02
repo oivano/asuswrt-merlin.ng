@@ -6,6 +6,16 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
+//config:config LOADKMAP
+//config:	bool "loadkmap (1.8 kb)"
+//config:	default y
+//config:	help
+//config:	This program loads a keyboard translation table from
+//config:	standard input.
+
+//applet:IF_LOADKMAP(APPLET_NOEXEC(loadkmap, loadkmap, BB_DIR_SBIN, BB_SUID_DROP, loadkmap))
+
+//kbuild:lib-$(CONFIG_LOADKMAP) += loadkmap.o
 
 //usage:#define loadkmap_trivial_usage
 //usage:       "< keymap"
@@ -58,7 +68,7 @@ int loadkmap_main(int argc UNUSED_PARAM, char **argv)
 
 	xread(STDIN_FILENO, flags, 7);
 	if (!is_prefixed_with(flags, BINARY_KEYMAP_MAGIC))
-		bb_error_msg_and_die("not a valid binary keymap");
+		bb_simple_error_msg_and_die("not a valid binary keymap");
 
 	xread(STDIN_FILENO, flags, MAX_NR_KEYMAPS);
 

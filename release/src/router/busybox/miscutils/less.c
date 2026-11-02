@@ -6,7 +6,6 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
-
 /*
  * TODO:
  * - Add more regular expression support - search modifiers, certain matches, etc.
@@ -20,13 +19,12 @@
  * - the inp file pointer is used so that keyboard input works after
  *   redirected input has been read from stdin
  */
-
 //config:config LESS
-//config:	bool "less"
+//config:	bool "less (16 kb)"
 //config:	default y
 //config:	help
-//config:	  'less' is a pager, meaning that it displays text files. It possesses
-//config:	  a wide array of features, and is an improvement over 'more'.
+//config:	'less' is a pager, meaning that it displays text files. It possesses
+//config:	a wide array of features, and is an improvement over 'more'.
 //config:
 //config:config FEATURE_LESS_MAXLINES
 //config:	int "Max number of input lines less will try to eat"
@@ -38,79 +36,97 @@
 //config:	default y
 //config:	depends on LESS
 //config:	help
-//config:	  This option adds the capability to search for matching left and right
-//config:	  brackets, facilitating programming.
+//config:	This option adds the capability to search for matching left and right
+//config:	brackets, facilitating programming.
 //config:
 //config:config FEATURE_LESS_FLAGS
 //config:	bool "Enable -m/-M"
 //config:	default y
 //config:	depends on LESS
 //config:	help
-//config:	  The -M/-m flag enables a more sophisticated status line.
+//config:	The -M/-m flag enables a more sophisticated status line.
 //config:
 //config:config FEATURE_LESS_TRUNCATE
 //config:	bool "Enable -S"
 //config:	default y
 //config:	depends on LESS
 //config:	help
-//config:	  The -S flag causes long lines to be truncated rather than
-//config:	  wrapped.
+//config:	The -S flag causes long lines to be truncated rather than
+//config:	wrapped.
 //config:
 //config:config FEATURE_LESS_MARKS
 //config:	bool "Enable marks"
 //config:	default y
 //config:	depends on LESS
 //config:	help
-//config:	  Marks enable positions in a file to be stored for easy reference.
+//config:	Marks enable positions in a file to be stored for easy reference.
 //config:
 //config:config FEATURE_LESS_REGEXP
 //config:	bool "Enable regular expressions"
 //config:	default y
 //config:	depends on LESS
 //config:	help
-//config:	  Enable regular expressions, allowing complex file searches.
+//config:	Enable regular expressions, allowing complex file searches.
 //config:
 //config:config FEATURE_LESS_WINCH
 //config:	bool "Enable automatic resizing on window size changes"
 //config:	default y
 //config:	depends on LESS
 //config:	help
-//config:	  Makes less track window size changes.
+//config:	Makes less track window size changes.
 //config:
 //config:config FEATURE_LESS_ASK_TERMINAL
 //config:	bool "Use 'tell me cursor position' ESC sequence to measure window"
 //config:	default y
 //config:	depends on FEATURE_LESS_WINCH
 //config:	help
-//config:	  Makes less track window size changes.
-//config:	  If terminal size can't be retrieved and $LINES/$COLUMNS are not set,
-//config:	  this option makes less perform a last-ditch effort to find it:
-//config:	  position cursor to 999,999 and ask terminal to report real
-//config:	  cursor position using "ESC [ 6 n" escape sequence, then read stdin.
-//config:
-//config:	  This is not clean but helps a lot on serial lines and such.
+//config:	Makes less track window size changes.
+//config:	If terminal size can't be retrieved and $LINES/$COLUMNS are not set,
+//config:	this option makes less perform a last-ditch effort to find it:
+//config:	position cursor to 999,999 and ask terminal to report real
+//config:	cursor position using "ESC [ 6 n" escape sequence, then read stdin.
+//config:	This is not clean but helps a lot on serial lines and such.
 //config:
 //config:config FEATURE_LESS_DASHCMD
 //config:	bool "Enable flag changes ('-' command)"
 //config:	default y
 //config:	depends on LESS
 //config:	help
-//config:	  This enables the ability to change command-line flags within
-//config:	  less itself ('-' keyboard command).
+//config:	This enables the ability to change command-line flags within
+//config:	less itself ('-' keyboard command).
 //config:
 //config:config FEATURE_LESS_LINENUMS
-//config:	bool "Enable dynamic switching of line numbers"
+//config:	bool "Enable -N (dynamic switching of line numbers)"
+//config:	default y
+//config:	depends on FEATURE_LESS_DASHCMD
+//config:
+//config:config FEATURE_LESS_RAW
+//config:	bool "Enable -R ('raw control characters')"
 //config:	default y
 //config:	depends on FEATURE_LESS_DASHCMD
 //config:	help
-//config:	  Enables "-N" command.
+//config:	This is essential for less applet to work with tools that use colors
+//config:	and paging, such as git, systemd tools or nmcli.
+//config:
+//config:config FEATURE_LESS_ENV
+//config:	bool "Take options from $LESS environment variable"
+//config:	default y
+//config:	depends on FEATURE_LESS_DASHCMD
+//config:	help
+//config:	This is essential for less applet to work with tools that use colors
+//config:	and paging, such as git, systemd tools or nmcli.
+
+//applet:IF_LESS(APPLET(less, BB_DIR_USR_BIN, BB_SUID_DROP))
+
+//kbuild:lib-$(CONFIG_LESS) += less.o
 
 //usage:#define less_trivial_usage
-//usage:       "[-E" IF_FEATURE_LESS_REGEXP("I")IF_FEATURE_LESS_FLAGS("Mm")
-//usage:       "N" IF_FEATURE_LESS_TRUNCATE("S") "h~] [FILE]..."
+//usage:       "[-EF" IF_FEATURE_LESS_REGEXP("I")IF_FEATURE_LESS_FLAGS("Mm")
+//usage:       "N" IF_FEATURE_LESS_TRUNCATE("S") IF_FEATURE_LESS_RAW("R") "h~] [FILE]..."
 //usage:#define less_full_usage "\n\n"
 //usage:       "View FILE (or stdin) one screenful at a time\n"
 //usage:     "\n	-E	Quit once the end of a file is reached"
+//usage:     "\n	-F	Quit if entire file fits on first screen"
 //usage:	IF_FEATURE_LESS_REGEXP(
 //usage:     "\n	-I	Ignore case in all searches"
 //usage:	)
@@ -121,6 +137,9 @@
 //usage:     "\n	-N	Prefix line number to each line"
 //usage:	IF_FEATURE_LESS_TRUNCATE(
 //usage:     "\n	-S	Truncate long lines"
+//usage:	)
+//usage:	IF_FEATURE_LESS_RAW(
+//usage:     "\n	-R	Remove color escape codes in input"
 //usage:	)
 //usage:     "\n	-~	Suppress ~s displayed past EOF"
 
@@ -136,9 +155,9 @@
 #define ESC "\033"
 /* The escape codes for highlighted and normal text */
 #define HIGHLIGHT   ESC"[7m"
-#define NORMAL      ESC"[0m"
+#define NORMAL      ESC"[m"
 /* The escape code to home and clear to the end of screen */
-#define CLEAR       ESC"[H\033[J"
+#define CLEAR       ESC"[H"ESC"[J"
 /* The escape code to clear to the end of line */
 #define CLEAR_2_EOL ESC"[K"
 
@@ -157,7 +176,9 @@ enum {
 	FLAG_N = 1 << 3,
 	FLAG_TILDE = 1 << 4,
 	FLAG_I = 1 << 5,
-	FLAG_S = (1 << 6) * ENABLE_FEATURE_LESS_TRUNCATE,
+	FLAG_F = 1 << 6,
+	FLAG_S = (1 << 7) * ENABLE_FEATURE_LESS_TRUNCATE,
+	FLAG_R = (1 << 8) * ENABLE_FEATURE_LESS_RAW,
 /* hijack command line options variable for internal state vars */
 	LESS_STATE_MATCH_BACKWARDS = 1 << 15,
 };
@@ -169,6 +190,7 @@ enum { pattern_valid = 0 };
 struct globals {
 	int cur_fline; /* signed */
 	int kbd_fd;  /* fd to get input from */
+	int kbd_fd_orig_flags;
 	int less_gets_pos;
 /* last position in last line, taking into account tabs */
 	size_t last_line_pos;
@@ -206,6 +228,9 @@ struct globals {
 	int num_matches;
 	regex_t pattern;
 	smallint pattern_valid;
+#endif
+#if ENABLE_FEATURE_LESS_RAW
+	smallint in_escape;
 #endif
 #if ENABLE_FEATURE_LESS_ASK_TERMINAL
 	smallint winsize_err;
@@ -255,7 +280,6 @@ struct globals {
 	SET_PTR_TO_GLOBALS(xzalloc(sizeof(G))); \
 	less_gets_pos = -1; \
 	empty_line_marker = "~"; \
-	num_files = 1; \
 	current_file = 1; \
 	eof_error = 1; \
 	terminated = 1; \
@@ -265,7 +289,7 @@ struct globals {
 /* flines[] are lines read from stdin, each in malloc'ed buffer.
  * Line numbers are stored as uint32_t prepended to each line.
  * Pointer is adjusted so that flines[i] points directly past
- * line number. Accesor: */
+ * line number. Accessor: */
 #define MEMPTR(p) ((char*)(p) - 4)
 #define LINENO(p) (*(uint32_t*)((p) - 4))
 
@@ -279,9 +303,9 @@ static void set_tty_cooked(void)
 
 /* Move the cursor to a position (x,y), where (0,0) is the
    top-left corner of the console */
-static void move_cursor(int line, int row)
+static void move_cursor(int line, int col)
 {
-	printf(ESC"[%u;%uH", line, row);
+	printf(ESC"[%u;%uH", line, col);
 }
 
 static void clear_line(void)
@@ -301,13 +325,18 @@ static void print_statusline(const char *str)
 }
 
 /* Exit the program gracefully */
-static void less_exit(int code)
+static void restore_tty(void)
 {
 	set_tty_cooked();
+	if (!(G.kbd_fd_orig_flags & O_NONBLOCK))
+		ndelay_off(kbd_fd);
 	clear_line();
-	if (code < 0)
-		kill_myself_with_sig(- code); /* does not return */
-	exit(code);
+}
+
+static NOINLINE void less_exit(void)
+{
+	restore_tty();
+	exit_SUCCESS();
 }
 
 #if (ENABLE_FEATURE_LESS_DASHCMD && ENABLE_FEATURE_LESS_LINENUMS) \
@@ -512,6 +541,26 @@ static void read_lines(void)
 				*--p = '\0';
 				continue;
 			}
+#if ENABLE_FEATURE_LESS_RAW
+			if (option_mask32 & FLAG_R) {
+				if (c == '\033')
+					goto discard;
+				if (G.in_escape) {
+					if (isdigit(c)
+					 || c == '['
+					 || c == ';'
+					 || c == 'm'
+					) {
+ discard:
+						G.in_escape = (c != 'm');
+						readpos++;
+						continue;
+					}
+					/* Hmm, unexpected end of "ESC [ N ; N m" sequence */
+					G.in_escape = 0;
+				}
+			}
+#endif
 			{
 				size_t new_last_line_pos = last_line_pos + 1;
 				if (c == '\t') {
@@ -862,11 +911,12 @@ static void buffer_print(void)
 		else
 			print_ascii(buffer[i]);
 	}
-	if ((option_mask32 & FLAG_E)
+	if ((option_mask32 & (FLAG_E|FLAG_F))
 	 && eof_error <= 0
-	 && (max_fline - cur_fline) <= max_displayed_line
 	) {
-		less_exit(EXIT_SUCCESS);
+		i = option_mask32 & FLAG_F ? 0 : cur_fline;
+		if (max_fline - i <= max_displayed_line)
+			less_exit();
 	}
 	status_print();
 }
@@ -1038,7 +1088,7 @@ static void reinitialize(void)
 	open_file_and_read_lines();
 #if ENABLE_FEATURE_LESS_ASK_TERMINAL
 	if (G.winsize_err)
-		printf("\033[999;999H" "\033[6n");
+		printf(ESC"[999;999H" ESC"[6n");
 #endif
 	buffer_fill_and_print();
 }
@@ -1087,9 +1137,9 @@ static int64_t getch_nowait(void)
 #endif
 	}
 
-	/* We have kbd_fd in O_NONBLOCK mode, read inside read_key()
+	/* We have kbd_fd in O_NONBLOCK mode, read inside safe_read_key()
 	 * would not block even if there is no input available */
-	key64 = read_key(kbd_fd, kbd_input, /*timeout off:*/ -2);
+	key64 = safe_read_key(kbd_fd, kbd_input, /*timeout off:*/ -2);
 	if ((int)key64 == -1) {
 		if (errno == EAGAIN) {
 			/* No keyboard input available. Since poll() did return,
@@ -1099,7 +1149,7 @@ static int64_t getch_nowait(void)
 			goto again;
 		}
 		/* EOF/error (ssh session got killed etc) */
-		less_exit(0);
+		less_exit();
 	}
 	set_tty_cooked();
 	return key64;
@@ -1250,7 +1300,7 @@ static void colon_process(void)
 		change_file(-1);
 		break;
 	case 'q':
-		less_exit(EXIT_SUCCESS);
+		less_exit();
 		break;
 	case 'x':
 		change_file(0);
@@ -1589,16 +1639,23 @@ static char opp_bracket(char bracket)
 
 static void match_right_bracket(char bracket)
 {
-	unsigned i;
+	unsigned i = cur_fline;
 
-	if (strchr(flines[cur_fline], bracket) == NULL) {
+	if (i >= max_fline
+	 || strchr(flines[i], bracket) == NULL
+	) {
 		print_statusline("No bracket in top line");
 		return;
 	}
+
 	bracket = opp_bracket(bracket);
-	for (i = cur_fline + 1; i < max_fline; i++) {
+	for (; i < max_fline; i++) {
 		if (strchr(flines[i], bracket) != NULL) {
-			buffer_line(i);
+			/*
+			 * Line with matched right bracket becomes
+			 * last visible line
+			 */
+			buffer_line(i - max_displayed_line);
 			return;
 		}
 	}
@@ -1607,16 +1664,22 @@ static void match_right_bracket(char bracket)
 
 static void match_left_bracket(char bracket)
 {
-	int i;
+	int i = cur_fline + max_displayed_line;
 
-	if (strchr(flines[cur_fline + max_displayed_line], bracket) == NULL) {
+	if (i >= max_fline
+	 || strchr(flines[i], bracket) == NULL
+	) {
 		print_statusline("No bracket in bottom line");
 		return;
 	}
 
 	bracket = opp_bracket(bracket);
-	for (i = cur_fline + max_displayed_line; i >= 0; i--) {
+	for (; i >= 0; i--) {
 		if (strchr(flines[i], bracket) != NULL) {
+			/*
+			 * Line with matched left bracket becomes
+			 * first visible line
+			 */
 			buffer_line(i);
 			return;
 		}
@@ -1655,7 +1718,7 @@ static void keypress_process(int keypress)
 		buffer_line(cur_fline);
 		break;
 	case 'q': case 'Q':
-		less_exit(EXIT_SUCCESS);
+		less_exit();
 		break;
 #if ENABLE_FEATURE_LESS_MARKS
 	case 'm':
@@ -1733,7 +1796,8 @@ static void keypress_process(int keypress)
 
 static void sig_catcher(int sig)
 {
-	less_exit(- sig);
+	restore_tty();
+	kill_myself_with_sig(sig); /* does not return */
 }
 
 #if ENABLE_FEATURE_LESS_WINCH
@@ -1757,11 +1821,36 @@ int less_main(int argc, char **argv)
 	 * -s: condense many empty lines to one
 	 *     (used by some setups for manpage display)
 	 */
-	getopt32(argv, "EMmN~I" IF_FEATURE_LESS_TRUNCATE("S") /*ignored:*/"s");
-	argc -= optind;
+	getopt32(argv, "EMmN~IF"
+		IF_FEATURE_LESS_TRUNCATE("S")
+		IF_FEATURE_LESS_RAW("R")
+		/*ignored:*/"sX"
+	);
 	argv += optind;
-	num_files = argc;
+	num_files = argc - optind;
 	files = argv;
+
+	/* Tools typically pass LESS="FRSXMK".
+	 * The options we don't understand are ignored. */
+	if (ENABLE_FEATURE_LESS_ENV) {
+		char *c = getenv("LESS");
+		if (c) while (*c) switch (*c++) {
+		case 'F':
+			option_mask32 |= FLAG_F;
+			break;
+		case 'M':
+			option_mask32 |= FLAG_M;
+			break;
+		case 'R':
+			option_mask32 |= FLAG_R;
+			break;
+		case 'S':
+			option_mask32 |= FLAG_S;
+			break;
+		default:
+			break;
+		}
+	}
 
 	/* Another popular pager, most, detects when stdout
 	 * is not a tty and turns into cat. This makes sense. */
@@ -1771,7 +1860,6 @@ int less_main(int argc, char **argv)
 	if (!num_files) {
 		if (isatty(STDIN_FILENO)) {
 			/* Just "less"? No args and no redirection? */
-			bb_error_msg("missing filename");
 			bb_show_usage();
 		}
 	} else {
@@ -1784,9 +1872,10 @@ int less_main(int argc, char **argv)
 	/* Some versions of less can survive w/o controlling tty,
 	 * try to do the same. This also allows to specify an alternative
 	 * tty via "less 1<>TTY".
-	 * We don't try to use STDOUT_FILENO directly,
+	 *
+	 * We prefer not to use STDOUT_FILENO directly,
 	 * since we want to set this fd to non-blocking mode,
-	 * and not bother with restoring it on exit.
+	 * and not interfere with other processes which share stdout with us.
 	 */
 	tty_name = xmalloc_ttyname(STDOUT_FILENO);
 	if (tty_name) {
@@ -1798,21 +1887,17 @@ int less_main(int argc, char **argv)
 		/* Try controlling tty */
  try_ctty:
 		tty_fd = open(CURRENT_TTY, O_RDONLY);
-		if (tty_fd < 0)
-			return bb_cat(argv);
+		if (tty_fd < 0) {
+			/* If all else fails, less 481 uses stdout. Mimic that */
+			tty_fd = STDOUT_FILENO;
+		}
 	}
-	ndelay_on(tty_fd);
+	G.kbd_fd_orig_flags = ndelay_on(tty_fd);
 	kbd_fd = tty_fd; /* save in a global */
 
-	tcgetattr(kbd_fd, &term_orig);
-	term_less = term_orig;
-	term_less.c_lflag &= ~(ICANON | ECHO);
-	term_less.c_iflag &= ~(IXON | ICRNL);
-	/*term_less.c_oflag &= ~ONLCR;*/
-	term_less.c_cc[VMIN] = 1;
-	term_less.c_cc[VTIME] = 0;
+	get_termios_and_make_raw(tty_fd, &term_less, &term_orig, TERMIOS_RAW_CRNL_INPUT);
 
-	IF_FEATURE_LESS_ASK_TERMINAL(G.winsize_err =) get_terminal_width_height(kbd_fd, &width, &max_displayed_line);
+	IF_FEATURE_LESS_ASK_TERMINAL(G.winsize_err =) get_terminal_width_height(tty_fd, &width, &max_displayed_line);
 	/* 20: two tabstops + 4 */
 	if (width < 20 || max_displayed_line < 3)
 		return bb_cat(argv);

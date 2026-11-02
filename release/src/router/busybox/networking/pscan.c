@@ -5,17 +5,26 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
+//config:config PSCAN
+//config:	bool "pscan (6 kb)"
+//config:	default y
+//config:	help
+//config:	Simple network port scanner.
+
+//applet:IF_PSCAN(APPLET(pscan, BB_DIR_USR_BIN, BB_SUID_DROP))
+
+//kbuild:lib-$(CONFIG_PSCAN) += pscan.o
 
 //usage:#define pscan_trivial_usage
 //usage:       "[-cb] [-p MIN_PORT] [-P MAX_PORT] [-t TIMEOUT] [-T MIN_RTT] HOST"
 //usage:#define pscan_full_usage "\n\n"
-//usage:       "Scan a host, print all open ports\n"
+//usage:       "Scan HOST, print all open ports\n"
 //usage:     "\n	-c	Show closed ports too"
 //usage:     "\n	-b	Show blocked ports too"
-//usage:     "\n	-p	Scan from this port (default 1)"
-//usage:     "\n	-P	Scan up to this port (default 1024)"
-//usage:     "\n	-t	Timeout (default 5000 ms)"
-//usage:     "\n	-T	Minimum rtt (default 5 ms, increase for congested hosts)"
+//usage:     "\n	-p PORT	Scan from this port (default 1)"
+//usage:     "\n	-P PORT	Scan up to this port (default 1024)"
+//usage:     "\n	-t MS	Timeout (default 5000 ms)"
+//usage:     "\n	-T MS	Minimum rtt (default 5 ms)"
 
 #include "libbb.h"
 
@@ -66,8 +75,11 @@ int pscan_main(int argc UNUSED_PARAM, char **argv)
 	unsigned rtt_4;
 	unsigned start, diff;
 
-	opt_complementary = "=1"; /* exactly one non-option */
-	opt = getopt32(argv, "cbp:P:t:T:", &opt_min_port, &opt_max_port, &opt_timeout, &opt_min_rtt);
+	opt = getopt32(argv, "^"
+		"cbp:P:t:T:"
+		"\0" "=1", /* exactly one non-option */
+		&opt_min_port, &opt_max_port, &opt_timeout, &opt_min_rtt
+	);
 	argv += optind;
 	max_port = xatou_range(opt_max_port, 1, 65535);
 	port = xatou_range(opt_min_port, 1, max_port);
@@ -127,7 +139,7 @@ int pscan_main(int argc UNUSED_PARAM, char **argv)
 			 * We check rtt BEFORE we usleep, otherwise
 			 * on localhost we'll have no writes done (!)
 			 * before we exceed (rather small) rtt */
-			usleep(rtt_4/8);
+			usleep(rtt_4 / 8);
  open:
 			diff = MONOTONIC_US() - start;
 			DMSG("write to port %u @%u", port, diff - start);

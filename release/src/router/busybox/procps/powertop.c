@@ -8,16 +8,23 @@
  *
  * Licensed under GPLv2, see file LICENSE in this source tree.
  */
+//config:config POWERTOP
+//config:	bool "powertop (9.6 kb)"
+//config:	default y
+//config:	help
+//config:	Analyze power consumption on Intel-based laptops
+//config:
+//config:config FEATURE_POWERTOP_INTERACTIVE
+//config:	bool "Accept keyboard commands"
+//config:	default y
+//config:	depends on POWERTOP
+//config:	help
+//config:	Without this, powertop will only refresh display every 10 seconds.
+//config:	No keyboard commands will work, only ^C to terminate.
 
 //applet:IF_POWERTOP(APPLET(powertop, BB_DIR_USR_SBIN, BB_SUID_DROP))
 
 //kbuild:lib-$(CONFIG_POWERTOP) += powertop.o
-
-//config:config POWERTOP
-//config:	bool "powertop"
-//config:	default y
-//config:	help
-//config:	  Analyze power consumption on Intel-based laptops
 
 // XXX This should be configurable
 #define ENABLE_FEATURE_POWERTOP_PROCIRQ 1
@@ -43,6 +50,8 @@
 
 /* Max filename length of entry in /sys/devices subsystem */
 #define BIG_SYSNAME_LEN    16
+
+#define ESC "\033"
 
 typedef unsigned long long ullong;
 
@@ -82,7 +91,7 @@ struct globals {
 	ullong last_usage[MAX_CSTATE_COUNT];
 	ullong start_duration[MAX_CSTATE_COUNT];
 	ullong last_duration[MAX_CSTATE_COUNT];
-#if ENABLE_FEATURE_USE_TERMIOS
+#if ENABLE_FEATURE_POWERTOP_INTERACTIVE
 	struct termios init_settings;
 #endif
 };
@@ -91,7 +100,7 @@ struct globals {
 	SET_PTR_TO_GLOBALS(xzalloc(sizeof(G))); \
 } while (0)
 
-#if ENABLE_FEATURE_USE_TERMIOS
+#if ENABLE_FEATURE_POWERTOP_INTERACTIVE
 static void reset_term(void)
 {
 	tcsetattr_stdin_TCSANOW(&G.init_settings);
@@ -496,13 +505,10 @@ static void cpuid(unsigned int *eax, unsigned int *ebx, unsigned int *ecx,
 				unsigned int *edx)
 {
 	/* EAX value specifies what information to return */
-	__asm__(
-		"	pushl %%ebx\n"     /* Save EBX */
+	asm (
 		"	cpuid\n"
-		"	movl %%ebx, %1\n"  /* Save content of EBX */
-		"	popl %%ebx\n"      /* Restore EBX */
 		: "=a"(*eax), /* Output */
-		  "=r"(*ebx),
+		  "=b"(*ebx),
 		  "=c"(*ecx),
 		  "=d"(*edx)
 		: "0"(*eax),  /* Input */
@@ -648,7 +654,7 @@ static void show_timerstats(void)
 		}
 	} else {
 		bb_putchar('\n');
-		bb_error_msg("no stats available; run as root or"
+		bb_simple_error_msg("no stats available; run as root or"
 				" enable the timer_stats module");
 	}
 }
@@ -677,13 +683,12 @@ static void show_timerstats(void)
 //usage:       "Analyze power consumption on Intel-based laptops"
 
 int powertop_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int powertop_main(int UNUSED_PARAM argc, char UNUSED_PARAM **argv)
+int powertop_main(int argc UNUSED_PARAM, char UNUSED_PARAM **argv)
 {
 	ullong cur_usage[MAX_CSTATE_COUNT];
 	ullong cur_duration[MAX_CSTATE_COUNT];
 	char cstate_lines[MAX_CSTATE_COUNT + 2][64];
-#if ENABLE_FEATURE_USE_TERMIOS
-	struct termios new_settings;
+#if ENABLE_FEATURE_POWERTOP_INTERACTIVE
 	struct pollfd pfd[1];
 
 	pfd[0].fd = 0;
@@ -699,22 +704,19 @@ int powertop_main(int UNUSED_PARAM argc, char UNUSED_PARAM **argv)
 
 	/* Print warning when we don't have superuser privileges */
 	if (geteuid() != 0)
-		bb_error_msg("run as root to collect enough information");
+		bb_simple_error_msg("run as root to collect enough information");
 
 	/* Get number of CPUs */
 	G.total_cpus = get_cpu_count();
 
 	puts("Collecting data for "DEFAULT_SLEEP_STR" seconds");
 
-#if ENABLE_FEATURE_USE_TERMIOS
-	tcgetattr(0, (void *)&G.init_settings);
-	memcpy(&new_settings, &G.init_settings, sizeof(new_settings));
-	/* Turn on unbuffered input, turn off echoing */
-	new_settings.c_lflag &= ~(ISIG | ICANON | ECHO | ECHONL);
-	/* So we don't forget to reset term settings */
-	atexit(reset_term);
+#if ENABLE_FEATURE_POWERTOP_INTERACTIVE
+	/* Turn on unbuffered input; turn off echoing, ^C ^Z etc */
+	set_termios_to_raw(STDIN_FILENO, &G.init_settings, TERMIOS_CLEAR_ISIG);
 	bb_signals(BB_FATAL_SIGS, sig_handler);
-	tcsetattr_stdin_TCSANOW(&new_settings);
+	/* So we don't forget to reset term settings */
+	die_func = reset_term;
 #endif
 
 	/* Collect initial data */
@@ -739,7 +741,7 @@ int powertop_main(int UNUSED_PARAM argc, char UNUSED_PARAM **argv)
 		int i;
 
 		G.cant_enable_timer_stats |= start_timer(); /* 1 on error */
-#if !ENABLE_FEATURE_USE_TERMIOS
+#if !ENABLE_FEATURE_POWERTOP_INTERACTIVE
 		sleep(DEFAULT_SLEEP);
 #else
 		if (safe_poll(pfd, 1, DEFAULT_SLEEP * 1000) > 0) {
@@ -773,8 +775,8 @@ int powertop_main(int UNUSED_PARAM argc, char UNUSED_PARAM **argv)
 			}
 		}
 
-		/* Clear the screen */
-		printf("\033[H\033[J");
+		/* Home; clear screen */
+		printf(ESC"[H" ESC"[J");
 
 		/* Clear C-state lines */
 		memset(&cstate_lines, 0, sizeof(cstate_lines));
@@ -813,7 +815,7 @@ int powertop_main(int UNUSED_PARAM argc, char UNUSED_PARAM **argv)
 
 		for (i = 0; i < MAX_CSTATE_COUNT + 2; i++)
 			if (cstate_lines[i][0])
-				fputs(cstate_lines[i], stdout);
+				fputs_stdout(cstate_lines[i]);
 
 		i = process_timer_stats();
 #if ENABLE_FEATURE_POWERTOP_PROCIRQ
@@ -851,6 +853,9 @@ int powertop_main(int UNUSED_PARAM argc, char UNUSED_PARAM **argv)
 	} /* for (;;) */
 
 	bb_putchar('\n');
+#if ENABLE_FEATURE_POWERTOP_INTERACTIVE
+	reset_term();
+#endif
 
 	return EXIT_SUCCESS;
 }

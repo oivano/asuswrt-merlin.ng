@@ -7,8 +7,19 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
+//config:config DEPMOD
+//config:	bool "depmod (27 kb)"
+//config:	default y
+//config:	help
+//config:	depmod generates modules.dep (and potentially modules.alias
+//config:	and modules.symbols) that contain dependency information
+//config:	for modprobe.
 
-//applet:IF_DEPMOD(APPLET(depmod, BB_DIR_SBIN, BB_SUID_DROP))
+//applet:IF_DEPMOD(IF_NOT_MODPROBE_SMALL(APPLET(depmod, BB_DIR_SBIN, BB_SUID_DROP)))
+
+//kbuild:ifneq ($(CONFIG_MODPROBE_SMALL),y)
+//kbuild:lib-$(CONFIG_DEPMOD) += depmod.o modutils.o
+//kbuild:endif
 
 #include "libbb.h"
 #include "modutils.h"
@@ -21,10 +32,11 @@
  *   for each depends, look through our list of full paths and emit if found
  */
 
-static int FAST_FUNC parse_module(const char *fname, struct stat *sb UNUSED_PARAM,
-				void *data, int depth UNUSED_PARAM)
+static int FAST_FUNC parse_module(struct recursive_state *state,
+		const char *fname,
+		struct stat *sb UNUSED_PARAM)
 {
-	module_db *modules = data;
+	module_db *modules = state->userData;
 	char *image, *ptr;
 	module_entry *e;
 
@@ -190,11 +202,12 @@ int depmod_main(int argc UNUSED_PARAM, char **argv)
 	memset(&modules, 0, sizeof(modules));
 	if (*argv) {
 		do {
-			parse_module(*argv, /*sb (unused):*/ NULL, &modules, 0);
+			recursive_action(*argv, 0 /* no ACTION_RECURSE! */,
+				parse_module, NULL, &modules);
 		} while (*++argv);
 	} else {
 		recursive_action(".", ACTION_RECURSE,
-				parse_module, NULL, &modules, 0);
+				parse_module, NULL, &modules);
 	}
 
 	/* Generate dependency and alias files */

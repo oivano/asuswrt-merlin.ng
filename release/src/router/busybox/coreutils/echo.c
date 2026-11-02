@@ -9,10 +9,6 @@
  *
  * Original copyright notice is retained at the end of this file.
  */
-
-/* BB_AUDIT SUSv3 compliant -- unless configured as fancy echo. */
-/* http://www.opengroup.org/onlinepubs/007904975/utilities/echo.html */
-
 /* Mar 16, 2003      Manuel Novoa III   (mjn3@codepoet.org)
  *
  * Because of behavioral differences, implemented configurable SUSv3
@@ -22,14 +18,35 @@
  * 2) SUSv3 specifies that octal escapes are of the form \0{#{#{#}}}.
  *    The previous version did not allow 4-digit octals.
  */
+//config:config ECHO
+//config:	bool "echo (1.8 kb)"
+//config:	default y
+//config:	help
+//config:	echo prints a specified string to stdout.
+//config:
+//config:# this entry also appears in shell/Config.in, next to the echo builtin
+//config:config FEATURE_FANCY_ECHO
+//config:	bool "Enable -n and -e options"
+//config:	default y
+//config:	depends on ECHO || ASH_ECHO || HUSH_ECHO
+
+//applet:IF_ECHO(APPLET_NOFORK(echo, echo, BB_DIR_BIN, BB_SUID_DROP, echo))
+
+//kbuild:lib-$(CONFIG_ECHO) += echo.o
+
+//kbuild:lib-$(CONFIG_ASH_ECHO)  += echo.o
+//kbuild:lib-$(CONFIG_HUSH_ECHO) += echo.o
+
+/* BB_AUDIT SUSv3 compliant -- unless configured as fancy echo. */
+/* http://www.opengroup.org/onlinepubs/007904975/utilities/echo.html */
 
 //usage:#define echo_trivial_usage
 //usage:	IF_FEATURE_FANCY_ECHO("[-neE] ") "[ARG]..."
 //usage:#define echo_full_usage "\n\n"
-//usage:       "Print the specified ARGs to stdout"
+//usage:       "Print ARGs to stdout"
 //usage:	IF_FEATURE_FANCY_ECHO( "\n"
-//usage:     "\n	-n	Suppress trailing newline"
-//usage:     "\n	-e	Interpret backslash escapes (i.e., \\t=tab)"
+//usage:     "\n	-n	No trailing newline"
+//usage:     "\n	-e	Interpret backslash escapes (\\t=tab etc)"
 //usage:     "\n	-E	Don't interpret backslash escapes (default)"
 //usage:	)
 //usage:
@@ -70,6 +87,7 @@ int echo_main(int argc UNUSED_PARAM, char **argv)
 	char *out;
 	char *buffer;
 	unsigned buflen;
+	int err;
 #if !ENABLE_FEATURE_FANCY_ECHO
 	enum {
 		eflag = 0,  /* 0 -- disable escape sequences */
@@ -168,13 +186,12 @@ int echo_main(int argc UNUSED_PARAM, char **argv)
  do_write:
 	/* Careful to error out on partial writes too (think ENOSPC!) */
 	errno = 0;
-	/*r =*/ full_write(STDOUT_FILENO, buffer, out - buffer);
-	free(buffer);
-	if (/*WRONG:r < 0*/ errno) {
-		bb_perror_msg(bb_msg_write_error);
-		return 1;
+	err = full_write(STDOUT_FILENO, buffer, out - buffer) != out - buffer;
+	if (err) {
+		bb_simple_perror_msg(bb_msg_write_error);
 	}
-	return 0;
+	free(buffer);
+	return err;
 }
 
 /*
@@ -201,7 +218,7 @@ int echo_main(int argc UNUSED_PARAM, char **argv)
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+ * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ''AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
@@ -304,6 +321,8 @@ int echo_main(int argc, char **argv)
 				if (*arg == '0' && (unsigned char)(arg[1] - '0') < 8) {
 					arg++;
 				}
+//FIXME? we also accept non-0 starting sequences (see echo-prints-slash_41 test)
+// echo -ne '-\41-' prints "-!-". bash 5.0.17 does not (prints "-\41-").
 				/* bb_process_escape_sequence can handle nul correctly */
 				c = bb_process_escape_sequence( (void*) &arg);
 			}

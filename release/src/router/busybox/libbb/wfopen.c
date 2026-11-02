@@ -6,7 +6,6 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
-
 #include "libbb.h"
 
 FILE* FAST_FUNC fopen_or_warn(const char *path, const char *mode)
@@ -43,7 +42,7 @@ static FILE* xfdopen_helper(unsigned fd_and_rw_bit)
 {
 	FILE* fp = fdopen(fd_and_rw_bit >> 1, fd_and_rw_bit & 1 ? "w" : "r");
 	if (!fp)
-		bb_error_msg_and_die(bb_msg_memory_exhausted);
+		bb_die_memory_exhausted();
 	return fp;
 }
 FILE* FAST_FUNC xfdopen_for_read(int fd)

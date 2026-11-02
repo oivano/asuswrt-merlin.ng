@@ -6,7 +6,6 @@
  *
  * Licensed under GPLv2, see file LICENSE in this source tree.
  */
-
 #include "libbb.h"
 
 /* Wrapper which restarts poll on EINTR or ENOMEM.
@@ -28,7 +27,7 @@ int FAST_FUNC safe_poll(struct pollfd *ufds, nfds_t nfds, int timeout)
 		/* I doubt many callers would handle this correctly! */
 		if (errno == ENOMEM)
 			continue;
-		bb_perror_msg("poll");
+		bb_simple_perror_msg("poll");
 		return n;
 	}
 }

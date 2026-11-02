@@ -5,16 +5,15 @@
  *
  * Licensed under GPLv2, see file LICENSE in this source tree.
  */
+//config:config REV
+//config:	bool "rev (4.4 kb)"
+//config:	default y
+//config:	help
+//config:	Reverse lines of a file or files.
 
 //applet:IF_REV(APPLET(rev, BB_DIR_BIN, BB_SUID_DROP))
 
 //kbuild:lib-$(CONFIG_REV) += rev.o
-
-//config:config REV
-//config:	bool "rev"
-//config:	default y
-//config:	help
-//config:	  Reverse lines of a file or files.
 
 //usage:#define rev_trivial_usage
 //usage:	"[FILE]..."
@@ -109,7 +108,8 @@ int rev_main(int argc UNUSED_PARAM, char **argv)
 #else
 			strrev(buf, strlen(buf));
 #endif
-			fputs(buf, stdout);
+			fputs_stdout(buf);
+			pos = 0;
 		}
 		fclose(fp);
 	} while (*argv);

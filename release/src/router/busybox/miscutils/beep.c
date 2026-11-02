@@ -5,8 +5,32 @@
  * Copyright (C) 2009 Bernhard Reutner-Fischer
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
- *
  */
+//config:config BEEP
+//config:	bool "beep (2.4 kb)"
+//config:	default y
+//config:	help
+//config:	The beep applets beeps in a given freq/Hz.
+//config:
+//config:config FEATURE_BEEP_FREQ
+//config:	int "default frequency"
+//config:	range 20 50000	# allowing 0 here breaks the build
+//config:	default 4000
+//config:	depends on BEEP
+//config:	help
+//config:	Frequency for default beep.
+//config:
+//config:config FEATURE_BEEP_LENGTH_MS
+//config:	int "default length"
+//config:	range 0 2147483647
+//config:	default 30
+//config:	depends on BEEP
+//config:	help
+//config:	Length in ms for default beep.
+
+//applet:IF_BEEP(APPLET(beep, BB_DIR_USR_BIN, BB_SUID_DROP))
+
+//kbuild:lib-$(CONFIG_BEEP) += beep.o
 
 //usage:#define beep_trivial_usage
 //usage:       "-f FREQ -l LEN -d DELAY -r COUNT -n"
@@ -90,10 +114,10 @@ int beep_main(int argc, char **argv)
 		while (rep) {
 //bb_error_msg("rep[%d] freq=%d, length=%d, delay=%d", rep, freq, length, delay);
 			xioctl(speaker, KIOCSOUND, (void*)(uintptr_t)tickrate_div_freq);
-			usleep(1000 * length);
+			msleep(length);
 			ioctl(speaker, KIOCSOUND, (void*)0);
 			if (--rep)
-				usleep(1000 * delay);
+				msleep(delay);
 		}
 	}
 

@@ -17,17 +17,12 @@
  *	License along with this library; if not, write to the Free Software
  *	Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
-
-//kbuild:lib-$(CONFIG_FEATURE_VOLUMEID_FAT) += fat.o
-
-//config:
 //config:config FEATURE_VOLUMEID_FAT
 //config:	bool "fat filesystem"
 //config:	default y
 //config:	depends on VOLUMEID
-//config:	help
-//config:	  TODO
-//config:
+
+//kbuild:lib-$(CONFIG_FEATURE_VOLUMEID_FAT) += fat.o
 
 #include "volume_id_internal.h"
 
@@ -252,7 +247,7 @@ int FAST_FUNC volume_id_probe_vfat(struct volume_id *id /*,uint64_t fat_partitio
 //		strcpy(id->type_version, "FAT32");
 //		goto fat32;
 //	}
-	if (cluster_count >= FAT16_MAX)
+	if (cluster_count > FAT16_MAX)
 		goto fat32;
 
 	/* the label may be an attribute in the root directory */

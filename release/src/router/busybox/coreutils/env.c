@@ -11,16 +11,11 @@
  *
  * Modified for BusyBox by Erik Andersen <andersen@codepoet.org>
  */
-
-/* BB_AUDIT SUSv3 compliant */
-/* http://www.opengroup.org/onlinepubs/007904975/utilities/env.html */
-
 /* Mar 16, 2003      Manuel Novoa III   (mjn3@codepoet.org)
  *
  * Fixed bug involving exit return codes if execvp fails.  Also added
  * output error checking.
  */
-
 /*
  * Modified by Vladimir Oleynik <dzo@simtreas.ru> (C) 2003
  * - correct "-" option usage
@@ -28,25 +23,33 @@
  * - GNU long option support
  * - use xfunc_error_retval
  */
+//config:config ENV
+//config:	bool "env (4 kb)"
+//config:	default y
+//config:	help
+//config:	env is used to set an environment variable and run
+//config:	a command; without options it displays the current
+//config:	environment.
 
-/* This is a NOEXEC applet. Be very careful! */
+//applet:IF_ENV(APPLET_NOEXEC(env, env, BB_DIR_USR_BIN, BB_SUID_DROP, env))
+
+//kbuild:lib-$(CONFIG_ENV) += env.o
+
+/* BB_AUDIT SUSv3 compliant */
+/* http://www.opengroup.org/onlinepubs/007904975/utilities/env.html */
 
 //usage:#define env_trivial_usage
-//usage:       "[-iu] [-] [name=value]... [PROG ARGS]"
+//usage:       "[-i0] [-u NAME]... [-] [NAME=VALUE]... [PROG ARGS]"
+// The "-" can occur only once (unlike, say, -i): it terminates option processing,
+// so if it is followed by another "-" arg (or any option-looking arg),
+// that arg will be taken as PROG (or even as NAME=VALUE, example: "-z=QWE").
 //usage:#define env_full_usage "\n\n"
-//usage:       "Print the current environment or run PROG after setting up\n"
-//usage:       "the specified environment\n"
-//usage:     "\n	-, -i	Start with an empty environment"
-//usage:     "\n	-u	Remove variable from the environment"
+//usage:       "Print current environment or run PROG after setting up environment\n"
+//usage:     "\n	-, -i	Start with empty environment"
+//usage:     "\n	-0	NUL terminated output"
+//usage:     "\n	-u NAME	Remove variable from environment"
 
 #include "libbb.h"
-
-#if ENABLE_FEATURE_ENV_LONG_OPTIONS
-static const char env_longopts[] ALIGN1 =
-	"ignore-environment\0" No_argument       "i"
-	"unset\0"              Required_argument "u"
-	;
-#endif
 
 int env_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
 int env_main(int argc UNUSED_PARAM, char **argv)
@@ -54,11 +57,12 @@ int env_main(int argc UNUSED_PARAM, char **argv)
 	unsigned opts;
 	llist_t *unset_env = NULL;
 
-	opt_complementary = "u::";
-#if ENABLE_FEATURE_ENV_LONG_OPTIONS
-	applet_long_options = env_longopts;
-#endif
-	opts = getopt32(argv, "+iu:", &unset_env);
+	opts = getopt32long(argv, "+i0u:*",
+			"ignore-environment\0" No_argument       "i"
+			"null\0"               No_argument       "0"
+			"unset\0"              Required_argument "u"
+			, &unset_env
+	);
 	argv += optind;
 	if (argv[0] && LONE_DASH(argv[0])) {
 		opts |= 1;
@@ -79,7 +83,7 @@ int env_main(int argc UNUSED_PARAM, char **argv)
 
 	while (*argv && (strchr(*argv, '=') != NULL)) {
 		if (putenv(*argv) < 0) {
-			bb_perror_msg_and_die("putenv");
+			bb_simple_perror_msg_and_die("putenv");
 		}
 		++argv;
 	}
@@ -90,12 +94,13 @@ int env_main(int argc UNUSED_PARAM, char **argv)
 
 	if (environ) { /* clearenv() may set environ == NULL! */
 		char **ep;
+		opts = (opts & 2) ? 0 : '\n';
 		for (ep = environ; *ep; ep++) {
-			puts(*ep);
+			printf("%s%c", *ep, opts);
 		}
 	}
 
-	fflush_stdout_and_exit(EXIT_SUCCESS);
+	fflush_stdout_and_exit_SUCCESS();
 }
 
 /*
@@ -118,7 +123,7 @@ int env_main(int argc UNUSED_PARAM, char **argv)
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+ * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ''AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE

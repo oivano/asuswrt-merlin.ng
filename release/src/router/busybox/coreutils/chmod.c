@@ -9,6 +9,15 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
+//config:config CHMOD
+//config:	bool "chmod (5.5 kb)"
+//config:	default y
+//config:	help
+//config:	chmod is used to change the access permission of files.
+
+//applet:IF_CHMOD(APPLET_NOEXEC(chmod, chmod, BB_DIR_BIN, BB_SUID_DROP, chmod))
+
+//kbuild:lib-$(CONFIG_CHMOD) += chmod.o
 
 /* BB_AUDIT SUSv3 compliant */
 /* BB_AUDIT GNU defects - unsupported long options. */
@@ -17,12 +26,13 @@
 //usage:#define chmod_trivial_usage
 //usage:       "[-R"IF_DESKTOP("cvf")"] MODE[,MODE]... FILE..."
 //usage:#define chmod_full_usage "\n\n"
-//usage:       "Each MODE is one or more of the letters ugoa, one of the\n"
-//usage:       "symbols +-= and one or more of the letters rwxst\n"
+//usage:       "MODE is octal number (bit pattern sstrwxrwxrwx) or [ugoa]{+|-|=}[rwxXst]"
+//usage:     "\n"
+//next 4 options are the same for chmod/chown/chgrp:
 //usage:     "\n	-R	Recurse"
 //usage:	IF_DESKTOP(
 //usage:     "\n	-c	List changed files"
-//usage:     "\n	-v	List all files"
+//usage:     "\n	-v	Verbose"
 //usage:     "\n	-f	Hide errors"
 //usage:	)
 //usage:
@@ -56,12 +66,14 @@
  * symbolic links encountered during recursive directory traversals.
  */
 
-static int FAST_FUNC fileAction(const char *fileName, struct stat *statbuf, void* param, int depth)
+static int FAST_FUNC fileAction(struct recursive_state *state,
+		const char *fileName,
+		struct stat *statbuf)
 {
 	mode_t newmode;
 
 	/* match coreutils behavior */
-	if (depth == 0) {
+	if (state->depth == 0) {
 		/* statbuf holds lstat result, but we need stat (follow link) */
 		if (stat(fileName, statbuf))
 			goto err;
@@ -70,16 +82,18 @@ static int FAST_FUNC fileAction(const char *fileName, struct stat *statbuf, void
 			return TRUE;
 	}
 
-	newmode = bb_parse_mode((char *)param, statbuf->st_mode);
+	newmode = bb_parse_mode((char *)state->userData, statbuf->st_mode);
 	if (newmode == (mode_t)-1)
-		bb_error_msg_and_die("invalid mode '%s'", (char *)param);
+		bb_error_msg_and_die("invalid mode '%s'", (char *)state->userData);
 
 	if (chmod(fileName, newmode) == 0) {
 		if (OPT_VERBOSE
-		 || (OPT_CHANGED && statbuf->st_mode != newmode)
+		 || (OPT_CHANGED
+		     && (statbuf->st_mode & 07777) != (newmode & 07777))
 		) {
+			char modestr[12];
 			printf("mode of '%s' changed to %04o (%s)\n", fileName,
-				newmode & 07777, bb_mode_string(newmode)+1);
+				newmode & 07777, bb_mode_string(modestr, newmode)+1);
 		}
 		return TRUE;
 	}
@@ -114,8 +128,7 @@ int chmod_main(int argc UNUSED_PARAM, char **argv)
 	}
 
 	/* Parse options */
-	opt_complementary = "-2";
-	getopt32(argv, ("-"OPT_STR) + 1); /* Reuse string */
+	getopt32(argv, "^" OPT_STR "\0" "-2");
 	argv += optind;
 
 	/* Restore option-like mode if needed */
@@ -128,8 +141,7 @@ int chmod_main(int argc UNUSED_PARAM, char **argv)
 			OPT_RECURSE,    // recurse
 			fileAction,     // file action
 			fileAction,     // dir action
-			smode,          // user data
-			0)              // depth
+			smode)          // user data
 		) {
 			retval = EXIT_FAILURE;
 		}

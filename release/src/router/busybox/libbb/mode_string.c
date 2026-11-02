@@ -6,15 +6,7 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
-
-/* Aug 13, 2003
- * Fix a bug reported by junkio@cox.net involving the mode_chars index.
- */
-
-
 #include <assert.h>
-#include <sys/stat.h>
-
 #include "libbb.h"
 
 #if ( S_ISUID != 04000 ) || ( S_ISGID != 02000 ) || ( S_ISVTX != 01000 ) \
@@ -24,26 +16,24 @@
 #error permission bitflag value assumption(s) violated!
 #endif
 
+/* Generate ls-style "mode string" like "-rwsr-xr-x" or "drwxrwxrwt" */
+
 #if ( S_IFSOCK!= 0140000 ) || ( S_IFLNK != 0120000 ) \
  || ( S_IFREG != 0100000 ) || ( S_IFBLK != 0060000 ) \
  || ( S_IFDIR != 0040000 ) || ( S_IFCHR != 0020000 ) \
  || ( S_IFIFO != 0010000 )
-#warning mode type bitflag value assumption(s) violated! falling back to larger version
+# warning mode type bitflag value assumption(s) violated! falling back to larger version
 
-#if (S_IRWXU | S_IRWXG | S_IRWXO | S_ISUID | S_ISGID | S_ISVTX) == 07777
-#undef mode_t
-#define mode_t unsigned short
-#endif
+# if (S_IRWXU | S_IRWXG | S_IRWXO | S_ISUID | S_ISGID | S_ISVTX) == 07777
+#  undef mode_t
+#  define mode_t unsigned short
+# endif
 
-static const mode_t mode_flags[] = {
+static const mode_t mode_flags[] ALIGN4 = {
 	S_IRUSR, S_IWUSR, S_IXUSR, S_ISUID,
 	S_IRGRP, S_IWGRP, S_IXGRP, S_ISGID,
 	S_IROTH, S_IWOTH, S_IXOTH, S_ISVTX
 };
-
-/* The static const char arrays below are duplicated for the two cases
- * because moving them ahead of the mode_flags declaration cause a text
- * size increase with the gcc version I'm using. */
 
 /* The previous version used "0pcCd?bB-?l?s???".  However, the '0', 'C',
  * and 'B' types don't appear to be available on linux.  So I removed them. */
@@ -51,9 +41,8 @@ static const char type_chars[16] ALIGN1 = "?pc?d?b?-?l?s???";
 /***************************************** 0123456789abcdef */
 static const char mode_chars[7] ALIGN1 = "rwxSTst";
 
-const char* FAST_FUNC bb_mode_string(mode_t mode)
+char* FAST_FUNC bb_mode_string(char buf[11], mode_t mode)
 {
-	static char buf[12];
 	char *p = buf;
 
 	int i, j, k;
@@ -75,10 +64,7 @@ const char* FAST_FUNC bb_mode_string(mode_t mode)
 		i += 4;
 	} while (i < 12);
 
-	/* Note: We don't bother with nul termination because bss initialization
-	 * should have taken care of that for us.  If the user scribbled in buf
-	 * memory, they deserve whatever happens.  But we'll at least assert. */
-	assert(buf[10] == 0);
+	buf[10] = '\0';
 
 	return buf;
 }
@@ -88,12 +74,11 @@ const char* FAST_FUNC bb_mode_string(mode_t mode)
 /* The previous version used "0pcCd?bB-?l?s???".  However, the '0', 'C',
  * and 'B' types don't appear to be available on linux.  So I removed them. */
 static const char type_chars[16] ALIGN1 = "?pc?d?b?-?l?s???";
-/********************************** 0123456789abcdef */
+/***************************************** 0123456789abcdef */
 static const char mode_chars[7] ALIGN1 = "rwxSTst";
 
-const char* FAST_FUNC bb_mode_string(mode_t mode)
+char* FAST_FUNC bb_mode_string(char buf[11], mode_t mode)
 {
-	static char buf[12];
 	char *p = buf;
 
 	int i, j, k, m;
@@ -117,10 +102,7 @@ const char* FAST_FUNC bb_mode_string(mode_t mode)
 		}
 	} while (i < 3);
 
-	/* Note: We don't bother with nul termination because bss initialization
-	 * should have taken care of that for us.  If the user scribbled in buf
-	 * memory, they deserve whatever happens.  But we'll at least assert. */
-	assert(buf[10] == 0);
+	buf[10] = '\0';
 
 	return buf;
 }

@@ -6,16 +6,16 @@
  *
  * Licensed under GPLv2, see file LICENSE in this source tree.
  */
-
-//applet:IF_MPSTAT(APPLET(mpstat, BB_DIR_BIN, BB_SUID_DROP))
-
-//kbuild:lib-$(CONFIG_MPSTAT) += mpstat.o
-
 //config:config MPSTAT
-//config:	bool "mpstat"
+//config:	bool "mpstat (9.8 kb)"
 //config:	default y
 //config:	help
-//config:	  Per-processor statistics
+//config:	Per-processor statistics
+
+//applet:IF_MPSTAT(APPLET(mpstat, BB_DIR_BIN, BB_SUID_DROP))
+/* shouldn't be noexec: "mpstat INTERVAL" runs indefinitely */
+
+//kbuild:lib-$(CONFIG_MPSTAT) += mpstat.o
 
 #include "libbb.h"
 #include <sys/utsname.h>  /* struct utsname */
@@ -840,7 +840,7 @@ static int get_irqcpu_nr(const char *f, int max_irqs)
 //usage:     "\n	-u			Report CPU utilization"
 
 int mpstat_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int mpstat_main(int UNUSED_PARAM argc, char **argv)
+int mpstat_main(int argc UNUSED_PARAM, char **argv)
 {
 	char *opt_irq_fmt;
 	char *opt_set_cpu;
@@ -923,7 +923,7 @@ int mpstat_main(int UNUSED_PARAM argc, char **argv)
 		char *t;
 		G.p_option = 1;
 
-		for (t = strtok(opt_set_cpu, ","); t; t = strtok(NULL, ",")) {
+		for (t = strtok_r(opt_set_cpu, ",", &opt_set_cpu); t; t = strtok_r(NULL, ",", &opt_set_cpu)) {
 			if (strcmp(t, "ALL") == 0) {
 				/* Select every CPU */
 				memset(G.cpu_bitmap, 0xff, G.cpu_bitmap_len);
@@ -931,7 +931,7 @@ int mpstat_main(int UNUSED_PARAM argc, char **argv)
 				/* Get CPU number */
 				unsigned n = xatoi_positive(t);
 				if (n >= G.cpu_nr)
-					bb_error_msg_and_die("not that many processors");
+					bb_simple_error_msg_and_die("not that many processors");
 				n++;
 				G.cpu_bitmap[n >> 3] |= 1 << (n & 7);
 			}

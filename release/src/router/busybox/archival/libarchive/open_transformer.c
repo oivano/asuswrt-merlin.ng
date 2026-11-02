@@ -2,7 +2,6 @@
 /*
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
-
 #include "libbb.h"
 #include "bb_archive.h"
 
@@ -16,7 +15,7 @@ int FAST_FUNC check_signature16(transformer_state_t *xstate, unsigned magic16)
 	if (!xstate->signature_skipped) {
 		uint16_t magic2;
 		if (full_read(xstate->src_fd, &magic2, 2) != 2 || magic2 != magic16) {
-			bb_error_msg("invalid magic");
+			bb_simple_error_msg("invalid magic");
 			return -1;
 		}
 		xstate->signature_skipped = 2;
@@ -47,7 +46,7 @@ ssize_t FAST_FUNC transformer_write(transformer_state_t *xstate, const void *buf
 	} else {
 		nwrote = full_write(xstate->dst_fd, buf, bufsize);
 		if (nwrote != (ssize_t)bufsize) {
-			bb_perror_msg("write");
+			bb_simple_perror_msg("write");
 			nwrote = -1;
 			goto ret;
 		}
@@ -160,47 +159,44 @@ void FAST_FUNC fork_transformer(int fd, const char *transform_prog)
  */
 static transformer_state_t *setup_transformer_on_fd(int fd, int fail_if_not_compressed)
 {
-	union {
-		uint8_t b[4];
-		uint16_t b16[2];
-		uint32_t b32[1];
-	} magic;
 	transformer_state_t *xstate;
 
 	xstate = xzalloc(sizeof(*xstate));
 	xstate->src_fd = fd;
-	xstate->signature_skipped = 2;
 
 	/* .gz and .bz2 both have 2-byte signature, and their
 	 * unpack_XXX_stream wants this header skipped. */
-	xread(fd, magic.b16, sizeof(magic.b16[0]));
+	xstate->signature_skipped = 2;
+	xread(fd, xstate->magic.b16, 2);
 	if (ENABLE_FEATURE_SEAMLESS_GZ
-	 && magic.b16[0] == GZIP_MAGIC
+	 && xstate->magic.b16[0] == GZIP_MAGIC
 	) {
 		xstate->xformer = unpack_gz_stream;
 		USE_FOR_NOMMU(xstate->xformer_prog = "gunzip";)
 		goto found_magic;
 	}
 	if (ENABLE_FEATURE_SEAMLESS_Z
-	 && magic.b16[0] == COMPRESS_MAGIC
+	 && xstate->magic.b16[0] == COMPRESS_MAGIC
 	) {
 		xstate->xformer = unpack_Z_stream;
 		USE_FOR_NOMMU(xstate->xformer_prog = "uncompress";)
 		goto found_magic;
 	}
 	if (ENABLE_FEATURE_SEAMLESS_BZ2
-	 && magic.b16[0] == BZIP2_MAGIC
+	 && xstate->magic.b16[0] == BZIP2_MAGIC
 	) {
 		xstate->xformer = unpack_bz2_stream;
 		USE_FOR_NOMMU(xstate->xformer_prog = "bunzip2";)
 		goto found_magic;
 	}
 	if (ENABLE_FEATURE_SEAMLESS_XZ
-	 && magic.b16[0] == XZ_MAGIC1
+	 && xstate->magic.b16[0] == XZ_MAGIC1
 	) {
+		uint32_t v32;
 		xstate->signature_skipped = 6;
-		xread(fd, magic.b32, sizeof(magic.b32[0]));
-		if (magic.b32[0] == XZ_MAGIC2) {
+		xread(fd, &xstate->magic.b16[1], 4);
+		move_from_unaligned32(v32, &xstate->magic.b16[1]);
+		if (v32 == XZ_MAGIC2) {
 			xstate->xformer = unpack_xz_stream;
 			USE_FOR_NOMMU(xstate->xformer_prog = "unxz";)
 			goto found_magic;
@@ -209,7 +205,7 @@ static transformer_state_t *setup_transformer_on_fd(int fd, int fail_if_not_comp
 
 	/* No known magic seen */
 	if (fail_if_not_compressed)
-		bb_error_msg_and_die("no gzip"
+		bb_simple_error_msg_and_die("no gzip"
 			IF_FEATURE_SEAMLESS_BZ2("/bzip2")
 			IF_FEATURE_SEAMLESS_XZ("/xz")
 			" magic");
@@ -225,18 +221,8 @@ static transformer_state_t *setup_transformer_on_fd(int fd, int fail_if_not_comp
 	return xstate;
 }
 
-/* Used by e.g. rpm which gives us a fd without filename,
- * thus we can't guess the format from filename's extension.
- */
-int FAST_FUNC setup_unzip_on_fd(int fd, int fail_if_not_compressed)
+static void fork_transformer_and_free(transformer_state_t *xstate)
 {
-	transformer_state_t *xstate = setup_transformer_on_fd(fd, fail_if_not_compressed);
-
-	if (!xstate || !xstate->xformer) {
-		free(xstate);
-		return 1;
-	}
-
 # if BB_MMU
 	fork_transformer_with_no_sig(xstate->src_fd, xstate->xformer);
 # else
@@ -244,13 +230,39 @@ int FAST_FUNC setup_unzip_on_fd(int fd, int fail_if_not_compressed)
 	 * an external unzipper that wants
 	 * file position at the start of the file.
 	 */
-	xlseek(fd, - xstate->signature_skipped, SEEK_CUR);
+	xlseek(xstate->src_fd, - xstate->signature_skipped, SEEK_CUR);
 	xstate->signature_skipped = 0;
 	fork_transformer_with_sig(xstate->src_fd, xstate->xformer, xstate->xformer_prog);
 # endif
 	free(xstate);
+}
+
+/* Used by e.g. rpm which gives us a fd without filename,
+ * thus we can't guess the format from filename's extension.
+ */
+int FAST_FUNC setup_unzip_on_fd(int fd, int fail_if_not_compressed)
+{
+	transformer_state_t *xstate = setup_transformer_on_fd(fd, fail_if_not_compressed);
+
+	if (!xstate->xformer) {
+		free(xstate);
+		return 1;
+	}
+
+	fork_transformer_and_free(xstate);
 	return 0;
 }
+#if ENABLE_FEATURE_SEAMLESS_LZMA
+/* ...and custom version for LZMA */
+void FAST_FUNC setup_lzma_on_fd(int fd)
+{
+	transformer_state_t *xstate = xzalloc(sizeof(*xstate));
+	xstate->src_fd = fd;
+	xstate->xformer = unpack_lzma_stream;
+	USE_FOR_NOMMU(xstate->xformer_prog = "unlzma";)
+	fork_transformer_and_free(xstate);
+}
+#endif
 
 static transformer_state_t *open_transformer(const char *fname, int fail_if_not_compressed)
 {
@@ -263,8 +275,7 @@ static transformer_state_t *open_transformer(const char *fname, int fail_if_not_
 
 	if (ENABLE_FEATURE_SEAMLESS_LZMA) {
 		/* .lzma has no header/signature, can only detect it by extension */
-		char *sfx = strrchr(fname, '.');
-		if (sfx && strcmp(sfx+1, "lzma") == 0) {
+		if (is_suffixed_with(fname, ".lzma")) {
 			xstate = xzalloc(sizeof(*xstate));
 			xstate->src_fd = fd;
 			xstate->xformer = unpack_lzma_stream;
@@ -330,11 +341,24 @@ void* FAST_FUNC xmalloc_open_zipped_read_close(const char *fname, size_t *maxsz_
 				*maxsz_p = xstate->mem_output_size;
 		}
 	} else {
-		/* File is not compressed */
-//FIXME: avoid seek
-		xlseek(xstate->src_fd, - xstate->signature_skipped, SEEK_CUR);
+		/* File is not compressed.
+		 * We already read first few bytes, account for that.
+		 * Example where it happens:
+		 * "modinfo MODULE.ko" (not compressed)
+		 *   open("MODULE.ko", O_RDONLY|O_LARGEFILE) = 4
+		 *   read(4, "\177E", 2)                     = 2
+		 *   fstat64(4, ...)
+		 *   mmap(...)
+		 *   read(4, "LF\2\1\1\0\0\0\0"...
+		 * ...and we avoided seeking on the fd! :)
+		 */
+		image = xmalloc_read_with_initial_buf(
+			xstate->src_fd,
+			maxsz_p,
+			xmemdup(&xstate->magic, xstate->signature_skipped),
+			xstate->signature_skipped
+		);
 		xstate->signature_skipped = 0;
-		image = xmalloc_read(xstate->src_fd, maxsz_p);
 	}
 
 	if (!image)

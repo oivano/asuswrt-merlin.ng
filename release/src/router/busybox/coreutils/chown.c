@@ -6,6 +6,21 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
+//config:config CHOWN
+//config:	bool "chown (7.6 kb)"
+//config:	default y
+//config:	help
+//config:	chown is used to change the user and/or group ownership
+//config:	of files.
+//config:
+//config:config FEATURE_CHOWN_LONG_OPTIONS
+//config:	bool "Enable long options"
+//config:	default y
+//config:	depends on CHOWN && LONG_OPTS
+
+//applet:IF_CHOWN(APPLET_NOEXEC(chown, chown, BB_DIR_BIN, BB_SUID_DROP, chown))
+
+//kbuild:lib-$(CONFIG_CHOWN) += chown.o
 
 /* BB_AUDIT SUSv3 defects - none? */
 /* http://www.opengroup.org/onlinepubs/007904975/utilities/chown.html */
@@ -13,15 +28,19 @@
 //usage:#define chown_trivial_usage
 //usage:       "[-Rh"IF_DESKTOP("LHPcvf")"]... USER[:[GRP]] FILE..."
 //usage:#define chown_full_usage "\n\n"
-//usage:       "Change the owner and/or group of each FILE to USER and/or GRP\n"
-//usage:     "\n	-R	Recurse"
+//usage:       "Change the owner and/or group of FILEs to USER and/or GRP"
+//usage:     "\n"
 //usage:     "\n	-h	Affect symlinks instead of symlink targets"
 //usage:	IF_DESKTOP(
 //usage:     "\n	-L	Traverse all symlinks to directories"
 //usage:     "\n	-H	Traverse symlinks on command line only"
 //usage:     "\n	-P	Don't traverse symlinks (default)"
+//usage:	)
+//next 4 options are the same for chmod/chown/chgrp:
+//usage:     "\n	-R	Recurse"
+//usage:	IF_DESKTOP(
 //usage:     "\n	-c	List changed files"
-//usage:     "\n	-v	List all files"
+//usage:     "\n	-v	Verbose"
 //usage:     "\n	-f	Hide errors"
 //usage:	)
 //usage:
@@ -40,7 +59,7 @@
 /* This is a NOEXEC applet. Be very careful! */
 
 
-#define OPT_STR     ("Rh" IF_DESKTOP("vcfLHP"))
+#define OPT_STR     "Rh" IF_DESKTOP("vcfLHP")
 #define BIT_RECURSE 1
 #define OPT_RECURSE (opt & 1)
 #define OPT_NODEREF (opt & 2)
@@ -82,10 +101,10 @@ struct param_t {
 	chown_fptr chown_func;
 };
 
-static int FAST_FUNC fileAction(const char *fileName, struct stat *statbuf,
-		void *vparam, int depth UNUSED_PARAM)
+static int FAST_FUNC fileAction(struct recursive_state *state UNUSED_PARAM,
+		const char *fileName, struct stat *statbuf)
 {
-#define param  (*(struct param_t*)vparam)
+#define param  (*(struct param_t*)state->userData)
 #define opt option_mask32
 	uid_t u = (param.ugid.uid == (uid_t)-1L) ? statbuf->st_uid : param.ugid.uid;
 	gid_t g = (param.ugid.gid == (gid_t)-1L) ? statbuf->st_gid : param.ugid.gid;
@@ -113,10 +132,10 @@ int chown_main(int argc UNUSED_PARAM, char **argv)
 	struct param_t param;
 
 #if ENABLE_FEATURE_CHOWN_LONG_OPTIONS
-	applet_long_options = chown_longopts;
+	opt = getopt32long(argv, "^" OPT_STR "\0" "-2", chown_longopts);
+#else
+	opt = getopt32(argv, "^" OPT_STR "\0" "-2");
 #endif
-	opt_complementary = "-2";
-	opt = getopt32(argv, OPT_STR);
 	argv += optind;
 
 	/* This matches coreutils behavior (almost - see below) */
@@ -144,8 +163,7 @@ int chown_main(int argc UNUSED_PARAM, char **argv)
 				flags,          /* flags */
 				fileAction,     /* file action */
 				fileAction,     /* dir action */
-				&param,         /* user data */
-				0)              /* depth */
+				&param)         /* user data */
 		) {
 			retval = EXIT_FAILURE;
 		}

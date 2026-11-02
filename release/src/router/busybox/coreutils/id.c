@@ -7,34 +7,33 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
-
-/* BB_AUDIT SUSv3 compliant. */
 /* Hacked by Tito Ragusa (C) 2004 to handle usernames of whatever
  * length and to be more similar to GNU id.
  * -Z option support: by Yuichi Nakamura <ynakam@hitachisoft.jp>
  * Added -G option Tito Ragusa (C) 2008 for SUSv3.
  */
-
 //config:config ID
-//config:	bool "id"
+//config:	bool "id (7 kb)"
 //config:	default y
 //config:	help
-//config:	  id displays the current user and group ID names.
-
+//config:	id displays the current user and group ID names.
+//config:
 //config:config GROUPS
-//config:	bool "groups"
+//config:	bool "groups (6.7 kb)"
 //config:	default y
 //config:	help
-//config:	  Print the group names associated with current user id.
-
-//kbuild:lib-$(CONFIG_GROUPS) += id.o
-//kbuild:lib-$(CONFIG_ID)     += id.o
+//config:	Print the group names associated with current user id.
 
 //applet:IF_GROUPS(APPLET_NOEXEC(groups, id, BB_DIR_USR_BIN, BB_SUID_DROP, groups))
 //applet:IF_ID(    APPLET_NOEXEC(id,     id, BB_DIR_USR_BIN, BB_SUID_DROP, id    ))
 
+//kbuild:lib-$(CONFIG_GROUPS) += id.o
+//kbuild:lib-$(CONFIG_ID)     += id.o
+
+/* BB_AUDIT SUSv3 compliant. */
+
 //usage:#define id_trivial_usage
-//usage:       "[OPTIONS] [USER]"
+//usage:       "[-ugGnr"IF_SELINUX("Z")"] [USER]"
 //usage:#define id_full_usage "\n\n"
 //usage:       "Print information about USER or the current user\n"
 //usage:	IF_SELINUX(
@@ -53,7 +52,7 @@
 //usage:#define groups_trivial_usage
 //usage:       "[USER]"
 //usage:#define groups_full_usage "\n\n"
-//usage:       "Print the group memberships of USER or for the current process"
+//usage:       "Print the groups USER is in"
 //usage:
 //usage:#define groups_example_usage
 //usage:       "$ groups\n"
@@ -171,9 +170,12 @@ int id_main(int argc UNUSED_PARAM, char **argv)
 	} else {
 		/* Don't allow -n -r -nr -ug -rug -nug -rnug -uZ -gZ -GZ*/
 		/* Don't allow more than one username */
-		opt_complementary = "?1:u--g:g--u:G--u:u--G:g--G:G--g:r?ugG:n?ugG"
-			IF_SELINUX(":u--Z:Z--u:g--Z:Z--g:G--Z:Z--G");
-		opt = getopt32(argv, "rnugG" IF_SELINUX("Z"));
+		opt = getopt32(argv, "^"
+			"rnugG" IF_SELINUX("Z")
+			"\0"
+			"?1:u--g:g--u:G--u:u--G:g--G:G--g:r?ugG:n?ugG"
+			IF_SELINUX(":u--Z:Z--u:g--Z:Z--g:G--Z:Z--G")
+		);
 	}
 
 	username = argv[optind];
@@ -229,7 +231,7 @@ int id_main(int argc UNUSED_PARAM, char **argv)
 			}
 		} else if (n < 0) { /* error in get_groups() */
 			if (ENABLE_DESKTOP)
-				bb_error_msg_and_die("can't get groups");
+				bb_simple_error_msg_and_die("can't get groups");
 			return EXIT_FAILURE;
 		}
 		if (ENABLE_FEATURE_CLEAN_UP)
@@ -256,7 +258,7 @@ int id_main(int argc UNUSED_PARAM, char **argv)
 			bb_error_msg_and_die("can't get process context%s",
 				username ? " for a different user" : "");
 		}
-		fputs(scontext, stdout);
+		fputs_stdout(scontext);
 	}
 	/* freecon(NULL) seems to be harmless */
 	if (ENABLE_FEATURE_CLEAN_UP)

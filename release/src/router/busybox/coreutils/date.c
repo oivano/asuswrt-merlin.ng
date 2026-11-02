@@ -8,8 +8,7 @@
  * bugfixes and cleanup by Bernhard Reutner-Fischer
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
-*/
-
+ */
 /* This 'date' command supports only 2 time setting formats,
    all the GNU strftime stuff (its in libc, lets use it),
    setting time using UTC and displaying it, as well as
@@ -19,55 +18,54 @@
 /* Input parsing code is always bulky - used heavy duty libc stuff as
    much as possible, missed out a lot of bounds checking */
 
-//applet:IF_DATE(APPLET(date, BB_DIR_BIN, BB_SUID_DROP))
-
-//kbuild:lib-$(CONFIG_DATE) += date.o
-
 //config:config DATE
-//config:	bool "date"
+//config:	bool "date (7 kb)"
 //config:	default y
 //config:	help
-//config:	  date is used to set the system date or display the
-//config:	  current time in the given format.
+//config:	date is used to set the system date or display the
+//config:	current time in the given format.
 //config:
 //config:config FEATURE_DATE_ISOFMT
 //config:	bool "Enable ISO date format output (-I)"
 //config:	default y
 //config:	depends on DATE
 //config:	help
-//config:	  Enable option (-I) to output an ISO-8601 compliant
-//config:	  date/time string.
+//config:	Enable option (-I) to output an ISO-8601 compliant
+//config:	date/time string.
 //config:
-//config:# defaults to "no": stat's nanosecond field is a bit non-portable
 //config:config FEATURE_DATE_NANO
 //config:	bool "Support %[num]N nanosecond format specifier"
-//config:	default n
-//config:	depends on DATE  # syscall(__NR_clock_gettime)
-//config:	select PLATFORM_LINUX
+//config:	default n # stat's nanosecond field is a bit non-portable
+//config:	depends on DATE
 //config:	help
-//config:	  Support %[num]N format specifier. Adds ~250 bytes of code.
+//config:	Support %[num]N format specifier. Adds ~250 bytes of code.
 //config:
 //config:config FEATURE_DATE_COMPAT
 //config:	bool "Support weird 'date MMDDhhmm[[YY]YY][.ss]' format"
 //config:	default y
 //config:	depends on DATE
 //config:	help
-//config:	  System time can be set by 'date -s DATE' and simply 'date DATE',
-//config:	  but formats of DATE string are different. 'date DATE' accepts
-//config:	  a rather weird MMDDhhmm[[YY]YY][.ss] format with completely
-//config:	  unnatural placement of year between minutes and seconds.
-//config:	  date -s (and other commands like touch -d) use more sensible
-//config:	  formats (for one, ISO format YYYY-MM-DD hh:mm:ss.ssssss).
+//config:	System time can be set by 'date -s DATE' and simply 'date DATE',
+//config:	but formats of DATE string are different. 'date DATE' accepts
+//config:	a rather weird MMDDhhmm[[YY]YY][.ss] format with completely
+//config:	unnatural placement of year between minutes and seconds.
+//config:	date -s (and other commands like touch -d) use more sensible
+//config:	formats (for one, ISO format YYYY-MM-DD hh:mm:ss.ssssss).
 //config:
-//config:	  With this option off, 'date DATE' is 'date -s DATE' support
-//config:	  the same format. With it on, 'date DATE' additionally supports
-//config:	  MMDDhhmm[[YY]YY][.ss] format.
+//config:	With this option off, 'date DATE' and 'date -s DATE' support
+//config:	the same format. With it on, 'date DATE' additionally supports
+//config:	MMDDhhmm[[YY]YY][.ss] format.
+
+//applet:IF_DATE(APPLET_NOEXEC(date, date, BB_DIR_BIN, BB_SUID_DROP, date))
+/* bb_common_bufsiz1 usage here is safe wrt NOEXEC: not expecting it to be zeroed. */
+
+//kbuild:lib-$(CONFIG_DATE) += date.o
 
 /* GNU coreutils 6.9 man page:
  * date [OPTION]... [+FORMAT]
  * date [-u|--utc|--universal] [MMDDhhmm[[CC]YY][.ss]]
  * -d, --date=STRING
- *      display time described by STRING, not `now'
+ *      display time described by STRING, not 'now'
  * -f, --file=DATEFILE
  *      like --date once for each line of DATEFILE
  * -r, --reference=FILE
@@ -95,36 +93,25 @@
  */
 
 //usage:#define date_trivial_usage
-//usage:       "[OPTIONS] [+FMT] [TIME]"
+//usage:       "[OPTIONS] [+FMT] [[-s] TIME]"
 //usage:#define date_full_usage "\n\n"
 //usage:       "Display time (using +FMT), or set time\n"
-//usage:	IF_NOT_LONG_OPTS(
-//usage:     "\n	[-s] TIME	Set time to TIME"
 //usage:     "\n	-u		Work in UTC (don't convert to local time)"
-//usage:     "\n	-R		Output RFC-2822 compliant date string"
-//usage:	) IF_LONG_OPTS(
-//usage:     "\n	[-s,--set] TIME	Set time to TIME"
-//usage:     "\n	-u,--utc	Work in UTC (don't convert to local time)"
-//usage:     "\n	-R,--rfc-2822	Output RFC-2822 compliant date string"
-//usage:	)
-//usage:	IF_FEATURE_DATE_ISOFMT(
-//usage:     "\n	-I[SPEC]	Output ISO-8601 compliant date string"
-//usage:     "\n			SPEC='date' (default) for date only,"
-//usage:     "\n			'hours', 'minutes', or 'seconds' for date and"
-//usage:     "\n			time to the indicated precision"
-//usage:	)
-//usage:	IF_NOT_LONG_OPTS(
-//usage:     "\n	-r FILE		Display last modification time of FILE"
+//usage:     "\n	[-s] TIME	Set time to TIME"
 //usage:     "\n	-d TIME		Display TIME, not 'now'"
-//usage:	) IF_LONG_OPTS(
-//usage:     "\n	-r,--reference FILE	Display last modification time of FILE"
-//usage:     "\n	-d,--date TIME	Display TIME, not 'now'"
-//usage:	)
 //usage:	IF_FEATURE_DATE_ISOFMT(
-//usage:     "\n	-D FMT		Use FMT for -d TIME conversion"
+//usage:     "\n	-D FMT		FMT (strptime format) for -s/-d TIME conversion"
+////////^^^^^^^^^^^^^^^^^^^^^^ busybox invention, not compat
+//usage:	)
+//usage:     "\n	-r FILE		Display last modification time of FILE"
+//usage:     "\n	-R		Output RFC-2822 date"
+//usage:	IF_FEATURE_DATE_ISOFMT(
+//usage:     "\n	-I[SPEC]	Output ISO-8601 date"
+//usage:     "\n			SPEC=date (default), hours, minutes, seconds or ns"
 //usage:	)
 //usage:     "\n"
 //usage:     "\nRecognized TIME formats:"
+//usage:     "\n	@seconds_since_1970"
 //usage:     "\n	hh:mm[:ss]"
 //usage:     "\n	[YYYY.]MM.DD-hh:mm[:ss]"
 //usage:     "\n	YYYY-MM-DD hh:mm[:ss]"
@@ -149,15 +136,9 @@ enum {
 	OPT_UTC       = (1 << 2), /* u */
 	OPT_DATE      = (1 << 3), /* d */
 	OPT_REFERENCE = (1 << 4), /* r */
-	OPT_TIMESPEC  = (1 << 5) * ENABLE_FEATURE_DATE_ISOFMT, /* I */
-	OPT_HINT      = (1 << 6) * ENABLE_FEATURE_DATE_ISOFMT, /* D */
+	OPT_ISO8601   = (1 << 5) * ENABLE_FEATURE_DATE_ISOFMT, /* I */
+	OPT_STR2DT    = (1 << 6) * ENABLE_FEATURE_DATE_ISOFMT, /* D */
 };
-
-static void maybe_set_utc(int opt)
-{
-	if (opt & OPT_UTC)
-		putenv((char*)"TZ=UTC0");
-}
 
 #if ENABLE_LONG_OPTS
 static const char date_longopts[] ALIGN1 =
@@ -171,6 +152,13 @@ static const char date_longopts[] ALIGN1 =
 		;
 #endif
 
+/* We are a NOEXEC applet.
+ * Obstacles to NOFORK:
+ * - we change env
+ * - xasprintf result not freed
+ * - after xasprintf we use other xfuncs
+ */
+
 int date_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
 int date_main(int argc UNUSED_PARAM, char **argv)
 {
@@ -178,30 +166,35 @@ int date_main(int argc UNUSED_PARAM, char **argv)
 	struct tm tm_time;
 	char buf_fmt_dt2str[64];
 	unsigned opt;
-	int ifmt = -1;
+	int isofmt = -1;
 	char *date_str;
 	char *fmt_dt2str;
 	char *fmt_str2dt;
 	char *filename;
 	char *isofmt_arg = NULL;
 
-	opt_complementary = "d--s:s--d"
-		IF_FEATURE_DATE_ISOFMT(":R--I:I--R");
-	IF_LONG_OPTS(applet_long_options = date_longopts;)
-	opt = getopt32(argv, "Rs:ud:r:"
-			IF_FEATURE_DATE_ISOFMT("I::D:"),
+	opt = getopt32long(argv, "^"
+			"Rs:ud:r:"
+			IF_FEATURE_DATE_ISOFMT("I::D:")
+			"\0"
+			"d--s:s--d"
+			IF_FEATURE_DATE_ISOFMT(":R--I:I--R"),
+			date_longopts,
 			&date_str, &date_str, &filename
-			IF_FEATURE_DATE_ISOFMT(, &isofmt_arg, &fmt_str2dt));
+			IF_FEATURE_DATE_ISOFMT(, &isofmt_arg, &fmt_str2dt)
+	);
 	argv += optind;
-	maybe_set_utc(opt);
 
-	if (ENABLE_FEATURE_DATE_ISOFMT && (opt & OPT_TIMESPEC)) {
-		ifmt = 0; /* default is date */
+	if (opt & OPT_UTC)
+		putenv((char*)"TZ=UTC0");
+
+	if (ENABLE_FEATURE_DATE_ISOFMT && (opt & OPT_ISO8601)) {
+		isofmt = 0; /* default is date */
 		if (isofmt_arg) {
 			static const char isoformats[] ALIGN1 =
-				"date\0""hours\0""minutes\0""seconds\0"; /* ns? */
-			ifmt = index_in_substrings(isoformats, isofmt_arg);
-			if (ifmt < 0)
+				"date\0""hours\0""minutes\0""seconds\0ns\0";
+			isofmt = index_in_substrings(isoformats, isofmt_arg);
+			if (isofmt < 0)
 				bb_show_usage();
 		}
 	}
@@ -211,7 +204,7 @@ int date_main(int argc UNUSED_PARAM, char **argv)
 		fmt_dt2str = &argv[0][1]; /* skip over the '+' */
 		argv++;
 	}
-	if (!(opt & (OPT_SET | OPT_DATE))) {
+	if (!(opt & (OPT_SET | OPT_DATE))) { /* neither -s TIME nor -d TIME? */
 		opt |= OPT_SET;
 		date_str = argv[0]; /* can be NULL */
 		if (date_str) {
@@ -261,41 +254,42 @@ int date_main(int argc UNUSED_PARAM, char **argv)
 #endif
 	} else {
 #if ENABLE_FEATURE_DATE_NANO
-		/* libc has incredibly messy way of doing this,
-		 * typically requiring -lrt. We just skip all this mess */
-		syscall(__NR_clock_gettime, CLOCK_REALTIME, &ts);
+		clock_gettime(CLOCK_REALTIME, &ts);
 #else
 		time(&ts.tv_sec);
 #endif
 	}
+#if !ENABLE_FEATURE_DATE_NANO
+	ts.tv_nsec = 0;
+#endif
 	localtime_r(&ts.tv_sec, &tm_time);
 
 	/* If date string is given, update tm_time, and maybe set date */
 	if (date_str != NULL) {
+		int check_dst = 1;
 		/* Zero out fields - take her back to midnight! */
 		tm_time.tm_sec = 0;
 		tm_time.tm_min = 0;
 		tm_time.tm_hour = 0;
 
 		/* Process any date input to UNIX time since 1 Jan 1970 */
-		if (ENABLE_FEATURE_DATE_ISOFMT && (opt & OPT_HINT)) {
+		if (ENABLE_FEATURE_DATE_ISOFMT && (opt & OPT_STR2DT)) {
 			if (strptime(date_str, fmt_str2dt, &tm_time) == NULL)
 				bb_error_msg_and_die(bb_msg_invalid_date, date_str);
 		} else {
-			parse_datestr(date_str, &tm_time);
+			check_dst = parse_datestr(date_str, &tm_time);
 		}
 
 		/* Correct any day of week and day of year etc. fields */
-		/* Be sure to recheck dst (but not if date is time_t format) */
-		if (date_str[0] != '@')
+		/* Be sure to recheck dst (but not if date is UTC) */
+		if (check_dst)
 			tm_time.tm_isdst = -1;
 		ts.tv_sec = validate_tm_time(date_str, &tm_time);
-
-		maybe_set_utc(opt);
+		ts.tv_nsec = 0;
 
 		/* if setting time, set it */
-		if ((opt & OPT_SET) && stime(&ts.tv_sec) < 0) {
-			bb_perror_msg("can't set date");
+		if ((opt & OPT_SET) && clock_settime(CLOCK_REALTIME, &ts) < 0) {
+			bb_simple_perror_msg("can't set date");
 		}
 	}
 
@@ -305,24 +299,34 @@ int date_main(int argc UNUSED_PARAM, char **argv)
 	if (fmt_dt2str == NULL) {
 		int i;
 		fmt_dt2str = buf_fmt_dt2str;
-		if (ENABLE_FEATURE_DATE_ISOFMT && ifmt >= 0) {
-			/* -I[SPEC]: 0:date 1:hours 2:minutes 3:seconds */
+		if (ENABLE_FEATURE_DATE_ISOFMT && isofmt >= 0) {
+			/* -I[SPEC]: 0:date 1:hours 2:minutes 3:seconds 4:ns*/
 			strcpy(fmt_dt2str, "%Y-%m-%dT%H:%M:%S");
-			i = 8 + 3 * ifmt;
-			if (ifmt != 0) {
-				/* TODO: if (ifmt==4) i += sprintf(&fmt_dt2str[i], ",%09u", nanoseconds); */
- format_utc:
-				fmt_dt2str[i++] = '%';
-				fmt_dt2str[i++] = (opt & OPT_UTC) ? 'Z' : 'z';
+			i = 8 + 3 * isofmt;
+			if (isofmt != 0) {
+				int n;
+				if (isofmt == 4) {
+					i -= 3;
+					i += sprintf(&fmt_dt2str[i], ",%09u", (unsigned)ts.tv_nsec);
+				}
+				/* %z prints "+hhmm" timezone, but coreutils-8.30 prints "+hh:mm"! */
+				/* ...therefore this atrocity: */
+				n = strftime(&fmt_dt2str[i], 8, "%z", &tm_time);
+				i += n;
+				if (n == 5 && (fmt_dt2str[i-5] == '+' || fmt_dt2str[i-5] == '-')) {
+					/* "mm" -> ":mm" */
+					fmt_dt2str[i    ] = fmt_dt2str[i - 1];
+					fmt_dt2str[i - 1] = fmt_dt2str[i - 2];
+					fmt_dt2str[i - 2] = ':';
+					i++;
+				}
 			}
 			fmt_dt2str[i] = '\0';
 		} else if (opt & OPT_RFC2822) {
 			/* -R. undo busybox.c setlocale */
 			if (ENABLE_LOCALE_SUPPORT)
 				setlocale(LC_TIME, "C");
-			strcpy(fmt_dt2str, "%a, %d %b %Y %H:%M:%S ");
-			i = sizeof("%a, %d %b %Y %H:%M:%S ")-1;
-			goto format_utc;
+			fmt_dt2str = (char*)"%a, %d %b %Y %H:%M:%S %z";
 		} else { /* default case */
 			fmt_dt2str = (char*)"%a %b %e %H:%M:%S %Z %Y";
 		}
@@ -374,10 +378,6 @@ int date_main(int argc UNUSED_PARAM, char **argv)
 		/* With no format string, just print a blank line */
 		date_buf[0] = '\0';
 	} else {
-		/* Handle special conversions */
-		if (is_prefixed_with(fmt_dt2str, "%f")) {
-			fmt_dt2str = (char*)"%Y.%m.%d-%H:%M:%S";
-		}
 		/* Generate output string */
 		strftime(date_buf, COMMON_BUFSIZE, fmt_dt2str, &tm_time);
 	}

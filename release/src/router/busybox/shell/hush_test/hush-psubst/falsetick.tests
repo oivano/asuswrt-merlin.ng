@@ -17,6 +17,3 @@ true;  a=`exit 2` >/does/not/exist; echo $?
 false; a=`exit 2` >/does/not/exist; echo $?
 true;  a=$(exit 2) >/does/not/exist; echo $?
 false; a=$(exit 2) >/does/not/exist; echo $?
-# ...and assignment still happens despite redirect error:
-true;  a=$(echo b) >/does/not/exist; echo $?
-echo "Done: a=$a"

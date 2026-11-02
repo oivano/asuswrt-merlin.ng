@@ -3,9 +3,18 @@
  *
  * This is free software, licensed under the GNU General Public License v2.
  */
+//config:config FLOCK
+//config:	bool "flock (6.3 kb)"
+//config:	default y
+//config:	help
+//config:	Manage locks from shell scripts
+
+//applet:IF_FLOCK(APPLET(flock, BB_DIR_USR_BIN, BB_SUID_DROP))
+
+//kbuild:lib-$(CONFIG_FLOCK) += flock.o
 
 //usage:#define flock_trivial_usage
-//usage:       "[-sxun] FD|{FILE [-c] PROG ARGS}"
+//usage:       "[-sxun] FD | { FILE [-c] PROG ARGS }"
 //usage:#define flock_full_usage "\n\n"
 //usage:       "[Un]lock file descriptor, or lock FILE, run PROG\n"
 //usage:     "\n	-s	Shared lock"
@@ -29,17 +38,15 @@ int flock_main(int argc UNUSED_PARAM, char **argv)
 	};
 
 #if ENABLE_LONG_OPTS
-	static const char getopt_longopts[] ALIGN1 =
+	static const char flock_longopts[] ALIGN1 =
 		"shared\0"      No_argument       "s"
 		"exclusive\0"   No_argument       "x"
 		"unlock\0"      No_argument       "u"
 		"nonblock\0"    No_argument       "n"
 		;
-	applet_long_options = getopt_longopts;
 #endif
-	opt_complementary = "-1";
 
-	opt = getopt32(argv, "+sxnu");
+	opt = getopt32long(argv, "^+" "sxnu" "\0" "-1", flock_longopts);
 	argv += optind;
 
 	if (argv[1]) {
@@ -66,7 +73,7 @@ int flock_main(int argc UNUSED_PARAM, char **argv)
 	) {
 		argv++;
 		if (argv[1])
-			bb_error_msg_and_die("-c takes only one argument");
+			bb_simple_error_msg_and_die("-c takes only one argument");
 		opt |= OPT_c;
 	}
 

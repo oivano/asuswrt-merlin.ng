@@ -2,7 +2,7 @@
 /*
  * Mini tr implementation for busybox
  *
- ** Copyright (c) 1987,1997, Prentice Hall   All rights reserved.
+ * Copyright (c) 1987,1997, Prentice Hall   All rights reserved.
  *
  * The name of Prentice Hall may not be used to endorse or promote
  * products derived from this software without specific prior
@@ -18,34 +18,35 @@
 /* http://www.opengroup.org/onlinepubs/009695399/utilities/tr.html
  * TODO: graph, print
  */
-
-//kbuild:lib-$(CONFIG_TR) += tr.o
-
 //config:config TR
-//config:	bool "tr"
+//config:	bool "tr (5.1 kb)"
 //config:	default y
 //config:	help
-//config:	  tr is used to squeeze, and/or delete characters from standard
-//config:	  input, writing to standard output.
+//config:	tr is used to squeeze, and/or delete characters from standard
+//config:	input, writing to standard output.
 //config:
 //config:config FEATURE_TR_CLASSES
 //config:	bool "Enable character classes (such as [:upper:])"
 //config:	default y
 //config:	depends on TR
 //config:	help
-//config:	  Enable character classes, enabling commands such as:
-//config:	  tr [:upper:] [:lower:] to convert input into lowercase.
+//config:	Enable character classes, enabling commands such as:
+//config:	tr [:upper:] [:lower:] to convert input into lowercase.
 //config:
 //config:config FEATURE_TR_EQUIV
 //config:	bool "Enable equivalence classes"
 //config:	default y
 //config:	depends on TR
 //config:	help
-//config:	  Enable equivalence classes, which essentially add the enclosed
-//config:	  character to the current set. For instance, tr [=a=] xyz would
-//config:	  replace all instances of 'a' with 'xyz'. This option is mainly
-//config:	  useful for cases when no other way of expressing a character
-//config:	  is possible.
+//config:	Enable equivalence classes, which essentially add the enclosed
+//config:	character to the current set. For instance, tr [=a=] xyz would
+//config:	replace all instances of 'a' with 'xyz'. This option is mainly
+//config:	useful for cases when no other way of expressing a character
+//config:	is possible.
+
+//applet:IF_TR(APPLET(tr, BB_DIR_USR_BIN, BB_SUID_DROP))
+
+//kbuild:lib-$(CONFIG_TR) += tr.o
 
 //usage:#define tr_trivial_usage
 //usage:       "[-cds] STRING1 [STRING2]"
@@ -297,8 +298,8 @@ int tr_main(int argc UNUSED_PARAM, char **argv)
 	 * In POSIX locale, these are the same.
 	 */
 
-	opt_complementary = "-1";
-	opts = getopt32(argv, "+Ccds"); /* '+': stop at first non-option */
+	/* '+': stop at first non-option */
+	opts = getopt32(argv, "^+" "Ccds" "\0" "-1");
 	argv += optind;
 
 	str1_length = expand(*argv++, &str1);
@@ -307,7 +308,7 @@ int tr_main(int argc UNUSED_PARAM, char **argv)
 		str1_length = complement(str1, str1_length);
 	if (*argv) {
 		if (argv[0][0] == '\0')
-			bb_error_msg_and_die("STRING2 cannot be empty");
+			bb_simple_error_msg_and_die("STRING2 cannot be empty");
 		str2_length = expand(*argv, &str2);
 		map(vector, str1, str1_length,
 				str2, str2_length);
@@ -332,7 +333,7 @@ int tr_main(int argc UNUSED_PARAM, char **argv)
 			read_chars = safe_read(STDIN_FILENO, str1, TR_BUFSIZ);
 			if (read_chars <= 0) {
 				if (read_chars < 0)
-					bb_perror_msg_and_die(bb_msg_read_error);
+					bb_simple_perror_msg_and_die(bb_msg_read_error);
 				break;
 			}
 			in_index = 0;

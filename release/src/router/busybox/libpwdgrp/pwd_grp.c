@@ -1,5 +1,6 @@
 /* vi: set sw=4 ts=4: */
-/* Copyright (C) 2014 Tito Ragusa <farmatito@tiscali.it>
+/*
+ * Copyright (C) 2014 Tito Ragusa <farmatito@tiscali.it>
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
@@ -14,7 +15,7 @@
  *    exit using the atexit function to make valgrind happy.
  * 2) the passwd/group files:
  *      a) must contain the expected number of fields (as per count of field
- *         delimeters ":") or we will complain with a error message.
+ *         delimiters ":") or we will complain with a error message.
  *      b) leading and trailing whitespace in fields is stripped.
  *      c) some fields are not allowed to be empty (e.g. username, uid/gid),
  *         and in this case NULL is returned and errno is set to EINVAL.
@@ -28,7 +29,6 @@
  *    implemented, if you need a particular missing function it should be
  *    easy to write it by using the internal common code.
  */
-
 #include "libbb.h"
 
 struct const_passdb {
@@ -149,7 +149,7 @@ static struct statics *get_S(void)
 /* Internal functions */
 
 /* Divide the passwd/group/shadow record in fields
- * by substituting the given delimeter
+ * by substituting the given delimiter
  * e.g. ':' or ',' with '\0'.
  * Returns the number of fields found.
  * Strips leading and trailing whitespace in fields.
@@ -191,6 +191,9 @@ static char *parse_common(FILE *fp, struct passdb *db,
 	char *buf;
 
 	while ((buf = xmalloc_fgetline(fp)) != NULL) {
+		int n;
+		char *field;
+
 		/* Skip empty lines, comment lines */
 		if (buf[0] == '\0' || buf[0] == '#')
 			goto free_and_next;
@@ -204,7 +207,16 @@ static char *parse_common(FILE *fp, struct passdb *db,
 			/* no key specified: sequential read, return a record */
 			break;
 		}
-		if (strcmp(key, nth_string(buf, field_pos)) == 0) {
+		/* Can't use nth_string() here, it does not allow empty strings
+		 * ("\0\0" terminates the list), and a valid passwd entry
+		 * "user::UID:GID..." would be mishandled */
+		n = field_pos;
+		field = buf;
+		while (n) {
+			n--;
+			field += strlen(field) + 1;
+		}
+		if (strcmp(key, field) == 0) {
 			/* record found */
 			break;
 		}
