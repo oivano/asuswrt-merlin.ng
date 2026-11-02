@@ -725,7 +725,7 @@ void reply_tcon_and_X(struct smb_request *req)
 
 	/* we might have to close an old one */
 	if ((tcon_flags & 0x1) && conn) {
-		close_cnum(conn,req->vuid);
+		close_cnum(req, conn, req->vuid);
 		req->conn = NULL;
 		conn = NULL;
 	}
@@ -2088,7 +2088,7 @@ void reply_ulogoffX(struct smb_request *req)
 	/* in user level security we are supposed to close any files
 		open by this user */
 	if ((vuser != NULL) && (lp_security() != SEC_SHARE)) {
-		file_close_user(sconn, req->vuid);
+		file_close_user(req, req->vuid);
 	}
 
 	invalidate_vuid(sconn, req->vuid);
@@ -5116,7 +5116,7 @@ void reply_tdis(struct smb_request *req)
 
 	conn->used = False;
 
-	close_cnum(conn,req->vuid);
+	close_cnum(req, conn, req->vuid);
 	req->conn = NULL;
 
 	reply_outbuf(req, 0, 0);

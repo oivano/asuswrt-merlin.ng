@@ -161,14 +161,14 @@ NTSTATUS file_new(struct smb_request *req, connection_struct *conn,
  Close all open files for a connection.
 ****************************************************************************/
 
-void file_close_conn(connection_struct *conn)
+void file_close_conn(struct smb_request *req, connection_struct *conn)
 {
 	files_struct *fsp, *next;
 
 	for (fsp=conn->sconn->files; fsp; fsp=next) {
 		next = fsp->next;
 		if (fsp->conn == conn) {
-			close_file(NULL, fsp, SHUTDOWN_CLOSE);
+			close_file(req, fsp, SHUTDOWN_CLOSE);
 		}
 	}
 }
@@ -233,14 +233,15 @@ bool file_init(struct smbd_server_connection *sconn)
  Close files open by a specified vuid.
 ****************************************************************************/
 
-void file_close_user(struct smbd_server_connection *sconn, int vuid)
+void file_close_user(struct smb_request *req, int vuid)
 {
 	files_struct *fsp, *next;
+	struct smbd_server_connection *sconn = req->sconn;
 
 	for (fsp=sconn->files; fsp; fsp=next) {
 		next=fsp->next;
 		if (fsp->vuid == vuid) {
-			close_file(NULL, fsp, SHUTDOWN_CLOSE);
+			close_file(req, fsp, SHUTDOWN_CLOSE);
 		}
 	}
 }

@@ -240,7 +240,7 @@ bool conn_close_all(struct smbd_server_connection *sconn)
 		for (conn=sconn->smb1.tcons.Connections;conn;conn=next) {
 			next=conn->next;
 			set_current_service(conn, 0, True);
-			close_cnum(conn, conn->vuid);
+			close_cnum(NULL, conn, conn->vuid);
 			ret = true;
 		}
 	}
@@ -509,7 +509,7 @@ void msg_force_tdis(struct messaging_context *msg,
 			if (strequal(lp_servicename(SNUM(conn)), sharename)) {
 				DEBUG(1,("Forcing close of share %s cnum=%d\n",
 					sharename, conn->cnum));
-				close_cnum(conn, (uint16)-1);
+				close_cnum(NULL, conn, (uint16)-1);
 			}
 		}
 	}

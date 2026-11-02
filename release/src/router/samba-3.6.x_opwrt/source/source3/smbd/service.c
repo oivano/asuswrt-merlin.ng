@@ -1362,9 +1362,9 @@ connection_struct *make_connection(struct smbd_server_connection *sconn,
  Close a cnum.
 ****************************************************************************/
 
-void close_cnum(connection_struct *conn, uint16 vuid)
+void close_cnum(struct smb_request *req, connection_struct *conn, uint16 vuid)
 {
-	file_close_conn(conn);
+	file_close_conn(req, conn);
 
 	if (!IS_IPC(conn)) {
 		dptr_closecnum(conn);
