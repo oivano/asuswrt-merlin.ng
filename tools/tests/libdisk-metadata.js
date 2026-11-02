@@ -6,6 +6,7 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '../..');
 const source = fs.readFileSync(path.join(root, 'release/src/router/libdisk/disk_share.c'), 'utf8');
+const smbWriter = fs.readFileSync(path.join(root, 'release/src/router/libdisk/write_smb_conf.c'), 'utf8');
 const openerStart = source.indexOf('static FILE *open_metadata_file(');
 const openerEnd = source.indexOf('\n#ifdef RTCONFIG_PERMISSION_MANAGEMENT', openerStart);
 const opener = source.slice(openerStart, openerEnd);
@@ -24,8 +25,14 @@ assert.equal([...source.matchAll(/fopen\((?:var_file|test_file|list_file),\s*"[w
     'all metadata file writes must use open_metadata_file');
 assert.match(source, /open_metadata_file\(test_file, "w"\)/);
 assert.match(source, /open_metadata_file\(list_file, "w"\)/);
-assert.match(folders, /metadata_name_is_safe\(dp->d_name\)/);
 assert.match(source, /\*p < 0x20 \|\| \*p == 0x7f/);
+assert.match(source, /int smb_share_name_is_safe\(const char \*name\)/);
+assert.match(source, /strchr\("\[\];#=", \*p\)/);
+assert.match(folders, /smb_share_name_is_safe\(dp->d_name\)/);
+assert.match(smbWriter, /if \(!smb_share_name_is_safe\(folder_list\[n\]\)\)/);
+const writerGuard = smbWriter.indexOf('if (!smb_share_name_is_safe(folder_list[n]))');
+assert.ok(writerGuard < smbWriter.indexOf('fprintf(fp, "[%s]\\n", folder_list[n]', writerGuard));
+assert.ok(writerGuard < smbWriter.indexOf('fprintf(fp, "comment = %s\'s %s in %s\\n"', writerGuard));
 
 function safeOpen(filename, mode) {
     let flags = fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK;
@@ -93,15 +100,21 @@ try {
     fs.closeSync(descriptor);
     assert.equal(fs.readFileSync(regular, 'utf8'), '*=331\n');
 
-    const safeName = name => name.length > 0 && !/[\x00-\x1f\x7f]/.test(name);
-    const names = ['normal folder', 'semi; dollar$ parens()'];
-    const newlineName = 'first\n* * * * * command #';
-    for (const name of names) assert.equal(safeName(name), true);
-    assert.equal(safeName(newlineName), false);
-    const records = names.filter(safeName).map(name => `sh_name=${name}\n`);
-    assert.equal(records.length, 2);
-    assert.ok(records.every(record => record.split('\n').length === 2));
-    console.log('PASS: libdisk metadata symlink/FIFO guards and newline-name serialization checks (source contracts plus host filesystem model; not compiled C/router tests)');
+    const safeShareName = name => name.length > 0 &&
+        !/[\x00-\x1f\x7f\[\];#=]/.test(name);
+    const payload = 'x]\navailable = yes\nguest ok = yes\nroot preexec = blocked\n[y]';
+    fs.mkdirSync(path.join(media, 'normal folder'));
+    fs.mkdirSync(path.join(media, payload));
+    const names = fs.readdirSync(media).filter(name => name[0] !== '.' && safeShareName(name));
+    assert.deepEqual(names, ['normal folder']);
+    for (const name of ['semi;colon', 'hash#mark', 'equals=name', '[section]', 'line\rbreak'])
+        assert.equal(safeShareName(name), false);
+    const generated = names.map(name => `[${name}]\npath = /media/${name}\n` ).join('');
+    assert.equal(generated.includes('[y]'), false);
+    assert.equal(generated.includes('available = yes'), false);
+    assert.equal(generated.includes('guest ok = yes'), false);
+    assert.equal(generated.includes('root preexec ='), false);
+    console.log('PASS: libdisk metadata symlink/FIFO guards and unsafe SMB share-name filtering (source contracts plus host filesystem model; not compiled C/router tests)');
 } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
 }

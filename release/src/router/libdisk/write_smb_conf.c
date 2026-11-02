@@ -857,7 +857,13 @@ int main(int argc, char *argv[])
 
 				// 2. start to get every share
 				for(n = 0; n < sh_num; ++n){
-					int count = get_list_strings_count(folder_list, sh_num, folder_list[n]);
+					int count;
+
+					if (!smb_share_name_is_safe(folder_list[n])) {
+						usb_dbg("Skip folder with invalid SMB share name.\n");
+						continue;
+					}
+					count = get_list_strings_count(folder_list, sh_num, folder_list[n]);
 					if ((!strcmp(nvram_safe_get("smbd_simpler_naming"), "1")) && (count <= 1))
 						fprintf(fp, "[%s]\n", folder_list[n]);
 					else
