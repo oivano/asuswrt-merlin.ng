@@ -353,11 +353,11 @@ NTSTATUS filename_convert(TALLOC_CTX *mem_ctx,
 
 NTSTATUS file_new(struct smb_request *req, connection_struct *conn,
 		  files_struct **result);
-void file_close_conn(connection_struct *conn);
+void file_close_conn(struct smb_request *req, connection_struct *conn);
 void file_close_pid(struct smbd_server_connection *sconn, uint16 smbpid,
 		    int vuid);
 bool file_init(struct smbd_server_connection *sconn);
-void file_close_user(struct smbd_server_connection *sconn, int vuid);
+void file_close_user(struct smb_request *req, int vuid);
 struct files_struct *files_forall(
 	struct smbd_server_connection *sconn,
 	struct files_struct *(*fn)(struct files_struct *fsp,
@@ -1004,7 +1004,7 @@ connection_struct *make_connection(struct smbd_server_connection *sconn,
 				   const char *service_in, DATA_BLOB password,
 				   const char *pdev, uint16 vuid,
 				   NTSTATUS *status);
-void close_cnum(connection_struct *conn, uint16 vuid);
+void close_cnum(struct smb_request *req, connection_struct *conn, uint16 vuid);
 
 /* The following definitions come from smbd/session.c  */
 struct sessionid;

@@ -135,7 +135,7 @@ static int smbd_smb2_tcon_destructor(struct smbd_smb2_tcon *tcon)
 
 	if (tcon->compat_conn) {
 		set_current_service(tcon->compat_conn, 0, true);
-		close_cnum(tcon->compat_conn, tcon->session->vuid);
+		close_cnum(NULL, tcon->compat_conn, tcon->session->vuid);
 	}
 
 	tcon->compat_conn = NULL;

@@ -602,7 +602,7 @@ static void handle_trans(connection_struct *conn, struct smb_request *req,
 		   state->max_param_return);
 
 	if (state->close_on_completion) {
-		close_cnum(conn,state->vuid);
+		close_cnum(req, conn, state->vuid);
 		req->conn = NULL;
 	}
 
