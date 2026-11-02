@@ -410,7 +410,8 @@ static void msg_nmbd_send_packet(struct messaging_context *msg,
 				 struct server_id src,
 				 DATA_BLOB *data)
 {
-	struct packet_struct *p = (struct packet_struct *)data->data;
+	struct packet_struct packet;
+	struct packet_struct *p = &packet;
 	struct subnet_record *subrec;
 	struct sockaddr_storage ss;
 	const struct sockaddr_storage *pss;
@@ -418,17 +419,51 @@ static void msg_nmbd_send_packet(struct messaging_context *msg,
 
 	DEBUG(10, ("Received send_packet from %u\n", (unsigned int)procid_to_pid(&src)));
 
-	if (data->length != sizeof(struct packet_struct)) {
+	if (data->data == NULL || data->length != sizeof(packet)) {
 		DEBUG(2, ("Discarding invalid packet length from %u\n",
 			  (unsigned int)procid_to_pid(&src)));
 		return;
 	}
+	memcpy(&packet, data->data, sizeof(packet));
+	packet.next = NULL;
+	packet.prev = NULL;
 
 	if ((p->packet_type != NMB_PACKET) &&
 	    (p->packet_type != DGRAM_PACKET)) {
 		DEBUG(2, ("Discarding invalid packet type from %u: %d\n",
 			  (unsigned int)procid_to_pid(&src), p->packet_type));
 		return;
+	}
+
+	if (p->packet_type == DGRAM_PACKET) {
+		struct dgram_packet *dgram = &p->packet.dgram;
+
+		if (dgram->datasize < 0 || dgram->datasize > MAX_DGRAM_SIZE) {
+			DEBUG(2, ("Discarding invalid datagram size from %u: %d\n",
+				  (unsigned int)procid_to_pid(&src), dgram->datasize));
+			return;
+		}
+		dgram->source_name.name[sizeof(dgram->source_name.name) - 1] = '\0';
+		dgram->source_name.scope[sizeof(dgram->source_name.scope) - 1] = '\0';
+		dgram->dest_name.name[sizeof(dgram->dest_name.name) - 1] = '\0';
+		dgram->dest_name.scope[sizeof(dgram->dest_name.scope) - 1] = '\0';
+	} else {
+		struct nmb_packet *nmb = &p->packet.nmb;
+
+		nmb->answers = NULL;
+		nmb->nsrecs = NULL;
+		nmb->additional = NULL;
+		if (nmb->header.qdcount != 1 || nmb->header.ancount != 0 ||
+		    nmb->header.nscount != 0 || nmb->header.arcount != 0) {
+			DEBUG(2, ("Discarding pointer-bearing NMB packet from %u\n",
+				  (unsigned int)procid_to_pid(&src)));
+			return;
+		}
+		nmb->question.question_name.name[
+			sizeof(nmb->question.question_name.name) - 1] = '\0';
+		nmb->question.question_name.scope[
+			sizeof(nmb->question.question_name.scope) - 1] = '\0';
+		p->port = 137;
 	}
 
 	in_addr_to_sockaddr_storage(&ss, p->ip);

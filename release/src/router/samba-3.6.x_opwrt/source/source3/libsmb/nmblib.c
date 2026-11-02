@@ -866,7 +866,29 @@ static bool send_udp(int fd,char *buf,int len,struct in_addr ip,int port)
 static int build_dgram(char *buf, size_t len, struct dgram_packet *dgram)
 {
 	unsigned char *ubuf = (unsigned char *)buf;
-	int offset=0;
+	int offset = 14;
+	int source_name_len = 0;
+	int dest_name_len = 0;
+	bool has_names;
+
+	if (dgram->datasize < 0 || dgram->datasize > MAX_DGRAM_SIZE) {
+		return 0;
+	}
+
+	has_names = (dgram->header.msg_type == 0x10 ||
+		      dgram->header.msg_type == 0x11 ||
+		      dgram->header.msg_type == 0x12);
+	if (has_names) {
+		source_name_len = put_nmb_name(NULL, offset, &dgram->source_name);
+		dest_name_len = put_nmb_name(NULL, offset + source_name_len,
+					     &dgram->dest_name);
+		offset += source_name_len + dest_name_len;
+	}
+
+	if (buf && ((size_t)offset > len ||
+		    (size_t)dgram->datasize > len - (size_t)offset)) {
+		return 0;
+	}
 
 	/* put in the header */
 	if (buf) {
@@ -883,12 +905,9 @@ static int build_dgram(char *buf, size_t len, struct dgram_packet *dgram)
 	}
 
 	offset = 14;
-
-	if (dgram->header.msg_type == 0x10 ||
-			dgram->header.msg_type == 0x11 ||
-			dgram->header.msg_type == 0x12) {
-		offset += put_nmb_name((char *)ubuf,offset,&dgram->source_name);
-		offset += put_nmb_name((char *)ubuf,offset,&dgram->dest_name);
+	if (has_names) {
+		offset += put_nmb_name((char *)ubuf, offset, &dgram->source_name);
+		offset += put_nmb_name((char *)ubuf, offset, &dgram->dest_name);
 	}
 
 	if (buf) {
