@@ -25,7 +25,7 @@ uint8_t unicode_status;
 
 void FAST_FUNC reinit_unicode(const char *LANG)
 {
-	static const char unicode_0x394[] = { 0xce, 0x94, 0 };
+	static const char unicode_0x394[] ALIGN1 = { 0xce, 0x94, 0 };
 	size_t width;
 
 	/* We pass "" instead of "C" because some libc's have
@@ -306,8 +306,10 @@ static int in_uint16_table(unsigned ucs, const uint16_t *table, unsigned max)
 	unsigned first, last;
 
 	first = table[0] >> 2;
-	last = first + (table[0] & 3);
-	if (ucs < first || ucs > last)
+	if (ucs < first)
+		return 0;
+	last = (table[max] >> 2) + (table[max] & 3);
+	if (ucs > last)
 		return 0;
 
 	min = 0;
@@ -587,12 +589,12 @@ int FAST_FUNC wcwidth(unsigned ucs)
 		BIG_(0xFE20, 0xFE23) \
 		BIG_(0xFEFF, 0xFEFF) \
 		BIG_(0xFFF9, 0xFFFB)
-	static const struct interval combining[] = { ARRAY };
+	static const struct interval combining[] ALIGN4 = { ARRAY };
 #  undef BIG_
 #  undef PAIR
 #  define BIG_(a,b)
 #  define PAIR(a,b) (a << 2) | (b-a),
-	static const uint16_t combining1[] = { ARRAY };
+	static const uint16_t combining1[] ALIGN2 = { ARRAY };
 #  undef BIG_
 #  undef PAIR
 #  define BIG_(a,b) char big_##a[b < 0x4000 && b-a <= 3 ? -1 : 1];
@@ -646,7 +648,7 @@ int FAST_FUNC wcwidth(unsigned ucs)
 #   if CONFIG_LAST_SUPPORTED_WCHAR >= 0x10000
 	if (ucs >= 0x10000) {
 		/* Combining chars in Supplementary Multilingual Plane 0x1xxxx */
-		static const struct interval combining0x10000[] = {
+		static const struct interval combining0x10000[] ALIGN4 = {
 			{ 0x0A01, 0x0A03 }, { 0x0A05, 0x0A06 }, { 0x0A0C, 0x0A0F },
 			{ 0x0A38, 0x0A3A }, { 0x0A3F, 0x0A3F }, { 0xD167, 0xD169 },
 			{ 0xD173, 0xD182 }, { 0xD185, 0xD18B }, { 0xD1AA, 0xD1AD },
@@ -674,14 +676,20 @@ int FAST_FUNC wcwidth(unsigned ucs)
 		(  (/*ucs >= 0x1100 &&*/ ucs <= 0x115f) /* Hangul Jamo init. consonants */
 		|| ucs == 0x2329 /* left-pointing angle bracket; also CJK punct. char */
 		|| ucs == 0x232a /* right-pointing angle bracket; also CJK punct. char */
+#   if CONFIG_LAST_SUPPORTED_WCHAR >= 0x2e80
 		|| (ucs >= 0x2e80 && ucs <= 0xa4cf && ucs != 0x303f) /* CJK ... Yi */
+#   endif
 #   if CONFIG_LAST_SUPPORTED_WCHAR >= 0xac00
 		|| (ucs >= 0xac00 && ucs <= 0xd7a3) /* Hangul Syllables */
+#   endif
+#   if CONFIG_LAST_SUPPORTED_WCHAR >= 0xf900
 		|| (ucs >= 0xf900 && ucs <= 0xfaff) /* CJK Compatibility Ideographs */
 		|| (ucs >= 0xfe10 && ucs <= 0xfe19) /* Vertical forms */
 		|| (ucs >= 0xfe30 && ucs <= 0xfe6f) /* CJK Compatibility Forms */
 		|| (ucs >= 0xff00 && ucs <= 0xff60) /* Fullwidth Forms */
 		|| (ucs >= 0xffe0 && ucs <= 0xffe6)
+#   endif
+#   if CONFIG_LAST_SUPPORTED_WCHAR >= 0x20000
 		|| ((ucs >> 17) == (2 >> 1)) /* 20000..3ffff: Supplementary and Tertiary Ideographic Planes */
 #   endif
 		);
@@ -751,12 +759,12 @@ int FAST_FUNC unicode_bidi_isrtl(wint_t wc)
 		{0x10E7F, 0x10FFF},
 		{0x1E800, 0x1EFFF}
 		*/
-	static const struct interval rtl_b[] = { ARRAY };
+	static const struct interval rtl_b[] ALIGN4 = { ARRAY };
 #  undef BIG_
 #  undef PAIR
 #  define BIG_(a,b)
 #  define PAIR(a,b) (a << 2) | (b-a),
-	static const uint16_t rtl_p[] = { ARRAY };
+	static const uint16_t rtl_p[] ALIGN2 = { ARRAY };
 #  undef BIG_
 #  undef PAIR
 #  define BIG_(a,b) char big_##a[b < 0x4000 && b-a <= 3 ? -1 : 1];
@@ -955,12 +963,12 @@ int FAST_FUNC unicode_bidi_is_neutral_wchar(wint_t wc)
 		{0x1F030, 0x1F093},
 		{0x1F100, 0x1F10A}
 		*/
-	static const struct interval neutral_b[] = { ARRAY };
+	static const struct interval neutral_b[] ALIGN4 = { ARRAY };
 #  undef BIG_
 #  undef PAIR
 #  define BIG_(a,b)
 #  define PAIR(a,b) (a << 2) | (b-a),
-	static const uint16_t neutral_p[] = { ARRAY };
+	static const uint16_t neutral_p[] ALIGN2 = { ARRAY };
 #  undef BIG_
 #  undef PAIR
 #  define BIG_(a,b) char big_##a[b < 0x4000 && b-a <= 3 ? -1 : 1];
@@ -1121,6 +1129,8 @@ static char* FAST_FUNC unicode_conv_to_printable2(uni_stat_t *stats, const char 
 			dst[dst_len++] = ' ';
 		}
 	}
+	if (!dst) /* for example, if input was "" */
+		dst = xzalloc(1);
 	dst[dst_len] = '\0';
 	if (stats) {
 		stats->byte_count = dst_len;

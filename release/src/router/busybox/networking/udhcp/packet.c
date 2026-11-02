@@ -12,6 +12,7 @@
 #include <netinet/if_ether.h>
 #include <netpacket/packet.h>
 
+#if ENABLE_UDHCPC || ENABLE_UDHCPD
 void FAST_FUNC udhcp_init_header(struct dhcp_packet *packet, char type)
 {
 	memset(packet, 0, sizeof(*packet));
@@ -29,6 +30,7 @@ void FAST_FUNC udhcp_init_header(struct dhcp_packet *packet, char type)
 		packet->options[0] = DHCP_END;
 	udhcp_add_simple_option(packet, DHCP_MESSAGE_TYPE, type);
 }
+#endif
 
 #if defined CONFIG_UDHCP_DEBUG && CONFIG_UDHCP_DEBUG >= 2
 void FAST_FUNC udhcp_dump_packet(struct dhcp_packet *packet)
@@ -38,8 +40,8 @@ void FAST_FUNC udhcp_dump_packet(struct dhcp_packet *packet)
 	if (dhcp_verbose < 2)
 		return;
 
-	bb_error_msg(
-		//"op %x"
+	bb_info_msg(
+		//" op %x"
 		//" htype %x"
 		" hlen %x"
 		//" hops %x"
@@ -50,7 +52,6 @@ void FAST_FUNC udhcp_dump_packet(struct dhcp_packet *packet)
 		" yiaddr %x"
 		" siaddr %x"
 		" giaddr %x"
-		//" chaddr %s"
 		//" sname %s"
 		//" file %s"
 		//" cookie %x"
@@ -66,14 +67,13 @@ void FAST_FUNC udhcp_dump_packet(struct dhcp_packet *packet)
 		, packet->yiaddr
 		, packet->siaddr_nip
 		, packet->gateway_nip
-		//, packet->chaddr[16]
 		//, packet->sname[64]
 		//, packet->file[128]
 		//, packet->cookie
 		//, packet->options[]
 	);
 	*bin2hex(buf, (void *) packet->chaddr, sizeof(packet->chaddr)) = '\0';
-	bb_error_msg("chaddr %s", buf);
+	bb_info_msg(" chaddr %s", buf);
 }
 #endif
 
@@ -85,17 +85,18 @@ int FAST_FUNC udhcp_recv_kernel_packet(struct dhcp_packet *packet, int fd)
 	memset(packet, 0, sizeof(*packet));
 	bytes = safe_read(fd, packet, sizeof(*packet));
 	if (bytes < 0) {
-		log1("packet read error, ignoring");
+		log1s("packet read error, ignoring");
 		return bytes; /* returns -1 */
 	}
 
 	if (bytes < offsetof(struct dhcp_packet, options)
 	 || packet->cookie != htonl(DHCP_MAGIC)
 	) {
-		bb_error_msg("packet with bad magic, ignoring");
+		bb_simple_info_msg("packet with bad magic, ignoring");
 		return -2;
 	}
-	log1("received %s", "a packet");
+	log2("received %s", "a packet");
+	/* log2 because more informative msg for valid packets is printed later at log1 level */
 	udhcp_dump_packet(packet);
 
 	return bytes;
@@ -138,9 +139,12 @@ int FAST_FUNC udhcp_send_raw_packet(struct dhcp_packet *dhcp_pkt,
 	dest_sll.sll_family = AF_PACKET;
 	dest_sll.sll_protocol = htons(ETH_P_IP);
 	dest_sll.sll_ifindex = ifindex;
+	/*dest_sll.sll_hatype = ARPHRD_???;*/
+	/*dest_sll.sll_pkttype = PACKET_???;*/
 	dest_sll.sll_halen = 6;
 	memcpy(dest_sll.sll_addr, dest_arp, 6);
 
+//TODO: is bind() necessary? we sendto() to this destination, should work anyway
 	if (bind(fd, (struct sockaddr *)&dest_sll, sizeof(dest_sll)) < 0) {
 		msg = "bind(%s)";
 		goto ret_close;
@@ -173,7 +177,7 @@ int FAST_FUNC udhcp_send_raw_packet(struct dhcp_packet *dhcp_pkt,
 	packet.udp.len = htons(UDP_DHCP_SIZE - padding);
 	/* for UDP checksumming, ip.len is set to UDP packet len */
 	packet.ip.tot_len = packet.udp.len;
-	packet.udp.check = inet_cksum((uint16_t *)&packet,
+	packet.udp.check = inet_cksum(&packet,
 			IP_UDP_DHCP_SIZE - padding);
 	/* but for sending, it is set to IP packet len */
 	packet.ip.tot_len = htons(IP_UDP_DHCP_SIZE - padding);
@@ -198,7 +202,8 @@ int FAST_FUNC udhcp_send_raw_packet(struct dhcp_packet *dhcp_pkt,
 /* Let the kernel do all the work for packet generation */
 int FAST_FUNC udhcp_send_kernel_packet(struct dhcp_packet *dhcp_pkt,
 		uint32_t source_nip, int source_port,
-		uint32_t dest_nip, int dest_port)
+		uint32_t dest_nip, int dest_port,
+		const char *ifname)
 {
 	struct sockaddr_in sa;
 	unsigned padding;
@@ -212,6 +217,21 @@ int FAST_FUNC udhcp_send_kernel_packet(struct dhcp_packet *dhcp_pkt,
 		goto ret_msg;
 	}
 	setsockopt_reuseaddr(fd);
+
+	/* If interface carrier goes down, unless we
+	 * bind socket to a particular netdev, the packet
+	 * can go out through another interface, eg. via
+	 * default route despite being bound to a specific
+	 * source IP. As such, bind to device hard and fail
+	 * otherwise. Sending renewal packets on foreign
+	 * interfaces makes no sense.
+	 */
+	if (ifname) {
+		if (setsockopt_bindtodevice(fd, ifname) < 0) {
+			msg = "bindtodevice";
+			goto ret_close;
+		}
+	}
 
 	memset(&sa, 0, sizeof(sa));
 	sa.sin_family = AF_INET;

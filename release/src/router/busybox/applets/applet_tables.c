@@ -10,6 +10,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -18,6 +19,10 @@
 
 #undef ARRAY_SIZE
 #define ARRAY_SIZE(x) ((unsigned)(sizeof(x) / sizeof((x)[0])))
+
+#ifndef PATH_MAX
+#define PATH_MAX 1024
+#endif
 
 #include "../include/autoconf.h"
 #include "../include/applet_metadata.h"
@@ -51,7 +56,7 @@ static int cmp_name(const void *a, const void *b)
 static int str_isalnum_(const char *s)
 {
 	while (*s) {
-		if (!isalnum(*s) && *s != '_')
+		if (!isalnum((unsigned char)*s) && *s != '_')
 			return 0;
 		s++;
 	}
@@ -61,6 +66,7 @@ static int str_isalnum_(const char *s)
 int main(int argc, char **argv)
 {
 	int i, j;
+	char tmp1[PATH_MAX], tmp2[PATH_MAX];
 
 	// In find_applet_by_name(), before linear search, narrow it down
 	// by looking at N "equidistant" names. With ~350 applets:
@@ -82,9 +88,18 @@ int main(int argc, char **argv)
 
 	qsort(applets, NUM_APPLETS, sizeof(applets[0]), cmp_name);
 
-	if (!argv[1])
+	for (i = j = 0; i < NUM_APPLETS-1; ++i) {
+		if (cmp_name(applets+i, applets+i+1) == 0) {
+			fprintf(stderr, "%s: duplicate applet name '%s'\n", argv[0],
+					applets[i].name);
+			j = 1;
+		}
+	}
+
+	if (j != 0 || !argv[1])
 		return 1;
-	i = open(argv[1], O_WRONLY | O_TRUNC | O_CREAT, 0666);
+	snprintf(tmp1, PATH_MAX, "%s.%u.new", argv[1], (int) getpid());
+	i = open(tmp1, O_WRONLY | O_TRUNC | O_CREAT, 0666);
 	if (i < 0)
 		return 1;
 	dup2(i, 1);
@@ -143,7 +158,9 @@ int main(int argc, char **argv)
 	printf("};\n");
 	printf("#endif\n\n");
 
-#if ENABLE_FEATURE_PREFER_APPLETS
+#if ENABLE_FEATURE_PREFER_APPLETS \
+ || ENABLE_FEATURE_SH_STANDALONE \
+ || ENABLE_FEATURE_SH_NOFORK
 	printf("const uint8_t applet_flags[] ALIGN1 = {\n");
 	i = 0;
 	while (i < NUM_APPLETS) {
@@ -190,28 +207,38 @@ int main(int argc, char **argv)
 	printf("};\n");
 #endif
 	//printf("#endif /* SKIP_definitions */\n");
+
 //	printf("\n");
 //	printf("#define MAX_APPLET_NAME_LEN %u\n", MAX_APPLET_NAME_LEN);
 
 	if (argv[2]) {
-		char line_old[80];
-		char line_new[80];
 		FILE *fp;
+		char line_new[80];
+//		char line_old[80];
 
-		line_old[0] = 0;
-		fp = fopen(argv[2], "r");
-		if (fp) {
-			fgets(line_old, sizeof(line_old), fp);
-			fclose(fp);
-		}
 		sprintf(line_new, "#define NUM_APPLETS %u\n", NUM_APPLETS);
-		if (strcmp(line_old, line_new) != 0) {
-			fp = fopen(argv[2], "w");
+//		line_old[0] = 0;
+//		fp = fopen(argv[2], "r");
+//		if (fp) {
+//			fgets(line_old, sizeof(line_old), fp);
+//			fclose(fp);
+//		}
+//		if (strcmp(line_old, line_new) != 0) {
+			snprintf(tmp2, PATH_MAX, "%s.%u.new", argv[2], (int) getpid());
+			fp = fopen(tmp2, "w");
 			if (!fp)
 				return 1;
 			fputs(line_new, fp);
-		}
+			if (fclose(fp))
+				return 1;
+//		}
 	}
 
+	if (fclose(stdout))
+		return 1;
+	if (rename(tmp1, argv[1]))
+		return 1;
+	if (rename(tmp2, argv[2]))
+		return 1;
 	return 0;
 }

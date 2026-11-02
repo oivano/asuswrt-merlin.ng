@@ -6,13 +6,13 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
-
 #include "libbb.h"
 
 /*
  * Write all of the supplied buffer out to a file.
  * This does multiple writes as necessary.
- * Returns the amount written, or -1 on an error.
+ * Returns the amount written, or -1 if error was seen
+ * on the very first write.
  */
 ssize_t FAST_FUNC full_write(int fd, const void *buf, size_t len)
 {

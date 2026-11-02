@@ -1,42 +1,54 @@
 /* vi: set sw=4 ts=4: */
-/* printf - format and print data
-
-   Copyright 1999 Dave Cinege
-   Portions copyright (C) 1990-1996 Free Software Foundation, Inc.
-
-   Licensed under GPLv2 or later, see file LICENSE in this source tree.
-*/
-
+/*
+ * printf - format and print data
+ *
+ * Copyright 1999 Dave Cinege
+ * Portions copyright (C) 1990-1996 Free Software Foundation, Inc.
+ *
+ * Licensed under GPLv2 or later, see file LICENSE in this source tree.
+ */
 /* Usage: printf format [argument...]
-
-   A front end to the printf function that lets it be used from the shell.
-
-   Backslash escapes:
-
-   \" = double quote
-   \\ = backslash
-   \a = alert (bell)
-   \b = backspace
-   \c = produce no further output
-   \f = form feed
-   \n = new line
-   \r = carriage return
-   \t = horizontal tab
-   \v = vertical tab
-   \0ooo = octal number (ooo is 0 to 3 digits)
-   \xhhh = hexadecimal number (hhh is 1 to 3 digits)
-
-   Additional directive:
-
-   %b = print an argument string, interpreting backslash escapes
-
-   The 'format' argument is re-used as many times as necessary
-   to convert all of the given arguments.
-
-   David MacKenzie <djm@gnu.ai.mit.edu>
-*/
-
+ *
+ * A front end to the printf function that lets it be used from the shell.
+ *
+ * Backslash escapes:
+ *
+ * \" = double quote
+ * \\ = backslash
+ * \a = alert (bell)
+ * \b = backspace
+ * \c = produce no further output
+ * \f = form feed
+ * \n = new line
+ * \r = carriage return
+ * \t = horizontal tab
+ * \v = vertical tab
+ * \0ooo = octal number (ooo is 0 to 3 digits)
+ * \xhhh = hexadecimal number (hhh is 1 to 3 digits)
+ *
+ * Additional directive:
+ *
+ * %b = print an argument string, interpreting backslash escapes
+ *
+ * The 'format' argument is re-used as many times as necessary
+ * to convert all of the given arguments.
+ *
+ * David MacKenzie <djm@gnu.ai.mit.edu>
+ */
 /* 19990508 Busy Boxed! Dave Cinege */
+
+//config:config PRINTF
+//config:	bool "printf (3.8 kb)"
+//config:	default y
+//config:	help
+//config:	printf is used to format and print specified strings.
+//config:	It's similar to 'echo' except it has more options.
+
+//applet:IF_PRINTF(APPLET_NOFORK(printf, printf, BB_DIR_USR_BIN, BB_SUID_DROP, printf))
+
+//kbuild:lib-$(CONFIG_PRINTF) += printf.o
+//kbuild:lib-$(CONFIG_ASH_PRINTF)  += printf.o
+//kbuild:lib-$(CONFIG_HUSH_PRINTF) += printf.o
 
 //usage:#define printf_trivial_usage
 //usage:       "FORMAT [ARG]..."
@@ -83,6 +95,12 @@ static int multiconvert(const char *arg, void *result, converter convert)
 
 static void FAST_FUNC conv_strtoull(const char *arg, void *result)
 {
+	/* Allow leading '+' - bb_strtoull() by itself does not allow it,
+	 * and probably shouldn't (other callers might require purely numeric
+	 * inputs to be allowed.
+	 */
+	if (arg[0] == '+')
+		arg++;
 	*(unsigned long long*)result = bb_strtoull(arg, NULL, 0);
 	/* both coreutils 6.10 and bash 3.2:
 	 * $ printf '%x\n' -2
@@ -95,6 +113,8 @@ static void FAST_FUNC conv_strtoull(const char *arg, void *result)
 }
 static void FAST_FUNC conv_strtoll(const char *arg, void *result)
 {
+	if (arg[0] == '+')
+		arg++;
 	*(long long*)result = bb_strtoll(arg, NULL, 0);
 }
 static void FAST_FUNC conv_strtod(const char *arg, void *result)
@@ -102,6 +122,7 @@ static void FAST_FUNC conv_strtod(const char *arg, void *result)
 	char *end;
 	/* Well, this one allows leading whitespace... so what? */
 	/* What I like much less is that "-" accepted too! :( */
+//TODO: needs setlocale(LC_NUMERIC, "C")?
 	*(double*)result = strtod(arg, &end);
 	if (end[0]) {
 		errno = ERANGE;
@@ -179,6 +200,7 @@ static void print_direc(char *format, unsigned fmt_length,
 	if (have_width - 1 == have_prec)
 		have_width = NULL;
 
+	/* multiconvert sets errno = 0, but %s needs it cleared */
 	errno = 0;
 
 	switch (format[fmt_length - 1]) {
@@ -187,7 +209,7 @@ static void print_direc(char *format, unsigned fmt_length,
 		break;
 	case 'd':
 	case 'i':
-		llv = my_xstrtoll(argument);
+		llv = my_xstrtoll(skip_whitespace(argument));
  print_long:
 		if (!have_width) {
 			if (!have_prec)
@@ -205,7 +227,7 @@ static void print_direc(char *format, unsigned fmt_length,
 	case 'u':
 	case 'x':
 	case 'X':
-		llv = my_xstrtoull(argument);
+		llv = my_xstrtoull(skip_whitespace(argument));
 		/* cheat: unsigned long and long have same width, so... */
 		goto print_long;
 	case 's':
@@ -291,7 +313,7 @@ static char **print_formatted(char *f, char **argv, int *conv_err)
 				}
 				break;
 			}
-			if (strchr("-+ #", *f)) {
+			while (*f && strchr("-+ #0", *f)) {
 				++f;
 				++direc_length;
 			}
@@ -334,7 +356,7 @@ static char **print_formatted(char *f, char **argv, int *conv_err)
 				static const char format_chars[] ALIGN1 = "diouxXfeEgGcs";
 				char *p = strchr(format_chars, *f);
 				/* needed - try "printf %" without it */
-				if (p == NULL) {
+				if (p == NULL || *f == '\0') {
 					bb_error_msg("%s: invalid format", direc_start);
 					/* causes main() to exit with error */
 					return saved_argv - 1;
@@ -406,10 +428,10 @@ int printf_main(int argc UNUSED_PARAM, char **argv)
 	if (argv[1] && argv[1][0] == '-' && argv[1][1] == '-' && !argv[1][2])
 		argv++;
 	if (!argv[1]) {
-		if (ENABLE_ASH_BUILTIN_PRINTF
+		if ((ENABLE_ASH_PRINTF || ENABLE_HUSH_PRINTF)
 		 && applet_name[0] != 'p'
 		) {
-			bb_error_msg("usage: printf FORMAT [ARGUMENT...]");
+			bb_simple_error_msg("usage: printf FORMAT [ARGUMENT...]");
 			return 2; /* bash compat */
 		}
 		bb_show_usage();

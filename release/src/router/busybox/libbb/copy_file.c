@@ -48,7 +48,7 @@ static int ask_and_unlink(const char *dest, int flags)
 		// (No "opening without O_EXCL", no "unlink only if -f")
 		// Or else we will end up having 3 open()s!
 		fprintf(stderr, "%s: overwrite '%s'? ", applet_name, dest);
-		if (!bb_ask_confirmation())
+		if (!bb_ask_y_confirmation())
 			return 0; /* not allowed to overwrite */
 	}
 	if (unlink(dest) < 0) {
@@ -111,6 +111,8 @@ int FAST_FUNC copy_file(const char *source, const char *dest, int flags)
 			bb_error_msg("'%s' and '%s' are the same file", source, dest);
 			return -1;
 		}
+		if (flags & FILEUTILS_NO_OVERWRITE) /* cp -n */
+			return 0;
 		dest_exists = 1;
 	}
 
@@ -296,11 +298,16 @@ int FAST_FUNC copy_file(const char *source, const char *dest, int flags)
 		if (!S_ISREG(source_stat.st_mode))
 			new_mode = 0666;
 
-		// POSIX way is a security problem versus (sym)link attacks
-		if (!ENABLE_FEATURE_NON_POSIX_CP) {
-			dst_fd = open(dest, O_WRONLY|O_CREAT|O_TRUNC, new_mode);
-		} else { /* safe way: */
+		if (ENABLE_FEATURE_NON_POSIX_CP || (flags & FILEUTILS_INTERACTIVE)) {
+			/*
+			 * O_CREAT|O_EXCL: require that file did not exist before creation
+			 */
 			dst_fd = open(dest, O_WRONLY|O_CREAT|O_EXCL, new_mode);
+		} else { /* POSIX, and not "cp -i" */
+			/*
+			 * O_CREAT|O_TRUNC: create, or truncate (security problem versus (sym)link attacks)
+			 */
+			dst_fd = open(dest, O_WRONLY|O_CREAT|O_TRUNC, new_mode);
 		}
 		if (dst_fd == -1) {
 			ovr = ask_and_unlink(dest, flags);
@@ -322,7 +329,7 @@ int FAST_FUNC copy_file(const char *source, const char *dest, int flags)
 		) {
 			security_context_t con;
 			if (getfscreatecon(&con) == -1) {
-				bb_perror_msg("getfscreatecon");
+				bb_simple_perror_msg("getfscreatecon");
 				return -1;
 			}
 			if (con) {
@@ -335,8 +342,27 @@ int FAST_FUNC copy_file(const char *source, const char *dest, int flags)
 			}
 		}
 #endif
+#if ENABLE_FEATURE_CP_REFLINK
+# undef BTRFS_IOCTL_MAGIC
+# define BTRFS_IOCTL_MAGIC 0x94
+# undef BTRFS_IOC_CLONE
+# define BTRFS_IOC_CLONE _IOW (BTRFS_IOCTL_MAGIC, 9, int)
+		if (flags & FILEUTILS_REFLINK) {
+			retval = ioctl(dst_fd, BTRFS_IOC_CLONE, src_fd);
+			if (retval == 0)
+				goto do_close;
+			/* reflink did not work */
+			if (flags & FILEUTILS_REFLINK_ALWAYS) {
+				bb_perror_msg("failed to clone '%s' from '%s'", dest, source);
+				goto do_close;
+			}
+			/* fall through to standard copy */
+			retval = 0;
+		}
+#endif
 		if (bb_copyfd_eof(src_fd, dst_fd) == -1)
 			retval = -1;
+ IF_FEATURE_CP_REFLINK(do_close:)
 		/* Careful with writing... */
 		if (close(dst_fd) < 0) {
 			bb_perror_msg("error writing to '%s'", dest);
@@ -364,18 +390,22 @@ int FAST_FUNC copy_file(const char *source, const char *dest, int flags)
 		char *lpath = xmalloc_readlink_or_warn(source);
 		if (lpath) {
 			int r = symlink(lpath, dest);
-			free(lpath);
 			if (r < 0) {
-				bb_perror_msg("can't create symlink '%s'", dest);
+				/* shared message */
+				bb_perror_msg("can't create %slink '%s' to '%s'",
+					"sym", dest, lpath
+				);
+				free(lpath);
 				return -1;
 			}
+			free(lpath);
 			if (flags & FILEUTILS_PRESERVE_STATUS)
 				if (lchown(dest, source_stat.st_uid, source_stat.st_gid) < 0)
 					bb_perror_msg("can't preserve %s of '%s'", "ownership", dest);
 		}
 		/* _Not_ jumping to preserve_mode_ugid_time:
 		 * symlinks don't have those */
-		return 0;
+		goto verb_and_exit;
 	}
 	if (S_ISBLK(source_stat.st_mode) || S_ISCHR(source_stat.st_mode)
 	 || S_ISSOCK(source_stat.st_mode) || S_ISFIFO(source_stat.st_mode)
@@ -410,6 +440,7 @@ int FAST_FUNC copy_file(const char *source, const char *dest, int flags)
 			bb_perror_msg("can't preserve %s of '%s'", "permissions", dest);
 	}
 
+ verb_and_exit:
 	if (flags & FILEUTILS_VERBOSE) {
 		printf("'%s' -> '%s'\n", source, dest);
 	}

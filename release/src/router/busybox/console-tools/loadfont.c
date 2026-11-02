@@ -9,25 +9,51 @@
  *
  * Licensed under GPLv2, see file LICENSE in this source tree.
  */
+//config:config LOADFONT
+//config:	bool "loadfont (5.2 kb)"
+//config:	default y
+//config:	help
+//config:	This program loads a console font from standard input.
+//config:
+//config:config SETFONT
+//config:	bool "setfont (24 kb)"
+//config:	default y
+//config:	help
+//config:	Allows to load console screen map. Useful for i18n.
+//config:
+//config:config FEATURE_SETFONT_TEXTUAL_MAP
+//config:	bool "Support reading textual screen maps"
+//config:	default y
+//config:	depends on SETFONT
+//config:	help
+//config:	Support reading textual screen maps.
+//config:
+//config:config DEFAULT_SETFONT_DIR
+//config:	string "Default directory for console-tools files"
+//config:	default ""
+//config:	depends on SETFONT
+//config:	help
+//config:	Directory to use if setfont's params are simple filenames
+//config:	(not /path/to/file or ./file). Default is "" (no default directory).
+//config:
+//config:comment "Common options for loadfont and setfont"
+//config:	depends on LOADFONT || SETFONT
+//config:
+//config:config FEATURE_LOADFONT_PSF2
+//config:	bool "Support PSF2 console fonts"
+//config:	default y
+//config:	depends on LOADFONT || SETFONT
+//config:
+//config:config FEATURE_LOADFONT_RAW
+//config:	bool "Support old (raw) console fonts"
+//config:	default y
+//config:	depends on LOADFONT || SETFONT
 
-//usage:#define loadfont_trivial_usage
-//usage:       "< font"
-//usage:#define loadfont_full_usage "\n\n"
-//usage:       "Load a console font from stdin"
-/* //usage:     "\n	-C TTY	Affect TTY instead of /dev/tty" */
-//usage:
-//usage:#define loadfont_example_usage
-//usage:       "$ loadfont < /etc/i18n/fontname\n"
-//usage:
-//usage:#define setfont_trivial_usage
-//usage:       "FONT [-m MAPFILE] [-C TTY]"
-//usage:#define setfont_full_usage "\n\n"
-//usage:       "Load a console font\n"
-//usage:     "\n	-m MAPFILE	Load console screen map"
-//usage:     "\n	-C TTY		Affect TTY instead of /dev/tty"
-//usage:
-//usage:#define setfont_example_usage
-//usage:       "$ setfont -m koi8-r /etc/i18n/fontname\n"
+//applet:IF_LOADFONT(APPLET_NOEXEC(loadfont, loadfont, BB_DIR_USR_SBIN, BB_SUID_DROP, loadfont))
+//applet:IF_SETFONT(APPLET_NOEXEC(setfont, setfont, BB_DIR_USR_SBIN, BB_SUID_DROP, setfont))
+
+//kbuild:lib-$(CONFIG_LOADFONT) += loadfont.o
+//kbuild:lib-$(CONFIG_SETFONT) += loadfont.o
 
 #include "libbb.h"
 #include <sys/kd.h>
@@ -197,7 +223,7 @@ static void do_loadtable(int fd, unsigned char *inbuf, int tailsz, int fontsize,
 				if (unicode == PSF2_SEPARATOR) {
 					break;
 				} else if (unicode == PSF2_STARTSEQ) {
-					bb_error_msg_and_die("unicode sequences not implemented");
+					bb_simple_error_msg_and_die("unicode sequences not implemented");
 				} else if (unicode >= 0xC0) {
 					if (unicode >= 0xFC)
 						unicode &= 0x01, maxct = 5;
@@ -211,12 +237,12 @@ static void do_loadtable(int fd, unsigned char *inbuf, int tailsz, int fontsize,
 						unicode &= 0x1F, maxct = 1;
 					do {
 						if (tailsz <= 0 || *inbuf < 0x80 || *inbuf > 0xBF)
-							bb_error_msg_and_die("illegal UTF-8 character");
+							bb_simple_error_msg_and_die("illegal UTF-8 character");
 						--tailsz;
 						unicode = (unicode << 6) + (*inbuf++ & 0x3F);
 					} while (--maxct > 0);
 				} else if (unicode >= 0x80) {
-					bb_error_msg_and_die("illegal UTF-8 character");
+					bb_simple_error_msg_and_die("illegal UTF-8 character");
 				}
 #else
 				return;
@@ -253,7 +279,7 @@ static void do_load(int fd, unsigned char *buffer, size_t len)
 
 	if (len >= sizeof(struct psf1_header) && PSF1_MAGIC_OK(psf1h(buffer))) {
 		if (psf1h(buffer)->mode > PSF1_MAXMODE)
-			bb_error_msg_and_die("unsupported psf file mode");
+			bb_simple_error_msg_and_die("unsupported psf file mode");
 		if (psf1h(buffer)->mode & PSF1_MODE512)
 			fontsize = 512;
 		if (psf1h(buffer)->mode & PSF1_MODEHASTAB)
@@ -264,7 +290,7 @@ static void do_load(int fd, unsigned char *buffer, size_t len)
 #if ENABLE_FEATURE_LOADFONT_PSF2
 	if (len >= sizeof(struct psf2_header) && PSF2_MAGIC_OK(psf2h(buffer))) {
 		if (psf2h(buffer)->version > PSF2_MAXVERSION)
-			bb_error_msg_and_die("unsupported psf file version");
+			bb_simple_error_msg_and_die("unsupported psf file version");
 		fontsize = psf2h(buffer)->length;
 		if (psf2h(buffer)->flags & PSF2_HAS_UNICODE_TABLE)
 			has_table = 2;
@@ -283,19 +309,19 @@ static void do_load(int fd, unsigned char *buffer, size_t len)
 	} else
 #endif
 	{
-		bb_error_msg_and_die("input file: bad length or unsupported font type");
+		bb_simple_error_msg_and_die("input file: bad length or unsupported font type");
 	}
 
 #if !defined(PIO_FONTX) || defined(__sparc__)
 	if (fontsize != 256)
-		bb_error_msg_and_die("only fontsize 256 supported");
+		bb_simple_error_msg_and_die("only fontsize 256 supported");
 #endif
 
 	table = font + fontsize * charsize;
 	buffer += len;
 
 	if (table > buffer || (!has_table && table != buffer))
-		bb_error_msg_and_die("input file: bad length");
+		bb_simple_error_msg_and_die("input file: bad length");
 
 	do_loadfont(fd, font, height, width, charsize, fontsize);
 
@@ -305,6 +331,14 @@ static void do_load(int fd, unsigned char *buffer, size_t len)
 
 
 #if ENABLE_LOADFONT
+//usage:#define loadfont_trivial_usage
+//usage:       "< font"
+//usage:#define loadfont_full_usage "\n\n"
+//usage:       "Load a console font from stdin"
+/* //usage:     "\n	-C TTY	Affect TTY instead of /dev/tty" */
+//usage:
+//usage:#define loadfont_example_usage
+//usage:       "$ loadfont < /etc/i18n/fontname\n"
 int loadfont_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
 int loadfont_main(int argc UNUSED_PARAM, char **argv)
 {
@@ -312,30 +346,29 @@ int loadfont_main(int argc UNUSED_PARAM, char **argv)
 	unsigned char *buffer;
 
 	// no arguments allowed!
-	opt_complementary = "=0";
-	getopt32(argv, "");
+	getopt32(argv, "^" "" "\0" "=0");
 
 	/*
 	 * We used to look at the length of the input file
 	 * with stat(); now that we accept compressed files,
 	 * just read the entire file.
+	 * Len was 32k, but latarcyrheb-sun32.psfu is 34377 bytes
+	 * (it has largish Unicode map).
 	 */
-	len = 32*1024; // can't be larger
+	len = 128*1024;
 	buffer = xmalloc_read(STDIN_FILENO, &len);
 	// xmalloc_open_zipped_read_close(filename, &len);
 	if (!buffer)
-		bb_perror_msg_and_die("error reading input font");
+		bb_simple_perror_msg_and_die("error reading input font");
 	do_load(get_console_fd_or_die(), buffer, len);
 
 	return EXIT_SUCCESS;
 }
 #endif
 
+
 #if ENABLE_SETFONT
-
-/*
-kbd-1.12:
-
+/* kbd-1.12:
 setfont [-O font+umap.orig] [-o font.orig] [-om cmap.orig]
 [-ou umap.orig] [-N] [font.new ...] [-m cmap] [-u umap] [-C console]
 [-hNN] [-v] [-V]
@@ -365,8 +398,17 @@ setfont [-O font+umap.orig] [-o font.orig] [-om cmap.orig]
 -v     Verbose
 -V     Version
 */
+//usage:#define setfont_trivial_usage
+//usage:       "[-m MAPFILE] [-C TTY] FILE"
+//usage:#define setfont_full_usage "\n\n"
+//usage:       "Load a console font\n"
+//usage:     "\n	-m MAPFILE	Load console screen map"
+//usage:     "\n	-C TTY		Affect TTY instead of /dev/tty"
+//usage:
+//usage:#define setfont_example_usage
+//usage:       "$ setfont -m koi8-r /etc/i18n/fontname\n"
 
-#if ENABLE_FEATURE_SETFONT_TEXTUAL_MAP
+# if ENABLE_FEATURE_SETFONT_TEXTUAL_MAP
 static int ctoi(char *s)
 {
 	if (s[0] == '\'' && s[1] != '\0' && s[2] == '\'' && s[3] == '\0')
@@ -380,7 +422,7 @@ static int ctoi(char *s)
 		return -1;
 	return xstrtoul(s, 0);
 }
-#endif
+# endif
 
 int setfont_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
 int setfont_main(int argc UNUSED_PARAM, char **argv)
@@ -392,8 +434,7 @@ int setfont_main(int argc UNUSED_PARAM, char **argv)
 	char *mapfilename;
 	const char *tty_name = CURRENT_TTY;
 
-	opt_complementary = "=1";
-	opts = getopt32(argv, "m:C:", &mapfilename, &tty_name);
+	opts = getopt32(argv, "^" "m:C:" "\0" "=1", &mapfilename, &tty_name);
 	argv += optind;
 
 	fd = xopen_nonblocking(tty_name);
@@ -405,7 +446,7 @@ int setfont_main(int argc UNUSED_PARAM, char **argv)
 		}
 	}
 	// load font
-	len = 32*1024; // can't be larger
+	len = 128*1024;
 	buffer = xmalloc_open_zipped_read_close(*argv, &len);
 	if (!buffer)
 		bb_simple_perror_msg_and_die(*argv);
@@ -431,7 +472,7 @@ int setfont_main(int argc UNUSED_PARAM, char **argv)
 			if (len == 2*E_TABSZ)
 				mode = PIO_UNISCRNMAP;
 		}
-#if ENABLE_FEATURE_SETFONT_TEXTUAL_MAP
+# if ENABLE_FEATURE_SETFONT_TEXTUAL_MAP
 		// assume textual Unicode console maps:
 		// 0x00 U+0000  #  NULL (NUL)
 		// 0x01 U+0001  #  START OF HEADING (SOH)
@@ -459,7 +500,7 @@ int setfont_main(int argc UNUSED_PARAM, char **argv)
 				if (a < 0 || a >= E_TABSZ
 				 || b < 0 || b > 65535
 				) {
-					bb_error_msg_and_die("map format");
+					bb_simple_error_msg_and_die("map format");
 				}
 				// patch map
 				unicodes[a] = b;
@@ -478,7 +519,7 @@ int setfont_main(int argc UNUSED_PARAM, char **argv)
 			}
 #undef unicodes
 		}
-#endif // ENABLE_FEATURE_SETFONT_TEXTUAL_MAP
+# endif // ENABLE_FEATURE_SETFONT_TEXTUAL_MAP
 
 		// do set screen map
 		xioctl(fd, mode, map);

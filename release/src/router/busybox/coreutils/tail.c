@@ -6,11 +6,6 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
-
-/* BB_AUDIT SUSv3 compliant (need fancy for -c) */
-/* BB_AUDIT GNU compatible -c, -q, and -v options in 'fancy' configuration. */
-/* http://www.opengroup.org/onlinepubs/007904975/utilities/tail.html */
-
 /* Mar 16, 2003      Manuel Novoa III   (mjn3@codepoet.org)
  *
  * Pretty much rewritten to fix numerous bugs and reduce realloc() calls.
@@ -23,25 +18,50 @@
  * 6) no check for lseek error
  * 7) lseek attempted when count==0 even if arg was +0 (from top)
  */
+//config:config TAIL
+//config:	bool "tail (6.8 kb)"
+//config:	default y
+//config:	help
+//config:	tail is used to print the last specified number of lines
+//config:	from files.
+//config:
+//config:config FEATURE_FANCY_TAIL
+//config:	bool "Enable -q, -s, -v, and -F options"
+//config:	default y
+//config:	depends on TAIL
+//config:	help
+//config:	These options are provided by GNU tail, but
+//config:	are not specified in the SUSv3 standard:
+//config:		-q      Never output headers giving file names
+//config:		-s SEC  Wait SEC seconds between reads with -f
+//config:		-v      Always output headers giving file names
+//config:		-F      Same as -f, but keep retrying
+
+//applet:IF_TAIL(APPLET(tail, BB_DIR_USR_BIN, BB_SUID_DROP))
 
 //kbuild:lib-$(CONFIG_TAIL) += tail.o
+
+/* BB_AUDIT SUSv3 compliant (need fancy for -c) */
+/* BB_AUDIT GNU compatible -c, -q, and -v options in 'fancy' configuration. */
+/* http://www.opengroup.org/onlinepubs/007904975/utilities/tail.html */
 
 //usage:#define tail_trivial_usage
 //usage:       "[OPTIONS] [FILE]..."
 //usage:#define tail_full_usage "\n\n"
-//usage:       "Print last 10 lines of each FILE (or stdin) to stdout.\n"
+//usage:       "Print last 10 lines of FILEs (or stdin) to.\n"
 //usage:       "With more than one FILE, precede each with a filename header.\n"
-//usage:     "\n	-f		Print data as file grows"
-//usage:     "\n	-c [+]N[kbm]	Print last N bytes"
-//usage:     "\n	-n N[kbm]	Print last N lines"
-//usage:     "\n	-n +N[kbm]	Start on Nth line and print the rest"
+//usage:     "\n	-c [+]N[bkm]	Print last N bytes"
+//usage:     "\n	-n N[bkm]	Print last N lines"
+//usage:     "\n	-n +N[bkm]	Start on Nth line and print the rest"
+//usage:     "\n			(b:*512 k:*1024 m:*1024^2)"
 //usage:	IF_FEATURE_FANCY_TAIL(
 //usage:     "\n	-q		Never print headers"
-//usage:     "\n	-s SECONDS	Wait SECONDS between reads with -f"
 //usage:     "\n	-v		Always print headers"
+//usage:	)
+//usage:     "\n	-f		Print data as file grows"
+//usage:	IF_FEATURE_FANCY_TAIL(
 //usage:     "\n	-F		Same as -f, but keep retrying"
-//usage:     "\n"
-//usage:     "\nN may be suffixed by k (x1024), b (x512), or m (x1024^2)."
+//usage:     "\n	-s SECONDS	Wait SECONDS between reads with -f"
 //usage:	)
 //usage:
 //usage:#define tail_example_usage
@@ -70,7 +90,7 @@ static ssize_t tail_read(int fd, char *buf, size_t count)
 
 	r = full_read(fd, buf, count);
 	if (r < 0) {
-		bb_perror_msg(bb_msg_read_error);
+		bb_simple_perror_msg(bb_msg_read_error);
 		G.exitcode = EXIT_FAILURE;
 	}
 
@@ -99,7 +119,7 @@ int tail_main(int argc, char **argv)
 
 	char *tailbuf;
 	size_t tailbufsize;
-	unsigned header_threshhold = 1;
+	unsigned header_threshold = 1;
 	unsigned nfiles;
 	int i, opt;
 
@@ -121,19 +141,21 @@ int tail_main(int argc, char **argv)
 #endif
 
 	/* -s NUM, -F imlies -f */
-	IF_FEATURE_FANCY_TAIL(opt_complementary = "s+:Ff";)
-	opt = getopt32(argv, "fc:n:" IF_FEATURE_FANCY_TAIL("qs:vF"),
-			&str_c, &str_n IF_FEATURE_FANCY_TAIL(,&sleep_period));
+	opt = getopt32(argv, IF_FEATURE_FANCY_TAIL("^")
+			"fc:n:"IF_FEATURE_FANCY_TAIL("qs:+vF")
+			IF_FEATURE_FANCY_TAIL("\0" "Ff"),
+			&str_c, &str_n IF_FEATURE_FANCY_TAIL(,&sleep_period)
+	);
 #define FOLLOW (opt & 0x1)
 #define COUNT_BYTES (opt & 0x2)
 	//if (opt & 0x1) // -f
 	if (opt & 0x2) count = eat_num(str_c); // -c
 	if (opt & 0x4) count = eat_num(str_n); // -n
 #if ENABLE_FEATURE_FANCY_TAIL
-	/* q: make it impossible for nfiles to be > header_threshhold */
-	if (opt & 0x8) header_threshhold = UINT_MAX; // -q
+	/* q: make it impossible for nfiles to be > header_threshold */
+	if (opt & 0x8) header_threshold = UINT_MAX; // -q
 	//if (opt & 0x10) // -s
-	if (opt & 0x20) header_threshhold = 0; // -v
+	if (opt & 0x20) header_threshold = 0; // -v
 # define FOLLOW_RETRY (opt & 0x40)
 #else
 # define FOLLOW_RETRY 0
@@ -165,7 +187,7 @@ int tail_main(int argc, char **argv)
 	} while (++i < argc);
 
 	if (!nfiles)
-		bb_error_msg_and_die("no files");
+		bb_simple_error_msg_and_die("no files");
 
 	/* prepare the buffer */
 	tailbufsize = BUFSIZ;
@@ -194,7 +216,7 @@ int tail_main(int argc, char **argv)
 		if (ENABLE_FEATURE_FANCY_TAIL && fd < 0)
 			continue; /* may happen with -F */
 
-		if (nfiles > header_threshhold) {
+		if (nfiles > header_threshold) {
 			tail_xprint_header(fmt, argv[i]);
 			fmt = header_fmt_str;
 		}
@@ -324,9 +346,11 @@ int tail_main(int argc, char **argv)
 			int nread;
 			const char *filename = argv[i];
 			int fd = fds[i];
+			int new_fd = -1;
+			struct stat sbuf;
 
 			if (FOLLOW_RETRY) {
-				struct stat sbuf, fsbuf;
+				struct stat fsbuf;
 
 				if (fd < 0
 				 || fstat(fd, &fsbuf) < 0
@@ -334,39 +358,51 @@ int tail_main(int argc, char **argv)
 				 || fsbuf.st_dev != sbuf.st_dev
 				 || fsbuf.st_ino != sbuf.st_ino
 				) {
-					int new_fd;
-
-					if (fd >= 0)
-						close(fd);
+					/* Looks like file has been created/renamed/deleted */
 					new_fd = open(filename, O_RDONLY);
 					if (new_fd >= 0) {
 						bb_error_msg("%s has %s; following end of new file",
 							filename, (fd < 0) ? "appeared" : "been replaced"
 						);
+						if (fd < 0) {
+							/* No previously open fd for this file,
+							 * start using new_fd immediately. */
+							fds[i] = fd = new_fd;
+							new_fd = -1;
+						}
 					} else if (fd >= 0) {
-						bb_perror_msg("%s has become inaccessible", filename);
+						bb_perror_msg("%s has been renamed or deleted", filename);
 					}
-					fds[i] = fd = new_fd;
 				}
 			}
 			if (ENABLE_FEATURE_FANCY_TAIL && fd < 0)
 				continue;
-			if (nfiles > header_threshhold) {
+			if (nfiles > header_threshold) {
 				fmt = header_fmt_str;
 			}
 			for (;;) {
 				/* tail -f keeps following files even if they are truncated */
-				struct stat sbuf;
 				/* /proc files report zero st_size, don't lseek them */
-				if (fstat(fd, &sbuf) == 0 && sbuf.st_size > 0) {
+				if (fstat(fd, &sbuf) == 0
+				 /* && S_ISREG(sbuf.st_mode) TODO? */
+				 && sbuf.st_size > 0
+				) {
 					off_t current = lseek(fd, 0, SEEK_CUR);
-					if (sbuf.st_size < current)
+					if (sbuf.st_size < current) {
+						//bb_perror_msg("%s: file truncated", filename); - says coreutils 8.32
 						xlseek(fd, 0, SEEK_SET);
+					}
 				}
 
 				nread = tail_read(fd, tailbuf, BUFSIZ);
-				if (nread <= 0)
-					break;
+				if (nread <= 0) {
+					if (new_fd < 0)
+						break;
+					/* Switch to "tail -F"ing the new file */
+					xmove_fd(new_fd, fd);
+					new_fd = -1;
+					continue;
+				}
 				if (fmt && (fd != prev_fd)) {
 					tail_xprint_header(fmt, filename);
 					fmt = NULL;

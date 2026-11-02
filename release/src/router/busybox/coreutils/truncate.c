@@ -5,23 +5,23 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
-
 //config:config TRUNCATE
-//config:	bool "truncate"
+//config:	bool "truncate (4.2 kb)"
 //config:	default y
 //config:	help
-//config:	  truncate truncates files to a given size. If a file does
-//config:	  not exist, it is created unless told otherwise.
+//config:	truncate truncates files to a given size. If a file does
+//config:	not exist, it is created unless told otherwise.
+
+//applet:IF_TRUNCATE(APPLET_NOFORK(truncate, truncate, BB_DIR_USR_BIN, BB_SUID_DROP, truncate))
 
 //kbuild:lib-$(CONFIG_TRUNCATE) += truncate.o
-//applet:IF_TRUNCATE(APPLET_NOFORK(truncate, truncate, BB_DIR_USR_BIN, BB_SUID_DROP, truncate))
 
 //usage:#define truncate_trivial_usage
 //usage:       "[-c] -s SIZE FILE..."
 //usage:#define truncate_full_usage "\n\n"
-//usage:	"Truncate FILEs to the given size\n"
+//usage:	"Truncate FILEs to SIZE\n"
 //usage:	"\n	-c	Do not create files"
-//usage:	"\n	-s SIZE	Truncate to SIZE"
+//usage:	"\n	-s SIZE"
 //usage:
 //usage:#define truncate_example_usage
 //usage:	"$ truncate -s 1G foo"
@@ -50,8 +50,7 @@ int truncate_main(int argc UNUSED_PARAM, char **argv)
 		OPT_SIZE = (1 << 1),
 	};
 
-	opt_complementary = "s:-1";
-	opts = getopt32(argv, "cs:", &size_str);
+	opts = getopt32(argv, "^" "cs:" "\0" "s:-1", &size_str);
 
 	if (!(opts & OPT_NOCREATE))
 		flags |= O_CREAT;

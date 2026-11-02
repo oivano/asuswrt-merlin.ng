@@ -7,7 +7,6 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
-
 #include "libbb.h"
 
 /* From <linux/kd.h> */
@@ -38,7 +37,7 @@ static int open_a_console(const char *fnam)
  */
 int FAST_FUNC get_console_fd_or_die(void)
 {
-	static const char *const console_names[] = {
+	static const char *const console_names[] ALIGN_PTR = {
 		DEV_CONSOLE, CURRENT_VC, CURRENT_TTY
 	};
 
@@ -63,8 +62,7 @@ int FAST_FUNC get_console_fd_or_die(void)
 		}
 	}
 
-	bb_error_msg_and_die("can't open console");
-	/*return fd; - total failure */
+	bb_simple_error_msg_and_die("can't open console");
 }
 
 /* From <linux/vt.h> */

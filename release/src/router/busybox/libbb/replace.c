@@ -6,7 +6,6 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
-
 //kbuild:lib-y += replace.o
 
 #include "libbb.h"
@@ -15,6 +14,10 @@ unsigned FAST_FUNC count_strstr(const char *str, const char *sub)
 {
 	size_t sub_len = strlen(sub);
 	unsigned count = 0;
+
+	/* If sub is empty, avoid an infinite loop */
+	if (sub_len == 0)
+		return strlen(str) + 1;
 
 	while ((str = strstr(str, sub)) != NULL) {
 		count++;

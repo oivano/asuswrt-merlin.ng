@@ -1,5 +1,6 @@
 #!/bin/sh
 
+#debug=true
 debug=false
 
 # Linker flags used:
@@ -46,23 +47,18 @@ try() {
 }
 
 check_cc() {
-    local tempname="$(mktemp)"
-    local r
+    tempname="$(mktemp tmp.XXXXXXXXXX)"
     echo "int main(int argc,char**argv){return argv?argc:0;}" >"$tempname".c
     # Can use "-o /dev/null", but older gcc tend to *unlink it* on failure! :(
     # Was using "-xc /dev/null", but we need a valid C program.
-    # "eval" may be needed if CFLAGS can contain
-    # '... -D"BB_VER=KBUILD_STR(1.N.M)" ...'
-    # and we need shell to process quotes!
     $CC $CFLAGS $LDFLAGS $1 "$tempname".c -o "$tempname" >/dev/null 2>&1
-    r=$?
+    exitcode=$?
     rm -f "$tempname" "$tempname".c "$tempname".o
-    return $r
+    return $exitcode
 }
 
 check_libc_is_glibc() {
-    local tempname="$(mktemp)"
-    local r
+    tempname="$(mktemp tmp.XXXXXXXXXX)"
     echo "\
 	#include <stdlib.h>
 	/* Apparently uclibc defines __GLIBC__ (compat trick?). Oh well. */
@@ -71,9 +67,9 @@ check_libc_is_glibc() {
 	#endif
 	" >"$tempname".c
     ! $CC $CFLAGS "$tempname".c -c -o "$tempname".o >/dev/null 2>&1
-    r=$?
+    exitcode=$?
     rm -f "$tempname" "$tempname".c "$tempname".o
-    return $r
+    return $exitcode
 }
 
 EXE="$1"
@@ -82,7 +78,13 @@ CFLAGS="$3"
 LDFLAGS="$4"
 O_FILES="$5"
 A_FILES="$6"
+# We try to drop libraries from LDLIBS if build works without them,
+# but ones from CONFIG_EXTRA_LDLIBS are always linked in.
+# (For example, musl has stub utmp implementation, and if you link with
+# a real utmp library in LDLIBS, dropping it "works" but resulting binary
+# does not work properly).
 LDLIBS="$7"
+CONFIG_EXTRA_LDLIBS="$8"
 
 # The --sort-section option is not supported by older versions of ld
 SORT_SECTION="-Wl,--sort-section,alignment"
@@ -93,7 +95,9 @@ fi
 
 START_GROUP="-Wl,--start-group"
 END_GROUP="-Wl,--end-group"
-INFO_OPTS="-Wl,--warn-common -Wl,-Map,$EXE.map -Wl,--verbose"
+INFO_OPTS() {
+	echo "-Wl,--warn-common -Wl,-Map,$EXE.map -Wl,--verbose"
+}
 
 # gold may not support --sort-common (yet)
 SORT_COMMON="-Wl,--sort-common"
@@ -128,8 +132,8 @@ LDLIBS=`echo "$LDLIBS" | xargs -n1 | sort | uniq | xargs`
 # First link with all libs. If it fails, bail out
 echo "Trying libraries: $LDLIBS"
 # "lib1 lib2 lib3" -> "-llib1 -llib2 -llib3"
-l_list=`echo " $LDLIBS " | sed -e 's: \([^- ][^ ]*\): -l\1:g'`
-test "x$l_list" != "x" && l_list="$START_GROUP $l_list $END_GROUP"
+l_list=`echo " $LDLIBS $CONFIG_EXTRA_LDLIBS " | sed -e 's: \([^- ][^ ]*\): -l\1:g' -e 's/^ *//'`
+test x"$l_list" != x"" && l_list="$START_GROUP $l_list $END_GROUP"
 try $CC $CFLAGS $LDFLAGS \
 	-o $EXE \
 	$SORT_COMMON \
@@ -149,12 +153,12 @@ try $CC $CFLAGS $LDFLAGS \
 # Stop when no lib can be removed.
 while test "$LDLIBS"; do
     $debug && echo "Trying libraries: $LDLIBS"
-    all_needed=true
-    last_needed=false
+    dropped_non_first_lib=false
+    first_lib=true
     for one in $LDLIBS; do
 	without_one=`echo " $LDLIBS " | sed "s/ $one / /g" | xargs`
 	# "lib1 lib2 lib3" -> "-llib1 -llib2 -llib3"
-	l_list=`echo " $without_one " | sed -e 's: \([^- ][^ ]*\): -l\1:g'`
+	l_list=`echo " $without_one $CONFIG_EXTRA_LDLIBS " | sed -e 's: \([^- ][^ ]*\): -l\1:g' -e 's/^ *//'`
 	test x"$l_list" != x"" && l_list="$START_GROUP $l_list $END_GROUP"
 	$debug && echo "Trying -l options: '$l_list'"
 	try $CC $CFLAGS $LDFLAGS \
@@ -167,26 +171,23 @@ while test "$LDLIBS"; do
 	if test $? = 0; then
 	    echo " Library $one is not needed, excluding it"
 	    LDLIBS="$without_one"
-	    all_needed=false
-	    last_needed=false
+	    $first_lib || dropped_non_first_lib=true
 	else
 	    echo " Library $one is needed, can't exclude it (yet)"
-	    last_needed=true
+	    first_lib=false
 	fi
     done
-    # All libs were needed, can't remove any
-    $all_needed && break
-    # Optimization: was the last tried lib needed?
-    if $last_needed; then
-	# Was it the only one lib left? Don't test again then.
-	{ echo "$LDLIBS" | grep -q ' '; } || break
-    fi
+    # We can stop trying to drop libs if either all libs were needed,
+    # or we excluded only the _first_ few.
+    # (else: we dropped some intermediate lib(s), maybe now we can succeed
+    # in dropping some of the preceding ones)
+    $dropped_non_first_lib || break
 done
 
 # Make the binary with final, minimal list of libs
 echo "Final link with: ${LDLIBS:-<none>}"
-l_list=`echo " $LDLIBS " | sed -e 's: \([^- ][^ ]*\): -l\1:g'`
-test "x$l_list" != "x" && l_list="$START_GROUP $l_list $END_GROUP"
+l_list=`echo " $LDLIBS $CONFIG_EXTRA_LDLIBS " | sed -e 's: \([^- ][^ ]*\): -l\1:g' -e 's/^ *//'`
+test x"$l_list" != x"" && l_list="$START_GROUP $l_list $END_GROUP"
 # --verbose gives us gobs of info to stdout (e.g. linker script used)
 if ! test -f busybox_ldscript; then
     try $CC $CFLAGS $LDFLAGS \
@@ -196,7 +197,7 @@ if ! test -f busybox_ldscript; then
 	    $GC_SECTIONS \
 	    $START_GROUP $O_FILES $A_FILES $END_GROUP \
 	    $l_list \
-	    $INFO_OPTS \
+	    `INFO_OPTS` \
     || {
 	cat $EXE.out
 	exit 1
@@ -227,7 +228,7 @@ else
 	    -Wl,-T,busybox_ldscript \
 	    $START_GROUP $O_FILES $A_FILES $END_GROUP \
 	    $l_list \
-	    $INFO_OPTS \
+	    `INFO_OPTS` \
     || {
 	cat $EXE.out
 	exit 1
@@ -246,10 +247,14 @@ if test "$CONFIG_BUILD_LIBBUSYBOX" = y; then
     }
     ln -s "libbusybox.so.$BB_VER" "$sharedlib_dir"/libbusybox.so 2>/dev/null
 
+    # Yes, "ld -shared -static" is a thing. It's a shared library which is itself static.
+    LBB_STATIC=""
+    test "$CONFIG_FEATURE_LIBBUSYBOX_STATIC" = y && LBB_STATIC="-Wl,-static"
+
     EXE="$sharedlib_dir/libbusybox.so.${BB_VER}_unstripped"
     try $CC $CFLAGS $LDFLAGS \
 	    -o $EXE \
-	    -shared -fPIC \
+	    -shared -fPIC $LBB_STATIC \
 	    -Wl,--enable-new-dtags \
 	    -Wl,-z,combreloc \
 	    -Wl,-soname="libbusybox.so.$BB_VER" \
@@ -258,7 +263,7 @@ if test "$CONFIG_BUILD_LIBBUSYBOX" = y; then
 	    $SORT_SECTION \
 	    $START_GROUP $A_FILES $END_GROUP \
 	    $l_list \
-	    $INFO_OPTS \
+	    `INFO_OPTS` \
     || {
 	echo "Linking $EXE failed"
 	cat $EXE.out
@@ -279,7 +284,7 @@ if test "$CONFIG_FEATURE_SHARED_BUSYBOX" = y; then
 	    $START_GROUP $O_FILES $END_GROUP \
 	    -L"$sharedlib_dir" -lbusybox \
 	    $l_list \
-	    $INFO_OPTS \
+	    `INFO_OPTS` \
     || {
 	echo "Linking $EXE failed"
 	cat $EXE.out

@@ -7,23 +7,56 @@
  *
  * Licensed under GPLv2, see file LICENSE in this source tree.
  */
+//config:config UMOUNT
+//config:	bool "umount (5.1 kb)"
+//config:	default y
+//config:	help
+//config:	When you want to remove a mounted filesystem from its current mount
+//config:	point, for example when you are shutting down the system, the
+//config:	'umount' utility is the tool to use. If you enabled the 'mount'
+//config:	utility, you almost certainly also want to enable 'umount'.
+//config:
+//config:config FEATURE_UMOUNT_ALL
+//config:	bool "Support -a (unmount all)"
+//config:	default y
+//config:	depends on UMOUNT
+//config:	help
+//config:	Support -a option to unmount all currently mounted filesystems.
+
+//applet:IF_UMOUNT(APPLET_NOEXEC(umount, umount, BB_DIR_BIN, BB_SUID_DROP, umount))
+/*
+ * On one hand, in some weird situations you'd want umount
+ * to not do anything surprising, to behave as a usual fork+execed executable.
+ *
+ * OTOH, there can be situations where execing would not succeed, or even hang
+ * (say, if executable is on a filesystem which is in trouble and accesses to it
+ * block in kernel).
+ * In this case, you might be actually happy if your standalone bbox shell
+ * does not fork+exec, but only forks and calls umount_main() which it already has!
+ * Let's go with NOEXEC.
+ *
+ * bb_common_bufsiz1 usage here is safe wrt NOEXEC: not expecting it to be zeroed.
+ */
+
+//kbuild:lib-$(CONFIG_UMOUNT) += umount.o
 
 //usage:#define umount_trivial_usage
-//usage:       "[OPTIONS] FILESYSTEM|DIRECTORY"
+//usage:       "[-rlf"IF_FEATURE_MTAB_SUPPORT("m")IF_FEATURE_MOUNT_LOOP("d")IF_FEATURE_UMOUNT_ALL("a")"] [-t FSTYPE] FILESYSTEM|DIRECTORY"
 //usage:#define umount_full_usage "\n\n"
-//usage:       "Unmount file systems\n"
+//usage:       "Unmount filesystems\n"
 //usage:	IF_FEATURE_UMOUNT_ALL(
-//usage:     "\n	-a	Unmount all file systems" IF_FEATURE_MTAB_SUPPORT(" in /etc/mtab")
+//usage:     "\n	-a	Unmount all filesystems" IF_FEATURE_MTAB_SUPPORT(" in /etc/mtab")
 //usage:	)
 //usage:	IF_FEATURE_MTAB_SUPPORT(
 //usage:     "\n	-n	Don't erase /etc/mtab entries"
 //usage:	)
-//usage:     "\n	-r	Try to remount devices as read-only if mount is busy"
+//usage:     "\n	-r	Remount devices read-only if mount is busy"
 //usage:     "\n	-l	Lazy umount (detach filesystem)"
 //usage:     "\n	-f	Force umount (i.e., unreachable NFS server)"
 //usage:	IF_FEATURE_MOUNT_LOOP(
-//usage:     "\n	-D	Don't free loop device even if it has been used"
+//usage:     "\n	-d	Free loop device if it has been used"
 //usage:	)
+//usage:     "\n	-t FSTYPE[,...]	Unmount only these filesystem type(s)"
 //usage:
 //usage:#define umount_example_usage
 //usage:       "$ umount /dev/hdc1\n"
@@ -48,22 +81,14 @@ static struct mntent *getmntent_r(FILE* stream, struct mntent* result,
 }
 #endif
 
-/* Ignored: -v -t -i
- * bbox always acts as if -d is present.
- * -D can be used to suppress it (bbox extension).
- * Rationale:
- * (1) util-linux's umount does it if "loop=..." is seen in /etc/mtab:
- * thus, on many systems, bare umount _does_ drop loop devices.
- * (2) many users request this feature.
- */
-#define OPTION_STRING           "fldDnra" "vt:i"
+/* ignored: -c -v -i */
+#define OPTION_STRING           "fldnrat:" "cvi"
 #define OPT_FORCE               (1 << 0) // Same as MNT_FORCE
 #define OPT_LAZY                (1 << 1) // Same as MNT_DETACH
-//#define OPT_FREE_LOOP           (1 << 2) // -d is assumed always present
-#define OPT_DONT_FREE_LOOP      (1 << 3)
-#define OPT_NO_MTAB             (1 << 4)
-#define OPT_REMOUNT             (1 << 5)
-#define OPT_ALL                 (ENABLE_FEATURE_UMOUNT_ALL ? (1 << 6) : 0)
+#define OPT_FREELOOP            (1 << 2)
+#define OPT_NO_MTAB             (1 << 3)
+#define OPT_REMOUNT             (1 << 4)
+#define OPT_ALL                 (ENABLE_FEATURE_UMOUNT_ALL ? (1 << 5) : 0)
 
 int umount_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
 int umount_main(int argc UNUSED_PARAM, char **argv)
@@ -105,8 +130,8 @@ int umount_main(int argc UNUSED_PARAM, char **argv)
 	} else {
 		setup_common_bufsiz();
 		while (getmntent_r(fp, &me, bb_common_bufsiz1, COMMON_BUFSIZE)) {
-			/* Match fstype if passed */
-			if (!match_fstype(&me, fstype))
+			/* Match fstype (fstype==NULL matches always) */
+			if (!fstype_matches(me.mnt_type, fstype))
 				continue;
 			m = xzalloc(sizeof(*m));
 			m->next = mtl;
@@ -118,7 +143,8 @@ int umount_main(int argc UNUSED_PARAM, char **argv)
 	}
 
 	// If we're not umounting all, we need at least one argument.
-	if (!(opt & OPT_ALL) && !fstype) {
+	// Note: "-t FSTYPE" does not imply -a.
+	if (!(opt & OPT_ALL)) {
 		if (!argv[0])
 			bb_show_usage();
 		m = NULL;
@@ -186,7 +212,7 @@ int umount_main(int argc UNUSED_PARAM, char **argv)
 		} else {
 			// De-allocate the loop device.  This ioctl should be ignored on
 			// any non-loop block devices.
-			if (ENABLE_FEATURE_MOUNT_LOOP && !(opt & OPT_DONT_FREE_LOOP) && m)
+			if (ENABLE_FEATURE_MOUNT_LOOP && (opt & OPT_FREELOOP) && m)
 				del_loop(m->device);
 			if (ENABLE_FEATURE_MTAB_SUPPORT && !(opt & OPT_NO_MTAB) && m)
 				erase_mtab(m->dir);

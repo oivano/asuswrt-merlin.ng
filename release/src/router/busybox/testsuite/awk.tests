@@ -437,6 +437,12 @@ testing 'awk do not allow "str"++' \
 	'' \
 	'anything'
 
+testing "awk repeated -v output redirection" \
+	"awk -v addresses=/dev/null -v domains=/dev/null 'BEGIN { print \"discard\" > addresses; print \"ok\" > domains }'" \
+	"ok\n" \
+	'' \
+	''
+
 # gawk compat: FS regex matches only non-empty separators:
 # with -*, the splitting is NOT f o o b a r, but foo bar:
 testing 'awk FS regex which can match empty string' \

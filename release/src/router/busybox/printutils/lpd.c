@@ -70,10 +70,10 @@
  * mv -f ./"$DATAFILE" save/
  */
 //config:config LPD
-//config:	bool "lpd"
+//config:	bool "lpd (5.5 kb)"
 //config:	default y
 //config:	help
-//config:	  lpd is a print spooling daemon.
+//config:	lpd is a print spooling daemon.
 
 //applet:IF_LPD(APPLET(lpd, BB_DIR_USR_SBIN, BB_SUID_DROP))
 
@@ -114,8 +114,8 @@ static char *xmalloc_read_stdin(void)
 	return xmalloc_reads(STDIN_FILENO, &max);
 }
 
-int lpd_main(int argc, char *argv[]) MAIN_EXTERNALLY_VISIBLE;
-int lpd_main(int argc UNUSED_PARAM, char *argv[])
+int lpd_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
+int lpd_main(int argc UNUSED_PARAM, char **argv)
 {
 	int spooling = spooling; // for compiler
 	char *s, *queue;
@@ -133,6 +133,8 @@ int lpd_main(int argc UNUSED_PARAM, char *argv[])
 
 	// read command
 	s = queue = xmalloc_read_stdin();
+	if (!s) // eof?
+		return EXIT_FAILURE;
 	// we understand only "receive job" command
 	if (2 != *queue) {
  unsupported_cmd:
@@ -198,14 +200,13 @@ int lpd_main(int argc UNUSED_PARAM, char *argv[])
 				q = p; // next line
 			}
 			// helper should not talk over network.
-			// this call reopens stdio fds to "/dev/null"
-			// (no daemonization is done)
-			bb_daemonize_or_rexec(DAEMON_DEVNULL_STDIO | DAEMON_ONLY_SANITIZE, NULL);
+			// this call reopens stdio fds to "/dev/null".
+			bb_daemon_helper(DAEMON_DEVNULL_STDIO);
 			BB_EXECVP_or_die(argv);
 		}
 
 		// validate input.
-		// we understand only "control file" or "data file" cmds
+		// we understand only "control file" or "data file" subcmds
 		if (2 != s[0] && 3 != s[0])
 			goto unsupported_cmd;
 		if (spooling & (1 << (s[0]-1))) {
@@ -292,7 +293,7 @@ int lpd_main(int argc UNUSED_PARAM, char *argv[])
  err_exit:
 	// don't keep corrupted files
 	if (spooling) {
-#define i spooling
+		int i;
 		for (i = 2; --i >= 0; )
 			if (filenames[i])
 				unlink(filenames[i]);

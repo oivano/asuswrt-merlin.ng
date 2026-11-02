@@ -22,126 +22,97 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
-/* TODO: security with -C DESTDIR option can be enhanced.
- * Consider tar file created via:
- * $ tar cvf bug.tar anything.txt
- * $ ln -s /tmp symlink
- * $ tar --append -f bug.tar symlink
- * $ rm symlink
- * $ mkdir symlink
- * $ tar --append -f bug.tar symlink/evil.py
- *
- * This will result in an archive which contains:
- * $ tar --list -f bug.tar
- * anything.txt
- * symlink
- * symlink/evil.py
- *
- * Untarring it puts evil.py in '/tmp' even if the -C DESTDIR is given.
- * This doesn't feel right, and IIRC GNU tar doesn't do that.
- */
-
 //config:config TAR
-//config:	bool "tar"
+//config:	bool "tar (39 kb)"
 //config:	default y
 //config:	help
-//config:	  tar is an archiving program. It's commonly used with gzip to
-//config:	  create compressed archives. It's probably the most widely used
-//config:	  UNIX archive program.
+//config:	tar is an archiving program. It's commonly used with gzip to
+//config:	create compressed archives. It's probably the most widely used
+//config:	UNIX archive program.
+//config:
+//config:config FEATURE_TAR_LONG_OPTIONS
+//config:	bool "Enable long options"
+//config:	default y
+//config:	depends on TAR && LONG_OPTS
 //config:
 //config:config FEATURE_TAR_CREATE
-//config:	bool "Enable archive creation"
+//config:	bool "Enable -c (archive creation)"
 //config:	default y
 //config:	depends on TAR
-//config:	help
-//config:	  If you enable this option you'll be able to create
-//config:	  tar archives using the `-c' option.
 //config:
 //config:config FEATURE_TAR_AUTODETECT
 //config:	bool "Autodetect compressed tarballs"
 //config:	default y
 //config:	depends on TAR && (FEATURE_SEAMLESS_Z || FEATURE_SEAMLESS_GZ || FEATURE_SEAMLESS_BZ2 || FEATURE_SEAMLESS_LZMA || FEATURE_SEAMLESS_XZ)
 //config:	help
-//config:	  With this option tar can automatically detect compressed
-//config:	  tarballs. Currently it works only on files (not pipes etc).
+//config:	With this option tar can automatically detect compressed
+//config:	tarballs. Currently it works only on files (not pipes etc).
 //config:
 //config:config FEATURE_TAR_FROM
-//config:	bool "Enable -X (exclude from) and -T (include from) options)"
+//config:	bool "Enable -X (exclude from) and -T (include from) options"
 //config:	default y
 //config:	depends on TAR
 //config:	help
-//config:	  If you enable this option you'll be able to specify
-//config:	  a list of files to include or exclude from an archive.
+//config:	If you enable this option you'll be able to specify
+//config:	a list of files to include or exclude from an archive.
 //config:
 //config:config FEATURE_TAR_OLDGNU_COMPATIBILITY
-//config:	bool "Support for old tar header format"
+//config:	bool "Support old tar header format"
 //config:	default y
 //config:	depends on TAR || DPKG
 //config:	help
-//config:	  This option is required to unpack archives created in
-//config:	  the old GNU format; help to kill this old format by
-//config:	  repacking your ancient archives with the new format.
+//config:	This option is required to unpack archives created in
+//config:	the old GNU format; help to kill this old format by
+//config:	repacking your ancient archives with the new format.
 //config:
 //config:config FEATURE_TAR_OLDSUN_COMPATIBILITY
 //config:	bool "Enable untarring of tarballs with checksums produced by buggy Sun tar"
 //config:	default y
 //config:	depends on TAR || DPKG
 //config:	help
-//config:	  This option is required to unpack archives created by some old
-//config:	  version of Sun's tar (it was calculating checksum using signed
-//config:	  arithmetic). It is said to be fixed in newer Sun tar, but "old"
-//config:	  tarballs still exist.
+//config:	This option is required to unpack archives created by some old
+//config:	version of Sun's tar (it was calculating checksum using signed
+//config:	arithmetic). It is said to be fixed in newer Sun tar, but "old"
+//config:	tarballs still exist.
 //config:
 //config:config FEATURE_TAR_GNU_EXTENSIONS
-//config:	bool "Support for GNU tar extensions (long filenames)"
+//config:	bool "Support GNU tar extensions (long filenames)"
 //config:	default y
 //config:	depends on TAR || DPKG
-//config:	help
-//config:	  With this option busybox supports GNU long filenames and
-//config:	  linknames.
-//config:
-//config:config FEATURE_TAR_LONG_OPTIONS
-//config:	bool "Enable long options"
-//config:	default y
-//config:	depends on TAR && LONG_OPTS
-//config:	help
-//config:	  Enable use of long options, increases size by about 400 Bytes
 //config:
 //config:config FEATURE_TAR_TO_COMMAND
-//config:	bool "Support for writing to an external program"
+//config:	bool "Support writing to an external program (--to-command)"
 //config:	default y
 //config:	depends on TAR && FEATURE_TAR_LONG_OPTIONS
 //config:	help
-//config:	  If you enable this option you'll be able to instruct tar to send
-//config:	  the contents of each extracted file to the standard input of an
-//config:	  external program.
+//config:	If you enable this option you'll be able to instruct tar to send
+//config:	the contents of each extracted file to the standard input of an
+//config:	external program.
 //config:
 //config:config FEATURE_TAR_UNAME_GNAME
 //config:	bool "Enable use of user and group names"
 //config:	default y
 //config:	depends on TAR
 //config:	help
-//config:	  Enables use of user and group names in tar. This affects contents
-//config:	  listings (-t) and preserving permissions when unpacking (-p).
-//config:	  +200 bytes.
+//config:	Enable use of user and group names in tar. This affects contents
+//config:	listings (-t) and preserving permissions when unpacking (-p).
+//config:	+200 bytes.
 //config:
 //config:config FEATURE_TAR_NOPRESERVE_TIME
-//config:	bool "Enable -m (do not preserve time) option"
+//config:	bool "Enable -m (do not preserve time) GNU option"
 //config:	default y
 //config:	depends on TAR
-//config:	help
-//config:	  With this option busybox supports GNU tar -m
-//config:	  (do not preserve time) option.
 //config:
 //config:config FEATURE_TAR_SELINUX
-//config:	bool "Support for extracting SELinux labels"
+//config:	bool "Support extracting SELinux labels"
 //config:	default n
 //config:	depends on TAR && SELINUX
 //config:	help
-//config:	  With this option busybox supports restoring SELinux labels
-//config:	  when extracting files from tar archives.
+//config:	With this option busybox supports restoring SELinux labels
+//config:	when extracting files from tar archives.
 
 //applet:IF_TAR(APPLET(tar, BB_DIR_BIN, BB_SUID_DROP))
+
 //kbuild:lib-$(CONFIG_TAR) += tar.o
 
 #include <fnmatch.h>
@@ -185,7 +156,9 @@ typedef struct TarBallInfo {
 	int tarFd;                      /* Open-for-write file descriptor
 	                                 * for the tarball */
 	int verboseFlag;                /* Whether to print extra stuff or not */
+# if ENABLE_FEATURE_TAR_FROM
 	const llist_t *excludeList;     /* List of files to not include */
+# endif
 	HardLinkInfo *hlInfoHead;       /* Hard Link Tracking Information */
 	HardLinkInfo *hlInfo;           /* Hard Link Info for the current file */
 //TODO: save only st_dev + st_ino
@@ -259,7 +232,7 @@ static HardLinkInfo *findHardLinkInfo(HardLinkInfo *hlInfo, struct stat *statbuf
 }
 
 /* Put an octal string into the specified buffer.
- * The number is zero padded and possibly null terminated.
+ * The number is zero padded and possibly NUL terminated.
  * Stores low-order bits only if whole value does not fit. */
 static void putOctal(char *cp, int len, off_t value)
 {
@@ -281,61 +254,37 @@ static void putOctal(char *cp, int len, off_t value)
 }
 #define PUT_OCTAL(a, b) putOctal((a), sizeof(a), (b))
 
-static void chksum_and_xwrite(int fd, struct tar_header_t* hp)
-{
-	/* POSIX says that checksum is done on unsigned bytes
-	 * (Sun and HP-UX gets it wrong... more details in
-	 * GNU tar source) */
-	const unsigned char *cp;
-	int chksum, size;
-
-	strcpy(hp->magic, "ustar  ");
-
-	/* Calculate and store the checksum (i.e., the sum of all of the bytes of
-	 * the header).  The checksum field must be filled with blanks for the
-	 * calculation.  The checksum field is formatted differently from the
-	 * other fields: it has 6 digits, a null, then a space -- rather than
-	 * digits, followed by a null like the other fields... */
-	memset(hp->chksum, ' ', sizeof(hp->chksum));
-	cp = (const unsigned char *) hp;
-	chksum = 0;
-	size = sizeof(*hp);
-	do { chksum += *cp++; } while (--size);
-	putOctal(hp->chksum, sizeof(hp->chksum)-1, chksum);
-
-	/* Now write the header out to disk */
-	xwrite(fd, hp, sizeof(*hp));
-}
-
-#if ENABLE_FEATURE_TAR_GNU_EXTENSIONS
+# if ENABLE_FEATURE_TAR_GNU_EXTENSIONS
 static void writeLongname(int fd, int type, const char *name, int dir)
 {
-	static const struct {
+	struct prefilled {
 		char mode[8];             /* 100-107 */
 		char uid[8];              /* 108-115 */
 		char gid[8];              /* 116-123 */
 		char size[12];            /* 124-135 */
 		char mtime[12];           /* 136-147 */
-	} prefilled = {
-		"0000000",
-		"0000000",
-		"0000000",
-		"00000000000",
-		"00000000000",
 	};
 	struct tar_header_t header;
 	int size;
+
+	memset(&header, 0, sizeof(header));
+	header.typeflag = type;
+	strcpy(header.name, "././@LongLink");
+	/* This sets mode/uid/gid/mtime to "00...00<NUL>" strings */
+	memset((char*)&header + offsetof(struct tar_header_t, mode), /* make gcc-9.x happy */
+			'0', sizeof(struct prefilled));
+	header.mode [sizeof(header.mode ) - 1] = '\0';
+	header.uid  [sizeof(header.uid  ) - 1] = '\0';
+	header.gid  [sizeof(header.gid  ) - 1] = '\0';
+	/* header.size is filled by '0' now, will be corrected below */
+	header.mtime[sizeof(header.mtime) - 1] = '\0';
 
 	dir = !!dir; /* normalize: 0/1 */
 	size = strlen(name) + 1 + dir; /* GNU tar uses strlen+1 */
 	/* + dir: account for possible '/' */
 
-	memset(&header, 0, sizeof(header));
-	strcpy(header.name, "././@LongLink");
-	memcpy(header.mode, prefilled.mode, sizeof(prefilled));
 	PUT_OCTAL(header.size, size);
-	header.typeflag = type;
-	chksum_and_xwrite(fd, &header);
+	chksum_and_xwrite_tar_header(fd, &header);
 
 	/* Write filename[/] and pad the block. */
 	/* dir=0: writes 'name<NUL>', pads */
@@ -347,7 +296,7 @@ static void writeLongname(int fd, int type, const char *name, int dir)
 	memset(&header, 0, size);
 	xwrite(fd, &header, size);
 }
-#endif
+# endif
 
 /* Write out a tar header for the specified file/directory/whatever */
 static int writeTarHeader(struct TarBallInfo *tbInfo,
@@ -376,30 +325,30 @@ static int writeTarHeader(struct TarBallInfo *tbInfo,
 		header.typeflag = LNKTYPE;
 		strncpy(header.linkname, tbInfo->hlInfo->name,
 				sizeof(header.linkname));
-#if ENABLE_FEATURE_TAR_GNU_EXTENSIONS
+# if ENABLE_FEATURE_TAR_GNU_EXTENSIONS
 		/* Write out long linkname if needed */
 		if (header.linkname[sizeof(header.linkname)-1])
 			writeLongname(tbInfo->tarFd, GNULONGLINK,
 					tbInfo->hlInfo->name, 0);
-#endif
+# endif
 	} else if (S_ISLNK(statbuf->st_mode)) {
 		char *lpath = xmalloc_readlink_or_warn(fileName);
 		if (!lpath)
 			return FALSE;
 		header.typeflag = SYMTYPE;
 		strncpy(header.linkname, lpath, sizeof(header.linkname));
-#if ENABLE_FEATURE_TAR_GNU_EXTENSIONS
+# if ENABLE_FEATURE_TAR_GNU_EXTENSIONS
 		/* Write out long linkname if needed */
 		if (header.linkname[sizeof(header.linkname)-1])
 			writeLongname(tbInfo->tarFd, GNULONGLINK, lpath, 0);
-#else
+# else
 		/* If it is larger than 100 bytes, bail out */
 		if (header.linkname[sizeof(header.linkname)-1]) {
 			free(lpath);
-			bb_error_msg("names longer than "NAME_SIZE_STR" chars not supported");
+			bb_simple_error_msg("names longer than "NAME_SIZE_STR" chars not supported");
 			return FALSE;
 		}
-#endif
+# endif
 		free(lpath);
 	} else if (S_ISDIR(statbuf->st_mode)) {
 		header.typeflag = DIRTYPE;
@@ -429,9 +378,9 @@ static int writeTarHeader(struct TarBallInfo *tbInfo,
 		 * It always does unless off_t is wider than 64 bits.
 		 */
 		else if (ENABLE_FEATURE_TAR_GNU_EXTENSIONS
-#if ULLONG_MAX > 0xffffffffffffffffLL /* 2^64-1 */
+# if ULLONG_MAX > 0xffffffffffffffffLL /* 2^64-1 */
 		 && (filesize <= 0x3fffffffffffffffffffffffLL)
-#endif
+# endif
 		) {
 			/* GNU tar uses "base-256 encoding" for very large numbers.
 			 * Encoding is binary, with highest bit always set as a marker
@@ -458,16 +407,15 @@ static int writeTarHeader(struct TarBallInfo *tbInfo,
 		return FALSE;
 	}
 
-#if ENABLE_FEATURE_TAR_GNU_EXTENSIONS
+# if ENABLE_FEATURE_TAR_GNU_EXTENSIONS
 	/* Write out long name if needed */
 	/* (we, like GNU tar, output long linkname *before* long name) */
 	if (header.name[sizeof(header.name)-1])
 		writeLongname(tbInfo->tarFd, GNULONGNAME,
 				header_name, S_ISDIR(statbuf->st_mode));
-#endif
+# endif
 
-	/* Now write the header out to disk */
-	chksum_and_xwrite(tbInfo->tarFd, &header);
+	chksum_and_xwrite_tar_header(tbInfo->tarFd, &header);
 
 	/* Now do the verbose thing (or not) */
 	if (tbInfo->verboseFlag) {
@@ -486,7 +434,7 @@ static int writeTarHeader(struct TarBallInfo *tbInfo,
 	return TRUE;
 }
 
-#if ENABLE_FEATURE_TAR_FROM
+# if ENABLE_FEATURE_TAR_FROM
 static int exclude_file(const llist_t *excluded_files, const char *file)
 {
 	while (excluded_files) {
@@ -512,14 +460,15 @@ static int exclude_file(const llist_t *excluded_files, const char *file)
 
 	return 0;
 }
-#else
-# define exclude_file(excluded_files, file) 0
-#endif
+# else
+#  define exclude_file(excluded_files, file) 0
+# endif
 
-static int FAST_FUNC writeFileToTarball(const char *fileName, struct stat *statbuf,
-			void *userData, int depth UNUSED_PARAM)
+static int FAST_FUNC writeFileToTarball(struct recursive_state *state,
+		const char *fileName,
+		struct stat *statbuf)
 {
-	struct TarBallInfo *tbInfo = (struct TarBallInfo *) userData;
+	struct TarBallInfo *tbInfo = (struct TarBallInfo *) state->userData;
 	const char *header_name;
 	int inputFileFd = -1;
 
@@ -531,6 +480,9 @@ static int FAST_FUNC writeFileToTarball(const char *fileName, struct stat *statb
 	if (header_name[0] == '\0')
 		return TRUE;
 
+	if (exclude_file(tbInfo->excludeList, header_name))
+		return SKIP; /* "do not recurse on this directory", no error message printed */
+
 	/* It is against the rules to archive a socket */
 	if (S_ISSOCK(statbuf->st_mode)) {
 		bb_error_msg("%s: socket ignored", fileName);
@@ -540,8 +492,8 @@ static int FAST_FUNC writeFileToTarball(const char *fileName, struct stat *statb
 	/*
 	 * Check to see if we are dealing with a hard link.
 	 * If so -
-	 * Treat the first occurance of a given dev/inode as a file while
-	 * treating any additional occurances as hard links.  This is done
+	 * Treat the first occurrence of a given dev/inode as a file while
+	 * treating any additional occurrences as hard links.  This is done
 	 * by adding the file information to the HardLinkInfo linked list.
 	 */
 	tbInfo->hlInfo = NULL;
@@ -564,28 +516,25 @@ static int FAST_FUNC writeFileToTarball(const char *fileName, struct stat *statb
 		return TRUE;
 	}
 
-	if (exclude_file(tbInfo->excludeList, header_name))
-		return SKIP;
-
-#if !ENABLE_FEATURE_TAR_GNU_EXTENSIONS
+# if !ENABLE_FEATURE_TAR_GNU_EXTENSIONS
 	if (strlen(header_name) >= NAME_SIZE) {
-		bb_error_msg("names longer than "NAME_SIZE_STR" chars not supported");
+		bb_simple_error_msg("names longer than "NAME_SIZE_STR" chars not supported");
 		return TRUE;
 	}
-#endif
+# endif
 
 	/* Is this a regular file? */
 	if (tbInfo->hlInfo == NULL && S_ISREG(statbuf->st_mode)) {
 		/* open the file we want to archive, and make sure all is well */
 		inputFileFd = open_or_warn(fileName, O_RDONLY);
 		if (inputFileFd < 0) {
-			return FALSE;
+			return FALSE; /* make recursive_action() return FALSE */
 		}
 	}
 
 	/* Add an entry to the tarball */
 	if (writeTarHeader(tbInfo, header_name, fileName, statbuf) == FALSE) {
-		return FALSE;
+		return FALSE; /* make recursive_action() return FALSE */
 	}
 
 	/* If it was a regular file, write out the body */
@@ -619,109 +568,121 @@ static int FAST_FUNC writeFileToTarball(const char *fileName, struct stat *statb
 	return TRUE;
 }
 
-#if SEAMLESS_COMPRESSION
+# if SEAMLESS_COMPRESSION
 /* Don't inline: vfork scares gcc and pessimizes code */
 static void NOINLINE vfork_compressor(int tar_fd, const char *gzip)
 {
-	pid_t gzipPid;
-
 	// On Linux, vfork never unpauses parent early, although standard
 	// allows for that. Do we want to waste bytes checking for it?
-# define WAIT_FOR_CHILD 0
+#  define WAIT_FOR_CHILD 0
 	volatile int vfork_exec_errno = 0;
-	struct fd_pair gzipDataPipe;
-# if WAIT_FOR_CHILD
-	struct fd_pair gzipStatusPipe;
-	xpiped_pair(gzipStatusPipe);
-# endif
-	xpiped_pair(gzipDataPipe);
+	struct fd_pair data;
+#  if WAIT_FOR_CHILD
+	struct fd_pair status;
+	xpiped_pair(status);
+#  endif
+	xpiped_pair(data);
 
 	signal(SIGPIPE, SIG_IGN); /* we only want EPIPE on errors */
 
-	gzipPid = xvfork();
-
-	if (gzipPid == 0) {
+	if (xvfork() == 0) {
 		/* child */
+		int tfd;
 		/* NB: close _first_, then move fds! */
-		close(gzipDataPipe.wr);
-# if WAIT_FOR_CHILD
-		close(gzipStatusPipe.rd);
-		/* gzipStatusPipe.wr will close only on exec -
+		close(data.wr);
+#  if WAIT_FOR_CHILD
+		close(status.rd);
+		/* status.wr will close only on exec -
 		 * parent waits for this close to happen */
-		fcntl(gzipStatusPipe.wr, F_SETFD, FD_CLOEXEC);
-# endif
-		xmove_fd(gzipDataPipe.rd, 0);
-		xmove_fd(tar_fd, 1);
-		/* exec gzip/bzip2 program/applet */
-		BB_EXECLP(gzip, gzip, "-f", (char *)0);
+		fcntl(status.wr, F_SETFD, FD_CLOEXEC);
+#  endif
+		/* copy it: parent's tar_fd variable must not change */
+		tfd = tar_fd;
+		if (tfd == 0) {
+			/* Output tar fd may be zero.
+			 * xmove_fd(data.rd, 0) would destroy it.
+			 * Reproducer:
+			 *  exec 0>&-
+			 *  exec 1>&-
+			 *  tar czf Z.tar.gz FILE
+			 * Swapping move_fd's order wouldn't work:
+			 * data.rd is 1 and _it_ would be destroyed.
+			 */
+			tfd = dup(tfd);
+		}
+		xmove_fd(data.rd, 0);
+		xmove_fd(tfd, 1);
+
+		/* exec gzip/bzip2/... program */
+		//BB_EXECLP(gzip, gzip, "-f", (char *)0); - WRONG for "xz",
+		// if xz is an enabled applet, it'll be a version which
+		// can only decompress. We do need to execute external
+		// program, not applet.
+		execlp(gzip, gzip, "-f", (char *)0);
+
 		vfork_exec_errno = errno;
 		_exit(EXIT_FAILURE);
 	}
 
 	/* parent */
-	xmove_fd(gzipDataPipe.wr, tar_fd);
-	close(gzipDataPipe.rd);
-# if WAIT_FOR_CHILD
-	close(gzipStatusPipe.wr);
+	xmove_fd(data.wr, tar_fd);
+	close(data.rd);
+#  if WAIT_FOR_CHILD
+	close(status.wr);
 	while (1) {
-		char buf;
-		int n;
-
 		/* Wait until child execs (or fails to) */
-		n = full_read(gzipStatusPipe.rd, &buf, 1);
+		char buf;
+		int n = full_read(status.rd, &buf, 1);
 		if (n < 0 /* && errno == EAGAIN */)
 			continue;	/* try it again */
 	}
-	close(gzipStatusPipe.rd);
-# endif
+	close(status.rd);
+#  endif
 	if (vfork_exec_errno) {
 		errno = vfork_exec_errno;
 		bb_perror_msg_and_die("can't execute '%s'", gzip);
 	}
 }
-#endif /* SEAMLESS_COMPRESSION */
+# endif /* SEAMLESS_COMPRESSION */
 
 
-#if !SEAMLESS_COMPRESSION
+# if !SEAMLESS_COMPRESSION
 /* Do not pass gzip flag to writeTarFile() */
-#define writeTarFile(tar_fd, verboseFlag, recurseFlags, include, exclude, gzip) \
-	writeTarFile(tar_fd, verboseFlag, recurseFlags, include, exclude)
-#endif
+#define writeTarFile(tbInfo, recurseFlags, filelist, gzip) \
+	writeTarFile(tbInfo, recurseFlags, filelist)
+# endif
 /* gcc 4.2.1 inlines it, making code bigger */
-static NOINLINE int writeTarFile(int tar_fd, int verboseFlag,
-	int recurseFlags, const llist_t *include,
-	const llist_t *exclude, const char *gzip)
+static NOINLINE int writeTarFile(
+	struct TarBallInfo *tbInfo,
+	int recurseFlags,
+	const llist_t *filelist,
+	const char *gzip)
 {
 	int errorFlag = FALSE;
-	struct TarBallInfo tbInfo;
 
-	tbInfo.hlInfoHead = NULL;
-	tbInfo.tarFd = tar_fd;
-	tbInfo.verboseFlag = verboseFlag;
+	/*tbInfo->hlInfoHead = NULL; - already is */
 
 	/* Store the stat info for the tarball's file, so
 	 * can avoid including the tarball into itself....  */
-	xfstat(tbInfo.tarFd, &tbInfo.tarFileStatBuf, "can't stat tar file");
+	xfstat(tbInfo->tarFd, &tbInfo->tarFileStatBuf, "can't stat tar file");
 
-#if SEAMLESS_COMPRESSION
+# if SEAMLESS_COMPRESSION
 	if (gzip)
-		vfork_compressor(tbInfo.tarFd, gzip);
-#endif
-
-	tbInfo.excludeList = exclude;
+		vfork_compressor(tbInfo->tarFd, gzip);
+# endif
 
 	/* Read the directory/files and iterate over them one at a time */
-	while (include) {
-		if (!recursive_action(include->data, recurseFlags,
-				writeFileToTarball, writeFileToTarball, &tbInfo, 0)
+	while (filelist) {
+		if (!recursive_action(filelist->data, recurseFlags,
+				writeFileToTarball, writeFileToTarball, tbInfo)
 		) {
 			errorFlag = TRUE;
 		}
-		include = include->link;
+		filelist = filelist->link;
 	}
 	/* Write two empty blocks to the end of the archive */
 	memset(block_buf, 0, 2*TAR_BLOCK_SIZE);
-	xwrite(tbInfo.tarFd, block_buf, 2*TAR_BLOCK_SIZE);
+	xwrite(tbInfo->tarFd, block_buf, 2*TAR_BLOCK_SIZE);
 
 	/* To be pedantically correct, we would check if the tarball
 	 * is smaller than 20 tar blocks, and pad it if it was smaller,
@@ -729,39 +690,39 @@ static NOINLINE int writeTarFile(int tar_fd, int verboseFlag,
 	 * so is considered a waste of space */
 
 	/* Close so the child process (if any) will exit */
-	close(tbInfo.tarFd);
+	close(tbInfo->tarFd);
 
 	/* Hang up the tools, close up shop, head home */
 	if (ENABLE_FEATURE_CLEAN_UP)
-		freeHardLinkInfo(&tbInfo.hlInfoHead);
+		freeHardLinkInfo(&tbInfo->hlInfoHead);
 
 	if (errorFlag)
-		bb_error_msg("error exit delayed from previous errors");
+		bb_simple_error_msg("error exit delayed from previous errors");
 
-#if SEAMLESS_COMPRESSION
+# if SEAMLESS_COMPRESSION
 	if (gzip) {
 		int status;
 		if (safe_waitpid(-1, &status, 0) == -1)
-			bb_perror_msg("waitpid");
+			bb_simple_perror_msg("waitpid");
 		else if (!WIFEXITED(status) || WEXITSTATUS(status))
 			/* gzip was killed or has exited with nonzero! */
 			errorFlag = TRUE;
 	}
-#endif
+# endif
 	return errorFlag;
 }
-#else /* !FEATURE_TAR_CREATE */
-# define writeTarFile(...) 0
-#endif
+
+#endif /* FEATURE_TAR_CREATE */
 
 #if ENABLE_FEATURE_TAR_FROM
 static llist_t *append_file_list_to_list(llist_t *list)
 {
-	FILE *src_stream;
-	char *line;
 	llist_t *newlist = NULL;
 
 	while (list) {
+		FILE *src_stream;
+		char *line;
+
 		src_stream = xfopen_stdin(llist_pop(&list));
 		while ((line = xmalloc_fgetline(src_stream)) != NULL) {
 			/* kill trailing '/' unless the string is just "/" */
@@ -777,90 +738,96 @@ static llist_t *append_file_list_to_list(llist_t *list)
 #endif
 
 //usage:#define tar_trivial_usage
-//usage:	"-[" IF_FEATURE_TAR_CREATE("c") "xt"
+//usage:	IF_FEATURE_TAR_CREATE("c|") "x|t [-"
 //usage:	IF_FEATURE_SEAMLESS_Z("Z")
 //usage:	IF_FEATURE_SEAMLESS_GZ("z")
 //usage:	IF_FEATURE_SEAMLESS_XZ("J")
 //usage:	IF_FEATURE_SEAMLESS_BZ2("j")
-//usage:	IF_FEATURE_SEAMLESS_LZMA("a")
+//usage:	"a"
 //usage:	IF_FEATURE_TAR_CREATE("h")
 //usage:	IF_FEATURE_TAR_NOPRESERVE_TIME("m")
-//usage:	"vO] "
-//usage:	IF_FEATURE_TAR_FROM("[-X FILE] [-T FILE] ")
-//usage:	"[-f TARFILE] [-C DIR] [FILE]..."
+//usage:	"vokO] "
+//usage:	"[-f TARFILE] [-C DIR] "
+//usage:	IF_FEATURE_TAR_FROM("[-T FILE] [-X FILE] "IF_FEATURE_TAR_LONG_OPTIONS("[LONGOPT]... "))
+//usage:	"[FILE]..."
 //usage:#define tar_full_usage "\n\n"
 //usage:	IF_FEATURE_TAR_CREATE("Create, extract, ")
 //usage:	IF_NOT_FEATURE_TAR_CREATE("Extract ")
-//usage:	"or list files from a tar file\n"
-//usage:     "\nOperation:"
+//usage:	"or list files from a tar file"
+//usage:     "\n"
 //usage:	IF_FEATURE_TAR_CREATE(
 //usage:     "\n	c	Create"
 //usage:	)
 //usage:     "\n	x	Extract"
 //usage:     "\n	t	List"
-//usage:     "\n	f	Name of TARFILE ('-' for stdin/out)"
-//usage:     "\n	C	Change to DIR before operation"
-//usage:     "\n	v	Verbose"
+//usage:     "\n	-f FILE	Name of TARFILE ('-' for stdin/out)"
+//usage:     "\n	-C DIR	Change to DIR before operation"
+//usage:     "\n	-v	Verbose"
+//usage:     "\n	-O	Extract to stdout"
+//usage:	IF_FEATURE_TAR_NOPRESERVE_TIME(
+//usage:     "\n	-m	Don't restore mtime"
+//usage:	)
+//usage:     "\n	-o	Don't restore user:group"
+///////:-p - accepted but ignored, restores mode (aliases in GNU tar: --preserve-permissions, --same-permissions)
+//usage:     "\n	-k	Don't replace existing files"
 //usage:	IF_FEATURE_SEAMLESS_Z(
-//usage:     "\n	Z	(De)compress using compress"
+//usage:     "\n	-Z	(De)compress using compress"
 //usage:	)
 //usage:	IF_FEATURE_SEAMLESS_GZ(
-//usage:     "\n	z	(De)compress using gzip"
+//usage:     "\n	-z	(De)compress using gzip"
 //usage:	)
 //usage:	IF_FEATURE_SEAMLESS_XZ(
-//usage:     "\n	J	(De)compress using xz"
+//usage:     "\n	-J	(De)compress using xz"
 //usage:	)
 //usage:	IF_FEATURE_SEAMLESS_BZ2(
-//usage:     "\n	j	(De)compress using bzip2"
+//usage:     "\n	-j	(De)compress using bzip2"
 //usage:	)
 //usage:	IF_FEATURE_SEAMLESS_LZMA(
-//usage:     "\n	a	(De)compress using lzma"
+//usage:	IF_FEATURE_TAR_LONG_OPTIONS(
+//usage:     "\n	--lzma	(De)compress using lzma"
 //usage:	)
-//usage:     "\n	O	Extract to stdout"
+//usage:	)
+//usage:     "\n	-a	(De)compress based on extension"
 //usage:	IF_FEATURE_TAR_CREATE(
-//usage:     "\n	h	Follow symlinks"
-//usage:	)
-//usage:	IF_FEATURE_TAR_NOPRESERVE_TIME(
-//usage:     "\n	m	Don't restore mtime"
+//usage:     "\n	-h	Follow symlinks"
 //usage:	)
 //usage:	IF_FEATURE_TAR_FROM(
+//usage:     "\n	-T FILE	File with names to include"
+//usage:     "\n	-X FILE	File with glob patterns to exclude"
 //usage:	IF_FEATURE_TAR_LONG_OPTIONS(
-//usage:     "\n	exclude	File to exclude"
+//usage:     "\n	--exclude PATTERN	Glob pattern to exclude"
 //usage:	)
-//usage:     "\n	X	File with names to exclude"
-//usage:     "\n	T	File with names to include"
+//usage:	)
+//usage:	IF_FEATURE_TAR_LONG_OPTIONS(
+//usage:     "\n	--overwrite		Replace existing files"
+//usage:     "\n	--strip-components NUM	NUM of leading components to strip"
+//usage:     "\n	--no-recursion		Don't descend in directories"
+//usage:     "\n	--numeric-owner		Use numeric user:group"
+//usage:     "\n	--no-same-permissions	Don't restore access permissions"
+//usage:	IF_FEATURE_TAR_TO_COMMAND(
+//usage:     "\n	--to-command COMMAND	Pipe files to COMMAND"
+//usage:	)
 //usage:	)
 //usage:
 //usage:#define tar_example_usage
 //usage:       "$ zcat /tmp/tarball.tar.gz | tar -xf -\n"
 //usage:       "$ tar -cf /tmp/tarball.tar /usr/local\n"
 
-// Supported but aren't in --help:
-//	o	no-same-owner
-//	p	same-permissions
-//	k	keep-old
-//	no-recursion
-//	numeric-owner
-//	no-same-permissions
-//	overwrite
-//IF_FEATURE_TAR_TO_COMMAND(
-//	to-command
-//)
-
 enum {
 	OPTBIT_KEEP_OLD = 8,
 	IF_FEATURE_TAR_CREATE(   OPTBIT_CREATE      ,)
 	IF_FEATURE_TAR_CREATE(   OPTBIT_DEREFERENCE ,)
 	IF_FEATURE_SEAMLESS_BZ2( OPTBIT_BZIP2       ,)
-	IF_FEATURE_SEAMLESS_LZMA(OPTBIT_LZMA        ,)
 	IF_FEATURE_TAR_FROM(     OPTBIT_INCLUDE_FROM,)
 	IF_FEATURE_TAR_FROM(     OPTBIT_EXCLUDE_FROM,)
 	IF_FEATURE_SEAMLESS_GZ(  OPTBIT_GZIP        ,)
-	IF_FEATURE_SEAMLESS_XZ(  OPTBIT_XZ          ,) // 16th bit
-	IF_FEATURE_SEAMLESS_Z(   OPTBIT_COMPRESS    ,)
+	IF_FEATURE_SEAMLESS_XZ(  OPTBIT_XZ          ,)
+	IF_FEATURE_SEAMLESS_Z(   OPTBIT_COMPRESS    ,) // 16th bit
+	OPTBIT_AUTOCOMPRESS_BY_EXT,
 	IF_FEATURE_TAR_NOPRESERVE_TIME(OPTBIT_NOPRESERVE_TIME,)
 #if ENABLE_FEATURE_TAR_LONG_OPTIONS
 	OPTBIT_STRIP_COMPONENTS,
+	IF_FEATURE_SEAMLESS_LZMA(OPTBIT_LZMA        ,)
 	OPTBIT_NORECURSION,
 	IF_FEATURE_TAR_TO_COMMAND(OPTBIT_2COMMAND   ,)
 	OPTBIT_NUMERIC_OWNER,
@@ -879,14 +846,15 @@ enum {
 	OPT_CREATE       = IF_FEATURE_TAR_CREATE(   (1 << OPTBIT_CREATE      )) + 0, // c
 	OPT_DEREFERENCE  = IF_FEATURE_TAR_CREATE(   (1 << OPTBIT_DEREFERENCE )) + 0, // h
 	OPT_BZIP2        = IF_FEATURE_SEAMLESS_BZ2( (1 << OPTBIT_BZIP2       )) + 0, // j
-	OPT_LZMA         = IF_FEATURE_SEAMLESS_LZMA((1 << OPTBIT_LZMA        )) + 0, // a
 	OPT_INCLUDE_FROM = IF_FEATURE_TAR_FROM(     (1 << OPTBIT_INCLUDE_FROM)) + 0, // T
 	OPT_EXCLUDE_FROM = IF_FEATURE_TAR_FROM(     (1 << OPTBIT_EXCLUDE_FROM)) + 0, // X
 	OPT_GZIP         = IF_FEATURE_SEAMLESS_GZ(  (1 << OPTBIT_GZIP        )) + 0, // z
 	OPT_XZ           = IF_FEATURE_SEAMLESS_XZ(  (1 << OPTBIT_XZ          )) + 0, // J
 	OPT_COMPRESS     = IF_FEATURE_SEAMLESS_Z(   (1 << OPTBIT_COMPRESS    )) + 0, // Z
+	OPT_AUTOCOMPRESS_BY_EXT = 1 << OPTBIT_AUTOCOMPRESS_BY_EXT,                   // a
 	OPT_NOPRESERVE_TIME  = IF_FEATURE_TAR_NOPRESERVE_TIME((1 << OPTBIT_NOPRESERVE_TIME)) + 0, // m
 	OPT_STRIP_COMPONENTS = IF_FEATURE_TAR_LONG_OPTIONS((1 << OPTBIT_STRIP_COMPONENTS)) + 0, // strip-components
+	OPT_LZMA             = IF_FEATURE_TAR_LONG_OPTIONS(IF_FEATURE_SEAMLESS_LZMA((1 << OPTBIT_LZMA))) + 0, // lzma
 	OPT_NORECURSION      = IF_FEATURE_TAR_LONG_OPTIONS((1 << OPTBIT_NORECURSION    )) + 0, // no-recursion
 	OPT_2COMMAND         = IF_FEATURE_TAR_TO_COMMAND(  (1 << OPTBIT_2COMMAND       )) + 0, // to-command
 	OPT_NUMERIC_OWNER    = IF_FEATURE_TAR_LONG_OPTIONS((1 << OPTBIT_NUMERIC_OWNER  )) + 0, // numeric-owner
@@ -916,9 +884,6 @@ static const char tar_longopts[] ALIGN1 =
 # if ENABLE_FEATURE_SEAMLESS_BZ2
 	"bzip2\0"               No_argument       "j"
 # endif
-# if ENABLE_FEATURE_SEAMLESS_LZMA
-	"lzma\0"                No_argument       "a"
-# endif
 # if ENABLE_FEATURE_TAR_FROM
 	"files-from\0"          Required_argument "T"
 	"exclude-from\0"        Required_argument "X"
@@ -932,10 +897,14 @@ static const char tar_longopts[] ALIGN1 =
 # if ENABLE_FEATURE_SEAMLESS_Z
 	"compress\0"            No_argument       "Z"
 # endif
+	"auto-compress\0"       No_argument       "a"
 # if ENABLE_FEATURE_TAR_NOPRESERVE_TIME
 	"touch\0"               No_argument       "m"
 # endif
-	"strip-components\0"	Required_argument "\xf9"
+	"strip-components\0"	Required_argument "\xf8"
+# if ENABLE_FEATURE_SEAMLESS_LZMA
+	"lzma\0"                No_argument       "\xf9"
+# endif
 	"no-recursion\0"	No_argument       "\xfa"
 # if ENABLE_FEATURE_TAR_TO_COMMAND
 	"to-command\0"		Required_argument "\xfb"
@@ -952,6 +921,11 @@ static const char tar_longopts[] ALIGN1 =
 	"exclude\0"             Required_argument "\xff"
 # endif
 	;
+# define GETOPT32 getopt32long
+# define LONGOPTS ,tar_longopts
+#else
+# define GETOPT32 getopt32
+# define LONGOPTS
 #endif
 
 int tar_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
@@ -977,23 +951,6 @@ int tar_main(int argc UNUSED_PARAM, char **argv)
 	if (getuid() != 0)
 		tar_handle->ah_flags |= ARCHIVE_DONT_RESTORE_PERM;
 
-	/* Prepend '-' to the first argument if required */
-	opt_complementary = "--:" // first arg is options
-		"tt:vv:" // count -t,-v
-		IF_FEATURE_TAR_FROM("X::T::") // cumulative lists
-#if ENABLE_FEATURE_TAR_LONG_OPTIONS && ENABLE_FEATURE_TAR_FROM
-		"\xff::" // --exclude=PATTERN is a list
-#endif
-		IF_FEATURE_TAR_CREATE("c:") "t:x:" // at least one of these is reqd
-		IF_FEATURE_TAR_CREATE("c--tx:t--cx:x--ct") // mutually exclusive
-		IF_NOT_FEATURE_TAR_CREATE("t--x:x--t") // mutually exclusive
-#if ENABLE_FEATURE_TAR_LONG_OPTIONS
-		":\xf9+" // --strip-components=NUM
-#endif
-	;
-#if ENABLE_FEATURE_TAR_LONG_OPTIONS
-	applet_long_options = tar_longopts;
-#endif
 #if ENABLE_DESKTOP
 	/* Lie to buildroot when it starts asking stupid questions. */
 	if (argv[1] && strcmp(argv[1], "--version") == 0) {
@@ -1004,11 +961,12 @@ int tar_main(int argc UNUSED_PARAM, char **argv)
 		puts("tar (busybox) " BB_VER);
 		return 0;
 	}
-	if (argv[1] && argv[1][0] != '-') {
+#endif
+	if (argv[1] && argv[1][0] != '-' && argv[1][0] != '\0') {
 		/* Compat:
 		 * 1st argument without dash handles options with parameters
 		 * differently from dashed one: it takes *next argv[i]*
-		 * as paramenter even if there are more chars in 1st argument:
+		 * as parameter even if there are more chars in 1st argument:
 		 *  "tar fx TARFILE" - "x" is not taken as f's param
 		 *  but is interpreted as -x option
 		 *  "tar -xf TARFILE" - dashed equivalent of the above
@@ -1028,19 +986,32 @@ int tar_main(int argc UNUSED_PARAM, char **argv)
 			}
 			*f = 'f';
 		}
+		/* Prepend '-' to the first argument  */
+		argv[1] = xasprintf("-%s", argv[1]);
 	}
-#endif
-	opt = getopt32(argv,
+	opt = GETOPT32(argv, "^"
 		"txC:f:Oopvk"
-		IF_FEATURE_TAR_CREATE(   "ch"  )
-		IF_FEATURE_SEAMLESS_BZ2( "j"   )
-		IF_FEATURE_SEAMLESS_LZMA("a"   )
-		IF_FEATURE_TAR_FROM(     "T:X:")
-		IF_FEATURE_SEAMLESS_GZ(  "z"   )
-		IF_FEATURE_SEAMLESS_XZ(  "J"   )
-		IF_FEATURE_SEAMLESS_Z(   "Z"   )
+		IF_FEATURE_TAR_CREATE(   "ch"    )
+		IF_FEATURE_SEAMLESS_BZ2( "j"     )
+		IF_FEATURE_TAR_FROM(     "T:*X:*")
+		IF_FEATURE_SEAMLESS_GZ(  "z"     )
+		IF_FEATURE_SEAMLESS_XZ(  "J"     )
+		IF_FEATURE_SEAMLESS_Z(   "Z"     )
+		"a"
 		IF_FEATURE_TAR_NOPRESERVE_TIME("m")
-		IF_FEATURE_TAR_LONG_OPTIONS("\xf9:") // --strip-components
+		IF_FEATURE_TAR_LONG_OPTIONS("\xf8:") // --strip-components
+		"\0"
+		"tt:vv:" // count -t,-v
+#if ENABLE_FEATURE_TAR_LONG_OPTIONS && ENABLE_FEATURE_TAR_FROM
+		"\xff::" // --exclude=PATTERN is a list
+#endif
+		IF_FEATURE_TAR_CREATE("c:") "t:x:" // at least one of these is reqd
+		IF_FEATURE_TAR_CREATE("c--tx:t--cx:x--ct") // mutually exclusive
+		IF_NOT_FEATURE_TAR_CREATE("t--x:x--t") // mutually exclusive
+#if ENABLE_FEATURE_TAR_LONG_OPTIONS
+		":\xf8+" // --strip-components=NUM
+#endif
+		LONGOPTS
 		, &base_dir // -C dir
 		, &tar_filename // -f filename
 		IF_FEATURE_TAR_FROM(, &(tar_handle->accept)) // T
@@ -1057,7 +1028,7 @@ int tar_main(int argc UNUSED_PARAM, char **argv)
 		);
 #if DBG_OPTION_PARSING
 	bb_error_msg("opt: 0x%08x", opt);
-# define showopt(o) bb_error_msg("opt & %s(%x): %x", #o, o, opt & o);
+# define showopt(o) bb_error_msg("opt & %s(%x):\t%x", #o, o, opt & o);
 	showopt(OPT_TEST            );
 	showopt(OPT_EXTRACT         );
 	showopt(OPT_BASEDIR         );
@@ -1070,14 +1041,15 @@ int tar_main(int argc UNUSED_PARAM, char **argv)
 	showopt(OPT_CREATE          );
 	showopt(OPT_DEREFERENCE     );
 	showopt(OPT_BZIP2           );
-	showopt(OPT_LZMA            );
 	showopt(OPT_INCLUDE_FROM    );
 	showopt(OPT_EXCLUDE_FROM    );
 	showopt(OPT_GZIP            );
 	showopt(OPT_XZ              );
 	showopt(OPT_COMPRESS        );
+	showopt(OPT_AUTOCOMPRESS_BY_EXT);
 	showopt(OPT_NOPRESERVE_TIME );
 	showopt(OPT_STRIP_COMPONENTS);
+	showopt(OPT_LZMA            );
 	showopt(OPT_NORECURSION     );
 	showopt(OPT_2COMMAND        );
 	showopt(OPT_NUMERIC_OWNER   );
@@ -1133,14 +1105,15 @@ int tar_main(int argc UNUSED_PARAM, char **argv)
 		tar_handle->ah_flags &= ~ARCHIVE_RESTORE_DATE;
 
 #if ENABLE_FEATURE_TAR_FROM
+	/* Convert each -X EXCLFILE to list of to-be-rejected glob patterns */
 	tar_handle->reject = append_file_list_to_list(tar_handle->reject);
 # if ENABLE_FEATURE_TAR_LONG_OPTIONS
-	/* Append excludes to reject */
-	while (excludes) {
-		llist_t *next = excludes->link;
-		excludes->link = tar_handle->reject;
-		tar_handle->reject = excludes;
-		excludes = next;
+	/* Append --exclude=GLOBPATTERNs to reject */
+	if (excludes) {
+		llist_t **p2next = &tar_handle->reject;
+		while (*p2next)
+			p2next = &((*p2next)->link);
+		*p2next = excludes;
 	}
 # endif
 	tar_handle->accept = append_file_list_to_list(tar_handle->accept);
@@ -1168,7 +1141,7 @@ int tar_main(int argc UNUSED_PARAM, char **argv)
 		if (opt & OPT_CREATE) {
 			/* Make sure there is at least one file to tar up */
 			if (tar_handle->accept == NULL)
-				bb_error_msg_and_die("empty archive");
+				bb_simple_error_msg_and_die("empty archive");
 
 			tar_fd = STDOUT_FILENO;
 			/* Mimicking GNU tar 1.15.1: */
@@ -1178,30 +1151,49 @@ int tar_main(int argc UNUSED_PARAM, char **argv)
 		if (LONE_DASH(tar_filename)) {
 			tar_handle->src_fd = tar_fd;
 			tar_handle->seek = seek_by_read;
+		} else
+		if (ENABLE_FEATURE_TAR_AUTODETECT
+		 && ENABLE_FEATURE_SEAMLESS_LZMA
+		 && flags == O_RDONLY
+		 && !(opt & OPT_ANY_COMPRESS)
+		 && is_suffixed_with(tar_filename, ".lzma")
+		/* We do this only for .lzma files, they have no signature.
+		 * All other compression formats are recognized in
+		 * get_header_tar() when first tar block has invalid format.
+		 * Doing it here for all filenames would falsely trigger
+		 * on e.g. tarball with 1st file named "BZh5".
+		 */
+		) {
+			tar_handle->src_fd = open_zipped(tar_filename, /*fail_if_not_compressed:*/ 0);
+			if (tar_handle->src_fd < 0)
+				bb_perror_msg_and_die("can't open '%s'", tar_filename);
 		} else {
-			if (ENABLE_FEATURE_TAR_AUTODETECT
-			 && flags == O_RDONLY
-			 && !(opt & OPT_ANY_COMPRESS)
+			tar_handle->src_fd = xopen(tar_filename, flags);
+#if ENABLE_FEATURE_TAR_CREATE
+			if ((OPT_GZIP | OPT_BZIP2 | OPT_XZ | OPT_LZMA) != 0 /* at least one is config-enabled */
+			 && (opt & OPT_AUTOCOMPRESS_BY_EXT)
+			 && flags != O_RDONLY
 			) {
-				tar_handle->src_fd = open_zipped(tar_filename, /*fail_if_not_compressed:*/ 0);
-				if (tar_handle->src_fd < 0)
-					bb_perror_msg_and_die("can't open '%s'", tar_filename);
-			} else {
-				tar_handle->src_fd = xopen(tar_filename, flags);
+				if (OPT_GZIP != 0 && is_suffixed_with(tar_filename, "gz"))
+					opt |= OPT_GZIP;
+				if (OPT_BZIP2 != 0 && is_suffixed_with(tar_filename, "bz2"))
+					opt |= OPT_BZIP2;
+				if (OPT_XZ != 0 && is_suffixed_with(tar_filename, "xz"))
+					opt |= OPT_XZ;
+				if (OPT_LZMA != 0 && is_suffixed_with(tar_filename, "lzma"))
+					opt |= OPT_LZMA;
 			}
+#endif
 		}
 	}
 
 	if (base_dir)
 		xchdir(base_dir);
 
-	//if (SEAMLESS_COMPRESSION)
-	//	/* We need to know whether child (gzip/bzip/etc) exits abnormally */
-	//	signal(SIGCHLD, check_errors_in_children);
-
 #if ENABLE_FEATURE_TAR_CREATE
 	/* Create an archive */
 	if (opt & OPT_CREATE) {
+		struct TarBallInfo *tbInfo;
 # if SEAMLESS_COMPRESSION
 		const char *zipMode = NULL;
 		if (opt & OPT_COMPRESS)
@@ -1215,12 +1207,18 @@ int tar_main(int argc UNUSED_PARAM, char **argv)
 		if (opt & OPT_XZ)
 			zipMode = "xz";
 # endif
+		tbInfo = xzalloc(sizeof(*tbInfo));
+		tbInfo->tarFd = tar_handle->src_fd;
+		tbInfo->verboseFlag = verboseFlag;
+# if ENABLE_FEATURE_TAR_FROM
+		tbInfo->excludeList = tar_handle->reject;
+# endif
 		/* NB: writeTarFile() closes tar_handle->src_fd */
-		return writeTarFile(tar_handle->src_fd, verboseFlag,
+		return writeTarFile(tbInfo,
 				(opt & OPT_DEREFERENCE ? ACTION_FOLLOWLINKS : 0)
 				| (opt & OPT_NORECURSION ? 0 : ACTION_RECURSE),
 				tar_handle->accept,
-				tar_handle->reject, zipMode);
+				zipMode);
 	}
 #endif
 
@@ -1228,21 +1226,26 @@ int tar_main(int argc UNUSED_PARAM, char **argv)
 		USE_FOR_MMU(IF_DESKTOP(long long) int FAST_FUNC (*xformer)(transformer_state_t *xstate);)
 		USE_FOR_NOMMU(const char *xformer_prog;)
 
-		if (opt & OPT_COMPRESS)
-			USE_FOR_MMU(xformer = unpack_Z_stream;)
+		if (opt & OPT_COMPRESS) {
+			USE_FOR_MMU(IF_FEATURE_SEAMLESS_Z(xformer = unpack_Z_stream;))
 			USE_FOR_NOMMU(xformer_prog = "uncompress";)
-		if (opt & OPT_GZIP)
-			USE_FOR_MMU(xformer = unpack_gz_stream;)
+		}
+		if (opt & OPT_GZIP) {
+			USE_FOR_MMU(IF_FEATURE_SEAMLESS_GZ(xformer = unpack_gz_stream;))
 			USE_FOR_NOMMU(xformer_prog = "gunzip";)
-		if (opt & OPT_BZIP2)
-			USE_FOR_MMU(xformer = unpack_bz2_stream;)
+		}
+		if (opt & OPT_BZIP2) {
+			USE_FOR_MMU(IF_FEATURE_SEAMLESS_BZ2(xformer = unpack_bz2_stream;))
 			USE_FOR_NOMMU(xformer_prog = "bunzip2";)
-		if (opt & OPT_LZMA)
-			USE_FOR_MMU(xformer = unpack_lzma_stream;)
+		}
+		if (opt & OPT_LZMA) {
+			USE_FOR_MMU(IF_FEATURE_SEAMLESS_LZMA(xformer = unpack_lzma_stream;))
 			USE_FOR_NOMMU(xformer_prog = "unlzma";)
-		if (opt & OPT_XZ)
-			USE_FOR_MMU(xformer = unpack_xz_stream;)
+		}
+		if (opt & OPT_XZ) {
+			USE_FOR_MMU(IF_FEATURE_SEAMLESS_XZ(xformer = unpack_xz_stream;))
 			USE_FOR_NOMMU(xformer_prog = "unxz";)
+		}
 
 		fork_transformer_with_sig(tar_handle->src_fd, xformer, xformer_prog);
 		/* Can't lseek over pipes */
@@ -1258,6 +1261,8 @@ int tar_main(int argc UNUSED_PARAM, char **argv)
 
 	while (get_header_tar(tar_handle) == EXIT_SUCCESS)
 		bb_got_signal = EXIT_SUCCESS; /* saw at least one header, good */
+
+	create_links_from_list(tar_handle->link_placeholders);
 
 	/* Check that every file that should have been extracted was */
 	while (tar_handle->accept) {

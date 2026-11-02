@@ -8,46 +8,51 @@
  * David MacKenzie <djm@gnu.ai.mit.edu>
  *
  * Options for expand:
- * -t num  --tabs=NUM      Convert tabs to num spaces (default 8 spaces).
+ * -t num  --tabs NUM      Convert tabs to num spaces (default 8 spaces).
  * -i      --initial       Only convert initial tabs on each line to spaces.
  *
  * Options for unexpand:
  * -a      --all           Convert all blanks, instead of just initial blanks.
  * -f      --first-only    Convert only leading sequences of blanks (default).
- * -t num  --tabs=NUM      Have tabs num characters apart instead of 8.
+ * -t num  --tabs NUM      Have tabs num characters apart instead of 8.
  *
  *  Busybox version (C) 2007 by Tito Ragusa <farmatito@tiscali.it>
  *
  *  Caveat: this versions of expand and unexpand don't accept tab lists.
  */
+//config:config EXPAND
+//config:	bool "expand (5.1 kb)"
+//config:	default y
+//config:	help
+//config:	By default, convert all tabs to spaces.
+//config:
+//config:config UNEXPAND
+//config:	bool "unexpand (5.3 kb)"
+//config:	default y
+//config:	help
+//config:	By default, convert only leading sequences of blanks to tabs.
+
+//applet:IF_EXPAND(APPLET(expand, BB_DIR_USR_BIN, BB_SUID_DROP))
+//                   APPLET_ODDNAME:name      main    location        suid_type     help
+//applet:IF_UNEXPAND(APPLET_ODDNAME(unexpand, expand, BB_DIR_USR_BIN, BB_SUID_DROP, unexpand))
+
+//kbuild:lib-$(CONFIG_EXPAND) += expand.o
+//kbuild:lib-$(CONFIG_UNEXPAND) += expand.o
 
 //usage:#define expand_trivial_usage
 //usage:       "[-i] [-t N] [FILE]..."
 //usage:#define expand_full_usage "\n\n"
 //usage:       "Convert tabs to spaces, writing to stdout\n"
-//usage:	IF_FEATURE_EXPAND_LONG_OPTIONS(
-//usage:     "\n	-i,--initial	Don't convert tabs after non blanks"
-//usage:     "\n	-t,--tabs=N	Tabstops every N chars"
-//usage:	)
-//usage:	IF_NOT_FEATURE_EXPAND_LONG_OPTIONS(
 //usage:     "\n	-i	Don't convert tabs after non blanks"
 //usage:     "\n	-t	Tabstops every N chars"
-//usage:	)
 
 //usage:#define unexpand_trivial_usage
 //usage:       "[-fa][-t N] [FILE]..."
 //usage:#define unexpand_full_usage "\n\n"
 //usage:       "Convert spaces to tabs, writing to stdout\n"
-//usage:	IF_FEATURE_UNEXPAND_LONG_OPTIONS(
-//usage:     "\n	-a,--all	Convert all blanks"
-//usage:     "\n	-f,--first-only	Convert only leading blanks"
-//usage:     "\n	-t,--tabs=N	Tabstops every N chars"
-//usage:	)
-//usage:	IF_NOT_FEATURE_UNEXPAND_LONG_OPTIONS(
 //usage:     "\n	-a	Convert all blanks"
 //usage:     "\n	-f	Convert only leading blanks"
 //usage:     "\n	-t N	Tabstops every N chars"
-//usage:	)
 
 #include "libbb.h"
 #include "unicode.h"
@@ -58,38 +63,67 @@ enum {
 	OPT_ALL         = 1 << 2,
 };
 
+//FIXME: does not work properly with input containing NULs
+//coreutils 8.30 preserves NULs but treats them as chars of width zero:
+//AB<nul><tab>C will expand <tab> to 6 spaces, not 5.
+
 #if ENABLE_EXPAND
 static void expand(FILE *file, unsigned tab_size, unsigned opt)
 {
-	char *line;
 
-	while ((line = xmalloc_fgets(file)) != NULL) {
-		unsigned char c;
+	for (;;) {
+		char *line;
 		char *ptr;
 		char *ptr_strbeg;
+//commented-out code handles NULs, +90 bytes of code, not tested much
+//		size_t linelen;
+//		unsigned len = 0;
 
+//		linelen = 1024 * 1024;
+//		line = xmalloc_fgets_str_len(file, "\n", &linelen);
+		line = xmalloc_fgets(file); //
+		if (!line)
+			break;
 		ptr = ptr_strbeg = line;
-		while ((c = *ptr) != '\0') {
+		for (;;) {
+			unsigned char c = *ptr;
+			if (c == '\0') {
+//				size_t rem = line + linelen - ptr;
+//				if (rem > 0) {
+//# if ENABLE_UNICODE_SUPPORT
+//					len += unicode_strwidth(ptr_strbeg);
+//# else
+//					len += ptr - ptr_strbeg;
+//# endif
+//					printf("%s%c", ptr_strbeg, '\0');
+//					memmove(ptr, ptr + 1, rem + 1);
+//					ptr_strbeg = ptr;
+//					linelen--;
+//					continue;
+//				}
+				break;
+			}
 			if ((opt & OPT_INITIAL) && !isblank(c)) {
 				/* not space or tab */
 				break;
 			}
 			if (c == '\t') {
-				unsigned len;
+				unsigned len = 0; //
 				*ptr = '\0';
 # if ENABLE_UNICODE_SUPPORT
-				len = unicode_strwidth(ptr_strbeg);
+				len += unicode_strwidth(ptr_strbeg);
 # else
-				len = ptr - ptr_strbeg;
+				len += ptr - ptr_strbeg;
 # endif
 				len = tab_size - (len % tab_size);
 				/*while (ptr[1] == '\t') { ptr++; len += tab_size; } - can handle many tabs at once */
 				printf("%s%*s", ptr_strbeg, len, "");
+//				len = 0;
 				ptr_strbeg = ptr + 1;
 			}
 			ptr++;
 		}
-		fputs(ptr_strbeg, stdout);
+		fputs_stdout(ptr_strbeg);
 		free(line);
 	}
 }
@@ -126,7 +160,7 @@ static void unexpand(FILE *file, unsigned tab_size, unsigned opt)
 					putchar('\t');
 			}
 
-			if ((opt & OPT_INITIAL) && ptr != line) {
+			if (!(opt & OPT_ALL) && ptr != line) {
 				printf("%*s%s", len, "", ptr);
 				break;
 			}
@@ -160,33 +194,26 @@ int expand_main(int argc UNUSED_PARAM, char **argv)
 	unsigned opt;
 	int exit_status = EXIT_SUCCESS;
 
-#if ENABLE_FEATURE_EXPAND_LONG_OPTIONS
-	static const char expand_longopts[] ALIGN1 =
-		/* name, has_arg, val */
-		"initial\0"          No_argument       "i"
-		"tabs\0"             Required_argument "t"
-	;
-#endif
-#if ENABLE_FEATURE_UNEXPAND_LONG_OPTIONS
-	static const char unexpand_longopts[] ALIGN1 =
-		/* name, has_arg, val */
-		"first-only\0"       No_argument       "i"
-		"tabs\0"             Required_argument "t"
-		"all\0"              No_argument       "a"
-	;
-#endif
 	init_unicode();
 
 	if (ENABLE_EXPAND && (!ENABLE_UNEXPAND || applet_name[0] == 'e')) {
-		IF_FEATURE_EXPAND_LONG_OPTIONS(applet_long_options = expand_longopts);
-		opt = getopt32(argv, "it:", &opt_t);
+		opt = getopt32long(argv, "it:",
+				"initial\0"          No_argument       "i"
+				"tabs\0"             Required_argument "t"
+				, &opt_t
+		);
 	} else {
-		IF_FEATURE_UNEXPAND_LONG_OPTIONS(applet_long_options = unexpand_longopts);
-		/* -t NUM sets also -a */
-		opt_complementary = "ta";
-		opt = getopt32(argv, "ft:a", &opt_t);
-		/* -f --first-only is the default */
-		if (!(opt & OPT_ALL)) opt |= OPT_INITIAL;
+		opt = getopt32long(argv, "^"
+				"ft:a"
+				"\0"
+				"ta" /* -t NUM sets -a */,
+				"first-only\0"       No_argument       "f"
+				"tabs\0"             Required_argument "t"
+				"all\0"              No_argument       "a"
+				, &opt_t
+		);
+		/* -t implies -a, but an explicit -f overrides */
+		if (opt & OPT_INITIAL) opt &= ~OPT_ALL;
 	}
 	tab_size = xatou_range(opt_t, 1, UINT_MAX);
 
@@ -220,7 +247,7 @@ int expand_main(int argc UNUSED_PARAM, char **argv)
 	/* Now close stdin also */
 	/* (if we didn't read from it, it's a no-op) */
 	if (fclose(stdin))
-		bb_perror_msg_and_die(bb_msg_standard_input);
+		bb_simple_perror_msg_and_die(bb_msg_standard_input);
 
 	fflush_stdout_and_exit(exit_status);
 }

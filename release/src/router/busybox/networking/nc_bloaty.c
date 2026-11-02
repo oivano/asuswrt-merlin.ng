@@ -84,6 +84,7 @@
 //usage:	)
 //usage:     "\n	-n	Don't do DNS resolution"
 //usage:     "\n	-u	UDP mode"
+//usage:     "\n	-b	Allow broadcasts"
 //usage:     "\n	-v	Verbose"
 //usage:	IF_NC_EXTRA(
 //usage:     "\n	-o FILE	Hex dump traffic"
@@ -171,17 +172,19 @@ enum {
 	OPT_p = (1 << 1),
 	OPT_s = (1 << 2),
 	OPT_u = (1 << 3),
-	OPT_v = (1 << 4),
-	OPT_w = (1 << 5),
-	OPT_l = (1 << 6) * ENABLE_NC_SERVER,
-	OPT_k = (1 << 7) * ENABLE_NC_SERVER,
-	OPT_i = (1 << (6+2*ENABLE_NC_SERVER)) * ENABLE_NC_EXTRA,
-	OPT_o = (1 << (7+2*ENABLE_NC_SERVER)) * ENABLE_NC_EXTRA,
-	OPT_z = (1 << (8+2*ENABLE_NC_SERVER)) * ENABLE_NC_EXTRA,
+	OPT_b = (1 << 4),
+	OPT_v = (1 << 5),
+	OPT_w = (1 << 6),
+	OPT_l = (1 << 7) * ENABLE_NC_SERVER,
+	OPT_k = (1 << 8) * ENABLE_NC_SERVER,
+	OPT_i = (1 << (7+2*ENABLE_NC_SERVER)) * ENABLE_NC_EXTRA,
+	OPT_o = (1 << (8+2*ENABLE_NC_SERVER)) * ENABLE_NC_EXTRA,
+	OPT_z = (1 << (9+2*ENABLE_NC_SERVER)) * ENABLE_NC_EXTRA,
 };
 
 #define o_nflag   (option_mask32 & OPT_n)
 #define o_udpmode (option_mask32 & OPT_u)
+#define o_bcmode  (option_mask32 & OPT_b)
 #if ENABLE_NC_EXTRA
 #define o_ofile   (option_mask32 & OPT_o)
 #define o_zero    (option_mask32 & OPT_z)
@@ -193,13 +196,13 @@ enum {
 /* Debug: squirt whatever message and sleep a bit so we can see it go by. */
 /* Beware: writes to stdOUT... */
 #if 0
-#define Debug(...) do { printf(__VA_ARGS__); printf("\n"); fflush_all(); sleep(1); } while (0)
+#define Debug(...) do { printf(__VA_ARGS__); printf("\n"); fflush_all(); sleep1(); } while (0)
 #else
 #define Debug(...) do { } while (0)
 #endif
 
-#define holler_error(...)  do { if (o_verbose) bb_error_msg(__VA_ARGS__); } while (0)
-#define holler_perror(...) do { if (o_verbose) bb_perror_msg(__VA_ARGS__); } while (0)
+#define holler_error(msg)  do { if (o_verbose) bb_simple_error_msg(msg); } while (0)
+#define holler_perror(msg) do { if (o_verbose) bb_simple_perror_msg(msg); } while (0)
 
 /* catch: no-brainer interrupt handler */
 static void catch(int sig)
@@ -361,10 +364,10 @@ static void dolisten(int is_persistent, char **proggie)
 			rr = recv_from_to(netfd, NULL, 0, MSG_PEEK, /*was bigbuf_net, BIGSIZ*/
 				&remend.u.sa, &ouraddr->u.sa, ouraddr->len);
 			if (rr < 0)
-				bb_perror_msg_and_die("recvfrom");
+				bb_simple_perror_msg_and_die("recvfrom");
 			unarm();
 		} else
-			bb_error_msg_and_die("timeout");
+			bb_simple_error_msg_and_die("timeout");
 /* Now we learned *to which IP* peer has connected, and we want to anchor
 our socket on it, so that our outbound packets will have correct local IP.
 Unfortunately, bind() on already bound socket will fail now (EINVAL):
@@ -382,7 +385,7 @@ create new one, and bind() it. TODO */
 			remend.len = LSA_SIZEOF_SA;
 			rr = accept(netfd, &remend.u.sa, &remend.len);
 			if (rr < 0)
-				bb_perror_msg_and_die("accept");
+				bb_simple_perror_msg_and_die("accept");
 			if (themaddr) {
 				int sv_port, port, r;
 
@@ -409,7 +412,7 @@ create new one, and bind() it. TODO */
 			}
 			unarm();
 		} else
-			bb_error_msg_and_die("timeout");
+			bb_simple_error_msg_and_die("timeout");
 
 		if (is_persistent && proggie) {
 			/* -l -k -e PROG */
@@ -459,7 +462,7 @@ create new one, and bind() it. TODO */
 	 so I don't feel bad.
 	 The *real* question is why BFD sockets wasn't designed to allow listens for
 	 connections *from* specific hosts/ports, instead of requiring the caller to
-	 accept the connection and then reject undesireable ones by closing.
+	 accept the connection and then reject undesirable ones by closing.
 	 In other words, we need a TCP MSG_PEEK. */
 	/* bbox: removed most of it */
 		lcladdr = xmalloc_sockaddr2dotted(&ouraddr->u.sa);
@@ -494,7 +497,7 @@ static int udptest(void)
 
 	rr = write(netfd, bigbuf_in, 1);
 	if (rr != 1)
-		bb_perror_msg("udptest first write");
+		bb_simple_perror_msg("udptest first write");
 
 	if (o_wait)
 		sleep(o_wait); // can be interrupted! while (t) nanosleep(&t)?
@@ -502,7 +505,7 @@ static int udptest(void)
 	/* use the tcp-ping trick: try connecting to a normally refused port, which
 	 causes us to block for the time that SYN gets there and RST gets back.
 	 Not completely reliable, but it *does* mostly work. */
-	/* Set a temporary connect timeout, so packet filtration doesnt cause
+	/* Set a temporary connect timeout, so packet filtration doesn't cause
 	 us to hang forever, and hit it */
 		o_wait = 5;                     /* enough that we'll notice?? */
 		rr = xsocket(ouraddr->u.sa.sa_family, SOCK_STREAM, 0);
@@ -582,11 +585,10 @@ void oprint(int direction, unsigned char *p, unsigned bc);
 #endif
 
 /* readwrite:
- handle stdin/stdout/network I/O.  Bwahaha!! -- the select loop from hell.
+ handle stdin/stdout/network I/O.  Bwahaha!! -- the i/o loop from hell.
  In this instance, return what might become our exit status. */
 static int readwrite(void)
 {
-	int rr;
 	char *zp = zp; /* gcc */  /* stdin buf ptr */
 	char *np = np;            /* net-in buf ptr */
 	unsigned rzleft;
@@ -594,45 +596,41 @@ static int readwrite(void)
 	unsigned netretry;              /* net-read retry counter */
 	unsigned fds_open;
 
-	/* if you don't have all this FD_* macro hair in sys/types.h, you'll have to
-	 either find it or do your own bit-bashing: *ding1 |= (1 << fd), etc... */
-	fd_set ding1;                   /* for select loop */
-	fd_set ding2;
-	FD_ZERO(&ding1);
-	FD_SET(netfd, &ding1);
-	FD_SET(STDIN_FILENO, &ding1);
-	fds_open = 2;
+	struct pollfd pfds[2];
+	pfds[0].fd = STDIN_FILENO;
+	pfds[0].events = POLLIN;
+	pfds[1].fd = netfd;
+	pfds[1].events = POLLIN;
 
+	fds_open = 2;
 	netretry = 2;
 	rzleft = rnleft = 0;
 	if (o_interval)
 		sleep(o_interval);                /* pause *before* sending stuff, too */
 
-	/* and now the big ol' select shoveling loop ... */
+	/* and now the big ol' shoveling loop ... */
 	/* nc 1.10 has "while (FD_ISSET(netfd)" here */
 	while (fds_open) {
+		int rr;
+		int poll_tmout_ms;
 		unsigned wretry = 8200;               /* net-write sanity counter */
 
-		ding2 = ding1;                        /* FD_COPY ain't portable... */
-	/* some systems, notably linux, crap into their select timers on return, so
-	 we create a expendable copy and give *that* to select.  */
+		poll_tmout_ms = -1;
 		if (o_wait) {
-			struct timeval tmp_timer;
-			tmp_timer.tv_sec = o_wait;
-			tmp_timer.tv_usec = 0;
-		/* highest possible fd is netfd (3) */
-			rr = select(netfd+1, &ding2, NULL, NULL, &tmp_timer);
-		} else
-			rr = select(netfd+1, &ding2, NULL, NULL, NULL);
+			poll_tmout_ms = INT_MAX;
+			if (o_wait < INT_MAX / 1000)
+				poll_tmout_ms = o_wait * 1000;
+		}
+		rr = poll(pfds, 2, poll_tmout_ms);
 		if (rr < 0 && errno != EINTR) {                /* might have gotten ^Zed, etc */
-			holler_perror("select");
+			holler_perror("poll");
 			close(netfd);
 			return 1;
 		}
 	/* if we have a timeout AND stdin is closed AND we haven't heard anything
 	 from the net during that time, assume it's dead and close it too. */
 		if (rr == 0) {
-			if (!FD_ISSET(STDIN_FILENO, &ding1)) {
+			if (!pfds[0].revents) {
 				netretry--;                        /* we actually try a coupla times. */
 				if (!netretry) {
 					if (o_verbose > 1)         /* normally we don't care */
@@ -641,19 +639,17 @@ static int readwrite(void)
 					return 0;                  /* not an error! */
 				}
 			}
-		} /* select timeout */
-	/* xxx: should we check the exception fds too?  The read fds seem to give
-	 us the right info, and none of the examples I found bothered. */
+		} /* timeout */
 
 	/* Ding!!  Something arrived, go check all the incoming hoppers, net first */
-		if (FD_ISSET(netfd, &ding2)) {                /* net: ding! */
+		if (pfds[1].revents) {                /* net: ding! */
 			rr = read(netfd, bigbuf_net, BIGSIZ);
 			if (rr <= 0) {
 				if (rr < 0 && o_verbose > 1) {
 					/* nc 1.10 doesn't do this */
-					bb_perror_msg("net read");
+					bb_simple_perror_msg("net read");
 				}
-				FD_CLR(netfd, &ding1);                /* net closed */
+				pfds[1].fd = -1;                   /* don't poll for netfd anymore */
 				fds_open--;
 				rzleft = 0;                        /* can't write anymore: broken pipe */
 			} else {
@@ -669,12 +665,12 @@ Debug("got %d from the net, errno %d", rr, errno);
 			goto shovel;
 
 	/* okay, suck more stdin */
-		if (FD_ISSET(STDIN_FILENO, &ding2)) {                /* stdin: ding! */
+		if (pfds[0].revents) {                /* stdin: ding! */
 			rr = read(STDIN_FILENO, bigbuf_in, BIGSIZ);
 	/* Considered making reads here smaller for UDP mode, but 8192-byte
 	 mobygrams are kinda fun and exercise the reassembler. */
 			if (rr <= 0) {                        /* at end, or fukt, or ... */
-				FD_CLR(STDIN_FILENO, &ding1); /* disable stdin */
+				pfds[0].fd = -1;              /* disable stdin */
 				/*close(STDIN_FILENO); - not really necessary */
 				/* Let peer know we have no more data */
 				/* nc 1.10 doesn't do this: */
@@ -718,7 +714,7 @@ Debug("wrote %d to net, errno %d", rr, errno);
 		} /* rzleft */
 		if (o_interval) {                        /* cycle between slow lines, or ... */
 			sleep(o_interval);
-			continue;                        /* ...with hairy select loop... */
+			continue;                        /* ...with hairy loop... */
 		}
 		if (rzleft || rnleft) {                  /* shovel that shit till they ain't */
 			wretry--;                        /* none left, and get another load */
@@ -794,11 +790,15 @@ int nc_main(int argc UNUSED_PARAM, char **argv)
  e_found:
 
 	// -g -G -t -r deleted, unimplemented -a deleted too
-	opt_complementary = "?2:vv:ll:w+"; /* max 2 params; -v and -l are counters; -w N */
-	getopt32(argv, "np:s:uvw:" IF_NC_SERVER("lk")
-			IF_NC_EXTRA("i:o:z"),
-			&str_p, &str_s, &o_wait
-			IF_NC_EXTRA(, &str_i, &str_o), &o_verbose IF_NC_SERVER(, &cnt_l));
+	getopt32(argv, "^"
+		"np:s:ubvw:+"/* -w N */ IF_NC_SERVER("lk")
+		IF_NC_EXTRA("i:o:z")
+			"\0"
+			"?2:vv"IF_NC_SERVER(":ll"), /* max 2 params; -v and -l are counters */
+		&str_p, &str_s, &o_wait
+		IF_NC_EXTRA(, &str_i, &str_o)
+			, &o_verbose IF_NC_SERVER(, &cnt_l)
+	);
 	argv += optind;
 #if ENABLE_NC_EXTRA
 	if (option_mask32 & OPT_i) /* line-interval time */
@@ -813,8 +813,6 @@ int nc_main(int argc UNUSED_PARAM, char **argv)
 	//if (option_mask32 & OPT_o) /* hexdump log */
 	if (option_mask32 & OPT_p) { /* local source port */
 		o_lport = bb_lookup_port(str_p, o_udpmode ? "udp" : "tcp", 0);
-		if (!o_lport)
-			bb_error_msg_and_die("bad local port '%s'", str_p);
 	}
 	//if (option_mask32 & OPT_r) /* randomize various things */
 	//if (option_mask32 & OPT_u) /* use UDP */
@@ -827,9 +825,8 @@ int nc_main(int argc UNUSED_PARAM, char **argv)
 
 	if (argv[0]) {
 		themaddr = xhost2sockaddr(argv[0],
-			argv[1]
-			? bb_lookup_port(argv[1], o_udpmode ? "udp" : "tcp", 0)
-			: 0);
+			bb_lookup_port(argv[1], o_udpmode ? "udp" : "tcp", 0)
+		);
 	}
 
 	/* create & bind network socket */
@@ -854,8 +851,11 @@ int nc_main(int argc UNUSED_PARAM, char **argv)
 	}
 	xmove_fd(x, netfd);
 	setsockopt_reuseaddr(netfd);
-	if (o_udpmode)
+	if (o_udpmode) {
+		if (o_bcmode)
+			setsockopt_broadcast(netfd);
 		socket_want_pktinfo(netfd);
+	}
 	if (!ENABLE_FEATURE_UNIX_LOCAL
 	 || cnt_l != 0 /* listen */
 	 || ouraddr->u.sa.sa_family != AF_UNIX
@@ -872,7 +872,7 @@ int nc_main(int argc UNUSED_PARAM, char **argv)
 		/* apparently UDP can listen ON "port 0",
 		 but that's not useful */
 		if (!o_lport)
-			bb_error_msg_and_die("UDP listen needs nonzero -p port");
+			bb_simple_error_msg_and_die("UDP listen needs nonzero -p port");
 	}
 #endif
 

@@ -8,7 +8,6 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
-
 #include "libbb.h"
 
 
@@ -22,40 +21,29 @@ typedef struct cache_t {
 	int size;
 } cache_t;
 
-static cache_t username, groupname;
+static cache_t *cache_user_group;
 
-static void clear_cache(cache_t *cp)
-{
-	free(cp->cache);
-	cp->cache = NULL;
-	cp->size = 0;
-}
 void FAST_FUNC clear_username_cache(void)
 {
-	clear_cache(&username);
-	clear_cache(&groupname);
+	if (cache_user_group) {
+		free(cache_user_group[0].cache);
+		free(cache_user_group[1].cache);
+		free(cache_user_group);
+		cache_user_group = NULL;
+	}
 }
 
-#if 0 /* more generic, but we don't need that yet */
-/* Returns -N-1 if not found. */
-/* cp->cache[N] is allocated and must be filled in this case */
-static int get_cached(cache_t *cp, uid_t id)
-{
-	int i;
-	for (i = 0; i < cp->size; i++)
-		if (cp->cache[i].id == id)
-			return i;
-	i = cp->size++;
-	cp->cache = xrealloc_vector(cp->cache, 2, i);
-	cp->cache[i++].id = id;
-	return -i;
-}
-#endif
-
-static char* get_cached(cache_t *cp, uid_t id,
+static char* get_cached(int user_group, uid_t id,
 			char* FAST_FUNC x2x_utoa(uid_t id))
 {
+	cache_t *cp;
 	int i;
+
+	if (!cache_user_group)
+		cache_user_group = xzalloc(sizeof(cache_user_group[0]) * 2);
+
+	cp = &cache_user_group[user_group];
+
 	for (i = 0; i < cp->size; i++)
 		if (cp->cache[i].id == id)
 			return cp->cache[i].name;
@@ -68,11 +56,11 @@ static char* get_cached(cache_t *cp, uid_t id,
 }
 const char* FAST_FUNC get_cached_username(uid_t uid)
 {
-	return get_cached(&username, uid, uid2uname_utoa);
+	return get_cached(0, uid, uid2uname_utoa);
 }
 const char* FAST_FUNC get_cached_groupname(gid_t gid)
 {
-	return get_cached(&groupname, gid, gid2group_utoa);
+	return get_cached(1, gid, gid2group_utoa);
 }
 
 
@@ -95,15 +83,15 @@ static int read_to_buf(const char *filename, void *buf)
 
 static procps_status_t* FAST_FUNC alloc_procps_scan(void)
 {
-	unsigned n = getpagesize();
 	procps_status_t* sp = xzalloc(sizeof(procps_status_t));
-	sp->dir = xopendir("/proc");
+	unsigned n = bb_getpagesize();
 	while (1) {
 		n >>= 1;
 		if (!n) break;
 		sp->shift_pages_to_bytes++;
 	}
 	sp->shift_pages_to_kb = sp->shift_pages_to_bytes - 10;
+	sp->dir = xopendir("/proc");
 	return sp;
 }
 
@@ -121,11 +109,11 @@ void FAST_FUNC free_procps_scan(procps_status_t* sp)
 }
 
 #if ENABLE_FEATURE_TOPMEM || ENABLE_PMAP
-static unsigned long fast_strtoul_16(char **endptr)
+static unsigned long long fast_strtoull_16(char **endptr)
 {
 	unsigned char c;
 	char *str = *endptr;
-	unsigned long n = 0;
+	unsigned long long n = 0;
 
 	/* Need to stop on both ' ' and '\n' */
 	while ((c = *str++) > ' ') {
@@ -179,6 +167,15 @@ static char *skip_fields(char *str, int count)
 #endif
 
 #if ENABLE_FEATURE_TOPMEM || ENABLE_PMAP
+static char* skip_whitespace_if_prefixed_with(char *buf, const char *prefix)
+{
+	char *tp = is_prefixed_with(buf, prefix);
+	if (tp) {
+		tp = skip_whitespace(tp);
+	}
+	return tp;
+}
+
 int FAST_FUNC procps_read_smaps(pid_t pid, struct smaprec *total,
 		void (*cb)(struct smaprec *, void *), void *data)
 {
@@ -208,8 +205,7 @@ int FAST_FUNC procps_read_smaps(pid_t pid, struct smaprec *total,
 		char *tp, *p;
 
 #define SCAN(S, X) \
-		if ((tp = is_prefixed_with(buf, S)) != NULL) {       \
-			tp = skip_whitespace(tp);                    \
+		if ((tp = skip_whitespace_if_prefixed_with(buf, S)) != NULL) { \
 			total->X += currec.X = fast_strtoul_10(&tp); \
 			continue;                                    \
 		}
@@ -239,8 +235,8 @@ int FAST_FUNC procps_read_smaps(pid_t pid, struct smaprec *total,
 
 			*tp = ' ';
 			tp = buf;
-			currec.smap_start = fast_strtoul_16(&tp);
-			currec.smap_size = (fast_strtoul_16(&tp) - currec.smap_start) >> 10;
+			currec.smap_start = fast_strtoull_16(&tp);
+			currec.smap_size = (fast_strtoull_16(&tp) - currec.smap_start) >> 10;
 
 			strncpy(currec.smap_mode, tp, sizeof(currec.smap_mode)-1);
 
@@ -370,6 +366,7 @@ procps_status_t* FAST_FUNC procps_scan(procps_status_t* sp, int flags)
 			| PSSCAN_TTY | PSSCAN_NICE
 			| PSSCAN_CPU)
 		) {
+			int s_idx;
 			char *cp, *comm1;
 			int tty;
 #if !ENABLE_FEATURE_FAST_TOP
@@ -468,17 +465,20 @@ procps_status_t* FAST_FUNC procps_scan(procps_status_t* sp, int flags)
 #if ENABLE_FEATURE_PS_ADDITIONAL_COLUMNS
 			sp->niceness = tasknice;
 #endif
-
-			if (sp->vsz == 0 && sp->state[0] != 'Z')
+			sp->state[1] = ' ';
+			sp->state[2] = ' ';
+			s_idx = 1;
+			if (sp->vsz == 0 && sp->state[0] != 'Z') {
+				/* not sure what the purpose of this flag */
 				sp->state[1] = 'W';
-			else
-				sp->state[1] = ' ';
-			if (tasknice < 0)
-				sp->state[2] = '<';
-			else if (tasknice) /* > 0 */
-				sp->state[2] = 'N';
-			else
-				sp->state[2] = ' ';
+				s_idx = 2;
+			}
+			if (tasknice != 0) {
+				if (tasknice < 0)
+					sp->state[s_idx] = '<';
+				else /* > 0 */
+					sp->state[s_idx] = 'N';
+			}
 		}
 
 #if ENABLE_FEATURE_TOPMEM

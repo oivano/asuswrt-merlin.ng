@@ -24,7 +24,7 @@
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ''AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
@@ -65,25 +65,25 @@
 
 
 /* A pile of data */
-static const uint8_t IP[64] = {
+static const uint8_t IP[64] ALIGN1 = {
 	58, 50, 42, 34, 26, 18, 10,  2, 60, 52, 44, 36, 28, 20, 12,  4,
 	62, 54, 46, 38, 30, 22, 14,  6, 64, 56, 48, 40, 32, 24, 16,  8,
 	57, 49, 41, 33, 25, 17,  9,  1, 59, 51, 43, 35, 27, 19, 11,  3,
 	61, 53, 45, 37, 29, 21, 13,  5, 63, 55, 47, 39, 31, 23, 15,  7
 };
 
-static const uint8_t key_perm[56] = {
+static const uint8_t key_perm[56] ALIGN1 = {
 	57, 49, 41, 33, 25, 17,  9,  1, 58, 50, 42, 34, 26, 18,
 	10,  2, 59, 51, 43, 35, 27, 19, 11,  3, 60, 52, 44, 36,
 	63, 55, 47, 39, 31, 23, 15,  7, 62, 54, 46, 38, 30, 22,
 	14,  6, 61, 53, 45, 37, 29, 21, 13,  5, 28, 20, 12,  4
 };
 
-static const uint8_t key_shifts[16] = {
+static const uint8_t key_shifts[16] ALIGN1 = {
 	1, 1, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 1
 };
 
-static const uint8_t comp_perm[48] = {
+static const uint8_t comp_perm[48] ALIGN1 = {
 	14, 17, 11, 24,  1,  5,  3, 28, 15,  6, 21, 10,
 	23, 19, 12,  4, 26,  8, 16,  7, 27, 20, 13,  2,
 	41, 52, 31, 37, 47, 55, 30, 40, 51, 45, 33, 48,
@@ -181,13 +181,12 @@ static const uint8_t u_sbox[8][32] = {
 };
 #endif
 
-static const uint8_t pbox[32] = {
+static const uint8_t pbox[32] ALIGN1 = {
 	16,  7, 20, 21, 29, 12, 28, 17,  1, 15, 23, 26,  5, 18, 31, 10,
 	 2,  8, 24, 14, 32, 27,  3,  9, 19, 13, 30,  6, 22, 11,  4, 25
 };
 
-static const uint32_t bits32[32] =
-{
+static const uint32_t bits32[32] ALIGN4 = {
 	0x80000000, 0x40000000, 0x20000000, 0x10000000,
 	0x08000000, 0x04000000, 0x02000000, 0x01000000,
 	0x00800000, 0x00400000, 0x00200000, 0x00100000,
@@ -198,7 +197,7 @@ static const uint32_t bits32[32] =
 	0x00000008, 0x00000004, 0x00000002, 0x00000001
 };
 
-static const uint8_t bits8[8] = { 0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01 };
+static const uint8_t bits8[8] ALIGN1 = { 0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01 };
 
 
 static int
@@ -364,7 +363,7 @@ des_init(struct des_ctx *ctx, const struct const_des_ctx *cctx)
 	old_rawkey0 = old_rawkey1 = 0;
 	old_salt = 0;
 #endif
-	saltbits = 0;
+	//saltbits = 0; /* not needed: we call setup_salt() before do_des() */
 	bits28 = bits32 + 4;
 	bits24 = bits28 + 4;
 
@@ -482,12 +481,11 @@ des_init(struct des_ctx *ctx, const struct const_des_ctx *cctx)
 	return ctx;
 }
 
-
+/* Accepts 24-bit salt at max */
 static void
 setup_salt(struct des_ctx *ctx, uint32_t salt)
 {
-	uint32_t obit, saltbit;
-	int i;
+	uint32_t invbits;
 
 #if USE_REPETITIVE_SPEEDUP
 	if (salt == old_salt)
@@ -495,15 +493,15 @@ setup_salt(struct des_ctx *ctx, uint32_t salt)
 	old_salt = salt;
 #endif
 
-	saltbits = 0;
-	saltbit = 1;
-	obit = 0x800000;
-	for (i = 0; i < 24; i++) {
-		if (salt & saltbit)
-			saltbits |= obit;
-		saltbit <<= 1;
-		obit >>= 1;
-	}
+	invbits = 0;
+
+	salt |= (1 << 24);
+	do {
+		invbits = (invbits << 1) + (salt & 1);
+		salt >>= 1;
+	} while (salt != 1);
+
+	saltbits = invbits;
 }
 
 static void
@@ -714,10 +712,14 @@ to64_msb_first(char *s, unsigned v)
 static char *
 NOINLINE
 des_crypt(struct des_ctx *ctx, char output[DES_OUT_BUFSIZE],
-		const unsigned char *key, const unsigned char *setting)
+		const unsigned char *key, const unsigned char *salt_str)
 {
 	uint32_t salt, r0, r1, keybuf[2];
 	uint8_t *q;
+
+	/* Bad salt? Mimic crypt() API - return NULL */
+	if (!salt_str[0] || !salt_str[1])
+		return NULL;
 
 	/*
 	 * Copy the key, shifting each character up by one bit
@@ -733,22 +735,15 @@ des_crypt(struct des_ctx *ctx, char output[DES_OUT_BUFSIZE],
 	des_setkey(ctx, (char *)keybuf);
 
 	/*
-	 * setting - 2 bytes of salt
+	 * salt_str - 2 chars of salt (converted to 12 bits)
 	 * key - up to 8 characters
 	 */
-	salt = (ascii_to_bin(setting[1]) << 6)
-	     |  ascii_to_bin(setting[0]);
+	output[0] = salt_str[0];
+	output[1] = salt_str[1];
+	salt = (ascii_to_bin(salt_str[1]) << 6)
+	     |  ascii_to_bin(salt_str[0]);
+	setup_salt(ctx, salt); /* set ctx->saltbits for do_des() */
 
-	output[0] = setting[0];
-	/*
-	 * If the encrypted password that the salt was extracted from
-	 * is only 1 character long, the salt will be corrupted.  We
-	 * need to ensure that the output string doesn't have an extra
-	 * NUL in it!
-	 */
-	output[1] = setting[1] ? setting[1] : output[0];
-
-	setup_salt(ctx, salt);
 	/* Do it. */
 	do_des(ctx, /*0, 0,*/ &r0, &r1, 25 /* count */);
 

@@ -6,17 +6,27 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
+//config:config LSUSB
+//config:	bool "lsusb (4.2 kb)"
+//config:	default y
+//config:	help
+//config:	lsusb is a utility for displaying information about USB buses in the
+//config:	system and devices connected to them.
+//config:
+//config:	This version uses sysfs (/sys/bus/usb/devices) only.
+
+//applet:IF_LSUSB(APPLET_NOEXEC(lsusb, lsusb, BB_DIR_USR_BIN, BB_SUID_DROP, lsusb))
+
+//kbuild:lib-$(CONFIG_LSUSB) += lsusb.o
 
 //usage:#define lsusb_trivial_usage NOUSAGE_STR
 //usage:#define lsusb_full_usage ""
 
 #include "libbb.h"
 
-static int FAST_FUNC fileAction(
+static int FAST_FUNC fileAction(struct recursive_state *state UNUSED_PARAM,
 		const char *fileName,
-		struct stat *statbuf UNUSED_PARAM,
-		void *userData UNUSED_PARAM,
-		int depth UNUSED_PARAM)
+		struct stat *statbuf UNUSED_PARAM)
 {
 	parser_t *parser;
 	char *tokens[4];
@@ -68,8 +78,8 @@ int lsusb_main(int argc UNUSED_PARAM, char **argv UNUSED_PARAM)
 			ACTION_RECURSE,
 			fileAction,
 			NULL, /* dirAction */
-			NULL, /* userData */
-			0 /* depth */);
+			NULL /* userData */
+	);
 
 	return EXIT_SUCCESS;
 }

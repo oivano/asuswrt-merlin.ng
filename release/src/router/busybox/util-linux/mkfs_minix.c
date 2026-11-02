@@ -62,6 +62,27 @@
  * Modified for BusyBox by Erik Andersen <andersen@debian.org> --
  *	removed getopt based parser and added a hand rolled one.
  */
+//config:config MKFS_MINIX
+//config:	bool "mkfs.minix (10 kb)"
+//config:	default y
+//config:	help
+//config:	The minix filesystem is a nice, small, compact, read-write filesystem
+//config:	with little overhead. If you wish to be able to create minix
+//config:	filesystems this utility will do the job for you.
+//config:
+//config:config FEATURE_MINIX2
+//config:	bool "Support Minix fs v2 (fsck_minix/mkfs_minix)"
+//config:	default y
+//config:	depends on FSCK_MINIX || MKFS_MINIX
+//config:	help
+//config:	If you wish to be able to create version 2 minix filesystems, enable
+//config:	this. If you enabled 'mkfs_minix' then you almost certainly want to
+//config:	be using the version 2 filesystem support.
+
+//                     APPLET_ODDNAME:name        main        location     suid_type     help
+//applet:IF_MKFS_MINIX(APPLET_ODDNAME(mkfs.minix, mkfs_minix, BB_DIR_SBIN, BB_SUID_DROP, mkfs_minix))
+
+//kbuild:lib-$(CONFIG_MKFS_MINIX) += mkfs_minix.o
 
 //usage:#define mkfs_minix_trivial_usage
 //usage:       "[-c | -l FILE] [-nXX] [-iXX] BLOCKDEV [KBYTES]"
@@ -120,7 +141,10 @@ struct globals {
 	unsigned currently_testing;
 
 	char root_block[BLOCK_SIZE];
-	char superblock_buffer[BLOCK_SIZE];
+	union {
+		char superblock_buffer[BLOCK_SIZE];
+		struct minix_superblock SB;
+	} u;
 	char boot_block_buffer[512];
 	unsigned short good_blocks_table[MAX_GOOD_BLOCKS];
 	/* check_blocks(): buffer[] was the biggest static in entire bbox */
@@ -144,7 +168,7 @@ static ALWAYS_INLINE unsigned div_roundup(unsigned size, unsigned n)
 #define INODE_BUF1              (((struct minix1_inode*)G.inode_buffer) - 1)
 #define INODE_BUF2              (((struct minix2_inode*)G.inode_buffer) - 1)
 
-#define SB                      (*(struct minix_superblock*)G.superblock_buffer)
+#define SB                      (G.u.SB)
 
 #define SB_INODES               (SB.s_ninodes)
 #define SB_IMAPS                (SB.s_imap_blocks)
@@ -212,7 +236,7 @@ static void write_tables(void)
 	xlseek(dev_fd, BLOCK_SIZE, SEEK_SET);
 
 	msg_eol = "can't write superblock";
-	xwrite(dev_fd, G.superblock_buffer, BLOCK_SIZE);
+	xwrite(dev_fd, G.u.superblock_buffer, BLOCK_SIZE);
 
 	msg_eol = "can't write inode map";
 	xwrite(dev_fd, G.inode_map, SB_IMAPS * BLOCK_SIZE);
@@ -237,7 +261,7 @@ static int get_free_block(void)
 	int blk;
 
 	if (G.used_good_blocks + 1 >= MAX_GOOD_BLOCKS)
-		bb_error_msg_and_die("too many bad blocks");
+		bb_simple_error_msg_and_die("too many bad blocks");
 	if (G.used_good_blocks)
 		blk = G.good_blocks_table[G.used_good_blocks - 1] + 1;
 	else
@@ -245,7 +269,7 @@ static int get_free_block(void)
 	while (blk < SB_ZONES && zone_in_use(blk))
 		blk++;
 	if (blk >= SB_ZONES)
-		bb_error_msg_and_die("not enough good blocks");
+		bb_simple_error_msg_and_die("not enough good blocks");
 	G.good_blocks_table[G.used_good_blocks] = blk;
 	G.used_good_blocks++;
 	return blk;
@@ -317,7 +341,7 @@ static void make_bad_inode(void)
 				goto end_bad;
 		}
 	}
-	bb_error_msg_and_die("too many bad blocks");
+	bb_simple_error_msg_and_die("too many bad blocks");
  end_bad:
 	if (ind)
 		write_block(ind, (char *) ind_block);
@@ -373,7 +397,7 @@ static void make_bad_inode2(void)
 		}
 	}
 	/* Could make triple indirect block here */
-	bb_error_msg_and_die("too many bad blocks");
+	bb_simple_error_msg_and_die("too many bad blocks");
  end_bad:
 	if (ind)
 		write_block(ind, (char *) ind_block);
@@ -489,7 +513,7 @@ static void check_blocks(void)
 		if (got == try)
 			continue;
 		if (G.currently_testing < SB_FIRSTZONE)
-			bb_error_msg_and_die("bad blocks before data-area: cannot make fs");
+			bb_simple_error_msg_and_die("bad blocks before data-area: cannot make fs");
 		mark_zone(G.currently_testing);
 		G.badblocks++;
 		G.currently_testing++;
@@ -519,7 +543,7 @@ static void setup_tables(void)
 	unsigned sb_zmaps;
 	unsigned i;
 
-	/* memset(G.superblock_buffer, 0, BLOCK_SIZE); */
+	/* memset(G.u.superblock_buffer, 0, BLOCK_SIZE); */
 	/* memset(G.boot_block_buffer, 0, 512); */
 	SB_MAGIC = G.magic;
 	SB_ZONE_SIZE = 0;
@@ -563,7 +587,7 @@ static void setup_tables(void)
 		SB_ZMAPS = sb_zmaps;
 		/* new SB_ZMAPS, need to recalc NORM_FIRSTZONE */
 	} while (--i);
-	bb_error_msg_and_die("incompatible size/inode count, try different -i N");
+	bb_simple_error_msg_and_die("incompatible size/inode count, try different -i N");
  got_it:
 
 	SB_FIRSTZONE = norm_firstzone;
@@ -598,14 +622,13 @@ int mkfs_minix_main(int argc UNUSED_PARAM, char **argv)
 	G.magic = MINIX1_SUPER_MAGIC2;
 
 	if (INODE_SIZE1 * MINIX1_INODES_PER_BLOCK != BLOCK_SIZE)
-		bb_error_msg_and_die("bad inode size");
+		bb_simple_error_msg_and_die("bad inode size");
 #if ENABLE_FEATURE_MINIX2
 	if (INODE_SIZE2 * MINIX2_INODES_PER_BLOCK != BLOCK_SIZE)
-		bb_error_msg_and_die("bad inode size");
+		bb_simple_error_msg_and_die("bad inode size");
 #endif
 
-	opt_complementary = "n+"; /* -n N */
-	opt = getopt32(argv, "ci:l:n:v", &str_i, &listfile, &G.namelen);
+	opt = getopt32(argv, "ci:l:n:+v", &str_i, &listfile, &G.namelen);
 	argv += optind;
 	//if (opt & 1) -c
 	if (opt & 2) G.req_nr_inodes = xatoul(str_i); // -i
@@ -620,7 +643,7 @@ int mkfs_minix_main(int argc UNUSED_PARAM, char **argv)
 #if ENABLE_FEATURE_MINIX2
 		version2 = 1;
 #else
-		bb_error_msg_and_die("not compiled with minix v2 support");
+		bb_simple_error_msg_and_die("not compiled with minix v2 support");
 #endif
 	}
 
@@ -630,14 +653,14 @@ int mkfs_minix_main(int argc UNUSED_PARAM, char **argv)
 
 	/* Check if it is mounted */
 	if (find_mount_point(G.device_name, 0))
-		bb_error_msg_and_die("can't format mounted filesystem");
+		bb_simple_error_msg_and_die("can't format mounted filesystem");
 
 	xmove_fd(xopen(G.device_name, O_RDWR), dev_fd);
 
 	G.total_blocks = get_volume_size_in_bytes(dev_fd, argv[1], 1024, /*extend:*/ 1) / 1024;
 
 	if (G.total_blocks < 10)
-		bb_error_msg_and_die("must have at least 10 blocks");
+		bb_simple_error_msg_and_die("must have at least 10 blocks");
 
 	if (version2) {
 		G.magic = MINIX2_SUPER_MAGIC2;

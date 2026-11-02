@@ -20,7 +20,7 @@ testing "printf produces no further output 2" \
 	"" ""
 
 testing "printf repeatedly uses pattern for each argv" \
-	"${bb}printf '%s\n' foo \$HOME" \
+	"${bb}printf '%s\n' foo '$HOME'" \
 	"foo\n$HOME\n" \
 	"" ""
 
@@ -79,6 +79,44 @@ testing "printf understands %Ld" \
 	"-5\n""0\n" \
 	"" ""
 
+testing "printf understands %%" \
+	"${bb}printf '%%\n' 2>&1; echo \$?" \
+	"%\n""0\n" \
+	"" ""
+
+testing "printf handles positive numbers for %d" \
+	"${bb}printf '%d\n' 3 +3 '   3' '   +3' 2>&1; echo \$?" \
+	"3\n"\
+"3\n"\
+"3\n"\
+"3\n""0\n" \
+	"" ""
+
+testing "printf handles positive numbers for %i" \
+	"${bb}printf '%i\n' 3 +3 '   3' '   +3' 2>&1; echo \$?" \
+	"3\n"\
+"3\n"\
+"3\n"\
+"3\n""0\n" \
+	"" ""
+
+testing "printf handles positive numbers for %x" \
+	"${bb}printf '%x\n' 42 +42 '   42' '   +42' 2>&1; echo \$?" \
+	"2a\n"\
+"2a\n"\
+"2a\n"\
+"2a\n""0\n" \
+	"" ""
+
+testing "printf handles positive numbers for %f" \
+	"${bb}printf '%0.3f\n' .42 +.42 '   .42' '   +.42' 2>&1; echo \$?" \
+	"0.420\n"\
+"0.420\n"\
+"0.420\n"\
+"0.420\n""0\n" \
+	"" ""
+
+
 # "FIXED" now to act compatibly
 ## We are "more correct" here than bash/coreutils: they happily print -2
 ## as if it is a huge unsigned number
@@ -103,6 +141,16 @@ testing "printf aborts on bare %" \
 testing "printf aborts on %r" \
 	"${bb}printf '%r' a b c 2>&1; echo \$?" \
 	"printf: %r: invalid format\n""1\n" \
+	"" ""
+
+testing "printf treats leading 0 as flag" \
+	"${bb}printf '%0*d\n' 2 1 2>&1; echo \$?" \
+	"01\n""0\n" \
+	"" ""
+
+testing "printf handles multiple flags" \
+	"${bb}printf '%0 d\n' 2 2>&1; echo \$?" \
+	" 2\n""0\n" \
 	"" ""
 
 exit $FAILCOUNT

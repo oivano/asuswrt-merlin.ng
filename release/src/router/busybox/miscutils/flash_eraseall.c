@@ -1,5 +1,6 @@
 /* vi: set sw=4 ts=4: */
-/* eraseall.c -- erase the whole of a MTD device
+/*
+ * eraseall.c -- erase the whole of a MTD device
  *
  * Ported to busybox from mtd-utils.
  *
@@ -9,6 +10,17 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
+//config:config FLASH_ERASEALL
+//config:	bool "flash_eraseall (5.9 kb)"
+//config:	default n  # doesn't build on Ubuntu 8.04
+//config:	help
+//config:	The flash_eraseall binary from mtd-utils as of git head c4c6a59eb.
+//config:	This utility is used to erase the whole MTD device.
+
+//applet:IF_FLASH_ERASEALL(APPLET(flash_eraseall, BB_DIR_USR_SBIN, BB_SUID_DROP))
+/* not NOEXEC: if flash operation stalls, use less memory in "hung" process */
+
+//kbuild:lib-$(CONFIG_FLASH_ERASEALL) += flash_eraseall.o
 
 //usage:#define flash_eraseall_trivial_usage
 //usage:       "[-jNq] MTD_DEVICE"
@@ -71,8 +83,7 @@ int flash_eraseall_main(int argc UNUSED_PARAM, char **argv)
 	unsigned int flags;
 	char *mtd_name;
 
-	opt_complementary = "=1";
-	flags = getopt32(argv, "jNq");
+	flags = getopt32(argv, "^" "jNq" "\0" "=1");
 
 	mtd_name = argv[optind];
 	fd = xopen(mtd_name, O_RDWR);
@@ -90,7 +101,7 @@ int flash_eraseall_main(int argc UNUSED_PARAM, char **argv)
 	if (flags & OPTION_J) {
 		uint32_t *crc32_table;
 
-		crc32_table = crc32_filltable(NULL, 0);
+		crc32_table = crc32_new_table_le();
 
 		cleanmarker.magic = cpu_to_je16(JFFS2_MAGIC_BITMASK);
 		cleanmarker.nodetype = cpu_to_je16(JFFS2_NODETYPE_CLEANMARKER);
@@ -109,7 +120,7 @@ int flash_eraseall_main(int argc UNUSED_PARAM, char **argv)
 				if (clmlen > 8)
 					clmlen = 8;
 				if (clmlen == 0)
-					bb_error_msg_and_die("autoplacement selected and no empty space in oob");
+					bb_simple_error_msg_and_die("autoplacement selected and no empty space in oob");
 			} else {
 				/* Legacy mode */
 				switch (meminfo.oobsize) {
@@ -157,9 +168,9 @@ int flash_eraseall_main(int argc UNUSED_PARAM, char **argv)
 				if (errno == EOPNOTSUPP) {
 					flags |= OPTION_N;
 					if (flags & IS_NAND)
-						bb_error_msg_and_die("bad block check not available");
+						bb_simple_error_msg_and_die("bad block check not available");
 				} else {
-					bb_perror_msg_and_die("MEMGETBADBLOCK error");
+					bb_simple_perror_msg_and_die("MEMGETBADBLOCK error");
 				}
 			}
 		}

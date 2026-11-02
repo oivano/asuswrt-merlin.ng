@@ -5,12 +5,11 @@
  *
  * Contact me: vda.linux@googlemail.com
  */
-
 //config:config NMETER
-//config:	bool "nmeter"
+//config:	bool "nmeter (11 kb)"
 //config:	default y
 //config:	help
-//config:	  Prints selected system stats continuously, one line per update.
+//config:	Prints selected system stats continuously, one line per update.
 
 //applet:IF_NMETER(APPLET(nmeter, BB_DIR_USR_BIN, BB_SUID_DROP))
 
@@ -24,10 +23,12 @@
 //usage:     "\n -d MSEC	Milliseconds between updates, default:1000, none:-1"
 //usage:     "\n"
 //usage:     "\nFormat specifiers:"
-//usage:     "\n %Nc or %[cN]	CPU. N - bar size (default:10)"
+//usage:     "\n %Nc or %[cN]	CPU. N - bar size (default 10)"
 //usage:     "\n		(displays: S:system U:user N:niced D:iowait I:irq i:softirq)"
 //usage:     "\n %[nINTERFACE]	Network INTERFACE"
 //usage:     "\n %m		Allocated memory"
+//usage:     "\n %[md]		Dirty file-backed memory"
+//usage:     "\n %[mw]		Memory being written to storage"
 //usage:     "\n %[mf]		Free memory"
 //usage:     "\n %[mt]		Total memory"
 //usage:     "\n %s		Allocated swap"
@@ -38,6 +39,7 @@
 //usage:     "\n %[pn]		# of processes"
 //usage:     "\n %b		Block io"
 //usage:     "\n %Nt		Time (with N decimal points)"
+//usage:     "\n %NT		Zero-based timestamp (with N decimal points)"
 //usage:     "\n %r		Print <cr> instead of <lf> at EOL"
 
 //TODO:
@@ -68,7 +70,7 @@ typedef struct proc_file {
 	smallint last_gen;
 } proc_file;
 
-static const char *const proc_name[] = {
+static const char *const proc_name[] ALIGN_PTR = {
 	"stat",		// Must match the order of proc_file's!
 	"loadavg",
 	"net/dev",
@@ -89,6 +91,7 @@ struct globals {
 	int delta;
 	unsigned deltanz;
 	struct timeval tv;
+	struct timeval start;
 #define first_proc_file proc_stat
 	proc_file proc_stat;	// Must match the order of proc_name's!
 	proc_file proc_loadavg;
@@ -102,7 +105,6 @@ struct globals {
 #define is26               (G.is26              )
 #define need_seconds       (G.need_seconds      )
 #define cur_outbuf         (G.cur_outbuf        )
-#define tv                 (G.tv                )
 #define proc_stat          (G.proc_stat         )
 #define proc_loadavg       (G.proc_loadavg      )
 #define proc_net_dev       (G.proc_net_dev      )
@@ -121,11 +123,6 @@ struct globals {
 static inline void reset_outbuf(void)
 {
 	cur_outbuf = outbuf;
-}
-
-static inline int outbuf_count(void)
-{
-	return cur_outbuf - outbuf;
 }
 
 static void print_outbuf(void)
@@ -213,7 +210,7 @@ enum conv_type {
 // Reads decimal values from line. Values start after key, for example:
 // "cpu  649369 0 341297 4336769..." - key is "cpu" here.
 // Values are stored in vec[].
-// posbits is a bit lit of positions we are interested in.
+// posbits is a bit list of positions we are interested in.
 // for example: 00100110 - we want 1st, 2nd and 5th value.
 // posbits.bit0 encodes conversion type.
 static int rdval(const char* p, const char* key, ullong *vec, long posbits)
@@ -352,7 +349,7 @@ static s_stat* init_cr(const char *param UNUSED_PARAM)
 enum { CPU_FIELDCNT = 7 };
 S_STAT(cpu_stat)
 	ullong old[CPU_FIELDCNT];
-	int bar_sz;
+	unsigned bar_sz;
 	char bar[1];
 S_STAT_END(cpu_stat)
 
@@ -361,8 +358,8 @@ static void FAST_FUNC collect_cpu(cpu_stat *s)
 	ullong data[CPU_FIELDCNT] = { 0, 0, 0, 0, 0, 0, 0 };
 	unsigned frac[CPU_FIELDCNT] = { 0, 0, 0, 0, 0, 0, 0 };
 	ullong all = 0;
-	int norm_all = 0;
-	int bar_sz = s->bar_sz;
+	unsigned norm_all = 0;
+	unsigned bar_sz = s->bar_sz;
 	char *bar = s->bar;
 	int i;
 
@@ -421,8 +418,8 @@ static s_stat* init_cpu(const char *param)
 {
 	int sz;
 	cpu_stat *s;
-	sz = strtoul(param, NULL, 0); /* param can be "" */
-	if (sz < 10) sz = 10;
+	sz = param[0] ? strtoul(param, NULL, 0) : 10;
+	if (sz <= 0) sz = 1;
 	if (sz > 1000) sz = 1000;
 	s = xzalloc(sizeof(*s) + sz);
 	/*s->bar[sz] = '\0'; - xzalloc did it */
@@ -518,7 +515,7 @@ static void FAST_FUNC collect_blk(blk_stat *s)
 		return;
 	}
 
-	for (i=0; i<2; i++) {
+	for (i = 0; i < 2; i++) {
 		ullong old = s->old[i];
 		if (data[i] < old) old = data[i];		//sanitize
 		s->old[i] = data[i];
@@ -600,7 +597,7 @@ static void FAST_FUNC collect_if(if_stat *s)
 		return;
 	}
 
-	for (i=0; i<4; i++) {
+	for (i = 0; i < 4; i++) {
 		ullong old = s->old[i];
 		if (data[i] < old) old = data[i];		//sanitize
 		s->old[i] = data[i];
@@ -666,13 +663,31 @@ S_STAT_END(mem_stat)
 //Hugepagesize:     4096 kB
 static void FAST_FUNC collect_mem(mem_stat *s)
 {
-	ullong m_total = 0;
-	ullong m_free = 0;
-	ullong m_bufs = 0;
-	ullong m_cached = 0;
-	ullong m_slab = 0;
+	ullong m_total;
+	ullong m_free;
+	ullong m_bufs;
+	ullong m_cached;
+	ullong m_slab;
 
-	if (rdval(get_file(&proc_meminfo), "MemTotal:", &m_total, 1 << 1)) {
+	const char *meminfo = get_file(&proc_meminfo);
+
+	if (s->opt == 'd' /* dirty page cache */
+	 || s->opt == 'w' /* under writeback */
+	) {
+		m_total = 0; /* temporary reuse m_total */
+		if (rdval(meminfo,
+				(s->opt == 'd' ? "Dirty:" : "Writeback:"),
+				&m_total, 1 << 1)
+		) {
+			put_question_marks(4);
+			return;
+		}
+		scale(m_total << 10);
+		return;
+	}
+
+	m_total = 0;
+	if (rdval(meminfo, "MemTotal:", &m_total, 1 << 1)) {
 		put_question_marks(4);
 		return;
 	}
@@ -681,10 +696,14 @@ static void FAST_FUNC collect_mem(mem_stat *s)
 		return;
 	}
 
-	if (rdval(proc_meminfo.file, "MemFree:", &m_free  , 1 << 1)
-	 || rdval(proc_meminfo.file, "Buffers:", &m_bufs  , 1 << 1)
-	 || rdval(proc_meminfo.file, "Cached:",  &m_cached, 1 << 1)
-	 || rdval(proc_meminfo.file, "Slab:",    &m_slab  , 1 << 1)
+	m_free = 0;
+	m_bufs = 0;
+	m_cached = 0;
+	m_slab = 0;
+	if (rdval(meminfo, "MemFree:", &m_free  , 1 << 1)
+	 || rdval(meminfo, "Buffers:", &m_bufs  , 1 << 1)
+	 || rdval(meminfo, "Cached:",  &m_cached, 1 << 1)
+	 || rdval(meminfo, "Slab:",    &m_slab  , 1 << 1)
 	) {
 		put_question_marks(4);
 		return;
@@ -760,23 +779,51 @@ S_STAT(time_stat)
 	unsigned scale;
 S_STAT_END(time_stat)
 
-static void FAST_FUNC collect_time(time_stat *s)
+static void FAST_FUNC collect_tv(time_stat *s, struct timeval *tv, int local)
 {
 	char buf[sizeof("12:34:56.123456")];
 	struct tm* tm;
-	unsigned us = tv.tv_usec + s->scale/2;
-	time_t t = tv.tv_sec;
+	unsigned us = tv->tv_usec + s->scale/2;
+	time_t t = tv->tv_sec;
 
 	if (us >= 1000000) {
 		t++;
 		us -= 1000000;
 	}
-	tm = localtime(&t);
+	if (local)
+		tm = localtime(&t);
+	else
+		tm = gmtime(&t);
 
-	sprintf(buf, "%02d:%02d:%02d", tm->tm_hour, tm->tm_min, tm->tm_sec);
+	sprintf(buf, "%02u:%02u:%02u", tm->tm_hour, tm->tm_min, tm->tm_sec);
 	if (s->prec)
-		sprintf(buf+8, ".%0*d", s->prec, us / s->scale);
+		sprintf(buf+8, ".%0*u", s->prec, us / s->scale);
 	put(buf);
+}
+
+static void FAST_FUNC collect_time(time_stat *s)
+{
+	collect_tv(s, &G.tv, /*local:*/ 1);
+}
+
+static void FAST_FUNC collect_monotonic(time_stat *s)
+{
+	struct timeval tv_mono;
+
+	tv_mono.tv_sec = G.tv.tv_sec - G.start.tv_sec;
+#if 0 /* Do we want this? */
+	if (tv_mono.tv_sec < 0) {
+		/* Time went backwards, reset start time to "now" */
+		tv_mono.tv_sec = 0;
+		G.start = G.tv;
+	}
+#endif
+	tv_mono.tv_usec = G.tv.tv_usec - G.start.tv_usec;
+	if ((int32_t)tv_mono.tv_usec < 0) {
+		tv_mono.tv_usec += 1000000;
+		tv_mono.tv_sec--;
+	}
+	collect_tv(s, &tv_mono, /*local:*/ 0);
 }
 
 static s_stat* init_time(const char *param)
@@ -795,6 +842,13 @@ static s_stat* init_time(const char *param)
 	return (s_stat*)s;
 }
 
+static s_stat* init_monotonic(const char *param)
+{
+	time_stat *s = (void*)init_time(param);
+	s->collect = collect_monotonic;
+	return (s_stat*)s;
+}
+
 static void FAST_FUNC collect_info(s_stat *s)
 {
 	gen ^= 1;
@@ -807,8 +861,8 @@ static void FAST_FUNC collect_info(s_stat *s)
 
 typedef s_stat* init_func(const char *param);
 
-static const char options[] ALIGN1 = "ncmsfixptbr";
-static init_func *const init_functions[] = {
+static const char options[] ALIGN1 = "ncmsfixptTbr";
+static init_func *const init_functions[] ALIGN_PTR = {
 	init_if,
 	init_cpu,
 	init_mem,
@@ -818,6 +872,7 @@ static init_func *const init_functions[] = {
 	init_ctx,
 	init_fork,
 	init_time,
+	init_monotonic,
 	init_blk,
 	init_cr
 };
@@ -919,13 +974,15 @@ int nmeter_main(int argc UNUSED_PARAM, char **argv)
 	// Generate first samples but do not print them, they're bogus
 	collect_info(first);
 	reset_outbuf();
+
 	if (G.delta >= 0) {
-		gettimeofday(&tv, NULL);
-		usleep(G.delta > 1000000 ? 1000000 : G.delta - tv.tv_usec % G.deltanz);
+		xgettimeofday(&G.tv);
+		usleep(G.delta > 1000000 ? 1000000 : G.delta - G.tv.tv_usec % G.deltanz);
 	}
 
+	xgettimeofday(&G.start);
+	G.tv = G.start;
 	while (1) {
-		gettimeofday(&tv, NULL);
 		collect_info(first);
 		put_c(G.final_char);
 		print_outbuf();
@@ -938,11 +995,11 @@ int nmeter_main(int argc UNUSED_PARAM, char **argv)
 		if (G.delta >= 0) {
 			int rem;
 			// can be commented out, will sacrifice sleep time precision a bit
-			gettimeofday(&tv, NULL);
+			xgettimeofday(&G.tv);
 			if (need_seconds)
-				rem = G.delta - ((ullong)tv.tv_sec*1000000 + tv.tv_usec) % G.deltanz;
+				rem = G.delta - ((ullong)G.tv.tv_sec*1000000 + G.tv.tv_usec) % G.deltanz;
 			else
-				rem = G.delta - (unsigned)tv.tv_usec % G.deltanz;
+				rem = G.delta - (unsigned)G.tv.tv_usec % G.deltanz;
 			// Sometimes kernel wakes us up just a tiny bit earlier than asked
 			// Do not go to very short sleep in this case
 			if (rem < (unsigned)G.delta / 128) {
@@ -950,6 +1007,7 @@ int nmeter_main(int argc UNUSED_PARAM, char **argv)
 			}
 			usleep(rem);
 		}
+		xgettimeofday(&G.tv);
 	}
 
 	/*return 0;*/

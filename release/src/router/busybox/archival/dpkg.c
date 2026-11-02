@@ -18,26 +18,26 @@
  * known difference between busybox dpkg and the official dpkg that i don't
  * consider important, its worth keeping a note of differences anyway, just to
  * make it easier to maintain.
- *  - the first value for the confflile: field isnt placed on a new line.
+ *  - the first value for the confflile: field isn't placed on a new line.
  *  - when installing a package the status: field is placed at the end of the
  *      section, rather than just after the package: field.
  *
  * bugs that need to be fixed
  *  - (unknown, please let me know when you find any)
  */
-
 //config:config DPKG
-//config:	bool "dpkg"
-//config:	default n
+//config:	bool "dpkg (43 kb)"
+//config:	default y
 //config:	select FEATURE_SEAMLESS_GZ
 //config:	help
-//config:	  dpkg is a medium-level tool to install, build, remove and manage
-//config:	  Debian packages.
+//config:	dpkg is a medium-level tool to install, build, remove and manage
+//config:	Debian packages.
 //config:
-//config:	  This implementation of dpkg has a number of limitations,
-//config:	  you should use the official dpkg if possible.
+//config:	This implementation of dpkg has a number of limitations,
+//config:	you should use the official dpkg if possible.
 
 //applet:IF_DPKG(APPLET(dpkg, BB_DIR_USR_BIN, BB_SUID_DROP))
+
 //kbuild:lib-$(CONFIG_DPKG) += dpkg.o
 
 //usage:#define dpkg_trivial_usage
@@ -110,7 +110,7 @@ typedef struct common_node_s {
 	edge_t **edge;
 } common_node_t;
 
-/* Currently it doesnt store packages that have state-status of not-installed
+/* Currently it doesn't store packages that have state-status of not-installed
  * So it only really has to be the size of the maximum number of packages
  * likely to be installed at any one time, so there is a bit of leeway here */
 #define STATUS_HASH_PRIME 8191
@@ -205,7 +205,7 @@ static int search_name_hashtable(const char *key)
 	return probe_address;
 }
 
-/* this DOESNT add the key to the hashtable
+/* this DOESN'T add the key to the hashtable
  * TODO make it consistent with search_name_hashtable
  */
 static unsigned search_status_hashtable(const char *key)
@@ -467,7 +467,7 @@ static void add_split_dependencies(common_node_t *parent_node, const char *whole
 			version = strchr(field2, '(');
 			if (version == NULL) {
 				edge->operator = VER_ANY;
-				/* Get the versions hash number, adding it if the number isnt already in there */
+				/* Get the versions hash number, adding it if the number isn't already in there */
 				edge->version = search_name_hashtable("ANY");
 			} else {
 				/* Skip leading ' ' or '(' */
@@ -487,7 +487,7 @@ static void add_split_dependencies(common_node_t *parent_node, const char *whole
 					} else if (strncmp(version, ">=", offset_ch) == 0) {
 						edge->operator = VER_MORE_EQUAL;
 					} else {
-						bb_error_msg_and_die("illegal operator");
+						bb_simple_error_msg_and_die("illegal operator");
 					}
 				}
 				/* skip to start of version numbers */
@@ -496,7 +496,7 @@ static void add_split_dependencies(common_node_t *parent_node, const char *whole
 
 				/* Truncate version at trailing ' ' or ')' */
 				version[strcspn(version, " )")] = '\0';
-				/* Get the versions hash number, adding it if the number isnt already in there */
+				/* Get the versions hash number, adding it if the number isn't already in there */
 				edge->version = search_name_hashtable(version);
 			}
 
@@ -562,7 +562,7 @@ static int read_package_field(const char *package_buffer, char **field_name, cha
 					offset_name_end = offset;
 					offset_value_start = next_offset;
 				}
-				/* TODO: Name might still have trailing spaces if ':' isnt
+				/* TODO: Name might still have trailing spaces if ':' isn't
 				 * immediately after name */
 				break;
 			case '\n':
@@ -730,7 +730,7 @@ static void set_status(const unsigned status_node_num, const char *new_value, co
 			status = new_value_num;
 			break;
 		default:
-			bb_error_msg_and_die("DEBUG ONLY: this shouldnt happen");
+			bb_simple_error_msg_and_die("DEBUG ONLY: this shouldnt happen");
 	}
 
 	new_status = xasprintf("%s %s %s", name_hashtable[want], name_hashtable[flag], name_hashtable[status]);
@@ -776,7 +776,7 @@ static void index_status_file(const char *filename)
 		const unsigned package_num = fill_package_struct(control_buffer);
 		if (package_num != -1) {
 			status_node = xmalloc(sizeof(status_node_t));
-			/* fill_package_struct doesnt handle the status field */
+			/* fill_package_struct doesn't handle the status field */
 			status_line = strstr(control_buffer, "Status:");
 			if (status_line != NULL) {
 				status_line += 7;
@@ -850,7 +850,7 @@ static void write_status_file(deb_file_t **deb_file)
 		if (status_hashtable[status_num] != NULL) {
 			const char *status_from_hashtable = name_hashtable[status_hashtable[status_num]->status];
 			if (strcmp(status_from_file, status_from_hashtable) != 0) {
-				/* New status isnt exactly the same as old status */
+				/* New status isn't exactly the same as old status */
 				const int state_status = get_status(status_num, 3);
 				if ((strcmp("installed", name_hashtable[state_status]) == 0)
 				 || (strcmp("unpacked", name_hashtable[state_status]) == 0)
@@ -919,7 +919,7 @@ static void write_status_file(deb_file_t **deb_file)
 				}
 			}
 		}
-		/* If the package from the status file wasnt handle above, do it now*/
+		/* If the package from the status file wasn't handle above, do it now*/
 		if (!write_flag) {
 			fprintf(new_status_file, "%s\n\n", control_buffer);
 		}
@@ -944,10 +944,10 @@ static void write_status_file(deb_file_t **deb_file)
 	/* Create a separate backfile to dpkg */
 	if (rename("/var/lib/dpkg/status", "/var/lib/dpkg/status.udeb.bak") == -1) {
 		if (errno != ENOENT)
-			bb_error_msg_and_die("can't create backup status file");
+			bb_simple_error_msg_and_die("can't create backup status file");
 		/* Its ok if renaming the status file fails because status
-		 * file doesnt exist, maybe we are starting from scratch */
-		bb_error_msg("no status file found, creating new one");
+		 * file doesn't exist, maybe we are starting from scratch */
+		bb_simple_error_msg("no status file found, creating new one");
 	}
 
 	xrename("/var/lib/dpkg/status.udeb", "/var/lib/dpkg/status");
@@ -1061,7 +1061,7 @@ static int check_deps(deb_file_t **deb_file, int deb_start /*, int dep_max_count
 	}
 
 
-	/* Check dependendcies */
+	/* Check dependentcies */
 	for (i = 0; i < PACKAGE_HASH_PRIME; i++) {
 		int status_num = 0;
 		int number_of_alternatives = 0;
@@ -1115,7 +1115,7 @@ static int check_deps(deb_file_t **deb_file, int deb_start /*, int dep_max_count
 			if (package_edge->type == EDGE_PRE_DEPENDS
 			 || package_edge->type == EDGE_DEPENDS
 			) {
-				int result=1;
+				int result = 1;
 				status_num = 0;
 
 				/* If we are inside an alternative then check
@@ -1204,6 +1204,27 @@ static char **create_list(const char *filename)
 	return file_list;
 }
 
+/** This tests if the filename is an "important" directory, which might be symlinked.
+ *  Debians dpkg test if directories are used by other packages, this
+ *  implementation doesn't and would remove for ex. an lib -> usr/lib symlink.
+ */
+static int is_builtin_exclude(const char *name)
+{
+	if (*name++ != '/')
+		return 0;
+	if (index_in_strings(".\0" "etc\0" "opt\0" "srv\0" "var\0" "var/lib\0",
+			name) >= 0)
+		return 1;
+	if (is_prefixed_with(name, "usr/")) {
+		name += sizeof("usr/") - 1;
+		if (is_prefixed_with(name, "local/"))
+			name += sizeof("local/") - 1;
+	}
+
+	return index_in_strings("bin\0" "lib\0" "lib32\0" "lib64\0" "sbin\0",
+			name) >= 0;
+}
+
 /* maybe i should try and hook this into remove_file.c somehow */
 static int remove_file_array(char **remove_names, char **exclude_names)
 {
@@ -1215,6 +1236,8 @@ static int remove_file_array(char **remove_names, char **exclude_names)
 		return 0;
 	}
 	for (i = 0; remove_names[i] != NULL; i++) {
+		if (is_builtin_exclude(remove_names[i]))
+			continue;
 		if (exclude_names != NULL) {
 			for (j = 0; exclude_names[j] != NULL; j++) {
 				if (strcmp(remove_names[i], exclude_names[j]) == 0) {
@@ -1244,7 +1267,7 @@ static void run_package_script_or_die(const char *package_name, const char *scri
 
 	script_path = xasprintf("/var/lib/dpkg/info/%s.%s", package_name, script_type);
 
-	/* If the file doesnt exist is isnt fatal */
+	/* If the file doesn't exist it isn't fatal */
 	result = access(script_path, F_OK) ? EXIT_SUCCESS : system(script_path);
 	free(script_path);
 	if (result)
@@ -1281,7 +1304,7 @@ postrm abort-install <old_version>
 postrm abort-upgrade <old_version>
 postrm disappear <overwriter> <version>
 */
-static const char *const all_control_files[] = {
+static const char *const all_control_files[] ALIGN_PTR = {
 	"preinst", "postinst", "prerm", "postrm",
 	"list", "md5sums", "shlibs", "conffiles",
 	"config", "templates"
@@ -1766,8 +1789,7 @@ int dpkg_main(int argc UNUSED_PARAM, char **argv)
 
 	INIT_G();
 
-	IF_LONG_OPTS(applet_long_options = dpkg_longopts);
-	opt = getopt32(argv, "CilPruF:", &str_f);
+	opt = getopt32long(argv, "CilPruF:", dpkg_longopts, &str_f);
 	argv += optind;
 	//if (opt & OPT_configure) ... // -C
 	if (opt & OPT_force) { // -F (--force in official dpkg)
@@ -1817,7 +1839,7 @@ int dpkg_main(int argc UNUSED_PARAM, char **argv)
 			init_archive_deb_control(archive_handle);
 			deb_file[deb_count]->control_file = deb_extract_control_file_to_buffer(archive_handle, control_list);
 			if (deb_file[deb_count]->control_file == NULL) {
-				bb_error_msg_and_die("can't extract control file");
+				bb_simple_error_msg_and_die("can't extract control file");
 			}
 			deb_file[deb_count]->filename = xstrdup(argv[0]);
 			package_num = fill_package_struct(deb_file[deb_count]->control_file);
@@ -1839,7 +1861,7 @@ int dpkg_main(int argc UNUSED_PARAM, char **argv)
 				) {
 					status_node = xmalloc(sizeof(status_node_t));
 					status_node->package = deb_file[deb_count]->package;
-					/* reinstreq isnt changed to "ok" until the package control info
+					/* reinstreq isn't changed to "ok" until the package control info
 					 * is written to the status file*/
 					status_node->status = search_name_hashtable("install reinstreq not-installed");
 					status_hashtable[status_num] = status_node;
@@ -1880,13 +1902,13 @@ int dpkg_main(int argc UNUSED_PARAM, char **argv)
 		argv++;
 	}
 	if (!deb_count)
-		bb_error_msg_and_die("no package files specified");
+		bb_simple_error_msg_and_die("no package files specified");
 	deb_file[deb_count] = NULL;
 
 	/* Check that the deb file arguments are installable */
 	if (!(opt & OPT_force_ignore_depends)) {
 		if (!check_deps(deb_file, 0 /*, deb_count*/)) {
-			bb_error_msg_and_die("dependency check failed");
+			bb_simple_error_msg_and_die("dependency check failed");
 		}
 	}
 
@@ -1938,10 +1960,6 @@ int dpkg_main(int argc UNUSED_PARAM, char **argv)
 		for (i = 0; i < STATUS_HASH_PRIME; i++) {
 			free(status_hashtable[i]);
 		}
-
-		free(status_hashtable);
-		free(package_hashtable);
-		free(name_hashtable);
 	}
 
 	return EXIT_SUCCESS;

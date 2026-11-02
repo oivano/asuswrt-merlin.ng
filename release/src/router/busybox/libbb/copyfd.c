@@ -6,7 +6,6 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
-
 #include "libbb.h"
 #if ENABLE_FEATURE_USE_SENDFILE
 # include <sys/sendfile.h>
@@ -19,7 +18,7 @@
  * was seen to cause largish delays when user tries to ^C a file copy.
  * Let's use a saner size.
  * Note: needs to be >= max(CONFIG_FEATURE_COPYBUF_KB),
- * or else "copy to eof" code will use neddlesly short reads.
+ * or else "copy to eof" code will use needlesly short reads.
  */
 #define SENDFILE_BIGBUF (16*1024*1024)
 
@@ -61,10 +60,13 @@ static off_t bb_full_fd_action(int src_fd, int dst_fd, off_t size)
 		ssize_t rd;
 
 		if (sendfile_sz) {
-			rd = sendfile(dst_fd, src_fd, NULL,
-				size > sendfile_sz ? sendfile_sz : size);
-			if (rd >= 0)
-				goto read_ok;
+			/* dst_fd == -1 is a fake, else... */
+			if (dst_fd >= 0) {
+				rd = sendfile(dst_fd, src_fd, NULL,
+					size > sendfile_sz ? sendfile_sz : size);
+				if (rd >= 0)
+					goto read_ok;
+			}
 			sendfile_sz = 0; /* do not try sendfile anymore */
 		}
 #if CONFIG_FEATURE_COPYBUF_KB > 4
@@ -73,10 +75,7 @@ static off_t bb_full_fd_action(int src_fd, int dst_fd, off_t size)
 				goto use_small_buf;
 			/* We want page-aligned buffer, just in case kernel is clever
 			 * and can do page-aligned io more efficiently */
-			buffer = mmap(NULL, CONFIG_FEATURE_COPYBUF_KB * 1024,
-					PROT_READ | PROT_WRITE,
-					MAP_PRIVATE | MAP_ANON,
-					/* ignored: */ -1, 0);
+			buffer = mmap_anon(CONFIG_FEATURE_COPYBUF_KB * 1024);
 			buffer_size = CONFIG_FEATURE_COPYBUF_KB * 1024;
 			if (buffer == MAP_FAILED) {
  use_small_buf:
@@ -88,7 +87,7 @@ static off_t bb_full_fd_action(int src_fd, int dst_fd, off_t size)
 		rd = safe_read(src_fd, buffer,
 			size > buffer_size ? buffer_size : size);
 		if (rd < 0) {
-			bb_perror_msg(bb_msg_read_error);
+			bb_simple_perror_msg(bb_msg_read_error);
 			break;
 		}
  read_ok:
@@ -101,7 +100,7 @@ static off_t bb_full_fd_action(int src_fd, int dst_fd, off_t size)
 			ssize_t wr = full_write(dst_fd, buffer, rd);
 			if (wr < rd) {
 				if (!continue_on_write_error) {
-					bb_perror_msg(bb_msg_write_error);
+					bb_simple_perror_msg(bb_msg_write_error);
 					break;
 				}
 				dst_fd = -1;
@@ -119,8 +118,11 @@ static off_t bb_full_fd_action(int src_fd, int dst_fd, off_t size)
 	}
  out:
 
+/* some environments don't have munmap(), hide it in #if */
+#if CONFIG_FEATURE_COPYBUF_KB > 4
 	if (buffer_size > 4 * 1024)
 		munmap(buffer, buffer_size);
+#endif
 	return status ? -1 : total;
 }
 
@@ -149,7 +151,7 @@ void FAST_FUNC bb_copyfd_exact_size(int fd1, int fd2, off_t size)
 	if (sz == (size >= 0 ? size : -size))
 		return;
 	if (sz != -1)
-		bb_error_msg_and_die("short read");
+		bb_simple_error_msg_and_die("short read");
 	/* if sz == -1, bb_copyfd_XX already complained */
 	xfunc_die();
 }
