@@ -37,6 +37,10 @@ typedef u_int8_t u8;
 #endif
 #include <linux/ethtool.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
 #include <net/if_arp.h>
 #include <arpa/inet.h>
 #include <dirent.h>
@@ -5396,8 +5400,9 @@ void restart_wl(void)
 
 #ifdef CONFIG_BCMWL5
 #define GUEST_ARP_LEASE_FILE "/var/lib/misc/dnsmasq.leases"
-#define GUEST_ARP_STATE_FILE "/tmp/guest-arp-bindings"
-#define GUEST_ARP_STATE_TMP_FILE "/tmp/guest-arp-bindings.tmp"
+#define GUEST_ARP_STATE_DIR "/tmp/guest-arp"
+#define GUEST_ARP_STATE_NAME "bindings"
+#define GUEST_ARP_STATE_TMP_NAME "bindings.tmp"
 #define GUEST_ARP_MAX_IFACES 32
 #define GUEST_ARP_MAX_BINDINGS 512
 
@@ -5514,15 +5519,49 @@ static int guest_arp_collect_lease_bindings(guest_arp_binding_t *bindings,
 	return 0;
 }
 
-static int guest_arp_load_state(guest_arp_binding_t *bindings, int *count)
+static int guest_arp_state_dir_open(void)
+{
+	struct stat st;
+	int fd;
+
+	if (lstat("/tmp", &st) < 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
+	    ((st.st_mode & 0022) && !(st.st_mode & S_ISVTX)))
+		return -1;
+	if (mkdir(GUEST_ARP_STATE_DIR, 0700) < 0 && errno != EEXIST)
+		return -1;
+	fd = open(GUEST_ARP_STATE_DIR, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (fd < 0)
+		return -1;
+	if (fstat(fd, &st) < 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
+	    st.st_gid != 0 || fchmod(fd, 0700) < 0 || fstat(fd, &st) < 0 ||
+	    (st.st_mode & 0077)) {
+		close(fd);
+		return -1;
+	}
+	return fd;
+}
+
+static int guest_arp_load_state(int dirfd, guest_arp_binding_t *bindings, int *count)
 {
 	FILE *fp;
+	struct stat st;
+	int fd;
 	char ifname[IFNAMSIZ], mac[18], ip[INET_ADDRSTRLEN], mac_text[18], ip_text[INET_ADDRSTRLEN];
 
 	*count = 0;
-	fp = fopen(GUEST_ARP_STATE_FILE, "r");
-	if (!fp)
-		return 0;
+	fd = openat(dirfd, GUEST_ARP_STATE_NAME, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+	if (fd < 0)
+		return errno == ENOENT ? 0 : -1;
+	if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
+	    st.st_gid != 0 || st.st_nlink != 1 || (st.st_mode & 0077)) {
+		close(fd);
+		return -1;
+	}
+	fp = fdopen(fd, "r");
+	if (!fp) {
+		close(fd);
+		return -1;
+	}
 
 	while (fscanf(fp, "%15s %17s %15s", ifname, mac, ip) == 3) {
 		unsigned char ea[ETHER_ADDR_LEN];
@@ -5547,14 +5586,31 @@ static int guest_arp_load_state(guest_arp_binding_t *bindings, int *count)
 	return 0;
 }
 
-static int guest_arp_save_state(guest_arp_binding_t *bindings, int count)
+static int guest_arp_save_state(int dirfd, guest_arp_binding_t *bindings, int count)
 {
 	FILE *fp;
-	int i, ret = 0;
+	struct stat st;
+	int fd, i, ret = 0;
 
-	fp = fopen(GUEST_ARP_STATE_TMP_FILE, "w");
-	if (!fp)
+	if (unlinkat(dirfd, GUEST_ARP_STATE_TMP_NAME, 0) < 0 && errno != ENOENT)
 		return -1;
+	fd = openat(dirfd, GUEST_ARP_STATE_TMP_NAME,
+		O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK, 0600);
+	if (fd < 0)
+		return -1;
+	if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
+	    st.st_gid != 0 || st.st_nlink != 1 || fchmod(fd, 0600) < 0 ||
+	    fstat(fd, &st) < 0 || (st.st_mode & 0077)) {
+		close(fd);
+		unlinkat(dirfd, GUEST_ARP_STATE_TMP_NAME, 0);
+		return -1;
+	}
+	fp = fdopen(fd, "w");
+	if (!fp) {
+		close(fd);
+		unlinkat(dirfd, GUEST_ARP_STATE_TMP_NAME, 0);
+		return -1;
+	}
 
 	for (i = 0; i < count; ++i) {
 		if (fprintf(fp, "%s %s %s\n", bindings[i].ifname,
@@ -5565,11 +5621,11 @@ static int guest_arp_save_state(guest_arp_binding_t *bindings, int count)
 	}
 	if (fclose(fp) != 0)
 		ret = -1;
-	if (ret == 0 && chmod(GUEST_ARP_STATE_TMP_FILE, 0600) == 0 &&
-	    rename(GUEST_ARP_STATE_TMP_FILE, GUEST_ARP_STATE_FILE) == 0)
+	if (ret == 0 && renameat(dirfd, GUEST_ARP_STATE_TMP_NAME,
+	    dirfd, GUEST_ARP_STATE_NAME) == 0)
 		return 0;
 
-	unlink(GUEST_ARP_STATE_TMP_FILE);
+	unlinkat(dirfd, GUEST_ARP_STATE_TMP_NAME, 0);
 	return -1;
 }
 
@@ -5583,12 +5639,14 @@ void guest_arp_filter_refresh(void)
 	guest_arp_binding_t old_bindings[GUEST_ARP_MAX_BINDINGS];
 	guest_arp_binding_t current_bindings[GUEST_ARP_MAX_BINDINGS];
 	int count = 0, active_count = 0, cleanup_count = 0;
-	int old_count, current_count = 0, i, unit, subunit, lock;
+	int old_count, current_count = 0, i, unit, subunit, lock, state_dirfd = -1;
 
 	lock = file_lock("guest-arp");
 	if (lock < 0)
 		return;
-	if (guest_arp_load_state(old_bindings, &old_count) != 0)
+	state_dirfd = guest_arp_state_dir_open();
+	if (state_dirfd < 0 ||
+	    guest_arp_load_state(state_dirfd, old_bindings, &old_count) != 0)
 		goto fail;
 
 	strlcpy(lan_ifnames, nvram_safe_get("lan_ifnames"), sizeof(lan_ifnames));
@@ -5694,12 +5752,14 @@ void guest_arp_filter_refresh(void)
 			;
 	}
 
-	if (guest_arp_save_state(current_bindings, current_count) != 0)
+	if (guest_arp_save_state(state_dirfd, current_bindings, current_count) != 0)
 		goto fail;
 	goto out;
 fail:
 	syslog(LOG_ERR, "guest ARP filter update failed");
 out:
+	if (state_dirfd >= 0)
+		close(state_dirfd);
 	file_unlock(lock);
 }
 
