@@ -62,6 +62,7 @@
 
 #include <mtd.h>
 #include <limits.h>
+#include <mntent.h>
 
 void update_lan_status(int);
 
@@ -1978,23 +1979,20 @@ void collect_debuglog(int type)
 int check_mountpoint(char *mountpoint)
 {
 	FILE *procpt;
-	char line[256], devname[48], mpname[48], system_type[10], mount_mode[128];
-	int dummy1, dummy2;
+	struct mntent *mnt;
+	int found = 0;
 
-	if ((procpt = fopen("/proc/mounts", "r")) != NULL)
-	while (fgets(line, sizeof(line), procpt)) {
-		memset(mpname, 0x0, sizeof(mpname));
-		if (sscanf(line, "%s %s %s %s %d %d", devname, mpname, system_type, mount_mode, &dummy1, &dummy2) != 6)
-			continue;
-
-		if (!strcmp(mpname, mountpoint))
-			return 1;
+	if ((procpt = setmntent("/proc/mounts", "r")) != NULL) {
+		while ((mnt = getmntent(procpt)) != NULL) {
+			if (!strcmp(mnt->mnt_dir, mountpoint)) {
+				found = 1;
+				break;
+			}
+		}
+		endmntent(procpt);
 	}
 
-	if (procpt)
-		fclose(procpt);
-
-	return 0;
+	return found;
 }
 
 void envsave(const char* path)

@@ -44,6 +44,7 @@
 #include <stdarg.h>
 #include <sys/wait.h>
 #include <dirent.h>
+#include <mntent.h>
 #if !defined(__GLIBC__) && !defined(__UCLIBC__) && !defined(MUSL_LIBC)/* musl */
 #include <netinet/if_ether.h>		//have to in front of <linux/ethtool.h> and <linux/mii.h> to avoid redefinition of 'struct ethhdr'
 #endif
@@ -23420,22 +23421,17 @@ int ej_get_AiDisk_status(int eid, webs_t wp, int argc, char **argv){
 int
 count_sddev_mountpoint()
 {
-	FILE *procpt = NULL;
-	char line[PATH_MAX], devname[32], mpname[32], system_type[10], mount_mode[PATH_MAX];
-	int dummy1, dummy2, count = 0;
+	FILE *procpt;
+	struct mntent *mnt;
+	int count = 0;
 
-	if((procpt = fopen(MOUNT_FILE, "r")) != NULL){
-		while(fgets(line, sizeof(line), procpt)){
-			if(sscanf(line, "%s %s %s %s %d %d", devname, mpname, system_type, mount_mode, &dummy1, &dummy2) != 6)
-				continue;
-
-			if(strstr(devname, "/dev/sd"))
+	if ((procpt = setmntent(MOUNT_FILE, "r")) != NULL) {
+		while ((mnt = getmntent(procpt)) != NULL) {
+			if (strstr(mnt->mnt_fsname, "/dev/sd"))
 				count++;
 		}
+		endmntent(procpt);
 	}
-
-	if(procpt)
-		fclose(procpt);
 
 	return count;
 }
