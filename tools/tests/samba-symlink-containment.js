@@ -8,6 +8,7 @@ const read = name => fs.readFileSync(path.join(root, name), 'utf8');
 const config = read('release/src/router/libdisk/write_smb_conf.c');
 const sambaMakefile = read('release/src/router/samba-3.6.x_opwrt/Makefile');
 const tdb = read('release/src/router/samba-3.6.x_opwrt/source/lib/tdb/common/open.c');
+const blocking = read('release/src/router/samba-3.6.x_opwrt/source/source3/smbd/blocking.c');
 const vfs = read('release/src/router/samba-3.6.x_opwrt/source/source3/modules/vfs_default.c');
 const trans2 = read('release/src/router/samba-3.6.x_opwrt/source/source3/smbd/trans2.c');
 const auth = read('release/src/router/samba-3.6.x_opwrt/source/source3/auth/auth_util.c');
@@ -22,6 +23,23 @@ for (const setting of ['lock', 'state', 'cache']) {
     assert.ok(config.includes(`"${setting} directory = /var/run/samba/locks\\n"`), `${setting} directory`);
     assert.ok(sambaMakefile.includes(`--with-${setting}dir=/var/run/samba/locks`), `${setting} build directory`);
 }
+const cancelHandler = blocking.slice(
+    blocking.indexOf('static void process_blocking_lock_cancel_message('),
+    blocking.indexOf('/*\n Send ourselves a blocking lock cancelled message.')
+);
+assert.match(cancelHandler, /data == NULL \|\| data->data == NULL[\s\S]*?return;/);
+assert.match(cancelHandler, /data->length != MSG_BLOCKING_LOCK_CANCEL_SIZE[\s\S]*?return;/);
+assert.match(cancelHandler, /queued_blr = sconn->smb1\.locks\.blocking_lock_cancelled_queue/);
+assert.match(cancelHandler, /if \(queued_blr == blr\)/);
+assert.match(cancelHandler, /if \(queued_blr == NULL\)[\s\S]*?return;/);
+assert.ok(cancelHandler.indexOf('if (queued_blr == NULL)') < cancelHandler.indexOf('blocking_lock_reply_error(blr, err)'));
+assert.ok(cancelHandler.indexOf('if (queued_blr == NULL)') < cancelHandler.indexOf('DLIST_REMOVE(sconn->smb1.locks.blocking_lock_cancelled_queue, blr)'));
+assert.ok(cancelHandler.indexOf('if (queued_blr == NULL)') < cancelHandler.indexOf('TALLOC_FREE(blr)'));
+assert.doesNotMatch(cancelHandler, /smb_panic/);
+const cancelledRecords = [{ id: 'queued' }, { id: 'other' }];
+const findCancelledRecord = (queue, candidate) => queue.find(record => record === candidate) || null;
+assert.equal(findCancelledRecord(cancelledRecords, { id: 'forged' }), null);
+assert.equal(findCancelledRecord(cancelledRecords, cancelledRecords[1]), cancelledRecords[1]);
 const prepareSambaDir = usb.slice(usb.indexOf('static int prepare_samba_dir('), usb.indexOf('void\nstart_samba(void)'));
 assert.match(prepareSambaDir, /mkdir\(path, mode\)/);
 assert.match(prepareSambaDir, /lstat\(path, &st\).*S_ISDIR\(st\.st_mode\).*st\.st_uid != 0/s);
