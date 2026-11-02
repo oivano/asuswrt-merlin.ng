@@ -30,6 +30,8 @@
 #include <utils.h>
 
 #include <dirent.h>
+#include <mntent.h>
+#include <limits.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -299,85 +301,68 @@ void stop_avahi_daemon()
 char *find_mountpoint(char *device_name)
 {
 	FILE *procpt;
-	char line[256], devname[48], mpname[48], system_type[10], mount_mode[128];
-	int dummy1, dummy2;
-	static char mount_point_name[32];
-									       
-	if ((procpt = fopen("/proc/mounts", "r")) != NULL)
-	while (fgets(line, sizeof(line), procpt))
-	{
-		memset(mpname, 0x0, sizeof(mpname));
-		if (sscanf(line, "%s %s %s %s %d %d", devname, mpname, system_type, mount_mode, &dummy1, &dummy2) != 6)
-			continue;
-		sprintf(mount_point_name, "/tmp/mnt/%s", device_name);		
-		if (!strcmp( mpname, mount_point_name))
-		{
-			//nvram_set("tm_partition_num",devname);
-			break;
+	struct mntent *mnt;
+	static char mount_point_name[128];
+	int found = 0;
+
+	if (!device_name || snprintf(mount_point_name, sizeof(mount_point_name), "/tmp/mnt/%s", device_name) >= sizeof(mount_point_name))
+		return NULL;
+
+	if ((procpt = setmntent("/proc/mounts", "r")) != NULL) {
+		while ((mnt = getmntent(procpt)) != NULL) {
+			if (!strcmp(mnt->mnt_dir, mount_point_name)) {
+				found = 1;
+				break;
+			}
 		}
+		endmntent(procpt);
 	}
 
-	if (procpt)
-		fclose(procpt);
-
-	if(strlen(mount_point_name) > 0)
-		return mount_point_name;
-	return NULL;
+	return found ? mount_point_name : NULL;
 }
 
 char *find_exchange_mountpoint(char *device_name)
 {
 	FILE *procpt;
-	char line[256], devname[48], mpname[48], system_type[10], mount_mode[128];
-	int dummy1, dummy2;
-	static char mount_point_name[32];
-									       
-	if ((procpt = fopen("/proc/mounts", "r")) != NULL)
-	while (fgets(line, sizeof(line), procpt))
-	{
-		memset(mpname, 0x0, sizeof(mpname));
-		if (sscanf(line, "%s %s %s %s %d %d", devname, mpname, system_type, mount_mode, &dummy1, &dummy2) != 6)
-			continue;
-		
-		if (!strcmp( devname, device_name))
-		{
-			nvram_set("tm_device_name",mpname+9);
-			nvram_set("tm_partition_num",devname);
-			sprintf(mount_point_name, "%s", mpname);
+	struct mntent *mnt;
+	static char mount_point_name[128];
+
+	mount_point_name[0] = '\0';
+	if (!device_name)
+		return NULL;
+
+	if ((procpt = setmntent("/proc/mounts", "r")) != NULL) {
+		while ((mnt = getmntent(procpt)) != NULL) {
+			if (strcmp(mnt->mnt_fsname, device_name) || strncmp(mnt->mnt_dir, "/tmp/mnt/", 9))
+				continue;
+
+			nvram_set("tm_device_name", mnt->mnt_dir + 9);
+			nvram_set("tm_partition_num", mnt->mnt_fsname);
+			if (snprintf(mount_point_name, sizeof(mount_point_name), "%s", mnt->mnt_dir) >= sizeof(mount_point_name))
+				mount_point_name[0] = '\0';
 			break;
 		}
+		endmntent(procpt);
 	}
 
-	if (procpt)
-		fclose(procpt);
-
-	if(strlen(mount_point_name) > 0)
-		return mount_point_name;
-	return NULL;
+	return mount_point_name[0] ? mount_point_name : NULL;
 }
 
 void find_tokenfile_partition()
 {
-	char token_path[80];
+	char token_path[PATH_MAX];
 	FILE *procpt;
-	char line[256], devname[48], mpname[48], system_type[10], mount_mode[128];
-	int dummy1, dummy2;
-							       
-	if ((procpt = fopen("/proc/mounts", "r")) != NULL)
-	while (fgets(line, sizeof(line), procpt))
-	{
-		memset(mpname, 0x0, sizeof(mpname));
-		if (sscanf(line, "%s %s %s %s %d %d", devname, mpname, system_type, mount_mode, &dummy1, &dummy2) != 6)
-			continue;
+	struct mntent *mnt;
 
-		sprintf(token_path, "%s/%s", mpname, TIMEMACHINE_TOKEN_FILE);
-		if(check_if_file_exist(token_path)){
-			find_backup_mac_date(mpname);
+	if ((procpt = setmntent("/proc/mounts", "r")) != NULL) {
+		while ((mnt = getmntent(procpt)) != NULL) {
+			if (snprintf(token_path, sizeof(token_path), "%s/%s", mnt->mnt_dir, TIMEMACHINE_TOKEN_FILE) >= sizeof(token_path))
+				continue;
+			if (check_if_file_exist(token_path))
+				find_backup_mac_date(mnt->mnt_dir);
 		}
+		endmntent(procpt);
 	}
-
-	if (procpt)
-		fclose(procpt);
 }
 
 void find_backup_mac_date(char *mpname)
@@ -385,19 +370,21 @@ void find_backup_mac_date(char *mpname)
 	
 	DIR *dir;
 	struct dirent *ptr;
-	char dir_path[80];
-	char backup_path[80];
+	char dir_path[128 + sizeof(TIMEMACHINE_BACKUP_NAME)];
+	char backup_path[PATH_MAX] = {0};
 	char mac_name[48];
-	char mp_name[48];
-	char test_log[100];
+	char mp_name[128];
+	char test_log[PATH_MAX + 32];
 
 	char change[] = "\n";
 
-	sprintf(mp_name,"%s", mpname);
+	if (snprintf(mp_name, sizeof(mp_name), "%s", mpname) >= sizeof(mp_name))
+		return;
 	write_timemachine_tokeninfo(mp_name);
 
-	sprintf(dir_path,"%s/%s", mpname, TIMEMACHINE_BACKUP_NAME);
-	sprintf(test_log,"dir_path = %s",dir_path);
+	if (snprintf(dir_path, sizeof(dir_path), "%s/%s", mpname, TIMEMACHINE_BACKUP_NAME) >= sizeof(dir_path))
+		return;
+	snprintf(test_log, sizeof(test_log), "dir_path = %s", dir_path);
 	logmessage("Timemachine", test_log);
 	if(!(dir = opendir(dir_path)))
 		return;
@@ -411,18 +398,22 @@ void find_backup_mac_date(char *mpname)
 	    !strcmp(ptr->d_name, "..")
 	   )
 		continue;
-        	sprintf(backup_path,"%s/%s", dir_path, ptr->d_name);
-        	sprintf(mac_name,"%s", ptr->d_name);		
-		sprintf(test_log,"mac_name = %s",mac_name);
+		if (snprintf(backup_path, sizeof(backup_path), "%s/%s", dir_path, ptr->d_name) >= sizeof(backup_path))
+			continue;
+		sprintf(mac_name,"%s", ptr->d_name);
+		snprintf(test_log, sizeof(test_log), "mac_name = %s", mac_name);
 		logmessage("Timemachine", test_log);
 		write_timemachine_tokeninfo(mac_name);
     	}
    	closedir(dir);
+	if (!backup_path[0])
+		return;
 
 	//find date
-	char history_file[128];
+	char history_file[PATH_MAX];
 	char line[256], string_line_tmp[96], backup_time[48], backup_time_t[48], *string_line;
-	sprintf(history_file,"%s/com.apple.TimeMachine.SnapshotHistory.plist", backup_path);
+	if (snprintf(history_file, sizeof(history_file), "%s/com.apple.TimeMachine.SnapshotHistory.plist", backup_path) >= sizeof(history_file))
+		return;
 	FILE *fp_t;
 	if ((fp_t = fopen(history_file, "r")) != NULL)
 	while (fgets(line, sizeof(line), fp_t))
@@ -467,8 +458,7 @@ void clear_timemachine_tokeninfo()
 int start_timemachine()
 {
 	int ret = 0;
-	char cnid_path[80];
-	char backup_path[80];
+	char cnid_path[128 + sizeof(CNID_DIR_NAME)];
 	//char token_path[80];
 	char test_log[100];
 	char *mount_point_name;
@@ -567,8 +557,8 @@ int start_timemachine()
 	mkdir_if_none(AVAHI_SERVICES_PATH);
 
 	// Create directory for use by cnid_metad and cnid_dbd daemon
-	sprintf(cnid_path, "%s/%s", mount_point_name, CNID_DIR_NAME);
-	sprintf(backup_path, "%s", mount_point_name);
+	if (snprintf(cnid_path, sizeof(cnid_path), "%s/%s", mount_point_name, CNID_DIR_NAME) >= sizeof(cnid_path))
+		return -1;
 
 	//Create token file
 	//sprintf(token_path, "%s/%s", mount_point_name, TIMEMACHINE_TOKEN_FILE);
