@@ -186,27 +186,41 @@ out:
 int main(int argc, char **argv)
 {
 	int uid;
+	int ch;
 	uchar new_nt_p16[NT_HASH_LEN];
 	int g;
 	char smbpasswd_line[256];
+	char password[33];
+	size_t password_length = 0;
 	char *s;
 
-	if(argc != 3)
-	{
-		printf("usage for smbpasswd - \n\t%s USERNAME PASSWD\n\t%s -del USERNAME\n", argv[0], argv[0]);
-		exit(1);
-	}
-	if(strcmp(argv[1], "-del") == 0)
+	if(argc == 3 && strcmp(argv[1], "-del") == 0)
 	{
 		printf("deleting user %s\n", argv[2]);
 		delete_user_from_smbpasswd(argv[2]);
 		return 0;
 	}
+	if(argc != 2)
+	{
+		printf("usage for smbpasswd - \n\t%s USERNAME <password on stdin>\n\t%s -del USERNAME\n", argv[0], argv[0]);
+		exit(1);
+	}
+	while ((ch = getchar()) != '\n' && ch != EOF)
+	{
+		if (password_length >= 32 || ch < 32 || ch > 126)
+			exit(3);
+		password[password_length++] = ch;
+	}
+	if (ch != '\n' || getchar() != EOF)
+		exit(3);
+	password[password_length] = '\0';
+
 	uid = find_uid_for_user(argv[1]);
 	if(uid <= 0)
 		exit(2);
 
-	E_md4hash(argv[2], new_nt_p16);
+	E_md4hash(password, new_nt_p16);
+	memset(password, 0, sizeof(password));
 	s = smbpasswd_line;
 	s += snprintf(s, 256 - (s - smbpasswd_line), "%s:%d:XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX:", argv[1], uid);
 	for(g = 0; g < 16; g++)
