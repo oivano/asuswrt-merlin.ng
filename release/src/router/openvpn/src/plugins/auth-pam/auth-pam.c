@@ -38,6 +38,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+#include <pwd.h>
+#include <time.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <sys/types.h>
@@ -63,6 +65,10 @@
 #define RESPONSE_VERIFY_SUCCEEDED 12
 #define RESPONSE_VERIFY_FAILED    13
 #define RESPONSE_DEFER            14
+
+#define AUTH_ATTEMPT_LIMIT 5
+#define AUTH_ATTEMPT_WINDOW 300
+#define AUTH_ATTEMPT_SOURCES 256
 
 /* Pointers to functions exported from openvpn */
 static plugin_log_t plugin_log = NULL;
@@ -132,6 +138,127 @@ struct user_pass
 static void pam_server(int fd, const char *service, int verb,
                        const struct name_value_list *name_value_list);
 
+
+struct auth_attempt_entry
+{
+    char username[128];
+    char remote[INET6_ADDRSTRLEN];
+    unsigned int attempts;
+    time_t last_attempt;
+};
+
+static struct auth_attempt_entry auth_attempts[AUTH_ATTEMPT_SOURCES];
+
+static struct auth_attempt_entry *
+auth_attempt_get(const char *username, const char *remote, int create)
+{
+    struct auth_attempt_entry *available = NULL;
+    const time_t now = time(NULL);
+    int i;
+
+    for (i = 0; i < AUTH_ATTEMPT_SOURCES; ++i)
+    {
+        struct auth_attempt_entry *entry = &auth_attempts[i];
+        if (entry->username[0]
+            && (now < entry->last_attempt || now - entry->last_attempt >= AUTH_ATTEMPT_WINDOW))
+        {
+            memset(entry, 0, sizeof(*entry));
+        }
+        if (entry->username[0] && !strcmp(entry->username, username)
+            && !strcmp(entry->remote, remote))
+        {
+            return entry;
+        }
+        if (!entry->username[0] && !available)
+        {
+            available = entry;
+        }
+    }
+
+    if (create && available)
+    {
+        snprintf(available->username, sizeof(available->username), "%s", username);
+        snprintf(available->remote, sizeof(available->remote), "%s", remote);
+        available->last_attempt = now;
+        return available;
+    }
+    return NULL;
+}
+
+static int
+auth_attempt_blocked(const char *username, const char *remote)
+{
+    struct auth_attempt_entry *entry = auth_attempt_get(username, remote, 1);
+    return !entry || entry->attempts >= AUTH_ATTEMPT_LIMIT;
+}
+
+static void
+auth_attempt_failed(const char *username, const char *remote)
+{
+    struct auth_attempt_entry *entry = auth_attempt_get(username, remote, 1);
+    if (!entry)
+    {
+        plugin_log(PLOG_ERR, MODULE, "OpenVPN auth tracking table full; refusing new attempts");
+        return;
+    }
+    if (entry->attempts < AUTH_ATTEMPT_LIMIT)
+    {
+        ++entry->attempts;
+        entry->last_attempt = time(NULL);
+        if (entry->attempts == AUTH_ATTEMPT_LIMIT)
+        {
+            plugin_log(PLOG_WARN, MODULE,
+                       "OpenVPN auth attempt cooldown started for source %s", remote);
+        }
+    }
+}
+
+static void
+auth_attempt_succeeded(const char *username, const char *remote)
+{
+    struct auth_attempt_entry *entry = auth_attempt_get(username, remote, 0);
+    if (entry)
+    {
+        memset(entry, 0, sizeof(*entry));
+    }
+}
+
+static int
+remote_address_normalize(char *remote, size_t remote_size)
+{
+    struct in_addr address4;
+    struct in6_addr address6;
+    char normalized[INET6_ADDRSTRLEN];
+
+    if (inet_pton(AF_INET, remote, &address4) == 1)
+    {
+        if (!inet_ntop(AF_INET, &address4, normalized, sizeof(normalized)))
+        {
+            return 0;
+        }
+    }
+    else if (inet_pton(AF_INET6, remote, &address6) == 1)
+    {
+        if (!inet_ntop(AF_INET6, &address6, normalized, sizeof(normalized)))
+        {
+            return 0;
+        }
+    }
+    else
+    {
+        return 0;
+    }
+
+    snprintf(remote, remote_size, "%s", normalized);
+    return 1;
+}
+
+static int
+uid_zero_account(const char *username)
+{
+    struct passwd *account = getpwnam(username);
+    return account && account->pw_uid == 0;
+}
 
 /*
  * Socket read/write functions.
@@ -975,6 +1102,8 @@ pam_server(int fd, const char *service, int verb, const struct name_value_list *
         switch (command)
         {
             case COMMAND_VERIFY:
+            {
+                int pam_success;
                 if (recv_string(fd, up.username, sizeof(up.username)) == -1
                     || recv_string(fd, up.password, sizeof(up.password)) == -1
                     || recv_string(fd, up.common_name, sizeof(up.common_name)) == -1
@@ -985,6 +1114,34 @@ pam_server(int fd, const char *service, int verb, const struct name_value_list *
                                "BACKGROUND: read error on command channel: code=%d, exiting",
                                command);
                     goto done;
+                }
+
+                if (!remote_address_normalize(up.remote, sizeof(up.remote)))
+                {
+                    plugin_log(PLOG_WARN, MODULE,
+                               "OpenVPN authentication refused without a valid client address");
+                    send_control(fd, RESPONSE_VERIFY_FAILED);
+                    plugin_secure_memzero(up.password, sizeof(up.password));
+                    break;
+                }
+
+                if (uid_zero_account(up.username))
+                {
+                    plugin_log(PLOG_WARN, MODULE,
+                               "OpenVPN uid-0 account refused from source %s", up.remote);
+                    send_control(fd, RESPONSE_VERIFY_FAILED);
+                    plugin_secure_memzero(up.password, sizeof(up.password));
+                    break;
+                }
+
+                if (auth_attempt_blocked(up.username, up.remote))
+                {
+                    plugin_log(PLOG_WARN, MODULE,
+                               "OpenVPN authentication refused during cooldown or tracking-capacity limit from source %s",
+                               up.remote);
+                    send_control(fd, RESPONSE_VERIFY_FAILED);
+                    plugin_secure_memzero(up.password, sizeof(up.password));
+                    break;
                 }
 
                 if (DEBUG(verb))
@@ -1005,6 +1162,7 @@ pam_server(int fd, const char *service, int verb, const struct name_value_list *
                  */
                 if (strlen(ac_file_name) > 0)
                 {
+                    auth_attempt_failed(up.username, up.remote);
                     do_deferred_pam_auth(fd, ac_file_name, service, &up);
                     break;
                 }
@@ -1013,8 +1171,10 @@ pam_server(int fd, const char *service, int verb, const struct name_value_list *
                 /* non-deferred auth: wait for pam result and send
                  * result back via control socketpair
                  */
-                if (pam_auth(service, &up)) /* Succeeded */
+                pam_success = pam_auth(service, &up);
+                if (pam_success) /* Succeeded */
                 {
+                    auth_attempt_succeeded(up.username, up.remote);
                     if (send_control(fd, RESPONSE_VERIFY_SUCCEEDED) == -1)
                     {
                         plugin_log(PLOG_ERR | PLOG_ERRNO, MODULE,
@@ -1024,6 +1184,9 @@ pam_server(int fd, const char *service, int verb, const struct name_value_list *
                 }
                 else /* Failed */
                 {
+                    auth_attempt_failed(up.username, up.remote);
+                    plugin_log(PLOG_WARN, MODULE,
+                               "OpenVPN password authentication failed from source %s", up.remote);
                     if (send_control(fd, RESPONSE_VERIFY_FAILED) == -1)
                     {
                         plugin_log(PLOG_ERR | PLOG_ERRNO, MODULE,
@@ -1033,6 +1196,7 @@ pam_server(int fd, const char *service, int verb, const struct name_value_list *
                 }
                 plugin_secure_memzero(up.password, sizeof(up.password));
                 break;
+            }
 
             case COMMAND_EXIT:
                 goto done;
