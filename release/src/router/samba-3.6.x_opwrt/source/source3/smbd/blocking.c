@@ -838,17 +838,19 @@ static void process_blocking_lock_cancel_message(struct messaging_context *ctx,
 {
 	struct smbd_server_connection *sconn;
 	NTSTATUS err;
-	const char *msg = (const char *)data->data;
-	struct blocking_lock_record *blr;
+	const char *msg;
+	struct blocking_lock_record *blr, *queued_blr;
 
-	if (data->data == NULL) {
-		smb_panic("process_blocking_lock_cancel_message: null msg");
+	if (data == NULL || data->data == NULL) {
+		DEBUG(1, ("process_blocking_lock_cancel_message: ignoring null msg\n"));
+		return;
 	}
+	msg = (const char *)data->data;
 
 	if (data->length != MSG_BLOCKING_LOCK_CANCEL_SIZE) {
-		DEBUG(0, ("process_blocking_lock_cancel_message: "
+		DEBUG(1, ("process_blocking_lock_cancel_message: "
 			  "Got invalid msg len %d\n", (int)data->length));
-		smb_panic("process_blocking_lock_cancel_message: bad msg");
+		return;
         }
 
 	sconn = msg_ctx_to_sconn(ctx);
@@ -859,6 +861,21 @@ static void process_blocking_lock_cancel_message(struct messaging_context *ctx,
 
 	memcpy(&blr, msg, sizeof(blr));
 	memcpy(&err, &msg[sizeof(blr)], sizeof(NTSTATUS));
+
+	for (queued_blr = sconn->smb1.locks.blocking_lock_cancelled_queue;
+	     queued_blr != NULL;
+	     queued_blr = queued_blr->next) {
+		if (queued_blr == blr) {
+			blr = queued_blr;
+			break;
+		}
+	}
+
+	if (queued_blr == NULL) {
+		DEBUG(1, ("process_blocking_lock_cancel_message: "
+			  "ignoring unknown lock record %p\n", (void *)blr));
+		return;
+	}
 
 	DEBUG(10,("process_blocking_lock_cancel_message: returning error %s\n",
 		nt_errstr(err) ));
