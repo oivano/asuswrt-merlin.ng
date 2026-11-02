@@ -141,40 +141,49 @@ static int blocklist_get_paths(char *dir, size_t dir_len, char *file, size_t fil
 	return 0;
 }
 
-static int blocklist_prepare_directory(const char *dir)
+static int blocklist_open_directory(const char *dir)
 {
 	struct stat st;
 	char parent[PATH_MAX];
 	char *slash;
-	int fd, result = 0;
+	int fd;
 
 	if (snprintf(parent, sizeof(parent), "%s", dir) >= sizeof(parent) ||
 	    !(slash = strrchr(parent, '/')) || slash == parent)
-		return 0;
+		return -1;
 	*slash = '\0';
-	if (lstat(parent, &st) < 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
-	    ((st.st_mode & 0022) && !(st.st_mode & S_ISVTX)))
-		return 0;
+	if (lstat(parent, &st) < 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0)
+		return -1;
 	if (mkdir(dir, 0700) < 0 && errno != EEXIST)
-		return 0;
+		return -1;
 	fd = open(dir, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
 	if (fd < 0)
-		return 0;
+		return -1;
 	if (fstat(fd, &st) == 0 && S_ISDIR(st.st_mode) && st.st_uid == 0 &&
-	    fchmod(fd, 0700) == 0 && fstat(fd, &st) == 0 && !(st.st_mode & 0077))
-		result = 1;
+	    (st.st_mode & 07777) == 0700)
+		return fd;
 	close(fd);
-	return result;
+	return -1;
 }
 
-static int blocklist_prepare_file(const char *path, int create)
+static int blocklist_prepare_directory(const char *dir)
+{
+	int fd = blocklist_open_directory(dir);
+
+	if (fd < 0)
+		return 0;
+	close(fd);
+	return 1;
+}
+
+static int blocklist_prepare_file_at(int dirfd, const char *path, int create)
 {
 	struct stat st;
 	int fd;
 
-	fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+	fd = openat(dirfd, path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
 	if (fd < 0 && create && errno == ENOENT)
-		fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK, 0600);
+		fd = openat(dirfd, path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK, 0600);
 	if (fd < 0)
 		return 0;
 	if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
@@ -185,6 +194,11 @@ static int blocklist_prepare_file(const char *path, int create)
 	}
 	close(fd);
 	return 1;
+}
+
+static int blocklist_prepare_file(const char *path, int create)
+{
+	return blocklist_prepare_file_at(AT_FDCWD, path, create);
 }
 
 static int blocklist_external_path(const char *path)
@@ -272,11 +286,11 @@ static int blocklist_parse_data_line(char *line, char **domain, char **address)
 	return 2;
 }
 
-static FILE *blocklist_open_data_file(const char *path)
+static FILE *blocklist_open_data_file_at(int dirfd, const char *path)
 {
 	struct stat st;
 	FILE *fp;
-	int fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+	int fd = openat(dirfd, path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
 
 	if (fd < 0)
 		return NULL;
@@ -289,6 +303,70 @@ static FILE *blocklist_open_data_file(const char *path)
 	if (!fp)
 		close(fd);
 	return fp;
+}
+
+static FILE *blocklist_open_data_file(const char *path)
+{
+	return blocklist_open_data_file_at(AT_FDCWD, path);
+}
+
+static int blocklist_create_temp_file(int dirfd, const char *prefix, char *name, size_t name_len)
+{
+	struct stat st;
+	struct timeval now;
+	static unsigned long serial;
+	int fd, attempt;
+
+	gettimeofday(&now, NULL);
+	for (attempt = 0; attempt < 32; attempt++) {
+		if (snprintf(name, name_len, "%s.%ld.%lu.%lu", prefix, (long)getpid(),
+			     (unsigned long)now.tv_usec, serial++) >= name_len)
+			return -1;
+		fd = openat(dirfd, name, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK, 0600);
+		if (fd < 0) {
+			if (errno == EEXIST)
+				continue;
+			return -1;
+		}
+		if (fstat(fd, &st) == 0 && S_ISREG(st.st_mode) && st.st_uid == 0 &&
+		    st.st_nlink == 1 && fchmod(fd, 0600) == 0 && fstat(fd, &st) == 0 &&
+		    S_ISREG(st.st_mode) && st.st_uid == 0 && st.st_nlink == 1 && !(st.st_mode & 0077))
+			return fd;
+		close(fd);
+		unlinkat(dirfd, name, 0);
+		return -1;
+	}
+	return -1;
+}
+
+static int blocklist_download(char *const argv[], int output_fd)
+{
+	pid_t pid, result;
+	int status;
+
+	pid = fork();
+	if (pid < 0)
+		return 0;
+	if (pid == 0) {
+		int fd;
+
+		if (dup2(output_fd, STDOUT_FILENO) < 0)
+			_exit(126);
+		fd = open("/dev/null", O_WRONLY);
+		if (fd >= 0) {
+			dup2(fd, STDERR_FILENO);
+			if (fd != STDERR_FILENO)
+				close(fd);
+		}
+		if (output_fd != STDOUT_FILENO)
+			close(output_fd);
+		execv(argv[0], argv);
+		_exit(127);
+	}
+	do {
+		result = waitpid(pid, &status, 0);
+	} while (result < 0 && errno == EINTR);
+	return result == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
 static FILE *blocklist_create_data_file(const char *path)
@@ -2688,13 +2766,15 @@ static int update_dnsmasq_blocklist_worker(void)
 {
 	char *url = nvram_safe_get("dnsmasq_blocklist_url");
 	char *block_ip = nvram_safe_get("dnsmasq_blocklist_ip");
-	char maxsize[32], new_file[PATH_MAX];
-	char blocklist_dir[PATH_MAX], blocklist_file[PATH_MAX], temp_file[PATH_MAX], allowlist_file[PATH_MAX];
+	char maxsize[32];
+	char blocklist_dir[PATH_MAX], blocklist_file[PATH_MAX];
+	char download_name[96] = "", new_name[96] = "";
 	char *argv[16];
-	FILE *in, *out = NULL, *allow;
+	FILE *in = NULL, *out = NULL, *allow = NULL;
 	char line[512], *p, *domain, *compiled_end;
 	struct stat list_stat;
-	int max_domains, count = 0, truncated = 0, write_error = 0;
+	int dirfd = -1, download_fd = -1, output_fd = -1;
+	int max_domains, count = 0, truncated = 0, write_error = 0, updated = 0;
 	int min_free_kb = nvram_get_int("dnsmasq_blocklist_min_free_kb") ? : 20000;
 
 	if (!nvram_get_int("dnsmasq_blocklist_enable") || !*url)
@@ -2709,16 +2789,14 @@ static int update_dnsmasq_blocklist_worker(void)
 		logmessage("dnsmasq_blocklist", "no writable USB storage with 220 MB free; skipping update");
 		return 0;
 	}
-	if (!blocklist_prepare_directory(blocklist_dir)) {
+	dirfd = blocklist_open_directory(blocklist_dir);
+	if (dirfd < 0) {
 		logmessage("dnsmasq_blocklist", "blocklist directory is not root-owned and private; skipping update");
 		return 0;
 	}
-	snprintf(temp_file, sizeof(temp_file), "%s/blockinglist.download", blocklist_dir);
-	snprintf(allowlist_file, sizeof(allowlist_file), "%s/allowlist.conf", blocklist_dir);
-	snprintf(new_file, sizeof(new_file), "%s.new", blocklist_file);
-	if (!blocklist_prepare_file(allowlist_file, 1)) {
+	if (!blocklist_prepare_file_at(dirfd, "allowlist.conf", 1)) {
 		logmessage("dnsmasq_blocklist", "allowlist is not a root-owned regular file; skipping update");
-		return 0;
+		goto done;
 	}
 
 	max_domains = blocklist_effective_max_domains(
@@ -2738,34 +2816,32 @@ static int update_dnsmasq_blocklist_worker(void)
 	argv[9] = "30";
 	argv[10] = "--max-filesize";
 	argv[11] = maxsize;
-	argv[12] = "-o";
-	argv[13] = temp_file;
+	argv[12] = "--output";
+	argv[13] = "-";
 	argv[14] = url;
 	argv[15] = NULL;
 
-	unlink(temp_file);
-	if (_eval(argv, NULL, 0, NULL) || !blocklist_prepare_file(temp_file, 0) ||
-	    !(in = fopen(temp_file, "r"))) {
-		unlink(temp_file);
-		return 0;
-	}
-	if (!stat(temp_file, &list_stat) && list_stat.st_size > DNSMASQ_BLOCKLIST_EXTERNAL_BYTES &&
-	    !blocklist_external_path(temp_file)) {
-		fclose(in);
-		unlink(temp_file);
+	download_fd = blocklist_create_temp_file(dirfd, "blockinglist.download",
+						 download_name, sizeof(download_name));
+	if (download_fd < 0 || !blocklist_download(argv, download_fd) ||
+	    lseek(download_fd, 0, SEEK_SET) < 0 || fstat(download_fd, &list_stat) < 0)
+		goto done;
+	if (list_stat.st_size > DNSMASQ_BLOCKLIST_EXTERNAL_BYTES && !blocklist_external_path(blocklist_dir)) {
 		logmessage("dnsmasq_blocklist", "list exceeds 10 MB and is not on external USB storage");
-		return 0;
+		goto done;
 	}
-
-	if ((unlink(new_file) < 0 && errno != ENOENT) ||
-	    !blocklist_prepare_file(new_file, 1) || !(out = fopen(new_file, "w"))) {
-		fclose(in);
-		unlink(temp_file);
-		unlink(new_file);
-		return 0;
-	}
-
-	allow = fopen(allowlist_file, "r");
+	in = fdopen(download_fd, "r");
+	if (!in)
+		goto done;
+	download_fd = -1;
+	output_fd = blocklist_create_temp_file(dirfd, "blockinglist.conf.new",
+					       new_name, sizeof(new_name));
+	if (output_fd < 0 || !(out = fdopen(output_fd, "w")))
+		goto done;
+	output_fd = -1;
+	allow = blocklist_open_data_file_at(dirfd, "allowlist.conf");
+	if (!allow)
+		goto done;
 
 	while (fgets(line, sizeof(line), in)) {
 		/* Strip comments and hosts-file/AdBlock-style decoration down to a bare domain. */
@@ -2812,25 +2888,25 @@ static int update_dnsmasq_blocklist_worker(void)
 	}
 	if (allow)
 		fclose(allow);
+	allow = NULL;
 	if (ferror(in))
 		write_error = 1;
 	if (fclose(in) != 0)
 		write_error = 1;
+	in = NULL;
 	if (ferror(out))
 		write_error = 1;
 	if (fclose(out) != 0)
 		write_error = 1;
-	unlink(temp_file);
+	out = NULL;
 	if (write_error) {
-		unlink(new_file);
 		logmessage("dnsmasq_blocklist", "failed to write generated blocklist; keeping previous list");
-		return 0;
+		goto done;
 	}
-	if (!stat(new_file, &list_stat) && list_stat.st_size > DNSMASQ_BLOCKLIST_EXTERNAL_BYTES &&
-	    !blocklist_external_path(new_file)) {
-		unlink(new_file);
+	if (fstatat(dirfd, new_name, &list_stat, AT_SYMLINK_NOFOLLOW) == 0 &&
+	    list_stat.st_size > DNSMASQ_BLOCKLIST_EXTERNAL_BYTES && !blocklist_external_path(blocklist_dir)) {
 		logmessage("dnsmasq_blocklist", "generated list exceeds 10 MB and is not on external USB storage");
-		return 0;
+		goto done;
 	}
 
 	if (truncated)
@@ -2839,18 +2915,34 @@ static int update_dnsmasq_blocklist_worker(void)
 
 	/* Refuse to apply a blocklist rebuild if memory is already tight; keep serving the last-known-good list */
 	if (blocklist_free_kb() >= 0 && blocklist_free_kb() < min_free_kb) {
-		unlink(new_file);
 		logmessage("dnsmasq_blocklist", "low free memory, keeping previous blocklist");
-		return 0;
+		goto done;
 	}
 
-	if (rename(new_file, blocklist_file) != 0) {
+	if (renameat(dirfd, new_name, dirfd, "blockinglist.conf") != 0) {
 		logmessage("dnsmasq_blocklist", "failed to publish generated blocklist; keeping previous list");
-		unlink(new_file);
-		return 0;
+		goto done;
 	}
+	updated = 1;
 
-	return 1;
+done:
+	if (in)
+		fclose(in);
+	if (out)
+		fclose(out);
+	if (allow)
+		fclose(allow);
+	if (download_fd >= 0)
+		close(download_fd);
+	if (output_fd >= 0)
+		close(output_fd);
+	if (*download_name)
+		unlinkat(dirfd, download_name, 0);
+	if (*new_name)
+		unlinkat(dirfd, new_name, 0);
+	if (dirfd >= 0)
+		close(dirfd);
+	return updated;
 }
 
 static int dnsmasq_blocklist_worker_lock(void)

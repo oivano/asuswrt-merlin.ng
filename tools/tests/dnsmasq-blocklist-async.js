@@ -19,8 +19,16 @@ const dispatch = source.slice(
 	source.indexOf("void dnsmasq_blocklist_count(void)")
 );
 const trust = source.slice(
-	source.indexOf("static int blocklist_prepare_directory(const char *dir)"),
+	source.indexOf("static int blocklist_open_directory(const char *dir)"),
 	source.indexOf("static int blocklist_external_path(const char *path)")
+);
+const tempCreation = source.slice(
+	source.indexOf("static int blocklist_create_temp_file("),
+	source.indexOf("static int blocklist_download(")
+);
+const download = source.slice(
+	source.indexOf("static int blocklist_download("),
+	source.indexOf("static int blocklist_write_data(")
 );
 const sanitizer = source.slice(
 	source.indexOf("static int blocklist_valid_domain(const char *domain)"),
@@ -34,8 +42,12 @@ assert(start.includes("blocklist_build_runtime_config(blocklist_dir, blocklist_f
 assert(start.includes('fprintf(fp, "conf-file=%s\\n", blocklist_config)'), "dnsmasq should include only the root-owned generated config");
 assert(!start.includes("conf-file=%s\\nconf-file=%s\\nconf-file=%s"), "USB files must not be loaded as general dnsmasq config");
 assert(trust.includes("O_NOFOLLOW") && trust.includes("st_uid != 0"), "blocklist paths must reject symlinks and non-root ownership");
-assert(trust.includes("st_mode & S_ISVTX"), "blocklist storage parent must prevent child-directory replacement");
-assert(trust.includes("fchmod(fd, 0700)") && trust.includes("fchmod(fd, 0600)"), "blocklist storage must have restrictive permissions");
+assert(trust.includes("open(dir, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)") && trust.includes("return fd"), "worker should pin the validated storage directory");
+assert(trust.includes("mkdir(dir, 0700)") && trust.includes("st_uid == 0") && trust.includes("(st.st_mode & 07777) == 0700"), "blocklist directory must be root-owned and exactly 0700");
+assert(sanitizer.includes("fchmod(fd, 0600)"), "blocklist files must have restrictive permissions");
+assert(tempCreation.includes("openat(dirfd, name, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW") &&
+	tempCreation.includes("st_uid == 0") && tempCreation.includes("st_nlink == 1"), "temporary files must be exclusive, no-follow, and validated by descriptor");
+assert(download.includes("dup2(output_fd, STDOUT_FILENO)") && download.includes("execv(argv[0], argv)"), "curl should stream into the held download descriptor");
 assert(sanitizer.includes('"local=/"') && sanitizer.includes('"address=/"'), "only supported data records should be accepted");
 assert(sanitizer.includes("blocklist_safe_config_path") && sanitizer.includes("*p < 0x20") && sanitizer.includes("*p == '#'"), "USB-derived paths must not inject runtime config lines");
 assert(sanitizer.includes("*p == '\\\\'"), "USB-derived backslashes must not escape runtime config syntax");
@@ -89,11 +101,16 @@ for (const [option, value] of [
 ]) {
 	assert(worker.includes(`"${option}"`) && worker.includes(`"${value}"`), `missing curl bound ${option} ${value}`);
 }
-assert(worker.includes("rename(new_file, blocklist_file) != 0"), "publication must check atomic rename failure");
-assert(worker.includes("blocklist_prepare_directory(blocklist_dir)"), "worker should reject an untrusted storage directory");
-assert(worker.includes("blocklist_prepare_file(temp_file, 0)"), "downloaded files should be validated before parsing");
+assert(worker.includes('renameat(dirfd, new_name, dirfd, "blockinglist.conf") != 0'), "publication must check descriptor-relative atomic rename failure");
+assert(worker.includes("blocklist_open_directory(blocklist_dir)"), "worker should reject an untrusted storage directory");
+assert(worker.includes('blocklist_create_temp_file(dirfd, "blockinglist.download"'), "download should use an exclusive private temporary file");
+assert(worker.includes('blocklist_create_temp_file(dirfd, "blockinglist.conf.new"'), "generated output should use an exclusive private temporary file");
+assert(worker.includes("blocklist_download(argv, download_fd)"), "curl should write into the already-open download descriptor");
+assert(worker.includes("lseek(download_fd, 0, SEEK_SET)") && worker.includes('fdopen(download_fd, "r")'), "download should be parsed through its original descriptor");
+assert(worker.includes("renameat(dirfd, new_name, dirfd, \"blockinglist.conf\")"), "publication should stay relative to the pinned directory");
+assert(!worker.includes("fopen(temp_file") && !worker.includes("fopen(new_file") && !worker.includes("unlink(temp_file)"), "worker must not reopen or unlink attacker-selected fixed paths");
 assert(worker.includes("if (ferror(in))") && worker.includes("if (ferror(out))"), "stream errors must block publication");
-assert(worker.includes("return 1;"), "worker should report successful publication");
+assert(worker.includes("updated = 1;") && worker.includes("return updated;"), "worker should report successful publication");
 
 assert(lock.includes("fcntl(fd, F_SETLK, &lock)"), "worker lock should be nonblocking");
 assert(dispatch.includes("pid = fork()"), "PID 1 should fork the updater");
