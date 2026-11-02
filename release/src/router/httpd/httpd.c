@@ -384,13 +384,13 @@ char HTTPD_LAST_LOGIN_TS_W[32] = {0};
 char CAPTCHA_FAIL_NUM[32] = {0};
 char HTTPD_LOCK_NUM[32] = {0};
 
-int httpd_create_tempfile(char *path, size_t path_size)
+int httpd_ensure_temp_dir(void)
 {
 	const char *directory = "/tmp/httpd";
 	struct stat st;
-	int created = 0, fd;
+	int created = 0;
 
-	if (!path || path_size == 0 || geteuid() != 0) {
+	if (geteuid() != 0) {
 		errno = EPERM;
 		return -1;
 	}
@@ -411,6 +411,21 @@ int httpd_create_tempfile(char *path, size_t path_size)
 		errno = EPERM;
 		return -1;
 	}
+
+	return 0;
+}
+
+int httpd_create_tempfile(char *path, size_t path_size)
+{
+	const char *directory = "/tmp/httpd";
+	int fd;
+
+	if (!path || path_size == 0) {
+		errno = EPERM;
+		return -1;
+	}
+	if (httpd_ensure_temp_dir() != 0)
+		return -1;
 
 	if (snprintf(path, path_size, "%s/output-XXXXXX", directory) >= path_size) {
 		errno = ENAMETOOLONG;
