@@ -7,73 +7,88 @@
  *
  * Licensed under GPLv2, see file LICENSE in this source tree.
  */
-
 //config:config MDEV
-//config:	bool "mdev"
+//config:	bool "mdev (17 kb)"
 //config:	default y
-//config:	select PLATFORM_LINUX
 //config:	help
-//config:	  mdev is a mini-udev implementation for dynamically creating device
-//config:	  nodes in the /dev directory.
+//config:	mdev is a mini-udev implementation for dynamically creating device
+//config:	nodes in the /dev directory.
 //config:
-//config:	  For more information, please see docs/mdev.txt
+//config:	For more information, please see docs/mdev.txt
 //config:
 //config:config FEATURE_MDEV_CONF
 //config:	bool "Support /etc/mdev.conf"
 //config:	default y
 //config:	depends on MDEV
 //config:	help
-//config:	  Add support for the mdev config file to control ownership and
-//config:	  permissions of the device nodes.
+//config:	Add support for the mdev config file to control ownership and
+//config:	permissions of the device nodes.
 //config:
-//config:	  For more information, please see docs/mdev.txt
+//config:	For more information, please see docs/mdev.txt
 //config:
 //config:config FEATURE_MDEV_RENAME
 //config:	bool "Support subdirs/symlinks"
 //config:	default y
 //config:	depends on FEATURE_MDEV_CONF
 //config:	help
-//config:	  Add support for renaming devices and creating symlinks.
+//config:	Add support for renaming devices and creating symlinks.
 //config:
-//config:	  For more information, please see docs/mdev.txt
+//config:	For more information, please see docs/mdev.txt
 //config:
 //config:config FEATURE_MDEV_RENAME_REGEXP
 //config:	bool "Support regular expressions substitutions when renaming device"
 //config:	default y
 //config:	depends on FEATURE_MDEV_RENAME
 //config:	help
-//config:	  Add support for regular expressions substitutions when renaming
-//config:	  device.
+//config:	Add support for regular expressions substitutions when renaming
+//config:	device.
 //config:
 //config:config FEATURE_MDEV_EXEC
 //config:	bool "Support command execution at device addition/removal"
 //config:	default y
 //config:	depends on FEATURE_MDEV_CONF
 //config:	help
-//config:	  This adds support for an optional field to /etc/mdev.conf for
-//config:	  executing commands when devices are created/removed.
+//config:	This adds support for an optional field to /etc/mdev.conf for
+//config:	executing commands when devices are created/removed.
 //config:
-//config:	  For more information, please see docs/mdev.txt
+//config:	For more information, please see docs/mdev.txt
 //config:
 //config:config FEATURE_MDEV_LOAD_FIRMWARE
-//config:	bool "Support loading of firmwares"
+//config:	bool "Support loading of firmware"
 //config:	default y
 //config:	depends on MDEV
 //config:	help
-//config:	  Some devices need to load firmware before they can be usable.
+//config:	Some devices need to load firmware before they can be usable.
 //config:
-//config:	  These devices will request userspace look up the files in
-//config:	  /lib/firmware/ and if it exists, send it to the kernel for
-//config:	  loading into the hardware.
+//config:	These devices will request userspace look up the files in
+//config:	/lib/firmware/ and if it exists, send it to the kernel for
+//config:	loading into the hardware.
+//config:
+//config:config FEATURE_MDEV_DAEMON
+//config:	bool "Support daemon mode"
+//config:	default y
+//config:	depends on MDEV
+//config:	help
+//config:	Adds the -d option to run mdev in daemon mode handling hotplug
+//config:	events from the kernel like udev. If the system generates many
+//config:	hotplug events this mode of operation will consume less
+//config:	resources than registering mdev as hotplug helper or using the
+//config:	uevent applet.
 
 //applet:IF_MDEV(APPLET(mdev, BB_DIR_SBIN, BB_SUID_DROP))
 
 //kbuild:lib-$(CONFIG_MDEV) += mdev.o
 
 //usage:#define mdev_trivial_usage
-//usage:       "[-s]"
+//usage:       "[-vS] " IF_FEATURE_MDEV_DAEMON("{ ") "[-s]" IF_FEATURE_MDEV_DAEMON(" | [-df] }")
 //usage:#define mdev_full_usage "\n\n"
-//usage:       "mdev -s is to be run during boot to scan /sys and populate /dev.\n"
+//usage:       "	-v	Verbose\n"
+//usage:       "	-S	Log to syslog too\n"
+//usage:       "	-s	Scan /sys and populate /dev\n"
+//usage:	IF_FEATURE_MDEV_DAEMON(
+//usage:       "	-d	Daemon, listen on netlink\n"
+//usage:       "	-f	Run in foreground\n"
+//usage:	)
 //usage:       "\n"
 //usage:       "Bare mdev is a kernel hotplug helper. To activate it:\n"
 //usage:       "	echo /sbin/mdev >/proc/sys/kernel/hotplug\n"
@@ -99,6 +114,8 @@
 #include "libbb.h"
 #include "common_bufsiz.h"
 #include "xregex.h"
+#include <linux/netlink.h>
+#include <syslog.h>
 
 /* "mdev -s" scans /sys/class/xxx, looking for directories which have dev
  * file (it is of the form "M:m\n"). Example: /sys/class/tty/tty0/dev
@@ -235,20 +252,25 @@
 
 #if DEBUG_LVL >= 1
 # define dbg1(...) do { if (G.verbose) bb_error_msg(__VA_ARGS__); } while(0)
+# define dbg1s(msg) do { if (G.verbose) bb_simple_error_msg(msg); } while(0)
 #else
 # define dbg1(...) ((void)0)
+# define dbg1s(msg) ((void)0)
 #endif
 #if DEBUG_LVL >= 2
 # define dbg2(...) do { if (G.verbose >= 2) bb_error_msg(__VA_ARGS__); } while(0)
+# define dbg2s(msg) do { if (G.verbose >= 2) bb_simple_error_msg(msg); } while(0)
 #else
 # define dbg2(...) ((void)0)
+# define dbg2s(msg) ((void)0)
 #endif
 #if DEBUG_LVL >= 3
 # define dbg3(...) do { if (G.verbose >= 3) bb_error_msg(__VA_ARGS__); } while(0)
+# define dbg3s(msg) do { if (G.verbose >= 3) bb_simple_error_msg(msg); } while(0)
 #else
 # define dbg3(...) ((void)0)
+# define dbg3s(msg) ((void)0)
 #endif
-
 
 static const char keywords[] ALIGN1 = "add\0remove\0"; // "change\0"
 enum { OP_add, OP_remove };
@@ -274,7 +296,7 @@ struct rule {
 
 struct globals {
 	int root_major, root_minor;
-	smallint verbose;
+	int verbose;
 	char *subsystem;
 	char *subsys_env; /* for putenv("SUBSYSTEM=subsystem") */
 #if ENABLE_FEATURE_MDEV_CONF
@@ -809,28 +831,39 @@ static void make_device(char *device_name, char *path, int operation)
 	} /* for (;;) */
 }
 
+static ssize_t readlink2(char *buf, size_t bufsize)
+{
+	// Grr... gcc 8.1.1:
+	// "passing argument 2 to restrict-qualified parameter aliases with argument 1"
+	// dance around that...
+	char *obuf FIX_ALIASING;
+	obuf = buf;
+	return readlink(buf, obuf, bufsize);
+}
+
 /* File callback for /sys/ traversal.
  * We act only on "/sys/.../dev" (pseudo)file
  */
-static int FAST_FUNC fileAction(const char *fileName,
-		struct stat *statbuf UNUSED_PARAM,
-		void *userData,
-		int depth UNUSED_PARAM)
+static int FAST_FUNC fileAction(struct recursive_state *state,
+		const char *fileName,
+		struct stat *statbuf UNUSED_PARAM)
 {
 	size_t len = strlen(fileName) - 4; /* can't underflow */
-	char *path = userData;	/* char array[PATH_MAX + SCRATCH_SIZE] */
+	char *path = state->userData;	/* char array[PATH_MAX + SCRATCH_SIZE] */
 	char subsys[PATH_MAX];
 	int res;
 
 	/* Is it a ".../dev" file? (len check is for paranoid reasons) */
-	if (strcmp(fileName + len, "/dev") != 0 || len >= PATH_MAX)
+	if (strcmp(fileName + len, "/dev") != 0 || len >= PATH_MAX - 32)
 		return FALSE; /* not .../dev */
 
 	strcpy(path, fileName);
+	path[len] = '\0';
 
 	/* Read ".../subsystem" symlink in the same directory where ".../dev" is */
-	strcpy(path + len, "/subsystem");
-	res = readlink(path, subsys, sizeof(subsys)-1);
+	strcpy(subsys, path);
+	strcpy(subsys + len, "/subsystem");
+	res = readlink2(subsys, sizeof(subsys)-1);
 	if (res > 0) {
 		subsys[res] = '\0';
 		free(G.subsystem);
@@ -847,26 +880,17 @@ static int FAST_FUNC fileAction(const char *fileName,
 		}
 	}
 
-	path[len] = '\0';
-
-	/* Use real path of /sys/block/... symlinks
-	 * to differ partitions from parent bus/char devices
-	 */
-	if (strncmp(path, "/sys/block", 10) == 0 && realpath(path, subsys) != NULL)
-		strcpy(path, subsys);
-
 	make_device(/*DEVNAME:*/ NULL, path, OP_add);
 
 	return TRUE;
 }
 
 /* Directory callback for /sys/ traversal */
-static int FAST_FUNC dirAction(const char *fileName UNUSED_PARAM,
-		struct stat *statbuf UNUSED_PARAM,
-		void *userData UNUSED_PARAM,
-		int depth)
+static int FAST_FUNC dirAction(struct recursive_state *state,
+		const char *fileName UNUSED_PARAM,
+		struct stat *statbuf UNUSED_PARAM)
 {
-	return (depth >= MAX_SYSFS_DEPTH ? SKIP : TRUE);
+	return (state->depth >= MAX_SYSFS_DEPTH ? SKIP : TRUE);
 }
 
 /* For the full gory details, see linux/Documentation/firmware_class/README
@@ -896,7 +920,7 @@ static void load_firmware(const char *firmware, const char *sysfs_path)
 		loading_fd = open("loading", O_WRONLY);
 		if (loading_fd >= 0)
 			goto loading;
-		sleep(1);
+		sleep1();
 	}
 	goto out;
 
@@ -939,7 +963,7 @@ static void load_firmware(const char *firmware, const char *sysfs_path)
 static char *curtime(void)
 {
 	struct timeval tv;
-	gettimeofday(&tv, NULL);
+	xgettimeofday(&tv);
 	sprintf(
 		strftime_HHMMSS(G.timestr, sizeof(G.timestr), &tv.tv_sec),
 		".%06u",
@@ -999,7 +1023,7 @@ wait_for_seqfile(unsigned expected_seq)
 			/* seed file: write out seq ASAP */
 			xwrite_str(seq_fd, utoa(expected_seq));
 			xlseek(seq_fd, 0, SEEK_SET);
-			dbg2("first seq written");
+			dbg2s("first seq written");
 			break;
 		}
 		seqbufnum = atoll(seqbuf);
@@ -1044,16 +1068,186 @@ static void signal_mdevs(unsigned my_pid)
 	}
 }
 
+static void process_action(char *temp, unsigned my_pid)
+{
+	char *fw;
+	char *seq;
+	char *action;
+	char *env_devname;
+	char *env_devpath;
+	unsigned seqnum = seqnum; /* for compiler */
+	int seq_fd;
+	smalluint op;
+
+	/* Hotplug:
+	 * env ACTION=... DEVPATH=... SUBSYSTEM=... [SEQNUM=...] mdev
+	 * ACTION can be "add", "remove", "change"
+	 * DEVPATH is like "/block/sda" or "/class/input/mice"
+	 */
+	env_devname = getenv("DEVNAME"); /* can be NULL */
+	G.subsystem = getenv("SUBSYSTEM");
+	action = getenv("ACTION");
+	env_devpath = getenv("DEVPATH");
+	if (!action || !env_devpath /*|| !G.subsystem*/)
+		bb_show_usage();
+	fw = getenv("FIRMWARE");
+	seq = getenv("SEQNUM");
+	op = index_in_strings(keywords, action);
+
+	if (my_pid)
+		open_mdev_log(seq, my_pid);
+
+	seq_fd = -1;
+	if (my_pid && seq) {
+		seqnum = atoll(seq);
+		seq_fd = wait_for_seqfile(seqnum);
+	}
+
+	dbg1("%s "
+		"ACTION:%s SEQNUM:%s SUBSYSTEM:%s DEVNAME:%s DEVPATH:%s"
+		"%s%s",
+		curtime(),
+		action, seq, G.subsystem, env_devname, env_devpath,
+		fw ? " FW:" : "", fw ? fw : ""
+	);
+
+	snprintf(temp, PATH_MAX, "/sys%s", env_devpath);
+	if (op == OP_remove) {
+		/* Ignoring "remove firmware". It was reported
+		 * to happen and to cause erroneous deletion
+		 * of device nodes. */
+		if (!fw)
+			make_device(env_devname, temp, op);
+	}
+	else {
+		make_device(env_devname, temp, op);
+		if (ENABLE_FEATURE_MDEV_LOAD_FIRMWARE) {
+			if (op == OP_add && fw)
+				load_firmware(fw, temp);
+		}
+	}
+
+	if (seq_fd >= 0) {
+		xwrite_str(seq_fd, utoa(seqnum + 1));
+		signal_mdevs(my_pid);
+	}
+}
+
+static void initial_scan(char *temp)
+{
+	struct stat st;
+
+	xstat("/", &st);
+	G.root_major = major(st.st_dev);
+	G.root_minor = minor(st.st_dev);
+
+	putenv((char*)"ACTION=add");
+
+	/* Create all devices from /sys/dev hierarchy */
+	recursive_action("/sys/dev",
+			 ACTION_RECURSE | ACTION_FOLLOWLINKS,
+			 fileAction, dirAction, temp);
+}
+
+#if ENABLE_FEATURE_MDEV_DAEMON
+
+/*
+ * The kernel (as of v5.4) will pass up to 32 environment variables with a
+ * total of 2kiB on each event. On top of that the action string and device
+ * path are added. Using a 3kiB buffer for the event should suffice in any
+ * case.
+ *
+ * As far as the socket receive buffer size is concerned 2MiB proved to be too
+ * small (see [1]). Udevd seems to use a whooping 128MiB. The socket receive
+ * buffer size is just a resource limit. The buffers are allocated lazily so
+ * the memory is not wasted.
+ *
+ * [1] http://lists.busybox.net/pipermail/busybox/2019-December/087665.html
+ */
+# define USER_RCVBUF (3 * 1024)
+# define KERN_RCVBUF (128 * 1024 * 1024)
+# define MAX_ENV 32
+
+static int daemon_init(char *temp)
+{
+	int fd;
+
+	/* Subscribe for UEVENT kernel messages */
+	/* Without a sufficiently big RCVBUF, a ton of simultaneous events
+	 * can trigger ENOBUFS on read, which is unrecoverable.
+	 * Reproducer:
+	 *	mdev -d
+	 *	find /sys -name uevent -exec sh -c 'echo add >"{}"' ';'
+	 */
+	fd = create_and_bind_to_netlink(NETLINK_KOBJECT_UEVENT, 1 << 0, KERN_RCVBUF);
+
+	/*
+	 * Make inital scan after the uevent socket is alive and
+	 * _before_ we fork away. Already open mdev.log because we work
+	 * in daemon mode.
+	 */
+	initial_scan(temp);
+
+	return fd;
+}
+
+static void daemon_loop(char *temp, int fd)
+{
+	for (;;) {
+		char netbuf[USER_RCVBUF];
+		char *env[MAX_ENV];
+		char *s, *end;
+		ssize_t len;
+		int idx;
+
+		len = safe_read(fd, netbuf, sizeof(netbuf) - 1);
+		if (len < 0) {
+			if (errno == ENOBUFS) {
+				/*
+				 * We ran out of socket receive buffer space.
+				 * Start from scratch.
+				 */
+				dbg1s("uevent overrun, rescanning");
+				close(fd);
+				fd = daemon_init(temp);
+				continue;
+			}
+			bb_simple_perror_msg_and_die("read");
+		}
+		end = netbuf + len;
+		*end = '\0';
+
+		idx = 0;
+		s = netbuf;
+		while (s < end && idx < MAX_ENV) {
+			if (endofname(s)[0] == '=') {
+				env[idx++] = s;
+				putenv(s);
+			}
+			s += strlen(s) + 1;
+		}
+
+		process_action(temp, 0);
+
+		while (idx)
+			bb_unsetenv(env[--idx]);
+	}
+}
+#endif
+
 int mdev_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
 int mdev_main(int argc UNUSED_PARAM, char **argv)
 {
+	enum {
+		MDEV_OPT_SCAN       = 1 << 0,
+		MDEV_OPT_SYSLOG     = 1 << 1,
+		MDEV_OPT_DAEMON     = 1 << 2,
+		MDEV_OPT_FOREGROUND = 1 << 3,
+	};
+	int opt;
 	RESERVE_CONFIG_BUFFER(temp, PATH_MAX + SCRATCH_SIZE);
 
 	INIT_G();
-
-#if ENABLE_FEATURE_MDEV_CONF
-	G.filename = "/etc/mdev.conf";
-#endif
 
 	/* We can be called as hotplug helper */
 	/* Kernel cannot provide suitable stdio fds for us, do it ourself */
@@ -1064,108 +1258,51 @@ int mdev_main(int argc UNUSED_PARAM, char **argv)
 
 	xchdir("/dev");
 
-	if (argv[1] && strcmp(argv[1], "-s") == 0) {
+	opt = getopt32(argv, "^"
+		"sS" IF_FEATURE_MDEV_DAEMON("df") "v"
+		"\0"
+		"vv",
+		&G.verbose);
+
+#if ENABLE_FEATURE_MDEV_CONF
+	G.filename = "/etc/mdev.conf";
+	if (opt & (MDEV_OPT_SCAN|MDEV_OPT_DAEMON)) {
+		/* Same as xrealloc_vector(NULL, 4, 0): */
+		G.rule_vec = xzalloc((1 << 4) * sizeof(*G.rule_vec));
+	}
+#endif
+
+	if (opt & MDEV_OPT_SYSLOG) {
+		openlog(applet_name, LOG_PID, LOG_DAEMON);
+		logmode |= LOGMODE_SYSLOG;
+	}
+
+#if ENABLE_FEATURE_MDEV_DAEMON
+	if (opt & MDEV_OPT_DAEMON) {
+		/* Daemon mode listening on uevent netlink socket. Fork away
+		 * after initial scan so that caller can be sure everything
+		 * is up-to-date when mdev process returns.
+		 */
+		int fd = daemon_init(temp);
+
+		if (!(opt & MDEV_OPT_FOREGROUND)) {
+			/* there is no point in logging to /dev/null */
+			logmode &= ~LOGMODE_STDIO;
+			bb_daemonize_or_rexec(0, argv);
+		}
+
+		daemon_loop(temp, fd);
+	}
+#endif
+	if (opt & MDEV_OPT_SCAN) {
 		/*
 		 * Scan: mdev -s
 		 */
-		struct stat st;
-
-#if ENABLE_FEATURE_MDEV_CONF
-		/* Same as xrealloc_vector(NULL, 4, 0): */
-		G.rule_vec = xzalloc((1 << 4) * sizeof(*G.rule_vec));
-#endif
-		xstat("/", &st);
-		G.root_major = major(st.st_dev);
-		G.root_minor = minor(st.st_dev);
-
-		putenv((char*)"ACTION=add");
-
-		if (access("/sys/dev", F_OK) != 0) {
-			/* Scan /sys/class only if /sys/dev doesn't exist
-			 * on pre-2.6.26 kernels.
-			 */
-			if (access("/sys/class/block", F_OK) != 0) {
-				/* Scan obsolete /sys/block only if /sys/class/block
-				 * doesn't exist. Otherwise we'll have dupes.
-				 * Also, do not complain if it doesn't exist.
-				 * Some people configure kernel to have no blockdevs.
-				 */
-				recursive_action("/sys/block",
-					 ACTION_RECURSE | ACTION_FOLLOWLINKS | ACTION_QUIET,
-					 fileAction, dirAction, temp, 0);
-			}
-			recursive_action("/sys/class",
-				 ACTION_RECURSE | ACTION_FOLLOWLINKS,
-				 fileAction, dirAction, temp, 0);
-		} else
-		/* Create all devices from /sys/dev hierarchy */
-		recursive_action("/sys/dev",
-				 ACTION_RECURSE | ACTION_FOLLOWLINKS,
-				 fileAction, dirAction, temp, 0);
+		initial_scan(temp);
 	} else {
-		char *fw;
-		char *seq;
-		char *action;
-		char *env_devname;
-		char *env_devpath;
-		unsigned my_pid;
-		unsigned seqnum = seqnum; /* for compiler */
-		int seq_fd;
-		smalluint op;
-
-		/* Hotplug:
-		 * env ACTION=... DEVPATH=... SUBSYSTEM=... [SEQNUM=...] mdev
-		 * ACTION can be "add", "remove", "change"
-		 * DEVPATH is like "/block/sda" or "/class/input/mice"
-		 */
-		env_devname = getenv("DEVNAME"); /* can be NULL */
-		G.subsystem = getenv("SUBSYSTEM");
-		action = getenv("ACTION");
-		env_devpath = getenv("DEVPATH");
-		if (!action || !env_devpath /*|| !G.subsystem*/)
-			bb_show_usage();
-		fw = getenv("FIRMWARE");
-		seq = getenv("SEQNUM");
-		op = index_in_strings(keywords, action);
-
-		my_pid = getpid();
-		open_mdev_log(seq, my_pid);
-
-		seq_fd = -1;
-		if (seq) {
-			seqnum = atoll(seq);
-			seq_fd = wait_for_seqfile(seqnum);
-		}
-
-		dbg1("%s "
-			"ACTION:%s SUBSYSTEM:%s DEVNAME:%s DEVPATH:%s"
-			"%s%s",
-			curtime(),
-			action, G.subsystem, env_devname, env_devpath,
-			fw ? " FW:" : "", fw ? fw : ""
-		);
-
-		snprintf(temp, PATH_MAX, "/sys%s", env_devpath);
-		if (op == OP_remove) {
-			/* Ignoring "remove firmware". It was reported
-			 * to happen and to cause erroneous deletion
-			 * of device nodes. */
-			if (!fw)
-				make_device(env_devname, temp, op);
-		}
-		else {
-			make_device(env_devname, temp, op);
-			if (ENABLE_FEATURE_MDEV_LOAD_FIRMWARE) {
-				if (op == OP_add && fw)
-					load_firmware(fw, temp);
-			}
-		}
+		process_action(temp, getpid());
 
 		dbg1("%s exiting", curtime());
-		if (seq_fd >= 0) {
-			xwrite_str(seq_fd, utoa(seqnum + 1));
-			signal_mdevs(my_pid);
-		}
 	}
 
 	if (ENABLE_FEATURE_CLEAN_UP)

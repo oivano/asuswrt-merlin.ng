@@ -13,6 +13,31 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
+//config:config NETSTAT
+//config:	bool "netstat (10 kb)"
+//config:	default y
+//config:	help
+//config:	netstat prints information about the Linux networking subsystem.
+//config:
+//config:config FEATURE_NETSTAT_WIDE
+//config:	bool "Enable wide output"
+//config:	default y
+//config:	depends on NETSTAT
+//config:	help
+//config:	Add support for wide columns. Useful when displaying IPv6 addresses
+//config:	(-W option).
+//config:
+//config:config FEATURE_NETSTAT_PRG
+//config:	bool "Enable PID/Program name output"
+//config:	default y
+//config:	depends on NETSTAT
+//config:	help
+//config:	Add support for -p flag to print out PID and program name.
+//config:	+700 bytes of code.
+
+//applet:IF_NETSTAT(APPLET(netstat, BB_DIR_BIN, BB_SUID_DROP))
+
+//kbuild:lib-$(CONFIG_NETSTAT) += netstat.o
 
 #include "libbb.h"
 #include "inet_common.h"
@@ -89,7 +114,7 @@ enum {
 	TCP_CLOSING, /* now a valid state */
 };
 
-static const char *const tcp_state[] = {
+static const char *const tcp_state[] ALIGN_PTR = {
 	"",
 	"ESTABLISHED",
 	"SYN_SENT",
@@ -146,7 +171,7 @@ struct prg_node {
 #define PRG_HASH_SIZE 211
 
 struct globals {
-	smallint flags;
+	smalluint flags;
 #if ENABLE_FEATURE_NETSTAT_PRG
 	smallint prg_cache_loaded;
 	struct prg_node *prg_hash[PRG_HASH_SIZE];
@@ -247,10 +272,9 @@ static long extract_socket_inode(const char *lname)
 	return inode;
 }
 
-static int FAST_FUNC add_to_prg_cache_if_socket(const char *fileName,
-		struct stat *statbuf UNUSED_PARAM,
-		void *pid_slash_progname,
-		int depth UNUSED_PARAM)
+static int FAST_FUNC add_to_prg_cache_if_socket(struct recursive_state *state,
+		const char *fileName,
+		struct stat *statbuf UNUSED_PARAM)
 {
 	char *linkname;
 	long inode;
@@ -259,16 +283,17 @@ static int FAST_FUNC add_to_prg_cache_if_socket(const char *fileName,
 	if (linkname != NULL) {
 		inode = extract_socket_inode(linkname);
 		free(linkname);
-		if (inode >= 0)
-			prg_cache_add(inode, (char *)pid_slash_progname);
+		if (inode >= 0) {
+			char *pid_slash_progname = state->userData;
+			prg_cache_add(inode, pid_slash_progname);
+		}
 	}
 	return TRUE;
 }
 
-static int FAST_FUNC dir_act(const char *fileName,
-		struct stat *statbuf UNUSED_PARAM,
-		void *userData UNUSED_PARAM,
-		int depth)
+static int FAST_FUNC dir_act(struct recursive_state *state,
+		const char *fileName,
+		struct stat *statbuf UNUSED_PARAM)
 {
 	const char *pid;
 	char *pid_slash_progname;
@@ -276,7 +301,7 @@ static int FAST_FUNC dir_act(const char *fileName,
 	char cmdline_buf[512];
 	int n, len;
 
-	if (depth == 0) /* "/proc" itself */
+	if (state->depth == 0) /* "/proc" itself */
 		return TRUE; /* continue looking one level below /proc */
 
 	pid = fileName + sizeof("/proc/")-1; /* point after "/proc/" */
@@ -296,8 +321,8 @@ static int FAST_FUNC dir_act(const char *fileName,
 			ACTION_RECURSE | ACTION_QUIET,
 			add_to_prg_cache_if_socket,
 			NULL,
-			(void *)pid_slash_progname,
-			0);
+			(void *)pid_slash_progname
+	);
 	free(pid_slash_progname);
 
 	if (!n)
@@ -312,14 +337,14 @@ static void prg_cache_load(void)
 
 	prg_cache_loaded = 1;
 	load_ok = recursive_action("/proc", ACTION_RECURSE | ACTION_QUIET,
-				NULL, dir_act, NULL, 0);
+				NULL, dir_act, NULL);
 	if (load_ok)
 		return;
 
 	if (prg_cache_loaded == 1)
-		bb_error_msg("can't scan /proc - are you root?");
+		bb_simple_error_msg("can't scan /proc - are you root?");
 	else
-		bb_error_msg("showing only processes with your user ID");
+		bb_simple_error_msg("showing only processes with your user ID");
 }
 
 #else
@@ -371,8 +396,11 @@ static char *ip_port_str(struct sockaddr *addr, int port, const char *proto, int
 	/* Code which used "*" for INADDR_ANY is removed: it's ambiguous
 	 * in IPv6, while "0.0.0.0" is not. */
 
-	host = numeric ? xmalloc_sockaddr2dotted_noport(addr)
-	               : xmalloc_sockaddr2host_noport(addr);
+	host = NULL;
+	if (!numeric)
+		host = xmalloc_sockaddr2host_noport(addr);
+	if (!host)
+		host = xmalloc_sockaddr2dotted_noport(addr);
 
 	host_port = xasprintf("%s:%s", host, get_sname(htons(port), proto, numeric));
 	free(host);

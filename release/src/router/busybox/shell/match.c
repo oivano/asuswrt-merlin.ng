@@ -64,16 +64,17 @@ char* FAST_FUNC scan_and_match(char *string, const char *pattern, unsigned flags
 	}
 
 	while (loc != end) {
-		char c;
 		int r;
 
-		c = *loc;
 		if (flags & SCAN_MATCH_LEFT_HALF) {
+			char c = *loc;
 			*loc = '\0';
 			r = fnmatch(pattern, string, 0);
+			//bb_error_msg("fnmatch('%s','%s',0):%d", pattern, string, r);
 			*loc = c;
 		} else {
 			r = fnmatch(pattern, loc, 0);
+			//bb_error_msg("fnmatch('%s','%s',0):%d", pattern, loc, r);
 		}
 		if (r == 0) /* match found */
 			return loc;
@@ -94,7 +95,7 @@ char* FAST_FUNC scan_and_match(char *string, const char *pattern, unsigned flags
 }
 
 #ifdef STANDALONE
-int main(int argc, char *argv[])
+int main(int argc, char **argv)
 {
 	char *string;
 	char *op;

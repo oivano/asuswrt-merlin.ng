@@ -1,11 +1,10 @@
 /* vi: set sw=4 ts=4: */
 /*
  * getopt.c - Enhanced implementation of BSD getopt(1)
- *   Copyright (c) 1997, 1998, 1999, 2000  Frodo Looijaard <frodol@dds.nl>
+ * Copyright (c) 1997, 1998, 1999, 2000  Frodo Looijaard <frodol@dds.nl>
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
-
 /*
  * Version 1.0-b4: Tue Sep 23 1997. First public release.
  * Version 1.0: Wed Nov 19 1997.
@@ -28,26 +27,32 @@
  *  Removed --version/-V and --help/-h
  *  Removed parse_error(), using bb_error_msg() from Busybox instead
  *  Replaced our_malloc with xmalloc and our_realloc with xrealloc
- *
  */
+//config:config GETOPT
+//config:	bool "getopt (5.8 kb)"
+//config:	default y
+//config:	help
+//config:	The getopt utility is used to break up (parse) options in command
+//config:	lines to make it easy to write complex shell scripts that also check
+//config:	for legal (and illegal) options. If you want to write horribly
+//config:	complex shell scripts, or use some horribly complex shell script
+//config:	written by others, this utility may be for you. Most people will
+//config:	wisely leave this disabled.
+//config:
+//config:config FEATURE_GETOPT_LONG
+//config:	bool "Support -l LONGOPTs"
+//config:	default y
+//config:	depends on GETOPT && LONG_OPTS
+//config:	help
+//config:	Enable support for long options (option -l).
+
+//applet:IF_GETOPT(APPLET_NOEXEC(getopt, getopt, BB_DIR_BIN, BB_SUID_DROP, getopt))
+
+//kbuild:lib-$(CONFIG_GETOPT) += getopt.o
 
 //usage:#define getopt_trivial_usage
 //usage:       "[OPTIONS] [--] OPTSTRING PARAMS"
 //usage:#define getopt_full_usage "\n\n"
-//usage:	IF_LONG_OPTS(
-//usage:	IF_FEATURE_GETOPT_LONG(
-//usage:       "	-a,--alternative		Allow long options starting with single -\n"
-//usage:       "	-l,--longoptions=LOPT[,...]	Long options to recognize\n"
-//usage:	)
-//usage:       "	-n,--name=PROGNAME		The name under which errors are reported"
-//usage:     "\n	-o,--options=OPTSTRING		Short options to recognize"
-//usage:     "\n	-q,--quiet			No error messages on unrecognized options"
-//usage:     "\n	-Q,--quiet-output		No normal output"
-//usage:     "\n	-s,--shell=SHELL		Set shell quoting conventions"
-//usage:     "\n	-T,--test			Version test (exits with 4)"
-//usage:     "\n	-u,--unquoted			Don't quote output"
-//usage:	)
-//usage:	IF_NOT_LONG_OPTS(
 //usage:	IF_FEATURE_GETOPT_LONG(
 //usage:       "	-a		Allow long options starting with single -\n"
 //usage:       "	-l LOPT[,...]	Long options to recognize\n"
@@ -59,7 +64,6 @@
 //usage:     "\n	-s SHELL	Set shell quoting conventions"
 //usage:     "\n	-T		Version test (exits with 4)"
 //usage:     "\n	-u		Don't quote output"
-//usage:	)
 //usage:	IF_FEATURE_GETOPT_LONG( /* example uses -l, needs FEATURE_GETOPT_LONG */
 //usage:     "\n"
 //usage:     "\nExample:"
@@ -152,57 +156,43 @@ enum {
 static const char *normalize(const char *arg)
 {
 	char *bufptr;
-#if ENABLE_FEATURE_CLEAN_UP
-	static char *BUFFER = NULL;
-	free(BUFFER);
-#else
 	char *BUFFER;
-#endif
 
-	if (!quote) { /* Just copy arg */
-		BUFFER = xstrdup(arg);
-		return BUFFER;
+	if (!quote) { /* Just return arg */
+		return arg;
 	}
 
 	/* Each character in arg may take up to four characters in the result:
 	   For a quote we need a closing quote, a backslash, a quote and an
 	   opening quote! We need also the global opening and closing quote,
 	   and one extra character for '\0'. */
-	BUFFER = xmalloc(strlen(arg)*4 + 3);
+	BUFFER = auto_string(xmalloc(strlen(arg)*4 + 3));
 
 	bufptr = BUFFER;
 	*bufptr ++= '\'';
 
 	while (*arg) {
-		if (*arg == '\'') {
-			/* Quote: replace it with: '\'' */
-			*bufptr ++= '\'';
-			*bufptr ++= '\\';
-			*bufptr ++= '\'';
-			*bufptr ++= '\'';
-		} else if (shell_TCSH && *arg == '!') {
-			/* Exclamation mark: replace it with: \! */
-			*bufptr ++= '\'';
-			*bufptr ++= '\\';
-			*bufptr ++= '!';
-			*bufptr ++= '\'';
-		} else if (shell_TCSH && *arg == '\n') {
+		if (shell_TCSH && *arg == '\n') {
 			/* Newline: replace it with: \n */
-			*bufptr ++= '\\';
-			*bufptr ++= 'n';
-		} else if (shell_TCSH && isspace(*arg)) {
-			/* Non-newline whitespace: replace it with \<ws> */
-			*bufptr ++= '\'';
-			*bufptr ++= '\\';
-			*bufptr ++= *arg;
-			*bufptr ++= '\'';
+			*bufptr++ = '\\';
+			*bufptr++ = 'n';
 		} else
+		if ((shell_TCSH && (*arg == '!' || isspace(*arg)))
+		 || *arg == '\''
+		) {
+			/* Quote exclamation marks, non-NL whitespace and quotes */
+			*bufptr++ = '\'';
+			*bufptr++ = '\\';
+			*bufptr++ = *arg;
+			*bufptr++ = '\'';
+		} else {
 			/* Just copy */
 			*bufptr ++= *arg;
+		}
 		arg++;
 	}
-	*bufptr ++= '\'';
-	*bufptr ++= '\0';
+	*bufptr++ = '\'';
+	*bufptr++ = '\0';
 	return BUFFER;
 }
 
@@ -226,12 +216,7 @@ static int generate_output(char **argv, int argc, const char *optstr, const stru
 
 	/* We used it already in main() in getopt32(),
 	 * we *must* reset getopt(3): */
-#ifdef __GLIBC__
-	optind = 0;
-#else /* BSD style */
-	optind = 1;
-	/* optreset = 1; */
-#endif
+	GETOPT_RESET();
 
 	while (1) {
 #if ENABLE_FEATURE_GETOPT_LONG
@@ -290,12 +275,13 @@ static struct option *add_long_options(struct option *long_options, char *option
 {
 	int long_nr = 0;
 	int arg_opt, tlen;
-	char *tokptr = strtok(options, ", \t\n");
+	char *tokptr;
 
 	if (long_options)
 		while (long_options[long_nr].name)
 			long_nr++;
 
+	tokptr = strtok_r(options, ", \t\n", &options);
 	while (tokptr) {
 		arg_opt = no_argument;
 		tlen = strlen(tokptr);
@@ -309,7 +295,7 @@ static struct option *add_long_options(struct option *long_options, char *option
 				}
 				tokptr[tlen] = '\0';
 				if (tlen == 0)
-					bb_error_msg_and_die("empty long option specified");
+					bb_simple_error_msg_and_die("empty long option specified");
 			}
 			long_options = xrealloc_vector(long_options, 4, long_nr);
 			long_options[long_nr].has_arg = arg_opt;
@@ -319,7 +305,7 @@ static struct option *add_long_options(struct option *long_options, char *option
 			long_nr++;
 			/*memset(&long_options[long_nr], 0, sizeof(long_options[0])); - xrealloc_vector did it */
 		}
-		tokptr = strtok(NULL, ", \t\n");
+		tokptr = strtok_r(NULL, ", \t\n", &options);
 	}
 	return long_options;
 }
@@ -327,12 +313,18 @@ static struct option *add_long_options(struct option *long_options, char *option
 
 static void set_shell(const char *new_shell)
 {
-	if (!strcmp(new_shell, "bash") || !strcmp(new_shell, "sh"))
-		return;
-	if (!strcmp(new_shell, "tcsh") || !strcmp(new_shell, "csh"))
+	switch (index_in_strings("bash\0sh\0tcsh\0csh\0", new_shell)) {
+	case 0:
+	case 1:
+		break;
+	case 2:
+	case 3:
 		option_mask32 |= SHELL_IS_TCSH;
-	else
+		break;
+	default:
 		bb_error_msg("unknown shell '%s', assuming bash", new_shell);
+		break;
+	}
 }
 
 
@@ -381,7 +373,7 @@ int getopt_main(int argc, char **argv)
 			puts(" --");
 			return 0;
 		}
-		bb_error_msg_and_die("missing optstring argument");
+		bb_simple_error_msg_and_die("missing optstring argument");
 	}
 
 	if (argv[1][0] != '-' || compatible) {
@@ -396,9 +388,7 @@ int getopt_main(int argc, char **argv)
 #if !ENABLE_FEATURE_GETOPT_LONG
 	opt = getopt32(argv, "+o:n:qQs:Tu", &optstr, &name, &s_arg);
 #else
-	applet_long_options = getopt_longopts;
-	opt_complementary = "l::";
-	opt = getopt32(argv, "+o:n:qQs:Tual:",
+	opt = getopt32long(argv, "+o:n:qQs:Tual:*", getopt_longopts,
 					&optstr, &name, &s_arg, &l_arg);
 	/* Effectuate the read options for the applet itself */
 	while (l_arg) {
@@ -419,7 +409,7 @@ int getopt_main(int argc, char **argv)
 	if (!optstr) {
 		optstr = argv[++n];
 		if (!optstr)
-			bb_error_msg_and_die("missing optstring argument");
+			bb_simple_error_msg_and_die("missing optstring argument");
 	}
 
 	argv[n] = name ? name : argv[0];

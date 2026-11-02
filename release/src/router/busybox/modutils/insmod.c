@@ -6,8 +6,17 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
+//config:config INSMOD
+//config:	bool "insmod (22 kb)"
+//config:	default y
+//config:	help
+//config:	insmod is used to load specified modules in the running kernel.
 
-//applet:IF_INSMOD(APPLET(insmod, BB_DIR_SBIN, BB_SUID_DROP))
+//applet:IF_INSMOD(IF_NOT_MODPROBE_SMALL(APPLET_NOEXEC(insmod, insmod, BB_DIR_SBIN, BB_SUID_DROP, insmod)))
+
+//kbuild:ifneq ($(CONFIG_MODPROBE_SMALL),y)
+//kbuild:lib-$(CONFIG_INSMOD) += insmod.o modutils.o
+//kbuild:endif
 
 #include "libbb.h"
 #include "common_bufsiz.h"
@@ -18,9 +27,9 @@
 
 //usage:#if !ENABLE_MODPROBE_SMALL
 //usage:#define insmod_trivial_usage
-//usage:	IF_FEATURE_2_4_MODULES("[OPTIONS] MODULE ")
-//usage:	IF_NOT_FEATURE_2_4_MODULES("FILE ")
-//usage:	"[SYMBOL=VALUE]..."
+//usage:	IF_FEATURE_2_4_MODULES("[-fkvqLx] MODULE")
+//usage:	IF_NOT_FEATURE_2_4_MODULES("FILE")
+//usage:	IF_FEATURE_CMDLINE_MODULE_OPTIONS(" [SYMBOL=VALUE]...")
 //usage:#define insmod_full_usage "\n\n"
 //usage:       "Load kernel module"
 //usage:	IF_FEATURE_2_4_MODULES( "\n"
@@ -44,11 +53,10 @@ struct globals {
 	setup_common_bufsiz(); \
 } while (0)
 
-static int FAST_FUNC check_module_name_match(const char *filename,
-		struct stat *statbuf UNUSED_PARAM,
-		void *userdata, int depth UNUSED_PARAM)
+static int FAST_FUNC check_module_name_match(recursive_state_t *state,
+		const char *filename, struct stat *statbuf UNUSED_PARAM)
 {
-	char *fullname = (char *) userdata;
+	char *fullname = (char *) state->userData;
 	char *tmp;
 
 	if (fullname[0] == '\0')
@@ -105,8 +113,8 @@ int insmod_main(int argc UNUSED_PARAM, char **argv)
 		char *module_dir = xmalloc_readlink(CONFIG_DEFAULT_MODULES_DIR);
 		if (!module_dir)
 			module_dir = xstrdup(CONFIG_DEFAULT_MODULES_DIR);
-		rc = recursive_action(module_dir, ACTION_RECURSE,
-				check_module_name_match, NULL, filename, 0);
+			rc = recursive_action(module_dir, ACTION_RECURSE,
+				check_module_name_match, NULL, filename);
 		if (!rc && G.filename && access(G.filename, R_OK) == 0)
 			filename = G.filename;
 		free(module_dir);

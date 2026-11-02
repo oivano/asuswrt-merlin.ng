@@ -6,6 +6,16 @@
  *
  * Licensed under GPLv2, see file LICENSE in this source tree.
  */
+//config:config MKFS_REISER
+//config:	bool "mkfs_reiser"
+//config:	default n
+//config:	help
+//config:	Utility to create ReiserFS filesystems.
+//config:	Note: this applet needs a lot of testing and polishing.
+
+//applet:IF_MKFS_REISER(APPLET_ODDNAME(mkfs.reiser, mkfs_reiser, BB_DIR_SBIN, BB_SUID_DROP, mkfs_reiser))
+
+//kbuild:lib-$(CONFIG_MKFS_REISER) += mkfs_reiser.o
 
 //usage:#define mkfs_reiser_trivial_usage
 //usage:       "[-f] [-l LABEL] BLOCKDEV [4K-BLOCKS]"
@@ -16,22 +26,6 @@
 
 #include "libbb.h"
 #include <linux/fs.h>
-
-char BUG_wrong_field_size(void);
-#define STORE_LE(field, value) \
-do { \
-	if (sizeof(field) == 4) \
-		field = SWAP_LE32(value); \
-	else if (sizeof(field) == 2) \
-		field = SWAP_LE16(value); \
-	else if (sizeof(field) == 1) \
-		field = (value); \
-	else \
-		BUG_wrong_field_size(); \
-} while (0)
-
-#define FETCH_LE32(field) \
-	(sizeof(field) == 4 ? SWAP_LE32(field) : BUG_wrong_field_size())
 
 struct journal_params {
 	uint32_t jp_journal_1st_block;      /* where does journal start from on its device */
@@ -169,8 +163,7 @@ int mkfs_reiser_main(int argc UNUSED_PARAM, char **argv)
 
 	// using global "option_mask32" instead of local "opts":
 	// we are register starved here
-	opt_complementary = "-1:b+";
-	/*opts =*/ getopt32(argv, "b:j:s:o:t:B:h:u:l:fqd",
+	/*opts =*/ getopt32(argv, "^" "b:+j:s:o:t:B:h:u:l:fqd" "\0" "-1",
 		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &label);
 	argv += optind; // argv[0] -- device
 
@@ -184,7 +177,7 @@ int mkfs_reiser_main(int argc UNUSED_PARAM, char **argv)
 	// N.B. what if we format a file? find_mount_point will return false negative since
 	// it is loop block device which is mounted!
 	if (find_mount_point(argv[0], 0))
-		bb_error_msg_and_die("can't format mounted filesystem");
+		bb_simple_error_msg_and_die("can't format mounted filesystem");
 
 	// open the device, get size in blocks
 	blocks = get_volume_size_in_bytes(fd, argv[1], blocksize, /*extend:*/ 1) / blocksize;

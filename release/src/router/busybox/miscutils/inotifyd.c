@@ -12,7 +12,7 @@
  * Use as follows:
  * # inotifyd /user/space/agent dir/or/file/being/watched[:mask] ...
  *
- * When a filesystem event matching the specified mask is occured on specified file (or directory)
+ * When a filesystem event matching the specified mask is occurred on specified file (or directory)
  * a userspace agent is spawned and given the following parameters:
  * $1. actual event(s)
  * $2. file (or directory) name
@@ -26,6 +26,16 @@
  *
  * See below for mask names explanation.
  */
+//config:config INOTIFYD
+//config:	bool "inotifyd (3.6 kb)"
+//config:	default n  # doesn't build on Knoppix 5
+//config:	help
+//config:	Simple inotify daemon. Reports filesystem changes. Requires
+//config:	kernel >= 2.6.13
+
+//applet:IF_INOTIFYD(APPLET(inotifyd, BB_DIR_SBIN, BB_SUID_DROP))
+
+//kbuild:lib-$(CONFIG_INOTIFYD) += inotifyd.o
 
 //usage:#define inotifyd_trivial_usage
 //usage:	"PROG FILE1[:MASK]..."
@@ -107,7 +117,7 @@ int inotifyd_main(int argc, char **argv)
 	// open inotify
 	pfd.fd = inotify_init();
 	if (pfd.fd < 0)
-		bb_perror_msg_and_die("no kernel support");
+		bb_simple_perror_msg_and_die("no kernel support");
 
 	// setup watches
 	while (*++argv) {

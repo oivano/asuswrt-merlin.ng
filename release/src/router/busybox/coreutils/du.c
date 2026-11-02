@@ -8,10 +8,6 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
-
-/* BB_AUDIT SUSv3 compliant (unless default blocksize set to 1k) */
-/* http://www.opengroup.org/onlinepubs/007904975/utilities/du.html */
-
 /* Mar 16, 2003      Manuel Novoa III   (mjn3@codepoet.org)
  *
  * Mostly rewritten for SUSv3 compliance and to fix bugs/defects.
@@ -22,12 +18,31 @@
  * 3) Added error checking of output.
  * 4) Fixed busybox bug #1284 involving long overflow with human_readable.
  */
+//config:config DU
+//config:	bool "du (6.3 kb)"
+//config:	default y
+//config:	help
+//config:	du is used to report the amount of disk space used
+//config:	for specified files.
+//config:
+//config:config FEATURE_DU_DEFAULT_BLOCKSIZE_1K
+//config:	bool "Use default blocksize of 1024 bytes (else it's 512 bytes)"
+//config:	default y
+//config:	depends on DU
+
+//applet:IF_DU(APPLET(du, BB_DIR_USR_BIN, BB_SUID_DROP))
+
+//kbuild:lib-$(CONFIG_DU) += du.o
+
+/* BB_AUDIT SUSv3 compliant (unless default blocksize set to 1k) */
+/* http://www.opengroup.org/onlinepubs/007904975/utilities/du.html */
 
 //usage:#define du_trivial_usage
 //usage:       "[-aHLdclsx" IF_FEATURE_HUMAN_READABLE("hm") "k] [FILE]..."
 //usage:#define du_full_usage "\n\n"
-//usage:       "Summarize disk space used for each FILE and/or directory\n"
+//usage:       "Summarize disk space used for FILEs (or directories)\n"
 //usage:     "\n	-a	Show file sizes too"
+//usage:     "\n	-b	Apparent size (including holes)"
 //usage:     "\n	-L	Follow all symlinks"
 //usage:     "\n	-H	Follow symlinks on command line"
 //usage:     "\n	-d N	Limit output to directories (and files with -a) of depth < N"
@@ -70,8 +85,9 @@ enum {
 	OPT_d_maxdepth     = (1 << 6),
 	OPT_l_hardlinks    = (1 << 7),
 	OPT_c_total        = (1 << 8),
-	OPT_h_for_humans   = (1 << 9),
-	OPT_m_mbytes       = (1 << 10),
+	OPT_b              = (1 << 9),
+	OPT_h_for_humans   = (1 << 10),
+	OPT_m_mbytes       = (1 << 11),
 };
 
 struct globals {
@@ -95,7 +111,7 @@ static void print(unsigned long long size, const char *filename)
 	/* TODO - May not want to defer error checking here. */
 #if ENABLE_FEATURE_HUMAN_READABLE
 # if ENABLE_DESKTOP
-	/* ~30 bytes of code for extra comtat:
+	/* ~30 bytes of code for extra compat:
 	 * coreutils' du rounds sizes up:
 	 * for example,  1025k file is shown as "2" by du -m.
 	 * We round to nearest if human-readable [too hard to fix],
@@ -110,12 +126,16 @@ static void print(unsigned long long size, const char *filename)
 			 * If G.disp_unit == 0, show one fractional
 			 * and use suffixes
 			 */
-			make_human_readable_str(size, 512, G.disp_unit),
+			make_human_readable_str(size, (option_mask32 & OPT_b) ? 1 : 512, G.disp_unit),
 			filename);
 #else
 	if (G.disp_k) {
-		size++;
-		size >>= 1;
+		if (!(option_mask32 & OPT_b)) {
+			size++;
+			size >>= 1;
+		} else {
+			size >>= 10;
+		}
 	}
 	printf("%llu\t%s\n", size, filename);
 #endif
@@ -141,7 +161,7 @@ static unsigned long long du(const char *filename)
 		}
 	}
 
-	sum = statbuf.st_blocks;
+	sum = ((option_mask32 & OPT_b) ? statbuf.st_size : statbuf.st_blocks);
 
 	if (S_ISLNK(statbuf.st_mode)) {
 		if (G.slink_depth > G.du_depth) { /* -H or -L */
@@ -150,7 +170,7 @@ static unsigned long long du(const char *filename)
 				G.status = EXIT_FAILURE;
 				return 0;
 			}
-			sum = statbuf.st_blocks;
+			sum = ((option_mask32 & OPT_b) ? statbuf.st_size : statbuf.st_blocks);
 			if (G.slink_depth == 1) {
 				/* Convert -H to -L */
 				G.slink_depth = INT_MAX;
@@ -226,9 +246,15 @@ int du_main(int argc UNUSED_PARAM, char **argv)
 	 * ignore -a.  This is consistent with -s being equivalent to -d 0.
 	 */
 #if ENABLE_FEATURE_HUMAN_READABLE
-	opt_complementary = "h-km:k-hm:m-hk:H-L:L-H:s-d:d-s:d+";
-	opt = getopt32(argv, "aHkLsx" "d:" "lc" "hm", &G.max_print_depth);
+	opt = getopt32(argv, "^"
+			"aHkLsxd:+lcbhm"
+			"\0" "h-km:k-hm:m-hk:H-L:L-H:s-d:d-s",
+			&G.max_print_depth
+	);
 	argv += optind;
+	if (opt & OPT_b) {
+		G.disp_unit = 1;
+	}
 	if (opt & OPT_h_for_humans) {
 		G.disp_unit = 0;
 	}
@@ -239,14 +265,17 @@ int du_main(int argc UNUSED_PARAM, char **argv)
 		G.disp_unit = 1024;
 	}
 #else
-	opt_complementary = "H-L:L-H:s-d:d-s:d+";
-	opt = getopt32(argv, "aHkLsx" "d:" "lc", &G.max_print_depth);
+	opt = getopt32(argv, "^"
+			"aHkLsxd:+lcb"
+			"\0" "H-L:L-H:s-d:d-s",
+			&G.max_print_depth
+	);
 	argv += optind;
-#if !ENABLE_FEATURE_DU_DEFAULT_BLOCKSIZE_1K
+# if !ENABLE_FEATURE_DU_DEFAULT_BLOCKSIZE_1K
 	if (opt & OPT_k_kbytes) {
 		G.disp_k = 1;
 	}
-#endif
+# endif
 #endif
 	if (opt & OPT_H_follow_links) {
 		G.slink_depth = 1;
@@ -270,11 +299,11 @@ int du_main(int argc UNUSED_PARAM, char **argv)
 	total = 0;
 	do {
 		total += du(*argv);
-		/* otherwise du /dir /dir won't show /dir twice: */
-		reset_ino_dev_hashtable();
 		G.slink_depth = slink_depth_save;
 	} while (*++argv);
 
+	if (ENABLE_FEATURE_CLEAN_UP)
+		reset_ino_dev_hashtable();
 	if (opt & OPT_c_total)
 		print(total, "total");
 

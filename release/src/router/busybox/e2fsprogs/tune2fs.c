@@ -7,13 +7,15 @@
  * Licensed under GPLv2, see file LICENSE in this source tree.
  */
 //config:config TUNE2FS
-//config:	bool "tune2fs"
+//config:	bool "tune2fs (4.4 kb)"
 //config:	default n  # off: it is too limited compared to upstream version
 //config:	help
-//config:	  tune2fs allows the system administrator to adjust various tunable
-//config:	  filesystem parameters on Linux ext2/ext3 filesystems.
+//config:	tune2fs allows the system administrator to adjust various tunable
+//config:	filesystem parameters on Linux ext2/ext3 filesystems.
 
-//applet:IF_TUNE2FS(APPLET(tune2fs, BB_DIR_SBIN, BB_SUID_DROP))
+//applet:IF_TUNE2FS(APPLET_NOEXEC(tune2fs, tune2fs, BB_DIR_SBIN, BB_SUID_DROP, tune2fs))
+
+//TODO alias to "tune2fs -L LABEL": //applet:IF_E2LABEL(APPLET_ODDNAME(e2label, tune2fs, BB_DIR_SBIN, BB_SUID_DROP, e2label))
 
 //kbuild:lib-$(CONFIG_TUNE2FS) += tune2fs.o
 
@@ -37,23 +39,6 @@
 #include <linux/fs.h>
 #include "bb_e2fs_defs.h"
 
-// storage helpers
-char BUG_wrong_field_size(void);
-#define STORE_LE(field, value) \
-do { \
-	if (sizeof(field) == 4) \
-		field = SWAP_LE32(value); \
-	else if (sizeof(field) == 2) \
-		field = SWAP_LE16(value); \
-	else if (sizeof(field) == 1) \
-		field = (value); \
-	else \
-		BUG_wrong_field_size(); \
-} while (0)
-
-#define FETCH_LE32(field) \
-	(sizeof(field) == 4 ? SWAP_LE32(field) : BUG_wrong_field_size())
-
 enum {
 	OPT_L = 1 << 0, // label
 	OPT_c = 1 << 1, // max mount count
@@ -69,8 +54,7 @@ int tune2fs_main(int argc UNUSED_PARAM, char **argv)
 	struct ext2_super_block *sb;
 	int fd;
 
-	opt_complementary = "=1";
-	opts = getopt32(argv, "L:c:i:C:", &label, &str_c, &str_i, &str_C);
+	opts = getopt32(argv, "^" "L:c:i:C:" "\0" "=1", &label, &str_c, &str_i, &str_C);
 	if (!opts)
 		bb_show_usage();
 	argv += optind; // argv[0] -- device

@@ -6,28 +6,28 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
-
-/* BB_AUDIT SUSv3 (virtually) compliant -- uses nicer GNU format for -l. */
-/* http://www.opengroup.org/onlinepubs/007904975/utilities/cmp.html */
-
 //config:config CMP
-//config:	bool "cmp"
+//config:	bool "cmp (4.9 kb)"
 //config:	default y
 //config:	help
-//config:	  cmp is used to compare two files and returns the result
-//config:	  to standard output.
-
-//kbuild:lib-$(CONFIG_CMP) += cmp.o
+//config:	cmp is used to compare two files and returns the result
+//config:	to standard output.
 
 //applet:IF_CMP(APPLET(cmp, BB_DIR_USR_BIN, BB_SUID_DROP))
 
+//kbuild:lib-$(CONFIG_CMP) += cmp.o
+
 //usage:#define cmp_trivial_usage
-//usage:       "[-l] [-s] FILE1 [FILE2" IF_DESKTOP(" [SKIP1 [SKIP2]]") "]"
+//usage:       "[-ls] [-n NUM] FILE1 [FILE2" IF_DESKTOP(" [SKIP1 [SKIP2]]") "]"
 //usage:#define cmp_full_usage "\n\n"
 //usage:       "Compare FILE1 with FILE2 (or stdin)\n"
 //usage:     "\n	-l	Write the byte numbers (decimal) and values (octal)"
 //usage:     "\n		for all differing bytes"
 //usage:     "\n	-s	Quiet"
+//usage:     "\n	-n NUM	Compare at most NUM bytes"
+
+/* BB_AUDIT SUSv3 (virtually) compliant -- uses nicer GNU format for -l. */
+/* http://www.opengroup.org/onlinepubs/007904975/utilities/cmp.html */
 
 #include "libbb.h"
 
@@ -36,9 +36,10 @@ static const char fmt_differ[] ALIGN1 = "%s %s differ: char %"OFF_FMT"u, line %u
 // This fmt_l_opt uses gnu-isms.  SUSv3 would be "%.0s%.0s%"OFF_FMT"u %o %o\n"
 static const char fmt_l_opt[] ALIGN1 = "%.0s%.0s%"OFF_FMT"u %3o %3o\n";
 
-static const char opt_chars[] ALIGN1 = "sl";
+#define OPT_STR "sln:+"
 #define CMP_OPT_s (1<<0)
 #define CMP_OPT_l (1<<1)
+#define CMP_OPT_n (1<<2)
 
 int cmp_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
 int cmp_main(int argc UNUSED_PARAM, char **argv)
@@ -51,12 +52,34 @@ int cmp_main(int argc UNUSED_PARAM, char **argv)
 	int c1, c2;
 	unsigned opt;
 	int retval = 0;
+	int max_count = -1;
 
-	opt_complementary = "-1"
+#if !ENABLE_LONG_OPTS
+	opt = getopt32(argv, "^"
+			OPT_STR
+			"\0" "-1"
 			IF_DESKTOP(":?4")
 			IF_NOT_DESKTOP(":?2")
-			":l--s:s--l";
-	opt = getopt32(argv, opt_chars);
+			":l--s:s--l",
+			&max_count
+	);
+#else
+	static const char cmp_longopts[] ALIGN1 =
+		"bytes\0"          Required_argument  "n"
+		"quiet\0"          No_argument        "s"
+		"silent\0"         No_argument        "s"
+		"verbose\0"        No_argument        "l"
+		;
+	opt = getopt32long(argv, "^"
+			OPT_STR
+			"\0" "-1"
+			IF_DESKTOP(":?4")
+			IF_NOT_DESKTOP(":?2")
+			":l--s:s--l",
+			cmp_longopts,
+			&max_count
+	);
+#endif
 	argv += optind;
 
 	filename1 = *argv;
@@ -94,6 +117,8 @@ int cmp_main(int argc UNUSED_PARAM, char **argv)
 		while (skip2) { getc(fp2); skip2--; }
 	}
 	do {
+		if (max_count >= 0 && --max_count < 0)
+			break;
 		c1 = getc(fp1);
 		c2 = getc(fp2);
 		++char_pos;

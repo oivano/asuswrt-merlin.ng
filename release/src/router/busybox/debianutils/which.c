@@ -6,20 +6,21 @@
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
 //config:config WHICH
-//config:	bool "which"
+//config:	bool "which (3.8 kb)"
 //config:	default y
 //config:	help
-//config:	  which is used to find programs in your PATH and
-//config:	  print out their pathnames.
+//config:	which is used to find programs in your PATH and
+//config:	print out their pathnames.
 
-//applet:IF_WHICH(APPLET(which, BB_DIR_USR_BIN, BB_SUID_DROP))
+//applet:IF_WHICH(APPLET_NOFORK(which, which, BB_DIR_USR_BIN, BB_SUID_DROP, which))
 
 //kbuild:lib-$(CONFIG_WHICH) += which.o
 
 //usage:#define which_trivial_usage
-//usage:       "[COMMAND]..."
+//usage:       "[-a] COMMAND..."
 //usage:#define which_full_usage "\n\n"
-//usage:       "Locate a COMMAND"
+//usage:       "Locate COMMAND\n"
+//usage:     "\n	-a	Show all matches"
 //usage:
 //usage:#define which_example_usage
 //usage:       "$ which login\n"
@@ -30,15 +31,17 @@
 int which_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
 int which_main(int argc UNUSED_PARAM, char **argv)
 {
-	const char *env_path;
+	char *env_path;
 	int status = 0;
+	/* This sizeof(): bb_default_root_path is shorter than BB_PATH_ROOT_PATH */
+	char buf[sizeof(BB_PATH_ROOT_PATH)];
 
 	env_path = getenv("PATH");
 	if (!env_path)
-		env_path = bb_default_root_path;
+		/* env_path must be writable, and must not alloc, so... */
+		env_path = strcpy(buf, bb_default_root_path);
 
-	opt_complementary = "-1"; /* at least one argument */
-	getopt32(argv, "a");
+	getopt32(argv, "^" "a" "\0" "-1"/*at least one arg*/);
 	argv += optind;
 
 	do {
@@ -52,18 +55,17 @@ int which_main(int argc UNUSED_PARAM, char **argv)
 			}
 		} else {
 			char *path;
-			char *tmp;
 			char *p;
 
-			path = tmp = xstrdup(env_path);
-			while ((p = find_executable(*argv, &tmp)) != NULL) {
+			path = env_path;
+			/* NOFORK NB: xmalloc inside find_executable(), must have no allocs above! */
+			while ((p = find_executable(*argv, &path)) != NULL) {
 				missing = 0;
 				puts(p);
 				free(p);
 				if (!option_mask32) /* -a not set */
 					break;
 			}
-			free(path);
 		}
 		status |= missing;
 	} while (*++argv);

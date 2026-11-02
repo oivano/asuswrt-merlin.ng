@@ -6,27 +6,41 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
+//config:config HEAD
+//config:	bool "head (3.8 kb)"
+//config:	default y
+//config:	help
+//config:	head is used to print the first specified number of lines
+//config:	from files.
+//config:
+//config:config FEATURE_FANCY_HEAD
+//config:	bool "Enable -c, -q, and -v"
+//config:	default y
+//config:	depends on HEAD
+
+//applet:IF_HEAD(APPLET_NOEXEC(head, head, BB_DIR_USR_BIN, BB_SUID_DROP, head))
+
+//kbuild:lib-$(CONFIG_HEAD) += head.o
 
 /* BB_AUDIT SUSv3 compliant */
 /* BB_AUDIT GNU compatible -c, -q, and -v options in 'fancy' configuration. */
 /* http://www.opengroup.org/onlinepubs/007904975/utilities/head.html */
 
-//kbuild:lib-$(CONFIG_HEAD) += head.o
-
 //usage:#define head_trivial_usage
 //usage:       "[OPTIONS] [FILE]..."
 //usage:#define head_full_usage "\n\n"
-//usage:       "Print first 10 lines of each FILE (or stdin) to stdout.\n"
+//usage:       "Print first 10 lines of FILEs (or stdin).\n"
 //usage:       "With more than one FILE, precede each with a filename header.\n"
-//usage:     "\n	-n N[kbm]	Print first N lines"
+//usage:     "\n	-n N[bkm]	Print first N lines"
 //usage:	IF_FEATURE_FANCY_HEAD(
-//usage:     "\n	-n -N[kbm]	Print all except N last lines"
-//usage:     "\n	-c [-]N[kbm]	Print first N bytes"
+//usage:     "\n	-n -N[bkm]	Print all except N last lines"
+//usage:     "\n	-c [-]N[bkm]	Print first N bytes"
+//usage:	)
+//usage:     "\n			(b:*512 k:*1024 m:*1024^2)"
+//usage:	IF_FEATURE_FANCY_HEAD(
 //usage:     "\n	-q		Never print headers"
 //usage:     "\n	-v		Always print headers"
 //usage:	)
-//usage:     "\n"
-//usage:     "\nN may be suffixed by k (x1024), b (x512), or m (x1024^2)."
 //usage:
 //usage:#define head_example_usage
 //usage:       "$ head -n 2 /etc/passwd\n"
@@ -62,7 +76,7 @@ print_except_N_last_bytes(FILE *fp, unsigned count)
 {
 	unsigned char *circle = xmalloc(++count);
 	unsigned head = 0;
-	for(;;) {
+	for (;;) {
 		int c;
 		c = getc(fp);
 		if (c == EOF)
@@ -91,7 +105,7 @@ print_except_N_last_lines(FILE *fp, unsigned count)
 {
 	char **circle = xzalloc((++count) * sizeof(circle[0]));
 	unsigned head = 0;
-	for(;;) {
+	for (;;) {
 		char *c;
 		c = xmalloc_fgets(fp);
 		if (!c)
@@ -104,7 +118,7 @@ print_except_N_last_lines(FILE *fp, unsigned count)
 		char *c;
 		if (head == count)
 			head = 0;
-		fputs(circle[head], stdout);
+		fputs_stdout(circle[head]);
 		c = xmalloc_fgets(fp);
 		if (!c)
 			goto ret;
@@ -113,7 +127,7 @@ print_except_N_last_lines(FILE *fp, unsigned count)
 	}
  ret:
 	head = 0;
-	for(;;) {
+	for (;;) {
 		free(circle[head++]);
 		if (head == count)
 			break;

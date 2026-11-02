@@ -8,7 +8,6 @@
  *
  * Licensed under GPLv2, see file LICENSE in this source tree.
  */
-
 /* We need to have separate xfuncs.c and xfuncs_printf.c because
  * with current linkers, even with section garbage collection,
  * if *.o module references any of XXXprintf functions, you pull in
@@ -19,7 +18,6 @@
  * which do not pull in printf, directly or indirectly.
  * xfunc_printf.c contains those which do.
  */
-
 #include "libbb.h"
 
 
@@ -42,7 +40,7 @@ void* FAST_FUNC malloc_or_warn(size_t size)
 {
 	void *ptr = malloc(size);
 	if (ptr == NULL && size != 0)
-		bb_error_msg(bb_msg_memory_exhausted);
+		bb_simple_error_msg(bb_msg_memory_exhausted);
 	return ptr;
 }
 
@@ -51,7 +49,7 @@ void* FAST_FUNC xmalloc(size_t size)
 {
 	void *ptr = malloc(size);
 	if (ptr == NULL && size != 0)
-		bb_error_msg_and_die(bb_msg_memory_exhausted);
+		bb_die_memory_exhausted();
 	return ptr;
 }
 
@@ -62,7 +60,7 @@ void* FAST_FUNC xrealloc(void *ptr, size_t size)
 {
 	ptr = realloc(ptr, size);
 	if (ptr == NULL && size != 0)
-		bb_error_msg_and_die(bb_msg_memory_exhausted);
+		bb_die_memory_exhausted();
 	return ptr;
 }
 #endif /* DMALLOC */
@@ -86,40 +84,49 @@ char* FAST_FUNC xstrdup(const char *s)
 	t = strdup(s);
 
 	if (t == NULL)
-		bb_error_msg_and_die(bb_msg_memory_exhausted);
+		bb_die_memory_exhausted();
 
 	return t;
 }
 
 // Die if we can't allocate n+1 bytes (space for the null terminator) and copy
 // the (possibly truncated to length n) string into it.
-char* FAST_FUNC xstrndup(const char *s, int n)
+char* FAST_FUNC xstrndup(const char *s, size_t n)
 {
-	int m;
 	char *t;
 
-	if (ENABLE_DEBUG && s == NULL)
-		bb_error_msg_and_die("xstrndup bug");
+	t = strndup(s, n);
 
-	/* We can just xmalloc(n+1) and strncpy into it, */
-	/* but think about xstrndup("abc", 10000) wastage! */
-	m = n;
-	t = (char*) s;
-	while (m) {
-		if (!*t) break;
-		m--;
-		t++;
-	}
-	n -= m;
-	t = xmalloc(n + 1);
-	t[n] = '\0';
+	if (t == NULL)
+		bb_die_memory_exhausted();
 
-	return memcpy(t, s, n);
+	return t;
 }
 
-void* FAST_FUNC xmemdup(const void *s, int n)
+void* FAST_FUNC xmemdup(const void *s, size_t n)
 {
 	return memcpy(xmalloc(n), s, n);
+}
+
+void* FAST_FUNC mmap_read(int fd, size_t size)
+{
+	return mmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
+}
+
+void* FAST_FUNC mmap_anon(size_t size)
+{
+	return mmap(NULL, size,
+			PROT_READ | PROT_WRITE,
+			MAP_PRIVATE | MAP_ANONYMOUS,
+			/* ignored: */ -1, 0);
+}
+
+void* FAST_FUNC xmmap_anon(size_t size)
+{
+	void *p = mmap_anon(size);
+	if (p == MAP_FAILED)
+		bb_die_memory_exhausted();
+	return p;
 }
 
 // Die if we can't open a file and return a FILE* to it.
@@ -214,16 +221,17 @@ int FAST_FUNC rename_or_warn(const char *oldpath, const char *newpath)
 	return n;
 }
 
-void FAST_FUNC xpipe(int filedes[2])
+void FAST_FUNC xpipe(int *filedes)
 {
 	if (pipe(filedes))
-		bb_perror_msg_and_die("can't create pipe");
+		bb_simple_perror_msg_and_die("can't create pipe");
 }
 
 void FAST_FUNC xdup2(int from, int to)
 {
 	if (dup2(from, to) != to)
-		bb_perror_msg_and_die("can't duplicate file descriptor");
+		bb_simple_perror_msg_and_die("can't duplicate file descriptor");
+		//		" %d to %d", from, to);
 }
 
 // "Renumber" opened fd
@@ -240,8 +248,16 @@ void FAST_FUNC xwrite(int fd, const void *buf, size_t count)
 {
 	if (count) {
 		ssize_t size = full_write(fd, buf, count);
-		if ((size_t)size != count)
-			bb_error_msg_and_die("short write");
+		if ((size_t)size != count) {
+			/*
+			 * Two cases: write error immediately;
+			 * or some writes succeeded, then we hit an error.
+			 * In either case, errno is set.
+			 */
+			bb_simple_perror_msg_and_die(
+				size >= 0 ? "short write" : "write error"
+			);
+		}
 	}
 }
 void FAST_FUNC xwrite_str(int fd, const char *str)
@@ -252,7 +268,7 @@ void FAST_FUNC xwrite_str(int fd, const char *str)
 void FAST_FUNC xclose(int fd)
 {
 	if (close(fd))
-		bb_perror_msg_and_die("close failed");
+		bb_simple_perror_msg_and_die("close failed");
 }
 
 // Die with an error message if we can't lseek to the right spot.
@@ -260,9 +276,7 @@ off_t FAST_FUNC xlseek(int fd, off_t offset, int whence)
 {
 	off_t off = lseek(fd, offset, whence);
 	if (off == (off_t)-1) {
-		if (whence == SEEK_SET)
-			bb_perror_msg_and_die("lseek(%"OFF_FMT"u)", offset);
-		bb_perror_msg_and_die("lseek");
+		bb_perror_msg_and_die("lseek(%"OFF_FMT"u, %d)", offset, whence);
 	}
 	return off;
 }
@@ -301,6 +315,11 @@ int FAST_FUNC bb_putchar(int ch)
 	return putchar(ch);
 }
 
+int FAST_FUNC fputs_stdout(const char *s)
+{
+	return fputs(s, stdout);
+}
+
 /* Die with an error message if we can't copy an entire FILE* to stdout,
  * then close that file. */
 void FAST_FUNC xprint_and_close_file(FILE *file)
@@ -326,14 +345,14 @@ char* FAST_FUNC xasprintf(const char *format, ...)
 	va_end(p);
 
 	if (r < 0)
-		bb_error_msg_and_die(bb_msg_memory_exhausted);
+		bb_die_memory_exhausted();
 	return string_ptr;
 }
 
 void FAST_FUNC xsetenv(const char *key, const char *value)
 {
 	if (setenv(key, value, 1))
-		bb_error_msg_and_die(bb_msg_memory_exhausted);
+		bb_die_memory_exhausted();
 }
 
 /* Handles "VAR=VAL" strings, even those which are part of environ
@@ -341,20 +360,28 @@ void FAST_FUNC xsetenv(const char *key, const char *value)
  */
 void FAST_FUNC bb_unsetenv(const char *var)
 {
-	char *tp = strchr(var, '=');
+	char onstack[128 - 16]; /* smaller stack setup code on x86 */
+	char *tp;
 
-	if (!tp) {
-		unsetenv(var);
-		return;
+	tp = strchr(var, '=');
+	if (tp) {
+		/* In case var was putenv'ed, we can't replace '='
+		 * with NUL and unsetenv(var) - it won't work,
+		 * env is modified by the replacement, unsetenv
+		 * sees "VAR" instead of "VAR=VAL" and does not remove it!
+		 * Horror :(
+		 */
+		unsigned sz = tp - var;
+		if (sz < sizeof(onstack)) {
+			((char*)mempcpy(onstack, var, sz))[0] = '\0';
+			tp = NULL;
+			var = onstack;
+		} else {
+			/* unlikely: very long var name */
+			var = tp = xstrndup(var, sz);
+		}
 	}
-
-	/* In case var was putenv'ed, we can't replace '='
-	 * with NUL and unsetenv(var) - it won't work,
-	 * env is modified by the replacement, unsetenv
-	 * sees "VAR" instead of "VAR=VAL" and does not remove it!
-	 * horror :( */
-	tp = xstrndup(var, tp - var);
-	unsetenv(tp);
+	unsetenv(var);
 	free(tp);
 }
 
@@ -369,36 +396,43 @@ void FAST_FUNC bb_unsetenv_and_free(char *var)
 // setgid() will fail and we'll _still_be_root_, which is bad.)
 void FAST_FUNC xsetgid(gid_t gid)
 {
-	if (setgid(gid)) bb_perror_msg_and_die("setgid");
+	if (setgid(gid)) bb_simple_perror_msg_and_die("setgid");
 }
 
 // Die with an error message if we can't set uid.  (See xsetgid() for why.)
 void FAST_FUNC xsetuid(uid_t uid)
 {
-	if (setuid(uid)) bb_perror_msg_and_die("setuid");
+	if (setuid(uid)) bb_simple_perror_msg_and_die("setuid");
 }
 
 void FAST_FUNC xsetegid(gid_t egid)
 {
-	if (setegid(egid)) bb_perror_msg_and_die("setegid");
+	if (setegid(egid)) bb_simple_perror_msg_and_die("setegid");
 }
 
 void FAST_FUNC xseteuid(uid_t euid)
 {
-	if (seteuid(euid)) bb_perror_msg_and_die("seteuid");
+	if (seteuid(euid)) bb_simple_perror_msg_and_die("seteuid");
 }
 
+int FAST_FUNC chdir_or_warn(const char *path)
+{
+	int r = chdir(path);
+	if (r != 0)
+		bb_perror_msg("can't change directory to '%s'", path);
+	return r;
+}
 // Die if we can't chdir to a new path.
 void FAST_FUNC xchdir(const char *path)
 {
-	if (chdir(path))
-		bb_perror_msg_and_die("can't change directory to '%s'", path);
+	if (chdir_or_warn(path) != 0)
+		xfunc_die();
 }
 
 void FAST_FUNC xfchdir(int fd)
 {
 	if (fchdir(fd))
-		bb_perror_msg_and_die("fchdir");
+		bb_simple_perror_msg_and_die("fchdir");
 }
 
 void FAST_FUNC xchroot(const char *path)
@@ -448,7 +482,7 @@ int FAST_FUNC xsocket(int domain, int type, int protocol)
 IF_FEATURE_IPV6(if (domain == AF_INET6) s = "INET6";)
 		bb_perror_msg_and_die("socket(AF_%s,%d,%d)", s, type, protocol);
 #else
-		bb_perror_msg_and_die("socket");
+		bb_simple_perror_msg_and_die("socket");
 #endif
 	}
 
@@ -458,13 +492,13 @@ IF_FEATURE_IPV6(if (domain == AF_INET6) s = "INET6";)
 // Die with an error message if we can't bind a socket to an address.
 void FAST_FUNC xbind(int sockfd, struct sockaddr *my_addr, socklen_t addrlen)
 {
-	if (bind(sockfd, my_addr, addrlen)) bb_perror_msg_and_die("bind");
+	if (bind(sockfd, my_addr, addrlen)) bb_simple_perror_msg_and_die("bind");
 }
 
 // Die with an error message if we can't listen for connections on a socket.
 void FAST_FUNC xlisten(int s, int backlog)
 {
-	if (listen(s, backlog)) bb_perror_msg_and_die("listen");
+	if (listen(s, backlog)) bb_simple_perror_msg_and_die("listen");
 }
 
 /* Die with an error message if sendto failed.
@@ -476,7 +510,7 @@ ssize_t FAST_FUNC xsendto(int s, const void *buf, size_t len, const struct socka
 	if (ret < 0) {
 		if (ENABLE_FEATURE_CLEAN_UP)
 			close(s);
-		bb_perror_msg_and_die("sendto");
+		bb_simple_perror_msg_and_die("sendto");
 	}
 	return ret;
 }
@@ -498,20 +532,20 @@ void FAST_FUNC xfstat(int fd, struct stat *stat_buf, const char *errmsg)
 		bb_simple_perror_msg_and_die(errmsg);
 }
 
+#if ENABLE_SELINUX
 // selinux_or_die() - die if SELinux is disabled.
 void FAST_FUNC selinux_or_die(void)
 {
-#if ENABLE_SELINUX
 	int rc = is_selinux_enabled();
 	if (rc == 0) {
-		bb_error_msg_and_die("SELinux is disabled");
+		bb_simple_error_msg_and_die("SELinux is disabled");
 	} else if (rc < 0) {
-		bb_error_msg_and_die("is_selinux_enabled() failed");
+		bb_simple_error_msg_and_die("is_selinux_enabled() failed");
 	}
-#else
-	bb_error_msg_and_die("SELinux support is disabled");
-#endif
 }
+#else
+/* not defined, other code must have no calls to it */
+#endif
 
 int FAST_FUNC ioctl_or_perror_and_die(int fd, unsigned request, void *argp, const char *fmt,...)
 {
@@ -629,14 +663,11 @@ void FAST_FUNC generate_uuid(uint8_t *buf)
 	pid_t pid;
 	int i;
 
-	i = open("/dev/urandom", O_RDONLY);
-	if (i >= 0) {
-		read(i, buf, 16);
-		close(i);
-	}
+	open_read_close("/dev/urandom", buf, 16);
 	/* Paranoia. /dev/urandom may be missing.
 	 * rand() is guaranteed to generate at least [0, 2^15) range,
-	 * but lowest bits in some libc are not so "random".  */
+	 * but lowest bits in some libc are not so "random".
+	 */
 	srand(monotonic_us()); /* pulls in printf */
 	pid = getpid();
 	while (1) {
@@ -660,7 +691,7 @@ pid_t FAST_FUNC xfork(void)
 	pid_t pid;
 	pid = fork();
 	if (pid < 0) /* wtf? */
-		bb_perror_msg_and_die("vfork"+1);
+		bb_simple_perror_msg_and_die("vfork"+1);
 	return pid;
 }
 #endif
@@ -679,4 +710,33 @@ void FAST_FUNC xvfork_parent_waits_and_exits(void)
 		_exit(WEXITSTATUS(exit_status));
 	}
 	/* Child continues */
+}
+
+// Useful when we do know that pid is valid, and we just want to wait
+// for it to exit. Not existing pid is fatal. waitpid() status is not returned.
+int FAST_FUNC wait_for_exitstatus(pid_t pid)
+{
+	int exit_status, n;
+
+	n = safe_waitpid(pid, &exit_status, 0);
+	if (n < 0)
+		bb_simple_perror_msg_and_die("waitpid");
+	return exit_status;
+}
+
+void FAST_FUNC xsettimeofday(const struct timeval *tv)
+{
+	if (settimeofday(tv, NULL))
+		bb_simple_perror_msg_and_die("settimeofday");
+}
+
+void FAST_FUNC xgettimeofday(struct timeval *tv)
+{
+#if 0
+	if (gettimeofday(tv, NULL))
+		bb_simple_perror_msg_and_die("gettimeofday");
+#else
+	/* Never fails on Linux */
+	gettimeofday(tv, NULL);
+#endif
 }

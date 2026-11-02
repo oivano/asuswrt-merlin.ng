@@ -2,11 +2,9 @@
 /*
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
-
 #include "libbb.h"
 #include "bb_archive.h"
 
-/* Symlinks created by this extraction; pre-existing ones (e.g. /etc -> tmp/etc) are trusted. */
 static struct {
 	dev_t dev;
 	ino_t ino;
@@ -71,6 +69,8 @@ void FAST_FUNC data_extract_all(archive_handle_t *archive_handle)
 	file_header_t *file_header = archive_handle->file_header;
 	int dst_fd;
 	int res;
+	int had_existing_symlink;
+	struct stat symlink_sb;
 	char *hard_link;
 #if ENABLE_FEATURE_TAR_LONG_OPTIONS
 	char *dst_name;
@@ -171,13 +171,11 @@ void FAST_FUNC data_extract_all(archive_handle_t *archive_handle)
 		struct stat existing_sb;
 		if (lstat(dst_name, &existing_sb) == -1) {
 			if (errno != ENOENT) {
-				bb_perror_msg_and_die("can't stat old file");
+				bb_simple_perror_msg_and_die("can't stat old file");
 			}
 		}
 		else if (existing_sb.st_mtime >= file_header->mtime) {
-			if (!(archive_handle->ah_flags & ARCHIVE_EXTRACT_QUIET)
-			 && !S_ISDIR(file_header->mode)
-			) {
+			if (!S_ISDIR(file_header->mode)) {
 				bb_error_msg("%s not created: newer or "
 					"same age file exists", dst_name);
 			}
@@ -192,15 +190,10 @@ void FAST_FUNC data_extract_all(archive_handle_t *archive_handle)
 
 	/* Handle hard links separately */
 	if (hard_link) {
-		res = link(hard_link, dst_name);
-		if (res == 0)
-			remember_created_link(dst_name);
-		if (res != 0 && !(archive_handle->ah_flags & ARCHIVE_EXTRACT_QUIET)) {
-			bb_perror_msg("can't create %slink "
-					"from %s to %s", "hard",
-					dst_name,
-					hard_link);
-		}
+		create_or_remember_link(&archive_handle->link_placeholders,
+				hard_link,
+				dst_name,
+				1);
 		/* Hardlinks have no separate mode/ownership, skip chown/chmod */
 		goto ret;
 	}
@@ -235,11 +228,14 @@ void FAST_FUNC data_extract_all(archive_handle_t *archive_handle)
 		break;
 	}
 	case S_IFDIR:
+//TODO: this causes problems if tarball contains a r-xr-xr-x directory:
+// we create this directory, and then fail to create files inside it
+// (if tar xf isn't run as root).
+// GNU tar works around this by chmod-ing directories *after* all files are extracted.
 		res = mkdir(dst_name, file_header->mode);
-		if ((res == -1)
+		if ((res != 0)
 		 && (errno != EISDIR) /* btw, Linux doesn't return this */
 		 && (errno != EEXIST)
-		 && !(archive_handle->ah_flags & ARCHIVE_EXTRACT_QUIET)
 		) {
 			bb_perror_msg("can't make dir %s", dst_name);
 		}
@@ -247,31 +243,48 @@ void FAST_FUNC data_extract_all(archive_handle_t *archive_handle)
 	case S_IFLNK:
 		/* Symlink */
 //TODO: what if file_header->link_target == NULL (say, corrupted tarball?)
-		res = symlink(file_header->link_target, dst_name);
-		if (res == 0)
-			remember_created_link(dst_name);
-		if (res != 0
-		 && !(archive_handle->ah_flags & ARCHIVE_EXTRACT_QUIET)
-		) {
-			bb_perror_msg("can't create %slink "
-				"from %s to %s", "sym",
+
+		/* To avoid a directory traversal attack via symlinks,
+		 * do not restore symlinks with ".." components
+		 * or symlinks starting with "/", unless a magic
+		 * envvar is set.
+		 *
+		 * For example, consider a .tar created via:
+		 *  $ tar cvf bug.tar anything.txt
+		 *  $ ln -s /tmp symlink
+		 *  $ tar --append -f bug.tar symlink
+		 *  $ rm symlink
+		 *  $ mkdir symlink
+		 *  $ tar --append -f bug.tar symlink/evil.py
+		 *
+		 * This will result in an archive that contains:
+		 *  $ tar --list -f bug.tar
+		 *  anything.txt
+		 *  symlink [-> /tmp]
+		 *  symlink/evil.py
+		 *
+		 * Untarring bug.tar would otherwise place evil.py in '/tmp'.
+		 */
+		create_or_remember_link(&archive_handle->link_placeholders,
+				file_header->link_target,
 				dst_name,
-				file_header->link_target);
-		}
+				0);
+		remember_created_link(dst_name);
 		break;
 	case S_IFSOCK:
 	case S_IFBLK:
 	case S_IFCHR:
 	case S_IFIFO:
+		had_existing_symlink = lstat(dst_name, &symlink_sb) == 0
+			&& S_ISLNK(symlink_sb.st_mode);
 		res = mknod(dst_name, file_header->mode, file_header->device);
-		if ((res == -1)
-		 && !(archive_handle->ah_flags & ARCHIVE_EXTRACT_QUIET)
-		) {
+		if (res != 0) {
 			bb_perror_msg("can't create node %s", dst_name);
 		}
-		break;
+		if (!had_existing_symlink)
+			remember_created_link(dst_name);
 	default:
-		bb_error_msg_and_die("unrecognized file type");
+		bb_simple_error_msg_and_die("unrecognized file type");
 	}
 
 	if (!S_ISLNK(file_header->mode)) {

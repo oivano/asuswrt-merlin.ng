@@ -53,6 +53,63 @@
     The postal address is:
       Richard Gooch, c/o ATNF, P. O. Box 76, Epping, N.S.W., 2121, Australia.
 */
+//config:config DEVFSD
+//config:	bool "devfsd (obsolete)"
+//config:	default n
+//config:	select FEATURE_SYSLOG
+//config:	help
+//config:	This is deprecated and should NOT be used anymore.
+//config:	Use linux >= 2.6 (optionally with hotplug) and mdev instead!
+//config:	See docs/mdev.txt for detailed instructions on how to use mdev
+//config:	instead.
+//config:
+//config:	Provides compatibility with old device names on a devfs systems.
+//config:	You should set it to true if you have devfs enabled.
+//config:	The following keywords in devsfd.conf are supported:
+//config:	"CLEAR_CONFIG", "INCLUDE", "OPTIONAL_INCLUDE", "RESTORE",
+//config:	"PERMISSIONS", "EXECUTE", "COPY", "IGNORE",
+//config:	"MKOLDCOMPAT", "MKNEWCOMPAT","RMOLDCOMPAT", "RMNEWCOMPAT".
+//config:
+//config:	But only if they are written UPPERCASE!!!!!!!!
+//config:
+//config:config DEVFSD_MODLOAD
+//config:	bool "Adds support for MODLOAD keyword in devsfd.conf"
+//config:	default y
+//config:	depends on DEVFSD
+//config:	help
+//config:	This actually doesn't work with busybox modutils but needs
+//config:	the external modutils.
+//config:
+//config:config DEVFSD_FG_NP
+//config:	bool "Enable the -fg and -np options"
+//config:	default y
+//config:	depends on DEVFSD
+//config:	help
+//config:	-fg  Run the daemon in the foreground.
+//config:	-np  Exit after parsing config. Do not poll for events.
+//config:
+//config:config DEVFSD_VERBOSE
+//config:	bool "Increases logging (and size)"
+//config:	default y
+//config:	depends on DEVFSD
+//config:	help
+//config:	Increases logging to stderr or syslog.
+//config:
+//config:config FEATURE_DEVFS
+//config:	bool "Use devfs names for all devices (obsolete)"
+//config:	default n
+//config:	help
+//config:	This is obsolete and should NOT be used anymore.
+//config:	Use linux >= 2.6 (optionally with hotplug) and mdev instead!
+//config:
+//config:	For legacy systems -- if there is no way around devfsd -- this
+//config:	tells busybox to look for names like /dev/loop/0 instead of
+//config:	/dev/loop0. If your /dev directory has normal names instead of
+//config:	devfs names, you don't want this.
+
+//applet:IF_DEVFSD(APPLET(devfsd, BB_DIR_SBIN, BB_SUID_DROP))
+
+//kbuild:lib-$(CONFIG_DEVFSD) += devfsd.o
 
 //usage:#define devfsd_trivial_usage
 //usage:       "mntpnt [-v]" IF_DEVFSD_FG_NP("[-fg][-np]")
@@ -284,22 +341,28 @@ static const char bb_msg_variable_not_found[] ALIGN1 = "variable: %s not found";
 
 /* Busybox stuff */
 #if ENABLE_DEVFSD_VERBOSE || ENABLE_DEBUG
-#define info_logger(p, fmt, args...)                 bb_error_msg(fmt, ## args)
+#define info_logger(p, fmt, args...)                 bb_info_msg(fmt, ## args)
+#define simple_info_logger(p, msg)                   bb_simple_info_msg(msg)
 #define msg_logger(p, fmt, args...)                  bb_error_msg(fmt, ## args)
+#define simple_msg_logger(p, msg)                    bb_simple_error_msg(msg)
 #define msg_logger_and_die(p, fmt, args...)          bb_error_msg_and_die(fmt, ## args)
+#define simple_msg_logger_and_die(p, msg)            bb_simple_error_msg_and_die(msg)
 #define error_logger(p, fmt, args...)                bb_perror_msg(fmt, ## args)
 #define error_logger_and_die(p, fmt, args...)        bb_perror_msg_and_die(fmt, ## args)
 #else
 #define info_logger(p, fmt, args...)
+#define simple_info_logger(p, msg)
 #define msg_logger(p, fmt, args...)
+#define simple_msg_logger(p, msg)
 #define msg_logger_and_die(p, fmt, args...)           exit(EXIT_FAILURE)
+#define simple_msg_logger_and_die(p, msg)             exit(EXIT_FAILURE)
 #define error_logger(p, fmt, args...)
 #define error_logger_and_die(p, fmt, args...)         exit(EXIT_FAILURE)
 #endif
 
 static void safe_memcpy(char *dest, const char *src, int len)
 {
-	memcpy(dest , src, len);
+	memcpy(dest, src, len);
 	dest[len] = '\0';
 }
 
@@ -390,7 +453,7 @@ int devfsd_main(int argc, char **argv)
 				DEVFSD_PROTOCOL_REVISION_DAEMON, bb_msg_proto_rev, proto_rev);
 		if (DEVFSD_PROTOCOL_REVISION_DAEMON != proto_rev)
 			bb_error_msg_and_die("%s mismatch!", bb_msg_proto_rev);
-		exit(EXIT_SUCCESS); /* -v */
+		exit_SUCCESS(); /* -v */
 	}
 	/*  Tell kernel we are special(i.e. we get to see hidden entries)  */
 	xioctl(fd, DEVFSDIOC_SET_EVENT_MASK, 0);
@@ -411,7 +474,7 @@ int devfsd_main(int argc, char **argv)
 	dir_operation(SERVICE, mount_point, 0, NULL);
 
 	if (ENABLE_DEVFSD_FG_NP && no_polling)
-		exit(EXIT_SUCCESS);
+		exit_SUCCESS();
 
 	if (ENABLE_DEVFSD_VERBOSE || ENABLE_DEBUG)
 		logmode = LOGMODE_BOTH;
@@ -635,7 +698,7 @@ static void process_config_line(const char *line, unsigned long *event_mask)
 	return;
 
  process_config_line_err:
-	msg_logger_and_die(LOG_ERR, bb_msg_bad_config, msg , line);
+	msg_logger_and_die(LOG_ERR, bb_msg_bad_config, msg, line);
 }  /*  End Function process_config_line   */
 
 static int do_servicing(int fd, unsigned long event_mask)
@@ -668,7 +731,7 @@ static int do_servicing(int fd, unsigned long event_mask)
 		caught_sighup = FALSE;
 		return c_sighup;
 	}
-	msg_logger_and_die(LOG_ERR, "read error on control file");
+	simple_msg_logger_and_die(LOG_ERR, "read error on control file");
 }   /*  End Function do_servicing  */
 
 static void service_name(const struct devfsd_notify_struct *info)
@@ -727,7 +790,7 @@ static void service_name(const struct devfsd_notify_struct *info)
 				action_compat(info, entry->action.what);
 				break;
 			default:
-				msg_logger_and_die(LOG_ERR, "Unknown action");
+				simple_msg_logger_and_die(LOG_ERR, "Unknown action");
 		}
 	}
 }   /*  End Function service_name  */
@@ -865,7 +928,7 @@ static void action_compat(const struct devfsd_notify_struct *info, unsigned int 
 	unsigned int i;
 	char rewind_;
 	/* 1 to 5  "scsi/" , 6 to 9 "ide/host" */
-	static const char *const fmt[] = {
+	static const char *const fmt[] ALIGN_PTR = {
 		NULL ,
 		"sg/c%db%dt%du%d",		/* scsi/generic */
 		"sd/c%db%dt%du%d",		/* scsi/disc */
@@ -913,7 +976,7 @@ static void action_compat(const struct devfsd_notify_struct *info, unsigned int 
 				rewind_ = info->devname[info->namelen - 1];
 				if (rewind_ != 'n')
 					rewind_ = '\0';
-				mode=0;
+				mode = 0;
 				if (ptr[2] ==  'l' /*108*/ || ptr[2] == 'm'/*109*/)
 					mode = ptr[2] - 107; /* 1 or 2 */
 				if (ptr[2] ==  'a')
@@ -1043,7 +1106,7 @@ static int copy_inode(const char *destpath, const struct stat *dest_stat,
 do_chown:
 			if (chown(destpath, source_stat->st_uid, source_stat->st_gid) == 0)
 				return TRUE;
-		/*break;*/
+			/*break;*/
 	}
 	return FALSE;
 }   /*  End Function copy_inode  */
@@ -1405,7 +1468,7 @@ const char *get_old_name(const char *devname, unsigned int namelen,
 	const char *pty1;
 	const char *pty2;
 	/* 1 to 5  "scsi/" , 6 to 9 "ide/host", 10 sbp/, 11 vcc/, 12 pty/ */
-	static const char *const fmt[] = {
+	static const char *const fmt[] ALIGN_PTR = {
 		NULL ,
 		"sg%u",			/* scsi/generic */
 		NULL,			/* scsi/disc */
@@ -1532,11 +1595,11 @@ static char *write_old_sd_name(char *buffer,
 		return buffer;
 	}
 	if ((major > 64) && (major < 72)) {
-		disc_index = ((major - 64) << 4) +(minor >> 4);
+		disc_index = ((major - 64) << 4) + (minor >> 4);
 		if (disc_index < 26)
 			sprintf(buffer, "sd%c%s", 'a' + disc_index, part);
 		else
-			sprintf(buffer, "sd%c%c%s", 'a' +(disc_index / 26) - 1, 'a' + disc_index % 26, part);
+			sprintf(buffer, "sd%c%c%s", 'a' + (disc_index / 26) - 1, 'a' + disc_index % 26, part);
 		return buffer;
 	}
 	return NULL;
@@ -1632,7 +1695,7 @@ int st_expr_expand(char *output, unsigned int length, const char *input,
 	}
 	return FALSE;
 st_expr_expand_out:
-	info_logger(LOG_INFO, bb_msg_small_buffer);
+	simple_info_logger(LOG_INFO, bb_msg_small_buffer);
 	return FALSE;
 }   /*  End Function st_expr_expand  */
 
@@ -1716,7 +1779,7 @@ static const char *expand_variable(char *buffer, unsigned int length,
 		return input + len;
 	}
 	if (ch != ':' || ptr[1] != '-') {
-		info_logger(LOG_INFO, "illegal char in var name");
+		simple_info_logger(LOG_INFO, "illegal char in var name");
 		return NULL;
 	}
 	/*  It's that handy "${var:-word}" expression. Check if var is defined  */
@@ -1779,7 +1842,7 @@ static const char *expand_variable(char *buffer, unsigned int length,
 	*out_pos += len;
 	return input;
 expand_variable_out:
-	info_logger(LOG_INFO, bb_msg_small_buffer);
+	simple_info_logger(LOG_INFO, bb_msg_small_buffer);
 	return NULL;
 }   /*  End Function expand_variable  */
 

@@ -13,7 +13,6 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
-
 /* This program evaluates expressions.  Each token (operator, operand,
  * parenthesis) of the expression must be a separate argument.  The
  * parser used is a reasonably general one, though any incarnation of
@@ -21,14 +20,32 @@
  *
  * No parse tree is needed; a new node is evaluated immediately.
  * One function can handle multiple operators all of equal precedence,
- * provided they all associate ((x op x) op x). */
+ * provided they all associate ((x op x) op x).
+ */
+//config:config EXPR
+//config:	bool "expr (6.6 kb)"
+//config:	default y
+//config:	help
+//config:	expr is used to calculate numbers and print the result
+//config:	to standard output.
+//config:
+//config:config EXPR_MATH_SUPPORT_64
+//config:	bool "Extend Posix numbers support to 64 bit"
+//config:	default y
+//config:	depends on EXPR
+//config:	help
+//config:	Enable 64-bit math support in the expr applet. This will make
+//config:	the applet slightly larger, but will allow computation with very
+//config:	large numbers.
 
-/* no getopt needed */
+//applet:IF_EXPR(APPLET_NOEXEC(expr, expr, BB_DIR_USR_BIN, BB_SUID_DROP, expr))
+
+//kbuild:lib-$(CONFIG_EXPR) += expr.o
 
 //usage:#define expr_trivial_usage
 //usage:       "EXPRESSION"
 //usage:#define expr_full_usage "\n\n"
-//usage:       "Print the value of EXPRESSION to stdout\n"
+//usage:       "Print the value of EXPRESSION\n"
 //usage:    "\n"
 //usage:       "EXPRESSION may be:\n"
 //usage:       "	ARG1 | ARG2	ARG1 if it is neither null nor 0, otherwise ARG2\n"
@@ -46,7 +63,7 @@
 //usage:       "	ARG1 % ARG2\n"
 //usage:       "	STRING : REGEXP		Anchored pattern match of REGEXP in STRING\n"
 //usage:       "	match STRING REGEXP	Same as STRING : REGEXP\n"
-//usage:       "	substr STRING POS LENGTH Substring of STRING, POS counted from 1\n"
+//usage:       "	substr STRING POS LEN	Substring of STRING, POS counts from 1\n"
 //usage:       "	index STRING CHARS	Index in STRING where any CHARS is found, or 0\n"
 //usage:       "	length STRING		Length of STRING\n"
 //usage:       "	quote TOKEN		Interpret TOKEN as a string, even if\n"
@@ -101,7 +118,10 @@ struct globals {
 	char **args;
 } FIX_ALIASING;
 #define G (*(struct globals*)bb_common_bufsiz1)
-#define INIT_G() do { setup_common_bufsiz(); } while (0)
+#define INIT_G() do { \
+	setup_common_bufsiz(); \
+	/* NB: noexec applet - globals not zeroed */ \
+} while (0)
 
 /* forward declarations */
 static VALUE *eval(void);
@@ -114,7 +134,7 @@ static VALUE *int_value(arith_t i)
 	VALUE *v;
 
 	v = xzalloc(sizeof(VALUE));
-	if (INTEGER) /* otherwise xzaaloc did it already */
+	if (INTEGER) /* otherwise xzalloc did it already */
 		v->type = INTEGER;
 	v->u.i = i;
 	return v;
@@ -127,7 +147,7 @@ static VALUE *str_value(const char *s)
 	VALUE *v;
 
 	v = xzalloc(sizeof(VALUE));
-	if (STRING) /* otherwise xzaaloc did it already */
+	if (STRING) /* otherwise xzalloc did it already */
 		v->type = STRING;
 	v->u.s = xstrdup(s);
 	return v;
@@ -229,7 +249,7 @@ static arith_t arithmetic_common(VALUE *l, VALUE *r, int op)
 	arith_t li, ri;
 
 	if (!toarith(l) || !toarith(r))
-		bb_error_msg_and_die("non-numeric argument");
+		bb_simple_error_msg_and_die("non-numeric argument");
 	li = l->u.i;
 	ri = r->u.i;
 	if (op == '+')
@@ -239,7 +259,7 @@ static arith_t arithmetic_common(VALUE *l, VALUE *r, int op)
 	if (op == '*')
 		return li * ri;
 	if (ri == 0)
-		bb_error_msg_and_die("division by zero");
+		bb_simple_error_msg_and_die("division by zero");
 	if (op == '/')
 		return li / ri;
 	return li % ri;
@@ -299,19 +319,19 @@ static VALUE *eval7(void)
 	VALUE *v;
 
 	if (!*G.args)
-		bb_error_msg_and_die("syntax error");
+		bb_simple_error_msg_and_die("syntax error");
 
 	if (nextarg("(")) {
 		G.args++;
 		v = eval();
 		if (!nextarg(")"))
-			bb_error_msg_and_die("syntax error");
+			bb_simple_error_msg_and_die("syntax error");
 		G.args++;
 		return v;
 	}
 
 	if (nextarg(")"))
-		bb_error_msg_and_die("syntax error");
+		bb_simple_error_msg_and_die("syntax error");
 
 	return str_value(*G.args++);
 }
@@ -333,7 +353,7 @@ static VALUE *eval6(void)
 	G.args++; /* We have a valid token, so get the next argument.  */
 	if (key == 1) { /* quote */
 		if (!*G.args)
-			bb_error_msg_and_die("syntax error");
+			bb_simple_error_msg_and_die("syntax error");
 		return str_value(*G.args++);
 	}
 	if (key == 2) { /* length */
@@ -526,11 +546,11 @@ int expr_main(int argc UNUSED_PARAM, char **argv)
 	xfunc_error_retval = 2; /* coreutils compat */
 	G.args = argv + 1;
 	if (*G.args == NULL) {
-		bb_error_msg_and_die("too few arguments");
+		bb_simple_error_msg_and_die("too few arguments");
 	}
 	v = eval();
 	if (*G.args)
-		bb_error_msg_and_die("syntax error");
+		bb_simple_error_msg_and_die("syntax error");
 	if (v->type == INTEGER)
 		printf("%" PF_REZ "d\n", PF_REZ_TYPE v->u.i);
 	else

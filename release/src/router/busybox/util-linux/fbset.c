@@ -11,6 +11,37 @@
  * the GPL, and is (c) 1995-1999 by:
  *     Geert Uytterhoeven (Geert.Uytterhoeven@cs.kuleuven.ac.be)
  */
+//config:config FBSET
+//config:	bool "fbset (5.9 kb)"
+//config:	default y
+//config:	help
+//config:	fbset is used to show or change the settings of a Linux frame buffer
+//config:	device. The frame buffer device provides a simple and unique
+//config:	interface to access a graphics display. Enable this option
+//config:	if you wish to enable the 'fbset' utility.
+//config:
+//config:config FEATURE_FBSET_FANCY
+//config:	bool "Enable extra options"
+//config:	default y
+//config:	depends on FBSET
+//config:	help
+//config:	This option enables extended fbset options, allowing one to set the
+//config:	framebuffer size, color depth, etc. interface to access a graphics
+//config:	display. Enable this option if you wish to enable extended fbset
+//config:	options.
+//config:
+//config:config FEATURE_FBSET_READMODE
+//config:	bool "Enable readmode support"
+//config:	default y
+//config:	depends on FBSET
+//config:	help
+//config:	This option allows fbset to read the video mode database stored by
+//config:	default as /etc/fb.modes, which can be used to set frame buffer
+//config:	device to pre-defined video modes.
+
+//applet:IF_FBSET(APPLET(fbset, BB_DIR_USR_SBIN, BB_SUID_DROP))
+
+//kbuild:lib-$(CONFIG_FBSET) += fbset.o
 
 //usage:#define fbset_trivial_usage
 //usage:       "[OPTIONS] [MODE]"
@@ -162,7 +193,7 @@ static const struct cmdoptions_t {
 	const char name[9];
 	const unsigned char param_count;
 	const unsigned char code;
-} g_cmdoptions[] = {
+} g_cmdoptions[] ALIGN1 = {
 	/*"12345678" + NUL */
 //TODO: convert to index_in_strings()
 	{ "fb"      , 1, CMD_FB       },
@@ -236,7 +267,7 @@ static void ss(uint32_t *x, uint32_t flag, char *buf, const char *what)
  *     vsync high
  * endmode
  */
-static int read_mode_db(struct fb_var_screeninfo *base, const char *fn,
+static NOINLINE int read_mode_db(struct fb_var_screeninfo *base, const char *fn,
 					const char *mode)
 {
 	char *token[2], *p, *s;
@@ -487,7 +518,13 @@ int fbset_main(int argc, char **argv)
 			case CMD_DEPTH:
 				var_set.bits_per_pixel = xatou32(argv[1]);
 				break;
+			case CMD_PIXCLOCK:
+				var_set.pixclock = xatou32(argv[1]);
+				break;
 #endif
+			default:
+				bb_perror_msg_and_die("option '%s' not handled",
+						      g_cmdoptions[i].name);
 			}
 			switch (g_cmdoptions[i].code) {
 			case CMD_FB:

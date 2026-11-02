@@ -12,42 +12,47 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
+//config:config FTPGET
+//config:	bool "ftpget (7.8 kb)"
+//config:	default y
+//config:	help
+//config:	Retrieve a remote file via FTP.
+//config:
+//config:config FTPPUT
+//config:	bool "ftpput (7.5 kb)"
+//config:	default y
+//config:	help
+//config:	Store a remote file via FTP.
+//config:
+//config:config FEATURE_FTPGETPUT_LONG_OPTIONS
+//config:	bool "Enable long options in ftpget/ftpput"
+//config:	default y
+//config:	depends on LONG_OPTS && (FTPGET || FTPPUT)
+
+//applet:IF_FTPGET(APPLET_ODDNAME(ftpget, ftpgetput, BB_DIR_USR_BIN, BB_SUID_DROP, ftpget))
+//applet:IF_FTPPUT(APPLET_ODDNAME(ftpput, ftpgetput, BB_DIR_USR_BIN, BB_SUID_DROP, ftpput))
+
+//kbuild:lib-$(CONFIG_FTPGET) += ftpgetput.o
+//kbuild:lib-$(CONFIG_FTPPUT) += ftpgetput.o
 
 //usage:#define ftpget_trivial_usage
 //usage:       "[OPTIONS] HOST [LOCAL_FILE] REMOTE_FILE"
 //usage:#define ftpget_full_usage "\n\n"
 //usage:       "Download a file via FTP\n"
-//usage:	IF_FEATURE_FTPGETPUT_LONG_OPTIONS(
-//usage:     "\n	-c,--continue		Continue previous transfer"
-//usage:     "\n	-v,--verbose		Verbose"
-//usage:     "\n	-u,--username USER	Username"
-//usage:     "\n	-p,--password PASS	Password"
-//usage:     "\n	-P,--port NUM		Port"
-//usage:	)
-//usage:	IF_NOT_FEATURE_FTPGETPUT_LONG_OPTIONS(
 //usage:     "\n	-c	Continue previous transfer"
 //usage:     "\n	-v	Verbose"
 //usage:     "\n	-u USER	Username"
 //usage:     "\n	-p PASS	Password"
-//usage:     "\n	-P NUM	Port"
-//usage:	)
+//usage:     "\n	-P PORT"
 //usage:
 //usage:#define ftpput_trivial_usage
 //usage:       "[OPTIONS] HOST [REMOTE_FILE] LOCAL_FILE"
 //usage:#define ftpput_full_usage "\n\n"
 //usage:       "Upload a file to a FTP server\n"
-//usage:	IF_FEATURE_FTPGETPUT_LONG_OPTIONS(
-//usage:     "\n	-v,--verbose		Verbose"
-//usage:     "\n	-u,--username USER	Username"
-//usage:     "\n	-p,--password PASS	Password"
-//usage:     "\n	-P,--port NUM		Port"
-//usage:	)
-//usage:	IF_NOT_FEATURE_FTPGETPUT_LONG_OPTIONS(
 //usage:     "\n	-v	Verbose"
 //usage:     "\n	-u USER	Username"
 //usage:     "\n	-p PASS	Password"
-//usage:     "\n	-P NUM	Port number"
-//usage:	)
+//usage:     "\n	-P PORT"
 
 #include "libbb.h"
 #include "common_bufsiz.h"
@@ -147,46 +152,16 @@ static void ftp_login(void)
 
 static int xconnect_ftpdata(void)
 {
-	char *buf_ptr;
-	unsigned port_num;
+	int port_num;
 
-/*
-TODO: PASV command will not work for IPv6. RFC2428 describes
-IPv6-capable "extended PASV" - EPSV.
-
-"EPSV [protocol]" asks server to bind to and listen on a data port
-in specified protocol. Protocol is 1 for IPv4, 2 for IPv6.
-If not specified, defaults to "same as used for control connection".
-If server understood you, it should answer "229 <some text>(|||port|)"
-where "|" are literal pipe chars and "port" is ASCII decimal port#.
-
-There is also an IPv6-capable replacement for PORT (EPRT),
-but we don't need that.
-
-NB: PASV may still work for some servers even over IPv6.
-For example, vsftp happily answers
-"227 Entering Passive Mode (0,0,0,0,n,n)" and proceeds as usual.
-
-TODO2: need to stop ignoring IP address in PASV response.
-*/
-
-	if (ftpcmd("PASV", NULL) != 227) {
+	if (ENABLE_FEATURE_IPV6 && ftpcmd("EPSV", NULL) == 229) {
+		/* good */
+	} else if (ftpcmd("PASV", NULL) != 227) {
 		ftp_die("PASV");
 	}
-
-	/* Response is "NNN garbageN1,N2,N3,N4,P1,P2[)garbage]
-	 * Server's IP is N1.N2.N3.N4 (we ignore it)
-	 * Server's port for data connection is P1*256+P2 */
-	buf_ptr = strrchr(buf, ')');
-	if (buf_ptr) *buf_ptr = '\0';
-
-	buf_ptr = strrchr(buf, ',');
-	*buf_ptr = '\0';
-	port_num = xatoul_range(buf_ptr + 1, 0, 255);
-
-	buf_ptr = strrchr(buf, ',');
-	*buf_ptr = '\0';
-	port_num += xatoul_range(buf_ptr + 1, 0, 255) * 256;
+	port_num = parse_pasv_epsv(buf);
+	if (port_num < 0)
+		ftp_die("PASV");
 
 	set_nport(&lsa->u.sa, htons(port_num));
 	return xconnect_stream(lsa);
@@ -239,7 +214,7 @@ int ftp_receive(const char *local_path, char *server_path)
 		struct stat sbuf;
 		/* lstat would be wrong here! */
 		if (stat(local_path, &sbuf) < 0) {
-			bb_perror_msg_and_die("stat");
+			bb_simple_perror_msg_and_die("stat");
 		}
 		if (sbuf.st_size > 0) {
 			beg_range = sbuf.st_size;
@@ -315,8 +290,7 @@ static const char ftpgetput_longopts[] ALIGN1 =
 int ftpgetput_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
 int ftpgetput_main(int argc UNUSED_PARAM, char **argv)
 {
-	const char *port = "ftp";
-	/* socket to ftp server */
+	const char *port = NULL;
 
 #if ENABLE_FTPPUT && !ENABLE_FTPGET
 # define ftp_action ftp_send
@@ -334,17 +308,20 @@ int ftpgetput_main(int argc UNUSED_PARAM, char **argv)
 	INIT_G();
 	/* Set default values */
 	user = "anonymous";
-	password = "busybox@";
+	password = "busybox";
 
 	/*
 	 * Decipher the command line
 	 */
+	/* must have 2 to 3 params; -v and -c count */
+#define OPTSTRING "^cvu:p:P:" "\0" "-2:?3:vv:cc"
 #if ENABLE_FEATURE_FTPGETPUT_LONG_OPTIONS
-	applet_long_options = ftpgetput_longopts;
+	getopt32long(argv, OPTSTRING, ftpgetput_longopts,
+#else
+	getopt32(argv, OPTSTRING,
 #endif
-	opt_complementary = "-2:vv:cc"; /* must have 2 to 3 params; -v and -c count */
-	getopt32(argv, "cvu:p:P:", &user, &password, &port,
-					&verbose_flag, &do_continue);
+			&user, &password, &port, &verbose_flag, &do_continue
+	);
 	argv += optind;
 
 	/* We want to do exactly _one_ DNS lookup, since some

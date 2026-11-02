@@ -57,7 +57,7 @@ int FAST_FUNC udhcp_read_interface(const char *interface, int *ifindex,
 			close(fd);
 			return -1;
 		}
-		log1("adapter index %d", ifr->ifr_ifindex);
+		log2("ifindex %d", ifr->ifr_ifindex);
 		*ifindex = ifr->ifr_ifindex;
 	}
 
@@ -67,7 +67,7 @@ int FAST_FUNC udhcp_read_interface(const char *interface, int *ifindex,
 			return -1;
 		}
 		memcpy(mac, ifr->ifr_hwaddr.sa_data, 6);
-		log1("MAC %02x:%02x:%02x:%02x:%02x:%02x",
+		log2("MAC %02x:%02x:%02x:%02x:%02x:%02x",
 			mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 	}
 
@@ -92,12 +92,12 @@ int FAST_FUNC udhcp_listen_socket(/*uint32_t ip,*/ int port, const char *inf)
 	struct sockaddr_in addr;
 	char *colon;
 
-	log1("opening listen socket on *:%d %s", port, inf);
+	log2("opening listen socket on *:%d %s", port, inf);
 	fd = xsocket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
 
 	setsockopt_reuseaddr(fd);
 	if (setsockopt_broadcast(fd) == -1)
-		bb_perror_msg_and_die("SO_BROADCAST");
+		bb_simple_perror_msg_and_die("SO_BROADCAST");
 
 	/* SO_BINDTODEVICE doesn't work on ethernet aliases (ethN:M) */
 	colon = strrchr(inf, ':');

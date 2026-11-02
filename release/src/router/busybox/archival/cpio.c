@@ -10,40 +10,51 @@
  * Doesn't check CRC's
  * Only supports new ASCII and CRC formats
  */
-#include "libbb.h"
-#include "common_bufsiz.h"
-#include "bb_archive.h"
-
 //config:config CPIO
-//config:	bool "cpio"
+//config:	bool "cpio (15 kb)"
 //config:	default y
 //config:	help
-//config:	  cpio is an archival utility program used to create, modify, and
-//config:	  extract contents from archives.
-//config:	  cpio has 110 bytes of overheads for every stored file.
+//config:	cpio is an archival utility program used to create, modify, and
+//config:	extract contents from archives.
+//config:	cpio has 110 bytes of overheads for every stored file.
 //config:
-//config:	  This implementation of cpio can extract cpio archives created in the
-//config:	  "newc" or "crc" format, it cannot create or modify them.
+//config:	This implementation of cpio can extract cpio archives created in the
+//config:	"newc" or "crc" format.
 //config:
-//config:	  Unless you have a specific application which requires cpio, you
-//config:	  should probably say N here.
+//config:	Unless you have a specific application which requires cpio, you
+//config:	should probably say N here.
 //config:
 //config:config FEATURE_CPIO_O
-//config:	bool "Support for archive creation"
+//config:	bool "Support archive creation"
 //config:	default y
 //config:	depends on CPIO
 //config:	help
-//config:	  This implementation of cpio can create cpio archives in the "newc"
-//config:	  format only.
+//config:	This implementation of cpio can create cpio archives in the "newc"
+//config:	format only.
 //config:
 //config:config FEATURE_CPIO_P
-//config:	bool "Support for passthrough mode"
+//config:	bool "Support passthrough mode"
 //config:	default y
 //config:	depends on FEATURE_CPIO_O
 //config:	help
-//config:	  Passthrough mode. Rarely used.
+//config:	Passthrough mode. Rarely used.
+//config:
+//config:config FEATURE_CPIO_IGNORE_DEVNO
+//config:	bool "Support --ignore-devno like GNU cpio"
+//config:	default y
+//config:	depends on FEATURE_CPIO_O && LONG_OPTS
+//config:	help
+//config:	Optionally ignore device numbers when creating archives.
+//config:
+//config:config FEATURE_CPIO_RENUMBER_INODES
+//config:	bool "Support --renumber-inodes like GNU cpio"
+//config:	default y
+//config:	depends on FEATURE_CPIO_O && LONG_OPTS
+//config:	help
+//config:	Optionally renumber inodes when creating archives.
 
 //applet:IF_CPIO(APPLET(cpio, BB_DIR_BIN, BB_SUID_DROP))
+
 //kbuild:lib-$(CONFIG_CPIO) += cpio.o
 
 //usage:#define cpio_trivial_usage
@@ -51,10 +62,10 @@
 //usage:       " [-ti"IF_FEATURE_CPIO_O("o")"]" IF_FEATURE_CPIO_P(" [-p DIR]")
 //usage:       " [EXTR_FILE]..."
 //usage:#define cpio_full_usage "\n\n"
-//usage:       "Extract or list files from a cpio archive"
+//usage:       "Extract (-i) or list (-t) files from a cpio archive"
 //usage:	IF_FEATURE_CPIO_O(", or"
-//usage:     "\ncreate an archive" IF_FEATURE_CPIO_P(" (-o) or copy files (-p)")
-//usage:		" using file list on stdin"
+//usage:     "\ntake file list from stdin and create an archive (-o)"
+//usage:                IF_FEATURE_CPIO_P(" or copy files (-p)")
 //usage:	)
 //usage:     "\n"
 //usage:     "\nMain operation mode:"
@@ -67,14 +78,22 @@
 //usage:     "\n	-p DIR	Copy files to DIR"
 //usage:	)
 //usage:     "\nOptions:"
+//usage:	IF_FEATURE_CPIO_O(
+//usage:     "\n	-H newc	Archive format"
+//usage:	)
 //usage:     "\n	-d	Make leading directories"
-//usage:     "\n	-m	Preserve mtime"
+//usage:     "\n	-m	Restore mtime"
 //usage:     "\n	-v	Verbose"
 //usage:     "\n	-u	Overwrite"
 //usage:     "\n	-F FILE	Input (-t,-i,-p) or output (-o) file"
 //usage:     "\n	-R USER[:GRP]	Set owner of created files"
-//usage:	IF_FEATURE_CPIO_O(
-//usage:     "\n	-H newc	Archive format"
+//usage:     "\n	-L	Dereference symlinks"
+//usage:     "\n	-0	NUL terminated input"
+//usage:	IF_FEATURE_CPIO_IGNORE_DEVNO(
+//usage:     "\n	--ignore-devno"
+//usage:	)
+//usage:	IF_FEATURE_CPIO_RENUMBER_INODES(
+//usage:     "\n	--renumber-inodes"
 //usage:	)
 
 /* GNU cpio 2.9 --help (abridged):
@@ -142,6 +161,10 @@
   -u, --unconditional        Replace all files unconditionally
  */
 
+#include "libbb.h"
+#include "common_bufsiz.h"
+#include "bb_archive.h"
+
 enum {
 	OPT_EXTRACT            = (1 << 0),
 	OPT_TEST               = (1 << 1),
@@ -159,17 +182,22 @@ enum {
 	IF_FEATURE_CPIO_P(OPTBIT_PASSTHROUGH,)
 	IF_LONG_OPTS(     OPTBIT_QUIET      ,)
 	IF_LONG_OPTS(     OPTBIT_2STDOUT    ,)
+	IF_FEATURE_CPIO_IGNORE_DEVNO(OPTBIT_IGNORE_DEVNO,)
+	IF_FEATURE_CPIO_RENUMBER_INODES(OPTBIT_RENUMBER_INODES,)
 	OPT_CREATE             = IF_FEATURE_CPIO_O((1 << OPTBIT_CREATE     )) + 0,
 	OPT_FORMAT             = IF_FEATURE_CPIO_O((1 << OPTBIT_FORMAT     )) + 0,
 	OPT_PASSTHROUGH        = IF_FEATURE_CPIO_P((1 << OPTBIT_PASSTHROUGH)) + 0,
 	OPT_QUIET              = IF_LONG_OPTS(     (1 << OPTBIT_QUIET      )) + 0,
 	OPT_2STDOUT            = IF_LONG_OPTS(     (1 << OPTBIT_2STDOUT    )) + 0,
+	OPT_IGNORE_DEVNO       = IF_FEATURE_CPIO_IGNORE_DEVNO((1 << OPTBIT_IGNORE_DEVNO)) + 0,
+	OPT_RENUMBER_INODES    = IF_FEATURE_CPIO_RENUMBER_INODES((1 << OPTBIT_RENUMBER_INODES)) + 0,
 };
 
 #define OPTION_STR "it0uvdmLF:R:"
 
 struct globals {
 	struct bb_uidgid_t owner_ugid;
+	ino_t next_inode;
 } FIX_ALIASING;
 #define G (*(struct globals*)bb_common_bufsiz1)
 void BUG_cpio_globals_too_big(void);
@@ -203,6 +231,9 @@ static NOINLINE int cpio_o(void)
 		struct inodes_s *next;
 		struct name_s *names;
 		struct stat st;
+#if ENABLE_FEATURE_CPIO_RENUMBER_INODES
+		ino_t mapped_inode;
+#endif
 	};
 
 	struct inodes_s *links = NULL;
@@ -257,6 +288,10 @@ static NOINLINE int cpio_o(void)
 						l = xzalloc(sizeof(*l));
 						l->st = st;
 						l->next = links;
+#if ENABLE_FEATURE_CPIO_RENUMBER_INODES
+						if (option_mask32 & OPT_RENUMBER_INODES)
+							l->mapped_inode = ++G.next_inode;
+#endif
 						links = l;
 						break;
 					}
@@ -275,6 +310,11 @@ static NOINLINE int cpio_o(void)
 				free(line);
 				continue;
 			}
+#if ENABLE_FEATURE_CPIO_RENUMBER_INODES
+			else if (option_mask32 & OPT_RENUMBER_INODES) {
+				st.st_ino = ++G.next_inode;
+			}
+#endif
 		} else { /* line == NULL: EOF */
  next_link:
 			if (links) {
@@ -282,6 +322,10 @@ static NOINLINE int cpio_o(void)
 				st = links->st;
 				name = links->names->name;
 				links->names = links->names->next;
+#if ENABLE_FEATURE_CPIO_RENUMBER_INODES
+				if (links->mapped_inode)
+					st.st_ino = links->mapped_inode;
+#endif
 				/* GNU cpio is reported to emit file data
 				 * only for the last instance. Mimic that. */
 				if (links->names == NULL)
@@ -300,6 +344,11 @@ static NOINLINE int cpio_o(void)
 				/* st.st_nlink = 1; - GNU cpio does this */
 			}
 		}
+
+#if ENABLE_FEATURE_CPIO_IGNORE_DEVNO
+		if (option_mask32 & OPT_IGNORE_DEVNO)
+			st.st_dev = st.st_rdev = 0;
+#endif
 
 		bytes += printf("070701"
 				"%08X%08X%08X%08X%08X%08X%08X"
@@ -360,9 +409,8 @@ int cpio_main(int argc UNUSED_PARAM, char **argv)
 	char *cpio_owner;
 	IF_FEATURE_CPIO_O(const char *cpio_fmt = "";)
 	unsigned opt;
-
 #if ENABLE_LONG_OPTS
-	applet_long_options =
+	const char *long_opts =
 		"extract\0"      No_argument       "i"
 		"list\0"         No_argument       "t"
 #if ENABLE_FEATURE_CPIO_O
@@ -374,8 +422,15 @@ int cpio_main(int argc UNUSED_PARAM, char **argv)
 #endif
 		"owner\0"        Required_argument "R"
 		"verbose\0"      No_argument       "v"
+		"null\0"         No_argument       "0"
 		"quiet\0"        No_argument       "\xff"
 		"to-stdout\0"    No_argument       "\xfe"
+#if ENABLE_FEATURE_CPIO_IGNORE_DEVNO
+		"ignore-devno\0" No_argument	   "\xfd"
+#endif
+#if ENABLE_FEATURE_CPIO_RENUMBER_INODES
+		"renumber-inodes\0" No_argument    "\xfc"
+#endif
 		;
 #endif
 
@@ -390,9 +445,9 @@ int cpio_main(int argc UNUSED_PARAM, char **argv)
 	/* -L makes sense only with -o or -p */
 
 #if !ENABLE_FEATURE_CPIO_O
-	opt = getopt32(argv, OPTION_STR, &cpio_filename, &cpio_owner);
+	opt = getopt32long(argv, OPTION_STR, long_opts, &cpio_filename, &cpio_owner);
 #else
-	opt = getopt32(argv, OPTION_STR "oH:" IF_FEATURE_CPIO_P("p"),
+	opt = getopt32long(argv, OPTION_STR "oH:" IF_FEATURE_CPIO_P("p"), long_opts,
 		       &cpio_filename, &cpio_owner, &cpio_fmt);
 #endif
 	argv += optind;
@@ -415,7 +470,8 @@ int cpio_main(int argc UNUSED_PARAM, char **argv)
 		if (argv[0] == NULL)
 			bb_show_usage();
 		if (opt & OPT_CREATE_LEADING_DIR)
-			mkdir(argv[0], 0777);
+			/* GNU cpio 2.13: "cpio -d -p a/b/c" works */
+			bb_make_directory(argv[0], -1, FILEUTILS_RECUR);
 		/* Crude existence check:
 		 * close(xopen(argv[0], O_RDONLY | O_DIRECTORY));
 		 * We can also xopen, fstat, IS_DIR, later fchdir.
@@ -425,6 +481,11 @@ int cpio_main(int argc UNUSED_PARAM, char **argv)
 		 * a diffrerent problem earlier.
 		 * This is good enough for now.
 		 */
+//FIXME: GNU cpio -d -p DIR does not immediately create DIR -
+//it just prepends "DIR/" to the names of files to be created.
+//The first file (fails to) be copied, and then the -d logic
+//triggers and creates all necessary directories.
+//IOW: bare "cpio -d -p DIR" + ^C shouldn't create anything.
 #if !BB_MMU
 		pp.rd = 3;
 		pp.wr = 4;
@@ -508,9 +569,12 @@ int cpio_main(int argc UNUSED_PARAM, char **argv)
 	while (get_header_cpio(archive_handle) == EXIT_SUCCESS)
 		continue;
 
+	create_links_from_list(archive_handle->link_placeholders);
+
 	if (archive_handle->cpio__blocks != (off_t)-1
 	 && !(opt & OPT_QUIET)
 	) {
+		fflush_all();
 		fprintf(stderr, "%"OFF_FMT"u blocks\n", archive_handle->cpio__blocks);
 	}
 

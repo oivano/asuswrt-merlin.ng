@@ -1,6 +1,6 @@
 #
 # For a description of the syntax of this configuration file,
-# see scripts/kbuild/config-language.txt.
+# see docs/Kconfig-language.txt.
 #
 
 menu "Editors"
@@ -12,7 +12,7 @@ config FEATURE_ALLOW_EXEC
 	default y
 	depends on VI || AWK
 	help
-	  Enables vi and awk features which allows user to execute
-	  shell commands (using system() C call).
+	Enables vi and awk features which allow user to execute
+	shell commands (using system() C call).
 
 endmenu

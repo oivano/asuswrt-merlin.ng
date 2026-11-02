@@ -1,9 +1,19 @@
 /* vi: set sw=4 ts=4: */
-/* fdformat.c  -  Low-level formats a floppy disk - Werner Almesberger
+/*
+ * fdformat.c  -  Low-level formats a floppy disk - Werner Almesberger
  * 5 July 2003 -- modified for Busybox by Erik Andersen
  *
  * Licensed under GPLv2, see file LICENSE in this source tree.
  */
+//config:config FDFORMAT
+//config:	bool "fdformat (4.4 kb)"
+//config:	default y
+//config:	help
+//config:	fdformat is used to low-level format a floppy disk.
+
+//applet:IF_FDFORMAT(APPLET(fdformat, BB_DIR_USR_SBIN, BB_SUID_DROP))
+
+//kbuild:lib-$(CONFIG_FDFORMAT) += fdformat.o
 
 //usage:#define fdformat_trivial_usage
 //usage:       "[-n] DEVICE"
@@ -56,8 +66,7 @@ int fdformat_main(int argc UNUSED_PARAM, char **argv)
 	struct floppy_struct param;
 	struct format_descr descr;
 
-	opt_complementary = "=1"; /* must have 1 param */
-	verify = !getopt32(argv, "n");
+	verify = !getopt32(argv, "^" "n" "\0" "=1");
 	argv += optind;
 
 	xstat(*argv, &st);
@@ -107,7 +116,7 @@ int fdformat_main(int argc UNUSED_PARAM, char **argv)
 			read_bytes = safe_read(fd, data, n);
 			if (read_bytes != n) {
 				if (read_bytes < 0) {
-					bb_perror_msg(bb_msg_read_error);
+					bb_simple_perror_msg(bb_msg_read_error);
 				}
 				bb_error_msg_and_die("problem reading cylinder %d, "
 					"expected %d, read %d", cyl, n, read_bytes);

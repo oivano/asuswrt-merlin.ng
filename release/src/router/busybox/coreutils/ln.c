@@ -6,21 +6,30 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
+//config:config LN
+//config:	bool "ln (4.9 kb)"
+//config:	default y
+//config:	help
+//config:	ln is used to create hard or soft links between files.
+
+//applet:IF_LN(APPLET_NOEXEC(ln, ln, BB_DIR_BIN, BB_SUID_DROP, ln))
+
+//kbuild:lib-$(CONFIG_LN) += ln.o
 
 /* BB_AUDIT SUSv3 compliant */
 /* BB_AUDIT GNU options missing: -d, -F, -i, and -v. */
 /* http://www.opengroup.org/onlinepubs/007904975/utilities/ln.html */
 
 //usage:#define ln_trivial_usage
-//usage:       "[OPTIONS] TARGET... LINK|DIR"
+//usage:       "[-sfnbtv] [-S SUF] TARGET... LINK|DIR"
 //usage:#define ln_full_usage "\n\n"
 //usage:       "Create a link LINK or DIR/TARGET to the specified TARGET(s)\n"
 //usage:     "\n	-s	Make symlinks instead of hardlinks"
 //usage:     "\n	-f	Remove existing destinations"
 //usage:     "\n	-n	Don't dereference symlinks - treat like normal file"
 //usage:     "\n	-b	Make a backup of the target (if exists) before link operation"
-//usage:     "\n	-S suf	Use suffix instead of ~ when making backup files"
-//usage:     "\n	-T	2nd arg must be a DIR"
+//usage:     "\n	-S SUF	Use suffix instead of ~ when making backup files"
+//usage:     "\n	-T	Treat LINK as a file, not DIR"
 //usage:     "\n	-v	Verbose"
 //usage:
 //usage:#define ln_example_usage
@@ -31,7 +40,6 @@
 #include "libbb.h"
 
 /* This is a NOEXEC applet. Be very careful! */
-
 
 #define LN_SYMLINK          (1 << 0)
 #define LN_FORCE            (1 << 1)
@@ -53,15 +61,29 @@ int ln_main(int argc, char **argv)
 	struct stat statbuf;
 	int (*link_func)(const char *, const char *);
 
-	opt_complementary = "-1"; /* min one arg */
-	opts = getopt32(argv, "sfnbS:vT", &suffix);
-
+	opts = getopt32(argv, "^" "sfnbS:vT" "\0" "-1", &suffix);
+/*
+	-s, --symbolic		make symbolic links instead of hard links
+	-f, --force		remove existing destination files
+	-n, --no-dereference	treat LINK_NAME as a normal file if it is a symbolic link to a directory
+	-b			like --backup but does not accept an argument
+	--backup[=CONTROL]	make a backup of each existing destination file
+	-S, --suffix=SUFFIX	override the usual backup suffix
+	-v, --verbose
+	-T, --no-target-directory
+	-d, -F, --directory	allow the superuser to attempt to hard link directories
+	-i, --interactive	prompt whether to remove destinations
+	-L, --logical		dereference TARGETs that are symbolic links
+	-P, --physical		make hard links directly to symbolic links
+	-r, --relative		create symbolic links relative to link location
+	-t, --target-directory=DIRECTORY	specify the DIRECTORY in which to create the links
+ */
 	last = argv[argc - 1];
 	argv += optind;
 	argc -= optind;
 
 	if ((opts & LN_LINKFILE) && argc > 2) {
-		bb_error_msg_and_die("-T accepts 2 args max");
+		bb_simple_error_msg_and_die("-T accepts 2 args max");
 	}
 
 	if (!argv[1]) {
@@ -78,8 +100,11 @@ int ln_main(int argc, char **argv)
 		src = last;
 
 		if (is_directory(src,
-		                (opts & LN_NODEREFERENCE) ^ LN_NODEREFERENCE
-		                )
+				/*followlinks:*/ !(opts & (LN_NODEREFERENCE|LN_LINKFILE))
+				/* Why LN_LINKFILE does not follow links:
+				 * -T/--no-target-directory implies -n/--no-dereference
+				 */
+				)
 		) {
 			if (opts & LN_LINKFILE) {
 				bb_error_msg_and_die("'%s' is a directory", src);

@@ -6,20 +6,33 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
+//config:config CHGRP
+//config:	bool "chgrp (7.6 kb)"
+//config:	default y
+//config:	help
+//config:	chgrp is used to change the group ownership of files.
+
+//applet:IF_CHGRP(APPLET_NOEXEC(chgrp, chgrp, BB_DIR_BIN, BB_SUID_DROP, chgrp))
+
+//kbuild:lib-$(CONFIG_CHGRP) += chgrp.o chown.o
 
 /* BB_AUDIT SUSv3 defects - none? */
 /* BB_AUDIT GNU defects - unsupported long options. */
 /* http://www.opengroup.org/onlinepubs/007904975/utilities/chgrp.html */
 
 //usage:#define chgrp_trivial_usage
-//usage:       "[-RhLHP"IF_DESKTOP("cvf")"]... GROUP FILE..."
+//usage:       "[-Rh"IF_DESKTOP("LHPcvf")"]... GROUP FILE..."
 //usage:#define chgrp_full_usage "\n\n"
-//usage:       "Change the group membership of each FILE to GROUP\n"
-//usage:     "\n	-R	Recurse"
+//usage:       "Change the group membership of FILEs to GROUP"
+//usage:     "\n"
 //usage:     "\n	-h	Affect symlinks instead of symlink targets"
+//usage:	IF_DESKTOP(
 //usage:     "\n	-L	Traverse all symlinks to directories"
 //usage:     "\n	-H	Traverse symlinks on command line only"
 //usage:     "\n	-P	Don't traverse symlinks (default)"
+//usage:	)
+//next 4 options are the same for chmod/chown/chgrp:
+//usage:     "\n	-R	Recurse"
 //usage:	IF_DESKTOP(
 //usage:     "\n	-c	List changed files"
 //usage:     "\n	-v	Verbose"

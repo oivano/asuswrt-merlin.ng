@@ -6,9 +6,20 @@
  *
  * Licensed under GPLv2, see file LICENSE in this source tree.
  */
+//config:config FUSER
+//config:	bool "fuser (7 kb)"
+//config:	default y
+//config:	help
+//config:	fuser lists all PIDs (Process IDs) that currently have a given
+//config:	file open. fuser can also list all PIDs that have a given network
+//config:	(TCP or UDP) port open.
+
+//applet:IF_FUSER(APPLET(fuser, BB_DIR_USR_BIN, BB_SUID_DROP))
+
+//kbuild:lib-$(CONFIG_FUSER) += fuser.o
 
 //usage:#define fuser_trivial_usage
-//usage:       "[OPTIONS] FILE or PORT/PROTO"
+//usage:       "[-msk46] [-SIGNAL] FILE or PORT/PROTO"
 //usage:#define fuser_full_usage "\n\n"
 //usage:       "Find processes which use FILEs or PORTs\n"
 //usage:     "\n	-m	Find processes which use same fs as FILEs"
@@ -288,8 +299,7 @@ int fuser_main(int argc UNUSED_PARAM, char **argv)
 		break;
 	}
 
-	opt_complementary = "-1"; /* at least one param */
-	getopt32(argv, OPTION_STRING);
+	getopt32(argv, "^" OPTION_STRING "\0" "-1"/*at least one arg*/);
 	argv += optind;
 
 	pp = argv;

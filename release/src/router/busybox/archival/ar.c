@@ -16,53 +16,41 @@
  * between different systems
  * http://www.unix-systems.org/single_unix_specification_v2/xcu/ar.html
  */
-
 //config:config AR
-//config:	bool "ar"
+//config:	bool "ar (9.5 kb)"
 //config:	default n  # needs to be improved to be able to replace binutils ar
 //config:	help
-//config:	  ar is an archival utility program used to create, modify, and
-//config:	  extract contents from archives. In practice, it is used exclusively
-//config:	  for object module archives used by compilers.
+//config:	ar is an archival utility program used to create, modify, and
+//config:	extract contents from archives. In practice, it is used exclusively
+//config:	for object module archives used by compilers.
 //config:
-//config:	  On an x86 system, the ar applet adds about 1K.
-//config:
-//config:	  Unless you have a specific application which requires ar, you should
-//config:	  probably say N here: most compilers come with their own ar utility.
+//config:	Unless you have a specific application which requires ar, you should
+//config:	probably say N here: most compilers come with their own ar utility.
 //config:
 //config:config FEATURE_AR_LONG_FILENAMES
-//config:	bool "Support for long filenames (not needed for debs)"
+//config:	bool "Support long filenames (not needed for debs)"
 //config:	default y
 //config:	depends on AR
 //config:	help
-//config:	  By default the ar format can only store the first 15 characters
-//config:	  of the filename, this option removes that limitation.
-//config:	  It supports the GNU ar long filename method which moves multiple long
-//config:	  filenames into a the data section of a new ar entry.
+//config:	By default the ar format can only store the first 15 characters
+//config:	of the filename, this option removes that limitation.
+//config:	It supports the GNU ar long filename method which moves multiple long
+//config:	filenames into a the data section of a new ar entry.
 //config:
 //config:config FEATURE_AR_CREATE
 //config:	bool "Support archive creation"
 //config:	default y
 //config:	depends on AR
 //config:	help
-//config:	  This enables archive creation (-c and -r) with busybox ar.
+//config:	This enables archive creation (-c and -r) with busybox ar.
 
 //applet:IF_AR(APPLET(ar, BB_DIR_USR_BIN, BB_SUID_DROP))
-//kbuild:lib-$(CONFIG_AR) += ar.o
 
-//usage:#define ar_trivial_usage
-//usage:       "[-o] [-v] [-p] [-t] [-x] ARCHIVE FILES"
-//usage:#define ar_full_usage "\n\n"
-//usage:       "Extract or list FILES from an ar archive\n"
-//usage:     "\n	-o	Preserve original dates"
-//usage:     "\n	-p	Extract to stdout"
-//usage:     "\n	-t	List"
-//usage:     "\n	-x	Extract"
-//usage:     "\n	-v	Verbose"
+//kbuild:lib-$(CONFIG_AR) += ar.o
 
 #include "libbb.h"
 #include "bb_archive.h"
-#include "ar.h"
+#include "ar_.h"
 
 #if ENABLE_FEATURE_AR_CREATE
 /* filter out entries with same names as specified on the command line */
@@ -208,9 +196,10 @@ static int write_ar_archive(archive_handle_t *handle)
 
 static void FAST_FUNC header_verbose_list_ar(const file_header_t *file_header)
 {
-	const char *mode = bb_mode_string(file_header->mode);
+	char mode[12];
 	char *mtime;
 
+	bb_mode_string(mode, file_header->mode);
 	mtime = ctime(&file_header->mtime);
 	mtime[16] = ' ';
 	memmove(&mtime[17], &mtime[20], 4);
@@ -222,57 +211,75 @@ static void FAST_FUNC header_verbose_list_ar(const file_header_t *file_header)
 	);
 }
 
-#define AR_OPT_VERBOSE          (1 << 0)
-#define AR_OPT_PRESERVE_DATE    (1 << 1)
-/* "ar r" implies create, but warns about it. c suppresses warning.
- * bbox accepts but ignores it: */
-#define AR_OPT_CREATE           (1 << 2)
-
-#define AR_CMD_PRINT            (1 << 3)
-#define FIRST_CMD               AR_CMD_PRINT
-#define AR_CMD_LIST             (1 << 4)
-#define AR_CMD_EXTRACT          (1 << 5)
-#define AR_CMD_INSERT           (1 << 6)
+//usage:#define ar_trivial_usage
+//usage:       "x|p|t"IF_FEATURE_AR_CREATE("|r")" [-ov] ARCHIVE [FILE]..."
+//usage:#define ar_full_usage "\n\n"
+//usage:       "Extract or list FILEs from an ar archive"IF_FEATURE_AR_CREATE(", or create it")"\n"
+//usage:     "\n	x	Extract"
+//usage:     "\n	p	Extract to stdout"
+//usage:     "\n	t	List"
+//usage:	IF_FEATURE_AR_CREATE(
+//usage:     "\n	r	Create"
+//usage:	)
+//usage:     "\n	-o	Restore mtime"
+//usage:     "\n	-v	Verbose"
 
 int ar_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
 int ar_main(int argc UNUSED_PARAM, char **argv)
 {
 	archive_handle_t *archive_handle;
 	unsigned opt, t;
+	enum {
+		OPT_VERBOSE       = (1 << 0),
+		OPT_PRESERVE_DATE = (1 << 1),
+		/* "ar r" implies create, but warns about it. c suppresses warning.
+		 * bbox accepts but ignores it: */
+		OPT_CREATE        = (1 << 2),
+		CMD_PRINT         = (1 << 3),
+		FIRST_CMD         = CMD_PRINT,
+		CMD_LIST          = (1 << 4),
+		CMD_EXTRACT       = (1 << 5),
+		CMD_INSERT        = ((1 << 6) * ENABLE_FEATURE_AR_CREATE),
+	};
 
 	archive_handle = init_handle();
 
-	/* --: prepend '-' to the first argument if required */
-	/* -1: at least one param is reqd */
-	/* one of p,t,x[,r] is required */
-	opt_complementary = "--:-1:p:t:x"IF_FEATURE_AR_CREATE(":r");
-	opt = getopt32(argv, "voc""ptx"IF_FEATURE_AR_CREATE("r"));
+	/* prepend '-' to the first argument if required */
+	if (argv[1] && argv[1][0] != '-' && argv[1][0] != '\0')
+		argv[1] = xasprintf("-%s", argv[1]);
+	opt = getopt32(argv, "^"
+		"voc""ptx"IF_FEATURE_AR_CREATE("r")
+		"\0"
+		/* -1: at least one arg is reqd */
+		/* one of p,t,x[,r] is required */
+		"-1:p:t:x"IF_FEATURE_AR_CREATE(":r")
+	);
 	argv += optind;
 
 	t = opt / FIRST_CMD;
 	if (t & (t-1)) /* more than one of p,t,x[,r] are specified */
 		bb_show_usage();
 
-	if (opt & AR_CMD_PRINT) {
+	if (opt & CMD_PRINT) {
 		archive_handle->action_data = data_extract_to_stdout;
 	}
-	if (opt & AR_CMD_LIST) {
+	if (opt & CMD_LIST) {
 		archive_handle->action_header = header_list;
 	}
-	if (opt & AR_CMD_EXTRACT) {
+	if (opt & CMD_EXTRACT) {
 		archive_handle->action_data = data_extract_all;
 	}
-	if (opt & AR_OPT_PRESERVE_DATE) {
+	if (opt & OPT_PRESERVE_DATE) {
 		archive_handle->ah_flags |= ARCHIVE_RESTORE_DATE;
 	}
-	if (opt & AR_OPT_VERBOSE) {
+	if (opt & OPT_VERBOSE) {
 		archive_handle->action_header = header_verbose_list_ar;
 	}
 #if ENABLE_FEATURE_AR_CREATE
 	archive_handle->ar__name = *argv;
 #endif
 	archive_handle->src_fd = xopen(*argv++,
-			(opt & AR_CMD_INSERT)
+			(opt & CMD_INSERT)
 				? O_RDWR | O_CREAT
 				: O_RDONLY
 	);
@@ -284,7 +291,7 @@ int ar_main(int argc UNUSED_PARAM, char **argv)
 	}
 
 #if ENABLE_FEATURE_AR_CREATE
-	if (opt & AR_CMD_INSERT)
+	if (opt & CMD_INSERT)
 		return write_ar_archive(archive_handle);
 #endif
 

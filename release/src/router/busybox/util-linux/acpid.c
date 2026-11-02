@@ -6,6 +6,31 @@
  *
  * Licensed under GPLv2, see file LICENSE in this source tree.
  */
+//config:config ACPID
+//config:	bool "acpid (9 kb)"
+//config:	default y
+//config:	help
+//config:	acpid listens to ACPI events coming either in textual form from
+//config:	/proc/acpi/event (though it is marked deprecated it is still widely
+//config:	used and _is_ a standard) or in binary form from specified evdevs
+//config:	(just use /dev/input/event*).
+//config:
+//config:	It parses the event to retrieve ACTION and a possible PARAMETER.
+//config:	It then spawns /etc/acpi/<ACTION>[/<PARAMETER>] either via run-parts
+//config:	(if the resulting path is a directory) or directly as an executable.
+//config:
+//config:	N.B. acpid relies on run-parts so have the latter installed.
+//config:
+//config:config FEATURE_ACPID_COMPAT
+//config:	bool "Accept and ignore redundant options"
+//config:	default y
+//config:	depends on ACPID
+//config:	help
+//config:	Accept and ignore compatibility options -g -m -s -S -v.
+
+//applet:IF_ACPID(APPLET(acpid, BB_DIR_SBIN, BB_SUID_DROP))
+
+//kbuild:lib-$(CONFIG_ACPID) += acpid.o
 
 //usage:#define acpid_trivial_usage
 //usage:       "[-df] [-c CONFDIR] [-l LOGFILE] [-a ACTIONFILE] [-M MAPFILE] [-e PROC_EVENT_FILE] [-p PIDFILE]"
@@ -16,7 +41,9 @@
 //usage:     "\n	-c DIR	Config directory [/etc/acpi]"
 //usage:     "\n	-e FILE	/proc event file [/proc/acpi/event]"
 //usage:     "\n	-l FILE	Log file [/var/log/acpid.log]"
-//usage:     "\n	-p FILE	Pid file [/var/run/acpid.pid]"
+//usage:	IF_FEATURE_PIDFILE(
+//usage:     "\n	-p FILE	Pid file [" CONFIG_PID_FILE_PATH "/acpid.pid]"
+//usage:	)
 //usage:     "\n	-a FILE	Action file [/etc/acpid.conf]"
 //usage:     "\n	-M FILE Map file [/etc/acpi.map]"
 //usage:	IF_FEATURE_ACPID_COMPAT(
@@ -72,7 +99,7 @@ struct acpi_event {
 	const char *desc;
 };
 
-static const struct acpi_event f_evt_tab[] = {
+static const struct acpi_event f_evt_tab[] ALIGN_PTR = {
 	{ "EV_KEY", 0x01, "KEY_POWER", 116, 1, "button/power PWRF 00000080" },
 	{ "EV_KEY", 0x01, "KEY_POWER", 116, 1, "button/power PWRB 00000080" },
 	{ "EV_SW", 0x05, "SW_LID", 0x00, 1, "button/lid LID0 00000080" },
@@ -83,7 +110,7 @@ struct acpi_action {
 	const char *action;
 };
 
-static const struct acpi_action f_act_tab[] = {
+static const struct acpi_action f_act_tab[] ALIGN_PTR = {
 	{ "PWRF", "PWRF/00000080" },
 	{ "LID0", "LID/00000080" },
 };
@@ -122,7 +149,7 @@ static void process_event(const char *event)
 	const char *args[] = { "run-parts", handler, NULL };
 
 	// log the event
-	bb_error_msg("%s", event);
+	bb_simple_error_msg(event);
 
 	// spawn handler
 	// N.B. run-parts would require scripts to have #!/bin/sh
@@ -238,8 +265,12 @@ int acpid_main(int argc UNUSED_PARAM, char **argv)
 
 	INIT_G();
 
-	opt_complementary = "df:e--e";
-	opts = getopt32(argv, "c:de:fl:a:M:" IF_FEATURE_PIDFILE("p:") IF_FEATURE_ACPID_COMPAT("g:m:s:S:v"),
+	opts = getopt32(argv, "^"
+		"c:de:fl:a:M:"
+		IF_FEATURE_PIDFILE("p:")
+		IF_FEATURE_ACPID_COMPAT("g:m:s:S:v")
+		"\0"
+		"df:e--e",
 		&opt_dir, &opt_input, &opt_logfile, &opt_action, &opt_map
 		IF_FEATURE_PIDFILE(, &opt_pidfile)
 		IF_FEATURE_ACPID_COMPAT(, NULL, NULL, NULL, NULL)

@@ -6,6 +6,51 @@
  *
  * Licensed under GPLv2, see file LICENSE in this source tree.
  */
+//config:config SWAPON
+//config:	bool "swapon (15 kb)"
+//config:	default y
+//config:	help
+//config:	Once you have created some swap space using 'mkswap', you also need
+//config:	to enable your swap space with the 'swapon' utility. The 'swapoff'
+//config:	utility is used, typically at system shutdown, to disable any swap
+//config:	space. If you are not using any swap space, you can leave this
+//config:	option disabled.
+//config:
+//config:config FEATURE_SWAPON_DISCARD
+//config:	bool "Support discard option -d"
+//config:	default y
+//config:	depends on SWAPON
+//config:	help
+//config:	Enable support for discarding swap area blocks at swapon and/or as
+//config:	the kernel frees them. This option enables both the -d option on
+//config:	'swapon' and the 'discard' option for swap entries in /etc/fstab.
+//config:
+//config:config FEATURE_SWAPON_PRI
+//config:	bool "Support priority option -p"
+//config:	default y
+//config:	depends on SWAPON
+//config:	help
+//config:	Enable support for setting swap device priority in swapon.
+//config:
+//config:config SWAPOFF
+//config:	bool "swapoff (14 kb)"
+//config:	default y
+//config:
+//config:config FEATURE_SWAPONOFF_LABEL
+//config:	bool "Support specifying devices by label or UUID"
+//config:	default y
+//config:	depends on SWAPON || SWAPOFF
+//config:	select VOLUMEID
+//config:	help
+//config:	This allows for specifying a device by label or uuid, rather than by
+//config:	name. This feature utilizes the same functionality as blkid/findfs.
+
+//                  APPLET_ODDNAME:name     main         location     suid_type     help
+//applet:IF_SWAPON( APPLET_ODDNAME(swapon,  swap_on_off, BB_DIR_SBIN, BB_SUID_DROP, swapon))
+//applet:IF_SWAPOFF(APPLET_ODDNAME(swapoff, swap_on_off, BB_DIR_SBIN, BB_SUID_DROP, swapoff))
+
+//kbuild:lib-$(CONFIG_SWAPON) += swaponoff.o
+//kbuild:lib-$(CONFIG_SWAPOFF) += swaponoff.o
 
 //usage:#define swapon_trivial_usage
 //usage:       "[-a] [-e]" IF_FEATURE_SWAPON_DISCARD(" [-d[POL]]") IF_FEATURE_SWAPON_PRI(" [-p PRI]") " [DEVICE]"
@@ -34,7 +79,7 @@
 # include <sys/swap.h>
 #endif
 
-#if ENABLE_FEATURE_MOUNT_LABEL
+#if ENABLE_FEATURE_SWAPONOFF_LABEL
 # include "volume_id.h"
 #else
 # define resolve_mount_spec(fsname) ((void)0)
@@ -74,7 +119,15 @@ struct globals {
 #endif
 #define INIT_G() do { setup_common_bufsiz(); } while (0)
 
-#define do_swapoff   (applet_name[5] == 'f')
+#if ENABLE_SWAPOFF
+# if ENABLE_SWAPON
+#  define do_swapoff (applet_name[5] == 'f')
+# else
+#  define do_swapoff 1
+# endif
+#else
+#  define do_swapoff 0
+#endif
 
 /* Command line options */
 enum {

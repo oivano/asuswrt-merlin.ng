@@ -1,9 +1,9 @@
 /* vi: set sw=4 ts=4: */
-/* Copyright 2002 Laurence Anderson
+/*
+ * Copyright 2002 Laurence Anderson
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
-
 #include "libbb.h"
 #include "bb_archive.h"
 
@@ -20,7 +20,7 @@ typedef struct hardlinks_t {
 char FAST_FUNC get_header_cpio(archive_handle_t *archive_handle)
 {
 	file_header_t *file_header = archive_handle->file_header;
-	char cpio_header[110];
+	char cpio_header[111];
 	int namesize;
 	int major, minor, nlink, mode, inode;
 	unsigned size, uid, gid, mtime;
@@ -33,16 +33,17 @@ char FAST_FUNC get_header_cpio(archive_handle_t *archive_handle)
 		goto create_hardlinks;
 	}
 	if (size != 110) {
-		bb_error_msg_and_die("short read");
+		bb_simple_error_msg_and_die("short read");
 	}
 	archive_handle->offset += 110;
 
 	if (!is_prefixed_with(&cpio_header[0], "07070")
 	 || (cpio_header[5] != '1' && cpio_header[5] != '2')
 	) {
-		bb_error_msg_and_die("unsupported cpio format, use newc or crc");
+		bb_simple_error_msg_and_die("unsupported cpio format, use newc or crc");
 	}
 
+	cpio_header[110] = '\0'; /* sscanf may call strlen which may break without this */
 	if (sscanf(cpio_header + 6,
 			"%8x" "%8x" "%8x" "%8x"
 			"%8x" "%8x" "%8x" /*maj,min:*/ "%*16c"
@@ -50,7 +51,7 @@ char FAST_FUNC get_header_cpio(archive_handle_t *archive_handle)
 			&inode, &mode, &uid, &gid,
 			&nlink, &mtime, &size,
 			&major, &minor, &namesize) != 10)
-		bb_error_msg_and_die("damaged cpio file");
+		bb_simple_error_msg_and_die("damaged cpio file");
 	file_header->mode = mode;
 	/* "cpio -R USER:GRP" support: */
 	if (archive_handle->cpio__owner.uid != (uid_t)-1L)

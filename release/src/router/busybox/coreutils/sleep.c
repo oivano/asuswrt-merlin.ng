@@ -6,17 +6,42 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
-
-/* BB_AUDIT SUSv3 compliant */
-/* BB_AUDIT GNU issues -- fancy version matches except args must be ints. */
-/* http://www.opengroup.org/onlinepubs/007904975/utilities/sleep.html */
-
 /* Mar 16, 2003      Manuel Novoa III   (mjn3@codepoet.org)
  *
  * Rewritten to do proper arg and error checking.
  * Also, added a 'fancy' configuration to accept multiple args with
  * time suffixes for seconds, minutes, hours, and days.
  */
+//config:config SLEEP
+//config:	bool "sleep (2 kb)"
+//config:	default y
+//config:	help
+//config:	sleep is used to pause for a specified number of seconds.
+//config:	It comes in 3 versions:
+//config:	- small: takes one integer parameter
+//config:	- fancy: takes multiple integer arguments with suffixes:
+//config:		sleep 1d 2h 3m 15s
+//config:	- fancy with fractional numbers:
+//config:		sleep 2.3s 4.5h sleeps for 16202.3 seconds
+//config:	Last one is "the most compatible" with coreutils sleep,
+//config:	but it adds around 1k of code.
+//config:
+//config:config FEATURE_FANCY_SLEEP
+//config:	bool "Enable multiple arguments and s/m/h/d suffixes"
+//config:	default y
+//config:	depends on SLEEP
+//config:	help
+//config:	Allow sleep to pause for specified minutes, hours, and days.
+
+/* Do not make this applet NOFORK. It breaks ^C-ing of pauses in shells */
+//applet:IF_SLEEP(APPLET(sleep, BB_DIR_BIN, BB_SUID_DROP))
+
+//kbuild:lib-$(CONFIG_SLEEP) += sleep.o
+//kbuild:lib-$(CONFIG_ASH_SLEEP) += sleep.o
+
+/* BB_AUDIT SUSv3 compliant */
+/* BB_AUDIT GNU issues -- fancy version matches except args must be ints. */
+/* http://www.opengroup.org/onlinepubs/007904975/utilities/sleep.html */
 
 //usage:#define sleep_trivial_usage
 //usage:	IF_FEATURE_FANCY_SLEEP("[") "N" IF_FEATURE_FANCY_SLEEP("]...")
@@ -35,92 +60,43 @@
 
 #include "libbb.h"
 
-/* Do not make this applet NOFORK. It breaks ^C-ing of pauses in shells */
-
-
-#if ENABLE_FEATURE_FANCY_SLEEP || ENABLE_FEATURE_FLOAT_SLEEP
-static const struct suffix_mult sfx[] = {
-	{ "s", 1 },
-	{ "m", 60 },
-	{ "h", 60*60 },
-	{ "d", 24*60*60 },
-	{ "", 0 }
-};
-#endif
-
 int sleep_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
 int sleep_main(int argc UNUSED_PARAM, char **argv)
 {
-#if ENABLE_FEATURE_FLOAT_SLEEP
-	double duration;
-	struct timespec ts;
-#else
-	unsigned duration;
-#endif
+	duration_t duration;
 
+	/* Note: sleep_main may be directly called from ash as a builtin.
+	 * This brings some complications:
+	 * + we can't use xfunc here
+	 * + we can't use bb_show_usage
+	 * + applet_name can be the name of the shell
+	 */
 	++argv;
-	if (!*argv)
-		bb_show_usage();
-
-#if ENABLE_FEATURE_FLOAT_SLEEP
-
-# if ENABLE_LOCALE_SUPPORT
-	/* undo busybox.c setlocale */
-	setlocale(LC_NUMERIC, "C");
-# endif
-	duration = 0;
-	do {
-		char *arg = *argv;
-		if (strchr(arg, '.')) {
-			double d;
-			char *pp;
-			int len = strspn(arg, "0123456789.");
-			char sv = arg[len];
-			arg[len] = '\0';
-			errno = 0;
-			d = strtod(arg, &pp);
-			if (errno || *pp)
-				bb_show_usage();
-			arg += len;
-			*arg-- = sv;
-			sv = *arg;
-			*arg = '1';
-			duration += d * xatoul_sfx(arg, sfx);
-			*arg = sv;
-		} else {
-			duration += xatoul_sfx(arg, sfx);
+	if (!*argv) {
+		/* Without this, bare "sleep" in ash shows _ash_ --help */
+		/* (ash can be the "sh" applet as well, so check 2nd char) */
+		if (ENABLE_ASH_SLEEP && applet_name[1] != 'l') {
+			bb_simple_error_msg("sleep: missing operand");
+			return EXIT_FAILURE;
 		}
-	} while (*++argv);
-
-	ts.tv_sec = MAXINT(typeof(ts.tv_sec));
-	ts.tv_nsec = 0;
-	if (duration >= 0 && duration < ts.tv_sec) {
-		ts.tv_sec = duration;
-		ts.tv_nsec = (duration - ts.tv_sec) * 1000000000;
+		bb_show_usage();
 	}
-	do {
-		errno = 0;
-		nanosleep(&ts, &ts);
-	} while (errno == EINTR);
 
-#elif ENABLE_FEATURE_FANCY_SLEEP
+	/* GNU sleep accepts "inf", "INF", "infinity" and "INFINITY" */
+	if (strncasecmp(argv[0], "inf", 3) == 0)
+		for (;;)
+			sleep(INT_MAX);
 
+//FIXME: in ash, "sleep 123qwerty" as a builtin aborts the shell
+#if ENABLE_FEATURE_FANCY_SLEEP
 	duration = 0;
 	do {
-		duration += xatou_range_sfx(*argv, 0, UINT_MAX - duration, sfx);
+		duration += parse_duration_str(*argv);
 	} while (*++argv);
-	sleep(duration);
-
+	sleep_for_duration(duration);
 #else /* simple */
-
 	duration = xatou(*argv);
 	sleep(duration);
-	// Off. If it's really needed, provide example why
-	//if (sleep(duration)) {
-	//	bb_perror_nomsg_and_die();
-	//}
-
 #endif
-
 	return EXIT_SUCCESS;
 }

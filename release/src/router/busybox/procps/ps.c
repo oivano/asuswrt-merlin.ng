@@ -8,6 +8,53 @@
  *
  * Licensed under GPLv2, see file LICENSE in this source tree.
  */
+//config:config PS
+//config:	bool "ps (11 kb)"
+//config:	default y
+//config:	help
+//config:	ps gives a snapshot of the current processes.
+//config:
+//config:config FEATURE_PS_WIDE
+//config:	bool "Enable wide output (-w)"
+//config:	default y
+//config:	depends on (PS || MINIPS) && !DESKTOP
+//config:	help
+//config:	Support argument 'w' for wide output.
+//config:	If given once, 132 chars are printed, and if given more
+//config:	than once, the length is unlimited.
+//config:
+//config:config FEATURE_PS_LONG
+//config:	bool "Enable long output (-l)"
+//config:	default y
+//config:	depends on (PS || MINIPS) && !DESKTOP
+//config:	help
+//config:	Support argument 'l' for long output.
+//config:	Adds fields PPID, RSS, START, TIME & TTY
+//config:
+//config:config FEATURE_PS_TIME
+//config:	bool "Enable -o time and -o etime specifiers"
+//config:	default y
+//config:	depends on (PS || MINIPS) && DESKTOP
+//config:
+//config:config FEATURE_PS_UNUSUAL_SYSTEMS
+//config:	bool "Support Linux prior to 2.4.0 and non-ELF systems"
+//config:	default n
+//config:	depends on FEATURE_PS_TIME
+//config:	help
+//config:	Include support for measuring HZ on old kernels and non-ELF systems
+//config:	(if you are on Linux 2.4.0+ and use ELF, you don't need this)
+//config:
+//config:config FEATURE_PS_ADDITIONAL_COLUMNS
+//config:	bool "Enable -o rgroup, -o ruser, -o nice specifiers"
+//config:	default y
+//config:	depends on (PS || MINIPS) && DESKTOP
+
+//                 APPLET_NOEXEC:name    main location    suid_type     help
+//applet:IF_PS(    APPLET_NOEXEC(ps,     ps,  BB_DIR_BIN, BB_SUID_DROP, ps))
+//applet:IF_MINIPS(APPLET_NOEXEC(minips, ps,  BB_DIR_BIN, BB_SUID_DROP, ps))
+
+//kbuild:lib-$(CONFIG_PS) += ps.o
+//kbuild:lib-$(CONFIG_MINIPS) += ps.o
 
 //usage:#if ENABLE_DESKTOP
 //usage:
@@ -99,12 +146,6 @@ static unsigned long get_uptime(void)
 #endif
 
 #if ENABLE_DESKTOP
-
-#include <sys/times.h> /* for times() */
-#ifndef AT_CLKTCK
-# define AT_CLKTCK 17
-#endif
-
 /* TODO:
  * http://pubs.opengroup.org/onlinepubs/9699919799/utilities/ps.html
  * specifies (for XSI-conformant systems) following default columns
@@ -141,7 +182,9 @@ struct globals {
 	char *buffer;
 	unsigned terminal_width;
 #if ENABLE_FEATURE_PS_TIME
+# if ENABLE_FEATURE_PS_UNUSUAL_SYSTEMS || !defined(__linux__)
 	unsigned kernel_HZ;
+# endif
 	unsigned long seconds_since_boot;
 #endif
 } FIX_ALIASING;
@@ -152,91 +195,15 @@ struct globals {
 #define need_flags         (G.need_flags        )
 #define buffer             (G.buffer            )
 #define terminal_width     (G.terminal_width    )
-#define kernel_HZ          (G.kernel_HZ         )
 #define INIT_G() do { setup_common_bufsiz(); } while (0)
 
 #if ENABLE_FEATURE_PS_TIME
-/* for ELF executables, notes are pushed before environment and args */
-static uintptr_t find_elf_note(uintptr_t findme)
-{
-	uintptr_t *ep = (uintptr_t *) environ;
-
-	while (*ep++)
-		continue;
-	while (*ep) {
-		if (ep[0] == findme) {
-			return ep[1];
-		}
-		ep += 2;
-	}
-	return -1;
-}
-
-#if ENABLE_FEATURE_PS_UNUSUAL_SYSTEMS
-static unsigned get_HZ_by_waiting(void)
-{
-	struct timeval tv1, tv2;
-	unsigned t1, t2, r, hz;
-	unsigned cnt = cnt; /* for compiler */
-	int diff;
-
-	r = 0;
-
-	/* Wait for times() to reach new tick */
-	t1 = times(NULL);
-	do {
-		t2 = times(NULL);
-	} while (t2 == t1);
-	gettimeofday(&tv2, NULL);
-
-	do {
-		t1 = t2;
-		tv1.tv_usec = tv2.tv_usec;
-
-		/* Wait exactly one times() tick */
-		do {
-			t2 = times(NULL);
-		} while (t2 == t1);
-		gettimeofday(&tv2, NULL);
-
-		/* Calculate ticks per sec, rounding up to even */
-		diff = tv2.tv_usec - tv1.tv_usec;
-		if (diff <= 0) diff += 1000000;
-		hz = 1000000u / (unsigned)diff;
-		hz = (hz+1) & ~1;
-
-		/* Count how many same hz values we saw */
-		if (r != hz) {
-			r = hz;
-			cnt = 0;
-		}
-		cnt++;
-	} while (cnt < 3); /* exit if saw 3 same values */
-
-	return r;
-}
-#else
-static inline unsigned get_HZ_by_waiting(void)
-{
-	/* Better method? */
-	return 100;
-}
-#endif
-
-static unsigned get_kernel_HZ(void)
-{
-	if (kernel_HZ)
-		return kernel_HZ;
-
-	/* Works for ELF only, Linux 2.4.0+ */
-	kernel_HZ = find_elf_note(AT_CLKTCK);
-	if (kernel_HZ == (unsigned)-1)
-		kernel_HZ = get_HZ_by_waiting();
-
-	G.seconds_since_boot = get_uptime();
-
-	return kernel_HZ;
-}
+# if ENABLE_FEATURE_PS_UNUSUAL_SYSTEMS || !defined(__linux__)
+#  define get_kernel_HZ() (G.kernel_HZ)
+# else
+    /* non-ancient Linux standardized on 100 for "times" freq */
+#  define get_kernel_HZ() ((unsigned)100)
+# endif
 #endif
 
 /* Print value to buf, max size+1 chars (including trailing '\0') */
@@ -295,6 +262,11 @@ static void func_pgid(char *buf, int size, const procps_status_t *ps)
 	sprintf(buf, "%*u", size, ps->pgid);
 }
 
+static void func_sid(char *buf, int size, const procps_status_t *ps)
+{
+	sprintf(buf, "%*u", size, ps->sid);
+}
+
 static void put_lu(char *buf, int size, unsigned long u)
 {
 	char buf4[5];
@@ -323,52 +295,71 @@ static void func_tty(char *buf, int size, const procps_status_t *ps)
 }
 
 #if ENABLE_FEATURE_PS_ADDITIONAL_COLUMNS
-
 static void func_rgroup(char *buf, int size, const procps_status_t *ps)
 {
 	safe_strncpy(buf, get_cached_groupname(ps->rgid), size+1);
 }
-
 static void func_ruser(char *buf, int size, const procps_status_t *ps)
 {
 	safe_strncpy(buf, get_cached_username(ps->ruid), size+1);
 }
-
 static void func_nice(char *buf, int size, const procps_status_t *ps)
 {
 	sprintf(buf, "%*d", size, ps->niceness);
 }
-
 #endif
 
 #if ENABLE_FEATURE_PS_TIME
+static void format_time(char *buf, int size, unsigned long tt)
+{
+	unsigned ff;
 
+	/* Used to show "14453:50" if tt is large. Ugly.
+	 * procps-ng 3.3.10 uses "[[dd-]hh:]mm:ss" format.
+	 * TODO: switch to that?
+	 */
+
+	/* Formatting for 5-char TIME column.
+	 * NB: "size" is not always 5: ELAPSED is wider (7),
+	 * not taking advantage of that (yet?).
+	 */
+	ff = tt % 60;
+	tt /= 60;
+	if (tt < 60) {
+		snprintf(buf, size+1, "%2u:%02u", (unsigned)tt, ff);
+		return;
+	}
+	ff = tt % 60;
+	tt /= 60;
+	if (tt < 24) {
+		snprintf(buf, size+1, "%2uh%02u", (unsigned)tt, ff);
+		return;
+	}
+	ff = tt % 24;
+	tt /= 24;
+	if (tt < 100) {
+		snprintf(buf, size+1, "%2ud%02u", (unsigned)tt, ff);
+		return;
+	}
+	snprintf(buf, size+1, "%4lud", tt);
+}
 static void func_etime(char *buf, int size, const procps_status_t *ps)
 {
 	/* elapsed time [[dd-]hh:]mm:ss; here only mm:ss */
 	unsigned long mm;
-	unsigned ss;
 
 	mm = ps->start_time / get_kernel_HZ();
-	/* must be after get_kernel_HZ()! */
 	mm = G.seconds_since_boot - mm;
-	ss = mm % 60;
-	mm /= 60;
-	snprintf(buf, size+1, "%3lu:%02u", mm, ss);
+	format_time(buf, size, mm);
 }
-
 static void func_time(char *buf, int size, const procps_status_t *ps)
 {
 	/* cumulative time [[dd-]hh:]mm:ss; here only mm:ss */
 	unsigned long mm;
-	unsigned ss;
 
 	mm = (ps->utime + ps->stime) / get_kernel_HZ();
-	ss = mm % 60;
-	mm /= 60;
-	snprintf(buf, size+1, "%3lu:%02u", mm, ss);
+	format_time(buf, size, mm);
 }
-
 #endif
 
 #if ENABLE_SELINUX
@@ -379,17 +370,12 @@ static void func_label(char *buf, int size, const procps_status_t *ps)
 #endif
 
 /*
-static void func_nice(char *buf, int size, const procps_status_t *ps)
-{
-	ps->???
-}
-
 static void func_pcpu(char *buf, int size, const procps_status_t *ps)
 {
 }
 */
 
-static const ps_out_t out_spec[] = {
+static const ps_out_t out_spec[] ALIGN_PTR = {
 /* Mandated by http://pubs.opengroup.org/onlinepubs/9699919799/utilities/ps.html: */
 	{ 8                  , "user"  ,"USER"   ,func_user  ,PSSCAN_UIDGID  },
 	{ 8                  , "group" ,"GROUP"  ,func_group ,PSSCAN_UIDGID  },
@@ -408,11 +394,12 @@ static const ps_out_t out_spec[] = {
 //	{ 5                  , "pcpu"  ,"%CPU"   ,func_pcpu  ,PSSCAN_        },
 #endif
 #if ENABLE_FEATURE_PS_TIME
-	{ 6                  , "time"  ,"TIME"   ,func_time  ,PSSCAN_STIME | PSSCAN_UTIME },
+	{ 5                  , "time"  ,"TIME"   ,func_time  ,PSSCAN_STIME | PSSCAN_UTIME },
 #endif
 	{ 6                  , "tty"   ,"TT"     ,func_tty   ,PSSCAN_TTY     },
 	{ 4                  , "vsz"   ,"VSZ"    ,func_vsz   ,PSSCAN_VSZ     },
 /* Not mandated, but useful: */
+	{ 5                  , "sid"   ,"SID"    ,func_sid   ,PSSCAN_SID     },
 	{ 4                  , "stat"  ,"STAT"   ,func_state ,PSSCAN_STATE   },
 	{ 4                  , "rss"   ,"RSS"    ,func_rss   ,PSSCAN_RSS     },
 #if ENABLE_SELINUX
@@ -456,17 +443,19 @@ static void parse_o(char* opt)
 			opt = comma + 1;
 			continue;
 		}
-		break;
-	}
-	// opt points to last spec in comma separated list.
-	// This one can have =HEADER part.
-	new = new_out_t();
-	if (equal)
-		*equal = '\0';
-	*new = *find_out_spec(opt);
-	if (equal) {
-		*equal = '=';
-		new->header = equal + 1;
+		// opt points to last spec in comma separated list.
+		// This one can have =HEADER part.
+		new = new_out_t();
+		if (equal)
+			*equal = '\0';
+		*new = *find_out_spec(opt);
+		if (!equal)
+			break;
+		*equal++ = '=';
+		new->header = equal;
+		comma = strchr(equal, ',');
+		if (comma)
+			*comma = '\0';
 		// POSIX: the field widths shall be ... at least as wide as
 		// the header text (default or overridden value).
 		// If the header text is null, such as -o user=,
@@ -474,10 +463,12 @@ static void parse_o(char* opt)
 		// default header text
 		if (new->header[0]) {
 			new->width = strlen(new->header);
-			print_header = 1;
 		}
-	} else
-		print_header = 1;
+		if (!comma)
+			break;
+		//*comma = ','; /* no, new->header should stay NUL-terminated */
+		opt = comma + 1;
+	}
 }
 
 static void alloc_line_buffer(void)
@@ -545,7 +536,7 @@ static void format_process(const procps_status_t *ps)
 		len = out[i].width - len + 1;
 		if (++i == out_cnt) /* do not pad last field */
 			break;
-		p += sprintf(p, "%*s", len, "");
+		p += sprintf(p, "%*s", len, " "); /* " ", not "", to ensure separation of fields */
 	}
 	printf("%.*s\n", terminal_width, buffer);
 }
@@ -563,7 +554,9 @@ int ps_main(int argc UNUSED_PARAM, char **argv)
 	procps_status_t *p;
 	llist_t* opt_o = NULL;
 	char default_o[sizeof(DEFAULT_O_STR)];
+#if ENABLE_SELINUX || ENABLE_FEATURE_SHOW_THREADS
 	int opt;
+#endif
 	enum {
 		OPT_Z = (1 << 0),
 		OPT_o = (1 << 1),
@@ -577,6 +570,12 @@ int ps_main(int argc UNUSED_PARAM, char **argv)
 	};
 
 	INIT_G();
+#if ENABLE_FEATURE_PS_TIME
+	G.seconds_since_boot = get_uptime();
+# if ENABLE_FEATURE_PS_UNUSUAL_SYSTEMS || !defined(__linux__)
+	G.kernel_HZ = bb_clk_tck(); /* this is sysconf(_SC_CLK_TCK) */
+# endif
+#endif
 
 	// POSIX:
 	// -a  Write information for all processes associated with terminals
@@ -593,8 +592,11 @@ int ps_main(int argc UNUSED_PARAM, char **argv)
 	 * procps v3.2.7 supports -T and shows tids as SPID column,
 	 * it also supports -L where it shows tids as LWP column.
 	 */
-	opt_complementary = "o::";
-	opt = getopt32(argv, "Zo:aAdefl"IF_FEATURE_SHOW_THREADS("T"), &opt_o);
+#if ENABLE_SELINUX || ENABLE_FEATURE_SHOW_THREADS
+	opt =
+#endif
+		getopt32(argv, "Zo:*aAdefl"IF_FEATURE_SHOW_THREADS("T"), &opt_o);
+
 	if (opt_o) {
 		do {
 			parse_o(llist_pop(&opt_o));
@@ -664,9 +666,12 @@ int ps_main(int argc UNUSED_PARAM, char **argv UNUSED_PARAM)
 # if ENABLE_FEATURE_PS_WIDE
 	/* -w is a bit complicated */
 	int w_count = 0;
-	opt_complementary = "-:ww";
-	opts = getopt32(argv, IF_SELINUX("Z")IF_FEATURE_SHOW_THREADS("T")IF_FEATURE_PS_LONG("l")
-					"w", &w_count);
+	make_all_argv_opts(argv);
+	opts = getopt32(argv, "^"
+		IF_SELINUX("Z")IF_FEATURE_SHOW_THREADS("T")IF_FEATURE_PS_LONG("l")"w"
+		"\0" "ww",
+		&w_count
+	);
 	/* if w is given once, GNU ps sets the width to 132,
 	 * if w is given more than once, it is "unlimited"
 	 */
@@ -680,7 +685,7 @@ int ps_main(int argc UNUSED_PARAM, char **argv UNUSED_PARAM)
 	}
 # else
 	/* -w is not supported, only -Z and/or -T */
-	opt_complementary = "-";
+	make_all_argv_opts(argv);
 	opts = getopt32(argv, IF_SELINUX("Z")IF_FEATURE_SHOW_THREADS("T")IF_FEATURE_PS_LONG("l"));
 # endif
 

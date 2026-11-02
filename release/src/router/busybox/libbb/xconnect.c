@@ -6,12 +6,14 @@
  *
  * Licensed under GPLv2, see file LICENSE in this source tree.
  */
-
 #include <sys/types.h>
 #include <sys/socket.h> /* netinet/in.h needs it */
 #include <netinet/in.h>
 #include <net/if.h>
 #include <sys/un.h>
+#if ENABLE_IFPLUGD || ENABLE_FEATURE_MDEV_DAEMON || ENABLE_UEVENT
+# include <linux/netlink.h>
+#endif
 #include "libbb.h"
 
 int FAST_FUNC setsockopt_int(int fd, int level, int optname, int optval)
@@ -64,7 +66,7 @@ int FAST_FUNC setsockopt_bindtodevice(int fd, const char *iface)
 int FAST_FUNC setsockopt_bindtodevice(int fd UNUSED_PARAM,
 		const char *iface UNUSED_PARAM)
 {
-	bb_error_msg("SO_BINDTODEVICE is not supported on this system");
+	bb_simple_error_msg("SO_BINDTODEVICE is not supported on this system");
 	return -1;
 }
 #endif
@@ -107,32 +109,25 @@ void FAST_FUNC xconnect(int s, const struct sockaddr *s_addr, socklen_t addrlen)
 			bb_perror_msg_and_die("%s (%s)",
 				"can't connect to remote host",
 				inet_ntoa(((struct sockaddr_in *)s_addr)->sin_addr));
-		bb_perror_msg_and_die("can't connect to remote host");
+		bb_simple_perror_msg_and_die("can't connect to remote host");
 	}
 }
 
 /* Return port number for a service.
  * If "port" is a number use it as the port.
- * If "port" is a name it is looked up in /etc/services,
- * if it isnt found return default_port
+ * If "port" is a name it is looked up in /etc/services.
+ * if NULL, return default_port
  */
-unsigned FAST_FUNC bb_lookup_port(const char *port, const char *protocol, unsigned default_port)
+unsigned FAST_FUNC bb_lookup_port(const char *port, const char *protocol, unsigned port_nr)
 {
-	unsigned port_nr = default_port;
 	if (port) {
-		int old_errno;
-
-		/* Since this is a lib function, we're not allowed to reset errno to 0.
-		 * Doing so could break an app that is deferring checking of errno. */
-		old_errno = errno;
 		port_nr = bb_strtou(port, NULL, 10);
 		if (errno || port_nr > 65535) {
 			struct servent *tserv = getservbyname(port, protocol);
-			port_nr = default_port;
-			if (tserv)
-				port_nr = ntohs(tserv->s_port);
+			if (!tserv)
+				bb_error_msg_and_die("bad port '%s'", port);
+			port_nr = ntohs(tserv->s_port);
 		}
-		errno = old_errno;
 	}
 	return (uint16_t)port_nr;
 }
@@ -236,7 +231,7 @@ IF_NOT_FEATURE_IPV6(sa_family_t af = AF_INET;)
 		cp++; /* skip ':' */
 		port = bb_strtou(cp, NULL, 10);
 		if (errno || (unsigned)port > 0xffff) {
-			bb_error_msg("bad port spec '%s'", org_host);
+			bb_error_msg("bad port '%s'", cp);
 			if (ai_flags & DIE_ON_ERROR)
 				xfunc_die();
 			return NULL;
@@ -413,6 +408,42 @@ int FAST_FUNC create_and_bind_dgram_or_die(const char *bindaddr, int port)
 }
 
 
+#if ENABLE_IFPLUGD || ENABLE_FEATURE_MDEV_DAEMON || ENABLE_UEVENT
+int FAST_FUNC create_and_bind_to_netlink(int proto, int grp, unsigned rcvbuf)
+{
+	struct sockaddr_nl sa;
+	int fd;
+
+	fd = xsocket(AF_NETLINK, SOCK_DGRAM, proto);
+
+	/* Set receive buffer size before binding the socket
+	 * We want to have enough space before we start receiving messages.
+	 */
+	if (rcvbuf != 0) {
+		setsockopt_SOL_SOCKET_int(fd, SO_RCVBUF, rcvbuf);
+		/* SO_RCVBUFFORCE (root only) can go above net.core.rmem_max */
+		setsockopt_SOL_SOCKET_int(fd, SO_RCVBUFFORCE, rcvbuf);
+# if 0
+		{
+			int z;
+			socklen_t zl = sizeof(z);
+			getsockopt(fd, SOL_SOCKET, SO_RCVBUF, &z, &zl);
+			bb_error_msg("SO_RCVBUF:%d", z);
+		}
+# endif
+	}
+
+	memset(&sa, 0, sizeof(sa));
+	sa.nl_family = AF_NETLINK;
+	sa.nl_pid = getpid();
+	sa.nl_groups = grp;
+	xbind(fd, (struct sockaddr *) &sa, sizeof(sa));
+	close_on_exec_on(fd);
+
+	return fd;
+}
+#endif
+
 int FAST_FUNC create_and_connect_stream_or_die(const char *peer, int port)
 {
 	int fd;
@@ -496,12 +527,15 @@ char* FAST_FUNC xmalloc_sockaddr2hostonly_noport(const struct sockaddr *sa)
 {
 	return sockaddr2str(sa, NI_NAMEREQD | IGNORE_PORT);
 }
+#ifndef NI_NUMERICSCOPE
+# define NI_NUMERICSCOPE 0
+#endif
 char* FAST_FUNC xmalloc_sockaddr2dotted(const struct sockaddr *sa)
 {
-	return sockaddr2str(sa, NI_NUMERICHOST);
+	return sockaddr2str(sa, NI_NUMERICHOST | NI_NUMERICSCOPE);
 }
 
 char* FAST_FUNC xmalloc_sockaddr2dotted_noport(const struct sockaddr *sa)
 {
-	return sockaddr2str(sa, NI_NUMERICHOST | IGNORE_PORT);
+	return sockaddr2str(sa, NI_NUMERICHOST | NI_NUMERICSCOPE | IGNORE_PORT);
 }

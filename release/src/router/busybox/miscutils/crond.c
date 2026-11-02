@@ -9,50 +9,66 @@
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
 //config:config CROND
-//config:	bool "crond"
+//config:	bool "crond (14 kb)"
 //config:	default y
 //config:	select FEATURE_SYSLOG
 //config:	help
-//config:	  Crond is a background daemon that parses individual crontab
-//config:	  files and executes commands on behalf of the users in question.
-//config:	  This is a port of dcron from slackware. It uses files of the
-//config:	  format /var/spool/cron/crontabs/<username> files, for example:
-//config:	      $ cat /var/spool/cron/crontabs/root
-//config:	      # Run daily cron jobs at 4:40 every day:
-//config:	      40 4 * * * /etc/cron/daily > /dev/null 2>&1
+//config:	Crond is a background daemon that parses individual crontab
+//config:	files and executes commands on behalf of the users in question.
+//config:	This is a port of dcron from slackware. It uses files of the
+//config:	format /var/spool/cron/crontabs/<username> files, for example:
+//config:		$ cat /var/spool/cron/crontabs/root
+//config:		# Run daily cron jobs at 4:40 every day:
+//config:		40 4 * * * /etc/cron/daily > /dev/null 2>&1
 //config:
 //config:config FEATURE_CROND_D
-//config:	bool "Support option -d to redirect output to stderr"
+//config:	bool "Support -d (redirect output to stderr)"
 //config:	depends on CROND
 //config:	default y
 //config:	help
-//config:	  -d N sets loglevel (0:most verbose) and directs all output to stderr.
+//config:	-d N sets loglevel (0:most verbose) and directs all output to stderr.
 //config:
 //config:config FEATURE_CROND_CALL_SENDMAIL
 //config:	bool "Report command output via email (using sendmail)"
 //config:	default y
 //config:	depends on CROND
 //config:	help
-//config:	  Command output will be sent to corresponding user via email.
+//config:	Command output will be sent to corresponding user via email.
+//config:
+//config:config FEATURE_CROND_SPECIAL_TIMES
+//config:	bool "Support special times (@reboot, @daily, etc) in crontabs"
+//config:	default y
+//config:	depends on CROND
+//config:	help
+//config:	string        meaning
+//config:	------        -------
+//config:	@reboot       Run once, at startup
+//config:	@yearly       Run once a year:  "0 0 1 1 *"
+//config:	@annually     Same as @yearly:  "0 0 1 1 *"
+//config:	@monthly      Run once a month: "0 0 1 * *"
+//config:	@weekly       Run once a week:  "0 0 * * 0"
+//config:	@daily        Run once a day:   "0 0 * * *"
+//config:	@midnight     Same as @daily:   "0 0 * * *"
+//config:	@hourly       Run once an hour: "0 * * * *"
 //config:
 //config:config FEATURE_CROND_DIR
 //config:	string "crond spool directory"
 //config:	default "/var/spool/cron"
 //config:	depends on CROND || CRONTAB
 //config:	help
-//config:	  Location of crond spool.
+//config:	Location of crond spool.
 
 //applet:IF_CROND(APPLET(crond, BB_DIR_USR_SBIN, BB_SUID_DROP))
 
 //kbuild:lib-$(CONFIG_CROND) += crond.o
 
 //usage:#define crond_trivial_usage
-//usage:       "-fbS -l N " IF_FEATURE_CROND_D("-d N ") "-L LOGFILE -c DIR"
+//usage:       "[-fbS] [-l N] " IF_FEATURE_CROND_D("[-d N] ") "[-L LOGFILE] [-c DIR]"
 //usage:#define crond_full_usage "\n\n"
 //usage:       "	-f	Foreground"
 //usage:     "\n	-b	Background (default)"
 //usage:     "\n	-S	Log to syslog (default)"
-//usage:     "\n	-l N	Set log level. Most verbose:0, default:8"
+//usage:     "\n	-l N	Set log level. Most verbose 0, default 8"
 //usage:	IF_FEATURE_CROND_D(
 //usage:     "\n	-d N	Set log level, log to stderr"
 //usage:	)
@@ -63,9 +79,9 @@
 #include "common_bufsiz.h"
 #include <syslog.h>
 
-/* glibc frees previous setenv'ed value when we do next setenv()
- * of the same variable. uclibc does not do this! */
-#if (defined(__GLIBC__) && !defined(__UCLIBC__)) /* || OTHER_SAFE_LIBC... */
+#if 0
+/* If libc tracks and reuses setenv()-allocated memory, ok to set this to 0 */
+/* Neither glibc nor uclibc do that! */
 # define SETENV_LEAKS 0
 #else
 # define SETENV_LEAKS 1
@@ -74,6 +90,7 @@
 
 #define CRON_DIR        CONFIG_FEATURE_CROND_DIR
 #define CRONTABS        CONFIG_FEATURE_CROND_DIR "/crontabs"
+#define CRON_REBOOT     CONFIG_PID_FILE_PATH "/crond.reboot"
 #ifndef SENDMAIL
 # define SENDMAIL       "sendmail"
 #endif
@@ -101,11 +118,14 @@ typedef struct CronLine {
 	struct CronLine *cl_next;
 	char *cl_cmd;                   /* shell command */
 	pid_t cl_pid;                   /* >0:running, <0:needs to be started in this minute, 0:dormant */
+#define START_ME_REBOOT -2
+#define START_ME_NORMAL -1
 #if ENABLE_FEATURE_CROND_CALL_SENDMAIL
 	int cl_empty_mail_size;         /* size of mail header only, 0 if no mailfile */
 	char *cl_mailto;                /* whom to mail results, may be NULL */
 #endif
 	char *cl_shell;
+	char *cl_path;
 	/* ordered by size, not in natural order. makes code smaller: */
 	char cl_Dow[7];                 /* 0-6, beginning sunday */
 	char cl_Mons[12];               /* 0-11 */
@@ -134,6 +154,7 @@ struct globals {
 	const char *log_filename;
 	const char *crontab_dir_name; /* = CRONTABS; */
 	CronFile *cron_files;
+	char *default_shell;
 #if SETENV_LEAKS
 	char *env_var_user;
 	char *env_var_home;
@@ -161,9 +182,7 @@ static void crondlog(unsigned level, const char *msg, va_list va)
 		 * need not touch syslog_level
 		 * (they are ok with LOG_ERR default).
 		 */
-		syslog_level = LOG_INFO;
-		bb_verror_msg(msg, va, /* strerr: */ NULL);
-		syslog_level = LOG_ERR;
+		bb_vinfo_msg(msg, va);
 	}
 }
 
@@ -403,6 +422,7 @@ static void load_crontab(const char *fileName)
 	char *mailTo = NULL;
 #endif
 	char *shell = NULL;
+	char *path = NULL;
 
 	delete_cronfile(fileName);
 
@@ -452,7 +472,12 @@ static void load_crontab(const char *fileName)
 				shell = xstrdup(&tokens[0][6]);
 				continue;
 			}
-//TODO: handle HOME= too? "man crontab" says:
+			if (is_prefixed_with(tokens[0], "PATH=")) {
+				free(path);
+				path = xstrdup(&tokens[0][5]);
+				continue;
+			}
+//TODO: handle HOME= too? Better yet, handle arbitrary ENVVARs? "man crontab" says:
 //name = value
 //
 //where the spaces around the equal-sign (=) are optional, and any subsequent
@@ -462,29 +487,94 @@ static void load_crontab(const char *fileName)
 //
 //Several environment variables are set up automatically by the cron(8) daemon.
 //SHELL is set to /bin/sh, and LOGNAME and HOME are set from the /etc/passwd
-//line of the crontab's owner. HOME and SHELL may be overridden by settings
-//in the crontab; LOGNAME may not.
+//line of the crontab's owner.  HOME, SHELL, and PATH may be overridden by
+//settings in the crontab; LOGNAME may not.
 
+#if ENABLE_FEATURE_CROND_SPECIAL_TIMES
+			if (tokens[0][0] == '@') {
+				/*
+				 * "@daily /a/script/to/run PARAM1 PARAM2..."
+				 */
+				typedef struct SpecialEntry {
+					const char *name;
+					const char tokens[8];
+				} SpecialEntry;
+				static const SpecialEntry SpecAry[] ALIGN8 = {
+					/*              hour  day   month weekday */
+					{ "yearly",     "0\0" "1\0" "1\0" "*" },
+					{ "annually",   "0\0" "1\0" "1\0" "*" },
+					{ "monthly",    "0\0" "1\0" "*\0" "*" },
+					{ "weekly",     "0\0" "*\0" "*\0" "0" },
+					{ "daily",      "0\0" "*\0" "*\0" "*" },
+					{ "midnight",   "0\0" "*\0" "*\0" "*" },
+					{ "hourly",     "*\0" "*\0" "*\0" "*" },
+					{ "reboot",     ""                    },
+				};
+				const SpecialEntry *e = SpecAry;
+
+				if (n < 2)
+					continue;
+				for (;;) {
+					if (strcmp(e->name, tokens[0] + 1) == 0) {
+						/*
+						 * tokens[1] is only the first word of command,
+						 * can'r use it.
+						 * find the entire command in unmodified string:
+						 */
+						tokens[5] = skip_whitespace(
+							skip_non_whitespace(
+							skip_whitespace(parser->data)));
+						if (e->tokens[0]) {
+							char *et = (char*)e->tokens;
+							/* minute is "0" for all specials */
+							tokens[0] = (char*)"0";
+							tokens[1] = et;
+							tokens[2] = et + 2;
+							tokens[3] = et + 4;
+							tokens[4] = et + 6;
+						}
+						goto got_it;
+					}
+					if (!e->tokens[0])
+						break;
+					e++;
+				}
+				continue; /* bad line (unrecognized '@foo') */
+			}
+#endif
 			/* check if a minimum of tokens is specified */
 			if (n < 6)
 				continue;
+ IF_FEATURE_CROND_SPECIAL_TIMES(
+  got_it:
+ )
 			*pline = line = xzalloc(sizeof(*line));
-			/* parse date ranges */
-			ParseField(file->cf_username, line->cl_Mins, 60, 0, NULL, tokens[0]);
-			ParseField(file->cf_username, line->cl_Hrs, 24, 0, NULL, tokens[1]);
-			ParseField(file->cf_username, line->cl_Days, 32, 0, NULL, tokens[2]);
-			ParseField(file->cf_username, line->cl_Mons, 12, -1, MonAry, tokens[3]);
-			ParseField(file->cf_username, line->cl_Dow, 7, 0, DowAry, tokens[4]);
-			/*
-			 * fix days and dow - if one is not "*" and the other
-			 * is "*", the other is set to 0, and vise-versa
-			 */
-			FixDayDow(line);
+#if ENABLE_FEATURE_CROND_SPECIAL_TIMES
+			if (tokens[0][0] == '@') { /* "@reboot" line */
+				file->cf_wants_starting = 1;
+				line->cl_pid = START_ME_REBOOT; /* wants to start */
+				/* line->cl_Mins/Hrs/etc stay zero: never match any time */
+			} else
+#endif
+			{
+				/* parse date ranges */
+				ParseField(file->cf_username, line->cl_Mins, 60, 0, NULL, tokens[0]);
+				ParseField(file->cf_username, line->cl_Hrs, 24, 0, NULL, tokens[1]);
+				ParseField(file->cf_username, line->cl_Days, 32, 0, NULL, tokens[2]);
+				ParseField(file->cf_username, line->cl_Mons, 12, -1, MonAry, tokens[3]);
+				ParseField(file->cf_username, line->cl_Dow, 7, 0, DowAry, tokens[4]);
+				/*
+				 * fix days and dow - if one is not "*" and the other
+				 * is "*", the other is set to 0, and vise-versa
+				 */
+				FixDayDow(line);
+			}
 #if ENABLE_FEATURE_CROND_CALL_SENDMAIL
 			/* copy mailto (can be NULL) */
 			line->cl_mailto = xstrdup(mailTo);
 #endif
 			line->cl_shell = xstrdup(shell);
+			line->cl_path = xstrdup(path);
 			/* copy command */
 			line->cl_cmd = xstrdup(tokens[5]);
 			pline = &line->cl_next;
@@ -571,21 +661,22 @@ static void safe_setenv(char **pvar_val, const char *var, const char *val)
 }
 #endif
 
-static void set_env_vars(struct passwd *pas, const char *shell)
+static void set_env_vars(struct passwd *pas, const char *shell, const char *path)
 {
 	/* POSIX requires crond to set up at least HOME, LOGNAME, PATH, SHELL.
-	 * We assume crond inherited suitable PATH.
 	 */
 #if SETENV_LEAKS
 	safe_setenv(&G.env_var_logname, "LOGNAME", pas->pw_name);
 	safe_setenv(&G.env_var_user, "USER", pas->pw_name);
 	safe_setenv(&G.env_var_home, "HOME", pas->pw_dir);
 	safe_setenv(&G.env_var_shell, "SHELL", shell);
+	if (path) safe_setenv(&G.env_var_shell, "PATH", path);
 #else
 	xsetenv("LOGNAME", pas->pw_name);
 	xsetenv("USER", pas->pw_name);
 	xsetenv("HOME", pas->pw_dir);
 	xsetenv("SHELL", shell);
+	if (path) xsetenv("PATH", path);
 #endif
 }
 
@@ -593,8 +684,7 @@ static void change_user(struct passwd *pas)
 {
 	/* careful: we're after vfork! */
 	change_identity(pas); /* - initgroups, setgid, setuid */
-	if (chdir(pas->pw_dir) < 0) {
-		bb_error_msg("can't change directory to '%s'", pas->pw_dir);
+	if (chdir_or_warn(pas->pw_dir) != 0) {
 		xchdir(CRON_DIR);
 	}
 }
@@ -617,10 +707,10 @@ fork_job(const char *user, int mailFd, CronLine *line, bool run_sendmail)
 		goto err;
 	}
 
-	shell = line->cl_shell ? line->cl_shell : DEFAULT_SHELL;
+	shell = line->cl_shell ? line->cl_shell : G.default_shell;
 	prog = run_sendmail ? SENDMAIL : shell;
 
-	set_env_vars(pas, shell);
+	set_env_vars(pas, shell, NULL); /* don't use crontab's PATH for sendmail */
 
 	sv_logmode = logmode;
 	pid = vfork();
@@ -649,7 +739,7 @@ fork_job(const char *user, int mailFd, CronLine *line, bool run_sendmail)
 	logmode = sv_logmode;
 
 	if (pid < 0) {
-		bb_perror_msg("vfork");
+		bb_simple_perror_msg("vfork");
  err:
 		pid = 0;
 	} /* else: PARENT, FORK SUCCESS */
@@ -664,7 +754,7 @@ fork_job(const char *user, int mailFd, CronLine *line, bool run_sendmail)
 	return pid;
 }
 
-static void start_one_job(const char *user, CronLine *line)
+static pid_t start_one_job(const char *user, CronLine *line)
 {
 	char mailFile[128];
 	int mailFd = -1;
@@ -698,6 +788,8 @@ static void start_one_job(const char *user, CronLine *line)
 			free(mailFile2);
 		}
 	}
+
+	return line->cl_pid;
 }
 
 /*
@@ -748,7 +840,7 @@ static void process_finished_job(const char *user, CronLine *line)
 
 #else /* !ENABLE_FEATURE_CROND_CALL_SENDMAIL */
 
-static void start_one_job(const char *user, CronLine *line)
+static pid_t start_one_job(const char *user, CronLine *line)
 {
 	const char *shell;
 	struct passwd *pas;
@@ -761,8 +853,8 @@ static void start_one_job(const char *user, CronLine *line)
 	}
 
 	/* Prepare things before vfork */
-	shell = line->cl_shell ? line->cl_shell : DEFAULT_SHELL;
-	set_env_vars(pas, shell);
+	shell = line->cl_shell ? line->cl_shell : G.default_shell;
+	set_env_vars(pas, shell, line->cl_path);
 
 	/* Fork as the user in question and run program */
 	pid = vfork();
@@ -777,11 +869,12 @@ static void start_one_job(const char *user, CronLine *line)
 		bb_error_msg_and_die("can't execute '%s' for user %s", shell, user);
 	}
 	if (pid < 0) {
-		bb_perror_msg("vfork");
+		bb_simple_perror_msg("vfork");
  err:
 		pid = 0;
 	}
 	line->cl_pid = pid;
+	return pid;
 }
 
 #define process_finished_job(user, line)  ((line)->cl_pid = 0)
@@ -825,7 +918,7 @@ static void flag_starting_jobs(time_t t1, time_t t2)
 						log8("user %s: process already running: %s",
 							file->cf_username, line->cl_cmd);
 					} else if (line->cl_pid == 0) {
-						line->cl_pid = -1;
+						line->cl_pid = START_ME_NORMAL;
 						file->cf_wants_starting = 1;
 					}
 				}
@@ -834,7 +927,20 @@ static void flag_starting_jobs(time_t t1, time_t t2)
 	}
 }
 
-static void start_jobs(void)
+#if ENABLE_FEATURE_CROND_SPECIAL_TIMES
+static int touch_reboot_file(void)
+{
+	int fd = open(CRON_REBOOT, O_WRONLY | O_CREAT | O_EXCL | O_TRUNC, 0000);
+	if (fd >= 0) {
+		close(fd);
+		return 1;
+	}
+	/* File (presumably) exists - this is not the first run after reboot */
+	return 0;
+}
+#endif
+
+static void start_jobs(int wants_start)
 {
 	CronFile *file;
 	CronLine *line;
@@ -846,11 +952,10 @@ static void start_jobs(void)
 		file->cf_wants_starting = 0;
 		for (line = file->cf_lines; line; line = line->cl_next) {
 			pid_t pid;
-			if (line->cl_pid >= 0)
+			if (line->cl_pid != wants_start)
 				continue;
 
-			start_one_job(file->cf_username, line);
-			pid = line->cl_pid;
+			pid = start_one_job(file->cf_username, line);
 			log8("USER %s pid %3d cmd %s",
 				file->cf_username, (int)pid, line->cl_cmd);
 			if (pid < 0) {
@@ -922,13 +1027,17 @@ int crond_main(int argc UNUSED_PARAM, char **argv)
 
 	INIT_G();
 
-	/* "-b after -f is ignored", and so on for every pair a-b */
-	opt_complementary = "f-b:b-f:S-L:L-S" IF_FEATURE_CROND_D(":d-l")
+	opts = getopt32(argv, "^"
+			"l:L:fbSc:" IF_FEATURE_CROND_D("d:")
+			"\0"
+			/* "-b after -f is ignored", and so on for every pair a-b */
+			"f-b:b-f:S-L:L-S" IF_FEATURE_CROND_D(":d-l")
 			/* -l and -d have numeric param */
-			":l+" IF_FEATURE_CROND_D(":d+");
-	opts = getopt32(argv, "l:L:fbSc:" IF_FEATURE_CROND_D("d:"),
+			":l+" IF_FEATURE_CROND_D(":d+")
+			,
 			&G.log_level, &G.log_filename, &G.crontab_dir_name
-			IF_FEATURE_CROND_D(,&G.log_level));
+			IF_FEATURE_CROND_D(,&G.log_level)
+	);
 	/* both -d N and -l N set the same variable: G.log_level */
 
 	if (!(opts & OPT_f)) {
@@ -947,9 +1056,17 @@ int crond_main(int argc UNUSED_PARAM, char **argv)
 
 	reopen_logfile_to_stderr();
 	xchdir(G.crontab_dir_name);
+	/* $SHELL, or current UID's shell, or DEFAULT_SHELL */
+	/* Useful on Android where DEFAULT_SHELL /bin/sh may not exist */
+	G.default_shell = xstrdup(get_shell_name());
+
 	log8("crond (busybox "BB_VER") started, log level %d", G.log_level);
 	rescan_crontab_dir();
-	write_pidfile(CONFIG_PID_FILE_PATH "/crond.pid");
+	write_pidfile_std_path_and_ext("crond");
+#if ENABLE_FEATURE_CROND_SPECIAL_TIMES
+	if (touch_reboot_file())
+		start_jobs(START_ME_REBOOT); /* start @reboot entries, if any */
+#endif
 
 	/* Main loop */
 	t2 = time(NULL);
@@ -997,12 +1114,12 @@ int crond_main(int argc UNUSED_PARAM, char **argv)
 		process_cron_update_file();
 		log5("wakeup dt=%ld", dt);
 		if (dt < -60 * 60 || dt > 60 * 60) {
-			bb_error_msg("time disparity of %ld minutes detected", dt / 60);
+			bb_info_msg("time disparity of %ld minutes detected", dt / 60);
 			/* and we do not run any jobs in this case */
 		} else if (dt > 0) {
 			/* Usual case: time advances forward, as expected */
 			flag_starting_jobs(t1, t2);
-			start_jobs();
+			start_jobs(START_ME_NORMAL);
 			sleep_time = 60;
 			if (check_completions() > 0) {
 				/* some jobs are still running */

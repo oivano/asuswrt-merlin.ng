@@ -40,19 +40,57 @@
  * purpose. It is provided "as is" without express or implied warranty.
  ***********************************************************************
  */
+//config:config NTPD
+//config:	bool "ntpd (22 kb)"
+//config:	default y
+//config:	help
+//config:	The NTP client/server daemon.
+//config:
+//config:config FEATURE_NTPD_SERVER
+//config:	bool "Make ntpd usable as a NTP server"
+//config:	default y
+//config:	depends on NTPD
+//config:	help
+//config:	Make ntpd usable as a NTP server. If you disable this option
+//config:	ntpd will be usable only as a NTP client.
+//config:
+//config:config FEATURE_NTPD_CONF
+//config:	bool "Make ntpd understand /etc/ntp.conf"
+//config:	default y
+//config:	depends on NTPD
+//config:	help
+//config:	Make ntpd look in /etc/ntp.conf for peers. Only "server address"
+//config:	is supported.
+//config:
+//config:config FEATURE_NTP_AUTH
+//config:	bool "Support md5/sha1 message authentication codes"
+//config:	default y
+//config:	depends on NTPD
+
+//applet:IF_NTPD(APPLET(ntpd, BB_DIR_USR_SBIN, BB_SUID_DROP))
+//applet:IF_NTPD(APPLET_ODDNAME(ntp, ntpd, BB_DIR_USR_SBIN, BB_SUID_DROP, ntpd))
+
+//kbuild:lib-$(CONFIG_NTPD) += ntpd.o
 
 //usage:#define ntpd_trivial_usage
 //usage:	"[-dnqNwt"IF_FEATURE_NTPD_SERVER("l -I IFACE")"] [-S PROG] [-p PEER]..."
 //usage:#define ntpd_full_usage "\n\n"
 //usage:       "NTP client/server\n"
-//usage:     "\n	-d	Verbose"
-//usage:     "\n	-n	Do not daemonize"
+//usage:     "\n	-d[d]	Verbose"
+//usage:     "\n	-n	Run in foreground"
 //usage:     "\n	-q	Quit after clock is set"
 //usage:     "\n	-N	Run at high priority"
 //usage:     "\n	-w	Do not set time (only query peers), implies -n"
 //usage:     "\n	-t	Trust network and server, no RFC-4330 cross-checks"
 //usage:     "\n	-S PROG	Run PROG after stepping time, stratum change, and every 11 mins"
 //usage:     "\n	-p PEER	Obtain time from PEER (may be repeated)"
+//usage:	IF_NOT_FEATURE_NTP_AUTH()
+//usage:	IF_FEATURE_NTP_AUTH(
+//usage:     "\n	-k FILE	Key file (ntp.keys compatible)"
+//usage:     "\n	-p [keyno:NUM:]PEER"
+//usage:     "\n		Obtain time from PEER (may be repeated)"
+//usage:     "\n		Use key NUM for authentication"
+//usage:	)
 //usage:	IF_FEATURE_NTPD_CONF(
 //usage:     "\n		If -p is not given, 'server HOST' lines"
 //usage:     "\n		from /etc/ntp.conf are used"
@@ -75,6 +113,13 @@
 # define IPTOS_DSCP_AF21 0x48
 #endif
 
+#if defined(__FreeBSD__)
+/* see sys/timex.h */
+# define adjtimex ntp_adjtime
+# define ADJ_OFFSET     MOD_OFFSET
+# define ADJ_STATUS     MOD_STATUS
+# define ADJ_TIMECONST  MOD_TIMECONST
+#endif
 
 /* Verbosity control (max level of -dddd options accepted).
  * max 6 is very talkative (and bloated). 3 is non-bloated,
@@ -82,24 +127,15 @@
  */
 #define MAX_VERBOSE     3
 
-
 /* High-level description of the algorithm:
  *
  * We start running with very small poll_exp, BURSTPOLL,
  * in order to quickly accumulate INITIAL_SAMPLES datapoints
  * for each peer. Then, time is stepped if the offset is larger
- * than STEP_THRESHOLD, otherwise it isn't; anyway, we enlarge
- * poll_exp to MINPOLL and enter frequency measurement step:
- * we collect new datapoints but ignore them for WATCH_THRESHOLD
- * seconds. After WATCH_THRESHOLD seconds we look at accumulated
- * offset and estimate frequency drift.
+ * than STEP_THRESHOLD, otherwise it isn't stepped.
  *
- * (frequency measurement step seems to not be strictly needed,
- * it is conditionally disabled with USING_INITIAL_FREQ_ESTIMATION
- * define set to 0)
- *
- * After this, we enter "steady state": we collect a datapoint,
- * we select the best peer, if this datapoint is not a new one
+ * Then poll_exp is set to MINPOLL, and we enter "steady state": we collect
+ * a datapoint, we select the best peer, if this datapoint is not a new one
  * (IOW: if this datapoint isn't for selected peer), sleep
  * and collect another one; otherwise, use its offset to update
  * frequency drift, if offset is somewhat large, reduce poll_exp,
@@ -149,8 +185,10 @@
 /* NB: set WATCH_THRESHOLD to ~60 when debugging to save time) */
 //UNUSED: #define PANIC_THRESHOLD 1000    /* panic threshold (sec) */
 
-/*
- * If we got |offset| > BIGOFF from a peer, cap next query interval
+
+// #define PANIC_THRESHOLD 1000    /* panic threshold (sec) */
+
+/* If we got |offset| > BIGOFF from a peer, cap next query interval
  * for this peer by this many seconds:
  */
 #define BIGOFF          STEP_THRESHOLD
@@ -170,7 +208,7 @@
  * With SLEW_THRESHOLD = 0.125, it means we try to sync more aggressively
  * if offset increases over ~0.04 sec
  */
-//#define POLLDOWN_OFFSET (SLEW_THRESHOLD / 3)
+// #define POLLDOWN_OFFSET (SLEW_THRESHOLD / 3)
 #define MINDISP         0.01    /* minimum dispersion (sec) */
 #define MAXDISP         16      /* maximum dispersion (sec) */
 #define MAXSTRAT        16      /* maximum stratum (infinity metric) */
@@ -178,7 +216,16 @@
 #define MIN_SELECTED    1       /* minimum intersection survivors */
 #define MIN_CLUSTERED   3       /* minimum cluster survivors */
 
-#define MAXDRIFT        0.000500 /* frequency drift we can correct (500 PPM) */
+/* Correct frequency ourself (0) or let kernel do it (1)? */
+#define USING_KERNEL_PLL_LOOP 1
+// /* frequency drift we can correct (500 PPM) */
+// #define MAXDRIFT        0.000500
+// /* Compromise Allan intercept (sec). doc uses 1500, std ntpd uses 512 */
+// #define ALLAN           512
+// /* PLL loop gain */
+// #define PLL             65536
+// /* FLL loop gain [why it depends on MAXPOLL??] */
+// #define FLL             (MAXPOLL + 1)
 
 /* Poll-adjust threshold.
  * When we see that offset is small enough compared to discipline jitter,
@@ -194,23 +241,21 @@
  */
 #define POLLADJ_GATE    4
 #define TIMECONST_HACK_GATE 2
-/* Compromise Allan intercept (sec). doc uses 1500, std ntpd uses 512 */
-#define ALLAN           512
-/* PLL loop gain */
-#define PLL             65536
-/* FLL loop gain [why it depends on MAXPOLL??] */
-#define FLL             (MAXPOLL + 1)
 /* Parameter averaging constant */
 #define AVG             4
 
+#define MAX_KEY_NUMBER  65535
+#define KEYID_SIZE      sizeof(uint32_t)
 
 enum {
 	NTP_VERSION     = 4,
 	NTP_MAXSTRATUM  = 15,
 
-	NTP_DIGESTSIZE     = 16,
-	NTP_MSGSIZE_NOAUTH = 48,
-	NTP_MSGSIZE        = (NTP_MSGSIZE_NOAUTH + 4 + NTP_DIGESTSIZE),
+	NTP_MD5_DIGESTSIZE    = 16,
+	NTP_MSGSIZE_NOAUTH    = 48,
+	NTP_MSGSIZE_MD5_AUTH  = NTP_MSGSIZE_NOAUTH + KEYID_SIZE + NTP_MD5_DIGESTSIZE,
+	NTP_SHA1_DIGESTSIZE   = 20,
+	NTP_MSGSIZE_SHA1_AUTH = NTP_MSGSIZE_NOAUTH + KEYID_SIZE + NTP_SHA1_DIGESTSIZE,
 
 	/* Status Masks */
 	MODE_MASK       = (7 << 0),
@@ -263,7 +308,7 @@ typedef struct {
 	l_fixedpt_t m_rectime;
 	l_fixedpt_t m_xmttime;
 	uint32_t    m_keyid;
-	uint8_t     m_digest[NTP_DIGESTSIZE];
+	uint8_t     m_digest[ENABLE_FEATURE_NTP_AUTH ? NTP_SHA1_DIGESTSIZE : NTP_MD5_DIGESTSIZE];
 } msg_t;
 
 typedef struct {
@@ -272,11 +317,31 @@ typedef struct {
 	double d_dispersion;
 } datapoint_t;
 
+#if ENABLE_FEATURE_NTP_AUTH
+enum {
+	HASH_MD5,
+	HASH_SHA1,
+};
+typedef struct {
+	unsigned id; //try uint16_t?
+	smalluint type;
+	smalluint msg_size;
+	smalluint key_length;
+	char key[0];
+} key_entry_t;
+#endif
+
 typedef struct {
 	len_and_sockaddr *p_lsa;
 	char             *p_dotted;
+#if ENABLE_FEATURE_NTP_AUTH
+	key_entry_t      *key_entry;
+#endif
 	int              p_fd;
 	int              datapoint_idx;
+#if ENABLE_FEATURE_NTPD_SERVER
+	uint32_t         p_refid;
+#endif
 	uint32_t         lastpkt_refid;
 	uint8_t          lastpkt_status;
 	uint8_t          lastpkt_stratum;
@@ -303,23 +368,20 @@ typedef struct {
 	char             p_hostname[1];
 } peer_t;
 
-
-#define USING_KERNEL_PLL_LOOP          1
-#define USING_INITIAL_FREQ_ESTIMATION  0
-
 enum {
 	OPT_n = (1 << 0),
 	OPT_q = (1 << 1),
 	OPT_N = (1 << 2),
 	OPT_x = (1 << 3),
+	OPT_k = (1 << 4) * ENABLE_FEATURE_NTP_AUTH,
 	/* Insert new options above this line. */
 	/* Non-compat options: */
-	OPT_w = (1 << 4),
-	OPT_p = (1 << 5),
-	OPT_S = (1 << 6),
-	OPT_t = (1 << 7),
-	OPT_l = (1 << 8) * ENABLE_FEATURE_NTPD_SERVER,
-	OPT_I = (1 << 9) * ENABLE_FEATURE_NTPD_SERVER,
+	OPT_w = (1 << (4+ENABLE_FEATURE_NTP_AUTH)),
+	OPT_p = (1 << (5+ENABLE_FEATURE_NTP_AUTH)),
+	OPT_S = (1 << (6+ENABLE_FEATURE_NTP_AUTH)),
+	OPT_t = (1 << (7+ENABLE_FEATURE_NTP_AUTH)),
+	OPT_l = (1 << (8+ENABLE_FEATURE_NTP_AUTH)) * ENABLE_FEATURE_NTPD_SERVER,
+	OPT_I = (1 << (9+ENABLE_FEATURE_NTP_AUTH)) * ENABLE_FEATURE_NTPD_SERVER,
 	/* We hijack some bits for other purposes */
 	OPT_qq = (1 << 31),
 };
@@ -353,7 +415,9 @@ struct globals {
 	 * in stratum 2+ packets, it's IPv4 address or 4 first bytes
 	 * of MD5 hash of IPv6
 	 */
+#if ENABLE_FEATURE_NTPD_SERVER
 	uint32_t refid;
+#endif
 	uint8_t  ntp_status;
 	/* precision is defined as the larger of the resolution and time to
 	 * read the clock, in log2 units.  For instance, the precision of a
@@ -375,7 +439,7 @@ struct globals {
 	 * too big and we will step. I observed it with -6.
 	 *
 	 * OTOH, setting precision_sec far too small would result in futile
-	 * attempts to syncronize to an unachievable precision.
+	 * attempts to synchronize to an unachievable precision.
 	 *
 	 * -6 is 1/64 sec, -7 is 1/128 sec and so on.
 	 * -8 is 1/256 ~= 0.003906 (worked well for me --vda)
@@ -383,7 +447,7 @@ struct globals {
 	 */
 #define G_precision_exp  -9
 	/*
-	 * G_precision_exp is used only for construction outgoing packets.
+	 * G_precision_exp is used only for constructing outgoing packets.
 	 * It's ok to set G_precision_sec to a slightly different value
 	 * (One which is "nicer looking" in logs).
 	 * Exact value would be (1.0 / (1 << (- G_precision_exp))):
@@ -391,12 +455,7 @@ struct globals {
 #define G_precision_sec  0.002
 	uint8_t  stratum;
 
-#define STATE_NSET      0       /* initial state, "nothing is set" */
-//#define STATE_FSET    1       /* frequency set from file */
-//#define STATE_SPIK    2       /* spike detected */
-//#define STATE_FREQ    3       /* initial frequency */
-#define STATE_SYNC      4       /* clock synchronized (normal operation) */
-	uint8_t  discipline_state;      // doc calls it c.state
+	//uint8_t  discipline_state;      // doc calls it c.state
 	uint8_t  poll_exp;              // s.poll
 	int      polladj_count;         // c.count
 	int      FREQHOLD_cnt;
@@ -418,7 +477,6 @@ struct globals {
 #endif
 };
 #define G (*ptr_to_globals)
-
 
 #define VERB1 if (MAX_VERBOSE && G.verbose)
 #define VERB2 if (MAX_VERBOSE >= 2 && G.verbose >= 2)
@@ -444,12 +502,14 @@ static ALWAYS_INLINE double MAXD(double a, double b)
 		return a;
 	return b;
 }
+#if !USING_KERNEL_PLL_LOOP
 static ALWAYS_INLINE double MIND(double a, double b)
 {
 	if (a < b)
 		return a;
 	return b;
 }
+#endif
 static NOINLINE double my_SQRT(double X)
 {
 	union {
@@ -494,19 +554,19 @@ static double
 gettime1900d(void)
 {
 	struct timeval tv;
-	gettimeofday(&tv, NULL); /* never fails */
+	xgettimeofday(&tv);
 	G.cur_time = tv.tv_sec + (1.0e-6 * tv.tv_usec) + OFFSET_1900_1970;
 	return G.cur_time;
 }
 
 static void
-d_to_tv(double d, struct timeval *tv)
+d_to_tv(struct timeval *tv, double d)
 {
 	tv->tv_sec = (long)d;
 	tv->tv_usec = (d - tv->tv_sec) * 1000000;
 }
 
-static double
+static NOINLINE double
 lfp_to_d(l_fixedpt_t lfp)
 {
 	double ret;
@@ -515,7 +575,7 @@ lfp_to_d(l_fixedpt_t lfp)
 	ret = (double)lfp.int_partl + ((double)lfp.fractionl / UINT_MAX);
 	return ret;
 }
-static double
+static NOINLINE double
 sfp_to_d(s_fixedpt_t sfp)
 {
 	double ret;
@@ -525,25 +585,25 @@ sfp_to_d(s_fixedpt_t sfp)
 	return ret;
 }
 #if ENABLE_FEATURE_NTPD_SERVER
-static l_fixedpt_t
-d_to_lfp(double d)
+static NOINLINE void
+d_to_lfp(l_fixedpt_t *lfp, double d)
 {
-	l_fixedpt_t lfp;
-	lfp.int_partl = (uint32_t)d;
-	lfp.fractionl = (uint32_t)((d - lfp.int_partl) * UINT_MAX);
-	lfp.int_partl = htonl(lfp.int_partl);
-	lfp.fractionl = htonl(lfp.fractionl);
-	return lfp;
+	uint32_t intl;
+	uint32_t frac;
+	intl = (uint32_t)d;
+	frac = (uint32_t)((d - intl) * UINT_MAX);
+	lfp->int_partl = htonl(intl);
+	lfp->fractionl = htonl(frac);
 }
-static s_fixedpt_t
-d_to_sfp(double d)
+static NOINLINE void
+d_to_sfp(s_fixedpt_t *sfp, double d)
 {
-	s_fixedpt_t sfp;
-	sfp.int_parts = (uint16_t)d;
-	sfp.fractions = (uint16_t)((d - sfp.int_parts) * USHRT_MAX);
-	sfp.int_parts = htons(sfp.int_parts);
-	sfp.fractions = htons(sfp.fractions);
-	return sfp;
+	uint16_t ints;
+	uint16_t frac;
+	ints = (uint16_t)d;
+	frac = (uint16_t)((d - ints) * USHRT_MAX);
+	sfp->int_parts = htons(ints);
+	sfp->fractions = htons(frac);
 }
 #endif
 
@@ -584,104 +644,11 @@ filter_datapoints(peer_t *p)
 	double sum, wavg;
 	datapoint_t *fdp;
 
-#if 0
 /* Simulations have shown that use of *averaged* offset for p->filter_offset
  * is in fact worse than simply using last received one: with large poll intervals
  * (>= 2048) averaging code uses offset values which are outdated by hours,
  * and time/frequency correction goes totally wrong when fed essentially bogus offsets.
  */
-	int got_newest;
-	double minoff, maxoff, w;
-	double x = x; /* for compiler */
-	double oldest_off = oldest_off;
-	double oldest_age = oldest_age;
-	double newest_off = newest_off;
-	double newest_age = newest_age;
-
-	fdp = p->filter_datapoint;
-
-	minoff = maxoff = fdp[0].d_offset;
-	for (i = 1; i < NUM_DATAPOINTS; i++) {
-		if (minoff > fdp[i].d_offset)
-			minoff = fdp[i].d_offset;
-		if (maxoff < fdp[i].d_offset)
-			maxoff = fdp[i].d_offset;
-	}
-
-	idx = p->datapoint_idx; /* most recent datapoint's index */
-	/* Average offset:
-	 * Drop two outliers and take weighted average of the rest:
-	 * most_recent/2 + older1/4 + older2/8 ... + older5/32 + older6/32
-	 * we use older6/32, not older6/64 since sum of weights should be 1:
-	 * 1/2 + 1/4 + 1/8 + 1/16 + 1/32 + 1/32 = 1
-	 */
-	wavg = 0;
-	w = 0.5;
-	/*                     n-1
-	 *                     ---    dispersion(i)
-	 * filter_dispersion =  \     -------------
-	 *                      /       (i+1)
-	 *                     ---     2
-	 *                     i=0
-	 */
-	got_newest = 0;
-	sum = 0;
-	for (i = 0; i < NUM_DATAPOINTS; i++) {
-		VERB5 {
-			bb_error_msg("datapoint[%d]: off:%f disp:%f(%f) age:%f%s",
-				i,
-				fdp[idx].d_offset,
-				fdp[idx].d_dispersion, dispersion(&fdp[idx]),
-				G.cur_time - fdp[idx].d_recv_time,
-				(minoff == fdp[idx].d_offset || maxoff == fdp[idx].d_offset)
-					? " (outlier by offset)" : ""
-			);
-		}
-
-		sum += dispersion(&fdp[idx]) / (2 << i);
-
-		if (minoff == fdp[idx].d_offset) {
-			minoff -= 1; /* so that we don't match it ever again */
-		} else
-		if (maxoff == fdp[idx].d_offset) {
-			maxoff += 1;
-		} else {
-			oldest_off = fdp[idx].d_offset;
-			oldest_age = G.cur_time - fdp[idx].d_recv_time;
-			if (!got_newest) {
-				got_newest = 1;
-				newest_off = oldest_off;
-				newest_age = oldest_age;
-			}
-			x = oldest_off * w;
-			wavg += x;
-			w /= 2;
-		}
-
-		idx = (idx - 1) & (NUM_DATAPOINTS - 1);
-	}
-	p->filter_dispersion = sum;
-	wavg += x; /* add another older6/64 to form older6/32 */
-	/* Fix systematic underestimation with large poll intervals.
-	 * Imagine that we still have a bit of uncorrected drift,
-	 * and poll interval is big (say, 100 sec). Offsets form a progression:
-	 * 0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 - 0.7 is most recent.
-	 * The algorithm above drops 0.0 and 0.7 as outliers,
-	 * and then we have this estimation, ~25% off from 0.7:
-	 * 0.1/32 + 0.2/32 + 0.3/16 + 0.4/8 + 0.5/4 + 0.6/2 = 0.503125
-	 */
-	x = oldest_age - newest_age;
-	if (x != 0) {
-		x = newest_age / x; /* in above example, 100 / (600 - 100) */
-		if (x < 1) { /* paranoia check */
-			x = (newest_off - oldest_off) * x; /* 0.5 * 100/500 = 0.1 */
-			wavg += x;
-		}
-	}
-	p->filter_offset = wavg;
-
-#else
-
 	fdp = p->filter_datapoint;
 	idx = p->datapoint_idx; /* most recent datapoint's index */
 
@@ -704,7 +671,6 @@ filter_datapoints(peer_t *p)
 	}
 	wavg /= NUM_DATAPOINTS;
 	p->filter_dispersion = sum;
-#endif
 
 	/*                  +-----                 -----+ ^ 1/2
 	 *                  |       n-1                 |
@@ -737,7 +703,7 @@ reset_peer_stats(peer_t *p, double offset)
 	bool small_ofs = fabs(offset) < STEP_THRESHOLD;
 
 	/* Used to set p->filter_datapoint[i].d_dispersion = MAXDISP
-	 * and clear reachable bits, but this proved to be too agressive:
+	 * and clear reachable bits, but this proved to be too aggressive:
 	 * after step (tested with suspending laptop for ~30 secs),
 	 * this caused all previous data to be considered invalid,
 	 * making us needing to collect full ~8 datapoints per peer
@@ -792,8 +758,12 @@ resolve_peer_hostname(peer_t *p)
 	return lsa;
 }
 
+#if !ENABLE_FEATURE_NTP_AUTH
+#define add_peers(s, key_entry) \
+	add_peers(s)
+#endif
 static void
-add_peers(const char *s)
+add_peers(const char *s, key_entry_t *key_entry)
 {
 	llist_t *item;
 	peer_t *p;
@@ -840,11 +810,53 @@ do_sendto(int fd,
 		ret = send_to_from(fd, msg, len, MSG_DONTWAIT, to, from, addrlen);
 	}
 	if (ret != len) {
-		bb_perror_msg("send failed");
+		bb_simple_perror_msg("send failed");
 		return -1;
 	}
 	return 0;
 }
+
+#if ENABLE_FEATURE_NTP_AUTH
+static void
+hash(key_entry_t *key_entry, const msg_t *msg, uint8_t *output)
+{
+	union {
+		md5_ctx_t m;
+		sha1_ctx_t s;
+	} ctx;
+	unsigned hash_size = sizeof(*msg) - sizeof(msg->m_keyid) - sizeof(msg->m_digest);
+
+	switch (key_entry->type) {
+	case HASH_MD5:
+		md5_begin(&ctx.m);
+		md5_hash(&ctx.m, key_entry->key, key_entry->key_length);
+		md5_hash(&ctx.m, msg, hash_size);
+		md5_end(&ctx.m, output);
+		break;
+	default: /* it's HASH_SHA1 */
+		sha1_begin(&ctx.s);
+		sha1_hash(&ctx.s, key_entry->key, key_entry->key_length);
+		sha1_hash(&ctx.s, msg, hash_size);
+		sha1_end(&ctx.s, output);
+		break;
+	}
+}
+
+static void
+hash_peer(peer_t *p)
+{
+	p->p_xmt_msg.m_keyid = htonl(p->key_entry->id);
+	hash(p->key_entry, &p->p_xmt_msg, p->p_xmt_msg.m_digest);
+}
+
+static int
+hashes_differ(peer_t *p, const msg_t *msg)
+{
+	uint8_t digest[NTP_SHA1_DIGESTSIZE];
+	hash(p->key_entry, msg, digest);
+	return memcmp(digest, msg->m_digest, p->key_entry->msg_size - NTP_MSGSIZE_NOAUTH - KEYID_SIZE);
+}
+#endif
 
 static void
 send_query_to_peer(peer_t *p)
@@ -922,9 +934,18 @@ send_query_to_peer(peer_t *p)
 	 */
 	p->reachable_bits <<= 1;
 
+#if ENABLE_FEATURE_NTP_AUTH
+	if (p->key_entry)
+		hash_peer(p);
 	if (do_sendto(p->p_fd, /*from:*/ NULL, /*to:*/ &p->p_lsa->u.sa, /*addrlen:*/ p->p_lsa->len,
-			&p->p_xmt_msg, NTP_MSGSIZE_NOAUTH) == -1
-	) {
+		&p->p_xmt_msg, !p->key_entry ? NTP_MSGSIZE_NOAUTH : p->key_entry->msg_size) == -1
+	)
+#else
+	if (do_sendto(p->p_fd, /*from:*/ NULL, /*to:*/ &p->p_lsa->u.sa, /*addrlen:*/ p->p_lsa->len,
+		&p->p_xmt_msg, NTP_MSGSIZE_NOAUTH) == -1
+	)
+#endif
+	{
 		close(p->p_fd);
 		p->p_fd = -1;
 		/*
@@ -938,7 +959,6 @@ send_query_to_peer(peer_t *p)
 
 	set_next(p, RESPONSE_INTERVAL);
 }
-
 
 /* Note that there is no provision to prevent several run_scripts
  * to be started in quick succession. In fact, it happens rather often
@@ -1001,11 +1021,10 @@ step_time(double offset)
 	char buf[sizeof("yyyy-mm-dd hh:mm:ss") + /*paranoia:*/ 4];
 	time_t tval;
 
-	gettimeofday(&tvc, NULL); /* never fails */
+	xgettimeofday(&tvc);
 	dtime = tvc.tv_sec + (1.0e-6 * tvc.tv_usec) + offset;
-	d_to_tv(dtime, &tvn);
-	if (settimeofday(&tvn, NULL) == -1)
-		bb_perror_msg_and_die("settimeofday");
+	d_to_tv(&tvn, dtime);
+	xsettimeofday(&tvn);
 
 	VERB2 {
 		tval = tvc.tv_sec;
@@ -1122,7 +1141,7 @@ fit(peer_t *p, double rd)
 //		return 0;
 	return 1;
 }
-static peer_t*
+static NOINLINE peer_t*
 select_and_cluster(void)
 {
 	peer_t     *p;
@@ -1381,7 +1400,7 @@ select_and_cluster(void)
 		/* Starting from 1 is ok here */
 		for (i = 1; i < num_survivors; i++) {
 			if (G.last_update_peer == survivor[i].p) {
-				VERB5 bb_error_msg("keeping old synced peer");
+				VERB5 bb_simple_error_msg("keeping old synced peer");
 				p = G.last_update_peer;
 				goto keep_old;
 			}
@@ -1402,15 +1421,14 @@ select_and_cluster(void)
  * Local clock discipline and its helpers
  */
 static void
-set_new_values(int disc_state, double offset, double recv_time)
+set_new_values(double offset, double recv_time)
 {
 	/* Enter new state and set state variables. Note we use the time
 	 * of the last clock filter sample, which must be earlier than
 	 * the current time.
 	 */
-	VERB4 bb_error_msg("disc_state=%d last update offset=%f recv_time=%f",
-			disc_state, offset, recv_time);
-	G.discipline_state = disc_state;
+	VERB4 bb_error_msg("last update offset=%f recv_time=%f",
+			offset, recv_time);
 	G.last_update_offset = offset;
 	G.last_update_recv_time = recv_time;
 }
@@ -1426,8 +1444,6 @@ update_local_clock(peer_t *p)
 	double abs_offset;
 #if !USING_KERNEL_PLL_LOOP
 	double freq_drift;
-#endif
-#if !USING_KERNEL_PLL_LOOP || USING_INITIAL_FREQ_ESTIMATION
 	double since_last_update;
 #endif
 	double etemp, dtemp;
@@ -1457,63 +1473,15 @@ update_local_clock(peer_t *p)
 	 * action is and defines how the system reacts to large time
 	 * and frequency errors.
 	 */
-#if !USING_KERNEL_PLL_LOOP || USING_INITIAL_FREQ_ESTIMATION
-	since_last_update = recv_time - G.reftime;
-#endif
 #if !USING_KERNEL_PLL_LOOP
+	since_last_update = recv_time - G.reftime;
 	freq_drift = 0;
-#endif
-#if USING_INITIAL_FREQ_ESTIMATION
-	if (G.discipline_state == STATE_FREQ) {
-		/* Ignore updates until the stepout threshold */
-		if (since_last_update < WATCH_THRESHOLD) {
-			VERB4 bb_error_msg("measuring drift, datapoint ignored, %f sec remains",
-					WATCH_THRESHOLD - since_last_update);
-			return 0; /* "leave poll interval as is" */
-		}
-# if !USING_KERNEL_PLL_LOOP
-		freq_drift = (offset - G.last_update_offset) / since_last_update;
-# endif
-	}
 #endif
 
 	/* There are two main regimes: when the
 	 * offset exceeds the step threshold and when it does not.
 	 */
 	if (abs_offset > STEP_THRESHOLD) {
-#if 0
-		double remains;
-
-// This "spike state" seems to be useless, peer selection already drops
-// occassional "bad" datapoints. If we are here, there were _many_
-// large offsets. When a few first large offsets are seen,
-// we end up in "no valid datapoints, no peer selected" state.
-// Only when enough of them are seen (which means it's not a fluke),
-// we end up here. Looks like _our_ clock is off.
-		switch (G.discipline_state) {
-		case STATE_SYNC:
-			/* The first outlyer: ignore it, switch to SPIK state */
-			VERB3 bb_error_msg("update from %s: offset:%+f, spike%s",
-				p->p_dotted, offset,
-				"");
-			G.discipline_state = STATE_SPIK;
-			return -1; /* "decrease poll interval" */
-
-		case STATE_SPIK:
-			/* Ignore succeeding outlyers until either an inlyer
-			 * is found or the stepout threshold is exceeded.
-			 */
-			remains = WATCH_THRESHOLD - since_last_update;
-			if (remains > 0) {
-				VERB3 bb_error_msg("update from %s: offset:%+f, spike%s",
-					p->p_dotted, offset,
-					", datapoint ignored");
-				return -1; /* "decrease poll interval" */
-			}
-			/* fall through: we need to step */
-		} /* switch */
-#endif
-
 		/* Step the time and clamp down the poll interval.
 		 *
 		 * In NSET state an initial frequency correction is
@@ -1548,15 +1516,16 @@ update_local_clock(peer_t *p)
 
 		recv_time += offset;
 
-#if USING_INITIAL_FREQ_ESTIMATION
-		if (G.discipline_state == STATE_NSET) {
-			set_new_values(STATE_FREQ, /*offset:*/ 0, recv_time);
-			return 1; /* "ok to increase poll interval" */
-		}
-#endif
 		abs_offset = offset = 0;
-		set_new_values(STATE_SYNC, offset, recv_time);
+		set_new_values(offset, recv_time);
 	} else { /* abs_offset <= STEP_THRESHOLD */
+
+		if (option_mask32 & OPT_q) {
+			/* We were only asked to set time once.
+			 * The clock is precise enough, no need to step.
+			 */
+			exit(0);
+		}
 
 		/* The ratio is calculated before jitter is updated to make
 		 * poll adjust code more sensitive to large offsets.
@@ -1572,75 +1541,31 @@ update_local_clock(peer_t *p)
 		if (G.discipline_jitter < G_precision_sec)
 			G.discipline_jitter = G_precision_sec;
 
-		switch (G.discipline_state) {
-		case STATE_NSET:
-			if (option_mask32 & OPT_q) {
-				/* We were only asked to set time once.
-				 * The clock is precise enough, no need to step.
-				 */
-				exit(0);
-			}
-#if USING_INITIAL_FREQ_ESTIMATION
-			/* This is the first update received and the frequency
-			 * has not been initialized. The first thing to do
-			 * is directly measure the oscillator frequency.
-			 */
-			set_new_values(STATE_FREQ, offset, recv_time);
-#else
-			set_new_values(STATE_SYNC, offset, recv_time);
-#endif
-			VERB4 bb_error_msg("transitioning to FREQ, datapoint ignored");
-			return 0; /* "leave poll interval as is" */
-
-#if 0 /* this is dead code for now */
-		case STATE_FSET:
-			/* This is the first update and the frequency
-			 * has been initialized. Adjust the phase, but
-			 * don't adjust the frequency until the next update.
-			 */
-			set_new_values(STATE_SYNC, offset, recv_time);
-			/* freq_drift remains 0 */
-			break;
-#endif
-
-#if USING_INITIAL_FREQ_ESTIMATION
-		case STATE_FREQ:
-			/* since_last_update >= WATCH_THRESHOLD, we waited enough.
-			 * Correct the phase and frequency and switch to SYNC state.
-			 * freq_drift was already estimated (see code above)
-			 */
-			set_new_values(STATE_SYNC, offset, recv_time);
-			break;
-#endif
-
-		default:
 #if !USING_KERNEL_PLL_LOOP
-			/* Compute freq_drift due to PLL and FLL contributions.
-			 *
-			 * The FLL and PLL frequency gain constants
-			 * depend on the poll interval and Allan
-			 * intercept. The FLL is not used below one-half
-			 * the Allan intercept. Above that the loop gain
-			 * increases in steps to 1 / AVG.
-			 */
-			if ((1 << G.poll_exp) > ALLAN / 2) {
-				etemp = FLL - G.poll_exp;
-				if (etemp < AVG)
-					etemp = AVG;
-				freq_drift += (offset - G.last_update_offset) / (MAXD(since_last_update, ALLAN) * etemp);
-			}
-			/* For the PLL the integration interval
-			 * (numerator) is the minimum of the update
-			 * interval and poll interval. This allows
-			 * oversampling, but not undersampling.
-			 */
-			etemp = MIND(since_last_update, (1 << G.poll_exp));
-			dtemp = (4 * PLL) << G.poll_exp;
-			freq_drift += offset * etemp / SQUARE(dtemp);
-#endif
-			set_new_values(STATE_SYNC, offset, recv_time);
-			break;
+		/* Compute freq_drift due to PLL and FLL contributions.
+		 *
+		 * The FLL and PLL frequency gain constants
+		 * depend on the poll interval and Allan
+		 * intercept. The FLL is not used below one-half
+		 * the Allan intercept. Above that the loop gain
+		 * increases in steps to 1 / AVG.
+		 */
+		if ((1 << G.poll_exp) > ALLAN / 2) {
+			etemp = FLL - G.poll_exp;
+			if (etemp < AVG)
+				etemp = AVG;
+			freq_drift += (offset - G.last_update_offset) / (MAXD(since_last_update, ALLAN) * etemp);
 		}
+		/* For the PLL the integration interval
+		 * (numerator) is the minimum of the update
+		 * interval and poll interval. This allows
+		 * oversampling, but not undersampling.
+		 */
+		etemp = MIND(since_last_update, (1 << G.poll_exp));
+		dtemp = (4 * PLL) << G.poll_exp;
+		freq_drift += offset * etemp / SQUARE(dtemp);
+#endif
+		set_new_values(offset, recv_time);
 		if (G.stratum != p->lastpkt_stratum + 1) {
 			G.stratum = p->lastpkt_stratum + 1;
 			run_script("stratum", offset);
@@ -1649,16 +1574,17 @@ update_local_clock(peer_t *p)
 
 	G.reftime = G.cur_time;
 	G.ntp_status = p->lastpkt_status;
-	G.refid = p->lastpkt_refid;
+#if ENABLE_FEATURE_NTPD_SERVER
+	/* Our current refid is the IPv4 (or md5-hashed IPv6) address of the peer we took time from: */
+	G.refid = p->p_refid;
+#endif
 	G.rootdelay = p->lastpkt_rootdelay + p->lastpkt_delay;
 	dtemp = p->filter_jitter; // SQRT(SQUARE(p->filter_jitter) + SQUARE(G.cluster_jitter));
 	dtemp += MAXD(p->filter_dispersion + FREQ_TOLERANCE * (G.cur_time - p->lastpkt_recv_time) + abs_offset, MINDISP);
 	G.rootdisp = p->lastpkt_rootdisp + dtemp;
 	VERB4 bb_error_msg("updating leap/refid/reftime/rootdisp from peer %s", p->p_dotted);
 
-	/* We are in STATE_SYNC now, but did not do adjtimex yet.
-	 * (Any other state does not reach this, they all return earlier)
-	 * By this time, freq_drift and offset are set
+	/* By this time, freq_drift and offset are set
 	 * to values suitable for adjtimex.
 	 */
 #if !USING_KERNEL_PLL_LOOP
@@ -1683,7 +1609,7 @@ update_local_clock(peer_t *p)
 	VERB4 {
 		memset(&tmx, 0, sizeof(tmx));
 		if (adjtimex(&tmx) < 0)
-			bb_perror_msg_and_die("adjtimex");
+			bb_simple_perror_msg_and_die("adjtimex");
 		bb_error_msg("p adjtimex freq:%ld offset:%+ld status:0x%x tc:%ld",
 				tmx.freq, tmx.offset, tmx.status, tmx.constant);
 	}
@@ -1793,7 +1719,7 @@ update_local_clock(peer_t *p)
 	//tmx.maxerror = (uint32_t)((sys_rootdelay / 2 + sys_rootdisp) * 1e6);
 	rc = adjtimex(&tmx);
 	if (rc < 0)
-		bb_perror_msg_and_die("adjtimex");
+		bb_simple_perror_msg_and_die("adjtimex");
 	/* NB: here kernel returns constant == G.poll_exp, not == G.poll_exp - 4.
 	 * Not sure why. Perhaps it is normal.
 	 */
@@ -1811,7 +1737,6 @@ update_local_clock(peer_t *p)
 
 	return 1; /* "ok to increase poll interval" */
 }
-
 
 /*
  * We've got a new reply packet from a peer, process it
@@ -1912,10 +1837,21 @@ recv_and_process_peer_pkt(peer_t *p)
 		bb_perror_msg_and_die("recv(%s) error", p->p_dotted);
 	}
 
-	if (size != NTP_MSGSIZE_NOAUTH && size != NTP_MSGSIZE) {
-		bb_error_msg("malformed packet received from %s", p->p_dotted);
+#if ENABLE_FEATURE_NTP_AUTH
+	if (size != NTP_MSGSIZE_NOAUTH && size != NTP_MSGSIZE_MD5_AUTH && size != NTP_MSGSIZE_SHA1_AUTH) {
+		bb_error_msg("malformed packet received from %s: size %u", p->p_dotted, (int)size);
 		return;
 	}
+	if (p->key_entry && hashes_differ(p, &msg)) {
+		bb_error_msg("invalid cryptographic hash received from %s", p->p_dotted);
+		return;
+	}
+#else
+	if (size != NTP_MSGSIZE_NOAUTH && size != NTP_MSGSIZE_MD5_AUTH) {
+		bb_error_msg("malformed packet received from %s: size %u", p->p_dotted, (int)size);
+		return;
+	}
+#endif
 
 	if (msg.m_orgtime.int_partl != p->p_xmt_msg.m_xmttime.int_partl
 	 || msg.m_orgtime.fractionl != p->p_xmt_msg.m_xmttime.fractionl
@@ -2018,7 +1954,7 @@ recv_and_process_peer_pkt(peer_t *p)
 
 	p->reachable_bits |= 1;
 	if ((MAX_VERBOSE && G.verbose) || (option_mask32 & OPT_w)) {
-		bb_error_msg("reply from %s: offset:%+f delay:%f status:0x%02x strat:%d refid:0x%08x rootdelay:%f reach:0x%02x",
+		bb_info_msg("reply from %s: offset:%+f delay:%f status:0x%02x strat:%d refid:0x%08x rootdelay:%f reach:0x%02x",
 			p->p_dotted,
 			offset,
 			p->p_raw_delay,
@@ -2124,12 +2060,24 @@ recv_and_process_client_pkt(void /*int fd*/)
 	from = xzalloc(to->len);
 
 	size = recv_from_to(G_listen_fd, &msg, sizeof(msg), MSG_DONTWAIT, from, &to->u.sa, to->len);
-	if (size != NTP_MSGSIZE_NOAUTH && size != NTP_MSGSIZE) {
+
+	/* "ntpq -p" (4.2.8p13) sends a 12-byte NTPv2 request:
+	 * m_status is 0x16: leap:0 version:2 mode:6(reserved1)
+	 *  https://docs.ntpsec.org/latest/mode6.html
+	 * We don't support this.
+	 */
+
+# if ENABLE_FEATURE_NTP_AUTH
+	if (size != NTP_MSGSIZE_NOAUTH && size != NTP_MSGSIZE_MD5_AUTH && size != NTP_MSGSIZE_SHA1_AUTH)
+# else
+	if (size != NTP_MSGSIZE_NOAUTH && size != NTP_MSGSIZE_MD5_AUTH)
+# endif
+	{
 		char *addr;
 		if (size < 0) {
 			if (errno == EAGAIN)
 				goto bail;
-			bb_perror_msg_and_die("recv");
+			bb_simple_perror_msg_and_die("recv");
 		}
 		addr = xmalloc_sockaddr2dotted_noport(from);
 		bb_error_msg("malformed packet received from %s: size %u", addr, (int)size);
@@ -2157,17 +2105,17 @@ recv_and_process_client_pkt(void /*int fd*/)
 	msg.m_ppoll = G.poll_exp;
 	msg.m_precision_exp = G_precision_exp;
 	/* this time was obtained between poll() and recv() */
-	msg.m_rectime = d_to_lfp(G.cur_time);
-	msg.m_xmttime = d_to_lfp(gettime1900d()); /* this instant */
+	d_to_lfp(&msg.m_rectime, G.cur_time);
+	d_to_lfp(&msg.m_xmttime, gettime1900d()); /* this instant */
 	if (G.peer_cnt == 0) {
 		/* we have no peers: "stratum 1 server" mode. reftime = our own time */
 		G.reftime = G.cur_time;
 	}
-	msg.m_reftime = d_to_lfp(G.reftime);
+	d_to_lfp(&msg.m_reftime, G.reftime);
 	msg.m_orgtime = query_xmttime;
-	msg.m_rootdelay = d_to_sfp(G.rootdelay);
+	d_to_sfp(&msg.m_rootdelay, G.rootdelay);
 //simple code does not do this, fix simple code!
-	msg.m_rootdisp = d_to_sfp(G.rootdisp);
+	d_to_sfp(&msg.m_rootdisp, G.rootdisp);
 	//version = (query_status & VERSION_MASK); /* ... >> VERSION_SHIFT - done below instead */
 	msg.m_refid = G.refid; // (version > (3 << VERSION_SHIFT)) ? G.refid : G.refid3;
 
@@ -2176,6 +2124,12 @@ recv_and_process_client_pkt(void /*int fd*/)
 	do_sendto(G_listen_fd,
 		/*from:*/ &to->u.sa, /*to:*/ from, /*addrlen:*/ to->len,
 		&msg, size);
+	VERB3 {
+		char *addr;
+		addr = xmalloc_sockaddr2dotted_noport(from);
+		bb_error_msg("responded to query from %s", addr);
+		free(addr);
+	}
 
  bail:
 	free(to);
@@ -2267,6 +2221,19 @@ recv_and_process_client_pkt(void /*int fd*/)
  *      with the -g and -q options. See the tinker command for other options.
  *      Note: The kernel time discipline is disabled with this option.
  */
+#if ENABLE_FEATURE_NTP_AUTH
+static key_entry_t *
+find_key_entry(llist_t *key_entries, unsigned id)
+{
+	while (key_entries) {
+		key_entry_t *cur = (key_entry_t*) key_entries->data;
+		if (cur->id == id)
+			return cur;
+		key_entries = key_entries->link;
+	}
+	bb_error_msg_and_die("key %u is not defined", id);
+}
+#endif
 
 /* By doing init in a separate function we decrease stack usage
  * in main loop.
@@ -2275,11 +2242,12 @@ static NOINLINE void ntp_init(char **argv)
 {
 	unsigned opts;
 	llist_t *peers;
+#if ENABLE_FEATURE_NTP_AUTH
+	llist_t *key_entries;
+	char *key_file_path;
+#endif
 
 	srand(getpid());
-
-	if (getuid())
-		bb_error_msg_and_die(bb_msg_you_must_be_root);
 
 	/* Set some globals */
 	G.discipline_jitter = G_precision_sec;
@@ -2291,19 +2259,22 @@ static NOINLINE void ntp_init(char **argv)
 
 	/* Parse options */
 	peers = NULL;
-	opt_complementary = "dd:p::wn"         /* -d: counter; -p: list; -w implies -n */
-		IF_FEATURE_NTPD_SERVER(":Il"); /* -I implies -l */
-	opts = getopt32(argv,
+	IF_FEATURE_NTP_AUTH(key_entries = NULL;)
+	opts = getopt32(argv, "^"
 			"nqNx" /* compat */
-			"wp:S:t"IF_FEATURE_NTPD_SERVER("l") /* NOT compat */
+			IF_FEATURE_NTP_AUTH("k:")
+			"wp:*S:t"IF_FEATURE_NTPD_SERVER("l") /* NOT compat */
 			IF_FEATURE_NTPD_SERVER("I:") /* compat */
 			"d" /* compat */
-			"46aAbgL", /* compat, ignored */
-			&peers, &G.script_name,
+			"46aAbgL" /* compat, ignored */
+			"\0" "=0:dd:wn"
+			IF_FEATURE_NTPD_SERVER(":Il")
+			IF_FEATURE_NTP_AUTH(, &key_file_path)
+			, &peers, &G.script_name
 #if ENABLE_FEATURE_NTPD_SERVER
-			&G.if_name,
+			, &G.if_name
 #endif
-			&G.verbose);
+			, &G.verbose);
 
 //	if (opts & OPT_x) /* disable stepping, only slew is allowed */
 //		G.time_was_stepped = 1;
@@ -2329,19 +2300,97 @@ static NOINLINE void ntp_init(char **argv)
 		logmode = LOGMODE_NONE;
 	}
 
+#if ENABLE_FEATURE_NTP_AUTH
+	if (opts & OPT_k) {
+		char *tokens[4];
+		parser_t *parser;
+
+		parser = config_open(key_file_path);
+		while (config_read(parser, tokens, 4, 3, "# \t", PARSE_NORMAL | PARSE_MIN_DIE) == 3) {
+			key_entry_t *key_entry;
+			char buffer[40];
+			smalluint hash_type;
+			smalluint msg_size;
+			smalluint key_length;
+			char *key;
+
+			if ((tokens[1][0] | 0x20) == 'm')
+				hash_type = HASH_MD5;
+			else if (strncasecmp(tokens[1], "sha", 3) == 0)
+				hash_type = HASH_SHA1;
+			else
+				bb_simple_error_msg_and_die("only MD5 and SHA1 keys supported");
+
+			key_length = strnlen(tokens[2], sizeof(buffer)+1);
+			if (key_length >= sizeof(buffer)+1) {
+ err:
+				bb_error_msg_and_die("malformed key at line %u", parser->lineno);
+			}
+			if (hash_type == HASH_MD5) {
+				key = tokens[2];
+				msg_size = NTP_MSGSIZE_MD5_AUTH;
+			} else if (!(key_length & 1)) {
+				key_length >>= 1;
+				if (!hex2bin(buffer, tokens[2], key_length))
+					goto err;
+				key = buffer;
+				msg_size = NTP_MSGSIZE_SHA1_AUTH;
+			} else {
+				goto err;
+			}
+			key_entry = xzalloc(sizeof(*key_entry) + key_length);
+			key_entry->type = hash_type;
+			key_entry->msg_size = msg_size;
+			key_entry->key_length = key_length;
+			memcpy(key_entry->key, key, key_length);
+			key_entry->id = xatou_range(tokens[0], 1, MAX_KEY_NUMBER);
+			llist_add_to(&key_entries, key_entry);
+		}
+		config_close(parser);
+	}
+#endif
 	if (peers) {
+#if ENABLE_FEATURE_NTP_AUTH
+		while (peers) {
+			char *peer = llist_pop(&peers);
+			key_entry_t *key_entry = NULL;
+			if (strncmp(peer, "keyno:", 6) == 0) {
+				char *end;
+				int key_id;
+				peer += 6;
+				end = strchr(peer, ':');
+				if (!end) bb_show_usage();
+				*end = '\0';
+				key_id = xatou_range(peer, 1, MAX_KEY_NUMBER);
+				*end = ':';
+				key_entry = find_key_entry(key_entries, key_id);
+				peer = end + 1;
+			}
+			add_peers(peer, key_entry);
+		}
+#else
 		while (peers)
-			add_peers(llist_pop(&peers));
+			add_peers(llist_pop(&peers), NULL);
+#endif
 	}
 #if ENABLE_FEATURE_NTPD_CONF
 	else {
 		parser_t *parser;
-		char *token[3];
+		char *token[3 + 2*ENABLE_FEATURE_NTP_AUTH];
 
 		parser = config_open("/etc/ntp.conf");
-		while (config_read(parser, token, 3, 1, "# \t", PARSE_NORMAL)) {
+		while (config_read(parser, token, 3 + 2*ENABLE_FEATURE_NTP_AUTH, 1, "# \t", PARSE_NORMAL)) {
 			if (strcmp(token[0], "server") == 0 && token[1]) {
-				add_peers(token[1]);
+# if ENABLE_FEATURE_NTP_AUTH
+				key_entry_t *key_entry = NULL;
+				if (token[2] && token[3] && strcmp(token[2], "key") == 0) {
+					unsigned key_id = xatou_range(token[3], 1, MAX_KEY_NUMBER);
+					key_entry = find_key_entry(key_entries, key_id);
+				}
+				add_peers(token[1], key_entry);
+# else
+				add_peers(token[1], NULL);
+# endif
 				continue;
 			}
 			bb_error_msg("skipping %s:%u: unimplemented command '%s'",
@@ -2382,6 +2431,7 @@ static NOINLINE void ntp_init(char **argv)
 		| (1 << SIGCHLD)
 		, SIG_IGN
 	);
+//TODO: free unused elements of key_entries?
 }
 
 int ntpd_main(int argc UNUSED_PARAM, char **argv) MAIN_EXTERNALLY_VISIBLE;
@@ -2412,8 +2462,6 @@ int ntpd_main(int argc UNUSED_PARAM, char **argv)
 	 */
 	cnt = G.peer_cnt * (INITIAL_SAMPLES + 1);
 
-	write_pidfile(CONFIG_PID_FILE_PATH "/ntpd.pid");
-
 	while (!bb_got_signal) {
 		llist_t *item;
 		unsigned i, j;
@@ -2442,7 +2490,7 @@ int ntpd_main(int argc UNUSED_PARAM, char **argv)
 				if (p->p_fd == -1) {
 					/* Time to send new req */
 					if (--cnt == 0) {
-						VERB4 bb_error_msg("disabling burst mode");
+						VERB4 bb_simple_error_msg("disabling burst mode");
 						G.polladj_count = 0;
 						G.poll_exp = MINPOLL;
 					}
@@ -2484,7 +2532,7 @@ int ntpd_main(int argc UNUSED_PARAM, char **argv)
 		timeout++; /* (nextaction - G.cur_time) rounds down, compensating */
 
 		/* Here we may block */
-		VERB2 {
+		VERB3 {
 			if (i > (ENABLE_FEATURE_NTPD_SERVER && G_listen_fd != -1)) {
 				/* We wait for at least one reply.
 				 * Poll for it, without wasting time for message.
@@ -2585,7 +2633,7 @@ int ntpd_main(int argc UNUSED_PARAM, char **argv)
 		}
 	} /* while (!bb_got_signal) */
 
-	remove_pidfile(CONFIG_PID_FILE_PATH "/ntpd.pid");
+	remove_pidfile_std_path_and_ext("ntpd");
 	kill_myself_with_sig(bb_got_signal);
 }
 

@@ -66,6 +66,9 @@ struct volume_id {
 	uint8_t		*sbbuf;
 	uint8_t		*seekbuf;
 	uint64_t	seekbuf_off;
+#if ENABLE_FEATURE_BLKID_TYPE
+	const char	*type;
+#endif
 #ifdef UNUSED_PARTITION_CODE
 	struct volume_id_partition *partitions;
 	size_t		partition_count;
@@ -80,9 +83,6 @@ struct volume_id {
 //	char		type_version[VOLUME_ID_FORMAT_SIZE];
 //	smallint	usage_id;
 //	const char	*usage;
-#if ENABLE_FEATURE_BLKID_TYPE
-	const char	*type;
-#endif
 };
 
 struct volume_id* FAST_FUNC volume_id_open_node(int fd);
@@ -187,13 +187,15 @@ int FAST_FUNC volume_id_probe_iso9660(struct volume_id *id /*,uint64_t off*/);
 
 int FAST_FUNC volume_id_probe_jfs(struct volume_id *id /*,uint64_t off*/);
 
+int FAST_FUNC volume_id_probe_lfs(struct volume_id *id /*,uint64_t off*/);
+
 int FAST_FUNC volume_id_probe_linux_swap(struct volume_id *id /*,uint64_t off*/);
 
 int FAST_FUNC volume_id_probe_luks(struct volume_id *id /*,uint64_t off*/);
 
 //int FAST_FUNC volume_id_probe_mac_partition_map(struct volume_id *id /*,uint64_t off*/);
 
-//int FAST_FUNC volume_id_probe_minix(struct volume_id *id /*,uint64_t off*/);
+int FAST_FUNC volume_id_probe_minix(struct volume_id *id /*, uint64_t off*/);
 
 //int FAST_FUNC volume_id_probe_msdos_part_table(struct volume_id *id /*,uint64_t off*/);
 
@@ -213,6 +215,8 @@ int FAST_FUNC volume_id_probe_romfs(struct volume_id *id /*,uint64_t off*/);
 
 int FAST_FUNC volume_id_probe_squashfs(struct volume_id *id /*,uint64_t off*/);
 
+int FAST_FUNC volume_id_probe_erofs(struct volume_id *id /*,uint64_t off*/);
+
 int FAST_FUNC volume_id_probe_sysv(struct volume_id *id /*,uint64_t off*/);
 
 int FAST_FUNC volume_id_probe_udf(struct volume_id *id /*,uint64_t off*/);
@@ -220,5 +224,7 @@ int FAST_FUNC volume_id_probe_udf(struct volume_id *id /*,uint64_t off*/);
 //int FAST_FUNC volume_id_probe_ufs(struct volume_id *id /*,uint64_t off*/);
 
 int FAST_FUNC volume_id_probe_xfs(struct volume_id *id /*,uint64_t off*/);
+
+int FAST_FUNC volume_id_probe_ubifs(struct volume_id *id /*,uint64_t off*/);
 
 POP_SAVED_FUNCTION_VISIBILITY

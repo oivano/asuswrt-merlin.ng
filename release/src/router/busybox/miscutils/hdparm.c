@@ -11,6 +11,66 @@
  * hdparm.c - Command line interface to get/set hard disk parameters
  *          - by Mark Lord (C) 1994-2002 -- freely distributable
  */
+//config:config HDPARM
+//config:	bool "hdparm (25 kb)"
+//config:	default y
+//config:	help
+//config:	Get/Set hard drive parameters. Primarily intended for ATA
+//config:	drives.
+//config:
+//config:config FEATURE_HDPARM_GET_IDENTITY
+//config:	bool "Support obtaining detailed information directly from drives"
+//config:	default y
+//config:	depends on HDPARM
+//config:	help
+//config:	Enable the -I and -i options to obtain detailed information
+//config:	directly from drives about their capabilities and supported ATA
+//config:	feature set. If no device name is specified, hdparm will read
+//config:	identify data from stdin. Enabling this option will add about 16k...
+//config:
+//config:config FEATURE_HDPARM_HDIO_SCAN_HWIF
+//config:	bool "Register an IDE interface (DANGEROUS)"
+//config:	default y
+//config:	depends on HDPARM
+//config:	help
+//config:	Enable the 'hdparm -R' option to register an IDE interface.
+//config:	This is dangerous stuff, so you should probably say N.
+//config:
+//config:config FEATURE_HDPARM_HDIO_UNREGISTER_HWIF
+//config:	bool "Un-register an IDE interface (DANGEROUS)"
+//config:	default y
+//config:	depends on HDPARM
+//config:	help
+//config:	Enable the 'hdparm -U' option to un-register an IDE interface.
+//config:	This is dangerous stuff, so you should probably say N.
+//config:
+//config:config FEATURE_HDPARM_HDIO_DRIVE_RESET
+//config:	bool "Perform device reset (DANGEROUS)"
+//config:	default y
+//config:	depends on HDPARM
+//config:	help
+//config:	Enable the 'hdparm -w' option to perform a device reset.
+//config:	This is dangerous stuff, so you should probably say N.
+//config:
+//config:config FEATURE_HDPARM_HDIO_TRISTATE_HWIF
+//config:	bool "Tristate device for hotswap (DANGEROUS)"
+//config:	default y
+//config:	depends on HDPARM
+//config:	help
+//config:	Enable the 'hdparm -x' option to tristate device for hotswap,
+//config:	and the '-b' option to get/set bus state. This is dangerous
+//config:	stuff, so you should probably say N.
+//config:
+//config:config FEATURE_HDPARM_HDIO_GETSET_DMA
+//config:	bool "Get/set using_dma flag"
+//config:	default y
+//config:	depends on HDPARM
+//config:	help
+//config:	Enable the 'hdparm -d' option to get/set using_dma flag.
+
+//applet:IF_HDPARM(APPLET(hdparm, BB_DIR_SBIN, BB_SUID_DROP))
+
+//kbuild:lib-$(CONFIG_HDPARM) += hdparm.o
 
 //usage:#define hdparm_trivial_usage
 //usage:       "[OPTIONS] [DEVICE]"
@@ -738,7 +798,7 @@ static void identify(uint16_t *val)
 	if (!(val[GEN_CONFIG] & NOT_ATA)) {
 		dev = ATA_DEV;
 		printf("ATA device, with ");
-	} else if (val[GEN_CONFIG]==CFA_SUPPORT_VAL) {
+	} else if (val[GEN_CONFIG] == CFA_SUPPORT_VAL) {
 		dev = ATA_DEV;
 		like_std = 4;
 		printf("CompactFlash ATA device, with ");
@@ -749,7 +809,7 @@ static void identify(uint16_t *val)
 		like_std = 3;
 	} else
 		/* "Unknown device type:\n\tbits 15&14 of general configuration word 0 both set to 1.\n" */
-		bb_error_msg_and_die("unknown device type");
+		bb_simple_error_msg_and_die("unknown device type");
 
 	printf("%sremovable media\n", !(val[GEN_CONFIG] & MEDIA_REMOVABLE) ? "non-" : "");
 	/* Info from the specific configuration word says whether or not the
@@ -759,13 +819,13 @@ static void identify(uint16_t *val)
 	 * specific, it should be safe to check it now, even though we don't
 	 * know yet what standard this device is using.
 	 */
-	if ((val[CONFIG]==STBY_NID_VAL) || (val[CONFIG]==STBY_ID_VAL)
-	 || (val[CONFIG]==PWRD_NID_VAL) || (val[CONFIG]==PWRD_ID_VAL)
+	if ((val[CONFIG] == STBY_NID_VAL) || (val[CONFIG] == STBY_ID_VAL)
+	 || (val[CONFIG] == PWRD_NID_VAL) || (val[CONFIG] == PWRD_ID_VAL)
 	) {
 		like_std = 5;
-		if ((val[CONFIG]==STBY_NID_VAL) || (val[CONFIG]==STBY_ID_VAL))
+		if ((val[CONFIG] == STBY_NID_VAL) || (val[CONFIG] == STBY_ID_VAL))
 			puts("powers-up in standby; SET FEATURES subcmd spins-up.");
-		if (((val[CONFIG]==STBY_NID_VAL) || (val[CONFIG]==PWRD_NID_VAL)) && (val[GEN_CONFIG] & INCOMPLETE))
+		if (((val[CONFIG] == STBY_NID_VAL) || (val[CONFIG] == PWRD_NID_VAL)) && (val[GEN_CONFIG] & INCOMPLETE))
 			puts("\n\tWARNING: ID response incomplete.\n\tFollowing data may be incorrect.\n");
 	}
 
@@ -793,7 +853,7 @@ static void identify(uint16_t *val)
 			printf("\n\tSupported: ");
 			jj = val[MAJOR] << 1;
 			kk = like_std >4 ? like_std-4: 0;
-			for (ii = 14; (ii >0)&&(ii>kk); ii--) {
+			for (ii = 14; (ii > 0) && (ii > kk); ii--) {
 				if (jj & 0x8000) {
 					printf("%u ", ii);
 					if (like_std < ii) {
@@ -883,7 +943,7 @@ static void identify(uint16_t *val)
 		for (ii = 1; ii < 15; ii++) {
 			if (jj & 0x0001)
 				printf("\t%s\n", nth_string(ata1_cfg_str, ii));
-			jj >>=1;
+			jj >>= 1;
 		}
 	}
 	if (dev == ATAPI_DEV) {
@@ -892,7 +952,7 @@ static void identify(uint16_t *val)
 		else if ((val[GEN_CONFIG] & DRQ_RESPONSE_TIME) ==  DRQ_INTR_VAL)
 			strng = "<=10ms with INTRQ";
 		else if ((val[GEN_CONFIG] & DRQ_RESPONSE_TIME) ==  DRQ_50US_VAL)
-			strng ="50us";
+			strng = "50us";
 		else
 			strng = "unknown";
 		printf("\tDRQ response: %s\n\tPacket size: ", strng); /* Data Request (DRQ) */
@@ -935,7 +995,7 @@ static void identify(uint16_t *val)
 					/* check Endian of capacity bytes */
 					nn = val[LCYLS_CUR] * val[LHEADS_CUR] * val[LSECTS_CUR];
 					oo = (uint32_t)val[CAPACITY_LSB] << 16 | val[CAPACITY_MSB];
-					if (abs(mm - nn) > abs(oo - nn))
+					if (abs((int)(mm - nn)) > abs((int)(oo - nn)))
 						mm = oo;
 				}
 				printf("\tCHS current addressable sectors:%11u\n", mm);
@@ -954,7 +1014,7 @@ static void identify(uint16_t *val)
 		}
 
 		if (!bbbig)
-			bbbig = (uint64_t)(ll>mm ? ll : mm); /* # 512 byte blocks */
+			bbbig = (uint64_t)(ll > mm ? ll : mm); /* # 512 byte blocks */
 		printf("\tdevice size with M = 1024*1024: %11"PRIu64" MBytes\n", bbbig>>11);
 		bbbig = (bbbig << 9) / 1000000;
 		printf("\tdevice size with M = 1000*1000: %11"PRIu64" MBytes ", bbbig);
@@ -1100,7 +1160,7 @@ static void identify(uint16_t *val)
 		jj = ((val[ADV_PIO_MODES] & PIO_SUP) << 3) | 0x0007;
 		for (ii = 0; ii <= PIO_MODE_MAX; ii++) {
 			if (jj & 0x0001) printf("pio%d ", ii);
-			jj >>=1;
+			jj >>= 1;
 		}
 		bb_putchar('\n');
 	} else if (((min_std < 5) || (eqpt == CDROM)) && (val[PIO_MODE] & MODE)) {
@@ -1139,7 +1199,7 @@ static void identify(uint16_t *val)
 			}
 			if (ii == 31) {
 				if ((val[CMDS_SUPP_2] & VALID) != VALID_VAL)
-					ii +=16;
+					ii += 16;
 			}
 		}
 	}
@@ -1160,7 +1220,7 @@ static void identify(uint16_t *val)
 				printf("\t%s\t%s\n",
 					(!(jj & 0x0001)) ? "not" : "",
 					nth_string(secu_str, ii));
-				jj >>=1;
+				jj >>= 1;
 			}
 			if (val[SECU_STATUS] & SECU_ENABLED) {
 				printf("\tSecurity level %s\n",
@@ -1211,7 +1271,7 @@ static void identify(uint16_t *val)
 		}
 	}
 
-	exit(EXIT_SUCCESS);
+	exit_SUCCESS();
 }
 #endif
 
@@ -1306,7 +1366,7 @@ static NOINLINE void dump_identity(const struct hd_driveid *id)
 	}
 	if (id->capability & 1) {
 		if (id->dma_1word | id->dma_mword) {
-			static const int dma_wmode_masks[] = { 0x100, 1, 0x200, 2, 0x400, 4, 0xf800, 0xf8 };
+			static const int dma_wmode_masks[] ALIGN4 = { 0x100, 1, 0x200, 2, 0x400, 4, 0xf800, 0xf8 };
 			printf("\n DMA modes:  ");
 			print_flags_separated(dma_wmode_masks,
 				"*\0""sdma0 \0""*\0""sdma1 \0""*\0""sdma2 \0""*\0""sdma? \0",
@@ -1376,10 +1436,10 @@ static void flush_buffer_cache(/*int fd*/ void)
 	fsync(fd);				/* flush buffers */
 	ioctl_or_warn(fd, BLKFLSBUF, NULL); /* do it again, big time */
 #ifdef HDIO_DRIVE_CMD
-	sleep(1);
+	sleep1();
 	if (ioctl(fd, HDIO_DRIVE_CMD, NULL) && errno != EINVAL) {	/* await completion */
 		if (ENABLE_IOCTL_HEX2STR_ERROR) /* To be coherent with ioctl_or_warn */
-			bb_perror_msg("HDIO_DRIVE_CMD");
+			bb_simple_perror_msg("HDIO_DRIVE_CMD");
 		else
 			bb_perror_msg("ioctl %#x failed", HDIO_DRIVE_CMD);
 	}
@@ -1445,13 +1505,13 @@ static void do_time(int cache /*,int fd*/)
 	char *buf = xmalloc(TIMING_BUF_BYTES);
 
 	if (mlock(buf, TIMING_BUF_BYTES))
-		bb_perror_msg_and_die("mlock");
+		bb_simple_perror_msg_and_die("mlock");
 
 	/* Clear out the device request queues & give them time to complete.
 	 * NB: *small* delay. User is expected to have a clue and to not run
 	 * heavy io in parallel with measurements. */
 	sync();
-	sleep(1);
+	sleep1();
 	if (cache) { /* Time cache */
 		seek_to_zero();
 		read_big_block(buf);
@@ -1796,7 +1856,7 @@ static void process_dev(char *devname)
 		char buf[512];
 		flush_buffer_cache();
 		if (-1 == read(fd, buf, sizeof(buf)))
-			bb_perror_msg("read of 512 bytes failed");
+			bb_simple_perror_msg("read of 512 bytes failed");
 	}
 #endif  /* HDIO_DRIVE_CMD */
 	if (getset_mult || get_identity) {
@@ -1804,7 +1864,7 @@ static void process_dev(char *devname)
 		if (ioctl(fd, HDIO_GET_MULTCOUNT, &multcount)) {
 			/* To be coherent with ioctl_or_warn. */
 			if (getset_mult && ENABLE_IOCTL_HEX2STR_ERROR)
-				bb_perror_msg("HDIO_GET_MULTCOUNT");
+				bb_simple_perror_msg("HDIO_GET_MULTCOUNT");
 			else
 				bb_perror_msg("ioctl %#x failed", HDIO_GET_MULTCOUNT);
 		} else if (getset_mult) {
@@ -1924,7 +1984,7 @@ static void process_dev(char *devname)
 		} else if (errno == -ENOMSG)
 			puts(" no identification info available");
 		else if (ENABLE_IOCTL_HEX2STR_ERROR)  /* To be coherent with ioctl_or_warn */
-			bb_perror_msg("HDIO_GET_IDENTITY");
+			bb_simple_perror_msg("HDIO_GET_IDENTITY");
 		else
 			bb_perror_msg("ioctl %#x failed", HDIO_GET_IDENTITY);
 	}

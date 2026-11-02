@@ -15,7 +15,7 @@ CPPFLAGS += \
 	-include include/autoconf.h \
 	-D_GNU_SOURCE -DNDEBUG \
 	$(if $(CONFIG_LFS),-D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64) \
-	-D"BB_VER=KBUILD_STR($(BB_VER))" -DBB_BT=AUTOCONF_TIMESTAMP
+	-DBB_VER=$(squote)$(quote)$(BB_VER)$(quote)$(squote)
 
 CFLAGS += $(call cc-option,-Wall,)
 CFLAGS += $(call cc-option,-Wshadow,)
@@ -47,7 +47,12 @@ endif
 # gcc 3.x emits bogus "old style proto" warning on find.c:alloc_action()
 CFLAGS += $(call cc-ifversion, -ge, 0400, -Wold-style-definition)
 
-CFLAGS += $(call cc-option,-fno-builtin-strlen -finline-limit=0 -fomit-frame-pointer -ffunction-sections -fdata-sections,)
+ifneq ($(CC),clang)
+# "clang-9: warning: optimization flag '-finline-limit=0' is not supported
+CFLAGS += $(call cc-option,-finline-limit=0,)
+endif
+
+CFLAGS += $(call cc-option,-fno-builtin-strlen -fomit-frame-pointer -ffunction-sections -fdata-sections,)
 # -fno-guess-branch-probability: prohibit pseudo-random guessing
 # of branch probabilities (hopefully makes bloatcheck more stable):
 CFLAGS += $(call cc-option,-fno-guess-branch-probability,)
@@ -60,19 +65,24 @@ CFLAGS += $(call cc-option,-fno-asynchronous-unwind-tables,)
 # (try disabling this and comparing assembly, it's instructive)
 CFLAGS += $(call cc-option,-fno-builtin-printf,)
 
+# clang-9 does not like "str" + N and "if (CONFIG_ITEM && cond)" constructs
+ifeq ($(CC),clang)
+CFLAGS += $(call cc-option,-Wno-string-plus-int -Wno-constant-logical-operand)
+endif
+
 # FIXME: These warnings are at least partially to be concerned about and should
 # be fixed..
 #CFLAGS += $(call cc-option,-Wconversion,)
 
 ifneq ($(CONFIG_DEBUG),y)
-CFLAGS += $(call cc-option,-Os,$(call cc-option,-O2,))
+CFLAGS += $(call cc-option,-Oz,$(call cc-option,-Os,$(call cc-option,-O2,)))
 else
 CFLAGS += $(call cc-option,-g,)
 #CFLAGS += "-D_FORTIFY_SOURCE=2"
 ifeq ($(CONFIG_DEBUG_PESSIMIZE),y)
 CFLAGS += $(call cc-option,-O0,)
 else
-CFLAGS += $(call cc-option,-Os,$(call cc-option,-O2,))
+CFLAGS += $(call cc-option,-Oz,$(call cc-option,-Os,$(call cc-option,-O2,)))
 endif
 endif
 ifeq ($(CONFIG_DEBUG_SANITIZE),y)
@@ -123,15 +133,20 @@ CFLAGS += --sysroot=$(CONFIG_SYSROOT)
 export SYSROOT=$(CONFIG_SYSROOT)
 endif
 
+# libm may be needed for dc, awk, ntpd
+LDLIBS += m
 # Android has no separate crypt library
 # gcc-4.2.1 fails if we try to feed C source on stdin:
 #  echo 'int main(void){return 0;}' | $(CC) $(CFLAGS) -lcrypt -o /dev/null -xc -
 # fall back to using a temp file:
-CRYPT_AVAILABLE := $(shell echo 'int main(void){return 0;}' >crypttest.c; $(CC) $(CFLAGS) -lcrypt -o /dev/null crypttest.c >/dev/null 2>&1 && echo "y"; rm crypttest.c)
+CRYPT_AVAILABLE := $(shell echo 'int main(void){return 0;}' >bb_libtest.c; $(CC) $(CFLAGS) $(CFLAGS_busybox) -lcrypt -o /dev/null bb_libtest.c >/dev/null 2>&1 && echo "y"; rm bb_libtest.c)
+RT_AVAILABLE    := $(shell echo 'int main(void){return 0;}' >bb_libtest.c; $(CC) $(CFLAGS) $(CFLAGS_busybox) -lrt    -o /dev/null bb_libtest.c >/dev/null 2>&1 && echo "y"; rm bb_libtest.c)
 ifeq ($(CRYPT_AVAILABLE),y)
-LDLIBS += m crypt
-else
-LDLIBS += m
+LDLIBS += crypt
+endif
+# librt may be needed for clock_gettime()
+ifeq ($(RT_AVAILABLE),y)
+LDLIBS += rt
 endif
 
 # libpam may use libpthread, libdl and/or libaudit.
@@ -156,6 +171,15 @@ CPPFLAGS += $(SELINUX_CFLAGS)
 LDLIBS += $(if $(SELINUX_LIBS),$(SELINUX_LIBS:-l%=%),$(SELINUX_PC_MODULES:lib%=%))
 endif
 
+ifeq ($(CONFIG_FEATURE_NSLOOKUP_BIG),y)
+ifneq (,$(findstring linux,$(shell $(CC) $(CFLAGS) -dumpmachine)))
+LDLIBS += resolv
+endif
+ifneq (,$(findstring gnu,$(shell $(CC) $(CFLAGS) -dumpmachine)))
+LDLIBS += resolv
+endif
+endif
+
 ifeq ($(CONFIG_EFENCE),y)
 LDLIBS += efence
 endif
@@ -176,11 +200,6 @@ endif
 
 ifneq ($(CONFIG_EXTRA_LDFLAGS),)
 LDFLAGS += $(strip $(subst ",,$(CONFIG_EXTRA_LDFLAGS)))
-#"))
-endif
-
-ifneq ($(CONFIG_EXTRA_LDLIBS),)
-LDLIBS += $(strip $(subst ",,$(CONFIG_EXTRA_LDLIBS)))
 #"))
 endif
 

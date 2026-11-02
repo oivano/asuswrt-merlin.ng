@@ -6,8 +6,33 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
-
 #include "libbb.h"
+
+#define STR1(s) #s
+#define STR(s) STR1(s)
+
+#define NEED_SHA512 (ENABLE_SHA512SUM || ENABLE_USE_BB_CRYPT_SHA)
+
+#if ENABLE_SHA1_HWACCEL || ENABLE_SHA256_HWACCEL
+# if defined(__GNUC__) && (defined(__i386__) || defined(__x86_64__))
+static void cpuid(unsigned *eax, unsigned *ebx, unsigned *ecx, unsigned *edx)
+{
+	asm ("cpuid"
+		: "=a"(*eax), "=b"(*ebx), "=c"(*ecx), "=d"(*edx)
+		: "0"(*eax),  "1"(*ebx),  "2"(*ecx),  "3"(*edx)
+	);
+}
+static smallint shaNI;
+void FAST_FUNC sha1_process_block64_shaNI(sha1_ctx_t *ctx);
+void FAST_FUNC sha256_process_block64_shaNI(sha256_ctx_t *ctx);
+#  if defined(__i386__)
+struct ASM_expects_76_shaNI { char t[1 - 2*(offsetof(sha256_ctx_t, hash) != 76)]; };
+#  endif
+#  if defined(__x86_64__)
+struct ASM_expects_80_shaNI { char t[1 - 2*(offsetof(sha256_ctx_t, hash) != 80)]; };
+#  endif
+# endif
+#endif
 
 /* gcc 4.2.1 optimizes rotr64 better with inline than with macro
  * (for rotX32, there is no difference). Why? My guess is that
@@ -35,35 +60,6 @@ static ALWAYS_INLINE uint64_t rotr64(uint64_t x, unsigned n)
 static ALWAYS_INLINE uint64_t rotl64(uint64_t x, unsigned n)
 {
 	return (x << n) | (x >> (64 - n));
-}
-
-/* Feed data through a temporary buffer.
- * The internal buffer remembers previous data until it has 64
- * bytes worth to pass on.
- */
-static void FAST_FUNC common64_hash(md5_ctx_t *ctx, const void *buffer, size_t len)
-{
-	unsigned bufpos = ctx->total64 & 63;
-
-	ctx->total64 += len;
-
-	while (1) {
-		unsigned remaining = 64 - bufpos;
-		if (remaining > len)
-			remaining = len;
-		/* Copy data into aligned buffer */
-		memcpy(ctx->wbuffer + bufpos, buffer, remaining);
-		len -= remaining;
-		buffer = (const char *)buffer + remaining;
-		bufpos += remaining;
-		/* Clever way to do "if (bufpos != N) break; ... ; bufpos = 0;" */
-		bufpos -= 64;
-		if (bufpos != 0)
-			break;
-		/* Buffer is filled up, process it */
-		ctx->process_block(ctx);
-		/*bufpos = 0; - already is */
-	}
 }
 
 /* Process the remaining bytes in the buffer */
@@ -141,7 +137,7 @@ static void FAST_FUNC md5_process_block64(md5_ctx_t *ctx)
 	   They are defined in RFC 1321 as
 	   T[i] = (int)(2^32 * fabs(sin(i))), i=1..64
 	 */
-	static const uint32_t C_array[] = {
+	static const uint32_t C_array[] ALIGN4 = {
 		/* round 1 */
 		0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee,
 		0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501,
@@ -420,7 +416,6 @@ static void FAST_FUNC md5_process_block64(md5_ctx_t *ctx)
 	OP(FI, D, A, B, C, 11, 10, 0xbd3af235);
 	OP(FI, C, D, A, B, 2, 15, 0x2ad7d2bb);
 	OP(FI, B, C, D, A, 9, 21, 0xeb86d391);
-# undef OP
 # endif
 	/* Add checksum to the starting values */
 	ctx->hash[0] += A;
@@ -429,6 +424,7 @@ static void FAST_FUNC md5_process_block64(md5_ctx_t *ctx)
 	ctx->hash[3] += D;
 #endif
 }
+#undef OP
 #undef FF
 #undef FG
 #undef FH
@@ -450,7 +446,29 @@ void FAST_FUNC md5_begin(md5_ctx_t *ctx)
 /* Used also for sha1 and sha256 */
 void FAST_FUNC md5_hash(md5_ctx_t *ctx, const void *buffer, size_t len)
 {
-	common64_hash(ctx, buffer, len);
+	unsigned bufpos = ctx->total64 & 63;
+
+	ctx->total64 += len;
+
+	while (1) {
+		unsigned remaining = 64 - bufpos;
+		if (remaining > len)
+			remaining = len;
+		/* Copy data into aligned buffer */
+		memcpy(ctx->wbuffer + bufpos, buffer, remaining);
+		len -= remaining;
+		buffer = (const char *)buffer + remaining;
+		bufpos += remaining;
+
+		/* Clever way to do "if (bufpos != N) break; ... ; bufpos = 0;" */
+		bufpos -= 64;
+		if (bufpos != 0)
+			break;
+
+		/* Buffer is filled up, process it */
+		ctx->process_block(ctx);
+		/*bufpos = 0; - already is */
+	}
 }
 
 /* Process the remaining bytes in the buffer and put result from CTX
@@ -458,7 +476,7 @@ void FAST_FUNC md5_hash(md5_ctx_t *ctx, const void *buffer, size_t len)
  * endian byte order, so that a byte-wise output yields to the wanted
  * ASCII representation of the message digest.
  */
-void FAST_FUNC md5_end(md5_ctx_t *ctx, void *resbuf)
+unsigned FAST_FUNC md5_end(md5_ctx_t *ctx, void *resbuf)
 {
 	/* MD5 stores total in LE, need to swap on BE arches: */
 	common64_end(ctx, /*swap_needed:*/ BB_BIG_ENDIAN);
@@ -472,6 +490,7 @@ void FAST_FUNC md5_end(md5_ctx_t *ctx, void *resbuf)
 	}
 
 	memcpy(resbuf, ctx->hash, sizeof(ctx->hash[0]) * 4);
+	return sizeof(ctx->hash[0]) * 4;
 }
 
 
@@ -498,18 +517,410 @@ void FAST_FUNC md5_end(md5_ctx_t *ctx, void *resbuf)
  * then rebuild and compare "shaNNNsum bigfile" results.
  */
 
+#if CONFIG_SHA1_SMALL == 0
+# if defined(__GNUC__) && defined(__i386__)
+static void FAST_FUNC sha1_process_block64(sha1_ctx_t *ctx UNUSED_PARAM)
+{
+	BUILD_BUG_ON(offsetof(sha1_ctx_t, hash) != 76);
+	asm(
+"\n\
+	pushl	%ebp	#                                           \n\
+	pushl	%edi	#                                           \n\
+	pushl	%esi	#                                           \n\
+	pushl	%ebx	#                                           \n\
+	pushl	%eax                                                \n\
+	movl	$15, %edi                                           \n\
+1:                                                                  \n\
+	movl	(%eax,%edi,4), %esi                                 \n\
+	bswap	%esi                                                \n\
+	pushl	%esi                                                \n\
+	decl	%edi                                                \n\
+	jns	1b                                                  \n\
+	movl	80(%eax), %ebx	# b = ctx->hash[1]                  \n\
+	movl	84(%eax), %ecx	# c = ctx->hash[2]                  \n\
+	movl	88(%eax), %edx	# d = ctx->hash[3]                  \n\
+	movl	92(%eax), %ebp	# e = ctx->hash[4]                  \n\
+	movl	76(%eax), %eax	# a = ctx->hash[0]                  \n\
+#Register and stack use:                                            \n\
+# eax..edx: a..d                                                    \n\
+# ebp: e                                                            \n\
+# esi,edi: temps                                                    \n\
+# 4*n(%esp): W[n]                                                   \n\
+"
+#define RD1As(a,b,c,d,e, n, RCONST) \
+"\n\
+	##movl	4*"n"(%esp), %esi	# n=0, W[0] already in %esi \n\
+	movl	"c", %edi		# c                         \n\
+	xorl	"d", %edi		# ^d                        \n\
+	andl	"b", %edi		# &b                        \n\
+	xorl	"d", %edi		# (((c ^ d) & b) ^ d)       \n\
+	leal	"RCONST"("e",%esi), "e"	# e += RCONST + W[n]        \n\
+	addl	%edi, "e"		# e += (((c ^ d) & b) ^ d)  \n\
+	movl	"a", %esi		#                           \n\
+	roll	$5, %esi		# rotl32(a,5)               \n\
+	addl	%esi, "e"		# e += rotl32(a,5)          \n\
+	rorl	$2, "b"			# b = rotl32(b,30)          \n\
+"
+#define RD1Bs(a,b,c,d,e, n, RCONST) \
+"\n\
+	movl	4*"n"(%esp), %esi	# W[n]                      \n\
+	movl	"c", %edi		# c                         \n\
+	xorl	"d", %edi		# ^d                        \n\
+	andl	"b", %edi		# &b                        \n\
+	xorl	"d", %edi		# (((c ^ d) & b) ^ d)       \n\
+	leal	"RCONST"("e",%esi), "e"	# e += RCONST + W[n]        \n\
+	addl	%edi, "e"		# e += (((c ^ d) & b) ^ d)  \n\
+	movl	"a", %esi		#                           \n\
+	roll	$5, %esi		# rotl32(a,5)               \n\
+	addl	%esi, "e"		# e += rotl32(a,5)          \n\
+	rorl	$2, "b"			# b = rotl32(b,30)          \n\
+"
+#define RD1Cs(a,b,c,d,e, n13,n8,n2,n, RCONST) \
+"\n\
+	movl	4*"n13"(%esp), %esi	# W[(n+13) & 15]            \n\
+	xorl	4*"n8"(%esp), %esi	# ^W[(n+8) & 15]            \n\
+	xorl	4*"n2"(%esp), %esi	# ^W[(n+2) & 15]            \n\
+	xorl	4*"n"(%esp), %esi	# ^W[n & 15]                \n\
+	roll	%esi			#                           \n\
+	movl	%esi, 4*"n"(%esp)	# store to W[n & 15]        \n\
+	movl	"c", %edi		# c                         \n\
+	xorl	"d", %edi		# ^d                        \n\
+	andl	"b", %edi		# &b                        \n\
+	xorl	"d", %edi		# (((c ^ d) & b) ^ d)       \n\
+	leal	"RCONST"("e",%esi), "e"	# e += RCONST + mixed_W     \n\
+	addl	%edi, "e"		# e += (((c ^ d) & b) ^ d)  \n\
+	movl	"a", %esi		#                           \n\
+	roll	$5, %esi		# rotl32(a,5)               \n\
+	addl	%esi, "e"		# e += rotl32(a,5)          \n\
+	rorl	$2, "b"			# b = rotl32(b,30)          \n\
+"
+#define RD1A(a,b,c,d,e, n) RD1As("%e"STR(a),"%e"STR(b),"%e"STR(c),"%e"STR(d),"%e"STR(e), STR((n)), STR(RCONST))
+#define RD1B(a,b,c,d,e, n) RD1Bs("%e"STR(a),"%e"STR(b),"%e"STR(c),"%e"STR(d),"%e"STR(e), STR((n)), STR(RCONST))
+#define RD1C(a,b,c,d,e, n) RD1Cs("%e"STR(a),"%e"STR(b),"%e"STR(c),"%e"STR(d),"%e"STR(e), STR(((n+13)&15)), STR(((n+8)&15)), STR(((n+2)&15)), STR(((n)&15)), STR(RCONST))
+#undef  RCONST
+#define RCONST 0x5A827999
+	RD1A(ax,bx,cx,dx,bp, 0) RD1B(bp,ax,bx,cx,dx, 1) RD1B(dx,bp,ax,bx,cx, 2) RD1B(cx,dx,bp,ax,bx, 3) RD1B(bx,cx,dx,bp,ax, 4)
+	RD1B(ax,bx,cx,dx,bp, 5) RD1B(bp,ax,bx,cx,dx, 6) RD1B(dx,bp,ax,bx,cx, 7) RD1B(cx,dx,bp,ax,bx, 8) RD1B(bx,cx,dx,bp,ax, 9)
+	RD1B(ax,bx,cx,dx,bp,10) RD1B(bp,ax,bx,cx,dx,11) RD1B(dx,bp,ax,bx,cx,12) RD1B(cx,dx,bp,ax,bx,13) RD1B(bx,cx,dx,bp,ax,14)
+	RD1B(ax,bx,cx,dx,bp,15) RD1C(bp,ax,bx,cx,dx,16) RD1C(dx,bp,ax,bx,cx,17) RD1C(cx,dx,bp,ax,bx,18) RD1C(bx,cx,dx,bp,ax,19)
+#define RD2s(a,b,c,d,e, n13,n8,n2,n, RCONST) \
+"\n\
+	movl	4*"n13"(%esp), %esi	# W[(n+13) & 15]            \n\
+	xorl	4*"n8"(%esp), %esi	# ^W[(n+8) & 15]            \n\
+	xorl	4*"n2"(%esp), %esi	# ^W[(n+2) & 15]            \n\
+	xorl	4*"n"(%esp), %esi	# ^W[n & 15]                \n\
+	roll	%esi			#                           \n\
+	movl	%esi, 4*"n"(%esp)	# store to W[n & 15]        \n\
+	movl	"c", %edi		# c                         \n\
+	xorl	"d", %edi		# ^d                        \n\
+	xorl	"b", %edi		# ^b                        \n\
+	leal	"RCONST"("e",%esi), "e"	# e += RCONST + mixed_W     \n\
+	addl	%edi, "e"		# e += (c ^ d ^ b)          \n\
+	movl	"a", %esi		#                           \n\
+	roll	$5, %esi		# rotl32(a,5)               \n\
+	addl	%esi, "e"		# e += rotl32(a,5)          \n\
+	rorl	$2, "b"			# b = rotl32(b,30)          \n\
+"
+#define RD2(a,b,c,d,e, n) RD2s("%e"STR(a),"%e"STR(b),"%e"STR(c),"%e"STR(d),"%e"STR(e), STR(((20+n+13)&15)), STR(((20+n+8)&15)), STR(((20+n+2)&15)), STR(((20+n)&15)), STR(RCONST))
+#undef  RCONST
+#define RCONST 0x6ED9EBA1
+	RD2(ax,bx,cx,dx,bp, 0) RD2(bp,ax,bx,cx,dx, 1) RD2(dx,bp,ax,bx,cx, 2) RD2(cx,dx,bp,ax,bx, 3) RD2(bx,cx,dx,bp,ax, 4)
+	RD2(ax,bx,cx,dx,bp, 5) RD2(bp,ax,bx,cx,dx, 6) RD2(dx,bp,ax,bx,cx, 7) RD2(cx,dx,bp,ax,bx, 8) RD2(bx,cx,dx,bp,ax, 9)
+	RD2(ax,bx,cx,dx,bp,10) RD2(bp,ax,bx,cx,dx,11) RD2(dx,bp,ax,bx,cx,12) RD2(cx,dx,bp,ax,bx,13) RD2(bx,cx,dx,bp,ax,14)
+	RD2(ax,bx,cx,dx,bp,15) RD2(bp,ax,bx,cx,dx,16) RD2(dx,bp,ax,bx,cx,17) RD2(cx,dx,bp,ax,bx,18) RD2(bx,cx,dx,bp,ax,19)
+
+#define RD3s(a,b,c,d,e, n13,n8,n2,n, RCONST) \
+"\n\
+	movl	"b", %edi		# di: b                     \n\
+	movl	"b", %esi		# si: b                     \n\
+	orl	"c", %edi		# di: b | c                 \n\
+	andl	"c", %esi		# si: b & c                 \n\
+	andl	"d", %edi		# di: (b | c) & d           \n\
+	orl	%esi, %edi		# ((b | c) & d) | (b & c)   \n\
+	movl	4*"n13"(%esp), %esi	# W[(n+13) & 15]            \n\
+	xorl	4*"n8"(%esp), %esi	# ^W[(n+8) & 15]            \n\
+	xorl	4*"n2"(%esp), %esi	# ^W[(n+2) & 15]            \n\
+	xorl	4*"n"(%esp), %esi	# ^W[n & 15]                \n\
+	roll	%esi			#                           \n\
+	movl	%esi, 4*"n"(%esp)	# store to W[n & 15]        \n\
+	addl	%edi, "e"		# += ((b | c) & d) | (b & c)\n\
+	leal	"RCONST"("e",%esi), "e"	# e += RCONST + mixed_W     \n\
+	movl	"a", %esi		#                           \n\
+	roll	$5, %esi		# rotl32(a,5)               \n\
+	addl	%esi, "e"		# e += rotl32(a,5)          \n\
+	rorl	$2, "b"			# b = rotl32(b,30)          \n\
+"
+#define RD3(a,b,c,d,e, n) RD3s("%e"STR(a),"%e"STR(b),"%e"STR(c),"%e"STR(d),"%e"STR(e), STR(((40+n+13)&15)), STR(((40+n+8)&15)), STR(((40+n+2)&15)), STR(((40+n)&15)), STR(RCONST))
+#undef  RCONST
+#define RCONST 0x8F1BBCDC
+	RD3(ax,bx,cx,dx,bp, 0) RD3(bp,ax,bx,cx,dx, 1) RD3(dx,bp,ax,bx,cx, 2) RD3(cx,dx,bp,ax,bx, 3) RD3(bx,cx,dx,bp,ax, 4)
+	RD3(ax,bx,cx,dx,bp, 5) RD3(bp,ax,bx,cx,dx, 6) RD3(dx,bp,ax,bx,cx, 7) RD3(cx,dx,bp,ax,bx, 8) RD3(bx,cx,dx,bp,ax, 9)
+	RD3(ax,bx,cx,dx,bp,10) RD3(bp,ax,bx,cx,dx,11) RD3(dx,bp,ax,bx,cx,12) RD3(cx,dx,bp,ax,bx,13) RD3(bx,cx,dx,bp,ax,14)
+	RD3(ax,bx,cx,dx,bp,15) RD3(bp,ax,bx,cx,dx,16) RD3(dx,bp,ax,bx,cx,17) RD3(cx,dx,bp,ax,bx,18) RD3(bx,cx,dx,bp,ax,19)
+
+#define RD4As(a,b,c,d,e, n13,n8,n2,n, RCONST) \
+"\n\
+	movl	4*"n13"(%esp), %esi	# W[(n+13) & 15]            \n\
+	xorl	4*"n8"(%esp), %esi	# ^W[(n+8) & 15]            \n\
+	xorl	4*"n2"(%esp), %esi	# ^W[(n+2) & 15]            \n\
+	xorl	4*"n"(%esp), %esi	# ^W[n & 15]                \n\
+	roll	%esi			#                           \n\
+	movl	%esi, 4*"n"(%esp)	# store to W[n & 15]        \n\
+	movl	"c", %edi		# c                         \n\
+	xorl	"d", %edi		# ^d                        \n\
+	xorl	"b", %edi		# ^b                        \n\
+	leal	"RCONST"("e",%esi), "e"	# e += RCONST + mixed_W     \n\
+	addl	%edi, "e"		# e += (c ^ d ^ b)          \n\
+	movl	"a", %esi		#                           \n\
+	roll	$5, %esi		# rotl32(a,5)               \n\
+	addl	%esi, "e"		# e += rotl32(a,5)          \n\
+	rorl	$2, "b"			# b = rotl32(b,30)          \n\
+"
+#define RD4Bs(a,b,c,d,e, n13,n8,n2,n, RCONST) \
+"\n\
+	movl	4*"n13"(%esp), %esi	# W[(n+13) & 15]            \n\
+	xorl	4*"n8"(%esp), %esi	# ^W[(n+8) & 15]            \n\
+	xorl	4*"n2"(%esp), %esi	# ^W[(n+2) & 15]            \n\
+	xorl	4*"n"(%esp), %esi	# ^W[n & 15]                \n\
+	roll	%esi			#                           \n\
+	##movl	%esi, 4*"n"(%esp)	# store to W[n & 15] elided \n\
+	movl	"c", %edi		# c                         \n\
+	xorl	"d", %edi		# ^d                        \n\
+	xorl	"b", %edi		# ^b                        \n\
+	leal	"RCONST"("e",%esi), "e"	# e += RCONST + mixed_W     \n\
+	addl	%edi, "e"		# e += (c ^ d ^ b)          \n\
+	movl	"a", %esi		#                           \n\
+	roll	$5, %esi		# rotl32(a,5)               \n\
+	addl	%esi, "e"		# e += rotl32(a,5)          \n\
+	rorl	$2, "b"			# b = rotl32(b,30)          \n\
+"
+#define RD4A(a,b,c,d,e, n) RD4As("%e"STR(a),"%e"STR(b),"%e"STR(c),"%e"STR(d),"%e"STR(e), STR(((60+n+13)&15)), STR(((60+n+8)&15)), STR(((60+n+2)&15)), STR(((60+n)&15)), STR(RCONST))
+#define RD4B(a,b,c,d,e, n) RD4Bs("%e"STR(a),"%e"STR(b),"%e"STR(c),"%e"STR(d),"%e"STR(e), STR(((60+n+13)&15)), STR(((60+n+8)&15)), STR(((60+n+2)&15)), STR(((60+n)&15)), STR(RCONST))
+#undef  RCONST
+#define RCONST 0xCA62C1D6
+	RD4A(ax,bx,cx,dx,bp, 0) RD4A(bp,ax,bx,cx,dx, 1) RD4A(dx,bp,ax,bx,cx, 2) RD4A(cx,dx,bp,ax,bx, 3) RD4A(bx,cx,dx,bp,ax, 4)
+	RD4A(ax,bx,cx,dx,bp, 5) RD4A(bp,ax,bx,cx,dx, 6) RD4A(dx,bp,ax,bx,cx, 7) RD4A(cx,dx,bp,ax,bx, 8) RD4A(bx,cx,dx,bp,ax, 9)
+	RD4A(ax,bx,cx,dx,bp,10) RD4A(bp,ax,bx,cx,dx,11) RD4A(dx,bp,ax,bx,cx,12) RD4A(cx,dx,bp,ax,bx,13) RD4A(bx,cx,dx,bp,ax,14)
+	RD4A(ax,bx,cx,dx,bp,15) RD4A(bp,ax,bx,cx,dx,16) RD4B(dx,bp,ax,bx,cx,17) RD4B(cx,dx,bp,ax,bx,18) RD4B(bx,cx,dx,bp,ax,19)
+
+"\n\
+	movl	4*16(%esp), %esi	#                           \n\
+	addl	$4*(16+1), %esp		#                           \n\
+	addl	%eax, 76(%esi)  	# ctx->hash[0] += a         \n\
+	addl	%ebx, 80(%esi)  	# ctx->hash[1] += b         \n\
+	addl	%ecx, 84(%esi)  	# ctx->hash[2] += c         \n\
+	addl	%edx, 88(%esi)  	# ctx->hash[3] += d         \n\
+	addl	%ebp, 92(%esi)  	# ctx->hash[4] += e         \n\
+	popl	%ebx			#                           \n\
+	popl	%esi			#                           \n\
+	popl	%edi			#                           \n\
+	popl	%ebp			#                           \n\
+"
+	); /* asm */
+#undef RCONST
+}
+# elif defined(__GNUC__) && defined(__x86_64__)
+
+/* in hash_md5_sha_x86-64.S */
+struct ASM_expects_80 { char t[1 - 2*(offsetof(sha1_ctx_t, hash) != 80)]; };
+void FAST_FUNC sha1_process_block64(sha1_ctx_t *ctx);
+
+# else
+/* Fast, fully-unrolled SHA1. +3800 bytes of code on x86.
+ * It seems further speedup can be achieved by handling more than
+ * 64 bytes per one function call (coreutils does that).
+ */
 static void FAST_FUNC sha1_process_block64(sha1_ctx_t *ctx)
 {
-	static const uint32_t rconsts[] = {
+	static const uint32_t rconsts[] ALIGN4 = {
+		0x5A827999, 0x6ED9EBA1, 0x8F1BBCDC, 0xCA62C1D6
+	};
+	uint32_t W[16];
+	uint32_t a, b, c, d, e;
+
+	a = ctx->hash[0];
+	b = ctx->hash[1];
+	c = ctx->hash[2];
+	d = ctx->hash[3];
+	e = ctx->hash[4];
+
+/* From kernel source comments:
+ * """
+ * If you have 32 registers or more, the compiler can (and should)
+ * try to change the array[] accesses into registers. However, on
+ * machines with less than ~25 registers, that won't really work,
+ * and at least gcc will make an unholy mess of it.
+ *
+ * So to avoid that mess which just slows things down, we force
+ * the stores to memory to actually happen (we might be better off
+ * with a 'W(t)=(val);asm("":"+m" (W(t))' there instead, as
+ * suggested by Artur Skawina - that will also make gcc unable to
+ * try to do the silly "optimize away loads" part because it won't
+ * see what the value will be).
+ * """
+ */
+#if defined(__GNUC__) && defined(__i386__)
+# define DO_NOT_TRY_PROPAGATING(m) asm("":"+m"(m))
+#else
+# define DO_NOT_TRY_PROPAGATING(m) ((void)0)
+#endif
+
+#undef OP
+#define OP(A,B,C,D,E, n) \
+	do { \
+		uint32_t work = EXPR(B, C, D); \
+		if (n <= 15) \
+			work += W[n & 15] = SWAP_BE32(((uint32_t*)ctx->wbuffer)[n]); \
+		if (n >= 16) \
+			work += W[n & 15] = rotl32(W[(n+13) & 15] ^ W[(n+8) & 15] ^ W[(n+2) & 15] ^ W[n & 15], 1); \
+		DO_NOT_TRY_PROPAGATING(W[n & 15]); \
+		E += work + rotl32(A, 5) + rconsts[n / 20]; \
+		B = rotl32(B, 30); \
+	} while (0)
+#define OP20(n) \
+	OP(a,b,c,d,e, (n+ 0)); OP(e,a,b,c,d, (n+ 1)); OP(d,e,a,b,c, (n+ 2)); OP(c,d,e,a,b, (n+ 3)); OP(b,c,d,e,a, (n+ 4)); \
+	OP(a,b,c,d,e, (n+ 5)); OP(e,a,b,c,d, (n+ 6)); OP(d,e,a,b,c, (n+ 7)); OP(c,d,e,a,b, (n+ 8)); OP(b,c,d,e,a, (n+ 9)); \
+	OP(a,b,c,d,e, (n+10)); OP(e,a,b,c,d, (n+11)); OP(d,e,a,b,c, (n+12)); OP(c,d,e,a,b, (n+13)); OP(b,c,d,e,a, (n+14)); \
+	OP(a,b,c,d,e, (n+15)); OP(e,a,b,c,d, (n+16)); OP(d,e,a,b,c, (n+17)); OP(c,d,e,a,b, (n+18)); OP(b,c,d,e,a, (n+19))
+
+	/* 4 rounds of 20 operations each */
+#define EXPR(b,c,d) (((c ^ d) & b) ^ d)
+	OP20(0);
+#undef EXPR
+#define EXPR(b,c,d) (c ^ d ^ b)
+	OP20(20);
+#undef EXPR
+#define EXPR(b,c,d) (((b | c) & d) | (b & c))
+	OP20(40);
+#undef EXPR
+#define EXPR(b,c,d) (c ^ d ^ b)
+	OP20(60);
+
+#undef EXPR
+#undef OP
+#undef OP20
+
+	ctx->hash[0] += a;
+	ctx->hash[1] += b;
+	ctx->hash[2] += c;
+	ctx->hash[3] += d;
+	ctx->hash[4] += e;
+}
+# endif
+#elif CONFIG_SHA1_SMALL == 1
+/* Middle-sized version, +300 bytes of code on x86. */
+static void FAST_FUNC sha1_process_block64(sha1_ctx_t *ctx)
+{
+	static const uint32_t rconsts[] ALIGN4 = {
+		0x5A827999, 0x6ED9EBA1, 0x8F1BBCDC, 0xCA62C1D6
+	};
+	int j;
+	int n;
+	uint32_t W[16+16];
+	uint32_t a, b, c, d, e;
+
+	a = ctx->hash[0];
+	b = ctx->hash[1];
+	c = ctx->hash[2];
+	d = ctx->hash[3];
+	e = ctx->hash[4];
+
+	/* 1st round of 20 operations */
+	n = 0;
+	do {
+		uint32_t work = ((c ^ d) & b) ^ d;
+		W[n] = W[n+16] = SWAP_BE32(((uint32_t*)ctx->wbuffer)[n]);
+		work += W[n];
+		work += e + rotl32(a, 5) + rconsts[0];
+		/* Rotate by one for next time */
+		e = d;
+		d = c;
+		c = rotl32(b, 30);
+		b = a;
+		a = work;
+		n = (n + 1) & 15;
+	} while (n != 0);
+	do {
+		uint32_t work = ((c ^ d) & b) ^ d;
+		W[n] = W[n+16] = rotl32(W[n+13] ^ W[n+8] ^ W[n+2] ^ W[n], 1);
+		work += W[n];
+		work += e + rotl32(a, 5) + rconsts[0];
+		e = d;
+		d = c;
+		c = rotl32(b, 30);
+		b = a;
+		a = work;
+		n = (n + 1) /* & 15*/;
+	} while (n != 4);
+	/* 2nd round of 20 operations */
+	j = 19;
+	do {
+		uint32_t work = c ^ d ^ b;
+		W[n] = W[n+16] = rotl32(W[n+13] ^ W[n+8] ^ W[n+2] ^ W[n], 1);
+		work += W[n];
+		work += e + rotl32(a, 5) + rconsts[1];
+		e = d;
+		d = c;
+		c = rotl32(b, 30);
+		b = a;
+		a = work;
+		n = (n + 1) & 15;
+	} while (--j >= 0);
+	/* 3rd round */
+	j = 19;
+	do {
+		uint32_t work = ((b | c) & d) | (b & c);
+		W[n] = W[n+16] = rotl32(W[n+13] ^ W[n+8] ^ W[n+2] ^ W[n], 1);
+		work += W[n];
+		work += e + rotl32(a, 5) + rconsts[2];
+		e = d;
+		d = c;
+		c = rotl32(b, 30);
+		b = a;
+		a = work;
+		n = (n + 1) & 15;
+	} while (--j >= 0);
+	/* 4th round */
+	j = 19;
+	do {
+		uint32_t work = c ^ d ^ b;
+		W[n] = W[n+16] = rotl32(W[n+13] ^ W[n+8] ^ W[n+2] ^ W[n], 1);
+		work += W[n];
+		work += e + rotl32(a, 5) + rconsts[3];
+		e = d;
+		d = c;
+		c = rotl32(b, 30);
+		b = a;
+		a = work;
+		n = (n + 1) & 15;
+	} while (--j >= 0);
+
+	ctx->hash[0] += a;
+	ctx->hash[1] += b;
+	ctx->hash[2] += c;
+	ctx->hash[3] += d;
+	ctx->hash[4] += e;
+}
+#else
+/* Compact version, almost twice as slow as fully unrolled */
+static void FAST_FUNC sha1_process_block64(sha1_ctx_t *ctx)
+{
+	static const uint32_t rconsts[] ALIGN4 = {
 		0x5A827999, 0x6ED9EBA1, 0x8F1BBCDC, 0xCA62C1D6
 	};
 	int i, j;
-	int cnt;
+	int n;
 	uint32_t W[16+16];
 	uint32_t a, b, c, d, e;
 
 	/* On-stack work buffer frees up one register in the main loop
-	 * which otherwise will be needed to hold ctx pointer */
+	 * which otherwise will be needed to hold ctx pointer.
+	 *
+	 * The compiler is not smart enough to realize it, though. :(
+	 * If __attribute__((optimize("2"))) is added to the function,
+	 * only then gcc-9.3.1 spills "ctx" to stack and uses the freed
+	 * register (making code 6 bytes smaller, not just faster).
+	 */
 	for (i = 0; i < 16; i++)
 		W[i] = W[i+16] = SWAP_BE32(((uint32_t*)ctx->wbuffer)[i]);
 
@@ -520,7 +931,7 @@ static void FAST_FUNC sha1_process_block64(sha1_ctx_t *ctx)
 	e = ctx->hash[4];
 
 	/* 4 rounds of 20 operations each */
-	cnt = 0;
+	n = 0;
 	for (i = 0; i < 4; i++) {
 		j = 19;
 		do {
@@ -531,27 +942,24 @@ static void FAST_FUNC sha1_process_block64(sha1_ctx_t *ctx)
 				work = (work & b) ^ d;
 				if (j <= 3)
 					goto ge16;
-				/* Used to do SWAP_BE32 here, but this
-				 * requires ctx (see comment above) */
-				work += W[cnt];
 			} else {
 				if (i == 2)
 					work = ((b | c) & d) | (b & c);
 				else /* i = 1 or 3 */
 					work ^= b;
  ge16:
-				W[cnt] = W[cnt+16] = rotl32(W[cnt+13] ^ W[cnt+8] ^ W[cnt+2] ^ W[cnt], 1);
-				work += W[cnt];
+				W[n] = W[n+16] = rotl32(W[n+13] ^ W[n+8] ^ W[n+2] ^ W[n], 1);
 			}
+			work += W[n];
 			work += e + rotl32(a, 5) + rconsts[i];
 
 			/* Rotate by one for next time */
 			e = d;
 			d = c;
-			c = /* b = */ rotl32(b, 30);
+			c = rotl32(b, 30);
 			b = a;
 			a = work;
-			cnt = (cnt + 1) & 15;
+			n = (n + 1) & 15;
 		} while (--j >= 0);
 	}
 
@@ -561,54 +969,66 @@ static void FAST_FUNC sha1_process_block64(sha1_ctx_t *ctx)
 	ctx->hash[3] += d;
 	ctx->hash[4] += e;
 }
+#endif
 
 /* Constants for SHA512 from FIPS 180-2:4.2.3.
  * SHA256 constants from FIPS 180-2:4.2.2
  * are the most significant half of first 64 elements
  * of the same array.
  */
-static const uint64_t sha_K[80] = {
-	0x428a2f98d728ae22ULL, 0x7137449123ef65cdULL,
-	0xb5c0fbcfec4d3b2fULL, 0xe9b5dba58189dbbcULL,
-	0x3956c25bf348b538ULL, 0x59f111f1b605d019ULL,
-	0x923f82a4af194f9bULL, 0xab1c5ed5da6d8118ULL,
-	0xd807aa98a3030242ULL, 0x12835b0145706fbeULL,
-	0x243185be4ee4b28cULL, 0x550c7dc3d5ffb4e2ULL,
-	0x72be5d74f27b896fULL, 0x80deb1fe3b1696b1ULL,
-	0x9bdc06a725c71235ULL, 0xc19bf174cf692694ULL,
-	0xe49b69c19ef14ad2ULL, 0xefbe4786384f25e3ULL,
-	0x0fc19dc68b8cd5b5ULL, 0x240ca1cc77ac9c65ULL,
-	0x2de92c6f592b0275ULL, 0x4a7484aa6ea6e483ULL,
-	0x5cb0a9dcbd41fbd4ULL, 0x76f988da831153b5ULL,
-	0x983e5152ee66dfabULL, 0xa831c66d2db43210ULL,
-	0xb00327c898fb213fULL, 0xbf597fc7beef0ee4ULL,
-	0xc6e00bf33da88fc2ULL, 0xd5a79147930aa725ULL,
-	0x06ca6351e003826fULL, 0x142929670a0e6e70ULL,
-	0x27b70a8546d22ffcULL, 0x2e1b21385c26c926ULL,
-	0x4d2c6dfc5ac42aedULL, 0x53380d139d95b3dfULL,
-	0x650a73548baf63deULL, 0x766a0abb3c77b2a8ULL,
-	0x81c2c92e47edaee6ULL, 0x92722c851482353bULL,
-	0xa2bfe8a14cf10364ULL, 0xa81a664bbc423001ULL,
-	0xc24b8b70d0f89791ULL, 0xc76c51a30654be30ULL,
-	0xd192e819d6ef5218ULL, 0xd69906245565a910ULL,
-	0xf40e35855771202aULL, 0x106aa07032bbd1b8ULL,
-	0x19a4c116b8d2d0c8ULL, 0x1e376c085141ab53ULL,
-	0x2748774cdf8eeb99ULL, 0x34b0bcb5e19b48a8ULL,
-	0x391c0cb3c5c95a63ULL, 0x4ed8aa4ae3418acbULL,
-	0x5b9cca4f7763e373ULL, 0x682e6ff3d6b2b8a3ULL,
-	0x748f82ee5defb2fcULL, 0x78a5636f43172f60ULL,
-	0x84c87814a1f0ab72ULL, 0x8cc702081a6439ecULL,
-	0x90befffa23631e28ULL, 0xa4506cebde82bde9ULL,
-	0xbef9a3f7b2c67915ULL, 0xc67178f2e372532bULL,
-	0xca273eceea26619cULL, 0xd186b8c721c0c207ULL, /* [64]+ are used for sha512 only */
-	0xeada7dd6cde0eb1eULL, 0xf57d4f7fee6ed178ULL,
-	0x06f067aa72176fbaULL, 0x0a637dc5a2c898a6ULL,
-	0x113f9804bef90daeULL, 0x1b710b35131c471bULL,
-	0x28db77f523047d84ULL, 0x32caab7b40c72493ULL,
-	0x3c9ebe0a15c9bebcULL, 0x431d67c49c100d4cULL,
-	0x4cc5d4becb3e42b6ULL, 0x597f299cfc657e2aULL,
-	0x5fcb6fab3ad6faecULL, 0x6c44198c4a475817ULL
+#undef K
+#if NEED_SHA512
+typedef uint64_t sha_K_int;
+# define K(v) v
+#else
+typedef uint32_t sha_K_int;
+# define K(v) (uint32_t)(v >> 32)
+#endif
+static const sha_K_int sha_K[] ALIGN8 = {
+	K(0x428a2f98d728ae22ULL), K(0x7137449123ef65cdULL),
+	K(0xb5c0fbcfec4d3b2fULL), K(0xe9b5dba58189dbbcULL),
+	K(0x3956c25bf348b538ULL), K(0x59f111f1b605d019ULL),
+	K(0x923f82a4af194f9bULL), K(0xab1c5ed5da6d8118ULL),
+	K(0xd807aa98a3030242ULL), K(0x12835b0145706fbeULL),
+	K(0x243185be4ee4b28cULL), K(0x550c7dc3d5ffb4e2ULL),
+	K(0x72be5d74f27b896fULL), K(0x80deb1fe3b1696b1ULL),
+	K(0x9bdc06a725c71235ULL), K(0xc19bf174cf692694ULL),
+	K(0xe49b69c19ef14ad2ULL), K(0xefbe4786384f25e3ULL),
+	K(0x0fc19dc68b8cd5b5ULL), K(0x240ca1cc77ac9c65ULL),
+	K(0x2de92c6f592b0275ULL), K(0x4a7484aa6ea6e483ULL),
+	K(0x5cb0a9dcbd41fbd4ULL), K(0x76f988da831153b5ULL),
+	K(0x983e5152ee66dfabULL), K(0xa831c66d2db43210ULL),
+	K(0xb00327c898fb213fULL), K(0xbf597fc7beef0ee4ULL),
+	K(0xc6e00bf33da88fc2ULL), K(0xd5a79147930aa725ULL),
+	K(0x06ca6351e003826fULL), K(0x142929670a0e6e70ULL),
+	K(0x27b70a8546d22ffcULL), K(0x2e1b21385c26c926ULL),
+	K(0x4d2c6dfc5ac42aedULL), K(0x53380d139d95b3dfULL),
+	K(0x650a73548baf63deULL), K(0x766a0abb3c77b2a8ULL),
+	K(0x81c2c92e47edaee6ULL), K(0x92722c851482353bULL),
+	K(0xa2bfe8a14cf10364ULL), K(0xa81a664bbc423001ULL),
+	K(0xc24b8b70d0f89791ULL), K(0xc76c51a30654be30ULL),
+	K(0xd192e819d6ef5218ULL), K(0xd69906245565a910ULL),
+	K(0xf40e35855771202aULL), K(0x106aa07032bbd1b8ULL),
+	K(0x19a4c116b8d2d0c8ULL), K(0x1e376c085141ab53ULL),
+	K(0x2748774cdf8eeb99ULL), K(0x34b0bcb5e19b48a8ULL),
+	K(0x391c0cb3c5c95a63ULL), K(0x4ed8aa4ae3418acbULL),
+	K(0x5b9cca4f7763e373ULL), K(0x682e6ff3d6b2b8a3ULL),
+	K(0x748f82ee5defb2fcULL), K(0x78a5636f43172f60ULL),
+	K(0x84c87814a1f0ab72ULL), K(0x8cc702081a6439ecULL),
+	K(0x90befffa23631e28ULL), K(0xa4506cebde82bde9ULL),
+	K(0xbef9a3f7b2c67915ULL), K(0xc67178f2e372532bULL),
+#if NEED_SHA512  /* [64]+ are used for sha512 only */
+	K(0xca273eceea26619cULL), K(0xd186b8c721c0c207ULL),
+	K(0xeada7dd6cde0eb1eULL), K(0xf57d4f7fee6ed178ULL),
+	K(0x06f067aa72176fbaULL), K(0x0a637dc5a2c898a6ULL),
+	K(0x113f9804bef90daeULL), K(0x1b710b35131c471bULL),
+	K(0x28db77f523047d84ULL), K(0x32caab7b40c72493ULL),
+	K(0x3c9ebe0a15c9bebcULL), K(0x431d67c49c100d4cULL),
+	K(0x4cc5d4becb3e42b6ULL), K(0x597f299cfc657e2aULL),
+	K(0x5fcb6fab3ad6faecULL), K(0x6c44198c4a475817ULL),
+#endif
 };
+#undef K
 
 #undef Ch
 #undef Maj
@@ -652,7 +1072,7 @@ static void FAST_FUNC sha256_process_block64(sha256_ctx_t *ctx)
 		 * (I hope compiler is clever enough to just fetch
 		 * upper half)
 		 */
-		uint32_t K_t = sha_K[t] >> 32;
+		uint32_t K_t = NEED_SHA512 ? (sha_K[t] >> 32) : sha_K[t];
 		uint32_t T1 = h + S1(e) + Ch(e, f, g) + K_t + W[t];
 		uint32_t T2 = S0(a) + Maj(a, b, c);
 		h = g;
@@ -682,6 +1102,7 @@ static void FAST_FUNC sha256_process_block64(sha256_ctx_t *ctx)
 	ctx->hash[7] += h;
 }
 
+#if NEED_SHA512
 static void FAST_FUNC sha512_process_block128(sha512_ctx_t *ctx)
 {
 	unsigned t;
@@ -743,7 +1164,7 @@ static void FAST_FUNC sha512_process_block128(sha512_ctx_t *ctx)
 	ctx->hash[6] += g;
 	ctx->hash[7] += h;
 }
-
+#endif /* NEED_SHA512 */
 
 void FAST_FUNC sha1_begin(sha1_ctx_t *ctx)
 {
@@ -754,9 +1175,22 @@ void FAST_FUNC sha1_begin(sha1_ctx_t *ctx)
 	ctx->hash[4] = 0xc3d2e1f0;
 	ctx->total64 = 0;
 	ctx->process_block = sha1_process_block64;
+#if ENABLE_SHA1_HWACCEL
+# if defined(__GNUC__) && (defined(__i386__) || defined(__x86_64__))
+	{
+		if (!shaNI) {
+			unsigned eax = 7, ebx = ebx, ecx = 0, edx = edx;
+			cpuid(&eax, &ebx, &ecx, &edx);
+			shaNI = ((ebx >> 28) & 2) - 1; /* bit 29 -> 1 or -1 */
+		}
+		if (shaNI > 0)
+			ctx->process_block = sha1_process_block64_shaNI;
+	}
+# endif
+#endif
 }
 
-static const uint32_t init256[] = {
+static const uint32_t init256[] ALIGN4 = {
 	0,
 	0,
 	0x6a09e667,
@@ -768,7 +1202,8 @@ static const uint32_t init256[] = {
 	0x1f83d9ab,
 	0x5be0cd19,
 };
-static const uint32_t init512_lo[] = {
+#if NEED_SHA512
+static const uint32_t init512_lo[] ALIGN4 = {
 	0,
 	0,
 	0xf3bcc908,
@@ -780,6 +1215,12 @@ static const uint32_t init512_lo[] = {
 	0xfb41bd6b,
 	0x137e2179,
 };
+#endif /* NEED_SHA512 */
+
+// Note: SHA-384 is identical to SHA-512, except that initial hash values are
+// 0xcbbb9d5dc1059ed8, 0x629a292a367cd507, 0x9159015a3070dd17, 0x152fecd8f70e5939,
+// 0x67332667ffc00b31, 0x8eb44a8768581511, 0xdb0c2e0d64f98fa7, 0x47b5481dbefa4fa4,
+// and the output is constructed by omitting last two 64-bit words of it.
 
 /* Initialize structure containing state of computation.
    (FIPS 180-2:5.3.2)  */
@@ -788,8 +1229,22 @@ void FAST_FUNC sha256_begin(sha256_ctx_t *ctx)
 	memcpy(&ctx->total64, init256, sizeof(init256));
 	/*ctx->total64 = 0; - done by prepending two 32-bit zeros to init256 */
 	ctx->process_block = sha256_process_block64;
+#if ENABLE_SHA256_HWACCEL
+# if defined(__GNUC__) && (defined(__i386__) || defined(__x86_64__))
+	{
+		if (!shaNI) {
+			unsigned eax = 7, ebx = ebx, ecx = 0, edx = edx;
+			cpuid(&eax, &ebx, &ecx, &edx);
+			shaNI = ((ebx >> 28) & 2) - 1; /* bit 29 -> 1 or -1 */
+		}
+		if (shaNI > 0)
+			ctx->process_block = sha256_process_block64_shaNI;
+	}
+# endif
+#endif
 }
 
+#if NEED_SHA512
 /* Initialize structure containing state of computation.
    (FIPS 180-2:5.3.3)  */
 void FAST_FUNC sha512_begin(sha512_ctx_t *ctx)
@@ -797,7 +1252,7 @@ void FAST_FUNC sha512_begin(sha512_ctx_t *ctx)
 	int i;
 	/* Two extra iterations zero out ctx->total64[2] */
 	uint64_t *tp = ctx->total64;
-	for (i = 0; i < 2+8; i++)
+	for (i = 0; i < 8 + 2; i++)
 		tp[i] = ((uint64_t)(init256[i]) << 32) + init512_lo[i];
 	/*ctx->total64[0] = ctx->total64[1] = 0; - already done */
 }
@@ -813,22 +1268,7 @@ void FAST_FUNC sha512_hash(sha512_ctx_t *ctx, const void *buffer, size_t len)
 	ctx->total64[0] += len;
 	if (ctx->total64[0] < len)
 		ctx->total64[1]++;
-#if 0
-	remaining = 128 - bufpos;
 
-	/* Hash whole blocks */
-	while (len >= remaining) {
-		memcpy(ctx->wbuffer + bufpos, buffer, remaining);
-		buffer = (const char *)buffer + remaining;
-		len -= remaining;
-		remaining = 128;
-		bufpos = 0;
-		sha512_process_block128(ctx);
-	}
-
-	/* Save last, partial blosk */
-	memcpy(ctx->wbuffer + bufpos, buffer, len);
-#else
 	while (1) {
 		remaining = 128 - bufpos;
 		if (remaining > len)
@@ -838,19 +1278,21 @@ void FAST_FUNC sha512_hash(sha512_ctx_t *ctx, const void *buffer, size_t len)
 		len -= remaining;
 		buffer = (const char *)buffer + remaining;
 		bufpos += remaining;
+
 		/* Clever way to do "if (bufpos != N) break; ... ; bufpos = 0;" */
 		bufpos -= 128;
 		if (bufpos != 0)
 			break;
+
 		/* Buffer is filled up, process it */
 		sha512_process_block128(ctx);
 		/*bufpos = 0; - already is */
 	}
-#endif
 }
+#endif /* NEED_SHA512 */
 
 /* Used also for sha256 */
-void FAST_FUNC sha1_end(sha1_ctx_t *ctx, void *resbuf)
+unsigned FAST_FUNC sha1_end(sha1_ctx_t *ctx, void *resbuf)
 {
 	unsigned hash_size;
 
@@ -864,10 +1306,13 @@ void FAST_FUNC sha1_end(sha1_ctx_t *ctx, void *resbuf)
 		for (i = 0; i < hash_size; ++i)
 			ctx->hash[i] = SWAP_BE32(ctx->hash[i]);
 	}
-	memcpy(resbuf, ctx->hash, sizeof(ctx->hash[0]) * hash_size);
+	hash_size *= sizeof(ctx->hash[0]);
+	memcpy(resbuf, ctx->hash, hash_size);
+	return hash_size;
 }
 
-void FAST_FUNC sha512_end(sha512_ctx_t *ctx, void *resbuf)
+#if NEED_SHA512
+unsigned FAST_FUNC sha512_end(sha512_ctx_t *ctx, void *resbuf)
 {
 	unsigned bufpos = ctx->total64[0] & 127;
 
@@ -899,7 +1344,9 @@ void FAST_FUNC sha512_end(sha512_ctx_t *ctx, void *resbuf)
 			ctx->hash[i] = SWAP_BE64(ctx->hash[i]);
 	}
 	memcpy(resbuf, ctx->hash, sizeof(ctx->hash));
+	return sizeof(ctx->hash);
 }
+#endif /* NEED_SHA512 */
 
 
 /*
@@ -943,10 +1390,6 @@ void FAST_FUNC sha512_end(sha512_ctx_t *ctx, void *resbuf)
 # undef OPTIMIZE_SHA3_FOR_32
 # define OPTIMIZE_SHA3_FOR_32 1
 #endif
-
-enum {
-	SHA3_IBLK_BYTES = 72, /* 576 bits / 8 */
-};
 
 #if OPTIMIZE_SHA3_FOR_32
 /* This splits every 64-bit word into a pair of 32-bit words,
@@ -1009,7 +1452,7 @@ static void sha3_process_block72(uint64_t *state)
 
 #if OPTIMIZE_SHA3_FOR_32
 	/*
-	static const uint32_t IOTA_CONST_0[NROUNDS] = {
+	static const uint32_t IOTA_CONST_0[NROUNDS] ALIGN4 = {
 		0x00000001UL,
 		0x00000000UL,
 		0x00000000UL,
@@ -1038,7 +1481,7 @@ static void sha3_process_block72(uint64_t *state)
 	** bits are in lsb: 0101 0000 1111 0100 1111 0001
 	*/
 	uint32_t IOTA_CONST_0bits = (uint32_t)(0x0050f4f1);
-	static const uint32_t IOTA_CONST_1[NROUNDS] = {
+	static const uint32_t IOTA_CONST_1[NROUNDS] ALIGN4 = {
 		0x00000000UL,
 		0x00000089UL,
 		0x8000008bUL,
@@ -1174,7 +1617,7 @@ static void sha3_process_block72(uint64_t *state)
 	combine_halves(state);
 #else
 	/* Native 64-bit algorithm */
-	static const uint16_t IOTA_CONST[NROUNDS] = {
+	static const uint16_t IOTA_CONST[NROUNDS] ALIGN2 = {
 		/* Elements should be 64-bit, but top half is always zero
 		 * or 0x80000000. We encode 63rd bits in a separate word below.
 		 * Same is true for 31th bits, which lets us use 16-bit table
@@ -1210,15 +1653,15 @@ static void sha3_process_block72(uint64_t *state)
 	/* bit for CONST[0] is in msb: 0001 0110 0011 1000 0001 1011 */
 	const uint32_t IOTA_CONST_bit31 = (uint32_t)(0x16381b00);
 
-	static const uint8_t ROT_CONST[24] = {
+	static const uint8_t ROT_CONST[24] ALIGN1 = {
 		1, 3, 6, 10, 15, 21, 28, 36, 45, 55, 2, 14,
 		27, 41, 56, 8, 25, 43, 62, 18, 39, 61, 20, 44,
 	};
-	static const uint8_t PI_LANE[24] = {
+	static const uint8_t PI_LANE[24] ALIGN1 = {
 		10, 7, 11, 17, 18, 3, 5, 16, 8, 21, 24, 4,
 		15, 23, 19, 13, 12, 2, 20, 14, 22, 9, 6, 1,
 	};
-	/*static const uint8_t MOD5[10] = { 0, 1, 2, 3, 4, 0, 1, 2, 3, 4, };*/
+	/*static const uint8_t MOD5[10] ALIGN1 = { 0, 1, 2, 3, 4, 0, 1, 2, 3, 4, };*/
 
 	unsigned x;
 	unsigned round;
@@ -1355,6 +1798,8 @@ static void sha3_process_block72(uint64_t *state)
 void FAST_FUNC sha3_begin(sha3_ctx_t *ctx)
 {
 	memset(ctx, 0, sizeof(*ctx));
+	/* SHA3-512, user can override */
+	ctx->input_block_bytes = (1600 - 512*2) / 8; /* 72 bytes */
 }
 
 void FAST_FUNC sha3_hash(sha3_ctx_t *ctx, const void *buffer, size_t len)
@@ -1364,7 +1809,7 @@ void FAST_FUNC sha3_hash(sha3_ctx_t *ctx, const void *buffer, size_t len)
 	unsigned bufpos = ctx->bytes_queued;
 
 	while (1) {
-		unsigned remaining = SHA3_IBLK_BYTES - bufpos;
+		unsigned remaining = ctx->input_block_bytes - bufpos;
 		if (remaining > len)
 			remaining = len;
 		len -= remaining;
@@ -1375,39 +1820,44 @@ void FAST_FUNC sha3_hash(sha3_ctx_t *ctx, const void *buffer, size_t len)
 			bufpos++;
 			remaining--;
 		}
+
 		/* Clever way to do "if (bufpos != N) break; ... ; bufpos = 0;" */
-		bufpos -= SHA3_IBLK_BYTES;
+		bufpos -= ctx->input_block_bytes;
 		if (bufpos != 0)
 			break;
+
 		/* Buffer is filled up, process it */
 		sha3_process_block72(ctx->state);
 		/*bufpos = 0; - already is */
 	}
-	ctx->bytes_queued = bufpos + SHA3_IBLK_BYTES;
+	ctx->bytes_queued = bufpos + ctx->input_block_bytes;
 #else
 	/* +50 bytes code size, but a bit faster because of long-sized XORs */
 	const uint8_t *data = buffer;
 	unsigned bufpos = ctx->bytes_queued;
+	unsigned iblk_bytes = ctx->input_block_bytes;
 
 	/* If already data in queue, continue queuing first */
-	while (len != 0 && bufpos != 0) {
-		uint8_t *buf = (uint8_t*)ctx->state;
-		buf[bufpos] ^= *data++;
-		len--;
-		bufpos++;
-		if (bufpos == SHA3_IBLK_BYTES) {
-			bufpos = 0;
-			goto do_block;
+	if (bufpos != 0) {
+		while (len != 0) {
+			uint8_t *buf = (uint8_t*)ctx->state;
+			buf[bufpos] ^= *data++;
+			len--;
+			bufpos++;
+			if (bufpos == iblk_bytes) {
+				bufpos = 0;
+				goto do_block;
+			}
 		}
 	}
 
 	/* Absorb complete blocks */
-	while (len >= SHA3_IBLK_BYTES) {
+	while (len >= iblk_bytes) {
 		/* XOR data onto beginning of state[].
 		 * We try to be efficient - operate one word at a time, not byte.
 		 * Careful wrt unaligned access: can't just use "*(long*)data"!
 		 */
-		unsigned count = SHA3_IBLK_BYTES / sizeof(long);
+		unsigned count = iblk_bytes / sizeof(long);
 		long *buf = (long*)ctx->state;
 		do {
 			long v;
@@ -1415,7 +1865,7 @@ void FAST_FUNC sha3_hash(sha3_ctx_t *ctx, const void *buffer, size_t len)
 			*buf++ ^= v;
 			data += sizeof(long);
 		} while (--count);
-		len -= SHA3_IBLK_BYTES;
+		len -= iblk_bytes;
  do_block:
 		sha3_process_block72(ctx->state);
 	}
@@ -1432,16 +1882,31 @@ void FAST_FUNC sha3_hash(sha3_ctx_t *ctx, const void *buffer, size_t len)
 #endif
 }
 
-void FAST_FUNC sha3_end(sha3_ctx_t *ctx, void *resbuf)
+unsigned FAST_FUNC sha3_end(sha3_ctx_t *ctx, void *resbuf)
 {
 	/* Padding */
 	uint8_t *buf = (uint8_t*)ctx->state;
-	buf[ctx->bytes_queued]   ^= 1;
-	buf[SHA3_IBLK_BYTES - 1] ^= 0x80;
+	/*
+	 * Keccak block padding is: add 1 bit after last bit of input,
+	 * then add zero bits until the end of block, and add the last 1 bit
+	 * (the last bit in the block) - the "10*1" pattern.
+	 * SHA3 standard appends additional two bits, 01,  before that padding:
+	 *
+	 * SHA3-224(M) = KECCAK[448](M||01, 224)
+	 * SHA3-256(M) = KECCAK[512](M||01, 256)
+	 * SHA3-384(M) = KECCAK[768](M||01, 384)
+	 * SHA3-512(M) = KECCAK[1024](M||01, 512)
+	 * (M is the input, || is bit concatenation)
+	 *
+	 * The 6 below contains 01 "SHA3" bits and the first 1 "Keccak" bit:
+	 */
+	buf[ctx->bytes_queued]          ^= 6; /* bit pattern 00000110 */
+	buf[ctx->input_block_bytes - 1] ^= 0x80;
 
 	sha3_process_block72(ctx->state);
 
 	/* Output */
 	memcpy(resbuf, ctx->state, 64);
+	return 64;
 }
 #endif

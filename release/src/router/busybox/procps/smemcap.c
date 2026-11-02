@@ -7,17 +7,16 @@
  the GNU General Public License version 2 or later, incorporated
  herein by reference.
 */
+//config:config SMEMCAP
+//config:	bool "smemcap (2.5 kb)"
+//config:	default y
+//config:	help
+//config:	smemcap is a tool for capturing process data for smem,
+//config:	a memory usage statistic tool.
 
 //applet:IF_SMEMCAP(APPLET(smemcap, BB_DIR_USR_BIN, BB_SUID_DROP))
 
 //kbuild:lib-$(CONFIG_SMEMCAP) += smemcap.o
-
-//config:config SMEMCAP
-//config:	bool "smemcap"
-//config:	default y
-//config:	help
-//config:	  smemcap is a tool for capturing process data for smem,
-//config:	  a memory usage statistic tool.
 
 #include "libbb.h"
 #include "bb_archive.h"
@@ -30,7 +29,6 @@ struct fileblock {
 static void writeheader(const char *path, struct stat *sb, int type)
 {
 	struct tar_header_t header;
-	int i, sum;
 
 	memset(&header, 0, TAR_BLOCK_SIZE);
 	strcpy(header.name, path);
@@ -41,20 +39,7 @@ static void writeheader(const char *path, struct stat *sb, int type)
 	sprintf(header.size, "%o", (unsigned)sb->st_size);
 	sprintf(header.mtime, "%llo", sb->st_mtime & 077777777777LL);
 	header.typeflag = type;
-	strcpy(header.magic, "ustar  "); /* like GNU tar */
-
-	/* Calculate and store the checksum (the sum of all of the bytes of
-	 * the header). The checksum field must be filled with blanks for the
-	 * calculation. The checksum field is formatted differently from the
-	 * other fields: it has 6 digits, a NUL, then a space -- rather than
-	 * digits, followed by a NUL like the other fields... */
-	header.chksum[7] = ' ';
-	sum = ' ' * 7;
-	for (i = 0; i < TAR_BLOCK_SIZE; i++)
-		sum += ((unsigned char*)&header)[i];
-	sprintf(header.chksum, "%06o", sum);
-
-	xwrite(STDOUT_FILENO, &header, TAR_BLOCK_SIZE);
+	chksum_and_xwrite_tar_header(STDOUT_FILENO, &header);
 }
 
 static void archivefile(const char *path)
@@ -66,7 +51,11 @@ static void archivefile(const char *path)
 	struct stat s;
 
 	/* buffer the file */
-	fd = xopen(path, O_RDONLY);
+	fd = open(path, O_RDONLY);
+	if (fd == -1) {
+		/* skip vanished processes between dir listing and traversal */
+		return;
+	}
 	do {
 		cur = xzalloc(sizeof(*cur));
 		*prev = cur;

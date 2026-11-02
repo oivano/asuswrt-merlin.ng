@@ -34,12 +34,12 @@
  * It doesn't guess filesystem types from on-disk format.
  */
 //config:config FSCK
-//config:	bool "fsck"
+//config:	bool "fsck (7.4 kb)"
 //config:	default y
 //config:	help
-//config:	  fsck is used to check and optionally repair one or more filesystems.
-//config:	  In actuality, fsck is simply a front-end for the various file system
-//config:	  checkers (fsck.fstype) available under Linux.
+//config:	fsck is used to check and optionally repair one or more filesystems.
+//config:	In actuality, fsck is simply a front-end for the various file system
+//config:	checkers (fsck.fstype) available under Linux.
 
 //applet:IF_FSCK(APPLET(fsck, BB_DIR_SBIN, BB_SUID_DROP))
 
@@ -190,7 +190,7 @@ struct globals {
  * Required for the uber-silly devfs /dev/ide/host1/bus2/target3/lun3
  * pathames.
  */
-static const char *const devfs_hier[] = {
+static const char *const devfs_hier[] ALIGN_PTR = {
 	"host", "bus", "target", "lun", NULL
 };
 #endif
@@ -414,7 +414,7 @@ static void kill_all_if_got_signal(void)
 static int wait_one(int flags)
 {
 	int status;
-	int sig;
+	int exitcode;
 	struct fsck_instance *inst, *prev;
 	pid_t pid;
 
@@ -431,10 +431,10 @@ static int wait_one(int flags)
 			if (errno == EINTR)
 				continue;
 			if (errno == ECHILD) { /* paranoia */
-				bb_error_msg("wait: no more children");
+				bb_simple_error_msg("wait: no more children");
 				return -1;
 			}
-			bb_perror_msg("wait");
+			bb_simple_perror_msg("wait");
 			continue;
 		}
 		prev = NULL;
@@ -448,15 +448,16 @@ static int wait_one(int flags)
 	}
  child_died:
 
-	status = WEXITSTATUS(status);
+	exitcode = WEXITSTATUS(status);
 	if (WIFSIGNALED(status)) {
+		unsigned sig;
 		sig = WTERMSIG(status);
-		status = EXIT_UNCORRECTED;
+		exitcode = EXIT_UNCORRECTED;
 		if (sig != SIGINT) {
 			printf("Warning: %s %s terminated "
-				"by signal %d\n",
+				"by signal %u\n",
 				inst->prog, inst->device, sig);
-			status = EXIT_ERROR;
+			exitcode = EXIT_ERROR;
 		}
 	}
 
@@ -479,7 +480,7 @@ static int wait_one(int flags)
 			 * time to set up the signal handler
 			 */
 			if (inst2->start_time >= time(NULL) - 1)
-				sleep(1);
+				sleep1();
 			kill(inst2->pid, SIGUSR1);
 			inst2->flags |= FLAG_PROGRESS;
 			break;
@@ -492,12 +493,12 @@ static int wait_one(int flags)
 	else
 		G.instance_list = inst->next;
 	if (G.verbose > 1)
-		printf("Finished with %s (exit status %d)\n",
-			inst->device, status);
+		printf("Finished with %s (exit status %u)\n",
+			inst->device, exitcode);
 	G.num_running--;
 	free_instance(inst);
 
-	return status;
+	return exitcode;
 }
 
 /*
@@ -658,7 +659,7 @@ static int device_already_active(char *device)
 		return (G.instance_list != NULL);
 
 	for (inst = G.instance_list; inst; inst = inst->next) {
-		if (!inst->base_device || !strcmp(base, inst->base_device)) {
+		if (!inst->base_device || strcmp(base, inst->base_device) == 0) {
 			free(base);
 			return 1;
 		}
@@ -918,7 +919,7 @@ static void compile_fs_type(char *fs_type)
 			if (G.fs_type_negated == -1)
 				G.fs_type_negated = negate;
 			if (G.fs_type_negated != negate)
-				bb_error_msg_and_die(
+				bb_simple_error_msg_and_die(
 "either all or none of the filesystem types passed to -t must be prefixed "
 "with 'no' or '!'");
 		}
@@ -1071,7 +1072,7 @@ int fsck_main(int argc UNUSED_PARAM, char **argv)
 	new_args(); /* G.args[G.num_args - 1] is the last, NULL element */
 
 	if (!notitle)
-		puts("fsck (busybox "BB_VER", "BB_BT")");
+		puts("fsck (busybox "BB_VER")");
 
 	/* Even plain "fsck /dev/hda1" needs fstab to get fs type,
 	 * so we are scanning it anyway */

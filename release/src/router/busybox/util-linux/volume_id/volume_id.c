@@ -42,7 +42,6 @@
 #define ENABLE_FEATURE_VOLUMEID_VIARAID       0
 
 /* These filesystems also have no label or uuid: */
-#define ENABLE_FEATURE_VOLUMEID_MINIX         0
 #define ENABLE_FEATURE_VOLUMEID_HPFS          0
 #define ENABLE_FEATURE_VOLUMEID_UFS           0
 
@@ -50,7 +49,7 @@
 typedef int FAST_FUNC (*raid_probe_fptr)(struct volume_id *id, /*uint64_t off,*/ uint64_t size);
 typedef int FAST_FUNC (*probe_fptr)(struct volume_id *id /*, uint64_t off*/);
 
-static const raid_probe_fptr raid1[] = {
+static const raid_probe_fptr raid1[] ALIGN_PTR = {
 #if ENABLE_FEATURE_VOLUMEID_LINUXRAID
 	volume_id_probe_linux_raid,
 #endif
@@ -77,7 +76,7 @@ static const raid_probe_fptr raid1[] = {
 #endif
 };
 
-static const probe_fptr raid2[] = {
+static const probe_fptr raid2[] ALIGN_PTR = {
 #if ENABLE_FEATURE_VOLUMEID_LVM
 	volume_id_probe_lvm1,
 	volume_id_probe_lvm2,
@@ -91,18 +90,24 @@ static const probe_fptr raid2[] = {
 };
 
 /* signature in the first block, only small buffer needed */
-static const probe_fptr fs1[] = {
+static const probe_fptr fs1[] ALIGN_PTR = {
 #if ENABLE_FEATURE_VOLUMEID_FAT
 	volume_id_probe_vfat,
 #endif
 #if ENABLE_FEATURE_VOLUMEID_EXFAT
 	volume_id_probe_exfat,
 #endif
+#if ENABLE_FEATURE_VOLUMEID_LFS
+	volume_id_probe_lfs,
+#endif
 #if ENABLE_FEATURE_VOLUMEID_MAC
 	volume_id_probe_mac_partition_map,
 #endif
 #if ENABLE_FEATURE_VOLUMEID_SQUASHFS
 	volume_id_probe_squashfs,
+#endif
+#if ENABLE_FEATURE_VOLUMEID_EROFS
+	volume_id_probe_erofs,
 #endif
 #if ENABLE_FEATURE_VOLUMEID_XFS
 	volume_id_probe_xfs,
@@ -113,7 +118,7 @@ static const probe_fptr fs1[] = {
 };
 
 /* fill buffer with maximum */
-static const probe_fptr fs2[] = {
+static const probe_fptr fs2[] ALIGN_PTR = {
 #if ENABLE_FEATURE_VOLUMEID_LINUXSWAP
 	volume_id_probe_linux_swap,
 #endif
@@ -167,6 +172,9 @@ static const probe_fptr fs2[] = {
 #endif
 #if ENABLE_FEATURE_VOLUMEID_OCFS2
 	volume_id_probe_ocfs2,
+#endif
+#if ENABLE_FEATURE_VOLUMEID_UBIFS
+	volume_id_probe_ubifs,
 #endif
 };
 

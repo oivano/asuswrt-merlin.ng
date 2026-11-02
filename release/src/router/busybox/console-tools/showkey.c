@@ -6,6 +6,15 @@
  *
  * Licensed under GPLv2, see file LICENSE in this source tree.
  */
+//config:config SHOWKEY
+//config:	bool "showkey (4.7 kb)"
+//config:	default y
+//config:	help
+//config:	Shows keys pressed.
+
+//applet:IF_SHOWKEY(APPLET(showkey, BB_DIR_USR_BIN, BB_SUID_DROP))
+
+//kbuild:lib-$(CONFIG_SHOWKEY) += showkey.o
 
 //usage:#define showkey_trivial_usage
 //usage:       "[-a | -k | -s]"
@@ -46,7 +55,7 @@ static void xset1(struct termios *t)
 {
 	int ret = tcsetattr(STDIN_FILENO, TCSAFLUSH, t);
 	if (ret) {
-		bb_perror_msg("can't tcsetattr for stdin");
+		bb_simple_perror_msg("can't tcsetattr for stdin");
 	}
 }
 
@@ -97,7 +106,7 @@ int showkey_main(int argc UNUSED_PARAM, char **argv)
 		xioctl(STDIN_FILENO, KDSKBMODE, (void *)(ptrdiff_t)((option_mask32 & OPT_k) ? K_MEDIUMRAW : K_RAW));
 
 		// we should exit on any signal; signals should interrupt read
-		bb_signals_recursive_norestart(BB_FATAL_SIGS, record_signo);
+		bb_signals_norestart(BB_FATAL_SIGS, record_signo);
 
 		// inform user that program ends after time of inactivity
 		printf(press_keys, "10s after last keypress");

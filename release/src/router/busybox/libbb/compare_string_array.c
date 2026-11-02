@@ -2,7 +2,6 @@
 /*
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
-
 #include "libbb.h"
 
 /*
@@ -64,13 +63,19 @@ int FAST_FUNC index_in_str_array(const char *const string_array[], const char *k
 
 int FAST_FUNC index_in_strings(const char *strings, const char *key)
 {
-	int idx = 0;
+	int j, idx = 0;
 
 	while (*strings) {
-		if (strcmp(strings, key) == 0) {
-			return idx;
+		/* Do we see "key\0" at current position in strings? */
+		for (j = 0; *strings == key[j]; ++j) {
+			if (*strings++ == '\0') {
+				//bb_error_msg("found:'%s' i:%u", key, idx);
+				return idx; /* yes */
+			}
 		}
-		strings += strlen(strings) + 1; /* skip NUL */
+		/* No.  Move to the start of the next string. */
+		while (*strings++ != '\0')
+			continue;
 		idx++;
 	}
 	return -1;
@@ -118,8 +123,11 @@ int FAST_FUNC index_in_substrings(const char *strings, const char *key)
 const char* FAST_FUNC nth_string(const char *strings, int n)
 {
 	while (n) {
-		n--;
-		strings += strlen(strings) + 1;
+		if (*strings++ == '\0') {
+			if (*strings == '\0') /* reached end of strings */
+				break;
+			n--;
+		}
 	}
 	return strings;
 }

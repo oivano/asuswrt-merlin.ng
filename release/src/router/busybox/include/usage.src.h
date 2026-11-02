@@ -14,6 +14,26 @@
 
 #define NOUSAGE_STR "\b"
 
+#define scripted_trivial_usage NOUSAGE_STR
+#define scripted_full_usage ""
+
+#if !ENABLE_USE_BB_CRYPT || ENABLE_USE_BB_CRYPT_SHA
+# define CRYPT_METHODS_HELP_STR "des,md5,sha256/512" \
+	" (default "CONFIG_FEATURE_DEFAULT_PASSWD_ALGO")"
+#else
+# define CRYPT_METHODS_HELP_STR "des,md5" \
+	" (default "CONFIG_FEATURE_DEFAULT_PASSWD_ALGO")"
+#endif
+
+#if ENABLE_FEATURE_HWCLOCK_ADJTIME_FHS
+# define ADJTIME_PATH "/var/lib/hwclock/adjtime"
+#else
+# define ADJTIME_PATH "/etc/adjtime"
+#endif
+
+#define STR1(s) #s
+#define STR(s)  STR1(s)
+
 INSERT
 
 #define busybox_notes_usage \

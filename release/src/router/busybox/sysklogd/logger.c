@@ -7,27 +7,27 @@
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
 //config:config LOGGER
-//config:	bool "logger"
+//config:	bool "logger (6.3 kb)"
 //config:	default y
 //config:	select FEATURE_SYSLOG
 //config:	help
-//config:	    The logger utility allows you to send arbitrary text
-//config:	    messages to the system log (i.e. the 'syslogd' utility) so
-//config:	    they can be logged. This is generally used to help locate
-//config:	    problems that occur within programs and scripts.
+//config:	The logger utility allows you to send arbitrary text
+//config:	messages to the system log (i.e. the 'syslogd' utility) so
+//config:	they can be logged. This is generally used to help locate
+//config:	problems that occur within programs and scripts.
 
 //applet:IF_LOGGER(APPLET(logger, BB_DIR_USR_BIN, BB_SUID_DROP))
 
 //kbuild:lib-$(CONFIG_LOGGER) += syslogd_and_logger.o
 
 //usage:#define logger_trivial_usage
-//usage:       "[OPTIONS] [MESSAGE]"
+//usage:       "[-s] [-t TAG] [-p PRIO] [MESSAGE]"
 //usage:#define logger_full_usage "\n\n"
 //usage:       "Write MESSAGE (or stdin) to syslog\n"
 //usage:     "\n	-s	Log to stderr as well as the system log"
 //usage:     "\n	-c	Log to console as well as the system log"
 //usage:     "\n	-t TAG	Log using the specified tag (defaults to user name)"
-//usage:     "\n	-p PRIO	Priority (numeric or facility.level pair)"
+//usage:     "\n	-p PRIO	Priority (number or FACILITY.LEVEL pair)"
 //usage:
 //usage:#define logger_example_usage
 //usage:       "$ logger \"hello\"\n"
@@ -78,14 +78,14 @@ static int pencode(char *s)
 		;
 	if (*s) {
 		*s = '\0';
-		fac = decode(save, facilitynames);
+		fac = decode(save, bb_facilitynames);
 		if (fac < 0)
 			bb_error_msg_and_die("unknown %s name: %s", "facility", save);
 		*s++ = '.';
 	} else {
 		s = save;
 	}
-	lev = decode(s, prioritynames);
+	lev = decode(s, bb_prioritynames);
 	if (lev < 0)
 		bb_error_msg_and_die("unknown %s name: %s", "priority", save);
 	return ((lev & LOG_PRIMASK) | (fac & LOG_FACMASK));
@@ -184,7 +184,7 @@ int logger_main(int argc UNUSED_PARAM, char **argv)
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+ * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ''AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE

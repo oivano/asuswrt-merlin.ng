@@ -7,22 +7,16 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
+//config:config IPCS
+//config:	bool "ipcs (11 kb)"
+//config:	default y
+//config:	help
+//config:	The ipcs utility is used to provide information on the currently
+//config:	allocated System V interprocess (IPC) objects in the system.
 
-//usage:#define ipcs_trivial_usage
-//usage:       "[[-smq] -i shmid] | [[-asmq] [-tcplu]]"
-//usage:#define ipcs_full_usage "\n\n"
-//usage:       "	-i	Show specific resource"
-//usage:     "\nResource specification:"
-//usage:     "\n	-m	Shared memory segments"
-//usage:     "\n	-q	Message queues"
-//usage:     "\n	-s	Semaphore arrays"
-//usage:     "\n	-a	All (default)"
-//usage:     "\nOutput format:"
-//usage:     "\n	-t	Time"
-//usage:     "\n	-c	Creator"
-//usage:     "\n	-p	Pid"
-//usage:     "\n	-l	Limits"
-//usage:     "\n	-u	Summary"
+//applet:IF_IPCS(APPLET_NOEXEC(ipcs, ipcs, BB_DIR_USR_BIN, BB_SUID_DROP, ipcs))
+
+//kbuild:lib-$(CONFIG_IPCS) += ipcs.o
 
 /* X/OPEN tells us to use <sys/{types,ipc,sem}.h> for semctl() */
 /* X/OPEN tells us to use <sys/{types,ipc,msg}.h> for msgctl() */
@@ -106,8 +100,6 @@ union semun {
 #define TIME 4
 #define PID 5
 
-static char format;
-
 static void print_perms(int id, struct ipc_perm *ipcp)
 {
 	struct passwd *pw;
@@ -130,8 +122,7 @@ static void print_perms(int id, struct ipc_perm *ipcp)
 	else	printf(" %-10d\n", ipcp->gid);
 }
 
-
-static NOINLINE void do_shm(void)
+static NOINLINE void do_shm(int format)
 {
 	int maxid, shmid, id;
 	struct shmid_ds shmseg;
@@ -257,8 +248,7 @@ static NOINLINE void do_shm(void)
 	}
 }
 
-
-static NOINLINE void do_sem(void)
+static NOINLINE void do_sem(int format)
 {
 	int maxid, semid, id;
 	struct semid_ds semary;
@@ -363,8 +353,7 @@ static NOINLINE void do_sem(void)
 	}
 }
 
-
-static NOINLINE void do_msg(void)
+static NOINLINE void do_msg(int format)
 {
 	int maxid, msqid, id;
 	struct msqid_ds msgque;
@@ -471,14 +460,13 @@ static NOINLINE void do_msg(void)
 	}
 }
 
-
 static void print_shm(int shmid)
 {
 	struct shmid_ds shmds;
 	struct ipc_perm *ipcp = &shmds.shm_perm;
 
 	if (shmctl(shmid, IPC_STAT, &shmds) == -1) {
-		bb_perror_msg("shmctl");
+		bb_simple_perror_msg("shmctl");
 		return;
 	}
 
@@ -498,14 +486,13 @@ static void print_shm(int shmid)
 	printf("change_time=%-26.24s\n\n", ctime(&shmds.shm_ctime));
 }
 
-
 static void print_msg(int msqid)
 {
 	struct msqid_ds buf;
 	struct ipc_perm *ipcp = &buf.msg_perm;
 
 	if (msgctl(msqid, IPC_STAT, &buf) == -1) {
-		bb_perror_msg("msgctl");
+		bb_simple_perror_msg("msgctl");
 		return;
 	}
 
@@ -539,7 +526,7 @@ static void print_sem(int semid)
 
 	arg.buf = &semds;
 	if (semctl(semid, 0, IPC_STAT, arg)) {
-		bb_perror_msg("semctl");
+		bb_simple_perror_msg("semctl");
 		return;
 	}
 
@@ -567,71 +554,84 @@ static void print_sem(int semid)
 		zcnt = semctl(semid, i, GETZCNT, arg);
 		pid = semctl(semid, i, GETPID, arg);
 		if (val < 0 || ncnt < 0 || zcnt < 0 || pid < 0) {
-			bb_perror_msg_and_die("semctl");
+			bb_simple_perror_msg_and_die("semctl");
 		}
 		printf("%-10u %-10d %-10d %-10d %-10d\n", i, val, ncnt, zcnt, pid);
 	}
 	bb_putchar('\n');
 }
 
+//usage:#define ipcs_trivial_usage
+//usage:       "[[-smq] -i SHMID] | [[-asmq] [-tcplu]]"
+//usage:#define ipcs_full_usage "\n\n"
+//usage:       "	-i ID	Show specific resource"
+//usage:     "\nResource specification:"
+//usage:     "\n	-m	Shared memory segments"
+//usage:     "\n	-q	Message queues"
+//usage:     "\n	-s	Semaphore arrays"
+//usage:     "\n	-a	All (default)"
+//usage:     "\nOutput format:"
+//usage:     "\n	-t	Time"
+//usage:     "\n	-c	Creator"
+//usage:     "\n	-p	Pid"
+//usage:     "\n	-l	Limits"
+//usage:     "\n	-u	Summary"
+
 int ipcs_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
 int ipcs_main(int argc UNUSED_PARAM, char **argv)
 {
-	int id = 0;
-	unsigned flags = 0;
+	int format = 0;
 	unsigned opt;
 	char *opt_i;
-#define flag_print	(1<<0)
-#define flag_msg	(1<<1)
-#define flag_sem	(1<<2)
-#define flag_shm	(1<<3)
 
 	opt = getopt32(argv, "i:aqsmtcplu", &opt_i);
-	if (opt & 0x1) { // -i
-		id = xatoi(opt_i);
-		flags |= flag_print;
-	}
-	if (opt & 0x2) flags |= flag_msg | flag_sem | flag_shm; // -a
-	if (opt & 0x4) flags |= flag_msg; // -q
-	if (opt & 0x8) flags |= flag_sem; // -s
-	if (opt & 0x10) flags |= flag_shm; // -m
-	if (opt & 0x20) format = TIME; // -t
-	if (opt & 0x40) format = CREATOR; // -c
-	if (opt & 0x80) format = PID; // -p
-	if (opt & 0x100) format = LIMITS; // -l
-	if (opt & 0x200) format = STATUS; // -u
+#define flag_msg (1<<2)
+#define flag_sem (1<<3)
+#define flag_shm (1<<4)
+	if (opt & (1<<5)) format = TIME; // -t
+	if (opt & (1<<6)) format = CREATOR; // -c
+	if (opt & (1<<7)) format = PID; // -p
+	if (opt & (1<<8)) format = LIMITS; // -l
+	if (opt & (1<<9)) format = STATUS; // -u
 
-	if (flags & flag_print) {
-		if (flags & flag_shm) {
+	if (opt & (1<<0)) { // -i
+		int id;
+
+		id = xatoi(opt_i);
+		if (opt & flag_shm) {
 			print_shm(id);
-			fflush_stdout_and_exit(EXIT_SUCCESS);
+			fflush_stdout_and_exit_SUCCESS();
 		}
-		if (flags & flag_sem) {
+		if (opt & flag_sem) {
 			print_sem(id);
-			fflush_stdout_and_exit(EXIT_SUCCESS);
+			fflush_stdout_and_exit_SUCCESS();
 		}
-		if (flags & flag_msg) {
+		if (opt & flag_msg) {
 			print_msg(id);
-			fflush_stdout_and_exit(EXIT_SUCCESS);
+			fflush_stdout_and_exit_SUCCESS();
 		}
 		bb_show_usage();
 	}
 
-	if (!(flags & (flag_shm | flag_msg | flag_sem)))
-		flags |= flag_msg | flag_shm | flag_sem;
+	if ((opt & (1<<1)) // -a
+	 || !(opt & (flag_msg | flag_sem | flag_shm)) // none of -q,-s,-m == all
+	) {
+		opt |= flag_msg | flag_sem | flag_shm;
+	}
+
 	bb_putchar('\n');
 
-	if (flags & flag_shm) {
-		do_shm();
+	if (opt & flag_msg) {
+		do_msg(format);
 		bb_putchar('\n');
 	}
-	if (flags & flag_sem) {
-		do_sem();
+	if (opt & flag_shm) {
+		do_shm(format);
 		bb_putchar('\n');
 	}
-	if (flags & flag_msg) {
-		do_msg();
+	if (opt & flag_sem) {
+		do_sem(format);
 		bb_putchar('\n');
 	}
-	fflush_stdout_and_exit(EXIT_SUCCESS);
+	fflush_stdout_and_exit_SUCCESS();
 }

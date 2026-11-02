@@ -116,10 +116,6 @@
 #include "libbb.h"
 #include "math.h"
 
-#define lookupvar (math_state->lookupvar)
-#define setvar    (math_state->setvar   )
-//#define endofname (math_state->endofname)
-
 typedef unsigned char operator;
 
 /* An operator's token id is a bit of a bitfield. The lower 5 bits are the
@@ -251,14 +247,14 @@ typedef struct remembered_name {
 } remembered_name;
 
 
-static arith_t FAST_FUNC
+static arith_t
 evaluate_string(arith_state_t *math_state, const char *expr);
 
 static const char*
 arith_lookup_val(arith_state_t *math_state, var_or_num_t *t)
 {
 	if (t->var) {
-		const char *p = lookupvar(t->var);
+		const char *p = math_state->lookupvar(t->var);
 		if (p) {
 			remembered_name *cur;
 			remembered_name cur_save;
@@ -445,16 +441,15 @@ arith_apply(arith_state_t *math_state, operator op, var_or_num_t *numstack, var_
 
 		if (top_of_stack->var == NULL) {
 			/* Hmm, 1=2 ? */
-//TODO: actually, bash allows ++7 but for some reason it evals to 7, not 8
 			goto err;
 		}
 		/* Save to shell variable */
 		sprintf(buf, ARITH_FMT, rez);
-		setvar(top_of_stack->var, buf);
+		math_state->setvar(top_of_stack->var, buf);
 		/* After saving, make previous value for v++ or v-- */
 		if (op == TOK_POST_INC)
 			rez--;
-		else if (op == TOK_POST_DEC)
+		if (op == TOK_POST_DEC)
 			rez++;
 	}
 
@@ -513,7 +508,76 @@ static const char op_tokens[] ALIGN1 = {
 };
 #define ptr_to_rparen (&op_tokens[sizeof(op_tokens)-7])
 
-static arith_t FAST_FUNC
+#if ENABLE_FEATURE_SH_MATH_BASE
+static arith_t strto_arith_t(const char *nptr, char **endptr)
+{
+	unsigned base;
+	arith_t n;
+
+# if ENABLE_FEATURE_SH_MATH_64
+	n = strtoull(nptr, endptr, 0);
+# else
+	n = strtoul(nptr, endptr, 0);
+# endif
+	if (**endptr != '#'
+	 || (*nptr < '1' || *nptr > '9')
+	 || (n < 2 || n > 64)
+	) {
+		return n;
+	}
+
+	/* It's "N#nnnn" or "NN#nnnn" syntax, NN can't start with 0,
+	 * NN is in 2..64 range.
+	 */
+	base = (unsigned)n;
+	n = 0;
+	nptr = *endptr + 1;
+	for (;;) {
+		unsigned digit = (unsigned)*nptr - '0';
+		if (digit >= 10 /* not 0..9 */
+		 && digit <= 'z' - '0' /* needed to reject e.g. $((64#~)) */
+		) {
+			/* in bases up to 36, case does not matter for a-z */
+			digit = (unsigned)(*nptr | 0x20) - ('a' - 10);
+			if (base > 36 && *nptr <= '_') {
+				/* otherwise, A-Z,@,_ are 36-61,62,63 */
+				if (*nptr == '_')
+					digit = 63;
+				else if (*nptr == '@')
+					digit = 62;
+				else if (digit < 36) /* A-Z */
+					digit += 36 - 10;
+				else
+					break; /* error: one of [\]^ */
+			}
+			//bb_error_msg("ch:'%c'%d digit:%u", *nptr, *nptr, digit);
+			//if (digit < 10) - example where we need this?
+			//	break;
+		}
+		if (digit >= base)
+			break;
+		/* bash does not check for overflows */
+		n = n * base + digit;
+		nptr++;
+	}
+	/* Note: we do not set errno on bad chars, we just set a pointer
+	 * to the first invalid char. For example, this allows
+	 * "N#" (empty "nnnn" part): 64#+1 is a valid expression,
+	 * it means 64# + 1, whereas 64#~... is not, since ~ is not a valid
+	 * operator.
+	 */
+	*endptr = (char*)nptr;
+	return n;
+}
+#else /* !ENABLE_FEATURE_SH_MATH_BASE */
+# if ENABLE_FEATURE_SH_MATH_64
+#  define strto_arith_t(nptr, endptr) strtoull(nptr, endptr, 0)
+# else
+#  define strto_arith_t(nptr, endptr) strtoul(nptr, endptr, 0)
+# endif
+#endif
+
+static arith_t
 evaluate_string(arith_state_t *math_state, const char *expr)
 {
 	operator lasttok;
@@ -538,11 +602,9 @@ evaluate_string(arith_state_t *math_state, const char *expr)
 		const char *p;
 		operator op;
 		operator prec;
-		char arithval;
 
 		expr = skip_whitespace(expr);
-		arithval = *expr;
-		if (arithval == '\0') {
+		if (*expr == '\0') {
 			if (expr == start_expr) {
 				/* Null expression */
 				numstack->val = 0;
@@ -559,6 +621,7 @@ evaluate_string(arith_state_t *math_state, const char *expr)
 				 * append a closing right paren
 				 * and let the loop process it */
 				expr = ptr_to_rparen;
+//bb_error_msg("expr=')'");
 				continue;
 			}
 			/* At this point, we're done with the expression */
@@ -566,19 +629,16 @@ evaluate_string(arith_state_t *math_state, const char *expr)
 				/* ...but if there isn't, it's bad */
 				goto err;
 			}
-			if (numstack->var) {
-				/* expression is $((var)) only, lookup now */
-				errmsg = arith_lookup_val(math_state, numstack);
-			}
 			goto ret;
 		}
 
 		p = endofname(expr);
 		if (p != expr) {
 			/* Name */
-			size_t var_name_size = (p-expr) + 1;  /* +1 for NUL */
+			size_t var_name_size = (p - expr) + 1;  /* +1 for NUL */
 			numstackptr->var = alloca(var_name_size);
 			safe_strncpy(numstackptr->var, expr, var_name_size);
+//bb_error_msg("var:'%s'", numstackptr->var);
 			expr = p;
  num:
 			numstackptr->second_val_present = 0;
@@ -587,21 +647,43 @@ evaluate_string(arith_state_t *math_state, const char *expr)
 			continue;
 		}
 
-		if (isdigit(arithval)) {
+		if (isdigit(*expr)) {
 			/* Number */
 			numstackptr->var = NULL;
 			errno = 0;
-			numstackptr->val = strto_arith_t(expr, (char**) &expr, 0);
+			numstackptr->val = strto_arith_t(expr, (char**) &expr);
+//bb_error_msg("val:%lld", numstackptr->val);
 			if (errno)
 				numstackptr->val = 0; /* bash compat */
 			goto num;
 		}
 
 		/* Should be an operator */
+
+		/* Special case: XYZ--, XYZ++, --XYZ, ++XYZ are recognized
+		 * only if XYZ is a variable name, not a number or EXPR. IOW:
+		 * "a+++v" is a++ + v.
+		 * "(a)+++7" is ( a ) + + + 7.
+		 * "7+++v" is 7 + ++v, not 7++ + v.
+		 * "--7" is - - 7, not --7.
+		 * "++++a" is + + ++a, not ++ ++a.
+		 */
+		if ((expr[0] == '+' || expr[0] == '-')
+		 && (expr[1] == expr[0])
+		) {
+			if (numstackptr == numstack || !numstackptr[-1].var) { /* not a VAR++ */
+				char next = skip_whitespace(expr + 2)[0];
+				if (!(isalpha(next) || next == '_')) { /* not a ++VAR */
+					//bb_error_msg("special %c%c", expr[0], expr[0]);
+					op = (expr[0] == '+' ? TOK_ADD : TOK_SUB);
+					expr++;
+					goto tok_found1;
+				}
+			}
+		}
+
 		p = op_tokens;
 		while (1) {
-// TODO: bash allows 7+++v, treats it as 7 + ++v
-// we treat it as 7++ + v and reject
 			/* Compare expr to current op_tokens[] element */
 			const char *e = expr;
 			while (1) {
@@ -627,6 +709,7 @@ evaluate_string(arith_state_t *math_state, const char *expr)
 		}
  tok_found:
 		op = p[1]; /* fetch TOK_foo value */
+ tok_found1:
 		/* NB: expr now points past the operator */
 
 		/* post grammar: a++ reduce to num */
@@ -665,26 +748,40 @@ evaluate_string(arith_state_t *math_state, const char *expr)
 		 * "applied" in this way.
 		 */
 		prec = PREC(op);
+//bb_error_msg("prec:%02x", prec);
 		if ((prec > 0 && prec < UNARYPREC) || prec == SPEC_PREC) {
 			/* not left paren or unary */
 			if (lasttok != TOK_NUM) {
 				/* binary op must be preceded by a num */
 				goto err;
 			}
+			/* The algorithm employed here is simple: while we don't
+			 * hit an open paren nor the bottom of the stack, pop
+			 * tokens and apply them */
 			while (stackptr != stack) {
 				operator prev_op = *--stackptr;
 				if (op == TOK_RPAREN) {
-					/* The algorithm employed here is simple: while we don't
-					 * hit an open paren nor the bottom of the stack, pop
-					 * tokens and apply them */
+//bb_error_msg("op == TOK_RPAREN");
 					if (prev_op == TOK_LPAREN) {
+//bb_error_msg("prev_op == TOK_LPAREN");
+//bb_error_msg("  %p %p numstackptr[-1].var:'%s'", numstack, numstackptr-1, numstackptr[-1].var);
+						if (numstackptr[-1].var) {
+							/* Expression is (var), lookup now */
+							errmsg = arith_lookup_val(math_state, &numstackptr[-1]);
+							if (errmsg)
+								goto err_with_custom_msg;
+							/* Erase var name: (var) is just a number, for example, (var) = 1 is not valid */
+							numstackptr[-1].var = NULL;
+						}
 						/* Any operator directly after a
 						 * close paren should consider itself binary */
 						lasttok = TOK_NUM;
 						goto next;
 					}
+//bb_error_msg("prev_op != TOK_LPAREN");
 				} else {
 					operator prev_prec = PREC(prev_op);
+//bb_error_msg("op != TOK_RPAREN");
 					fix_assignment_prec(prec);
 					fix_assignment_prec(prev_prec);
 					if (prev_prec < prec
@@ -694,6 +791,7 @@ evaluate_string(arith_state_t *math_state, const char *expr)
 						break;
 					}
 				}
+//bb_error_msg("arith_apply(prev_op:%02x)", prev_op);
 				errmsg = arith_apply(math_state, prev_op, numstack, &numstackptr);
 				if (errmsg)
 					goto err_with_custom_msg;
@@ -703,6 +801,7 @@ evaluate_string(arith_state_t *math_state, const char *expr)
 		}
 
 		/* Push this operator to the stack and remember it */
+//bb_error_msg("push op:%02x", op);
 		*stackptr++ = lasttok = op;
  next: ;
 	} /* while (1) */
@@ -743,7 +842,7 @@ arith(arith_state_t *math_state, const char *expr)
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+ * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ''AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE

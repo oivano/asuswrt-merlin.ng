@@ -11,24 +11,24 @@
  *
  * Added FEATURE_UPTIME_UTMP_SUPPORT flag.
  */
-
-/* getopt not needed */
-
 //config:config UPTIME
-//config:	bool "uptime"
+//config:	bool "uptime (3.7 kb)"
 //config:	default y
-//config:	select PLATFORM_LINUX #sysinfo()
 //config:	help
-//config:	  uptime gives a one line display of the current time, how long
-//config:	  the system has been running, how many users are currently logged
-//config:	  on, and the system load averages for the past 1, 5, and 15 minutes.
+//config:	uptime gives a one line display of the current time, how long
+//config:	the system has been running, how many users are currently logged
+//config:	on, and the system load averages for the past 1, 5, and 15 minutes.
 //config:
 //config:config FEATURE_UPTIME_UTMP_SUPPORT
-//config:	bool "Support for showing the number of users"
+//config:	bool "Show the number of users"
 //config:	default y
 //config:	depends on UPTIME && FEATURE_UTMP
 //config:	help
-//config:	  Makes uptime display the number of users currently logged on.
+//config:	Display the number of users currently logged on.
+
+//applet:IF_UPTIME(APPLET_NOEXEC(uptime, uptime, BB_DIR_USR_BIN, BB_SUID_DROP, uptime))
+
+//kbuild:lib-$(CONFIG_UPTIME) += uptime.o
 
 //usage:#define uptime_trivial_usage
 //usage:       ""
@@ -44,7 +44,6 @@
 # include <sys/sysinfo.h>
 #endif
 
-
 #ifndef FSHIFT
 # define FSHIFT 16              /* nr of bits of precision */
 #endif
@@ -52,29 +51,48 @@
 #define LOAD_INT(x)  (unsigned)((x) >> FSHIFT)
 #define LOAD_FRAC(x) LOAD_INT(((x) & (FIXED_1 - 1)) * 100)
 
-
 int uptime_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
 int uptime_main(int argc UNUSED_PARAM, char **argv UNUSED_PARAM)
 {
 	unsigned updays, uphours, upminutes;
+	unsigned opts;
 	struct sysinfo info;
 	struct tm *current_time;
 	time_t current_secs;
 
-	time(&current_secs);
-	current_time = localtime(&current_secs);
+	opts = getopt32(argv, "s");
 
+	time(&current_secs);
 	sysinfo(&info);
 
+	if (opts) // -s
+		current_secs -= info.uptime;
+
+	current_time = localtime(&current_secs);
+
+	if (opts) { // -s
+		printf("%04u-%02u-%02u %02u:%02u:%02u\n",
+			current_time->tm_year + 1900, current_time->tm_mon + 1, current_time->tm_mday,
+			current_time->tm_hour, current_time->tm_min, current_time->tm_sec
+		);
+		/* The above way of calculating boot time is wobbly,
+		 * info.uptime has only 1 second precision, which makes
+		 * "uptime -s" wander +- one second.
+		 * /proc/uptime may be better, it has 0.01s precision.
+		 */
+		return EXIT_SUCCESS;
+	}
+
 	printf(" %02u:%02u:%02u up ",
-			current_time->tm_hour, current_time->tm_min, current_time->tm_sec);
+			current_time->tm_hour, current_time->tm_min, current_time->tm_sec
+	);
 	updays = (unsigned) info.uptime / (unsigned)(60*60*24);
-	if (updays)
+	if (updays != 0)
 		printf("%u day%s, ", updays, (updays != 1) ? "s" : "");
 	upminutes = (unsigned) info.uptime / (unsigned)60;
 	uphours = (upminutes / (unsigned)60) % (unsigned)24;
 	upminutes %= 60;
-	if (uphours)
+	if (uphours != 0)
 		printf("%2u:%02u", uphours, upminutes);
 	else
 		printf("%u min", upminutes);

@@ -6,6 +6,16 @@
  *
  * Licensed under GPLv2, see file LICENSE in this source tree.
  */
+//config:config GETSEBOOL
+//config:	bool "getsebool (5.5 kb)"
+//config:	default n
+//config:	depends on SELINUX
+//config:	help
+//config:	Enable support to get SELinux boolean values.
+
+//applet:IF_GETSEBOOL(APPLET(getsebool, BB_DIR_USR_SBIN, BB_SUID_DROP))
+
+//kbuild:lib-$(CONFIG_GETSEBOOL) += getsebool.o
 
 //usage:#define getsebool_trivial_usage
 //usage:       "-a or getsebool boolean..."
@@ -30,7 +40,7 @@ int getsebool_main(int argc, char **argv)
 
 		rc = security_get_boolean_names(&names, &len);
 		if (rc)
-			bb_perror_msg_and_die("can't get boolean names");
+			bb_simple_perror_msg_and_die("can't get boolean names");
 
 		if (!len) {
 			puts("No booleans");

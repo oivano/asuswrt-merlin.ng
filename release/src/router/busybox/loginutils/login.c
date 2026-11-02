@@ -3,50 +3,50 @@
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
 //config:config LOGIN
-//config:	bool "login"
+//config:	bool "login (24 kb)"
 //config:	default y
 //config:	select FEATURE_SYSLOG
 //config:	help
-//config:	  login is used when signing onto a system.
+//config:	login is used when signing onto a system.
 //config:
-//config:	  Note that Busybox binary must be setuid root for this applet to
-//config:	  work properly.
+//config:	Note that busybox binary must be setuid root for this applet to
+//config:	work properly.
 //config:
 //config:config LOGIN_SESSION_AS_CHILD
 //config:	bool "Run logged in session in a child process"
 //config:	default y if PAM
 //config:	depends on LOGIN
 //config:	help
-//config:	  Run the logged in session in a child process.  This allows
-//config:	  login to clean up things such as utmp entries or PAM sessions
-//config:	  when the login session is complete.  If you use PAM, you
-//config:	  almost always would want this to be set to Y, else PAM session
-//config:	  will not be cleaned up.
+//config:	Run the logged in session in a child process.  This allows
+//config:	login to clean up things such as utmp entries or PAM sessions
+//config:	when the login session is complete.  If you use PAM, you
+//config:	almost always would want this to be set to Y, else PAM session
+//config:	will not be cleaned up.
 //config:
 //config:config LOGIN_SCRIPTS
-//config:	bool "Support for login scripts"
+//config:	bool "Support login scripts"
 //config:	depends on LOGIN
 //config:	default y
 //config:	help
-//config:	  Enable this if you want login to execute $LOGIN_PRE_SUID_SCRIPT
-//config:	  just prior to switching from root to logged-in user.
+//config:	Enable this if you want login to execute $LOGIN_PRE_SUID_SCRIPT
+//config:	just prior to switching from root to logged-in user.
 //config:
 //config:config FEATURE_NOLOGIN
-//config:	bool "Support for /etc/nologin"
+//config:	bool "Support /etc/nologin"
 //config:	default y
 //config:	depends on LOGIN
 //config:	help
-//config:	  The file /etc/nologin is used by (some versions of) login(1).
-//config:	  If it exists, non-root logins are prohibited.
+//config:	The file /etc/nologin is used by (some versions of) login(1).
+//config:	If it exists, non-root logins are prohibited.
 //config:
 //config:config FEATURE_SECURETTY
-//config:	bool "Support for /etc/securetty"
+//config:	bool "Support /etc/securetty"
 //config:	default y
 //config:	depends on LOGIN
 //config:	help
-//config:	  The file /etc/securetty is used by (some versions of) login(1).
-//config:	  The file contains the device names of tty lines (one per line,
-//config:	  without leading /dev/) on which root is allowed to login.
+//config:	The file /etc/securetty is used by (some versions of) login(1).
+//config:	The file contains the device names of tty lines (one per line,
+//config:	without leading /dev/) on which root is allowed to login.
 
 //applet:/* Needs to be run by root or be suid root - needs to change uid and gid: */
 //applet:IF_LOGIN(APPLET(login, BB_DIR_BIN, BB_SUID_REQUIRE))
@@ -60,16 +60,22 @@
 //usage:     "\n	-f	Don't authenticate (user already authenticated)"
 //usage:     "\n	-h HOST	Host user came from (for network logins)"
 //usage:     "\n	-p	Preserve environment"
+//usage:     "\n"
+//usage:     "\n$LOGIN_TIMEOUT		Seconds (default 60, 0 - disable)"
+//usage:	IF_LOGIN_SCRIPTS(
+//usage:     "\n$LOGIN_PRE_SUID_SCRIPT	Execute before user ID change"
+//usage:	)
 
 #include "libbb.h"
 #include "common_bufsiz.h"
 #include <syslog.h>
-#include <sys/resource.h>
 
 #if ENABLE_SELINUX
 # include <selinux/selinux.h>  /* for is_selinux_enabled()  */
 # include <selinux/get_context_list.h> /* for get_default_context() */
-# include <selinux/flask.h> /* for security class definitions  */
+# /* from deprecated <selinux/flask.h>: */
+# undef  SECCLASS_CHR_FILE
+# define SECCLASS_CHR_FILE 10
 #endif
 
 #if ENABLE_PAM
@@ -133,7 +139,6 @@ static const struct pam_conv conv = {
 #endif
 
 enum {
-	TIMEOUT = 60,
 	EMPTY_USERNAME_COUNT = 10,
 	/* Some users found 32 chars limit to be too low: */
 	USERNAME_SIZE = 64,
@@ -142,6 +147,7 @@ enum {
 
 struct globals {
 	struct termios tty_attrs;
+	int timeout;
 } FIX_ALIASING;
 #define G (*(struct globals*)bb_common_bufsiz1)
 #define INIT_G() do { setup_common_bufsiz(); } while (0)
@@ -175,25 +181,6 @@ static void die_if_nologin(void)
 }
 #else
 # define die_if_nologin() ((void)0)
-#endif
-
-#if ENABLE_FEATURE_SECURETTY && !ENABLE_PAM
-static int check_securetty(const char *short_tty)
-{
-	char *buf = (char*)"/etc/securetty"; /* any non-NULL is ok */
-	parser_t *parser = config_open2("/etc/securetty", fopen_for_read);
-	while (config_read(parser, &buf, 1, 1, "# \t", PARSE_NORMAL)) {
-		if (strcmp(buf, short_tty) == 0)
-			break;
-		buf = NULL;
-	}
-	config_close(parser);
-	/* buf != NULL here if config file was not found, empty
-	 * or line was found which equals short_tty */
-	return buf != NULL;
-}
-#else
-static ALWAYS_INLINE int check_securetty(const char *short_tty UNUSED_PARAM) { return 1; }
 #endif
 
 #if ENABLE_SELINUX
@@ -267,7 +254,9 @@ static void login_pam_end(pam_handle_t *pamh)
 			pam_strerror(pamh, pamret), pamret);
 	}
 }
-#endif /* ENABLE_PAM */
+#else
+# define login_pam_end(pamh) ((void)0)
+#endif
 
 static void get_username_or_die(char *buf, int size_buf)
 {
@@ -322,12 +311,12 @@ static void alarm_handler(int sig UNUSED_PARAM)
 	 * when you are back at shell prompt, echo will be still off.
 	 */
 	tcsetattr_stdin_TCSANOW(&G.tty_attrs);
-	printf("\r\nLogin timed out after %u seconds\r\n", TIMEOUT);
+	printf("\r\nLogin timed out after %u seconds\r\n", G.timeout);
 	fflush_all();
 	/* unix API is brain damaged regarding O_NONBLOCK,
 	 * we should undo it, or else we can affect other processes */
 	ndelay_off(STDOUT_FILENO);
-	_exit(EXIT_SUCCESS);
+	_exit_SUCCESS();
 }
 
 int login_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
@@ -368,6 +357,8 @@ int login_main(int argc UNUSED_PARAM, char **argv)
 
 	INIT_G();
 
+	G.timeout = xatoi_positive(getenv("LOGIN_TIMEOUT") ? : "60");
+
 	/* More of suid paranoia if called by non-root: */
 	/* Clear dangerous stuff, set PATH */
 	run_by_root = !sanitize_env_if_suid();
@@ -375,14 +366,14 @@ int login_main(int argc UNUSED_PARAM, char **argv)
 	/* Mandatory paranoia for suid applet:
 	 * ensure that fd# 0,1,2 are opened (at least to /dev/null)
 	 * and any extra open fd's are closed.
-	 * (The name of the function is misleading. Not daemonizing here.) */
-	bb_daemonize_or_rexec(DAEMON_ONLY_SANITIZE | DAEMON_CLOSE_EXTRA_FDS, NULL);
+	 */
+	bb_daemon_helper(DAEMON_CLOSE_EXTRA_FDS);
 
 	username[0] = '\0';
 	opt = getopt32(argv, "f:h:p", &opt_user, &opt_host);
 	if (opt & LOGIN_OPT_f) {
 		if (!run_by_root)
-			bb_error_msg_and_die("-f is for root only");
+			bb_simple_error_msg_and_die("-f is for root only");
 		safe_strncpy(username, opt_user, sizeof(username));
 	}
 	argv += optind;
@@ -399,7 +390,7 @@ int login_main(int argc UNUSED_PARAM, char **argv)
 
 	/* We install timeout handler only _after_ we saved G.tty_attrs */
 	signal(SIGALRM, alarm_handler);
-	alarm(TIMEOUT);
+	alarm(G.timeout);
 
 	/* Find out and memorize our tty name */
 	full_tty = xmalloc_ttyname(STDIN_FILENO);
@@ -468,6 +459,9 @@ int login_main(int argc UNUSED_PARAM, char **argv)
 		}
 		/* check that the account is healthy */
 		pamret = pam_acct_mgmt(pamh, 0);
+		if (pamret == PAM_NEW_AUTHTOK_REQD) {
+			pamret = pam_chauthtok(pamh, PAM_CHANGE_EXPIRED_AUTHTOK);
+		}
 		if (pamret != PAM_SUCCESS) {
 			failed_msg = "acct_mgmt";
 			goto pam_auth_failed;
@@ -517,6 +511,7 @@ int login_main(int argc UNUSED_PARAM, char **argv)
 		 * to know _why_ login failed */
 		syslog(LOG_WARNING, "pam_%s call failed: %s (%d)", failed_msg,
 					pam_strerror(pamh, pamret), pamret);
+		login_pam_end(pamh);
 		safe_strncpy(username, "UNKNOWN", sizeof(username));
 #else /* not PAM */
 		pw = getpwnam(username);
@@ -531,7 +526,7 @@ int login_main(int argc UNUSED_PARAM, char **argv)
 		if (opt & LOGIN_OPT_f)
 			break; /* -f USER: success without asking passwd */
 
-		if (pw->pw_uid == 0 && !check_securetty(short_tty))
+		if (pw->pw_uid == 0 && !is_tty_secure(short_tty))
 			goto auth_failed;
 
 		/* Don't check the password if password entry is empty (!) */
@@ -558,7 +553,7 @@ int login_main(int argc UNUSED_PARAM, char **argv)
 #endif /* ENABLE_PAM */
  auth_failed:
 		opt &= ~LOGIN_OPT_f;
-		bb_do_delay(LOGIN_FAIL_DELAY);
+		pause_after_failed_login();
 		/* TODO: doesn't sound like correct English phrase to me */
 		puts("Login incorrect");
 #if ENABLE_FEATURE_TELNETD_CLIENT_TO_ENV && defined(SECURITY_NOTIFY)
@@ -569,12 +564,8 @@ int login_main(int argc UNUSED_PARAM, char **argv)
 		}
 #endif
 		if (++count == 3) {
-			syslog(LOG_WARNING, "invalid password for '%s'%s",
-						username, fromhost);
-
 			if (ENABLE_FEATURE_CLEAN_UP)
 				free(fromhost);
-
 			return EXIT_FAILURE;
 		}
 		username[0] = '\0';
@@ -586,17 +577,19 @@ int login_main(int argc UNUSED_PARAM, char **argv)
 	if (pw->pw_uid != 0)
 		die_if_nologin();
 
+	IF_FEATURE_UTMP(my_pid = getpid();)
+	update_utmp(my_pid, USER_PROCESS, short_tty, username, run_by_root ? opt_host : NULL);
+
 #if ENABLE_LOGIN_SESSION_AS_CHILD
 	child_pid = vfork();
 	if (child_pid != 0) {
 		if (child_pid < 0)
-			bb_perror_msg("vfork");
+			bb_simple_perror_msg("vfork");
 		else {
-			if (safe_waitpid(child_pid, NULL, 0) == -1)
-				bb_perror_msg("waitpid");
-			update_utmp_DEAD_PROCESS(child_pid);
+			wait_for_exitstatus(child_pid);
 		}
-		IF_PAM(login_pam_end(pamh);)
+		update_utmp_DEAD_PROCESS(my_pid);
+		login_pam_end(pamh);
 		return 0;
 	}
 #endif
@@ -608,15 +601,15 @@ int login_main(int argc UNUSED_PARAM, char **argv)
 	fchown(0, pw->pw_uid, pw->pw_gid);
 	fchmod(0, 0600);
 
-	update_utmp(getpid(), USER_PROCESS, short_tty, username, run_by_root ? opt_host : NULL);
-
 	/* We trust environment only if we run by root */
 	if (ENABLE_LOGIN_SCRIPTS && run_by_root)
 		run_login_script(pw, full_tty);
 
 	change_identity(pw);
 	setup_environment(pw->pw_shell,
-			(!(opt & LOGIN_OPT_p) * SETUP_ENV_CLEARENV) + SETUP_ENV_CHANGEENV,
+			(!(opt & LOGIN_OPT_p) * SETUP_ENV_CLEARENV)
+				+ SETUP_ENV_CHANGEENV
+				+ SETUP_ENV_CHDIR,
 			pw);
 #if ENABLE_FEATURE_TELNETD_CLIENT_TO_ENV
 	if (telnet_addr)
@@ -664,11 +657,13 @@ int login_main(int argc UNUSED_PARAM, char **argv)
 	 * But without this, bash 3.0 will not enable ctrl-c either.
 	 * Maybe bash is buggy?
 	 * Need to find out what standards say about /bin/login -
-	 * should we leave SIGINT etc enabled or disabled? */
+	 * should we leave SIGINT etc enabled or disabled?
+	 * Also note: sulogin does not do it! Why?
+	 */
 	signal(SIGINT, SIG_DFL);
 
 	/* Exec login shell with no additional parameters */
-	run_shell(pw->pw_shell, 1, NULL, NULL);
+	exec_login_shell(pw->pw_shell);
 
 	/* return EXIT_FAILURE; - not reached */
 }

@@ -7,7 +7,6 @@
  * Changes:
  * Laszlo Valko <valko@linux.karinthy.hu> 990223: address label must be zero terminated
  */
-
 #include <fnmatch.h>
 #include <net/if.h>
 #include <net/if_arp.h>
@@ -22,8 +21,20 @@
 #define IFF_LOWER_UP  0x10000  /* driver signals L1 up */
 #endif
 
+/* for old uclibc */
+#ifndef IFA_F_NOPREFIXROUTE
+# define IFA_FLAGS           8
+# define IFA_F_NOPREFIXROUTE 0x200
+enum { /* can't do this with preporcessor, IFA_MAX is an (enum - 1), not preprocessor constant */
+	REAL_IFA_MAX = (IFA_MAX >= IFA_FLAGS) ? IFA_MAX : IFA_FLAGS,
+};
+# undef IFA_MAX
+# define IFA_MAX REAL_IFA_MAX
+#endif
+
 struct filter_t {
 	char *label;
+	/* Flush cmd buf. If !NULL, print_addrinfo() constructs flush commands in it */
 	char *flushb;
 	struct rtnl_handle *rth;
 	int scope, scopemask;
@@ -35,6 +46,8 @@ struct filter_t {
 	smallint showqueue;
 	smallint oneline;
 	smallint up;
+	/* Misnomer. Does not mean "flushed something" */
+	/* More like "flush commands were constructed by print_addrinfo()" */
 	smallint flushed;
 	inet_prefix pfx;
 } FIX_ALIASING;
@@ -45,7 +58,7 @@ typedef struct filter_t filter_t;
 
 static void print_link_flags(unsigned flags, unsigned mdown)
 {
-	static const int flag_masks[] = {
+	static const int flag_masks[] ALIGN_INT = {
 		IFF_LOOPBACK, IFF_BROADCAST, IFF_POINTOPOINT,
 		IFF_MULTICAST, IFF_NOARP, IFF_UP, IFF_LOWER_UP };
 	static const char flag_labels[] ALIGN1 =
@@ -114,10 +127,10 @@ static NOINLINE int print_linkinfo(const struct nlmsghdr *n)
 	if (G_filter.up && !(ifi->ifi_flags & IFF_UP))
 		return 0;
 
-	memset(tb, 0, sizeof(tb));
+	//memset(tb, 0, sizeof(tb)); - parse_rtattr does this
 	parse_rtattr(tb, IFLA_MAX, IFLA_RTA(ifi), len);
 	if (tb[IFLA_IFNAME] == NULL) {
-		bb_error_msg("nil ifname");
+		bb_simple_error_msg("nil ifname");
 		return -1;
 	}
 	if (G_filter.label
@@ -179,20 +192,20 @@ static NOINLINE int print_linkinfo(const struct nlmsghdr *n)
 		printf("%c    link/%s ", _SL_, ll_type_n2a(ifi->ifi_type, b1));
 
 		if (tb[IFLA_ADDRESS]) {
-			fputs(ll_addr_n2a(RTA_DATA(tb[IFLA_ADDRESS]),
+			fputs_stdout(ll_addr_n2a(RTA_DATA(tb[IFLA_ADDRESS]),
 						      RTA_PAYLOAD(tb[IFLA_ADDRESS]),
 						      ifi->ifi_type,
-						      b1, sizeof(b1)), stdout);
+						      b1, sizeof(b1)));
 		}
 		if (tb[IFLA_BROADCAST]) {
 			if (ifi->ifi_flags & IFF_POINTOPOINT)
 				printf(" peer ");
 			else
 				printf(" brd ");
-			fputs(ll_addr_n2a(RTA_DATA(tb[IFLA_BROADCAST]),
+			fputs_stdout(ll_addr_n2a(RTA_DATA(tb[IFLA_BROADCAST]),
 						      RTA_PAYLOAD(tb[IFLA_BROADCAST]),
 						      ifi->ifi_type,
-						      b1, sizeof(b1)), stdout);
+						      b1, sizeof(b1)));
 		}
 	}
 	bb_putchar('\n');
@@ -202,8 +215,8 @@ static NOINLINE int print_linkinfo(const struct nlmsghdr *n)
 
 static int flush_update(void)
 {
-	if (rtnl_send(G_filter.rth, G_filter.flushb, G_filter.flushp) < 0) {
-		bb_perror_msg("can't send flush request");
+	if (rtnl_send_check(G_filter.rth, G_filter.flushb, G_filter.flushp) < 0) {
+		bb_simple_perror_msg("can't send flush request");
 		return -1;
 	}
 	G_filter.flushp = 0;
@@ -215,6 +228,7 @@ static int FAST_FUNC print_addrinfo(const struct sockaddr_nl *who UNUSED_PARAM,
 {
 	struct ifaddrmsg *ifa = NLMSG_DATA(n);
 	int len = n->nlmsg_len;
+	unsigned int ifa_flags;
 	struct rtattr *rta_tb[IFA_MAX+1];
 
 	if (n->nlmsg_type != RTM_NEWADDR && n->nlmsg_type != RTM_DELADDR)
@@ -228,8 +242,10 @@ static int FAST_FUNC print_addrinfo(const struct sockaddr_nl *who UNUSED_PARAM,
 	if (G_filter.flushb && n->nlmsg_type != RTM_NEWADDR)
 		return 0;
 
-	memset(rta_tb, 0, sizeof(rta_tb));
+	//memset(rta_tb, 0, sizeof(rta_tb)); - parse_rtattr does this
 	parse_rtattr(rta_tb, IFA_MAX, IFA_RTA(ifa), n->nlmsg_len - NLMSG_LENGTH(sizeof(*ifa)));
+
+	ifa_flags = rta_tb[IFA_FLAGS] ? *(__u32*)RTA_DATA(rta_tb[IFA_FLAGS]) : ifa->ifa_flags;
 
 	if (!rta_tb[IFA_LOCAL])
 		rta_tb[IFA_LOCAL] = rta_tb[IFA_ADDRESS];
@@ -240,7 +256,7 @@ static int FAST_FUNC print_addrinfo(const struct sockaddr_nl *who UNUSED_PARAM,
 		return 0;
 	if ((G_filter.scope ^ ifa->ifa_scope) & G_filter.scopemask)
 		return 0;
-	if ((G_filter.flags ^ ifa->ifa_flags) & G_filter.flagmask)
+	if ((G_filter.flags ^ ifa_flags) & G_filter.flagmask)
 		return 0;
 	if (G_filter.label) {
 		const char *label;
@@ -291,9 +307,7 @@ static int FAST_FUNC print_addrinfo(const struct sockaddr_nl *who UNUSED_PARAM,
 		printf("    family %d ", ifa->ifa_family);
 
 	if (rta_tb[IFA_LOCAL]) {
-		fputs(rt_addr_n2a(ifa->ifa_family, RTA_DATA(rta_tb[IFA_LOCAL])),
-			stdout
-		);
+		fputs_stdout(rt_addr_n2a(ifa->ifa_family, RTA_DATA(rta_tb[IFA_LOCAL])));
 
 		if (rta_tb[IFA_ADDRESS] == NULL
 		 || memcmp(RTA_DATA(rta_tb[IFA_ADDRESS]), RTA_DATA(rta_tb[IFA_LOCAL]), 4) == 0
@@ -320,26 +334,34 @@ static int FAST_FUNC print_addrinfo(const struct sockaddr_nl *who UNUSED_PARAM,
 		);
 	}
 	printf("scope %s ", rtnl_rtscope_n2a(ifa->ifa_scope));
-	if (ifa->ifa_flags & IFA_F_SECONDARY) {
-		ifa->ifa_flags &= ~IFA_F_SECONDARY;
+	if (ifa_flags & IFA_F_SECONDARY) {
+		ifa_flags &= ~IFA_F_SECONDARY;
 		printf("secondary ");
 	}
-	if (ifa->ifa_flags & IFA_F_TENTATIVE) {
-		ifa->ifa_flags &= ~IFA_F_TENTATIVE;
+	if (ifa_flags & IFA_F_TENTATIVE) {
+		ifa_flags &= ~IFA_F_TENTATIVE;
 		printf("tentative ");
 	}
-	if (ifa->ifa_flags & IFA_F_DEPRECATED) {
-		ifa->ifa_flags &= ~IFA_F_DEPRECATED;
+	if (ifa_flags & IFA_F_DADFAILED) {
+		ifa_flags &= ~IFA_F_DADFAILED;
+		printf("dadfailed ");
+	}
+	if (ifa_flags & IFA_F_DEPRECATED) {
+		ifa_flags &= ~IFA_F_DEPRECATED;
 		printf("deprecated ");
 	}
-	if (!(ifa->ifa_flags & IFA_F_PERMANENT)) {
+	if (!(ifa_flags & IFA_F_PERMANENT)) {
 		printf("dynamic ");
 	} else
-		ifa->ifa_flags &= ~IFA_F_PERMANENT;
-	if (ifa->ifa_flags)
-		printf("flags %02x ", ifa->ifa_flags);
+		ifa_flags &= ~IFA_F_PERMANENT;
+	if (ifa_flags & IFA_F_NOPREFIXROUTE) {
+		ifa_flags &= ~IFA_F_NOPREFIXROUTE;
+		printf("noprefixroute ");
+	}
+	if (ifa_flags)
+		printf("flags %02x ", ifa_flags);
 	if (rta_tb[IFA_LABEL])
-		fputs((char*)RTA_DATA(rta_tb[IFA_LABEL]), stdout);
+		fputs_stdout((char*)RTA_DATA(rta_tb[IFA_LABEL]));
 	if (rta_tb[IFA_CACHEINFO]) {
 		struct ifa_cacheinfo *ci = RTA_DATA(rta_tb[IFA_CACHEINFO]);
 		char buf[128];
@@ -421,7 +443,6 @@ int FAST_FUNC ipaddr_list_or_flush(char **argv, int flush)
 	struct nlmsg_list *l;
 	struct rtnl_handle rth;
 	char *filter_dev = NULL;
-	int no_link = 0;
 
 	ipaddr_reset_filter(oneline);
 	G_filter.showqueue = 1;
@@ -434,7 +455,7 @@ int FAST_FUNC ipaddr_list_or_flush(char **argv, int flush)
 			bb_error_msg_and_die(bb_msg_requires_arg, "flush");
 		}
 		if (G_filter.family == AF_PACKET) {
-			bb_error_msg_and_die("can't flush link addresses");
+			bb_simple_error_msg_and_die("can't flush link addresses");
 		}
 	}
 
@@ -508,13 +529,9 @@ int FAST_FUNC ipaddr_list_or_flush(char **argv, int flush)
 		xrtnl_dump_filter(&rth, store_nlmsg, &ainfo);
 	}
 
-
 	if (G_filter.family && G_filter.family != AF_PACKET) {
 		struct nlmsg_list **lp;
 		lp = &linfo;
-
-		if (G_filter.oneline)
-			no_link = 1;
 
 		while ((l = *lp) != NULL) {
 			int ok = 0;
@@ -536,7 +553,7 @@ int FAST_FUNC ipaddr_list_or_flush(char **argv, int flush)
 					continue;
 				if (G_filter.pfx.family || G_filter.label) {
 					struct rtattr *tb[IFA_MAX+1];
-					memset(tb, 0, sizeof(tb));
+					//memset(tb, 0, sizeof(tb)); - parse_rtattr does this
 					parse_rtattr(tb, IFA_MAX, IFA_RTA(ifa), IFA_PAYLOAD(n));
 					if (!tb[IFA_LOCAL])
 						tb[IFA_LOCAL] = tb[IFA_ADDRESS];
@@ -571,7 +588,10 @@ int FAST_FUNC ipaddr_list_or_flush(char **argv, int flush)
 	}
 
 	for (l = linfo; l; l = l->next) {
-		if (no_link || print_linkinfo(&l->h) == 0) {
+		if ((oneline && G_filter.family != AF_PACKET)
+		/* ^^^^^^^^^ "ip -oneline a" does not print link info */
+		 || (print_linkinfo(&l->h) == 0)
+		) {
 			struct ifinfomsg *ifi = NLMSG_DATA(&l->h);
 			if (G_filter.family != AF_PACKET)
 				print_selected_addrinfo(ifi->ifi_index, ainfo);
@@ -579,6 +599,14 @@ int FAST_FUNC ipaddr_list_or_flush(char **argv, int flush)
 	}
 
 	return 0;
+}
+
+static void set_lifetime(unsigned int *lifetime, char *argv, const char *errmsg)
+{
+	if (strcmp(argv, "forever") == 0)
+		*lifetime = INFINITY_LIFE_TIME;
+	else
+		*lifetime = get_u32(argv, errmsg);
 }
 
 static int default_scope(inet_prefix *lcl)
@@ -593,9 +621,16 @@ static int default_scope(inet_prefix *lcl)
 /* Return value becomes exitcode. It's okay to not return at all */
 static int ipaddr_modify(int cmd, int flags, char **argv)
 {
+	/* If you add stuff here, update ipaddr_full_usage */
 	static const char option[] ALIGN1 =
 		"peer\0""remote\0""broadcast\0""brd\0"
-		"anycast\0""scope\0""dev\0""label\0""local\0";
+		"anycast\0""valid_lft\0""preferred_lft\0"
+		"scope\0""dev\0""label\0""noprefixroute\0""local\0";
+#define option_peer      option
+#define option_broadcast (option           + sizeof("peer") + sizeof("remote"))
+#define option_anycast   (option_broadcast + sizeof("broadcast") + sizeof("brd"))
+#define option_valid_lft (option_anycast   + sizeof("anycast"))
+#define option_pref_lft  (option_valid_lft + sizeof("valid_lft"))
 	struct rtnl_handle rth;
 	struct {
 		struct nlmsghdr  n;
@@ -604,6 +639,8 @@ static int ipaddr_modify(int cmd, int flags, char **argv)
 	} req;
 	char *d = NULL;
 	char *l = NULL;
+	char *valid_lftp = NULL;
+	char *preferred_lftp = NULL;
 	inet_prefix lcl;
 	inet_prefix peer;
 	int local_len = 0;
@@ -611,6 +648,9 @@ static int ipaddr_modify(int cmd, int flags, char **argv)
 	int brd_len = 0;
 	int any_len = 0;
 	bool scoped = 0;
+	__u32 valid_lft = INFINITY_LIFE_TIME;
+	__u32 preferred_lft = INFINITY_LIFE_TIME;
+	unsigned int ifa_flags = 0;
 
 	memset(&req, 0, sizeof(req));
 
@@ -622,12 +662,11 @@ static int ipaddr_modify(int cmd, int flags, char **argv)
 	while (*argv) {
 		unsigned arg = index_in_strings(option, *argv);
 		/* if search fails, "local" is assumed */
-		if ((int)arg >= 0)
-			NEXT_ARG();
 
 		if (arg <= 1) { /* peer, remote */
+			NEXT_ARG();
 			if (peer_len) {
-				duparg("peer", *argv);
+				duparg(option_peer, *argv);
 			}
 			get_prefix(&peer, *argv, req.ifa.ifa_family);
 			peer_len = peer.bytelen;
@@ -638,8 +677,9 @@ static int ipaddr_modify(int cmd, int flags, char **argv)
 			req.ifa.ifa_prefixlen = peer.bitlen;
 		} else if (arg <= 3) { /* broadcast, brd */
 			inet_prefix addr;
+			NEXT_ARG();
 			if (brd_len) {
-				duparg("broadcast", *argv);
+				duparg(option_broadcast, *argv);
 			}
 			if (LONE_CHAR(*argv, '+')) {
 				brd_len = -1;
@@ -654,8 +694,9 @@ static int ipaddr_modify(int cmd, int flags, char **argv)
 			}
 		} else if (arg == 4) { /* anycast */
 			inet_prefix addr;
+			NEXT_ARG();
 			if (any_len) {
-				duparg("anycast", *argv);
+				duparg(option_anycast, *argv);
 			}
 			get_addr(&addr, *argv, req.ifa.ifa_family);
 			if (req.ifa.ifa_family == AF_UNSPEC) {
@@ -663,20 +704,39 @@ static int ipaddr_modify(int cmd, int flags, char **argv)
 			}
 			addattr_l(&req.n, sizeof(req), IFA_ANYCAST, &addr.data, addr.bytelen);
 			any_len = addr.bytelen;
-		} else if (arg == 5) { /* scope */
+		} else if (arg == 5) { /* valid_lft */
+			if (valid_lftp)
+				duparg(option_valid_lft, *argv);
+			NEXT_ARG();
+			valid_lftp = *argv;
+			set_lifetime(&valid_lft, *argv, option_valid_lft);
+		} else if (arg == 6) { /* preferred_lft */
+			if (preferred_lftp)
+				duparg(option_pref_lft, *argv);
+			NEXT_ARG();
+			preferred_lftp = *argv;
+			set_lifetime(&preferred_lft, *argv, option_pref_lft);
+		} else if (arg == 7) { /* scope */
 			uint32_t scope = 0;
+			NEXT_ARG();
 			if (rtnl_rtscope_a2n(&scope, *argv)) {
 				invarg_1_to_2(*argv, "scope");
 			}
 			req.ifa.ifa_scope = scope;
 			scoped = 1;
-		} else if (arg == 6) { /* dev */
+		} else if (arg == 8) { /* dev */
+			NEXT_ARG();
 			d = *argv;
-		} else if (arg == 7) { /* label */
+		} else if (arg == 9) { /* label */
+			NEXT_ARG();
 			l = *argv;
 			addattr_l(&req.n, sizeof(req), IFA_LABEL, l, strlen(l) + 1);
+		} else if (arg == 10) { /* noprefixroute */
+			ifa_flags |= IFA_F_NOPREFIXROUTE;
 		} else {
 			/* local (specified or assumed) */
+			if ((int)arg >= 0)
+				NEXT_ARG();
 			if (local_len) {
 				duparg2("local", *argv);
 			}
@@ -690,9 +750,14 @@ static int ipaddr_modify(int cmd, int flags, char **argv)
 		argv++;
 	}
 
+	if (ifa_flags <= 0xff)
+		req.ifa.ifa_flags = ifa_flags;
+	else
+		addattr32(&req.n, sizeof(req), IFA_FLAGS, ifa_flags);
+
 	if (!d) {
 		/* There was no "dev IFACE", but we need that */
-		bb_error_msg_and_die("need \"dev IFACE\"");
+		bb_simple_error_msg_and_die("need \"dev IFACE\"");
 	}
 	if (l && !is_prefixed_with(l, d)) {
 		bb_error_msg_and_die("\"dev\" (%s) must match \"label\" (%s)", d, l);
@@ -709,7 +774,7 @@ static int ipaddr_modify(int cmd, int flags, char **argv)
 		inet_prefix brd;
 		int i;
 		if (req.ifa.ifa_family != AF_INET) {
-			bb_error_msg_and_die("broadcast can be set only for IPv4 addresses");
+			bb_simple_error_msg_and_die("broadcast can be set only for IPv4 addresses");
 		}
 		brd = peer;
 		if (brd.bitlen <= 30) {
@@ -731,6 +796,24 @@ static int ipaddr_modify(int cmd, int flags, char **argv)
 	ll_init_map(&rth);
 
 	req.ifa.ifa_index = xll_name_to_index(d);
+
+	if (valid_lftp || preferred_lftp) {
+		struct ifa_cacheinfo cinfo = {};
+
+		if (!valid_lft) {
+			fprintf(stderr, "valid_lft is zero\n");
+			return 1;
+		}
+		if (valid_lft < preferred_lft) {
+			fprintf(stderr, "preferred_lft is greater than valid_lft\n");
+			return 1;
+		}
+
+		cinfo.ifa_prefered = preferred_lft;
+		cinfo.ifa_valid = valid_lft;
+		addattr_l(&req.n, sizeof(req), IFA_CACHEINFO, &cinfo,
+			  sizeof(cinfo));
+	}
 
 	if (rtnl_talk(&rth, &req.n, 0, 0, NULL, NULL, NULL) < 0)
 		return 2;

@@ -9,18 +9,35 @@
  *
  * Licensed under GPLv2, see file LICENSE in this source tree.
  */
+//config:config TUNCTL
+//config:	bool "tunctl (6.2 kb)"
+//config:	default y
+//config:	help
+//config:	tunctl creates or deletes tun devices.
+//config:
+//config:config FEATURE_TUNCTL_UG
+//config:	bool "Support owner:group assignment"
+//config:	default y
+//config:	depends on TUNCTL
+//config:	help
+//config:	Allow to specify owner and group of newly created interface.
+//config:	340 bytes of pure bloat. Say no here.
+
+//applet:IF_TUNCTL(APPLET_NOEXEC(tunctl, tunctl, BB_DIR_SBIN, BB_SUID_DROP, tunctl))
+
+//kbuild:lib-$(CONFIG_TUNCTL) += tunctl.o
 
 //usage:#define tunctl_trivial_usage
-//usage:       "[-f device] ([-t name] | -d name)" IF_FEATURE_TUNCTL_UG(" [-u owner] [-g group] [-b]")
+//usage:       "[-f DEVICE] [-t NAME | -d NAME]" IF_FEATURE_TUNCTL_UG(" [-u USER] [-g GRP] [-b]")
 //usage:#define tunctl_full_usage "\n\n"
-//usage:       "Create or delete tun interfaces\n"
-//usage:     "\n	-f name		tun device (/dev/net/tun)"
-//usage:     "\n	-t name		Create iface 'name'"
-//usage:     "\n	-d name		Delete iface 'name'"
+//usage:       "Create or delete TUN/TAP interfaces\n"
+//usage:     "\n	-f DEV	TUN device (default /dev/net/tun)"
+//usage:     "\n	-t NAME	Create iface (default: tapN)"
+//usage:     "\n	-d NAME	Delete iface"
 //usage:	IF_FEATURE_TUNCTL_UG(
-//usage:     "\n	-u owner	Set iface owner"
-//usage:     "\n	-g group	Set iface group"
-//usage:     "\n	-b		Brief output"
+//usage:     "\n	-u USER	Set iface owner"
+//usage:     "\n	-g GRP	Set iface group"
+//usage:     "\n	-b	Brief output"
 //usage:	)
 //usage:
 //usage:#define tunctl_example_usage
@@ -65,10 +82,13 @@ int tunctl_main(int argc UNUSED_PARAM, char **argv)
 #endif
 	};
 
-	opt_complementary = "=0:t--d:d--t"; // no arguments; t ^ d
-	opts = getopt32(argv, "f:t:d:" IF_FEATURE_TUNCTL_UG("u:g:b"),
+	opts = getopt32(argv, "^"
+			"f:t:d:" IF_FEATURE_TUNCTL_UG("u:g:b")
+			"\0"
+			"=0:t--d:d--t", // no arguments; t ^ d
 			&opt_device, &opt_name, &opt_name
-			IF_FEATURE_TUNCTL_UG(, &opt_user, &opt_group));
+			IF_FEATURE_TUNCTL_UG(, &opt_user, &opt_group)
+	);
 
 	// select device
 	memset(&ifr, 0, sizeof(ifr));
@@ -135,9 +155,12 @@ int tunctl_main(int argc UNUSED_PARAM, char **argv)
 		OPT_d = 1 << 2, // delete named interface
 	};
 
-	opt_complementary = "=0:t--d:d--t"; // no arguments; t ^ d
-	opts = getopt32(argv, "f:t:d:u:g:b", // u, g, b accepted and ignored
-			&opt_device, &opt_name, &opt_name, NULL, NULL);
+	opts = getopt32(argv, "^"
+			"f:t:d:u:g:b" // u, g, b accepted and ignored
+			"\0"
+			"=0:t--d:d--t", // no arguments; t ^ d
+			&opt_device, &opt_name, &opt_name, NULL, NULL
+	);
 
 	// set interface name
 	memset(&ifr, 0, sizeof(ifr));

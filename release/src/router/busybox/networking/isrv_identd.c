@@ -6,6 +6,17 @@
  *
  * Licensed under GPLv2, see file LICENSE in this source tree.
  */
+//config:config FAKEIDENTD
+//config:	bool "fakeidentd (8.7 kb)"
+//config:	default y
+//config:	select FEATURE_SYSLOG
+//config:	help
+//config:	fakeidentd listens on the ident port and returns a predefined
+//config:	fake value on any query.
+
+//applet:IF_FAKEIDENTD(APPLET(fakeidentd, BB_DIR_USR_SBIN, BB_SUID_DROP))
+
+//kbuild:lib-$(CONFIG_FAKEIDENTD) += isrv_identd.o isrv.o
 
 //usage:#define fakeidentd_trivial_usage
 //usage:       "[-fiw] [-b ADDR] [STRING]"
@@ -148,7 +159,7 @@ int fakeidentd_main(int argc UNUSED_PARAM, char **argv)
 	fd = 0;
 	if (!(opt & OPT_inetdwait)) {
 		fd = create_and_bind_stream_or_die(bind_address,
-				bb_lookup_port("identd", "tcp", 113));
+				bb_lookup_std_port("identd", "tcp", 113));
 		xlisten(fd, 5);
 	}
 

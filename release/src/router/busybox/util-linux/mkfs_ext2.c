@@ -7,6 +7,25 @@
  *
  * Licensed under GPLv2, see file LICENSE in this source tree.
  */
+//config:config MKE2FS
+//config:	bool "mke2fs (10 kb)"
+//config:	default y
+//config:	help
+//config:	Utility to create EXT2 filesystems.
+//config:
+//config:config MKFS_EXT2
+//config:	bool "mkfs.ext2 (10 kb)"
+//config:	default y
+//config:	help
+//config:	Alias to "mke2fs".
+
+//                    APPLET_ODDNAME:name       main       location     suid_type     help
+//applet:IF_MKE2FS(   APPLET_ODDNAME(mke2fs,    mkfs_ext2, BB_DIR_SBIN, BB_SUID_DROP, mkfs_ext2))
+//applet:IF_MKFS_EXT2(APPLET_ODDNAME(mkfs.ext2, mkfs_ext2, BB_DIR_SBIN, BB_SUID_DROP, mkfs_ext2))
+////////:IF_MKFS_EXT3(APPLET_ODDNAME(mkfs.ext3, mkfs_ext2, BB_DIR_SBIN, BB_SUID_DROP, mkfs_ext2))
+
+//kbuild:lib-$(CONFIG_MKE2FS) += mkfs_ext2.o
+//kbuild:lib-$(CONFIG_MKFS_EXT2) += mkfs_ext2.o
 
 //usage:#define mkfs_ext2_trivial_usage
 //usage:       "[-Fn] "
@@ -56,23 +75,6 @@
 #define EXT2_HASH_HALF_MD4       1
 #define EXT2_FLAGS_SIGNED_HASH   0x0001
 #define EXT2_FLAGS_UNSIGNED_HASH 0x0002
-
-// storage helpers
-char BUG_wrong_field_size(void);
-#define STORE_LE(field, value) \
-do { \
-	if (sizeof(field) == 4) \
-		field = SWAP_LE32(value); \
-	else if (sizeof(field) == 2) \
-		field = SWAP_LE16(value); \
-	else if (sizeof(field) == 1) \
-		field = (value); \
-	else \
-		BUG_wrong_field_size(); \
-} while (0)
-
-#define FETCH_LE32(field) \
-	(sizeof(field) == 4 ? SWAP_LE32(field) : BUG_wrong_field_size())
 
 // All fields are little-endian
 struct ext2_dir {
@@ -129,7 +131,7 @@ static void allocate(uint8_t *bitmap, uint32_t blocksize, uint32_t start, uint32
 static uint32_t has_super(uint32_t x)
 {
 	// 0, 1 and powers of 3, 5, 7 up to 2^32 limit
-	static const uint32_t supers[] = {
+	static const uint32_t supers[] ALIGN4 = {
 		0, 1, 3, 5, 7, 9, 25, 27, 49, 81, 125, 243, 343, 625, 729,
 		2187, 2401, 3125, 6561, 15625, 16807, 19683, 59049, 78125,
 		117649, 177147, 390625, 531441, 823543, 1594323, 1953125,
@@ -244,8 +246,7 @@ int mkfs_ext2_main(int argc UNUSED_PARAM, char **argv)
 
 	// using global "option_mask32" instead of local "opts":
 	// we are register starved here
-	opt_complementary = "-1:b+:i+:I+:m+";
-	/*opts =*/ getopt32(argv, "cl:b:f:i:I:J:G:N:m:o:g:L:M:O:r:E:T:U:jnqvFS",
+	/*opts =*/ getopt32(argv, "cl:b:+f:i:+I:+J:G:N:m:+o:g:L:M:O:r:E:T:U:jnqvFS",
 		/*lbfi:*/ NULL, &bs, NULL, &bpi,
 		/*IJGN:*/ &user_inodesize, NULL, NULL, NULL,
 		/*mogL:*/ &reserved_percent, NULL, NULL, &label,
@@ -263,7 +264,7 @@ int mkfs_ext2_main(int argc UNUSED_PARAM, char **argv)
 	// N.B. what if we format a file? find_mount_point will return false negative since
 	// it is loop block device which is mounted!
 	if (find_mount_point(argv[0], 0))
-		bb_error_msg_and_die("can't format mounted filesystem");
+		bb_simple_error_msg_and_die("can't format mounted filesystem");
 
 	// get size in kbytes
 	kilobytes = get_volume_size_in_bytes(fd, argv[1], 1024, /*extend:*/ !(option_mask32 & OPT_n)) / 1024;
@@ -323,11 +324,11 @@ int mkfs_ext2_main(int argc UNUSED_PARAM, char **argv)
 	kilobytes >>= (blocksize_log2 - EXT2_MIN_BLOCK_LOG_SIZE);
 	nblocks = kilobytes;
 	if (nblocks != kilobytes)
-		bb_error_msg_and_die("block count doesn't fit in 32 bits");
+		bb_simple_error_msg_and_die("block count doesn't fit in 32 bits");
 #define kilobytes kilobytes_unused_after_this
 	// Experimentally, standard mke2fs won't work on images smaller than 60k
 	if (nblocks < 60)
-		bb_error_msg_and_die("need >= 60 blocks");
+		bb_simple_error_msg_and_die("need >= 60 blocks");
 
 	// How many reserved blocks?
 	if (reserved_percent > 50)

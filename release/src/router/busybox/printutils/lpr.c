@@ -12,17 +12,18 @@
  * See RFC 1179 for protocol description.
  */
 //config:config LPR
-//config:	bool "lpr"
+//config:	bool "lpr (9.9 kb)"
 //config:	default y
 //config:	help
-//config:	  lpr sends files (or standard input) to a print spooling daemon.
+//config:	lpr sends files (or standard input) to a print spooling daemon.
 //config:
 //config:config LPQ
-//config:	bool "lpq"
+//config:	bool "lpq (9.9 kb)"
 //config:	default y
 //config:	help
-//config:	  lpq is a print spool queue examination and manipulation program.
+//config:	lpq is a print spool queue examination and manipulation program.
 
+//              APPLET_ODDNAME:name main  location        suid_type     help
 //applet:IF_LPQ(APPLET_ODDNAME(lpq, lpqr, BB_DIR_USR_BIN, BB_SUID_DROP, lpq))
 //applet:IF_LPR(APPLET_ODDNAME(lpr, lpqr, BB_DIR_USR_BIN, BB_SUID_DROP, lpr))
 
@@ -77,8 +78,8 @@ static void get_response_or_say_and_die(int fd, const char *errmsg)
 	}
 }
 
-int lpqr_main(int argc, char *argv[]) MAIN_EXTERNALLY_VISIBLE;
-int lpqr_main(int argc UNUSED_PARAM, char *argv[])
+int lpqr_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
+int lpqr_main(int argc UNUSED_PARAM, char **argv)
 {
 	enum {
 		OPT_P           = 1 << 0, // -P queue[@host[:port]]. If no -P is given use $PRINTER, then "lp@localhost:515"
@@ -166,7 +167,7 @@ int lpqr_main(int argc UNUSED_PARAM, char *argv[])
 	// LPR ------------------------
 	//
 	if (opts & LPR_V)
-		bb_error_msg("connected to server");
+		bb_simple_error_msg("connected to server");
 
 	job = getpid() % 1000;
 	hostname = safe_gethostname();
@@ -205,7 +206,7 @@ int lpqr_main(int argc UNUSED_PARAM, char *argv[])
 		 * Standard lpr works around it by refusing to send such jobs:
 		 */
 		if (st.st_size == 0) {
-			bb_error_msg("nothing to print");
+			bb_simple_error_msg("nothing to print");
 			continue;
 		}
 
@@ -245,7 +246,7 @@ int lpqr_main(int argc UNUSED_PARAM, char *argv[])
 
 		// send control file
 		if (opts & LPR_V)
-			bb_error_msg("sending control file");
+			bb_simple_error_msg("sending control file");
 		/* "Acknowledgement processing must occur as usual
 		 * after the command is sent." */
 		cflen = (unsigned)strlen(controlfile);
@@ -261,12 +262,12 @@ int lpqr_main(int argc UNUSED_PARAM, char *argv[])
 
 		// send data file, with name "dfaXXX"
 		if (opts & LPR_V)
-			bb_error_msg("sending data file");
+			bb_simple_error_msg("sending data file");
 		fdprintf(fd, "\x3" "%"OFF_FMT"u d%s\n", st.st_size, remote_filename);
 		get_response_or_say_and_die(fd, "sending data file");
 		if (bb_copyfd_size(dfd, fd, st.st_size) != st.st_size) {
 			// We're screwed. We sent less bytes than we advertised.
-			bb_error_msg_and_die("local file changed size?!");
+			bb_simple_error_msg_and_die("local file changed size?!");
 		}
 		write(fd, "", 1); // send ACK
 		get_response_or_say_and_die(fd, "sending data file");
@@ -282,7 +283,7 @@ int lpqr_main(int argc UNUSED_PARAM, char *argv[])
 
 		// say job accepted
 		if (opts & LPR_V)
-			bb_error_msg("job accepted");
+			bb_simple_error_msg("job accepted");
 
 		// next, please!
 		job = (job + 1) % 1000;

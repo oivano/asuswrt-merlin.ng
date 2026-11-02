@@ -6,6 +6,21 @@
  *
  * Licensed under GPLv2, see file LICENSE in this source tree.
  */
+//config:config REFORMIME
+//config:	bool "reformime (7.5 kb)"
+//config:	default y
+//config:	help
+//config:	Parse MIME-formatted messages.
+//config:
+//config:config FEATURE_REFORMIME_COMPAT
+//config:	bool "Accept and ignore options other than -x and -X"
+//config:	default y
+//config:	depends on REFORMIME
+//config:	help
+//config:	Accept (for compatibility only) and ignore options
+//config:	other than -x and -X.
+
+//applet:IF_REFORMIME(APPLET(reformime, BB_DIR_BIN, BB_SUID_DROP))
 
 //kbuild:lib-$(CONFIG_REFORMIME) += reformime.o mail.o
 
@@ -100,6 +115,7 @@ static int parse(const char *boundary, char **argv)
 		/* Split to tokens */
 		{
 			char *s, *p;
+			char *tokstate;
 			unsigned ntokens;
 			const char *delims = ";=\" \t\n";
 
@@ -112,13 +128,13 @@ static int parse(const char *boundary, char **argv)
 			}
 			dbg_error_msg("L:'%s'", p);
 			ntokens = 0;
-			s = strtok(s, delims);
+			s = strtok_r(s, delims, &tokstate);
 			while (s) {
 				tokens[ntokens] = s;
 				if (ntokens < ARRAY_SIZE(tokens) - 1)
 					ntokens++;
 				dbg_error_msg("L[%d]='%s'", ntokens, s);
-				s = strtok(NULL, delims);
+				s = strtok_r(NULL, delims, &tokstate);
 			}
 			tokens[ntokens] = NULL;
 			dbg_error_msg("EMPTYLINE, ntokens:%d", ntokens);
@@ -150,7 +166,7 @@ static int parse(const char *boundary, char **argv)
 			else
 				filename = bb_get_last_path_component_strip(xstrdup(filename));
 
-			if (opts & OPT_X) {
+			if (option_mask32 & OPT_X) {
 				int fd[2];
 
 				/* start external helper */
@@ -203,7 +219,7 @@ static int parse(const char *boundary, char **argv)
 			fclose(fp);
 
 			/* Wait for child */
-			if (opts & OPT_X) {
+			if (option_mask32 & OPT_X) {
 				int rc;
 				signal(SIGPIPE, SIG_DFL);
 				rc = (wait4pid(pid) & 0xff);
@@ -259,15 +275,16 @@ Usage: reformime [options]
 int reformime_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
 int reformime_main(int argc UNUSED_PARAM, char **argv)
 {
+	unsigned opts;
 	const char *opt_prefix = "";
 
 	INIT_G();
 
 	// parse options
 	// N.B. only -x and -X are supported so far
-	opt_complementary = "x--X:X--x" IF_FEATURE_REFORMIME_COMPAT(":m::");
-	opts = getopt32(argv,
-		"x:X" IF_FEATURE_REFORMIME_COMPAT("deis:r:c:m:h:o:O:"),
+	opts = getopt32(argv, "^"
+		"x:X" IF_FEATURE_REFORMIME_COMPAT("deis:r:c:m:*h:o:O:")
+		"\0" "x--X:X--x",
 		&opt_prefix
 		IF_FEATURE_REFORMIME_COMPAT(, NULL, NULL, &G.opt_charset, NULL, NULL, NULL, NULL)
 	);

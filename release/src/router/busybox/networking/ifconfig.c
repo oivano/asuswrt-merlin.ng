@@ -1,18 +1,17 @@
 /* vi: set sw=4 ts=4: */
-/* ifconfig
+/*
+ * ifconfig
  *
  * Similar to the standard Unix ifconfig, but with only the necessary
  * parts for AF_INET, and without any printing of if info (for now).
  *
  * Bjorn Wesen, Axis Communications AB
  *
- *
  * Authors of the original ifconfig was:
  *              Fred N. van Kempen, <waltje@uwalt.nl.mugnet.org>
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
-
 /*
  * Heavily modified by Manuel Novoa III       Mar 6, 2001
  *
@@ -25,9 +24,59 @@
  * 2002-04-20
  * IPV6 support added by Bart Visscher <magick@linux-fan.com>
  */
+//config:config IFCONFIG
+//config:	bool "ifconfig (12 kb)"
+//config:	default y
+//config:	help
+//config:	Ifconfig is used to configure the kernel-resident network interfaces.
+//config:
+//config:config FEATURE_IFCONFIG_STATUS
+//config:	bool "Enable status reporting output (+7k)"
+//config:	default y
+//config:	depends on IFCONFIG
+//config:	help
+//config:	If ifconfig is called with no arguments it will display the status
+//config:	of the currently active interfaces.
+//config:
+//config:config FEATURE_IFCONFIG_SLIP
+//config:	bool "Enable slip-specific options \"keepalive\" and \"outfill\""
+//config:	default y
+//config:	depends on IFCONFIG
+//config:	help
+//config:	Allow "keepalive" and "outfill" support for SLIP. If you're not
+//config:	planning on using serial lines, leave this unchecked.
+//config:
+//config:config FEATURE_IFCONFIG_MEMSTART_IOADDR_IRQ
+//config:	bool "Enable options \"mem_start\", \"io_addr\", and \"irq\""
+//config:	default y
+//config:	depends on IFCONFIG
+//config:	help
+//config:	Allow the start address for shared memory, start address for I/O,
+//config:	and/or the interrupt line used by the specified device.
+//config:
+//config:config FEATURE_IFCONFIG_HW
+//config:	bool "Enable option \"hw\" (ether only)"
+//config:	default y
+//config:	depends on IFCONFIG
+//config:	help
+//config:	Set the hardware address of this interface, if the device driver
+//config:	supports  this  operation. Currently, we only support the 'ether'
+//config:	class.
+//config:
+//config:config FEATURE_IFCONFIG_BROADCAST_PLUS
+//config:	bool "Set the broadcast automatically"
+//config:	default y
+//config:	depends on IFCONFIG
+//config:	help
+//config:	Setting this will make ifconfig attempt to find the broadcast
+//config:	automatically if the value '+' is used.
+
+//applet:IF_IFCONFIG(APPLET(ifconfig, BB_DIR_SBIN, BB_SUID_DROP))
+
+//kbuild:lib-$(CONFIG_IFCONFIG) += ifconfig.o interface.o
 
 //usage:#define ifconfig_trivial_usage
-//usage:	IF_FEATURE_IFCONFIG_STATUS("[-a]") " interface [address]"
+//usage:	IF_FEATURE_IFCONFIG_STATUS("[-a]") " [IFACE] [ADDRESS]"
 //usage:#define ifconfig_full_usage "\n\n"
 //usage:       "Configure a network interface\n"
 //usage:     "\n"
@@ -198,7 +247,7 @@ struct options {
  * Set up the tables.  Warning!  They must have corresponding order!
  */
 
-static const struct arg1opt Arg1Opt[] = {
+static const struct arg1opt Arg1Opt[] ALIGN_PTR = {
 	{ "SIFMETRIC",  SIOCSIFMETRIC,  ifreq_offsetof(ifr_metric) },
 	{ "SIFMTU",     SIOCSIFMTU,     ifreq_offsetof(ifr_mtu) },
 	{ "SIFTXQLEN",  SIOCSIFTXQLEN,  ifreq_offsetof(ifr_qlen) },
@@ -228,7 +277,7 @@ static const struct arg1opt Arg1Opt[] = {
 	{ "SIFADDR",    SIOCSIFADDR,    ifreq_offsetof(ifr_addr) },
 };
 
-static const struct options OptArray[] = {
+static const struct options OptArray[] ALIGN_PTR = {
 	{ "metric",      N_ARG,         ARG_METRIC,      0 },
 	{ "mtu",         N_ARG,         ARG_MTU,         0 },
 	{ "txqueuelen",  N_ARG,         ARG_TXQUEUELEN,  0 },
@@ -288,6 +337,7 @@ int ifconfig_main(int argc UNUSED_PARAM, char **argv)
 	char *p;
 	/*char host[128];*/
 	const char *host = NULL; /* make gcc happy */
+	IF_FEATURE_IFCONFIG_STATUS(char *show_all_param;)
 
 	did_flags = 0;
 #if ENABLE_FEATURE_IFCONFIG_BROADCAST_PLUS
@@ -299,17 +349,18 @@ int ifconfig_main(int argc UNUSED_PARAM, char **argv)
 	++argv;
 
 #if ENABLE_FEATURE_IFCONFIG_STATUS
-	if (argv[0] && (argv[0][0] == '-' && argv[0][1] == 'a' && !argv[0][2])) {
-		interface_opt_a = 1;
+	show_all_param = NULL;
+	if (argv[0] && argv[0][0] == '-' && argv[0][1] == 'a' && !argv[0][2]) {
 		++argv;
+		show_all_param = IFNAME_SHOW_DOWNED_TOO;
 	}
 #endif
 
 	if (!argv[0] || !argv[1]) { /* one or no args */
 #if ENABLE_FEATURE_IFCONFIG_STATUS
-		return display_interfaces(argv[0] /* can be NULL */);
+		return display_interfaces(argv[0] ? argv[0] : show_all_param);
 #else
-		bb_error_msg_and_die("no support for status display");
+		bb_simple_error_msg_and_die("no support for status display");
 #endif
 	}
 

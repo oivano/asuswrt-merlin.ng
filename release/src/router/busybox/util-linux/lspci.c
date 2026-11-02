@@ -6,6 +6,18 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
+//config:config LSPCI
+//config:	bool "lspci (6.3 kb)"
+//config:	default y
+//config:	help
+//config:	lspci is a utility for displaying information about PCI buses in the
+//config:	system and devices connected to them.
+//config:
+//config:	This version uses sysfs (/sys/bus/pci/devices) only.
+
+//applet:IF_LSPCI(APPLET_NOEXEC(lspci, lspci, BB_DIR_USR_BIN, BB_SUID_DROP, lspci))
+
+//kbuild:lib-$(CONFIG_LSPCI) += lspci.o
 
 //usage:#define lspci_trivial_usage
 //usage:       "[-mk]"
@@ -25,11 +37,9 @@ enum {
 /*
  * PCI_SLOT_NAME PCI_CLASS: PCI_VID:PCI_DID [PCI_SUBSYS_VID:PCI_SUBSYS_DID] [DRIVER]
  */
-static int FAST_FUNC fileAction(
+static int FAST_FUNC fileAction(struct recursive_state *state UNUSED_PARAM,
 		const char *fileName,
-		struct stat *statbuf UNUSED_PARAM,
-		void *userData UNUSED_PARAM,
-		int depth UNUSED_PARAM)
+		struct stat *statbuf UNUSED_PARAM)
 {
 	parser_t *parser;
 	char *tokens[3];
@@ -105,8 +115,7 @@ int lspci_main(int argc UNUSED_PARAM, char **argv)
 			ACTION_RECURSE,
 			fileAction,
 			NULL, /* dirAction */
-			NULL, /* userData */
-			0 /* depth */);
-
+			NULL /* userData */
+	);
 	return EXIT_SUCCESS;
 }

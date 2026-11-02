@@ -6,12 +6,22 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
+//config:config TTY
+//config:	bool "tty (3.6 kb)"
+//config:	default y
+//config:	help
+//config:	tty is used to print the name of the current terminal to
+//config:	standard output.
+
+//applet:IF_TTY(APPLET_NOFORK(tty, tty, BB_DIR_USR_BIN, BB_SUID_DROP, tty))
+
+//kbuild:lib-$(CONFIG_TTY) += tty.o
 
 /* BB_AUDIT SUSv4 compliant */
 /* http://www.opengroup.org/onlinepubs/9699919799/utilities/tty.html */
 
 //usage:#define tty_trivial_usage
-//usage:       ""
+//usage:       "" IF_INCLUDE_SUSv2("[-s]")
 //usage:#define tty_full_usage "\n\n"
 //usage:       "Print file name of stdin's terminal"
 //usage:	IF_INCLUDE_SUSv2( "\n"

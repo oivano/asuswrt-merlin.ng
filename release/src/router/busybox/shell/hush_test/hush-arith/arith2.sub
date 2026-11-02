@@ -1,4 +1,4 @@
-# bash 3.2 apparently thinks that ++7 is 7 etc
+# ++ and -- are not inc/dec operators on non-variables, they are + + and - - sequences
 (  echo $(( --7 ))   )
 (  echo $(( ++7 ))   )
 (  echo $(( -- 7 ))  )
@@ -23,35 +23,31 @@
 echo 5 $(( 4 + ++a ))
 echo 1 $a
 
-# ash doesn't handle it right...
-#ash# echo 6 $(( 4+++a ))
-#ash# echo 2 $a
+# this is treated as 4 + ++a
+echo 6 $(( 4+++a ))
+echo 2 $a
       a=2
 
-# ash doesn't handle it right...
-#ash# echo 3 $(( 4---a ))
-#ash# echo 1 $a
+# this is treated as 4 - --a
+echo 3 $(( 4---a ))
+echo 1 $a
       a=1
 
 echo 4 $(( 4 - -- a ))
 echo 0 $a
 
 #ash# (( -- ))
-# bash 3.2 apparently thinks that ---7 is -7
-#ash# echo $(( ---7 ))
+# -- is not a dec operator on non-variable, it is the - - sequence
+echo $(( ---7 ))
 (  echo $(( -- - 7 ))  )
 
 #ash# (( ++ ))
-# bash 3.2: 7
-#ash# echo 7 $(( ++7 ))
+# ++ is not a inc operator on non-variable, it is the + + sequence
+echo $(( ++7 ))
 (  echo $(( ++ + 7 ))  )
 
-# bash 3.2: -7
-#ash# echo -7 $(( ++-7 ))
-# bash 3.2: -7
-#ash# echo -7 $(( ++ - 7 ))
+echo -7 $(( ++-7 ))
+echo -7 $(( ++ - 7 ))
 
-# bash 3.2: 7
-#ash# echo 7 $(( +--7 ))
-# bash 3.2: 7
-#ash# echo 7 $(( -- + 7 ))
+echo 7 $(( +--7 ))
+echo 7 $(( -- + 7 ))

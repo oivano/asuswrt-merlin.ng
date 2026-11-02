@@ -5,7 +5,6 @@
  *
  * Licensed under GPLv2, see file LICENSE in this source tree.
  */
-
 #include "libbb.h"
 
 /* Some systems (eg Hurd) do not have MAXSYMLINKS definition,
@@ -122,4 +121,78 @@ char* FAST_FUNC xmalloc_realpath(const char *path)
 	/* on error returns NULL (xstrdup(NULL) == NULL) */
 	return xstrdup(realpath(path, buf));
 #endif
+}
+
+char* FAST_FUNC xmalloc_realpath_coreutils(char *path)
+{
+	char *buf;
+
+	errno = 0;
+	buf = xmalloc_realpath(path);
+	/*
+	 * There is one case when "readlink -f" and
+	 * "realpath" from coreutils succeed,
+	 * even though file does not exist, such as:
+	 *     /tmp/file_does_not_exist
+	 * (the directory must exist).
+	 */
+	if (!buf && errno == ENOENT) {
+		char *target, c, *last_slash;
+		size_t i;
+
+		target = xmalloc_readlink(path);
+		if (target) {
+			/*
+			 * $ ln -s /bin/qwe symlink  # note: /bin is a link to /usr/bin
+			 * $ readlink -f symlink
+			 * /usr/bin/qwe
+			 * $ realpath symlink
+			 * /usr/bin/qwe
+			 */
+			if (target[0] != '/') {
+				/*
+				 * $ ln -s target_does_not_exist symlink
+				 * $ readlink -f symlink
+				 * /CURDIR/target_does_not_exist
+				 * $ realpath symlink
+				 * /CURDIR/target_does_not_exist
+				 */
+				char *cwd = xrealloc_getcwd_or_warn(NULL);
+				char *tmp = concat_path_file(cwd, target);
+				free(cwd);
+				free(target);
+				target = tmp;
+			}
+			buf = xmalloc_realpath_coreutils(target);
+			free(target);
+			return buf;
+		}
+
+		/* ignore leading and trailing slashes */
+		while (path[0] == '/' && path[1] == '/')
+			++path;
+		i = strlen(path) - 1;
+		while (i > 0 && path[i] == '/')
+			i--;
+		c = path[i + 1];
+		path[i + 1] = '\0';
+
+		last_slash = strrchr(path, '/');
+		if (last_slash == path)
+			buf = xstrdup(path);
+		else if (last_slash) {
+			*last_slash = '\0';
+			buf = xmalloc_realpath(path);
+			*last_slash++ = '/';
+			if (buf) {
+				unsigned len = strlen(buf);
+				buf = xrealloc(buf, len + strlen(last_slash) + 2);
+				buf[len++] = '/';
+				strcpy(buf + len, last_slash);
+			}
+		}
+		path[i + 1] = c;
+	}
+
+	return buf;
 }

@@ -24,50 +24,28 @@
  * This version is an adaptation of ping.c from busybox.
  * The code was modified by Bart Visscher <magick@linux-fan.com>
  */
-
-#include <net/if.h>
-#include <netinet/ip_icmp.h>
-#include "libbb.h"
-#include "common_bufsiz.h"
-
-#ifdef __BIONIC__
-/* should be in netinet/ip_icmp.h */
-# define ICMP_DEST_UNREACH    3  /* Destination Unreachable  */
-# define ICMP_SOURCE_QUENCH   4  /* Source Quench    */
-# define ICMP_REDIRECT        5  /* Redirect (change route)  */
-# define ICMP_ECHO            8  /* Echo Request      */
-# define ICMP_TIME_EXCEEDED  11  /* Time Exceeded    */
-# define ICMP_PARAMETERPROB  12  /* Parameter Problem    */
-# define ICMP_TIMESTAMP      13  /* Timestamp Request    */
-# define ICMP_TIMESTAMPREPLY 14  /* Timestamp Reply    */
-# define ICMP_INFO_REQUEST   15  /* Information Request    */
-# define ICMP_INFO_REPLY     16  /* Information Reply    */
-# define ICMP_ADDRESS        17  /* Address Mask Request    */
-# define ICMP_ADDRESSREPLY   18  /* Address Mask Reply    */
-#endif
-
 //config:config PING
-//config:	bool "ping"
+//config:	bool "ping (10 kb)"
 //config:	default y
-//config:	select PLATFORM_LINUX
 //config:	help
-//config:	  ping uses the ICMP protocol's mandatory ECHO_REQUEST datagram to
-//config:	  elicit an ICMP ECHO_RESPONSE from a host or gateway.
+//config:	ping uses the ICMP protocol's mandatory ECHO_REQUEST datagram to
+//config:	elicit an ICMP ECHO_RESPONSE from a host or gateway.
 //config:
 //config:config PING6
-//config:	bool "ping6"
+//config:	bool "ping6 (11 kb)"
 //config:	default y
-//config:	depends on FEATURE_IPV6 && PING
+//config:	depends on FEATURE_IPV6
 //config:	help
-//config:	  This will give you a ping that can talk IPv6.
+//config:	Alias to "ping -6".
 //config:
 //config:config FEATURE_FANCY_PING
 //config:	bool "Enable fancy ping output"
 //config:	default y
-//config:	depends on PING
+//config:	depends on PING || PING6
 //config:	help
-//config:	  Make the output from the ping applet include statistics, and at the
-//config:	  same time provide full support for ICMP packets.
+//config:	With this option off, ping will say "HOST is alive!"
+//config:	or terminate with SIGALRM in 5 seconds otherwise.
+//config:	No command-line options will be recognized.
 
 /* Needs socket(AF_INET, SOCK_RAW, IPPROTO_ICMP), therefore BB_SUID_MAYBE: */
 //applet:IF_PING(APPLET(ping, BB_DIR_BIN, BB_SUID_MAYBE))
@@ -80,21 +58,23 @@
 //usage:# define ping_trivial_usage
 //usage:       "HOST"
 //usage:# define ping_full_usage "\n\n"
-//usage:       "Send ICMP ECHO_REQUEST packets to network hosts"
+//usage:       "Send ICMP ECHO_REQUESTs to HOST"
 //usage:# define ping6_trivial_usage
 //usage:       "HOST"
 //usage:# define ping6_full_usage "\n\n"
-//usage:       "Send ICMP ECHO_REQUEST packets to network hosts"
+//usage:       "Send ICMP ECHO_REQUESTs to HOST"
 //usage:#else
 //usage:# define ping_trivial_usage
 //usage:       "[OPTIONS] HOST"
 //usage:# define ping_full_usage "\n\n"
-//usage:       "Send ICMP ECHO_REQUEST packets to network hosts\n"
+//usage:       "Send ICMP ECHO_REQUESTs to HOST\n"
 //usage:	IF_PING6(
 //usage:     "\n	-4,-6		Force IP or IPv6 name resolution"
 //usage:	)
 //usage:     "\n	-c CNT		Send only CNT pings"
-//usage:     "\n	-s SIZE		Send SIZE data bytes in packets (default:56)"
+//usage:     "\n	-s SIZE		Send SIZE data bytes in packets (default 56)"
+//usage:     "\n	-i SECS		Interval"
+//usage:     "\n	-A		Ping as soon as reply is received"
 //usage:     "\n	-t TTL		Set TTL"
 //usage:     "\n	-I IFACE/IP	Use interface or IP address as source"
 //usage:     "\n	-M hint		Path MTU Discovery strategy [do|want|dont]"
@@ -102,14 +82,13 @@
 //usage:     "\n			(after all -c CNT packets are sent)"
 //usage:     "\n	-w SEC		Seconds until ping exits (default:infinite)"
 //usage:     "\n			(can exit earlier with -c CNT)"
-//usage:     "\n	-q		Quiet, only display output at start"
-//usage:     "\n			and when finished"
-//usage:     "\n	-p		Pattern to use for payload"
+//usage:     "\n	-q		Quiet, only display output at start/finish"
+//usage:     "\n	-p HEXBYTE	Payload pattern"
 //usage:
 //usage:# define ping6_trivial_usage
 //usage:       "[OPTIONS] HOST"
 //usage:# define ping6_full_usage "\n\n"
-//usage:       "Send ICMP ECHO_REQUEST packets to network hosts\n"
+//usage:       "Send ICMP ECHO_REQUESTs to HOST\n"
 //usage:     "\n	-c CNT		Send only CNT pings"
 //usage:     "\n	-s SIZE		Send SIZE data bytes in packets (default:56)"
 //usage:     "\n	-t HL		Set Hop Limit"
@@ -138,6 +117,39 @@
 //usage:       "1 packets transmitted, 1 packets received, 0% packet loss\n"
 //usage:       "round-trip min/avg/max = 20.1/20.1/20.1 ms\n"
 
+#include <net/if.h>
+#if defined(__FreeBSD__)
+# include <netinet/in.h> /* struct ip and friends */
+# include <netinet/ip.h>
+#endif
+#include <netinet/ip_icmp.h>
+#include "libbb.h"
+#include "common_bufsiz.h"
+
+#ifdef __BIONIC__
+/* should be in netinet/ip_icmp.h */
+# define ICMP_DEST_UNREACH    3  /* Destination Unreachable  */
+# define ICMP_SOURCE_QUENCH   4  /* Source Quench    */
+# define ICMP_REDIRECT        5  /* Redirect (change route)  */
+# define ICMP_ECHO            8  /* Echo Request      */
+# define ICMP_TIME_EXCEEDED  11  /* Time Exceeded    */
+# define ICMP_PARAMETERPROB  12  /* Parameter Problem    */
+# define ICMP_TIMESTAMP      13  /* Timestamp Request    */
+# define ICMP_TIMESTAMPREPLY 14  /* Timestamp Reply    */
+# define ICMP_INFO_REQUEST   15  /* Information Request    */
+# define ICMP_INFO_REPLY     16  /* Information Reply    */
+# define ICMP_ADDRESS        17  /* Address Mask Request    */
+# define ICMP_ADDRESSREPLY   18  /* Address Mask Reply    */
+#endif
+
+/* Some operating systems, like GNU/Hurd, don't define SOL_RAW, but do have
+ * IPPROTO_RAW. Since the IPPROTO definitions are also valid to use for
+ * setsockopt (and take the same value as their corresponding SOL definitions,
+ * if they exist), we can just fall back on IPPROTO_RAW. */
+#ifndef SOL_RAW
+# define SOL_RAW IPPROTO_RAW
+#endif
+
 #if ENABLE_PING6
 # include <netinet/icmp6.h>
 /* I see RENUMBERED constants in bits/in.h - !!?
@@ -151,6 +163,40 @@
      IPV6_PMTUDISC_DO != IP_PMTUDISC_DO
 #  error IPV6_PMTUDISC_* & IP_PMTUDISC_* constants mismatch
 # endif
+#endif
+
+#if defined(__FreeBSD__)
+/**
+ * On BSD the IPv4 struct is called struct ip and instead of iXX
+ * the members are called ip_XX. One could change this code to use
+ * struct ip but that would require to define _BSD_SOURCE and that
+ * might have other complications. Instead make sure struct iphdr
+ * is present on FreeBSD. The below is taken from GLIBC.
+ *
+ * The GNU C Library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ */
+struct iphdr {
+# if BYTE_ORDER == LITTLE_ENDIAN
+	unsigned int ihl:4;
+	unsigned int version:4;
+# elif BYTE_ORDER == BIG_ENDIAN
+	unsigned int version:4;
+	unsigned int ihl:4;
+# endif
+	uint8_t  tos;
+	uint16_t tot_len;
+	uint16_t id;
+	uint16_t frag_off;
+	uint8_t  ttl;
+	uint8_t  protocol;
+	uint16_t check;
+	uint32_t saddr;
+	uint32_t daddr;
+	/*The options start here. */
+};
 #endif
 
 enum {
@@ -180,8 +226,8 @@ create_icmp_socket(void)
 		sock = socket(AF_INET, SOCK_RAW, 1); /* 1 == ICMP */
 	if (sock < 0) {
 		if (errno == EPERM)
-			bb_error_msg_and_die(bb_msg_perm_denied_are_you_root);
-		bb_perror_msg_and_die(bb_msg_can_not_create_raw_socket);
+			bb_simple_error_msg_and_die(bb_msg_perm_denied_are_you_root);
+		bb_simple_perror_msg_and_die(bb_msg_can_not_create_raw_socket);
 	}
 
 	xmove_fd(sock, pingsock);
@@ -194,6 +240,7 @@ create_icmp_socket(void)
 struct globals {
 	char *hostname;
 	char packet[DEFDATALEN + MAXIPLEN + MAXICMPLEN];
+	uint16_t myid;
 } FIX_ALIASING;
 #define G (*(struct globals*)bb_common_bufsiz1)
 #define INIT_G() do { setup_common_bufsiz(); } while (0)
@@ -212,7 +259,8 @@ static void ping4(len_and_sockaddr *lsa)
 	pkt = (struct icmp *) G.packet;
 	/*memset(pkt, 0, sizeof(G.packet)); already is */
 	pkt->icmp_type = ICMP_ECHO;
-	pkt->icmp_cksum = inet_cksum((uint16_t *) pkt, sizeof(G.packet));
+	pkt->icmp_id = G.myid;
+	pkt->icmp_cksum = inet_cksum(pkt, sizeof(G.packet));
 
 	xsendto(pingsock, G.packet, DEFDATALEN + ICMP_MINLEN, &lsa->u.sa, lsa->len);
 
@@ -229,19 +277,19 @@ static void ping4(len_and_sockaddr *lsa)
 #endif
 		if (c < 0) {
 			if (errno != EINTR)
-				bb_perror_msg("recvfrom");
+				bb_simple_perror_msg("recvfrom");
 			continue;
 		}
 		if (c >= 76) {			/* ip + icmp */
 			struct iphdr *iphdr = (struct iphdr *) G.packet;
 
 			pkt = (struct icmp *) (G.packet + (iphdr->ihl << 2));	/* skip ip hdr */
+			if (pkt->icmp_id != G.myid)
+				continue; /* not our ping */
 			if (pkt->icmp_type == ICMP_ECHOREPLY)
 				break;
 		}
 	}
-	if (ENABLE_FEATURE_CLEAN_UP)
-		close(pingsock);
 }
 
 #if ENABLE_PING6
@@ -254,6 +302,7 @@ static void ping6(len_and_sockaddr *lsa)
 	pkt = (struct icmp6_hdr *) G.packet;
 	/*memset(pkt, 0, sizeof(G.packet)); already is */
 	pkt->icmp6_type = ICMP6_ECHO_REQUEST;
+	pkt->icmp6_id = G.myid;
 
 	sockopt = offsetof(struct icmp6_hdr, icmp6_cksum);
 	setsockopt_int(pingsock, SOL_RAW, IPV6_CHECKSUM, sockopt);
@@ -273,16 +322,16 @@ static void ping6(len_and_sockaddr *lsa)
 #endif
 		if (c < 0) {
 			if (errno != EINTR)
-				bb_perror_msg("recvfrom");
+				bb_simple_perror_msg("recvfrom");
 			continue;
 		}
 		if (c >= ICMP_MINLEN) {	/* icmp6_hdr */
+			if (pkt->icmp6_id != G.myid)
+				continue; /* not our ping */
 			if (pkt->icmp6_type == ICMP6_ECHO_REPLY)
 				break;
 		}
 	}
-	if (ENABLE_FEATURE_CLEAN_UP)
-		close(pingsock);
 }
 #endif
 
@@ -325,12 +374,20 @@ static int common_ping_main(sa_family_t af, char **argv)
 	alarm(5); /* give the host 5000ms to respond */
 
 	create_icmp_socket(lsa);
+	G.myid = (uint16_t) getpid();
+	/* we can use native-endian ident, but other Unix ping/traceroute
+	 * utils use *big-endian pid*, and e.g. traceroute on our machine may be
+	 * *not* from busybox, idents may collide. Follow the convention:
+	 */
+	G.myid = htons(G.myid);
 #if ENABLE_PING6
 	if (lsa->u.sa.sa_family == AF_INET6)
 		ping6(lsa);
 	else
 #endif
 		ping4(lsa);
+	if (ENABLE_FEATURE_CLEAN_UP)
+		close(pingsock);
 	printf("%s is alive!\n", G.hostname);
 	return EXIT_SUCCESS;
 }
@@ -341,21 +398,23 @@ static int common_ping_main(sa_family_t af, char **argv)
 
 /* Full(er) version */
 
-#define OPT_STRING ("qvc:s:t:w:W:I:np:M:4" IF_PING6("6"))
+#define OPT_STRING "qvAc:s:t:w:W:I:np:M:i:4" IF_PING6("6")
 enum {
 	OPT_QUIET = 1 << 0,
 	OPT_VERBOSE = 1 << 1,
-	OPT_c = 1 << 2,
-	OPT_s = 1 << 3,
-	OPT_t = 1 << 4,
-	OPT_w = 1 << 5,
-	OPT_W = 1 << 6,
-	OPT_I = 1 << 7,
-	/*OPT_n = 1 << 8, - ignored */
-	OPT_p = 1 << 9,
-	OPT_M = 1 << 10,
-	OPT_IPV4 = 1 << 11,
-	OPT_IPV6 = (1 << 12) * ENABLE_PING6,
+	OPT_A = 1 << 2,
+	OPT_c = 1 << 3,
+	OPT_s = 1 << 4,
+	OPT_t = 1 << 5,
+	OPT_w = 1 << 6,
+	OPT_W = 1 << 7,
+	OPT_I = 1 << 8,
+	/*OPT_n = 1 << 9, - ignored */
+	OPT_p = 1 << 10,
+	OPT_M = 1 << 11,
+	OPT_i = 1 << 12,
+	OPT_IPV4 = 1 << 13,
+	OPT_IPV6 = (1 << 14) * ENABLE_PING6,
 };
 
 
@@ -372,9 +431,10 @@ struct globals {
 	int pmtudisc;
 	unsigned tmin, tmax; /* in us */
 	unsigned long long tsum; /* in us, sum of all times */
-	unsigned deadline;
+	unsigned cur_us; /* low word only, we don't need more */
+	unsigned deadline_us;
+	unsigned interval_us;
 	unsigned timeout;
-	unsigned total_secs;
 	unsigned sizeof_rcv_packet;
 	char *rcv_packet; /* [datalen + MAXIPLEN + MAXICMPLEN] */
 	void *snd_packet; /* [datalen + ipv4/ipv6_const] */
@@ -401,9 +461,7 @@ struct globals {
 #define tmin         (G.tmin        )
 #define tmax         (G.tmax        )
 #define tsum         (G.tsum        )
-#define deadline     (G.deadline    )
 #define timeout      (G.timeout     )
-#define total_secs   (G.total_secs  )
 #define hostname     (G.hostname    )
 #define dotted       (G.dotted      )
 #define pingaddr     (G.pingaddr    )
@@ -452,37 +510,43 @@ static void print_stats_and_exit(int junk UNUSED_PARAM)
 			tmax / 1000, tmax % 1000);
 	}
 	/* if condition is true, exit with 1 -- 'failure' */
-	exit(nrecv == 0 || (deadline && nrecv < pingcount));
+	exit(nrecv == 0 || (G.deadline_us && nrecv < pingcount));
 }
 
 static void sendping_tail(void (*sp)(int), int size_pkt)
 {
 	int sz;
 
+	if (G.deadline_us) {
+		unsigned n = G.cur_us - G.deadline_us;
+		if ((int)n >= 0)
+			print_stats_and_exit(0);
+	}
+
 	CLR((uint16_t)G.ntransmitted % MAX_DUP_CHK);
 	G.ntransmitted++;
-
 	size_pkt += datalen;
 
 	/* sizeof(pingaddr) can be larger than real sa size, but I think
 	 * it doesn't matter */
 	sz = xsendto(pingsock, G.snd_packet, size_pkt, &pingaddr.sa, sizeof(pingaddr));
 	if (sz != size_pkt)
-		bb_error_msg_and_die(bb_msg_write_error);
+		bb_simple_error_msg_and_die(bb_msg_write_error);
 
-	if (pingcount == 0 || deadline || G.ntransmitted < pingcount) {
-		/* Didn't send all pings yet - schedule next in 1s */
+	if (pingcount == 0 || G.ntransmitted < pingcount) {
+		/* Didn't send all pings yet - schedule next in -i SEC interval */
+		struct itimerval i;
 		signal(SIGALRM, sp);
-		if (deadline) {
-			total_secs += PINGINTERVAL;
-			if (total_secs >= deadline)
-				signal(SIGALRM, print_stats_and_exit);
-		}
-		alarm(PINGINTERVAL);
-	} else { /* -c NN, and all NN are sent (and no deadline) */
+		/*ualarm(G.interval_us, 0); - does not work for >=1sec on some libc */
+		i.it_interval.tv_sec = 0;
+		i.it_interval.tv_usec = 0;
+		i.it_value.tv_sec = G.interval_us / 1000000;
+		i.it_value.tv_usec = G.interval_us % 1000000;
+		setitimer(ITIMER_REAL, &i, NULL);
+	} else { /* -c NN, and all NN are sent */
 		/* Wait for the last ping to come back.
 		 * -W timeout: wait for a response in seconds.
-		 * Affects only timeout in absense of any responses,
+		 * Affects only timeout in absence of any responses,
 		 * otherwise ping waits for two RTTs. */
 		unsigned expire = timeout;
 
@@ -513,9 +577,9 @@ static void sendping4(int junk UNUSED_PARAM)
 	 */
 	/*if (datalen >= 4)*/
 		/* No hton: we'll read it back on the same machine */
-		*(uint32_t*)&pkt->icmp_dun = monotonic_us();
+		*(uint32_t*)&pkt->icmp_dun = G.cur_us = monotonic_us();
 
-	pkt->icmp_cksum = inet_cksum((uint16_t *) pkt, datalen + ICMP_MINLEN);
+	pkt->icmp_cksum = inet_cksum(pkt, datalen + ICMP_MINLEN);
 
 	sendping_tail(sendping4, ICMP_MINLEN);
 }
@@ -532,7 +596,7 @@ static void sendping6(int junk UNUSED_PARAM)
 	pkt->icmp6_id = myid;
 
 	/*if (datalen >= 4)*/
-		*(bb__aliased_uint32_t*)(&pkt->icmp6_data8[4]) = monotonic_us();
+		*(bb__aliased_uint32_t*)(&pkt->icmp6_data8[4]) = G.cur_us = monotonic_us();
 
 	//TODO? pkt->icmp_cksum = inet_cksum(...);
 
@@ -629,7 +693,7 @@ static void unpack_tail(int sz, uint32_t *tp,
 	puts(dupmsg);
 	fflush_all();
 }
-static void unpack4(char *buf, int sz, struct sockaddr_in *from)
+static int unpack4(char *buf, int sz, struct sockaddr_in *from)
 {
 	struct icmp *icmppkt;
 	struct iphdr *iphdr;
@@ -637,7 +701,7 @@ static void unpack4(char *buf, int sz, struct sockaddr_in *from)
 
 	/* discard if too short */
 	if (sz < (datalen + ICMP_MINLEN))
-		return;
+		return 0;
 
 	/* check IP header */
 	iphdr = (struct iphdr *) buf;
@@ -645,7 +709,7 @@ static void unpack4(char *buf, int sz, struct sockaddr_in *from)
 	sz -= hlen;
 	icmppkt = (struct icmp *) (buf + hlen);
 	if (icmppkt->icmp_id != myid)
-		return;				/* not our ping */
+		return 0;				/* not our ping */
 
 	if (icmppkt->icmp_type == ICMP_ECHOREPLY) {
 		uint16_t recv_seq = ntohs(icmppkt->icmp_seq);
@@ -656,25 +720,28 @@ static void unpack4(char *buf, int sz, struct sockaddr_in *from)
 		unpack_tail(sz, tp,
 			inet_ntoa(*(struct in_addr *) &from->sin_addr.s_addr),
 			recv_seq, iphdr->ttl);
-	} else if (icmppkt->icmp_type != ICMP_ECHO) {
+		return 1;
+	}
+	if (icmppkt->icmp_type != ICMP_ECHO) {
 		bb_error_msg("warning: got ICMP %d (%s)",
 				icmppkt->icmp_type,
 				icmp_type_name(icmppkt->icmp_type));
 	}
+	return 0;
 }
 #if ENABLE_PING6
-static void unpack6(char *packet, int sz, struct sockaddr_in6 *from, int hoplimit)
+static int unpack6(char *packet, int sz, struct sockaddr_in6 *from, int hoplimit)
 {
 	struct icmp6_hdr *icmppkt;
 	char buf[INET6_ADDRSTRLEN];
 
 	/* discard if too short */
 	if (sz < (datalen + sizeof(struct icmp6_hdr)))
-		return;
+		return 0;
 
 	icmppkt = (struct icmp6_hdr *) packet;
 	if (icmppkt->icmp6_id != myid)
-		return;				/* not our ping */
+		return 0;				/* not our ping */
 
 	if (icmppkt->icmp6_type == ICMP6_ECHO_REPLY) {
 		uint16_t recv_seq = ntohs(icmppkt->icmp6_seq);
@@ -686,11 +753,14 @@ static void unpack6(char *packet, int sz, struct sockaddr_in6 *from, int hoplimi
 			inet_ntop(AF_INET6, &from->sin6_addr,
 					buf, sizeof(buf)),
 			recv_seq, hoplimit);
-	} else if (icmppkt->icmp6_type != ICMP6_ECHO_REQUEST) {
+		return 1;
+	}
+	if (icmppkt->icmp6_type != ICMP6_ECHO_REQUEST) {
 		bb_error_msg("warning: got ICMP %d (%s)",
 				icmppkt->icmp6_type,
 				icmp6_type_name(icmppkt->icmp6_type));
 	}
+	return 0;
 }
 #endif
 
@@ -702,7 +772,7 @@ static void ping4(len_and_sockaddr *lsa)
 	if (source_lsa) {
 		if (setsockopt(pingsock, IPPROTO_IP, IP_MULTICAST_IF,
 				&source_lsa->u.sa, source_lsa->len))
-			bb_error_msg_and_die("can't set multicast source interface");
+			bb_simple_error_msg_and_die("can't set multicast source interface");
 		xbind(pingsock, &source_lsa->u.sa, source_lsa->len);
 	}
 
@@ -716,7 +786,7 @@ static void ping4(len_and_sockaddr *lsa)
 
 	if (opt_ttl != 0) {
 		setsockopt_int(pingsock, IPPROTO_IP, IP_TTL, opt_ttl);
-		/* above doesnt affect packets sent to bcast IP, so... */
+		/* above doesn't affect packets sent to bcast IP, so... */
 		setsockopt_int(pingsock, IPPROTO_IP, IP_MULTICAST_TTL, opt_ttl);
 	}
 
@@ -732,6 +802,7 @@ static void ping4(len_and_sockaddr *lsa)
 	signal(SIGINT, print_stats_and_exit);
 
 	/* start the ping's going ... */
+ send_ping:
 	sendping4(0);
 
 	/* listen for replies */
@@ -744,12 +815,15 @@ static void ping4(len_and_sockaddr *lsa)
 				(struct sockaddr *) &from, &fromlen);
 		if (c < 0) {
 			if (errno != EINTR)
-				bb_perror_msg("recvfrom");
+				bb_simple_perror_msg("recvfrom");
 			continue;
 		}
-		unpack4(G.rcv_packet, c, &from);
+		c = unpack4(G.rcv_packet, c, &from);
 		if (pingcount && G.nreceived >= pingcount)
 			break;
+		if (c && (option_mask32 & OPT_A)) {
+			goto send_ping;
+		}
 	}
 }
 #if ENABLE_PING6
@@ -814,10 +888,6 @@ static void ping6(len_and_sockaddr *lsa)
 
 	signal(SIGINT, print_stats_and_exit);
 
-	/* start the ping's going ... */
-	sendping6(0);
-
-	/* listen for replies */
 	msg.msg_name = &from;
 	msg.msg_namelen = sizeof(from);
 	msg.msg_iov = &iov;
@@ -825,16 +895,22 @@ static void ping6(len_and_sockaddr *lsa)
 	msg.msg_control = control_buf;
 	iov.iov_base = G.rcv_packet;
 	iov.iov_len = G.sizeof_rcv_packet;
+
+	/* start the ping's going ... */
+ send_ping:
+	sendping6(0);
+
+	/* listen for replies */
 	while (1) {
 		int c;
 		struct cmsghdr *mp;
 		int hoplimit = -1;
-		msg.msg_controllen = sizeof(control_buf);
 
+		msg.msg_controllen = sizeof(control_buf);
 		c = recvmsg(pingsock, &msg, 0);
 		if (c < 0) {
 			if (errno != EINTR)
-				bb_perror_msg("recvfrom");
+				bb_simple_perror_msg("recvfrom");
 			continue;
 		}
 		for (mp = CMSG_FIRSTHDR(&msg); mp; mp = CMSG_NXTHDR(&msg, mp)) {
@@ -847,9 +923,12 @@ static void ping6(len_and_sockaddr *lsa)
 				move_from_unaligned_int(hoplimit, CMSG_DATA(mp));
 			}
 		}
-		unpack6(G.rcv_packet, c, &from, hoplimit);
+		c = unpack6(G.rcv_packet, c, &from, hoplimit);
 		if (pingcount && G.nreceived >= pingcount)
 			break;
+		if (c && (option_mask32 & OPT_A)) {
+			goto send_ping;
+		}
 	}
 }
 #endif
@@ -887,13 +966,14 @@ static void ping(len_and_sockaddr *lsa)
 static int common_ping_main(int opt, char **argv)
 {
 	len_and_sockaddr *lsa;
-	char *str_s, *str_p, *str_M;
+	char *str_s, *str_p, *str_M, *str_i = (char *)"1";
+	duration_t interval;
 
 	INIT_G();
 
 	/* exactly one argument needed; -v and -q don't mix; -c NUM, -t NUM, -w NUM, -W NUM */
-	opt_complementary = "=1:q--v:v--q:c+:t+:w+:W+";
-	opt |= getopt32(argv, OPT_STRING, &pingcount, &str_s, &opt_ttl, &deadline, &timeout, &str_I, &str_p, &str_M);
+	opt |= getopt32(argv, "^" OPT_STRING "\0=1:q--v:v--q:c+:t+:w+:W+",
+		&pingcount, &str_s, &opt_ttl, &G.deadline_us, &timeout, &str_I, &str_p, &str_M, &str_i);
 	if (opt & OPT_s)
 		datalen = xatou16(str_s); // -s
 	if (opt & OPT_I) { // -I
@@ -916,8 +996,21 @@ static int common_ping_main(int opt, char **argv)
 		else
 			bb_show_usage();
 	}
+	if (G.deadline_us) {
+		unsigned d = G.deadline_us < INT_MAX / 1000000 ? G.deadline_us : INT_MAX / 1000000;
+		G.deadline_us = 1 | ((d * 1000000) + monotonic_us());
+	}
+	interval = parse_duration_str(str_i);
+	if (interval > INT_MAX / 1000000)
+		interval = INT_MAX / 1000000;
+	G.interval_us = interval * 1000000;
 
 	myid = (uint16_t) getpid();
+	/* we can use native-endian ident, but other Unix ping/traceroute
+	 * utils use *big-endian pid*, and e.g. traceroute on our machine may be
+	 * *not* from busybox, idents may collide. Follow the convention:
+	 */
+	myid = htons(myid);
 	hostname = argv[optind];
 #if ENABLE_PING6
 	{
@@ -938,21 +1031,23 @@ static int common_ping_main(int opt, char **argv)
 
 	dotted = xmalloc_sockaddr2dotted_noport(&lsa->u.sa);
 	ping(lsa);
-	print_stats_and_exit(EXIT_SUCCESS);
+	print_stats_and_exit(0);
 	/*return EXIT_SUCCESS;*/
 }
 #endif /* FEATURE_FANCY_PING */
 
 
+#if ENABLE_PING
 int ping_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
 int ping_main(int argc UNUSED_PARAM, char **argv)
 {
-#if !ENABLE_FEATURE_FANCY_PING
+# if !ENABLE_FEATURE_FANCY_PING
 	return common_ping_main(AF_UNSPEC, argv);
-#else
+# else
 	return common_ping_main(0, argv);
-#endif
+# endif
 }
+#endif
 
 #if ENABLE_PING6
 int ping6_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
@@ -989,7 +1084,7 @@ int ping6_main(int argc UNUSED_PARAM, char **argv)
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+ * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ''AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE

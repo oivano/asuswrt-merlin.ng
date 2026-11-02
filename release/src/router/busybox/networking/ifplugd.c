@@ -6,12 +6,21 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
+//config:config IFPLUGD
+//config:	bool "ifplugd (10 kb)"
+//config:	default y
+//config:	help
+//config:	Network interface plug detection daemon.
+
+//applet:IF_IFPLUGD(APPLET(ifplugd, BB_DIR_USR_SBIN, BB_SUID_DROP))
+
+//kbuild:lib-$(CONFIG_IFPLUGD) += ifplugd.o
 
 //usage:#define ifplugd_trivial_usage
 //usage:       "[OPTIONS]"
 //usage:#define ifplugd_full_usage "\n\n"
 //usage:       "Network interface plug detection daemon\n"
-//usage:     "\n	-n		Don't daemonize"
+//usage:     "\n	-n		Run in foreground"
 //usage:     "\n	-s		Don't log to syslog"
 //usage:     "\n	-i IFACE	Interface"
 //usage:     "\n	-f/-F		Treat link detection error as link down/link up"
@@ -19,6 +28,7 @@
 //usage:     "\n	-a		Don't up interface at each link probe"
 //usage:     "\n	-M		Monitor creation/destruction of interface"
 //usage:     "\n			(otherwise it must exist)"
+//usage:     "\n	-A		Don't up newly appeared interface"
 //usage:     "\n	-r PROG		Script to run"
 //usage:     "\n	-x ARG		Extra argument for script"
 //usage:     "\n	-I		Don't exit on nonzero exit code from script"
@@ -85,7 +95,7 @@ Netlink code then can be just dropped (1k or more?)
 #define IFPLUGD_ENV_CURRENT "IFPLUGD_CURRENT"
 
 enum {
-	FLAG_NO_AUTO			= 1 <<  0, // -a, Do not enable interface automatically
+	FLAG_NO_AUTO			= 1 <<  0, // -a, Don't up interface at each link probe
 	FLAG_NO_DAEMON			= 1 <<  1, // -n, Do not daemonize
 	FLAG_NO_SYSLOG			= 1 <<  2, // -s, Do not use syslog, use stderr instead
 	FLAG_IGNORE_FAIL		= 1 <<  3, // -f, Ignore detection failure, retry instead (failure is treated as DOWN)
@@ -102,14 +112,15 @@ enum {
 	FLAG_INITIAL_DOWN		= 1 << 14, // -l, Run "down" script on startup if no cable is detected
 	FLAG_EXTRA_ARG			= 1 << 15, // -x, Specify an extra argument for action script
 	FLAG_MONITOR			= 1 << 16, // -M, Use interface monitoring
+	FLAG_NO_UP_NEW_IFACE		= 1 << 17, // -A, Don't up newly appeared interface
 #if ENABLE_FEATURE_PIDFILE
-	FLAG_KILL			= 1 << 17, // -k, Kill a running daemon
+	FLAG_KILL			= 1 << 18, // -k, Kill a running daemon
 #endif
 };
 #if ENABLE_FEATURE_PIDFILE
-# define OPTION_STR "+ansfFi:r:It:u:d:m:pqlx:Mk"
+# define OPTION_STR "+ansfFi:r:It:+u:+d:+m:pqlx:MAk"
 #else
-# define OPTION_STR "+ansfFi:r:It:u:d:m:pqlx:M"
+# define OPTION_STR "+ansfFi:r:It:+u:+d:+m:pqlx:MA"
 #endif
 
 enum { // interface status
@@ -295,7 +306,7 @@ static const char api_modes[] ALIGN1 = "empwia";
 static const struct {
 	const char *name;
 	smallint (*func)(void);
-} method_table[] = {
+} method_table[] ALIGN_PTR = {
 	{ "SIOCETHTOOL"       , &detect_link_ethtool },
 	{ "SIOCGMIIPHY"       , &detect_link_mii     },
 	{ "SIOCDEVPRIVATE"    , &detect_link_priv    },
@@ -316,7 +327,7 @@ static int run_script(const char *action)
 	char *argv[5];
 	int r;
 
-	bb_error_msg("executing '%s %s %s'", G.script_name, G.iface, action);
+	bb_info_msg("executing '%s %s %s'", G.script_name, G.iface, action);
 
 	argv[0] = (char*) G.script_name;
 	argv[1] = (char*) G.iface;
@@ -332,12 +343,10 @@ static int run_script(const char *action)
 	/* r < 0 - can't exec, 0 <= r < 0x180 - exited, >=0x180 - killed by sig (r-0x180) */
 	r = spawn_and_wait(argv);
 
-	unsetenv(IFPLUGD_ENV_PREVIOUS);
-	unsetenv(IFPLUGD_ENV_CURRENT);
-	free(env_PREVIOUS);
-	free(env_CURRENT);
+	bb_unsetenv_and_free(env_PREVIOUS);
+	bb_unsetenv_and_free(env_CURRENT);
 
-	bb_error_msg("exit code: %d", r & 0xff);
+	bb_info_msg("exit code: %d", r & 0xff);
 	return (option_mask32 & FLAG_IGNORE_RETVAL) ? 0 : r;
 }
 
@@ -357,9 +366,13 @@ static void up_iface(void)
 	if (!(ifrequest.ifr_flags & IFF_UP)) {
 		ifrequest.ifr_flags |= IFF_UP;
 		/* Let user know we mess up with interface */
-		bb_error_msg("upping interface");
-		if (network_ioctl(SIOCSIFFLAGS, &ifrequest, "setting interface flags") < 0)
-			xfunc_die();
+		bb_simple_info_msg("upping interface");
+		if (network_ioctl(SIOCSIFFLAGS, &ifrequest, "setting interface flags") < 0) {
+			if (errno != ENODEV && errno != EADDRNOTAVAIL)
+				xfunc_die();
+			G.iface_exists = 0;
+			return;
+		}
 	}
 
 #if 0 /* why do we mess with IP addr? It's not our business */
@@ -376,7 +389,7 @@ static void up_iface(void)
 
 static void maybe_up_new_iface(void)
 {
-	if (!(option_mask32 & FLAG_NO_AUTO))
+	if (!(option_mask32 & FLAG_NO_UP_NEW_IFACE))
 		up_iface();
 
 #if 0 /* bloat */
@@ -402,7 +415,7 @@ static void maybe_up_new_iface(void)
 				(uint8_t)(ifrequest.ifr_hwaddr.sa_data[5]));
 		}
 
-		bb_error_msg("using interface %s%s with driver<%s> (version: %s)",
+		bb_info_msg("using interface %s%s with driver<%s> (version: %s)",
 			G.iface, buf, driver_info.driver, driver_info.version);
 	}
 #endif
@@ -435,7 +448,7 @@ static smallint detect_link(void)
 			logmode = sv_logmode;
 			if (status != IFSTATUS_ERR) {
 				G.api_method_num = i;
-				bb_error_msg("using %s detection mode", method_table[i].name);
+				bb_info_msg("using %s detection mode", method_table[i].name);
 				break;
 			}
 		}
@@ -449,7 +462,7 @@ static smallint detect_link(void)
 		else if (option_mask32 & FLAG_IGNORE_FAIL_POSITIVE)
 			status = IFSTATUS_UP;
 		else if (G.api_mode[0] == 'a')
-			bb_error_msg("can't detect link status");
+			bb_simple_error_msg("can't detect link status");
 	}
 
 	if (status != G.iface_last_status) {
@@ -481,14 +494,14 @@ static NOINLINE int check_existence_through_netlink(void)
 				goto ret;
 			if (errno == EINTR)
 				continue;
-			bb_perror_msg("netlink: recv");
+			bb_simple_perror_msg("netlink: recv");
 			return -1;
 		}
 
 		mhdr = (struct nlmsghdr*)replybuf;
 		while (bytes > 0) {
 			if (!NLMSG_OK(mhdr, bytes)) {
-				bb_error_msg("netlink packet too small or truncated");
+				bb_simple_error_msg("netlink packet too small or truncated");
 				return -1;
 			}
 
@@ -497,7 +510,7 @@ static NOINLINE int check_existence_through_netlink(void)
 				int attr_len;
 
 				if (mhdr->nlmsg_len < NLMSG_LENGTH(sizeof(struct ifinfomsg))) {
-					bb_error_msg("netlink packet too small or truncated");
+					bb_simple_error_msg("netlink packet too small or truncated");
 					return -1;
 				}
 
@@ -560,7 +573,6 @@ int ifplugd_main(int argc UNUSED_PARAM, char **argv)
 
 	INIT_G();
 
-	opt_complementary = "t+:u+:d+";
 	opts = getopt32(argv, OPTION_STR,
 		&G.iface, &G.script_name, &G.poll_time, &G.delay_up,
 		&G.delay_down, &G.api_mode, &G.extra_arg);
@@ -580,7 +592,7 @@ int ifplugd_main(int argc UNUSED_PARAM, char **argv)
 	}
 
 	if (pid_from_pidfile > 0 && kill(pid_from_pidfile, 0) == 0)
-		bb_error_msg_and_die("daemon already running");
+		bb_simple_error_msg_and_die("daemon already running");
 #endif
 
 	api_mode_found = strchr(api_modes, G.api_mode[0]);
@@ -593,15 +605,7 @@ int ifplugd_main(int argc UNUSED_PARAM, char **argv)
 
 	xmove_fd(xsocket(AF_INET, SOCK_DGRAM, 0), ioctl_fd);
 	if (opts & FLAG_MONITOR) {
-		struct sockaddr_nl addr;
-		int fd = xsocket(PF_NETLINK, SOCK_DGRAM, NETLINK_ROUTE);
-
-		memset(&addr, 0, sizeof(addr));
-		addr.nl_family = AF_NETLINK;
-		addr.nl_groups = RTMGRP_LINK;
-		addr.nl_pid = getpid();
-
-		xbind(fd, (struct sockaddr*)&addr, sizeof(addr));
+		int fd = create_and_bind_to_netlink(NETLINK_ROUTE, RTMGRP_LINK, 0);
 		xmove_fd(fd, netlink_fd);
 	}
 
@@ -621,7 +625,7 @@ int ifplugd_main(int argc UNUSED_PARAM, char **argv)
 		/* | (1 << SIGCHLD) - run_script does not use it anymore */
 		, record_signo);
 
-	bb_error_msg("started: %s", bb_banner);
+	bb_info_msg("started: %s", bb_banner);
 
 	if (opts & FLAG_MONITOR) {
 		struct ifreq ifrequest;
@@ -638,7 +642,7 @@ int ifplugd_main(int argc UNUSED_PARAM, char **argv)
 	iface_status_str = strstatus(iface_status);
 
 	if (opts & FLAG_MONITOR) {
-		bb_error_msg("interface %s",
+		bb_info_msg("interface %s",
 			G.iface_exists ? "exists"
 			: "doesn't exist, waiting");
 	}
@@ -646,7 +650,7 @@ int ifplugd_main(int argc UNUSED_PARAM, char **argv)
 	 * by potentially lying that it really exists */
 
 	if (G.iface_exists) {
-		bb_error_msg("link is %s", iface_status_str);
+		bb_info_msg("link is %s", iface_status_str);
 	}
 
 	if ((!(opts & FLAG_NO_STARTUP)
@@ -675,6 +679,8 @@ int ifplugd_main(int argc UNUSED_PARAM, char **argv)
 			goto exiting;
 		default:
 			bb_got_signal = 0;
+		/* do not clear bb_got_signal if already 0, this can lose signals */
+		case 0:
 			break;
 		}
 
@@ -685,7 +691,7 @@ int ifplugd_main(int argc UNUSED_PARAM, char **argv)
 		) {
 			if (errno == EINTR)
 				continue;
-			bb_perror_msg("poll");
+			bb_simple_perror_msg("poll");
 			goto exiting;
 		}
 
@@ -699,7 +705,7 @@ int ifplugd_main(int argc UNUSED_PARAM, char **argv)
 			if (G.iface_exists < 0) /* error */
 				goto exiting;
 			if (iface_exists_old != G.iface_exists) {
-				bb_error_msg("interface %sappeared",
+				bb_info_msg("interface %sappeared",
 						G.iface_exists ? "" : "dis");
 				if (G.iface_exists)
 					maybe_up_new_iface();
@@ -717,7 +723,7 @@ int ifplugd_main(int argc UNUSED_PARAM, char **argv)
 		iface_status_str = strstatus(iface_status);
 
 		if (iface_status_old != iface_status) {
-			bb_error_msg("link is %s", iface_status_str);
+			bb_info_msg("link is %s", iface_status_str);
 
 			if (delay_time) {
 				/* link restored its old status before
@@ -731,7 +737,7 @@ int ifplugd_main(int argc UNUSED_PARAM, char **argv)
 					delay_time += G.delay_down;
 #if 0  /* if you are back in 1970... */
 				if (delay_time == 0) {
-					sleep(1);
+					sleep1();
 					delay_time = 1;
 				}
 #endif
@@ -758,5 +764,5 @@ int ifplugd_main(int argc UNUSED_PARAM, char **argv)
 
  exiting:
 	remove_pidfile(pidfile_name);
-	bb_error_msg_and_die("exiting");
+	bb_simple_error_msg_and_die("exiting");
 }

@@ -61,7 +61,7 @@ guess_device_type(void)
 	}
 }
 
-static const char *const sun_sys_types[] = {
+static const char *const sun_sys_types[] ALIGN_PTR = {
 	"\x00" "Empty"       , /* 0            */
 	"\x01" "Boot"        , /* 1            */
 	"\x02" "SunOS root"  , /* 2            */
@@ -133,7 +133,7 @@ static const struct sun_predefined_drives {
 	unsigned short ntrks;
 	unsigned short nsect;
 	unsigned short rspeed;
-} sun_drives[] = {
+} sun_drives[] ALIGN_PTR = {
 	{ "Quantum","ProDrive 80S",1,832,2,834,6,34,3662},
 	{ "Quantum","ProDrive 105S",1,974,2,1019,6,35,3662},
 	{ "CDC","Wren IV 94171-344",3,1545,2,1549,9,46,3600},
@@ -292,10 +292,10 @@ create_sunlabel(void)
 		} else {
 			g_heads = read_int(1, g_heads, 1024, 0, "Heads");
 			g_sectors = read_int(1, g_sectors, 1024, 0, "Sectors/track");
-		if (g_cylinders)
-			g_cylinders = read_int(1, g_cylinders - 2, 65535, 0, "Cylinders");
-		else
-			g_cylinders = read_int(1, 0, 65535, 0, "Cylinders");
+			if (g_cylinders)
+				g_cylinders = read_int(1, g_cylinders - 2, 65535, 0, "Cylinders");
+			else
+				g_cylinders = read_int(1, 0, 65535, 0, "Cylinders");
 			sunlabel->nacyl = SUN_SSWAP16(read_int(0, 2, 65535, 0, "Alternate cylinders"));
 			sunlabel->pcylcount = SUN_SSWAP16(read_int(0, g_cylinders + SUN_SSWAP16(sunlabel->nacyl), 65535, 0, "Physical cylinders"));
 			sunlabel->rspeed = SUN_SSWAP16(read_int(1, 5400, 100000, 0, "Rotation speed (rpm)"));
@@ -403,7 +403,7 @@ verify_sun_cmp(int *a, int *b)
 	return -1;
 }
 
-static void
+static NOINLINE void
 verify_sun(void)
 {
 	unsigned starts[8], lens[8], start, stop;
@@ -491,7 +491,7 @@ add_sun_partition(int n, int sys)
 			return;
 		}
 	}
-	snprintf(mesg, sizeof(mesg), "First %s", str_units(SINGULAR));
+	snprintf(mesg, sizeof(mesg), "First %s", str_units());
 	while (1) {
 		if (whole_disk)
 			first = read_int(0, 0, 0, 0, mesg);
@@ -546,7 +546,7 @@ and is of type 'Whole disk'\n");
 	}
 	snprintf(mesg, sizeof(mesg),
 		"Last %s or +size or +sizeM or +sizeK",
-		str_units(SINGULAR));
+		str_units());
 	if (whole_disk)
 		last = read_int(scround(stop2), scround(stop2), scround(stop2),
 				0, mesg);
@@ -567,8 +567,8 @@ and is of type 'Whole disk'\n");
 "You haven't covered the whole disk with the 3rd partition,\n"
 "but your value %u %s covers some other partition.\n"
 "Your entry has been changed to %u %s\n",
-				scround(last), str_units(SINGULAR),
-				scround(stop), str_units(SINGULAR));
+				scround(last), str_units(),
+				scround(stop), str_units());
 			last = stop;
 		}
 	} else if (!whole_disk && last > stop)
@@ -606,7 +606,7 @@ sun_change_sysid(int i, int sys)
 			"there may destroy your partition table and bootblock.\n"
 			"Type YES if you're very sure you would like that partition\n"
 			"tagged with 82 (Linux swap): ");
-		if (strcmp (line_ptr, "YES\n"))
+		if (strcmp(line_ptr, "YES") != 0)
 			return;
 	}
 	switch (sys) {
@@ -636,20 +636,20 @@ sun_list_table(int xtra)
 		"%u cylinders, %u alternate cylinders, %u physical cylinders\n"
 		"%u extra sects/cyl, interleave %u:1\n"
 		"%s\n"
-		"Units = %s of %u * 512 bytes\n\n",
+		"Units = %ss of %u * 512 bytes\n\n",
 			disk_device, g_heads, g_sectors, SUN_SSWAP16(sunlabel->rspeed),
 			g_cylinders, SUN_SSWAP16(sunlabel->nacyl),
 			SUN_SSWAP16(sunlabel->pcylcount),
 			SUN_SSWAP16(sunlabel->sparecyl),
 			SUN_SSWAP16(sunlabel->ilfact),
 			(char *)sunlabel,
-			str_units(PLURAL), units_per_sector);
+			str_units(), units_per_sector);
 	else
 		printf(
 	"\nDisk %s (Sun disk label): %u heads, %u sectors, %u cylinders\n"
-	"Units = %s of %u * 512 bytes\n\n",
+	"Units = %ss of %u * 512 bytes\n\n",
 			disk_device, g_heads, g_sectors, g_cylinders,
-			str_units(PLURAL), units_per_sector);
+			str_units(), units_per_sector);
 
 	printf("%*s Flag    Start       End    Blocks   Id  System\n",
 		w + 1, "Device");

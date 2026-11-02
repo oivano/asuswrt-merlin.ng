@@ -9,25 +9,26 @@
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
 //config:config LOGREAD
-//config:	bool "logread"
+//config:	bool "logread (4.8 kb)"
 //config:	default y
-//config:	depends on FEATURE_IPC_SYSLOG
+//WRONG: it should be compilable without SYSLOG=y:
+//WRONG:	depends on FEATURE_IPC_SYSLOG
 //config:	help
-//config:	  If you enabled Circular Buffer support, you almost
-//config:	  certainly want to enable this feature as well. This
-//config:	  utility will allow you to read the messages that are
-//config:	  stored in the syslogd circular buffer.
+//config:	If you enabled Circular Buffer support, you almost
+//config:	certainly want to enable this feature as well. This
+//config:	utility will allow you to read the messages that are
+//config:	stored in the syslogd circular buffer.
 //config:
 //config:config FEATURE_LOGREAD_REDUCED_LOCKING
 //config:	bool "Double buffering"
 //config:	default y
 //config:	depends on LOGREAD
 //config:	help
-//config:	  'logread' ouput to slow serial terminals can have
-//config:	  side effects on syslog because of the semaphore.
-//config:	  This option make logread to double buffer copy
-//config:	  from circular buffer, minimizing semaphore
-//config:	  contention at some minor memory expense.
+//config:	'logread' output to slow serial terminals can have
+//config:	side effects on syslog because of the semaphore.
+//config:	This option make logread to double buffer copy
+//config:	from circular buffer, minimizing semaphore
+//config:	contention at some minor memory expense.
 //config:
 
 //applet:IF_LOGREAD(APPLET(logread, BB_DIR_SBIN, BB_SUID_DROP))
@@ -87,7 +88,7 @@ static void error_exit(const char *str)
 }
 #else
 /* On Linux, shmdt is not mandatory on exit */
-# define error_exit(str) bb_perror_msg_and_die(str)
+# define error_exit(str) bb_simple_perror_msg_and_die(str)
 #endif
 
 /*
@@ -158,7 +159,7 @@ int logread_main(int argc UNUSED_PARAM, char **argv)
 					cur, shbuf_tail, shbuf_size);
 
 		if (!(follow & 1)) { /* not -f */
-			/* if -F, "convert" it to -f, so that we dont
+			/* if -F, "convert" it to -f, so that we don't
 			 * dump the entire buffer on each iteration
 			 */
 			follow >>= 1;
@@ -179,7 +180,7 @@ int logread_main(int argc UNUSED_PARAM, char **argv)
 			if (cur == shbuf_tail) {
 				sem_up(log_semid);
 				fflush_all();
-				sleep(1); /* TODO: replace me with a sleep_on */
+				sleep1(); /* TODO: replace me with a sleep_on */
 				continue;
 			}
 		}
@@ -204,7 +205,7 @@ int logread_main(int argc UNUSED_PARAM, char **argv)
 		cur = shbuf_tail;
 #else
 		while (cur != shbuf_tail) {
-			fputs(shbuf_data + cur, stdout);
+			fputs_stdout(shbuf_data + cur);
 			cur += strlen(shbuf_data + cur) + 1;
 			if (cur >= shbuf_size)
 				cur = 0;
@@ -216,7 +217,7 @@ int logread_main(int argc UNUSED_PARAM, char **argv)
 
 #if ENABLE_FEATURE_LOGREAD_REDUCED_LOCKING
 		for (i = 0; i < len_total; i += strlen(copy + i) + 1) {
-			fputs(copy + i, stdout);
+			fputs_stdout(copy + i);
 		}
 		free(copy);
 #endif
@@ -225,5 +226,5 @@ int logread_main(int argc UNUSED_PARAM, char **argv)
 
 	/* shmdt(shbuf); - on Linux, shmdt is not mandatory on exit */
 
-	fflush_stdout_and_exit(EXIT_SUCCESS);
+	fflush_stdout_and_exit_SUCCESS();
 }

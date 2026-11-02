@@ -6,7 +6,27 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
-/* no options, no getopt */
+//config:config RESIZE
+//config:	bool "resize (903 bytes)"
+//config:	default y
+//config:	help
+//config:	This program is used to (re)set the width and height of your current
+//config:	terminal.
+//config:
+//config:config FEATURE_RESIZE_PRINT
+//config:	bool "Print environment variables"
+//config:	default y
+//config:	depends on RESIZE
+//config:	help
+//config:	Prints the newly set size (number of columns and rows) of
+//config:	the terminal.
+//config:	E.g.:
+//config:	COLUMNS=80;LINES=44;export COLUMNS LINES;
+
+//applet:IF_RESIZE(APPLET_NOEXEC(resize, resize, BB_DIR_USR_BIN, BB_SUID_DROP, resize))
+/* bb_common_bufsiz1 usage here is safe wrt NOEXEC: not expecting it to be zeroed. */
+
+//kbuild:lib-$(CONFIG_RESIZE) += resize.o
 
 //usage:#define resize_trivial_usage
 //usage:       ""
@@ -44,6 +64,7 @@ int resize_main(int argc UNUSED_PARAM, char **argv UNUSED_PARAM)
 	 */
 
 	tcgetattr(STDERR_FILENO, old_termios_p); /* fiddle echo */
+//TODO: die if the above fails?
 	memcpy(&new, old_termios_p, sizeof(new));
 	new.c_cflag |= (CLOCAL | CREAD);
 	new.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
@@ -53,7 +74,19 @@ int resize_main(int argc UNUSED_PARAM, char **argv UNUSED_PARAM)
 		+ (1 << SIGTERM)
 		+ (1 << SIGALRM)
 		, onintr);
-	tcsetattr(STDERR_FILENO, TCSANOW, &new);
+	/* Users report:
+	 *	The resize command messes up the terminal.
+	 *	In my case it looks like it is hanging and
+	 *	I need to press ctrl-c to get a prompt.
+	 *	Actually the program does not hang but just
+	 *	the terminal is messed up.
+	 * Replaced TCSANOW with TCSAFLUSH:
+	 * "the change occurs after all output written to fd
+	 * has been transmitted, and all input that has been
+	 * received but not read will be discarded before
+	 * the change is made.
+	 */
+	tcsetattr(STDERR_FILENO, TCSAFLUSH, &new);
 
 	/* save_cursor_pos 7
 	 * scroll_whole_screen [r
