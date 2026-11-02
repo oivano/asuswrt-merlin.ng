@@ -1809,6 +1809,80 @@ static int hotplug_main(int argc, char *argv[])
 	return 0;
 }
 
+static int hotplug_action_valid(const char *action)
+{
+	return action && (!strcmp(action, "add") || !strcmp(action, "remove"));
+}
+
+static int hotplug_device_name_valid(const char *applet, const char *name)
+{
+	const char *ptr;
+
+	if (!applet || !name || strlen(name) < 2 || strchr(name, '/'))
+		return 0;
+
+	if (!strcmp(applet, "asus_sd")) {
+		if (strlen(name) < 3 || strncmp(name, "sd", 2) || name[2] < 'a' || name[2] > 'z')
+			return 0;
+		ptr = name + 3;
+	} else if (!strcmp(applet, "asus_sr")) {
+		if (strncmp(name, "sr", 2))
+			return 0;
+		ptr = name + 2;
+		if (*ptr < '0' || *ptr > '9')
+			return 0;
+	} else if (!strcmp(applet, "asus_lp")) {
+		if (strncmp(name, "lp", 2))
+			return 0;
+		ptr = name + 2;
+		if (*ptr < '0' || *ptr > '9')
+			return 0;
+	} else if (!strcmp(applet, "asus_sg")) {
+		if (strncmp(name, "sg", 2))
+			return 0;
+		ptr = name + 2;
+		if (*ptr < '0' || *ptr > '9')
+			return 0;
+	} else if (!strcmp(applet, "asus_tty")) {
+		if (!strncmp(name, "ttyUSB", 6))
+			ptr = name + 6;
+		else if (!strncmp(name, "ttyACM", 6))
+			ptr = name + 6;
+		else
+			return 0;
+		if (*ptr < '0' || *ptr > '9')
+			return 0;
+	} else if (!strcmp(applet, "asus_mmc")) {
+		if (strncmp(name, "mmcblk", 6))
+			return 0;
+		ptr = name + 6;
+		if (*ptr < '0' || *ptr > '9')
+			return 0;
+		while (*ptr >= '0' && *ptr <= '9')
+			ptr++;
+		if (*ptr == '\0')
+			return 1;
+		if (*ptr++ != 'p' || *ptr < '0' || *ptr > '9')
+			return 0;
+	} else if (!strcmp(applet, "asus_usb_interface")) {
+		if (strlen(name) < 3 || name[0] < '1' || name[0] > '9' || name[1] != '-' ||
+		    name[2] < '1' || name[2] > '3')
+			return 0;
+		ptr = name + 3;
+		while ((*ptr >= '0' && *ptr <= '9') || *ptr == '.' || *ptr == ':')
+			ptr++;
+		return *ptr == '\0';
+	} else if (!strcmp(applet, "asus_usbbcm")) {
+		return !strcmp(name, "usbbcm");
+	} else {
+		return 0;
+	}
+
+	while (*ptr >= '0' && *ptr <= '9')
+		ptr++;
+	return *ptr == '\0';
+}
+
 #if defined(RTCONFIG_QCA) && defined(RTCONFIG_TURBO_BTN) && defined(RTCONFIG_BLINK_LED)
 /**
  * Blink WiFi LED in router/access-point mode if bit-rate is zero and waiting for it becomes non-zero value in background.
@@ -2745,6 +2819,8 @@ int main(int argc, char **argv)
 			printf("Usage: asus_mmc [device_name] [action]\n");
 			return 0;
 		}
+		if (!hotplug_device_name_valid(base, argv[1]) || !hotplug_action_valid(argv[2]))
+			return EINVAL;
 
 		return asus_mmc(argv[1], argv[2]);
 	}
@@ -2754,6 +2830,8 @@ int main(int argc, char **argv)
 			printf("Usage: asus_sd [device_name] [action]\n");
 			return 0;
 		}
+		if (!hotplug_device_name_valid(base, argv[1]) || !hotplug_action_valid(argv[2]))
+			return EINVAL;
 
 		return asus_sd(argv[1], argv[2]);
 	}
@@ -2762,6 +2840,8 @@ int main(int argc, char **argv)
 			printf("Usage: asus_lp [device_name] [action]\n");
 			return 0;
 		}
+		if (!hotplug_device_name_valid(base, argv[1]) || !hotplug_action_valid(argv[2]))
+			return EINVAL;
 
 		return asus_lp(argv[1], argv[2]);
 	}
@@ -2770,6 +2850,8 @@ int main(int argc, char **argv)
 			printf("Usage: asus_sg [device_name] [action]\n");
 			return 0;
 		}
+		if (!hotplug_device_name_valid(base, argv[1]) || !hotplug_action_valid(argv[2]))
+			return EINVAL;
 
 		return asus_sg(argv[1], argv[2]);
 	}
@@ -2778,6 +2860,8 @@ int main(int argc, char **argv)
 			printf("Usage: asus_sr [device_name] [action]\n");
 			return 0;
 		}
+		if (!hotplug_device_name_valid(base, argv[1]) || !hotplug_action_valid(argv[2]))
+			return EINVAL;
 
 		return asus_sr(argv[1], argv[2]);
 	}
@@ -2786,6 +2870,8 @@ int main(int argc, char **argv)
 			printf("Usage: asus_tty [device_name] [action]\n");
 			return 0;
 		}
+		if (!hotplug_device_name_valid(base, argv[1]) || !hotplug_action_valid(argv[2]))
+			return EINVAL;
 
 		return asus_tty(argv[1], argv[2]);
 	}
@@ -2794,6 +2880,8 @@ int main(int argc, char **argv)
 			printf("Usage: asus_usbbcm [device_name] [action]\n");
 			return 0;
 		}
+		if (!hotplug_device_name_valid(base, argv[1]) || !hotplug_action_valid(argv[2]))
+			return EINVAL;
 
 		return asus_usbbcm(argv[1], argv[2]);
 	}
@@ -2802,6 +2890,8 @@ int main(int argc, char **argv)
 			printf("Usage: asus_usb_interface [device_name] [action]\n");
 			return 0;
 		}
+		if (!hotplug_device_name_valid(base, argv[1]) || !hotplug_action_valid(argv[2]))
+			return EINVAL;
 
 		return asus_usb_interface(argv[1], argv[2]);
 	}
