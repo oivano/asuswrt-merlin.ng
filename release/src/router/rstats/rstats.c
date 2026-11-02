@@ -20,9 +20,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
 #include <signal.h>
 #include <time.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <sys/sysinfo.h>
 #include <sys/stat.h>
 #include <stdint.h>
@@ -415,9 +418,10 @@ static void save(int quick)
 
 static int decomp(const char *fname, void *buffer, int size, int max)
 {
-	char s[256];
 	int n;
 	FILE *fp;
+	pid_t pid;
+	int fd, status;
 	long file_size = 0;
 
 	//_dprintf("%s: fname=%s\n", __FUNCTION__, fname);
@@ -425,9 +429,28 @@ static int decomp(const char *fname, void *buffer, int size, int max)
 	unlink(uncomp_fn);
 
 	n = 0;
-	sprintf(s, "gzip -dc %s > %s", fname, uncomp_fn);
-	if (system(s)) {
-		//_dprintf("%s: %s != 0\n", __func__, s);
+	fd = open(uncomp_fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
+	if (fd < 0)
+		goto exit_decomp;
+	pid = fork();
+	if (pid < 0) {
+		close(fd);
+		goto exit_decomp;
+	}
+	if (pid == 0) {
+		if (fd != STDOUT_FILENO && dup2(fd, STDOUT_FILENO) < 0)
+			_exit(127);
+		if (fd != STDOUT_FILENO)
+			close(fd);
+		execlp("gzip", "gzip", "-dc", "--", fname, (char *)NULL);
+		_exit(127);
+	}
+	close(fd);
+	while (waitpid(pid, &status, 0) < 0) {
+		if (errno != EINTR)
+			goto exit_decomp;
+	}
+	if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
 		goto exit_decomp;
 	}
 	if (!(fp = fopen(uncomp_fn, "r")))
