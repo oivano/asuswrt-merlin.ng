@@ -4414,6 +4414,7 @@ void write_webdav_server_pem()
 {
 	unsigned long long sn;
 	char t[32];
+	char *gencert_argv[] = { "gencert.sh", t, NULL };
 #ifdef RTCONFIG_HTTPS
 	if(f_exists("/etc/server.pem"))
 		system("cp -f /etc/server.pem /tmp/lighttpd/");
@@ -4421,7 +4422,7 @@ void write_webdav_server_pem()
 	if(!f_exists("/tmp/lighttpd/server.pem")){
 		f_read("/dev/urandom", &sn, sizeof(sn));
 		sprintf(t, "%llu", sn & 0x7FFFFFFFFFFFFFFFULL);
-		eval("gencert.sh", t);
+		_eval(gencert_argv, NULL, GENCERT_TIMEOUT, NULL);
 
 		system("cp -f /etc/server.pem /tmp/lighttpd/");
 	}

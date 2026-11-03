@@ -126,18 +126,11 @@ echo "RELOAD=${RELOAD} BACKUP=${BACKUP} ECC256=${ECC256} DEFAULT_LAN_IP=${DEFAUL
 ONAME=`nvram get lan_hostname`
 [ -z "${ONAME}" ] && ONAME=`nvram get odmpid`
 
-[ ! -e /var/lock ] && mkdir -p /var/lock
-while [ -e /var/lock/gencert.lock ] ; do
-	if [ ! -e /proc/`cat /var/lock/gencert.lock`/comm ] ; then
-		# If process that had taken the lock gone, ignore the lock
-		echo "gencert.sh: Deaded lock, old pid=`cat /var/lock/gencert.lock`, skip"
-		break
-	fi
-	sleep 1
-done
-
-# write pid
-echo $$ > /var/lock/gencert.lock
+exec 9>>/var/run/gencert.lock || exit 1
+if ! flock -n 9; then
+	echo "gencert.sh: certificate generation already running, skip"
+	exit 0
+fi
 
 cp -L openssl.cnf openssl.config
 
@@ -391,5 +384,4 @@ if [ "${RELOAD}" == "1" -o "${RELOAD}" == "2" ] ; then
 		nvram set httpds6_reload_cert=${RELOAD}
 	fi
 fi
-
-rm /var/lock/gencert.lock
+# Keep the lock inode; flock releases its lock automatically when the process exits.
