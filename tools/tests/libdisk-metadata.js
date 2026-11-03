@@ -27,12 +27,19 @@ assert.match(source, /open_metadata_file\(test_file, "w"\)/);
 assert.match(source, /open_metadata_file\(list_file, "w"\)/);
 assert.match(source, /\*p < 0x20 \|\| \*p == 0x7f/);
 assert.match(source, /int smb_share_name_is_safe\(const char \*name\)/);
-assert.match(source, /strchr\("\[\];#=", \*p\)/);
+assert.match(source, /strcmp\(name, "\."\).*strcmp\(name, "\.\."\).*strchr\(name, '\/'\)/s);
+assert.match(source, /strchr\("\/\[\];#=", \*p\)/);
+const pathGuardStart = source.indexOf('int smb_share_path_is_safe(');
+const pathGuardEnd = source.indexOf('\nstatic FILE *open_metadata_file', pathGuardStart);
+const pathGuard = source.slice(pathGuardStart, pathGuardEnd);
+assert.notEqual(pathGuardStart, -1);
+assert.match(pathGuard, /lstat\(share_path, &st\).*S_ISDIR\(st\.st_mode\)/s);
+assert.match(pathGuard, /realpath\(mount_path, canonical_mount\)/);
+assert.match(pathGuard, /realpath\(share_path, canonical_share\)/);
+assert.match(pathGuard, /strncmp\(canonical_share, canonical_mount, mount_len\)/);
 assert.match(folders, /smb_share_name_is_safe\(dp->d_name\)/);
-assert.match(smbWriter, /if \(!smb_share_name_is_safe\(folder_list\[n\]\)\)/);
-const writerGuard = smbWriter.indexOf('if (!smb_share_name_is_safe(folder_list[n]))');
-assert.ok(writerGuard < smbWriter.indexOf('fprintf(fp, "[%s]\\n", folder_list[n]', writerGuard));
-assert.ok(writerGuard < smbWriter.indexOf('fprintf(fp, "comment = %s\'s %s in %s\\n"', writerGuard));
+assert.equal((smbWriter.match(/smb_share_path_is_safe\(follow_partition->mount_point, folder_list\[n\]\)/g) || []).length, 3);
+assert.equal((smbWriter.match(/fprintf\(fp, "path = %s\/%s\\n", follow_partition->mount_point, folder_list\[n\]\);/g) || []).length, 3);
 
 function safeOpen(filename, mode) {
     let flags = fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK;
@@ -100,13 +107,34 @@ try {
     fs.closeSync(descriptor);
     assert.equal(fs.readFileSync(regular, 'utf8'), '*=331\n');
 
-    const safeShareName = name => name.length > 0 &&
+    const safeShareName = name => name.length > 0 && name !== '.' && name !== '..' && !name.includes('/') &&
         !/[\x00-\x1f\x7f\[\];#=]/.test(name);
+    const safeSharePath = (mount, name) => {
+        if (!safeShareName(name)) return false;
+        const candidate = path.join(mount, name);
+        let stat;
+        let mountRoot;
+        let resolved;
+        try {
+            stat = fs.lstatSync(candidate);
+            if (!stat.isDirectory()) return false;
+            mountRoot = fs.realpathSync(mount);
+            resolved = fs.realpathSync(candidate);
+        } catch {
+            return false;
+        }
+        const prefix = mountRoot.endsWith(path.sep) ? mountRoot : `${mountRoot}${path.sep}`;
+        return resolved !== mountRoot && resolved.startsWith(prefix);
+    };
     const payload = 'x]\navailable = yes\nguest ok = yes\nroot preexec = blocked\n[y]';
     fs.mkdirSync(path.join(media, 'normal folder'));
     fs.mkdirSync(path.join(media, payload));
-    const names = fs.readdirSync(media).filter(name => name[0] !== '.' && safeShareName(name));
+    fs.symlinkSync(path.dirname(tmpTarget), path.join(media, 'x'));
+    const names = fs.readdirSync(media).filter(name => name[0] !== '.' && safeSharePath(media, name));
     assert.deepEqual(names, ['normal folder']);
+    assert.equal(safeSharePath(media, 'x'), false, 'symlink to an outside directory is rejected');
+    assert.equal(safeSharePath(media, '..'), false, 'parent traversal is rejected');
+    assert.equal(safeSharePath(media, 'normal folder/child'), false, 'multi-component names are rejected');
     for (const name of ['semi;colon', 'hash#mark', 'equals=name', '[section]', 'line\rbreak'])
         assert.equal(safeShareName(name), false);
     const generated = names.map(name => `[${name}]\npath = /media/${name}\n` ).join('');
