@@ -70,6 +70,46 @@ enum pwf_access_type { PWF_READ, PWF_UPDATE, PWF_CREATE };
 
 static SIG_ATOMIC_T gotalarm;
 
+static FILE *open_smbpasswd_file(const char *pfile, int flags,
+				 const char *mode, bool create)
+{
+	int fd;
+	SMB_STRUCT_STAT st;
+	FILE *fp;
+
+#ifdef O_NOFOLLOW
+	flags |= O_NOFOLLOW | O_NONBLOCK;
+#else
+	errno = ENOSYS;
+	return NULL;
+#endif
+	if (create)
+		fd = sys_open(pfile, flags | O_CREAT | O_EXCL, 0600);
+	else
+		fd = sys_open(pfile, flags, 0);
+	if (fd == -1)
+		return NULL;
+
+	if (sys_fstat(fd, &st, false) != 0)
+		goto fail;
+	if (!S_ISREG(st.st_ex_mode) || st.st_ex_uid != 0 ||
+	    st.st_ex_nlink != 1) {
+		errno = EACCES;
+		goto fail;
+	}
+	if (fchmod(fd, S_IRUSR | S_IWUSR) == -1)
+		goto fail;
+
+	fp = fdopen(fd, mode);
+	if (fp == NULL)
+		goto fail;
+	return fp;
+
+fail:
+	close(fd);
+	return NULL;
+}
+
 /***************************************************************
  Signal function to tell us we timed out.
 ****************************************************************/
@@ -188,6 +228,7 @@ static FILE *startsmbfilepwent(const char *pfile, enum pwf_access_type type, int
 {
 	FILE *fp = NULL;
 	const char *open_mode = NULL;
+	int open_flags = 0;
 	int race_loop = 0;
 	int lock_type = F_RDLCK;
 
@@ -199,35 +240,19 @@ static FILE *startsmbfilepwent(const char *pfile, enum pwf_access_type type, int
 	switch(type) {
 		case PWF_READ:
 			open_mode = "rb";
+			open_flags = O_RDONLY;
 			lock_type = F_RDLCK;
 			break;
 		case PWF_UPDATE:
 			open_mode = "r+b";
+			open_flags = O_RDWR;
 			lock_type = F_WRLCK;
 			break;
 		case PWF_CREATE:
-			/*
-			 * Ensure atomic file creation.
-			 */
-			{
-				int i, fd = -1;
-
-				for(i = 0; i < 5; i++) {
-					if((fd = sys_open(pfile, O_CREAT|O_TRUNC|O_EXCL|O_RDWR, 0600))!=-1) {
-						break;
-					}
-					sys_usleep(200); /* Spin, spin... */
-				}
-				if(fd == -1) {
-					DEBUG(0,("startsmbfilepwent_internal: too many race conditions \
-creating file %s\n", pfile));
-					return NULL;
-				}
-				close(fd);
-				open_mode = "r+b";
-				lock_type = F_WRLCK;
-				break;
-			}
+			open_mode = "r+b";
+			open_flags = O_RDWR;
+			lock_type = F_WRLCK;
+			break;
 		default:
 			DEBUG(10, ("Invalid open mode: %d\n", type));
 			return NULL;
@@ -236,27 +261,24 @@ creating file %s\n", pfile));
 	for(race_loop = 0; race_loop < 5; race_loop++) {
 		DEBUG(10, ("startsmbfilepwent_internal: opening file %s\n", pfile));
 
-		if((fp = sys_fopen(pfile, open_mode)) == NULL) {
-
-			/*
-			 * If smbpasswd file doesn't exist, then create new one. This helps to avoid
-			 * confusing error msg when adding user account first time.
-			 */
-			if (errno == ENOENT) {
-				if ((fp = sys_fopen(pfile, "a+")) != NULL) {
-					DEBUG(0, ("startsmbfilepwent_internal: file %s did not \
+		fp = open_smbpasswd_file(pfile, open_flags, open_mode,
+					 type == PWF_CREATE);
+		if (fp == NULL && type != PWF_CREATE && errno == ENOENT) {
+			fp = open_smbpasswd_file(pfile, O_RDWR, "r+b", True);
+			if (fp == NULL && errno == EEXIST)
+				continue;
+			if (fp != NULL)
+				DEBUG(0,("startsmbfilepwent_internal: file %s did not \
 exist. File successfully created.\n", pfile));
-				} else {
-					DEBUG(0, ("startsmbfilepwent_internal: file %s did not \
-exist. Couldn't create new one. Error was: %s",
-					pfile, strerror(errno)));
-					return NULL;
-				}
-			} else {
-				DEBUG(0, ("startsmbfilepwent_internal: unable to open file %s. \
-Error was: %s\n", pfile, strerror(errno)));
-				return NULL;
+		}
+		if (fp == NULL) {
+			if (type == PWF_CREATE && errno == EEXIST) {
+				sys_usleep(200);
+				continue;
 			}
+			DEBUG(0,("startsmbfilepwent_internal: unable to safely open file %s. \
+Error was: %s\n", pfile, strerror(errno)));
+			return NULL;
 		}
 
 		if (!pw_file_lock(fileno(fp), lock_type, 5, lock_depth)) {
@@ -762,7 +784,7 @@ static bool mod_smbfilepwd_entry(struct smbpasswd_privates *smbpasswd_state, con
 	}
 	DEBUG(10, ("mod_smbfilepwd_entry: opening file %s\n", pfile));
 
-	fp = sys_fopen(pfile, "r+");
+	fp = open_smbpasswd_file(pfile, O_RDWR, "r+", False);
 
 	if (fp == NULL) {
 		DEBUG(0, ("mod_smbfilepwd_entry: unable to open file %s\n", pfile));
@@ -778,9 +800,6 @@ static bool mod_smbfilepwd_entry(struct smbpasswd_privates *smbpasswd_state, con
 		fclose(fp);
 		return False;
 	}
-
-	/* Make sure it is only rw by the owner */
-	chmod(pfile, 0600);
 
 	/* We have a write lock on the file. */
 	/*

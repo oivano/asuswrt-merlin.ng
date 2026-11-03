@@ -8,6 +8,8 @@ const read = name => fs.readFileSync(path.join(root, name), 'utf8');
 const config = read('release/src/router/libdisk/write_smb_conf.c');
 const sambaMakefile = read('release/src/router/samba-3.6.x_opwrt/Makefile');
 const tdb = read('release/src/router/samba-3.6.x_opwrt/source/lib/tdb/common/open.c');
+const pdbSmbpasswd = read('release/src/router/samba-3.6.x_opwrt/source/source3/passdb/pdb_smbpasswd.c');
+const secrets = read('release/src/router/samba-3.6.x_opwrt/source/source3/passdb/secrets.c');
 const nameserv = read('release/src/router/samba-3.6.x_opwrt/source/source3/include/nameserv.h');
 const nmblib = read('release/src/router/samba-3.6.x_opwrt/source/source3/libsmb/nmblib.c');
 const nmbd = read('release/src/router/samba-3.6.x_opwrt/source/source3/nmbd/nmbd.c');
@@ -121,6 +123,31 @@ assert.match(smbpasswd, /FILE \*fp = open_smbpasswd_file\(0\)/);
 assert.match(smbpasswd, /getchar\(\).*'\\n'/s);
 assert.match(smbpasswd, /E_md4hash\(password, new_nt_p16\)/);
 assert.doesNotMatch(smbpasswd, /E_md4hash\(argv\[2\]/);
+const passdbOpen = pdbSmbpasswd.slice(
+    pdbSmbpasswd.indexOf('static FILE *open_smbpasswd_file('),
+    pdbSmbpasswd.indexOf('/***************************************************************\n Signal function')
+);
+assert.match(passdbOpen, /flags \|= O_NOFOLLOW \| O_NONBLOCK/);
+assert.match(passdbOpen, /O_CREAT \| O_EXCL/);
+assert.match(passdbOpen, /sys_fstat\(fd, &st, false\)/);
+assert.match(passdbOpen, /!S_ISREG\(st\.st_ex_mode\).*st\.st_ex_uid != 0.*st\.st_ex_nlink != 1/s);
+assert.ok(passdbOpen.indexOf('st.st_ex_nlink != 1') < passdbOpen.indexOf('fchmod(fd'));
+assert.match(passdbOpen, /#else\s*errno = ENOSYS;\s*return NULL;/);
+assert.doesNotMatch(pdbSmbpasswd, /sys_fopen\(pfile/);
+assert.match(pdbSmbpasswd, /open_smbpasswd_file\(pfile, open_flags, open_mode,/);
+assert.match(pdbSmbpasswd, /open_smbpasswd_file\(pfile, O_RDWR, "r\+", False\)/);
+const secretsPrepare = secrets.slice(
+    secrets.indexOf('static bool secrets_file_prepare('),
+    secrets.indexOf('/**\n * Use a TDB')
+);
+assert.match(secretsPrepare, /flags \|= O_NOFOLLOW/);
+assert.match(secretsPrepare, /O_CREAT \| O_EXCL, 0600/);
+assert.match(secretsPrepare, /fstat\(fd, &st\)/);
+assert.match(secretsPrepare, /!S_ISREG\(st\.st_mode\).*st\.st_uid != 0.*st\.st_nlink != 1/s);
+assert.ok(secretsPrepare.indexOf('st.st_nlink != 1') < secretsPrepare.indexOf('fchmod(fd, 0600)'));
+assert.match(secretsPrepare, /#else\s*errno = ENOSYS;\s*return false;/);
+const secretsInit = secrets.slice(secrets.indexOf('bool secrets_init(void)'), secrets.indexOf('\n}\n', secrets.indexOf('bool secrets_init(void)')));
+assert.ok(secretsInit.indexOf('secrets_file_prepare(fname)') < secretsInit.indexOf('db_open('));
 const uidGuard = smbpasswd.match(/if\((uid <= 0)\)\s*exit\(2\);/);
 assert.ok(uidGuard);
 const rejectsUid = new Function('uid', `return ${uidGuard[1]};`);
