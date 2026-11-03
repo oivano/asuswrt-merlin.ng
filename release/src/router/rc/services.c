@@ -5541,6 +5541,89 @@ static int _get_ipv6_addr(const char *ifname, char *ipv6addr, const size_t len)
 }
 #endif
 
+#ifndef RTCONFIG_INADYN
+#define DDNS_CACHE_DIR "/tmp/ddns-private"
+#define DDNS_CACHE_PATH DDNS_CACHE_DIR "/ddns.cache"
+
+static int ddns_cache_open_directory(void)
+{
+	struct stat st;
+	int fd;
+
+	if (mkdir(DDNS_CACHE_DIR, 0700) < 0 && errno != EEXIST)
+		return -1;
+	fd = open(DDNS_CACHE_DIR, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (fd < 0)
+		return -1;
+	if (fstat(fd, &st) < 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
+	    st.st_gid != 0 || fchmod(fd, 0700) < 0 || fstat(fd, &st) < 0 ||
+	    (st.st_mode & 07777) != 0700) {
+		close(fd);
+		return -1;
+	}
+	return fd;
+}
+
+static int ddns_cache_prepare(void)
+{
+	int dirfd = ddns_cache_open_directory();
+
+	if (dirfd < 0)
+		return 0;
+	close(dirfd);
+	return 1;
+}
+
+int ddns_cache_clear(void)
+{
+	int dirfd = ddns_cache_open_directory();
+	int ret;
+
+	if (dirfd < 0)
+		return 0;
+	ret = unlinkat(dirfd, "ddns.cache", 0);
+	if (ret < 0 && errno == ENOENT)
+		ret = 0;
+	close(dirfd);
+	return ret == 0;
+}
+
+static FILE *ddns_cache_open(int write_cache)
+{
+	struct stat st;
+	int dirfd, fd;
+	FILE *fp;
+
+	dirfd = ddns_cache_open_directory();
+	if (dirfd < 0)
+		return NULL;
+	if (write_cache) {
+		if (unlinkat(dirfd, "ddns.cache", 0) < 0 && errno != ENOENT) {
+			close(dirfd);
+			return NULL;
+		}
+		fd = openat(dirfd, "ddns.cache",
+			    O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK, 0600);
+	} else {
+		fd = openat(dirfd, "ddns.cache", O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+	}
+	close(dirfd);
+	if (fd < 0)
+		return NULL;
+	if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
+	    st.st_gid != 0 || st.st_nlink != 1 || fchmod(fd, 0600) < 0 ||
+	    fstat(fd, &st) < 0 ||
+	    (st.st_mode & 0777) != 0600) {
+		close(fd);
+		return NULL;
+	}
+	fp = fdopen(fd, write_cache ? "w" : "r");
+	if (!fp)
+		close(fd);
+	return fp;
+}
+#endif
+
 int
 ddns_updated_main(int argc, char *argv[])
 {
@@ -5551,7 +5634,7 @@ ddns_updated_main(int argc, char *argv[])
 #ifndef RTCONFIG_INADYN
 	FILE *fp;
 
-	if (!(fp=fopen("/tmp/ddns.cache", "r"))) return 0;
+	if (!(fp = ddns_cache_open(0))) return 0;
 
 	fgets(buf, sizeof(buf), fp);
 	fclose(fp);
@@ -5744,7 +5827,11 @@ start_ddns(char *caller)
 	}
 
 #ifndef RTCONFIG_INADYN
-	snprintf(cache_path, sizeof(cache_path), "/tmp/ddns.cache");
+	snprintf(cache_path, sizeof(cache_path), "%s", DDNS_CACHE_PATH);
+	if (!ddns_cache_prepare()) {
+		logmessage("ddns", "Unable to prepare private cache directory.");
+		return -1;
+	}
 #else
 	snprintf(cache_path, sizeof(cache_path), "/var/cache/inadyn/%s.cache", host);
 #endif
@@ -5883,7 +5970,7 @@ start_ddns(char *caller)
 	}
 
 #ifndef RTCONFIG_INADYN
-	unlink(cache_path);
+	ddns_cache_clear();
 	nvram_unset("ddns_cache");
 	nvram_unset("ddns_ipaddr");
 	nvram_unset("ddns_status");
@@ -5917,7 +6004,7 @@ start_ddns(char *caller)
 		FILE *time_fp;
 		time_t now;
 
-		if((time_fp=fopen(cache_path,"w")))
+		if ((time_fp = ddns_cache_open(1)))
 		{
 			fprintf(time_fp,"%ld,%s",time(&now),wan_ip);
 			fclose(time_fp);
