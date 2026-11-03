@@ -104,7 +104,8 @@ try {
 
 assert.match(init, /chmod\("\/tmp", 01777\)/);
 assert.doesNotMatch(init, /chmod\("\/tmp", 0777\)/);
-assert.match(init, /chmod\(POOL_MOUNT_ROOT, 01777\)/);
+assert.match(init, /chmod\(POOL_MOUNT_ROOT, 0755\)/);
+assert.doesNotMatch(init, /chmod\(POOL_MOUNT_ROOT, 01777\)/);
 for (const directory of ['/var/state', '/var/state/parport', '/var/state/parport/svr_statue',
     '/var/lock', '/var/tmp/dhcp'])
     assert.ok(init.includes(`mkdir("${directory}", 01777)`), directory);

@@ -19799,7 +19799,7 @@ static void sysinit(void)
 		_dprintf("Unable to secure /tmp/.le\n");
 #endif
 #ifdef RTCONFIG_USB
-	chmod(POOL_MOUNT_ROOT, 01777);
+	chmod(POOL_MOUNT_ROOT, 0755);
 #endif
 	f_write("/etc/hosts", NULL, 0, 0, 0644);			// blank
 	f_write("/etc/fstab", NULL, 0, 0, 0644);			// !!TB - blank
