@@ -12,8 +12,12 @@
 
 #include "rc.h"
 
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 #include <sys/sysinfo.h>
 #include <sys/ioctl.h>
+#include <unistd.h>
 #include <bcmutils.h>
 #include <wlutils.h>
 
@@ -148,7 +152,55 @@ void notify_nas(const char *ifname)
 		|| (defined(RTCONFIG_RALINK) && defined(RTCONFIG_WIRELESSREPEATER)) \
 		|| defined(RTCONFIG_QCA) || defined(RTCONFIG_REALTEK) \
 		|| defined(RTCONFIG_QSR10G) || defined(RTCONFIG_LANTIQ)
-#define APSCAN_INFO "/tmp/apscan_info.txt"
+#define APSCAN_DIR "/tmp/apscan"
+#define APSCAN_INFO APSCAN_DIR "/apscan_info.txt"
+
+static int wlcscan_open_dir(void)
+{
+	struct stat parent, st;
+	int dirfd;
+
+	if (geteuid() != 0 || lstat("/tmp", &parent) < 0 || !S_ISDIR(parent.st_mode) ||
+	    parent.st_uid != 0 || ((parent.st_mode & 0022) && !(parent.st_mode & S_ISVTX)))
+		return -1;
+	if (mkdir(APSCAN_DIR, 0700) < 0 && errno != EEXIST)
+		return -1;
+	dirfd = open(APSCAN_DIR, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (dirfd < 0)
+		return -1;
+	if (fstat(dirfd, &st) < 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
+	    (st.st_mode & 0022) || fchmod(dirfd, 0700) < 0 ||
+	    fstat(dirfd, &st) < 0 || (st.st_mode & 0077)) {
+		close(dirfd);
+		return -1;
+	}
+	return dirfd;
+}
+
+static int wlcscan_prepare_file(int dirfd)
+{
+	struct stat st;
+	int fd;
+
+	if (unlinkat(dirfd, "apscan_info.txt", 0) < 0 && errno != ENOENT)
+		return -1;
+	fd = openat(dirfd, "apscan_info.txt",
+		    O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK, 0600);
+	if (fd < 0)
+		return -1;
+	if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
+	    st.st_nlink != 1 || fchmod(fd, 0600) < 0 || fstat(fd, &st) < 0 ||
+	    (st.st_mode & 0077)) {
+		close(fd);
+		unlinkat(dirfd, "apscan_info.txt", 0);
+		return -1;
+	}
+	if (close(fd) < 0) {
+		unlinkat(dirfd, "apscan_info.txt", 0);
+		return -1;
+	}
+	return 0;
+}
 
 static int lock = -1;
 
@@ -167,7 +219,6 @@ static void wlcscan_safeleave(int signo) {
 
 int wlcscan_main(void)
 {
-	FILE *fp=NULL;
 	char word[256]={0}, *next = NULL;
 #if defined(RTCONFIG_CONCURRENTREPEATER) && defined(RTCONFIG_MTK_REP)		
 	char wl_ifs[256]={0};
@@ -175,6 +226,7 @@ int wlcscan_main(void)
 	char wl_ifnames[32] = { 0 };
 #endif
 	int i = 0;
+	int dirfd;
 #ifdef RTCONFIG_QSR10G
 	CLIENT *clnt;
 	char host[18];
@@ -198,9 +250,16 @@ int wlcscan_main(void)
 
 	/* clean APSCAN_INFO */
 	lock = file_lock("sitesurvey");
-	if ((fp = fopen(APSCAN_INFO, "w")) != NULL) {
-		fclose(fp);
+	dirfd = wlcscan_open_dir();
+	if (dirfd < 0 || wlcscan_prepare_file(dirfd) < 0) {
+		if (dirfd >= 0)
+			close(dirfd);
+		file_unlock(lock);
+		_dprintf("[%s] unable to prepare protected scan output\n", __func__);
+		nvram_set_int("wlc_scan_state", WLCSCAN_STATE_FINISHED);
+		return 0;
 	}
+	close(dirfd);
 	file_unlock(lock);
 
 	nvram_set_int("wlc_scan_state", WLCSCAN_STATE_INITIALIZING);
