@@ -2959,11 +2959,12 @@ extern int illegal_ipv4_netmask(char *netmask);
 #define DEFAULT_LAN_IP_PARM	"-L", "192.168.1.1"
 #endif
 
-#define GENCERT_SH(args...)		({ char *argv[] = { "gencert.sh", DEFAULT_LAN_IP_PARM, ## args, NULL }; _eval(argv, NULL, 0, NULL); })
-#define GENCERT_SH_AND_RELOAD(args...)	({ char *argv[] = { "gencert.sh", DEFAULT_LAN_IP_PARM, "-l", ## args, NULL }; _eval(argv, NULL, 0, NULL); })
-#define GENCERT_SH_AND_BACKUP(args...)	({ char *argv[] = { "gencert.sh", DEFAULT_LAN_IP_PARM, "-b", ## args, NULL }; _eval(argv, NULL, 0, NULL); })
-#define GENCERT_SH_AND_BACKUP_RELOAD(args...)	({ char *argv[] = { "gencert.sh", DEFAULT_LAN_IP_PARM, "-b", "-l", ## args, NULL }; _eval(argv, NULL, 0, NULL); })
-#define GENCERT_SH_AND_BACKUP_RELOAD_AFTER_LOGOUT(args...)	({ char *argv[] = { "gencert.sh", DEFAULT_LAN_IP_PARM, "-b", "-l", "2", ## args, NULL }; _eval(argv, NULL, 0, NULL); })
+#define GENCERT_TIMEOUT			120
+#define GENCERT_SH(args...) 		({ char *argv[] = { "gencert.sh", DEFAULT_LAN_IP_PARM, ## args, NULL }; _eval(argv, NULL, GENCERT_TIMEOUT, NULL); })
+#define GENCERT_SH_AND_RELOAD(args...) 	({ char *argv[] = { "gencert.sh", DEFAULT_LAN_IP_PARM, "-l", ## args, NULL }; _eval(argv, NULL, GENCERT_TIMEOUT, NULL); })
+#define GENCERT_SH_AND_BACKUP(args...) 	({ char *argv[] = { "gencert.sh", DEFAULT_LAN_IP_PARM, "-b", ## args, NULL }; _eval(argv, NULL, GENCERT_TIMEOUT, NULL); })
+#define GENCERT_SH_AND_BACKUP_RELOAD(args...) 	({ char *argv[] = { "gencert.sh", DEFAULT_LAN_IP_PARM, "-b", "-l", ## args, NULL }; _eval(argv, NULL, GENCERT_TIMEOUT, NULL); })
+#define GENCERT_SH_AND_BACKUP_RELOAD_AFTER_LOGOUT(args...) 	({ char *argv[] = { "gencert.sh", DEFAULT_LAN_IP_PARM, "-b", "-l", "2", ## args, NULL }; _eval(argv, NULL, GENCERT_TIMEOUT, NULL); })
 #if defined(RTCONFIG_HTTPS)
 extern void reset_last_cert_nvars(void);
 extern int restore_cert(void);
