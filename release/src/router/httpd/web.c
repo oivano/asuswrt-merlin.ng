@@ -979,6 +979,38 @@ void websRedirect_iframe(webs_t wp, char_t *url)
 }
 //2008.08 magic}
 
+#define SYSCMD_LOG_FILE "/tmp/httpd/syscmd.log"
+
+static int syscmd_log_open(void)
+{
+	struct stat st;
+	int fd, created = 0;
+
+	if (geteuid() != 0 || httpd_ensure_temp_dir() != 0)
+		return -1;
+
+	fd = open(SYSCMD_LOG_FILE, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK, 0600);
+	if (fd >= 0)
+		created = 1;
+	else if (errno == EEXIST)
+		fd = open(SYSCMD_LOG_FILE, O_WRONLY | O_NOFOLLOW | O_NONBLOCK);
+	if (fd < 0)
+		return -1;
+
+	if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
+	    st.st_nlink != 1 || (st.st_mode & 0777) != 0600 ||
+	    (created && fchmod(fd, 0600) != 0)) {
+		int saved_errno = errno ? errno : EPERM;
+		close(fd);
+		if (created)
+			unlink(SYSCMD_LOG_FILE);
+		errno = saved_errno;
+		return -1;
+	}
+
+	return fd;
+}
+
 void sys_script(char *name)
 {
 
@@ -989,16 +1021,26 @@ void sys_script(char *name)
      //handle special scirpt first
      if (strcmp(name,"syscmd.sh")==0)
      {
+	   int fd = syscmd_log_open();
+	   if (fd < 0) {
+		_dprintf("[httpd] Unable to open private Network Tools log\n");
+		return;
+	   }
+
 	   if (strcmp(SystemCmd, "")!=0)
 	   {
-		char CMD[256];
-		snprintf(CMD, sizeof(CMD), "%s > /tmp/syscmd.log 2>&1 && echo 'XU6J03M6' >> /tmp/syscmd.log &\n", SystemCmd);
+		char CMD[PATH_MAX + 512];
+		close(fd);
+		snprintf(CMD, sizeof(CMD), "%s > '%s' 2>&1 && echo 'XU6J03M6' >> '%s' &\n",
+			SystemCmd, SYSCMD_LOG_FILE, SYSCMD_LOG_FILE);
 		system(CMD);
 		strlcpy(SystemCmd, "", sizeof(SystemCmd)); // decrease loading time.
 	   }
 	   else
 	   {
-	   	f_write_string("/tmp/syscmd.log", "", 0, 0);
+		if (ftruncate(fd, 0) != 0)
+			_dprintf("[httpd] Unable to clear private Network Tools log\n");
+		close(fd);
 	   }
      }
 //#ifdef U2EC
@@ -2497,7 +2539,17 @@ ej_dump_impl(int eid, webs_t wp, int argc, char_t **argv, int escape_html)
 	}
 	ret = 0;
 	strlcpy(path, get_logfile_path(), sizeof(path));
-	if (strcmp(file, "syslog.log")==0)
+	if (strcmp(file, "syscmd.log")==0) {
+		int fd = syscmd_log_open();
+		if (fd < 0) {
+			websError(wp, 500, "Unable to open Network Tools log\n");
+			return -1;
+		}
+		close(fd);
+		strlcpy(filename, SYSCMD_LOG_FILE, sizeof(filename));
+		ret += dump_file_filter_mode(wp, filename, NULL, escape_html);
+	}
+	else if (strcmp(file, "syslog.log")==0)
 	{
 		snprintf(filename, sizeof(filename), "%s/%s-1", path, file);
 		ret += dump_file_filter_mode(wp, filename, syslog_msg_filter, escape_html);
@@ -2629,8 +2681,7 @@ ej_dump_impl(int eid, webs_t wp, int argc, char_t **argv, int escape_html)
 		ret += dump_file_filter_mode(wp, filename, NULL, escape_html);
 		unlink(filename);
 	}
-	else if ( strcmp(file, "syscmd.log")==0
-		|| strcmp(file, "pptp_connected")==0
+	else if ( strcmp(file, "pptp_connected")==0
 		|| strcmp(file, "release_note0.txt")==0
 		|| strcmp(file, "release_note1.txt")==0
 		|| strcmp(file, "release_note.txt")==0

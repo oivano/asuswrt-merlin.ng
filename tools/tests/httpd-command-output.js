@@ -49,6 +49,14 @@ assert.match(arrays, /websWriteJsonString\(wp, addrbuf\)/);
 assert.match(arrays, /int ej_connlist_array[\s\S]*?char output_path\[64\], redirect\[128\]/);
 assert.match(sysinfo, /fopen\("\/proc\/net\/nf_conntrack", "r"\)/);
 assert.match(web, /httpd_create_tempfile\(filename, sizeof\(filename\)\)/);
+assert.match(web, /open\(SYSCMD_LOG_FILE, O_WRONLY \| O_CREAT \| O_EXCL \| O_NOFOLLOW \| O_NONBLOCK, 0600\)/);
+assert.match(web, /fstat\(fd, &st\) != 0 \|\| !S_ISREG\(st\.st_mode\) \|\| st\.st_uid != 0/);
+assert.match(web, /st\.st_nlink != 1 \|\| \(st\.st_mode & 0777\) != 0600/);
+assert.match(web, /ftruncate\(fd, 0\)/);
+assert.match(web, /> '%s' 2>&1 && echo 'XU6J03M6' >> '%s'/);
+assert.match(web, /strlcpy\(filename, SYSCMD_LOG_FILE, sizeof\(filename\)\)/);
+assert(!web.includes("/tmp/syscmd.log"), "legacy world-writable Network Tools path remains");
+assert(!web.includes('f_write_string("/tmp/syscmd.log"'), "legacy unsafe result-file writer remains");
 
 function encodeScriptString(value) {
   return `"${Array.from(value, (char) => {
