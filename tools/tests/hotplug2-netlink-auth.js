@@ -6,6 +6,7 @@ const root = path.resolve(__dirname, '../..');
 const read = name => fs.readFileSync(path.join(root, name), 'utf8');
 const hotplug = read('release/src/router/hotplug2/hotplug2.c');
 const rules = read('release/src/router/hotplug2/rules.c');
+const deviceRules = read('release/src/router/hotplug2/examples/hotplug2.rules-2.6kernel');
 const rc = read('release/src/router/rc/rc.c');
 const usb = read('release/src/router/rc/usb.c');
 
@@ -25,6 +26,11 @@ for (const key of ['LD_PRELOAD', 'LD_LIBRARY_PATH', 'PATH', 'IFS']) {
 assert.match(rules, /if \(!event_env_allowed\(event->env_vars\[i\]\.key\)\)/);
 assert.match(rules, /strchr\(devicename, '\/'\)/);
 assert.match(rules, /!strcmp\(devicename, "\."\) \|\| !strcmp\(devicename, "\.\."\)/);
+assert.match(deviceRules, /makedev \/dev\/%DEVICENAME% 0600/);
+assert.doesNotMatch(deviceRules, /makedev \/dev\/%DEVICENAME% 0644/);
+const makeDevice = rules.match(/static int make_dev_from_event\([\s\S]*?\n\}/);
+assert(makeDevice, 'device-node creation helper exists');
+assert.match(makeDevice[0], /if \(rv == 0\)\s*chmod\(path, devmode\);/);
 
 const validator = rc.match(/static int hotplug_device_name_valid\(const char \*applet, const char \*name\)\s*\{([\s\S]*?)\n\}/);
 assert(validator, 'rc applet device-name validator exists');

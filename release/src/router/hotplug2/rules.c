@@ -279,10 +279,8 @@ static int make_dev_from_event(struct hotplug2_event_t *event, char *path, mode_
 	mkdir_p(path);
 	rv = mknod(path, devmode, makedev(atoi(major), atoi(minor)));
 
-	/*
-	 * Fixes an issue caused by devmode being modified by umask.
-	 */
-	chmod(path, devmode);
+	if (rv == 0)
+		chmod(path, devmode);
 
 	free(path);
 	
