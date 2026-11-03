@@ -14720,12 +14720,12 @@ wait_rc_misc()
 
         count = 0;
         wait_misc = nvram_get_int("wait_misc") ? : 20;
-        while (!nvram_get_int("stop_misc") && count++ < wait_misc) {
+	while (!nvram_get_int("stop_misc") && !nvram_match("upgrade_usb_error", "1") && count++ < wait_misc) {
                 _dprintf("\n%s: ...wait stop_misc completed...(%d)\n", __func__, count);
                 sleep(1);
         }
 
-	if(wait_ex) {
+	if(wait_ex && !nvram_match("upgrade_usb_error", "1")) {
 		_dprintf("wait more: %d\n", wait_ex);
 		sleep(wait_ex);
 	}
@@ -14776,7 +14776,6 @@ do_upgrade_post(char *url, FILE *stream, int len, char *boundary)
 	_dprintf("%s: stream len=%d\n", __func__, len);
 	nvram_set("upgrade_done", "0");
 
-	eval("/sbin/ejusb", "-1", "0");
 	upgrade_rc("stop", autoreboot, reset, bootnew, 0);
 	stop_upgrade_once = 1;
 
@@ -14838,7 +14837,6 @@ do_upgrade_post(char *url, FILE *stream, int len, char *boundary)
 	f_write_string("/tmp/usb.log", "", 0, 0);
 
 #ifdef RTCONFIG_SMALL_FW_UPDATE
-	eval("/sbin/ejusb", "-1", "0");
 	upgrade_rc("stop", autoreboot, reset, bootnew, 0);
 	stop_upgrade_once = 1;
 	sleep(10);
@@ -14894,8 +14892,7 @@ do_upgrade_post(char *url, FILE *stream, int len, char *boundary)
 	/* free memory should be 4 * TRX_size */
 	if ((si.freeram * si.mem_unit)/4 < len)
 		_dprintf("%s, small free mem...\n", __func__);
-	
-	eval("/sbin/ejusb", "-1", "0");
+
 	upgrade_rc("stop", autoreboot, reset, bootnew, 0);
 	stop_upgrade_once = 1;
 #endif
@@ -14916,6 +14913,13 @@ do_upgrade_post(char *url, FILE *stream, int len, char *boundary)
 #endif
 	_dprintf("%s, Again chk len=%d, cf_force_write=%d\n", __func__, len, cf_force_write);
 	wait_rc_misc();
+	if (nvram_match("upgrade_usb_error", "1")) {
+		_dprintf("%s: refusing firmware upgrade because USB storage could not be stopped safely\n", __func__);
+		nvram_unset("upgrade_usb_error");
+		stop_upgrade_once = 0;
+		upgrade_err = 1;
+		goto err;
+	}
 
 #if defined(RTCONFIG_PIPEFW)
 	sys_upgrade_bca(stream, &len, boundary);
@@ -15094,6 +15098,11 @@ do_upgrade_cgi(char *url, FILE *stream)
 
 	_dprintf("%s, upgrade_err=%d, upgrade_fw_status=%d\n", __func__, upgrade_err, nvram_get_int("upgrade_fw_status"));
 	_dprintf("%s, cgi flags:%s/%s/%s\n", __func__, autoreboot?:"Null", reset?:"Null", bootnew?:"Null");
+	if (nvram_match("upgrade_usb_error", "1")) {
+		nvram_unset("upgrade_usb_error");
+		stop_upgrade_once = 0;
+		upgrade_err = 1;
+	}
 
         if(nvram_match("stop_upgrade", "1")) {
                 _dprintf("%s, stop upgrade\n", __func__);
@@ -15122,7 +15131,6 @@ do_upgrade_cgi(char *url, FILE *stream)
 #endif
 #ifndef RTCONFIG_SMALL_FW_UPDATE
 		if (!stop_upgrade_once){
-			eval("/sbin/ejusb", "-1", "0");
 			upgrade_rc("stop", autoreboot, reset, bootnew, 0);
 			stop_upgrade_once = 1;
 		}
