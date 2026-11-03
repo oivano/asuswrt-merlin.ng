@@ -145,6 +145,9 @@ int ntpd_synced_main(int argc, char *argv[])
 #ifdef RTCONFIG_OPENVPN
 		start_ovpn_eas();
 #endif
+#ifdef RTCONFIG_FRR
+		notify_rc("start_frr");
+#endif
 
 	}
 

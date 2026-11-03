@@ -13,6 +13,7 @@ const staticMain = read(base + 'staticd/static_main.c');
 const pidWriter = read(base + 'lib/pid_output.c');
 const watch = read(base + 'watchfrr/watchfrr.c');
 const rc = read('release/src/router/rc/frr.c');
+const ntpd = read('release/src/router/rc/ntpd.c');
 const web = read('release/src/router/httpd/frr_web.c');
 const makefile = read('release/src/router/Makefile');
 const functions = common.slice(common.indexOf('daemon_inst()'), common.indexOf('stop_watchfrr_first()'));
@@ -57,6 +58,10 @@ try {
     assert.doesNotMatch(common, /nvram get frr_config_dir/);
     assert.match(common, /\. "\$DAEMONS_C_PATH\/daemons"/);
     assert.match(rc, /static int frr_config_dir_trusted\(const char \*path\)[\s\S]*?lstat\(checked, &st\)[\s\S]*?!S_ISDIR\(st\.st_mode\)[\s\S]*?st\.st_uid != 0[\s\S]*?st\.st_mode & 0022/);
+    assert.match(rc, /if \(!nvram_get_int\("ntp_ready"\)\) \{\s*logmessage\("FRR", "deferring startup until NTP initial clock set"\);[\s\S]*?return;\s*\}/);
+    assert.doesNotMatch(rc, /frr_should_defer_until_pppd|deferring startup until pppd/);
+    const ntpdSync = ntpd.slice(ntpd.indexOf('int ntpd_synced_main'), ntpd.indexOf('\nstatic void set_alarm'));
+    assert.match(ntpdSync, /nvram_set\("ntp_ready", "1"\);[\s\S]*logmessage\("ntpd", "Initial clock set"\);[\s\S]*notify_rc\("start_frr"\);/);
     assert.match(rc, /static int frr_daemons_file_trusted\(const char \*cfg_dir\)[\s\S]*?lstat\(path, &st\)[\s\S]*?errno == ENOENT[\s\S]*?S_ISREG\(st\.st_mode\)[\s\S]*?st\.st_uid == 0[\s\S]*?st\.st_mode & 0022/);
     assert.match(rc, /!frr_config_dir_trusted\(buf\) \|\| !frr_daemons_file_trusted\(buf\)/);
     assert.match(common, /chown 0:0 "\$ROOT_RUN_PATH" && chmod 0755 "\$ROOT_RUN_PATH"/);
@@ -82,6 +87,8 @@ try {
     assert.match(common, /\$args \$pidopt \$\(daemon_pidfile\)/);
     assert.match(watch, /\{"pid-file", required_argument, NULL, 'p'\}/);
     assert.match(watch, /case 'p':\s*watchfrr_di\.pid_file = optarg;/);
+    const tryRestart = watch.slice(watch.indexOf('static void try_restart(struct daemon *dmn)\n{'), watch.indexOf('\nstatic int wakeup_unresponsive'));
+    assert.match(tryRestart, /gs\.special->state == DAEMON_UP\)\s*&& \(gs\.phase == PHASE_NONE\) && !gs\.restart\.pid/);
     for (const daemon of ['zebra', 'bgpd', 'bfdd'])
         assert.ok(web.includes(`/var/run/frr/daemons/${daemon}.vty`), daemon);
     assert.doesNotMatch(web, /"\/var\/run\/frr\/(?:%s\.pid|\w+\.vty)"/);
