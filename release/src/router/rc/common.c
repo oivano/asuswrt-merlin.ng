@@ -67,6 +67,45 @@
 void update_lan_status(int);
 
 #ifdef RTCONFIG_LETSENCRYPT
+static int le_status_fd_secure(int fd)
+{
+	struct stat st;
+
+	if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
+	    st.st_nlink != 1 || fchmod(fd, 0600) < 0 || fstat(fd, &st) < 0 ||
+	    !S_ISREG(st.st_mode) || st.st_uid != 0 || st.st_nlink != 1)
+		return 0;
+	return 1;
+}
+
+static int le_status_file_prepare(const char *path)
+{
+	int attempt, fd;
+
+	for (attempt = 0; attempt < 2; ++attempt) {
+		fd = open(path, O_WRONLY | O_NOFOLLOW | O_NONBLOCK);
+		if (fd >= 0) {
+			if (le_status_fd_secure(fd)) {
+				close(fd);
+				return 1;
+			}
+			close(fd);
+		}
+
+		if (unlink(path) < 0 && errno != ENOENT)
+			return 0;
+		fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK, 0600);
+		if (fd >= 0) {
+			int safe = le_status_fd_secure(fd);
+			close(fd);
+			return safe;
+		}
+		if (errno != EEXIST)
+			return 0;
+	}
+	return 0;
+}
+
 int le_workdir_prepare(void)
 {
 	struct stat st;
@@ -88,7 +127,7 @@ int le_workdir_prepare(void)
 	    !(st.st_mode & 0077))
 		result = 1;
 	close(fd);
-	return result;
+	return result && le_status_file_prepare("/tmp/acme_err");
 }
 
 int le_fw_script_is_safe(void)

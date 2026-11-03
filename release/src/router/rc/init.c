@@ -19819,7 +19819,7 @@ static void sysinit(void)
 		_dprintf("Unable to secure QoS temporary directory\n");
 #ifdef RTCONFIG_LETSENCRYPT
 	if (!le_workdir_prepare())
-		_dprintf("Unable to secure /tmp/.le\n");
+		_dprintf("Unable to secure Let's Encrypt temporary files\n");
 #endif
 #ifdef RTCONFIG_USB
 	chmod(POOL_MOUNT_ROOT, 0755);

@@ -8,14 +8,14 @@
 dns_asusapi_add() {
   fulldomain=$1
   txtvalue=$2
-  echo -n "$txtvalue" > /tmp/acme.txt
+  echo -n "$txtvalue" > /tmp/.le/acme.txt
 
   if ! add_record ; then
      _err "Add DNS record fail"
-     rm /tmp/acme.txt
+      rm /tmp/.le/acme.txt
      return 1
   else
-     rm /tmp/acme.txt
+      rm /tmp/.le/acme.txt
      return 0
   fi
 }
