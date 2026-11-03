@@ -4,6 +4,11 @@
 	Copyright (C) 2006-2009 Jonathan Zarate
 
 */
+
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include <string.h>
 #include <strings.h>
 #include <stdio.h>
@@ -462,6 +467,21 @@ int illegal_ipv4_netmask(char *netmask)
 }
 
 #if defined(RTCONFIG_HTTPS)
+static int secure_cert_private_file(const char *path)
+{
+	int fd, ret = -1;
+	struct stat st;
+
+	fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+	if (fd < 0)
+		return (errno == ENOENT) ? 0 : -1;
+	if (fstat(fd, &st) == 0 && S_ISREG(st.st_mode) &&
+	    fchown(fd, 0, 0) == 0 && fchmod(fd, 0600) == 0)
+		ret = 1;
+	close(fd);
+	return ret;
+}
+
 void reset_last_cert_nvars(void)
 {
 	char **p, *nvars[] = { "last_cert_lan_ipaddr", "last_cert_ddns_hostname",
@@ -482,7 +502,10 @@ void reset_last_cert_nvars(void)
  */
 int restore_cert(void)
 {
-	int r, i, varlen = 0;
+	int r, i, varlen = 0, fd;
+	struct stat st;
+	char **p, *private_keys[] = { HTTPD_ROOTCA_KEY, HTTPD_ROOTCA_GEN_KEY,
+		HTTPD_KEY, HTTPD_GEN_KEY, LIGHTTPD_CERTKEY, NULL };
 	char *cert_tgz = HTTPS_CA_JFFS;
 	char **v, *argv[20] = { "tar", "-C", "/", "-xzf", cert_tgz, HTTPD_CERTS_KEYS_ARGS, NULL };
 #if defined(RTCONFIG_LETSENCRYPT)
@@ -523,11 +546,28 @@ int restore_cert(void)
 
 	*v++ = NULL;
 	r = _eval(argv, NULL, 0, NULL);
+	for (p = private_keys; *p; ++p) {
+		if (secure_cert_private_file(*p) < 0) {
+			_dprintf("%s: unable to secure %s\n", __func__, *p);
+			return 0;
+		}
+	}
 	/* cert.crt is archived to /tmp/cert.tar and is used to export certificate. */
 	if (!f_exists("/etc/cert.crt"))
 		eval("ln", "-sf", HTTPD_ROOTCA_CERT, "/etc/cert.crt");
 	/* generate certificate for lighttpd (AiCloud) */
-	system("cat " HTTPD_KEY " " HTTPD_CERT " > " LIGHTTPD_CERTKEY);
+	if ((unlink(LIGHTTPD_CERTKEY) == 0 || errno == ENOENT) &&
+	    (fd = open(LIGHTTPD_CERTKEY, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600)) >= 0) {
+		if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) ||
+		    fchown(fd, 0, 0) != 0 || fchmod(fd, 0600) != 0) {
+			close(fd);
+			unlink(LIGHTTPD_CERTKEY);
+		} else if (close(fd) != 0 ||
+			   system("cat " HTTPD_KEY " " HTTPD_CERT " > " LIGHTTPD_CERTKEY) != 0)
+			unlink(LIGHTTPD_CERTKEY);
+	} else {
+		_dprintf("%s: unable to create private %s\n", __func__, LIGHTTPD_CERTKEY);
+	}
 
 	return !r;
 }
@@ -536,13 +576,40 @@ int restore_cert(void)
  */
 void save_cert(void)
 {
-	int i;
+	int i, fd;
+	struct stat st;
+	char **p, *private_keys[] = { HTTPD_ROOTCA_KEY, HTTPD_ROOTCA_GEN_KEY,
+		HTTPD_KEY, HTTPD_GEN_KEY, LIGHTTPD_CERTKEY, NULL };
 	char **v, *argv[20] = { "tar", "-C", "/", "-czf", HTTPS_CA_JFFS, HTTPD_CERTS_KEYS_ARGS, NULL };
 
 	for (i = 0, v = &argv[0]; i < ARRAY_SIZE(argv) && v && *v; ++v, ++i)
 		;
 	if (i >= (ARRAY_SIZE(argv) - 2)) {
 		_dprintf("%s: argv too small!\n", __func__);
+		return;
+	}
+	for (p = private_keys; *p; ++p) {
+		if (secure_cert_private_file(*p) < 0) {
+			_dprintf("%s: unable to secure %s\n", __func__, *p);
+			return;
+		}
+	}
+
+	fd = open(HTTPS_CA_JFFS, O_WRONLY | O_CREAT | O_NOFOLLOW | O_NONBLOCK, 0600);
+	if (fd < 0 || fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) ||
+	    fchown(fd, 0, 0) != 0 || fchmod(fd, 0600) != 0) {
+		if (fd >= 0)
+			close(fd);
+		_dprintf("%s: unable to secure %s\n", __func__, HTTPS_CA_JFFS);
+		return;
+	}
+	if (st.st_nlink != 1) {
+		close(fd);
+		_dprintf("%s: refusing linked archive %s\n", __func__, HTTPS_CA_JFFS);
+		return;
+	}
+	if (close(fd) != 0) {
+		_dprintf("%s: unable to close %s\n", __func__, HTTPS_CA_JFFS);
 		return;
 	}
 
