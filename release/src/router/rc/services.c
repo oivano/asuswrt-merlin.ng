@@ -14264,16 +14264,14 @@ again:
 			}
 
 #if !defined(RTN53) && !defined(RTN56UB1) && !defined(RTN56UB2) && !defined(RTAC1200GA1) && !defined(RTAC1200GU)
-#ifndef RTCONFIG_ERPTEST
-			stop_usb();
-#else
-			stop_usb(0);
-#endif
+			stop_usb_program(0);
 #ifndef RTCONFIG_NO_USBPORT
 			stop_usbled();
 #endif
-			remove_storage_main(1);
-			remove_usb_module();
+			if (remove_storage_main(1))
+				logmessage("usb", "USB storage remains mounted; leaving USB modules loaded");
+			else
+				remove_usb_module();
 #endif
 
 #endif
@@ -14387,16 +14385,14 @@ again:
 				modprobe_r("wl");
 #ifdef RTCONFIG_USB
 #if defined(RTN53)
-#ifndef RTCONFIG_ERPTEST
-				stop_usb();
-#else
-				stop_usb(0);
-#endif
+				stop_usb_program(0);
 #ifndef RTCONFIG_NO_USBPORT
 				stop_usbled();
 #endif
-				remove_storage_main(1);
-				remove_usb_module();
+				if (remove_storage_main(1))
+					logmessage("usb", "USB storage remains mounted; leaving USB modules loaded");
+				else
+					remove_usb_module();
 #endif
 #endif
 #endif
@@ -14553,6 +14549,41 @@ again:
 			wait_action_idle(10);
 		}
 		if(action&RC_SERVICE_STOP) {
+#ifdef RTCONFIG_USB
+			nvram_unset("upgrade_usb_error");
+#if !defined(RTN53) && !defined(RTN56UB1) && !defined(RTN56UB2) && !defined(RTAC1200GA1) && !defined(RTAC1200GU)
+			stop_dnsmasq();
+#if defined(RTCONFIG_APP_PREINSTALLED) || defined(RTCONFIG_APP_NETINSTALLED)
+			stop_app();
+#endif
+			if (remove_storage_main(1)) {
+				logmessage("usb", "Firmware upgrade refused; USB swap or filesystem could not be stopped safely");
+				restart_nas_services(0, 1, 0);
+#if defined(RTCONFIG_APP_PREINSTALLED) || defined(RTCONFIG_APP_NETINSTALLED)
+				start_app();
+#endif
+				start_dnsmasq();
+				run_custom_script("service-event", 120, "start", "upgrade");
+				nvram_set("upgrade_usb_error", "1");
+				if (stop_commit == 0)
+					nvram_unset(ASUS_STOP_COMMIT);
+				run_custom_script("service-event-end", 0, "start", "upgrade");
+				nvptr = NULL;
+				goto skip;
+			}
+			if (get_model() == MODEL_RTAC53U){
+				eval("wlconf", "eth1", "down");
+				eval("wlconf", "eth2", "down");
+				modprobe_r("wl_high");
+				modprobe_r("wl");
+			}
+			stop_usb_program(0);
+#ifndef RTCONFIG_NO_USBPORT
+			stop_usbled();
+#endif
+			remove_usb_module();
+#endif
+#endif
 #ifdef RTCONFIG_RGBLED
 			RGB_LED_STATUS_T rgb_cfg;
 			__nv_to_rgb("0,0,0,6,-2,0", &rgb_cfg);
@@ -14576,10 +14607,6 @@ again:
 			eval("/usr/sbin/modem_status.sh", "bytes+");
 #endif
 
-#ifdef RTCONFIG_USB
-			eval("/sbin/ejusb", "-1", "0");
-			logmessage("usb", "USB is ejected");
-#endif
 		   if(!(nvram_match("webs_state_flag", "1") && nvram_match("webs_state_upgrade", "0")))
 			stop_wanduck();
 
@@ -14595,28 +14622,6 @@ again:
 #endif
 #if defined(RTN56U)
 			stop_if_misc();
-#endif
-#ifdef RTCONFIG_USB
-			/* fix upgrade fail issue : remove wl_high before rmmod ehci_hcd */
-			if (get_model() == MODEL_RTAC53U){
-				eval("wlconf", "eth1", "down");
-				eval("wlconf", "eth2", "down");
-				modprobe_r("wl_high");
-				modprobe_r("wl");
-			}
-
-#if !defined(RTN53) && !defined(RTN56UB1) && !defined(RTN56UB2) && !defined(RTAC1200GA1) && !defined(RTAC1200GU)
-#ifndef RTCONFIG_ERPTEST
-			stop_usb();
-#else
-			stop_usb(0);
-#endif
-#ifndef RTCONFIG_NO_USBPORT
-			stop_usbled();
-#endif
-			remove_storage_main(1);
-			remove_usb_module();
-#endif
 #endif
 			remove_conntrack();
 			stop_udhcpc(-1);
@@ -14698,16 +14703,14 @@ again:
 				modprobe_r("wl");
 #ifdef RTCONFIG_USB
 #if defined(RTN53)
-#ifndef RTCONFIG_ERPTEST
-				stop_usb();
-#else
-				stop_usb(0);
-#endif
+				stop_usb_program(0);
 #ifndef RTCONFIG_NO_USBPORT
 				stop_usbled();
 #endif
-				remove_storage_main(1);
-				remove_usb_module();
+				if (remove_storage_main(1))
+					logmessage("usb", "USB storage remains mounted; leaving USB modules loaded");
+				else
+					remove_usb_module();
 #endif
 #endif
 #endif

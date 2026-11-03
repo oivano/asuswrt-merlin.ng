@@ -1272,7 +1272,10 @@ void stop_usb(int f_force)
 	// only stop storage services if disabled
 	if (disabled || !nvram_get_int("usb_storage") || f_force) {
 		// Unmount all partitions
-		remove_storage_main(0);
+		if (remove_storage_main(0)) {
+			logmessage("usb", "USB storage remains mounted; leaving USB modules loaded");
+			return;
+		}
 
 		// Stop storage services
 		remove_usb_storage_module();
@@ -1884,9 +1887,17 @@ int umount_partition(char *dev_name, int host_num, char *dsc_name, char *pt_name
 
 	/* Find all the active swaps that are on this device and stop them. */
 	findmntents(dev_name, 1, uswap_mountpoint, flags);
+	if (findmntents(dev_name, 1, NULL, 0) != NULL) {
+		_dprintf("%s: refusing to unmount %s; swapoff failed\n", __func__, dev_name);
+		return 1;
+	}
 
 	/* Find all the mountpoints that are for this device and unmount them. */
 	findmntents(dev_name, 0, umount_mountpoint, flags);
+	if (findmntents(dev_name, 0, NULL, 0) != NULL) {
+		_dprintf("%s: refusing to remove %s; filesystem remains mounted\n", __func__, dev_name);
+		return 1;
+	}
 
 #if defined(RTCONFIG_APP_PREINSTALLED) || defined(RTCONFIG_APP_NETINSTALLED)
 	usb_notify();
@@ -1897,8 +1908,10 @@ int umount_partition(char *dev_name, int host_num, char *dsc_name, char *pt_name
 
 int uswap_mountpoint(struct mntent *mnt, uint flags)
 {
-	swapoff(mnt->mnt_fsname);
-	return 0;
+	int ret = swapoff(mnt->mnt_fsname);
+	if (ret)
+		logmessage("USB swap", "swapoff %s failed: %s", mnt->mnt_fsname, strerror(errno));
+	return ret != 0;
 }
 
 int umount_mountpoint(struct mntent *mnt, uint flags)
@@ -2009,7 +2022,7 @@ _dprintf("%s: stop_cloudsync.\n", __func__);
 	
 #ifdef RTCONFIG_USB_SWAP
 	if (stop_usb_swap(mnt->mnt_dir)) {
-		logmessage("USB swap", "Cannot stop swap safely; refusing USB unmount");
+		logmessage("USB swap", "Cannot stop swap safely on %s; refusing USB unmount", mnt->mnt_dir);
 		return -1;
 	}
 #endif
@@ -2595,13 +2608,13 @@ void hotplug_usb_storage_device(int host_no, int action_add, uint flags)
 
 
 /* This gets called at reboot or upgrade.  The system is stopping. */
-void remove_storage_main(int shutdn)
+int remove_storage_main(int shutdn)
 {
 	if (shutdn){
 		restart_nas_services(1, 0, 0);
 	}
 	/* Unmount all partitions */
-	exec_for_host(-1, 0x02, shutdn ? EFH_SHUTDN : 0, umount_partition);
+	return exec_for_host(-1, 0x02, shutdn ? EFH_SHUTDN : 0, umount_partition);
 }
 
 #ifdef RTCONFIG_REALTEK
@@ -5095,7 +5108,7 @@ int remove_usb_disk(char *disk_port)
  */
 int __ejusb_main(const char *port_path, int unplug)
 {
-	int all_disk;
+	int all_disk, result = 0, disk_umount_failed;
 	disk_info_t *disk_list, *disk_info;
 	partition_info_t *partition_info;
 	char nvram_name[32], devpath[16], d_port[16], *d_dot;
@@ -5118,6 +5131,7 @@ int __ejusb_main(const char *port_path, int unplug)
 
 		if (!all_disk && strcmp(d_port, port_path))
 			continue;
+		disk_umount_failed = 0;
 
 		memset(nvram_name, 0, 32);
 		sprintf(nvram_name, "usb_path%s_removed", disk_info->port);
@@ -5129,7 +5143,10 @@ int __ejusb_main(const char *port_path, int unplug)
 
 			memset(devpath, 0, 16);
 			sprintf(devpath, "/dev/%s", partition_info->device);
-			umount_partition(devpath, 0, NULL, NULL, EFH_HP_REMOVE);
+			if (umount_partition(devpath, 0, NULL, NULL, EFH_HP_REMOVE)) {
+				disk_umount_failed = 1;
+				result = -4;
+			}
 		}
 
 #ifdef RTCONFIG_USB_CDROM
@@ -5139,17 +5156,17 @@ int __ejusb_main(const char *port_path, int unplug)
 			eval("sdparm", "--command=eject", devpath);
 		}
 #endif
-		if (unplug)
-			remove_usb_disk(disk_info->port);
+		if (unplug && !disk_umount_failed && remove_usb_disk(disk_info->port))
+			result = -4;
 	}
 	free_disk_data(&disk_list);
 
-	return 0;
+	return result;
 }
 
 int ejusb_main(int argc, char *argv[])
 {
-	int opt;
+	int opt, result;
 	int ports, restart_nasapps = 1, unplug = 0;
 	char *ports_str;
 
@@ -5181,7 +5198,7 @@ int ejusb_main(int argc, char *argv[])
 		}
 	}
 
-	__ejusb_main(ports_str, unplug);
+	result = __ejusb_main(ports_str, unplug);
 
 	if (restart_nasapps) {
 		_dprintf("restart_nas_services(%d): test 7.\n", getpid());
@@ -5191,7 +5208,7 @@ int ejusb_main(int argc, char *argv[])
 		_dprintf("restart_nas_services(%d) is skipped: test 7.\n", getpid());
 	}
 
-	return 0;
+	return result;
 }
 
 #ifdef RTCONFIG_DISK_MONITOR

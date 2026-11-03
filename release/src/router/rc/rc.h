@@ -1983,7 +1983,7 @@ extern void start_usblpsrv(void);
 extern int ejusb_main(int argc, char *argv[]);
 extern int __ejusb_main(const char *port_path, int unplug);
 extern void webdav_account_default(void);
-extern void remove_storage_main(int shutdn);
+extern int remove_storage_main(int shutdn);
 #ifndef RTCONFIG_NO_USBPORT
 extern int start_usbled(void);
 extern int stop_usbled(void);
