@@ -15,6 +15,4 @@ if [ "$1" == "" ]; then
 	usage $0
 fi
 
-echo "$1:$2" > /tmp/tmpchpw
-chpasswd < /tmp/tmpchpw
-rm -f /tmp/tmpchpw
+printf '%s\n' "$1:$2" | chpasswd
