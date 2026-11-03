@@ -10254,6 +10254,10 @@ static int ej_show_usb_path(int eid, webs_t wp, int argc, char_t **argv){
 		else
 			hub_order = 0;
 
+		if(port_order < 0 || port_order >= MAX_USB_PORT ||
+		   hub_order < 0 || hub_order >= MAX_USB_HUB_PORT)
+			continue;
+
 		if(get_path_by_node(interface->d_name, port_path, 8) == NULL)
 			continue;
 
@@ -10746,6 +10750,10 @@ static int ej_get_usb_info(int eid, webs_t wp, int argc, char_t **argv){
 			hub_order = atoi(ptr+1);
 		else
 			hub_order = 0;
+
+		if(port_order < 0 || port_order >= MAX_USB_PORT ||
+		   hub_order < 0 || hub_order >= MAX_USB_HUB_PORT)
+			continue;
 
 		if(get_path_by_node(interface->d_name, port_path, 8) == NULL)
 			continue;
