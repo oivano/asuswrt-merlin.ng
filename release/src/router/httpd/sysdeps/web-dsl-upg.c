@@ -98,7 +98,7 @@ typedef struct {
 	unsigned char ih_name[IH_NMLEN];
 } IMAGE_HEADER_TRX;
 
-int separate_tc_fw_from_trx(char* trxpath)
+int separate_tc_fw_from_trx(char *trxpath, long uploaded_len)
 {
 	FILE* FpTrx;
 	char TrxHdrBuf[512];
@@ -106,6 +106,7 @@ int separate_tc_fw_from_trx(char* trxpath)
 	unsigned int* pTrxSize;
 	unsigned int TrxSize=0;
 	unsigned int filelen;
+	long source_len;
 	unsigned int TcFwSize;	
 	int RetVal = 0;
 	size_t r_counts = 0;
@@ -124,7 +125,12 @@ int separate_tc_fw_from_trx(char* trxpath)
 	if(r_counts == TrxHdrBuf_size)
 	{
 		fseek( FpTrx, 0, SEEK_END);
-		filelen = ftell( FpTrx );
+		source_len = ftell(FpTrx);
+		if (source_len < 0 || source_len != uploaded_len || source_len > 0x7fffffffL) {
+			fclose(FpTrx);
+			goto err;
+		}
+		filelen = source_len;
 		fclose(FpTrx);
 	}
 	else
@@ -136,6 +142,8 @@ int separate_tc_fw_from_trx(char* trxpath)
 	pTrxSize = (unsigned int*)&TrxHdrBuf[12];
 	TrxSize = SWAP_LONG(*pTrxSize) + 64;
 	cprintf("trx size %x , file size %x\n",TrxSize,filelen);
+	if (TrxSize == 0 || TrxSize > filelen)
+		goto err;
 	if (filelen > TrxSize)
 	{
 		TcFwSize = filelen - TrxSize;
@@ -149,7 +157,7 @@ int separate_tc_fw_from_trx(char* trxpath)
 		{
 			fpSrc = fopen(trxpath, "rb");
 			if (fpSrc==NULL) goto err;
-			fpDst = fopen("/tmp/tcfw.bin", "wb");
+			fpDst = fopen("/tmp/httpd-upgrade/tcfw.bin", "wb");
 			if (fpDst==NULL) goto err;
 			
 			fseek(fpSrc,TrxSize,SEEK_SET);
@@ -186,14 +194,13 @@ int separate_tc_fw_from_trx(char* trxpath)
 	RetVal = 1;
 	
 err:
-	if(TrxSize)
-		truncate(trxpath, TrxSize);
-
 	if (fpSrc)
 		fclose(fpSrc);
 
 	if (fpDst)
 		fclose(fpDst);
+	if (TrxSize && TrxSize < filelen && truncate(trxpath, TrxSize) != 0)
+		RetVal = 0;
 
 	return RetVal;		
 }
@@ -268,13 +275,13 @@ int check_tc_firmware_crc()
 	if (update_tc_fw == 0) return 0;
 	
 
-	fpSrc = fopen("/tmp/tcfw.bin", "rb");
+	fpSrc = fopen("/tmp/httpd-upgrade/tcfw.bin", "rb");
 	if (fpSrc==NULL)
 	{
 		cmpHeaderErr = 1;	
 		goto exit;
 	}
-	fpDst = fopen("/tmp/ras.bin", "wb");
+	fpDst = fopen("/tmp/httpd-upgrade/ras.bin", "wb");
 	if (fpDst==NULL)
 	{
 		cmpHeaderErr = 1;	

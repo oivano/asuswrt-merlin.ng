@@ -8,6 +8,9 @@ const root = path.resolve(__dirname, '../..');
 const web = fs.readFileSync(path.join(root, 'release/src/router/httpd/web.c'), 'utf8');
 const archive = fs.readFileSync(path.join(root,
     'release/src/router/busybox/archival/libarchive/data_extract_all.c'), 'utf8');
+const imageApi = fs.readFileSync(path.join(root,
+    'release/src/router/shared/sysdeps/api-broadcom.c'), 'utf8');
+const services = fs.readFileSync(path.join(root, 'release/src/router/rc/services.c'), 'utf8');
 const body = (source, name) => {
     const match = source.match(new RegExp(`\\b${name}\\([^\\n]*\\)\\n\\{([\\s\\S]*?)\\n\\}`));
     assert(match, name);
@@ -177,8 +180,8 @@ try {
         const st = fs.lstatSync(name);
         createdLinks.add(`${st.dev}:${st.ino}`);
     };
-    assert.match(archive, /res = symlink\(file_header->link_target, dst_name\);\s*if \(res == 0\)\s*remember_created_link\(dst_name\);/);
-    assert.match(archive, /res = link\(hard_link, dst_name\);\s*if \(res == 0\)\s*remember_created_link\(dst_name\);/);
+    assert.match(archive, /create_or_remember_link\(&archive_handle->link_placeholders,\s*file_header->link_target,\s*dst_name,\s*0\);\s*remember_created_link\(dst_name\);/);
+    assert.match(archive, /create_or_remember_link\(&archive_handle->link_placeholders,\s*hard_link,\s*dst_name,\s*1\);/);
     const checkPath = new Function('name', 'include_leaf', 'api', `with (api) { ${pathCode} }`);
     const destination = path.join(temp, 'jffs');
     const outside = path.join(temp, 'etc');
@@ -250,9 +253,21 @@ assert.match(body(web, 'do_jffsupload_cgi'), /ret == 0 && httpd_spool_valid\(&jf
 assert.match(body(web, 'do_jffs_file'), /httpd_spool_valid\(&backup\)/);
 assert.match(body(web, 'prf_file'), /backup.complete = save_result == 0/);
 assert.match(body(web, 'prf_file'), /httpd_spool_clear\(&backup\)/);
+const upgradeHandler = web.indexOf('\n#else\nstatic void\ndo_upgrade_post');
+assert.notEqual(upgradeHandler, -1);
+const upgradeUpload = body(web.slice(upgradeHandler), 'do_upgrade_post');
+assert.match(upgradeUpload, /upload_stat\.st_size != upload_len/);
+assert.match(upgradeUpload, /upload_len \+= count;/);
+assert.doesNotMatch(upgradeUpload, /filelen\s*!=\s*upload_len/);
+assert.match(body(imageApi, 'check_imageheader'), /\*filelen\s*\+=\s*0x790000/);
+const upgradeCgi = body(web, 'do_upgrade_cgi');
+const failedStoppedUpgrade = upgradeCgi.slice(upgradeCgi.indexOf('if (stop_upgrade_once)'));
+assert.match(failedStoppedUpgrade, /websApply\(stream, "UpdateError_reboot\.asp"\);\s*sys_reboot\(\);/);
+assert.doesNotMatch(failedStoppedUpgrade, /start_upgrade_recover/);
+assert.doesNotMatch(services, /upgrade_recover/);
 const extract = body(archive, 'data_extract_all');
 assert(extract.indexOf('check_extract_path(dst_name,') < extract.indexOf('bb_make_directory('));
-assert(extract.indexOf('check_extract_path(hard_link, 1)') < extract.indexOf('link(hard_link, dst_name)'));
+assert(extract.indexOf('check_extract_path(hard_link, 1)') < extract.indexOf('create_or_remember_link('));
 assert.match(extract, /if \(hard_link\[0\] == '\/'\)/);
 assert(extract.indexOf('flags |= O_NOFOLLOW;') < extract.indexOf('dst_fd = xopen3('));
 

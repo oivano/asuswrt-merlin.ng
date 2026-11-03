@@ -69,6 +69,36 @@
 #include "tc_ver.h"
 #include "dsl-upg.h"
 
+#define HTTPD_UPGRADE_DIRECTORY "/tmp/httpd-upgrade"
+#define HTTPD_UPGRADE_IDENTITY HTTPD_UPGRADE_DIRECTORY "/identity"
+
+static int
+dsl_httpd_upgrade_spool_active(void)
+{
+	struct stat directory, identity;
+
+	return lstat(HTTPD_UPGRADE_DIRECTORY, &directory) == 0 &&
+		S_ISDIR(directory.st_mode) && directory.st_uid == 0 &&
+		(directory.st_mode & 0777) == 0700 &&
+		lstat(HTTPD_UPGRADE_IDENTITY, &identity) == 0 &&
+		S_ISREG(identity.st_mode) && identity.st_uid == 0 &&
+		identity.st_nlink == 1 && (identity.st_mode & 0777) == 0600;
+}
+
+static const char *
+dsl_tc_firmware_path(void)
+{
+	return dsl_httpd_upgrade_spool_active() ?
+		HTTPD_UPGRADE_DIRECTORY "/tcfw.bin" : "/tmp/tcfw.bin";
+}
+
+static const char *
+dsl_ras_firmware_path(void)
+{
+	return dsl_httpd_upgrade_spool_active() ?
+		HTTPD_UPGRADE_DIRECTORY "/ras.bin" : "/tmp/ras.bin";
+}
+
 #define SWAP_LONG(x) \
 	((__u32)( \
 		(((__u32)(x) & (__u32)0x000000ffUL) << 24) | \
@@ -246,13 +276,13 @@ int check_tc_firmware_crc(void)
 	if (update_tc_fw == 0) return 0;
 	
 
-	fpSrc = fopen("/tmp/tcfw.bin", "rb");
+	fpSrc = fopen(dsl_tc_firmware_path(), "rb");
 	if (fpSrc==NULL)
 	{
 		cmpHeaderErr = 1;	
 		goto exit;
 	}
-	fpDst = fopen("/tmp/ras.bin", "wb");
+	fpDst = fopen(dsl_ras_firmware_path(), "wb");
 	if (fpDst==NULL)
 	{
 		cmpHeaderErr = 1;	
@@ -357,7 +387,7 @@ int check_tc_firmware_crc(void)
 // There are two firmware on single TRX.  One is router firmware and the other is modem firmware.
 // Router firmware could upgrade or downgrade depends on end-user. 
 // For ADSL firmware , we will allow end-user to upgrade only because modem firmware updating is really dangerous.
-// That¡¦s okay even uses new modem firmware on old router firmware.
+// Thatï¿½ï¿½s okay even uses new modem firmware on old router firmware.
 // End-user could downgrade router firmware below 1.021 first and then upgrade old TRX again. The modem firmware will be downgraded.
 
 	// get ver number from trx
@@ -605,8 +635,8 @@ void do_upgrade_adsldrv(void)
 	// if adsl fw IP address is different, user should update to a new router fw first
 	if (strncmp(ipaddr,ADSL_FW_IP_PREFIX,sizeof(ADSL_FW_IP_PREFIX)-1)!=0) chk_image_err = 1;
 
-	strcpy(UpdateFwBuf,"cd /tmp; tftp -p -l ras.bin ");
-	strcat(UpdateFwBuf,ipaddr);
+	snprintf(UpdateFwBuf, sizeof(UpdateFwBuf), "cd %s; tftp -p -l ras.bin %s",
+		dsl_httpd_upgrade_spool_active() ? HTTPD_UPGRADE_DIRECTORY : "/tmp", ipaddr);
 
 	_dprintf("## upgrade tc fw\n");
 	
