@@ -522,10 +522,10 @@ sta_list:
 
 #ifdef RTCONFIG_IPV6
 	/* Obtain IPv6 info */
-	if (ipv6_enabled()) {
+	if (ipv6_enabled() && httpd_ensure_temp_dir() == 0) {
 		get_ipv6_client_info();
 		get_ipv6_client_list();
-		ipv6list = read_whole_file("/tmp/ipv6_client_list");
+		ipv6list = read_whole_file(IPV6_CLIENT_LIST);
 	}
 #endif
 

@@ -992,6 +992,8 @@ ej_lan_ipv6_network_array(int eid, webs_t wp, int argc, char_t **argv)
 	killall("dnsmasq", SIGUSR2);
 	usleep(100 * 1000);
 
+	if (httpd_ensure_temp_dir() != 0)
+		return ret;
 	get_ipv6_client_info();
 	get_ipv6_client_list();
 
@@ -1050,6 +1052,8 @@ ej_lan_ipv6_clients_array(int eid, webs_t wp, int argc, char_t **argv)
 	killall("dnsmasq", SIGUSR2);
 	usleep(100 * 1000);
 
+	if (httpd_ensure_temp_dir() != 0)
+		return ret;
 	get_ipv6_client_info();
 	get_ipv6_client_list();
 
