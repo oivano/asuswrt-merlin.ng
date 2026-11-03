@@ -1,4 +1,5 @@
 #!/bin/sh
+umask 077
 cd /etc
 SECS=1262278080
 # cert.pem, key.pem are reserved to Let's encrypt and uploaded certificate.
@@ -23,6 +24,10 @@ elif [ "${le_enable}" == "2" -a -e ${UPLOAD_CACERT} -a -e ${UPLOAD_CAKEY} ] ; th
 	HTTPD_GEN_CERT=${UPLOAD_GEN_CERT}
 	HTTPD_GEN_KEY=${UPLOAD_GEN_KEY}
 fi
+
+for key in "${HTTPD_ROOTCA_KEY}" "${HTTPD_ROOTCA_GEN_KEY}" "${HTTPD_KEY}" "${HTTPD_GEN_KEY}" ; do
+	[ ! -f "${key}" ] || chmod 600 "${key}" || exit 1
+done
 
 DATE_STR=`date +%Y%m%d%H%M%S`
 
@@ -359,14 +364,22 @@ fi
 # 2020/01/03 import the self-certificate
 ln -sf ${HTTPD_ROOTCA_CERT} cert.crt
 
+# Keep copied and newly generated private keys private, including on upgrade.
+chmod 600 ${HTTPD_ROOTCA_KEY} ${HTTPD_ROOTCA_GEN_KEY} ${HTTPD_GEN_KEY} ${HTTPD_KEY} || exit 1
+
 # create server.pem for AiCloud
-cat ${HTTPD_KEY} ${HTTPD_CERT} > server.pem
+rm -f server.pem || exit 1
+cat ${HTTPD_KEY} ${HTTPD_CERT} > server.pem || exit 1
+chmod 600 server.pem || exit 1
 
 [ "${BACKUP}" == "1" -o "`nvram get http_enable`" == "0" ] && \
-	tar czvf /jffs/cert.tgz -C / etc/cert.crt etc/${HTTPD_ROOTCA_CERT} etc/${HTTPD_ROOTCA_KEY} \
+	{ if [ -L /jffs/cert.tgz ] ; then rm -f /jffs/cert.tgz || exit 1 ; fi
+	  if [ -e /jffs/cert.tgz ] ; then chown 0:0 /jffs/cert.tgz && chmod 600 /jffs/cert.tgz || exit 1 ; fi
+	  tar czvf /jffs/cert.tgz -C / etc/cert.crt etc/${HTTPD_ROOTCA_CERT} etc/${HTTPD_ROOTCA_KEY} \
 		etc/${HTTPD_ROOTCA_GEN_CERT} etc/${HTTPD_ROOTCA_GEN_KEY} \
 		etc/${HTTPD_CERT} etc/${HTTPD_KEY} \
 		etc/${HTTPD_GEN_CERT} etc/${HTTPD_GEN_KEY}
+	}
 
 for f in /tmp/cert.csr ; do
 	[ -e ${f} ] && rm -f ${f}

@@ -16592,11 +16592,16 @@ do_upload_cert_key_cgi(char *url, FILE *stream)
 static void
 do_download_cert_key_cgi(char *url, FILE *stream)//for DUT
 {
-	int i, len;
-	char **v, *argv[20] = { "tar", "chf", "/tmp/cert_key.tar", "-C", "/etc", NULL };
+	int i, len, ret;
+	struct httpd_restore_spool cert_spool = { { 0 } };
+	char **v, *argv[20] = { "tar", "chf", NULL, "-C", "/etc", NULL };
 	char *p, **f, **fn;
 	char *cert_fn[] = { HTTPD_CERT, HTTPD_KEY, NULL };
 	char *cacert_fn[] = { HTTPD_ROOTCA_CERT, HTTPD_ROOTCA_KEY, NULL };
+
+	if (!httpd_spool_create(&cert_spool))
+		return;
+	argv[2] = cert_spool.path;
 
 	for (i = 0, v = &argv[0]; i < ARRAY_SIZE(argv) && *v; ++v, ++i)
 		;
@@ -16619,12 +16624,21 @@ do_download_cert_key_cgi(char *url, FILE *stream)//for DUT
 
 	if (!len) {
 		_dprintf("%s: argv too small!\n", __func__);
+		httpd_spool_clear(&cert_spool);
 		return;
 	}
+	if (fclose(cert_spool.file) != 0) {
+		cert_spool.file = NULL;
+		httpd_spool_clear(&cert_spool);
+		return;
+	}
+	cert_spool.file = NULL;
 
 	*v++ = NULL;
-	_eval(argv, NULL, 0 , NULL);
-	do_file("/tmp/cert_key.tar", stream);
+	ret = _eval(argv, NULL, 0, NULL);
+	if (!ret)
+		do_file(cert_spool.path, stream);
+	httpd_spool_clear(&cert_spool);
 }
 
 static void
