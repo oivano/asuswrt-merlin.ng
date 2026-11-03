@@ -27,6 +27,8 @@
 
 unsigned int __dir_size__ = 0;
 
+static int action_lock_dir_open(void);
+
 int f_exists(const char *path)	// note: anything but a directory
 {
 	struct stat st;
@@ -74,10 +76,24 @@ int d_size(const char *dirPath)
 
 int f_read_excl(const char *path, void *buffer, int max)
 {
-	int f;
+	int f, dirfd = -1;
 	int n;
 
-	if ((f = open(path, O_RDONLY)) < 0) return -1;
+	if (strcmp(path, ACTION_LOCK) == 0) {
+		struct stat st;
+
+		if ((dirfd = action_lock_dir_open()) < 0)
+			return -1;
+		f = openat(dirfd, "action", O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+		close(dirfd);
+		if (f < 0) return -1;
+		if (fstat(f, &st) < 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 || st.st_nlink != 1) {
+			close(f);
+			errno = EPERM;
+			return -1;
+		}
+	}
+	else if ((f = open(path, O_RDONLY)) < 0) return -1;
 	flock(f, LOCK_EX);
 	n = read(f, buffer, max);
 	flock(f, LOCK_UN);
@@ -96,31 +112,111 @@ int f_read(const char *path, void *buffer, int max)
 	return n;
 }
 
-int f_write_excl(const char *path, const void *buffer, int len, unsigned flags, unsigned cmode)
+static int action_lock_dir_open(void)
+{
+	struct stat st;
+	int fd;
+
+	if (geteuid() != 0) {
+		errno = EPERM;
+		return -1;
+	}
+	if (mkdir(ACTION_LOCK_DIR, 0700) != 0 && errno != EEXIST)
+		return -1;
+	fd = open(ACTION_LOCK_DIR, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (fd < 0)
+		return -1;
+	if (fstat(fd, &st) < 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 || (st.st_mode & 0077)) {
+		close(fd);
+		errno = EPERM;
+		return -1;
+	}
+	return fd;
+}
+
+int file_lock_init(void)
+{
+	int fd = action_lock_dir_open();
+
+	if (fd < 0)
+		return -1;
+	return close(fd);
+}
+
+static int action_file_open(int dirfd, int flags, mode_t mode)
+{
+	struct stat st;
+	int fd = openat(dirfd, "action", flags | O_NOFOLLOW | O_NONBLOCK, mode);
+
+	if (fd < 0)
+		return -1;
+	if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 || st.st_nlink != 1) {
+		close(fd);
+		errno = EPERM;
+		return -1;
+	}
+	return fd;
+}
+
+static int action_write_excl(const char *path, const void *buffer, int len, unsigned flags, unsigned cmode)
 {
 	static const char nl = '\n';
-	int f, fl;
+	int dirfd = -1, f = -1, fl = -1;
 	int r = -1;
-	mode_t m;
+	mode_t m = umask(0);
 
-	m = umask(0);
 	if (cmode == 0) cmode = 0666;
-	if ((fl = open(ACTION_LOCK_FILE, O_WRONLY|O_CREAT|O_EXCL|O_TRUNC, 0600)) >= 0) { // own the lock
-		if (( f = open(path, (flags & FW_APPEND) ? (O_WRONLY|O_CREAT|O_APPEND) : (O_WRONLY|O_CREAT|O_TRUNC), cmode)) >= 0) {
-			flock(f, LOCK_EX);
-			if ((buffer == NULL) || ((r = write(f, buffer, len)) == len)) {
-				if (flags & FW_NEWLINE) {
-					if (write(f, &nl, 1) == 1) ++r;
-				}
-			}
-			flock(f, LOCK_UN);
-			close(f);
+	if ((dirfd = action_lock_dir_open()) < 0)
+		goto done;
+	fl = openat(dirfd, "a_w_l", O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK, 0600);
+	if (fl < 0)
+		goto done;
+	{
+		struct stat st;
+		if (fstat(fl, &st) < 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 || st.st_nlink != 1) {
+			errno = EPERM;
+			goto done;
 		}
-		close(fl);
-		unlink(ACTION_LOCK_FILE);
 	}
+	if (strcmp(path, ACTION_LOCK) == 0)
+		f = action_file_open(dirfd, O_WRONLY | O_CREAT | ((flags & FW_APPEND) ? O_APPEND : 0), cmode);
+	else {
+		struct stat st;
+		f = open(path, O_WRONLY | O_CREAT | O_NOFOLLOW | O_NONBLOCK |
+			 ((flags & FW_APPEND) ? O_APPEND : 0), cmode);
+		if (f >= 0 && (fstat(f, &st) < 0 || !S_ISREG(st.st_mode) ||
+		    st.st_uid != geteuid() || st.st_nlink != 1)) {
+			close(f);
+			f = -1;
+			errno = EPERM;
+		}
+	}
+	if (f < 0)
+		goto done;
+	if (!(flags & FW_APPEND) && ftruncate(f, 0) < 0)
+		goto done;
+	flock(f, LOCK_EX);
+	if ((buffer == NULL) || ((r = write(f, buffer, len)) == len)) {
+		if (flags & FW_NEWLINE) {
+			if (write(f, &nl, 1) == 1) ++r;
+		}
+	}
+	flock(f, LOCK_UN);
+
+done:
+	if (f >= 0) close(f);
+	if (fl >= 0) {
+		close(fl);
+		unlinkat(dirfd, "a_w_l", 0);
+	}
+	if (dirfd >= 0) close(dirfd);
 	umask(m);
 	return r;
+}
+
+int f_write_excl(const char *path, const void *buffer, int len, unsigned flags, unsigned cmode)
+{
+	return action_write_excl(path, buffer, len, flags, cmode);
 }
 
 #ifdef RTCONFIG_JFFS_NVRAM
@@ -416,6 +512,7 @@ int check_if_dir_writable(const char *dir)
 int _file_lock(const char *dir, const char *tag)
 {
 	struct flock lock;
+	struct stat st;
 	char path[64];
 	int lockfd;
 	pid_t pid, err;
@@ -459,8 +556,12 @@ int _file_lock(const char *dir, const char *tag)
 	}
 #endif
 
-	if ((lockfd = open(path, O_CREAT | O_RDWR, 0666)) < 0)
+	if ((lockfd = open(path, O_CREAT | O_RDWR | O_NOFOLLOW, 0600)) < 0)
 		goto error;
+	if (fstat(lockfd, &st) < 0 || !S_ISREG(st.st_mode) || st.st_uid != geteuid() || st.st_nlink != 1) {
+		errno = EPERM;
+		goto close;
+	}
 
 #ifdef LET_FD_LEAK
 	pid = getpid();

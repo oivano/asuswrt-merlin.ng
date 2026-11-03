@@ -19787,6 +19787,8 @@ static void sysinit(void)
 	mkdir("/var/state/parport/svr_statue", 01777);
 
 	mkdir("/var/lock", 01777);
+	if (file_lock_init() < 0)
+		_dprintf("Unable to secure action lock directory\n");
 	mkdir("/var/tmp/dhcp", 01777);
 	mkdir("/home/root", 0700);
 	chmod("/tmp", 01777);
