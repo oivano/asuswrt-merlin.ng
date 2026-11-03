@@ -334,7 +334,8 @@ static inline char *wan_if_eth(void)
 #define DEF_SECOND_WANIF	"none"
 #endif
 
-#define ACTION_LOCK		"/var/lock/action"
+#define ACTION_LOCK_DIR		"/var/lock/asuswrt"
+#define ACTION_LOCK		ACTION_LOCK_DIR "/action"
 
 #if defined(RTCONFIG_WIFI_QCA9990_QCA9990) || defined(RTCONFIG_WIFI_QCA9994_QCA9994)
 #define OBSS_RXRSSI_TH		"obss_rx_rssi_th"
@@ -1042,6 +1043,7 @@ extern int check_if_dir_empty(const char *dirpath);
 extern int _file_lock(const char *dir, const char *tag);
 extern int _file_unlock(int lockfd);
 extern int file_lock(const char *tag);
+extern int file_lock_init(void);
 extern void file_unlock(int lockfd);
 
 #define FW_CREATE	0
@@ -1049,7 +1051,7 @@ extern void file_unlock(int lockfd);
 #define FW_NEWLINE	2
 #define FW_SILENT	4	/* Don't print error message even write file fail. */
 
-#define ACTION_LOCK_FILE "/var/lock/a_w_l" // action write lock
+#define ACTION_LOCK_FILE ACTION_LOCK_DIR "/a_w_l" // action write lock
 
 extern unsigned long f_size(const char *path);
 extern int f_exists(const char *path);

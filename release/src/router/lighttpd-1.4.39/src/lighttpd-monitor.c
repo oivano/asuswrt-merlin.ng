@@ -422,7 +422,7 @@ int check_action(void)
         int a;
         int r = 3;
 
-        while (f_read("/var/lock/action", &a, sizeof(a)) != sizeof(a)) {
+        while (f_read("/var/lock/asuswrt/action", &a, sizeof(a)) != sizeof(a)) {
                 sleep(1);
                 if (--r == 0) return ACT_UNKNOWN;
         }
