@@ -23958,7 +23958,7 @@ int ej_set_account_permission(int eid, webs_t wp, int argc, char **argv){
 		return -1;
 	}
 
-	if (get_mount_path(pool, mount_path, PATH_MAX) < 0){
+	if (get_mount_path(pool, mount_path, PATH_MAX) != 1){
 		fprintf(stderr, "Can't get the mount_path of %s.\n", pool);
 
 		insert_hook_func(wp, fn, "alert_msg.System1");
@@ -24152,7 +24152,7 @@ int ej_set_group_permission(int eid, webs_t wp, int argc, char **argv){
 		return -1;
 	}
 
-	if (get_mount_path(pool, mount_path, PATH_MAX) < 0){
+	if (get_mount_path(pool, mount_path, PATH_MAX) != 1){
 		fprintf(stderr, "Can't get the mount_path of %s.\n", pool);
 
 		insert_hook_func(wp, fn, "alert_msg.System1");
@@ -24983,7 +24983,7 @@ int ej_modify_sharedfolder(int eid, webs_t wp, int argc, char **argv){
 		insert_hook_func(wp, fn, "alert_msg.Input17");
 		return -1;
 	}
-	if (get_mount_path(pool, mount_path, PATH_MAX) < 0){
+	if (get_mount_path(pool, mount_path, PATH_MAX) != 1){
 		insert_hook_func(wp, fn, "alert_msg.System1");
 		return -1;
 	}
@@ -25018,7 +25018,7 @@ int ej_delete_sharedfolder(int eid, webs_t wp, int argc, char **argv){
 		return -1;
 	}
 
-	if (get_mount_path(pool, mount_path, PATH_MAX) < 0){
+	if (get_mount_path(pool, mount_path, PATH_MAX) != 1){
 		insert_hook_func(wp, fn, "alert_msg.System1");
 		return -1;
 	}
@@ -25053,7 +25053,7 @@ int ej_create_sharedfolder(int eid, webs_t wp, int argc, char **argv){
 		return -1;
 	}
 
-	if (get_mount_path(pool, mount_path, PATH_MAX) < 0){
+	if (get_mount_path(pool, mount_path, PATH_MAX) != 1){
 		fprintf(stderr, "Can't get the mount_path of %s.\n", pool);
 
 		insert_hook_func(wp, fn, "alert_msg.System1");
