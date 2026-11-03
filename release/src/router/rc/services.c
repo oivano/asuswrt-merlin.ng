@@ -622,6 +622,95 @@ int mkdir_if_none(const char *path)
 }
 #endif	/* RTCONFIG_USB */
 
+int secure_root_config_dir(const char *path)
+{
+	struct stat st;
+	int fd, ret = -1;
+
+	if (geteuid() != 0) {
+		errno = EPERM;
+		return -1;
+	}
+	if (mkdir(path, 0755) != 0 && errno != EEXIST)
+		return -1;
+	fd = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (fd < 0)
+		return -1;
+	if (fstat(fd, &st) == 0 && S_ISDIR(st.st_mode) && fchown(fd, 0, 0) == 0 &&
+	    fchmod(fd, 0755) == 0 && fstat(fd, &st) == 0 && S_ISDIR(st.st_mode) &&
+	    st.st_uid == 0 && !(st.st_mode & 0022))
+		ret = 0;
+	else
+		errno = EPERM;
+	close(fd);
+	return ret;
+}
+
+FILE *open_root_config_file(const char *directory, const char *name, mode_t mode)
+{
+	struct stat st;
+	int dirfd = -1, fd = -1;
+	FILE *fp = NULL;
+
+	if (!name || !*name || strchr(name, '/') || !strcmp(name, ".") || !strcmp(name, "..")) {
+		errno = EINVAL;
+		return NULL;
+	}
+	if (secure_root_config_dir(directory) != 0)
+		return NULL;
+	dirfd = open(directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (dirfd < 0 || fstat(dirfd, &st) != 0 || !S_ISDIR(st.st_mode) ||
+	    st.st_uid != 0 || (st.st_mode & 0022))
+		goto done;
+	if (unlinkat(dirfd, name, 0) != 0 && errno != ENOENT)
+		goto done;
+	fd = openat(dirfd, name, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK, mode);
+	if (fd < 0 || fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) ||
+	    st.st_uid != 0 || st.st_nlink != 1 || fchown(fd, 0, 0) != 0 ||
+	    fchmod(fd, mode) != 0 || fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) ||
+	    st.st_uid != 0 || st.st_nlink != 1)
+		goto done;
+	fp = fdopen(fd, "w");
+	if (fp)
+		fd = -1;
+
+done:
+	if (fd >= 0) {
+		close(fd);
+		unlinkat(dirfd, name, 0);
+	}
+	if (dirfd >= 0)
+		close(dirfd);
+	return fp;
+}
+
+static int set_root_config_file_mode(const char *directory, const char *name, mode_t mode)
+{
+	struct stat st;
+	int dirfd = -1, fd = -1, ret = -1;
+
+	if (secure_root_config_dir(directory) != 0)
+		return -1;
+	dirfd = open(directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (dirfd < 0 || fstat(dirfd, &st) != 0 || !S_ISDIR(st.st_mode) ||
+	    st.st_uid != 0 || (st.st_mode & 0022))
+		goto done;
+	fd = openat(dirfd, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+	if (fd < 0 || fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) ||
+	    st.st_uid != 0 || st.st_nlink != 1 || fchmod(fd, mode) != 0 ||
+	    fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
+	    st.st_nlink != 1 || (st.st_mode & 0022))
+		goto done;
+	ret = 0;
+
+done:
+	if (fd >= 0)
+		close(fd);
+	if (dirfd >= 0)
+		close(dirfd);
+	return ret;
+}
+
 #ifdef RTCONFIG_QTN
 #include "web-qtn.h"
 #endif
@@ -1425,8 +1514,14 @@ void create_passwd(void)
 #endif
 
 #if defined(RTCONFIG_OPENVPN)
-	mkdir_if_none("/etc/pam.d");
-	f_write_string("/etc/pam.d/openvpn", "auth required pam_unix.so\n", 0, 0644);
+	if (secure_root_config_dir("/etc/pam.d") == 0 &&
+	    (unlink("/etc/pam.d/openvpn") == 0 || errno == ENOENT)) {
+		if (f_write_excl("/etc/pam.d/openvpn", "auth required pam_unix.so\n",
+				sizeof("auth required pam_unix.so\n") - 1, 0, 0644) !=
+		    sizeof("auth required pam_unix.so\n") - 1)
+			_dprintf("setup_passwd: unable to write /etc/pam.d/openvpn\n");
+	} else
+		_dprintf("setup_passwd: unable to secure /etc/pam.d\n");
 	create_ovpn_passwd();
 #endif
 
@@ -3322,10 +3417,11 @@ void start_dnscrypt_proxy(void)
 
 	stop_dnscrypt_proxy();
 
-	mkdir_if_none("/etc/dnscrypt-proxy");
-	mkdir_if_none(DNSCRYPT_CACHE_DIR);
+	if (secure_root_config_dir("/etc/dnscrypt-proxy") != 0 ||
+	    secure_root_config_dir(DNSCRYPT_CACHE_DIR) != 0)
+		return;
 
-	if ((fp = fopen(DNSCRYPT_CONFIG, "w")) == NULL)
+	if ((fp = open_root_config_file("/etc/dnscrypt-proxy", "dnscrypt-proxy.toml", 0644)) == NULL)
 		return;
 
 	fprintf(fp,
@@ -3378,7 +3474,8 @@ void start_dnscrypt_proxy(void)
 	fclose(fp);
 	use_custom_config("dnscrypt-proxy.toml", DNSCRYPT_CONFIG);
 	run_postconf("dnscrypt-proxy", DNSCRYPT_CONFIG);
-	chmod(DNSCRYPT_CONFIG, 0644);
+	if (set_root_config_file_mode("/etc/dnscrypt-proxy", "dnscrypt-proxy.toml", 0644) != 0)
+		return;
 
 	/* Go's time package ignores the system localtime file; give it TZ explicitly */
 #ifndef RTCONFIG_AVOID_TZ_ENV
@@ -8211,7 +8308,7 @@ int generate_mdns_config(void)
 	sprintf(avahi_config, "%s/%s", AVAHI_CONFIG_PATH, AVAHI_CONFIG_FN);
 
 	/* Generate avahi configuration file */
-	if (!(fp = fopen(avahi_config, "w"))) {
+	if (!(fp = open_root_config_file(AVAHI_CONFIG_PATH, AVAHI_CONFIG_FN, 0644))) {
 		perror(avahi_config);
 		return -1;
 	}
@@ -8298,7 +8395,7 @@ int generate_afpd_service_config(void)
 	sprintf(afpd_service_config, "%s/%s", AVAHI_SERVICES_PATH, AVAHI_AFPD_SERVICE_FN);
 
 	/* Generate afpd service configuration file */
-	if (!(fp = fopen(afpd_service_config, "w"))) {
+	if (!(fp = open_root_config_file(AVAHI_SERVICES_PATH, AVAHI_AFPD_SERVICE_FN, 0644))) {
 		perror(afpd_service_config);
 		return -1;
 	}
@@ -8333,7 +8430,7 @@ int generate_adisk_service_config(void)
 	sprintf(adisk_service_config, "%s/%s", AVAHI_SERVICES_PATH, AVAHI_ADISK_SERVICE_FN);
 
 	/* Generate adisk service configuration file */
-	if (!(fp = fopen(adisk_service_config, "w"))) {
+	if (!(fp = open_root_config_file(AVAHI_SERVICES_PATH, AVAHI_ADISK_SERVICE_FN, 0644))) {
 		perror(adisk_service_config);
 		return -1;
 	}
@@ -8365,7 +8462,7 @@ int generate_itune_service_config(void)
 	sprintf(itune_service_config, "%s/%s", AVAHI_SERVICES_PATH, AVAHI_ITUNE_SERVICE_FN);
 
 	/* Generate afpd service configuration file */
-	if (!(fp = fopen(itune_service_config, "w"))) {
+	if (!(fp = open_root_config_file(AVAHI_SERVICES_PATH, AVAHI_ITUNE_SERVICE_FN, 0644))) {
 		perror(itune_service_config);
 		return -1;
 	}
@@ -8401,7 +8498,7 @@ int generate_alexa_config(void)
 	sprintf(alexa_service_config, "%s/%s", AVAHI_SERVICES_PATH, AVAHI_ALEXA_SERVICE_FN);
 
 	/* Generate afpd service configuration file */
-	if (!(fp = fopen(alexa_service_config, "w"))) {
+	if (!(fp = open_root_config_file(AVAHI_SERVICES_PATH, AVAHI_ALEXA_SERVICE_FN, 0644))) {
 		perror(alexa_service_config);
 		return -1;
 	}
@@ -8448,8 +8545,9 @@ int start_mdns(void)
 #if defined(RTCONFIG_ALEXA)
 	sprintf(alexa_service_config, "%s/%s", AVAHI_SERVICES_PATH, AVAHI_ALEXA_SERVICE_FN);
 #endif
-	mkdir_if_none(AVAHI_CONFIG_PATH);
-	mkdir_if_none(AVAHI_SERVICES_PATH);
+	if (secure_root_config_dir(AVAHI_CONFIG_PATH) != 0 ||
+	    secure_root_config_dir(AVAHI_SERVICES_PATH) != 0)
+		return -1;
 
 	generate_mdns_config();
 #if defined(RTCONFIG_ALEXA)
