@@ -61,6 +61,7 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/stat.h>
+#include <limits.h>
 #include <assert.h>
 #include <sys/ioctl.h>
 #include <ctype.h>
@@ -1596,6 +1597,76 @@ int do_fwrite(const char *buffer, int len, FILE *stream)
 	return r;
 }
 
+static int httpd_open_webroot_file(const char *path)
+{
+	char requested[PATH_MAX], resolved[PATH_MAX], relative[PATH_MAX];
+	char *component, *slash;
+	struct stat st;
+	int dirfd = -1, nextfd, length;
+
+	if (!path || !*path || path[0] == '/')
+		return -1;
+	length = snprintf(requested, sizeof(requested), "/www/%s", path);
+	if (length < 0 || (size_t)length >= sizeof(requested) ||
+	    !realpath(requested, resolved) || strncmp(resolved, "/www/", 5) != 0 ||
+	    strlcpy(relative, resolved + 5, sizeof(relative)) >= sizeof(relative))
+		return -1;
+
+	dirfd = open("/www", O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (dirfd < 0 || fstat(dirfd, &st) < 0 || !S_ISDIR(st.st_mode) ||
+	    st.st_uid != 0 || (st.st_mode & (S_IWGRP | S_IWOTH)))
+		goto Error;
+
+	component = relative;
+	while (component && *component) {
+		slash = strchr(component, '/');
+		if (slash)
+			*slash = '\0';
+		if (!*component || !strcmp(component, ".") || !strcmp(component, ".."))
+			goto Error;
+
+		nextfd = openat(dirfd, component, O_RDONLY | O_NOFOLLOW | O_NONBLOCK |
+				(slash ? O_DIRECTORY : 0));
+		if (nextfd < 0)
+			goto Error;
+		if (fstat(nextfd, &st) < 0 || st.st_uid != 0) {
+			close(nextfd);
+			goto Error;
+		}
+		if (slash) {
+			if (!S_ISDIR(st.st_mode) || (st.st_mode & (S_IWGRP | S_IWOTH))) {
+				close(nextfd);
+				goto Error;
+			}
+			close(dirfd);
+			dirfd = nextfd;
+			component = slash + 1;
+		} else {
+			if (!S_ISREG(st.st_mode)) {
+				close(nextfd);
+				goto Error;
+			}
+			close(dirfd);
+			return nextfd;
+		}
+	}
+
+Error:
+	if (dirfd >= 0)
+		close(dirfd);
+	return -1;
+}
+
+static int httpd_web_file_exists(const char *path)
+{
+	int fd = httpd_open_webroot_file(path);
+
+	if (fd < 0)
+		return 0;
+	close(fd);
+	return 1;
+}
+
 #if 0 //defined(GTAX6000)
 #define MOD_URL_ODMPID	"GX-AC5400"
 static const char *mod_filter = ".png";
@@ -1649,12 +1720,23 @@ void do_file(char *path, FILE *stream)
 	FILE *fp;
 	char buf[1024], tmp_path[256];
 	char *_path = mod_url_path(path, tmp_path, sizeof(tmp_path));
-	int nr;
+	struct stat st;
+	int fd, nr;
 
-	if ((fp = fopen(_path, "r")) != NULL) {
-		while ((nr = fread(buf, 1, sizeof(buf), fp)) > 0)
-			do_fwrite(buf, nr, stream);
-		fclose(fp);
+	if (_path[0] == '/')
+		fd = open(_path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+	else
+		fd = httpd_open_webroot_file(_path);
+	if (fd >= 0) {
+		if (fstat(fd, &st) == 0 && S_ISREG(st.st_mode) &&
+		    (fp = fdopen(fd, "r")) != NULL) {
+			while ((nr = fread(buf, 1, sizeof(buf), fp)) > 0) {
+				if (do_fwrite(buf, nr, stream) < 0)
+					break;
+			}
+			fclose(fp);
+		} else
+			close(fd);
 	}
 
 	if (_path != path && _path != tmp_path)
@@ -2386,7 +2468,11 @@ handle_request(void)
 				}
 #endif
 			}
-			if(!strstr(file, ".cgi") && !strstr(file, "syslog.txt") && !(strstr(file,"uploadIconFile.tar")) && !(strstr(file,"backup_jffs.tar")) && !(strstr(file,"networkmap.tar")) && !(strstr(file,".CFG")) && !(strstr(file,".log")) && !check_if_file_exist(file)
+			if (handler->output == do_file && !httpd_web_file_exists(file)) {
+				send_error(404, "Not Found", (char*) 0, "File not found.");
+				return;
+			}
+			if(!strstr(file, ".cgi") && !strstr(file, "syslog.txt") && !(strstr(file,"uploadIconFile.tar")) && !(strstr(file,"backup_jffs.tar")) && !(strstr(file,"networkmap.tar")) && !(strstr(file,".CFG")) && !(strstr(file,".log")) && (handler->output != do_file && !check_if_file_exist(file))
 #ifdef RTCONFIG_USB_MODEM
 					&& !strstr(file, "modemlog.txt")
 #endif
