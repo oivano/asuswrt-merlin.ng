@@ -5,14 +5,26 @@
 ret_dir=/tmp/fsck_ret
 
 
+_ensure_fsck_ret_dir(){
+	if [ ! -d "$ret_dir" ]; then
+		(umask 022; mkdir "$ret_dir") 2>/dev/null || :
+	fi
+
+	if ! ls -ldn "$ret_dir" 2>/dev/null | awk '
+		NR == 1 && substr($1, 1, 1) == "d" && $3 == 0 &&
+			 substr($1, 2, 3) == "rwx" &&
+			 substr($1, 6, 1) != "w" && substr($1, 9, 1) != "w" { safe = 1 }
+		END { exit !safe }
+	'; then
+		echo "app_fsck.sh: refusing unsafe result directory: $ret_dir" >&2
+		return 1
+	fi
+}
+
+
 # $1: device path, $2: error code.
 _set_fsck_code(){
 	pool_name=`echo "$1" |awk 'BEGIN{FS="/"}{print $NF}'`
-
-	if [ ! -d "$ret_dir" ]; then
-		rm -rf $ret_dir
-		mkdir $ret_dir
-	fi
 
 	rm -f $ret_dir/$pool_name.[0-3]
 	touch "$ret_dir/$pool_name.$2"
@@ -22,11 +34,6 @@ _set_fsck_code(){
 _get_fsck_logfile(){
 	pool_name=`echo "$1" |awk 'BEGIN{FS="/"}{print $NF}'`
 
-	if [ ! -d "$ret_dir" ]; then
-		rm -rf $ret_dir
-		mkdir $ret_dir
-	fi
-
 	echo "$ret_dir/$pool_name.log"
 }
 
@@ -34,6 +41,8 @@ _get_fsck_logfile(){
 if [ -z "$1" ] || [ -z "$2" ]; then
 	echo "Usage: app_fsck.sh [filesystem type] [device's path]"
 	exit 0
+elif ! _ensure_fsck_ret_dir; then
+	exit 1
 elif [ "$1" == "vfat" ] || [ "$1" == "msdos" ] || [ "$1" == "fuseblk" ]; then
 	_set_fsck_code $2 3
 	exit 0
