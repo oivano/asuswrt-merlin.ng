@@ -57,10 +57,41 @@ int smb_share_name_is_safe(const char *name)
 
 	if (name == NULL || *name == '\0')
 		return 0;
+	if (!strcmp(name, ".") || !strcmp(name, "..") || strchr(name, '/') != NULL)
+		return 0;
 	for (p = (const unsigned char *)name; *p != '\0'; ++p)
-		if (*p < 0x20 || *p == 0x7f || strchr("[];#=", *p) != NULL)
+		if (*p < 0x20 || *p == 0x7f || strchr("/[];#=", *p) != NULL)
 			return 0;
 	return 1;
+}
+
+int smb_share_path_is_safe(const char *mount_path, const char *name)
+{
+	char share_path[PATH_MAX];
+	char canonical_mount[PATH_MAX];
+	char canonical_share[PATH_MAX];
+	struct stat st;
+	int path_len;
+	size_t mount_len, share_len;
+
+	if (mount_path == NULL || *mount_path == '\0' || !smb_share_name_is_safe(name))
+		return 0;
+	path_len = snprintf(share_path, sizeof(share_path), "%s/%s", mount_path, name);
+	if (path_len < 0 || (size_t)path_len >= sizeof(share_path))
+		return 0;
+	if (lstat(share_path, &st) != 0 || !S_ISDIR(st.st_mode))
+		return 0;
+	if (realpath(mount_path, canonical_mount) == NULL ||
+	    realpath(share_path, canonical_share) == NULL)
+		return 0;
+
+	mount_len = strlen(canonical_mount);
+	share_len = strlen(canonical_share);
+	if (mount_len == 1 && canonical_mount[0] == '/')
+		return share_len > mount_len && canonical_share[0] == '/';
+	if (share_len <= mount_len || strncmp(canonical_share, canonical_mount, mount_len) != 0)
+		return 0;
+	return canonical_share[mount_len] == '/';
 }
 
 static FILE *open_metadata_file(const char *path, const char *mode)

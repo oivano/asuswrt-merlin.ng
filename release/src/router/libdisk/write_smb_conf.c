@@ -586,6 +586,10 @@ int main(int argc, char *argv[])
 					}
 
 					for(n = 0; n < sh_num; ++n){
+						if (!smb_share_path_is_safe(follow_partition->mount_point, folder_list[n])) {
+							usb_dbg("Skip folder outside its mount point.\n");
+							continue;
+						}
 						samba_right = get_permission(NULL, follow_partition->mount_point, folder_list[n], "cifs", 0);
 						if(samba_right < 0 || samba_right > 3)
 							samba_right = DEFAULT_SAMBA_RIGHT;
@@ -645,6 +649,10 @@ int main(int argc, char *argv[])
 				for(n = -1; n < sh_num; ++n){
 					int i, first;
 
+					if(n >= 0 && !smb_share_path_is_safe(follow_partition->mount_point, folder_list[n])){
+						usb_dbg("Skip folder outside its mount point.\n");
+						continue;
+					}
 					if(n == -1){
 						fprintf(fp, "[%s]\n", mount_folder);
 						fprintf(fp, "comment = %s's %s\n", follow_disk->tag, mount_folder);
@@ -859,8 +867,8 @@ int main(int argc, char *argv[])
 				for(n = 0; n < sh_num; ++n){
 					int count;
 
-					if (!smb_share_name_is_safe(folder_list[n])) {
-						usb_dbg("Skip folder with invalid SMB share name.\n");
+					if (!smb_share_path_is_safe(follow_partition->mount_point, folder_list[n])) {
+						usb_dbg("Skip folder outside its mount point.\n");
 						continue;
 					}
 					count = get_list_strings_count(folder_list, sh_num, folder_list[n]);
