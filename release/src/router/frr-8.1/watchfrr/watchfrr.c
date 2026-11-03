@@ -969,7 +969,7 @@ static void try_restart(struct daemon *dmn)
 
 	if (dmn != gs.special) {
 		if ((gs.special->state == DAEMON_UP)
-		    && (gs.phase == PHASE_NONE))
+		    && (gs.phase == PHASE_NONE) && !gs.restart.pid)
 			run_job(&dmn->restart, "restart", gs.restart_command, 0,
 				1);
 		else
