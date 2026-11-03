@@ -51,6 +51,93 @@
 #include <shared.h>
 #include "flash_mtd.h"
 
+#if defined(RTCONFIG_DSL_REMOTE) && !defined(RTCONFIG_SMALL_FW_UPDATE) && !defined(RTCONFIG_PIPEFW)
+#define HTTPD_UPGRADE_DIRECTORY "/tmp/httpd-upgrade"
+#define HTTPD_UPGRADE_IMAGE HTTPD_UPGRADE_DIRECTORY "/linux.trx"
+#define HTTPD_UPGRADE_IDENTITY HTTPD_UPGRADE_DIRECTORY "/identity"
+
+static int
+httpd_upgrade_spool_present(void)
+{
+	struct stat st;
+
+	if (lstat(HTTPD_UPGRADE_DIRECTORY, &st) == 0)
+		return 1;
+	return errno != ENOENT;
+}
+
+static int
+httpd_upgrade_spool_valid(void)
+{
+	int directory_fd = -1, image_fd = -1, identity_fd = -1;
+	int valid = 0;
+	ssize_t count;
+	size_t identity_len = 0;
+	struct stat directory, image, opened, identity_file;
+	unsigned long long expected_device, expected_inode, expected_size;
+	char identity[96];
+	char trailing;
+
+	directory_fd = open(HTTPD_UPGRADE_DIRECTORY, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (directory_fd < 0 || fstat(directory_fd, &directory) != 0 ||
+	    !S_ISDIR(directory.st_mode) || directory.st_uid != 0 ||
+	    (directory.st_mode & 0777) != 0700)
+		goto done;
+	identity_fd = openat(directory_fd, "identity", O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+	if (identity_fd < 0 || fstat(identity_fd, &identity_file) != 0 ||
+	    !S_ISREG(identity_file.st_mode) || identity_file.st_uid != 0 ||
+	    identity_file.st_nlink != 1 || (identity_file.st_mode & 0777) != 0600 ||
+	    identity_file.st_size <= 0 || identity_file.st_size >= sizeof(identity))
+		goto done;
+	while (identity_len < (size_t)identity_file.st_size) {
+		count = read(identity_fd, identity + identity_len,
+			identity_file.st_size - identity_len);
+		if (count < 0 && errno == EINTR)
+			continue;
+		if (count <= 0)
+			goto done;
+		identity_len += count;
+	}
+	do {
+		count = read(identity_fd, identity + identity_len, 1);
+	} while (count < 0 && errno == EINTR);
+	if (count != 0)
+		goto done;
+	identity[identity_len] = '\0';
+	if (sscanf(identity, "%llu %llu %llu%c", &expected_device,
+		&expected_inode, &expected_size, &trailing) != 3)
+		goto done;
+	image_fd = openat(directory_fd, "linux.trx", O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+	if (image_fd < 0 || fstat(image_fd, &opened) != 0 || lstat(HTTPD_UPGRADE_IMAGE, &image) != 0 ||
+	    !S_ISREG(opened.st_mode) || opened.st_uid != 0 || opened.st_nlink != 1 ||
+	    (opened.st_mode & 0777) != 0600 || opened.st_dev != image.st_dev ||
+	    opened.st_ino != image.st_ino || !S_ISREG(image.st_mode) ||
+	    image.st_uid != 0 || image.st_nlink != 1 || (image.st_mode & 0777) != 0600 ||
+	    (unsigned long long)opened.st_dev != expected_device ||
+	    (unsigned long long)opened.st_ino != expected_inode ||
+	    (unsigned long long)opened.st_size != expected_size)
+		goto done;
+	valid = 1;
+done:
+	if (identity_fd >= 0)
+		close(identity_fd);
+	if (image_fd >= 0)
+		close(image_fd);
+	if (directory_fd >= 0)
+		close(directory_fd);
+	return valid;
+}
+
+static void
+upgrade_abort_invalid_spool(int stop_commit)
+{
+	if (stop_commit == 0)
+		nvram_unset(ASUS_STOP_COMMIT);
+	nvram_set("sys_reboot_reason", "rc_upg_spool");
+	kill(1, SIGTERM);
+}
+#endif
+
 #ifdef RTCONFIG_DNSMASQ_BLOCKLIST
 #define DNSMASQ_BLOCKLIST_LOG	"/var/log/dnsmasq_blocklist.log"
 #define DNSMASQ_BLOCKLIST_EXTERNAL_BYTES	(10 * 1024 * 1024)
@@ -14651,6 +14738,18 @@ again:
 			int sw = 0, r;
 			char upgrade_file[64] = "/tmp/linux.trx";
 			char *webs_state_info = nvram_safe_get("webs_state_info_am");
+#if defined(RTCONFIG_DSL_REMOTE) && !defined(RTCONFIG_SMALL_FW_UPDATE)
+			int secure_upgrade = httpd_upgrade_spool_present();
+
+			if (secure_upgrade) {
+				if (!httpd_upgrade_spool_valid()) {
+					_dprintf("upgrade: refusing invalid private firmware spool\n");
+					upgrade_abort_invalid_spool(stop_commit);
+					goto skip;
+				}
+				strlcpy(upgrade_file, HTTPD_UPGRADE_IMAGE, sizeof(upgrade_file));
+			}
+#endif
 
 #ifdef RTCONFIG_SMALL_FW_UPDATE
 			snprintf(upgrade_file,sizeof(upgrade_file),"/tmp/mytmpfs/linux.trx");
@@ -14682,6 +14781,13 @@ again:
 
 			/* flash it if exists */
 			if (f_exists(upgrade_file)) {
+#if defined(RTCONFIG_DSL_REMOTE) && !defined(RTCONFIG_SMALL_FW_UPDATE)
+				if (secure_upgrade && !httpd_upgrade_spool_valid()) {
+					_dprintf("upgrade: private firmware spool changed before validation\n");
+					upgrade_abort_invalid_spool(stop_commit);
+					goto skip;
+				}
+#endif
 				pre_firmware_upgrade(upgrade_file);
 #ifdef RTCONFIG_CONCURRENTREPEATER
 #ifdef RPAC68U
@@ -14742,6 +14848,13 @@ again:
 					_dprintf("%s, stop and chk new root for %d seconds.\n", __func__, chk_time);
 					sleep(chk_time);
 				}
+#if defined(RTCONFIG_DSL_REMOTE) && !defined(RTCONFIG_SMALL_FW_UPDATE)
+				if (secure_upgrade && !httpd_upgrade_spool_valid()) {
+					_dprintf("upgrade: private firmware spool changed before flash\n");
+					upgrade_abort_invalid_spool(stop_commit);
+					goto skip;
+				}
+#endif
 #ifdef RTCONFIG_DUAL_TRX
 				/* If boot from 2nd firmware, write to 1st firmware first. */
 				select_upgrade_fw_order(fwpart);
@@ -14752,6 +14865,14 @@ again:
 						eval("mtd-write2", upgrade_file, "linux2");
 					else
 						eval("mtd-write", "-i", upgrade_file, "-d", fwpart[1]);
+				}
+#endif
+
+#if defined(RTCONFIG_DSL_REMOTE) && !defined(RTCONFIG_SMALL_FW_UPDATE)
+				if (secure_upgrade && !httpd_upgrade_spool_valid()) {
+					_dprintf("upgrade: private firmware spool changed before flash\n");
+					upgrade_abort_invalid_spool(stop_commit);
+					goto skip;
 				}
 #endif
 
@@ -14817,6 +14938,14 @@ again:
 					modprobe_r("ecm");
 #endif
 				unlink(upgrade_file);
+#if defined(RTCONFIG_DSL_REMOTE) && !defined(RTCONFIG_SMALL_FW_UPDATE)
+				if (secure_upgrade) {
+					unlink(HTTPD_UPGRADE_DIRECTORY "/tcfw.bin");
+					unlink(HTTPD_UPGRADE_DIRECTORY "/ras.bin");
+					unlink(HTTPD_UPGRADE_IDENTITY);
+					rmdir(HTTPD_UPGRADE_DIRECTORY);
+				}
+#endif
 				if (sw) {
 					_dprintf("switch to temp rootfilesystem..\n");
 					if (!(r = switch_root(TMP_ROOTFS_MNT_POINT))) {

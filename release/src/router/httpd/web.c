@@ -14792,6 +14792,26 @@ wait_rc_misc()
 	return count < wait_misc ? 1 : 0;
 }
 
+struct httpd_restore_spool {
+	char directory[64];
+	char path[80];
+	FILE *file;
+	struct stat identity;
+	int complete;
+};
+
+#define HTTPD_UPGRADE_DIRECTORY "/tmp/httpd-upgrade"
+#define HTTPD_UPGRADE_IMAGE "/tmp/httpd-upgrade/linux.trx"
+#define HTTPD_UPGRADE_IDENTITY "/tmp/httpd-upgrade/identity"
+
+static struct httpd_restore_spool upgrade_spool;
+
+static void httpd_spool_clear(struct httpd_restore_spool *spool);
+static int httpd_upgrade_spool_valid(struct httpd_restore_spool *spool);
+static FILE *httpd_upgrade_spool_create(struct httpd_restore_spool *spool);
+static int httpd_upgrade_spool_publish(struct httpd_restore_spool *spool);
+static void httpd_upgrade_spool_clear(struct httpd_restore_spool *spool);
+
 #ifdef RTAC68A
 static void
 do_upgrade_post(char *url, FILE *stream, int len, char *boundary)
@@ -14809,12 +14829,14 @@ do_upgrade_post(char *url, FILE *stream, int len, char *boundary)
 	char *reset = safe_get_cgi_json("reset",NULL);
 	char *bootnew = safe_get_cgi_json("bootnew",NULL);
 
-	char upload_fifo[64] = "/tmp/linux.trx";
+	char upload_fifo[80] = "/tmp/linux.trx";
 	FILE *fifo = NULL;
 	char buf[4096];
 	int ch/*, ver_chk = 0*/;
 	int count, cnt;
 	long filelen;
+	long upload_len;
+	struct stat upload_stat;
 	int offset;
 #ifndef RTCONFIG_SMALL_FW_UPDATE
 	struct sysinfo si;
@@ -14971,6 +14993,7 @@ do_upgrade_post(char *url, FILE *stream, int len, char *boundary)
 	_dprintf("%s, Chk len=%d(%d), comfw_remain=%d, ex_len=%d, cf_head_size=%d, total=%d\n", __func__, len, len-ex_len, comfw_rem_len, ex_len, sizeof(comfw_head), sizeof(comfw_head) + len + comfw_rem_len - ex_len);
 #endif
 	_dprintf("%s, Again chk len=%d, cf_force_write=%d\n", __func__, len, cf_force_write);
+	upload_len = 0;
 	wait_rc_misc();
 	if (nvram_match("upgrade_usb_error", "1")) {
 		_dprintf("%s: refusing firmware upgrade because USB storage could not be stopped safely\n", __func__);
@@ -14992,7 +15015,12 @@ do_upgrade_post(char *url, FILE *stream, int len, char *boundary)
 #if defined(RTCONFIG_QCA) || defined(RTCONFIG_RALINK)
 	if (!(fifo = fopen(upload_fifo, "w"))) goto err;
 #else
+#if defined(RTCONFIG_DSL_REMOTE) && !defined(RTCONFIG_SMALL_FW_UPDATE) && !defined(RTCONFIG_PIPEFW)
+	if (!(fifo = httpd_upgrade_spool_create(&upgrade_spool))) goto err;
+	strlcpy(upload_fifo, upgrade_spool.path, sizeof(upload_fifo));
+#else
 	if (!(fifo = fopen(upload_fifo, "a+"))) goto err;
+#endif
 #endif
 #ifdef HND_ROUTER
 	len = len - ex_len;
@@ -15062,7 +15090,9 @@ do_upgrade_post(char *url, FILE *stream, int len, char *boundary)
 				count = filelen; //only write the length byte to the file
 
 			filelen-=count;
-			fwrite(buf, 1, count, fifo);
+			if (fwrite(buf, 1, count, fifo) != (size_t)count)
+				goto err;
+			upload_len += count;
 		}
 	}
 
@@ -15083,16 +15113,38 @@ do_upgrade_post(char *url, FILE *stream, int len, char *boundary)
 
 		if (filelen>0)
 		{
-			fputc(ch, fifo);
+			if (fputc(ch, fifo) == EOF)
+				goto err;
+			upload_len++;
 			filelen--;
 		}
 	}
+	if (fflush(fifo) != 0)
+		goto err;
+	if (fifo == upgrade_spool.file) {
+		if (fstat(fileno(fifo), &upload_stat) != 0 || upload_stat.st_size != upload_len) {
+			upgrade_err = 1;
+			goto err;
+		}
+		upgrade_spool.complete = 1;
+		if (!httpd_upgrade_spool_valid(&upgrade_spool))
+			goto err;
+	}
 	fclose(fifo);
+	if (fifo == upgrade_spool.file)
+		upgrade_spool.file = NULL;
 	fifo = NULL;
+
+#if defined(RTCONFIG_DSL_REMOTE) && !defined(RTCONFIG_SMALL_FW_UPDATE) && !defined(RTCONFIG_PIPEFW)
+	if (!httpd_upgrade_spool_valid(&upgrade_spool)) {
+		upgrade_err = 1;
+		goto err;
+	}
+#endif
 
 #ifdef RTCONFIG_DSL_REMOTE
 	int ret_val_sep;
-	ret_val_sep = separate_tc_fw_from_trx(upload_fifo);
+	ret_val_sep = separate_tc_fw_from_trx(upload_fifo, upload_len);
 	// should router update tc fw?
 	if (ret_val_sep)
 	{
@@ -15101,6 +15153,13 @@ do_upgrade_post(char *url, FILE *stream, int len, char *boundary)
 #ifndef RTCONFIG_RALINK
 		nvram_set_int("reboot_time", nvram_get_int("reboot_time")+100);
 #endif
+	}
+#endif
+
+#if defined(RTCONFIG_DSL_REMOTE) && !defined(RTCONFIG_SMALL_FW_UPDATE) && !defined(RTCONFIG_PIPEFW)
+	if (!httpd_upgrade_spool_valid(&upgrade_spool)) {
+		upgrade_err = 1;
+		goto err;
 	}
 #endif
 
@@ -15114,6 +15173,13 @@ do_upgrade_post(char *url, FILE *stream, int len, char *boundary)
 	if (upgrade_err) /* 0: legal image, 1: illegal image 2: new trx format validation failure */
 		goto err;
 
+#if defined(RTCONFIG_DSL_REMOTE) && !defined(RTCONFIG_SMALL_FW_UPDATE) && !defined(RTCONFIG_PIPEFW)
+	if (!httpd_upgrade_spool_publish(&upgrade_spool)) {
+		upgrade_err = 1;
+		goto err;
+	}
+#endif
+
 #endif  // RTCONFIG_PIPEFW
 err:
 #ifdef RTCONFIG_COMFW
@@ -15123,8 +15189,11 @@ err:
 	}
 #endif
 	nvram_set_int("upgrade_fw_status", FW_UPLOADING_ERROR);
-	if (fifo)
+	if (fifo) {
+		if (fifo == upgrade_spool.file)
+			upgrade_spool.file = NULL;
 		fclose(fifo);
+	}
 
 	/* Slurp anything remaining in the request */
 	_dprintf("\nSlurp remaining %d bytes\n", len);
@@ -15157,6 +15226,11 @@ do_upgrade_cgi(char *url, FILE *stream)
 
 	_dprintf("%s, upgrade_err=%d, upgrade_fw_status=%d\n", __func__, upgrade_err, nvram_get_int("upgrade_fw_status"));
 	_dprintf("%s, cgi flags:%s/%s/%s\n", __func__, autoreboot?:"Null", reset?:"Null", bootnew?:"Null");
+#if defined(RTCONFIG_DSL_REMOTE) && !defined(RTCONFIG_SMALL_FW_UPDATE) && !defined(RTCONFIG_PIPEFW)
+	if (upgrade_err == 0 && upgrade_spool.directory[0] &&
+	    !httpd_upgrade_spool_valid(&upgrade_spool))
+		upgrade_err = 1;
+#endif
 	if (nvram_match("upgrade_usb_error", "1")) {
 		nvram_unset("upgrade_usb_error");
 		stop_upgrade_once = 0;
@@ -15209,6 +15283,12 @@ do_upgrade_cgi(char *url, FILE *stream)
 			upgrade_rc("stop", autoreboot, reset, bootnew, 10);
 			stop_upgrade_once = 1;
 		}
+		if (upgrade_spool.directory[0]) {
+			if (err)
+				httpd_upgrade_spool_clear(&upgrade_spool);
+			else
+				memset(&upgrade_spool, 0, sizeof(upgrade_spool));
+		}
 #else // singleImg_b
 		_dprintf("Go create temp new-root env, show tmp fw\n");
 		system("ls -al /tmp");
@@ -15221,7 +15301,12 @@ do_upgrade_cgi(char *url, FILE *stream)
 			nvram_set_int("upgrade_fw_status", FW_TRX_CHECK_ERROR);
 		else	/* 1: illegal image */
 			nvram_set_int("upgrade_fw_status", FW_WRITING_ERROR);
-		unlink("/tmp/linux.trx");
+#if defined(RTCONFIG_DSL_REMOTE) && !defined(RTCONFIG_SMALL_FW_UPDATE) && !defined(RTCONFIG_PIPEFW)
+		if (upgrade_spool.directory[0])
+			httpd_upgrade_spool_clear(&upgrade_spool);
+#else
+			unlink("/tmp/linux.trx");
+#endif
 
 		if (stop_upgrade_once) {
 			websApply(stream, "UpdateError_reboot.asp");
@@ -15355,14 +15440,6 @@ err:
 }
 #endif	/* RTCONFIG_SAVEJFFS */
 
-struct httpd_restore_spool {
-	char directory[64];
-	char path[80];
-	FILE *file;
-	struct stat identity;
-	int complete;
-};
-
 static struct httpd_restore_spool settings_spool;
 
 static void
@@ -15426,6 +15503,114 @@ httpd_spool_valid(struct httpd_restore_spool *spool)
 		st.st_uid == 0 && st.st_nlink == 1 && (st.st_mode & 077) == 0 &&
 		st.st_dev == spool->identity.st_dev && st.st_ino == spool->identity.st_ino &&
 		st.st_dev == opened.st_dev && st.st_ino == opened.st_ino;
+}
+
+static FILE *
+httpd_upgrade_spool_create(struct httpd_restore_spool *spool)
+{
+	int fd;
+	struct stat st;
+
+	if (spool->directory[0])
+		return NULL;
+	if (mkdir(HTTPD_UPGRADE_DIRECTORY, 0700) != 0)
+		return NULL;
+	strlcpy(spool->directory, HTTPD_UPGRADE_DIRECTORY, sizeof(spool->directory));
+	if (chmod(spool->directory, 0700) != 0)
+		goto fail;
+	if (lstat(spool->directory, &st) != 0 || !S_ISDIR(st.st_mode) ||
+	    st.st_uid != 0 || (st.st_mode & 0777) != 0700)
+		goto fail;
+	strlcpy(spool->path, HTTPD_UPGRADE_IMAGE, sizeof(spool->path));
+	fd = open(spool->path, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+	if (fd < 0)
+		goto fail;
+	if (fstat(fd, &spool->identity) != 0 || !S_ISREG(spool->identity.st_mode) ||
+	    spool->identity.st_uid != 0 || spool->identity.st_nlink != 1 ||
+	    fchmod(fd, 0600) != 0) {
+		close(fd);
+		goto fail;
+	}
+	spool->file = fdopen(fd, "w+");
+	if (!spool->file) {
+		close(fd);
+		goto fail;
+	}
+	return spool->file;
+fail:
+	httpd_upgrade_spool_clear(spool);
+	return NULL;
+}
+
+static int
+httpd_upgrade_spool_valid(struct httpd_restore_spool *spool)
+{
+	struct stat directory, image, opened;
+
+	if (!spool->complete || strcmp(spool->directory, HTTPD_UPGRADE_DIRECTORY) ||
+	    strcmp(spool->path, HTTPD_UPGRADE_IMAGE) ||
+	    lstat(spool->directory, &directory) != 0 || !S_ISDIR(directory.st_mode) ||
+	    directory.st_uid != 0 || (directory.st_mode & 0777) != 0700 ||
+	    lstat(spool->path, &image) != 0 || !S_ISREG(image.st_mode) ||
+	    image.st_uid != 0 || image.st_nlink != 1 || (image.st_mode & 0777) != 0600 ||
+	    image.st_dev != spool->identity.st_dev || image.st_ino != spool->identity.st_ino)
+		return 0;
+	if (spool->file &&
+	    (fstat(fileno(spool->file), &opened) != 0 ||
+	     opened.st_dev != image.st_dev || opened.st_ino != image.st_ino))
+		return 0;
+	return 1;
+}
+
+static int
+httpd_upgrade_spool_publish(struct httpd_restore_spool *spool)
+{
+	int fd, length, result = 0;
+	struct stat image;
+	char identity[96];
+
+	if (!httpd_upgrade_spool_valid(spool) || lstat(spool->path, &image) != 0)
+		return 0;
+	length = snprintf(identity, sizeof(identity), "%llu %llu %llu",
+		(unsigned long long)image.st_dev, (unsigned long long)image.st_ino,
+		(unsigned long long)image.st_size);
+	if (length <= 0 || length >= sizeof(identity))
+		return 0;
+	fd = open(HTTPD_UPGRADE_IDENTITY,
+		O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+	if (fd < 0)
+		return 0;
+	if (fchmod(fd, 0600) != 0) {
+		close(fd);
+		unlink(HTTPD_UPGRADE_IDENTITY);
+		return 0;
+	}
+	if (write(fd, identity, length) == length && fsync(fd) == 0)
+		result = 1;
+	if (close(fd) != 0)
+		result = 0;
+	if (!result)
+		unlink(HTTPD_UPGRADE_IDENTITY);
+	return result;
+}
+
+static void
+httpd_upgrade_spool_clear(struct httpd_restore_spool *spool)
+{
+	struct stat directory;
+
+	if (spool->file)
+		fclose(spool->file);
+	if (!strcmp(spool->directory, HTTPD_UPGRADE_DIRECTORY) &&
+	    lstat(spool->directory, &directory) == 0 && S_ISDIR(directory.st_mode) &&
+	    directory.st_uid == 0 && (directory.st_mode & 0777) == 0700) {
+		unlink(HTTPD_UPGRADE_IMAGE);
+		unlink(HTTPD_UPGRADE_IDENTITY);
+		unlink("/tmp/httpd-upgrade/tcfw.bin");
+		unlink("/tmp/httpd-upgrade/ras.bin");
+		rmdir(HTTPD_UPGRADE_DIRECTORY);
+	}
+	memset(spool, 0, sizeof(*spool));
 }
 
 static void
