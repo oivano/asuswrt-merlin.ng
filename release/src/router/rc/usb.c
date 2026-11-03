@@ -1390,6 +1390,49 @@ void start_usblpsrv(void)
 #define MOUNT_VAL_RW 	2
 #define MOUNT_VAL_EXIST	3
 
+static int usb_mountpoint_path_is_valid(const char *path)
+{
+	const char *name;
+	size_t root_len = strlen(POOL_MOUNT_ROOT);
+
+	if (!path || strncmp(path, POOL_MOUNT_ROOT, root_len) != 0 ||
+	    path[root_len] != '/')
+		return 0;
+
+	name = path + root_len + 1;
+	return *name && !strchr(name, '/') && strcmp(name, ".") != 0 &&
+		strcmp(name, "..") != 0;
+}
+
+static int usb_mountpoint_is_safe(const char *path)
+{
+	struct stat st;
+
+	return usb_mountpoint_path_is_valid(path) && lstat(path, &st) == 0 &&
+		S_ISDIR(st.st_mode) &&
+		st.st_uid == 0 && !(st.st_mode & 0022);
+}
+
+static int usb_mountpoint_prepare(const char *path, int *dir_made)
+{
+	struct stat st;
+
+	if (!usb_mountpoint_path_is_valid(path))
+		goto fail;
+	*dir_made = mkdir_if_none(path);
+	if (lstat(path, &st) != 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0)
+		goto fail;
+	if ((st.st_mode & 0022) && chmod(path, 0755) != 0)
+		goto fail;
+	if (!usb_mountpoint_is_safe(path))
+		goto fail;
+	return 0;
+
+fail:
+	syslog(LOG_ERR, "USB refusing unsafe mountpoint %s", path);
+	return -1;
+}
+
 int mount_r(char *mnt_dev, char *mnt_dir, char *_type)
 {
 	struct mntent *mnt;
@@ -1593,10 +1636,17 @@ int mount_r(char *mnt_dev, char *mnt_dir, char *_type)
 		}
 
 		if (flags) {
-			if ((dir_made = mkdir_if_none(mnt_dir))) {
+			if (usb_mountpoint_prepare(mnt_dir, &dir_made) != 0)
+				return MOUNT_VAL_FAIL;
+
+			if (dir_made) {
 				/* Create the flag file for remove the directory on dismount. */
 				snprintf(flagfn, sizeof(flagfn), "%s/.autocreated-dir", mnt_dir);
 				f_write(flagfn, NULL, 0, 0, 0);
+			}
+			if (!usb_mountpoint_is_safe(mnt_dir)) {
+				syslog(LOG_ERR, "USB refusing changed mountpoint %s", mnt_dir);
+				return MOUNT_VAL_FAIL;
 			}
 
 			if(!strncmp(type, "ext", 3)){
@@ -2264,7 +2314,12 @@ int mount_partition(char *dev_name, int host_num, char *dsc_name, char *pt_name,
 done:
 	if (ret == MOUNT_VAL_RONLY || ret == MOUNT_VAL_RW)
 	{
-		chmod(mountpoint, 0777);
+		struct stat st;
+
+		if (lstat(mountpoint, &st) == 0 && S_ISDIR(st.st_mode))
+			chmod(mountpoint, 0777);
+		else
+			syslog(LOG_ERR, "USB refusing chmod on unsafe mountpoint %s", mountpoint);
 
 		char usb_node[32], port_path[8];
 		char prefix[] = "usb_pathXXXXXXXXXXXXXXXXX_", tmp[100];
