@@ -7403,9 +7403,7 @@ ej_IP_dhcpLeaseInfo(int eid, webs_t wp, int argc, char_t **argv)
 
 #ifdef RTCONFIG_IPV6
 #define DHCP_LEASE_FILE		"/var/lib/misc/dnsmasq.leases"
-#define IPV6_CLIENT_NEIGH	"/tmp/ipv6_neigh"
-#define IPV6_CLIENT_INFO	"/tmp/ipv6_client_info"
-//#define	IPV6_CLIENT_LIST	"/tmp/ipv6_client_list"	// Moved to httpd.h
+#define IPV6_CLIENT_INFO	"/tmp/httpd/ipv6_client_info"
 #define	MAC			1
 #define	HOSTNAME		2
 #define	IPV6_ADDRESS		3
@@ -7417,38 +7415,74 @@ static char *value(FILE *fp, int line, int token);
 static void find_hostname_by_mac(char *mac, char *hostname, int hostname_len);
 static int total_lines = 0;
 
-/* Init File and clear the content */
-void init_file(char *file)
+static FILE *open_ipv6_scratch(const char *file, int flags, int truncate)
 {
 	FILE *fp;
+	struct stat st;
+	int fd;
+	const char *mode;
 
-	if ((fp = fopen(file ,"w")) == NULL) {
-		_dprintf("can't open %s: %s", file,
-			strerror(errno));
+	if (httpd_ensure_temp_dir() != 0)
+		return NULL;
+
+	fd = open(file, flags | O_NOFOLLOW, 0600);
+	if (fd < 0)
+		goto ERROR;
+	if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
+	    st.st_nlink != 1 || ((flags & O_WRONLY) && fchmod(fd, 0600) != 0)) {
+		errno = EPERM;
+		close(fd);
+		goto ERROR;
 	}
+	if (truncate && ftruncate(fd, 0) != 0) {
+		close(fd);
+		goto ERROR;
+	}
+	mode = !(flags & O_WRONLY) ? "r" : (flags & O_APPEND) ? "a" : "w";
+	if ((fp = fdopen(fd, mode)) == NULL) {
+		close(fd);
+		goto ERROR;
+	}
+	return fp;
 
-	fclose(fp);
+ERROR:
+	_dprintf("can't safely open %s: %s", file, strerror(errno));
+	return NULL;
 }
 
-void save_file(const char *file, const char *fmt, ...)
+static int init_file(const char *file)
+{
+	FILE *fp = open_ipv6_scratch(file, O_WRONLY | O_CREAT, 1);
+
+	if (!fp)
+		return -1;
+	if (fclose(fp) != 0) {
+		_dprintf("can't close %s: %s", file, strerror(errno));
+		return -1;
+	}
+	return 0;
+}
+
+static int save_file(const char *file, const char *fmt, ...)
 {
 	char buf[BUFSIZE];
 	va_list args;
 	FILE *fp;
+	int write_error, close_error;
 
-	if ((fp = fopen(file ,"a")) == NULL) {
-		_dprintf("can't open %s: %s", file,
-			strerror(errno));
-	}
+	if ((fp = open_ipv6_scratch(file, O_WRONLY | O_CREAT | O_APPEND, 0)) == NULL)
+		return -1;
 
 	va_start(args, fmt);
 	vsnprintf(buf, sizeof(buf), fmt, args);
 	va_end(args);
-	va_start(args, fmt);
-	fprintf(fp, "%s", buf);
-	va_end(args);
-
-	fclose(fp);
+	write_error = fputs(buf, fp) == EOF;
+	close_error = fclose(fp) != 0;
+	if (write_error || close_error) {
+		_dprintf("can't write %s: %s", file, strerror(errno));
+		return -1;
+	}
+	return 0;
 }
 
 static char *get_stok(char *str, char *dest, char delimiter, const size_t dest_sz)
@@ -7517,7 +7551,7 @@ static int check_mac_previous(char *mac)
 	char temp[BUFSIZE];
 	memset(temp, 0, sizeof(temp));
 
-	if ((fp = fopen(IPV6_CLIENT_LIST, "r")) == NULL)
+	if ((fp = open_ipv6_scratch(IPV6_CLIENT_LIST, O_RDONLY, 0)) == NULL)
 	{
 		_dprintf("can't open %s: %s", IPV6_CLIENT_LIST,
 			strerror(errno));
@@ -7603,7 +7637,7 @@ void get_ipv6_client_info()
 {
 	int i = 0;
 	FILE *fp;
-	char buffer[128], ipv6_addr[128], mac[32], lan_ifname[128] = {0};
+	char command[256], buffer[128], ipv6_addr[128], mac[32], lan_ifname[128] = {0};
 	char *ptr_end, hostname[64];
 
 	strlcpy(lan_ifname, nvram_safe_get("lan_ifname"), sizeof(lan_ifname));
@@ -7614,18 +7648,19 @@ void get_ipv6_client_info()
 		}
 	}
 
-	doSystem("ip -f inet6 neigh show dev %s > %s", lan_ifname, IPV6_CLIENT_NEIGH);
-	usleep(1000);
-
-	if ((fp = fopen(IPV6_CLIENT_NEIGH, "r")) == NULL)
-	{
-		_dprintf("can't open %s: %s", IPV6_CLIENT_NEIGH,
-			strerror(errno));
+	if (snprintf(command, sizeof(command), "ip -f inet6 neigh show dev '%s'",
+	    lan_ifname) >= sizeof(command))
+		return;
+	if ((fp = popen(command, "r")) == NULL) {
+		_dprintf("can't run ip neigh: %s", strerror(errno));
 
 		return;
 	}
 
-	init_file(IPV6_CLIENT_INFO);
+	if (init_file(IPV6_CLIENT_INFO) != 0) {
+		pclose(fp);
+		return;
+	}
 	while (fgets(buffer, 128, fp)) {
 		int temp_len = strlen(buffer);
 		if (temp_len && buffer[temp_len-1] == '\n')
@@ -7647,7 +7682,7 @@ void get_ipv6_client_info()
 
 		memset(buffer, 0, sizeof(buffer));
 	}
-	fclose(fp);
+	pclose(fp);
 }
 
 void get_ipv6_client_list(void)
@@ -7656,9 +7691,10 @@ void get_ipv6_client_list(void)
 	int line_index = 1;
 	char temp[BUFSIZE];
 	memset(temp, 0, sizeof(temp));
-	init_file(IPV6_CLIENT_LIST);
+	if (init_file(IPV6_CLIENT_LIST) != 0)
+		return;
 
-	if ((fp = fopen(IPV6_CLIENT_INFO, "r")) == NULL)
+	if ((fp = open_ipv6_scratch(IPV6_CLIENT_INFO, O_RDONLY, 0)) == NULL)
 	{
 		_dprintf("can't open %s: %s", IPV6_CLIENT_INFO,
 			strerror(errno));
@@ -7688,7 +7724,7 @@ static int ipv6_client_numbers(void)
 	int numbers = 0;
 	char temp[BUFSIZE];
 
-	if ((fp = fopen(IPV6_CLIENT_LIST, "r")) == NULL)
+	if ((fp = open_ipv6_scratch(IPV6_CLIENT_LIST, O_RDONLY, 0)) == NULL)
 	{
 		_dprintf("can't open %s: %s", IPV6_CLIENT_LIST,
 			strerror(errno));
@@ -7846,7 +7882,7 @@ ej_lan_ipv6_network(int eid, webs_t wp, int argc, char_t **argv)
 	get_ipv6_client_info();
 	get_ipv6_client_list();
 
-	if ((fp = fopen(IPV6_CLIENT_LIST, "r")) == NULL) {
+	if ((fp = open_ipv6_scratch(IPV6_CLIENT_LIST, O_RDONLY, 0)) == NULL) {
 		_dprintf("can't open %s: %s", IPV6_CLIENT_LIST, strerror(errno));
 		return ret;
 	}
