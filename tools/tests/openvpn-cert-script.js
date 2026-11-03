@@ -5,9 +5,24 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '../..');
 const source = fs.readFileSync(path.join(root, 'release/src/router/libovpn/openvpn_setup.c'), 'utf8');
+const web = fs.readFileSync(path.join(root, 'release/src/router/httpd/web.c'), 'utf8');
 const match = source.match(/static void ovpn_generate_server_certificates\(int unit, int key_size\)\s*\{([\s\S]*?)\n\}/);
 assert.ok(match, 'private certificate-script helper exists');
 const helper = match[1];
+const exportStart = web.indexOf('do_server_ovpn_file(char *url, FILE *stream)');
+const exportEnd = web.indexOf('\nstatic void\ndo_upload_server_ovpn_cert_post', exportStart);
+
+assert.ok(exportStart >= 0 && exportEnd > exportStart, 'OpenVPN server export handler exists');
+const exportHandler = web.slice(exportStart, exportEnd);
+
+assert.doesNotMatch(web, /OPENVPN_EXPORT_FILE|\/tmp\/server_ovpn\.cert/);
+assert.match(exportHandler, /char export_dir\[\] = "\/tmp\/server-ovpn-XXXXXX"/);
+assert.match(exportHandler, /mkdtemp\(export_dir\)/);
+assert.match(exportHandler, /lstat\(export_dir, &st\)[\s\S]*?st\.st_uid != 0[\s\S]*?st\.st_mode & 077/);
+assert.match(exportHandler, /open\(export_file, O_WRONLY \| O_CREAT \| O_EXCL \| O_NOFOLLOW, 0600\)/);
+assert.match(exportHandler, /fstat\(fd, &st\)[\s\S]*?S_ISREG\(st\.st_mode\)[\s\S]*?st\.st_nlink != 1[\s\S]*?fchmod\(fd, 0600\)/);
+assert.match(exportHandler, /if \(system\(cmd\) == 0\)\s*do_file\(export_file, stream\)/);
+assert.match(exportHandler, /unlink\(export_file\);\s*rmdir\(export_dir\);/);
 
 assert.match(helper, /mkdtemp\(directory\)/);
 assert.match(helper, /S_ISDIR\(st\.st_mode\).*st\.st_uid != 0/);

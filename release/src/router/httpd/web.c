@@ -15592,7 +15592,6 @@ do_upload_cgi(char *url, FILE *stream)
 #ifdef RTCONFIG_OPENVPN
 
 #define JFFS_OPENVPN		"/jffs/openvpn/"
-#define OPENVPN_EXPORT_FILE	"/tmp/server_ovpn.cert"
 #define OPENVPN_UPLOAD_FLODER	"/tmp/server_ovpn_file"
 #define OPENVPN_UPLOAD_FILE	"/tmp/server_ovpn_file/server_ovpn.tgz"
 
@@ -15973,12 +15972,32 @@ static void
 do_server_ovpn_file(char *url, FILE *stream)
 {
 	char cmd[1024];
-	memset(cmd, 0, sizeof(cmd));
+	char export_dir[] = "/tmp/server-ovpn-XXXXXX";
+	char export_file[sizeof(export_dir) + sizeof("/server_ovpn.cert")];
+	struct stat st;
+	int fd;
+
 	if (check_if_dir_exist(JFFS_OPENVPN)) {
 		int i, unit;
 		char filename[32];
 		char file_path[128];
-		snprintf(cmd, sizeof(cmd), "tar czf %s -C %s", OPENVPN_EXPORT_FILE, JFFS_OPENVPN);
+		if (!mkdtemp(export_dir))
+			return;
+		if (lstat(export_dir, &st) != 0 || !S_ISDIR(st.st_mode) ||
+		    st.st_uid != 0 || (st.st_mode & 077) != 0)
+			goto cleanup;
+		snprintf(export_file, sizeof(export_file), "%s/server_ovpn.cert", export_dir);
+		fd = open(export_file, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+		if (fd < 0)
+			goto cleanup;
+		if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
+		    st.st_nlink != 1 || fchmod(fd, 0600) != 0) {
+			close(fd);
+			goto cleanup;
+		}
+		if (close(fd) != 0)
+			goto cleanup;
+		snprintf(cmd, sizeof(cmd), "tar czf %s -C %s", export_file, JFFS_OPENVPN);
 		char *lists[] = {
 			"ca",
 			"ca_key",
@@ -16002,10 +16021,15 @@ do_server_ovpn_file(char *url, FILE *stream)
 				strlcat(cmd, filename, sizeof(cmd));
 			}
 		}
-		system(cmd);
-		do_file(OPENVPN_EXPORT_FILE, stream);
-		unlink(OPENVPN_EXPORT_FILE);
+		if (system(cmd) == 0)
+			do_file(export_file, stream);
+		unlink(export_file);
+		rmdir(export_dir);
 	}
+	return;
+
+cleanup:
+	rmdir(export_dir);
 }
 
 static void
