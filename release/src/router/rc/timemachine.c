@@ -58,7 +58,7 @@ int generate_afp_config(char *mpname)
 	sprintf(afp_config, "%s/%s", AFP_CONFIG_PATH, AFP_CONFIG_FN);
 
 	/* Generate afp configuration file */
-	if (!(fp = fopen(afp_config, "w"))) {
+	if (!(fp = open_root_config_file(AFP_CONFIG_PATH, AFP_CONFIG_FN, 0644))) {
 		perror(afp_config);
 		return -1;
 	}
@@ -548,13 +548,15 @@ int start_timemachine()
 	//if(!check_if_dir_exist(AFP_LOCK_PATH)) mkdir(AFP_LOCK_PATH, 0777);
 	//if(!check_if_dir_exist(AFP_CONFIG_PATH)) mkdir(AFP_CONFIG_PATH, 0777);
 	mkdir_if_none(AFP_LOCK_PATH);
-	mkdir_if_none(AFP_CONFIG_PATH);
+	if (secure_root_config_dir(AFP_CONFIG_PATH) != 0)
+		return -1;
 
 	// Create directory for use by avahi daemon and configuration file
 	//if(!check_if_dir_exist(AVAHI_CONFIG_PATH)) mkdir(AVAHI_CONFIG_PATH, 0777);
 	//if(!check_if_dir_exist(AVAHI_SERVICES_PATH)) mkdir(AVAHI_SERVICES_PATH, 0777);
-	mkdir_if_none(AVAHI_CONFIG_PATH);
-	mkdir_if_none(AVAHI_SERVICES_PATH);
+	if (secure_root_config_dir(AVAHI_CONFIG_PATH) != 0 ||
+	    secure_root_config_dir(AVAHI_SERVICES_PATH) != 0)
+		return -1;
 
 	// Create directory for use by cnid_metad and cnid_dbd daemon
 	if (snprintf(cnid_path, sizeof(cnid_path), "%s/%s", mount_point_name, CNID_DIR_NAME) >= sizeof(cnid_path))

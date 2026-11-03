@@ -2633,6 +2633,8 @@ extern int start_cnid_metad(void);
 extern void stop_cnid_metad(int force);
 extern int start_avahi_daemon(void);
 extern void stop_avahi_daemon(void);
+extern int secure_root_config_dir(const char *path);
+extern FILE *open_root_config_file(const char *directory, const char *name, mode_t mode);
 #endif
 #if defined(RTCONFIG_MDNS)
 extern int generate_mdns_config(void);
