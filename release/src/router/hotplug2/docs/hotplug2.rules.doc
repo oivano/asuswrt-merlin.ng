@@ -164,7 +164,7 @@ MODALIAS is set {
 }
 
 SUBSYSTEM == block, DEVPATH is set, MAJOR is set, MINOR is set {
-	makedev /dev/%DEVICENAME% 0644
+	makedev /dev/%DEVICENAME% 0600
 }
 
 
@@ -183,12 +183,12 @@ MODALIAS is set {
 
 # Create device nodes
 DEVPATH is set, MAJOR is set, MINOR is set {
-	makedev /dev/%DEVICENAME% 0644
+	makedev /dev/%DEVICENAME% 0600
 }
 
 # Mount a USB flashdisk
 ACTION == add, PHYSDEVPATH ~~ "/usb[0-9]*/", DEVICENAME ~~ "^sd[a-z][0-9]+$", DEVPATH is set, MAJOR is set, MINOR is set {
-	makedev /dev/%DEVICENAME% 0644
+	makedev /dev/%DEVICENAME% 0600
 	exec mount /dev/%DEVICENAME% /mnt/%DEVICENAME%
 }
 
