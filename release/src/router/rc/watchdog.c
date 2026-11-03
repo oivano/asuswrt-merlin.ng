@@ -6941,7 +6941,7 @@ void regular_ddns_check(void)
 	//_dprintf("WAN IP change!\n");
 	if (wan_unit != last_unit) {
 #ifndef RTCONFIG_INADYN
-		unlink("/tmp/ddns.cache");
+		ddns_cache_clear();
 #else
 		system("rm -f /var/cache/inadyn/*.cache");
 #endif
@@ -7073,7 +7073,7 @@ void ddns_check(void)
 
 	if (wan_unit != last_unit) {
 #ifndef RTCONFIG_INADYN
-		unlink("/tmp/ddns.cache");
+		ddns_cache_clear();
 #else
 		system("rm -f /var/cache/inadyn/*.cache");
 #endif
