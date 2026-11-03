@@ -1603,6 +1603,9 @@ void create_passwd(void)
 		fprintf(fp, "%s:%s:0:0:99999:7:0:0:\n", smbd_user, "*");
 #endif
 		fprintf(fp, "%s:%s:0:0:99999:7:0:0:\n", "nobody", "*");
+#ifdef RTCONFIG_FRR
+		fprintf(fp, "%s:%s:0:0:99999:7:0:0:\n", "frr", "*");
+#endif
 #ifdef RTCONFIG_TOR
 		fprintf(fp, "%s:%s:0:0:99999:7:0:0:\n", "tor", "*");
 #endif
@@ -1631,6 +1634,10 @@ void create_passwd(void)
 			"openvpn:*::\n"	/* OpenVPN GID */
 #endif
 			"nobody:*::\n"
+#ifdef RTCONFIG_FRR
+			"frr:*::\n"
+			"frrvty:*::frr\n"
+#endif
 #ifdef RTCONFIG_TOR
 			"tor:*::\n"
 #endif
@@ -1653,6 +1660,9 @@ void create_passwd(void)
 		fprintf(fp, "%s:x:100:100:nas:/dev/null:/dev/null\n", smbd_user);
 #endif
 		fprintf(fp, "nobody:x:65534:65534:nobody:/dev/null:/dev/null\n");
+#ifdef RTCONFIG_FRR
+		fprintf(fp, "frr:x:65532:65532:frr:/dev/null:/dev/null\n");
+#endif
 #ifdef RTCONFIG_TOR
 		fprintf(fp, "tor:x:65533:65533:tor:/dev/null:/dev/null\n");
 #endif
@@ -1679,6 +1689,10 @@ void create_passwd(void)
 			"openvpn:*:200:\n"	/* OpenVPN GID */
 #endif
 			"nobody:*:65534:\n"
+#ifdef RTCONFIG_FRR
+			"frr:*:65532:\n"
+			"frrvty:*:65531:frr\n"
+#endif
 #ifdef RTCONFIG_TOR
 			"tor:*:65533:\n"
 #endif
