@@ -14,6 +14,7 @@
 
 #include <termios.h>
 #include <dirent.h>
+#include <fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/mount.h>
 #include <time.h>
@@ -21,6 +22,7 @@
 #include <paths.h>
 #include <strings.h>
 #include <sys/wait.h>
+#include <unistd.h>
 #include <sys/reboot.h>
 #include <sys/klog.h>
 #include <sys/socket.h>
@@ -82,6 +84,25 @@
 
 #define SHELL "/bin/sh"
 #define LOGIN "/bin/login"
+
+static int rc_firewall_rules_dir_prepare(void)
+{
+	struct stat parent, st;
+	int fd, result = 0;
+
+	if (lstat("/tmp/ppp", &parent) < 0 || !S_ISDIR(parent.st_mode) ||
+	    parent.st_uid != 0 || (parent.st_mode & 0022) ||
+	    (mkdir(FIREWALL_RULES_DIR, 0700) < 0 && errno != EEXIST))
+		return 0;
+	fd = open(FIREWALL_RULES_DIR, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (fd < 0)
+		return 0;
+	if (fstat(fd, &st) == 0 && S_ISDIR(st.st_mode) && st.st_uid == 0 &&
+	    fchmod(fd, 0700) == 0 && fstat(fd, &st) == 0 && !(st.st_mode & 0077))
+		result = 1;
+	close(fd);
+	return result;
+}
 
 #ifdef RTCONFIG_WLMODULE_MT7663E_AP
 #include <l1profile.h>
@@ -19792,6 +19813,8 @@ static void sysinit(void)
 	mkdir("/var/tmp/dhcp", 01777);
 	mkdir("/home/root", 0700);
 	chmod("/tmp", 01777);
+	if (!rc_firewall_rules_dir_prepare())
+		_dprintf("Unable to secure firewall rules directory\n");
 	if (!rc_qos_workdir_prepare())
 		_dprintf("Unable to secure QoS temporary directory\n");
 #ifdef RTCONFIG_LETSENCRYPT
