@@ -37,6 +37,44 @@
 
 static struct db_context *db_ctx;
 
+static bool secrets_file_prepare(const char *fname)
+{
+	int fd;
+	int flags = O_RDWR | O_NONBLOCK;
+	struct stat st;
+
+#ifdef O_NOFOLLOW
+	flags |= O_NOFOLLOW;
+#else
+	errno = ENOSYS;
+	return false;
+#endif
+	fd = open(fname, flags, 0600);
+	if (fd == -1 && errno == ENOENT) {
+		fd = open(fname, flags | O_CREAT | O_EXCL, 0600);
+		if (fd == -1 && errno == EEXIST)
+			fd = open(fname, flags, 0600);
+	}
+	if (fd == -1)
+		return false;
+
+	if (fstat(fd, &st) == -1)
+		goto fail;
+	if (!S_ISREG(st.st_mode) || st.st_uid != 0 || st.st_nlink != 1) {
+		errno = EACCES;
+		goto fail;
+	}
+	if (fchmod(fd, 0600) == -1)
+		goto fail;
+	if (close(fd) == -1)
+		return false;
+	return true;
+
+fail:
+	close(fd);
+	return false;
+}
+
 /**
  * Use a TDB to store an incrementing random seed.
  *
@@ -66,6 +104,12 @@ bool secrets_init(void)
 	fname = talloc_asprintf(talloc_tos(), "%s/secrets.tdb",
 				lp_private_dir());
 	if (fname == NULL) {
+		return false;
+	}
+	if (!secrets_file_prepare(fname)) {
+		DEBUG(0, ("Refusing unsafe secrets database %s: %s\n",
+			  fname, strerror(errno)));
+		TALLOC_FREE(fname);
 		return false;
 	}
 
