@@ -26,6 +26,7 @@
 #include <fcntl.h>
 #include <dirent.h>
 #include <ctype.h>
+#include <limits.h>
 #include <sys/stat.h>	// for mkdir()
 #include <sys/types.h>	// for mkdir()
 #include <unistd.h>	// for sleep()
@@ -38,6 +39,56 @@
 #include "disk_share.h"
 
 #define MAX_SHARE_FOLDERS 256
+
+static int folder_component_is_safe(const char *folder)
+{
+	const unsigned char *p;
+
+	if (folder == NULL || *folder == '\0' || !strcmp(folder, ".") ||
+	    !strcmp(folder, "..") || strlen(folder) > NAME_MAX)
+		return 0;
+	for (p = (const unsigned char *)folder; *p != '\0'; ++p)
+		if (*p == '/' || *p == '\\' || *p < 0x20 || *p == 0x7f)
+			return 0;
+	return 1;
+}
+
+static int mount_path_is_safe(const char *mount_path)
+{
+	char resolved[PATH_MAX], *mount_info, *follow_info, *line;
+	char source[PATH_MAX], target[PATH_MAX], filesystem[64];
+	struct stat st;
+	int safe = 0;
+
+	if (mount_path == NULL || realpath(mount_path, resolved) == NULL ||
+	    strcmp(mount_path, resolved) || strncmp(resolved, "/tmp/mnt/", 9) ||
+	    resolved[9] == '\0' || stat(resolved, &st) != 0 || !S_ISDIR(st.st_mode))
+		return 0;
+
+	mount_info = read_whole_file("/proc/mounts");
+	if (mount_info == NULL)
+		return 0;
+	follow_info = mount_info;
+	while ((line = strsep(&follow_info, "\n")) != NULL) {
+		if (sscanf(line, "%4095s %4095s %63s", source, target, filesystem) != 3 ||
+		    strcmp(target, resolved) || strncmp(source, "/dev/", 5))
+			continue;
+		if (is_partition_name(source + 5, NULL))
+			safe = 1;
+		break;
+	}
+	free(mount_info);
+	return safe;
+}
+
+static int make_folder_path(char *path, size_t path_size,
+			    const char *mount_path, const char *folder)
+{
+	int length;
+
+	length = snprintf(path, path_size, "%s/%s", mount_path, folder);
+	return length >= 0 && (size_t)length < path_size;
+}
 
 static int metadata_name_is_safe(const char *name)
 {
@@ -1729,7 +1780,7 @@ int add_folder_at_var_file(const char *const account,
 }
 
 extern int add_folder(const char *const account, const char *const mount_path, const char *const folder){
-	int result, len;
+	int result;
 	int acc_num;
 #ifdef RTCONFIG_PERMISSION_MANAGEMENT
 	PMS_ACCOUNT_INFO_T *account_list, *follow_account;
@@ -1740,13 +1791,13 @@ extern int add_folder(const char *const account, const char *const mount_path, c
 	int i;
 	char **account_list;
 #endif
-	char *full_path;
+	char full_path[PATH_MAX];
 
-	if(mount_path == NULL || strlen(mount_path) <= 0){
+	if(!mount_path_is_safe(mount_path)){
 		usb_dbg("add_folder: No input, \"mount_path\".\n");
 		return -1;
 	}
-	if(folder == NULL || strlen(folder) <= 0){
+	if(!folder_component_is_safe(folder)){
 		usb_dbg("add_folder: No input, \"folder\".\n");
 		return -1;
 	}
@@ -1759,18 +1810,13 @@ extern int add_folder(const char *const account, const char *const mount_path, c
 	}
 
 	// 2. create the folder
-	len = strlen(mount_path)+strlen("/")+strlen(folder);
-	full_path = (char *)malloc(sizeof(char)*(len+1));
-	if(full_path == NULL){
-		usb_dbg("add_folder: Can't malloc \"full_path\".\n");
+	if (!make_folder_path(full_path, sizeof(full_path), mount_path, folder)) {
+		usb_dbg("add_folder: Folder path is too long.\n");
 		return -1;
 	}
-	snprintf(full_path, (len+1), "%s/%s", mount_path, folder);
-	full_path[len] = 0;
 
 	umask(0000);
 	result = mkdir(full_path, 0777);
-	free(full_path);
 	if(result != 0){
 		usb_dbg("add_folder: To create \"%s\" is failed!\n", folder);
 		return -1;
@@ -1909,7 +1955,7 @@ int del_folder_at_var_file(const char *const account,
 }
 
 extern int del_folder(const char *const mount_path, const char *const folder){
-	int result, len;
+	int result;
 	int acc_num;
 #ifdef RTCONFIG_PERMISSION_MANAGEMENT
 	PMS_ACCOUNT_INFO_T *account_list, *follow_account;
@@ -1920,40 +1966,34 @@ extern int del_folder(const char *const mount_path, const char *const folder){
 	int i;
 	char **account_list;
 #endif
-	char *full_path;
+	char full_path[PATH_MAX];
 
-	if(mount_path == NULL || strlen(mount_path) <= 0){
+	if(!mount_path_is_safe(mount_path)){
 		usb_dbg("No input, \"mount_path\".\n");
 		return -1;
 	}
-	if(folder == NULL || strlen(folder) <= 0){
+	if(!folder_component_is_safe(folder)){
 		usb_dbg("No input, \"folder\".\n");
 		return -1;
 	}
 
 	// 1. test if deleting the folder
-	len = strlen(mount_path)+strlen("/")+strlen(folder);
-	full_path = (char *)malloc(sizeof(char)*(len+1));
-	if(full_path == NULL){
-		usb_dbg("Can't malloc \"full_path\".\n");
+	if (!make_folder_path(full_path, sizeof(full_path), mount_path, folder)) {
+		usb_dbg("Folder path is too long.\n");
 		return -1;
 	}
-	snprintf(full_path, (len+1), "%s/%s", mount_path, folder);
-	full_path[len] = 0;
 
 	result = test_if_exist_share(mount_path, folder);
 	if(result == 0){
 		result = check_if_dir_exist(full_path);
 		if(result != 1){
 			usb_dbg("\"%s\" isn't already existed in %s.\n", folder, mount_path);
-			free(full_path);
 			return -1;
 		}
 	}
 
 	// 2. delete the folder
 	result = delete_file_or_dir(full_path);
-	free(full_path);
 	if(result != 0){
 		usb_dbg("To delete \"%s\" is failed!\n", folder);
 		return -1;
@@ -2110,7 +2150,7 @@ int mod_folder_at_var_file(const char *const account,
 }
 
 extern int mod_folder(const char *const mount_path, const char *const folder, const char *const new_folder){
-	int result, len;
+	int result;
 	int acc_num;
 #ifdef RTCONFIG_PERMISSION_MANAGEMENT
 	PMS_ACCOUNT_INFO_T *account_list, *follow_account;
@@ -2121,40 +2161,27 @@ extern int mod_folder(const char *const mount_path, const char *const folder, co
 	int i;
 	char **account_list;
 #endif
-	char *full_path, *new_full_path;
+	char full_path[PATH_MAX], new_full_path[PATH_MAX];
 
-	if(mount_path == NULL || strlen(mount_path) <= 0){
+	if(!mount_path_is_safe(mount_path)){
 		usb_dbg("No input, \"mount_path\".\n");
 		return -1;
 	}
-	if(folder == NULL || strlen(folder) <= 0){
+	if(!folder_component_is_safe(folder)){
 		usb_dbg("No input, \"folder\".\n");
 		return -1;
 	}
-	if(new_folder == NULL || strlen(new_folder) <= 0){
+	if(!folder_component_is_safe(new_folder)){
 		usb_dbg("No input, \"new_folder\".\n");
 		return -1;
 	}
 
 	// 1. test if modifying the folder
-	len = strlen(mount_path)+strlen("/")+strlen(folder);
-	full_path = (char *)malloc(sizeof(char)*(len+1));
-	if(full_path == NULL){
-		usb_dbg("Can't malloc \"full_path\".\n");
+	if (!make_folder_path(full_path, sizeof(full_path), mount_path, folder) ||
+	    !make_folder_path(new_full_path, sizeof(new_full_path), mount_path, new_folder)) {
+		usb_dbg("Folder path is too long.\n");
 		return -1;
 	}
-	snprintf(full_path, (len+1), "%s/%s", mount_path, folder);
-	full_path[len] = 0;
-
-	len = strlen(mount_path)+strlen("/")+strlen(new_folder);
-	new_full_path = (char *)malloc(sizeof(char)*(len+1));
-	if(new_full_path == NULL){
-		usb_dbg("Can't malloc \"new_full_path\".\n");
-		free(full_path);
-		return -1;
-	}
-	snprintf(new_full_path, (len+1), "%s/%s", mount_path, new_folder);
-	new_full_path[len] = 0;
 
 	result = test_if_exist_share(mount_path, folder);
 	if(result == 0){
@@ -2162,8 +2189,6 @@ extern int mod_folder(const char *const mount_path, const char *const folder, co
 
 		if(result != 1){
 			usb_dbg("\"%s\" isn't already existed in %s.\n", folder, mount_path);
-			free(full_path);
-			free(new_full_path);
 			return -1;
 		}
 
@@ -2173,8 +2198,6 @@ extern int mod_folder(const char *const mount_path, const char *const folder, co
 
 	// 2. modify the folder
 	result = rename(full_path, new_full_path);
-	free(full_path);
-	free(new_full_path);
 	if(result != 0){
 		usb_dbg("To delete \"%s\" is failed!\n", folder);
 		return -1;

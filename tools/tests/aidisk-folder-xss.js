@@ -113,4 +113,87 @@ for (const name of names) {
     assert.equal(htmlCodec.htmlDecode(encoded), name);
 }
 
-console.log(`PASS: AiDisk folder/tree hooks, ${names.length} JavaScript and HTML literal round trips, raw-injection negative control, and disk-view sink contracts (not compiled C or hardware)`);
+const diskShareSource = fs.readFileSync(path.join(root, 'release/src/router/libdisk/disk_share.c'), 'utf8');
+const diskInitialSource = fs.readFileSync(path.join(root, 'release/src/router/libdisk/disk_initial.c'), 'utf8');
+const httpdSource = fs.readFileSync(path.join(root, 'release/src/router/httpd/httpd.c'), 'utf8');
+const functionBody = (text, signature) => {
+    const start = text.indexOf(signature);
+    assert(start >= 0, `missing function ${signature}`);
+    const open = text.indexOf('{', start);
+    let depth = 1;
+    for (let cursor = open + 1; cursor < text.length; cursor++) {
+        if (text[cursor] === '{') depth++;
+        if (text[cursor] === '}' && --depth === 0) return text.slice(open + 1, cursor);
+    }
+    assert.fail(`unterminated function ${signature}`);
+};
+
+const componentValidator = functionBody(diskShareSource, 'static int folder_component_is_safe(');
+assert.match(componentValidator, /folder == NULL/);
+assert.match(componentValidator, /!strcmp\(folder, "\."\)/);
+assert.match(componentValidator, /!strcmp\(folder, "\.\."\)/);
+assert.match(componentValidator, /strlen\(folder\) > NAME_MAX/);
+assert.match(componentValidator, /\*p == '\/'/);
+assert.match(componentValidator, /\*p == '\\\\'/);
+assert.match(componentValidator, /\*p < 0x20/);
+assert.match(componentValidator, /\*p == 0x7f/);
+const componentSafe = folder => typeof folder === 'string' && folder.length > 0 &&
+    folder !== '.' && folder !== '..' && Buffer.byteLength(folder) <= 255 &&
+    !/[\\/\x00-\x1f\x7f]/.test(folder);
+const componentCases = [
+    ['shares', true], ['folder with spaces', true], ['café', true], ['.', false], ['..', false],
+    ['../jffs', false], ['x/../../tmp', false], ['x\\\\..\\\\tmp', false],
+    ['line\nfeed', false], ['tab\tname', false], ['delete\x7f', false],
+    ['x'.repeat(255), true], ['x'.repeat(256), false]
+];
+for (const [folder, expected] of componentCases)
+    assert.equal(componentSafe(folder), expected, JSON.stringify(folder));
+
+for (const [signature, operation] of [
+    ['extern int add_folder(', 'mkdir('],
+    ['extern int del_folder(', 'delete_file_or_dir('],
+    ['extern int mod_folder(', 'rename(']
+]) {
+    const body = functionBody(diskShareSource, signature);
+    assert.match(body, /mount_path_is_safe\(mount_path\)/);
+    assert.match(body, /folder_component_is_safe\(folder\)/);
+    assert(body.indexOf('mount_path_is_safe(mount_path)') < body.indexOf(operation));
+    assert(body.indexOf('folder_component_is_safe(folder)') < body.indexOf(operation));
+    if (signature.includes('mod_folder')) {
+        assert.match(body, /folder_component_is_safe\(new_folder\)/);
+        assert(body.indexOf('folder_component_is_safe(new_folder)') < body.indexOf('rename('));
+    }
+}
+const mountGuard = functionBody(diskShareSource, 'static int mount_path_is_safe(');
+assert.match(mountGuard, /realpath\(mount_path, resolved\)/);
+assert.match(mountGuard, /strncmp\(resolved, "\/tmp\/mnt\/", 9\)/);
+assert.match(mountGuard, /strcmp\(target, resolved\)/);
+assert.match(mountGuard, /is_partition_name\(source \+ 5, NULL\)/);
+const mountReader = functionBody(diskInitialSource, 'int read_mount_data(');
+assert.match(mountReader, /snprintf\(expected_source, sizeof\(expected_source\), "\/dev\/%s", device_name\)/);
+assert.match(mountReader, /strcmp\(source, expected_source\)/);
+assert.match(mountReader, /if \(!found\)/);
+const mountPath = functionBody(diskInitialSource, 'int get_mount_path(');
+assert.match(mountPath, /is_partition_name\(pool, NULL\)/);
+assert.match(mountPath, /realpath\(mount_path, resolved\)/);
+assert.match(mountPath, /strcmp\(mount_path, resolved\)/);
+assert.match(mountPath, /strncmp\(resolved, "\/tmp\/mnt\/", 9\)/);
+
+for (const hookName of ['ej_modify_sharedfolder', 'ej_delete_sharedfolder', 'ej_create_sharedfolder'])
+    assert.match(functionBody(source, `int ${hookName}(`), /get_mount_path\(pool, mount_path, PATH_MAX\) != 1/);
+assert.equal((source.match(/get_mount_path\(pool, mount_path, PATH_MAX\) < 0/g) || []).length, 0);
+for (const [page, endpoint] of [
+    ['popCreateFolder.asp', 'create_sharedfolder.asp'],
+    ['popDeleteFolder.asp', 'delete_sharedfolder.asp'],
+    ['popModifyFolder.asp', 'modify_sharedfolder.asp']
+]) {
+    const dialog = readPage(`aidisk/${page}`);
+    assert.match(dialog, new RegExp(`<form[^>]+method="post"[^>]+action="${endpoint}"`, 'i'));
+}
+assert.match(source, /\{ "\*\*\.asp\*", "text\/html", no_cache_IE7, do_html_post_and_get, do_ej, do_auth \}/);
+const request = httpdSource.slice(httpdSource.indexOf('handle_request(void)\n{'));
+const requestGuard = request.match(/if \(\(handler->input \|\| \(do_referer & CHECK_REFERER\) \|\| strstr\(url, "\.cgi"\)\) &&\s*!httpd_check_request_origin\(\) && !httpd_check_csrf_token\(csrf_token\)\)/);
+assert(requestGuard);
+assert(request.indexOf(requestGuard[0]) < request.indexOf('handler->input(file, conn_fp, cl, boundary)'));
+
+console.log(`PASS: AiDisk rendering plus ${names.length} name round trips, ${componentCases.length} shared-folder name cases, mount containment, mutator and pre-hook CSRF contracts (source/model only; not compiled C or hardware)`);

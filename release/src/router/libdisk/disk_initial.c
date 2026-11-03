@@ -860,8 +860,10 @@ int read_mount_data(const char *device_name
 		, char *right, int right_len
 		){
 	char *mount_info = read_whole_file(MOUNT_FILE);
-	char *start, line[PATH_MAX];
-	char target[8], *ptr, *end;
+	char *follow_info, *line, source[PATH_MAX], target[PATH_MAX];
+	char expected_source[PATH_MAX], filesystem[64], options[PATH_MAX];
+	char *ptr, *end;
+	int found = 0;
 
 	if(mount_point == NULL || mount_len <= 0
 			|| type == NULL || type_len <= 0
@@ -875,29 +877,30 @@ int read_mount_data(const char *device_name
 		usb_dbg("Failed to open \"%s\"!!\n", MOUNT_FILE);
 		return 0;
 	}
+	mount_point[0] = type[0] = right[0] = '\0';
 
-	snprintf(target, sizeof(target), "%s ", device_name);
-
-	if((start = strstr(mount_info, target)) == NULL){
-		//usb_dbg("disk_initial:: %s: Failed to execute strstr()!\n", device_name);
+	if (device_name == NULL || *device_name == '\0' ||
+	    strchr(device_name, '/') != NULL ||
+	    snprintf(expected_source, sizeof(expected_source), "/dev/%s", device_name) >= (int)sizeof(expected_source)) {
 		free(mount_info);
 		return 0;
 	}
 
-	start += strlen(target);
-
-	if(get_line_from_buffer(start, line, PATH_MAX) == NULL){
-		usb_dbg("%s: Failed to execute get_line_from_buffer()!\n", device_name);
-		free(mount_info);
-		return 0;
+	follow_info = mount_info;
+	while ((line = strsep(&follow_info, "\n")) != NULL) {
+		if (sscanf(line, "%4095s %4095s %63s %4095s", source, target,
+			   filesystem, options) != 4 || strcmp(source, expected_source))
+			continue;
+		if (strlen(target) >= (size_t)mount_len || strlen(filesystem) >= (size_t)type_len ||
+		    strlen(options) >= (size_t)right_len)
+			break;
+		strcpy(mount_point, target);
+		strcpy(type, filesystem);
+		strcpy(right, options);
+		found = 1;
+		break;
 	}
-
-	memset(mount_point, 0, mount_len);
-	memset(type, 0, type_len);
-	memset(right, 0, right_len);
-
-	if(sscanf(line, "%s %s %[^\n ]", mount_point, type, right) != 3){
-		usb_dbg("%s: Failed to execute sscanf()!\n", device_name);
+	if (!found) {
 		free(mount_info);
 		return 0;
 	}
@@ -910,15 +913,19 @@ int read_mount_data(const char *device_name
 	}
 
 	// find rw/ro in options
-	for (ptr = right; ptr && *ptr; ptr = end + 1) {
-		// end = strchr(ptr, ',') ? : strchr(ptr, '\0');
-		end = strchrnul(ptr, ',');
-		if (end - ptr == 2 && strncmp(ptr, "ro", 2) * strncmp(ptr, "rw", 2) == 0) {
-		        *end = '\0';
+	for (ptr = right; ptr && *ptr; ) {
+		end = strchr(ptr, ',');
+		if (end == NULL)
+			end = ptr + strlen(ptr);
+		if (end - ptr == 2 && (!strncmp(ptr, "ro", 2) || !strncmp(ptr, "rw", 2))) {
+			*end = '\0';
 			break;
 		}
+		if (*end == '\0')
+			break;
+		ptr = end + 1;
 	}
-	if (right)
+	if (ptr != right && ptr != NULL)
 		memmove(right, ptr, strlen(ptr) + 1);
 
 	free(mount_info);
@@ -927,8 +934,17 @@ int read_mount_data(const char *device_name
 
 int get_mount_path(const char *const pool, char *mount_path, int mount_len){
 	char type[64], right[PATH_MAX];
+	char resolved[PATH_MAX];
 
-	return read_mount_data(pool, mount_path, mount_len, type, 64, right, PATH_MAX);
+	if (pool == NULL || !is_partition_name(pool, NULL))
+		return 0;
+	if (!read_mount_data(pool, mount_path, mount_len, type, sizeof(type), right, sizeof(right)))
+		return 0;
+	if (realpath(mount_path, resolved) == NULL || strcmp(mount_path, resolved) ||
+	    strncmp(resolved, "/tmp/mnt/", 9) != 0 || resolved[9] == '\0')
+		return 0;
+
+	return 1;
 }
 
 int get_mount_size(const char *mount_point, u64 *total_kilobytes, u64 *used_kilobytes){
