@@ -72,9 +72,9 @@ static char *qos_ipt_lock = "qos_ipt";
 
 #define TMP_QOS	"/tmp/qos"
 static const char *qosfn = TMP_QOS;
-static const char *mangle_fn = "/tmp/mangle_rules";
+static const char *mangle_fn = FIREWALL_RULES("mangle_rules");
 #ifdef RTCONFIG_IPV6
-static const char *mangle_fn_ipv6 = "/tmp/mangle_rules_ipv6";
+static const char *mangle_fn_ipv6 = FIREWALL_RULES("mangle_rules_ipv6");
 #endif
 
 static const unsigned int max_wire_speed = 10240000;

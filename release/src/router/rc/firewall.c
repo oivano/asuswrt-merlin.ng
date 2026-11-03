@@ -1372,7 +1372,7 @@ void repeater_filter_setting(int mode){
 	char word[PATH_MAX], *next_word;
 	int evalRet;
 
-	if((fp = fopen("/tmp/filter_rules", "w")) == NULL)
+	if((fp = fopen(FIREWALL_RULES("filter_rules"), "w")) == NULL)
 		return;
 
 	snprintf(lan_if, sizeof(lan_if), "%s", nvram_safe_get("lan_ifnames"));
@@ -1405,8 +1405,8 @@ void repeater_filter_setting(int mode){
 	fprintf(fp, "COMMIT\n\n");
 	fclose(fp);
 
-	evalRet = eval("iptables-restore", "/tmp/filter_rules");
-	rule_apply_checking("firewall", __LINE__, "/tmp/filter_rules", evalRet);
+	evalRet = eval("iptables-restore", FIREWALL_RULES("filter_rules"));
+	rule_apply_checking("firewall", __LINE__, FIREWALL_RULES("filter_rules"), evalRet);
 }
 #endif
 #endif
@@ -2118,14 +2118,14 @@ void nat_setting(char *wan_if, char *wan_ip, char *wanx_if, char *wanx_ip, char 
 	if (nvram_get_int("dnsfilter_enable_x") && ipv6_enabled()) {
 		FILE *fp_ipv6;
 
-		fp_ipv6 = fopen("/tmp/nat_rules_ipv6.dnsfilter", "w");
+		fp_ipv6 = fopen(FIREWALL_RULES("nat_rules_ipv6.dnsfilter"), "w");
 		if (fp_ipv6 != NULL) {
 			fprintf(fp_ipv6, "*nat\n"
 			                 ":DNSFILTER - [0:0]\n");
 			dnsfilter6_settings_dnat(fp_ipv6);
 			fprintf(fp_ipv6, "COMMIT\n");
 			fclose(fp_ipv6);
-			eval("ip6tables-restore", "/tmp/nat_rules_ipv6.dnsfilter");
+			eval("ip6tables-restore", FIREWALL_RULES("nat_rules_ipv6.dnsfilter"));
 		}
 	}
 #endif
@@ -2624,14 +2624,14 @@ void nat_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)	//
 	if (nvram_get_int("dnsfilter_enable_x") && ipv6_enabled()) {
 		FILE *fp_ipv6;
 
-		fp_ipv6 = fopen("/tmp/nat_rules_ipv6.dnsfilter", "w");
+		fp_ipv6 = fopen(FIREWALL_RULES("nat_rules_ipv6.dnsfilter"), "w");
 		if (fp_ipv6 != NULL) {
 			fprintf(fp_ipv6, "*nat\n"
 			                 ":DNSFILTER - [0:0]\n");
 			dnsfilter6_settings_dnat(fp_ipv6);
 			fprintf(fp_ipv6, "COMMIT\n");
 			fclose(fp_ipv6);
-			eval("ip6tables-restore", "/tmp/nat_rules_ipv6.dnsfilter");
+			eval("ip6tables-restore", FIREWALL_RULES("nat_rules_ipv6.dnsfilter"));
 		}
 	}
 #endif
@@ -2881,7 +2881,7 @@ start_default_filter(int lanunit)
 	if (!is_routing_enabled())
 		return;
 
-	if ((fp = fopen("/tmp/filter.default", "w")) == NULL)
+	if ((fp = fopen(FIREWALL_RULES("filter.default"), "w")) == NULL)
 		return;
 	fprintf(fp, "*filter\n"
 		":INPUT %s [0:0]\n"
@@ -3075,11 +3075,11 @@ start_default_filter(int lanunit)
 	fprintf(fp, "COMMIT\n\n");
 	fclose(fp);
 
-	evalRet = eval("iptables-restore", "/tmp/filter.default");
-	rule_apply_checking("firewall", __LINE__, "/tmp/filter.default", evalRet);
+	evalRet = eval("iptables-restore", FIREWALL_RULES("filter.default"));
+	rule_apply_checking("firewall", __LINE__, FIREWALL_RULES("filter.default"), evalRet);
 
 #ifdef RTCONFIG_IPV6
-	if ((fp = fopen("/tmp/filter_ipv6.default", "w")) == NULL)
+	if ((fp = fopen(FIREWALL_RULES("filter_ipv6.default"), "w")) == NULL)
 		return;
 	fprintf(fp, "*filter\n"
 		":INPUT %s [0:0]\n"
@@ -3132,15 +3132,15 @@ start_default_filter(int lanunit)
 	fprintf(fp, "COMMIT\n\n");
 	fclose(fp);
 
-	evalRet = eval("ip6tables-restore", "/tmp/filter_ipv6.default");
-	rule_apply_checking("firewall", __LINE__, "/tmp/filter_ipv6.default", evalRet);
+	evalRet = eval("ip6tables-restore", FIREWALL_RULES("filter_ipv6.default"));
+	rule_apply_checking("firewall", __LINE__, FIREWALL_RULES("filter_ipv6.default"), evalRet);
 #endif
 }
 
 #ifdef RTCONFIG_WIFI_SON
 void set_cap_apmode_filter(void)
 {
-	const char *cap_rules = "/tmp/cap_apmode_filter.default";
+	const char *cap_rules = FIREWALL_RULES("cap_apmode_filter.default");
 	FILE *fp;
 	char lan_class[32];
 	int evalRet;
@@ -3174,7 +3174,7 @@ void set_cap_apmode_filter(void)
 
 void reset_filter(void)
 {
-	const char *filter_rules = "/tmp/hive_filter.default";
+	const char *filter_rules = FIREWALL_RULES("hive_filter.default");
 	FILE *fp;
 	int evalRet;
 	if ((fp = fopen(filter_rules, "w")) == NULL)
@@ -3532,10 +3532,10 @@ filter_setting(int wan_unit, char *lan_if, char *lan_ip, char *logaccept, char *
 	snprintf(wan_ip, sizeof(wan_ip), "%s", nvram_safe_get(strcat_r(prefix, "ipaddr", tmp)));
 	snprintf(wanx_ip, sizeof(wanx_ip), "%s", nvram_safe_get(strcat_r(prefix, "xipaddr", tmp)));
 
-	if ((fp=fopen("/tmp/filter_rules", "w"))==NULL) return;
+	if ((fp=fopen(FIREWALL_RULES("filter_rules"), "w"))==NULL) return;
 #ifdef RTCONFIG_IPV6
 	if (ipv6_enabled()) {
-		if ((fp_ipv6 = fopen("/tmp/filter_rules_ipv6", "w"))==NULL) {
+		if ((fp_ipv6 = fopen(FIREWALL_RULES("filter_rules_ipv6"), "w"))==NULL) {
 			fclose(fp);
 			return;
 		}
@@ -4955,8 +4955,8 @@ TRACE_PT("write wl filter\n");
 
 	fprintf(fp, "COMMIT\n\n");
 	if (fp) fclose(fp);
-	evalRet = eval("iptables-restore", "/tmp/filter_rules");
-	rule_apply_checking("firewall", __LINE__, "/tmp/filter_rules", evalRet);
+	evalRet = eval("iptables-restore", FIREWALL_RULES("filter_rules"));
+	rule_apply_checking("firewall", __LINE__, FIREWALL_RULES("filter_rules"), evalRet);
 
 #ifdef RTCONFIG_PROTECTION_SERVER
 	kill_pidfile_s(PROTECT_SRV_PID_PATH, SIGUSR1);
@@ -4970,8 +4970,8 @@ TRACE_PT("write wl filter\n");
 
 		fprintf(fp_ipv6, "COMMIT\n\n");
 		if (fp_ipv6) fclose(fp_ipv6);
-		evalRet = eval("ip6tables-restore", "/tmp/filter_rules_ipv6");
-		rule_apply_checking("firewall", __LINE__, "/tmp/filter_rules_ipv6", evalRet);
+		evalRet = eval("ip6tables-restore", FIREWALL_RULES("filter_rules_ipv6"));
+		rule_apply_checking("firewall", __LINE__, FIREWALL_RULES("filter_rules_ipv6"), evalRet);
 	}
 #endif
 
@@ -5013,10 +5013,10 @@ filter_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)
 		wan_max_unit = WAN_UNIT_MULTICAST_IPTV_MAX;
 #endif
 
-	if ((fp=fopen("/tmp/filter_rules", "w"))==NULL) return;
+	if ((fp=fopen(FIREWALL_RULES("filter_rules"), "w"))==NULL) return;
 #ifdef RTCONFIG_IPV6
 	if (ipv6_enabled()) {
-		if ((fp_ipv6 = fopen("/tmp/filter_rules_ipv6", "w"))==NULL) {
+		if ((fp_ipv6 = fopen(FIREWALL_RULES("filter_rules_ipv6"), "w"))==NULL) {
 			fclose(fp);
 			return;
 		}
@@ -6466,8 +6466,8 @@ TRACE_PT("write wl filter\n");
 
 	fprintf(fp, "COMMIT\n\n");
 	if (fp) fclose(fp);
-	evalRet = eval("iptables-restore", "/tmp/filter_rules");
-	rule_apply_checking("firewall", __LINE__, "/tmp/filter_rules", evalRet);
+	evalRet = eval("iptables-restore", FIREWALL_RULES("filter_rules"));
+	rule_apply_checking("firewall", __LINE__, FIREWALL_RULES("filter_rules"), evalRet);
 
 #ifdef RTCONFIG_PROTECTION_SERVER
 	kill_pidfile_s(PROTECT_SRV_PID_PATH, SIGUSR1);
@@ -6481,8 +6481,8 @@ TRACE_PT("write wl filter\n");
 
 		fprintf(fp_ipv6, "COMMIT\n\n");
 		if (fp_ipv6) fclose(fp_ipv6);
-		evalRet = eval("ip6tables-restore", "/tmp/filter_rules_ipv6");
-		rule_apply_checking("firewall", __LINE__, "/tmp/filter_rules_ipv6", evalRet);
+		evalRet = eval("ip6tables-restore", FIREWALL_RULES("filter_rules_ipv6"));
+		rule_apply_checking("firewall", __LINE__, FIREWALL_RULES("filter_rules_ipv6"), evalRet);
 	}
 #endif
 }
@@ -6590,7 +6590,7 @@ mangle_setting(char *wan_if, char *wan_ip, char *lan_if, char *lan_ip, char *log
 	if (nvram_get_int("yadns_enable_x") && ipv6_enabled()) {
 		FILE *fp;
 
-		fp = fopen("/tmp/mangle_rules_ipv6.yadns", "w");
+		fp = fopen(FIREWALL_RULES("mangle_rules_ipv6.yadns"), "w");
 		if (fp != NULL) {
 			int evalRet;
 			fprintf(fp, "*mangle\n"
@@ -6602,8 +6602,8 @@ mangle_setting(char *wan_if, char *wan_ip, char *lan_if, char *lan_ip, char *log
 			fprintf(fp, "COMMIT\n");
 			fclose(fp);
 
-			evalRet = eval("ip6tables-restore", "/tmp/mangle_rules_ipv6.yadns");
-			rule_apply_checking("firewall", __LINE__, "/tmp/mangle_rules_ipv6.yadns", evalRet);
+			evalRet = eval("ip6tables-restore", FIREWALL_RULES("mangle_rules_ipv6.yadns"));
+			rule_apply_checking("firewall", __LINE__, FIREWALL_RULES("mangle_rules_ipv6.yadns"), evalRet);
 		}
 	}
 #endif /* RTCONFIG_IPV6 */
@@ -6615,7 +6615,7 @@ mangle_setting(char *wan_if, char *wan_ip, char *lan_if, char *lan_ip, char *log
 	if (nvram_get_int("dnsfilter_enable_x") && ipv6_enabled()) {
 		FILE *fp;
 
-		fp = fopen("/tmp/mangle_rules_ipv6.dnsfilter", "w");
+		fp = fopen(FIREWALL_RULES("mangle_rules_ipv6.dnsfilter"), "w");
 		if (fp != NULL) {
 			fprintf(fp, "*mangle\n"
 			    ":DNSFILTERI - [0:0]\n"
@@ -6627,7 +6627,7 @@ mangle_setting(char *wan_if, char *wan_ip, char *lan_if, char *lan_ip, char *log
 			fprintf(fp, "COMMIT\n");
 			fclose(fp);
 
-			eval("ip6tables-restore", "/tmp/mangle_rules_ipv6.dnsfilter");
+			eval("ip6tables-restore", FIREWALL_RULES("mangle_rules_ipv6.dnsfilter"));
 		}
 	}
 #endif /* BCM4912 */
@@ -6827,7 +6827,7 @@ mangle_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)
 	if (nvram_get_int("dnsfilter_enable_x") && ipv6_enabled()) {
 		FILE *fp;
 
-		fp = fopen("/tmp/mangle_rules_ipv6.dnsfilter", "w");
+		fp = fopen(FIREWALL_RULES("mangle_rules_ipv6.dnsfilter"), "w");
 		if (fp != NULL) {
 			fprintf(fp, "*mangle\n"
 				":DNSFILTERI - [0:0]\n"
@@ -6839,7 +6839,7 @@ mangle_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)
 			fprintf(fp, "COMMIT\n");
 			fclose(fp);
 
-			eval("ip6tables-restore", "/tmp/mangle_rules_ipv6.dnsfilter");
+			eval("ip6tables-restore", FIREWALL_RULES("mangle_rules_ipv6.dnsfilter"));
 		}
 	}
 #endif /* BCM4912 */
@@ -6878,7 +6878,7 @@ mangle_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)
 	if (nvram_get_int("yadns_enable_x") && ipv6_enabled()) {
 		FILE *fp;
 
-		fp = fopen("/tmp/mangle_rules_ipv6.yadns", "w");
+		fp = fopen(FIREWALL_RULES("mangle_rules_ipv6.yadns"), "w");
 		if (fp != NULL) {
 			int evalRet;
 			fprintf(fp, "*mangle\n"
@@ -6890,8 +6890,8 @@ mangle_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)
 			fprintf(fp, "COMMIT\n");
 			fclose(fp);
 
-			evalRet = eval("ip6tables-restore", "/tmp/mangle_rules_ipv6.yadns");
-			rule_apply_checking("firewall", __LINE__, "/tmp/mangle_rules_ipv6.yadns", evalRet);
+			evalRet = eval("ip6tables-restore", FIREWALL_RULES("mangle_rules_ipv6.yadns"));
+			rule_apply_checking("firewall", __LINE__, FIREWALL_RULES("mangle_rules_ipv6.yadns"), evalRet);
 		}
 	}
 #endif /* RTCONFIG_IPV6 */

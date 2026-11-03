@@ -257,7 +257,9 @@ static inline int before(int ver1, int ver2)
 #define is_phyconnected() (nvram_match("link_wan","1"))
 #endif
 
-#define NAT_RULES	"/tmp/nat_rules"
+#define FIREWALL_RULES_DIR "/tmp/ppp/firewall"
+#define FIREWALL_RULES(name) FIREWALL_RULES_DIR "/" name
+#define NAT_RULES	FIREWALL_RULES("nat_rules")
 #define REDIRECT_RULES	"/tmp/redirect_rules"
 
 #ifdef RTCONFIG_CONNTRACK

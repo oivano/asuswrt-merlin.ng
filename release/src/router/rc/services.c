@@ -5859,8 +5859,8 @@ stop_ddns(void)
 	if (pids("phddns"))
 		killall("phddns", SIGINT);
 	if (nvram_match("ddns_tunbkrnet", "1")) {
-		int evalRet = eval("iptables-restore", "/tmp/filter_rules");
-		rule_apply_checking("services", __LINE__, "/tmp/filter_rules", evalRet);
+		int evalRet = eval("iptables-restore", FIREWALL_RULES("filter_rules"));
+		rule_apply_checking("services", __LINE__, FIREWALL_RULES("filter_rules"), evalRet);
 		run_custom_script("firewall-start", 0, get_wan_ifname(wan_primary_ifunit()), NULL);
 		nvram_unset("ddns_tunbkrnet");
 	}
