@@ -296,10 +296,13 @@ error:
 	return SWITCH_UNKNOWN;
 }
 
-static int read_entry(void *hwaddr, int vlan, uint16_t entry[6], int *index)
+static int read_entry(void *hwaddr, int vlan, uint16_t entry[6], int *index,
+	int *free_slots)
 {
 	int i, valid, portmap, vid, first = -1;
 
+	*index = -1;
+	*free_slots = 0;
 	vlan &= (model == SWITCH_BCM5325) ? 0x0f : 0x0fff;
 
 	robo_write(PAGE_VTBL, REG_VTBL_MINDX, hwaddr, 3);
@@ -332,11 +335,14 @@ static int read_entry(void *hwaddr, int vlan, uint16_t entry[6], int *index)
 		if (valid && memcmp(entry, hwaddr, ETHER_ADDR_LEN) == 0 && vid == vlan) {
 			*index = i;
 			return portmap;
-		} else if (!valid && first < 0)
-			*index = first = i;
+		} else if (!valid) {
+			if (first < 0)
+				*index = first = i;
+			(*free_slots)++;
+		}
 	}
 
-	memset(entry, 0, sizeof(entry));
+	memset(entry, 0, sizeof(uint16_t) * 6);
 
 	return -1;
 }
@@ -433,12 +439,12 @@ static int read_cpu_portmap(int vlan)
 {
 	uint8_t hwaddr[ETHER_ADDR_LEN];
 	uint16_t entry[6];
-	int index;
+	int index, free_slots;
 
 	if (cpu_portmap < 0) {
 		ether_etohw(ifhwaddr, hwaddr);
 
-		cpu_portmap = read_entry(hwaddr, vlan, entry, &index);
+		cpu_portmap = read_entry(hwaddr, vlan, entry, &index, &free_slots);
 		if (model == SWITCH_BCM5325 && cpu_portmap == 8)
 			cpu_portmap = (1 << 5);
 		else if (cpu_portmap >= 0)
@@ -524,11 +530,11 @@ int switch_get_port(unsigned char *haddr)
 {
 	uint8_t hwaddr[ETHER_ADDR_LEN];
 	uint16_t entry[6];
-	int value, index;
+	int value, index, free_slots;
 
 	ether_etohw(haddr, hwaddr);
 
-	value = read_entry(hwaddr, vlan, entry, &index);
+	value = read_entry(hwaddr, vlan, entry, &index, &free_slots);
 	if (model == SWITCH_BCM5325 && value == 8)
 		value = 5;
 
@@ -549,7 +555,7 @@ int switch_add_portmap(unsigned char *maddr, int portmap)
 {
 	uint8_t hwaddr[ETHER_ADDR_LEN];
 	uint16_t entry[6];
-	int value, index = 0;
+	int value, index, free_slots;
 
 	if ((maddr[0] & 0x01) == 0)
 		return -1;
@@ -559,12 +565,15 @@ int switch_add_portmap(unsigned char *maddr, int portmap)
 
 	ether_etohw(maddr, hwaddr);
 
-	value = read_entry(hwaddr, vlan, entry, &index);
+	value = read_entry(hwaddr, vlan, entry, &index, &free_slots);
 	log_switch("%-5s [" FMT_EA "] = " FMT_PORTS, "read",
 	    ARG_EA(maddr), ARG_PORTS(value));
 
-	if (value < 0)
+	if (value < 0) {
+		if (index < 0 || free_slots <= 1)
+			return -1;
 		value = 0;
+	}
 	portmap = (value | portmap) | cpu_portmap;
 	if (portmap != value) {
 		log_switch("%-5s [" FMT_EA "] = " FMT_PORTS, "write",
@@ -579,7 +588,7 @@ int switch_del_portmap(unsigned char *maddr, int portmap)
 {
 	uint8_t hwaddr[ETHER_ADDR_LEN];
 	uint16_t entry[6];
-	int value, index = 0;
+	int value, index, free_slots;
 
 	if ((maddr[0] & 0x01) == 0)
 		return -1;
@@ -589,13 +598,19 @@ int switch_del_portmap(unsigned char *maddr, int portmap)
 
 	ether_etohw(maddr, hwaddr);
 
-	value = read_entry(hwaddr, vlan, entry, &index);
+	value = read_entry(hwaddr, vlan, entry, &index, &free_slots);
 	log_switch("%-5s [" FMT_EA "] = " FMT_PORTS, "read",
 	    ARG_EA(maddr), ARG_PORTS(value));
 
 	if (value < 0)
-		value = 0;
+		return -1;
 	portmap = (value & ~portmap) | cpu_portmap;
+	if (portmap == cpu_portmap) {
+		log_switch("%-5s [" FMT_EA "] = " FMT_PORTS, "clear",
+		    ARG_EA(maddr), ARG_PORTS(value));
+		write_entry(hwaddr, vlan, entry, index, -1);
+		return 0;
+	}
 	if (portmap != value) {
 		log_switch("%-5s [" FMT_EA "] = " FMT_PORTS, "write",
 		    ARG_EA(maddr), ARG_PORTS(portmap));
@@ -609,14 +624,14 @@ int switch_clr_portmap(unsigned char *maddr)
 {
 	uint8_t hwaddr[ETHER_ADDR_LEN];
 	uint16_t entry[6];
-	int value, index = 0;
+	int value, index, free_slots;
 
 	if ((maddr[0] & 0x01) == 0)
 		return -1;
 
 	ether_etohw(maddr, hwaddr);
 
-	value = read_entry(hwaddr, vlan, entry, &index);
+	value = read_entry(hwaddr, vlan, entry, &index, &free_slots);
 	log_switch("%-5s [" FMT_EA "] = " FMT_PORTS, "read",
 	    ARG_EA(maddr), ARG_PORTS(value));
 
