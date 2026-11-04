@@ -5,6 +5,10 @@ const path = require('path');
 const root = path.resolve(__dirname, '../..');
 const lan = fs.readFileSync(path.join(root, 'release/src/router/rc/lan.c'), 'utf8');
 const services = fs.readFileSync(path.join(root, 'release/src/router/rc/services.c'), 'utf8');
+const bridgeInput = fs.readFileSync(path.join(
+	root,
+	'release/src-rt-6.x.4708/linux/linux-2.6.36/net/bridge/br_input.c'
+), 'utf8');
 
 assert.match(lan, /eval\("ebtables", "--concurrent", "-t", "filter"/);
 assert.doesNotMatch(lan, /GUEST_ARP_EBTABLES\("-C"/);
@@ -30,4 +34,17 @@ assert.match(lan, /guest_arp_filter_refresh\(\);/);
 assert.match(lan, /void lanaccess_wl\(void\)[\s\S]*?guest_arp_filter_refresh\(\);/);
 assert.match(services, /int dnsmasq_script_main\([\s\S]*?guest_arp_filter_refresh\(\);/);
 
-console.log('guest ARP lease-filter source contracts passed');
+const bridgeFinish = bridgeInput.match(/int br_handle_frame_finish\(struct sk_buff \*skb\)[\s\S]*?\n\}/)[0];
+const sourceIsolation = bridgeFinish.indexOf('if (p->flags & BR_ISOLATE_MODE)');
+const multicastForward = bridgeFinish.indexOf('br_multicast_forward(mdst, skb, skb2)');
+const floodForward = bridgeFinish.indexOf('br_flood_forward(br, skb, skb2)');
+assert.ok(sourceIsolation >= 0 && sourceIsolation < multicastForward && sourceIsolation < floodForward);
+assert.match(bridgeFinish, /if \(p->flags & BR_ISOLATE_MODE\) \{\s*skb2 = skb;\s*skb = NULL;\s*\} else if \(is_multicast_ether_addr\(dest\)\)/);
+
+const guestIsolation = lan.match(/void lanaccess_mssid\([\s\S]*?\n\}/)[0];
+assert.match(guestIsolation,
+	/if \(mode\) \{\s*eval\("ebtables", "-I", "FORWARD", "1", "-i", lifname, "-j", "DROP"\);[\s\S]*?eval\("ebtables", "-I", "FORWARD", "1", "-o", lifname, "-j", "DROP"\);/);
+assert.match(guestIsolation,
+	/eval\("ebtables", "-D", "FORWARD", "-i", lifname, "-j", "DROP"\);[\s\S]*?eval\("ebtables", "-D", "FORWARD", "-o", lifname, "-j", "DROP"\);/);
+
+console.log('guest ARP and bridge-isolation source contracts passed');

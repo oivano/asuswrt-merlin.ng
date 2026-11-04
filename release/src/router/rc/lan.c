@@ -5811,13 +5811,12 @@ void lanaccess_mssid(const char *limited_ifname, int mode)
 	if ((sw_mode()!=SW_MODE_REPEATER && strcmp(lifname, nvram_safe_get("wl0.1_ifname"))) && nvram_match("wifison_ready", "1"))
 #endif
 	{
-#if defined(RTCONFIG_BCMARM) \
- || (defined(RTCONFIG_QCA) && LINUX_KERNEL_VERSION >= KERNEL_VERSION(3,14,0))
-		if (!is_router_mode())
-#endif
-		{
-			eval("ebtables", mode ? "-A" : "-D", "FORWARD", "-i", lifname, "-j", "DROP"); //ebtables FORWARD: "for frames being forwarded by the bridge"
-			eval("ebtables", mode ? "-A" : "-D", "FORWARD", "-o", lifname, "-j", "DROP"); // so that traffic via host and nat is passed
+		if (mode) {
+			eval("ebtables", "-I", "FORWARD", "1", "-i", lifname, "-j", "DROP"); //ebtables FORWARD: "for frames being forwarded by the bridge"
+			eval("ebtables", "-I", "FORWARD", "1", "-o", lifname, "-j", "DROP"); // so that traffic via host and nat is passed
+		} else {
+			eval("ebtables", "-D", "FORWARD", "-i", lifname, "-j", "DROP");
+			eval("ebtables", "-D", "FORWARD", "-o", lifname, "-j", "DROP");
 		}
  	}
 
