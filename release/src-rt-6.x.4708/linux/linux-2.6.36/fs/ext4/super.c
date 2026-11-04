@@ -2885,6 +2885,15 @@ static int ext4_fill_super(struct super_block *sb, void *data, int silent)
 			(EXT4_MAX_BLOCK_FILE_PHYS / EXT4_BLOCKS_PER_GROUP(sb)));
 	db_count = (sbi->s_groups_count + EXT4_DESC_PER_BLOCK(sb) - 1) /
 		   EXT4_DESC_PER_BLOCK(sb);
+	if (le16_to_cpu(es->s_reserved_gdt_blocks) > blocksize / 4) {
+		ext4_msg(sb, KERN_ERR, "too many reserved GDT blocks");
+		goto failed_mount;
+	}
+	if (EXT4_HAS_INCOMPAT_FEATURE(sb, EXT4_FEATURE_INCOMPAT_META_BG) &&
+	    le32_to_cpu(es->s_first_meta_bg) > db_count) {
+		ext4_msg(sb, KERN_ERR, "invalid first meta block group");
+		goto failed_mount;
+	}
 	sbi->s_group_desc = kmalloc(db_count * sizeof(struct buffer_head *),
 				    GFP_KERNEL);
 	if (sbi->s_group_desc == NULL) {

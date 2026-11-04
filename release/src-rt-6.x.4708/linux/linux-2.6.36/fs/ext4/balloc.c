@@ -89,6 +89,10 @@ unsigned ext4_init_block_bitmap(struct super_block *sb, struct buffer_head *bh,
 	int bit, bit_max;
 	ext4_group_t ngroups = ext4_get_groups_count(sb);
 	unsigned free_blocks, group_blocks;
+	unsigned int table_bit;
+	unsigned int bitmap_bits = sb->s_blocksize * 8;
+	ext4_fsblk_t start, tmp;
+	int flex_bg = 0;
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
 
 	if (bh) {
@@ -135,20 +139,39 @@ unsigned ext4_init_block_bitmap(struct super_block *sb, struct buffer_head *bh,
 		group_blocks = EXT4_BLOCKS_PER_GROUP(sb);
 	}
 
+	if (bit_max < 0 || bit_max >= bitmap_bits || bit_max >= group_blocks)
+		goto bitmap_corrupt;
+
+	start = ext4_group_first_block_no(sb, block_group);
+	if (EXT4_HAS_INCOMPAT_FEATURE(sb, EXT4_FEATURE_INCOMPAT_FLEX_BG))
+		flex_bg = 1;
+
+	tmp = ext4_block_bitmap(sb, gdp);
+	if (!flex_bg || ext4_block_in_group(sb, tmp, block_group))
+		if (tmp < start || tmp - start >= group_blocks ||
+		    tmp - start >= bitmap_bits)
+			goto bitmap_corrupt;
+
+	tmp = ext4_inode_bitmap(sb, gdp);
+	if (!flex_bg || ext4_block_in_group(sb, tmp, block_group))
+		if (tmp < start || tmp - start >= group_blocks ||
+		    tmp - start >= bitmap_bits)
+			goto bitmap_corrupt;
+
+	tmp = ext4_inode_table(sb, gdp);
+	for (table_bit = 0; table_bit < sbi->s_itb_per_group;
+	     table_bit++, tmp++) {
+		if ((!flex_bg || ext4_block_in_group(sb, tmp, block_group)) &&
+		    (tmp < start || tmp - start >= group_blocks ||
+		     tmp - start >= bitmap_bits))
+			goto bitmap_corrupt;
+	}
+
 	free_blocks = group_blocks - bit_max;
 
 	if (bh) {
-		ext4_fsblk_t start, tmp;
-		int flex_bg = 0;
-
 		for (bit = 0; bit < bit_max; bit++)
 			ext4_set_bit(bit, bh->b_data);
-
-		start = ext4_group_first_block_no(sb, block_group);
-
-		if (EXT4_HAS_INCOMPAT_FEATURE(sb,
-					      EXT4_FEATURE_INCOMPAT_FLEX_BG))
-			flex_bg = 1;
 
 		/* Set bits for block and inode bitmaps, and inode table */
 		tmp = ext4_block_bitmap(sb, gdp);
@@ -174,6 +197,13 @@ unsigned ext4_init_block_bitmap(struct super_block *sb, struct buffer_head *bh,
 		mark_bitmap_end(group_blocks, sb->s_blocksize * 8, bh->b_data);
 	}
 	return free_blocks - ext4_group_used_meta_blocks(sb, block_group, gdp);
+
+bitmap_corrupt:
+	ext4_error(sb, "Invalid block bitmap for group %u", block_group);
+	ext4_free_blks_set(sb, gdp, 0);
+	if (bh)
+		memset(bh->b_data, 0xff, sb->s_blocksize);
+	return 0;
 }
 
 
