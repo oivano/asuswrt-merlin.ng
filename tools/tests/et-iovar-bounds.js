@@ -23,6 +23,9 @@ const arlDump = etc.match(/case IOV_SW_MCTBL:[\s\S]*?bcm_binit\(&b, \(char\*\)ar
 
 assert.match(ioctl, /cmd >= SIOCDEVPRIVATE && cmd <= SIOCDEVPRIVATE \+ ETCROBOWR &&\s*!capable\(CAP_NET_ADMIN\)\)\s*return \(-EPERM\);/,
     'the et private ioctl range requires CAP_NET_ADMIN');
+assert.ok(ioctl.indexOf('memset(buf, 0, size)') > ioctl.indexOf('buf = MALLOC(et->osh, size)') &&
+    ioctl.indexOf('memset(buf, 0, size)') < ioctl.indexOf('if (set && copy_from_user(buf, ifr->ifr_data, size))'),
+    'initialize ioctl scratch storage before output handling or caller input');
 assert.match(ioctl, /!var->buf \|\| var->len < sizeof\(uint\) \|\| var->len > IOCBUFSZ/,
     'reject null, undersized, and oversized buffers before allocation');
 assert.ok(ioctl.indexOf('etc_iovar_valid_len(var->cmd, var->set, buffer, var->len)') <
