@@ -37,7 +37,7 @@ for (const generator of generators) {
     assert(body.includes(forwardCall + '\n\n\t// Default rule'));
     const inputHook = body.indexOf(inputCall);
     const invalid = body.indexOf('"-A INPUT -m state --state INVALID');
-    const access = body.indexOf('write_access_restriction(fp)', invalid);
+    const access = body.indexOf('write_access_restriction(fp, fp_ipv6)', invalid);
     assert(invalid >= 0 && invalid < inputHook);
     assert(access >= 0 && access < inputHook);
 }
