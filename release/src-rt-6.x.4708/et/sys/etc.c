@@ -267,6 +267,12 @@ etc_iovar(etc_info_t *etc, uint cmd, uint set, void *arg, int len)
 	switch (cmd) {
 #if defined(ETROBO) && !defined(_CFE_)
 		case IOV_ET_POWER_SAVE_MODE:
+			if ((set && vecarg[0] >= MAX_NO_PHYS) ||
+			    (!set && vecarg[0] > MAX_NO_PHYS)) {
+				error = -1;
+				break;
+			}
+
 			if (set)
 				error = robo_power_save_mode_set(robo, vecarg[1], vecarg[0]);
 			else {
