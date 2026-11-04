@@ -224,18 +224,31 @@ static size_t read_lba(struct parsed_partitions *state,
  * Allocates space for PTEs based on information found in @gpt.
  * Notes: remember to free pte when you're done!
  */
+static int gpt_entry_array_size(gpt_header *gpt, size_t *count)
+{
+	u32 num_entries;
+	u32 entry_size;
+
+	if (!gpt || !count)
+		return 0;
+
+	num_entries = le32_to_cpu(gpt->num_partition_entries);
+	entry_size = le32_to_cpu(gpt->sizeof_partition_entry);
+	if (entry_size != sizeof(gpt_entry) || !num_entries ||
+	    num_entries > (size_t)-1 / sizeof(gpt_entry))
+		return 0;
+
+	*count = (size_t)num_entries * sizeof(gpt_entry);
+	return 1;
+}
+
 static gpt_entry *alloc_read_gpt_entries(struct parsed_partitions *state,
 					 gpt_header *gpt)
 {
 	size_t count;
 	gpt_entry *pte;
 
-	if (!gpt)
-		return NULL;
-
-	count = le32_to_cpu(gpt->num_partition_entries) *
-                le32_to_cpu(gpt->sizeof_partition_entry);
-	if (!count)
+	if (!gpt_entry_array_size(gpt, &count))
 		return NULL;
 	pte = kzalloc(count, GFP_KERNEL);
 	if (!pte)
@@ -266,6 +279,9 @@ static gpt_header *alloc_read_gpt_header(struct parsed_partitions *state,
 	gpt_header *gpt;
 	unsigned ssz = bdev_logical_block_size(state->bdev);
 
+	if (ssz < sizeof(*gpt))
+		return NULL;
+
 	gpt = kzalloc(ssz, GFP_KERNEL);
 	if (!gpt)
 		return NULL;
@@ -294,11 +310,18 @@ static int is_gpt_valid(struct parsed_partitions *state, u64 lba,
 {
 	u32 crc, origcrc;
 	u64 lastlba;
+	u32 header_size;
+	unsigned int block_size;
+	size_t count;
 
 	if (!ptes)
 		return 0;
 	if (!(*gpt = alloc_read_gpt_header(state, lba)))
 		return 0;
+	block_size = bdev_logical_block_size(state->bdev);
+	header_size = le32_to_cpu((*gpt)->header_size);
+	if (header_size < sizeof(gpt_header) || header_size > block_size)
+		goto fail;
 
 	/* Check the GUID Partition Table signature */
 	if (le64_to_cpu((*gpt)->signature) != GPT_HEADER_SIGNATURE) {
@@ -312,7 +335,7 @@ static int is_gpt_valid(struct parsed_partitions *state, u64 lba,
 	/* Check the GUID Partition Table CRC */
 	origcrc = le32_to_cpu((*gpt)->header_crc32);
 	(*gpt)->header_crc32 = 0;
-	crc = efi_crc32((const unsigned char *) (*gpt), le32_to_cpu((*gpt)->header_size));
+	crc = efi_crc32((const unsigned char *) (*gpt), header_size);
 
 	if (crc != origcrc) {
 		pr_debug("GUID Partition Table Header CRC is wrong: %x != %x\n",
@@ -347,13 +370,13 @@ static int is_gpt_valid(struct parsed_partitions *state, u64 lba,
 		goto fail;
 	}
 
+	if (!gpt_entry_array_size(*gpt, &count))
+		goto fail;
 	if (!(*ptes = alloc_read_gpt_entries(state, *gpt)))
 		goto fail;
 
 	/* Check the GUID Partition Entry Array CRC */
-	crc = efi_crc32((const unsigned char *) (*ptes),
-			le32_to_cpu((*gpt)->num_partition_entries) *
-			le32_to_cpu((*gpt)->sizeof_partition_entry));
+	crc = efi_crc32((const unsigned char *) (*ptes), count);
 
 	if (crc != le32_to_cpu((*gpt)->partition_entry_array_crc32)) {
 		pr_debug("GUID Partitition Entry Array CRC check failed.\n");
