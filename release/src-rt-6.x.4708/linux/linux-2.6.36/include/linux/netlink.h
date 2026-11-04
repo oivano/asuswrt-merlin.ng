@@ -151,6 +151,8 @@ struct nlattr {
 
 struct net;
 
+#define NETLINK_SKB_DST	0x1
+
 static inline struct nlmsghdr *nlmsg_hdr(const struct sk_buff *skb)
 {
 	return (struct nlmsghdr *)skb->data;
@@ -160,6 +162,7 @@ struct netlink_skb_parms {
 	struct ucred		creds;		/* Skb credentials	*/
 	__u32			pid;
 	__u32			dst_group;
+	__u32			flags;
 	kernel_cap_t		eff_cap;
 	__u32			loginuid;	/* Login (audit) uid */
 	__u32			sessionid;	/* Session id (audit) */

@@ -1324,6 +1324,7 @@ static int netlink_sendmsg(struct kiocb *kiocb, struct socket *sock,
 	struct sk_buff *skb;
 	int err;
 	struct scm_cookie scm;
+	unsigned int netlink_skb_flags = 0;
 
 	if ((sk->sk_protocol == 17 ||
 	     sk->sk_protocol == NETLINK_SCSITRANSPORT) &&
@@ -1345,6 +1346,7 @@ static int netlink_sendmsg(struct kiocb *kiocb, struct socket *sock,
 		err = -EINVAL;
 		if (addr->nl_family != AF_NETLINK)
 			goto out;
+		netlink_skb_flags |= NETLINK_SKB_DST;
 		dst_pid = addr->nl_pid;
 		dst_group = ffs(addr->nl_groups);
 		err =  -EPERM;
@@ -1371,6 +1373,7 @@ static int netlink_sendmsg(struct kiocb *kiocb, struct socket *sock,
 
 	NETLINK_CB(skb).pid	= nlk->pid;
 	NETLINK_CB(skb).dst_group = dst_group;
+	NETLINK_CB(skb).flags	= netlink_skb_flags;
 	NETLINK_CB(skb).loginuid = audit_get_loginuid(current);
 	NETLINK_CB(skb).sessionid = audit_get_sessionid(current);
 	security_task_getsecid(current, &(NETLINK_CB(skb).sid));

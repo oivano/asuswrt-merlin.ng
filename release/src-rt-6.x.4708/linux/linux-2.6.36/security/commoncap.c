@@ -18,8 +18,12 @@
 #include <linux/mman.h>
 #include <linux/pagemap.h>
 #include <linux/swap.h>
+#include <linux/fs.h>
+#include <linux/net.h>
 #include <linux/skbuff.h>
 #include <linux/netlink.h>
+#include <linux/cred.h>
+#include <net/sock.h>
 #include <linux/ptrace.h>
 #include <linux/xattr.h>
 #include <linux/hugetlb.h>
@@ -53,7 +57,16 @@ static void warn_setuid_and_fcaps_mixed(const char *fname)
 
 int cap_netlink_send(struct sock *sk, struct sk_buff *skb)
 {
-	NETLINK_CB(skb).eff_cap = current_cap();
+	kernel_cap_t eff_cap = current_cap();
+
+	if (!(NETLINK_CB(skb).flags & NETLINK_SKB_DST)) {
+		if (sk->sk_socket && sk->sk_socket->file)
+			eff_cap = cap_intersect(eff_cap,
+				sk->sk_socket->file->f_cred->cap_effective);
+		else
+			cap_clear(eff_cap);
+	}
+	NETLINK_CB(skb).eff_cap = eff_cap;
 	return 0;
 }
 
