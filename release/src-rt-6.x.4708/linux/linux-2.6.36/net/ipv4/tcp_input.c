@@ -4725,6 +4725,7 @@ static void tcp_collapse_ofo_queue(struct sock *sk)
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct sk_buff *skb = skb_peek(&tp->out_of_order_queue);
 	struct sk_buff *head;
+	u32 range_truesize, sum_tiny = 0;
 	u32 start, end;
 
 	if (skb == NULL)
@@ -4732,6 +4733,7 @@ static void tcp_collapse_ofo_queue(struct sock *sk)
 
 	start = TCP_SKB_CB(skb)->seq;
 	end = TCP_SKB_CB(skb)->end_seq;
+	range_truesize = skb->truesize;
 	head = skb;
 
 	for (;;) {
@@ -4746,15 +4748,24 @@ static void tcp_collapse_ofo_queue(struct sock *sk)
 		if (!skb ||
 		    after(TCP_SKB_CB(skb)->seq, end) ||
 		    before(TCP_SKB_CB(skb)->end_seq, start)) {
-			tcp_collapse(sk, &tp->out_of_order_queue,
-				     head, skb, start, end);
+			if (range_truesize != head->truesize ||
+			    end - start >= SKB_WITH_OVERHEAD(SK_MEM_QUANTUM)) {
+				tcp_collapse(sk, &tp->out_of_order_queue,
+					     head, skb, start, end);
+			} else {
+				sum_tiny += range_truesize;
+				if (sum_tiny > (sk->sk_rcvbuf >> 3))
+					return;
+			}
 			head = skb;
 			if (!skb)
 				break;
 			/* Start new segment */
 			start = TCP_SKB_CB(skb)->seq;
 			end = TCP_SKB_CB(skb)->end_seq;
+			range_truesize = skb->truesize;
 		} else {
+			range_truesize += skb->truesize;
 			if (before(TCP_SKB_CB(skb)->seq, start))
 				start = TCP_SKB_CB(skb)->seq;
 			if (after(TCP_SKB_CB(skb)->end_seq, end))
@@ -4770,21 +4781,46 @@ static void tcp_collapse_ofo_queue(struct sock *sk)
 static int tcp_prune_ofo_queue(struct sock *sk)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
+	struct sk_buff *skb;
+	unsigned int goal;
 	int res = 0;
 
 	if (!skb_queue_empty(&tp->out_of_order_queue)) {
 		NET_INC_STATS_BH(sock_net(sk), LINUX_MIB_OFOPRUNED);
-		__skb_queue_purge(&tp->out_of_order_queue);
+		goal = sk->sk_rcvbuf >> 3;
+		skb = skb_peek_tail(&tp->out_of_order_queue);
+		while (skb) {
+			struct sk_buff *prev = NULL;
+
+			if (!skb_queue_is_first(&tp->out_of_order_queue, skb))
+				prev = skb_queue_prev(&tp->out_of_order_queue, skb);
+
+			if (skb->truesize >= goal)
+				goal = 0;
+			else
+				goal -= skb->truesize;
+
+			__skb_unlink(skb, &tp->out_of_order_queue);
+			__kfree_skb(skb);
+			res = 1;
+
+			if (!prev || goal == 0) {
+				sk_mem_reclaim(sk);
+				if (atomic_read(&sk->sk_rmem_alloc) <= sk->sk_rcvbuf &&
+				    !tcp_memory_pressure)
+					break;
+				goal = sk->sk_rcvbuf >> 3;
+			}
+			skb = prev;
+		}
 
 		/* Reset SACK state.  A conforming SACK implementation will
 		 * do the same at a timeout based retransmit.  When a connection
 		 * is in a sad state like this, we care only about integrity
 		 * of the connection not performance.
 		 */
-		if (tp->rx_opt.sack_ok)
+		if (res && tp->rx_opt.sack_ok)
 			tcp_sack_reset(&tp->rx_opt);
-		sk_mem_reclaim(sk);
-		res = 1;
 	}
 	return res;
 }
