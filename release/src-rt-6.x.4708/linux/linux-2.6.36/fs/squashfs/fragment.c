@@ -50,12 +50,18 @@ int squashfs_frag_lookup(struct super_block *sb, unsigned int fragment,
 				u64 *fragment_block)
 {
 	struct squashfs_sb_info *msblk = sb->s_fs_info;
-	int block = SQUASHFS_FRAGMENT_INDEX(fragment);
-	int offset = SQUASHFS_FRAGMENT_INDEX_OFFSET(fragment);
-	u64 start_block = le64_to_cpu(msblk->fragment_index[block]);
+	int block;
+	int offset;
+	u64 start_block;
 	struct squashfs_fragment_entry fragment_entry;
 	int size;
 
+	if (fragment >= msblk->fragments || !msblk->fragment_index)
+		return -EIO;
+
+	block = SQUASHFS_FRAGMENT_INDEX((u64) fragment);
+	offset = SQUASHFS_FRAGMENT_INDEX_OFFSET((u64) fragment);
+	start_block = le64_to_cpu(msblk->fragment_index[block]);
 	size = squashfs_read_metadata(sb, &fragment_entry, &start_block,
 					&offset, sizeof(fragment_entry));
 	if (size < 0)
@@ -74,10 +80,18 @@ int squashfs_frag_lookup(struct super_block *sb, unsigned int fragment,
 __le64 *squashfs_read_fragment_index_table(struct super_block *sb,
 	u64 fragment_table_start, unsigned int fragments)
 {
-	unsigned int length = SQUASHFS_FRAGMENT_INDEX_BYTES(fragments);
+	struct squashfs_sb_info *msblk = sb->s_fs_info;
+	u64 length64 = SQUASHFS_FRAGMENT_INDEX_BYTES((u64) fragments);
+	unsigned int length;
 	__le64 *fragment_index;
 	int err;
 
+	if (fragments == 0 || length64 > 0x7fffffffULL ||
+			fragment_table_start > (u64) msblk->bytes_used ||
+			length64 > (u64) msblk->bytes_used - fragment_table_start)
+		return ERR_PTR(-EINVAL);
+
+	length = length64;
 	/* Allocate fragment lookup table indexes */
 	fragment_index = kmalloc(length, GFP_KERNEL);
 	if (fragment_index == NULL) {

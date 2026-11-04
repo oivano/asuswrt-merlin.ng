@@ -47,12 +47,18 @@ int squashfs_get_id(struct super_block *sb, unsigned int index,
 					unsigned int *id)
 {
 	struct squashfs_sb_info *msblk = sb->s_fs_info;
-	int block = SQUASHFS_ID_BLOCK(index);
-	int offset = SQUASHFS_ID_BLOCK_OFFSET(index);
-	u64 start_block = le64_to_cpu(msblk->id_table[block]);
+	int block;
+	int offset;
+	u64 start_block;
 	__le32 disk_id;
 	int err;
 
+	if (index >= msblk->ids || !msblk->id_table)
+		return -EIO;
+
+	block = SQUASHFS_ID_BLOCK(index);
+	offset = SQUASHFS_ID_BLOCK_OFFSET(index);
+	start_block = le64_to_cpu(msblk->id_table[block]);
 	err = squashfs_read_metadata(sb, &disk_id, &start_block, &offset,
 							sizeof(disk_id));
 	if (err < 0)
@@ -69,10 +75,18 @@ int squashfs_get_id(struct super_block *sb, unsigned int index,
 __le64 *squashfs_read_id_index_table(struct super_block *sb,
 			u64 id_table_start, unsigned short no_ids)
 {
-	unsigned int length = SQUASHFS_ID_BLOCK_BYTES(no_ids);
+	struct squashfs_sb_info *msblk = sb->s_fs_info;
+	u64 length64 = SQUASHFS_ID_BLOCK_BYTES((u64) no_ids);
+	unsigned int length;
 	__le64 *id_table;
 	int err;
 
+	if (no_ids == 0 || length64 > 0x7fffffffULL ||
+			id_table_start > (u64) msblk->bytes_used ||
+			length64 > (u64) msblk->bytes_used - id_table_start)
+		return ERR_PTR(-EINVAL);
+
+	length = length64;
 	TRACE("In read_id_index_table, length %d\n", length);
 
 	/* Allocate id lookup table indexes */
