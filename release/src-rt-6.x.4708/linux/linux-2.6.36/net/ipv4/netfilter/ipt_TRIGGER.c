@@ -74,6 +74,17 @@ static DEFINE_RWLOCK(trigger_lock);
 	(type)__j;					\
 })
 
+#define LIST_FIND_LOCKED(head, cmpfn, type, args...)\
+({\
+	const struct list_head *__i, *__j = NULL;\
+	list_for_each(__i, (head))\
+		if (cmpfn((const type)__i , ## args)) {\
+			__j = __i;\
+			break;\
+		}\
+	(type)__j;\
+})
+
 struct ipt_trigger {
 	struct list_head list;	/* Trigger list */
 	struct timer_list timeout;	/* Timer for list destroying */
@@ -83,33 +94,21 @@ struct ipt_trigger {
 	struct ipt_trigger_ports ports;	/* Trigger and related ports */
 	u_int8_t reply;		/* Confirm a reply connection */
 	struct net *net;
+	int active;		/* Protected by trigger_lock */
 };
 
 static LIST_HEAD(trigger_list);
 
-static void trigger_timer_refresh(struct ipt_trigger *trig)
+static void __trigger_timer_refresh_locked(struct ipt_trigger *trig)
 {
 	DEBUGP("%s: mport=%u-%u\n", __FUNCTION__, trig->ports.mport[0], trig->ports.mport[1]);
 	NF_CT_ASSERT(trig);
-	write_lock_bh(&trigger_lock);
 
 	/* Need del_timer for race avoidance (may already be dying). */
 	if (del_timer(&trig->timeout)) {
 		trig->timeout.expires = jiffies + (TRIGGER_TIMEOUT * HZ);
 		add_timer(&trig->timeout);
 	}
-
-	write_unlock_bh(&trigger_lock);
-}
-
-static void __del_trigger(struct ipt_trigger *trig)
-{
-	DEBUGP("%s: mport=%u-%u\n", __FUNCTION__, trig->ports.mport[0], trig->ports.mport[1]);
-	NF_CT_ASSERT(trig);
-
-	/* delete from 'trigger_list' */
-	list_del(&trig->list);
-	kfree(trig);
 }
 
 static int ip_ct_kill_triggered(struct nf_conn *i, void *ifindex)
@@ -136,16 +135,23 @@ static void trigger_timeout(unsigned long ul_trig)
 
 	DEBUGP("%s: mport=%u-%u\n", __FUNCTION__, trig->ports.mport[0], trig->ports.mport[1]);
 
-	nf_ct_iterate_cleanup(&init_net, ip_ct_kill_triggered, (void *)trig);
-
 	write_lock_bh(&trigger_lock);
-	__del_trigger(trig);
+	if (!trig->active) {
+		write_unlock_bh(&trigger_lock);
+		return;
+	}
+	trig->active = 0;
+	list_del_init(&trig->list);
 	write_unlock_bh(&trigger_lock);
+
+	nf_ct_iterate_cleanup(&init_net, ip_ct_kill_triggered, (void *)trig);
+	kfree(trig);
 }
 
 static void trigger_flush(void)
 {
 	struct list_head *cur_item, *tmp_item;
+	LIST_HEAD(to_free);
 
 	DEBUGP("%s\n", __FUNCTION__);
 	write_lock_bh(&trigger_lock);
@@ -153,11 +159,20 @@ static void trigger_flush(void)
 		struct ipt_trigger *trig = (void *)cur_item;
 
 		DEBUGP("%s: list_for_each_safe(): %p.\n", __FUNCTION__, trig);
-		del_timer(&trig->timeout);
-		nf_ct_iterate_cleanup(trig->net, ip_ct_kill_triggered, (void *)trig);
-		__del_trigger(trig);
+		trig->active = 0;
+		list_del_init(&trig->list);
+		list_add(&trig->list, &to_free);
 	}
 	write_unlock_bh(&trigger_lock);
+
+	list_for_each_safe(cur_item, tmp_item, &to_free) {
+		struct ipt_trigger *trig = (void *)cur_item;
+
+		list_del_init(&trig->list);
+		del_timer_sync(&trig->timeout);
+		nf_ct_iterate_cleanup(trig->net, ip_ct_kill_triggered, (void *)trig);
+		kfree(trig);
+	}
 }
 
 /*
@@ -188,13 +203,14 @@ static unsigned int trigger_out(struct sk_buff **pskb, const void *targinfo)
 	struct iphdr *iph = ip_hdr(*pskb);
 	struct tcphdr *tcph = (void *)iph + (iph->ihl << 2);	/* Might be TCP, UDP */
 
+	write_lock_bh(&trigger_lock);
 	/* Check if the trigger range has already existed in 'trigger_list'. */
-	trig = LIST_FIND(&trigger_list, trigger_out_matched, struct ipt_trigger *, iph->protocol, ntohs(tcph->dest), info);
+	trig = LIST_FIND_LOCKED(&trigger_list, trigger_out_matched, struct ipt_trigger *, iph->protocol, ntohs(tcph->dest), info);
 
 	if (trig != NULL) {
 		DEBUGP("Tirgger Out Refresh: %pI4 %u\n", &iph->saddr, ntohs(tcph->dest));
 		/* Yeah, it exists. We need to update(delay) the destroying timer. */
-		trigger_timer_refresh(trig);
+		__trigger_timer_refresh_locked(trig);
 		/* In order to allow multiple hosts use the same port range, we update
 		   the 'saddr' after previous trigger has a reply connection. */
 #if 0
@@ -225,11 +241,13 @@ static unsigned int trigger_out(struct sk_buff **pskb, const void *targinfo)
 		 */
 		trig->srcip = iph->saddr;
 #endif
+		write_unlock_bh(&trigger_lock);
 	} else {
 		/* Create new trigger */
 		trig = (struct ipt_trigger *)kzalloc(sizeof(struct ipt_trigger), GFP_ATOMIC);
 		if (trig == NULL) {
 			DEBUGP("No memory for adding Tigger!\n");
+			write_unlock_bh(&trigger_lock);
 			return XT_CONTINUE;
 		}
 
@@ -245,9 +263,9 @@ static unsigned int trigger_out(struct sk_buff **pskb, const void *targinfo)
 		trig->reply = 0;
 		trig->net = dev_net((*pskb)->dev);
 		memcpy(&trig->ports, &info->ports, sizeof(struct ipt_trigger_ports));
+		trig->active = 1;
 
 		/* add to global table of trigger and start timer. */
-		write_lock_bh(&trigger_lock);
 		list_add(&trig->list, &trigger_list);
 		add_timer(&trig->timeout);
 		write_unlock_bh(&trigger_lock);
@@ -280,17 +298,20 @@ static unsigned int trigger_in(struct sk_buff **pskb)
 	tcph = (void *)iph + (iph->ihl << 2);	/* Might be TCP, UDP */
 
 	/* Check if the trigger-ed range has already existed in 'trigger_list'. */
-	trig = LIST_FIND(&trigger_list, trigger_in_matched, struct ipt_trigger *, iph->protocol, ntohs(tcph->dest));
+	write_lock_bh(&trigger_lock);
+	trig = LIST_FIND_LOCKED(&trigger_list, trigger_in_matched, struct ipt_trigger *, iph->protocol, ntohs(tcph->dest));
 
 	if (trig != NULL) {
 		DEBUGP("Trigger In: from %pI4, destination port %u\n", &iph->saddr, ntohs(tcph->dest));
 		/* Yeah, it exists. We need to update(delay) the destroying timer. */
-		trigger_timer_refresh(trig);
+		__trigger_timer_refresh_locked(trig);
+		write_unlock_bh(&trigger_lock);
 
 		return NF_ACCEPT;	/* Accept it, or the imcoming packet could be 
 					   dropped in the FORWARD chain */
 	}
 
+	write_unlock_bh(&trigger_lock);
 	return XT_CONTINUE;	/* Our job is the interception. */
 }
 
@@ -302,28 +323,34 @@ static unsigned int trigger_dnat(struct sk_buff **pskb, unsigned int hooknum)
 	struct nf_conn *ct;
 	enum ip_conntrack_info ctinfo;
 	struct nf_nat_multi_range_compat newrange;
+	u_int32_t srcip = 0;
 
 	iph = ip_hdr(*pskb);
 	tcph = (void *)iph + (iph->ihl << 2);	/* Might be TCP, UDP */
 
 	NF_CT_ASSERT(hooknum == NF_INET_PRE_ROUTING);
 	/* Check if the trigger-ed range has already existed in 'trigger_list'. */
-	trig = LIST_FIND(&trigger_list, trigger_in_matched, struct ipt_trigger *, iph->protocol, ntohs(tcph->dest));
+	write_lock_bh(&trigger_lock);
+	trig = LIST_FIND_LOCKED(&trigger_list, trigger_in_matched, struct ipt_trigger *, iph->protocol, ntohs(tcph->dest));
+	if (trig != NULL && trig->srcip != 0) {
+		srcip = trig->srcip;
+		trig->reply = 1;
+	}
+	write_unlock_bh(&trigger_lock);
 
-	if (trig == NULL || trig->srcip == 0)
+	if (srcip == 0)
 		return XT_CONTINUE;	/* We don't block any packet. */
 
-	trig->reply = 1;	/* Confirm there has been a reply connection. */
 	ct = nf_ct_get(*pskb, &ctinfo);
 	NF_CT_ASSERT(ct && (ctinfo == IP_CT_NEW));
 
-	DEBUGP("Trigger DNAT: %pI4 ", &trig->srcip);
+	DEBUGP("Trigger DNAT: %pI4 ", &srcip);
 	nf_ct_dump_tuple_ip(&ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple);
 
 	/* Alter the destination of imcoming packet. */
 	newrange = ((struct nf_nat_multi_range_compat) {
 		    1, { {
-		    IP_NAT_RANGE_MAP_IPS, trig->srcip, trig->srcip, {
+		    IP_NAT_RANGE_MAP_IPS, srcip, srcip, {
 		    0}, {
 		    0}
 		    }}});
@@ -356,11 +383,13 @@ static unsigned int trigger_refresh(struct sk_buff **pskb)
 	iph = ip_hdr(*pskb);
 	tcph = (void *)iph + (iph->ihl << 2);	/* Might be TCP, UDP */
 
-	trig = LIST_FIND(&trigger_list, trigger_refresh_matched, struct ipt_trigger *, iph->protocol, tcph->source);
+	write_lock_bh(&trigger_lock);
+	trig = LIST_FIND_LOCKED(&trigger_list, trigger_refresh_matched, struct ipt_trigger *, iph->protocol, tcph->source);
 	if (trig != NULL) {
 		DEBUGP("Trigger Refresh: from %pI4, %u\n", &iph->saddr, ntohs(tcph->source));
-		trigger_timer_refresh(trig);
+		__trigger_timer_refresh_locked(trig);
 	}
+	write_unlock_bh(&trigger_lock);
 
 	return XT_CONTINUE;
 }
