@@ -45,6 +45,9 @@ static int ipt_init_target(struct ipt_entry_target *t, char *table, unsigned int
 	struct xt_target *target;
 	int ret = 0;
 
+	if (!strncmp(t->u.user.name, "TRIGGER", sizeof(t->u.user.name)))
+		return -EINVAL;
+
 	if (!strncmp(t->u.user.name, "ROUTE", sizeof(t->u.user.name)))
 		return -EOPNOTSUPP;
 
