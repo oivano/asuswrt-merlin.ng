@@ -166,10 +166,12 @@ static ssize_t show_isolate_mode(struct net_bridge_port *p, char *buf)
 }
 static ssize_t store_isolate_mode(struct net_bridge_port *p, unsigned long v)
 {
-	if (v)
+	if (v) {
 		p->flags |= BR_ISOLATE_MODE;
-	else
+		br_fdb_delete_by_port(p->br, p, 0);
+	} else {
 		p->flags &= ~BR_ISOLATE_MODE;
+	}
 	return 0;
 }
 static BRPORT_ATTR(isolate_mode, S_IRUGO | S_IWUSR,
