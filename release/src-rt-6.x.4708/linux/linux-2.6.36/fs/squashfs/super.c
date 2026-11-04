@@ -175,6 +175,13 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 	msblk->inode_table = le64_to_cpu(sblk->inode_table_start);
 	msblk->directory_table = le64_to_cpu(sblk->directory_table_start);
 	msblk->inodes = le32_to_cpu(sblk->inodes);
+	msblk->ids = le16_to_cpu(sblk->no_ids);
+	fragments = le32_to_cpu(sblk->fragments);
+	msblk->fragments = fragments;
+	if (msblk->ids == 0) {
+		ERROR("Filesystem has no ids\n");
+		goto failed_mount;
+	}
 	flags = le16_to_cpu(sblk->flags);
 
 	TRACE("Found valid superblock on %s\n", bdevname(sb->s_bdev, b));
@@ -228,7 +235,6 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 		goto failed_mount;
 	}
 
-	fragments = le32_to_cpu(sblk->fragments);
 	if (fragments == 0)
 		goto allocate_lookup_table;
 
