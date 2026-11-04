@@ -74,6 +74,8 @@ struct squashfs_sb_info {
 	unsigned short				block_log;
 	long long				bytes_used;
 	unsigned int				inodes;
+	unsigned int				ids;
+	unsigned int				fragments;
 	int					xattr_ids;
 };
 #endif
