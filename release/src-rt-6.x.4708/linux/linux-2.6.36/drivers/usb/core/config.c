@@ -299,7 +299,7 @@ void usb_release_interface_cache(struct kref *ref)
 }
 
 static int usb_parse_interface(struct device *ddev, int cfgno,
-    struct usb_host_config *config, unsigned char *buffer, int size,
+	struct usb_host_config *config, int nintf, unsigned char *buffer, int size,
     u8 inums[], u8 nalts[])
 {
 	unsigned char *buffer0 = buffer;
@@ -321,7 +321,7 @@ static int usb_parse_interface(struct device *ddev, int cfgno,
 	/* Which interface entry is this? */
 	intfc = NULL;
 	inum = d->bInterfaceNumber;
-	for (i = 0; i < config->desc.bNumInterfaces; ++i) {
+	for (i = 0; i < nintf; ++i) {
 		if (inums[i] == inum) {
 			intfc = config->intf_cache[i];
 			break;
@@ -421,12 +421,22 @@ static int usb_parse_configuration(struct usb_device *dev, int cfgidx,
 	u8 inums[USB_MAXINTERFACES], nalts[USB_MAXINTERFACES];
 	unsigned iad_num = 0;
 
+	config->desc.bNumInterfaces = 0;
+	if (size < USB_DT_CONFIG_SIZE) {
+		dev_err(ddev, "config %d descriptor too short: %d bytes\n",
+		    cfgidx, size);
+		return -EINVAL;
+	}
+
 	memcpy(&config->desc, buffer, USB_DT_CONFIG_SIZE);
+	nintf_orig = config->desc.bNumInterfaces;
+	config->desc.bNumInterfaces = 0;
 	if (config->desc.bDescriptorType != USB_DT_CONFIG ||
-	    config->desc.bLength < USB_DT_CONFIG_SIZE) {
+	    config->desc.bLength < USB_DT_CONFIG_SIZE ||
+	    config->desc.bLength > size) {
 		dev_err(ddev, "invalid descriptor for config index %d: "
-		    "type = 0x%X, length = %d\n", cfgidx,
-		    config->desc.bDescriptorType, config->desc.bLength);
+		    "type = 0x%X, length = %d, received = %d\n", cfgidx,
+		    config->desc.bDescriptorType, config->desc.bLength, size);
 		return -EINVAL;
 	}
 	cfgno = config->desc.bConfigurationValue;
@@ -434,7 +444,7 @@ static int usb_parse_configuration(struct usb_device *dev, int cfgidx,
 	buffer += config->desc.bLength;
 	size -= config->desc.bLength;
 
-	nintf = nintf_orig = config->desc.bNumInterfaces;
+	nintf = nintf_orig;
 	if (nintf > USB_MAXINTERFACES) {
 		dev_warn(ddev, "config %d has too many interfaces: %d, "
 		    "using maximum allowed: %d\n",
@@ -537,7 +547,7 @@ static int usb_parse_configuration(struct usb_device *dev, int cfgidx,
 		    cfgno, n, plural(n), nintf_orig);
 	else if (n == 0)
 		dev_warn(ddev, "config %d has no interfaces?\n", cfgno);
-	config->desc.bNumInterfaces = nintf = n;
+	nintf = n;
 
 	/* Check for missing interface numbers */
 	for (i = 0; i < nintf; ++i) {
@@ -563,8 +573,10 @@ static int usb_parse_configuration(struct usb_device *dev, int cfgidx,
 
 		len = sizeof(*intfc) + sizeof(struct usb_host_interface) * j;
 		config->intf_cache[i] = intfc = kzalloc(len, GFP_KERNEL);
-		if (!intfc)
-			return -ENOMEM;
+		if (!intfc) {
+			retval = -ENOMEM;
+			goto err;
+		}
 		kref_init(&intfc->ref);
 	}
 
@@ -583,10 +595,10 @@ static int usb_parse_configuration(struct usb_device *dev, int cfgidx,
 
 	/* Parse all the interface/altsetting descriptors */
 	while (size > 0) {
-		retval = usb_parse_interface(ddev, cfgno, config,
+		retval = usb_parse_interface(ddev, cfgno, config, nintf,
 		    buffer, size, inums, nalts);
 		if (retval < 0)
-			return retval;
+			goto err;
 
 		buffer += retval;
 		size -= retval;
@@ -607,7 +619,18 @@ static int usb_parse_configuration(struct usb_device *dev, int cfgidx,
 		}
 	}
 
+	config->desc.bNumInterfaces = nintf;
 	return 0;
+
+err:
+	for (i = 0; i < nintf; ++i) {
+		if (config->intf_cache[i]) {
+			kref_put(&config->intf_cache[i]->ref,
+			    usb_release_interface_cache);
+			config->intf_cache[i] = NULL;
+		}
+	}
+	return retval;
 }
 
 /* hub-only!! ... and only exported for reset/reinit path.
