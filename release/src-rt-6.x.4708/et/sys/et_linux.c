@@ -2000,6 +2000,23 @@ et_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 	ET_TRACE(("et%d: et_ioctl: cmd 0x%x\n", et->etc->unit, cmd));
 
 	switch (cmd) {
+	case SIOCSETCUP:
+	case SIOCSETCDOWN:
+	case SIOCSETCLOOP:
+	case SIOCSETCSETMSGLEVEL:
+	case SIOCSETCPROMISC:
+	case SIOCSETGETVAR:
+	case SIOCSETCSPEED:
+	case SIOCSETCPHYWR:
+	case SIOCSETCQOS:
+	case SIOCSETCPHYWR2:
+	case SIOCSETCROBOWR:
+		if (!capable(CAP_NET_ADMIN))
+			return (-EPERM);
+		break;
+	}
+
+	switch (cmd) {
 #ifdef SIOCETHTOOL
 	case SIOCETHTOOL:
 		if (copy_from_user(&ethtoolcmd, ifr->ifr_data, sizeof(uint32)))
