@@ -748,6 +748,7 @@ static inline int ip_ufo_append_data(struct sock *sk,
 			int transhdrlen, int mtu, unsigned int flags)
 {
 	struct sk_buff *skb;
+	int new_skb = 0;
 	int err;
 
 	/* There is support for UDP fragmentation offload by network
@@ -761,6 +762,7 @@ static inline int ip_ufo_append_data(struct sock *sk,
 
 		if (skb == NULL)
 			return err;
+		new_skb = 1;
 
 		/* reserve space for Hardware header */
 		skb_reserve(skb, hh_len);
@@ -779,13 +781,21 @@ static inline int ip_ufo_append_data(struct sock *sk,
 		sk->sk_sndmsg_off = 0;
 
 		/* specify the length of each IP datagram fragment */
+	}
+
+	err = skb_append_datato_frags(sk, skb, getfrag, from,
+				       (length - transhdrlen));
+	if (err) {
+		if (new_skb)
+			kfree_skb(skb);
+		return err;
+	}
+	if (new_skb) {
 		skb_shinfo(skb)->gso_size = mtu - fragheaderlen;
 		skb_shinfo(skb)->gso_type = SKB_GSO_UDP;
 		__skb_queue_tail(&sk->sk_write_queue, skb);
 	}
-
-	return skb_append_datato_frags(sk, skb, getfrag, from,
-				       (length - transhdrlen));
+	return 0;
 }
 
 /*
@@ -889,9 +899,14 @@ int ip_append_data(struct sock *sk,
 	skb = skb_peek_tail(&sk->sk_write_queue);
 
 	inet->cork.length += length;
-	if (((length > mtu) || (skb && skb_is_gso(skb))) &&
-	    (sk->sk_protocol == IPPROTO_UDP) &&
-	    (rt->dst.dev->features & NETIF_F_UFO)) {
+	if ((skb && skb_is_gso(skb)) ||
+	    (!skb && length > mtu && sk->sk_protocol == IPPROTO_UDP &&
+	     (rt->dst.dev->features & NETIF_F_UFO))) {
+		if (sk->sk_protocol != IPPROTO_UDP ||
+		    !(rt->dst.dev->features & NETIF_F_UFO)) {
+			err = -EOPNOTSUPP;
+			goto error;
+		}
 		err = ip_ufo_append_data(sk, getfrag, from, length, hh_len,
 					 fragheaderlen, transhdrlen, mtu,
 					 flags);
@@ -936,6 +951,11 @@ alloc_new_skb:
 			datalen = length + fraggap;
 			if (datalen > mtu - fragheaderlen)
 				datalen = maxfraglen - fragheaderlen;
+			if (fraggap > datalen ||
+			    transhdrlen > datalen - fraggap) {
+				err = -EINVAL;
+				goto error;
+			}
 			fraglen = datalen + fragheaderlen;
 
 			if ((flags & MSG_MORE) &&
