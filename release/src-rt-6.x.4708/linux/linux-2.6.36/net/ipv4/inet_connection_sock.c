@@ -572,6 +572,7 @@ struct sock *inet_csk_clone(struct sock *sk, const struct request_sock *req,
 
 		newsk->sk_state = TCP_SYN_RECV;
 		newicsk->icsk_bind_hash = NULL;
+		inet_sk(newsk)->mc_list = NULL;
 
 		inet_sk(newsk)->inet_dport = inet_rsk(req)->rmt_port;
 		inet_sk(newsk)->inet_num = ntohs(inet_rsk(req)->loc_port);
