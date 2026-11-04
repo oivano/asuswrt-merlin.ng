@@ -711,6 +711,34 @@ done:
 	return ret;
 }
 
+static int prepare_writable_cache_dir(const char *path)
+{
+	struct stat st;
+	int fd, ret = -1;
+
+	if (!path || !*path) {
+		errno = EINVAL;
+		return -1;
+	}
+	if (geteuid() != 0) {
+		errno = EPERM;
+		return -1;
+	}
+	if (mkdir(path, 0777) != 0 && errno != EEXIST)
+		return -1;
+	fd = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (fd < 0)
+		return -1;
+	if (fstat(fd, &st) == 0 && S_ISDIR(st.st_mode) && fchown(fd, 0, 0) == 0 &&
+	    fchmod(fd, 0777) == 0 && fstat(fd, &st) == 0 && S_ISDIR(st.st_mode) &&
+	    st.st_uid == 0)
+		ret = 0;
+	else
+		errno = EPERM;
+	close(fd);
+	return ret;
+}
+
 #ifdef RTCONFIG_QTN
 #include "web-qtn.h"
 #endif
@@ -3405,6 +3433,7 @@ void stop_stubby(void)
 #ifdef RTCONFIG_DNSCRYPT
 #define DNSCRYPT_CONFIG	"/etc/dnscrypt-proxy/dnscrypt-proxy.toml"
 #define DNSCRYPT_CACHE_DIR	"/var/lib/misc/dnscrypt-proxy"
+#define DNSCRYPT_LEGACY_CACHE_DIR	"/tmp/etc/dnscrypt-proxy"
 #define DNSCRYPT_PIDFILE	"/var/run/dnscrypt-proxy.pid"
 
 void start_dnscrypt_proxy(void)
@@ -3432,7 +3461,8 @@ void start_dnscrypt_proxy(void)
 	stop_dnscrypt_proxy();
 
 	if (secure_root_config_dir("/etc/dnscrypt-proxy") != 0 ||
-	    secure_root_config_dir(DNSCRYPT_CACHE_DIR) != 0)
+	    prepare_writable_cache_dir(DNSCRYPT_CACHE_DIR) != 0 ||
+	    prepare_writable_cache_dir(DNSCRYPT_LEGACY_CACHE_DIR) != 0)
 		return;
 
 	if ((fp = open_root_config_file("/etc/dnscrypt-proxy", "dnscrypt-proxy.toml", 0644)) == NULL)
