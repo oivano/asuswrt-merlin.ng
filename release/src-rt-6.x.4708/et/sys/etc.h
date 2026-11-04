@@ -295,6 +295,7 @@ extern void etc_up(etc_info_t *etc);
 extern uint etc_down(etc_info_t *etc, int reset);
 extern int etc_ioctl(etc_info_t *etc, int cmd, void *arg);
 extern int etc_iovar(etc_info_t *etc, uint cmd, uint set, void *arg, int len);
+extern int etc_iovar_valid_len(uint cmd, uint set, void *arg, uint len);
 extern void etc_promisc(etc_info_t *etc, uint on);
 extern void etc_qos(etc_info_t *etc, uint on);
 extern void etc_dump(etc_info_t *etc, struct bcmstrbuf *b);

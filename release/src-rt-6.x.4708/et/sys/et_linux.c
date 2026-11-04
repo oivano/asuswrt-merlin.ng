@@ -2054,22 +2054,30 @@ et_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 
 	if (cmd == SIOCSETGETVAR) {
 		var = (et_var_t *)buf;
-		if (var->buf) {
-			if (!var->set)
-				get = TRUE;
+		if (!var->buf || var->len < sizeof(uint) || var->len > IOCBUFSZ) {
+			MFREE(et->osh, buf, size);
+			return (-EINVAL);
+		}
+		if (!var->set)
+			get = TRUE;
 
-			if (!(buffer = (void *) MALLOC(et->osh, var->len))) {
-				ET_ERROR(("et: et_ioctl: out of memory, malloced %d bytes\n",
-					MALLOCED(et->osh)));
-				MFREE(et->osh, buf, size);
-				return (-ENOMEM);
-			}
+		if (!(buffer = (void *) MALLOC(et->osh, var->len))) {
+			ET_ERROR(("et: et_ioctl: out of memory, malloced %d bytes\n",
+				MALLOCED(et->osh)));
+			MFREE(et->osh, buf, size);
+			return (-ENOMEM);
+		}
 
-			if (copy_from_user(buffer, var->buf, var->len)) {
-				MFREE(et->osh, buffer, var->len);
-				MFREE(et->osh, buf, size);
-				return (-EFAULT);
-			}
+		if (copy_from_user(buffer, var->buf, var->len)) {
+			MFREE(et->osh, buffer, var->len);
+			MFREE(et->osh, buf, size);
+			return (-EFAULT);
+		}
+
+		if (!etc_iovar_valid_len(var->cmd, var->set, buffer, var->len)) {
+			MFREE(et->osh, buffer, var->len);
+			MFREE(et->osh, buf, size);
+			return (-EINVAL);
 		}
 	}
 
