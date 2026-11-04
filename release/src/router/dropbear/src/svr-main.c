@@ -136,12 +136,14 @@ static void main_inetd() {
 static struct ssh_source_budget {
 	char host[128];
 	time_t started;
+	time_t last_seen;
 	time_t blocked_until;
 	unsigned int connections;
 } ssh_source_budgets[SSH_SOURCE_SLOTS];
 
 static int ssh_source_allowed(const char *host, time_t now) {
 	struct ssh_source_budget *budget = NULL;
+	struct ssh_source_budget *oldest = NULL;
 	size_t source_index;
 
 	if (!host || strlen(host) >= sizeof(ssh_source_budgets[0].host)) {
@@ -158,8 +160,15 @@ static int ssh_source_allowed(const char *host, time_t now) {
 				now - entry->started >= SSH_SOURCE_WINDOW))) {
 			budget = entry;
 		}
+		if (entry->connections && (!oldest || entry->last_seen < oldest->last_seen)) {
+			oldest = entry;
+		}
 	}
-	if (!budget || now < budget->blocked_until) {
+	if (!budget) {
+		budget = oldest;
+	}
+	if (!budget || (budget->connections && strcmp(budget->host, host) == 0 &&
+			now < budget->blocked_until)) {
 		return 0;
 	}
 	if (!budget->connections || strcmp(budget->host, host) != 0 ||
@@ -174,6 +183,7 @@ static int ssh_source_allowed(const char *host, time_t now) {
 		return 0;
 	}
 	budget->connections++;
+	budget->last_seen = now;
 	return 1;
 }
 

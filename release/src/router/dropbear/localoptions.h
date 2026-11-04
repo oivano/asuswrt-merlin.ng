@@ -16,7 +16,7 @@
 
 /* And then a global limit to avoid chewing memory if connections 
  * come from many IPs */
-#define MAX_UNAUTH_CLIENTS 9
+#define MAX_UNAUTH_CLIENTS 30
 
 /* Default maximum number of failed authentication tries (server option) */
 /* -T server option overrides */
