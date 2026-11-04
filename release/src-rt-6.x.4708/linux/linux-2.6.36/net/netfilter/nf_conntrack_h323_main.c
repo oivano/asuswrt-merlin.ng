@@ -707,6 +707,22 @@ static int expect_h245(struct sk_buff *skb, struct nf_conn *ct,
 	return ret;
 }
 
+static int callforward_addr_is_endpoint(struct nf_conn *ct,
+					const union nf_inet_addr *addr)
+{
+	int direction;
+
+	for (direction = 0; direction < IP_CT_DIR_MAX; direction++) {
+		if (!memcmp(addr, &ct->tuplehash[direction].tuple.src.u3,
+			    sizeof(*addr)) ||
+		    !memcmp(addr, &ct->tuplehash[direction].tuple.dst.u3,
+			    sizeof(*addr)))
+			return 1;
+	}
+
+	return 0;
+}
+
 /* If the calling party is on the same side of the forward-to party,
  * we don't need to track the second call */
 static int callforward_do_filter(const union nf_inet_addr *src,
@@ -783,6 +799,10 @@ static int expect_callforwarding(struct sk_buff *skb,
 	/* Read alternativeAddress */
 	if (!get_h225_addr(ct, *data, taddr, &addr, &port) || port == 0)
 		return 0;
+	if (!callforward_addr_is_endpoint(ct, &addr)) {
+		pr_debug("nf_ct_q931: Call Forwarding address is not an endpoint\n");
+		return 0;
+	}
 
 	/* If the calling party is on the same side of the forward-to party,
 	 * we don't need to track the second call */
