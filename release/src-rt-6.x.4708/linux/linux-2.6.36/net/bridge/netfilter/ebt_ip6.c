@@ -14,6 +14,7 @@
  *  Jan, 2008
  */
 #include <linux/ipv6.h>
+#include <linux/icmpv6.h>
 #include <net/ipv6.h>
 #include <linux/in.h>
 #include <linux/module.h>
@@ -35,6 +36,8 @@ ebt_ip6_mt(const struct sk_buff *skb, struct xt_action_param *par)
 	struct ipv6hdr _ip6h;
 	const struct tcpudphdr *pptr;
 	struct tcpudphdr _ports;
+	const struct icmp6hdr *icmp6h;
+	struct icmp6hdr _icmp6h;
 
 	ih6 = skb_header_pointer(skb, 0, sizeof(_ip6h), &_ip6h);
 	if (ih6 == NULL)
@@ -56,9 +59,22 @@ ebt_ip6_mt(const struct sk_buff *skb, struct xt_action_param *par)
 			return false;
 		if (FWINV(info->protocol != nexthdr, EBT_IP6_PROTO))
 			return false;
-		if (!(info->bitmask & EBT_IP6_DPORT) &&
-		    !(info->bitmask & EBT_IP6_SPORT))
+		if (!(info->bitmask & (EBT_IP6_DPORT | EBT_IP6_SPORT |
+				       EBT_IP6_ICMP6)))
 			return true;
+		if (info->bitmask & EBT_IP6_ICMP6) {
+			icmp6h = skb_header_pointer(skb, offset_ph,
+						    sizeof(_icmp6h), &_icmp6h);
+			if (icmp6h == NULL ||
+			    FWINV(icmp6h->icmp6_type < info->icmpv6_type[0] ||
+				  icmp6h->icmp6_type > info->icmpv6_type[1] ||
+				  icmp6h->icmp6_code < info->icmpv6_code[0] ||
+				  icmp6h->icmp6_code > info->icmpv6_code[1],
+				  EBT_IP6_ICMP6))
+				return false;
+			if (!(info->bitmask & (EBT_IP6_DPORT | EBT_IP6_SPORT)))
+				return true;
+		}
 		pptr = skb_header_pointer(skb, offset_ph, sizeof(_ports),
 					  &_ports);
 		if (pptr == NULL)
@@ -99,6 +115,11 @@ static int ebt_ip6_mt_check(const struct xt_mtchk_param *par)
 		    info->protocol != IPPROTO_DCCP)
 			return -EINVAL;
 	}
+	if (info->bitmask & EBT_IP6_ICMP6 &&
+	    (!(info->bitmask & EBT_IP6_PROTO) ||
+	     info->invflags & EBT_IP6_PROTO ||
+	     info->protocol != IPPROTO_ICMPV6))
+		return -EINVAL;
 	if (info->bitmask & EBT_IP6_DPORT && info->dport[0] > info->dport[1])
 		return -EINVAL;
 	if (info->bitmask & EBT_IP6_SPORT && info->sport[0] > info->sport[1])

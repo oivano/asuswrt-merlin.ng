@@ -9,12 +9,30 @@ const bridgeInput = fs.readFileSync(path.join(
 	root,
 	'release/src-rt-6.x.4708/linux/linux-2.6.36/net/bridge/br_input.c'
 ), 'utf8');
+const ip6Match = fs.readFileSync(path.join(
+	root,
+	'release/src-rt-6.x.4708/linux/linux-2.6.36/net/bridge/netfilter/ebt_ip6.c'
+), 'utf8');
+const ip6Header = fs.readFileSync(path.join(
+	root,
+	'release/src-rt-6.x.4708/linux/linux-2.6.36/include/linux/netfilter_bridge/ebt_ip6.h'
+), 'utf8');
 
 assert.match(lan, /eval\("ebtables", "--concurrent", "-t", "filter"/);
 assert.doesNotMatch(lan, /GUEST_ARP_EBTABLES\("-C"/);
 assert.match(lan, /"--arp-mac-src", binding->mac,[\s\S]*?"--arp-ip-src", binding->ip/);
 assert.match(lan, /"--arp-ip-src", "0\.0\.0\.0", "-j", "ACCEPT"/);
 assert.match(lan, /"-p", "arp",[\s\S]*?"-j", "DROP"/);
+assert.match(lan, /"--ip6-icmp-type", "neighbour-solicitation"/);
+assert.match(lan, /"--ip6-icmp-type", "neighbour-advertisement"/);
+assert.match(lan, /GUEST_ARP_EBTABLES\("-D", "INPUT", "-i", cleanup_ifnames\[i\], "-p", "IPv6"[\s\S]*?"neighbour-solicitation"/);
+assert.match(lan, /GUEST_ARP_EBTABLES\("-D", "INPUT", "-i", cleanup_ifnames\[i\], "-p", "IPv6"[\s\S]*?"neighbour-advertisement"/);
+assert.match(ip6Header, /#define EBT_IP6_ICMP6 0x40/);
+assert.match(ip6Header, /uint8_t icmpv6_type\[2\]/);
+assert.match(ip6Header, /uint8_t icmpv6_code\[2\]/);
+assert.match(ip6Match, /skb_header_pointer\(skb, offset_ph,[\s\S]*?icmp6h->icmp6_type[\s\S]*?icmp6h->icmp6_code/);
+assert.match(ip6Match, /!\(info->bitmask & EBT_IP6_PROTO\)/);
+assert.match(ip6Match, /info->protocol != IPPROTO_ICMPV6/);
 assert.match(lan, /guest_arp_binding_find\(current_bindings, current_count,[\s\S]*?binding->ifname, binding->mac, binding->ip\)/);
 assert.match(lan, /guest_arp_save_state\(state_dirfd, current_bindings, current_count\)/);
 assert.match(lan, /#define GUEST_ARP_STATE_DIR "\/tmp\/guest-arp"/);

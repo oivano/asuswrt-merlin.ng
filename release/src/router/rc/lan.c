@@ -5686,6 +5686,21 @@ void guest_arp_filter_refresh(void)
 			continue;
 
 		guest_arp_add_ifname(active_ifnames, &active_count, ifnames[i]);
+		while (GUEST_ARP_EBTABLES("-D", "INPUT", "-i", ifnames[i], "-p", "IPv6",
+			"--ip6-proto", "ipv6-icmp", "--ip6-icmp-type", "neighbour-solicitation",
+			"-j", "DROP") == 0)
+			;
+		while (GUEST_ARP_EBTABLES("-D", "INPUT", "-i", ifnames[i], "-p", "IPv6",
+			"--ip6-proto", "ipv6-icmp", "--ip6-icmp-type", "neighbour-advertisement",
+			"-j", "DROP") == 0)
+			;
+		if (GUEST_ARP_EBTABLES("-I", "INPUT", "1", "-i", ifnames[i], "-p", "IPv6",
+			"--ip6-proto", "ipv6-icmp", "--ip6-icmp-type", "neighbour-solicitation",
+			"-j", "DROP") != 0 ||
+		    GUEST_ARP_EBTABLES("-I", "INPUT", "1", "-i", ifnames[i], "-p", "IPv6",
+			"--ip6-proto", "ipv6-icmp", "--ip6-icmp-type", "neighbour-advertisement",
+			"-j", "DROP") != 0)
+			goto fail;
 		if (guest_arp_collect_lease_bindings(current_bindings, &current_count,
 			ifnames[i]) != 0)
 			goto fail;
@@ -5746,6 +5761,14 @@ void guest_arp_filter_refresh(void)
 			continue;
 		while (GUEST_ARP_EBTABLES("-D", "INPUT", "-i", cleanup_ifnames[i], "-p", "arp",
 			"--arp-ip-src", "0.0.0.0", "-j", "ACCEPT") == 0)
+			;
+		while (GUEST_ARP_EBTABLES("-D", "INPUT", "-i", cleanup_ifnames[i], "-p", "IPv6",
+			"--ip6-proto", "ipv6-icmp", "--ip6-icmp-type", "neighbour-solicitation",
+			"-j", "DROP") == 0)
+			;
+		while (GUEST_ARP_EBTABLES("-D", "INPUT", "-i", cleanup_ifnames[i], "-p", "IPv6",
+			"--ip6-proto", "ipv6-icmp", "--ip6-icmp-type", "neighbour-advertisement",
+			"-j", "DROP") == 0)
 			;
 		while (GUEST_ARP_EBTABLES("-D", "INPUT", "-i", cleanup_ifnames[i], "-p", "arp",
 			"-j", "DROP") == 0)
