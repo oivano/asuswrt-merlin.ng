@@ -1,12 +1,12 @@
 component: dnscrypt-proxy
 upstream: https://github.com/DNSCrypt/dnscrypt-proxy
-version: 2.1.18
-tag: 2.1.18 (pinned release tag, not master HEAD)
-commit: 458d2af16a8ece668d9453a3293004bdd08158e7
-commit_date: 2026-07-18T14:01:55+02:00
-built: 2026-08-15T08:40:55Z
-build_env: go1.22.6 linux/amd64 host toolchain (not this repo's uClibc/GCC4.5 toolchain)
-build_cmd: GOOS=linux GOARCH=arm GOARM=5 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dnscrypt-proxy .
+version: 2.1.20
+tag: 2.1.20 (pinned release tag, not master HEAD)
+commit: c33302bc279e4d298fa19b99be8b35778db9a901
+commit_date: 2026-10-22T23:08:45+02:00
+built: 2026-11-04T20:43:44Z
+build_env: golang:1.27.2 linux/amd64 Docker image (not this repo's uClibc/GCC4.5 toolchain)
+build_cmd: (cd dnscrypt-proxy && GOOS=linux GOARCH=arm GOARM=5 CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags="-s -w" -o /work/dnscrypt-proxy .)
 notes: GOARM=5 (soft-float) is REQUIRED.
-hardware_test: verified 2026-08-15 via SSH on a live DSL-AC68U (386.15,
-2.6.36.4brcmarm)
+binary_sha256: 9328a458a5eae3a0d00eef9afa49a5de39fb0d871922a22c8ffb59b343fdaf5f
+hardware_test: 2.1.20 last verified 2026-11-04 via SSH on a live DSL-AC68U (386.16, 2.6.36.4brcmarm)
