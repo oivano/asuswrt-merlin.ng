@@ -6,6 +6,7 @@ const vm = require('node:vm');
 const root = path.resolve(__dirname, '../..');
 const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 const listener = read('release/src/router/dropbear/src/svr-main.c');
+const localOptions = read('release/src/router/dropbear/localoptions.h');
 const ssh = read('release/src/router/rc/ssh.c');
 const ui = read('release/src/router/www/Advanced_System_Content.asp');
 const constants = Object.fromEntries([...listener.matchAll(/^#define (SSH_SOURCE_\w+) (\d+)$/gm)]
@@ -20,6 +21,7 @@ let body = listener.slice(functionStart, functionEnd);
 body = body.replace(/static int ssh_source_allowed\(const char \*host, time_t now\)/,
     'function ssh_source_allowed(host, now)')
     .replace(/struct ssh_source_budget \*budget = NULL;/, 'let budget = null;')
+    .replace(/struct ssh_source_budget \*oldest = NULL;/, 'let oldest = null;')
     .replace(/size_t source_index;/, 'let source_index;')
     .replace(/struct ssh_source_budget \*entry = &ssh_source_budgets\[source_index\];/,
         'let entry = ssh_source_budgets[source_index];')
@@ -52,14 +54,25 @@ const expiry = makeLimiter();
 for (let attempt = 0; attempt < 5; attempt++) assert.equal(expiry('192.0.2.1', 0), 1);
 assert.equal(expiry('192.0.2.1', 60), 1);
 const full = makeLimiter();
-for (let source = 0; source < 64; source++) assert.equal(full(`2001:db8::${source}`, 100), 1);
-assert.equal(full('198.51.100.1', 101), 0);
-for (let attempt = 0; attempt < 4; attempt++) assert.equal(full('2001:db8::0', 101), 1);
-assert.equal(full('2001:db8::0', 102), 0);
-assert.equal(full('198.51.100.1', 160), 1);
-assert.equal(full('2001:db8::0', 161), 0);
+for (let source = 0; source < 64; source++) {
+    for (let attempt = 0; attempt < 5; attempt++) assert.equal(full(`2001:db8::${source}`, 100), 1);
+    assert.equal(full(`2001:db8::${source}`, 100), 0);
+}
+assert.equal(full('198.51.100.1', 101), 1);
 assert.equal(makeLimiter()(null, 0), 0);
 assert.equal(makeLimiter()('x'.repeat(128), 0), 0);
+
+assert.match(localOptions, /#define MAX_UNAUTH_PER_IP 3/);
+assert.match(localOptions, /#define MAX_UNAUTH_CLIENTS 30/);
+const unauthGuard = listener.match(/if \((num_unauthed_total >= MAX_UNAUTH_CLIENTS\s+\|\| num_unauthed_for_addr >= MAX_UNAUTH_PER_IP)\)/)[1];
+const unauthRejected = (total, perSource) => vm.runInNewContext(unauthGuard, {
+    num_unauthed_total: total, MAX_UNAUTH_CLIENTS: 30,
+    num_unauthed_for_addr: perSource, MAX_UNAUTH_PER_IP: 3,
+});
+assert.equal(unauthRejected(9, 0), false);
+assert.equal(unauthRejected(29, 0), false);
+assert.equal(unauthRejected(30, 0), true);
+assert.equal(unauthRejected(9, 3), true);
 
 const admission = listener.indexOf('if (!ssh_source_allowed(remote_host, monotonic_now()))');
 assert.ok(admission > listener.indexOf('childsock = accept('));
