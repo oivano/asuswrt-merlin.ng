@@ -147,8 +147,21 @@ int crontab_main(int argc UNUSED_PARAM, char **argv)
 
 	case OPT_l: /* List */
 		{
-			char *args[2] = { pas->pw_name, NULL };
-			return bb_cat(args);
+			fd = open(pas->pw_name, O_RDONLY);
+			if (fd < 0) {
+				bb_perror_msg("can't open '%s'", pas->pw_name);
+				return EXIT_FAILURE;
+			}
+			if (geteuid() != getuid()) {
+				if (setgid(getgid()) || setuid(getuid()))
+					bb_perror_msg_and_die("can't drop privileges");
+			}
+			if (bb_copyfd_eof(fd, STDOUT_FILENO) < 0) {
+				close(fd);
+				return EXIT_FAILURE;
+			}
+			close(fd);
+			return EXIT_SUCCESS;
 			/* list exits,
 			 * the rest go play with cron update file */
 		}
