@@ -192,7 +192,12 @@ static unsigned int ipv6_confirm(unsigned int hooknum,
 	}
 out:
 	/* We've seen it coming out the other side: confirm it */
-	return nf_conntrack_confirm(skb);
+	ret = nf_conntrack_confirm(skb);
+	if (ret == NF_ACCEPT) {
+		ct = nf_ct_get(skb, &ctinfo);
+		ip_conntrack_ipct_add(skb, hooknum, ct, ctinfo, NULL);
+	}
+	return ret;
 }
 
 static enum ip6_defrag_users nf_ct6_defrag_user(unsigned int hooknum,
@@ -238,17 +243,6 @@ static unsigned int ipv6_defrag(unsigned int hooknum,
 
 	nf_ct_frag6_output(hooknum, reasm, (struct net_device *)in,
 			   (struct net_device *)out, okfn);
-
-#if defined(HNDCTF)
-	{
-		struct nf_conn *ct;
-		enum ip_conntrack_info ctinfo;
-
-		ct = nf_ct_get(skb, &ctinfo);
-		ip_conntrack_ipct_add(reasm, hooknum, ct, ctinfo, NULL);
-	}
-#endif /* HNDCTF */
-
 	return NF_STOLEN;
 }
 
