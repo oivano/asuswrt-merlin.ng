@@ -2767,7 +2767,35 @@ void redirect_setting(void)
 }
 #endif
 
-void write_access_restriction(FILE *fp)
+void write_access_restriction_ipv6(FILE *fp)
+{
+#ifdef RTCONFIG_HTTPS
+	int en;
+#endif
+
+	if (!fp || !nvram_match("enable_acc_restriction", "1"))
+		return;
+
+#ifdef RTCONFIG_HTTPS
+	en = nvram_get_int("http_enable");
+	if (en != 0)
+		fprintf(fp, "-A INPUT -p tcp --dport %d -j DROP\n", nvram_get_int("https_lanport") ? : 443);
+	if (en != 1)
+#endif
+		fprintf(fp, "-A INPUT -p tcp --dport %d -j DROP\n", nvram_get_int("http_lanport") ? : 80);
+#ifdef RTCONFIG_HTTPS
+	if (nvram_get_int("misc_http_x") && nvram_get_int("http_enable") != 0)
+		fprintf(fp, "-A INPUT -p tcp --dport %d -j DROP\n", nvram_get_int("misc_httpsport_x") ? : 8443);
+#endif
+#ifdef RTCONFIG_SSH
+	if (nvram_get_int("sshd_enable") != 0)
+		fprintf(fp, "-A INPUT -p tcp --dport %d -j DROP\n", nvram_get_int("sshd_port") ? : 22);
+#endif
+	if (nvram_get_int("telnetd_enable") == 1)
+		fprintf(fp, "-A INPUT -p tcp --dport 23 -j DROP\n");
+}
+
+void write_access_restriction(FILE *fp, FILE *fp_ipv6)
 {
 	char *nv, *nvp, *b;
 	char *enable, *srcip, *accessType;
@@ -2803,6 +2831,7 @@ void write_access_restriction(FILE *fp)
 
 		fprintf(fp, "-A INPUT -p tcp -m multiport --dport %s%s%s -j ACCESS_RESTRICTION\n",
 			    webports, sshport, nvram_get_int("telnetd_enable") == 1 ? ",23" : "");
+		write_access_restriction_ipv6(fp_ipv6);
 
 		nvp = nv = strdup(nvram_safe_get("restrict_rulelist"));
 		while (nv && (b = strsep(&nvp, "<")) != NULL) {
@@ -3016,7 +3045,7 @@ start_default_filter(int lanunit)
 	fprintf(fp, "-A INPUT -m state --state INVALID -j %s\n", debug ? "ACCEPT" : "DROP");
 
 	/* Specific IP access restriction */
-	write_access_restriction(fp);
+	write_access_restriction(fp, NULL);
 
 #ifdef RTCONFIG_PROTECTION_SERVER
 	if (nvram_get_int("telnetd_enable") != 0
@@ -3094,6 +3123,7 @@ start_default_filter(int lanunit)
 	if (ipv6_enabled()) {
 		fprintf(fp, "-A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT\n");
 		fprintf(fp, "-A INPUT -m state --state INVALID -j %s\n", debug ? "ACCEPT" : "DROP");
+		write_access_restriction_ipv6(fp);
 		fprintf(fp, "-A INPUT -i %s -m state --state NEW -j ACCEPT\n", lan_if);
 		fprintf(fp, "-A INPUT -i %s -m state --state NEW -j ACCEPT\n", "lo");
 
@@ -3894,7 +3924,7 @@ TRACE_PT("writing Parental Control\n");
 #endif
 
 		/* Specific IP access restriction */
-		write_access_restriction(fp);
+		write_access_restriction(fp, fp_ipv6);
 
 #ifdef RTCONFIG_PROTECTION_SERVER
 		if (nvram_get_int("telnetd_enable") != 0
@@ -5380,7 +5410,7 @@ TRACE_PT("writing Parental Control\n");
 #endif
 
 		/* Specific IP access restriction */
-		write_access_restriction(fp);
+		write_access_restriction(fp, fp_ipv6);
 
 #ifdef RTCONFIG_PROTECTION_SERVER
 		if (nvram_get_int("telnetd_enable") != 0
