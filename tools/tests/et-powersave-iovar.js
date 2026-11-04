@@ -3,6 +3,7 @@ const fs = require('fs');
 
 const etc = fs.readFileSync('release/src-rt-6.x.4708/et/sys/etc.c', 'utf8');
 const linux = fs.readFileSync('release/src-rt-6.x.4708/et/sys/et_linux.c', 'utf8');
+const ioctlHeader = fs.readFileSync('release/src-rt-6.x.4708/include/etioctl.h', 'utf8');
 
 const powerSave = etc.match(/case IOV_ET_POWER_SAVE_MODE:([\s\S]*?)\n\s*case IOV_ET_ROBO_DEVID:/);
 assert(powerSave, 'power-save iovar handler exists');
@@ -22,15 +23,30 @@ assert(isRejected(true, 5), 'set rejects the get-all sentinel');
 assert(!isRejected(false, 4), 'get accepts the last physical port');
 assert(!isRejected(false, 5), 'get accepts the get-all sentinel');
 
-const capabilityGate = linux.match(/switch \(cmd\) \{([\s\S]*?)\n\s*switch \(cmd\) \{/);
-assert(capabilityGate, 'private ioctl capability gate precedes dispatch');
-assert(capabilityGate[1].includes('if (!capable(CAP_NET_ADMIN))\n\t\t\treturn (-EPERM);'));
-for (const command of [
-	'SIOCSETGETVAR', 'SIOCSETCPHYWR', 'SIOCSETCPHYWR2', 'SIOCSETCROBOWR',
-	'SIOCSETCUP', 'SIOCSETCDOWN', 'SIOCSETCLOOP', 'SIOCSETCSETMSGLEVEL',
-	'SIOCSETCPROMISC', 'SIOCSETCSPEED', 'SIOCSETCQOS'
+const privateIoctlGuard = linux.match(/if \(cmd >= SIOCDEVPRIVATE && cmd <= SIOCDEVPRIVATE \+ ETCROBOWR &&\s*!capable\(CAP_NET_ADMIN\)\)\s*return \(-EPERM\);/);
+assert(privateIoctlGuard, 'the complete et private ioctl range requires CAP_NET_ADMIN');
+assert.match(ioctlHeader, /^#define ETCROBOWR\s+15$/m,
+	'ETCROBOWR remains the highest et private ioctl offset');
+const etIoctl = linux.slice(linux.indexOf('et_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)\n{'));
+assert(etIoctl.indexOf(privateIoctlGuard[0]) < etIoctl.indexOf('ET_INFO(dev)'),
+	'capability check precedes driver state access');
+for (const operation of ['MALLOC(et->osh, size)', 'copy_from_user']) {
+	assert(etIoctl.indexOf(privateIoctlGuard[0]) < etIoctl.indexOf(operation),
+		`capability check precedes ${operation}`);
+}
+
+const isDenied = (offset, hasCapability) => offset >= 0 && offset <= 15 && !hasCapability;
+for (let offset = 0; offset <= 15; offset++) {
+	assert(isDenied(offset, false), `private ioctl offset ${offset} requires CAP_NET_ADMIN`);
+	assert(!isDenied(offset, true), `privileged private ioctl offset ${offset} remains available`);
+}
+for (const [command, offset] of [
+	['SIOCSETCROBOWR', 15], ['SIOCSETCPHYWR2', 13], ['SIOCSETCDOWN', 1],
+	['SIOCSETGETVAR', 6], ['SIOCGETCROBORD', 14]
 ]) {
-	assert(capabilityGate[1].includes(`case ${command}:`), `${command} is capability-gated`);
+	assert.match(ioctlHeader, new RegExp(`#define ${command}\\s+\\(SIOCDEVPRIVATE \\+ ETC\\w+\\)`),
+		`${command} is part of the driver-private ioctl range`);
+	assert(isDenied(offset, false), `${command} is capability-gated`);
 }
 
 console.log('et power-save iovar and private ioctl checks passed');
