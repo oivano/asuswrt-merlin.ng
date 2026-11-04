@@ -1146,6 +1146,7 @@ static int journal_get_superblock(journal_t *journal)
 	struct buffer_head *bh;
 	journal_superblock_t *sb;
 	int err = -EIO;
+	unsigned int first;
 
 	bh = journal->j_sb_buffer;
 
@@ -1186,6 +1187,12 @@ static int journal_get_superblock(journal_t *journal)
 		journal->j_maxlen = be32_to_cpu(sb->s_maxlen);
 	else if (be32_to_cpu(sb->s_maxlen) > journal->j_maxlen) {
 		printk (KERN_WARNING "JBD: journal file too short\n");
+		goto out;
+	}
+
+	first = be32_to_cpu(sb->s_first);
+	if (first == 0 || first >= journal->j_maxlen) {
+		printk(KERN_ERR "JBD2: Invalid start block (%u)\n", first);
 		goto out;
 	}
 
