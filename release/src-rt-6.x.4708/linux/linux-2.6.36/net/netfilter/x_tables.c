@@ -14,6 +14,7 @@
  */
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 #include <linux/kernel.h>
+#include <linux/bitops.h>
 #include <linux/socket.h>
 #include <linux/net.h>
 #include <linux/proc_fs.h>
@@ -416,6 +417,56 @@ int xt_check_match(struct xt_mtchk_param *par,
 	return 0;
 }
 EXPORT_SYMBOL_GPL(xt_check_match);
+
+static int xt_check_entry_match(const char *match, const char *target)
+{
+	const struct xt_entry_match *pos;
+	size_t length = target - match;
+
+	while (length > 0) {
+		if (length < sizeof(*pos))
+			return -EINVAL;
+
+		pos = (const struct xt_entry_match *)match;
+		if ((unsigned long)pos % __alignof__(struct xt_entry_match) != 0 ||
+		    pos->u.match_size < sizeof(*pos) ||
+		    pos->u.match_size > length ||
+		    pos->u.user.name[XT_EXTENSION_MAXNAMELEN - 1] != '\0')
+			return -EINVAL;
+
+		length -= pos->u.match_size;
+		match += pos->u.match_size;
+	}
+
+	return 0;
+}
+
+int xt_check_entry_offsets(const void *base, const char *elems,
+			   unsigned int target_offset,
+			   unsigned int next_offset)
+{
+	long size_of_base_struct = elems - (const char *)base;
+	const struct xt_entry_target *target;
+	const char *entry = base;
+
+	if (target_offset < size_of_base_struct ||
+	    target_offset + sizeof(*target) > next_offset)
+		return -EINVAL;
+
+	target = (const struct xt_entry_target *)(entry + target_offset);
+	if (target->u.target_size < sizeof(*target) ||
+	    target_offset + target->u.target_size > next_offset ||
+	    target->u.user.name[XT_EXTENSION_MAXNAMELEN - 1] != '\0')
+		return -EINVAL;
+
+	if (strcmp(target->u.user.name, XT_STANDARD_TARGET) == 0 &&
+	    XT_ALIGN(target_offset + sizeof(struct xt_standard_target)) !=
+	    next_offset)
+		return -EINVAL;
+
+	return xt_check_entry_match(elems, entry + target_offset);
+}
+EXPORT_SYMBOL(xt_check_entry_offsets);
 
 #ifdef CONFIG_COMPAT
 int xt_compat_add_offset(u_int8_t af, unsigned int offset, short delta)
