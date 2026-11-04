@@ -1995,26 +1995,13 @@ et_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 	et_var_t *var = NULL;
 	void *buffer = NULL;
 
+	if (cmd >= SIOCDEVPRIVATE && cmd <= SIOCDEVPRIVATE + ETCROBOWR &&
+	    !capable(CAP_NET_ADMIN))
+		return (-EPERM);
+
 	et = ET_INFO(dev);
 
 	ET_TRACE(("et%d: et_ioctl: cmd 0x%x\n", et->etc->unit, cmd));
-
-	switch (cmd) {
-	case SIOCSETCUP:
-	case SIOCSETCDOWN:
-	case SIOCSETCLOOP:
-	case SIOCSETCSETMSGLEVEL:
-	case SIOCSETCPROMISC:
-	case SIOCSETGETVAR:
-	case SIOCSETCSPEED:
-	case SIOCSETCPHYWR:
-	case SIOCSETCQOS:
-	case SIOCSETCPHYWR2:
-	case SIOCSETCROBOWR:
-		if (!capable(CAP_NET_ADMIN))
-			return (-EPERM);
-		break;
-	}
 
 	switch (cmd) {
 #ifdef SIOCETHTOOL
