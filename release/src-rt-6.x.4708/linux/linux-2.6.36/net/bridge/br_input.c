@@ -77,7 +77,10 @@ int br_handle_frame_finish(struct sk_buff *skb)
 
 	dst = NULL;
 
-	if (is_multicast_ether_addr(dest)) {
+	if (p->flags & BR_ISOLATE_MODE) {
+		skb2 = skb;
+		skb = NULL;
+	} else if (is_multicast_ether_addr(dest)) {
 		mdst = br_mdb_get(br, skb);
 		if (mdst || BR_INPUT_SKB_CB_MROUTERS_ONLY(skb)) {
 			if ((mdst && mdst->mglist) ||
