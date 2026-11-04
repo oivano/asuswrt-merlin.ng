@@ -40,7 +40,6 @@
 #include <linux/inet.h>
 #include <linux/ctype.h>
 #define NF_NEED_STRNCASECMP
-#define NF_NEED_STRTOU16
 #include <linux/netfilter_helpers.h>
 #define NF_NEED_MIME_NEXTLINE
 #include <linux/netfilter_mime.h>
@@ -78,6 +77,21 @@ get_skb_tcpdata(struct sk_buff* skb, char** pptcpdata, uint* ptcpdatalen)
     *ptcpdatalen = ((char*)skb_transport_header(skb) + skb->len) - *pptcpdata;
 }
 
+static uint
+rtsp_strtou16(const char* pbuf, const char* end, u_int16_t* pval)
+{
+    const char* p = pbuf;
+
+    *pval = 0;
+    while (p < end && isdigit(*p))
+    {
+        *pval = (*pval * 10) + (*p - '0');
+        p++;
+    }
+
+    return p - pbuf;
+}
+
 /*** nat functions ***/
 
 /*
@@ -113,7 +127,7 @@ rtsp_mangle_tran(enum ip_conntrack_info ctinfo,
     u_int32_t   newip;
     u_int16_t   loport, hiport;
     uint        off = 0;
-    uint        diff;           /* Number of bytes we removed */
+    int         diff;           /* Positive when bytes are removed */
 
     struct nf_conn *ct = exp->master;
     struct nf_conntrack_tuple *t;
@@ -123,10 +137,14 @@ rtsp_mangle_tran(enum ip_conntrack_info ctinfo,
     int     is_stun;
 
     get_skb_tcpdata(skb, &ptcp, &tcplen);
+    if (tranoff > tcplen || tranlen > tcplen-tranoff || tranlen < 10)
+    {
+        pr_info("sanity check failed\n");
+        return 0;
+    }
     ptran = ptcp+tranoff;
 
-    if (tranoff+tranlen > tcplen || tcplen-tranoff < tranlen ||
-        tranlen < 10 || !iseol(ptran[tranlen-1]) ||
+    if (!iseol(ptran[tranlen-1]) ||
         nf_strncasecmp(ptran, "Transport:", 10) != 0)
     {
         pr_info("sanity check failed\n");
@@ -226,8 +244,7 @@ rtsp_mangle_tran(enum ip_conntrack_info ctinfo,
         uint        nextparamoff;
 
         pparamend = memchr(ptran+off, ',', tranlen-off);
-        pparamend = (pparamend == NULL) ? ptran+tranlen : pparamend+1;
-        nextparamoff = pparamend-ptcp;
+        nextparamoff = (pparamend == NULL) ? tranlen : pparamend-ptran+1;
 
         /*
          * We pass over each param twice.  On the first pass, we look for a
@@ -245,9 +262,11 @@ rtsp_mangle_tran(enum ip_conntrack_info ctinfo,
             pfieldend = memchr(ptran+off, ';', nextparamoff-off);
             nextfieldoff = (pfieldend == NULL) ? nextparamoff : pfieldend-ptran+1;
 
-            if (dstact != DSTACT_NONE && strncmp(ptran+off, "destination=", 12) == 0)
+            if (dstact != DSTACT_NONE && nextfieldoff-off >= 12 &&
+                strncmp(ptran+off, "destination=", 12) == 0)
             {
-                if (strncmp(ptran+off+12, szextaddr, extaddrlen) == 0)
+                if (nextfieldoff-off >= 12+extaddrlen &&
+                    strncmp(ptran+off+12, szextaddr, extaddrlen) == 0)
                 {
                     is_stun = 1;
                 }
@@ -255,7 +274,7 @@ rtsp_mangle_tran(enum ip_conntrack_info ctinfo,
                 {
                     diff = nextfieldoff-off;
                     if (!nf_nat_mangle_tcp_packet(skb, ct, ctinfo,
-                                                         off, diff, NULL, 0))
+                                              tranoff+off, diff, NULL, 0))
                     {
                         /* mangle failed, all we can do is bail */
 			nf_ct_unexpect_related(exp);
@@ -284,7 +303,8 @@ rtsp_mangle_tran(enum ip_conntrack_info ctinfo,
             pfieldend = memchr(ptran+off, ';', nextparamoff-off);
             nextfieldoff = (pfieldend == NULL) ? nextparamoff : pfieldend-ptran+1;
 
-            if (strncmp(ptran+off, "client_port=", 12) == 0)
+            if (nextfieldoff-off >= 12 &&
+                strncmp(ptran+off, "client_port=", 12) == 0)
             {
                 u_int16_t   port;
                 uint        numlen;
@@ -294,9 +314,9 @@ rtsp_mangle_tran(enum ip_conntrack_info ctinfo,
                 uint        rbuflen = rbuf1len;
 
                 off += 12;
-                origoff = (ptran-ptcp)+off;
+                origoff = off;
                 origlen = 0;
-                numlen = nf_strtou16(ptran+off, &port);
+                numlen = rtsp_strtou16(ptran+off, ptran+nextfieldoff, &port);
                 off += numlen;
                 origlen += numlen;
                 if (port != prtspexp->loport)
@@ -305,15 +325,24 @@ rtsp_mangle_tran(enum ip_conntrack_info ctinfo,
                 }
                 else
                 {
-                    if (ptran[off] == '-' || ptran[off] == '/')
+                    if (off < nextfieldoff &&
+                        (ptran[off] == '-' || ptran[off] == '/'))
                     {
-                        off++;
-                        origlen++;
-                        numlen = nf_strtou16(ptran+off, &port);
-                        off += numlen;
-                        origlen += numlen;
-                        rbuf = rbufa;
-                        rbuflen = rbufalen;
+                        uint separator_len = 1;
+                        u_int16_t second_port;
+
+                        numlen = rtsp_strtou16(ptran+off+separator_len,
+                                               ptran+nextfieldoff,
+                                               &second_port);
+                        if (numlen != 0)
+                        {
+                            off += separator_len;
+                            origlen += separator_len;
+                            off += numlen;
+                            origlen += numlen;
+                            rbuf = rbufa;
+                            rbuflen = rbufalen;
+                        }
                     }
 
                     /*
@@ -323,9 +352,10 @@ rtsp_mangle_tran(enum ip_conntrack_info ctinfo,
                      *
                      * parameter 4 below is offset from start of tcp data.
                      */
-                    diff = origlen-rbuflen;
+                    diff = (int)origlen-(int)rbuflen;
                     if (!nf_nat_mangle_tcp_packet(skb, ct, ctinfo,
-                                              origoff, origlen, rbuf, rbuflen))
+                                              tranoff+origoff, origlen,
+                                              rbuf, rbuflen))
                     {
                         /* mangle failed, all we can do is bail */
 			nf_ct_unexpect_related(exp);
@@ -333,9 +363,20 @@ rtsp_mangle_tran(enum ip_conntrack_info ctinfo,
                     }
                     get_skb_tcpdata(skb, &ptcp, &tcplen);
                     ptran = ptcp+tranoff;
-                    tranlen -= diff;
-                    nextparamoff -= diff;
-                    nextfieldoff -= diff;
+                    if (diff >= 0)
+                    {
+                        tranlen -= diff;
+                        nextparamoff -= diff;
+                        nextfieldoff -= diff;
+                        off -= diff;
+                    }
+                    else
+                    {
+                        tranlen += -diff;
+                        nextparamoff += -diff;
+                        nextfieldoff += -diff;
+                        off += -diff;
+                    }
                 }
             }
 
