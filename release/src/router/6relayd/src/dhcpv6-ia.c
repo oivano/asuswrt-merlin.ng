@@ -55,6 +55,32 @@ static struct relayd_event reconf_event = {-1, reconf_timer, NULL};
 static int socket_fd = -1;
 static uint32_t serial = 0;
 
+static bool ia_interface_ready(const struct relayd_interface *iface)
+{
+	if (!config || !iface || !config->slaves)
+		return false;
+
+	bool configured = false, has_border = false;
+	for (size_t i = 0; i < config->slavecount; ++i)
+		if (iface == &config->slaves[i]) {
+			configured = true;
+			break;
+		}
+
+	if (!configured || !iface->pd_assignments.next || !iface->pd_assignments.prev ||
+			list_empty(&iface->pd_assignments))
+		return false;
+
+	struct assignment *a;
+	list_for_each_entry(a, &iface->pd_assignments, head)
+		if (!a->clid_len && a->length == 64) {
+			has_border = true;
+			break;
+		}
+
+	return has_border;
+}
+
 
 
 int dhcpv6_init_ia(const struct relayd_config *relayd_config, int dhcpv6_socket)
@@ -382,6 +408,9 @@ static int prefixcmp(const void *va, const void *vb)
 
 static void update(struct relayd_interface *iface)
 {
+	if (!ia_interface_ready(iface))
+		return;
+
 	struct relayd_ipaddr addr[8];
 	memset(addr, 0, sizeof(addr));
 	int len = relayd_get_interface_addresses(iface->ifindex, addr, 8);
@@ -690,6 +719,9 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 size_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct relayd_interface *iface,
 		const struct sockaddr_in6 *addr, const void *data, const uint8_t *end)
 {
+	if (!ia_interface_ready(iface))
+		return 0;
+
 	time_t now = relayd_monotonic_time();
 	size_t response_len = 0;
 	const struct dhcpv6_client_header *hdr = data;

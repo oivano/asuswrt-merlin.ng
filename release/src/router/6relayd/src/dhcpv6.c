@@ -39,6 +39,18 @@ static struct relayd_event dhcpv6_event = {-1, NULL, handle_dhcpv6};
 
 static const struct relayd_config *config = NULL;
 
+static bool is_configured_slave(const struct relayd_interface *iface)
+{
+	if (!config || !iface || !config->slaves)
+		return false;
+
+	for (size_t i = 0; i < config->slavecount; ++i)
+		if (iface == &config->slaves[i])
+			return true;
+
+	return false;
+}
+
 
 
 // Create socket and register events
@@ -177,7 +189,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		struct relayd_interface *iface)
 {
 	struct dhcpv6_client_header *hdr = data;
-	if (len < sizeof(*hdr))
+	if (!is_configured_slave(iface) || len < sizeof(*hdr))
 		return;
 
 	syslog(LOG_NOTICE, "Got DHCPv6 request");
