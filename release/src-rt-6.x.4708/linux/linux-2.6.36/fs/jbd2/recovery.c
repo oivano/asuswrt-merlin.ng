@@ -710,8 +710,8 @@ static int scan_revoke_records(journal_t *journal, struct buffer_head *bh,
 			       tid_t sequence, struct recovery_info *info)
 {
 	jbd2_journal_revoke_header_t *header;
-	int offset, max;
-	int record_len = 4;
+	unsigned int offset, max;
+	unsigned int record_len = 4;
 
 	header = (jbd2_journal_revoke_header_t *) bh->b_data;
 	offset = sizeof(jbd2_journal_revoke_header_t);
@@ -719,6 +719,12 @@ static int scan_revoke_records(journal_t *journal, struct buffer_head *bh,
 
 	if (JBD2_HAS_INCOMPAT_FEATURE(journal, JBD2_FEATURE_INCOMPAT_64BIT))
 		record_len = 8;
+
+	if (max < offset || max > (unsigned int)journal->j_blocksize ||
+	    (max - offset) % record_len) {
+		printk(KERN_ERR "JBD2: Invalid revoke block count %u\n", max);
+		return -EINVAL;
+	}
 
 	while (offset + record_len <= max) {
 		unsigned long long blocknr;

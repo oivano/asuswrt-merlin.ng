@@ -566,13 +566,19 @@ static int scan_revoke_records(journal_t *journal, struct buffer_head *bh,
 			       tid_t sequence, struct recovery_info *info)
 {
 	journal_revoke_header_t *header;
-	int offset, max;
+	unsigned int offset, max;
 
 	header = (journal_revoke_header_t *) bh->b_data;
 	offset = sizeof(journal_revoke_header_t);
 	max = be32_to_cpu(header->r_count);
 
-	while (offset < max) {
+	if (max < offset || max > (unsigned int)journal->j_blocksize ||
+	    (max - offset) % sizeof(__be32)) {
+		printk(KERN_ERR "JBD: Invalid revoke block count %u\n", max);
+		return -EINVAL;
+	}
+
+	while (offset + sizeof(__be32) <= max) {
 		unsigned int blocknr;
 		int err;
 
