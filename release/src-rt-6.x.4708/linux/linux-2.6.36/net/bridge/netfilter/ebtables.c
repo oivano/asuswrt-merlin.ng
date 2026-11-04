@@ -241,6 +241,13 @@ unsigned int ebt_do_table (unsigned int hook, struct sk_buff *skb,
 			acpar.targinfo = t->data;
 			verdict = t->u.target->target(skb, &acpar);
 		}
+		if ((t->u.target->target && verdict != EBT_ACCEPT &&
+		     verdict != EBT_DROP && verdict != EBT_CONTINUE &&
+		     verdict != EBT_RETURN) ||
+		    (!t->u.target->target && verdict < -NUM_STANDARD_TARGETS)) {
+			read_unlock_bh(&table->lock);
+			return NF_DROP;
+		}
 		if (verdict == EBT_ACCEPT) {
 			read_unlock_bh(&table->lock);
 			return NF_ACCEPT;
@@ -251,13 +258,13 @@ unsigned int ebt_do_table (unsigned int hook, struct sk_buff *skb,
 		}
 		if (verdict == EBT_RETURN) {
 letsreturn:
+			if (sp <= 0 || !cs) {
 #ifdef CONFIG_NETFILTER_DEBUG
-			if (sp == 0) {
 				BUGPRINT("RETURN on base chain");
-				/* act like this is EBT_CONTINUE */
-				goto letscontinue;
-			}
 #endif
+				read_unlock_bh(&table->lock);
+				return NF_DROP;
+			}
 			sp--;
 			/* put all the local variables right */
 			i = cs[sp].n;
@@ -278,6 +285,10 @@ letsreturn:
 		}
 #endif
 		/* jump to a udc */
+		if (!cs) {
+			read_unlock_bh(&table->lock);
+			return NF_DROP;
+		}
 		cs[sp].n = i + 1;
 		cs[sp].chaininfo = chaininfo;
 		cs[sp].e = ebt_next_entry(point);

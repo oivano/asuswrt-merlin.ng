@@ -62,6 +62,9 @@ static int ebt_arpreply_tg_check(const struct xt_tgchk_param *par)
 	const struct ebt_arpreply_info *info = par->targinfo;
 	const struct ebt_entry *e = par->entryinfo;
 
+	if (info->target != EBT_ACCEPT && info->target != EBT_DROP &&
+	    info->target != EBT_CONTINUE && info->target != EBT_RETURN)
+		return -EINVAL;
 	if (BASE_CHAIN && info->target == EBT_RETURN)
 		return -EINVAL;
 	if (e->ethproto != htons(ETH_P_ARP) ||
