@@ -5,6 +5,8 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '../..');
 const source = fs.readFileSync(path.join(root,
     'release/src-rt-6.x.4708/linux/linux-2.6.36/net/ipv4/netfilter/ipt_TRIGGER.c'), 'utf8');
+const actIpt = fs.readFileSync(path.join(root,
+    'release/src-rt-6.x.4708/linux/linux-2.6.36/net/sched/act_ipt.c'), 'utf8');
 const functionBody = signature => {
     const start = source.indexOf(signature);
     assert.notEqual(start, -1, `${signature} exists`);
@@ -20,6 +22,12 @@ const functionBody = signature => {
 assert.match(source, /#define LIST_FIND_LOCKED/);
 assert.equal((source.match(/LIST_FIND\(/g) || []).length, 1, 'unsafe lookup macro has no callers');
 assert.match(source, /active;\s*\/\* Protected by trigger_lock \*\//);
+
+const targetInit = actIpt.slice(actIpt.indexOf('static int ipt_init_target('),
+    actIpt.indexOf('static void ipt_destroy_target('));
+assert.match(targetInit, /!strncmp\(t->u\.user\.name, "TRIGGER", sizeof\(t->u\.user\.name\)\)\)\s*return -EINVAL;/);
+assert.ok(targetInit.indexOf('return -EINVAL;') < targetInit.indexOf('xt_request_find_target('),
+    'act_ipt rejects TRIGGER before target lookup and checkentry');
 
 for (const name of ['trigger_out', 'trigger_in', 'trigger_refresh']) {
     const body = functionBody(`static unsigned int ${name}(`);
