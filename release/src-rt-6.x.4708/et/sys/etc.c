@@ -249,6 +249,24 @@ etc_down(etc_info_t *etc, int reset)
 extern void dump_previous_oops(void);
 #endif
 
+int
+etc_iovar_valid_len(uint cmd, uint set, void *arg, uint len)
+{
+	if (!arg || len < sizeof(uint) || len > IOCBUFSZ)
+		return FALSE;
+
+#if defined(ETROBO) && !defined(_CFE_)
+	if (cmd == IOV_ET_POWER_SAVE_MODE) {
+		if (!set && *(uint *)arg == MAX_NO_PHYS)
+			return (len >= sizeof(uint) * MAX_NO_PHYS);
+
+		return (len >= sizeof(uint) * 2);
+	}
+#endif
+
+	return TRUE;
+}
+
 /* common iovar handler. return 0=ok, -1=error */
 int
 etc_iovar(etc_info_t *etc, uint cmd, uint set, void *arg, int len)
@@ -431,7 +449,7 @@ etc_iovar(etc_info_t *etc, uint cmd, uint set, void *arg, int len)
 		case IOV_PORTSTATS:
 			{
 				struct bcmstrbuf b;
-				bcm_binit(&b, (char*)arg, IOCBUFSZ);
+				bcm_binit(&b, (char*)arg, len);
 				et_dump_port_status(etc, *vecarg, &b);
 			}
 			break;
@@ -440,7 +458,7 @@ etc_iovar(etc_info_t *etc, uint cmd, uint set, void *arg, int len)
 			{
 				struct bcmstrbuf b;
 				uint num, pov;
-				bcm_binit(&b, (char*)arg, IOCBUFSZ);
+				bcm_binit(&b, (char*)arg, len);
 				pov = (*vecarg & 0x1ffff) >> 16;
 				num = *vecarg & 0xffff;
 				et_dump_arl_tbl(etc, pov, num, &b);
