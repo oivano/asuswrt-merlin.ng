@@ -23,6 +23,7 @@
 #define ARP_FOUND 1  /* Confirmed */
 #define ARP_NEW   2  /* Newly created */
 #define ARP_EMPTY 3  /* No MAC addr */
+#define ARP_EMPTY_MAX 256
 
 struct arp_record {
   unsigned short hwlen, status;
@@ -34,6 +35,7 @@ struct arp_record {
 
 static struct arp_record *arps = NULL, *old = NULL, *freelist = NULL;
 static time_t last = 0;
+static unsigned int arp_empty_count = 0;
 
 static int filter_mac(int family, void *addrp, char *mac, size_t maclen, void *parmv)
 {
@@ -64,6 +66,7 @@ static int filter_mac(int family, void *addrp, char *mac, size_t maclen, void *p
       if (arp->status == ARP_EMPTY)
 	{
 	  /* existing address, was negative. */
+          arp_empty_count--;
 	  arp->status = ARP_NEW;
 	  arp->hwlen = maclen;
 	  memcpy(arp->hwaddr, mac, maclen);
@@ -155,10 +158,23 @@ int find_mac(union mysockaddr *addr, unsigned char *mac, int lazy, time_t now)
        updated = 1;
        last = now;
 
-       /* Mark all non-negative entries */
-       for (arp = arps; arp; arp = arp->next)
-	 if (arp->status != ARP_EMPTY)
-	   arp->status = ARP_MARK;
+       /* Expire negative entries and mark positives for confirmation. */
+       for (arp = arps, up = &arps; arp; arp = tmp)
+         {
+           tmp = arp->next;
+           if (arp->status == ARP_EMPTY)
+             {
+               *up = arp->next;
+               arp->next = freelist;
+               freelist = arp;
+               arp_empty_count--;
+             }
+           else
+             {
+               arp->status = ARP_MARK;
+               up = &arp->next;
+             }
+         }
        
        iface_enumerate(AF_UNSPEC, NULL, (callback_t){.af_unspec=filter_mac});
        
@@ -182,26 +198,30 @@ int find_mac(union mysockaddr *addr, unsigned char *mac, int lazy, time_t now)
 
   /* record failure, so we don't consult the kernel each time
      we're asked for this address */
-  if (freelist)
-    {
-      arp = freelist;
-      freelist = freelist->next;
-    }
-  else
-    arp = whine_malloc(sizeof(struct arp_record));
-  
-  if (arp)
+  if (arp_empty_count < ARP_EMPTY_MAX)
     {      
-      arp->next = arps;
-      arps = arp;
-      arp->status = ARP_EMPTY;
-      arp->family = addr->sa.sa_family;
-      arp->hwlen = 0;
-
-      if (addr->sa.sa_family == AF_INET)
-	arp->addr.addr4.s_addr = addr->in.sin_addr.s_addr;
+      if (freelist)
+        {
+          arp = freelist;
+          freelist = freelist->next;
+        }
       else
-	memcpy(&arp->addr.addr6, &addr->in6.sin6_addr, IN6ADDRSZ);
+        arp = whine_malloc(sizeof(struct arp_record));
+
+      if (arp)
+        {
+          arp->next = arps;
+          arps = arp;
+          arp->status = ARP_EMPTY;
+          arp->family = addr->sa.sa_family;
+          arp->hwlen = 0;
+          arp_empty_count++;
+
+          if (addr->sa.sa_family == AF_INET)
+            arp->addr.addr4.s_addr = addr->in.sin_addr.s_addr;
+          else
+            memcpy(&arp->addr.addr6, &addr->in6.sin6_addr, IN6ADDRSZ);
+        }
     }
 	  
    return 0;

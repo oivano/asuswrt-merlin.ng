@@ -307,13 +307,9 @@ void dhcp6_packet(time_t now)
 
 void get_client_mac(struct in6_addr *client, int iface, unsigned char *mac, unsigned int *maclenp, unsigned int *mactypep, time_t now)
 {
-  /* Receiving a packet from a host does not populate the neighbour
-     cache, so we send a neighbour discovery request if we can't 
-     find the sender. Repeat a few times in case of packet loss. */
-  
   struct neigh_packet neigh;
   union mysockaddr addr;
-  int i, maclen;
+  int maclen;
 
   neigh.type = ND_NEIGHBOR_SOLICIT;
   neigh.code = 0;
@@ -331,18 +327,10 @@ void get_client_mac(struct in6_addr *client, int iface, unsigned char *mac, unsi
   addr.in6.sin6_addr = *client;
   addr.in6.sin6_scope_id = iface;
   
-  for (i = 0; i < 5; i++)
+  maclen = find_mac(&addr, mac, 0, now);
+  if (maclen == 0)
     {
-      struct timespec ts;
-      
-      if ((maclen = find_mac(&addr, mac, 0, now)) != 0)
-	break;
-	  
       while(retry_send(sendto(daemon->icmp6fd, &neigh, sizeof(neigh), 0, &addr.sa, sizeof(addr))));
-      
-      ts.tv_sec = 0;
-      ts.tv_nsec = 100000000; /* 100ms */
-      nanosleep(&ts, NULL);
     }
 
   *maclenp = maclen;
