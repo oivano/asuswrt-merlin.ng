@@ -74,12 +74,18 @@ br_brc_init(ctf_brc_t *brc, unsigned char *ea, struct net_device *rxdev, unsigne
  * Add bridge cache entry.
  */
 void
-br_brc_add(unsigned char *ea, struct net_device *rxdev, struct sk_buff *skb)
+br_brc_add(unsigned char *ea, struct net_bridge_port *source, struct sk_buff *skb)
 {
 	ctf_brc_t brc_entry, *brcp;
+	struct net_device *rxdev = source->dev;
 	struct ethhdr *eth;
 	struct arphdr *arp;
 	unsigned char *arp_ptr = NULL;
+
+	if (source->flags & BR_ISOLATE_MODE) {
+		ctf_brc_delete(kcih, ea);
+		return;
+	}
 
 	/* Add brc entry only if packet is received on ctf 
 	 * enabled interface
@@ -485,7 +491,7 @@ static struct net_bridge_fdb_entry *fdb_create(struct hlist_head *head,
 		/* Add bridge cache entry for non local hosts */
 #ifdef HNDCTF
 		if (!is_local && (source->state == BR_STATE_FORWARDING))
-			br_brc_add((unsigned char *)addr, source->dev, skb);
+			br_brc_add((unsigned char *)addr, source, skb);
 #endif /* HNDCTF */
 	}
 	return fdb;
@@ -571,7 +577,7 @@ void BCMFASTPATH_HOST br_fdb_update(struct net_bridge *br, struct net_bridge_por
 			 * the same bridge.
 			 */
 			if (source->state == BR_STATE_FORWARDING)
-				br_brc_add((unsigned char *)addr, source->dev, skb);
+				br_brc_add((unsigned char *)addr, source, skb);
 #endif /* HNDCTF */
 
 			fdb->dst = source;
