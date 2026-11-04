@@ -2140,12 +2140,9 @@ int __sys_recvmmsg(int fd, struct mmsghdr __user *mmsg, unsigned int vlen,
 	}
 
 out_put:
-	fput_light(sock->file, fput_needed);
-
 	if (err == 0)
-		return datagrams;
-
-	if (datagrams != 0) {
+		err = datagrams;
+	else if (datagrams != 0) {
 		/*
 		 * We may return less entries than requested (vlen) if the
 		 * sock is non block and there aren't enough datagrams...
@@ -2159,9 +2156,10 @@ out_put:
 			 */
 			sock->sk->sk_err = -err;
 		}
-
-		return datagrams;
+		err = datagrams;
 	}
+
+	fput_light(sock->file, fput_needed);
 
 	return err;
 }
