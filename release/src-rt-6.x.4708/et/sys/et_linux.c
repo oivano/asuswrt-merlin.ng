@@ -2047,6 +2047,8 @@ et_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		return (-ENOMEM);
 	}
 
+	memset(buf, 0, size);
+
 	if (set && copy_from_user(buf, ifr->ifr_data, size)) {
 		MFREE(et->osh, buf, size);
 		return (-EFAULT);
