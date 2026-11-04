@@ -474,6 +474,18 @@ mark_source_chains(const struct xt_table_info *newinfo,
 		   unsigned int valid_hooks, void *entry0)
 {
 	unsigned int hook;
+	struct ipt_entry *iter;
+	unsigned long *entry_bitmap;
+	int ret = 0;
+
+	entry_bitmap = vzalloc(BITS_TO_LONGS(newinfo->size) *
+			       sizeof(unsigned long));
+	if (!entry_bitmap)
+		return -ENOMEM;
+
+	xt_entry_foreach(iter, entry0, newinfo->size)
+		set_bit((unsigned long)((char *)iter - (char *)entry0),
+			entry_bitmap);
 
 	/* No recursion; use packet counter to save back ptrs (reset
 	   to 0 as we leave), and comefrom to save source hook bitmask */
@@ -483,6 +495,10 @@ mark_source_chains(const struct xt_table_info *newinfo,
 
 		if (!(valid_hooks & (1 << hook)))
 			continue;
+		if (pos >= newinfo->size || !test_bit(pos, entry_bitmap)) {
+			ret = -EINVAL;
+			goto out;
+		}
 
 		/* Set initial back pointer. */
 		e->counters.pcnt = pos;
@@ -495,7 +511,8 @@ mark_source_chains(const struct xt_table_info *newinfo,
 			if (e->comefrom & (1 << NF_INET_NUMHOOKS)) {
 				pr_err("iptables: loop hook %u pos %u %08X.\n",
 				       hook, pos, e->comefrom);
-				return 0;
+				ret = -ELOOP;
+				goto out;
 			}
 			e->comefrom |= ((1 << hook) | (1 << NF_INET_NUMHOOKS));
 
@@ -513,7 +530,8 @@ mark_source_chains(const struct xt_table_info *newinfo,
 					duprintf("mark_source_chains: bad "
 						"negative verdict (%i)\n",
 								t->verdict);
-					return 0;
+					ret = -EINVAL;
+					goto out;
 				}
 
 				/* Return: backtrack through the last
@@ -536,6 +554,11 @@ mark_source_chains(const struct xt_table_info *newinfo,
 					/* We're at the start. */
 					if (pos == oldpos)
 						goto next;
+					if (pos >= newinfo->size ||
+					    !test_bit(pos, entry_bitmap)) {
+						ret = -EINVAL;
+						goto out;
+					}
 
 					e = (struct ipt_entry *)
 						(entry0 + pos);
@@ -543,6 +566,14 @@ mark_source_chains(const struct xt_table_info *newinfo,
 
 				/* Move along one */
 				size = e->next_offset;
+				if (size >= newinfo->size - pos) {
+					ret = -EINVAL;
+					goto out;
+				}
+				if (!test_bit(pos + size, entry_bitmap)) {
+					ret = -EINVAL;
+					goto out;
+				}
 				e = (struct ipt_entry *)
 					(entry0 + pos + size);
 				e->counters.pcnt = pos;
@@ -553,19 +584,29 @@ mark_source_chains(const struct xt_table_info *newinfo,
 				if (strcmp(t->target.u.user.name,
 					   IPT_STANDARD_TARGET) == 0 &&
 				    newpos >= 0) {
-					if (newpos > newinfo->size -
-						sizeof(struct ipt_entry)) {
+					if ((unsigned int)newpos >= newinfo->size ||
+					    !test_bit(newpos, entry_bitmap)) {
 						duprintf("mark_source_chains: "
 							"bad verdict (%i)\n",
 								newpos);
-						return 0;
+						ret = -EINVAL;
+						goto out;
 					}
 					/* This a jump; chase it. */
 					duprintf("Jump rule %u -> %u\n",
 						 pos, newpos);
 				} else {
 					/* ... this is a fallthru */
+					if (e->next_offset >=
+					    newinfo->size - pos) {
+						ret = -EINVAL;
+						goto out;
+					}
 					newpos = pos + e->next_offset;
+					if (!test_bit(newpos, entry_bitmap)) {
+						ret = -EINVAL;
+						goto out;
+					}
 				}
 				e = (struct ipt_entry *)
 					(entry0 + newpos);
@@ -576,7 +617,10 @@ mark_source_chains(const struct xt_table_info *newinfo,
 		next:
 		duprintf("Finished chain %u\n", hook);
 	}
-	return 1;
+
+out:
+	vfree(entry_bitmap);
+	return ret;
 }
 
 static void cleanup_match(struct ipt_entry_match *m, struct net *net)
@@ -737,7 +781,7 @@ static bool check_underflow(const struct ipt_entry *e)
 	const struct ipt_entry_target *t;
 	unsigned int verdict;
 
-	if (!unconditional(&e->ip))
+	if (e->target_offset != sizeof(*e) || !unconditional(&e->ip))
 		return false;
 	t = ipt_get_target_c(e);
 	if (strcmp(t->u.user.name, XT_STANDARD_TARGET) != 0)
@@ -757,9 +801,10 @@ check_entry_size_and_hooks(struct ipt_entry *e,
 			   unsigned int valid_hooks)
 {
 	unsigned int h;
+	int ret;
 
 	if ((unsigned long)e % __alignof__(struct ipt_entry) != 0 ||
-	    (unsigned char *)e + sizeof(struct ipt_entry) >= limit) {
+	    limit - (unsigned char *)e < sizeof(struct ipt_entry)) {
 		duprintf("Bad offset %p\n", e);
 		return -EINVAL;
 	}
@@ -770,6 +815,13 @@ check_entry_size_and_hooks(struct ipt_entry *e,
 			 e, e->next_offset);
 		return -EINVAL;
 	}
+	if (e->next_offset > limit - (unsigned char *)e)
+		return -EINVAL;
+
+	ret = xt_check_entry_offsets(e, (char *)e->elems, e->target_offset,
+				     e->next_offset);
+	if (ret)
+		return ret;
 
 	/* Check hooks & underflows */
 	for (h = 0; h < NF_INET_NUMHOOKS; h++) {
@@ -874,8 +926,9 @@ translate_table(struct net *net, struct xt_table_info *newinfo, void *entry0,
 		}
 	}
 
-	if (!mark_source_chains(newinfo, repl->valid_hooks, entry0))
-		return -ELOOP;
+	ret = mark_source_chains(newinfo, repl->valid_hooks, entry0);
+	if (ret)
+		return ret;
 
 	/* Finally, each sanity check must pass */
 	i = 0;
@@ -1767,8 +1820,8 @@ translate_compat_table(struct net *net,
 	if (ret)
 		goto free_newinfo;
 
-	ret = -ELOOP;
-	if (!mark_source_chains(newinfo, valid_hooks, entry1))
+	ret = mark_source_chains(newinfo, valid_hooks, entry1);
+	if (ret)
 		goto free_newinfo;
 
 	i = 0;
