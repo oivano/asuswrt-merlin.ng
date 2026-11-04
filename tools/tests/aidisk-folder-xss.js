@@ -6,6 +6,7 @@ const util = require('node:util');
 
 const root = path.resolve(__dirname, '../..');
 const source = fs.readFileSync(path.join(root, 'release/src/router/httpd/web.c'), 'utf8');
+const usbSource = fs.readFileSync(path.join(root, 'release/src/router/rc/usb.c'), 'utf8');
 const helper = source.match(/static void aidisk_write_folder_string\([^]*?\n\}/)[0];
 const handler = source.match(/int ej_get_AiDisk_status\([^]*?\n\}/)[0];
 assert.match(handler, /aidisk_write_folder_string\(wp, folder_list\[i\]\);/);
@@ -195,5 +196,42 @@ const request = httpdSource.slice(httpdSource.indexOf('handle_request(void)\n{')
 const requestGuard = request.match(/if \(\(handler->input \|\| \(do_referer & CHECK_REFERER\) \|\| strstr\(url, "\.cgi"\)\) &&\s*!httpd_check_request_origin\(\) && !httpd_check_csrf_token\(csrf_token\)\)/);
 assert(requestGuard);
 assert(request.indexOf(requestGuard[0]) < request.indexOf('handler->input(file, conn_fp, cl, boundary)'));
+
+const accountCleanup = functionBody(source, 'static void remove_initial_account_files(');
+const accountHandler = functionBody(source, 'int ej_initial_account(');
+assert.match(accountCleanup, /opendir\(mount_point\)/);
+assert.match(accountCleanup, /dirfd\(dir\)/);
+assert.match(accountCleanup, /strncmp\(entry->d_name, "\.__", 3\) == 0/);
+assert.match(accountCleanup, /unlinkat\(mount_fd, entry->d_name, 0\)/);
+assert.doesNotMatch(accountCleanup, /\bsystem\s*\(/);
+assert.match(accountHandler, /remove_initial_account_files\(follow_partition->mount_point\)/);
+assert.doesNotMatch(accountHandler, /\bsystem\s*\(/);
+
+const labelSanitizer = functionBody(usbSource, 'static void sanitize_mount_label(');
+const mountPartition = functionBody(usbSource, 'int mount_partition(');
+for (const allowedRange of [
+    /label_char >= 'A' && label_char <= 'Z'/,
+    /label_char >= 'a' && label_char <= 'z'/,
+    /label_char >= '0' && label_char <= '9'/,
+    /label_char == '-' \|\| label_char == '_' \|\| label_char == '\.'/
+]) assert.match(labelSanitizer, allowedRange);
+assert.match(mountPartition, /sanitize_mount_label\(the_label\)/);
+assert.match(mountPartition, /"%s\/%s_%d"/);
+assert.doesNotMatch(mountPartition, /"%s\/%s\(%d\)"/);
+
+const isSafeMountByte = labelByte =>
+    (labelByte >= 0x41 && labelByte <= 0x5a) ||
+    (labelByte >= 0x61 && labelByte <= 0x7a) ||
+    (labelByte >= 0x30 && labelByte <= 0x39) ||
+    labelByte === 0x2d || labelByte === 0x5f || labelByte === 0x2e;
+const sanitizeLabel = bytes => Buffer.from(bytes).map(labelByte =>
+    isSafeMountByte(labelByte) ? labelByte : 0x5f).toString('ascii');
+assert.equal(sanitizeLabel(Buffer.from('&reboot&')), '_reboot_');
+assert.equal(sanitizeLabel(Buffer.from('disk(1)')), 'disk_1_');
+assert.equal(sanitizeLabel(Buffer.from('A-z_9.')), 'A-z_9.');
+for (let labelByte = 1; labelByte <= 0xff; labelByte++) {
+    const sanitized = sanitizeLabel([labelByte]);
+    assert.equal(sanitized, isSafeMountByte(labelByte) ? String.fromCharCode(labelByte) : '_');
+}
 
 console.log(`PASS: AiDisk rendering plus ${names.length} name round trips, ${componentCases.length} shared-folder name cases, mount containment, mutator and pre-hook CSRF contracts (source/model only; not compiled C or hardware)`);

@@ -2245,6 +2245,21 @@ static inline void remove_disk_log(char *device) { }
  * directory of the newly mounted partition.
  * Returns NZ for success, 0 if we did not mount anything.
  */
+static void sanitize_mount_label(char *label)
+{
+	char *label_cursor;
+	unsigned char label_char;
+
+	for (label_cursor = label; *label_cursor; label_cursor++) {
+		label_char = (unsigned char)*label_cursor;
+		if (!((label_char >= 'A' && label_char <= 'Z') ||
+		      (label_char >= 'a' && label_char <= 'z') ||
+		      (label_char >= '0' && label_char <= '9') ||
+		      label_char == '-' || label_char == '_' || label_char == '.'))
+			*label_cursor = '_';
+	}
+}
+
 int mount_partition(char *dev_name, int host_num, char *dsc_name, char *pt_name, uint flags)
 {
 	char the_label[128], mountpoint[128], uuid[40];
@@ -2291,16 +2306,13 @@ int mount_partition(char *dev_name, int host_num, char *dsc_name, char *pt_name,
 #endif
 
 	if (*the_label != 0) {
-		for (ptr = the_label; *ptr; ptr++) {
-			if (!isalnum(*ptr) && !strchr("+-&.@()", *ptr))
-				*ptr = '_';
-		}
+		sanitize_mount_label(the_label);
 		snprintf(mountpoint, sizeof(mountpoint), "%s/%s", POOL_MOUNT_ROOT, the_label);
 
 		int the_same_name = 0;
 		while(check_if_file_exist(mountpoint) || check_if_dir_exist(mountpoint)){
 			++the_same_name;
-			snprintf(mountpoint, sizeof(mountpoint), "%s/%s(%d)", POOL_MOUNT_ROOT, the_label, the_same_name);
+			snprintf(mountpoint, sizeof(mountpoint), "%s/%s_%d", POOL_MOUNT_ROOT, the_label, the_same_name);
 		}
 
 		if ((ret = mount_r(dev_name, mountpoint, type)))

@@ -24650,11 +24650,33 @@ int ej_initial_folder_var_file(int eid, webs_t wp, int argc, char **argv)
 	return 0;
 }
 
+static void remove_initial_account_files(const char *mount_point)
+{
+	DIR *dir;
+	struct dirent *entry;
+	int mount_fd;
+
+	if (mount_point == NULL || *mount_point == '\0')
+		return;
+
+	dir = opendir(mount_point);
+	if (dir == NULL)
+		return;
+
+	mount_fd = dirfd(dir);
+	if (mount_fd >= 0) {
+		while ((entry = readdir(dir)) != NULL) {
+			if (strncmp(entry->d_name, ".__", 3) == 0)
+				unlinkat(mount_fd, entry->d_name, 0);
+		}
+	}
+
+	closedir(dir);
+}
+
 int ej_initial_account(int eid, webs_t wp, int argc, char **argv){
 	disk_info_t *disks_info, *follow_disk;
 	partition_info_t *follow_partition;
-	char *command;
-	int len;
 	char *fn = "initial_account_error";
 
 	nvram_set("acc_num", "0");
@@ -24670,17 +24692,7 @@ int ej_initial_account(int eid, webs_t wp, int argc, char **argv){
 	for (follow_disk = disks_info; follow_disk != NULL; follow_disk = follow_disk->next)
 		for (follow_partition = follow_disk->partitions; follow_partition != NULL; follow_partition = follow_partition->next)
 			if (follow_partition->mount_point != NULL && strlen(follow_partition->mount_point) > 0){
-				len = strlen("rm -f ")+strlen(follow_partition->mount_point)+strlen("/.__*");
-				command = (char *)malloc(sizeof(char)*(len+1));
-				if (command == NULL){
-					insert_hook_func(wp, fn, "alert_msg.System1");
-					return -1;
-				}
-				snprintf(command, len+1, "rm -f %s/.__*", follow_partition->mount_point);
-				command[len] = 0;
-
-				system(command);
-				free(command);
+				remove_initial_account_files(follow_partition->mount_point);
 
 				initial_folder_list(follow_partition->mount_point);
 				initial_all_var_file(follow_partition->mount_point);
