@@ -130,6 +130,7 @@ function applyRule(){
 								  <div class="formfonttitle"><#menu5_3#> - <#NAT_passthrough_itemname#></div>
 								  <div style="margin:10px 0 10px 5px;" class="splitLine"></div>
 								  <div class="formfontdesc"><#NAT_passthrough_desc#></div>
+											  <div class="formfontdesc">H.323, RTSP, and SIP passthrough can create related inbound connections. Enable only when needed.</div>
 									<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable">
 										
 										<tr>
