@@ -1126,7 +1126,7 @@ void dev_load(struct net *net, const char *name)
 	rcu_read_unlock();
 
 	if (!dev && capable(CAP_NET_ADMIN))
-		request_module("%s", name);
+		request_module("netdev-%s", name);
 }
 EXPORT_SYMBOL(dev_load);
 
