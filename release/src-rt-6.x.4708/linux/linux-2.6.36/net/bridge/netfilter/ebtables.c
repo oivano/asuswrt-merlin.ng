@@ -409,6 +409,10 @@ ebt_check_watcher(struct ebt_entry_watcher *w, struct xt_tgchk_param *par,
 	watcher = xt_request_find_target(NFPROTO_BRIDGE, w->u.name, 0);
 	if (IS_ERR(watcher))
 		return PTR_ERR(watcher);
+	if (watcher->family != NFPROTO_BRIDGE) {
+		module_put(watcher->me);
+		return -EINVAL;
+	}
 	w->u.watcher = watcher;
 
 	par->target   = watcher;
@@ -724,6 +728,11 @@ ebt_check_entry(struct ebt_entry *e, struct net *net,
 	target = xt_request_find_target(NFPROTO_BRIDGE, t->u.name, 0);
 	if (IS_ERR(target)) {
 		ret = PTR_ERR(target);
+		goto cleanup_watchers;
+	}
+	if (target->family != NFPROTO_BRIDGE) {
+		module_put(target->me);
+		ret = -EINVAL;
 		goto cleanup_watchers;
 	}
 
