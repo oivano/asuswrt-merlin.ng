@@ -344,6 +344,7 @@ static int _convert_data(const char *name, char *value, size_t value_len)
 	//name contains token
 	const char *http_token[] = {"http_username", "http_passwd", NULL};
 	const char password_token[] = "password";
+	const char passwd_token[] = "passwd";
 	const char acclist_token[] = "acc_list";
 
 	//name is token
@@ -409,6 +410,11 @@ static int _convert_data(const char *name, char *value, size_t value_len)
 		memset(value, PROTECT_CHAR, strlen(value));
 		return 1;
 	}
+	if (strstr(name, passwd_token) != NULL || strstr(name, "radius_key") != NULL)
+	{
+		memset(value, PROTECT_CHAR, strlen(value));
+		return 1;
+	}
 
 	//check the first token group
 	for (i = 0; token1[i]; i++) 
@@ -418,6 +424,18 @@ static int _convert_data(const char *name, char *value, size_t value_len)
 			memset(value, PROTECT_CHAR, strlen(value));
 			return 1;
 		}
+	}
+
+	if (strncmp(name, "ipsec_profile_", sizeof("ipsec_profile_") - 1) == 0)
+	{
+		nvlist_memset(value, PROTECT_CHAR, (1u << 7) | (1u << 25));
+		return 1;
+	}
+
+	if (strncmp(name, "ipsec_client_list_", sizeof("ipsec_client_list_") - 1) == 0)
+	{
+		nvlist_memset(value, PROTECT_CHAR, (1u << 1));
+		return 1;
 	}
 
 	//check the 2nd token group
