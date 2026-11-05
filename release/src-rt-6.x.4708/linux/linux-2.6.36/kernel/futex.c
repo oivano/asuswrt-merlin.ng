@@ -1158,6 +1158,8 @@ static int futex_requeue(u32 __user *uaddr1, int fshared, u32 __user *uaddr2,
 	u32 curval2;
 
 	if (requeue_pi) {
+		if (uaddr1 == uaddr2)
+			return -EINVAL;
 		/*
 		 * requeue_pi requires a pi_state, try to allocate it now
 		 * without any locks in case it fails.
@@ -1194,6 +1196,10 @@ retry:
 	ret = get_futex_key(uaddr2, fshared, &key2);
 	if (unlikely(ret != 0))
 		goto out_put_key1;
+	if (requeue_pi && match_futex(&key1, &key2)) {
+		ret = -EINVAL;
+		goto out_put_keys;
+	}
 
 	hb1 = hash_futex(&key1);
 	hb2 = hash_futex(&key2);
@@ -2203,6 +2209,9 @@ static int futex_wait_requeue_pi(u32 __user *uaddr, int fshared,
 	struct futex_q q;
 	int res, ret;
 
+	if (uaddr == uaddr2)
+		return -EINVAL;
+
 	if (!bitset)
 		return -EINVAL;
 
@@ -2239,6 +2248,11 @@ static int futex_wait_requeue_pi(u32 __user *uaddr, int fshared,
 	ret = futex_wait_setup(uaddr, val, fshared, &q, &hb);
 	if (ret)
 		goto out_key2;
+	if (match_futex(&q.key, &key2)) {
+		queue_unlock(&q, hb);
+		ret = -EINVAL;
+		goto out_put_keys;
+	}
 
 	/* Queue the futex_q, drop the hb lock, wait for wakeup. */
 	futex_wait_queue_me(hb, &q, to);
@@ -2276,7 +2290,7 @@ static int futex_wait_requeue_pi(u32 __user *uaddr, int fshared,
 		 * signal.  futex_unlock_pi() will not destroy the lock_ptr nor
 		 * the pi_state.
 		 */
-		WARN_ON(!&q.pi_state);
+		WARN_ON(!q.pi_state);
 		pi_mutex = &q.pi_state->pi_mutex;
 		ret = rt_mutex_finish_proxy_lock(pi_mutex, to, &rt_waiter, 1);
 		debug_rt_mutex_free_waiter(&rt_waiter);
@@ -2589,12 +2603,18 @@ long do_futex(u32 __user *uaddr, int op, u32 val, ktime_t *timeout,
 		break;
 	case FUTEX_WAIT_REQUEUE_PI:
 		val3 = FUTEX_BITSET_MATCH_ANY;
-		ret = futex_wait_requeue_pi(uaddr, fshared, val, timeout, val3,
-					    clockrt, uaddr2);
+		if (futex_cmpxchg_enabled)
+			ret = futex_wait_requeue_pi(uaddr, fshared, val, timeout,
+						    val3, clockrt, uaddr2);
+		else
+			ret = -ENOSYS;
 		break;
 	case FUTEX_CMP_REQUEUE_PI:
-		ret = futex_requeue(uaddr, fshared, uaddr2, val, val2, &val3,
-				    1);
+		if (futex_cmpxchg_enabled)
+			ret = futex_requeue(uaddr, fshared, uaddr2, val, val2,
+					    &val3, 1);
+		else
+			ret = -ENOSYS;
 		break;
 	default:
 		ret = -ENOSYS;
