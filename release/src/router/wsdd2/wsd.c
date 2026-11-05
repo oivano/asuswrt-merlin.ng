@@ -969,6 +969,11 @@ static int wsd_parse_http_header(int fd, struct endpoint *ep,
 	if (!endpointlen)
 		endpointlen = strlen(wsd_endpoint);
 
+	if (!eol) {
+		ep->errstr = __FUNCTION__ ": Invalid request line";
+		return 400;
+	}
+
 	*eol = '\0';
 	if (strncmp(p, "POST /", 6)) {
 		ep->errstr = __FUNCTION__ ": Only POST method supported";
