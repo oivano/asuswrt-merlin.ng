@@ -2672,7 +2672,7 @@ int pulse_connect(struct openconnect_info *vpninfo)
 			if (!bytes)
 				return -ENOMEM;
 
-			ret = recv_ift_packet(vpninfo, bytes + ii, MAX(config_len - ii, TLS_RECORD_MAX));
+			ret = recv_ift_packet(vpninfo, bytes + ii, MIN(config_len - ii, TLS_RECORD_MAX));
 			if (ret < 0)
 				goto out;
 
