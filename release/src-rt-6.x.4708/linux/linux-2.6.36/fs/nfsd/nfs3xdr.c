@@ -367,6 +367,9 @@ nfs3svc_decode_writeargs(struct svc_rqst *rqstp, __be32 *p,
 	 */
 	if (args->count != args->len)
 		return 0;
+	if ((char *)p > (char *)rqstp->rq_arg.head[0].iov_base +
+	    rqstp->rq_arg.head[0].iov_len)
+		return 0;
 
 	/*
 	 * Check to make sure that we got the right number of
@@ -459,6 +462,9 @@ nfs3svc_decode_symlinkargs(struct svc_rqst *rqstp, __be32 *p,
 	 * 0, it won't get in the way
 	 */
 	len = ntohl(*p++);
+	if ((char *)p > (char *)rqstp->rq_arg.head[0].iov_base +
+	    rqstp->rq_arg.head[0].iov_len)
+		return 0;
 	if (len == 0 || len > NFS3_MAXPATHLEN || len >= PAGE_SIZE)
 		return 0;
 	args->tname = new =
