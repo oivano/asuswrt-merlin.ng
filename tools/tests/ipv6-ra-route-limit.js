@@ -11,7 +11,6 @@ const addrconfSource = fs.readFileSync('release/src-rt-6.x.4708/linux/linux-2.6.
 const inet6Header = fs.readFileSync('release/src-rt-6.x.4708/linux/linux-2.6.36/include/net/if_inet6.h', 'utf8');
 
 assert.match(routeSource, /#define IPV6_RA_ROUTE_LIMIT\s+64/);
-assert.match(routeSource, /#define IPV6_RA_DST_RESERVE\s+512/);
 assert.match(inet6Header, /atomic_t\s+ra_route_count/);
 assert.match(addrconfSource, /atomic_set\(&ndev->ra_route_count, 0\)/);
 assert.match(fibSource, /atomic_inc\(&rt->rt6i_idev->ra_route_count\)/);
@@ -19,7 +18,11 @@ assert.match(fibSource, /RTF_PREFIX_RT \| RTF_DEFAULT\)\)/);
 assert.match(fibSource, /atomic_dec\(&rt->rt6i_idev->ra_route_count\)/);
 assert.match(routeSource, /route_count >= IPV6_RA_ROUTE_LIMIT/);
 assert.match(routeSource, /atomic_read\(&idev->ra_route_count\)/);
-assert.match(routeSource, /max_size - IPV6_RA_DST_RESERVE/);
+const raStart = routeSource.indexOf('int ip6_route_add_ra(struct fib6_config *cfg)');
+const raEnd = routeSource.indexOf('static struct rt6_info * ip6_rt_copy', raStart);
+assert(raStart >= 0 && raEnd > raStart, 'RA route admission function is present');
+assert.doesNotMatch(routeSource.slice(raStart, raEnd), /IPV6_RA_DST_RESERVE|ip6_dst_ops\.entries/,
+    'PMTU cache occupancy does not reject router-advertised routes');
 assert.match(routeSource, /err = ip6_route_add\(cfg\);/);
 assert.match(routeSource, /ip6_route_add_ra\(&cfg\);[\s\S]*?return rt6_get_dflt_router/);
 assert.match(addrconfSource, /ip6_route_add_ra\(&cfg\);/);
@@ -27,19 +30,16 @@ assert.match(addrconfSource, /rt->rt6i_dev == dev[\s\S]*?rt->rt6i_dst.plen == pi
 assert.match(addrconfSource, /if \(valid_lft == 0\)[\s\S]*?ip6_del_rt\(rt\);[\s\S]*?else if \(valid_lft\)/);
 
 const perInterfaceLimit = 64;
-const dstLimit = 4096;
-const reserve = 512;
 const acceptedRoutes = new Set();
-let dstEntries = 0;
+const dstEntries = 4096;
 
 for (let index = 0; index < 10000; index++) {
-    if (acceptedRoutes.size >= perInterfaceLimit || dstEntries >= dstLimit - reserve) {
+    if (acceptedRoutes.size >= perInterfaceLimit) {
         continue;
     }
     acceptedRoutes.add(`2001:db8:${index.toString(16)}::/64`);
-    dstEntries++;
 }
 
 assert.equal(acceptedRoutes.size, perInterfaceLimit);
-assert.ok(dstEntries < dstLimit - reserve);
-console.log('IPv6 RA route limit source contracts and 10000-prefix model passed');
+assert.equal(dstEntries, 4096, 'high cache occupancy does not alter the per-interface route cap');
+console.log('IPv6 RA route-limit source contracts and 10000-prefix model passed');
