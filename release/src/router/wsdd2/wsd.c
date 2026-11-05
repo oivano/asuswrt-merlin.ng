@@ -1014,8 +1014,15 @@ again:
 		p = eol + 2;
 		eoh = true;
 	}
-	memmove(buf, p, len -= (p - buf));
+	size_t consumed = (size_t)(p - buf);
+	if (consumed > len) {
+		ep->errstr = __FUNCTION__ ": Invalid header offset";
+		return 400;
+	}
+	len -= consumed;
+	memmove(buf, p, len);
 	buf[len] = '\0';
+	p = buf;
 
 	if (!eoh) {/* Have not reached end of header. */
 		ssize_t len2 = recv(fd, buf + len, bsize - len - 1, 0);
