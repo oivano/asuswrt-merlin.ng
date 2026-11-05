@@ -69,6 +69,7 @@
 #define AUTH_ATTEMPT_LIMIT 5
 #define AUTH_ATTEMPT_WINDOW 300
 #define AUTH_ATTEMPT_SOURCES 256
+#define AUTH_ATTEMPT_PER_SOURCE 4
 
 /* Pointers to functions exported from openvpn */
 static plugin_log_t plugin_log = NULL;
@@ -143,6 +144,7 @@ struct auth_attempt_entry
 {
     char username[128];
     char remote[INET6_ADDRSTRLEN];
+    int source_wide;
     unsigned int attempts;
     time_t last_attempt;
 };
@@ -159,17 +161,22 @@ auth_attempt_get(const char *username, const char *remote, int create)
     for (i = 0; i < AUTH_ATTEMPT_SOURCES; ++i)
     {
         struct auth_attempt_entry *entry = &auth_attempts[i];
-        if (entry->username[0]
+        if ((entry->username[0] || entry->source_wide)
             && (now < entry->last_attempt || now - entry->last_attempt >= AUTH_ATTEMPT_WINDOW))
         {
             memset(entry, 0, sizeof(*entry));
         }
-        if (entry->username[0] && !strcmp(entry->username, username)
+        if (username && entry->username[0] && !entry->source_wide
+            && !strcmp(entry->username, username)
             && !strcmp(entry->remote, remote))
         {
             return entry;
         }
-        if (!entry->username[0] && !available)
+        if (entry->source_wide && !username && !strcmp(entry->remote, remote))
+        {
+            return entry;
+        }
+        if (!entry->username[0] && !entry->source_wide && !available)
         {
             available = entry;
         }
@@ -177,8 +184,12 @@ auth_attempt_get(const char *username, const char *remote, int create)
 
     if (create && available)
     {
-        snprintf(available->username, sizeof(available->username), "%s", username);
+        if (username)
+        {
+            snprintf(available->username, sizeof(available->username), "%s", username);
+        }
         snprintf(available->remote, sizeof(available->remote), "%s", remote);
+        available->source_wide = !username;
         available->last_attempt = now;
         return available;
     }
@@ -188,14 +199,35 @@ auth_attempt_get(const char *username, const char *remote, int create)
 static int
 auth_attempt_blocked(const char *username, const char *remote)
 {
-    struct auth_attempt_entry *entry = auth_attempt_get(username, remote, 1);
-    return !entry || entry->attempts >= AUTH_ATTEMPT_LIMIT;
+    struct auth_attempt_entry *entry = auth_attempt_get(username, remote, 0);
+    if (!entry)
+    {
+        entry = auth_attempt_get(NULL, remote, 0);
+    }
+    return entry && entry->attempts >= AUTH_ATTEMPT_LIMIT;
 }
 
 static void
 auth_attempt_failed(const char *username, const char *remote)
 {
-    struct auth_attempt_entry *entry = auth_attempt_get(username, remote, 1);
+    struct auth_attempt_entry *entry = auth_attempt_get(username, remote, 0);
+    int source_entries = 0;
+    int i;
+
+    if (!entry)
+    {
+        for (i = 0; i < AUTH_ATTEMPT_SOURCES; ++i)
+        {
+            if (auth_attempts[i].username[0] && !auth_attempts[i].source_wide
+                && !strcmp(auth_attempts[i].remote, remote))
+            {
+                ++source_entries;
+            }
+        }
+        entry = auth_attempt_get(source_entries < AUTH_ATTEMPT_PER_SOURCE
+                                     ? username : NULL,
+                                 remote, 1);
+    }
     if (!entry)
     {
         plugin_log(PLOG_ERR, MODULE, "OpenVPN auth tracking table full; refusing new attempts");
@@ -217,6 +249,10 @@ static void
 auth_attempt_succeeded(const char *username, const char *remote)
 {
     struct auth_attempt_entry *entry = auth_attempt_get(username, remote, 0);
+    if (!entry)
+    {
+        entry = auth_attempt_get(NULL, remote, 0);
+    }
     if (entry)
     {
         memset(entry, 0, sizeof(*entry));
@@ -1137,7 +1173,7 @@ pam_server(int fd, const char *service, int verb, const struct name_value_list *
                 if (auth_attempt_blocked(up.username, up.remote))
                 {
                     plugin_log(PLOG_WARN, MODULE,
-                               "OpenVPN authentication refused during cooldown or tracking-capacity limit from source %s",
+                               "OpenVPN authentication refused during cooldown from source %s",
                                up.remote);
                     send_control(fd, RESPONSE_VERIFY_FAILED);
                     plugin_secure_memzero(up.password, sizeof(up.password));
@@ -1162,7 +1198,6 @@ pam_server(int fd, const char *service, int verb, const struct name_value_list *
                  */
                 if (strlen(ac_file_name) > 0)
                 {
-                    auth_attempt_failed(up.username, up.remote);
                     do_deferred_pam_auth(fd, ac_file_name, service, &up);
                     break;
                 }
