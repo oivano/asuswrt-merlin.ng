@@ -7408,6 +7408,29 @@ ej_IP_dhcpLeaseInfo(int eid, webs_t wp, int argc, char_t **argv)
 #define	HOSTNAME		2
 #define	IPV6_ADDRESS		3
 #define BUFSIZE			8192
+#define IPV6_CLIENT_ADDRS_MAX	128
+
+static int append_joined_value(char *buffer, size_t buffer_size,
+			       const char *separator, const char *value)
+{
+	size_t used = strlen(buffer);
+	size_t separator_len = used ? strlen(separator) : 0;
+	size_t value_len = strlen(value);
+	size_t remaining;
+
+	if (used >= buffer_size)
+		return 0;
+	remaining = buffer_size - used;
+	if (separator_len >= remaining)
+		return 0;
+	remaining -= separator_len;
+	if (value_len >= remaining)
+		return 0;
+	if (separator_len)
+		memcpy(buffer + used, separator, separator_len);
+	memcpy(buffer + used + separator_len, value, value_len + 1);
+	return 1;
+}
 
 static int compare_back(FILE *fp, int current_line, char *buffer, const size_t len);
 static int check_mac_previous(char *mac);
@@ -7468,14 +7491,18 @@ static int save_file(const char *file, const char *fmt, ...)
 	char buf[BUFSIZE];
 	va_list args;
 	FILE *fp;
-	int write_error, close_error;
+	int formatted_len, write_error, close_error;
 
+	va_start(args, fmt);
+	formatted_len = vsnprintf(buf, sizeof(buf), fmt, args);
+	va_end(args);
+	if (formatted_len < 0 || formatted_len >= (int)sizeof(buf)) {
+		_dprintf("record too large for %s", file);
+		return -1;
+	}
 	if ((fp = open_ipv6_scratch(file, O_WRONLY | O_CREAT | O_APPEND, 0)) == NULL)
 		return -1;
 
-	va_start(args, fmt);
-	vsnprintf(buf, sizeof(buf), fmt, args);
-	va_end(args);
 	write_error = fputs(buf, fp) == EOF;
 	close_error = fclose(fp) != 0;
 	if (write_error || close_error) {
@@ -7573,9 +7600,13 @@ static int check_mac_previous(char *mac)
 static int compare_back(FILE *fp, int current_line, char *buffer, const size_t len)
 {
 	int i = 0;
+	int address_count = 1;
+	size_t buffer_len;
 	char mac[32], compare_mac[32];
 
-	buffer[strlen(buffer) -1] = '\0';
+	buffer_len = strlen(buffer);
+	if (buffer_len && buffer[buffer_len - 1] == '\n')
+		buffer[--buffer_len] = '\0';
 	strlcpy(mac, value(fp, current_line, MAC), sizeof(mac));
 
 	if (check_mac_previous(mac))
@@ -7584,8 +7615,11 @@ static int compare_back(FILE *fp, int current_line, char *buffer, const size_t l
 	for(i = 0; i<(total_lines - current_line); i++) {
 		strlcpy(compare_mac, value(fp, current_line + 1 + i, MAC), sizeof(compare_mac));
 		if (strcmp(mac, compare_mac) == 0) {
-			strlcat(buffer, ",", len);
-			strlcat(buffer, value(fp, current_line + 1 + i, IPV6_ADDRESS), len);
+			if (address_count >= IPV6_CLIENT_ADDRS_MAX || len <= 1 ||
+			    !append_joined_value(buffer, len - 1, ",",
+						 value(fp, current_line + 1 + i, IPV6_ADDRESS)))
+				break;
+			address_count++;
 		}
 	}
 	save_file(IPV6_CLIENT_LIST, "%s\n", buffer);
@@ -7761,8 +7795,8 @@ ej_lan_ipv6_network(int eid, webs_t wp, int argc, char_t **argv)
 	FILE *fp;
 	char buf[64+32+8192+1];
 	char *hostname, *macaddr, ipaddrs[8192+1];
-	char dnsbuf[INET6_ADDRSTRLEN*3 + 3], *next;
-	char *wan_type, *wan_dns, *p;
+	char dnsbuf[INET6_ADDRSTRLEN*3 + 3];
+	char *wan_type, *wan_dns;
 	int service, i, ret = 0;
 
 	if (!(ipv6_enabled() && is_routing_enabled())) {
@@ -7833,12 +7867,13 @@ ej_lan_ipv6_network(int eid, webs_t wp, int argc, char_t **argv)
 		/* fall through */
 	default:
 		dnsbuf[0] = '\0';
-		next = dnsbuf;
 		for (i = 1; i <= 3; i++) {
 			char tmp[sizeof("ipv6_dnsXXX")];
 			snprintf(tmp, sizeof(tmp), "ipv6_dns%d", i);
-			next += snprintf(next, sizeof(dnsbuf) + dnsbuf - next,
-				    *dnsbuf ? " %s" : "%s", nvram_safe_get(ipv6_nvname(tmp)));
+			wan_dns = nvram_safe_get(ipv6_nvname(tmp));
+			if (*wan_dns &&
+			    !append_joined_value(dnsbuf, sizeof(dnsbuf), " ", wan_dns))
+				break;
 		}
 		wan_dns = dnsbuf;
 		//wan_domain = "";
@@ -7916,11 +7951,11 @@ ej_lan_ipv6_network(int eid, webs_t wp, int argc, char_t **argv)
 			snprintf(hostname + 29, 4, "...");
 
 		ipaddrs[0] = '\0';
-		p = ipaddrs;
 		while (ptr && *ptr) {
 			char *next = strsep(&ptr, ",\n");
-			if (next && *next)
-				p += snprintf(p, sizeof(ipaddrs) + ipaddrs - p, "%s%s", *ipaddrs ? ", " : "", next);
+			if (next && *next &&
+			    !append_joined_value(ipaddrs, sizeof(ipaddrs), ", ", next))
+				break;
 		}
 
 		ret += websWrite(wp, "%-32s %-17s %-39s\n",
