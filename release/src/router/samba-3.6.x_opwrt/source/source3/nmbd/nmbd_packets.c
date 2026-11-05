@@ -1089,15 +1089,15 @@ mismatch with our scope (%s).\n", inet_ntoa(p->ip), scope, global_scope()));
 	switch (command) {
 		case ANN_HostAnnouncement:
 			debug_browse_data(buf, len);
-			process_host_announce(subrec, p, buf+1);
+			process_host_announce(subrec, p, buf+1, len-1);
 			break;
 		case ANN_DomainAnnouncement:
 			debug_browse_data(buf, len);
-			process_workgroup_announce(subrec, p, buf+1);
+			process_workgroup_announce(subrec, p, buf+1, len-1);
 			break;
 		case ANN_LocalMasterAnnouncement:
 			debug_browse_data(buf, len);
-			process_local_master_announce(subrec, p, buf+1);
+			process_local_master_announce(subrec, p, buf+1, len-1);
 			break;
 		case ANN_AnnouncementRequest:
 			debug_browse_data(buf, len);
@@ -1105,11 +1105,11 @@ mismatch with our scope (%s).\n", inet_ntoa(p->ip), scope, global_scope()));
 			break;
 		case ANN_Election:
 			debug_browse_data(buf, len);
-			process_election(subrec, p, buf+1);
+			process_election(subrec, p, buf+1, len-1);
 			break;
 		case ANN_GetBackupListReq:
 			debug_browse_data(buf, len);
-			process_get_backup_list_request(subrec, p, buf+1);
+			process_get_backup_list_request(subrec, p, buf+1, len-1);
 			break;
 		case ANN_GetBackupListResp:
 			debug_browse_data(buf, len);
@@ -1119,14 +1119,14 @@ packet from %s IP %s\n", nmb_namestr(&dgram->source_name), inet_ntoa(p->ip)));
 			break;
 		case ANN_ResetBrowserState:
 			debug_browse_data(buf, len);
-			process_reset_browser(subrec, p, buf+1);
+			process_reset_browser(subrec, p, buf+1, len-1);
 			break;
 		case ANN_MasterAnnouncement:
 			/* Master browser datagrams must be processed on the unicast subnet. */
 			subrec = unicast_subnet;
 
 			debug_browse_data(buf, len);
-			process_master_browser_announce(subrec, p, buf+1);
+			process_master_browser_announce(subrec, p, buf+1, len-1);
 			break;
 		case ANN_BecomeBackup:
 			/*
