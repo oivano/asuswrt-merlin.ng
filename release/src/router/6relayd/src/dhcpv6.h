@@ -139,5 +139,6 @@ struct dhcpv6_ia_addr {
 		_o += 4 + (_o[2] << 8 | _o[3]))
 
 int dhcpv6_init_ia(const struct relayd_config *relayd_config, int socket);
+void dhcpv6_deinit_ia(void);
 size_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct relayd_interface *iface,
 		const struct sockaddr_in6 *addr, const void *data, const uint8_t *end);
