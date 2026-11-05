@@ -96,10 +96,28 @@ int f_write(const char *path, const void *buffer, int len, unsigned flags, unsig
 	int f;
 	int r = -1;
 	mode_t m;
+	int root_writer = (geteuid() == 0);
+	int pseudo_file = !strncmp(path, "/proc/", 6) || !strncmp(path, "/sys/", 5);
+	struct stat st;
 
 	m = umask(0);
-	if (cmode == 0) cmode = 0666;
-	if ((f = open(path, (flags & FW_APPEND) ? (O_WRONLY|O_CREAT|O_APPEND) : (O_WRONLY|O_CREAT|O_TRUNC), cmode)) >= 0) {
+	if (cmode == 0) cmode = root_writer ? 0600 : 0666;
+	if (root_writer) cmode &= ~0022;
+	if ((f = open(path, O_WRONLY | O_CREAT | O_NOFOLLOW | O_NONBLOCK |
+			((flags & FW_APPEND) ? O_APPEND : 0), cmode)) >= 0) {
+		if (root_writer && !pseudo_file &&
+		    (fstat(f, &st) != 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
+		     st.st_nlink != 1 || (st.st_mode & 0022))) {
+			close(f);
+			f = -1;
+			errno = EPERM;
+		}
+		if (f >= 0 && !(flags & FW_APPEND) && !pseudo_file && ftruncate(f, 0) != 0) {
+			close(f);
+			f = -1;
+		}
+	}
+	if (f >= 0) {
 		if ((buffer == NULL) || ((r = write(f, buffer, len)) == len)) {
 			if (flags & FW_NEWLINE) {
 				if (write(f, &nl, 1) == 1) ++r;
