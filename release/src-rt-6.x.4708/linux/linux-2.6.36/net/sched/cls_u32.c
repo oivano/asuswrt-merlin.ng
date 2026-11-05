@@ -628,6 +628,9 @@ static int u32_change(struct tcf_proto *tp, unsigned long base, u32 handle,
 		return -EINVAL;
 
 	s = nla_data(tb[TCA_U32_SEL]);
+	if (nla_len(tb[TCA_U32_SEL]) <
+	    sizeof(*s) + s->nkeys*sizeof(struct tc_u32_key))
+		return -EINVAL;
 
 	n = kzalloc(sizeof(*n) + s->nkeys*sizeof(struct tc_u32_key), GFP_KERNEL);
 	if (n == NULL)
