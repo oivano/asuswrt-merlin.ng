@@ -1717,7 +1717,8 @@ do_prequeue:
 #endif
 			{
 #if defined(CONFIG_BCM_RECVFILE)
-				if(msg->msg_flags & MSG_KERNSPACE) {
+				if ((msg->msg_flags & MSG_KERNSPACE) &&
+				    segment_eq(get_fs(), KERNEL_DS)) {
 					err = skb_copy_datagram_to_kernel_iovec(skb,
 							offset, msg->msg_iov, used);
 				}

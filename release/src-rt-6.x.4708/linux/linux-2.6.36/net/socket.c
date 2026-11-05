@@ -1710,6 +1710,9 @@ SYSCALL_DEFINE6(recvfrom, int, fd, void __user *, ubuf, size_t, size,
 	int err, err2;
 	int fput_needed;
 
+#if defined(MSG_KERNSPACE) && defined(MSG_NOCATCHSIG)
+	flags &= ~(MSG_KERNSPACE | MSG_NOCATCHSIG);
+#endif
 	if (size > INT_MAX)
 		size = INT_MAX;
 	sock = sockfd_lookup_light(fd, &err, &fput_needed);
@@ -1718,6 +1721,7 @@ SYSCALL_DEFINE6(recvfrom, int, fd, void __user *, ubuf, size_t, size,
 
 	msg.msg_control = NULL;
 	msg.msg_controllen = 0;
+	msg.msg_flags = 0;
 	msg.msg_iovlen = 1;
 	msg.msg_iov = &iov;
 	iov.iov_len = size;
@@ -1963,6 +1967,9 @@ static int __sys_recvmsg(struct socket *sock, struct msghdr __user *msg,
 	struct sockaddr __user *uaddr;
 	int __user *uaddr_len;
 
+#if defined(MSG_KERNSPACE) && defined(MSG_NOCATCHSIG)
+	flags &= ~(MSG_KERNSPACE | MSG_NOCATCHSIG);
+#endif
 	if (MSG_CMSG_COMPAT & flags) {
 		if (get_compat_msghdr(msg_sys, msg_compat))
 			return -EFAULT;
