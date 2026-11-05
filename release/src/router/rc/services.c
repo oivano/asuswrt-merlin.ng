@@ -5719,6 +5719,77 @@ ddns_updated_main(int argc, char *argv[])
 	return 0;
 }
 
+static int
+ddns_phddns_directory_open(void)
+{
+	struct stat st;
+	int dirfd;
+
+	if (lstat("/tmp", &st) < 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
+	    ((st.st_mode & 0022) && !(st.st_mode & S_ISVTX)))
+		return -1;
+	dirfd = open("/tmp/etc", O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (dirfd < 0)
+		return -1;
+	if (fstat(dirfd, &st) < 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
+	    st.st_gid != 0 || (st.st_mode & 0022)) {
+		close(dirfd);
+		return -1;
+	}
+	return dirfd;
+}
+
+static FILE *
+ddns_phddns_config_open(void)
+{
+	struct stat st;
+	FILE *stream;
+	int dirfd, fd, created = 0;
+
+	dirfd = ddns_phddns_directory_open();
+	if (dirfd < 0)
+		return NULL;
+	fd = openat(dirfd, "phddns.conf",
+		    O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK, 0600);
+	if (fd >= 0)
+		created = 1;
+	else if (errno == EEXIST)
+		fd = openat(dirfd, "phddns.conf", O_WRONLY | O_NOFOLLOW | O_NONBLOCK);
+	if (fd < 0) {
+		close(dirfd);
+		return NULL;
+	}
+	if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) || st.st_nlink != 1 ||
+	    (!created && st.st_uid != 0) || fchmod(fd, 0600) < 0 ||
+	    fchown(fd, 0, 0) < 0 || fchmod(fd, 0600) < 0 ||
+	    fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) ||
+	    st.st_uid != 0 || st.st_gid != 0 || st.st_nlink != 1 ||
+	    (st.st_mode & 0777) != 0600 || ftruncate(fd, 0) < 0) {
+		close(fd);
+		close(dirfd);
+		return NULL;
+	}
+	close(dirfd);
+	stream = fdopen(fd, "w");
+	if (!stream)
+		close(fd);
+	return stream;
+}
+
+static void
+ddns_phddns_remove_config(void)
+{
+	struct stat st;
+	int dirfd = ddns_phddns_directory_open();
+
+	if (dirfd < 0)
+		return;
+	if (fstatat(dirfd, "phddns.conf", &st, AT_SYMLINK_NOFOLLOW) == 0 &&
+	    (S_ISLNK(st.st_mode) || (S_ISREG(st.st_mode) && st.st_uid == 0)))
+		unlinkat(dirfd, "phddns.conf", 0);
+	close(dirfd);
+}
+
 // TODO: handle wan0 only now
 int
 start_ddns(char *caller)
@@ -5740,6 +5811,9 @@ start_ddns(char *caller)
 	int unit, asus_ddns = 0;
 	pid_t pid;
 	int ddns_check_retry = nvram_get_int("ddns_check_retry");
+
+	if (!nvram_get_int("ddns_enable_x") || !nvram_match("ddns_server_x", "WWW.ORAY.COM"))
+		ddns_phddns_remove_config();
 
 	if (!is_routing_enabled())
 		return 0;
@@ -6043,16 +6117,22 @@ start_ddns(char *caller)
 	} else
 #endif
 	if (asus_ddns == 2) { //Peanuthull DDNS
-		if ((fp = fopen("/etc/phddns.conf", "w")) != NULL) {
+		if ((fp = ddns_phddns_config_open()) != NULL) {
+			int config_ok;
+
 			fprintf(fp, "[settings]\n");
 			fprintf(fp, "szHost = phddns60.oray.net\n");
 			fprintf(fp, "szUserID = %s\n", user);
 			fprintf(fp, "szUserPWD = %s\n", passwd);
 			fprintf(fp, "nicName = %s\n", wan_ifname);
 			fprintf(fp, "szLog = /var/log/phddns.log\n");
-			fclose(fp);
-
-			ret = eval("phddns", "-c", "/etc/phddns.conf", "-d");
+			config_ok = !ferror(fp);
+			if (fclose(fp) != 0)
+				config_ok = 0;
+			if (config_ok)
+				ret = eval("phddns", "-c", "/etc/phddns.conf", "-d");
+			else
+				ddns_phddns_remove_config();
 		}
 	} else
 #ifndef RTCONFIG_INADYN
@@ -6173,6 +6253,7 @@ stop_ddns(void)
 #endif
 	if (pids("phddns"))
 		killall("phddns", SIGINT);
+	ddns_phddns_remove_config();
 	if (nvram_match("ddns_tunbkrnet", "1")) {
 		int evalRet = eval("iptables-restore", FIREWALL_RULES("filter_rules"));
 		rule_apply_checking("services", __LINE__, FIREWALL_RULES("filter_rules"), evalRet);
