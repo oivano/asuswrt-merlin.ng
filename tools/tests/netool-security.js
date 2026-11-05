@@ -6,6 +6,8 @@ const vm = require('node:vm');
 const root = path.resolve(__dirname, '../..');
 const source = fs.readFileSync(path.join(root, 'release/src/router/rc/netool.c'), 'utf8');
 const header = fs.readFileSync(path.join(root, 'release/src/router/rc/netool.h'), 'utf8');
+const listSource = fs.readFileSync(path.join(root, 'release/src/router/rc/linklist.c'), 'utf8');
+const defaults = fs.readFileSync(path.join(root, 'release/src/router/shared/defaults.c'), 'utf8');
 
 function body(name) {
     const start = source.indexOf('{', source.indexOf(name + '('));
@@ -46,6 +48,20 @@ for (const worker of ['do_ping', 'do_traceroute']) {
     assert.match(body(worker), /vpopen\(argv, &child\)/);
     assert.match(body(worker), /vpclose\(fp, child\)/);
 }
+const traceroute = body('do_traceroute');
+assert.match(traceroute, /listnode_delete\(task_list, req_task\)/);
+assert.doesNotMatch(traceroute, /free\(req_task\)/);
+const deleteStart = listSource.indexOf('void listnode_delete(');
+assert(deleteStart >= 0);
+const deleteEnd = listSource.indexOf('\n}', deleteStart);
+assert(deleteEnd > deleteStart);
+assert.match(listSource.slice(deleteStart, deleteEnd), /free\(node->data\)/);
+assert.doesNotMatch(`${source}\n${header}`, /NETOOL_QUEUE|\/tmp\/NETOOL_QUEUE/);
+assert.match(receive, /nvram_get_int\("netool_queue"\) == 1/);
+const mainStart = source.indexOf('int netool_main (');
+assert(mainStart >= 0);
+assert.match(source.slice(mainStart), /nvram_get_int\("netool_queue"\) == 1/);
+assert.match(defaults, /\{\s*"netool_queue",\s*"0"/);
 
 const sizes = Object.fromEntries([...header.matchAll(/char\s+(\w+)\[(\d+)\]/g)]
     .map(match => [match[1], Number(match[2])]));

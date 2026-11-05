@@ -464,7 +464,7 @@ static int do_traceroute(void *rInfo)
 		struct listnode *lt;
 		int del = 0;
 		
-		if (f_exists(NETOOL_QUEUE) > 0) {
+		if (nvram_get_int("netool_queue") == 1) {
 			/* Search Target and drop it in task list */
 			MUTEXLOCK(&task_list_lock);
 			LIST_LOOP(task_list,req_task,lt)
@@ -478,7 +478,6 @@ static int do_traceroute(void *rInfo)
 			
 			if (del) {
 				listnode_delete(task_list, req_task);
-				free(req_task);
 			}
 			MUTEXUNLOCK(&task_list_lock);
 		}
@@ -598,7 +597,7 @@ void rcv_socket(int newsockfd)
 	
 	REQUEST_INFO_T *sreq_t;
 	
-	if (f_exists(NETOOL_QUEUE) > 0) {
+	if (nvram_get_int("netool_queue") == 1) {
 		if ( req_t.type == REQ_TRACEROUTE_MODE ) { /* Only queue traceroute request task */
 		
 			MUTEXLOCK(&task_list_lock);
@@ -837,7 +836,7 @@ int netool_main (int argc, char *argv[])
 	
 	while(terminated) {
 #ifndef NON_P_THREAD
-		if (f_exists(NETOOL_QUEUE) > 0) {
+		if (nvram_get_int("netool_queue") == 1) {
 			process_task();
 		}
 #endif
