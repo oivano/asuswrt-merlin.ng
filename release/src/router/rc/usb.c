@@ -1631,7 +1631,9 @@ int mount_r(char *mnt_dev, char *mnt_dir, char *_type)
 #endif
 
 		if (flags && strlcat(options,
-				!strncmp(type, "ext", 3) ? "" : (options[0] ? ",nosuid,nodev" : "nosuid,nodev"),
+				!strncmp(type, "ext", 3)
+					? (options[0] ? ",errors=remount-ro" : "errors=remount-ro")
+					: (options[0] ? ",nosuid,nodev" : "nosuid,nodev"),
 				sizeof(options)) >= sizeof(options)) {
 			syslog(LOG_ERR, "USB %s mount options are too long; refusing mount", mnt_dev);
 			flags = 0;
