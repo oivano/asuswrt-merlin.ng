@@ -323,27 +323,74 @@ static void apply_lease(struct relayd_interface *iface, struct assignment *a, bo
 }
 
 
+static int pd_min_prefix(const struct relayd_interface *iface)
+{
+	int minprefix = 0;
+	for (size_t i = 0; i < iface->pd_addr_len; ++i)
+		if (iface->pd_addr[i].prefix > minprefix)
+			minprefix = iface->pd_addr[i].prefix;
+	return minprefix;
+}
+
+
+static uint64_t pd_limit(const struct relayd_interface *iface)
+{
+	int minprefix = pd_min_prefix(iface);
+	if (!iface->pd_addr_len || minprefix > 64)
+		return 0;
+	if (minprefix < 32)
+		return (uint64_t)1 << 32;
+	return (uint64_t)1 << (64 - minprefix);
+}
+
+
+static bool pd_prefix_allowed(const struct relayd_interface *iface, uint8_t length)
+{
+	return length >= 33 && length <= 64 && length > pd_min_prefix(iface) &&
+			pd_limit(iface) != 0;
+}
+
+
+static uint64_t pd_block_size(uint8_t length)
+{
+	return (uint64_t)1 << (64 - length);
+}
+
+
+static bool pd_assignment_fits(const struct relayd_interface *iface,
+		const struct assignment *a)
+{
+	uint64_t limit = pd_limit(iface);
+	return pd_prefix_allowed(iface, a->length) && a->assigned != 0 &&
+			(uint64_t)a->assigned + pd_block_size(a->length) <= limit;
+}
+
+
 static bool assign_pd(struct relayd_interface *iface, struct assignment *assign)
 {
 	struct assignment *c;
-	if (iface->pd_addr_len < 1)
+	uint64_t limit = pd_limit(iface);
+	if (!pd_prefix_allowed(iface, assign->length))
 		return false;
 
 	// Try honoring the hint first
-	uint32_t current = 1, asize = (1 << (64 - assign->length)) - 1;
+	uint64_t current = 1, asize = pd_block_size(assign->length) - 1;
+	struct assignment *border = list_last_entry(&iface->pd_assignments,
+			struct assignment, head);
 	if (assign->assigned) {
 		list_for_each_entry(c, &iface->pd_assignments, head) {
 			if (c->length == 128)
 				continue;
 
-			if (assign->assigned >= current && assign->assigned + asize < c->assigned) {
+			uint64_t end = (uint64_t)assign->assigned + asize;
+			uint64_t next = (c == border) ? limit : c->assigned;
+			if (assign->assigned >= current && end < next) {
 				list_add_tail(&assign->head, &c->head);
-				apply_lease(iface, assign, true);
 				return true;
 			}
 
-			if (c->assigned != 0)
-				current = (c->assigned + (1 << (64 - c->length)));
+			if (c != border && c->assigned != 0)
+				current = (uint64_t)c->assigned + pd_block_size(c->length);
 		}
 	}
 
@@ -354,15 +401,15 @@ static bool assign_pd(struct relayd_interface *iface, struct assignment *assign)
 			continue;
 
 		current = (current + asize) & (~asize);
-		if (current + asize < c->assigned) {
+		uint64_t next = (c == border) ? limit : c->assigned;
+		if (current <= UINT32_MAX && current + asize < next) {
 			assign->assigned = current;
 			list_add_tail(&assign->head, &c->head);
-			apply_lease(iface, assign, true);
 			return true;
 		}
 
-		if (c->assigned != 0)
-			current = (c->assigned + (1 << (64 - c->length)));
+		if (c != border && c->assigned != 0)
+			current = (uint64_t)c->assigned + pd_block_size(c->length);
 	}
 
 	return false;
@@ -425,12 +472,8 @@ static void update(struct relayd_interface *iface)
 	qsort(addr, len, sizeof(*addr), prefixcmp);
 
 	time_t now = relayd_monotonic_time();
-	int minprefix = -1;
 
 	for (int i = 0; i < len; ++i) {
-		if (addr[i].prefix > minprefix)
-			minprefix = addr[i].prefix;
-
 		addr[i].addr.s6_addr32[2] = 0;
 		addr[i].addr.s6_addr32[3] = 0;
 
@@ -442,12 +485,12 @@ static void update(struct relayd_interface *iface)
 	}
 
 	struct assignment *border = list_last_entry(&iface->pd_assignments, struct assignment, head);
-	border->assigned = 1 << (64 - minprefix);
 
 	bool change = len != (int)iface->pd_addr_len;
 	for (int i = 0; !change && i < len; ++i)
 		if (addr[i].addr.s6_addr32[0] != iface->pd_addr[i].addr.s6_addr32[0] ||
 				addr[i].addr.s6_addr32[1] != iface->pd_addr[i].addr.s6_addr32[1] ||
+				addr[i].prefix != iface->pd_addr[i].prefix ||
 				(addr[i].preferred > 0) != (iface->pd_addr[i].preferred > 0) ||
 				(addr[i].valid > (uint32_t)now + 7200) !=
 						(iface->pd_addr[i].valid > (uint32_t)now + 7200))
@@ -470,7 +513,7 @@ static void update(struct relayd_interface *iface)
 			if (c->clid_len == 0 || c->valid_until < now)
 				continue;
 
-			if (c->length < 128 && c->assigned >= border->assigned && c != border)
+			if (c->length < 128 && c != border && !pd_assignment_fits(iface, c))
 				list_move(&c->head, &reassign);
 			else if (c != border)
 				apply_lease(iface, c, true);
@@ -492,7 +535,9 @@ static void update(struct relayd_interface *iface)
 		while (!list_empty(&reassign)) {
 			c = list_first_entry(&reassign, struct assignment, head);
 			list_del(&c->head);
-			if (!assign_pd(iface, c)) {
+			if (assign_pd(iface, c)) {
+				apply_lease(iface, c, true);
+			} else {
 				c->assigned = 0;
 				list_add(&c->head, &iface->pd_assignments);
 			}
@@ -521,6 +566,8 @@ static void reconf_timer(struct relayd_event *event)
 			if (a->valid_until < now) {
 				if ((a->length < 128 && a->clid_len > 0) ||
 						(a->length == 128 && a->clid_len == 0)) {
+					if (a->length < 128 && a->clid_len > 0)
+						apply_lease(iface, a, false);
 					list_del(&a->head);
 					free(a->hostname);
 					free(a);
@@ -538,6 +585,34 @@ static void reconf_timer(struct relayd_event *event)
 			iface->pd_reconf = false;
 		}
 	}
+}
+
+
+void dhcpv6_deinit_ia(void)
+{
+	if (config && config->slaves) {
+		for (size_t i = 0; i < config->slavecount; ++i) {
+			struct relayd_interface *iface = &config->slaves[i];
+			if (!iface->pd_assignments.next || !iface->pd_assignments.prev)
+				continue;
+
+			struct assignment *a, *n;
+			list_for_each_entry_safe(a, n, &iface->pd_assignments, head) {
+				if (a->length < 128 && a->clid_len > 0)
+					apply_lease(iface, a, false);
+				list_del(&a->head);
+				free(a->hostname);
+				free(a);
+			}
+		}
+	}
+
+	if (reconf_event.socket >= 0) {
+		close(reconf_event.socket);
+		reconf_event.socket = -1;
+	}
+	config = NULL;
+	socket_fd = -1;
 }
 
 
@@ -781,20 +856,24 @@ size_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct relayd_interface *if
 					if (p->prefix) {
 						reqlen = p->prefix;
 						reqhint = ntohl(p->addr.s6_addr32[1]);
-						if (reqlen > 32 && reqlen <= 64)
+						if (reqlen >= 33 && reqlen <= 64)
 							reqhint &= (1U << (64 - reqlen)) - 1;
 					}
 					break;
 				}
 			}
 
-			if (reqlen > 64)
-				reqlen = 64;
 		}
+
+		uint16_t status = 0;
+		if (is_pd && (hdr->msg_type == DHCPV6_MSG_SOLICIT ||
+				hdr->msg_type == DHCPV6_MSG_REQUEST) &&
+				!pd_prefix_allowed(iface, reqlen))
+			status = DHCPV6_STATUS_NOPREFIXAVAIL;
 
 		// Find assignment
 		struct assignment *c, *a = NULL;
-		list_for_each_entry(c, &iface->pd_assignments, head) {
+		if (!status) list_for_each_entry(c, &iface->pd_assignments, head) {
 			if (c->clid_len == clid_len && !memcmp(c->clid_data, clid_data, clid_len) &&
 					(c->iaid == ia->iaid || c->valid_until < now) &&
 					((is_pd && c->length <= 64) || (is_na && c->length == 128))) {
@@ -811,8 +890,9 @@ size_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct relayd_interface *if
 		}
 
 		// Generic message handling
-		uint16_t status = DHCPV6_STATUS_OK;
-		if (hdr->msg_type == DHCPV6_MSG_SOLICIT || hdr->msg_type == DHCPV6_MSG_REQUEST) {
+		if (status) {
+			ia_response_len = append_reply(buf, buflen, status, ia, NULL, iface, true);
+		} else if (hdr->msg_type == DHCPV6_MSG_SOLICIT || hdr->msg_type == DHCPV6_MSG_REQUEST) {
 			bool assigned = !!a;
 
 			if (!a) { // Create new binding
