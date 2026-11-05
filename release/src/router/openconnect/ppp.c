@@ -1081,26 +1081,42 @@ static int ppp_mainloop(struct openconnect_info *vpninfo, int dtls,
 		   handle that */
 		unsigned char *eh, *ph, *pp, *next;
 		int receive_mtu = MAX(16384, vpninfo->ip_info.mtu);
-		int len, payload_len, next_len;
+		int len, payload_len, next_len, receive_size, receive_slack, buffer_size;
 
+		rsv_hdr_size = ppp->encap_len + ppp->exp_ppp_hdr_size;
+		receive_size = receive_mtu + rsv_hdr_size;
+		receive_slack = ppp->exp_ppp_hdr_size;
+
+		if (vpninfo->cstp_pkt &&
+		    vpninfo->cstp_pkt->alloc_len < sizeof(struct pkt) + receive_mtu + receive_slack) {
+			free_pkt(vpninfo, vpninfo->cstp_pkt);
+			vpninfo->cstp_pkt = NULL;
+			vpninfo->partial_rec_size = 0;
+		}
 		if (!vpninfo->cstp_pkt) {
-			vpninfo->cstp_pkt = alloc_pkt(vpninfo, receive_mtu);
+			vpninfo->cstp_pkt = alloc_pkt(vpninfo, receive_mtu + receive_slack);
 			if (!vpninfo->cstp_pkt) {
 				vpn_progress(vpninfo, PRG_ERR, _("Allocation failed\n"));
 				break;
 			}
 		}
 		this = vpninfo->cstp_pkt;
+		eh = this->data - rsv_hdr_size;
+		buffer_size = this->alloc_len - (eh - (unsigned char *)this);
+		if (buffer_size < receive_size + receive_slack) {
+			vpninfo->quit_reason = "Payload exceeds receive buffer";
+			vpn_progress(vpninfo, PRG_ERR, _("PPP receive buffer is too small\n"));
+			return -EINVAL;
+		}
 
 		/* XX: PPP header is of variable length. We attempt to
 		 * anticipate the actual length received, so we don't have to memmove
 		 * the payload later. */
-		rsv_hdr_size = ppp->encap_len + ppp->exp_ppp_hdr_size;
 
 		/* This should never happen here as we should complain about it
 		 * before setting ->partial_rec_size in the first place, but be
 		 * paranoid. This would mean we just read zero (or negative!) */
-		if (vpninfo->partial_rec_size >= receive_mtu + rsv_hdr_size) {
+		if (vpninfo->partial_rec_size >= receive_size) {
 			vpninfo->quit_reason = "Payload exceeds MTU";
 			vpn_progress(vpninfo, PRG_ERR,
 				     _("PPP payload exceeds receive buffer\n"));
@@ -1110,9 +1126,8 @@ static int ppp_mainloop(struct openconnect_info *vpninfo, int dtls,
 		/* Load the encap header to end up with the payload where we expect it. Also,
 		 * if our previous (D)TLS read contained an incomplete PPP packet, we need
 		 * to append to it. */
-		eh = this->data - rsv_hdr_size;
 		len = ssl_nonblock_read(vpninfo, dtls, eh + vpninfo->partial_rec_size,
-					receive_mtu + rsv_hdr_size - vpninfo->partial_rec_size);
+					receive_size - vpninfo->partial_rec_size);
 		if (!len)
 			break;
 		if (len < 0)
@@ -1170,11 +1185,11 @@ static int ppp_mainloop(struct openconnect_info *vpninfo, int dtls,
 			incomplete_pkt:
 				/* We've read a partial PPP packet. Save the offset for our next read. */
 				vpninfo->partial_rec_size = len;
-				if (vpninfo->partial_rec_size >= receive_mtu + rsv_hdr_size) {
+				if (vpninfo->partial_rec_size >= receive_size) {
 					vpninfo->quit_reason = "Payload exceeds MTU";
 					vpn_progress(vpninfo, PRG_ERR,
 						     _("PPP payload len %d exceeds receive buffer %d\n"),
-						     payload_len, receive_mtu + rsv_hdr_size);
+						     payload_len, receive_size);
 					dump_buf_hex(vpninfo, PRG_ERR, '<', eh, len);
 					return -EINVAL;
 				}
@@ -1328,7 +1343,7 @@ static int ppp_mainloop(struct openconnect_info *vpninfo, int dtls,
 			 * full sized packet so it can remain in vpninfo->cstp_pkt and be reused
 			 * for receiving the next packet, if it's something other than data and
 			 * doesn't get queued and freed. */
-			this = vpninfo->cstp_pkt = alloc_pkt(vpninfo, receive_mtu);
+			this = vpninfo->cstp_pkt = alloc_pkt(vpninfo, receive_mtu + receive_slack);
 			if (!this)
 				return -ENOMEM;
 			eh = this->data - rsv_hdr_size;
