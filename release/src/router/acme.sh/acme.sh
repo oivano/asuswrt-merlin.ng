@@ -2175,10 +2175,38 @@ _clearcaconf() {
   _clear_conf "$CA_CONF" "$1"
 }
 
+_is_base64url() {
+  case "$1" in
+    ""|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-]*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+_is_safe_https_url() {
+  _url_value="$1"
+  case "$_url_value" in
+    https://?*) _url_value="${_url_value#https://}" ;;
+    *) return 1 ;;
+  esac
+  case "$_url_value" in
+    *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789./:_-]*) return 1 ;;
+  esac
+  _url_host="${_url_value%%/*}"
+  case "$_url_host" in
+    ""|.*|*.) return 1 ;;
+  esac
+  return 0
+}
+
 # content localaddress
 _startserver() {
   content="$1"
   ncaddr="$2"
+  challenge_token="${content%%.*}"
+  if ! _is_base64url "$challenge_token"; then
+    _err "Invalid ACME challenge token."
+    return 1
+  fi
   _debug "content" "$content"
   _debug "ncaddr" "$ncaddr"
 
@@ -2199,21 +2227,33 @@ _startserver() {
     _NC="$_NC -d -d -v"
   fi
 
-  SOCAT_OPTIONS=TCP-LISTEN:$Le_HTTPPort,crlf,reuseaddr,fork
+  SOCAT_OPTIONS=TCP-LISTEN:$Le_HTTPPort,reuseaddr,fork
 
   #Adding bind to local-address
   if [ "$ncaddr" ]; then
     SOCAT_OPTIONS="$SOCAT_OPTIONS,bind=${ncaddr}"
   fi
 
-  _content_len="$(printf "%s" "$content" | wc -c)"
+  _response_file="/tmp/.le/acme-http-$$"
+  if ! (umask 077; set -C; : >"$_response_file") 2>/dev/null; then
+    _response_file=""
+    return 1
+  fi
+  if ! chmod 600 "$_response_file"; then
+    rm -f "$_response_file"
+    _response_file=""
+    return 1
+  fi
+  _content_len="$(printf "%s" "$content" | wc -c | tr -d '[:space:]')"
   _debug _content_len "$_content_len"
+  if ! printf 'HTTP/1.0 200 OK\r\nContent-Length: %s\r\n\r\n%s' \
+    "$_content_len" "$content" >"$_response_file"; then
+    rm -f "$_response_file"
+    _response_file=""
+    return 1
+  fi
   _debug "_NC" "$_NC $SOCAT_OPTIONS"
-  $_NC $SOCAT_OPTIONS SYSTEM:"sleep 1; \
-echo 'HTTP/1.0 200 OK'; \
-echo 'Content-Length\: $_content_len'; \
-echo ''; \
-printf -- '$content';" &
+  $_NC $SOCAT_OPTIONS SYSTEM:"sleep 1; cat $_response_file" &
   serverproc="$!"
 }
 
@@ -2225,6 +2265,10 @@ _stopserver() {
   fi
 
   kill $pid
+  if [ "$_response_file" ]; then
+    rm -f "$_response_file"
+    _response_file=""
+  fi
 
 }
 
@@ -3925,10 +3969,22 @@ issue() {
       fi
       Le_LinkOrder="$(echo "$responseHeaders" | grep -i '^Location.*$' | _tail_n 1 | tr -d "\r\n" | cut -d " " -f 2)"
       _debug Le_LinkOrder "$Le_LinkOrder"
+      if [ "$Le_LinkOrder" ] && ! _is_safe_https_url "$Le_LinkOrder"; then
+        _err "Create new order error. Invalid order URL."
+        _clearup
+        _on_issue_err "$_post_hook"
+        return 1
+      fi
       Le_OrderFinalize="$(echo "$response" | _egrep_o '"finalize" *: *"[^"]*"' | cut -d '"' -f 4)"
       _debug Le_OrderFinalize "$Le_OrderFinalize"
       if [ -z "$Le_OrderFinalize" ]; then
         _err "Create new order error. Le_OrderFinalize not found. $response"
+        _clearup
+        _on_issue_err "$_post_hook"
+        return 1
+      fi
+      if ! _is_safe_https_url "$Le_OrderFinalize"; then
+        _err "Create new order error. Invalid finalize URL."
         _clearup
         _on_issue_err "$_post_hook"
         return 1
@@ -4036,7 +4092,6 @@ $_authorizations_map"
         return 1
       fi
       token="$(echo "$entry" | _egrep_o '"token":"[^"]*' | cut -d : -f 2 | tr -d '"')"
-      _debug token "$token"
 
       if [ -z "$token" ]; then
         _err "Error, can not get domain token $entry"
@@ -4044,6 +4099,13 @@ $_authorizations_map"
         _on_issue_err "$_post_hook"
         return 1
       fi
+      if ! _is_base64url "$token"; then
+        _err "Error, invalid domain token."
+        _clearup
+        _on_issue_err "$_post_hook"
+        return 1
+      fi
+      _debug token "$token"
       if [ "$ACME_VERSION" = "2" ]; then
         uri="$(echo "$entry" | _egrep_o '"url":"[^"]*' | cut -d '"' -f 4 | _head_n 1)"
       else
@@ -4053,6 +4115,12 @@ $_authorizations_map"
 
       if [ -z "$uri" ]; then
         _err "Error, can not get domain uri. $entry"
+        _clearup
+        _on_issue_err "$_post_hook"
+        return 1
+      fi
+      if ! _is_safe_https_url "$uri"; then
+        _err "Error, invalid domain challenge URL."
         _clearup
         _on_issue_err "$_post_hook"
         return 1
@@ -4431,6 +4499,11 @@ $_authorizations_map"
     if [ -z "$Le_LinkOrder" ]; then
       Le_LinkOrder="$(echo "$responseHeaders" | grep -i '^Location.*$' | _tail_n 1 | tr -d "\r\n" | cut -d " " -f 2)"
     fi
+    if [ "$Le_LinkOrder" ] && ! _is_safe_https_url "$Le_LinkOrder"; then
+      _err "Sign failed. Invalid order URL."
+      _on_issue_err "$_post_hook"
+      return 1
+    fi
 
     _savedomainconf "Le_LinkOrder" "$Le_LinkOrder"
 
@@ -4444,6 +4517,11 @@ $_authorizations_map"
         if [ -z "$Le_LinkCert" ]; then
           _err "Sign error, can not find Le_LinkCert"
           _err "$response"
+          _on_issue_err "$_post_hook"
+          return 1
+        fi
+        if ! _is_safe_https_url "$Le_LinkCert"; then
+          _err "Sign error, invalid certificate URL."
           _on_issue_err "$_post_hook"
           return 1
         fi
@@ -4508,6 +4586,11 @@ $_authorizations_map"
     fi
     _rcert="$response"
     Le_LinkCert="$(grep -i '^Location.*$' "$HTTP_HEADER" | _tail_n 1 | tr -d "\r\n" | cut -d " " -f 2)"
+    if [ "$Le_LinkCert" ] && ! _is_safe_https_url "$Le_LinkCert"; then
+      _err "Sign failed. Invalid certificate URL."
+      _on_issue_err "$_post_hook"
+      return 1
+    fi
     echo "$BEGIN_CERT" >"$CERT_PATH"
 
     #if ! _get "$Le_LinkCert" | _base64 "multiline"  >> "$CERT_PATH" ; then
@@ -4559,6 +4642,11 @@ $_authorizations_map"
       if ! _contains "$Le_LinkIssuer" ":"; then
         _info "$(__red "Relative issuer link found.")"
         Le_LinkIssuer="$_ACME_SERVER_HOST$Le_LinkIssuer"
+      fi
+      if ! _is_safe_https_url "$Le_LinkIssuer"; then
+        _err "Invalid issuer URL."
+        _on_issue_err "$_post_hook"
+        return 1
       fi
       _debug Le_LinkIssuer "$Le_LinkIssuer"
       _savedomainconf "Le_LinkIssuer" "$Le_LinkIssuer"
