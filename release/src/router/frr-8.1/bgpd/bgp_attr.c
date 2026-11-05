@@ -2555,7 +2555,8 @@ bgp_attr_encap(struct bgp_attr_parser_args *args)
  * draft-ietf-bess-srv6-services-07
  */
 static bgp_attr_parse_ret_t
-bgp_attr_srv6_service_data(struct bgp_attr_parser_args *args)
+bgp_attr_srv6_service_data(struct bgp_attr_parser_args *args,
+			   size_t available)
 {
 	struct peer *const peer = args->peer;
 	struct attr *const attr = args->attr;
@@ -2564,7 +2565,7 @@ bgp_attr_srv6_service_data(struct bgp_attr_parser_args *args)
 	uint16_t length;
 	size_t headersz = sizeof(type) + sizeof(length);
 
-	if (STREAM_READABLE(peer->curr) < headersz) {
+	if (available < headersz || STREAM_READABLE(peer->curr) < headersz) {
 		flog_err(
 			EC_BGP_ATTR_LEN,
 			"Malformed SRv6 Service Data Sub-Sub-TLV attribute - insufficent data (need %zu for attribute header, have %zu remaining in UPDATE)",
@@ -2576,7 +2577,8 @@ bgp_attr_srv6_service_data(struct bgp_attr_parser_args *args)
 	type = stream_getc(peer->curr);
 	length = stream_getw(peer->curr);
 
-	if (STREAM_READABLE(peer->curr) < length) {
+	if (length > available - headersz
+	    || STREAM_READABLE(peer->curr) < length) {
 		flog_err(
 			EC_BGP_ATTR_LEN,
 			"Malformed SRv6 Service Data Sub-Sub-TLV attribute - insufficent data (need %hu for attribute data, have %zu remaining in UPDATE)",
@@ -2586,6 +2588,16 @@ bgp_attr_srv6_service_data(struct bgp_attr_parser_args *args)
 	}
 
 	if (type == BGP_PREFIX_SID_SRV6_L3_SERVICE_SID_STRUCTURE) {
+		if (length < BGP_PREFIX_SID_SRV6_L3_SERVICE_SID_STRUCTURE_LENGTH) {
+			flog_err(EC_BGP_ATTR_LEN,
+				 "SRv6 SID Structure length is %hu instead of at least %u",
+				 length,
+				 BGP_PREFIX_SID_SRV6_L3_SERVICE_SID_STRUCTURE_LENGTH);
+			return bgp_attr_malformed(
+				args, BGP_NOTIFY_UPDATE_ATTR_LENG_ERR,
+				args->total);
+		}
+
 		loc_block_len = stream_getc(peer->curr);
 		loc_node_len = stream_getc(peer->curr);
 		func_len = stream_getc(peer->curr);
@@ -2608,6 +2620,10 @@ bgp_attr_srv6_service_data(struct bgp_attr_parser_args *args)
 		attr->srv6_l3vpn->arg_len = arg_len;
 		attr->srv6_l3vpn->transposition_len = transposition_len;
 		attr->srv6_l3vpn->transposition_offset = transposition_offset;
+		if (length > BGP_PREFIX_SID_SRV6_L3_SERVICE_SID_STRUCTURE_LENGTH)
+			stream_forward_getp(
+				peer->curr,
+				length - BGP_PREFIX_SID_SRV6_L3_SERVICE_SID_STRUCTURE_LENGTH);
 	}
 
 	else {
@@ -2626,7 +2642,7 @@ bgp_attr_srv6_service_data(struct bgp_attr_parser_args *args)
  * draft-ietf-bess-srv6-services-07
  */
 static bgp_attr_parse_ret_t
-bgp_attr_srv6_service(struct bgp_attr_parser_args *args)
+bgp_attr_srv6_service(struct bgp_attr_parser_args *args, size_t available)
 {
 	struct peer *const peer = args->peer;
 	struct attr *const attr = args->attr;
@@ -2637,7 +2653,7 @@ bgp_attr_srv6_service(struct bgp_attr_parser_args *args)
 	bgp_attr_parse_ret_t err;
 	char buf[BUFSIZ];
 
-	if (STREAM_READABLE(peer->curr) < headersz) {
+	if (available < headersz || STREAM_READABLE(peer->curr) < headersz) {
 		flog_err(
 			EC_BGP_ATTR_LEN,
 			"Malformed SRv6 Service Sub-TLV attribute - insufficent data (need %zu for attribute header, have %zu remaining in UPDATE)",
@@ -2649,7 +2665,8 @@ bgp_attr_srv6_service(struct bgp_attr_parser_args *args)
 	type = stream_getc(peer->curr);
 	length = stream_getw(peer->curr);
 
-	if (STREAM_READABLE(peer->curr) < length) {
+	if (length > available - headersz
+	    || STREAM_READABLE(peer->curr) < length) {
 		flog_err(
 			EC_BGP_ATTR_LEN,
 			"Malformed SRv6 Service Sub-TLV attribute - insufficent data (need %hu for attribute data, have %zu remaining in UPDATE)",
@@ -2659,6 +2676,16 @@ bgp_attr_srv6_service(struct bgp_attr_parser_args *args)
 	}
 
 	if (type == BGP_PREFIX_SID_SRV6_L3_SERVICE_SID_INFO) {
+		if (length < BGP_PREFIX_SID_SRV6_L3_SERVICE_SID_INFO_LENGTH) {
+			flog_err(EC_BGP_ATTR_LEN,
+				 "SRv6 SID Information length is %hu instead of at least %u",
+				 length,
+				 BGP_PREFIX_SID_SRV6_L3_SERVICE_SID_INFO_LENGTH);
+			return bgp_attr_malformed(
+				args, BGP_NOTIFY_UPDATE_ATTR_LENG_ERR,
+				args->total);
+		}
+
 		stream_getc(peer->curr);
 		stream_get(&ipv6_sid, peer->curr, sizeof(ipv6_sid));
 		sid_flags = stream_getc(peer->curr);
@@ -2694,7 +2721,9 @@ bgp_attr_srv6_service(struct bgp_attr_parser_args *args)
 
 		// Sub-Sub-TLV found
 		if (length > BGP_PREFIX_SID_SRV6_L3_SERVICE_SID_INFO_LENGTH) {
-			err = bgp_attr_srv6_service_data(args);
+			err = bgp_attr_srv6_service_data(
+				args,
+				length - BGP_PREFIX_SID_SRV6_L3_SERVICE_SID_INFO_LENGTH);
 
 			if (err != BGP_ATTR_PARSE_PROCEED)
 				return err;
@@ -2885,7 +2914,7 @@ static bgp_attr_parse_ret_t bgp_attr_psid_sub(uint8_t type, uint16_t length,
 
 	/* Placeholder code for the SRv6 L3 Service type */
 	else if (type == BGP_PREFIX_SID_SRV6_L3_SERVICE) {
-		if (STREAM_READABLE(peer->curr) < length) {
+		if (length < 1 || STREAM_READABLE(peer->curr) < length) {
 			flog_err(
 				EC_BGP_ATTR_LEN,
 				"Prefix SID SRv6 L3-Service length is %hu, but only %zu bytes remain",
@@ -2898,7 +2927,7 @@ static bgp_attr_parse_ret_t bgp_attr_psid_sub(uint8_t type, uint16_t length,
 		/* ignore reserved */
 		stream_getc(peer->curr);
 
-		return bgp_attr_srv6_service(args);
+		return bgp_attr_srv6_service(args, length - 1);
 	}
 
 	/* Placeholder code for Unsupported TLV */
@@ -2944,7 +2973,8 @@ bgp_attr_parse_ret_t bgp_attr_prefix_sid(struct bgp_attr_parser_args *args)
 	while (STREAM_READABLE(peer->curr) > 0
 	       && psid_parsed_length < args->length) {
 
-		if (STREAM_READABLE(peer->curr) < headersz) {
+		if (STREAM_READABLE(peer->curr) < headersz
+		    || args->length - psid_parsed_length < headersz) {
 			flog_err(
 				EC_BGP_ATTR_LEN,
 				"Malformed Prefix SID attribute - insufficent data (need %zu for attribute header, have %zu remaining in UPDATE)",
@@ -2957,7 +2987,8 @@ bgp_attr_parse_ret_t bgp_attr_prefix_sid(struct bgp_attr_parser_args *args)
 		type = stream_getc(peer->curr);
 		length = stream_getw(peer->curr);
 
-		if (STREAM_READABLE(peer->curr) < length) {
+		if (STREAM_READABLE(peer->curr) < length
+		    || length > args->length - psid_parsed_length - headersz) {
 			flog_err(
 				EC_BGP_ATTR_LEN,
 				"Malformed Prefix SID attribute - insufficient data (need %hu for attribute body, have %zu remaining in UPDATE)",
