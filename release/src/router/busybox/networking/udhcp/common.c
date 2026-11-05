@@ -309,7 +309,6 @@ complain:
 			return return_ptr;
 		}
 		scan_state->optionptr += len;
-		scan_state->optionptr += len;
 	}
 
 	return NULL;
