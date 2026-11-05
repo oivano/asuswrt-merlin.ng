@@ -20,6 +20,7 @@ const makefile = read('release/src/router/Makefile');
 const functions = common.slice(common.indexOf('daemon_inst()'), common.indexOf('stop_watchfrr_first()'));
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'frr-runtime-'));
 let cases = 0;
+let captureCases = 0;
 
 function shell(body, prefix = '') {
     const result = spawnSync('/bin/sh', ['-c', `
@@ -46,7 +47,128 @@ ${body}
     return result.stdout.trim();
 }
 
+function stderrCaptureChecks() {
+    const body = name => {
+        const start = rc.indexOf(name + '(');
+        assert.ok(start >= 0, name);
+        const open = rc.indexOf('\n{', start);
+        return rc.slice(open + 2, rc.indexOf('\n}', open));
+    };
+    const capture = body('frr_open_stderr_capture');
+    const execute = body('frr_exec_script_capture_stderr');
+    const log = body('frr_log_captured_stderr');
+    assert.doesNotMatch(rc, /FRR_STDERR_LOG_FILE|frr-start\.stderr\.log/);
+    assert.match(capture, /mkstemp\(path\)/);
+    assert.match(capture, /!S_ISREG\(st.st_mode\).*st.st_uid != 0/);
+    assert.match(capture, /st.st_nlink != 1.*st.st_mode & 0077/);
+    assert.ok(capture.indexOf('unlink(path) < 0') < capture.indexOf('fdopen(fd'));
+    assert.match(execute, /fd = fileno\(stderr_log\)/);
+    assert.doesNotMatch(execute, /\bopen\(|\bfclose\(/);
+    assert.doesNotMatch(execute.slice(execute.indexOf('\n\tif (waitpid')), /close\(fd\)/);
+    assert.match(log, /rewind\(fp\)/);
+    assert.doesNotMatch(log, /fopen\(|f_exists\(|fclose\(/);
+    for (const name of ['start_frr', 'stop_frr', 'restart_frr']) {
+        const lifecycle = body(name);
+        assert.equal((lifecycle.match(/frr_open_stderr_capture\(\)/g) || []).length, 1, name);
+        assert.match(lifecycle, /fclose\(stderr_log\)/, name);
+        assert.doesNotMatch(lifecycle, /frr_invoke_script_capture\([^\n]*,\s*1\)/, name);
+    }
+    assert.match(body('restart_frr'), /if \(!is_frr_enabled\(\)\)[\s\S]*?stop_frr\(\);\s*return;/);
+
+    const translated = capture
+        .replace(/char path\[\] = "[^"]+";/, 'let path = template;')
+        .replace(/struct stat st;/, 'let st = {};')
+        .replace(/FILE \*fp;/, 'let fp;')
+        .replace(/int fd;/, 'let fd;')
+        .replace(/&st/g, 'st')
+        .replace(/\bNULL\b/g, 'null')
+        .replace(/\b0077\b/g, '0o77');
+    const run = new Function('template', 'mkstemp', 'fstat', 'S_ISREG', 'fcntl',
+        'F_SETFL', 'O_APPEND', 'unlink', 'close', 'fdopen', translated);
+    const old = path.join(temporary, 'frr-start.stderr.log');
+    const target = path.join(temporary, 'stderr-target');
+    const formerName = path.join(temporary, 'frr-stderr-fixture');
+    let attempts = 0;
+    function openCapture(fault = '') {
+        const descriptors = new Set();
+        const stream = run(formerName, name => {
+            attempts++;
+            if (fault === 'mkstemp') return -1;
+            try {
+                const fd = fs.openSync(name, fs.constants.O_RDWR | fs.constants.O_CREAT |
+                    fs.constants.O_EXCL | fs.constants.O_APPEND, 0o600);
+                descriptors.add(fd);
+                return fd;
+            } catch { return -1; }
+        }, (fd, st) => {
+            const actual = fs.fstatSync(fd);
+            Object.assign(st, {
+                st_mode: actual.mode, st_uid: actual.uid === process.getuid() ? 0 : actual.uid,
+                st_nlink: actual.nlink
+            });
+            if (fault === 'owner') st.st_uid = 65534;
+            if (fault === 'type') st.st_mode = 0o010600;
+            if (fault === 'links') st.st_nlink = 2;
+            if (fault === 'mode') st.st_mode |= 0o044;
+            return fault === 'fstat' ? -1 : 0;
+        }, mode => (mode & 0o170000) === 0o100000,
+            () => fault === 'fcntl' ? -1 : 0, 0, fs.constants.O_APPEND,
+            name => {
+                if (fault === 'unlink') return -1;
+                fs.unlinkSync(name);
+                return 0;
+            }, fd => {
+                descriptors.delete(fd);
+                fs.closeSync(fd);
+            }, (fd, mode) => {
+                assert.equal(mode, 'r+');
+                return fault === 'fdopen' ? null : fd;
+            });
+        assert.equal(descriptors.size, stream === null ? 0 : 1, fault);
+        return stream;
+    }
+
+    for (const existing of [false, true]) {
+        if (existing) fs.writeFileSync(target, 'sentinel\n');
+        fs.symlinkSync(target, old);
+        for (const enabled of [false, true]) {
+            for (const action of ['start', 'stop', 'restart']) {
+                const fd = openCapture();
+                assert.notEqual(fd, null);
+                assert.equal(fs.existsSync(formerName), false);
+                fs.symlinkSync(target, formerName);
+                const messages = enabled ? (action === 'restart' ? 'stop\nstart\nretry\n' : `${action}\n`) : '';
+                for (const message of messages.match(/[^\n]+\n/g) || []) fs.writeSync(fd, message);
+                const result = Buffer.alloc(256);
+                const length = fs.readSync(fd, result, 0, result.length, 0);
+                assert.equal(result.subarray(0, length).toString(), messages);
+                assert.equal(fs.fstatSync(fd).nlink, 0);
+                fs.closeSync(fd);
+                fs.unlinkSync(formerName);
+                assert.equal(fs.existsSync(target), existing);
+                if (existing) assert.equal(fs.readFileSync(target, 'utf8'), 'sentinel\n');
+                assert.equal(fs.lstatSync(old).isSymbolicLink(), true);
+                captureCases++;
+            }
+        }
+        fs.unlinkSync(old);
+    }
+    for (const fault of ['mkstemp', 'fstat', 'owner', 'type', 'links', 'mode', 'fcntl', 'unlink', 'fdopen']) {
+        assert.equal(openCapture(fault), null, fault);
+        if (fault === 'unlink') fs.unlinkSync(formerName);
+        assert.equal(fs.existsSync(formerName), false, fault);
+        captureCases++;
+    }
+    fs.symlinkSync(target, formerName);
+    assert.equal(openCapture(), null);
+    assert.equal(fs.readFileSync(target, 'utf8'), 'sentinel\n');
+    fs.unlinkSync(formerName);
+    assert.equal(attempts, 22);
+    captureCases++;
+}
+
 try {
+    stderrCaptureChecks();
     fs.mkdirSync(path.join(temporary, 'daemons'));
     for (const script of ['frrcommon.sh', 'watchfrr.sh', 'frrinit.sh']) {
         const result = spawnSync('/bin/sh', ['-n', path.join(root, base, 'files', script)]);
@@ -240,7 +362,7 @@ readlink() {
     } else {
         console.log('SKIP: actual root/nobody directory-access tests require uid 0');
     }
-    console.log(`PASS: ${cases} actual shell checks, intercepted stop signals, runtime path contracts and host nofollow check`);
+    console.log(`PASS: ${captureCases} source-translated capture/filesystem checks; ${cases} actual shell checks, intercepted stop signals, runtime path contracts and host nofollow check`);
     console.log('NOTE: C and firmware not compiled; router startup/recovery still requires hardware validation');
 } finally {
     fs.rmSync(temporary, { recursive: true, force: true });

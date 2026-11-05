@@ -29,7 +29,6 @@
 #define FRR_RUNTIME_CONF	FRR_RUNTIME_CONFIG_DIR "/frr.conf"
 #define FRR_DAEMON_USER		"nobody"
 #define FRR_DAEMON_GROUP	"nobody"
-#define FRR_STDERR_LOG_FILE	"/tmp/frr-start.stderr.log"
 
 /*
  * These markers delimit protocol-specific WebUI-managed blocks inside frr.conf.
@@ -103,36 +102,59 @@ static int frr_daemons_file_trusted(const char *cfg_dir)
 	return S_ISREG(st.st_mode) && st.st_uid == 0 && !(st.st_mode & 0022);
 }
 
+static FILE *frr_open_stderr_capture(void)
+{
+	char path[] = "/tmp/frr-stderr-XXXXXX";
+	struct stat st;
+	FILE *fp;
+	int fd;
+
+	fd = mkstemp(path);
+	if (fd < 0)
+		return NULL;
+	if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
+	    st.st_nlink != 1 || (st.st_mode & 0077) ||
+	    fcntl(fd, F_SETFL, O_APPEND) < 0) {
+		unlink(path);
+		close(fd);
+		return NULL;
+	}
+	if (unlink(path) < 0) {
+		close(fd);
+		return NULL;
+	}
+	fp = fdopen(fd, "r+");
+	if (!fp)
+		close(fd);
+	return fp;
+}
+
 static int frr_exec_script_capture_stderr(const char *script, const char *action,
-		const char *stderr_log, int append)
+		FILE *stderr_log)
 {
 	int fd;
 	pid_t pid;
 	int status = 0;
-	int flags = O_WRONLY | O_CREAT;
 
-	if (!script || !*script || !action || !*action || !stderr_log || !*stderr_log)
+	if (!script || !*script || !action || !*action || !stderr_log)
 		return -1;
 
-	flags |= append ? O_APPEND : O_TRUNC;
-	fd = open(stderr_log, flags, 0644);
+	fd = fileno(stderr_log);
 	if (fd < 0)
 		return -1;
 
 	pid = fork();
-	if (pid < 0) {
-		close(fd);
+	if (pid < 0)
 		return -1;
-	}
 
 	if (pid == 0) {
-		dup2(fd, STDERR_FILENO);
-		close(fd);
+		if (dup2(fd, STDERR_FILENO) < 0)
+			_exit(127);
+		if (fd != STDERR_FILENO)
+			close(fd);
 		execl(script, script, action, (char *)NULL);
 		_exit(127);
 	}
-
-	close(fd);
 
 	if (waitpid(pid, &status, 0) < 0)
 		return -1;
@@ -146,18 +168,14 @@ static int frr_exec_script_capture_stderr(const char *script, const char *action
 	return -1;
 }
 
-static void frr_log_captured_stderr(const char *stderr_log)
+static void frr_log_captured_stderr(FILE *fp)
 {
-	FILE *fp;
 	char line[256];
 	int count = 0;
 
-	if (!stderr_log || !*stderr_log || !f_exists(stderr_log))
-		return;
-
-	fp = fopen(stderr_log, "r");
 	if (!fp)
 		return;
+	rewind(fp);
 
 	while (fgets(line, sizeof(line), fp) != NULL) {
 		size_t n = strlen(line);
@@ -173,7 +191,6 @@ static void frr_log_captured_stderr(const char *stderr_log)
 		}
 	}
 
-	fclose(fp);
 }
 
 static int frr_invoke_script(const char *action)
@@ -214,7 +231,7 @@ static int frr_invoke_script(const char *action)
 	return ret;
 }
 
-static int frr_invoke_script_capture(const char *action, const char *stderr_log, int append)
+static int frr_invoke_script_capture(const char *action, FILE *stderr_log)
 {
 	char cfg_dir[PATH_MAX];
 	char saved_cfg_dir[PATH_MAX];
@@ -235,9 +252,9 @@ static int frr_invoke_script_capture(const char *action, const char *stderr_log,
 
 	/* Prefer the init script: /usr/sbin/frr can be a no-op on some targets. */
 	if (f_exists(FRR_INIT_SCRIPT))
-		ret = frr_exec_script_capture_stderr(FRR_INIT_SCRIPT, action, stderr_log, append);
+		ret = frr_exec_script_capture_stderr(FRR_INIT_SCRIPT, action, stderr_log);
 	else if (f_exists(FRR_SCRIPT))
-		ret = frr_exec_script_capture_stderr(FRR_SCRIPT, action, stderr_log, append);
+		ret = frr_exec_script_capture_stderr(FRR_SCRIPT, action, stderr_log);
 	else {
 		logmessage("FRR", "Init script not found: %s or %s", FRR_SCRIPT, FRR_INIT_SCRIPT);
 		_dprintf("FRR init script not found: %s or %s\n", FRR_SCRIPT, FRR_INIT_SCRIPT);
@@ -994,6 +1011,7 @@ static void frr_write_default_config(void)
 
 void start_frr(void)
 {
+	FILE *stderr_log;
 	int running = 0;
 	int have_stderr = 0;
 
@@ -1009,7 +1027,6 @@ void start_frr(void)
 	}
 
 	running = (pidof("watchfrr") > 0);
-	unlink(FRR_STDERR_LOG_FILE);
 	
 	_dprintf("Starting FRR routing services...\n");
 	
@@ -1027,7 +1044,8 @@ void start_frr(void)
 		return;
 	}
 	else {
-		if (frr_invoke_script_capture("start", FRR_STDERR_LOG_FILE, 1) != 0) {
+		stderr_log = frr_open_stderr_capture();
+		if (frr_invoke_script_capture("start", stderr_log) != 0) {
 			have_stderr = 1;
 			_dprintf("FRR start via init script failed\n");
 			logmessage("FRR", "start command failed");
@@ -1044,20 +1062,23 @@ void start_frr(void)
 	else {
 		logmessage("FRR", "start completed but watchfrr is not running");
 		if (have_stderr)
-			frr_log_captured_stderr(FRR_STDERR_LOG_FILE);
+			frr_log_captured_stderr(stderr_log);
 		_dprintf("FRR start failed\n");
 	}
+	if (stderr_log)
+		fclose(stderr_log);
 }
 
 void stop_frr(void)
 {
+	FILE *stderr_log;
 	int have_stderr = 0;
 
 	_dprintf("Stopping FRR routing services...\n");
-	unlink(FRR_STDERR_LOG_FILE);
+	stderr_log = frr_open_stderr_capture();
 
 	/* Stop FRR using init script; if it fails, force-stop daemon processes. */
-	if (frr_invoke_script_capture("stop", FRR_STDERR_LOG_FILE, 1) != 0) {
+	if (frr_invoke_script_capture("stop", stderr_log) != 0) {
 		have_stderr = 1;
 		logmessage("FRR", "stop command failed, forcing daemon stop fallback");
 		frr_force_stop_daemons();
@@ -1077,14 +1098,18 @@ void stop_frr(void)
 		if (pidof("watchfrr") <= 0) {
 			logmessage("FRR", "stop completed successfully after forced daemon stop");
 			_dprintf("FRR stopped after forced daemon stop\n");
+			if (stderr_log)
+				fclose(stderr_log);
 			return;
 		}
 
 		logmessage("FRR", "stop completed but watchfrr is still running");
 		if (have_stderr)
-			frr_log_captured_stderr(FRR_STDERR_LOG_FILE);
+			frr_log_captured_stderr(stderr_log);
 		_dprintf("FRR stop incomplete\n");
 	}
+	if (stderr_log)
+		fclose(stderr_log);
 }
 
 static int frr_apply_peer_states_live(json_object *request)
@@ -1154,6 +1179,7 @@ static int frr_apply_peer_states_live(json_object *request)
 
 void restart_frr(void)
 {
+	FILE *stderr_log;
 	int was_running;
 	int have_stderr = 0;
 	int peer_state_apply = nvram_match("frr_force_regen", "3");
@@ -1167,7 +1193,6 @@ void restart_frr(void)
 	}
 
 	was_running = (pidof("watchfrr") > 0);
-	unlink(FRR_STDERR_LOG_FILE);
 	if (peer_state_apply) {
 		peer_request = json_tokener_parse(nvram_safe_get("frr_ui_request"));
 		if (peer_request) {
@@ -1204,8 +1229,9 @@ void restart_frr(void)
 	 * Use an explicit stop/start cycle for deterministic restart behavior.
 	 * Some init script restart implementations can be a no-op in practice.
 	 */
+	stderr_log = frr_open_stderr_capture();
 	if (was_running) {
-		if (frr_invoke_script_capture("stop", FRR_STDERR_LOG_FILE, 1) != 0) {
+		if (frr_invoke_script_capture("stop", stderr_log) != 0) {
 			have_stderr = 1;
 			logmessage("FRR", "restart: stop command failed, forcing daemon stop fallback");
 			frr_force_stop_daemons();
@@ -1222,12 +1248,12 @@ void restart_frr(void)
 
 	sleep(1);
 
-	if (frr_invoke_script_capture("start", FRR_STDERR_LOG_FILE, 1) != 0) {
+	if (frr_invoke_script_capture("start", stderr_log) != 0) {
 		have_stderr = 1;
 		logmessage("FRR", "restart: start command failed, retrying after forced stop");
 		frr_force_stop_daemons();
 		sleep(1);
-		if (frr_invoke_script_capture("start", FRR_STDERR_LOG_FILE, 1) != 0)
+		if (frr_invoke_script_capture("start", stderr_log) != 0)
 			have_stderr = 1;
 	}
 	else {
@@ -1239,6 +1265,8 @@ void restart_frr(void)
 	else {
 		logmessage("FRR", "restart failed: watchfrr is not running after stop/start cycle");
 		if (have_stderr)
-			frr_log_captured_stderr(FRR_STDERR_LOG_FILE);
+			frr_log_captured_stderr(stderr_log);
 	}
+	if (stderr_log)
+		fclose(stderr_log);
 }
