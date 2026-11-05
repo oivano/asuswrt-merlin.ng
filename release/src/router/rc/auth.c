@@ -1,8 +1,13 @@
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <arpa/inet.h>
 
@@ -14,6 +19,59 @@
 #include <shared.h>
 
 #ifdef RTCONFIG_EAPOL
+static FILE *
+wpa_supplicant_options_open(const char *path)
+{
+	struct stat st;
+	int descriptor, saved_errno;
+	FILE *stream;
+
+	if (unlink(path) != 0 && errno != ENOENT) {
+		descriptor = open(path, O_WRONLY | O_NOFOLLOW | O_NONBLOCK);
+		if (descriptor < 0)
+			return NULL;
+		if (fstat(descriptor, &st) != 0 || !S_ISREG(st.st_mode) || st.st_nlink != 1 ||
+		    fchown(descriptor, 0, 0) != 0 || fchmod(descriptor, 0600) != 0) {
+			saved_errno = errno;
+			close(descriptor);
+			unlink(path);
+			errno = saved_errno;
+			return NULL;
+		}
+		if (ftruncate(descriptor, 0) != 0) {
+			saved_errno = errno;
+			close(descriptor);
+			errno = saved_errno;
+			return NULL;
+		}
+		stream = fdopen(descriptor, "w");
+		if (stream == NULL) {
+			saved_errno = errno;
+			close(descriptor);
+			errno = saved_errno;
+		}
+		return stream;
+	}
+	descriptor = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+	if (descriptor < 0)
+		return NULL;
+	if (fchown(descriptor, 0, 0) != 0 || fchmod(descriptor, 0600) != 0) {
+		saved_errno = errno;
+		close(descriptor);
+		unlink(path);
+		errno = saved_errno;
+		return NULL;
+	}
+	stream = fdopen(descriptor, "w");
+	if (stream == NULL) {
+		saved_errno = errno;
+		close(descriptor);
+		unlink(path);
+		errno = saved_errno;
+	}
+	return stream;
+}
+
 static int
 start_wpa_supplicant(int unit, int restart)
 {
@@ -60,7 +118,7 @@ start_wpa_supplicant(int unit, int restart)
 #endif
 
 	/* Generate options file */
-	if ((fp = fopen(options, "w")) == NULL) {
+	if ((fp = wpa_supplicant_options_open(options)) == NULL) {
 		perror(options);
 		return -1;
 	}
