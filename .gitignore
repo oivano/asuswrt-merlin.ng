@@ -7,6 +7,7 @@ MAINTENANCE-WORKFLOW.md
 tools/release/*.txt
 tools/build/
 docs/
-tools/tests/
+tools/tests/*
+!tools/tests/guest-nat-reflection.js
 # Local prompt customizations
 .github/prompts/

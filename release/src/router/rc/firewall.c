@@ -1651,6 +1651,29 @@ void write_port_forwarding(FILE *fp, char *config, char *lan_ip, char *lan_if)
 #endif
 }
 
+static void write_guest_nat_reflection_guard(FILE *fp, const char *wan_ip)
+{
+	char *ifnames, *p, *ifname;
+	char nv[40];
+
+	if (!inet_addr_(wan_ip))
+		return;
+
+	if ((ifnames = strdup(nvram_safe_get("lan_ifnames"))) == NULL)
+		return;
+
+	p = ifnames;
+	while ((ifname = strsep(&p, " ")) != NULL) {
+		if (!*ifname || !guest_wlif(ifname))
+			continue;
+
+		snprintf(nv, sizeof(nv), "%s_lanaccess", wif_to_vif(ifname));
+		if (nvram_match(nv, "off"))
+			fprintf(fp, "-A PREROUTING -m physdev --physdev-in %s -d %s -j DROP\n", ifname, wan_ip);
+	}
+	free(ifnames);
+}
+
 void nat_setting(char *wan_if, char *wan_ip, char *wanx_if, char *wanx_ip, char *lan_if, char *lan_ip, char *logaccept, char *logdrop)	// oleg patch
 {
 	FILE *fp;
@@ -1773,6 +1796,7 @@ void nat_setting(char *wan_if, char *wan_ip, char *wanx_if, char *wanx_ip, char 
 
 	/* VSERVER chain */
 	if (inet_addr_(wan_ip)) {
+		write_guest_nat_reflection_guard(fp, wan_ip);
 #ifdef RTCONFIG_SOFTWIRE46
 		switch (get_ipv4_service_by_unit(wan_ifunit(wan_if))) {
 			char *nv, *nvp, *item, *nextp, *ptr;
@@ -1805,6 +1829,7 @@ void nat_setting(char *wan_if, char *wan_ip, char *wanx_if, char *wanx_ip, char 
 #ifdef RTCONFIG_MULTIWAN_CFG
 		wanx_rules = 1;
 #endif
+		write_guest_nat_reflection_guard(fp, wanx_ip);
 #ifdef RTCONFIG_OPEN_NAT
 		fprintf(fp, "-A PREROUTING -d %s -j GAME_VSERVER\n", wanx_ip);
 #endif
@@ -2255,6 +2280,7 @@ void nat_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)	//
 
 		/* VSERVER chain */
 		if(inet_addr_(wan_ip)) {
+			write_guest_nat_reflection_guard(fp, wan_ip);
 #ifdef RTCONFIG_OPEN_NAT
 			fprintf(fp, "-A PREROUTING -d %s -j GAME_VSERVER\n", wan_ip);
 #endif
@@ -2263,6 +2289,7 @@ void nat_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)	//
 
 		// wanx_if != wan_if means DHCP+PPP exist?
 		if (dualwan_unit__nonusbif(unit) && strcmp(wan_if, wanx_if) && inet_addr_(wanx_ip)) {
+			write_guest_nat_reflection_guard(fp, wanx_ip);
 #ifdef RTCONFIG_OPEN_NAT
 			fprintf(fp, "-A PREROUTING -d %s -j GAME_VSERVER\n", wanx_ip);
 #endif
