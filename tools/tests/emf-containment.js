@@ -18,10 +18,10 @@ const body = (source, start, end) => {
 
 const create = body(netlink, 'static int netlink_create(', 'static int netlink_release(');
 const send = body(netlink, 'static int netlink_sendmsg(', 'static int netlink_recvmsg(');
-const createGuard = create.match(/if \((\(protocol == 17 \|\| protocol == NETLINK_SCSITRANSPORT\) &&\s*!kern && !capable\(CAP_NET_ADMIN\))\)\s*return -EPERM;/);
-const sendGuard = send.match(/if \((\(sk->sk_protocol == 17 \|\|\s*sk->sk_protocol == NETLINK_SCSITRANSPORT\) &&\s*!capable\(CAP_NET_ADMIN\))\)\s*return -EPERM;/);
-assert.ok(createGuard, 'EMF and IGS socket creation requires CAP_NET_ADMIN except for kernel sockets');
-assert.ok(sendGuard, 'every EMF and IGS send requires current CAP_NET_ADMIN');
+const createGuard = create.match(/if \((\(protocol == 17 \|\| protocol == NETLINK_SCSITRANSPORT \|\|\s*protocol == 20\) &&\s*!kern && !capable\(CAP_NET_ADMIN\))\)\s*return -EPERM;/);
+const sendGuard = send.match(/if \((\(sk->sk_protocol == 17 \|\|\s*sk->sk_protocol == NETLINK_SCSITRANSPORT \|\|\s*sk->sk_protocol == 20\) &&\s*!capable\(CAP_NET_ADMIN\))\)\s*return -EPERM;/);
+assert.ok(createGuard, 'EMF, IGS and CTF socket creation requires CAP_NET_ADMIN except for kernel sockets');
+assert.ok(sendGuard, 'every EMF, IGS and CTF send requires current CAP_NET_ADMIN');
 assert.match(config, /^# CONFIG_SCSI_NETLINK is not set$/m,
     'protocol 18 is reserved for IGS on the DSL-AC68U target');
 assert.ok(create.indexOf(createGuard[0]) < create.indexOf('netlink_lock_table();'));
@@ -37,27 +37,42 @@ for (let protocol = 0; protocol < 32; protocol++) {
     for (const privileged of [false, true]) {
         for (const kern of [false, true]) {
             assert.equal(rejectCreate(protocol, kern, () => privileged, 12, 18),
-                (protocol === 17 || protocol === 18) && !kern && !privileged);
+                [17, 18, 20].includes(protocol) && !kern && !privileged);
         }
-        assert.equal(rejectSend({sk_protocol: protocol}, () => privileged, 12, 18),
-            (protocol === 17 || protocol === 18) && !privileged);
+        assert.equal(rejectSend({ sk_protocol: protocol }, () => privileged, 12, 18),
+            [17, 18, 20].includes(protocol) && !privileged);
     }
 }
-for (const protocol of [17, 18]) {
-    for (const command of ['BR_ADD', 'IF_ADD', 'MFDB_ADD', 'MFDB_LIST', 'IGSDB_LIST']) {
+for (const protocol of [17, 18, 20]) {
+    for (const command of ['BR_ADD', 'IF_ADD', 'MFDB_ADD', 'MFDB_LIST', 'IGSDB_LIST',
+        'CTF_SUSPEND', 'CTF_RESUME', 'CTF_UPD_MARK']) {
         for (const destination of ['explicit unicast', 'connected unicast', 'multicast']) {
-            assert.equal(rejectSend({sk_protocol: protocol}, () => false, 12, 18), true,
+            assert.equal(rejectSend({ sk_protocol: protocol }, () => false, 12, 18), true,
                 `${command} protocol ${protocol}, ${destination} must fail, including inherited or passed sockets`);
         }
     }
 }
 assert.equal(rejectCreate(17, false, () => true, 12, 18), false);
 assert.equal(rejectCreate(18, false, () => true, 12, 18), false);
-assert.equal(rejectSend({sk_protocol: 17}, () => false, 12, 18), true,
+assert.equal(rejectCreate(20, false, () => true, 12, 18), false);
+assert.equal(rejectSend({ sk_protocol: 17 }, () => false, 12, 18), true,
     'a socket opened with privileges cannot send after CAP_NET_ADMIN is dropped');
-assert.equal(rejectSend({sk_protocol: 18}, () => false, 12, 18), true,
+assert.equal(rejectSend({ sk_protocol: 18 }, () => false, 12, 18), true,
     'an IGS socket opened with privileges cannot send after CAP_NET_ADMIN is dropped');
-console.log('PASS: EMF/IGS netlink creation/send source contracts and capability models (not kernel execution)');
+assert.equal(rejectSend({ sk_protocol: 20 }, () => false, 12, 18), true,
+    'a CTF socket opened with privileges cannot send after CAP_NET_ADMIN is dropped');
+console.log('PASS: EMF/IGS/CTF netlink creation/send source contracts and capability models (not kernel execution)');
+
+const unicast = body(netlink, 'int netlink_unicast(', 'static inline int netlink_broadcast_deliver(');
+const recursionGuard = unicast.match(/if \(pid == 0 && netlink_is_kernel\(ssk\)\) \{\s*kfree_skb\(skb\);\s*return -ELOOP;\s*\}/);
+assert.ok(recursionGuard, 'kernel-originated unicast to pid 0 is rejected and its skb freed');
+assert.ok(unicast.indexOf(recursionGuard[0]) < unicast.indexOf('netlink_getsockbypid(ssk, pid)'),
+    'reject recursion before dispatching to a kernel receive callback');
+const rejectKernelLoop = new Function('pid', 'senderIsKernel', `return pid === 0 && senderIsKernel;`);
+assert.equal(rejectKernelLoop(0, true), true, 'kernel reply to pid 0 cannot re-enter its callback');
+assert.equal(rejectKernelLoop(1234, true), false, 'kernel replies to user-space ports remain allowed');
+assert.equal(rejectKernelLoop(0, false), false, 'user-to-kernel requests remain available to privileged callers');
+console.log('PASS: kernel netlink pid-0 recursion guard source contract (not kernel execution)');
 
 const register = body(proc, 'static int proc_register(', 'static struct proc_dir_entry *__proc_create(');
 const directoryGuard = register.match(/if \((dir == &proc_root && S_ISDIR\(dp->mode\) &&\s*!strcmp\(dp->name, "emf"\))\) \{\s*dp->mode = S_IFDIR \| 0700;\s*dp->uid = 0;\s*dp->gid = 0;\s*\}/);
@@ -71,10 +86,10 @@ const nested = {};
 for (const parent of [procRoot, nested]) {
     for (const name of ['emf', 'emfdb_br0', 'emf-other', 'net', 'igs']) {
         for (const mode of [0o40755, 0o40777, 0o100444, 0o120777]) {
-            assert.equal(isPrivate(parent, procRoot, {name, mode},
+            assert.equal(isPrivate(parent, procRoot, { name, mode },
                 value => (value & 0o170000) === 0o40000,
                 (left, right) => left === right ? 0 : 1),
-            parent === procRoot && name === 'emf' && (mode & 0o170000) === 0o40000);
+                parent === procRoot && name === 'emf' && (mode & 0o170000) === 0o40000);
         }
     }
 }

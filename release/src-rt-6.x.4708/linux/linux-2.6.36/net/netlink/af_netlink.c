@@ -444,7 +444,8 @@ static int netlink_create(struct net *net, struct socket *sock, int protocol,
 	if (protocol < 0 || protocol >= MAX_LINKS)
 		return -EPROTONOSUPPORT;
 
-	if ((protocol == 17 || protocol == NETLINK_SCSITRANSPORT) &&
+	if ((protocol == 17 || protocol == NETLINK_SCSITRANSPORT ||
+	     protocol == 20) &&
 	    !kern && !capable(CAP_NET_ADMIN))
 		return -EPERM;
 
@@ -908,6 +909,11 @@ int netlink_unicast(struct sock *ssk, struct sk_buff *skb,
 	int err;
 	long timeo;
 
+	if (pid == 0 && netlink_is_kernel(ssk)) {
+		kfree_skb(skb);
+		return -ELOOP;
+	}
+
 	skb = netlink_trim(skb, gfp_any());
 
 	timeo = sock_sndtimeo(ssk, nonblock);
@@ -1327,7 +1333,8 @@ static int netlink_sendmsg(struct kiocb *kiocb, struct socket *sock,
 	unsigned int netlink_skb_flags = 0;
 
 	if ((sk->sk_protocol == 17 ||
-	     sk->sk_protocol == NETLINK_SCSITRANSPORT) &&
+	     sk->sk_protocol == NETLINK_SCSITRANSPORT ||
+	     sk->sk_protocol == 20) &&
 	    !capable(CAP_NET_ADMIN))
 		return -EPERM;
 
