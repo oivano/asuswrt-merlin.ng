@@ -11,6 +11,7 @@ const common = read(base + 'files/frrcommon.sh');
 const vty = read(base + 'lib/vty.c');
 const staticMain = read(base + 'staticd/static_main.c');
 const pidWriter = read(base + 'lib/pid_output.c');
+const privs = read(base + 'lib/privs.c');
 const watch = read(base + 'watchfrr/watchfrr.c');
 const rc = read('release/src/router/rc/frr.c');
 const ntpd = read('release/src/router/rc/ntpd.c');
@@ -167,8 +168,25 @@ function stderrCaptureChecks() {
     captureCases++;
 }
 
+function capabilityHardeningChecks() {
+    const adminMapping = privs.slice(privs.indexOf('[ZCAP_SYS_ADMIN] ='));
+    assert.match(adminMapping, /^\[ZCAP_SYS_ADMIN\] =\s*\{\s*0, NULL,/);
+
+    const initStart = privs.indexOf('static void zprivs_caps_init(struct zebra_privs_t *zprivs)\n{');
+    assert.ok(initStart >= 0, 'zprivs_caps_init must be present');
+    const init = privs.slice(initStart);
+    const boundingDrop = init.indexOf('prctl(PR_CAPBSET_DROP, CAP_SYS_ADMIN');
+    const uidDrop = init.indexOf('setreuid(');
+
+    assert.ok(boundingDrop >= 0, 'CAP_SYS_ADMIN must be dropped from the bounding set');
+    assert.ok(uidDrop > boundingDrop, 'drop CAP_SYS_ADMIN before changing uid');
+    assert.match(init.slice(boundingDrop, uidDrop), /exit\(1\)/,
+        'fail closed if the bounding-set drop fails');
+}
+
 try {
     stderrCaptureChecks();
+    capabilityHardeningChecks();
     fs.mkdirSync(path.join(temporary, 'daemons'));
     for (const script of ['frrcommon.sh', 'watchfrr.sh', 'frrinit.sh']) {
         const result = spawnSync('/bin/sh', ['-n', path.join(root, base, 'files', script)]);
