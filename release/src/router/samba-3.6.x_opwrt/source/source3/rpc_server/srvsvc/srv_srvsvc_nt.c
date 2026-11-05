@@ -35,6 +35,7 @@
 #include "smbd/smbd.h"
 #include "auth.h"
 #include "messages.h"
+#include "../librpc/gen_ndr/netlogon.h"
 
 extern const struct generic_mapping file_generic_mapping;
 
@@ -42,6 +43,47 @@ extern const struct generic_mapping file_generic_mapping;
 #define DBGC_CLASS DBGC_RPC_SRV
 
 #define MAX_SERVER_DISK_ENTRIES 15
+
+static bool srvsvc_share_access_allowed(struct pipes_struct *p, int snum)
+{
+	struct auth_serversupplied_info *session_info = p->session_info;
+
+	if (session_info == NULL || session_info->security_token == NULL) {
+		return false;
+	}
+
+	if (session_info->guest) {
+		return lp_guest_ok(snum);
+	}
+
+	if (session_info->info3 == NULL) {
+		return false;
+	}
+
+	return user_ok_token(session_info->unix_name,
+			     session_info->info3->base.domain.string,
+			     session_info->security_token, snum);
+}
+
+static bool srvsvc_share_write_allowed(connection_struct *conn)
+{
+	struct auth_serversupplied_info *session_info = conn->session_info;
+	int snum = SNUM(conn);
+
+	if (session_info == NULL || session_info->info3 == NULL ||
+	    session_info->security_token == NULL) {
+		return false;
+	}
+
+	if (is_share_read_only_for_token(session_info->unix_name,
+				 session_info->info3->base.domain.string,
+				 session_info->security_token, conn)) {
+		return false;
+	}
+
+	return share_access_check(session_info->security_token,
+			  lp_servicename(snum), FILE_WRITE_DATA, NULL);
+}
 
 /* Use for enumerating connections, pipes, & files */
 
@@ -2138,6 +2180,10 @@ WERROR _srvsvc_NetGetFileSecurity(struct pipes_struct *p,
 		werr = WERR_NET_NAME_NOT_FOUND;
 		goto error_exit;
 	}
+	if (!srvsvc_share_access_allowed(p, snum)) {
+		werr = WERR_ACCESS_DENIED;
+		goto error_exit;
+	}
 
 	nt_status = create_conn_struct(talloc_tos(), &conn, snum,
 				       lp_pathname(snum), p->session_info,
@@ -2279,6 +2325,10 @@ WERROR _srvsvc_NetSetFileSecurity(struct pipes_struct *p,
 		werr = WERR_NET_NAME_NOT_FOUND;
 		goto error_exit;
 	}
+	if (!srvsvc_share_access_allowed(p, snum)) {
+		werr = WERR_ACCESS_DENIED;
+		goto error_exit;
+	}
 
 	nt_status = create_conn_struct(talloc_tos(), &conn, snum,
 				       lp_pathname(snum), p->session_info,
@@ -2287,6 +2337,10 @@ WERROR _srvsvc_NetSetFileSecurity(struct pipes_struct *p,
 		DEBUG(10, ("create_conn_struct failed: %s\n",
 			   nt_errstr(nt_status)));
 		werr = ntstatus_to_werror(nt_status);
+		goto error_exit;
+	}
+	if (!srvsvc_share_write_allowed(conn)) {
+		werr = WERR_ACCESS_DENIED;
 		goto error_exit;
 	}
 
