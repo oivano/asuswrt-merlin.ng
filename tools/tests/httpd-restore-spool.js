@@ -12,7 +12,7 @@ const imageApi = fs.readFileSync(path.join(root,
     'release/src/router/shared/sysdeps/api-broadcom.c'), 'utf8');
 const services = fs.readFileSync(path.join(root, 'release/src/router/rc/services.c'), 'utf8');
 const body = (source, name) => {
-    const match = source.match(new RegExp(`\\b${name}\\([^\\n]*\\)\\n\\{([\\s\\S]*?)\\n\\}`));
+    const match = source.match(new RegExp(`\\b${name}\\([^\\n]*\\)[^\\n]*\\n\\{([\\s\\S]*?)\\n\\}`));
     assert(match, name);
     return match[1];
 };
@@ -219,6 +219,21 @@ try {
 }
 
 assert.doesNotMatch(web, /"\/tmp\/(?:settings_u\.prf|backup_jffs\.tar|settings)"/);
+for (const name of ['do_networkmap_file', 'do_uploadIconFile_file', 'do_download_cert_cgi']) {
+    const handler = body(web, name);
+    assert.match(handler, /httpd_spool_create\(&spool\)/, `${name} uses a private spool`);
+    assert.match(handler, /httpd_spool_valid\(&spool\)/, `${name} validates its archive`);
+    assert.match(handler, /do_file\(spool\.path, stream\)/, `${name} streams its private archive`);
+    assert.match(handler, /httpd_spool_clear\(&spool\)/, `${name} removes its archive`);
+    assert.doesNotMatch(handler,
+        /\/tmp\/(?:networkmap\.tar|asus_dev_list\.log|nmp_client_list\.log|IconFile\.tar|cert\.tar)/,
+        `${name} does not use predictable /tmp paths`);
+}
+assert.match(web, /httpd_spool_reserve[\s\S]{0,300}O_CREAT \| O_EXCL \| O_NOFOLLOW/);
+assert.match(body(web, 'do_networkmap_file'), /httpd_spool_reserve\(&spool, "tmp\/nmp_client_list\.log"/);
+assert.match(body(web, 'do_networkmap_file'), /httpd_spool_reserve\(&spool, "tmp\/asus_dev_list\.log"/);
+assert.match(body(web, 'do_networkmap_file'), /"-C", spool\.directory[\s\S]*"tmp\/nmp_client_list\.log"/);
+assert.match(body(web, 'do_networkmap_file'), /unlink\(client_path\)[\s\S]*unlink\(device_path\)/);
 const upload = body(web, 'do_upload_post');
 const restore = body(web, 'do_upload_cgi');
 const vpnUpload = body(web, 'do_vpnupload_post');
