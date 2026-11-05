@@ -9,5 +9,6 @@ tools/build/
 docs/
 tools/tests/*
 !tools/tests/guest-nat-reflection.js
+!tools/tests/google-ddns-argv.js
 # Local prompt customizations
 .github/prompts/

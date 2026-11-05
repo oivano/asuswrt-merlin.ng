@@ -49,7 +49,47 @@ otherfail()
 
 main()
 {
-	result=$(wget -S "https://$USER:$PASSWD@domains.google.com/nic/update?hostname=$HOST&myip=$CurrWANIP" -O -)
+	DDNS_USER=$(nvram get ddns_username_x)
+	DDNS_PASSWD=$(nvram get ddns_passwd_x)
+	NL='
+'
+	CR=$(printf '\r')
+	case "$DDNS_USER$DDNS_PASSWD" in
+		*"$NL"*|*"$CR"*)
+			unset DDNS_USER DDNS_PASSWD
+			otherfail
+			return
+			;;
+	esac
+
+	umask 077
+	attempt=0
+	while [ "$attempt" -lt 10 ]; do
+		wget_dir="/tmp/google-ddns-$$-$attempt"
+		if mkdir "$wget_dir" 2>/dev/null; then
+			break
+		fi
+		attempt=$((attempt + 1))
+	done
+	if [ "$attempt" -ge 10 ]; then
+		unset DDNS_USER DDNS_PASSWD
+		otherfail
+		return
+	fi
+	wget_config="$wget_dir/wgetrc"
+	trap 'rm -f "$wget_config"; rmdir "$wget_dir" 2>/dev/null' 0
+	trap 'exit 1' HUP INT TERM
+	if ! printf 'httpuser = %s\nhttppassword = %s\n' "$DDNS_USER" "$DDNS_PASSWD" > "$wget_config" ||
+	   ! chmod 600 "$wget_config"; then
+		unset DDNS_USER DDNS_PASSWD
+		otherfail
+		return
+	fi
+	unset DDNS_USER DDNS_PASSWD
+
+	result=$(wget --config="$wget_config" -S "https://domains.google.com/nic/update?hostname=$HOST&myip=$CurrWANIP" -O -)
+	rm -f "$wget_config"
+	rmdir "$wget_dir" 2>/dev/null
 	
 	sleep 1;
 
@@ -70,17 +110,14 @@ main()
 
 usage()
 {
-	echo "Usage: $0 Username Password GDNS_Name WANIP"
+	echo "Usage: $0 GDNS_Name WANIP"
 }
 
-if [ $# != 4 ]; then
+if [ $# != 2 ]; then
 	usage
-	exit;
-else 
-	USER=$1
-	PASSWD=$2
-	HOST=$3
-	CurrWANIP=$4
-	main
+	exit 1
 fi
+HOST=$1
+CurrWANIP=$2
+main
 
