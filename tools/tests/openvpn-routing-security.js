@@ -8,6 +8,9 @@ const source = fs.readFileSync(sourcePath, 'utf8');
 const root = path.resolve(__dirname, '../..');
 const setup = fs.readFileSync(path.join(root, 'release/src/router/libovpn/openvpn_setup.c'), 'utf8');
 const dnsmasq = fs.readFileSync(path.join(root, 'release/src/router/dnsmasq/src/option.c'), 'utf8');
+const defaults = fs.readFileSync(path.join(root, 'release/src/router/shared/defaults.c'), 'utf8');
+const udhcpc = fs.readFileSync(path.join(root, 'release/src/router/rc/udhcpc.c'), 'utf8');
+const wan = fs.readFileSync(path.join(root, 'release/src/router/rc/wan.c'), 'utf8');
 const section = (start, end) => {
     const first = source.indexOf(start);
     const last = source.indexOf(end, first);
@@ -21,10 +24,35 @@ assert.match(routeHelper, /argv\[argc\+\+\] = "table";/);
 assert.match(routeHelper, /_eval\(argv, NULL, 0, NULL\)/);
 assert.doesNotMatch(routeHelper, /\bsystem\s*\(/);
 assert.match(routeHelper, /_ovpn_route_has_dev\(route_args, route_argc, iface\)/);
+assert.match(routeHelper, /exclude_wan && _ovpn_route_has_wan_dev\(route_args, route_argc\)/);
+
+const wanRouteHelper = section('static int _ovpn_route_has_wan_dev(', '\n\nstatic void _ovpn_apply_route_listing');
+assert.match(wanRouteHelper, /for \(unit = WAN_UNIT_FIRST; unit < WAN_UNIT_MAX; unit\+\+\)/);
+assert.match(wanRouteHelper, /get_wan_ifname\(unit\)/);
+assert.match(wanRouteHelper, /_ovpn_route_has_dev\(route_args, route_argc, wan_ifname\)/);
 
 const clientUp = section('void ovpn_client_up_handler(int unit)', '\n\n// Remove all rules pointing');
 assert.match(clientUp, /popen\("\/usr\/sbin\/ip route show table main", "r"\)/);
-assert.match(clientUp, /_ovpn_apply_route_listing\(fp_route, unit, "add", NULL, verb\)/);
+assert.match(clientUp, /_ovpn_apply_route_listing\(fp_route, unit, "add", NULL, 1, verb\)/);
+assert.match(defaults, /\{ "dr_enable_x", "0", CKN_STR1, CKN_TYPE_DEFAULT/);
+
+const dhcpRouteRequestStart = udhcpc.indexOf('/* 0: disable, 1: MS routes, 2: RFC routes, 3: Both */');
+const dhcpRouteRequestEnd = udhcpc.indexOf('#ifdef RTCONFIG_IPV6', dhcpRouteRequestStart);
+assert.ok(dhcpRouteRequestStart >= 0 && dhcpRouteRequestEnd > dhcpRouteRequestStart);
+const dhcpRouteRequest = udhcpc.slice(dhcpRouteRequestStart, dhcpRouteRequestEnd);
+assert.match(dhcpRouteRequest, /dr_enable = nvram_get_int\("dr_enable_x"\)/);
+assert.match(dhcpRouteRequest, /if \(dr_enable != 0\)[\s\S]*?"-O33"[\s\S]*?"-O249"[\s\S]*?"-O121"/);
+assert.match(wan, /add_dhcp_routes[\s\S]*?if \(nvram_get_int\("dr_enable_x"\) == 0\)\s*return;/);
+
+const copiedRoutes = [
+    '0.0.0.0/1 via 192.0.2.1 dev vlan4',
+    '128.0.0.0/1 via 192.0.2.1 dev vlan4',
+    '10.0.0.0/24 dev br0 proto kernel scope link',
+];
+const wanIfaces = ['vlan4', 'ppp0'];
+const wouldCopyRoute = (route) => !wanIfaces.some((iface) =>
+    route.trim().split(/[ \t]+/).some((token, index, tokens) => token === 'dev' && tokens[index + 1] === iface));
+assert.deepEqual(copiedRoutes.map(wouldCopyRoute), [false, false, true]);
 
 const clearRules = section('void _clear_routing_rules(int unit)', '\n\n/*\n\tRule priority allocations:');
 assert.match(clearRules, /popen\("\/usr\/sbin\/ip rule show", "r"\)/);
