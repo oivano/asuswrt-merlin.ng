@@ -1,8 +1,14 @@
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <sys/stat.h>
 #include "shutils.h"
 #include "shared.h"
 
@@ -63,6 +69,7 @@ unsigned long crc32_no_comp(unsigned long crc,const unsigned char* buf, int len)
 	return crc;
 }
 
+#ifdef RTCONFIG_RALINK
 int separate_tc_fw_from_trx(char* trxpath)
 {
 	FILE* FpTrx;
@@ -349,97 +356,452 @@ exit:
 
 	return RetVal;
 }
+#endif
+
+#define TC_FW_HTTPD_DIRECTORY "/tmp/httpd-upgrade"
+#define TC_FW_IMAGE_NAME "tclinux.bin"
+#define TC_FW_PART_NAME "tcfw.bin"
+
+static int
+tc_stage_directory_open(const char *path)
+{
+	int fd;
+	struct stat st;
+
+	if (geteuid() != 0)
+		return -1;
+	fd = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (fd < 0)
+		return -1;
+	if (fstat(fd, &st) != 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
+	    (st.st_mode & 0777) != 0700) {
+		close(fd);
+		return -1;
+	}
+	return fd;
+}
+
+static int
+tc_stage_file_open(int dirfd, const char *name, int create)
+{
+	int flags = create ? O_WRONLY | O_CREAT | O_EXCL : O_RDONLY | O_NONBLOCK;
+	int fd;
+	struct stat st;
+
+	fd = openat(dirfd, name, flags | O_NOFOLLOW, 0600);
+	if (fd < 0)
+		return -1;
+	if ((create && fchmod(fd, 0600) != 0) || fstat(fd, &st) != 0 ||
+	    !S_ISREG(st.st_mode) || st.st_uid != 0 || st.st_nlink != 1 ||
+	    (st.st_mode & 0777) != 0600) {
+		close(fd);
+		if (create)
+			unlinkat(dirfd, name, 0);
+		return -1;
+	}
+	return fd;
+}
+
+static int
+tc_read_exact_at(int fd, void *buffer, size_t length, off_t offset)
+{
+	char *next = buffer;
+	size_t done = 0;
+
+	while (done < length) {
+		ssize_t count = pread(fd, next + done, length - done, offset + done);
+		if (count < 0 && errno == EINTR)
+			continue;
+		if (count <= 0)
+			return -1;
+		done += count;
+	}
+	return 0;
+}
+
+static int
+tc_write_all(int fd, const void *buffer, size_t length)
+{
+	const char *next = buffer;
+	size_t done = 0;
+
+	while (done < length) {
+		ssize_t count = write(fd, next + done, length - done);
+		if (count < 0 && errno == EINTR)
+			continue;
+		if (count <= 0)
+			return -1;
+		done += count;
+	}
+	return 0;
+}
+
+#ifdef RTCONFIG_BRCM_NAND_JFFS2
+static int
+tc_backup_firmware(int stagedirfd)
+{
+	int sourcefd = -1, jffsfd = -1, destfd = -1, result = -1, renamed = 0;
+	int name_len;
+	char temporary[64] = {0};
+	unsigned char buffer[4096];
+	off_t offset = 0;
+	struct stat source, directory, destination;
+
+	sourcefd = tc_stage_file_open(stagedirfd, TC_FW_IMAGE_NAME, 0);
+	if (sourcefd < 0 || fstat(sourcefd, &source) != 0)
+		goto done;
+	jffsfd = open("/jffs", O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (jffsfd < 0 || fstat(jffsfd, &directory) != 0 || !S_ISDIR(directory.st_mode) ||
+	    directory.st_uid != 0 || (directory.st_mode & 0022) != 0)
+		goto done;
+	name_len = snprintf(temporary, sizeof(temporary), ".tclinux.bin.%ld", (long)getpid());
+	if (name_len < 0 || (size_t)name_len >= sizeof(temporary))
+		goto done;
+	destfd = openat(jffsfd, temporary,
+		O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+	if (destfd < 0 || fchmod(destfd, 0600) != 0 || fstat(destfd, &destination) != 0 ||
+	    !S_ISREG(destination.st_mode) || destination.st_uid != 0 ||
+	    destination.st_nlink != 1 || (destination.st_mode & 0777) != 0600)
+		goto done;
+	while (offset < source.st_size) {
+		size_t count = source.st_size - offset > sizeof(buffer) ?
+			sizeof(buffer) : source.st_size - offset;
+		if (tc_read_exact_at(sourcefd, buffer, count, offset) != 0 ||
+		    tc_write_all(destfd, buffer, count) != 0)
+			goto done;
+		offset += count;
+	}
+	if (fsync(destfd) != 0 || fstat(destfd, &destination) != 0 ||
+	    destination.st_size != source.st_size)
+		goto done;
+	if (close(destfd) != 0) {
+		destfd = -1;
+		goto done;
+	}
+	destfd = -1;
+	if (renameat(jffsfd, temporary, jffsfd, "tclinux.bin") != 0)
+		goto done;
+	renamed = 1;
+	if (fsync(jffsfd) != 0)
+		goto done;
+	result = 0;
+
+done:
+	if (destfd >= 0)
+		close(destfd);
+	if (jffsfd >= 0) {
+		if (!renamed && temporary[0])
+			unlinkat(jffsfd, temporary, 0);
+		close(jffsfd);
+	}
+	if (sourcefd >= 0)
+		close(sourcefd);
+	return result;
+}
+#endif
+
+static int
+tc_firmware_fd_valid(int fd, unsigned long *header_crc, struct stat *identity)
+{
+	unsigned char header[TC_HDR_LEN];
+	unsigned char buffer[4096];
+	unsigned long payload_len, expected_crc, calculated_crc = 0xffffffff;
+	u_int32_t value;
+	off_t offset = TC_HDR_LEN;
+	size_t count;
+	struct stat after;
+
+	if (fstat(fd, identity) != 0 || !S_ISREG(identity->st_mode) ||
+	    identity->st_uid != 0 || identity->st_nlink != 1 ||
+	    (identity->st_mode & 0777) != 0600 || identity->st_size <= TC_HDR_LEN ||
+	    tc_read_exact_at(fd, header, sizeof(header), 0) != 0 ||
+	    memcmp(header, "2RDH", 4) != 0)
+		return -1;
+
+	memcpy(&value, header + 8, sizeof(value));
+	payload_len = SWAP_LONG(value);
+	memcpy(&value, header + 12, sizeof(value));
+	expected_crc = SWAP_LONG(value);
+	if (payload_len == 0 || payload_len != (unsigned long)(identity->st_size - TC_HDR_LEN) ||
+	    payload_len > 0x7fffffffUL)
+		return -1;
+
+	while (offset < identity->st_size) {
+		count = identity->st_size - offset > sizeof(buffer) ?
+			sizeof(buffer) : identity->st_size - offset;
+		if (tc_read_exact_at(fd, buffer, count, offset) != 0)
+			return -1;
+		calculated_crc = crc32_no_comp(calculated_crc, buffer, count);
+		offset += count;
+	}
+	if (calculated_crc != expected_crc || fstat(fd, &after) != 0 ||
+	    after.st_dev != identity->st_dev || after.st_ino != identity->st_ino ||
+	    after.st_size != identity->st_size)
+		return -1;
+	if (header_crc)
+		*header_crc = expected_crc;
+	return 0;
+}
+
+int
+stage_tc_firmware_from_trx(char *trxpath, long uploaded_len, const char *stage_dir,
+			   int truncate_image)
+{
+	unsigned char trx_header[12];
+	unsigned char buffer[4096];
+	u_int32_t trx_size;
+	off_t file_size, remaining;
+	int dirfd = -1, srcfd = -1, dstfd = -1, created = 0;
+	struct stat source;
+
+	if (!trxpath || !stage_dir || (truncate_image && geteuid() != 0))
+		return -1;
+	dirfd = tc_stage_directory_open(stage_dir);
+	if (dirfd < 0)
+		goto fail;
+	srcfd = open(trxpath, (truncate_image ? O_RDWR : O_RDONLY) | O_NOFOLLOW | O_NONBLOCK);
+	if (srcfd < 0 || fstat(srcfd, &source) != 0 || !S_ISREG(source.st_mode) ||
+	    source.st_size < sizeof(trx_header) ||
+	    (truncate_image && (source.st_uid != 0 || source.st_nlink != 1 ||
+	     (source.st_mode & 0777) != 0600)) ||
+	    (uploaded_len >= 0 && source.st_size != uploaded_len) ||
+	    tc_read_exact_at(srcfd, trx_header, sizeof(trx_header), 0) != 0)
+		goto fail;
+
+	memcpy(&trx_size, trx_header + 4, sizeof(trx_size));
+	file_size = source.st_size;
+	if (trx_size < 0x1c || trx_size > file_size)
+		goto fail;
+	if (trx_size == file_size) {
+		close(srcfd);
+		close(dirfd);
+		return 0;
+	}
+	remaining = file_size - trx_size;
+	if (remaining <= TC_HDR_LEN)
+		goto fail;
+	if (lseek(srcfd, trx_size, SEEK_SET) != trx_size)
+		goto fail;
+	dstfd = tc_stage_file_open(dirfd, TC_FW_PART_NAME, 1);
+	if (dstfd < 0)
+		goto fail;
+	created = 1;
+	while (remaining > 0) {
+		size_t count = remaining > sizeof(buffer) ? sizeof(buffer) : remaining;
+		if (read(srcfd, buffer, count) != (ssize_t)count ||
+		    tc_write_all(dstfd, buffer, count) != 0)
+			goto fail;
+		remaining -= count;
+	}
+	if (fsync(dstfd) != 0 || close(dstfd) != 0)
+		goto fail;
+	dstfd = -1;
+	if (truncate_image && ftruncate(srcfd, trx_size) != 0)
+		goto fail;
+	close(srcfd);
+	close(dirfd);
+	return 1;
+
+fail:
+	if (dstfd >= 0)
+		close(dstfd);
+	if (created && dirfd >= 0)
+		unlinkat(dirfd, TC_FW_PART_NAME, 0);
+	if (srcfd >= 0)
+		close(srcfd);
+	if (dirfd >= 0)
+		close(dirfd);
+	return -1;
+}
+
+int
+check_tc_firmware_stage(const char *stage_dir, int keep_image)
+{
+	int dirfd = -1, srcfd = -1, dstfd = -1, result = -1, created = 0;
+	struct stat source, output;
+	unsigned char buffer[4096];
+	off_t offset = 0;
+
+	dirfd = tc_stage_directory_open(stage_dir);
+	if (dirfd < 0)
+		goto done;
+	srcfd = tc_stage_file_open(dirfd, TC_FW_PART_NAME, 0);
+	if (srcfd < 0 || tc_firmware_fd_valid(srcfd, NULL, &source) != 0)
+		goto done;
+	if (keep_image) {
+		dstfd = tc_stage_file_open(dirfd, TC_FW_IMAGE_NAME, 1);
+		if (dstfd < 0)
+			goto done;
+		created = 1;
+		while (offset < source.st_size) {
+			size_t count = source.st_size - offset > sizeof(buffer) ?
+				sizeof(buffer) : source.st_size - offset;
+			if (tc_read_exact_at(srcfd, buffer, count, offset) != 0 ||
+			    tc_write_all(dstfd, buffer, count) != 0)
+				goto done;
+			offset += count;
+		}
+		if (fsync(dstfd) != 0 || fstat(dstfd, &output) != 0 ||
+		    !S_ISREG(output.st_mode) || output.st_uid != 0 || output.st_nlink != 1 ||
+		    (output.st_mode & 0777) != 0600 || output.st_size != source.st_size)
+			goto done;
+#ifdef RTCONFIG_BRCM_NAND_JFFS2
+#endif
+	}
+	result = 0;
+
+done:
+	if (dstfd >= 0 && close(dstfd) != 0)
+		result = -1;
+	if (srcfd >= 0)
+		close(srcfd);
+	if (dirfd >= 0) {
+		unlinkat(dirfd, TC_FW_PART_NAME, 0);
+		if (result != 0 && created)
+			unlinkat(dirfd, TC_FW_IMAGE_NAME, 0);
+		close(dirfd);
+	}
+	return result;
+}
+
+int
+check_tc_firmware_image(char *trxpath)
+{
+	char stage_dir[] = "/tmp/tc-check-XXXXXX";
+	int staged, result = -1;
+	if (!mkdtemp(stage_dir))
+		return -1;
+	if (chmod(stage_dir, 0700) != 0) {
+		rmdir(stage_dir);
+		return -1;
+	}
+	staged = stage_tc_firmware_from_trx(trxpath, -1, stage_dir, 0);
+	if (staged >= 0)
+		result = staged ? check_tc_firmware_stage(stage_dir, 0) : 0;
+	{
+		int dirfd = tc_stage_directory_open(stage_dir);
+		if (dirfd >= 0) {
+			unlinkat(dirfd, TC_FW_PART_NAME, 0);
+			unlinkat(dirfd, TC_FW_IMAGE_NAME, 0);
+			close(dirfd);
+		}
+	}
+	rmdir(stage_dir);
+	return result;
+}
+
+static int
+tc_upgrade_spool_published(int dirfd)
+{
+	int imagefd = -1, identityfd = -1, valid = 0;
+	char identity[96];
+	ssize_t count;
+	unsigned long long device, inode, size;
+	char trailing;
+	struct stat image, identity_file;
+
+	imagefd = openat(dirfd, "linux.trx", O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+	identityfd = openat(dirfd, "identity", O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+	if (imagefd < 0 || identityfd < 0 || fstat(imagefd, &image) != 0 ||
+	    !S_ISREG(image.st_mode) || image.st_uid != 0 || image.st_nlink != 1 ||
+	    (image.st_mode & 0777) != 0600 || fstat(identityfd, &identity_file) != 0 ||
+	    !S_ISREG(identity_file.st_mode) || identity_file.st_uid != 0 ||
+	    identity_file.st_nlink != 1 || (identity_file.st_mode & 0777) != 0600 ||
+	    identity_file.st_size <= 0 || identity_file.st_size >= sizeof(identity))
+		goto done;
+	count = read(identityfd, identity, sizeof(identity) - 1);
+	if (count <= 0)
+		goto done;
+	identity[count] = '\0';
+	if (sscanf(identity, "%llu %llu %llu%c", &device, &inode, &size, &trailing) != 3)
+		goto done;
+	valid = device == (unsigned long long)image.st_dev &&
+		inode == (unsigned long long)image.st_ino &&
+		size == (unsigned long long)image.st_size;
+
+done:
+	if (imagefd >= 0)
+		close(imagefd);
+	if (identityfd >= 0)
+		close(identityfd);
+	return valid;
+}
 
 void do_upgrade_adsldrv(void)
 {
-	char UpdateFwBuf[256] = {0};
 	char ipaddr[80] = {0};
-	FILE* fp;
-	int ret;
-	int skip_flag = 0, force_flag = 0;
+	FILE *fp;
+	int dirfd = -1, fwfd = -1, ret, force_flag = 0;
 	unsigned long old_crc = 0, new_crc = 0;
-	size_t r_counts = 0;
-	size_t ulong_size = sizeof(unsigned long);
+	u_int32_t value;
+	struct stat fw_stat;
 
 	cprintf("%s\n", __FUNCTION__);
+	dirfd = tc_stage_directory_open(TC_FW_HTTPD_DIRECTORY);
+	if (dirfd < 0 || !tc_upgrade_spool_published(dirfd))
+		goto done;
+	fwfd = tc_stage_file_open(dirfd, TC_FW_IMAGE_NAME, 0);
+	if (fwfd < 0 || tc_firmware_fd_valid(fwfd, &new_crc, &fw_stat) != 0)
+		goto done;
+#ifdef RTCONFIG_BRCM_NAND_JFFS2
+	if (tc_backup_firmware(dirfd) != 0)
+		goto done;
+#endif
 
-	if(!check_if_file_exist("/tmp/tclinux.bin"))
-		return;
-
-	fp = fopen("/tmp/adsl/tc_ip_addr.txt","r");
+	fp = fopen("/tmp/adsl/tc_ip_addr.txt", "r");
 	if (fp) {
-		fgets(ipaddr,sizeof(ipaddr),fp);
+		if (!fgets(ipaddr, sizeof(ipaddr), fp)) {
+			fclose(fp);
+			goto done;
+		}
 		fclose(fp);
+		ipaddr[strcspn(ipaddr, "\r\n")] = '\0';
+		if (!ipaddr[0])
+			goto done;
 	}
 	else {
 		snprintf(ipaddr, sizeof(ipaddr), "169.254.0.1");
 		force_flag = 1;
 	}
 
-	snprintf(UpdateFwBuf, sizeof(UpdateFwBuf), "cd /tmp; tftp -p -l tclinux.bin ");
-	snprintf(UpdateFwBuf+strlen(UpdateFwBuf), sizeof(UpdateFwBuf)-strlen(UpdateFwBuf), "%s", ipaddr);
-
 	fp = fopen("/tmp/adsl/tc_hdr.bin", "rb");
-	if (fp)
-	{
-		fseek(fp, 12L, SEEK_SET);
-		r_counts = fread(&old_crc, 1, ulong_size, fp);
-		if(r_counts == ulong_size)
-		{
-			old_crc = SWAP_LONG(old_crc);
-			cprintf("old crc: %lx\n", old_crc);
+	if (fp) {
+		if (fseek(fp, 12L, SEEK_SET) != 0 || fread(&value, 1, sizeof(value), fp) != sizeof(value)) {
+			fclose(fp);
+			goto done;
 		}
-		else
-		{
-			skip_flag = 1;
-			cprintf("Error on reading crc of [tc_hdr.bin]\n");
-		}
+		old_crc = SWAP_LONG(value);
 		fclose(fp);
+		cprintf("old crc: %lx\n", old_crc);
 	}
-	fp = fopen("/tmp/tclinux.bin", "rb");
-	if (fp)
-	{
-		fseek(fp, 12L, SEEK_SET);
-		r_counts = fread(&new_crc, 1, ulong_size, fp);
-		if(r_counts == ulong_size)
-		{
-			new_crc = SWAP_LONG(new_crc);
-			cprintf("new crc: %lx\n", new_crc);
-		}
-		else
-		{
-			skip_flag = 1;
-			cprintf("Error on reading crc of [tclinux.bin]\n");
-		}
-		fclose(fp);
-	}
-
-	if (old_crc && new_crc && new_crc == old_crc)
-		skip_flag = 1;
-
-	if (!skip_flag)
-	{
-		if(force_flag) {
-			killall("tp_init", SIGKILL);
-		}
-		else {
-			eval("adslate", "waitadsl");
-			eval("adslate", "quitdrv");
-		}
-		eval("iptables", "-I", "INPUT", "-p", "udp", "-j", "ACCEPT");
-		eval("ifconfig", "vlan2", "169.254.10.10");	//tmp
-		eval("route", "add", "-host", ipaddr, "vlan2");
-
-		cprintf("Start to upgrade tc fw\n");
-		printf(UpdateFwBuf);
-		ret = system(UpdateFwBuf);
-		if(ret)
-			cprintf("tftp failed\n");
-		else
-			cprintf("tftp done\n");
-
-		eval("iptables", "-D", "INPUT", "-p", "udp", "-j", "ACCEPT");
-	}
-	else
+	cprintf("new crc: %lx\n", new_crc);
+	if (old_crc && new_crc && new_crc == old_crc) {
 		cprintf("Skip upgrade tc firmware\n");
+		goto done;
+	}
+
+	if (force_flag)
+		killall("tp_init", SIGKILL);
+	else {
+		eval("adslate", "waitadsl");
+		eval("adslate", "quitdrv");
+	}
+	eval("iptables", "-I", "INPUT", "-p", "udp", "-j", "ACCEPT");
+	eval("ifconfig", "vlan2", "169.254.10.10");
+	eval("route", "add", "-host", ipaddr, "vlan2");
+	cprintf("Start to upgrade tc fw\n");
+	ret = eval("tftp", "-p", "-l", TC_FW_HTTPD_DIRECTORY "/" TC_FW_IMAGE_NAME, ipaddr);
+	if (ret)
+		cprintf("tftp failed\n");
+	else
+		cprintf("tftp done\n");
+	eval("iptables", "-D", "INPUT", "-p", "udp", "-j", "ACCEPT");
+
+done:
+	if (fwfd >= 0)
+		close(fwfd);
+	if (dirfd >= 0) {
+		unlinkat(dirfd, TC_FW_IMAGE_NAME, 0);
+		close(dirfd);
+	}
 }

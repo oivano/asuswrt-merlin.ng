@@ -20913,8 +20913,7 @@ firmware_check_main(int argc, char *argv[])
 #ifdef RTCONFIG_DSL_REMOTE
 #ifdef RTCONFIG_RALINK
 #else
-	int isTcFwExist = 0;
-	isTcFwExist = separate_tc_fw_from_trx(argv[1]);
+	int tc_fw_result = check_tc_firmware_image(argv[1]);
 #endif
 #endif
 
@@ -20922,7 +20921,11 @@ firmware_check_main(int argc, char *argv[])
 	fw_check_pre();
 #endif
 
-	if(!check_imagefile(argv[1])) {
+	if(!check_imagefile(argv[1])
+#if defined(RTCONFIG_DSL_REMOTE) && !defined(RTCONFIG_RALINK)
+	   && tc_fw_result == 0
+#endif
+	  ) {
 		_dprintf("FW OK\n");
 		nvram_set("firmware_check", "1");
 	}
@@ -20934,12 +20937,9 @@ firmware_check_main(int argc, char *argv[])
 #ifdef RTCONFIG_DSL_REMOTE
 #ifdef RTCONFIG_RALINK
 #else
-	if(isTcFwExist) {
-		if(check_tc_firmware_crc()) // return 0 when pass
-		{
-			_dprintf("FW Fail\n");
-			nvram_set("firmware_check", "0");
-		}
+	if (tc_fw_result != 0) {
+		_dprintf("FW Fail\n");
+		nvram_set("firmware_check", "0");
 	}
 #endif
 #endif
