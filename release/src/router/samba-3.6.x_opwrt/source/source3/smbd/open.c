@@ -2950,12 +2950,16 @@ void msg_file_was_renamed(struct messaging_context *msg,
 	struct smbd_server_connection *sconn;
 	files_struct *fsp;
 	char *frm = (char *)data->data;
+	char *msg_end;
+	char *share_end;
+	char *base_end;
+	char *stream_end;
 	struct file_id id;
 	const char *sharepath;
 	const char *base_name;
 	const char *stream_name;
 	struct smb_filename *smb_fname = NULL;
-	size_t sp_len, bn_len;
+	size_t sp_len;
 	NTSTATUS status;
 
 	sconn = msg_ctx_to_sconn(msg);
@@ -2965,7 +2969,7 @@ void msg_file_was_renamed(struct messaging_context *msg,
 	}
 
 	if (data->data == NULL
-	    || data->length < MSG_FILE_RENAMED_MIN_SIZE + 2) {
+	    || data->length < MSG_FILE_RENAMED_MIN_SIZE + 3) {
                 DEBUG(0, ("msg_file_was_renamed: Got invalid msg len %d\n",
 			  (int)data->length));
                 return;
@@ -2973,11 +2977,55 @@ void msg_file_was_renamed(struct messaging_context *msg,
 
 	/* Unpack the message. */
 	pull_file_id_24(frm, &id);
-	sharepath = &frm[24];
-	sp_len = strlen(sharepath);
-	base_name = sharepath + sp_len + 1;
-	bn_len = strlen(base_name);
-	stream_name = sharepath + sp_len + 1 + bn_len + 1;
+	sharepath = &frm[MSG_FILE_RENAMED_MIN_SIZE];
+	msg_end = frm + data->length;
+	share_end = memchr(sharepath, '\0', msg_end - sharepath);
+	if (share_end == NULL || share_end == sharepath) {
+		goto invalid_message;
+	}
+	sp_len = share_end - sharepath;
+	base_name = share_end + 1;
+	if (base_name >= msg_end) {
+		goto invalid_message;
+	}
+	base_end = memchr(base_name, '\0', msg_end - base_name);
+	if (base_end == NULL || base_end == base_name) {
+		goto invalid_message;
+	}
+	stream_name = base_end + 1;
+	if (stream_name >= msg_end) {
+		goto invalid_message;
+	}
+	stream_end = memchr(stream_name, '\0', msg_end - stream_name);
+	if (stream_end == NULL || stream_end != msg_end - 1) {
+		goto invalid_message;
+	}
+
+	/* Names in this message are share-relative; never accept traversal. */
+	{
+		const char *component = base_name;
+		const char *p;
+
+		if (base_name[0] == '/' || base_name[0] == '\\' ||
+		    (base_name[0] >= 'A' && base_name[0] <= 'Z' &&
+		     base_name[1] == ':') ||
+		    (base_name[0] >= 'a' && base_name[0] <= 'z' &&
+		     base_name[1] == ':')) {
+			goto invalid_message;
+		}
+		for (p = base_name; ; p++) {
+			if (*p == '/' || *p == '\\' || *p == '\0') {
+				if (p - component == 2 && component[0] == '.' &&
+				    component[1] == '.') {
+					goto invalid_message;
+				}
+				if (*p == '\0') {
+					break;
+				}
+				component = p + 1;
+			}
+		}
+	}
 
 	/* stream_name must always be NULL if there is no stream. */
 	if (stream_name[0] == '\0') {
@@ -2997,7 +3045,14 @@ void msg_file_was_renamed(struct messaging_context *msg,
 
 	for(fsp = file_find_di_first(sconn, id); fsp;
 	    fsp = file_find_di_next(fsp)) {
-		if (memcmp(fsp->conn->connectpath, sharepath, sp_len) == 0) {
+		if (strlen(fsp->conn->connectpath) == sp_len &&
+		    memcmp(fsp->conn->connectpath, sharepath, sp_len) == 0) {
+			status = check_name(fsp->conn, base_name);
+			if (!NT_STATUS_IS_OK(status)) {
+				DEBUG(1, ("msg_file_was_renamed: rejecting name %s outside share %s\n",
+					  base_name, fsp->conn->connectpath));
+				continue;
+			}
 
 			DEBUG(10,("msg_file_was_renamed: renaming file fnum %d from %s -> %s\n",
 				fsp->fnum, fsp_str_dbg(fsp),
@@ -3022,6 +3077,10 @@ void msg_file_was_renamed(struct messaging_context *msg,
         }
  out:
 	TALLOC_FREE(smb_fname);
+	return;
+
+ invalid_message:
+	DEBUG(0, ("msg_file_was_renamed: rejecting malformed or unsafe rename message\n"));
 	return;
 }
 
