@@ -284,7 +284,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		if (otype == DHCPV6_OPT_CLIENTID && olen <= 130) {
 			dest.clientid_length = htons(olen);
 			memcpy(dest.clientid_buf, odata, olen);
-			iov[1].iov_len += 4 + olen;
+			iov[1].iov_len = sizeof(dest) - sizeof(dest.clientid_buf) + olen;
 		} else if (otype == DHCPV6_OPT_SERVERID) {
 			if (olen != ntohs(dest.serverid_length) ||
 					memcmp(odata, &dest.duid_type, olen))
