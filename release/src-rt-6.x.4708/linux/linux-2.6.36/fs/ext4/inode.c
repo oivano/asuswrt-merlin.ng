@@ -5088,7 +5088,8 @@ struct inode *ext4_iget(struct super_block *sb, unsigned long ino)
 
 	if (EXT4_INODE_SIZE(inode->i_sb) > EXT4_GOOD_OLD_INODE_SIZE) {
 		ei->i_extra_isize = le16_to_cpu(raw_inode->i_extra_isize);
-		if (EXT4_GOOD_OLD_INODE_SIZE + ei->i_extra_isize >
+		if ((ei->i_extra_isize & 3) ||
+		    EXT4_GOOD_OLD_INODE_SIZE + ei->i_extra_isize >
 		    EXT4_INODE_SIZE(inode->i_sb)) {
 			ret = -EIO;
 			goto bad_inode;
@@ -5098,11 +5099,15 @@ struct inode *ext4_iget(struct super_block *sb, unsigned long ino)
 			ei->i_extra_isize = sizeof(struct ext4_inode) -
 					    EXT4_GOOD_OLD_INODE_SIZE;
 		} else {
-			__le32 *magic = (void *)raw_inode +
-					EXT4_GOOD_OLD_INODE_SIZE +
-					ei->i_extra_isize;
-			if (*magic == cpu_to_le32(EXT4_XATTR_MAGIC))
-				ext4_set_inode_state(inode, EXT4_STATE_XATTR);
+			if (EXT4_GOOD_OLD_INODE_SIZE + ei->i_extra_isize +
+			    sizeof(__le32) <= EXT4_INODE_SIZE(inode->i_sb)) {
+				__le32 *magic = (void *)raw_inode +
+						EXT4_GOOD_OLD_INODE_SIZE +
+						ei->i_extra_isize;
+				if (*magic == cpu_to_le32(EXT4_XATTR_MAGIC))
+					ext4_set_inode_state(inode,
+							     EXT4_STATE_XATTR);
+			}
 		}
 	} else
 		ei->i_extra_isize = 0;
