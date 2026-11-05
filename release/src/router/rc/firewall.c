@@ -3148,6 +3148,18 @@ start_default_filter(int lanunit)
 		ipv6_enabled() ? "ACCEPT" : "DROP");
 
 	if (ipv6_enabled()) {
+		fprintf(fp, "-A INPUT -m mark --mark %s/%s -p ipv6-icmp -j ACCEPT\n",
+			BIT_GUEST_IPV6, BIT_GUEST_IPV6);
+		fprintf(fp, "-A INPUT -m mark --mark %s/%s -p tcp --dport 53 -j ACCEPT\n",
+			BIT_GUEST_IPV6, BIT_GUEST_IPV6);
+		fprintf(fp, "-A INPUT -m mark --mark %s/%s -p udp --dport 53 -j ACCEPT\n",
+			BIT_GUEST_IPV6, BIT_GUEST_IPV6);
+		fprintf(fp, "-A INPUT -m mark --mark %s/%s -p udp --dport 547 -j ACCEPT\n",
+			BIT_GUEST_IPV6, BIT_GUEST_IPV6);
+		fprintf(fp, "-A INPUT -m mark --mark %s/%s -p udp --sport 547 --dport 546 -j ACCEPT\n",
+			BIT_GUEST_IPV6, BIT_GUEST_IPV6);
+		fprintf(fp, "-A INPUT -m mark --mark %s/%s -j DROP\n",
+			BIT_GUEST_IPV6, BIT_GUEST_IPV6);
 		fprintf(fp, "-A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT\n");
 		fprintf(fp, "-A INPUT -m state --state INVALID -j %s\n", debug ? "ACCEPT" : "DROP");
 		write_access_restriction_ipv6(fp);
