@@ -941,7 +941,7 @@ void setup_conntrack(void)
 void setup_pt_conntrack(void)
 {
 	if (nvram_match("fw_pt_rtsp", "1")) {
-		ct_modprobe("rtsp", "ports=554,8554");
+		ct_modprobe("rtsp", "ports=554");
 	}
 	else {
 		ct_modprobe_r("rtsp");
