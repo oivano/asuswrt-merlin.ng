@@ -908,6 +908,28 @@ ej_get_route_array(int eid, webs_t wp, int argc, char_t **argv)
 }
 
 #ifdef RTCONFIG_IPV6
+static int append_joined_value(char *buffer, size_t buffer_size,
+			       const char *separator, const char *value)
+{
+	size_t used = strlen(buffer);
+	size_t separator_len = used ? strlen(separator) : 0;
+	size_t value_len = strlen(value);
+	size_t remaining;
+
+	if (used >= buffer_size)
+		return 0;
+	remaining = buffer_size - used;
+	if (separator_len >= remaining)
+		return 0;
+	remaining -= separator_len;
+	if (value_len >= remaining)
+		return 0;
+	if (separator_len)
+		memcpy(buffer + used, separator, separator_len);
+	memcpy(buffer + used + separator_len, value, value_len + 1);
+	return 1;
+}
+
 int
 ej_lan_ipv6_network_array(int eid, webs_t wp, int argc, char_t **argv)
 {
@@ -915,7 +937,7 @@ ej_lan_ipv6_network_array(int eid, webs_t wp, int argc, char_t **argv)
 	char buf[64+32+8192+1];
 	char *hostname, *macaddr, ipaddrs[8192+1];
 	char ipv6_dns_str[1024];
-	char *wan_type, *wan_dns, *p;
+	char *wan_type, *wan_dns;
 	int service, i, ret = 0;
 
 	ret += websWrite(wp, "var ipv6cfgarray = [");
@@ -971,14 +993,14 @@ ej_lan_ipv6_network_array(int eid, webs_t wp, int argc, char_t **argv)
 		wan_dns = nvram_safe_get("ipv6_get_dns");
 	} else {
 		char nvname[sizeof("ipv6_dnsXXX")];
-		char *next = ipv6_dns_str;
 
 		ipv6_dns_str[0] = '\0';
 		for (i = 1; i <= 3; i++) {
 			snprintf(nvname, sizeof(nvname), "ipv6_dns%d", i);
 			wan_dns = nvram_safe_get(nvname);
-			if (*wan_dns)
-				next += sprintf(next, *ipv6_dns_str ? " %s" : "%s", wan_dns);
+			if (*wan_dns &&
+			    !append_joined_value(ipv6_dns_str, sizeof(ipv6_dns_str), " ", wan_dns))
+				break;
 		}
 		wan_dns = ipv6_dns_str;
 	}
@@ -1016,11 +1038,11 @@ ej_lan_ipv6_network_array(int eid, webs_t wp, int argc, char_t **argv)
 			sprintf(hostname + 29, "...");
 
 		ipaddrs[0] = '\0';
-		p = ipaddrs;
 		while (ptr && *ptr) {
 			char *next = strsep(&ptr, ",\n");
-			if (next && *next)
-				p += snprintf(p, sizeof(ipaddrs) + ipaddrs - p, "%s%s", *ipaddrs ? ", " : "", next);
+			if (next && *next &&
+			    !append_joined_value(ipaddrs, sizeof(ipaddrs), ", ", next))
+				break;
 		}
 
 		ret += websWrite(wp, "[");
