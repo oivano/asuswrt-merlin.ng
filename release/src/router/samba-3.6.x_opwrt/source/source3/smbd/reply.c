@@ -4190,6 +4190,11 @@ void reply_writeunlock(struct smb_request *req)
 	}
 
 	numtowrite = SVAL(req->vwv+1, 0);
+	if (req->buflen < 3 || numtowrite > req->buflen - 3) {
+		reply_nterror(req, NT_STATUS_INVALID_PARAMETER);
+		END_PROFILE(SMBwriteunlock);
+		return;
+	}
 	startpos = IVAL_TO_SMB_OFF_T(req->vwv+2, 0);
 	data = (const char *)req->buf + 3;
 
@@ -4311,6 +4316,11 @@ void reply_write(struct smb_request *req)
 	}
 
 	numtowrite = SVAL(req->vwv+1, 0);
+	if (req->buflen < 3 || numtowrite > req->buflen - 3) {
+		reply_nterror(req, NT_STATUS_INVALID_PARAMETER);
+		END_PROFILE(SMBwrite);
+		return;
+	}
 	startpos = IVAL_TO_SMB_OFF_T(req->vwv+2, 0);
 	data = (const char *)req->buf + 3;
 
@@ -4923,6 +4933,11 @@ void reply_writeclose(struct smb_request *req)
 	}
 
 	numtowrite = SVAL(req->vwv+1, 0);
+	if (req->buflen < 1 || numtowrite > req->buflen - 1) {
+		reply_nterror(req, NT_STATUS_INVALID_PARAMETER);
+		END_PROFILE(SMBwriteclose);
+		return;
+	}
 	startpos = IVAL_TO_SMB_OFF_T(req->vwv+2, 0);
 	mtime = convert_time_t_to_timespec(srv_make_unix_date3(req->vwv+4));
 	data = (const char *)req->buf + 1;
