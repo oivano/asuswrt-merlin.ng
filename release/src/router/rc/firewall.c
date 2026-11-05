@@ -3156,8 +3156,8 @@ start_default_filter(int lanunit)
 			BIT_GUEST_IPV6, BIT_GUEST_IPV6);
 		fprintf(fp, "-A INPUT -m mark --mark %s/%s -p udp --dport 547 -j ACCEPT\n",
 			BIT_GUEST_IPV6, BIT_GUEST_IPV6);
-		fprintf(fp, "-A INPUT -m mark --mark %s/%s -p udp --sport 547 --dport 546 -j ACCEPT\n",
-			BIT_GUEST_IPV6, BIT_GUEST_IPV6);
+		fprintf(fp, "-A INPUT -i %s -s fe80::/10 -m mark --mark %s/%s -p udp --sport 547 --dport 546 -j ACCEPT\n",
+			get_wan6face(), BIT_GUEST_IPV6, BIT_GUEST_IPV6);
 		fprintf(fp, "-A INPUT -m mark --mark %s/%s -j DROP\n",
 			BIT_GUEST_IPV6, BIT_GUEST_IPV6);
 		fprintf(fp, "-A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT\n");
@@ -3176,7 +3176,8 @@ start_default_filter(int lanunit)
 #endif
 			case IPV6_NATIVE_DHCP:
 				/* allow responses from the dhcpv6 server */
-				fprintf(fp, "-A INPUT -p udp --sport 547 --dport 546 -j ACCEPT\n");
+				fprintf(fp, "-A INPUT -i %s -s fe80::/10 -p udp --sport 547 --dport 546 -j ACCEPT\n",
+					get_wan6face());
 				break;
 			}
 			for (n = 0; n < sizeof(allowed_local_icmpv6)/sizeof(int); n++) {
@@ -4574,7 +4575,8 @@ TRACE_PT("writing Parental Control\n");
 #endif
 		case IPV6_NATIVE_DHCP:
 			/* allow responses from the dhcpv6 server */
-			fprintf(fp_ipv6, "-A INPUT -p udp --sport 547 --dport 546 -j %s\n", logaccept);
+			fprintf(fp_ipv6, "-A INPUT -i %s -s fe80::/10 -p udp --sport 547 --dport 546 -j %s\n",
+				get_wan6face(), logaccept);
 			break;
 		}
 
@@ -6054,7 +6056,8 @@ TRACE_PT("writing Parental Control\n");
 #endif
 		case IPV6_NATIVE_DHCP:
 			/* allow responses from the dhcpv6 server to client */
-			fprintf(fp_ipv6, "-A INPUT -p udp --sport 547 --dport 546 -j %s\n", logaccept);
+			fprintf(fp_ipv6, "-A INPUT -i %s -s fe80::/10 -p udp --sport 547 --dport 546 -j %s\n",
+				get_wan6face(), logaccept);
 			break;
 		}
 

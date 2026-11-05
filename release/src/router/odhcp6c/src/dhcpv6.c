@@ -57,7 +57,8 @@
 
 static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 		const uint8_t transaction[3], enum dhcpv6_msg type,
-		const struct in6_addr *daddr);
+		const struct sockaddr_in6 *from, const struct in6_pktinfo *pktinfo,
+		const struct in6_addr *unicast_server);
 
 static unsigned int dhcpv6_parse_ia(void *opt, void *end);
 
@@ -267,8 +268,11 @@ int dhcpv6_set_ia_mode(enum odhcp6c_ia_mode na, enum odhcp6c_ia_mode pd)
 	return mode;
 }
 
-static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
+static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs,
+		struct in6_addr *unicast_server)
 {
+	*unicast_server = in6addr_any;
+
 	// Build FQDN
 	char fqdn_buf[256];
 	gethostname(fqdn_buf, sizeof(fqdn_buf));
@@ -548,7 +552,9 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		syslog(LOG_ERR, "Failed to send DHCPV6 message to %s (%s)",
 			inet_ntop(AF_INET6, (const void *)&srv.sin6_addr,
 				in6_str, sizeof(in6_str)), strerror(errno));
-	}
+	} else if (!IN6_IS_ADDR_UNSPECIFIED(&srv.sin6_addr) &&
+			!IN6_IS_ADDR_MULTICAST(&srv.sin6_addr))
+		*unicast_server = srv.sin6_addr;
 }
 
 static int64_t dhcpv6_rand_delay(int64_t time)
@@ -594,6 +600,7 @@ int dhcpv6_request(enum dhcpv6_msg type)
 
 	ssize_t len = -1;
 	int64_t rto = 0;
+	struct in6_addr unicast_server = IN6ADDR_ANY_INIT;
 
 	do {
 		if (rto == 0) {
@@ -629,7 +636,7 @@ int dhcpv6_request(enum dhcpv6_msg type)
 			// Fall through
 		case DHCPV6_MSG_SOLICIT:
 		case DHCPV6_MSG_INFO_REQ:
-			dhcpv6_send(type, trid, elapsed / 10);
+			dhcpv6_send(type, trid, elapsed / 10, &unicast_server);
 			rc++;
 		}
 
@@ -679,8 +686,8 @@ int dhcpv6_request(enum dhcpv6_msg type)
 				continue;
 			}
 
-			if (!dhcpv6_response_is_valid(buf, len, trid,
-							type, &pktinfo->ipi6_addr)) {
+			if (!dhcpv6_response_is_valid(buf, len, trid, type,
+							&addr, pktinfo, &unicast_server)) {
 				len = -1;
 				continue;
 			}
@@ -711,7 +718,8 @@ int dhcpv6_request(enum dhcpv6_msg type)
 // Message validation checks according to RFC3315 chapter 15
 static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 		const uint8_t transaction[3], enum dhcpv6_msg type,
-		const struct in6_addr *daddr)
+		const struct sockaddr_in6 *from, const struct in6_pktinfo *pktinfo,
+		const struct in6_addr *unicast_server)
 {
 	const struct dhcpv6_header *rep = buf;
 	if (len < (ssize_t)sizeof(*rep) || memcmp(rep->tr_id,
@@ -728,6 +736,15 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 			return false;
 
 	} else if (rep->msg_type != DHCPV6_MSG_REPLY)
+		return false;
+
+	if (from->sin6_family != AF_INET6 || pktinfo->ipi6_ifindex != ifindex)
+		return false;
+
+	if ((rep->msg_type == DHCPV6_MSG_ADVERT || rep->msg_type == DHCPV6_MSG_REPLY) &&
+			!IN6_IS_ADDR_LINKLOCAL(&from->sin6_addr) &&
+			(IN6_IS_ADDR_UNSPECIFIED(unicast_server) ||
+			 !IN6_ARE_ADDR_EQUAL(&from->sin6_addr, unicast_server)))
 		return false;
 
 	uint8_t *end = ((uint8_t*)buf) + len, *odata = NULL,
@@ -805,7 +822,7 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 	if (rep->msg_type == DHCPV6_MSG_RECONF) {
 		if ((rcmsg != DHCPV6_MSG_RENEW && rcmsg != DHCPV6_MSG_REBIND && rcmsg != DHCPV6_MSG_INFO_REQ) ||
 			(rcmsg == DHCPV6_MSG_INFO_REQ && ia_present) ||
-			!rcauth_ok || IN6_IS_ADDR_MULTICAST(daddr))
+			!rcauth_ok || IN6_IS_ADDR_MULTICAST(&pktinfo->ipi6_addr))
 			return false;
 	}
 
