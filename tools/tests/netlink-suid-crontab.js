@@ -8,6 +8,8 @@ const netlinkHeader = read('release/src-rt-6.x.4708/linux/linux-2.6.36/include/l
 const netlinkSource = read('release/src-rt-6.x.4708/linux/linux-2.6.36/net/netlink/af_netlink.c');
 const commoncap = read('release/src-rt-6.x.4708/linux/linux-2.6.36/security/commoncap.c');
 const crontab = read('release/src/router/busybox/miscutils/crontab.c');
+const login = read('release/src/router/busybox/loginutils/login.c');
+const init = read('release/src/router/rc/init.c');
 const busyboxMake = read('release/src/router/Makefile');
 const busyboxConfig = read('release/src/router/busybox/.config');
 
@@ -46,6 +48,19 @@ assert.match(crontab, /APPLET\(crontab, BB_DIR_USR_BIN, BB_SUID_REQUIRE\)/);
 assert.match(busyboxConfig, /^CONFIG_FEATURE_SUID=y$/m);
 assert.match(busyboxConfig, /^# CONFIG_FEATURE_SUID_CONFIG is not set$/m);
 assert.match(busyboxMake, /chmod 4755 \$\(INSTALLDIR\)\/\$\(BUSYBOX\)\/bin\/busybox/);
+
+const loginMain = login.slice(login.indexOf('int login_main(int argc UNUSED_PARAM'));
+const loginRootGuard = loginMain.indexOf('if (getuid() != 0)');
+assert.match(login, /APPLET\(login, BB_DIR_BIN, BB_SUID_DROP\)/);
+assert(loginRootGuard >= 0);
+assert(loginRootGuard < loginMain.indexOf('sanitize_env_if_suid()'));
+assert(loginRootGuard < loginMain.indexOf('get_username_or_die(username'));
+assert(loginRootGuard < loginMain.indexOf('ask_and_check_password(pw)'));
+assert.match(loginMain, /if \(getuid\(\) != 0\)\s*bb_simple_error_msg_and_die\("must be root"\);/);
+
+const runShell = init.slice(init.indexOf('static pid_t run_shell('), init.indexOf('\nvoid console_hup('));
+assert.match(runShell, /char \*argv_login\[\] = \{ LOGIN, "-p", NULL \}/);
+assert.match(runShell, /execve\(argv\[0\], argv, defenv\)/);
 
 const authorize = (writer, opener, explicitDestination) =>
 	explicitDestination ? writer : writer && opener;

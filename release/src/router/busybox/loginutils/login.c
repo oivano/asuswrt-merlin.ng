@@ -48,8 +48,8 @@
 //config:	The file contains the device names of tty lines (one per line,
 //config:	without leading /dev/) on which root is allowed to login.
 
-//applet:/* Needs to be run by root or be suid root - needs to change uid and gid: */
-//applet:IF_LOGIN(APPLET(login, BB_DIR_BIN, BB_SUID_REQUIRE))
+//applet:/* Must run as root to change uid and gid. */
+//applet:IF_LOGIN(APPLET(login, BB_DIR_BIN, BB_SUID_DROP))
 
 //kbuild:lib-$(CONFIG_LOGIN) += login.o
 
@@ -354,6 +354,9 @@ int login_main(int argc UNUSED_PARAM, char **argv)
 	char *telnet_addr;
 	char *telnet_port;
 #endif
+
+	if (getuid() != 0)
+		bb_simple_error_msg_and_die("must be root");
 
 	INIT_G();
 
