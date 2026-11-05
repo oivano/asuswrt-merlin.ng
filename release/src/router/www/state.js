@@ -176,40 +176,6 @@ var cookie = {
 	}
 };
 
-var Session = Session || (function () {
-	var win = window.top || window;
-	try {
-		var store = (win.name ? JSON.parse(win.name) : {});
-		function Save() {
-			win.name = JSON.stringify(store);
-		};
-
-		if (window.addEventListener) window.addEventListener("unload", Save, false);
-		else if (window.attachEvent) window.attachEvent("onunload", Save);
-		else window.onunload = Save;
-
-		return {
-			set: function (name, value) {
-				store[name] = value;
-			},
-			get: function (name) {
-				return (store[name] ? store[name] : undefined);
-			},
-			clear: function () { store = {}; },
-			dump: function () { return JSON.stringify(store); }
-		};
-	}
-	catch (e) {
-		win.name = ""; /* reset cache */
-		return {
-			set: function () { },
-			get: function () { },
-			clear: function () { },
-			dump: function () { }
-		};
-	}
-})();
-
 var htmlEnDeCode = (function () {
 	var charToEntityRegex,
 		entityToCharRegex,
@@ -1404,12 +1370,6 @@ function show_menu() {
 		}
 	}
 
-	try {
-		showMenuTree(Session.get("menuList"), Session.get("menuExclude"));
-	}
-	catch (e) {
-	}
-
 	require(['/require/modules/menuTree.js'], function (menuTree) {
 		menuList = menuTree.list;
 
@@ -1418,8 +1378,6 @@ function show_menu() {
 			tabs: menuTree.exclude.tabs()
 		};
 
-		Session.set("menuList", menuList);
-		Session.set("menuExclude", menuExclude);
 		showMenuTree(menuList, menuExclude);
 
 	});
@@ -1501,6 +1459,8 @@ function showMenuTree(menuList, menuExclude) {
 				menu_code += '<div style="width:160px;height:52px;"><span><a href="https://oivano.github.io/asuswrt-merlin.ng/" target="_blank" rel="noreferrer"></a></span></div>';
 			for (var i = 0; i < menuList.length; i++) {
 				var curMenu = menuList[i];
+				var menuIndex = htmlEnDeCode.htmlEncode(curMenu.index);
+				var menuName = htmlEnDeCode.htmlEncode(curMenu.menuName);
 				var firstEntry = -1;
 
 				curMenu.tab.some(function (tab, idx) {
@@ -1515,13 +1475,14 @@ function showMenuTree(menuList, menuExclude) {
 
 				if (curMenu.index === "menu_Split") {
 					menu_code += '<div class="';
-					menu_code += curMenu.index;
+					menu_code += menuIndex;
 					menu_code += '"><table width="192px" height="30px"><tbody><tr><td>';
-					menu_code += curMenu.menuName;
+					menu_code += menuName;
 					menu_code += '</td></tr></tbody></table></div>';
 				}
 				else {
 					if (curMenu.tab[firstEntry].url !== "NULL") {
+						var menuUrl = htmlEnDeCode.htmlEncode(curMenu.tab[firstEntry].url);
 						if (curMenu.index == "menu_QIS")
 							menu_code += '<div class="menu menu_QIS_title';
 						else
@@ -1545,14 +1506,14 @@ function showMenuTree(menuList, menuExclude) {
 						menu_code += ', '
 						menu_code += firstEntry;
 						menu_code += ', this);" title="';
-						menu_code += curMenu.tab[firstEntry].url;
+						menu_code += menuUrl;
 						menu_code += '" id="';
-						menu_code += curMenu.tab[firstEntry].url.split(".")[0];
+						menu_code += menuUrl.split(".")[0];
 						menu_code += '_menu"><table><tr><td><div class="menu_Icon ';
 						if ((based_modelid == "RT-AC85U" || based_modelid == "RT-AC85P") && curMenu.index == 'menu_QoS')	//MODELDEP : RT-AC85U change icon
 							menu_code += 'menu_BandwidthMonitor';
 						else
-							menu_code += curMenu.index;
+							menu_code += menuIndex;
 						menu_code += '"></div></td><td class="menu_Desc">';
 						if (curMenu.index == 'menu_Alexa_IFTTT' && (!alexa_support || !ifttt_support)) {
 							if (alexa_support)
@@ -1561,7 +1522,7 @@ function showMenuTree(menuList, menuExclude) {
 								menu_code += "IFTTT";
 						}
 						else
-							menu_code += curMenu.menuName;
+							menu_code += menuName;
 						menu_code += '</td></tr></table></div>\n';
 					}
 				}
@@ -1586,6 +1547,8 @@ function showMenuTree(menuList, menuExclude) {
 
 				if (curTab.tabName === "__HIDE__" || curTab.tabName === "__INHERIT__") continue;
 				if (menuExclude.tabs.indexOf(curTab.url) !== -1) continue;
+				var tabUrl = htmlEnDeCode.htmlEncode(curTab.url);
+				var tabName = htmlEnDeCode.htmlEncode(curTab.tabName);
 
 				tab_code += '<td><div class="';
 
@@ -1593,7 +1556,7 @@ function showMenuTree(menuList, menuExclude) {
 				if (dsl_support && (current_url.indexOf("Advanced_DSL_Content") == 0 || current_url.indexOf("Advanced_VDSL_Content") == 0 || current_url.indexOf("Advanced_WAN_Content") == 0 || current_url.indexOf("Advanced_Modem_Content") == 0)) {
 					tab_code += (j == 1 || j == 3) ? 'tabClicked' : 'tab';	//show 1st tab css as class 'tabClicked'
 				}
-				else if(current_url.indexOf("Advanced_VLAN_Profile_Content") == 0){
+				else if (current_url.indexOf("Advanced_VLAN_Profile_Content") == 0) {
 					tab_code += (j == 7) ? 'tabClicked' : 'tab';	// Show 7th tab css as class 'tabClicked'
 				}
 				else {
@@ -1606,11 +1569,11 @@ function showMenuTree(menuList, menuExclude) {
 				tab_code += ', ';
 				tab_code += j;
 				tab_code += ', this);" title="';
-				tab_code += curTab.url;
+				tab_code += tabUrl;
 				tab_code += '" id="';
-				tab_code += curTab.url.split(".")[0];
+				tab_code += tabUrl.split(".")[0];
 				tab_code += '_tab"><div>';
-				tab_code += curTab.tabName;
+				tab_code += tabName;
 				tab_code += '</div></div></td>';
 				tabCounter++;
 			}
