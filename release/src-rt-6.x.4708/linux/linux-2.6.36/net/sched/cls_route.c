@@ -423,11 +423,12 @@ static int route4_change(struct tcf_proto *tp, unsigned long base,
 {
 	struct route4_head *head = tp->root;
 	struct route4_filter *f, *f1, **fp;
-	struct route4_bucket *b;
+	struct route4_bucket *b, *old_bkt = NULL;
 	struct nlattr *opt = tca[TCA_OPTIONS];
 	struct nlattr *tb[TCA_ROUTE4_MAX + 1];
 	unsigned int h, th;
 	u32 old_handle = 0;
+	int old_filter = 0;
 	int err;
 
 	if (opt == NULL)
@@ -441,8 +442,11 @@ static int route4_change(struct tcf_proto *tp, unsigned long base,
 		if (f->handle != handle && handle)
 			return -EINVAL;
 
-		if (f->bkt)
+		if (f->bkt) {
+			old_bkt = f->bkt;
 			old_handle = f->handle;
+			old_filter = 1;
+		}
 
 		err = route4_set_parms(tp, base, f, handle, head, tb,
 			tca[TCA_RATE], 0);
@@ -473,19 +477,12 @@ static int route4_change(struct tcf_proto *tp, unsigned long base,
 		goto errout;
 
 reinsert:
-	h = from_hash(f->handle >> 16);
-	for (fp = &f->bkt->ht[h]; (f1=*fp) != NULL; fp = &f1->next)
-		if (f->handle < f1->handle)
-			break;
-
-	f->next = f1;
 	tcf_tree_lock(tp);
-	*fp = f;
-
-	if (old_handle && f->handle != old_handle) {
+	if (old_filter && f->handle != old_handle) {
 		th = to_hash(old_handle);
 		h = from_hash(old_handle >> 16);
-		if ((b = head->table[th]) != NULL) {
+		if (old_bkt && head->table[th] == old_bkt) {
+			b = old_bkt;
 			for (fp = &b->ht[h]; *fp; fp = &(*fp)->next) {
 				if (*fp == f) {
 					*fp = f->next;
@@ -494,6 +491,14 @@ reinsert:
 			}
 		}
 	}
+
+	h = from_hash(f->handle >> 16);
+	for (fp = &f->bkt->ht[h]; (f1=*fp) != NULL; fp = &f1->next)
+		if (f->handle < f1->handle)
+			break;
+
+	f->next = f1;
+	*fp = f;
 	tcf_tree_unlock(tp);
 
 	route4_reset_fastmap(tp->q, head, f->id);
