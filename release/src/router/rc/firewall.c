@@ -4583,6 +4583,10 @@ TRACE_PT("writing Parental Control\n");
 
 	// chain used for other things like pptp filtering, so always jump to it
 	fprintf(fp, "-A FORWARD -j %s\n", chain);
+#ifdef RTCONFIG_IPV6
+	if (ipv6_enabled())
+		fprintf(fp_ipv6, "-A FORWARD -j %s\n", chain);
+#endif
 
 	/*
 	network service filter
@@ -4659,7 +4663,7 @@ TRACE_PT("writing Parental Control\n");
 					fprintf(fp, "-A %s %s -i %s -o %s -p icmp --icmp-type %s -j %s\n", chain, g, lan_if, wan_if, ptr, ftype);
 #ifdef RTCONFIG_IPV6
 					if (ipv6_enabled() && *wan6face)
-					fprintf(fp_ipv6, "-A %s %s -i %s -o %s %s -j %s\n", chain, g, lan_if, wan6face, setting, ftype);
+					fprintf(fp_ipv6, "-A %s %s -i %s -o %s -p ipv6-icmp --icmpv6-type %s -j %s\n", chain, g, lan_if, wan6face, ptr, ftype);
 #endif
 				}
 			}
@@ -4677,14 +4681,33 @@ TRACE_PT("writing Parental Control\n");
 	if (nvram_match("fw_pt_pptp", "0")) {
 		fprintf(fp, "-I %s -i %s -o %s -p tcp --dport %d -j %s\n", chain, lan_if, wan_if, 1723, "DROP");
 		fprintf(fp, "-I %s -i %s -o %s -p 47 -j %s\n", chain, lan_if, wan_if, "DROP");
+#ifdef RTCONFIG_IPV6
+		if (ipv6_enabled() && *wan6face) {
+			fprintf(fp_ipv6, "-I %s -i %s -o %s -p tcp --dport %d -j DROP\n", chain, lan_if, wan6face, 1723);
+			fprintf(fp_ipv6, "-I %s -i %s -o %s -p 47 -j DROP\n", chain, lan_if, wan6face);
+		}
+#endif
 	}
-	if (nvram_match("fw_pt_l2tp", "0"))
+	if (nvram_match("fw_pt_l2tp", "0")) {
 		fprintf(fp, "-I %s -i %s -o %s -p udp --dport %d -j %s\n", chain, lan_if, wan_if, 1701, "DROP");
+#ifdef RTCONFIG_IPV6
+		if (ipv6_enabled() && *wan6face)
+			fprintf(fp_ipv6, "-I %s -i %s -o %s -p udp --dport %d -j DROP\n", chain, lan_if, wan6face, 1701);
+#endif
+	}
 	if (nvram_match("fw_pt_ipsec", "0")) {
 		fprintf(fp, "-I %s -i %s -o %s -p udp --dport %d -j %s\n", chain, lan_if, wan_if, 500, "DROP");
 		fprintf(fp, "-I %s -i %s -o %s -p udp --dport %d -j %s\n", chain, lan_if, wan_if, 4500, "DROP");
 		fprintf(fp, "-I %s -i %s -o %s -p 50 -j %s\n", chain, lan_if, wan_if, "DROP");
 		fprintf(fp, "-I %s -i %s -o %s -p 51 -j %s\n", chain, lan_if, wan_if, "DROP");
+#ifdef RTCONFIG_IPV6
+		if (ipv6_enabled() && *wan6face) {
+			fprintf(fp_ipv6, "-I %s -i %s -o %s -p udp --dport %d -j DROP\n", chain, lan_if, wan6face, 500);
+			fprintf(fp_ipv6, "-I %s -i %s -o %s -p udp --dport %d -j DROP\n", chain, lan_if, wan6face, 4500);
+			fprintf(fp_ipv6, "-I %s -i %s -o %s -p 50 -j DROP\n", chain, lan_if, wan6face);
+			fprintf(fp_ipv6, "-I %s -i %s -o %s -p 51 -j DROP\n", chain, lan_if, wan6face);
+		}
+#endif
 	}
 
 	//Filter chilli
