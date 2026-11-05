@@ -7662,14 +7662,15 @@ void syslog_commit_check(void)
 #if defined(RTCONFIG_USB_MODEM)
 void modem_log_check(void) {
 #define MODEMLOG_FILE "/tmp/usb.log"
+#define MODEMLOG_TEMP "/tmp/ppp/usb.log-1"
 #define MAX_MODEMLOG_LINE 3
 	FILE *fp;
-	char cmd[64], var[16];
+	char cmd[128], var[16];
 	int line = 0;
 
 	if (++log_modem_count >= LOG_MODEM_PERIOD) {
-		snprintf(cmd, 64, "cat %s |wc -l", MODEMLOG_FILE);
-		if ((fp = popen("cat /tmp/usb.log |wc -l", "r")) != NULL) {
+		snprintf(cmd, sizeof(cmd), "cat %s |wc -l", MODEMLOG_FILE);
+		if ((fp = popen(cmd, "r")) != NULL) {
 			var[0] = '\0';
 			while(fgets(var, 16, fp)) {
 				line = safe_atoi(var);
@@ -7677,13 +7678,13 @@ void modem_log_check(void) {
 			pclose(fp);
 
 			if (line > MAX_MODEMLOG_LINE) {
-				snprintf(cmd, 64, "cat %s |tail -n %d > %s-1", MODEMLOG_FILE, MAX_MODEMLOG_LINE, MODEMLOG_FILE);
+				snprintf(cmd, sizeof(cmd), "cat %s |tail -n %d > %s", MODEMLOG_FILE, MAX_MODEMLOG_LINE, MODEMLOG_TEMP);
 				system(cmd);
 
-				snprintf(cmd, 64, "mv %s-1 %s", MODEMLOG_FILE, MODEMLOG_FILE);
+				snprintf(cmd, sizeof(cmd), "mv %s %s", MODEMLOG_TEMP, MODEMLOG_FILE);
 				system(cmd);
 
-				snprintf(cmd, 64, "rm -f %s-1", MODEMLOG_FILE);
+				snprintf(cmd, sizeof(cmd), "rm -f %s", MODEMLOG_TEMP);
 				system(cmd);
 			}
 		}

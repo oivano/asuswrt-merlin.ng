@@ -53,13 +53,8 @@
 #include <ctype.h>
 
 #define DETECT_LOG "/tmp/detect_wrong.log"
-#define eprintf(fmt, args...) do{\
-	FILE *ffp = fopen(DETECT_LOG, "a+");\
-	if(ffp) {\
-		fprintf(ffp, fmt, ## args);\
-		fclose(ffp);\
-	}\
-}while(0)
+void discover_log(const char *fmt, ...);
+#define eprintf(fmt, args...) discover_log(fmt, ## args)
 
 /************************************/
 /* Defaults _you_ may want to tweak */

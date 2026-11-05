@@ -21,6 +21,7 @@
 #include <unistd.h>
 #include <getopt.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <sys/socket.h>
 #include <linux/if_packet.h> 
 #include <netinet/in.h>
@@ -54,6 +55,22 @@
 
 /***********************************************************************/
 // ppp
+
+void discover_log(const char *fmt, ...)
+{
+	char buffer[2048];
+	va_list args;
+	int len;
+
+	va_start(args, fmt);
+	len = vsnprintf(buffer, sizeof(buffer), fmt, args);
+	va_end(args);
+	if (len <= 0)
+		return;
+	if ((size_t)len >= sizeof(buffer))
+		len = sizeof(buffer) - 1;
+	f_write(DETECT_LOG, buffer, len, FW_APPEND, 0600);
+}
 
 char *
 strDup(char const *str)
@@ -1064,7 +1081,7 @@ int discover_interfaces(int num, const char **current_wan_ifnames, int dhcp_det,
 	if((pInf = (struct inf *) malloc(sizeof(struct inf) * num)) == NULL)
 		return -1;
 
-	unlink(DETECT_LOG);	//remove old log to reduce file size in memory of tmpfs
+	f_write(DETECT_LOG, NULL, 0, 0, 0600);	// clear old log without releasing its protected name
 
 #ifdef RTCONFIG_TCPDUMP
 	if(num == 1 && nvram_get_int("enable_tcpdump"))
