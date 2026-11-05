@@ -23,6 +23,12 @@ assert.doesNotMatch(lan, /GUEST_ARP_EBTABLES\("-C"/);
 assert.match(lan, /"--arp-mac-src", binding->mac,[\s\S]*?"--arp-ip-src", binding->ip/);
 assert.match(lan, /"--arp-ip-src", "0\.0\.0\.0", "-j", "ACCEPT"/);
 assert.match(lan, /"-p", "arp",[\s\S]*?"-j", "DROP"/);
+assert.match(lan, /#define GUEST_ARP_SOURCE_CHAIN "GUESTSRC"/);
+assert.match(lan, /"-s", binding->mac, "-p", "ipv4", "--ip-src", binding->ip,[\s\S]*?"-j", "ACCEPT"/);
+assert.match(lan, /"--ip-sport", "68",[\s\S]*?"--ip-dport", "67", "-j", "ACCEPT"/);
+assert.match(lan, /GUEST_ARP_SOURCE_CHAIN, "-i", active_ifnames\[i\],[\s\S]*?"-p", "ipv4", "-j", "DROP"/);
+assert.match(lan, /"-I", "INPUT", "1", "-i", active_ifnames\[i\],[\s\S]*?"-j", GUEST_ARP_SOURCE_CHAIN/);
+assert.match(lan, /"-D", GUEST_ARP_SOURCE_CHAIN, "-i", binding->ifname,[\s\S]*?"--ip-src", binding->ip,[\s\S]*?"-j", "ACCEPT"/);
 assert.match(lan, /"--ip6-icmp-type", "neighbour-solicitation"/);
 assert.match(lan, /"--ip6-icmp-type", "neighbour-advertisement"/);
 assert.match(lan, /GUEST_ARP_EBTABLES\("-D", "INPUT", "-i", cleanup_ifnames\[i\], "-p", "IPv6"[\s\S]*?"neighbour-solicitation"/);
@@ -53,10 +59,12 @@ assert.match(lan, /void lanaccess_wl\(void\)[\s\S]*?guest_arp_filter_refresh\(\)
 assert.match(services, /int dnsmasq_script_main\([\s\S]*?guest_arp_filter_refresh\(\);/);
 
 const bridgeFinish = bridgeInput.match(/int br_handle_frame_finish\(struct sk_buff \*skb\)[\s\S]*?\n\}/)[0];
+const bridgePassFrameUp = bridgeInput.match(/static int br_pass_frame_up\(struct sk_buff \*skb\)[\s\S]*?\n\}/)[0];
 const sourceIsolation = bridgeFinish.indexOf('if (p->flags & BR_ISOLATE_MODE)');
 const multicastForward = bridgeFinish.indexOf('br_multicast_forward(mdst, skb, skb2)');
 const floodForward = bridgeFinish.indexOf('br_flood_forward(br, skb, skb2)');
 assert.ok(sourceIsolation >= 0 && sourceIsolation < multicastForward && sourceIsolation < floodForward);
+assert.match(bridgePassFrameUp, /NF_HOOK\(NFPROTO_BRIDGE, NF_BR_LOCAL_IN,[\s\S]*?netif_receive_skb/);
 assert.match(bridgeFinish, /if \(p->flags & BR_ISOLATE_MODE\) \{\s*skb2 = skb;\s*skb = NULL;\s*\} else if \(is_multicast_ether_addr\(dest\)\)/);
 
 const guestIsolation = lan.match(/void lanaccess_mssid\([\s\S]*?\n\}/)[0];

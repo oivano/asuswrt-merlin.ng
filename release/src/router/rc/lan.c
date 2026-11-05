@@ -5405,6 +5405,7 @@ void restart_wl(void)
 #define GUEST_ARP_STATE_TMP_NAME "bindings.tmp"
 #define GUEST_ARP_MAX_IFACES 32
 #define GUEST_ARP_MAX_BINDINGS 512
+#define GUEST_ARP_SOURCE_CHAIN "GUESTSRC"
 
 #define GUEST_ARP_EBTABLES(...) \
 	eval("ebtables", "--concurrent", "-t", "filter", __VA_ARGS__, NULL)
@@ -5708,6 +5709,62 @@ void guest_arp_filter_refresh(void)
 
 	for (i = 0; i < old_count; ++i)
 		guest_arp_add_ifname(cleanup_ifnames, &cleanup_count, old_bindings[i].ifname);
+
+	GUEST_ARP_EBTABLES("-N", GUEST_ARP_SOURCE_CHAIN);
+	for (i = 0; i < current_count; ++i) {
+		guest_arp_binding_t *binding = &current_bindings[i];
+		if (!strcmp(binding->mac, "-") && !strcmp(binding->ip, "-"))
+			continue;
+		if (guest_arp_binding_find(old_bindings, old_count, binding->ifname,
+			binding->mac, binding->ip) >= 0)
+			continue;
+		if (GUEST_ARP_EBTABLES("-I", GUEST_ARP_SOURCE_CHAIN, "1", "-i", binding->ifname,
+			"-s", binding->mac, "-p", "ipv4", "--ip-src", binding->ip,
+			"-j", "ACCEPT") != 0)
+			goto fail;
+	}
+
+	for (i = 0; i < active_count; ++i) {
+		if (guest_arp_binding_find(old_bindings, old_count,
+			active_ifnames[i], "-", "-") >= 0)
+			continue;
+		if (GUEST_ARP_EBTABLES("-I", GUEST_ARP_SOURCE_CHAIN, "1", "-i", active_ifnames[i],
+			"-p", "ipv4", "--ip-proto", "udp", "--ip-sport", "68",
+			"--ip-dport", "67", "-j", "ACCEPT") != 0 ||
+		    GUEST_ARP_EBTABLES("-A", GUEST_ARP_SOURCE_CHAIN, "-i", active_ifnames[i],
+			"-p", "ipv4", "-j", "DROP") != 0 ||
+		    GUEST_ARP_EBTABLES("-I", "INPUT", "1", "-i", active_ifnames[i],
+			"-p", "ipv4", "-j", GUEST_ARP_SOURCE_CHAIN) != 0)
+			goto fail;
+	}
+
+	for (i = 0; i < old_count; ++i) {
+		guest_arp_binding_t *binding = &old_bindings[i];
+		if ((!strcmp(binding->mac, "-") && !strcmp(binding->ip, "-")) ||
+		    guest_arp_binding_find(current_bindings, current_count, binding->ifname,
+			binding->mac, binding->ip) >= 0)
+			continue;
+		while (GUEST_ARP_EBTABLES("-D", GUEST_ARP_SOURCE_CHAIN, "-i", binding->ifname,
+			"-s", binding->mac, "-p", "ipv4", "--ip-src", binding->ip,
+			"-j", "ACCEPT") == 0)
+			;
+	}
+
+	for (i = 0; i < cleanup_count; ++i) {
+		if (guest_arp_binding_find(current_bindings, current_count,
+			cleanup_ifnames[i], "-", "-") >= 0)
+			continue;
+		while (GUEST_ARP_EBTABLES("-D", "INPUT", "-i", cleanup_ifnames[i],
+			"-p", "ipv4", "-j", GUEST_ARP_SOURCE_CHAIN) == 0)
+			;
+		while (GUEST_ARP_EBTABLES("-D", GUEST_ARP_SOURCE_CHAIN, "-i", cleanup_ifnames[i],
+			"-p", "ipv4", "-j", "DROP") == 0)
+			;
+		while (GUEST_ARP_EBTABLES("-D", GUEST_ARP_SOURCE_CHAIN, "-i", cleanup_ifnames[i],
+			"-p", "ipv4", "--ip-proto", "udp", "--ip-sport", "68",
+			"--ip-dport", "67", "-j", "ACCEPT") == 0)
+			;
+	}
 
 	for (i = 0; i < active_count; ++i) {
 		if (guest_arp_binding_find(old_bindings, old_count,
