@@ -7397,11 +7397,13 @@ int start_firewall(int wanunit, int lanunit)
 	else
 #endif // RTCONFIG_MULTICAST_IPTV
 	{
-		if(wanunit != wan_primary_ifunit()
 #ifdef RTCONFIG_MULTISERVICE_WAN
-			&& wanunit < WAN_UNIT_MAX
+		if (wanunit >= WAN_UNIT_MAX) {
+			add_mswan_rules(logaccept, logdrop);
+			goto leave;
+		}
 #endif
-		)
+		if (wanunit != wan_primary_ifunit())
 			goto leave;
 
  		nat_setting(wan_if, wan_ip, wanx_if, wanx_ip, lan_if, lan_ip, logaccept, logdrop);
