@@ -45,9 +45,24 @@ assert(dualStart >= 0 && dualRestore > dualStart, 'dual-WAN firewall generator i
 const dualBody = source.slice(dualStart, dualRestore);
 const establishedRule = 'fprintf(fp_ipv6, "-A INPUT -m state --state RELATED,ESTABLISHED -j %s\\n", logaccept);';
 const scopedRule = 'fprintf(fp_ipv6, "-A INPUT -i %s -s fe80::/10 -p udp --sport 547 --dport 546';
+const wanEchoLimit = 'fprintf(fp_ipv6, "-A INPUT -i %s -p ipv6-icmp --icmpv6-type 128 -m state --state NEW,ESTABLISHED -m limit --limit 1/s -j %s\\n", wan6face, logaccept);';
+const wanEchoDrop = 'fprintf(fp_ipv6, "-A INPUT -i %s -p ipv6-icmp --icmpv6-type 128 -m state --state NEW,ESTABLISHED -j %s\\n", wan6face, logdrop);';
+const wanPmtuLimit = 'fprintf(fp_ipv6, "-A INPUT -i %s -p ipv6-icmp --icmpv6-type 2 -m state --state RELATED -m limit --limit 1/s -j %s\\n", wan6face, logaccept);';
+const wanPmtuDrop = 'fprintf(fp_ipv6, "-A INPUT -i %s -p ipv6-icmp --icmpv6-type 2 -m state --state RELATED -j %s\\n", wan6face, logdrop);';
 for (const [name, firewallBody] of [['single-WAN', body], ['dual-WAN', dualBody]]) {
+    const establishedIndex = firewallBody.indexOf(establishedRule);
+    for (const [rule, description] of [
+        [wanEchoLimit, 'WAN echo-request rate limit'],
+        [wanEchoDrop, 'WAN echo-request excess drop'],
+        [wanPmtuLimit, 'WAN Packet Too Big rate limit'],
+        [wanPmtuDrop, 'WAN Packet Too Big excess drop'],
+    ]) {
+        const index = firewallBody.indexOf(rule);
+        assert(index >= 0 && index < establishedIndex,
+            `${name} ${description} precedes the RELATED,ESTABLISHED accept`);
+    }
     assert(firewallBody.indexOf(establishedRule) >= 0 &&
-        firewallBody.indexOf(establishedRule) < firewallBody.indexOf(scopedRule),
+        establishedIndex < firewallBody.indexOf(scopedRule),
         `${name} conntrack accept remains before the link-local-only DHCPv6 accept`);
 }
 

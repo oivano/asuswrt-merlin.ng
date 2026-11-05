@@ -74,7 +74,6 @@
 
 #define CLONE_OFFLINK_ROUTE 0
 #define IPV6_RA_ROUTE_LIMIT 64
-#define IPV6_RA_DST_RESERVE 512
 static DEFINE_SPINLOCK(ip6_ra_route_lock);
 int ip6_route_add_ra(struct fib6_config *cfg)
 {
@@ -83,7 +82,6 @@ int ip6_route_add_ra(struct fib6_config *cfg)
 	struct inet6_dev *idev;
 	u32 route_flag = cfg->fc_flags & (RTF_PREFIX_RT | RTF_DEFAULT);
 	int route_count;
-	int max_size;
 	int err;
 
 	if (!(cfg->fc_flags & RTF_ADDRCONF) ||
@@ -102,14 +100,6 @@ int ip6_route_add_ra(struct fib6_config *cfg)
 	route_count = atomic_read(&idev->ra_route_count);
 	if (route_count >= IPV6_RA_ROUTE_LIMIT) {
 		err = -ENOSPC;
-		goto out;
-	}
-
-	max_size = net->ipv6.sysctl.ip6_rt_max_size;
-	if (max_size <= IPV6_RA_DST_RESERVE ||
-	    atomic_read(&net->ipv6.ip6_dst_ops.entries) >=
-			max_size - IPV6_RA_DST_RESERVE) {
-		err = -ENOBUFS;
 		goto out;
 	}
 
@@ -1103,13 +1093,13 @@ static int ip6_dst_gc(struct dst_ops *ops)
 		goto out;
 
 	net->ipv6.ip6_rt_gc_expire++;
-	fib6_run_gc(net->ipv6.ip6_rt_gc_expire, net);
+	fib6_run_gc(net->ipv6.ip6_rt_gc_expire, net, 1);
 	net->ipv6.ip6_rt_last_gc = now;
 	if (atomic_read(&ops->entries) < ops->gc_thresh)
 		net->ipv6.ip6_rt_gc_expire = rt_gc_timeout>>1;
 out:
 	net->ipv6.ip6_rt_gc_expire -= net->ipv6.ip6_rt_gc_expire>>rt_elasticity;
-	return (atomic_read(&ops->entries) > rt_max_size);
+	return 0;
 }
 
 /* Clean host part of a prefix. Not necessary in radix tree,
@@ -2585,7 +2575,7 @@ int ipv6_sysctl_rtcache_flush(ctl_table *ctl, int write,
 	int delay = net->ipv6.sysctl.flush_delay;
 	if (write) {
 		proc_dointvec(ctl, write, buffer, lenp, ppos);
-		fib6_run_gc(delay <= 0 ? ~0UL : (unsigned long)delay, net);
+		fib6_run_gc(delay <= 0 ? ~0UL : (unsigned long)delay, net, 0);
 		return 0;
 	} else
 		return -EINVAL;
