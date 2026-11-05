@@ -289,6 +289,9 @@ nfssvc_decode_writeargs(struct svc_rqst *rqstp, __be32 *p,
 	 */
 	if (len > NFSSVC_MAXBLKSIZE_V2)
 		return 0;
+	if ((char *)p > (char *)rqstp->rq_arg.head[0].iov_base +
+	    rqstp->rq_arg.head[0].iov_len)
+		return 0;
 
 	/*
 	 * Check to make sure that we got the right number of
