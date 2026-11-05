@@ -479,10 +479,11 @@ add_option (char *p[], int line, int unit)
 	}
 	else if  (streq (p[0], "ca") && p[1])
 	{
-		nvram_pf_set(prefix, "crypt", "tls");
 		if (streq (p[1], INLINE_FILE_TAG) && p[2] && strstr(p[2], PEM_START_TAG))
 		{
-			set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_CA, p[2], NULL);
+			if (set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_CA, p[2], NULL) != 0)
+				return VPN_UPLOAD_NEED_CA_CERT;
+			nvram_pf_set(prefix, "crypt", "tls");
 		}
 		else
 		{
@@ -493,7 +494,8 @@ add_option (char *p[], int line, int unit)
 	{
 		if (streq (p[1], INLINE_FILE_TAG) && p[2] && strstr(p[2], PEM_START_TAG))
 		{
-			set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_CERT, p[2], NULL);
+			if (set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_CERT, p[2], NULL) != 0)
+				return VPN_UPLOAD_NEED_CERT;
 		}
 		else
 		{
@@ -504,7 +506,8 @@ add_option (char *p[], int line, int unit)
 	{
 		if (streq (p[1], INLINE_FILE_TAG) && p[2] && strstr(p[2], PEM_START_TAG))
 		{
-			set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_EXTRA, p[2], NULL);
+			if (set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_EXTRA, p[2], NULL) != 0)
+				return VPN_UPLOAD_NEED_EXTRA;
 		}
 		else
 		{
@@ -515,7 +518,8 @@ add_option (char *p[], int line, int unit)
 	{
 		if (streq (p[1], INLINE_FILE_TAG) && p[2] && strstr(p[2], PEM_START_TAG))
 		{
-			set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_KEY, p[2], NULL);
+			if (set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_KEY, p[2], NULL) != 0)
+				return VPN_UPLOAD_NEED_KEY;
 		}
 		else
 		{
@@ -526,7 +530,8 @@ add_option (char *p[], int line, int unit)
 	{
 		if (streq (p[1], INLINE_FILE_TAG) && p[2] && strstr(p[2], PEM_START_TAG))
 		{
-			set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_STATIC, p[2], NULL);
+			if (set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_STATIC, p[2], NULL) != 0)
+				return VPN_UPLOAD_NEED_STATIC;
 			//key-direction
 			if(nvram_pf_match(prefix, "hmac", "-1"))	//default, disable
 				nvram_pf_set(prefix, "hmac", "2");	//openvpn default value: KEY_DIRECTION_BIDIRECTIONAL
@@ -543,7 +548,8 @@ add_option (char *p[], int line, int unit)
 	{
 		if (streq (p[1], INLINE_FILE_TAG) && p[2] && strstr(p[2], PEM_START_TAG))
 		{
-			set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_STATIC, p[2], NULL);
+			if (set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_STATIC, p[2], NULL) != 0)
+				return VPN_UPLOAD_NEED_STATIC;
 			//key-direction
 			if(nvram_pf_match(prefix, "hmac", "-1"))	//default, disable
 				nvram_pf_set(prefix, "hmac", "3");	//Enable tls-crypt
@@ -560,7 +566,8 @@ add_option (char *p[], int line, int unit)
 	{
 		if (streq (p[1], INLINE_FILE_TAG) && p[2] && strstr(p[2], PEM_START_TAG))
 		{
-			set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_STATIC, p[2], NULL);
+			if (set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_STATIC, p[2], NULL) != 0)
+				return VPN_UPLOAD_NEED_STATIC;
 			if(nvram_pf_match(prefix, "hmac", "-1"))	//default, disable
 				nvram_pf_set(prefix, "hmac", "4");	//Enable tls-crypt-v2
 		}
@@ -574,10 +581,11 @@ add_option (char *p[], int line, int unit)
 	}
 	else if (streq (p[0], "secret") && p[1])
 	{
-		nvram_pf_set(prefix, "crypt", "secret");
 		if (streq (p[1], INLINE_FILE_TAG) && p[2] && strstr(p[2], PEM_START_TAG))
 		{
-			set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_STATIC, p[2], NULL);
+			if (set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_STATIC, p[2], NULL) != 0)
+				return VPN_UPLOAD_NEED_STATIC;
+			nvram_pf_set(prefix, "crypt", "secret");
 		}
 		else
 		{
@@ -623,7 +631,8 @@ add_option (char *p[], int line, int unit)
 	{
 		if (streq (p[1], INLINE_FILE_TAG) && p[2] && strstr(p[2], PEM_START_TAG))
 		{
-			set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_CRL, p[2], NULL);
+			if (set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_CRL, p[2], NULL) != 0)
+				return VPN_UPLOAD_NEED_CRL;
 		}
 		else
 		{
