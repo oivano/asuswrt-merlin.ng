@@ -38,19 +38,17 @@
 	QOSDBG  : normal debug
 	QOSLOG  : qos logmessage, we can get more information to trace memory leakage or crash issue
 */
-#define QOS_DEBUG           "/tmp/QOS_DEBUG"
 #define QOSDBG(fmt,args...) \
-	if(f_exists(QOS_DEBUG) > 0) { \
-		_dprintf("[QOS][%s:(%d)]"fmt, __FUNCTION__, __LINE__, ##args); \
-	}
+	do { \
+		if (nvram_match("qos_debug", "1")) \
+			_dprintf("[QOS][%s:(%d)]"fmt, __FUNCTION__, __LINE__, ##args); \
+	} while (0)
 
-#define QOS_LOG             "/tmp/QOS_LOG"
 #define QOSLOG(fmt,args...) \
-	if(f_exists(QOS_LOG) > 0) { \
-		char info[1024]; \
-		snprintf(info, sizeof(info), "echo \"[QOS][%s:(%d)]"fmt"\" >> /tmp/QOS_LOG.log", __FUNCTION__, __LINE__, ##args); \
-		system(info); \
-	}
+	do { \
+		if (nvram_match("qos_debug", "1")) \
+			logmessage("QOS", "[QOS][%s:(%d)]"fmt, __FUNCTION__, __LINE__, ##args); \
+	} while (0)
 
 /**
  * Traditional QoS
