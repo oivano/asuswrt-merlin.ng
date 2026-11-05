@@ -47,6 +47,7 @@ union nf_conntrack_expect_proto {
 #include <linux/netfilter/nf_conntrack_h323.h>
 #include <linux/netfilter/nf_conntrack_sane.h>
 #include <linux/netfilter/nf_conntrack_sip.h>
+#include <linux/netfilter/nf_conntrack_rtsp.h>
 
 /* per conntrack: application helper private data */
 union nf_conntrack_help {
@@ -56,6 +57,7 @@ union nf_conntrack_help {
 	struct nf_ct_h323_master ct_h323_info;
 	struct nf_ct_sane_master ct_sane_info;
 	struct nf_ct_sip_master ct_sip_info;
+	struct nf_ct_rtsp_master ct_rtsp_info;
 };
 
 #include <linux/types.h>
