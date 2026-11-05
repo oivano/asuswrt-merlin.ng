@@ -7,6 +7,7 @@
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>
+#include <linux/kernel.h>
 #include <linux/spinlock.h>
 #include <linux/skbuff.h>
 #include <linux/types.h>
@@ -95,11 +96,31 @@ static bool u32_mt(const struct sk_buff *skb, struct xt_action_param *par)
 	return ret ^ data->invert;
 }
 
+static int u32_mt_checkentry(const struct xt_mtchk_param *par)
+{
+	const struct xt_u32 *data = par->matchinfo;
+	unsigned int testind;
+
+	if (data->ntests > ARRAY_SIZE(data->tests))
+		return -EINVAL;
+
+	for (testind = 0; testind < data->ntests; ++testind) {
+		const struct xt_u32_test *test = &data->tests[testind];
+
+		if (test->nnums > ARRAY_SIZE(test->location) ||
+		    test->nvalues > ARRAY_SIZE(test->value))
+			return -EINVAL;
+	}
+
+	return 0;
+}
+
 static struct xt_match xt_u32_mt_reg __read_mostly = {
 	.name       = "u32",
 	.revision   = 0,
 	.family     = NFPROTO_UNSPEC,
 	.match      = u32_mt,
+	.checkentry = u32_mt_checkentry,
 	.matchsize  = sizeof(struct xt_u32),
 	.me         = THIS_MODULE,
 };
