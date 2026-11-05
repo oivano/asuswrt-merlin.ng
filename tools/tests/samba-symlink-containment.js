@@ -7,6 +7,7 @@ const root = path.resolve(__dirname, '../..');
 const read = name => fs.readFileSync(path.join(root, name), 'utf8');
 const config = read('release/src/router/libdisk/write_smb_conf.c');
 const sambaMakefile = read('release/src/router/samba-3.6.x_opwrt/Makefile');
+const open = read('release/src/router/samba-3.6.x_opwrt/source/source3/smbd/open.c');
 const tdb = read('release/src/router/samba-3.6.x_opwrt/source/lib/tdb/common/open.c');
 const pdbSmbpasswd = read('release/src/router/samba-3.6.x_opwrt/source/source3/passdb/pdb_smbpasswd.c');
 const secrets = read('release/src/router/samba-3.6.x_opwrt/source/source3/passdb/secrets.c');
@@ -28,6 +29,45 @@ for (const setting of ['lock', 'state', 'cache']) {
     assert.ok(config.includes(`"${setting} directory = /var/run/samba/locks\\n"`), `${setting} directory`);
     assert.ok(sambaMakefile.includes(`--with-${setting}dir=/var/run/samba/locks`), `${setting} build directory`);
 }
+const renameHandler = open.slice(
+    open.indexOf('void msg_file_was_renamed('),
+    open.indexOf('NTSTATUS open_streams_for_delete(')
+);
+assert.match(renameHandler, /share_end = memchr\(sharepath, '\\0', msg_end - sharepath\)/);
+assert.match(renameHandler, /base_end = memchr\(base_name, '\\0', msg_end - base_name\)/);
+assert.match(renameHandler, /stream_end = memchr\(stream_name, '\\0', msg_end - stream_name\)/);
+assert.match(renameHandler, /stream_end != msg_end - 1/);
+assert.match(renameHandler, /p - component == 2[\s\S]*?component\[0\] == '\.'[\s\S]*?component\[1\] == '\.'/);
+assert.match(renameHandler, /strlen\(fsp->conn->connectpath\) == sp_len[\s\S]*?memcmp\(fsp->conn->connectpath, sharepath, sp_len\)/);
+assert.match(renameHandler, /check_name\(fsp->conn, base_name\)[\s\S]*?fsp_set_smb_fname\(fsp, smb_fname\)/);
+assert.doesNotMatch(renameHandler, /strlen\(sharepath\)|strlen\(base_name\)/);
+const isSafeShareRelativeName = name => {
+    if (!name || name.startsWith('/') || name.startsWith('\\') || /^[A-Za-z]:/.test(name)) return false;
+    return !name.split(/[\\/]/).includes('..');
+};
+for (const name of ['', '/etc/shadow', '\\\\server\\share\\file', 'C:\\windows\\file', '../outside', 'dir/../../outside']) {
+    assert.equal(isSafeShareRelativeName(name), false, name);
+}
+for (const name of ['file', 'dir/file', '.hidden', 'dir/.']) {
+    assert.equal(isSafeShareRelativeName(name), true, name);
+}
+const parseRenameMessage = bytes => {
+    const idLength = 24;
+    if (bytes.length < idLength + 3) return null;
+    const fields = [];
+    let offset = idLength;
+    for (let index = 0; index < 3; index++) {
+        const end = bytes.indexOf(0, offset);
+        if (end < 0 || (index < 2 && end === offset)) return null;
+        fields.push(bytes.subarray(offset, end).toString());
+        offset = end + 1;
+    }
+    return offset === bytes.length ? fields : null;
+};
+assert.deepEqual(parseRenameMessage(Buffer.concat([Buffer.alloc(24), Buffer.from('/share\0dir/file\0\0')])), ['/share', 'dir/file', '']);
+assert.equal(parseRenameMessage(Buffer.concat([Buffer.alloc(24), Buffer.from('/share\0/etc/shadow')])), null);
+assert.equal(parseRenameMessage(Buffer.concat([Buffer.alloc(24), Buffer.from('\0../outside\0\0')])), null);
+assert.equal(parseRenameMessage(Buffer.concat([Buffer.alloc(24), Buffer.from('/share\0file\0\0extra')])), null);
 const cancelHandler = blocking.slice(
     blocking.indexOf('static void process_blocking_lock_cancel_message('),
     blocking.indexOf('/*\n Send ourselves a blocking lock cancelled message.')
@@ -192,7 +232,7 @@ fs.mkdirSync(share);
 fs.mkdirSync(outside);
 const { O_RDONLY, O_DIRECTORY, O_NOFOLLOW, O_WRONLY, O_RDWR, O_CREAT, O_TRUNC, O_EXCL } = fs.constants;
 let opened = new Set();
-let hook = () => {};
+let hook = () => { };
 function openAt(dirfd, component, flags, mode) {
     hook(dirfd, component);
     return openHost(`/proc/self/fd/${dirfd}/${component}`, flags, mode);
@@ -261,7 +301,7 @@ try {
     // Swap a checked directory before the walker opens it.
     hook = (dirfd, component) => {
         if (component !== 'dir') return;
-        hook = () => {};
+        hook = () => { };
         fs.renameSync(path.join(share, 'dir'), path.join(share, 'saved'));
         fs.symlinkSync(outside, path.join(share, 'dir'));
     };
@@ -272,7 +312,7 @@ try {
 
     hook = (dirfd, component) => {
         if (component !== 'dir') return;
-        hook = () => {};
+        hook = () => { };
         fs.renameSync(path.join(share, 'dir'), path.join(share, 'saved'));
         fs.mkdirSync(path.join(share, 'dir'));
         fs.symlinkSync(path.join(outside, 'replacement'), path.join(share, 'dir/replacement'));
@@ -286,7 +326,7 @@ try {
     // Swap after the parent descriptor has been pinned.
     hook = (dirfd, component) => {
         if (component !== 'pinned') return;
-        hook = () => {};
+        hook = () => { };
         fs.renameSync(path.join(share, 'dir'), path.join(share, 'saved'));
         fs.symlinkSync(outside, path.join(share, 'dir'));
     };
@@ -297,7 +337,7 @@ try {
     // Replace the final name after validation, immediately before opening.
     hook = (dirfd, component) => {
         if (component !== 'final') return;
-        hook = () => {};
+        hook = () => { };
         fs.symlinkSync(path.join(outside, 'final'), path.join(share, 'final'));
     };
     assert.equal(attempt('final'), false);
