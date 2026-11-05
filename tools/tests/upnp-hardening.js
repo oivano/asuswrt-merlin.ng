@@ -6,12 +6,72 @@ const vm = require('node:vm');
 const root = path.resolve(__dirname, '../..');
 const services = fs.readFileSync(path.join(root, 'release/src/router/rc/services.c'), 'utf8');
 const miniupnpd = fs.readFileSync(path.join(root, 'release/src/router/miniupnpd/miniupnpd.c'), 'utf8');
+const redirect = fs.readFileSync(path.join(root, 'release/src/router/miniupnpd/upnpredirect.c'), 'utf8');
 const arrays = fs.readFileSync(path.join(root, 'release/src/router/httpd/data_arrays.c'), 'utf8');
 const page = fs.readFileSync(path.join(root, 'release/src/router/www/Main_IPTStatus_Content.asp'), 'utf8');
 const soap = fs.readFileSync(path.join(root, 'release/src/router/miniupnpd/upnpsoap.c'), 'utf8');
 const lan = fs.readFileSync(path.join(root, 'release/src/router/rc/lan.c'), 'utf8');
 const help = fs.readFileSync(path.join(root, 'release/src/router/www/help_content.js'), 'utf8');
 assert(help.includes('NAT-PMP and PCP are disabled in this mode'));
+
+const leaseReader = redirect.match(/static int\nlease_file_read_line\([\s\S]*?\n\}/)[0];
+const leaseReloadStart = redirect.indexOf('int reload_from_lease_file(void)');
+const leaseReloadEnd = redirect.indexOf('\n#ifdef LEASEFILE_USE_REMAINING_TIME\nvoid lease_file_rewrite', leaseReloadStart);
+const leaseReload = redirect.slice(leaseReloadStart, leaseReloadEnd);
+const leaseWriter = redirect.match(/static int\nlease_file_add\([\s\S]*?\n\}/)[0];
+assert.match(leaseReader, /fgetc\(fd\)/);
+assert.match(leaseReader, /length >= size - 1/);
+assert.match(leaseReader, /c == '\\0'/);
+assert.match(leaseReader, /if\s*\(invalid\)\s*return -1;/);
+assert.match(leaseReload, /while\(\(r = lease_file_read_line\(fd, line, sizeof\(line\)\)\) != 0\)/);
+assert.match(leaseReload, /if\s*\(r < 0\)[\s\S]*?continue;/);
+assert(leaseReload.indexOf('if (r < 0)') < leaseReload.indexOf('r = upnp_redirect('));
+assert(!leaseReload.includes('fgets(line'));
+assert.match(leaseWriter, /desc_len < 63/);
+assert.match(leaseWriter, /c != ':'/);
+assert.match(leaseWriter, /c != 0x7f/);
+
+function readLeaseRecords(input, capacity = 320) {
+	const bytes = Buffer.from(input, 'latin1');
+	const records = [];
+	let offset = 0;
+	while (offset < bytes.length) {
+		const line = [];
+		let invalid = false;
+		while (offset < bytes.length && bytes[offset] !== 10) {
+			const byte = bytes[offset++];
+			if (byte === 0 || line.length >= capacity - 1) invalid = true;
+			else if (!invalid) line.push(byte);
+		}
+		if (offset < bytes.length) offset++;
+		if (!invalid) records.push(Buffer.from(line).toString('latin1'));
+	}
+	return records;
+}
+
+const injectedTail = 'TCP:8080:192.168.1.20:8080:0:x';
+const boundaryPrefix = 'TCP:80:192.168.1.10:80:0:';
+const boundaryPadding = 'd'.repeat(319 - Buffer.byteLength(boundaryPrefix));
+const longLease = `${boundaryPrefix}${boundaryPadding}${injectedTail}`;
+assert.equal(Buffer.byteLength(boundaryPrefix + boundaryPadding), 319);
+const followingLease = 'UDP:5353:192.168.1.30:5353:0:valid';
+assert.deepEqual(readLeaseRecords(`${longLease}\n${followingLease}\n`), [followingLease]);
+assert.deepEqual(readLeaseRecords(`${'x'.repeat(319)}\n${followingLease}\n`), ['x'.repeat(319), followingLease]);
+assert.deepEqual(readLeaseRecords(`TCP:80:192.168.1.10:80:0:bad\0tail\n${followingLease}\n`), [followingLease]);
+
+function serializeLeaseDescription(input) {
+	const bytes = Buffer.from(input);
+	let output = '';
+	for (let index = 0; index < bytes.length && index < 63; index++) {
+		const byte = bytes[index];
+		if (byte >= 32 && byte !== 58 && byte !== 127) output += String.fromCharCode(byte);
+	}
+	return output;
+}
+const serializedDescription = serializeLeaseDescription(`${'a'.repeat(10)}:TCP\n:8080:192.168.1.20:8080:0:${'x'.repeat(80)}`);
+assert(Buffer.byteLength(serializedDescription) <= 63);
+assert(!/[\x00-\x1f\x7f:]/.test(serializedDescription));
+assert(Buffer.byteLength(`TCP:80:192.168.1.10:80:0:${serializedDescription}\n`) < 320);
 
 const protocolSetting = services.match(/upnp_mnp_enable = (nvram_get_int\("upnp_mnp"\)[^;]*);/)[1];
 const configuredProtocols = vm.runInNewContext(`(function(settings) {
@@ -152,7 +212,7 @@ assert.match(serializer, /case '\/': ret \+= websWrite\(wp, "\\\\\/"\)/);
 
 const showUpnp = page.match(/function show_upnp\(\) \{[\s\S]*?\n\}/)[0];
 for (const field of [0, 1, 2, 3, 5])
-    assert(showUpnp.includes(`htmlEnDeCode.htmlEncode(line[${field}]`), `UPnP field ${field} must be HTML-encoded`);
+	assert(showUpnp.includes(`htmlEnDeCode.htmlEncode(line[${field}]`), `UPnP field ${field} must be HTML-encoded`);
 
 const upnpBlock = { innerHTML: '' };
 const context = {
