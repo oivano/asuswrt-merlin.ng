@@ -3556,6 +3556,12 @@ static void write_guest_ipv4_input_rules(FILE *fp, const char *lan_ip)
 		BIT_GUEST_IPV4, BIT_GUEST_IPV4);
 }
 
+static void write_guest_hairpin_drop_rule(FILE *fp, const char *lan_if, const char *guest_mark)
+{
+	fprintf(fp, "-A FORWARD -i %s -o %s -m mark --mark %s/%s -j DROP\n",
+		lan_if, lan_if, guest_mark, guest_mark);
+}
+
 void
 filter_setting(int wan_unit, char *lan_if, char *lan_ip, char *logaccept, char *logdrop)
 {
@@ -3674,6 +3680,7 @@ filter_setting(int wan_unit, char *lan_if, char *lan_ip, char *logaccept, char *
 	    ":logaccept - [0:0]\n"
 	    ":logdrop - [0:0]\n",
 	    nvram_match("fw_enable_x", "1") ? "DROP" : "ACCEPT");
+	write_guest_hairpin_drop_rule(fp, lan_if, BIT_GUEST_IPV4);
 
 	fprintf(fp, "-A INPUT ! -i lo -p udp -m multiport --dports 37000,38000,39000,42000,43000,51000,59000 -j DROP\n");
 	write_guest_ipv4_input_rules(fp, lan_ip);
@@ -3735,6 +3742,7 @@ filter_setting(int wan_unit, char *lan_if, char *lan_ip, char *logaccept, char *
 		    ":logaccept - [0:0]\n"
 		    ":logdrop - [0:0]\n",
 		nvram_match("ipv6_fw_enable", "1") ? "DROP" : "ACCEPT");
+		write_guest_hairpin_drop_rule(fp_ipv6, lan_if, BIT_GUEST_IPV6);
 	}
 #endif
 
@@ -5179,6 +5187,7 @@ filter_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)
 #endif
 	    ":logaccept - [0:0]\n"
 	    ":logdrop - [0:0]\n");
+	write_guest_hairpin_drop_rule(fp, lan_if, BIT_GUEST_IPV4);
 
 	write_guest_ipv4_input_rules(fp, lan_ip);
 	fprintf(fp, "-A INPUT ! -i lo -p udp -m multiport --dports 37000,38000,39000,42000,43000,51000,59000 -j DROP\n");
@@ -5239,6 +5248,7 @@ filter_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)
 		    ":logaccept - [0:0]\n"
 		    ":logdrop - [0:0]\n",
 		nvram_match("ipv6_fw_enable", "1") ? "DROP" : "ACCEPT");
+		write_guest_hairpin_drop_rule(fp_ipv6, lan_if, BIT_GUEST_IPV6);
 	}
 #endif
 
