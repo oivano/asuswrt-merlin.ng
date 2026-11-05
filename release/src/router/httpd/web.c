@@ -7597,7 +7597,9 @@ static void find_hostname_by_mac(char *mac, char *hostname, int hostname_len)
 {
 	FILE *fp;
 	unsigned int expires;
-	char *macaddr, *ipaddr, *host_name, *next;
+	char *expires_token, *macaddr, *ipaddr, *host_name, *next, *line_end;
+	char extra;
+	size_t line_len;
 	char line[256];
 
 	if ((fp = fopen(DHCP_LEASE_FILE, "r")) == NULL)
@@ -7610,23 +7612,36 @@ static void find_hostname_by_mac(char *mac, char *hostname, int hostname_len)
 
 	while ((next = fgets(line, sizeof(line), fp)) != NULL)
 	{
-		if (sscanf(next, "%u ", &expires) != 1)
+		line_len = strlen(line);
+		line_end = strchr(line, '\n');
+		if (line_len == sizeof(line) - 1 && line_end == NULL) {
+			int ch = fgetc(fp);
+			if (ch != EOF) {
+				while (ch != '\n' && ch != EOF)
+					ch = fgetc(fp);
+				continue;
+			}
+		}
+		if (line_end != NULL)
+			*line_end = '\0';
+
+		next = line;
+		expires_token = strsep(&next, " ");
+		if (expires_token == NULL || sscanf(expires_token, "%u%c", &expires, &extra) != 1)
 			continue;
 
-		strsep(&next, " ");
-		macaddr = strsep(&next, " ") ? : "";
-		ipaddr = strsep(&next, " ") ? : "";
-		host_name = strsep(&next, " ") ? : "";
+		macaddr = strsep(&next, " ");
+		ipaddr = strsep(&next, " ");
+		host_name = strsep(&next, " ");
+		if (macaddr == NULL || ipaddr == NULL || host_name == NULL ||
+		    strlen(macaddr) != 17 || *ipaddr == '\0')
+			continue;
 
 		if (strncasecmp(macaddr, mac, 17) == 0) {
 			fclose(fp);
 			strlcpy(hostname, host_name, hostname_len);
 			return;
 		}
-
-		memset(macaddr, 0, 32);
-		memset(ipaddr, 0, 128);
-		memset(host_name, 0, 64);
 	}
 	fclose(fp);
 END:
