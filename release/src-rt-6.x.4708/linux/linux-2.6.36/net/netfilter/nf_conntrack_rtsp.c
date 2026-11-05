@@ -51,6 +51,10 @@
 #define MAX_SIMUL_SETUP 8 /* XXX: use max_outstanding */
 
 #define MAX_PORTS 8
+#define RTSP_CLIENT_PORT_MIN 49152
+#define RTSP_STREAM_UNKNOWN 0
+#define RTSP_STREAM_VALID 1
+#define RTSP_STREAM_INVALID 2
 static int ports[MAX_PORTS];
 static int num_ports = 0;
 static int max_outstanding = 8;
@@ -114,6 +118,7 @@ rtsp_parse_message(char* ptcp, uint tcplen, uint* ptcpoff,
 	uint    entitylen = 0;
 	uint    lineoff;
 	uint    linelen;
+	int     headers_complete = 0;
 	
 	if (!nf_nextline(ptcp, tcplen, ptcpoff, &lineoff, &linelen))
 		return 0;
@@ -121,8 +126,10 @@ rtsp_parse_message(char* ptcp, uint tcplen, uint* ptcpoff,
 	*phdrsoff = *ptcpoff;
 	while (nf_mime_nextline(ptcp, tcplen, ptcpoff, &lineoff, &linelen)) {
 		if (linelen == 0) {
-			if (entitylen > 0)
-				*ptcpoff += min(entitylen, tcplen - *ptcpoff);
+			headers_complete = 1;
+			if (entitylen > tcplen - *ptcpoff)
+				return 0;
+			*ptcpoff += entitylen;
 			break;
 		}
 		if (lineoff+linelen > tcplen) {
@@ -147,7 +154,106 @@ rtsp_parse_message(char* ptcp, uint tcplen, uint* ptcpoff,
 		}
 	}
 	*phdrslen = (*ptcpoff) - (*phdrsoff);
-	
+	return headers_complete;
+}
+
+static int
+rtsp_request_line(const char *data, uint datalen)
+{
+	static const char *methods[] = {
+		"OPTIONS", "DESCRIBE", "ANNOUNCE", "SETUP", "PLAY",
+		"PAUSE", "TEARDOWN", "GET_PARAMETER", "SET_PARAMETER",
+		"REDIRECT", "RECORD"
+	};
+	const char *line_end;
+	uint line_len;
+	uint method_len;
+	unsigned int i;
+
+	line_end = memchr(data, '\n', datalen);
+	if (line_end == NULL)
+		return 0;
+	line_len = line_end - data;
+	if (line_len > 0 && data[line_len - 1] == '\r')
+		line_len--;
+	if (line_len < 11 || data[line_len - 9] != ' ' ||
+	    (memcmp(data + line_len - 8, "RTSP/1.0", 8) != 0 &&
+	     memcmp(data + line_len - 8, "RTSP/2.0", 8) != 0))
+		return 0;
+
+	for (i = 0; i < ARRAY_SIZE(methods); i++) {
+		method_len = strlen(methods[i]);
+		if (line_len >= method_len + 11 &&
+		    memcmp(data, methods[i], method_len) == 0 &&
+		    data[method_len] == ' ')
+			return 1;
+	}
+	return 0;
+}
+
+static int
+rtsp_validate_packet(char *pdata, uint datalen)
+{
+	uint dataoff = 0;
+
+	while (dataoff < datalen) {
+		uint cmdoff = dataoff;
+		uint hdrsoff = 0;
+		uint hdrslen = 0;
+		uint cseqoff = 0;
+		uint cseqlen = 0;
+		uint transoff = 0;
+		uint translen = 0;
+
+		if (!rtsp_request_line(pdata + cmdoff, datalen - cmdoff) ||
+		    !rtsp_parse_message(pdata, datalen, &dataoff,
+					&hdrsoff, &hdrslen, &cseqoff, &cseqlen,
+					&transoff, &translen) || dataoff <= cmdoff)
+			return 0;
+	}
+	return dataoff == datalen;
+}
+
+static int
+rtsp_parse_port(char *data, uint end, uint *off, u_int16_t *port)
+{
+	uint value = 0;
+	uint digit;
+	uint digits = 0;
+
+	while (*off < end && data[*off] >= '0' && data[*off] <= '9') {
+		digit = data[*off] - '0';
+		if (value > (65535 - digit) / 10)
+			return 0;
+		value = value * 10 + digit;
+		(*off)++;
+		digits++;
+	}
+	if (digits == 0)
+		return 0;
+	*port = value;
+	return 1;
+}
+
+static int
+rtsp_stream_check(struct nf_conn *ct, u32 seq, char *pdata,
+		  uint datalen)
+{
+	struct nf_conn_help *help = nfct_help(ct);
+	struct nf_ct_rtsp_master *info;
+
+	if (help == NULL)
+		return 0;
+	info = &help->help.ct_rtsp_info;
+	if (info->state == RTSP_STREAM_INVALID)
+		return 0;
+	if ((info->state == RTSP_STREAM_VALID && seq != info->next_seq) ||
+	    !rtsp_validate_packet(pdata, datalen)) {
+		info->state = RTSP_STREAM_INVALID;
+		return 0;
+	}
+	info->state = RTSP_STREAM_VALID;
+	info->next_seq = seq + datalen;
 	return 1;
 }
 
@@ -194,45 +300,51 @@ rtsp_parse_transport(char* ptran, uint tranlen,
 		while (off < nextparamoff) {
 			const char* pfieldend;
 			uint        nextfieldoff;
+			uint        fieldend;
 			
 			pfieldend = memchr(ptran+off, ';', nextparamoff-off);
 			nextfieldoff = (pfieldend == NULL) ? nextparamoff : pfieldend-ptran+1;
+			fieldend = nextfieldoff;
 		   
 			if (strncmp(ptran+off, "client_port=", 12) == 0) {
-				u_int16_t   port;
-				uint        numlen;
+				u_int16_t   port = 0, loport, hiport;
+				portblock_t pbtype = pb_single;
+				int         valid;
 		    
 				off += 12;
-				numlen = nf_strtou16(ptran+off, &port);
-				off += numlen;
-				if (prtspexp->loport != 0 && prtspexp->loport != port)
+				valid = rtsp_parse_port(ptran, fieldend, &off, &port);
+				loport = hiport = port;
+				if (valid && off < fieldend && ptran[off] == '-') {
+					off++;
+					valid = rtsp_parse_port(ptran, fieldend, &off, &hiport);
+					pbtype = pb_range;
+				} else if (valid && off < fieldend && ptran[off] == '/') {
+					off++;
+					valid = rtsp_parse_port(ptran, fieldend, &off, &hiport);
+					pbtype = pb_discon;
+				}
+
+				if (valid && pbtype == pb_range &&
+				    ((loport & 0x0001) != 0 || hiport != loport + 1)) {
+					pr_debug("incorrect range: %hu-%hu, correcting\n",
+						 loport, hiport);
+					loport &= 0xfffe;
+					hiport = loport + 1;
+				}
+
+				if (!valid || loport < RTSP_CLIENT_PORT_MIN ||
+				    hiport < RTSP_CLIENT_PORT_MIN || hiport < loport) {
+					pr_debug("client port outside dynamic range\n");
+					if (prtspexp->loport == 0)
+						prtspexp->hiport = 0;
+				} else if (prtspexp->loport != 0 &&
+					   prtspexp->loport != loport)
 					pr_debug("multiple ports found, port %hu ignored\n", port);
 				else {
-					pr_debug("lo port found : %hu\n", port);
-					prtspexp->loport = prtspexp->hiport = port;
-					if (ptran[off] == '-') {
-						off++;
-						numlen = nf_strtou16(ptran+off, &port);
-						off += numlen;
-						prtspexp->pbtype = pb_range;
-						prtspexp->hiport = port;
-						
-						// If we have a range, assume rtp:
-						// loport must be even, hiport must be loport+1
-						if ((prtspexp->loport & 0x0001) != 0 ||
-						    prtspexp->hiport != prtspexp->loport+1) {
-							pr_debug("incorrect range: %hu-%hu, correcting\n",
-							       prtspexp->loport, prtspexp->hiport);
-							prtspexp->loport &= 0xfffe;
-							prtspexp->hiport = prtspexp->loport+1;
-						}
-					} else if (ptran[off] == '/') {
-						off++;
-						numlen = nf_strtou16(ptran+off, &port);
-						off += numlen;
-						prtspexp->pbtype = pb_discon;
-						prtspexp->hiport = port;
-					}
+					pr_debug("lo port found : %hu\n", loport);
+					prtspexp->loport = loport;
+					prtspexp->hiport = hiport;
+					prtspexp->pbtype = pbtype;
 					rc = 1;
 				}
 			}
@@ -330,9 +442,8 @@ help_out(struct sk_buff *skb, unsigned char *rb_ptr, unsigned int datalen,
 		be_loport = htons(expinfo.loport);
 
 		nf_ct_expect_init(exp, NF_CT_EXPECT_CLASS_DEFAULT, nf_ct_l3num(ct),
-			/* media stream source can be different from the RTSP server address */
-			// &ct->tuplehash[!dir].tuple.src.u3, &ct->tuplehash[!dir].tuple.dst.u3,
-			NULL, &ct->tuplehash[!dir].tuple.dst.u3,
+			&ct->tuplehash[!dir].tuple.src.u3,
+			&ct->tuplehash[!dir].tuple.dst.u3,
 			IPPROTO_UDP, NULL, &be_loport); 
 
 		exp->master = ct;
@@ -382,13 +493,11 @@ static int help(struct sk_buff *skb, unsigned int protoff,
 	unsigned int dataoff, datalen;
 	char *rb_ptr;
 	int ret = NF_DROP;
+	int dir = CTINFO2DIR(ctinfo);
+	u32 seq;
 
-	/* Until there's been traffic both ways, don't look in packets. */
-	if (ctinfo != IP_CT_ESTABLISHED && 
-	    ctinfo != IP_CT_ESTABLISHED + IP_CT_IS_REPLY) {
-		pr_debug("conntrackinfo = %u\n", ctinfo);
+	if (dir != IP_CT_DIR_ORIGINAL)
 		return NF_ACCEPT;
-	} 
 
 	/* Not whole TCP header? */
 	th = skb_header_pointer(skb,protoff, sizeof(_tcph), &_tcph);
@@ -398,14 +507,27 @@ static int help(struct sk_buff *skb, unsigned int protoff,
    
 	/* No data ? */
 	dataoff = protoff + th->doff*4;
-	datalen = skb->len - dataoff;
 	if (dataoff >= skb->len)
 		return NF_ACCEPT;
 
+	datalen = skb->len - dataoff;
+	seq = ntohl(th->seq) + th->syn;
+
 	spin_lock_bh(&rtsp_buffer_lock);
 	rb_ptr = skb_header_pointer(skb, dataoff,
-				    skb->len - dataoff, rtsp_buffer);
+				    datalen, rtsp_buffer);
 	BUG_ON(rb_ptr == NULL);
+	if (!rtsp_stream_check(ct, seq, rb_ptr, datalen)) {
+		ret = NF_ACCEPT;
+		goto out_unlock;
+	}
+
+	/* Until there has been traffic both ways, validate but don't parse. */
+	if (ctinfo != IP_CT_ESTABLISHED &&
+	    ctinfo != IP_CT_ESTABLISHED + IP_CT_IS_REPLY) {
+		ret = NF_ACCEPT;
+		goto out_unlock;
+	}
 
 #if 0
 	/* Checksum invalid?  Ignore. */
@@ -419,17 +541,9 @@ static int help(struct sk_buff *skb, unsigned int protoff,
 	}
 #endif
 
-	switch (CTINFO2DIR(ctinfo)) {
-	case IP_CT_DIR_ORIGINAL:
-		ret = help_out(skb, rb_ptr, datalen, ct, ctinfo);
-		break;
-	case IP_CT_DIR_REPLY:
-		pr_debug("IP_CT_DIR_REPLY\n");
-		/* inbound packet: server->client */
-		ret = NF_ACCEPT;
-		break;
-	}
+	ret = help_out(skb, rb_ptr, datalen, ct, ctinfo);
 
+out_unlock:
 	spin_unlock_bh(&rtsp_buffer_lock);
 
 	return ret;

@@ -22,6 +22,12 @@ typedef enum {
     pb_discon   /* client_port=x/y (rtspbis) */
 } portblock_t;
 
+struct nf_ct_rtsp_master
+{
+    u_int32_t   next_seq;
+    u_int8_t    state;
+};
+
 /* We record seq number and length of rtsp headers here, all in host order. */
 
 /*
