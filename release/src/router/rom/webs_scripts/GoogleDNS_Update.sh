@@ -1,7 +1,5 @@
 #!/bin/sh
 
-RESULT_PATH="/tmp/GDN_RESULT"
-
 #GOOGLE DOMAINS RESPONSE DEFINE
 RESPONSE_SUCCESS_GOOD="good"       # The update was successful. Followed by a space and the updated IP address. You should not attempt another update until your IP address changes.
 RESPONSE_SUCCESS_NOCHG="nochg"     # The supplied IP address is already set for this host. You should not attempt another update until your IP address changes.
@@ -51,13 +49,10 @@ otherfail()
 
 main()
 {
-	[ -e "$RESULT_PATH" ] && rm -f $RESULT_PATH
-
-	wget -S "https://$USER:$PASSWD@domains.google.com/nic/update?hostname=$HOST&myip=$CurrWANIP" -O $RESULT_PATH
+	result=$(wget -S "https://$USER:$PASSWD@domains.google.com/nic/update?hostname=$HOST&myip=$CurrWANIP" -O -)
 	
 	sleep 1;
-	
-	result=`cat $RESULT_PATH`
+
 	if [ "$result" == "${RESPONSE_SUCCESS_GOOD} ${CurrWANIP}" ]; then 
 		Successful
 	elif [ "$result" == "${RESPONSE_SUCCESS_NOCHG} ${CurrWANIP}" ]; then
