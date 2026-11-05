@@ -15655,6 +15655,36 @@ httpd_spool_valid(struct httpd_restore_spool *spool)
 		st.st_dev == opened.st_dev && st.st_ino == opened.st_ino;
 }
 
+static int
+httpd_spool_reserve(struct httpd_restore_spool *spool, const char *name,
+		    char *path, size_t path_size)
+{
+	int fd;
+	struct stat st;
+
+	if (snprintf(path, path_size, "%s/%s", spool->directory, name) >= path_size) {
+		path[0] = '\0';
+		return -1;
+	}
+	fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+	if (fd < 0) {
+		path[0] = '\0';
+		return -1;
+	}
+	if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
+	    st.st_nlink != 1 || fchmod(fd, 0600) != 0) {
+		close(fd);
+		goto fail;
+	}
+	if (close(fd) != 0)
+		goto fail;
+	return 0;
+fail:
+	unlink(path);
+	path[0] = '\0';
+	return -1;
+}
+
 static FILE *
 httpd_upgrade_spool_create(struct httpd_restore_spool *spool)
 {
@@ -17063,13 +17093,18 @@ do_download_cert_key_cgi(char *url, FILE *stream)//for DUT
 static void
 do_download_cert_cgi(char *url, FILE *stream)//for browser
 {
-	eval("tar", "chf",
-		"/tmp/cert.tar",
-		"-C",
-		"/etc",
-		"cert.crt"
-		);
-	do_file("/tmp/cert.tar", stream);
+	struct httpd_restore_spool spool = { { 0 } };
+	int ret;
+
+	if (!httpd_spool_create(&spool))
+		return;
+	ret = eval("tar", "chf", spool.path, "-C", "/etc", "cert.crt");
+	if (!ret) {
+		spool.complete = 1;
+		if (httpd_spool_valid(&spool))
+			do_file(spool.path, stream);
+	}
+	httpd_spool_clear(&spool);
 }
 
 static void
@@ -17324,9 +17359,18 @@ do_prf_file(char *url, FILE *stream)
 static void
 do_uploadIconFile_file(char *url, FILE *stream)
 {
-	system("tar cvf /tmp/IconFile.tar /jffs/usericon /tmp/upnpicon");
-	do_file("/tmp/IconFile.tar", stream);
-	unlink("/tmp/IconFile.tar");
+	struct httpd_restore_spool spool = { { 0 } };
+	int ret;
+
+	if (!httpd_spool_create(&spool))
+		return;
+	ret = eval("tar", "cvf", spool.path, "/jffs/usericon", "/tmp/upnpicon");
+	if (!ret) {
+		spool.complete = 1;
+		if (httpd_spool_valid(&spool))
+			do_file(spool.path, stream);
+	}
+	httpd_spool_clear(&spool);
 }
 
 #ifdef RTCONFIG_IPSEC
@@ -18533,15 +18577,44 @@ FINISH:
 static void
 do_networkmap_file(char *url, FILE *stream)
 {
-	system("cat nmp_client_list > /tmp/nmp_client_list.log");
-	system("nvram get asus_device_list > /tmp/asus_dev_list.log");
-	eval("tar", "cf",
-		"/tmp/networkmap.tar",
+	struct httpd_restore_spool spool = { { 0 } };
+	char staging_directory[80] = "";
+	char client_path[80] = "", device_path[80] = "";
+	char command[256];
+	struct stat st;
+	int ret, staging_created = 0;
+
+	if (!httpd_spool_create(&spool))
+		return;
+	if (snprintf(staging_directory, sizeof(staging_directory), "%s/tmp", spool.directory) >= sizeof(staging_directory)) {
+		staging_directory[0] = '\0';
+		goto cleanup;
+	}
+	if (mkdir(staging_directory, 0700) != 0) {
+		staging_directory[0] = '\0';
+		goto cleanup;
+	}
+	staging_created = 1;
+	if (lstat(staging_directory, &st) != 0 || !S_ISDIR(st.st_mode) ||
+	    st.st_uid != 0 || (st.st_mode & 077) != 0)
+		goto cleanup;
+	if (httpd_spool_reserve(&spool, "tmp/nmp_client_list.log", client_path,
+				sizeof(client_path)) != 0 ||
+	    httpd_spool_reserve(&spool, "tmp/asus_dev_list.log", device_path,
+				sizeof(device_path)) != 0)
+		goto cleanup;
+	if (snprintf(command, sizeof(command), "cat nmp_client_list > %s", client_path) >= sizeof(command) ||
+	    system(command) != 0)
+		goto cleanup;
+	if (snprintf(command, sizeof(command), "nvram get asus_device_list > %s", device_path) >= sizeof(command) ||
+	    system(command) != 0)
+		goto cleanup;
+	ret = eval("tar", "cf", spool.path, "-C", spool.directory,
 		"/tmp/upnp.log",
 		"/tmp/smb.log",
 		"/tmp/syslog.log",
-		"/tmp/nmp_client_list.log",
-		"/tmp/asus_dev_list.log",
+		"tmp/nmp_client_list.log",
+		"tmp/asus_dev_list.log",
 #ifdef RTCONFIG_UPNPC
 		"/tmp/upnpc_xml.log",
 #endif
@@ -18550,8 +18623,19 @@ do_networkmap_file(char *url, FILE *stream)
 #endif
 		"/jffs/usericon",
 		"/tmp/upnpicon");
-	do_file("/tmp/networkmap.tar", stream);
-	unlink("/tmp/networkmap.tar");
+	if (!ret) {
+		spool.complete = 1;
+		if (httpd_spool_valid(&spool))
+			do_file(spool.path, stream);
+	}
+cleanup:
+	if (client_path[0])
+		unlink(client_path);
+	if (device_path[0])
+		unlink(device_path);
+	if (staging_created)
+		rmdir(staging_directory);
+	httpd_spool_clear(&spool);
 }
 
 static void
