@@ -20898,10 +20898,6 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 		send_login_page(fromapp_flag, lock_status, NULL, NULL, dt, NOLOGINTRY);
 		return LOGINLOCK;
 	}
-	if (!httpd_login_attempt_admit()) {
-		send_login_page(fromapp_flag, ACCOUNTFAIL, NULL, NULL, 0, NOLOGINTRY);
-		return ACCOUNTFAIL;
-	}
 
 	websWrite(wp,"%s %d %s\r\n", PROTOCOL, 200, "OK" );
 	websWrite(wp,"Server: %s\r\n", SERVER_NAME );
