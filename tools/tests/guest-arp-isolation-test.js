@@ -42,6 +42,18 @@ assert.match(lan, /"-s", binding->mac, "-p", "ipv4", "--ip-src", binding->ip,[\s
 assert.match(lan, /"--ip-sport", "68",[\s\S]*?"--ip-dport", "67", "-j", "ACCEPT"/);
 assert.match(lan, /GUEST_ARP_SOURCE_CHAIN, "-i", active_ifnames\[i\],[\s\S]*?"-p", "ipv4", "-j", "DROP"/);
 assert.match(lan, /"-I", "INPUT", "1", "-i", active_ifnames\[i\],[\s\S]*?"-j", GUEST_ARP_SOURCE_CHAIN/);
+const arpRefresh = lan.match(/void guest_arp_filter_refresh\(void\)[\s\S]*?\n\}/)[0];
+const sourceBindingRepair = arpRefresh.match(/for \(i = 0; i < current_count; \+\+i\)[\s\S]*?\n\t\}/)[0];
+const sourceBindingDelete = sourceBindingRepair.indexOf('GUEST_ARP_EBTABLES("-D", GUEST_ARP_SOURCE_CHAIN');
+const sourceBindingInsert = sourceBindingRepair.indexOf('GUEST_ARP_EBTABLES("-I", GUEST_ARP_SOURCE_CHAIN');
+assert.ok(sourceBindingDelete >= 0 && sourceBindingInsert > sourceBindingDelete);
+assert.doesNotMatch(sourceBindingRepair, /guest_arp_binding_find\(old_bindings/);
+const interfaceRuleRepair = arpRefresh.match(/for \(i = 0; i < active_count; \+\+i\)[\s\S]*?\n\t\}/)[0];
+assert.match(interfaceRuleRepair, /GUEST_ARP_EBTABLES\("-D", GUEST_ARP_SOURCE_CHAIN/);
+assert.match(interfaceRuleRepair, /GUEST_ARP_EBTABLES\("-D", "INPUT"/);
+assert.match(interfaceRuleRepair, /GUEST_ARP_EBTABLES\("-I", GUEST_ARP_SOURCE_CHAIN/);
+assert.match(interfaceRuleRepair, /GUEST_ARP_EBTABLES\("-A", GUEST_ARP_SOURCE_CHAIN/);
+assert.match(interfaceRuleRepair, /GUEST_ARP_EBTABLES\("-I", "INPUT"/);
 assert.match(lan, /"-D", GUEST_ARP_SOURCE_CHAIN, "-i", binding->ifname,[\s\S]*?"--ip-src", binding->ip,[\s\S]*?"-j", "ACCEPT"/);
 assert.match(lan, /"--ip6-icmp-type", "neighbour-solicitation"/);
 assert.match(lan, /"--ip6-icmp-type", "neighbour-advertisement"/);
