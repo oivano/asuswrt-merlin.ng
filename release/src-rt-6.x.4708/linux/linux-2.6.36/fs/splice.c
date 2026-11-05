@@ -1450,6 +1450,12 @@ static ssize_t BCMFASTPATH_HOST do_splice_from_socket(struct file *file, struct 
 	if (err != 0 || count == 0)
 		goto done;
 
+	if (count > MAX_PAGES_PER_RECVFILE * PAGE_CACHE_SIZE -
+			(pos & (PAGE_CACHE_SIZE - 1))) {
+		err = -EINVAL;
+		goto done;
+	}
+
 	file_remove_suid(file);
 	file_update_time(file);
 
