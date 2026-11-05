@@ -25,6 +25,7 @@ struct nvram_tuple router_defaults[] = {
 	// NVRAM for restore_defaults: system wide parameters
 	{ "nvramver", RTCONFIG_NVRAM_VER, CKN_STR_DEFAULT, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },
 	{ "restore_defaults", "0", CKN_STR_DEFAULT, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* Set to 0 to not restore defaults on boot */
+	{ "netool_queue", "0", CKN_STR1, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* Queue traceroute requests only when enabled by an administrator */
 #if defined(RTCONFIG_BCM_MFG) && (defined(RTAX82_XD6S) || defined(GT10))
 	{ "sw_mode", "3", CKN_STR1, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* big switch for different mode */
 #elif defined(RPAC66) || defined(RPAC87) || defined(RPAC51) || defined(RTCONFIG_DEFAULT_REPEATER_MODE)
