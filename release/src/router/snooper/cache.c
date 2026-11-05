@@ -100,7 +100,7 @@ static void router_timer(struct timer_entry *timer, void *data);
 
 static struct host_entry *get_host(unsigned char *ea, unsigned long time)
 {
-	struct host_entry *host, *prev;
+	struct host_entry *host = NULL, *prev;
 	int index = HASH_INDEX(ea);
 
 	LIST_FOREACH(host, &hosts.hash[index], hash) {
@@ -110,12 +110,12 @@ static struct host_entry *get_host(unsigned char *ea, unsigned long time)
 
 	if (hosts.count < HOST_POOL_SIZE) {
 #ifdef HOST_POOL_STATIC
-		host = &hosts.entries[hosts.count++];
+		host = &hosts.entries[hosts.count];
 #else
 		host = calloc(1, sizeof(*host));
-		if (!host)
-			hosts.count++;
 #endif
+		if (host)
+			hosts.count++;
 	}
 	if (!host) {
 		prev = NULL;
