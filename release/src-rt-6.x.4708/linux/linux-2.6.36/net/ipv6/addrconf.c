@@ -355,6 +355,7 @@ static struct inet6_dev * ipv6_add_dev(struct net_device *dev)
 		return NULL;
 
 	rwlock_init(&ndev->lock);
+	atomic_set(&ndev->ra_route_count, 0);
 	ndev->dev = dev;
 	INIT_LIST_HEAD(&ndev->addr_list);
 
@@ -1679,6 +1680,7 @@ static void
 addrconf_prefix_route(struct in6_addr *pfx, int plen, struct net_device *dev,
 		      unsigned long expires, u32 flags)
 {
+	extern int ip6_route_add_ra(struct fib6_config *cfg);
 	struct fib6_config cfg = {
 		.fc_table = RT6_TABLE_PREFIX,
 		.fc_metric = IP6_RT_PRIO_ADDRCONF,
@@ -1701,7 +1703,11 @@ addrconf_prefix_route(struct in6_addr *pfx, int plen, struct net_device *dev,
 		cfg.fc_flags |= RTF_NONEXTHOP;
 #endif
 
-	ip6_route_add(&cfg);
+	if ((flags & (RTF_ADDRCONF | RTF_PREFIX_RT)) ==
+	    (RTF_ADDRCONF | RTF_PREFIX_RT))
+		ip6_route_add_ra(&cfg);
+	else
+		ip6_route_add(&cfg);
 }
 
 /* Create "default" multicast route to the interface */
@@ -1835,8 +1841,10 @@ void addrconf_prefix_rcv(struct net_device *dev, u8 *opt, int len)
 
 		rt = rt6_lookup(net, &pinfo->prefix, NULL,
 				dev->ifindex, 1);
-#if 0
-		if (rt && addrconf_is_prefix_route(rt)) {
+		if (rt && rt->rt6i_dev == dev &&
+		    rt->rt6i_dst.plen == pinfo->prefix_len &&
+		    (rt->rt6i_flags & (RTF_ADDRCONF | RTF_PREFIX_RT)) ==
+				(RTF_ADDRCONF | RTF_PREFIX_RT)) {
 			/* Autoconf prefix route */
 			if (valid_lft == 0) {
 				ip6_del_rt(rt);
@@ -1850,8 +1858,6 @@ void addrconf_prefix_rcv(struct net_device *dev, u8 *opt, int len)
 				rt->rt6i_expires = 0;
 			}
 		} else if (valid_lft) {
-#endif
-		if (valid_lft) {
 			clock_t expires = 0;
 			int flags = RTF_ADDRCONF | RTF_PREFIX_RT;
 			if (addrconf_finite_timeout(rt_expires)) {

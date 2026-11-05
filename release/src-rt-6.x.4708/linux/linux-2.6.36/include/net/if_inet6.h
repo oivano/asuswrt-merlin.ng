@@ -178,6 +178,7 @@ struct inet6_dev {
 	struct ifacaddr6	*ac_list;
 	rwlock_t		lock;
 	atomic_t		refcnt;
+	atomic_t		ra_route_count;
 	__u32			if_flags;
 	int			dead;
 

@@ -73,6 +73,52 @@
 #endif
 
 #define CLONE_OFFLINK_ROUTE 0
+#define IPV6_RA_ROUTE_LIMIT 64
+#define IPV6_RA_DST_RESERVE 512
+static DEFINE_SPINLOCK(ip6_ra_route_lock);
+int ip6_route_add_ra(struct fib6_config *cfg)
+{
+	struct net *net = cfg->fc_nlinfo.nl_net;
+	struct net_device *dev;
+	struct inet6_dev *idev;
+	u32 route_flag = cfg->fc_flags & (RTF_PREFIX_RT | RTF_DEFAULT);
+	int route_count;
+	int max_size;
+	int err;
+
+	if (!(cfg->fc_flags & RTF_ADDRCONF) ||
+	    (route_flag != RTF_PREFIX_RT && route_flag != RTF_DEFAULT))
+		return -EINVAL;
+
+	dev = dev_get_by_index(net, cfg->fc_ifindex);
+	if (!dev)
+		return -ENODEV;
+	idev = in6_dev_get(dev);
+	dev_put(dev);
+	if (!idev)
+		return -ENODEV;
+
+	spin_lock_bh(&ip6_ra_route_lock);
+	route_count = atomic_read(&idev->ra_route_count);
+	if (route_count >= IPV6_RA_ROUTE_LIMIT) {
+		err = -ENOSPC;
+		goto out;
+	}
+
+	max_size = net->ipv6.sysctl.ip6_rt_max_size;
+	if (max_size <= IPV6_RA_DST_RESERVE ||
+	    atomic_read(&net->ipv6.ip6_dst_ops.entries) >=
+			max_size - IPV6_RA_DST_RESERVE) {
+		err = -ENOBUFS;
+		goto out;
+	}
+
+	err = ip6_route_add(cfg);
+out:
+	spin_unlock_bh(&ip6_ra_route_lock);
+	in6_dev_put(idev);
+	return err;
+}
 
 static struct rt6_info * ip6_rt_copy(struct rt6_info *ort);
 static struct dst_entry	*ip6_dst_check(struct dst_entry *dst, u32 cookie);
@@ -1783,7 +1829,7 @@ struct rt6_info *rt6_add_dflt_router(struct in6_addr *gwaddr,
 
 	ipv6_addr_copy(&cfg.fc_gateway, gwaddr);
 
-	ip6_route_add(&cfg);
+	ip6_route_add_ra(&cfg);
 
 	return rt6_get_dflt_router(gwaddr, dev);
 }
