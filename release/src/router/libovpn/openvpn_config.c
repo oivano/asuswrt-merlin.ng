@@ -206,6 +206,110 @@ char *get_ovpn_key(ovpn_type_t type, int unit, ovpn_key_t key_type, char *buf, s
 	}
 }
 
+static int ovpn_pem_label_char(unsigned char c)
+{
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+	       (c >= '0' && c <= '9') || c == ' ' || c == '-';
+}
+
+static int ovpn_pem_material_valid(const char *data)
+{
+	const char *line = data;
+	char label[128];
+	int in_block = 0, body_seen = 0, header_allowed = 0, blocks = 0;
+
+	if (!data || !*data)
+		return 0;
+
+	while (*line) {
+		const char *end = strchr(line, '\n');
+		const char *p;
+		size_t len = end ? (size_t)(end - line) : strlen(line);
+		size_t content_len = len;
+
+		if (content_len && line[content_len - 1] == '\r')
+			content_len--;
+
+		for (p = line; p < line + content_len; p++) {
+			if ((unsigned char)*p < 0x20 || (unsigned char)*p > 0x7e)
+				return 0;
+		}
+		if (memchr(line, '\r', content_len))
+			return 0;
+
+		if (!content_len) {
+			if (!end)
+				break;
+			line = end + 1;
+			continue;
+		}
+
+		if (!in_block) {
+			if (content_len <= 16 || memcmp(line, "-----BEGIN ", 11) ||
+			    memcmp(line + content_len - 5, "-----", 5))
+				return 0;
+			content_len -= 16;
+			if (!content_len || content_len >= sizeof(label))
+				return 0;
+			for (p = line + 11; p < line + 11 + content_len; p++) {
+				if (!ovpn_pem_label_char((unsigned char)*p))
+					return 0;
+			}
+			if (line[11] == ' ' || line[10 + content_len] == ' ')
+				return 0;
+			memcpy(label, line + 11, content_len);
+			label[content_len] = '\0';
+			in_block = 1;
+			body_seen = 0;
+			header_allowed = 1;
+		} else if (content_len > 14 && !memcmp(line, "-----END ", 9) &&
+		           !memcmp(line + content_len - 5, "-----", 5)) {
+			size_t end_label_len = content_len - 14;
+			if (!body_seen || end_label_len != strlen(label) ||
+			    memcmp(line + 9, label, end_label_len))
+				return 0;
+			in_block = 0;
+			blocks++;
+		} else {
+			const char *colon = memchr(line, ':', content_len);
+			if (header_allowed && colon) {
+				size_t header_name_len = (size_t)(colon - line);
+				if (!((header_name_len == 9 && !memcmp(line, "Proc-Type", 9)) ||
+				      (header_name_len == 8 && !memcmp(line, "DEK-Info", 8))))
+					return 0;
+				if (colon == line)
+					return 0;
+				for (p = line; p < colon; p++) {
+					if (!(((*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z') ||
+					       (*p >= '0' && *p <= '9')) || *p == '-'))
+						return 0;
+				}
+				for (p = colon + 1; p < line + content_len; p++) {
+					if (!((*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z') ||
+					      (*p >= '0' && *p <= '9') || *p == ' ' || *p == ',' ||
+					      *p == '.' || *p == '-' || *p == '_' || *p == '+' ||
+					      *p == '/' || *p == '='))
+						return 0;
+				}
+			} else {
+				header_allowed = 0;
+				for (p = line; p < line + content_len; p++) {
+					if (!((*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z') ||
+					      (*p >= '0' && *p <= '9') || *p == '+' || *p == '/' || *p == '='))
+						return 0;
+				}
+				body_seen = 1;
+			}
+		}
+
+		if (!end)
+			break;
+		line = end + 1;
+	}
+
+	return !in_block && blocks > 0;
+}
+
 
 char *get_parsed_crt(const char *name, char *buf, size_t buf_len)
 {
@@ -242,23 +346,26 @@ int set_ovpn_key(ovpn_type_t type, int unit, ovpn_key_t key_type, char *buf, cha
 		return -1;
 	}
 
-	if ((key_type == OVPN_SERVER_DH) && !strncmp(buf, "none", 4)) {
+	if ((key_type == OVPN_SERVER_DH) && !strcmp(buf, "none")) {
 		data = buf;
 	} else {
 		data = strstr(buf, PEM_START_TAG);
-		if (!data) return -1;
+		if (!data || !ovpn_pem_material_valid(data)) return -1;
 	}
 
 	if(!d_exists(OVPN_FS_PATH))
 		mkdir(OVPN_FS_PATH, S_IRWXU);
 
 	fp = fopen(filename, "w");
-	if(fp) {
-		chmod(filename, S_IRUSR|S_IWUSR);
-		fwrite(data, 1, strlen(data), fp);
+	if (!fp)
+		return -1;
+	chmod(filename, S_IRUSR|S_IWUSR);
+	if (fwrite(data, 1, strlen(data), fp) != strlen(data)) {
 		fclose(fp);
+		return -1;
 	}
-
+	if (fclose(fp) != 0)
+		return -1;
 	return 0;
 }
 
@@ -268,17 +375,15 @@ int _set_crt_parsed(const char *name, char *file_path)
 	char *buffer, *data;
 	int result;
 
-	if(!d_exists(OVPN_FS_PATH))
-		mkdir(OVPN_FS_PATH, S_IRWXU);
-
 	if(f_exists(file_path)) {
-		snprintf(target_file_path, sizeof(target_file_path), "%s/%s", OVPN_FS_PATH, name);
-
 		buffer = read_whole_file(file_path);
 		if (!buffer) return -1;
 
 		data = strstr(buffer, PEM_START_TAG);
-		if (data) {
+		if (data && ovpn_pem_material_valid(data)) {
+			if (!d_exists(OVPN_FS_PATH))
+				mkdir(OVPN_FS_PATH, S_IRWXU);
+			snprintf(target_file_path, sizeof(target_file_path), "%s/%s", OVPN_FS_PATH, name);
 			result = f_write(target_file_path, data, strlen(data), 0, S_IRUSR|S_IWUSR);
 		} else {
 			result = -1;

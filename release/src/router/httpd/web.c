@@ -2995,25 +2995,51 @@ ej_vpn_client_get_parameter(int eid, webs_t wp, int argc, char_t **argv)
 	return (websWrite(wp,"%s",""));
 }
 
+static void ovpn_write_js_string(webs_t wp, const char *value)
+{
+	const unsigned char *p = (const unsigned char *)value;
+
+	websWrite(wp, "\"");
+	while (*p) {
+		if (p[0] == 0xe2 && p[1] == 0x80 && (p[2] == 0xa8 || p[2] == 0xa9)) {
+			websWrite(wp, p[2] == 0xa8 ? "\\u2028" : "\\u2029");
+			p += 3;
+			continue;
+		}
+		switch (*p) {
+		case '\\': websWrite(wp, "\\\\"); break;
+		case '\'': websWrite(wp, "\\'"); break;
+		case '"': websWrite(wp, "\\\""); break;
+		case '<': websWrite(wp, "\\u003c"); break;
+		case '>': websWrite(wp, "\\u003e"); break;
+		case '&': websWrite(wp, "\\u0026"); break;
+		case '\b': websWrite(wp, "\\b"); break;
+		case '\f': websWrite(wp, "\\f"); break;
+		case '\n': websWrite(wp, "\\n"); break;
+		case '\r': websWrite(wp, "\\r"); break;
+		case '\t': websWrite(wp, "\\t"); break;
+		default:
+			if (*p < 0x20 || *p == 0x7f)
+				websWrite(wp, "\\u%04x", *p);
+			else
+				websWrite(wp, "%c", *p);
+		}
+		p++;
+	}
+	websWrite(wp, "\"");
+}
+
 void
 _get_vpn_crt_value(int eid, webs_t wp, int type, int cert, int idx) {
 	char buf[8000];
 	char filename[32];
-	char *c;
 
 	get_ovpn_filename(type, idx, cert, filename, sizeof(filename));
 	get_ovpn_key(type, idx, cert, buf, sizeof(buf));
 
-	websWrite(wp, "%s=['", filename);
-
-	for (c = buf; *c; c++) {
-		if (isprint(*c) &&
-			*c != '"' && *c != '&' && *c != '<' && *c != '>')
-			websWrite(wp, "%c", *c);
-		else
-			websWrite(wp, "&#%d", *c);
-	}
-	websWrite(wp, "'];\n");
+	websWrite(wp, "%s=[", filename);
+	ovpn_write_js_string(wp, buf);
+	websWrite(wp, "];\n");
 }
 
 static int
@@ -16344,37 +16370,56 @@ do_vpnupload_cgi(char *url, FILE *stream)
 			nvram_commit();
 		}
 		else if(!strcmp(filetype, "ca")) {
-			set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_CA, NULL, vpn_client_upload_spool.path);
-			state = nvram_get_int("vpn_upload_state");
-			nvram_set_int("vpn_upload_state", state & (~VPN_UPLOAD_NEED_CA_CERT));
+			if (set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_CA, NULL, vpn_client_upload_spool.path) != 0)
+				nvram_set("vpn_upload_state", "err");
+			else {
+				state = nvram_get_int("vpn_upload_state");
+				nvram_set_int("vpn_upload_state", state & (~VPN_UPLOAD_NEED_CA_CERT));
+			}
 		}
 		else if(!strcmp(filetype, "cert")) {
-			set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_CERT, NULL, vpn_client_upload_spool.path);
-			state = nvram_get_int("vpn_upload_state");
-			nvram_set_int("vpn_upload_state", state & (~VPN_UPLOAD_NEED_CERT));
+			if (set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_CERT, NULL, vpn_client_upload_spool.path) != 0)
+				nvram_set("vpn_upload_state", "err");
+			else {
+				state = nvram_get_int("vpn_upload_state");
+				nvram_set_int("vpn_upload_state", state & (~VPN_UPLOAD_NEED_CERT));
+			}
 		}
 		else if(!strcmp(filetype, "extra")) {
-			set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_EXTRA, NULL, vpn_client_upload_spool.path);
-			state = nvram_get_int("vpn_upload_state");
-			nvram_set_int("vpn_upload_state", state & (~VPN_UPLOAD_NEED_EXTRA));
+			if (set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_EXTRA, NULL, vpn_client_upload_spool.path) != 0)
+				nvram_set("vpn_upload_state", "err");
+			else {
+				state = nvram_get_int("vpn_upload_state");
+				nvram_set_int("vpn_upload_state", state & (~VPN_UPLOAD_NEED_EXTRA));
+			}
 		}
 		else if(!strcmp(filetype, "key")) {
-			set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_KEY, NULL, vpn_client_upload_spool.path);
-			state = nvram_get_int("vpn_upload_state");
-			nvram_set_int("vpn_upload_state", state & (~VPN_UPLOAD_NEED_KEY));
+			if (set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_KEY, NULL, vpn_client_upload_spool.path) != 0)
+				nvram_set("vpn_upload_state", "err");
+			else {
+				state = nvram_get_int("vpn_upload_state");
+				nvram_set_int("vpn_upload_state", state & (~VPN_UPLOAD_NEED_KEY));
+			}
 		}
 		else if(!strcmp(filetype, "static")) {
-			set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_STATIC, NULL, vpn_client_upload_spool.path);
-			state = nvram_get_int("vpn_upload_state");
-			nvram_set_int("vpn_upload_state", state & (~VPN_UPLOAD_NEED_STATIC));
+			if (set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_STATIC, NULL, vpn_client_upload_spool.path) != 0)
+				nvram_set("vpn_upload_state", "err");
+			else {
+				state = nvram_get_int("vpn_upload_state");
+				nvram_set_int("vpn_upload_state", state & (~VPN_UPLOAD_NEED_STATIC));
+			}
 		}
 		else if(!strcmp(filetype, "ccrl")) {
-			set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_CRL, NULL, vpn_client_upload_spool.path);
-			state = nvram_get_int("vpn_upload_state");
-			nvram_set_int("vpn_upload_state", state & (~VPN_UPLOAD_NEED_CRL));
+			if (set_ovpn_key(OVPN_TYPE_CLIENT, unit, OVPN_CLIENT_CRL, NULL, vpn_client_upload_spool.path) != 0)
+				nvram_set("vpn_upload_state", "err");
+			else {
+				state = nvram_get_int("vpn_upload_state");
+				nvram_set_int("vpn_upload_state", state & (~VPN_UPLOAD_NEED_CRL));
+			}
 		}
 		else if(!strcmp(filetype, "scrl")) {
-			set_ovpn_key(OVPN_TYPE_SERVER, unit, OVPN_SERVER_CRL, NULL, vpn_client_upload_spool.path);
+			if (set_ovpn_key(OVPN_TYPE_SERVER, unit, OVPN_SERVER_CRL, NULL, vpn_client_upload_spool.path) != 0)
+				nvram_set("vpn_upload_state", "err");
 		}
 
 	}
