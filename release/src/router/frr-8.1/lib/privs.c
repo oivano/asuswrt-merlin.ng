@@ -153,7 +153,7 @@ static struct {
 			},
 		[ZCAP_SYS_ADMIN] =
 			{
-				1, (pvalue_t[]){CAP_SYS_ADMIN},
+				0, NULL,
 			},
 		[ZCAP_FOWNER] =
 			{
@@ -261,6 +261,13 @@ static void zprivs_caps_init(struct zebra_privs_t *zprivs)
 {
 	zprivs_state.syscaps_p = zcaps2sys(zprivs->caps_p, zprivs->cap_num_p);
 	zprivs_state.syscaps_i = zcaps2sys(zprivs->caps_i, zprivs->cap_num_i);
+
+	if (prctl(PR_CAPBSET_DROP, CAP_SYS_ADMIN, 0, 0, 0) == -1) {
+		fprintf(stderr,
+			"privs_init: could not drop CAP_SYS_ADMIN from bounding set, %s\n",
+			safe_strerror(errno));
+		exit(1);
+	}
 
 	/* Tell kernel we want caps maintained across uid changes */
 	if (prctl(PR_SET_KEEPCAPS, 1, 0, 0, 0) == -1) {
