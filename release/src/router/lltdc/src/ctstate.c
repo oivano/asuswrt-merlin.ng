@@ -21,6 +21,9 @@
 #include <string.h>
 #include <assert.h>
 #include <stdlib.h>	//malloc(), system()
+#include <dirent.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #if !(defined(__GLIBC__) || defined(__UCLIBC__))
 #include <shared.h>	//shared/shared.h
@@ -31,6 +34,22 @@
 #include "bandfuncs.h"
 #include "packetio.h"
 
+extern char icon_file[64];
+
+void
+state_discard_icon(void)
+{
+	g_icon_query_active = FALSE;
+	if (g_icon_fd != NULL) {
+		fclose(g_icon_fd);
+		g_icon_fd = NULL;
+	}
+	if (icon_file[0] != '\0')
+		remove(icon_file);
+	icon_file[0] = '\0';
+	g_rcvd_icon_len = -3;
+}
+
 char TUX_Content[] = {0x9C,0x01,0x00,0x00,0x00,0x00,0xCD,0xCE,0xD1,0x03,0xD1,0xD1,0xD1,0x05,0xCB,0xC8,
                       0xC7,0x06,0xCC,0xCB,0xCB,0x06,0xD5,0xD1,0xD4,0x04,0xDE,0xDB,0xDB,0x05,0xDC,0xDD};
 
@@ -38,6 +57,84 @@ char WRT_Content[] = {0xC0,0xFF,0xEC,0xE2,0xC3,0xFF,0xCC,0xC5,0xAF,0xFF,0x94,0x9
                       0x6E,0xFF,0x6E,0x6D,0x6A,0xFF,0x7D,0x7C,0x79,0xFF,0x5D,0x5C,0x58,0xE5,0x27,0x27};
 
 static char base64_chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+#define ICON_BASE64_MAX (((ICONMAXSZ + 2) / 3) * 4 + sizeof("data:image/jpeg;base64,") - 1)
+
+static int
+icon_storage_available(const char *mac, size_t additional_bytes)
+{
+	DIR *dir;
+	struct dirent *entry;
+	struct stat st;
+	char path[64];
+	char log_name[17];
+	char canonical_mac[13];
+	size_t total_bytes = 0;
+	unsigned int log_count = 0;
+	unsigned int i;
+	int target_exists = 0;
+
+	snprintf(canonical_mac, sizeof(canonical_mac), "%s", mac);
+	for (i = 0; canonical_mac[i] != '\0'; i++) {
+		if (canonical_mac[i] >= 'a' && canonical_mac[i] <= 'f')
+			canonical_mac[i] = canonical_mac[i] - 'a' + 'A';
+	}
+	snprintf(log_name, sizeof(log_name), "%s.log", canonical_mac);
+	dir = opendir(JFFS_ICON_PATH);
+	if (dir == NULL)
+		return 0;
+
+	while ((entry = readdir(dir)) != NULL) {
+		size_t name_len = strlen(entry->d_name);
+		int path_len;
+		int is_log = name_len > 4 && strcmp(entry->d_name + name_len - 4, ".log") == 0;
+		int is_ico = name_len > 4 && strcmp(entry->d_name + name_len - 4, ".ico") == 0;
+
+		if (!is_log && !is_ico)
+			continue;
+		if (is_log) {
+			log_count++;
+			if (strcmp(entry->d_name, log_name) == 0)
+				target_exists = 1;
+		}
+		path_len = snprintf(path, sizeof(path), "%s%s", JFFS_ICON_PATH, entry->d_name);
+		if (path_len < 0 || (size_t)path_len >= sizeof(path) || lstat(path, &st) != 0 ||
+		    !S_ISREG(st.st_mode) || st.st_size < 0 ||
+		    (size_t)st.st_size > MAX_ICON_STORAGE_BYTES - total_bytes) {
+			closedir(dir);
+			return 0;
+		}
+		total_bytes += (size_t)st.st_size;
+	}
+	closedir(dir);
+
+	if (!target_exists && log_count >= MAX_PERSISTENT_ICONS)
+		return 0;
+	return additional_bytes <= MAX_ICON_STORAGE_BYTES - total_bytes;
+}
+
+void
+state_cleanup_stale_icons(void)
+{
+	DIR *dir = opendir(JFFS_ICON_PATH);
+	struct dirent *entry;
+	char path[64];
+	struct stat st;
+
+	if (dir == NULL)
+		return;
+	while ((entry = readdir(dir)) != NULL) {
+		size_t name_len = strlen(entry->d_name);
+		int path_len;
+		if (name_len <= 4 || strcmp(entry->d_name + name_len - 4, ".ico") != 0)
+			continue;
+		path_len = snprintf(path, sizeof(path), "%s%s", JFFS_ICON_PATH, entry->d_name);
+		if (path_len >= 0 && (size_t)path_len < sizeof(path) &&
+		    lstat(path, &st) == 0 && S_ISREG(st.st_mode))
+			unlink(path);
+	}
+	closedir(dir);
+}
 
 int 
 openvpn_base64_encode(const void *data, int size, char **str) {
@@ -84,14 +181,14 @@ image_to_base64(char *file_path,  char *client_mac) {
 	FILE * pFile;
 	long lSize;
 	char *buffer;
-	char *base64;
+	char *base64 = NULL;
 	size_t result;
 	int i;
 
 	//toUpperCase
 	char client_mac_temp[15];
 	memset(client_mac_temp, 0, sizeof(client_mac_temp));
-	sprintf(client_mac_temp, client_mac);
+	snprintf(client_mac_temp, sizeof(client_mac_temp), "%s", client_mac);
 	int idex = 0;
 	while ( client_mac_temp[idex] != 0 ) {
 		if ( ( client_mac_temp[idex] >= 'a' ) && ( client_mac_temp[idex] <= 'z' ) ) {
@@ -108,20 +205,23 @@ image_to_base64(char *file_path,  char *client_mac) {
 	}
 
 	// obtain file size:
-	fseek (pFile , 0 , SEEK_END);
+	if (fseek(pFile, 0, SEEK_END) != 0) {
+		fclose(pFile);
+		return 0;
+	}
 	lSize = ftell (pFile);
 	rewind (pFile);
+	if (lSize <= 0 || lSize > ICONMAXSZ) {
+		fclose(pFile);
+		return 0;
+	}
 
 	// allocate memory to contain the whole file:
 	buffer = (char*) malloc (sizeof(char)*lSize);
-	base64 = (char*) malloc (sizeof(char)*lSize);
-
-	if (!buffer || !base64) {
+	if (!buffer) {
 		printf("Memory error\n");
 		i = 0;
 		fclose(pFile);
-		if (buffer) free(buffer);
-		if (base64) free(base64);
 		return i;
 	}
 
@@ -132,7 +232,7 @@ image_to_base64(char *file_path,  char *client_mac) {
 		i = 0;
 		fclose(pFile);
 		free(buffer);
-		free(base64);
+		if (base64) free(base64);
 		return i;
 	}
 
@@ -171,22 +271,27 @@ image_to_base64(char *file_path,  char *client_mac) {
 	//if have exist mac file , don't witre
 	if(!check_if_file_exist(write_file_path)) {
 		int str_len = strlen(image_base64);
-		int i;
+		int write_ok;
 		FILE * pFile;
+		if (!icon_storage_available(client_mac_temp, (size_t)str_len))
+			return 0;
 		pFile = fopen (write_file_path , "w");
 
 		if (pFile == NULL) {
 			printf("File error\n");
-			i = 0;
-			return i;
+			return 0;
 		}
 
-		for(i = 0; i < str_len; i++) {
-			fputc(image_base64[i], pFile);
+		write_ok = fwrite(image_base64, 1, str_len, pFile) == (size_t)str_len;
+		if (fclose(pFile) != 0)
+			write_ok = 0;
+		if (!write_ok) {
+			unlink(write_file_path);
+			return 0;
 		}
-		fclose (pFile);
 	}
 
+	unlink(file_path);
 	i = 1;
 	return i;
 }
@@ -366,6 +471,7 @@ dump_packet(uint8_t *buf)
  *
  *****************************************************************************/ 
 extern etheraddr_t	uutMAC;
+extern etheraddr_t	qryMAC;
 extern MacInfo 		*MacList; //Yau
 extern MacInfo		*MacQry;
 extern IconFile		*IconList;
@@ -389,7 +495,6 @@ state_process_packet()
 {
     session_t           *this_session;
     enum sm_Status      smStatus;
-    int			MAC_chk = 0; //Yau
     MacInfo		*MacNode, *MacChk;
 
     IF_TRACED((TRC_STATE|TRC_PACKET))
@@ -430,7 +535,7 @@ state_process_packet()
 		IconFile *icon = IconList;
 		while( icon != NULL )
 		{
-                        sprintf(src_mac, "%02x%02x%02x%02x%02x%02x",
+                        sprintf(src_mac, "%02X%02X%02X%02X%02X%02X",
                                 ETHERADDR_PRINT(&uutMAC));
 			if( memcmp(icon->name, src_mac, 12) == 0)
 			{
@@ -463,43 +568,57 @@ state_process_packet()
 		char *icon_ptr, *cmp_ptr;
 		int icon_copy_len, retry;
 		int more;
+		size_t header_len = sizeof(topo_ether_header_t) + sizeof(topo_base_header_t) + sizeof(icon_image_header_t);
+		size_t payload_len;
+		uint16_t icon_type;
+
+		if (!g_icon_query_active || g_sequencenum != g_icon_query_seqnum)
+			return 0;
+		if (g_rcvd_pkt_len < header_len) {
+			state_discard_icon();
+			return 0;
+		}
 
 		retry = 0;
 		ehdr = (topo_ether_header_t*)(g_rxbuf);
 		bhdr = (topo_base_header_t*)(ehdr + 1);
 		icon_image_hdr = (icon_image_header_t*)(bhdr + 1);
 		icon_ptr = (char*)(icon_image_hdr + 1);
-		more = icon_image_hdr->icon_image_type >> 15;
-		icon_copy_len = ntohs(icon_image_hdr->icon_image_type) & 0x3FFF;
-		g_rcvd_icon_len += icon_copy_len;
+		if (!ETHERADDR_EQUALS(&bhdr->tbh_realsrc, &qryMAC))
+			return 0;
+		icon_type = ntohs(icon_image_hdr->icon_image_type);
+		more = (icon_type & 0x8000) != 0;
+		icon_copy_len = icon_type & 0x3FFF;
+		payload_len = g_rcvd_pkt_len - header_len;
+		if ((size_t)icon_copy_len > payload_len || g_rcvd_icon_len < 0 ||
+		    (size_t)icon_copy_len > ICONMAXSZ - g_rcvd_icon_len) {
+			state_discard_icon();
+			return 0;
+		}
 
 		DEBUG({printf("SEQ : %u\n", g_sequencenum);})
 		DEBUG({printf("length : %d\n", icon_copy_len);})
 		DEBUG({printf("more : %d\n", more);})
 
-		if (g_rcvd_icon_len > ICONMAXSZ)
+		if (g_rcvd_icon_len == 0)
 		{
-			DEBUG({printf("\n*** Receive Icon Image Fail!!! ***\n\n");})
-			g_rcvd_icon_len = -3;
-			if (g_icon_fd)
-			{
-				fclose(g_icon_fd);
-				g_icon_fd = NULL;
+			if (icon_copy_len < 1328) {
+				state_discard_icon();
+				return 0;
 			}
-			remove(icon_file);
-			return -1;
-		}
-
-		if (g_sequencenum == 0)
-		{
 			cmp_ptr = icon_ptr;
 			cmp_ptr += 1296;
 			if (icon_compare(cmp_ptr))
 			{
 				while( (g_icon_fd == NULL) && (retry < 5) )
 				{
-					snprintf(src_mac, sizeof(src_mac), "%02x%02x%02x%02x%02x%02x", ETHERADDR_PRINT(&ehdr->eh_src));
+					snprintf(src_mac, sizeof(src_mac), "%02x%02x%02x%02x%02x%02x", ETHERADDR_PRINT(&qryMAC));
 					snprintf(icon_file, sizeof(icon_file), "%s%s.ico", TMP_ICON_PATH, src_mac);
+					if (!icon_storage_available(src_mac, ICONMAXSZ + ICON_BASE64_MAX)) {
+						g_icon_query_active = FALSE;
+						g_rcvd_icon_len = -3;
+						return 0;
+					}
 					DEBUG({printf("<>Write icon_file : %s <>\n", icon_file);})
 					g_icon_fd = fopen(icon_file, "wb");
 
@@ -513,6 +632,7 @@ state_process_packet()
 			{
 				DEBUG({printf("\n!!!!! Get Default Icon !!!!!\n");})
 				g_rcvd_icon_len = -2;
+				g_icon_query_active = FALSE;
 				return 0;
 			}
 		}
@@ -520,11 +640,15 @@ state_process_packet()
 		if (g_icon_fd == NULL)
 		{
 			DEBUG({printf("<>Not received first packet or open file %s failed\n", icon_file);})
-			g_rcvd_icon_len = -3;
+			state_discard_icon();
 			return 0;
 		}
 
-		fwrite(icon_ptr, sizeof(char), icon_copy_len, g_icon_fd);
+		if (fwrite(icon_ptr, sizeof(char), icon_copy_len, g_icon_fd) != (size_t)icon_copy_len) {
+			state_discard_icon();
+			return 0;
+		}
+		g_rcvd_icon_len += icon_copy_len;
 
 		if (more == 0)
 		{
@@ -533,7 +657,12 @@ state_process_packet()
 			fclose(g_icon_fd);
 			g_icon_fd = NULL;
 			g_rcvd_icon_len = -1;
-			image_to_base64(icon_file, src_mac);
+			g_icon_query_active = FALSE;
+			if (!image_to_base64(icon_file, src_mac)) {
+				remove(icon_file);
+				g_rcvd_icon_len = -3;
+			}
+			icon_file[0] = '\0';
 		}
 	}
 #else

@@ -84,6 +84,10 @@ void usec_sleep(uint32_t napLen)
 
 void quit(void* state)
 {
+    g_icon_query_active = FALSE;
+    if (g_icon_fd != NULL)
+	state_discard_icon();
+
     DEBUG({printf("=======================\nSending Reset to ");})
     DEBUG({printf(ETHERADDR_FMT, ETHERADDR_PRINT(&qryMAC));})
     packetio_send_reset(&qryMAC);
@@ -189,6 +193,8 @@ void get_icon_files(void)
 
 void send_query_large_tlv(void* state)
 {
+    uint16_t query_seqnum;
+
     DEBUG({printf("+++ Query-Large-TLV recv len = %d\n",g_rcvd_icon_len);})
 
     if ((g_rcvd_icon_len < 0) && (gQuit == 0))
@@ -238,7 +244,10 @@ void send_query_large_tlv(void* state)
 
 	delay   = responseTime;
         testFcn = send_query_large_tlv;
-        packetio_send_query_large_tlv(txSeq++, &qryMAC);
+        query_seqnum = txSeq++;
+        g_icon_query_seqnum = query_seqnum;
+        g_icon_query_active = TRUE;
+        packetio_send_query_large_tlv(query_seqnum, &qryMAC);
 	gQuit = 0;
     }
 
@@ -599,6 +608,7 @@ main(int argc, char **argv)
 
     osl_write_pidfile(g_osl);
 
+    state_cleanup_stale_icons();
     osl_drop_privs(g_osl);
 
     get_icon_files();
