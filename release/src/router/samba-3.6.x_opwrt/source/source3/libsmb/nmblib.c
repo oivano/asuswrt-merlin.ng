@@ -154,12 +154,22 @@ static bool handle_name_ptrs(unsigned char *ubuf,int *offset,int length,
 			     bool *got_pointer,int *ret)
 {
 	int loop_count=0;
+	int pointer_offset;
+	int target_offset;
 
-	while ((ubuf[*offset] & 0xC0) == 0xC0) {
+	while (True) {
+		if (*offset < 0 || *offset > length-2)
+			return False;
+		if ((ubuf[*offset] & 0xC0) != 0xC0)
+			break;
+		pointer_offset = *offset;
+		target_offset = ((ubuf[pointer_offset] & ~0xC0)<<8) | ubuf[pointer_offset+1];
+		if (target_offset >= pointer_offset || target_offset > length-2)
+			return False;
 		if (!*got_pointer)
 			(*ret) += 2;
 		(*got_pointer)=True;
-		(*offset) = ((ubuf[*offset] & ~0xC0)<<8) | ubuf[(*offset)+1];
+		(*offset) = target_offset;
 		if (loop_count++ == 10 ||
 				(*offset) < 0 || (*offset)>(length-2)) {
 			return False;

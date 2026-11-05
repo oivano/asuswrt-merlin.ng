@@ -95,23 +95,31 @@ void tell_become_backup(void)
   Process an incoming host announcement packet.
 *******************************************************************/
 
-void process_host_announce(struct subnet_record *subrec, struct packet_struct *p, const char *buf)
+void process_host_announce(struct subnet_record *subrec, struct packet_struct *p, const char *buf, int len)
 {
 	struct dgram_packet *dgram = &p->packet.dgram;
-	int ttl = IVAL(buf,1)/1000;
+	int ttl;
 	unstring announce_name;
-	uint32 servertype = IVAL(buf,23);
+	uint32 servertype;
 	fstring comment;
 	struct work_record *work;
 	struct server_record *servrec;
 	unstring work_name;
 	unstring source_name;
 
+	if (len < 31) {
+		DEBUG(2,("process_host_announce: ignoring short packet from IP %s\n", inet_ntoa(p->ip)));
+		return;
+	}
+
+	ttl = IVAL(buf,1)/1000;
+	servertype = IVAL(buf,23);
+
 	START_PROFILE(host_announce);
 
-	pull_ascii_fstring(comment, buf+31);
+	pull_ascii(comment, buf+31, sizeof(comment), len-31, STR_TERMINATE);
   
-	pull_ascii_nstring(announce_name, sizeof(announce_name), buf+5);
+	pull_ascii(announce_name, buf+5, sizeof(announce_name), MAX_NETBIOSNAME_LEN, STR_TERMINATE);
 	pull_ascii_nstring(source_name, sizeof(source_name), dgram->source_name.name);
 
 	DEBUG(3,("process_host_announce: from %s<%02x> IP %s to \
@@ -195,21 +203,29 @@ done:
   Process an incoming WORKGROUP announcement packet.
 *******************************************************************/
 
-void process_workgroup_announce(struct subnet_record *subrec, struct packet_struct *p, const char *buf)
+void process_workgroup_announce(struct subnet_record *subrec, struct packet_struct *p, const char *buf, int len)
 {
 	struct dgram_packet *dgram = &p->packet.dgram;
-	int ttl = IVAL(buf,1)/1000;
+	int ttl;
 	unstring workgroup_announce_name;
 	unstring master_name;
-	uint32 servertype = IVAL(buf,23);
+	uint32 servertype;
 	struct work_record *work;
 	unstring source_name;
 	unstring dest_name;
 
+	if (len < 31 + MAX_NETBIOSNAME_LEN) {
+		DEBUG(2,("process_workgroup_announce: ignoring short packet from IP %s\n", inet_ntoa(p->ip)));
+		return;
+	}
+
+	ttl = IVAL(buf,1)/1000;
+	servertype = IVAL(buf,23);
+
 	START_PROFILE(workgroup_announce);
 
-	pull_ascii_nstring(workgroup_announce_name,sizeof(workgroup_announce_name),buf+5);
-	pull_ascii_nstring(master_name,sizeof(master_name),buf+31);
+	pull_ascii(workgroup_announce_name, buf+5, sizeof(workgroup_announce_name), MAX_NETBIOSNAME_LEN, STR_TERMINATE);
+	pull_ascii(master_name, buf+31, sizeof(master_name), MAX_NETBIOSNAME_LEN, STR_TERMINATE);
 	pull_ascii_nstring(source_name,sizeof(source_name),dgram->source_name.name);
 	pull_ascii_nstring(dest_name,sizeof(dest_name),dgram->dest_name.name);
 
@@ -252,22 +268,30 @@ done:
   Process an incoming local master browser announcement packet.
 *******************************************************************/
 
-void process_local_master_announce(struct subnet_record *subrec, struct packet_struct *p, const char *buf)
+void process_local_master_announce(struct subnet_record *subrec, struct packet_struct *p, const char *buf, int len)
 {
 	struct dgram_packet *dgram = &p->packet.dgram;
-	int ttl = IVAL(buf,1)/1000;
+	int ttl;
 	unstring server_name;
-	uint32 servertype = IVAL(buf,23);
+	uint32 servertype;
 	fstring comment;
 	unstring work_name;
 	struct work_record *work = NULL;
 	struct server_record *servrec;
 	unstring source_name;
 
+	if (len < 31) {
+		DEBUG(2,("process_local_master_announce: ignoring short packet from IP %s\n", inet_ntoa(p->ip)));
+		return;
+	}
+
+	ttl = IVAL(buf,1)/1000;
+	servertype = IVAL(buf,23);
+
 	START_PROFILE(local_master_announce);
 
-	pull_ascii_nstring(server_name,sizeof(server_name),buf+5);
-	pull_ascii_fstring(comment, buf+31);
+	pull_ascii(server_name, buf+5, sizeof(server_name), MAX_NETBIOSNAME_LEN, STR_TERMINATE);
+	pull_ascii(comment, buf+31, sizeof(comment), len-31, STR_TERMINATE);
 	pull_ascii_nstring(source_name, sizeof(source_name), dgram->source_name.name);
 	pull_ascii_nstring(work_name, sizeof(work_name), dgram->dest_name.name);
 
@@ -367,15 +391,20 @@ done:
 ******************************************************************/
 
 void process_master_browser_announce(struct subnet_record *subrec, 
-                                     struct packet_struct *p,const char *buf)
+                                     struct packet_struct *p,const char *buf, int len)
 {
 	unstring local_master_name;
 	struct work_record *work;
 	struct browse_cache_record *browrec;
 
+	if (len < MAX_NETBIOSNAME_LEN) {
+		DEBUG(2,("process_master_browser_announce: ignoring short packet from IP %s\n", inet_ntoa(p->ip)));
+		return;
+	}
+
 	START_PROFILE(master_browser_announce);
 
-	pull_ascii_nstring(local_master_name,sizeof(local_master_name),buf);
+	pull_ascii(local_master_name, buf, sizeof(local_master_name), MAX_NETBIOSNAME_LEN, STR_TERMINATE);
   
 	DEBUG(3,("process_master_browser_announce: Local master announce from %s IP %s.\n",
 		local_master_name, inet_ntoa(p->ip)));
@@ -641,15 +670,23 @@ static void send_backup_list_response(struct subnet_record *subrec,
 ********************************************************************/
 
 void process_get_backup_list_request(struct subnet_record *subrec,
-                                     struct packet_struct *p,const char *buf)
+                                     struct packet_struct *p,const char *buf, int len)
 {
 	struct dgram_packet *dgram = &p->packet.dgram;
 	struct work_record *work;
-	unsigned char max_number_requested = CVAL(buf,0);
-	uint32 token = IVAL(buf,1); /* Sender's key index for the workgroup. */
+	unsigned char max_number_requested;
+	uint32 token;
 	int name_type = dgram->dest_name.name_type;
 	unstring workgroup_name;
 	struct subnet_record *search_subrec = subrec;
+
+	if (len < 5) {
+		DEBUG(2,("process_get_backup_list_request: ignoring short packet from IP %s\n", inet_ntoa(p->ip)));
+		return;
+	}
+
+	max_number_requested = CVAL(buf,0);
+	token = IVAL(buf,1); /* Sender's key index for the workgroup. */
 
 	START_PROFILE(get_backup_list);
 	pull_ascii_nstring(workgroup_name, sizeof(workgroup_name), dgram->dest_name.name);
@@ -724,11 +761,18 @@ done:
 ******************************************************************/
 
 void process_reset_browser(struct subnet_record *subrec,
-                                  struct packet_struct *p,const char *buf)
+                                  struct packet_struct *p,const char *buf, int len)
 {
 	struct dgram_packet *dgram = &p->packet.dgram;
-	int state = CVAL(buf,0);
+	int state;
 	struct subnet_record *sr;
+
+	if (len < 1) {
+		DEBUG(2,("process_reset_browser: ignoring short packet from IP %s\n", inet_ntoa(p->ip)));
+		return;
+	}
+
+	state = CVAL(buf,0);
 
 	START_PROFILE(reset_browser);
 

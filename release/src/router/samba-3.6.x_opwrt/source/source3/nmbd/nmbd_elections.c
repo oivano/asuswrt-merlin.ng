@@ -258,19 +258,28 @@ static bool win_election(struct work_record *work, int version,
   Process an incoming election datagram packet.
 ******************************************************************/
 
-void process_election(struct subnet_record *subrec, struct packet_struct *p, const char *buf)
+void process_election(struct subnet_record *subrec, struct packet_struct *p, const char *buf, int len)
 {
 	struct dgram_packet *dgram = &p->packet.dgram;
-	int version = CVAL(buf,0);
-	uint32 criterion = IVAL(buf,1);
-	int timeup = IVAL(buf,5)/1000;
+	int version;
+	uint32 criterion;
+	int timeup;
 	unstring server_name;
 	struct work_record *work;
 	unstring workgroup_name;
 
+	if (len < 13 + MAX_NETBIOSNAME_LEN) {
+		DEBUG(2,("process_election: ignoring short packet from IP %s\n", inet_ntoa(p->ip)));
+		return;
+	}
+
+	version = CVAL(buf,0);
+	criterion = IVAL(buf,1);
+	timeup = IVAL(buf,5)/1000;
+
 	START_PROFILE(election);
 
-	pull_ascii_nstring(server_name, sizeof(server_name), buf+13);
+	pull_ascii(server_name, buf+13, sizeof(server_name), MAX_NETBIOSNAME_LEN, STR_TERMINATE);
 	pull_ascii_nstring(workgroup_name, sizeof(workgroup_name), dgram->dest_name.name);
 
 	server_name[15] = 0;  
