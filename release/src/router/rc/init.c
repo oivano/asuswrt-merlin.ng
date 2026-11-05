@@ -19813,6 +19813,10 @@ static void sysinit(void)
 	mkdir("/var/tmp/dhcp", 01777);
 	mkdir("/home/root", 0700);
 	chmod("/tmp", 01777);
+	if (f_write("/tmp/detect_wrong.log", NULL, 0, 0, 0600) < 0)
+		_dprintf("Unable to reserve WAN detection log\n");
+	if (f_write("/tmp/usb.log", NULL, 0, 0, 0600) < 0)
+		_dprintf("Unable to reserve modem log\n");
 	if (!rc_firewall_rules_dir_prepare())
 		_dprintf("Unable to secure firewall rules directory\n");
 	if (!rc_qos_workdir_prepare())

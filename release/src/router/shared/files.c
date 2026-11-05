@@ -308,9 +308,11 @@ int f_write(const char *path, const void *buffer, int len, unsigned flags, unsig
 	size_t wlen;
 	ssize_t r;
 	mode_t m;
+	int root_writer = (geteuid() == 0);
+	int pseudo_file = !strncmp(path, "/proc/", 6) || !strncmp(path, "/sys/", 5);
+	struct stat st;
 #ifdef RTCONFIG_JFFS_NVRAM
 	int nvram_file = !strncmp(path, "/jffs/nvram/", 12);
-	struct stat st;
 
 	if (nvram_file) {
 		const char *name = path + 12;
@@ -325,7 +327,8 @@ int f_write(const char *path, const void *buffer, int len, unsigned flags, unsig
 #endif
 
 	m = umask(0);
-	if (cmode == 0) cmode = 0666;
+	if (cmode == 0) cmode = root_writer ? 0600 : 0666;
+	if (root_writer) cmode &= ~0022;
 #ifdef RTCONFIG_JFFS_NVRAM
 	if (nvram_file) {
 		f = open(path, O_WRONLY | O_CREAT | O_NOFOLLOW | O_NONBLOCK |
@@ -338,7 +341,21 @@ int f_write(const char *path, const void *buffer, int len, unsigned flags, unsig
 		}
 	} else
 #endif
-		f = open(path, (flags & FW_APPEND) ? (O_WRONLY|O_CREAT|O_APPEND) : (O_WRONLY|O_CREAT|O_TRUNC), cmode);
+	{
+		f = open(path, O_WRONLY | O_CREAT | O_NOFOLLOW | O_NONBLOCK |
+				 ((flags & FW_APPEND) ? O_APPEND : 0), cmode);
+		if (f >= 0 && root_writer && !pseudo_file &&
+		    (fstat(f, &st) != 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
+		     st.st_nlink != 1 || (st.st_mode & 0022))) {
+			close(f);
+			f = -1;
+			errno = EPERM;
+		}
+		if (f >= 0 && !(flags & FW_APPEND) && !pseudo_file && ftruncate(f, 0) != 0) {
+			close(f);
+			f = -1;
+		}
+	}
 	if (f >= 0) {
 		if ((buffer == NULL)) {
 			if (flags & FW_NEWLINE) {

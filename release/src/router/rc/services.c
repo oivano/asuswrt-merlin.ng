@@ -1520,6 +1520,47 @@ static char *make_md5_salt(char *buf, size_t size)
 	return make_salt(scheme_id, buf, size);
 }
 
+static void append_jffs_config_checked(FILE *out, const char *name)
+{
+	char path[128];
+	char buffer[1024];
+	struct stat st;
+	FILE *in;
+	int fd, path_len;
+	size_t count;
+
+	path_len = snprintf(path, sizeof(path), "/jffs/configs/%s.add", name);
+	if (path_len < 0 || (size_t)path_len >= sizeof(path))
+		return;
+	if (nvram_match("jffs2_scripts", "0")) {
+		logmessage("custom config", "Found %s, but custom configs are disabled!", path);
+		return;
+	}
+
+	fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+	if (fd < 0)
+		return;
+	if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
+	    st.st_nlink != 1 || (st.st_mode & 0022)) {
+		logmessage("custom config", "Refusing unsafe custom config %s", path);
+		close(fd);
+		return;
+	}
+	if ((in = fdopen(fd, "r")) == NULL) {
+		close(fd);
+		return;
+	}
+	while ((count = fread(buffer, 1, sizeof(buffer), in)) > 0) {
+		if (fwrite(buffer, 1, count, out) != count) {
+			logmessage("custom config", "Unable to append custom config %s", path);
+			break;
+		}
+	}
+	if (ferror(in))
+		logmessage("custom config", "Unable to read custom config %s", path);
+	fclose(in);
+}
+
 void create_passwd(void)
 {
 	FILE *fp;
@@ -1671,7 +1712,7 @@ void create_passwd(void)
 #endif
 		);
 		fappend(fp, "/etc/gshadow.custom");
-		fappend(fp, "/jffs/configs/gshadow.add");
+		append_jffs_config_checked(fp, "gshadow");
 		fclose(fp);
 		run_postconf("gshadow","/etc/gshadow");
 		chmod("/etc/gshadow", 0600);
@@ -1695,7 +1736,7 @@ void create_passwd(void)
 		fprintf(fp, "tor:x:65533:65533:tor:/dev/null:/dev/null\n");
 #endif
 		fappend(fp, "/etc/passwd.custom");
-		fappend(fp, "/jffs/configs/passwd.add");
+		append_jffs_config_checked(fp, "passwd");
 		fclose(fp);
 #ifdef RTCONFIG_OPENVPN
 // TODO: figure out if libvpn does anything special here?
@@ -1726,7 +1767,7 @@ void create_passwd(void)
 #endif
 		);
 		fappend(fp, "/etc/group.custom");
-		fappend(fp, "/jffs/configs/group.add");
+		append_jffs_config_checked(fp, "group");
 		fclose(fp);
 		run_postconf("group","/etc/group");
 
