@@ -7133,6 +7133,9 @@ int ParseIPv4OrIPv6 ( const char** ppszText,
 			{
 				if ( '.' == **ppszText )    //special case of ipv4 convenience notation
 				{
+					if ( pbyAddrCursor > abyAddrLocal + 12 )
+						return 0;
+
 					//who knows how to parse ipv4?  we do!
 					const char* pszTextlocal = pszTextBefore;   //back it up
 					unsigned char abyAddrlocal[16];
