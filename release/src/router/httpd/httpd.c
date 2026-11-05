@@ -606,8 +606,6 @@ int cur_login_ip_type = -1;	//0:LAN, 1:WAN, -1:ERROR
 int lock_flag = 0;
 
 #define LOGIN_SOURCE_LIMIT 256
-#define LOGIN_GLOBAL_STATE_FILE "/tmp/httpd/login-budget"
-#define LOGIN_GLOBAL_MAX_DELAY 30
 struct login_source {
 	char address[INET6_ADDRSTRLEN];
 	unsigned int failures;
@@ -616,113 +614,6 @@ struct login_source {
 	unsigned long blocked_at;
 };
 static struct login_source login_sources[LOGIN_SOURCE_LIMIT];
-
-struct login_global_state {
-	unsigned int attempts;
-	unsigned long last_attempt;
-	unsigned long next_attempt;
-};
-
-static unsigned int
-login_global_delay(unsigned int attempts)
-{
-	unsigned int delay = 1;
-	unsigned int level;
-
-	if (attempts < DEFAULT_LOGIN_MAX_NUM)
-		return 0;
-	level = (attempts - DEFAULT_LOGIN_MAX_NUM) / DEFAULT_LOGIN_MAX_NUM;
-	while (level-- && delay < LOGIN_GLOBAL_MAX_DELAY)
-		delay *= 2;
-	return delay > LOGIN_GLOBAL_MAX_DELAY ? LOGIN_GLOBAL_MAX_DELAY : delay;
-}
-
-static int
-login_global_state_open(struct login_global_state *state)
-{
-	struct stat st;
-	char path[] = LOGIN_GLOBAL_STATE_FILE;
-	int fd, created = 0;
-	ssize_t bytes;
-
-	if (httpd_ensure_temp_dir() != 0)
-		return -1;
-	fd = open(path, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
-	if (fd >= 0)
-		created = 1;
-	else if (errno == EEXIST)
-		fd = open(path, O_RDWR | O_NOFOLLOW);
-	if (fd < 0)
-		return -1;
-	if (flock(fd, LOCK_EX) != 0 || fstat(fd, &st) != 0 ||
-	    !S_ISREG(st.st_mode) || st.st_uid != 0 || st.st_nlink != 1 ||
-	    (created ? fchmod(fd, 0600) : (st.st_mode & 0777) != 0600)) {
-		close(fd);
-		errno = EPERM;
-		return -1;
-	}
-	if (lseek(fd, 0, SEEK_SET) < 0) {
-		close(fd);
-		return -1;
-	}
-	bytes = read(fd, state, sizeof(*state));
-	if (bytes != sizeof(*state) || state->attempts > 1000000)
-		memset(state, 0, sizeof(*state));
-	return fd;
-}
-
-static int
-login_global_state_save(int fd, const struct login_global_state *state)
-{
-	if (ftruncate(fd, 0) != 0 || lseek(fd, 0, SEEK_SET) < 0 ||
-	    write(fd, state, sizeof(*state)) != sizeof(*state))
-		return -1;
-	return 0;
-}
-
-int
-httpd_login_attempt_admit(void)
-{
-	struct login_global_state state;
-	unsigned long now = (unsigned long)uptime();
-	unsigned int delay;
-	int fd, admitted;
-
-	fd = login_global_state_open(&state);
-	if (fd < 0)
-		return 0;
-	if (state.attempts &&
-	    (now < state.last_attempt || now - state.last_attempt >= MAX_LOGIN_BLOCK_TIME)) {
-		memset(&state, 0, sizeof(state));
-	}
-	if (state.next_attempt && now < state.next_attempt) {
-		admitted = 0;
-	} else {
-		if (state.attempts < 1000000)
-			++state.attempts;
-		state.last_attempt = now;
-		delay = login_global_delay(state.attempts);
-		state.next_attempt = delay ? now + delay : 0;
-		admitted = login_global_state_save(fd, &state) == 0;
-	}
-	flock(fd, LOCK_UN);
-	close(fd);
-	return admitted;
-}
-
-static void
-login_global_reset(void)
-{
-	struct login_global_state state;
-	int fd = login_global_state_open(&state);
-
-	if (fd < 0)
-		return;
-	memset(&state, 0, sizeof(state));
-	login_global_state_save(fd, &state);
-	flock(fd, LOCK_UN);
-	close(fd);
-}
 
 static struct login_source *
 login_source_get(int create)
@@ -809,7 +700,6 @@ httpd_login_reset(void)
 	struct login_source *entry = login_source_get(0);
 	if (entry)
 		memset(entry, 0, sizeof(*entry));
-	login_global_reset();
 }
 
 // 2008.08 magic {
