@@ -54,8 +54,23 @@ static int _ovpn_route_has_dev(char **route_args, int route_argc, const char *if
 	return 0;
 }
 
+static int _ovpn_route_has_wan_dev(char **route_args, int route_argc)
+{
+	int unit;
+	char *wan_ifname;
+
+	for (unit = WAN_UNIT_FIRST; unit < WAN_UNIT_MAX; unit++) {
+		wan_ifname = get_wan_ifname(unit);
+		if (wan_ifname && *wan_ifname &&
+		    _ovpn_route_has_dev(route_args, route_argc, wan_ifname))
+			return 1;
+	}
+
+	return 0;
+}
+
 static void _ovpn_apply_route_listing(FILE *fp, int unit, const char *action,
-					      const char *iface, int verbose)
+		const char *iface, int exclude_wan, int verbose)
 {
 	char line[512], log_line[512], table[16];
 	char *route_args[64], *argv[70], *saveptr, *token;
@@ -77,7 +92,9 @@ static void _ovpn_apply_route_listing(FILE *fp, int unit, const char *action,
 			route_args[route_argc++] = token;
 			token = strtok_r(NULL, " \t", &saveptr);
 		}
-		if (token || route_argc == 0 || (iface && !_ovpn_route_has_dev(route_args, route_argc, iface)))
+		if (token || route_argc == 0 ||
+		    (iface && !_ovpn_route_has_dev(route_args, route_argc, iface)) ||
+		    (exclude_wan && _ovpn_route_has_wan_dev(route_args, route_argc)))
 			continue;
 
 		argc = 0;
@@ -362,7 +379,7 @@ void ovpn_client_up_handler(int unit)
 		// Copy main table routes
 		fp_route = popen("/usr/sbin/ip route show table main", "r");
 		if (fp_route) {
-			_ovpn_apply_route_listing(fp_route, unit, "add", NULL, verb);
+			_ovpn_apply_route_listing(fp_route, unit, "add", NULL, 1, verb);
 			pclose(fp_route);
 		}
 
@@ -1142,7 +1159,7 @@ void _add_server_routes(char *server_iface, int client_unit) {
 	fp_route = popen("/usr/sbin/ip route list table main", "r");
 
 	if (fp_route) {
-		_ovpn_apply_route_listing(fp_route, client_unit, "add", server_iface, 0);
+		_ovpn_apply_route_listing(fp_route, client_unit, "add", server_iface, 0, 0);
 		pclose(fp_route);
 	}
 }
@@ -1158,7 +1175,7 @@ void _del_server_routes(char *server_iface, int client_unit) {
 	fp_route = popen(buffer, "r");
 
 	if (fp_route) {
-		_ovpn_apply_route_listing(fp_route, client_unit, "del", server_iface, 0);
+		_ovpn_apply_route_listing(fp_route, client_unit, "del", server_iface, 0, 0);
 		pclose(fp_route);
 	}
 }
