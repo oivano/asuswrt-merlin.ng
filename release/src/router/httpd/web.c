@@ -15245,6 +15245,30 @@ do_upgrade_post(char *url, FILE *stream, int len, char *boundary)
 			upgrade_err = 1;
 			goto err;
 		}
+#ifdef RTCONFIG_DSL_TCLINUX
+		{
+			size_t boundary_len, trailer_len;
+			long image_len;
+
+			if (!boundary || !*boundary)
+				goto err;
+			boundary_len = strlen(boundary);
+			if (boundary_len > sizeof(buf) - 8)
+				goto err;
+			trailer_len = boundary_len + 8;
+			if (upload_len <= (long)trailer_len)
+				goto err;
+			image_len = upload_len - trailer_len;
+			if (fseek(fifo, image_len, SEEK_SET) != 0 ||
+			    fread(buf, 1, trailer_len, fifo) != trailer_len ||
+			    memcmp(buf, "\r\n--", 4) != 0 ||
+			    memcmp(buf + 4, boundary, boundary_len) != 0 ||
+			    memcmp(buf + 4 + boundary_len, "--\r\n", 4) != 0 ||
+			    ftruncate(fileno(fifo), image_len) != 0)
+				goto err;
+			upload_len = image_len;
+		}
+#endif
 		upgrade_spool.complete = 1;
 		if (!httpd_upgrade_spool_valid(&upgrade_spool))
 			goto err;
@@ -15263,12 +15287,19 @@ do_upgrade_post(char *url, FILE *stream, int len, char *boundary)
 
 #ifdef RTCONFIG_DSL_REMOTE
 	int ret_val_sep;
+#ifdef RTCONFIG_RALINK
 	ret_val_sep = separate_tc_fw_from_trx(upload_fifo, upload_len);
-	// should router update tc fw?
-	if (ret_val_sep)
+	if (ret_val_sep && check_tc_firmware_crc())
+		goto err;
+#else
+	ret_val_sep = stage_tc_firmware_from_trx(upload_fifo, upload_len,
+						 HTTPD_UPGRADE_DIRECTORY, 1);
+	if (ret_val_sep < 0 ||
+	    (ret_val_sep > 0 && check_tc_firmware_stage(HTTPD_UPGRADE_DIRECTORY, 1) != 0))
+		goto err;
+#endif
+	if (ret_val_sep > 0)
 	{
-		if(check_tc_firmware_crc()) /* return 0 when pass */
-			goto err;
 #ifndef RTCONFIG_RALINK
 		nvram_set_int("reboot_time", nvram_get_int("reboot_time")+100);
 #endif
@@ -15726,6 +15757,7 @@ httpd_upgrade_spool_clear(struct httpd_restore_spool *spool)
 		unlink(HTTPD_UPGRADE_IMAGE);
 		unlink(HTTPD_UPGRADE_IDENTITY);
 		unlink("/tmp/httpd-upgrade/tcfw.bin");
+		unlink("/tmp/httpd-upgrade/tclinux.bin");
 		unlink("/tmp/httpd-upgrade/ras.bin");
 		rmdir(HTTPD_UPGRADE_DIRECTORY);
 	}
