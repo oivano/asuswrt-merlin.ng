@@ -262,7 +262,7 @@ static struct group_entry *get_group(unsigned char *ea, int allocate)
 			STAILQ_REMOVE_AFTER(&groups.pool, prev, link);
 		else 	STAILQ_REMOVE_HEAD(&groups.pool, link);
 		switch_clr_portmap(group->ea);
-		memset(&group, 0, sizeof(group));
+		memset(group, 0, sizeof(*group));
 	}
 
 	init_group(group);
