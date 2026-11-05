@@ -1,10 +1,14 @@
 
+#define _GNU_SOURCE
 #include <stdarg.h>
 #include <time.h>
 #include <stdio.h>
 #include <memory.h>
 #include <string.h>
 #include <sys/timeb.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #include "log.h"
 
@@ -35,13 +39,31 @@ const char *logTime()
 
 void log_open(const char *file, int level)
 {
+	struct stat st;
+	int descriptor;
+
 	logLevel = level;
 
 	if (logFile)
 		log_close();
 
-	if (file && *file)
-		logFile = fopen(file, "a+");
+	if (file && *file) {
+		descriptor = open(file, O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW | O_NONBLOCK, 0600);
+		if (descriptor >= 0) {
+			if (fstat(descriptor, &st) < 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
+			    st.st_nlink != 1 || fchmod(descriptor, 0600) < 0 ||
+			    fchown(descriptor, 0, 0) < 0 || fchmod(descriptor, 0600) < 0 ||
+			    fstat(descriptor, &st) < 0 ||
+			    !S_ISREG(st.st_mode) || st.st_uid != 0 || st.st_gid != 0 ||
+			    st.st_nlink != 1 || (st.st_mode & 0777) != 0600) {
+				close(descriptor);
+			} else {
+				logFile = fdopen(descriptor, "a");
+				if (!logFile)
+					close(descriptor);
+			}
+		}
+	}
 	if (!logFile) 
 	{
 		logFile = stderr;
