@@ -15,10 +15,11 @@ assert.match(iaText, /static bool ia_interface_ready\([\s\S]*?iface->pd_assignme
 assert.match(iaText, /list_for_each_entry\(a, &iface->pd_assignments, head\)\s*if \(!a->clid_len && a->length == 64\)/);
 assert.match(iaText, /static void update\(struct relayd_interface \*iface\)\n\{\n\tif \(!ia_interface_ready\(iface\)\)\n\t\treturn;/);
 assert.match(iaText, /size_t dhcpv6_handle_ia\([\s\S]*?\n\tif \(!ia_interface_ready\(iface\)\)\n\t\treturn 0;/);
+assert.match(iaText, /uint8_t clid_data\[130\];[\s\S]*?if \(assign->clid_len > sizeof\(reconf_msg\.clid_data\)\)\n\t\treturn -1;[\s\S]*?memcpy\(reconf_msg\.clid_data, assign->clid_data, assign->clid_len\);[\s\S]*?sizeof\(reconf_msg\) - sizeof\(reconf_msg\.clid_data\) \+ assign->clid_len/);
 
 if (process.env.DHCPV6_IA_SOURCE_ONLY === '1') {
-    console.log('6relayd DHCPv6 IA source guards: ok');
-    process.exit(0);
+	console.log('6relayd DHCPv6 IA source guards: ok');
+	process.exit(0);
 }
 
 const harness = String.raw`
@@ -74,6 +75,17 @@ static size_t run(uint8_t msg_type, int pd_count, int na_count, struct relayd_in
 	return len;
 }
 
+static void run_reconf(struct relayd_interface *iface, uint8_t clid_len)
+{
+	struct assignment *a = calloc(1, sizeof(*a) + clid_len);
+	a->peer.sin6_family = AF_INET6;
+	a->clid_len = clid_len;
+	memset(a->clid_data, 0x5a, clid_len);
+	if (send_reconf(iface, a))
+		exit(3);
+	free(a);
+}
+
 int main(void)
 {
 	static struct relayd_config cfg;
@@ -82,6 +94,9 @@ int main(void)
 	cfg.slavecount = 1;
 	if (dhcpv6_init_ia(&cfg, -1))
 		return 2;
+	run_reconf(&slave, 128);
+	run_reconf(&slave, 129);
+	run_reconf(&slave, 130);
 
 	size_t req = run(DHCPV6_MSG_REQUEST, 22, 30, &slave);
 	size_t sol = run(DHCPV6_MSG_SOLICIT, 22, 30, &slave);
@@ -98,19 +113,19 @@ int main(void)
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), '6relayd-ia-'));
 try {
-    const cFile = path.join(dir, 'harness.c');
-    const exe = path.join(dir, 'harness');
-    fs.writeFileSync(cFile, harness);
-    execFileSync('cc', ['-std=gnu99', '-g', '-O0', '-fsanitize=address', '-fno-omit-frame-pointer',
-        '-w', '-I', srcDir, cFile, path.join(srcDir, 'md5.c'), '-o', exe], { stdio: 'pipe' });
-    const result = spawnSync(exe, [], { encoding: 'utf8', env: { ...process.env, ASAN_OPTIONS: 'detect_leaks=0' } });
-    assert.equal(result.status, 0, `harness failed:\n${result.stdout}\n${result.stderr}`);
-    const [req, sol, small, master, uninitialized] = result.stdout.trim().split(/\s+/).map(Number);
-    assert(req <= 512 && sol <= 512, 'reply exceeds pdbuf');
-    assert(small > 36, 'normal REQUEST still carries the reconfigure handshake');
-    assert.equal(master, 0, 'master interface must not receive IA processing');
-    assert.equal(uninitialized, 0, 'uninitialized IA list must not receive IA processing');
+	const cFile = path.join(dir, 'harness.c');
+	const exe = path.join(dir, 'harness');
+	fs.writeFileSync(cFile, harness);
+	execFileSync('cc', ['-std=gnu99', '-g', '-O0', '-fsanitize=address', '-fno-omit-frame-pointer',
+		'-w', '-I', srcDir, cFile, path.join(srcDir, 'md5.c'), '-o', exe], { stdio: 'pipe' });
+	const result = spawnSync(exe, [], { encoding: 'utf8', env: { ...process.env, ASAN_OPTIONS: 'detect_leaks=0' } });
+	assert.equal(result.status, 0, `harness failed:\n${result.stdout}\n${result.stderr}`);
+	const [req, sol, small, master, uninitialized] = result.stdout.trim().split(/\s+/).map(Number);
+	assert(req <= 512 && sol <= 512, 'reply exceeds pdbuf');
+	assert(small > 36, 'normal REQUEST still carries the reconfigure handshake');
+	assert.equal(master, 0, 'master interface must not receive IA processing');
+	assert.equal(uninitialized, 0, 'uninitialized IA list must not receive IA processing');
 } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+	fs.rmSync(dir, { recursive: true, force: true });
 }
 console.log('6relayd DHCPv6 IA reply bounds: ok');

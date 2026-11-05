@@ -178,7 +178,7 @@ static int send_reconf(struct relayd_interface *iface, struct assignment *assign
 		struct dhcpv6_auth_reconfigure auth;
 		uint16_t clid_type;
 		uint16_t clid_len;
-		uint8_t clid_data[128];
+		uint8_t clid_data[130];
 	} __attribute__((packed)) reconf_msg = {
 		.hdr = {DHCPV6_MSG_RECONFIGURE, {0, 0, 0}},
 		.srvid_type = htons(DHCPV6_OPT_SERVERID),
@@ -198,8 +198,12 @@ static int send_reconf(struct relayd_interface *iface, struct assignment *assign
 		.clid_data = {0},
 	};
 
+	if (assign->clid_len > sizeof(reconf_msg.clid_data))
+		return -1;
+
 	memcpy(reconf_msg.clid_data, assign->clid_data, assign->clid_len);
-	struct iovec iov = {&reconf_msg, sizeof(reconf_msg) - 128 + assign->clid_len};
+	struct iovec iov = {&reconf_msg,
+			sizeof(reconf_msg) - sizeof(reconf_msg.clid_data) + assign->clid_len};
 
 	md5_state_t md5;
 	uint8_t secretbytes[16];
