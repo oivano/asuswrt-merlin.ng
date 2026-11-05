@@ -28,6 +28,8 @@
  * and smT in an appropriate order, unless an smX returns a cutoff. */
 
 extern uint state_process_packet(void);
+extern void state_discard_icon(void);
+extern void state_cleanup_stale_icons(void);
 extern uint state_process_timeout(void);
 
 /* State machine return codes */

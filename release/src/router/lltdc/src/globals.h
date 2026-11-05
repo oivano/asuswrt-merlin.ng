@@ -116,6 +116,8 @@ GLOBAL  osl_t	       *g_osl;		/* OS-Layer state */
 #define RXBUFSZ 2048
 #define TXBUFSZ 2048
 #define ICONMAXSZ 32768
+#define MAX_PERSISTENT_ICONS 64
+#define MAX_ICON_STORAGE_BYTES (5 * 1024 * 1024)
 GLOBAL  uint8_t		g_rxbuf[RXBUFSZ];	/* fixed buffer we receive packets into */
 GLOBAL  uint8_t		g_txbuf[TXBUFSZ];	/* fixed buffer we transmit packets from */
 GLOBAL  uint8_t		g_re_txbuf[TXBUFSZ];	/* alternate tx buffer for retransmission from */
@@ -127,6 +129,8 @@ GLOBAL  uint8_t		g_re_tx_opcode;		/* last sequenced-request opcode */
 GLOBAL  int		g_rcvd_icon_len;	/* Yau add how many bytes of icon are saved */
 GLOBAL  int		g_discover_count;	/* Yau add to exit if no response */
 GLOBAL  FILE 		*g_icon_fd; 		/* Yau Add to store icon */
+GLOBAL  uint16_t	g_icon_query_seqnum;
+GLOBAL  bool_t		g_icon_query_active;
 
 /* packet pointers and information, hoisted here for fast access */
 GLOBAL  topo_ether_header_t    *g_ethernet_hdr;	/* pointer to ethernet header in rxbuf */
