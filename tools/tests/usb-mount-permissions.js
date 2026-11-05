@@ -24,7 +24,9 @@ assert.match(source, /if \(!usb_mountpoint_is_safe\(mnt_dir\)\)[\s\S]*?if\(!strn
 
 assert.match(source, /unsigned long flags = MS_NOATIME \| MS_NODEV \| MS_NOSUID;/);
 assert.match(source, /unsigned long flags = MS_NODEV \| MS_NOSUID;/);
-assert.match(source, /strlcat\(options, options\[0\] \? ",nosuid,nodev" : "nosuid,nodev", sizeof\(options\)\)/);
+assert.match(source, /strlcat\(options,[\s\S]*?options\[0\] \? ",nosuid,nodev" : "nosuid,nodev"[\s\S]*?sizeof\(options\)\)/);
+assert.match(source, /nvram_safe_get\("usb_ext_opt"\)[\s\S]*?strlcat\(options,[\s\S]*?"errors=remount-ro"[\s\S]*?sizeof\(options\)/);
+assert.equal((source.match(/ret = mount\(mnt_dev, mnt_dir, type, flags, options\[0\] \? options : ""\)/g) || []).length, 4);
 assert.match(source, /mount\(mnt_dev, mnt_dir, type, flags, options\[0\] \? options : ""\)/);
 assert.match(source, /eval\("mount", "-t", "vfat", "-o", options, mnt_dev, mnt_dir\)/);
 assert.match(source, /eval\("mount", "-t", "tfat", "-o", options, mnt_dev, mnt_dir\)/);
