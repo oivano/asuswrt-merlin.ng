@@ -6039,7 +6039,7 @@ start_ddns(char *caller)
 			fprintf(time_fp,"%ld,%s",time(&now),wan_ip);
 			fclose(time_fp);
 		}
-		ret = eval("GoogleDNS_Update.sh", user, passwd, host, wan_ip);
+		ret = eval("GoogleDNS_Update.sh", host, wan_ip);
 	} else
 #endif
 	if (asus_ddns == 2) { //Peanuthull DDNS
