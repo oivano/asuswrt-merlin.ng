@@ -113,6 +113,9 @@ struct usockaddr {
 #define MAX_CONN_TIMEOUT 5
 #define MAX_CONN_PER_SOURCE 8
 #define HTTPD_REQUEST_TIMEOUT 3
+#define HTTPD_BODY_TIMEOUT_GRACE 5
+#define HTTPD_BODY_MIN_RATE 32768
+#define HTTPD_BODY_TIMEOUT_MAX 180
 #define HTTPD_SLOW_SOURCE_BLOCK 60
 #define HTTPD_SLOW_SOURCE_LIMIT 256
 #define HTTPD_SLOWLORIS_SOURCE_LIMIT 256
@@ -123,7 +126,10 @@ struct usockaddr {
 static volatile sig_atomic_t request_deadline_active;
 static volatile sig_atomic_t request_deadline_expired;
 static volatile sig_atomic_t request_deadline_timed_out;
+static volatile sig_atomic_t request_deadline_seconds;
+static int request_deadline_body;
 static unsigned int request_previous_alarm;
+static void httpd_request_deadline_start(unsigned int timeout, int body_phase);
 static int httpd_request_deadline_stop(void);
 
 typedef struct conn_item {
@@ -1799,6 +1805,18 @@ httpd_request_body_limit(const char *url)
 	return HTTPD_MAX_FORM_BODY;
 }
 
+static unsigned int
+httpd_request_body_timeout(int content_length)
+{
+	unsigned int timeout = HTTPD_BODY_TIMEOUT_GRACE;
+
+	if (content_length > 0)
+		timeout += ((unsigned int)content_length + HTTPD_BODY_MIN_RATE - 1) / HTTPD_BODY_MIN_RATE;
+	if (timeout > HTTPD_BODY_TIMEOUT_MAX)
+		timeout = HTTPD_BODY_TIMEOUT_MAX;
+	return timeout;
+}
+
 static void
 handle_request(void)
 {
@@ -2331,7 +2349,11 @@ handle_request(void)
 			}
 // 2007.11 James. for QISxxx.htm pages }
 			if (handler->input) {
+				if (cl > 0)
+					httpd_request_deadline_start(httpd_request_body_timeout(cl), 1);
 				handler->input(file, conn_fp, cl, boundary);
+				if (cl > 0 && httpd_request_deadline_stop())
+					return;
 #ifdef RTCONFIG_IPSEC
 				if (match("ipsecupload.cgi*", url) && !httpd_ipsec_upload_ok()) {
 					send_error(400, "Bad Request", NULL, "Invalid IPsec certificate upload.");
@@ -3161,12 +3183,15 @@ void check_alive()
 }
 
 static void
-httpd_request_deadline_start(void)
+httpd_request_deadline_start(unsigned int timeout, int body_phase)
 {
 	request_deadline_expired = 0;
 	request_deadline_timed_out = 0;
-	request_headers_complete = 0;
-	request_previous_alarm = alarm(HTTPD_REQUEST_TIMEOUT);
+	request_deadline_seconds = timeout;
+	request_deadline_body = body_phase;
+	if (!body_phase)
+		request_headers_complete = 0;
+	request_previous_alarm = alarm(timeout);
 	request_deadline_active = 1;
 }
 
@@ -3184,18 +3209,20 @@ httpd_request_deadline_stop(void)
 	request_deadline_timed_out = expired;
 	if (expired) {
 		httpd_slow_source_block(&request_peer);
-		if (!request_headers_complete)
+		if (!request_headers_complete || request_deadline_body)
 			httpd_slowloris_record_timeout(&request_peer);
 		alarm(20);
 	} else {
 		remaining = alarm(0);
-		elapsed = remaining < HTTPD_REQUEST_TIMEOUT ? HTTPD_REQUEST_TIMEOUT - remaining : 0;
+		elapsed = remaining < request_deadline_seconds ? request_deadline_seconds - remaining : 0;
 		if (request_previous_alarm > elapsed)
 			alarm(request_previous_alarm - elapsed);
 		else
 			alarm(request_previous_alarm ? 1 : 20);
 	}
 	request_previous_alarm = 0;
+	request_deadline_seconds = 0;
+	request_deadline_body = 0;
 	request_deadline_expired = 0;
 	return expired;
 }
@@ -3527,7 +3554,7 @@ reload_cert:
 			/* Process request if any */
 			if (FD_ISSET(item->fd, &rfds)) {
 				request_peer = item->usa;
-				httpd_request_deadline_start();
+				httpd_request_deadline_start(HTTPD_REQUEST_TIMEOUT, 0);
 				request_deadline_started = 1;
 #ifdef RTCONFIG_HTTPS
 				if (do_ssl) {

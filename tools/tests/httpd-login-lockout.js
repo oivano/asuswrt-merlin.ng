@@ -198,7 +198,7 @@ assert.doesNotMatch(source + header, /\b(?:filter_ban_ip|slowloris_check|add_ban
 assert.match(slowlorisSourceGet, /inet_ntop\(family, peer_address, address, sizeof\(address\)\)/);
 assert.match(slowlorisSourceGet, /entry->family == family &&\s*!strcmp\(entry->address, address\)/);
 assert.match(slowlorisCheck, /httpd_slowloris_loopback\(peer\)/);
-assert.match(requestDeadlineStop, /if \(!request_headers_complete\)\s*httpd_slowloris_record_timeout\(&request_peer\)/);
+assert.match(requestDeadlineStop, /if \(!request_headers_complete \|\| request_deadline_body\)\s*httpd_slowloris_record_timeout\(&request_peer\)/);
 assert.match(slowlorisBlocked, /now < entry->blocked_until/);
 assert.match(source, /httpd_slowloris_blocked\(&item->usa\)/);
 assert.match(source, /#define HTTPD_SLOWLORIS_ATTEMPT_LIMIT 7/);
