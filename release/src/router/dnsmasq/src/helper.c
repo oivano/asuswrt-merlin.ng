@@ -76,6 +76,9 @@ struct script_data
 static struct script_data *buf = NULL;
 static size_t bytes_in_buf = 0, buf_size = 0;
 
+/* Allow for expanded DHCP options while bounding helper allocations. */
+#define MAX_HELPER_DATA (DHCP_PACKET_MAX * 16)
+
 int create_helper(int event_fd, int err_fd, uid_t uid, gid_t gid, long max_fd)
 {
   pid_t pid;
@@ -211,7 +214,49 @@ int create_helper(int event_fd, int err_fd, uid_t uid, gid_t gid, long max_fd)
 	}
  
       is6 = !!(data.flags & (LEASE_TA | LEASE_NA));
-      
+
+      /* Reject impossible frame sizes; valid payloads are always consumed. */
+      if (data.clid_len < 0 || data.clid_len > MAX_HELPER_DATA ||
+	  data.hostname_len < 0 || data.hostname_len > MAX_HELPER_DATA ||
+	  data.ed_len < 0 || data.ed_len > MAX_HELPER_DATA)
+	{
+	  send_event(event_fd, EVENT_DIE, 0, NULL);
+	  _exit(1);
+	}
+
+      data_len = (size_t)data.clid_len + (size_t)data.hostname_len + (size_t)data.ed_len;
+      if (data_len > MAX_HELPER_DATA)
+	{
+	  send_event(event_fd, EVENT_DIE, 0, NULL);
+	  _exit(1);
+	}
+
+      /* supplied data may just exceed normal buffer. */
+      if (data_len > MAXDNAMESTR &&
+	  !(alloc_buff = buf = malloc(data_len)))
+	{
+	  unsigned char discard[1024];
+	  size_t remaining = data_len;
+
+	  while (remaining != 0)
+	    {
+	      int chunk = remaining > sizeof(discard) ? sizeof(discard) : remaining;
+	      if (!read_write(pipefd[0], discard, chunk, RW_READ))
+		_exit(0);
+	      remaining -= chunk;
+	    }
+	  continue;
+	}
+
+      if (!read_write(pipefd[0], buf, data_len, RW_READ))
+	_exit(0);
+
+#ifdef HAVE_DHCP6
+      if (is6 && (data.vendorclass_count < 0 ||
+		  (size_t)data.vendorclass_count > (size_t)data.ed_len))
+	continue;
+#endif
+
       if (data.action == ACTION_DEL)
 	action_str = "del";
       else if (data.action == ACTION_ADD)
@@ -239,12 +284,12 @@ int create_helper(int event_fd, int err_fd, uid_t uid, gid_t gid, long max_fd)
 	   is6 = 1;
 	   action_str = "relay-snoop";
 	 }
-       else
+      else
 	 continue;
-      	
+
       /* stringify MAC into dhcp_buff */
       p = daemon->dhcp_buff;
-      if (data.hwaddr_type != ARPHRD_ETHER || data.hwaddr_len == 0) 
+      if (data.hwaddr_type != ARPHRD_ETHER || data.hwaddr_len == 0)
 	p += sprintf(p, "%.2x-", data.hwaddr_type);
       for (i = 0; (i < data.hwaddr_len) && (i < DHCP_CHADDR_MAX); i++)
 	{
@@ -252,22 +297,6 @@ int create_helper(int event_fd, int err_fd, uid_t uid, gid_t gid, long max_fd)
 	  if (i != data.hwaddr_len - 1)
 	    p += sprintf(p, ":");
 	}
-      
-      /* Lengths come from the unprivileged process; validate before arithmetic. */
-      if (data.clid_len < 0 || data.clid_len > MAXDNAMESTR ||
-          data.hostname_len < 0 || data.hostname_len > MAXDNAMESTR ||
-          data.ed_len < 0 || data.ed_len > MAXDNAMESTR)
-	continue;
-
-      data_len = (size_t)data.clid_len + (size_t)data.hostname_len + (size_t)data.ed_len;
-
-      /* supplied data may just exceed normal buffer (unlikely) */
-      if (data_len > MAXDNAMESTR &&
-	  !(alloc_buff = buf = malloc(data_len)))
-	continue;
-      
-      if (!read_write(pipefd[0], buf, data_len, RW_READ))
-	continue;
 
       /* CLID into packet: limit to 100 bytes to avoid overflowing buffer. */
       for (p = daemon->packet, i = 0; i < data.clid_len && i < 100; i++)
@@ -781,7 +810,7 @@ static void buff_alloc(size_t size)
 void queue_script(int action, struct dhcp_lease *lease, char *hostname, time_t now)
 {
   unsigned char *p;
-  unsigned int hostname_len = 0, clid_len = 0, ed_len = 0;
+	size_t hostname_len = 0, clid_len = 0, ed_len = 0, data_len, total_len;
   int fd = daemon->dhcpfd;
 #ifdef HAVE_DHCP6 
   if (!daemon->dhcp)
@@ -799,7 +828,21 @@ void queue_script(int action, struct dhcp_lease *lease, char *hostname, time_t n
   if (hostname)
     hostname_len = strlen(hostname) + 1;
 
-  buff_alloc(sizeof(struct script_data) +  clid_len + ed_len + hostname_len);
+  if (clid_len > MAX_HELPER_DATA || hostname_len > MAX_HELPER_DATA || ed_len > MAX_HELPER_DATA)
+    return;
+
+  data_len = clid_len;
+  if (hostname_len > MAX_HELPER_DATA - data_len)
+    return;
+  data_len += hostname_len;
+  if (ed_len > MAX_HELPER_DATA - data_len)
+    return;
+  data_len += ed_len;
+  total_len = sizeof(struct script_data) + data_len;
+
+  buff_alloc(total_len);
+  if (!buf || buf_size < total_len)
+    return;
 
   buf->action = action;
   buf->flags = lease->flags;
@@ -810,9 +853,9 @@ void queue_script(int action, struct dhcp_lease *lease, char *hostname, time_t n
 #endif
   buf->hwaddr_len = lease->hwaddr_len;
   buf->hwaddr_type = lease->hwaddr_type;
-  buf->clid_len = clid_len;
-  buf->ed_len = ed_len;
-  buf->hostname_len = hostname_len;
+  buf->clid_len = (int)clid_len;
+  buf->ed_len = (int)ed_len;
+  buf->hostname_len = (int)hostname_len;
   buf->addr = lease->addr;
   buf->giaddr = lease->giaddr;
   memcpy(buf->hwaddr, lease->hwaddr, DHCP_CHADDR_MAX);
