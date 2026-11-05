@@ -175,6 +175,7 @@ static void pipe_write_done(struct tevent_req *subreq);
 void reply_pipe_write(struct smb_request *req)
 {
 	files_struct *fsp = file_fsp(req, SVAL(req->vwv+0, 0));
+	size_t numtowrite;
 	const uint8_t *data;
 	struct pipe_write_state *state;
 	struct tevent_req *subreq;
@@ -189,6 +190,12 @@ void reply_pipe_write(struct smb_request *req)
 		return;
 	}
 
+	numtowrite = SVAL(req->vwv+1, 0);
+	if (req->buflen < 3 || numtowrite > req->buflen - 3) {
+		reply_nterror(req, NT_STATUS_INVALID_PARAMETER);
+		return;
+	}
+
 	state = talloc(req, struct pipe_write_state);
 	if (state == NULL) {
 		reply_nterror(req, NT_STATUS_NO_MEMORY);
@@ -196,7 +203,7 @@ void reply_pipe_write(struct smb_request *req)
 	}
 	req->async_priv = state;
 
-	state->numtowrite = SVAL(req->vwv+1, 0);
+	state->numtowrite = numtowrite;
 
 	data = req->buf + 3;
 
