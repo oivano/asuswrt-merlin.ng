@@ -28,7 +28,7 @@ const ajax = read('release/src/router/www/ajax_conntrack.asp');
 const encoder = state.match(/var htmlEnDeCode = \(function \(\) \{[^]*?\n\}\)\(\);/)[0];
 const jsonHelper = arrays.match(/static int websWriteJsonString\([^]*?\n\}/)[0];
 const escapes = new Map();
-for (const match of jsonHelper.matchAll(/case ('(?:\\.|[^'])+'): ret \+= websWrite\(wp, ("(?:\\.|[^"])*")\); break;/g))
+for (const match of jsonHelper.matchAll(/case ('(?:\\.|[^'\\])+'): ret \+= websWrite\(wp, ("(?:\\.|[^"\\])*")\); break;/g))
     escapes.set(vm.runInNewContext(match[1]), vm.runInNewContext(match[2]));
 assert.equal(escapes.size, 11);
 assert.match(jsonHelper, /if \(\*p < 0x20\)\s+ret \+= websWrite\(wp, "\\\\u%04x", \*p\);/);
