@@ -100,6 +100,25 @@ assert.ok(guestAllowlist[0].indexOf('--sport 547 --dport 546 -j ACCEPT') < guest
 assert.ok(guestAllowlist[0].indexOf('ipv6-icmp -j ACCEPT') < guestAllowlist[0].indexOf('-j DROP'));
 assert.ok(guestAllowlist[0].indexOf('-j DROP') < ipv6Filter.indexOf('--state RELATED,ESTABLISHED'));
 assert.doesNotMatch(guestAllowlist[0], /-A FORWARD/);
+assert.match(guestIsolation,
+	/while \(eval\("ebtables", "-t", "filter", "-D", "INPUT", "-i", lifname,[\s\S]*?"-p", "ipv4", "-j", "mark", "--mark-or", BIT_GUEST_IPV4,[\s\S]*?"--mark-target", "CONTINUE"\) == 0\)/);
+assert.match(guestIsolation,
+	/if \(mode && eval\("ebtables", "-t", "filter", "-I", "INPUT", "1", "-i", lifname,[\s\S]*?"-p", "ipv4", "-j", "mark", "--mark-or", BIT_GUEST_IPV4,[\s\S]*?"--mark-target", "CONTINUE"\) != 0\)/);
+const guestIpv4Filter = firewall.match(/static void write_guest_ipv4_input_rules\([\s\S]*?\n\}/)[0];
+assert.match(guestIpv4Filter, /-A INPUT -m mark --mark %s\/%s -d %s -p tcp --dport 53 -j ACCEPT/);
+assert.match(guestIpv4Filter, /-A INPUT -m mark --mark %s\/%s -d %s -p udp --dport 53 -j ACCEPT/);
+assert.match(guestIpv4Filter, /-A INPUT -m mark --mark %s\/%s -p udp --dport 67 -j ACCEPT/);
+assert.match(guestIpv4Filter, /-A INPUT -m mark --mark %s\/%s -p tcp -j DROP/);
+assert.match(guestIpv4Filter, /-A INPUT -m mark --mark %s\/%s -p udp -j DROP/);
+assert.doesNotMatch(guestIpv4Filter, /-A FORWARD/);
+const primaryFilterStart = firewall.indexOf('filter_setting(int wan_unit');
+const primaryGuestFilter = firewall.indexOf('write_guest_ipv4_input_rules(fp, lan_ip);', primaryFilterStart);
+const primaryEstablished = firewall.indexOf('fprintf(fp, "-A INPUT -m state --state RELATED,ESTABLISHED', primaryFilterStart);
+const dualWanFilterStart = firewall.indexOf('filter_setting2(char *lan_if');
+const dualWanGuestFilter = firewall.indexOf('write_guest_ipv4_input_rules(fp, lan_ip);', dualWanFilterStart);
+const dualWanEstablished = firewall.indexOf('fprintf(fp, "-A INPUT -m state --state RELATED,ESTABLISHED', dualWanFilterStart);
+assert.ok(primaryGuestFilter >= 0 && primaryGuestFilter < primaryEstablished);
+assert.ok(dualWanGuestFilter >= 0 && dualWanGuestFilter < dualWanEstablished);
 assert.match(bridgeInput, /NF_HOOK\(NFPROTO_BRIDGE, NF_BR_LOCAL_IN,[\s\S]*?netif_receive_skb/);
 
 console.log('guest ARP, bridge, and IPv6 isolation source contracts passed');

@@ -3542,6 +3542,20 @@ static char *multicast_upstream_ifname(void)
 	return ifname && *ifname ? ifname : nvram_safe_get("wan0_ifname");
 }
 
+static void write_guest_ipv4_input_rules(FILE *fp, const char *lan_ip)
+{
+	fprintf(fp, "-A INPUT -m mark --mark %s/%s -d %s -p tcp --dport 53 -j ACCEPT\n",
+		BIT_GUEST_IPV4, BIT_GUEST_IPV4, lan_ip);
+	fprintf(fp, "-A INPUT -m mark --mark %s/%s -d %s -p udp --dport 53 -j ACCEPT\n",
+		BIT_GUEST_IPV4, BIT_GUEST_IPV4, lan_ip);
+	fprintf(fp, "-A INPUT -m mark --mark %s/%s -p udp --dport 67 -j ACCEPT\n",
+		BIT_GUEST_IPV4, BIT_GUEST_IPV4);
+	fprintf(fp, "-A INPUT -m mark --mark %s/%s -p tcp -j DROP\n",
+		BIT_GUEST_IPV4, BIT_GUEST_IPV4);
+	fprintf(fp, "-A INPUT -m mark --mark %s/%s -p udp -j DROP\n",
+		BIT_GUEST_IPV4, BIT_GUEST_IPV4);
+}
+
 void
 filter_setting(int wan_unit, char *lan_if, char *lan_ip, char *logaccept, char *logdrop)
 {
@@ -3662,6 +3676,7 @@ filter_setting(int wan_unit, char *lan_if, char *lan_ip, char *logaccept, char *
 	    nvram_match("fw_enable_x", "1") ? "DROP" : "ACCEPT");
 
 	fprintf(fp, "-A INPUT ! -i lo -p udp -m multiport --dports 37000,38000,39000,42000,43000,51000,59000 -j DROP\n");
+	write_guest_ipv4_input_rules(fp, lan_ip);
 
 #ifdef RTCONFIG_DSL_TCLINUX
 	fprintf(fp, "-A FORWARD -d 169.254.0.1/32 -j DROP\n");
@@ -5165,6 +5180,7 @@ filter_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)
 	    ":logaccept - [0:0]\n"
 	    ":logdrop - [0:0]\n");
 
+	write_guest_ipv4_input_rules(fp, lan_ip);
 	fprintf(fp, "-A INPUT ! -i lo -p udp -m multiport --dports 37000,38000,39000,42000,43000,51000,59000 -j DROP\n");
 
 #ifdef RTCONFIG_DSL_TCLINUX

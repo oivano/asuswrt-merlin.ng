@@ -302,6 +302,7 @@ do {					\
 #endif
 
 #define BIT_GUEST_IPV6	"0x200"
+#define BIT_GUEST_IPV4	"0x400"
 
 #define PROC_SCSI_ROOT	"/proc/scsi"
 #define USB_STORAGE	"usb-storage"
