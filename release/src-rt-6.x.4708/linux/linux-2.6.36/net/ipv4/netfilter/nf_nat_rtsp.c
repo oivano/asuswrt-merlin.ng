@@ -130,7 +130,9 @@ rtsp_mangle_tran(enum ip_conntrack_info ctinfo,
     int         diff;           /* Positive when bytes are removed */
 
     struct nf_conn *ct = exp->master;
+    struct nf_conntrack_expect *exp2 = NULL;
     struct nf_conntrack_tuple *t;
+    u_int16_t   nat_loport = 0, nat_hiport = 0, expect_port;
 
     char    szextaddr[15+1];
     uint    extaddrlen;
@@ -198,24 +200,63 @@ rtsp_mangle_tran(enum ip_conntrack_info ctinfo,
         }
         break;
     case pb_discon:
-        for (loport = prtspexp->loport; loport != 0; loport++) /* XXX: improper wrap? */
+        if (nat_loport == 0)
         {
-            t->dst.u.udp.port = htons(loport);
-            if (nf_ct_expect_related(exp) == 0)
+            for (loport = prtspexp->loport; loport != 0; loport++) /* XXX: improper wrap? */
             {
-                pr_debug("using port %hu (1 of 2)\n", loport);
-                break;
+                t->dst.u.udp.port = htons(loport);
+                if (nf_ct_expect_related(exp) == 0)
+                {
+                    nat_loport = loport;
+                    pr_debug("using port %hu (1 of 2)\n", loport);
+                    break;
+                }
+            }
+
+            if (nat_loport != 0)
+            {
+                exp2 = nf_ct_expect_alloc(ct);
+                if (exp2 != NULL)
+                {
+                    expect_port = exp->tuple.dst.u.udp.port;
+                    nf_ct_expect_init(exp2, exp->class,
+                                      exp->tuple.src.l3num,
+                                      &exp->tuple.src.u3,
+                                      &exp->tuple.dst.u3,
+                                      exp->tuple.dst.protonum,
+                                      NULL, &expect_port);
+                    exp2->tuple = exp->tuple;
+                    exp2->mask = exp->mask;
+                    exp2->expectfn = exp->expectfn;
+                    exp2->helper = exp->helper;
+                    exp2->flags = exp->flags;
+
+                    for (hiport = prtspexp->hiport; hiport != 0; hiport++) /* XXX: improper wrap? */
+                    {
+                        exp2->tuple.dst.u.udp.port = htons(hiport);
+                        if (nf_ct_expect_related(exp2) == 0)
+                        {
+                            nat_hiport = hiport;
+                            pr_debug("using port %hu (2 of 2)\n", hiport);
+                            break;
+                        }
+                    }
+                }
+
+                if (nat_hiport == 0)
+                {
+                    nf_ct_unexpect_related(exp);
+                    nat_loport = 0;
+                    if (exp2 != NULL)
+                    {
+                        nf_ct_expect_put(exp2);
+                        exp2 = NULL;
+                    }
+                }
             }
         }
-        for (hiport = prtspexp->hiport; hiport != 0; hiport++) /* XXX: improper wrap? */
-        {
-            t->dst.u.udp.port = htons(hiport);
-            if (nf_ct_expect_related(exp) == 0)
-            {
-                pr_debug("using port %hu (2 of 2)\n", hiport);
-                break;
-            }
-        }
+        loport = nat_loport;
+        hiport = nat_hiport;
         if (loport != 0 && hiport != 0)
         {
             rbuf1len = sprintf(rbuf1, "%hu", loport);
@@ -277,8 +318,7 @@ rtsp_mangle_tran(enum ip_conntrack_info ctinfo,
                                               tranoff+off, diff, NULL, 0))
                     {
                         /* mangle failed, all we can do is bail */
-			nf_ct_unexpect_related(exp);
-                        return 0;
+                        goto mangle_failed;
                     }
                     get_skb_tcpdata(skb, &ptcp, &tcplen);
                     ptran = ptcp+tranoff;
@@ -358,8 +398,7 @@ rtsp_mangle_tran(enum ip_conntrack_info ctinfo,
                                               rbuf, rbuflen))
                     {
                         /* mangle failed, all we can do is bail */
-			nf_ct_unexpect_related(exp);
-                        return 0;
+                        goto mangle_failed;
                     }
                     get_skb_tcpdata(skb, &ptcp, &tcplen);
                     ptran = ptcp+tranoff;
@@ -386,7 +425,18 @@ rtsp_mangle_tran(enum ip_conntrack_info ctinfo,
         off = nextparamoff;
     }
 
+    if (exp2 != NULL)
+        nf_ct_expect_put(exp2);
     return 1;
+
+mangle_failed:
+    nf_ct_unexpect_related(exp);
+    if (exp2 != NULL)
+    {
+        nf_ct_unexpect_related(exp2);
+        nf_ct_expect_put(exp2);
+    }
+    return 0;
 }
 
 static uint
