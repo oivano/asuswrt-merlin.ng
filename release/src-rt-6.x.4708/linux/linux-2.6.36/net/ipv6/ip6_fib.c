@@ -1435,6 +1435,7 @@ static struct fib6_gc_args
 {
 	int			timeout;
 	int			more;
+	int			pressure;
 } gc_args;
 
 static int fib6_age(struct rt6_info *rt, void *arg)
@@ -1452,6 +1453,12 @@ static int fib6_age(struct rt6_info *rt, void *arg)
 	if (rt->rt6i_flags&RTF_EXPIRES && rt->rt6i_expires) {
 		if (time_after(now, rt->rt6i_expires)) {
 			RT6_TRACE("expiring %p\n", rt);
+			return -1;
+		}
+		if (gc_args.pressure && (rt->rt6i_flags & RTF_CACHE) &&
+		    atomic_read(&rt->dst.__refcnt) == 0 &&
+		    time_after_eq(now, rt->dst.lastuse + gc_args.timeout)) {
+			RT6_TRACE("aging pmtu clone %p\n", rt);
 			return -1;
 		}
 		gc_args.more++;
@@ -1474,7 +1481,7 @@ static int fib6_age(struct rt6_info *rt, void *arg)
 
 static DEFINE_SPINLOCK(fib6_gc_lock);
 
-void fib6_run_gc(unsigned long expires, struct net *net)
+void fib6_run_gc(unsigned long expires, struct net *net, int pressure)
 {
 	if (expires != ~0UL) {
 		spin_lock_bh(&fib6_gc_lock);
@@ -1488,6 +1495,7 @@ void fib6_run_gc(unsigned long expires, struct net *net)
 		gc_args.timeout = net->ipv6.sysctl.ip6_rt_gc_interval;
 	}
 
+	gc_args.pressure = pressure;
 	gc_args.more = icmp6_dst_gc();
 
 	fib6_clean_all(net, fib6_age, 0, NULL);
@@ -1503,7 +1511,7 @@ void fib6_run_gc(unsigned long expires, struct net *net)
 
 static void fib6_gc_timer_cb(unsigned long arg)
 {
-	fib6_run_gc(0, (struct net *)arg);
+	fib6_run_gc(0, (struct net *)arg, 0);
 }
 
 static int __net_init fib6_net_init(struct net *net)

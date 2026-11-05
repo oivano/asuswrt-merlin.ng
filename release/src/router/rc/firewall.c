@@ -4033,6 +4033,10 @@ TRACE_PT("writing Parental Control\n");
 		fprintf(fp, "-A INPUT -i %s -m state --state NEW -j %s\n", "lo", "ACCEPT");
 #ifdef RTCONFIG_IPV6
 		if (ipv6_enabled()) {
+			fprintf(fp_ipv6, "-A INPUT -i %s -p ipv6-icmp --icmpv6-type 128 -m state --state NEW,ESTABLISHED -m limit --limit 1/s -j %s\n", wan6face, logaccept);
+			fprintf(fp_ipv6, "-A INPUT -i %s -p ipv6-icmp --icmpv6-type 128 -m state --state NEW,ESTABLISHED -j %s\n", wan6face, logdrop);
+			fprintf(fp_ipv6, "-A INPUT -i %s -p ipv6-icmp --icmpv6-type 2 -m state --state RELATED -m limit --limit 1/s -j %s\n", wan6face, logaccept);
+			fprintf(fp_ipv6, "-A INPUT -i %s -p ipv6-icmp --icmpv6-type 2 -m state --state RELATED -j %s\n", wan6face, logdrop);
 			fprintf(fp_ipv6, "-A INPUT -m state --state RELATED,ESTABLISHED -j %s\n", logaccept);
 			fprintf(fp_ipv6, "-A INPUT -i %s -m state --state NEW -j %s\n", lan_if, "ACCEPT");
 			fprintf(fp_ipv6, "-A INPUT -i %s -m state --state NEW -j %s\n", "lo", "ACCEPT");
@@ -5532,6 +5536,10 @@ TRACE_PT("writing Parental Control\n");
 		fprintf(fp, "-A INPUT -i %s -m state --state NEW -j %s\n", "lo", "ACCEPT");
 #ifdef RTCONFIG_IPV6
 		if (ipv6_enabled()) {
+			fprintf(fp_ipv6, "-A INPUT -i %s -p ipv6-icmp --icmpv6-type 128 -m state --state NEW,ESTABLISHED -m limit --limit 1/s -j %s\n", wan6face, logaccept);
+			fprintf(fp_ipv6, "-A INPUT -i %s -p ipv6-icmp --icmpv6-type 128 -m state --state NEW,ESTABLISHED -j %s\n", wan6face, logdrop);
+			fprintf(fp_ipv6, "-A INPUT -i %s -p ipv6-icmp --icmpv6-type 2 -m state --state RELATED -m limit --limit 1/s -j %s\n", wan6face, logaccept);
+			fprintf(fp_ipv6, "-A INPUT -i %s -p ipv6-icmp --icmpv6-type 2 -m state --state RELATED -j %s\n", wan6face, logdrop);
 			fprintf(fp_ipv6, "-A INPUT -m state --state RELATED,ESTABLISHED -j %s\n", logaccept);
 			fprintf(fp_ipv6, "-A INPUT -i %s -m state --state NEW -j %s\n", lan_if, "ACCEPT");
 			fprintf(fp_ipv6, "-A INPUT -i %s -m state --state NEW -j %s\n", "lo", "ACCEPT");
