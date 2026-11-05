@@ -11,6 +11,21 @@ const dhcpText = fs.readFileSync(path.join(srcDir, 'dhcpv6.c'), 'utf8');
 
 assert.match(dhcpText, /static bool is_configured_slave\([\s\S]*?iface == &config->slaves\[i\]/);
 assert.match(dhcpText, /static void handle_client_request\([\s\S]*?\n\tif \(!is_configured_slave\(iface\) \|\| len < sizeof\(\*hdr\)\)/);
+assert.match(dhcpText, /uint8_t clientid_buf\[130\];/);
+assert.match(dhcpText, /if \(otype == DHCPV6_OPT_CLIENTID && olen <= 130\) \{\n\t\t\tdest\.clientid_length = htons\(olen\);\n\t\t\tmemcpy\(dest\.clientid_buf, odata, olen\);\n\t\t\tiov\[1\]\.iov_len = sizeof\(dest\) - sizeof\(dest\.clientid_buf\) \+ olen;/);
+assert.doesNotMatch(dhcpText, /iov\[1\]\.iov_len\s*\+=\s*4\s*\+\s*olen/);
+const clientReplySize = 152;
+const clientIdCapacity = 130;
+let replyLength = clientReplySize - clientIdCapacity;
+for (const clientIdLength of [...Array(500).fill(0), 1, 10, clientIdCapacity]) {
+	replyLength = clientReplySize - clientIdCapacity + clientIdLength;
+	assert(replyLength <= clientReplySize, `CLIENTID length ${clientIdLength} exceeds reply struct`);
+}
+assert.equal(replyLength, clientReplySize, 'maximum CLIENTID reply fills but does not exceed struct');
+replyLength = clientReplySize - clientIdCapacity;
+for (let i = 0; i < 500; i++)
+	replyLength = clientReplySize - clientIdCapacity;
+assert.equal(replyLength, 22, '500 zero-length CLIENTIDs leave only header and one CLIENTID option');
 assert.match(iaText, /static bool ia_interface_ready\([\s\S]*?iface->pd_assignments\.next \|\| !iface->pd_assignments\.prev \|\|\s*list_empty\(&iface->pd_assignments\)/);
 assert.match(iaText, /list_for_each_entry\(a, &iface->pd_assignments, head\)\s*if \(!a->clid_len && a->length == 64\)/);
 assert.match(iaText, /static void update\(struct relayd_interface \*iface\)\n\{\n\tif \(!ia_interface_ready\(iface\)\)\n\t\treturn;/);
