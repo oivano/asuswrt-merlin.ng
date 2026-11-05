@@ -68,6 +68,9 @@
 #define IP_HEADER_RAOPT_LEN	24
 
 #define MAX_MC_VIFS    32     // !!! check this const in the specific includes
+#define MAX_GROUPS_PER_HOST 20
+#define MAX_REQUESTERS_PER_ROUTE 64
+#define MAX_ROUTE_ENTRIES 256
 
 // Useful macros..          
 #define VCMC( Vc )  (sizeof( Vc ) / sizeof( (Vc)[ 0 ] ))
@@ -247,7 +250,7 @@ int leaveMcGroup( int UdpSock, struct IfDesc *IfDp, uint32_t mcastaddr );
  */
 void initRouteTable();
 void clearAllRoutes();
-int insertRoute(uint32_t group, int ifx);
+int insertRoute(uint32_t group, int ifx, uint32_t source);
 int activateRoute(uint32_t group, uint32_t originAddr);
 void ageActiveRoutes();
 void setRouteLastMemberMode(uint32_t group);
