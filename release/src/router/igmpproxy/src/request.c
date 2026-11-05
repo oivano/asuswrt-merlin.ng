@@ -136,6 +136,10 @@ void acceptLeaveMessage(uint32_t src, uint32_t group) {
 
         GroupVifDesc   *gvDesc;
         gvDesc = (GroupVifDesc*) malloc(sizeof(GroupVifDesc));
+        if (gvDesc == NULL) {
+            my_log(LOG_WARNING, 0, "Malloc Failed for group leave query");
+            return;
+        }
 
         // Tell the route table that we are checking for remaining members...
         setRouteLastMemberMode(group);
@@ -166,6 +170,7 @@ void sendGroupSpecificMemberQuery(void *argument) {
     if(gvDesc->started) {
         // If aging returns false, we don't do any further action...
         if(!lastMemberGroupAge(gvDesc->group)) {
+            free(gvDesc);
             return;
         }
     } else {
@@ -183,7 +188,11 @@ void sendGroupSpecificMemberQuery(void *argument) {
         conf->lastMemberQueryInterval);
 
     // Set timeout for next round...
-    timer_setTimer(conf->lastMemberQueryInterval, sendGroupSpecificMemberQuery, gvDesc);
+    if (timer_setTimerWithCleanup(conf->lastMemberQueryInterval,
+                                  sendGroupSpecificMemberQuery, gvDesc, free) < 0) {
+        my_log(LOG_WARNING, 0, "Unable to schedule group leave query");
+        free(gvDesc);
+    }
 
 }
 

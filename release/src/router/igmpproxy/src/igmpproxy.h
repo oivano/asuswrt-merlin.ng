@@ -265,12 +265,14 @@ typedef void (*timer_f)(void *);
 
 void callout_init();
 void free_all_callouts();
+typedef void (*timer_data_cleanup_f)(void *);
 void age_callout_queue(int);
 int timer_nextTimer();
 int timer_setTimer(int, timer_f, void *);
 int timer_clearTimer(int);
 int timer_leftTimer(int);
 
+int timer_setTimerWithCleanup(int, timer_f, void *, timer_data_cleanup_f);
 /* confread.c
  */
 #define MAX_TOKEN_LENGTH    30

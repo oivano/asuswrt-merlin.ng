@@ -43,6 +43,7 @@ struct timeOutQueue {
     int                     id;  
     timer_f                 func;   // function to call
     void                    *data;  // Data for function
+    timer_data_cleanup_f    cleanup;
     int                     time;   // Time offset for next event
 };
 
@@ -65,6 +66,8 @@ void free_all_callouts() {
     while (queue) {
         p = queue;
         queue = queue->next;
+        if (p->cleanup && p->data)
+            p->cleanup(p->data);
         free(p);
     }
 }
@@ -130,6 +133,11 @@ int timer_nextTimer() {
  *  @param data - Pointer to the function data to supply...
  */
 int timer_setTimer(int delay, timer_f action, void *data) {
+    return timer_setTimerWithCleanup(delay, action, data, NULL);
+}
+
+int timer_setTimerWithCleanup(int delay, timer_f action, void *data,
+                              timer_data_cleanup_f cleanup) {
     struct     timeOutQueue  *ptr, *node, *prev;
     int i = 0;
 
@@ -141,6 +149,7 @@ int timer_setTimer(int delay, timer_f action, void *data) {
     }
     node->func = action; 
     node->data = data;
+    node->cleanup = cleanup;
     node->time = delay; 
     node->next = 0; 
     node->id   = ++id;
@@ -239,8 +248,12 @@ int timer_clearTimer(int  timer_id) {
             if (ptr->next != 0)
                 (ptr->next)->time += ptr->time;
 
-            if (ptr->data)
-                free(ptr->data);
+            if (ptr->data) {
+                if (ptr->cleanup)
+                    ptr->cleanup(ptr->data);
+                else
+                    free(ptr->data);
+            }
             my_log(LOG_DEBUG, 0, "deleted timer %d (#%d)", ptr->id, i);
             free(ptr);
             debugQueue();
