@@ -605,8 +605,8 @@ int oncp_connect(struct openconnect_info *vpninfo)
 	/* The NC frame might be split across multiple TLS records. Read the whole frame */
 	while (len < check_len + 2) {
 		int thislen = vpninfo->ssl_read(vpninfo, (void *)(bytes + len), sizeof(bytes) - len);
-		if (len < 0) {
-			ret = len;
+		if (thislen <= 0) {
+			ret = thislen < 0 ? thislen : -EINVAL;
 			goto out;
 		}
 		len += thislen;
@@ -639,7 +639,7 @@ int oncp_connect(struct openconnect_info *vpninfo)
 	}
 
 	kmplen = load_be16(bytes + 20);
-	if (kmplen + 2 >= sizeof(bytes)) {
+	if (kmplen > sizeof(bytes) - 22) {
 		vpn_progress(vpninfo, PRG_ERR,
 			     _("KMP message 301 from server too large (%d bytes)\n"),
 			     kmplen);
@@ -651,7 +651,7 @@ int oncp_connect(struct openconnect_info *vpninfo)
 
 	while (kmplen + 22 > len) {
 		char l[2];
-		int reclen;
+		int reclen, continuation_len;
 
 		if (vpninfo->ssl_read(vpninfo, (void *)l, 2) != 2) {
 			vpn_progress(vpninfo, PRG_ERR,
@@ -659,23 +659,25 @@ int oncp_connect(struct openconnect_info *vpninfo)
 			ret = -EINVAL;
 			goto out;
 		}
-		if (load_le16(l) + len > kmplen + 22) {
+		continuation_len = load_le16(l);
+		if (!continuation_len || continuation_len > sizeof(bytes) - len ||
+		    continuation_len + len > kmplen + 22) {
 			vpn_progress(vpninfo, PRG_ERR,
 				     _("Record of additional %d bytes too large; would make %d\n"),
-				     load_le16(l), len + load_le16(l));
+				     continuation_len, len + continuation_len);
 			ret = -EINVAL;
 			goto out;
 		}
 
 		/* The NC frame might be split across multiple TLS records. Read the whole frame */
 		reclen = 0;
-		while (reclen < load_le16(l)) {
-			int thislen = vpninfo->ssl_read(vpninfo, (void *)(bytes + len), load_le16(l) - reclen);
-			if (thislen < 0) {
+		while (reclen < continuation_len) {
+			int thislen = vpninfo->ssl_read(vpninfo, (void *)(bytes + len + reclen),
+							 continuation_len - reclen);
+			if (thislen <= 0) {
 				vpn_progress(vpninfo, PRG_ERR,
-					     _("Failed to read continuation record of length %d\n"),
-					     load_le16(l));
-				ret = thislen;
+					     _("Failed to read continuation record of length %d\n"), continuation_len);
+				ret = thislen < 0 ? thislen : -EINVAL;
 				goto out;
 			}
 			reclen += thislen;
