@@ -5884,6 +5884,16 @@ void lanaccess_mssid(const char *limited_ifname, int mode)
 	snprintf(lan_subnet, sizeof(lan_subnet), "%s/%s", nvram_safe_get("lan_ipaddr"), nvram_safe_get("lan_netmask"));
 	eval("ebtables", "-t", "broute", mode ? "-A" : "-D", "BROUTING", "-i", ifname_real, "-p", "ipv4", "--ip-dst", lan_subnet, "--ip-proto", "tcp", "-j", "DROP");
 #else
+#ifdef RTCONFIG_IPV6
+	while (eval("ebtables", "-t", "filter", "-D", "INPUT", "-i", lifname,
+		"-p", "IPv6", "-j", "mark", "--mark-or", BIT_GUEST_IPV6,
+		"--mark-target", "CONTINUE") == 0)
+		;
+	if (mode && eval("ebtables", "-t", "filter", "-I", "INPUT", "1", "-i", lifname,
+		"-p", "IPv6", "-j", "mark", "--mark-or", BIT_GUEST_IPV6,
+		"--mark-target", "CONTINUE") != 0)
+		syslog(LOG_ERR, "guest IPv6 isolation mark failed on %s", lifname);
+#endif
 	snprintf(cap_subnet, sizeof(cap_subnet), "%s/%s", nvram_safe_get("lan_ipaddr"), nvram_safe_get("lan_netmask"));
 	eval("ebtables", mode ? "-A" : "-D", "INPUT", "-i", lifname, "-p", "ipv4", "--ip-proto", "udp", "--ip-dport", "5351", "-j", "DROP");
 

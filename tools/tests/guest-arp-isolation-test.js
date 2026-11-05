@@ -5,6 +5,16 @@ const path = require('path');
 const root = path.resolve(__dirname, '../..');
 const lan = fs.readFileSync(path.join(root, 'release/src/router/rc/lan.c'), 'utf8');
 const services = fs.readFileSync(path.join(root, 'release/src/router/rc/services.c'), 'utf8');
+const firewall = fs.readFileSync(path.join(root, 'release/src/router/rc/firewall.c'), 'utf8');
+const rcHeader = fs.readFileSync(path.join(root, 'release/src/router/rc/rc.h'), 'utf8');
+const kernelConfig = fs.readFileSync(path.join(
+	root,
+	'release/src-rt-6.x.4708/linux/linux-2.6/config_base.6a'
+), 'utf8');
+const ebtMarkTarget = fs.readFileSync(path.join(
+	root,
+	'release/src-rt-6.x.4708/linux/linux-2.6/net/bridge/netfilter/ebt_mark.c'
+), 'utf8');
 const bridgeInput = fs.readFileSync(path.join(
 	root,
 	'release/src-rt-6.x.4708/linux/linux-2.6.36/net/bridge/br_input.c'
@@ -19,6 +29,10 @@ const ip6Header = fs.readFileSync(path.join(
 ), 'utf8');
 
 assert.match(lan, /eval\("ebtables", "--concurrent", "-t", "filter"/);
+assert.match(rcHeader, /#define BIT_GUEST_IPV6\s+"0x200"/);
+assert.match(kernelConfig, /CONFIG_BRIDGE_EBT_MARK_T=m/);
+assert.match(kernelConfig, /CONFIG_NETFILTER_XT_MATCH_MARK=y/);
+assert.match(ebtMarkTarget, /skb->mark \|= info->mark/);
 assert.doesNotMatch(lan, /GUEST_ARP_EBTABLES\("-C"/);
 assert.match(lan, /"--arp-mac-src", binding->mac,[\s\S]*?"--arp-ip-src", binding->ip/);
 assert.match(lan, /"--arp-ip-src", "0\.0\.0\.0", "-j", "ACCEPT"/);
@@ -69,8 +83,23 @@ assert.match(bridgeFinish, /if \(p->flags & BR_ISOLATE_MODE\) \{\s*skb2 = skb;\s
 
 const guestIsolation = lan.match(/void lanaccess_mssid\([\s\S]*?\n\}/)[0];
 assert.match(guestIsolation,
+	/while \(eval\("ebtables", "-t", "filter", "-D", "INPUT", "-i", lifname,[\s\S]*?"-p", "IPv6", "-j", "mark", "--mark-or", BIT_GUEST_IPV6,[\s\S]*?"--mark-target", "CONTINUE"\) == 0\)/);
+assert.match(guestIsolation,
+	/if \(mode && eval\("ebtables", "-t", "filter", "-I", "INPUT", "1", "-i", lifname,[\s\S]*?"-p", "IPv6", "-j", "mark", "--mark-or", BIT_GUEST_IPV6,[\s\S]*?"--mark-target", "CONTINUE"\) != 0\)/);
+assert.match(guestIsolation,
 	/if \(mode\) \{\s*eval\("ebtables", "-I", "FORWARD", "1", "-i", lifname, "-j", "DROP"\);[\s\S]*?eval\("ebtables", "-I", "FORWARD", "1", "-o", lifname, "-j", "DROP"\);/);
 assert.match(guestIsolation,
 	/eval\("ebtables", "-D", "FORWARD", "-i", lifname, "-j", "DROP"\);[\s\S]*?eval\("ebtables", "-D", "FORWARD", "-o", lifname, "-j", "DROP"\);/);
 
-console.log('guest ARP and bridge-isolation source contracts passed');
+const ipv6Filter = firewall.match(/FIREWALL_RULES\("filter_ipv6\.default"\)[\s\S]*?evalRet = eval\("ip6tables-restore"/)[0];
+const guestAllowlist = ipv6Filter.match(/-A INPUT -m mark --mark %s\/%s -p ipv6-icmp -j ACCEPT[\s\S]*?-A INPUT -m mark --mark %s\/%s -j DROP/);
+assert.ok(guestAllowlist, 'marked guest IPv6 INPUT policy is emitted');
+assert.ok(guestAllowlist[0].indexOf('--dport 53 -j ACCEPT') < guestAllowlist[0].indexOf('-j DROP'));
+assert.ok(guestAllowlist[0].indexOf('--dport 547 -j ACCEPT') < guestAllowlist[0].indexOf('-j DROP'));
+assert.ok(guestAllowlist[0].indexOf('--sport 547 --dport 546 -j ACCEPT') < guestAllowlist[0].indexOf('-j DROP'));
+assert.ok(guestAllowlist[0].indexOf('ipv6-icmp -j ACCEPT') < guestAllowlist[0].indexOf('-j DROP'));
+assert.ok(guestAllowlist[0].indexOf('-j DROP') < ipv6Filter.indexOf('--state RELATED,ESTABLISHED'));
+assert.doesNotMatch(guestAllowlist[0], /-A FORWARD/);
+assert.match(bridgeInput, /NF_HOOK\(NFPROTO_BRIDGE, NF_BR_LOCAL_IN,[\s\S]*?netif_receive_skb/);
+
+console.log('guest ARP, bridge, and IPv6 isolation source contracts passed');
