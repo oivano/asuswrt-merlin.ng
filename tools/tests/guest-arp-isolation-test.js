@@ -111,6 +111,9 @@ assert.match(guestIpv4Filter, /-A INPUT -m mark --mark %s\/%s -p udp --dport 67 
 assert.match(guestIpv4Filter, /-A INPUT -m mark --mark %s\/%s -p tcp -j DROP/);
 assert.match(guestIpv4Filter, /-A INPUT -m mark --mark %s\/%s -p udp -j DROP/);
 assert.doesNotMatch(guestIpv4Filter, /-A FORWARD/);
+const guestHairpinDrop = firewall.match(/static void write_guest_hairpin_drop_rule\([\s\S]*?\n\}/)[0];
+assert.match(guestHairpinDrop,
+	/-A FORWARD -i %s -o %s -m mark --mark %s\/%s -j DROP/);
 const primaryFilterStart = firewall.indexOf('filter_setting(int wan_unit');
 const primaryGuestFilter = firewall.indexOf('write_guest_ipv4_input_rules(fp, lan_ip);', primaryFilterStart);
 const primaryEstablished = firewall.indexOf('fprintf(fp, "-A INPUT -m state --state RELATED,ESTABLISHED', primaryFilterStart);
@@ -119,6 +122,22 @@ const dualWanGuestFilter = firewall.indexOf('write_guest_ipv4_input_rules(fp, la
 const dualWanEstablished = firewall.indexOf('fprintf(fp, "-A INPUT -m state --state RELATED,ESTABLISHED', dualWanFilterStart);
 assert.ok(primaryGuestFilter >= 0 && primaryGuestFilter < primaryEstablished);
 assert.ok(dualWanGuestFilter >= 0 && dualWanGuestFilter < dualWanEstablished);
+for (const filterStart of [primaryFilterStart, dualWanFilterStart]) {
+	const guestV4Drop = firewall.indexOf(
+		'write_guest_hairpin_drop_rule(fp, lan_if, BIT_GUEST_IPV4);', filterStart);
+	const guestV6Drop = firewall.indexOf(
+		'write_guest_hairpin_drop_rule(fp_ipv6, lan_if, BIT_GUEST_IPV6);', guestV4Drop);
+	const established = firewall.indexOf(
+		'fprintf(fp, "-A FORWARD -m state --state ESTABLISHED,RELATED', filterStart);
+	const firstV4Forward = firewall.indexOf('fprintf(fp, "-A FORWARD', filterStart);
+	const firstV6Forward = firewall.indexOf('fprintf(fp_ipv6, "-A FORWARD', filterStart);
+	const hairpinAccept = firewall.indexOf(
+		'fprintf(fp, "-A FORWARD -i %s -o %s -j %s', filterStart);
+	assert.ok(guestV4Drop >= 0 && guestV4Drop < established && established < hairpinAccept);
+	assert.ok(guestV6Drop > guestV4Drop && guestV6Drop < established);
+	assert.ok(guestV4Drop < firstV4Forward);
+	assert.ok(guestV6Drop < firstV6Forward);
+}
 assert.match(bridgeInput, /NF_HOOK\(NFPROTO_BRIDGE, NF_BR_LOCAL_IN,[\s\S]*?netif_receive_skb/);
 
 console.log('guest ARP, bridge, and IPv6 isolation source contracts passed');
