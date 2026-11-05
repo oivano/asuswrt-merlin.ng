@@ -106,7 +106,7 @@
 #include <linux/seq_file.h>
 #endif
 
-#define IP_MAX_MEMBERSHIPS	20
+#define IP_MAX_MEMBERSHIPS	512
 #define IP_MAX_MSF		10
 
 #ifdef CONFIG_IP_MULTICAST

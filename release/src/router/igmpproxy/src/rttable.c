@@ -49,6 +49,12 @@ struct OriginAddr {
     uint32_t addr;
 };
 
+struct RouteRequester {
+    struct RouteRequester *next;
+    uint32_t addr;
+    time_t lastReport;
+};
+
 /**
 *   Routing table structure definition. Double linked list...
 */
@@ -57,6 +63,7 @@ struct RouteTable {
     struct RouteTable   *prevroute;     // Pointer to the previous group in line.
     uint32_t              group;          // The group to route
     struct OriginAddr    *originAddrs;    // The origin adresses (only set on activated routes)
+    struct RouteRequester *requesters;    // Downstream hosts requesting this group
     uint32_t              vifBits;        // Bits representing recieving VIFs.
 
     // Keeps the upstream membership state...
@@ -76,6 +83,91 @@ static struct RouteTable   *routing_table;
 void logRouteTable(char *header);
 int  internAgeRoute(struct RouteTable*  croute);
 int internUpdateKernelRoute(struct RouteTable *route, int activate);
+
+static unsigned routeCount(void) {
+    struct RouteTable *route;
+    unsigned count = 0;
+
+    for (route = routing_table; route; route = route->nextroute)
+        count++;
+    return count;
+}
+
+static void expireRouteRequesters(time_t now, unsigned timeout) {
+    struct RouteTable *route;
+
+    for (route = routing_table; route; route = route->nextroute) {
+        struct RouteRequester **requester = &route->requesters;
+
+        while (*requester) {
+            if (now >= (*requester)->lastReport &&
+                now - (*requester)->lastReport > (time_t)timeout) {
+                struct RouteRequester *expired = *requester;
+                *requester = expired->next;
+                free(expired);
+            } else {
+                requester = &(*requester)->next;
+            }
+        }
+    }
+}
+
+static int recordRouteRequester(struct RouteTable *route, uint32_t source,
+        time_t now) {
+    struct RouteRequester *requester;
+    struct RouteTable *entry;
+    unsigned hostCount = 0, routeRequesterCount = 0;
+
+    if (source == 0)
+        return 1;
+
+    for (requester = route->requesters; requester; requester = requester->next) {
+        routeRequesterCount++;
+        if (requester->addr == source) {
+            requester->lastReport = now;
+            return 1;
+        }
+    }
+
+    if (routeRequesterCount >= MAX_REQUESTERS_PER_ROUTE) {
+        my_log(LOG_INFO, 0, "Requester limit (%d) reached for multicast group %s.",
+            MAX_REQUESTERS_PER_ROUTE, inetFmt(route->group, s1));
+        return 0;
+    }
+
+    for (entry = routing_table; entry; entry = entry->nextroute) {
+        for (requester = entry->requesters; requester; requester = requester->next) {
+            if (requester->addr == source)
+                hostCount++;
+        }
+    }
+
+    if (hostCount >= MAX_GROUPS_PER_HOST) {
+        my_log(LOG_INFO, 0, "Host %s exceeded its multicast group limit (%d).",
+            inetFmt(source, s1), MAX_GROUPS_PER_HOST);
+        return 0;
+    }
+
+    requester = malloc(sizeof(*requester));
+    if (requester == NULL) {
+        my_log(LOG_WARNING, errno, "Unable to track multicast requester %s",
+            inetFmt(source, s1));
+        return 0;
+    }
+    requester->addr = source;
+    requester->lastReport = now;
+    requester->next = route->requesters;
+    route->requesters = requester;
+    return 1;
+}
+
+static void freeRouteRequesters(struct RouteRequester *requester) {
+    while (requester) {
+        struct RouteRequester *next = requester->next;
+        free(requester);
+        requester = next;
+    }
+}
 
 // Socket for sending join or leave requests.
 int mcGroupSock = 0;
@@ -158,9 +250,14 @@ void sendJoinLeaveUpstream(struct RouteTable* route, int join) {
                          inetFmt(upstrIf->InAdr.s_addr, s2));
 
             //k_join(route->group, upstrIf->InAdr.s_addr);
-            joinMcGroup( getMcGroupSock(), upstrIf, route->group );
-
-            route->upstrState = ROUTESTATE_JOINED;
+            if (joinMcGroup(getMcGroupSock(), upstrIf, route->group) == 0) {
+                route->upstrState = ROUTESTATE_JOINED;
+            } else {
+                route->upstrState = ROUTESTATE_NOTJOINED;
+                my_log(LOG_WARNING, 0,
+                    "Upstream join failed for %s; a later report will retry it.",
+                    inetFmt(route->group, s1));
+            }
         } else {
             my_log(LOG_DEBUG, 0, "No downstream listeners for group %s. No join sent.",
                 inetFmt(route->group, s1));
@@ -210,6 +307,7 @@ void clearAllRoutes() {
             next = addr->nextaddr;
             free(addr);
         }
+        freeRouteRequesters(croute->requesters);
         free(croute);
     }
     routing_table = NULL;
@@ -239,10 +337,11 @@ struct RouteTable *findRoute(uint32_t group) {
 *   If the route already exists, the existing route 
 *   is updated...
 */
-int insertRoute(uint32_t group, int ifx) {
+int insertRoute(uint32_t group, int ifx, uint32_t source) {
     
     struct Config *conf = getCommonConfig();
     struct RouteTable*  croute;
+    time_t now = time(NULL);
 
     // Sanitycheck the group adress...
     if( ! IN_MULTICAST( ntohl(group) )) {
@@ -258,10 +357,18 @@ int insertRoute(uint32_t group, int ifx) {
         return 0;
     }
 
+    expireRouteRequesters(now, conf->queryInterval * conf->robustnessValue);
+
     // Try to find an existing route for this group...
     croute = findRoute(group);
     if(croute==NULL) {
         struct RouteTable*  newroute;
+
+        if (routeCount() >= MAX_ROUTE_ENTRIES) {
+            my_log(LOG_INFO, 0, "Route table limit (%d) reached. Ignoring %s.",
+                MAX_ROUTE_ENTRIES, inetFmt(group, s1));
+            return 0;
+        }
 
         my_log(LOG_DEBUG, 0, "No existing route for %s. Create new.",
                      inetFmt(group, s1));
@@ -272,8 +379,14 @@ int insertRoute(uint32_t group, int ifx) {
         // Insert the route desc and clear all pointers...
         newroute->group      = group;
         newroute->originAddrs= NULL;
+        newroute->requesters = NULL;
         newroute->nextroute  = NULL;
         newroute->prevroute  = NULL;
+
+        if (!recordRouteRequester(newroute, source, now)) {
+            free(newroute);
+            return 0;
+        }
 
         // The group is not joined initially.
         newroute->upstrState = ROUTESTATE_NOTJOINED;
@@ -344,6 +457,9 @@ int insertRoute(uint32_t group, int ifx) {
 
     } else if(ifx >= 0) {
 
+        if (!recordRouteRequester(croute, source, now))
+            return 0;
+
         // The route exists already, so just update it.
         BIT_SET(croute->vifBits, ifx);
         
@@ -389,7 +505,7 @@ int activateRoute(uint32_t group, uint32_t originAddr) {
 		inetFmt(group, s1),inetFmt(originAddr, s2));
 
         // Insert route, but no interfaces have yet requested it downstream.
-        insertRoute(group, -1);
+        insertRoute(group, -1, 0);
 
         // Retrieve the route from table...
         croute = findRoute(group);
@@ -562,6 +678,7 @@ int removeRoute(struct RouteTable*  croute) {
         next = addr->nextaddr;
         free(addr);
     }
+    freeRouteRequesters(croute->requesters);
     free(croute);
     croute = NULL;
 
