@@ -53,6 +53,29 @@
 
 #ifdef ENABLE_LEASEFILE
 static int
+lease_file_read_line(FILE * fd, char * line, size_t size)
+{
+	size_t length = 0;
+	int c, invalid = 0;
+
+	if (size < 2)
+		return -1;
+	while ((c = fgetc(fd)) != EOF && c != '\n') {
+		if (c == '\0' || length >= size - 1) {
+			invalid = 1;
+		} else if (!invalid) {
+			line[length++] = (char)c;
+		}
+	}
+	if (c == EOF && length == 0 && !invalid)
+		return 0;
+	if (invalid)
+		return -1;
+	line[length] = '\0';
+	return 1;
+}
+
+static int
 lease_file_add(unsigned short eport,
                const char * iaddr,
                unsigned short iport,
@@ -61,6 +84,7 @@ lease_file_add(unsigned short eport,
                unsigned int timestamp)
 {
 	FILE * fd;
+	size_t desc_len;
 
 	if (lease_file == NULL) return 0;
 
@@ -82,11 +106,10 @@ lease_file_add(unsigned short eport,
 	fprintf(fd, "%s:%hu:%s:%hu:%u:",
 	        proto_itoa(proto), eport, iaddr, iport,
 	        timestamp);
-	while(*desc) {
-		/* skip non-printable characters, including CR and LF */
-		if (*desc >= ' ')
-			fputc(*desc, fd);
-		desc++;
+	for (desc_len = 0; desc && desc[desc_len] && desc_len < 63; desc_len++) {
+		unsigned char c = (unsigned char)desc[desc_len];
+		if (c >= ' ' && c != ':' && c != 0x7f)
+			fputc(c, fd);
 	}
 	fputc('\n', fd);
 	fclose(fd);
@@ -191,7 +214,11 @@ int reload_from_lease_file(void)
 #ifndef LEASEFILE_USE_REMAINING_TIME
 	current_unix_time = time(NULL);
 #endif
-	while(fgets(line, sizeof(line), fd)) {
+	while((r = lease_file_read_line(fd, line, sizeof(line))) != 0) {
+		if (r < 0) {
+			syslog(LOG_ERR, "discarding invalid or overlong lease file line");
+			continue;
+		}
 		syslog(LOG_DEBUG, "parsing lease file line '%s'", line);
 		proto = line;
 		p = strchr(line, ':');
