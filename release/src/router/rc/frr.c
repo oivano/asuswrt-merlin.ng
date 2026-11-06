@@ -324,23 +324,38 @@ static int frr_copy_file(const char *src, const char *dst)
 	FILE *in = NULL;
 	FILE *out = NULL;
 	char buf[1024];
+	char temporary[PATH_MAX] = "";
 	size_t n;
+	int fd = -1;
 	int ok = 0;
 
 	in = fopen(src, "r");
 	if (!in)
 		goto done;
 
-	out = fopen(dst, "w");
+	if (snprintf(temporary, sizeof(temporary), "%s.tmp-XXXXXX", dst) >= sizeof(temporary))
+		goto done;
+	fd = mkstemp(temporary);
+	if (fd < 0 || fchmod(fd, 0600) < 0)
+		goto done;
+	out = fdopen(fd, "w");
 	if (!out)
 		goto done;
+	fd = -1;
 
 	while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
 		if (fwrite(buf, 1, n, out) != n)
 			goto done;
 	}
 
-	if (ferror(in))
+	if (ferror(in) || fflush(out) || fsync(fileno(out)))
+		goto done;
+	if (fclose(out)) {
+		out = NULL;
+		goto done;
+	}
+	out = NULL;
+	if (rename(temporary, dst))
 		goto done;
 
 	ok = 1;
@@ -348,6 +363,10 @@ static int frr_copy_file(const char *src, const char *dst)
 done:
 	if (out)
 		fclose(out);
+	if (fd >= 0)
+		close(fd);
+	if (!ok && temporary[0])
+		unlink(temporary);
 	if (in)
 		fclose(in);
 
@@ -379,12 +398,12 @@ static void frr_sync_runtime_config(const char *cfg_dir,
 
 	if (f_exists(daemons_path)) {
 		if (frr_copy_file(daemons_path, FRR_RUNTIME_DAEMONS))
-			chmod(FRR_RUNTIME_DAEMONS, 0644);
+			chmod(FRR_RUNTIME_DAEMONS, 0600);
 	}
 
 	if (f_exists(conf_path)) {
 		if (frr_copy_file(conf_path, FRR_RUNTIME_CONF))
-			chmod(FRR_RUNTIME_CONF, 0644);
+			chmod(FRR_RUNTIME_CONF, 0600);
 	}
 }
 
@@ -400,17 +419,34 @@ static int is_frr_enabled(void)
 	return nvram_match("frr_enable", "1");
 }
 
-/* Create necessary directories */
-static void frr_create_dirs(void)
+static int frr_secure_config_file(const char *path)
+{
+	struct stat st;
+
+	if (lstat(path, &st) < 0)
+		return errno == ENOENT;
+	if (!S_ISREG(st.st_mode) || st.st_uid != 0 || st.st_nlink != 1)
+		return 0;
+	return chmod(path, 0600) == 0;
+}
+
+static int frr_create_dirs(void)
 {
 	char cfg_dir[PATH_MAX];
+	char daemons_path[PATH_MAX];
+	char conf_path[PATH_MAX];
 
-	frr_get_config_dir(cfg_dir, sizeof(cfg_dir));
+	frr_get_config_paths(cfg_dir, sizeof(cfg_dir),
+		daemons_path, sizeof(daemons_path), conf_path, sizeof(conf_path));
 
 	mkdir_if_none(cfg_dir);
-	
-	/* Set permissions */
-	chmod(cfg_dir, 0755);
+	if (chmod(cfg_dir, 0700) < 0 ||
+	    !frr_secure_config_file(daemons_path) ||
+	    !frr_secure_config_file(conf_path) ||
+	    !frr_secure_config_file(FRR_RUNTIME_DAEMONS) ||
+	    !frr_secure_config_file(FRR_RUNTIME_CONF))
+		return 0;
+	return 1;
 }
 
 /*
@@ -686,7 +722,7 @@ static int frr_merge_daemon_settings(const char *path)
 	out = fdopen(fd, "w");
 	if (!out) { close(fd); unlink(temporary); free(original); json_object_put(config); return -1; }
 	ok = frr_ui_merge_daemons(out, original, config);
-	if (fflush(out) || ferror(out) || fsync(fd) || fchmod(fd, 0644)) ok = 0;
+	if (fflush(out) || ferror(out) || fsync(fd) || fchmod(fd, 0600)) ok = 0;
 	if (fclose(out)) ok = 0;
 	if (ok && rename(temporary, path)) ok = 0;
 	if (!ok) unlink(temporary);
@@ -745,7 +781,7 @@ static int frr_merge_settings_into_conf(const char *conf_path,
 	if (original && *original) ok = frr_ui_merge(out, original, generated);
 	else ok = fputs(generated, out) >= 0;
 	if (ok) append_custom_config("frr.conf", out);
-	if (fflush(out) || ferror(out) || fsync(fd) || fchmod(fd, 0644)) ok = 0;
+	if (fflush(out) || ferror(out) || fsync(fd) || fchmod(fd, 0600)) ok = 0;
 	if (fclose(out)) ok = 0;
 	out = NULL;
 	if (ok && rename(path, conf_path)) ok = 0;
@@ -959,8 +995,6 @@ static void frr_write_default_config(void)
 			/* Allow custom config replacement */
 			use_custom_config("frr_daemons", daemons_path);
 			run_postconf("frr_daemons", daemons_path);
-
-			chmod(daemons_path, 0644);
 		}
 		}
 	}
@@ -992,6 +1026,10 @@ static void frr_write_default_config(void)
 		run_postconf("frr.conf", conf_path);
 	}
 
+	if (!frr_secure_config_file(daemons_path) || !frr_secure_config_file(conf_path)) {
+		logmessage("FRR", "Unable to secure persistent FRR configuration files");
+		return;
+	}
 	frr_sync_runtime_config(cfg_dir, daemons_path, conf_path);
 	if (lan_vty_requested && frr_runtime_passwords_match(frr_passwd,
 									 frr_enpasswd))
@@ -1031,7 +1069,10 @@ void start_frr(void)
 	_dprintf("Starting FRR routing services...\n");
 	
 	/* Create directories and default configs */
-	frr_create_dirs();
+	if (!frr_create_dirs()) {
+		logmessage("FRR", "Unable to secure FRR configuration files");
+		return;
+	}
 	frr_write_default_config();
 
 	/*
@@ -1196,7 +1237,11 @@ void restart_frr(void)
 	if (peer_state_apply) {
 		peer_request = json_tokener_parse(nvram_safe_get("frr_ui_request"));
 		if (peer_request) {
-			frr_create_dirs();
+			if (!frr_create_dirs()) {
+				json_object_put(peer_request);
+				logmessage("FRR", "Unable to secure FRR configuration files");
+				return;
+			}
 			frr_write_default_config();
 			if (!nvram_match("frr_force_regen", "3") && frr_apply_peer_states_live(peer_request)) {
 				json_object_put(peer_request);
@@ -1217,7 +1262,10 @@ void restart_frr(void)
 	 * while ensuring UI changes (new BGP neighbors, etc.) are applied when users
 	 * explicitly click Apply on the FRR configuration page.
 	 */
-	frr_create_dirs();
+	if (!frr_create_dirs()) {
+		logmessage("FRR", "Unable to secure FRR configuration files");
+		return;
+	}
 	
 	if (nvram_match("frr_force_regen", "1") || nvram_match("frr_force_regen", "2") ||
 	    nvram_match("frr_force_regen", "3")) {
