@@ -199,6 +199,13 @@ try {
     assert.doesNotMatch(common, /nvram get frr_config_dir/);
     assert.match(common, /\. "\$DAEMONS_C_PATH\/daemons"/);
     assert.match(rc, /static int frr_config_dir_trusted\(const char \*path\)[\s\S]*?lstat\(checked, &st\)[\s\S]*?!S_ISDIR\(st\.st_mode\)[\s\S]*?st\.st_uid != 0[\s\S]*?st\.st_mode & 0022/);
+    assert.match(rc, /static int frr_secure_config_file\(const char \*path\)[\s\S]*?lstat\(path, &st\)[\s\S]*?!S_ISREG\(st\.st_mode\)[\s\S]*?st\.st_uid != 0[\s\S]*?st\.st_nlink != 1[\s\S]*?chmod\(path, 0600\)/);
+    assert.match(rc, /chmod\(cfg_dir, 0700\)/);
+    assert.match(rc, /frr_secure_config_file\(FRR_RUNTIME_DAEMONS\)[\s\S]*?frr_secure_config_file\(FRR_RUNTIME_CONF\)/);
+    assert.match(rc, /if \(!frr_create_dirs\(\)\) \{\s*logmessage\("FRR", "Unable to secure FRR configuration files"\);\s*return;/);
+    assert.match(rc, /mkstemp\(temporary\)[\s\S]*?fchmod\(fd, 0600\)[\s\S]*?rename\(temporary, dst\)/);
+    assert.match(rc, /frr_secure_config_file\(daemons_path\)[\s\S]*?frr_secure_config_file\(conf_path\)[\s\S]*?frr_sync_runtime_config/);
+    assert.doesNotMatch(rc, /fchmod\(fd, 0644\)|chmod\(FRR_RUNTIME_(?:DAEMONS|CONF), 0644\)|chmod\(daemons_path, 0644\)/);
     assert.match(rc, /if \(!nvram_get_int\("ntp_ready"\)\) \{\s*logmessage\("FRR", "deferring startup until NTP initial clock set"\);[\s\S]*?return;\s*\}/);
     assert.doesNotMatch(rc, /frr_should_defer_until_pppd|deferring startup until pppd/);
     const ntpdSync = ntpd.slice(ntpd.indexOf('int ntpd_synced_main'), ntpd.indexOf('\nstatic void set_alarm'));
