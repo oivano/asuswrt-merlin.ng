@@ -23,48 +23,17 @@ static int order_servers(struct server *s, struct server *s2);
 /* If the server is USE_RESOLV or LITERAL_ADDRESS, it lives on the local_domains chain. */
 #define SERV_IS_LOCAL (SERV_USE_RESOLV | SERV_LITERAL_ADDRESS)
 
-void build_server_array(void)
+/* Local records (address=, local=) can number millions and change only on config
+   load, so keep their sorted order and merge upstream servers into it. */
+static int locals_valid = 0, locals_count = 0;
+static int *nonlocal_pos = NULL, nonlocal_count = 0;
+
+static void build_server_array_full(int count, int nservers)
 {
   struct server *serv;
-  int count = 0;
-  
-  for (serv = daemon->servers; serv; serv = serv->next)
-#ifdef HAVE_LOOP
-    if (!(serv->flags & SERV_LOOP))
-#endif
-      {
-	count++;
-	if (serv->flags & SERV_WILDCARD)
-	  daemon->server_has_wildcard = 1;
-      }
-  
-  for (serv = daemon->local_domains; serv; serv = serv->next)
-    {
-      count++;
-      if (serv->flags & SERV_WILDCARD)
-	daemon->server_has_wildcard = 1;
-    }
-  
-  daemon->serverarraysz = count;
-
-  if (count > daemon->serverarrayhwm)
-    {
-      struct server **new;
-
-      count += 10; /* A few extra without re-allocating. */
-
-      if ((new = whine_malloc(count * sizeof(struct server *))))
-	{
-	  if (daemon->serverarray)
-	    free(daemon->serverarray);
-	  
-	  daemon->serverarray = new;
-	  daemon->serverarrayhwm = count;
-	}
-    }
+  int i, n = 0;
 
   count = 0;
-  
   for (serv = daemon->servers; serv; serv = serv->next)
 #ifdef HAVE_LOOP
     if (!(serv->flags & SERV_LOOP))
@@ -79,15 +48,143 @@ void build_server_array(void)
   for (serv = daemon->local_domains; serv; serv = serv->next, count++)
     daemon->serverarray[count] = serv;
   
-  /* serverarray may be unallocated if we have no servers yet. */
-  if (daemon->serverarray)
-    qsort(daemon->serverarray, daemon->serverarraysz, sizeof(struct server *), order_qsort);
-  
+  qsort(daemon->serverarray, daemon->serverarraysz, sizeof(struct server *), order_qsort);
+
+  free(nonlocal_pos);
+  nonlocal_pos = nservers ? whine_malloc(nservers * sizeof(int)) : NULL;
+
   /* servers need the location in the array to find all the whole
      set of equivalent servers from a pointer to a single one. */
-  for (count = 0; count < daemon->serverarraysz; count++)
-    if (!(daemon->serverarray[count]->flags & SERV_IS_LOCAL))
-      daemon->serverarray[count]->arrayposn = count;
+  for (i = 0; i < daemon->serverarraysz; i++)
+    if (!(daemon->serverarray[i]->flags & SERV_IS_LOCAL))
+      {
+	daemon->serverarray[i]->arrayposn = i;
+	if (nonlocal_pos && n < nservers)
+	  nonlocal_pos[n++] = i;
+      }
+
+  nonlocal_count = n;
+  locals_valid = (nonlocal_pos || !nservers) && n == nservers;
+}
+
+/* Locals already occupy serverarray in sorted order; drop the old upstream slots
+   (by recorded position: those servers may be freed) and merge in the new ones. */
+static int build_server_array_merge(int count, int nservers)
+{
+  struct server *serv, **arr = daemon->serverarray, **tmp = NULL;
+  int *pos = NULL;
+  int i, j, k, w, p;
+
+  if (nservers &&
+      (!(tmp = whine_malloc(nservers * sizeof(struct server *))) ||
+       !(pos = whine_malloc(nservers * sizeof(int)))))
+    {
+      free(tmp);
+      return 0;
+    }
+
+  for (i = j = p = 0; i < daemon->serverarraysz; i++)
+    {
+      if (p < nonlocal_count && nonlocal_pos[p] == i)
+	{
+	  p++;
+	  continue;
+	}
+      arr[j++] = arr[i];
+    }
+
+  if (j != locals_count)
+    {
+      free(tmp);
+      free(pos);
+      return 0;
+    }
+
+  k = 0;
+  for (serv = daemon->servers; serv; serv = serv->next)
+#ifdef HAVE_LOOP
+    if (!(serv->flags & SERV_LOOP))
+#endif
+      {
+	tmp[k] = serv;
+	serv->serial = k;
+	serv->last_server = -1;
+	k++;
+      }
+
+  if (nservers)
+    qsort(tmp, nservers, sizeof(struct server *), order_qsort);
+
+  daemon->serverarraysz = count;
+  for (i = locals_count - 1, k = nservers - 1, w = count - 1; k >= 0; w--)
+    if (i >= 0 && order_qsort(&arr[i], &tmp[k]) > 0)
+      arr[w] = arr[i--];
+    else
+      {
+	arr[w] = tmp[k];
+	tmp[k]->arrayposn = w;
+	pos[k--] = w;
+      }
+
+  free(tmp);
+  free(nonlocal_pos);
+  nonlocal_pos = pos;
+  nonlocal_count = nservers;
+  return 1;
+}
+
+void build_server_array(void)
+{
+  struct server *serv;
+  int count, nservers = 0, reuse = locals_valid && daemon->serverarray;
+  
+  for (serv = daemon->servers; serv; serv = serv->next)
+#ifdef HAVE_LOOP
+    if (!(serv->flags & SERV_LOOP))
+#endif
+      {
+	nservers++;
+	if (serv->flags & SERV_WILDCARD)
+	  daemon->server_has_wildcard = 1;
+      }
+  
+  if (!reuse)
+    for (locals_count = 0, serv = daemon->local_domains; serv; serv = serv->next)
+      {
+	locals_count++;
+	if (serv->flags & SERV_WILDCARD)
+	  daemon->server_has_wildcard = 1;
+      }
+  
+  count = nservers + locals_count;
+
+  if (count > daemon->serverarrayhwm)
+    {
+      struct server **new;
+      int alloc = count + 10; /* A few extra without re-allocating. */
+
+      if (!(new = whine_malloc(alloc * sizeof(struct server *))))
+	{
+	  /* Never keep a stale array that may point at freed servers. */
+	  daemon->serverarraysz = 0;
+	  locals_valid = 0;
+	  return;
+	}
+      if (reuse)
+	memcpy(new, daemon->serverarray, daemon->serverarraysz * sizeof(struct server *));
+      free(daemon->serverarray);
+      daemon->serverarray = new;
+      daemon->serverarrayhwm = alloc;
+    }
+
+  if (reuse && build_server_array_merge(count, nservers))
+    return;
+
+  daemon->serverarraysz = count;
+  if (daemon->serverarray)
+    build_server_array_full(count, nservers);
+  else
+    locals_valid = 0;
 }
 
 /* we're looking for the server whose domain is the longest exact match
@@ -619,6 +716,7 @@ void mark_servers(int flag)
 	    *up = next;
 	    free(serv->domain);
 	    free(serv);
+	    locals_valid = 0;
 	  }
 	else 
 	  up = &serv->next;
@@ -698,6 +796,7 @@ int add_update_server(int flags,
       
       serv->next = daemon->local_domains;
       daemon->local_domains = serv;
+      locals_valid = 0;
       
       if (flags & SERV_4ADDR)
 	((struct serv_addr4*)serv)->addr = local_addr->addr4;
