@@ -1732,6 +1732,9 @@ void nat_setting(char *wan_if, char *wan_ip, char *wanx_if, char *wanx_ip, char 
 		":LOCALSRV - [0:0]\n"
 		":PUPNP - [0:0]\n"
 		":VUPNP - [0:0]\n");
+#ifdef RTCONFIG_OPENVPN
+	ovpn_write_nat_rules(fp);
+#endif
 #ifdef RTCONFIG_DNSFILTER
 	fprintf(fp,
 		":DNSFILTER - [0:0]\n");
@@ -2265,6 +2268,9 @@ void nat_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)	//
 #ifdef RTCONFIG_VPN_FUSION
 			fprintf(fp,
 				":VPN_FUSION - [0:0]\n");
+#endif
+#ifdef RTCONFIG_OPENVPN
+		ovpn_write_nat_rules(fp);
 #endif
 		}
 

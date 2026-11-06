@@ -79,6 +79,8 @@ port_in_use(const char *if_name,
 	FILE *f;
 	const char * tcpfile = "/proc/net/tcp";
 	const char * udpfile = "/proc/net/udp";
+	const char * tcp6file = "/proc/net/tcp6";
+	const char * udp6file = "/proc/net/udp6";
 #endif
 
 	if(getifaddr(if_name, ip_addr_str, INET_ADDRSTRLEN, &ip_addr, NULL) < 0) {
@@ -126,6 +128,22 @@ port_in_use(const char *if_name,
 		}
 	}
 	fclose(f);
+
+	if (!found) {
+		const char * ipv6file = (proto == IPPROTO_TCP) ? tcp6file : udp6file;
+		f = fopen(ipv6file, "r");
+		if (f) {
+			while (fgets(line, sizeof(line), f)) {
+				unsigned tmp_port;
+				if (sscanf(line, "%*d: %*32[0-9A-Fa-f]:%x", &tmp_port) == 1 &&
+				    tmp_port == eport) {
+					found++;
+					break;
+				}
+			}
+			fclose(f);
+		}
+	}
 
 #elif defined(__OpenBSD__)
 static struct nlist list[] = {
