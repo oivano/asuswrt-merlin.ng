@@ -13,10 +13,10 @@
 
 /*
  * 	Changes:
-	 *	Yuji SEKIYA @USAGI:	Support default route on router node;
-	 *				remove ip6_null_entry from the top of
-	 *				routing table.
-	 *	Ville Nuorvala:		Fixed routing subtrees.
+ * 	Yuji SEKIYA @USAGI:	Support default route on router node;
+ * 				remove ip6_null_entry from the top of
+ * 				routing table.
+ * 	Ville Nuorvala:		Fixed routing subtrees.
  */
 #include <linux/errno.h>
 #include <linux/types.h>
@@ -772,10 +772,6 @@ int fib6_add(struct fib6_node *root, struct rt6_info *rt, struct nl_info *info)
 	err = fib6_add_rt2node(fn, rt, info);
 
 	if (err == 0) {
-		if (rt->rt6i_idev && !(rt->rt6i_flags & RTF_CACHE) &&
-		    (rt->rt6i_flags & RTF_ADDRCONF) &&
-		    (rt->rt6i_flags & (RTF_PREFIX_RT | RTF_DEFAULT)))
-			atomic_inc(&rt->rt6i_idev->ra_route_count);
 		fib6_start_gc(info->nl_net, rt);
 		if (!(rt->rt6i_flags&RTF_CACHE))
 			fib6_prune_clones(info->nl_net, pn, rt);
@@ -1116,10 +1112,6 @@ static void fib6_del_route(struct fib6_node *fn, struct rt6_info **rtp,
 	rt->rt6i_node = NULL;
 	net->ipv6.rt6_stats->fib_rt_entries--;
 	net->ipv6.rt6_stats->fib_discarded_routes++;
-	if (rt->rt6i_idev && !(rt->rt6i_flags & RTF_CACHE) &&
-	    (rt->rt6i_flags & RTF_ADDRCONF) &&
-	    (rt->rt6i_flags & (RTF_PREFIX_RT | RTF_DEFAULT)))
-		atomic_dec(&rt->rt6i_idev->ra_route_count);
 
 	/* Reset round-robin state, if necessary */
 	if (fn->rr_ptr == rt)
