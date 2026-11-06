@@ -4,11 +4,9 @@ AGENTS.md
 CODEBASE-SUMMARY.md
 MAINTENANCE-WORKFLOW.md
 # Generated release artifacts
-tools/release/*.txt
+tools/release/
 tools/build/
 docs/
-tools/tests/*
-!tools/tests/guest-nat-reflection.js
-!tools/tests/google-ddns-argv.js
+tools/tests/
 # Local prompt customizations
 .github/prompts/
