@@ -1464,8 +1464,6 @@ void peer_xfer_config(struct peer *peer_dst, struct peer *peer_src)
 	(void)peer_sort(peer_dst);
 	peer_dst->rmap_type = peer_src->rmap_type;
 
-	peer_dst->max_packet_size = peer_src->max_packet_size;
-
 	/* Timers */
 	peer_dst->holdtime = peer_src->holdtime;
 	peer_dst->keepalive = peer_src->keepalive;
