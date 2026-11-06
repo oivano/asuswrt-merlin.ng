@@ -183,6 +183,25 @@ int check_ovpn_client_enabled(int unit) {
 }
 
 
+void ovpn_write_nat_rules(FILE *fp)
+{
+	int unit, port;
+	char prefix[32];
+	const char *proto;
+
+	for (unit = 1; unit <= OVPN_SERVER_MAX; unit++) {
+		snprintf(prefix, sizeof(prefix), "vpn_server%d_", unit);
+		proto = nvram_pf_safe_get(prefix, "proto");
+		port = nvram_pf_get_int(prefix, "port");
+		if (port < 1 || port > 65535 ||
+		    (strcmp(proto, "tcp") && strcmp(proto, "udp")))
+			continue;
+
+		fprintf(fp, "-A PREROUTING -p %s --dport %d -j ACCEPT\n", proto, port);
+	}
+}
+
+
 int ovpn_run_instance(ovpn_type_t type, int unit){
 	char buffer[64], buffer2[64], cpulist[8];
 	char *instanceType;

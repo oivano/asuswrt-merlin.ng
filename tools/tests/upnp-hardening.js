@@ -5,6 +5,9 @@ const vm = require('node:vm');
 
 const root = path.resolve(__dirname, '../..');
 const services = fs.readFileSync(path.join(root, 'release/src/router/rc/services.c'), 'utf8');
+const firewall = fs.readFileSync(path.join(root, 'release/src/router/rc/firewall.c'), 'utf8');
+const ovpnControl = fs.readFileSync(path.join(root, 'release/src/router/libovpn/openvpn_control.c'), 'utf8');
+const portInUse = fs.readFileSync(path.join(root, 'release/src/router/miniupnpd/portinuse.c'), 'utf8');
 const miniupnpd = fs.readFileSync(path.join(root, 'release/src/router/miniupnpd/miniupnpd.c'), 'utf8');
 const redirect = fs.readFileSync(path.join(root, 'release/src/router/miniupnpd/upnpredirect.c'), 'utf8');
 const arrays = fs.readFileSync(path.join(root, 'release/src/router/httpd/data_arrays.c'), 'utf8');
@@ -13,6 +16,27 @@ const soap = fs.readFileSync(path.join(root, 'release/src/router/miniupnpd/upnps
 const lan = fs.readFileSync(path.join(root, 'release/src/router/rc/lan.c'), 'utf8');
 const help = fs.readFileSync(path.join(root, 'release/src/router/www/help_content.js'), 'utf8');
 assert(help.includes('NAT-PMP and PCP are disabled in this mode'));
+
+assert.match(portInUse, /tcp6file = "\/proc\/net\/tcp6"/);
+assert.match(portInUse, /udp6file = "\/proc\/net\/udp6"/);
+assert.match(portInUse, /if \(!found\)[\s\S]*?proto == IPPROTO_TCP[\s\S]*?%\*32\[0-9A-Fa-f\]:%x[\s\S]*?tmp_port == eport/);
+const ovpnNatWriter = ovpnControl.match(/void ovpn_write_nat_rules\(FILE \*fp\)[\s\S]*?\n\}/)[0];
+assert.match(ovpnNatWriter, /unit <= OVPN_SERVER_MAX/);
+assert.match(ovpnNatWriter, /port < 1 \|\| port > 65535/);
+assert.match(ovpnNatWriter, /strcmp\(proto, "tcp"\).*strcmp\(proto, "udp"\)/);
+assert.match(ovpnNatWriter, /-A PREROUTING -p %s --dport %d -j ACCEPT/);
+const natBuilders = firewall.match(/void nat_setting2?\([\s\S]*?^\}/gm);
+assert.equal(natBuilders.length, 2);
+for (const natBuilder of natBuilders) {
+	assert(natBuilder.indexOf('ovpn_write_nat_rules(fp);') < natBuilder.indexOf('-j VSERVER'));
+}
+const multiWanBuilder = natBuilders.find(natBuilder => natBuilder.startsWith('void nat_setting2('));
+const multiWanWriter = multiWanBuilder.indexOf('ovpn_write_nat_rules(fp);');
+assert(multiWanWriter > multiWanBuilder.indexOf('if (!fp)'));
+assert(multiWanWriter < multiWanBuilder.indexOf('_dprintf("writting prerouting 2'));
+const natRestore = services.slice(services.indexOf('int start_nat_rules(void)'), services.indexOf('\nint stop_nat_rules(void)'));
+assert.match(natRestore, /eval\("iptables-restore", NAT_RULES\)/);
+assert(!natRestore.includes('run_ovpn_fw_nat_scripts'));
 
 const leaseReader = redirect.match(/static int\nlease_file_read_line\([\s\S]*?\n\}/)[0];
 const leaseReloadStart = redirect.indexOf('int reload_from_lease_file(void)');
