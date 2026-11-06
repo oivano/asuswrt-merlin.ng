@@ -442,9 +442,7 @@ static int frr_create_dirs(void)
 	mkdir_if_none(cfg_dir);
 	if (chmod(cfg_dir, 0700) < 0 ||
 	    !frr_secure_config_file(daemons_path) ||
-	    !frr_secure_config_file(conf_path) ||
-	    !frr_secure_config_file(FRR_RUNTIME_DAEMONS) ||
-	    !frr_secure_config_file(FRR_RUNTIME_CONF))
+	    !frr_secure_config_file(conf_path))
 		return 0;
 	return 1;
 }
