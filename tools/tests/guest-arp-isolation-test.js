@@ -116,14 +116,16 @@ assert.match(guestIsolation,
 	/while \(eval\("ebtables", "-t", "filter", "-D", "INPUT", "-i", lifname,[\s\S]*?"-p", "ipv4", "-j", "mark", "--mark-or", BIT_GUEST_IPV4,[\s\S]*?"--mark-target", "CONTINUE"\) == 0\)/);
 assert.match(guestIsolation,
 	/if \(mode && eval\("ebtables", "-t", "filter", "-I", "INPUT", "1", "-i", lifname,[\s\S]*?"-p", "ipv4", "-j", "mark", "--mark-or", BIT_GUEST_IPV4,[\s\S]*?"--mark-target", "CONTINUE"\) != 0\)/);
-const guestIpv4Filter = firewall.match(/static void write_guest_ipv4_input_rules\([\s\S]*?\n\}/)[0];
+const guestIpv4Filter = firewall.match(/static void write_guest_ipv4_input_rules\([^;]+\)\n\{[\s\S]*?\n\}/)[0];
 assert.match(guestIpv4Filter, /-A INPUT -m mark --mark %s\/%s -d %s -p tcp --dport 53 -j ACCEPT/);
 assert.match(guestIpv4Filter, /-A INPUT -m mark --mark %s\/%s -d %s -p udp --dport 53 -j ACCEPT/);
 assert.match(guestIpv4Filter, /-A INPUT -m mark --mark %s\/%s -p udp --dport 67 -j ACCEPT/);
-assert.match(guestIpv4Filter, /-A INPUT -m mark --mark %s\/%s -p tcp -j DROP/);
-assert.match(guestIpv4Filter, /-A INPUT -m mark --mark %s\/%s -p udp -j DROP/);
+assert.match(guestIpv4Filter, /-A INPUT -m mark --mark %s\/%s -j DROP/);
+assert.ok(guestIpv4Filter.indexOf('--dport 53 -j ACCEPT') < guestIpv4Filter.indexOf('-j DROP'));
+assert.ok(guestIpv4Filter.indexOf('--dport 67 -j ACCEPT') < guestIpv4Filter.indexOf('-j DROP'));
+assert.doesNotMatch(guestIpv4Filter, /-p (?:tcp|udp) -j DROP/);
 assert.doesNotMatch(guestIpv4Filter, /-A FORWARD/);
-const guestHairpinDrop = firewall.match(/static void write_guest_hairpin_drop_rule\([\s\S]*?\n\}/)[0];
+const guestHairpinDrop = firewall.match(/static void write_guest_hairpin_drop_rule\([^;]+\)\n\{[\s\S]*?\n\}/)[0];
 assert.match(guestHairpinDrop,
 	/-A FORWARD -i %s -o %s -m mark --mark %s\/%s -j DROP/);
 const primaryFilterStart = firewall.indexOf('filter_setting(int wan_unit');
@@ -150,6 +152,15 @@ for (const filterStart of [primaryFilterStart, dualWanFilterStart]) {
 	assert.ok(guestV4Drop < firstV4Forward);
 	assert.ok(guestV6Drop < firstV6Forward);
 }
+const defaultFilter = firewall.match(/start_default_filter\(int lanunit\)[\s\S]*?evalRet = eval\("iptables-restore", FIREWALL_RULES\("filter\.default"\)\);/)[0];
+const defaultGuestInput = defaultFilter.indexOf('write_guest_ipv4_input_rules(fp, nvram_safe_get("lan_ipaddr"));');
+const defaultGuestHairpin = defaultFilter.indexOf('write_guest_hairpin_drop_rule(fp, lan_if, BIT_GUEST_IPV4);');
+const defaultInputAccept = defaultFilter.indexOf('-A INPUT -i %s -m state --state NEW -j ACCEPT');
+const defaultForwardAccept = defaultFilter.indexOf('-A FORWARD -i %s -o %s -j ACCEPT');
+const defaultForwardEstablished = defaultFilter.indexOf('-A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT');
+assert.ok(defaultGuestInput >= 0 && defaultGuestInput < defaultInputAccept);
+assert.ok(defaultGuestHairpin >= 0 && defaultGuestHairpin < defaultForwardEstablished);
+assert.ok(defaultGuestHairpin < defaultForwardAccept);
 assert.match(bridgeInput, /NF_HOOK\(NFPROTO_BRIDGE, NF_BR_LOCAL_IN,[\s\S]*?netif_receive_skb/);
 
 console.log('guest ARP, bridge, and IPv6 isolation source contracts passed');

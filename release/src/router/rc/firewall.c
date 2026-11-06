@@ -2925,6 +2925,9 @@ void write_access_restriction(FILE *fp, FILE *fp_ipv6)
  *     ACCEPT -> FORWARD ACCEPT
  */
 
+static void write_guest_ipv4_input_rules(FILE *fp, const char *lan_ip);
+static void write_guest_hairpin_drop_rule(FILE *fp, const char *lan_if, const char *guest_mark);
+
 void 	// 0928 add
 start_default_filter(int lanunit)
 {
@@ -2959,6 +2962,8 @@ start_default_filter(int lanunit)
 	fprintf(fp, ":%sWAN - [0:0]\n", PROTECT_SRV_RULE_CHAIN);
 	fprintf(fp, ":%sLAN - [0:0]\n", PROTECT_SRV_RULE_CHAIN);
 #endif
+	write_guest_ipv4_input_rules(fp, nvram_safe_get("lan_ipaddr"));
+	write_guest_hairpin_drop_rule(fp, lan_if, BIT_GUEST_IPV4);
 
 #if defined(RTCONFIG_SWITCH_QCA8075_QCA8337_PHY_AQR107_AR8035_QCA8033)
 	add_filter_rule_for_gpon_sfp_module(fp);
@@ -3557,9 +3562,7 @@ static void write_guest_ipv4_input_rules(FILE *fp, const char *lan_ip)
 		BIT_GUEST_IPV4, BIT_GUEST_IPV4, lan_ip);
 	fprintf(fp, "-A INPUT -m mark --mark %s/%s -p udp --dport 67 -j ACCEPT\n",
 		BIT_GUEST_IPV4, BIT_GUEST_IPV4);
-	fprintf(fp, "-A INPUT -m mark --mark %s/%s -p tcp -j DROP\n",
-		BIT_GUEST_IPV4, BIT_GUEST_IPV4);
-	fprintf(fp, "-A INPUT -m mark --mark %s/%s -p udp -j DROP\n",
+	fprintf(fp, "-A INPUT -m mark --mark %s/%s -j DROP\n",
 		BIT_GUEST_IPV4, BIT_GUEST_IPV4);
 }
 
