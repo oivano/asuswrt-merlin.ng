@@ -28,6 +28,7 @@ static unsigned long crc_table[256];
 #define DO8(buf)  DO4(buf); DO4(buf);
 
 #define TC_HDR_LEN	0x100
+#define TC_ROUTER_HEADER_LEN 8
 
 static void make_crc_table()
 {
@@ -501,13 +502,14 @@ done:
 #endif
 
 static int
-tc_firmware_fd_valid(int fd, unsigned long *header_crc, struct stat *identity)
+tc_firmware_fd_valid(int fd, unsigned long *header_crc, off_t *firmware_size,
+		     struct stat *identity)
 {
 	unsigned char header[TC_HDR_LEN];
 	unsigned char buffer[4096];
 	unsigned long payload_len, expected_crc, calculated_crc = 0xffffffff;
 	u_int32_t value;
-	off_t offset = TC_HDR_LEN;
+	off_t offset = TC_HDR_LEN, firmware_len;
 	size_t count;
 	struct stat after;
 
@@ -522,13 +524,14 @@ tc_firmware_fd_valid(int fd, unsigned long *header_crc, struct stat *identity)
 	payload_len = SWAP_LONG(value);
 	memcpy(&value, header + 12, sizeof(value));
 	expected_crc = SWAP_LONG(value);
-	if (payload_len == 0 || payload_len != (unsigned long)(identity->st_size - TC_HDR_LEN) ||
+	if (payload_len <= TC_HDR_LEN || payload_len > (unsigned long)identity->st_size ||
 	    payload_len > 0x7fffffffUL)
 		return -1;
+	firmware_len = payload_len;
 
-	while (offset < identity->st_size) {
-		count = identity->st_size - offset > sizeof(buffer) ?
-			sizeof(buffer) : identity->st_size - offset;
+	while (offset < firmware_len) {
+		count = firmware_len - offset > sizeof(buffer) ?
+			sizeof(buffer) : firmware_len - offset;
 		if (tc_read_exact_at(fd, buffer, count, offset) != 0)
 			return -1;
 		calculated_crc = crc32_no_comp(calculated_crc, buffer, count);
@@ -540,6 +543,8 @@ tc_firmware_fd_valid(int fd, unsigned long *header_crc, struct stat *identity)
 		return -1;
 	if (header_crc)
 		*header_crc = expected_crc;
+	if (firmware_size)
+		*firmware_size = firmware_len;
 	return 0;
 }
 
@@ -547,10 +552,10 @@ int
 stage_tc_firmware_from_trx(char *trxpath, long uploaded_len, const char *stage_dir,
 			   int truncate_image)
 {
-	unsigned char trx_header[12];
+	unsigned char trx_header[TC_ROUTER_HEADER_LEN];
 	unsigned char buffer[4096];
-	u_int32_t trx_size;
-	off_t file_size, remaining;
+	u_int32_t router_size;
+	off_t file_size, router_len, remaining;
 	int dirfd = -1, srcfd = -1, dstfd = -1, created = 0;
 	struct stat source;
 
@@ -568,19 +573,20 @@ stage_tc_firmware_from_trx(char *trxpath, long uploaded_len, const char *stage_d
 	    tc_read_exact_at(srcfd, trx_header, sizeof(trx_header), 0) != 0)
 		goto fail;
 
-	memcpy(&trx_size, trx_header + 4, sizeof(trx_size));
+	memcpy(&router_size, trx_header + 4, sizeof(router_size));
 	file_size = source.st_size;
-	if (trx_size < 0x1c || trx_size > file_size)
+	if (router_size < 0x1c || router_size > file_size)
 		goto fail;
-	if (trx_size == file_size) {
+	router_len = router_size;
+	if (router_len == file_size) {
 		close(srcfd);
 		close(dirfd);
 		return 0;
 	}
-	remaining = file_size - trx_size;
+	remaining = file_size - router_len;
 	if (remaining <= TC_HDR_LEN)
 		goto fail;
-	if (lseek(srcfd, trx_size, SEEK_SET) != trx_size)
+	if (lseek(srcfd, router_len, SEEK_SET) != router_len)
 		goto fail;
 	dstfd = tc_stage_file_open(dirfd, TC_FW_PART_NAME, 1);
 	if (dstfd < 0)
@@ -596,7 +602,7 @@ stage_tc_firmware_from_trx(char *trxpath, long uploaded_len, const char *stage_d
 	if (fsync(dstfd) != 0 || close(dstfd) != 0)
 		goto fail;
 	dstfd = -1;
-	if (truncate_image && ftruncate(srcfd, trx_size) != 0)
+	if (truncate_image && ftruncate(srcfd, router_len) != 0)
 		goto fail;
 	close(srcfd);
 	close(dirfd);
@@ -620,22 +626,22 @@ check_tc_firmware_stage(const char *stage_dir, int keep_image)
 	int dirfd = -1, srcfd = -1, dstfd = -1, result = -1, created = 0;
 	struct stat source, output;
 	unsigned char buffer[4096];
-	off_t offset = 0;
+	off_t offset = 0, firmware_len;
 
 	dirfd = tc_stage_directory_open(stage_dir);
 	if (dirfd < 0)
 		goto done;
 	srcfd = tc_stage_file_open(dirfd, TC_FW_PART_NAME, 0);
-	if (srcfd < 0 || tc_firmware_fd_valid(srcfd, NULL, &source) != 0)
+	if (srcfd < 0 || tc_firmware_fd_valid(srcfd, NULL, &firmware_len, &source) != 0)
 		goto done;
 	if (keep_image) {
 		dstfd = tc_stage_file_open(dirfd, TC_FW_IMAGE_NAME, 1);
 		if (dstfd < 0)
 			goto done;
 		created = 1;
-		while (offset < source.st_size) {
-			size_t count = source.st_size - offset > sizeof(buffer) ?
-				sizeof(buffer) : source.st_size - offset;
+		while (offset < firmware_len) {
+			size_t count = firmware_len - offset > sizeof(buffer) ?
+				sizeof(buffer) : firmware_len - offset;
 			if (tc_read_exact_at(srcfd, buffer, count, offset) != 0 ||
 			    tc_write_all(dstfd, buffer, count) != 0)
 				goto done;
@@ -643,7 +649,7 @@ check_tc_firmware_stage(const char *stage_dir, int keep_image)
 		}
 		if (fsync(dstfd) != 0 || fstat(dstfd, &output) != 0 ||
 		    !S_ISREG(output.st_mode) || output.st_uid != 0 || output.st_nlink != 1 ||
-		    (output.st_mode & 0777) != 0600 || output.st_size != source.st_size)
+		    (output.st_mode & 0777) != 0600 || output.st_size != firmware_len)
 			goto done;
 #ifdef RTCONFIG_BRCM_NAND_JFFS2
 #endif
@@ -741,7 +747,7 @@ void do_upgrade_adsldrv(void)
 	if (dirfd < 0 || !tc_upgrade_spool_published(dirfd))
 		goto done;
 	fwfd = tc_stage_file_open(dirfd, TC_FW_IMAGE_NAME, 0);
-	if (fwfd < 0 || tc_firmware_fd_valid(fwfd, &new_crc, &fw_stat) != 0)
+	if (fwfd < 0 || tc_firmware_fd_valid(fwfd, &new_crc, NULL, &fw_stat) != 0)
 		goto done;
 #ifdef RTCONFIG_BRCM_NAND_JFFS2
 	if (tc_backup_firmware(dirfd) != 0)
