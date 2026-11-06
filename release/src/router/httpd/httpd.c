@@ -2290,7 +2290,8 @@ handle_request(void)
 						send_login_page(fromapp, auth_result, url, file, auth_check_dt, add_try);
 						return;
 					}
-					if ((handler->input || (do_referer & CHECK_REFERER) || strstr(url, ".cgi")) &&
+					if ((handler->input || (do_referer & CHECK_REFERER) || strstr(url, ".cgi") ||
+					     match("renew_ikev2_cert_mobile.pem*|renew_ikev2_cert_windows.der*|ikev2_cert_mobile.pem*|ikev2_cert_windows.der*", url)) &&
 					    !httpd_check_request_origin() && !httpd_check_csrf_token(csrf_token)) {
 						send_error(403, "Forbidden", NULL, "Invalid request origin.");
 						return;
