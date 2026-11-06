@@ -277,6 +277,18 @@ function initial(){
 		change_dnspriv_enable(0);
 	}
 
+	if(dnscrypt_support){
+		document.getElementById("dnscrypt_enable_tr").style.display = "";
+		inputCtrl(document.form.dnscrypt_enable[0], 1);
+		inputCtrl(document.form.dnscrypt_enable[1], 1);
+		change_dnscrypt_enable(document.form.dnscrypt_enable[0].checked ? 1 : 0);
+	}
+	else{
+		inputCtrl(document.form.dnscrypt_enable[0], 0);
+		inputCtrl(document.form.dnscrypt_enable[1], 0);
+		change_dnscrypt_enable(0);
+	}
+
 	if(dnssec_support){
 		document.getElementById("dnssec_tr").style.display = "";
 		showhide("dnssec_strict_tr", "<% nvram_get("dnssec_enable"); %>" == "1" ? 1 : 0);
@@ -672,6 +684,9 @@ function applyRule(){
 			}
 			document.form.action_script.value += ";restart_stubby";
 		}
+
+		if(dnscrypt_support)
+			document.form.action_script.value += ";restart_dnscrypt";
 
 		if ((dnssec_support &&
 		      (getRadioValue(document.form.dnssec_enable) != '<% nvram_get("dnssec_enable"); %>') ||
@@ -1526,6 +1541,11 @@ function change_dnspriv_enable(flag){
 		document.getElementById("dnspriv_rulelist_Block").style.display = "none";
 		document.getElementById("dot_presets_tr").style.display = "none";
 	}
+}
+
+function change_dnscrypt_enable(flag){
+	inputCtrl(document.form.dnscrypt_server_names, flag);
+	document.getElementById("dnscrypt_server_names_tr").style.display = (flag == 1) ? "" : "none";
 }
 
 function addRow(obj, head){
@@ -2605,6 +2625,17 @@ function showInfo(){
 						<option value="2" <% nvram_match("dns_priv_override", "2", "selected"); %>>No</option>
 					</select>
 				</td>
+			</tr>
+			<tr id="dnscrypt_enable_tr" style="display:none">
+				<th>DNSCrypt</th>
+				<td>
+					<input type="radio" name="dnscrypt_enable" class="input" value="1" onclick="change_dnscrypt_enable(1)" <% nvram_match("dnscrypt_enable", "1", "checked"); %> /><#checkbox_Yes#>
+					<input type="radio" name="dnscrypt_enable" class="input" value="0" onclick="change_dnscrypt_enable(0)" <% nvram_match("dnscrypt_enable", "0", "checked"); %> /><#checkbox_No#>
+				</td>
+			</tr>
+			<tr id="dnscrypt_server_names_tr" style="display:none">
+				<th>DNSCrypt Resolvers</th>
+				<td><input type="text" maxlength="255" class="input_32_table" name="dnscrypt_server_names" value="<% nvram_get("dnscrypt_server_names"); %>" placeholder="comma-separated resolver names, empty = auto-select" autocorrect="off" autocapitalize="off"></td>
 			</tr>
 
 			<tr style="display:none">
