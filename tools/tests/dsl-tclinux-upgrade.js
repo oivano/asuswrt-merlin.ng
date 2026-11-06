@@ -34,7 +34,7 @@ function crc32NoComplement(bytes) {
 function modemImage(payload) {
     const image = Buffer.alloc(0x100 + payload.length);
     image.write('2RDH', 0, 'ascii');
-    image.writeUInt32BE(payload.length, 8);
+    image.writeUInt32BE(image.length, 8);
     image.writeUInt32BE(crc32NoComplement(payload), 12);
     payload.copy(image, 0x100);
     return image;
@@ -42,9 +42,14 @@ function modemImage(payload) {
 
 function validImage(image) {
     if (image.length <= 0x100 || image.toString('ascii', 0, 4) !== '2RDH') return false;
-    const payloadLength = image.readUInt32BE(8);
-    return payloadLength > 0 && payloadLength === image.length - 0x100 &&
-        image.readUInt32BE(12) === crc32NoComplement(image.subarray(0x100));
+    const firmwareLength = image.readUInt32BE(8);
+    return firmwareLength > 0x100 && firmwareLength <= image.length &&
+        image.readUInt32BE(12) === crc32NoComplement(image.subarray(0x100, firmwareLength));
+}
+
+function stagedImage(image) {
+    if (!validImage(image)) return null;
+    return image.subarray(0, image.readUInt32BE(8));
 }
 
 const stageDirOpen = functionBody(api, 'tc_stage_directory_open');
@@ -71,14 +76,23 @@ assert(stageFileOpen.includes('st_nlink != 1'));
 assert(stageFileOpen.includes('(st.st_mode & 0777) != 0600'));
 assert(firmwareCheck.includes('memcmp(header, "2RDH", 4)'));
 assert(firmwareCheck.includes('identity->st_size <= TC_HDR_LEN'));
-assert(firmwareCheck.includes('payload_len == 0'));
-assert(firmwareCheck.includes('payload_len != (unsigned long)(identity->st_size - TC_HDR_LEN)'));
+assert(firmwareCheck.includes('payload_len <= TC_HDR_LEN'));
+assert(firmwareCheck.includes('payload_len > (unsigned long)identity->st_size'));
+assert(firmwareCheck.includes('firmware_len = payload_len'));
+assert(firmwareCheck.includes('while (offset < firmware_len)'));
+assert(firmwareCheck.includes('sizeof(buffer) : firmware_len - offset'));
+assert(firmwareCheck.includes('*firmware_size = firmware_len'));
 assert(firmwareCheck.includes('calculated_crc != expected_crc'));
 assert(separate.includes('source.st_size < sizeof(trx_header)'));
-assert(separate.includes('trx_size < 0x1c || trx_size > file_size'));
+assert(separate.includes('unsigned char trx_header[TC_ROUTER_HEADER_LEN]'));
+assert(separate.includes('memcpy(&router_size, trx_header + 4, sizeof(router_size))'));
+assert(separate.includes('router_size > file_size'));
+assert(separate.includes('router_len = router_size'));
 assert(separate.includes('remaining <= TC_HDR_LEN'));
 assert(separate.includes('O_NOFOLLOW | O_NONBLOCK'));
 assert(checkStage.includes('tc_firmware_fd_valid'));
+assert(checkStage.includes('while (offset < firmware_len)'));
+assert(checkStage.includes('output.st_size != firmware_len'));
 assert(checkStage.includes('unlinkat(dirfd, TC_FW_PART_NAME, 0)'));
 assert(checkOnly.includes('mkdtemp(stage_dir)'));
 assert(checkOnly.includes('check_tc_firmware_stage(stage_dir, 0)'));
@@ -126,14 +140,16 @@ const shortLength = Buffer.from(valid);
 shortLength.writeUInt32BE(0, 8);
 assert(!validImage(shortLength));
 const overlong = Buffer.from(valid);
-overlong.writeUInt32BE(payload.length + 1, 8);
+overlong.writeUInt32BE(valid.length + 1, 8);
 assert(!validImage(overlong));
 const truncated = Buffer.from(valid.subarray(0, valid.length - 1));
 assert(!validImage(truncated));
 const badCrc = Buffer.from(valid);
 badCrc[badCrc.length - 1] ^= 0x80;
 assert(!validImage(badCrc));
-assert(!validImage(Buffer.concat([valid, Buffer.from([0])])));
+const padded = Buffer.concat([valid, Buffer.from([0xff, 0xff, 0xff])]);
+assert(validImage(padded), 'fixed-slot padding after the declared payload is accepted');
+assert(stagedImage(padded).equals(valid), 'only the header-declared modem image is staged');
 
 const trimStart = webUpload.indexOf('size_t boundary_len, trailer_len;');
 const trimEnd = webUpload.indexOf('upload_len = image_len;', trimStart);
@@ -167,15 +183,18 @@ const trailer = Buffer.from(`\r\n--${boundary}--\r\n`);
 const routerImage = Buffer.alloc(0x1000);
 routerImage.write('HDR0');
 routerImage.writeUInt32LE(routerImage.length, 4);
+const routerLength = routerImage.readUInt32LE(4);
+assert.equal(routerLength, routerImage.length);
 for (const modem of [Buffer.alloc(0), valid]) {
     const image = Buffer.concat([routerImage, modem]);
     const upload = Buffer.concat([image, trailer]);
     const trimmed = trimMultipart(upload, boundary);
     assert(trimmed && trimmed.equals(image), 'only multipart framing is removed');
-    const remainder = trimmed.subarray(trimmed.readUInt32LE(4));
+    const remainder = trimmed.subarray(routerLength);
     assert(modem.length ? validImage(remainder) : remainder.length === 0);
-    assert(!validImage(upload.subarray(routerImage.length)),
-        'untrimmed upload reproduces the staged-image rejection');
+    const staged = modem.length ? stagedImage(upload.subarray(routerImage.length)) : null;
+    if (modem.length)
+        assert(staged.equals(modem), 'padding and transport framing are excluded from staged output');
     assert.equal(trimMultipart(upload, boundary + 'wrong'), null);
     assert.equal(trimMultipart(upload.subarray(0, upload.length - 1), boundary), null);
     const corruptTrailer = Buffer.from(upload);
