@@ -141,8 +141,9 @@ upgrade_abort_invalid_spool(int stop_commit)
 #ifdef RTCONFIG_DNSMASQ_BLOCKLIST
 #define DNSMASQ_BLOCKLIST_LOG	"/var/log/dnsmasq_blocklist.log"
 #define DNSMASQ_BLOCKLIST_EXTERNAL_BYTES	(10 * 1024 * 1024)
-#define DNSMASQ_BLOCKLIST_RUNTIME_DIR	"/tmp/dnsmasq-blocklist"
-#define DNSMASQ_BLOCKLIST_RUNTIME_CONF	DNSMASQ_BLOCKLIST_RUNTIME_DIR "/runtime.conf"
+#define DNSMASQ_BLOCKLIST_RUNTIME_NAME	"runtime.conf"
+#define DNSMASQ_BLOCKLIST_STAMP	"/tmp/.dnsmasq-blocklist.stamp"
+#define DNSMASQ_BLOCKLIST_IO_BUF	(64 * 1024)
 #endif
 
 #if defined(RTCONFIG_DNSMASQ_BLOCKLIST) || defined(RTCONFIG_DNSCRYPT)
@@ -253,16 +254,6 @@ static int blocklist_open_directory(const char *dir)
 	return -1;
 }
 
-static int blocklist_prepare_directory(const char *dir)
-{
-	int fd = blocklist_open_directory(dir);
-
-	if (fd < 0)
-		return 0;
-	close(fd);
-	return 1;
-}
-
 static int blocklist_prepare_file_at(int dirfd, const char *path, int create)
 {
 	struct stat st;
@@ -273,19 +264,16 @@ static int blocklist_prepare_file_at(int dirfd, const char *path, int create)
 		fd = openat(dirfd, path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK, 0600);
 	if (fd < 0)
 		return 0;
+	/* Skip a no-op fchmod: it would bump ctime and invalidate the runtime stamp. */
 	if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
-	    st.st_nlink != 1 || fchmod(fd, 0600) < 0 || fstat(fd, &st) < 0 ||
+	    st.st_nlink != 1 ||
+	    ((st.st_mode & 07777) != 0600 && (fchmod(fd, 0600) < 0 || fstat(fd, &st) < 0)) ||
 	    (st.st_mode & 0077)) {
 		close(fd);
 		return 0;
 	}
 	close(fd);
 	return 1;
-}
-
-static int blocklist_prepare_file(const char *path, int create)
-{
-	return blocklist_prepare_file_at(AT_FDCWD, path, create);
 }
 
 static int blocklist_external_path(const char *path)
@@ -334,6 +322,7 @@ static int blocklist_safe_config_path(const char *path)
 
 static int blocklist_parse_data_line(char *line, char **domain, char **address)
 {
+	static char valid_address[INET6_ADDRSTRLEN];
 	char *p, *separator;
 	size_t len;
 	struct in_addr addr4;
@@ -348,6 +337,15 @@ static int blocklist_parse_data_line(char *line, char **domain, char **address)
 		line++;
 
 	*address = NULL;
+	if (!strncmp(line, "server=/", 8)) {
+		p = line + 8;
+		separator = strchr(p, '/');
+		if (!separator || strcmp(separator, "/#"))
+			return 0;
+		*separator = '\0';
+		*domain = p;
+		return blocklist_valid_domain(*domain) ? 3 : 0;
+	}
 	if (!strncmp(line, "local=/", 7)) {
 		p = line + 7;
 		separator = strchr(p, '/');
@@ -366,10 +364,16 @@ static int blocklist_parse_data_line(char *line, char **domain, char **address)
 	*separator = '\0';
 	*domain = p;
 	*address = separator + 1;
-	if (strchr(*address, '/') || !blocklist_valid_domain(*domain) ||
-	    (inet_pton(AF_INET, *address, &addr4) != 1 &&
-	     inet_pton(AF_INET6, *address, &addr6) != 1))
+	if (strchr(*address, '/') || !blocklist_valid_domain(*domain))
 		return 0;
+	/* Lists repeat one sink address; skip re-parsing an already accepted string. */
+	if (strcmp(*address, valid_address)) {
+		if (inet_pton(AF_INET, *address, &addr4) != 1 &&
+		    inet_pton(AF_INET6, *address, &addr6) != 1)
+			return 0;
+		if (strlen(*address) < sizeof(valid_address))
+			strcpy(valid_address, *address);
+	}
 	return 2;
 }
 
@@ -389,12 +393,9 @@ static FILE *blocklist_open_data_file_at(int dirfd, const char *path)
 	fp = fdopen(fd, "r");
 	if (!fp)
 		close(fd);
+	else
+		setvbuf(fp, NULL, _IOFBF, DNSMASQ_BLOCKLIST_IO_BUF);
 	return fp;
-}
-
-static FILE *blocklist_open_data_file(const char *path)
-{
-	return blocklist_open_data_file_at(AT_FDCWD, path);
 }
 
 static int blocklist_create_temp_file(int dirfd, const char *prefix, char *name, size_t name_len)
@@ -456,30 +457,7 @@ static int blocklist_download(char *const argv[], int output_fd)
 	return result == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
-static FILE *blocklist_create_data_file(const char *path)
-{
-	struct stat st;
-	FILE *fp;
-	int fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK, 0600);
-
-	if (fd < 0)
-		return NULL;
-	if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
-	    st.st_nlink != 1 || fchmod(fd, 0600) < 0 || fstat(fd, &st) < 0 ||
-	    (st.st_mode & 0077)) {
-		close(fd);
-		unlink(path);
-		return NULL;
-	}
-	fp = fdopen(fd, "w");
-	if (!fp) {
-		close(fd);
-		unlink(path);
-	}
-	return fp;
-}
-
-static int blocklist_write_data(FILE *input, FILE *config, FILE *hosts, int host_entries)
+static int blocklist_write_data(FILE *input, FILE *config)
 {
 	char line[512], *domain, *address;
 	int type;
@@ -491,64 +469,140 @@ static int blocklist_write_data(FILE *input, FILE *config, FILE *hosts, int host
 			continue;
 		}
 		type = blocklist_parse_data_line(line, &domain, &address);
-		if (type == 1) {
-			if (fprintf(config, "local=/%s/\n", domain) < 0)
-				return 0;
-		} else if (type == 2) {
-			if (host_entries) {
-				if (fprintf(hosts, "%s %s\n", address, domain) < 0)
-					return 0;
-			} else if (fprintf(config, "address=/%s/%s\n", domain, address) < 0) {
-				return 0;
+		if (!type)
+			continue;
+		fputs(type == 1 ? "local=/" : type == 2 ? "address=/" : "server=/", config);
+		fputs(domain, config);
+		if (type == 2) {
+			putc('/', config);
+			fputs(address, config);
+			putc('\n', config);
+		} else {
+			fputs(type == 1 ? "/\n" : "/#\n", config);
 		}
-	}
+		if (ferror(config))
+			return 0;
 	}
 	return !ferror(input);
 }
 
-static int blocklist_build_runtime_config(const char *dir, const char *blocklist_file,
-						  const char *allowlist_file, const char *denylist_file)
-{
-	char hosts_file[PATH_MAX], hosts_new[PATH_MAX], config_new[PATH_MAX];
-	FILE *allow = NULL, *block = NULL, *deny = NULL, *config = NULL, *hosts = NULL;
-	int ok = 0;
+static const char *const blocklist_stamp_names[] = {
+	"allowlist.conf", "blockinglist.conf", "denylist.conf", DNSMASQ_BLOCKLIST_RUNTIME_NAME
+};
 
-	if (snprintf(hosts_file, sizeof(hosts_file), "%s/blockinglist.hosts", dir) >= sizeof(hosts_file) ||
-	    snprintf(hosts_new, sizeof(hosts_new), "%s.new", hosts_file) >= sizeof(hosts_new) ||
-	    snprintf(config_new, sizeof(config_new), "%s.new", DNSMASQ_BLOCKLIST_RUNTIME_CONF) >= sizeof(config_new) ||
-	    !blocklist_safe_config_path(hosts_file) ||
-	    !blocklist_prepare_directory(DNSMASQ_BLOCKLIST_RUNTIME_DIR))
+struct blocklist_stamp {
+	dev_t dev;
+	ino_t ino;
+	off_t size;
+	time_t mtime, ctime;
+};
+
+#define BLOCKLIST_STAMP_COUNT	(sizeof(blocklist_stamp_names) / sizeof(blocklist_stamp_names[0]))
+
+static int blocklist_stamp_get(int dirfd, struct blocklist_stamp *stamp, size_t count)
+{
+	struct stat st;
+	size_t i;
+
+	memset(stamp, 0, sizeof(*stamp) * count);
+	for (i = 0; i < count; i++) {
+		if (fstatat(dirfd, blocklist_stamp_names[i], &st, AT_SYMLINK_NOFOLLOW) < 0 ||
+		    !S_ISREG(st.st_mode) || st.st_uid != 0 || st.st_nlink != 1 || (st.st_mode & 0077))
+			return 0;
+		stamp[i].dev = st.st_dev;
+		stamp[i].ino = st.st_ino;
+		stamp[i].size = st.st_size;
+		stamp[i].mtime = st.st_mtime;
+		stamp[i].ctime = st.st_ctime;
+	}
+	return 1;
+}
+
+/* RAM-only, so every boot (and any input change this boot) revalidates the USB data. */
+static int blocklist_runtime_current(int dirfd)
+{
+	struct blocklist_stamp now[BLOCKLIST_STAMP_COUNT], saved[BLOCKLIST_STAMP_COUNT];
+	struct stat st;
+	int fd, ok = 0;
+
+	if (!blocklist_stamp_get(dirfd, now, BLOCKLIST_STAMP_COUNT))
 		return 0;
-	if (unlink(hosts_new) < 0 && errno != ENOENT)
+	if ((fd = open(DNSMASQ_BLOCKLIST_STAMP, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)) < 0)
 		return 0;
-	if (unlink(config_new) < 0 && errno != ENOENT)
-		return 0;
-	allow = blocklist_open_data_file(allowlist_file);
-	block = blocklist_open_data_file(blocklist_file);
-	deny = blocklist_open_data_file(denylist_file);
-	if (!allow || !block || !deny || !(hosts = blocklist_create_data_file(hosts_new)) ||
-	    !(config = blocklist_create_data_file(config_new)))
+	if (fstat(fd, &st) == 0 && S_ISREG(st.st_mode) && st.st_uid == 0 && st.st_nlink == 1 &&
+	    !(st.st_mode & 0077) && read(fd, saved, sizeof(saved)) == sizeof(saved))
+		ok = !memcmp(now, saved, sizeof(now));
+	close(fd);
+	return ok;
+}
+
+/* inputs: identities of the three source files captured before they were read. */
+static void blocklist_runtime_record(int dirfd, const struct blocklist_stamp *inputs)
+{
+	struct blocklist_stamp now[BLOCKLIST_STAMP_COUNT];
+	int fd;
+
+	unlink(DNSMASQ_BLOCKLIST_STAMP);
+	if (!blocklist_stamp_get(dirfd, now, BLOCKLIST_STAMP_COUNT) ||
+	    memcmp(now, inputs, sizeof(*inputs) * (BLOCKLIST_STAMP_COUNT - 1)))
+		return;
+	fd = open(DNSMASQ_BLOCKLIST_STAMP, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK, 0600);
+	if (fd < 0)
+		return;
+	if (write(fd, now, sizeof(now)) != sizeof(now)) {
+		close(fd);
+		unlink(DNSMASQ_BLOCKLIST_STAMP);
+		return;
+	}
+	close(fd);
+}
+
+/* Generated next to the list on USB: dnsmasq parses conf-file as root before
+ * dropping to nobody, whereas addn-hosts would be read as nobody and fail. */
+static int blocklist_build_runtime_config(int dirfd)
+{
+	FILE *allow = NULL, *block = NULL, *deny = NULL, *config = NULL;
+	struct blocklist_stamp inputs[BLOCKLIST_STAMP_COUNT - 1];
+	char new_name[96] = "";
+	int fd, ok = 0, have_inputs;
+
+	unlink(DNSMASQ_BLOCKLIST_STAMP);
+	have_inputs = blocklist_stamp_get(dirfd, inputs, BLOCKLIST_STAMP_COUNT - 1);
+	/* Drop the unreadable hosts output of earlier firmware. */
+	unlinkat(dirfd, "blockinglist.hosts", 0);
+	unlinkat(dirfd, "blockinglist.hosts.new", 0);
+	unlinkat(dirfd, DNSMASQ_BLOCKLIST_RUNTIME_NAME ".new", 0);
+	allow = blocklist_open_data_file_at(dirfd, "allowlist.conf");
+	block = blocklist_open_data_file_at(dirfd, "blockinglist.conf");
+	deny = blocklist_open_data_file_at(dirfd, "denylist.conf");
+	if (!allow || !block || !deny)
 		goto done;
-	if (!blocklist_write_data(allow, config, hosts, 0) ||
-	    fprintf(config, "addn-hosts=%s\n", hosts_file) < 0 ||
-	    !blocklist_write_data(block, config, hosts, 1) ||
-	    !blocklist_write_data(deny, config, hosts, 0) ||
-	    ferror(config) || ferror(hosts))
+	/* Unique name: rc and the update worker may regenerate concurrently. */
+	fd = blocklist_create_temp_file(dirfd, DNSMASQ_BLOCKLIST_RUNTIME_NAME ".new",
+					new_name, sizeof(new_name));
+	if (fd < 0)
 		goto done;
-	if (fclose(hosts) != 0) {
-		hosts = NULL;
+	if (!(config = fdopen(fd, "w"))) {
+		close(fd);
 		goto done;
 	}
-	hosts = NULL;
+	setvbuf(config, NULL, _IOFBF, DNSMASQ_BLOCKLIST_IO_BUF);
+	if (!blocklist_write_data(allow, config) ||
+	    !blocklist_write_data(block, config) ||
+	    !blocklist_write_data(deny, config) ||
+	    ferror(config))
+		goto done;
 	if (fclose(config) != 0) {
 		config = NULL;
 		goto done;
 	}
 	config = NULL;
-	if (rename(hosts_new, hosts_file) != 0 ||
-	    rename(config_new, DNSMASQ_BLOCKLIST_RUNTIME_CONF) != 0)
+	if (renameat(dirfd, new_name, dirfd, DNSMASQ_BLOCKLIST_RUNTIME_NAME) != 0)
 		goto done;
+	*new_name = '\0';
 	ok = 1;
+	if (have_inputs)
+		blocklist_runtime_record(dirfd, inputs);
 
 done:
 	if (allow)
@@ -557,15 +611,45 @@ done:
 		fclose(block);
 	if (deny)
 		fclose(deny);
-	if (hosts)
-		fclose(hosts);
 	if (config)
 		fclose(config);
-	if (!ok) {
-		unlink(hosts_new);
-		unlink(config_new);
-	}
+	if (*new_name)
+		unlinkat(dirfd, new_name, 0);
 	return ok;
+}
+
+/* Returns 1 when private USB storage is usable; config is nonempty only for a validated list. */
+static int prepare_dnsmasq_blocklist(char *config, size_t config_len, int *update)
+{
+	char dir[PATH_MAX], file[PATH_MAX];
+	struct stat st;
+	int dirfd, missing;
+
+	*config = '\0';
+	if (!nvram_get_int("dnsmasq_blocklist_enable"))
+		return 0;
+	if (!blocklist_get_paths(dir, sizeof(dir), file, sizeof(file))) {
+		logmessage("dnsmasq_blocklist", "no writable USB storage with 220 MB free; blocklist disabled");
+		return 0;
+	}
+	if ((dirfd = blocklist_open_directory(dir)) < 0) {
+		logmessage("dnsmasq_blocklist", "USB blocklist storage is not private; blocklist disabled");
+		return 0;
+	}
+	missing = fstatat(dirfd, "blockinglist.conf", &st, AT_SYMLINK_NOFOLLOW) < 0 && errno == ENOENT;
+	if (blocklist_prepare_file_at(dirfd, "blockinglist.conf", 1) &&
+	    blocklist_prepare_file_at(dirfd, "allowlist.conf", 1) &&
+	    blocklist_prepare_file_at(dirfd, "denylist.conf", 1) &&
+	    snprintf(config, config_len, "%s/" DNSMASQ_BLOCKLIST_RUNTIME_NAME, dir) < config_len &&
+	    blocklist_safe_config_path(config) &&
+	    (blocklist_runtime_current(dirfd) || blocklist_build_runtime_config(dirfd))) {
+		*update = missing;
+	} else {
+		*config = '\0';
+		logmessage("dnsmasq_blocklist", "blocklist data could not be safely prepared; skipping blocklist");
+	}
+	close(dirfd);
+	return 1;
 }
 #endif
 
@@ -2096,8 +2180,8 @@ void start_dnsmasq(void)
 	char buf[sizeof("/rom/etc/resolv.conf")], *path;
 	int n;
 #ifdef RTCONFIG_DNSMASQ_BLOCKLIST
-	char blocklist_dir[PATH_MAX], blocklist_file[PATH_MAX], blocklist_config[PATH_MAX];
-	int update_blocklist = 0;
+	char blocklist_config[PATH_MAX];
+	int blocklist_storage, update_blocklist = 0;
 #endif
 
 	TRACE_PT("begin\n");
@@ -2106,6 +2190,12 @@ void start_dnsmasq(void)
 		notify_rc_and_wait_2min("start_dnsmasq");
 		return;
 	}
+
+#ifdef RTCONFIG_DNSMASQ_BLOCKLIST
+	/* Validate the list while the running instance still answers queries. */
+	blocklist_storage = prepare_dnsmasq_blocklist(blocklist_config, sizeof(blocklist_config),
+						      &update_blocklist);
+#endif
 
 	stop_dnsmasq();
 
@@ -2856,41 +2946,13 @@ void start_dnsmasq(void)
 	fprintf(fp, "edns-packet-max=1232\n");
 
 #ifdef RTCONFIG_DNSMASQ_BLOCKLIST
-	if (nvram_get_int("dnsmasq_blocklist_enable") &&
-	    blocklist_get_paths(blocklist_dir, sizeof(blocklist_dir), blocklist_file, sizeof(blocklist_file))) {
-		if (blocklist_prepare_directory(blocklist_dir)) {
-			char allowlist_file[PATH_MAX], denylist_file[PATH_MAX];
-			struct stat blocklist_stat;
-			int have_blocklist, missing_blocklist;
-			snprintf(allowlist_file, sizeof(allowlist_file), "%s/allowlist.conf", blocklist_dir);
-			snprintf(denylist_file, sizeof(denylist_file), "%s/denylist.conf", blocklist_dir);
-			missing_blocklist = lstat(blocklist_file, &blocklist_stat) < 0 && errno == ENOENT;
-			have_blocklist = blocklist_prepare_file(blocklist_file, 1);
-			if (have_blocklist &&
-			    blocklist_prepare_file(allowlist_file, 1) &&
-			    blocklist_prepare_file(denylist_file, 1) &&
-			    blocklist_build_runtime_config(blocklist_dir, blocklist_file,
-							   allowlist_file, denylist_file) &&
-			    snprintf(blocklist_config, sizeof(blocklist_config), "%s",
-				     DNSMASQ_BLOCKLIST_RUNTIME_CONF) < sizeof(blocklist_config)) {
-				if (missing_blocklist)
-					update_blocklist = 1;
-				fprintf(fp, "conf-file=%s\n", blocklist_config);
-			} else {
-				logmessage("dnsmasq_blocklist", "blocklist data could not be safely prepared; skipping blocklist");
-			}
-
-			if (nvram_get_int("dnsmasq_blocklist_logging")) {
-				fprintf(fp,
-					"log-async=25\n"
-					"log-queries\n"
-					"log-facility=" DNSMASQ_BLOCKLIST_LOG "\n");
-			}
-		} else {
-			logmessage("dnsmasq_blocklist", "USB blocklist storage is not private; blocklist disabled");
-		}
-	} else if (nvram_get_int("dnsmasq_blocklist_enable")) {
-		logmessage("dnsmasq_blocklist", "no writable USB storage with 220 MB free; blocklist disabled");
+	if (*blocklist_config)
+		fprintf(fp, "conf-file=%s\n", blocklist_config);
+	if (blocklist_storage && nvram_get_int("dnsmasq_blocklist_logging")) {
+		fprintf(fp,
+			"log-async=25\n"
+			"log-queries\n"
+			"log-facility=" DNSMASQ_BLOCKLIST_LOG "\n");
 	}
 #endif
 
@@ -3006,23 +3068,61 @@ void reload_dnsmasq(void)
 }
 
 #ifdef RTCONFIG_DNSMASQ_BLOCKLIST
-/* domain is present (as a whole line "address=/domain/...") in an existing conf-file */
-static int dnsmasq_blocklist_allowed(const char *domain, FILE *allow)
+struct blocklist_allowset {
+	char **names;
+	size_t count;
+};
+
+static int blocklist_name_cmp(const void *a, const void *b)
 {
-	char line[512], *p;
+	return strcmp(*(char *const *)a, *(char *const *)b);
+}
 
-	if (!allow)
-		return 0;
+static void blocklist_allowset_free(struct blocklist_allowset *set)
+{
+	while (set->count)
+		free(set->names[--set->count]);
+	free(set->names);
+	set->names = NULL;
+}
 
-	rewind(allow);
+/* Load each "x=/domain/..." allowlist domain once; the list is then probed per entry. */
+static int blocklist_allowset_load(FILE *allow, struct blocklist_allowset *set)
+{
+	char line[512], *p, *end, **names;
+	size_t capacity = 0;
+
+	set->names = NULL;
+	set->count = 0;
 	while (fgets(line, sizeof(line), allow)) {
-		if (!(p = strchr(line, '/')))
+		if (!(p = strchr(line, '/')) || !(end = strchr(++p, '/')))
 			continue;
-		p++;
-		if (!strncmp(p, domain, strlen(domain)) && p[strlen(domain)] == '/')
-			return 1;
+		*end = '\0';
+		if (set->count == capacity) {
+			capacity = capacity ? capacity * 2 : 64;
+			if (!(names = realloc(set->names, capacity * sizeof(*names))))
+				goto fail;
+			set->names = names;
+		}
+		if (!(set->names[set->count] = strdup(p)))
+			goto fail;
+		set->count++;
 	}
+	if (ferror(allow))
+		goto fail;
+	if (set->count)
+		qsort(set->names, set->count, sizeof(*set->names), blocklist_name_cmp);
+	return 1;
+
+fail:
+	blocklist_allowset_free(set);
 	return 0;
+}
+
+static int dnsmasq_blocklist_allowed(const char *domain, const struct blocklist_allowset *set)
+{
+	return set->count &&
+	       bsearch(&domain, set->names, set->count, sizeof(*set->names), blocklist_name_cmp);
 }
 
 /* Fetch a plain domain list or a precompiled dnsmasq list, skipping anything
@@ -3036,7 +3136,9 @@ static int update_dnsmasq_blocklist_worker(void)
 	char download_name[96] = "", new_name[96] = "";
 	char *argv[16];
 	FILE *in = NULL, *out = NULL, *allow = NULL;
+	struct blocklist_allowset allowset = { NULL, 0 };
 	char line[512], *p, *domain, *compiled_end;
+	const char *sink;
 	struct stat list_stat;
 	int dirfd = -1, download_fd = -1, output_fd = -1;
 	int max_domains, count = 0, truncated = 0, write_error = 0, updated = 0;
@@ -3099,14 +3201,21 @@ static int update_dnsmasq_blocklist_worker(void)
 	if (!in)
 		goto done;
 	download_fd = -1;
+	setvbuf(in, NULL, _IOFBF, DNSMASQ_BLOCKLIST_IO_BUF);
 	output_fd = blocklist_create_temp_file(dirfd, "blockinglist.conf.new",
 					       new_name, sizeof(new_name));
 	if (output_fd < 0 || !(out = fdopen(output_fd, "w")))
 		goto done;
 	output_fd = -1;
+	setvbuf(out, NULL, _IOFBF, DNSMASQ_BLOCKLIST_IO_BUF);
 	allow = blocklist_open_data_file_at(dirfd, "allowlist.conf");
-	if (!allow)
+	if (!allow || !blocklist_allowset_load(allow, &allowset)) {
+		logmessage("dnsmasq_blocklist", "failed to load allowlist; keeping previous list");
 		goto done;
+	}
+	fclose(allow);
+	allow = NULL;
+	sink = *block_ip ? block_ip : "0.0.0.0";
 
 	while (fgets(line, sizeof(line), in)) {
 		/* Strip comments and hosts-file/AdBlock-style decoration down to a bare domain. */
@@ -3121,7 +3230,7 @@ static int update_dnsmasq_blocklist_worker(void)
 			if (!(compiled_end = strchr(p, '/')))
 				continue;
 			*compiled_end = '\0';
-			if (dnsmasq_blocklist_allowed(p, allow)) {
+			if (dnsmasq_blocklist_allowed(p, &allowset)) {
 				*compiled_end = '/';
 				continue;
 			}
@@ -3130,7 +3239,8 @@ static int update_dnsmasq_blocklist_worker(void)
 				truncated = 1;
 				break;
 			}
-			fprintf(out, "%s\n", domain);
+			fputs(domain, out);
+			putc('\n', out);
 			count++;
 			continue;
 		}
@@ -3142,18 +3252,20 @@ static int update_dnsmasq_blocklist_worker(void)
 			*p = '\0';
 		while (isspace((int)*domain))
 			domain++;
-		if (!*domain || dnsmasq_blocklist_allowed(domain, allow))
+		if (!*domain || dnsmasq_blocklist_allowed(domain, &allowset))
 			continue;
 		if (count >= max_domains) {
 			truncated = 1;
 			break;
 		}
-		fprintf(out, "address=/%s/%s\n", domain, *block_ip ? block_ip : "0.0.0.0");
+		fputs("address=/", out);
+		fputs(domain, out);
+		putc('/', out);
+		fputs(sink, out);
+		putc('\n', out);
 		count++;
 	}
-	if (allow)
-		fclose(allow);
-	allow = NULL;
+	blocklist_allowset_free(&allowset);
 	if (ferror(in))
 		write_error = 1;
 	if (fclose(in) != 0)
@@ -3189,8 +3301,12 @@ static int update_dnsmasq_blocklist_worker(void)
 		goto done;
 	}
 	updated = 1;
+	/* Validate here, while dnsmasq still serves, so the restart can reuse it. */
+	if (blocklist_prepare_file_at(dirfd, "denylist.conf", 1))
+		blocklist_build_runtime_config(dirfd);
 
 done:
+	blocklist_allowset_free(&allowset);
 	if (in)
 		fclose(in);
 	if (out)
@@ -3247,17 +3363,24 @@ void update_dnsmasq_blocklist(void)
 		return;
 	}
 	if (pid == 0) {
-		int lockfd = dnsmasq_blocklist_worker_lock();
-		int updated;
+		sigset_t set;
+		int lockfd, updated, sig;
 
-		if (lockfd < 0)
+		/* PID 1's SIGCHLD reaper and blocked mask would steal curl's status and stall its timers. */
+		for (sig = 1; sig < _NSIG; sig++)
+			signal(sig, SIG_DFL);
+		sigemptyset(&set);
+		sigprocmask(SIG_SETMASK, &set, NULL);
+
+		if ((lockfd = dnsmasq_blocklist_worker_lock()) < 0)
 			_exit(0);
 		updated = update_dnsmasq_blocklist_worker();
 		close(lockfd);
 		if (updated) {
 			while (*nvram_safe_get("rc_service"))
 				usleep(100000);
-			notify_rc("restart_dnsmasq");
+			/* start_ regenerates before stopping, unlike restart_ which stops first. */
+			notify_rc("start_dnsmasq");
 		}
 		_exit(0);
 	}
