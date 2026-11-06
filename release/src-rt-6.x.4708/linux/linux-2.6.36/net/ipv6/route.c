@@ -738,6 +738,7 @@ static struct rt6_info *ip6_pol_route(struct net *net, struct fib6_table *table,
 	int strict = 0;
 	int attempts = 3;
 	int err;
+	int cache_route = 1;
 	int reachable = net->ipv6.devconf_all->forwarding ? 0 : RT6_LOOKUP_F_REACHABLE;
 
 	strict |= flags & RT6_LOOKUP_F_IFACE;
@@ -759,9 +760,11 @@ restart:
 	dst_hold(&rt->dst);
 	read_unlock_bh(&table->tb6_lock);
 
-	if (!rt->rt6i_nexthop && !(rt->rt6i_flags & RTF_NONEXTHOP))
+	if (!rt->rt6i_nexthop && !(rt->rt6i_flags & RTF_NONEXTHOP)) {
 		nrt = rt6_alloc_cow(rt, &fl->fl6_dst, &fl->fl6_src);
-	else {
+		if (flags & RT6_LOOKUP_F_INPUT)
+			cache_route = 0;
+	} else {
 #if CLONE_OFFLINK_ROUTE
 		nrt = rt6_alloc_clone(rt, &fl->fl6_dst);
 #else
@@ -774,6 +777,10 @@ restart:
 
 	dst_hold(&rt->dst);
 	if (nrt) {
+		if (!cache_route) {
+			nrt->dst.flags |= DST_EPHEMERAL | DST_NOHASH;
+			goto out2;
+		}
 		err = ip6_ins_rt(nrt);
 		if (!err)
 			goto out2;
@@ -813,7 +820,7 @@ void ip6_route_input(struct sk_buff *skb)
 {
 	struct ipv6hdr *iph = ipv6_hdr(skb);
 	struct net *net = dev_net(skb->dev);
-	int flags = RT6_LOOKUP_F_HAS_SADDR;
+	int flags = RT6_LOOKUP_F_HAS_SADDR | RT6_LOOKUP_F_INPUT;
 	struct flowi fl = {
 		.iif = skb->dev->ifindex,
 		.nl_u = {

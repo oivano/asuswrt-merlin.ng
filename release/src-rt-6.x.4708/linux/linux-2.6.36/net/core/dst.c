@@ -274,6 +274,8 @@ void dst_release(struct dst_entry *dst)
 		smp_mb__before_atomic_dec();
 		newrefcnt = atomic_dec_return(&dst->__refcnt);
 		WARN_ON(newrefcnt < 0);
+		if (!newrefcnt && (dst->flags & DST_EPHEMERAL))
+			dst_destroy(dst);
 	}
 }
 EXPORT_SYMBOL(dst_release);
