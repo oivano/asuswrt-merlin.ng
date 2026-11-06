@@ -3624,9 +3624,7 @@ void start_dnscrypt_proxy(void)
 
 	stop_dnscrypt_proxy();
 
-	if (secure_root_config_dir("/etc/dnscrypt-proxy") != 0 ||
-	    prepare_writable_cache_dir(DNSCRYPT_CACHE_DIR) != 0 ||
-	    prepare_writable_cache_dir(DNSCRYPT_LEGACY_CACHE_DIR) != 0)
+	if (secure_root_config_dir("/etc/dnscrypt-proxy") != 0)
 		return;
 
 	if ((fp = open_root_config_file("/etc/dnscrypt-proxy", "dnscrypt-proxy.toml", 0644)) == NULL)
@@ -3683,6 +3681,9 @@ void start_dnscrypt_proxy(void)
 	use_custom_config("dnscrypt-proxy.toml", DNSCRYPT_CONFIG);
 	run_postconf("dnscrypt-proxy", DNSCRYPT_CONFIG);
 	if (set_root_config_file_mode("/etc/dnscrypt-proxy", "dnscrypt-proxy.toml", 0644) != 0)
+		return;
+	if (prepare_writable_cache_dir(DNSCRYPT_CACHE_DIR) != 0 ||
+	    prepare_writable_cache_dir(DNSCRYPT_LEGACY_CACHE_DIR) != 0)
 		return;
 
 	/* Go's time package ignores the system localtime file; give it TZ explicitly */
