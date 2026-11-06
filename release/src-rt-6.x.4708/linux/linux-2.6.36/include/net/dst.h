@@ -47,6 +47,7 @@ struct dst_entry {
 #define DST_NOXFRM		2
 #define DST_NOPOLICY		4
 #define DST_NOHASH		8
+#define DST_EPHEMERAL		16
 	unsigned long		expires;
 
 	unsigned short		header_len;	/* more space at head required */
