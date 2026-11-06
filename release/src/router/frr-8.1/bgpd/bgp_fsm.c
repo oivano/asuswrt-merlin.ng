@@ -1380,6 +1380,7 @@ int bgp_stop(struct peer *peer)
 
 	/* Reset capabilities. */
 	peer->cap = 0;
+	peer->max_packet_size = BGP_STANDARD_MESSAGE_MAX_PACKET_SIZE;
 
 	FOREACH_AFI_SAFI (afi, safi) {
 		/* Reset all negotiated variables */
@@ -1687,6 +1688,7 @@ int bgp_start(struct peer *peer)
 
 	/* Clear peer capability flag. */
 	peer->cap = 0;
+	peer->max_packet_size = BGP_STANDARD_MESSAGE_MAX_PACKET_SIZE;
 
 	/* If the peer is passive mode, force to move to Active mode. */
 	if (CHECK_FLAG(peer->flags, PEER_FLAG_PASSIVE)) {

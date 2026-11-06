@@ -762,9 +762,12 @@ void bgp_notify_send_with_data(struct peer *peer, uint8_t code,
 	 */
 	if (peer->curr) {
 		size_t packetsize = stream_get_endp(peer->curr);
-		assert(packetsize <= peer->max_packet_size);
-		memcpy(peer->last_reset_cause, peer->curr->data, packetsize);
-		peer->last_reset_cause_size = packetsize;
+		if (packetsize <= sizeof(peer->last_reset_cause)) {
+			memcpy(peer->last_reset_cause, peer->curr->data,
+			       packetsize);
+			peer->last_reset_cause_size = packetsize;
+		} else
+			peer->last_reset_cause_size = 0;
 	}
 
 	/* For debug */
