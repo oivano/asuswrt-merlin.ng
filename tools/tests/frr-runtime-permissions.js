@@ -201,7 +201,8 @@ try {
     assert.match(rc, /static int frr_config_dir_trusted\(const char \*path\)[\s\S]*?lstat\(checked, &st\)[\s\S]*?!S_ISDIR\(st\.st_mode\)[\s\S]*?st\.st_uid != 0[\s\S]*?st\.st_mode & 0022/);
     assert.match(rc, /static int frr_secure_config_file\(const char \*path\)[\s\S]*?lstat\(path, &st\)[\s\S]*?!S_ISREG\(st\.st_mode\)[\s\S]*?st\.st_uid != 0[\s\S]*?st\.st_nlink != 1[\s\S]*?chmod\(path, 0600\)/);
     assert.match(rc, /chmod\(cfg_dir, 0700\)/);
-    assert.match(rc, /frr_secure_config_file\(FRR_RUNTIME_DAEMONS\)[\s\S]*?frr_secure_config_file\(FRR_RUNTIME_CONF\)/);
+    assert.doesNotMatch(rc, /frr_secure_config_file\(FRR_RUNTIME_(?:DAEMONS|CONF)\)/);
+    assert.match(rc, /frr_copy_file\(daemons_path, FRR_RUNTIME_DAEMONS\)[\s\S]*?frr_copy_file\(conf_path, FRR_RUNTIME_CONF\)/);
     assert.match(rc, /if \(!frr_create_dirs\(\)\) \{\s*logmessage\("FRR", "Unable to secure FRR configuration files"\);\s*return;/);
     assert.match(rc, /mkstemp\(temporary\)[\s\S]*?fchmod\(fd, 0600\)[\s\S]*?rename\(temporary, dst\)/);
     assert.match(rc, /frr_secure_config_file\(daemons_path\)[\s\S]*?frr_secure_config_file\(conf_path\)[\s\S]*?frr_sync_runtime_config/);
