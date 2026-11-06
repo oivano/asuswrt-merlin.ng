@@ -199,7 +199,13 @@ try {
     assert.doesNotMatch(common, /nvram get frr_config_dir/);
     assert.match(common, /\. "\$DAEMONS_C_PATH\/daemons"/);
     assert.match(rc, /static int frr_config_dir_trusted\(const char \*path\)[\s\S]*?lstat\(checked, &st\)[\s\S]*?!S_ISDIR\(st\.st_mode\)[\s\S]*?st\.st_uid != 0[\s\S]*?st\.st_mode & 0022/);
-    assert.match(rc, /static int frr_secure_config_file\(const char \*path\)[\s\S]*?lstat\(path, &st\)[\s\S]*?!S_ISREG\(st\.st_mode\)[\s\S]*?st\.st_uid != 0[\s\S]*?st\.st_nlink != 1[\s\S]*?chmod\(path, 0600\)/);
+    const secureConfig = rc.match(/static int frr_secure_config_file\(const char \*path\)\s*\{([\s\S]*?)\n\}/);
+    assert.ok(secureConfig, 'persistent FRR config security helper exists');
+    assert.match(secureConfig[1], /open\(path, O_RDONLY \| O_NOFOLLOW \| O_NONBLOCK\)/);
+    assert.match(secureConfig[1], /fstat\(fd, &st\).*S_ISREG\(st\.st_mode\).*st\.st_nlink == 1/);
+    assert.match(secureConfig[1], /fchown\(fd, 0, 0\).*fchmod\(fd, 0600\)/);
+    assert.match(secureConfig[1], /st\.st_uid == 0[\s\S]*st\.st_gid == 0[\s\S]*st\.st_nlink == 1[\s\S]*st\.st_mode & 0077/);
+    assert.match(secureConfig[1], /close\(fd\)/);
     assert.match(rc, /chmod\(cfg_dir, 0700\)/);
     assert.doesNotMatch(rc, /frr_secure_config_file\(FRR_RUNTIME_(?:DAEMONS|CONF)\)/);
     assert.match(rc, /frr_copy_file\(daemons_path, FRR_RUNTIME_DAEMONS\)[\s\S]*?frr_copy_file\(conf_path, FRR_RUNTIME_CONF\)/);

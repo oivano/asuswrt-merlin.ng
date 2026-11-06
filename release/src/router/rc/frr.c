@@ -422,12 +422,18 @@ static int is_frr_enabled(void)
 static int frr_secure_config_file(const char *path)
 {
 	struct stat st;
+	int fd, ok = 0;
 
-	if (lstat(path, &st) < 0)
+	fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+	if (fd < 0)
 		return errno == ENOENT;
-	if (!S_ISREG(st.st_mode) || st.st_uid != 0 || st.st_nlink != 1)
-		return 0;
-	return chmod(path, 0600) == 0;
+	if (fstat(fd, &st) == 0 && S_ISREG(st.st_mode) && st.st_nlink == 1 &&
+	    fchown(fd, 0, 0) == 0 && fchmod(fd, 0600) == 0 &&
+	    fstat(fd, &st) == 0 && S_ISREG(st.st_mode) && st.st_uid == 0 &&
+	    st.st_gid == 0 && st.st_nlink == 1 && !(st.st_mode & 0077))
+		ok = 1;
+	close(fd);
+	return ok;
 }
 
 static int frr_create_dirs(void)
