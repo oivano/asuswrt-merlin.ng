@@ -41,7 +41,7 @@ const redirectBody = `<script>top.location.href='/page_default.cgi?url=${redirec
 assert(!redirectBody.includes('alert'));
 assert(!redirectBody.includes("QIS_'-"));
 
-const dispatchGuard = request.match(/if \(\(handler->input \|\| \(do_referer & CHECK_REFERER\) \|\| strstr\(url, "\.cgi"\)\) &&\s*!httpd_check_request_origin\(\) && !httpd_check_csrf_token\(csrf_token\)\)/);
+const dispatchGuard = request.match(/if \(\(handler->input \|\| \(do_referer & CHECK_REFERER\) \|\| strstr\(url, "\.cgi"\) \|\|\s*match\("([^"]+)", url\)\) &&\s*!httpd_check_request_origin\(\) && !httpd_check_csrf_token\(csrf_token\)\)/);
 assert(dispatchGuard, 'All authenticated input/CGI handlers require origin or session token, regardless of method/UA');
 const postOnlyGuard = request.match(/if \(strcasecmp\(method, "post"\) != 0 &&\s*\(match\("feedback_mail\.cgi\*", url\) \|\|\s*match\("enable_remote_control\.cgi\*", url\) \|\|\s*match\("block_device_internet\.cgi\*", url\) \|\|\s*match\("chpass\.cgi\*", url\)\)\)/);
 assert(postOnlyGuard);
@@ -64,6 +64,7 @@ for (const [token, expected, allowed] of [
 const originDenied = new Function('handler', 'do_referer', 'url', 'originOK', 'tokenOK',
     `const CHECK_REFERER = 1;
      const strstr = (value, part) => value.includes(part);
+        const match = (pattern, value) => pattern.split('|').some(entry => entry.endsWith('*') ? value.startsWith(entry.slice(0, -1)) : entry === value);
      const httpd_check_request_origin = () => originOK;
      const httpd_check_csrf_token = () => tokenOK;
      const csrf_token = '';
@@ -95,6 +96,19 @@ for (const url of ['feedback_mail.cgi', 'feedback_mail.cgi?http_passwd_app=X',
 assert(originDenied({ input: false }, 0, 'renew_ikev2_cert_key.cgi', false, false));
 assert(originDenied({ input: true }, 0, 'start_apply.htm', false, false));
 assert(!originDenied({ input: false }, 0, 'static.css', false, false));
+const ikev2CertRoutes = [
+    ['renew_ikev2_cert_mobile.pem', 'do_renew_ikev2_cert_pem'],
+    ['renew_ikev2_cert_windows.der', 'do_renew_ikev2_cert_der'],
+    ['ikev2_cert_mobile.pem', 'do_ikev2_cert_pem'],
+    ['ikev2_cert_windows.der', 'do_ikev2_cert_der']
+];
+for (const [url, handler] of ikev2CertRoutes) {
+    assert.match(web, new RegExp(`\\{ "${url}", [^\\n]+${handler}, do_auth \\}`));
+    assert(originDenied({ input: false }, 0, url, false, false), `${url} rejects cookie-only GET`);
+    assert(originDenied({ input: false }, 0, `${url}?download=1`, false, false), `${url} query string is covered`);
+    assert(!originDenied({ input: false }, 0, url, true, false), `${url} accepts valid origin`);
+    assert(!originDenied({ input: false }, 0, url, false, true), `${url} accepts valid CSRF token`);
+}
 
 const feedback = web.match(/do_feedback_mail_safe_cgi\(char \*url, FILE \*stream\)\n\{([\s\S]*?)\n\}/)[1];
 assert.match(header, /extern void send_error\( int status, char\* title, char\* extra_header, char\* text \);/);
@@ -122,8 +136,10 @@ function feedbackModel(params, enabled) {
     state.fb_state = '0';
     return state;
 }
-const maliciousFeedback = { fb_email: 'a@b.cd', fb_attach_syslog: '1',
-    http_passwd_app: 'X', sshd_authkeys: 'key', misc_http_x: '1', fb_email_dbg: 'attacker@example.com' };
+const maliciousFeedback = {
+    fb_email: 'a@b.cd', fb_attach_syslog: '1',
+    http_passwd_app: 'X', sshd_authkeys: 'key', misc_http_x: '1', fb_email_dbg: 'attacker@example.com'
+};
 for (const enabled of [false, true]) {
     const state = feedbackModel(maliciousFeedback, enabled);
     assert.equal(state.http_passwd_app, 'old');
@@ -140,7 +156,7 @@ assert.match(read('release/src/router/www/js/httpApi.js'), /url: '\/chpass.cgi',
 for (const page of ['Advanced_Smart_Home_IFTTT.asp', 'Advanced_Smart_Home_Alexa.asp']) {
     const control = read(`release/src/router/www/${page}`).match(/function enable_remote_control\(\)\{([\s\S]*?)\n\}/)[1];
     let options;
-    const callback = () => {};
+    const callback = () => { };
     new Function('confirm', '$', 'hide_remote_control', control)(() => true, { ajax: value => { options = value; } }, callback);
     assert.equal(options.url, '/enable_remote_control.cgi');
     assert.equal(options.type, 'POST');
