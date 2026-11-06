@@ -1,3 +1,7 @@
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 /*
  * frr_web.c - FRR WebUI Backend Functions
  * AsusWRT-Merlin FRR Integration
@@ -50,6 +54,10 @@ static const char *const frr_vty_sockets[FRR_VTY_COUNT] = {
 	"/var/run/frr/daemons/bfdd.vty"
 };
 
+static const char *const frr_vty_daemons[FRR_VTY_COUNT] = {
+	"zebra", "bgpd", "bfdd"
+};
+
 struct frr_bgp_cache {
 	char neighbors[512];
 	char neighbor_as[512];
@@ -66,6 +74,123 @@ struct frr_command_output {
 	char *data;
 	size_t len;
 };
+
+static int frr_daemon_pid_from_file(const char *daemon_name)
+{
+	char pid_file[128];
+	FILE *fp;
+	int pid;
+
+	if (!daemon_name || !*daemon_name || strchr(daemon_name, '/'))
+		return -1;
+	if (!strcmp(daemon_name, "watchfrr"))
+		strlcpy(pid_file, "/var/run/frr/watchfrr.pid", sizeof(pid_file));
+	else
+		snprintf(pid_file, sizeof(pid_file), "/var/run/frr/daemons/%s.pid", daemon_name);
+
+	fp = fopen(pid_file, "r");
+	if (!fp)
+		return -1;
+	if (fscanf(fp, "%d", &pid) != 1 || pid <= 1)
+		pid = -1;
+	fclose(fp);
+	return pid;
+}
+
+static int frr_daemon_process_matches(int pid, const char *daemon_name)
+{
+	char proc_path[64];
+	char daemon_path[128];
+	struct stat proc_stat;
+	struct stat daemon_stat;
+
+	if (pid <= 1 || !daemon_name || !*daemon_name || strchr(daemon_name, '/'))
+		return 0;
+	snprintf(proc_path, sizeof(proc_path), "/proc/%d/exe", pid);
+	snprintf(daemon_path, sizeof(daemon_path), "/usr/sbin/%s", daemon_name);
+	if (stat(proc_path, &proc_stat) < 0 || stat(daemon_path, &daemon_stat) < 0)
+		return 0;
+	return proc_stat.st_dev == daemon_stat.st_dev && proc_stat.st_ino == daemon_stat.st_ino;
+}
+
+static int frr_vty_peer_matches_daemon(int fd, enum frr_vty_daemon daemon)
+{
+	struct ucred credentials;
+	socklen_t credentials_len = sizeof(credentials);
+	int expected_pid;
+
+	if ((unsigned int)daemon >= FRR_VTY_COUNT ||
+	    getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &credentials, &credentials_len) < 0 ||
+	    credentials_len != sizeof(credentials) || credentials.pid <= 1)
+		return 0;
+
+	expected_pid = frr_daemon_pid_from_file(frr_vty_daemons[daemon]);
+	return credentials.pid == expected_pid &&
+	       frr_daemon_process_matches(credentials.pid, frr_vty_daemons[daemon]);
+}
+
+static int frr_write_js_string_contents(webs_t wp, const char *value)
+{
+	const unsigned char *p = (const unsigned char *)(value ? value : "");
+	int ret = 0;
+
+	for (; *p; p++) {
+		if (p[0] == 0xe2 && p[1] == 0x80 && (p[2] == 0xa8 || p[2] == 0xa9)) {
+			ret += websWrite(wp, p[2] == 0xa8 ? "\\u2028" : "\\u2029");
+			p += 2;
+			continue;
+		}
+		switch (*p) {
+		case '"': ret += websWrite(wp, "\\\""); break;
+		case '\'': ret += websWrite(wp, "\\u0027"); break;
+		case '\\': ret += websWrite(wp, "\\\\"); break;
+		case '/': ret += websWrite(wp, "\\/"); break;
+		case '<': ret += websWrite(wp, "\\u003c"); break;
+		case '>': ret += websWrite(wp, "\\u003e"); break;
+		case '&': ret += websWrite(wp, "\\u0026"); break;
+		case '\b': ret += websWrite(wp, "\\b"); break;
+		case '\f': ret += websWrite(wp, "\\f"); break;
+		case '\n': ret += websWrite(wp, "\\n"); break;
+		case '\r': ret += websWrite(wp, "\\r"); break;
+		case '\t': ret += websWrite(wp, "\\t"); break;
+		default:
+			if (*p < 0x20)
+				ret += websWrite(wp, "\\u%04x", *p);
+			else
+				ret += websWrite(wp, "%c", *p);
+		}
+	}
+	return ret;
+}
+
+static int frr_write_json_string(webs_t wp, const char *value)
+{
+	int ret = websWrite(wp, "\"");
+	ret += frr_write_js_string_contents(wp, value);
+	ret += websWrite(wp, "\"");
+	return ret;
+}
+
+static int frr_write_json_script(webs_t wp, const char *json)
+{
+	const unsigned char *p = (const unsigned char *)(json ? json : "null");
+	int ret = 0;
+
+	for (; *p; p++) {
+		if (p[0] == 0xe2 && p[1] == 0x80 && (p[2] == 0xa8 || p[2] == 0xa9)) {
+			ret += websWrite(wp, p[2] == 0xa8 ? "\\u2028" : "\\u2029");
+			p += 2;
+		} else if (*p == '<')
+			ret += websWrite(wp, "\\u003c");
+		else if (*p == '>')
+			ret += websWrite(wp, "\\u003e");
+		else if (*p == '&')
+			ret += websWrite(wp, "\\u0026");
+		else
+			ret += websWrite(wp, "%c", *p);
+	}
+	return ret;
+}
 
 static int frr_socket_wait(int fd, int writing, time_t deadline)
 {
@@ -141,6 +266,8 @@ static int frr_daemon_capture(enum frr_vty_daemon daemon, const char *cmd,
 		    socket_error != 0)
 			goto fail;
 	}
+	if (!frr_vty_peer_matches_daemon(fd, daemon))
+		goto fail;
 
 	enabling = daemon == FRR_VTY_BFDD;
 	request = enabling ? "enable" : cmd;
@@ -302,7 +429,8 @@ static int frr_write_route_origin_object(webs_t wp, const char *var_name, const 
 			ret += websWrite(wp, ",\n");
 		first_prefix = 0;
 
-		ret += websWrite(wp, "\"%s\":[", prefix_key);
+		ret += frr_write_json_string(wp, prefix_key);
+		ret += websWrite(wp, ":[");
 
 		/* Each element of the array is a route (protocol/nexthop combination) */
 		for (i = 0; i < n; i++) {
@@ -363,13 +491,19 @@ static int frr_write_route_origin_object(webs_t wp, const char *var_name, const 
 					if (wrote_entry)
 						ret += websWrite(wp, ",");
 
-					ret += websWrite(wp,
-						"{\"proto\":\"%s\",\"active\":%d,\"nhactive\":%d,"
-						"\"nexthop\":\"%s\",\"direct\":%d,\"iface\":\"%s\","
-						"\"dist\":%d,\"metric\":%d,\"age\":\"%s\",\"aspath\":\"%s\"}",
-						proto, active, nh_active,
-						nh_ip, direct, nh_iface,
-						dist, metric, age, aspath);
+					ret += websWrite(wp, "{\"proto\":");
+					ret += frr_write_json_string(wp, proto);
+					ret += websWrite(wp, ",\"active\":%d,\"nhactive\":%d,\"nexthop\":",
+							active, nh_active);
+					ret += frr_write_json_string(wp, nh_ip);
+					ret += websWrite(wp, ",\"direct\":%d,\"iface\":", direct);
+					ret += frr_write_json_string(wp, nh_iface);
+					ret += websWrite(wp, ",\"dist\":%d,\"metric\":%d,\"age\":",
+							dist, metric);
+					ret += frr_write_json_string(wp, age);
+					ret += websWrite(wp, ",\"aspath\":");
+					ret += frr_write_json_string(wp, aspath);
+					ret += websWrite(wp, "}");
 
 					wrote_entry = 1;
 				}
@@ -377,12 +511,15 @@ static int frr_write_route_origin_object(webs_t wp, const char *var_name, const 
 
 			/* Handle routes without nexthop entries (e.g. blackhole) */
 			if (!wrote_entry) {
-				ret += websWrite(wp,
-					"{\"proto\":\"%s\",\"active\":%d,\"nhactive\":%d,"
-					"\"nexthop\":\"\",\"direct\":0,\"iface\":\"\","
-					"\"dist\":%d,\"metric\":%d,\"age\":\"%s\",\"aspath\":\"%s\"}",
-					proto, active, active,
-					dist, metric, age, aspath);
+				ret += websWrite(wp, "{\"proto\":");
+				ret += frr_write_json_string(wp, proto);
+				ret += websWrite(wp, ",\"active\":%d,\"nhactive\":%d,\"nexthop\":\"\","
+						"\"direct\":0,\"iface\":\"\",\"dist\":%d,\"metric\":%d,\"age\":",
+						active, active, dist, metric);
+				ret += frr_write_json_string(wp, age);
+				ret += websWrite(wp, ",\"aspath\":");
+				ret += frr_write_json_string(wp, aspath);
+				ret += websWrite(wp, "}");
 				wrote_entry = 1;
 			}
 		}
@@ -631,8 +768,8 @@ static int frr_write_bgp_peer_info(webs_t wp)
 out:
 	if (root)
 		json_object_put(root);
-	ret = websWrite(wp, "%s", available ?
-		json_object_to_json_string_ext(map, JSON_C_TO_STRING_PLAIN) : "null");
+	ret = available ? frr_write_json_script(wp,
+		json_object_to_json_string_ext(map, JSON_C_TO_STRING_PLAIN)) : websWrite(wp, "null");
 	json_object_put(map);
 	return ret;
 }
@@ -672,7 +809,8 @@ static int frr_write_bfd_peer_info(webs_t wp)
 			json_object_object_add(map, address, peer_info);
 		}
 	}
-	ret = websWrite(wp, "%s", json_object_to_json_string_ext(map, JSON_C_TO_STRING_PLAIN));
+	ret = frr_write_json_script(wp,
+		json_object_to_json_string_ext(map, JSON_C_TO_STRING_PLAIN));
 	if (root) json_object_put(root);
 	json_object_put(map);
 	return ret;
@@ -780,36 +918,9 @@ static int frr_extract_bfd_config_from_conf(char *peer, size_t peer_len,
 /* Check if a FRR daemon is running */
 int frr_daemon_running(const char *daemon_name)
 {
-	char pid_file[128];
-	FILE *fp;
-	int pid;
-	char proc_path[128];
-	struct stat st;
+	int pid = frr_daemon_pid_from_file(daemon_name);
 
-	/* Construct PID file path */
-	if (strcmp(daemon_name, "watchfrr") == 0)
-		strlcpy(pid_file, "/var/run/frr/watchfrr.pid", sizeof(pid_file));
-	else
-		snprintf(pid_file, sizeof(pid_file), "/var/run/frr/daemons/%s.pid", daemon_name);
-
-	/* Check if PID file exists */
-	fp = fopen(pid_file, "r");
-	if (!fp)
-		return 0;
-
-	/* Read PID from file */
-	if (fscanf(fp, "%d", &pid) != 1) {
-		fclose(fp);
-		return 0;
-	}
-	fclose(fp);
-
-	/* Check if process exists */
-	snprintf(proc_path, sizeof(proc_path), "/proc/%d", pid);
-	if (stat(proc_path, &st) == 0)
-		return 1;
-
-	return 0;
+	return frr_daemon_process_matches(pid, daemon_name);
 }
 
 /* Get daemon uptime in seconds */
@@ -925,7 +1036,8 @@ int ej_get_frr_bgp_config(int eid, webs_t wp, int argc, char_t **argv)
 	if (!daemons && errno == ENOENT) daemons = frr_ui_read_file("/etc/daemons");
 	if (daemons) frr_ui_parse_daemons(config, daemons);
 	else if (errno != ENOENT) frr_ui_set(config, "error", "FRR daemon configuration could not be read safely");
-	ret = websWrite(wp, "%s", json_object_to_json_string_ext(config, JSON_C_TO_STRING_PLAIN));
+	ret = frr_write_json_script(wp,
+		json_object_to_json_string_ext(config, JSON_C_TO_STRING_PLAIN));
 	json_object_put(config);
 	free(data);
 	free(daemons);
@@ -950,7 +1062,7 @@ int ej_get_frr_bgp_neighbor_list(int eid, webs_t wp, int argc, char_t **argv)
 		    parsed_neighbor_as, sizeof(parsed_neighbor_as),
 		    parsed_neighbor_desc, sizeof(parsed_neighbor_desc),
 		    parsed_neighbor_src, sizeof(parsed_neighbor_src)) > 0)
-			return websWrite(wp, "%s", parsed_neighbors);
+			return frr_write_js_string_contents(wp, parsed_neighbors);
 	}
 
 	return 0;
@@ -980,7 +1092,7 @@ int ej_get_frr_bgp_neighbor_as_list(int eid, webs_t wp, int argc, char_t **argv)
 		    parsed_neighbor_as, sizeof(parsed_neighbor_as),
 		    parsed_neighbor_desc, sizeof(parsed_neighbor_desc),
 		    parsed_neighbor_src, sizeof(parsed_neighbor_src)) > 0)
-			return websWrite(wp, "%s", parsed_neighbor_as);
+			return frr_write_js_string_contents(wp, parsed_neighbor_as);
 	}
 
 	return 0;
@@ -1004,7 +1116,7 @@ int ej_get_frr_bgp_neighbor_desc_list(int eid, webs_t wp, int argc, char_t **arg
 		    parsed_neighbor_as, sizeof(parsed_neighbor_as),
 		    parsed_neighbor_desc, sizeof(parsed_neighbor_desc),
 		    parsed_neighbor_src, sizeof(parsed_neighbor_src)) > 0)
-			return websWrite(wp, "%s", parsed_neighbor_desc);
+			return frr_write_js_string_contents(wp, parsed_neighbor_desc);
 	}
 
 	return 0;
@@ -1028,7 +1140,7 @@ int ej_get_frr_bgp_neighbor_src_list(int eid, webs_t wp, int argc, char_t **argv
 		    parsed_neighbor_as, sizeof(parsed_neighbor_as),
 		    parsed_neighbor_desc, sizeof(parsed_neighbor_desc),
 		    parsed_neighbor_src, sizeof(parsed_neighbor_src)) > 0)
-			return websWrite(wp, "%s", parsed_neighbor_src);
+			return frr_write_js_string_contents(wp, parsed_neighbor_src);
 	}
 
 	return 0;
@@ -1088,9 +1200,13 @@ int ej_get_frr_bfd_config(int eid, webs_t wp, int argc, char_t **argv)
 
 	ret += websWrite(wp, "{\n");
 	ret += websWrite(wp, "  \"enabled\": %d,\n", atoi(bfd_enable));
-	ret += websWrite(wp, "  \"peer\": \"%s\",\n", peer_value);
-	ret += websWrite(wp, "  \"tx\": \"%s\",\n", tx_value);
-	ret += websWrite(wp, "  \"rx\": \"%s\"\n", rx_value);
+	ret += websWrite(wp, "  \"peer\": ");
+	ret += frr_write_json_string(wp, peer_value);
+	ret += websWrite(wp, ",\n  \"tx\": ");
+	ret += frr_write_json_string(wp, tx_value);
+	ret += websWrite(wp, ",\n  \"rx\": ");
+	ret += frr_write_json_string(wp, rx_value);
+	ret += websWrite(wp, "\n");
 	ret += websWrite(wp, "}\n");
 
 	return ret;
