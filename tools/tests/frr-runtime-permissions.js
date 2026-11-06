@@ -243,8 +243,16 @@ try {
         const start = web.indexOf(name + '(const char *daemon_name)');
         assert.ok(start >= 0, name);
         const body = web.slice(start, web.indexOf('\n}', start));
-        assert.match(body, /if \(strcmp\(daemon_name, "watchfrr"\) == 0\)\s*strlcpy\(pid_file, "\/var\/run\/frr\/watchfrr\.pid", sizeof\(pid_file\)\);\s*else\s*snprintf\(pid_file, sizeof\(pid_file\), "\/var\/run\/frr\/daemons\/%s\.pid", daemon_name\);/, name);
+        if (name === 'frr_daemon_running') {
+            assert.match(body, /frr_daemon_pid_from_file\(daemon_name\)/, name);
+            assert.match(body, /frr_daemon_process_matches\(pid, daemon_name\)/, name);
+        } else {
+            assert.match(body, /if \(strcmp\(daemon_name, "watchfrr"\) == 0\)\s*strlcpy\(pid_file, "\/var\/run\/frr\/watchfrr\.pid", sizeof\(pid_file\)\);\s*else\s*snprintf\(pid_file, sizeof\(pid_file\), "\/var\/run\/frr\/daemons\/%s\.pid", daemon_name\);/, name);
+        }
     }
+    assert.match(web, /getsockopt\(fd, SOL_SOCKET, SO_PEERCRED, &credentials/);
+    assert.match(web, /credentials\.pid == expected_pid/);
+    assert.match(web, /proc_stat\.st_ino == daemon_stat\.st_ino/);
     assert.match(pidWriter, /O_RDWR \| O_CREAT \| O_NOFOLLOW \| O_NONBLOCK/);
     for (const check of ['!S_ISREG(st.st_mode)', 'st.st_uid != geteuid()',
         'st.st_nlink != 1', '(st.st_mode & 0022)'])

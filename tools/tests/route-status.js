@@ -20,15 +20,15 @@ elements.route_table = {
 elements.route_table.options.add = option => elements.route_table.options.push(option);
 let pending;
 let timer;
-const jquery = () => ({ css() {}, hide() { return this; }, fadeIn() {}, empty() {}, html() {} });
+const jquery = () => ({ css() { }, hide() { return this; }, fadeIn() { }, empty() { }, html() { } });
 jquery.ajax = options => { pending = options; };
 const context = {
-    document: { getElementById: id => elements[id], write() {} },
+    document: { getElementById: id => elements[id], write() { } },
     Option: function (text, value) { this.text = text; this.value = value; },
     $: jquery,
     gen_switch_menu: () => '',
     setTimeout: (callback, delay) => { timer = delay; return 1; },
-    clearTimeout() {}
+    clearTimeout() { }
 };
 vm.createContext(context);
 vm.runInContext(script, context);
@@ -146,6 +146,56 @@ const frrBackend = fs.readFileSync(path.join(root, 'release/src/router/httpd/frr
 assert(frrBackend.includes('"show ip route table 220 json"'));
 assert(frrBackend.includes('"show ipv6 route table 220 json"'));
 assert(/frr_write_ipsec_route_origin\(wp\)/.test(fs.readFileSync(path.join(root, 'release/src/router/httpd/data_arrays.c'), 'utf8')));
+
+const routeWriter = frrBackend.slice(frrBackend.indexOf('static int frr_write_route_origin_object'),
+    frrBackend.indexOf('static void frr_append_delimited'));
+assert(routeWriter.includes('frr_write_json_string(wp, prefix_key)'));
+for (const value of ['proto', 'nh_ip', 'nh_iface', 'age', 'aspath'])
+    assert(routeWriter.includes(`frr_write_json_string(wp, ${value})`), value);
+assert.match(frrBackend, /getsockopt\(fd, SOL_SOCKET, SO_PEERCRED, &credentials/);
+assert.match(frrBackend, /credentials\.pid == expected_pid/);
+assert.match(frrBackend, /proc_stat\.st_ino == daemon_stat\.st_ino/);
+assert.match(frrBackend, /if \(!frr_vty_peer_matches_daemon\(fd, daemon\)\)/);
+assert.match(frrBackend, /return frr_daemon_process_matches\(pid, daemon_name\);/);
+const jsEscapes = [
+    String.raw`case '"': ret += websWrite(wp, "\\\""); break;`,
+    String.raw`case '\'': ret += websWrite(wp, "\\u0027"); break;`,
+    String.raw`case '\\': ret += websWrite(wp, "\\\\"); break;`,
+    String.raw`case '/': ret += websWrite(wp, "\\/"); break;`,
+    String.raw`case '<': ret += websWrite(wp, "\\u003c"); break;`,
+    String.raw`case '>': ret += websWrite(wp, "\\u003e"); break;`,
+    String.raw`case '&': ret += websWrite(wp, "\\u0026"); break;`,
+    String.raw`case '\b': ret += websWrite(wp, "\\b"); break;`,
+    String.raw`case '\f': ret += websWrite(wp, "\\f"); break;`,
+    String.raw`case '\n': ret += websWrite(wp, "\\n"); break;`,
+    String.raw`case '\r': ret += websWrite(wp, "\\r"); break;`,
+    String.raw`case '\t': ret += websWrite(wp, "\\t"); break;`
+];
+for (const escape of jsEscapes)
+    assert(frrBackend.includes(escape), `missing source escape ${escape}`);
+const bfdConfig = frrBackend.slice(frrBackend.indexOf('int ej_get_frr_bfd_config'),
+    frrBackend.indexOf('int ej_get_frr_route_origin_array'));
+for (const value of ['peer_value', 'tx_value', 'rx_value'])
+    assert(bfdConfig.includes(`frr_write_json_string(wp, ${value})`), value);
+assert(frrBackend.includes('p[2] == 0xa8 ? "\\\\u2028" : "\\\\u2029"'));
+assert((frrBackend.match(/frr_write_json_script\(wp,/g) || []).length >= 3);
+for (const value of ['neighbors', 'neighbor_as', 'neighbor_desc', 'neighbor_src'])
+    assert(frrBackend.includes(`frr_write_js_string_contents(wp, parsed_${value})`), value);
+
+const encodeScriptString = value => JSON.stringify(value)
+    .replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')
+    .replace(/'/g, '\\u0027');
+const hostilePrefix = 'x":[]};alert(1);//';
+const hostileDescription = `";alert(2);//</script>&\u2028\u2029'`;
+let injected = 0;
+const encodedScript = `var routes = {${encodeScriptString(hostilePrefix)}:[]};\n` +
+    `var description = ${encodeScriptString(hostileDescription)};`;
+const encodedContext = { alert: () => injected++ };
+vm.runInNewContext(encodedScript, encodedContext);
+assert.equal(injected, 0);
+assert.equal(encodedContext.description, hostileDescription);
+assert.deepEqual(Object.keys(encodedContext.routes), [hostilePrefix]);
 
 const backend = fs.readFileSync(path.join(root, 'release/src/router/httpd/data_arrays.c'), 'utf8');
 assert(backend.includes('nvram_match("ipsec_client_enable", "1")'));
