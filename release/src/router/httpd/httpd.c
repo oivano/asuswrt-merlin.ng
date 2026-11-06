@@ -1493,12 +1493,99 @@ int do_fwrite(const char *buffer, int len, FILE *stream)
 	return r;
 }
 
+static int httpd_open_addon_file(const char *path)
+{
+	char alias[PATH_MAX], relative[PATH_MAX];
+	const char *name, *name_slash;
+	char *component, *slash;
+	struct stat st;
+	size_t alias_length;
+	int dirfd = -1, nextfd;
+
+	if (!path)
+		return -1;
+	if (!strncmp(path, "user/", 5))
+		name = path + 5;
+	else if (!strncmp(path, "ext/", 4))
+		name = path + 4;
+	else
+		return -2;
+
+	name_slash = strchr(name, '/');
+	if (!name_slash || name_slash == name || !name_slash[1])
+		return -1;
+	alias_length = (size_t)(name_slash - name);
+	if (alias_length >= sizeof(alias) ||
+	    (alias_length == 1 && name[0] == '.') ||
+	    (alias_length == 2 && name[0] == '.' && name[1] == '.'))
+		return -1;
+	memcpy(alias, name, alias_length);
+	alias[alias_length] = '\0';
+	if (strlcpy(relative, name_slash + 1, sizeof(relative)) >= sizeof(relative))
+		return -1;
+
+	dirfd = open("/tmp/var/wwwext", O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (dirfd < 0 || fstat(dirfd, &st) < 0 || !S_ISDIR(st.st_mode) ||
+	    st.st_uid != 0 || (st.st_mode & (S_IWGRP | S_IWOTH)))
+		goto Error;
+	nextfd = openat(dirfd, alias, O_RDONLY | O_DIRECTORY | O_NONBLOCK);
+	if (nextfd < 0 || fstat(nextfd, &st) < 0 || !S_ISDIR(st.st_mode) ||
+	    st.st_uid != 0 || (st.st_mode & (S_IWGRP | S_IWOTH))) {
+		if (nextfd >= 0)
+			close(nextfd);
+		goto Error;
+	}
+	close(dirfd);
+	dirfd = nextfd;
+	component = relative;
+	while (component && *component) {
+		slash = strchr(component, '/');
+		if (slash)
+			*slash = '\0';
+		if (!*component || !strcmp(component, ".") || !strcmp(component, ".."))
+			goto Error;
+		nextfd = openat(dirfd, component, O_RDONLY | O_NOFOLLOW | O_NONBLOCK |
+				(slash ? O_DIRECTORY : 0));
+		if (nextfd < 0)
+			goto Error;
+		if (fstat(nextfd, &st) < 0 || st.st_uid != 0) {
+			close(nextfd);
+			goto Error;
+		}
+		if (slash) {
+			if (!S_ISDIR(st.st_mode) || (st.st_mode & (S_IWGRP | S_IWOTH))) {
+				close(nextfd);
+				goto Error;
+			}
+			close(dirfd);
+			dirfd = nextfd;
+			component = slash + 1;
+		} else {
+			if (!S_ISREG(st.st_mode)) {
+				close(nextfd);
+				goto Error;
+			}
+			close(dirfd);
+			return nextfd;
+		}
+	}
+
+Error:
+	if (dirfd >= 0)
+		close(dirfd);
+	return -1;
+}
+
 static int httpd_open_webroot_file(const char *path)
 {
 	char requested[PATH_MAX], resolved[PATH_MAX], relative[PATH_MAX];
 	char *component, *slash;
 	struct stat st;
 	int dirfd = -1, nextfd, length;
+	int addon_fd = httpd_open_addon_file(path);
+
+	if (addon_fd != -2)
+		return addon_fd;
 
 	if (!path || !*path || path[0] == '/')
 		return -1;

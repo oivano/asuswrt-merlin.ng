@@ -8,6 +8,7 @@ const path = require('path');
 
 const repo = path.resolve(__dirname, '../..');
 const httpd = fs.readFileSync(path.join(repo, 'release/src/router/httpd/httpd.c'), 'utf8');
+const web = fs.readFileSync(path.join(repo, 'release/src/router/httpd/web.c'), 'utf8');
 const wwwMakefile = fs.readFileSync(path.join(repo, 'release/src/router/www/Makefile'), 'utf8');
 
 function functionBody(source, signature) {
@@ -25,10 +26,21 @@ function functionBody(source, signature) {
 const openHelper = functionBody(httpd, 'static int httpd_open_webroot_file(');
 assert.match(openHelper, /realpath\(requested, resolved\)/);
 assert.match(openHelper, /strncmp\(resolved, "\/www\/", 5\)/);
+assert.match(openHelper, /httpd_open_addon_file\(path\)/);
 assert.match(openHelper, /openat\(dirfd, component, O_RDONLY \| O_NOFOLLOW \| O_NONBLOCK/);
 assert.match(openHelper, /S_ISREG\(st\.st_mode\)/);
 assert.match(openHelper, /st\.st_uid != 0/);
 assert.match(openHelper, /S_IWGRP \| S_IWOTH/);
+const addonOpen = functionBody(httpd, 'static int httpd_open_addon_file(');
+assert.match(addonOpen, /strncmp\(path, "user\/", 5\)/);
+assert.match(addonOpen, /strncmp\(path, "ext\/", 4\)/);
+assert.match(addonOpen, /open\("\/tmp\/var\/wwwext", O_RDONLY \| O_DIRECTORY \| O_NOFOLLOW\)/);
+assert.match(addonOpen, /openat\(dirfd, alias, O_RDONLY \| O_DIRECTORY \| O_NONBLOCK\)/);
+assert.match(addonOpen, /openat\(dirfd, component, O_RDONLY \| O_NOFOLLOW \| O_NONBLOCK/);
+assert.match(addonOpen, /strcmp\(component, "\.\."\)/);
+assert.match(web, /\{ "\*\*\.htm\*", "text\/html"[^\n]*do_ej/);
+assert.match(web, /\{ "\*\*\.css", "text\/css"[^\n]*do_file/);
+assert.match(web, /\{ "\*\*\.png", "image\/png"[^\n]*do_file/);
 
 assert(httpd.includes('handler->output == do_file && !httpd_web_file_exists(file)'),
 	'static do_file routes must fail before response headers');
@@ -71,18 +83,50 @@ function containedRegularFile(root, candidate) {
 	}
 }
 
+function containedAddonFile(alias, candidate) {
+	let aliasTarget;
+	let resolved;
+	try {
+		aliasTarget = fs.realpathSync(alias);
+		resolved = fs.realpathSync(candidate);
+	} catch (_) {
+		return false;
+	}
+	try {
+		if (fs.statSync(aliasTarget).isDirectory()) {
+			return resolved.startsWith(`${aliasTarget}${path.sep}`);
+		}
+		return resolved === aliasTarget;
+	} catch (_) {
+		return false;
+	}
+}
+
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'httpd-static-file-'));
 try {
 	const root = path.join(temp, 'www');
 	const outside = path.join(temp, 'outside');
+	const wwwext = path.join(temp, 'wwwext');
+	const addon = path.join(temp, 'addon', 'webui', 'diversion');
 	fs.mkdirSync(root);
+	fs.mkdirSync(wwwext);
+	fs.mkdirSync(addon, { recursive: true });
 	fs.writeFileSync(path.join(root, 'safe.gz'), 'safe');
 	fs.writeFileSync(outside, 'secret');
+	fs.writeFileSync(path.join(addon, 'home.html'), 'home');
+	fs.symlinkSync(outside, path.join(addon, 'outside.html'));
+	fs.symlinkSync(addon, path.join(wwwext, 'diversion'));
 	fs.symlinkSync('safe.gz', path.join(root, 'internal-link.gz'));
 	fs.symlinkSync(outside, path.join(root, 'fb_data.tgz.gz'));
 	fs.symlinkSync('/dev/zero', path.join(root, 'zero.gz'));
 	assert(containedRegularFile(root, path.join(root, 'safe.gz')));
 	assert(containedRegularFile(root, path.join(root, 'internal-link.gz')));
+	assert(containedAddonFile(path.join(wwwext, 'diversion'),
+		path.join(wwwext, 'diversion', 'home.html')));
+	assert(!containedAddonFile(path.join(wwwext, 'diversion'),
+		path.join(wwwext, 'diversion', 'outside.html')));
+	assert(!containedAddonFile(path.join(wwwext, 'diversion'), outside),
+		'add-on symlinks must not escape their registered alias target');
 	assert(!containedRegularFile(root, path.join(root, 'fb_data.tgz.gz')));
 	assert(!containedRegularFile(root, path.join(root, 'zero.gz')));
 	console.log('httpd static-file source contracts and containment cases passed');
