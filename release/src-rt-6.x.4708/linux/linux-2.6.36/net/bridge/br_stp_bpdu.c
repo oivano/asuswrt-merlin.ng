@@ -146,6 +146,8 @@ void br_stp_rcv(const struct stp_proto *proto, struct sk_buff *skb,
 	if (!br_port_exists(dev))
 		goto err;
 	p = br_port_get_rcu(dev);
+	if (p->flags & BR_ISOLATE_MODE)
+		goto err;
 
 	if (!pskb_may_pull(skb, 4))
 		goto err;
