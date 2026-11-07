@@ -322,12 +322,66 @@ static void unix_write_space(struct sock *sk)
 	rcu_read_unlock();
 }
 
+static int unix_dgram_peer_wake_relay(wait_queue_t *q, unsigned mode,
+					     int flags, void *key)
+{
+	struct unix_sock *u = container_of(q, struct unix_sock, peer_wake);
+	struct unix_sock *u_other = unix_sk(u->peer_wake.private);
+	wait_queue_head_t *u_sleep;
+
+	__remove_wait_queue(&u_other->peer_wait, q);
+	u->peer_wake.private = NULL;
+
+	u_sleep = sk_sleep(&u->sk);
+	if (u_sleep)
+		wake_up_interruptible_poll(u_sleep, key);
+
+	return 0;
+}
+
+static void unix_dgram_peer_wake_connect(struct sock *sk, struct sock *other)
+{
+	struct unix_sock *u = unix_sk(sk);
+	struct unix_sock *u_other = unix_sk(other);
+
+	spin_lock(&u_other->peer_wait.lock);
+	if (!u->peer_wake.private) {
+		u->peer_wake.private = other;
+		__add_wait_queue(&u_other->peer_wait, &u->peer_wake);
+	}
+	spin_unlock(&u_other->peer_wait.lock);
+}
+
+static void unix_dgram_peer_wake_disconnect(struct sock *sk,
+						    struct sock *other)
+{
+	struct unix_sock *u = unix_sk(sk);
+	struct unix_sock *u_other = unix_sk(other);
+
+	spin_lock(&u_other->peer_wait.lock);
+	if (u->peer_wake.private == other) {
+		__remove_wait_queue(&u_other->peer_wait, &u->peer_wake);
+		u->peer_wake.private = NULL;
+	}
+	spin_unlock(&u_other->peer_wait.lock);
+}
+
+static void unix_dgram_peer_wake_disconnect_wakeup(struct sock *sk,
+						   struct sock *other)
+{
+	unix_dgram_peer_wake_disconnect(sk, other);
+	wake_up_interruptible_poll(sk_sleep(sk),
+				   POLLOUT | POLLWRNORM | POLLWRBAND);
+}
+
 /* When dgram socket disconnects (or changes its peer), we clear its receive
  * queue of packets arrived from previous peer. First, it allows to do
  * flow control based only on wmem_alloc; second, sk connected to peer
  * may receive messages only from that peer. */
 static void unix_dgram_disconnected(struct sock *sk, struct sock *other)
 {
+	unix_dgram_peer_wake_disconnect_wakeup(sk, other);
+
 	if (!skb_queue_empty(&sk->sk_receive_queue)) {
 		skb_queue_purge(&sk->sk_receive_queue);
 		wake_up_interruptible_all(&unix_sk(sk)->peer_wait);
@@ -408,6 +462,7 @@ static int unix_release_sock(struct sock *sk, int embrion)
 			skpair->sk_state_change(skpair);
 			sk_wake_async(skpair, SOCK_WAKE_WAITD, POLL_HUP);
 		}
+		unix_dgram_peer_wake_disconnect(sk, skpair);
 		sock_put(skpair); /* It may now die */
 		unix_peer(sk) = NULL;
 	}
@@ -619,6 +674,7 @@ static struct sock *unix_create1(struct net *net, struct socket *sock)
 	INIT_LIST_HEAD(&u->link);
 	mutex_init(&u->readlock); /* single task reading lock */
 	init_waitqueue_head(&u->peer_wait);
+	init_waitqueue_func_entry(&u->peer_wake, unix_dgram_peer_wake_relay);
 	unix_insert_socket(unix_sockets_unbound, sk);
 out:
 	if (sk == NULL)
@@ -993,6 +1049,8 @@ restart:
 	if (unix_peer(sk)) {
 		struct sock *old_peer = unix_peer(sk);
 		unix_peer(sk) = other;
+		if (other != old_peer)
+			unix_dgram_peer_wake_disconnect(sk, old_peer);
 		unix_state_double_unlock(sk, other);
 
 		if (other != old_peer)
@@ -2106,17 +2164,16 @@ static unsigned int unix_dgram_poll(struct file *file, struct socket *sock,
 	/* writable? */
 	writable = unix_writable(sk);
 	if (writable) {
-		other = unix_peer_get(sk);
+		unix_state_lock(sk);
+		other = unix_peer(sk);
 		if (other) {
 			if (unix_peer(other) != sk) {
-				sock_poll_wait(file, &unix_sk(other)->peer_wait,
-					  wait);
+				unix_dgram_peer_wake_connect(sk, other);
 				if (unix_recvq_full(other))
 					writable = 0;
 			}
-
-			sock_put(other);
 		}
+		unix_state_unlock(sk);
 	}
 
 	if (writable)
