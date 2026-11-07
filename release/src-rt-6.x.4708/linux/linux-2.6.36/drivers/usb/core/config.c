@@ -519,7 +519,11 @@ static int usb_parse_configuration(struct usb_device *dev, int cfgidx,
 
 		} else if (header->bDescriptorType ==
 				USB_DT_INTERFACE_ASSOCIATION) {
-			if (iad_num == USB_MAXIADS) {
+			if (header->bLength < USB_DT_INTERFACE_ASSOCIATION_SIZE) {
+				dev_warn(ddev, "config %d has an invalid IAD "
+					 "descriptor of length %d, skipping\n",
+					 cfgno, header->bLength);
+			} else if (iad_num == USB_MAXIADS) {
 				dev_warn(ddev, "found more Interface "
 					       "Association Descriptors "
 					       "than allocated for in "
