@@ -2339,7 +2339,7 @@ static char **alloc_pg_vec(struct tpacket_req *req, int order)
 	char **pg_vec;
 	int i;
 
-	pg_vec = kzalloc(block_nr * sizeof(char *), GFP_KERNEL);
+	pg_vec = kcalloc(block_nr, sizeof(char *), GFP_KERNEL);
 	if (unlikely(!pg_vec))
 		goto out;
 
@@ -2399,6 +2399,8 @@ static int packet_set_ring(struct sock *sk, struct tpacket_req *req,
 		if (unlikely((int)req->tp_block_size <= 0))
 			goto out;
 		if (unlikely(req->tp_block_size & (PAGE_SIZE - 1)))
+			goto out;
+		if (unlikely(req->tp_block_size > UINT_MAX / req->tp_block_nr))
 			goto out;
 		if (unlikely(req->tp_frame_size < po->tp_hdrlen +
 					po->tp_reserve))
