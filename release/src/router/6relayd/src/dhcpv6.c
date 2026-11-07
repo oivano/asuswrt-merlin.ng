@@ -128,7 +128,7 @@ static int create_socket(uint16_t port)
 }
 
 
-static void handle_nested_message(uint8_t *data, size_t len,
+static bool handle_nested_message(uint8_t *data, size_t len,
 		uint8_t **opts, uint8_t **end, struct iovec iov[6])
 {
 	struct dhcpv6_relay_header *hdr = (struct dhcpv6_relay_header*)data;
@@ -138,15 +138,17 @@ static void handle_nested_message(uint8_t *data, size_t len,
 	}
 
 	if (len < sizeof(struct dhcpv6_client_header))
-		return;
+		return false;
 
 	if (hdr->msg_type != DHCPV6_MSG_RELAY_FORW) {
 		iov[0].iov_len = data - (uint8_t*)iov[0].iov_base;
 		struct dhcpv6_client_header *hdr = (void*)data;
 		*opts = (uint8_t*)&hdr[1];
 		*end = data + len;
-		return;
+		return true;
 	}
+	if (len < sizeof(*hdr))
+		return false;
 
 	uint16_t otype, olen;
 	uint8_t *odata;
@@ -155,32 +157,96 @@ static void handle_nested_message(uint8_t *data, size_t len,
 			iov[5].iov_base = odata + olen;
 			iov[5].iov_len = (((uint8_t*)iov[0].iov_base) + iov[0].iov_len)
 					- (odata + olen);
-			handle_nested_message(odata, olen, opts, end, iov);
-			return;
+			return handle_nested_message(odata, olen, opts, end, iov);
 		}
 	}
+	return false;
 }
 
 
-static void update_nested_message(uint8_t *data, size_t len, ssize_t pdiff)
+static bool adjust_nested_length(size_t len, ssize_t pdiff, size_t *adjusted)
+{
+	if (pdiff < 0) {
+		size_t shrink = (size_t)(-(pdiff + 1)) + 1;
+		if (shrink > len)
+			return false;
+		*adjusted = len - shrink;
+	} else {
+		if ((size_t)pdiff > SIZE_MAX - len)
+			return false;
+		*adjusted = len + (size_t)pdiff;
+	}
+	return true;
+}
+
+
+static bool validate_nested_update(uint8_t *data, size_t len, ssize_t pdiff,
+		uint8_t *client_opts, uint8_t *client_end)
 {
 	struct dhcpv6_relay_header *hdr = (struct dhcpv6_relay_header*)data;
+	if (len < sizeof(struct dhcpv6_client_header))
+		return false;
 	if (hdr->msg_type != DHCPV6_MSG_RELAY_FORW)
-		return;
+		return data + sizeof(struct dhcpv6_client_header) == client_opts &&
+				data + len == client_end;
+	if (len < sizeof(*hdr))
+		return false;
 
-	hdr->msg_type = DHCPV6_MSG_RELAY_REPL;
+	size_t adjusted_container_len;
+	if (!adjust_nested_length(len, pdiff, &adjusted_container_len))
+		return false;
 
 	uint16_t otype, olen;
 	uint8_t *odata;
 	dhcpv6_for_each_option(hdr->options, data + len, otype, olen, odata) {
 		if (otype == DHCPV6_OPT_RELAY_MSG) {
-			olen += pdiff;
-			odata[-2] = (olen >> 8) & 0xff;
-			odata[-1] = olen & 0xff;
-			update_nested_message(odata, olen - pdiff, pdiff);
-			return;
+			size_t adjusted_olen;
+			size_t offset = odata - data;
+			size_t trailing_len = len - offset - olen;
+			if (!adjust_nested_length(olen, pdiff, &adjusted_olen) ||
+					adjusted_olen > UINT16_MAX ||
+					offset > adjusted_container_len ||
+					trailing_len > adjusted_container_len - offset ||
+					adjusted_olen > adjusted_container_len - offset - trailing_len)
+				return false;
+			return validate_nested_update(odata, olen, pdiff,
+					client_opts, client_end);
 		}
 	}
+	return false;
+}
+
+
+static bool update_nested_message(uint8_t *data, size_t len, ssize_t pdiff,
+		uint8_t *client_opts, uint8_t *client_end)
+{
+	if (!validate_nested_update(data, len, pdiff, client_opts, client_end))
+		return false;
+
+	while (((struct dhcpv6_relay_header*)data)->msg_type == DHCPV6_MSG_RELAY_FORW) {
+		struct dhcpv6_relay_header *hdr = (struct dhcpv6_relay_header*)data;
+		uint16_t otype, olen;
+		uint8_t *odata;
+		bool updated = false;
+		dhcpv6_for_each_option(hdr->options, data + len, otype, olen, odata) {
+			if (otype == DHCPV6_OPT_RELAY_MSG) {
+				size_t adjusted_olen = 0;
+				if (!adjust_nested_length(olen, pdiff, &adjusted_olen) ||
+						adjusted_olen > UINT16_MAX)
+					return false;
+				odata[-2] = (adjusted_olen >> 8) & 0xff;
+				odata[-1] = adjusted_olen & 0xff;
+				hdr->msg_type = DHCPV6_MSG_RELAY_REPL;
+				data = odata;
+				len = olen;
+				updated = true;
+				break;
+			}
+		}
+		if (!updated)
+			return false;
+	}
+	return true;
 }
 
 
@@ -262,8 +328,9 @@ static void handle_client_request(void *addr, void *data, size_t len,
 			{pdbuf, 0}, {NULL, 0}};
 
 	uint8_t *opts = (uint8_t*)&hdr[1], *opts_end = (uint8_t*)data + len;
-	if (hdr->msg_type == DHCPV6_MSG_RELAY_FORW)
-		handle_nested_message(data, len, &opts, &opts_end, iov);
+	if (hdr->msg_type == DHCPV6_MSG_RELAY_FORW &&
+			!handle_nested_message(data, len, &opts, &opts_end, iov))
+		return;
 
 	memcpy(dest.tr_id, &opts[-3], sizeof(dest.tr_id));
 
@@ -309,9 +376,15 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		}
 	}
 
-	if (iov[0].iov_len > 0) // Update length
-		update_nested_message(data, len, iov[1].iov_len + iov[2].iov_len +
-				iov[3].iov_len + iov[4].iov_len - (4 + opts_end - opts));
+	if (iov[0].iov_len > 0) { // Update length
+		size_t reply_len = iov[1].iov_len + iov[2].iov_len +
+				iov[3].iov_len + iov[4].iov_len;
+		size_t request_len = 4 + (opts_end - opts);
+		if (reply_len > SSIZE_MAX || request_len > SSIZE_MAX ||
+				!update_nested_message(data, len,
+					(ssize_t)reply_len - (ssize_t)request_len, opts, opts_end))
+			return;
+	}
 
 	relayd_forward_packet(dhcpv6_event.socket, addr, iov, 5, iface);
 }
