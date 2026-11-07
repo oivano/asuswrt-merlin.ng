@@ -112,7 +112,7 @@ void process_host_announce(struct subnet_record *subrec, struct packet_struct *p
 		return;
 	}
 
-	ttl = IVAL(buf,1)/1000;
+	ttl = clamp_browse_record_ttl(IVAL(buf,1)/1000);
 	servertype = IVAL(buf,23);
 
 	START_PROFILE(host_announce);
@@ -219,7 +219,7 @@ void process_workgroup_announce(struct subnet_record *subrec, struct packet_stru
 		return;
 	}
 
-	ttl = IVAL(buf,1)/1000;
+	ttl = clamp_browse_record_ttl(IVAL(buf,1)/1000);
 	servertype = IVAL(buf,23);
 
 	START_PROFILE(workgroup_announce);
@@ -285,7 +285,7 @@ void process_local_master_announce(struct subnet_record *subrec, struct packet_s
 		return;
 	}
 
-	ttl = IVAL(buf,1)/1000;
+	ttl = clamp_browse_record_ttl(IVAL(buf,1)/1000);
 	servertype = IVAL(buf,23);
 
 	START_PROFILE(local_master_announce);
@@ -453,7 +453,7 @@ void process_lm_host_announce(struct subnet_record *subrec, struct packet_struct
 	uint32 servertype = IVAL(buf,1);
 	int osmajor=CVAL(buf,5);           /* major version of node software */
 	int osminor=CVAL(buf,6);           /* minor version of node software */
-	int ttl = SVAL(buf,7);
+	int ttl = clamp_browse_record_ttl(SVAL(buf,7));
 	unstring announce_name;
 	struct work_record *work;
 	struct server_record *servrec;
