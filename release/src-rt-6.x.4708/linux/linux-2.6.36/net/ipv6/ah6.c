@@ -657,7 +657,8 @@ static int ah6_init_state(struct xfrm_state *x)
 	 * after a successful crypto_alloc_hash().
 	 */
 	aalg_desc = xfrm_aalg_get_byname(x->aalg->alg_name, 0);
-	BUG_ON(!aalg_desc);
+	if (!aalg_desc)
+		goto error;
 
 	if (aalg_desc->uinfo.auth.icv_fullbits/8 !=
 	    crypto_ahash_digestsize(ahash)) {
@@ -670,7 +671,8 @@ static int ah6_init_state(struct xfrm_state *x)
 	ahp->icv_full_len = aalg_desc->uinfo.auth.icv_fullbits/8;
 	ahp->icv_trunc_len = x->aalg->alg_trunc_len/8;
 
-	BUG_ON(ahp->icv_trunc_len > MAX_AH_AUTH_LEN);
+	if (ahp->icv_trunc_len > MAX_AH_AUTH_LEN)
+		goto error;
 
 	x->props.header_len = XFRM_ALIGN8(sizeof(struct ip_auth_hdr) +
 					  ahp->icv_trunc_len);
