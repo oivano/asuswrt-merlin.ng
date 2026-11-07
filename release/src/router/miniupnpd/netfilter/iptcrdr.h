@@ -31,6 +31,9 @@ add_filter_rule2(const char * ifname,
                  int proto, const char * desc);
 
 int
+get_redirect_rule_counts(const char * iaddr, int * total, int * per_client);
+
+int
 delete_redirect_and_filter_rules(unsigned short eport, int proto);
 
 int

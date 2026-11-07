@@ -46,6 +46,9 @@
 #include <sys/stat.h>
 #endif
 
+#define UPNP_MAX_REDIRECTS 256
+#define UPNP_MAX_REDIRECTS_PER_CLIENT 64
+
 /* from <inttypes.h> */
 #ifndef PRIu64
 #define PRIu64 "llu"
@@ -466,10 +469,19 @@ upnp_redirect_internal(const char * rhost, unsigned short eport,
                        int proto, const char * desc,
                        unsigned int timestamp)
 {
+	struct in_addr address;
+	int rule_count, per_client;
+
 	/*syslog(LOG_INFO, "redirecting port %hu to %s:%hu protocol %s for: %s",
 		eport, iaddr, iport, protocol, desc);			*/
 	if(disable_port_forwarding)
 		return -1;
+	if(inet_aton(iaddr, &address) <= 0)
+		return UPNP_REDIRECT_LIMIT_REACHED;
+	if(get_redirect_rule_counts(iaddr, &rule_count, &per_client) < 0 ||
+	   rule_count >= UPNP_MAX_REDIRECTS ||
+	   per_client >= UPNP_MAX_REDIRECTS_PER_CLIENT)
+		return UPNP_REDIRECT_LIMIT_REACHED;
 	if(add_redirect_rule2(ext_if_name, rhost, eport, iaddr, iport, proto,
 	                      desc, timestamp) < 0) {
 		return -1;

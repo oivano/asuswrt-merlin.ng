@@ -659,7 +659,12 @@ AddPortMapping(struct upnphttp * h, const char * action, const char * ns)
 #ifdef IGD_V2
 		SoapError(h, 729, "ConflictWithOtherMechanisms");
 		break;
+#else
+		break;
 #endif /* IGD_V2 */
+	case UPNP_REDIRECT_LIMIT_REACHED:
+		SoapError(h, 728, "NoPortMapsAvailable");
+		break;
 	case -3:	/* not permitted */
 #ifdef IGD_V2
 		SoapError(h, 606, "Action not authorized");
@@ -779,7 +784,7 @@ AddAnyPortMapping(struct upnphttp * h, const char * action, const char * ns)
 	/* first try the port asked in request, then
 	 * try +1, -1, +2, -2, etc. */
 	r = upnp_redirect(r_host, eport, int_ip, iport, protocol, desc, leaseduration);
-	if (r != 0 && r != -1) {
+	if (r != 0 && r != -1 && r != UPNP_REDIRECT_LIMIT_REACHED) {
 		unsigned short eport_below, eport_above;
 		struct in_addr address;
 		uint32_t allowed_eports[65536 / 32];
@@ -806,7 +811,7 @@ AddAnyPortMapping(struct upnphttp * h, const char * action, const char * ns)
 			if (!(allowed_eports[eport / 32] & ((uint32_t)1U << (eport % 32))))
 				continue;	/* not allowed */
 			r = upnp_redirect(r_host, eport, int_ip, iport, protocol, desc, leaseduration);
-			if (r == 0 || r == -1) {
+			if (r == 0 || r == -1 || r == UPNP_REDIRECT_LIMIT_REACHED) {
 				/* OK or failure : Stop */
 				break;
 			}
@@ -839,6 +844,9 @@ AddAnyPortMapping(struct upnphttp * h, const char * action, const char * ns)
 		break;
 	case -3:	/* not permitted */
 		SoapError(h, 606, "Action not authorized");
+		break;
+	case UPNP_REDIRECT_LIMIT_REACHED:
+		SoapError(h, 728, "NoPortMapsAvailable");
 		break;
 	default:
 		SoapError(h, 501, "Action Failed");
