@@ -491,8 +491,6 @@ AddPortMapping(struct upnphttp * h, const char * action, const char * ns)
 	char * r_host;
 	unsigned short iport, eport;
 
-	struct hostent *hp; /* getbyhostname() */
-	char ** ptr; /* getbyhostname() */
 	struct in_addr result_ip;/*unsigned char result_ip[16];*/ /* inet_pton() */
 
 	ParseNameValue(h->req_buf + h->req_contentoff, h->req_contentlen, &data);
@@ -535,27 +533,11 @@ AddPortMapping(struct upnphttp * h, const char * action, const char * ns)
 	}
 	else
 #endif
-	/* if ip not valid assume hostname and convert */
-	if (inet_pton(AF_INET, int_ip, &result_ip) <= 0)
+	if (inet_pton(AF_INET, int_ip, &result_ip) != 1)
 	{
-		hp = gethostbyname(int_ip);
-		if(hp && hp->h_addrtype == AF_INET)
-		{
-			for(ptr = hp->h_addr_list; ptr && *ptr; ptr++)
-		   	{
-				int_ip = inet_ntoa(*((struct in_addr *) *ptr));
-				result_ip = *((struct in_addr *) *ptr);
-				/* TODO : deal with more than one ip per hostname */
-				break;
-			}
-		}
-		else
-		{
-			syslog(LOG_ERR, "Failed to convert hostname '%s' to ip address", int_ip);
-			ClearNameValueList(&data);
-			SoapError(h, 402, "Invalid Args");
-			return;
-		}
+		ClearNameValueList(&data);
+		SoapError(h, 402, "Invalid Args");
+		return;
 	}
 
 	/* check if NewInternalAddress is the client address */
@@ -699,8 +681,6 @@ AddAnyPortMapping(struct upnphttp * h, const char * action, const char * ns)
 	const char * leaseduration_str;
 	unsigned int leaseduration;
 
-	struct hostent *hp; /* getbyhostname() */
-	char ** ptr; /* getbyhostname() */
 	struct in_addr result_ip;/*unsigned char result_ip[16];*/ /* inet_pton() */
 
 	ParseNameValue(h->req_buf + h->req_contentoff, h->req_contentlen, &data);
@@ -745,27 +725,11 @@ AddAnyPortMapping(struct upnphttp * h, const char * action, const char * ns)
 #endif
 #endif
 
-	/* if ip not valid assume hostname and convert */
-	if (inet_pton(AF_INET, int_ip, &result_ip) <= 0)
+	if (inet_pton(AF_INET, int_ip, &result_ip) != 1)
 	{
-		hp = gethostbyname(int_ip);
-		if(hp && hp->h_addrtype == AF_INET)
-		{
-			for(ptr = hp->h_addr_list; ptr && *ptr; ptr++)
-		   	{
-				int_ip = inet_ntoa(*((struct in_addr *) *ptr));
-				result_ip = *((struct in_addr *) *ptr);
-				/* TODO : deal with more than one ip per hostname */
-				break;
-			}
-		}
-		else
-		{
-			syslog(LOG_ERR, "Failed to convert hostname '%s' to ip address", int_ip);
-			ClearNameValueList(&data);
-			SoapError(h, 402, "Invalid Args");
-			return;
-		}
+		ClearNameValueList(&data);
+		SoapError(h, 402, "Invalid Args");
+		return;
 	}
 
 	/* check if NewInternalAddress is the client address */
