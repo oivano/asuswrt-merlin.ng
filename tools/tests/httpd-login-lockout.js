@@ -7,6 +7,7 @@ const source = fs.readFileSync(path.join(root, 'release/src/router/httpd/httpd.c
 const web = fs.readFileSync(path.join(root, 'release/src/router/httpd/web.c'), 'utf8');
 const header = fs.readFileSync(path.join(root, 'release/src/router/httpd/httpd.h'), 'utf8');
 const limit = Number(source.match(/#define LOGIN_SOURCE_LIMIT (\d+)/)[1]);
+const captchaLimit = Number(header.match(/#define CAPTCHA_MAX_LOGIN_NUM\s+(\d+)/)[1]);
 function body(text, name) {
     const start = text.indexOf(`\n${name}(`);
     assert(start >= 0, name);
@@ -18,14 +19,22 @@ const sendLogin = body(source, 'send_login_page');
 const redirectPageValidator = body(source, 'httpd_login_redirect_page_valid');
 const redirectValueValidator = body(source, 'httpd_login_redirect_value_valid');
 const loginErrorInfo = body(web, 'ej_login_error_info');
+const captchaMatcher = body(web, 'httpd_login_captcha_match');
 assert.doesNotMatch(dispatch, /check_lock_status|httpd_login_status|httpd_login_failed/);
 assert.match(dispatch, /auth_result = auth_check\(url, file, cookies, fromapp, &add_try\);/);
 assert.doesNotMatch(source + web, /(?:\+\+\s*\b(?:login_try(?:_wan)?|login_fail_num)\b|\b(?:login_try(?:_wan)?|login_fail_num)\s*\+\+|\block_flag\s*\|=)/);
 assert.doesNotMatch(login, /check_lock_status|SG_mode|httpd_force_lock/);
 assert.doesNotMatch(body(source, 'send_login_page'), /httpd_login_failed|login_try/);
 assert.match(login, /lock_status = httpd_login_status\(&dt\);\s*if\(lock_status == LOGINLOCK\)/);
-assert(login.indexOf('httpd_login_status(&dt)') < login.indexOf('is_captcha_match'));
+assert(login.indexOf('httpd_login_status(&dt)') < login.indexOf('httpd_login_captcha_match'));
 assert(login.indexOf('httpd_login_status(&dt)') < login.indexOf('compare_passwd_in_shadow'));
+assert.match(login, /if\(!nvram_match\("captcha_enable", "0"\)\)/);
+assert.doesNotMatch(login, /fromapp_flag\s*!=\s*FROM_DUTUtil[^\n]*captcha_enable/);
+assert.match(login, /httpd_login_captcha_match\(captcha_text, fromapp_flag\)/);
+assert(login.indexOf('httpd_login_captcha_match') < login.indexOf('compare_passwd_in_shadow'));
+assert.match(captchaMatcher, /fromapp_flag != FROM_DUTUtil/);
+assert.match(captchaMatcher, /strlcpy\(user_agent, "Mozilla\/5\.0", sizeof\(user_agent\)\)/);
+assert.match(captchaMatcher, /matched = is_captcha_match\(captcha_text\);\s*strlcpy\(user_agent, saved_user_agent, sizeof\(user_agent\)\);/);
 assert.doesNotMatch(login, /httpd_login_attempt_admit|login-budget/);
 assert.match(login, /httpd_login_failed\(WRONGCAPTCHA\)/);
 assert.match(login, /login_error_status = httpd_login_failed\(ACCOUNTFAIL\);/);
@@ -137,6 +146,39 @@ assert.equal(context.httpd_login_status(elapsed), 0);
 assert.equal(context.login_sources.length, limit);
 assert.match(source, /IN6_IS_ADDR_V4MAPPED\(addr\)/);
 assert.match(source, /inet_ntop\(family, peer, address, sizeof\(address\)\)/);
+
+const translatedCaptchaMatcher = captchaMatcher
+    .replace(/int matched;/, 'let matched;')
+    .replace(/char saved_user_agent\[sizeof\(user_agent\)\];/, 'let saved_user_agent;')
+    .replace(/strlcpy\(saved_user_agent, user_agent, sizeof\(saved_user_agent\)\);/, 'saved_user_agent = user_agent;')
+    .replace(/strlcpy\(user_agent, "Mozilla\/5\.0", sizeof\(user_agent\)\);/, 'user_agent = "Mozilla/5.0";')
+    .replace(/strlcpy\(user_agent, saved_user_agent, sizeof\(user_agent\)\);/, 'user_agent = saved_user_agent;');
+Object.assign(context, {
+    FROM_DUTUtil: 2,
+    user_agent: '',
+    is_captcha_match: captchaText => context.user_agent !== 'asusrouter-Android-DUTUtil-1.0' && captchaText === 'valid' ? 1 : 0
+});
+vm.runInContext(`function translatedCaptchaMatcher(captcha_text, fromapp_flag) ${translatedCaptchaMatcher}`, context);
+for (const [userAgent, fromApp] of [['asusrouter-Android-DUTUtil-1.0', 2], ['Mozilla/5.0', 0]]) {
+    context.user_agent = userAgent;
+    assert.equal(context.translatedCaptchaMatcher('invalid', fromApp), 0);
+    assert.equal(context.user_agent, userAgent, 'the request User-Agent is restored after CAPTCHA validation');
+    assert.equal(context.translatedCaptchaMatcher('valid', fromApp), 1);
+    assert.equal(context.user_agent, userAgent, 'the request User-Agent is restored after CAPTCHA validation');
+}
+let passwordChecks = 0;
+function loginAttempt(attempts, userAgent, captchaText) {
+    const fromApp = userAgent === 'asusrouter-Android-DUTUtil-1.0' ? context.FROM_DUTUtil : 0;
+    context.user_agent = userAgent;
+    if (attempts >= captchaLimit && !context.translatedCaptchaMatcher(captchaText, fromApp))
+        return 'WRONGCAPTCHA';
+    passwordChecks++;
+    return 'PASSWORD_CHECKED';
+}
+assert.equal(loginAttempt(captchaLimit - 1, 'asusrouter-Android-DUTUtil-1.0', ''), 'PASSWORD_CHECKED');
+assert.equal(loginAttempt(captchaLimit, 'asusrouter-Android-DUTUtil-1.0', ''), 'WRONGCAPTCHA');
+assert.equal(passwordChecks, 1, 'the third attempt without CAPTCHA never evaluates the password');
+assert.equal(loginAttempt(captchaLimit, 'asusrouter-Android-DUTUtil-1.0', 'valid'), 'PASSWORD_CHECKED');
 
 context.httpd_login_reset();
 for (const userAgent of ['browser', 'asusrouter-a-DUTUtil-1', 'WebView', 'ASSIA', 'browser']) {
