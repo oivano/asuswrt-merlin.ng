@@ -124,6 +124,9 @@ static int smbd_smb2_session_destructor(struct smbd_smb2_session *session)
 	if (session->sconn == NULL) {
 		return 0;
 	}
+	if (!smbd_smb2_request_cancel_pending(session->sconn, session, NULL)) {
+		return -1;
+	}
 
 	/* first free all tcons */
 	while (session->tcons.list) {
@@ -868,11 +871,9 @@ NTSTATUS smbd_smb2_request_process_logoff(struct smbd_smb2_request *req)
 		return smbd_smb2_request_error(req, status);
 	}
 
-	/*
-	 * TODO: cancel all outstanding requests on the session
-	 *       and delete all tree connections.
-	 */
-	smbd_smb2_session_destructor(req->session);
+	if (smbd_smb2_session_destructor(req->session) != 0) {
+		return smbd_smb2_request_error(req, NT_STATUS_INTERNAL_ERROR);
+	}
 	/*
 	 * we may need to sign the response, so we need to keep
 	 * the session until the response is sent to the wire.

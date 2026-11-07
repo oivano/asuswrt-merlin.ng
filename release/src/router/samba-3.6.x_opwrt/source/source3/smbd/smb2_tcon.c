@@ -229,6 +229,10 @@ static NTSTATUS smbd_smb2_tree_connect(struct smbd_smb2_request *req,
 		return NT_STATUS_INSUFFICIENT_RESOURCES;
 	}
 	tcon->tid = id;
+	tcon->generation = ++req->session->tcons.generation;
+	if (tcon->generation == 0) {
+		tcon->generation = ++req->session->tcons.generation;
+	}
 	tcon->snum = snum;
 
 	DLIST_ADD_END(req->session->tcons.list, tcon,
@@ -341,10 +345,11 @@ NTSTATUS smbd_smb2_request_process_tdis(struct smbd_smb2_request *req)
 		return smbd_smb2_request_error(req, status);
 	}
 
-	/*
-	 * TODO: cancel all outstanding requests on the tcon
-	 *       and delete all file handles.
-	 */
+	if (!smbd_smb2_request_cancel_pending(req->sconn, NULL, req->tcon)) {
+		return smbd_smb2_request_error(req, NT_STATUS_INTERNAL_ERROR);
+	}
+
+	/* TODO: delete all file handles. */
 	TALLOC_FREE(req->tcon);
 
 	outbody = data_blob_talloc(req->out.vector, NULL, 0x04);
