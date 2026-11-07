@@ -265,6 +265,7 @@ static struct vm_area_struct *vma_to_resize(unsigned long addr,
 {
 	struct mm_struct *mm = current->mm;
 	struct vm_area_struct *vma = find_vma(mm, addr);
+	unsigned long pgoff;
 
 	if (!vma || vma->vm_start > addr)
 		goto Efault;
@@ -275,6 +276,10 @@ static struct vm_area_struct *vma_to_resize(unsigned long addr,
 	/* We can't remap across vm area boundaries */
 	if (old_len > vma->vm_end - addr)
 		goto Efault;
+
+	pgoff = vma->vm_pgoff + ((addr - vma->vm_start) >> PAGE_SHIFT);
+	if (pgoff + (new_len >> PAGE_SHIFT) < pgoff)
+		goto Einval;
 
 	if (vma->vm_flags & (VM_DONTEXPAND | VM_PFNMAP)) {
 		if (new_len > old_len)
