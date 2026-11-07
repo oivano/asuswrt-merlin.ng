@@ -654,6 +654,14 @@ long keyctl_read_key(key_serial_t keyid, char __user *buffer, size_t buflen)
 
 	key = key_ref_to_ptr(key_ref);
 
+	down_read(&key->sem);
+	if (test_bit(KEY_FLAG_NEGATIVE, &key->flags)) {
+		up_read(&key->sem);
+		ret = -ENOKEY;
+		goto error2;
+	}
+	up_read(&key->sem);
+
 	/* see if we can read it directly */
 	ret = key_permission(key_ref, KEY_READ);
 	if (ret == 0)
