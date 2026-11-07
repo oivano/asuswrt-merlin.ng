@@ -31,6 +31,8 @@
 #include <bcmnvram.h>
 #include <shutils.h>
 #include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
 #include <sys/wait.h>
 #include <dirent.h>
 #include <sys/mount.h>
@@ -49,6 +51,7 @@
 #include <pwd.h>
 #endif
 #include <shared.h>
+#include <networkmap.h>
 #include "flash_mtd.h"
 
 #if defined(RTCONFIG_DSL_REMOTE) && !defined(RTCONFIG_SMALL_FW_UPDATE) && !defined(RTCONFIG_PIPEFW)
@@ -5270,6 +5273,22 @@ stop_visualization_tool(void)
 #endif /* __CONFIG_VISUALIZATION__ */
 #endif
 
+static int secure_networkmap_client_shm(void)
+{
+	int shmid;
+	struct shmid_ds info;
+
+	shmid = shmget((key_t)SHMKEY_LAN, sizeof(CLIENT_DETAIL_INFO_TABLE), 0600 | IPC_CREAT);
+	if (shmid < 0 || shmctl(shmid, IPC_STAT, &info) < 0)
+		return -1;
+	if ((info.shm_perm.mode & 0777) != 0600) {
+		info.shm_perm.mode = (info.shm_perm.mode & ~0777) | 0600;
+		if (shmctl(shmid, IPC_SET, &info) < 0)
+			return -1;
+	}
+	return 0;
+}
+
 //2008.10 magic{
 int start_networkmap(int bootwait)
 {
@@ -5290,6 +5309,10 @@ int start_networkmap(int bootwait)
 #endif
 
 	stop_networkmap();
+	if (secure_networkmap_client_shm() < 0) {
+		fprintf(stderr, "failed to secure networkmap shared memory\n");
+		return -1;
+	}
 
 	if (bootwait)
 		networkmap_argv[1] = "--bootwait";
