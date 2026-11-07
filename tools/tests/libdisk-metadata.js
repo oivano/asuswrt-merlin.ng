@@ -28,7 +28,7 @@ assert.match(source, /open_metadata_file\(list_file, "w"\)/);
 assert.match(source, /\*p < 0x20 \|\| \*p == 0x7f/);
 assert.match(source, /int smb_share_name_is_safe\(const char \*name\)/);
 assert.match(source, /strcmp\(name, "\."\).*strcmp\(name, "\.\."\).*strchr\(name, '\/'\)/s);
-assert.match(source, /strchr\("\/\[\];#=", \*p\)/);
+assert.match(source, /strchr\("\/\[\];#=%", \*p\)/);
 const pathGuardStart = source.indexOf('int smb_share_path_is_safe(');
 const pathGuardEnd = source.indexOf('\nstatic FILE *open_metadata_file', pathGuardStart);
 const pathGuard = source.slice(pathGuardStart, pathGuardEnd);
@@ -108,7 +108,7 @@ try {
     assert.equal(fs.readFileSync(regular, 'utf8'), '*=331\n');
 
     const safeShareName = name => name.length > 0 && name !== '.' && name !== '..' && !name.includes('/') &&
-        !/[\x00-\x1f\x7f\[\];#=]/.test(name);
+        !/[\x00-\x1f\x7f%\[\];#=]/.test(name);
     const safeSharePath = (mount, name) => {
         if (!safeShareName(name)) return false;
         const candidate = path.join(mount, name);
@@ -128,6 +128,8 @@ try {
     };
     const payload = 'x]\navailable = yes\nguest ok = yes\nroot preexec = blocked\n[y]';
     fs.mkdirSync(path.join(media, 'normal folder'));
+    fs.mkdirSync(path.join(media, '%m'));
+    fs.mkdirSync(path.join(media, '%L'));
     fs.mkdirSync(path.join(media, payload));
     fs.symlinkSync(path.dirname(tmpTarget), path.join(media, 'x'));
     const names = fs.readdirSync(media).filter(name => name[0] !== '.' && safeSharePath(media, name));
@@ -135,9 +137,9 @@ try {
     assert.equal(safeSharePath(media, 'x'), false, 'symlink to an outside directory is rejected');
     assert.equal(safeSharePath(media, '..'), false, 'parent traversal is rejected');
     assert.equal(safeSharePath(media, 'normal folder/child'), false, 'multi-component names are rejected');
-    for (const name of ['semi;colon', 'hash#mark', 'equals=name', '[section]', 'line\rbreak'])
+    for (const name of ['%m', '%L', 'semi;colon', 'hash#mark', 'equals=name', '[section]', 'line\rbreak'])
         assert.equal(safeShareName(name), false);
-    const generated = names.map(name => `[${name}]\npath = /media/${name}\n` ).join('');
+    const generated = names.map(name => `[${name}]\npath = /media/${name}\n`).join('');
     assert.equal(generated.includes('[y]'), false);
     assert.equal(generated.includes('available = yes'), false);
     assert.equal(generated.includes('guest ok = yes'), false);
