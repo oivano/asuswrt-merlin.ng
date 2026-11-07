@@ -1765,6 +1765,24 @@ static inline ext4_fsblk_t ext4_blocks_count(struct ext4_super_block *es)
 		le32_to_cpu(es->s_blocks_count_lo);
 }
 
+static inline int ext4_valid_bitmap_block(struct super_block *sb,
+					 ext4_fsblk_t block,
+					 ext4_group_t block_group)
+{
+	ext4_fsblk_t first_data_block =
+		le32_to_cpu(EXT4_SB(sb)->s_es->s_first_data_block);
+	ext4_fsblk_t group_first_block =
+		ext4_group_first_block_no(sb, block_group);
+
+	if (block < first_data_block || block >= ext4_blocks_count(EXT4_SB(sb)->s_es))
+		return 0;
+	if (!EXT4_HAS_INCOMPAT_FEATURE(sb, EXT4_FEATURE_INCOMPAT_FLEX_BG) &&
+	    (block < group_first_block ||
+	     block - group_first_block >= EXT4_BLOCKS_PER_GROUP(sb)))
+		return 0;
+	return 1;
+}
+
 static inline ext4_fsblk_t ext4_r_blocks_count(struct ext4_super_block *es)
 {
 	return ((ext4_fsblk_t)le32_to_cpu(es->s_r_blocks_count_hi) << 32) |

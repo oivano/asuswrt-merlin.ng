@@ -268,6 +268,7 @@ static int ext4_valid_block_bitmap(struct super_block *sb,
 	ext4_grpblk_t next_zero_bit;
 	ext4_fsblk_t bitmap_blk;
 	ext4_fsblk_t group_first_block;
+	unsigned int bitmap_bits = sb->s_blocksize * 8;
 
 	if (EXT4_HAS_INCOMPAT_FEATURE(sb, EXT4_FEATURE_INCOMPAT_FLEX_BG)) {
 		/* with FLEX_BG, the inode/block bitmaps and itable
@@ -282,6 +283,10 @@ static int ext4_valid_block_bitmap(struct super_block *sb,
 
 	/* check whether block bitmap block number is set */
 	bitmap_blk = ext4_block_bitmap(sb, desc);
+	if (!ext4_valid_bitmap_block(sb, bitmap_blk, block_group) ||
+	    bitmap_blk < group_first_block ||
+	    bitmap_blk - group_first_block >= bitmap_bits)
+		goto err_out;
 	offset = bitmap_blk - group_first_block;
 	if (!ext4_test_bit(offset, bh->b_data))
 		/* bad block bitmap */
@@ -289,6 +294,10 @@ static int ext4_valid_block_bitmap(struct super_block *sb,
 
 	/* check whether the inode bitmap block number is set */
 	bitmap_blk = ext4_inode_bitmap(sb, desc);
+	if (!ext4_valid_bitmap_block(sb, bitmap_blk, block_group) ||
+	    bitmap_blk < group_first_block ||
+	    bitmap_blk - group_first_block >= bitmap_bits)
+		goto err_out;
 	offset = bitmap_blk - group_first_block;
 	if (!ext4_test_bit(offset, bh->b_data))
 		/* bad block bitmap */
@@ -296,7 +305,15 @@ static int ext4_valid_block_bitmap(struct super_block *sb,
 
 	/* check whether the inode table block number is set */
 	bitmap_blk = ext4_inode_table(sb, desc);
+	if (!ext4_valid_bitmap_block(sb, bitmap_blk, block_group) ||
+	    bitmap_blk < group_first_block ||
+	    bitmap_blk - group_first_block >= bitmap_bits)
+		goto err_out;
 	offset = bitmap_blk - group_first_block;
+	if (EXT4_SB(sb)->s_itb_per_group > bitmap_bits - offset ||
+	    EXT4_SB(sb)->s_itb_per_group >
+			EXT4_BLOCKS_PER_GROUP(sb) - offset)
+		goto err_out;
 	next_zero_bit = ext4_find_next_zero_bit(bh->b_data,
 				offset + EXT4_SB(sb)->s_itb_per_group,
 				offset);
@@ -330,6 +347,12 @@ ext4_read_block_bitmap(struct super_block *sb, ext4_group_t block_group)
 	if (!desc)
 		return NULL;
 	bitmap_blk = ext4_block_bitmap(sb, desc);
+	if (!ext4_valid_bitmap_block(sb, bitmap_blk, block_group)) {
+		ext4_error(sb, "Invalid block bitmap location - "
+			   "block_group = %u, block_bitmap = %llu",
+			   block_group, bitmap_blk);
+		return NULL;
+	}
 	bh = sb_getblk(sb, bitmap_blk);
 	if (unlikely(!bh)) {
 		ext4_error(sb, "Cannot read block bitmap - "

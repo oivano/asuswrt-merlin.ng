@@ -108,6 +108,12 @@ ext4_read_inode_bitmap(struct super_block *sb, ext4_group_t block_group)
 	if (!desc)
 		return NULL;
 	bitmap_blk = ext4_inode_bitmap(sb, desc);
+	if (!ext4_valid_bitmap_block(sb, bitmap_blk, block_group)) {
+		ext4_error(sb, "Invalid inode bitmap location - "
+			   "block_group = %u, inode_bitmap = %llu",
+			   block_group, bitmap_blk);
+		return NULL;
+	}
 	bh = sb_getblk(sb, bitmap_blk);
 	if (unlikely(!bh)) {
 		ext4_error(sb, "Cannot read inode bitmap - "

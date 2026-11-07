@@ -1951,6 +1951,8 @@ static int ext4_check_descriptors(struct super_block *sb)
 	ext4_fsblk_t block_bitmap;
 	ext4_fsblk_t inode_bitmap;
 	ext4_fsblk_t inode_table;
+	ext4_fsblk_t group_first_block;
+	ext4_fsblk_t system_zone_end;
 	int flexbg_flag = 0;
 	ext4_group_t i;
 
@@ -1989,6 +1991,22 @@ static int ext4_check_descriptors(struct super_block *sb)
 			       "Inode table for group %u not in group "
 			       "(block %llu)!", i, inode_table);
 			return 0;
+		}
+		if (!flexbg_flag && ext4_bg_has_super(sb, i)) {
+			group_first_block = ext4_group_first_block_no(sb, i);
+			system_zone_end = group_first_block +
+				ext4_bg_num_gdb(sb, i) + 1;
+			if ((block_bitmap >= group_first_block &&
+			     block_bitmap < system_zone_end) ||
+			    (inode_bitmap >= group_first_block &&
+			     inode_bitmap < system_zone_end) ||
+			    (inode_table < system_zone_end &&
+			     inode_table + sbi->s_itb_per_group > group_first_block)) {
+				ext4_msg(sb, KERN_ERR, "ext4_check_descriptors: "
+				       "metadata for group %u overlaps superblock/GDT",
+				       i);
+				return 0;
+			}
 		}
 		ext4_lock_group(sb, i);
 		if (!ext4_group_desc_csum_verify(sbi, i, gdp)) {
@@ -2918,6 +2936,7 @@ static int ext4_fill_super(struct super_block *sb, void *data, int silent)
 			goto failed_mount2;
 		}
 	}
+	sbi->s_gdb_count = db_count;
 	if (!ext4_check_descriptors(sb)) {
 		ext4_msg(sb, KERN_ERR, "group descriptors corrupted!");
 		goto failed_mount2;
@@ -2930,7 +2949,6 @@ static int ext4_fill_super(struct super_block *sb, void *data, int silent)
 			goto failed_mount2;
 		}
 
-	sbi->s_gdb_count = db_count;
 	get_random_bytes(&sbi->s_next_generation, sizeof(u32));
 	spin_lock_init(&sbi->s_next_gen_lock);
 
@@ -2969,6 +2987,11 @@ static int ext4_fill_super(struct super_block *sb, void *data, int silent)
 	    EXT4_HAS_COMPAT_FEATURE(sb, EXT4_FEATURE_COMPAT_HAS_JOURNAL)) {
 		if (ext4_load_journal(sb, es, journal_devnum))
 			goto failed_mount3;
+		if (!ext4_check_descriptors(sb)) {
+			ext4_msg(sb, KERN_ERR,
+				 "group descriptors corrupted after journal recovery!");
+			goto failed_mount_wq;
+		}
 	} else if (test_opt(sb, NOLOAD) && !(sb->s_flags & MS_RDONLY) &&
 	      EXT4_HAS_INCOMPAT_FEATURE(sb, EXT4_FEATURE_INCOMPAT_RECOVER)) {
 		ext4_msg(sb, KERN_ERR, "required journal recovery "
