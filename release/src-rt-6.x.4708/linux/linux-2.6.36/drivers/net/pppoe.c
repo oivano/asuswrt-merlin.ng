@@ -638,6 +638,9 @@ static int pppoe_connect(struct socket *sock, struct sockaddr *uservaddr,
 	struct net *net = NULL;
 	int error;
 
+	if (sockaddr_len != sizeof(struct sockaddr_pppox))
+		return -EINVAL;
+
 	lock_sock(sk);
 
 	error = -EINVAL;
