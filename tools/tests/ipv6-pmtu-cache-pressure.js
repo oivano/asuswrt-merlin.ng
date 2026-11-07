@@ -14,6 +14,10 @@ assert(gcStart >= 0 && gcEnd > gcStart, 'IPv6 dst-cache GC function is present')
 const gc = routeSource.slice(gcStart, gcEnd);
 assert.match(gc, /fib6_run_gc\(net->ipv6\.ip6_rt_gc_expire, net, 1\)/,
     'allocation-triggered GC marks cache pressure');
+assert.match(gc, /if \(time_after\(rt_last_gc \+ rt_min_interval, now\)\)/,
+    'allocation-triggered GC is rate-limited by the minimum interval at every cache size');
+assert.doesNotMatch(gc, /rt_max_size/,
+    'cache size does not bypass allocation-triggered GC rate limiting');
 assert.match(gc, /return 0;/,
     'cache pressure does not make dst_alloc reject every new IPv6 destination');
 assert.doesNotMatch(gc, /return\s*\(atomic_read\(&ops->entries\)\s*>\s*rt_max_size\)/,
@@ -21,6 +25,24 @@ assert.doesNotMatch(gc, /return\s*\(atomic_read\(&ops->entries\)\s*>\s*rt_max_si
 assert.match(dstSource,
     /if \(ops->gc && atomic_read\(&ops->entries\) > ops->gc_thresh\) \{[\s\S]*?if \(ops->gc\(ops\)\)[\s\S]*?return NULL;/,
     'destination allocation still invokes GC above gc_thresh and handles real GC failures');
+assert.match(routeSource, /static unsigned int ip6_pmtu_cache_pending/,
+    'PMTU clone admissions reserve capacity while destination allocation is in flight');
+assert.match(routeSource,
+    /atomic_read\(&net->ipv6\.ip6_dst_ops\.entries\)[\s\S]*?ip6_pmtu_cache_pending < max_size/,
+    'PMTU clone admission accounts for existing destinations and concurrent reservations');
+assert.match(routeSource,
+    /static void ip6_pmtu_cache_release\(void\)[\s\S]*?ip6_pmtu_cache_pending--/,
+    'PMTU reservation is released after allocation');
+const pmtuStart = routeSource.indexOf('static void rt6_do_pmtu_disc(');
+const pmtuEnd = routeSource.indexOf('\nvoid rt6_pmtu_discovery(', pmtuStart);
+assert(pmtuStart >= 0 && pmtuEnd > pmtuStart, 'PMTU route update function is present');
+const pmtu = routeSource.slice(pmtuStart, pmtuEnd);
+assert.match(pmtu,
+    /if \(!ip6_pmtu_cache_reserve\(net\)\)\s+goto out/,
+    'new PMTU clones are refused above the configured clone limit');
+assert.match(pmtu,
+    /rt6_alloc_clone\(rt, daddr\)[\s\S]*?ip6_pmtu_cache_release\(\)/,
+    'all PMTU clone allocation paths release their reservation');
 
 const ageStart = fibSource.indexOf('static int fib6_age(struct rt6_info *rt, void *arg)');
 const ageEnd = fibSource.indexOf('static DEFINE_SPINLOCK(fib6_gc_lock)', ageStart);
