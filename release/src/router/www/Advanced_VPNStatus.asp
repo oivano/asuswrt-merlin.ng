@@ -14,6 +14,10 @@
 
 <style>
 	.statcell { width:25% !important; text-align:left !important; }
+	.FormTable_table.ipsecStatistics { table-layout:fixed; }
+	.FormTable_table.ipsecStatistics th.statcell { width:20% !important; text-align:left; }
+	.FormTable_table.ipsecStatistics td.statcell { width:30% !important; }
+	.FormTable_table.ipsecStatistics td { text-align:left; word-wrap:break-word; overflow-wrap:anywhere; }
 </style>
 
 <script language="JavaScript" type="text/javascript" src="/state.js"></script>
@@ -433,40 +437,200 @@ function parseStatus(text, block, ipaddress, ripaddress){
 }
 
 
-function parseIPSecData(profileName){
-	var ikeversion = (profileName == "Host-to-Netv2" ? "IKEv2" : "Net-to-Net")
-	var code = "<table width='100%' border='1' align='center' cellpadding='4' cellspacing='0' bordercolor='#6b8fa3' class='FormTable_table'><thead><tr><td colspan='5'>Connected Clients - " + ikeversion + "</td></tr><tr>";
-	code += "<th style='text-align:left;white-space:nowrap;'>Remote IP</th>";
-	code += "<th style='text-align:left;white-space:nowrap;'><#statusTitle_Client#></th>";
-	code += "<th style='text-align:left;white-space:nowrap;'><#Access_Time#></th>";
-	code += "<th style='text-align:left;white-space:nowrap;'><#vpn_ipsec_XAUTH#> <#Permission_Management_Users#></th>";
-	code += "<th style='text-align:left;white-space:nowrap;'>PSKR Auth Time</th></tr></thead><tbody></tbody></table>";
+function getIPSecProfileDescription(connectionName){
+	var profileSlot = connectionName.match(/_c([1-5])$/);
+	if(!profileSlot)
+		return connectionName;
+	return connectionName.split("_c" + profileSlot[1])[0];
+}
 
-	var statusText = [[""], ["<#Connected#>"], ["<#Connecting_str#>"], ["<#Connecting_str#>"]];
+function formatIPSecBytes(value){
+	var bytes = Number(value);
+	if(!isFinite(bytes) || bytes < 0)
+		return "";
+	if(bytes < 1024)
+		return bytes.toLocaleString() + (bytes == 1 ? " Byte" : " Bytes");
+
+	var units = ["KB", "MB", "GB", "TB", "PB"];
+	var unit = -1;
+	do {
+		bytes /= 1024;
+		unit++;
+	} while(bytes >= 1024 && unit < units.length - 1);
+
+	var decimals = bytes >= 1000 ? 0 : (bytes >= 10 ? 1 : 2);
+	return bytes.toFixed(decimals) + " " + units[unit];
+}
+
+function humanizeIkeProposal(proposal){
+	var components = proposal.split("/");
+	var details = [];
+	var dhGroups = {
+		MODP_768: 1, MODP_1024: 2, MODP_1536: 5,
+		MODP_2048: 14, MODP_3072: 15, MODP_4096: 16,
+		MODP_6144: 17, MODP_8192: 18,
+		ECP_256: 19, ECP_384: 20, ECP_521: 21,
+		MODP_1024_160: 22, MODP_2048_224: 23, MODP_2048_256: 24,
+		ECP_192: 25, ECP_224: 26, ECP_224_BP: 27,
+		ECP_256_BP: 28, ECP_384_BP: 29, ECP_512_BP: 30,
+		CURVE_25519: 31, CURVE_448: 32,
+		GOST3410_256: 33, GOST3410_512: 34
+	};
+	for(var i = 0; i < components.length; i++) {
+		var component = components[i];
+		var label;
+		if(component.indexOf("PRF_") == 0) {
+			label = "PRF";
+			component = component.substring(4);
+		}
+		else if(i == 0)
+			label = "Encryption";
+		else if(component.indexOf("HMAC_") == 0 || component.indexOf("AES_XCBC_") == 0 || component.indexOf("AES_CMAC_") == 0 || component.indexOf("SHA") == 0 || component.indexOf("MD5") == 0 || component == "NONE")
+			label = "Integrity";
+		else if(dhGroups[component])
+			label = "Diffie-Hellman Group " + dhGroups[component];
+		else
+			label = "Key exchange group";
+		details.push(label + ": " + component.replace(/_/g, "-"));
+	}
+	return details.join(" | ");
+}
+
+function parseIPSecData(profileName){
+	var connectionType = (profileName == "Host-to-Net" || profileName == "Host-to-Netv2" ? "Remote Access" : "Site-to-Site");
+	var statusText = ["", "<#Connected#>", "<#Connecting_str#>", "<#Connecting_str#>"];
 	var profileName_array = ipsec_connect_status_array[profileName].split("<");
-	var tableContainer = document.createElement("div");
-	tableContainer.innerHTML = code;
-	var table = tableContainer.firstChild;
-	var tableBody = table.getElementsByTagName("tbody")[0];
 	for (i = 0; i < profileName_array.length; i += 1) {
 		if(profileName_array[i] != "") {
 			var profileName_col = profileName_array[i].split(">");
-			var row = document.createElement("tr");
-			var values = [profileName_col[0], statusText[profileName_col[1]], profileName_col[2], profileName_col[3], profileName_col[4]];
-			for (var column = 0; column < values.length; column++) {
-				var cell = document.createElement("td");
-				cell.style.textAlign = "left";
-				cell.textContent = values[column] || "";
-				row.appendChild(cell);
+			var isServerProfile = profileName_col[15] == "server" || profileName == "Host-to-Net" || profileName == "Host-to-Netv2";
+			var description = getIPSecProfileDescription(profileName_col[14] || "") || profileName_col[0] || "IPsec";
+			var status = statusText[profileName_col[1]] || "";
+			var emptyStatePanel = document.getElementById(isServerProfile ? "ipsec_srv_Empty" : "ipsec_cli_Empty");
+			if(emptyStatePanel)
+				emptyStatePanel.style.display = "none";
+			var connectionTable = document.createElement("table");
+			connectionTable.width = "100%";
+			connectionTable.border = "1";
+			connectionTable.align = "center";
+			connectionTable.cellPadding = "4";
+			connectionTable.cellSpacing = "0";
+			connectionTable.borderColor = "#6b8fa3";
+			connectionTable.className = "FormTable";
+			connectionTable.style.marginBottom = "20px";
+
+			var connectionHead = document.createElement("thead");
+			var connectionTitleRow = document.createElement("tr");
+			var connectionTitle = document.createElement("td");
+			connectionTitle.appendChild(document.createTextNode("IPSec " + (isServerProfile ? "Server " : "Client ") + description));
+			if(status) {
+				var connectionStatus = document.createElement("span");
+				connectionStatus.style.background = "transparent";
+				connectionStatus.style.color = "#FFCC00";
+				connectionStatus.textContent = " - " + status;
+				connectionTitle.appendChild(connectionStatus);
 			}
-			tableBody.appendChild(row);
+			connectionTitleRow.appendChild(connectionTitle);
+			connectionHead.appendChild(connectionTitleRow);
+			connectionTable.appendChild(connectionHead);
+
+			var connectionBody = document.createElement("tbody");
+			var connectionRow = document.createElement("tr");
+			var connectionCell = document.createElement("td");
+			connectionCell.style.border = "none";
+			connectionCell.style.borderBottom = "1px solid #000";
+
+			var detailsTable = document.createElement("table");
+			detailsTable.width = "100%";
+			detailsTable.border = "1";
+			detailsTable.align = "center";
+			detailsTable.cellPadding = "4";
+			detailsTable.cellSpacing = "0";
+			detailsTable.borderColor = "#6b8fa3";
+			detailsTable.className = "FormTable_table ipsecStatistics";
+
+			var detailsColumnWidths = ["20%", "30%", "20%", "30%"];
+			var detailsColumns = document.createElement("colgroup");
+			for(var columnIndex = 0; columnIndex < detailsColumnWidths.length; columnIndex++) {
+				var detailsColumn = document.createElement("col");
+				detailsColumn.style.width = detailsColumnWidths[columnIndex];
+				detailsColumns.appendChild(detailsColumn);
+			}
+			detailsTable.appendChild(detailsColumns);
+
+			var detailsHead = document.createElement("thead");
+			var detailsTitleRow = document.createElement("tr");
+			var detailsTitle = document.createElement("td");
+			detailsTitle.colSpan = 4;
+			detailsTitle.textContent = "Statistics";
+			detailsTitleRow.appendChild(detailsTitle);
+			detailsHead.appendChild(detailsTitleRow);
+			detailsTable.appendChild(detailsHead);
+
+			var detailsBody = document.createElement("tbody");
+			var addStatisticsRow = function(label1, value1, label2, value2, wide) {
+				var statsRow = document.createElement("tr");
+				var labelCell = document.createElement("th");
+				var valueCell = document.createElement("td");
+				labelCell.className = "statcell";
+				labelCell.textContent = label1;
+				valueCell.className = "statcell";
+				valueCell.textContent = value1 || "";
+				statsRow.appendChild(labelCell);
+				statsRow.appendChild(valueCell);
+				if(wide)
+					valueCell.colSpan = 3;
+				else {
+					var secondLabel = document.createElement("th");
+					var secondValue = document.createElement("td");
+					secondLabel.className = "statcell";
+					secondLabel.textContent = label2;
+					secondValue.className = "statcell";
+					secondValue.textContent = value2 || "";
+					statsRow.appendChild(secondLabel);
+					statsRow.appendChild(secondValue);
+				}
+				detailsBody.appendChild(statsRow);
+			};
+			var bytesIn = profileName_col[8] ? formatIPSecBytes(profileName_col[8]) : "";
+			var bytesOut = profileName_col[9] ? formatIPSecBytes(profileName_col[9]) : "";
+			var selectorParts = (profileName_col[12] || "").split("===");
+			var localSelectors = "";
+			var remoteSelectors = "";
+			if(selectorParts.length > 1) {
+				localSelectors = selectorParts.shift().replace(/^\S+\{\d+\}:\s*/, "").trim().replace(/\s+/g, ", ");
+				remoteSelectors = selectorParts.join("===").trim().replace(/\s+/g, ", ");
+			}
+			var modeValue = connectionType + (profileName_col[10] ? " (" + profileName_col[10] + ")" : "");
+			addStatisticsRow("Mode", modeValue, "Peer IP", profileName_col[0]);
+			addStatisticsRow("Access time", profileName_col[2], "Remote Identity", profileName_col[3]);
+			if(profileName_col[4] && profileName_col[13])
+				addStatisticsRow("IKE Reauthentication", profileName_col[4], "CHILD-SA Rekey", profileName_col[13]);
+			else if(profileName_col[4])
+				addStatisticsRow("IKE Reauthentication", profileName_col[4], "", "", true);
+			else if(profileName_col[13])
+				addStatisticsRow("CHILD-SA Rekey", profileName_col[13], "", "", true);
+			if(localSelectors || remoteSelectors) {
+				var localSubnetLabel = "Local private subnet" + (localSelectors.split(", ").length == 1 ? "" : "s");
+				var remoteSubnetLabel = "Remote private subnet" + (remoteSelectors.split(", ").length == 1 ? "" : "s");
+				addStatisticsRow(localSubnetLabel, localSelectors, remoteSubnetLabel, remoteSelectors);
+			}
+			if(bytesIn || bytesOut)
+				addStatisticsRow("Traffic In", bytesIn, "Traffic Out", bytesOut);
+			if(profileName_col[11])
+				addStatisticsRow("IKE Proposal", humanizeIkeProposal(profileName_col[11]), "", "", true);
+			detailsTable.appendChild(detailsBody);
+			connectionCell.appendChild(detailsTable);
+			connectionRow.appendChild(connectionCell);
+			connectionBody.appendChild(connectionRow);
+			connectionTable.appendChild(connectionBody);
+
+			if(isServerProfile)
+				document.getElementById('ipsec_srv_Block').appendChild(connectionTable);
+			else
+				document.getElementById('ipsec_cli_Block').appendChild(connectionTable);
 		}
 	}
-
-	if('<% nvram_get("ipsec_server_enable"); %>' == "1")
-		document.getElementById('ipsec_srv_Block').appendChild(table);
-    else 
-		document.getElementById('ipsec_cli_Block').appendChild(table);
 }
 
 function getIPSecClientStatus(profileStatus){
@@ -475,8 +639,12 @@ function getIPSecClientStatus(profileStatus){
 	for(var i = 0; i < clientRows.length; i++){
 		if(clientRows[i] == "")
 			continue;
+		var clientFields = clientRows[i].split(">");
+		if(clientFields[15] == "server" || (clientFields[15] != "client" &&
+			(clientFields[14] == "Host-to-Net" || clientFields[14] == "Host-to-Netv2")))
+			continue;
 		hasClients = true;
-		if(clientRows[i].split(">")[1] == "1")
+		if(clientFields[1] == "1")
 			return "connected";
 	}
 	return hasClients ? "connecting" : "none";
@@ -552,6 +720,9 @@ function refresh_ipsec_data() {
 				ipsec_connect_status_array[ipsec_connect_status[i][0]] = ipsec_connect_status[i][1];
 			}
 			document.getElementById('ipsec_srv_Block').innerHTML = "";
+			document.getElementById('ipsec_cli_Block').innerHTML = "";
+			document.getElementById('ipsec_srv_Empty').style.display = "";
+			document.getElementById('ipsec_cli_Empty').style.display = "";
 			if(ipsec_connect_status_array["Host-to-Net"] != undefined) {
 				var connected_count = (ipsec_connect_status_array["Host-to-Net"].split("<").length);
 				if(connected_count > 0) {
@@ -565,15 +736,11 @@ function refresh_ipsec_data() {
 				}
 			}
 			if(ipsec_connect_status_array["other"] != undefined) {
-				document.getElementById('ipsec_cli_Block').innerHTML = "";
+				parseIPSecData("other");
 				var ipsec_client_status = getIPSecClientStatus(ipsec_connect_status_array["other"]);
 				if(ipsec_client_status != "none") {
-					parseIPSecData("other");
 					if(document.getElementById("ipsec_cli_Block_Running")) {
-						if(ipsec_client_status == "connected")
-							document.getElementById("ipsec_cli_Block_Running").innerHTML = " - Connected";
-						else
-							document.getElementById("ipsec_cli_Block_Running").innerHTML = " - Connecting...";
+						document.getElementById("ipsec_cli_Block_Running").innerHTML = "";
 					}
 				}
 				else {
@@ -695,18 +862,19 @@ function parseOpenConnectStatus(unit, ipaddress, ripaddress){
 					</tr>
 
 				</table>
-				<table width="100%" id="ipsecsrv" style="margin-bottom:20px;" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable">
+				<div id="ipsecsrv" style="margin-bottom:20px;">
+				<table width="100%" id="ipsec_srv_Empty" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3" class="FormTable">
 					<thead>
 						<tr>
-                                                        <td>IPSec Server<span id="ipsec_srv_Block_Running" style="background: transparent;"></span></td>
+							<td>IPSec Server<span id="ipsec_srv_Block_Running" style="background: transparent;"></span></td>
 						</tr>
 					</thead>
 					<tr>
-						<td style="border: none;">
-							<div id="ipsec_srv_Block"></div>
-						</td>
+						<td style="border: none;"></td>
 					</tr>
-                </table>
+				</table>
+				<div id="ipsec_srv_Block"></div>
+				</div>
 				<table width="100%" id="client1" style="margin-bottom:20px;" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable">
 					<thead>
 						<tr>
@@ -772,18 +940,19 @@ function parseOpenConnectStatus(unit, ipaddress, ripaddress){
 					</tr>
 
 				</table>
-				<table width="100%" id="ipsecclnt" style="margin-bottom:20px;" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable">
+				<div id="ipsecclnt" style="margin-bottom:20px;">
+				<table width="100%" id="ipsec_cli_Empty" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3" class="FormTable">
 					<thead>
 						<tr>
-                                                        <td>IPSec Clients<span id="ipsec_cli_Block_Running" style="background: transparent;"></span></td>
+							<td>IPSec Clients<span id="ipsec_cli_Block_Running" style="background: transparent;"></span></td>
 						</tr>
 					</thead>
 					<tr>
-						<td style="border: none;">
-							<div id="ipsec_cli_Block"></div>
-						</td>
+						<td style="border: none;"></td>
 					</tr>
-                </table>
+				</table>
+				<div id="ipsec_cli_Block"></div>
+				</div>
 				<table width="100%" id="openconnect1" style="margin-bottom:20px;" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable">
 					<thead>
 						<tr>
