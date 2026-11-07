@@ -165,7 +165,7 @@ static int dx_make_map(struct ext3_dir_entry_2 *de, unsigned blocksize,
 			struct dx_hash_info *hinfo, struct dx_map_entry map[]);
 static void dx_sort_map(struct dx_map_entry *map, unsigned count);
 static struct ext3_dir_entry_2 *dx_move_dirents (char *from, char *to,
-		struct dx_map_entry *offsets, int count);
+				struct dx_map_entry *offsets, int count, unsigned blocksize);
 static struct ext3_dir_entry_2 *dx_pack_dirents(char *base, unsigned blocksize);
 static void dx_insert_block (struct dx_frame *frame, u32 hash, u32 block);
 static int ext3_htree_next_block(struct inode *dir, __u32 hash,
@@ -704,6 +704,29 @@ errout:
  * Directory block splitting, compacting
  */
 
+static int dx_check_dirents(struct inode *dir, struct buffer_head *bh,
+			    unsigned offset)
+{
+	unsigned blocksize = dir->i_sb->s_blocksize;
+	char *base = bh->b_data;
+	struct ext3_dir_entry_2 *de;
+
+	if (offset >= blocksize || (offset & 3)) {
+		ext3_error(dir->i_sb, __func__,
+			   "invalid directory entry offset in inode %lu",
+			   dir->i_ino);
+		return -EIO;
+	}
+	de = (struct ext3_dir_entry_2 *)(base + offset);
+	while (offset < blocksize) {
+		if (!ext3_check_dir_entry(__func__, dir, de, bh, offset))
+			return -EIO;
+		offset += ext3_rec_len_from_disk(de->rec_len);
+		de = (struct ext3_dir_entry_2 *)(base + offset);
+	}
+	return offset == blocksize ? 0 : -EIO;
+}
+
 /*
  * Create map of hash values, offsets, and sizes, stored at end of block.
  * Returns number of entries mapped.
@@ -1106,19 +1129,35 @@ static inline void ext3_set_de_type(struct super_block *sb,
  * Returns pointer to last entry moved.
  */
 static struct ext3_dir_entry_2 *
-dx_move_dirents(char *from, char *to, struct dx_map_entry *map, int count)
+dx_move_dirents(char *from, char *to, struct dx_map_entry *map, int count,
+		unsigned blocksize)
 {
-	unsigned rec_len = 0;
+	unsigned rec_len = 0, size = 0, moved = 0;
+	int i;
+
+	if (count <= 0)
+		return NULL;
+	for (i = 0; i < count; i++) {
+		struct ext3_dir_entry_2 *de = (struct ext3_dir_entry_2 *)
+						(from + map[i].offs);
+		rec_len = EXT3_DIR_REC_LEN(de->name_len);
+		if (rec_len > blocksize - size)
+			return NULL;
+		size += rec_len;
+	}
 
 	while (count--) {
 		struct ext3_dir_entry_2 *de = (struct ext3_dir_entry_2 *) (from + map->offs);
 		rec_len = EXT3_DIR_REC_LEN(de->name_len);
+		if (rec_len > blocksize - moved)
+			return NULL;
 		memcpy (to, de, rec_len);
 		((struct ext3_dir_entry_2 *) to)->rec_len =
 				ext3_rec_len_to_disk(rec_len);
 		de->inode = 0;
 		map++;
 		to += rec_len;
+		moved += rec_len;
 	}
 	return (struct ext3_dir_entry_2 *) (to - rec_len);
 }
@@ -1169,6 +1208,14 @@ static struct ext3_dir_entry_2 *do_split(handle_t *handle, struct inode *dir,
 	struct ext3_dir_entry_2 *de = NULL, *de2;
 	int	err = 0, i;
 
+	err = dx_check_dirents(dir, *bh, 0);
+	if (err) {
+		brelse(*bh);
+		*bh = NULL;
+		*error = err;
+		return NULL;
+	}
+
 	bh2 = ext3_append (handle, dir, &newblock, &err);
 	if (!(bh2)) {
 		brelse(*bh);
@@ -1193,7 +1240,12 @@ static struct ext3_dir_entry_2 *do_split(handle_t *handle, struct inode *dir,
 	count = dx_make_map ((struct ext3_dir_entry_2 *) data1,
 			     blocksize, hinfo, map);
 	map -= count;
-	dx_sort_map (map, count);
+	if (!count) {
+		err = -EIO;
+		goto journal_error;
+	}
+	if (count > 1)
+		dx_sort_map (map, count);
 	/* Split the existing block in the middle, size-wise */
 	size = 0;
 	move = 0;
@@ -1206,13 +1258,21 @@ static struct ext3_dir_entry_2 *do_split(handle_t *handle, struct inode *dir,
 	}
 	/* map index at which we will split */
 	split = count - move;
+	if (split == count) {
+		split--;
+	}
 	hash2 = map[split].hash;
-	continued = hash2 == map[split - 1].hash;
+	continued = split && hash2 == map[split - 1].hash;
 	dxtrace(printk("Split block %i at %x, %i/%i\n",
 		dx_get_block(frame->at), hash2, split, count-split));
 
 	/* Fancy dance to stay within two buffers */
-	de2 = dx_move_dirents(data1, data2, map + split, count - split);
+	de2 = dx_move_dirents(data1, data2, map + split, count - split,
+			      blocksize);
+	if (!de2) {
+		err = -EIO;
+		goto journal_error;
+	}
 	de = dx_pack_dirents(data1,blocksize);
 	de->rec_len = ext3_rec_len_to_disk(data1 + blocksize - (char *) de);
 	de2->rec_len = ext3_rec_len_to_disk(data2 + blocksize - (char *) de2);
@@ -1356,16 +1416,16 @@ static int make_indexed_dir(handle_t *handle, struct dentry *dentry,
 
 	blocksize =  dir->i_sb->s_blocksize;
 	dxtrace(printk(KERN_DEBUG "Creating index: inode %lu\n", dir->i_ino));
-	retval = ext3_journal_get_write_access(handle, bh);
-	if (retval) {
-		ext3_std_error(dir->i_sb, retval);
-		brelse(bh);
-		return retval;
-	}
 	root = (struct dx_root *) bh->b_data;
 
 	/* The 0th block becomes the root, move the dirents out */
 	fde = &root->dotdot;
+	if (!ext3_check_dir_entry(__func__, dir,
+				  (struct ext3_dir_entry_2 *)fde, bh,
+				  (char *)fde - bh->b_data)) {
+		brelse(bh);
+		return -EIO;
+	}
 	de = (struct ext3_dir_entry_2 *)((char *)fde +
 			ext3_rec_len_from_disk(fde->rec_len));
 	if ((char *) de >= (((char *) root) + blocksize)) {
@@ -1376,6 +1436,17 @@ static int make_indexed_dir(handle_t *handle, struct dentry *dentry,
 		return -EIO;
 	}
 	len = ((char *) root) + blocksize - (char *) de;
+	retval = dx_check_dirents(dir, bh, (char *)de - bh->b_data);
+	if (retval) {
+		brelse(bh);
+		return retval;
+	}
+	retval = ext3_journal_get_write_access(handle, bh);
+	if (retval) {
+		ext3_std_error(dir->i_sb, retval);
+		brelse(bh);
+		return retval;
+	}
 
 	bh2 = ext3_append (handle, dir, &block, &retval);
 	if (!(bh2)) {
