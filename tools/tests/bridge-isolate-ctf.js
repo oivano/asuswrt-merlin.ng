@@ -24,7 +24,7 @@ assert.match(fdb, /ctf_brc_delete\(kcih, f->addr\.addr\)/);
 assert.match(fdb, /else if \(!\(\(source->flags \^ fdb->dst->flags\) &\s*BR_ISOLATE_MODE\)\)\s*\{[\s\S]*?br_brc_add\([\s\S]*?fdb->dst = source;/);
 
 const receiveBpdu = bpdu.match(/void br_stp_rcv\([\s\S]*?\n\}/)[0];
-assert.match(receiveBpdu, /p = br_port_get_rcu\(dev\);\s*if \(p->flags & BR_ISOLATE_MODE\)\s*goto err;/);
+assert.match(receiveBpdu, /p = br_port_get_rcu\(dev\);\s*if \((?:p->flags & BR_ISOLATE_MODE|!p \|\| \(p->flags & BR_ISOLATE_MODE\))\)\s*goto err;/);
 
 assert.match(forward, /if \(\(forward \|\| skip_isolated\) &&\s*\(p->flags & BR_ISOLATE_MODE\)\)\s*continue;/);
 assert.match(forward, /void br_flood_deliver_unicast\([\s\S]*?br_flood\(br, skb, NULL, __br_deliver, false, true\);/);
