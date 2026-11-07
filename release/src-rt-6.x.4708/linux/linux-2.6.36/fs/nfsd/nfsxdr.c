@@ -356,6 +356,8 @@ nfssvc_decode_readlinkargs(struct svc_rqst *rqstp, __be32 *p, struct nfsd_readli
 {
 	if (!(p = decode_fh(p, &args->fh)))
 		return 0;
+	if (!rqstp->rq_respages[rqstp->rq_resused])
+		return 0;
 	args->buffer = page_address(rqstp->rq_respages[rqstp->rq_resused++]);
 
 	return xdr_argsize_check(rqstp, p);
@@ -397,6 +399,8 @@ nfssvc_decode_readdirargs(struct svc_rqst *rqstp, __be32 *p,
 	if (args->count > PAGE_SIZE)
 		args->count = PAGE_SIZE;
 
+	if (!rqstp->rq_respages[rqstp->rq_resused])
+		return 0;
 	args->buffer = page_address(rqstp->rq_respages[rqstp->rq_resused++]);
 
 	return xdr_argsize_check(rqstp, p);
