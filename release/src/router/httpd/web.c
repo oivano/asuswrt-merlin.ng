@@ -20841,6 +20841,24 @@ httpd_login_notify(const char *address)
 #endif
 }
 
+#ifdef RTCONFIG_CAPTCHA
+static int
+httpd_login_captcha_match(char *captcha_text, int fromapp_flag)
+{
+	int matched;
+	char saved_user_agent[sizeof(user_agent)];
+
+	if (fromapp_flag != FROM_DUTUtil)
+		return is_captcha_match(captcha_text);
+
+	strlcpy(saved_user_agent, user_agent, sizeof(saved_user_agent));
+	strlcpy(user_agent, "Mozilla/5.0", sizeof(user_agent));
+	matched = is_captcha_match(captcha_text);
+	strlcpy(user_agent, saved_user_agent, sizeof(user_agent));
+	return matched;
+}
+#endif
+
 static int
 login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 		char_t *url, char_t *path, char_t *query)
@@ -20921,9 +20939,9 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 	}
 
 #ifdef RTCONFIG_CAPTCHA
-	if(fromapp_flag != FROM_DUTUtil && !nvram_match("captcha_enable", "0")){
+	if(!nvram_match("captcha_enable", "0")){
 		if( httpd_login_attempts() < CAPTCHA_MAX_LOGIN_NUM ||
-			(httpd_login_attempts() >= CAPTCHA_MAX_LOGIN_NUM && is_captcha_match(captcha_text)) )
+			(httpd_login_attempts() >= CAPTCHA_MAX_LOGIN_NUM && httpd_login_captcha_match(captcha_text, fromapp_flag)) )
 		{
 			captcha_right = 1;
 		}
