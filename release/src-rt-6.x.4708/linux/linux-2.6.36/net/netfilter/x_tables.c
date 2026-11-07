@@ -195,6 +195,10 @@ struct xt_match *xt_find_match(u8 af, const char *name, u8 revision)
 	struct xt_match *m;
 	int err = 0;
 
+	if (strnlen(name, XT_EXTENSION_MAXNAMELEN) ==
+	    XT_EXTENSION_MAXNAMELEN)
+		return ERR_PTR(-EINVAL);
+
 	if (mutex_lock_interruptible(&xt[af].mutex) != 0)
 		return ERR_PTR(-EINTR);
 
@@ -224,6 +228,10 @@ xt_request_find_match(uint8_t nfproto, const char *name, uint8_t revision)
 {
 	struct xt_match *match;
 
+	if (strnlen(name, XT_EXTENSION_MAXNAMELEN) ==
+	    XT_EXTENSION_MAXNAMELEN)
+		return ERR_PTR(-EINVAL);
+
 	match = try_then_request_module(xt_find_match(nfproto, name, revision),
 					"%st_%s", xt_prefix[nfproto], name);
 	return (match != NULL) ? match : ERR_PTR(-ENOENT);
@@ -235,6 +243,10 @@ struct xt_target *xt_find_target(u8 af, const char *name, u8 revision)
 {
 	struct xt_target *t;
 	int err = 0;
+
+	if (strnlen(name, XT_EXTENSION_MAXNAMELEN) ==
+	    XT_EXTENSION_MAXNAMELEN)
+		return ERR_PTR(-EINVAL);
 
 	if (mutex_lock_interruptible(&xt[af].mutex) != 0)
 		return ERR_PTR(-EINTR);
@@ -263,6 +275,10 @@ EXPORT_SYMBOL(xt_find_target);
 struct xt_target *xt_request_find_target(u8 af, const char *name, u8 revision)
 {
 	struct xt_target *target;
+
+	if (strnlen(name, XT_EXTENSION_MAXNAMELEN) ==
+	    XT_EXTENSION_MAXNAMELEN)
+		return ERR_PTR(-EINVAL);
 
 	target = try_then_request_module(xt_find_target(af, name, revision),
 					 "%st_%s", xt_prefix[af], name);
@@ -315,6 +331,12 @@ int xt_find_revision(u8 af, const char *name, u8 revision, int target,
 		     int *err)
 {
 	int have_rev, best = -1;
+
+	if (strnlen(name, XT_EXTENSION_MAXNAMELEN) ==
+	    XT_EXTENSION_MAXNAMELEN) {
+		*err = -EINVAL;
+		return 1;
+	}
 
 	if (mutex_lock_interruptible(&xt[af].mutex) != 0) {
 		*err = -EINTR;
