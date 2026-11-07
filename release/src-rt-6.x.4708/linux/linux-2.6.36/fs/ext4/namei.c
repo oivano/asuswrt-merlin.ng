@@ -1866,6 +1866,7 @@ out_stop:
 static int empty_dir(struct inode *inode)
 {
 	unsigned int offset;
+	unsigned int dot_len;
 	struct buffer_head *bh;
 	struct ext4_dir_entry_2 *de, *de1;
 	struct super_block *sb;
@@ -1881,19 +1882,35 @@ static int empty_dir(struct inode *inode)
 			ext4_warning(inode->i_sb,
 				     "bad directory (dir #%lu) - no data block",
 				     inode->i_ino);
-		return 1;
+		return 0;
 	}
 	de = (struct ext4_dir_entry_2 *) bh->b_data;
+	if (!ext4_check_dir_entry(inode, de, bh, 0) ||
+	    le32_to_cpu(de->inode) != inode->i_ino ||
+	    de->name_len != 1 || de->name[0] != '.') {
+		ext4_warning(inode->i_sb,
+			     "bad directory (dir #%lu) - invalid `.'",
+			     inode->i_ino);
+		brelse(bh);
+		return 0;
+	}
+	dot_len = ext4_rec_len_from_disk(de->rec_len, sb->s_blocksize);
+	if (dot_len > sb->s_blocksize - EXT4_DIR_REC_LEN(2)) {
+		ext4_warning(inode->i_sb,
+			     "bad directory (dir #%lu) - no room for `..'",
+			     inode->i_ino);
+		brelse(bh);
+		return 0;
+	}
 	de1 = ext4_next_entry(de, sb->s_blocksize);
-	if (le32_to_cpu(de->inode) != inode->i_ino ||
-			!le32_to_cpu(de1->inode) ||
-			strcmp(".", de->name) ||
-			strcmp("..", de1->name)) {
+	if (!ext4_check_dir_entry(inode, de1, bh, dot_len) ||
+	    !le32_to_cpu(de1->inode) || de1->name_len != 2 ||
+	    memcmp("..", de1->name, 2)) {
 		ext4_warning(inode->i_sb,
 			     "bad directory (dir #%lu) - no `.' or `..'",
 			     inode->i_ino);
 		brelse(bh);
-		return 1;
+		return 0;
 	}
 	offset = ext4_rec_len_from_disk(de->rec_len, sb->s_blocksize) +
 		 ext4_rec_len_from_disk(de1->rec_len, sb->s_blocksize);
@@ -2307,9 +2324,6 @@ retry:
 	return err;
 }
 
-#define PARENT_INO(buffer, size) \
-	(ext4_next_entry((struct ext4_dir_entry_2 *)(buffer), size)->inode)
-
 /*
  * Anybody can rename anything with this: the permission checks are left to the
  * higher-level routines.
@@ -2320,7 +2334,8 @@ static int ext4_rename(struct inode *old_dir, struct dentry *old_dentry,
 	handle_t *handle;
 	struct inode *old_inode, *new_inode;
 	struct buffer_head *old_bh, *new_bh, *dir_bh;
-	struct ext4_dir_entry_2 *old_de, *new_de;
+	struct ext4_dir_entry_2 *old_de, *new_de, *dir_de, *parent_de;
+	unsigned int dot_len;
 	int retval, force_da_alloc = 0;
 
 	dquot_initialize(old_dir);
@@ -2371,8 +2386,21 @@ static int ext4_rename(struct inode *old_dir, struct dentry *old_dentry,
 		dir_bh = ext4_bread(handle, old_inode, 0, 0, &retval);
 		if (!dir_bh)
 			goto end_rename;
-		if (le32_to_cpu(PARENT_INO(dir_bh->b_data,
-				old_dir->i_sb->s_blocksize)) != old_dir->i_ino)
+		dir_de = (struct ext4_dir_entry_2 *) dir_bh->b_data;
+		if (!ext4_check_dir_entry(old_inode, dir_de, dir_bh, 0) ||
+		    le32_to_cpu(dir_de->inode) != old_inode->i_ino ||
+		    dir_de->name_len != 1 || dir_de->name[0] != '.')
+			goto end_rename;
+		dot_len = ext4_rec_len_from_disk(dir_de->rec_len,
+						old_dir->i_sb->s_blocksize);
+		if (dot_len > old_dir->i_sb->s_blocksize - EXT4_DIR_REC_LEN(2))
+			goto end_rename;
+		parent_de = ext4_next_entry(dir_de,
+					    old_dir->i_sb->s_blocksize);
+		if (!ext4_check_dir_entry(old_inode, parent_de, dir_bh, dot_len) ||
+		    parent_de->name_len != 2 || memcmp("..", parent_de->name, 2))
+			goto end_rename;
+		if (le32_to_cpu(parent_de->inode) != old_dir->i_ino)
 			goto end_rename;
 		retval = -EMLINK;
 		if (!new_inode && new_dir != old_dir &&
@@ -2444,8 +2472,7 @@ static int ext4_rename(struct inode *old_dir, struct dentry *old_dentry,
 	if (dir_bh) {
 		BUFFER_TRACE(dir_bh, "get_write_access");
 		ext4_journal_get_write_access(handle, dir_bh);
-		PARENT_INO(dir_bh->b_data, new_dir->i_sb->s_blocksize) =
-						cpu_to_le32(new_dir->i_ino);
+		parent_de->inode = cpu_to_le32(new_dir->i_ino);
 		BUFFER_TRACE(dir_bh, "call ext4_handle_dirty_metadata");
 		ext4_handle_dirty_metadata(handle, old_dir, dir_bh);
 		ext4_dec_count(handle, old_dir);
