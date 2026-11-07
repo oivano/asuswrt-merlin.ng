@@ -5,6 +5,7 @@
  * Copyright (C) 2002  Christoph Hellwig
  */
 
+#include <linux/file.h>
 #include <linux/mman.h>
 #include <linux/pagemap.h>
 #include <linux/syscalls.h>
@@ -189,6 +190,7 @@ static long madvise_remove(struct vm_area_struct *vma,
 				unsigned long start, unsigned long end)
 {
 	struct address_space *mapping;
+	struct file *file;
 	loff_t offset, endoff;
 	int error;
 
@@ -206,6 +208,8 @@ static long madvise_remove(struct vm_area_struct *vma,
 		return -EACCES;
 
 	mapping = vma->vm_file->f_mapping;
+	file = vma->vm_file;
+	get_file(file);
 
 	offset = (loff_t)(start - vma->vm_start)
 			+ ((loff_t)vma->vm_pgoff << PAGE_SHIFT);
@@ -215,6 +219,7 @@ static long madvise_remove(struct vm_area_struct *vma,
 	/* vmtruncate_range needs to take i_mutex and i_alloc_sem */
 	up_read(&current->mm->mmap_sem);
 	error = vmtruncate_range(mapping->host, offset, endoff);
+	fput(file);
 	down_read(&current->mm->mmap_sem);
 	return error;
 }
