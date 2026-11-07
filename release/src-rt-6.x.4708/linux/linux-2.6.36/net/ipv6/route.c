@@ -74,7 +74,33 @@
 
 #define CLONE_OFFLINK_ROUTE 0
 #define IPV6_RA_ROUTE_LIMIT 64
+static DEFINE_SPINLOCK(ip6_pmtu_cache_lock);
+static unsigned int ip6_pmtu_cache_pending;
 static DEFINE_SPINLOCK(ip6_ra_route_lock);
+
+static int ip6_pmtu_cache_reserve(struct net *net)
+{
+	int reserved = 0;
+	int max_size = net->ipv6.sysctl.ip6_rt_max_size;
+
+	spin_lock_bh(&ip6_pmtu_cache_lock);
+	if (max_size > 0 &&
+	    atomic_read(&net->ipv6.ip6_dst_ops.entries) +
+	    ip6_pmtu_cache_pending < max_size) {
+		ip6_pmtu_cache_pending++;
+		reserved = 1;
+	}
+	spin_unlock_bh(&ip6_pmtu_cache_lock);
+	return reserved;
+}
+
+static void ip6_pmtu_cache_release(void)
+{
+	spin_lock_bh(&ip6_pmtu_cache_lock);
+	ip6_pmtu_cache_pending--;
+	spin_unlock_bh(&ip6_pmtu_cache_lock);
+}
+
 int ip6_route_add_ra(struct fib6_config *cfg)
 {
 	struct net *net = cfg->fc_nlinfo.nl_net;
@@ -1090,13 +1116,11 @@ static int ip6_dst_gc(struct dst_ops *ops)
 	unsigned long now = jiffies;
 	struct net *net = container_of(ops, struct net, ipv6.ip6_dst_ops);
 	int rt_min_interval = net->ipv6.sysctl.ip6_rt_gc_min_interval;
-	int rt_max_size = net->ipv6.sysctl.ip6_rt_max_size;
 	int rt_elasticity = net->ipv6.sysctl.ip6_rt_gc_elasticity;
 	int rt_gc_timeout = net->ipv6.sysctl.ip6_rt_gc_timeout;
 	unsigned long rt_last_gc = net->ipv6.ip6_rt_last_gc;
 
-	if (time_after(rt_last_gc + rt_min_interval, now) &&
-	    atomic_read(&ops->entries) <= rt_max_size)
+	if (time_after(rt_last_gc + rt_min_interval, now))
 		goto out;
 
 	net->ipv6.ip6_rt_gc_expire++;
@@ -1641,10 +1665,14 @@ static void rt6_do_pmtu_disc(struct in6_addr *daddr, struct in6_addr *saddr,
 	   1. It is connected route. Action: COW
 	   2. It is gatewayed route or NONEXTHOP route. Action: clone it.
 	 */
+	if (!ip6_pmtu_cache_reserve(net))
+		goto out;
+
 	if (!rt->rt6i_nexthop && !(rt->rt6i_flags & RTF_NONEXTHOP))
 		nrt = rt6_alloc_cow(rt, daddr, saddr);
 	else
 		nrt = rt6_alloc_clone(rt, daddr);
+	ip6_pmtu_cache_release();
 
 	if (nrt) {
 		nrt->dst.metrics[RTAX_MTU-1] = pmtu;
