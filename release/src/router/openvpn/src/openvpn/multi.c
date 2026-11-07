@@ -3101,11 +3101,43 @@ multi_process_post(struct multi_context *m, struct multi_instance *mi, const uns
     return ret;
 }
 
+static bool
+multi_float_identity_matches(const struct tls_multi *m1, const struct tls_multi *m2)
+{
+    const char *username1 = tls_username(m1, true);
+    const char *username2 = tls_username(m2, true);
+
+    if (!cert_hash_compare(m1->locked_cert_hash_set, m2->locked_cert_hash_set))
+    {
+        return false;
+    }
+
+    if (username1 || username2)
+    {
+        return username1 && username2 && strcmp(username1, username2) == 0;
+    }
+
+    if (!m1->locked_cert_hash_set || !m2->locked_cert_hash_set)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < MAX_CERT_DEPTH; ++i)
+    {
+        if (m1->locked_cert_hash_set->ch[i])
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 /**
  * Handles peer floating.
  *
  * If peer is floated to a taken address, either drops packet
- * (if peer that owns address has different CN) or disconnects
+ * (if peer that owns address has a different identity) or disconnects
  * existing peer. Updates multi_instance with new address,
  * updates hashtables in multi_context.
  */
@@ -3139,8 +3171,8 @@ multi_process_float(struct multi_context *m, struct multi_instance *mi, struct l
         struct tls_multi *m1 = mi->context.c2.tls_multi;
         struct tls_multi *m2 = ex_mi->context.c2.tls_multi;
 
-        /* do not float if target address is taken by client with another cert */
-        if (!cert_hash_compare(m1->locked_cert_hash_set, m2->locked_cert_hash_set))
+        /* do not float if target address is taken by another identity */
+        if (!multi_float_identity_matches(m1, m2))
         {
             msg(D_MULTI_LOW, "Disallow float to an address taken by another client %s",
                 multi_instance_string(ex_mi, false, &gc));
@@ -3166,7 +3198,7 @@ multi_process_float(struct multi_context *m, struct multi_instance *mi, struct l
 
         msg(D_MULTI_LOW,
             "closing instance %s due to float collision with %s "
-            "using the same certificate",
+            "using the same identity",
             multi_instance_string(ex_mi, false, &gc), multi_instance_string(mi, false, &gc));
         multi_close_instance(m, ex_mi, false);
     }
