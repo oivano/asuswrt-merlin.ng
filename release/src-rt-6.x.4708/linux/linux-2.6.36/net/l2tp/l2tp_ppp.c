@@ -634,8 +634,10 @@ static int pppol2tp_connect(struct socket *sock, struct sockaddr *uservaddr,
 	struct l2tp_tunnel *tunnel;
 	struct pppol2tp_session *ps;
 	struct dst_entry *dst;
+	struct sock *tunnel_sock = NULL;
 	struct l2tp_session_cfg cfg = { 0, };
 	int error = 0;
+	int tunnel_ref = 0;
 	u32 tunnel_id, peer_tunnel_id;
 	u32 session_id, peer_session_id;
 	int ver = 2;
@@ -681,7 +683,9 @@ static int pppol2tp_connect(struct socket *sock, struct sockaddr *uservaddr,
 	if (tunnel_id == 0)
 		goto end;
 
-	tunnel = l2tp_tunnel_find(sock_net(sk), tunnel_id);
+	tunnel = l2tp_tunnel_find_get(sock_net(sk), tunnel_id);
+	if (tunnel != NULL)
+		tunnel_ref = 1;
 
 	/* Special case: create tunnel context if session_id and
 	 * peer_session_id is 0. Otherwise look up tunnel using supplied
@@ -703,10 +707,18 @@ static int pppol2tp_connect(struct socket *sock, struct sockaddr *uservaddr,
 		if (tunnel == NULL)
 			goto end;
 
-		/* Error if socket is not prepped */
-		if (tunnel->sock == NULL)
-			goto end;
 	}
+
+	/* Hold the tunnel socket while this connect operation uses it. */
+	error = -ENOENT;
+	write_lock_bh(&tunnel->hlist_lock);
+	if (tunnel->closing || tunnel->sock == NULL ||
+	    !atomic_inc_not_zero(&tunnel->sock->sk_refcnt)) {
+		write_unlock_bh(&tunnel->hlist_lock);
+		goto end;
+	}
+	tunnel_sock = tunnel->sock;
+	write_unlock_bh(&tunnel->hlist_lock);
 
 	if (tunnel->recv_payload_hook == NULL)
 		tunnel->recv_payload_hook = pppol2tp_recv_payload_hook;
@@ -720,9 +732,8 @@ static int pppol2tp_connect(struct socket *sock, struct sockaddr *uservaddr,
 
 #ifdef CTF_L2TP
 	{
-		struct sock *tsk = tunnel->sock;
 		struct inet_sock *inet;
-		inet = inet_sk(tsk);
+		inet = inet_sk(tunnel_sock);
 		po->proto.l2tp.inet.saddr = inet->inet_saddr;
 		po->proto.l2tp.inet.daddr = inet->inet_daddr;
 		po->proto.l2tp.inet.sport = inet->inet_sport;
@@ -763,7 +774,7 @@ static int pppol2tp_connect(struct socket *sock, struct sockaddr *uservaddr,
 			goto end;
 
 		/* consistency checks */
-		if (ps->tunnel_sock != tunnel->sock)
+		if (ps->tunnel_sock != tunnel_sock)
 			goto end;
 	}
 
@@ -771,7 +782,7 @@ static int pppol2tp_connect(struct socket *sock, struct sockaddr *uservaddr,
 	ps = l2tp_session_priv(session);
 	ps->owner	     = current->pid;
 	ps->sock	     = sk;
-	ps->tunnel_sock = tunnel->sock;
+	ps->tunnel_sock = tunnel_sock;
 
 	session->recv_skb	= pppol2tp_recv;
 	session->session_close	= pppol2tp_session_close;
@@ -786,7 +797,7 @@ static int pppol2tp_connect(struct socket *sock, struct sockaddr *uservaddr,
 	session->deref = pppol2tp_session_sock_put;
 
 	/* If PMTU discovery was enabled, use the MTU that was discovered */
-	dst = sk_dst_get(tunnel->sock);
+	dst = sk_dst_get(tunnel_sock);
 	if (dst != NULL) {
 		u32 pmtu = dst_mtu(dst);
 		if (pmtu != 0)
@@ -835,6 +846,10 @@ out_no_ppp:
 
 end:
 	release_sock(sk);
+	if (tunnel_sock != NULL)
+		sock_put(tunnel_sock);
+	if (tunnel_ref)
+		l2tp_tunnel_dec_refcount(tunnel);
 
 	return error;
 }
