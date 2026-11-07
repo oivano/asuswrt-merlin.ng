@@ -33,6 +33,7 @@
 #include <linux/bitops.h>
 #include <linux/mutex.h>
 #include <linux/anon_inodes.h>
+#include <linux/rcupdate.h>
 #include <asm/uaccess.h>
 #include <asm/system.h>
 #include <asm/io.h>
@@ -420,6 +421,17 @@ static void ep_poll_safewake(wait_queue_head_t *wq)
  * descriptor.  Must be called with "mtx" held (or "epmutex" if called from
  * ep_free).
  */
+static void ep_remove_wait_queue(struct eppoll_entry *pwq)
+{
+	wait_queue_head_t *whead;
+
+	rcu_read_lock();
+	whead = rcu_dereference(pwq->whead);
+	if (whead)
+		remove_wait_queue(whead, &pwq->wait);
+	rcu_read_unlock();
+}
+
 static void ep_unregister_pollwait(struct eventpoll *ep, struct epitem *epi)
 {
 	struct list_head *lsthead = &epi->pwqlist;
@@ -429,7 +441,7 @@ static void ep_unregister_pollwait(struct eventpoll *ep, struct epitem *epi)
 		pwq = list_first_entry(lsthead, struct eppoll_entry, llink);
 
 		list_del(&pwq->llink);
-		remove_wait_queue(pwq->whead, &pwq->wait);
+		ep_remove_wait_queue(pwq);
 		kmem_cache_free(pwq_cache, pwq);
 	}
 }
@@ -792,6 +804,15 @@ static int ep_poll_callback(wait_queue_t *wait, unsigned mode, int sync, void *k
 	unsigned long flags;
 	struct epitem *epi = ep_item_from_wait(wait);
 	struct eventpoll *ep = epi->ep;
+
+	if (unlikely((unsigned long) key & POLLFREE)) {
+		struct eppoll_entry *pwq =
+			container_of(wait, struct eppoll_entry, wait);
+
+		pwq->whead = NULL;
+		/* The wakeup holds whead->lock; unregister uses list_del_init. */
+		list_del_init(&wait->task_list);
+	}
 
 	spin_lock_irqsave(&ep->lock, flags);
 
