@@ -64,6 +64,7 @@ static unsigned int nf_nat_ftp(struct sk_buff *skb,
 	struct nf_conn *ct = exp->master;
 	char buffer[sizeof("|1|255.255.255.255|65535|")];
 	unsigned int buflen;
+	int ret;
 
 	pr_debug("FTP_NAT: type %i, off %u len %u\n", type, matchoff, matchlen);
 
@@ -79,8 +80,11 @@ static unsigned int nf_nat_ftp(struct sk_buff *skb,
 	/* Try to get same port: if not, try to change it. */
 	for (port = ntohs(exp->saved_proto.tcp.port); port != 0; port++) {
 		exp->tuple.dst.u.tcp.port = htons(port);
-		if (nf_ct_expect_related(exp) == 0)
+		ret = nf_ct_expect_related(exp);
+		if (ret == 0)
 			break;
+		if (ret != -EBUSY)
+			return NF_DROP;
 	}
 
 	if (port == 0)

@@ -284,6 +284,7 @@ static unsigned int ip_nat_sip_expect(struct sk_buff *skb, unsigned int dataoff,
 	u_int16_t port;
 	char buffer[sizeof("nnn.nnn.nnn.nnn:nnnnn")];
 	unsigned buflen;
+	int ret;
 
 	/* Connection will come from reply */
 	if (ct->tuplehash[dir].tuple.src.u3.ip == ct->tuplehash[!dir].tuple.dst.u3.ip)
@@ -308,8 +309,11 @@ static unsigned int ip_nat_sip_expect(struct sk_buff *skb, unsigned int dataoff,
 
 	for (; port != 0; port++) {
 		exp->tuple.dst.u.udp.port = htons(port);
-		if (nf_ct_expect_related(exp) == 0)
+		ret = nf_ct_expect_related(exp);
+		if (ret == 0)
 			break;
+		if (ret != -EBUSY)
+			return NF_DROP;
 	}
 
 	if (port == 0)
@@ -457,6 +461,7 @@ static unsigned int ip_nat_sdp_media(struct sk_buff *skb, unsigned int dataoff,
 	struct nf_conn *ct = nf_ct_get(skb, &ctinfo);
 	enum ip_conntrack_dir dir = CTINFO2DIR(ctinfo);
 	u_int16_t port;
+	int ret;
 
 	/* Connection will come from reply */
 	if (ct->tuplehash[dir].tuple.src.u3.ip ==
@@ -481,12 +486,22 @@ static unsigned int ip_nat_sdp_media(struct sk_buff *skb, unsigned int dataoff,
 	for (port = ntohs(rtp_exp->tuple.dst.u.udp.port);
 	     port != 0; port += 2) {
 		rtp_exp->tuple.dst.u.udp.port = htons(port);
-		if (nf_ct_expect_related(rtp_exp) != 0)
+		ret = nf_ct_expect_related(rtp_exp);
+		if (ret == -EBUSY)
 			continue;
+		if (ret != 0) {
+			port = 0;
+			break;
+		}
 		rtcp_exp->tuple.dst.u.udp.port = htons(port + 1);
-		if (nf_ct_expect_related(rtcp_exp) == 0)
+		ret = nf_ct_expect_related(rtcp_exp);
+		if (ret == 0)
 			break;
 		nf_ct_unexpect_related(rtp_exp);
+		if (ret != -EBUSY) {
+			port = 0;
+			break;
+		}
 	}
 
 	if (port == 0)
