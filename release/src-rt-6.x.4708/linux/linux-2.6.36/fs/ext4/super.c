@@ -2046,23 +2046,26 @@ static int ext4_check_descriptors(struct super_block *sb)
  * e2fsck was run on this filesystem, and it must have already done the orphan
  * inode cleanup for us, so we can safely abort without any further action.
  */
-static void ext4_orphan_cleanup(struct super_block *sb,
+static int ext4_orphan_cleanup(struct super_block *sb,
 				struct ext4_super_block *es)
 {
 	unsigned int s_flags = sb->s_flags;
+	unsigned int max_orphans = le32_to_cpu(es->s_inodes_count);
+	unsigned int nr_seen = 0;
 	int nr_orphans = 0, nr_truncates = 0;
+	int err = 0;
 #ifdef CONFIG_QUOTA
 	int i;
 #endif
 	if (!es->s_last_orphan) {
 		jbd_debug(4, "no orphan inodes to clean up\n");
-		return;
+		return 0;
 	}
 
 	if (bdev_read_only(sb->s_bdev)) {
 		ext4_msg(sb, KERN_ERR, "write access "
 			"unavailable, skipping orphan cleanup");
-		return;
+		return 0;
 	}
 
 	if (EXT4_SB(sb)->s_mount_state & EXT4_ERROR_FS) {
@@ -2071,7 +2074,7 @@ static void ext4_orphan_cleanup(struct super_block *sb,
 				  "clearing orphan list.\n");
 		es->s_last_orphan = 0;
 		jbd_debug(1, "Skipping orphan recovery on fs with errors.\n");
-		return;
+		return 0;
 	}
 
 	if (s_flags & MS_RDONLY) {
@@ -2095,12 +2098,22 @@ static void ext4_orphan_cleanup(struct super_block *sb,
 
 	while (es->s_last_orphan) {
 		struct inode *inode;
+		__u32 ino;
 
-		inode = ext4_orphan_get(sb, le32_to_cpu(es->s_last_orphan));
+		if (nr_seen >= max_orphans) {
+			ext4_msg(sb, KERN_ERR,
+				 "orphan list exceeds inode count; aborting recovery");
+			err = -EIO;
+			break;
+		}
+		ino = le32_to_cpu(es->s_last_orphan);
+
+		inode = ext4_orphan_get(sb, ino);
 		if (IS_ERR(inode)) {
 			es->s_last_orphan = 0;
 			break;
 		}
+		nr_seen++;
 
 		list_add(&EXT4_I(inode)->i_orphan, &EXT4_SB(sb)->s_orphan);
 		dquot_initialize(inode);
@@ -2121,6 +2134,21 @@ static void ext4_orphan_cleanup(struct super_block *sb,
 			nr_orphans++;
 		}
 		iput(inode);  /* The delete magic happens here! */
+		if (le32_to_cpu(es->s_last_orphan) == ino) {
+			ext4_msg(sb, KERN_ERR,
+				 "orphan list failed to advance at inode %u; "
+				 "aborting recovery", ino);
+			err = -EIO;
+			break;
+		}
+	}
+	if (err) {
+		struct list_head *pos, *next;
+
+		mutex_lock(&EXT4_SB(sb)->s_orphan_lock);
+		list_for_each_safe(pos, next, &EXT4_SB(sb)->s_orphan)
+			list_del_init(pos);
+		mutex_unlock(&EXT4_SB(sb)->s_orphan_lock);
 	}
 
 #define PLURAL(x) (x), ((x) == 1) ? "" : "s"
@@ -2139,6 +2167,7 @@ static void ext4_orphan_cleanup(struct super_block *sb,
 	}
 #endif
 	sb->s_flags = s_flags; /* Restore MS_RDONLY status */
+	return err;
 }
 
 /*
@@ -3173,7 +3202,16 @@ no_journal:
 	};
 
 	EXT4_SB(sb)->s_mount_state |= EXT4_ORPHAN_FS;
-	ext4_orphan_cleanup(sb, es);
+	err = ext4_orphan_cleanup(sb, es);
+	if (err) {
+		kobject_del(&sbi->s_kobj);
+		kobject_put(&sbi->s_kobj);
+		wait_for_completion(&sbi->s_kobj_unregister);
+		ext4_mb_release(sb);
+		ext4_ext_release(sb);
+		ext4_xattr_put_super(sb);
+		goto failed_mount4;
+	}
 	EXT4_SB(sb)->s_mount_state &= ~EXT4_ORPHAN_FS;
 	if (needs_recovery) {
 		ext4_msg(sb, KERN_INFO, "recovery complete");
