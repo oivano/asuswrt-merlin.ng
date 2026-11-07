@@ -128,6 +128,11 @@ static int br_handle_local_finish(struct sk_buff *skb)
 {
 	struct net_bridge_port *p = br_port_get_rcu(skb->dev);
 
+	if (unlikely(!p)) {
+		kfree_skb(skb);
+		return 1;
+	}
+
 #ifdef HNDCTF
 	br_fdb_update(p->br, p, eth_hdr(skb)->h_source, skb);
 #else
@@ -169,6 +174,8 @@ struct sk_buff *br_handle_frame(struct sk_buff *skb)
 		return NULL;
 
 	p = br_port_get_rcu(skb->dev);
+	if (unlikely(!p))
+		goto drop;
 
 	if (unlikely(is_link_local(dest))) {
 		/* Pause frames shouldn't be passed up by driver anyway */
