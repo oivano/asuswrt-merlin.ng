@@ -160,8 +160,9 @@ static struct dx_frame *dx_probe(const struct qstr *d_name,
 				 struct dx_frame *frame,
 				 int *err);
 static void dx_release(struct dx_frame *frames);
-static int dx_make_map(struct ext4_dir_entry_2 *de, unsigned blocksize,
-		       struct dx_hash_info *hinfo, struct dx_map_entry map[]);
+static int dx_make_map(struct inode *dir, struct buffer_head *bh,
+		       struct dx_hash_info *hinfo,
+		       struct dx_map_entry *map_tail);
 static void dx_sort_map(struct dx_map_entry *map, unsigned count);
 static struct ext4_dir_entry_2 *dx_move_dirents(char *from, char *to,
 		struct dx_map_entry *offsets, int count, unsigned blocksize);
@@ -708,15 +709,19 @@ errout:
  * Create map of hash values, offsets, and sizes, stored at end of block.
  * Returns number of entries mapped.
  */
-static int dx_make_map(struct ext4_dir_entry_2 *de, unsigned blocksize,
+static int dx_make_map(struct inode *dir, struct buffer_head *bh,
 		       struct dx_hash_info *hinfo,
 		       struct dx_map_entry *map_tail)
 {
 	int count = 0;
-	char *base = (char *) de;
+	struct ext4_dir_entry_2 *de = (struct ext4_dir_entry_2 *) bh->b_data;
+	unsigned int blocksize = dir->i_sb->s_blocksize;
+	char *base = bh->b_data;
 	struct dx_hash_info h = *hinfo;
 
 	while ((char *) de < base + blocksize) {
+		if (!ext4_check_dir_entry(dir, de, bh, (char *) de - base))
+			return -EIO;
 		if (de->name_len && de->inode) {
 			ext4fs_dirhash(de->name, de->name_len, &h);
 			map_tail--;
@@ -728,6 +733,25 @@ static int dx_make_map(struct ext4_dir_entry_2 *de, unsigned blocksize,
 		}
 		de = ext4_next_entry(de, blocksize);
 	}
+	return count;
+}
+
+static int dx_check_dirents(struct inode *dir, struct buffer_head *bh,
+			    struct ext4_dir_entry_2 *de)
+{
+	char *base = bh->b_data;
+	char *top = base + dir->i_sb->s_blocksize;
+	int count = 0;
+
+	while ((char *) de < top) {
+		if (!ext4_check_dir_entry(dir, de, bh, (char *) de - base))
+			return -EIO;
+		if (de->inode && de->name_len)
+			count++;
+		de = ext4_next_entry(de, dir->i_sb->s_blocksize);
+	}
+	if ((char *) de != top)
+		return -EIO;
 	return count;
 }
 
@@ -1161,7 +1185,7 @@ static struct ext4_dir_entry_2 *do_split(handle_t *handle, struct inode *dir,
 			struct dx_hash_info *hinfo, int *error)
 {
 	unsigned blocksize = dir->i_sb->s_blocksize;
-	unsigned count, continued;
+	unsigned continued;
 	struct buffer_head *bh2;
 	ext4_lblk_t newblock;
 	u32 hash2;
@@ -1169,7 +1193,16 @@ static struct ext4_dir_entry_2 *do_split(handle_t *handle, struct inode *dir,
 	char *data1 = (*bh)->b_data, *data2;
 	unsigned split, move, size;
 	struct ext4_dir_entry_2 *de = NULL, *de2;
-	int	err = 0, i;
+	int	count, err = 0, i;
+
+	count = dx_check_dirents(dir, *bh,
+				 (struct ext4_dir_entry_2 *)(*bh)->b_data);
+	if (count < 2) {
+		brelse(*bh);
+		*bh = NULL;
+		*error = -EIO;
+		return NULL;
+	}
 
 	bh2 = ext4_append (handle, dir, &newblock, &err);
 	if (!(bh2)) {
@@ -1192,8 +1225,11 @@ static struct ext4_dir_entry_2 *do_split(handle_t *handle, struct inode *dir,
 
 	/* create map in the end of data2 block */
 	map = (struct dx_map_entry *) (data2 + blocksize);
-	count = dx_make_map((struct ext4_dir_entry_2 *) data1,
-			     blocksize, hinfo, map);
+	count = dx_make_map(dir, *bh, hinfo, map);
+	if (count < 0) {
+		err = count;
+		goto journal_error;
+	}
 	map -= count;
 	dx_sort_map(map, count);
 	/* Split the existing block in the middle, size-wise */
@@ -1207,7 +1243,14 @@ static struct ext4_dir_entry_2 *do_split(handle_t *handle, struct inode *dir,
 		move++;
 	}
 	/* map index at which we will split */
-	split = count - move;
+	if (i >= 0)
+		split = count - move;
+	else
+		split = count / 2;
+	if (!split || split >= count) {
+		err = -EIO;
+		goto journal_error;
+	}
 	hash2 = map[split].hash;
 	continued = hash2 == map[split - 1].hash;
 	dxtrace(printk(KERN_INFO "Split block %lu at %x, %i/%i\n",
@@ -1348,19 +1391,26 @@ static int make_indexed_dir(handle_t *handle, struct dentry *dentry,
 	struct dx_hash_info hinfo;
 	ext4_lblk_t  block;
 	struct fake_dirent *fde;
+	int count;
 
 	blocksize =  dir->i_sb->s_blocksize;
 	dxtrace(printk(KERN_DEBUG "Creating index: inode %lu\n", dir->i_ino));
-	retval = ext4_journal_get_write_access(handle, bh);
-	if (retval) {
-		ext4_std_error(dir->i_sb, retval);
-		brelse(bh);
-		return retval;
-	}
 	root = (struct dx_root *) bh->b_data;
-
-	/* The 0th block becomes the root, move the dirents out */
+	fde = &root->dot;
+	if (!ext4_check_dir_entry(dir, (struct ext4_dir_entry_2 *) fde, bh, 0) ||
+	    fde->name_len != 1 || root->dot_name[0] != '.' ||
+	    ext4_rec_len_from_disk(fde->rec_len, blocksize) !=
+								EXT4_DIR_REC_LEN(1)) {
+		brelse(bh);
+		return -EIO;
+	}
 	fde = &root->dotdot;
+	if (!ext4_check_dir_entry(dir, (struct ext4_dir_entry_2 *) fde, bh,
+				  (char *) fde - bh->b_data) ||
+	    fde->name_len != 2 || memcmp(root->dotdot_name, "..", 2)) {
+		brelse(bh);
+		return -EIO;
+	}
 	de = (struct ext4_dir_entry_2 *)((char *)fde +
 		ext4_rec_len_from_disk(fde->rec_len, blocksize));
 	if ((char *) de >= (((char *) root) + blocksize)) {
@@ -1368,6 +1418,19 @@ static int make_indexed_dir(handle_t *handle, struct dentry *dentry,
 		brelse(bh);
 		return -EIO;
 	}
+	count = dx_check_dirents(dir, bh, de);
+	if (count < 2) {
+		brelse(bh);
+		return -EIO;
+	}
+	retval = ext4_journal_get_write_access(handle, bh);
+	if (retval) {
+		ext4_std_error(dir->i_sb, retval);
+		brelse(bh);
+		return retval;
+	}
+
+	/* The 0th block becomes the root, move the dirents out */
 	len = ((char *) root) + blocksize - (char *) de;
 
 	/* Allocate new block for the 0th block's dirents */
