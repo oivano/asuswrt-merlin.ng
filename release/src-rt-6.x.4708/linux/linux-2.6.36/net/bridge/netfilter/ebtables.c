@@ -1104,6 +1104,7 @@ static int do_replace(struct net *net, const void __user *user,
 
 	if (copy_from_user(&tmp, user, sizeof(tmp)) != 0)
 		return -EFAULT;
+	tmp.name[EBT_TABLE_MAXNAMELEN - 1] = '\0';
 
 	if (len != sizeof(tmp) + tmp.entries_size) {
 		BUGPRINT("Wrong len argument\n");
@@ -1334,6 +1335,7 @@ static int update_counters(struct net *net, const void __user *user,
 
 	if (copy_from_user(&hlp, user, sizeof(hlp)))
 		return -EFAULT;
+	hlp.name[EBT_TABLE_MAXNAMELEN - 1] = '\0';
 
 	if (len != sizeof(hlp) + hlp.num_counters * sizeof(struct ebt_counter))
 		return -EINVAL;
@@ -1501,6 +1503,7 @@ static int do_ebt_get_ctl(struct sock *sk, int cmd, void __user *user, int *len)
 
 	if (copy_from_user(&tmp, user, sizeof(tmp)))
 		return -EFAULT;
+	tmp.name[EBT_TABLE_MAXNAMELEN - 1] = '\0';
 
 	t = find_table_lock(sock_net(sk), tmp.name, &ret, &ebt_mutex);
 	if (!t)
@@ -2184,6 +2187,7 @@ static int compat_copy_ebt_replace_from_user(struct ebt_replace *repl,
 
 	if (copy_from_user(&tmp, user, sizeof(tmp)))
 		return -EFAULT;
+	tmp.name[EBT_TABLE_MAXNAMELEN - 1] = '\0';
 
 	if (len != sizeof(tmp) + tmp.entries_size)
 		return -EINVAL;
@@ -2312,6 +2316,7 @@ static int compat_update_counters(struct net *net, void __user *user,
 
 	if (copy_from_user(&hlp, user, sizeof(hlp)))
 		return -EFAULT;
+	hlp.name[EBT_TABLE_MAXNAMELEN - 1] = '\0';
 
 	/* try real handler in case userland supplied needed padding */
 	if (len != sizeof(hlp) + hlp.num_counters * sizeof(struct ebt_counter))
@@ -2359,6 +2364,7 @@ static int compat_do_ebt_get_ctl(struct sock *sk, int cmd,
 
 	if (copy_from_user(&tmp, user, sizeof(tmp)))
 		return -EFAULT;
+	tmp.name[EBT_TABLE_MAXNAMELEN - 1] = '\0';
 
 	t = find_table_lock(sock_net(sk), tmp.name, &ret, &ebt_mutex);
 	if (!t)
