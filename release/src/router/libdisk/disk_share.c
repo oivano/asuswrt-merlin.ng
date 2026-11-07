@@ -111,7 +111,7 @@ int smb_share_name_is_safe(const char *name)
 	if (!strcmp(name, ".") || !strcmp(name, "..") || strchr(name, '/') != NULL)
 		return 0;
 	for (p = (const unsigned char *)name; *p != '\0'; ++p)
-		if (*p < 0x20 || *p == 0x7f || strchr("/[];#=", *p) != NULL)
+		if (*p < 0x20 || *p == 0x7f || strchr("/[];#=%", *p) != NULL)
 			return 0;
 	return 1;
 }
