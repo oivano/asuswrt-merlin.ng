@@ -988,7 +988,8 @@ e_inval:
  */
 int ip_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 {
-	if (!(inet_sk(sk)->cmsg_flags & IP_CMSG_PKTINFO))
+	if (!(inet_sk(sk)->cmsg_flags & IP_CMSG_PKTINFO) &&
+	    IPCB(skb)->opt.optlen == 0)
 		skb_dst_drop(skb);
 	return sock_queue_rcv_skb(sk, skb);
 }
