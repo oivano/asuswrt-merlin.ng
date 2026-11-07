@@ -1400,7 +1400,7 @@ static ssize_t BCMFASTPATH_HOST do_splice_from_socket(struct file *file, struct 
 				     loff_t __user *off_out, size_t count)
 {
 	struct address_space *mapping = file->f_mapping;
-	struct inode *inode = mapping->host;
+	struct inode *inode;
 	loff_t pos, start_pos;
 	int count_tmp, copied_bytes;
 	int err = 0;
@@ -1411,6 +1411,12 @@ static ssize_t BCMFASTPATH_HOST do_splice_from_socket(struct file *file, struct 
 	struct msghdr msg;
 	long rcvtimeo;
 	int ret;
+
+	if (!mapping || !mapping->a_ops || !mapping->a_ops->write_begin ||
+	    !mapping->a_ops->write_end)
+		return -EINVAL;
+
+	inode = mapping->host;
 
 	if (count > MAX_PAGES_PER_RECVFILE * PAGE_SIZE) {
 		printk(KERN_WARNING "%s: count(%u) exceeds maxinum\n", __func__, count);
