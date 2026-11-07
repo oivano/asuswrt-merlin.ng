@@ -33,7 +33,8 @@
 #include <linux/errqueue.h>
 #include <asm/uaccess.h>
 
-int ip6_datagram_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
+static int __ip6_datagram_connect(struct sock *sk, struct sockaddr *uaddr,
+				 int addr_len)
 {
 	struct sockaddr_in6	*usin = (struct sockaddr_in6 *) uaddr;
 	struct inet_sock      	*inet = inet_sk(sk);
@@ -50,7 +51,7 @@ int ip6_datagram_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 	if (usin->sin6_family == AF_INET) {
 		if (__ipv6_only_sock(sk))
 			return -EAFNOSUPPORT;
-		err = ip4_datagram_connect(sk, uaddr, addr_len);
+		err = __ip4_datagram_connect(sk, uaddr, addr_len);
 		goto ipv4_connected;
 	}
 
@@ -93,7 +94,7 @@ int ip6_datagram_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 		sin.sin_addr.s_addr = daddr->s6_addr32[3];
 		sin.sin_port = usin->sin6_port;
 
-		err = ip4_datagram_connect(sk,
+		err = __ip4_datagram_connect(sk,
 					   (struct sockaddr*) &sin,
 					   sizeof(sin));
 
@@ -163,18 +164,15 @@ ipv4_connected:
 	if (flowlabel) {
 		opt = flowlabel->opt;
 	} else {
-		lock_sock(sk);
 		opt = np->opt;
 		if (opt) {
 			opt = ipv6_dup_options(sk, opt);
 			if (!opt) {
-				release_sock(sk);
 				err = -ENOBUFS;
 				goto out;
 			}
 			opt_to_free = opt;
 		}
-		release_sock(sk);
 	}
 	final_p = fl6_update_dst(&fl, opt, &final);
 
@@ -218,6 +216,16 @@ out:
 	fl6_sock_release(flowlabel);
 	if (opt_to_free)
 		sock_kfree_s(sk, opt_to_free, opt_to_free->tot_len);
+	return err;
+}
+
+int ip6_datagram_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
+{
+	int err;
+
+	lock_sock(sk);
+	err = __ip6_datagram_connect(sk, uaddr, addr_len);
+	release_sock(sk);
 	return err;
 }
 
