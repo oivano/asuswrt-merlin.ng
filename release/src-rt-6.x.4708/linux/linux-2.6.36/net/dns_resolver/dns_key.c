@@ -217,6 +217,17 @@ static void dns_resolver_describe(const struct key *key, struct seq_file *m)
 		seq_printf(m, ": %u", key->datalen);
 }
 
+static long dns_resolver_read(const struct key *key, char __user *buffer,
+			      size_t buflen)
+{
+	int err = key->type_data.x[0];
+
+	if (err)
+		return err;
+
+	return user_read(key, buffer, buflen);
+}
+
 struct key_type key_type_dns_resolver = {
 	.name		= "dns_resolver",
 	.instantiate	= dns_resolver_instantiate,
@@ -224,7 +235,7 @@ struct key_type key_type_dns_resolver = {
 	.revoke		= user_revoke,
 	.destroy	= user_destroy,
 	.describe	= dns_resolver_describe,
-	.read		= user_read,
+	.read		= dns_resolver_read,
 };
 
 static int __init init_dns_resolver(void)
