@@ -79,7 +79,7 @@ dsl_httpd_upgrade_spool_active(void)
 
 	return lstat(HTTPD_UPGRADE_DIRECTORY, &directory) == 0 &&
 		S_ISDIR(directory.st_mode) && directory.st_uid == 0 &&
-		(directory.st_mode & 0777) == 0700 &&
+		(directory.st_mode & 07777) == 0700 &&
 		lstat(HTTPD_UPGRADE_IDENTITY, &identity) == 0 &&
 		S_ISREG(identity.st_mode) && identity.st_uid == 0 &&
 		identity.st_nlink == 1 && (identity.st_mode & 0777) == 0600;

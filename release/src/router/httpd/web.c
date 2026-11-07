@@ -15714,18 +15714,24 @@ fail:
 static FILE *
 httpd_upgrade_spool_create(struct httpd_restore_spool *spool)
 {
-	int fd;
-	struct stat st;
+	int fd, directory_fd;
+	struct stat st, path;
 
 	if (spool->directory[0])
 		return NULL;
-	if (mkdir(HTTPD_UPGRADE_DIRECTORY, 0700) != 0)
+	directory_fd = open(HTTPD_UPGRADE_DIRECTORY, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (directory_fd < 0)
 		return NULL;
+	if (fstat(directory_fd, &st) != 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
+	    (st.st_mode & 07777) != 0700 || lstat(HTTPD_UPGRADE_DIRECTORY, &path) != 0 ||
+	    !S_ISDIR(path.st_mode) || path.st_dev != st.st_dev || path.st_ino != st.st_ino) {
+		close(directory_fd);
+		return NULL;
+	}
+	close(directory_fd);
 	strlcpy(spool->directory, HTTPD_UPGRADE_DIRECTORY, sizeof(spool->directory));
-	if (chmod(spool->directory, 0700) != 0)
-		goto fail;
 	if (lstat(spool->directory, &st) != 0 || !S_ISDIR(st.st_mode) ||
-	    st.st_uid != 0 || (st.st_mode & 0777) != 0700)
+	    st.st_uid != 0 || (st.st_mode & 07777) != 0700)
 		goto fail;
 	strlcpy(spool->path, HTTPD_UPGRADE_IMAGE, sizeof(spool->path));
 	fd = open(spool->path, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
@@ -15756,7 +15762,7 @@ httpd_upgrade_spool_valid(struct httpd_restore_spool *spool)
 	if (!spool->complete || strcmp(spool->directory, HTTPD_UPGRADE_DIRECTORY) ||
 	    strcmp(spool->path, HTTPD_UPGRADE_IMAGE) ||
 	    lstat(spool->directory, &directory) != 0 || !S_ISDIR(directory.st_mode) ||
-	    directory.st_uid != 0 || (directory.st_mode & 0777) != 0700 ||
+	    directory.st_uid != 0 || (directory.st_mode & 07777) != 0700 ||
 	    lstat(spool->path, &image) != 0 || !S_ISREG(image.st_mode) ||
 	    image.st_uid != 0 || image.st_nlink != 1 || (image.st_mode & 0777) != 0600 ||
 	    image.st_dev != spool->identity.st_dev || image.st_ino != spool->identity.st_ino)
@@ -15809,13 +15815,12 @@ httpd_upgrade_spool_clear(struct httpd_restore_spool *spool)
 		fclose(spool->file);
 	if (!strcmp(spool->directory, HTTPD_UPGRADE_DIRECTORY) &&
 	    lstat(spool->directory, &directory) == 0 && S_ISDIR(directory.st_mode) &&
-	    directory.st_uid == 0 && (directory.st_mode & 0777) == 0700) {
+	    directory.st_uid == 0 && (directory.st_mode & 07777) == 0700) {
 		unlink(HTTPD_UPGRADE_IMAGE);
 		unlink(HTTPD_UPGRADE_IDENTITY);
 		unlink("/tmp/httpd-upgrade/tcfw.bin");
 		unlink("/tmp/httpd-upgrade/tclinux.bin");
 		unlink("/tmp/httpd-upgrade/ras.bin");
-		rmdir(HTTPD_UPGRADE_DIRECTORY);
 	}
 	memset(spool, 0, sizeof(*spool));
 }
