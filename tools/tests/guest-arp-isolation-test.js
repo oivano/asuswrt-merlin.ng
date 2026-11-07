@@ -103,15 +103,30 @@ assert.match(guestIsolation,
 assert.match(guestIsolation,
 	/eval\("ebtables", "-D", "FORWARD", "-i", lifname, "-j", "DROP"\);[\s\S]*?eval\("ebtables", "-D", "FORWARD", "-o", lifname, "-j", "DROP"\);/);
 
-const ipv6Filter = firewall.match(/FIREWALL_RULES\("filter_ipv6\.default"\)[\s\S]*?evalRet = eval\("ip6tables-restore"/)[0];
-const guestAllowlist = ipv6Filter.match(/-A INPUT -m mark --mark %s\/%s -p ipv6-icmp -j ACCEPT[\s\S]*?-A INPUT -m mark --mark %s\/%s -j DROP/);
-assert.ok(guestAllowlist, 'marked guest IPv6 INPUT policy is emitted');
-assert.ok(guestAllowlist[0].indexOf('--dport 53 -j ACCEPT') < guestAllowlist[0].indexOf('-j DROP'));
-assert.ok(guestAllowlist[0].indexOf('--dport 547 -j ACCEPT') < guestAllowlist[0].indexOf('-j DROP'));
-assert.ok(guestAllowlist[0].indexOf('--sport 547 --dport 546 -j ACCEPT') < guestAllowlist[0].indexOf('-j DROP'));
-assert.ok(guestAllowlist[0].indexOf('ipv6-icmp -j ACCEPT') < guestAllowlist[0].indexOf('-j DROP'));
-assert.ok(guestAllowlist[0].indexOf('-j DROP') < ipv6Filter.indexOf('--state RELATED,ESTABLISHED'));
-assert.doesNotMatch(guestAllowlist[0], /-A FORWARD/);
+const guestIpv6InputRules = firewall.match(/static void write_guest_ipv6_input_rules\(FILE \*fp\)\n\{[\s\S]*?\n\}/)[0];
+assert.match(guestIpv6InputRules, /-A INPUT -m mark --mark %s\/%s -p ipv6-icmp -j ACCEPT/);
+assert.match(guestIpv6InputRules, /-A INPUT -m mark --mark %s\/%s -p tcp --dport 53 -j ACCEPT/);
+assert.match(guestIpv6InputRules, /-A INPUT -m mark --mark %s\/%s -p udp --dport 53 -j ACCEPT/);
+assert.match(guestIpv6InputRules, /-A INPUT -m mark --mark %s\/%s -p udp --dport 547 -j ACCEPT/);
+assert.match(guestIpv6InputRules, /-A INPUT -i %s -s fe80::\/10 -m mark --mark %s\/%s -p udp --sport 547 --dport 546 -j ACCEPT/);
+assert.match(guestIpv6InputRules, /-A INPUT -m mark --mark %s\/%s -j DROP/);
+assert.ok(guestIpv6InputRules.indexOf('--dport 53 -j ACCEPT') < guestIpv6InputRules.indexOf('-j DROP'));
+assert.ok(guestIpv6InputRules.indexOf('--dport 547 -j ACCEPT') < guestIpv6InputRules.indexOf('-j DROP'));
+assert.ok(guestIpv6InputRules.indexOf('--sport 547 --dport 546 -j ACCEPT') < guestIpv6InputRules.indexOf('-j DROP'));
+assert.ok(guestIpv6InputRules.indexOf('ipv6-icmp -j ACCEPT') < guestIpv6InputRules.indexOf('-j DROP'));
+assert.doesNotMatch(guestIpv6InputRules, /-A FORWARD/);
+
+const ipv6DefaultFilter = firewall.match(/FIREWALL_RULES\("filter_ipv6\.default"\)[\s\S]*?evalRet = eval\("ip6tables-restore"/)[0];
+const defaultGuestRules = ipv6DefaultFilter.indexOf('write_guest_ipv6_input_rules(fp);');
+assert.ok(defaultGuestRules >= 0 && defaultGuestRules < ipv6DefaultFilter.indexOf('-A INPUT -m state --state RELATED,ESTABLISHED'));
+const singleWanStart = firewall.indexOf('filter_setting(int wan_unit');
+const dualWanStart = firewall.indexOf('filter_setting2(char *lan_if');
+for (const [filterStart, label] of [[singleWanStart, 'single-WAN'], [dualWanStart, 'dual-WAN']]) {
+	const guestRules = firewall.indexOf('write_guest_ipv6_input_rules(fp_ipv6);', filterStart);
+	const lanAccept = firewall.indexOf('fprintf(fp_ipv6, "-A INPUT -i %s -m state --state NEW -j %s', filterStart);
+	assert.ok(guestRules >= filterStart && guestRules < lanAccept,
+		`${label} IPv6 guest INPUT policy precedes the LAN accept`);
+}
 assert.match(guestIsolation,
 	/while \(eval\("ebtables", "-t", "filter", "-D", "INPUT", "-i", lifname,[\s\S]*?"-p", "ipv4", "-j", "mark", "--mark-or", BIT_GUEST_IPV4,[\s\S]*?"--mark-target", "CONTINUE"\) == 0\)/);
 assert.match(guestIsolation,
