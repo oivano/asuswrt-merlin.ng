@@ -1769,7 +1769,10 @@ static int expand_downwards(struct vm_area_struct *vma,
 		size = vma->vm_end - address;
 		grow = (vma->vm_start - address) >> PAGE_SHIFT;
 
-		error = acct_stack_growth(vma, size, grow);
+		if (grow > vma->vm_pgoff)
+			error = -ENOMEM;
+		else
+			error = acct_stack_growth(vma, size, grow);
 		if (!error) {
 			vma->vm_start = address;
 			vma->vm_pgoff -= grow;
