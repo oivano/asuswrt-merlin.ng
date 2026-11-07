@@ -8,13 +8,17 @@ const web = fs.readFileSync(path.join(root, 'release/src/router/httpd/web.c'), '
 const splitter = fs.readFileSync(path.join(root,
     'release/src/router/httpd/sysdeps/web-dsl-upg.c'), 'utf8');
 const service = fs.readFileSync(path.join(root, 'release/src/router/rc/services.c'), 'utf8');
+const init = fs.readFileSync(path.join(root, 'release/src/router/rc/init.c'), 'utf8');
 const rcDsl = fs.readFileSync(path.join(root, 'release/src/router/rc/sysdeps/dsl-upg.c'), 'utf8');
 const header = fs.readFileSync(path.join(root, 'release/src/router/shared/sysdeps/api-broadcom.c'), 'utf8');
 const romMakefile = fs.readFileSync(path.join(root, 'release/src/router/rom/Makefile'), 'utf8');
 
 assert.match(web, /httpd_upgrade_spool_create\(&upgrade_spool\)/);
 assert.match(web, /open\(spool->path, O_RDWR \| O_CREAT \| O_EXCL \| O_NOFOLLOW, 0600\)/);
-assert.match(web, /mkdir\(HTTPD_UPGRADE_DIRECTORY, 0700\)/);
+assert.match(init, /mkdir\(HTTPD_UPGRADE_DIRECTORY, 0700\)/);
+assert.match(init, /fchmod\(fd, 0700\).*?st\.st_mode & 07777\) == 0700/s);
+assert.match(web, /open\(HTTPD_UPGRADE_DIRECTORY, O_RDONLY \| O_DIRECTORY \| O_NOFOLLOW\)/);
+assert.doesNotMatch(web, /mkdir\(HTTPD_UPGRADE_DIRECTORY/);
 assert.match(web, /httpd_upgrade_spool_publish\(&upgrade_spool\)/);
 assert.match(web, /image\.st_dev, \(unsigned long long\)image\.st_ino,[\s\S]*?image\.st_size/);
 assert.match(web, /fstat\(fileno\(fifo\), &upload_stat\)[\s\S]*?upload_stat\.st_size != upload_len/);
@@ -54,6 +58,7 @@ assert.match(splitter, /if \(TrxSize && TrxSize < filelen && truncate\(trxpath, 
     assert.notEqual(written, body - boundary.length - 8, 'old boundary arithmetic always mismatched');
 }
 assert.match(service, /httpd_upgrade_spool_valid\(\)/);
+assert.match(service, /lstat\(HTTPD_UPGRADE_IMAGE, &st\)/);
 assert.match(service, /opened\.st_ino != expected_inode/);
 assert.match(service, /opened\.st_size != expected_size/);
 assert.match(service, /while \(identity_len < \(size_t\)identity_file\.st_size\)/);
@@ -74,10 +79,21 @@ assert(ateStart.indexOf('httpd_upgrade_spool_valid()') < ateStart.indexOf('if(ac
 assert(ateStart.indexOf('Only support under ATE test mode') < ateStart.indexOf('strlcpy(upgrade_file, HTTPD_UPGRADE_IMAGE') &&
     ateStart.indexOf('strlcpy(upgrade_file, HTTPD_UPGRADE_IMAGE') < ateStart.indexOf('if(action & RC_SERVICE_STOP)'),
     'ATE mode must be established before selecting the private image or stopping services');
-assert.match(ateStart, /unlink\(upgrade_file\);[\s\S]*?unlink\(HTTPD_UPGRADE_IDENTITY\);[\s\S]*?rmdir\(HTTPD_UPGRADE_DIRECTORY\);/,
-    'ATE flash must clean the private spool after use');
+assert.match(ateStart, /unlink\(HTTPD_UPGRADE_IDENTITY\);/,
+    'ATE flash must clean the spool identity after use');
+assert.doesNotMatch(service, /rmdir\(HTTPD_UPGRADE_DIRECTORY\)/,
+    'the boot-reserved private parent must remain in place');
 const upgradeStart = service.slice(service.indexOf('else if(strcmp(script, "upgrade") == 0)'),
     service.indexOf('else if(strcmp(script, "mfgmode") == 0)'));
+const preflight = upgradeStart.indexOf('if ((action & RC_SERVICE_START) &&');
+assert(preflight >= 0 && preflight < upgradeStart.indexOf('restore_config_before_firmware_downgrade()') &&
+    preflight < upgradeStart.indexOf('if(action&RC_SERVICE_STOP)'),
+    'normal upgrade must reject an invalid spool before changing settings or stopping services');
+const preflightCode = upgradeStart.slice(preflight, upgradeStart.indexOf('if(action&RC_SERVICE_STOP)'));
+assert.match(preflightCode,
+    /httpd_upgrade_spool_present\(\)[\s\S]*?httpd_upgrade_spool_valid\(\)[\s\S]*?goto skip;/);
+assert.doesNotMatch(preflightCode, /upgrade_abort_invalid_spool|kill\(1,/,
+    'invalid spool preflight must not trigger the reboot recovery path');
 const upgradeGuard = upgradeStart.indexOf('if (!secure_upgrade)');
 assert(upgradeGuard >= 0 && upgradeGuard < upgradeStart.indexOf('do_upgrade_adsldrv();') &&
     upgradeGuard < upgradeStart.indexOf('if (!f_exists(upgrade_file)'),
@@ -100,6 +116,22 @@ assert.match(rcDsl, /HTTPD_UPGRADE_DIRECTORY "\/ras\.bin"/);
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'httpd-upgrade-spool-'));
 try {
+    for (const kind of ['directory', 'regular', 'dangling-symlink']) {
+        const planted = path.join(temp, `planted-${kind}`);
+        if (kind === 'directory') {
+            fs.mkdirSync(planted, 0o755);
+        } else if (kind === 'regular') {
+            fs.writeFileSync(planted, 'attacker entry');
+        } else {
+            fs.symlinkSync(path.join(temp, 'missing-target'), planted);
+        }
+        const stat = fs.lstatSync(planted);
+        const trusted = stat.isDirectory() && stat.uid === 0 && (stat.mode & 0o777) === 0o700;
+        assert.equal(trusted, false, `${kind} cannot satisfy the root-private directory contract`);
+        assert.throws(() => fs.mkdirSync(planted, 0o700), { code: 'EEXIST' });
+        fs.rmSync(planted, { recursive: true, force: true });
+    }
+
     for (const kind of ['regular', 'symlink']) {
         const legacyImage = path.join(temp, `linux-${kind}.trx`);
         const outside = path.join(temp, `outside-${kind}`);

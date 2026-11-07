@@ -69,7 +69,7 @@ const activeApi = api.replace(/#ifdef RTCONFIG_RALINK[\s\S]*?#define TC_FW_HTTPD
 
 assert(stageDirOpen.includes('O_DIRECTORY | O_NOFOLLOW'));
 assert(stageDirOpen.includes('st_uid != 0'));
-assert(stageDirOpen.includes('(st.st_mode & 0777) != 0700'));
+assert(stageDirOpen.includes('(st.st_mode & 07777) != 0700'));
 assert(stageFileOpen.includes('O_CREAT | O_EXCL'));
 assert(stageFileOpen.includes('O_NOFOLLOW'));
 assert(stageFileOpen.includes('st_nlink != 1'));

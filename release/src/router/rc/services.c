@@ -61,9 +61,15 @@ httpd_upgrade_spool_present(void)
 {
 	struct stat st;
 
-	if (lstat(HTTPD_UPGRADE_DIRECTORY, &st) == 0)
+	if (lstat(HTTPD_UPGRADE_DIRECTORY, &st) != 0)
+		return errno != ENOENT;
+	if (!S_ISDIR(st.st_mode))
 		return 1;
-	return errno != ENOENT;
+	if (lstat(HTTPD_UPGRADE_IMAGE, &st) == 0 || errno != ENOENT)
+		return 1;
+	if (lstat(HTTPD_UPGRADE_IDENTITY, &st) == 0 || errno != ENOENT)
+		return 1;
+	return 0;
 }
 
 static int
@@ -81,7 +87,7 @@ httpd_upgrade_spool_valid(void)
 	directory_fd = open(HTTPD_UPGRADE_DIRECTORY, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
 	if (directory_fd < 0 || fstat(directory_fd, &directory) != 0 ||
 	    !S_ISDIR(directory.st_mode) || directory.st_uid != 0 ||
-	    (directory.st_mode & 0777) != 0700)
+	    (directory.st_mode & 07777) != 0700)
 		goto done;
 	identity_fd = openat(directory_fd, "identity", O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
 	if (identity_fd < 0 || fstat(identity_fd, &identity_file) != 0 ||
@@ -15075,7 +15081,6 @@ again:
 					unlink(HTTPD_UPGRADE_DIRECTORY "/tcfw.bin");
 					unlink(HTTPD_UPGRADE_DIRECTORY "/ras.bin");
 					unlink(HTTPD_UPGRADE_IDENTITY);
-					rmdir(HTTPD_UPGRADE_DIRECTORY);
 				}
 #endif
 
@@ -15133,6 +15138,13 @@ again:
 	}
 	else if(strcmp(script, "upgrade") == 0) {
 		int stop_commit;
+		#if defined(RTCONFIG_DSL_REMOTE) && !defined(RTCONFIG_SMALL_FW_UPDATE) && !defined(RTCONFIG_PIPEFW)
+		if ((action & RC_SERVICE_START) &&
+		    (!httpd_upgrade_spool_present() || !httpd_upgrade_spool_valid())) {
+			_dprintf("upgrade: refusing missing or invalid private firmware spool before service stop\n");
+			goto skip;
+		}
+		#endif
 		restore_config_before_firmware_downgrade();
 		stop_commit = nvram_get_int(ASUS_STOP_COMMIT);
 		if(stop_commit == 0) {
@@ -15446,7 +15458,6 @@ again:
 					unlink(HTTPD_UPGRADE_DIRECTORY "/tcfw.bin");
 					unlink(HTTPD_UPGRADE_DIRECTORY "/ras.bin");
 					unlink(HTTPD_UPGRADE_IDENTITY);
-					rmdir(HTTPD_UPGRADE_DIRECTORY);
 				}
 #endif
 				if (sw) {
