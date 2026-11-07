@@ -453,6 +453,10 @@ static int raw_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 {
 	struct inet_sock *inet = inet_sk(sk);
 	struct ipcm_cookie ipc;
+	union {
+		struct ip_options opt;
+		unsigned char data[sizeof(struct ip_options) + 40];
+	} optbuf;
 	struct rtable *rt = NULL;
 	int free = 0;
 	__be32 daddr;
@@ -519,8 +523,20 @@ static int raw_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	saddr = ipc.addr;
 	ipc.addr = daddr;
 
-	if (!ipc.opt)
-		ipc.opt = inet->opt;
+	if (!ipc.opt) {
+		lock_sock(sk);
+		if (inet->opt) {
+			if (inet->opt->optlen > 40) {
+				release_sock(sk);
+				err = -EINVAL;
+				goto done;
+			}
+			memcpy(optbuf.data, inet->opt,
+			       sizeof(struct ip_options) + inet->opt->optlen);
+			ipc.opt = (struct ip_options *)optbuf.data;
+		}
+		release_sock(sk);
+	}
 
 	if (ipc.opt) {
 		err = -EINVAL;

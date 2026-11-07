@@ -777,6 +777,10 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	struct udp_sock *up = udp_sk(sk);
 	int ulen = len;
 	struct ipcm_cookie ipc;
+	union {
+		struct ip_options opt;
+		unsigned char data[sizeof(struct ip_options) + 40];
+	} optbuf;
 	struct rtable *rt = NULL;
 	int free = 0;
 	int connected = 0;
@@ -857,8 +861,19 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 			free = 1;
 		connected = 0;
 	}
-	if (!ipc.opt)
-		ipc.opt = inet->opt;
+	if (!ipc.opt) {
+		lock_sock(sk);
+		if (inet->opt) {
+			if (inet->opt->optlen > 40) {
+				release_sock(sk);
+				return -EINVAL;
+			}
+			memcpy(optbuf.data, inet->opt,
+			       sizeof(struct ip_options) + inet->opt->optlen);
+			ipc.opt = (struct ip_options *)optbuf.data;
+		}
+		release_sock(sk);
+	}
 
 	saddr = ipc.addr;
 	ipc.addr = faddr = daddr;
