@@ -79,6 +79,10 @@ int __ext4_check_dir_entry(const char *function, unsigned int line,
 		error_msg = "rec_len is too small for name_len";
 	else if (((char *) de - bh->b_data) + rlen > dir->i_sb->s_blocksize)
 		error_msg = "directory entry across blocks";
+	else if (((char *) de - bh->b_data) + rlen >
+		 dir->i_sb->s_blocksize - EXT4_DIR_REC_LEN(1) &&
+		 ((char *) de - bh->b_data) + rlen != dir->i_sb->s_blocksize)
+		error_msg = "directory entry too close to block end";
 	else if (le32_to_cpu(de->inode) >
 			le32_to_cpu(EXT4_SB(dir->i_sb)->s_es->s_inodes_count))
 		error_msg = "inode out of bounds";
