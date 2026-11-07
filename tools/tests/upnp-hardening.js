@@ -9,10 +9,14 @@ const firewall = fs.readFileSync(path.join(root, 'release/src/router/rc/firewall
 const ovpnControl = fs.readFileSync(path.join(root, 'release/src/router/libovpn/openvpn_control.c'), 'utf8');
 const portInUse = fs.readFileSync(path.join(root, 'release/src/router/miniupnpd/portinuse.c'), 'utf8');
 const miniupnpd = fs.readFileSync(path.join(root, 'release/src/router/miniupnpd/miniupnpd.c'), 'utf8');
+const natpmp = fs.readFileSync(path.join(root, 'release/src/router/miniupnpd/natpmp.c'), 'utf8');
+const pcp = fs.readFileSync(path.join(root, 'release/src/router/miniupnpd/pcpserver.c'), 'utf8');
 const redirect = fs.readFileSync(path.join(root, 'release/src/router/miniupnpd/upnpredirect.c'), 'utf8');
+const iptRedirect = fs.readFileSync(path.join(root, 'release/src/router/miniupnpd/netfilter/iptcrdr.c'), 'utf8');
 const arrays = fs.readFileSync(path.join(root, 'release/src/router/httpd/data_arrays.c'), 'utf8');
 const page = fs.readFileSync(path.join(root, 'release/src/router/www/Main_IPTStatus_Content.asp'), 'utf8');
 const soap = fs.readFileSync(path.join(root, 'release/src/router/miniupnpd/upnpsoap.c'), 'utf8');
+const redirectHeader = fs.readFileSync(path.join(root, 'release/src/router/miniupnpd/upnpredirect.h'), 'utf8');
 const lan = fs.readFileSync(path.join(root, 'release/src/router/rc/lan.c'), 'utf8');
 const help = fs.readFileSync(path.join(root, 'release/src/router/www/help_content.js'), 'utf8');
 assert(help.includes('NAT-PMP and PCP are disabled in this mode'));
@@ -54,6 +58,39 @@ assert(!leaseReload.includes('fgets(line'));
 assert.match(leaseWriter, /desc_len < 63/);
 assert.match(leaseWriter, /c != ':'/);
 assert.match(leaseWriter, /c != 0x7f/);
+
+const globalMappingLimit = Number(redirect.match(/#define UPNP_MAX_REDIRECTS (\d+)/)[1]);
+const clientMappingLimit = Number(redirect.match(/#define UPNP_MAX_REDIRECTS_PER_CLIENT (\d+)/)[1]);
+const redirectInternal = redirect.match(/int\nupnp_redirect_internal\([\s\S]*?\n\}/)[0];
+assert.equal(globalMappingLimit, 256);
+assert.equal(clientMappingLimit, 64);
+assert(redirectHeader.includes('#define UPNP_REDIRECT_LIMIT_REACHED -5'));
+assert.match(redirectInternal, /get_redirect_rule_counts\(iaddr, &rule_count, &per_client\) < 0 \|\|[\s\S]*?rule_count >= UPNP_MAX_REDIRECTS[\s\S]*?per_client >= UPNP_MAX_REDIRECTS_PER_CLIENT/);
+const mappingCounter = iptRedirect.match(/get_redirect_rule_counts\(const char \* iaddr, int \* total, int \* per_client\)[\s\S]*?\n\}/)[0];
+assert.match(mappingCounter, /iptc_init\("nat"\)/);
+assert.match(mappingCounter, /iptc_first_rule\(miniupnpd_nat_chain/);
+assert.match(mappingCounter, /\(\*total\)\+\+/);
+assert.match(mappingCounter, /mr->range\[0\]\.min_ip == address\.s_addr/);
+assert(redirectInternal.indexOf('UPNP_MAX_REDIRECTS_PER_CLIENT') < redirectInternal.indexOf('add_redirect_rule2('));
+assert.match(leaseReload, /r = upnp_redirect\(rhost, eport, iaddr, iport, proto, desc, leaseduration\);/);
+assert.match(redirectInternal, /add_redirect_rule2\(ext_if_name, rhost, eport, iaddr, iport, proto,/);
+assert.match(natpmp, /upnp_redirect_internal\([\s\S]*?resp\[3\] = 3/);
+assert.match(pcp, /upnp_redirect_internal\([\s\S]*?if \(r < 0\)\s*return PCP_ERR_NO_RESOURCES;/);
+assert.match(soap, /case UPNP_REDIRECT_LIMIT_REACHED:\s*SoapError\(h, 728, "NoPortMapsAvailable"\);/);
+assert.match(soap, /r != 0 && r != -1 && r != UPNP_REDIRECT_LIMIT_REACHED/);
+assert.match(soap, /r == 0 \|\| r == -1 \|\| r == UPNP_REDIRECT_LIMIT_REACHED/);
+assert.match(firewall, /fprintf\(fp, "-A FORWARD -i %s ! -o %s -j FUPNP\\n", wan_if, wan_if\);/);
+assert(!/fprintf\(fp, "-A FORWARD -j FUPNP\\n"\)/.test(firewall));
+
+function canAddMapping(mappings, address) {
+	if (mappings.length >= globalMappingLimit) return false;
+	return mappings.filter(mapping => mapping === address).length < clientMappingLimit;
+}
+const oneHostAtLimit = Array(clientMappingLimit).fill('192.168.1.10');
+assert(!canAddMapping(oneHostAtLimit, '192.168.1.10'));
+assert(canAddMapping(oneHostAtLimit, '192.168.1.20'));
+assert(canAddMapping([...oneHostAtLimit.slice(0, -1), ...Array(globalMappingLimit - clientMappingLimit).fill('192.168.1.20')], '192.168.1.10'));
+assert(!canAddMapping(Array(globalMappingLimit).fill('192.168.1.20'), '192.168.1.10'));
 
 function readLeaseRecords(input, capacity = 320) {
 	const bytes = Buffer.from(input, 'latin1');
@@ -265,4 +302,4 @@ for (const payload of [
 	}
 }
 
-console.log('PASS: secure-mode NAT-PMP/PCP policy, guest UDP isolation, UPnP ownership, config hardening, and lease rendering (source/model checks, not firmware execution)');
+console.log('PASS: UPnP mapping caps, WAN-only filter traversal, NAT-PMP/PCP policy, guest isolation, and lease/config hardening (source/model checks, not firmware execution)');
