@@ -132,6 +132,14 @@ if ! flock -n 9; then
 	exit 0
 fi
 
+CSR_DIR=$(mktemp -d /tmp/gencert.XXXXXX) || exit 1
+CSR_FILE=${CSR_DIR}/https_srv.csr
+cleanup_csr() {
+	rm -f "${CSR_FILE}"
+	rmdir "${CSR_DIR}"
+}
+trap cleanup_csr 0
+
 cp -L openssl.cnf openssl.config
 
 # first part of ssl_server.ext
@@ -337,9 +345,9 @@ else
 fi
 OPENSSL_CONF=/etc/openssl.config openssl req -new \
 	-subj "/C=US/CN=${ONAME} Server Certificate/O=${ONAME}" \
-	-batch -out /tmp/https_srv.csr -key ${HTTPD_GEN_KEY}
+	-batch -out "${CSR_FILE}" -key ${HTTPD_GEN_KEY}
 OPENSSL_CONF=/etc/openssl.config openssl x509 -req \
-	-extensions server_req_extensions -extfile ssl_server.ext -in /tmp/https_srv.csr \
+	-extensions server_req_extensions -extfile ssl_server.ext -in "${CSR_FILE}" \
 	-CA ${HTTPD_ROOTCA_CERT} -CAkey ${HTTPD_ROOTCA_KEY} -CAserial serial.txt -CAcreateserial -days 7306 -out ${HTTPD_GEN_CERT}
 
 if [ "${le_enable}" == "2" ] ; then
