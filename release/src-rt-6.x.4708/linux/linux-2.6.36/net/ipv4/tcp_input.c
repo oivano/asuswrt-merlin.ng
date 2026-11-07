@@ -65,6 +65,8 @@
 #include <linux/mm.h>
 #include <linux/slab.h>
 #include <linux/module.h>
+#include <linux/random.h>
+#include <linux/spinlock.h>
 #include <linux/sysctl.h>
 #include <linux/kernel.h>
 #include <net/dst.h>
@@ -101,6 +103,12 @@ int sysctl_tcp_thin_dupack __read_mostly;
 
 int sysctl_tcp_moderate_rcvbuf __read_mostly = 1;
 int sysctl_tcp_abc __read_mostly;
+int sysctl_tcp_challenge_ack_limit __read_mostly = 1000;
+
+static DEFINE_SPINLOCK(tcp_challenge_ack_lock);
+static unsigned long tcp_challenge_ack_reset;
+static u32 tcp_challenge_ack_count;
+static u32 tcp_challenge_ack_budget;
 
 #define FLAG_DATA		0x01 /* Incoming frame contained data.		*/
 #define FLAG_WIN_UPDATE		0x02 /* Incoming ACK was a window update.	*/
@@ -3628,6 +3636,33 @@ static int tcp_process_frto(struct sock *sk, int flag)
 	return 0;
 }
 
+static void tcp_send_challenge_ack(struct sock *sk)
+{
+	unsigned long flags;
+	int limit;
+	int send_ack = 0;
+
+	limit = sysctl_tcp_challenge_ack_limit;
+	if (limit <= 0)
+		return;
+
+	spin_lock_irqsave(&tcp_challenge_ack_lock, flags);
+	if (time_after_eq(jiffies, tcp_challenge_ack_reset)) {
+		tcp_challenge_ack_reset = jiffies + HZ;
+		tcp_challenge_ack_count = 0;
+		tcp_challenge_ack_budget = max_t(u32, 1, limit / 2) +
+			net_random() % limit;
+	}
+	if (tcp_challenge_ack_count < tcp_challenge_ack_budget) {
+		tcp_challenge_ack_count++;
+		send_ack = 1;
+	}
+	spin_unlock_irqrestore(&tcp_challenge_ack_lock, flags);
+
+	if (send_ack)
+		tcp_send_ack(sk);
+}
+
 /* This routine deals with incoming acks, but not outgoing ones. */
 static int BCMFASTPATH_HOST tcp_ack(struct sock *sk, struct sk_buff *skb, int flag)
 {
@@ -3640,6 +3675,9 @@ static int BCMFASTPATH_HOST tcp_ack(struct sock *sk, struct sk_buff *skb, int fl
 	u32 prior_fackets;
 	int prior_packets;
 	int frto_cwnd = 0;
+
+	if (before(ack, prior_snd_una - tp->max_window))
+		goto invalid_ack;
 
 	/* If the ack is older than previous acks
 	 * then we can probably ignore it.
@@ -5226,25 +5264,26 @@ static int tcp_validate_incoming(struct sock *sk, struct sk_buff *skb,
 
 	/* Step 2: check RST bit */
 	if (th->rst) {
-		tcp_reset(sk);
+		if (TCP_SKB_CB(skb)->seq == tp->rcv_nxt)
+			tcp_reset(sk);
+		else
+			tcp_send_challenge_ack(sk);
 		goto discard;
 	}
-
-	/* ts_recent update must be made after we are sure that the packet
-	 * is in window.
-	 */
-	tcp_replace_ts_recent(tp, TCP_SKB_CB(skb)->seq);
 
 	/* step 3: check security and precedence [ignored] */
 
 	/* step 4: Check for a SYN in window. */
-	if (th->syn && !before(TCP_SKB_CB(skb)->seq, tp->rcv_nxt)) {
+	if (th->syn) {
 		if (syn_inerr)
 			TCP_INC_STATS_BH(sock_net(sk), TCP_MIB_INERRS);
 		NET_INC_STATS_BH(sock_net(sk), LINUX_MIB_TCPABORTONSYN);
-		tcp_reset(sk);
-		return -1;
+		tcp_send_challenge_ack(sk);
+		goto discard;
 	}
+
+	/* Update ts_recent only for segments accepted past the SYN check. */
+	tcp_replace_ts_recent(tp, TCP_SKB_CB(skb)->seq);
 
 	return 1;
 
@@ -5298,6 +5337,9 @@ int BCMFASTPATH_HOST tcp_rcv_established(struct sock *sk, struct sk_buff *skb,
 	 */
 
 	tp->rx_opt.saw_tstamp = 0;
+	if (th->ack && before(TCP_SKB_CB(skb)->ack_seq,
+			     tp->snd_una - tp->max_window))
+		goto discard;
 
 	/*	pred_flags is 0xS?10 << 16 + snd_wnd
 	 *	if header_prediction is to be made
