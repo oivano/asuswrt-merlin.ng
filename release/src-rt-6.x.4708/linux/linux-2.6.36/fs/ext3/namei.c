@@ -621,7 +621,7 @@ int ext3_htree_fill_tree(struct file *dir_file, __u32 start_hash,
 			 __u32 start_minor_hash, __u32 *next_hash)
 {
 	struct dx_hash_info hinfo;
-	struct ext3_dir_entry_2 *de;
+	struct ext3_dir_entry_2 *de, *de1;
 	struct dx_frame frames[2], *frame;
 	struct inode *dir;
 	int block, err;
@@ -652,14 +652,27 @@ int ext3_htree_fill_tree(struct file *dir_file, __u32 start_hash,
 	/* Add '.' and '..' from the htree header */
 	if (!start_hash && !start_minor_hash) {
 		de = (struct ext3_dir_entry_2 *) frames[0].bh->b_data;
+		if (!ext3_check_dir_entry(__func__, dir, de, frames[0].bh, 0)) {
+			err = -EIO;
+			goto errout;
+		}
 		if ((err = ext3_htree_store_dirent(dir_file, 0, 0, de)) != 0)
 			goto errout;
 		count++;
 	}
 	if (start_hash < 2 || (start_hash ==2 && start_minor_hash==0)) {
 		de = (struct ext3_dir_entry_2 *) frames[0].bh->b_data;
-		de = ext3_next_entry(de);
-		if ((err = ext3_htree_store_dirent(dir_file, 2, 0, de)) != 0)
+		if (!ext3_check_dir_entry(__func__, dir, de, frames[0].bh, 0)) {
+			err = -EIO;
+			goto errout;
+		}
+		de1 = ext3_next_entry(de);
+		if (!ext3_check_dir_entry(__func__, dir, de1, frames[0].bh,
+					  (char *)de1 - frames[0].bh->b_data)) {
+			err = -EIO;
+			goto errout;
+		}
+		if ((err = ext3_htree_store_dirent(dir_file, 2, 0, de1)) != 0)
 			goto errout;
 		count++;
 	}
@@ -1921,11 +1934,20 @@ static int empty_dir (struct inode * inode)
 		return 1;
 	}
 	de = (struct ext3_dir_entry_2 *) bh->b_data;
+	if (!ext3_check_dir_entry(__func__, inode, de, bh, 0)) {
+		brelse(bh);
+		return -EIO;
+	}
 	de1 = ext3_next_entry(de);
+	if (!ext3_check_dir_entry(__func__, inode, de1, bh,
+				  (char *)de1 - bh->b_data)) {
+		brelse(bh);
+		return -EIO;
+	}
 	if (le32_to_cpu(de->inode) != inode->i_ino ||
 			!le32_to_cpu(de1->inode) ||
-			strcmp (".", de->name) ||
-			strcmp ("..", de1->name)) {
+			de->name_len != 1 || memcmp(".", de->name, 1) ||
+			de1->name_len != 2 || memcmp("..", de1->name, 2)) {
 		ext3_warning (inode->i_sb, "empty_dir",
 			      "bad directory (dir #%lu) - no `.' or `..'",
 			      inode->i_ino);
@@ -2135,9 +2157,12 @@ static int ext3_rmdir (struct inode * dir, struct dentry *dentry)
 	if (le32_to_cpu(de->inode) != inode->i_ino)
 		goto end_rmdir;
 
-	retval = -ENOTEMPTY;
-	if (!empty_dir (inode))
+	retval = empty_dir(inode);
+	if (retval <= 0) {
+		if (!retval)
+			retval = -ENOTEMPTY;
 		goto end_rmdir;
+	}
 
 	retval = ext3_delete_entry(handle, dir, de, bh);
 	if (retval)
@@ -2325,9 +2350,6 @@ retry:
 	return err;
 }
 
-#define PARENT_INO(buffer) \
-	(ext3_next_entry((struct ext3_dir_entry_2 *)(buffer))->inode)
-
 /*
  * Anybody can rename anything with this: the permission checks are left to the
  * higher-level routines.
@@ -2338,7 +2360,7 @@ static int ext3_rename (struct inode * old_dir, struct dentry *old_dentry,
 	handle_t *handle;
 	struct inode * old_inode, * new_inode;
 	struct buffer_head * old_bh, * new_bh, * dir_bh;
-	struct ext3_dir_entry_2 * old_de, * new_de;
+	struct ext3_dir_entry_2 * old_de, * new_de, *dot_de, *dotdot_de;
 	int retval, flush_file = 0;
 
 	dquot_initialize(old_dir);
@@ -2381,15 +2403,25 @@ static int ext3_rename (struct inode * old_dir, struct dentry *old_dentry,
 	}
 	if (S_ISDIR(old_inode->i_mode)) {
 		if (new_inode) {
-			retval = -ENOTEMPTY;
-			if (!empty_dir (new_inode))
+			retval = empty_dir(new_inode);
+			if (retval <= 0) {
+				if (!retval)
+					retval = -ENOTEMPTY;
 				goto end_rename;
+			}
 		}
 		retval = -EIO;
 		dir_bh = ext3_bread (handle, old_inode, 0, 0, &retval);
 		if (!dir_bh)
 			goto end_rename;
-		if (le32_to_cpu(PARENT_INO(dir_bh->b_data)) != old_dir->i_ino)
+		dot_de = (struct ext3_dir_entry_2 *)dir_bh->b_data;
+		if (!ext3_check_dir_entry(__func__, old_inode, dot_de, dir_bh, 0))
+			goto end_rename;
+		dotdot_de = ext3_next_entry(dot_de);
+		if (!ext3_check_dir_entry(__func__, old_inode, dotdot_de, dir_bh,
+					  (char *)dotdot_de - dir_bh->b_data))
+			goto end_rename;
+		if (le32_to_cpu(dotdot_de->inode) != old_dir->i_ino)
 			goto end_rename;
 		retval = -EMLINK;
 		if (!new_inode && new_dir!=old_dir &&
@@ -2461,7 +2493,7 @@ static int ext3_rename (struct inode * old_dir, struct dentry *old_dentry,
 	if (dir_bh) {
 		BUFFER_TRACE(dir_bh, "get_write_access");
 		ext3_journal_get_write_access(handle, dir_bh);
-		PARENT_INO(dir_bh->b_data) = cpu_to_le32(new_dir->i_ino);
+		dotdot_de->inode = cpu_to_le32(new_dir->i_ino);
 		BUFFER_TRACE(dir_bh, "call ext3_journal_dirty_metadata");
 		ext3_journal_dirty_metadata(handle, dir_bh);
 		drop_nlink(old_dir);
