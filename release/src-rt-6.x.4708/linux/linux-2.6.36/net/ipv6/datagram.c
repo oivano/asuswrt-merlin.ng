@@ -390,6 +390,7 @@ int ipv6_recv_error(struct sock *sk, struct msghdr *msg, int len)
 		}
 	}
 
+	memset(&errhdr, 0, sizeof(errhdr));
 	memcpy(&errhdr.ee, &serr->ee, sizeof(struct sock_extended_err));
 	sin = &errhdr.offender;
 	sin->sin6_family = AF_UNSPEC;
