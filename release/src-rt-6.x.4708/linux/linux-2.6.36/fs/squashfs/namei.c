@@ -80,7 +80,8 @@ static int get_dir_index_using_name(struct super_block *sb,
 			int len)
 {
 	struct squashfs_sb_info *msblk = sb->s_fs_info;
-	int i, size, length = 0, err;
+	int i, length = 0, err;
+	unsigned int size;
 	struct squashfs_dir_index *index;
 	char *str;
 
@@ -103,7 +104,10 @@ static int get_dir_index_using_name(struct super_block *sb,
 			break;
 
 
-		size = le32_to_cpu(index->size) + 1;
+		size = le32_to_cpu(index->size);
+		if (size >= SQUASHFS_NAME_LEN)
+			break;
+		size++;
 
 		err = squashfs_read_metadata(sb, index->name, &index_start,
 					&index_offset, size);

@@ -336,6 +336,9 @@ int squashfs_read_metadata(struct super_block *sb, void *buffer,
 	int bytes, copied = length;
 	struct squashfs_cache_entry *entry;
 
+	if (length < 0)
+		return -EIO;
+
 	TRACE("Entered squashfs_read_metadata [%llx:%x]\n", *block, *offset);
 
 	while (length) {
