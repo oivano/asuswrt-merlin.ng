@@ -22,6 +22,8 @@
 #include <linux/kernel.h>
 #include <linux/version.h>
 #include <linux/module.h>
+#include <linux/capability.h>
+#include <linux/errno.h>
 #include <linux/skbuff.h>
 #include <linux/if_ether.h>
 #include <linux/string.h>
@@ -56,6 +58,8 @@ MODULE_DESCRIPTION("Monitor URL in HTTP Requests, designed for use with Gargoyle
 	((unsigned char *)&addr)[2], \
 	((unsigned char *)&addr)[3]
 #define STRIP "%u.%u.%u.%u"
+#define WEBMON_KEY_SIZE 700
+#define WEBMON_SET_MAX_LEN (64 * 1024)
 
 typedef struct qn
 {
@@ -150,11 +154,17 @@ void add_queue_node(uint32_t src_ip, char* value, queue* full_queue, string_map*
 	{
 		queue_node *old_node = full_queue->last;
 		full_queue->last = old_node->previous;
-		full_queue->last->next = NULL;
-		full_queue->first = old_node->previous == NULL ? NULL : full_queue->first; /*shouldn't be needed, but just in case...*/
+		if(full_queue->last != NULL)
+		{
+			full_queue->last->next = NULL;
+		}
+		else
+		{
+			full_queue->first = NULL;
+		}
 		full_queue->length = full_queue->length - 1;
 		
-		sprintf(queue_index_key, STRIP"@%s", NIPQUAD(old_node->src_ip), old_node->value);
+		snprintf(queue_index_key, WEBMON_KEY_SIZE, STRIP"@%s", NIPQUAD(old_node->src_ip), old_node->value);
 		remove_map_element(queue_index, queue_index_key);
 
 		kfree(old_node->value);
@@ -619,30 +629,45 @@ static struct file_operations webmon_proc_search_fops = {
 static int ipt_webmon_set_ctl(struct sock *sk, int cmd, void *user, u_int32_t len)
 {
 
-	char* buffer = kmalloc(len, GFP_ATOMIC);
+	char* buffer;
+	int ret = 1;
+
+	if(!capable(CAP_NET_ADMIN))
+	{
+		return -EPERM;
+	}
+	if(len <= 1 + sizeof(uint32_t) || len > WEBMON_SET_MAX_LEN)
+	{
+		return -EINVAL;
+	}
+
+	buffer = kmalloc(len + 1, GFP_KERNEL);
 	if(buffer == NULL) /* check for malloc failure */
 	{
-		return 0;
+		return -ENOMEM;
 	}
-	spin_lock_bh(&webmon_lock);
-	copy_from_user(buffer, user, len);
+	if(copy_from_user(buffer, user, len) != 0)
+	{
+		kfree(buffer);
+		return -EFAULT;
+	}
+	buffer[len] = '\0';
 
-	if(len > 1 + sizeof(uint32_t)) 
 	{
 		unsigned char type = buffer[0];
-		uint32_t max_queue_length = *((uint32_t*)(buffer+1));
-		char* data = buffer+1+sizeof(uint32_t);
-		char newline_terminator[] = { '\n', '\r' };
-		char whitespace_chars[] = { '\t', ' ' };
-
-		if(type == WEBMON_DOMAIN || type == WEBMON_SEARCH )
+		uint32_t max_queue_length;
+		memcpy(&max_queue_length, buffer + 1, sizeof(max_queue_length));
+		if(type == WEBMON_DOMAIN || type == WEBMON_SEARCH)
 		{
-			unsigned long num_destroyed;
-			
+			char* data = buffer + 1 + sizeof(uint32_t);
+			char newline_terminator[] = { '\n', '\r' };
+			char whitespace_chars[] = { '\t', ' ' };
 
+			spin_lock_bh(&webmon_lock);
 			/* destroy and re-initialize queue and map */
-			if(type == WEBMON_DOMAIN )
+			if(type == WEBMON_DOMAIN)
 			{
+				unsigned long num_destroyed;
 				destroy_map(domain_map, DESTROY_MODE_IGNORE_VALUES, &num_destroyed);
 				destroy_queue(recent_domains);
 				recent_domains = (queue*)malloc(sizeof(queue));
@@ -650,11 +675,11 @@ static int ipt_webmon_set_ctl(struct sock *sk, int cmd, void *user, u_int32_t le
 				recent_domains->last = NULL;
 				recent_domains->length = 0;
 				domain_map = initialize_map(0);
-			
 				max_domain_queue_length = max_queue_length;
 			}
-			else if(type == WEBMON_SEARCH)
+			else
 			{
+				unsigned long num_destroyed;
 				destroy_map(search_map, DESTROY_MODE_IGNORE_VALUES, &num_destroyed);
 				destroy_queue(recent_searches);
 				recent_searches = (queue*)malloc(sizeof(queue));
@@ -662,10 +687,9 @@ static int ipt_webmon_set_ctl(struct sock *sk, int cmd, void *user, u_int32_t le
 				recent_searches->last = NULL;
 				recent_searches->length = 0;
 				search_map = initialize_map(0);
-				
 				max_search_queue_length = max_queue_length;
 			}
-			
+
 			if(data[0] != '\0')
 			{
 				unsigned long num_lines;
@@ -676,8 +700,6 @@ static int ipt_webmon_set_ctl(struct sock *sk, int cmd, void *user, u_int32_t le
 					char* line = lines[line_index];
 					unsigned long num_pieces;
 					char** split = split_on_separators(line, whitespace_chars, 2, -1, 0, &num_pieces);
-				
-					//check that there are 3 pieces (time, src_ip, value)
 					int length;
 					for(length=0; split[length] != NULL ; length++){}
 					if(length == 3)
@@ -692,23 +714,31 @@ static int ipt_webmon_set_ctl(struct sock *sk, int cmd, void *user, u_int32_t le
 						if(sscanf(split[0], "%ld", &time) > 0 && valid_ip == 4)
 						{
 							char* value = split[2];
-							char value_key[700];
-							uint32_t ip = (parsed_ip[0]<<24) + (parsed_ip[1]<<16) + (parsed_ip[2]<<8) +  (parsed_ip[3]) ;
-							ip = htonl(ip);
-							sprintf(value_key, STRIP"@%s", NIPQUAD(ip), value);
+						char value_key[WEBMON_KEY_SIZE];
+						uint32_t ip = (parsed_ip[0]<<24) + (parsed_ip[1]<<16) + (parsed_ip[2]<<8) + (parsed_ip[3]);
+						int key_len;
+						ip = htonl(ip);
+						key_len = snprintf(value_key, sizeof(value_key), STRIP"@%s", NIPQUAD(ip), value);
+						if(key_len >= 0 && key_len < sizeof(value_key))
+						{
 							if(type == WEBMON_DOMAIN)
 							{
-								add_queue_node(ip, value, recent_domains, domain_map, value_key, max_domain_queue_length );
-								(recent_domains->first->time).tv_sec = time;
+								add_queue_node(ip, value, recent_domains, domain_map, value_key, max_domain_queue_length);
+								if(recent_domains->first != NULL)
+								{
+									recent_domains->first->time.tv_sec = time;
+								}
 							}
-							else if(type == WEBMON_SEARCH)
+							else
 							{
-								add_queue_node(ip, value, recent_searches, search_map, value_key, max_search_queue_length );
-								(recent_searches->first->time).tv_sec = time;
+								add_queue_node(ip, value, recent_searches, search_map, value_key, max_search_queue_length);
+								if(recent_searches->first != NULL)
+								{
+									recent_searches->first->time.tv_sec = time;
+								}
 							}
 						}
 					}
-					
 					for(length=0; split[length] != NULL ; length++)
 					{
 						free(split[length]);
@@ -718,13 +748,11 @@ static int ipt_webmon_set_ctl(struct sock *sk, int cmd, void *user, u_int32_t le
 				}
 				free(lines);
 			}
+			spin_unlock_bh(&webmon_lock);
 		}
 	}
 	kfree(buffer);
-	spin_unlock_bh(&webmon_lock);
-		
-	
-	return 1;
+	return ret;
 }
 static struct nf_sockopt_ops ipt_webmon_sockopts = 
 {
@@ -781,7 +809,7 @@ static bool match(const struct sk_buff *skb, struct xt_action_param *par)
 			{
 				char domain[650];
 				char path[650];
-				char domain_key[700];	
+				char domain_key[WEBMON_KEY_SIZE];
 				unsigned char save = info->exclude_type == WEBMON_EXCLUDE ? 1 : 0;
 				uint32_t ip_index;
 
@@ -808,7 +836,7 @@ static bool match(const struct sk_buff *skb, struct xt_action_param *par)
 					extract_url(payload, payload_length, domain, path);
 
 					
-					sprintf(domain_key, STRIP"@%s", NIPQUAD(iph->saddr), domain);
+					snprintf(domain_key, sizeof(domain_key), STRIP"@%s", NIPQUAD(iph->saddr), domain);
 					
 					if(strlen(domain) > 0)
 					{
@@ -954,7 +982,7 @@ static bool match(const struct sk_buff *skb, struct xt_action_param *par)
 						if(search_part != NULL)
 						{
 							int spi, si;
-							char search_key[700];
+							char search_key[WEBMON_KEY_SIZE];
 							char search[650];
 							queue_node *recent_node = recent_searches->first;
 							
@@ -993,7 +1021,7 @@ static bool match(const struct sk_buff *skb, struct xt_action_param *par)
 							
 							
 							
-							sprintf(search_key, STRIP"@%s", NIPQUAD(iph->saddr), search);
+							snprintf(search_key, sizeof(search_key), STRIP"@%s", NIPQUAD(iph->saddr), search);
 							
 							
 							/* Often times search engines will initiate a search as you type it in, but these intermediate queries aren't the real search query
@@ -1007,9 +1035,9 @@ static bool match(const struct sk_buff *skb, struct xt_action_param *par)
 									do_gettimeofday(&t);
 									if( (recent_node->time).tv_sec + 1 >= t.tv_sec || ((recent_node->time).tv_sec + 5 >= t.tv_sec && within_edit_distance(search, recent_node->value, 2)))
 									{
-										char recent_key[700];
+										char recent_key[WEBMON_KEY_SIZE];
 										
-										sprintf(recent_key, STRIP"@%s", NIPQUAD(recent_node->src_ip), recent_node->value);
+										snprintf(recent_key, sizeof(recent_key), STRIP"@%s", NIPQUAD(recent_node->src_ip), recent_node->value);
 										remove_map_element(search_map, recent_key);
 										
 										recent_searches->first = recent_node->next;
