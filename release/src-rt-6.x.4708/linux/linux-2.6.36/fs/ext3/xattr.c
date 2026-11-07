@@ -153,14 +153,26 @@ ext3_listxattr(struct dentry *dentry, char *buffer, size_t size)
 static int
 ext3_xattr_check_names(struct ext3_xattr_entry *entry, void *end)
 {
-	while (!IS_LAST_ENTRY(entry)) {
-		struct ext3_xattr_entry *next = EXT3_XATTR_NEXT(entry);
-		if ((void *)next >= end)
+	while (1) {
+		struct ext3_xattr_entry *next;
+
+		if ((char *)entry > (char *)end ||
+		    (char *)end - (char *)entry < sizeof(__u32))
+			return -EIO;
+		if (IS_LAST_ENTRY(entry))
+			return 0;
+		if ((char *)end - (char *)entry < sizeof(*entry))
+			return -EIO;
+		next = EXT3_XATTR_NEXT(entry);
+		if ((char *)next <= (char *)entry ||
+		    (char *)next > (char *)end - sizeof(__u32))
 			return -EIO;
 		entry = next;
 	}
-	return 0;
 }
+
+static int ext3_xattr_check_entries(struct ext3_xattr_entry *entry,
+				    void *base, void *end);
 
 static inline int
 ext3_xattr_check_block(struct buffer_head *bh)
@@ -170,7 +182,8 @@ ext3_xattr_check_block(struct buffer_head *bh)
 	if (BHDR(bh)->h_magic != cpu_to_le32(EXT3_XATTR_MAGIC) ||
 	    BHDR(bh)->h_blocks != cpu_to_le32(1))
 		return -EIO;
-	error = ext3_xattr_check_names(BFIRST(bh), bh->b_data + bh->b_size);
+	error = ext3_xattr_check_entries(BFIRST(bh), BHDR(bh),
+					 bh->b_data + bh->b_size);
 	return error;
 }
 
@@ -178,10 +191,40 @@ static inline int
 ext3_xattr_check_entry(struct ext3_xattr_entry *entry, size_t size)
 {
 	size_t value_size = le32_to_cpu(entry->e_value_size);
+	size_t value_offs = le16_to_cpu(entry->e_value_offs);
 
 	if (entry->e_value_block != 0 || value_size > size ||
-	    le16_to_cpu(entry->e_value_offs) + value_size > size)
+	    value_offs > size ||
+	    (value_size && EXT3_XATTR_SIZE(value_size) > size - value_offs))
 		return -EIO;
+	return 0;
+}
+
+static int
+ext3_xattr_check_entries(struct ext3_xattr_entry *entry, void *base, void *end)
+{
+	struct ext3_xattr_entry *last;
+	size_t size, table_end;
+
+	if ((char *)end < (char *)base || (char *)entry < (char *)base ||
+	    (char *)end - (char *)base < sizeof(__u32))
+		return -EIO;
+	if (ext3_xattr_check_names(entry, end))
+		return -EIO;
+	last = entry;
+	while (!IS_LAST_ENTRY(last))
+		last = EXT3_XATTR_NEXT(last);
+	size = (char *)end - (char *)base;
+	table_end = (char *)last - (char *)base + sizeof(__u32);
+	if (table_end > size)
+		return -EIO;
+	for (; !IS_LAST_ENTRY(entry); entry = EXT3_XATTR_NEXT(entry)) {
+		if (ext3_xattr_check_entry(entry, size))
+			return -EIO;
+		if (entry->e_value_size &&
+		    le16_to_cpu(entry->e_value_offs) < table_end)
+			return -EIO;
+	}
 	return 0;
 }
 
@@ -283,7 +326,7 @@ ext3_xattr_ibody_get(struct inode *inode, int name_index, const char *name,
 	header = IHDR(inode, raw_inode);
 	entry = IFIRST(header);
 	end = (void *)raw_inode + EXT3_SB(inode->i_sb)->s_inode_size;
-	error = ext3_xattr_check_names(entry, end);
+	error = ext3_xattr_check_entries(entry, entry, end);
 	if (error)
 		goto cleanup;
 	error = ext3_xattr_find_entry(&entry, name_index, name,
@@ -411,7 +454,7 @@ ext3_xattr_ibody_list(struct dentry *dentry, char *buffer, size_t buffer_size)
 	raw_inode = ext3_raw_inode(&iloc);
 	header = IHDR(inode, raw_inode);
 	end = (void *)raw_inode + EXT3_SB(inode->i_sb)->s_inode_size;
-	error = ext3_xattr_check_names(IFIRST(header), end);
+	error = ext3_xattr_check_entries(IFIRST(header), IFIRST(header), end);
 	if (error)
 		goto cleanup;
 	error = ext3_xattr_list_entries(dentry, IFIRST(header),
@@ -531,18 +574,34 @@ static int
 ext3_xattr_set_entry(struct ext3_xattr_info *i, struct ext3_xattr_search *s)
 {
 	struct ext3_xattr_entry *last;
-	size_t free, min_offs = s->end - s->base, name_len = strlen(i->name);
+	size_t free, min_offs, table_end, area_size;
+	size_t name_len = strlen(i->name);
+
+	if (!s->base || !s->first || !s->end ||
+	    (char *)s->end < (char *)s->base ||
+	    (char *)s->first < (char *)s->base ||
+	    (char *)s->end - (char *)s->base < sizeof(__u32) ||
+	    ext3_xattr_check_entries(s->first, s->base, s->end))
+		return -EIO;
+	area_size = (char *)s->end - (char *)s->base;
+	min_offs = area_size;
 
 	/* Compute min_offs and last. */
 	last = s->first;
-	for (; !IS_LAST_ENTRY(last); last = EXT3_XATTR_NEXT(last)) {
+	for (; (char *)last <= (char *)s->end - sizeof(__u32) &&
+	       !IS_LAST_ENTRY(last); last = EXT3_XATTR_NEXT(last)) {
 		if (!last->e_value_block && last->e_value_size) {
 			size_t offs = le16_to_cpu(last->e_value_offs);
 			if (offs < min_offs)
 				min_offs = offs;
 		}
 	}
-	free = min_offs - ((void *)last - s->base) - sizeof(__u32);
+	if ((char *)last > (char *)s->end - sizeof(__u32))
+		return -EIO;
+	table_end = (char *)last - (char *)s->base + sizeof(__u32);
+	if (min_offs < table_end || min_offs > area_size)
+		return -EIO;
+	free = min_offs - table_end;
 	if (!s->not_found) {
 		if (!s->here->e_value_block && s->here->e_value_size) {
 			size_t size = le32_to_cpu(s->here->e_value_size);
@@ -883,7 +942,8 @@ ext3_xattr_ibody_find(struct inode *inode, struct ext3_xattr_info *i,
 	is->s.here = is->s.first;
 	is->s.end = (void *)raw_inode + EXT3_SB(inode->i_sb)->s_inode_size;
 	if (ext3_test_inode_state(inode, EXT3_STATE_XATTR)) {
-		error = ext3_xattr_check_names(IFIRST(header), is->s.end);
+		error = ext3_xattr_check_entries(IFIRST(header), IFIRST(header),
+						is->s.end);
 		if (error)
 			return error;
 		/* Find the named attribute. */
@@ -908,6 +968,12 @@ ext3_xattr_ibody_set(handle_t *handle, struct inode *inode,
 
 	if (EXT3_I(inode)->i_extra_isize == 0)
 		return -ENOSPC;
+	if (!ext3_test_inode_state(inode, EXT3_STATE_XATTR)) {
+		if ((char *)s->first > (char *)s->end ||
+		    (char *)s->end - (char *)s->first < sizeof(__u32))
+			return -EIO;
+		memset(s->first, 0, sizeof(__u32));
+	}
 	error = ext3_xattr_set_entry(i, s);
 	if (error)
 		return error;
