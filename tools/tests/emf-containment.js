@@ -5,6 +5,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '../..');
 const kernel = 'release/src-rt-6.x.4708/linux/linux-2.6.36/';
 const read = file => fs.readFileSync(path.join(root, kernel, file), 'utf8');
+const services = fs.readFileSync(path.join(root, 'release/src/router/rc/services.c'), 'utf8');
 const netlink = read('net/netlink/af_netlink.c');
 const proc = read('fs/proc/generic.c');
 const config = fs.readFileSync(path.join(root, kernel, 'config_base.6a'), 'utf8');
@@ -95,3 +96,15 @@ for (const parent of [procRoot, nested]) {
 }
 assert.equal(0o700 & 0o077, 0, 'non-root has no directory traversal or read permission');
 console.log('PASS: private /proc/emf registration and unrelated-path models (not VFS execution)');
+
+const igsEnabledBody = body(services, 'wl_igs_enabled(void)', 'void\nstart_igmp_proxy(void)');
+const disabledGuard = igsEnabledBody.match(/if \((!nvram_get_int\("emf_enable"\))\)\s*return 0;/);
+assert.ok(disabledGuard, 'wireless state cannot enable IGS while EMF is disabled');
+assert.ok(igsEnabledBody.indexOf(disabledGuard[0]) < igsEnabledBody.indexOf('foreach (word, ifnames, next)'),
+    'check the administrator setting before inspecting wireless radios');
+assert.match(igsEnabledBody, /nvram_match\(strcat_r\(prefix, "radio", tmp\), "1"\)/,
+    'retain radio-based IGS detection when EMF is enabled');
+const disabled = new Function('nvram_get_int', `return Boolean(${disabledGuard[1]});`);
+assert.equal(disabled(() => 0), true, 'disabled EMF returns before a radio can enable IGS');
+assert.equal(disabled(() => 1), false, 'enabled EMF continues to the existing radio check');
+console.log('PASS: emf_enable gates wireless IGS activation (source contract/model, not router execution)');
