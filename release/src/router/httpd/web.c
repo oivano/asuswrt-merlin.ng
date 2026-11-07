@@ -28340,6 +28340,214 @@ struct ipsec_conn_token_table{
 	ipsec_conn_token_t *next;
 };
 
+static int ipsec_status_copy_span(char *dest, size_t dest_size, const char *start, const char *end)
+{
+	size_t len;
+
+	if(dest_size == 0 || start == NULL || end == NULL || end < start)
+		return 0;
+
+	len = end - start;
+	if(len >= dest_size)
+		len = dest_size - 1;
+	memcpy(dest, start, len);
+	dest[len] = '\0';
+	return 1;
+}
+
+static int ipsec_status_get_state(const char *line)
+{
+	const char *state;
+	const char *separator;
+	size_t length;
+
+	if(line == NULL || (separator = strchr(line, ']')) == NULL || separator[1] != ':')
+		return 0;
+	state = separator + 2;
+	while(*state == ' ' || *state == '\t')
+		state++;
+	length = strcspn(state, " \t\r\n");
+	if(length == sizeof("ESTABLISHED") - 1 &&
+	   strncmp(state, "ESTABLISHED", length) == 0)
+		return 1;
+	if(length == sizeof("CONNECTING") - 1 &&
+	   strncmp(state, "CONNECTING", length) == 0)
+		return 2;
+	return 0;
+}
+
+static int ipsec_status_write_js_string(webs_t wp, const char *value)
+{
+	const unsigned char *cursor = (const unsigned char *)value;
+	const unsigned char *start = cursor;
+	int ret = 0;
+
+	while(*cursor) {
+		const char *escaped = NULL;
+		size_t skip = 1;
+
+		if(*cursor == '"')
+			escaped = "\\u0022";
+		else if(*cursor == '\'')
+			escaped = "\\u0027";
+		else if(*cursor == '&')
+			escaped = "\\u0026";
+		else if(*cursor == '<')
+			escaped = "\\u003c";
+		else if(*cursor == '>')
+			escaped = "\\u003e";
+		else if(*cursor == '\\')
+			escaped = "\\u005c";
+		else if(*cursor < 0x20) {
+			static const char hex[] = "0123456789abcdef";
+			char control[7] = "\\u0000";
+
+			control[4] = hex[*cursor >> 4];
+			control[5] = hex[*cursor & 0x0f];
+			if(cursor > start)
+				ret += websWrite(wp, "%.*s", (int)(cursor - start), start);
+			ret += websWrite(wp, "%s", control);
+			cursor++;
+			start = cursor;
+			continue;
+		}
+		else if(cursor[0] == 0xe2 && cursor[1] == 0x80 &&
+			(cursor[2] == 0xa8 || cursor[2] == 0xa9)) {
+			escaped = cursor[2] == 0xa8 ? "\\u2028" : "\\u2029";
+			skip = 3;
+		}
+
+		if(escaped != NULL) {
+			if(cursor > start)
+				ret += websWrite(wp, "%.*s", (int)(cursor - start), start);
+			ret += websWrite(wp, "%s", escaped);
+			cursor += skip;
+			start = cursor;
+		}
+		else
+			cursor++;
+	}
+	if(cursor > start)
+		ret += websWrite(wp, "%.*s", (int)(cursor - start), start);
+	return ret;
+}
+
+static int ipsec_status_parse_peer(const char *line, char *ipaddr, size_t ipaddr_size,
+				   char *identity, size_t identity_size)
+{
+	const char *open[3], *close[3], *cursor, *status_comma, *address;
+	int i;
+
+	if(line == NULL || ipaddr == NULL || identity == NULL)
+		return 0;
+	while(*line == ' ' || *line == '\t')
+		line++;
+	if(strncmp(line, "Remote XAuth identity:", sizeof("Remote XAuth identity:") - 1) == 0 ||
+	   strncmp(line, "Remote EAP identity:", sizeof("Remote EAP identity:") - 1) == 0)
+		return 0;
+	cursor = line;
+
+	for(i = 0; i < 3; i++) {
+		open[i] = strchr(cursor, '[');
+		if(open[i] == NULL || (close[i] = strchr(open[i] + 1, ']')) == NULL)
+			return 0;
+		cursor = close[i] + 1;
+	}
+	if(strchr(cursor, '[') != NULL || strchr(cursor, ']') != NULL)
+		return 0;
+
+	status_comma = strchr(close[0] + 1, ',');
+	if(status_comma == NULL || status_comma > open[1] ||
+	   memchr(open[1] + 1, ',', close[1] - open[1] - 1) != NULL ||
+	   memchr(open[2] + 1, ',', close[2] - open[2] - 1) != NULL)
+		return 0;
+
+	if(strncmp(close[1] + 1, "...", 3) != 0 ||
+	   open[2] <= close[1] + 4)
+		return 0;
+	address = close[1] + 4;
+	if(memchr(address, ',', open[2] - address) != NULL)
+		return 0;
+
+	return ipsec_status_copy_span(ipaddr, ipaddr_size, address, open[2]) &&
+	       ipsec_status_copy_span(identity, identity_size, open[2] + 1, close[2]);
+}
+
+static int ipsec_status_read_line(FILE *stream, char *line, size_t capacity)
+{
+	size_t len;
+	int ch;
+
+	if(stream == NULL || line == NULL || capacity < 2)
+		return -1;
+	if(fgets(line, capacity, stream) == NULL) {
+		line[0] = '\0';
+		return 0;
+	}
+	len = strlen(line);
+	if(len > 0 && line[len - 1] == '\n')
+		return 1;
+
+	while((ch = fgetc(stream)) != EOF && ch != '\n')
+		;
+	line[0] = '\0';
+	return -1;
+}
+
+static void ipsec_status_copy_value(char *dest, size_t dest_size, const char *line, const char *label)
+{
+	const char *value, *end;
+
+	if(dest_size == 0)
+		return;
+	dest[0] = '\0';
+	value = strstr(line, label);
+	if(value == NULL)
+		return;
+	value += strlen(label);
+	while(*value == ' ' || *value == '\t')
+		value++;
+	end = value + strcspn(value, "\r\n");
+	ipsec_status_copy_span(dest, dest_size, value, end);
+}
+
+static int ipsec_status_profile_name_matches(const char *nvram_name, const char *profile_name)
+{
+	char profile[1024] = {0};
+	char *field_start, *field_end;
+
+	if(profile_name == NULL || profile_name[0] == '\0')
+		return 0;
+	strlcpy(profile, nvram_safe_get(nvram_name), sizeof(profile));
+	field_start = strchr(profile, '>');
+	if(field_start == NULL)
+		return 0;
+	field_start++;
+	field_end = strchr(field_start, '>');
+	if(field_end == NULL)
+		return 0;
+	return strlen(profile_name) == (size_t)(field_end - field_start) &&
+	       strncmp(field_start, profile_name, field_end - field_start) == 0;
+}
+
+static const char *ipsec_status_profile_role(const char *profile_name)
+{
+	int i;
+	char nvram_name[32];
+
+	for(i = 1; i <= 5; i++) {
+		snprintf(nvram_name, sizeof(nvram_name), "ipsec_profile_%d", i);
+		if(ipsec_status_profile_name_matches(nvram_name, profile_name))
+			return "server";
+	}
+	for(i = 1; i <= 5; i++) {
+		snprintf(nvram_name, sizeof(nvram_name), "ipsec_profile_client_%d", i);
+		if(ipsec_status_profile_name_matches(nvram_name, profile_name))
+			return "client";
+	}
+	return "unknown";
+}
+
 static int find_acc_in_IG_list(char *account, char *dev_name, int dev_name_len, char *group)
 {
 	char word[1024]={0}, *word_next=NULL;
@@ -28369,12 +28577,15 @@ static int find_acc_in_IG_list(char *account, char *dev_name, int dev_name_len, 
 static int
 get_ipsec_conn_info(struct json_object *ipsec_conn_obj, int for_json)
 {
-	int ret = 0, len = 0, change_to_new_profile = 0;
+	int ret = 0, len = 0, change_to_new_profile = 0, line_result = 0;
 	char line[512] = {0};
-	char *tmp_ip_start = NULL, *tmp_name = NULL, *tmp_ip_end = NULL, *tmp_xauth = NULL,*tmp_period_s = NULL,*tmp_period_e = NULL,*tmp_reauth = NULL;
-	char *tmp_eap_start = NULL, *tmp_eap_end = NULL;
-	char dest_name[32] = {0},dest_ip[32] = {0},dest_xauth[33] = {0},dest_period[32] = {0},dest_reauth[32] = {0}, dev_name[33] = {0};
+	char *tmp_ip_start = NULL, *tmp_name = NULL, *tmp_ip_end = NULL, *tmp_xauth = NULL;
+	char *tmp_period_s = NULL, *tmp_period_e = NULL, *tmp_eap_start = NULL, *tmp_eap_end = NULL, *tmp_reauth = NULL;
+	char *selector_start, *selector_end;
+	char dest_name[32] = {0}, dest_ip[32] = {0}, dest_xauth[33] = {0}, dest_period[32] = {0}, dest_reauth[32] = {0};
+	char peer_identity[33] = {0}, dev_name[33] = {0};
 	char profile_name[PROFILE_NAME_LENTH] = {0}, ipaddr[16] = {0}, conn_status[8] = {0}, conn_period[16] = {0}, xauth_account[33] = {0}, eap_account[33] = {0}, psk_reauth_time[16] = {0};
+	char ike_version[8] = {0}, ike_proposal[96] = {0}, child_selectors[128] = {0}, child_rekey_time[16] = {0};
 	char cmd[64] = {0}, bytes_buf[64] = {0}, bytes_i[64] = {0}, bytes_o[64] = {0};
 	char acc_group[16] = {0}, ig_account[33] = {0}, compare_account[33] = {0};
 	char word[256]={0}, *next=NULL;
@@ -28416,6 +28627,14 @@ get_ipsec_conn_info(struct json_object *ipsec_conn_obj, int for_json)
 				memset(xauth_account, 0, sizeof(xauth_account));
 				memset(eap_account, 0, sizeof(eap_account));
 				memset(psk_reauth_time, 0, sizeof(psk_reauth_time));
+				memset(peer_identity, 0, sizeof(peer_identity));
+				memset(ike_version, 0, sizeof(ike_version));
+				memset(ike_proposal, 0, sizeof(ike_proposal));
+				memset(child_selectors, 0, sizeof(child_selectors));
+				memset(child_rekey_time, 0, sizeof(child_rekey_time));
+				memset(bytes_i, 0, sizeof(bytes_i));
+				memset(bytes_o, 0, sizeof(bytes_o));
+				memset(bytes_buf, 0, sizeof(bytes_buf));
 
 				tmp_name = index(line,'[');
 				len = strlen(line)-strlen(tmp_name);
@@ -28462,26 +28681,28 @@ get_ipsec_conn_info(struct json_object *ipsec_conn_obj, int for_json)
 					}
 
 					/* xauth users */
-					fgets(line, sizeof(line), p_fp);
+					line_result = ipsec_status_read_line(p_fp, line, sizeof(line));
 					if(strstr(line,"Remote XAuth identity:") != NULL){
 						tmp_xauth = rindex(line,' ') + 1;
 						len = strlen(tmp_xauth);
 						strncpy(dest_xauth,tmp_xauth,len);
 						dest_xauth[len-1] = '\0';
 						strlcpy(xauth_account,dest_xauth, sizeof(xauth_account));
-						fgets(line, sizeof(line), p_fp);
+						line_result = ipsec_status_read_line(p_fp, line, sizeof(line));
 					}
 					else
 						strlcpy(xauth_account, "", sizeof(xauth_account));
 
 					/* eap users of IKEv2 in the second line */
-					if(strstr(line,"Remote EAP identity:") != NULL){
-						tmp_xauth = rindex(line,' ') + 1;
-						len = strlen(tmp_xauth);
-						strncpy(dest_xauth,tmp_xauth,len);
-						dest_xauth[len-1] = '\0';
-						strlcpy(eap_account,dest_xauth, sizeof(eap_account));
-						fgets(line, sizeof(line), p_fp);
+					if(line_result > 0 && strstr(line,"Remote EAP identity:") != NULL){
+						ipsec_status_copy_value(eap_account, sizeof(eap_account), line, "Remote EAP identity:");
+						line_result = ipsec_status_read_line(p_fp, line, sizeof(line));
+					}
+					if(line_result > 0) {
+						if(strstr(line, "IKEv2 SPIs") != NULL)
+							strlcpy(ike_version, "IKEv2", sizeof(ike_version));
+						else if(strstr(line, "IKEv1 SPIs") != NULL)
+							strlcpy(ike_version, "IKEv1", sizeof(ike_version));
 					}
 
 					/* reauthentication times */
@@ -28500,8 +28721,11 @@ get_ipsec_conn_info(struct json_object *ipsec_conn_obj, int for_json)
 							change_to_new_profile=1;
 							break;
 						}
+						if(strstr(line, "IKE proposal:") != NULL)
+							ipsec_status_copy_value(ike_proposal, sizeof(ike_proposal), line, "IKE proposal:");
 						if(strstr(line,"rekeying") != NULL){
 							strlcpy(conn_status, "1", sizeof(conn_status));
+							ipsec_status_copy_value(child_rekey_time, sizeof(child_rekey_time), line, "rekeying in");
 							foreach(word, line, next){
 								if(!strncmp(word, "bytes_i", 7))
 									strlcpy(bytes_i, bytes_buf, sizeof(bytes_i));
@@ -28516,7 +28740,9 @@ get_ipsec_conn_info(struct json_object *ipsec_conn_obj, int for_json)
 						if(strstr(line,"INSTALLED") != NULL){
 							//data->conn_status = 1;		/* phase 2 connected */
 							strlcpy(conn_status, "1", sizeof(conn_status));
-							if(fgets(line, sizeof(line), p_fp) && strstr(line,"rekeying") != NULL){
+							line_result = ipsec_status_read_line(p_fp, line, sizeof(line));
+							if(line_result > 0 && strstr(line,"rekeying") != NULL){
+								ipsec_status_copy_value(child_rekey_time, sizeof(child_rekey_time), line, "rekeying in");
 								foreach(word, line, next){
 									if(!strncmp(word, "bytes_i", 7))
 										strlcpy(bytes_i, bytes_buf, sizeof(bytes_i));
@@ -28525,6 +28751,17 @@ get_ipsec_conn_info(struct json_object *ipsec_conn_obj, int for_json)
 									else
 										strlcpy(bytes_buf, word, sizeof(bytes_buf));
 								}
+							}
+							line_result = ipsec_status_read_line(p_fp, line, sizeof(line));
+							if(line_result > 0) {
+								selector_start = line;
+								while(*selector_start == ' ' || *selector_start == '\t')
+									selector_start++;
+								selector_end = selector_start + strcspn(selector_start, "\r\n");
+								if(strstr(selector_start, "===") != NULL)
+									ipsec_status_copy_span(child_selectors, sizeof(child_selectors), selector_start, selector_end);
+								else
+									change_to_new_profile = 1;
 							}
 							break;
 						}
@@ -28582,6 +28819,12 @@ get_ipsec_conn_info(struct json_object *ipsec_conn_obj, int for_json)
 				json_object_array_add(ipsec_conn_array, json_object_new_string(ig_account));
 				json_object_array_add(ipsec_conn_array, json_object_new_string(bytes_i));
 				json_object_array_add(ipsec_conn_array, json_object_new_string(bytes_o));
+				json_object_array_add(ipsec_conn_array, json_object_new_string(ike_version));
+				json_object_array_add(ipsec_conn_array, json_object_new_string(ike_proposal));
+				json_object_array_add(ipsec_conn_array, json_object_new_string(child_selectors));
+				json_object_array_add(ipsec_conn_array, json_object_new_string(child_rekey_time));
+				json_object_array_add(ipsec_conn_array, json_object_new_string(profile_name));
+				json_object_array_add(ipsec_conn_array, json_object_new_string(ipsec_status_profile_role(profile_name)));
 				if(for_json){
 					if(!strcmp("IG", acc_group))
 						json_object_array_add(ig_conn, ipsec_conn_array);
