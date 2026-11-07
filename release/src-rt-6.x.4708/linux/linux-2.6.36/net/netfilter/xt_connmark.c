@@ -83,7 +83,11 @@ connmark_tg(struct sk_buff *skb, const struct xt_action_param *par)
 
 static int connmark_tg_check(const struct xt_tgchk_param *par)
 {
+	const struct xt_connmark_tginfo1 *info = par->targinfo;
 	int ret;
+
+	if (par->family != NFPROTO_IPV4 && info->mode == XT_CONNMARK_SET_RETURN)
+		return -EINVAL;
 
 	ret = nf_ct_l3proto_try_module_get(par->family);
 	if (ret < 0)
