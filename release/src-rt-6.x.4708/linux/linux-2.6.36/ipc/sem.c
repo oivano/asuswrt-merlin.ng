@@ -1454,12 +1454,11 @@ SYSCALL_DEFINE4(semtimedop, int, semid, struct sembuf __user *, tsops,
 	}
 
 	sma = sem_lock(ns, semid);
+	error = get_queue_result(&queue);
 	if (IS_ERR(sma)) {
 		error = -EIDRM;
 		goto out_free;
 	}
-
-	error = get_queue_result(&queue);
 
 	/*
 	 * If queue.status != -EINTR we are woken up by another process
