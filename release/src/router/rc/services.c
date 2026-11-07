@@ -14743,9 +14743,18 @@ again:
 		int ate_upgrade_reboot;
 		int ate_upgrade_reset;
 		int ate_upgrade_bootnew;
+		int stop_commit;
 		char upgrade_file[64] = "/tmp/linux.trx";
 
-		int stop_commit;
+		if (action & RC_SERVICE_START) {
+#if defined(RTCONFIG_DSL_REMOTE) && !defined(RTCONFIG_SMALL_FW_UPDATE)
+			if (!httpd_upgrade_spool_present() || !httpd_upgrade_spool_valid()) {
+				_dprintf("upgrade_ate: refusing firmware without a valid private spool\n");
+				goto skip;
+			}
+#endif
+		}
+
 		stop_commit = nvram_get_int(ASUS_STOP_COMMIT);
 		if(stop_commit == 0) {
 			nvram_set(ASUS_STOP_COMMIT, "1");	/* NOT TO COMMIT when FW Writting */
@@ -14791,6 +14800,11 @@ again:
 #endif
 			goto skip;
 		}
+
+#if defined(RTCONFIG_DSL_REMOTE) && !defined(RTCONFIG_SMALL_FW_UPDATE)
+		if (action & RC_SERVICE_START)
+			strlcpy(upgrade_file, HTTPD_UPGRADE_IMAGE, sizeof(upgrade_file));
+#endif
 
 		if(action & RC_SERVICE_STOP) {
 			if ((fp = fopen("/tmp/ate_upgrade_state", "w")) != NULL) {
@@ -15056,6 +15070,14 @@ again:
 				if(!nvram_match("temproot_task", "upgrade"))
 #endif
 				unlink(upgrade_file);
+#if defined(RTCONFIG_DSL_REMOTE) && !defined(RTCONFIG_SMALL_FW_UPDATE)
+				if (strcmp(upgrade_file, HTTPD_UPGRADE_IMAGE) == 0) {
+					unlink(HTTPD_UPGRADE_DIRECTORY "/tcfw.bin");
+					unlink(HTTPD_UPGRADE_DIRECTORY "/ras.bin");
+					unlink(HTTPD_UPGRADE_IDENTITY);
+					rmdir(HTTPD_UPGRADE_DIRECTORY);
+				}
+#endif
 
 				if(ate_upgrade_reset) {
 					_dprintf("[ATE] Reset Default...\n");
@@ -15221,16 +15243,15 @@ again:
 			char upgrade_file[64] = "/tmp/linux.trx";
 			char *webs_state_info = nvram_safe_get("webs_state_info_am");
 #if defined(RTCONFIG_DSL_REMOTE) && !defined(RTCONFIG_SMALL_FW_UPDATE)
-			int secure_upgrade = httpd_upgrade_spool_present();
+			int secure_upgrade = httpd_upgrade_spool_present() &&
+				httpd_upgrade_spool_valid();
 
-			if (secure_upgrade) {
-				if (!httpd_upgrade_spool_valid()) {
-					_dprintf("upgrade: refusing invalid private firmware spool\n");
-					upgrade_abort_invalid_spool(stop_commit);
-					goto skip;
-				}
-				strlcpy(upgrade_file, HTTPD_UPGRADE_IMAGE, sizeof(upgrade_file));
+			if (!secure_upgrade) {
+				_dprintf("upgrade: refusing missing or invalid private firmware spool\n");
+				upgrade_abort_invalid_spool(stop_commit);
+				goto skip;
 			}
+			strlcpy(upgrade_file, HTTPD_UPGRADE_IMAGE, sizeof(upgrade_file));
 #endif
 
 #ifdef RTCONFIG_SMALL_FW_UPDATE
