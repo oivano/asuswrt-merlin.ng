@@ -103,8 +103,6 @@ int ip_options_echo(struct ip_options * dopt, struct sk_buff * skb)
 	sptr = skb_network_header(skb);
 	dptr = dopt->__data;
 
-	daddr = skb_rtable(skb)->rt_spec_dst;
-
 	if (sopt->rr) {
 		optlen  = sptr[sopt->rr+1];
 		soffset = sptr[sopt->rr+2];
@@ -144,6 +142,8 @@ int ip_options_echo(struct ip_options * dopt, struct sk_buff * skb)
 						__be32 addr;
 
 						memcpy(&addr, sptr+soffset-1, 4);
+						if (!skb_dst(skb))
+							return -EINVAL;
 						if (inet_addr_type(dev_net(skb_dst(skb)->dev), addr) != RTN_LOCAL) {
 							dopt->ts_needtime = 1;
 							soffset += 8;
@@ -178,6 +178,9 @@ int ip_options_echo(struct ip_options * dopt, struct sk_buff * skb)
 				doffset -= 4;
 		}
 		if (doffset > 3) {
+			if (!skb_dst(skb))
+				return -EINVAL;
+			daddr = skb_rtable(skb)->rt_spec_dst;
 			memcpy(&start[doffset-1], &daddr, 4);
 			dopt->faddr = faddr;
 			dptr[0] = start[0];
