@@ -1819,8 +1819,10 @@ static int unix_dgram_recvmsg(struct kiocb *iocb, struct socket *sock,
 		   clearly however!
 
 		*/
-		if (UNIXCB(skb).fp)
+		if (UNIXCB(skb).fp) {
 			siocb->scm->fp = scm_fp_dup(UNIXCB(skb).fp);
+			unix_gc_barrier();
+		}
 	}
 	err = size;
 
@@ -1997,8 +1999,10 @@ static int unix_stream_recvmsg(struct kiocb *iocb, struct socket *sock,
 		} else {
 			/* It is questionable, see note in unix_dgram_recvmsg.
 			 */
-			if (UNIXCB(skb).fp)
+			if (UNIXCB(skb).fp) {
 				siocb->scm->fp = scm_fp_dup(UNIXCB(skb).fp);
+				unix_gc_barrier();
+			}
 
 			/* put message back and return */
 			skb_queue_head(&sk->sk_receive_queue, skb);
