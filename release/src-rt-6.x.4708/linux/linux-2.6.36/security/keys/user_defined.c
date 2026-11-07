@@ -119,7 +119,9 @@ int user_update(struct key *key, const void *data, size_t datalen)
 		key->expiry = 0;
 	}
 
-	call_rcu(&zap->rcu, user_update_rcu_disposal);
+	/* a negatively instantiated key has no old payload to free */
+	if (zap)
+		call_rcu(&zap->rcu, user_update_rcu_disposal);
 
 error:
 	return ret;
