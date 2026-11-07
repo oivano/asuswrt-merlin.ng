@@ -1546,20 +1546,30 @@ void exit_sem(struct task_struct *tsk)
 		rcu_read_lock();
 		un = list_entry_rcu(ulp->list_proc.next,
 				    struct sem_undo, list_proc);
-		if (&un->list_proc == &ulp->list_proc)
-			semid = -1;
-		 else
-			semid = un->semid;
-		rcu_read_unlock();
-
-		if (semid == -1)
+		if (&un->list_proc == &ulp->list_proc) {
+			/* Wait for freeary() before freeing this ulp. */
+			spin_unlock_wait(&ulp->lock);
+			rcu_read_unlock();
 			break;
-
-		sma = sem_lock_check(tsk->nsproxy->ipc_ns, un->semid);
+		}
+		spin_lock(&ulp->lock);
+		semid = un->semid;
+		spin_unlock(&ulp->lock);
 
 		/* exit_sem raced with IPC_RMID, nothing to do */
-		if (IS_ERR(sma))
+		if (semid == -1) {
+			rcu_read_unlock();
 			continue;
+		}
+
+		sma = sem_lock_check(tsk->nsproxy->ipc_ns, semid);
+
+		/* exit_sem raced with IPC_RMID, nothing to do */
+		if (IS_ERR(sma)) {
+			rcu_read_unlock();
+			continue;
+		}
+		rcu_read_unlock();
 
 		un = __lookup_undo(ulp, semid);
 		if (un == NULL) {
