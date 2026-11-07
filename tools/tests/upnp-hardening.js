@@ -79,6 +79,39 @@ assert.match(pcp, /upnp_redirect_internal\([\s\S]*?if \(r < 0\)\s*return PCP_ERR
 assert.match(soap, /case UPNP_REDIRECT_LIMIT_REACHED:\s*SoapError\(h, 728, "NoPortMapsAvailable"\);/);
 assert.match(soap, /r != 0 && r != -1 && r != UPNP_REDIRECT_LIMIT_REACHED/);
 assert.match(soap, /r == 0 \|\| r == -1 \|\| r == UPNP_REDIRECT_LIMIT_REACHED/);
+assert(!soap.includes('gethostbyname('));
+const internalClientGuards = [...soap.matchAll(/if \(inet_pton\(AF_INET, int_ip, &result_ip\) != 1\)\s*\{\s*ClearNameValueList\(&data\);\s*SoapError\(h, 402, "Invalid Args"\);\s*return;\s*\}/g)];
+assert.equal(internalClientGuards.length, 2);
+for (const guard of internalClientGuards) {
+	const secureModeCheck = soap.indexOf('if(GETFLAG(SECUREMODEMASK))', guard.index);
+	assert(secureModeCheck > guard.index);
+}
+const validateInternalClient = vm.runInNewContext(`(function(int_ip) {
+	const AF_INET = 2, data = {}, h = {}, result_ip = {};
+	let error = 0, cleared = false;
+	const inet_pton = (family, text, address) => {
+		if (!/^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$/.test(text) ||
+			text.split('.').some(part => Number(part) > 255)) return 0;
+		address.value = text;
+		return 1;
+	};
+	const ClearNameValueList = () => { cleared = true; };
+	const SoapError = (_h, code) => { error = code; };
+	const guardResult = (function() {
+	${internalClientGuards[0][0].replace('&result_ip', 'result_ip').replace('&data', 'data')}
+		return true;
+	})();
+	return { error, cleared, address: result_ip.value, guardResult };
+})`);
+const rejectedInternalClient = validateInternalClient('router-attacker.example');
+assert.equal(rejectedInternalClient.error, 402);
+assert.equal(rejectedInternalClient.cleared, true);
+assert.equal(rejectedInternalClient.guardResult, undefined);
+const acceptedInternalClient = validateInternalClient('192.168.1.20');
+assert.equal(acceptedInternalClient.error, 0);
+assert.equal(acceptedInternalClient.cleared, false);
+assert.equal(acceptedInternalClient.address, '192.168.1.20');
+assert.equal(acceptedInternalClient.guardResult, true);
 assert.match(firewall, /fprintf\(fp, "-A FORWARD -i %s ! -o %s -j FUPNP\\n", wan_if, wan_if\);/);
 assert(!/fprintf\(fp, "-A FORWARD -j FUPNP\\n"\)/.test(firewall));
 
