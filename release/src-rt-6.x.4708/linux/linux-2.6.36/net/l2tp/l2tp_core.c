@@ -266,6 +266,26 @@ struct l2tp_tunnel *l2tp_tunnel_find(struct net *net, u32 tunnel_id)
 }
 EXPORT_SYMBOL_GPL(l2tp_tunnel_find);
 
+/* Lookup a tunnel and hold it while the caller uses the returned pointer. */
+struct l2tp_tunnel *l2tp_tunnel_find_get(struct net *net, u32 tunnel_id)
+{
+	struct l2tp_tunnel *tunnel;
+	struct l2tp_net *pn = l2tp_pernet(net);
+
+	rcu_read_lock_bh();
+	list_for_each_entry_rcu(tunnel, &pn->l2tp_tunnel_list, list) {
+		if (tunnel->tunnel_id == tunnel_id &&
+		    atomic_inc_not_zero(&tunnel->ref_count)) {
+			rcu_read_unlock_bh();
+			return tunnel;
+		}
+	}
+	rcu_read_unlock_bh();
+
+	return NULL;
+}
+EXPORT_SYMBOL_GPL(l2tp_tunnel_find_get);
+
 struct l2tp_tunnel *l2tp_tunnel_find_nth(struct net *net, int nth)
 {
 	struct l2tp_net *pn = l2tp_pernet(net);
@@ -1124,6 +1144,10 @@ void l2tp_tunnel_destruct(struct sock *sk)
 	PRINTK(tunnel->debug, L2TP_MSG_CONTROL, KERN_INFO,
 	       "%s: closing...\n", tunnel->name);
 
+	write_lock_bh(&tunnel->hlist_lock);
+	tunnel->closing = 1;
+	write_unlock_bh(&tunnel->hlist_lock);
+
 	/* Close all sessions */
 	l2tp_tunnel_closeall(tunnel);
 
@@ -1138,7 +1162,9 @@ void l2tp_tunnel_destruct(struct sock *sk)
 	}
 
 	/* Remove hooks into tunnel socket */
+	write_lock_bh(&tunnel->hlist_lock);
 	tunnel->sock = NULL;
+	write_unlock_bh(&tunnel->hlist_lock);
 	sk->sk_destruct = tunnel->old_sk_destruct;
 	sk->sk_user_data = NULL;
 
@@ -1560,6 +1586,8 @@ EXPORT_SYMBOL_GPL(l2tp_session_set_header_len);
 struct l2tp_session *l2tp_session_create(int priv_size, struct l2tp_tunnel *tunnel, u32 session_id, u32 peer_session_id, struct l2tp_session_cfg *cfg)
 {
 	struct l2tp_session *session;
+	struct l2tp_net *pn;
+	struct sock *sock;
 
 	session = kzalloc(sizeof(struct l2tp_session) + priv_size, GFP_KERNEL);
 	if (session != NULL) {
@@ -1606,30 +1634,33 @@ struct l2tp_session *l2tp_session_create(int priv_size, struct l2tp_tunnel *tunn
 
 		l2tp_session_set_header_len(session, tunnel->version);
 
-		/* Bump the reference count. The session context is deleted
-		 * only when this drops to zero.
-		 */
+		/* Serialize the live-socket check and references with teardown. */
+		write_lock_bh(&tunnel->hlist_lock);
+		sock = tunnel->sock;
+		if (tunnel->closing || sock == NULL ||
+		    !atomic_inc_not_zero(&sock->sk_refcnt)) {
+			write_unlock_bh(&tunnel->hlist_lock);
+			kfree(session);
+			return NULL;
+		}
+
+		/* The session context is deleted only when its reference drops. */
 		l2tp_session_inc_refcount(session);
 		l2tp_tunnel_inc_refcount(tunnel);
 
-		/* Ensure tunnel socket isn't deleted */
-		sock_hold(tunnel->sock);
-
-		/* Add session to the tunnel's hash list */
-		write_lock_bh(&tunnel->hlist_lock);
+		/* Add the session before teardown can remove the tunnel's list. */
 		hlist_add_head(&session->hlist,
 			       l2tp_session_id_hash(tunnel, session_id));
-		write_unlock_bh(&tunnel->hlist_lock);
 
 		/* And to the global session list if L2TPv3 */
 		if (tunnel->version != L2TP_HDR_VER_2) {
-			struct l2tp_net *pn = l2tp_pernet(tunnel->l2tp_net);
-
+			pn = l2tp_pernet(tunnel->l2tp_net);
 			spin_lock_bh(&pn->l2tp_session_hlist_lock);
 			hlist_add_head_rcu(&session->global_hlist,
 					   l2tp_session_id_hash_2(pn, session_id));
 			spin_unlock_bh(&pn->l2tp_session_hlist_lock);
 		}
+		write_unlock_bh(&tunnel->hlist_lock);
 
 		/* Ignore management session in session count value */
 		if (session->session_id != 0)

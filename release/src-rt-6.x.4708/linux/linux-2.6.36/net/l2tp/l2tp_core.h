@@ -160,6 +160,7 @@ struct l2tp_tunnel {
 	int			magic;		/* Should be L2TP_TUNNEL_MAGIC */
 	struct rcu_head rcu;
 	rwlock_t		hlist_lock;	/* protect session_hlist */
+	int			closing;	/* reject new sessions during teardown */
 	struct hlist_head	session_hlist[L2TP_HASH_SIZE];
 						/* hashed list of sessions,
 						 * hashed by id */
@@ -227,6 +228,7 @@ extern struct l2tp_session *l2tp_session_find(struct net *net, struct l2tp_tunne
 extern struct l2tp_session *l2tp_session_find_nth(struct l2tp_tunnel *tunnel, int nth);
 extern struct l2tp_session *l2tp_session_find_by_ifname(struct net *net, char *ifname);
 extern struct l2tp_tunnel *l2tp_tunnel_find(struct net *net, u32 tunnel_id);
+extern struct l2tp_tunnel *l2tp_tunnel_find_get(struct net *net, u32 tunnel_id);
 extern struct l2tp_tunnel *l2tp_tunnel_find_nth(struct net *net, int nth);
 
 extern int l2tp_tunnel_create(struct net *net, int fd, int version, u32 tunnel_id, u32 peer_tunnel_id, struct l2tp_tunnel_cfg *cfg, struct l2tp_tunnel **tunnelp);
