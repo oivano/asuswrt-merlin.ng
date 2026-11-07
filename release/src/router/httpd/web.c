@@ -1892,6 +1892,47 @@ static struct json_object *filter_client_json_text(struct json_object *value)
 	return result;
 }
 
+static void copy_client_json_text(char *dst, size_t dst_size,
+	const unsigned char *src, size_t src_size)
+{
+	size_t i;
+	unsigned char c;
+
+	if (dst_size == 0)
+		return;
+	for (i = 0; i < src_size && i < dst_size - 1 && src[i] != '\0'; i++) {
+		c = src[i];
+		if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+		    (c >= '0' && c <= '9') || c == ' ' || c == '-' || c == '_' ||
+		    c == '(' || c == ')' || c == '.' || c == ':')
+			dst[i] = c;
+		else
+			dst[i] = ' ';
+	}
+	dst[i] = '\0';
+}
+
+static int get_client_info_shm(key_t shmkey)
+{
+	int shmid;
+	struct shmid_ds info;
+	int mode = (shmkey == (key_t)SHMKEY_LAN) ? 0600 : 0666;
+
+	shmid = shmget(shmkey, sizeof(CLIENT_DETAIL_INFO_TABLE), mode | IPC_CREAT);
+	if (shmid < 0)
+		return -1;
+	if (shmkey != (key_t)SHMKEY_LAN)
+		return shmid;
+	if (shmctl(shmid, IPC_STAT, &info) < 0)
+		return -1;
+	if ((info.shm_perm.mode & 0777) != 0600) {
+		info.shm_perm.mode = (info.shm_perm.mode & ~0777) | 0600;
+		if (shmctl(shmid, IPC_SET, &info) < 0)
+			return -1;
+	}
+	return shmid;
+}
+
 static void filter_client_json_field(struct json_object *client, const char *field)
 {
 	struct json_object *value = NULL;
@@ -9661,13 +9702,18 @@ static int get_client_detail_info(struct json_object *clients, struct json_objec
 	CLIENT_DPRINTF("get_client_detail_info start\n");
 	int i, shm_client_info_id;
 	void *shared_client_info = (void *) 0;
-	char mac_buf[32], dev_name[32];
+	char mac_buf[32];
 	char type[8], online[8], defaultType[8], macRepeat[8], opMode[8], rssi[8], wtfast[8], internetState[8], wireless[8];
 	char ipaddr[16];
+	char apple_model[17], vendor_name[129], ssid[33], tx_rate[8], rx_rate[11];
+	char connect_time[13], ip_method[8];
 	P_CLIENT_DETAIL_INFO_TABLE p_client_info_tab;
 	int lock;
-	char devname[LINE_SIZE], character;
-	int j, len;
+	char devname[LINE_SIZE];
+	int client_count;
+#if defined(RTCONFIG_FBWIFI) || defined(RTCONFIG_CAPTIVE_PORTAL)
+	char wl_interface[2] = "";
+#endif
 
 	struct json_object *client = NULL;
 	struct json_object *customList = NULL, *qosRuleList = NULL, *wtfRulelist = NULL, *multifilterList = NULL, *custom_attr_get = NULL;
@@ -9733,7 +9779,7 @@ static int get_client_detail_info(struct json_object *clients, struct json_objec
 	nvram_set("nmp_wl_offline_check", "1");
 
 	lock = file_lock("networkmap");
-	shm_client_info_id = shmget((key_t)shmkey, sizeof(CLIENT_DETAIL_INFO_TABLE), 0666|IPC_CREAT);
+	shm_client_info_id = get_client_info_shm(shmkey);
 	if (shm_client_info_id == -1){
 		fprintf(stderr,"shmget failed\n");
 		file_unlock(lock);
@@ -9757,8 +9803,12 @@ static int get_client_detail_info(struct json_object *clients, struct json_objec
 
 
 	p_client_info_tab = (P_CLIENT_DETAIL_INFO_TABLE)shared_client_info;
-	for(i = 0; i < p_client_info_tab->ip_mac_num; i++) {
-		memset(dev_name, 0, sizeof(dev_name));
+	client_count = p_client_info_tab->ip_mac_num;
+	if (client_count < 0)
+		client_count = 0;
+	else if (client_count > MAX_NR_CLIENT_LIST)
+		client_count = MAX_NR_CLIENT_LIST;
+	for(i = 0; i < client_count; i++) {
 		memset(ipaddr, 0, sizeof(ipaddr));
 		memset(mac_buf, 0, sizeof(mac_buf));
 		memset(devname, 0, LINE_SIZE);
@@ -9773,22 +9823,13 @@ static int get_client_detail_info(struct json_object *clients, struct json_objec
 		memset(wireless, 0, sizeof(wireless));
 
 		if (*p_client_info_tab->user_define[i])
-			strlcpy(dev_name, (const char *)p_client_info_tab->user_define[i], sizeof(dev_name));
+			copy_client_json_text(devname, sizeof(devname), p_client_info_tab->user_define[i], sizeof(p_client_info_tab->user_define[i]));
 		else
-			strlcpy(dev_name, (const char *)p_client_info_tab->device_name[i], sizeof(dev_name));
+			copy_client_json_text(devname, sizeof(devname), p_client_info_tab->device_name[i], sizeof(p_client_info_tab->device_name[i]));
 
 #ifndef RTCONFIG_AMAS
 		if(p_client_info_tab->device_flag[i]&(1<<FLAG_EXIST)) {
 #endif
-			len = strlen(dev_name);
-			for (j = 0; (j < len) && (j < LINE_SIZE-1); j++) {
-				character = dev_name[j];
-				if ((isalnum(character)) || (character == ' ') || (character == '-') || (character == '_')
-					|| (character == '(') || (character == ')'))
-					devname[j] = character;
-				else
-					devname[j] = ' ';
-			}
 
 			snprintf(ipaddr, sizeof(ipaddr), "%d.%d.%d.%d", p_client_info_tab->ip_addr[i][0],p_client_info_tab->ip_addr[i][1],
 			p_client_info_tab->ip_addr[i][2],p_client_info_tab->ip_addr[i][3]);
@@ -9816,6 +9857,16 @@ static int get_client_detail_info(struct json_object *clients, struct json_objec
 			snprintf(opMode, sizeof(opMode), "%d", p_client_info_tab->opMode[i]);
 			snprintf(rssi, sizeof(rssi), "%d", p_client_info_tab->rssi[i]);
 			snprintf(wireless, sizeof(wireless), "%d", p_client_info_tab->wireless[i]);
+			copy_client_json_text(apple_model, sizeof(apple_model), p_client_info_tab->apple_model[i], sizeof(p_client_info_tab->apple_model[i]));
+			copy_client_json_text(vendor_name, sizeof(vendor_name), p_client_info_tab->vendor_name[i], sizeof(p_client_info_tab->vendor_name[i]));
+			copy_client_json_text(ssid, sizeof(ssid), (const unsigned char *)p_client_info_tab->ssid[i], sizeof(p_client_info_tab->ssid[i]));
+			copy_client_json_text(tx_rate, sizeof(tx_rate), (const unsigned char *)p_client_info_tab->txrate[i], sizeof(p_client_info_tab->txrate[i]));
+			copy_client_json_text(rx_rate, sizeof(rx_rate), (const unsigned char *)p_client_info_tab->rxrate[i], sizeof(p_client_info_tab->rxrate[i]));
+			copy_client_json_text(connect_time, sizeof(connect_time), (const unsigned char *)p_client_info_tab->conn_time[i], sizeof(p_client_info_tab->conn_time[i]));
+			copy_client_json_text(ip_method, sizeof(ip_method), p_client_info_tab->ipMethod[i], sizeof(p_client_info_tab->ipMethod[i]));
+#if defined(RTCONFIG_FBWIFI) || defined(RTCONFIG_CAPTIVE_PORTAL)
+			copy_client_json_text(wl_interface, sizeof(wl_interface), (const unsigned char *)&p_client_info_tab->subunit[i], sizeof(p_client_info_tab->subunit[i]));
+#endif
 
 			client = json_object_new_object();
 			json_object_object_add(client, "type", json_object_new_string(type));
@@ -9832,8 +9883,8 @@ static int get_client_detail_info(struct json_object *clients, struct json_objec
 			json_object_object_add(client, "isPrinter", json_object_new_string((p_client_info_tab->device_flag[i] & (1<FLAG_PRINTER)) ? "1" : "0"));
 			json_object_object_add(client, "isITunes", json_object_new_string((p_client_info_tab->device_flag[i] & (1<FLAG_ITUNE)) ? "1" : "0"));
 			json_object_object_add(client, "dpiType", json_object_new_string(""));
-			json_object_object_add(client, "dpiDevice", json_object_new_string((const char *) p_client_info_tab->apple_model[i]));
-			json_object_object_add(client, "vendor", json_object_new_string((const char *) p_client_info_tab->vendor_name[i]));
+			json_object_object_add(client, "dpiDevice", json_object_new_string(apple_model));
+			json_object_object_add(client, "vendor", json_object_new_string(vendor_name));
 			json_object_object_add(client, "isWL", json_object_new_string(wireless));
 			json_object_object_add(client, "isGN", json_object_new_string(""));
 #ifndef RTCONFIG_AMAS
@@ -9842,7 +9893,7 @@ static int get_client_detail_info(struct json_object *clients, struct json_objec
 #else
 			json_object_object_add(client, "isOnline", json_object_new_string(online));
 #endif
-			json_object_object_add(client, "ssid", json_object_new_string(p_client_info_tab->ssid[i]));
+			json_object_object_add(client, "ssid", json_object_new_string(ssid));
 			if(!strcmp(ipaddr, nvram_safe_get("login_ip_str"))){
 				json_object_object_add(client, "isLogin", json_object_new_string("1"));
 			}
@@ -9853,17 +9904,17 @@ static int get_client_detail_info(struct json_object *clients, struct json_objec
 
 			//wireless hook
 			json_object_object_add(client, "rssi", json_object_new_string(rssi));
-			json_object_object_add(client, "curTx", json_object_new_string(p_client_info_tab->txrate[i]));
-			json_object_object_add(client, "curRx", json_object_new_string(p_client_info_tab->rxrate[i]));
+			json_object_object_add(client, "curTx", json_object_new_string(tx_rate));
+			json_object_object_add(client, "curRx", json_object_new_string(rx_rate));
 			json_object_object_add(client, "totalTx", json_object_new_string(""));
 			json_object_object_add(client, "totalRx", json_object_new_string(""));
-			json_object_object_add(client, "wlConnectTime", json_object_new_string(p_client_info_tab->conn_time[i]));
+			json_object_object_add(client, "wlConnectTime", json_object_new_string(connect_time));
 #if defined(BRTAC828)
-			json_object_object_add(client, "wlInterface", json_object_new_string(&p_client_info_tab->subunit[i]));
+			json_object_object_add(client, "wlInterface", json_object_new_string(wl_interface));
 #endif
 
 			//ipMethod
-			json_object_object_add(client, "ipMethod", json_object_new_string((const char *) p_client_info_tab->ipMethod[i]));
+			json_object_object_add(client, "ipMethod", json_object_new_string(ip_method));
 
 			//check rog clientlist
 			if (strstr(nvram_safe_get("rog_clientlist"), mac_buf)) {
@@ -18771,7 +18822,7 @@ deleteOfflineClient(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg, char_
 	mac_str[i] = '\0';
 
 	lock = file_lock("networkmap");
-	shm_client_info_id = shmget((key_t)SHMKEY_LAN, sizeof(CLIENT_DETAIL_INFO_TABLE), 0666|IPC_CREAT);
+	shm_client_info_id = get_client_info_shm((key_t)SHMKEY_LAN);
 	if (shm_client_info_id == -1){
 		fprintf(stderr,"shmget failed\n");
 		file_unlock(lock);
@@ -22869,7 +22920,7 @@ do_del_client_data_cgi(char *url, FILE *stream) {
 		void *shared_client_info=(void *) 0;
 		P_CLIENT_DETAIL_INFO_TABLE p_client_info_tab;
 		lock = file_lock("networkmap");
-		shm_client_info_id = shmget((key_t)SHMKEY_LAN, sizeof(CLIENT_DETAIL_INFO_TABLE), 0666|IPC_CREAT);
+		shm_client_info_id = get_client_info_shm((key_t)SHMKEY_LAN);
 		if (shm_client_info_id == -1){
 			fprintf(stderr,"shmget failed 0\n");
 			file_unlock(lock);
