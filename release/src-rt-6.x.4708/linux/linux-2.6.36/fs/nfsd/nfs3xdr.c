@@ -338,7 +338,10 @@ nfs3svc_decode_readargs(struct svc_rqst *rqstp, __be32 *p,
 	/* set up the kvec */
 	v=0;
 	while (len > 0) {
-		pn = rqstp->rq_resused++;
+		pn = rqstp->rq_resused;
+		if (!rqstp->rq_respages[pn])
+			return 0;
+		rqstp->rq_resused++;
 		rqstp->rq_vec[v].iov_base = page_address(rqstp->rq_respages[pn]);
 		rqstp->rq_vec[v].iov_len = len < PAGE_SIZE? len : PAGE_SIZE;
 		len -= rqstp->rq_vec[v].iov_len;
@@ -467,6 +470,8 @@ nfs3svc_decode_symlinkargs(struct svc_rqst *rqstp, __be32 *p,
 		return 0;
 	if (len == 0 || len > NFS3_MAXPATHLEN || len >= PAGE_SIZE)
 		return 0;
+	if (!rqstp->rq_respages[rqstp->rq_resused])
+		return 0;
 	args->tname = new =
 		page_address(rqstp->rq_respages[rqstp->rq_resused++]);
 	args->tlen = len;
@@ -539,6 +544,8 @@ nfs3svc_decode_readlinkargs(struct svc_rqst *rqstp, __be32 *p,
 {
 	if (!(p = decode_fh(p, &args->fh)))
 		return 0;
+	if (!rqstp->rq_respages[rqstp->rq_resused])
+		return 0;
 	args->buffer =
 		page_address(rqstp->rq_respages[rqstp->rq_resused++]);
 
@@ -571,6 +578,8 @@ nfs3svc_decode_readdirargs(struct svc_rqst *rqstp, __be32 *p,
 	if (args->count > PAGE_SIZE)
 		args->count = PAGE_SIZE;
 
+	if (!rqstp->rq_respages[rqstp->rq_resused])
+		return 0;
 	args->buffer =
 		page_address(rqstp->rq_respages[rqstp->rq_resused++]);
 
@@ -596,7 +605,10 @@ nfs3svc_decode_readdirplusargs(struct svc_rqst *rqstp, __be32 *p,
 	args->count = len;
 
 	while (len > 0) {
-		pn = rqstp->rq_resused++;
+		pn = rqstp->rq_resused;
+		if (!rqstp->rq_respages[pn])
+			return 0;
+		rqstp->rq_resused++;
 		if (!args->buffer)
 			args->buffer = page_address(rqstp->rq_respages[pn]);
 		len -= PAGE_SIZE;
