@@ -154,21 +154,25 @@ int FAST_FUNC volume_id_probe_ntfs(struct volume_id *id /*,uint64_t off*/)
 	while (1) {
 		struct file_attribute *attr;
 
+		if (attr_off > mft_record_size
+		 || mft_record_size - attr_off < sizeof(*attr)
+		)
+			break;
+
 		attr = (struct file_attribute*) &buf[attr_off];
 		attr_type = le32_to_cpu(attr->type);
+		if (attr_type == MFT_RECORD_ATTR_END)
+			break;
+
 		attr_len = le32_to_cpu(attr->len);
+		if (attr_len < sizeof(*attr)
+		 || attr_len > mft_record_size - attr_off
+		)
+			break;
+
 		val_off = le16_to_cpu(attr->value_offset);
 		val_len = le32_to_cpu(attr->value_len);
 		attr_off += attr_len;
-
-		if (attr_len == 0)
-			break;
-
-		if (attr_off >= mft_record_size)
-			break;
-
-		if (attr_type == MFT_RECORD_ATTR_END)
-			break;
 
 		dbg("found attribute type 0x%x, len %i, at offset %i",
 			attr_type, attr_len, attr_off);
@@ -183,6 +187,12 @@ int FAST_FUNC volume_id_probe_ntfs(struct volume_id *id /*,uint64_t off*/)
 
 		if (attr_type == MFT_RECORD_ATTR_VOLUME_NAME) {
 			dbg("found label, len %i", val_len);
+			if (val_off < sizeof(*attr)
+			 || val_off > attr_len
+			 || val_len > attr_len - val_off
+			)
+				continue;
+
 			if (val_len > VOLUME_ID_LABEL_SIZE)
 				val_len = VOLUME_ID_LABEL_SIZE;
 
