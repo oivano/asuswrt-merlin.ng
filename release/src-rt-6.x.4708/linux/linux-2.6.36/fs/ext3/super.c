@@ -1783,6 +1783,11 @@ static int ext3_fill_super (struct super_block *sb, void *data, int silent)
 			goto failed_mount;
 		}
 	}
+	if (sbi->s_first_ino < EXT3_GOOD_OLD_FIRST_INO) {
+		ext3_msg(sb, KERN_ERR, "error: first inode too small: %d",
+			 sbi->s_first_ino);
+		goto failed_mount;
+	}
 	sbi->s_frag_size = EXT3_MIN_FRAG_SIZE <<
 				   le32_to_cpu(es->s_log_frag_size);
 	if (blocksize != sbi->s_frag_size) {
