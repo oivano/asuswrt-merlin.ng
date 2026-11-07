@@ -63,6 +63,9 @@ assert(tempCreation.includes("O_CREAT | O_EXCL | O_NOFOLLOW") &&
 	sanitizer.includes('blocklist_create_temp_file(dirfd, DNSMASQ_BLOCKLIST_RUNTIME_NAME ".new"'),
 	"generated runtime config must use an exclusive, uniquely named temporary file");
 assert(sanitizer.includes("inet_pton(AF_INET") && sanitizer.includes("inet_pton(AF_INET6"), "address records must contain literal IP addresses");
+assert(sanitizer.includes("strcmp(*address, block_ip)"), "USB address records must use only the configured blocking target");
+assert(sanitizer.includes('nvram_safe_get("dnsmasq_blocklist_ip")') && sanitizer.includes('block_ip = "0.0.0.0"'),
+	"runtime sanitization must use the configured target and match the downloader default");
 assert(sanitizer.includes("strcmp(*address, valid_address)"), "a repeated sink address should be validated once");
 // dnsmasq reads addn-hosts after setuid(nobody); a root-only USB hosts file never loads and is re-read on every SIGHUP.
 assert(!source.includes("addn-hosts=%s") && !sanitizer.includes('"%s %s\\n"'), "blocklist must not be emitted as an addn-hosts file");
@@ -81,14 +84,14 @@ assert(sanitizer.indexOf("have_inputs = blocklist_stamp_get(") < sanitizer.index
 	sanitizer.includes("memcmp(now, inputs"), "stamp must describe the inputs that were actually read");
 
 const net = require("net");
-function parseDataLine(line) {
+function parseDataLine(line, blockIp = "0.0.0.0") {
 	line = line.trim();
 	let match = /^server=\/([^/]+)\/#$/.exec(line);
 	if (match) return validDomain(match[1]) ? { type: "server", domain: match[1] } : null;
 	match = /^local=\/([A-Za-z0-9.-]+)\/$/.exec(line);
 	if (match) return validDomain(match[1]) ? { type: "local", domain: match[1] } : null;
 	match = /^address=\/([^/]+)\/([^/]+)$/.exec(line);
-	if (!match || !validDomain(match[1]) || !net.isIP(match[2])) return null;
+	if (!match || !validDomain(match[1]) || match[2] !== blockIp || !net.isIP(match[2])) return null;
 	return { type: "address", domain: match[1], address: match[2] };
 }
 function validDomain(domain) {
@@ -108,9 +111,14 @@ for (const line of [
 }
 assert.deepStrictEqual(parseDataLine("address=/.ads.example/0.0.0.0"), null, "domain syntax must be strict");
 assert.deepStrictEqual(parseDataLine("address=ads.example/0.0.0.0"), null, "address directive delimiters must be exact");
+assert.strictEqual(parseDataLine("address=/example.test/203.0.113.5"), null,
+	"USB lists must not select an address target the administrator did not configure");
 assert.deepStrictEqual(parseDataLine("address=/ads.example/0.0.0.0"), {
 	type: "address", domain: "ads.example", address: "0.0.0.0"
 });
+assert.deepStrictEqual(parseDataLine("address=/ads.example/203.0.113.5", "203.0.113.5"), {
+	type: "address", domain: "ads.example", address: "203.0.113.5"
+}, "the administrator-configured sink address should remain supported");
 assert.deepStrictEqual(parseDataLine("local=ads.example/"), null, "local directive prefix must be exact");
 assert.deepStrictEqual(parseDataLine("local=/ads.example/"), { type: "local", domain: "ads.example" });
 assert.deepStrictEqual(parseDataLine("server=/ok.example/#"), { type: "server", domain: "ok.example" }, "allowlist server=/d/# must survive sanitization");

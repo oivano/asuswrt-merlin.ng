@@ -320,7 +320,8 @@ static int blocklist_safe_config_path(const char *path)
 	return 1;
 }
 
-static int blocklist_parse_data_line(char *line, char **domain, char **address)
+static int blocklist_parse_data_line(char *line, char **domain, char **address,
+				     const char *block_ip)
 {
 	static char valid_address[INET6_ADDRSTRLEN];
 	char *p, *separator;
@@ -364,7 +365,7 @@ static int blocklist_parse_data_line(char *line, char **domain, char **address)
 	*separator = '\0';
 	*domain = p;
 	*address = separator + 1;
-	if (strchr(*address, '/') || !blocklist_valid_domain(*domain))
+	if (strchr(*address, '/') || strcmp(*address, block_ip) || !blocklist_valid_domain(*domain))
 		return 0;
 	/* Lists repeat one sink address; skip re-parsing an already accepted string. */
 	if (strcmp(*address, valid_address)) {
@@ -457,7 +458,7 @@ static int blocklist_download(char *const argv[], int output_fd)
 	return result == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
-static int blocklist_write_data(FILE *input, FILE *config)
+static int blocklist_write_data(FILE *input, FILE *config, const char *block_ip)
 {
 	char line[512], *domain, *address;
 	int type;
@@ -468,7 +469,7 @@ static int blocklist_write_data(FILE *input, FILE *config)
 				;
 			continue;
 		}
-		type = blocklist_parse_data_line(line, &domain, &address);
+		type = blocklist_parse_data_line(line, &domain, &address, block_ip);
 		if (!type)
 			continue;
 		fputs(type == 1 ? "local=/" : type == 2 ? "address=/" : "server=/", config);
@@ -563,9 +564,12 @@ static int blocklist_build_runtime_config(int dirfd)
 {
 	FILE *allow = NULL, *block = NULL, *deny = NULL, *config = NULL;
 	struct blocklist_stamp inputs[BLOCKLIST_STAMP_COUNT - 1];
+	const char *block_ip = nvram_safe_get("dnsmasq_blocklist_ip");
 	char new_name[96] = "";
 	int fd, ok = 0, have_inputs;
 
+	if (!*block_ip)
+		block_ip = "0.0.0.0";
 	unlink(DNSMASQ_BLOCKLIST_STAMP);
 	have_inputs = blocklist_stamp_get(dirfd, inputs, BLOCKLIST_STAMP_COUNT - 1);
 	/* Drop the unreadable hosts output of earlier firmware. */
@@ -587,9 +591,9 @@ static int blocklist_build_runtime_config(int dirfd)
 		goto done;
 	}
 	setvbuf(config, NULL, _IOFBF, DNSMASQ_BLOCKLIST_IO_BUF);
-	if (!blocklist_write_data(allow, config) ||
-	    !blocklist_write_data(block, config) ||
-	    !blocklist_write_data(deny, config) ||
+	if (!blocklist_write_data(allow, config, block_ip) ||
+	    !blocklist_write_data(block, config, block_ip) ||
+	    !blocklist_write_data(deny, config, block_ip) ||
 	    ferror(config))
 		goto done;
 	if (fclose(config) != 0) {
