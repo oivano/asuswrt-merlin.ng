@@ -185,6 +185,7 @@ static int nat_rtp_rtcp(struct sk_buff *skb, struct nf_conn *ct,
 	struct nf_ct_h323_master *info = &nfct_help(ct)->help.ct_h323_info;
 	int dir = CTINFO2DIR(ctinfo);
 	int i;
+	int ret;
 	u_int16_t nated_port;
 
 	/* Set expectations for NAT */
@@ -223,12 +224,21 @@ static int nat_rtp_rtcp(struct sk_buff *skb, struct nf_conn *ct,
 	for (nated_port = ntohs(rtp_exp->tuple.dst.u.udp.port);
 	     nated_port != 0; nated_port += 2) {
 		rtp_exp->tuple.dst.u.udp.port = htons(nated_port);
-		if (nf_ct_expect_related(rtp_exp) == 0) {
-			rtcp_exp->tuple.dst.u.udp.port =
-			    htons(nated_port + 1);
-			if (nf_ct_expect_related(rtcp_exp) == 0)
-				break;
-			nf_ct_unexpect_related(rtp_exp);
+		ret = nf_ct_expect_related(rtp_exp);
+		if (ret == -EBUSY)
+			continue;
+		if (ret != 0) {
+			nated_port = 0;
+			break;
+		}
+		rtcp_exp->tuple.dst.u.udp.port = htons(nated_port + 1);
+		ret = nf_ct_expect_related(rtcp_exp);
+		if (ret == 0)
+			break;
+		nf_ct_unexpect_related(rtp_exp);
+		if (ret != -EBUSY) {
+			nated_port = 0;
+			break;
 		}
 	}
 
@@ -276,6 +286,7 @@ static int nat_t120(struct sk_buff *skb, struct nf_conn *ct,
 {
 	int dir = CTINFO2DIR(ctinfo);
 	u_int16_t nated_port = ntohs(port);
+	int ret;
 
 	/* Set expectations for NAT */
 	exp->saved_proto.tcp.port = exp->tuple.dst.u.tcp.port;
@@ -285,8 +296,13 @@ static int nat_t120(struct sk_buff *skb, struct nf_conn *ct,
 	/* Try to get same port: if not, try to change it. */
 	for (; nated_port != 0; nated_port++) {
 		exp->tuple.dst.u.tcp.port = htons(nated_port);
-		if (nf_ct_expect_related(exp) == 0)
+		ret = nf_ct_expect_related(exp);
+		if (ret == 0)
 			break;
+		if (ret != -EBUSY) {
+			nated_port = 0;
+			break;
+		}
 	}
 
 	if (nated_port == 0) {	/* No port available */
@@ -322,6 +338,7 @@ static int nat_h245(struct sk_buff *skb, struct nf_conn *ct,
 	struct nf_ct_h323_master *info = &nfct_help(ct)->help.ct_h323_info;
 	int dir = CTINFO2DIR(ctinfo);
 	u_int16_t nated_port = ntohs(port);
+	int ret;
 
 	/* Set expectations for NAT */
 	exp->saved_proto.tcp.port = exp->tuple.dst.u.tcp.port;
@@ -335,8 +352,13 @@ static int nat_h245(struct sk_buff *skb, struct nf_conn *ct,
 	/* Try to get same port: if not, try to change it. */
 	for (; nated_port != 0; nated_port++) {
 		exp->tuple.dst.u.tcp.port = htons(nated_port);
-		if (nf_ct_expect_related(exp) == 0)
+		ret = nf_ct_expect_related(exp);
+		if (ret == 0)
 			break;
+		if (ret != -EBUSY) {
+			nated_port = 0;
+			break;
+		}
 	}
 
 	if (nated_port == 0) {	/* No port available */
@@ -405,6 +427,7 @@ static int nat_q931(struct sk_buff *skb, struct nf_conn *ct,
 	struct nf_ct_h323_master *info = &nfct_help(ct)->help.ct_h323_info;
 	int dir = CTINFO2DIR(ctinfo);
 	u_int16_t nated_port = ntohs(port);
+	int ret;
 	union nf_inet_addr addr;
 
 	/* Set expectations for NAT */
@@ -419,8 +442,13 @@ static int nat_q931(struct sk_buff *skb, struct nf_conn *ct,
 	/* Try to get same port: if not, try to change it. */
 	for (; nated_port != 0; nated_port++) {
 		exp->tuple.dst.u.tcp.port = htons(nated_port);
-		if (nf_ct_expect_related(exp) == 0)
+		ret = nf_ct_expect_related(exp);
+		if (ret == 0)
 			break;
+		if (ret != -EBUSY) {
+			nated_port = 0;
+			break;
+		}
 	}
 
 	if (nated_port == 0) {	/* No port available */
@@ -490,6 +518,7 @@ static int nat_callforwarding(struct sk_buff *skb, struct nf_conn *ct,
 {
 	int dir = CTINFO2DIR(ctinfo);
 	u_int16_t nated_port;
+	int ret;
 
 	/* Set expectations for NAT */
 	exp->saved_ip = exp->tuple.dst.u3.ip;
@@ -501,8 +530,13 @@ static int nat_callforwarding(struct sk_buff *skb, struct nf_conn *ct,
 	/* Try to get same port: if not, try to change it. */
 	for (nated_port = ntohs(port); nated_port != 0; nated_port++) {
 		exp->tuple.dst.u.tcp.port = htons(nated_port);
-		if (nf_ct_expect_related(exp) == 0)
+		ret = nf_ct_expect_related(exp);
+		if (ret == 0)
 			break;
+		if (ret != -EBUSY) {
+			nated_port = 0;
+			break;
+		}
 	}
 
 	if (nated_port == 0) {	/* No port available */
