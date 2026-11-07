@@ -38,4 +38,25 @@ assert.deepEqual(update({ id: 'old' }, true), { payload: { id: 'new' }, freed: {
 assert.deepEqual(update(null, false), { payload: null, freed: { id: 'new' } },
     'quota failure frees the unused replacement');
 
-console.log('PASS: user key update on negative key (source contract/model; not kernel execution)');
+const keyctl = read('keyctl.c');
+const readStart = keyctl.indexOf('long keyctl_read_key(');
+const readEnd = keyctl.indexOf('} /* end keyctl_read_key() */', readStart);
+assert.ok(readStart >= 0 && readEnd > readStart, 'keyctl_read_key() present');
+const readBody = keyctl.slice(readStart, readEnd);
+const readPath = readBody.slice(readBody.indexOf('can_read_key:'), readBody.indexOf('error2:'));
+const lock = readPath.indexOf('down_read(&key->sem);');
+const validate = readPath.indexOf('key_validate(key)');
+const readCall = readPath.indexOf('key->type->read(key, buffer, buflen)');
+const unlock = readPath.indexOf('up_read(&key->sem);');
+assert.ok(lock >= 0 && lock < validate, 'key semaphore acquired before validation');
+assert.ok(validate < readCall && readCall < unlock,
+    'validation and type read share the read lock');
+assert.match(readPath,
+    /if \(ret == 0\) \{[\s\S]*?ret = key->type->read\(key, buffer, buflen\);/,
+    'type read only runs after successful validation');
+
+const permission = read('permission.c');
+assert.match(permission, /ret = -EKEYREVOKED;[\s\S]*KEY_FLAG_REVOKED/,
+    'revoked keys fail validation with -EKEYREVOKED');
+
+console.log('PASS: user key payload lifecycle and revoke/read locking (source contract/model; not kernel execution)');
