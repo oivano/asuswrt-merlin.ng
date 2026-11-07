@@ -99,7 +99,50 @@ ifa_sa_len (sa_family_t family, int len)
       if (size < sizeof (struct sockaddr))
 	size = sizeof (struct sockaddr);
     }
-  return size;
+	return size;
+}
+
+static int
+ifa_addr_attrs_valid (struct nlmsghdr *nlh)
+{
+	struct ifaddrmsg *ifam;
+	struct rtattr *rta;
+	size_t address_len;
+	int rtasize;
+
+	if (nlh->nlmsg_type != RTM_NEWADDR)
+		return 1;
+	if (nlh->nlmsg_len < NLMSG_LENGTH (sizeof (*ifam)))
+		return 0;
+	ifam = (struct ifaddrmsg *) NLMSG_DATA (nlh);
+	switch (ifam->ifa_family)
+		{
+		case AF_INET:
+			address_len = sizeof (struct in_addr);
+			break;
+		case AF_INET6:
+			address_len = sizeof (struct in6_addr);
+			break;
+		default:
+			return 1;
+		}
+
+	rtasize = nlh->nlmsg_len - NLMSG_LENGTH (sizeof (*ifam));
+	rta = (struct rtattr *) ((char *) ifam + NLMSG_ALIGN (sizeof (*ifam)));
+	for (; RTA_OK (rta, rtasize); rta = RTA_NEXT (rta, rtasize))
+		switch (rta->rta_type)
+			{
+			case IFA_ADDRESS:
+			case IFA_LOCAL:
+			case IFA_BROADCAST:
+#ifdef HAVE_IFADDRS_IFA_ANYCAST
+			case IFA_ANYCAST:
+#endif
+				if (RTA_PAYLOAD (rta) > address_len)
+					return 0;
+				break;
+			}
+	return 1;
 }
 
 static void
@@ -227,6 +270,8 @@ nl_recvmsg (int sd, int request, int seq,
       msg.msg_flags = 0;
       read_len = recvmsg (sd, &msg, 0);
       if ((read_len < 0 && errno == EINTR) || (msg.msg_flags & MSG_TRUNC))
+	continue;
+      if (read_len >= 0 && nladdr.nl_pid != 0)
 	continue;
       if (flags)
 	*flags = msg.msg_flags;
@@ -534,6 +579,8 @@ getifaddrs (struct ifaddrs **ifap)
 
 	      /* check if the message is what we want */
 	      if (nlh->nlmsg_pid != pid || nlh->nlmsg_seq != nlm->seq)
+		continue;
+	      if (!ifa_addr_attrs_valid (nlh))
 		continue;
 	      if (nlh->nlmsg_type == NLMSG_DONE)
 		{
