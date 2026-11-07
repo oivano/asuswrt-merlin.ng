@@ -242,8 +242,10 @@ ifeq ($(RTCONFIG_SINGLEIMG_B),y)
 endif
 
 ifeq ($(RTAC68U),y)
+ifneq ($(BUILD_NAME),DSL-AC68U)
 	cp -f webs_scripts/ssl_webs_upgrade_enc.sh $(INSTALLDIR)/usr/sbin/webs_upgrade_enc.sh
 	cp -f webs_scripts/ssl_webs_update_enc.sh $(INSTALLDIR)/usr/sbin/webs_update_enc.sh
+endif
 endif
 
 ifeq ($(or $(RTCONFIG_BWDPI),$(RTCONFIG_BWDPI_DEP)),y)

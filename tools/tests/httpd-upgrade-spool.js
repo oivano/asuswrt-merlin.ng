@@ -10,6 +10,7 @@ const splitter = fs.readFileSync(path.join(root,
 const service = fs.readFileSync(path.join(root, 'release/src/router/rc/services.c'), 'utf8');
 const rcDsl = fs.readFileSync(path.join(root, 'release/src/router/rc/sysdeps/dsl-upg.c'), 'utf8');
 const header = fs.readFileSync(path.join(root, 'release/src/router/shared/sysdeps/api-broadcom.c'), 'utf8');
+const romMakefile = fs.readFileSync(path.join(root, 'release/src/router/rom/Makefile'), 'utf8');
 
 assert.match(web, /httpd_upgrade_spool_create\(&upgrade_spool\)/);
 assert.match(web, /open\(spool->path, O_RDWR \| O_CREAT \| O_EXCL \| O_NOFOLLOW, 0600\)/);
@@ -65,6 +66,35 @@ assert.match(abortSpool[1], /nvram_set\("sys_reboot_reason", "rc_upg_spool"\)/);
 assert.match(abortSpool[1], /kill\(1, SIGTERM\)/);
 assert.equal((service.match(/upgrade_abort_invalid_spool\(stop_commit\);/g) || []).length, 4,
     'every post-stop spool rejection must trigger recovery');
+const ateStart = service.slice(service.indexOf('else if(strcmp(script, "upgrade_ate") == 0)'),
+    service.indexOf('else if(strcmp(script, "upgrade") == 0)'));
+assert.match(ateStart, /if \(action & RC_SERVICE_START\) \{\s*#if defined\(RTCONFIG_DSL_REMOTE\)[\s\S]*?if \(!httpd_upgrade_spool_present\(\) \|\| !httpd_upgrade_spool_valid\(\)\)[\s\S]*?goto skip;/);
+assert(ateStart.indexOf('httpd_upgrade_spool_valid()') < ateStart.indexOf('if(action & RC_SERVICE_STOP)'),
+    'ATE start must reject absent or invalid spool before stopping services');
+assert(ateStart.indexOf('Only support under ATE test mode') < ateStart.indexOf('strlcpy(upgrade_file, HTTPD_UPGRADE_IMAGE') &&
+    ateStart.indexOf('strlcpy(upgrade_file, HTTPD_UPGRADE_IMAGE') < ateStart.indexOf('if(action & RC_SERVICE_STOP)'),
+    'ATE mode must be established before selecting the private image or stopping services');
+assert.match(ateStart, /unlink\(upgrade_file\);[\s\S]*?unlink\(HTTPD_UPGRADE_IDENTITY\);[\s\S]*?rmdir\(HTTPD_UPGRADE_DIRECTORY\);/,
+    'ATE flash must clean the private spool after use');
+const upgradeStart = service.slice(service.indexOf('else if(strcmp(script, "upgrade") == 0)'),
+    service.indexOf('else if(strcmp(script, "mfgmode") == 0)'));
+const upgradeGuard = upgradeStart.indexOf('if (!secure_upgrade)');
+assert(upgradeGuard >= 0 && upgradeGuard < upgradeStart.indexOf('do_upgrade_adsldrv();') &&
+    upgradeGuard < upgradeStart.indexOf('if (!f_exists(upgrade_file)'),
+    'normal upgrade must refuse missing/invalid spool before legacy image selection');
+const secureExpression = upgradeStart.match(/int secure_upgrade = ([^;]+);/);
+assert(secureExpression, 'normal upgrade must derive its trust decision from spool validation');
+const sourceGuard = secureExpression[1]
+    .replace(/httpd_upgrade_spool_present\(\)/g, 'present')
+    .replace(/httpd_upgrade_spool_valid\(\)/g, 'valid');
+const mayFlash = new Function('present', 'valid', `return ${sourceGuard};`);
+for (const [present, valid] of [[false, true], [true, false]]) {
+    let mtdCalls = 0;
+    if (mayFlash(present, valid)) mtdCalls++;
+    assert.equal(mtdCalls, 0, 'a planted legacy /tmp image must not reach an mtd writer');
+}
+assert.match(romMakefile, /ifeq \(\$\(RTAC68U\),y\)\s*ifneq \(\$\(BUILD_NAME\),DSL-AC68U\)\s*cp -f webs_scripts\/ssl_webs_upgrade_enc\.sh[\s\S]*?cp -f webs_scripts\/ssl_webs_update_enc\.sh[\s\S]*?endif\s*endif/,
+    'encoded firmware scripts must not be installed in the DSL-AC68U image');
 assert.match(rcDsl, /HTTPD_UPGRADE_DIRECTORY "\/tcfw\.bin"/);
 assert.match(rcDsl, /HTTPD_UPGRADE_DIRECTORY "\/ras\.bin"/);
 
