@@ -527,6 +527,56 @@ get_redirect_rule_by_index(int index,
 	return r;
 }
 
+int
+get_redirect_rule_counts(const char * iaddr, int * total, int * per_client)
+{
+	int r = -1;
+	struct in_addr address;
+	IPTC_HANDLE h;
+	const struct ipt_entry * e;
+	const struct ipt_entry_target * target;
+	const struct ip_nat_multi_range * mr;
+
+	if(!total || !per_client || inet_aton(iaddr, &address) <= 0)
+		return -1;
+	*total = 0;
+	*per_client = 0;
+	h = iptc_init("nat");
+	if(!h) {
+		syslog(LOG_ERR, "%s() : iptc_init() failed : %s",
+		       "get_redirect_rule_counts", iptc_strerror(errno));
+		return -1;
+	}
+	if(!iptc_is_chain(miniupnpd_nat_chain, h)) {
+		syslog(LOG_ERR, "chain %s not found", miniupnpd_nat_chain);
+	} else {
+#ifdef IPTABLES_143
+		for(e = iptc_first_rule(miniupnpd_nat_chain, h);
+		    e;
+		    e = iptc_next_rule(e, h))
+#else
+		for(e = iptc_first_rule(miniupnpd_nat_chain, &h);
+		    e;
+		    e = iptc_next_rule(e, &h))
+#endif
+		{
+			target = (void *)e + e->target_offset;
+			mr = (const struct ip_nat_multi_range *)&target->data[0];
+			(*total)++;
+			if(mr->range[0].min_ip == address.s_addr)
+				(*per_client)++;
+		}
+		r = 0;
+	}
+	if(h)
+#ifdef IPTABLES_143
+		iptc_free(h);
+#else
+		iptc_free(&h);
+#endif
+	return r;
+}
+
 /* get_peer_rule_by_index()
  * return -1 when the rule was not found */
 int

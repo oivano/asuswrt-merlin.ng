@@ -4526,7 +4526,7 @@ TRACE_PT("writing Parental Control\n");
 	/* Add rule to jump to FUPNP chain when upnp is enabled */
 	snprintf(tmp, sizeof(tmp), "wan%d_upnp_enable", wan_primary_ifunit());
 	if (nvram_get_int(tmp) == 1)
-		fprintf(fp, "-A FORWARD -j FUPNP\n");
+		fprintf(fp, "-A FORWARD -i %s ! -o %s -j FUPNP\n", wan_if, wan_if);
 
 //#if 0
 #ifdef RTCONFIG_IPV6

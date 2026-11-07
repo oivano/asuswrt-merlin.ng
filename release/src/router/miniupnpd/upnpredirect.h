@@ -14,6 +14,8 @@
 
 #include "config.h"
 
+#define UPNP_REDIRECT_LIMIT_REACHED -5
+
 #ifdef ENABLE_LEASEFILE
 int reload_from_lease_file(void);
 #ifdef LEASEFILE_USE_REMAINING_TIME
