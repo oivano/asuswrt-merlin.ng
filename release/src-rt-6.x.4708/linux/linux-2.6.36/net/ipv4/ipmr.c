@@ -1199,6 +1199,10 @@ int ip_mroute_setsockopt(struct sock *sk, int optname, char __user *optval, unsi
 	struct net *net = sock_net(sk);
 	struct mr_table *mrt;
 
+	if (sk->sk_type != SOCK_RAW ||
+	    inet_sk(sk)->inet_num != IPPROTO_IGMP)
+		return -EOPNOTSUPP;
+
 	mrt = ipmr_get_table(net, raw_sk(sk)->ipmr_table ? : RT_TABLE_DEFAULT);
 	if (mrt == NULL)
 		return -ENOENT;
@@ -1309,6 +1313,8 @@ int ip_mroute_setsockopt(struct sock *sk, int optname, char __user *optval, unsi
 			return -EINVAL;
 		if (get_user(v, (u32 __user *)optval))
 			return -EFAULT;
+		if (v >= 1000000000)
+			return -EINVAL;
 		if (sk == mrt->mroute_sk)
 			return -EBUSY;
 
@@ -1340,6 +1346,10 @@ int ip_mroute_getsockopt(struct sock *sk, int optname, char __user *optval, int 
 	int val;
 	struct net *net = sock_net(sk);
 	struct mr_table *mrt;
+
+	if (sk->sk_type != SOCK_RAW ||
+	    inet_sk(sk)->inet_num != IPPROTO_IGMP)
+		return -EOPNOTSUPP;
 
 	mrt = ipmr_get_table(net, raw_sk(sk)->ipmr_table ? : RT_TABLE_DEFAULT);
 	if (mrt == NULL)
