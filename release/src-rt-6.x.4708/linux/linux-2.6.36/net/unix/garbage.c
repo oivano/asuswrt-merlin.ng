@@ -153,6 +153,12 @@ void unix_notinflight(struct file *fp)
 	}
 }
 
+void unix_gc_barrier(void)
+{
+	spin_lock(&unix_gc_lock);
+	spin_unlock(&unix_gc_lock);
+}
+
 static void scan_inflight(struct sock *x, void (*func)(struct unix_sock *),
 			  struct sk_buff_head *hitlist)
 {
