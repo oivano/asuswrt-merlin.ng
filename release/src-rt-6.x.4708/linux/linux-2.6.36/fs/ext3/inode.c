@@ -2867,8 +2867,8 @@ struct inode *ext3_iget(struct super_block *sb, unsigned long ino)
 		 * so ignore those first few inodes.
 		 */
 		ei->i_extra_isize = le16_to_cpu(raw_inode->i_extra_isize);
-		if (EXT3_GOOD_OLD_INODE_SIZE + ei->i_extra_isize >
-		    EXT3_INODE_SIZE(inode->i_sb)) {
+		if (EXT3_GOOD_OLD_INODE_SIZE + ei->i_extra_isize +
+		    sizeof(__le32) > EXT3_INODE_SIZE(inode->i_sb)) {
 			brelse (bh);
 			ret = -EIO;
 			goto bad_inode;
