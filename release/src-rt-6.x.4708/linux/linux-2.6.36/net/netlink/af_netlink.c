@@ -643,6 +643,9 @@ static int netlink_bind(struct socket *sock, struct sockaddr *addr,
 	struct sockaddr_nl *nladdr = (struct sockaddr_nl *)addr;
 	int err;
 
+	if (addr_len < sizeof(struct sockaddr_nl))
+		return -EINVAL;
+
 	if (nladdr->nl_family != AF_NETLINK)
 		return -EINVAL;
 
@@ -697,6 +700,8 @@ static int netlink_connect(struct socket *sock, struct sockaddr *addr,
 		nlk->dst_group  = 0;
 		return 0;
 	}
+	if (alen < sizeof(struct sockaddr_nl))
+		return -EINVAL;
 	if (addr->sa_family != AF_NETLINK)
 		return -EINVAL;
 
@@ -1352,6 +1357,8 @@ static int netlink_sendmsg(struct kiocb *kiocb, struct socket *sock,
 
 	if (msg->msg_namelen) {
 		err = -EINVAL;
+		if (msg->msg_namelen < sizeof(struct sockaddr_nl))
+			goto out;
 		if (addr->nl_family != AF_NETLINK)
 			goto out;
 		netlink_skb_flags |= NETLINK_SKB_DST;
