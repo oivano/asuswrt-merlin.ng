@@ -280,7 +280,21 @@ out:
 static int proc_pid_auxv(struct task_struct *task, char *buffer)
 {
 	int res = 0;
-	struct mm_struct *mm = get_task_mm(task);
+	struct mm_struct *mm;
+
+	res = mutex_lock_killable(&task->cred_guard_mutex);
+	if (res)
+		return res;
+
+	mm = get_task_mm(task);
+	if (mm && mm != current->mm &&
+	    !ptrace_may_access(task, PTRACE_MODE_READ)) {
+		mmput(mm);
+		mm = NULL;
+		res = -EACCES;
+	}
+	mutex_unlock(&task->cred_guard_mutex);
+
 	if (mm) {
 		unsigned int nwords = 0;
 		do {
