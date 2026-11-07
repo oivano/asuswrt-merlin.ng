@@ -412,6 +412,10 @@ static int __ext4_ext_check(const char *function, unsigned int line,
 		error_msg = "invalid magic";
 		goto corrupted;
 	}
+	if (unlikely(depth < 0 || depth > EXT4_MAX_EXTENT_DEPTH)) {
+		error_msg = "eh_depth out of bounds";
+		goto corrupted;
+	}
 	if (unlikely(le16_to_cpu(eh->eh_depth) != depth)) {
 		error_msg = "unexpected eh_depth";
 		goto corrupted;
@@ -657,10 +661,16 @@ ext4_ext_find_extent(struct inode *inode, ext4_lblk_t block,
 {
 	struct ext4_extent_header *eh;
 	struct buffer_head *bh;
-	short int depth, i, ppos = 0, alloc = 0;
+	int depth, i, ppos = 0, alloc = 0;
 
 	eh = ext_inode_hdr(inode);
 	depth = ext_depth(inode);
+	if (unlikely(depth < 0 || depth > EXT4_MAX_EXTENT_DEPTH)) {
+		EXT4_ERROR_INODE(inode, "extent tree depth is invalid: %d", depth);
+		if (!path)
+			return ERR_PTR(-EIO);
+		goto err;
+	}
 
 	/* account possible depth increase */
 	if (!path) {
