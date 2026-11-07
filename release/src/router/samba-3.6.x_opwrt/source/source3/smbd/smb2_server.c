@@ -420,13 +420,17 @@ static NTSTATUS smbd_smb2_request_validate(struct smbd_smb2_request *req)
 
 	count = req->in.vector_count;
 
-	if (count < 4) {
+	if (count < 4 || ((count - 1) % 3) != 0) {
 		/* It's not a SMB2 request */
 		return NT_STATUS_INVALID_PARAMETER;
 	}
 
 	for (idx=1; idx < count; idx += 3) {
 		const uint8_t *inhdr = NULL;
+
+		if (idx + 2 >= count) {
+			return NT_STATUS_INVALID_PARAMETER;
+		}
 
 		if (req->in.vector[idx].iov_len != SMB2_HDR_BODY) {
 			return NT_STATUS_INVALID_PARAMETER;
@@ -606,6 +610,10 @@ static NTSTATUS smbd_smb2_request_setup_out(struct smbd_smb2_request *req)
 	int idx;
 
 	count = req->in.vector_count;
+	if (count < 4 || ((count - 1) % 3) != 0) {
+		return NT_STATUS_INVALID_PARAMETER;
+	}
+
 	vector = talloc_zero_array(req, struct iovec, count);
 	if (vector == NULL) {
 		return NT_STATUS_NO_MEMORY;
@@ -622,6 +630,10 @@ static NTSTATUS smbd_smb2_request_setup_out(struct smbd_smb2_request *req)
 		uint8_t *outbody = NULL;
 		uint32_t next_command_ofs = 0;
 		struct iovec *current = &vector[idx];
+
+		if (idx + 2 >= count) {
+			return NT_STATUS_INVALID_PARAMETER;
+		}
 
 		if ((idx + 3) < count) {
 			/* we have a next command -
@@ -1971,6 +1983,11 @@ NTSTATUS smbd_smb2_request_done_ex(struct smbd_smb2_request *req,
 		  (unsigned int)(dyn ? dyn->length : 0),
 		  location));
 
+	if (req->out.vector == NULL || i < 1 ||
+	    i + 2 >= req->out.vector_count) {
+		return NT_STATUS_INTERNAL_ERROR;
+	}
+
 	if (body.length < 2) {
 		return smbd_smb2_request_error(req, NT_STATUS_INTERNAL_ERROR);
 	}
@@ -2342,7 +2359,7 @@ static int smbd_smb2_request_next_vector(struct tstream_context *stream,
 		return 0;
 	}
 
-	if (state->missing == 0) {
+	if (state->missing == 0 && !state->asked_for_header) {
 		/* if there're no remaining bytes, we're done */
 		*_vector = NULL;
 		*_count = 0;
@@ -2471,6 +2488,9 @@ static int smbd_smb2_request_next_vector(struct tstream_context *stream,
 	 * next. And we ask for its header and the first 2 bytes of
 	 * the body (like we did for the first SMB2 request).
 	 */
+	if (state->missing < SMB2_HDR_BODY + 2) {
+		return -1;
+	}
 
 	req->in.vector = talloc_realloc(req, req->in.vector,
 					struct iovec,
