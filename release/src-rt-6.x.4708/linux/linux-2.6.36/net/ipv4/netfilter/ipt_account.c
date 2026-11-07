@@ -273,15 +273,20 @@ ipt_account_table_get(struct t_ipt_account_table *table)
 static inline void
 ipt_account_table_put(struct t_ipt_account_table *table) 
 {
+  int destroy = 0;
+
 #ifdef DEBUG_IPT_ACCOUNT  
   if (debug) printk(KERN_DEBUG "ipt_account [ipt_account_table_put]: name = %s\n", table->name);  
 #endif  
+  write_lock_bh(&ipt_account_lock);
   if (atomic_dec_and_test(&table->use)) {
-    write_lock_bh(&ipt_account_lock);
     list_del(&table->list);
-    write_unlock_bh(&ipt_account_lock);
-    ipt_account_table_destroy(table);
+    destroy = 1;
   }
+  write_unlock_bh(&ipt_account_lock);
+
+  if (destroy)
+    ipt_account_table_destroy(table);
 }
 
 /*
@@ -608,6 +613,7 @@ checkentry(
     if (info->table != NULL) {
       if (info->table != table) {
         printk(KERN_ERR "ipt_account[checkentry]: reloaded rule has invalid table pointer.\n");
+        ipt_account_table_put(table);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,28)
         mutex_unlock(&ipt_account_mutex);
 #else
