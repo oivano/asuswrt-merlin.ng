@@ -39,6 +39,19 @@ static void add_workgroup(struct subnet_record *subrec, struct work_record *work
 	subrec->work_changed = True;
 }
 
+static unsigned int count_learned_workgroups(struct subnet_record *subrec)
+{
+	struct work_record *work;
+	unsigned int count = 0;
+
+	for (work = subrec->workgrouplist; work; work = work->next) {
+		if (work->death_time != PERMANENT_TTL)
+			count++;
+	}
+
+	return count;
+}
+
 /****************************************************************************
  Copy name to unstring. Used by create_workgroup() and find_workgroup_on_subnet().
 **************************************************************************/
@@ -184,9 +197,21 @@ struct work_record *create_workgroup_on_subnet(struct subnet_record *subrec,
                                                const char *name, int ttl)
 {
 	struct work_record *work = NULL;
+	bool local_workgroup = (ttl == PERMANENT_TTL) &&
+		strequal(name, lp_workgroup());
 
 	DEBUG(4,("create_workgroup_on_subnet: creating group %s on subnet %s\n",
 		name, subrec->subnet_name));
+
+	if (!local_workgroup) {
+		if (count_learned_workgroups(subrec) >=
+		    MAX_BROWSE_WORKGROUPS_PER_SUBNET) {
+			DEBUG(2,("create_workgroup_on_subnet: workgroup limit reached on subnet %s; refusing %s\n",
+				subrec->subnet_name, name));
+			return NULL;
+		}
+		ttl = clamp_browse_record_ttl(ttl);
+	}
   
 	if ((work = create_workgroup(name, ttl))) {
 		add_workgroup(subrec, work);
@@ -203,8 +228,10 @@ struct work_record *create_workgroup_on_subnet(struct subnet_record *subrec,
 
 void update_workgroup_ttl(struct work_record *work, int ttl)
 {
-	if(work->death_time != PERMANENT_TTL)
+	if (work->death_time != PERMANENT_TTL) {
+		ttl = clamp_browse_record_ttl(ttl);
 		work->death_time = time(NULL)+(ttl*3);
+	}
 	work->subnet->work_changed = True;
 }
 

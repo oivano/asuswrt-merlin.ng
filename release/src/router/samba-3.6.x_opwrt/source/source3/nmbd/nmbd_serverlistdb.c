@@ -27,6 +27,38 @@
 
 int updatecount = 0;
 
+int clamp_browse_record_ttl(int ttl)
+{
+	int max_ttl = lp_max_ttl();
+
+	if (max_ttl > MAX_BROWSE_RECORD_TTL)
+		max_ttl = MAX_BROWSE_RECORD_TTL;
+	if (max_ttl < 1)
+		max_ttl = 1;
+	if (ttl < 1)
+		ttl = 1;
+	if (ttl > max_ttl)
+		ttl = max_ttl;
+
+	return ttl;
+}
+
+static unsigned int count_learned_servers(struct subnet_record *subrec)
+{
+	struct work_record *work;
+	struct server_record *servrec;
+	unsigned int count = 0;
+
+	for (work = subrec->workgrouplist; work; work = work->next) {
+		for (servrec = work->serverlist; servrec; servrec = servrec->next) {
+			if (servrec->death_time != PERMANENT_TTL)
+				count++;
+		}
+	}
+
+	return count;
+}
+
 /*******************************************************************
   Remove all the servers in a work group.
   ******************************************************************/
@@ -95,19 +127,28 @@ struct server_record *create_server_on_workgroup(struct work_record *work,
                                                  int ttl, const char *comment)
 {
 	struct server_record *servrec;
+	bool local_server;
   
 	if (name[0] == '*') {
 		DEBUG(7,("create_server_on_workgroup: not adding name starting with '*' (%s)\n",
 			name));
 		return (NULL);
 	}
-  
+
 	if(find_server_in_workgroup(work, name) != NULL) {
 		DEBUG(0,("create_server_on_workgroup: Server %s already exists on \
 workgroup %s. This is a bug.\n", name, work->work_group));
 		return NULL;
 	}
-  
+
+	local_server = is_myname(name) && strequal(work->work_group, lp_workgroup());
+	if (!local_server &&
+	    count_learned_servers(work->subnet) >= MAX_BROWSE_SERVERS_PER_SUBNET) {
+		DEBUG(2,("create_server_on_workgroup: server limit reached on subnet %s; refusing %s\n",
+			work->subnet->subnet_name, name));
+		return NULL;
+	}
+
 	if((servrec = SMB_MALLOC_P(struct server_record)) == NULL) {
 		DEBUG(0,("create_server_entry_on_workgroup: malloc fail !\n"));
 		return NULL;
@@ -122,7 +163,12 @@ workgroup %s. This is a bug.\n", name, work->work_group));
 	strupper_m(servrec->serv.name);
 	servrec->serv.type  = servertype;
 
-	update_server_ttl(servrec, ttl);
+	if (local_server) {
+		servrec->death_time = PERMANENT_TTL;
+	} else {
+		servrec->death_time = 1;
+		update_server_ttl(servrec, ttl);
+	}
   
 	add_server_to_workgroup(work, servrec);
       
@@ -140,13 +186,13 @@ workgroup %s.\n", name,servertype,comment, work->work_group));
 
 void update_server_ttl(struct server_record *servrec, int ttl)
 {
-	if(ttl > lp_max_ttl())
-		ttl = lp_max_ttl();
-
-	if(is_myname(servrec->serv.name))
+	if (is_myname(servrec->serv.name) &&
+	    servrec->death_time == PERMANENT_TTL) {
 		servrec->death_time = PERMANENT_TTL;
-	else
-		servrec->death_time = (ttl != PERMANENT_TTL) ? time(NULL)+(ttl*3) : PERMANENT_TTL;
+	} else {
+		ttl = clamp_browse_record_ttl(ttl);
+		servrec->death_time = time(NULL)+(ttl*3);
+	}
 
 	servrec->subnet->work_changed = True;
 }
