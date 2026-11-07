@@ -74,6 +74,11 @@ static void __nf_ct_ext_free_rcu(struct rcu_head *head)
 	kfree(ext);
 }
 
+void __nf_ct_ext_free(struct nf_conn *ct)
+{
+	call_rcu(&ct->ext->rcu, __nf_ct_ext_free_rcu);
+}
+
 void *__nf_ct_ext_add(struct nf_conn *ct, enum nf_ct_ext_id id, gfp_t gfp)
 {
 	struct nf_ct_ext *old, *new;
