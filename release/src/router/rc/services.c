@@ -6909,6 +6909,9 @@ wl_igs_enabled(void)
 	char tmp[100], prefix[] = "wlXXXXXXXXXXXXXX";
 	char word[256], *next, ifnames[128];
 
+	if (!nvram_get_int("emf_enable"))
+		return 0;
+
 	i = 0;
 	strcpy(ifnames, nvram_safe_get("wl_ifnames"));
 	foreach (word, ifnames, next) {
