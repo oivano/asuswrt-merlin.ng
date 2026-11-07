@@ -599,7 +599,13 @@ static int
 ext4_xattr_set_entry(struct ext4_xattr_info *i, struct ext4_xattr_search *s)
 {
 	struct ext4_xattr_entry *last;
-	size_t free, min_offs = s->end - s->base, name_len = strlen(i->name);
+	size_t free, min_offs, name_len = strlen(i->name);
+	int total = 0;
+
+	if (!s->base || !s->first || !s->end ||
+	    ext4_xattr_free_space(s->first, &free, s->base, s->end, &total))
+		return -EIO;
+	min_offs = (char *)s->end - (char *)s->base;
 
 	/* Compute min_offs and last. */
 	last = s->first;
@@ -610,7 +616,8 @@ ext4_xattr_set_entry(struct ext4_xattr_info *i, struct ext4_xattr_search *s)
 				min_offs = offs;
 		}
 	}
-	free = min_offs - ((void *)last - s->base) - sizeof(__u32);
+	if (min_offs < (char *)last - (char *)s->base + sizeof(__u32))
+		return -EIO;
 	if (!s->not_found) {
 		if (!s->here->e_value_block && s->here->e_value_size) {
 			size_t size = le32_to_cpu(s->here->e_value_size);
