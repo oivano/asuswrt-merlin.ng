@@ -43,6 +43,7 @@ int ip6_datagram_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 	struct flowi		fl;
 	struct ip6_flowlabel	*flowlabel = NULL;
 	struct ipv6_txoptions   *opt;
+	struct ipv6_txoptions   *opt_to_free = NULL;
 	int			addr_type;
 	int			err;
 
@@ -159,7 +160,22 @@ ipv4_connected:
 
 	security_sk_classify_flow(sk, &fl);
 
-	opt = flowlabel ? flowlabel->opt : np->opt;
+	if (flowlabel) {
+		opt = flowlabel->opt;
+	} else {
+		lock_sock(sk);
+		opt = np->opt;
+		if (opt) {
+			opt = ipv6_dup_options(sk, opt);
+			if (!opt) {
+				release_sock(sk);
+				err = -ENOBUFS;
+				goto out;
+			}
+			opt_to_free = opt;
+		}
+		release_sock(sk);
+	}
 	final_p = fl6_update_dst(&fl, opt, &final);
 
 	err = ip6_dst_lookup(sk, &dst, &fl);
@@ -200,6 +216,8 @@ ipv4_connected:
 	sk->sk_state = TCP_ESTABLISHED;
 out:
 	fl6_sock_release(flowlabel);
+	if (opt_to_free)
+		sock_kfree_s(sk, opt_to_free, opt_to_free->tot_len);
 	return err;
 }
 
