@@ -2926,6 +2926,9 @@ void write_access_restriction(FILE *fp, FILE *fp_ipv6)
  */
 
 static void write_guest_ipv4_input_rules(FILE *fp, const char *lan_ip);
+#ifdef RTCONFIG_IPV6
+static void write_guest_ipv6_input_rules(FILE *fp);
+#endif
 static void write_guest_hairpin_drop_rule(FILE *fp, const char *lan_if, const char *guest_mark);
 
 void 	// 0928 add
@@ -3160,18 +3163,7 @@ start_default_filter(int lanunit)
 		ipv6_enabled() ? "ACCEPT" : "DROP");
 
 	if (ipv6_enabled()) {
-		fprintf(fp, "-A INPUT -m mark --mark %s/%s -p ipv6-icmp -j ACCEPT\n",
-			BIT_GUEST_IPV6, BIT_GUEST_IPV6);
-		fprintf(fp, "-A INPUT -m mark --mark %s/%s -p tcp --dport 53 -j ACCEPT\n",
-			BIT_GUEST_IPV6, BIT_GUEST_IPV6);
-		fprintf(fp, "-A INPUT -m mark --mark %s/%s -p udp --dport 53 -j ACCEPT\n",
-			BIT_GUEST_IPV6, BIT_GUEST_IPV6);
-		fprintf(fp, "-A INPUT -m mark --mark %s/%s -p udp --dport 547 -j ACCEPT\n",
-			BIT_GUEST_IPV6, BIT_GUEST_IPV6);
-		fprintf(fp, "-A INPUT -i %s -s fe80::/10 -m mark --mark %s/%s -p udp --sport 547 --dport 546 -j ACCEPT\n",
-			get_wan6face(), BIT_GUEST_IPV6, BIT_GUEST_IPV6);
-		fprintf(fp, "-A INPUT -m mark --mark %s/%s -j DROP\n",
-			BIT_GUEST_IPV6, BIT_GUEST_IPV6);
+		write_guest_ipv6_input_rules(fp);
 		fprintf(fp, "-A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT\n");
 		fprintf(fp, "-A INPUT -m state --state INVALID -j %s\n", debug ? "ACCEPT" : "DROP");
 		write_access_restriction_ipv6(fp);
@@ -3567,6 +3559,24 @@ static void write_guest_ipv4_input_rules(FILE *fp, const char *lan_ip)
 		BIT_GUEST_IPV4, BIT_GUEST_IPV4);
 }
 
+#ifdef RTCONFIG_IPV6
+static void write_guest_ipv6_input_rules(FILE *fp)
+{
+	fprintf(fp, "-A INPUT -m mark --mark %s/%s -p ipv6-icmp -j ACCEPT\n",
+		BIT_GUEST_IPV6, BIT_GUEST_IPV6);
+	fprintf(fp, "-A INPUT -m mark --mark %s/%s -p tcp --dport 53 -j ACCEPT\n",
+		BIT_GUEST_IPV6, BIT_GUEST_IPV6);
+	fprintf(fp, "-A INPUT -m mark --mark %s/%s -p udp --dport 53 -j ACCEPT\n",
+		BIT_GUEST_IPV6, BIT_GUEST_IPV6);
+	fprintf(fp, "-A INPUT -m mark --mark %s/%s -p udp --dport 547 -j ACCEPT\n",
+		BIT_GUEST_IPV6, BIT_GUEST_IPV6);
+	fprintf(fp, "-A INPUT -i %s -s fe80::/10 -m mark --mark %s/%s -p udp --sport 547 --dport 546 -j ACCEPT\n",
+		get_wan6face(), BIT_GUEST_IPV6, BIT_GUEST_IPV6);
+	fprintf(fp, "-A INPUT -m mark --mark %s/%s -j DROP\n",
+		BIT_GUEST_IPV6, BIT_GUEST_IPV6);
+}
+#endif
+
 static void write_guest_hairpin_drop_rule(FILE *fp, const char *lan_if, const char *guest_mark)
 {
 	fprintf(fp, "-A FORWARD -i %s -o %s -m mark --mark %s/%s -j DROP\n",
@@ -3754,6 +3764,7 @@ filter_setting(int wan_unit, char *lan_if, char *lan_ip, char *logaccept, char *
 		    ":logdrop - [0:0]\n",
 		nvram_match("ipv6_fw_enable", "1") ? "DROP" : "ACCEPT");
 		write_guest_hairpin_drop_rule(fp_ipv6, lan_if, BIT_GUEST_IPV6);
+		write_guest_ipv6_input_rules(fp_ipv6);
 	}
 #endif
 
@@ -5265,6 +5276,7 @@ filter_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)
 		    ":logdrop - [0:0]\n",
 		nvram_match("ipv6_fw_enable", "1") ? "DROP" : "ACCEPT");
 		write_guest_hairpin_drop_rule(fp_ipv6, lan_if, BIT_GUEST_IPV6);
+		write_guest_ipv6_input_rules(fp_ipv6);
 	}
 #endif
 
