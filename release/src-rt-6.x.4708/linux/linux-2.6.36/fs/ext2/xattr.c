@@ -93,6 +93,58 @@
 static int ext2_xattr_set2(struct inode *, struct buffer_head *,
 			   struct ext2_xattr_header *);
 
+static int
+ext2_xattr_check_names(struct ext2_xattr_entry *entry, void *end)
+{
+	while (1) {
+		struct ext2_xattr_entry *next;
+
+		if ((char *)entry > (char *)end ||
+		    (char *)end - (char *)entry < sizeof(__u32))
+			return -EIO;
+		if (IS_LAST_ENTRY(entry))
+			return 0;
+		if ((char *)end - (char *)entry < sizeof(*entry))
+			return -EIO;
+		next = EXT2_XATTR_NEXT(entry);
+		if ((char *)next <= (char *)entry ||
+		    (char *)next > (char *)end - sizeof(__u32))
+			return -EIO;
+		entry = next;
+	}
+}
+
+static int
+ext2_xattr_check_entries(struct ext2_xattr_entry *entry, void *base, void *end)
+{
+	struct ext2_xattr_entry *last;
+	size_t size, table_end;
+
+	if ((char *)end < (char *)base || (char *)entry < (char *)base ||
+	    (char *)end - (char *)base < sizeof(__u32) ||
+	    ext2_xattr_check_names(entry, end))
+		return -EIO;
+	last = entry;
+	while (!IS_LAST_ENTRY(last))
+		last = EXT2_XATTR_NEXT(last);
+	size = (char *)end - (char *)base;
+	table_end = (char *)last - (char *)base + sizeof(__u32);
+	if (table_end > size)
+		return -EIO;
+	for (; !IS_LAST_ENTRY(entry); entry = EXT2_XATTR_NEXT(entry)) {
+		size_t value_size = le32_to_cpu(entry->e_value_size);
+		size_t value_offs = le16_to_cpu(entry->e_value_offs);
+
+		if (entry->e_value_block != 0 || value_size > size ||
+		    value_offs > size ||
+		    (value_size &&
+		     (EXT2_XATTR_SIZE(value_size) > size - value_offs ||
+		      value_offs < table_end)))
+			return -EIO;
+	}
+	return 0;
+}
+
 static int ext2_xattr_cache_insert(struct buffer_head *);
 static struct buffer_head *ext2_xattr_cache_find(struct inode *,
 						 struct ext2_xattr_header *);
@@ -418,6 +470,8 @@ bad_block:		ext2_error(sb, "ext2_xattr_set",
 			error = -EIO;
 			goto cleanup;
 		}
+		if (ext2_xattr_check_entries(FIRST_ENTRY(bh), header, end))
+			goto bad_block;
 		/* Find the named attribute. */
 		here = FIRST_ENTRY(bh);
 		while (!IS_LAST_ENTRY(here)) {
@@ -453,6 +507,9 @@ bad_block:		ext2_error(sb, "ext2_xattr_set",
 		}
 
 		/* Check whether we have enough space left. */
+		if (min_offs < (char *)last - (char *)header + sizeof(__u32) ||
+		    min_offs > bh->b_size)
+			goto bad_block;
 		free = min_offs - ((char*)last - (char*)header) - sizeof(__u32);
 	} else {
 		/* We will use a new extended attribute block. */
