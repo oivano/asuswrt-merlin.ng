@@ -436,7 +436,6 @@ ipt_do_table(struct sk_buff *skb,
 		if (verdict == IPT_CONTINUE)
 			e = ipt_next_entry(e);
 		else if (verdict == IPT_RETURN) {		// added -- zzz
-			e = jumpstack[--*stackptr];
 			if (*stackptr <= origptr) {
 				e = get_entry(table_base,
 				    private->underflow[hook]);
