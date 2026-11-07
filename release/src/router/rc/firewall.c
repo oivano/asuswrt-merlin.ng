@@ -2962,6 +2962,7 @@ start_default_filter(int lanunit)
 	fprintf(fp, ":%sWAN - [0:0]\n", PROTECT_SRV_RULE_CHAIN);
 	fprintf(fp, ":%sLAN - [0:0]\n", PROTECT_SRV_RULE_CHAIN);
 #endif
+	fprintf(fp, "-A INPUT ! -i lo -p udp -m multiport --dports 37000,38000,39000,42000,43000,51000,59000 -j DROP\n");
 	write_guest_ipv4_input_rules(fp, nvram_safe_get("lan_ipaddr"));
 	write_guest_hairpin_drop_rule(fp, lan_if, BIT_GUEST_IPV4);
 
