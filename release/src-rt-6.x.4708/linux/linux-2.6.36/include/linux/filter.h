@@ -194,6 +194,8 @@ struct sk_buff;
 struct sock;
 
 extern int sk_filter(struct sock *sk, struct sk_buff *skb);
+extern int sk_filter_trim_cap(struct sock *sk, struct sk_buff *skb,
+			      unsigned int cap);
 extern unsigned int sk_run_filter(struct sk_buff *skb,
 				  struct sock_filter *filter, int flen);
 extern int sk_attach_filter(struct sock_fprog *fprog, struct sock *sk);

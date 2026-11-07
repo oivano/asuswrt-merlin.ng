@@ -77,7 +77,8 @@ static inline void *load_pointer(struct sk_buff *skb, int k,
  * be accepted or -EPERM if the packet should be tossed.
  *
  */
-int sk_filter(struct sock *sk, struct sk_buff *skb)
+int sk_filter_trim_cap(struct sock *sk, struct sk_buff *skb,
+		       unsigned int cap)
 {
 	int err;
 	struct sk_filter *filter;
@@ -91,11 +92,23 @@ int sk_filter(struct sock *sk, struct sk_buff *skb)
 	if (filter) {
 		unsigned int pkt_len = sk_run_filter(skb, filter->insns,
 				filter->len);
-		err = pkt_len ? pskb_trim(skb, pkt_len) : -EPERM;
+		if (pkt_len) {
+			if (pkt_len < cap)
+				pkt_len = cap;
+			err = pskb_trim(skb, pkt_len);
+		} else {
+			err = -EPERM;
+		}
 	}
 	rcu_read_unlock_bh();
 
 	return err;
+}
+EXPORT_SYMBOL(sk_filter_trim_cap);
+
+int sk_filter(struct sock *sk, struct sk_buff *skb)
+{
+	return sk_filter_trim_cap(sk, skb, 0);
 }
 EXPORT_SYMBOL(sk_filter);
 

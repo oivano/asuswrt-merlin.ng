@@ -1613,6 +1613,21 @@ csum_err:
 	TCP_INC_STATS_BH(sock_net(sk), TCP_MIB_INERRS);
 	goto discard;
 }
+
+int tcp_filter(struct sock *sk, struct sk_buff *skb)
+{
+	struct tcphdr *th = tcp_hdr(skb);
+	unsigned int eaten = skb->len;
+	int err;
+
+	err = sk_filter_trim_cap(sk, skb, th->doff * 4);
+	if (!err) {
+		eaten -= skb->len;
+		TCP_SKB_CB(skb)->end_seq -= eaten;
+	}
+	return err;
+}
+EXPORT_SYMBOL(tcp_filter);
 EXPORT_SYMBOL(tcp_v4_do_rcv);
 
 /*
@@ -1677,8 +1692,10 @@ process:
 		goto discard_and_relse;
 	nf_reset(skb);
 
-	if (sk_filter(sk, skb))
+	if (tcp_filter(sk, skb))
 		goto discard_and_relse;
+	th = tcp_hdr(skb);
+	iph = ip_hdr(skb);
 
 	skb->dev = NULL;
 
