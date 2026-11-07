@@ -648,6 +648,16 @@ void clock_was_set(void)
 	on_each_cpu(retrigger_next_event, NULL, 1);
 }
 
+static void clock_was_set_work_fn(struct work_struct *work)
+{
+	clock_was_set();
+}
+
+void clock_was_set_delayed(void)
+{
+	schedule_work(&__get_cpu_var(hrtimer_bases).clock_was_set_work);
+}
+
 /*
  * During resume we might have to reprogram the high resolution timer
  * interrupt (on the local CPU):
@@ -1627,6 +1637,7 @@ static void __cpuinit init_hrtimers_cpu(int cpu)
 	for (i = 0; i < HRTIMER_MAX_CLOCK_BASES; i++)
 		cpu_base->clock_base[i].cpu_base = cpu_base;
 
+	INIT_WORK(&cpu_base->clock_was_set_work, clock_was_set_work_fn);
 	hrtimer_init_hres(cpu_base);
 }
 
