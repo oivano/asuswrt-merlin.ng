@@ -45,4 +45,30 @@ assert.match(getname,
     /len = sizeof\(struct sockaddr_pppox\)[\s\S]*?memcpy\(uaddr, &sp, len\)[\s\S]*?\*usockaddr_len = len;/,
     'getname returns the full address only after a full-length connect was accepted');
 
+const flush = functionBody(source, 'static void pppoe_flush_dev(');
+assert.match(flush,
+    /if \(po->pppoe_dev == dev\) \{[\s\S]*?po->pppoe_dev = NULL;\s*dev_put\(dev\);/,
+    'device flush releases a matching device reference regardless of socket state');
+assert.doesNotMatch(flush.slice(flush.indexOf('if (po->pppoe_dev == dev)')),
+    /sk->sk_state\s*&/,
+    'device flush does not gate reference release on socket state');
+
+const release = functionBody(source, 'static int pppoe_release(');
+assert.match(release,
+    /if \(po->pppoe_dev\) \{\s*dev_put\(po->pppoe_dev\);\s*po->pppoe_dev = NULL;/,
+    'socket release drops a held device reference regardless of socket state');
+assert.doesNotMatch(release.slice(release.indexOf('if (po->pppoe_dev)')),
+    /sk->sk_state\s*&/,
+    'socket release does not gate reference release on socket state');
+
+function releaseReference(state, hasDevice) {
+    const holdsReference = hasDevice;
+    return { state, puts: holdsReference ? 1 : 0 };
+}
+
+assert.equal(releaseReference('ZOMBIE', true).puts, 1,
+    'closing a PADT-zombified socket releases its held device reference');
+assert.equal(releaseReference('ZOMBIE', false).puts, 0,
+    'closing a socket zombified by device flush does not put NULL');
+
 console.log('PPPoE connect sockaddr length checks passed');
