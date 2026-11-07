@@ -208,6 +208,7 @@ function drawClientList(tab){
 		}
 		
 		var deviceTitle = (clientObj.dpiDevice == "") ? clientObj.vendor : clientObj.dpiDevice;
+		deviceTitle = (deviceTitle == undefined) ? "" : htmlEnDeCode.htmlEncode(deviceTitle);
 		if(top.isIE8){
 			clientHtmlTd += '<div class="clientIconIE8HACK"';
 			clientHtmlTd += ' title="';
@@ -308,7 +309,7 @@ function drawClientList(tab){
 			var radioIcon_css = "radioIcon";
 			if(clientObj.isGN != "" && clientObj.isGN != undefined)
 				radioIcon_css += " GN";
-			clientHtmlTd += '<div class="' + radioIcon_css + ' radio_' + rssi_t +'" title="' + connectModeTip + '"></div>';
+			clientHtmlTd += '<div class="' + radioIcon_css + ' radio_' + rssi_t +'" title="' + htmlEnDeCode.htmlEncode(connectModeTip) + '"></div>';
 			if(clientObj.isWL != 0) {
 				var bandClass = (navigator.userAgent.toUpperCase().match(/CHROME\/([\d.]+)/)) ? "band_txt_chrome" : "band_txt";
 				clientHtmlTd += '<div class="band_block"><span class='+bandClass+'>' + isWL_map[clientObj.isWL]["text"] + '</span></div>';
