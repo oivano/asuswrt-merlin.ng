@@ -1705,6 +1705,7 @@ static int key_notify_sa_flush(struct km_event *c)
 	if (!skb)
 		return -ENOBUFS;
 	hdr = (struct sadb_msg *) skb_put(skb, sizeof(struct sadb_msg));
+	memset(hdr, 0, sizeof(*hdr));
 	hdr->sadb_msg_satype = pfkey_proto2satype(c->data.proto);
 	hdr->sadb_msg_type = SADB_FLUSH;
 	hdr->sadb_msg_seq = c->seq;
@@ -2686,7 +2687,9 @@ static int key_notify_policy_flush(struct km_event *c)
 	if (!skb_out)
 		return -ENOBUFS;
 	hdr = (struct sadb_msg *) skb_put(skb_out, sizeof(struct sadb_msg));
+	memset(hdr, 0, sizeof(*hdr));
 	hdr->sadb_msg_type = SADB_X_SPDFLUSH;
+	hdr->sadb_msg_satype = SADB_SATYPE_UNSPEC;
 	hdr->sadb_msg_seq = c->seq;
 	hdr->sadb_msg_pid = c->pid;
 	hdr->sadb_msg_version = PF_KEY_V2;
