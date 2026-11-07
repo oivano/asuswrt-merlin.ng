@@ -39,6 +39,28 @@ static int br_pass_frame_up(struct sk_buff *skb)
 		       netif_receive_skb);
 }
 
+int br_is_modem_console(const struct sk_buff *skb)
+{
+	__be16 protocol = skb->protocol;
+	struct vlan_hdr header, *tag;
+	int offset = 0;
+	int depth;
+
+	for (depth = 0; depth < 2; depth++) {
+		if (protocol != htons(ETH_P_8021Q) &&
+		    protocol != htons(0x88a8) && protocol != htons(0x9100))
+			break;
+		tag = skb_header_pointer(skb, offset, sizeof(header), &header);
+		if (!tag)
+			return 1;
+		protocol = tag->h_vlan_encapsulated_proto;
+		offset += VLAN_HLEN;
+	}
+
+	return protocol == htons(0xaaaa) || protocol == htons(ETH_P_8021Q) ||
+	       protocol == htons(0x88a8) || protocol == htons(0x9100);
+}
+
 /* note: already called with rcu_read_lock */
 int br_handle_frame_finish(struct sk_buff *skb)
 {
@@ -50,6 +72,8 @@ int br_handle_frame_finish(struct sk_buff *skb)
 	struct sk_buff *skb2;
 
 	if (!p || p->state == BR_STATE_DISABLED)
+		goto drop;
+	if (br_is_modem_console(skb))
 		goto drop;
 
 	/* insert into forwarding database after filtering to avoid spoofing */
