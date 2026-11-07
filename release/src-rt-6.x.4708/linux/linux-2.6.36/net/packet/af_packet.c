@@ -57,6 +57,7 @@
 #include <linux/inet.h>
 #include <linux/netdevice.h>
 #include <linux/if_packet.h>
+#include <linux/string.h>
 #include <linux/wireless.h>
 #include <linux/kernel.h>
 #include <linux/kmod.h>
@@ -542,6 +543,9 @@ static int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 	po = pkt_sk(sk);
 
 	if (!net_eq(dev_net(dev), sock_net(sk)))
+		goto drop;
+	if (skb->pkt_type != PACKET_OUTGOING && po->num == htons(0xaaaa) &&
+	    strcmp(dev->name, "vlan2") != 0)
 		goto drop;
 
 	skb->dev = dev;

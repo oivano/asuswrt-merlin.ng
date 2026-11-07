@@ -5,8 +5,12 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '../..');
 const source = fs.readFileSync(path.join(root,
     'release/src-rt-6.x.4708/linux/linux-2.6.36/net/bridge/br_forward.c'), 'utf8');
-const helper = source.slice(source.indexOf('static int br_is_modem_console('),
-    source.indexOf('static void __br_forward('));
+const input = fs.readFileSync(path.join(root,
+    'release/src-rt-6.x.4708/linux/linux-2.6.36/net/bridge/br_input.c'), 'utf8');
+const packetSource = fs.readFileSync(path.join(root,
+    'release/src-rt-6.x.4708/linux/linux-2.6.36/net/packet/af_packet.c'), 'utf8');
+const helper = input.slice(input.indexOf('int br_is_modem_console('),
+    input.indexOf('/* note: already called with rcu_read_lock */'));
 assert.match(helper, /__be16 protocol = skb->protocol;/);
 assert.match(helper, /int offset = 0;/);
 assert.match(helper, /depth < 2/);
@@ -44,7 +48,7 @@ function frame(protocol, tags) {
     return [tags[0] || protocol, payload];
 }
 for (const tags of [[], [0x8100], [0x88a8], [0x9100],
-    [0x8100, 0x8100], [0x88a8, 0x8100], [0x9100, 0x8100]]) {
+[0x8100, 0x8100], [0x88a8, 0x8100], [0x9100, 0x8100]]) {
     assert.equal(rejects(...frame(0xaaaa, tags)), true);
     for (const protocol of [0x0800, 0x86dd, 0x0806, 0x8863, 0x8864, 0x888e]) {
         assert.equal(rejects(...frame(protocol, tags)), false,
@@ -65,11 +69,21 @@ const forward = source.slice(source.indexOf('static void __br_forward('),
 assert.match(forward, /if \(br_is_modem_console\(skb\)\) \{\s*kfree_skb\(skb\);\s*return;\s*\}/);
 assert.ok(forward.indexOf('br_is_modem_console(skb)') < forward.indexOf('skb->dev = to->dev'));
 assert.ok(forward.indexOf('br_is_modem_console(skb)') < forward.indexOf('NF_HOOK('));
+const bridgeInput = input.slice(input.indexOf('int br_handle_frame_finish('),
+    input.indexOf('static int br_handle_local_finish('));
+assert.match(bridgeInput, /if \(br_is_modem_console\(skb\)\)\s*goto drop;/);
+assert.ok(bridgeInput.indexOf('br_is_modem_console(skb)') < bridgeInput.indexOf('br_fdb_update('));
+assert.ok(bridgeInput.indexOf('br_is_modem_console(skb)') < bridgeInput.indexOf('br_pass_frame_up('));
+const packetRcv = packetSource.slice(packetSource.indexOf('static int packet_rcv('),
+    packetSource.indexOf('static int tpacket_rcv('));
+assert.match(packetRcv, /if \(skb->pkt_type != PACKET_OUTGOING && po->num == htons\(0xaaaa\) &&\s*strcmp\(dev->name, "vlan2"\) != 0\)\s*goto drop;/);
+assert.ok(packetRcv.indexOf('strcmp(dev->name, "vlan2")') < packetRcv.indexOf('res = run_filter('));
+assert.ok(packetRcv.indexOf('strcmp(dev->name, "vlan2")') < packetRcv.indexOf('__skb_queue_tail('));
 assert.match(source, /deliver_clone\(to, skb, __br_forward\)/);
-assert.match(source, /br_flood\(br, skb, skb2, __br_forward, true\)/);
+assert.match(input, /br_flood_forward\(br, skb, skb2\)/);
 assert.match(source, /br_multicast_flood\(mdst, skb, skb2, __br_forward\)/);
 const deliver = source.slice(source.indexOf('static void __br_deliver('),
-    source.indexOf('static int br_is_modem_console('));
+    source.indexOf('static void __br_forward('));
 assert.doesNotMatch(deliver, /br_is_modem_console/);
-assert.equal((source.match(/br_is_modem_console\(skb\)/g) || []).length, 1);
-console.log('PASS: bridge console guard source contracts and VLAN packet models; not compiled kernel or hardware execution');
+assert.equal((`${source}\n${input}`.match(/br_is_modem_console\(skb\)/g) || []).length, 2);
+console.log('PASS: packet-socket interface and bridge console guards with VLAN packet models; not compiled kernel or hardware execution');
