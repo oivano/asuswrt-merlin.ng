@@ -645,8 +645,10 @@ void qdisc_tree_decrease_qlen(struct Qdisc *sch, unsigned int n)
 		cops = sch->ops->cl_ops;
 		if (cops->qlen_notify) {
 			cl = cops->get(sch, parentid);
-			cops->qlen_notify(sch, cl);
-			cops->put(sch, cl);
+			if (cl) {
+				cops->qlen_notify(sch, cl);
+				cops->put(sch, cl);
+			}
 		}
 		sch->q.qlen -= n;
 	}
@@ -1064,6 +1066,8 @@ replay:
 					goto create_n_graft;
 				if (n->nlmsg_flags&NLM_F_EXCL)
 					return -EEXIST;
+				if (q->parent != clid)
+					return -EINVAL;
 				if (tca[TCA_KIND] && nla_strcmp(tca[TCA_KIND], q->ops->id))
 					return -EINVAL;
 				if (q == p ||
