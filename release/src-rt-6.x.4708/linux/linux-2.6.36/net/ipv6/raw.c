@@ -720,6 +720,7 @@ static int rawv6_sendmsg(struct kiocb *iocb, struct sock *sk,
 		   struct msghdr *msg, size_t len)
 {
 	struct ipv6_txoptions opt_space;
+	struct ipv6_txoptions *opt_to_free = NULL;
 	struct sockaddr_in6 * sin6 = (struct sockaddr_in6 *) msg->msg_name;
 	struct in6_addr *daddr, *final_p, final;
 	struct inet_sock *inet = inet_sk(sk);
@@ -825,8 +826,19 @@ static int rawv6_sendmsg(struct kiocb *iocb, struct sock *sk,
 		if (!(opt->opt_nflen|opt->opt_flen))
 			opt = NULL;
 	}
-	if (opt == NULL)
-		opt = np->opt;
+	if (opt == NULL) {
+		lock_sock(sk);
+		if (np->opt) {
+			opt = ipv6_dup_options(sk, np->opt);
+			if (!opt) {
+				release_sock(sk);
+				err = -ENOBUFS;
+				goto out;
+			}
+			opt_to_free = opt;
+		}
+		release_sock(sk);
+	}
 	if (flowlabel)
 		opt = fl6_merge_options(&opt_space, flowlabel, opt);
 	opt = ipv6_fixup_options(&opt_space, opt);
@@ -900,6 +912,8 @@ done:
 	dst_release(dst);
 out:
 	fl6_sock_release(flowlabel);
+	if (opt_to_free)
+		sock_kfree_s(sk, opt_to_free, opt_to_free->tot_len);
 	return err<0?err:len;
 do_confirm:
 	dst_confirm(dst);
