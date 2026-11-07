@@ -2562,6 +2562,10 @@ static NTSTATUS smbd_smb2_request_next_incoming(struct smbd_server_connection *s
 	size_t cur_send_queue_len;
 	struct tevent_req *subreq;
 
+	if (sconn->smb2.sendfile_pending) {
+		return NT_STATUS_OK;
+	}
+
 	if (tevent_queue_length(sconn->smb2.recv_queue) > 0) {
 		/*
 		 * if there is already a smbd_smb2_request_read

@@ -179,6 +179,7 @@ struct smbd_smb2_read_state {
 static int smb2_sendfile_send_data(struct smbd_smb2_read_state *state)
 {
 	struct lock_struct lock;
+	struct smbd_server_connection *sconn = state->fsp->conn->sconn;
 	uint32_t in_length = state->in_length;
 	uint64_t in_offset = state->in_offset;
 	files_struct *fsp = state->fsp;
@@ -256,6 +257,7 @@ static int smb2_sendfile_send_data(struct smbd_smb2_read_state *state)
 				&lock);
 
 	SMB_VFS_STRICT_UNLOCK(fsp->conn, fsp, &lock);
+	sconn->smb2.sendfile_pending = false;
 	return 0;
 }
 
@@ -305,6 +307,7 @@ static NTSTATUS schedule_smb2_sendfile_read(struct smbd_smb2_request *smb2req,
 	}
 	*state_copy = *state;
 	talloc_set_destructor(state_copy, smb2_sendfile_send_data);
+	smb2req->sconn->smb2.sendfile_pending = true;
 	return NT_STATUS_OK;
 }
 

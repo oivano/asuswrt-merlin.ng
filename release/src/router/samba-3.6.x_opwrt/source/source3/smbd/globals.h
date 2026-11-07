@@ -610,6 +610,7 @@ struct smbd_server_connection {
 			bool blocking_lock_unlock_state;
 		} locks;
 		struct smbd_smb2_request *requests;
+		bool sendfile_pending;
 		/*
 		 * seqnum_low is the lowest sequence number
 		 * we will accept.
