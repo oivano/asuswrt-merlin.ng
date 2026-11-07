@@ -220,6 +220,7 @@ static int pty_open(struct tty_struct *tty, struct file *filp)
 	if (tty->link->count != 1)
 		goto out;
 
+	filp->f_mode |= FMODE_NONOTIFY;
 	clear_bit(TTY_OTHER_CLOSED, &tty->link->flags);
 	set_bit(TTY_THROTTLED, &tty->flags);
 	retval = 0;

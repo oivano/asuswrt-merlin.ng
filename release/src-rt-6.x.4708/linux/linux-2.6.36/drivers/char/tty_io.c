@@ -931,6 +931,14 @@ EXPORT_SYMBOL(start_tty);
  *	read calls may be outstanding in parallel.
  */
 
+static void tty_update_time(struct inode *inode, struct timespec *time)
+{
+	struct timespec now = current_fs_time(inode->i_sb);
+
+	if (now.tv_sec - time->tv_sec >= 8)
+		time->tv_sec = now.tv_sec;
+}
+
 static ssize_t tty_read(struct file *file, char __user *buf, size_t count,
 			loff_t *ppos)
 {
@@ -953,7 +961,7 @@ static ssize_t tty_read(struct file *file, char __user *buf, size_t count,
 		i = -EIO;
 	tty_ldisc_deref(ld);
 	if (i > 0)
-		inode->i_atime = current_fs_time(inode->i_sb);
+		tty_update_time(inode, &inode->i_atime);
 	return i;
 }
 
@@ -1038,7 +1046,7 @@ static inline ssize_t do_tty_write(
 	}
 	if (written) {
 		struct inode *inode = file->f_path.dentry->d_inode;
-		inode->i_mtime = current_fs_time(inode->i_sb);
+		tty_update_time(inode, &inode->i_mtime);
 		ret = written;
 	}
 out:
