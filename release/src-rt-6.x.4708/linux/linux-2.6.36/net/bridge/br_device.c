@@ -97,7 +97,7 @@ netdev_tx_t BCMFASTPATH_HOST br_dev_xmit(struct sk_buff *skb, struct net_device 
 	} else if ((dst = __br_fdb_get(br, dest)) != NULL)
 		br_deliver(dst->dst, skb);
 	else
-		br_flood_deliver(br, skb);
+		br_flood_deliver_unicast(br, skb);
 
 out:
 	rcu_read_unlock();

@@ -196,7 +196,7 @@ static void br_flood(struct net_bridge *br, struct sk_buff *skb,
 		     struct sk_buff *skb0,
 		     void (*__packet_hook)(const struct net_bridge_port *p,
 					   struct sk_buff *skb),
-		     bool forward)
+		     bool forward, bool skip_isolated)
 {
 	struct net_bridge_port *p;
 	struct net_bridge_port *prev;
@@ -204,7 +204,8 @@ static void br_flood(struct net_bridge *br, struct sk_buff *skb,
 	prev = NULL;
 
 	list_for_each_entry_rcu(p, &br->port_list, list) {
-		if (forward && (p->flags & BR_ISOLATE_MODE))
+		if ((forward || skip_isolated) &&
+		    (p->flags & BR_ISOLATE_MODE))
 			continue;
 
 		prev = maybe_deliver(prev, p, skb, __packet_hook);
@@ -230,14 +231,20 @@ out:
 /* called with rcu_read_lock */
 void br_flood_deliver(struct net_bridge *br, struct sk_buff *skb)
 {
-	br_flood(br, skb, NULL, __br_deliver, false);
+	br_flood(br, skb, NULL, __br_deliver, false, false);
+}
+
+/* called with rcu_read_lock */
+void br_flood_deliver_unicast(struct net_bridge *br, struct sk_buff *skb)
+{
+	br_flood(br, skb, NULL, __br_deliver, false, true);
 }
 
 /* called under bridge lock */
 void br_flood_forward(struct net_bridge *br, struct sk_buff *skb,
 		      struct sk_buff *skb2)
 {
-	br_flood(br, skb, skb2, __br_forward, true);
+	br_flood(br, skb, skb2, __br_forward, true, true);
 }
 
 #ifdef CONFIG_BRIDGE_IGMP_SNOOPING
