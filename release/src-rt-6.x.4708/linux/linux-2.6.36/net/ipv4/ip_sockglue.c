@@ -410,6 +410,7 @@ int ip_recv_error(struct sock *sk, struct msghdr *msg, int len)
 
 	memcpy(&errhdr.ee, &serr->ee, sizeof(struct sock_extended_err));
 	sin = &errhdr.offender;
+	memset(sin, 0, sizeof(*sin));
 	sin->sin_family = AF_UNSPEC;
 	if (serr->ee.ee_origin == SO_EE_ORIGIN_ICMP) {
 		struct inet_sock *inet = inet_sk(sk);
