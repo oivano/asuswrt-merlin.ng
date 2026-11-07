@@ -120,6 +120,8 @@ extern int		ip_push_pending_frames(struct sock *sk);
 extern void		ip_flush_pending_frames(struct sock *sk);
 
 /* datagram.c */
+extern int		__ip4_datagram_connect(struct sock *sk,
+					      struct sockaddr *uaddr, int addr_len);
 extern int		ip4_datagram_connect(struct sock *sk, 
 					     struct sockaddr *uaddr, int addr_len);
 

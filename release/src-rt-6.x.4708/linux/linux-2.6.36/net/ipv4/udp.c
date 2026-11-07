@@ -1227,7 +1227,7 @@ csum_copy_err:
 }
 
 
-int udp_disconnect(struct sock *sk, int flags)
+static int __udp_disconnect(struct sock *sk, int flags)
 {
 	struct inet_sock *inet = inet_sk(sk);
 	/*
@@ -1248,6 +1248,16 @@ int udp_disconnect(struct sock *sk, int flags)
 	}
 	sk_dst_reset(sk);
 	return 0;
+}
+
+int udp_disconnect(struct sock *sk, int flags)
+{
+	int err;
+
+	lock_sock(sk);
+	err = __udp_disconnect(sk, flags);
+	release_sock(sk);
+	return err;
 }
 EXPORT_SYMBOL(udp_disconnect);
 
