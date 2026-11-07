@@ -2093,6 +2093,7 @@ static void nf_conntrack_cleanup_net(struct net *net)
 		schedule();
 		goto i_see_dead_people;
 	}
+	rcu_barrier();
 
 	nf_ct_free_hashtable(net->ct.hash, net->ct.hash_vmalloc,
 			     net->ct.htable_size);
