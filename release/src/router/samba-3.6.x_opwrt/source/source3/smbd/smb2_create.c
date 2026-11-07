@@ -386,6 +386,8 @@ static void smbd_smb2_request_create_done(struct tevent_req *tsubreq)
 struct smbd_smb2_create_state {
 	struct smbd_smb2_request *smb2req;
 	struct smb_request *smb1req;
+	struct smbd_smb2_session *session;
+	uint64_t tcon_generation;
 	bool open_was_deferred;
 	struct timed_event *te;
 	struct tevent_immediate *im;
@@ -446,6 +448,8 @@ static struct tevent_req *smbd_smb2_create_send(TALLOC_CTX *mem_ctx,
 			return NULL;
 		}
 		state->smb2req = smb2req;
+		state->session = smb2req->session;
+		state->tcon_generation = smb2req->tcon->generation;
 		smb2req->subreq = req; /* So we can find this when going async. */
 
 		smb1req = smbd_smb2_fake_smb_request(smb2req);
@@ -460,7 +464,15 @@ static struct tevent_req *smbd_smb2_create_send(TALLOC_CTX *mem_ctx,
 		req = smb2req->subreq;
 		state = tevent_req_data(req,
 				struct smbd_smb2_create_state);
+		if (smb2req->session != state->session ||
+		    smb2req->tcon == NULL ||
+		    smb2req->tcon->generation != state->tcon_generation) {
+			tevent_req_nterror(req, NT_STATUS_NETWORK_NAME_DELETED);
+			return tevent_req_post(req, ev);
+		}
 		smb1req = state->smb1req;
+		smb1req->conn = smb2req->tcon->compat_conn;
+		smb1req->tid = smb2req->tcon->compat_conn->cnum;
 		DEBUG(10,("smbd_smb2_create_send: reentrant for file %s\n",
 			in_name ));
 	}

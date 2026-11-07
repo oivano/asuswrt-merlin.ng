@@ -444,6 +444,7 @@ struct smbd_smb2_session {
 
 		/* this is the limit of tid values for this connection */
 		uint32_t limit;
+		uint64_t generation;
 
 		struct smbd_smb2_tcon *list;
 	} tcons;
@@ -453,9 +454,14 @@ struct smbd_smb2_tcon {
 	struct smbd_smb2_tcon *prev, *next;
 	struct smbd_smb2_session *session;
 	uint32_t tid;
+	uint64_t generation;
 	int snum;
 	connection_struct *compat_conn;
 };
+
+bool smbd_smb2_request_cancel_pending(struct smbd_server_connection *sconn,
+				     struct smbd_smb2_session *session,
+				     struct smbd_smb2_tcon *tcon);
 
 struct pending_auth_data;
 

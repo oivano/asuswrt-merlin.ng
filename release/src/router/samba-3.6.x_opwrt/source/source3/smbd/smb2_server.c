@@ -896,6 +896,29 @@ struct smbd_smb2_request_pending_state {
         struct iovec vector[3];
 };
 
+bool smbd_smb2_request_cancel_pending(struct smbd_server_connection *sconn,
+				     struct smbd_smb2_session *session,
+				     struct smbd_smb2_tcon *tcon)
+{
+	struct smbd_smb2_request *req, *next;
+	bool all_cancelled = true;
+
+	for (req = sconn->smb2.requests; req != NULL; req = next) {
+		next = req->next;
+		if (session != NULL && req->session != session) {
+			continue;
+		}
+		if (tcon != NULL && req->tcon != tcon) {
+			continue;
+		}
+		if (req->subreq != NULL && !tevent_req_cancel(req->subreq)) {
+			all_cancelled = false;
+		}
+	}
+
+	return all_cancelled;
+}
+
 static void smbd_smb2_request_pending_writev_done(struct tevent_req *subreq)
 {
 	struct smbd_smb2_request_pending_state *state =
