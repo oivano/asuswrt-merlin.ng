@@ -41,6 +41,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <net/if.h>
+#include <ifaddrs.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <net/if_arp.h>
@@ -274,54 +275,336 @@ add_routes(char *prefix, char *var, char *ifname)
 	return 0;
 }
 
+static unsigned int
+dhcp_route_prefix_mask(int prefix)
+{
+	return htonl(prefix ? 0xffffffffU << (32 - prefix) : 0);
+}
+
+static int
+dhcp_route_mask_prefix(const char *netmask, int *prefix)
+{
+	struct in_addr mask;
+	unsigned int bits, bit;
+	int i, count = 0, zero_seen = 0;
+
+	if (!netmask || inet_pton(AF_INET, netmask, &mask) != 1)
+		return 0;
+
+	bits = ntohl(mask.s_addr);
+	for (i = 0, bit = 0x80000000U; i < 32; i++, bit >>= 1) {
+		if (bits & bit) {
+			if (zero_seen)
+				return 0;
+			count++;
+		} else
+			zero_seen = 1;
+	}
+	if (prefix)
+		*prefix = count;
+	return 1;
+}
+
+static int
+dhcp_route_parse_prefix(const char *text, int *prefix)
+{
+	char *end;
+	const char *digit;
+	long value;
+
+	if (!text || !*text)
+		return 0;
+	for (digit = text; *digit; digit++) {
+		if (!isdigit((unsigned char)*digit))
+			return 0;
+	}
+	errno = 0;
+	value = strtol(text, &end, 10);
+	if (errno || *end || value < 1 || value > 32)
+		return 0;
+	*prefix = (int)value;
+	return 1;
+}
+
+static int
+dhcp_route_prefixes_overlap(struct in_addr first, int first_prefix,
+		struct in_addr second, int second_prefix)
+{
+	struct in_addr mask;
+	int common_prefix = first_prefix < second_prefix ? first_prefix : second_prefix;
+
+	mask.s_addr = dhcp_route_prefix_mask(common_prefix);
+	return (first.s_addr & mask.s_addr) == (second.s_addr & mask.s_addr);
+}
+
+static int
+dhcp_route_overlaps_subnet(struct in_addr destination, int prefix,
+		const char *local_ip, const char *local_netmask)
+{
+	struct in_addr local_address;
+	int local_prefix;
+
+	if (!local_ip || !*local_ip ||
+	    inet_pton(AF_INET, local_ip, &local_address) != 1 ||
+	    !dhcp_route_mask_prefix(local_netmask, &local_prefix))
+		return 0;
+
+	return dhcp_route_prefixes_overlap(destination, prefix, local_address, local_prefix);
+}
+
+static char *
+dhcp_route_next_token(char **cursor)
+{
+	char *token;
+
+	while (*cursor && **cursor && isspace((unsigned char)**cursor))
+		(*cursor)++;
+	if (!*cursor || !**cursor)
+		return NULL;
+
+	token = *cursor;
+	while (**cursor && !isspace((unsigned char)**cursor))
+		(*cursor)++;
+	if (**cursor)
+		*(*cursor)++ = '\0';
+	return token;
+}
+
+static int
+dhcp_route_overlaps_local(struct in_addr destination, int prefix, const char *wan_ifname)
+{
+	static const struct {
+		const char *address;
+		int prefix;
+	} reserved[] = {
+		{ "0.0.0.0", 8 }, { "127.0.0.0", 8 }, { "169.254.0.0", 16 },
+		{ "224.0.0.0", 4 }, { "240.0.0.0", 4 }
+	};
+	struct ifaddrs *addresses = NULL, *entry;
+	struct in_addr local_address;
+	char key[32], *copy, *cursor, *record;
+	int i, unit, overlapped = 0;
+
+	for (i = 0; i < sizeof(reserved) / sizeof(reserved[0]); i++) {
+		if (inet_pton(AF_INET, reserved[i].address, &local_address) == 1 &&
+		    dhcp_route_prefixes_overlap(destination, prefix, local_address, reserved[i].prefix))
+			return 1;
+	}
+
+	if (dhcp_route_overlaps_subnet(destination, prefix,
+			nvram_safe_get("lan_ipaddr"), nvram_safe_get("lan_netmask")))
+		return 1;
+
+	for (unit = 1; unit <= 2; unit++) {
+		snprintf(key, sizeof(key), "vpn_server%d_sn", unit);
+		copy = strdup(nvram_safe_get(key));
+		snprintf(key, sizeof(key), "vpn_server%d_nm", unit);
+		if (!copy)
+			return 1;
+		if (dhcp_route_overlaps_subnet(destination, prefix, copy, nvram_safe_get(key))) {
+			free(copy);
+			return 1;
+		}
+		free(copy);
+	}
+
+	copy = strdup(nvram_safe_get("subnet_rulelist"));
+	if (!copy)
+		return 1;
+	cursor = copy;
+	while ((record = strsep(&cursor, "<")) != NULL) {
+		char *name = strsep(&record, ">");
+		char *ipaddr = strsep(&record, ">");
+		char *netmask = strsep(&record, ">");
+		(void)name;
+		if (ipaddr && netmask && dhcp_route_overlaps_subnet(destination, prefix, ipaddr, netmask)) {
+			free(copy);
+			return 1;
+		}
+	}
+	free(copy);
+
+	copy = strdup(nvram_safe_get("lan_route"));
+	if (!copy)
+		return 1;
+	cursor = copy;
+	while ((record = dhcp_route_next_token(&cursor)) != NULL) {
+		char *fields = record;
+		char *ipaddr = strsep(&fields, ":");
+		char *netmask = strsep(&fields, ":");
+		if (ipaddr && netmask && dhcp_route_overlaps_subnet(destination, prefix, ipaddr, netmask)) {
+			free(copy);
+			return 1;
+		}
+	}
+	free(copy);
+
+	if (getifaddrs(&addresses) != 0)
+		return 1;
+	for (entry = addresses; entry; entry = entry->ifa_next) {
+		struct sockaddr_in *address, *netmask;
+		char mask_text[INET_ADDRSTRLEN];
+		int local_prefix;
+		if (!entry->ifa_name || !strcmp(entry->ifa_name, wan_ifname) ||
+		    !entry->ifa_addr || !entry->ifa_netmask ||
+		    entry->ifa_addr->sa_family != AF_INET || entry->ifa_netmask->sa_family != AF_INET)
+			continue;
+		address = (struct sockaddr_in *)entry->ifa_addr;
+		netmask = (struct sockaddr_in *)entry->ifa_netmask;
+		if (!inet_ntop(AF_INET, &netmask->sin_addr, mask_text, sizeof(mask_text)) ||
+		    !dhcp_route_mask_prefix(mask_text, &local_prefix))
+			continue;
+		if (dhcp_route_prefixes_overlap(destination, prefix, address->sin_addr, local_prefix)) {
+			overlapped = 1;
+			break;
+		}
+	}
+	freeifaddrs(addresses);
+	return overlapped;
+}
+
+static int
+dhcp_route_gateway_on_link(const char *wan_ipaddr, const char *wan_netmask, const char *gateway)
+{
+	struct in_addr address, mask, router;
+	unsigned int host_gateway, host_address, host_mask, host_network;
+	int wan_prefix;
+
+	if (!wan_ipaddr || inet_pton(AF_INET, wan_ipaddr, &address) != 1 ||
+	    address.s_addr == INADDR_ANY || !wan_netmask ||
+	    inet_pton(AF_INET, wan_netmask, &mask) != 1 ||
+	    !dhcp_route_mask_prefix(wan_netmask, &wan_prefix) || wan_prefix == 0 || !gateway ||
+	    inet_pton(AF_INET, gateway, &router) != 1 || router.s_addr == INADDR_ANY)
+		return 0;
+
+	host_gateway = ntohl(router.s_addr);
+	if ((host_gateway & 0xff000000U) == 0 ||
+	    (host_gateway & 0xff000000U) == 0x7f000000U ||
+	    (host_gateway & 0xf0000000U) >= 0xe0000000U ||
+	    router.s_addr == address.s_addr)
+		return 0;
+	if (wan_prefix <= 30) {
+		host_address = ntohl(address.s_addr);
+		host_mask = ntohl(mask.s_addr);
+		host_network = host_address & host_mask;
+		if (host_gateway == host_network || host_gateway == (host_network | ~host_mask))
+			return 0;
+	}
+
+	return (address.s_addr & mask.s_addr) == (router.s_addr & mask.s_addr);
+}
+
+static void
+add_validated_dhcp_route(char *ifname, int metric, const char *ipaddr,
+		int prefix, const char *gateway, const char *wan_ipaddr, const char *wan_netmask)
+{
+	struct in_addr destination, mask;
+	char network[INET_ADDRSTRLEN], netmask[INET_ADDRSTRLEN];
+
+	if (prefix < 1 || prefix > 32 || !ipaddr || inet_pton(AF_INET, ipaddr, &destination) != 1 ||
+	    destination.s_addr == INADDR_ANY) {
+		logmessage("wan", "Reject malformed DHCP route %s/%d via %s on %s",
+			ipaddr ? ipaddr : "(null)", prefix, gateway ? gateway : "(null)", ifname);
+		return;
+	}
+	if (!dhcp_route_gateway_on_link(wan_ipaddr, wan_netmask, gateway)) {
+		logmessage("wan", "Reject DHCP route %s/%d via off-link gateway %s on %s",
+			ipaddr, prefix, gateway ? gateway : "(null)", ifname);
+		return;
+	}
+	if (dhcp_route_overlaps_local(destination, prefix, ifname)) {
+		logmessage("wan", "Reject DHCP route %s/%d via %s on %s: local overlap or validation unavailable",
+			ipaddr, prefix, gateway, ifname);
+		return;
+	}
+
+	mask.s_addr = dhcp_route_prefix_mask(prefix);
+	destination.s_addr &= mask.s_addr;
+	if (!inet_ntop(AF_INET, &destination, network, sizeof(network)) ||
+	    !inet_ntop(AF_INET, &mask, netmask, sizeof(netmask)))
+		return;
+	route_add(ifname, metric + 1, network, (char *)gateway, netmask);
+}
+
 static void
 add_dhcp_routes(char *prefix, char *ifname, int metric)
 {
 	char *routes, *tmp;
 	char nvname[sizeof("wanXXXXXXXXXX_routesXXX")];
-	char *ipaddr, *gateway;
-	char netmask[sizeof("255.255.255.255")];
-	struct in_addr mask;
+	char *ipaddr, *gateway, *prefix_text, *wan_ipaddr, *wan_netmask;
+	char wan_ip[INET_ADDRSTRLEN], wan_mask[INET_ADDRSTRLEN];
 	int netsize;
 
 	if (nvram_get_int("dr_enable_x") == 0)
 		return;
+	wan_ipaddr = nvram_safe_get(strcat_r(prefix, "ipaddr", nvname));
+	wan_netmask = nvram_safe_get(strcat_r(prefix, "netmask", nvname));
+	strlcpy(wan_ip, wan_ipaddr, sizeof(wan_ip));
+	strlcpy(wan_mask, wan_netmask, sizeof(wan_mask));
 
 	/* classful static routes */
 	routes = strdup(nvram_safe_get(strcat_r(prefix, "routes", nvname)));
 	for (tmp = routes; tmp && *tmp; ) {
-		ipaddr  = strsep(&tmp, "/");
-		gateway = strsep(&tmp, " ");
-		if (gateway && inet_addr(ipaddr) != INADDR_ANY)
-			route_add(ifname, metric + 1, ipaddr, gateway, netmask);
+		struct in_addr address;
+		unsigned int host_address;
+		ipaddr = dhcp_route_next_token(&tmp);
+		gateway = dhcp_route_next_token(&tmp);
+		if (!ipaddr || !gateway)
+			break;
+		if (inet_pton(AF_INET, ipaddr, &address) != 1)
+			continue;
+		host_address = ntohl(address.s_addr);
+		if ((host_address & 0x80000000U) == 0)
+			netsize = 8;
+		else if ((host_address & 0xc0000000U) == 0x80000000U)
+			netsize = 16;
+		else if ((host_address & 0xe0000000U) == 0xc0000000U)
+			netsize = 24;
+		else
+			continue;
+		add_validated_dhcp_route(ifname, metric, ipaddr, netsize, gateway, wan_ip, wan_mask);
 	}
 	free(routes);
 
 	/* ms claseless static routes */
 	routes = strdup(nvram_safe_get(strcat_r(prefix, "routes_ms", nvname)));
 	for (tmp = routes; tmp && *tmp; ) {
-		ipaddr  = strsep(&tmp, "/");
-		netsize = atoi(strsep(&tmp, " "));
-		gateway = strsep(&tmp, " ");
-		if (gateway && netsize > 0 && netsize <= 32 && inet_addr(ipaddr) != INADDR_ANY) {
-			mask.s_addr = htonl(0xffffffff << (32 - netsize));
-			strcpy(netmask, inet_ntoa(mask));
-			route_add(ifname, metric + 1, ipaddr, gateway, netmask);
+		ipaddr = dhcp_route_next_token(&tmp);
+		prefix_text = ipaddr ? strchr(ipaddr, '/') : NULL;
+		if (!prefix_text)
+			break;
+		*prefix_text++ = '\0';
+		if (!dhcp_route_parse_prefix(prefix_text, &netsize)) {
+			gateway = dhcp_route_next_token(&tmp);
+			if (!gateway)
+				break;
+			continue;
 		}
+		gateway = dhcp_route_next_token(&tmp);
+		if (!gateway)
+			break;
+		add_validated_dhcp_route(ifname, metric, ipaddr, netsize, gateway, wan_ip, wan_mask);
 	}
 	free(routes);
 
 	/* rfc3442 classless static routes */
 	routes = strdup(nvram_safe_get(strcat_r(prefix, "routes_rfc", nvname)));
 	for (tmp = routes; tmp && *tmp; ) {
-		ipaddr  = strsep(&tmp, "/");
-		netsize = atoi(strsep(&tmp, " "));
-		gateway = strsep(&tmp, " ");
-		if (gateway && netsize > 0 && netsize <= 32 && inet_addr(ipaddr) != INADDR_ANY) {
-			mask.s_addr = htonl(0xffffffff << (32 - netsize));
-			strcpy(netmask, inet_ntoa(mask));
-			route_add(ifname, metric + 1, ipaddr, gateway, netmask);
+		ipaddr = dhcp_route_next_token(&tmp);
+		prefix_text = ipaddr ? strchr(ipaddr, '/') : NULL;
+		if (!prefix_text)
+			break;
+		*prefix_text++ = '\0';
+		if (!dhcp_route_parse_prefix(prefix_text, &netsize)) {
+			gateway = dhcp_route_next_token(&tmp);
+			if (!gateway)
+				break;
+			continue;
 		}
+		gateway = dhcp_route_next_token(&tmp);
+		if (!gateway)
+			break;
+		add_validated_dhcp_route(ifname, metric, ipaddr, netsize, gateway, wan_ip, wan_mask);
 	}
 	free(routes);
 }
