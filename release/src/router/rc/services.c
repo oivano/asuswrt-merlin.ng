@@ -808,7 +808,7 @@ done:
 	return ret;
 }
 
-static int prepare_writable_cache_dir(const char *path)
+static int prepare_root_cache_dir(const char *path, mode_t mode)
 {
 	struct stat st;
 	int fd, ret = -1;
@@ -821,14 +821,14 @@ static int prepare_writable_cache_dir(const char *path)
 		errno = EPERM;
 		return -1;
 	}
-	if (mkdir(path, 0777) != 0 && errno != EEXIST)
+	if (mkdir(path, 0755) != 0 && errno != EEXIST)
 		return -1;
 	fd = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
 	if (fd < 0)
 		return -1;
 	if (fstat(fd, &st) == 0 && S_ISDIR(st.st_mode) && fchown(fd, 0, 0) == 0 &&
-	    fchmod(fd, 0777) == 0 && fstat(fd, &st) == 0 && S_ISDIR(st.st_mode) &&
-	    st.st_uid == 0)
+	    fchmod(fd, mode) == 0 && fstat(fd, &st) == 0 && S_ISDIR(st.st_mode) &&
+	    st.st_uid == 0 && st.st_gid == 0 && (st.st_mode & 07777) == mode)
 		ret = 0;
 	else
 		errno = EPERM;
@@ -3624,21 +3624,22 @@ void start_dnscrypt_proxy(void)
 
 	if (!nvram_get_int("dnscrypt_enable") || !is_routing_enabled())
 		return;
-	if (!nvram_get_int("ntp_ready"))
-		return;
 
 	if (getpid() != 1) {
 		notify_rc("start_dnscrypt");
 		return;
 	}
+	if (secure_root_config_dir("/etc/dnscrypt-proxy") != 0 ||
+	    prepare_root_cache_dir(DNSCRYPT_CACHE_DIR, 0755) != 0 ||
+	    prepare_root_cache_dir(DNSCRYPT_LEGACY_CACHE_DIR, 0755) != 0)
+		return;
+	if (!nvram_get_int("ntp_ready"))
+		return;
 
 	if (!pids("haveged"))
 		start_haveged();
 
 	stop_dnscrypt_proxy();
-
-	if (secure_root_config_dir("/etc/dnscrypt-proxy") != 0)
-		return;
 
 	if ((fp = open_root_config_file("/etc/dnscrypt-proxy", "dnscrypt-proxy.toml", 0644)) == NULL)
 		return;
@@ -3695,8 +3696,8 @@ void start_dnscrypt_proxy(void)
 	run_postconf("dnscrypt-proxy", DNSCRYPT_CONFIG);
 	if (set_root_config_file_mode("/etc/dnscrypt-proxy", "dnscrypt-proxy.toml", 0644) != 0)
 		return;
-	if (prepare_writable_cache_dir(DNSCRYPT_CACHE_DIR) != 0 ||
-	    prepare_writable_cache_dir(DNSCRYPT_LEGACY_CACHE_DIR) != 0)
+	if (prepare_root_cache_dir(DNSCRYPT_CACHE_DIR, 01777) != 0 ||
+	    prepare_root_cache_dir(DNSCRYPT_LEGACY_CACHE_DIR, 01777) != 0)
 		return;
 
 	/* Go's time package ignores the system localtime file; give it TZ explicitly */
