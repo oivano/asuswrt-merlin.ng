@@ -375,7 +375,7 @@ tc_stage_directory_open(const char *path)
 	if (fd < 0)
 		return -1;
 	if (fstat(fd, &st) != 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
-	    (st.st_mode & 0777) != 0700) {
+	    (st.st_mode & 07777) != 0700) {
 		close(fd);
 		return -1;
 	}
