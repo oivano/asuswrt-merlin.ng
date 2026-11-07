@@ -54,6 +54,11 @@ int br_handle_frame_finish(struct sk_buff *skb)
 
 	/* insert into forwarding database after filtering to avoid spoofing */
 	br = p->br;
+	if ((p->flags & BR_ISOLATE_MODE) &&
+	    (skb->protocol == htons(ETH_P_8021Q) ||
+	     skb->protocol == htons(0x88a8) ||
+	     skb->protocol == htons(0x9100)))
+		goto drop;
 #ifdef HNDCTF
 	br_fdb_update(br, p, eth_hdr(skb)->h_source, skb);
 #else

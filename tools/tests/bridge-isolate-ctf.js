@@ -9,6 +9,11 @@ const forward = fs.readFileSync(path.join(bridgeDir, 'br_forward.c'), 'utf8');
 const device = fs.readFileSync(path.join(bridgeDir, 'br_device.c'), 'utf8');
 const bpdu = fs.readFileSync(path.join(bridgeDir, 'br_stp_bpdu.c'), 'utf8');
 const sysfs = fs.readFileSync(path.join(bridgeDir, 'br_sysfs_if.c'), 'utf8');
+const input = fs.readFileSync(path.join(bridgeDir, 'br_input.c'), 'utf8');
+
+const receive = input.match(/int br_handle_frame_finish\(struct sk_buff \*skb\)[\s\S]*?\n\}/)[0];
+const taggedDrop = receive.match(/if \(\(p->flags & BR_ISOLATE_MODE\) &&\s*\(skb->protocol == htons\(ETH_P_8021Q\) \|\|\s*skb->protocol == htons\(0x88a8\) \|\|\s*skb->protocol == htons\(0x9100\)\)\)\s*goto drop;/)[0];
+assert(receive.indexOf(taggedDrop) < receive.indexOf('br_fdb_update('));
 
 const addCache = fdb.match(/br_brc_add\(unsigned char \*ea,[\s\S]*?\n\}/)[0];
 assert.match(addCache, /struct net_bridge_port \*source/);
@@ -32,4 +37,4 @@ assert.match(deleteByPort, /if \(f->dst != p\)\s*continue;[\s\S]*?fdb_delete\(f\
 const setIsolate = sysfs.match(/static ssize_t store_isolate_mode\([\s\S]*?\n\}/)[0];
 assert.match(setIsolate, /if \(v\)\s*\{[\s\S]*?p->flags \|= BR_ISOLATE_MODE;[\s\S]*?br_fdb_delete_by_port\(p->br, p, 0\);[\s\S]*?\} else[\s\S]*?p->flags &= ~BR_ISOLATE_MODE;/);
 
-console.log('bridge isolation FDB, BPDU, flood, and CTF cache contracts passed');
+console.log('bridge isolation tagged-frame, FDB, BPDU, flood, and CTF cache contracts passed');
