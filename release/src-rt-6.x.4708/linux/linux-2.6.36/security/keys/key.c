@@ -44,7 +44,7 @@ DEFINE_MUTEX(key_construction_mutex);
 
 /* any key who's type gets unegistered will be re-typed to this */
 static struct key_type key_type_dead = {
-	.name		= "dead",
+	.name		= ".dead",
 };
 
 #ifdef KEY_DEBUGGING
