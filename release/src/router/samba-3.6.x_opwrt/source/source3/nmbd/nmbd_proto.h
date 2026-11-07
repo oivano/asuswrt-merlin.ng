@@ -307,6 +307,11 @@ void browse_sync_remote(time_t t);
 
 /* The following definitions come from nmbd/nmbd_serverlistdb.c  */
 
+#define MAX_BROWSE_SERVERS_PER_SUBNET 256
+#define MAX_BROWSE_WORKGROUPS_PER_SUBNET 32
+#define MAX_BROWSE_RECORD_TTL 3600
+
+int clamp_browse_record_ttl(int ttl);
 void remove_all_servers(struct work_record *work);
 struct server_record *find_server_in_workgroup(struct work_record *work, const char *name);
 void remove_server_from_workgroup(struct work_record *work, struct server_record *servrec);
