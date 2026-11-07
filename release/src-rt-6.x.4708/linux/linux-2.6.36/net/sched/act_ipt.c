@@ -19,6 +19,7 @@
 #include <linux/rtnetlink.h>
 #include <linux/module.h>
 #include <linux/init.h>
+#include <linux/rcupdate.h>
 #include <linux/slab.h>
 #include <net/netlink.h>
 #include <net/pkt_sched.h>
@@ -99,6 +100,11 @@ static int tcf_ipt_release(struct tcf_ipt *ipt, int bind)
 		}
 	}
 	return ret;
+}
+
+static void tcf_ipt_free_rcu(struct rcu_head *head)
+{
+	kfree(container_of(head, struct tcf_common, tcfc_rcu));
 }
 
 static const struct nla_policy ipt_policy[TCA_IPT_MAX + 1] = {
@@ -190,7 +196,12 @@ err3:
 err2:
 	kfree(tname);
 err1:
-	kfree(pc);
+	if (ret == ACT_P_CREATED) {
+		gen_kill_estimator(&pc->tcfc_bstats, &pc->tcfc_rate_est);
+		call_rcu(&pc->tcfc_rcu, tcf_ipt_free_rcu);
+	} else {
+		tcf_ipt_release(ipt, bind);
+	}
 	return err;
 }
 
