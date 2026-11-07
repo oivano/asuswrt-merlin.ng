@@ -248,9 +248,10 @@ ENTRY(vector_swi)
 #ifdef CONFIG_ARM_THUMB
 	tst	r8, #PSR_T_BIT
 	movne	r10, #0				@ no thumb OABI emulation
-	ldreq	r10, [lr, #-4]			@ get SWI instruction
+	@ The user instruction can be unmapped while the syscall is entering.
+	USER( ldreq	r10, [lr, #-4] )		@ get SWI instruction
 #else
-	ldr	r10, [lr, #-4]			@ get SWI instruction
+	USER( ldr	r10, [lr, #-4] )		@ get SWI instruction
   A710(	and	ip, r10, #0x0f000000		@ check for SWI		)
   A710(	teq	ip, #0x0f000000						)
   A710(	bne	.Larm710bug						)
@@ -312,6 +313,7 @@ ENTRY(vector_swi)
 	eor	scno, scno, #__NR_SYSCALL_BASE	@ check OS number
 #endif
 
+.Lsyscall_dispatch:
 	stmdb	sp!, {r4, r5}			@ push fifth and sixth args
 	tst	ip, #_TIF_SYSCALL_TRACE		@ are we tracing syscalls?
 	bne	__sys_trace
@@ -327,6 +329,13 @@ ENTRY(vector_swi)
 	bcs	arm_syscall	
 	b	sys_ni_syscall			@ not private func
 ENDPROC(vector_swi)
+
+#if defined(CONFIG_OABI_COMPAT)
+	.pushsection .fixup,"ax"
+9001:	ldr	scno, =NR_syscalls
+	b	.Lsyscall_dispatch
+	.popsection
+#endif
 
 	/*
 	 * This is the really slow path.  We're going to be doing
