@@ -22,6 +22,7 @@
 #include <linux/wait.h>
 #include <linux/percpu.h>
 #include <linux/timer.h>
+#include <linux/workqueue.h>
 
 
 struct hrtimer_clock_base;
@@ -180,6 +181,7 @@ struct hrtimer_cpu_base {
 	unsigned long			nr_hangs;
 	ktime_t				max_hang_time;
 #endif
+	struct work_struct	clock_was_set_work;
 };
 
 static inline void hrtimer_set_expires(struct hrtimer *timer, ktime_t time)
@@ -251,6 +253,7 @@ static inline ktime_t hrtimer_expires_remaining(const struct hrtimer *timer)
 struct clock_event_device;
 
 extern void clock_was_set(void);
+extern void clock_was_set_delayed(void);
 extern void hres_timers_resume(void);
 extern void hrtimer_interrupt(struct clock_event_device *dev);
 
