@@ -13,6 +13,9 @@
 #include <linux/sysctl.h>
 #include <asm/uaccess.h>
 
+/* Wakeup key used when a poll wait queue is about to be freed. */
+#define POLLFREE 0x4000
+
 extern struct ctl_table epoll_table[]; /* for sysctl */
 /* ~832 bytes of stack space used max in sys_select/sys_poll before allocating
    additional memory. */

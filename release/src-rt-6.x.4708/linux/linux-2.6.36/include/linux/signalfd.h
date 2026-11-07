@@ -49,7 +49,11 @@ struct signalfd_siginfo {
 
 #ifdef __KERNEL__
 
+struct sighand_struct;
+
 #ifdef CONFIG_SIGNALFD
+
+extern void signalfd_cleanup(struct sighand_struct *sighand);
 
 /*
  * Deliver the signal to listening signalfd.
@@ -62,6 +66,7 @@ static inline void signalfd_notify(struct task_struct *tsk, int sig)
 
 #else /* CONFIG_SIGNALFD */
 
+static inline void signalfd_cleanup(struct sighand_struct *sighand) { }
 static inline void signalfd_notify(struct task_struct *tsk, int sig) { }
 
 #endif /* CONFIG_SIGNALFD */

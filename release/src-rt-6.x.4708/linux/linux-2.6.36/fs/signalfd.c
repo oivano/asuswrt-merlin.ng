@@ -34,6 +34,12 @@ struct signalfd_ctx {
 	sigset_t sigmask;
 };
 
+void signalfd_cleanup(struct sighand_struct *sighand)
+{
+	if (waitqueue_active(&sighand->signalfd_wqh))
+		wake_up_poll(&sighand->signalfd_wqh, POLLHUP | POLLFREE);
+}
+
 static int signalfd_release(struct inode *inode, struct file *file)
 {
 	kfree(file->private_data);
