@@ -317,6 +317,10 @@ void unix_gc(void)
 			list_move_tail(&u->link, &gc_candidates);
 			u->gc_candidate = 1;
 			u->gc_maybe_cycle = 1;
+			if (u->sk.sk_state == TCP_LISTEN) {
+				unix_state_lock(&u->sk);
+				unix_state_unlock(&u->sk);
+			}
 		}
 	}
 
