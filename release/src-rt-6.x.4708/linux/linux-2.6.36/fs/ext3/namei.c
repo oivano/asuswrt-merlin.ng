@@ -1062,6 +1062,21 @@ errout:
 	return NULL;
 }
 
+static int ext3_valid_dirent(struct super_block *sb, unsigned long ino)
+{
+	struct ext3_sb_info *sbi = EXT3_SB(sb);
+
+	if (ino == EXT3_ROOT_INO)
+		return 1;
+	if (ino < EXT3_FIRST_INO(sb) ||
+	    ino > le32_to_cpu(sbi->s_es->s_inodes_count))
+		return 0;
+	if (sbi->s_journal && sbi->s_journal->j_inode &&
+	    ino == sbi->s_journal->j_inode->i_ino)
+		return 0;
+	return 1;
+}
+
 static struct dentry *ext3_lookup(struct inode * dir, struct dentry *dentry, struct nameidata *nd)
 {
 	struct inode * inode;
@@ -1076,7 +1091,7 @@ static struct dentry *ext3_lookup(struct inode * dir, struct dentry *dentry, str
 	if (bh) {
 		unsigned long ino = le32_to_cpu(de->inode);
 		brelse (bh);
-		if (!ext3_valid_inum(dir->i_sb, ino)) {
+		if (!ext3_valid_dirent(dir->i_sb, ino)) {
 			ext3_error(dir->i_sb, "ext3_lookup",
 				   "bad inode number: %lu", ino);
 			return ERR_PTR(-EIO);
@@ -1110,7 +1125,7 @@ struct dentry *ext3_get_parent(struct dentry *child)
 	ino = le32_to_cpu(de->inode);
 	brelse(bh);
 
-	if (!ext3_valid_inum(child->d_inode->i_sb, ino)) {
+	if (!ext3_valid_dirent(child->d_inode->i_sb, ino)) {
 		ext3_error(child->d_inode->i_sb, "ext3_get_parent",
 			   "bad inode number: %lu", ino);
 		return ERR_PTR(-EIO);
