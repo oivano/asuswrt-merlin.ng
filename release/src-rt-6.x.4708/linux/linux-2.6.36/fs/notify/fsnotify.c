@@ -88,6 +88,8 @@ void __fsnotify_parent(struct path *path, struct dentry *dentry, __u32 mask)
 {
 	struct dentry *parent;
 	struct inode *p_inode;
+	char inline_name[DNAME_INLINE_LEN_MIN];
+	char *name = NULL;
 	bool send = false;
 	bool should_update_children = false;
 
@@ -103,8 +105,16 @@ void __fsnotify_parent(struct path *path, struct dentry *dentry, __u32 mask)
 
 	if (fsnotify_inode_watches_children(p_inode)) {
 		if (p_inode->i_fsnotify_mask & mask) {
-			dget(parent);
-			send = true;
+			if (dentry->d_name.len < sizeof(inline_name))
+				name = inline_name;
+			else
+				name = kmalloc(dentry->d_name.len + 1, GFP_ATOMIC);
+			if (name) {
+				memcpy(name, dentry->d_name.name,
+				       dentry->d_name.len + 1);
+				dget(parent);
+				send = true;
+			}
 		}
 	} else {
 		/*
@@ -126,10 +136,12 @@ void __fsnotify_parent(struct path *path, struct dentry *dentry, __u32 mask)
 
 		if (path)
 			fsnotify(p_inode, mask, path, FSNOTIFY_EVENT_PATH,
-				 dentry->d_name.name, 0);
+				 name, 0);
 		else
 			fsnotify(p_inode, mask, dentry->d_inode, FSNOTIFY_EVENT_INODE,
-				 dentry->d_name.name, 0);
+				 name, 0);
+		if (name != inline_name)
+			kfree(name);
 		dput(parent);
 	}
 
