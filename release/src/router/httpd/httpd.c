@@ -116,6 +116,9 @@ struct usockaddr {
 #define HTTPD_BODY_TIMEOUT_GRACE 5
 #define HTTPD_BODY_MIN_RATE 32768
 #define HTTPD_BODY_TIMEOUT_MAX 180
+#define HTTPD_RESPONSE_TIMEOUT_GRACE 5
+#define HTTPD_RESPONSE_MIN_RATE 32768
+#define HTTPD_RESPONSE_TIMEOUT_MAX 180
 #define HTTPD_SLOW_SOURCE_BLOCK 60
 #define HTTPD_SLOW_SOURCE_LIMIT 256
 #define HTTPD_SLOWLORIS_SOURCE_LIMIT 256
@@ -130,6 +133,7 @@ static volatile sig_atomic_t request_deadline_seconds;
 static volatile sig_atomic_t request_deadline_fd = -1;
 static int request_deadline_body;
 static unsigned int request_previous_alarm;
+static off_t httpd_response_size = -1;
 static void httpd_request_deadline_start(unsigned int timeout, int body_phase, int fd);
 static int httpd_request_deadline_stop(void);
 
@@ -1209,10 +1213,30 @@ send_content_page( int status, char* title, char* extra_header, char* text , int
 }
 
 static void
+httpd_response_deadline_start(void)
+{
+	unsigned int timeout = HTTPD_RESPONSE_TIMEOUT_MAX;
+	if (request_deadline_active)
+		return;
+	if (httpd_response_size >= 0) {
+		timeout = HTTPD_RESPONSE_TIMEOUT_GRACE +
+			((unsigned long)httpd_response_size + HTTPD_RESPONSE_MIN_RATE - 1) /
+			HTTPD_RESPONSE_MIN_RATE;
+		if (timeout > HTTPD_RESPONSE_TIMEOUT_MAX)
+			timeout = HTTPD_RESPONSE_TIMEOUT_MAX;
+	}
+	clearerr(conn_fp);
+	httpd_request_deadline_start(timeout, 0, fileno(conn_fp));
+	request_headers_complete = 1;
+	httpd_response_size = -1;
+}
+
+static void
 send_headers( int status, char* title, char* extra_header, char* mime_type, int fromapp)
 {
     time_t now;
     char timebuf[100];
+	httpd_response_deadline_start();
     (void) fprintf( conn_fp, "%s %d %s\r\n", PROTOCOL, status, title );
     (void) fprintf( conn_fp, "Server: %s\r\n", SERVER_NAME );
     (void) fprintf( conn_fp, "x-frame-options: SAMEORIGIN\r\n");
@@ -1358,6 +1382,7 @@ send_token_headers( int status, char* title, char* extra_header, char* mime_type
 	char timebuf[100];
 	char asus_token[32]={0}, token_cookie[128] = {0};
 
+	httpd_response_deadline_start();
 	gen_asus_token_cookie(asus_token, sizeof(asus_token), token_cookie, sizeof(token_cookie));
 	browser_session_register(asus_token, fromapp);
 
@@ -1486,6 +1511,8 @@ int do_fwrite(const char *buffer, int len, FILE *stream)
 
 	while (n > 0) {
 		r = fwrite(buffer, 1, n, stream);
+		if (r == 0 && request_deadline_expired)
+			return -1;
 		if ((r == 0) && (errno != EINTR)) return -1;
 		buffer += r;
 		n -= r;
@@ -1641,12 +1668,24 @@ Error:
 	return -1;
 }
 
-static int httpd_web_file_exists(const char *path)
+static int httpd_web_file_size(const char *path, off_t *size)
 {
-	int fd = httpd_open_webroot_file(path);
+	struct stat st;
+	int fd;
 
+	if (!path)
+		return 0;
+	if (path[0] == '/')
+		fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+	else
+		fd = httpd_open_webroot_file(path);
 	if (fd < 0)
 		return 0;
+	if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode)) {
+		close(fd);
+		return 0;
+	}
+	*size = st.st_size;
 	close(fd);
 	return 1;
 }
@@ -2469,7 +2508,8 @@ handle_request(void)
 				}
 #endif
 			}
-			if (handler->output == do_file && !httpd_web_file_exists(file)) {
+			httpd_response_size = -1;
+			if (handler->output == do_file && !httpd_web_file_size(file, &httpd_response_size)) {
 				send_error(404, "Not Found", (char*) 0, "File not found.");
 				return;
 			}
@@ -3670,6 +3710,10 @@ reload_cert:
 
 					handle_request();
 				}
+				errno = 0;
+				fflush(conn_fp);
+				if (ferror(conn_fp))
+					httpd_slow_source_block(&request_peer);
 				request_timed_out = httpd_request_deadline_stop();
 				request_deadline_started = 0;
 				if (request_timed_out) {
@@ -3679,7 +3723,6 @@ reload_cert:
 #endif
 						item->fd = -1;
 				}
-				fflush(conn_fp);
 #ifdef RTCONFIG_HTTPS
 				if (!do_ssl && !request_timed_out)
 #else

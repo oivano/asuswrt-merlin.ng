@@ -318,10 +318,16 @@ static ssize_t mssl_write(void *cookie, const char *buf, size_t len)
 			goto OUT;
 		case SSL_ERROR_WANT_WRITE:
 		case SSL_ERROR_WANT_READ:
-			break;
+			SSL_set_quiet_shutdown(kuki->ssl, 1);
+			errno = EAGAIN;
+			if (total == 0)
+				total = -1;
+			goto OUT;
 		default:
 			_dprintf("%s(): SSL error %d\n", __FUNCTION__, err);
 			mssl_print_err(kuki->ssl);
+			if (errno == EAGAIN || errno == EWOULDBLOCK)
+				SSL_set_quiet_shutdown(kuki->ssl, 1);
 			if (total == 0) total = -1;
 			goto OUT;
 		}
