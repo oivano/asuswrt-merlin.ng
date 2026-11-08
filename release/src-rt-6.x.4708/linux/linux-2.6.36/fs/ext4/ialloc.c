@@ -1087,7 +1087,7 @@ struct inode *ext4_orphan_get(struct super_block *sb, unsigned long ino)
 	long err = -EIO;
 
 	/* Error cases - e2fsck has already cleaned up for us */
-	if (ino > max_ino) {
+	if (!ext4_valid_inum(sb, ino)) {
 		ext4_warning(sb, "bad orphan ino %lu!  e2fsck was run?", ino);
 		goto error;
 	}
@@ -1107,7 +1107,7 @@ struct inode *ext4_orphan_get(struct super_block *sb, unsigned long ino)
 	if (!ext4_test_bit(bit, bitmap_bh->b_data))
 		goto bad_orphan;
 
-	inode = ext4_iget(sb, ino);
+	inode = ext4_iget(sb, ino, 0);
 	if (IS_ERR(inode))
 		goto iget_failed;
 

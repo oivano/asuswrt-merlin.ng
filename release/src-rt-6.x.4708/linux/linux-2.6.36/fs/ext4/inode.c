@@ -4786,7 +4786,8 @@ static int __ext4_get_inode_loc(struct inode *inode,
 	int			inodes_per_block, inode_offset;
 
 	iloc->bh = NULL;
-	if (!ext4_valid_inum(sb, inode->i_ino))
+	if (inode->i_ino < EXT4_ROOT_INO ||
+	    inode->i_ino > le32_to_cpu(EXT4_SB(sb)->s_es->s_inodes_count))
 		return -EIO;
 
 	iloc->block_group = (inode->i_ino - 1) / EXT4_INODES_PER_GROUP(sb);
@@ -4987,7 +4988,7 @@ static blkcnt_t ext4_inode_blocks(struct ext4_inode *raw_inode,
 	}
 }
 
-struct inode *ext4_iget(struct super_block *sb, unsigned long ino)
+struct inode *ext4_iget(struct super_block *sb, unsigned long ino, int flags)
 {
 	struct ext4_iloc iloc;
 	struct ext4_inode *raw_inode;
@@ -4996,6 +4997,12 @@ struct inode *ext4_iget(struct super_block *sb, unsigned long ino)
 	journal_t *journal = EXT4_SB(sb)->s_journal;
 	long ret;
 	int block;
+
+	if (ino < EXT4_ROOT_INO ||
+	    ino > le32_to_cpu(EXT4_SB(sb)->s_es->s_inodes_count) ||
+	    (!(flags & EXT4_IGET_SPECIAL) && ino < EXT4_FIRST_INO(sb) &&
+	     ino != EXT4_ROOT_INO))
+		return ERR_PTR(-ESTALE);
 
 	inode = iget_locked(sb, ino);
 	if (!inode)
