@@ -5719,13 +5719,21 @@ void guest_arp_filter_refresh(void)
 			"-s", binding->mac, "-p", "ipv4", "--ip-src", binding->ip,
 			"-j", "ACCEPT") == 0)
 			;
+		while (GUEST_ARP_EBTABLES("-D", GUEST_ARP_SOURCE_CHAIN, "-i", binding->ifname,
+			"-s", binding->mac, "-p", "ipv4", "--ip-src", binding->ip,
+			"-j", "RETURN") == 0)
+			;
 		if (GUEST_ARP_EBTABLES("-I", GUEST_ARP_SOURCE_CHAIN, "1", "-i", binding->ifname,
 			"-s", binding->mac, "-p", "ipv4", "--ip-src", binding->ip,
-			"-j", "ACCEPT") != 0)
+			"-j", "RETURN") != 0)
 			goto fail;
 	}
 
 	for (i = 0; i < active_count; ++i) {
+		while (GUEST_ARP_EBTABLES("-D", GUEST_ARP_SOURCE_CHAIN, "-i", active_ifnames[i],
+			"-p", "ipv4", "-j", "mark", "--mark-or", BIT_GUEST_IPV4,
+			"--mark-target", "CONTINUE") == 0)
+			;
 		while (GUEST_ARP_EBTABLES("-D", GUEST_ARP_SOURCE_CHAIN, "-i", active_ifnames[i],
 			"-p", "ipv4", "--ip-proto", "udp", "--ip-sport", "68",
 			"--ip-dport", "67", "-j", "ACCEPT") == 0)
@@ -5739,6 +5747,9 @@ void guest_arp_filter_refresh(void)
 		if (GUEST_ARP_EBTABLES("-I", GUEST_ARP_SOURCE_CHAIN, "1", "-i", active_ifnames[i],
 			"-p", "ipv4", "--ip-proto", "udp", "--ip-sport", "68",
 			"--ip-dport", "67", "-j", "ACCEPT") != 0 ||
+		    GUEST_ARP_EBTABLES("-I", GUEST_ARP_SOURCE_CHAIN, "1", "-i", active_ifnames[i],
+			"-p", "ipv4", "-j", "mark", "--mark-or", BIT_GUEST_IPV4,
+			"--mark-target", "CONTINUE") != 0 ||
 		    GUEST_ARP_EBTABLES("-A", GUEST_ARP_SOURCE_CHAIN, "-i", active_ifnames[i],
 			"-p", "ipv4", "-j", "DROP") != 0 ||
 		    GUEST_ARP_EBTABLES("-I", "INPUT", "1", "-i", active_ifnames[i],
@@ -5756,6 +5767,10 @@ void guest_arp_filter_refresh(void)
 			"-s", binding->mac, "-p", "ipv4", "--ip-src", binding->ip,
 			"-j", "ACCEPT") == 0)
 			;
+		while (GUEST_ARP_EBTABLES("-D", GUEST_ARP_SOURCE_CHAIN, "-i", binding->ifname,
+			"-s", binding->mac, "-p", "ipv4", "--ip-src", binding->ip,
+			"-j", "RETURN") == 0)
+			;
 	}
 
 	for (i = 0; i < cleanup_count; ++i) {
@@ -5767,6 +5782,10 @@ void guest_arp_filter_refresh(void)
 			;
 		while (GUEST_ARP_EBTABLES("-D", GUEST_ARP_SOURCE_CHAIN, "-i", cleanup_ifnames[i],
 			"-p", "ipv4", "-j", "DROP") == 0)
+			;
+		while (GUEST_ARP_EBTABLES("-D", GUEST_ARP_SOURCE_CHAIN, "-i", cleanup_ifnames[i],
+			"-p", "ipv4", "-j", "mark", "--mark-or", BIT_GUEST_IPV4,
+			"--mark-target", "CONTINUE") == 0)
 			;
 		while (GUEST_ARP_EBTABLES("-D", GUEST_ARP_SOURCE_CHAIN, "-i", cleanup_ifnames[i],
 			"-p", "ipv4", "--ip-proto", "udp", "--ip-sport", "68",
