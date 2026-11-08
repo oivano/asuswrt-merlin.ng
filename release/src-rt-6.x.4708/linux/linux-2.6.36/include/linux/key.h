@@ -258,6 +258,13 @@ extern struct key *keyring_alloc(const char *description, uid_t uid, gid_t gid,
 				 unsigned long flags,
 				 struct key *dest);
 
+extern struct key *keyring_alloc_with_perm(const char *description,
+					   uid_t uid, gid_t gid,
+					   const struct cred *cred,
+					   key_perm_t perm,
+					   unsigned long flags,
+					   struct key *dest);
+
 extern int keyring_clear(struct key *keyring);
 
 extern key_ref_t keyring_search(key_ref_t keyring,

@@ -632,7 +632,8 @@ try_again:
 		} else {
 			rka = cred->request_key_auth->payload.data;
 			key = rka->dest_keyring;
-			atomic_inc(&key->usage);
+			if (key)
+				atomic_inc(&key->usage);
 		}
 		up_read(&cred->request_key_auth->sem);
 		if (!key)
