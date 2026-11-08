@@ -1,5 +1,7 @@
 const assert = require('assert');
+const { spawnSync } = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const repo = path.resolve(__dirname, '../..');
@@ -11,12 +13,56 @@ const maxEntries = Number(source.match(/#define NMP_VC_MAX_ENTRIES (\d+)/)[1]);
 const maxBytes = Number(source.match(/#define NMP_VC_MAX_BYTES (\d+)/)[1]);
 
 assert(makefile.includes('ifeq ($(wildcard ./dhcpc_vc_query.c),)'));
+assert(makefile.includes('$(OBJS): | PB'), 'objects must wait for prebuild filtering under -j');
+assert(makefile.includes('source=$${source%.o}.c;'));
+assert(makefile.includes('if [ -f "$$source" ]; then'));
+assert(source.startsWith('#define _GNU_SOURCE\n'));
 assert(source.includes('json_object_object_del(root, mac)'));
 assert(source.includes('json_object_object_length(root) > NMP_VC_MAX_ENTRIES'));
 assert(source.includes('nmp_vc_size(root) > NMP_VC_MAX_BYTES'));
 assert(source.includes('json_object_to_file(NMP_VC_JSON_FILE, root)'));
 assert(source.includes('strcmp(argv[1], "del")'));
 assert(source.includes('O_NOFOLLOW'));
+
+const pbStart = makefile.indexOf('\nPB:\n') + 1;
+const pbEnd = makefile.indexOf('\n\nifeq', pbStart);
+assert(pbStart > 0 && pbEnd > pbStart, 'PB rule should be extractable for a make behavior test');
+const pbRule = makefile.slice(pbStart, pbEnd);
+const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'nmp-vc-make-'));
+try {
+    fs.mkdirSync(path.join(fixture, 'prebuild'));
+    fs.writeFileSync(path.join(fixture, 'prebuild/dhcpc_vc_query.o'), 'stale-prebuilt');
+    fs.writeFileSync(path.join(fixture, 'prebuild/opaque.o'), 'source-less-prebuilt');
+    fs.writeFileSync(path.join(fixture, 'dhcpc_vc_query.c'), 'source');
+    fs.writeFileSync(path.join(fixture, 'Makefile'), [
+        pbRule,
+        'OBJS := dhcpc_vc_query.o opaque.o',
+        '$(OBJS): | PB',
+        'rc: $(OBJS)',
+        '\t@test "$$(cat dhcpc_vc_query.o)" = source-built',
+        '\t@test "$$(cat opaque.o)" = source-less-prebuilt',
+        '%.o: %.c',
+        '\t@printf source-built > "$@"',
+        '',
+    ].join('\n'));
+
+    const make = spawnSync('make', ['-j8', '-f', 'Makefile', 'rc'], {
+        cwd: fixture,
+        encoding: 'utf8',
+    });
+    assert.strictEqual(make.status, 0, `parallel make fixture failed: ${make.stderr || make.stdout}`);
+} finally {
+    fs.rmSync(fixture, { recursive: true, force: true });
+}
+
+if (process.argv[2]) {
+    const binary = spawnSync('strings', [process.argv[2]], { encoding: 'utf8' });
+    assert.strictEqual(binary.status, 0, `unable to inspect built rc: ${binary.stderr || binary.stdout}`);
+    assert(binary.stdout.includes('json_object_object_length'));
+    assert(binary.stdout.includes('json_object_object_del'));
+    assert(!binary.stdout.includes('add_entry'));
+    assert(!binary.stdout.includes('write_to_memory'));
+}
 
 function serializedSize(entries) {
     return Buffer.byteLength(JSON.stringify(Object.fromEntries(entries)), 'utf8');
