@@ -63,6 +63,11 @@
 #define TTY_THRESHOLD_THROTTLE		128 /* now based on remaining room */
 #define TTY_THRESHOLD_UNTHROTTLE 	128
 
+static unsigned int *n_tty_read_buf_generation(struct tty_struct *tty)
+{
+	return (unsigned int *)(tty->read_buf + N_TTY_BUF_SIZE);
+}
+
 /*
  * Special byte codes used in the echo buffer to represent operations
  * or special handling of characters.  Bytes in the echo buffer that
@@ -170,6 +175,8 @@ static void reset_buffer_flags(struct tty_struct *tty)
 
 	spin_lock_irqsave(&tty->read_lock, flags);
 	tty->read_head = tty->read_tail = tty->read_cnt = 0;
+	if (tty->read_buf)
+		(*n_tty_read_buf_generation(tty))++;
 	spin_unlock_irqrestore(&tty->read_lock, flags);
 
 	mutex_lock(&tty->echo_lock);
@@ -1561,7 +1568,8 @@ static int n_tty_open(struct tty_struct *tty)
 
 	/* These are ugly. Currently a malloc failure here can panic */
 	if (!tty->read_buf) {
-		tty->read_buf = kzalloc(N_TTY_BUF_SIZE, GFP_KERNEL);
+		tty->read_buf = kzalloc(N_TTY_BUF_SIZE + sizeof(unsigned int),
+					GFP_KERNEL);
 		if (!tty->read_buf)
 			return -ENOMEM;
 	}
@@ -1614,25 +1622,45 @@ static int copy_from_read_buf(struct tty_struct *tty,
 
 {
 	int retval;
+	int count;
 	size_t n;
+	int tail;
+	unsigned int generation;
 	unsigned long flags;
 
 	retval = 0;
 	spin_lock_irqsave(&tty->read_lock, flags);
-	n = min(tty->read_cnt, N_TTY_BUF_SIZE - tty->read_tail);
-	n = min(*nr, n);
+	tail = tty->read_tail;
+	generation = *n_tty_read_buf_generation(tty);
+	count = tty->read_cnt;
+	if (count < 0) {
+		tty->read_tail = tty->read_head;
+		tty->read_cnt = 0;
+		tail = tty->read_tail;
+		count = 0;
+	} else if (count > N_TTY_BUF_SIZE)
+		count = N_TTY_BUF_SIZE;
+	if (tail < 0 || tail >= N_TTY_BUF_SIZE)
+		count = 0;
+	else if (count > N_TTY_BUF_SIZE - tail)
+		count = N_TTY_BUF_SIZE - tail;
+	n = min(*nr, (size_t)count);
 	spin_unlock_irqrestore(&tty->read_lock, flags);
 	if (n) {
-		retval = copy_to_user(*b, &tty->read_buf[tty->read_tail], n);
+		retval = copy_to_user(*b, &tty->read_buf[tail], n);
 		n -= retval;
-		tty_audit_add_data(tty, &tty->read_buf[tty->read_tail], n);
+		tty_audit_add_data(tty, &tty->read_buf[tail], n);
 		spin_lock_irqsave(&tty->read_lock, flags);
-		tty->read_tail = (tty->read_tail + n) & (N_TTY_BUF_SIZE-1);
-		tty->read_cnt -= n;
-		/* Turn single EOF into zero-length read */
-		if (L_EXTPROC(tty) && tty->icanon && n == 1) {
-			if (!tty->read_cnt && (*b)[n-1] == EOF_CHAR(tty))
-				n--;
+		if (generation == *n_tty_read_buf_generation(tty) &&
+		    tty->read_tail == tail && tty->read_cnt >= 0 &&
+		    (size_t)tty->read_cnt >= n) {
+			tty->read_tail = (tail + n) & (N_TTY_BUF_SIZE-1);
+			tty->read_cnt -= n;
+			/* Turn single EOF into zero-length read */
+			if (L_EXTPROC(tty) && tty->icanon && n == 1) {
+				if (!tty->read_cnt && (*b)[n-1] == EOF_CHAR(tty))
+					n--;
+			}
 		}
 		spin_unlock_irqrestore(&tty->read_lock, flags);
 		*b += n;
