@@ -127,9 +127,10 @@ static volatile sig_atomic_t request_deadline_active;
 static volatile sig_atomic_t request_deadline_expired;
 static volatile sig_atomic_t request_deadline_timed_out;
 static volatile sig_atomic_t request_deadline_seconds;
+static volatile sig_atomic_t request_deadline_fd = -1;
 static int request_deadline_body;
 static unsigned int request_previous_alarm;
-static void httpd_request_deadline_start(unsigned int timeout, int body_phase);
+static void httpd_request_deadline_start(unsigned int timeout, int body_phase, int fd);
 static int httpd_request_deadline_stop(void);
 
 typedef struct conn_item {
@@ -2438,7 +2439,7 @@ handle_request(void)
 // 2007.11 James. for QISxxx.htm pages }
 			if (handler->input) {
 				if (cl > 0)
-					httpd_request_deadline_start(httpd_request_body_timeout(cl), 1);
+					httpd_request_deadline_start(httpd_request_body_timeout(cl), 1, fileno(conn_fp));
 				handler->input(file, conn_fp, cl, boundary);
 				if (cl > 0 && httpd_request_deadline_stop())
 					return;
@@ -3239,6 +3240,8 @@ void check_alive()
 {
 	if (request_deadline_active) {
 		request_deadline_expired = 1;
+		if (request_deadline_fd >= 0)
+			shutdown(request_deadline_fd, SHUT_RDWR);
 		alarm(20);
 		return;
 	}
@@ -3271,12 +3274,13 @@ void check_alive()
 }
 
 static void
-httpd_request_deadline_start(unsigned int timeout, int body_phase)
+httpd_request_deadline_start(unsigned int timeout, int body_phase, int fd)
 {
 	request_deadline_expired = 0;
 	request_deadline_timed_out = 0;
 	request_deadline_seconds = timeout;
 	request_deadline_body = body_phase;
+	request_deadline_fd = fd;
 	if (!body_phase)
 		request_headers_complete = 0;
 	request_previous_alarm = alarm(timeout);
@@ -3293,6 +3297,7 @@ httpd_request_deadline_stop(void)
 		return request_deadline_timed_out;
 
 	request_deadline_active = 0;
+	request_deadline_fd = -1;
 	expired = request_deadline_expired;
 	request_deadline_timed_out = expired;
 	if (expired) {
@@ -3642,7 +3647,7 @@ reload_cert:
 			/* Process request if any */
 			if (FD_ISSET(item->fd, &rfds)) {
 				request_peer = item->usa;
-				httpd_request_deadline_start(HTTPD_REQUEST_TIMEOUT, 0);
+				httpd_request_deadline_start(HTTPD_REQUEST_TIMEOUT, 0, item->fd);
 				request_deadline_started = 1;
 #ifdef RTCONFIG_HTTPS
 				if (do_ssl) {
