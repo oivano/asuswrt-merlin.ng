@@ -59,21 +59,7 @@ int getStorageStatus(STORAGE_INFO_T *st)
 	st->u.wt.HttpPort = htons(nvram_get_int("webdav_http_port"));
 	st->u.wt.HttpsPort = htons(nvram_get_int("webdav_https_port"));
 
-	if(nvram_get_int("ddns_enable_x")) {
-		st->u.wt.EnableDDNS = 1;
-		snprintf(st->u.wt.HostName, sizeof(st->u.wt.HostName), "%s", nvram_safe_get("ddns_hostname_x"));
-	}
-	else {
-		st->u.wt.EnableDDNS = 0;
-	}
-
 	st->u.dev.sw.AiHOMEAPILevel = EXTEND_AIHOME_API_LEVEL;
-
-	// setup st->u.WANIPAddr
-	st->u.wt.WANIPAddr = __cpu_to_le32(inet_network(get_wanip()));
-
-	st->u.wt.isNotDefault = nvram_get_int("x_Setting");
-
 
 #ifdef RTCONFIG_TUNNEL
 	st->EnableAAE = (BYTE)nvram_get_int("aae_enable");

@@ -821,38 +821,17 @@ int set_pid(int pid)
 	return 1;
 }
 
-void sendInfo(int sockfd, char *pdubuf, unsigned short cli_port)
+void sendInfo(int sockfd, char *pdubuf, unsigned short cli_port, const char *client_ip)
 {
-    struct sockaddr_in		  cli;
-//    IBOX_COMM_PKT_HDR		   hdr;
-    int count=0, err;
+	struct sockaddr_in cli;
 
-    cli.sin_family    = AF_INET;
-    cli.sin_addr.s_addr = inet_addr("255.255.255.255");;
-    //cli.sin_port = htons(SRV_PORT);
-    cli.sin_port = htons(cli_port);
+	memset(&cli, 0, sizeof(cli));
+	cli.sin_family = AF_INET;
+	if (!inet_aton(client_ip, &cli.sin_addr))
+		return;
+	cli.sin_port = htons(cli_port);
 
-    while (count < g_intfCount)
-    {
-	//PRINT("g_intf[%d] %s\n",count,g_intf[count]);
-	err = setsockopt(sockfd, SOL_SOCKET, SO_BINDTODEVICE, g_intf[count] , IFNAMSIZ);
-	if (err != 0)
-	{
-	    printf("%s\n",g_intf[count]);
-	    perror("setsockopt:");
-	}
-
-	if (sendto(sockfd , pdubuf , INFO_PDU_LENGTH , 0 ,(struct sockaddr *) &cli, sizeof(cli)) == -1)
-	{
-	    perror("sendto:");
-	}
-	count ++;
-    }
-
-    err = setsockopt(sockfd, SOL_SOCKET, SO_BINDTODEVICE, "" , IFNAMSIZ);
-
-    if (err != 0)
-    {
-	perror("setsockopt reset:");
-    }
+	if (sendto(sockfd, pdubuf, INFO_PDU_LENGTH, 0,
+		   (struct sockaddr *)&cli, sizeof(cli)) == -1)
+		perror("sendto:");
 }
