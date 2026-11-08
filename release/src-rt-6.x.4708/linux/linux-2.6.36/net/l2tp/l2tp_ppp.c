@@ -1237,10 +1237,14 @@ static int pppol2tp_tunnel_ioctl(struct l2tp_tunnel *tunnel,
 		if (stats.session_id != 0) {
 			/* resend to session ioctl handler */
 			struct l2tp_session *session =
-				l2tp_session_find(sock_net(sk), tunnel, stats.session_id);
-			if (session != NULL)
+				l2tp_session_get(sock_net(sk), tunnel,
+						 stats.session_id, 1);
+			if (session != NULL) {
 				err = pppol2tp_session_ioctl(session, cmd, arg);
-			else
+				if (session->deref)
+					(*session->deref)(session);
+				l2tp_session_dec_refcount(session);
+			} else
 				err = -EBADR;
 			break;
 		}
