@@ -387,6 +387,20 @@ static int queue_config_packet(struct openconnect_info *vpninfo, uint16_t proto,
 
 #define PROTO_TAG_LEN(p, t, l) ((((uint32_t)(p)) << 16) | ((t) << 8) | (l))
 
+static int validate_config_options(unsigned char *payload, int len)
+{
+	unsigned char *p = payload;
+	int remaining = len;
+
+	while (remaining) {
+		if (remaining < 2 || p[1] < 2 || p[1] > remaining)
+			return -EINVAL;
+		remaining -= p[1];
+		p += p[1];
+	}
+	return 0;
+}
+
 static int handle_config_request(struct openconnect_info *vpninfo,
 				 int proto, int id, unsigned char *payload, int len)
 {
@@ -403,6 +417,10 @@ static int handle_config_request(struct openconnect_info *vpninfo,
 	case PPP_IP6CP: ncp = &ppp->ip6cp; break;
 	default: return -EINVAL;
 	}
+
+	ret = validate_config_options(payload, len);
+	if (ret)
+		return ret;
 
 	for (p = payload ; p+1 < payload+len && p+p[1] <= payload+len; p += p[1]) {
 		unsigned char t = p[0], l = p[1];
@@ -659,6 +677,9 @@ static int handle_config_rejnak(struct openconnect_info *vpninfo,
 	case PPP_IP6CP: ncp = &ppp->ip6cp; break;
 	default: return -EINVAL;
 	}
+
+	if (validate_config_options(payload, len))
+		return -EINVAL;
 
 	/* If it isn't a response to our latest ConfReq, we don't care */
 	if (id != ncp->id)
