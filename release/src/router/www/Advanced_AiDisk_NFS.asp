@@ -550,7 +550,10 @@ function shownfsd_exportlist(){
 			code +='<tr id="row'+i+'">';
 			var nfsd_exportlist_col = nfsd_exportlist_row[i].split('&#62');
 				for(var j = 0; j < nfsd_exportlist_col.length; j++){
-					code +='<td width="30%" style="word-break: break-all;">'+ nfsd_exportlist_col[j] +'</td>';
+					var cell_value = nfsd_exportlist_col[j];
+					if(j == 2)
+						cell_value = "root_squash" + (cell_value.length > 0 ? "," + cell_value : "");
+					code +='<td width="30%" style="word-break: break-all;">'+ cell_value +'</td>';
 				}
 				code +='<td width="10%"><!--input class="edit_btn" onclick="edit_Row(this);" value=""/-->';
 				code +='<input class="remove_btn" onclick="del_Row(this);" value=""/></td></tr>';
@@ -689,7 +692,9 @@ function check_dir_path(){
 								</table>
 
 								<div><br><b>Access list:</b> Separate hosts with a space.  You can use the <b>192.168.1.0/24</b> form for a whole subnet.  <b>*</b> = any host.
-									<br><b>Options:</b> Comma-separated list of options to apply to every hosts within that export.
+									<br><b>Options:</b> Comma-separated list of options to apply to every host within that export.
+									<br><b>Root handling:</b> <code>root_squash</code> is applied first; listed options follow and may explicitly override it with <code>no_root_squash</code>.
+									Exports containing router-private USB data, including <code>.asus-swap</code>, are refused.
 								</div>
 
 								<div><br><span id="NoUSB" style="display:none;color:#FFCC00;">You need to plug a USB disk to your router to be able to export folders!<br></span></div>
@@ -705,7 +710,7 @@ function check_dir_path(){
 											<tr>
 												<th width="30%">Path</th>
 												<th width="30%">Access list</th>
-												<th width="30%">Options</th>
+												<th width="30%">Effective options</th>
 												<th width="10%">Add / Delete</th>
 											</tr>
 											<tr  id="EditExports">
