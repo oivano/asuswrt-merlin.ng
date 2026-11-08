@@ -38,7 +38,6 @@ assert.match(lan, /"--arp-mac-src", binding->mac,[\s\S]*?"--arp-ip-src", binding
 assert.match(lan, /"--arp-ip-src", "0\.0\.0\.0", "-j", "ACCEPT"/);
 assert.match(lan, /"-p", "arp",[\s\S]*?"-j", "DROP"/);
 assert.match(lan, /#define GUEST_ARP_SOURCE_CHAIN "GUESTSRC"/);
-assert.match(lan, /"-s", binding->mac, "-p", "ipv4", "--ip-src", binding->ip,[\s\S]*?"-j", "ACCEPT"/);
 assert.match(lan, /"--ip-sport", "68",[\s\S]*?"--ip-dport", "67", "-j", "ACCEPT"/);
 assert.match(lan, /GUEST_ARP_SOURCE_CHAIN, "-i", active_ifnames\[i\],[\s\S]*?"-p", "ipv4", "-j", "DROP"/);
 assert.match(lan, /"-I", "INPUT", "1", "-i", active_ifnames\[i\],[\s\S]*?"-j", GUEST_ARP_SOURCE_CHAIN/);
@@ -47,6 +46,10 @@ const sourceBindingRepair = arpRefresh.match(/for \(i = 0; i < current_count; \+
 const sourceBindingDelete = sourceBindingRepair.indexOf('GUEST_ARP_EBTABLES("-D", GUEST_ARP_SOURCE_CHAIN');
 const sourceBindingInsert = sourceBindingRepair.indexOf('GUEST_ARP_EBTABLES("-I", GUEST_ARP_SOURCE_CHAIN');
 assert.ok(sourceBindingDelete >= 0 && sourceBindingInsert > sourceBindingDelete);
+assert.match(sourceBindingRepair,
+	/while \(GUEST_ARP_EBTABLES\("-D", GUEST_ARP_SOURCE_CHAIN, "-i", binding->ifname,[\s\S]*?"-s", binding->mac, "-p", "ipv4", "--ip-src", binding->ip,[\s\S]*?"-j", "ACCEPT"\) == 0\)[\s\S]*?if \(GUEST_ARP_EBTABLES\("-I", GUEST_ARP_SOURCE_CHAIN, "1", "-i", binding->ifname,[\s\S]*?"-s", binding->mac, "-p", "ipv4", "--ip-src", binding->ip,[\s\S]*?"-j", "RETURN"\) != 0/);
+assert.doesNotMatch(sourceBindingRepair,
+	/GUEST_ARP_EBTABLES\("-I", GUEST_ARP_SOURCE_CHAIN,[\s\S]*?"-j", "ACCEPT"/);
 assert.doesNotMatch(sourceBindingRepair, /guest_arp_binding_find\(old_bindings/);
 const interfaceRuleRepair = arpRefresh.match(/for \(i = 0; i < active_count; \+\+i\)[\s\S]*?\n\t\}/)[0];
 assert.match(interfaceRuleRepair, /GUEST_ARP_EBTABLES\("-D", GUEST_ARP_SOURCE_CHAIN/);
@@ -54,7 +57,8 @@ assert.match(interfaceRuleRepair, /GUEST_ARP_EBTABLES\("-D", "INPUT"/);
 assert.match(interfaceRuleRepair, /GUEST_ARP_EBTABLES\("-I", GUEST_ARP_SOURCE_CHAIN/);
 assert.match(interfaceRuleRepair, /GUEST_ARP_EBTABLES\("-A", GUEST_ARP_SOURCE_CHAIN/);
 assert.match(interfaceRuleRepair, /GUEST_ARP_EBTABLES\("-I", "INPUT"/);
-assert.match(lan, /"-D", GUEST_ARP_SOURCE_CHAIN, "-i", binding->ifname,[\s\S]*?"--ip-src", binding->ip,[\s\S]*?"-j", "ACCEPT"/);
+assert.match(interfaceRuleRepair,
+	/GUEST_ARP_EBTABLES\("-I", GUEST_ARP_SOURCE_CHAIN, "1", "-i", active_ifnames\[i\],[\s\S]*?"--ip-dport", "67", "-j", "ACCEPT"\) != 0 \|\|\s*GUEST_ARP_EBTABLES\("-I", GUEST_ARP_SOURCE_CHAIN, "1", "-i", active_ifnames\[i\],[\s\S]*?"-p", "ipv4", "-j", "mark", "--mark-or", BIT_GUEST_IPV4,[\s\S]*?"--mark-target", "CONTINUE"\) != 0 \|\|\s*GUEST_ARP_EBTABLES\("-A", GUEST_ARP_SOURCE_CHAIN, "-i", active_ifnames\[i\],[\s\S]*?"-p", "ipv4", "-j", "DROP"\) != 0/);
 assert.match(lan, /"--ip6-icmp-type", "neighbour-solicitation"/);
 assert.match(lan, /"--ip6-icmp-type", "neighbour-advertisement"/);
 assert.match(lan, /GUEST_ARP_EBTABLES\("-D", "INPUT", "-i", cleanup_ifnames\[i\], "-p", "IPv6"[\s\S]*?"neighbour-solicitation"/);
