@@ -52,7 +52,7 @@ extern int getStorageStatus(STORAGE_INFO_T *st);
 #if defined(RTCONFIG_AMAS)
 extern int getStorageStatusFindCap(STORAGE_INFO_FINDCAP_T *st);
 #endif
-extern void sendInfo(int sockfd, char *pdubuf, unsigned short cli_port);
+extern void sendInfo(int sockfd, char *pdubuf, unsigned short cli_port, const char *client_ip);
 
 #ifdef BTN_SETUP
 
@@ -280,7 +280,6 @@ char *processPacket(int sockfd, char *pdubuf, unsigned short cli_port, char *cli
    		     strcpy(ginfo->SSID, ssid_g);
 		     strcpy(ginfo->NetMask, get_lan_netmask());
 		     strcpy(ginfo->ProductID, productid_g);	// disable for tmp
-		     strcpy(ginfo->FirmwareVersion, firmver_g); // disable for tmp
 		     memcpy(ginfo->MacAddress, mac, 6);
 		     ginfo->sw_mode = get_sw_mode();
 #ifdef WAVESERVER    // eric++
@@ -324,7 +323,7 @@ char *processPacket(int sockfd, char *pdubuf, unsigned short cli_port, char *cli
 	     		st = (STORAGE_INFO_T *) (pdubuf_res + sizeof (IBOX_COMM_PKT_RES) + sizeof (PKT_GET_INFO));
 	#endif
 		  	getStorageStatus(st);
-			sendInfo(sockfd, pdubuf_res,send_port);
+			sendInfo(sockfd, pdubuf_res, send_port, client_ip);
 			return pdubuf_res;		     	
 
 		case NET_CMD_ID_GETINFO_EX2:
@@ -341,7 +340,7 @@ char *processPacket(int sockfd, char *pdubuf, unsigned short cli_port, char *cli
 		     sprintf(prinfo, "%s:%d!$", ftype, free_space);
 		     memcpy(ginfo->PrinterInfo, prinfo, strlen(prinfo));
 
-		     sendInfo(sockfd, pdubuf_res, send_port);
+		     sendInfo(sockfd, pdubuf_res, send_port, client_ip);
 		     return pdubuf_res;
 
 #if 0
@@ -379,7 +378,7 @@ fprintf(stderr, "3. NET_CMD_ID_MANU_CMD:\n");
 			syscmd_res->len = strlen(syscmd_res->res);
 			_dprintf("%d %s\n", syscmd_res->len, syscmd_res->res);
 //			kill_pidfile_s("/var/run/usdsvr_broadcast.pid", SIGUSR1);
-			sendInfo(sockfd, pdubuf_res, send_port);
+			sendInfo(sockfd, pdubuf_res, send_port, client_ip);
 		     }
 		     else if (!strncmp(syscmd->cmd, "ClientPostMsg ", 14))
 		     {
@@ -447,13 +446,13 @@ fprintf(stderr, "3. NET_CMD_ID_MANU_CMD:\n");
 
 			fprintf(stderr,"%d %s\n", __le16_to_cpu(syscmd_res->len), syscmd_res->res);
 			/* repeat 3 times for MFG by Yen*/
-			sendInfo(sockfd, pdubuf_res, send_port);
-			sendInfo(sockfd, pdubuf_res, send_port);
-			sendInfo(sockfd, pdubuf_res, send_port);
+			sendInfo(sockfd, pdubuf_res, send_port, client_ip);
+			sendInfo(sockfd, pdubuf_res, send_port, client_ip);
+			sendInfo(sockfd, pdubuf_res, send_port, client_ip);
 			if(strstr(syscmd->cmd, "Commit")) {
 				int x=0;
 				while(x<7) {
-					sendInfo(sockfd, pdubuf_res, send_port);
+					sendInfo(sockfd, pdubuf_res, send_port, client_ip);
 					x++;
 				}
 			}
@@ -492,7 +491,7 @@ fprintf(stderr, "3. NET_CMD_ID_MANU_CMD:\n");
 		     nvram_set("bs_mac", cmdstr);
 		     sprintf(cmdstr, "Set MAC %s", nvram_safe_get("bs_mac"));
 		     syslog(LOG_NOTICE, cmdstr);
-		     sendInfo(sockfd, pdubuf_res, send_port);
+		     sendInfo(sockfd, pdubuf_res, send_port, client_ip);
 		     return pdubuf_res;
 		}
 		case NET_CMD_ID_QUICKGW_EX:
@@ -526,7 +525,7 @@ fprintf(stderr, "3. NET_CMD_ID_MANU_CMD:\n");
 #else
 		     gwquick_res->QuickFlag = (QFCAP_WIRELESS);
 #endif	
-		     sendInfo(sockfd, pdubuf_res, send_port);
+		     sendInfo(sockfd, pdubuf_res, send_port, client_ip);
 		     return pdubuf_res;
 		}
 #endif
@@ -535,7 +534,7 @@ fprintf(stderr, "3. NET_CMD_ID_MANU_CMD:\n");
 			//_dprintf("***NET CMD FIND_CAP\n");
 			st1 = (STORAGE_INFO_FINDCAP_T *) (pdubuf_res + sizeof (IBOX_COMM_PKT_RES));
 			getStorageStatusFindCap(st1);
-			sendInfo(sockfd, pdubuf_res,send_port);
+			sendInfo(sockfd, pdubuf_res, send_port, client_ip);
 			return pdubuf_res;
 #endif
 		default:

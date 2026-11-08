@@ -9,23 +9,8 @@ const source = read('release/src/router/infosvr/infosvr.c');
 const common = read('release/src/router/infosvr/common.c');
 const storage = read('release/src/router/infosvr/storage.c');
 
-const hostnameCopy = storage.match(/snprintf\(st->u\.wt\.HostName, sizeof\(st->u\.wt\.HostName\), "%s", nvram_safe_get\("ddns_hostname_x"\)\);/);
-assert(hostnameCopy, 'DDNS hostname must only be used as data');
-const copyHostname = new Function('st', 'snprintf', 'nvram_safe_get', hostnameCopy[0]
-    .replace('sizeof(st->u.wt.HostName)', '64').replace(/->/g, '.'));
-for (const value of ['%n%n%s%s%x%x', 'router.example', 'A'.repeat(80) + '%n']) {
-    const output = Buffer.alloc(64, 0xa5);
-    copyHostname({ u: { wt: { HostName: output } } }, (target, size, format, data) => {
-        assert.equal(format, '%s');
-        const bytes = Buffer.from(data);
-        bytes.copy(target, 0, 0, size - 1);
-        target[Math.min(bytes.length, size - 1)] = 0;
-    }, () => value);
-    assert.equal(output.subarray(0, output.indexOf(0)).toString(), value.slice(0, 63));
-}
-
 function body(text, name) {
-    const match = new RegExp('(?:static )?(?:int|DWORD|char \\*)\\s*' + name + '\\([^;{]*\\)\\s*\\{').exec(text);
+    const match = new RegExp('(?:static )?(?:int|DWORD|char \\*|void)\\s*' + name + '\\([^;{]*\\)\\s*\\{').exec(text);
     assert(match, name);
     const start = text.indexOf('{', match.index);
     let end = start + 1;
@@ -40,6 +25,16 @@ function body(text, name) {
 }
 
 const processPacket = body(common, 'processPacket');
+const getStorageStatus = body(storage, 'getStorageStatus');
+assert.match(getStorageStatus, /memset\(st,\s*0,\s*sizeof\(\*st\)\s*\)/);
+for (const sensitiveField of ['ddns_hostname_x', 'ddns_enable_x', 'get_wanip', 'x_Setting',
+    'HostName', 'WANIPAddr', 'isNotDefault', 'EnableDDNS']) {
+    assert(!getStorageStatus.includes(sensitiveField), `GETINFO storage must not expose ${sensitiveField}`);
+}
+assert.doesNotMatch(processPacket, /ginfo->FirmwareVersion\s*=/);
+const sendInfoCalls = [...common.matchAll(/^\s*sendInfo\(([^;]+)\);/gm)];
+assert(sendInfoCalls.length);
+for (const call of sendInfoCalls) assert.match(call[1], /client_ip/);
 assert.doesNotMatch(common, /case\s+NET_CMD_ID_GETINFO_MANU\s*:/);
 assert.doesNotMatch(common, /nvram_set\s*\(\s*"asus_mfg"/);
 const rejection = processPacket.match(/if \(realOPCode == NET_CMD_ID_GETINFO_MANU\)\s*return NULL;/);
@@ -74,6 +69,11 @@ for (const mode of ['0', '1']) {
 }
 
 const main = body(source, 'main');
+const sendInfo = body(source, 'sendInfo');
+assert.match(sendInfo, /inet_aton\(client_ip, &cli\.sin_addr\)/);
+assert.match(sendInfo, /cli\.sin_port = htons\(cli_port\)/);
+assert.match(sendInfo, /sendto\(sockfd, pdubuf, INFO_PDU_LENGTH, 0,/);
+assert.doesNotMatch(sendInfo, /255\.255\.255\.255|g_intfCount|SO_BINDTODEVICE/);
 assert.match(main, /if \(setsockopt\(sockfd, IPPROTO_IP, IP_PKTINFO, &flag, sizeof\(flag\)\) < 0\)\s*\{\s*perror\("IP_PKTINFO:"\);\s*close\(sockfd\);\s*return 1;/);
 assert(main.indexOf('IP_PKTINFO') < main.indexOf('bind(sockfd'));
 const receive = body(source, 'RECV');
@@ -140,5 +140,5 @@ assert.equal(check('192.168.1.2'), 0, 'old subnet');
 settings.lan_ifname = '';
 assert.equal(check('10.0.1.2'), 1, 'default bridge fallback');
 
-console.log('PASS: infosvr literal DDNS hostname copy, manufacturing rejection, receive source contracts, and source-derived LAN policy');
+console.log('PASS: infosvr GETINFO privacy, requester-only replies, manufacturing rejection, and LAN ingress policy');
 console.log('Not compiled C or live UDP/firmware validation.');
