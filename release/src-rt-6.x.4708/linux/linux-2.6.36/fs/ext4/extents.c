@@ -832,6 +832,7 @@ static int ext4_ext_split(handle_t *handle, struct inode *inode,
 	ext4_fsblk_t newblock, oldblock;
 	__le32 border;
 	ext4_fsblk_t *ablocks = NULL; /* array of allocated blocks */
+	size_t ext_size = 0;
 	int err = 0;
 
 	/* make decision: where to split? */
@@ -936,6 +937,10 @@ static int ext4_ext_split(handle_t *handle, struct inode *inode,
 		memmove(ex, path[depth].p_ext-m, sizeof(struct ext4_extent)*m);
 		le16_add_cpu(&neh->eh_entries, m);
 	}
+	ext_size = sizeof(struct ext4_extent_header) +
+		sizeof(struct ext4_extent) * le16_to_cpu(neh->eh_entries);
+	memset(bh->b_data + ext_size, 0,
+	       inode->i_sb->s_blocksize - ext_size);
 
 	set_buffer_uptodate(bh);
 	unlock_buffer(bh);
@@ -1026,6 +1031,11 @@ static int ext4_ext_split(handle_t *handle, struct inode *inode,
 				sizeof(struct ext4_extent_idx) * m);
 			le16_add_cpu(&neh->eh_entries, m);
 		}
+		ext_size = sizeof(struct ext4_extent_header) +
+			sizeof(struct ext4_extent_idx) *
+			le16_to_cpu(neh->eh_entries);
+		memset(bh->b_data + ext_size, 0,
+		       inode->i_sb->s_blocksize - ext_size);
 		set_buffer_uptodate(bh);
 		unlock_buffer(bh);
 
@@ -1090,6 +1100,7 @@ static int ext4_ext_grow_indepth(handle_t *handle, struct inode *inode,
 	struct ext4_extent_header *neh;
 	struct buffer_head *bh;
 	ext4_fsblk_t newblock;
+	size_t ext_size;
 	int err = 0;
 
 	newblock = ext4_ext_new_meta_block(handle, inode, path, newext, &err);
@@ -1111,7 +1122,10 @@ static int ext4_ext_grow_indepth(handle_t *handle, struct inode *inode,
 	}
 
 	/* move top-level index/leaf into new block */
-	memmove(bh->b_data, curp->p_hdr, sizeof(EXT4_I(inode)->i_data));
+	ext_size = sizeof(EXT4_I(inode)->i_data);
+	memmove(bh->b_data, curp->p_hdr, ext_size);
+	memset(bh->b_data + ext_size, 0,
+	       inode->i_sb->s_blocksize - ext_size);
 
 	/* set size of new block */
 	neh = ext_block_hdr(bh);
