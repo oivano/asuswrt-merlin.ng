@@ -2719,20 +2719,7 @@ int write_gct_conf(void)
 
 #ifdef RTCONFIG_USB
 
-int hotplug_pid = -1;
-FILE *fp = NULL;
-#define hotplug_dbg(fmt, args...) (\
-{ \
-	char err_str[100] = {0}; \
-	char err_str2[100] = {0}; \
-	if (hotplug_pid == -1) hotplug_pid = getpid(); \
-	if (!fp) fp = fopen("/tmp/usb_err", "a+"); \
-	sprintf(err_str, fmt, ##args); \
-	sprintf(err_str2, "PID:%d %s", hotplug_pid, err_str); \
-	fwrite(err_str2, strlen(err_str2), 1,  fp); \
-	fflush(fp); \
-} \
-)
+#define hotplug_dbg(...) do { } while (0)
 
 #ifdef RTCONFIG_BCMARM
 
