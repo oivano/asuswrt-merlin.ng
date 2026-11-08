@@ -534,6 +534,60 @@ static inline void ipip6_ecn_decapsulate(struct iphdr *iph, struct sk_buff *skb)
 		IP6_ECN_set_ce(ipv6_hdr(skb));
 }
 
+static inline int ipip6_addr_to_4(struct in6_addr *v6dst,
+				  struct ip_tunnel *tunnel, __be32 *dst)
+{
+#ifdef CONFIG_IPV6_SIT_6RD
+	if (!ipv6_prefix_equal(v6dst, &tunnel->ip6rd.prefix,
+			       tunnel->ip6rd.prefixlen))
+		return 0;
+	{
+		unsigned pbw0, pbi0;
+		int pbi1;
+		u32 d;
+
+		pbw0 = tunnel->ip6rd.prefixlen >> 5;
+		pbi0 = tunnel->ip6rd.prefixlen & 0x1f;
+
+		d = (ntohl(v6dst->s6_addr32[pbw0]) << pbi0) >>
+		    tunnel->ip6rd.relay_prefixlen;
+
+		pbi1 = pbi0 - tunnel->ip6rd.relay_prefixlen;
+		if (pbi1 > 0)
+			d |= ntohl(v6dst->s6_addr32[pbw0 + 1]) >>
+			     (32 - pbi1);
+
+		*dst = tunnel->ip6rd.relay_prefix | htonl(d);
+	}
+#else
+	if (v6dst->s6_addr16[0] != htons(0x2002))
+		return 0;
+	/* 6to4 v6 addr has 16 bits prefix, 32 v4addr, 16 SLA, ... */
+	memcpy(dst, &v6dst->s6_addr16[1], 4);
+#endif
+	return 1;
+}
+
+static inline int ipip6_tunnel_rcv_check(struct sk_buff *skb,
+					 struct iphdr *iph,
+					 struct ip_tunnel *tunnel)
+{
+	struct ipv6hdr *ipv6h = ipv6_hdr(skb);
+	__be32 embedded;
+
+	if ((tunnel->dev->flags & IFF_POINTOPOINT) ||
+	    (tunnel->dev->priv_flags & IFF_ISATAP))
+		return 1;
+
+	if (ipip6_addr_to_4(&ipv6h->saddr, tunnel, &embedded) &&
+	    embedded != iph->saddr)
+		return 0;
+	if (ipip6_addr_to_4(&ipv6h->daddr, tunnel, &embedded) &&
+	    embedded != iph->daddr)
+		return 0;
+	return 1;
+}
+
 static int ipip6_rcv(struct sk_buff *skb)
 {
 	struct iphdr *iph;
@@ -563,6 +617,13 @@ static int ipip6_rcv(struct sk_buff *skb)
 			return 0;
 		}
 
+		if (!ipip6_tunnel_rcv_check(skb, iph, tunnel)) {
+			tunnel->dev->stats.rx_errors++;
+			rcu_read_unlock();
+			kfree_skb(skb);
+			return 0;
+		}
+
 		skb_tunnel_rx(skb, tunnel->dev);
 
 		ipip6_ecn_decapsulate(iph, skb);
@@ -586,33 +647,7 @@ static inline
 __be32 try_6rd(struct in6_addr *v6dst, struct ip_tunnel *tunnel)
 {
 	__be32 dst = 0;
-
-#ifdef CONFIG_IPV6_SIT_6RD
-	if (ipv6_prefix_equal(v6dst, &tunnel->ip6rd.prefix,
-			      tunnel->ip6rd.prefixlen)) {
-		unsigned pbw0, pbi0;
-		int pbi1;
-		u32 d;
-
-		pbw0 = tunnel->ip6rd.prefixlen >> 5;
-		pbi0 = tunnel->ip6rd.prefixlen & 0x1f;
-
-		d = (ntohl(v6dst->s6_addr32[pbw0]) << pbi0) >>
-		    tunnel->ip6rd.relay_prefixlen;
-
-		pbi1 = pbi0 - tunnel->ip6rd.relay_prefixlen;
-		if (pbi1 > 0)
-			d |= ntohl(v6dst->s6_addr32[pbw0 + 1]) >>
-			     (32 - pbi1);
-
-		dst = tunnel->ip6rd.relay_prefix | htonl(d);
-	}
-#else
-	if (v6dst->s6_addr16[0] == htons(0x2002)) {
-		/* 6to4 v6 addr has 16 bits prefix, 32 v4addr, 16 SLA, ... */
-		memcpy(&dst, &v6dst->s6_addr16[1], 4);
-	}
-#endif
+	ipip6_addr_to_4(v6dst, tunnel, &dst);
 	return dst;
 }
 
