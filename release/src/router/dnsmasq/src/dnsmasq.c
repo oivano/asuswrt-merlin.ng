@@ -56,7 +56,6 @@ int main (int argc, char **argv)
   long i, max_fd = sysconf(_SC_OPEN_MAX);
   char *baduser = NULL;
   int log_err;
-  int chown_warn = 0;
 #if defined(HAVE_LINUX_NETWORK)
   cap_user_header_t hdr = NULL;
   cap_user_data_t data = NULL;
@@ -649,24 +648,8 @@ int main (int argc, char **argv)
 
 	  sprintf(daemon->namebuff, "%d\n", (int) getpid());
 
-	  /* Explanation: Some installations of dnsmasq (eg Debian/Ubuntu) locate the pid-file
-	     in a directory which is writable by the non-privileged user that dnsmasq runs as. This
-	     allows the daemon to delete the file as part of its shutdown. This is a security hole to the 
-	     extent that an attacker running as the unprivileged  user could replace the pidfile with a 
-	     symlink, and have the target of that symlink overwritten as root next time dnsmasq starts. 
-
-	     The following code first deletes any existing file, and then opens it with the O_EXCL flag,
-	     ensuring that the open() fails should there be any existing file (because the unlink() failed, 
-	     or an attacker exploited the race between unlink() and open()). This ensures that no symlink
-	     attack can succeed. 
-
-	     Any compromise of the non-privileged user still theoretically allows the pid-file to be
-	     replaced whilst dnsmasq is running. The worst that could allow is that the usual 
-	     "shutdown dnsmasq" shell command could be tricked into stopping any other process.
-
-	     Note that if dnsmasq is started as non-root (eg for testing) it silently ignores 
-	     failure to write the pid-file.
-	  */
+   /* Keep the pidfile root-owned when rc starts dnsmasq as root. rc signals
+      dnsmasq by process name instead of trusting the pidfile contents. */
 
 	  unlink(daemon->runfile); 
 	  
@@ -678,15 +661,6 @@ int main (int argc, char **argv)
 	    }
 	  else
 	    {
-	      /* We're still running as root here. Change the ownership of the PID file
-		 to the user we will be running as. Note that this is not to allow
-		 us to delete the file, since that depends on the permissions 
-		 of the directory containing the file. That directory will
-		 need to by owned by the dnsmasq user, and the ownership of the
-		 file has to match, to keep systemd >273 happy. */
-	      if (getuid() == 0 && ent_pw && ent_pw->pw_uid != 0 && fchown(fd, ent_pw->pw_uid, ent_pw->pw_gid) == -1)
-		chown_warn = errno;
-
 	      if (!read_write(fd, (unsigned char *)daemon->namebuff, strlen(daemon->namebuff), RW_WRITE))
 		err = 1;
 	      else
@@ -883,16 +857,6 @@ int main (int argc, char **argv)
   
   my_syslog(LOG_DEBUG, _("compile time options: %s"), compile_opts);
 
-  if (chown_warn != 0)
-    {
-#if defined(HAVE_LINUX_NETWORK)
-      if (chown_warn == EPERM && !have_cap_chown)
-        my_syslog(LOG_INFO, "chown of PID file %s failed: please add capability CAP_CHOWN", daemon->runfile);
-      else
-#endif
-      my_syslog(LOG_WARNING, "chown of PID file %s failed: %s", daemon->runfile, strerror(chown_warn));
-    }
-  
 #ifdef HAVE_DBUS
   if (option_bool(OPT_DBUS))
     {
