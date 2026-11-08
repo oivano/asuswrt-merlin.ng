@@ -261,6 +261,33 @@ bypass_doubledash (char **p)
 		*p += 2;
 }
 
+bool
+ovpn_option_is_unsafe(const char *option)
+{
+	static const char *blocked[] = {
+		"up", "down", "route-up", "route-pre-down", "ipchange",
+		"tls-verify", "auth-user-pass-verify", "client-connect",
+		"client-disconnect", "learn-address", "plugin", "script-security",
+		"tls-crypt-v2-verify", "status", "writepid", "chroot", "setenv",
+		"setenv-safe", "config", "cd", "daemon", "dev-node", "iproute",
+		"pkcs12", "askpass", "tls-export-cert", "auth-gen-token-secret",
+		"tmp-dir", NULL
+	};
+	int i;
+
+	if (!option)
+		return false;
+	if (!strncmp(option, "--", 2))
+		option += 2;
+	if (!strncmp(option, "management", 10) || !strncmp(option, "log", 3))
+		return true;
+	for (i = 0; blocked[i]; ++i) {
+		if (streq(option, blocked[i]))
+			return true;
+	}
+	return false;
+}
+
 static bool
 in_src_get (const struct in_src *is, char *line, const int size)
 {
@@ -400,6 +427,11 @@ static int
 add_option (char *p[], int line, int unit)
 {
 	char prefix[32] = {0};
+
+	if (ovpn_option_is_unsafe(p[0])) {
+		logmessage("OVPN", "Rejected unsafe option '%s' at line %d", p[0], line);
+		return VPN_UPLOAD_REJECTED_OPTIONS;
+	}
 
 	snprintf(prefix, sizeof(prefix), "vpn_client%d_", unit);
 
