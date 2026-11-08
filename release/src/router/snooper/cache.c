@@ -97,6 +97,7 @@ static struct group_entry routers;
 
 static void group_timer(struct timer_entry *timer, void *data);
 static void router_timer(struct timer_entry *timer, void *data);
+static void consume_group(struct group_entry *group);
 
 static struct host_entry *get_host(unsigned char *ea, unsigned long time)
 {
@@ -257,6 +258,7 @@ static struct group_entry *get_group(unsigned char *ea, int allocate)
 		}
 		if (!group)
 			return NULL;
+		consume_group(group);
 		LIST_REMOVE(group, hash);
 		if (prev)
 			STAILQ_REMOVE_AFTER(&groups.pool, prev, link);
@@ -433,8 +435,11 @@ int add_member(unsigned char *maddr, in_addr_t addr, int port, int timeout)
 		portmap = (portmap ^ group->portmap) & group->portmap;
 
 		timer = &group->timer;
-		if (!timer_pending(timer) || time_before(group->time, timer->expires))
-			mod_timer(timer, group->time);
+		if (group->portmap) {
+			if (!timer_pending(timer) || time_before(group->time, timer->expires))
+				mod_timer(timer, group->time);
+		} else
+			del_timer(timer);
 
 		log_cache("%-6s [" FMT_EA "] + " FMT_PORTS " add " FMT_IP " timeout %d", "member",
 		    ARG_EA(group->ea), ARG_PORTS(portmap), ARG_IP(&addr), timeout / TIMER_HZ);
@@ -597,16 +602,22 @@ int expire_members(unsigned char *maddr, int timeout)
 		if (!group)
 			return -1;
 		group->time = time;
-		if (!timer_pending(&group->timer) || time_after(group->timer.expires, time))
-			mod_timer(&group->timer, time);
+		if (group->portmap) {
+			if (!timer_pending(&group->timer) || time_after(group->timer.expires, time))
+				mod_timer(&group->timer, time);
+		} else
+			del_timer(&group->timer);
 
 		log_cache("%-6s [" FMT_EA "] = " FMT_PORTS " set timeout %d", "expire",
 		    ARG_EA(group->ea), ARG_PORTS(group->portmap), timeout / TIMER_HZ);
 	} else
 	STAILQ_FOREACH(group, &groups.pool, link) {
 		group->time = time;
-		if (!timer_pending(&group->timer) || time_after(group->timer.expires, time))
-			mod_timer(&group->timer, time);
+		if (group->portmap) {
+			if (!timer_pending(&group->timer) || time_after(group->timer.expires, time))
+				mod_timer(&group->timer, time);
+		} else
+			del_timer(&group->timer);
 
 		log_cache("%-6s [" FMT_EA "] = " FMT_PORTS " set timeout %d", "expire",
 		    ARG_EA(group->ea), ARG_PORTS(group->portmap), timeout / TIMER_HZ);
