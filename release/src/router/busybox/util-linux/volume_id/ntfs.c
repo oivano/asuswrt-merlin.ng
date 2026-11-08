@@ -97,7 +97,9 @@ int FAST_FUNC volume_id_probe_ntfs(struct volume_id *id /*,uint64_t off*/)
 	unsigned cluster_size;
 	uint64_t mft_cluster;
 	uint64_t mft_off;
+	uint64_t mft_record_extent;
 	unsigned mft_record_size;
+	int mft_record_shift;
 	unsigned attr_type;
 	unsigned attr_off;
 	unsigned attr_len;
@@ -120,15 +122,39 @@ int FAST_FUNC volume_id_probe_ntfs(struct volume_id *id /*,uint64_t off*/)
 	volume_id_set_uuid(id, ns->volume_serial, UUID_NTFS);
 
 	sector_size = le16_to_cpu(ns->bytes_per_sector);
+	if (sector_size < 512 || sector_size > 4096
+	 || (sector_size & (sector_size - 1)) != 0
+	 || ns->sectors_per_cluster == 0
+	 || (ns->sectors_per_cluster & (ns->sectors_per_cluster - 1)) != 0
+	)
+		goto found;
 	cluster_size = ns->sectors_per_cluster * sector_size;
+	if (cluster_size > 0x10000)
+		goto found;
 	mft_cluster = le64_to_cpu(ns->mft_cluster_location);
-	mft_off = mft_cluster * cluster_size;
 
-	if (ns->cluster_per_mft_record < 0)
+	if (ns->cluster_per_mft_record < 0) {
 		/* size = -log2(mft_record_size); normally 1024 Bytes */
-		mft_record_size = 1 << -ns->cluster_per_mft_record;
-	else
+		mft_record_shift = -(int)ns->cluster_per_mft_record;
+		if (mft_record_shift < 9 || mft_record_shift > 16)
+			goto found;
+		mft_record_size = 1U << mft_record_shift;
+	} else {
+		if (ns->cluster_per_mft_record == 0
+		 || cluster_size > SEEK_BUFFER_SIZE / ns->cluster_per_mft_record
+		)
+			goto found;
 		mft_record_size = ns->cluster_per_mft_record * cluster_size;
+	}
+	if (mft_record_size < sizeof(*mftr)
+	 || mft_record_size > SEEK_BUFFER_SIZE
+	 || mft_cluster > (uint64_t)-1 / cluster_size
+	)
+		goto found;
+	mft_off = mft_cluster * cluster_size;
+	mft_record_extent = ((uint64_t)MFT_RECORD_VOLUME + 1) * mft_record_size;
+	if (mft_off > (uint64_t)-1 - mft_record_extent)
+		goto found;
 
 	dbg("sectorsize  0x%x", sector_size);
 	dbg("clustersize 0x%x", cluster_size);

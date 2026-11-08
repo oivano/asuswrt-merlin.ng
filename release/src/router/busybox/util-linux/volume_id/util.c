@@ -186,8 +186,8 @@ void *volume_id_get_buffer(struct volume_id *id, uint64_t off, size_t len)
 		(unsigned long long) off, (unsigned long long) off, len);
 
 	/* check if requested area fits in superblock buffer */
-	if (off + len <= SB_BUFFER_SIZE
-	 /* && off <= SB_BUFFER_SIZE - want this paranoid overflow check? */
+	if (off <= SB_BUFFER_SIZE
+	 && len <= SB_BUFFER_SIZE - off
 	) {
 		if (id->sbbuf == NULL) {
 			id->sbbuf = xmalloc(SB_BUFFER_SIZE);
@@ -213,8 +213,9 @@ void *volume_id_get_buffer(struct volume_id *id, uint64_t off, size_t len)
 	dst = id->seekbuf;
 
 	/* check if we need to read */
-	if ((off >= id->seekbuf_off)
-	 && ((off + len) <= (id->seekbuf_off + id->seekbuf_len))
+	if (off >= id->seekbuf_off
+	 && off - id->seekbuf_off <= id->seekbuf_len
+	 && len <= id->seekbuf_len - (size_t)(off - id->seekbuf_off)
 	) {
 		small_off = off - id->seekbuf_off; /* can't overflow */
 		goto ret; /* we already have it */
