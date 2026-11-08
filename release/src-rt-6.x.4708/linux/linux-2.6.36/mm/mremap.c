@@ -16,6 +16,7 @@
 #include <linux/capability.h>
 #include <linux/fs.h>
 #include <linux/highmem.h>
+#include <linux/rmap.h>
 #include <linux/security.h>
 #include <linux/syscalls.h>
 #include <linux/mmu_notifier.h>
@@ -95,6 +96,8 @@ static void move_ptes(struct vm_area_struct *vma, pmd_t *old_pmd,
 		    new_vma->vm_truncate_count != vma->vm_truncate_count)
 			new_vma->vm_truncate_count = 0;
 	}
+	/* Keep migration's anon-vma walk out while PTEs are in transit. */
+	vma_lock_anon_vma(vma);
 
 	/*
 	 * We don't have to worry about the ordering of src and dst
@@ -121,6 +124,7 @@ static void move_ptes(struct vm_area_struct *vma, pmd_t *old_pmd,
 		spin_unlock(new_ptl);
 	pte_unmap_nested(new_pte - 1);
 	pte_unmap_unlock(old_pte - 1, old_ptl);
+	vma_unlock_anon_vma(vma);
 	if (mapping)
 		spin_unlock(&mapping->i_mmap_lock);
 	mmu_notifier_invalidate_range_end(vma->vm_mm, old_start, old_end);
