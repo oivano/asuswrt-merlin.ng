@@ -4417,6 +4417,17 @@ TRACE_PT("writing Parental Control\n");
 	}
 #endif
 
+	if (!nvram_match("fw_pt_ftp", "1") && !nvram_match("nf_ftp", "1")
+#ifdef RTCONFIG_FTP
+			&& !nvram_match("ftp_enable", "1")
+#endif
+			) {
+		fprintf(fp, "-A FORWARD -m state --state RELATED -m helper --helper ftp -j DROP\n");
+#ifdef RTCONFIG_IPV6
+		if (ipv6_enabled())
+			fprintf(fp_ipv6, "-A FORWARD -m state --state RELATED -m helper --helper ftp -j DROP\n");
+#endif
+	}
 	fprintf(fp, "-A FORWARD -m state --state ESTABLISHED,RELATED -j %s\n", logaccept);
 #ifdef RTCONFIG_IPV6
 	if (ipv6_enabled() && nvram_match("ipv6_fw_enable", "1"))
@@ -5940,6 +5951,17 @@ TRACE_PT("writing Parental Control\n");
 	}
 #endif
 
+	if (!nvram_match("fw_pt_ftp", "1") && !nvram_match("nf_ftp", "1")
+#ifdef RTCONFIG_FTP
+			&& !nvram_match("ftp_enable", "1")
+#endif
+			) {
+		fprintf(fp, "-A FORWARD -m state --state RELATED -m helper --helper ftp -j DROP\n");
+#ifdef RTCONFIG_IPV6
+		if (ipv6_enabled())
+			fprintf(fp_ipv6, "-A FORWARD -m state --state RELATED -m helper --helper ftp -j DROP\n");
+#endif
+	}
 	fprintf(fp, "-A FORWARD -m state --state ESTABLISHED,RELATED -j %s\n", logaccept);
 #ifdef RTCONFIG_IPV6
 	if (ipv6_enabled() && nvram_match("ipv6_fw_enable", "1"))
