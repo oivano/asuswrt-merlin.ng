@@ -8,7 +8,7 @@ const sourcePath = path.join(root,
 const source = fs.readFileSync(sourcePath, 'utf8');
 
 function functionBody(name) {
-    const signature = source.search(new RegExp(`static int ${name}\\(`));
+    const signature = source.search(new RegExp(`static (?:int|void) ${name}\\(`));
     assert.notStrictEqual(signature, -1, `missing ${name}`);
     const open = source.indexOf('{', signature);
     let depth = 0;
@@ -38,4 +38,27 @@ for (const [doneName, walkDone, dumpName, walkInit] of [
         `${dumpName} must mark the walk started before initializing it`);
 }
 
-console.log('xfrm dump done checks passed');
+const attachAuth = functionBody('attach_auth');
+assert.match(attachAuth,
+    /p = kzalloc\(sizeof\(\*p\) \+ \(ualg->alg_key_len \+ 7\) \/ 8, GFP_KERNEL\);/,
+    'stored auth algorithm names must have zero-filled tails');
+
+const copyAuth = functionBody('copy_to_user_auth');
+assert.match(copyAuth,
+    /memset\(algo->alg_name, 0, sizeof\(algo->alg_name\)\);\s*strlcpy\(algo->alg_name, auth->alg_name, sizeof\(algo->alg_name\)\);/,
+    'reply algorithm names must be bounded and zero-padded');
+
+const copyState = functionBody('copy_to_user_state');
+assert.match(copyState, /memset\(p, 0, sizeof\(\*p\)\);\s*memcpy\(&p->id,/,
+    'SA reply padding must be initialized before fields are copied');
+
+const copyPolicy = functionBody('copy_to_user_policy');
+assert.match(copyPolicy, /memset\(p, 0, sizeof\(\*p\)\);\s*memcpy\(&p->sel,/,
+    'policy reply padding must be initialized before fields are copied');
+
+const copyTemplates = functionBody('copy_to_user_tmpl');
+assert.match(copyTemplates,
+    /memset\(vec, 0, sizeof\(vec\)\);\s*for \(i = 0; i < xp->xfrm_nr; i\+\+\)/,
+    'template reply padding must be initialized before fields are copied');
+
+console.log('xfrm dump and reply checks passed');
