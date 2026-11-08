@@ -373,29 +373,74 @@ static int check_enc_algo(struct openconnect_info *v, const char *s)
 	return -ENOENT;
 }
 
+static int esp_key_lengths_valid(struct openconnect_info *vpninfo)
+{
+	int enc_key_len, hmac_key_len;
+
+	switch (vpninfo->esp_enc) {
+	case ENC_AES_128_CBC:
+		enc_key_len = 16;
+		break;
+	case ENC_AES_256_CBC:
+		enc_key_len = 32;
+		break;
+	default:
+		return 0;
+	}
+	switch (vpninfo->esp_hmac) {
+	case HMAC_MD5:
+		hmac_key_len = 16;
+		break;
+	case HMAC_SHA1:
+		hmac_key_len = 20;
+		break;
+	case HMAC_SHA256:
+		hmac_key_len = 32;
+		break;
+	default:
+		return 0;
+	}
+
+	return vpninfo->enc_key_len == enc_key_len && vpninfo->hmac_key_len == hmac_key_len;
+}
+
 /* Reads <KEYTAG/><bits>N</bits><val>hex digits</val></KEYTAG> and saves the
  * key in dest, returning its length in bytes.
  */
 static int xml_to_key(xmlNode *xml_node, unsigned char *dest, int dest_size)
 {
-	int explen = -1, len = 0;
+	int explen = -1, len = 0, invalid = 0;
 	xmlNode *child;
 	char *p, *s = NULL;
 
 	for (child = xml_node->children; child; child=child->next) {
 		if (xmlnode_get_val(child, "bits", &s) == 0) {
 			explen = atoi(s);
-			if (explen & 0x07) goto out;
+			if (explen < 0 || (explen & 0x07)) {
+				invalid = 1;
+				goto out;
+			}
 			explen >>= 3;
+			if (explen > dest_size) {
+				invalid = 1;
+				goto out;
+			}
 		} else if (xmlnode_get_val(child, "val", &s) == 0) {
-			for (p=s; p[0] && p[1]; p+=2)
-				if (len++ < dest_size)
-					*dest++ = unhex(p);
+			for (p=s; p[0] && p[1]; p+=2) {
+				if (len >= dest_size) {
+					invalid = 1;
+					break;
+				}
+				*dest++ = unhex(p);
+				len++;
+			}
+			if (p[0])
+				invalid = 1;
 		}
 	}
 out:
 	free(s);
-	return (len == explen) ? len : -EINVAL;
+	return (!invalid && explen >= 0 && len == explen) ? len : -EINVAL;
 }
 #endif
 
@@ -540,8 +585,11 @@ static int gpst_parse_config_xml(struct openconnect_info *vpninfo, xmlNode *xml_
 		} else if (xmlnode_is_named(xml_node, "ipsec")) {
 #ifdef HAVE_ESP
 			if (vpninfo->dtls_state != DTLS_DISABLED) {
+				int bad_esp_keys = 0;
 				int c = (vpninfo->current_esp_in ^= 1);
 				struct esp *ei = &vpninfo->esp_in[c], *eo = &vpninfo->esp_out;
+				vpninfo->enc_key_len = 0;
+				vpninfo->hmac_key_len = 0;
 				vpninfo->old_esp_maxseq = vpninfo->esp_in[c^1].seq + 32;
 				for (member = xml_node->children; member; member=member->next) {
 					if (!xmlnode_get_val(member, "udp-port", &s))		udp_sockaddr(vpninfo, atoi(s));
@@ -549,15 +597,24 @@ static int gpst_parse_config_xml(struct openconnect_info *vpninfo, xmlNode *xml_
 					else if (!xmlnode_get_val(member, "hmac-algo", &s))	vpninfo->esp_hmac = check_hmac_algo(vpninfo, s);
 					else if (!xmlnode_get_val(member, "c2s-spi", &s))	eo->spi = htonl(strtoul(s, NULL, 16));
 					else if (!xmlnode_get_val(member, "s2c-spi", &s))	ei->spi = htonl(strtoul(s, NULL, 16));
-					else if (xmlnode_is_named(member, "ekey-c2s"))		vpninfo->enc_key_len = xml_to_key(member, eo->enc_key, sizeof(eo->enc_key));
-					else if (xmlnode_is_named(member, "ekey-s2c"))		vpninfo->enc_key_len = xml_to_key(member, ei->enc_key, sizeof(ei->enc_key));
-					else if (xmlnode_is_named(member, "akey-c2s"))		vpninfo->hmac_key_len = xml_to_key(member, eo->hmac_key, sizeof(eo->hmac_key));
-					else if (xmlnode_is_named(member, "akey-s2c"))		vpninfo->hmac_key_len = xml_to_key(member, ei->hmac_key, sizeof(ei->hmac_key));
-					else if (!xmlnode_get_val(member, "ipsec-mode", &s) && strcmp(s, "esp-tunnel"))
+					else if (xmlnode_is_named(member, "ekey-c2s")) {
+						vpninfo->enc_key_len = xml_to_key(member, eo->enc_key, sizeof(eo->enc_key));
+						if (vpninfo->enc_key_len < 0) bad_esp_keys = 1;
+					} else if (xmlnode_is_named(member, "ekey-s2c")) {
+						vpninfo->enc_key_len = xml_to_key(member, ei->enc_key, sizeof(ei->enc_key));
+						if (vpninfo->enc_key_len < 0) bad_esp_keys = 1;
+					} else if (xmlnode_is_named(member, "akey-c2s")) {
+						vpninfo->hmac_key_len = xml_to_key(member, eo->hmac_key, sizeof(eo->hmac_key));
+						if (vpninfo->hmac_key_len < 0) bad_esp_keys = 1;
+					} else if (xmlnode_is_named(member, "akey-s2c")) {
+						vpninfo->hmac_key_len = xml_to_key(member, ei->hmac_key, sizeof(ei->hmac_key));
+						if (vpninfo->hmac_key_len < 0) bad_esp_keys = 1;
+					} else if (!xmlnode_get_val(member, "ipsec-mode", &s) && strcmp(s, "esp-tunnel"))
 						vpn_progress(vpninfo, PRG_ERR, _("GlobalProtect config sent ipsec-mode=%s (expected esp-tunnel)\n"), s);
 				}
-				if (!(vpninfo->esp_enc > 0 && vpninfo->esp_hmac > 0 && vpninfo->enc_key_len > 0 && vpninfo->hmac_key_len > 0))
-					vpn_progress(vpninfo, PRG_ERR, "Server's ESP configuration is incomplete or uses unknown algorithms.\n");
+				if (!(vpninfo->esp_enc > 0 && vpninfo->esp_hmac > 0 && vpninfo->enc_key_len > 0 &&
+				      vpninfo->hmac_key_len > 0 && !bad_esp_keys && esp_key_lengths_valid(vpninfo)))
+					vpn_progress(vpninfo, PRG_ERR, "Server's ESP configuration is incomplete, has invalid key lengths, or uses unknown algorithms.\n");
 				else
 					esp_keys = 1;
 			}

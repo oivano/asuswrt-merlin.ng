@@ -126,6 +126,31 @@ test $? = 2 || # what OpenConnect returns when server rejects cookie upon tunnel
 
 echo ok
 
+echo "Configuring fake server with valid ESP keys."
+curl -sk $SERVURL/CONFIGURE -d esp=1
+
+echo -n "Accepting valid GlobalProtect ESP keys... "
+ESP_LOG="$SOCKDIR/gp-esp-keys.log"
+echo "test" | $CLIENT $SERVURL/portal >"$ESP_LOG" 2>&1
+ret=$?
+if test "$ret" != 2 || grep -q "tunnel will be TLS only" "$ESP_LOG" || grep -q "Failed to setup ESP keys" "$ESP_LOG"; then
+    cat "$ESP_LOG"
+    fail $PID "Valid ESP configuration was not accepted"
+fi
+echo ok
+
+echo "Configuring fake server to send an oversized ESP key."
+curl -sk $SERVURL/CONFIGURE -d esp=1 -d oversized_esp_key=1
+
+echo -n "Rejecting oversized GlobalProtect ESP key without crashing... "
+echo "test" | $CLIENT $SERVURL/portal >"$ESP_LOG" 2>&1
+ret=$?
+if test "$ret" != 2 || ! grep -q "invalid key lengths" "$ESP_LOG" || ! grep -q "tunnel will be TLS only" "$ESP_LOG"; then
+    cat "$ESP_LOG"
+    fail $PID "Oversized ESP key was not rejected safely"
+fi
+echo ok
+
 cleanup
 
 exit 0
