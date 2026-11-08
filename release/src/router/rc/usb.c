@@ -3304,7 +3304,7 @@ void start_tftpd(void)
 				usb_dbg("Skip small device %s\n", partition_info->device);
 				continue;
 			}
-			mkdir_if_none(tftpdir);
+			mkdir_if_none_mode(tftpdir, 0777);
 			if (!d_exists(tftpdir)) {
 				usb_dbg("Skip device %s due to mkdir /tftpboot fail.\n", partition_info->device);
 				continue;
@@ -4040,10 +4040,10 @@ void start_dms(void)
 			find_dms_dbdir(dbdir);
 
 			if (strlen(dbdir))
-				mkdir_if_none(dbdir);
+				mkdir_if_none_mode(dbdir, 0777);
 			if (!check_if_dir_exist(dbdir)) {
 				strcpy(dbdir, nvram_default_get("dms_dbdir"));
-				mkdir_if_none(dbdir);
+				mkdir_if_none_mode(dbdir, 0777);
 			}
 
 			nvram_set("dms_dbcwd", dbdir);
@@ -4484,8 +4484,8 @@ ifdef RTCONFIG_TUNNEL
 		system("sh /opt/etc/init.d/S50aicloud scan");
 #else
 	/* WebDav directory */
-	mkdir_if_none("/tmp/lighttpd");
-	mkdir_if_none("/tmp/lighttpd/uploads");
+	mkdir_if_none_mode("/tmp/lighttpd", 0777);
+	mkdir_if_none_mode("/tmp/lighttpd/uploads", 0777);
 	chmod("/tmp/lighttpd/uploads", 0777);
 	mkdir_if_none("/tmp/lighttpd/www");
 	chmod("/tmp/lighttpd/www", 0777);
@@ -4771,7 +4771,7 @@ void start_cloudsync(int fromUI)
 				}
 
 				if(strlen(sync_dir))
-					mkdir_if_none(sync_dir);
+					mkdir_if_none_mode(sync_dir, 0777);
 
 				memset(cloud_token, 0, PATH_MAX);
 				snprintf(cloud_token, PATH_MAX, "%s/.__cloudsync_%d_%s.txt", mounted_path, type, username);
@@ -6063,21 +6063,36 @@ void start_nfsd(void)
 #endif
 
 	/* create directories/files */
-	mkdir_if_none("/var/lib");
-	mkdir_if_none("/var/lib/nfs");
+	if (secure_root_config_dir("/var/lib") != 0 ||
+	    secure_root_config_dir("/var/lib/nfs") != 0) {
+		syslog(LOG_ERR, "NFS refusing unsafe state directory");
+		return;
+	}
 #ifdef LINUX26
-	mkdir_if_none("/var/lib/nfs/v4recovery");
+	if (secure_root_config_dir("/var/lib/nfs/v4recovery") != 0) {
+		syslog(LOG_ERR, "NFS refusing unsafe recovery directory");
+		return;
+	}
 	mount("nfsd", "/proc/fs/nfsd", "nfsd", MS_MGC_VAL, NULL);
 #endif
 	/* create statd state directories */
-	mkdir_if_none("/var/lib/nfs/sm");
-	mkdir_if_none("/var/lib/nfs/sm.bak");
-	unlink("/var/lib/nfs/etab");
-	unlink("/var/lib/nfs/xtab");
-	unlink("/var/lib/nfs/rmtab");
-	close(creat("/var/lib/nfs/etab", 0644));
-	close(creat("/var/lib/nfs/xtab", 0644));
-	close(creat("/var/lib/nfs/rmtab", 0644));
+	if (secure_root_config_dir("/var/lib/nfs/sm") != 0 ||
+	    secure_root_config_dir("/var/lib/nfs/sm.bak") != 0) {
+		syslog(LOG_ERR, "NFS refusing unsafe statd directories");
+		return;
+	}
+	fp = open_root_config_file("/var/lib/nfs", "etab", 0644);
+	if (!fp)
+		return;
+	fclose(fp);
+	fp = open_root_config_file("/var/lib/nfs", "xtab", 0644);
+	if (!fp)
+		return;
+	fclose(fp);
+	fp = open_root_config_file("/var/lib/nfs", "rmtab", 0644);
+	if (!fp)
+		return;
+	fclose(fp);
 
 	/* (re-)create /etc/exports */
 	if (stat(NFS_EXPORT, &st_buf) == 0)	{

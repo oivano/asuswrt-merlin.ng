@@ -57,16 +57,20 @@ int test_if_o_exist(const char *path){
 	return 1;
 }
 
-extern int mkdir_if_none(const char *path){
+extern int mkdir_if_none_mode(const char *path, unsigned int mode){
 	char cmd[PATH_MAX];
 
 	if(!test_if_d_exist(path)){
-		snprintf(cmd, sizeof(cmd), "mkdir -m 0777 -p '%s'", (char *)path);
+		snprintf(cmd, sizeof(cmd), "mkdir -m %04o -p '%s'", mode & 0777, (char *)path);
 		system(cmd);
 		return 1;
 	}
 
 	return 0;
+}
+
+extern int mkdir_if_none(const char *path){
+	return mkdir_if_none_mode(path, 0755);
 }
 
 extern int delete_file_or_dir(char *target){
