@@ -917,7 +917,9 @@ static int pptp_connect(struct socket *sock, struct sockaddr *uservaddr,
 	po->chan.mtu=dst_mtu(&rt->dst);
 	if (!po->chan.mtu) po->chan.mtu=PPP_MTU;
 #endif
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
 	ip_rt_put(rt);
+#endif
 	po->chan.mtu-=PPTP_HEADER_OVERHEAD;
 
 	po->chan.hdrlen=2+sizeof(struct pptp_gre_header);
@@ -1087,6 +1089,7 @@ out:
 #else
 static void pptp_sock_destruct(struct sock *sk)
 {
+	sk_dst_reset(sk);
     if (!(SK_STATE(sk) & PPPOX_DEAD)){
 	    del_chan(pppox_sk(sk));
 	    pppox_unbind_sock(sk);
@@ -1297,9 +1300,3 @@ module_param(log_packets,int,0);
 #endif
 MODULE_PARM_DESC(log_level,"Logging level (default=0)");
 #endif
-\tif (sockaddr_len < sizeof(struct sockaddr_pppox))
-\t\treturn -EINVAL;
-
-\tif (sockaddr_len < sizeof(struct sockaddr_pppox))
-\t\treturn -EINVAL;
-
