@@ -1868,8 +1868,13 @@ static u32 gen_reqid(struct net *net)
 	return 0;
 }
 
+static int parse_sockaddr_pair(struct sockaddr *sa, int ext_len,
+			       xfrm_address_t *saddr, xfrm_address_t *daddr,
+			       u16 *family);
+
 static int
-parse_ipsecrequest(struct xfrm_policy *xp, struct sadb_x_ipsecrequest *rq)
+parse_ipsecrequest(struct xfrm_policy *xp, struct sadb_x_ipsecrequest *rq,
+		   int rq_len)
 {
 	struct net *net = xp_net(xp);
 	struct xfrm_tmpl *t = xp->xfrm_vec + xp->xfrm_nr;
@@ -1897,19 +1902,13 @@ parse_ipsecrequest(struct xfrm_policy *xp, struct sadb_x_ipsecrequest *rq)
 
 	/* addresses present only in tunnel mode */
 	if (t->mode == XFRM_MODE_TUNNEL) {
-		u8 *sa = (u8 *) (rq + 1);
-		int family, socklen;
+		int err;
 
-		family = pfkey_sockaddr_extract((struct sockaddr *)sa,
-						&t->saddr);
-		if (!family)
-			return -EINVAL;
-
-		socklen = pfkey_sockaddr_len(family);
-		if (pfkey_sockaddr_extract((struct sockaddr *)(sa + socklen),
-					   &t->id.daddr) != family)
-			return -EINVAL;
-		t->encap_family = family;
+		err = parse_sockaddr_pair((struct sockaddr *)(rq + 1),
+					  rq_len - sizeof(*rq), &t->saddr,
+					  &t->id.daddr, &t->encap_family);
+		if (err)
+			return err;
 	} else
 		t->encap_family = xp->family;
 
@@ -1923,14 +1922,27 @@ static int
 parse_ipsecrequests(struct xfrm_policy *xp, struct sadb_x_policy *pol)
 {
 	int err;
-	int len = pol->sadb_x_policy_len*8 - sizeof(struct sadb_x_policy);
+	int len;
 	struct sadb_x_ipsecrequest *rq = (void*)(pol+1);
 
-	while (len >= sizeof(struct sadb_x_ipsecrequest)) {
-		if ((err = parse_ipsecrequest(xp, rq)) < 0)
+	if ((unsigned int)pol->sadb_x_policy_len * 8 <
+	    sizeof(struct sadb_x_policy))
+		return -EINVAL;
+	len = (int)pol->sadb_x_policy_len * 8 -
+	      (int)sizeof(struct sadb_x_policy);
+
+	while (len > 0) {
+		int rq_len;
+
+		if (len < sizeof(*rq))
+			return -EINVAL;
+		rq_len = rq->sadb_x_ipsecrequest_len;
+		if (rq_len < sizeof(*rq) || rq_len > len || (rq_len & 7))
+			return -EINVAL;
+		if ((err = parse_ipsecrequest(xp, rq, rq_len)) < 0)
 			return err;
-		len -= rq->sadb_x_ipsecrequest_len;
-		rq = (void*)((u8*)rq + rq->sadb_x_ipsecrequest_len);
+		len -= rq_len;
+		rq = (void*)((u8*)rq + rq_len);
 	}
 	return 0;
 }
@@ -2394,7 +2406,6 @@ out:
 	return err;
 }
 
-#ifdef CONFIG_NET_KEY_MIGRATE
 static int pfkey_sockaddr_pair_size(sa_family_t family)
 {
 	return PFKEY_ALIGN8(pfkey_sockaddr_len(family) * 2);
@@ -2406,6 +2417,8 @@ static int parse_sockaddr_pair(struct sockaddr *sa, int ext_len,
 {
 	int af, socklen;
 
+	if (ext_len < (int)sizeof(sa_family_t))
+		return -EINVAL;
 	if (ext_len < pfkey_sockaddr_pair_size(sa->sa_family))
 		return -EINVAL;
 
@@ -2422,6 +2435,7 @@ static int parse_sockaddr_pair(struct sockaddr *sa, int ext_len,
 	return 0;
 }
 
+#ifdef CONFIG_NET_KEY_MIGRATE
 static int ipsecrequests_to_migrate(struct sadb_x_ipsecrequest *rq1, int len,
 				    struct xfrm_migrate *m)
 {
