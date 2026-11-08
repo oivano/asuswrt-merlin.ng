@@ -184,8 +184,10 @@ ssize_t seq_read(struct file *file, char __user *buf, size_t size, loff_t *ppos)
 		size -= n;
 		buf += n;
 		copied += n;
-		if (!m->count)
+		if (!m->count) {
 			m->index++;
+			m->from = 0;
+		}
 		if (!size)
 			goto Done;
 	}
