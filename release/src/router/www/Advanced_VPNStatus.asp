@@ -332,14 +332,14 @@ function parseStatus(text, block, ipaddress, ripaddress){
 
 // Headers
 		// Username, Common Name
-		code +='<th style="width:25%;text-align:left;">' + clientTableHeaders[8] + '<br><span style="color: cyan; background: transparent;">' + clientTableHeaders[0] + '</span></th>';
+		code +='<th style="width:25%;text-align:left;">' + htmlEnDeCode.htmlEncode(clientTableHeaders[8]) + '<br><span style="color: cyan; background: transparent;">' + htmlEnDeCode.htmlEncode(clientTableHeaders[0]) + '</span></th>';
 		// Real IPv4, merged with Virtual IPv4
-		code +='<th style="width:26%;text-align:left;">' + clientTableHeaders[1] + '<br><span style="color: cyan; background: transparent;">' + clientTableHeaders[2] + '</span></th>';
+		code +='<th style="width:26%;text-align:left;">' + htmlEnDeCode.htmlEncode(clientTableHeaders[1]) + '<br><span style="color: cyan; background: transparent;">' + htmlEnDeCode.htmlEncode(clientTableHeaders[2]) + '</span></th>';
 		// dl/up amount
-		code +='<th style="width:15%;text-align:left;">' + clientTableHeaders[4].replace("Bytes","MBytes") + '</th>';
-		code +='<th style="width:15%;text-align:left;">' + clientTableHeaders[5].replace("Bytes","MBytes") + '</th>';
+		code +='<th style="width:15%;text-align:left;">' + htmlEnDeCode.htmlEncode(clientTableHeaders[4].replace("Bytes","MBytes")) + '</th>';
+		code +='<th style="width:15%;text-align:left;">' + htmlEnDeCode.htmlEncode(clientTableHeaders[5].replace("Bytes","MBytes")) + '</th>';
 		// Connected since
-		code +='<th style="width:19%;text-align:left;">' + clientTableHeaders[6] + '<br><span style="color: cyan; background: transparent;">' + clientTableHeaders[11] + '</span></th>';
+		code +='<th style="width:19%;text-align:left;">' + htmlEnDeCode.htmlEncode(clientTableHeaders[6]) + '<br><span style="color: cyan; background: transparent;">' + htmlEnDeCode.htmlEncode(clientTableHeaders[11]) + '</span></th>';
 		code += '</tr>';
 
 // Clients
@@ -350,14 +350,14 @@ function parseStatus(text, block, ipaddress, ripaddress){
 			if (clientTableEntries[i][8] == "UNDEF") {
 				clientTableEntries[i][8] = "";
 			}
-			code += '<td style="vertical-align:top; white-space:nowrap; text-align:left;">' + clientTableEntries[i][8] + '<br><span style="color: cyan; background: transparent;">' + clientTableEntries[i][0] +'</span></td>';
+			code += '<td style="vertical-align:top; white-space:nowrap; text-align:left;">' + htmlEnDeCode.htmlEncode(clientTableEntries[i][8]) + '<br><span style="color: cyan; background: transparent;">' + htmlEnDeCode.htmlEncode(clientTableEntries[i][0]) +'</span></td>';
 			// Real IP, Virtual IP
-			code += '<td style="vertical-align:top; text-align:left;">' + clientTableEntries[i][1] + '<br><span style="color: cyan; background: transparent;">' + clientTableEntries[i][2] +'</span></td>';
+			code += '<td style="vertical-align:top; text-align:left;">' + htmlEnDeCode.htmlEncode(clientTableEntries[i][1]) + '<br><span style="color: cyan; background: transparent;">' + htmlEnDeCode.htmlEncode(clientTableEntries[i][2]) +'</span></td>';
 			// dl/up amount
 			code += '<td style="vertical-align:top; text-align:left;">' + Number(clientTableEntries[i][4]/1024/1024).toFixed(2).toLocaleString() + '</td>';
 			code += '<td style="vertical-align:top; text-align:left;">' + Number(clientTableEntries[i][5]/1024/1024).toFixed(2).toLocaleString() + '</td>';
 			// Connected Since
-			code += '<td style="vertical-align:top; text-align:left;">' + clientTableEntries[i][6] + '<br><span style="color: cyan; background: transparent;">' + clientTableEntries[i][11] +'</span></td>';
+			code += '<td style="vertical-align:top; text-align:left;">' + htmlEnDeCode.htmlEncode(clientTableEntries[i][6]) + '<br><span style="color: cyan; background: transparent;">' + htmlEnDeCode.htmlEncode(clientTableEntries[i][11]) +'</span></td>';
 			code += '</tr>';
 		}
 		code += '</table><br>';
@@ -372,7 +372,7 @@ function parseStatus(text, block, ipaddress, ripaddress){
 		// Headers
 		for (i = 0; i < routeTableHeaders.length; ++i)
 		{
-			code +='<th style="text-align:left;">' + routeTableHeaders[i] + '</th>';
+			code +='<th style="text-align:left;">' + htmlEnDeCode.htmlEncode(routeTableHeaders[i]) + '</th>';
 		}
 		code += '</tr>';
 
@@ -382,7 +382,7 @@ function parseStatus(text, block, ipaddress, ripaddress){
 			code += '<tr>';
 			for (j = 0; j < routeTableEntries[i].length; ++j)
 			{
-				code += '<td style="white-space:nowrap; text-align:left;">' + routeTableEntries[i][j] + '</td>';
+				code += '<td style="white-space:nowrap; text-align:left;">' + htmlEnDeCode.htmlEncode(routeTableEntries[i][j]) + '</td>';
 			}
 			code += '</tr>';
 		}
@@ -402,7 +402,7 @@ function parseStatus(text, block, ipaddress, ripaddress){
 		for (i = 0; i < statsTableEntries.length; ++i)
 		{
 			if (i % 2 == 0) code += '<tr>';
-			code += '<th class="statcell">' + statsTableEntries[i][0] +'</th>';
+			code += '<th class="statcell">' + htmlEnDeCode.htmlEncode(statsTableEntries[i][0]) +'</th>';
 			code += '<td class="statcell">' + Number(statsTableEntries[i][1]).toLocaleString() +'</td>';
 			if (i % 2 == 1) code += '</tr>';
 		}
@@ -420,13 +420,13 @@ function parseStatus(text, block, ipaddress, ripaddress){
 			code += '<tr><th class="statcell">Public IP</th>';
 			code += '<td class="statcell">' + htmlEnDeCode.htmlEncode(ripaddress) +'</td>';
 			code += '<th class="statcell">Local IP</th>';
-			code += '<td class="statcell">' + ipaddress +'</td></tr>';
+			code += '<td class="statcell">' + htmlEnDeCode.htmlEncode(ipaddress) +'</td></tr>';
 		}
 
 		for (i = 0; i < staticstatsTableEntries.length; ++i)
 		{
 			if (i % 2 == 0) code += '<tr>';
-			code += '<th class="statcell">' + staticstatsTableEntries[i][0] +'</th>';
+			code += '<th class="statcell">' + htmlEnDeCode.htmlEncode(staticstatsTableEntries[i][0]) +'</th>';
 			code += '<td class="statcell">' + Number(staticstatsTableEntries[i][1]).toLocaleString() +'</td>';
 			if (i % 2 == 1) code += '</tr>';
 		}

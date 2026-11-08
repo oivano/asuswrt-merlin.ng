@@ -108,12 +108,48 @@ void GetPhyStatus_rtk(int *states);
 #define SI_WL_QUERY_AUTHE 2
 #define SI_WL_QUERY_AUTHO 3
 
+static int websWriteJsonString(webs_t wp, const char *value)
+{
+	const unsigned char *p = (const unsigned char *)value;
+	int ret = websWrite(wp, "\"");
+
+	for (; *p; p++) {
+		if (p[0] == 0xe2 && p[1] == 0x80 && (p[2] == 0xa8 || p[2] == 0xa9)) {
+			ret += websWrite(wp, p[2] == 0xa8 ? "\\u2028" : "\\u2029");
+			p += 2;
+			continue;
+		}
+
+		switch (*p) {
+		case '"': ret += websWrite(wp, "\\\""); break;
+		case '\\': ret += websWrite(wp, "\\\\"); break;
+		case '/': ret += websWrite(wp, "\\/"); break;
+		case '<': ret += websWrite(wp, "\\u003c"); break;
+		case '>': ret += websWrite(wp, "\\u003e"); break;
+		case '&': ret += websWrite(wp, "\\u0026"); break;
+		case '\b': ret += websWrite(wp, "\\b"); break;
+		case '\f': ret += websWrite(wp, "\\f"); break;
+		case '\n': ret += websWrite(wp, "\\n"); break;
+		case '\r': ret += websWrite(wp, "\\r"); break;
+		case '\t': ret += websWrite(wp, "\\t"); break;
+		default:
+			if (*p < 0x20)
+				ret += websWrite(wp, "\\u%04x", *p);
+			else
+				ret += websWrite(wp, "%c", *p);
+		}
+	}
+
+	return ret + websWrite(wp, "\"");
+}
+
 
 int ej_show_sysinfo(int eid, webs_t wp, int argc, char_t ** argv)
 {
 	char *type;
 	char result[2048];
 	int retval = 0;
+	int json_result = 0;
 	struct sysinfo sys;
 	char *tmp;
 
@@ -481,6 +517,7 @@ int ej_show_sysinfo(int eid, webs_t wp, int argc, char_t ** argv)
 		} else if(strncmp(type,"vpnstatus",9) == 0 ) {
 			int num = 0;
 			char service[10], buf[256];
+			json_result = 1;
 
 			sscanf(type,"vpnstatus.%9[^.].%d", service, &num);
 
@@ -630,7 +667,10 @@ int ej_show_sysinfo(int eid, webs_t wp, int argc, char_t ** argv)
 
 	}
 
-	retval += websWrite(wp, "%s", result);
+	if (json_result)
+		retval += websWriteJsonString(wp, result);
+	else
+		retval += websWrite(wp, "%s", result);
 	return retval;
 }
 
