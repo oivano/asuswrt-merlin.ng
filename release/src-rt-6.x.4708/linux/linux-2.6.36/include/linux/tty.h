@@ -260,6 +260,8 @@ struct tty_struct {
 
 	/* Protects ldisc changes: Lock tty not pty */
 	struct mutex ldisc_mutex;
+	/* Serializes ldisc changes across a tty/pty pair. */
+	struct mutex ldisc_change_mutex;
 	struct tty_ldisc *ldisc;
 
 	struct mutex termios_mutex;
