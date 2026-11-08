@@ -484,6 +484,12 @@ static void clear_history(void)
 	history.id = CURRENT_ID;
 }
 
+static void normalize_history_cursor(int *cursor, int max)
+{
+	if ((max <= 0) || (*cursor < 0) || (*cursor >= max))
+		*cursor = 0;
+}
+
 static int load_history(const char *fname)
 {
 	history_t hist;
@@ -512,6 +518,8 @@ static int load_history(const char *fname)
 	else {
 		memcpy(&history, &hist, sizeof(history));
 	}
+	normalize_history_cursor(&history.dailyp, MAX_NDAILY);
+	normalize_history_cursor(&history.monthlyp, MAX_NMONTHLY);
 
 	//_dprintf("%s: dailyp=%d monthlyp=%d\n", __FUNCTION__, history.dailyp, history.monthlyp);
 	return 1;
@@ -728,6 +736,7 @@ static void save_datajs(FILE *f, int mode)
 		max = MAX_NMONTHLY;
 //_dprintf("MONTHLY: p= %d\n", p);
 	}
+	normalize_history_cursor(&p, max);
 	kn = 0;
 	for (k = max; k > 0; --k) {
 		p = (p + 1) % max;
@@ -757,6 +766,8 @@ static void save_histjs(void)
 static void bump(data_t *data, int *tail, int max, uint32_t xnow, unsigned long long *counter)
 {
 	int t, i;
+	if (max <= 0) return;
+	normalize_history_cursor(tail, max);
 	t = *tail;
 	if (data[t].xtime != xnow) {
 		for (i = max - 1; i >= 0; --i) {
