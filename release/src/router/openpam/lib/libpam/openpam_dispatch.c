@@ -64,6 +64,7 @@ openpam_dispatch(pam_handle_t *pamh,
 {
 	pam_chain_t *chain;
 	int err, fail, r;
+	int success;
 	int debug;
 
 	ENTER();
@@ -101,7 +102,7 @@ openpam_dispatch(pam_handle_t *pamh,
 	}
 
 	/* execute */
-	for (err = fail = 0; chain != NULL; chain = chain->next) {
+	for (err = fail = success = 0; chain != NULL; chain = chain->next) {
 		if (chain->module->func[primitive] == NULL) {
 			openpam_log(PAM_LOG_ERROR, "%s: no %s()",
 			    chain->module->path, pam_sm_func_name[primitive]);
@@ -127,6 +128,7 @@ openpam_dispatch(pam_handle_t *pamh,
 		if (r == PAM_IGNORE)
 			continue;
 		if (r == PAM_SUCCESS) {
+			success = 1;
 			/*
 			 * For pam_setcred() and pam_chauthtok() with the
 			 * PAM_PRELIM_CHECK flag, treat "sufficient" as
@@ -170,6 +172,9 @@ openpam_dispatch(pam_handle_t *pamh,
 
 	if (!fail && err != PAM_NEW_AUTHTOK_REQD)
 		err = PAM_SUCCESS;
+	if ((primitive == PAM_SM_AUTHENTICATE || primitive == PAM_SM_ACCT_MGMT) &&
+	    !success && err == PAM_SUCCESS)
+		err = PAM_PERM_DENIED;
 	RETURNC(err);
 }
 
