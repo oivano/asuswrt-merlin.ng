@@ -1379,6 +1379,7 @@ ctnetlink_create_conntrack(struct net *net, u16 zone,
 	}
 
 	add_timer(&ct->timeout);
+	nf_conntrack_get(&ct->ct_general);
 	nf_conntrack_hash_insert(ct);
 	rcu_read_unlock();
 
