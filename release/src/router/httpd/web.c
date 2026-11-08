@@ -8487,11 +8487,31 @@ netool(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg, char_t *url, char_
 		
 		FILE *fp;
 		char buf[4096];
-		char path[256];
+		struct stat st;
+		int dirfd, resultfd;
 		
-		snprintf(path, sizeof(path), NETOOL_RESULT_DIR"/%s", req_t.target);
+		dirfd = -1;
+		resultfd = -1;
+		if (req_t.target[0] && !strchr(req_t.target, '/') &&
+		    strcmp(req_t.target, ".") && strcmp(req_t.target, ".."))
+			dirfd = open(NETOOL_RESULT_DIR, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+		if (dirfd >= 0 && fstat(dirfd, &st) == 0 && S_ISDIR(st.st_mode) &&
+		    st.st_uid == 0 && !(st.st_mode & 0077))
+			resultfd = openat(dirfd, req_t.target, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+		if (dirfd >= 0)
+			close(dirfd);
+		if (resultfd >= 0 && fstat(resultfd, &st) == 0 && S_ISREG(st.st_mode) &&
+		    st.st_uid == 0 && st.st_nlink == 1 && !(st.st_mode & 0022)) {
+			fp = fdopen(resultfd, "r");
+			if (!fp)
+				close(resultfd);
+		} else {
+			if (resultfd >= 0)
+				close(resultfd);
+			fp = NULL;
+		}
 		
-		if ((fp = fopen(path, "r")) != NULL) {
+		if (fp != NULL) {
 			
 			websWrite(wp, "{\"result\":");
 			while(fgets(buf, sizeof(buf), fp) != NULL) {

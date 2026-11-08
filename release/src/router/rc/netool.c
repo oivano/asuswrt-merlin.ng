@@ -140,21 +140,75 @@ static void probe_argv(REQUEST_INFO_T *req, char **argv, char numbers[3][16], in
 	argv[count] = NULL;
 }
 
+static int netool_result_dir_open(void)
+{
+	struct stat st;
+	int fd;
+
+	if (geteuid() != 0) {
+		errno = EPERM;
+		return -1;
+	}
+	if (mkdir(NETOOL_RESULT_DIR, 0700) < 0 && errno != EEXIST)
+		return -1;
+	fd = open(NETOOL_RESULT_DIR, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (fd < 0)
+		return -1;
+	if (fstat(fd, &st) == 0 && S_ISDIR(st.st_mode) && st.st_uid == 0 &&
+	    fchmod(fd, 0700) == 0 && fstat(fd, &st) == 0 &&
+	    S_ISDIR(st.st_mode) && st.st_uid == 0 && !(st.st_mode & 0077))
+		return fd;
+	close(fd);
+	errno = EPERM;
+	return -1;
+}
+
+static FILE *netool_result_file_open(const char *name)
+{
+	struct stat st;
+	int dirfd, fd = -1;
+	FILE *output = NULL;
+
+	if (!name || !*name || strchr(name, '/') || !strcmp(name, ".") || !strcmp(name, "..")) {
+		errno = EINVAL;
+		return NULL;
+	}
+	dirfd = netool_result_dir_open();
+	if (dirfd < 0)
+		return NULL;
+	if ((unlinkat(dirfd, name, 0) < 0 && errno != ENOENT) ||
+	    (fd = openat(dirfd, name, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW |
+			 O_NONBLOCK, 0600)) < 0 ||
+	    fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
+	    st.st_nlink != 1 || fchmod(fd, 0600) < 0 ||
+	    fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
+	    st.st_nlink != 1 || (st.st_mode & 0077) ||
+	    fcntl(fd, F_SETFD, FD_CLOEXEC) < 0)
+		goto done;
+	output = fdopen(fd, "w");
+	if (output)
+		fd = -1;
+
+done:
+	if (fd >= 0) {
+		close(fd);
+		unlinkat(dirfd, name, 0);
+	}
+	close(dirfd);
+	return output;
+}
+
 static int log_tool(char *const argv[], const char *name, int always_marker)
 {
-	char result_path[128];
 	char buffer[1024];
 	size_t length;
 	FILE *output, *input;
 	pid_t child;
 	int status;
 
-	snprintf(result_path, sizeof(result_path), NETOOL_RESULT_DIR"/%s", name);
-	unlink(result_path);
-	output = fopen(result_path, "w");
+	output = netool_result_file_open(name);
 	if (!output)
 		return -1;
-	fcntl(fileno(output), F_SETFD, FD_CLOEXEC);
 	input = vpopen(argv, &child);
 	if (!input) {
 		fclose(output);
@@ -178,7 +232,6 @@ static int do_ping(void *rInfo)
 	char numbers[3][16];
 	pid_t child;
 	char buf[256]={0};
-	char result_path[sizeof(NETOOL_RESULT_DIR) + 128];
 	char jitter_tmp[64]={0};
 	char *pk_loss;
 	char *ping, *p, *end;
@@ -187,15 +240,13 @@ static int do_ping(void *rInfo)
 	
 	REQUEST_INFO_T *req = rInfo;
 	
-	snprintf(result_path, sizeof(result_path), NETOOL_RESULT_DIR"/%s", req->target);
-	
 	probe_argv(req, argv, numbers, 0);
 	
 	loop = req->exec_cnt;
 	
 	fp = NULL;
 	
-	if ((fp_w = fopen(result_path, "w")) != NULL) {
+	if ((fp_w = netool_result_file_open(req->target)) != NULL) {
 		if (!strcmp(req->target, "")) {
 			fprintf(fp_w, "[{\"loss\":\"\", \"ping\":\"\", \"jitter\":\"\"}]");
 			fclose(fp_w);
@@ -405,7 +456,6 @@ static int do_traceroute(void *rInfo)
 	char numbers[3][16];
 	pid_t child;
 	char buf[256]={0};
-	char result_path[sizeof(NETOOL_RESULT_DIR) + 128];
 	char lastpingbuf[128] = {0};
 	char *unping;
 	int i = 0;
@@ -413,11 +463,9 @@ static int do_traceroute(void *rInfo)
 	
 	REQUEST_INFO_T *req = rInfo;
 	
-	snprintf(result_path, sizeof(result_path), NETOOL_RESULT_DIR"/%s", req->target);
-	
 	probe_argv(req, argv, numbers, 0);
 	
-	fp_w = fopen(result_path, "w");
+	fp_w = netool_result_file_open(req->target);
 	
 	if (fp_w != NULL) {
 		if (!strcmp(req->target, "")) {
@@ -812,6 +860,7 @@ int netool_main (int argc, char *argv[])
 {
 
 	char pid[8];
+	int result_dirfd;
 	
 	MyDBG("[Start NetTool]\n");
 	
@@ -819,8 +868,12 @@ int netool_main (int argc, char *argv[])
 	snprintf(pid, sizeof(pid), "%d", getpid());
 	f_write_string("/var/run/netool.pid", pid, 0, 0);
 	
-	/* mkdir */
-	mkdir_if_none(NETOOL_RESULT_DIR);
+	result_dirfd = netool_result_dir_open();
+	if (result_dirfd < 0) {
+		ErrorMsg("Unsafe result directory %s\n", NETOOL_RESULT_DIR);
+		return -1;
+	}
+	close(result_dirfd);
 	
 	/* Signal */
 	signal_register();

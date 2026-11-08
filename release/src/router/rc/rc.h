@@ -2019,7 +2019,10 @@ extern void start_wsdd(void);
 extern void start_nfsd(void);
 extern void restart_nfsd(void);
 extern void stop_nfsd(void);
+extern int secure_root_config_dir(const char *path);
+extern FILE *open_root_config_file(const char *directory, const char *name, mode_t mode);
 #endif
+extern int mkdir_if_none_mode(const char *path, unsigned int mode);
 #ifdef RTCONFIG_WEBDAV
 extern void stop_webdav(void);
 extern void stop_all_webdav(void);

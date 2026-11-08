@@ -547,7 +547,7 @@ int start_timemachine()
 	// Create directory for use by afpd daemon and configuration file
 	//if(!check_if_dir_exist(AFP_LOCK_PATH)) mkdir(AFP_LOCK_PATH, 0777);
 	//if(!check_if_dir_exist(AFP_CONFIG_PATH)) mkdir(AFP_CONFIG_PATH, 0777);
-	mkdir_if_none(AFP_LOCK_PATH);
+	mkdir_if_none_mode(AFP_LOCK_PATH, 0777);
 	if (secure_root_config_dir(AFP_CONFIG_PATH) != 0)
 		return -1;
 
@@ -569,7 +569,7 @@ int start_timemachine()
 
 	//if(!check_if_dir_exist(cnid_path)) mkdir(cnid_path, 0777);
 	//if(!check_if_dir_exist(backup_path)) mkdir(backup_path, 0777);
-	mkdir_if_none(cnid_path);
+	mkdir_if_none_mode(cnid_path, 0777);
 	//mkdir_if_none(backup_path);
 
 	ret = generate_afp_config(mount_point_name);
