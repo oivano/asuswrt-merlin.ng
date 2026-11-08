@@ -20935,15 +20935,42 @@ httpd_login_captcha_match(char *captcha_text, int fromapp_flag)
 }
 #endif
 
+static void
+httpd_login_response_headers(webs_t wp, int fromapp_flag, time_t now, int status)
+{
+	char timebuf[100] = {0};
+
+	websWrite(wp, "%s %d %s\r\n", PROTOCOL, status,
+		status == 429 ? "Too Many Requests" : "OK");
+	websWrite(wp, "Server: %s\r\n", SERVER_NAME);
+	if (fromapp_flag != 0) {
+		websWrite(wp, "Cache-Control: no-store\r\n");
+		websWrite(wp, "Pragma: no-cache\r\n");
+		if (fromapp_flag == FROM_DUTUtil) {
+			websWrite(wp, "AiHOMEAPILevel: %d\r\n", EXTEND_AIHOME_API_LEVEL);
+			websWrite(wp, "Httpd_AiHome_Ver: %d\r\n", EXTEND_HTTPD_AIHOME_VER);
+			websWrite(wp, "Model_Name: %s\r\n", get_productid());
+		} else if (fromapp_flag == FROM_ASSIA)
+			websWrite(wp, "ASSIA_API_Level: %d\r\n", EXTEND_ASSIA_API_LEVEL);
+	}
+	(void)strftime(timebuf, sizeof(timebuf), RFC1123FMT, gmtime(&now));
+	websWrite(wp, "Date: %s\r\n", timebuf);
+	if (fromapp_flag == FROM_BROWSER || fromapp_flag == FROM_WebView)
+		websWrite(wp, "Content-Type: %s\r\n", "text/html");
+	else
+		websWrite(wp, "Content-Type: %s\r\n", "application/json;charset=UTF-8");
+}
+
 static int
 login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 		char_t *url, char_t *path, char_t *query)
 {
 	int l = 0, fromapp_flag = 0, lock_status = 0;
 	int authpass_fail = 0, auth_pass = 0;
-	char authinfo[500] = {0}, asus_token[32]={0}, filename[128] = {0}, timebuf[100] = {0}, token_cookie[128] = {0};
+	char authinfo[500] = {0}, login_name[21] = {0}, asus_token[32]={0}, filename[128] = {0}, token_cookie[128] = {0};
 	char *authorization_t = NULL, *authpass = NULL, *next_page = NULL, *redirect_file = NULL;
 	time_t now = 0, dt = 0;
+	unsigned int retry_after = 0;
 	now = time( (time_t*) 0 );
 #ifdef RTCONFIG_CAPTCHA
 	int captcha_right = 1;
@@ -20993,27 +21020,6 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 		return LOGINLOCK;
 	}
 
-	websWrite(wp,"%s %d %s\r\n", PROTOCOL, 200, "OK" );
-	websWrite(wp,"Server: %s\r\n", SERVER_NAME );
-	if (fromapp_flag != 0){
-		websWrite(wp, "Cache-Control: no-store\r\n");
-		websWrite(wp, "Pragma: no-cache\r\n");
-		if(fromapp_flag == FROM_DUTUtil){
-			websWrite(wp, "AiHOMEAPILevel: %d\r\n", EXTEND_AIHOME_API_LEVEL );
-			websWrite(wp, "Httpd_AiHome_Ver: %d\r\n", EXTEND_HTTPD_AIHOME_VER );
-			websWrite(wp, "Model_Name: %s\r\n", get_productid() );
-		}else if(fromapp_flag == FROM_ASSIA){
-			websWrite(wp, "ASSIA_API_Level: %d\r\n", EXTEND_ASSIA_API_LEVEL );
-		}
-	}
-	(void) strftime( timebuf, sizeof(timebuf), RFC1123FMT, gmtime( &now ) );
-	websWrite(wp,"Date: %s\r\n", timebuf );
-	if (fromapp_flag == FROM_BROWSER || fromapp_flag == FROM_WebView){
-		websWrite(wp,"Content-Type: %s\r\n", "text/html");
-	}else{
-		websWrite(wp,"Content-Type: %s\r\n", "application/json;charset=UTF-8");
-	}
-
 #ifdef RTCONFIG_CAPTCHA
 	if(!nvram_match("captcha_enable", "0")){
 		if( httpd_login_attempts() < CAPTCHA_MAX_LOGIN_NUM ||
@@ -21024,6 +21030,7 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 		else{
 			captcha_right = 0;
 			HTTPD_DBG("Wrong captcha!\n");
+			httpd_login_response_headers(wp, fromapp_flag, now, 200);
 			websWrite(wp,"Connection: close\r\n" );
 			websWrite(wp,"\r\n" );
 			login_error_status = httpd_login_failed(WRONGCAPTCHA);
@@ -21041,6 +21048,25 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 		}
 	}
 #endif
+	if (!authpass_fail) {
+		int admin_account = nvram_match("http_username", authinfo);
+		if (!admin_account && !nvram_get_int("p_Setting")) {
+			strlcpy(login_name, authinfo, sizeof(login_name));
+			admin_account = nvram_match("http_username", login_name);
+		}
+		if (admin_account &&
+		    !httpd_login_attempt_admit(&retry_after)) {
+			httpd_login_response_headers(wp, fromapp_flag, now, 429);
+			websWrite(wp, "Retry-After: %u\r\n", retry_after);
+			websWrite(wp, "Connection: close\r\n\r\n");
+			if (fromapp_flag != 0)
+				websWrite(wp, "{\n\"error_status\":\"%d\",\"retry_after\":\"%u\"\n}\n", LOGINRETRY, retry_after);
+			else
+				websWrite(wp, "<HTML><BODY>Too many login attempts. Please wait %u seconds before trying again.</BODY></HTML>\n", retry_after);
+			return 0;
+		}
+	}
+	httpd_login_response_headers(wp, fromapp_flag, now, 200);
 
 	if(authpass_fail == 0){
 		/* Is this the right user and password? */
