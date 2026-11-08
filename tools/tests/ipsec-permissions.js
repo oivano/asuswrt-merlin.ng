@@ -9,8 +9,10 @@ const source = read('release/src/router/rc/rc_ipsec.c');
 const header = read('release/src/router/rc/rc_ipsec.h');
 const init = read('release/src/router/rc/init.c');
 const services = read('release/src/router/rc/services.c');
+const wrapper = read('release/src/router/strongswan/src/ipsec/_ipsec.in');
 const section = (start, end) => source.slice(source.indexOf(start), source.indexOf(end));
 
+assert.doesNotMatch(wrapper, /\/var\/lock\/subsys\/ipsec/);
 assert.match(header, /FILE_PATH_IPSEC_PRIVATE_DIR\s+"\/tmp\/ipsec-private"/);
 for (const name of ['SH', 'IPTABLES_RULE', 'UPDOWN'])
     assert.match(header, new RegExp(`FILE_PATH_IPSEC_${name}\\s+FILE_PATH_IPSEC_PRIVATE_DIR`));
