@@ -27,6 +27,11 @@ static inline void mac_fix_string(char *stg, int len)
 		stg[i] = 0;
 }
 
+static inline int mac_partition_entry_fits(unsigned int offset)
+{
+	return offset <= 512 - sizeof(struct mac_partition);
+}
+
 int mac_partition(struct parsed_partitions *state)
 {
 	int slot = 1;
@@ -51,6 +56,8 @@ int mac_partition(struct parsed_partitions *state)
 	}
 	secsize = be16_to_cpu(md->block_size);
 	put_dev_sector(sect);
+	if (!mac_partition_entry_fits(secsize % 512))
+		return 0;
 	data = read_part_sector(state, secsize/512, &sect);
 	if (!data)
 		return -1;
@@ -64,6 +71,14 @@ int mac_partition(struct parsed_partitions *state)
 		put_dev_sector(sect);
 		return 0;
 	}
+	for (blk = 1; blk <= blocks_in_map; ++blk) {
+		int pos = blk * secsize;
+
+		if (!mac_partition_entry_fits(pos % 512)) {
+			put_dev_sector(sect);
+			return 0;
+		}
+	}
 	strlcat(state->pp_buf, " [mac]", PAGE_SIZE);
 	for (blk = 1; blk <= blocks_in_map; ++blk) {
 		int pos = blk * secsize;
@@ -71,6 +86,10 @@ int mac_partition(struct parsed_partitions *state)
 		data = read_part_sector(state, pos/512, &sect);
 		if (!data)
 			return -1;
+		if (!mac_partition_entry_fits(pos % 512)) {
+			put_dev_sector(sect);
+			return 0;
+		}
 		part = (struct mac_partition *) (data + pos%512);
 		if (be16_to_cpu(part->signature) != MAC_PARTITION_MAGIC)
 			break;
