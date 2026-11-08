@@ -787,6 +787,7 @@ static int pptp_bind(struct socket *sock,struct sockaddr *uservaddr,int sockaddr
 	struct sockaddr_pppox *sp = (struct sockaddr_pppox *) uservaddr;
 	struct pppox_sock *po = pppox_sk(sk);
 	struct pptp_opt *opt=&po->proto.pptp;
+	struct pptp_addr old_addr;
 	int error=0;
 
 #ifdef DEBUG	
@@ -796,14 +797,27 @@ static int pptp_bind(struct socket *sock,struct sockaddr *uservaddr,int sockaddr
 #endif
 	lock_sock(sk);
 
+	if (SK_STATE(sk) & PPPOX_DEAD) {
+		error = -EBADF;
+		goto out;
+	}
+	if (opt->src_addr.call_id) {
+		error = -EINVAL;
+		goto out;
+	}
+
+	old_addr = opt->src_addr;
 	opt->src_addr=sp->sa_addr.pptp;
-	if (add_chan(po))
+	if (add_chan(po)) {
+		opt->src_addr = old_addr;
 		error=-EBUSY;
+	}
 #ifdef DEBUG
 	if (log_level>=1)
 		printk(KERN_INFO"PPTP: using call_id %i\n",opt->src_addr.call_id);
 #endif
 
+out:
 	release_sock(sk);
 	return error;
 }
