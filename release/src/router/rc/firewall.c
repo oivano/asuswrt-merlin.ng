@@ -7315,6 +7315,23 @@ void add_mswan_rules(char *logaccept, char *logdrop)
 }
 #endif
 
+static void update_igmpproxy_source_guard(const char *ifname, const char *lan_subnet)
+{
+	const char *chain = "IGMP_SOURCE_GUARD";
+
+	eval("iptables", "-t", "raw", "-D", "PREROUTING", "-j", chain);
+	eval("iptables", "-t", "raw", "-F", chain);
+	if (ifname == NULL || *ifname == '\0' || lan_subnet == NULL || *lan_subnet == '\0') {
+		eval("iptables", "-t", "raw", "-X", chain);
+		return;
+	}
+
+	eval("iptables", "-t", "raw", "-N", chain);
+	if (eval("iptables", "-t", "raw", "-A", chain, "-i", ifname,
+		 "-s", lan_subnet, "-j", "DROP") == 0)
+		eval("iptables", "-t", "raw", "-I", "PREROUTING", "1", "-j", chain);
+}
+
 //int start_firewall(char *wan_if, char *wan_ip, char *lan_if, char *lan_ip)
 int start_firewall(int wanunit, int lanunit)
 {
@@ -7326,6 +7343,7 @@ int start_firewall(int wanunit, int lanunit)
 	//oleg patch ~
 	char logaccept[32], logdrop[32];
 	char *mcast_ifname;
+	char mcast_guard_ifname[IFNAMSIZ+1] = {0}, lan_subnet[sizeof("255.255.255.255/255.255.255.255")];
 	char wan_if[IFNAMSIZ+1], wan_ip[32], lan_if[IFNAMSIZ+1], lan_ip[32];
 	char wanx_if[IFNAMSIZ+1], wanx_ip[32];
 	char prefix[] = "wanXXXXXXXXXX_", tmp[100];
@@ -7393,11 +7411,19 @@ int start_firewall(int wanunit, int lanunit)
 				mcast_ifname = nvram_safe_get("iptv_ifname");
 		}
 #endif
+		strlcpy(mcast_guard_ifname, mcast_ifname, sizeof(mcast_guard_ifname));
 		/* Don't turn off rp_filter for default interface */
 		if (wan_ifname && strcmp(wan_ifname, mcast_ifname) == 0)
 			mcast_ifname = NULL;
 	} else
 		mcast_ifname = NULL;
+
+	if (nvram_get_int("mr_enable_x") && mcast_guard_ifname[0]) {
+		snprintf(lan_subnet, sizeof(lan_subnet), "%s/%s", lan_ip,
+			nvram_safe_get("lan_netmask"));
+		update_igmpproxy_source_guard(mcast_guard_ifname, lan_subnet);
+	} else
+		update_igmpproxy_source_guard(NULL, NULL);
 
 	/* Block obviously spoofed IP addresses */
 	if ((dir = opendir("/proc/sys/net/ipv4/conf")) != NULL) {

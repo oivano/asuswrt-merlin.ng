@@ -71,6 +71,10 @@ int enableMRouter()
     if ( (MRouterFD  = socket(AF_INET, SOCK_RAW, IPPROTO_IGMP)) < 0 )
         my_log( LOG_ERR, errno, "IGMP socket open" );
 
+    if ( setsockopt( MRouterFD, IPPROTO_IP, IP_PKTINFO,
+                     (void *)&Va, sizeof( Va ) ) )
+        my_log( LOG_ERR, errno, "IP_PKTINFO enable failed" );
+
     if ( setsockopt( MRouterFD, IPPROTO_IP, MRT_INIT, 
                      (void *)&Va, sizeof( Va ) ) )
         return errno;

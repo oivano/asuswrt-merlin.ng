@@ -92,6 +92,7 @@ void buildIfVc() {
 
             // Set the index to -1 by default.
             IfDescEp->index = -1;
+            IfDescEp->ifindex = 0;
 
             /* don't retrieve more info for non-IP interfaces
              */
@@ -108,6 +109,11 @@ void buildIfVc() {
             memcpy( IfReq.ifr_name, IfDescEp->Name, sizeof( IfReq.ifr_name ) );
             IfReq.ifr_addr.sa_family = AF_INET;
             ((struct sockaddr_in *)&IfReq.ifr_addr)->sin_addr.s_addr = addr;
+
+            if ( ioctl(Sock, SIOCGIFINDEX, &IfReq ) < 0 ) {
+                my_log(LOG_ERR, errno, "ioctl SIOCGIFINDEX for %s", IfReq.ifr_name);
+            } else
+                IfDescEp->ifindex = IfReq.ifr_ifindex;
 
             // Get the subnet mask...
             if (ioctl(Sock, SIOCGIFNETMASK, &IfReq ) < 0)

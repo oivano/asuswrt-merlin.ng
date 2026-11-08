@@ -48,6 +48,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/time.h>
+#include <sys/uio.h>
 #include <sys/ioctl.h>
 #include <sys/param.h>
 #include <time.h>
@@ -147,6 +148,7 @@ struct SubnetList {
 struct IfDesc {
     char                Name[IF_NAMESIZE];
     struct in_addr      InAdr;          /* == 0 for non IP interfaces */
+    unsigned int        ifindex;        /* Kernel interface index */
     short               Flags;
     short               state;
     short               index;
@@ -214,7 +216,7 @@ extern uint32_t allhosts_group;
 extern uint32_t allrouters_group;
 extern uint32_t alligmp3_group;
 void initIgmp(void);
-void acceptIgmp(int);
+void acceptIgmp(int recvlen, unsigned int ingressIfindex);
 void sendIgmp (uint32_t, uint32_t, int, int, uint32_t,int);
 
 /* lib.c
@@ -258,8 +260,8 @@ int lastMemberGroupAge(uint32_t group);
 
 /* request.c
  */
-void acceptGroupReport(uint32_t src, uint32_t group, uint8_t type);
-void acceptLeaveMessage(uint32_t src, uint32_t group);
+void acceptGroupReport(uint32_t src, uint32_t group, uint8_t type, unsigned int ingressIfindex);
+void acceptLeaveMessage(uint32_t src, uint32_t group, unsigned int ingressIfindex);
 void sendGeneralMembershipQuery();
 
 /* callout.c 

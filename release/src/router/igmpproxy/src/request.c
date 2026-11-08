@@ -53,7 +53,7 @@ typedef struct {
 *   Handles incoming membership reports, and
 *   appends them to the routing table.
 */
-void acceptGroupReport(uint32_t src, uint32_t group, uint8_t type) {
+void acceptGroupReport(uint32_t src, uint32_t group, uint8_t type, unsigned int ingressIfindex) {
     struct IfDesc  *sourceVif;
 
     // Sanitycheck the group adress...
@@ -68,6 +68,12 @@ void acceptGroupReport(uint32_t src, uint32_t group, uint8_t type) {
     if(sourceVif == NULL) {
         my_log(LOG_WARNING, 0, "No interfaces found for source %s",
             inetFmt(src,s1));
+        return;
+    }
+
+    if (ingressIfindex == 0 || sourceVif->ifindex != ingressIfindex) {
+        my_log(LOG_NOTICE, 0, "Membership report from %s arrived on the wrong interface. Ignoring.",
+            inetFmt(src, s1));
         return;
     }
 
@@ -109,7 +115,7 @@ void acceptGroupReport(uint32_t src, uint32_t group, uint8_t type) {
 /**
 *   Recieves and handles a group leave message.
 */
-void acceptLeaveMessage(uint32_t src, uint32_t group) {
+void acceptLeaveMessage(uint32_t src, uint32_t group, unsigned int ingressIfindex) {
     struct IfDesc   *sourceVif;
     
     my_log(LOG_DEBUG, 0,
@@ -128,6 +134,12 @@ void acceptLeaveMessage(uint32_t src, uint32_t group) {
     if(sourceVif == NULL) {
         my_log(LOG_WARNING, 0, "No interfaces found for source %s",
             inetFmt(src,s1));
+        return;
+    }
+
+    if (ingressIfindex == 0 || sourceVif->ifindex != ingressIfindex) {
+        my_log(LOG_NOTICE, 0, "Membership leave from %s arrived on the wrong interface. Ignoring.",
+            inetFmt(src, s1));
         return;
     }
 
