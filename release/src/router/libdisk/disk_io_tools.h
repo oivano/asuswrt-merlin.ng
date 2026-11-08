@@ -45,6 +45,7 @@ typedef unsigned long long u64;
 extern int test_if_f_exist(const char *path);
 extern int test_if_d_exist(const char *path);
 extern int test_if_o_exist(const char *path);
+extern int mkdir_if_none_mode(const char *dir, unsigned int mode);
 extern int mkdir_if_none(const char *dir);
 extern int delete_file_or_dir(char *target);
 

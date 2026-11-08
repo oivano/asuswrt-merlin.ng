@@ -702,14 +702,14 @@ static int blocklist_effective_max_domains(int configured_max, int noswap_max)
 #include "libsmspdu.h"
 #endif
 #else
-int mkdir_if_none(const char *path)
+int mkdir_if_none_mode(const char *path, unsigned int mode)
 {
 	DIR *dp;
 	char cmd[PATH_MAX];
 
 	if (!(dp = opendir(path))) {
 		memset(cmd, 0, PATH_MAX);
-		sprintf(cmd, "mkdir -m 0777 -p '%s'", (char *)path);
+		snprintf(cmd, sizeof(cmd), "mkdir -m %04o -p '%s'", mode & 0777, (char *)path);
 		system(cmd);
 		return 1;
 	}
@@ -717,6 +717,12 @@ int mkdir_if_none(const char *path)
 
 	return 0;
 }
+
+int mkdir_if_none(const char *path)
+{
+	return mkdir_if_none_mode(path, 0755);
+}
+
 #endif	/* RTCONFIG_USB */
 
 int secure_root_config_dir(const char *path)
@@ -9454,9 +9460,9 @@ void start_uam_srv()
 	}
 
 	/* lighttpd directory */
-	mkdir_if_none("/tmp/uamsrv");
-	mkdir_if_none("/tmp/uamsrv/www");
-	mkdir_if_none("/tmp/uamsrv/www/USB");
+	mkdir_if_none_mode("/tmp/uamsrv", 0777);
+	mkdir_if_none_mode("/tmp/uamsrv/www", 0777);
+	mkdir_if_none_mode("/tmp/uamsrv/www/USB", 0777);
 	chmod("/tmp/uamsrv/www", 0777);
 
 	/* copy web page to lighttpd dir */
@@ -10375,8 +10381,8 @@ void start_radiusd(void)
 			return;
 		}
 
-		mkdir_if_none("/var/run/radiusd");
-		mkdir_if_none("/var/log/radius");
+		mkdir_if_none_mode("/var/run/radiusd", 0777);
+		mkdir_if_none_mode("/var/log/radius", 0777);
 
 		radiusd_updateDB();
 		if (!pids("radiusd")) {
@@ -11783,8 +11789,8 @@ void start_CP(void)
 	nv = nvp = strdup(nvram_safe_get("captive_portal_adv_profile"));
         if (nv) {
 		   //prevent uam server not start yet
-		   mkdir_if_none("/tmp/uamsrv");
-		   mkdir_if_none("/tmp/uamsrv/www");
+		   mkdir_if_none_mode("/tmp/uamsrv", 0777);
+		   mkdir_if_none_mode("/tmp/uamsrv/www", 0777);
 		   chmod("/tmp/uamsrv/www", 0777);
 
                    while ((b = strsep(&nvp, "<")) != NULL) {
@@ -11933,8 +11939,8 @@ void start_chilli(void)
 	nv = nvp = strdup(nvram_safe_get("captive_portal"));
         if (nv) {
 		   //prevent uam server not start yet
-		   mkdir_if_none("/tmp/uamsrv");
-		   mkdir_if_none("/tmp/uamsrv/www");
+		   mkdir_if_none_mode("/tmp/uamsrv", 0777);
+		   mkdir_if_none_mode("/tmp/uamsrv/www", 0777);
 		   chmod("/tmp/uamsrv/www", 0777);
 
               while ((b = strsep(&nvp, "<")) != NULL) {
@@ -12175,7 +12181,7 @@ setup_nc_event_conf()
 	int  bufsize;
 	int  i;
 
-	mkdir_if_none(NOTIFY_CENTER_TEMP_DIR);
+	mkdir_if_none_mode(NOTIFY_CENTER_TEMP_DIR, 0777);
 	/* Setting Default Config */
 	if (!strcmp(nvram_safe_get("nc_setting_conf"), "")) {
 		memset(setConf, 0, sizeof(setConf));
@@ -13789,7 +13795,7 @@ static void uploader_config(void)
 {
 
 	// /* uploader directory */
-	mkdir_if_none("/tmp/diag_db_cloud");
+	mkdir_if_none_mode("/tmp/diag_db_cloud", 0777);
 	// chmod("/tmp/diag_db_cloud", 0777);
 	mkdir_if_none("/tmp/diag_db_cloud/upload");
 	chmod("/tmp/diag_db_cloud/upload", 0777);
