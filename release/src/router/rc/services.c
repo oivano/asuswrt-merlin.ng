@@ -14798,7 +14798,7 @@ again:
 		}
 
 		g_upgrade = 1;
-		f_write_string("/tmp/upgrade", "1", 0, 0);
+		rc_upgrade_flag_set();
 
 #ifdef RTCONFIG_SMALL_FW_UPDATE
 		snprintf(upgrade_file,sizeof(upgrade_file),"/tmp/mytmpfs/linux.trx");
@@ -15223,7 +15223,7 @@ again:
 			aura_rgb_led(ROUTER_AURA_SET, &rgb_cfg, 0, 0);
 #endif
 			g_upgrade = 1;
-			f_write_string("/tmp/upgrade", "1", 0, 0);
+			rc_upgrade_flag_set();
 #ifdef RTCONFIG_HND_ROUTER_AX
 			nvram_set_int("wlready", 0);
 #endif

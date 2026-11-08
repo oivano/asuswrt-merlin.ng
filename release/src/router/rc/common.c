@@ -1115,7 +1115,7 @@ void simple_unlock(const char *name)
 	f_write(fn, NULL, 0, 0, 0600);
 }
 
-static int rc_reboot_flag_open_dir(void)
+static int rc_private_flag_open_dir(void)
 {
 	struct stat st;
 	int fd;
@@ -1133,20 +1133,47 @@ static int rc_reboot_flag_open_dir(void)
 	return fd;
 }
 
-int rc_reboot_flag_set(void)
+static int rc_private_flag_is_set(const char *name)
+{
+	struct stat st;
+	char value[2];
+	int dirfd, fd, result = 0;
+	ssize_t count;
+
+	dirfd = rc_private_flag_open_dir();
+	if (dirfd < 0)
+		return 0;
+	fd = openat(dirfd, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+	if (fd < 0) {
+		close(dirfd);
+		return result;
+	}
+	if (fstat(fd, &st) == 0 && S_ISREG(st.st_mode) && st.st_uid == 0 &&
+	    st.st_nlink == 1 && !(st.st_mode & 0077)) {
+		do {
+			count = read(fd, value, sizeof(value));
+		} while (count < 0 && errno == EINTR);
+		result = count == 1 && value[0] == '1';
+	}
+	close(fd);
+	close(dirfd);
+	return result;
+}
+
+static int rc_private_flag_set(const char *name)
 {
 	struct stat st;
 	char value = '1';
 	int dirfd, fd, result = -1;
 	ssize_t written;
 
-	dirfd = rc_reboot_flag_open_dir();
+	dirfd = rc_private_flag_open_dir();
 	if (dirfd < 0)
 		return -1;
-	fd = openat(dirfd, "reboot",
+	fd = openat(dirfd, name,
 		    O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK, 0600);
 	if (fd < 0) {
-		if (errno == EEXIST && rc_reboot_flag_is_set())
+		if (errno == EEXIST && rc_private_flag_is_set(name))
 			result = 0;
 		close(dirfd);
 		return result;
@@ -1166,35 +1193,30 @@ done:
 	if (fd >= 0) {
 		close(fd);
 		if (result < 0)
-			unlinkat(dirfd, "reboot", 0);
+			unlinkat(dirfd, name, 0);
 	}
 	close(dirfd);
 	return result;
 }
 
+int rc_reboot_flag_set(void)
+{
+	return rc_private_flag_set("reboot");
+}
+
 int rc_reboot_flag_is_set(void)
 {
-	struct stat st;
-	char value[2];
-	int dirfd, fd, result = 0;
-	ssize_t count;
+	return rc_private_flag_is_set("reboot");
+}
 
-	dirfd = rc_reboot_flag_open_dir();
-	if (dirfd < 0)
-		return 0;
-	fd = openat(dirfd, "reboot", O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
-	if (fd >= 0) {
-		if (fstat(fd, &st) == 0 && S_ISREG(st.st_mode) && st.st_uid == 0 &&
-		    st.st_nlink == 1 && !(st.st_mode & 0077)) {
-			do {
-				count = read(fd, value, sizeof(value));
-			} while (count < 0 && errno == EINTR);
-			result = count == 1 && value[0] == '1';
-		}
-		close(fd);
-	}
-	close(dirfd);
-	return result;
+int rc_upgrade_flag_set(void)
+{
+	return rc_private_flag_set("upgrade");
+}
+
+int rc_upgrade_flag_is_set(void)
+{
+	return rc_private_flag_is_set("upgrade");
 }
 
 void simple_lock(const char *name)

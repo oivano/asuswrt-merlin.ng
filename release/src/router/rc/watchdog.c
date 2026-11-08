@@ -5019,12 +5019,7 @@ end_of_wl_sched:
 			{
 				if (timecheck_reboot(reboot_schedule))
 				{
-					char upgrade[sizeof("255")];
-
-					memset(upgrade, 0, sizeof("255"));
-					f_read_string("/tmp/upgrade", upgrade, sizeof(upgrade));
-
-					if (rc_reboot_flag_is_set() || atoi(upgrade))
+					if (rc_reboot_flag_is_set() || rc_upgrade_flag_is_set())
 						return;
 
 					nvram_set("sys_reboot_reason", "rbt_scheduler");
@@ -7394,7 +7389,7 @@ static void nas_eapd_check(void)
 	static time_t last_restart = 0;
 	time_t now;
 
-	if (!nvram_match("success_start_service", "1") || f_exists("/tmp/upgrade"))
+	if (!nvram_match("success_start_service", "1") || rc_upgrade_flag_is_set())
 		return;
 #ifdef RTCONFIG_BRCM_HOSTAPD
 	if (!nvram_match("hapd_enable", "0"))
@@ -7426,7 +7421,7 @@ static void mdns_check(void)
 {
 	static int missing = 0;
 
-	if (!nvram_match("success_start_service", "1") || f_exists("/tmp/upgrade"))
+	if (!nvram_match("success_start_service", "1") || rc_upgrade_flag_is_set())
 		return;
 #ifdef RTAC68U
 	if (!hw_usb_cap())
@@ -8703,12 +8698,7 @@ void onboarding_check()
 #ifdef RTCONFIG_CFGSYNC
 void cfgsync_check()
 {
-	char upgrade[sizeof("255")];
-
-	memset(upgrade, 0, sizeof("255"));
-	f_read_string("/tmp/upgrade", upgrade, sizeof(upgrade));
-
-	if (rc_reboot_flag_is_set() || atoi(upgrade))
+	if (rc_reboot_flag_is_set() || rc_upgrade_flag_is_set())
 		return;
 
 	if (repeater_mode() || mediabridge_mode() || psr_mode())
