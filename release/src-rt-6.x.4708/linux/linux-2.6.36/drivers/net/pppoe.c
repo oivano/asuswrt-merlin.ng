@@ -639,6 +639,9 @@ static int pppoe_connect(struct socket *sock, struct sockaddr *uservaddr,
 	struct net *net = NULL;
 	int error;
 
+	if (!capable(CAP_NET_ADMIN))
+		return -EPERM;
+
 	if (sockaddr_len != sizeof(struct sockaddr_pppox))
 		return -EINVAL;
 
