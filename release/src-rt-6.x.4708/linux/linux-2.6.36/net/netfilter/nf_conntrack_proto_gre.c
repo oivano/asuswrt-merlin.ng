@@ -103,36 +103,38 @@ int nf_ct_gre_keymap_add(struct nf_conn *ct, enum ip_conntrack_dir dir,
 	struct net *net = nf_ct_net(ct);
 	struct netns_proto_gre *net_gre = net_generic(net, proto_gre_net_id);
 	struct nf_conn_help *help = nfct_help(ct);
-	struct nf_ct_gre_keymap **kmp, *km;
+	struct nf_ct_gre_keymap **kmp, *km, *new_km;
 
 	kmp = &help->help.ct_pptp_info.keymap[dir];
+	new_km = kmalloc(sizeof(*new_km), GFP_ATOMIC);
+	if (!new_km)
+		return -ENOMEM;
+	memcpy(&new_km->tuple, t, sizeof(*t));
+	INIT_LIST_HEAD(&new_km->list);
+
+	write_lock_bh(&net_gre->keymap_lock);
 	if (*kmp) {
 		/* check whether it's a retransmission */
-		read_lock_bh(&net_gre->keymap_lock);
 		list_for_each_entry(km, &net_gre->keymap_list, list) {
 			if (gre_key_cmpfn(km, t) && km == *kmp) {
-				read_unlock_bh(&net_gre->keymap_lock);
+				write_unlock_bh(&net_gre->keymap_lock);
+				kfree(new_km);
 				return 0;
 			}
 		}
-		read_unlock_bh(&net_gre->keymap_lock);
+		write_unlock_bh(&net_gre->keymap_lock);
+		kfree(new_km);
 		pr_debug("trying to override keymap_%s for ct %p\n",
 			 dir == IP_CT_DIR_REPLY ? "reply" : "orig", ct);
 		return -EEXIST;
 	}
 
-	km = kmalloc(sizeof(*km), GFP_ATOMIC);
-	if (!km)
-		return -ENOMEM;
-	memcpy(&km->tuple, t, sizeof(*t));
-	*kmp = km;
-
-	pr_debug("adding new entry %p: ", km);
-	nf_ct_dump_tuple(&km->tuple);
-
-	write_lock_bh(&net_gre->keymap_lock);
-	list_add_tail(&km->list, &net_gre->keymap_list);
+	*kmp = new_km;
+	list_add_tail(&new_km->list, &net_gre->keymap_list);
 	write_unlock_bh(&net_gre->keymap_lock);
+
+	pr_debug("adding new entry %p: ", new_km);
+	nf_ct_dump_tuple(&new_km->tuple);
 
 	return 0;
 }
