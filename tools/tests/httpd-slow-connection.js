@@ -12,6 +12,9 @@ assert(source.includes('#define HTTPD_SLOW_SOURCE_BLOCK 60'));
 assert(source.includes('#define HTTPD_BODY_TIMEOUT_GRACE 5'));
 assert(source.includes('#define HTTPD_BODY_MIN_RATE 32768'));
 assert(source.includes('#define HTTPD_BODY_TIMEOUT_MAX 180'));
+assert(source.includes('#define HTTPD_RESPONSE_TIMEOUT_GRACE 5'));
+assert(source.includes('#define HTTPD_RESPONSE_MIN_RATE 32768'));
+assert(source.includes('#define HTTPD_RESPONSE_TIMEOUT_MAX 180'));
 assert(source.includes('IN6_IS_ADDR_V4MAPPED'));
 assert(source.includes('memcmp(left_address, right_address, address_length)'));
 assert(source.includes('entry->blocked_until = now + HTTPD_SLOW_SOURCE_BLOCK;'));
@@ -50,6 +53,30 @@ function calculateBodyTimeout(length) {
 }
 assert.equal(calculateBodyTimeout(65534), 7);
 assert.equal(calculateBodyTimeout(64 * 1024 * 1024), 180);
+function calculateResponseTimeout(length) {
+    return length < 0 ? 180 : Math.min(5 + Math.ceil(length / 32768), 180);
+}
+assert.equal(calculateResponseTimeout(1428043), 49);
+assert.equal(calculateResponseTimeout(64 * 1024 * 1024), 180);
+assert.equal(calculateResponseTimeout(-1), 180);
+
+const fileSizeStart = source.indexOf('static int httpd_web_file_size(');
+const fileSizeEnd = source.indexOf('#if 0 //defined(GTAX6000)', fileSizeStart);
+const fileSizeHelper = source.slice(fileSizeStart, fileSizeEnd);
+assert(fileSizeStart >= 0 && fileSizeEnd > fileSizeStart);
+assert.match(fileSizeHelper, /fstat\(fd, &st\) < 0 \|\| !S_ISREG\(st.st_mode\)/);
+assert.match(fileSizeHelper, /\*size = st.st_size;/);
+assert.match(source, /handler->output == do_file && !httpd_web_file_size\(file, &httpd_response_size\)/);
+assert.match(source, /HTTPD_RESPONSE_TIMEOUT_GRACE \+\s*\(\(unsigned long\)httpd_response_size \+ HTTPD_RESPONSE_MIN_RATE - 1\) \/\s*HTTPD_RESPONSE_MIN_RATE;\s*if \(timeout > HTTPD_RESPONSE_TIMEOUT_MAX\)\s*timeout = HTTPD_RESPONSE_TIMEOUT_MAX;/);
+const responseStart = source.indexOf('httpd_response_deadline_start(void)');
+const responseEnd = source.indexOf('static void\nsend_headers(', responseStart);
+const responseHelper = source.slice(responseStart, responseEnd);
+assert(responseStart >= 0 && responseEnd > responseStart);
+assert.match(responseHelper, /clearerr\(conn_fp\);\s*httpd_request_deadline_start\(timeout, 0, fileno\(conn_fp\)\);\s*request_headers_complete = 1;\s*httpd_response_size = -1;/);
+assert.match(source, /send_headers\( int status, char\* title, char\* extra_header, char\* mime_type, int fromapp\)\s*\{[\s\S]*?httpd_response_deadline_start\(\);/);
+assert.match(source, /send_token_headers\( int status, char\* title, char\* extra_header, char\* mime_type, int fromapp\)\s*\{[\s\S]*?httpd_response_deadline_start\(\);/);
+assert.match(source, /errno = 0;\s*fflush\(conn_fp\);\s*if \(ferror\(conn_fp\)\)\s*httpd_slow_source_block\(&request_peer\);\s*request_timed_out = httpd_request_deadline_stop\(\);/);
+assert.match(source, /if \(r == 0 && request_deadline_expired\)\s*return -1;/);
 
 const handlerStart = source.indexOf('handle_request(void)');
 const firstRead = source.indexOf('if (fgets(line, sizeof(line), conn_fp)', handlerStart);
@@ -84,6 +111,12 @@ const sslError = mssl.indexOf('ERROR:');
 const sslErrorClose = mssl.indexOf('mssl_close(kuki);', sslError);
 assert(sslError >= 0 && sslErrorClose > sslError);
 assert.match(mssl.slice(sslError, sslErrorClose), /if \(!client && kuki->ssl\)\s*SSL_set_quiet_shutdown\(kuki->ssl, 1\);/);
+const writeStart = mssl.indexOf('static ssize_t mssl_write(');
+const writeEnd = mssl.indexOf('static int mssl_seek(', writeStart);
+const writeBody = mssl.slice(writeStart, writeEnd);
+assert(writeStart >= 0 && writeEnd > writeStart);
+assert.match(writeBody, /case SSL_ERROR_WANT_WRITE:\s*case SSL_ERROR_WANT_READ:\s*SSL_set_quiet_shutdown\(kuki->ssl, 1\);\s*errno = EAGAIN;[\s\S]*goto OUT;/);
+assert.doesNotMatch(writeBody, /case SSL_ERROR_WANT_WRITE:\s*case SSL_ERROR_WANT_READ:\s*break;/);
 assert.match(mssl, /#if defined\(SSL_OP_NO_RENEGOTIATION\)\s*SSL_CTX_set_options\(ctx, SSL_OP_NO_RENEGOTIATION\);\s*#elif OPENSSL_VERSION_NUMBER < 0x10100000L && defined\(SSL3_FLAGS_NO_RENEGOTIATE_CIPHERS\)\s*SSL_CTX_set_info_callback\(ctx, ssl_info_cb\);\s*#else\s*#error "TLS server requires support for disabling renegotiation"/);
 assert.doesNotMatch(mssl, /SSL_OP_NO_RENGOTIATION/);
 
