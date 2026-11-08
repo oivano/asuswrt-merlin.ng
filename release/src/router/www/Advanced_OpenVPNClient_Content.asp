@@ -606,7 +606,7 @@ function ovpnFileChecker(){
 				else if(vpn_upload_state > 0){
 					document.getElementById("importOvpnFile").innerHTML = "Warning!";
 					missing = upload_build_report(vpn_upload_state);
-					alert("Warning (" + vpn_upload_state +") while importing file - you will need to manually provide the " + missing.replace(/,\s*$/, "") + " content, on the keys/certificates page.");
+					alert("Warning (" + vpn_upload_state + ") while importing file: " + missing.replace(/,\s*$/, "") + ". Review the warning and provide any missing key material on the keys/certificates page.");
 					setTimeout("location.href='Advanced_OpenVPNClient_Content.asp';", 3000);
 				}
 				else{
@@ -632,6 +632,8 @@ function upload_build_report(ret){
 		missing += "CRL, ";
 	if (ret & 32)
 		missing += "Extra certificate, "
+	if (ret & 64)
+		missing += "Unsafe directives were rejected, ";
 	return missing;
 }
 

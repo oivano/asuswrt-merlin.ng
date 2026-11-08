@@ -1136,6 +1136,12 @@ function ovpnFileChecker(){
 				setManualTable(document.vpnclientForm.vpnc_openvpn_unit_edit.value);
 				
 				var vpn_upload_state_tmp = "";
+				vpn_upload_state_tmp = parseInt(vpn_upload_state) - 64;
+				if(vpn_upload_state_tmp > -1){
+					document.getElementById("importOvpnFile").innerHTML += ", Unsafe directives were rejected";
+					vpn_upload_state = vpn_upload_state_tmp;
+				}
+
 				vpn_upload_state_tmp = parseInt(vpn_upload_state) - 16;
 				if(vpn_upload_state_tmp > -1){
 					document.getElementById("importOvpnFile").innerHTML += ", Lack of Certificate Revocation List(Optional)";
