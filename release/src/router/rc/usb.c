@@ -6044,6 +6044,182 @@ void webdav_account_default(void)
 
 
 #ifdef RTCONFIG_NFS
+static int nfs_path_is_within(const char *path, const char *base)
+{
+	size_t len = strlen(base);
+
+	return !strncmp(path, base, len) &&
+	       (path[len] == '\0' || base[len - 1] == '/' || path[len] == '/');
+}
+
+static int nfs_paths_overlap(const char *path, const char *private_path)
+{
+	return nfs_path_is_within(path, private_path) ||
+	       nfs_path_is_within(private_path, path);
+}
+
+static int nfs_private_usb_name(const char *name)
+{
+	return !strcmp(name, ".asus-swap") || !strcmp(name, ".swap") ||
+	       !strcmp(name, "asus_lighttpdpasswd") ||
+	       !strncmp(name, "asusware", 8) ||
+	       (!strncmp(name, ".__", 3) && strstr(name + 3, ".txt") != NULL);
+}
+
+static int nfs_export_overlaps_private_path(const char *path, const char *private_path)
+{
+	char resolved_path[PATH_MAX], resolved_private[PATH_MAX];
+	const char *export_real = realpath(path, resolved_path) ? resolved_path : path;
+	const char *private_real = realpath(private_path, resolved_private) ? resolved_private : private_path;
+
+	return nfs_paths_overlap(path, private_path) ||
+	       nfs_paths_overlap(export_real, private_path) ||
+	       nfs_paths_overlap(path, private_real) ||
+	       nfs_paths_overlap(export_real, private_real);
+}
+
+static int nfs_export_has_private_usb_data(const char *path)
+{
+	FILE *mounts;
+	struct mntent *entry;
+	struct stat st;
+	char private_path[PATH_MAX];
+	DIR *dir;
+	struct dirent *item;
+	int swap_enabled = nvram_match("apps_swap_enable", "1");
+
+	if (nfs_private_usb_name(strrchr(path, '/') ? strrchr(path, '/') + 1 : path))
+		return 1;
+
+	mounts = setmntent("/proc/mounts", "r");
+	if (!mounts)
+		return nfs_path_is_within(path, POOL_MOUNT_ROOT) ||
+		       nfs_path_is_within(POOL_MOUNT_ROOT, path);
+
+	while ((entry = getmntent(mounts)) != NULL) {
+		if (!nfs_path_is_within(entry->mnt_dir, POOL_MOUNT_ROOT))
+			continue;
+
+		snprintf(private_path, sizeof(private_path), "%s/.asus-swap", entry->mnt_dir);
+		if ((swap_enabled || lstat(private_path, &st) == 0) &&
+		    nfs_export_overlaps_private_path(path, private_path)) {
+			endmntent(mounts);
+			return 1;
+		}
+
+		dir = opendir(entry->mnt_dir);
+		if (!dir) {
+			if (nfs_paths_overlap(path, entry->mnt_dir)) {
+				endmntent(mounts);
+				return 1;
+			}
+			continue;
+		}
+		while ((item = readdir(dir)) != NULL) {
+			if (!nfs_private_usb_name(item->d_name))
+				continue;
+			snprintf(private_path, sizeof(private_path), "%s/%s", entry->mnt_dir, item->d_name);
+			if (nfs_export_overlaps_private_path(path, private_path)) {
+				closedir(dir);
+				endmntent(mounts);
+				return 1;
+			}
+		}
+		closedir(dir);
+	}
+	endmntent(mounts);
+	return 0;
+}
+
+static int nfs_filter_private_exports(void)
+{
+	FILE *in, *out;
+	char line[PATH_MAX * 2], path[PATH_MAX], temp_path[PATH_MAX];
+	char *p, *end, *dst;
+	int fd, bad_path;
+
+	in = fopen(NFS_EXPORT, "r");
+	if (!in)
+		return -1;
+	snprintf(temp_path, sizeof(temp_path), "%s.XXXXXX", NFS_EXPORT);
+	fd = mkstemp(temp_path);
+	if (fd < 0) {
+		fclose(in);
+		return -1;
+	}
+	fchmod(fd, 0644);
+	out = fdopen(fd, "w");
+	if (!out) {
+		close(fd);
+		unlink(temp_path);
+		fclose(in);
+		return -1;
+	}
+
+	while (fgets(line, sizeof(line), in)) {
+		if (!strchr(line, '\n') && !feof(in)) {
+			while (fgets(line, sizeof(line), in) && !strchr(line, '\n'))
+				;
+			syslog(LOG_WARNING, "NFS dropping overlong export entry");
+			continue;
+		}
+		p = line;
+		while (*p == ' ' || *p == '\t')
+			p++;
+		if (!*p || *p == '#' || *p == '\n') {
+			fputs(line, out);
+			continue;
+		}
+		end = p;
+		while (*end && *end != ' ' && *end != '\t' && *end != '\r' && *end != '\n')
+			end++;
+		bad_path = 0;
+		dst = path;
+		while (p < end) {
+			if (*p == '\\' && end - p >= 4 && p[1] >= '0' && p[1] <= '7' &&
+			    p[2] >= '0' && p[2] <= '7' && p[3] >= '0' && p[3] <= '7') {
+				*dst++ = (p[1] - '0') * 64 + (p[2] - '0') * 8 + (p[3] - '0');
+				p += 4;
+			} else if (*p == '\\' && p + 1 < end) {
+				*dst++ = *++p;
+				p++;
+			} else {
+				*dst++ = *p++;
+			}
+			if (dst >= path + sizeof(path) - 1) {
+				bad_path = 1;
+				break;
+			}
+		}
+		*dst = '\0';
+		if (bad_path) {
+			syslog(LOG_WARNING, "NFS dropping oversized export path");
+			continue;
+		}
+		if (nfs_export_has_private_usb_data(path)) {
+			syslog(LOG_WARNING, "NFS refusing export of router-private USB data: %s", path);
+			continue;
+		}
+		fputs(line, out);
+	}
+	bad_path = ferror(in);
+	if (fflush(out) != 0)
+		bad_path = 1;
+	if (fclose(out) != 0)
+		bad_path = 1;
+	if (fclose(in) != 0)
+		bad_path = 1;
+	if (bad_path) {
+		unlink(temp_path);
+		return -1;
+	}
+	if (rename(temp_path, NFS_EXPORT) != 0) {
+		unlink(temp_path);
+		return -1;
+	}
+	return 0;
+}
+
 void start_nfsd(void)
 {
 	struct stat	st_buf;
@@ -6113,7 +6289,7 @@ void start_nfsd(void)
 			fputs(dir, fp);
 
 			while ((c = strsep(&access, " ")) != NULL) {
-				fprintf(fp, " %s(no_root_squash%s%s)", c, ((strlen(options) > 0) ? "," : ""), options);
+				fprintf(fp, " %s(root_squash%s%s)", c, ((strlen(options) > 0) ? "," : ""), options);
 			}
 			fputs("\n", fp);
 		}
@@ -6123,6 +6299,11 @@ void start_nfsd(void)
 	append_custom_config("exports", fp);
 	fclose(fp);
 	run_postconf("exports", NFS_EXPORT);
+	if (nfs_filter_private_exports() != 0) {
+		syslog(LOG_ERR, "NFS refusing to start with unvalidated exports");
+		eval("/usr/sbin/exportfs", "-au");
+		return;
+	}
 	if (!pids("portmap")) {
 		eval("/usr/sbin/portmap");
 		/* portmap daemonizes (double-fork) and isn't necessarily ready to
@@ -6146,7 +6327,7 @@ void start_nfsd(void)
 	}
 
 	sleep(1);
-	eval("/usr/sbin/exportfs", "-a");
+	eval("/usr/sbin/exportfs", "-r");
 
 	return;
 }
