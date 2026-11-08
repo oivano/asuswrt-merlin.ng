@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <arpa/inet.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -63,6 +64,21 @@ Node *Node_new(char *ipaddr) {
 #endif
 	}
 	return self;
+}
+
+static int valid_history_record(const Node *record) {
+	struct in_addr addr;
+
+	if (!memchr(record->ipaddr, '\0', sizeof(record->ipaddr)) ||
+	    inet_pton(AF_INET, record->ipaddr, &addr) != 1)
+		return 0;
+
+	if (record->id == CURRENT_ID &&
+	    (record->dailyp < 0 || record->dailyp >= MAX_NDAILY ||
+	     record->monthlyp < 0 || record->monthlyp >= MAX_NMONTHLY))
+		return 0;
+
+	return 1;
 }
 
 int Node_compare(Node *lhs, Node *rhs) {
@@ -260,6 +276,13 @@ static int load_history_to_tree(const char *fname) {
 		    (f = fopen(uncomp_fn, "rb")) != NULL) {
 			n = 0;	// Initial counter
 			while (fread(&tmp, sizeof(Node), 1, f) > 0) {
+				if (!valid_history_record(&tmp)) {
+#ifdef DEBUG_CSTATS
+					_dprintf("%s: skipping invalid history record\n", __FUNCTION__);
+#endif
+					continue;
+				}
+
 				if ((find_word(exclude, tmp.ipaddr))) {
 #ifdef DEBUG_CSTATS
 					_dprintf("%s: not loading excluded ip '%s'\n", __FUNCTION__, tmp.ipaddr);
@@ -513,6 +536,7 @@ void Node_print_datajs(Node *self, void *t) {
 		p = self->monthlyp;
 		max = MAX_NMONTHLY;
 	}
+	if (p < 0 || p >= max) p = 0;
 
 	for (k = max; k > 0; --k) {
 		p = (p + 1) % max;
@@ -548,6 +572,8 @@ static void bump(data_t *data, int *tail, int max, uint32_t xnow, uint64_t *coun
 	int t, i;
 
 	t = *tail;
+	if (t < 0 || t >= max) t = 0;
+	*tail = t;
 	if (data[t].xtime != xnow) {
 		for (i = max - 1; i >= 0; --i) {
 			if (data[i].xtime == xnow) {
