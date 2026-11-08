@@ -343,10 +343,13 @@ int squashfs_read_metadata(struct super_block *sb, void *buffer,
 
 	while (length) {
 		entry = squashfs_cache_get(sb, msblk->block_cache, *block, 0);
-		if (entry->error)
-			return entry->error;
-		else if (*offset >= entry->length)
-			return -EIO;
+		if (entry->error) {
+			bytes = entry->error;
+			goto metadata_error;
+		} else if (*offset >= entry->length) {
+			bytes = -EIO;
+			goto metadata_error;
+		}
 
 		bytes = squashfs_copy_data(buffer, entry, *offset, length);
 		if (buffer)
@@ -363,6 +366,10 @@ int squashfs_read_metadata(struct super_block *sb, void *buffer,
 	}
 
 	return copied;
+
+metadata_error:
+	squashfs_cache_put(entry);
+	return bytes;
 }
 
 
