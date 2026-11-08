@@ -181,6 +181,7 @@ fi
 
 if [ -e "$SWAP_FILE" ] || [ -L "$SWAP_FILE" ]; then
 	secure_file || fail "unsafe swap file"
+	mkswap "$SWAP_FILE" || fail "cannot initialize swap header"
 else
 	pool_size=$(df . | sed '1d' | awk '{print $4}')
 	if [ "$pool_size" -le "$SWAP_SIZE" ]; then
