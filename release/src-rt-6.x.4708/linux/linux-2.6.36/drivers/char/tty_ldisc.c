@@ -536,19 +536,52 @@ static int tty_ldisc_halt(struct tty_struct *tty)
 
 /**
  *	tty_ldisc_wait_idle	-	wait for the ldisc to become idle
- *	@tty: tty to wait for
+ *	@ld: line discipline held by the caller
+ *	@users: expected references after external users leave
  *
- *	Wait for the line discipline to become idle. The discipline must
- *	have been halted for this to guarantee it remains idle.
+ *	Wait for the line discipline to become idle. It must have been halted
+ *	for this to guarantee it remains idle.
  */
-static int tty_ldisc_wait_idle(struct tty_struct *tty)
+static int tty_ldisc_wait_idle(struct tty_ldisc *ld, int users)
 {
 	int ret;
 	ret = wait_event_interruptible_timeout(tty_ldisc_idle,
-			atomic_read(&tty->ldisc->users) == 1, 5 * HZ);
+			atomic_read(&ld->users) == users, 5 * HZ);
 	if (ret < 0)
 		return ret;
 	return ret > 0 ? 0 : -EBUSY;
+}
+
+static void tty_ldisc_change_lock(struct tty_struct *tty,
+				  struct tty_struct *o_tty)
+{
+	if (!o_tty || tty == o_tty) {
+		mutex_lock(&tty->ldisc_change_mutex);
+		return;
+	}
+	if ((unsigned long)tty < (unsigned long)o_tty) {
+		mutex_lock(&tty->ldisc_change_mutex);
+		mutex_lock(&o_tty->ldisc_change_mutex);
+	} else {
+		mutex_lock(&o_tty->ldisc_change_mutex);
+		mutex_lock(&tty->ldisc_change_mutex);
+	}
+}
+
+static void tty_ldisc_change_unlock(struct tty_struct *tty,
+				    struct tty_struct *o_tty)
+{
+	if (!o_tty || tty == o_tty) {
+		mutex_unlock(&tty->ldisc_change_mutex);
+		return;
+	}
+	if ((unsigned long)tty < (unsigned long)o_tty) {
+		mutex_unlock(&o_tty->ldisc_change_mutex);
+		mutex_unlock(&tty->ldisc_change_mutex);
+	} else {
+		mutex_unlock(&tty->ldisc_change_mutex);
+		mutex_unlock(&o_tty->ldisc_change_mutex);
+	}
 }
 
 /**
@@ -561,7 +594,8 @@ static int tty_ldisc_wait_idle(struct tty_struct *tty)
  *	overlapping ldisc change (including on the other end of pty pairs),
  *	the close of one side of a tty/pty pair, and eventually hangup.
  *
- *	Locking: takes tty_ldisc_lock, termios_mutex
+ *	Locking: takes tty/pty ldisc_change_mutex, tty_ldisc_lock,
+ *		 termios_mutex
  */
 
 int tty_set_ldisc(struct tty_struct *tty, int ldisc)
@@ -575,14 +609,13 @@ int tty_set_ldisc(struct tty_struct *tty, int ldisc)
 	if (IS_ERR(new_ldisc))
 		return PTR_ERR(new_ldisc);
 
+	o_tty = tty->link;	/* o_tty is the pty side or NULL */
+	tty_ldisc_change_lock(tty, o_tty);
 	tty_lock();
 	/*
 	 *	We need to look at the tty locking here for pty/tty pairs
 	 *	when both sides try to change in parallel.
 	 */
-
-	o_tty = tty->link;	/* o_tty is the pty side or NULL */
-
 
 	/*
 	 *	Check the no-op case
@@ -591,6 +624,7 @@ int tty_set_ldisc(struct tty_struct *tty, int ldisc)
 	if (tty->ldisc->ops->num == ldisc) {
 		tty_unlock();
 		tty_ldisc_put(new_ldisc);
+		tty_ldisc_change_unlock(tty, o_tty);
 		return 0;
 	}
 
@@ -628,7 +662,7 @@ int tty_set_ldisc(struct tty_struct *tty, int ldisc)
 
 	tty->receive_room = 0;
 
-	o_ldisc = tty->ldisc;
+	o_ldisc = get_ldisc(tty->ldisc);
 
 	tty_unlock();
 	/*
@@ -655,7 +689,7 @@ int tty_set_ldisc(struct tty_struct *tty, int ldisc)
 
 	flush_scheduled_work();
 
-	retval = tty_ldisc_wait_idle(tty);
+	retval = tty_ldisc_wait_idle(o_ldisc, 2);
 
 	tty_lock();
 	mutex_lock(&tty->ldisc_mutex);
@@ -663,6 +697,7 @@ int tty_set_ldisc(struct tty_struct *tty, int ldisc)
 	/* handle wait idle failure locked */
 	if (retval) {
 		tty_ldisc_put(new_ldisc);
+		tty_ldisc_put(o_ldisc);
 		goto enable;
 	}
 
@@ -671,9 +706,18 @@ int tty_set_ldisc(struct tty_struct *tty, int ldisc)
 		   the ldisc data and closed the ldisc down */
 		clear_bit(TTY_LDISC_CHANGING, &tty->flags);
 		mutex_unlock(&tty->ldisc_mutex);
+		tty_ldisc_put(o_ldisc);
 		tty_ldisc_put(new_ldisc);
 		tty_unlock();
+		tty_ldisc_change_unlock(tty, o_tty);
 		return -EIO;
+	}
+
+	if (tty->ldisc != o_ldisc) {
+		retval = -EIO;
+		tty_ldisc_put(new_ldisc);
+		tty_ldisc_put(o_ldisc);
+		goto enable;
 	}
 
 	/* Shutdown the current discipline. */
@@ -698,6 +742,7 @@ int tty_set_ldisc(struct tty_struct *tty, int ldisc)
 		tty->ops->set_ldisc(tty);
 
 	tty_ldisc_put(o_ldisc);
+	tty_ldisc_put(o_ldisc);
 
 enable:
 	/*
@@ -705,8 +750,11 @@ enable:
 	 */
 
 	tty_ldisc_enable(tty);
-	if (o_tty)
-		tty_ldisc_enable(o_tty);
+	if (o_tty) {
+		/* Don't clear a change reservation owned by the peer. */
+		set_bit(TTY_LDISC, &o_tty->flags);
+		wake_up(&tty_ldisc_wait);
+	}
 
 	/* Restart the work queue in case no characters kick it off. Safe if
 	   already running */
@@ -716,6 +764,7 @@ enable:
 		schedule_delayed_work(&o_tty->buf.work, 1);
 	mutex_unlock(&tty->ldisc_mutex);
 	tty_unlock();
+	tty_ldisc_change_unlock(tty, o_tty);
 	return retval;
 }
 
