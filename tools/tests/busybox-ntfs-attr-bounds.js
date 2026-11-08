@@ -8,6 +8,10 @@ const source = fs.readFileSync(
     'release/src/router/busybox/util-linux/volume_id/ntfs.c',
     'utf8'
 );
+const utilSource = fs.readFileSync(
+    'release/src/router/busybox/util-linux/volume_id/util.c',
+    'utf8'
+);
 const diskInitial = fs.readFileSync(
     'release/src/router/libdisk/disk_initial.c',
     'utf8'
@@ -34,9 +38,61 @@ assert(/if \(\*nvram_value\)\s*goto ret;/.test(diskInitial),
 assert(/if \(ret == 0\)\s*strcpy\(nvram_value, " "\);\s*nvram_set\(nvram_label, nvram_value\);/.test(diskInitial),
     'an unlabeled device result must be cached');
 
+assert(source.includes('mft_record_shift < 9 || mft_record_shift > 16'),
+    'negative MFT record exponents must be within the supported range');
+assert(source.includes('mft_record_size > SEEK_BUFFER_SIZE'),
+    'the complete MFT record must fit in the seek buffer');
+assert(source.includes('mft_cluster > (uint64_t)-1 / cluster_size'),
+    'the MFT cluster multiplication must not overflow');
+assert(source.includes('mft_off > (uint64_t)-1 - mft_record_extent'),
+    'the requested MFT record extent must not overflow');
+assert(utilSource.includes('off <= SB_BUFFER_SIZE')
+    && utilSource.includes('len <= SB_BUFFER_SIZE - off'),
+    'the superblock cache range must be checked without addition overflow');
+assert(utilSource.includes('off - id->seekbuf_off <= id->seekbuf_len')
+    && utilSource.includes('len <= id->seekbuf_len - (size_t)(off - id->seekbuf_off)'),
+    'the seek cache range must be checked without addition overflow');
+
 const HEADER_SIZE = 22;
 const ATTR_END = 0xffffffff;
 const ATTR_VOLUME_NAME = 0x60;
+const SB_BUFFER_SIZE = 0x11000;
+const SEEK_BUFFER_SIZE = 0x10000;
+const UINT64_MAX = (1n << 64n) - 1n;
+
+function requestedBuffer(off, len) {
+    if (off <= BigInt(SB_BUFFER_SIZE)
+        && BigInt(len) <= BigInt(SB_BUFFER_SIZE) - off)
+        return 'superblock';
+    if (len > SEEK_BUFFER_SIZE)
+        return null;
+    return 'seek';
+}
+
+function ntfsRecordOffset(cluster, clusterSize, recordSize) {
+    const clusterValue = BigInt(cluster);
+    const size = BigInt(clusterSize);
+    const extent = 11n * BigInt(recordSize);
+    if (!size || clusterValue > UINT64_MAX / size)
+        return null;
+    const offset = clusterValue * size;
+    if (offset > UINT64_MAX - extent)
+        return null;
+    return offset + 3n * BigInt(recordSize);
+}
+
+const nearEndCluster = UINT64_MAX / 4096n;
+assert.strictEqual(ntfsRecordOffset(nearEndCluster, 4096, 1024), null,
+    'a near-2^64 MFT location with a wrapping record extent must be rejected');
+assert.strictEqual(ntfsRecordOffset(nearEndCluster + 1n, 4096, 1024), null,
+    'an overflowing MFT cluster multiplication must be rejected');
+assert.strictEqual(requestedBuffer(UINT64_MAX - 8n, 16), 'seek',
+    'a wrapped superblock request must not be treated as an in-buffer offset');
+assert.strictEqual(requestedBuffer(BigInt(SB_BUFFER_SIZE + 1), SEEK_BUFFER_SIZE + 1), null,
+    'oversized seek-buffer reads must remain rejected');
+assert.strictEqual(ntfsRecordOffset(1024n, 4096, 1024),
+    1024n * 4096n + 3n * 1024n,
+    'a valid MFT record location remains addressable');
 
 function walkAttributes(recordSize, startOffset, attributes) {
     const labels = [];
