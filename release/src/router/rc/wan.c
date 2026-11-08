@@ -4901,9 +4901,6 @@ start_wan(void)
 	symlink("/sbin/rc", "/etc/openvpn/ovpnc-route-pre-down");
 #endif
 #endif
-#ifdef RTCONFIG_EAPOL
-	symlink("/sbin/rc", "/tmp/wpa_cli");
-#endif
 //	symlink("/dev/null", "/tmp/ppp/connect-errors");
 
 #if defined(RTCONFIG_QCA) || \
@@ -5050,9 +5047,6 @@ stop_wan(void)
 #endif
 
 	/* Remove dynamically created links */
-#ifdef RTCONFIG_EAPOL
-	unlink("/tmp/wpa_cli");
-#endif
 	unlink("/tmp/ppp/ip-up");
 	unlink("/tmp/ppp/ip-down");
 	unlink("/tmp/ppp/ip-pre-up");

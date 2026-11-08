@@ -1030,6 +1030,7 @@ endif
 	install -d -m 0755 $(INSTALLDIR)/usr/libexec/rc-hooks
 	ln -sf /sbin/rc $(INSTALLDIR)/usr/libexec/rc-hooks/udhcpc_wan
 	ln -sf /sbin/rc $(INSTALLDIR)/usr/libexec/rc-hooks/zcip
+	ln -sf /sbin/rc $(INSTALLDIR)/usr/libexec/rc-hooks/wpa_cli
 ifeq ($(RTCONFIG_IPV6),y)
 	ln -sf /sbin/rc $(INSTALLDIR)/usr/libexec/rc-hooks/dhcp6c
 endif
