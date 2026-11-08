@@ -190,25 +190,6 @@ static int blocklist_swap_active(void)
 	return lines > 1;
 }
 
-/* True if any USB storage is mounted under /tmp/mnt */
-static int blocklist_usb_present(void)
-{
-	DIR *dir;
-	struct dirent *d;
-	int found = 0;
-
-	if (!(dir = opendir("/tmp/mnt")))
-		return 0;
-	while ((d = readdir(dir))) {
-		if (d->d_name[0] == '.')
-			continue;
-		found = 1;
-		break;
-	}
-	closedir(dir);
-	return found;
-}
-
 #ifdef RTCONFIG_DNSMASQ_BLOCKLIST
 /* Keep large lists on writable USB storage; JFFS is too small for them. */
 static int blocklist_get_paths(char *dir, size_t dir_len, char *file, size_t file_len)
@@ -666,11 +647,10 @@ static int prepare_dnsmasq_blocklist(char *config, size_t config_len, int *updat
 }
 #endif
 
-/* Without swap or USB storage as a memory safety net, clamp to a much smaller cap
- * regardless of the configured maximum, so a huge remote list can't take the router down. */
+/* USB storage provides space, not memory; only active swap permits the configured large cap. */
 static int blocklist_effective_max_domains(int configured_max, int noswap_max)
 {
-	if (blocklist_swap_active() || blocklist_usb_present())
+	if (blocklist_swap_active())
 		return configured_max;
 	return (noswap_max > 0 && noswap_max < configured_max) ? noswap_max : configured_max;
 }
@@ -3166,7 +3146,7 @@ static int update_dnsmasq_blocklist_worker(void)
 	if (!nvram_get_int("dnsmasq_blocklist_enable") || !*url)
 		return 0;
 
-	/* Without swap/USB as a safety net, don't even attempt a rebuild if memory is already tight */
+	/* Don't attempt a rebuild if memory is already tight, even when swap is active. */
 	if (blocklist_free_kb() >= 0 && blocklist_free_kb() < min_free_kb) {
 		logmessage("dnsmasq_blocklist", "low free memory, skipping blocklist rebuild");
 		return 0;
@@ -3187,7 +3167,7 @@ static int update_dnsmasq_blocklist_worker(void)
 
 	max_domains = blocklist_effective_max_domains(
 		nvram_get_int("dnsmasq_blocklist_max_domains") ? : 4000000,
-		nvram_get_int("dnsmasq_blocklist_max_domains_noswap") ? : 40000);
+		nvram_get_int("dnsmasq_blocklist_max_domains_noswap") ? : 400000);
 
 	snprintf(maxsize, sizeof(maxsize), "%d", nvram_get_int("dnsmasq_blocklist_max_bytes") ? : 134217728);
 	argv[0] = "/usr/sbin/curl";
@@ -3306,8 +3286,8 @@ static int update_dnsmasq_blocklist_worker(void)
 	}
 
 	if (truncated)
-		logmessage("dnsmasq_blocklist", "list exceeds %d domains (no swap/USB detected: %s), truncated",
-			max_domains, (blocklist_swap_active() || blocklist_usb_present()) ? "raise dnsmasq_blocklist_max_domains" : "add a USB swap file to raise this cap");
+		logmessage("dnsmasq_blocklist", "list exceeds %d domains (no swap detected: %s), truncated",
+			max_domains, blocklist_swap_active() ? "raise dnsmasq_blocklist_max_domains" : "add swap to raise this cap");
 
 	/* Refuse to apply a blocklist rebuild if memory is already tight; keep serving the last-known-good list */
 	if (blocklist_free_kb() >= 0 && blocklist_free_kb() < min_free_kb) {
