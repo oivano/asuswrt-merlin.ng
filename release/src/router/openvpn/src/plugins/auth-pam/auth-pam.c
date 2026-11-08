@@ -144,6 +144,7 @@ struct auth_attempt_entry
 {
     char username[128];
     char remote[INET6_ADDRSTRLEN];
+    int in_use;
     int source_wide;
     unsigned int attempts;
     time_t last_attempt;
@@ -151,32 +152,60 @@ struct auth_attempt_entry
 
 static struct auth_attempt_entry auth_attempts[AUTH_ATTEMPT_SOURCES];
 
+static int
+auth_attempt_source_key(const char *remote, char *source, size_t source_size)
+{
+    struct in6_addr address6;
+    struct in_addr address4;
+    int length;
+
+    if (inet_pton(AF_INET6, remote, &address6) == 1)
+    {
+        if (IN6_IS_ADDR_V4MAPPED(&address6))
+        {
+            memcpy(&address4, &address6.s6_addr[12], sizeof(address4));
+            return inet_ntop(AF_INET, &address4, source, source_size) != NULL;
+        }
+        memset(&address6.s6_addr[8], 0, 8);
+        return inet_ntop(AF_INET6, &address6, source, source_size) != NULL;
+    }
+    length = snprintf(source, source_size, "%s", remote);
+    return length >= 0 && (size_t)length < source_size;
+}
+
 static struct auth_attempt_entry *
 auth_attempt_get(const char *username, const char *remote, int create)
 {
     struct auth_attempt_entry *available = NULL;
+    char source[INET6_ADDRSTRLEN];
     const time_t now = time(NULL);
     int i;
+
+    if (!auth_attempt_source_key(remote, source, sizeof(source)))
+    {
+        return NULL;
+    }
 
     for (i = 0; i < AUTH_ATTEMPT_SOURCES; ++i)
     {
         struct auth_attempt_entry *entry = &auth_attempts[i];
-        if ((entry->username[0] || entry->source_wide)
+        if (entry->in_use
             && (now < entry->last_attempt || now - entry->last_attempt >= AUTH_ATTEMPT_WINDOW))
         {
             memset(entry, 0, sizeof(*entry));
         }
-        if (username && entry->username[0] && !entry->source_wide
+        if (username && entry->in_use && !entry->source_wide
             && !strcmp(entry->username, username)
-            && !strcmp(entry->remote, remote))
+            && !strcmp(entry->remote, source))
         {
             return entry;
         }
-        if (entry->source_wide && !username && !strcmp(entry->remote, remote))
+        if (entry->in_use && entry->source_wide && !username
+            && !strcmp(entry->remote, source))
         {
             return entry;
         }
-        if (!entry->username[0] && !entry->source_wide && !available)
+        if (!entry->in_use && !available)
         {
             available = entry;
         }
@@ -188,12 +217,77 @@ auth_attempt_get(const char *username, const char *remote, int create)
         {
             snprintf(available->username, sizeof(available->username), "%s", username);
         }
-        snprintf(available->remote, sizeof(available->remote), "%s", remote);
+        snprintf(available->remote, sizeof(available->remote), "%s", source);
+        available->in_use = 1;
         available->source_wide = !username;
         available->last_attempt = now;
         return available;
     }
     return NULL;
+}
+
+static int
+auth_attempt_prepare(const char *username, const char *remote, int *created)
+{
+    struct auth_attempt_entry *entry = auth_attempt_get(username, remote, 0);
+    const char *tracked_username;
+    char source[INET6_ADDRSTRLEN];
+    int source_entries = 0;
+    int i;
+
+    *created = 0;
+    if (entry)
+    {
+        return 1;
+    }
+    if (!auth_attempt_source_key(remote, source, sizeof(source)))
+    {
+        return 0;
+    }
+    for (i = 0; i < AUTH_ATTEMPT_SOURCES; ++i)
+    {
+        if (auth_attempts[i].in_use && !auth_attempts[i].source_wide
+            && !strcmp(auth_attempts[i].remote, source))
+        {
+            ++source_entries;
+        }
+    }
+    tracked_username = source_entries < AUTH_ATTEMPT_PER_SOURCE ? username : NULL;
+    entry = auth_attempt_get(tracked_username, remote, 0);
+    if (entry)
+    {
+        return 1;
+    }
+    entry = auth_attempt_get(tracked_username, remote, 1);
+    if (!entry)
+    {
+        plugin_log(PLOG_WARN, MODULE,
+                   "OpenVPN authentication refused because attempt tracking is full for source %s",
+                   remote);
+        return 0;
+    }
+    *created = 1;
+    return 1;
+}
+
+static void
+auth_attempt_release_reservation(const char *username, const char *remote, int created)
+{
+    struct auth_attempt_entry *entry;
+
+    if (!created)
+    {
+        return;
+    }
+    entry = auth_attempt_get(username, remote, 0);
+    if (!entry)
+    {
+        entry = auth_attempt_get(NULL, remote, 0);
+    }
+    if (entry && entry->attempts == 0)
+    {
+        memset(entry, 0, sizeof(*entry));
+    }
 }
 
 static int
@@ -211,15 +305,20 @@ static void
 auth_attempt_failed(const char *username, const char *remote)
 {
     struct auth_attempt_entry *entry = auth_attempt_get(username, remote, 0);
+    char source[INET6_ADDRSTRLEN];
     int source_entries = 0;
     int i;
 
     if (!entry)
     {
+        if (!auth_attempt_source_key(remote, source, sizeof(source)))
+        {
+            return;
+        }
         for (i = 0; i < AUTH_ATTEMPT_SOURCES; ++i)
         {
-            if (auth_attempts[i].username[0] && !auth_attempts[i].source_wide
-                && !strcmp(auth_attempts[i].remote, remote))
+            if (auth_attempts[i].in_use && !auth_attempts[i].source_wide
+                && !strcmp(auth_attempts[i].remote, source))
             {
                 ++source_entries;
             }
@@ -230,7 +329,8 @@ auth_attempt_failed(const char *username, const char *remote)
     }
     if (!entry)
     {
-        plugin_log(PLOG_ERR, MODULE, "OpenVPN auth tracking table full; refusing new attempts");
+        plugin_log(PLOG_ERR, MODULE,
+                   "OpenVPN auth attempt tracking reservation was lost for source %s", remote);
         return;
     }
     if (entry->attempts < AUTH_ATTEMPT_LIMIT)
@@ -1082,6 +1182,7 @@ pam_server(int fd, const char *service, int verb, const struct name_value_list *
     struct user_pass up;
     char ac_file_name[PATH_MAX];
     int command;
+    int attempt_reserved;
 #ifdef USE_PAM_DLOPEN
     static const char pam_so[] = "libpam.so";
 #endif
@@ -1179,6 +1280,12 @@ pam_server(int fd, const char *service, int verb, const struct name_value_list *
                     plugin_secure_memzero(up.password, sizeof(up.password));
                     break;
                 }
+                if (!auth_attempt_prepare(up.username, up.remote, &attempt_reserved))
+                {
+                    send_control(fd, RESPONSE_VERIFY_FAILED);
+                    plugin_secure_memzero(up.password, sizeof(up.password));
+                    break;
+                }
 
                 if (DEBUG(verb))
                 {
@@ -1199,6 +1306,7 @@ pam_server(int fd, const char *service, int verb, const struct name_value_list *
                 if (strlen(ac_file_name) > 0)
                 {
                     do_deferred_pam_auth(fd, ac_file_name, service, &up);
+                    auth_attempt_release_reservation(up.username, up.remote, attempt_reserved);
                     break;
                 }
 
