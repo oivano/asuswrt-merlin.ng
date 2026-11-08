@@ -147,6 +147,7 @@ function run(name, { mode = 0o755, setup = () => {}, env = {}, success = false, 
         assert.ok(calls.slice(0, activation).some(call => call[0] === 'chown' && call[1] === '0:0'));
         assert.ok(calls.slice(0, activation).some(call => call[0] === 'chmod' && call[1] === '0600'));
         assert.equal(calls[activation][1], target);
+        assert.ok(calls.slice(0, activation).some(call => call[0] === 'mkswap'), name);
     }
     if (success && !disabled && !env.THRESHOLD) {
         assert.equal(fs.statSync(privateDirectory).mode & 0o777, 0o700, name);
