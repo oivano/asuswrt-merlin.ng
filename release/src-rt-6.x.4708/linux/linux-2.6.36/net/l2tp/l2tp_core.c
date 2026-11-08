@@ -197,6 +197,32 @@ struct l2tp_session *l2tp_session_find(struct net *net, struct l2tp_tunnel *tunn
 }
 EXPORT_SYMBOL_GPL(l2tp_session_find);
 
+/* Look up a session and hold it while the caller uses the returned pointer. */
+struct l2tp_session *l2tp_session_find_get(struct l2tp_tunnel *tunnel,
+					   u32 session_id)
+{
+	struct hlist_head *session_list;
+	struct l2tp_session *session;
+	struct hlist_node *walk;
+
+	if (tunnel == NULL)
+		return NULL;
+
+	session_list = l2tp_session_id_hash(tunnel, session_id);
+	read_lock_bh(&tunnel->hlist_lock);
+	hlist_for_each_entry(session, walk, session_list, hlist) {
+		if (session->session_id == session_id &&
+		    atomic_inc_not_zero(&session->ref_count)) {
+			read_unlock_bh(&tunnel->hlist_lock);
+			return session;
+		}
+	}
+	read_unlock_bh(&tunnel->hlist_lock);
+
+	return NULL;
+}
+EXPORT_SYMBOL_GPL(l2tp_session_find_get);
+
 struct l2tp_session *l2tp_session_find_nth(struct l2tp_tunnel *tunnel, int nth)
 {
 	int hash;
@@ -819,16 +845,19 @@ int l2tp_udp_recv_core(struct l2tp_tunnel *tunnel, struct sk_buff *skb,
 	}
 
 	/* Find the session context */
-	session = l2tp_session_find(tunnel->l2tp_net, tunnel, session_id);
+	session = l2tp_session_find_get(tunnel, session_id);
 	if (!session || !session->recv_skb) {
 		/* Not found? Pass to userspace to deal with */
 		PRINTK(tunnel->debug, L2TP_MSG_DATA, KERN_INFO,
 		       "%s: no session found (%u/%u). Passing up.\n",
 		       tunnel->name, tunnel_id, session_id);
+		if (session != NULL)
+			l2tp_session_dec_refcount(session);
 		goto error;
 	}
 
 	l2tp_recv_common(session, skb, ptr, optr, hdrflags, length, payload_hook);
+	l2tp_session_dec_refcount(session);
 
 	return 0;
 
@@ -1505,6 +1534,36 @@ int l2tp_tunnel_delete(struct l2tp_tunnel *tunnel)
 }
 EXPORT_SYMBOL_GPL(l2tp_tunnel_delete);
 
+/* Remove a session from the core lookup hashes without freeing it. */
+void __l2tp_session_unhash(struct l2tp_session *session)
+{
+	struct l2tp_tunnel *tunnel = session->tunnel;
+
+	if (tunnel == NULL)
+		return;
+
+	write_lock_bh(&tunnel->hlist_lock);
+	if (!hlist_unhashed(&session->hlist))
+		hlist_del_init(&session->hlist);
+	write_unlock_bh(&tunnel->hlist_lock);
+
+	if (tunnel->version != L2TP_HDR_VER_2) {
+		struct l2tp_net *pn = l2tp_pernet(tunnel->l2tp_net);
+		int removed = 0;
+
+		spin_lock_bh(&pn->l2tp_session_hlist_lock);
+		if (!hlist_unhashed(&session->global_hlist)) {
+			hlist_del_init_rcu(&session->global_hlist);
+			removed = 1;
+		}
+		spin_unlock_bh(&pn->l2tp_session_hlist_lock);
+
+		if (removed)
+			synchronize_rcu();
+	}
+}
+EXPORT_SYMBOL_GPL(__l2tp_session_unhash);
+
 /* Really kill the session.
  */
 void l2tp_session_free(struct l2tp_session *session)
@@ -1517,20 +1576,7 @@ void l2tp_session_free(struct l2tp_session *session)
 	if (tunnel != NULL) {
 		BUG_ON(tunnel->magic != L2TP_TUNNEL_MAGIC);
 
-		/* Delete the session from the hash */
-		write_lock_bh(&tunnel->hlist_lock);
-		hlist_del_init(&session->hlist);
-		write_unlock_bh(&tunnel->hlist_lock);
-
-		/* Unlink from the global hash if not L2TPv2 */
-		if (tunnel->version != L2TP_HDR_VER_2) {
-			struct l2tp_net *pn = l2tp_pernet(tunnel->l2tp_net);
-
-			spin_lock_bh(&pn->l2tp_session_hlist_lock);
-			hlist_del_init_rcu(&session->global_hlist);
-			spin_unlock_bh(&pn->l2tp_session_hlist_lock);
-			synchronize_rcu();
-		}
+		__l2tp_session_unhash(session);
 
 		if (session->session_id != 0)
 			atomic_dec(&l2tp_session_count);
