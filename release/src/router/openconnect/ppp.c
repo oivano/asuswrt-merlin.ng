@@ -357,10 +357,21 @@ static int buf_append_ppp_tlv_be32(struct oc_text_buf *buf, int tag, uint32_t va
 static int queue_config_packet(struct openconnect_info *vpninfo, uint16_t proto,
 			       int id, int code, int len, const void *payload)
 {
-	struct pkt *p = alloc_pkt(vpninfo, len + 4);
+	struct pkt *p;
+
+	if (len < 0)
+		return -EINVAL;
+	if (len > 0xffff - 4)
+		return -EMSGSIZE;
+
+	p = alloc_pkt(vpninfo, len + 4);
 
 	if (!p)
 		return -ENOMEM;
+	if (p->alloc_len < sizeof(*p) + 4 + len) {
+		free_pkt(vpninfo, p);
+		return -EMSGSIZE;
+	}
 
 	p->ppp.proto = proto;
 	p->data[0] = code;
@@ -1250,11 +1261,17 @@ static int ppp_mainloop(struct openconnect_info *vpninfo, int dtls,
 
 		/* check PPP header and extract protocol */
 		pp = ph;
-		if (pp[0] == 0xff && pp[1] == 0x03)
+		if (payload_len < 1)
+			goto malformed_ppp_header;
+		if (payload_len >= 2 && pp[0] == 0xff && pp[1] == 0x03)
 			/* XX: Neither byte is a possible proto value (https://tools.ietf.org/html/rfc1661#section-2) */
 			pp += 2;
+		if (pp - ph >= payload_len)
+			goto malformed_ppp_header;
 		proto = *pp++;
 		if (!(proto & 1)) {
+			if (pp - ph >= payload_len)
+				goto malformed_ppp_header;
 			proto <<= 8;
 			proto += *pp++;
 		}
@@ -1337,6 +1354,14 @@ static int ppp_mainloop(struct openconnect_info *vpninfo, int dtls,
 				return ret;
 		}
 
+		goto next_frame;
+
+	malformed_ppp_header:
+		vpn_progress(vpninfo, PRG_ERR,
+			     _("PPP packet shorter than its protocol header (%d bytes).\n"),
+			     payload_len);
+		/* Drop this frame, but preserve any concatenated packet. */
+	next_frame:
 		if (next_len) {
 			/* Need to copy to a new struct pkt, not just move pointers, because data
 			 * packets will get stolen for incoming queue and free()'d. Allocate a
