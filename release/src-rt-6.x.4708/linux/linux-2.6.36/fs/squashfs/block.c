@@ -183,6 +183,8 @@ int squashfs_read_data(struct super_block *sb, void **buffer, u64 index,
 					page++;
 					pg_offset = 0;
 				}
+				if (page >= pages)
+					goto block_release;
 				avail = min_t(int, in, PAGE_CACHE_SIZE -
 						pg_offset);
 				memcpy(buffer[page] + pg_offset,
