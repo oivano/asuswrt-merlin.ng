@@ -3109,8 +3109,8 @@ void stop_dnsmasq(void)
 
 void reload_dnsmasq(void)
 {
-	/* notify dnsmasq */
-	kill_pidfile_s("/var/run/dnsmasq.pid", SIGHUP);
+	/* Resolve the daemon by name; its pidfile is not a trusted signal source. */
+	killall("dnsmasq", SIGHUP);
 }
 
 #ifdef RTCONFIG_DNSMASQ_BLOCKLIST
