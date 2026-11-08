@@ -264,7 +264,6 @@ void igmpProxyRun() {
     register int recvlen;
     int     MaxFD, Rt, secs;
     fd_set  ReadFDS;
-    socklen_t dummy = 0;
     struct  timeval  curtime, lasttime, difftime, tv; 
     // The timeout is a pointer in order to set it to NULL if nessecary.
     struct  timeval  *timeout = &tv;
@@ -316,16 +315,44 @@ void igmpProxyRun() {
 
             // Read IGMP request, and handle it...
             if( FD_ISSET( MRouterFD, &ReadFDS ) ) {
-    
-                recvlen = recvfrom(MRouterFD, recv_buf, RECV_BUF_SIZE,
-                                   0, NULL, &dummy);
+                struct iovec iov;
+                struct msghdr msg;
+                struct in_pktinfo *pktinfo;
+                unsigned int ingressIfindex = 0;
+                union {
+                    struct cmsghdr align;
+                    char buf[CMSG_SPACE(sizeof(struct in_pktinfo))];
+                } control;
+
+                memset(&msg, 0, sizeof(msg));
+                iov.iov_base = recv_buf;
+                iov.iov_len = RECV_BUF_SIZE;
+                msg.msg_iov = &iov;
+                msg.msg_iovlen = 1;
+                msg.msg_control = control.buf;
+                msg.msg_controllen = sizeof(control.buf);
+
+                recvlen = recvmsg(MRouterFD, &msg, 0);
                 if (recvlen < 0) {
-                    if (errno != EINTR) my_log(LOG_ERR, errno, "recvfrom");
+                    if (errno != EINTR) my_log(LOG_ERR, errno, "recvmsg");
                     continue;
                 }
-                
 
-                acceptIgmp(recvlen);
+                if (!(msg.msg_flags & (MSG_CTRUNC | MSG_TRUNC))) {
+                    struct cmsghdr *cmsg;
+                    for (cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL;
+                         cmsg = CMSG_NXTHDR(&msg, cmsg)) {
+                        if (cmsg->cmsg_level == IPPROTO_IP &&
+                            cmsg->cmsg_type == IP_PKTINFO &&
+                            cmsg->cmsg_len >= CMSG_LEN(sizeof(*pktinfo))) {
+                            pktinfo = (struct in_pktinfo *)CMSG_DATA(cmsg);
+                            ingressIfindex = pktinfo->ipi_ifindex;
+                            break;
+                        }
+                    }
+                }
+
+                acceptIgmp(recvlen, ingressIfindex);
             }
         }
 

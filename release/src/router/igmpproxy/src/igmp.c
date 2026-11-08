@@ -103,7 +103,7 @@ char *igmpPacketKind(u_int type, u_int code) {
  * Process a newly received IGMP packet that is sitting in the input
  * packet buffer.
  */
-void acceptIgmp(int recvlen) {
+void acceptIgmp(int recvlen, unsigned int ingressIfindex) {
     register uint32_t src, dst, group;
     struct ip *ip;
     struct igmp *igmp;
@@ -194,7 +194,7 @@ void acceptIgmp(int recvlen) {
     case IGMP_V1_MEMBERSHIP_REPORT:
     case IGMP_V2_MEMBERSHIP_REPORT:
         group = igmp->igmp_group.s_addr;
-        acceptGroupReport(src, group, igmp->igmp_type);
+        acceptGroupReport(src, group, igmp->igmp_type, ingressIfindex);
         return;
     
     case IGMP_V3_MEMBERSHIP_REPORT:
@@ -210,13 +210,13 @@ void acceptIgmp(int recvlen) {
             case IGMPV3_MODE_IS_INCLUDE:
             case IGMPV3_CHANGE_TO_INCLUDE:
                 if (nsrcs == 0) {
-                    acceptLeaveMessage(src, group);
+                    acceptLeaveMessage(src, group, ingressIfindex);
                     break;
                 } /* else fall through */
             case IGMPV3_MODE_IS_EXCLUDE:
             case IGMPV3_CHANGE_TO_EXCLUDE:
             case IGMPV3_ALLOW_NEW_SOURCES:
-                acceptGroupReport(src, group, IGMP_V2_MEMBERSHIP_REPORT);
+                acceptGroupReport(src, group, IGMP_V2_MEMBERSHIP_REPORT, ingressIfindex);
                 break;
             case IGMPV3_BLOCK_OLD_SOURCES:
                 break;
@@ -234,7 +234,7 @@ void acceptIgmp(int recvlen) {
     
     case IGMP_V2_LEAVE_GROUP:
         group = igmp->igmp_group.s_addr;
-        acceptLeaveMessage(src, group);
+        acceptLeaveMessage(src, group, ingressIfindex);
         return;
     
     case IGMP_MEMBERSHIP_QUERY:
