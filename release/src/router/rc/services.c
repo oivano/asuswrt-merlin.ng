@@ -1644,6 +1644,55 @@ static void append_jffs_config_checked(FILE *out, const char *name)
 	fclose(in);
 }
 
+static int write_openvpn_pam_policy(void)
+{
+	static const char policy[] = "auth required pam_unix.so\n";
+	char temp_path[] = "/etc/pam.d/openvpn.XXXXXX";
+	size_t written = 0;
+	ssize_t count;
+	int fd = -1;
+	int temp_created = 0;
+	int result = -1;
+	int saved_errno;
+
+	fd = mkstemp(temp_path);
+	if (fd < 0)
+		goto done;
+	temp_created = 1;
+	if (fchmod(fd, 0644) < 0)
+		goto done;
+	while (written < sizeof(policy) - 1) {
+		count = write(fd, policy + written, sizeof(policy) - 1 - written);
+		if (count < 0 && errno == EINTR)
+			continue;
+		if (count <= 0) {
+			if (count == 0)
+				errno = EIO;
+			goto done;
+		}
+		written += count;
+	}
+	if (close(fd) < 0) {
+		fd = -1;
+		goto done;
+	}
+	fd = -1;
+	if (rename(temp_path, "/etc/pam.d/openvpn") < 0)
+		goto done;
+	temp_created = 0;
+	result = 0;
+
+done:
+	saved_errno = errno;
+	if (fd >= 0)
+		close(fd);
+	if (temp_created)
+		unlink(temp_path);
+	if (result != 0)
+		errno = saved_errno;
+	return result;
+}
+
 void create_passwd(void)
 {
 	FILE *fp;
@@ -1666,12 +1715,10 @@ void create_passwd(void)
 #endif
 
 #if defined(RTCONFIG_OPENVPN)
-	if (secure_root_config_dir("/etc/pam.d") == 0 &&
-	    (unlink("/etc/pam.d/openvpn") == 0 || errno == ENOENT)) {
-		if (f_write_excl("/etc/pam.d/openvpn", "auth required pam_unix.so\n",
-				sizeof("auth required pam_unix.so\n") - 1, 0, 0644) !=
-		    sizeof("auth required pam_unix.so\n") - 1)
-			_dprintf("setup_passwd: unable to write /etc/pam.d/openvpn\n");
+	if (secure_root_config_dir("/etc/pam.d") == 0) {
+		if (write_openvpn_pam_policy() != 0)
+			_dprintf("setup_passwd: unable to atomically write /etc/pam.d/openvpn: %s\n",
+				strerror(errno));
 	} else
 		_dprintf("setup_passwd: unable to secure /etc/pam.d\n");
 	create_ovpn_passwd();
