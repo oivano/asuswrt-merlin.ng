@@ -198,6 +198,18 @@ static void mincore_page_range(struct vm_area_struct *vma,
 	} while (pgd++, addr = next, addr != end);
 }
 
+static inline int can_do_mincore(struct vm_area_struct *vma)
+{
+	struct inode *inode;
+
+	if (!vma->vm_file)
+		return 1;
+
+	inode = vma->vm_file->f_dentry->d_inode;
+	return is_owner_or_cap(inode) ||
+		inode_permission(inode, MAY_WRITE) == 0;
+}
+
 /*
  * Do a chunk of "sys_mincore()". We've already checked
  * all the arguments, we hold the mmap semaphore: we should
@@ -213,6 +225,12 @@ static long do_mincore(unsigned long addr, unsigned long pages, unsigned char *v
 		return -ENOMEM;
 
 	end = min(vma->vm_end, addr + (pages << PAGE_SHIFT));
+	if (!can_do_mincore(vma)) {
+		unsigned long nr = (end - addr) >> PAGE_SHIFT;
+
+		memset(vec, 1, nr);
+		return nr;
+	}
 
 	if (is_vm_hugetlb_page(vma)) {
 		mincore_hugetlb_page_range(vma, addr, end, vec);
