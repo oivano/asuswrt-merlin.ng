@@ -7293,13 +7293,38 @@ add_samba_rules(void)
 #endif
 
 #ifdef RTCONFIG_MULTISERVICE_WAN
+static void mswan_reset_chain(const char *table, const char *chain)
+{
+	eval("iptables", "-t", table, "-N", chain);
+	eval("iptables", "-t", table, "-F", chain);
+}
+
+static void mswan_attach_chain(const char *table, const char *hook, const char *chain, int insert)
+{
+	while (eval("iptables", "-t", table, "-D", hook, "-j", chain) == 0)
+		;
+
+	if (insert)
+		eval("iptables", "-t", table, "-I", hook, "1", "-j", chain);
+	else
+		eval("iptables", "-t", table, "-A", hook, "-j", chain);
+}
+
 void add_mswan_rules(char *logaccept, char *logdrop)
 {
 	int unit = 0;
 	char wan_prefix[16] = {0};
 	char wan_ifname[16] = {0};
 	char wan_ip[16] = {0};
+	char lan_ifname[IFNAMSIZ];
 	int misc_ping_x = nvram_get_int("misc_ping_x");
+	(void)logaccept;
+
+	strlcpy(lan_ifname, nvram_safe_get("lan_ifname"), sizeof(lan_ifname));
+	mswan_reset_chain("filter", "MSWAN_FORWARD");
+	mswan_reset_chain("filter", "MSWAN_INPUT_PING");
+	mswan_reset_chain("nat", "MSWAN_PREROUTING");
+	mswan_reset_chain("nat", "MSWAN_POSTROUTING");
 
 	for (unit = WAN_UNIT_FIRST_MULTISRV_BASE; unit < WAN_UNIT_MULTISRV_MAX; unit++)
 	{
@@ -7317,23 +7342,28 @@ void add_mswan_rules(char *logaccept, char *logdrop)
 			// filter
 			if (!misc_ping_x)
 			{
-				eval("iptables", "-A", "INPUT_PING"
+				eval("iptables", "-A", "MSWAN_INPUT_PING"
 					, "-i", wan_ifname, "-p", "icmp", "-j", logdrop);
 			}
-			eval("iptables", "-I", "FORWARD"
-					, "-o", wan_ifname, "-j", logaccept);
+			eval("iptables", "-A", "MSWAN_FORWARD"
+					, "-o", wan_ifname, "!", "-i", lan_ifname, "-j", logdrop);
 
 			// nat
 			if (nvram_pf_get_int(wan_prefix, "nat_x"))
 			{
-				eval("iptables", "-t", "nat", "-A", "PREROUTING"
+				eval("iptables", "-t", "nat", "-A", "MSWAN_PREROUTING"
 					, "-d", wan_ip, "-j", "VSERVER");
-				eval("iptables", "-t", "nat", "-A", "POSTROUTING"
+				eval("iptables", "-t", "nat", "-A", "MSWAN_POSTROUTING"
 					, "-o", wan_ifname, "!", "-s", wan_ip
 					, "-j", "MASQUERADE");
 			}
 		}
 	}
+
+	mswan_attach_chain("filter", "FORWARD", "MSWAN_FORWARD", 1);
+	mswan_attach_chain("filter", "INPUT_PING", "MSWAN_INPUT_PING", 0);
+	mswan_attach_chain("nat", "PREROUTING", "MSWAN_PREROUTING", 0);
+	mswan_attach_chain("nat", "POSTROUTING", "MSWAN_POSTROUTING", 0);
 }
 #endif
 
