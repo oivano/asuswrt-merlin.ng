@@ -464,6 +464,15 @@ dhcp_route_overlaps_local(struct in_addr destination, int prefix, const char *wa
 }
 
 static int
+wan_dns_route_allowed(const char *address, const char *wan_ifname)
+{
+	struct in_addr destination;
+
+	return address && inet_pton(AF_INET, address, &destination) == 1 &&
+		!dhcp_route_overlaps_local(destination, 32, wan_ifname);
+}
+
+static int
 dhcp_route_gateway_on_link(const char *wan_ipaddr, const char *wan_netmask, const char *gateway)
 {
 	struct in_addr address, mask, router;
@@ -3762,7 +3771,8 @@ wan_up(const char *pwan_ifname)
 				snprintf(dns, sizeof(dns), "%s", nvram_safe_get(strcat_r(prefix_x, "dns", tmp)));
 				foreach(word, dns, next) {
 					if ((inet_addr(word) != inet_addr(gateway)) &&
-					    (inet_addr(word) & mask) != (addr & mask))
+					    (inet_addr(word) & mask) != (addr & mask) &&
+					    wan_dns_route_allowed(word, wan_ifname))
 						route_add(wan_ifname, 2, word, gateway, "255.255.255.255");
 				}
 			}
@@ -3881,7 +3891,8 @@ wan_up(const char *pwan_ifname)
 			(inet_addr(word) & mask) != (addr & mask) && 
 			((inet_addr(word) & inet_addr(nvram_safe_get("lan_netmask")))
 				!= (inet_addr(nvram_safe_get("lan_ipaddr")) & inet_addr(nvram_safe_get("lan_netmask")))) &&
-			!chk_inlan(word)
+			!chk_inlan(word) &&
+			wan_dns_route_allowed(word, wan_ifname)
 		)
 			route_add(wan_ifname, is_private_dns?0:2, word, gateway, "255.255.255.255");
 	}

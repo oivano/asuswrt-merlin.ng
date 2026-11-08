@@ -25,6 +25,24 @@ assert(source.includes("vpn_server%d_sn") && source.includes("subnet_rulelist") 
     "configured VPN/LAN routes and active local interfaces must be checked");
 assert(source.includes("dhcp_route_parse_prefix(prefix_text, &netsize)"),
     "classless prefixes must be parsed strictly rather than truncated by atoi");
+const dnsAdmissionStart = source.indexOf("static int\nwan_dns_route_allowed(");
+const dnsAdmissionEnd = source.indexOf("\nstatic int\ndhcp_route_gateway_on_link(", dnsAdmissionStart);
+assert(dnsAdmissionStart >= 0 && dnsAdmissionEnd > dnsAdmissionStart,
+    "WAN DNS routes must have a shared admission helper");
+const dnsAdmission = source.slice(dnsAdmissionStart, dnsAdmissionEnd);
+assert(dnsAdmission.includes("inet_pton(AF_INET, address, &destination) == 1") &&
+    dnsAdmission.includes("dhcp_route_overlaps_local(destination, 32, wan_ifname)"),
+    "DNS host routes must strictly parse IPv4 and use DHCP local-overlap checks");
+const physicalDnsStart = source.indexOf("/* ... and to dns servers as well for demand ppp to work */");
+const physicalDnsEnd = source.indexOf("update_resolvconf();", physicalDnsStart);
+assert(physicalDnsStart >= 0 && physicalDnsEnd > physicalDnsStart &&
+    source.slice(physicalDnsStart, physicalDnsEnd).includes("wan_dns_route_allowed(word, wan_ifname)"),
+    "DHCP+VPN physical-interface DNS routes must pass the shared validator");
+const wanDnsStart = source.indexOf("/* add wan dns route via wan interface */");
+const wanDnsEnd = source.indexOf("#if (defined(RTAX82_XD6)", wanDnsStart);
+assert(wanDnsStart >= 0 && wanDnsEnd > wanDnsStart &&
+    source.slice(wanDnsStart, wanDnsEnd).includes("wan_dns_route_allowed(word, wan_ifname)"),
+    "regular WAN DNS host routes must pass the shared validator");
 
 function mask(prefix) {
     return prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
@@ -66,6 +84,8 @@ assert(!allowed("192.168.1.128", 25, "203.0.113.1", wanAddress, wanPrefix, local
     "second half of the LAN /24 must be rejected");
 assert(!allowed("10.8.0.0", 24, "203.0.113.1", wanAddress, wanPrefix, localNetworks),
     "configured VPN server subnet must be rejected");
+assert(!allowed("10.8.0.42", 32, "203.0.113.1", wanAddress, wanPrefix, localNetworks),
+    "a DNS host route inside a configured VPN subnet must be rejected");
 assert(!allowed("192.168.20.0", 24, "203.0.113.1", wanAddress, wanPrefix, localNetworks),
     "secondary bridge subnet must be rejected");
 assert(!allowed("169.254.0.0", 16, "203.0.113.1", wanAddress, wanPrefix, localNetworks),
@@ -82,5 +102,7 @@ assert(!allowed("198.51.100.0", 24, "203.0.113.255", wanAddress, wanPrefix, loca
     "WAN subnet broadcast address must not be accepted as a gateway");
 assert(allowed("198.51.100.0", 24, "203.0.113.1", wanAddress, wanPrefix, localNetworks),
     "a non-local route through an on-link gateway must remain allowed");
+assert(allowed("198.51.100.53", 32, "203.0.113.1", wanAddress, wanPrefix, localNetworks),
+    "a public DNS host route must remain allowed");
 
 console.log("WAN DHCP route local-network and gateway validation: PASS");
