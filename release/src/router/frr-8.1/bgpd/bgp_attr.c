@@ -1761,12 +1761,13 @@ static int bgp_attr_aggregator(struct bgp_attr_parser_args *args)
 	struct attr *const attr = args->attr;
 	const bgp_size_t length = args->length;
 	as_t aggregator_as;
+	const bool use32bit = CHECK_FLAG(peer->cap, PEER_CAP_AS4_RCV)
+			      && CHECK_FLAG(peer->cap, PEER_CAP_AS4_ADV);
 
 	int wantedlen = 6;
 
 	/* peer with AS4 will send 4 Byte AS, peer without will send 2 Byte */
-	if (CHECK_FLAG(peer->cap, PEER_CAP_AS4_RCV)
-	    && CHECK_FLAG(peer->cap, PEER_CAP_AS4_ADV))
+	if (use32bit)
 		wantedlen = 8;
 
 	if (length != wantedlen) {
@@ -1777,7 +1778,7 @@ static int bgp_attr_aggregator(struct bgp_attr_parser_args *args)
 					  args->total);
 	}
 
-	if (CHECK_FLAG(peer->cap, PEER_CAP_AS4_RCV))
+	if (use32bit)
 		aggregator_as = stream_getl(peer->curr);
 	else
 		aggregator_as = stream_getw(peer->curr);
