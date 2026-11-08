@@ -601,6 +601,10 @@ add_option (char *p[], int line, int unit)
 		nvram_pf_set(prefix, "tlsremote", "1");
 		nvram_pf_set(prefix, "cn", p[1]);
 	}
+	else if (streq (p[0], "remote-cert-tls"))
+	{
+		return 0;
+	}
 	else if (streq (p[0], "verify-x509-name") && p[1] && p[2])
 	{
 		if (streq(p[2], "name"))
