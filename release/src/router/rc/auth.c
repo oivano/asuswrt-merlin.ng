@@ -92,7 +92,7 @@ start_wpa_supplicant(int unit, int restart)
 		"-B",
 		"-i", NULL,	/* interface */
 		"-p", control,
-		"-a", "/tmp/wpa_cli",
+		"-a", "/usr/libexec/rc-hooks/wpa_cli",
 		NULL
 	};
 	int ret;
