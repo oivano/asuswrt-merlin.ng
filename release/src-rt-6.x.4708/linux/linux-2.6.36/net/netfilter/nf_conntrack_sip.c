@@ -940,6 +940,7 @@ static int process_sdp(struct sk_buff *skb, unsigned int dataoff,
 	unsigned int caddr_len, maddr_len;
 	unsigned int i;
 	union nf_inet_addr caddr, maddr, rtp_addr;
+	int rtp_addr_set = 0;
 	unsigned int port;
 	enum sdp_header_types c_hdr;
 	const struct sdp_media_type *t;
@@ -997,9 +998,11 @@ static int process_sdp(struct sk_buff *skb, unsigned int dataoff,
 					  &matchoff, &matchlen, &maddr) > 0) {
 			maddr_len = matchlen;
 			memcpy(&rtp_addr, &maddr, sizeof(rtp_addr));
-		} else if (caddr_len)
+			rtp_addr_set = 1;
+		} else if (caddr_len) {
 			memcpy(&rtp_addr, &caddr, sizeof(rtp_addr));
-		else
+			rtp_addr_set = 1;
+		} else
 			return NF_DROP;
 
 		ret = set_expected_rtp_rtcp(skb, dataoff, dptr, datalen,
@@ -1021,7 +1024,7 @@ static int process_sdp(struct sk_buff *skb, unsigned int dataoff,
 
 	/* Update session connection and owner addresses */
 	nf_nat_sdp_session = rcu_dereference(nf_nat_sdp_session_hook);
-	if (nf_nat_sdp_session && ct->status & IPS_NAT_MASK)
+	if (nf_nat_sdp_session && ct->status & IPS_NAT_MASK && rtp_addr_set)
 		ret = nf_nat_sdp_session(skb, dataoff, dptr, datalen, sdpoff,
 					 &rtp_addr);
 
