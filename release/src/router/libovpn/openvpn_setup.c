@@ -32,6 +32,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <ctype.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <dirent.h>
@@ -55,6 +56,7 @@
 #include <openssl/x509_vfy.h>
 
 #include "openvpn_config.h"
+#include "openvpn_options.h"
 #include "openvpn_setup.h"
 #include "openvpn_control.h"
 
@@ -624,6 +626,49 @@ int ovpn_write_server_config(ovpn_sconf_t *sconf, int unit) {
 }
 
 
+static bool
+client_custom_line_is_unsafe(const char *line, size_t length)
+{
+	char option[OPTION_PARM_SIZE];
+	size_t i = 0, j = 0;
+	char quote = '\0';
+
+	while (i < length && isspace((unsigned char)line[i]))
+		++i;
+	if (i == length || line[i] == '#' || line[i] == ';')
+		return false;
+	if (line[i] == '\'' || line[i] == '"')
+		quote = line[i++];
+	while (i < length && (quote ? line[i] != quote : !isspace((unsigned char)line[i]))) {
+		if (j + 1 >= sizeof(option))
+			return true;
+		option[j++] = line[i++];
+	}
+	option[j] = '\0';
+	return ovpn_option_is_unsafe(option);
+}
+
+static void
+write_client_custom(FILE *fp, const char *custom)
+{
+	const char *line = custom;
+	const char *end;
+
+	while (*line) {
+		end = strchr(line, '\n');
+		if (!end)
+			end = line + strlen(line);
+		if (!client_custom_line_is_unsafe(line, end - line))
+			fwrite(line, 1, end - line, fp);
+		if (*end == '\n') {
+			fputc('\n', fp);
+			line = end + 1;
+		}
+		else
+			break;
+	}
+}
+
 int ovpn_write_client_config(ovpn_cconf_t *cconf, int unit) {
 	char buffer[256];
 	FILE *fp;
@@ -763,6 +808,9 @@ int ovpn_write_client_config(ovpn_cconf_t *cconf, int unit) {
 	sprintf(buffer, "/etc/openvpn/client%d/ovpn-route-pre-down", unit);
 	symlink("/sbin/rc", buffer);
 
+	fprintf(fp, "\n# Custom Configuration\n");
+	write_client_custom(fp, cconf->custom);
+
 	fprintf(fp, "up 'ovpn-up %d client'\n", unit);
 	fprintf(fp, "down 'ovpn-down %d client'\n", unit);
 
@@ -775,8 +823,6 @@ int ovpn_write_client_config(ovpn_cconf_t *cconf, int unit) {
 	fprintf(fp, "verb %d\n", cconf->verb);
 	fprintf(fp, "status-version 2\n");
 	fprintf(fp, "status status 5\n");
-	fprintf(fp, "\n# Custom Configuration\n");
-	fprintf(fp, "%s", cconf->custom);
 	fclose(fp);
 
 	return 0;

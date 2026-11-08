@@ -7,6 +7,7 @@
 #define VPN_UPLOAD_NEED_STATIC      (1<<3)
 #define VPN_UPLOAD_NEED_CRL         (1<<4)
 #define VPN_UPLOAD_NEED_EXTRA       (1<<5)
+#define VPN_UPLOAD_REJECTED_OPTIONS (1<<6)
 
 #define MAX_PARMS 16
 
@@ -139,5 +140,6 @@ struct buffer alloc_buf (size_t size);
 bool buf_printf (struct buffer *buf, const char *format, ...);
 char *string_alloc (const char *str);
 int parse_line (const char *line, char *p[], const int n, const int line_num);
+bool ovpn_option_is_unsafe(const char *option);
 int read_config_file (const char *file, int unit);
 void parse_openvpn_status(int unit);
