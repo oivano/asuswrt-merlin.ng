@@ -665,6 +665,16 @@ void setup_ftp_conntrack(int port)
 {
 	char ports[32];
 
+	if (!nvram_match("fw_pt_ftp", "1") && !nvram_match("nf_ftp", "1")
+#ifdef RTCONFIG_FTP
+			&& !nvram_match("ftp_enable", "1")
+#endif
+			) {
+		ct_modprobe_r("ftp");
+		nvram_set("ftp_ports", "");
+		return;
+	}
+
 	if(port>0&&port!=21)
 		sprintf(ports, "ports=21,%d", port);
 	else sprintf(ports, "ports=21");
@@ -909,7 +919,7 @@ void setup_conntrack(void)
 	}
 	else 
 #endif
-	if (!nvram_match("nf_ftp", "0")
+	if (nvram_match("fw_pt_ftp", "1") || nvram_match("nf_ftp", "1")
 #ifdef RTCONFIG_FTP
 		|| nvram_match("ftp_enable", "1")	// !!TB - FTP Server
 #endif

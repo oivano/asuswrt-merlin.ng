@@ -163,6 +163,16 @@ function applyRule(){
 											</td>
 									  </tr>
 
+										<tr>
+											<th>FTP Passthrough</th>
+											<td>
+												<select name="fw_pt_ftp" class="input_option">
+													<option class="content_input_fd" value="0" <% nvram_match("fw_pt_ftp", "0","selected"); %>><#btn_disable#></option>
+													<option class="content_input_fd" value="1" <% nvram_match("fw_pt_ftp", "1","selected"); %>><#WLANConfig11b_WirelessCtrl_button1name#></option>
+												</select>
+											</td>
+										</tr>
+
 						<tr>
   	         					<th><#NAT_RTSP_Passthrough#></th>
 						<td>
