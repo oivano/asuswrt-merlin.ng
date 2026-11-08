@@ -23,6 +23,7 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/errno.h>
+#include <linux/capability.h>
 #include <linux/netdevice.h>
 #include <linux/net.h>
 #include <linux/init.h>
@@ -107,6 +108,9 @@ static int pppox_create(struct net *net, struct socket *sock, int protocol,
 			int kern)
 {
 	int rc = -EPROTOTYPE;
+
+	if (!kern && !capable(CAP_NET_ADMIN))
+		return -EPERM;
 
 	if (protocol < 0 || protocol > PX_MAX_PROTO)
 		goto out;

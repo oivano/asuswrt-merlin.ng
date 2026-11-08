@@ -3,8 +3,26 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '../..');
-const source = fs.readFileSync(path.join(root,
-    'release/src-rt-6.x.4708/linux/linux-2.6.36/drivers/net/pppoe.c'), 'utf8');
+const kernel = path.join(root, 'release/src-rt-6.x.4708/linux/linux-2.6.36');
+const pppoxSource = fs.readFileSync(path.join(kernel, 'drivers/net/pppox.c'), 'utf8');
+const source = fs.readFileSync(path.join(kernel, 'drivers/net/pppoe.c'), 'utf8');
+
+assert.match(pppoxSource, /#include <linux\/capability\.h>/);
+const createStart = pppoxSource.indexOf('static int pppox_create(');
+const createEnd = pppoxSource.indexOf('\nstatic const struct net_proto_family', createStart);
+assert.notEqual(createStart, -1);
+assert.notEqual(createEnd, -1);
+assert.match(pppoxSource.slice(createStart, createEnd),
+    /if \(!kern && !capable\(CAP_NET_ADMIN\)\)\s*return -EPERM;[\s\S]*?if \(protocol < 0/,
+    'userspace PPPoX socket creation requires CAP_NET_ADMIN');
+
+const connectStart = source.indexOf('static int pppoe_connect(');
+const connectEnd = source.indexOf('\nstatic int pppoe_getname(', connectStart);
+assert.notEqual(connectStart, -1);
+assert.notEqual(connectEnd, -1);
+assert.match(source.slice(connectStart, connectEnd),
+    /if \(!capable\(CAP_NET_ADMIN\)\)\s*return -EPERM;\s*if \(sockaddr_len/,
+    'PPPoE connect requires CAP_NET_ADMIN before processing user input');
 
 const receiveStart = source.indexOf('static int pppoe_rcv_core(');
 const receiveEnd = source.indexOf('static int pppoe_rcv(', receiveStart);
@@ -34,4 +52,4 @@ assert.match(relaySetup,
     /if \(relay_po == po\)\s*\{\s*sock_put\(sk_pppox\(relay_po\)\);\s*err = -EINVAL;/,
     'self-relay is rejected and its lookup reference is released');
 
-console.log('PASS: PPPoE relay reference and ioctl source-contract checks; not compiled-kernel execution');
+console.log('PASS: PPPoX creation, PPPoE connect, relay authorization, and reference source-contract checks; not compiled-kernel execution');
