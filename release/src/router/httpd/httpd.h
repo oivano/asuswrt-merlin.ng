@@ -164,6 +164,7 @@ struct REPLACE_TAG_S {
 #define WEB_NOREFERER	5
 #define REFERERFAIL	6
 #define LOGINLOCK	7
+#define LOGINRETRY	12
 #define ISLOGOUT	8
 #define NOLOGIN		9
 #ifdef RTCONFIG_CAPTCHA
@@ -620,6 +621,7 @@ extern int check_lock_status(time_t *dt);
 extern unsigned int httpd_login_attempts(void);
 extern int httpd_login_status(time_t *elapsed);
 extern int httpd_login_failed(int error_status);
+extern int httpd_login_attempt_admit(unsigned int *retry_after);
 extern void httpd_login_notify(const char *address);
 extern void httpd_login_reset(void);
 extern char *wl_nband_to_wlx(char *nv_name, char *wl_name, size_t len);

@@ -35,7 +35,29 @@ assert(login.indexOf('httpd_login_captcha_match') < login.indexOf('compare_passw
 assert.match(captchaMatcher, /fromapp_flag != FROM_DUTUtil/);
 assert.match(captchaMatcher, /strlcpy\(user_agent, "Mozilla\/5\.0", sizeof\(user_agent\)\)/);
 assert.match(captchaMatcher, /matched = is_captcha_match\(captcha_text\);\s*strlcpy\(user_agent, saved_user_agent, sizeof\(user_agent\)\);/);
-assert.doesNotMatch(login, /httpd_login_attempt_admit|login-budget/);
+assert.match(source, /#define LOGIN_BUDGET_CAPACITY DEFAULT_LOGIN_MAX_NUM/);
+assert.match(source, /#define LOGIN_BUDGET_REFILL_SECONDS 30/);
+assert.match(source, /#define LOGIN_BUDGET_FILE "\/tmp\/httpd\/login-budget"/);
+const loginBudget = body(source, 'httpd_login_attempt_admit');
+assert.match(loginBudget, /file_lock\("httpd-login-budget"\)/);
+assert.match(loginBudget, /httpd_ensure_temp_dir\(\)/);
+assert.match(loginBudget, /O_CREAT \| O_RDWR \| O_NOFOLLOW/);
+assert.match(loginBudget, /st\.st_uid != geteuid\(\).*st\.st_nlink != 1/);
+assert.match(loginBudget, /state\.tokens > LOGIN_BUDGET_CAPACITY/);
+assert.match(loginBudget, /state\.tokens = 0/);
+assert.match(loginBudget, /LOGIN_BUDGET_REFILL_SECONDS -/);
+assert.match(loginBudget, /write\(fd, &state, sizeof\(state\)\)/);
+assert.match(header, /extern int httpd_login_attempt_admit\(unsigned int \*retry_after\);/);
+assert.match(header, /#define LOGINRETRY\s+12/);
+assert.match(login, /admin_account &&\s*!httpd_login_attempt_admit\(&retry_after\)/);
+assert.match(login, /strlcpy\(login_name, authinfo, sizeof\(login_name\)\)/);
+assert.match(login, /nvram_match\("http_username", login_name\)/);
+assert(login.indexOf('httpd_login_captcha_match') < login.indexOf('httpd_login_attempt_admit'));
+assert(login.indexOf('httpd_login_attempt_admit') < login.indexOf('compare_passwd_in_shadow'));
+assert.match(login, /Retry-After: %u/);
+assert.match(login, /Too many login attempts\. Please wait %u seconds/);
+assert.match(login, /retry_after/);
+assert.match(login, /httpd_login_response_headers\(wp, fromapp_flag, now, 429\)/);
 assert.match(login, /httpd_login_failed\(WRONGCAPTCHA\)/);
 assert.match(login, /login_error_status = httpd_login_failed\(ACCOUNTFAIL\);/);
 assert.match(login, /HTTPD_DBG\("authpass!\\n"\);\s*httpd_login_reset\(\);/);
@@ -68,8 +90,7 @@ assert.match(loginPage, /document\.form\.cloud_file\.value = redirect_file/);
 assert.match(loginPage, /window\.location\.search/);
 assert.match(header, /extern int httpd_login_failed\(int error_status\);/);
 assert.match(header, /extern void httpd_login_notify\(const char \*address\);/);
-assert.doesNotMatch(source + header + web,
-    /httpd_login_attempt_admit|LOGIN_GLOBAL_STATE_FILE|login_global_delay|login_global_state/);
+assert.match(web, /status == 429 \? "Too Many Requests" : "OK"/);
 assert.match(body(web, 'httpd_login_notify'), /SEND_NT_EVENT\(ADMIN_LOGIN_FAIL_LAN_WEB_EVENT, event\)/);
 function translated(name, parameters) {
     const start = source.indexOf(`\n${name}(`);
@@ -280,5 +301,46 @@ assert(!slowlorisIsBlocked('AF_INET', slowlorisVictim, 106));
 assert(!slowlorisIsBlocked('AF_INET6', slowlorisAttacker, 706));
 slowlorisTimeout('AF_INET', slowlorisVictim, 107);
 assert(!slowlorisIsBlocked('AF_INET', slowlorisVictim, 107));
+
+const budgetCapacity = Number(header.match(/#define DEFAULT_LOGIN_MAX_NUM\s+(\d+)/)[1]);
+const budgetRefill = Number(source.match(/#define LOGIN_BUDGET_REFILL_SECONDS (\d+)/)[1]);
+const sharedBudget = { tokens: budgetCapacity, lastRefill: 100 };
+function admitLogin(now) {
+    if (now < sharedBudget.lastRefill) {
+        sharedBudget.tokens = budgetCapacity;
+        sharedBudget.lastRefill = now;
+    } else if (sharedBudget.tokens < budgetCapacity) {
+        const periods = Math.floor((now - sharedBudget.lastRefill) / budgetRefill);
+        if (periods) {
+            sharedBudget.tokens = Math.min(budgetCapacity, sharedBudget.tokens + periods);
+            sharedBudget.lastRefill += periods * budgetRefill;
+        }
+    }
+    if (sharedBudget.tokens) {
+        sharedBudget.tokens--;
+        return { admitted: true, retryAfter: 0 };
+    }
+    return { admitted: false, retryAfter: budgetRefill - ((now - sharedBudget.lastRefill) % budgetRefill) };
+}
+let admittedGuesses = 0;
+for (let index = 0; index < 300; ++index) {
+    const process = index % 2 ? 'httpds' : 'httpd';
+    const address = `2001:db8:${Math.floor(index / 256)}::${index + 1}`;
+    const attempt = admitLogin(100);
+    if (attempt.admitted) admittedGuesses++;
+    else assert.equal(attempt.retryAfter, 30, `${process} shares the budget across ${address}`);
+}
+assert.equal(admittedGuesses, budgetCapacity,
+    'address rotation and independent HTTP/HTTPS processes share the immediate burst');
+assert.equal(admitLogin(129).admitted, false);
+assert.deepEqual(admitLogin(130), { admitted: true, retryAfter: 0 });
+sharedBudget.tokens = budgetCapacity;
+sharedBudget.lastRefill = 0;
+admittedGuesses = 0;
+for (let now = 0; now < 300; ++now) {
+    if (admitLogin(now).admitted) admittedGuesses++;
+}
+assert.equal(admittedGuesses, budgetCapacity + Math.floor(299 / budgetRefill),
+    'the token bucket bounds checks in a five-minute window');
 
 console.log('httpd login lockout and slowloris ban: per-source accounting, full-address family isolation and expiry checks passed (source contracts/model; not compiled C)');

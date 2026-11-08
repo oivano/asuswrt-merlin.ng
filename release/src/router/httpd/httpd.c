@@ -617,6 +617,10 @@ int cur_login_ip_type = -1;	//0:LAN, 1:WAN, -1:ERROR
 int lock_flag = 0;
 
 #define LOGIN_SOURCE_LIMIT 256
+#define LOGIN_BUDGET_FILE "/tmp/httpd/login-budget"
+#define LOGIN_BUDGET_MAGIC 0x484c4231
+#define LOGIN_BUDGET_CAPACITY DEFAULT_LOGIN_MAX_NUM
+#define LOGIN_BUDGET_REFILL_SECONDS 30
 struct login_source {
 	char address[INET6_ADDRSTRLEN];
 	unsigned int failures;
@@ -625,6 +629,91 @@ struct login_source {
 	unsigned long blocked_at;
 };
 static struct login_source login_sources[LOGIN_SOURCE_LIMIT];
+
+struct login_budget_state {
+	unsigned int magic;
+	unsigned int tokens;
+	unsigned long last_refill;
+};
+
+int
+httpd_login_attempt_admit(unsigned int *retry_after)
+{
+	struct login_budget_state state;
+	struct stat st;
+	unsigned long now = (unsigned long)uptime();
+	unsigned long elapsed, refill;
+	ssize_t count;
+	int lock = -1, fd = -1, admitted = 0;
+
+	if (retry_after)
+		*retry_after = 0;
+	lock = file_lock("httpd-login-budget");
+	if (lock < 0)
+		goto denied;
+	if (httpd_ensure_temp_dir() != 0)
+		goto done;
+	fd = open(LOGIN_BUDGET_FILE, O_CREAT | O_RDWR | O_NOFOLLOW, 0600);
+	if (fd < 0 || fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) ||
+	    st.st_uid != geteuid() || st.st_nlink != 1 || (st.st_mode & 077))
+		goto done;
+
+	memset(&state, 0, sizeof(state));
+	if (st.st_size == 0) {
+		state.magic = LOGIN_BUDGET_MAGIC;
+		state.tokens = LOGIN_BUDGET_CAPACITY;
+		state.last_refill = now;
+	} else {
+		count = read(fd, &state, sizeof(state));
+		if (count != sizeof(state) || state.magic != LOGIN_BUDGET_MAGIC ||
+		    state.tokens > LOGIN_BUDGET_CAPACITY) {
+			state.magic = LOGIN_BUDGET_MAGIC;
+			state.tokens = 0;
+			state.last_refill = now;
+		}
+	}
+
+	if (now < state.last_refill) {
+		state.tokens = LOGIN_BUDGET_CAPACITY;
+		state.last_refill = now;
+	} else if (state.tokens < LOGIN_BUDGET_CAPACITY) {
+		elapsed = now - state.last_refill;
+		refill = elapsed / LOGIN_BUDGET_REFILL_SECONDS;
+		if (refill) {
+			if (refill >= LOGIN_BUDGET_CAPACITY - state.tokens)
+				state.tokens = LOGIN_BUDGET_CAPACITY;
+			else
+				state.tokens += refill;
+			state.last_refill += refill * LOGIN_BUDGET_REFILL_SECONDS;
+		}
+	}
+
+	if (state.tokens) {
+		--state.tokens;
+		admitted = 1;
+	} else if (retry_after) {
+		*retry_after = LOGIN_BUDGET_REFILL_SECONDS -
+			((now - state.last_refill) % LOGIN_BUDGET_REFILL_SECONDS);
+	}
+
+	if (lseek(fd, 0, SEEK_SET) < 0 || ftruncate(fd, 0) < 0 ||
+	    write(fd, &state, sizeof(state)) != sizeof(state)) {
+		admitted = 0;
+		if (retry_after)
+			*retry_after = LOGIN_BUDGET_REFILL_SECONDS;
+	}
+
+done:
+	if (fd >= 0)
+		close(fd);
+	file_unlock(lock);
+	if (admitted)
+		return 1;
+denied:
+	if (retry_after && !*retry_after)
+		*retry_after = LOGIN_BUDGET_REFILL_SECONDS;
+	return 0;
+}
 
 static struct login_source *
 login_source_get(int create)
