@@ -1983,6 +1983,8 @@ packet_setsockopt(struct socket *sock, int level, int optname, char __user *optv
 			return -EBUSY;
 		if (copy_from_user(&val, optval, sizeof(val)))
 			return -EFAULT;
+		if (val > INT_MAX)
+			return -ENOBUFS;
 		po->tp_reserve = val;
 		return 0;
 	}
