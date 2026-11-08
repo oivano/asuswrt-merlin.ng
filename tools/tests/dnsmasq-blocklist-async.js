@@ -2,6 +2,7 @@ const assert = require("assert");
 const fs = require("fs");
 
 const source = fs.readFileSync("release/src/router/rc/services.c", "utf8");
+const defaults = fs.readFileSync("release/src/router/shared/defaults.c", "utf8");
 const start = source.slice(
 	source.indexOf("void start_dnsmasq(void)"),
 	source.indexOf("void stop_dnsmasq(void)")
@@ -37,6 +38,10 @@ const sanitizer = source.slice(
 const prepare = source.slice(
 	source.indexOf("static int prepare_dnsmasq_blocklist("),
 	source.indexOf("#endif", source.indexOf("static int prepare_dnsmasq_blocklist("))
+);
+const effectiveLimit = source.slice(
+	source.indexOf("static int blocklist_effective_max_domains("),
+	source.indexOf("#endif", source.indexOf("static int blocklist_effective_max_domains("))
 );
 
 assert(prepare.includes("blocklist_open_directory(dir)"), "startup should require a private blocklist directory");
@@ -77,6 +82,14 @@ assert(sanitizer.includes("setvbuf(config, NULL, _IOFBF, DNSMASQ_BLOCKLIST_IO_BU
 	sanitizer.includes("setvbuf(fp, NULL, _IOFBF, DNSMASQ_BLOCKLIST_IO_BUF)"), "large-list streams should use large stdio buffers");
 assert(prepare.includes("blocklist_runtime_current(dirfd) || blocklist_build_runtime_config(dirfd)"),
 	"unchanged inputs must reuse the already validated runtime config");
+assert(effectiveLimit.includes("if (blocklist_swap_active())") &&
+	effectiveLimit.includes("noswap_max > 0 && noswap_max < configured_max") &&
+	!effectiveLimit.includes("blocklist_usb_present"),
+	"only active swap should bypass the configurable no-swap domain cap");
+assert(worker.includes('nvram_get_int("dnsmasq_blocklist_max_domains") ? : 4000000') &&
+	worker.includes('nvram_get_int("dnsmasq_blocklist_max_domains_noswap") ? : 400000') &&
+	defaults.includes('{ "dnsmasq_blocklist_max_domains_noswap", "400000"'),
+	"retain the configured 4M cap and use a 400K default without swap");
 assert(source.includes('#define DNSMASQ_BLOCKLIST_STAMP\t"/tmp/'), "the reuse stamp must be RAM-only so each boot revalidates");
 assert(sanitizer.includes("st.st_uid == 0") && sanitizer.includes("O_RDONLY | O_NOFOLLOW | O_NONBLOCK") &&
 	sanitizer.includes("memcmp(now, saved, sizeof(now))"), "stamp must be root-owned and match every file identity");
