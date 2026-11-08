@@ -1103,6 +1103,8 @@ static status_t process_server_response(private_eap_mschapv2_t *this,
 	eap_mschapv2_response_t *res;
 	chunk_t data, peer_challenge, username, nt_hash;
 	identification_t *userid;
+	ike_sa_t *ike_sa;
+	host_t *source;
 	int name_len;
 	char buf[256];
 
@@ -1127,6 +1129,15 @@ static status_t process_server_response(private_eap_mschapv2_t *this,
 	}
 	/* userid can only be destroyed after the last use of username */
 	username = extract_username(userid->get_encoding(userid));
+	ike_sa = charon->bus->get_sa(charon->bus);
+	source = ike_sa ? ike_sa->get_other_host(ike_sa) : NULL;
+	if (!charon->ike_sa_manager->auth_attempt_allowed(
+			charon->ike_sa_manager, source))
+	{
+		DBG1(DBG_IKE, "rejecting EAP-MSCHAPv2 attempt due to authentication throttle");
+		userid->destroy(userid);
+		return FAILED;
+	}
 
 	if (!get_nt_hash(this, this->server, userid, &nt_hash))
 	{
@@ -1135,6 +1146,8 @@ static status_t process_server_response(private_eap_mschapv2_t *this,
 		/* make sure we don't leak much timing information */
 		GenerateStuff(this, this->challenge, peer_challenge, username,
 					  chunk_from_thing(dummy_nt_hash));
+		charon->ike_sa_manager->auth_attempt_failed(
+			charon->ike_sa_manager, source);
 		userid->destroy(userid);
 		return FAILED;
 	}
@@ -1143,6 +1156,8 @@ static status_t process_server_response(private_eap_mschapv2_t *this,
 					  username, nt_hash) != SUCCESS)
 	{
 		DBG1(DBG_IKE, "EAP-MS-CHAPv2 verification failed");
+		charon->ike_sa_manager->auth_attempt_failed(
+			charon->ike_sa_manager, source);
 		userid->destroy(userid);
 		chunk_clear(&nt_hash);
 		return FAILED;
@@ -1155,6 +1170,9 @@ static status_t process_server_response(private_eap_mschapv2_t *this,
 		chunk_t hex;
 		char msg[AUTH_RESPONSE_LEN + sizeof(SUCCESS_MESSAGE)];
 		uint16_t len = HEADER_LEN + AUTH_RESPONSE_LEN + sizeof(SUCCESS_MESSAGE);
+
+		charon->ike_sa_manager->auth_attempt_succeeded(
+			charon->ike_sa_manager, source);
 
 		eap = alloca(len);
 		eap->code = EAP_REQUEST;
@@ -1176,6 +1194,8 @@ static status_t process_server_response(private_eap_mschapv2_t *this,
 		this->state = S_EXPECT_SUCCESS;
 		return NEED_MORE;
 	}
+	charon->ike_sa_manager->auth_attempt_failed(
+		charon->ike_sa_manager, source);
 	userid->destroy(userid);
 	return FAILED;
 }

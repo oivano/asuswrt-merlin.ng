@@ -181,6 +181,29 @@ struct ike_sa_manager_t {
 						identification_t *other, int family);
 
 	/**
+	 * Check whether another password authentication attempt is allowed for
+	 * the given source address.
+	 *
+	 * @param source		remote peer address
+	 * @return				TRUE if the attempt is allowed
+	 */
+	bool (*auth_attempt_allowed)(ike_sa_manager_t *this, host_t *source);
+
+	/**
+	 * Record a failed password authentication attempt for a source address.
+	 *
+	 * @param source		remote peer address
+	 */
+	void (*auth_attempt_failed)(ike_sa_manager_t *this, host_t *source);
+
+	/**
+	 * Clear failed password authentication attempts for a source address.
+	 *
+	 * @param source		remote peer address
+	 */
+	void (*auth_attempt_succeeded)(ike_sa_manager_t *this, host_t *source);
+
+	/**
 	 * Check out an IKE_SA by a unique ID.
 	 *
 	 * Every IKE_SA is uniquely identified by a numerical ID. This checkout

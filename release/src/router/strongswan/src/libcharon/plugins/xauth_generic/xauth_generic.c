@@ -134,6 +134,8 @@ METHOD(xauth_method_t, process_server, status_t,
 	configuration_attribute_t *attr;
 	enumerator_t *enumerator;
 	shared_key_t *shared;
+	ike_sa_t *ike_sa;
+	host_t *source;
 	id_match_t match_other;
 	identification_t *id;
 	chunk_t user = chunk_empty, pass = chunk_empty;
@@ -177,6 +179,14 @@ METHOD(xauth_method_t, process_server, status_t,
 	{	/* fix null-terminated passwords (Android etc.) */
 		pass.len -= 1;
 	}
+	ike_sa = charon->bus->get_sa(charon->bus);
+	source = ike_sa ? ike_sa->get_other_host(ike_sa) : NULL;
+	if (!charon->ike_sa_manager->auth_attempt_allowed(
+			charon->ike_sa_manager, source))
+	{
+		DBG1(DBG_IKE, "rejecting XAuth attempt due to authentication throttle");
+		return FAILED;
+	}
 
 	enumerator = lib->credmgr->create_shared_enumerator(lib->credmgr,
 										SHARED_EAP, this->server, this->peer);
@@ -191,6 +201,16 @@ METHOD(xauth_method_t, process_server, status_t,
 		tried++;
 	}
 	enumerator->destroy(enumerator);
+	if (status == SUCCESS)
+	{
+		charon->ike_sa_manager->auth_attempt_succeeded(
+			charon->ike_sa_manager, source);
+	}
+	else
+	{
+		charon->ike_sa_manager->auth_attempt_failed(
+			charon->ike_sa_manager, source);
+	}
 	if (status != SUCCESS)
 	{
 		if (!tried)

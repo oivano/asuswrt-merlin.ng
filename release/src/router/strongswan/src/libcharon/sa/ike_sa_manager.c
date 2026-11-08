@@ -42,6 +42,11 @@
 /* the default number of segments (MUST be a power of 2) */
 #define DEFAULT_SEGMENT_COUNT 1
 
+#define AUTH_ATTEMPT_SOURCES 256
+#define AUTH_ATTEMPT_LIMIT 5
+#define AUTH_ATTEMPT_WINDOW 900
+#define AUTH_ATTEMPT_COOLDOWN 300
+
 typedef struct entry_t entry_t;
 
 /**
@@ -258,6 +263,16 @@ static inline bool connected_peers_match(connected_peers_t *connected_peers,
 
 typedef struct init_hash_t init_hash_t;
 
+typedef struct auth_attempt_t auth_attempt_t;
+
+struct auth_attempt_t {
+	host_t *source;
+	time_t first_failure;
+	time_t last_seen;
+	time_t blocked_until;
+	u_int failures;
+};
+
 struct init_hash_t {
 	/** hash of IKE_SA_INIT or initial phase1 message (data is not cloned) */
 	chunk_t hash;
@@ -339,6 +354,12 @@ struct private_ike_sa_manager_t {
 	 * The number of segments.
 	 */
 	u_int segment_count;
+
+	/** Failed password attempts, shared across IKE_SAs and auth methods. */
+	auth_attempt_t auth_attempts[AUTH_ATTEMPT_SOURCES];
+
+	/** Synchronizes access to auth_attempts. */
+	mutex_t *auth_attempt_mutex;
 
 	/**
 	 * Mask to map a table row to a segment.
@@ -459,6 +480,134 @@ static inline void lock_single_segment(private_ike_sa_manager_t *this,
 {
 	mutex_t *lock = this->segments[index & this->segment_mask].mutex;
 	lock->lock(lock);
+}
+
+static auth_attempt_t *find_auth_attempt(private_ike_sa_manager_t *this,
+										 host_t *source, bool create, time_t now)
+{
+	auth_attempt_t *oldest = NULL;
+	u_int i;
+
+	for (i = 0; i < AUTH_ATTEMPT_SOURCES; i++)
+	{
+		auth_attempt_t *entry = &this->auth_attempts[i];
+
+		if (entry->source && entry->source->ip_equals(entry->source, source))
+		{
+			return entry;
+		}
+		if (!entry->source)
+		{
+			oldest = entry;
+			break;
+		}
+		if (entry->blocked_until > now)
+		{
+			continue;
+		}
+		if (!oldest || entry->last_seen < oldest->last_seen)
+		{
+			oldest = entry;
+		}
+	}
+	if (!create || !oldest)
+	{
+		return NULL;
+	}
+	DESTROY_IF(oldest->source);
+	*oldest = (auth_attempt_t){
+		.source = source->clone(source),
+		.first_failure = now,
+		.last_seen = now,
+	};
+	return oldest;
+}
+
+METHOD(ike_sa_manager_t, auth_attempt_allowed, bool,
+	private_ike_sa_manager_t *this, host_t *source)
+{
+	auth_attempt_t *entry;
+	time_t now = time_monotonic(NULL);
+	bool allowed = TRUE;
+
+	if (!source)
+	{
+		return FALSE;
+	}
+	this->auth_attempt_mutex->lock(this->auth_attempt_mutex);
+	entry = find_auth_attempt(this, source, FALSE, now);
+	if (!entry)
+	{
+		entry = find_auth_attempt(this, source, TRUE, now);
+		allowed = entry != NULL;
+	}
+	if (entry)
+	{
+		if (entry->blocked_until > now)
+		{
+			allowed = FALSE;
+		}
+		else
+		{
+			if (entry->blocked_until || now - entry->first_failure >= AUTH_ATTEMPT_WINDOW)
+			{
+				entry->failures = 0;
+				entry->first_failure = now;
+				entry->blocked_until = 0;
+			}
+			entry->last_seen = now;
+		}
+	}
+	this->auth_attempt_mutex->unlock(this->auth_attempt_mutex);
+	return allowed;
+}
+
+METHOD(ike_sa_manager_t, auth_attempt_failed, void,
+	private_ike_sa_manager_t *this, host_t *source)
+{
+	auth_attempt_t *entry;
+	time_t now = time_monotonic(NULL);
+
+	if (!source)
+	{
+		return;
+	}
+	this->auth_attempt_mutex->lock(this->auth_attempt_mutex);
+	entry = find_auth_attempt(this, source, TRUE, now);
+	if (entry && entry->blocked_until <= now)
+	{
+		if (now - entry->first_failure >= AUTH_ATTEMPT_WINDOW)
+		{
+			entry->failures = 0;
+			entry->first_failure = now;
+		}
+		entry->failures++;
+		entry->last_seen = now;
+		if (entry->failures >= AUTH_ATTEMPT_LIMIT)
+		{
+			entry->blocked_until = now + AUTH_ATTEMPT_COOLDOWN;
+		}
+	}
+	this->auth_attempt_mutex->unlock(this->auth_attempt_mutex);
+}
+
+METHOD(ike_sa_manager_t, auth_attempt_succeeded, void,
+	private_ike_sa_manager_t *this, host_t *source)
+{
+	auth_attempt_t *entry;
+
+	if (!source)
+	{
+		return;
+	}
+	this->auth_attempt_mutex->lock(this->auth_attempt_mutex);
+	entry = find_auth_attempt(this, source, FALSE, 0);
+	if (entry)
+	{
+		entry->source->destroy(entry->source);
+		*entry = (auth_attempt_t){0};
+	}
+	this->auth_attempt_mutex->unlock(this->auth_attempt_mutex);
 }
 
 /**
@@ -2534,6 +2683,11 @@ METHOD(ike_sa_manager_t, destroy, void,
 	free(this->half_open_segments);
 	free(this->connected_peers_segments);
 	free(this->init_hashes_segments);
+	for (i = 0; i < AUTH_ATTEMPT_SOURCES; i++)
+	{
+		DESTROY_IF(this->auth_attempts[i].source);
+	}
+	this->auth_attempt_mutex->destroy(this->auth_attempt_mutex);
 
 	array_destroy(this->config_checkouts);
 	this->config_mutex->destroy(this->config_mutex);
@@ -2582,6 +2736,9 @@ ike_sa_manager_t *ike_sa_manager_create()
 			.new_initiator_spi = _new_initiator_spi,
 			.check_uniqueness = _check_uniqueness,
 			.has_contact = _has_contact,
+			.auth_attempt_allowed = _auth_attempt_allowed,
+			.auth_attempt_failed = _auth_attempt_failed,
+			.auth_attempt_succeeded = _auth_attempt_succeeded,
 			.create_enumerator = _create_enumerator,
 			.create_id_enumerator = _create_id_enumerator,
 			.checkin = _checkin,
@@ -2603,6 +2760,7 @@ ike_sa_manager_t *ike_sa_manager_create()
 		return NULL;
 	}
 	this->spi_lock = rwlock_create(RWLOCK_TYPE_DEFAULT);
+	this->auth_attempt_mutex = mutex_create(MUTEX_TYPE_DEFAULT);
 	spi_val = lib->settings->get_str(lib->settings, "%s.spi_mask", NULL,
 									 lib->ns);
 	this->spi_mask = settings_value_as_uint64(spi_val, 0);
