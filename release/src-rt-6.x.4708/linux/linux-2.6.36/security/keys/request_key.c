@@ -117,8 +117,10 @@ static int call_sbin_request_key(struct key_construction *cons,
 	sprintf(desc, "_req.%u", key->serial);
 
 	cred = get_current_cred();
-	keyring = keyring_alloc(desc, cred->fsuid, cred->fsgid, cred,
-				KEY_ALLOC_QUOTA_OVERRUN, NULL);
+	keyring = keyring_alloc_with_perm(desc, cred->fsuid, cred->fsgid,
+					  cred,
+					  KEY_POS_ALL & ~KEY_POS_SETATTR,
+					  KEY_ALLOC_QUOTA_OVERRUN, NULL);
 	put_cred(cred);
 	if (IS_ERR(keyring)) {
 		ret = PTR_ERR(keyring);

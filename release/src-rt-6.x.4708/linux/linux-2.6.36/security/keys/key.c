@@ -485,7 +485,7 @@ int key_negate_and_link(struct key *key,
 			struct key *keyring,
 			struct key *authkey)
 {
-	struct keyring_list *prealloc;
+	struct keyring_list *prealloc = NULL;
 	struct timespec now;
 	int ret, awaken, link_ret = 0;
 
@@ -498,6 +498,8 @@ int key_negate_and_link(struct key *key,
 	if (keyring)
 		link_ret = __key_link_begin(keyring, key->type,
 					    key->description, &prealloc);
+	if (link_ret < 0)
+		return link_ret;
 
 	mutex_lock(&key_construction_mutex);
 
