@@ -591,7 +591,9 @@ static int pptp_rcv_core(struct sock *sk,struct sk_buff *skb)
 			goto drop;
 		return NET_RX_SUCCESS;
 	}
-	
+	if (!pskb_may_pull(skb, sizeof(*header)))
+		goto drop;
+
 	header = (struct pptp_gre_header *)(skb->data);
 
 	/* test if acknowledgement present */
@@ -617,8 +619,8 @@ static int pptp_rcv_core(struct sock *sk,struct sk_buff *skb)
 
 	/* no ack present? */
 	if (!PPTP_GRE_IS_A(header->ver)) headersize -= sizeof(header->ack);
-	/* check for incomplete packet (length smaller than expected) */
-	if (skb->len - headersize < payload_len){
+	/* Ensure the complete header and payload are present and linear. */
+	if (!pskb_may_pull(skb, headersize + payload_len)){
 #ifdef DEBUG
 		if (log_level>=1)
 			printk(KERN_INFO"PPTP: discarding truncated packet (expected %d, got %d bytes)\n",
