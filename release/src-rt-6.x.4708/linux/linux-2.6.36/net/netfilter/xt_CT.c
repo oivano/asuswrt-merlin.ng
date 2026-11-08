@@ -114,6 +114,7 @@ static int xt_ct_tg_check(const struct xt_tgchk_param *par)
 
 	__set_bit(IPS_TEMPLATE_BIT, &ct->status);
 	__set_bit(IPS_CONFIRMED_BIT, &ct->status);
+	nf_conntrack_get(&ct->ct_general);
 out:
 	info->ct = ct;
 	return 0;
