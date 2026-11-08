@@ -1127,8 +1127,23 @@ void free_bprm(struct linux_binprm *bprm)
 		mutex_unlock(&current->cred_guard_mutex);
 		abort_creds(bprm->cred);
 	}
+	if (bprm->interp != bprm->filename)
+		kfree(bprm->interp);
 	kfree(bprm);
 }
+
+int bprm_change_interp(char *interp, struct linux_binprm *bprm)
+{
+	char *new_interp = kstrdup(interp, GFP_KERNEL);
+
+	if (!new_interp)
+		return -ENOMEM;
+	if (bprm->interp != bprm->filename)
+		kfree(bprm->interp);
+	bprm->interp = new_interp;
+	return 0;
+}
+EXPORT_SYMBOL(bprm_change_interp);
 
 /*
  * install the new credentials for this executable
