@@ -27,16 +27,25 @@ assert.match(envsave[1], /\(void\)path;/);
 assert.doesNotMatch(envsave[1], /\b(?:fopen|open|fprintf|fwrite)\s*\(/);
 
 assert.match(common, /open\("\/tmp\/ppp", O_RDONLY \| O_DIRECTORY \| O_NOFOLLOW\)/);
-assert.match(common, /openat\(dirfd, "reboot",\s*O_WRONLY \| O_CREAT \| O_EXCL \| O_NOFOLLOW \| O_NONBLOCK, 0600\)/);
-assert.match(common, /openat\(dirfd, "reboot", O_RDONLY \| O_NOFOLLOW \| O_NONBLOCK\)/);
 assert.match(common, /S_ISREG\(st\.st_mode\).*st\.st_uid != 0/);
 assert.match(common, /st\.st_nlink != 1[\s\S]*st\.st_mode & 0077/);
+assert.match(common, /openat\(dirfd, name, O_RDONLY \| O_NOFOLLOW \| O_NONBLOCK\)/);
+assert.match(common, /openat\(dirfd, name,[\s\S]*O_WRONLY \| O_CREAT \| O_EXCL \| O_NOFOLLOW \| O_NONBLOCK, 0600\)/);
+assert.match(common, /rc_reboot_flag_set\(void\)[\s\S]*rc_private_flag_set\("reboot"\)/);
+assert.match(common, /rc_reboot_flag_is_set\(void\)[\s\S]*rc_private_flag_is_set\("reboot"\)/);
+assert.match(common, /rc_upgrade_flag_set\(void\)[\s\S]*rc_private_flag_set\("upgrade"\)/);
+assert.match(common, /rc_upgrade_flag_is_set\(void\)[\s\S]*rc_private_flag_is_set\("upgrade"\)/);
 assert.equal((init.match(/rc_reboot_flag_set\(\)/g) || []).length, 1);
 assert.equal((services.match(/rc_reboot_flag_set\(\)/g) || []).length, 2);
 assert.equal((checkWatchdog.match(/rc_reboot_flag_is_set\(\)/g) || []).length, 1);
 assert.equal((watchdog.match(/rc_reboot_flag_is_set\(\)/g) || []).length, 2);
 for (const source of [init, services, checkWatchdog, watchdog])
     assert.doesNotMatch(source, /\/tmp\/reboot/);
+assert.equal((services.match(/rc_upgrade_flag_set\(\)/g) || []).length, 2);
+assert.equal((checkWatchdog.match(/rc_upgrade_flag_is_set\(\)/g) || []).length, 1);
+assert.equal((watchdog.match(/rc_upgrade_flag_is_set\(\)/g) || []).length, 4);
+for (const source of [services, checkWatchdog, watchdog])
+    assert.doesNotMatch(source, /\/tmp\/upgrade/);
 
 const cronTemporary = fs.mkdtempSync(path.join(os.tmpdir(), 'cron-permissions-'));
 try {
@@ -196,9 +205,9 @@ if (process.getuid() === 0) {
             if (!enabled) return false;
             try {
                 const rootStat = fs.lstatSync('/');
-            const parentStat = fs.lstatSync(path.dirname(candidate));
-            const directoryStat = fs.lstatSync(candidate);
-            const scriptStat = fs.lstatSync(path.join(candidate, 'le-fw.sh'));
+                const parentStat = fs.lstatSync(path.dirname(candidate));
+                const directoryStat = fs.lstatSync(candidate);
+                const scriptStat = fs.lstatSync(path.join(candidate, 'le-fw.sh'));
                 return rootStat.isDirectory() && rootStat.uid === 0 && !(rootStat.mode & 0o022) &&
                     parentStat.isDirectory() && parentStat.uid === 0 &&
                     (!(parentStat.mode & 0o022) || (parentStat.mode & 0o1000)) &&
