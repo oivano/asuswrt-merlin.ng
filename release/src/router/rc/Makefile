@@ -978,8 +978,21 @@ endif
 
 all: PB rc $(if $(RTCONFIG_BRCM_HOSTAPD), $(WPS_PBCD)) init.prep
 
+$(OBJS): | PB
+
 PB:
-	[ ! -d prebuild ] || cp prebuild/*.o ./
+	@if [ -d prebuild ]; then \
+		for object in prebuild/*.o; do \
+			[ -f "$$object" ] || continue; \
+			source=$${object#prebuild/}; \
+			source=$${source%.o}.c; \
+			if [ -f "$$source" ]; then \
+				echo "[rc] Skipping $$object; building $$source"; \
+			else \
+				cp "$$object" ./; \
+			fi; \
+		done; \
+	fi
 
 ifeq ($(RTCONFIG_BRCM_HOSTAPD),y)
 $(WPS_PBCD): $(OBJS_WPS_PBCD)
