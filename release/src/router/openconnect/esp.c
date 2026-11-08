@@ -32,15 +32,22 @@
 int print_esp_keys(struct openconnect_info *vpninfo, const char *name, struct esp *esp)
 {
 	int i;
+	int enc_key_len, hmac_key_len;
 	const char *enctype, *mactype;
 	char enckey[256], mackey[256];
+	static const char hex[] = "0123456789abcdef";
+
+	if (vpninfo->verbose < PRG_TRACE)
+		return 0;
 
 	switch (vpninfo->esp_enc) {
 	case ENC_AES_128_CBC:
 		enctype = "AES-128-CBC (RFC3602)";
+		enc_key_len = 16;
 		break;
 	case ENC_AES_256_CBC:
 		enctype = "AES-256-CBC (RFC3602)";
+		enc_key_len = 32;
 		break;
 	default:
 		return -EINVAL;
@@ -48,21 +55,37 @@ int print_esp_keys(struct openconnect_info *vpninfo, const char *name, struct es
 	switch (vpninfo->esp_hmac) {
 	case HMAC_MD5:
 		mactype = "HMAC-MD5-96 (RFC2403)";
+		hmac_key_len = 16;
 		break;
 	case HMAC_SHA1:
 		mactype = "HMAC-SHA-1-96 (RFC2404)";
+		hmac_key_len = 20;
 		break;
 	case HMAC_SHA256:
 		mactype = "HMAC-SHA-256-128 (RFC4868)";
+		hmac_key_len = 32;
 		break;
 	default:
 		return -EINVAL;
 	}
 
-	for (i = 0; i < vpninfo->enc_key_len; i++)
-		sprintf(enckey + (2 * i), "%02x", esp->enc_key[i]);
-	for (i = 0; i < vpninfo->hmac_key_len; i++)
-		sprintf(mackey + (2 * i), "%02x", esp->hmac_key[i]);
+	if (vpninfo->enc_key_len != enc_key_len || vpninfo->hmac_key_len != hmac_key_len ||
+	    (size_t)vpninfo->enc_key_len > sizeof(esp->enc_key) ||
+	    (size_t)vpninfo->hmac_key_len > sizeof(esp->hmac_key) ||
+	    2 * vpninfo->enc_key_len >= sizeof(enckey) ||
+	    2 * vpninfo->hmac_key_len >= sizeof(mackey))
+		return -EINVAL;
+
+	for (i = 0; i < vpninfo->enc_key_len; i++) {
+		enckey[2 * i] = hex[esp->enc_key[i] >> 4];
+		enckey[2 * i + 1] = hex[esp->enc_key[i] & 0x0f];
+	}
+	enckey[2 * vpninfo->enc_key_len] = '\0';
+	for (i = 0; i < vpninfo->hmac_key_len; i++) {
+		mackey[2 * i] = hex[esp->hmac_key[i] >> 4];
+		mackey[2 * i + 1] = hex[esp->hmac_key[i] & 0x0f];
+	}
+	mackey[2 * vpninfo->hmac_key_len] = '\0';
 
 	vpn_progress(vpninfo, PRG_TRACE,
 		     _("Parameters for %s ESP: SPI 0x%08x\n"),
