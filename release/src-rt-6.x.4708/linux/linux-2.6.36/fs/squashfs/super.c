@@ -166,6 +166,8 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 	msblk->block_log = le16_to_cpu(sblk->block_log);
 	if (msblk->block_log > SQUASHFS_FILE_MAX_LOG)
 		goto failed_mount;
+	if (msblk->block_size != (1 << msblk->block_log))
+		goto failed_mount;
 
 	/* Check the root inode for sanity */
 	root_inode = le64_to_cpu(sblk->root_inode);
