@@ -210,7 +210,7 @@ static void add_iptables_AMAS_WGN(FILE *fn, const char *action)
 	int  guest_mark = GUEST_INIT_MARKNUM;
 	char wl[128] = {0}, wlv[128] = {0}, tmp[128] = {0}, *next = NULL, *next2 = NULL;
 	char prefix[32] = {0};
-	char mssid_mark[4] = {0};
+	char act_buf[64];
 	int  i = 0;
 	int  j = 1;
 	char net[20] = {0};
@@ -229,9 +229,9 @@ static void add_iptables_AMAS_WGN(FILE *fn, const char *action)
 			if(nvram_get_int(strcat_r(wlv, "_bss_enabled", tmp)) && 
 			   nvram_get_int(strcat_r(wlv, "_bw_enabled" , tmp))) {
 				wgn_subnet(wlv, net, sizeof(net)); // move API to shared/amas_wgn_shared.c
-				snprintf(mssid_mark, sizeof(mssid_mark), "%d", guest_mark);
 				if (!strcmp(net, "")) continue;
-				fprintf(fn, "-A PREROUTING -s %s -j %s %s\n", net, action, mssid_mark);
+				snprintf(act_buf, sizeof(act_buf), "%s %d/0x%x", action, guest_mark, QOS_MASK);
+				fprintf(fn, "-A PREROUTING -s %s -j %s\n", net, act_buf);
 				fprintf(fn, "-A PREROUTING -s %s -j RETURN\n", net);
 				guest_mark++;
 			} //bss_enabled
@@ -1525,6 +1525,7 @@ static int add_bandwidth_limiter_rules(char *pcWANIF)
 	char *enable, *addr, *dlc, *upc, *prio;
 	char lan_addr[32];
 	char addr_new[40];
+	char act_buf[64];
 	int addr_type;
 	char *action = NULL;
 	int evalRet;
@@ -1560,11 +1561,12 @@ static int add_bandwidth_limiter_rules(char *pcWANIF)
 		);
 
 	// access router : mark 9
+	snprintf(act_buf, sizeof(act_buf), "%s 9/0x%x", action, QOS_MASK);
 	fprintf(fn,
-		"-A POSTROUTING -s %s -d %s -j %s 9\n"
-		"-A PREROUTING -s %s -d %s -j %s 9\n"
-		, nvram_safe_get("lan_ipaddr"), lan_addr, action
-		, lan_addr, nvram_safe_get("lan_ipaddr"), action
+		"-A POSTROUTING -s %s -d %s -j %s\n"
+		"-A PREROUTING -s %s -d %s -j %s\n"
+		, nvram_safe_get("lan_ipaddr"), lan_addr, act_buf
+		, lan_addr, nvram_safe_get("lan_ipaddr"), act_buf
 		);
 	
 	if(manual_return){
@@ -1583,14 +1585,16 @@ static int add_bandwidth_limiter_rules(char *pcWANIF)
 		if (!strcmp(enable, "0")) continue;
 		memset(addr_new, 0, sizeof(addr_new));
 		address_format_checker(&addr_type, addr, addr_new, sizeof(addr_new));
+		snprintf(act_buf, sizeof(act_buf), "%s %d/0x%x", action,
+			safe_atoi(prio) + INITIAL_MARKNUM, QOS_MASK);
 		QOSDBG("[BWLIT] addr_type=%d, addr=%s, add_new=%s, lan_addr=%s\n", addr_type, addr, addr_new, lan_addr);
 
 		if (addr_type == TYPE_IP){
 			fprintf(fn,
-				"-A POSTROUTING ! -s %s -d %s -j %s %d\n"
-				"-A PREROUTING -s %s ! -d %s -j %s %d\n"
-				, lan_addr, addr_new, action, safe_atoi(prio)+INITIAL_MARKNUM
-				, addr_new, lan_addr, action, safe_atoi(prio)+INITIAL_MARKNUM
+				"-A POSTROUTING ! -s %s -d %s -j %s\n"
+				"-A PREROUTING -s %s ! -d %s -j %s\n"
+				, lan_addr, addr_new, act_buf
+				, addr_new, lan_addr, act_buf
 				);
 			if(manual_return){
 			fprintf(fn,
@@ -1602,8 +1606,8 @@ static int add_bandwidth_limiter_rules(char *pcWANIF)
 		}
 		else if (addr_type == TYPE_MAC){
 			fprintf(fn,
-				"-A PREROUTING -m mac --mac-source %s ! -d %s  -j %s %d\n"
-				, addr_new, lan_addr, action, safe_atoi(prio)+INITIAL_MARKNUM
+				"-A PREROUTING -m mac --mac-source %s ! -d %s  -j %s\n"
+				, addr_new, lan_addr, act_buf
 				);
 			if(manual_return){
 			fprintf(fn,
@@ -1614,10 +1618,10 @@ static int add_bandwidth_limiter_rules(char *pcWANIF)
 		}
 		else if (addr_type == TYPE_IPRANGE){
 			fprintf(fn,
-				"-A POSTROUTING ! -s %s -m iprange --dst-range %s -j %s %d\n"
-				"-A PREROUTING -m iprange --src-range %s ! -d %s -j %s %d\n"
-				, lan_addr, addr_new, action, safe_atoi(prio)+INITIAL_MARKNUM
-				, addr_new, lan_addr, action, safe_atoi(prio)+INITIAL_MARKNUM
+				"-A POSTROUTING ! -s %s -m iprange --dst-range %s -j %s\n"
+				"-A PREROUTING -m iprange --src-range %s ! -d %s -j %s\n"
+				, lan_addr, addr_new, act_buf
+				, addr_new, lan_addr, act_buf
 				);
 			if(manual_return){
 			fprintf(fn,
