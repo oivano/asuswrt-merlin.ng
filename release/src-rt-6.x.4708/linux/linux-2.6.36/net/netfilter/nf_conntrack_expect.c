@@ -154,6 +154,9 @@ nf_ct_find_expectation(struct net *net, u16 zone,
 	   and weird things would happen to future packets). */
 	if (!nf_ct_is_confirmed(exp->master))
 		return NULL;
+	if (unlikely(nf_ct_is_dying(exp->master) ||
+		     !atomic_inc_not_zero(&exp->master->ct_general.use)))
+		return NULL;
 
 	if (exp->flags & NF_CT_EXPECT_PERMANENT) {
 		atomic_inc(&exp->use);
@@ -163,6 +166,7 @@ nf_ct_find_expectation(struct net *net, u16 zone,
 		return exp;
 	}
 
+	nf_ct_put(exp->master);
 	return NULL;
 }
 
