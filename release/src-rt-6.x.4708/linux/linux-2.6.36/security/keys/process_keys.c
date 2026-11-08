@@ -128,6 +128,9 @@ int install_thread_keyring_to_cred(struct cred *new)
 {
 	struct key *keyring;
 
+	if (new->thread_keyring)
+		return 0;
+
 	keyring = keyring_alloc("_tid", new->uid, new->gid, new,
 				KEY_ALLOC_QUOTA_OVERRUN, NULL);
 	if (IS_ERR(keyring))
