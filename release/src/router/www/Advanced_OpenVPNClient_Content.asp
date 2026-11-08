@@ -338,6 +338,7 @@ function update_visibility(){
 	showhide("client_reneg", (auth == "tls"));
 	showhide("client_gateway_label", (iface == "tap" && rgw > 0));
 	showhide("vpn_client_gw", (iface == "tap" && rgw > 0));
+	showhide("client_tls_verify", (auth == "tls"));
 	showhide("client_tlsremote", (auth == "tls"));
 
 	showhide("vpn_client_cn", ((auth == "tls") && (tlsremote > 0)));
@@ -1239,6 +1240,10 @@ function refreshVPNIP() {
 							<input type="text" maxlength="3" class="input_6_table" name="vpn_client_connretry" value="<% nvram_get("vpn_client_connretry"); %>">
 							<span class="hint-color">(0 for infinite)</span>
 						</td>
+					</tr>
+					<tr id="client_tls_verify">
+						<th>Server Certificate Purpose</th>
+						<td>Required (serverAuth)</td>
 					</tr>
 					<tr id="client_tlsremote">
 						<th>Verify Server Certificate Name</th>
