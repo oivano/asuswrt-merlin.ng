@@ -77,6 +77,7 @@
 
 /* Maximum number of nesting allowed inside epoll sets */
 #define EP_MAX_NESTS 4
+#define EP_PATH_ARR_SIZE (EP_MAX_NESTS + 1)
 
 /* Maximum msec timeout value storeable in a long int */
 #define EP_MAX_MSTIMEO min(1000ULL * MAX_SCHEDULE_TIMEOUT / HZ, (LONG_MAX - 999ULL) / HZ)
@@ -185,6 +186,24 @@ struct eventpoll {
 
 	/* The user that created the eventpoll descriptor */
 	struct user_struct *user;
+	struct file *file;
+	unsigned int visited;
+	unsigned int visited_depth;
+	struct list_head visited_list_link;
+};
+
+struct epoll_check_file {
+	struct rb_node rbn;
+	struct file *file;
+};
+
+struct ep_loop_check_data {
+	struct eventpoll *target;
+	struct list_head visited;
+	struct rb_root files;
+	unsigned int max_depth;
+	unsigned int ancestor_depth;
+	unsigned int path_count[EP_PATH_ARR_SIZE];
 };
 
 /* Wait structure used by the poll hooks */
@@ -233,6 +252,8 @@ static struct nested_calls poll_safewake_ncalls;
 
 /* Used to call file's f_op->poll() under the nested calls boundaries */
 static struct nested_calls poll_readywalk_ncalls;
+
+static struct nested_calls poll_loop_ncalls;
 
 /* Slab cache used to allocate "struct epitem" */
 static struct kmem_cache *epi_cache __read_mostly;
@@ -913,11 +934,214 @@ static void ep_rbtree_insert(struct eventpoll *ep, struct epitem *epi)
 	rb_insert_color(&epi->rbn, &ep->rbr);
 }
 
+static void ep_loop_check_clear(struct ep_loop_check_data *data)
+{
+	struct eventpoll *ep, *next;
+
+	list_for_each_entry_safe(ep, next, &data->visited, visited_list_link) {
+		ep->visited = 0;
+		ep->visited_depth = 0;
+		list_del_init(&ep->visited_list_link);
+	}
+}
+
+static int ep_check_file_add(struct ep_loop_check_data *data,
+			     struct file *file)
+{
+	struct rb_node **p = &data->files.rb_node, *parent = NULL;
+	struct epoll_check_file *entry;
+	unsigned long key = (unsigned long)file;
+
+	while (*p) {
+		parent = *p;
+		entry = rb_entry(parent, struct epoll_check_file, rbn);
+		if (key < (unsigned long)entry->file)
+			p = &parent->rb_left;
+		else if (key > (unsigned long)entry->file)
+			p = &parent->rb_right;
+		else
+			return 0;
+	}
+
+	entry = kmalloc(sizeof(*entry), GFP_KERNEL);
+	if (!entry)
+		return -ENOMEM;
+	entry->file = file;
+	rb_link_node(&entry->rbn, parent, p);
+	rb_insert_color(&entry->rbn, &data->files);
+
+	return 0;
+}
+
+static int ep_loop_check_ancestors(struct eventpoll *ep, unsigned int depth,
+				   struct ep_loop_check_data *data)
+{
+	struct epitem *epi;
+	int error;
+
+	if (depth > EP_MAX_NESTS)
+		return -ELOOP;
+	if (ep->visited && ep->visited_depth >= depth)
+		return 0;
+	if (!ep->visited) {
+		ep->visited = 1;
+		list_add(&ep->visited_list_link, &data->visited);
+	}
+	ep->visited_depth = depth;
+	if (depth > data->max_depth)
+		data->max_depth = depth;
+	if (!ep->file)
+		return -ELOOP;
+
+	list_for_each_entry(epi, &ep->file->f_ep_links, fllink) {
+		error = ep_loop_check_ancestors(epi->ep, depth + 1, data);
+		if (error)
+			return error;
+	}
+
+	return 0;
+}
+
+static int ep_loop_check_proc(struct eventpoll *ep, unsigned int depth,
+			      struct ep_loop_check_data *data)
+{
+	struct rb_node *rbp;
+	struct epitem *epi;
+	int error = 0;
+
+	if (ep == data->target || depth > EP_MAX_NESTS)
+		return -ELOOP;
+	if (ep->visited && ep->visited_depth >= depth)
+		return 0;
+	if (!ep->visited) {
+		ep->visited = 1;
+		list_add(&ep->visited_list_link, &data->visited);
+	}
+	ep->visited_depth = depth;
+	if (depth > data->max_depth)
+		data->max_depth = depth;
+
+	mutex_lock_nested(&ep->mtx, depth + 1);
+	for (rbp = rb_first(&ep->rbr); rbp; rbp = rb_next(rbp)) {
+		epi = rb_entry(rbp, struct epitem, rbn);
+		if (is_file_epoll(epi->ffd.file))
+			error = ep_loop_check_proc(epi->ffd.file->private_data,
+						  depth + 1, data);
+		else
+			error = ep_check_file_add(data, epi->ffd.file);
+		if (error)
+			break;
+	}
+	mutex_unlock(&ep->mtx);
+
+	return error;
+}
+
+static const unsigned int ep_path_limits[EP_PATH_ARR_SIZE] = {
+	1000, 500, 100, 50, 10
+};
+
+static int ep_path_count_inc(struct ep_loop_check_data *data, int nests)
+{
+	if (nests == 0)
+		return 0;
+	if (nests < 0 || nests >= EP_PATH_ARR_SIZE)
+		return -1;
+	if (++data->path_count[nests] > ep_path_limits[nests])
+		return -1;
+
+	return 0;
+}
+
+static int ep_reverse_path_check_proc(void *priv, void *cookie,
+				      int call_nests)
+{
+	struct ep_loop_check_data *data = priv;
+	struct file *file = cookie;
+	struct file *parent_file;
+	struct epitem *epi;
+	int error;
+
+	list_for_each_entry(epi, &file->f_ep_links, fllink) {
+		parent_file = epi->ep->file;
+		if (!parent_file)
+			return -1;
+		if (list_empty(&parent_file->f_ep_links)) {
+			error = ep_path_count_inc(data, call_nests);
+		} else {
+			error = ep_call_nested(&poll_loop_ncalls, EP_MAX_NESTS,
+					ep_reverse_path_check_proc, data,
+						parent_file, current);
+		}
+		if (error)
+			return -1;
+	}
+
+	return 0;
+}
+
+static int ep_reverse_path_check(struct ep_loop_check_data *data)
+{
+	struct rb_node *rbp;
+	struct epoll_check_file *entry;
+
+	for (rbp = rb_first(&data->files); rbp; rbp = rb_next(rbp)) {
+		entry = rb_entry(rbp, struct epoll_check_file, rbn);
+		memset(data->path_count, 0, sizeof(data->path_count));
+		if (ep_call_nested(&poll_loop_ncalls, EP_MAX_NESTS,
+				   ep_reverse_path_check_proc, data,
+				   entry->file, current))
+			return -ELOOP;
+	}
+
+	return 0;
+}
+
+static int ep_loop_check(struct eventpoll *ep, struct file *tfile,
+			 struct ep_loop_check_data *data)
+{
+	int error;
+
+	data->target = ep;
+	error = ep_loop_check_ancestors(ep, 0, data);
+	if (error)
+		goto out;
+	data->ancestor_depth = data->max_depth;
+	ep_loop_check_clear(data);
+	data->max_depth = 0;
+
+	if (is_file_epoll(tfile))
+		error = ep_loop_check_proc(tfile->private_data, 0, data);
+	else
+		error = ep_check_file_add(data, tfile);
+	if (!error && data->ancestor_depth + 1 + data->max_depth >
+	    EP_MAX_NESTS)
+		error = -ELOOP;
+
+out:
+	ep_loop_check_clear(data);
+	return error;
+}
+
+static void ep_loop_check_cleanup(struct ep_loop_check_data *data)
+{
+	struct rb_node *rbp;
+	struct epoll_check_file *entry;
+
+	ep_loop_check_clear(data);
+	while ((rbp = rb_first(&data->files)) != NULL) {
+		entry = rb_entry(rbp, struct epoll_check_file, rbn);
+		rb_erase(rbp, &data->files);
+		kfree(entry);
+	}
+}
+
 /*
  * Must be called with "mtx" held.
  */
 static int ep_insert(struct eventpoll *ep, struct epoll_event *event,
-		     struct file *tfile, int fd)
+		     struct file *tfile, int fd,
+		     struct ep_loop_check_data *check)
 {
 	int error, revents, pwake = 0;
 	unsigned long flags;
@@ -973,6 +1197,10 @@ static int ep_insert(struct eventpoll *ep, struct epoll_event *event,
 	 */
 	ep_rbtree_insert(ep, epi);
 
+	error = -ELOOP;
+	if (ep_reverse_path_check(check))
+		goto error_remove_epi;
+
 	/* We have to drop the new item inside our item list to keep track of it */
 	spin_lock_irqsave(&ep->lock, flags);
 
@@ -996,6 +1224,12 @@ static int ep_insert(struct eventpoll *ep, struct epoll_event *event,
 		ep_poll_safewake(&ep->poll_wait);
 
 	return 0;
+
+error_remove_epi:
+	spin_lock(&tfile->f_lock);
+	list_del_init(&epi->fllink);
+	spin_unlock(&tfile->f_lock);
+	rb_erase(&epi->rbn, &ep->rbr);
 
 error_unregister:
 	ep_unregister_pollwait(ep, epi);
@@ -1207,8 +1441,9 @@ retry:
  */
 SYSCALL_DEFINE1(epoll_create1, int, flags)
 {
-	int error;
+	int error, fd;
 	struct eventpoll *ep = NULL;
+	struct file *file;
 
 	/* Check the EPOLL_* constant for consistency.  */
 	BUILD_BUG_ON(EPOLL_CLOEXEC != O_CLOEXEC);
@@ -1225,10 +1460,25 @@ SYSCALL_DEFINE1(epoll_create1, int, flags)
 	 * Creates all the items needed to setup an eventpoll file. That is,
 	 * a file structure and a free file descriptor.
 	 */
-	error = anon_inode_getfd("[eventpoll]", &eventpoll_fops, ep,
-				 O_RDWR | (flags & O_CLOEXEC));
-	if (error < 0)
-		ep_free(ep);
+	fd = get_unused_fd_flags(O_RDWR | (flags & O_CLOEXEC));
+	if (fd < 0) {
+		error = fd;
+		goto out_free_ep;
+	}
+	file = anon_inode_getfile("[eventpoll]", &eventpoll_fops, ep,
+				  O_RDWR | (flags & O_CLOEXEC));
+	if (IS_ERR(file)) {
+		error = PTR_ERR(file);
+		goto out_free_fd;
+	}
+	ep->file = file;
+	fd_install(fd, file);
+	return fd;
+
+out_free_fd:
+	put_unused_fd(fd);
+out_free_ep:
+	ep_free(ep);
 
 	return error;
 }
@@ -1249,11 +1499,12 @@ SYSCALL_DEFINE1(epoll_create, int, size)
 SYSCALL_DEFINE4(epoll_ctl, int, epfd, int, op, int, fd,
 		struct epoll_event __user *, event)
 {
-	int error;
+	int error, did_lock_epmutex = 0, have_check = 0;
 	struct file *file, *tfile;
 	struct eventpoll *ep;
 	struct epitem *epi;
 	struct epoll_event epds;
+	struct ep_loop_check_data check;
 
 	error = -EFAULT;
 	if (ep_op_has_event(op) &&
@@ -1291,6 +1542,27 @@ SYSCALL_DEFINE4(epoll_ctl, int, epfd, int, op, int, fd,
 	 */
 	ep = file->private_data;
 
+	if (op == EPOLL_CTL_ADD || op == EPOLL_CTL_DEL) {
+		mutex_lock(&epmutex);
+		did_lock_epmutex = 1;
+	}
+	if (op == EPOLL_CTL_ADD) {
+		mutex_lock(&ep->mtx);
+		epi = ep_find(ep, tfile, fd);
+		mutex_unlock(&ep->mtx);
+		if (epi) {
+			error = -EEXIST;
+			goto error_tgt_fput;
+		}
+		memset(&check, 0, sizeof(check));
+		INIT_LIST_HEAD(&check.visited);
+		check.files = RB_ROOT;
+		have_check = 1;
+		error = ep_loop_check(ep, tfile, &check);
+		if (error)
+			goto error_tgt_fput;
+	}
+
 	mutex_lock(&ep->mtx);
 
 	/*
@@ -1305,7 +1577,7 @@ SYSCALL_DEFINE4(epoll_ctl, int, epfd, int, op, int, fd,
 	case EPOLL_CTL_ADD:
 		if (!epi) {
 			epds.events |= POLLERR | POLLHUP;
-			error = ep_insert(ep, &epds, tfile, fd);
+			error = ep_insert(ep, &epds, tfile, fd, &check);
 		} else
 			error = -EEXIST;
 		break;
@@ -1326,6 +1598,10 @@ SYSCALL_DEFINE4(epoll_ctl, int, epfd, int, op, int, fd,
 	mutex_unlock(&ep->mtx);
 
 error_tgt_fput:
+	if (have_check)
+		ep_loop_check_cleanup(&check);
+	if (did_lock_epmutex)
+		mutex_unlock(&epmutex);
 	fput(tfile);
 error_fput:
 	fput(file);
@@ -1449,6 +1725,8 @@ static int __init eventpoll_init(void)
 
 	/* Initialize the structure used to perform file's f_op->poll() calls */
 	ep_nested_calls_init(&poll_readywalk_ncalls);
+
+	ep_nested_calls_init(&poll_loop_ncalls);
 
 	/* Allocates slab cache used to allocate "struct epitem" items */
 	epi_cache = kmem_cache_create("eventpoll_epi", sizeof(struct epitem),
