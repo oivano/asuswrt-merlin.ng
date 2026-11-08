@@ -192,6 +192,22 @@ assert(miniupnpd.indexOf(protocolPolicy) < miniupnpd.indexOf('OpenAndConfNATPMPS
 assert.match(miniupnpd, /if\(GETFLAG\(ENABLENATPMPMASK\)\)\s*\{\s*if\(OpenAndConfNATPMPSockets\(snatpmp\)/);
 assert.match(miniupnpd, /if\(GETFLAG\(ENABLENATPMPMASK\) && !GETFLAG\(IPV6DISABLEDMASK\)\) \{\s*spcp_v6 = OpenAndConfPCPv6Socket\(\);/);
 
+const pcpHandler = pcp.match(/int ProcessIncomingPCPPacket\([\s\S]*?\n\}/)[0];
+const pcpPeerGuard = pcpHandler.match(/lan_addr = get_lan_for_peer\(senderaddr\);[\s\S]*?\n\t\}/)[0];
+assert(!pcpHandler.includes('PCP_ALLOWTHIRDPARTYMASK'));
+assert(pcpHandler.indexOf(pcpPeerGuard) < pcpHandler.indexOf('processPCPRequest('));
+const checkPCPPeer = vm.runInNewContext(`(function(peerLan, senderaddr) {
+	let lan_addr;
+	const NULL = null;
+	const get_lan_for_peer = () => peerLan;
+	${pcpPeerGuard}
+	return true;
+})`);
+for (const allowThirdParty of [false, true]) {
+	assert.equal(checkPCPPeer(null, {}), 0, `non-LAN PCP sender must be ignored (third-party=${allowThirdParty})`);
+	assert.equal(checkPCPPeer({ ifname: 'br0' }, {}), true, `LAN PCP sender must pass (third-party=${allowThirdParty})`);
+}
+
 const guestIsolation = lan.slice(lan.indexOf('\nvoid lanaccess_mssid('), lan.indexOf('\nvoid CP_lanaccess_wl('));
 const guestUdpRule = guestIsolation.match(/eval\("ebtables", mode \? "-A" : "-D", "INPUT",[^;]*"5351"[^;]*;/)[0];
 const generateGuestUdpRule = vm.runInNewContext(`(function(lifname, mode) {
