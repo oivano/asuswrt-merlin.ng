@@ -389,7 +389,8 @@ static int check_kmp_header(struct openconnect_info *vpninfo, unsigned char *byt
 
 static int parse_conf_pkt(struct openconnect_info *vpninfo, unsigned char *bytes, int pktlen, int kmp)
 {
-	int kmplen, kmpend, grouplen, groupend, group, attr, attrlen;
+	int kmplen, kmpend, groupend, group, attr;
+	uint32_t grouplen, attrlen;
 	int ofs = 0;
 	int split_enc_hmac_keys = 0;
 	struct oc_vpn_option *new_opts = NULL;
@@ -419,9 +420,9 @@ static int parse_conf_pkt(struct openconnect_info *vpninfo, unsigned char *bytes
 		group = load_be16(bytes + ofs);
 		grouplen = load_be32(bytes + ofs + 2);
 		ofs += 6;
-		groupend = ofs + grouplen;
-		if (groupend > pktlen)
+		if (grouplen > pktlen - ofs)
 			goto eparse;
+		groupend = ofs + (int)grouplen;
 
 		if (kmp == 302 && group != 7 && group != 8) {
 			vpn_progress(vpninfo, PRG_ERR,
@@ -436,14 +437,14 @@ static int parse_conf_pkt(struct openconnect_info *vpninfo, unsigned char *bytes
 			attr = load_be16(bytes + ofs);
 			attrlen = load_be32(bytes + ofs + 2);
 			ofs += 6;
-			if (attrlen + ofs > groupend)
+			if (attrlen > groupend - ofs)
 				goto eparse;
 			if (process_attr(vpninfo, &new_opts, &new_ip_info,
-					 group, attr, bytes + ofs, attrlen))
+					 group, attr, bytes + ofs, (int)attrlen))
 				goto eparse;
 			if (GRP_ATTR(group, attr)==GRP_ATTR(7, 2))
 				split_enc_hmac_keys = 1;
-			ofs += attrlen;
+			ofs += (int)attrlen;
 		}
 	}
 
