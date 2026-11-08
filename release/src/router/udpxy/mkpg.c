@@ -39,6 +39,43 @@
 extern FILE* g_flog;
 
 
+static int
+html_escape( const char* src, char* dst, size_t dstlen )
+{
+    size_t used = 0, entity_len = 0;
+    const char* entity = NULL;
+
+    assert( src && dst && dstlen );
+
+    while( *src ) {
+        entity = NULL;
+        switch( *src ) {
+        case '&': entity = "&amp;"; break;
+        case '<': entity = "&lt;"; break;
+        case '>': entity = "&gt;"; break;
+        case '"': entity = "&quot;"; break;
+        case '\'': entity = "&#39;"; break;
+        }
+
+        if( entity ) {
+            entity_len = strlen( entity );
+            if( entity_len >= dstlen - used ) return -1;
+            memcpy( dst + used, entity, entity_len );
+            used += entity_len;
+        }
+        else {
+            if( used + 1 >= dstlen ) return -1;
+            dst[ used++ ] = *src;
+        }
+
+        ++src;
+    }
+
+    dst[ used ] = '\0';
+    return 0;
+}
+
+
 /* generate throughput statistic string
  */
 static const char*
@@ -69,6 +106,9 @@ mk_client_entries( const struct server_ctx* ctx,
     size_t i = 0, total = 0;
     ssize_t max_cli_mem = 0, max_cli_tail = 0;
     char tpinfo[ 32 ];
+    char escaped_src_addr[ IPADDR_STR_SIZE * 6 + 1 ];
+    char escaped_mcast_addr[ IPADDR_STR_SIZE * 6 + 1 ];
+    char escaped_tail[ MAX_TAIL_LEN * 6 + 1 ];
 
     assert( ctx && buf && len );
 
@@ -86,11 +126,21 @@ mk_client_entries( const struct server_ctx* ctx,
             struct client_ctx* client = &(ctx->cl[i]);
             if( client->pid <= 0 ) continue;
 
+            if( html_escape( client->src_addr, escaped_src_addr,
+                             sizeof(escaped_src_addr) ) < 0 ||
+                html_escape( client->mcast_addr, escaped_mcast_addr,
+                             sizeof(escaped_mcast_addr) ) < 0 ||
+                html_escape( client->tail, escaped_tail,
+                             sizeof(escaped_tail) ) < 0 ) {
+                n = -1;
+                break;
+            }
+
             n = prbuf_printf( pb, ACLIENT_REC_FMT[ i % 2 ],
                     ctx->cl[i].pid,
-                    client->src_addr, client->src_port,
-                    client->mcast_addr, client->mcast_port,
-                    client->tail ? client->tail : "",
+                    escaped_src_addr, client->src_port,
+                    escaped_mcast_addr, client->mcast_port,
+                    escaped_tail,
                     tpstat_str( &(client->tstat), tpinfo,
                                 sizeof(tpinfo) ) );
             if( n <= 0 ) break;
@@ -148,7 +198,7 @@ mk_status_page( const struct server_ctx* ctx,
     const unsigned delay_msec = 3000;
 
     size_t text_size = 0, HEADER_SIZE = 0;
-    static size_t MIN_PER_CLI = 80 + (3 * (IPADDR_STR_SIZE + 5) );
+    static size_t MIN_PER_CLI = 80 + (3 * ((IPADDR_STR_SIZE * 6) + 5) );
 
     extern const char  UDPXY_COPYRIGHT_NOTICE[];
     extern const char  COMPILE_MODE[];
@@ -179,7 +229,7 @@ mk_status_page( const struct server_ctx* ctx,
         for(text_size = 0, num_clients = 0, i = 0; i < ctx->clmax; ++i ) {
             if( ctx->cl[i].pid > 0 ) {
                 ++num_clients;
-                text_size += MIN_PER_CLI + strlen(ctx->cl[i].tail);
+                text_size += MIN_PER_CLI + (6 * strlen(ctx->cl[i].tail));
             }
         }
 
