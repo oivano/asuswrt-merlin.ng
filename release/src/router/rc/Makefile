@@ -1876,9 +1876,11 @@ tr069.o:
 endif
 endif
 
+ifeq ($(wildcard ./dhcpc_vc_query.c),)
 ifneq ($(wildcard ./prebuild/dhcpc_vc_query.o),)
 dhcpc_vc_query.o:
 	@-cp -f ./prebuild/dhcpc_vc_query.o .
+endif
 endif
 
 ifeq ($(RTCONFIG_AMAS),y)
