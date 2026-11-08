@@ -578,27 +578,36 @@ EXPORT_SYMBOL_GPL(usb_sg_wait);
 void usb_sg_cancel(struct usb_sg_request *io)
 {
 	unsigned long flags;
+	int i;
 
 	spin_lock_irqsave(&io->lock, flags);
+	if (io->status || io->count == 0) {
+		spin_unlock_irqrestore(&io->lock, flags);
+		return;
+	}
 
 	/* shut everything down, if it didn't already */
-	if (!io->status) {
-		int i;
+	io->status = -ECONNRESET;
+	io->count++; /* Keep the request alive until we're done. */
+	for (i = 0; i < io->entries; i++)
+		usb_block_urb(io->urbs[i]);
+	spin_unlock_irqrestore(&io->lock, flags);
 
-		io->status = -ECONNRESET;
-		spin_unlock(&io->lock);
-		for (i = 0; i < io->entries; i++) {
-			int retval;
+	for (i = io->entries - 1; i >= 0; --i) {
+		int retval;
 
-			if (!io->urbs [i]->dev)
-				continue;
-			retval = usb_unlink_urb(io->urbs [i]);
-			if (retval != -EINPROGRESS && retval != -EBUSY)
-				dev_warn(&io->dev->dev, "%s, unlink --> %d\n",
-					__func__, retval);
-		}
-		spin_lock(&io->lock);
+		if (!io->urbs[i]->dev)
+			continue;
+		retval = usb_unlink_urb(io->urbs[i]);
+		if (retval != -EINPROGRESS && retval != -EBUSY)
+			dev_warn(&io->dev->dev, "%s, unlink --> %d\n",
+				__func__, retval);
 	}
+
+	spin_lock_irqsave(&io->lock, flags);
+	io->count--;
+	if (!io->count)
+		complete(&io->complete);
 	spin_unlock_irqrestore(&io->lock, flags);
 }
 EXPORT_SYMBOL_GPL(usb_sg_cancel);
