@@ -1422,9 +1422,18 @@ void reply_search(struct smb_request *req)
 		goto out;
 	}
 
+	if (smbreq_bufrem(req, p) < 3) {
+		reply_nterror(req, NT_STATUS_INVALID_PARAMETER);
+		goto out;
+	}
+
 	p++;
 	status_len = SVAL(p, 0);
 	p += 2;
+	if (status_len != 0 && smbreq_bufrem(req, p) < 21) {
+		reply_nterror(req, NT_STATUS_INVALID_PARAMETER);
+		goto out;
+	}
 
 	/* dirtype &= ~FILE_ATTRIBUTE_DIRECTORY; */
 
@@ -1678,9 +1687,19 @@ void reply_fclose(struct smb_request *req)
 		END_PROFILE(SMBfclose);
 		return;
 	}
+	if (smbreq_bufrem(req, p) < 3) {
+		reply_nterror(req, NT_STATUS_INVALID_PARAMETER);
+		END_PROFILE(SMBfclose);
+		return;
+	}
 	p++;
 	status_len = SVAL(p,0);
 	p += 2;
+	if (status_len != 0 && smbreq_bufrem(req, p) < 21) {
+		reply_nterror(req, NT_STATUS_INVALID_PARAMETER);
+		END_PROFILE(SMBfclose);
+		return;
+	}
 
 	if (status_len == 0) {
 		reply_force_doserror(req, ERRSRV, ERRsrverror);
