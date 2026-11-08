@@ -1669,7 +1669,8 @@ static void write_guest_nat_reflection_guard(FILE *fp, const char *wan_ip)
 
 		snprintf(nv, sizeof(nv), "%s_lanaccess", wif_to_vif(ifname));
 		if (nvram_match(nv, "off"))
-			fprintf(fp, "-A PREROUTING -m physdev --physdev-in %s -d %s -j DROP\n", ifname, wan_ip);
+			fprintf(fp, "-A PREROUTING -m mark --mark %s/%s -d %s -j DROP\n",
+				BIT_GUEST_IPV4, BIT_GUEST_IPV4, wan_ip);
 	}
 	free(ifnames);
 }
@@ -7842,13 +7843,36 @@ void enable_ip_forward(void)
 }
 
 #define ERR_RULES_PATH "/tmp/err_rules"
+static int disable_inbound_nat(void)
+{
+	int ret = 0;
+
+	if (eval("iptables", "-t", "nat", "-F", "PREROUTING") != 0)
+		ret = -1;
+	if (eval("iptables", "-t", "nat", "-F", "OUTPUT") != 0)
+		ret = -1;
+
+	return ret;
+}
+
 void rule_apply_checking(char *caller, int line, char *rule_path, int ret) {
 	if (ret) {
 		char dst_file[64];
+		const char *rule_name = strrchr(rule_path, '/');
+		int nat_fallback_ret;
+
+		rule_name = rule_name ? rule_name + 1 : rule_path;
 		logmessage(caller, "apply rules error(%d)", line);
 		if (!check_if_dir_exist(ERR_RULES_PATH))
 			mkdir(ERR_RULES_PATH, 0777);
-		snprintf(dst_file, sizeof(dst_file), "%s/%s_%u", ERR_RULES_PATH, basename(rule_path), (unsigned int)time(NULL));
+		snprintf(dst_file, sizeof(dst_file), "%s/%s_%u", ERR_RULES_PATH, rule_name, (unsigned int)time(NULL));
 		eval("cp", rule_path, dst_file);
+		if (!strncmp(rule_name, "nat_rules", sizeof("nat_rules") - 1)
+		 || !strncmp(rule_name, "redirect_rules", sizeof("redirect_rules") - 1)
+		 || !strncmp(rule_name, "filter", sizeof("filter") - 1)) {
+			nat_fallback_ret = disable_inbound_nat();
+			logmessage(caller, "failed to apply %s rules (error %d); inbound NAT fallback %s",
+				rule_name, ret, nat_fallback_ret == 0 ? "applied" : "failed");
+		}
 	}
 }
