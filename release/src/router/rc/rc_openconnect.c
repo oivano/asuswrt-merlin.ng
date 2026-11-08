@@ -58,6 +58,99 @@ static void get_pid_file(int unit, char *buf, size_t len)
 	snprintf(buf, len, "%s%d.pid", OPENCONNECT_PID_BASE, unit);
 }
 
+static int openconnect_secure_dir(int descriptor)
+{
+	struct stat st;
+
+	if (fstat(descriptor, &st) < 0 || !S_ISDIR(st.st_mode) ||
+		st.st_uid != 0 || st.st_gid != 0 || (st.st_mode & 0022) ||
+		fchmod(descriptor, 0700) < 0 || fstat(descriptor, &st) < 0 ||
+		(st.st_mode & 0777) != 0700)
+		return -1;
+	return 0;
+}
+
+static int openconnect_config_dir(int unit)
+{
+	struct stat st;
+	char dirname[16];
+	int parentfd, descriptor;
+
+	if (lstat("/tmp", &st) < 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
+		((st.st_mode & 0022) && !(st.st_mode & S_ISVTX)))
+		return -1;
+	if (mkdir(OPENCONNECT_CONF_DIR, 0700) < 0 && errno != EEXIST)
+		return -1;
+	parentfd = open(OPENCONNECT_CONF_DIR, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (parentfd < 0)
+		return -1;
+	if (openconnect_secure_dir(parentfd) < 0) {
+		close(parentfd);
+		return -1;
+	}
+	snprintf(dirname, sizeof(dirname), "client%d", unit);
+	if (mkdirat(parentfd, dirname, 0700) < 0 && errno != EEXIST) {
+		close(parentfd);
+		return -1;
+	}
+	descriptor = openat(parentfd, dirname, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	close(parentfd);
+	if (descriptor < 0)
+		return -1;
+	if (openconnect_secure_dir(descriptor) < 0) {
+		close(descriptor);
+		return -1;
+	}
+	return descriptor;
+}
+
+static int openconnect_write_all(int descriptor, const char *data, size_t length)
+{
+	while (length) {
+		ssize_t written = write(descriptor, data, length);
+
+		if (written < 0) {
+			if (errno == EINTR)
+				continue;
+			return -1;
+		}
+		if (written == 0)
+			return -1;
+		data += written;
+		length -= written;
+	}
+	return 0;
+}
+
+static int openconnect_write_secret(int dirfd, const char *name,
+					    const char *first, const char *second)
+{
+	struct stat st;
+	int descriptor, result = -1;
+
+	descriptor = openat(dirfd, name, O_WRONLY | O_CREAT | O_EXCL |
+			    O_NOFOLLOW | O_NONBLOCK, 0600);
+	if (descriptor < 0)
+		return -1;
+	if (fstat(descriptor, &st) < 0 || !S_ISREG(st.st_mode) ||
+		st.st_uid != 0 || st.st_gid != 0 || st.st_nlink != 1 ||
+		fchmod(descriptor, 0600) < 0)
+		goto done;
+	if (openconnect_write_all(descriptor, first, strlen(first)) < 0)
+		goto done;
+	if (second && (openconnect_write_all(descriptor, "\n", 1) < 0 ||
+		openconnect_write_all(descriptor, second, strlen(second)) < 0 ||
+		openconnect_write_all(descriptor, "\n", 1) < 0))
+		goto done;
+	result = 0;
+done:
+	if (close(descriptor) < 0)
+		result = -1;
+	if (result < 0)
+		unlinkat(dirfd, name, 0);
+	return result;
+}
+
 static int openconnect_log_open(int unit)
 {
 	struct stat st;
@@ -164,18 +257,25 @@ int get_openconnect_errno(int unit)
 /* Write OpenConnect configuration and credential files */
 int write_openconnect_config(int unit)
 {
-	FILE *fp;
-	char confdir[64], conffile[128], authfile[128], certfile[128], keyfile[128], cafile[128];
+	int dirfd;
 	char varname[32], *server, *username, *password, *authgroup, *cert, *key, *ca;
 	int ret = 0;
 	
 	if (unit < 1 || unit > OPENCONNECT_CLIENT_MAX)
 		return -1;
 	
-	/* Create config directory */
-	snprintf(confdir, sizeof(confdir), "%s/client%d", OPENCONNECT_CONF_DIR, unit);
-	mkdir(OPENCONNECT_CONF_DIR, 0700);
-	mkdir(confdir, 0700);
+	dirfd = openconnect_config_dir(unit);
+	if (dirfd < 0) {
+		logmessage("openconnect", "Refusing unsafe config directory for client %d", unit);
+		return -1;
+	}
+	if ((unlinkat(dirfd, "auth.txt", 0) < 0 && errno != ENOENT) ||
+		(unlinkat(dirfd, "client.crt", 0) < 0 && errno != ENOENT) ||
+		(unlinkat(dirfd, "client.key", 0) < 0 && errno != ENOENT) ||
+		(unlinkat(dirfd, "ca.crt", 0) < 0 && errno != ENOENT)) {
+		close(dirfd);
+		return -1;
+	}
 	
 	/* Get configuration from NVRAM */
 	snprintf(varname, sizeof(varname), "openconnect_client%d_", unit);
@@ -190,51 +290,32 @@ int write_openconnect_config(int unit)
 	
 	/* Write username/password file if provided */
 	if (username && *username && password && *password) {
-		snprintf(authfile, sizeof(authfile), "%s/auth.txt", confdir);
-		fp = fopen(authfile, "w");
-		if (fp) {
-			fprintf(fp, "%s\n%s\n", username, password);
-			fclose(fp);
-			chmod(authfile, 0600);
-		} else {
-			logmessage("openconnect", "Failed to write auth file for client %d", unit);
+		if (openconnect_write_secret(dirfd, "auth.txt", username, password) < 0)
 			ret = -1;
-		}
 	}
 	
 	/* Write certificate if provided */
-	if (cert && *cert) {
-		snprintf(certfile, sizeof(certfile), "%s/client.crt", confdir);
-		fp = fopen(certfile, "w");
-		if (fp) {
-			fprintf(fp, "%s", cert);
-			fclose(fp);
-			chmod(certfile, 0600);
-		}
-	}
+	if (!ret && cert && *cert &&
+		openconnect_write_secret(dirfd, "client.crt", cert, NULL) < 0)
+		ret = -1;
 	
 	/* Write key if provided */
-	if (key && *key) {
-		snprintf(keyfile, sizeof(keyfile), "%s/client.key", confdir);
-		fp = fopen(keyfile, "w");
-		if (fp) {
-			fprintf(fp, "%s", key);
-			fclose(fp);
-			chmod(keyfile, 0600);
-		}
-	}
+	if (!ret && key && *key &&
+		openconnect_write_secret(dirfd, "client.key", key, NULL) < 0)
+		ret = -1;
 	
 	/* Write CA certificate if provided */
-	if (ca && *ca) {
-		snprintf(cafile, sizeof(cafile), "%s/ca.crt", confdir);
-		fp = fopen(cafile, "w");
-		if (fp) {
-			fprintf(fp, "%s", ca);
-			fclose(fp);
-			chmod(cafile, 0600);
-		}
+	if (!ret && ca && *ca &&
+		openconnect_write_secret(dirfd, "ca.crt", ca, NULL) < 0)
+		ret = -1;
+	if (ret) {
+		unlinkat(dirfd, "auth.txt", 0);
+		unlinkat(dirfd, "client.crt", 0);
+		unlinkat(dirfd, "client.key", 0);
+		unlinkat(dirfd, "ca.crt", 0);
+		logmessage("openconnect", "Failed to write config for client %d", unit);
 	}
-	
+	close(dirfd);
 	return ret;
 }
 
