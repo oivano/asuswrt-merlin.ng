@@ -1328,7 +1328,9 @@ extern int usb_submit_urb(struct urb *urb, gfp_t mem_flags);
 extern int usb_unlink_urb(struct urb *urb);
 extern void usb_kill_urb(struct urb *urb);
 extern void usb_poison_urb(struct urb *urb);
+extern void usb_block_urb(struct urb *urb);
 extern void usb_unpoison_urb(struct urb *urb);
+#define usb_unblock_urb usb_unpoison_urb
 extern void usb_kill_anchored_urbs(struct usb_anchor *anchor);
 extern void usb_poison_anchored_urbs(struct usb_anchor *anchor);
 extern void usb_unpoison_anchored_urbs(struct usb_anchor *anchor);
