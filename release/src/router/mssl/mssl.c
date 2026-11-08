@@ -561,11 +561,12 @@ int mssl_init_ex(char *cert, char *priv, char *ciphers)
 			return 0;
 		}
 
-		// Disable renegotiation
-#ifdef SSL_OP_NO_RENGOTIATION
-		SSL_CTX_set_options(ctx, SSL_OP_NO_RENGOTIATION);
+#if defined(SSL_OP_NO_RENEGOTIATION)
+		SSL_CTX_set_options(ctx, SSL_OP_NO_RENEGOTIATION);
 #elif OPENSSL_VERSION_NUMBER < 0x10100000L && defined(SSL3_FLAGS_NO_RENEGOTIATE_CIPHERS)
 		SSL_CTX_set_info_callback(ctx, ssl_info_cb);
+#else
+#error "TLS server requires support for disabling renegotiation"
 #endif
 	}
 
