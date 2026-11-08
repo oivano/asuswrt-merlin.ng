@@ -636,8 +636,10 @@ int ovpn_write_client_config(ovpn_cconf_t *cconf, int unit) {
 
 	chmod(buffer, S_IRUSR|S_IWUSR);
 	fprintf(fp, "daemon ovpn-client%d\n", unit);
-	if (cconf->auth_mode == OVPN_AUTH_TLS )
+	if (cconf->auth_mode == OVPN_AUTH_TLS ) {
 		fprintf(fp, "client\n");
+		fprintf(fp, "remote-cert-tls server\n");
+	}
 	fprintf(fp, "dev %s\n", cconf->if_name);
 	fprintf(fp, "txqueuelen 1000\n");
 	fprintf(fp, "proto %s\n", cconf->proto);
