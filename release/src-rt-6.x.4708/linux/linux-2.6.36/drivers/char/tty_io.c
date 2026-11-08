@@ -2560,7 +2560,10 @@ long tty_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case TIOCGSID:
 		return tiocgsid(tty, real_tty, p);
 	case TIOCGETD:
-		return put_user(tty->ldisc->ops->num, (int __user *)p);
+		ld = tty_ldisc_ref_wait(tty);
+		retval = put_user(ld->ops->num, (int __user *)p);
+		tty_ldisc_deref(ld);
+		return retval;
 	case TIOCSETD:
 		return tiocsetd(tty, p);
 	/*
