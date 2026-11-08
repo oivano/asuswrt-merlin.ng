@@ -223,6 +223,50 @@ struct l2tp_session *l2tp_session_find_get(struct l2tp_tunnel *tunnel,
 }
 EXPORT_SYMBOL_GPL(l2tp_session_find_get);
 
+/* Look up a session, hold it, and optionally hold its private context. */
+struct l2tp_session *l2tp_session_get(struct net *net,
+				      struct l2tp_tunnel *tunnel,
+				      u32 session_id, int do_ref)
+{
+	struct hlist_head *session_list;
+	struct l2tp_session *session;
+	struct hlist_node *walk;
+
+	if (tunnel == NULL) {
+		struct l2tp_net *pn = l2tp_pernet(net);
+
+		session_list = l2tp_session_id_hash_2(pn, session_id);
+		rcu_read_lock_bh();
+		hlist_for_each_entry_rcu(session, walk, session_list, global_hlist) {
+			if (session->session_id == session_id) {
+				l2tp_session_inc_refcount(session);
+				if (do_ref && session->ref)
+					(*session->ref)(session);
+				rcu_read_unlock_bh();
+				return session;
+			}
+		}
+		rcu_read_unlock_bh();
+		return NULL;
+	}
+
+	session_list = l2tp_session_id_hash(tunnel, session_id);
+	read_lock_bh(&tunnel->hlist_lock);
+	hlist_for_each_entry(session, walk, session_list, hlist) {
+		if (session->session_id == session_id) {
+			l2tp_session_inc_refcount(session);
+			if (do_ref && session->ref)
+				(*session->ref)(session);
+			read_unlock_bh(&tunnel->hlist_lock);
+			return session;
+		}
+	}
+	read_unlock_bh(&tunnel->hlist_lock);
+
+	return NULL;
+}
+EXPORT_SYMBOL_GPL(l2tp_session_get);
+
 struct l2tp_session *l2tp_session_find_nth(struct l2tp_tunnel *tunnel, int nth)
 {
 	int hash;
@@ -550,7 +594,8 @@ static inline int l2tp_verify_udp_checksum(struct sock *sk,
  * Caller must already have parsed the frame and determined that it is
  * a data (not control) frame before coming here. Fields up to the
  * session-id have already been parsed and ptr points to the data
- * after the session-id.
+ * after the session-id. The caller must hold a session reference and, when
+ * required, its private context reference.
  */
 void l2tp_recv_common(struct l2tp_session *session, struct sk_buff *skb,
 		      unsigned char *ptr, unsigned char *optr, u16 hdrflags,
@@ -559,14 +604,6 @@ void l2tp_recv_common(struct l2tp_session *session, struct sk_buff *skb,
 	struct l2tp_tunnel *tunnel = session->tunnel;
 	int offset;
 	u32 ns, nr;
-
-	/* The ref count is increased since we now hold a pointer to
-	 * the session. Take care to decrement the refcnt when exiting
-	 * this function from now on...
-	 */
-	l2tp_session_inc_refcount(session);
-	if (session->ref)
-		(*session->ref)(session);
 
 	/* Parse and check optional cookie */
 	if (session->peer_cookie_len > 0) {
@@ -738,8 +775,6 @@ void l2tp_recv_common(struct l2tp_session *session, struct sk_buff *skb,
 	/* Try to dequeue as many skbs from reorder_q as we can. */
 	l2tp_recv_dequeue(session);
 
-	l2tp_session_dec_refcount(session);
-
 	return;
 
 discard:
@@ -749,7 +784,6 @@ discard:
 	if (session->deref)
 		(*session->deref)(session);
 
-	l2tp_session_dec_refcount(session);
 }
 EXPORT_SYMBOL(l2tp_recv_common);
 
@@ -845,14 +879,17 @@ int l2tp_udp_recv_core(struct l2tp_tunnel *tunnel, struct sk_buff *skb,
 	}
 
 	/* Find the session context */
-	session = l2tp_session_find_get(tunnel, session_id);
+	session = l2tp_session_get(tunnel->l2tp_net, tunnel, session_id, 1);
 	if (!session || !session->recv_skb) {
 		/* Not found? Pass to userspace to deal with */
 		PRINTK(tunnel->debug, L2TP_MSG_DATA, KERN_INFO,
 		       "%s: no session found (%u/%u). Passing up.\n",
 		       tunnel->name, tunnel_id, session_id);
-		if (session != NULL)
+		if (session != NULL) {
+			if (session->deref)
+				(*session->deref)(session);
 			l2tp_session_dec_refcount(session);
+		}
 		goto error;
 	}
 
