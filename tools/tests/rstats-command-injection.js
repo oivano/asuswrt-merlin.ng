@@ -10,6 +10,41 @@ const rstats = read('release/src/router/rstats/rstats.c');
 const cstats = read('release/src/router/cstats/cstats.c');
 const web = read('release/src/router/httpd/web.c');
 
+const cursorNormalizer = rstats.slice(
+    rstats.indexOf('static void normalize_history_cursor('),
+    rstats.indexOf('\nstatic int load_history(', rstats.indexOf('static void normalize_history_cursor('))
+);
+assert.match(cursorNormalizer, /\*cursor < 0/);
+assert.match(cursorNormalizer, /\*cursor >= max/);
+assert.match(cursorNormalizer, /\*cursor = 0/);
+
+const loadHistory = rstats.slice(rstats.indexOf('static int load_history('), rstats.indexOf('\n/* Try loading', rstats.indexOf('static int load_history(')));
+assert.match(loadHistory, /normalize_history_cursor\(&history\.dailyp, MAX_NDAILY\)/);
+assert.match(loadHistory, /normalize_history_cursor\(&history\.monthlyp, MAX_NMONTHLY\)/);
+assert.ok(loadHistory.indexOf('normalize_history_cursor') > loadHistory.indexOf('memcpy(&history, &hist'));
+
+const saveData = rstats.slice(rstats.indexOf('static void save_datajs('), rstats.indexOf('\nstatic void save_histjs(', rstats.indexOf('static void save_datajs(')));
+assert.match(saveData, /normalize_history_cursor\(&p, max\)/);
+assert.ok(saveData.indexOf('normalize_history_cursor') < saveData.indexOf('p = (p + 1) % max'));
+
+const bump = rstats.slice(rstats.indexOf('static void bump('), rstats.indexOf('\n/**', rstats.indexOf('static void bump(')));
+assert.match(bump, /if \(max <= 0\) return;/);
+assert.match(bump, /normalize_history_cursor\(tail, max\)/);
+assert.ok(bump.indexOf('normalize_history_cursor') < bump.indexOf('data[t].xtime'));
+
+const dailySize = Number(rstats.match(/#define MAX_NDAILY\s+(\d+)/)[1]);
+const monthlySize = Number(rstats.match(/#define MAX_NMONTHLY\s+(\d+)/)[1]);
+const normalizeCursor = (cursor, max) => (max <= 0 || cursor < 0 || cursor >= max) ? 0 : cursor;
+for (const max of [dailySize, monthlySize]) {
+    for (const cursor of [0, max - 1])
+        assert.equal(normalizeCursor(cursor, max), cursor, `keep valid cursor ${cursor}/${max}`);
+    for (const cursor of [-5, 0x10000000, 0x7fffffff]) {
+        const normalized = normalizeCursor(cursor, max);
+        assert.equal(normalized, 0, `normalize invalid cursor ${cursor}/${max}`);
+        assert.ok(normalized >= 0 && normalized < max, `index remains inside ring ${normalized}/${max}`);
+    }
+}
+
 const rstatsDecomp = rstats.slice(rstats.indexOf('static int decomp('), rstats.indexOf('\nstatic ', rstats.indexOf('static int decomp(') + 1));
 const cstatsLoad = cstats.slice(cstats.indexOf('static int load_history_to_tree('), cstats.indexOf('\nstatic int load_history(', cstats.indexOf('static int load_history_to_tree(')));
 for (const [name, source] of [['rstats', rstatsDecomp], ['cstats', cstatsLoad]]) {
