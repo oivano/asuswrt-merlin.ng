@@ -128,6 +128,27 @@ static int rc_firewall_rules_dir_prepare(void)
 	return result;
 }
 
+static int watchdog_heartbeat_dir_prepare(void)
+{
+	struct stat st, path;
+	int fd, result = 0;
+
+	if (geteuid() != 0 ||
+	    (mkdir(WATCHDOG_HEARTBEAT_DIRECTORY, 0700) < 0 && errno != EEXIST))
+		return 0;
+	fd = open(WATCHDOG_HEARTBEAT_DIRECTORY, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (fd < 0)
+		return 0;
+	if (fstat(fd, &st) == 0 && S_ISDIR(st.st_mode) && st.st_uid == 0 &&
+	    fchmod(fd, 0700) == 0 && fstat(fd, &st) == 0 &&
+	    (st.st_mode & 07777) == 0700 &&
+	    lstat(WATCHDOG_HEARTBEAT_DIRECTORY, &path) == 0 &&
+	    S_ISDIR(path.st_mode) && path.st_dev == st.st_dev && path.st_ino == st.st_ino)
+		result = 1;
+	close(fd);
+	return result;
+}
+
 #ifdef RTCONFIG_WLMODULE_MT7663E_AP
 #include <l1profile.h>
 #endif
@@ -19837,6 +19858,8 @@ static void sysinit(void)
 	mkdir("/var/tmp/dhcp", 01777);
 	mkdir("/home/root", 0700);
 	chmod("/tmp", 01777);
+	if (!watchdog_heartbeat_dir_prepare())
+		_dprintf("Unable to secure watchdog heartbeat directory\n");
 #if defined(RTCONFIG_DSL_REMOTE) && !defined(RTCONFIG_SMALL_FW_UPDATE) && !defined(RTCONFIG_PIPEFW)
 	if (!httpd_upgrade_dir_prepare())
 		_dprintf("Unable to secure firmware upgrade directory\n");

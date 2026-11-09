@@ -87,6 +87,8 @@ void get_ext_phy_id();
 
 #define IFUP (IFF_UP | IFF_RUNNING | IFF_BROADCAST | IFF_MULTICAST)
 #define IFFDOWN (1 << 0) /* Interface is down */
+#define WATCHDOG_HEARTBEAT_DIRECTORY "/tmp/watchdog"
+#define WATCHDOG_HEARTBEAT_FILE WATCHDOG_HEARTBEAT_DIRECTORY "/heartbeat"
 
 #if LINUX_KERNEL_VERSION >= KERNEL_VERSION(3,2,0)
 #define USBCOMMON_MOD	"usb-common"
@@ -1807,6 +1809,7 @@ extern void auto_firmware_check_merlin();
 
 // check_watchdog.c
 extern int check_watchdog_main(int argc, char *argv[]);
+extern int watchdog_heartbeat_dir_is_secure(void);
 extern int fwupg_flashing_main(int argc, char *argv[]);
 
 // usbled.c

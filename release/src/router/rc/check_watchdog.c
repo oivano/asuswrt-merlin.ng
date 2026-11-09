@@ -49,7 +49,9 @@ void check_watchdog()
 		return;
 #endif
 
-	ret = stat("/tmp/watchdog_heartbeat", &sb);
+	if (!watchdog_heartbeat_dir_is_secure())
+		return;
+	ret = lstat(WATCHDOG_HEARTBEAT_FILE, &sb);
 	time(&now);
 
 	if (ts_check && ((now - ts_check) < 60))
@@ -57,7 +59,7 @@ void check_watchdog()
 	else
 		ts_check = now;
 
-	if ((ret != -1) && ((sb.st_mode & S_IFMT) == S_IFREG)) {
+	if (ret == 0 && S_ISREG(sb.st_mode) && sb.st_uid == 0 && sb.st_nlink == 1) {
 		if ((now - sb.st_ctime) > 300) {
 			logmessage("check_watchdog", "[%s] restart watchdog for no heartbeat\n", __FUNCTION__);
 			notify_rc("restart_watchdog");
