@@ -35,6 +35,7 @@
 #include <linux/rwsem.h>
 #include <linux/memory.h>
 #include <linux/ipc_namespace.h>
+#include <linux/atomic.h>
 
 #include <asm/unistd.h>
 
@@ -478,7 +479,7 @@ void ipc_free(void* ptr, int size)
  */
 struct ipc_rcu_hdr
 {
-	int refcount;
+	atomic_t refcount;
 	int is_vmalloc;
 	void *data[0];
 };
@@ -523,6 +524,7 @@ static inline int rcu_use_vmalloc(int size)
 void* ipc_rcu_alloc(int size)
 {
 	void* out;
+	struct ipc_rcu_hdr *hdr;
 	/* 
 	 * We prepend the allocation with the rcu struct, and
 	 * workqueue if necessary (for vmalloc). 
@@ -531,15 +533,17 @@ void* ipc_rcu_alloc(int size)
 		out = vmalloc(HDRLEN_VMALLOC + size);
 		if (out) {
 			out += HDRLEN_VMALLOC;
-			container_of(out, struct ipc_rcu_hdr, data)->is_vmalloc = 1;
-			container_of(out, struct ipc_rcu_hdr, data)->refcount = 1;
+			hdr = container_of(out, struct ipc_rcu_hdr, data);
+			hdr->is_vmalloc = 1;
+			atomic_set(&hdr->refcount, 1);
 		}
 	} else {
 		out = kmalloc(HDRLEN_KMALLOC + size, GFP_KERNEL);
 		if (out) {
 			out += HDRLEN_KMALLOC;
-			container_of(out, struct ipc_rcu_hdr, data)->is_vmalloc = 0;
-			container_of(out, struct ipc_rcu_hdr, data)->refcount = 1;
+			hdr = container_of(out, struct ipc_rcu_hdr, data);
+			hdr->is_vmalloc = 0;
+			atomic_set(&hdr->refcount, 1);
 		}
 	}
 
@@ -548,7 +552,9 @@ void* ipc_rcu_alloc(int size)
 
 void ipc_rcu_getref(void *ptr)
 {
-	container_of(ptr, struct ipc_rcu_hdr, data)->refcount++;
+	struct ipc_rcu_hdr *hdr = container_of(ptr, struct ipc_rcu_hdr, data);
+
+	atomic_inc(&hdr->refcount);
 }
 
 static void ipc_do_vfree(struct work_struct *work)
@@ -591,10 +597,12 @@ static void ipc_immediate_free(struct rcu_head *head)
 
 void ipc_rcu_putref(void *ptr)
 {
-	if (--container_of(ptr, struct ipc_rcu_hdr, data)->refcount > 0)
+	struct ipc_rcu_hdr *hdr = container_of(ptr, struct ipc_rcu_hdr, data);
+
+	if (!atomic_dec_and_test(&hdr->refcount))
 		return;
 
-	if (container_of(ptr, struct ipc_rcu_hdr, data)->is_vmalloc) {
+	if (hdr->is_vmalloc) {
 		call_rcu(&container_of(ptr, struct ipc_rcu_grace, data)->rcu,
 				ipc_schedule_free);
 	} else {
