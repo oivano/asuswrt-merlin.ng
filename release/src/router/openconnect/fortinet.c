@@ -839,6 +839,9 @@ int fortinet_dtls_catch_svrhello(struct openconnect_info *vpninfo, struct pkt *p
 	char *const buf = (void *)pkt->data;
 	const int len = pkt->len;
 
+	if (len >= pkt->alloc_len - sizeof(*pkt))
+		goto disable;
+
 	buf[len] = 0;
 
 	if (load_be16(buf) != len || len < sizeof(svrhello) + 2 ||
