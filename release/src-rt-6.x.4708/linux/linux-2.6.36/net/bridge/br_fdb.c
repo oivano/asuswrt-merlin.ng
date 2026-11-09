@@ -568,8 +568,8 @@ void BCMFASTPATH_HOST br_fdb_update(struct net_bridge *br, struct net_bridge_por
 				br_info(br, "received packet on %s with "
 					"own address as source address\n",
 					source->dev->name);
-		} else if (!((source->flags ^ fdb->dst->flags) &
-			    BR_ISOLATE_MODE)) {
+		} else if (!(source->flags & BR_ISOLATE_MODE) ||
+			   (fdb->dst->flags & BR_ISOLATE_MODE)) {
 			/* fastpath: update of existing entry */
 #ifdef HNDCTF
 			/* Add the entry if the addr is new, or
