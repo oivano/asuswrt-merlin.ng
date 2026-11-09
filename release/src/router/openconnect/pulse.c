@@ -716,7 +716,7 @@ static int parse_avp(struct openconnect_info *vpninfo, void **pkt, int *pkt_len,
 	len = load_be32(p + 4) & 0xffffff;
 	flags = p[4];
 
-	if (len > l || len < 8)
+	if (len > l || len < 8 || ((flags & AVP_VENDOR) && len < 12))
 		return -EINVAL;
 
 	p += 8;
@@ -832,7 +832,7 @@ static int pulse_request_realm_choice(struct openconnect_info *vpninfo, struct o
 
 	while (l) {
 		if (parse_avp(vpninfo, &p, &l, &avp_p, &avp_len, &avp_flags,
-			      &avp_vendor, &avp_code)) {
+			      &avp_vendor, &avp_code) || avp_len < 0) {
 			vpn_progress(vpninfo, PRG_ERR,
 				     _("Failed to parse AVP\n"));
 			ret = -EINVAL;
@@ -921,7 +921,7 @@ static int pulse_request_session_kill(struct openconnect_info *vpninfo, struct o
 		char *sessid = NULL;
 
 		if (parse_avp(vpninfo, &p, &l, &avp_p, &avp_len, &avp_flags,
-			      &avp_vendor, &avp_code)) {
+			      &avp_vendor, &avp_code) || avp_len < 0) {
 		badlist:
 			free(from);
 			free(sessid);
@@ -936,7 +936,7 @@ static int pulse_request_session_kill(struct openconnect_info *vpninfo, struct o
 
 		while (avp_len) {
 			if (parse_avp(vpninfo, &avp_p, &avp_len, &avp_p2, &avp_len2,
-				      &avp_flags, &avp_vendor, &avp_code))
+				      &avp_flags, &avp_vendor, &avp_code) || avp_len2 < 0)
 				goto badlist;
 
 			dump_avp(vpninfo, avp_flags, avp_vendor, avp_code, avp_p2, avp_len2);
@@ -1303,6 +1303,9 @@ static int dup_prompt(char **p, uint8_t *avp_p, int avp_len)
 {
 	char *ret = NULL;
 
+	if (avp_len < 0)
+		return -EINVAL;
+
 	free(*p);
 	*p = NULL;
 
@@ -1592,7 +1595,7 @@ static int pulse_authenticate(struct openconnect_info *vpninfo, int connecting)
 	 * a Juniper/0xd56 AVP with server licensing information. */
 	while (l) {
 		if (parse_avp(vpninfo, &p, &l, &avp_p, &avp_len, &avp_flags,
-			      &avp_vendor, &avp_code)) {
+			      &avp_vendor, &avp_code) || avp_len < 0) {
 			vpn_progress(vpninfo, PRG_ERR,
 				     _("Failed to parse AVP\n"));
 		bad_eap:
@@ -1682,7 +1685,7 @@ static int pulse_authenticate(struct openconnect_info *vpninfo, int connecting)
 	while (l) {
 
 		if (parse_avp(vpninfo, &p, &l, &avp_p, &avp_len, &avp_flags,
-			      &avp_vendor, &avp_code)) {
+			      &avp_vendor, &avp_code) || avp_len < 0) {
 			vpn_progress(vpninfo, PRG_ERR,
 				     _("Failed to parse AVP\n"));
 			goto bad_eap;
