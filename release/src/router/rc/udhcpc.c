@@ -288,8 +288,6 @@ expires(char *wan_ifname, unsigned int in)
 {
 	char tmp[100], prefix[sizeof("wanXXXXXXXXXX_")];
 	int unit;
-	time_t now;
-	FILE *fp;
 
 	if ((unit = wan_prefix(wan_ifname, prefix)) < 0)
 		return -1;
@@ -297,15 +295,6 @@ expires(char *wan_ifname, unsigned int in)
 		snprintf(prefix, sizeof(prefix), "wan%d_x", unit);
 
 	nvram_set_int(strcat_r(prefix, "expires", tmp), (unsigned int) uptime() + in);
-
-	snprintf(tmp, sizeof(tmp), "/tmp/udhcpc%d.expires", unit);
-	if ((fp = fopen(tmp, "w")) == NULL) {
-		perror(tmp);
-		return errno;
-	}
-	time(&now);
-	fprintf(fp, "%d", (unsigned int) now + in);
-	fclose(fp);
 
 	return 0;
 }
@@ -1086,24 +1075,6 @@ stop_zcip(int unit)
 	kill_pidfile_s(pid, SIGTERM);
 }
 
-static int
-expires_lan(char *lan_ifname, unsigned int in)
-{
-	time_t now;
-	FILE *fp;
-	char tmp[100];
-
-	time(&now);
-	snprintf(tmp, sizeof(tmp), "/tmp/udhcpc-%s.expires", lan_ifname);
-	if (!(fp = fopen(tmp, "w"))) {
-		perror(tmp);
-		return errno;
-	}
-	fprintf(fp, "%d", (unsigned int) now + in);
-	fclose(fp);
-	return 0;
-}
-
 #ifdef RTCONFIG_AMAS_WGN
 static void restart_re_qos()
 {
@@ -1140,8 +1111,6 @@ _dprintf("%s: IFUP.\n", __FUNCTION__);
 
 		ifconfig(lan_ifname, IFUP | IFF_ALLMULTI, nvram_default_get("lan_ipaddr"), nvram_default_get("lan_netmask"));
 	}
-
-	expires_lan(lan_ifname, 0);
 
 	lan_down(lan_ifname);
 
@@ -1198,7 +1167,6 @@ bound_lan(void)
 			lanchange = 1;
 		}
 		nvram_set("lan_lease", trim_r(value));
-		expires_lan(lan_ifname, atoi(value));
 	}
 	if (nvram_get_int("lan_dnsenable_x") && (value = getenv("dns"))) {
 		if (!nvram_match("lan_dns", trim_r(value))) {
