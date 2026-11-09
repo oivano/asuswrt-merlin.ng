@@ -873,6 +873,9 @@ int f5_dtls_catch_probe(struct openconnect_info *vpninfo, struct pkt *pkt)
 	char *line = (void *)pkt->data, *cr, *colon;
 	int first = 1, status = -1;
 
+	if (pkt->len >= pkt->alloc_len - sizeof(*pkt))
+		return -EINVAL;
+
 	pkt->data[pkt->len] = 0;
 	while (line && *line) {
 		if (*line == '\n') {
