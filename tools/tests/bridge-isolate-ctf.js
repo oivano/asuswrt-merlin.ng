@@ -21,7 +21,21 @@ assert.match(addCache, /source->flags & BR_ISOLATE_MODE[\s\S]*?ctf_brc_delete\(k
 assert.match(addCache, /ctf_isenabled\(kcih,[\s\S]*?\brxdev\)/);
 assert.match(fdb, /br_brc_add\(\(unsigned char \*\)addr, source, skb\)/g);
 assert.match(fdb, /ctf_brc_delete\(kcih, f->addr\.addr\)/);
-assert.match(fdb, /else if \(!\(\(source->flags \^ fdb->dst->flags\) &\s*BR_ISOLATE_MODE\)\)\s*\{[\s\S]*?br_brc_add\([\s\S]*?fdb->dst = source;/);
+assert.match(
+    fdb,
+    /else if \(!\(source->flags & BR_ISOLATE_MODE\) \|\|\s*\(fdb->dst->flags & BR_ISOLATE_MODE\)\)\s*\{[\s\S]*?br_brc_add\([\s\S]*?fdb->dst = source;/
+);
+
+const mayUpdateEntry = (sourceIsolated, entryIsolated) =>
+    !sourceIsolated || entryIsolated;
+for (const { sourceIsolated, entryIsolated, expected } of [
+    { sourceIsolated: false, entryIsolated: false, expected: true },
+    { sourceIsolated: false, entryIsolated: true, expected: true },
+    { sourceIsolated: true, entryIsolated: false, expected: false },
+    { sourceIsolated: true, entryIsolated: true, expected: true },
+]) {
+    assert.strictEqual(mayUpdateEntry(sourceIsolated, entryIsolated), expected);
+}
 
 const receiveBpdu = bpdu.match(/void br_stp_rcv\([\s\S]*?\n\}/)[0];
 assert.match(receiveBpdu, /p = br_port_get_rcu\(dev\);\s*if \((?:p->flags & BR_ISOLATE_MODE|!p \|\| \(p->flags & BR_ISOLATE_MODE\))\)\s*goto err;/);
