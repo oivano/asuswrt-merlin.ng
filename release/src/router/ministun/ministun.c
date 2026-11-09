@@ -43,8 +43,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <linux/if.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -237,13 +239,47 @@ static int stun_send(int s, struct sockaddr_in *dst, struct stun_header *resp)
 }
 
 /* helper function to generate a random request id */
-static void stun_req_id(struct stun_header *req)
+static int stun_req_id(struct stun_header *req)
 {
-	int x;
-	srandom(time(0));
+	int fd;
+	size_t offset = 0;
+	ssize_t count;
+	unsigned char *id = (unsigned char *)req->id.id;
+
+	fd = open("/dev/urandom", O_RDONLY);
+	if (fd < 0)
+		return -1;
+	while (offset < sizeof(req->id)) {
+		count = read(fd, id + offset, sizeof(req->id) - offset);
+		if (count < 0 && errno == EINTR)
+			continue;
+		if (count <= 0) {
+			close(fd);
+			return -1;
+		}
+		offset += count;
+	}
+	close(fd);
 	req->magic = htonl(STUN_MAGIC_COOKIE);
-	for (x = 0; x < 3; x++)
-		req->id.id[x] = random();
+	return 0;
+}
+
+static int stun_response_matches(struct stun_header *req,
+		struct sockaddr_in *dst, struct sockaddr_in *src,
+		unsigned char *data, size_t len)
+{
+	struct stun_header *reply;
+
+	if (len < sizeof(*reply) || src->sin_family != AF_INET ||
+	    src->sin_addr.s_addr != dst->sin_addr.s_addr ||
+	    src->sin_port != dst->sin_port)
+		return 0;
+
+	reply = (struct stun_header *)data;
+	return reply->msgtype == htons(stun_msg2type(STUN_RESPONSE, STUN_BINDING)) &&
+		reply->magic == req->magic &&
+		memcmp(&reply->id, &req->id, sizeof(req->id)) == 0 &&
+		ntohs(reply->msglen) == len - sizeof(*reply);
 }
 
 /* callback type to be invoked on stun responses. */
@@ -386,7 +422,7 @@ static int stun_get_mapped(struct stun_state *st, struct stun_attr *attr, void *
 	default:
 		return 1;
 	}
-	if (ntohs(attr->len) < 8 && addr->family != 1)
+	if (ntohs(attr->len) != sizeof(*addr) || addr->family != 1)
 		return 1;
 
 	st->attr = type;
@@ -420,7 +456,10 @@ int stun_request(int s, struct sockaddr_in *dst,
 	int retry, timeout = stun_rto;
 
 	req = (struct stun_header *)reqdata;
-	stun_req_id(req);
+	if (stun_req_id(req) < 0) {
+		fprintf(stderr, "Unable to read STUN transaction id from /dev/urandom\n");
+		return -1;
+	}
 	reqlen = 0;
 	reqleft = sizeof(reqdata) - sizeof(struct stun_header);
 	req->msgtype = 0;
@@ -436,8 +475,7 @@ int stun_request(int s, struct sockaddr_in *dst,
 	for (retry = 0; retry < stun_mrc; retry++) {
 		/* send request, possibly wait for reply */
 		unsigned char reply_buf[1024];
-		fd_set rfds;
-		struct timeval to = { timeout / 1000, (timeout % 1000) * 1000 };
+		struct timeval deadline, now, to;
 		struct sockaddr_in src;
 		socklen_t srclen;
 
@@ -451,37 +489,52 @@ int stun_request(int s, struct sockaddr_in *dst,
 		}
 		if (answer == NULL)
 			break;
-		FD_ZERO(&rfds);
-		FD_SET(s, &rfds);
-		do {
-			res = select(s + 1, &rfds, NULL, NULL, &to);
-		} while (res < 0 && errno == EINTR);
-		if (res == 0) {	/* timeout */
-			fprintf(stderr, "Response read #%d timeout, retry\n", retry);
-			timeout *= 2;
-			continue;
-		} else if (res < 0) { /* error */
-			fprintf(stderr, "Response read #%d failed error %d, retry\n",
-				retry, res);
-			continue;
+		gettimeofday(&deadline, NULL);
+		deadline.tv_sec += timeout / 1000;
+		deadline.tv_usec += (timeout % 1000) * 1000;
+		if (deadline.tv_usec >= 1000000) {
+			deadline.tv_sec++;
+			deadline.tv_usec -= 1000000;
 		}
-		bzero(&src, sizeof(src));
-		srclen = sizeof(src);
-		/* XXX pass -1 in the size, because stun_handle_packet might
-		 * write past the end of the buffer.
-		 */
-		do  {
+		while (1) {
+			fd_set rfds;
+			long remaining;
+
+			gettimeofday(&now, NULL);
+			remaining = (deadline.tv_sec - now.tv_sec) * 1000L +
+				(deadline.tv_usec - now.tv_usec) / 1000;
+			if (remaining <= 0)
+				break;
+			to.tv_sec = remaining / 1000;
+			to.tv_usec = (remaining % 1000) * 1000;
+			FD_ZERO(&rfds);
+			FD_SET(s, &rfds);
+			res = select(s + 1, &rfds, NULL, NULL, &to);
+			if (res < 0 && errno == EINTR)
+				continue;
+			if (res == 0)
+				break;
+			if (res < 0) {
+				fprintf(stderr, "Response read #%d failed error %d, retry\n",
+					retry, errno);
+				break;
+			}
+			bzero(&src, sizeof(src));
+			srclen = sizeof(src);
 			res = recvfrom(s, reply_buf, sizeof(reply_buf) - 1,
 				0, (struct sockaddr *)&src, &srclen);
-		} while (res < 0 && errno == EINTR);
-		if (res <= 0) {
-			fprintf(stderr, "Response read #%d failed error %d, retry\n",
-				retry, res);
-			continue;
+			if (res < 0 && errno == EINTR)
+				continue;
+			if (res <= 0 || !stun_response_matches(req, dst, &src, reply_buf, res))
+				continue;
+
+			bzero(answer, sizeof(struct sockaddr_in));
+			stun_handle_packet(s, &src, reply_buf, res, stun_get_mapped, answer);
+			if (answer->sin_addr.s_addr != INADDR_ANY)
+				return 0;
 		}
-		bzero(answer, sizeof(struct sockaddr_in));
-		stun_handle_packet(s, &src, reply_buf, res, stun_get_mapped, answer);
-		return 0;
+		fprintf(stderr, "Response read #%d timeout, retry\n", retry);
+		timeout *= 2;
 	}
 	return -1;
 }
