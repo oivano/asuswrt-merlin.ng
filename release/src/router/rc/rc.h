@@ -2018,6 +2018,7 @@ extern void stop_wsdd(void);
 extern void start_wsdd(void);
 #endif
 #ifdef RTCONFIG_NFS
+#define NFS_STATD_PORT "4000"
 extern void start_nfsd(void);
 extern void restart_nfsd(void);
 extern void stop_nfsd(void);

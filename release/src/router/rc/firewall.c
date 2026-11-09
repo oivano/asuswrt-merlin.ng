@@ -3703,6 +3703,10 @@ filter_setting(int wan_unit, char *lan_if, char *lan_ip, char *logaccept, char *
 	    ":logdrop - [0:0]\n",
 	    nvram_match("fw_enable_x", "1") ? "DROP" : "ACCEPT");
 	write_guest_hairpin_drop_rule(fp, lan_if, BIT_GUEST_IPV4);
+#ifdef RTCONFIG_NFS
+	fprintf(fp, "-A INPUT ! -i lo -p tcp --dport %s -j DROP\n", NFS_STATD_PORT);
+	fprintf(fp, "-A INPUT ! -i lo -p udp --dport %s -j DROP\n", NFS_STATD_PORT);
+#endif
 
 	fprintf(fp, "-A INPUT ! -i lo -p udp -m multiport --dports 37000,38000,39000,42000,43000,51000,59000 -j DROP\n");
 	write_guest_ipv4_input_rules(fp, lan_ip);
@@ -3765,6 +3769,10 @@ filter_setting(int wan_unit, char *lan_if, char *lan_ip, char *logaccept, char *
 		    ":logdrop - [0:0]\n",
 		nvram_match("ipv6_fw_enable", "1") ? "DROP" : "ACCEPT");
 		write_guest_hairpin_drop_rule(fp_ipv6, lan_if, BIT_GUEST_IPV6);
+#ifdef RTCONFIG_NFS
+		fprintf(fp_ipv6, "-A INPUT ! -i lo -p tcp --dport %s -j DROP\n", NFS_STATD_PORT);
+		fprintf(fp_ipv6, "-A INPUT ! -i lo -p udp --dport %s -j DROP\n", NFS_STATD_PORT);
+#endif
 		write_guest_ipv6_input_rules(fp_ipv6);
 	}
 #endif
@@ -5227,6 +5235,10 @@ filter_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)
 	    ":logaccept - [0:0]\n"
 	    ":logdrop - [0:0]\n");
 	write_guest_hairpin_drop_rule(fp, lan_if, BIT_GUEST_IPV4);
+#ifdef RTCONFIG_NFS
+	fprintf(fp, "-A INPUT ! -i lo -p tcp --dport %s -j DROP\n", NFS_STATD_PORT);
+	fprintf(fp, "-A INPUT ! -i lo -p udp --dport %s -j DROP\n", NFS_STATD_PORT);
+#endif
 
 	write_guest_ipv4_input_rules(fp, lan_ip);
 	fprintf(fp, "-A INPUT ! -i lo -p udp -m multiport --dports 37000,38000,39000,42000,43000,51000,59000 -j DROP\n");
@@ -5288,6 +5300,10 @@ filter_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)
 		    ":logdrop - [0:0]\n",
 		nvram_match("ipv6_fw_enable", "1") ? "DROP" : "ACCEPT");
 		write_guest_hairpin_drop_rule(fp_ipv6, lan_if, BIT_GUEST_IPV6);
+#ifdef RTCONFIG_NFS
+		fprintf(fp_ipv6, "-A INPUT ! -i lo -p tcp --dport %s -j DROP\n", NFS_STATD_PORT);
+		fprintf(fp_ipv6, "-A INPUT ! -i lo -p udp --dport %s -j DROP\n", NFS_STATD_PORT);
+#endif
 		write_guest_ipv6_input_rules(fp_ipv6);
 	}
 #endif
