@@ -149,7 +149,7 @@ assert.match(leHookCheck[1], /st\.st_nlink != 1/);
 assert.match(leHookCheck[1], /st\.st_mode & 0022/);
 assert.match(leStartWrapper[1], /if \(!le_workdir_prepare\(\)\)\s*return -1;\s*return start_letsencrypt\(\);/);
 assert.match(firewall, /if \(nvram_match\("le_enable", "1"\) && le_fw_script_is_safe\(\)\)\s*run_le_fw_script\(\);/);
-assert.match(init, /chmod\("\/tmp", 01777\);\s*if \(!rc_qos_workdir_prepare\(\)\)/);
+assert.ok(init.indexOf('chmod("/tmp", 01777);') < init.indexOf('if (!rc_qos_workdir_prepare())'));
 assert.match(init, /#ifdef RTCONFIG_LETSENCRYPT\s*if \(!le_workdir_prepare\(\)\)/);
 assert.equal((services.match(/start_letsencrypt_safe\(\);/g) || []).length, 3);
 assert.match(applets, /\{ "le_acme",\s*le_acme_main_safe\s*\}/);
@@ -193,7 +193,7 @@ assert.doesNotMatch(qos, /"\/tmp\/(?:qos|mangle_rules(?:_ipv6)?)"/);
 assert.equal((qos.match(/qos_rules_restore\("iptables-restore"/g) || []).length, 2);
 assert.equal((qos.match(/qos_rules_restore\("ip6tables-restore"/g) || []).length, 1);
 assert.equal((qos.match(/qos_rules_restore_noflush\("iptables-restore"/g) || []).length, 1);
-assert.match(init, /chmod\("\/tmp", 01777\);\s*if \(!rc_qos_workdir_prepare\(\)\)/);
+assert.ok(init.indexOf('chmod("/tmp", 01777);') < init.indexOf('if (!rc_qos_workdir_prepare())'));
 
 if (process.getuid() === 0) {
     const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'letsencrypt-hook-'));
@@ -271,6 +271,10 @@ for (const hook of ['udhcpc_wan', 'zcip', 'dhcp6c']) {
     assert.ok(!wan.includes(`"/tmp/${hook}"`), hook);
     assert.ok(!dhcp.includes(`"/tmp/${hook}"`), hook);
 }
+
+assert.match(dhcp, /nvram_set_int\(strcat_r\(prefix, "expires", tmp\), \(unsigned int\) uptime\(\) \+ in\);/);
+assert.doesNotMatch(dhcp, /\/tmp\/udhcpc[^"\s]*\.expires/);
+assert.doesNotMatch(dhcp, /\bexpires_lan\s*\(/);
 
 if (process.getuid() !== 0) {
     console.log('SKIP: real root/nobody filesystem tests require uid 0; source contracts passed');
