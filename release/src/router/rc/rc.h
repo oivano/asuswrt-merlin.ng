@@ -260,7 +260,7 @@ static inline int before(int ver1, int ver2)
 #define FIREWALL_RULES_DIR "/tmp/ppp/firewall"
 #define FIREWALL_RULES(name) FIREWALL_RULES_DIR "/" name
 #define NAT_RULES	FIREWALL_RULES("nat_rules")
-#define REDIRECT_RULES	"/tmp/redirect_rules"
+#define REDIRECT_RULES	FIREWALL_RULES("redirect_rules")
 
 #ifdef RTCONFIG_CONNTRACK
 extern void conntrack_check(int action);

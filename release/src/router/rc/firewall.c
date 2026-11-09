@@ -7842,7 +7842,6 @@ void enable_ip_forward(void)
 #endif
 }
 
-#define ERR_RULES_PATH "/tmp/err_rules"
 static int disable_inbound_nat(void)
 {
 	int ret = 0;
@@ -7857,16 +7856,11 @@ static int disable_inbound_nat(void)
 
 void rule_apply_checking(char *caller, int line, char *rule_path, int ret) {
 	if (ret) {
-		char dst_file[64];
 		const char *rule_name = strrchr(rule_path, '/');
 		int nat_fallback_ret;
 
 		rule_name = rule_name ? rule_name + 1 : rule_path;
 		logmessage(caller, "apply rules error(%d)", line);
-		if (!check_if_dir_exist(ERR_RULES_PATH))
-			mkdir(ERR_RULES_PATH, 0777);
-		snprintf(dst_file, sizeof(dst_file), "%s/%s_%u", ERR_RULES_PATH, rule_name, (unsigned int)time(NULL));
-		eval("cp", rule_path, dst_file);
 		if (!strncmp(rule_name, "nat_rules", sizeof("nat_rules") - 1)
 		 || !strncmp(rule_name, "redirect_rules", sizeof("redirect_rules") - 1)
 		 || !strncmp(rule_name, "filter", sizeof("filter") - 1)) {
