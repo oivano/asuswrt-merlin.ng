@@ -7,7 +7,7 @@ PKG_BUILD_DIR=$(shell pwd)/source
 FUNC_GETIFADDRS=yes
 SHARED_MODULES=--with-shared-modules=pdb_tdbsam,pdb_wbc_sam,idmap_nss,nss_info_template,auth_winbind,auth_wbc,auth_domain
 
-TARGET_CFLAGS = $(EXTRACFLAGS) -Os -ffunction-sections -fdata-sections
+TARGET_CFLAGS = $(EXTRACFLAGS) -Os -ffunction-sections -fdata-sections $(NETWORK_DAEMON_HARDEN_CFLAGS)
 ifneq ($(CONFIG_LINUX26),y)
 # Define variables for samba-3.6.x
 CONFIG_PACKAGE_SAMBA_MAX_DEBUG_LEVEL=-1
@@ -25,7 +25,7 @@ MAKE_FLAGS = DYNEXP= PICFLAG= MODULES=
 endif
 
 
-TARGET_LDFLAGS = -ffunction-sections -fdata-sections -Wl,--gc-sections
+TARGET_LDFLAGS = -ffunction-sections -fdata-sections -Wl,--gc-sections $(NETWORK_DAEMON_HARDEN_LDFLAGS)
 ifeq ($(RTCONFIG_BCMARM), y)
 TARGET_CFLAGS += -DNO_DEF_IFADDRS
 TARGET_CFLAGS += -DBRCM_PATCH
@@ -81,7 +81,6 @@ CONFIGURE_ARGS = \
 	--disable-avahi \
 	--disable-cups \
 	--disable-pie \
-	--disable-relro \
 	--disable-static \
 	--disable-swat \
 	--disable-shared-libs \

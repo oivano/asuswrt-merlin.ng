@@ -1474,6 +1474,11 @@ struct sk_buff *sock_alloc_send_pskb(struct sock *sk, unsigned long header_len,
 	long timeo;
 	int err;
 
+	if (data_len > MAX_SKB_FRAGS * PAGE_SIZE) {
+		*errcode = -EMSGSIZE;
+		return NULL;
+	}
+
 	gfp_mask = sk->sk_allocation;
 	if (gfp_mask & __GFP_WAIT)
 		gfp_mask |= __GFP_REPEAT;
