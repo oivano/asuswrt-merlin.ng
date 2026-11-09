@@ -552,6 +552,12 @@ static int tty_ldisc_wait_idle(struct tty_ldisc *ld, int users)
 	return ret > 0 ? 0 : -EBUSY;
 }
 
+static void tty_ldisc_wait_idle_hangup(struct tty_ldisc *ld)
+{
+	/* Keep at most the tty-owned and hangup-owned references. */
+	wait_event(tty_ldisc_idle, atomic_read(&ld->users) <= 2);
+}
+
 static void tty_ldisc_change_lock(struct tty_struct *tty,
 				  struct tty_struct *o_tty)
 {
@@ -705,6 +711,7 @@ int tty_set_ldisc(struct tty_struct *tty, int ldisc)
 		/* We were raced by the hangup method. It will have stomped
 		   the ldisc data and closed the ldisc down */
 		clear_bit(TTY_LDISC_CHANGING, &tty->flags);
+		wake_up(&tty_ldisc_wait);
 		mutex_unlock(&tty->ldisc_mutex);
 		tty_ldisc_put(o_ldisc);
 		tty_ldisc_put(new_ldisc);
@@ -847,6 +854,7 @@ void tty_ldisc_hangup(struct tty_struct *tty)
 			ld->ops->hangup(tty);
 		tty_ldisc_deref(ld);
 	}
+	ld = NULL;
 	wake_up_interruptible_poll(&tty->write_wait, POLLOUT);
 	wake_up_interruptible_poll(&tty->read_wait, POLLIN);
 	/*
@@ -856,16 +864,29 @@ void tty_ldisc_hangup(struct tty_struct *tty)
 	 * Avoid racing set_ldisc or tty_ldisc_release
 	 */
 	mutex_lock(&tty->ldisc_mutex);
+	while (test_bit(TTY_LDISC_CHANGING, &tty->flags)) {
+		mutex_unlock(&tty->ldisc_mutex);
+		tty_unlock();
+		wait_event(tty_ldisc_wait,
+			test_bit(TTY_LDISC_CHANGING, &tty->flags) == 0);
+		tty_lock();
+		mutex_lock(&tty->ldisc_mutex);
+	}
 
 	/*
 	 * this is like tty_ldisc_halt, but we need to give up
 	 * the BTM before calling cancel_delayed_work_sync,
 	 * which may need to wait for another function taking the BTM
 	 */
+	set_bit(TTY_LDISC_CHANGING, &tty->flags);
+	if (tty->ldisc)
+		ld = get_ldisc(tty->ldisc);
 	clear_bit(TTY_LDISC, &tty->flags);
 	tty_unlock();
 	cancel_delayed_work_sync(&tty->buf.work);
 	mutex_unlock(&tty->ldisc_mutex);
+	if (ld)
+		tty_ldisc_wait_idle_hangup(ld);
 
 	tty_lock();
 	mutex_lock(&tty->ldisc_mutex);
@@ -885,6 +906,12 @@ void tty_ldisc_hangup(struct tty_struct *tty)
 			WARN_ON(tty_ldisc_open(tty, tty->ldisc));
 		}
 		tty_ldisc_enable(tty);
+	}
+	if (ld)
+		tty_ldisc_put(ld);
+	if (!tty->ldisc) {
+		clear_bit(TTY_LDISC_CHANGING, &tty->flags);
+		wake_up(&tty_ldisc_wait);
 	}
 	mutex_unlock(&tty->ldisc_mutex);
 	if (reset)
