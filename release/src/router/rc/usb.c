@@ -6316,7 +6316,7 @@ void start_nfsd(void)
 		for (i = 0; i < 10 && !pids("portmap"); i++)
 			usleep(200000);
 	}
-	eval("/usr/sbin/statd");
+	eval("/usr/sbin/statd", "-p", NFS_STATD_PORT);
 
 	if (nvram_match("nfsd_enable_v2", "1")) {
 		eval("/usr/sbin/nfsd", "-V 2");
