@@ -1448,6 +1448,20 @@ int l2tp_tunnel_create(struct net *net, int fd, int version, u32 tunnel_id, u32 
 	/* Quick sanity checks */
 	switch (encap) {
 	case L2TP_ENCAPTYPE_UDP:
+		err = -EAFNOSUPPORT;
+		if (sk->sk_family != PF_INET) {
+			printk(KERN_ERR "tunl %hu: fd %d wrong family, got %d, expected %d\n",
+			       tunnel_id, fd, sk->sk_family, PF_INET);
+			goto err;
+		}
+
+		err = -ESOCKTNOSUPPORT;
+		if (sk->sk_type != SOCK_DGRAM) {
+			printk(KERN_ERR "tunl %hu: fd %d wrong socket type, got %d, expected %d\n",
+			       tunnel_id, fd, sk->sk_type, SOCK_DGRAM);
+			goto err;
+		}
+
 		err = -EPROTONOSUPPORT;
 		if (sk->sk_protocol != IPPROTO_UDP) {
 			printk(KERN_ERR "tunl %hu: fd %d wrong protocol, got %d, expected %d\n",
