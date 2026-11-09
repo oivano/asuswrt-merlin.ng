@@ -8174,6 +8174,38 @@ static int upnp_config_file_trusted(const char *path)
 
 // TODO: so far, support wan0 only
 
+#ifdef RTCONFIG_GETREALIP
+static int
+upnp_realip_is_public(const char *text)
+{
+	static const struct {
+		unsigned int network;
+		unsigned int mask;
+	} reserved[] = {
+		{ 0x00000000U, 0xff000000U }, { 0x0a000000U, 0xff000000U },
+		{ 0x64400000U, 0xffc00000U }, { 0x7f000000U, 0xff000000U },
+		{ 0xa9fe0000U, 0xffff0000U }, { 0xac100000U, 0xfff00000U },
+		{ 0xc0000000U, 0xffffff00U }, { 0xc0000200U, 0xffffff00U },
+		{ 0xc0586300U, 0xffffff00U }, { 0xc0a80000U, 0xffff0000U },
+		{ 0xc6120000U, 0xfffe0000U }, { 0xc6336400U, 0xffffff00U },
+		{ 0xcb007100U, 0xffffff00U }, { 0xe0000000U, 0xf0000000U },
+		{ 0xf0000000U, 0xf0000000U }
+	};
+	struct in_addr address;
+	unsigned int host_address;
+	int i;
+
+	if (!text || inet_pton(AF_INET, text, &address) != 1)
+		return 0;
+	host_address = ntohl(address.s_addr);
+	for (i = 0; i < sizeof(reserved) / sizeof(reserved[0]); i++) {
+		if ((host_address & reserved[i].mask) == reserved[i].network)
+			return 0;
+	}
+	return 1;
+}
+#endif
+
 void start_upnp(void)
 {
 	FILE *f;
@@ -8500,8 +8532,14 @@ void start_upnp(void)
 				strcat_r(prefix, "realip_state", tmp);
 				if (nvram_get_int(tmp) != 2)
 					sleep(5);
-				if (nvram_get_int(tmp) == 2)
-					fprintf(f, "ext_ip=%s\n", nvram_safe_get(strcat_r(prefix, "realip_ip", tmp)));
+				if (nvram_get_int(tmp) == 2) {
+					char ext_ip[INET_ADDRSTRLEN];
+					strlcpy(ext_ip, nvram_safe_get(strcat_r(prefix, "realip_ip", tmp)), sizeof(ext_ip));
+					if (upnp_realip_is_public(ext_ip))
+						fprintf(f, "ext_ip=%s\n", ext_ip);
+					else
+						logmessage("UPnP", "Ignoring invalid STUN external IPv4 address");
+				}
 #endif
 
 				if (upnp_config_file_trusted("/etc/upnp/config.custom"))
