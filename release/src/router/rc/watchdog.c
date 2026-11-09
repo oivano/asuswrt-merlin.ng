@@ -3297,6 +3297,23 @@ void ledg_scheme_switch(void)
 }
 #endif
 
+int watchdog_heartbeat_dir_is_secure(void)
+{
+	struct stat st, path;
+	int fd, result = 0;
+
+	fd = open(WATCHDOG_HEARTBEAT_DIRECTORY, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (fd < 0)
+		return 0;
+	if (fstat(fd, &st) == 0 && S_ISDIR(st.st_mode) && st.st_uid == 0 &&
+	    (st.st_mode & 07777) == 0700 &&
+	    lstat(WATCHDOG_HEARTBEAT_DIRECTORY, &path) == 0 &&
+	    S_ISDIR(path.st_mode) && path.st_dev == st.st_dev && path.st_ino == st.st_ino)
+		result = 1;
+	close(fd);
+	return result;
+}
+
 void btn_check(void)
 {
 #ifdef RTCONFIG_WIFI_SON
@@ -3304,7 +3321,8 @@ void btn_check(void)
 	char *argv[]={"/sbin/delay_exec","4","rc rc_service restart_allnet",NULL};
 #endif
 
-	eval("touch", "/tmp/watchdog_heartbeat");
+	if (watchdog_heartbeat_dir_is_secure())
+		eval("touch", WATCHDOG_HEARTBEAT_FILE);
 
 	if (handle_btn_in_mfg())
 		return;
