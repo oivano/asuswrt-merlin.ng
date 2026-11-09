@@ -18,6 +18,7 @@ assert.match(ministun, /STUN_RESPONSE,\s*STUN_BINDING/);
 assert.match(ministun, /memcmp\(&reply->id,\s*&req->id,\s*sizeof\(req->id\)\)/);
 assert.match(ministun, /if\s*\(res\s*<=\s*0\s*\|\|\s*!stun_response_matches[\s\S]*?continue;/);
 assert.match(ministun, /deadline\.tv_sec[\s\S]*?remaining\s*<=\s*0/);
+assert.match(ministun, /ntohs\(attr->len\)\s*!=\s*sizeof\(\*addr\)\s*\|\|\s*addr->family\s*!=\s*1/);
 
 function responseMatches(request, response, source, server) {
     return source.address === server.address && source.port === server.port &&
@@ -34,6 +35,16 @@ assert.strictEqual(responseMatches(request, validResponse, server, server), true
 assert.strictEqual(responseMatches(request, { ...validResponse, id: 'wrong-id' }, server, server), false);
 assert.strictEqual(responseMatches(request, { ...validResponse, type: 0x0011 }, server, server), false);
 assert.strictEqual(responseMatches(request, validResponse, { address: server.address, port: 3479 }, server), false);
+
+function mappedAddressFieldsSafe(attributeLength, family) {
+    return attributeLength === 8 && family === 1;
+}
+
+assert.strictEqual(mappedAddressFieldsSafe(8, 1), true);
+assert.strictEqual(mappedAddressFieldsSafe(0, 1), false);
+assert.strictEqual(mappedAddressFieldsSafe(7, 1), false);
+assert.strictEqual(mappedAddressFieldsSafe(9, 1), false);
+assert.strictEqual(mappedAddressFieldsSafe(8, 2), false);
 
 assert.match(getrealip, /is_public_ipv4\s*\(\)/);
 assert.strictEqual((getrealip.match(/! is_public_ipv4 \"\$result\"/g) || []).length, 2);
