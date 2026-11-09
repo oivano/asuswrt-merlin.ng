@@ -129,6 +129,9 @@ EXEEXT=@EXEEXT@
 
 STATIC=@STATIC@
 
+CFLAGS += $(NETWORK_DAEMON_HARDEN_CFLAGS)
+LDFLAGS += $(NETWORK_DAEMON_HARDEN_LDFLAGS)
+
 # whether we're building client, server, or both for the common objects.
 # evilness so we detect 'dropbear' by itself as a word
 ifneq (,$(strip $(foreach prog, $(PROGRAMS), $(findstring ZdropbearZ, Z$(prog)Z))))

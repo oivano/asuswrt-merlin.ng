@@ -7,6 +7,7 @@ CFLAGS += -DBCM49XX
 endif
 endif
 CFLAGS += -Wall $(if $(RTCONFIG_DEBUG),-g,-Os) $(EXTRACFLAGS)
+CFLAGS += $(NETWORK_DAEMON_HARDEN_CFLAGS)
 CFLAGS += -I. -I$(TOP)/shared -I$(SRCBASE)/include -I$(TOP)/networkmap
 ifneq ($(HND_ROUTER),y)
 CFLAGS += -idirafter$(LINUXDIR)/include
@@ -83,6 +84,7 @@ LDFLAGS = -L$(TOP_PLATFORM)/nvram${BCMEX} -lnvram -L$(TOP)/shared -lshared -lcry
 else
 LDFLAGS = -L$(TOP_PLATFORM)/nvram${BCMEX}${EX7} -lnvram -L$(TOP)/shared -lshared -lcrypt -ldl
 endif
+LDFLAGS += $(NETWORK_DAEMON_HARDEN_LDFLAGS)
 
 ifeq ($(HND_ROUTER),y)
 CFLAGS += -I$(HND_SRC)/userspace/public/include -I$(HND_SRC)/userspace/public/include/linux -I$(HND_SRC)/userspace/private/include

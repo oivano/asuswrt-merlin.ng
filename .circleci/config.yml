@@ -79,6 +79,62 @@ jobs:
             echo "------ DONE -----"
             ls ${PROJECT_DIR}/release/${RELEASE_DIR}/image/
       - run:
+          name: Audit compiler hardening
+          shell: /bin/bash
+          command: |
+            set -euo pipefail
+            ROOT="${PROJECT_DIR}/release/${RELEASE_DIR}/router/arm-uclibc/target"
+            READELF="$(command -v arm-brcm-linux-uclibcgnueabi-readelf || command -v readelf)"
+            AUDIT_LOG=/tmp/hardening-audit.log
+            : > "${AUDIT_LOG}"
+            audit_failed=0
+
+            audit_elf() {
+              local relpath="$1"
+              local elf="${ROOT}/${relpath}"
+              local symbols segments stack_check=no relro=no
+
+              if [[ ! -f "${elf}" ]]; then
+                printf 'FAIL missing ELF: %s\n' "${relpath}" | tee -a "${AUDIT_LOG}"
+                audit_failed=1
+                return
+              fi
+
+              symbols=$("${READELF}" --dyn-syms -W "${elf}")
+              segments=$("${READELF}" -lW "${elf}")
+              if [[ "${symbols}" == *"__stack_chk_fail"* ]]; then
+                stack_check=yes
+              fi
+              if [[ "${segments}" == *"GNU_RELRO"* ]]; then
+                relro=yes
+              fi
+
+              printf '%s stack-check=%s relro=%s\n' "${relpath}" "${stack_check}" "${relro}" | tee -a "${AUDIT_LOG}"
+              if [[ "${stack_check}" != yes || "${relro}" != yes ]]; then
+                audit_failed=1
+              fi
+            }
+
+            for elf in \
+              bin/busybox \
+              usr/bin/dropbearmulti \
+              usr/sbin/httpd usr/sbin/dnsmasq usr/sbin/miniupnpd usr/sbin/infosvr \
+              usr/sbin/openvpn usr/sbin/avahi-daemon usr/sbin/samba_multicall \
+              usr/sbin/nfsd usr/sbin/statd usr/sbin/portmap \
+              usr/sbin/pppd usr/sbin/pppoe-relay usr/sbin/odhcp6c \
+              usr/sbin/igmpproxy usr/sbin/udpxy usr/sbin/openconnect \
+              usr/sbin/wsdd2 usr/sbin/phddns \
+              usr/sbin/zebra usr/sbin/staticd usr/sbin/bgpd usr/sbin/ospfd \
+              usr/sbin/bfdd usr/sbin/watchfrr usr/lib/ipsec/charon; do
+              audit_elf "${elf}"
+            done
+
+            if [[ "${audit_failed}" != 0 ]]; then
+              printf 'HARDENING_AUDIT_RESULT=FAIL\n' | tee -a "${AUDIT_LOG}"
+            else
+              printf 'HARDENING_AUDIT_RESULT=PASS\n' | tee -a "${AUDIT_LOG}"
+            fi
+      - run:
           name: Prepare workspace
           shell: /bin/bash
           command: |
@@ -97,6 +153,7 @@ jobs:
             cp ${IMAGE_PATH}/DSL*DSL*.md5 workspace/release/ || :
             cp ${IMAGE_PATH}/DSL*NO-DSL-FIRMWARE.md5 workspace/release/ || :
             cp /tmp/build.log workspace/release/${MODEL}-build.log
+            cp /tmp/hardening-audit.log workspace/release/
             if [ -z "${CIRCLE_TAG}" ]; then
               echo "No CHANGELOG to copy. Not a release build."
             else
@@ -104,6 +161,10 @@ jobs:
             fi
       - store_artifacts:
           path: workspace/release
+      - run:
+          name: Enforce compiler hardening audit
+          command: |
+            grep -qx 'HARDENING_AUDIT_RESULT=PASS' workspace/release/hardening-audit.log
       - persist_to_workspace:
           root: workspace
           paths:

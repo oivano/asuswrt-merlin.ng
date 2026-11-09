@@ -1,6 +1,7 @@
 include ../common.mak
 
 CFLAGS += $(if $(RTCONFIG_DEBUG),-g,-Os) -Wall $(EXTRACFLAGS)
+CFLAGS += $(NETWORK_DAEMON_HARDEN_CFLAGS)
 CFLAGS += $(PRIVATE_EXTRACFLAGS)
 CFLAGS += -I$(SRCBASE) -I.
 ifeq ($(RTCONFIG_BCM7),y)
@@ -347,7 +348,7 @@ all: httpd #test_apps
 
 httpd: $(OBJS)
 	@echo " [httpd] CC $@"
-	$(CC) -o $@ $(OBJS) $(LIBS) $(EXTRALDFLAGS)
+	$(CC) -o $@ $(OBJS) $(LIBS) $(EXTRALDFLAGS) $(NETWORK_DAEMON_HARDEN_LDFLAGS)
 
 	$(SIZECHECK)
 	$(CPTMP)

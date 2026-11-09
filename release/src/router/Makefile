@@ -633,6 +633,9 @@ ifeq ($(RTCONFIG_DEBUG),y)
 export CFLAGS += -g
 endif
 
+export NETWORK_DAEMON_HARDEN_CFLAGS := -fstack-protector -Wformat -Wformat-security
+export NETWORK_DAEMON_HARDEN_LDFLAGS := -Wl,-z,relro,-z,now
+
 ifeq ($(strip $(BRCM_USER_SSP)),y)
 export CFLAGS += $(SSP_MIN_COMPILER_OPTS)
 export EXTRA_LDFLAGS += $(SSP_LIBS)
@@ -2801,10 +2804,10 @@ endef
 else
 define makeBusybox
 	@$(MAKE) -C $(BUSYBOX_DIR) $(1) $(PARALLEL_BUILD) \
-		EXTRA_CFLAGS="-fPIC $(EXTRACFLAGS) -I$(STAGEDIR)/usr/include -idirafter $(KDIR)/include \
+		EXTRA_CFLAGS="-fPIC $(EXTRACFLAGS) $(NETWORK_DAEMON_HARDEN_CFLAGS) -I$(STAGEDIR)/usr/include -idirafter $(KDIR)/include \
 			$(if $(RTCONFIG_PROTECTION_SERVER),-DSECURITY_NOTIFY,) \
 			$(if $(RTCONFIG_BWDPI),-DBWDPI_LOGWAR,)" \
-		EXTRA_LDFLAGS="-L$(STAGEDIR)/usr/lib" \
+		EXTRA_LDFLAGS="-L$(STAGEDIR)/usr/lib $(NETWORK_DAEMON_HARDEN_LDFLAGS)" \
 		EXTRA_LDLIBS="$(if $(RTCONFIG_PROTECTION_SERVER),ptcsrv,)"
 endef
 endif
@@ -3472,8 +3475,8 @@ dnsmasq:  $(if $(RTCONFIG_DNSSEC_OPENSSL),openssl,) $(if $(RTCONFIG_DNSSEC_NETTL
 		$(if $(RTCONFIG_USB_EXTRAS),,-DNO_TFTP) \
 		$(if $(RTCONFIG_DNSSEC_OPENSSL),-I$(TOP)/openssl/include -DHAVE_DNSSEC,) \
 		$(if $(RTCONFIG_DNSSEC_NETTLE),-I$(TOP)/nettle/include -I$(TOP)/gmp -DHAVE_DNSSEC -DHAVE_DNSSEC_STATIC -DNO_GOST,)" \
-	CFLAGS="-Os -ffunction-sections -fdata-sections $(EXTRACFLAGS) -std=gnu99" \
-	LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections $(EXTRALDFLAGS) \
+	CFLAGS="-Os -ffunction-sections -fdata-sections $(EXTRACFLAGS) $(NETWORK_DAEMON_HARDEN_CFLAGS) -std=gnu99" \
+	LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections $(EXTRALDFLAGS) $(NETWORK_DAEMON_HARDEN_LDFLAGS) \
 		$(if $(RTCONFIG_DNSSEC_OPENSSL),-pthread -L$(TOP)/openssl,) \
 		$(if $(RTCONFIG_DNSSEC_NETTLE),-L$(TOP)/nettle/lib -L$(TOP)/gmp/.libs,)" \
 	$(if $(RTCONFIG_DNSSEC_OPENSSL),PKG_CONFIG_PATH="$(TOP)/openssl" CRYPTO=openssl,) \
@@ -3643,8 +3646,8 @@ miniupnpd: $(IPTABLES) e2fsprogs libcap-ng miniupnpd/config.h
 	PKG_CONFIG=false ARCH=$(PLATFORM) \
 	$(MAKE) -C $@ -f Makefile $(PARALLEL_BUILD) \
 	    IPTABLESPATH=$(TOP)/$(IPTABLES) \
-	    EXTRACFLAGS="-Os $(EXTRACFLAGS) -idirafter$(KERNEL_HEADER_DIR) $(if $(or $(RTCONFIG_AURASYNC), $(RTCONFIG_GEFORCENOW)), -I$(TOP)/shared) -ffunction-sections -fdata-sections -I$(TOP)/e2fsprogs/lib -I$(STAGEDIR)/usr/include" \
-	    LDFLAGS="$(EXTRALDFLAGS) -ffunction-sections -fdata-sections -Wl,--gc-sections -L$(IPTC_LIBDIR) -L$(TOP)/e2fsprogs/lib -L$(STAGEDIR)/usr/lib" \
+	    EXTRACFLAGS="-Os $(EXTRACFLAGS) $(NETWORK_DAEMON_HARDEN_CFLAGS) -idirafter$(KERNEL_HEADER_DIR) $(if $(or $(RTCONFIG_AURASYNC), $(RTCONFIG_GEFORCENOW)), -I$(TOP)/shared) -ffunction-sections -fdata-sections -I$(TOP)/e2fsprogs/lib -I$(STAGEDIR)/usr/include" \
+	    LDFLAGS="$(EXTRALDFLAGS) $(NETWORK_DAEMON_HARDEN_LDFLAGS) -ffunction-sections -fdata-sections -Wl,--gc-sections -L$(IPTC_LIBDIR) -L$(TOP)/e2fsprogs/lib -L$(STAGEDIR)/usr/lib" \
 		LDLIBS="-Wl,--as-needed $(if $(or $(RTCONFIG_AURASYNC), $(RTCONFIG_GEFORCENOW)),-L$(TOP)/shared -lshared -L$(TOP_PLATFORM)/nvram$(BCMEX)$(EX7) -lnvram $(if $(BCM_502L07P2),-L$(TOP_PLATFORM)/ethctl_lib -lethctl)) -luuid -lrt -lcap-ng $(IPTC_LIBS) $(if $(RTCONFIG_HND_ROUTER),-L$(TOP_PLATFORM)/wlcsm$(EXHND) -lwlcsm)"
 
 miniupnpd-clean:
@@ -3993,8 +3996,8 @@ util-linux-clean:
 	@rm -f util-linux/Makefile
 
 odhcp6c: odhcp6c/Makefile
-	@EXT_CFLAGS="-Os -Wall $(EXTRACFLAGS) -ffunction-sections -fdata-sections -fPIC" \
-	EXT_LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections" \
+	@EXT_CFLAGS="-Os -Wall $(EXTRACFLAGS) $(NETWORK_DAEMON_HARDEN_CFLAGS) -ffunction-sections -fdata-sections -fPIC" \
+	EXT_LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections $(NETWORK_DAEMON_HARDEN_LDFLAGS)" \
 	PREFIX="/usr" \
 	$(MAKE) -C odhcp6c
 
@@ -4206,7 +4209,8 @@ ifeq ($(HND_ROUTER),y)
 	ac_cv_pluginpath=$(TOOLCHAIN)/include
 	touch $@
 else
-	cd rp-pppoe/src && CFLAGS="-g -O2 $(EXTRACFLAGS) $(if $(RTCONFIG_MUSL_LIBC), -I$(TOP)/pppd/include) -idirafter $(KDIR)/include" \
+	cd rp-pppoe/src && CFLAGS="-g -O2 $(EXTRACFLAGS) $(NETWORK_DAEMON_HARDEN_CFLAGS) $(if $(RTCONFIG_MUSL_LIBC), -I$(TOP)/pppd/include) -idirafter $(KDIR)/include" \
+	LDFLAGS="$(EXTRALDFLAGS) $(NETWORK_DAEMON_HARDEN_LDFLAGS)" \
 	$(CONFIGURE) --prefix=/usr --enable-plugin=$(TOP)/pppd \
 	ac_cv_linux_kernel_pppoe=yes rpppoe_cv_pack_bitfields=rev --disable-debugging
 	touch $@
@@ -4286,8 +4290,8 @@ pppd: $(if $(HND_ROUTER_AX_6756),openssl) pppd/stamp-h1
 	@$(SEP)
 	@$(MAKE) -C pppd MFLAGS='$(if $(RTCONFIG_IPV6),HAVE_INET6=y,) \
 	EXTRACFLAGS="$(EXTRACFLAGS) -idirafter $(KDIR)/include \
-		$(if $(RTCONFIG_DSL_BCM),-DRTCONFIG_DSL_BCM,) \
-	"'
+		$(if $(RTCONFIG_DSL_BCM),-DRTCONFIG_DSL_BCM,) $(NETWORK_DAEMON_HARDEN_CFLAGS) $(NETWORK_DAEMON_HARDEN_LDFLAGS) \
+	" EXTRA_LDFLAGS="$(EXTRALDFLAGS) $(NETWORK_DAEMON_HARDEN_LDFLAGS)"'
 
 pppd-clean:
 	-@$(MAKE) -C pppd clean
@@ -4372,10 +4376,10 @@ frr/stamp-h1: ncurses-6.0 json-c readline-8.1 $(FRR_LIBYANG_DEP) libcap libcap-n
 	LD_LIBRARY_PATH="$(FRR_HOSTLIB_PATH):$$LD_LIBRARY_PATH" \
 	CC=$(CROSS_COMPILE)gcc CXX=$(CROSS_COMPILE)g++ AR=$(CROSS_COMPILE)ar AS=$(CROSS_COMPILE)as LD=$(CROSS_COMPILE)ld NM=$(CROSS_COMPILE)nm RANLIB=$(CROSS_COMPILE)ranlib STRIP=$(CROSS_COMPILE)strip \
 	HOST_CC=/usr/bin/gcc HOST_CFLAGS="-O2 -DBUILDING_CLIPPY" HOST_LDFLAGS="-L$(FRR_HOSTLIB_COMPAT_DIR)" \
-	CFLAGS="--sysroot=$(TOOL_SYSROOT) -I$(FRR_ACTIVE_SRC)/lib -I$(STAGEDIR)/usr/include $(CFLAGS) -Os -Wall -ffunction-sections -fdata-sections -fPIC -std=gnu99" \
+	CFLAGS="--sysroot=$(TOOL_SYSROOT) -I$(FRR_ACTIVE_SRC)/lib -I$(STAGEDIR)/usr/include $(CFLAGS) -Os -Wall $(NETWORK_DAEMON_HARDEN_CFLAGS) -ffunction-sections -fdata-sections -fPIC -std=gnu99" \
 	 PKG_CONFIG_PATH="$(STAGEDIR)/usr/lib/pkgconfig" \
 	CPPFLAGS="-DFRR_RUNTIME_NO_SECTION_SYMS -I$(STAGEDIR)/usr/include/readline -I$(STAGEDIR)/usr/include" \
-	LDFLAGS="--sysroot=$(TOOL_SYSROOT) -L$(TOP)/ncurses-6.0/lib -L$(STAGEDIR)/usr/lib -Wl,-rpath-link,$(STAGEDIR)/usr/lib -Wl,--allow-shlib-undefined -ffunction-sections -fdata-sections -Wl,--as-needed" \
+	LDFLAGS="--sysroot=$(TOOL_SYSROOT) -L$(TOP)/ncurses-6.0/lib -L$(STAGEDIR)/usr/lib -Wl,-rpath-link,$(STAGEDIR)/usr/lib -Wl,--allow-shlib-undefined $(NETWORK_DAEMON_HARDEN_LDFLAGS) -ffunction-sections -fdata-sections -Wl,--as-needed" \
 	LIBS="-lpthread" \
 	LIBYANG_CFLAGS="-I$(STAGEDIR)/usr/include" \
 	LIBYANG_LIBS="-L$(STAGEDIR)/usr/lib -lyang" \
@@ -5419,8 +5423,8 @@ mDNSResponder:
 	@$(MAKE) -C mDNSResponder CC=$(CC) all $(PARALLEL_BUILD)
 
 igmpproxy/Makefile:
-	cd igmpproxy && autoreconf -i -f && CFLAGS="-O2 -Wall $(EXTRACFLAGS) -ffunction-sections -fdata-sections" \
-	LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections" \
+	cd igmpproxy && autoreconf -i -f && CFLAGS="-O2 -Wall $(EXTRACFLAGS) $(NETWORK_DAEMON_HARDEN_CFLAGS) -ffunction-sections -fdata-sections" \
+	LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections $(NETWORK_DAEMON_HARDEN_LDFLAGS)" \
 	$(CONFIGURE) --prefix=/usr --disable-dependency-tracking
 
 igmpproxy: igmpproxy/Makefile
@@ -5473,8 +5477,8 @@ snooper-clean:
 
 udpxy:
 	$(MAKE) -C $@ release NO_UDPXREC=yes \
-	CDEFS="-O2 -ffunction-sections -fdata-sections $(if $(RTCONFIG_REALTEK),-fno-strict-aliasing,) $(EXTRACFLAGS)" \
-	LDFLAGS="-Wl,--gc-sections"
+	CDEFS="-O2 -ffunction-sections -fdata-sections $(if $(RTCONFIG_REALTEK),-fno-strict-aliasing,) $(EXTRACFLAGS) $(NETWORK_DAEMON_HARDEN_CFLAGS)" \
+	LDFLAGS="-Wl,--gc-sections $(NETWORK_DAEMON_HARDEN_LDFLAGS)"
 
 udpxy-install:
 	install -D udpxy/udpxy $(INSTALLDIR)/udpxy/usr/sbin/udpxy
@@ -6105,9 +6109,9 @@ openvpn/Makefile:
 		LZ4_LIBS="-L$(TOP)/lz4/lib -llz4" \
 		LIBCAPNG_CFLAGS="-I$(TOP)/libcap-ng/src" \
 		LIBCAPNG_LIBS="-L$(TOP)/libcap-ng/src/.libs -lcap-ng" \
-		CFLAGS="-O3 -Wall $(EXTRACFLAGS) -ffunction-sections -fdata-sections -std=gnu99 \
+		CFLAGS="-O3 -Wall $(EXTRACFLAGS) $(NETWORK_DAEMON_HARDEN_CFLAGS) -ffunction-sections -fdata-sections -std=gnu99 \
 			-DASUSWRT -I$(TOP)/libcap-ng/src" \
-		LDFLAGS="$(EXTRALDFLAGS) -ffunction-sections -fdata-sections \
+		LDFLAGS="$(EXTRALDFLAGS) $(NETWORK_DAEMON_HARDEN_LDFLAGS) -ffunction-sections -fdata-sections \
 			-Wl,--gc-sections \
 			-lpthread -ldl \
 			-L$(TOP)/zlib -lz" \
@@ -6146,9 +6150,9 @@ openconnect/Makefile:
 		LIBLZ4_CFLAGS="-I$(TOP)/lz4/lib" \
 		LIBLZ4_LIBS="-L$(TOP)/lz4/lib -llz4" \
 		LIBXML2_LIBS="-L$(STAGEDIR)/usr/lib -lxml2" \
-		CFLAGS="-O3 -Wall $(EXTRACFLAGS) -ffunction-sections -fdata-sections -fPIC -std=gnu99 \
+		CFLAGS="-O3 -Wall $(EXTRACFLAGS) $(NETWORK_DAEMON_HARDEN_CFLAGS) -ffunction-sections -fdata-sections -fPIC -std=gnu99 \
 			-DASUSWRT -I$(TOP)/openssl/include -I$(STAGEDIR)/usr/include" \
-		LDFLAGS="-L$(TOP)/openssl -L$(STAGEDIR)/usr/lib $(EXTRALDFLAGS) $(EXTRALDFLAGS2) -ffunction-sections -fdata-sections \
+		LDFLAGS="-L$(TOP)/openssl -L$(STAGEDIR)/usr/lib $(EXTRALDFLAGS) $(EXTRALDFLAGS2) $(NETWORK_DAEMON_HARDEN_LDFLAGS) -ffunction-sections -fdata-sections \
 			-Wl,--gc-sections -lpthread -ldl" \
 		/bin/sh $(CONFIGURE) --prefix=/usr \
 			--disable-shared \
@@ -6645,9 +6649,9 @@ strongswan/Makefile: strongswan/configure
 	--with-user=admin \
 	$(if $(filter $(BRCM_CHIP),4912),--enable-kernel-pfkey,) \
 	CFLAGS="-O0 -Wall -Wno-format -Wno-format-security -Wno-pointer-sign \
-		-I$(TOP)/openssl/include -I$(STAGEDIR)/usr/include $(EXTRACFLAGS) \
+		-I$(TOP)/openssl/include -I$(STAGEDIR)/usr/include $(EXTRACFLAGS) $(NETWORK_DAEMON_HARDEN_CFLAGS) \
 		$(if $(RTCONFIG_HND_ROUTER),-DHND_ROUTER,)" \
-	LDFLAGS="-L$(TOP)/openssl -L$(STAGEDIR)/usr/lib $(EXTRALDFLAGS)" \
+	LDFLAGS="-L$(TOP)/openssl -L$(STAGEDIR)/usr/lib $(EXTRALDFLAGS) $(NETWORK_DAEMON_HARDEN_LDFLAGS)" \
 	LIBS="-lssl -lcrypto -lpthread -ldl -lm"
 
 strongswan: openssl strongswan/Makefile
@@ -7180,8 +7184,8 @@ avahi: expat-2.8.3 libdaemon libevent-2.0.21 avahi/Makefile
 
 avahi/Makefile: avahi/configure
 	cd avahi && $(CONFIGURE) \
-		LDFLAGS="$(LDFLAGS) -L$(STAGEDIR)/usr/lib -ldl -lpthread $(EXTRA_LDFLAGS)" \
-		CFLAGS="-Os $(CFLAGS) -I$(STAGEDIR)/usr/include" \
+		LDFLAGS="$(LDFLAGS) -L$(STAGEDIR)/usr/lib -ldl -lpthread $(EXTRA_LDFLAGS) $(NETWORK_DAEMON_HARDEN_LDFLAGS)" \
+		CFLAGS="-Os $(CFLAGS) $(NETWORK_DAEMON_HARDEN_CFLAGS) -I$(STAGEDIR)/usr/include" \
 		--prefix=/usr --sysconfdir=/tmp localstatedir=/var --with-distro=none \
 		--disable-nls --disable-glib --disable-gobject \
 		--enable-introspection=no \
@@ -7195,7 +7199,6 @@ avahi/Makefile: avahi/configure
 		--with-xml=expat \
 		--with-avahi-user="nobody" --with-avahi-group="nobody" \
 		--disable-dependency-tracking \
-		--disable-stack-protector \
 		avahi_runtime_dir=/var/run \
 		servicedir=/tmp/avahi/services \
 		LIBDAEMON_LIBS="-L$(STAGEDIR)/usr/lib -ldaemon" \
@@ -8049,7 +8052,10 @@ nfs-utils-install:
 	$(STRIP) $(INSTALLDIR)/nfs-utils/usr/sbin/* $(INSTALLDIR)/nfs-utils/usr/lib/libnfs.so
 
 nfs-utils-1.3.4/stamp-h1:
-	cd nfs-utils-1.3.4 && CPPFLAGS="$(EXTRACFLAGS) -Os" knfsd_cv_bsd_signals=no \
+	cd nfs-utils-1.3.4 && CPPFLAGS="$(EXTRACFLAGS) -Os" \
+	CFLAGS="-Os $(EXTRACFLAGS) $(NETWORK_DAEMON_HARDEN_CFLAGS)" \
+	LDFLAGS="$(EXTRALDFLAGS) $(NETWORK_DAEMON_HARDEN_LDFLAGS)" \
+	knfsd_cv_bsd_signals=no \
 	CC_FOR_BUILD=$(CC) $(CONFIGURE) --enable-nfsv3 --disable-nfsv4 --disable-nfsv41 \
 	--disable-ipv6 --disable-tirpc --disable-nfsdcltrack \
 	--disable-uuid --disable-gss --disable-mount --without-tcp-wrappers
@@ -8071,7 +8077,8 @@ nfs-utils-1.3.4-install:
 	$(STRIP) $(INSTALLDIR)/nfs-utils-1.3.4/usr/sbin/*
 
 portmap: portmap/Makefile
-	$(MAKE) -C $@  EXTRACFLAGS="$(EXTRACFLAGS) -Os" NO_TCP_WRAPPER=y RPCUSER=nobody
+	$(MAKE) -C $@ EXTRACFLAGS="$(EXTRACFLAGS) -Os $(NETWORK_DAEMON_HARDEN_CFLAGS)" \
+	LDFLAGS="$(NETWORK_DAEMON_HARDEN_LDFLAGS)" NO_TCP_WRAPPER=y RPCUSER=nobody
 
 portmap-install:
 	install -D portmap/portmap $(INSTALLDIR)/portmap/usr/sbin/portmap
@@ -8108,7 +8115,8 @@ haveged-clean:
 
 wsdd2:
 	@$(SEP)
-	$(MAKE) CFLAGS+="-DASUSWRT -Os -std=gnu99" -C $@
+	$(MAKE) CFLAGS+="-DASUSWRT -Os -std=gnu99 $(NETWORK_DAEMON_HARDEN_CFLAGS)" \
+	LDFLAGS+="$(NETWORK_DAEMON_HARDEN_LDFLAGS)" -C $@
 
 wsdd2-install:
 	install -D wsdd2/wsdd2 $(INSTALLDIR)/wsdd2/usr/sbin/wsdd2
@@ -8504,8 +8512,8 @@ ifeq ($(HND_ROUTER),y)
 	@touch $@
 else
 	cd phddns && $(CONFIGURE) --prefix="" \
-		CFLAGS="-Os -I$(SRCBASE)/include -I$(TOP)/shared $(EXTRACFLAGS)" \
-		LDFLAGS="-L$(TOP_PLATFORM)/nvram$(BCMEX)$(EX7) -L$(TOP)/shared $(if $(RTCONFIG_QTN),-L$(TOP)/libqcsapi_client) $(EXTRALDFLAGS)" \
+		CFLAGS="-Os -I$(SRCBASE)/include -I$(TOP)/shared $(EXTRACFLAGS) $(NETWORK_DAEMON_HARDEN_CFLAGS)" \
+		LDFLAGS="-L$(TOP_PLATFORM)/nvram$(BCMEX)$(EX7) -L$(TOP)/shared $(if $(RTCONFIG_QTN),-L$(TOP)/libqcsapi_client) $(EXTRALDFLAGS) $(NETWORK_DAEMON_HARDEN_LDFLAGS)" \
 		LIBS="-lnvram -lshared $(if $(RTCONFIG_QTN),-lqcsapi_client)"
 	@touch $@
 endif

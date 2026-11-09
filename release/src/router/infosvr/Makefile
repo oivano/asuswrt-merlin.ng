@@ -21,11 +21,13 @@ CFLAGS += -I$(TOP)/openssl/include
 CFLAGS += -I$(TOP)/json-c
 endif
 CFLAGS += $(PRIVATE_EXTRACFLAGS)
+CFLAGS += $(NETWORK_DAEMON_HARDEN_CFLAGS)
 ifeq ($(RTCONFIG_BCMWL6),y)
 CFLAGS  += -I$(SRCBASE)/shared/bcmwifi/include
 endif
 CFLAGS  += -Dlinux -DNO_PARALLEL -DPRNINFO
-LDFLAGS = -L$(TOP)/shared -lshared -L$(TOP_PLATFORM)/nvram${BCMEX}$(EX7) -lnvram 
+LDFLAGS = -L$(TOP)/shared -lshared -L$(TOP_PLATFORM)/nvram${BCMEX}$(EX7) -lnvram
+LDFLAGS += $(NETWORK_DAEMON_HARDEN_LDFLAGS)
 ifeq ($(RTCONFIG_BCM_502L07P2),y)
 LDFLAGS += -L$(TOP_PLATFORM)/ethctl_lib -lethctl
 endif
