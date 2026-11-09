@@ -431,6 +431,30 @@ int httpd_ensure_temp_dir(void)
 	return 0;
 }
 
+static int httpd_debug_log_ready;
+
+int httpd_debug_log_enabled(void)
+{
+	return httpd_debug_log_ready && nvram_get_int("HTTPD_DBG") > 0;
+}
+
+static void httpd_debug_log_init(void)
+{
+	int legacy_logs_removed = 1;
+
+	if (httpd_ensure_temp_dir() != 0)
+		httpd_debug_log_ready = 0;
+	else
+		httpd_debug_log_ready = 1;
+
+	if (unlink(HTTPD_DEBUG_LEGACY_FILE) != 0 && errno != ENOENT)
+		legacy_logs_removed = 0;
+	if (unlink(HTTPD_DEBUG_LEGACY_FILE "-1") != 0 && errno != ENOENT)
+		legacy_logs_removed = 0;
+	if (!legacy_logs_removed)
+		httpd_debug_log_ready = 0;
+}
+
 int httpd_create_tempfile(char *path, size_t path_size)
 {
 	const char *directory = "/tmp/httpd";
@@ -3493,8 +3517,7 @@ int main(int argc, char **argv)
 	nvram_unset("le_restart_httpd");
 #endif
 
-	if (nvram_get_int("HTTPD_DBG") > 0)
-		eval("touch", HTTPD_DEBUG);
+	httpd_debug_log_init();
 
 #if defined(RTCONFIG_SW_HW_AUTH)
 	//if(!httpd_sw_hw_check()) return 0;

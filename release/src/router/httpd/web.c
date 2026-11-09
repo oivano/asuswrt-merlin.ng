@@ -3180,7 +3180,7 @@ static void do_html_post_and_get(char *url, FILE *stream, int len, char *boundar
 	query = url;
 	strsep(&query, "?");
 
-	HTTPD_DBG("post_buf = %s, query = %s\n", post_buf, query);
+	HTTPD_DBG("POST request received; payload omitted\n");
 
 	if (query && strlen(query) > 0){
 		if (strlen(post_buf) > 0)
@@ -20996,7 +20996,7 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 
 	authorization_t = websGetVar(wp, "login_authorization","");
 
-	HTTPD_DBG("authorization_t = %s\n", authorization_t);
+	HTTPD_DBG("login request received; authorization omitted\n");
 
 	/* Decode it. */
 	l = b64_decode( &(authorization_t[0]), (unsigned char*) authinfo, sizeof(authinfo) - 1 );
