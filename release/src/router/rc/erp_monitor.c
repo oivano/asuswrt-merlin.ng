@@ -17,6 +17,7 @@
 #include <wlioctl.h>
 #include <wlutils.h>
 #include <limits.h>
+#include <sys/wait.h>
 
 #if defined(RTCONFIG_QCA)
 #include <qca.h>
@@ -31,17 +32,58 @@
 		printf("[ERP][%s:(%d)]"fmt, __FUNCTION__, __LINE__, ##args); \
 	}
 
-// ErP path
-#define ERP_FOLDER     "/tmp/ERP/"
-#define ERP_GPHY       ERP_FOLDER"ERP_GPHY"       // erp gphy status
-#define ERP_IPV6_ARP   ERP_FOLDER"ERP_IPV6"       // erp ipv6 client status
-#define ERP_IPV4_ARP   ERP_FOLDER"ERP_IPV4"       // erp ipv4 client status
-
 // ErP mode status
 enum {
 	ERP_WAKEUP = 0,
 	ERP_STANDBY
 };
+
+static FILE *erp_pipe_open(char *const argv[], pid_t *child)
+{
+	int pfd[2];
+	FILE *fp;
+	pid_t pid;
+	int status;
+
+	if (pipe(pfd) != 0)
+		return NULL;
+	fcntl(pfd[0], F_SETFD, FD_CLOEXEC);
+	fcntl(pfd[1], F_SETFD, FD_CLOEXEC);
+	pid = fork();
+	if (pid == 0) {
+		close(pfd[0]);
+		if (dup2(pfd[1], STDOUT_FILENO) < 0)
+			_exit(127);
+		if (pfd[1] != STDOUT_FILENO)
+			close(pfd[1]);
+		execvp(argv[0], argv);
+		_exit(127);
+	}
+	close(pfd[1]);
+	if (pid < 0) {
+		close(pfd[0]);
+		return NULL;
+	}
+	fp = fdopen(pfd[0], "r");
+	if (!fp) {
+		close(pfd[0]);
+		while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
+			;
+		return NULL;
+	}
+	*child = pid;
+	return fp;
+}
+
+static void erp_pipe_close(FILE *fp, pid_t child)
+{
+	int status;
+
+	fclose(fp);
+	while (waitpid(child, &status, 0) < 0)
+		if (errno != EINTR)
+			break;
+}
 
 // ErP parameters
 /* the total period : 96 * 10  sec = 960 sec = 16 * 60 sec = 16 min */
@@ -261,6 +303,7 @@ static int erp_check_arp_stat(int model)
 	int BR_NUM = 0;   // the bridge interface numbers
 	int unit = 0;
 	int wan_conn = 0; // wan connection stat
+	pid_t child;
 #if defined(RTCONFIG_HND_ROUTER_AX_6756)
 	char stat[20];    // ipv4 neigh stat
 	int stale_n = 0;  // ipv4 stale entries
@@ -278,7 +321,7 @@ static int erp_check_arp_stat(int model)
 		while (fgets(buf, sizeof(buf), fp))
 		{
 			memset(ifname, 0, sizeof(ifname));
-			if (sscanf(buf, "%*s %*s 0x%x %*s %*s %s", &flags, ifname) != 2) continue;
+			if (sscanf(buf, "%*s %*s 0x%x %*s %*s %19s", &flags, ifname) != 2) continue;
 			ERP_DBG("ifname=%s, flags=%d\n", ifname, flags);
 			if (!strcmp(ifname, br_if) && (flags != 0)) br_n++;
 		}
@@ -287,51 +330,51 @@ static int erp_check_arp_stat(int model)
 	}
 
 	/* check ipv6 client for IPv6 */
-	eval("mkdir", "-p", ERP_FOLDER);
-	doSystem("ip -f inet6 neigh show dev %s > %s", nvram_safe_get("lan_ifname"), ERP_IPV6_ARP);
-
-	if ((fp = fopen(ERP_IPV6_ARP, "r")) != NULL)
 	{
-		// while loop
-		while (fgets(buf, sizeof(buf), fp))
+		char *argv[] = {"ip", "-f", "inet6", "neigh", "show", "dev", nvram_safe_get("lan_ifname"), NULL};
+		if ((fp = erp_pipe_open(argv, &child)) != NULL)
 		{
-			memset(ifname, 0, sizeof(ifname));
-			memset(ipaddr, 0, sizeof(ipaddr));
-			if (sscanf(buf, "%s %*s %s %*s", ipaddr, ifname) != 2) continue;
-			ERP_DBG("ipaddr=%s, ifname=%s\n", ipaddr, ifname);
-			if ( (ipaddr[0] == '2' || ipaddr[0] == '3')
-				&& ipaddr[0] != ':' && ipaddr[1] != ':'
-				&& ipaddr[2] != ':' && ipaddr[3] != ':')
+			while (fgets(buf, sizeof(buf), fp))
 			{
-				br_n++; // ipv6 clients
+				memset(ifname, 0, sizeof(ifname));
+				memset(ipaddr, 0, sizeof(ipaddr));
+				if (sscanf(buf, "%127s %*s %19s %*s", ipaddr, ifname) != 2) continue;
+				ERP_DBG("ipaddr=%s, ifname=%s\n", ipaddr, ifname);
+				if ( (ipaddr[0] == '2' || ipaddr[0] == '3')
+					&& ipaddr[0] != ':' && ipaddr[1] != ':'
+					&& ipaddr[2] != ':' && ipaddr[3] != ':')
+				{
+					br_n++; // ipv6 clients
+				}
 			}
-		}
 
-		fclose(fp);
+			erp_pipe_close(fp, child);
+		}
 	}
 
 #if defined(RTCONFIG_HND_ROUTER_AX_6756)
 	/* check ipv4 client for IPv4 */
-	doSystem("ip -f inet neigh show dev %s > %s", nvram_safe_get("lan_ifname"), ERP_IPV4_ARP);
-	if ((fp = fopen(ERP_IPV4_ARP, "r")) != NULL)
 	{
-		// while loop
-		while (fgets(buf, sizeof(buf), fp))
+		char *argv[] = {"ip", "-f", "inet", "neigh", "show", "dev", nvram_safe_get("lan_ifname"), NULL};
+		if ((fp = erp_pipe_open(argv, &child)) != NULL)
 		{
-			memset(stat, 0, sizeof(stat));
-			if (sscanf(buf, "%*s %*s %*s %s", stat) != 1) continue;
-			ERP_DBG("stat=%s\n", stat);
-			if (!strcmp(stat, "STALE"))
+			while (fgets(buf, sizeof(buf), fp))
 			{
-				stale_n++; // ipv4 clients
+				memset(stat, 0, sizeof(stat));
+				if (sscanf(buf, "%*s %*s %*s %19s", stat) != 1) continue;
+				ERP_DBG("stat=%s\n", stat);
+				if (!strcmp(stat, "STALE"))
+				{
+					stale_n++; // ipv4 clients
+				}
+				else if (!strcmp(stat, "REACHABLE"))
+				{
+					link_n++; // ipv4 clients
+				}
 			}
-			else if (!strcmp(stat, "REACHABLE"))
-			{
-				link_n++; // ipv4 clients
-			}
-		}
 
-		fclose(fp);
+			erp_pipe_close(fp, child);
+		}
 	}
 	ERP_DBG("stale=%d, reachable=%d\n", stale_n, link_n);
 #endif
@@ -412,18 +455,18 @@ static int erp_check_gphy_stat(int model)
 	ERP_DBG("wlink %d llink %d fb_fo %d ret %d\n", wlink, llink, fb_fo, ret);
 	return ret;
 #else
-	/* create ERP_FOLDOER */
-	if (!f_exists(ERP_FOLDER))
-		mkdir(ERP_FOLDER, 0666);
-
 	FILE *fp = NULL;
+	pid_t child;
 	int ret = 1;
-	char v0[2], v1[2], v2[2], v3[2], v4[2], v5[2], v6[2], v7[2], v8[2];
+	char v0[2] = {0}, v1[2] = {0}, v2[2] = {0}, v3[2] = {0}, v4[2] = {0};
+	char v5[2] = {0}, v6[2] = {0}, v7[2] = {0}, v8[2] = {0};
 	char buf[80];
 
-	doSystem("ATE Get_WanLanStatus > %s", ERP_GPHY);
-
-	if ((fp = fopen(ERP_GPHY, "r")) != NULL)
+	{
+		char *argv[] = {"ATE", "Get_WanLanStatus", NULL};
+		fp = erp_pipe_open(argv, &child);
+	}
+	if (fp != NULL)
 	{
 		while (fgets(buf, sizeof(buf), fp))
 		{
@@ -440,7 +483,7 @@ static int erp_check_gphy_stat(int model)
 			int len = strlen(buf);
 			ERP_DBG("len = %d\n", len);
 			if (len == 46) {
-				sscanf(buf, "W0=%[^;];L1=%[^;];L2=%[^;];L3=%[^;];L4=%[^;];L5=%[^;];L6=%[^;];L7=%[^;];L8=%[^;];", v0, v1, v2, v3, v4, v5, v6, v7, v8);
+				if (sscanf(buf, "W0=%1[^;];L1=%1[^;];L2=%1[^;];L3=%1[^;];L4=%1[^;];L5=%1[^;];L6=%1[^;];L7=%1[^;];L8=%1[^;];", v0, v1, v2, v3, v4, v5, v6, v7, v8) != 9) continue;
 				if ( (!strcmp(v0, "X") || (model==MODEL_DSLAC68U)) /* DSL-AC68U v0 always = "M" */
 					&& !strcmp(v1, "X") && !strcmp(v2, "X") && !strcmp(v3, "X") && !strcmp(v4, "X")
 					&& !strcmp(v5, "X") && !strcmp(v6, "X") && !strcmp(v7, "X") && !strcmp(v8, "X"))
@@ -453,7 +496,7 @@ static int erp_check_gphy_stat(int model)
 				}
 			}
 			else if(len == 36) {
-				sscanf(buf, "W0=%[^;];L1=%[^;];L2=%[^;];L3=%[^;];L4=%[^;];L5=%[^;];L6=%[^;];", v0, v1, v2, v3, v4, v5, v6);
+				if (sscanf(buf, "W0=%1[^;];L1=%1[^;];L2=%1[^;];L3=%1[^;];L4=%1[^;];L5=%1[^;];L6=%1[^;];", v0, v1, v2, v3, v4, v5, v6) != 7) continue;
 				if ( (!strcmp(v0, "X") || (model==MODEL_DSLAC68U)) /* DSL-AC68U v0 always = "M" */
 					&& !strcmp(v1, "X") && !strcmp(v2, "X") && !strcmp(v3, "X")
 					&& !strcmp(v4, "X") && !strcmp(v5, "X") && !strcmp(v6, "X"))
@@ -466,7 +509,7 @@ static int erp_check_gphy_stat(int model)
 				}
 			}
 			else if(len == 31) {
-				sscanf(buf, "W0=%[^;];L1=%[^;];L2=%[^;];L3=%[^;];L4=%[^;];L5=%[^;];", v0, v1, v2, v3, v4, v5);
+				if (sscanf(buf, "W0=%1[^;];L1=%1[^;];L2=%1[^;];L3=%1[^;];L4=%1[^;];L5=%1[^;];", v0, v1, v2, v3, v4, v5) != 6) continue;
 				if ( (!strcmp(v0, "X") || (model==MODEL_DSLAC68U)) /* DSL-AC68U v0 always = "M" */
 					&& !strcmp(v1, "X") && !strcmp(v2, "X") && !strcmp(v3, "X") && !strcmp(v4, "X") && !strcmp(v5, "X"))
 				{
@@ -478,7 +521,7 @@ static int erp_check_gphy_stat(int model)
 				}
 			}
 			else if(len == 26) {
-				sscanf(buf, "W0=%[^;];L1=%[^;];L2=%[^;];L3=%[^;];L4=%[^;];", v0, v1, v2, v3, v4);
+				if (sscanf(buf, "W0=%1[^;];L1=%1[^;];L2=%1[^;];L3=%1[^;];L4=%1[^;];", v0, v1, v2, v3, v4) != 5) continue;
 				if ( (!strcmp(v0, "X") || (model==MODEL_DSLAC68U)) /* DSL-AC68U v0 always = "M" */
 					&& !strcmp(v1, "X") && !strcmp(v2, "X") && !strcmp(v3, "X") && !strcmp(v4, "X"))
 				{
@@ -490,7 +533,7 @@ static int erp_check_gphy_stat(int model)
 				}
 			}
 			else if(len == 21) {
-				sscanf(buf, "W0=%[^;];L1=%[^;];L2=%[^;];L3=%[^;];", v0, v1, v2, v3);
+				if (sscanf(buf, "W0=%1[^;];L1=%1[^;];L2=%1[^;];L3=%1[^;];", v0, v1, v2, v3) != 4) continue;
 				if ( (!strcmp(v0, "X") || (model==MODEL_DSLAC68U)) /* DSL-AC68U v0 always = "M" */
 					&& !strcmp(v1, "X") && !strcmp(v2, "X") && !strcmp(v3, "X"))
 				{
@@ -502,7 +545,7 @@ static int erp_check_gphy_stat(int model)
 				}
 			}
 		}
-		fclose(fp);
+		erp_pipe_close(fp, child);
 	}
 
 	ERP_DBG("v0=%s, v1=%s, v2=%s, v3=%s, v4=%s, v5=%s, v6=%s, v7=%s, v8=%s, ret=%d\n", v0, v1, v2, v3, v4, v5, v6, v7, v8, ret);
