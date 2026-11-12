@@ -33,6 +33,7 @@ const addEnd = conntrack.indexOf('\nint\nip_conntrack_ipct_delete', addStart);
 assert.ok(addStart >= 0 && addEnd > addStart);
 const add = conntrack.slice(addStart, addEnd);
 assert.match(add,
-    /if \(\(skb == NULL\) \|\| \(ct == NULL\)\)\s*return;\s*if \(\(hooknum != NF_INET_POST_ROUTING\) \|\| !nf_ct_is_confirmed\(ct\) \|\|\s*nf_ct_is_dying\(ct\)\)\s*return;/);
+    /if \(\(skb == NULL\) \|\| \(ct == NULL\)\)\s*return;\s*if \(!nf_ct_is_confirmed\(ct\) \|\| nf_ct_is_dying\(ct\)\)\s*return;\s*if \(hooknum != NF_INET_POST_ROUTING &&\s*\(hooknum != NF_INET_PRE_ROUTING \|\| nf_ct_l3num\(ct\) != NFPROTO_IPV4\)\)\s*return;/,
+    'only confirmed IPv4 pre-routing and confirmed post-routing flows can create CTF cache entries');
 
 console.log('PASS: defrag returns after output; IPv6 CTF insertion follows final POST_ROUTING confirmation; shared CTF add requires a confirmed, live flow (source contracts only)');
