@@ -211,8 +211,10 @@ ip_conntrack_ipct_add(struct sk_buff *skb, u_int32_t hooknum,
 
 	if ((skb == NULL) || (ct == NULL))
 		return;
-	if ((hooknum != NF_INET_POST_ROUTING) || !nf_ct_is_confirmed(ct) ||
-	    nf_ct_is_dying(ct))
+	if (!nf_ct_is_confirmed(ct) || nf_ct_is_dying(ct))
+		return;
+	if (hooknum != NF_INET_POST_ROUTING &&
+	    (hooknum != NF_INET_PRE_ROUTING || nf_ct_l3num(ct) != NFPROTO_IPV4))
 		return;
 
 	/* Check CTF enabled */
