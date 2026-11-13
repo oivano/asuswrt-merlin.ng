@@ -31,6 +31,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <syslog.h>
 #include <ctype.h>
 #include <string.h>
@@ -790,6 +791,61 @@ stop_igmpproxy()
 #endif
 }
 
+static int igmpproxy_config_dir_open(void)
+{
+	struct stat st, path;
+	int fd;
+
+	fd = open("/tmp/ppp", O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (fd < 0)
+		return -1;
+	if (fstat(fd, &st) < 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
+	    (st.st_mode & 0022) || lstat("/tmp/ppp", &path) < 0 ||
+	    !S_ISDIR(path.st_mode) || path.st_dev != st.st_dev || path.st_ino != st.st_ino) {
+		close(fd);
+		errno = EPERM;
+		return -1;
+	}
+	return fd;
+}
+
+static int igmpproxy_config_create(int dirfd)
+{
+	struct stat st;
+	int fd;
+
+	if (unlinkat(dirfd, "igmpproxy.conf", 0) < 0 && errno != ENOENT)
+		return -1;
+	fd = openat(dirfd, "igmpproxy.conf",
+		    O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK, 0600);
+	if (fd < 0)
+		return -1;
+	if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
+	    st.st_nlink != 1 || fchmod(fd, 0600) < 0 || fstat(fd, &st) < 0 ||
+	    (st.st_mode & 0077)) {
+		close(fd);
+		unlinkat(dirfd, "igmpproxy.conf", 0);
+		errno = EPERM;
+		return -1;
+	}
+	return fd;
+}
+
+static int igmpproxy_config_is_safe(int dirfd)
+{
+	struct stat st;
+	int fd, result = 0;
+
+	fd = openat(dirfd, "igmpproxy.conf", O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+	if (fd < 0)
+		return 0;
+	if (fstat(fd, &st) == 0 && S_ISREG(st.st_mode) && st.st_uid == 0 &&
+	    st.st_nlink == 1 && !(st.st_mode & 0022))
+		result = 1;
+	close(fd);
+	return result;
+}
+
 void
 start_igmpproxy(char *wan_ifname)
 {
@@ -849,10 +905,25 @@ start_igmpproxy(char *wan_ifname)
 	start_mcpd_proxy();
 #else
 	FILE *fp;
-	static char *igmpproxy_conf = "/tmp/igmpproxy.conf";
+	static char *igmpproxy_conf = "/tmp/ppp/igmpproxy.conf";
 	char *altnet, buf[32];
+	int config_dirfd, config_fd;
 
-	if ((fp = fopen(igmpproxy_conf, "w")) == NULL) {
+	config_dirfd = igmpproxy_config_dir_open();
+	if (config_dirfd < 0) {
+		perror("/tmp/ppp");
+		return;
+	}
+	config_fd = igmpproxy_config_create(config_dirfd);
+	if (config_fd < 0) {
+		perror(igmpproxy_conf);
+		close(config_dirfd);
+		return;
+	}
+	if ((fp = fdopen(config_fd, "w")) == NULL) {
+		close(config_fd);
+		unlinkat(config_dirfd, "igmpproxy.conf", 0);
+		close(config_dirfd);
 		perror(igmpproxy_conf);
 		return;
 	}
@@ -869,9 +940,24 @@ start_igmpproxy(char *wan_ifname)
 		nvram_get("lan_ifname") ? : "br0");
 
 	append_custom_config("igmpproxy.conf", fp);
-	fclose(fp);
+	if (fclose(fp) != 0 || !igmpproxy_config_is_safe(config_dirfd)) {
+		_dprintf("unsafe or incomplete igmpproxy config\n");
+		close(config_dirfd);
+		return;
+	}
 	use_custom_config("igmpproxy.conf", igmpproxy_conf);
+	if (!igmpproxy_config_is_safe(config_dirfd)) {
+		_dprintf("unsafe igmpproxy config after custom config\n");
+		close(config_dirfd);
+		return;
+	}
 	run_postconf("igmpproxy", igmpproxy_conf);
+	if (!igmpproxy_config_is_safe(config_dirfd)) {
+		_dprintf("unsafe igmpproxy config after postconf\n");
+		close(config_dirfd);
+		return;
+	}
+	close(config_dirfd);
 
 	eval("/usr/sbin/igmpproxy", igmpproxy_conf);
 #endif
