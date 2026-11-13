@@ -17595,6 +17595,11 @@ retry_wps_enr:
 				ovpn_update_exclusive_dns_rules();
 			}
 			file_unlock(lock);
+			if (unit == 0 && nvram_get_int("ipsec_client_enable")) {
+#ifdef RTCONFIG_IPSEC
+				rc_ipsec_set(IPSEC_SET, PROF_CLI);
+#endif
+			}
 		}
 	}
 #endif

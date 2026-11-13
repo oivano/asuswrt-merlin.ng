@@ -610,14 +610,64 @@ ovpn_sconf_t *ovpn_get_sconf(int unit){
 }
 
 
-// Unit -1 = all rules;  unit 0 = WAN rules,  unit 1-5: OVPN instance rules
-char *ovpn_get_policy_rules(int unit, char *buffer, int bufferlen)
+static int _valid_policy_ip(const char *value)
+{
+	char address[INET_ADDRSTRLEN];
+	char *slash;
+	char *end;
+	struct in_addr addr;
+	long prefix = 32;
+	size_t len;
+
+	if (!*value)
+		return 1;
+
+	len = strcspn(value, "/");
+	if (len == 0 || len >= sizeof(address))
+		return 0;
+	memcpy(address, value, len);
+	address[len] = '\0';
+	if (inet_pton(AF_INET, address, &addr) != 1)
+		return 0;
+
+	slash = strchr((char *)value, '/');
+	if (slash) {
+		if (!slash[1])
+			return 0;
+		prefix = strtol(slash + 1, &end, 10);
+		if (*end || prefix < 0 || prefix > 32)
+			return 0;
+	}
+	return 1;
+}
+
+static int _valid_policy_target(const char *target)
+{
+	char expected[8];
+	int unit;
+
+	if (!strcmp(target, "WAN"))
+		return 1;
+	for (unit = 1; unit <= OVPN_CLIENT_MAX; unit++) {
+		snprintf(expected, sizeof(expected), "OVPN%d", unit);
+		if (!strcmp(target, expected))
+			return 1;
+	}
+	for (unit = 1; unit <= 5; unit++) {
+		snprintf(expected, sizeof(expected), "IPSEC%d", unit);
+		if (!strcmp(target, expected))
+			return 1;
+	}
+	return 0;
+}
+
+static char *_get_policy_rules(int unit, int ipsec, char *buffer, int bufferlen)
 {
 	char filename[128];
 	int datalen;
 	char *buffer_tmp, *buffer_tmp2;
 	char *rule, *enable, *desc, *src, *dst, *target;
-	char entry[128];
+	char entry[256];
 
 	snprintf(filename, sizeof(filename), "%s/vpndirector_rulelist", OVPN_FS_PATH);
 
@@ -628,7 +678,7 @@ char *ovpn_get_policy_rules(int unit, char *buffer, int bufferlen)
 		buffer[datalen] = '\0';
 	}
 
-	if (unit == -1 || unit > OVPN_CLIENT_MAX)
+	if (unit == -1)
 		return buffer;
 
 	buffer_tmp = buffer_tmp2 = strdup(buffer);
@@ -643,9 +693,13 @@ char *ovpn_get_policy_rules(int unit, char *buffer, int bufferlen)
 		if (unit == 0 && !strcmp(target, "WAN")) {
 			strlcat(buffer, entry, bufferlen);
 		}
-		else if (unit != 0 && !strncmp(target, "OVPN", 4) &&
+		else if (!ipsec && unit != 0 && !strncmp(target, "OVPN", 4) &&
 		    strlen(target) > 4 &&
 		    atoi(&target[4]) == unit) {
+			strlcat(buffer, entry, bufferlen);
+		}
+		else if (ipsec && !strncmp(target, "IPSEC", 5) &&
+		    strlen(target) > 5 && atoi(&target[5]) == unit) {
 			strlcat(buffer, entry, bufferlen);
 		}
 	}
@@ -654,10 +708,45 @@ char *ovpn_get_policy_rules(int unit, char *buffer, int bufferlen)
 	return buffer;
 }
 
+// Unit -1 = all rules; unit 0 = WAN rules; unit 1-5 = OVPN instance rules
+char *ovpn_get_policy_rules(int unit, char *buffer, int bufferlen)
+{
+	return _get_policy_rules(unit, 0, buffer, bufferlen);
+}
+
+char *ovpn_get_ipsec_policy_rules(int unit, char *buffer, int bufferlen)
+{
+	return _get_policy_rules(unit, 1, buffer, bufferlen);
+}
+
+static int _valid_policy_rulelist(char *buffer)
+{
+	char *copy = strdup(buffer);
+	char *next = copy, *rule;
+	char *enable, *desc, *src, *dst, *target;
+	int valid = copy != NULL;
+
+	while (valid && (rule = strsep(&next, "<")) != NULL) {
+		if (!*rule)
+			continue;
+		if (vstrsep(rule, ">", &enable, &desc, &src, &dst, &target) != 5 ||
+		    (strcmp(enable, "0") && strcmp(enable, "1")) ||
+		    strlen(desc) > 32 || strlen(src) >= 20 || strlen(dst) >= 20 ||
+		    !_valid_policy_ip(src) || !_valid_policy_ip(dst) ||
+		    !_valid_policy_target(target))
+			valid = 0;
+	}
+	free(copy);
+	return valid;
+}
+
 
 int ovpn_set_policy_rules(char* buffer)
 {
 	char filename[128];
+
+	if (!buffer || strlen(buffer) > 7999 || !_valid_policy_rulelist(buffer))
+		return -1;
 
 	if (!d_exists(OVPN_FS_PATH))
 		mkdir(OVPN_FS_PATH, S_IRWXU);
