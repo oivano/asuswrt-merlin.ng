@@ -18005,6 +18005,38 @@ do_ikev2_cert_der(char *url, FILE *stream)
 }
 
 static void
+do_get_ipsec_director_profiles_cgi(char *url, FILE *stream)
+{
+	struct json_object *profiles = json_object_new_array();
+	char key[40], profile[1024], mode_key[40];
+	int i;
+
+	for (i = 1; i <= 5; i++) {
+		char *cursor, *type, *name;
+		struct json_object *item;
+
+		snprintf(key, sizeof(key), "ipsec_profile_client_%d", i);
+		strlcpy(profile, nvram_safe_get(key), sizeof(profile));
+		cursor = profile;
+		type = strsep(&cursor, ">");
+		name = cursor ? strsep(&cursor, ">") : NULL;
+		if (!type || strcmp(type, "2") || !name || !*name)
+			continue;
+
+		item = json_object_new_object();
+		json_object_object_add(item, "unit", json_object_new_int(i));
+		json_object_object_add(item, "name", json_object_new_string(name));
+		snprintf(mode_key, sizeof(mode_key), "ipsec_client%d_routing_mode", i);
+		json_object_object_add(item, "mode", json_object_new_string(
+			nvram_match(mode_key, "director") ? "director" : "full"));
+		json_object_array_add(profiles, item);
+	}
+	websWrite(stream, "%s", json_object_to_json_string_ext(profiles, JSON_C_TO_STRING_PLAIN));
+	websDone(stream, 200);
+	json_object_put(profiles);
+}
+
+static void
 do_get_ipsec_clientlist_cgi(char *url, FILE *stream)
 {
 	char *name = NULL, *passwd = NULL, *get_json = NULL;
@@ -23794,6 +23826,7 @@ struct mime_handler mime_handlers[] =
 	{ "splash_page_del.cgi*", "text/html", no_cache_IE7, do_splash_page_del, do_splash_page_cgi, do_auth },
 #endif
 #ifdef RTCONFIG_IPSEC
+	{ "get_ipsec_director_profiles.cgi*", "application/json", no_cache_IE7, do_html_post_and_get, do_get_ipsec_director_profiles_cgi, do_auth },
 	{ "ipsec.log", "application/octet-stream", NULL, NULL, do_ipsec_file, do_auth },
 	{ "clear_file.cgi*", "text/javascript", no_cache_IE7, do_html_post_and_get, do_clear_file_cgi, do_auth },
 	{ "ipsecupload.cgi*", "text/html", no_cache_IE7, do_ipsecupload_post, do_ipsecupload_cgi, do_auth },

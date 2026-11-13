@@ -11,8 +11,12 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <dirent.h>
+#include <arpa/inet.h>
 #include <network_utility.h>
 #include "rc_ipsec.h"
+#ifdef RTCONFIG_OPENVPN
+#include <openvpn_config.h>
+#endif
 
 /* for struct utsname */
 #include <sys/utsname.h>
@@ -283,6 +287,94 @@ static ipsec_samba_t samba_prof;
 static ipsec_samba_t pre_samba_prof;
 
 static ipsec_prof_t prof[2][MAX_PROF_NUM];
+
+static int _ipsec_director_active_unit(void)
+{
+	int i, active = 0, unit = 0;
+
+	for (i = 0; i < MAX_PROF_NUM; i++) {
+		if (prof[PROF_CLI][i].ipsec_conn_en == IPSEC_CONN_EN_UP &&
+		    prof[PROF_CLI][i].vpn_type == VPN_TYPE_NET_NET_CLI) {
+			active++;
+			unit = i + 1;
+		}
+	}
+	return active == 1 ? unit : 0;
+}
+
+static int _ipsec_director_selective_unit(void)
+{
+	char key[40];
+	int unit = _ipsec_director_active_unit();
+
+	if (!unit)
+		return 0;
+	snprintf(key, sizeof(key), "ipsec_client%d_routing_mode", unit);
+	return nvram_match(key, "director") ? unit : 0;
+}
+
+static void _ipsec_director_config_snapshot(char *current, size_t size)
+{
+	char key[40];
+	int unit = _ipsec_director_active_unit();
+
+	if (unit) {
+		snprintf(key, sizeof(key), "ipsec_client%d_routing_mode", unit);
+		snprintf(current, size, "%d:%s", unit,
+			 nvram_match(key, "director") ? "director" : "full");
+	}
+}
+
+static int _ipsec_director_config_changed(const char *current)
+{
+	char path[128], saved[8192] = {0};
+	FILE *fp;
+	size_t length;
+	int changed = 0;
+
+	snprintf(path, sizeof(path), FILE_PATH_IPSEC_PRIVATE_DIR "/director-config");
+	fp = ipsec_state_open(path, 0);
+	if (!fp)
+		return 1;
+	if (!fgets(saved, sizeof(saved), fp)) {
+		changed = 1;
+	}
+	else {
+		length = strlen(saved);
+		if (!length || saved[length - 1] != '\n')
+			changed = 1;
+		else {
+			saved[length - 1] = '\0';
+			length = strlen(current);
+			changed = strncmp(current, saved, length) != 0 ||
+				(saved[length] && saved[length] != ':');
+		}
+	}
+	fclose(fp);
+	return changed;
+}
+
+static int _ipsec_director_config_save(const char *current)
+{
+	char path[128], temporary[136];
+	FILE *fp;
+	int written, closed;
+
+	snprintf(path, sizeof(path), FILE_PATH_IPSEC_PRIVATE_DIR "/director-config");
+	snprintf(temporary, sizeof(temporary), "%s.new", path);
+	if (unlink(temporary) < 0 && errno != ENOENT)
+		return -1;
+	fp = ipsec_state_open(temporary, 1);
+	if (!fp)
+		return -1;
+	written = fprintf(fp, "%s\n", current) >= 0;
+	closed = fclose(fp) == 0;
+	if (!written || !closed || rename(temporary, path) < 0) {
+		unlink(temporary);
+		return -1;
+	}
+	return 0;
+}
 static pki_ca_t ca_tab[CA_FILES_MAX_NUM];
 
 int get_active_wan_unit(void)
@@ -303,14 +395,12 @@ int get_active_wan_unit(void)
     }
     else
 #endif
-        active_wan_unit = wan_primary_ifunit();
+		active_wan_unit = wan_primary_ifunit();
 
-    return active_wan_unit;
+	return active_wan_unit;
 }
 
 /*param 1: char *p_end , IN : the src of string buf */
-/*param 2: char *p_tmp , OUT: the dest of string buf*/
-/*param 3: int *nsize_shifft , OUT: the size of shifft*/
 int ipsec_profile_str_parse(char *p_end, char *p_tmp, size_t capacity, int *nsize_shifft)
 {
 	char *end = strchr(p_end, '>');
@@ -909,6 +999,7 @@ void rc_strongswan_conf_set()
 {
 	FILE *fp;
 	char *user;
+	const char *install_table_rule;
 	int rc;
 
 	fp = fopen("/etc/strongswan.conf", "w");
@@ -919,6 +1010,7 @@ void rc_strongswan_conf_set()
 	if (*user == '\0')
 		if(*(user = nvram_default_get("http_username")) == '\0')
 			user = "admin";
+	install_table_rule = _ipsec_director_selective_unit() ? "no" : "yes";
 
 
 	fprintf(fp,
@@ -946,6 +1038,13 @@ void rc_strongswan_conf_set()
 		nvram_get_int("ipsec_threads_num") ? : 16,
 		nvram_safe_get("lan_ifname"),
 		nvram_get_int("ipsec_log_level") ? : 1);
+	fprintf(fp,
+		"\tplugins {\n"
+		"\t\tkernel-netlink {\n"
+		"\t\t\tinstall_routing_table_rule = %s\n"
+		"\t\t}\n"
+		"\t}\n",
+		install_table_rule);
 
 	rc = pre_ipsec_samba_prof_set();
 	if (rc != 0) {
@@ -2087,14 +2186,26 @@ void rc_ipsec_nvram_convert_check(void)
 		}
 	}
 }
+static int ipsec_prepare_config_dirs(void)
+{
+	if (!d_exists("/etc/ipsec.d") || !d_exists("/etc/strongswan.d")) {
+		if (system("cp -rf /usr/etc/* /tmp/etc/") != 0 ||
+		    !d_exists("/etc/ipsec.d") || !d_exists("/etc/strongswan.d")) {
+			logmessage("ipsec", "Unable to prepare StrongSwan configuration defaults");
+			return -1;
+		}
+	}
+	return 0;
+}
+
 void rc_ipsec_config_init(void)
 {
     memset((void *)&samba_prof, 0, sizeof(samba_prof));
     memset((void *)&prof[0][0], 0, sizeof(prof));
     //memset((void *)&ca_tab[0], 0, sizeof(ca_tab));
     memset((void *)&pre_samba_prof, 0, sizeof(pre_samba_prof));
-	if(!d_exists("/etc/ipsec.d") || !d_exists("/etc/strongswan.d"))
-		system("cp -rf /usr/etc/* /tmp/etc/");
+	if (ipsec_prepare_config_dirs() < 0)
+		return;
 	if (ipsec_secure_dirs() < 0) {
 		logmessage("ipsec", "Cannot secure IPsec directories; initialization stopped");
 		return;
@@ -2806,6 +2917,10 @@ static void rc_strongswan_plugin_set()
 	}
 }
 
+#ifdef RTCONFIG_OPENVPN
+static int _ipsec_director_rules_update(int unit);
+#endif
+
 void rc_ipsec_set(ipsec_conn_status_t conn_status, ipsec_prof_type_t prof_type)
 {
     static bool ipsec_start_en = FALSE;
@@ -2819,7 +2934,10 @@ void rc_ipsec_set(ipsec_conn_status_t conn_status, ipsec_prof_type_t prof_type)
 	uint32_t cur_bitmap_en_p[2]={0};
 	char *local_subnet, *local_subnet_total;
 	int prof_i = 0, is_duplicate = 0;
+	int director_changed;
+	int director_rules_changed = 0;
 	char tmpStr[20];
+	char director_snapshot[8192] = {0};
 /* moved to firewall
 	int isakmp_port = nvram_get_int("ipsec_isakmp_port");
 	int nat_t_port = nvram_get_int("ipsec_nat_t_port");
@@ -2829,8 +2947,19 @@ void rc_ipsec_set(ipsec_conn_status_t conn_status, ipsec_prof_type_t prof_type)
 		logmessage("ipsec", "Cannot secure IPsec directories; configuration stopped");
 		return;
 	}
+	if (ipsec_prepare_config_dirs() < 0)
+		return;
 	rc_ipsec_nvram_convert_check();
     rc_ipsec_conf_set();
+	_ipsec_director_config_snapshot(director_snapshot, sizeof(director_snapshot));
+	director_changed = _ipsec_director_config_changed(director_snapshot);
+#ifdef RTCONFIG_OPENVPN
+	if (!director_changed && _ipsec_director_selective_unit()) {
+		director_rules_changed = _ipsec_director_rules_update(_ipsec_director_selective_unit());
+		if (director_rules_changed < 0)
+			logmessage("ipsec_route", "failed to apply VPN Director rule changes without restarting client");
+	}
+#endif
     rc_ipsec_secrets_set();
     rc_ipsec_gen_cert(0);
     rc_ipsec_ca_init();
@@ -2851,13 +2980,13 @@ void rc_ipsec_set(ipsec_conn_status_t conn_status, ipsec_prof_type_t prof_type)
 	}
 		
 //#if 0
-    if(FALSE == ipsec_start_en){
-        rc_ipsec_start(fp);
+		if(FALSE == ipsec_start_en){
+		if (!pids("charon"))
+			rc_ipsec_start(fp);
         ipsec_start_en = TRUE;
-        if(IPSEC_INIT == conn_status){
-            fprintf(fp, "\nsleep 7 > /dev/null 2>&1 \n");
-        }
     }
+		if(IPSEC_INIT == conn_status)
+		fprintf(fp, "\nsleep 7 > /dev/null 2>&1 \n");
 //#endif
     //cur_bitmap_en = cur_bitmap_en_scan();
 	get_bitmap_scan((int *) cur_bitmap_en_p);
@@ -2898,13 +3027,15 @@ void rc_ipsec_set(ipsec_conn_status_t conn_status, ipsec_prof_type_t prof_type)
 		modprobe("xfrm_user");
 
 		/* ipsec must be restart if strongswan.conf changed, or it will not apply the new settings. */
-		if((TRUE == ipsec_start_en) && (IPSEC_INIT != conn_status)&& (0 != strcmp(pre_samba_prof.dns1, samba_prof.dns1) || 0 != strcmp(pre_samba_prof.dns2, samba_prof.dns2) || 
-				0 != strcmp(pre_samba_prof.nbios1, samba_prof.nbios1) || 0 != strcmp(pre_samba_prof.nbios2, samba_prof.nbios2))){
+		if((TRUE == ipsec_start_en) && (IPSEC_INIT != conn_status)&&
+			(director_changed ||
+			 (0 != strcmp(pre_samba_prof.dns1, samba_prof.dns1) || 0 != strcmp(pre_samba_prof.dns2, samba_prof.dns2) ||
+				0 != strcmp(pre_samba_prof.nbios1, samba_prof.nbios1) || 0 != strcmp(pre_samba_prof.nbios2, samba_prof.nbios2)))){
 			pre_samba_prof = samba_prof;
 			fprintf(fp, "\nsleep 2 > /dev/null 2>&1 \n");
 			rc_ipsec_restart(fp);
 		}
-		else{
+		else if (director_rules_changed <= 0){
 			rc_ipsec_rereadall(fp);
 			rc_ipsec_reload(fp);
 		}
@@ -3152,7 +3283,9 @@ void rc_ipsec_set(ipsec_conn_status_t conn_status, ipsec_prof_type_t prof_type)
 	reinit_ecm(-1);
 #endif
 	DBG(("rc_ipsec_down_stat<<<< CLI: 0x%x, SVR: 0x%x\n", cur_bitmap_en_p[PROF_CLI],cur_bitmap_en_p[PROF_SVR]));
-	ipsec_run_script(FILE_PATH_IPSEC_SH);
+	if (ipsec_run_script(FILE_PATH_IPSEC_SH) == 0 &&
+	    _ipsec_director_config_save(director_snapshot) < 0)
+		logmessage("ipsec", "Unable to save VPN Director runtime state");
 	DBG(("rc_ipsec_down_stat<<<< CLI: 0x%x, SVR: 0x%x\n", cur_bitmap_en_p[PROF_CLI],cur_bitmap_en_p[PROF_SVR]));
 	run_ipsec_firewall_scripts();
 #ifdef RTCONFIG_UPNPC_NEW
@@ -3313,29 +3446,34 @@ static int _ipsec_valid_route_prefix(const char *prefix)
 
 static int _ipsec_valid_ipv4_prefix(const char *prefix)
 {
+	char value[32];
+	char *length;
+	const unsigned char *character;
 	struct in_addr address;
-	char address_text[16], *end;
-	const char *slash;
-	unsigned long bits, mask;
-	size_t length, i;
+	unsigned int prefix_length = 0;
+	uint32_t mask, host_address;
 
-	if (!prefix || !(slash = strchr(prefix, '/')) || strchr(slash + 1, '/'))
+	if (!prefix || !*prefix || strlen(prefix) >= sizeof(value))
 		return 0;
-	length = slash - prefix;
-	if (!length || length >= sizeof(address_text) || !slash[1])
+	strlcpy(value, prefix, sizeof(value));
+	length = strchr(value, '/');
+	if (!length)
 		return 0;
-	memcpy(address_text, prefix, length);
-	address_text[length] = '\0';
-	if (inet_pton(AF_INET, address_text, &address) != 1)
+	*length++ = '\0';
+	if (!*length)
 		return 0;
-	for (i = 1; slash[i]; ++i)
-		if (slash[i] < '0' || slash[i] > '9')
+	for (character = (const unsigned char *)length; *character; ++character) {
+		if (*character < '0' || *character > '9')
 			return 0;
-	bits = strtoul(slash + 1, &end, 10);
-	if (*end || bits < 1 || bits > 32)
+		prefix_length = prefix_length * 10 + (*character - '0');
+		if (prefix_length > 32)
+			return 0;
+	}
+	if (!prefix_length || inet_pton(AF_INET, value, &address) != 1)
 		return 0;
-	mask = 0xffffffffUL << (32 - bits);
-	return (ntohl(address.s_addr) & mask) == ntohl(address.s_addr);
+	mask = ~0U << (32 - prefix_length);
+	host_address = ntohl(address.s_addr);
+	return (host_address & mask) == host_address;
 }
 
 static int _ipsec_valid_ipv4_gateway(const char *gateway)
@@ -3345,6 +3483,294 @@ static int _ipsec_valid_ipv4_gateway(const char *gateway)
 	return gateway && inet_pton(AF_INET, gateway, &address) == 1 &&
 		address.s_addr != INADDR_ANY;
 }
+
+#ifdef RTCONFIG_OPENVPN
+static int _ipsec_director_state_dir(void)
+{
+	struct stat st;
+
+	if (mkdir("/tmp/ipsec-director", 0700) < 0 && errno != EEXIST)
+		return 0;
+	if (lstat("/tmp/ipsec-director", &st) < 0 || !S_ISDIR(st.st_mode) ||
+	    st.st_uid != 0 || (st.st_mode & 0700) != 0700 || (st.st_mode & 077) != 0)
+		return 0;
+	return 1;
+}
+
+static int _ipsec_director_rules_set(int unit, char *rules, int add)
+{
+	char target_name[16], priority[16];
+	char *buffer_tmp, *buffer_tmp2, *rule;
+	char *enable, *desc, *src, *dst, *target;
+	char *lan_ifname = nvram_safe_get("lan_ifname");
+	int index = 0, result = 0;
+
+	if (unit < 1 || unit > MAX_PROF_NUM || !*lan_ifname || !rules)
+		return -1;
+	snprintf(target_name, sizeof(target_name), "IPSEC%d", unit);
+	buffer_tmp = buffer_tmp2 = strdup(rules);
+	if (!buffer_tmp)
+		return -1;
+	while (buffer_tmp && (rule = strsep(&buffer_tmp2, "<")) != NULL) {
+		if (vstrsep(rule, ">", &enable, &desc, &src, &dst, &target) != 5 ||
+		    strcmp(target, target_name))
+			continue;
+		index++;
+		if (strcmp(enable, "1"))
+			continue;
+		if (!strcmp(src, "0.0.0.0"))
+			src = "";
+		if (!strcmp(dst, "0.0.0.0"))
+			dst = "";
+		if (!*src && !*dst)
+			continue;
+
+		snprintf(priority, sizeof(priority), "%d", 1000 + index);
+		if (*src && *dst)
+			result |= eval("ip", "rule", add ? "add" : "del", "pref", priority,
+				       "iif", lan_ifname, "from", src, "to", dst, "lookup", "220");
+		else if (*src)
+			result |= eval("ip", "rule", add ? "add" : "del", "pref", priority,
+				       "iif", lan_ifname, "from", src, "lookup", "220");
+		else
+			result |= eval("ip", "rule", add ? "add" : "del", "pref", priority,
+				       "iif", lan_ifname, "to", dst, "lookup", "220");
+	}
+	free(buffer_tmp);
+	return result ? -1 : 0;
+}
+
+static int _ipsec_director_rules_read(const char *path, char *rules, size_t size)
+{
+	FILE *fp;
+	size_t length;
+
+	fp = ipsec_state_open(path, 0);
+	if (!fp)
+		return -1;
+	length = fread(rules, 1, size - 1, fp);
+	if (ferror(fp) || (length == size - 1 && !feof(fp))) {
+		fclose(fp);
+		return -1;
+	}
+	rules[length] = '\0';
+	fclose(fp);
+	return 0;
+}
+
+static int _ipsec_director_rules_save(const char *path, const char *rules)
+{
+	char temporary[128];
+	FILE *fp;
+	int written, closed;
+
+	if (snprintf(temporary, sizeof(temporary), "%s.new", path) >= sizeof(temporary))
+		return -1;
+	if (unlink(temporary) < 0 && errno != ENOENT)
+		return -1;
+	fp = ipsec_state_open(temporary, 1);
+	if (!fp)
+		return -1;
+	written = fprintf(fp, "%s", rules) >= 0;
+	closed = fclose(fp) == 0;
+	if (!written || !closed || rename(temporary, path) < 0) {
+		unlink(temporary);
+		return -1;
+	}
+	return 0;
+}
+
+static int _ipsec_director_rules_update(int unit)
+{
+	char state_path[96], rules_path[96], state[128] = {0};
+	char saved_peer[64] = {0}, previous[8000] = {0}, current[8000] = {0};
+	FILE *fp;
+	int refs = 0, lock, result = -1;
+	char extra;
+
+	if (unit < 1 || unit > MAX_PROF_NUM || !_ipsec_director_state_dir())
+		return -1;
+	snprintf(state_path, sizeof(state_path), "/tmp/ipsec-director/state-%d", unit);
+	snprintf(rules_path, sizeof(rules_path), "/tmp/ipsec-director/rules-%d", unit);
+	lock = file_lock("ipsec-director");
+	if (lock < 0)
+		return -1;
+	errno = 0;
+	fp = ipsec_state_open(state_path, 0);
+	if (!fp) {
+		result = (errno == ENOENT) ? 0 : -1;
+		goto done;
+	}
+	if (!fgets(state, sizeof(state), fp) ||
+	    sscanf(state, "%d %63s %c", &refs, saved_peer, &extra) != 2 ||
+	    refs < 1 || refs > 1024 || !_ipsec_valid_route_host(saved_peer)) {
+		fclose(fp);
+		logmessage("ipsec_route", "invalid VPN Director state while updating client %d", unit);
+		goto done;
+	}
+	fclose(fp);
+	if (_ipsec_director_rules_read(rules_path, previous, sizeof(previous)) < 0) {
+		logmessage("ipsec_route", "cannot read VPN Director rules while updating client %d", unit);
+		goto done;
+	}
+	ovpn_get_ipsec_policy_rules(unit, current, sizeof(current));
+	if (!strcmp(previous, current)) {
+		result = 0;
+		goto done;
+	}
+	if (_ipsec_director_rules_set(unit, previous, 0) < 0) {
+		_ipsec_director_rules_set(unit, previous, 1);
+		logmessage("ipsec_route", "cannot remove existing VPN Director rules for client %d", unit);
+		goto done;
+	}
+	if (_ipsec_director_rules_set(unit, current, 1) < 0) {
+		_ipsec_director_rules_set(unit, current, 0);
+		_ipsec_director_rules_set(unit, previous, 1);
+		logmessage("ipsec_route", "cannot install updated VPN Director rules for client %d", unit);
+		goto done;
+	}
+	if (_ipsec_director_rules_save(rules_path, current) < 0) {
+		_ipsec_director_rules_set(unit, current, 0);
+		_ipsec_director_rules_set(unit, previous, 1);
+		logmessage("ipsec_route", "cannot save updated VPN Director rules for client %d", unit);
+		goto done;
+	}
+	result = 1;
+done:
+	file_unlock(lock);
+	return result;
+}
+
+static int _ipsec_director_state_save(const char *path, int refs, const char *peer)
+{
+	char temp[96];
+	FILE *fp;
+	int write_ok;
+
+	snprintf(temp, sizeof(temp), "%s.tmp", path);
+	if (unlink(temp) < 0 && errno != ENOENT)
+		return -1;
+	fp = ipsec_state_open(temp, 1);
+	if (!fp)
+		return -1;
+	write_ok = fprintf(fp, "%d %s\n", refs, peer) >= 0;
+	if (fclose(fp) != 0)
+		write_ok = 0;
+	if (!write_ok || rename(temp, path) < 0) {
+		unlink(temp);
+		return -1;
+	}
+	return 0;
+}
+
+static void _ipsec_director_policy_lifecycle(int unit, int up, const char *peer)
+{
+	char state_path[96], rules_path[96], state[128] = {0};
+	char saved_peer[64] = {0}, rules[8000] = {0};
+	FILE *fp;
+	int refs = 0, lock;
+	int rules_result, peer_result;
+	size_t rules_length;
+	char extra;
+
+	struct in_addr peer_addr;
+
+	if (unit < 1 || unit > MAX_PROF_NUM || (up && _ipsec_director_selective_unit() != unit) ||
+	    !_ipsec_director_state_dir())
+		return;
+	if (up && (!peer || inet_pton(AF_INET, peer, &peer_addr) != 1))
+		return;
+	snprintf(state_path, sizeof(state_path), "/tmp/ipsec-director/state-%d", unit);
+	snprintf(rules_path, sizeof(rules_path), "/tmp/ipsec-director/rules-%d", unit);
+	lock = file_lock("ipsec-director");
+	if (lock < 0)
+		return;
+	errno = 0;
+	fp = ipsec_state_open(state_path, 0);
+	if (fp) {
+		if (!fgets(state, sizeof(state), fp) ||
+		    sscanf(state, "%d %63s %c", &refs, saved_peer, &extra) != 2 ||
+		    refs < 1 || refs > 1024 || !_ipsec_valid_route_host(saved_peer)) {
+			fclose(fp);
+			logmessage("ipsec_route", "invalid VPN Director state for client %d", unit);
+			goto done;
+		}
+		fclose(fp);
+	} else if (errno != ENOENT) {
+		logmessage("ipsec_route", "cannot read VPN Director state for client %d", unit);
+		goto done;
+	}
+
+	if (up) {
+		if (refs == 0) {
+			if (!_ipsec_valid_route_host(peer))
+				goto done;
+			ovpn_get_ipsec_policy_rules(unit, rules, sizeof(rules));
+			if (f_write(rules_path, rules, strlen(rules), 0, S_IRUSR | S_IWUSR) < 0)
+				goto done;
+			if (_ipsec_director_rules_set(unit, rules, 1) < 0) {
+				_ipsec_director_rules_set(unit, rules, 0);
+				unlink(rules_path);
+				logmessage("ipsec_route", "failed to install VPN Director rules for client %d", unit);
+				goto done;
+			}
+			if (eval("ip", "rule", "add", "pref", "102", "to", peer, "lookup", "main")) {
+				_ipsec_director_rules_set(unit, rules, 0);
+				unlink(rules_path);
+				logmessage("ipsec_route", "failed to add VPN peer bypass for client %d", unit);
+				goto done;
+			}
+			strlcpy(saved_peer, peer, sizeof(saved_peer));
+		}
+		if (refs >= 1024)
+			goto done;
+		refs++;
+		if (_ipsec_director_state_save(state_path, refs, saved_peer) < 0) {
+			if (refs == 1) {
+				fp = ipsec_state_open(rules_path, 0);
+				if (fp) {
+					rules_length = fread(rules, 1, sizeof(rules) - 1, fp);
+					rules[rules_length] = '\0';
+					fclose(fp);
+					_ipsec_director_rules_set(unit, rules, 0);
+					unlink(rules_path);
+				}
+				eval("ip", "rule", "del", "pref", "102", "to", saved_peer, "lookup", "main");
+			}
+			logmessage("ipsec_route", "failed to save IPsec Director state for client %d", unit);
+		}
+	} else if (refs > 0) {
+		if (refs > 1) {
+			if (_ipsec_director_state_save(state_path, refs - 1, saved_peer) < 0)
+				logmessage("ipsec_route", "failed to update VPN Director state for client %d", unit);
+		} else {
+			fp = ipsec_state_open(rules_path, 0);
+			if (!fp) {
+				logmessage("ipsec_route", "cannot read VPN Director rules for client %d", unit);
+				goto done;
+			}
+			rules_length = fread(rules, 1, sizeof(rules) - 1, fp);
+			if (ferror(fp) || (rules_length == sizeof(rules) - 1 && !feof(fp))) {
+				fclose(fp);
+				logmessage("ipsec_route", "invalid VPN Director rules for client %d", unit);
+				goto done;
+			}
+			rules[rules_length] = '\0';
+			fclose(fp);
+			rules_result = _ipsec_director_rules_set(unit, rules, 0);
+			peer_result = eval("ip", "rule", "del", "pref", "102", "to", saved_peer, "lookup", "main");
+			if (rules_result < 0 || peer_result) {
+				logmessage("ipsec_route", "failed to remove VPN Director rules for client %d", unit);
+				goto done;
+			}
+			unlink(rules_path);
+			unlink(state_path);
+		}
+	}
+done:
+	file_unlock(lock);
+}
+#endif
 
 static void _ipsec_lan_bypass_rule_del(void)
 {
@@ -3870,10 +4296,18 @@ static void _ipsec_updown_net_net(int unit, int vpn_type)
 		_ipsec_lan_exclude_route_set("220");
 		logmessage("ipsec_route", "ipsec up: policy table 220 with LAN exclusion enforced");
 		_ipsec_log_policy_table("220", "ipsec_route");
+#ifdef RTCONFIG_OPENVPN
+		if (!v6 && vpn_type == VPN_TYPE_NET_NET_CLI)
+			_ipsec_director_policy_lifecycle(unit, 1, safe_getenv("PLUTO_PEER"));
+#endif
 	}
 	else { //down
 		if (!v6 && vpn_type == VPN_TYPE_NET_NET_CLI)
 			_ipsec_underlay_bypass_rules(unit, 0, ethernet_wan, wan_gateway, wan_net);
+#ifdef RTCONFIG_OPENVPN
+		if (!v6 && vpn_type == VPN_TYPE_NET_NET_CLI)
+			_ipsec_director_policy_lifecycle(unit, 0, safe_getenv("PLUTO_PEER"));
+#endif
 		_ipsec_lan_exclude_route_del("220");
 		logmessage("ipsec_route", "ipsec down: policy table 220 after LAN exclusion cleanup");
 		_ipsec_log_policy_table("220", "ipsec_route");
@@ -3902,6 +4336,10 @@ int ipsec_updown_main(int argc, char *argv[])
 		cprintf("Unknown vpn type\n");
 		return -1;
 	}
+
+#ifdef RTCONFIG_OPENVPN
+	pre_ipsec_prof_set();
+#endif
 
 	if (vpn_type == VPN_TYPE_HOST_NET_CLI) {
 		_ipsec_updown_host_net_cli(unit);
