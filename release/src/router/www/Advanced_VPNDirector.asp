@@ -57,6 +57,7 @@
 <% login_state_hook(); %>
 
 var vpndirector_rulelist_array = [];
+var ipsec_director_profiles = [];
 
 var ruleMaxNum = 199;
 var ovpn_info = {
@@ -98,6 +99,7 @@ function initial(){
 
 	show_vpndirector_rulelist();
 	build_interface_list();
+	load_ipsec_director_profiles();
 	show_vpn_summary(0);
 }
 
@@ -120,6 +122,50 @@ function build_interface_list() {
 		             .append("<option value='OVPN5'>OpenVPN 5: " + get_ovpn_infos(5, 0).desc + "</option>")
 		             .val('WAN');
 	}
+}
+
+function load_ipsec_director_profiles() {
+	$.ajax({
+		url: "/get_ipsec_director_profiles.cgi",
+		dataType: "json",
+		success: function(profiles) {
+			ipsec_director_profiles = profiles || [];
+			for (var i = 0; i < ipsec_director_profiles.length; i++) {
+				var profile = ipsec_director_profiles[i];
+				var unit = parseInt(profile.unit, 10);
+				if (unit < 1 || unit > 5)
+					continue;
+				$("#iface_x").append($('<option>').val("IPSEC" + unit)
+					.text("IPsec " + unit + ": " + profile.name));
+			}
+			show_ipsec_director_modes();
+		}
+	});
+}
+
+function show_ipsec_director_modes() {
+	var block = $("#ipsec_director_modes").empty();
+	if (ipsec_director_profiles.length == 0)
+		return;
+
+	var table = $('<table>').addClass("FormTable_table").attr("width", "100%");
+	table.append($('<thead><tr><td colspan="2">IPsec client routing mode</td></tr></thead>'));
+	for (var i = 0; i < ipsec_director_profiles.length; i++) {
+		var profile = ipsec_director_profiles[i];
+		var unit = parseInt(profile.unit, 10);
+		if (unit < 1 || unit > 5)
+			continue;
+		var select = $('<select>').attr("name", "ipsec_client" + unit + "_routing_mode")
+			.addClass("input_option");
+		select.append($('<option>').val("full").text("Full tunnel"));
+		select.append($('<option>').val("director").text("Director / selective"));
+		select.val(profile.mode == "director" ? "director" : "full");
+		var row = $('<tr>');
+		row.append($('<th>').text("IPsec " + unit + ": " + profile.name));
+		row.append($('<td>').append(select));
+		table.append(row);
+	}
+	block.append(table);
 }
 
 
@@ -513,14 +559,17 @@ function applyRule() {
 								<div>&nbsp;</div>
 								<div class="formfonttitle">VPN Director</div>
 								<div style="margin:10px 0 10px 5px;" class="splitLine"></div>
-								<div id="page_title" class="formfontdesc" style="margin-bottom:0px;">VPN Director allows you to direct LAN traffic through specific OpenVPN tunnels.
+								<div id="page_title" class="formfontdesc" style="margin-bottom:0px;">VPN Director allows you to direct LAN traffic through OpenVPN and IPsec tunnels.
 									<ul>
 										<li>OpenVPN clients set to redirect all traffic have the highest priority</li>
-										<li>WAN rules will have priority over OpenVPN rules</li>
-										<li>OpenVPN 1 rules have higher priority than OpenVPN 5 rules</li>
+										<li>OpenVPN redirect-all clients retain their existing priority</li>
+										<li>Within OpenVPN rules, WAN rules precede OpenVPN rules</li>
+										<li>IPsec selective rules precede WAN fallback and apply only to forwarded LAN traffic</li>
+										<li>Director mode requires exactly one active IPsec net-to-net client profile</li>
 										<li>Rules can be individually enabled or disabled by clicking on the first column</li>
 									</ul>
 								</div>
+								<div id="ipsec_director_modes"></div>
 								<div id="vpn_status_Block"></div>
 								<br>
 								<div class="addRuleFrame">
