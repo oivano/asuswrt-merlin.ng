@@ -874,8 +874,9 @@ FILE* renew_devfile(FILE *f)
 	char *wan0_if = nvram_safe_get("wan0_ifname");
 	char *wan1_if = nvram_safe_get("wan1_ifname");
 
-	unlink("/tmp/dev");
-	f2 = fopen("/tmp/dev", "w+");
+	f2 = tmpfile();
+	if (!f2)
+		return f;
 
 	memset(buf, 0, sizeof(buf));
 	memset(wan0buf, 0, sizeof(wan0buf));
