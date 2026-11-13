@@ -1414,37 +1414,65 @@ static void process_route(private_kernel_netlink_net_t *this,
 /**
  * process RTM_NEW|DELRULE from kernel
  */
+static status_t manage_rule(private_kernel_netlink_net_t *this, int nlmsg_type,
+							int family, uint32_t table, uint32_t prio);
+
 static void process_rule(private_kernel_netlink_net_t *this,
 						 struct nlmsghdr *hdr)
 {
 #ifdef HAVE_LINUX_FIB_RULES_H
 	struct rtmsg* msg = NLMSG_DATA(hdr);
-	struct rtattr *rta = RTM_RTA(msg);
-	size_t rtasize = RTM_PAYLOAD(hdr);
+	struct rtattr *rta;
+	size_t rtasize;
+	uint32_t table, priority = 0;
+	bool have_priority = FALSE;
 
-	/* ignore rules added by us or in the local routing table (local addrs) */
-	if (msg->rtm_table && (msg->rtm_table == this->routing_table ||
-						   msg->rtm_table == RT_TABLE_LOCAL))
+	if (hdr->nlmsg_len < NLMSG_LENGTH(sizeof(*msg)))
 	{
 		return;
 	}
+	table = msg->rtm_table;
+	rta = RTM_RTA(msg);
+	rtasize = RTM_PAYLOAD(hdr);
 
 	while (RTA_OK(rta, rtasize))
 	{
 		switch (rta->rta_type)
 		{
 			case FRA_TABLE:
-				/* also check against extended table ID */
-				if (RTA_PAYLOAD(rta) == sizeof(uint32_t) &&
-					this->routing_table == *(uint32_t*)RTA_DATA(rta))
+				if (RTA_PAYLOAD(rta) == sizeof(table))
 				{
-					return;
+					memcpy(&table, RTA_DATA(rta), sizeof(table));
+				}
+				break;
+			case FRA_PRIORITY:
+				if (RTA_PAYLOAD(rta) == sizeof(priority))
+				{
+					memcpy(&priority, RTA_DATA(rta), sizeof(priority));
+					have_priority = TRUE;
 				}
 				break;
 		}
 		rta = RTA_NEXT(rta, rtasize);
 	}
-	fire_roam_event(this, FALSE);
+	if (this->routing_table && table == this->routing_table)
+	{
+		if (hdr->nlmsg_type == RTM_DELRULE && have_priority &&
+			priority == this->routing_table_prio &&
+			(msg->rtm_family == AF_INET || msg->rtm_family == AF_INET6))
+		{
+			if (manage_rule(this, RTM_NEWRULE, msg->rtm_family, table,
+							priority) != SUCCESS)
+			{
+				DBG1(DBG_KNL, "unable to restore deleted routing table rule");
+			}
+		}
+		return;
+	}
+	if (this->process_rules && table != RT_TABLE_LOCAL)
+	{
+		fire_roam_event(this, FALSE);
+	}
 #endif
 }
 
@@ -1470,7 +1498,7 @@ CALLBACK(receive_events, void,
 			break;
 		case RTM_NEWRULE:
 		case RTM_DELRULE:
-			if (this->process_rules)
+			if (this->process_rules || this->routing_table)
 			{
 				process_rule(this, hdr);
 			}
@@ -3023,6 +3051,7 @@ METHOD(kernel_net_t, destroy, void,
 	enumerator_t *enumerator;
 	route_entry_t *route;
 
+	DESTROY_IF(this->socket_events);
 	if (this->routing_table && this->socket)
 	{
 		manage_rule(this, RTM_DELRULE, AF_INET, this->routing_table,
@@ -3030,7 +3059,6 @@ METHOD(kernel_net_t, destroy, void,
 		manage_rule(this, RTM_DELRULE, AF_INET6, this->routing_table,
 					this->routing_table_prio);
 	}
-	DESTROY_IF(this->socket_events);
 	enumerator = this->routes->ht.create_enumerator(&this->routes->ht);
 	while (enumerator->enumerate(enumerator, NULL, (void**)&route))
 	{
@@ -3167,7 +3195,7 @@ kernel_netlink_net_t *kernel_netlink_net_create()
 		groups |= nl_group(RTNLGRP_IPV4_ROUTE) |
 				  nl_group(RTNLGRP_IPV6_ROUTE);
 	}
-	if (this->process_rules)
+	if (this->process_rules || this->routing_table)
 	{
 		groups |= nl_group(RTNLGRP_IPV4_RULE) |
 				  nl_group(RTNLGRP_IPV6_RULE);
