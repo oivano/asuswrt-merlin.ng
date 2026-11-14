@@ -760,13 +760,13 @@ function show_vpnc_rulelist(){
 				
 				switch(connect_status) {
 					case '1' :
-						code +='<td width="10%" title="<#Connected#>"><img src="/images/checked_parentctrl.png" style="width:25px;"></td>';
+						code +='<td width="10%" title="<#Connected#>"><img src="/images/New_ui/enable.svg" style="width:25px;"></td>';
 						break;
 					case '2' :
 						code +='<td width="10%" title="<#Connecting_str#>"><img src="/images/InternetScan.gif" style="width:25px;"></td>';
 						break;
 					case '3' :
-						code +='<td width="10%" title="<#ConnectionFailed#>"><img src="/images/button-close2.png" style="width:25px;cursor:pointer;"></td>';
+						code +='<td width="10%" title="<#ConnectionFailed#>"><img src="/images/New_ui/disable.svg" style="width:25px;"></td>';
 						break;
 				}
 			}
