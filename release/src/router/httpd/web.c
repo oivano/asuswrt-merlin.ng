@@ -18012,20 +18012,31 @@ do_get_ipsec_director_profiles_cgi(char *url, FILE *stream)
 	int i;
 
 	for (i = 1; i <= 5; i++) {
-		char *cursor, *type, *name;
+		char *cursor, *field, *type = NULL, *name = NULL, *gateway = NULL, *active = NULL;
+		int field_index = 0;
 		struct json_object *item;
 
 		snprintf(key, sizeof(key), "ipsec_profile_client_%d", i);
 		strlcpy(profile, nvram_safe_get(key), sizeof(profile));
 		cursor = profile;
-		type = strsep(&cursor, ">");
-		name = cursor ? strsep(&cursor, ">") : NULL;
-		if (!type || strcmp(type, "2") || !name || !*name)
+		while ((field = strsep(&cursor, ">")) != NULL) {
+			switch (field_index) {
+			case 0: type = field; break;
+			case 1: name = field; break;
+			case 3: gateway = field; break;
+			case 37: active = field; break;
+			}
+			field_index++;
+		}
+		if ((field_index != 38 && field_index != 43) || !type || strcmp(type, "2") ||
+		    !name || !*name || !active)
 			continue;
 
 		item = json_object_new_object();
 		json_object_object_add(item, "unit", json_object_new_int(i));
 		json_object_object_add(item, "name", json_object_new_string(name));
+		json_object_object_add(item, "gateway", json_object_new_string(gateway ? gateway : ""));
+		json_object_object_add(item, "active", json_object_new_boolean(!strcmp(active, "1")));
 		snprintf(mode_key, sizeof(mode_key), "ipsec_client%d_routing_mode", i);
 		json_object_object_add(item, "mode", json_object_new_string(
 			nvram_match(mode_key, "director") ? "director" : "full"));
