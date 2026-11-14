@@ -465,7 +465,6 @@ ifneq ($(RTCONFIG_BWDPI)$(RTCONFIG_BWDPI_DEP),y)
 	rm -rf $(INSTALLDIR)/www/images/New_ui/recount_hover.svg
 	rm -rf $(INSTALLDIR)/www/images/New_ui/add.svg
 	rm -rf $(INSTALLDIR)/www/images/New_ui/add_hover.svg
-	rm -rf $(INSTALLDIR)/www/images/New_ui/disable.svg
 	rm -rf $(INSTALLDIR)/www/images/save.svg
 	rm -rf $(INSTALLDIR)/www/images/save_hover.svg
 	rm -rf $(INSTALLDIR)/www/images/save_active.svg
