@@ -58,6 +58,8 @@
 
 var vpndirector_rulelist_array = [];
 var ipsec_director_profiles = [];
+var ipsec_connect_status_array = {};
+var ipsec_action_pending = false;
 
 var ruleMaxNum = 199;
 var ovpn_info = {
@@ -135,21 +137,41 @@ function load_ipsec_director_profiles() {
 				var unit = parseInt(profile.unit, 10);
 				if (unit < 1 || unit > 5)
 					continue;
-				$("#iface_x").append($('<option>').val("IPSEC" + unit)
-					.text("IPsec " + unit + ": " + profile.name));
+				if (!$("#iface_x option[value='IPSEC" + unit + "']").length) {
+					$("#iface_x").append($('<option>').val("IPSEC" + unit)
+						.text("IPsec " + unit + ": " + profile.name));
+				}
 			}
+			show_ipsec_director_modes();
+			refresh_ipsec_connection_status();
+		}
+	});
+}
+
+function refresh_ipsec_director_profiles() {
+	$.ajax({
+		url: "/get_ipsec_director_profiles.cgi",
+		dataType: "json",
+		success: function(profiles) {
+			ipsec_director_profiles = profiles || [];
 			show_ipsec_director_modes();
 		}
 	});
 }
 
 function show_ipsec_director_modes() {
-	var block = $("#ipsec_director_modes").empty();
+	var block = $("#ipsec_director_modes");
+	var selectedModes = {};
+	block.find("select").each(function() {
+		selectedModes[this.name] = this.value;
+	});
+	block.empty();
 	if (ipsec_director_profiles.length == 0)
 		return;
 
-	var table = $('<table>').addClass("FormTable_table").attr("width", "100%");
-	table.append($('<thead><tr><td colspan="2">IPsec client routing mode</td></tr></thead>'));
+	var table = $('<table>').addClass("FormTable_table").attr("width", "100%").css("table-layout", "fixed");
+	table.append('<colgroup><col style="width:36%;"><col style="width:24%;"><col style="width:20%;"><col style="width:20%;"></colgroup>');
+	table.append($('<thead><tr><td colspan="4">IPsec clients status</td></tr></thead>'));
 	for (var i = 0; i < ipsec_director_profiles.length; i++) {
 		var profile = ipsec_director_profiles[i];
 		var unit = parseInt(profile.unit, 10);
@@ -157,15 +179,107 @@ function show_ipsec_director_modes() {
 			continue;
 		var select = $('<select>').attr("name", "ipsec_client" + unit + "_routing_mode")
 			.addClass("input_option");
-		select.append($('<option>').val("full").text("Full tunnel"));
-		select.append($('<option>').val("director").text("Director / selective"));
-		select.val(profile.mode == "director" ? "director" : "full");
+		select.append($('<option>').val("director").text("VPN Director"));
+		select.append($('<option>').val("full").text("Redirect all"));
+		select.val(selectedModes[select.attr("name")] || (profile.mode == "director" ? "director" : "full"));
 		var row = $('<tr>');
-		row.append($('<th>').text("IPsec " + unit + ": " + profile.name));
-		row.append($('<td>').append(select));
+		row.append($('<th>').css({"text-align": "left", "padding-left": "10px"})
+			.text("IPsec " + unit + ": " + profile.name));
+	var statusCell = $('<td>').attr("id", "ipsec_status_" + unit)
+			.css({"text-align": "left", "padding-left": "10px"})
+			.text(profile.active ? "Connecting" : "Disconnected");
+		row.append(statusCell);
+		row.append($('<td>').css({"text-align": "left", "padding-left": "10px"}).append(select));
+		var action = $('<span>').attr("id", "ipsec_action_" + unit)
+			.css({"text-decoration": "underline", "cursor": "pointer"})
+			.text(profile.active ? "Stop Client" : "Start Client")
+			.on("click", function(clientUnit, clientActive) {
+				return function() { set_ipsec_client_active(clientUnit, !clientActive, this); };
+			}(unit, !!profile.active));
+		row.append($('<td>').css({"text-align": "left", "padding-left": "10px"}).append(action));
 		table.append(row);
 	}
 	block.append(table);
+}
+
+function refresh_ipsec_connection_status() {
+	var connections = httpApi.hookGet("get_ipsec_conn", true);
+	ipsec_connect_status_array = {};
+	if (connections && connections.forEach) {
+		connections.forEach(function(item) {
+			if (item && item[0])
+				ipsec_connect_status_array[item[0]] = item[1] || "";
+		});
+	}
+
+	var connectionList = String(ipsec_connect_status_array.other || "").split("<").filter(function(item) {
+		return item.trim() != "";
+	});
+	var activeCount = ipsec_director_profiles.filter(function(profile) { return profile.active; }).length;
+	ipsec_director_profiles.forEach(function(profile) {
+		var status = profile.active ? "Connecting" : "Disconnected";
+		for (var i = 0; profile.active && i < connectionList.length; i++) {
+			var fields = connectionList[i].split(">");
+			if (fields[0] == profile.gateway || fields[3] == profile.gateway || fields[14] == profile.name ||
+				(activeCount == 1 && connectionList.length == 1)) {
+				status = fields[1] == "1" ? "Connected" : "Connecting";
+				break;
+			}
+		}
+		var statusCell = $("#ipsec_status_" + profile.unit).text(status);
+		if (status == "Connected")
+			statusCell.addClass("hint-color");
+		else
+			statusCell.removeClass("hint-color");
+	});
+	setTimeout(refresh_ipsec_connection_status, 3000);
+}
+
+function set_ipsec_client_active(unit, activate, actionElement) {
+	if (ipsec_action_pending)
+		return;
+	if (activate && ipsec_director_profiles.some(function(profile) {
+		return profile.unit != unit && profile.active;
+	})) {
+		alert("Only one IPSec connection can be active at a time. Stop the active connection before starting another.");
+		return;
+	}
+
+	var key = "ipsec_profile_client_" + unit;
+	var encoded = httpApi.nvramCharToAscii([key], true)[key];
+	if (!encoded) {
+		alert("Unable to read the IPsec client profile.");
+		return;
+	}
+	var profile;
+	try {
+		profile = decodeURIComponent(encoded);
+	} catch (error) {
+		alert("Unable to read the IPsec client profile.");
+		return;
+	}
+	var fields = profile.split(">");
+	if (fields.length < 38 || fields[0] != "2" || (fields[37] != "0" && fields[37] != "1")) {
+		alert("The IPsec client profile is invalid.");
+		return;
+	}
+	fields[37] = activate ? "1" : "0";
+
+	var profileInput = document.getElementById("ipsec_action_profile");
+	profileInput.name = key;
+	profileInput.value = fields.join(">");
+	document.getElementById("ipsec_action_script").value = activate ? "ipsec_start_cli" : "ipsec_stop_cli";
+	ipsec_action_pending = true;
+	$(actionElement).text("...").off("click");
+	document.ipsec_action_form.submit();
+	setTimeout(function() {
+		ipsec_action_pending = false;
+		profileInput.name = "";
+		profileInput.value = "";
+		document.getElementById("ipsec_action_script").value = "";
+		refresh_ipsec_director_profiles();
+	}, 5000);
+	setTimeout(refresh_ipsec_director_profiles, 10000);
 }
 
 
@@ -265,7 +379,7 @@ function del_Row(_this){
 
 
 function show_vpn_summary(refresh) {
-	var code = '<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" class="FormTable_table">';
+	var code = '<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" class="FormTable_table" style="table-layout:fixed;">';
 	var max_unit;
 
 	if (based_modelid == "RT-AC68U" || based_modelid == "DSL-AC68U")
@@ -273,6 +387,7 @@ function show_vpn_summary(refresh) {
 	else
 		max_unit = 5;
 
+	code += '<colgroup><col style="width:36%;"><col style="width:24%;"><col style="width:20%;"><col style="width:20%;"></colgroup>';
 	code += '<thead><tr><td colspan="4">OpenVPN clients status</td></tr></thead>';
 
 	for (i = 1; i<= max_unit; i++) {
@@ -450,8 +565,12 @@ function editRule(_mode, _this) {
 
 	if (_mode == "edit") {
 		var row_idx = $(_this).closest("*[row_tr_idx]").attr( "row_tr_idx" );
+		var existingInterface = vpndirector_rulelist_array[row_idx].interface;
+		if (!$("#iface_x option").filter(function() { return this.value == existingInterface; }).length) {
+			$("#iface_x").append($('<option>').val(existingInterface).text(existingInterface));
+		}
 
-		$("#iface_x").val(vpndirector_rulelist_array[row_idx].interface);
+		$("#iface_x").val(existingInterface);
 		$("#enable_x").prop("checked", (vpndirector_rulelist_array[row_idx].enable == "1"));
 		$("#desc_x").val(vpndirector_rulelist_array[row_idx].description);
 		$("#localIP_x").val(vpndirector_rulelist_array[row_idx].localIP);
@@ -492,6 +611,23 @@ function saveRule(_mode, _rowIdx) {
 	ruleArray["localIP"] = ($("#localIP_x").val() != undefined ? $("#localIP_x").val() : "");
 	ruleArray["remoteIP"] = ($("#remoteIP_x").val() != undefined ? $("#remoteIP_x").val() : "");
 	ruleArray["interface"] = $("#iface_x").val();
+	var duplicateRule = vpndirector_rulelist_array.some(function(existingRule, index) {
+		if (_mode == "edit" && index == _rowIdx)
+			return false;
+		return existingRule.localIP == ruleArray["localIP"] &&
+			existingRule.remoteIP == ruleArray["remoteIP"];
+	});
+	if (duplicateRule) {
+		var originalRule = (_mode == "edit") ? vpndirector_rulelist_array[_rowIdx] : null;
+		var unchangedMatch = originalRule &&
+			originalRule.localIP == ruleArray["localIP"] &&
+			originalRule.remoteIP == ruleArray["remoteIP"] &&
+			originalRule.interface == ruleArray["interface"];
+		if (!unchangedMatch) {
+			alert("An identical rule already exists.");
+			return false;
+		}
+	}
 
 	if (_mode == "new")
 		vpndirector_rulelist_array.push(ruleArray);
@@ -511,13 +647,15 @@ function cancelRule() {
 
 
 function applyRule() {
-	document.form.vpndirector_rulelist.value = parseArrayToNvram(vpndirector_rulelist_array);
-	if (document.form.vpndirector_rulelist.value.length > 7999) {
+	var rulelistInput = document.getElementById("vpndirector_rulelist");
+	var ruleForm = document.forms["form"];
+	rulelistInput.value = parseArrayToNvram(vpndirector_rulelist_array);
+	if (rulelistInput.value.length > 7999) {
 		alert("Resulting ruleset is too long (over 7999 characters total), please remove some rules, or use shorter descriptions.");
 		return false;
 	}
 	showLoading();
-	document.form.submit();
+	ruleForm.submit();
 }
 
 </script>
@@ -538,7 +676,7 @@ function applyRule() {
 <input type="hidden" name="first_time" value="">
 <input type="hidden" name="preferred_lang" id="preferred_lang" value="<% nvram_get("preferred_lang"); %>">
 <input type="hidden" name="firmver" value="<% nvram_get("firmver"); %>">
-<input type="hidden" name="vpndirector_rulelist" value="">
+<input type="hidden" id="vpndirector_rulelist" name="vpndirector_rulelist" value="">
 <table class="content" align="center" cellpadding="0" cellspacing="0" >
 	<tr>
 		<td width="17">&nbsp;</td>
@@ -658,6 +796,18 @@ function applyRule() {
 	</div>
 </div>
 <div id="footer"></div>
+</form>
+<form method="post" name="ipsec_action_form" action="/start_apply.htm" target="hidden_frame">
+	<input type="hidden" name="productid" value="<% nvram_get("productid"); %>">
+	<input type="hidden" name="current_page" value="Advanced_VPNDirector.asp">
+	<input type="hidden" name="next_page" value="Advanced_VPNDirector.asp">
+	<input type="hidden" name="modified" value="0">
+	<input type="hidden" name="action_wait" value="5">
+	<input type="hidden" name="action_mode" value="apply">
+	<input type="hidden" name="action_script" id="ipsec_action_script" value="">
+	<input type="hidden" name="preferred_lang" value="<% nvram_get("preferred_lang"); %>">
+	<input type="hidden" name="firmver" value="<% nvram_get("firmver"); %>">
+	<input type="hidden" id="ipsec_action_profile" value="">
 </form>
 </body>
 </html>
