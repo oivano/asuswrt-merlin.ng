@@ -111,6 +111,8 @@ int bgp_nlri_parse_flowspec(struct peer *peer, struct attr *attr,
 	lim = pnt + packet->length;
 	afi = packet->afi;
 	safi = packet->safi;
+	if (!attr)
+		withdraw = 1;
 
 	if (packet->length >= FLOWSPEC_NLRI_SIZELIMIT_EXTENDED) {
 		flog_err(EC_BGP_FLOWSPEC_PACKET,
