@@ -1681,13 +1681,16 @@ addrconf_prefix_route(struct in6_addr *pfx, int plen, struct net_device *dev,
 		      unsigned long expires, u32 flags)
 {
 	extern int ip6_route_add_ra(struct fib6_config *cfg);
+	int reject_route = dev->type == ARPHRD_PPP &&
+		ipv6_addr_scope(pfx) == IPV6_ADDR_SCOPE_GLOBAL;
 	struct fib6_config cfg = {
 		.fc_table = RT6_TABLE_PREFIX,
-		.fc_metric = IP6_RT_PRIO_ADDRCONF,
+		.fc_metric = reject_route ? 1 : IP6_RT_PRIO_ADDRCONF,
 		.fc_ifindex = dev->ifindex,
 		.fc_expires = expires,
 		.fc_dst_len = plen,
-		.fc_flags = RTF_UP | flags,
+		.fc_flags = RTF_UP | flags |
+			(reject_route ? RTF_REJECT | RTF_ADDRCONF | RTF_PREFIX_RT : 0),
 		.fc_nlinfo.nl_net = dev_net(dev),
 		.fc_protocol = RTPROT_KERNEL,
 	};
@@ -1822,7 +1825,9 @@ void addrconf_prefix_rcv(struct net_device *dev, u8 *opt, int len)
 	 *	2) Configure prefixes with the auto flag set
 	 */
 
-	if (pinfo->onlink) {
+	if (pinfo->onlink ||
+	    (dev->type == ARPHRD_PPP &&
+	     ipv6_addr_scope(&pinfo->prefix) == IPV6_ADDR_SCOPE_GLOBAL)) {
 		struct rt6_info *rt;
 		unsigned long rt_expires;
 
