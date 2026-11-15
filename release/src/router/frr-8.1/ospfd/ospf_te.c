@@ -1668,6 +1668,28 @@ static struct ls_vertex *get_vertex(struct ls_ted *ted, struct ospf_lsa *lsa)
 	return vertex;
 }
 
+static bool ospf_te_tlv_valid(const struct tlv_header *tlvh,
+			      size_t remaining)
+{
+	size_t value_len;
+	size_t padded_len;
+
+	if (!tlvh || remaining < TLV_HDR_SIZE)
+		return false;
+
+	value_len = ntohs(tlvh->length);
+	padded_len = ROUNDUP(value_len, sizeof(uint32_t));
+	return padded_len <= remaining - TLV_HDR_SIZE;
+}
+
+static bool ospf_te_tlv_length_valid(const struct tlv_header *tlvh,
+				     size_t min_len, size_t max_len)
+{
+	size_t value_len = ntohs(tlvh->length);
+
+	return value_len >= min_len && value_len <= max_len;
+}
+
 /**
  * Get Edge from TED by Link State Attribute ID. A new Edge and associated Link
  * State Attributes are created if not found.
@@ -1757,6 +1779,8 @@ static void ospf_te_update_link(struct ls_ted *ted, struct ls_vertex *vertex,
 
 	/* Get Corresponding Edge from Link State Data Base */
 	edge = get_edge(ted, vertex->node->adv, link_data);
+	if (!edge || !edge->attributes)
+		return;
 	attr = edge->attributes;
 
 	/* re-attached edge to vertex if needed */
@@ -1882,10 +1906,12 @@ static int ospf_te_parse_router_lsa(struct ls_ted *ted, struct ospf_lsa *lsa)
 	struct ls_edge *edge;
 	struct ls_subnet *subnet;
 	struct listnode *node;
-	int len, links;
+	size_t len;
+	int links;
 
 	/* Sanity Check */
-	if (!ted || !lsa || !lsa->data)
+	if (!ted || !lsa || !lsa->data
+	    || lsa->size < OSPF_LSA_HEADER_SIZE + OSPF_ROUTER_LSA_MIN_SIZE)
 		return -1;
 
 	ote_debug("MPLS-TE (%s): Parse Router LSA[%pI4] from Router[%pI4]",
@@ -1893,6 +1919,8 @@ static int ospf_te_parse_router_lsa(struct ls_ted *ted, struct ospf_lsa *lsa)
 
 	/* Get vertex from LSA Advertise Router ID */
 	vertex = get_vertex(ted, lsa);
+	if (!vertex || !vertex->node)
+		return -1;
 
 	/* Set Node type information if it has changed */
 	rl = (struct router_lsa *)lsa->data;
@@ -1934,12 +1962,15 @@ static int ospf_te_parse_router_lsa(struct ls_ted *ted, struct ospf_lsa *lsa)
 	/* Then, process Link Information */
 	len = lsa->size - OSPF_LSA_HEADER_SIZE - OSPF_ROUTER_LSA_MIN_SIZE;
 	links = ntohs(rl->links);
-	for (int i = 0; i < links && len > 0; len -= 12, i++) {
+	for (int i = 0; i < links && len >= sizeof(rl->link[0]);
+	     len -= sizeof(rl->link[0]), i++) {
 		struct prefix p;
 		uint32_t metric;
 
 		switch (rl->link[i].type) {
 		case LSA_LINK_TYPE_POINTOPOINT:
+			if (rl->link[i].link_data.s_addr == INADDR_ANY)
+				break;
 			ospf_te_update_link(ted, vertex, rl->link[i].link_data,
 					    ntohs(rl->link[i].metric));
 			/* Add corresponding subnet */
@@ -2142,8 +2173,14 @@ static int ospf_te_parse_te(struct ls_ted *ted, struct ospf_lsa *lsa)
 	struct ls_attributes *old, attr = {};
 	struct tlv_header *tlvh;
 	void *value;
-	uint16_t len, sum;
+	size_t remaining, sub_remaining, tlv_size;
+	uint16_t len;
 	uint8_t lsa_id;
+
+	if (!ted || !lsa || !lsa->data
+	    || lsa->size < OSPF_LSA_HEADER_SIZE
+	    || (lsa->data->type != OSPF_OPAQUE_AS_LSA && !lsa->area))
+		return -1;
 
 	/* Initialize Attribute */
 	attr.adv.origin = OSPFv2;
@@ -2152,70 +2189,112 @@ static int ospf_te_parse_te(struct ls_ted *ted, struct ospf_lsa *lsa)
 		attr.adv.id.ip.area_id = lsa->area->area_id;
 
 	/* Initialize TLV browsing */
+	remaining = lsa->size - OSPF_LSA_HEADER_SIZE;
+	if (!remaining)
+		return 0;
 	tlvh = TLV_HDR_TOP(lsa->data);
-	len = lsa->size - OSPF_LSA_HEADER_SIZE;
+	if (!ospf_te_tlv_valid(tlvh, remaining))
+		return -1;
 
 	/* Check if TE Router-ID TLV is present */
 	if (ntohs(tlvh->type) == TE_TLV_ROUTER_ADDR) {
-		/* if TE Router-ID is alone, we are done ... */
-		if (len == TE_LINK_SUBTLV_DEF_SIZE)
+		if (!ospf_te_tlv_length_valid(tlvh, TE_LINK_SUBTLV_DEF_SIZE,
+					      TE_LINK_SUBTLV_DEF_SIZE))
+			return -1;
+		tlv_size = TLV_SIZE(tlvh);
+		remaining -= tlv_size;
+		if (!remaining)
 			return 0;
 
-		/* ... otherwise, skip it */
-		len -= TE_LINK_SUBTLV_DEF_SIZE + TLV_HDR_SIZE;
 		tlvh = TLV_HDR_NEXT(tlvh);
+		if (!ospf_te_tlv_valid(tlvh, remaining))
+			return -1;
 	}
 
 	/* Check if we have a valid TE Link TLV */
-	if ((len == 0) || (ntohs(tlvh->type) != TE_TLV_LINK))
+	if (ntohs(tlvh->type) != TE_TLV_LINK)
 		return 0;
 
-	sum = 0;
+	sub_remaining = ntohs(tlvh->length);
 	/* Browse sub-TLV and fulfill Link State Attributes */
-	for (tlvh = TLV_DATA(tlvh); sum < len; tlvh = TLV_HDR_NEXT(tlvh)) {
+	for (tlvh = TLV_DATA(tlvh); sub_remaining > 0;) {
 		uint32_t val32, tab32[2];
 		float valf, tabf[8];
 		struct in_addr addr;
 
+		if (!ospf_te_tlv_valid(tlvh, sub_remaining))
+			return -1;
+		tlv_size = TLV_SIZE(tlvh);
 		value = TLV_DATA(tlvh);
 		switch (ntohs(tlvh->type)) {
 		case TE_LINK_SUBTLV_LCLIF_IPADDR:
+			if (!ospf_te_tlv_length_valid(tlvh,
+						      TE_LINK_SUBTLV_DEF_SIZE,
+						      UINT16_MAX))
+				return -1;
 			memcpy(&addr, value, TE_LINK_SUBTLV_DEF_SIZE);
 			attr.standard.local = addr;
 			SET_FLAG(attr.flags, LS_ATTR_LOCAL_ADDR);
 			break;
 		case TE_LINK_SUBTLV_RMTIF_IPADDR:
+			if (!ospf_te_tlv_length_valid(tlvh,
+						      TE_LINK_SUBTLV_DEF_SIZE,
+						      UINT16_MAX))
+				return -1;
 			memcpy(&addr, value, TE_LINK_SUBTLV_DEF_SIZE);
 			attr.standard.remote = addr;
 			SET_FLAG(attr.flags, LS_ATTR_NEIGH_ADDR);
 			break;
 		case TE_LINK_SUBTLV_TE_METRIC:
+			if (!ospf_te_tlv_length_valid(tlvh,
+						      TE_LINK_SUBTLV_DEF_SIZE,
+						      TE_LINK_SUBTLV_DEF_SIZE))
+				return -1;
 			memcpy(&val32, value, TE_LINK_SUBTLV_DEF_SIZE);
 			attr.standard.te_metric = ntohl(val32);
 			SET_FLAG(attr.flags, LS_ATTR_TE_METRIC);
 			break;
 		case TE_LINK_SUBTLV_MAX_BW:
+			if (!ospf_te_tlv_length_valid(tlvh,
+						      TE_LINK_SUBTLV_DEF_SIZE,
+						      TE_LINK_SUBTLV_DEF_SIZE))
+				return -1;
 			memcpy(&valf, value, TE_LINK_SUBTLV_DEF_SIZE);
 			attr.standard.max_bw = ntohf(valf);
 			SET_FLAG(attr.flags, LS_ATTR_MAX_BW);
 			break;
 		case TE_LINK_SUBTLV_MAX_RSV_BW:
+			if (!ospf_te_tlv_length_valid(tlvh,
+						      TE_LINK_SUBTLV_DEF_SIZE,
+						      TE_LINK_SUBTLV_DEF_SIZE))
+				return -1;
 			memcpy(&valf, value, TE_LINK_SUBTLV_DEF_SIZE);
 			attr.standard.max_rsv_bw = ntohf(valf);
 			SET_FLAG(attr.flags, LS_ATTR_MAX_RSV_BW);
 			break;
 		case TE_LINK_SUBTLV_UNRSV_BW:
+			if (!ospf_te_tlv_length_valid(tlvh,
+						      TE_LINK_SUBTLV_UNRSV_SIZE,
+						      TE_LINK_SUBTLV_UNRSV_SIZE))
+				return -1;
 			memcpy(tabf, value, TE_LINK_SUBTLV_UNRSV_SIZE);
 			for (int i = 0; i < MAX_CLASS_TYPE; i++)
 				attr.standard.unrsv_bw[i] = ntohf(tabf[i]);
 			SET_FLAG(attr.flags, LS_ATTR_UNRSV_BW);
 			break;
 		case TE_LINK_SUBTLV_RSC_CLSCLR:
+			if (!ospf_te_tlv_length_valid(tlvh,
+						      TE_LINK_SUBTLV_DEF_SIZE,
+						      TE_LINK_SUBTLV_DEF_SIZE))
+				return -1;
 			memcpy(&val32, value, TE_LINK_SUBTLV_DEF_SIZE);
 			attr.standard.admin_group = ntohl(val32);
 			SET_FLAG(attr.flags, LS_ATTR_ADM_GRP);
 			break;
 		case TE_LINK_SUBTLV_LLRI:
+			if (!ospf_te_tlv_length_valid(tlvh, TE_LINK_SUBTLV_LLRI_SIZE,
+					      TE_LINK_SUBTLV_LLRI_SIZE))
+				return -1;
 			memcpy(tab32, value, TE_LINK_SUBTLV_LLRI_SIZE);
 			attr.standard.local_id = ntohl(tab32[0]);
 			attr.standard.remote_id = ntohl(tab32[1]);
@@ -2223,47 +2302,83 @@ static int ospf_te_parse_te(struct ls_ted *ted, struct ospf_lsa *lsa)
 			SET_FLAG(attr.flags, LS_ATTR_NEIGH_ID);
 			break;
 		case TE_LINK_SUBTLV_RIP:
+			if (!ospf_te_tlv_length_valid(tlvh,
+						      TE_LINK_SUBTLV_DEF_SIZE,
+						      TE_LINK_SUBTLV_DEF_SIZE))
+				return -1;
 			memcpy(&addr, value, TE_LINK_SUBTLV_DEF_SIZE);
 			attr.standard.remote_addr = addr;
 			SET_FLAG(attr.flags, LS_ATTR_REMOTE_ADDR);
 			break;
 		case TE_LINK_SUBTLV_RAS:
+			if (!ospf_te_tlv_length_valid(tlvh,
+						      TE_LINK_SUBTLV_DEF_SIZE,
+						      TE_LINK_SUBTLV_DEF_SIZE))
+				return -1;
 			memcpy(&val32, value, TE_LINK_SUBTLV_DEF_SIZE);
 			attr.standard.remote_as = ntohl(val32);
 			SET_FLAG(attr.flags, LS_ATTR_REMOTE_AS);
 			break;
 		case TE_LINK_SUBTLV_AV_DELAY:
+			if (!ospf_te_tlv_length_valid(tlvh,
+						      TE_LINK_SUBTLV_DEF_SIZE,
+						      TE_LINK_SUBTLV_DEF_SIZE))
+				return -1;
 			memcpy(&val32, value, TE_LINK_SUBTLV_DEF_SIZE);
 			attr.extended.delay = ntohl(val32);
 			SET_FLAG(attr.flags, LS_ATTR_DELAY);
 			break;
 		case TE_LINK_SUBTLV_MM_DELAY:
+			if (!ospf_te_tlv_length_valid(tlvh,
+						      TE_LINK_SUBTLV_MM_DELAY_SIZE,
+					      TE_LINK_SUBTLV_MM_DELAY_SIZE))
+				return -1;
 			memcpy(tab32, value, TE_LINK_SUBTLV_MM_DELAY_SIZE);
 			attr.extended.min_delay = ntohl(tab32[0]);
 			attr.extended.max_delay = ntohl(tab32[1]);
 			SET_FLAG(attr.flags, LS_ATTR_MIN_MAX_DELAY);
 			break;
 		case TE_LINK_SUBTLV_DELAY_VAR:
+			if (!ospf_te_tlv_length_valid(tlvh,
+						      TE_LINK_SUBTLV_DEF_SIZE,
+						      TE_LINK_SUBTLV_DEF_SIZE))
+				return -1;
 			memcpy(&val32, value, TE_LINK_SUBTLV_DEF_SIZE);
 			attr.extended.jitter = ntohl(val32);
 			SET_FLAG(attr.flags, LS_ATTR_JITTER);
 			break;
 		case TE_LINK_SUBTLV_PKT_LOSS:
+			if (!ospf_te_tlv_length_valid(tlvh,
+						      TE_LINK_SUBTLV_DEF_SIZE,
+						      TE_LINK_SUBTLV_DEF_SIZE))
+				return -1;
 			memcpy(&val32, value, TE_LINK_SUBTLV_DEF_SIZE);
 			attr.extended.pkt_loss = ntohl(val32);
 			SET_FLAG(attr.flags, LS_ATTR_PACKET_LOSS);
 			break;
 		case TE_LINK_SUBTLV_RES_BW:
+			if (!ospf_te_tlv_length_valid(tlvh,
+						      TE_LINK_SUBTLV_DEF_SIZE,
+						      TE_LINK_SUBTLV_DEF_SIZE))
+				return -1;
 			memcpy(&valf, value, TE_LINK_SUBTLV_DEF_SIZE);
 			attr.extended.rsv_bw = ntohf(valf);
 			SET_FLAG(attr.flags, LS_ATTR_RSV_BW);
 			break;
 		case TE_LINK_SUBTLV_AVA_BW:
+			if (!ospf_te_tlv_length_valid(tlvh,
+						      TE_LINK_SUBTLV_DEF_SIZE,
+						      TE_LINK_SUBTLV_DEF_SIZE))
+				return -1;
 			memcpy(&valf, value, TE_LINK_SUBTLV_DEF_SIZE);
 			attr.extended.ava_bw = ntohf(valf);
 			SET_FLAG(attr.flags, LS_ATTR_AVA_BW);
 			break;
 		case TE_LINK_SUBTLV_USE_BW:
+			if (!ospf_te_tlv_length_valid(tlvh,
+						      TE_LINK_SUBTLV_DEF_SIZE,
+						      TE_LINK_SUBTLV_DEF_SIZE))
+				return -1;
 			memcpy(&valf, value, TE_LINK_SUBTLV_DEF_SIZE);
 			attr.extended.used_bw = ntohf(valf);
 			SET_FLAG(attr.flags, LS_ATTR_USE_BW);
@@ -2271,11 +2386,14 @@ static int ospf_te_parse_te(struct ls_ted *ted, struct ospf_lsa *lsa)
 		default:
 			break;
 		}
-		sum += TLV_SIZE(tlvh);
+		sub_remaining -= tlv_size;
+		tlvh = TLV_HDR_NEXT(tlvh);
 	}
 
 	/* Get corresponding Edge from Link State Data Base */
 	edge = get_edge(ted, attr.adv, attr.standard.local);
+	if (!edge || !edge->attributes)
+		return -1;
 	old = edge->attributes;
 
 	ote_debug("  |- Process Traffic Engineering LSA %pI4 for Edge %pI4",
@@ -2458,29 +2576,72 @@ static int ospf_te_parse_ri(struct ls_ted *ted, struct ospf_lsa *lsa)
 	struct ls_node *node;
 	struct lsa_header *lsah = lsa->data;
 	struct tlv_header *tlvh;
-	uint16_t len = 0, sum = 0;
+	size_t remaining, tlv_size, value_len;
+
+	if (!ted || !lsa || !lsa->data
+	    || lsa->size < OSPF_LSA_HEADER_SIZE)
+		return -1;
 
 	/* Get vertex / Node from LSA Advertised Router ID */
 	vertex = get_vertex(ted, lsa);
+	if (!vertex || !vertex->node)
+		return -1;
 	node = vertex->node;
 
 	ote_debug("  |- Process Router Information LSA %pI4 for Vertex %pI4",
 		  &lsa->data->id, &node->router_id);
 
 	/* Initialize TLV browsing */
-	len = lsa->size - OSPF_LSA_HEADER_SIZE;
-	for (tlvh = TLV_HDR_TOP(lsah); sum < len && tlvh;
-	     tlvh = TLV_HDR_NEXT(tlvh)) {
+	remaining = lsa->size - OSPF_LSA_HEADER_SIZE;
+	for (tlvh = TLV_HDR_TOP(lsah); remaining > 0;) {
+		if (!ospf_te_tlv_valid(tlvh, remaining))
+			return -1;
+		tlv_size = TLV_SIZE(tlvh);
+		switch (ntohs(tlvh->type)) {
+		case RI_SR_TLV_SR_ALGORITHM:
+			if (!ospf_te_tlv_length_valid(
+				    tlvh, 1, sizeof(node->algo)))
+				return -1;
+			break;
+		case RI_SR_TLV_SRGB_LABEL_RANGE:
+		case RI_SR_TLV_SRLB_LABEL_RANGE:
+			if (!ospf_te_tlv_length_valid(
+				    tlvh, RI_SR_TLV_LABEL_RANGE_SIZE,
+				    RI_SR_TLV_LABEL_RANGE_SIZE))
+				return -1;
+			break;
+		case RI_SR_TLV_NODE_MSD:
+			if (!ospf_te_tlv_length_valid(
+				    tlvh, RI_SR_TLV_NODE_MSD_SIZE,
+				    RI_SR_TLV_NODE_MSD_SIZE))
+				return -1;
+			break;
+		default:
+			break;
+		}
+		remaining -= tlv_size;
+		tlvh = TLV_HDR_NEXT(tlvh);
+	}
+
+	remaining = lsa->size - OSPF_LSA_HEADER_SIZE;
+	for (tlvh = TLV_HDR_TOP(lsah); remaining > 0;) {
 		struct ri_sr_tlv_sr_algorithm *algo;
 		struct ri_sr_tlv_sid_label_range *range;
 		struct ri_sr_tlv_node_msd *msd;
 		uint32_t size, lower;
 
+		if (!ospf_te_tlv_valid(tlvh, remaining))
+			return -1;
+		tlv_size = TLV_SIZE(tlvh);
+		value_len = ntohs(tlvh->length);
 		switch (ntohs(tlvh->type)) {
 		case RI_SR_TLV_SR_ALGORITHM:
+			if (!ospf_te_tlv_length_valid(
+				    tlvh, 1, sizeof(node->algo)))
+				return -1;
 			algo = (struct ri_sr_tlv_sr_algorithm *)tlvh;
 
-			for (int i = 0; i < ntohs(algo->header.length); i++) {
+			for (int i = 0; i < value_len; i++) {
 				if (CHECK_FLAG(node->flags, LS_NODE_SR)
 				    && (node->algo[i] == algo->value[i]))
 					continue;
@@ -2492,7 +2653,7 @@ static int ospf_te_parse_ri(struct ls_ted *ted, struct ospf_lsa *lsa)
 			}
 
 			/* Reset other Algorithms */
-			for (int i = ntohs(algo->header.length); i < 2; i++) {
+			for (int i = value_len; i < sizeof(node->algo); i++) {
 				if (vertex->status != NEW
 				    && node->algo[i] != SR_ALGORITHM_UNSET)
 					vertex->status = UPDATE;
@@ -2502,6 +2663,10 @@ static int ospf_te_parse_ri(struct ls_ted *ted, struct ospf_lsa *lsa)
 			break;
 
 		case RI_SR_TLV_SRGB_LABEL_RANGE:
+			if (!ospf_te_tlv_length_valid(
+				    tlvh, RI_SR_TLV_LABEL_RANGE_SIZE,
+				    RI_SR_TLV_LABEL_RANGE_SIZE))
+				return -1;
 			range = (struct ri_sr_tlv_sid_label_range *)tlvh;
 			size = GET_RANGE_SIZE(ntohl(range->size));
 			lower = GET_LABEL(ntohl(range->lower.value));
@@ -2519,6 +2684,10 @@ static int ospf_te_parse_ri(struct ls_ted *ted, struct ospf_lsa *lsa)
 			break;
 
 		case RI_SR_TLV_SRLB_LABEL_RANGE:
+			if (!ospf_te_tlv_length_valid(
+				    tlvh, RI_SR_TLV_LABEL_RANGE_SIZE,
+				    RI_SR_TLV_LABEL_RANGE_SIZE))
+				return -1;
 			range = (struct ri_sr_tlv_sid_label_range *)tlvh;
 			size = GET_RANGE_SIZE(ntohl(range->size));
 			lower = GET_LABEL(ntohl(range->lower.value));
@@ -2536,6 +2705,10 @@ static int ospf_te_parse_ri(struct ls_ted *ted, struct ospf_lsa *lsa)
 			break;
 
 		case RI_SR_TLV_NODE_MSD:
+			if (!ospf_te_tlv_length_valid(
+				    tlvh, RI_SR_TLV_NODE_MSD_SIZE,
+				    RI_SR_TLV_NODE_MSD_SIZE))
+				return -1;
 			msd = (struct ri_sr_tlv_node_msd *)tlvh;
 			if ((CHECK_FLAG(node->flags, LS_NODE_MSD))
 			    && (node->msd == msd->value))
@@ -2551,7 +2724,8 @@ static int ospf_te_parse_ri(struct ls_ted *ted, struct ospf_lsa *lsa)
 		default:
 			break;
 		}
-		sum += TLV_SIZE(tlvh);
+		remaining -= tlv_size;
+		tlvh = TLV_HDR_NEXT(tlvh);
 	}
 
 	/* Vertex has been created or updated: export it */
@@ -2750,31 +2924,85 @@ static int ospf_te_parse_ext_link(struct ls_ted *ted, struct ospf_lsa *lsa)
 	struct ext_tlv_link *ext;
 	struct ls_edge *edge;
 	struct ls_attributes *atr;
-	uint16_t len = 0, sum = 0, i;
+	size_t remaining, sub_remaining, tlv_size;
+	uint16_t i;
 	uint32_t label;
+
+	if (!ted || !lsa || !lsa->data || !lsa->area
+	    || lsa->size < OSPF_LSA_HEADER_SIZE)
+		return -1;
 
 	/* Get corresponding Edge from Link State Data Base */
 	lnid.origin = OSPFv2;
 	lnid.id.ip.addr = lsa->data->adv_router;
 	lnid.id.ip.area_id = lsa->area->area_id;
 	ext = (struct ext_tlv_link *)TLV_HDR_TOP(lsa->data);
+	remaining = lsa->size - OSPF_LSA_HEADER_SIZE;
+	if (!ospf_te_tlv_valid(&ext->header, remaining)
+	    || ntohs(ext->header.type) != EXT_TLV_LINK
+	    || !ospf_te_tlv_length_valid(&ext->header, EXT_TLV_LINK_SIZE,
+					 UINT16_MAX))
+		return -1;
+	sub_remaining = ntohs(ext->header.length) - EXT_TLV_LINK_SIZE;
+	tlvh = (struct tlv_header *)((char *)(ext) + TLV_HDR_SIZE
+				     + EXT_TLV_LINK_SIZE);
+	for (remaining = sub_remaining; remaining > 0;) {
+		if (!ospf_te_tlv_valid(tlvh, remaining))
+			return -1;
+		tlv_size = TLV_SIZE(tlvh);
+		switch (ntohs(tlvh->type)) {
+		case EXT_SUBTLV_ADJ_SID:
+			if (!ospf_te_tlv_length_valid(
+				    tlvh, EXT_SUBTLV_ADJ_SID_SIZE - TLV_HDR_SIZE,
+				    EXT_SUBTLV_ADJ_SID_SIZE - TLV_HDR_SIZE))
+				return -1;
+			break;
+		case EXT_SUBTLV_LAN_ADJ_SID:
+			if (!ospf_te_tlv_length_valid(
+				    tlvh,
+				    EXT_SUBTLV_LAN_ADJ_SID_SIZE - TLV_HDR_SIZE,
+				    EXT_SUBTLV_LAN_ADJ_SID_SIZE - TLV_HDR_SIZE))
+				return -1;
+			break;
+		case EXT_SUBTLV_RMT_ITF_ADDR:
+			if (!ospf_te_tlv_length_valid(
+				    tlvh, EXT_SUBTLV_RMT_ITF_ADDR_SIZE,
+				    EXT_SUBTLV_RMT_ITF_ADDR_SIZE))
+				return -1;
+			break;
+		default:
+			break;
+		}
+		remaining -= tlv_size;
+		tlvh = TLV_HDR_NEXT(tlvh);
+	}
+
+	/* Get corresponding Edge from Link State Data Base */
 	edge = get_edge(ted, lnid, ext->link_data);
+	if (!edge || !edge->attributes)
+		return -1;
 	atr = edge->attributes;
 
 	ote_debug("  |- Process Extended Link LSA %pI4 for edge %pI4",
 		  &lsa->data->id, &edge->attributes->standard.local);
 
 	/* Initialize TLV browsing */
-	len = TLV_BODY_SIZE(&ext->header) - EXT_TLV_LINK_SIZE;
 	tlvh = (struct tlv_header *)((char *)(ext) + TLV_HDR_SIZE
 				     + EXT_TLV_LINK_SIZE);
-	for (; sum < len; tlvh = TLV_HDR_NEXT(tlvh)) {
+	for (; sub_remaining > 0;) {
 		struct ext_subtlv_adj_sid *adj;
 		struct ext_subtlv_lan_adj_sid *ladj;
 		struct ext_subtlv_rmt_itf_addr *rmt;
 
+		if (!ospf_te_tlv_valid(tlvh, sub_remaining))
+			return -1;
+		tlv_size = TLV_SIZE(tlvh);
 		switch (ntohs(tlvh->type)) {
 		case EXT_SUBTLV_ADJ_SID:
+			if (!ospf_te_tlv_length_valid(
+				    tlvh, EXT_SUBTLV_ADJ_SID_SIZE - TLV_HDR_SIZE,
+				    EXT_SUBTLV_ADJ_SID_SIZE - TLV_HDR_SIZE))
+				return -1;
 			adj = (struct ext_subtlv_adj_sid *)tlvh;
 			label = CHECK_FLAG(adj->flags,
 					   EXT_SUBTLV_LINK_ADJ_SID_VFLG)
@@ -2801,6 +3029,11 @@ static int ospf_te_parse_ext_link(struct ls_ted *ted, struct ospf_lsa *lsa)
 
 			break;
 		case EXT_SUBTLV_LAN_ADJ_SID:
+			if (!ospf_te_tlv_length_valid(
+				    tlvh,
+				    EXT_SUBTLV_LAN_ADJ_SID_SIZE - TLV_HDR_SIZE,
+				    EXT_SUBTLV_LAN_ADJ_SID_SIZE - TLV_HDR_SIZE))
+				return -1;
 			ladj = (struct ext_subtlv_lan_adj_sid *)tlvh;
 			label = CHECK_FLAG(ladj->flags,
 					   EXT_SUBTLV_LINK_ADJ_SID_VFLG)
@@ -2830,6 +3063,10 @@ static int ospf_te_parse_ext_link(struct ls_ted *ted, struct ospf_lsa *lsa)
 
 			break;
 		case EXT_SUBTLV_RMT_ITF_ADDR:
+			if (!ospf_te_tlv_length_valid(
+				    tlvh, EXT_SUBTLV_RMT_ITF_ADDR_SIZE,
+				    EXT_SUBTLV_RMT_ITF_ADDR_SIZE))
+				return -1;
 			rmt = (struct ext_subtlv_rmt_itf_addr *)tlvh;
 			if (CHECK_FLAG(atr->flags, LS_ATTR_NEIGH_ADDR)
 			    && IPV4_ADDR_SAME(&atr->standard.remote,
@@ -2845,7 +3082,8 @@ static int ospf_te_parse_ext_link(struct ls_ted *ted, struct ospf_lsa *lsa)
 		default:
 			break;
 		}
-		sum += TLV_SIZE(tlvh);
+		sub_remaining -= tlv_size;
+		tlvh = TLV_HDR_NEXT(tlvh);
 	}
 
 	/* Export Link State Edge if needed */
