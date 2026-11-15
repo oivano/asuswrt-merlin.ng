@@ -20156,7 +20156,7 @@ def_boot_reinit:
 	// be precise about vm commit
 #ifdef CONFIG_BCMWL5
 	f_write_string("/proc/sys/vm/overcommit_memory", "2", 0, 0);
-	f_write_string("/proc/sys/vm/panic_on_oom", "1", 0, 0);
+	f_write_string("/proc/sys/vm/panic_on_oom", "0", 0, 0);
 	char overcommit_ratio[4];
 #if defined(BCM6750) || defined(BCM63178)
 	int default_overcommit_ratio = 50;

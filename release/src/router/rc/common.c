@@ -843,6 +843,11 @@ void setup_conntrack(void)
 #ifdef LINUX26
 	snprintf(p, sizeof(p), "%s", nvram_safe_get("ct_hashsize"));
 	i = atoi(p);
+	if (i < 75000) {
+		i = 75000;
+		snprintf(p, sizeof(p), "%d", i);
+		nvram_set("ct_hashsize", p);
+	}
 	if (i >= 127) {
 		f_write_string("/sys/module/nf_conntrack/parameters/hashsize", p, 0, 0);
 	}
