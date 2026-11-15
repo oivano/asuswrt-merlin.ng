@@ -2361,6 +2361,7 @@ static int do_tkill(pid_t tgid, pid_t pid, int sig)
 {
 	struct siginfo info;
 
+	memset(&info, 0, sizeof(info));
 	info.si_signo = sig;
 	info.si_errno = 0;
 	info.si_code = SI_TKILL;

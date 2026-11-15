@@ -33,6 +33,7 @@
 #include <linux/pid.h>
 #include <linux/ipc_namespace.h>
 #include <linux/slab.h>
+#include <linux/string.h>
 
 #include <net/sock.h>
 #include "util.h"
@@ -528,6 +529,7 @@ static void __do_notify(struct mqueue_inode_info *info)
 		case SIGEV_SIGNAL:
 			/* sends signal */
 
+			memset(&sig_i, 0, sizeof(sig_i));
 			sig_i.si_signo = info->notify.sigev_signo;
 			sig_i.si_errno = 0;
 			sig_i.si_code = SI_MESGQ;
