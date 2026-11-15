@@ -64,13 +64,14 @@ function show_leases() {
 			Seconds = Math.floor(line[0] % 60);
 			leasearray[i][0] = pad(Days,2) + "d " + pad(Hours,2) + "h " + pad(Minutes,2) + "m "+ pad(Seconds,2) + "s";
 
-			overlib_str = "<p><#MAC_Address#>:</p>" + line[1];
-			leasearray[i][1] = '<span class="ClientName" onclick="oui_query_full_vendor(\'' + line[1].toUpperCase() +'\');;overlib_str_tmp=\''+ overlib_str +'\';return overlib(\''+ overlib_str +'\');" onmouseout="nd();" style="cursor:pointer; text-decoration:underline;">'+ line[1].toUpperCase() +'</span>';
+			var mac = line[1].toUpperCase();
+			leasearray[i][1] = '<span class="ClientName" data-mac="' + htmlEnDeCode.htmlEncode(mac) + '" style="cursor:pointer; text-decoration:underline;">' + htmlEnDeCode.htmlEncode(mac) + '</span>';
 		}
 
 		tableStruct = {
 			data: leasearray,
 			container: "leaseblock",
+			htmlColumns: {"1": true},
 			title: "DHCP Leases",
 			header: [
 				{
@@ -98,6 +99,18 @@ function show_leases() {
 		}
 
 		tableApi.genTableAPI(tableStruct);
+		$("#leaseblock")
+			.off("click", ".ClientName")
+			.on("click", ".ClientName", function() {
+				var mac = $(this).attr("data-mac");
+				oui_query_full_vendor(mac);
+				overlib_str_tmp = "<p><#MAC_Address#>:</p>" + htmlEnDeCode.htmlEncode(mac);
+				return overlib(overlib_str_tmp);
+			})
+			.off("mouseout", ".ClientName")
+			.on("mouseout", ".ClientName", function() {
+				nd();
+			});
 
 	} else {
 		document.getElementById("leaseblock").innerHTML = '<span class="hint-color" style="padding-left:10px;">No active leases.</span>';

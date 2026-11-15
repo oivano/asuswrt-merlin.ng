@@ -93,14 +93,14 @@ function show_ipv6clients() {
 
 	if (ipv6clientarray.length > 1) {
 		for (i = 0; i < ipv6clientarray.length; ++i) {
-			ipv6clientarray[i][0] = htmlEnDeCode.htmlEncode(ipv6clientarray[i][0]);
-			overlib_str = "<p><#MAC_Address#>:</p>" + ipv6clientarray[i][1];
-			ipv6clientarray[i][1] = '<span class="ClientName" onclick="oui_query_full_vendor(\'' + ipv6clientarray[i][1].toUpperCase() +'\');overlib_str_tmp=\''+ overlib_str +'\';return overlib(\''+ overlib_str +'\');" onmouseout="nd();" style="cursor:pointer; text-decoration:underline;">'+ ipv6clientarray[i][1].toUpperCase() +'</span>';
+			var mac = ipv6clientarray[i][1].toUpperCase();
+			ipv6clientarray[i][1] = '<span class="ClientName" data-mac="' + htmlEnDeCode.htmlEncode(mac) + '" style="cursor:pointer; text-decoration:underline;">' + htmlEnDeCode.htmlEncode(mac) + '</span>';
 		}
 
 		tableStruct = {
 			data: ipv6clientarray,
 			container: "ipv6clientsblock",
+			htmlColumns: {"1": true},
 			title: "IPv6 Clients",
 			header: [
 				{
@@ -122,6 +122,18 @@ function show_ipv6clients() {
 				]
 		}
 		tableApi.genTableAPI(tableStruct);
+		$("#ipv6clientsblock")
+			.off("click", ".ClientName")
+			.on("click", ".ClientName", function() {
+				var mac = $(this).attr("data-mac");
+				oui_query_full_vendor(mac);
+				overlib_str_tmp = "<p><#MAC_Address#>:</p>" + htmlEnDeCode.htmlEncode(mac);
+				return overlib(overlib_str_tmp);
+			})
+			.off("mouseout", ".ClientName")
+			.on("mouseout", ".ClientName", function() {
+				nd();
+			});
 	} else {
 		document.getElementById("ipv6clientsblock").innerHTML = '<span style="color:#FFCC00;padding-left:12;">No IPv6 clients.</span>';
 	}

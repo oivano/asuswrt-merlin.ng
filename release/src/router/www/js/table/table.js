@@ -1006,7 +1006,6 @@ var tableApi = {
 											textHint = _dataItemText;
 											_dataItemText = _dataItemText.substring(0, 26) + "..";
 										}
-										_dataItemText = htmlEnDeCode.htmlEncode(_dataItemText);
 										break;
 									case "activateIcon" :
 										_dataItemText = tableApi.transformValueToActivateIcon(_dataItemText);
@@ -1019,7 +1018,6 @@ var tableApi = {
 											textHint = _dataItemText;
 											_dataItemText = _dataItemText.substring(0, 26) + "..";
 										}
-										_dataItemText = htmlEnDeCode.htmlEncode(_dataItemText);
 										break;
 								}
 							}
@@ -1040,6 +1038,16 @@ var tableApi = {
 								dataRawStyleListJson[prop] = dataRawStyleList[prop];
 							}
 						}
+						var $dataItemContent = $("<div>")
+							.addClass("static-text")
+							.attr("width", "100%");
+						if (_dataItemText && _dataItemText.jquery) {
+							$dataItemContent.append(_dataItemText);
+						} else if (_obj_attr.htmlColumns && _obj_attr.htmlColumns[k] === true) {
+							$dataItemContent.html(_dataItemText);
+						} else {
+							$dataItemContent.text(_dataItemText);
+						}
 						$("<td>")
 							.addClass("row_td")
 							.css(dataRawStyleListJson)
@@ -1047,12 +1055,7 @@ var tableApi = {
 							.attr("row_td_idx", k)
 							//.attr("width", _headerWidthArray[k])
 							.attr({"title" : textHint})
-							.html(
-								$("<div>")
-									.addClass("static-text")
-									.attr("width", "100%")
-									.html(_dataItemText)
-							)
+							.append($dataItemContent)
 							.appendTo($contentHtml);
 					}	
 				}
@@ -1460,7 +1463,7 @@ var tableApi = {
 		}
 		else {
 			var clientName = (clientList[_value].nickName == "") ? clientList[_value].name : clientList[_value].nickName;
-			$divHtml.html(clientName);
+			$divHtml.text(clientName);
 			$divHtml.attr({"title" : _value});
 		}
 		return $divHtml;
