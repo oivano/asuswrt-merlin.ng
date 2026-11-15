@@ -2932,6 +2932,20 @@ static void write_guest_ipv6_input_rules(FILE *fp);
 #endif
 static void write_guest_hairpin_drop_rule(FILE *fp, const char *lan_if, const char *guest_mark);
 
+static void write_conntrack_source_limits(FILE *fp)
+{
+	fprintf(fp, "-A INPUT -i br+ -m state --state NEW -m connlimit --connlimit-above 512 --connlimit-mask 32 -j DROP\n");
+	fprintf(fp, "-A FORWARD -i br+ -m state --state NEW -m connlimit --connlimit-above 512 --connlimit-mask 32 -j DROP\n");
+}
+
+static void write_drop_icmp_info_types(FILE *fp)
+{
+	int type;
+
+	for (type = 15; type <= 18; ++type)
+		fprintf(fp, "-A INPUT -p icmp --icmp-type %d -j DROP\n", type);
+}
+
 void 	// 0928 add
 start_default_filter(int lanunit)
 {
@@ -3086,6 +3100,8 @@ start_default_filter(int lanunit)
 
 	fprintf(fp, "-A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT\n");
 	fprintf(fp, "-A INPUT -m state --state INVALID -j %s\n", debug ? "ACCEPT" : "DROP");
+	write_drop_icmp_info_types(fp);
+	write_conntrack_source_limits(fp);
 
 	/* Specific IP access restriction */
 	write_access_restriction(fp, NULL);
@@ -4046,6 +4062,8 @@ TRACE_PT("writing Parental Control\n");
 		/* Filter known SPI state */
 		fprintf(fp, "-A INPUT -m state --state RELATED,ESTABLISHED -j %s\n", logaccept);
 		fprintf(fp, "-A INPUT -m state --state INVALID -j %s\n", logdrop);
+		write_drop_icmp_info_types(fp);
+		write_conntrack_source_limits(fp);
 
 #ifdef RTCONFIG_TAGGED_BASED_VLAN
 		/* Deny none brX to access brX subnet */
@@ -5588,6 +5606,8 @@ TRACE_PT("writing Parental Control\n");
 		/* Filter known SPI state */
 		fprintf(fp, "-A INPUT -m state --state RELATED,ESTABLISHED -j %s\n", logaccept);
 		fprintf(fp, "-A INPUT -m state --state INVALID -j %s\n", logdrop);
+		write_drop_icmp_info_types(fp);
+		write_conntrack_source_limits(fp);
 
 #ifdef RTCONFIG_TAGGED_BASED_VLAN
 		/* Deny none brX to access brX subnet */
