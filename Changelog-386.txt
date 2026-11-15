@@ -2,8 +2,79 @@ ion release asuswrt merlin changelog
 ========================
 
 
-386.15_4-ion (01-Oct-2026)
+386.16-ion (unreleased)
+  - FIXED:   Addressed CVEs across the kernel and userland, including:
+             Kernel networking: CVE-2004-0230, CVE-2011-2699,
+             CVE-2011-3188, CVE-2012-0207, CVE-2012-2136,
+             CVE-2012-3552, CVE-2012-6657, CVE-2013-4162,
+             CVE-2013-7263, CVE-2016-3134, CVE-2016-3841,
+             CVE-2016-4998, CVE-2016-6828, CVE-2016-7117,
+             CVE-2016-8645, CVE-2016-10142, CVE-2017-7542,
+             CVE-2017-8890, CVE-2017-9074, CVE-2017-9077,
+             CVE-2018-5390, CVE-2021-3773, CVE-2021-45485,
+             CVE-2023-52340.
+             Netfilter, schedulers, netlink, packet/UNIX sockets, XFRM,
+             and PF_KEY: CVE-2012-6537, CVE-2012-6689, CVE-2013-2234,
+             CVE-2013-2237, CVE-2013-7446, CVE-2014-0181,
+             CVE-2017-7308, CVE-2017-16939, CVE-2021-0920,
+             CVE-2022-2588, CVE-2023-4623, CVE-2024-26923,
+             CVE-2024-53141, CVE-2025-21700.
+             PPP/PPTP/L2TP: CVE-2014-4943, CVE-2015-8569,
+             CVE-2018-9517. Filesystems and USB: CVE-2011-1010,
+             CVE-2011-1577, CVE-2011-2493, CVE-2011-3191,
+             CVE-2011-4086, CVE-2011-4132, CVE-2013-2015,
+             CVE-2017-7533, CVE-2017-7645, CVE-2017-7895,
+             CVE-2017-16531, CVE-2017-17558, CVE-2018-10876,
+             CVE-2018-10877, CVE-2019-11833, CVE-2020-12464,
+             CVE-2022-1184.
+             Kernel core, memory management, IPC, keys, TTY, and arch:
+             CVE-2011-1019, CVE-2011-1020, CVE-2011-1076,
+             CVE-2011-1082, CVE-2011-1083, CVE-2011-1593,
+             CVE-2011-1759, CVE-2011-2496, CVE-2011-4110,
+             CVE-2012-2745, CVE-2012-3375, CVE-2012-3511,
+             CVE-2012-4530, CVE-2012-6647, CVE-2013-0160,
+             CVE-2013-1792, CVE-2013-2141, CVE-2013-4483,
+             CVE-2014-3122, CVE-2014-3144, CVE-2014-3145,
+             CVE-2014-3153, CVE-2014-7822, CVE-2015-1805,
+             CVE-2015-7550, CVE-2016-0723, CVE-2016-4470,
+             CVE-2017-6951, CVE-2017-7472, CVE-2017-12192,
+             CVE-2019-5489, CVE-2019-11190, CVE-2020-29661.
+             Userland (BusyBox, e2fsprogs, FRR, Samba, and router scripts):
+             CVE-2015-2922, CVE-2017-12163, CVE-2017-14746,
+             CVE-2020-14318, CVE-2021-22161, CVE-2022-1304,
+             CVE-2022-37032, CVE-2022-37035, CVE-2023-38802,
+             CVE-2023-41909, CVE-2024-27913, CVE-2024-31950,
+             CVE-2024-31951, CVE-2024-34088, CVE-2024-58251.
+             Also ported upstream fixes without assigned CVE identifiers across these areas.
+  - FIXED:   Security issues across HTTPD and management paths, including
+             stronger administrator session tokens, protected login state,
+             authenticated CGI CSRF checks, WebUI XSS fixes, and safer
+             firmware-upgrade staging and credential handling.
+  - FIXED:   Bounds, overflow, race, and reference-lifetime defects across
+             kernel networking and storage, including IPv6, PPP/PPPoE,
+             netfilter/conntrack/CTF, filesystem metadata, and USB handling.
+  - CHANGED: Hardened build settings for network-facing daemons with stack
+             protection, format checks, and RELRO/NOW linker options; added
+             bounds checks for oversized socket-send buffers.
+  - ADDED:   IPsec client support in VPN Director, including selective
+             per-client routing through IPsec tunnels.
+  - CHANGED: Dynamic Routing can display both the main routing table and
+             IPsec table 220 while an IPsec client tunnel is active.
+  - FIXED:   VPN Status now correctly reports IPsec tunnel information and
+             refreshes; restored IPsec routing rules after WAN changes.
+  - ADDED:   DNSCrypt settings on the Ethernet WAN page.
+  - CHANGED: FRR WebUI status and configuration now use native FRR sockets
+             and configuration-backed settings, with FRR_CONFIG_DIR support;
+             refreshed the Advanced VPN Client page and routing-page layout.
+  - UPDATED: OpenSSL to 1.1.1zh, OpenVPN to 2.7.8, strongSwan to 6.1.0,
+             curl to 8.23.0, BusyBox to 1.36.1, and dnscrypt-proxy to 2.1.20.
+
+
+
+386.15_4-ion (10-Oct-2026)
   - ADDED:   IPv4 inbound firewall rule management in the WebUI.
+  - UPDATED: OpenVPN to 2.7.7
+  - UPDATED: amtm to 7.0  
   - UPDATED: json-c to 0.19-20260627 
   - UPDATED: haveged to 1.9.26.
   - UPDATED: wget to 1.25.0.
