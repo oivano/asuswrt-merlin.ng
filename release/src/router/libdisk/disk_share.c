@@ -1781,6 +1781,7 @@ int add_folder_at_var_file(const char *const account,
 
 extern int add_folder(const char *const account, const char *const mount_path, const char *const folder){
 	int result;
+	mode_t old_umask;
 	int acc_num;
 #ifdef RTCONFIG_PERMISSION_MANAGEMENT
 	PMS_ACCOUNT_INFO_T *account_list, *follow_account;
@@ -1815,8 +1816,9 @@ extern int add_folder(const char *const account, const char *const mount_path, c
 		return -1;
 	}
 
-	umask(0000);
+	old_umask = umask(0000);
 	result = mkdir(full_path, 0777);
+	umask(old_umask);
 	if(result != 0){
 		usb_dbg("add_folder: To create \"%s\" is failed!\n", folder);
 		return -1;
