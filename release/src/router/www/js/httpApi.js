@@ -922,13 +922,17 @@ var httpApi ={
 	},
 
 	"isAlive": function(hostOrigin, token, callback){
-		window.chdom = callback;
-		$.getJSON(hostOrigin + "/chdom.json?hostname=" + token + "&callback=?");
+		var probe = new Image();
+		probe.onload = callback;
+		probe.src = hostOrigin + "/chdom.gif?hostname=" + encodeURIComponent(token) + "&_=" + new Date().getTime();
+		return probe;
 	},
 
 	"checkCap": function(targetOrigin, callback){
-		window.chcap = callback;
-		$.getJSON(targetOrigin + "/chcap.json?callback=?");
+		var probe = new Image();
+		probe.onload = callback;
+		probe.src = targetOrigin + "/chcap.gif?_=" + new Date().getTime();
+		return probe;
 	},
 
 	"cleanLog": function(path, callback) {

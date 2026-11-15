@@ -23677,8 +23677,10 @@ struct mime_handler mime_handlers[] =
 	{ "httpd_check.xml", "text/xml", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
 	{ "repage.json", "application/json", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
 	{ "chdom.json", "application/json", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
+	{ "chdom.gif", "image/gif", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
 #ifdef RTCONFIG_AMAS
 	{ "chcap.json", "application/json", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
+	{ "chcap.gif", "image/gif", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
 	{ "cfg_onboarding.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_cfg_onboarding_cgi, do_auth },
 #endif
 	{ "wlc_status.json", "application/json", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
@@ -30441,6 +30443,29 @@ ej_chdom(int eid, webs_t wp, int argc, char **argv)
 	return 0;
 }
 
+static int
+write_probe_gif(webs_t wp)
+{
+	static const unsigned char gif[] = {
+		0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0x21, 0xf9, 0x04,
+		0x01, 0x00, 0x00, 0x00, 0x00, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x01,
+		0x00, 0x01, 0x00, 0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3b
+	};
+	return websWriteData(wp, gif, sizeof(gif));
+}
+
+static int
+ej_chdom_probe(int eid, webs_t wp, int argc, char **argv)
+{
+	char str[32];
+	memset(str, 0, sizeof(str));
+	ipisdomain(websGetVar(wp, "hostname", ""), str);
+	if (str[0] != '\0')
+		write_probe_gif(wp);
+	return 0;
+}
+
 #ifdef RTCONFIG_AMAS
 static int
 ej_chcap(int eid, webs_t wp, int argc, char **argv)
@@ -30452,6 +30477,17 @@ ej_chcap(int eid, webs_t wp, int argc, char **argv)
 
 	websWrite(wp, "%s", str);
 
+	return 0;
+}
+
+static int
+ej_chcap_probe(int eid, webs_t wp, int argc, char **argv)
+{
+	char str[32];
+	memset(str, 0, sizeof(str));
+	iscap(str);
+	if (str[0] != '\0')
+		write_probe_gif(wp);
 	return 0;
 }
 
@@ -35051,8 +35087,10 @@ struct ej_handler ej_handlers[] = {
 	{ "get_support_region_list", ej_get_support_region_list},
 	{ "get_next_lanip", ej_get_next_lanip},
 	{ "chdom", ej_chdom},
+	{ "chdom_probe", ej_chdom_probe},
 #ifdef RTCONFIG_AMAS
 	{ "chcap", ej_chcap},
+	{ "chcap_probe", ej_chcap_probe},
 #ifdef RTCONFIG_ADV_RAST
 	{ "act_chksta", ej_chksta},
 	{ "show_info_between_nodes", ej_show_info_between_nodes},
