@@ -13,6 +13,7 @@ struct ip_tunnel_6rd_parm {
 	__be32			relay_prefix;
 	u16			prefixlen;
 	u16			relay_prefixlen;
+	__be32			br_addr;
 };
 
 struct ip_tunnel {

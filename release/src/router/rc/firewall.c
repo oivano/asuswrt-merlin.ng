@@ -3741,6 +3741,7 @@ filter_setting(int wan_unit, char *lan_if, char *lan_ip, char *logaccept, char *
 #ifdef RTCONFIG_IPV6
 	int i;
 	FILE *fp_ipv6 = NULL;
+	struct in_addr tunnel_peer;
 	int n;
 	char *ip, *protono;
 #endif
@@ -4375,10 +4376,14 @@ TRACE_PT("writing Parental Control\n");
 
 #ifdef RTCONFIG_IPV6
 		switch (get_ipv6_service()) {
-		case IPV6_6IN4:
 		case IPV6_6TO4:
 		case IPV6_6RD:
 			fprintf(fp, "-A INPUT -p 41 -j %s\n", "ACCEPT");
+			break;
+		case IPV6_6IN4:
+			ip = nvram_safe_get(ipv6_nvname("ipv6_tun_v4end"));
+			if (ip && *ip && inet_aton(ip, &tunnel_peer) && tunnel_peer.s_addr != INADDR_ANY)
+				fprintf(fp, "-A INPUT -s %s -p 41 -j ACCEPT\n", inet_ntoa(tunnel_peer));
 			break;
 #ifdef RTCONFIG_SOFTWIRE46
 		default:
@@ -5309,6 +5314,7 @@ filter_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)
 #ifdef RTCONFIG_IPV6
 	int n;
 	char *ip;
+	struct in_addr tunnel_peer;
 #endif
 	int v4v6_ok = IPT_V4;
 	int wan_max_unit = WAN_UNIT_MAX;
@@ -5903,10 +5909,14 @@ TRACE_PT("writing Parental Control\n");
 
 #ifdef RTCONFIG_IPV6
 		switch (get_ipv6_service()) {
-		case IPV6_6IN4:
 		case IPV6_6TO4:
 		case IPV6_6RD:
 			fprintf(fp, "-A INPUT -p 41 -j %s\n", "ACCEPT");
+			break;
+		case IPV6_6IN4:
+			ip = nvram_safe_get(ipv6_nvname("ipv6_tun_v4end"));
+			if (ip && *ip && inet_aton(ip, &tunnel_peer) && tunnel_peer.s_addr != INADDR_ANY)
+				fprintf(fp, "-A INPUT -s %s -p 41 -j ACCEPT\n", inet_ntoa(tunnel_peer));
 			break;
 #ifdef RTCONFIG_SOFTWIRE46
 		default:

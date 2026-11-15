@@ -36,7 +36,7 @@ static void usage(void)
 	fprintf(stderr, "          [ mode { ipip | gre | sit | isatap | vti } ] [ remote ADDR ] [ local ADDR ]\n");
 	fprintf(stderr, "          [ [i|o]seq ] [ [i|o]key KEY ] [ [i|o]csum ]\n");
 	fprintf(stderr, "          [ prl-default ADDR ] [ prl-nodefault ADDR ] [ prl-delete ADDR ]\n");
-	fprintf(stderr, "          [ 6rd-prefix ADDR ] [ 6rd-relay_prefix ADDR ] [ 6rd-reset ]\n");
+	fprintf(stderr, "          [ 6rd-prefix ADDR ] [ 6rd-relay_prefix ADDR ] [ 6rd-br ADDR ] [ 6rd-reset ]\n");
 	fprintf(stderr, "          [ ttl TTL ] [ tos TOS ] [ [no]pmtudisc ] [ dev PHYS_DEV ]\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Where: NAME := STRING\n");
@@ -397,6 +397,8 @@ static void print_tunnel(struct ip_tunnel_parm *p)
 			       format_host(AF_INET, 4, &ip6rd.relay_prefix, s1, sizeof(s1)),
 			       ip6rd.relay_prefixlen);
 		}
+		if (ip6rd.br_addr)
+			printf("6rd-br %s ", format_host(AF_INET, 4, &ip6rd.br_addr, s1, sizeof(s1)));
 	}
 
 	if ((p->i_flags&GRE_KEY) && (p->o_flags&GRE_KEY) && p->o_key == p->i_key)
@@ -605,6 +607,12 @@ static int do_6rd(int argc, char **argv)
 			cmd = SIOCADD6RD;
 			memcpy(&ip6rd.relay_prefix, prefix.data, 4);
 			ip6rd.relay_prefixlen = prefix.bitlen;
+		} else if (strcmp(*argv, "6rd-br") == 0) {
+			NEXT_ARG();
+			if (get_prefix(&prefix, *argv, AF_INET) || prefix.bitlen != 32)
+				invarg("invalid 6rd-br\n", *argv);
+			cmd = SIOCADD6RD;
+			memcpy(&ip6rd.br_addr, prefix.data, 4);
 		} else if (strcmp(*argv, "6rd-reset") == 0) {
 			cmd = SIOCDEL6RD;
 		} else if (strcmp(*argv, "dev") == 0) {

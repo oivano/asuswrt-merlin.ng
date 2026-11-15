@@ -3825,6 +3825,10 @@ void start_ipv6_tunnel(void)
 	service = get_ipv6_service();
 	tun_dev = (char*)get_wan6face();
 	wanip = (char*)get_wanip();
+	if (service == IPV6_6RD &&
+	    (!inet_aton(nvram_safe_get(ipv6_nvname("ipv6_6rd_router")), &addr4) ||
+	     addr4.s_addr == INADDR_ANY))
+		return;
 
 	mtu = (nvram_get_int(ipv6_nvname("ipv6_tun_mtu")) > 0) ? nvram_safe_get(ipv6_nvname("ipv6_tun_mtu")) : "1480";
 	modprobe("sit");
@@ -3873,7 +3877,8 @@ void start_ipv6_tunnel(void)
 		snprintf(ip, sizeof(ip), "%s/%d", nvram_safe_get(ipv6_nvname("ipv6_6rd_prefix")), prefixlen);
 		snprintf(brprefix, sizeof(brprefix), "%s/%d", inet_ntoa(addr4), mask4size);
 		eval("ip", "tunnel", "6rd", "dev", tun_dev,
-		     "6rd-prefix", ip, "6rd-relay_prefix", brprefix);
+		     "6rd-prefix", ip, "6rd-relay_prefix", brprefix,
+		     "6rd-br", nvram_safe_get(ipv6_nvname("ipv6_6rd_router")));
 
 		/* address */
 		addr4.s_addr = 0;
