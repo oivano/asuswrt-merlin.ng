@@ -819,6 +819,17 @@ httpd_login_failed(int error_status)
 	return entry->error_status;
 }
 
+int
+httpd_login_captcha_failed(void)
+{
+	struct login_source *entry = login_source_get(1);
+	if (!entry)
+		return WRONGCAPTCHA;
+	entry->error_status = WRONGCAPTCHA;
+	entry->last_failure = (unsigned long)uptime();
+	return entry->error_status;
+}
+
 void
 httpd_login_reset(void)
 {
@@ -1396,8 +1407,10 @@ extern asus_token_t *head, *curr;
 
 static struct browser_session {
 	char token[33];
+	char referer_host[64];
 	unsigned long created;
 	unsigned long active;
+	int authenticated;
 } browser_sessions[BROWSER_SESSION_LIMIT];
 
 static void
@@ -1446,7 +1459,7 @@ browser_session_expire(void)
 }
 
 void
-browser_session_register(const char *token, int fromapp)
+browser_session_register(const char *token, int fromapp, int authenticated)
 {
 	struct browser_session *slot = NULL;
 	int index;
@@ -1466,7 +1479,24 @@ browser_session_register(const char *token, int fromapp)
 	if (slot->token[0])
 		browser_session_remove(slot);
 	strlcpy(slot->token, token, sizeof(slot->token));
+	strlcpy(slot->referer_host, referer_host, sizeof(slot->referer_host));
 	slot->created = slot->active = uptime();
+	slot->authenticated = authenticated;
+}
+
+static struct browser_session *
+browser_session_find(const char *token)
+{
+	int index;
+
+	if (!token || !*token)
+		return NULL;
+	for (index = 0; index < BROWSER_SESSION_LIMIT; ++index) {
+		struct browser_session *session = &browser_sessions[index];
+		if (session->token[0] && !strcmp(session->token, token))
+			return session;
+	}
+	return NULL;
 }
 
 static void
@@ -1504,7 +1534,7 @@ send_token_headers( int status, char* title, char* extra_header, char* mime_type
 
 	httpd_response_deadline_start();
 	gen_asus_token_cookie(asus_token, sizeof(asus_token), token_cookie, sizeof(token_cookie));
-	browser_session_register(asus_token, fromapp);
+	browser_session_register(asus_token, fromapp, 0);
 
     (void) fprintf( conn_fp, "%s %d %s\r\n", PROTOCOL, status, title );
     (void) fprintf( conn_fp, "Server: %s\r\n", SERVER_NAME );
@@ -1974,26 +2004,45 @@ int wave_handle_flag(char *url)
 
 int max_lock_time = MAX_LOGIN_BLOCK_TIME;
 
+static const char *httpd_parse_csrf_token(const char *cookies);
+
 int
 httpd_check_request_origin(void)
 {
 	char normalized_origin[256];
+	char saved_referer_host[sizeof(referer_host)];
+	struct browser_session *session = browser_session_find(httpd_parse_csrf_token(cookies_buf));
+	int use_session_referer = session && session->authenticated && session->referer_host[0];
 	size_t length;
+	int result;
+
+	if (use_session_referer) {
+		strlcpy(saved_referer_host, referer_host, sizeof(saved_referer_host));
+		strlcpy(referer_host, session->referer_host, sizeof(referer_host));
+	}
 
 	if (request_origin) {
 		length = strcspn(request_origin, "\r\n");
 		if (!length || length >= sizeof(normalized_origin) - 1)
-			return 0;
-		memcpy(normalized_origin, request_origin, length);
-		normalized_origin[length] = '/';
-		normalized_origin[length + 1] = '\0';
-		return referer_check(normalized_origin, 0) == 0;
+			result = 0;
+		else {
+			memcpy(normalized_origin, request_origin, length);
+			normalized_origin[length] = '/';
+			normalized_origin[length + 1] = '\0';
+			result = referer_check(normalized_origin, 0) == 0;
+		}
 	}
-	return request_referer != NULL && *request_referer != '\0' && referer_check(request_referer, 0) == 0;
+	else
+		result = request_referer != NULL && *request_referer != '\0' &&
+			referer_check(request_referer, 0) == 0;
+
+	if (use_session_referer)
+		strlcpy(referer_host, saved_referer_host, sizeof(referer_host));
+	return result;
 }
 
-const char *
-httpd_get_csrf_token(void)
+static const char *
+httpd_parse_csrf_token(const char *cookies)
 {
 	static char token[33];
 	const char *name = "asus_token", *cursor, *value;
@@ -2005,7 +2054,7 @@ httpd_get_csrf_token(void)
 		name = "asus_s_token";
 #endif
 	name_length = strlen(name);
-	cursor = cookies_buf;
+	cursor = cookies ? cookies : "";
 	while (*cursor) {
 		while (*cursor == ' ' || *cursor == '\t' || *cursor == ';')
 			++cursor;
@@ -2032,12 +2081,33 @@ httpd_get_csrf_token(void)
 	return "";
 }
 
+const char *
+httpd_get_csrf_token(void)
+{
+	return httpd_parse_csrf_token(cookies_buf);
+}
+
 int
 httpd_check_csrf_token(const char *token)
 {
 	const char *expected = httpd_get_csrf_token();
 
 	return token && *expected && strlen(token) == strlen(expected) && !strcmp(token, expected);
+}
+
+static void
+browser_session_forget(const char *cookies)
+{
+	struct browser_session *session = browser_session_find(httpd_parse_csrf_token(cookies));
+	if (session)
+		browser_session_remove(session);
+}
+
+static int
+browser_session_authenticated(const char *cookies)
+{
+	struct browser_session *session = browser_session_find(httpd_parse_csrf_token(cookies));
+	return session && session->authenticated;
 }
 
 #define HTTPD_MAX_FORM_BODY (65535 - 1)
@@ -2927,15 +2997,25 @@ void http_login_timeout(uaddr *uip, char *cookies, int fromapp_flag)
 	now = uptime();
 	login_ts = atol(nvram_safe_get("login_timestamp"));
 
-	if ((!uaddr_is_unspecified(&login_uip) && !uaddr_is_equal(&login_uip, uip)) &&
+	if (fromapp_flag == 0 && browser_session_authenticated(cookies) &&
+	    (!uaddr_is_unspecified(&login_uip) && !uaddr_is_equal(&login_uip, uip)) &&
 	    ((unsigned long)(now-login_ts) > 60)) //one minitues
 	{
-		http_logout(&login_uip, cookies, fromapp_flag);
+		login_ip = 0; /* IPv6 compat */
+		memset(&login_uip, 0, sizeof(login_uip));
+		login_timestamp = 0;
+		nvram_set("login_ip", ""); /* IPv6 compat */
+		nvram_set("login_ip_str", "");
+		nvram_set("login_timestamp", "");
+		if (change_passwd == 1)
+			change_passwd = 0;
 	}
 }
 
 void http_logout(uaddr *uip, char *cookies, int fromapp_flag)
 {
+	if (fromapp_flag == 0 && !browser_session_authenticated(cookies))
+		return;
 	if ((uaddr_is_unspecified(uip) || uaddr_is_equal(uip, &login_uip)) && fromapp_flag == 0) {
 		login_ip = 0; /* IPv6 compat */
 		memset(&login_uip, 0, sizeof(login_uip));
@@ -2946,6 +3026,7 @@ void http_logout(uaddr *uip, char *cookies, int fromapp_flag)
 		nvram_set("login_timestamp", "");
 		memset(referer_host, 0, sizeof(referer_host));
 		delete_logout_from_list(cookies);
+		browser_session_forget(cookies);
 // 2008.03 James. {
 		if (change_passwd == 1) {
 			change_passwd = 0;

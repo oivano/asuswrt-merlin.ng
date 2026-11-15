@@ -64,7 +64,11 @@ assert.match(throttledLogin, /httpd_login_response_headers\(wp, fromapp_flag, no
 assert.doesNotMatch(throttledLogin, /Retry-After|retry_after\\"/);
 assert.doesNotMatch(login, /admin_account|login_name/);
 assert.match(login, /else\s*\{\s*char \*admin_user = nvram_safe_get\("http_username"\);\s*if \(!compare_passwd_in_shadow\(admin_user, authpass\)\)\s*app_auth\(admin_user, authpass\);\s*\}/);
-assert.match(login, /httpd_login_failed\(WRONGCAPTCHA\)/);
+assert.match(login, /login_error_status = httpd_login_captcha_failed\(\)/);
+assert.doesNotMatch(login, /httpd_login_failed\(WRONGCAPTCHA\)/);
+const captchaFailed = body(source, 'httpd_login_captcha_failed');
+assert.match(captchaFailed, /entry->error_status = WRONGCAPTCHA/);
+assert.doesNotMatch(captchaFailed, /entry->failures|client->failures|httpd_login_failed/);
 assert.match(login, /login_error_status = httpd_login_failed\(ACCOUNTFAIL\);/);
 assert.match(login, /HTTPD_DBG\("authpass!\\n"\);\s*httpd_login_reset\(\);/);
 assert.match(login, /dt, NOLOGINTRY/);
@@ -134,7 +138,7 @@ function networkAddress(address) {
 const notifications = [];
 const context = vm.createContext({
     now: 100, currentAddress: '192.168.1.2', currentScope: 0, LOGIN_SOURCE_LIMIT: limit,
-    LOGIN_CLIENT_LIMIT: 256, MAX_LOGIN_BLOCK_TIME: 300, DEFAULT_LOGIN_MAX_NUM: 5, LOGINLOCK: 7, ACCOUNTFAIL: 3,
+    LOGIN_CLIENT_LIMIT: 256, MAX_LOGIN_BLOCK_TIME: 300, DEFAULT_LOGIN_MAX_NUM: 5, LOGINLOCK: 7, ACCOUNTFAIL: 3, WRONGCAPTCHA: 10,
     login_sources: Array.from({ length: limit }, empty),
     login_clients: Array.from({ length: 256 }, emptyClient),
     networkAddress,
@@ -149,10 +153,20 @@ vm.runInContext([
     translated('httpd_login_attempts', ''),
     translated('httpd_login_status', 'elapsed'),
     translated('httpd_login_failed', 'error_status'),
+    translated('httpd_login_captcha_failed', ''),
     translated('httpd_login_reset', '')
 ].join('\n'), context);
 context.now = 100;
 const elapsed = { value: 0 };
+context.currentAddress = '198.51.100.10';
+context.httpd_login_reset();
+context.httpd_login_failed(3);
+context.httpd_login_failed(3);
+assert.equal(context.httpd_login_attempts(), 2);
+assert.equal(context.httpd_login_captcha_failed(), 10);
+assert.equal(context.httpd_login_attempts(), 2, 'CAPTCHA mismatches do not consume credential-failure attempts');
+assert.equal(context.httpd_login_status(elapsed), 10, 'the wrong-CAPTCHA error remains visible');
+context.httpd_login_reset();
 context.currentAddress = '192.168.1.99';
 context.httpd_login_reset();
 for (let attempt = 1; attempt <= 5; ++attempt) {
