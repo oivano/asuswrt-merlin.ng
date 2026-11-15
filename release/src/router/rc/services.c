@@ -17107,6 +17107,13 @@ check_ddr_done:
 		if(action & RC_SERVICE_START) start_tftpd();
 	}
 #endif
+#ifdef RTCONFIG_IPV6
+	else if (strcmp(script, "dnsmasq") == 0)
+	{
+		if(action & RC_SERVICE_STOP) stop_dnsmasq();
+		if(action & RC_SERVICE_START) start_dnsmasq();
+	}
+#endif
 #ifdef RTCONFIG_SAMBASRV
 	else if (strcmp(script, "samba") == 0)
 	{

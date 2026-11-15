@@ -49,6 +49,8 @@
 #define DHCPV6_SERVER_PORT 547
 #define DHCPV6_DUID_LLADDR 3
 #define DHCPV6_REQ_DELAY 1
+#define DHCPV6_T1_MINIMUM 60
+#define DHCPV6_IRT_MINIMUM 600
 
 #define DHCPV6_SOL_MAX_RT_MIN 60
 #define DHCPV6_SOL_MAX_RT_MAX 86400
@@ -1140,6 +1142,8 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 				odhcp6c_add_state(STATE_SIP_FQDN, odata, olen);
 			else if (otype == DHCPV6_OPT_INFO_REFRESH && olen >= 4) {
 				refresh = ntohl_unaligned(odata);
+				if (refresh < DHCPV6_IRT_MINIMUM)
+					refresh = DHCPV6_IRT_MINIMUM;
 			} else if (otype == DHCPV6_OPT_AUTH) {
 				if (olen == -4 + sizeof(struct dhcpv6_auth_reconfigure)) {
 					struct dhcpv6_auth_reconfigure *r = (void*)&odata[-4];
@@ -1269,7 +1273,7 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end)
 {
 	struct dhcpv6_ia_hdr *ia_hdr = (struct dhcpv6_ia_hdr *)opt;
 	unsigned int updated_IAs = 0;
-	uint32_t t1, t2;
+	uint32_t t1, t2, t1_min;
 	uint16_t otype, olen;
 	uint8_t *odata;
 
@@ -1301,6 +1305,11 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end)
 			entry.t2 = (t2 ? t2 : (entry.preferred != UINT32_MAX ? 0.8 * entry.preferred : UINT32_MAX));
 			if (entry.t1 > entry.t2)
 				entry.t1 = entry.t2;
+			t1_min = entry.valid < DHCPV6_T1_MINIMUM ? entry.valid : DHCPV6_T1_MINIMUM;
+			if (entry.t2 < t1_min)
+				entry.t2 = t1_min;
+			if (entry.t1 < t1_min)
+				entry.t1 = t1_min;
 
 			entry.length = prefix->prefix;
 			entry.target = prefix->addr;
@@ -1365,6 +1374,11 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end)
 			entry.t2 = (t2 ? t2 : (entry.preferred != UINT32_MAX ? 0.8 * entry.preferred : UINT32_MAX));
 			if (entry.t1 > entry.t2)
 				entry.t1 = entry.t2;
+			t1_min = entry.valid < DHCPV6_T1_MINIMUM ? entry.valid : DHCPV6_T1_MINIMUM;
+			if (entry.t2 < t1_min)
+				entry.t2 = t1_min;
+			if (entry.t1 < t1_min)
+				entry.t1 = t1_min;
 
 			entry.length = 128;
 			entry.target = addr->addr;
