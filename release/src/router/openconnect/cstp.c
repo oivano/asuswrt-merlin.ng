@@ -486,11 +486,25 @@ static int start_cstp_connection(struct openconnect_info *vpninfo, int strap_rek
 				if (dtls_appid_changed && vpninfo->dtls_state > DTLS_SLEEPING)
 					vpninfo->dtls_need_reconnect = 1;
 			} else if (!strcmp(buf + i, "Content-Encoding")) {
-				if (!strcmp(colon, "lzs"))
+				if (!strcmp(colon, "lzs")) {
+					if (!(vpninfo->req_compr & COMPR_LZS)) {
+						vpn_progress(vpninfo, PRG_ERR,
+							     _("Server selected unrequested DTLS compression %s\n"),
+							     colon);
+						ret = -EINVAL;
+						goto err;
+					}
 					vpninfo->dtls_compr = COMPR_LZS;
-				else if (!strcmp(colon, "oc-lz4"))
+				} else if (!strcmp(colon, "oc-lz4")) {
+					if (!(vpninfo->req_compr & COMPR_LZ4)) {
+						vpn_progress(vpninfo, PRG_ERR,
+							     _("Server selected unrequested DTLS compression %s\n"),
+							     colon);
+						ret = -EINVAL;
+						goto err;
+					}
 					vpninfo->dtls_compr = COMPR_LZ4;
-				else {
+				} else {
 					vpn_progress(vpninfo, PRG_ERR,
 						     _("Unknown DTLS-Content-Encoding %s\n"),
 						     colon);
@@ -559,13 +573,34 @@ static int start_cstp_connection(struct openconnect_info *vpninfo, int strap_rek
 			else
 				vpninfo->ssl_times.rekey_method = REKEY_NONE;
 		} else if (!strcmp(buf + 7, "Content-Encoding")) {
-			if (!strcmp(colon, "deflate"))
+			if (!strcmp(colon, "deflate")) {
+				if (!(vpninfo->req_compr & COMPR_DEFLATE)) {
+					vpn_progress(vpninfo, PRG_ERR,
+						     _("Server selected unrequested CSTP compression %s\n"),
+						     colon);
+					ret = -EINVAL;
+					goto err;
+				}
 				vpninfo->cstp_compr = COMPR_DEFLATE;
-			else if (!strcmp(colon, "lzs"))
+			} else if (!strcmp(colon, "lzs")) {
+				if (!(vpninfo->req_compr & COMPR_LZS)) {
+					vpn_progress(vpninfo, PRG_ERR,
+						     _("Server selected unrequested CSTP compression %s\n"),
+						     colon);
+					ret = -EINVAL;
+					goto err;
+				}
 				vpninfo->cstp_compr = COMPR_LZS;
-			else if (!strcmp(colon, "oc-lz4"))
+			} else if (!strcmp(colon, "oc-lz4")) {
+				if (!(vpninfo->req_compr & COMPR_LZ4)) {
+					vpn_progress(vpninfo, PRG_ERR,
+						     _("Server selected unrequested CSTP compression %s\n"),
+						     colon);
+					ret = -EINVAL;
+					goto err;
+				}
 				vpninfo->cstp_compr = COMPR_LZ4;
-			else {
+			} else {
 				vpn_progress(vpninfo, PRG_ERR,
 					     _("Unknown CSTP-Content-Encoding %s\n"),
 					     colon);
@@ -801,6 +836,12 @@ static int cstp_reconnect(struct openconnect_info *vpninfo)
 int decompress_and_queue_packet(struct openconnect_info *vpninfo, int compr_type,
 				unsigned char *buf, int len)
 {
+	if (compr_type == COMPR_DEFLATE && len < 5) {
+		vpn_progress(vpninfo, PRG_ERR,
+			     _("Deflate packet is too short (%d bytes)\n"), len);
+		return -EINVAL;
+	}
+
 	/* Some servers send us packets that are larger than
 	   negotiated MTU after decompression. We reserve some extra
 	   space to handle that */
