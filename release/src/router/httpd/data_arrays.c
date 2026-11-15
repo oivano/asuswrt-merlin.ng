@@ -146,6 +146,8 @@ ej_get_leases_array(int eid, webs_t wp, int argc, char_t **argv)
 
 		} else if (inet_pton(AF_INET, ipaddr, &addr4) == 0)
 			continue;
+		if (!valid_dhcp_lease_fields(hwaddr, name))
+			continue;
 
 		ret += websWrite(wp, "[\"%u\",", expires);
 		ret += websWriteJsonString(wp, hwaddr); ret += websWrite(wp, ",");

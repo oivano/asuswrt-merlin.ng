@@ -237,6 +237,7 @@ function show_etherstate(){
 			devicemac = line[11].toUpperCase();
 		else
 			devicemac = "";
+		var validMac = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(devicemac);
 
 		if (line[0] == "Port") {
 			if (line[2] == "DOWN")
@@ -250,6 +251,8 @@ function show_etherstate(){
 
 			if (devicemac == "00:00:00:00:00:00") {
 				devicename = '<span class="ClientName">&lt;none&gt;</span>';
+			} else if (!validMac) {
+				devicename = '<span class="ClientName">'+ htmlEnDeCode.htmlEncode(devicemac) +'</span>';
 			} else {
 				overlib_str = "<p><#MAC_Address#>:</p>" + devicemac;
 
@@ -257,7 +260,7 @@ function show_etherstate(){
 					hostname = (clientList[devicemac].nickName == "") ? clientList[devicemac].name : clientList[devicemac].nickName;
 
 				if ((typeof hostname !== 'undefined') && (hostname != "")) {
-					devicename = '<span class="ClientName" onclick="oui_query_full_vendor(\'' + devicemac +'\');;overlib_str_tmp=\''+ overlib_str +'\';return overlib(\''+ overlib_str +'\');" onmouseout="nd();" style="cursor:pointer; text-decoration:underline;">'+ hostname +'</span>';
+					devicename = '<span class="ClientName" onclick="oui_query_full_vendor(\'' + devicemac +'\');;overlib_str_tmp=\''+ overlib_str +'\';return overlib(\''+ overlib_str +'\');" onmouseout="nd();" style="cursor:pointer; text-decoration:underline;">'+ htmlEnDeCode.htmlEncode(hostname) +'</span>';
 				} else {
 					devicename = '<span class="ClientName" onclick="oui_query_full_vendor(\'' + devicemac +'\');;overlib_str_tmp=\''+ overlib_str +'\';return overlib(\''+ overlib_str +'\');" onmouseout="nd();" style="cursor:pointer; text-decoration:underline;">'+ devicemac +'</span>'; 
 				}
@@ -315,6 +318,7 @@ function show_etherstate(){
 
 	var tableStruct = {
 		data: port_array,
+		htmlColumns: {"3": true},
 		container: "tableContainer",
 		header: [
 			{

@@ -7247,6 +7247,68 @@ int ej_dhcp_leases(int eid, webs_t wp, int argc, char_t **argv)
 	return 0;
 }
 
+static int valid_dhcp_lease_hwaddr(const char *value)
+{
+	const unsigned char *p = (const unsigned char *)value;
+	size_t bytes = 0;
+
+	if (!value || !*value)
+		return 0;
+	if (isxdigit(p[0]) && isxdigit(p[1]) && p[2] == '-')
+		p += 3;
+
+	while (*p) {
+		if (!p[0] || !p[1] || !isxdigit(p[0]) || !isxdigit(p[1]))
+			return 0;
+		p += 2;
+		bytes++;
+		if (!*p)
+			break;
+		if (*p++ != ':' || !*p)
+			return 0;
+	}
+	return bytes > 0 && bytes <= 16;
+}
+
+static int valid_dhcp_lease_hostname(const char *value)
+{
+	const unsigned char *p = (const unsigned char *)value;
+	size_t len, label_len = 0;
+	int first_label = 1;
+
+	if (!value || !*value)
+		return 0;
+	if (strcmp(value, "*") == 0)
+		return 1;
+	len = strlen(value);
+	if (len > 253)
+		return 0;
+	for (; *p; p++) {
+		if (*p == '.') {
+			if (label_len == 0)
+				return 0;
+			label_len = 0;
+			first_label = 0;
+		} else if ((*p >= 'A' && *p <= 'Z') ||
+			   (*p >= 'a' && *p <= 'z') ||
+			   (*p >= '0' && *p <= '9') ||
+			   *p == '-' || *p == '_') {
+			if (first_label && label_len == 0 && (*p == '-' || *p == '_'))
+				return 0;
+			if (++label_len > 63)
+				return 0;
+		} else
+			return 0;
+	}
+	return label_len != 0 || value[len - 1] == '.';
+}
+
+int valid_dhcp_lease_fields(const char *hwaddr, const char *hostname)
+{
+	return valid_dhcp_lease_hwaddr(hwaddr) &&
+	       valid_dhcp_lease_hostname(hostname);
+}
+
 int
 ej_dhcpLeaseInfo(int eid, webs_t wp, int argc, char_t **argv)
 {
@@ -7280,6 +7342,8 @@ ej_dhcpLeaseInfo(int eid, webs_t wp, int argc, char_t **argv)
 			// hwaddr = next ? : "";
 			continue;
 		} else if (inet_pton(AF_INET, ipaddr, &addr4) == 0)
+			continue;
+		if (!valid_dhcp_lease_fields(hwaddr, name))
 			continue;
 
 		ret += websWrite(wp,
@@ -7334,6 +7398,8 @@ ej_dhcpLeaseMacList(int eid, webs_t wp, int argc, char_t **argv)
 			// hwaddr = next ? : "";
 			continue;
 		} else if (inet_pton(AF_INET, ipaddr, &addr4) == 0)
+			continue;
+		if (!valid_dhcp_lease_fields(hwaddr, name))
 			continue;
 
 		/* each char expands to %XX at max */
@@ -7411,6 +7477,8 @@ ej_lan_leases(int eid, webs_t wp, int argc, char_t **argv)
 			continue;
 		} else if (inet_pton(AF_INET, ipaddr, &addr4) == 0)
 			continue;
+		if (!valid_dhcp_lease_fields(hwaddr, name))
+			continue;
 
 		if (expires) {
 			snprintf(timestr, sizeof(timestr), "%u:%02u:%02u",
@@ -7435,7 +7503,7 @@ ej_IP_dhcpLeaseInfo(int eid, webs_t wp, int argc, char_t **argv)
 	struct in_addr addr4;
 	struct in6_addr addr6;
 	char line[256];
-	char *ipaddr, *name, *next;
+	char *hwaddr, *ipaddr, *name, *next;
 	unsigned int expires;
 	int ret = 0;
 
@@ -7453,7 +7521,7 @@ ej_IP_dhcpLeaseInfo(int eid, webs_t wp, int argc, char_t **argv)
 			continue;
 
 		strsep(&next, " ");
-		strsep(&next, " ") ? : ""; // hwaddr
+		hwaddr = strsep(&next, " ") ? : "";
 		ipaddr = strsep(&next, " ") ? : "";
 		name = strsep(&next, " ") ? : "";
 
@@ -7461,6 +7529,8 @@ ej_IP_dhcpLeaseInfo(int eid, webs_t wp, int argc, char_t **argv)
 			/* skip ipv6 leases, thay have no hwaddr, but client id */
 			continue;
 		} else if (inet_pton(AF_INET, ipaddr, &addr4) == 0)
+			continue;
+		if (!valid_dhcp_lease_fields(hwaddr, name))
 			continue;
 
 		ret += websWrite(wp,"['%s', '%s'],", ipaddr, name);

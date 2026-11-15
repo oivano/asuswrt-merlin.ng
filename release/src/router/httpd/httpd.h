@@ -451,6 +451,7 @@ extern int uaddr_is_equal(uaddr *a, uaddr *b);
 extern uaddr *uaddr_getpeer(webs_t wp, uaddr *uip);
 
 /* web.c */
+extern int valid_dhcp_lease_fields(const char *hwaddr, const char *hostname);
 extern int ej_lan_leases(int eid, webs_t wp, int argc, char_t **argv);
 extern int get_nat_vserver_table(int eid, webs_t wp, int argc, char_t **argv);
 extern int ej_route_table(int eid, webs_t wp, int argc, char_t **argv);

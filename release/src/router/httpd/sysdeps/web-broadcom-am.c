@@ -563,6 +563,7 @@ sta_list:
 			line = strtok(leaselistptr, "\n");
 			while (line) {
 				if ( (sscanf(line,"%*s %17s %15s %32s %*s", macentry, ipentry, tmp) == 3) &&
+				     valid_dhcp_lease_fields(macentry, tmp) &&
 				     (!strcasecmp(macentry, ether_etoa((void *)&auth->ea[i], ea))) ) {
 					found += 2;
 					break;
@@ -739,6 +740,7 @@ sta_list:
 					line = strtok(leaselistptr, "\n");
 					while (line) {
 						if ( (sscanf(line,"%*s %17s %15s %32s %*s", macentry, ipentry, tmp) == 3) &&
+						     valid_dhcp_lease_fields(macentry, tmp) &&
 						     (!strcasecmp(macentry, ether_etoa((void *)&auth->ea[ii], ea))) ) {
 							found += 2;
 							break;
