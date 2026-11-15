@@ -978,28 +978,6 @@ static int __pppoe_xmit(struct sock *sk, struct sk_buff *skb)
 	skb->protocol = cpu_to_be16(ETH_P_PPP_SES);
 	skb->dev = dev;
 
-#if defined(HNDCTF) && defined(CTF_PPPOE)
-	/* Need to populate the ipct members with pppoe sid and real tx interface */
-	if (CTF_ENAB(kcih) && (skb->ctf_pppoe_cb[0] == 2)) {
-		ctf_ipc_t *ipc;
-		ipc = (ctf_ipc_t *)(*(uint32 *)&skb->ctf_pppoe_cb[4]);
-		if (ipc != NULL) {
-			if (dev->priv_flags & IFF_802_1Q_VLAN) {
-				ipc->txif = (void *)vlan_dev_real_dev(dev);
-				ipc->vid = vlan_dev_vlan_id(dev);
-				ipc->action |= ((vlan_dev_vlan_flags(dev) & 1) ?
-						    CTF_ACTION_TAG : CTF_ACTION_UNTAG);
-			} else {
-				ipc->txif = dev;
-				ipc->action |= CTF_ACTION_UNTAG;
-			}
-			ipc->pppoe_sid = ph->sid;
-			memcpy(ipc->dhost.octet, po->pppoe_pa.remote, ETH_ALEN);
-			memcpy(ipc->shost.octet, dev->dev_addr, ETH_ALEN);
-		}
-	}
-#endif /* HNDCTF && CTF_PPPOE */
-
 	dev_hard_header(skb, dev, ETH_P_PPP_SES,
 			po->pppoe_pa.remote, NULL, data_len);
 
