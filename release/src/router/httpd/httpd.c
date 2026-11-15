@@ -642,43 +642,82 @@ int cur_login_ip_type = -1;	//0:LAN, 1:WAN, -1:ERROR
 int lock_flag = 0;
 
 #define LOGIN_SOURCE_LIMIT 256
+#define LOGIN_CLIENT_LIMIT 256
 struct login_source {
 	char address[INET6_ADDRSTRLEN];
+	int scope;
 	unsigned int failures;
 	int error_status;
 	unsigned long last_failure;
 	unsigned long blocked_at;
 };
+struct login_client {
+	char address[INET6_ADDRSTRLEN];
+	int scope;
+	unsigned int failures;
+	unsigned long last_failure;
+	unsigned long last_success;
+};
 static struct login_source login_sources[LOGIN_SOURCE_LIMIT];
+static struct login_client login_clients[LOGIN_CLIENT_LIMIT];
 
 int
 httpd_login_attempt_admit(unsigned int *retry_after)
 {
-	return shared_login_attempt_admit(retry_after);
+	enum login_budget_scope scope;
+
+	if (cur_login_ip_type == 0)
+		scope = LOGIN_BUDGET_LAN;
+	else if (cur_login_ip_type == 1)
+		scope = LOGIN_BUDGET_WAN;
+	else
+		scope = LOGIN_BUDGET_UNKNOWN;
+	return shared_login_attempt_admit(scope, retry_after);
+}
+
+static int
+login_peer_address(int subnet, char *address, size_t size)
+{
+	struct in_addr ipv4;
+	struct in6_addr ipv6;
+	const void *peer;
+	int family = login_usa_tmp.sa.sa_family;
+
+	if (family == AF_INET) {
+		ipv4 = ((struct sockaddr_in *)&login_usa_tmp.sa)->sin_addr;
+		if (subnet)
+			ipv4.s_addr = htonl(ntohl(ipv4.s_addr) & 0xffffff00U);
+		peer = &ipv4;
+	} else if (family == AF_INET6) {
+		const struct in6_addr *addr = &((struct sockaddr_in6 *)&login_usa_tmp.sa)->sin6_addr;
+		if (IN6_IS_ADDR_V4MAPPED(addr)) {
+			family = AF_INET;
+			memcpy(&ipv4, &addr->s6_addr[12], sizeof(ipv4));
+			if (subnet)
+				ipv4.s_addr = htonl(ntohl(ipv4.s_addr) & 0xffffff00U);
+			peer = &ipv4;
+		} else {
+			ipv6 = *addr;
+			if (subnet)
+				memset(&ipv6.s6_addr[8], 0, 8);
+			peer = &ipv6;
+		}
+	} else
+		return 0;
+
+	return inet_ntop(family, peer, address, size) != NULL;
 }
 
 static struct login_source *
 login_source_get(int create)
 {
 	char address[INET6_ADDRSTRLEN];
-	const void *peer;
-	int family = login_usa_tmp.sa.sa_family;
 	unsigned long now = (unsigned long)uptime();
+	int scope = cur_login_ip_type;
 	struct login_source *slot = NULL;
 	int index;
 
-	if (family == AF_INET)
-		peer = &((struct sockaddr_in *)&login_usa_tmp.sa)->sin_addr;
-	else if (family == AF_INET6) {
-		const struct in6_addr *addr = &((struct sockaddr_in6 *)&login_usa_tmp.sa)->sin6_addr;
-		peer = addr;
-		if (IN6_IS_ADDR_V4MAPPED(addr)) {
-			family = AF_INET;
-			peer = &addr->s6_addr[12];
-		}
-	} else
-		return NULL;
-	if (!inet_ntop(family, peer, address, sizeof(address)))
+	if (!login_peer_address(1, address, sizeof(address)))
 		return NULL;
 	for (index = 0; index < LOGIN_SOURCE_LIMIT; ++index) {
 		struct login_source *entry = &login_sources[index];
@@ -686,7 +725,7 @@ login_source_get(int create)
 		    (now < entry->last_failure ||
 		     now - entry->last_failure >= MAX_LOGIN_BLOCK_TIME))
 			memset(entry, 0, sizeof(*entry));
-		if (!strcmp(entry->address, address))
+		if (entry->scope == scope && !strcmp(entry->address, address))
 			return entry;
 		if (!slot || !entry->address[0] ||
 		    (slot->address[0] && entry->last_failure < slot->last_failure))
@@ -696,6 +735,39 @@ login_source_get(int create)
 		return NULL;
 	memset(slot, 0, sizeof(*slot));
 	strlcpy(slot->address, address, sizeof(slot->address));
+	slot->scope = scope;
+	return slot;
+}
+
+static struct login_client *
+login_client_get(int create)
+{
+	char address[INET6_ADDRSTRLEN];
+	unsigned long now = (unsigned long)uptime();
+	int scope = cur_login_ip_type;
+	struct login_client *slot = NULL;
+	int index;
+
+	if (!login_peer_address(0, address, sizeof(address)))
+		return NULL;
+	for (index = 0; index < LOGIN_CLIENT_LIMIT; ++index) {
+		struct login_client *entry = &login_clients[index];
+		unsigned long activity = entry->last_failure > entry->last_success ?
+			entry->last_failure : entry->last_success;
+		if (entry->address[0] &&
+		    (!activity || now < activity || now - activity >= MAX_LOGIN_BLOCK_TIME))
+			memset(entry, 0, sizeof(*entry));
+		if (entry->scope == scope && !strcmp(entry->address, address))
+			return entry;
+		if (!slot || !entry->address[0] ||
+		    (slot->address[0] && entry->last_failure < slot->last_failure))
+			slot = entry;
+	}
+	if (!create)
+		return NULL;
+	memset(slot, 0, sizeof(*slot));
+	strlcpy(slot->address, address, sizeof(slot->address));
+	slot->scope = scope;
 	return slot;
 }
 
@@ -710,9 +782,15 @@ int
 httpd_login_status(time_t *elapsed)
 {
 	struct login_source *entry = login_source_get(0);
+	struct login_client *client;
+	unsigned long now = (unsigned long)uptime();
 	*elapsed = 0;
 	if (entry && entry->failures >= DEFAULT_LOGIN_MAX_NUM) {
-		*elapsed = (unsigned long)uptime() - entry->blocked_at;
+		client = login_client_get(0);
+		if (client && client->last_success && now >= client->last_success &&
+		    now - client->last_success < MAX_LOGIN_BLOCK_TIME)
+			return 0;
+		*elapsed = now - entry->blocked_at;
 		return LOGINLOCK;
 	}
 	return entry ? entry->error_status : 0;
@@ -722,11 +800,16 @@ int
 httpd_login_failed(int error_status)
 {
 	struct login_source *entry = login_source_get(1);
-	if (!entry)
+	struct login_client *client = login_client_get(1);
+	unsigned long now = (unsigned long)uptime();
+	if (!entry || !client)
 		return LOGINLOCK;
+	if (client->failures < DEFAULT_LOGIN_MAX_NUM)
+		++client->failures;
+	client->last_failure = now;
 	if (entry->failures < DEFAULT_LOGIN_MAX_NUM) {
 		entry->error_status = error_status;
-		entry->last_failure = (unsigned long)uptime();
+		entry->last_failure = now;
 		if (++entry->failures == DEFAULT_LOGIN_MAX_NUM) {
 			entry->blocked_at = entry->last_failure;
 			entry->error_status = LOGINLOCK;
@@ -740,8 +823,14 @@ void
 httpd_login_reset(void)
 {
 	struct login_source *entry = login_source_get(0);
+	struct login_client *client = login_client_get(1);
 	if (entry)
 		memset(entry, 0, sizeof(*entry));
+	if (client) {
+		client->failures = 0;
+		client->last_failure = 0;
+		client->last_success = (unsigned long)uptime();
+	}
 }
 
 // 2008.08 magic {

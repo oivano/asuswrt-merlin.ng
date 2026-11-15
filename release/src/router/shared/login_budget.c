@@ -10,7 +10,10 @@
 #include "shared.h"
 #include "login_budget.h"
 
-#define LOGIN_BUDGET_FILE "/tmp/httpd/login-budget"
+#define LOGIN_BUDGET_FILE_LAN "/tmp/httpd/login-budget-lan"
+#define LOGIN_BUDGET_FILE_WAN "/tmp/httpd/login-budget-wan"
+#define LOGIN_BUDGET_FILE_UNKNOWN "/tmp/httpd/login-budget-unknown"
+#define LOGIN_BUDGET_FILE_SSH "/tmp/httpd/login-budget-ssh"
 #define LOGIN_BUDGET_MAGIC 0x484c4231
 #define LOGIN_BUDGET_CAPACITY 5
 #define LOGIN_BUDGET_REFILL_SECONDS 30
@@ -50,10 +53,11 @@ static int login_budget_ensure_temp_dir(void)
 }
 
 int
-shared_login_attempt_admit(unsigned int *retry_after)
+shared_login_attempt_admit(enum login_budget_scope scope, unsigned int *retry_after)
 {
 	struct login_budget_state state;
 	struct stat st;
+	const char *budget_file;
 	unsigned long now = (unsigned long)uptime();
 	unsigned long elapsed, refill;
 	ssize_t count;
@@ -61,12 +65,29 @@ shared_login_attempt_admit(unsigned int *retry_after)
 
 	if (retry_after)
 		*retry_after = 0;
+	switch (scope) {
+	case LOGIN_BUDGET_LAN:
+		budget_file = LOGIN_BUDGET_FILE_LAN;
+		break;
+	case LOGIN_BUDGET_WAN:
+		budget_file = LOGIN_BUDGET_FILE_WAN;
+		break;
+	case LOGIN_BUDGET_UNKNOWN:
+		budget_file = LOGIN_BUDGET_FILE_UNKNOWN;
+		break;
+	case LOGIN_BUDGET_SSH:
+		budget_file = LOGIN_BUDGET_FILE_SSH;
+		break;
+	default:
+		errno = EINVAL;
+		goto denied;
+	}
 	lock = file_lock("httpd-login-budget");
 	if (lock < 0)
 		goto denied;
 	if (login_budget_ensure_temp_dir() != 0)
 		goto done;
-	fd = open(LOGIN_BUDGET_FILE, O_CREAT | O_RDWR | O_NOFOLLOW, 0600);
+	fd = open(budget_file, O_CREAT | O_RDWR | O_NOFOLLOW, 0600);
 	if (fd < 0 || fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) ||
 	    st.st_uid != geteuid() || st.st_nlink != 1 || (st.st_mode & 077))
 		goto done;

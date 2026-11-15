@@ -71,7 +71,7 @@ void svr_auth_password(int valid_user) {
 	password = buf_getstring(ses.payload, &passwordlen);
 	if (valid_user) {
 		unsigned int retry_after;
-		if (!shared_login_attempt_admit(&retry_after)) {
+		if (!shared_login_attempt_admit(LOGIN_BUDGET_SSH, &retry_after)) {
 			m_burn(password, passwordlen);
 			m_free(password);
 			dropbear_log(LOG_WARNING,

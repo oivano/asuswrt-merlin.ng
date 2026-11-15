@@ -21164,18 +21164,6 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 		}
 	}
 #endif
-	if (!authpass_fail) {
-		if (!httpd_login_attempt_admit(&retry_after)) {
-			httpd_login_response_headers(wp, fromapp_flag, now, 429);
-			websWrite(wp, "Retry-After: %u\r\n", retry_after);
-			websWrite(wp, "Connection: close\r\n\r\n");
-			if (fromapp_flag != 0)
-				websWrite(wp, "{\n\"error_status\":\"%d\",\"retry_after\":\"%u\"\n}\n", LOGINRETRY, retry_after);
-			else
-				websWrite(wp, "<HTML><BODY>Too many login attempts. Please wait %u seconds before trying again.</BODY></HTML>\n", retry_after);
-			return 0;
-		}
-	}
 	httpd_login_response_headers(wp, fromapp_flag, now, 200);
 
 	if(authpass_fail == 0){
@@ -21197,6 +21185,17 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 			else
 				compare_passwd_in_shadow(nvram_safe_get("http_username"), authpass);
 		}
+	}
+
+	if (!authpass_fail && !auth_pass && !httpd_login_attempt_admit(&retry_after)) {
+		login_error_status = httpd_login_failed(ACCOUNTFAIL);
+		httpd_login_response_headers(wp, fromapp_flag, now, 429);
+		websWrite(wp, "Connection: close\r\n\r\n");
+		if (fromapp_flag != 0)
+			websWrite(wp, "{\n\"error_status\":\"%d\"\n}\n", LOGINRETRY);
+		else
+			websWrite(wp, "<HTML><BODY>Too many login attempts. Please try again later.</BODY></HTML>\n");
+		return 0;
 	}
 
 	if (!authpass_fail && auth_pass
