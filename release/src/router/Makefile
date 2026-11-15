@@ -634,7 +634,9 @@ export CFLAGS += -g
 endif
 
 export NETWORK_DAEMON_HARDEN_CFLAGS := -fstack-protector -Wformat -Wformat-security
+export STACK_PROTECTOR_ALL_CFLAGS := -fstack-protector-all
 export NETWORK_DAEMON_HARDEN_LDFLAGS := -Wl,-z,relro,-z,now
+export NETWORK_DAEMON_HARDEN_LD_FLAGS := -z relro -z now
 
 ifeq ($(strip $(BRCM_USER_SSP)),y)
 export CFLAGS += $(SSP_MIN_COMPILER_OPTS)
@@ -3128,6 +3130,7 @@ openssl-1.1/Makefile:
 	$(if $(filter y,$(RTCONFIG_SFP) $(RTCONFIG_4M_SFP) $(RTCONFIG_8M_SFP)),-Os,-O2) \
 	$(if $(RTCONFIG_DEBUG),-g) \
 	-ffunction-sections -fdata-sections -Wl,--gc-sections \
+	$(NETWORK_DAEMON_HARDEN_CFLAGS) $(NETWORK_DAEMON_HARDEN_LDFLAGS) \
 	shared $(OPENSSL_CIPHERS) no-err no-async --api=1.0.0 \
 	no-aria no-sm2 no-sm3 no-sm4 \
 	--with-rand-seed=devrandom \
@@ -4035,8 +4038,8 @@ endif
 endif
 
 6relayd: 6relayd/Makefile
-	@EXT_CFLAGS="-Os -Wall $(EXTRACFLAGS) -ffunction-sections -fdata-sections -fPIC" \
-	EXT_LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections" \
+	@EXT_CFLAGS="-Os -Wall $(EXTRACFLAGS) $(NETWORK_DAEMON_HARDEN_CFLAGS) -ffunction-sections -fdata-sections -fPIC" \
+	EXT_LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections $(NETWORK_DAEMON_HARDEN_LDFLAGS)" \
 	PREFIX="/usr" \
 	$(MAKE) -C 6relayd
 
@@ -5237,7 +5240,7 @@ endif
 
 zlib/stamp-h1:
 	cd zlib && \
-	CC=$(CC) AR="ar rc" RANLIB=$(RANLIB) LD=$(LD) CFLAGS="-Os -Wall $(EXTRACFLAGS) -fPIC" LDSHAREDLIBC="$(EXTRALDFLAGS)" \
+	CC=$(CC) AR="ar rc" RANLIB=$(RANLIB) LD=$(LD) CFLAGS="-Os -Wall $(EXTRACFLAGS) $(NETWORK_DAEMON_HARDEN_CFLAGS) $(STACK_PROTECTOR_ALL_CFLAGS) -fPIC" LDSHAREDLIBC="$(EXTRALDFLAGS) $(NETWORK_DAEMON_HARDEN_LDFLAGS)" \
 	./configure --shared --prefix=/usr --libdir=/usr/lib
 	touch $@
 
@@ -5975,7 +5978,9 @@ ebtables-clean:
 
 lzo$(LZO_VER)/stamp-h1:
 	cd lzo$(LZO_VER) && \
-	CFLAGS="-O3 -Wall $(EXTRACFLAGS)" $(CONFIGURE) --enable-shared --enable-static \
+	CFLAGS="-O3 -Wall $(EXTRACFLAGS) $(NETWORK_DAEMON_HARDEN_CFLAGS)" \
+	LDFLAGS="$(EXTRALDFLAGS) $(NETWORK_DAEMON_HARDEN_LDFLAGS)" \
+	$(CONFIGURE) --enable-shared --enable-static \
 		--prefix=/usr \
 		--bindir=/usr/sbin \
 		--libdir=/usr/lib
@@ -5994,7 +5999,7 @@ lzo$(LZO_VER)-install: lzo$(LZO_VER)
 	cd $(INSTALLDIR)/lzo$(LZO_VER)/usr/lib && ln -sf liblzo2.so.2 liblzo2.so
 
 lz4:
-	$(MAKE) -C $@ $(PARALLEL_BUILD)
+	$(MAKE) -C $@ STACK_PROTECTOR_ALL_CFLAGS="$(STACK_PROTECTOR_ALL_CFLAGS)" $(PARALLEL_BUILD)
 
 lz4-install:
 	install -D lz4/lib/liblz4.so.1.9.2 $(INSTALLDIR)/lz4/usr/lib/liblz4.so.1.9.2
@@ -6504,7 +6509,8 @@ libyang2-clean:
 libxml2/stamp-h1:
 	cd libxml2 && mkdir -p m4 && autoreconf -i -f && \
 	CC=$(CC) AR=$(AR) RANLIB=$(RANLIB) \
-	CFLAGS="$(if $(RTCONFIG_DEBUG),-g,-Os) -Wall $(EXTRACFLAGS)" LDFLAGS="-ldl $(EXTRALDFLAGS)" \
+	CFLAGS="$(if $(RTCONFIG_DEBUG),-g,-Os) -Wall $(EXTRACFLAGS) $(NETWORK_DAEMON_HARDEN_CFLAGS)" \
+	LDFLAGS="-ldl $(EXTRALDFLAGS) $(NETWORK_DAEMON_HARDEN_LDFLAGS)" \
 	./$(CONFIGURE) --prefix=/usr --without-python --disable-dependency-tracking \
 	--without-zlib --disable-maintainer-mode
 	touch $@
@@ -8452,8 +8458,9 @@ json-c/stamp-h1:
 		-DCMAKE_SKIP_RPATH=TRUE \
 		-DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=OFF -DBUILD_APPS=OFF -DBUILD_TESTING=OFF \
 		-DDISABLE_EXTRA_LIBS=ON -DDISABLE_WERROR=ON \
-		-DCMAKE_C_FLAGS="$(if $(RTCONFIG_DEBUG),-g,-Os) -Wno-error $(EXTRACFLAGS)" \
-		-DCMAKE_EXE_LINKER_FLAGS="$(EXTRALDFLAGS) -Wl,--as-needed -lm"
+		-DCMAKE_C_FLAGS="$(if $(RTCONFIG_DEBUG),-g,-Os) -Wno-error $(EXTRACFLAGS) $(NETWORK_DAEMON_HARDEN_CFLAGS)" \
+		-DCMAKE_EXE_LINKER_FLAGS="$(EXTRALDFLAGS) $(NETWORK_DAEMON_HARDEN_LDFLAGS) -Wl,--as-needed -lm" \
+		-DCMAKE_SHARED_LINKER_FLAGS="$(EXTRALDFLAGS) $(NETWORK_DAEMON_HARDEN_LDFLAGS)"
 	ln -sfn build $(TOP)/json-c/.libs
 	ln -sfn build/json.h $(TOP)/json-c/json.h
 	ln -sfn build/json_config.h $(TOP)/json-c/json_config.h
@@ -8487,8 +8494,8 @@ json-c-0.12.1/stamp-h1:
 	cd $(TOP)/json-c-0.12.1 && \
 	$(CONFIGURE) --prefix=/usr --enable-shared --disable-static \
 	ac_cv_func_realloc_0_nonnull=yes ac_cv_func_malloc_0_nonnull=yes \
-	CFLAGS="$(if $(RTCONFIG_DEBUG),-g,-Os) -Wno-error $(EXTRACFLAGS)" \
-	LDFLAGS="$(EXTRALDFLAGS) -Wl,--as-needed -lm"
+	CFLAGS="$(if $(RTCONFIG_DEBUG),-g,-Os) -Wno-error $(EXTRACFLAGS) $(NETWORK_DAEMON_HARDEN_CFLAGS)" \
+	LDFLAGS="$(EXTRALDFLAGS) $(NETWORK_DAEMON_HARDEN_LDFLAGS) -Wl,--as-needed -lm"
 	touch $@
 
 json-c-0.12.1: json-c-0.12.1/stamp-h1

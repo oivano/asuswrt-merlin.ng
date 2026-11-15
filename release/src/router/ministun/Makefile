@@ -1,5 +1,5 @@
-CCFLAGS+=-Os -Wall -I. -Wno-pointer-sign -fomit-frame-pointer $(EXTRACFLAGS)
-LDFLAGS+=-s
+CCFLAGS+=-Os -Wall -I. -Wno-pointer-sign -fomit-frame-pointer $(EXTRACFLAGS) $(NETWORK_DAEMON_HARDEN_CFLAGS)
+LDFLAGS+=-s $(NETWORK_DAEMON_HARDEN_LDFLAGS)
 LIBS=
 
 PACKAGE=ministun

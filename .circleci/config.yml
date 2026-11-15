@@ -92,7 +92,7 @@ jobs:
             audit_elf() {
               local relpath="$1"
               local elf="${ROOT}/${relpath}"
-              local symbols segments stack_check=no relro=no
+              local symbols segments dynamic stack_check=no relro=no bind_now=no
 
               if [[ ! -f "${elf}" ]]; then
                 printf 'FAIL missing ELF: %s\n' "${relpath}" | tee -a "${AUDIT_LOG}"
@@ -102,15 +102,19 @@ jobs:
 
               symbols=$("${READELF}" --dyn-syms -W "${elf}")
               segments=$("${READELF}" -lW "${elf}")
+              dynamic=$("${READELF}" -dW "${elf}")
               if [[ "${symbols}" == *"__stack_chk_fail"* ]]; then
                 stack_check=yes
               fi
               if [[ "${segments}" == *"GNU_RELRO"* ]]; then
                 relro=yes
               fi
+              if printf '%s\n' "${dynamic}" | grep -Eq '\(BIND_NOW\)|\(FLAGS_1\).*NOW'; then
+                bind_now=yes
+              fi
 
-              printf '%s stack-check=%s relro=%s\n' "${relpath}" "${stack_check}" "${relro}" | tee -a "${AUDIT_LOG}"
-              if [[ "${stack_check}" != yes || "${relro}" != yes ]]; then
+              printf '%s stack-check=%s relro=%s bind-now=%s\n' "${relpath}" "${stack_check}" "${relro}" "${bind_now}" | tee -a "${AUDIT_LOG}"
+              if [[ "${stack_check}" != yes || "${relro}" != yes || "${bind_now}" != yes ]]; then
                 audit_failed=1
               fi
             }
@@ -124,8 +128,14 @@ jobs:
               usr/sbin/pppd usr/sbin/pppoe-relay usr/sbin/odhcp6c \
               usr/sbin/igmpproxy usr/sbin/udpxy usr/sbin/openconnect \
               usr/sbin/wsdd2 usr/sbin/phddns \
+              usr/sbin/6relayd usr/sbin/lld2c usr/sbin/ministun usr/sbin/snooper \
               usr/sbin/zebra usr/sbin/staticd usr/sbin/bgpd usr/sbin/ospfd \
-              usr/sbin/bfdd usr/sbin/watchfrr usr/lib/ipsec/charon; do
+              usr/sbin/bfdd usr/sbin/watchfrr usr/lib/ipsec/charon \
+              usr/lib/libssl.so.1.1 usr/lib/libcrypto.so.1.1 \
+              usr/lib/libshared.so usr/lib/libmssl.so \
+              usr/lib/libjson-c.so.5.5.0 usr/lib/libjson-c.so.2.0.2 \
+              usr/lib/libxml2.so.2 usr/lib/liblz4.so.1.9.2 \
+              usr/lib/liblzo2.so.2 usr/lib/libz.so.1; do
               audit_elf "${elf}"
             done
 

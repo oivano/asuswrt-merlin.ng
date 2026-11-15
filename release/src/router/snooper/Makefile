@@ -24,8 +24,8 @@
 #CROSS = arm-uclibc-
 #CC = $(CROSS)gcc
 
-CFLAGS = -Os -g -Wall -W -Wno-unused-parameter $(EXTRACFLAGS)
-LDFLAGS = $(EXTRALDFLAGS)
+CFLAGS = -Os -g -Wall -W -Wno-unused-parameter $(EXTRACFLAGS) $(NETWORK_DAEMON_HARDEN_CFLAGS)
+LDFLAGS = $(EXTRALDFLAGS) $(NETWORK_DAEMON_HARDEN_LDFLAGS)
 LIBS += -Wl,--as-needed -lrt -Wl,--no-as-needed
 
 CFLAGS += -ffunction-sections -fdata-sections
