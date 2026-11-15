@@ -16,6 +16,7 @@
 #include <net/checksum.h>
 #include <net/icmp.h>
 #include <net/ip.h>
+#include <net/route.h>
 #include <net/tcp.h>  /* For tcp_prot in getorigdst */
 #include <linux/icmp.h>
 #include <linux/udp.h>
@@ -235,6 +236,21 @@ find_best_ips_proto(u16 zone, struct nf_conntrack_tuple *tuple,
 	*var_ipp = htonl(minip + j);
 }
 
+static int
+tuple_force_port_remap(const struct nf_conntrack_tuple *tuple)
+{
+	u16 source_port, destination_port;
+
+	if (tuple->dst.protonum != IPPROTO_TCP &&
+	    tuple->dst.protonum != IPPROTO_UDP)
+		return 0;
+
+	source_port = ntohs(tuple->src.u.all);
+	destination_port = ntohs(tuple->dst.u.all);
+
+	return source_port < 16384 && destination_port >= 32768;
+}
+
 /* Manipulate the tuple into the range given.  For NF_INET_POST_ROUTING,
  * we change the source to map into the range.  For NF_INET_PRE_ROUTING
  * and NF_INET_LOCAL_OUT, we change the destination to map into the
@@ -250,7 +266,17 @@ get_unique_tuple(struct nf_conntrack_tuple *tuple,
 {
 	struct net *net = nf_ct_net(ct);
 	const struct nf_nat_protocol *proto;
+	struct nf_nat_range adjusted_range;
 	u16 zone = nf_ct_zone(ct);
+
+	if (maniptype == IP_NAT_MANIP_SRC &&
+	    !(range->flags & IP_NAT_RANGE_PROTO_RANDOM) &&
+	    inet_addr_type(net, orig_tuple->src.u3.ip) != RTN_LOCAL &&
+	    tuple_force_port_remap(orig_tuple)) {
+		adjusted_range = *range;
+		adjusted_range.flags |= IP_NAT_RANGE_PROTO_RANDOM;
+		range = &adjusted_range;
+	}
 
 	/* 1) If this srcip/proto/src-proto-part is currently mapped,
 	   and that same mapping gives a unique tuple within the given

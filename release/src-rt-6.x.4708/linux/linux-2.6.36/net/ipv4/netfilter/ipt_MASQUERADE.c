@@ -86,6 +86,9 @@ masquerade_tg(struct sk_buff *skb, const struct xt_action_param *par)
 		{ mr->range[0].flags | IP_NAT_RANGE_MAP_IPS,
 		  newsrc, newsrc,
 		  mr->range[0].min, mr->range[0].max });
+	if (inet_addr_type(nf_ct_net(ct),
+			   ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple.src.u3.ip) == RTN_LOCAL)
+		newrange.flags &= ~IP_NAT_RANGE_PROTO_RANDOM;
 
 	/* Hand modified range to generic setup. */
 	return nf_nat_setup_info(ct, &newrange, IP_NAT_MANIP_SRC);
