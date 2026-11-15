@@ -6,6 +6,7 @@ const root = path.resolve(__dirname, '../..');
 const source = fs.readFileSync(path.join(root, 'release/src/router/httpd/httpd.c'), 'utf8');
 const web = fs.readFileSync(path.join(root, 'release/src/router/httpd/web.c'), 'utf8');
 const header = fs.readFileSync(path.join(root, 'release/src/router/httpd/httpd.h'), 'utf8');
+const sharedBudgetSource = fs.readFileSync(path.join(root, 'release/src/router/shared/login_budget.c'), 'utf8');
 const limit = Number(source.match(/#define LOGIN_SOURCE_LIMIT (\d+)/)[1]);
 const captchaLimit = Number(header.match(/#define CAPTCHA_MAX_LOGIN_NUM\s+(\d+)/)[1]);
 function body(text, name) {
@@ -35,18 +36,19 @@ assert(login.indexOf('httpd_login_captcha_match') < login.indexOf('compare_passw
 assert.match(captchaMatcher, /fromapp_flag != FROM_DUTUtil/);
 assert.match(captchaMatcher, /strlcpy\(user_agent, "Mozilla\/5\.0", sizeof\(user_agent\)\)/);
 assert.match(captchaMatcher, /matched = is_captcha_match\(captcha_text\);\s*strlcpy\(user_agent, saved_user_agent, sizeof\(user_agent\)\);/);
-assert.match(source, /#define LOGIN_BUDGET_CAPACITY DEFAULT_LOGIN_MAX_NUM/);
-assert.match(source, /#define LOGIN_BUDGET_REFILL_SECONDS 30/);
-assert.match(source, /#define LOGIN_BUDGET_FILE "\/tmp\/httpd\/login-budget"/);
-const loginBudget = body(source, 'httpd_login_attempt_admit');
+assert.match(sharedBudgetSource, /#define LOGIN_BUDGET_CAPACITY 5/);
+assert.match(sharedBudgetSource, /#define LOGIN_BUDGET_REFILL_SECONDS 30/);
+assert.match(sharedBudgetSource, /#define LOGIN_BUDGET_FILE "\/tmp\/httpd\/login-budget"/);
+const loginBudget = body(sharedBudgetSource, 'shared_login_attempt_admit');
 assert.match(loginBudget, /file_lock\("httpd-login-budget"\)/);
-assert.match(loginBudget, /httpd_ensure_temp_dir\(\)/);
+assert.match(loginBudget, /login_budget_ensure_temp_dir\(\)/);
 assert.match(loginBudget, /O_CREAT \| O_RDWR \| O_NOFOLLOW/);
 assert.match(loginBudget, /st\.st_uid != geteuid\(\).*st\.st_nlink != 1/);
 assert.match(loginBudget, /state\.tokens > LOGIN_BUDGET_CAPACITY/);
 assert.match(loginBudget, /state\.tokens = 0/);
 assert.match(loginBudget, /LOGIN_BUDGET_REFILL_SECONDS -/);
 assert.match(loginBudget, /write\(fd, &state, sizeof\(state\)\)/);
+assert.match(source, /httpd_login_attempt_admit\(unsigned int \*retry_after\)\s*\{\s*return shared_login_attempt_admit\(retry_after\);/);
 assert.match(header, /extern int httpd_login_attempt_admit\(unsigned int \*retry_after\);/);
 assert.match(header, /#define LOGINRETRY\s+12/);
 assert.match(login, /admin_account &&\s*!httpd_login_attempt_admit\(&retry_after\)/);
@@ -303,7 +305,7 @@ slowlorisTimeout('AF_INET', slowlorisVictim, 107);
 assert(!slowlorisIsBlocked('AF_INET', slowlorisVictim, 107));
 
 const budgetCapacity = Number(header.match(/#define DEFAULT_LOGIN_MAX_NUM\s+(\d+)/)[1]);
-const budgetRefill = Number(source.match(/#define LOGIN_BUDGET_REFILL_SECONDS (\d+)/)[1]);
+const budgetRefill = Number(sharedBudgetSource.match(/#define LOGIN_BUDGET_REFILL_SECONDS (\d+)/)[1]);
 const sharedBudget = { tokens: budgetCapacity, lastRefill: 100 };
 function admitLogin(now) {
     if (now < sharedBudget.lastRefill) {

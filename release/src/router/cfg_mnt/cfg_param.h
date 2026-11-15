@@ -973,7 +973,7 @@ static struct param_mapping_s param_mapping_list[] __attribute__ ((unused)) = {
 	/* ssh server */
 	{ "sshd_enable", 	FT_TIME,		SUBFT_SSH_SERVER,		"0"},
 	{ "sshd_port", 	FT_TIME,		SUBFT_SSH_SERVER,		""},
-	{ "sshd_pass", 	FT_TIME,		SUBFT_SSH_SERVER,		"1"},
+	{ "sshd_pass", 	FT_TIME,		SUBFT_SSH_SERVER,		"0"},
 	{ "sshd_authkeys", 	FT_TIME,		SUBFT_SSH_SERVER,		""},
 	{ "shell_timeout", 	FT_TIME,		SUBFT_SSH_SERVER,		"1200"},
 	/* log server */
