@@ -264,28 +264,36 @@ bypass_doubledash (char **p)
 bool
 ovpn_option_is_unsafe(const char *option)
 {
-	static const char *blocked[] = {
-		"up", "down", "route-up", "route-pre-down", "ipchange",
-		"tls-verify", "auth-user-pass-verify", "client-connect",
-		"client-disconnect", "learn-address", "plugin", "script-security",
-		"tls-crypt-v2-verify", "status", "writepid", "chroot", "setenv",
-		"setenv-safe", "config", "cd", "daemon", "dev-node", "iproute",
-		"pkcs12", "askpass", "tls-export-cert", "auth-gen-token-secret",
-		"tmp-dir", NULL
+	static const char *allowed[] = {
+		"client", "dev", "dev-type", "proto", "remote", "port",
+		"connect-retry", "connect-retry-max", "connect-timeout",
+		"resolv-retry", "remote-random", "remote-random-hostname",
+		"nobind", "persist-key", "persist-tun", "ca", "cert", "key",
+		"extra-certs", "tls-auth", "tls-crypt", "tls-crypt-v2", "secret",
+		"crl-verify", "auth-user-pass", "auth", "auth-nocache", "auth-retry",
+		"cipher", "data-ciphers", "data-ciphers-fallback", "ncp-ciphers",
+		"compress", "comp-lzo", "verb", "mute", "mute-replay-warnings",
+		"tls-remote", "remote-cert-tls", "verify-x509-name", "key-direction",
+		"reneg-sec", "tls-version-min", "tls-version-max", "tls-cipher",
+		"tls-ciphersuites", "redirect-gateway", "pull", "pull-filter",
+		"route-nopull", "route", "route-ipv6", "route-metric", "route-gateway",
+		"dhcp-option", "allow-pull-fqdn", "explicit-exit-notify", "keepalive",
+		"ping", "ping-exit", "ping-restart", "inactive", "tun-mtu",
+		"tun-mtu-extra", "mssfix", "fragment", "sndbuf", "rcvbuf", "fast-io",
+		"float", "lport", "rport", "topology", "ifconfig", "ifconfig-ipv6",
+		"route-delay", "tls-client", NULL
 	};
 	int i;
 
 	if (!option)
-		return false;
-	if (!strncmp(option, "--", 2))
-		option += 2;
-	if (!strncmp(option, "management", 10) || !strncmp(option, "log", 3))
 		return true;
-	for (i = 0; blocked[i]; ++i) {
-		if (streq(option, blocked[i]))
-			return true;
+	if (option[0] == '-' && option[1] == '-')
+		option += 2;
+	for (i = 0; allowed[i]; ++i) {
+		if (streq(option, allowed[i]))
+			return false;
 	}
-	return false;
+	return true;
 }
 
 static bool

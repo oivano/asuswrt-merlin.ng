@@ -810,6 +810,7 @@ int ovpn_write_client_config(ovpn_cconf_t *cconf, int unit) {
 
 	fprintf(fp, "\n# Custom Configuration\n");
 	write_client_custom(fp, cconf->custom);
+	fprintf(fp, "dns-updown disable\n");
 
 	fprintf(fp, "up 'ovpn-up %d client'\n", unit);
 	fprintf(fp, "down 'ovpn-down %d client'\n", unit);
