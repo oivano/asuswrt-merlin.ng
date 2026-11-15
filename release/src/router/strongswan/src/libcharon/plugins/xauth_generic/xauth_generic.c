@@ -180,7 +180,11 @@ METHOD(xauth_method_t, process_server, status_t,
 		pass.len -= 1;
 	}
 	ike_sa = charon->bus->get_sa(charon->bus);
-	source = ike_sa ? ike_sa->get_other_host(ike_sa) : NULL;
+	source = ike_sa ? ike_sa->get_initial_other_host(ike_sa) : NULL;
+	if (!source && ike_sa)
+	{
+		source = ike_sa->get_other_host(ike_sa);
+	}
 	if (!charon->ike_sa_manager->auth_attempt_allowed(
 			charon->ike_sa_manager, source))
 	{

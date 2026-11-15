@@ -515,6 +515,20 @@ struct ike_sa_t {
 	void (*set_other_host) (ike_sa_t *this, host_t *other);
 
 	/**
+	 * Get the remote host address that sent the initial request.
+	 *
+	 * @return				initial remote host, or NULL if not set
+	 */
+	host_t* (*get_initial_other_host) (ike_sa_t *this);
+
+	/**
+	 * Set the remote host address that sent the initial request.
+	 *
+	 * @param other		initial remote host (ownership transferred)
+	 */
+	void (*set_initial_other_host) (ike_sa_t *this, host_t *other);
+
+	/**
 	 * Float to port 4500 (e.g. if a NAT is detected).
 	 *
 	 * The port of either endpoint is changed only if it is currently

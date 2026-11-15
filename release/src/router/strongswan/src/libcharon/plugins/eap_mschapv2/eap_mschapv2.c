@@ -1130,7 +1130,11 @@ static status_t process_server_response(private_eap_mschapv2_t *this,
 	/* userid can only be destroyed after the last use of username */
 	username = extract_username(userid->get_encoding(userid));
 	ike_sa = charon->bus->get_sa(charon->bus);
-	source = ike_sa ? ike_sa->get_other_host(ike_sa) : NULL;
+	source = ike_sa ? ike_sa->get_initial_other_host(ike_sa) : NULL;
+	if (!source && ike_sa)
+	{
+		source = ike_sa->get_other_host(ike_sa);
+	}
 	if (!charon->ike_sa_manager->auth_attempt_allowed(
 			charon->ike_sa_manager, source))
 	{
