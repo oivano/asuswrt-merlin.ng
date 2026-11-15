@@ -622,12 +622,13 @@ extern int check_lock_status(time_t *dt);
 extern unsigned int httpd_login_attempts(void);
 extern int httpd_login_status(time_t *elapsed);
 extern int httpd_login_failed(int error_status);
+extern int httpd_login_captcha_failed(void);
 extern int httpd_login_attempt_admit(unsigned int *retry_after);
 extern void httpd_login_notify(const char *address);
 extern void httpd_login_reset(void);
 extern char *wl_nband_to_wlx(char *nv_name, char *wl_name, size_t len);
 extern int gen_asus_token_cookie(char *asus_token, int asus_token_len, char *token_cookie, int cookie_len);
-extern void browser_session_register(const char *token, int fromapp);
+extern void browser_session_register(const char *token, int fromapp, int authenticated);
 extern void check_lock_state();
 extern void gen_random_string_v2(char *out, size_t len);
 #ifdef RTCONFIG_FRR

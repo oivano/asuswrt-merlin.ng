@@ -21149,7 +21149,7 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 			httpd_login_response_headers(wp, fromapp_flag, now, 200);
 			websWrite(wp,"Connection: close\r\n" );
 			websWrite(wp,"\r\n" );
-			login_error_status = httpd_login_failed(WRONGCAPTCHA);
+			login_error_status = httpd_login_captcha_failed();
 			if(fromapp_flag != 0){
 				if (login_error_status == LOGINLOCK)
 					websWrite(wp, "{\n\"error_status\":\"%d\",\"remaining_lock_time\":\"%d\"\n}\n", login_error_status, MAX_LOGIN_BLOCK_TIME);
@@ -21217,7 +21217,7 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 		}
 
 		gen_asus_token_cookie(asus_token, sizeof(asus_token), token_cookie, sizeof(token_cookie));
-		browser_session_register(asus_token, fromapp_flag);
+		browser_session_register(asus_token, fromapp_flag, 1);
 
 		websWrite(wp,"Set-Cookie: %s; SameSite=Strict\r\n",token_cookie);
 		websWrite(wp,"Connection: close\r\n" );

@@ -9,19 +9,38 @@ const web = fs.readFileSync(path.join(root, 'release/src/router/httpd/web.c'), '
 const limit = Number(source.match(/#define BROWSER_SESSION_LIMIT (\d+)/)[1]);
 const maximum = vm.runInNewContext(source.match(/#define BROWSER_SESSION_MAX_AGE (.*)/)[1].replace(/UL/g, ''));
 assert.equal(maximum, 86400);
+function body(text, name) {
+    const matches = [...text.matchAll(new RegExp(`(?:^|\\n)(?:static\\s+)?(?:void|int)\\s*${name}\\s*\\([^;]*\\)\\s*\\{`, 'g'))];
+    assert(matches.length, name);
+    const start = matches[matches.length - 1].index + matches[matches.length - 1][0].lastIndexOf('{');
+    return text.slice(start, text.indexOf('\n}', start) + 2);
+}
 
 const classification = source.indexOf('fromapp = check_user_agent(useragent);');
 const expiration = source.indexOf('browser_session_expire();', classification);
 const authentication = source.indexOf('auth_result = auth_check(');
 assert(expiration > classification && expiration < authentication);
+const takeover = body(source, 'http_login_timeout');
+const originCheck = body(source, 'httpd_check_request_origin');
+const authenticatedSession = body(source, 'browser_session_authenticated');
+assert.match(takeover, /browser_session_authenticated\(cookies\)/);
+assert.doesNotMatch(takeover, /http_logout\(/);
+assert.doesNotMatch(takeover, /referer_host|delete_logout_from_list|browser_session_forget/);
+assert.match(authenticatedSession, /session && session->authenticated/);
+assert.match(originCheck, /session->authenticated && session->referer_host\[0\]/);
+assert.match(originCheck, /strlcpy\(referer_host, session->referer_host/);
+assert.match(originCheck, /strlcpy\(referer_host, saved_referer_host/);
+const logout = body(source, 'http_logout');
+assert.match(logout, /fromapp_flag == 0 && !browser_session_authenticated\(cookies\)\)\s*return/);
+assert.match(logout, /browser_session_forget\(cookies\)/);
 const failedAuth = source.slice(authentication).match(/if \(auth_result != 0\)\s*\{([\s\S]*?)\n\t{5}\}/);
 assert(failedAuth);
 assert.match(failedAuth[1], /return;/);
 assert.doesNotMatch(failedAuth[1], /browser_session_touch/);
 assert(source.indexOf('browser_session_touch(cookies);', authentication) >
     authentication + failedAuth.index + failedAuth[0].length);
-assert.match(source, /gen_asus_token_cookie\([^;]+;\s*browser_session_register\(asus_token, fromapp\);/);
-assert.match(web, /gen_asus_token_cookie\([^;]+;\s*browser_session_register\(asus_token, fromapp_flag\);/);
+assert.match(source, /gen_asus_token_cookie\([^;]+;\s*browser_session_register\(asus_token, fromapp, 0\);/);
+assert.match(web, /gen_asus_token_cookie\([^;]+;\s*browser_session_register\(asus_token, fromapp_flag, 1\);/);
 assert.equal((source.match(/gen_asus_token_cookie\(/g) || []).length, 1);
 assert.equal((web.match(/gen_asus_token_cookie\(/g) || []).length, 1);
 
@@ -54,14 +73,15 @@ function translated(name, parameters) {
         .replace(/->/g, '.')
         .replace(/!\*token/g, '!token[0]')
         .replace(/value \+= strlen\(name\) \+ 1;/, 'value = value.slice(strlen(name) + 1);')
-        .replace(/strlcpy\(slot.token, token, 0\);/, 'slot.token = token;');
+        .replace(/strlcpy\(slot.token, token, 0\);/, 'slot.token = token;')
+        .replace(/strlcpy\(slot.referer_host, referer_host, 0\);/, 'slot.referer_host = referer_host;');
     return `function ${name}(${parameters}) ${body}`;
 }
 
 function fixture() {
     const freed = new Set();
     const context = vm.createContext({
-        now: 100, minutes: 30, do_ssl: false, head: null, curr: null,
+        now: 100, minutes: 30, do_ssl: false, head: null, curr: null, referer_host: 'router.asus.com',
         BROWSER_SESSION_LIMIT: limit, BROWSER_SESSION_MAX_AGE: maximum,
         browser_sessions: Array.from({ length: limit }, () => ({ token: '', created: 0, active: 0 })),
         uptime: () => context.now,
@@ -81,15 +101,16 @@ function fixture() {
     vm.runInContext([
         translated('browser_session_remove', 'session'),
         translated('browser_session_expire', ''),
-        translated('browser_session_register', 'token, fromapp'),
+        translated('browser_session_register', 'token, fromapp, authenticated'),
+        translated('browser_session_find', 'token'),
         translated('browser_session_touch', 'cookies')
     ].join('\n'), context);
-    const mint = (token, fromapp = 0) => {
+    const mint = (token, fromapp = 0, authenticated = true) => {
         const entry = { token, next: null };
         if (context.curr) context.curr.next = entry;
         else context.head = entry;
         context.curr = entry;
-        context.browser_session_register(token, fromapp);
+        context.browser_session_register(token, fromapp, authenticated);
         return entry;
     };
     const request = (cookies, valid = true) => {
@@ -105,6 +126,15 @@ function fixture() {
 }
 
 let test = fixture();
+test.mint('anonymous', 0, false);
+test.mint('admin', 0, true);
+assert.equal(test.context.browser_session_find('anonymous').authenticated, false,
+    'a token issued before login cannot trigger idle takeover');
+assert.equal(test.context.browser_session_find('admin').authenticated, true,
+    'a token minted after successful login is eligible for takeover');
+test.context.referer_host = 'attacker.example';
+assert.equal(test.context.browser_session_find('admin').referer_host, 'router.asus.com');
+test = fixture();
 const stale = test.mint('stale');
 test.context.now += 1800;
 assert.equal(test.request('asus_token=stale'), false);
