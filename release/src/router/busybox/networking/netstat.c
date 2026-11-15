@@ -471,7 +471,7 @@ static void print_inet_line(struct inet_params *param,
 			state_str);
 #if ENABLE_FEATURE_NETSTAT_PRG
 		if (option_mask32 & OPT_prg)
-			printf("%."PROGNAME_WIDTH_STR"s", prg_cache_get(param->inode));
+			printf("%."PROGNAME_WIDTH_STR"s", printable_string(prg_cache_get(param->inode)));
 #endif
 		bb_putchar('\n');
 		free(l);
@@ -645,7 +645,7 @@ static int FAST_FUNC unix_do_one(char *line)
 
 #if ENABLE_FEATURE_NETSTAT_PRG
 	if (option_mask32 & OPT_prg)
-		printf("%-"PROGNAME_WIDTH_STR"s", prg_cache_get(inode));
+		printf("%-"PROGNAME_WIDTH_STR"s", printable_string(prg_cache_get(inode)));
 #endif
 
 	/* TODO: currently we stop at first NUL byte. Is it a problem? */
