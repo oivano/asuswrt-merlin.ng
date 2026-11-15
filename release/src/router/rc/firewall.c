@@ -3584,6 +3584,41 @@ static void write_guest_hairpin_drop_rule(FILE *fp, const char *lan_if, const ch
 		lan_if, lan_if, guest_mark, guest_mark);
 }
 
+#ifdef RTCONFIG_IPV6
+static void write_ipv6_wan_hairpin_drop_rules(FILE *fp, int wan_max_unit, const char *logdrop)
+{
+	int unit;
+	char *wan6_ifname;
+
+	for (unit = WAN_UNIT_FIRST; unit < wan_max_unit; ++unit) {
+		if (get_ipv6_service_by_unit(unit) == IPV6_DISABLED)
+			continue;
+		wan6_ifname = get_wan6_ifname(unit);
+		if (wan6_ifname && *wan6_ifname)
+			fprintf(fp, "-A FORWARD -i %s -o %s -j %s\n", wan6_ifname, wan6_ifname, logdrop);
+	}
+}
+
+static void write_ipv6_forward_icmp_rules(FILE *fp, const char *lan_if,
+						  const char *logaccept, const char *logdrop)
+{
+	static const char *vpn_ifaces[] = { "tun+", "tap+", "ipsec+", "wg+" };
+	const char *echo_limit = nvram_get_int("fw_dos_x") ? "-m limit --limit 1/s" : "";
+	int i;
+
+	fprintf(fp, "-A FORWARD -p ipv6-icmp -j ICMP_V6_FORWARD\n");
+	fprintf(fp, "-A ICMP_V6_FORWARD -p ipv6-icmp --icmpv6-type 128 -o %s %s -j %s\n",
+		lan_if, echo_limit, logaccept);
+	for (i = 0; i < sizeof(vpn_ifaces) / sizeof(vpn_ifaces[0]); ++i)
+		fprintf(fp, "-A ICMP_V6_FORWARD -p ipv6-icmp --icmpv6-type 128 -o %s %s -j %s\n",
+			vpn_ifaces[i], echo_limit, logaccept);
+	for (i = 0; i < sizeof(allowed_icmpv6) / sizeof(allowed_icmpv6[0]); ++i)
+		fprintf(fp, "-A ICMP_V6_FORWARD -p ipv6-icmp --icmpv6-type %i -j %s\n",
+			allowed_icmpv6[i], logaccept);
+	fprintf(fp, "-A ICMP_V6_FORWARD -j %s\n", logdrop);
+}
+#endif
+
 void
 filter_setting(int wan_unit, char *lan_if, char *lan_ip, char *logaccept, char *logdrop)
 {
@@ -3765,6 +3800,7 @@ filter_setting(int wan_unit, char *lan_if, char *lan_ip, char *logaccept, char *
 #endif
 		    ":ICMP_V6 - [0:0]\n"
 		    ":ICMP_V6_LOCAL - [0:0]\n"
+		    ":ICMP_V6_FORWARD - [0:0]\n"
 		    ":logaccept - [0:0]\n"
 		    ":logdrop - [0:0]\n",
 		nvram_match("ipv6_fw_enable", "1") ? "DROP" : "ACCEPT");
@@ -4437,6 +4473,10 @@ TRACE_PT("writing Parental Control\n");
 			fprintf(fp_ipv6, "-A FORWARD -m state --state RELATED -m helper --helper ftp -j DROP\n");
 #endif
 	}
+#ifdef RTCONFIG_IPV6
+	if (ipv6_enabled())
+		write_ipv6_wan_hairpin_drop_rules(fp_ipv6, WAN_UNIT_MAX, logdrop);
+#endif
 	fprintf(fp, "-A FORWARD -m state --state ESTABLISHED,RELATED -j %s\n", logaccept);
 #ifdef RTCONFIG_IPV6
 	if (ipv6_enabled() && nvram_match("ipv6_fw_enable", "1"))
@@ -4585,7 +4625,7 @@ TRACE_PT("writing Parental Control\n");
 		fprintf(fp_ipv6, "-A FORWARD -p ipv6-nonxt -m length --length 40 -j ACCEPT\n");
 
 		// ICMPv6 rules
-		fprintf(fp_ipv6, "-A FORWARD -p ipv6-icmp -j ICMP_V6\n");
+		write_ipv6_forward_icmp_rules(fp_ipv6, lan_if, logaccept, logdrop);
 		fprintf(fp_ipv6, "-A ICMP_V6 -p ipv6-icmp --icmpv6-type 128 %s -j %s\n",
 		                  (nvram_get_int("fw_dos_x") ? "-m limit --limit 1/s" : ""), logaccept);
 		for (i = 0; i < sizeof(allowed_icmpv6)/sizeof(int); ++i) {
@@ -5296,6 +5336,7 @@ filter_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)
 #endif
 		    ":ICMP_V6 - [0:0]\n"
 		    ":ICMP_V6_LOCAL - [0:0]\n"
+		    ":ICMP_V6_FORWARD - [0:0]\n"
 		    ":logaccept - [0:0]\n"
 		    ":logdrop - [0:0]\n",
 		nvram_match("ipv6_fw_enable", "1") ? "DROP" : "ACCEPT");
@@ -5979,6 +6020,10 @@ TRACE_PT("writing Parental Control\n");
 			fprintf(fp_ipv6, "-A FORWARD -m state --state RELATED -m helper --helper ftp -j DROP\n");
 #endif
 	}
+#ifdef RTCONFIG_IPV6
+	if (ipv6_enabled())
+		write_ipv6_wan_hairpin_drop_rules(fp_ipv6, wan_max_unit, logdrop);
+#endif
 	fprintf(fp, "-A FORWARD -m state --state ESTABLISHED,RELATED -j %s\n", logaccept);
 #ifdef RTCONFIG_IPV6
 	if (ipv6_enabled() && nvram_match("ipv6_fw_enable", "1"))
@@ -6090,7 +6135,7 @@ TRACE_PT("writing Parental Control\n");
 		fprintf(fp_ipv6, "-A FORWARD -p ipv6-nonxt -m length --length 40 -j ACCEPT\n");
 
 		// ICMPv6 rules
-		fprintf(fp_ipv6, "-A FORWARD -p ipv6-icmp -j ICMP_V6\n");
+		write_ipv6_forward_icmp_rules(fp_ipv6, lan_if, logaccept, logdrop);
 		fprintf(fp_ipv6, "-A ICMP_V6 -p ipv6-icmp --icmpv6-type 128 %s -j %s\n",
 		                  (nvram_get_int("fw_dos_x") ? "-m limit --limit 1/s" : ""), logaccept);
 		for (i = 0; i < sizeof(allowed_icmpv6)/sizeof(int); ++i) {
