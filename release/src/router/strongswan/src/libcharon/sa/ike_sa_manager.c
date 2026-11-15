@@ -482,27 +482,67 @@ static inline void lock_single_segment(private_ike_sa_manager_t *this,
 	lock->lock(lock);
 }
 
+static host_t *create_auth_attempt_key(host_t *source)
+{
+	chunk_t address;
+	host_t *key;
+
+	if (source->get_family(source) != AF_INET6)
+	{
+		return source->clone(source);
+	}
+	address = source->get_address(source);
+	if (address.len != 16)
+	{
+		return source->clone(source);
+	}
+	address = chunk_clone(address);
+	if (!address.ptr)
+	{
+		return NULL;
+	}
+	memset(address.ptr + 8, 0, address.len - 8);
+	key = host_create_from_chunk(AF_INET6, address, 0);
+	chunk_free(&address);
+	return key;
+}
+
 static auth_attempt_t *find_auth_attempt(private_ike_sa_manager_t *this,
-										 host_t *source, bool create, time_t now)
+											 host_t *source, bool create, time_t now)
 {
 	auth_attempt_t *oldest = NULL;
+	auth_attempt_t *oldest_blocked = NULL;
+	host_t *key;
 	u_int i;
 
+	key = create_auth_attempt_key(source);
+	if (!key)
+	{
+		return NULL;
+	}
 	for (i = 0; i < AUTH_ATTEMPT_SOURCES; i++)
 	{
 		auth_attempt_t *entry = &this->auth_attempts[i];
 
-		if (entry->source && entry->source->ip_equals(entry->source, source))
+		if (entry->source && entry->source->ip_equals(entry->source, key))
 		{
+			key->destroy(key);
 			return entry;
 		}
 		if (!entry->source)
 		{
-			oldest = entry;
-			break;
+			if (!oldest)
+			{
+				oldest = entry;
+			}
+			continue;
 		}
 		if (entry->blocked_until > now)
 		{
+			if (!oldest_blocked || entry->last_seen < oldest_blocked->last_seen)
+			{
+				oldest_blocked = entry;
+			}
 			continue;
 		}
 		if (!oldest || entry->last_seen < oldest->last_seen)
@@ -510,13 +550,18 @@ static auth_attempt_t *find_auth_attempt(private_ike_sa_manager_t *this,
 			oldest = entry;
 		}
 	}
+	if (!oldest)
+	{
+		oldest = oldest_blocked;
+	}
 	if (!create || !oldest)
 	{
+		key->destroy(key);
 		return NULL;
 	}
 	DESTROY_IF(oldest->source);
 	*oldest = (auth_attempt_t){
-		.source = source->clone(source),
+		.source = key,
 		.first_failure = now,
 		.last_seen = now,
 	};
@@ -1557,6 +1602,8 @@ METHOD(ike_sa_manager_t, checkout_by_message, ike_sa_t*,
 						entry->half_open = TRUE;
 						entry->other = message->get_source(message);
 						entry->other = entry->other->clone(entry->other);
+						ike_sa->set_initial_other_host(ike_sa,
+													 entry->other->clone(entry->other));
 						untrack_half_open = FALSE;
 
 						segment = put_entry(this, entry);

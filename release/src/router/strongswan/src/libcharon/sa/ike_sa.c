@@ -160,6 +160,11 @@ struct private_ike_sa_t {
 	 */
 	host_t *other_host;
 
+	/**
+	 * Address that sent the initial request, retained if the peer moves
+	 */
+	host_t *initial_other_host;
+
 #ifdef ME
 	/**
 	 * Are we mediation server
@@ -454,6 +459,23 @@ METHOD(ike_sa_t, set_other_host, void,
 	DESTROY_IF(this->other_host);
 	this->other_host = other;
 	determine_fragment_size(this);
+}
+
+METHOD(ike_sa_t, get_initial_other_host, host_t*,
+	private_ike_sa_t *this)
+{
+	return this->initial_other_host;
+}
+
+METHOD(ike_sa_t, set_initial_other_host, void,
+	private_ike_sa_t *this, host_t *other)
+{
+	if (this->initial_other_host)
+	{
+		DESTROY_IF(other);
+		return;
+	}
+	this->initial_other_host = other;
 }
 
 METHOD(ike_sa_t, get_redirected_from, host_t*,
@@ -3142,6 +3164,7 @@ METHOD(ike_sa_t, destroy, void,
 
 	DESTROY_IF(this->my_host);
 	DESTROY_IF(this->other_host);
+	DESTROY_IF(this->initial_other_host);
 	DESTROY_IF(this->my_id);
 	DESTROY_IF(this->other_id);
 	DESTROY_IF(this->local_host);
@@ -3205,6 +3228,8 @@ ike_sa_t * ike_sa_create(ike_sa_id_t *ike_sa_id, bool initiator,
 			.set_my_host = _set_my_host,
 			.get_other_host = _get_other_host,
 			.set_other_host = _set_other_host,
+			.get_initial_other_host = _get_initial_other_host,
+			.set_initial_other_host = _set_initial_other_host,
 			.set_message_id = _set_message_id,
 			.get_message_id = _get_message_id,
 			.float_ports = _float_ports,
@@ -3268,6 +3293,7 @@ ike_sa_t * ike_sa_create(ike_sa_id_t *ike_sa_id, bool initiator,
 		.version = version,
 		.my_host = host_create_any(AF_INET),
 		.other_host = host_create_any(AF_INET),
+		.initial_other_host = NULL,
 		.my_id = identification_create_from_encoding(ID_ANY, chunk_empty),
 		.other_id = identification_create_from_encoding(ID_ANY, chunk_empty),
 		.keymat = keymat_create(version, initiator),
