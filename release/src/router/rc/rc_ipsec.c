@@ -2959,6 +2959,7 @@ static int _ipsec_director_rules_update(int unit);
 void rc_ipsec_set(ipsec_conn_status_t conn_status, ipsec_prof_type_t prof_type)
 {
     static bool ipsec_start_en = FALSE;
+    static bool ipsec_init_done = FALSE;
     static int32_t pre_bitmap_en[2] = {0};
     uint32_t i = 0; //, cur_bitmap_en= 0;
 	int prof_count = 0;
@@ -3290,8 +3291,11 @@ void rc_ipsec_set(ipsec_conn_status_t conn_status, ipsec_prof_type_t prof_type)
 			
 			}
 		}
-		pre_bitmap_en[prof_count] = cur_bitmap_en_p[prof_count];
+		if (conn_status != IPSEC_SET || ipsec_init_done)
+			pre_bitmap_en[prof_count] = cur_bitmap_en_p[prof_count];
 	}
+	if (conn_status == IPSEC_INIT)
+		ipsec_init_done = TRUE;
 
 	if((IPSEC_STOP == conn_status) && (TRUE == ipsec_start_en) && 
 		(0 == cur_bitmap_en_p[PROF_CLI] && 0 == cur_bitmap_en_p[PROF_SVR])){
@@ -3804,6 +3808,53 @@ static void _ipsec_director_policy_lifecycle(int unit, int up, const char *peer)
 	}
 done:
 	file_unlock(lock);
+}
+
+void rc_ipsec_reapply_director_rules(void)
+{
+	int unit, lock, refs;
+	char state_path[96], rules_path[96], state[128] = {0};
+	char peer[64] = {0}, rules[8000] = {0}, extra;
+	FILE *fp;
+
+	if (!_ipsec_director_state_dir())
+		return;
+	for (unit = 1; unit <= MAX_PROF_NUM; unit++) {
+		snprintf(state_path, sizeof(state_path), "/tmp/ipsec-director/state-%d", unit);
+		snprintf(rules_path, sizeof(rules_path), "/tmp/ipsec-director/rules-%d", unit);
+		lock = file_lock("ipsec-director");
+		if (lock < 0)
+			continue;
+		errno = 0;
+		fp = ipsec_state_open(state_path, 0);
+		if (!fp) {
+			if (errno != ENOENT)
+				logmessage("ipsec_route", "cannot read VPN Director state for client %d", unit);
+			file_unlock(lock);
+			continue;
+		}
+		if (!fgets(state, sizeof(state), fp) ||
+		    sscanf(state, "%d %63s %c", &refs, peer, &extra) != 2 ||
+		    refs < 1 || refs > 1024 || !_ipsec_valid_route_host(peer)) {
+			fclose(fp);
+			logmessage("ipsec_route", "invalid VPN Director state while restoring client %d", unit);
+			file_unlock(lock);
+			continue;
+		}
+		fclose(fp);
+		if (_ipsec_director_rules_read(rules_path, rules, sizeof(rules)) < 0) {
+			logmessage("ipsec_route", "cannot read VPN Director rules while restoring client %d", unit);
+			file_unlock(lock);
+			continue;
+		}
+		_ipsec_director_rules_set(unit, rules, 0);
+		if (_ipsec_director_rules_set(unit, rules, 1) < 0)
+			logmessage("ipsec_route", "failed to restore VPN Director rules for client %d", unit);
+		eval("ip", "rule", "del", "pref", "102", "to", peer, "lookup", "main");
+		if (eval("ip", "rule", "add", "pref", "102", "to", peer, "lookup", "main"))
+			logmessage("ipsec_route", "failed to restore VPN peer bypass for client %d", unit);
+		file_unlock(lock);
+	}
 }
 #endif
 

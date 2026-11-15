@@ -18932,6 +18932,7 @@ retry_wps_enr:
 			if (unit == 0) {
 				for (i = OVPN_CLIENT_MAX; i > 0; i--) {
 					ovpn_set_routing_rules(i);
+					ovpn_set_killswitch(i);
 					ovpn_clear_exclusive_dns(i);
 					ovpn_set_exclusive_dns(i);
 				}
@@ -18948,6 +18949,10 @@ retry_wps_enr:
 				rc_ipsec_set(IPSEC_SET, PROF_CLI);
 #endif
 			}
+#if defined(RTCONFIG_IPSEC) && defined(RTCONFIG_OPENVPN)
+			if (unit == 0)
+				rc_ipsec_reapply_director_rules();
+#endif
 		}
 	}
 #endif

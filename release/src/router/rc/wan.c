@@ -4122,6 +4122,7 @@ NOIP:
 
 #ifdef RTCONFIG_OPENVPN
 	stop_ovpn_eas();
+	notify_rc("start_vpnrouting");
 #endif
 
 	/* Sync time if not already set, or not running a daemon */
@@ -4537,8 +4538,12 @@ wan_down(char *wan_ifname)
 	update_resolvconf();
 
 #ifdef RTCONFIG_DUALWAN
-	if(nvram_match("wans_mode", "lb"))
+	if(nvram_match("wans_mode", "lb")) {
 		add_multi_routes(1, -1);
+#ifdef RTCONFIG_OPENVPN
+		notify_rc("start_vpnrouting");
+#endif
+	}
 #endif
 
 #ifdef RTCONFIG_GETREALIP

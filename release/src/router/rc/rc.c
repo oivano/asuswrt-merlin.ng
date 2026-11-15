@@ -3241,10 +3241,16 @@ int main(int argc, char **argv)
 	}
 #endif
 	else if (!strcmp(base, "add_multi_routes")) {
+		int result;
+
 		if(argc == 2)
-			return add_multi_routes(atoi(argv[1]), -1);
+			result = add_multi_routes(atoi(argv[1]), -1);
 		else
-			return add_multi_routes(0, -1);
+			result = add_multi_routes(0, -1);
+#ifdef RTCONFIG_OPENVPN
+		notify_rc("start_vpnrouting");
+#endif
+		return result;
 	}
 	else if (!strcmp(base, "led_ctrl")) {
 		if (argc != 3)

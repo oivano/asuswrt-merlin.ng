@@ -297,6 +297,7 @@ void ovpn_server_down_handler(int unit)
 
 void ovpn_client_route_up_handler()
 {
+	ovpn_reapply_routing_rules();
         _ovpn_run_event_script();
 }
 
@@ -712,6 +713,22 @@ void ovpn_set_killswitch(int unit) {
 		logmessage("openvpn-routing", "Configured killswitch on VPN client %d", unit);
 		system(buffer);
 	}
+}
+
+
+void ovpn_reapply_routing_rules(void)
+{
+	int unit, lock;
+
+	lock = file_lock(VPNROUTING_LOCK);
+	if (lock < 0)
+		return;
+	for (unit = OVPN_CLIENT_MAX; unit > 0; unit--) {
+		ovpn_set_routing_rules(unit);
+		ovpn_set_killswitch(unit);
+	}
+	_flush_routing_cache();
+	file_unlock(lock);
 }
 
 
