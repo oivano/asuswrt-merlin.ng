@@ -1751,9 +1751,11 @@ bound6(char *wan_ifname, int bound)
 	struct in6_addr range;
 	char addr[INET6_ADDRSTRLEN + 1], *value;
 	char tmp[100], *next;
-	int wanaddr_changed, prefix_changed, dns_changed;
+	int wanaddr_changed, prefix_changed, dns_changed, lanaddr_changed = 0;
 	int size, start, end, intval;
 	char prefix[sizeof("wanXXXXXXXXXX_")];
+	char old_lanaddr[INET6_ADDRSTRLEN];
+	const char *rtr_addr_nvname;
 	int wan_unit;
 
 	if (wan_ifname && !strncmp(wan_ifname, "ppp", 3))
@@ -1873,8 +1875,12 @@ bound6(char *wan_ifname, int bound)
 				 nvram_get_int(ipv6_nvname("ipv6_prefix_len_wan")), size);
 			nvram_set_int(ipv6_nvname("ipv6_prefix_len_wan"), size);
 		}
-		if (*addr)
+		if (*addr) {
+			rtr_addr_nvname = ipv6_nvname("ipv6_rtr_addr");
+			strlcpy(old_lanaddr, nvram_safe_get(rtr_addr_nvname), sizeof(old_lanaddr));
 			add_ip6_lanaddr();
+			lanaddr_changed = !nvram_match(rtr_addr_nvname, old_lanaddr);
+		}
 
 		if (prefix_changed && nvram_get_int(ipv6_nvname_by_unit("ipv6_autoconf_type", wan_unit))) {
 			/* TODO: rework WEB UI to specify ranges without prefix
@@ -1896,6 +1902,9 @@ bound6(char *wan_ifname, int bound)
 		}
 	}
 skip:
+	if (prefix_changed || lanaddr_changed)
+		notify_rc("restart_dnsmasq");
+
 	if (*safe_getenv("RDNSS")) {
 	dns_changed = nvram_set_env(ipv6_nvname_by_unit("ipv6_get_dns", wan_unit), "RDNSS");
 		dns_changed += nvram_set_env(ipv6_nvname_by_unit("ipv6_get_domain", wan_unit), "DOMAINS");
@@ -2055,10 +2064,6 @@ skip:
 	}
 #endif
 		restart_telnet6_if_lan_v6addr_changed();
-
-#if defined(RTCONFIG_SAMBASRV) || defined(RTCONFIG_TUXERA_SMBD)
-	notify_rc("restart_samba");
-#endif
 
 	return 0;
 }
