@@ -2155,7 +2155,8 @@ METHOD(ike_sa_manager_t, checkin, void,
 		entry->checked_out = NULL;
 		entry->processing = -1;
 		/* check if this SA is half-open */
-		if (entry->half_open && ike_sa->get_state(ike_sa) != IKE_CONNECTING)
+		if (entry->half_open && ike_sa->get_state(ike_sa) != IKE_CONNECTING &&
+			ike_sa->get_state(ike_sa) != IKE_CREATED)
 		{
 			/* not half open anymore */
 			entry->half_open = FALSE;
