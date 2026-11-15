@@ -35,6 +35,9 @@
 #define FILE_PATH_CA_TEMP     "/jffs/ca_files/ca_idx_tmp.txt"
 
 extern FILE *rc_ipsec_cert_open(const char *path);
+#ifdef RTCONFIG_OPENVPN
+extern void rc_ipsec_reapply_director_rules(void);
+#endif
 
 #define FILE_NAME_CA_PRIVATE_KEY 	"ca.pem"
 #define FILE_NAME_CERT_PEM 			"asusCert.pem"

@@ -660,6 +660,9 @@ vpnc_down(char *vpnc_ifname)
 
 		/* default route via default gateway */
 		add_multi_routes();
+#ifdef RTCONFIG_OPENVPN
+		notify_rc("start_vpnrouting");
+#endif
 	} else {
 #endif
 		/* Reset default gateway route */
