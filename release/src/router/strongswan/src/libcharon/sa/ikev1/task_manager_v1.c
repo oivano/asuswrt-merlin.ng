@@ -1294,6 +1294,19 @@ static status_t parse_message(private_task_manager_t *this, message_t *msg)
 	return status;
 }
 
+static void schedule_half_open_timeout(private_task_manager_t *this)
+{
+	job_t *job;
+	ike_sa_id_t *ike_sa_id;
+
+	ike_sa_id = this->ike_sa->get_id(this->ike_sa);
+	job = (job_t*)delete_ike_sa_job_create(ike_sa_id, FALSE);
+	lib->scheduler->schedule_job(lib->scheduler, job,
+			lib->settings->get_int(lib->settings,
+					"%s.half_open_timeout", HALF_OPEN_IKE_SA_TIMEOUT,
+					lib->ns));
+}
+
 /**
  * Queue the given message if possible
  */
@@ -1450,6 +1463,26 @@ METHOD(task_manager_t, process_message, status_t,
 		}
 
 		msg->set_request(msg, TRUE);
+		if (this->ike_sa->get_state(this->ike_sa) == IKE_CREATED &&
+			(msg->get_exchange_type(msg) == ID_PROT ||
+			 msg->get_exchange_type(msg) == AGGRESSIVE) &&
+			msg->get_first_payload_type(msg) == PLV1_FRAGMENT &&
+			this->ike_sa->get_ike_cfg(this->ike_sa) == NULL)
+		{
+			ike_cfg_t *ike_cfg;
+
+			ike_cfg = charon->backends->get_ike_cfg(charon->backends,
+				me, other, IKEV1);
+			if (ike_cfg == NULL)
+			{
+				DBG1(DBG_IKE, "no IKE config found for %H...%H, ignoring fragment",
+					 me, other);
+				return DESTROY_ME;
+			}
+			this->ike_sa->set_ike_cfg(this->ike_sa, ike_cfg);
+			ike_cfg->destroy(ike_cfg);
+			schedule_half_open_timeout(this);
+		}
 		charon->bus->message(charon->bus, msg, TRUE, FALSE);
 		status = parse_message(this, msg);
 		if (status == NEED_MORE)
@@ -1463,9 +1496,7 @@ METHOD(task_manager_t, process_message, status_t,
 		/* if this IKE_SA is virgin, we check for a config */
 		if (this->ike_sa->get_ike_cfg(this->ike_sa) == NULL)
 		{
-			ike_sa_id_t *ike_sa_id;
 			ike_cfg_t *ike_cfg;
-			job_t *job;
 
 			ike_cfg = charon->backends->get_ike_cfg(charon->backends,
 													me, other, IKEV1);
@@ -1480,12 +1511,7 @@ METHOD(task_manager_t, process_message, status_t,
 			this->ike_sa->set_ike_cfg(this->ike_sa, ike_cfg);
 			ike_cfg->destroy(ike_cfg);
 			/* add a timeout if peer does not establish it completely */
-			ike_sa_id = this->ike_sa->get_id(this->ike_sa);
-			job = (job_t*)delete_ike_sa_job_create(ike_sa_id, FALSE);
-			lib->scheduler->schedule_job(lib->scheduler, job,
-					lib->settings->get_int(lib->settings,
-							"%s.half_open_timeout", HALF_OPEN_IKE_SA_TIMEOUT,
-							lib->ns));
+			schedule_half_open_timeout(this);
 		}
 		this->ike_sa->update_hosts(this->ike_sa, me, other, UPDATE_HOSTS_FORCE_ADDRS);
 		charon->bus->message(charon->bus, msg, TRUE, TRUE);
