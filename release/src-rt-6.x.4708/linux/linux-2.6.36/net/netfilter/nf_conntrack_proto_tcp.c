@@ -516,7 +516,8 @@ static bool tcp_in_window(const struct nf_conn *ct,
 			  const struct sk_buff *skb,
 			  unsigned int dataoff,
 			  const struct tcphdr *tcph,
-			  u_int8_t pf)
+			  u_int8_t pf,
+			  bool strict)
 {
 	struct net *net = nf_ct_net(ct);
 	struct ip_ct_tcp_state *sender = &state->seen[dir];
@@ -553,6 +554,9 @@ static bool tcp_in_window(const struct nf_conn *ct,
 		 sender->td_scale,
 		 receiver->td_end, receiver->td_maxend, receiver->td_maxwin,
 		 receiver->td_scale);
+
+	if (strict && (!sender->td_maxwin || !receiver->td_maxwin))
+		return false;
 
 	if (sender->td_maxwin == 0) {
 		/*
@@ -722,8 +726,9 @@ static bool tcp_in_window(const struct nf_conn *ct,
 		res = true;
 	} else {
 		res = false;
-		if (sender->flags & IP_CT_TCP_FLAG_BE_LIBERAL ||
-		    nf_ct_tcp_be_liberal)
+		if (!strict && !tcph->rst &&
+		    (sender->flags & IP_CT_TCP_FLAG_BE_LIBERAL ||
+		     nf_ct_tcp_be_liberal))
 			res = true;
 		if (!res && LOG_INVALID(net, IPPROTO_TCP))
 			nf_log_packet(pf, 0, skb, NULL, NULL, NULL,
@@ -999,6 +1004,11 @@ static int BCMFASTPATH_HOST tcp_packet(struct nf_conn *ct,
 		if (ct->ctf_flags & CTF_FLAGS_CACHED) {
 			if (th->fin || th->rst) {
 				ip_conntrack_ipct_delete(ct, 0);
+				if (!tcp_in_window(ct, &ct->proto.tcp, dir, index,
+						   skb, dataoff, th, pf, true)) {
+					spin_unlock_bh(&ct->lock);
+					return -NF_ACCEPT;
+				}
 			}
 			goto in_window;
 		}
@@ -1006,7 +1016,7 @@ static int BCMFASTPATH_HOST tcp_packet(struct nf_conn *ct,
 #endif /* HNDCTF */
 
 	if (!tcp_in_window(ct, &ct->proto.tcp, dir, index,
-			   skb, dataoff, th, pf)) {
+			   skb, dataoff, th, pf, th->rst)) {
 		spin_unlock_bh(&ct->lock);
 		return -NF_ACCEPT;
 	}
