@@ -2,8 +2,9 @@
 # Promotes validated DEV commits to DEV-nextrelease by cherry-pick.
 # Classifies each gap commit as [validated] (in validated-commits.txt) or [local].
 # Both classes are promoted; --exclude skips specific SHAs.
-# On success, user-facing promoted commits are recorded in Changelog-386.txt
-# (pending section) on both branches. Tagging/pushing: tools/release/tag-release.sh.
+# On success, a curated pending section in Changelog-386.txt is carried to the
+# target and mirrored to the source. If none exists, entries are generated from
+# promoted commits. Tagging/pushing: tools/release/tag-release.sh.
 #
 # Usage: tools/release/promote-validated.sh [--dry-run] [--exclude <sha>] ...
 
@@ -116,6 +117,97 @@ pending_section_label() {
     fi
 }
 
+changelog_top_header() {
+    grep -m1 -E "$RELEASE_HEADER_RE" "$1" | tr -d '\r'
+}
+
+extract_top_changelog_section() {
+    local input=$1 output=$2
+    awk -v re="$RELEASE_HEADER_RE" '
+        {
+            normalized = $0
+            sub(/\r$/, "", normalized)
+            if (normalized ~ re) {
+                if (found) exit
+                found = 1
+            }
+            if (found) print
+        }
+    ' "$input" > "$output"
+}
+
+install_curated_changelog_section() {
+    local section=$1 version=$2 target_version top_line next_line temp
+    target_version=$(changelog_top_version) || die "No release header found in $CHANGELOG."
+    top_line=$(grep -nE -m1 "$RELEASE_HEADER_RE" "$CHANGELOG" | cut -d: -f1)
+    temp=$(mktemp)
+
+    if [[ "$target_version" == "$version" ]]; then
+        next_line=$(awk -v t="$top_line" -v re="$RELEASE_HEADER_RE" \
+            'NR > t { line = $0; sub(/\r$/, "", line); if (line ~ re) { print NR; exit } }' "$CHANGELOG")
+        if [[ -n "$next_line" ]]; then
+            { cat "$section"; sed -n "${next_line},\$p" "$CHANGELOG"; } > "$temp"
+        else
+            cat "$section" > "$temp"
+        fi
+    elif git rev-parse -q --verify "refs/tags/$target_version" > /dev/null; then
+        {
+            sed -n "1,$((top_line - 1))p" "$CHANGELOG"
+            cat "$section"
+            printf '\r\n'
+            sed -n "${top_line},\$p" "$CHANGELOG"
+        } > "$temp"
+    else
+        rm -f "$temp"
+        die "Target has pending section '$target_version', not curated section '$version'."
+    fi
+
+    mv "$temp" "$CHANGELOG"
+}
+
+# Maps a target checkpoint to its source-side cherry-pick by preserved author,
+# author timestamp, and subject. If the commit is shared by ancestry, its SHA
+# already identifies the source checkpoint.
+find_source_checkpoint() {
+    local target_sha=$1 source_sha target_signature source_signature subject
+    if git merge-base --is-ancestor "$target_sha" "$SOURCE_BRANCH"; then
+        printf '%s\n' "$target_sha"
+        return 0
+    fi
+
+    target_signature=$(git show -s --format='%ae%x09%at%x09%s' "$target_sha")
+    subject=$(git show -s --format=%s "$target_sha")
+    while IFS= read -r source_sha; do
+        source_signature=$(git show -s --format='%ae%x09%at%x09%s' "$source_sha")
+        if [[ "$source_signature" == "$target_signature" ]]; then
+            printf '%s\n' "$source_sha"
+            return 0
+        fi
+    done < <(git log --format='%H' --fixed-strings --grep="$subject" "$SOURCE_BRANCH")
+
+    return 1
+}
+
+# Prefer the latest release tag on the target and map it to its source-side
+# cherry-pick. Repositories without a usable tag fall back to their last shared
+# ancestor, which is an exact checkpoint on both histories.
+find_promotion_anchors() {
+    local target_tag target_sha source_sha common_sha
+    target_tag=$(git describe --tags --abbrev=0 "$TARGET_BRANCH" 2>/dev/null || true)
+    if [[ -n "$target_tag" ]]; then
+        target_sha=$(git rev-parse "$target_tag^{commit}")
+        if source_sha=$(find_source_checkpoint "$target_sha"); then
+            printf '%s %s tag:%s\n' "$target_sha" "$source_sha" "$target_tag"
+            return 0
+        fi
+        echo "ERROR: no matching source checkpoint for tagged release '$target_tag'." >&2
+        return 1
+    fi
+
+    common_sha=$(git merge-base "$SOURCE_BRANCH" "$TARGET_BRANCH") || return 1
+    printf '%s %s merge-base\n' "$common_sha" "$common_sha"
+}
+
 git show-ref --verify --quiet "refs/heads/$SOURCE_BRANCH" || \
     die "Source branch '$SOURCE_BRANCH' does not exist."
 git show-ref --verify --quiet "refs/heads/$TARGET_BRANCH" || \
@@ -126,8 +218,63 @@ current=$(git symbolic-ref --short HEAD 2>/dev/null || echo "(detached)")
 [[ "$current" == "$SOURCE_BRANCH" ]] || \
     die "Must be on $SOURCE_BRANCH (currently on $current). Run: git checkout $SOURCE_BRANCH"
 
-if ! $DRY_RUN && [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
-    die "Tracked working tree files must be clean before promotion."
+CURATED_CHANGELOG=false
+CURATED_VERSION=""
+CURATED_SOURCE_FILE=""
+CURATED_SECTION_FILE=""
+RESTORE_DRAFT_ON_EXIT=false
+DRAFT_MIRRORED=false
+RUN_LOG=""
+CL_ENTRIES=""
+
+source_header=$(changelog_top_header "$CHANGELOG" || true)
+if [[ "$source_header" =~ ^([0-9][^[:space:]]*-ion)\ \(unreleased\)$ ]]; then
+    CURATED_CHANGELOG=true
+    CURATED_VERSION=${BASH_REMATCH[1]}
+fi
+
+if ! $DRY_RUN; then
+    dirty_paths=$({ git diff --name-only; git diff --cached --name-only; } | sort -u)
+    unexpected_paths=$(printf '%s\n' "$dirty_paths" | grep -vxF "$CHANGELOG" || true)
+    [[ -z "$unexpected_paths" ]] || \
+        die "Tracked files other than $CHANGELOG must be clean before promotion: ${unexpected_paths//$'\n'/, }."
+    git diff --cached --quiet -- "$CHANGELOG" || \
+        die "Unstage changes to $CHANGELOG before promotion."
+
+    if ! git diff --quiet -- "$CHANGELOG"; then
+        $CURATED_CHANGELOG || \
+            die "$CHANGELOG has local edits but no top '(unreleased)' section to promote."
+        CURATED_SOURCE_FILE=$(mktemp)
+        cp "$CHANGELOG" "$CURATED_SOURCE_FILE"
+        RESTORE_DRAFT_ON_EXIT=true
+    fi
+fi
+
+if $CURATED_CHANGELOG; then
+    [[ -n "$CURATED_SOURCE_FILE" ]] || {
+        CURATED_SOURCE_FILE=$(mktemp)
+        cp "$CHANGELOG" "$CURATED_SOURCE_FILE"
+    }
+    CURATED_SECTION_FILE=$(mktemp)
+    extract_top_changelog_section "$CURATED_SOURCE_FILE" "$CURATED_SECTION_FILE"
+fi
+
+RUN_LOG=$(mktemp)
+CL_ENTRIES=$(mktemp)
+
+cleanup() {
+    if [[ "$(git symbolic-ref --short HEAD 2>/dev/null || true)" != "$SOURCE_BRANCH" ]]; then
+        git checkout -q "$SOURCE_BRANCH" 2>/dev/null || true
+    fi
+    if $RESTORE_DRAFT_ON_EXIT && ! $DRAFT_MIRRORED; then
+        cp "$CURATED_SOURCE_FILE" "$CHANGELOG"
+    fi
+    rm -f "$RUN_LOG" "$CL_ENTRIES" "$CURATED_SECTION_FILE" "$CURATED_SOURCE_FILE"
+}
+trap cleanup EXIT INT TERM
+
+if $RESTORE_DRAFT_ON_EXIT; then
+    git restore --source="$SOURCE_BRANCH" --worktree -- "$CHANGELOG"
 fi
 
 # ── Load validated-commits.txt (local SHA → validated) ───────────────────────
@@ -147,28 +294,27 @@ for short in "${EXCLUDE_SHAS[@]}"; do
     EXCLUDE_MAP["$full"]="1"
 done
 
-# ── Compute patch-equivalent gap in chronological order ─────────────────────
+# ── Find the latest mirrored promotion marker and source-side gap ────────────
 echo "=== promote-validated.sh ==="
 echo ""
 $DRY_RUN && echo "(dry-run — no changes will be made)" && echo ""
 
-if git diff --quiet "$TARGET_BRANCH" "$SOURCE_BRANCH"; then
-    echo "$TARGET_BRANCH is already up to date with $SOURCE_BRANCH."
-    exit 0
-fi
+ANCHOR_PAIR=$(find_promotion_anchors) || \
+    die "Unable to determine a shared or tagged promotion checkpoint."
+read -r TARGET_ANCHOR SOURCE_ANCHOR ANCHOR_KIND <<< "$ANCHOR_PAIR"
 
 mapfile -t GAP_SHAS < <(
-    git log --format="%H" --reverse --right-only --cherry-pick --no-merges \
-        "$TARGET_BRANCH...$SOURCE_BRANCH"
+    git log --format="%H" --reverse --no-merges "$SOURCE_ANCHOR..$SOURCE_BRANCH"
 )
 TOTAL=${#GAP_SHAS[@]}
 
 if [[ $TOTAL -eq 0 ]]; then
-    echo "$TARGET_BRANCH is already up to date with $SOURCE_BRANCH."
+    echo "$TARGET_BRANCH is up to date with $SOURCE_BRANCH after checkpoint ${TARGET_ANCHOR:0:10}."
     exit 0
 fi
 
-echo "Gap: $SOURCE_BRANCH → $TARGET_BRANCH  ($TOTAL commit(s))"
+echo "Checkpoint ($ANCHOR_KIND): $TARGET_BRANCH ${TARGET_ANCHOR:0:10} ↔ $SOURCE_BRANCH ${SOURCE_ANCHOR:0:10}"
+echo "Gap: commits after ${SOURCE_ANCHOR:0:10} on $SOURCE_BRANCH → $TARGET_BRANCH  ($TOTAL commit(s))"
 echo ""
 
 # ── Classify and list ─────────────────────────────────────────────────────────
@@ -202,11 +348,16 @@ echo ""
 [[ $N_PROMOTE -eq 0 ]] && echo "Nothing to promote." && exit 0
 
 if $DRY_RUN; then
-    preview=$(mktemp)
-    build_changelog_entries "$preview"
-    echo "Changelog additions ($(pending_section_label)):"
-    if [[ -s $preview ]]; then cat "$preview"; else echo "  (none)"; fi
-    rm -f "$preview"
+    if $CURATED_CHANGELOG; then
+        echo "Changelog additions (curated section $CURATED_VERSION):"
+        cat "$CURATED_SECTION_FILE"
+    else
+        preview=$(mktemp)
+        build_changelog_entries "$preview"
+        echo "Changelog additions ($(pending_section_label)):"
+        if [[ -s $preview ]]; then cat "$preview"; else echo "  (none)"; fi
+        rm -f "$preview"
+    fi
     exit 0
 fi
 
@@ -218,16 +369,6 @@ git checkout "$TARGET_BRANCH"
 
 PROMOTED=0
 RUN_HEADER="$(date -u '+%Y-%m-%dT%H:%M:%SZ')  $SOURCE_BRANCH → $TARGET_BRANCH"
-RUN_LOG=$(mktemp)
-CL_ENTRIES=$(mktemp)
-
-cleanup() {
-    rm -f "$RUN_LOG" "$CL_ENTRIES"
-    if [[ "$(git symbolic-ref --short HEAD 2>/dev/null || true)" != "$SOURCE_BRANCH" ]]; then
-        git checkout -q "$SOURCE_BRANCH" 2>/dev/null || true
-    fi
-}
-trap cleanup EXIT INT TERM
 
 for sha in "${TO_PROMOTE[@]}"; do
     subject=$(git log -1 --format="%s" "$sha")
@@ -258,26 +399,48 @@ echo ""
 echo "Promoted: $PROMOTED   Failed: 0"
 echo "  Log: $LOG_FILE"
 
-# ── Changelog: commit on TARGET, mirror to SOURCE (patch-equivalent, so never re-promoted)
-build_changelog_entries "$CL_ENTRIES"
-if [[ -s $CL_ENTRIES ]]; then
-    label=$(pending_section_label)
-    update_changelog "$CL_ENTRIES"
-    git commit -q -m "changelog: record promoted changes" -- "$CHANGELOG"
-    cl_sha=$(git rev-parse HEAD)
-    echo ""
-    echo "Changelog updated ($label) in ${cl_sha:0:10} — review before tagging:"
-    cat "$CL_ENTRIES"
+# ── Changelog: prefer curated source section; otherwise generate promoted entries
+if $CURATED_CHANGELOG; then
+    install_curated_changelog_section "$CURATED_SECTION_FILE" "$CURATED_VERSION"
+    if ! git diff --quiet -- "$CHANGELOG"; then
+        git add -- "$CHANGELOG"
+        git commit -q -m "changelog: record curated release notes"
+        cl_sha=$(git rev-parse HEAD)
+        echo ""
+        echo "Curated changelog section $CURATED_VERSION committed as ${cl_sha:0:10}."
 
-    git checkout -q "$SOURCE_BRANCH"
-    if git cherry-pick "$cl_sha" > /dev/null 2>&1; then
-        echo "  Mirrored to $SOURCE_BRANCH as $(git rev-parse --short=10 HEAD)"
+        git checkout -q "$SOURCE_BRANCH"
+        if git cherry-pick "$cl_sha" > /dev/null 2>&1; then
+            DRAFT_MIRRORED=true
+            echo "  Mirrored to $SOURCE_BRANCH as $(git rev-parse --short=10 HEAD)"
+        else
+            git cherry-pick --abort 2>/dev/null || true
+            echo "WARNING: could not mirror curated changelog commit; cherry-pick ${cl_sha:0:10} manually." >&2
+        fi
     else
-        git cherry-pick --abort 2>/dev/null || true
-        echo "WARNING: could not mirror changelog commit to $SOURCE_BRANCH; cherry-pick ${cl_sha:0:10} manually." >&2
+        echo "Curated changelog section $CURATED_VERSION is already present on $TARGET_BRANCH."
     fi
 else
-    echo "No user-facing changes to add to $CHANGELOG."
+    build_changelog_entries "$CL_ENTRIES"
+    if [[ -s $CL_ENTRIES ]]; then
+        label=$(pending_section_label)
+        update_changelog "$CL_ENTRIES"
+        git commit -q -m "changelog: record promoted changes" -- "$CHANGELOG"
+        cl_sha=$(git rev-parse HEAD)
+        echo ""
+        echo "Changelog updated ($label) in ${cl_sha:0:10} — review before tagging:"
+        cat "$CL_ENTRIES"
+
+        git checkout -q "$SOURCE_BRANCH"
+        if git cherry-pick "$cl_sha" > /dev/null 2>&1; then
+            echo "  Mirrored to $SOURCE_BRANCH as $(git rev-parse --short=10 HEAD)"
+        else
+            git cherry-pick --abort 2>/dev/null || true
+            echo "WARNING: could not mirror changelog commit to $SOURCE_BRANCH; cherry-pick ${cl_sha:0:10} manually." >&2
+        fi
+    else
+        echo "No user-facing changes to add to $CHANGELOG."
+    fi
 fi
 
 # Return to source branch
