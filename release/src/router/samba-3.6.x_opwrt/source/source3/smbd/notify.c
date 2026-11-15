@@ -183,6 +183,10 @@ NTSTATUS change_notify_create(struct files_struct *fsp, uint32 filter,
 
 	SMB_ASSERT(fsp->notify == NULL);
 
+	if (!(fsp->access_mask & SEC_DIR_LIST)) {
+		return NT_STATUS_ACCESS_DENIED;
+	}
+
 	if (!(fsp->notify = TALLOC_ZERO_P(NULL, struct notify_change_buf))) {
 		DEBUG(0, ("talloc failed\n"));
 		return NT_STATUS_NO_MEMORY;
