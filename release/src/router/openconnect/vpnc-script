@@ -313,6 +313,14 @@ if [ -n "$IPROUTE" ]; then
 	}
 
 	set_default_route() {
+		if [ -n "$ASUSWRT_OPENCONNECT_UNIT" ]; then
+			[ "$ASUSWRT_OPENCONNECT_REDIRECT_GATEWAY" = "1" ] || return 0
+			TABLE=$((300 + ASUSWRT_OPENCONNECT_UNIT))
+			PREF=$((8200 + ASUSWRT_OPENCONNECT_UNIT))
+			$IPROUTE route replace default dev "$TUNDEV" table "$TABLE" &&
+				$IPROUTE rule add table "$TABLE" priority "$PREF"
+			return
+		fi
 		$IPROUTE route | grep '^default' | fix_ip_get_output > "$DEFAULT_ROUTE_FILE"
 		$IPROUTE route replace default dev "$TUNDEV"
 	}
@@ -323,6 +331,17 @@ if [ -n "$IPROUTE" ]; then
 		NETMASKLEN="$3"
 		NETDEV="$4"
 		NETGW="$5"
+		if [ -n "$ASUSWRT_OPENCONNECT_UNIT" ]; then
+			TABLE=$((300 + ASUSWRT_OPENCONNECT_UNIT))
+			PREF=$((8100 + ASUSWRT_OPENCONNECT_UNIT))
+			if [ -n "$NETGW" ]; then
+				$IPROUTE route replace "$NETWORK/$NETMASKLEN" dev "$NETDEV" via "$NETGW" table "$TABLE" || return
+			else
+				$IPROUTE route replace "$NETWORK/$NETMASKLEN" dev "$NETDEV" table "$TABLE" || return
+			fi
+			$IPROUTE rule add to "$NETWORK/$NETMASKLEN" table "$TABLE" priority "$PREF"
+			return
+		fi
 		if [ -n "$NETGW" ]; then
 			$IPROUTE route replace "$NETWORK/$NETMASKLEN" dev "$NETDEV" via "$NETGW"
 		else
@@ -336,6 +355,11 @@ if [ -n "$IPROUTE" ]; then
 		NETWORK="$1"
 		NETMASK="$2"
 		NETMASKLEN="$3"
+		if [ -n "$ASUSWRT_OPENCONNECT_UNIT" ]; then
+			PREF=$((8000 + ASUSWRT_OPENCONNECT_UNIT))
+			$IPROUTE rule add to "$NETWORK/$NETMASKLEN" lookup main priority "$PREF"
+			return
+		fi
 		list_non_loopback_routes "$NETWORK/$NETMASKLEN" |
 		while read LINE ; do
 			$IPROUTE route add `echo "$NETWORK/$NETMASKLEN $LINE" | fix_ip_get_output` 2>/dev/null
@@ -348,10 +372,12 @@ if [ -n "$IPROUTE" ]; then
 		NETWORK="$1"
 		NETMASK="$2"
 		NETMASKLEN="$3"
+		[ -n "$ASUSWRT_OPENCONNECT_UNIT" ] && return 0
 		$IPROUTE route $route_syntax_del "$NETWORK/$NETMASKLEN"
 	}
 
 	reset_default_route() {
+		[ -n "$ASUSWRT_OPENCONNECT_UNIT" ] && return 0
 		if [ -s "$DEFAULT_ROUTE_FILE" ]; then
 			$IPROUTE route replace `cat "$DEFAULT_ROUTE_FILE"`
 			rm -f -- "$DEFAULT_ROUTE_FILE"
@@ -368,6 +394,14 @@ if [ -n "$IPROUTE" ]; then
 
 	set_ipv6_default_route() {
 		# We don't save/restore IPv6 default route; just add a higher-priority one.
+		if [ -n "$ASUSWRT_OPENCONNECT_UNIT" ]; then
+			[ "$ASUSWRT_OPENCONNECT_REDIRECT_GATEWAY" = "1" ] || return 0
+			TABLE=$((300 + ASUSWRT_OPENCONNECT_UNIT))
+			PREF=$((8200 + ASUSWRT_OPENCONNECT_UNIT))
+			$IPROUTE -6 route replace default dev "$TUNDEV" table "$TABLE" &&
+				$IPROUTE -6 rule add table "$TABLE" priority "$PREF"
+			return
+		fi
 		$IPROUTE -6 route add default dev "$TUNDEV" metric 1
 		$IPROUTE -6 route flush cache 2>/dev/null
 	}
@@ -377,6 +411,17 @@ if [ -n "$IPROUTE" ]; then
 		NETMASKLEN="$2"
 		NETDEV="$3"
 		NETGW="$4"
+		if [ -n "$ASUSWRT_OPENCONNECT_UNIT" ]; then
+			TABLE=$((300 + ASUSWRT_OPENCONNECT_UNIT))
+			PREF=$((8100 + ASUSWRT_OPENCONNECT_UNIT))
+			if [ -n "$NETGW" ]; then
+				$IPROUTE -6 route replace "$NETWORK/$NETMASKLEN" dev "$NETDEV" via "$NETGW" table "$TABLE" || return
+			else
+				$IPROUTE -6 route replace "$NETWORK/$NETMASKLEN" dev "$NETDEV" table "$TABLE" || return
+			fi
+			$IPROUTE -6 rule add to "$NETWORK/$NETMASKLEN" table "$TABLE" priority "$PREF"
+			return
+		fi
 		if [ -n "$NETGW" ]; then
 			$IPROUTE -6 route replace "$NETWORK/$NETMASKLEN" dev "$NETDEV" via "$NETGW"
 		else
@@ -388,10 +433,16 @@ if [ -n "$IPROUTE" ]; then
 	set_ipv6_exclude_route() {
 		NETWORK="$1"
 		NETMASKLEN="$2"
+		if [ -n "$ASUSWRT_OPENCONNECT_UNIT" ]; then
+			PREF=$((8000 + ASUSWRT_OPENCONNECT_UNIT))
+			$IPROUTE -6 rule add to "$NETWORK/$NETMASKLEN" lookup main priority "$PREF"
+			return
+		fi
 		set_exclude_route "$NETWORK" nomask "$NETMASKLEN"
 	}
 
 	reset_ipv6_default_route() {
+		[ -n "$ASUSWRT_OPENCONNECT_UNIT" ] && return 0
 		$IPROUTE -6 route del default dev "$TUNDEV"
 		$IPROUTE -6 route flush cache 2>/dev/null
 	}
@@ -409,6 +460,7 @@ if [ -n "$IPROUTE" ]; then
 		# identical to split-exclude routes specified by VPNGATEWAY
 		NETWORK="$1"
 		NETMASKLEN="$2"
+		[ -n "$ASUSWRT_OPENCONNECT_UNIT" ] && return 0
 		$IPROUTE -6 route del "$NETWORK/$NETMASKLEN"
 		$IPROUTE -6 route flush cache 2>/dev/null
 	}
@@ -586,6 +638,30 @@ else # use route command
 fi
 
 # =========== resolv.conf handling ====================================
+
+update_openconnect_dns_state() {
+	[ -n "$ASUSWRT_OPENCONNECT_UNIT" ] || return 0
+	DNS_FILE="/tmp/openconnect/client${ASUSWRT_OPENCONNECT_UNIT}/dnsmasq"
+	if [ "$reason" = "disconnect" ]; then
+		rm -f "$DNS_FILE"
+	else
+		umask 077
+		: > "$DNS_FILE"
+		if [ "$ASUSWRT_OPENCONNECT_ACCEPT_DNS" = "1" ]; then
+			for DNS in $INTERNAL_IP4_DNS $INTERNAL_IP6_DNS; do
+				case "$DNS" in ""|*[!0-9A-Fa-f:.]*) continue ;; esac
+				printf 'dns %s\n' "$DNS" >> "$DNS_FILE"
+			done
+		fi
+		if [ "$ASUSWRT_OPENCONNECT_ACCEPT_DOMAIN" = "1" ]; then
+			for DOMAIN in $CISCO_DEF_DOMAIN $CISCO_SPLIT_DNS; do
+				case "$DOMAIN" in ""|*[!A-Za-z0-9.-]*) continue ;; esac
+				printf 'domain %s\n' "$DOMAIN" >> "$DNS_FILE"
+			done
+		fi
+	fi
+	[ -x /sbin/service ] && /sbin/service openconnect_dnsmasq_update
+}
 
 # =========== resolv.conf handling for any OS =========================
 
@@ -976,6 +1052,10 @@ do_pre_init() {
 }
 
 do_connect() {
+	if [ -n "$ASUSWRT_OPENCONNECT_UNIT" ] && [ -z "$IPROUTE" ]; then
+		echo "iproute2 is required for router OpenConnect policy routing" >&2
+		return 1
+	fi
 	if [ -n "$CISCO_BANNER" ]; then
 		echo "Connect Banner:"
 		echo "$CISCO_BANNER" | while read LINE ; do echo "|" "$LINE" ; done
@@ -986,6 +1066,25 @@ do_connect() {
 		127.*|::1) ;; # localhost (probably proxy)
 		*) set_vpngateway_route ;;
 	esac
+	if [ -n "$ASUSWRT_OPENCONNECT_UNIT" ]; then
+		TABLE=$((300 + ASUSWRT_OPENCONNECT_UNIT))
+		PROTECT_PREF=$((8000 + ASUSWRT_OPENCONNECT_UNIT))
+		$IPROUTE route flush table "$TABLE"
+		$IPROUTE -6 route flush table "$TABLE"
+		for PREF in $PROTECT_PREF $((8100 + ASUSWRT_OPENCONNECT_UNIT)) $((8200 + ASUSWRT_OPENCONNECT_UNIT)); do
+			while $IPROUTE rule del priority "$PREF" 2>/dev/null; do :; done
+			while $IPROUTE -6 rule del priority "$PREF" 2>/dev/null; do :; done
+		done
+		for FAMILY in "" "-6"; do
+			$IPROUTE $FAMILY route show table main | while read LINE; do
+				set -- $LINE
+				case "$1" in
+					""|default|0.0.0.0/0|::/0) continue ;;
+					*) $IPROUTE $FAMILY rule add to "$1" lookup main priority "$PROTECT_PREF" ;;
+				esac
+			done
+		done
+	fi
 	do_ifconfig
 	if [ -n "$CISCO_SPLIT_EXC" ]; then
 		i=0
@@ -1043,7 +1142,13 @@ do_connect() {
 	fi
 
 	if [ -n "$INTERNAL_IP4_DNS" ]; then
-		$MODIFYRESOLVCONF
+		if [ -n "$ASUSWRT_OPENCONNECT_UNIT" ]; then
+			update_openconnect_dns_state
+		else
+			$MODIFYRESOLVCONF
+		fi
+	elif [ -n "$ASUSWRT_OPENCONNECT_UNIT" ]; then
+		update_openconnect_dns_state
 	fi
 }
 
@@ -1106,8 +1211,19 @@ do_disconnect() {
 	fi
 
 	del_vpngateway_route
+	if [ -n "$ASUSWRT_OPENCONNECT_UNIT" ]; then
+		TABLE=$((300 + ASUSWRT_OPENCONNECT_UNIT))
+		for PREF in $((8000 + ASUSWRT_OPENCONNECT_UNIT)) $((8100 + ASUSWRT_OPENCONNECT_UNIT)) $((8200 + ASUSWRT_OPENCONNECT_UNIT)); do
+			while $IPROUTE rule del priority "$PREF" 2>/dev/null; do :; done
+			while $IPROUTE -6 rule del priority "$PREF" 2>/dev/null; do :; done
+		done
+		$IPROUTE route flush table "$TABLE"
+		$IPROUTE -6 route flush table "$TABLE"
+	fi
 
-	if [ -n "$INTERNAL_IP4_DNS" ]; then
+	if [ -n "$ASUSWRT_OPENCONNECT_UNIT" ]; then
+		update_openconnect_dns_state
+	elif [ -n "$INTERNAL_IP4_DNS" ]; then
 		$RESTORERESOLVCONF
 	fi
 

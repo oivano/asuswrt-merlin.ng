@@ -2983,6 +2983,9 @@ int update_resolvconf(void)
 #if defined(RTCONFIG_OPENVPN) && !defined(RTCONFIG_VPN_FUSION)
 	write_ovpn_resolv_dnsmasq(fp_servers);
 #endif
+#ifdef RTCONFIG_OPENCONNECT
+	write_openconnect_resolv_dnsmasq(fp_servers);
+#endif
 	{
 		for (unit = WAN_UNIT_FIRST; unit < WAN_UNIT_MAX; unit++) {
 			snprintf(prefix, sizeof(prefix), "wan%d_", unit);

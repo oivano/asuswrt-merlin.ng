@@ -3014,6 +3014,12 @@ void start_dnsmasq(void)
 	f_write(dmresolv, NULL, 0, FW_APPEND, 0644);
 	/* Create resolv.dnsmasq with empty server list */
 	f_write(dmservers, NULL, 0, FW_APPEND, 0644);
+#ifdef RTCONFIG_OPENCONNECT
+	if ((fp = fopen(dmservers, "a")) != NULL) {
+		write_openconnect_resolv_dnsmasq(fp);
+		fclose(fp);
+	}
+#endif
 
 #ifdef RTCONFIG_DNSPRIVACY
 	start_stubby();
@@ -19537,7 +19543,9 @@ start_write_smb_conf();
 	}
 #endif /*the end of #if defined(RTCONFIG_IPSEC)*/
 #ifdef RTCONFIG_OPENCONNECT
-	else if (strcmp(script, "start_openconnect_client1") == 0) {
+	else if (strcmp(script, "openconnect_dnsmasq_update") == 0) {
+		openconnect_refresh_dnsmasq();
+	} else if (strcmp(script, "start_openconnect_client1") == 0) {
 		start_openconnect_client(1);
 	} else if (strcmp(script, "stop_openconnect_client1") == 0) {
 		stop_openconnect_client(1);
