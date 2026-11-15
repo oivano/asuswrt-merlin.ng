@@ -15,6 +15,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <arpa/inet.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -39,6 +40,132 @@ static const char *protocol_names[] = {
 	"f5",            /* F5 Big-IP */
 	"fortinet"       /* Fortinet */
 };
+
+static int openconnect_valid_dns_domain(const char *domain)
+{
+	const char *label = domain;
+	const char *p;
+	size_t length;
+
+	if (!domain || !(length = strlen(domain)) || length > 253)
+		return 0;
+	if (domain[length - 1] == '.')
+		length--;
+	if (!length)
+		return 0;
+	for (p = domain; p < domain + length; p++) {
+		if (*p == '.') {
+			size_t label_length = p - label;
+			if (!label_length || label_length > 63 || label[0] == '-' || p[-1] == '-')
+				return 0;
+			label = p + 1;
+		} else if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
+			(*p >= '0' && *p <= '9') || *p == '-'))
+			return 0;
+	}
+	return label < domain + length && label[0] != '-' && domain[length - 1] != '-' &&
+		domain + length - label <= 63;
+}
+
+static int openconnect_valid_dns_server(const char *server)
+{
+	struct in_addr address4;
+	struct in6_addr address6;
+
+	return inet_pton(AF_INET, server, &address4) == 1 ||
+		inet_pton(AF_INET6, server, &address6) == 1;
+}
+
+void write_openconnect_resolv_dnsmasq(FILE *fp_servers)
+{
+	char path[128], line[512], domains[16][256], servers[16][INET6_ADDRSTRLEN];
+	int unit, i, domain_count, server_count, accept_dns, accept_domain;
+	FILE *fp;
+
+	if (!fp_servers)
+		return;
+	for (unit = 1; unit <= OPENCONNECT_CLIENT_MAX; unit++) {
+		snprintf(path, sizeof(path), "openconnect_client%d_accept_dns", unit);
+		accept_dns = nvram_get_int(path) == 1;
+		snprintf(path, sizeof(path), "openconnect_client%d_accept_domain", unit);
+		accept_domain = nvram_get_int(path) == 1;
+		if (!accept_dns)
+			continue;
+
+		snprintf(path, sizeof(path), OPENCONNECT_CONF_DIR "/client%d/dnsmasq", unit);
+		fp = fopen(path, "r");
+		if (!fp)
+			continue;
+		domain_count = server_count = 0;
+		while (fgets(line, sizeof(line), fp)) {
+			char value[256];
+			char extra;
+			size_t length;
+			if (sscanf(line, "dns %255s %c", value, &extra) == 1 && server_count < 16 &&
+			    openconnect_valid_dns_server(value)) {
+				strlcpy(servers[server_count++], value, sizeof(servers[0]));
+			} else if (accept_domain && sscanf(line, "domain %255s %c", value, &extra) == 1 &&
+				   domain_count < 16 && openconnect_valid_dns_domain(value)) {
+				length = strlen(value);
+				if (length && value[length - 1] == '.')
+					value[length - 1] = '\0';
+				strlcpy(domains[domain_count++], value, sizeof(domains[0]));
+			}
+		}
+		fclose(fp);
+		if (!server_count)
+			continue;
+
+		fprintf(fp_servers, "# openconnect-client-%d-begin\n", unit);
+		for (i = 0; i < server_count; i++) {
+			int domain_index;
+			fprintf(fp_servers, "server=%s\n", servers[i]);
+			for (domain_index = 0; domain_index < domain_count; domain_index++)
+				fprintf(fp_servers, "server=/%s/%s\n", domains[domain_index], servers[i]);
+		}
+		fprintf(fp_servers, "# openconnect-client-%d-end\n", unit);
+	}
+}
+
+void openconnect_refresh_dnsmasq(void)
+{
+	const char *servers_path = "/tmp/resolv.dnsmasq";
+	const char *temporary_path = "/tmp/resolv.dnsmasq.openconnect";
+	char line[512];
+	int lock, skipping = 0;
+	FILE *input, *output;
+
+	lock = file_lock("resolv");
+	input = fopen(servers_path, "r");
+	output = fopen(temporary_path, "w");
+	if (!output) {
+		if (input)
+			fclose(input);
+		file_unlock(lock);
+		return;
+	}
+	while (input && fgets(line, sizeof(line), input)) {
+		if (!strncmp(line, "# openconnect-client-", sizeof("# openconnect-client-") - 1)) {
+			if (strstr(line, "-begin"))
+				skipping = 1;
+			else if (strstr(line, "-end"))
+				skipping = 0;
+			continue;
+		}
+		if (!skipping)
+			fputs(line, output);
+	}
+	if (input)
+		fclose(input);
+	write_openconnect_resolv_dnsmasq(output);
+	if (fclose(output) == 0 && rename(temporary_path, servers_path) == 0) {
+		chmod(servers_path, 0644);
+		killall("dnsmasq", SIGHUP);
+	} else {
+		unlink(temporary_path);
+	}
+	file_unlock(lock);
+}
 
 /* Check if OpenConnect client is enabled */
 int openconnect_client_enabled(int unit)
@@ -510,6 +637,21 @@ int start_openconnect_client(int unit)
 	
 	if (pid == 0) {
 		/* Child process */
+		char unit_str[16];
+		char redirect_str[8];
+		char accept_dns_str[8];
+		char accept_domain_str[8];
+		snprintf(unit_str, sizeof(unit_str), "%d", unit);
+		snprintf(redirect_str, sizeof(redirect_str), "%d",
+			nvram_pf_get_int(varname, "redirect_gateway") == 1);
+		snprintf(accept_dns_str, sizeof(accept_dns_str), "%d",
+			nvram_pf_get_int(varname, "accept_dns") == 1);
+		snprintf(accept_domain_str, sizeof(accept_domain_str), "%d",
+			nvram_pf_get_int(varname, "accept_domain") == 1);
+		setenv("ASUSWRT_OPENCONNECT_UNIT", unit_str, 1);
+		setenv("ASUSWRT_OPENCONNECT_REDIRECT_GATEWAY", redirect_str, 1);
+		setenv("ASUSWRT_OPENCONNECT_ACCEPT_DNS", accept_dns_str, 1);
+		setenv("ASUSWRT_OPENCONNECT_ACCEPT_DOMAIN", accept_domain_str, 1);
 		
 		/* Redirect stdin if password file exists */
 		if (username && *username && password && *password) {
@@ -562,9 +704,10 @@ int start_openconnect_client(int unit)
 /* Stop OpenConnect client */
 void stop_openconnect_client(int unit)
 {
-	char pidfile[64], confdir[64];
+	char pidfile[64], confdir[64], table[16], priority[16];
 	FILE *fp;
 	int pid;
+	int i;
 	
 	if (unit < 1 || unit > OPENCONNECT_CLIENT_MAX)
 		return;
@@ -598,10 +741,22 @@ void stop_openconnect_client(int unit)
 		}
 		unlink(pidfile);
 	}
+
+	snprintf(table, sizeof(table), "%d", 300 + unit);
+	eval("/usr/sbin/ip", "route", "flush", "table", table);
+	eval("/usr/sbin/ip", "-6", "route", "flush", "table", table);
+	for (i = 0; i < 3; i++) {
+		snprintf(priority, sizeof(priority), "%d", 8000 + unit + i * 100);
+		while (eval("/usr/sbin/ip", "rule", "del", "priority", priority) == 0)
+			;
+		while (eval("/usr/sbin/ip", "-6", "rule", "del", "priority", priority) == 0)
+			;
+	}
 	
 	/* Clean up config directory */
 	snprintf(confdir, sizeof(confdir), "%s/client%d", OPENCONNECT_CONF_DIR, unit);
 	eval("rm", "-rf", confdir);
+	openconnect_refresh_dnsmasq();
 	
 	/* Update status */
 	update_openconnect_status(unit, OPENCONNECT_STATE_STOPPED, OPENCONNECT_ERRNO_NONE);

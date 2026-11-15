@@ -2121,6 +2121,11 @@ extern void stop_ovpn_server(int unit);
 extern void start_ovpn_server(int unit);
 #endif
 
+#ifdef RTCONFIG_OPENCONNECT
+extern void write_openconnect_resolv_dnsmasq(FILE *fp_servers);
+extern void openconnect_refresh_dnsmasq(void);
+#endif
+
 #ifdef RTCONFIG_TPVPN
 // tpvpn.c
 enum {
