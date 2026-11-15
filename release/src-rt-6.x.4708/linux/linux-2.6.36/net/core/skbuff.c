@@ -3485,13 +3485,17 @@ skb_tcph_pool_alloc(tcph_pool_t *tcph_pool, uint len)
 static inline void
 skb_tcph_pool_free(tcph_pool_t *tcph_pool, struct sk_buff *skb)
 {
-	spin_lock_bh(&tcph_pool->lock);
-
 	skb_release_head_state(skb);
 
-	if (!skb->cloned ||
-	    !atomic_sub_return(skb->nohdr ? (1 << SKB_DATAREF_SHIFT) + 1 : 1,
-			       &skb_shinfo(skb)->dataref)) {
+	if (skb->cloned &&
+	    atomic_sub_return(skb->nohdr ? (1 << SKB_DATAREF_SHIFT) + 1 : 1,
+			      &skb_shinfo(skb)->dataref)) {
+		kfree_skbmem(skb);
+		skb = dev_alloc_skb(tcph_pool->obj_size);
+		if (skb == NULL)
+			return;
+		skb->tcpf_hdrbuf = 1;
+	} else {
 		if (skb_shinfo(skb)->nr_frags) {
 			int i;
 			for (i = 0; i < skb_shinfo(skb)->nr_frags; i++)
@@ -3501,6 +3505,8 @@ skb_tcph_pool_free(tcph_pool_t *tcph_pool, struct sk_buff *skb)
 		if (skb_has_frags(skb))
 			skb_drop_fraglist(skb);
 	}
+
+	spin_lock_bh(&tcph_pool->lock);
 
 	/* Add object back to the tcph_pool */
 	skb->next = (struct sk_buff *)tcph_pool->head;
