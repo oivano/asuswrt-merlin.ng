@@ -34,6 +34,7 @@
 #include <linux/netdevice.h>
 #include <linux/if_arp.h>
 #include <linux/in6.h>
+#include <linux/random.h>
 #include <linux/tcp.h>
 #include <linux/route.h>
 #include <linux/module.h>
@@ -608,36 +609,20 @@ int ip6_find_1stfragopt(struct sk_buff *skb, u8 **nexthdr)
 }
 
 
-#define FID_HASH_SZ 16
-static u32 hashidentrnd __read_mostly;
-static u32 ipv6_fragmentation_id[FID_HASH_SZ];
-
-static int __init initialize_hashidentrnd(void)
+static u32 __ipv6_select_ident(void)
 {
-	get_random_bytes(&hashidentrnd, sizeof(hashidentrnd));
-	return 0;
-}
-
-late_initcall_sync(initialize_hashidentrnd);
-
-static u32 __ipv6_select_ident(const struct in6_addr *addr)
-{
-	u32 newid, oldid, hash = jhash2((u32 *)addr, 4, hashidentrnd);
-	u32 *pid = &ipv6_fragmentation_id[hash % FID_HASH_SZ];
+	u32 id;
 
 	do {
-		oldid = *pid;
-		newid = oldid + 1;
-		if (!(hash + newid))
-			newid++;
-	} while (cmpxchg(pid, oldid, newid) != oldid);
+		id = prandom_u32();
+	} while (!id);
 
-	return hash + newid;
+	return id;
 }
 
 void ipv6_select_ident(struct frag_hdr *fhdr, struct rt6_info *rt)
 {
-	fhdr->identification = htonl(__ipv6_select_ident(&rt->rt6i_dst.addr));
+	fhdr->identification = htonl(__ipv6_select_ident());
 }
 
 static int ip6_fragment(struct sk_buff *skb, int (*output)(struct sk_buff *))
