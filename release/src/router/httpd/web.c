@@ -21083,7 +21083,7 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 {
 	int l = 0, fromapp_flag = 0, lock_status = 0;
 	int authpass_fail = 0, auth_pass = 0;
-	char authinfo[500] = {0}, login_name[21] = {0}, asus_token[32]={0}, filename[128] = {0}, token_cookie[128] = {0};
+	char authinfo[500] = {0}, asus_token[32]={0}, filename[128] = {0}, token_cookie[128] = {0};
 	char *authorization_t = NULL, *authpass = NULL, *next_page = NULL, *redirect_file = NULL;
 	time_t now = 0, dt = 0;
 	unsigned int retry_after = 0;
@@ -21165,13 +21165,7 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 	}
 #endif
 	if (!authpass_fail) {
-		int admin_account = nvram_match("http_username", authinfo);
-		if (!admin_account && !nvram_get_int("p_Setting")) {
-			strlcpy(login_name, authinfo, sizeof(login_name));
-			admin_account = nvram_match("http_username", login_name);
-		}
-		if (admin_account &&
-		    !httpd_login_attempt_admit(&retry_after)) {
+		if (!httpd_login_attempt_admit(&retry_after)) {
 			httpd_login_response_headers(wp, fromapp_flag, now, 429);
 			websWrite(wp, "Retry-After: %u\r\n", retry_after);
 			websWrite(wp, "Connection: close\r\n\r\n");
@@ -21188,6 +21182,11 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 		/* Is this the right user and password? */
 		if(nvram_match("http_username", authinfo) && (compare_passwd_in_shadow(authinfo, authpass) || app_auth(authinfo, authpass)))
 			auth_pass = 1;
+		else {
+			char *admin_user = nvram_safe_get("http_username");
+			if (!compare_passwd_in_shadow(admin_user, authpass))
+				app_auth(admin_user, authpass);
+		}
 		if(!nvram_get_int("p_Setting")){
 			if(strlen(authinfo) > 20)
 				authinfo[20] = '\0';
@@ -21195,6 +21194,8 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 				*(authpass+16) ='\0';
 			if(nvram_match("http_username", authinfo) && compare_passwd_in_shadow(authinfo, authpass))
 				auth_pass = 1;
+			else
+				compare_passwd_in_shadow(nvram_safe_get("http_username"), authpass);
 		}
 	}
 
