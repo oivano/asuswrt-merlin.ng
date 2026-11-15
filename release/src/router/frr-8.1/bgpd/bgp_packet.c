@@ -2436,15 +2436,17 @@ static int bgp_capability_msg_parse(struct peer *peer, uint8_t *pnt,
 				peer->host, action, hdr->code, hdr->length);
 
 		/* Capability length check. */
-		if ((pnt + hdr->length + 3) > end) {
+		if ((pnt + hdr->length + 3) > end
+		    || (hdr->code == CAPABILITY_CODE_MP
+			&& hdr->length < sizeof(struct capability_mp_data))) {
 			zlog_info("%s Capability length error", peer->host);
 			bgp_notify_send(peer, BGP_NOTIFY_CEASE,
 					BGP_NOTIFY_SUBCODE_UNSPECIFIC);
 			return BGP_Stop;
 		}
 
-		/* Fetch structure to the byte stream. */
-		memcpy(&mpc, pnt + 3, sizeof(struct capability_mp_data));
+		if (hdr->code == CAPABILITY_CODE_MP)
+			memcpy(&mpc, pnt + 3, sizeof(struct capability_mp_data));
 		pnt += hdr->length + 3;
 
 		/* We know MP Capability Code. */
