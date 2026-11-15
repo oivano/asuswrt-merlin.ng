@@ -752,6 +752,7 @@ ifneq ($(RTCONFIG_AMAS), y)
 	rm -rf $(INSTALLDIR)/www/js/jstree/jstree.js
 	rm -rf $(INSTALLDIR)/www/AiMesh.asp
 	rm -rf $(INSTALLDIR)/www/aimesh
+	rm -rf $(INSTALLDIR)/www/chcap.gif
 endif
 	rm -rf $(INSTALLDIR)/www/Main_ChkSta_Content.asp
 	rm -rf $(INSTALLDIR)/www/ajax_chk_sta.asp

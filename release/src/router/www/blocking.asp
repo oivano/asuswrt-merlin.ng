@@ -230,7 +230,9 @@ function stringSafeGet(str){
 (function(){
 	if(ROUTERHOSTNAME !== header_info.host && ROUTERHOSTNAME != "" && isRouterMode){
 		setTimeout(function(){
-			var s=document.createElement("script");s.type="text/javascript";s.src=domainNameUrl+"/chdom.json?hostname="+header_info.host;var h=document.getElementsByTagName("script")[0];h.parentNode.insertBefore(s,h);
+			var probe = new Image();
+			probe.onload = chdom;
+			probe.src = domainNameUrl+"/chdom.gif?hostname="+encodeURIComponent(header_info.host)+"&_="+new Date().getTime();
 		}, 1);
 	}
 })();
