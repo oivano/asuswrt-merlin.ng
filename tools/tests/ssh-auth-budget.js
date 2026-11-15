@@ -9,6 +9,11 @@ const listener = read('release/src/router/dropbear/src/svr-main.c');
 const localOptions = read('release/src/router/dropbear/localoptions.h');
 const ssh = read('release/src/router/rc/ssh.c');
 const ui = read('release/src/router/www/Advanced_System_Content.asp');
+const auth = read('release/src/router/dropbear/src/svr-authpasswd.c');
+const httpd = read('release/src/router/httpd/httpd.c');
+const sharedBudget = read('release/src/router/shared/login_budget.c');
+const defaults = read('release/src/router/shared/defaults.c');
+const configDefaults = read('release/src/router/cfg_mnt/cfg_param.h');
 const constants = Object.fromEntries([...listener.matchAll(/^#define (SSH_SOURCE_\w+) (\d+)$/gm)]
     .map(match => [match[1], Number(match[2])]));
 assert.deepEqual(constants, {
@@ -58,7 +63,9 @@ for (let source = 0; source < 64; source++) {
     for (let attempt = 0; attempt < 5; attempt++) assert.equal(full(`2001:db8::${source}`, 100), 1);
     assert.equal(full(`2001:db8::${source}`, 100), 0);
 }
-assert.equal(full('198.51.100.1', 101), 1);
+assert.equal(full('198.51.100.1', 101), 0);
+assert.equal(full('198.51.100.2', 399), 0);
+assert.equal(full('198.51.100.1', 400), 1);
 assert.equal(makeLimiter()(null, 0), 0);
 assert.equal(makeLimiter()('x'.repeat(128), 0), 0);
 
@@ -79,8 +86,20 @@ assert.ok(admission > listener.indexOf('childsock = accept('));
 assert.ok(admission < listener.indexOf('fork_ret = fork();'));
 assert.match(listener, /#if NON_INETD_MODE\s+#define SSH_SOURCE_SLOTS/);
 assert.match(listener, /getaddrstring\(&remoteaddr, &remote_host, NULL, 0\)/);
+assert.match(listener, /entry->connections && now >= entry->blocked_until &&\s*\(!oldest \|\| entry->last_seen < oldest->last_seen\)/);
+assert.doesNotMatch(listener, /if \(entry->connections && \(!oldest/);
 assert.match(ssh, /if \(nvram_get_int\("sshd_enable"\) == 1 \|\| !nvram_get_int\("sshd_pass"\)\)\s+dropbear_argv\[index\+\+\] = "-s"/);
 assert.doesNotMatch(ssh, /"-i"/);
+assert.match(sharedBudget, /#define LOGIN_BUDGET_CAPACITY 5/);
+assert.match(sharedBudget, /#define LOGIN_BUDGET_REFILL_SECONDS 30/);
+assert.match(sharedBudget, /file_lock\("httpd-login-budget"\)/);
+assert.match(httpd, /httpd_login_attempt_admit\(unsigned int \*retry_after\)\s*\{\s*return shared_login_attempt_admit\(retry_after\);/);
+const passwordAdmission = auth.indexOf('shared_login_attempt_admit(&retry_after)');
+const passwordVerification = auth.indexOf('testcrypt = crypt(password, passwdcrypt)');
+assert(passwordAdmission >= 0 && passwordAdmission < passwordVerification);
+assert.match(auth.slice(auth.indexOf('password = buf_getstring'), passwordAdmission), /if \(valid_user\)/);
+assert.match(defaults, /\{ "sshd_pass", "0",/);
+assert.match(configDefaults, /\{ "sshd_pass",\s*FT_TIME,\s*SUBFT_SSH_SERVER,\s*"0"\}/);
 for (const mode of [1, 2]) {
     for (const passwords of [0, 1]) {
         const expression = ssh.match(/if \((nvram_get_int\("sshd_enable"\).*?)\)\s+dropbear_argv\[index\+\+\] = "-s"/)[1];
@@ -120,4 +139,4 @@ for (const mode of ['0', '1', '2']) {
 }
 assert.match(ui, />LAN & WAN \(key only\)<\/option>/);
 assert.doesNotMatch(ui, /<%\s*nvram_\w+\(\s*"\s+[^"\n]*"/);
-console.log('SSH reconnect budget, WAN key-only policy and UI checks passed (not compiled C or firmware).');
+console.log('SSH source budget, shared password throttle, key-only default, WAN policy and UI checks passed (not compiled C or firmware).');

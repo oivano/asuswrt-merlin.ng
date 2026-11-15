@@ -30,6 +30,7 @@
 #include "dbutil.h"
 #include "auth.h"
 #include "runopts.h"
+#include "login_budget.h"
 
 extern int asus_openssl_crypt(char *key, char *salt, char *out, int out_len);
 
@@ -68,6 +69,18 @@ void svr_auth_password(int valid_user) {
 	}
 
 	password = buf_getstring(ses.payload, &passwordlen);
+	if (valid_user) {
+		unsigned int retry_after;
+		if (!shared_login_attempt_admit(&retry_after)) {
+			m_burn(password, passwordlen);
+			m_free(password);
+			dropbear_log(LOG_WARNING,
+					"Password authentication budget exhausted for '%s' from %s",
+					ses.authstate.pw_name, svr_ses.addrstring);
+			send_msg_userauth_failure(0, 1);
+			return;
+		}
+	}
 	if (valid_user && passwordlen <= DROPBEAR_MAX_PASSWORD_LEN) {
 		/* the first bytes of passwdcrypt are the salt */
 		passwdcrypt = ses.authstate.pw_passwd;

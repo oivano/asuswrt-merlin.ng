@@ -160,7 +160,8 @@ static int ssh_source_allowed(const char *host, time_t now) {
 				now - entry->started >= SSH_SOURCE_WINDOW))) {
 			budget = entry;
 		}
-		if (entry->connections && (!oldest || entry->last_seen < oldest->last_seen)) {
+		if (entry->connections && now >= entry->blocked_until &&
+		    (!oldest || entry->last_seen < oldest->last_seen)) {
 			oldest = entry;
 		}
 	}
