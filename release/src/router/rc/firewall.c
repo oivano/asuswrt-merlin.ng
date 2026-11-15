@@ -3709,12 +3709,15 @@ static void write_ipv6_forward_icmp_rules(FILE *fp, const char *lan_if,
 						  const char *logaccept, const char *logdrop)
 {
 	static const char *vpn_ifaces[] = { "tun+", "tap+", "ipsec+", "wg+" };
+	const char *lan_echo_limit = "-m limit --limit 20/s --limit-burst 40 "
+		"-m hashlimit --hashlimit-upto 1/sec --hashlimit-burst 2 "
+		"--hashlimit-mode dstip --hashlimit-name ipv6_wan_echo";
 	const char *echo_limit = nvram_get_int("fw_dos_x") ? "-m limit --limit 1/s" : "";
 	int i;
 
 	fprintf(fp, "-A FORWARD -p ipv6-icmp -j ICMP_V6_FORWARD\n");
 	fprintf(fp, "-A ICMP_V6_FORWARD -p ipv6-icmp --icmpv6-type 128 -o %s %s -j %s\n",
-		lan_if, echo_limit, logaccept);
+		lan_if, lan_echo_limit, logaccept);
 	for (i = 0; i < sizeof(vpn_ifaces) / sizeof(vpn_ifaces[0]); ++i)
 		fprintf(fp, "-A ICMP_V6_FORWARD -p ipv6-icmp --icmpv6-type 128 -o %s %s -j %s\n",
 			vpn_ifaces[i], echo_limit, logaccept);

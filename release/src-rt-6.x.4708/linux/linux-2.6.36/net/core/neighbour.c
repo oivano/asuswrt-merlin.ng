@@ -891,9 +891,36 @@ out:
 	neigh_release(neigh);
 }
 
+#define IPV6_NEIGH_INCOMPLETE_LIMIT 256
+
+static int neigh_ipv6_incomplete_limit_reached(struct neighbour *neigh)
+{
+	struct neigh_table *tbl = neigh->tbl;
+	int pending = 0;
+	int bucket_index;
+
+	for (bucket_index = 0; bucket_index <= tbl->hash_mask; bucket_index++) {
+		struct neighbour *n;
+
+		for (n = tbl->hash_buckets[bucket_index]; n; n = n->next) {
+			if (n == neigh || n->dev != neigh->dev)
+				continue;
+			read_lock(&n->lock);
+			if (n->nud_state & NUD_INCOMPLETE)
+				pending++;
+			read_unlock(&n->lock);
+			if (pending >= IPV6_NEIGH_INCOMPLETE_LIMIT)
+				return 1;
+		}
+	}
+
+	return 0;
+}
+
 int __neigh_event_send(struct neighbour *neigh, struct sk_buff *skb)
 {
 	int rc;
+	int table_locked = 0;
 	unsigned long now;
 
 	write_lock_bh(&neigh->lock);
@@ -905,6 +932,25 @@ int __neigh_event_send(struct neighbour *neigh, struct sk_buff *skb)
 	now = jiffies;
 
 	if (!(neigh->nud_state & (NUD_STALE | NUD_INCOMPLETE))) {
+		if (neigh->tbl->family == AF_INET6 &&
+		    !(neigh->nud_state & NUD_VALID)) {
+			write_unlock_bh(&neigh->lock);
+			write_lock_bh(&neigh->tbl->lock);
+			write_lock(&neigh->lock);
+			table_locked = 1;
+			if (neigh->nud_state & (NUD_CONNECTED | NUD_DELAY | NUD_PROBE))
+				goto out_unlock_bh;
+		}
+	}
+
+	if (!(neigh->nud_state & (NUD_STALE | NUD_INCOMPLETE))) {
+		if (table_locked && !(neigh->nud_state & NUD_VALID) &&
+		    neigh_ipv6_incomplete_limit_reached(neigh)) {
+			write_unlock(&neigh->lock);
+			write_unlock_bh(&neigh->tbl->lock);
+			kfree_skb(skb);
+			return 1;
+		}
 		if (neigh->parms->mcast_probes + neigh->parms->app_probes) {
 			atomic_set(&neigh->probes, neigh->parms->ucast_probes);
 			neigh->nud_state     = NUD_INCOMPLETE;
@@ -913,7 +959,12 @@ int __neigh_event_send(struct neighbour *neigh, struct sk_buff *skb)
 		} else {
 			neigh->nud_state = NUD_FAILED;
 			neigh->updated = jiffies;
-			write_unlock_bh(&neigh->lock);
+			if (table_locked)
+				write_unlock(&neigh->lock);
+			else
+				write_unlock_bh(&neigh->lock);
+			if (table_locked)
+				write_unlock_bh(&neigh->tbl->lock);
 
 			kfree_skb(skb);
 			return 1;
@@ -941,7 +992,12 @@ int __neigh_event_send(struct neighbour *neigh, struct sk_buff *skb)
 		rc = 1;
 	}
 out_unlock_bh:
-	write_unlock_bh(&neigh->lock);
+	if (table_locked) {
+		write_unlock(&neigh->lock);
+		write_unlock_bh(&neigh->tbl->lock);
+	} else {
+		write_unlock_bh(&neigh->lock);
+	}
 	return rc;
 }
 EXPORT_SYMBOL(__neigh_event_send);
