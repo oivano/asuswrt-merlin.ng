@@ -12428,6 +12428,24 @@ start_aura_rgb_sw(void)
 }
 #endif
 
+static void wait_for_entropy(void)
+{
+	FILE *fp;
+	int entropy;
+
+	do {
+		entropy = 0;
+		fp = fopen("/proc/sys/kernel/random/entropy_avail", "r");
+		if (fp) {
+			if (fscanf(fp, "%d", &entropy) != 1)
+				entropy = 0;
+			fclose(fp);
+		}
+		if (entropy < 192)
+			usleep(100000);
+	} while (entropy < 192);
+}
+
 int
 start_services(void)
 {
@@ -12438,6 +12456,7 @@ start_services(void)
 #else
 	start_haveged();
 #endif
+	wait_for_entropy();
 #if defined(RTAX82U) || defined(DSL_AX82U) || defined(GSAX3000) || defined(GSAX5400) || defined(TUFAX5400) || defined(GTAX11000_PRO) || defined(GTAXE16000) || defined(GTAX6000) || defined(GT10) || defined(RTAX82U_V2) || defined(TUFAX5400_V2)
 	start_ledg();
 	start_ledbtn();

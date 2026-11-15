@@ -23,6 +23,7 @@
 
 extern int sysctl_tcp_syncookies;
 extern __u32 syncookie_secret[2][16-4+SHA_DIGEST_WORDS];
+extern void syncookie_secret_init(void);
 
 #define COOKIEBITS 24	/* Upper bits store count */
 #define COOKIEMASK (((__u32)1 << COOKIEBITS) - 1)
@@ -71,6 +72,7 @@ static u32 cookie_hash(struct in6_addr *saddr, struct in6_addr *daddr,
 {
 	__u32 *tmp = __get_cpu_var(ipv6_cookie_scratch);
 
+	syncookie_secret_init();
 	/*
 	 * we have 320 bits of information to hash, copy in the remaining
 	 * 192 bits required for sha_transform, from the syncookie_secret
