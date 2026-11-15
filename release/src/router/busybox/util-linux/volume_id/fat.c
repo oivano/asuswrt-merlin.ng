@@ -189,13 +189,6 @@ int FAST_FUNC volume_id_probe_vfat(struct volume_id *id /*,uint64_t fat_partitio
 	if (vs->heads == 0)
 		return -1;
 
-	/* cluster size check */
-	if (vs->sectors_per_cluster == 0
-	 || (vs->sectors_per_cluster & (vs->sectors_per_cluster-1))
-	) {
-		return -1;
-	}
-
 	/* media check */
 	if (vs->media < 0xf8 && vs->media != 0xf0)
 		return -1;
@@ -209,6 +202,12 @@ int FAST_FUNC volume_id_probe_vfat(struct volume_id *id /*,uint64_t fat_partitio
 	sector_size_bytes = le16_to_cpu(vs->sector_size_bytes);
 	if (sector_size_bytes != 0x200 && sector_size_bytes != 0x400
 	 && sector_size_bytes != 0x800 && sector_size_bytes != 0x1000
+	) {
+		return -1;
+	}
+	if (vs->sectors_per_cluster == 0
+	 || (vs->sectors_per_cluster & (vs->sectors_per_cluster - 1)) != 0
+	 || (uint32_t)vs->sectors_per_cluster * sector_size_bytes > 0x10000
 	) {
 		return -1;
 	}

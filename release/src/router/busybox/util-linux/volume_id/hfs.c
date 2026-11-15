@@ -25,6 +25,7 @@
 //kbuild:lib-$(CONFIG_FEATURE_VOLUMEID_HFS) += hfs.o
 
 #include "volume_id_internal.h"
+#include <stddef.h>
 
 struct hfs_finder_info{
 	uint32_t	boot_folder;
@@ -169,7 +170,7 @@ int FAST_FUNC volume_id_probe_hfs_hfsplus(struct volume_id *id /*,uint64_t off*/
 	unsigned leaf_node_head;
 	unsigned leaf_node_count;
 	unsigned leaf_node_size;
-	unsigned leaf_block;
+	uint64_t leaf_block;
 	uint64_t leaf_off;
 	unsigned alloc_block_size;
 	unsigned alloc_first_block;
@@ -234,16 +235,20 @@ int FAST_FUNC volume_id_probe_hfs_hfsplus(struct volume_id *id /*,uint64_t off*/
 	return -1;
 
  hfsplus:
-	hfs_set_uuid(id, hfsplus->finder_info.id);
-
 	blocksize = be32_to_cpu(hfsplus->blocksize);
 	dbg("blocksize %u", blocksize);
+	if (blocksize < 512 || (blocksize & (blocksize - 1)) != 0)
+		return -1;
+
+	hfs_set_uuid(id, hfsplus->finder_info.id);
 
 	memcpy(extents, hfsplus->cat_file.extents, sizeof(extents));
 	cat_block = be32_to_cpu(extents[0].start_block);
 	dbg("catalog start block 0x%x", cat_block);
 
-	buf = volume_id_get_buffer(id, off + (cat_block * blocksize), 0x2000);
+	if (cat_block > ((uint64_t)-1 - off) / blocksize)
+		goto found;
+	buf = volume_id_get_buffer(id, off + (uint64_t)cat_block * blocksize, 0x2000);
 	if (buf == NULL)
 		goto found;
 
@@ -255,13 +260,15 @@ int FAST_FUNC volume_id_probe_hfs_hfsplus(struct volume_id *id /*,uint64_t off*/
 
 	leaf_node_size = be16_to_cpu(bnode->node_size);
 	dbg("leaf node size 0x%x", leaf_node_size);
+	if (leaf_node_size < sizeof(*descr) + offsetof(struct hfsplus_catalog_key, unicode))
+		goto found;
 
 	leaf_node_count = be32_to_cpu(bnode->leaf_count);
 	dbg("leaf node count 0x%x", leaf_node_count);
 	if (leaf_node_count == 0)
 		goto found;
 
-	leaf_block = (leaf_node_head * leaf_node_size) / blocksize;
+	leaf_block = ((uint64_t)leaf_node_head * leaf_node_size) / blocksize;
 
 	/* get physical location */
 	for (ext = 0; ext < HFSPLUS_EXTENT_COUNT; ext++) {
@@ -282,7 +289,9 @@ int FAST_FUNC volume_id_probe_hfs_hfsplus(struct volume_id *id /*,uint64_t off*/
 		goto found;
 	dbg("found block in extent %i", ext);
 
-	leaf_off = (ext_block_start + leaf_block) * blocksize;
+	leaf_off = ((uint64_t)ext_block_start + leaf_block) * blocksize;
+	if (leaf_off > (uint64_t)-1 - off)
+		goto found;
 
 	buf = volume_id_get_buffer(id, off + leaf_off, leaf_node_size);
 	if (buf == NULL)
@@ -308,6 +317,11 @@ int FAST_FUNC volume_id_probe_hfs_hfsplus(struct volume_id *id /*,uint64_t off*/
 
 	label_len = be16_to_cpu(key->unicode_len) * 2;
 	dbg("label unicode16 len %i", label_len);
+	if (label_len > leaf_node_size - sizeof(*descr)
+			- offsetof(struct hfsplus_catalog_key, unicode))
+		goto found;
+	if (label_len > (sizeof(id->label) - 1) * 2)
+		label_len = (sizeof(id->label) - 1) * 2;
 //	volume_id_set_label_raw(id, key->unicode, label_len);
 	volume_id_set_label_unicode16(id, key->unicode, BE, label_len);
 

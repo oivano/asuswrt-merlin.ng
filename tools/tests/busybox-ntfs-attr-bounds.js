@@ -8,6 +8,14 @@ const source = fs.readFileSync(
     'release/src/router/busybox/util-linux/volume_id/ntfs.c',
     'utf8'
 );
+const fatSource = fs.readFileSync(
+    'release/src/router/busybox/util-linux/volume_id/fat.c',
+    'utf8'
+);
+const hfsSource = fs.readFileSync(
+    'release/src/router/busybox/util-linux/volume_id/hfs.c',
+    'utf8'
+);
 const utilSource = fs.readFileSync(
     'release/src/router/busybox/util-linux/volume_id/util.c',
     'utf8'
@@ -53,12 +61,80 @@ assert(utilSource.includes('off - id->seekbuf_off <= id->seekbuf_len')
     && utilSource.includes('len <= id->seekbuf_len - (size_t)(off - id->seekbuf_off)'),
     'the seek cache range must be checked without addition overflow');
 
+const fatValid = fatSource.indexOf('\n valid:');
+const fatDivisorGuard = fatSource.indexOf('vs->sectors_per_cluster == 0', fatValid);
+const fatDivision = fatSource.indexOf('cluster_count /= vs->sectors_per_cluster');
+assert(fatValid >= 0 && fatDivisorGuard > fatValid && fatDivisorGuard < fatDivision,
+    'FAT cluster geometry must be checked after magic matches and before division');
+assert(fatSource.includes('(uint32_t)vs->sectors_per_cluster * sector_size_bytes > 0x10000'),
+    'FAT cluster size must remain within the supported range');
+
+const hfsBlockGuard = hfsSource.indexOf('if (blocksize < 512');
+const hfsDivision = hfsSource.indexOf('/ blocksize');
+const hfsMinimumNodeGuard = hfsSource.indexOf('leaf_node_size < sizeof(*descr)');
+const hfsDescriptorRead = hfsSource.indexOf('struct hfsplus_bnode_descriptor *) buf');
+const hfsNodeLengthGuard = hfsSource.indexOf('label_len > leaf_node_size - sizeof(*descr)');
+const hfsLabelCap = hfsSource.indexOf('label_len > (sizeof(id->label) - 1) * 2');
+const hfsLabelCall = hfsSource.indexOf('volume_id_set_label_unicode16(id, key->unicode');
+assert(hfsBlockGuard >= 0 && hfsBlockGuard < hfsDivision,
+    'HFS+ block size must be validated before division');
+assert(hfsSource.includes('(blocksize & (blocksize - 1)) != 0'),
+    'HFS+ allocation block size must be a power of two');
+assert(hfsMinimumNodeGuard >= 0 && hfsMinimumNodeGuard < hfsDescriptorRead,
+    'HFS+ catalog nodes must fit the descriptor and catalog-key header');
+assert(hfsNodeLengthGuard >= 0 && hfsNodeLengthGuard < hfsLabelCall
+    && hfsLabelCap > hfsNodeLengthGuard && hfsLabelCap < hfsLabelCall,
+    'HFS+ Unicode labels must fit both the returned node and label buffer');
+
 const HEADER_SIZE = 22;
 const ATTR_END = 0xffffffff;
 const ATTR_VOLUME_NAME = 0x60;
 const SB_BUFFER_SIZE = 0x11000;
 const SEEK_BUFFER_SIZE = 0x10000;
 const UINT64_MAX = (1n << 64n) - 1n;
+
+function validFatGeometry(sectorsPerCluster, sectorSize) {
+    return sectorsPerCluster > 0
+        && (sectorsPerCluster & (sectorsPerCluster - 1)) === 0
+        && sectorsPerCluster * sectorSize <= 0x10000;
+}
+
+function validHfsBlockSize(blockSize) {
+    return blockSize >= 512 && (blockSize & (blockSize - 1)) === 0;
+}
+
+function boundedHfsLabel(nodeSize, unicodeLength, labelCapacity) {
+    const keyHeaderSize = 8;
+    const descriptorSize = 14;
+    if (nodeSize < descriptorSize + keyHeaderSize)
+        return null;
+    const available = nodeSize - descriptorSize - keyHeaderSize;
+    const labelBytes = unicodeLength * 2;
+    if (labelBytes > available)
+        return null;
+    return Math.min(labelBytes, labelCapacity * 2);
+}
+
+assert.strictEqual(validFatGeometry(0, 512), false,
+    'magic-matched FAT with zero sectors per cluster must be rejected');
+assert.strictEqual(validFatGeometry(3, 512), false,
+    'non-power-of-two FAT cluster geometry must be rejected');
+assert.strictEqual(validFatGeometry(128, 1024), false,
+    'oversized FAT clusters must be rejected');
+assert.strictEqual(validFatGeometry(8, 512), true,
+    'valid FAT cluster geometry must remain accepted');
+assert.strictEqual(validHfsBlockSize(0), false,
+    'zero HFS+ allocation block size must be rejected');
+assert.strictEqual(validHfsBlockSize(768), false,
+    'non-power-of-two HFS+ allocation block size must be rejected');
+assert.strictEqual(validHfsBlockSize(4096), true,
+    'valid HFS+ allocation block size must remain accepted');
+assert.strictEqual(boundedHfsLabel(21, 0, 64), null,
+    'an HFS+ node smaller than its descriptor and key header must be rejected');
+assert.strictEqual(boundedHfsLabel(30, 5, 64), null,
+    'an HFS+ Unicode name extending beyond its node must be rejected');
+assert.strictEqual(boundedHfsLabel(200, 80, 64), 128,
+    'an in-node HFS+ label must be capped to the label buffer capacity');
 
 function requestedBuffer(off, len) {
     if (off <= BigInt(SB_BUFFER_SIZE)
