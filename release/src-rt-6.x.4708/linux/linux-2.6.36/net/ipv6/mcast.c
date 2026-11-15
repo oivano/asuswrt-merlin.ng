@@ -1446,6 +1446,11 @@ static int grec_size(struct ifmcaddr6 *pmc, int type, int gdel, int sdel)
 	return sizeof(struct mld2_grec) + 16 * mld_scount(pmc,type,gdel,sdel);
 }
 
+#define AVAILABLE(skb) ((skb) ? ((skb)->dev ? \
+	((skb)->len < (skb)->dev->mtu ? \
+	min_t(int, skb_tailroom(skb), (skb)->dev->mtu - (skb)->len) : 0) : \
+	skb_tailroom(skb)) : 0)
+
 static struct sk_buff *add_grhead(struct sk_buff *skb, struct ifmcaddr6 *pmc,
 	int type, struct mld2_grec **ppgr)
 {
@@ -1457,6 +1462,20 @@ static struct sk_buff *add_grhead(struct sk_buff *skb, struct ifmcaddr6 *pmc,
 		skb = mld_newpack(dev, dev->mtu);
 	if (!skb)
 		return NULL;
+	if (AVAILABLE(skb) < sizeof(*pgr)) {
+		pmr = (struct mld2_report *)skb_transport_header(skb);
+		if (pmr->mld2r_ngrec)
+			mld_sendpack(skb);
+		else
+			kfree_skb(skb);
+		skb = mld_newpack(dev, dev->mtu);
+		if (!skb)
+			return NULL;
+		if (AVAILABLE(skb) < sizeof(*pgr)) {
+			kfree_skb(skb);
+			return NULL;
+		}
+	}
 	pgr = (struct mld2_grec *)skb_put(skb, sizeof(struct mld2_grec));
 	pgr->grec_type = type;
 	pgr->grec_auxwords = 0;
@@ -1467,10 +1486,6 @@ static struct sk_buff *add_grhead(struct sk_buff *skb, struct ifmcaddr6 *pmc,
 	*ppgr = pgr;
 	return skb;
 }
-
-#define AVAILABLE(skb) ((skb) ? ((skb)->dev ? (skb)->dev->mtu - (skb)->len : \
-	skb_tailroom(skb)) : 0)
-
 static struct sk_buff *add_grec(struct sk_buff *skb, struct ifmcaddr6 *pmc,
 	int type, int gdeleted, int sdeleted)
 {
