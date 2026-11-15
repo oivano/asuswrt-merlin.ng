@@ -77,6 +77,17 @@ window.onresize = cal_panel_block;
 var nfsd_enable = '<% nvram_get("nfsd_enable"); %>';
 var nfsd_exportlist_array = '<% nvram_get("nfsd_exportlist"); %>';
 
+function remove_default_root_squash(options){
+	var option_list = options.split(",");
+	var filtered_options = new Array();
+	for(var i = 0; i < option_list.length; i++){
+		var option = option_list[i].replace(/^\s+|\s+$/g, "");
+		if(option != "" && option != "root_squash")
+			filtered_options.push(option);
+	}
+	return filtered_options.join(",");
+}
+
 function initial(){
 	show_menu();
 
@@ -135,7 +146,10 @@ function apply(){
 	for(i=0; i<rule_num; i++){
 		tmp_value += "<"
 		for(j=0; j<item_num-1; j++){
-			tmp_value += document.getElementById('nfsd_exportlist_table').rows[i].cells[j].innerHTML;
+			var cell_value = document.getElementById('nfsd_exportlist_table').rows[i].cells[j].innerHTML;
+			if(j == 2)
+				cell_value = remove_default_root_squash(cell_value);
+			tmp_value += cell_value;
 			if(j != item_num-2)
 				tmp_value += ">";
 		}
@@ -551,8 +565,10 @@ function shownfsd_exportlist(){
 			var nfsd_exportlist_col = nfsd_exportlist_row[i].split('&#62');
 				for(var j = 0; j < nfsd_exportlist_col.length; j++){
 					var cell_value = nfsd_exportlist_col[j];
-					if(j == 2)
+					if(j == 2){
+						cell_value = remove_default_root_squash(cell_value);
 						cell_value = "root_squash" + (cell_value.length > 0 ? "," + cell_value : "");
+					}
 					code +='<td width="30%" style="word-break: break-all;">'+ cell_value +'</td>';
 				}
 				code +='<td width="10%"><!--input class="edit_btn" onclick="edit_Row(this);" value=""/-->';
