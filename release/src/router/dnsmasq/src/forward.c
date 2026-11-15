@@ -16,7 +16,7 @@
 
 #include "dnsmasq.h"
 
-static struct frec *get_new_frec(time_t now, struct server *serv, int force);
+static struct frec *get_new_frec(time_t now, struct server *serv, int force, union mysockaddr *source);
 static struct frec *lookup_frec(time_t now, char *target, int class, int rrtype, int id, int flags, int flagmask);
 #ifdef HAVE_DNSSEC
 static int tcp_key_recurse(time_t now, int status, struct dns_header *header, size_t n, 
@@ -369,7 +369,7 @@ static void forward_query(int udpfd, union mysockaddr *udpaddr,
 
       master = daemon->serverarray[first];
 
-      if (!(forward = get_new_frec(now, master, 0)))
+	if (!(forward = get_new_frec(now, master, 0, udpaddr)))
 	goto reply;
       /* table full - flags == 0, return REFUSED */
 
@@ -1035,7 +1035,7 @@ static void dnssec_validate(struct frec *forward, struct dns_header *header,
 					      STAT_ISEQUAL(status, STAT_NEED_KEY) ? T_DNSKEY : T_DS)) && 
 		  (fd = allocate_rfd(&rfds, server)) != -1 &&
 		  (newstash = blockdata_alloc((char *)header, nn)) &&
-		  (new = get_new_frec(now, server, 1)))
+		  (new = get_new_frec(now, server, 1, NULL)))
 		{
 		  struct frec *next = new->next;
 		  
@@ -3140,16 +3140,33 @@ static void free_frec(struct frec *f)
    to allocate above the limit, and don't free any records.
    This is set when allocating for DNSSEC to avoid cutting off
    the branch we are sitting on. */
-static struct frec *get_new_frec(time_t now, struct server *master, int force)
+static int frec_source_equal(union mysockaddr *a, union mysockaddr *b)
+{
+  if (a->sa.sa_family != b->sa.sa_family)
+    return 0;
+
+  if (a->sa.sa_family == AF_INET)
+    return a->in.sin_addr.s_addr == b->in.sin_addr.s_addr;
+
+  if (a->sa.sa_family == AF_INET6)
+    return memcmp(&a->in6.sin6_addr, &b->in6.sin6_addr, 8) == 0;
+
+  return 0;
+}
+
+static struct frec *get_new_frec(time_t now, struct server *master, int force, union mysockaddr *source)
 {
   struct frec *f, *oldest, *target;
+  struct frec_src *src;
   int count;
+  int source_count;
+  int source_limit;
 #ifdef HAVE_DNSSEC
   static int next_uid = 0;
 #endif
   
   /* look for free records, garbage collect old records and count number in use by our server-group. */
-  for (f = daemon->frec_list, oldest = NULL, target =  NULL, count = 0; f; f = f->next)
+  for (f = daemon->frec_list, oldest = NULL, target =  NULL, count = 0, source_count = 0; f; f = f->next)
     {
       if (!f->sentto)
 	target = f;
@@ -3176,10 +3193,27 @@ static struct frec *get_new_frec(time_t now, struct server *master, int force)
       
       if (f->sentto && ((int)difftime(now, f->time)) < TIMEOUT && server_samegroup(f->sentto, master))
 	count++;
+
+      if (source && !force && f->sentto && ((int)difftime(now, f->time)) < TIMEOUT)
+        for (src = &f->frec_src; src; src = src->next)
+          if (frec_source_equal(&src->source, source))
+            {
+              source_count++;
+              break;
+            }
     }
   
   if (!force)
     {
+      if (source)
+        {
+          source_limit = daemon->ftabsize / 8;
+          if (source_limit < 1)
+            source_limit = 1;
+          if (source_count >= source_limit)
+            return NULL;
+        }
+
       if (count >= daemon->ftabsize)
 	{
 	  query_full(now, master->domain);
