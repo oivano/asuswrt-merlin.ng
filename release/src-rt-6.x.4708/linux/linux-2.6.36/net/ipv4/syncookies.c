@@ -15,6 +15,7 @@
 #include <linux/random.h>
 #include <linux/cryptohash.h>
 #include <linux/kernel.h>
+#include <linux/spinlock.h>
 #include <net/tcp.h>
 #include <net/route.h>
 
@@ -27,12 +28,27 @@ extern int sysctl_tcp_syncookies;
 __u32 syncookie_secret[2][16-4+SHA_DIGEST_WORDS];
 EXPORT_SYMBOL(syncookie_secret);
 
-static __init int init_syncookies(void)
+static DEFINE_SPINLOCK(syncookie_secret_lock);
+static int syncookie_secret_initialized;
+
+void syncookie_secret_init(void)
 {
-	get_random_bytes(syncookie_secret, sizeof(syncookie_secret));
-	return 0;
+	unsigned long flags;
+
+	if (ACCESS_ONCE(syncookie_secret_initialized)) {
+		smp_rmb();
+		return;
+	}
+
+	spin_lock_irqsave(&syncookie_secret_lock, flags);
+	if (!syncookie_secret_initialized) {
+		get_random_bytes(syncookie_secret, sizeof(syncookie_secret));
+		smp_wmb();
+		syncookie_secret_initialized = 1;
+	}
+	spin_unlock_irqrestore(&syncookie_secret_lock, flags);
 }
-__initcall(init_syncookies);
+EXPORT_SYMBOL(syncookie_secret_init);
 
 #define COOKIEBITS 24	/* Upper bits store count */
 #define COOKIEMASK (((__u32)1 << COOKIEBITS) - 1)
@@ -45,6 +61,7 @@ static u32 cookie_hash(__be32 saddr, __be32 daddr, __be16 sport, __be16 dport,
 {
 	__u32 *tmp = __get_cpu_var(ipv4_cookie_scratch);
 
+	syncookie_secret_init();
 	memcpy(tmp + 4, syncookie_secret[c], sizeof(syncookie_secret[c]));
 	tmp[0] = (__force u32)saddr;
 	tmp[1] = (__force u32)daddr;

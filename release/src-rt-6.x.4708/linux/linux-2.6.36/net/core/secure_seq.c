@@ -7,15 +7,29 @@
 #include <linux/hrtimer.h>
 #include <linux/ktime.h>
 #include <linux/string.h>
+#include <linux/spinlock.h>
 
 static u32 net_secret[MD5_MESSAGE_BYTES / 4] ____cacheline_aligned;
+static DEFINE_SPINLOCK(net_secret_lock);
+static int net_secret_initialized;
 
-static int __init net_secret_init(void)
+static void net_secret_init(void)
 {
-	get_random_bytes(net_secret, sizeof(net_secret));
-	return 0;
+	unsigned long flags;
+
+	if (ACCESS_ONCE(net_secret_initialized)) {
+		smp_rmb();
+		return;
+	}
+
+	spin_lock_irqsave(&net_secret_lock, flags);
+	if (!net_secret_initialized) {
+		get_random_bytes(net_secret, sizeof(net_secret));
+		smp_wmb();
+		net_secret_initialized = 1;
+	}
+	spin_unlock_irqrestore(&net_secret_lock, flags);
 }
-late_initcall(net_secret_init);
 
 static u32 seq_scale(u32 seq)
 {
@@ -30,6 +44,7 @@ __u32 secure_tcpv6_sequence_number(__be32 *saddr, __be32 *daddr,
 	u32 hash[MD5_DIGEST_WORDS];
 	u32 i;
 
+	net_secret_init();
 	memcpy(hash, saddr, 16);
 	for (i = 0; i < 4; i++)
 		secret[i] = net_secret[i] + daddr[i];
@@ -50,6 +65,7 @@ __u32 secure_tcp_sequence_number(__be32 saddr, __be32 daddr,
 {
 	u32 hash[MD5_DIGEST_WORDS];
 
+	net_secret_init();
 	hash[0] = (__force u32)saddr;
 	hash[1] = (__force u32)daddr;
 	hash[2] = ((__force u16)sport << 16) + (__force u16)dport;
