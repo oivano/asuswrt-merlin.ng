@@ -1824,10 +1824,6 @@ bound6(char *wan_ifname, int bound)
 	}
 #endif
 
-	value = safe_getenv("RA_HOPLIMIT");
-	if (*value && (intval = atoi(value)))
-		ipv6_sysconf(wan_ifname, "hop_limit", intval);
-
 	value = safe_getenv("RA_MTU");
 	if (*value && (intval = atoi(value)) && intval < ifconfig_mtu(wan_ifname, 0)) {
 		ipv6_sysconf(wan_ifname, "mtu", intval);
@@ -2082,10 +2078,6 @@ ra_updated6(char *wan_ifname)
 		wan_unit = wan_ifunit(wan_ifname);
 	snprintf(tmp, sizeof(tmp), "/tmp/wan%d_ra.env", wan_unit);
 	envsave(tmp);
-
-	value = safe_getenv("RA_HOPLIMIT");
-	if (*value && (intval = atoi(value)))
-		ipv6_sysconf(wan_ifname, "hop_limit", intval);
 
 	value = safe_getenv("RA_MTU");
 	if (*value && (intval = atoi(value)) && intval < ifconfig_mtu(wan_ifname, 0)) {
