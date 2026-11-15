@@ -39,10 +39,12 @@ assert.match(failedAuth[1], /return;/);
 assert.doesNotMatch(failedAuth[1], /browser_session_touch/);
 assert(source.indexOf('browser_session_touch(cookies);', authentication) >
     authentication + failedAuth.index + failedAuth[0].length);
-assert.match(source, /gen_asus_token_cookie\([^;]+;\s*browser_session_register\(asus_token, fromapp, 0\);/);
-assert.match(web, /gen_asus_token_cookie\([^;]+;\s*browser_session_register\(asus_token, fromapp_flag, 1\);/);
-assert.equal((source.match(/gen_asus_token_cookie\(/g) || []).length, 1);
-assert.equal((web.match(/gen_asus_token_cookie\(/g) || []).length, 1);
+assert.match(source, /token_generated = httpd_gen_asus_token_cookie\(/);
+assert.match(source, /if \(token_generated\)\s*browser_session_register\(asus_token, fromapp, 0\);/);
+assert.match(web, /if \(httpd_gen_asus_token_cookie\(/);
+assert.match(web, /browser_session_register\(asus_token, fromapp_flag, 1\);/);
+assert.equal((source.match(/httpd_gen_asus_token_cookie\(/g) || []).length, 2);
+assert.equal((web.match(/httpd_gen_asus_token_cookie\(/g) || []).length, 1);
 
 for (const extension of ['png', 'conf']) {
     const route = web.match(new RegExp(`\\{ "wgs_client\\.${extension}",([^}]+)\\}`));
@@ -82,6 +84,7 @@ function fixture() {
     const freed = new Set();
     const context = vm.createContext({
         now: 100, minutes: 30, do_ssl: false, head: null, curr: null, referer_host: 'router.asus.com',
+        login_uip_tmp: { family: 2, address: '192.0.2.1' },
         BROWSER_SESSION_LIMIT: limit, BROWSER_SESSION_MAX_AGE: maximum,
         browser_sessions: Array.from({ length: limit }, () => ({ token: '', created: 0, active: 0 })),
         uptime: () => context.now,

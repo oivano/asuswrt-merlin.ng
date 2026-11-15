@@ -1405,9 +1405,73 @@ send_headers( int status, char* title, char* extra_header, char* mime_type, int 
 
 extern asus_token_t *head, *curr;
 
+static int
+httpd_read_random(unsigned char *buffer, size_t length)
+{
+	int fd;
+	size_t offset = 0;
+	ssize_t count;
+
+	fd = open("/dev/urandom", O_RDONLY);
+	if (fd < 0)
+		return -1;
+	while (offset < length) {
+		count = read(fd, buffer + offset, length - offset);
+		if (count < 0 && errno == EINTR)
+			continue;
+		if (count <= 0) {
+			close(fd);
+			return -1;
+		}
+		offset += count;
+	}
+	if (close(fd) < 0)
+		return -1;
+	return 0;
+}
+
+int
+httpd_gen_asus_token_cookie(char *token, size_t token_size,
+		char *cookie, size_t cookie_size)
+{
+	static const char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+	unsigned char random_bytes[31];
+	const char *name = "asus_token", *secure = "";
+	size_t index;
+	int written;
+
+	if (!token || token_size < 32 || !cookie || cookie_size == 0)
+		return -1;
+	if (httpd_read_random(random_bytes, sizeof(random_bytes)) != 0) {
+		memset(random_bytes, 0, sizeof(random_bytes));
+		token[0] = '\0';
+		cookie[0] = '\0';
+		return -1;
+	}
+	for (index = 0; index < sizeof(random_bytes); ++index)
+		token[index] = charset[random_bytes[index] % (sizeof(charset) - 1)];
+	token[sizeof(random_bytes)] = '\0';
+#ifdef RTCONFIG_HTTPS
+	if (do_ssl) {
+		name = "asus_s_token";
+		secure = " Secure;";
+	}
+#endif
+	written = snprintf(cookie, cookie_size, "%s=%s; HttpOnly;%s", name, token, secure);
+	memset(random_bytes, 0, sizeof(random_bytes));
+	if (written < 0 || (size_t)written >= cookie_size) {
+		token[0] = '\0';
+		cookie[0] = '\0';
+		return -1;
+	}
+	add_asus_token(token);
+	return 0;
+}
+
 static struct browser_session {
 	char token[33];
 	char referer_host[64];
+	uaddr peer;
 	unsigned long created;
 	unsigned long active;
 	int authenticated;
@@ -1480,6 +1544,7 @@ browser_session_register(const char *token, int fromapp, int authenticated)
 		browser_session_remove(slot);
 	strlcpy(slot->token, token, sizeof(slot->token));
 	strlcpy(slot->referer_host, referer_host, sizeof(slot->referer_host));
+	slot->peer = login_uip_tmp;
 	slot->created = slot->active = uptime();
 	slot->authenticated = authenticated;
 }
@@ -1531,10 +1596,14 @@ send_token_headers( int status, char* title, char* extra_header, char* mime_type
 	time_t now;
 	char timebuf[100];
 	char asus_token[32]={0}, token_cookie[128] = {0};
+	int token_generated;
 
 	httpd_response_deadline_start();
-	gen_asus_token_cookie(asus_token, sizeof(asus_token), token_cookie, sizeof(token_cookie));
-	browser_session_register(asus_token, fromapp, 0);
+	token_generated = httpd_gen_asus_token_cookie(asus_token, sizeof(asus_token), token_cookie, sizeof(token_cookie)) == 0;
+	if (token_generated)
+		browser_session_register(asus_token, fromapp, 0);
+	else
+		logmessage("httpd", "Unable to generate session token");
 
     (void) fprintf( conn_fp, "%s %d %s\r\n", PROTOCOL, status, title );
     (void) fprintf( conn_fp, "Server: %s\r\n", SERVER_NAME );
@@ -1553,7 +1622,8 @@ send_token_headers( int status, char* title, char* extra_header, char* mime_type
     if ( mime_type != (char*) 0 )
 	(void) fprintf( conn_fp, "Content-Type: %s\r\n", mime_type );
 
-	(void) fprintf( conn_fp, "Set-Cookie: %s; SameSite=Strict\r\n", token_cookie);
+	if (token_generated)
+		(void) fprintf( conn_fp, "Set-Cookie: %s; SameSite=Strict\r\n", token_cookie);
 
     (void) fprintf( conn_fp, "Connection: close\r\n" );
     (void) fprintf( conn_fp, "\r\n" );
@@ -2095,6 +2165,20 @@ httpd_check_csrf_token(const char *token)
 	return token && *expected && strlen(token) == strlen(expected) && !strcmp(token, expected);
 }
 
+static int
+browser_session_peer_allowed(const char *cookies)
+{
+	struct browser_session *session;
+	uaddr peer = login_uip_tmp;
+
+	session = browser_session_find(httpd_parse_csrf_token(cookies));
+	if (!session || !session->authenticated)
+		return 1;
+	if (uaddr_is_unspecified(&session->peer) || uaddr_is_unspecified(&peer))
+		return 0;
+	return uaddr_is_equal(&session->peer, &peer);
+}
+
 static void
 browser_session_forget(const char *cookies)
 {
@@ -2601,6 +2685,10 @@ handle_request(void)
 				else if((mime_exception&MIME_EXCEPTION_NOAUTH_ALL)) {
 				}
 				else {
+					if (!browser_session_peer_allowed(cookies)) {
+						send_login_page(fromapp, NOLOGIN, url, file, auth_check_dt, add_try);
+						return;
+					}
 					auth_result = auth_check(url, file, cookies, fromapp, &add_try);
 					if (auth_result != 0)
 					{

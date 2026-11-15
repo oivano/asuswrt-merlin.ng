@@ -627,7 +627,7 @@ extern int httpd_login_attempt_admit(unsigned int *retry_after);
 extern void httpd_login_notify(const char *address);
 extern void httpd_login_reset(void);
 extern char *wl_nband_to_wlx(char *nv_name, char *wl_name, size_t len);
-extern int gen_asus_token_cookie(char *asus_token, int asus_token_len, char *token_cookie, int cookie_len);
+extern int httpd_gen_asus_token_cookie(char *token, size_t token_size, char *cookie, size_t cookie_size);
 extern void browser_session_register(const char *token, int fromapp, int authenticated);
 extern void check_lock_state();
 extern void gen_random_string_v2(char *out, size_t len);
