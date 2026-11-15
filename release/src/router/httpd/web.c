@@ -21216,7 +21216,15 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 			//nvram_commit();
 		}
 
-		gen_asus_token_cookie(asus_token, sizeof(asus_token), token_cookie, sizeof(token_cookie));
+		if (httpd_gen_asus_token_cookie(asus_token, sizeof(asus_token), token_cookie, sizeof(token_cookie)) != 0) {
+			logmessage("httpd", "Unable to generate session token");
+			websWrite(wp, "Connection: close\r\n\r\n");
+			if (fromapp_flag != 0)
+				websWrite(wp, "{\n\"error\":\"session_token_generation_failed\"\n}\n");
+			else
+				websWrite(wp, "<HTML><BODY>Unable to create a secure session.</BODY></HTML>\n");
+			return 0;
+		}
 		browser_session_register(asus_token, fromapp_flag, 1);
 
 		websWrite(wp,"Set-Cookie: %s; SameSite=Strict\r\n",token_cookie);
