@@ -27,6 +27,7 @@
 <% login_state_hook(); %>
 
 var dnsfilter_rule_list = '<% nvram_get("dnsfilter_rulelist"); %>'.replace(/&#60/g, "<");
+var dnsfilter_initial_settings = null;
 if (isSupport("hnd")) {
 	dnsfilter_rule_list += '<% nvram_get("dnsfilter_rulelist1"); %>'.replace(/&#60/g, "<") +
 		'<% nvram_get("dnsfilter_rulelist2"); %>'.replace(/&#60/g, "<") +
@@ -72,6 +73,33 @@ function initial(){
 
 	gen_modeselect("dnsfilter_mode", "<% nvram_get("dnsfilter_mode"); %>", "");
 	gen_modeselect("client_modesel", "-1", "");
+	dnsfilter_initial_settings = {
+		enabled: document.form.dnsfilter_enable_x.value,
+		rules: dnsfilter_rule_list,
+		mode: document.form.dnsfilter_mode.value,
+		custom1: document.form.dnsfilter_custom1.value,
+		custom2: document.form.dnsfilter_custom2.value,
+		custom3: document.form.dnsfilter_custom3.value
+	};
+	if (isSupport("hnd")) {
+		dnsfilter_initial_settings.custom61 = document.form.dnsfilter_custom61.value;
+		dnsfilter_initial_settings.custom62 = document.form.dnsfilter_custom62.value;
+		dnsfilter_initial_settings.custom63 = document.form.dnsfilter_custom63.value;
+	}
+}
+
+function dnsfilter_settings_changed(){
+	return !dnsfilter_initial_settings ||
+		document.form.dnsfilter_enable_x.value != dnsfilter_initial_settings.enabled ||
+		dnsfilter_rule_list != dnsfilter_initial_settings.rules ||
+		document.form.dnsfilter_mode.value != dnsfilter_initial_settings.mode ||
+		document.form.dnsfilter_custom1.value != dnsfilter_initial_settings.custom1 ||
+		document.form.dnsfilter_custom2.value != dnsfilter_initial_settings.custom2 ||
+		document.form.dnsfilter_custom3.value != dnsfilter_initial_settings.custom3 ||
+		(isSupport("hnd") &&
+			(document.form.dnsfilter_custom61.value != dnsfilter_initial_settings.custom61 ||
+			 document.form.dnsfilter_custom62.value != dnsfilter_initial_settings.custom62 ||
+			 document.form.dnsfilter_custom63.value != dnsfilter_initial_settings.custom63));
 }
 
 /*------------ Mouse event of fake LAN IP select menu {-----------------*/
@@ -234,6 +262,11 @@ function applyRule(){
 	else
 		document.form.dnsfilter_rulelist.value = dnsfilter_rule_list.replace(/&#62/g, ">") ;
 
+	if (!dnsfilter_settings_changed())
+		document.form.action_script.value = "";
+	else
+		document.form.action_script.value = "restart_firewall;restart_dnsmasq";
+
 	showLoading();
 	document.form.submit();
 }
@@ -378,7 +411,7 @@ function showhide_settings(state) {
 <input type="hidden" name="modified" value="0">
 <input type="hidden" name="action_wait" value="5">
 <input type="hidden" name="action_mode" value="apply">
-<input type="hidden" name="action_script" value="restart_dnsfilter">
+<input type="hidden" name="action_script" value="restart_firewall;restart_dnsmasq">
 <input type="hidden" name="preferred_lang" id="preferred_lang" value="<% nvram_get("preferred_lang"); %>">
 <input type="hidden" name="firmver" value="<% nvram_get("firmver"); %>">
 <input type="hidden" name="dnsfilter_enable_x" value="<% nvram_get("dnsfilter_enable_x"); %>">

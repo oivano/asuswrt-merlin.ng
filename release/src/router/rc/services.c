@@ -2716,6 +2716,11 @@ void start_dnsmasq(void)
 		}
 	}
 
+#ifdef RTCONFIG_DNSFILTER
+	if (nvram_get_int("dnsfilter_enable_x"))
+		dnsfilter_setup_dnsmasq(fp);
+#endif
+
 #ifdef RTCONFIG_IPV6
 	if (ipv6_enabled() && is_routing_enabled()) {
 		struct in6_addr addr;
@@ -2803,11 +2808,6 @@ void start_dnsmasq(void)
 			free(nv);
 		}
 #endif /* RTCONFIG_YANDEXDNS */
-
-#ifdef RTCONFIG_DNSFILTER
-		if (nvram_get_int("dnsfilter_enable_x"))
-			dnsfilter_setup_dnsmasq(fp);
-#endif
 
 		/* DNS server */
 		value = nvram_safe_get("ipv6_dns1_x");
@@ -5646,8 +5646,12 @@ void write_static_leases(FILE *fp)
 	char *nv, *nvp, *b;
 	char *mac, *ip, *dns, *hostname;
 	char lan_if[IFNAMSIZ];
+	char dnsfilter_tag[16];
 	unsigned char ea[ETHER_ADDR_LEN];
 	in_addr_t ip1, lan_net, lan_mask;
+#ifdef RTCONFIG_DNSFILTER
+	int dnsfilter_mode;
+#endif
 #if defined(RTCONFIG_PORT_BASED_VLAN) || defined(RTCONFIG_TAGGED_BASED_VLAN)
 	int i, nr_vnets = 0, host_bits;
 	char *p, ip_str[sizeof("192.168.100.200XXX")];
@@ -5725,6 +5729,17 @@ void write_static_leases(FILE *fp)
 		    !ether_atoe(mac, ea))
 			continue;
 
+#ifdef RTCONFIG_DNSFILTER
+		dnsfilter_mode = dnsfilter_get_client_mode(mac);
+		if (dnsfilter_mode > 0)
+			snprintf(dnsfilter_tag, sizeof(dnsfilter_tag), ",set:dnsf%d", dnsfilter_mode);
+		else
+#endif
+			dnsfilter_tag[0] = '\0';
+
+		if (*dnsfilter_tag)
+			dns = NULL;
+
 		if (dns) {
 			struct in_addr in4;
 #ifdef RTCONFIG_IPV6
@@ -5743,16 +5758,16 @@ void write_static_leases(FILE *fp)
 		}
 
 		if (*ip == '\0' || (ip1 = inet_network(ip)) == -1) {
-			if (dns)
-				fprintf(fp, "dhcp-host=%s,set:%s\n", mac, mac);
+			if (dns || *dnsfilter_tag)
+				fprintf(fp, "dhcp-host=%s,set:%s%s\n", mac, mac, dnsfilter_tag);
 			continue;
 		}
 
 		if ((ip1 & lan_mask) == lan_net) {
 			if(hostname && hostname[0] != '\0' && is_valid_hostname(hostname))
-				fprintf(fp, "dhcp-host=%s,set:%s,%s,%s\n", mac, mac, hostname, ip);
+				fprintf(fp, "dhcp-host=%s,set:%s%s,%s,%s\n", mac, mac, dnsfilter_tag, hostname, ip);
 			else
-				fprintf(fp, "dhcp-host=%s,set:%s,%s\n", mac, mac, ip);
+				fprintf(fp, "dhcp-host=%s,set:%s%s,%s\n", mac, mac, dnsfilter_tag, ip);
 			continue;
 		}
 #if defined(RTCONFIG_PORT_BASED_VLAN) || defined(RTCONFIG_TAGGED_BASED_VLAN)
@@ -5760,9 +5775,9 @@ void write_static_leases(FILE *fp)
 			if ((ip1 & v->mask) != v->net || *v->br_if == '\0')
 				continue;
 			if(hostname && hostname[0] != '\0' && is_valid_hostname(hostname))
-				fprintf(fp, "dhcp-host=%s,set:%s,%s,%s\n", mac, mac, hostname, ip);
+				fprintf(fp, "dhcp-host=%s,set:%s%s,%s,%s\n", mac, mac, dnsfilter_tag, hostname, ip);
 			else
-				fprintf(fp, "dhcp-host=%s,set:%s,%s\n", mac, mac, ip);
+				fprintf(fp, "dhcp-host=%s,set:%s%s,%s\n", mac, mac, dnsfilter_tag, ip);
 			break;
 		}
 #endif
