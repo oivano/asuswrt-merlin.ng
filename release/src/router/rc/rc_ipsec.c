@@ -937,6 +937,39 @@ int pre_ipsec_prof_set()
     return rc;
 }
 
+int ipsec_firewall_profile_info(char gateways[MAX_PROF_NUM][SZ_128BUF], int *server_profile_active)
+{
+	int i, count = 0;
+
+	if (!gateways || !server_profile_active)
+		return 0;
+	memset(gateways, 0, MAX_PROF_NUM * SZ_128BUF);
+	*server_profile_active = 0;
+	pre_ipsec_prof_set();
+
+	for (i = 0; i < MAX_PROF_NUM; i++) {
+		ipsec_prof_t *profile = &prof[PROF_SVR][i];
+		if (profile->ipsec_conn_en == IPSEC_CONN_EN_UP &&
+		    (profile->vpn_type == VPN_TYPE_NET_NET_SVR ||
+		     profile->vpn_type == VPN_TYPE_NET_NET_PEER ||
+		     profile->vpn_type == VPN_TYPE_HOST_NET))
+			*server_profile_active = 1;
+
+		profile = &prof[PROF_CLI][i];
+		if (profile->ipsec_conn_en != IPSEC_CONN_EN_UP ||
+		    (profile->vpn_type != VPN_TYPE_NET_NET_CLI &&
+		     profile->vpn_type != VPN_TYPE_HOST_NET_CLI) ||
+		    !profile->remote_gateway[0] ||
+		    !strcmp(profile->remote_gateway, "null") ||
+		    !strcmp(profile->remote_gateway, "none") ||
+		    !strcmp(profile->remote_gateway, "%any"))
+			continue;
+
+		strlcpy(gateways[count++], profile->remote_gateway, SZ_128BUF);
+	}
+	return count;
+}
+
 int pre_ipsec_samba_prof_set()
 {
 	char buf[SZ_BUF];

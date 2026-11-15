@@ -1509,6 +1509,11 @@ void stop_iQos(void)
 {
 	qos_script_eval(qosfn, "stop");
 
+#if defined(RTCONFIG_GROCTRL) && !defined(RTCONFIG_HND_ROUTER)
+	if (pids("smbd"))
+		enable_gro(2);
+#endif
+
 #ifdef RTCONFIG_GEFORCENOW
 	nvgfn_kernel_setting(0);
 	nvgfn_mcs_isauto(0);
@@ -2654,6 +2659,11 @@ int start_iQos(void)
 	}
 
 	if (nvram_get_int("qos_type") == 1) return -1;
+
+#if defined(RTCONFIG_GROCTRL) && !defined(RTCONFIG_HND_ROUTER)
+	if (IS_TQOS() || IS_BW_QOS())
+		enable_gro(0);
+#endif
 
 	if (IS_TQOS()) {
 		status = start_tqos();

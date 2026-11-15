@@ -3555,6 +3555,8 @@ void enable_gro(int interval)
 
 	if(nvram_get_int("gro_disable"))
 		return;
+	if (interval > 0 && (IS_TQOS() || IS_BW_QOS()))
+		interval = 0;
 
 	/* enabled gso on vlan interface */
 	snprintf(lan_ifnames, sizeof(lan_ifnames), "%s", nvram_safe_get("lan_ifnames"));

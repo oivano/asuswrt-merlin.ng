@@ -1683,6 +1683,9 @@ extern void set_codel_patch(void);
 extern void remove_codel_patch(void);
 extern int start_iQos(void);
 extern void stop_iQos(void);
+#if defined(RTCONFIG_GROCTRL) && !defined(RTCONFIG_HND_ROUTER)
+extern void enable_gro(int interval);
+#endif
 extern int rc_qos_workdir_prepare(void);
 extern void del_iQosRules(void);
 extern int add_iQosRules(char *pcWANIF);
