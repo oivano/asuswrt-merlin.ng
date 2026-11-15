@@ -5,8 +5,12 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '../..');
 const corePath = 'release/src-rt-6.x.4708/linux/linux-2.6.36/net/netfilter/nf_conntrack_core.c';
 const pppoePath = 'release/src-rt-6.x.4708/linux/linux-2.6.36/drivers/net/pppoe.c';
+const pppPath = 'release/src-rt-6.x.4708/linux/linux-2.6.36/drivers/net/ppp_generic.c';
+const tunPath = 'release/src-rt-6.x.4708/linux/linux-2.6.36/drivers/net/tun.c';
 const core = fs.readFileSync(path.join(root, corePath), 'utf8');
 const pppoe = fs.readFileSync(path.join(root, pppoePath), 'utf8');
+const ppp = fs.readFileSync(path.join(root, pppPath), 'utf8');
+const tun = fs.readFileSync(path.join(root, tunPath), 'utf8');
 const firewall = fs.readFileSync(path.join(root, 'release/src/router/rc/firewall.c'), 'utf8');
 
 const addStart = core.indexOf('ip_conntrack_ipct_add(struct sk_buff *skb');
@@ -35,6 +39,19 @@ for (const field of [
 
 assert.ok(!core.includes('ctf_pppoe_cb[4]'), 'conntrack code does not stash a cache-entry pointer in skb control data');
 assert.ok(!pppoe.includes('ctf_pppoe_cb[4]'), 'PPPoE transmit does not recover a cache-entry pointer from skb control data');
+
+const pppInfoStart = ppp.indexOf('ppp_get_conn_pkt_info(void *pppif');
+const pppInfoEnd = ppp.indexOf('\n}', pppInfoStart);
+assert.ok(pppInfoStart >= 0 && pppInfoEnd > pppInfoStart, 'PPP CTF metadata helper exists');
+const pppInfo = ppp.slice(pppInfoStart, pppInfoEnd);
+assert(pppInfo.indexOf('->type != ARPHRD_PPP') >= 0 &&
+    pppInfo.indexOf('->type != ARPHRD_PPP') < pppInfo.indexOf('netdev_priv('),
+    'non-PPP point-to-point devices are rejected before private data is cast');
+assert.match(ppp, /dev->type = ARPHRD_PPP;/, 'PPP netdevices are identified by ARPHRD_PPP');
+assert.match(tun, /dev->type = ARPHRD_NONE;\s*dev->flags = IFF_POINTOPOINT/,
+    'TUN devices can be point-to-point without being PPP devices');
+assert.match(ppp, /spin_lock_bh\(&pch->downl\);[\s\S]*pch->chan == NULL[\s\S]*spin_unlock_bh\(&pch->downl\);/,
+    'PPP channel private data is read under the teardown lock');
 
 const xmitStart = pppoe.indexOf('static int __pppoe_xmit(');
 const xmitEnd = pppoe.indexOf('\nstatic int pppoe_xmit(', xmitStart);

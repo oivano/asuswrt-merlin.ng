@@ -279,7 +279,7 @@ static void ppp_destroy_interface(struct ppp *ppp);
 static struct ppp *ppp_find_unit(struct ppp_net *pn, int unit);
 static struct channel *ppp_find_channel(struct ppp_net *pn, int unit);
 static int ppp_connect_channel(struct channel *pch, int unit);
-static int ppp_disconnect_channel(struct channel *pch);
+static struct ppp *ppp_disconnect_channel(struct channel *pch);
 static void ppp_destroy_channel(struct channel *pch);
 static int unit_get(struct idr *p, void *ptr);
 static int unit_set(struct idr *p, void *ptr, int n);
@@ -628,7 +628,10 @@ static long ppp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			break;
 
 		case PPPIOCDISCONN:
-			err = ppp_disconnect_channel(pch);
+			ppp = ppp_disconnect_channel(pch);
+			err = ppp ? 0 : -EINVAL;
+			if (ppp && atomic_dec_and_test(&ppp->file.refcnt))
+				ppp_destroy_interface(ppp);
 			break;
 
 		default:
@@ -2212,6 +2215,7 @@ void
 ppp_unregister_channel(struct ppp_channel *chan)
 {
 	struct channel *pch = chan->ppp;
+	struct ppp *ppp;
 	struct ppp_net *pn;
 
 	if (!pch)
@@ -2224,11 +2228,13 @@ ppp_unregister_channel(struct ppp_channel *chan)
 	 * the channel's start_xmit or ioctl routine before we proceed.
 	 */
 	down_write(&pch->chan_sem);
+	ppp = ppp_disconnect_channel(pch);
 	spin_lock_bh(&pch->downl);
 	pch->chan = NULL;
 	spin_unlock_bh(&pch->downl);
 	up_write(&pch->chan_sem);
-	ppp_disconnect_channel(pch);
+	if (ppp && atomic_dec_and_test(&ppp->file.refcnt))
+		ppp_destroy_interface(ppp);
 
 	pn = ppp_pernet(pch->chan_net);
 	spin_lock_bh(&pn->all_channels_lock);
@@ -2823,11 +2829,10 @@ ppp_connect_channel(struct channel *pch, int unit)
 /*
  * Disconnect a channel from its ppp unit.
  */
-static int
+static struct ppp *
 ppp_disconnect_channel(struct channel *pch)
 {
 	struct ppp *ppp;
-	int err = -EINVAL;
 
 	write_lock_bh(&pch->upl);
 	ppp = pch->ppp;
@@ -2837,17 +2842,15 @@ ppp_disconnect_channel(struct channel *pch)
 		/* remove it from the ppp unit's list */
 		ppp_lock(ppp);
 		list_del(&pch->clist);
+#if defined(CTF_PPTP) || defined(CTF_L2TP)
+		if (ppp->ctfpch == pch)
+			ppp->ctfpch = NULL;
+#endif
 		if (--ppp->n_channels == 0)
 			wake_up_interruptible(&ppp->file.rwait);
 		ppp_unlock(ppp);
-#if defined(CTF_PPTP) || defined(CTF_L2TP)
-		ppp->ctfpch = NULL;
-#endif
-		if (atomic_dec_and_test(&ppp->file.refcnt))
-			ppp_destroy_interface(ppp);
-		err = 0;
 	}
-	return err;
+	return ppp;
 }
 
 /*
@@ -2967,29 +2970,37 @@ ppp_get_conn_pkt_info(void *pppif, struct ctf_ppp *ctfppp){
 	struct sock *sk = NULL;
 	struct ppp *ppp = NULL;
 	struct channel *pch = NULL;
-	struct ppp_net *pn;
-	const char *vars;
+	int ret = BCME_ERROR;
+
+	if (!pppif || ((struct net_device *)pppif)->type != ARPHRD_PPP)
+		return ret;
 
 	ppp = (struct ppp *)netdev_priv((const struct net_device *)pppif);
 	if (ppp == NULL){
-		return (BCME_ERROR);
+		return ret;
 	}
 
 	/* Compressor/Decompressor (MPPE, etc) is running */
 	if ((ppp->flags & SC_CCP_UP) &&
 	    ((ppp->xstate & SC_COMP_RUN) || (ppp->rstate & SC_DECOMP_RUN))) {
-		return (BCME_ERROR);
+		return ret;
 	}
 
+	ppp_lock(ppp);
 	pch = ppp->ctfpch;
 	if (pch == NULL){
-		return (BCME_ERROR);
+		ppp_unlock(ppp);
+		return ret;
 	}
+
+	spin_lock_bh(&pch->downl);
+	if (pch->chan == NULL || pch->chan->private == NULL)
+		goto out;
 
 	po = pppox_sk((struct sock *)pch->chan->private);
 
 	if (po == NULL){
-		return (BCME_ERROR);
+		goto out;
 	}
 	ctfppp->psk.po = po;
 
@@ -3036,13 +3047,18 @@ ppp_get_conn_pkt_info(void *pppif, struct ctf_ppp *ctfppp){
 #endif /* CTF_L2TP*/
 
 		default:
-			return (BCME_ERROR);
+			goto out;
 		}
 	}
 	else{
-		return (BCME_ERROR);
+		goto out;
 	}
-	return (BCME_OK);
+	ret = BCME_OK;
+
+out:
+	spin_unlock_bh(&pch->downl);
+	ppp_unlock(ppp);
+	return ret;
 }
 EXPORT_SYMBOL(ppp_get_conn_pkt_info);
 #endif
