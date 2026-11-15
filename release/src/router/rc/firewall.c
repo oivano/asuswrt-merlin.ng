@@ -25,6 +25,9 @@
  */
 
 #include <rc.h>
+#ifdef RTCONFIG_IPSEC
+#include "rc_ipsec.h"
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -71,6 +74,93 @@
 #define ACCESS_SSH    0x02
 #define ACCESS_TELNET 0x04
 #define ACCESS_ALL    0x07
+
+#ifdef RTCONFIG_IPSEC
+static void write_ipsec_input_rules(FILE *fp, FILE *fp_ipv6, const char *wan_if,
+		int write_ipv4, int write_ipv6, int ipv6_any_interface)
+{
+	char gateways[MAX_PROF_NUM][SZ_128BUF];
+	char address[INET6_ADDRSTRLEN];
+	struct addrinfo hints, *results, *entry;
+	int server_profile_active = 0;
+	int gateway_count, isakmp_port, nat_t_port, i;
+
+	gateway_count = ipsec_firewall_profile_info(gateways, &server_profile_active);
+	isakmp_port = nvram_get_int("ipsec_isakmp_port") ? : 500;
+	nat_t_port = nvram_get_int("ipsec_nat_t_port") ? : 4500;
+
+	if (nvram_get_int("ipsec_server_enable") || server_profile_active
+#ifdef RTCONFIG_INSTANT_GUARD
+	    || nvram_get_int("ipsec_ig_enable")
+#endif
+	   ) {
+		if (write_ipv4 && fp) {
+			if (wan_if) {
+				fprintf(fp, "-A INPUT -i %s -p udp -m multiport --dport %d,%d -j ACCEPT\n", wan_if, isakmp_port, nat_t_port);
+				fprintf(fp, "-A INPUT -i %s -p esp -j ACCEPT\n", wan_if);
+				fprintf(fp, "-A INPUT -i %s -p ah -j ACCEPT\n", wan_if);
+			} else {
+				fprintf(fp, "-A INPUT -p udp -m multiport --dport %d,%d -j ACCEPT\n", isakmp_port, nat_t_port);
+				fprintf(fp, "-A INPUT -p esp -j ACCEPT\n");
+				fprintf(fp, "-A INPUT -p ah -j ACCEPT\n");
+			}
+		}
+#ifdef RTCONFIG_IPV6
+		if (write_ipv6 && fp_ipv6 && ipv6_enabled()) {
+			if (ipv6_any_interface) {
+				fprintf(fp_ipv6, "-A INPUT -i any -p udp -m multiport --dport %d,%d -j ACCEPT\n", isakmp_port, nat_t_port);
+				fprintf(fp_ipv6, "-A INPUT -i any -p esp -j ACCEPT\n");
+			} else {
+				fprintf(fp_ipv6, "-A INPUT -p udp -m multiport --dport %d,%d -j ACCEPT\n", isakmp_port, nat_t_port);
+				fprintf(fp_ipv6, "-A INPUT -p esp -j ACCEPT\n");
+			}
+		}
+#endif
+		return;
+	}
+
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_DGRAM;
+	for (i = 0; i < gateway_count; i++) {
+		if (getaddrinfo(gateways[i], NULL, &hints, &results) != 0)
+			continue;
+		for (entry = results; entry; entry = entry->ai_next) {
+			if (entry->ai_family == AF_INET && write_ipv4 && fp) {
+				struct sockaddr_in *peer = (struct sockaddr_in *)entry->ai_addr;
+				if (!inet_ntop(AF_INET, &peer->sin_addr, address, sizeof(address)))
+					continue;
+				if (wan_if) {
+					fprintf(fp, "-A INPUT -i %s -s %s -p udp -m multiport --dport %d,%d -j ACCEPT\n", wan_if, address, isakmp_port, nat_t_port);
+					fprintf(fp, "-A INPUT -i %s -s %s -p esp -j ACCEPT\n", wan_if, address);
+					fprintf(fp, "-A INPUT -i %s -s %s -p ah -j ACCEPT\n", wan_if, address);
+				} else {
+					fprintf(fp, "-A INPUT -s %s -p udp -m multiport --dport %d,%d -j ACCEPT\n", address, isakmp_port, nat_t_port);
+					fprintf(fp, "-A INPUT -s %s -p esp -j ACCEPT\n", address);
+					fprintf(fp, "-A INPUT -s %s -p ah -j ACCEPT\n", address);
+				}
+			}
+#ifdef RTCONFIG_IPV6
+			else if (entry->ai_family == AF_INET6 && write_ipv6 && fp_ipv6 && ipv6_enabled()) {
+				struct sockaddr_in6 *peer = (struct sockaddr_in6 *)entry->ai_addr;
+				if (!inet_ntop(AF_INET6, &peer->sin6_addr, address, sizeof(address)))
+					continue;
+				if (ipv6_any_interface) {
+					fprintf(fp_ipv6, "-A INPUT -i any -s %s -p udp -m multiport --dport %d,%d -j ACCEPT\n", address, isakmp_port, nat_t_port);
+					fprintf(fp_ipv6, "-A INPUT -i any -s %s -p esp -j ACCEPT\n", address);
+					fprintf(fp_ipv6, "-A INPUT -i any -s %s -p ah -j ACCEPT\n", address);
+				} else {
+					fprintf(fp_ipv6, "-A INPUT -s %s -p udp -m multiport --dport %d,%d -j ACCEPT\n", address, isakmp_port, nat_t_port);
+					fprintf(fp_ipv6, "-A INPUT -s %s -p esp -j ACCEPT\n", address);
+					fprintf(fp_ipv6, "-A INPUT -s %s -p ah -j ACCEPT\n", address);
+				}
+			}
+#endif
+		}
+		freeaddrinfo(results);
+	}
+}
+#endif
 
 static int ipv4_rule_is_local(const char *destination, const char *lan_ip,
 		const struct ifaddrs *addresses)
@@ -4038,17 +4128,10 @@ TRACE_PT("writing Parental Control\n");
 		 || nvram_get_int("ipsec_ig_enable")
 #endif
 			) {
-			int isakmp_port = nvram_get_int("ipsec_isakmp_port") ? : 500;
-			int nat_t_port = nvram_get_int("ipsec_nat_t_port") ? : 4500;
-
-			fprintf(fp, "-A INPUT -p udp -m multiport --dport %d,%d -j %s\n", isakmp_port, nat_t_port, "ACCEPT");
-			fprintf(fp, "-A INPUT -p esp -j %s\n", "ACCEPT");
-			fprintf(fp, "-A INPUT -p ah -j %s\n", "ACCEPT");
 #ifdef RTCONFIG_IPV6
-			if (ipv6_enabled()) {
-				fprintf(fp_ipv6, "-A INPUT -p udp -m multiport --dport %d,%d -j %s\n", isakmp_port, nat_t_port, "ACCEPT");
-				fprintf(fp_ipv6, "-A INPUT -p esp -j %s\n", "ACCEPT");
-			}
+			write_ipsec_input_rules(fp, fp_ipv6, NULL, 1, 1, 0);
+#else
+			write_ipsec_input_rules(fp, NULL, NULL, 1, 0, 0);
 #endif
 		}
 #endif
@@ -5583,16 +5666,10 @@ TRACE_PT("writing Parental Control\n");
 					continue;
 
 				wan_if = get_wan_ifname(unit);
-
-				fprintf(fp, "-A INPUT -i %s -p udp -m multiport --dport %d,%d -j %s\n", wan_if, isakmp_port, nat_t_port, "ACCEPT");
-				fprintf(fp, "-A INPUT -i %s -p esp -j %s\n", wan_if, "ACCEPT");
-				fprintf(fp, "-A INPUT -i %s -p ah -j %s\n", wan_if, "ACCEPT");
+				write_ipsec_input_rules(fp, NULL, wan_if, 1, 0, 0);
 			}
 #ifdef RTCONFIG_IPV6
-			if (ipv6_enabled()) {
-				fprintf(fp_ipv6, "-A INPUT -i %s -p udp -m multiport --dport %d,%d -j %s\n", "any", isakmp_port, nat_t_port, "ACCEPT");
-				fprintf(fp_ipv6, "-A INPUT -i %s -p esp -j %s\n", "any", "ACCEPT");
-			}
+			write_ipsec_input_rules(NULL, fp_ipv6, NULL, 0, 1, 1);
 #endif
 		}
 #endif

@@ -242,6 +242,7 @@ typedef struct pki_ca_s{
 }pki_ca_t;
 
 extern void rc_ipsec_config_init();
+extern int ipsec_firewall_profile_info(char gateways[MAX_PROF_NUM][SZ_128BUF], int *server_profile_active);
 
 #if defined(RTCONFIG_QUICKSEC)
 typedef struct qs_virtual_ip_s{
