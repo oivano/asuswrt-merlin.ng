@@ -318,6 +318,114 @@ void dnsfilter6_settings_mangle(FILE *fp) {
 	}
 }
 
+int dnsfilter_get_client_mode(const char *client_mac)
+{
+	unsigned char client_ea[ETHER_ADDR_LEN], rule_ea[ETHER_ADDR_LEN];
+	char *name, *mac, *mode, *enable;
+	char *nv, *nvp, *rule;
+	int dnsmode, defmode, count;
+#ifdef RTCONFIG_IPV6
+	int count6;
+#endif
+	dnsf_srv_entry_t dnsfsrv;
+
+	if (!nvram_get_int("dnsfilter_enable_x") || !client_mac || !ether_atoe(client_mac, client_ea))
+		return -1;
+
+#ifdef HND_ROUTER
+	nv = nvp = malloc(255 * 6 + 1);
+	if (nv) nvram_split_get("dnsfilter_rulelist", nv, 255 * 6 + 1, 5);
+#else
+	nv = nvp = strdup(nvram_safe_get("dnsfilter_rulelist"));
+#endif
+	if (!nv)
+		return -1;
+
+	defmode = nvram_get_int("dnsfilter_mode");
+	dnsmode = -1;
+	while ((rule = strsep(&nvp, "<")) != NULL) {
+		name = mac = mode = enable = NULL;
+		if (vstrsep(rule, ">", &name, &mac, &mode, &enable) < 3 || !mac || !mode ||
+		    (enable && atoi(enable) == 0) || !*mode || strlen(mac) != 17 ||
+		    strspn(mac, "0123456789abcdefABCDEF:") != 17 || !ether_atoe(mac, rule_ea) ||
+		    memcmp(client_ea, rule_ea, ETHER_ADDR_LEN) != 0)
+			continue;
+
+		dnsmode = atoi(mode);
+		if (dnsmode <= DNSF_SRV_UNFILTERED || dnsmode == defmode ||
+		    dnsmode >= _get_table_size(0)) {
+			dnsmode = -1;
+			break;
+		}
+		count = get_dns_filter(AF_INET, dnsmode, &dnsfsrv);
+#ifdef RTCONFIG_IPV6
+		count6 = dnsmode < _get_table_size(1) ? get_dns_filter(AF_INET6, dnsmode, &dnsfsrv) : 0;
+		if (count6 == 0 && dnsmode == DNSF_SRV_ROUTER)
+			count6 = 1;
+		if (count == 0 && count6 == 0)
+#else
+		if (count == 0)
+#endif
+			dnsmode = -1;
+		break;
+	}
+	free(nv);
+	return dnsmode;
+}
+
+int dnsfilter_static_lease_exists(const char *client_mac)
+{
+	char *nv, *nvp, *entry, *mac, *ip, *dns, *hostname;
+	unsigned char client_ea[ETHER_ADDR_LEN], entry_ea[ETHER_ADDR_LEN];
+	in_addr_t lan_ip, lan_mask, ip1;
+	struct in_addr dns4;
+#ifdef RTCONFIG_IPV6
+	struct in6_addr dns6;
+#endif
+	int found = 0;
+
+	if (!nvram_get_int("dhcp_static_x") || !client_mac || !ether_atoe(client_mac, client_ea))
+		return 0;
+
+	lan_ip = inet_network(nvram_safe_get("lan_ipaddr"));
+	lan_mask = inet_network(nvram_safe_get("lan_netmask"));
+	if (lan_ip == (in_addr_t)-1 || lan_mask == (in_addr_t)-1)
+		return 0;
+
+	nv = nvp = strdup(nvram_safe_get("dhcp_staticlist"));
+	if (!nv)
+		return 0;
+	while ((entry = strsep(&nvp, "<")) != NULL) {
+		mac = ip = dns = hostname = NULL;
+		if (vstrsep(entry, ">", &mac, &ip, &dns, &hostname) < 2 || !mac || !ip ||
+		    strlen(mac) != 17 || strspn(mac, "0123456789abcdefABCDEF:") != 17 ||
+		    !ether_atoe(mac, entry_ea) || memcmp(client_ea, entry_ea, ETHER_ADDR_LEN) != 0)
+			continue;
+
+		if (dns && *dns &&
+#ifdef RTCONFIG_IPV6
+		    ((inet_pton(AF_INET6, dns, &dns6) > 0 && !IN6_IS_ADDR_UNSPECIFIED(&dns6) &&
+		      !IN6_IS_ADDR_LOOPBACK(&dns6)) ||
+#endif
+		     (inet_pton(AF_INET, dns, &dns4) > 0 && dns4.s_addr != INADDR_ANY &&
+		      dns4.s_addr != INADDR_LOOPBACK && dns4.s_addr != INADDR_BROADCAST)
+#ifdef RTCONFIG_IPV6
+		    )
+#endif
+		   ) {
+			found = 1;
+			break;
+		}
+		if (*ip && (ip1 = inet_network(ip)) != (in_addr_t)-1 &&
+		    (ip1 & lan_mask) == (lan_ip & lan_mask)) {
+			found = 1;
+			break;
+		}
+	}
+	free(nv);
+	return found;
+}
+
 // Non-HND cannot DNAT to the configured server, so as a partial solution,
 // we have dnsmasq provide it through dhcp instead.
 void dnsfilter_setup_dnsmasq(FILE *fp) {
@@ -326,26 +434,42 @@ void dnsfilter_setup_dnsmasq(FILE *fp) {
 	char *name, *mac, *mode, *enable;
 	char *nv, *nvp, *b;
 	int count, dnsmode, defmode, table_size;
+#ifdef RTCONFIG_IPV6
+	int count6, table_size6;
+#endif
 	dnsf_srv_entry_t dnsfsrv;
 
 	defmode = nvram_get_int("dnsfilter_mode");
-	table_size = _get_table_size(1);
+	table_size = _get_table_size(0);
+#ifdef RTCONFIG_IPV6
+	table_size6 = _get_table_size(1);
+#endif
 
 	for (dnsmode = 1; dnsmode < table_size; dnsmode++) {
 		if (dnsmode == defmode)
 			continue;
-		count = get_dns_filter(AF_INET6, dnsmode, &dnsfsrv);
-		if (count == 0 && dnsmode == DNSF_SRV_ROUTER) {
+		count = get_dns_filter(AF_INET, dnsmode, &dnsfsrv);
+		if (count > 0) {
+			fprintf(fp, "dhcp-option=tag:dnsf%u,6,%s", dnsmode, dnsfsrv.server1);
+			if (count == 2)
+				fprintf(fp, ",%s", dnsfsrv.server2);
+			fprintf(fp, "\n");
+		}
+
+#ifdef RTCONFIG_IPV6
+		count6 = dnsmode < table_size6 ? get_dns_filter(AF_INET6, dnsmode, &dnsfsrv) : 0;
+		if (count6 == 0 && dnsmode == DNSF_SRV_ROUTER) {
 			/* Workaround dynamic router address */
 			strcpy(dnsfsrv.server1, "::");
-			count = 1;
+			count6 = 1;
 		}
-		if (count == 0)
-			continue;
-		fprintf(fp, "dhcp-option=dnsf%u,option6:23,[%s]", dnsmode, dnsfsrv.server1);
-		if (count == 2)
-			fprintf(fp, ",[%s]", dnsfsrv.server2);
-		fprintf(fp, "\n");
+		if (count6 > 0) {
+			fprintf(fp, "dhcp-option=tag:dnsf%u,option6:23,[%s]", dnsmode, dnsfsrv.server1);
+			if (count6 == 2)
+				fprintf(fp, ",[%s]", dnsfsrv.server2);
+			fprintf(fp, "\n");
+		}
+#endif
 	}
 
 	/* DNS server per client */
@@ -365,8 +489,20 @@ void dnsfilter_setup_dnsmasq(FILE *fp) {
 		    !ether_atoe(mac, ea))
 			continue;
 		dnsmode = atoi(mode);
-		/* Skip unfiltered, default, or non-IPv6 capable levels */
-		if ((dnsmode == DNSF_SRV_UNFILTERED) || (dnsmode == defmode) || (get_dns_filter(AF_INET6, dnsmode, &dnsfsrv) == 0))
+		/* Skip unfiltered, default, and invalid levels */
+		if (dnsmode <= DNSF_SRV_UNFILTERED || dnsmode == defmode || dnsmode >= table_size)
+			continue;
+#ifdef RTCONFIG_IPV6
+		count6 = dnsmode < table_size6 ? get_dns_filter(AF_INET6, dnsmode, &dnsfsrv) : 0;
+		if (count6 == 0 && dnsmode == DNSF_SRV_ROUTER)
+			count6 = 1;
+		if (get_dns_filter(AF_INET, dnsmode, &dnsfsrv) == 0 && count6 == 0)
+			continue;
+#else
+		if (get_dns_filter(AF_INET, dnsmode, &dnsfsrv) == 0)
+			continue;
+#endif
+		if (dnsfilter_static_lease_exists(mac))
 			continue;
 		fprintf(fp, "dhcp-host=%s,set:dnsf%u\n", mac, dnsmode);
 	}

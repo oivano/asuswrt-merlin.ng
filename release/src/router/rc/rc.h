@@ -2631,6 +2631,8 @@ extern void dnsfilter_settings(FILE *fp);
 extern void dnsfilter6_settings_dnat(FILE *fp);
 extern void dnsfilter6_settings_mangle(FILE *fp);
 extern void dnsfilter_setup_dnsmasq(FILE *fp);
+extern int dnsfilter_get_client_mode(const char *client_mac);
+extern int dnsfilter_static_lease_exists(const char *client_mac);
 extern void dnsfilter_dot_rules(FILE *fp);
 #ifdef HND_ROUTER
 extern void dnsfilter6_dot_rules(FILE *fp);
