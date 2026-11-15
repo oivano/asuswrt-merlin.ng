@@ -316,6 +316,9 @@ ip_conntrack_ipct_add(struct sk_buff *skb, u_int32_t hooknum,
 		return;
 
 	memset(&ipc_entry, 0, sizeof(ipc_entry));
+#ifdef CTF_PPPOE
+	ipc_entry.pppoe_sid = -1;
+#endif
 
 	/* Init the neighboring sender address */
 	memcpy(ipc_entry.sa.octet, eth_hdr(skb)->h_source, ETH_ALEN);
@@ -396,13 +399,34 @@ ip_conntrack_ipct_add(struct sk_buff *skb, u_int32_t hooknum,
 		}
 
 		if (ipc_entry.ppp_ifp){
-			struct net_device  *pppox_tx_dev=NULL;
-			ctf_ppp_t ctfppp;
 			if (ppp_get_conn_pkt_info(ipc_entry.ppp_ifp,&ctfppp)){
 				return;
 			}
 			else {
 				if(ctfppp.psk.pppox_protocol == PX_PROTO_OE){
+#ifdef CTF_PPPOE
+					struct pppox_sock *po = ctfppp.psk.po;
+					struct net_device *pppoe_netdev;
+
+					if (ipc_entry.ppp_ifp != skb_dst(skb)->dev)
+						goto PX_PROTO_PPPOE;
+
+					if (po == NULL || po->pppoe_dev == NULL)
+						return;
+					pppoe_netdev = po->pppoe_dev;
+					ipc_entry.pppoe_sid = po->pppoe_pa.sid;
+					memcpy(ipc_entry.dhost.octet, po->pppoe_pa.remote, ETH_ALEN);
+					memcpy(ipc_entry.shost.octet, pppoe_netdev->dev_addr, ETH_ALEN);
+					if (pppoe_netdev->priv_flags & IFF_802_1Q_VLAN) {
+						ipc_entry.txif = (void *)vlan_dev_real_dev(pppoe_netdev);
+						ipc_entry.vid = vlan_dev_vlan_id(pppoe_netdev);
+						ipc_entry.action |= ((vlan_dev_vlan_flags(pppoe_netdev) & 1) ?
+						                    CTF_ACTION_TAG : CTF_ACTION_UNTAG);
+					} else {
+						ipc_entry.txif = pppoe_netdev;
+						ipc_entry.action |= CTF_ACTION_UNTAG;
+					}
+#endif
 					goto PX_PROTO_PPPOE;
 				}
 #ifdef CTF_PPTP
@@ -519,11 +543,8 @@ PX_PROTO_PPPOE:
 
 #ifdef CTF_PPPOE
 	/* For pppoe interfaces fill the session id and header add/del actions */
-	ipc_entry.pppoe_sid = -1;
 	if (skb_dst(skb)->dev->flags & IFF_POINTOPOINT) {
-		/* Transmit interface and sid will be populated by pppoe module */
 		ipc_entry.action |= CTF_ACTION_PPPOE_ADD;
-		skb->ctf_pppoe_cb[0] = 2;
 		ipc_entry.ppp_ifp = skb_dst(skb)->dev;
 		ipc_entry.tuple.sid = 0;
 	} else if ((skb->dev->flags & IFF_POINTOPOINT) && (skb->ctf_pppoe_cb[0] == 1)) {
@@ -653,16 +674,6 @@ PX_PROTO_PPTP_L2TP:
 #endif
 
 	ctf_ipc_add(kcih, &ipc_entry, !IPVERSION_IS_4(ipver));
-
-#ifdef CTF_PPPOE
-	if (skb->ctf_pppoe_cb[0] == 2) {
-		ctf_ipc_t *ipct;
-		ipct = ctf_ipc_lkup(kcih, &ipc_entry, ipver == 6);
-		*(uint32 *)&skb->ctf_pppoe_cb[4] = (uint32)ipct;
-		if (ipct != NULL)
-			ctf_ipc_release(kcih, ipct);
-	}
-#endif
 
 	if (!manip && IPVERSION_IS_4(ipver))
 		ct->ctf_flags |= CTF_FLAGS_ROUTE_CACHED;
