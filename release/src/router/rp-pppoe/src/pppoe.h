@@ -318,6 +318,7 @@ typedef struct PPPoEConnectionStruct {
     int seenMaxPayload;
     int mtu;
     int mru;
+    int ifMtu;
 #endif
 } PPPoEConnection;
 
@@ -329,6 +330,12 @@ struct PacketCriteria {
     int seenACName;
     int seenServiceName;
     int gotError;
+    PPPoETag cookie;
+    PPPoETag relayId;
+#ifdef PLUGIN
+    int seenMaxPayload;
+    UINT16_t maxPayload;
+#endif
 };
 
 /* Function Prototypes */
@@ -354,6 +361,7 @@ void syncReadFromEth(PPPoEConnection *conn, int sock, int clampMss);
 char *strDup(char const *str);
 void sendPADT(PPPoEConnection *conn, char const *msg);
 void sendPADTf(PPPoEConnection *conn, char const *fmt, ...);
+void clearPADOTags(PPPoEConnection *conn);
 
 void sendSessionPacket(PPPoEConnection *conn,
 		       PPPoEPacket *packet, int len);

@@ -162,6 +162,7 @@ PPPOEConnectDevice(void)
 	close(s);
 	return -1;
     }
+    conn->ifMtu = ifr.ifr_mtu;
     close(s);
 
     if (lcp_allowoptions[0].mru > ifr.ifr_mtu - TOTAL_OVERHEAD) {
@@ -257,6 +258,7 @@ PPPOEConnectDevice(void)
     conn->sessionSocket = -1;
     /* Send PADT to reset the session unresponsive at buggy nas */
     sendPADT(conn, NULL);
+    clearPADOTags(conn);
     if (!existingSession) {
 	close(conn->discoverySocket);
 	conn->discoverySocket = -1;
@@ -335,6 +337,7 @@ PPPOEDisconnectDevice(void)
 ERROR:
     /* Send PADT to reset the session unresponsive at buggy nas */
     sendPADT(conn, NULL);
+    clearPADOTags(conn);
     if (!existingSession) {
 	close(conn->discoverySocket);
 	conn->discoverySocket = -1;
