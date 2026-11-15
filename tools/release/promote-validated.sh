@@ -21,17 +21,20 @@ OUTDIR="$SCRIPT_DIR"
 VALIDATED_FILE="$OUTDIR/validated-commits.txt"
 LOG_FILE="$OUTDIR/promotion-log.txt"
 CHANGELOG="Changelog-386.txt"
+PROMOTION_SCRIPT_PATH="tools/release/promote-validated.sh"
 RELEASE_HEADER_RE='^[0-9][^ ]*-ion'
 SKIP_SUBJECT_RE='^(fixup!|squash!|Merge |Revert |docs:|ci:|tools:|build:|changelog:|Updated documentation)'
 NON_USER_PATH_RE='^(tools/|\.circleci/|\.github/|[^/]*\.md$|Changelog-386\.txt$|\.gitignore$)'
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 DRY_RUN=false
+SYNC_CHANGELOG=false
 EXCLUDE_SHAS=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --dry-run) DRY_RUN=true ;;
+        --sync-changelog) SYNC_CHANGELOG=true ;;
         --exclude)
             [[ -z "${2:-}" ]] && { echo "ERROR: --exclude requires a SHA" >&2; exit 1; }
             EXCLUDE_SHAS+=("$2"); shift
@@ -165,6 +168,42 @@ install_curated_changelog_section() {
     mv "$temp" "$CHANGELOG"
 }
 
+sync_changelog_from_target() {
+    local dirty_paths unexpected_paths target_file target_header
+    dirty_paths=$({ git diff --name-only; git diff --cached --name-only; } | sort -u)
+    unexpected_paths=$(printf '%s\n' "$dirty_paths" | \
+        grep -vxF "$CHANGELOG" | grep -vxF "$PROMOTION_SCRIPT_PATH" || true)
+    [[ -z "$unexpected_paths" ]] || \
+        die "Tracked files other than $CHANGELOG must be clean to sync it: ${unexpected_paths//$'\n'/, }."
+    git diff --cached --quiet || \
+        die "Unstage changes before syncing $CHANGELOG."
+
+    target_file=$(mktemp)
+    git show "$TARGET_BRANCH:$CHANGELOG" > "$target_file" || {
+        rm -f "$target_file"
+        die "Unable to read $TARGET_BRANCH:$CHANGELOG."
+    }
+    target_header=$(changelog_top_header "$target_file") || {
+        rm -f "$target_file"
+        die "No release header found in $TARGET_BRANCH:$CHANGELOG."
+    }
+    [[ "$target_header" =~ ^[0-9][^[:space:]]*-ion\ \(unreleased\)$ ]] || {
+        rm -f "$target_file"
+        die "Expected a curated unreleased section on $TARGET_BRANCH, found '$target_header'."
+    }
+
+    cp "$target_file" "$CHANGELOG"
+    rm -f "$target_file"
+    if git diff --quiet -- "$CHANGELOG"; then
+        echo "$CHANGELOG already matches $TARGET_BRANCH."
+        return 0
+    fi
+
+    git add -- "$CHANGELOG"
+    git commit -q -m "changelog: mirror curated release notes" -- "$CHANGELOG"
+    echo "Mirrored $CHANGELOG from $TARGET_BRANCH to $SOURCE_BRANCH as $(git rev-parse --short=10 HEAD)."
+}
+
 # Maps a target checkpoint to its source-side cherry-pick by preserved author,
 # author timestamp, and subject. If the commit is shared by ancestry, its SHA
 # already identifies the source checkpoint.
@@ -217,6 +256,11 @@ git show-ref --verify --quiet "refs/heads/$TARGET_BRANCH" || \
 current=$(git symbolic-ref --short HEAD 2>/dev/null || echo "(detached)")
 [[ "$current" == "$SOURCE_BRANCH" ]] || \
     die "Must be on $SOURCE_BRANCH (currently on $current). Run: git checkout $SOURCE_BRANCH"
+
+if $SYNC_CHANGELOG; then
+    sync_changelog_from_target
+    exit 0
+fi
 
 CURATED_CHANGELOG=false
 CURATED_VERSION=""
@@ -415,7 +459,8 @@ if $CURATED_CHANGELOG; then
             echo "  Mirrored to $SOURCE_BRANCH as $(git rev-parse --short=10 HEAD)"
         else
             git cherry-pick --abort 2>/dev/null || true
-            echo "WARNING: could not mirror curated changelog commit; cherry-pick ${cl_sha:0:10} manually." >&2
+            sync_changelog_from_target
+            DRAFT_MIRRORED=true
         fi
     else
         echo "Curated changelog section $CURATED_VERSION is already present on $TARGET_BRANCH."
@@ -436,7 +481,7 @@ else
             echo "  Mirrored to $SOURCE_BRANCH as $(git rev-parse --short=10 HEAD)"
         else
             git cherry-pick --abort 2>/dev/null || true
-            echo "WARNING: could not mirror changelog commit to $SOURCE_BRANCH; cherry-pick ${cl_sha:0:10} manually." >&2
+            sync_changelog_from_target
         fi
     else
         echo "No user-facing changes to add to $CHANGELOG."
