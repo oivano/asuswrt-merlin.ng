@@ -99,6 +99,21 @@ function doSorter(_flag, _Method, flip){
 	showSiteTable();
 }
 
+function alignSurveyHeader(){
+	var header = document.getElementById("wlscan_header");
+	var headerTable = header.getElementsByTagName("table")[0];
+	var resultsTable = document.getElementById("aplist_table");
+
+	if(!headerTable || !resultsTable)
+		return;
+
+	header.style.left = "0px";
+	var offset = resultsTable.getBoundingClientRect().left - headerTable.getBoundingClientRect().left;
+	header.style.left = offset + "px";
+}
+
+window.onresize = alignSurveyHeader;
+
 // suit for 2 dimention array
 var sorter = {
 	"lastClick" : "", // a HTML object
@@ -217,6 +232,8 @@ function showSiteTable(){
 	else
 		document.getElementById("wlscan_table").style.marginLeft = "18px";
 
+	alignSurveyHeader();
+
 }
 
 
@@ -288,7 +305,7 @@ function rescan(){
 				<img id="SearchingIcon" style="display:none;" src="/images/InternetScan.gif">
 			</div>
 
-			<div style="margin-left:18px;margin-top:8px;">
+			<div id="wlscan_header" style="position:relative;margin-left:18px;margin-top:8px;">
 				<table style="width:670px;" border="0" cellspacing="0" cellpadding="4" align="center" class="QIS_survey">
 					<th onclick="doSorter(1, 'str', true);addBorder(this);" style="cursor:pointer;"><#Wireless_name#></th>
 					<th onclick="doSorter(2, 'num', true);addBorder(this);" width="15%" style="text-align:center;cursor:pointer;line-height:120%;"><#WLANConfig11b_Channel_itemname#></th>
