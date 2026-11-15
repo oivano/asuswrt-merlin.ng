@@ -3,10 +3,10 @@ include ../.config
 VPATH = src
 LD= $(CC)
 
-CFLAGS += -I$(TOP)/shared
+CFLAGS += -I$(TOP)/shared $(NETWORK_DAEMON_HARDEN_CFLAGS)
 CFLAGS += -I$(SRCBASE)/include
 
-LDFLAGS += -L$(TOP)/shared -lshared -L$(TOP_PLATFORM)/nvram${BCMEX}${EX7} -lnvram
+LDFLAGS += $(NETWORK_DAEMON_HARDEN_LDFLAGS) -L$(TOP)/shared -lshared -L$(TOP_PLATFORM)/nvram${BCMEX}${EX7} -lnvram
 ifeq ($(RTCONFIG_BCM_502L07P2),y)
 LDFLAGS += -L$(TOP_PLATFORM)/ethctl_lib -lethctl
 endif

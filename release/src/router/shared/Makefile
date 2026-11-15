@@ -2,7 +2,12 @@ include ../common.mak
 include $(SRCBASE)/.config
 include ../.config
 
-CFLAGS += $(if $(RTCONFIG_DEBUG),-g,-Os) -Wall $(EXTRACFLAGS) -fPIC
+CFLAGS += $(if $(RTCONFIG_DEBUG),-g,-Os) -Wall $(EXTRACFLAGS) $(NETWORK_DAEMON_HARDEN_CFLAGS) -fPIC
+ifeq ($(HND_ROUTER),y)
+LDFLAGS += $(NETWORK_DAEMON_HARDEN_LDFLAGS)
+else
+LDFLAGS += $(NETWORK_DAEMON_HARDEN_LD_FLAGS)
+endif
 #CFLAGS += $(PRIVATE_EXTRACFLAGS)
 CFLAGS += -I. -I$(TOP)/shared -I$(SRCBASE)/include
 

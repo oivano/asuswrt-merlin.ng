@@ -50,7 +50,8 @@ CFLAGS  ?= -O3
 DEBUGFLAGS:= -Wall -Wextra -Wcast-qual -Wcast-align -Wshadow \
              -Wswitch-enum -Wdeclaration-after-statement -Wstrict-prototypes \
              -Wundef -Wpointer-arith -Wstrict-aliasing=1
-CFLAGS  += $(DEBUGFLAGS) $(MOREFLAGS)
+CFLAGS  += $(DEBUGFLAGS) $(MOREFLAGS) $(NETWORK_DAEMON_HARDEN_CFLAGS) $(STACK_PROTECTOR_ALL_CFLAGS)
+LDFLAGS += $(NETWORK_DAEMON_HARDEN_LDFLAGS)
 FLAGS    = $(CPPFLAGS) $(CFLAGS) $(LDFLAGS)
 
 SRCFILES := $(sort $(wildcard *.c))
