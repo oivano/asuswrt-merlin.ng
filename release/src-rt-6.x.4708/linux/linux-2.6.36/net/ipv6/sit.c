@@ -180,6 +180,7 @@ static void ipip6_tunnel_clone_6rd(struct net_device *dev, struct sit_net *sitn)
 		t->ip6rd.relay_prefix = 0;
 		t->ip6rd.prefixlen = 16;
 		t->ip6rd.relay_prefixlen = 0;
+		t->ip6rd.br_addr = 0;
 	} else {
 		struct ip_tunnel *t0 = netdev_priv(sitn->fb_tunnel_dev);
 		memcpy(&t->ip6rd, &t0->ip6rd, sizeof(t->ip6rd));
@@ -579,9 +580,15 @@ static inline int ipip6_tunnel_rcv_check(struct sk_buff *skb,
 	    (tunnel->dev->priv_flags & IFF_ISATAP))
 		return 1;
 
-	if (ipip6_addr_to_4(&ipv6h->saddr, tunnel, &embedded) &&
-	    embedded != iph->saddr)
+	if (ipip6_addr_to_4(&ipv6h->saddr, tunnel, &embedded)) {
+		if (embedded != iph->saddr)
+			return 0;
+	}
+#ifdef CONFIG_IPV6_SIT_6RD
+	else if (tunnel->ip6rd.br_addr &&
+		   iph->saddr != tunnel->ip6rd.br_addr)
 		return 0;
+#endif
 	if (ipip6_addr_to_4(&ipv6h->daddr, tunnel, &embedded) &&
 	    embedded != iph->daddr)
 		return 0;
@@ -924,6 +931,7 @@ ipip6_tunnel_ioctl (struct net_device *dev, struct ifreq *ifr, int cmd)
 			ip6rd.relay_prefix = t->ip6rd.relay_prefix;
 			ip6rd.prefixlen = t->ip6rd.prefixlen;
 			ip6rd.relay_prefixlen = t->ip6rd.relay_prefixlen;
+			ip6rd.br_addr = t->ip6rd.br_addr;
 			if (copy_to_user(ifr->ifr_ifru.ifru_data, &ip6rd,
 					 sizeof(ip6rd)))
 				goto done;
@@ -1091,6 +1099,7 @@ ipip6_tunnel_ioctl (struct net_device *dev, struct ifreq *ifr, int cmd)
 			t->ip6rd.relay_prefix = relay_prefix;
 			t->ip6rd.prefixlen = ip6rd.prefixlen;
 			t->ip6rd.relay_prefixlen = ip6rd.relay_prefixlen;
+			t->ip6rd.br_addr = ip6rd.br_addr;
 		} else
 			ipip6_tunnel_clone_6rd(dev, sitn);
 
