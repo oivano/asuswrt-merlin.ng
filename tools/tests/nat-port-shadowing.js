@@ -29,7 +29,7 @@ const wanMasqueradeRules = firewall.split('\n').filter(line =>
     line.includes('-A POSTROUTING %s -o %s ! -s %s -j MASQUERADE'));
 assert.equal(wanMasqueradeRules.length, 10);
 for (const rule of wanMasqueradeRules)
-    assert.match(rule, /--random/);
+    assert.doesNotMatch(rule, /--random/);
 
 function shouldAutomaticallyRemap(protocol, sourcePort, destinationPort, localSource) {
     return !localSource && ['tcp', 'udp'].includes(protocol) &&
