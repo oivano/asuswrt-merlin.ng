@@ -18,14 +18,11 @@ const uiSources = uiPaths.map(file => fs.readFileSync(file, 'utf8'));
 
 const policy = optionsSource.match(/ovpn_option_is_unsafe\(const char \*option\)\s*\{([\s\S]*?)\n\}/);
 assert(policy, 'unsafe OpenVPN option classifier exists');
-const blocked = [...policy[1].matchAll(/"([^"]+)"/g)].map(match => match[1]);
-const prefixes = [];
-if (policy[1].includes('!strncmp(option, "management", 10)')) prefixes.push('management');
-if (policy[1].includes('!strncmp(option, "log", 3)')) prefixes.push('log');
+const allowed = [...policy[1].matchAll(/"([^"]+)"/g)].map(match => match[1]);
 
 function isUnsafe(option) {
     if (option.startsWith('--')) option = option.slice(2);
-    return blocked.includes(option) || prefixes.some(prefix => option.startsWith(prefix));
+    return !allowed.includes(option);
 }
 
 for (const option of [
@@ -34,12 +31,16 @@ for (const option of [
     'plugin', 'script-security', 'management', 'management-client', 'log',
     'log-append', 'status', 'writepid', 'chroot', 'setenv', 'setenv-safe',
     'config', 'cd', 'daemon', 'dev-node', 'iproute', 'pkcs12', 'askpass',
-    'tls-export-cert', 'auth-gen-token-secret', 'tmp-dir'
+    'tls-export-cert', 'auth-gen-token-secret', 'tmp-dir', 'dns-updown',
+    'engine', 'pkcs11-providers', 'providers', 'unknown-directive'
 ]) {
     assert(isUnsafe(option), `${option} must be rejected`);
 }
 assert(isUnsafe('--up'), 'double-dash option spelling must be rejected');
-for (const option of ['client', 'proto', 'remote', 'cipher', 'auth', 'redirect-gateway']) {
+for (const option of [
+    'client', 'proto', 'remote', 'cipher', 'auth', 'redirect-gateway',
+    'connect-retry', 'tls-version-min', 'verify-x509-name', 'dhcp-option'
+]) {
     assert(!isUnsafe(option), `${option} must remain importable`);
 }
 
@@ -55,9 +56,12 @@ const clientWriterEnd = setupSource.indexOf('\nvoid ovpn_write_client_keys', cli
 assert(clientWriterStart >= 0 && clientWriterEnd > clientWriterStart, 'client config writer exists');
 const clientWriter = setupSource.slice(clientWriterStart, clientWriterEnd);
 const customIndex = clientWriter.indexOf('write_client_custom(fp, cconf->custom)');
+const dnsDisableIndex = clientWriter.indexOf('dns-updown disable');
 const upIndex = clientWriter.indexOf('up \'ovpn-up %d client\'');
 const scriptSecurityIndex = clientWriter.indexOf('script-security 2');
 assert(customIndex >= 0 && customIndex < upIndex, 'custom config is written before router hooks');
+assert(dnsDisableIndex > customIndex && dnsDisableIndex < upIndex,
+    'DNS user hooks are disabled after custom config and before router hooks');
 assert(upIndex >= 0 && scriptSecurityIndex > upIndex,
     'router hooks and script-security follow custom config');
 for (const [index, source] of uiSources.entries()) {
