@@ -135,6 +135,8 @@ br_brc_add(unsigned char *ea, struct net_bridge_port *source, struct sk_buff *sk
 static struct kmem_cache *br_fdb_cache __read_mostly;
 static int fdb_insert(struct net_bridge *br, struct net_bridge_port *source,
 		      const unsigned char *addr);
+#define BR_FDB_MAX_ENTRIES 4096
+static atomic_t br_fdb_entries = ATOMIC_INIT(0);
 
 static u32 fdb_salt __read_mostly;
 
@@ -189,6 +191,8 @@ static void fdb_rcu_free(struct rcu_head *head)
 static inline void fdb_delete(struct net_bridge_fdb_entry *f)
 {
 	hlist_del_rcu(&f->hlist);
+	if (!f->is_static)
+		atomic_dec(&br_fdb_entries);
 
 #ifdef HNDCTF
 	/* Delete the corresponding brc entry when it expires
@@ -478,6 +482,12 @@ static struct net_bridge_fdb_entry *fdb_create(struct hlist_head *head,
 {
 	struct net_bridge_fdb_entry *fdb;
 
+	if (!is_local &&
+	    atomic_inc_return(&br_fdb_entries) > BR_FDB_MAX_ENTRIES) {
+		atomic_dec(&br_fdb_entries);
+		return NULL;
+	}
+
 	fdb = kmem_cache_alloc(br_fdb_cache, GFP_ATOMIC);
 	if (fdb) {
 		memcpy(fdb->addr.addr, addr, ETH_ALEN);
@@ -493,7 +503,8 @@ static struct net_bridge_fdb_entry *fdb_create(struct hlist_head *head,
 		if (!is_local && (source->state == BR_STATE_FORWARDING))
 			br_brc_add((unsigned char *)addr, source, skb);
 #endif /* HNDCTF */
-	}
+	} else if (!is_local)
+		atomic_dec(&br_fdb_entries);
 	return fdb;
 }
 
