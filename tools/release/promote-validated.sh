@@ -347,9 +347,34 @@ ANCHOR_PAIR=$(find_promotion_anchors) || \
     die "Unable to determine a shared or tagged promotion checkpoint."
 read -r TARGET_ANCHOR SOURCE_ANCHOR ANCHOR_KIND <<< "$ANCHOR_PAIR"
 
-mapfile -t GAP_SHAS < <(
+mapfile -t RANGE_SHAS < <(
     git log --format="%H" --reverse --no-merges "$SOURCE_ANCHOR..$SOURCE_BRANCH"
 )
+mapfile -t PATCH_UNIQUE_SHAS < <(
+    git cherry "$TARGET_BRANCH" "$SOURCE_BRANCH" "$SOURCE_ANCHOR" |
+        awk '$1 == "+" { print $2 }'
+)
+declare -A PATCH_UNIQUE_MAP
+for sha in "${PATCH_UNIQUE_SHAS[@]}"; do
+    PATCH_UNIQUE_MAP["$sha"]="1"
+done
+
+declare -a GAP_SHAS
+N_ALREADY_PRESENT=0
+N_CHANGELOG_ONLY=0
+for sha in "${RANGE_SHAS[@]}"; do
+    if [[ -z "${PATCH_UNIQUE_MAP[$sha]:-}" ]]; then
+        (( N_ALREADY_PRESENT++ )) || true
+        continue
+    fi
+
+    files=$(git diff-tree --no-commit-id --name-only -r "$sha")
+    if [[ "$files" == "$CHANGELOG" ]]; then
+        (( N_CHANGELOG_ONLY++ )) || true
+        continue
+    fi
+    GAP_SHAS+=("$sha")
+done
 TOTAL=${#GAP_SHAS[@]}
 
 if [[ $TOTAL -eq 0 ]]; then
@@ -359,6 +384,7 @@ fi
 
 echo "Checkpoint ($ANCHOR_KIND): $TARGET_BRANCH ${TARGET_ANCHOR:0:10} ↔ $SOURCE_BRANCH ${SOURCE_ANCHOR:0:10}"
 echo "Gap: commits after ${SOURCE_ANCHOR:0:10} on $SOURCE_BRANCH → $TARGET_BRANCH  ($TOTAL commit(s))"
+echo "  Already patch-equivalent: $N_ALREADY_PRESENT   Changelog-only: $N_CHANGELOG_ONLY"
 echo ""
 
 # ── Classify and list ─────────────────────────────────────────────────────────
