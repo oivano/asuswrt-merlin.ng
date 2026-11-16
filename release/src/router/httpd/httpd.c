@@ -4015,10 +4015,7 @@ reload_cert:
 
 					handle_request();
 				}
-				errno = 0;
 				fflush(conn_fp);
-				if (ferror(conn_fp))
-					httpd_slow_source_block(&request_peer);
 				request_timed_out = httpd_request_deadline_stop();
 				request_deadline_started = 0;
 				if (request_timed_out) {

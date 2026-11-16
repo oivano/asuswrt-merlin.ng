@@ -75,7 +75,8 @@ assert(responseStart >= 0 && responseEnd > responseStart);
 assert.match(responseHelper, /clearerr\(conn_fp\);\s*httpd_request_deadline_start\(timeout, 0, fileno\(conn_fp\)\);\s*request_headers_complete = 1;\s*httpd_response_size = -1;/);
 assert.match(source, /send_headers\( int status, char\* title, char\* extra_header, char\* mime_type, int fromapp\)\s*\{[\s\S]*?httpd_response_deadline_start\(\);/);
 assert.match(source, /send_token_headers\( int status, char\* title, char\* extra_header, char\* mime_type, int fromapp\)\s*\{[\s\S]*?httpd_response_deadline_start\(\);/);
-assert.match(source, /errno = 0;\s*fflush\(conn_fp\);\s*if \(ferror\(conn_fp\)\)\s*httpd_slow_source_block\(&request_peer\);\s*request_timed_out = httpd_request_deadline_stop\(\);/);
+assert.match(source, /fflush\(conn_fp\);\s*request_timed_out = httpd_request_deadline_stop\(\);/);
+assert.doesNotMatch(source, /if \(ferror\(conn_fp\)\)\s*httpd_slow_source_block\(&request_peer\);/);
 assert.match(source, /if \(r == 0 && request_deadline_expired\)\s*return -1;/);
 
 const handlerStart = source.indexOf('handle_request(void)');
