@@ -1,3 +1,7 @@
+ion release asuswrt merlin changelog
+========================
+
+
 386.16-ion (unreleased)
   - FIXED:   Addressed CVEs across the kernel and userland, including:
              Kernel networking: CVE-2004-0230, CVE-2011-2699,
@@ -59,6 +63,10 @@
   - FIXED:   VPN Status now correctly reports IPsec tunnel information and
              refreshes; restored IPsec routing rules after WAN changes.
   - ADDED:   DNSCrypt settings on the Ethernet WAN page.
+  - FIXED:   DNS Director per-client IPv4 filtering, which had been
+             effectively broken since its introduction: DHCP now advertises
+             each client's selected DNS server, and applying changes refreshes
+             the firewall and dnsmasq configuration.
   - CHANGED: FRR WebUI status and configuration now use native FRR sockets
              and configuration-backed settings, with FRR_CONFIG_DIR support;
              refreshed the Advanced VPN Client page and routing-page layout.
