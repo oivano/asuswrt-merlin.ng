@@ -1657,6 +1657,7 @@ extern int is_vpnc_dns_active(void);
 #define WAIT_FOR_NTP_READY_LOOP (5)
 extern void rc_ipsec_nvram_convert_check(void);
 extern void rc_ipsec_config_init(void);
+extern int rc_ipsec_client_profile_enabled(void);
 extern void run_ipsec_firewall_scripts(void);
 extern int ipsec_updown_main(int argc, char *argv[]);
 #endif
