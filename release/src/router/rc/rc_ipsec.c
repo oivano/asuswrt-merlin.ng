@@ -2235,6 +2235,7 @@ static int ipsec_prepare_config_dirs(void)
 
 void rc_ipsec_config_init(void)
 {
+	int cur_bitmap_en[2] = {0, 0};
     memset((void *)&samba_prof, 0, sizeof(samba_prof));
     memset((void *)&prof[0][0], 0, sizeof(prof));
     //memset((void *)&ca_tab[0], 0, sizeof(ca_tab));
@@ -2248,6 +2249,11 @@ void rc_ipsec_config_init(void)
     /*ipsec.conf init*/    
     rc_ipsec_conf_default_init();
     rc_ipsec_psk_xauth_rw_init();
+	rc_ipsec_nvram_convert_check();
+	pre_ipsec_prof_set();
+	get_bitmap_scan(cur_bitmap_en);
+	if(cur_bitmap_en[PROF_CLI] != 0)
+		nvram_set_int("ipsec_client_enable", 1);
     /*ipsec.secrets init*/
     if(nvram_get_int("ipsec_server_enable") || nvram_get_int("ipsec_client_enable")
 #ifdef RTCONFIG_INSTANT_GUARD
@@ -2292,6 +2298,31 @@ void get_bitmap_scan(int *cur_bitmap_en)
 	}
 	return;
 }
+
+int rc_ipsec_client_profile_enabled(void)
+{
+	char key[32], profile[SZ_BUF], *next, *field;
+	int unit, field_index;
+
+	for (unit = 1; unit <= MAX_PROF_NUM; unit++) {
+		snprintf(key, sizeof(key), "ipsec_profile_client_%d", unit);
+		if (!ipsec_profile_valid(nvram_safe_get(key), 0))
+			continue;
+		strlcpy(profile, nvram_safe_get(key), sizeof(profile));
+		next = profile;
+		for (field_index = 0; field_index < 37; field_index++) {
+			if (strsep(&next, ">") == NULL)
+				break;
+		}
+		if (field_index != 37)
+			continue;
+		field = strsep(&next, ">");
+		if (field && atoi(field) == IPSEC_CONN_EN_UP)
+			return 1;
+	}
+	return 0;
+}
+
 void run_ipsec_firewall_scripts(void)
 {
 	ipsec_run_script(FILE_PATH_IPSEC_IPTABLES_RULE);

@@ -2621,7 +2621,8 @@ TRACE_PT("3g begin with %s.\n", wan_ifname);
 	_dprintf("%s(): End.\n", __FUNCTION__);
 
 #ifdef RTCONFIG_IPSEC
-	if (nvram_get_int("ipsec_server_enable") || nvram_get_int("ipsec_client_enable")
+	if (nvram_get_int("ipsec_server_enable") || nvram_get_int("ipsec_client_enable") ||
+	    rc_ipsec_client_profile_enabled()
 #ifdef RTCONFIG_INSTANT_GUARD
 		 || nvram_get_int("ipsec_ig_enable")
 #endif
@@ -4207,7 +4208,8 @@ NOIP:
 #endif
 
 #ifdef RTCONFIG_IPSEC
-	if (nvram_get_int("ipsec_server_enable") || nvram_get_int("ipsec_client_enable")
+	if (nvram_get_int("ipsec_server_enable") || nvram_get_int("ipsec_client_enable") ||
+	    rc_ipsec_client_profile_enabled()
 #ifdef RTCONFIG_INSTANT_GUARD
 		 || nvram_get_int("ipsec_ig_enable")
 #endif
