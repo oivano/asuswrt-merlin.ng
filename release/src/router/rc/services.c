@@ -3658,6 +3658,10 @@ void start_dnscrypt_proxy(void)
 	FILE *fp;
 	char *nv, *nvp, *name;
 	int pid;
+#ifndef RTCONFIG_AVOID_TZ_ENV
+	char *saved_tz;
+	int had_tz;
+#endif
 
 	TRACE_PT("begin\n");
 
@@ -3741,12 +3745,30 @@ void start_dnscrypt_proxy(void)
 
 	/* Go's time package ignores the system localtime file; give it TZ explicitly */
 #ifndef RTCONFIG_AVOID_TZ_ENV
+	{
+		const char *current_tz = getenv("TZ");
+		had_tz = current_tz != NULL;
+		saved_tz = current_tz ? strdup(current_tz) : NULL;
+		if (had_tz && !saved_tz)
+			return;
+	}
 	time_zone_x_mapping();
-	setenv("TZ", ":/etc/localtime", 1);
+	if (setenv("TZ", ":/etc/localtime", 1) != 0) {
+		free(saved_tz);
+		return;
+	}
 #endif
 
 	pid = 0;
 	_eval(argv, NULL, 0, &pid);
+#ifndef RTCONFIG_AVOID_TZ_ENV
+	if (had_tz)
+		setenv("TZ", saved_tz, 1);
+	else
+		unsetenv("TZ");
+	tzset();
+	free(saved_tz);
+#endif
 	if (pid > 0) {
 		if ((fp = fopen(DNSCRYPT_PIDFILE, "w")) != NULL) {
 			fprintf(fp, "%d\n", pid);
