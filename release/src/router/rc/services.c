@@ -13488,6 +13488,19 @@ again:
 	}
 #endif
 
+#ifdef RTCONFIG_IONUPDATE
+	if (strcmp(script, "ion_firmware_check") == 0) {
+		if ((action & RC_SERVICE_START) && !pids("ion_firmware_check")) {
+			char *check_argv[] = { "/sbin/ion_firmware_check", NULL };
+			int pid;
+			nvram_set_int("ion_fw_check_run", nvram_get_int("ion_fw_check_run") + 1);
+			nvram_set("ion_fw_check_status", "checking");
+			_eval(check_argv, NULL, 0, &pid);
+		}
+		goto skip;
+	}
+#endif
+
 	if (strcmp(script, "reboot") == 0 || strcmp(script,"rebootandrestore")==0) {
 		if (wait_action_idle(10)) {
 			set_action(ACT_REBOOT);

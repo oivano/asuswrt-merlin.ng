@@ -98,6 +98,7 @@ var webs_state_error = '<% nvram_get("webs_state_error"); %>';
 var webs_state_info = '<% nvram_get("webs_state_info_am"); %>';
 var webs_state_REQinfo = '<% nvram_get("webs_state_REQinfo"); %>';
 var webs_state_flag = '<% nvram_get("webs_state_flag"); %>';
+var ionupdate_support = (based_modelid == "DSL-AC68U");
 
 var confirm_show = '<% get_parameter("confirm_show"); %>';
 var nt_flag = '<% get_parameter("flag"); %>';
@@ -399,7 +400,17 @@ function initial(){
 	if(isSupport("is_ax5400_i1"))
 		$("table").remove("#secur_stab_setting");
 
-	if(no_update_support){	//no live update
+	if(ionupdate_support){
+		$("table").remove("#auto_upgrade_setting");
+		document.getElementById("update_div").style.display = "";
+		document.getElementById("linkpage_div").style.display = "none";
+		document.getElementById("fw_tr").style.display = "";
+		document.getElementById("fwcheck_tr").style.display = "";
+		document.getElementById("fw_version_tr").style.display = "";
+		document.getElementById("update").value = "Check for updates";
+		refresh_ion_firmware_status(40);
+	}
+	else if(no_update_support){	//no live update
 		$("table").remove("#auto_upgrade_setting");
 		document.getElementById("update_div").style.display = "none";
 		document.getElementById("fw_tr").style.display = "none";
@@ -647,7 +658,111 @@ function cfgsync_firmware_upgrade(){
 	});
 }
 
+function show_ion_release_notes(tag, url){
+	var downloadUrl = /^https:\/\/github\.com\/oivano\/asuswrt-merlin\.ng\/releases\/download\/[^?#]+\.trx$/.test(url) ? url : "";
+	if($(".confirm_block").length > 0)
+		$(".confirm_block").remove();
+	confirm_asus({
+		title: "Release Note",
+		contentA: tag,
+		contentC: "",
+		left_button: downloadUrl ? "Visit download site" : "",
+		left_button_callback: function(){window.open(downloadUrl);},
+		left_button_args: {},
+		right_button: "<#CTL_close#>",
+		right_button_callback: function(){confirm_cancel();},
+		right_button_args: {},
+		iframe: "get_release_note0.asp",
+		margin: "100px 0px 0px 25px",
+		note_display_flag: note_display
+	});
+}
+
+function append_ion_release_notes($state, tag, url){
+	$state.append(document.createTextNode(" "));
+	$("<a>").attr({"href": "#", "rel": "noopener noreferrer"}).text("Release notes").on("click", function(event){
+		event.preventDefault();
+		show_ion_release_notes(tag, url);
+	}).appendTo($state);
+}
+
+function render_ion_firmware_status(status, tag, url, releaseUrl){
+	var $state = $("#update_states").empty().show();
+	document.getElementById("update_scan").style.display = "none";
+	document.getElementById("update").disabled = (status == "checking");
+
+	if(status == "checking"){
+		$state.text("Checking GitHub releases...");
+		return;
+	}
+	if(status == "available"){
+		$state.text("Firmware " + tag + " is available. ");
+		append_ion_release_notes($state, tag, url);
+		show_ion_release_notes(tag, url);
+		return;
+	}
+	if(status == "current"){
+		if(/^\d+$/.test(extendno))
+			$state.text("Firmware is up to date (" + tag + ").");
+		else
+			$state.text("Development build; no newer stable release than " + tag + ".");
+		append_ion_release_notes($state, tag, "");
+	}
+	else if(status == "error"){
+		$state.text("Unable to check GitHub releases.");
+	}
+}
+
+function refresh_ion_firmware_status(remaining){
+	var state = httpApi.nvramGet(["ion_fw_check_status", "ion_fw_check_tag", "ion_fw_download_url", "ion_fw_release_url"], true);
+	if(state.ion_fw_check_status == "checking" && remaining > 0){
+		render_ion_firmware_status("checking", "", "");
+		setTimeout(function(){refresh_ion_firmware_status(remaining - 1);}, 1000);
+		return;
+	}
+	if(state.ion_fw_check_status == "checking")
+		state.ion_fw_check_status = "error";
+	render_ion_firmware_status(state.ion_fw_check_status, state.ion_fw_check_tag, state.ion_fw_download_url, state.ion_fw_release_url);
+}
+
+function poll_ion_firmware_check(previousRun, remaining){
+	var state = httpApi.nvramGet(["ion_fw_check_run", "ion_fw_check_status", "ion_fw_check_tag", "ion_fw_download_url", "ion_fw_release_url"], true);
+	if(state.ion_fw_check_run == previousRun && state.ion_fw_check_status != "checking"){
+		if(remaining > 0){
+			setTimeout(function(){poll_ion_firmware_check(previousRun, remaining - 1);}, 1000);
+			return;
+		}
+		render_ion_firmware_status("error", "", "");
+		return;
+	}
+	if(state.ion_fw_check_status == "checking" && remaining > 0){
+		setTimeout(function(){poll_ion_firmware_check(previousRun, remaining - 1);}, 1000);
+		return;
+	}
+	if(state.ion_fw_check_status == "checking")
+		state.ion_fw_check_status = "error";
+	render_ion_firmware_status(state.ion_fw_check_status, state.ion_fw_check_tag, state.ion_fw_download_url, state.ion_fw_release_url);
+}
+
+function request_ion_firmware_check(){
+	document.getElementById("update").disabled = true;
+	document.getElementById("update_states").style.display = "";
+	document.getElementById("update_states").innerHTML = "Checking GitHub releases...";
+	document.getElementById("update_scan").style.display = "";
+	var previousRun = httpApi.nvramGet(["ion_fw_check_run"], true).ion_fw_check_run;
+	httpApi.nvramSet({
+		"action_mode": "apply",
+		"rc_service": "start_ion_firmware_check"
+	});
+	setTimeout(function(){poll_ion_firmware_check(previousRun, 40);}, 500);
+}
+
 function detect_update(){
+	if(ionupdate_support){
+		request_ion_firmware_check();
+		return;
+	}
+
 	var download_info = 0;
 
 	if(sw_mode != "1" || (link_status == "2" && link_auxstatus == "0") || (link_status == "2" && link_auxstatus == "2")){

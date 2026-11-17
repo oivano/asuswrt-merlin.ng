@@ -4600,8 +4600,15 @@ struct nvram_tuple router_defaults[] = {
 	{ "dms_web","0", CKN_STR1, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },
 #endif
 
-#ifdef RTCONFIG_MERLINUPDATE
+#if defined(RTCONFIG_MERLINUPDATE) || defined(RTCONFIG_IONUPDATE)
 	{ "firmware_check_enable", "1", CKN_STR1, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },
+#endif
+#ifdef RTCONFIG_IONUPDATE
+	{ "ion_fw_check_status", "idle", CKN_STR16, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },
+	{ "ion_fw_check_run", "0", CKN_STR10, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },
+	{ "ion_fw_check_tag", "", CKN_STR64, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },
+	{ "ion_fw_download_url", "", CKN_STR512, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },
+	{ "ion_fw_release_url", "", CKN_STR512, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },
 #endif
 
 #ifdef RTCONFIG_SSH

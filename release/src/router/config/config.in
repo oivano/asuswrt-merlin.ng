@@ -2043,6 +2043,10 @@ config RTCONFIG_MERLINUPDATE
 	bool "Check for new firmware version - Merlin-only"
 	default n
 
+config RTCONFIG_IONUPDATE
+	bool "Check for new firmware version - GitHub releases"
+	default n
+
 config RTCONFIG_OPENSSL11
 	bool "OpenSSL 1.1.x"
 	default n
