@@ -183,6 +183,7 @@ function show_dnsfilter_list(){
 			var ruleArray = dnsfilter_rule_list_row[i].split('&#62');
 			var clientMac = ruleArray[1].toUpperCase();
 			var rule_mode = ruleArray[2];
+			userIconBase64 = "NoIcon";
 
                         var clientIconID = "clientIcon_" + clientMac.replace(/\:/g, "");
 
@@ -193,7 +194,7 @@ function show_dnsfilter_list(){
 				dnsfilter_rule_list_row[clientMac] = clientName;
 			}
 			else {
-				clientName = clientMac;
+				clientName = getCustomClientName(clientMac) || clientMac;
 				deviceType = 0;
 				deviceVender = "";
 			}
@@ -201,27 +202,21 @@ function show_dnsfilter_list(){
 			code +='<td width="50%" title="'+clientName+'">';
 
 			code += '<table style="width:100%;"><tr><td style="width:40%;height:56px;border:0px;float:right;">';
-			if(clientList[clientMac] == undefined) {
-				code += '<div id="' + clientIconID + '" class="clientIcon type0"></div>';
+			if(usericon_support)
+				userIconBase64 = getUploadIcon(clientMac.replace(/\:/g, ""));
+			if(userIconBase64 != "NoIcon") {
+				code += '<div id="' + clientIconID + '" style="text-align:center;"><img class="imgUserIcon_card" src="' + userIconBase64 + '"></div>';
 			}
-			else {
-				if(usericon_support) {
-					userIconBase64 = getUploadIcon(clientMac.replace(/\:/g, ""));
+			else if(deviceType != "0" || deviceVender == "") {
+				code += '<div id="' + clientIconID + '" class="clientIcon type' + deviceType + '"></div>';
+			}
+			else if(deviceVender != "" ) {
+				var venderIconClassName = getVenderIconClassName(deviceVender.toLowerCase());
+				if(venderIconClassName != "" && !downsize_4m_support) {
+					code += '<div id="' + clientIconID + '" class="venderIcon ' + venderIconClassName + '"></div>';
 				}
-				if(userIconBase64 != "NoIcon") {
-					code += '<div id="' + clientIconID + '" style="text-align:center;"><img class="imgUserIcon_card" src="' + userIconBase64 + '"></div>';
-				}
-				else if(deviceType != "0" || deviceVender == "") {
+				else {
 					code += '<div id="' + clientIconID + '" class="clientIcon type' + deviceType + '"></div>';
-				}
-				else if(deviceVender != "" ) {
-					var venderIconClassName = getVenderIconClassName(deviceVender.toLowerCase());
-					if(venderIconClassName != "" && !downsize_4m_support) {
-						code += '<div id="' + clientIconID + '" class="venderIcon ' + venderIconClassName + '"></div>';
-					}
-					else {
-						code += '<div id="' + clientIconID + '" class="clientIcon type' + deviceType + '"></div>';
-					}
 				}
 			}
 			code += '</td><td id="client_info_'+i+'" style="width:65%;text-align:left;border:0;">';
