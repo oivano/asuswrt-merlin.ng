@@ -10246,7 +10246,9 @@ wdp:
 		modem_flow_check(modem_unit);
 #endif
 #endif
-#if 0
+#ifdef RTCONFIG_IONUPDATE
+	auto_ion_firmware_check();
+#elif 0
 	auto_firmware_check();
 #elif RTCONFIG_MERLINUPDATE
 	auto_firmware_check_merlin();

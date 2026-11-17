@@ -2193,7 +2193,10 @@ static const applets_t applets[] = {
 #endif
 	{ "disk_remove",		diskremove_main			},
 #endif
-	{ "firmware_check",		firmware_check_main		},
+	{ "firmware_check", 		firmware_check_main		},
+#ifdef RTCONFIG_IONUPDATE
+	{ "ion_firmware_check",  	firmware_release_check_main	},
+#endif
 #if defined(RTCONFIG_FRS_LIVE_UPDATE)
 	{ "firmware_check_update",	firmware_check_update_main	},
 #endif

@@ -1810,6 +1810,10 @@ extern void led_DSLWAN(int force_update);
 #ifdef RTCONFIG_MERLINUPDATE
 extern void auto_firmware_check_merlin();
 #endif
+#ifdef RTCONFIG_IONUPDATE
+extern void auto_ion_firmware_check(void);
+extern int firmware_release_check_main(int argc, char *argv[]);
+#endif
 
 // check_watchdog.c
 extern int check_watchdog_main(int argc, char *argv[]);
