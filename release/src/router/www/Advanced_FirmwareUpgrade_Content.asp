@@ -391,9 +391,6 @@ function initial(){
 		}
 	}
 
-	if(isSupport("is_ax5400_i1"))
-		$("table").remove("#secur_stab_setting");
-
 	if(no_update_support){	//no live update
 		$("table").remove("#auto_upgrade_setting");
 		document.getElementById("update_div").style.display = "none";
@@ -1419,38 +1416,6 @@ function toggle_fw_check(state) {
 			<tr>
 				<td colspan="2">
 					<#FW_auto_upgrade_desc#>
-				</td>
-			</tr>
-		</table>
-
-		<table id="secur_stab_setting" width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3" class="FormTable">
-			<thead>
-			<tr>
-				<td colspan="2"><#Secur_Stab_auto_upgrade#></td>
-			</tr>
-			</thead>
-			<tr>
-				<th><#Secur_Stab_auto_upgrade#></th>
-				<td>
-					<div align="center" class="left" style="width:75px; float:left; cursor:pointer;" id="switch_security_update_enable"></div>
-					<script type="text/javascript">
-					$('#switch_security_update_enable').iphoneSwitch(httpApi.securityUpdate.get(),
-						function(){
-							//on
-                            httpApi.securityUpdate.set(1);
-						},
-						function(){
-							//off
-							httpApi.securityUpdate.set(0);
-						}
-					);
-					</script>
-				</td>
-			</tr>
-
-			<tr>
-				<td colspan="2">
-					<#Secur_Stab_auto_upgrade_desc#>
 				</td>
 			</tr>
 		</table>
