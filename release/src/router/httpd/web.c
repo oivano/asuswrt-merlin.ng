@@ -12721,6 +12721,7 @@ apply_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 		else if(!strcmp(current_url, "Main_Analysis_Content.asp") && (
 			   strncasecmp(system_cmd, "ping", 4) == 0
 			|| strncasecmp(system_cmd, "traceroute", 10) == 0
+			|| strncasecmp(system_cmd, "mtr", 3) == 0
 			|| strncasecmp(system_cmd, "nslookup", 8) == 0
 		)){
 			/* validate input */
@@ -12762,8 +12763,7 @@ apply_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 				sel = 0;
 			}
 
-			/* Insert "-I WAN_IFACE" or "-i WAN_IFACE" for ping and
-			 * traceroute command respectively if necessary.
+			/* Insert interface binding for supported network tools when necessary.
 			 */
 			if (sel) {
 				*p = '\0';
@@ -12771,6 +12771,8 @@ apply_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 					snprintf(tmp, sizeof(tmp), "-I %s", wan);
 				else if (!strncasecmp(system_cmd, "traceroute", 10))
 					snprintf(tmp, sizeof(tmp), "-i %s", wan);
+				else if (!strncasecmp(system_cmd, "mtr", 3))
+					snprintf(tmp, sizeof(tmp), "-I %s", wan);
 				snprintf(SystemCmd, sizeof(SystemCmd), "%s %s %s", system_cmd, tmp, p + 1);
 			} else {
 				strncpy(SystemCmd, system_cmd, sizeof(SystemCmd));

@@ -69,7 +69,7 @@ function validForm(){
 		return false;
 	}
 
-	if(document.form.cmdMethod.value == "ping"){
+	if(document.form.cmdMethod.value == "ping" || document.form.cmdMethod.value == "mtr"){
 		if(!validator.range(document.form.pingCNT, 1, 99))
 			return false;
 	}
@@ -93,6 +93,12 @@ function updateOptions(){
 		}
 		document.form.SystemCmd.value = "ping -c " + document.form.pingCNT.value + " " + document.form.destIP.value;
 	}
+	else if(document.form.cmdMethod.value == "mtr")
+	{
+		if(document.form.pingCNT.value == "")
+			document.form.pingCNT.value = 20;
+		document.form.SystemCmd.value = "mtr -r -w -b -z -c " + document.form.pingCNT.value + " " + document.form.destIP.value;
+	}
 	else
 		document.form.SystemCmd.value = document.form.cmdMethod.value + " " + document.form.destIP.value;
 	
@@ -108,7 +114,13 @@ function updateOptions(){
 function hideCNT(_val){
 	if(_val == "ping"){
 		document.getElementById("pingCNT_tr").style.display = "";
+		document.form.pingCNT.placeholder = "5";
 		document.getElementById("cmdDesc").innerHTML = "<#NetworkTools_Ping#>";
+	}
+	else if(_val == "mtr"){
+		document.getElementById("pingCNT_tr").style.display = "";
+		document.form.pingCNT.placeholder = "20";
+		document.getElementById("cmdDesc").innerHTML = "<#NetworkTools_tr#>";
 	}
 	else if(_val == "traceroute"){
 		document.getElementById("pingCNT_tr").style.display = "none";
@@ -266,6 +278,7 @@ function pullLANIPList(obj){
 												<select id="cmdMethod" class="input_option" name="cmdMethod" onchange="hideCNT(this.value);">
 													<option value="ping" selected>Ping</option>
 													<option value="traceroute">Traceroute</option>
+													<option value="mtr">MTR</option>
 													<option value="nslookup">Nslookup</option>
  												</select>
 											</td>										
@@ -290,7 +303,7 @@ function pullLANIPList(obj){
 										<tr id="pingCNT_tr">
 											<th width="20%"><#NetworkTools_Count#></th>
 											<td>
-												<input type="text" name="pingCNT" class="input_3_table" maxlength="2" value="" onKeyPress="return validator.isNumber(this, event);" placeholder="5" autocorrect="off" autocapitalize="off">
+													<input type="text" name="pingCNT" class="input_3_table" maxlength="2" value="" onKeyPress="return validator.isNumber(this, event);" placeholder="5" autocorrect="off" autocapitalize="off">
 											</td>
 										</tr>
 									</table>
