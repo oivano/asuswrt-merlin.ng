@@ -540,6 +540,16 @@ var card_client_variable = {
 			return decodeURIComponent('<% nvram_char_to_ascii("", "MULTIFILTER_MACFILTER_DAYTIME"); %>').replace(/&#62/g, ">").replace(/&#60/g, "<")
 	})()
 };
+function getCustomClientName(mac) {
+	var customClientList = card_client_variable.custom_clientlist.split("<");
+	for(var i = 0; i < customClientList.length; i++) {
+		var customClient = customClientList[i].split(">");
+		if(customClient.length > 1 && customClient[1].toUpperCase() == mac.toUpperCase())
+			return htmlEnDeCode.htmlEncode(customClient[0].trim());
+	}
+	return "";
+}
+
 function popClientListEditTable(event) {
 	var mac = event.data.mac;
 	var obj = event.data.obj;
