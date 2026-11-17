@@ -25,6 +25,7 @@ else{
 var webs_state_info = '<% nvram_get("webs_state_info_am"); %>';
 var webs_state_info_beta = '<% nvram_get("webs_state_info_beta"); %>';
 var webs_state_flag = '<% nvram_get("webs_state_flag"); %>';
+var ionupdate_support = (based_modelid == "DSL-AC68U");
 
 var st_ftp_mode = '<% nvram_get("st_ftp_mode"); %>';
 var st_ftp_force_mode = '<% nvram_get("st_ftp_force_mode"); %>';
@@ -510,8 +511,15 @@ var notification = {
 			if(webs_state_flag == 1 || webs_state_flag == 2){
 				notification.array[1] = 'noti_upgrade';
 				notification.upgrade = 1;
-				notification.desc[1] = 'A new firmware version ('+webs_state_info.replace('_','.').replace('_0','')+') is now available.';
-				if(!live_update_support || !HTTPS_support){
+				if(ionupdate_support)
+					notification.desc[1] = 'A new firmware version (' + webs_state_info + ') is now available.';
+				else
+					notification.desc[1] = 'A new firmware version ('+webs_state_info.replace('_','.').replace('_0','')+') is now available.';
+				if(ionupdate_support){
+					notification.action_desc[1] = '<#ASUSGATE_act_update#>';
+					notification.clickCallBack[1] = "location.href = 'Advanced_FirmwareUpgrade_Content.asp?confirm_show=0'";
+				}
+				else if(!live_update_support || !HTTPS_support){
 					notification.action_desc[1] = '<a id="link_to_downlodpage" target="_blank" href="'+get_helplink()+'" style="color:#FFCC00;"><#ASUSGATE_act_update#></a>';
 					notification.clickCallBack[1] = "";
 				}

@@ -3360,6 +3360,13 @@ define RouterOptions
 		sed -i "/RTCONFIG_MERLINUPDATE/d" $(1); \
 		echo "RTCONFIG_MERLINUPDATE=y" >>$(1); \
 	fi;
+	if [ "$(IONUPDATE)" = "y" ]; then\
+		sed -i "/RTCONFIG_IONUPDATE/d" $(1); \
+		echo "RTCONFIG_IONUPDATE=y" >>$(1); \
+	else \
+		sed -i "/RTCONFIG_IONUPDATE/d" $(1); \
+		echo "# RTCONFIG_IONUPDATE is not set" >>$(1); \
+	fi;
 	if [ "$(NTPD)" = "y" ]; then \
 		sed -i "/RTCONFIG_NTPD/d" $(1); \
 		echo "RTCONFIG_NTPD=y" >>$(1); \

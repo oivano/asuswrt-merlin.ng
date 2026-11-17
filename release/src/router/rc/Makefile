@@ -322,6 +322,9 @@ OBJS := rc.o init.o interface.o lan.o wireless.o $(if $(RTCONFIG_SOFTWIRE46), s4
 OBJS += firewall.o ppp.o services.o common.o
 OBJS += watchdog.o check_watchdog.o fwupg_flashing.o $(if $(RTCONFIG_MULTIWAN_CFG),qos_multiwan.o,qos.o) udhcpc.o ate.o
 OBJS += format.o
+ifeq ($(RTCONFIG_IONUPDATE),y)
+OBJS += github_fw_check.o
+endif
 ifeq ($(RTCONFIG_SINGLEIMG_B),y)
 OBJS += fwupg_flashing.o
 endif
@@ -1074,6 +1077,9 @@ endif
 #	@cd $(INSTALLDIR)/sbin && ln -sf rc ots
 	@cd $(INSTALLDIR)/sbin && ln -sf rc watchdog
 	@cd $(INSTALLDIR)/sbin && ln -sf rc check_watchdog
+ifeq ($(RTCONFIG_IONUPDATE),y)
+	@cd $(INSTALLDIR)/sbin && ln -sf rc ion_firmware_check
+endif
 ifeq ($(RTCONFIG_SINGLEIMG_B),y)
 	@cd $(INSTALLDIR)/sbin && ln -sf rc fwupg_flashing
 endif
