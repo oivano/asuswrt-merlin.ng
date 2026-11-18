@@ -7406,6 +7406,8 @@ ej_dhcpLeaseMacList(int eid, webs_t wp, int argc, char_t **argv)
 		name_len = strlen(name) * sizeof(char)*3 + sizeof(char);
 
 		if (name_len > sizeof(tmp)) {
+			if (buf != tmp)
+				free(buf);
 			buf = (char *)malloc(name_len);
 			if (buf == NULL) {
 				csprintf("No memory.\n");
