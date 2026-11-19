@@ -63,6 +63,7 @@ ion release asuswrt merlin changelog
   - FIXED:   VPN Status now correctly reports IPsec tunnel information and
              refreshes; restored IPsec routing rules after WAN changes.
   - ADDED:   DNSCrypt settings on the Ethernet WAN page.
+  - ADDED:   Firmware update checks against GitHub ion releases for the DSL-AC68U.
   - FIXED:   DNS Director per-client IPv4 filtering, which had been
              effectively broken since its introduction: DHCP now advertises
              each client's selected DNS server, and applying changes refreshes
@@ -70,8 +71,11 @@ ion release asuswrt merlin changelog
   - CHANGED: FRR WebUI status and configuration now use native FRR sockets
              and configuration-backed settings, with FRR_CONFIG_DIR support;
              refreshed the Advanced VPN Client page and routing-page layout.
+  - CHANGED: WebUI switch controls now use shared CSS toggles instead of
+             legacy switch plugins.
   - UPDATED: OpenSSL to 1.1.1zh, OpenVPN to 2.7.8, strongSwan to 6.1.0,
-             curl to 8.23.0, BusyBox to 1.36.1, and dnscrypt-proxy to 2.1.20.
+             curl to 8.23.0, BusyBox to 1.36.1, dnscrypt-proxy to 2.1.20,
+             and haveged to 1.9.27.
 
 
 

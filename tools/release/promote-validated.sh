@@ -204,47 +204,37 @@ sync_changelog_from_target() {
     echo "Mirrored $CHANGELOG from $TARGET_BRANCH to $SOURCE_BRANCH as $(git rev-parse --short=10 HEAD)."
 }
 
-# Maps a target checkpoint to its source-side cherry-pick by preserved author,
-# author timestamp, and subject. If the commit is shared by ancestry, its SHA
-# already identifies the source checkpoint.
-find_source_checkpoint() {
-    local target_sha=$1 source_sha target_signature source_signature subject
-    if git merge-base --is-ancestor "$target_sha" "$SOURCE_BRANCH"; then
-        printf '%s\n' "$target_sha"
-        return 0
-    fi
-
-    target_signature=$(git show -s --format='%ae%x09%at%x09%s' "$target_sha")
-    subject=$(git show -s --format=%s "$target_sha")
-    while IFS= read -r source_sha; do
-        source_signature=$(git show -s --format='%ae%x09%at%x09%s' "$source_sha")
-        if [[ "$source_signature" == "$target_signature" ]]; then
-            printf '%s\n' "$source_sha"
-            return 0
-        fi
-    done < <(git log --format='%H' --fixed-strings --grep="$subject" "$SOURCE_BRANCH")
-
-    return 1
-}
-
-# Prefer the latest release tag on the target and map it to its source-side
-# cherry-pick. Repositories without a usable tag fall back to their last shared
-# ancestor, which is an exact checkpoint on both histories.
+# Find the newest target commit also represented in the source history. This
+# advances the watermark after every promotion/release commit instead of
+# repeatedly starting from the release tag. Mirrored commits may have different
+# SHAs, so match their author email, author timestamp, and exact subject.
 find_promotion_anchors() {
-    local target_tag target_sha source_sha common_sha
-    target_tag=$(git describe --tags --abbrev=0 "$TARGET_BRANCH" 2>/dev/null || true)
-    if [[ -n "$target_tag" ]]; then
-        target_sha=$(git rev-parse "$target_tag^{commit}")
-        if source_sha=$(find_source_checkpoint "$target_sha"); then
-            printf '%s %s tag:%s\n' "$target_sha" "$source_sha" "$target_tag"
+    local source_sha source_email source_time source_subject target_sha
+    local target_email target_time target_subject signature
+    declare -A SOURCE_SHA_MAP=()
+    declare -A SOURCE_SIGNATURE_MAP=()
+
+    while IFS=$'\t' read -r source_sha source_email source_time source_subject; do
+        SOURCE_SHA_MAP["$source_sha"]="$source_sha"
+        signature="$source_email|$source_time|$source_subject"
+        [[ -n "${SOURCE_SIGNATURE_MAP[$signature]:-}" ]] || \
+            SOURCE_SIGNATURE_MAP["$signature"]=$source_sha
+    done < <(git log --format='%H%x09%ae%x09%at%x09%s' "$SOURCE_BRANCH")
+
+    while IFS=$'\t' read -r target_sha target_email target_time target_subject; do
+        if [[ -n "${SOURCE_SHA_MAP[$target_sha]:-}" ]]; then
+            printf '%s %s shared-sha\n' "$target_sha" "$target_sha"
             return 0
         fi
-        echo "ERROR: no matching source checkpoint for tagged release '$target_tag'." >&2
-        return 1
-    fi
+        signature="$target_email|$target_time|$target_subject"
+        if [[ -n "${SOURCE_SIGNATURE_MAP[$signature]:-}" ]]; then
+            printf '%s %s mirrored-identity\n' "$target_sha" "${SOURCE_SIGNATURE_MAP[$signature]}"
+            return 0
+        fi
+    done < <(git log --format='%H%x09%ae%x09%at%x09%s' "$TARGET_BRANCH")
 
-    common_sha=$(git merge-base "$SOURCE_BRANCH" "$TARGET_BRANCH") || return 1
-    printf '%s %s merge-base\n' "$common_sha" "$common_sha"
+    echo "ERROR: no shared or mirrored commit checkpoint exists between $SOURCE_BRANCH and $TARGET_BRANCH." >&2
+    return 1
 }
 
 git show-ref --verify --quiet "refs/heads/$SOURCE_BRANCH" || \
