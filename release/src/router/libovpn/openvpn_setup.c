@@ -330,6 +330,8 @@ int ovpn_write_server_config(ovpn_sconf_t *sconf, int unit) {
 		}
 	}
 	else if (sconf->auth_mode == OVPN_AUTH_STATIC) {
+		fprintf(fp, "allow-deprecated-insecure-static-crypto\n");
+		fprintf(fp_client, "allow-deprecated-insecure-static-crypto\n");
 		fprintf(fp_client, "mode p2p\n");
 
 		if (sconf->if_type == OVPN_IF_TUN) {
@@ -406,13 +408,10 @@ int ovpn_write_server_config(ovpn_sconf_t *sconf, int unit) {
 			fprintf(fp_client, "ncp-ciphers %s\n", sconf->ncp_ciphers);
 		}
 	} else {	// OVPN_AUTH_STATIC
-		if (strcmp(sconf->cipher, "default")) {
-			fprintf(fp, "cipher %s\n", sconf->cipher);
-			fprintf(fp_client, "cipher %s\n", sconf->cipher);
-		}
+		const char *cipher = strcmp(sconf->cipher, "default") ? sconf->cipher : "AES-128-CBC";
+		fprintf(fp, "cipher %s\n", cipher);
+		fprintf(fp_client, "cipher %s\n", cipher);
 	}
-	// Fallback to silence logged warning
-	fprintf(fp, "data-ciphers-fallback AES-128-CBC\n");
 
 	// Digest
 	if (strcmp(sconf->digest, "default")) {
@@ -691,6 +690,7 @@ int ovpn_write_client_config(ovpn_cconf_t *cconf, int unit) {
 
 	fprintf(fp, "remote %s %d\n", cconf->addr, cconf->port);
 	if (cconf->auth_mode == OVPN_AUTH_STATIC) {
+		fprintf(fp, "allow-deprecated-insecure-static-crypto\n");
 		fprintf(fp, "ifconfig %s ", cconf->local);
 		if (cconf->if_type == OVPN_IF_TUN)
 			fprintf(fp, "%s\n", cconf->remote);
@@ -723,9 +723,8 @@ int ovpn_write_client_config(ovpn_cconf_t *cconf, int unit) {
 		if (*cconf->ncp_ciphers)
 			fprintf(fp, "data-ciphers %s\n", cconf->ncp_ciphers);
 	} else {	// OVPN_AUTH_STATIC
-		if (strcmp(cconf->cipher, "default")) {
-			fprintf(fp, "cipher %s\n", cconf->cipher);
-		}
+		const char *cipher = strcmp(cconf->cipher, "default") ? cconf->cipher : "AES-128-CBC";
+		fprintf(fp, "cipher %s\n", cipher);
 	}
 
 	if (strcmp(cconf->digest, "default"))
