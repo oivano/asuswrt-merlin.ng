@@ -532,6 +532,11 @@ int set_ovpn_custom(ovpn_type_t type, int unit, char* buffer)
 		mkdir(OVPN_FS_PATH, S_IRWXU);
 
 	snprintf(filename, sizeof(filename), "%s/vpn_%s%d_custom3", OVPN_FS_PATH, typeStr, unit);
+	if (!*buffer) {
+		if (unlink(filename) < 0 && f_exists(filename))
+			return -1;
+		return 0;
+	}
 	if (f_write(filename, buffer, strlen(buffer), 0,  S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP) < 0)
 		return -1;
 

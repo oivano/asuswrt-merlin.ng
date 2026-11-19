@@ -1266,6 +1266,7 @@ function update_vpn_client_state() {
 
 function defaultSettings() {
 	if (confirm("WARNING: This will reset this OpenVPN server to factory default settings!\n\nKeys and certificates associated to this instance will also be DELETED!\n\nProceed?")) {
+		document.form.vpn_server_custom3.value = "";
 		document.form.action_script.value = "stop_vpnserver" + openvpn_unit + ";clearvpnserver" + openvpn_unit;
 		enable_openvpn(0);
 		document.form.VPNServer_enable.value = "0";
@@ -1904,7 +1905,7 @@ function handle_ipv6_submit_settings(){
 												<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(32,17);">Cipher</a></th>
 												<td>
 													<select name="vpn_server_cipher" class="input_option" onChange="update_cipher();"></select>
-													<span id="cipher_hint" class="hint-color">(Default : BF-CBC)</span>
+													<span id="cipher_hint" class="hint-color">(Default : AES-128-CBC)</span>
 												</td>
 											</tr>
 											<tr>
