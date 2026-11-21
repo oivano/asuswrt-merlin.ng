@@ -2,7 +2,7 @@
   <img src="logo.jfif" alt="Asuswrt-Merlin logo" width="120" height="120">
 </p>
 
-# Asuswrt-Merlin for DSL-AC68U
+# ion release Asuswrt-Merlin for DSL-AC68U
 
 Community-maintained 386.x firmware for the **ASUS DSL-AC68U**, with integrated
 routing and VPN tools, WebUI improvements, and selected security and reliability fixes.
