@@ -45,7 +45,8 @@ jobs:
             if [ -z "${CIRCLE_TAG}" ]; then
               DATESTAMP=$(date +%Y%m%d)
               SAFE_BRANCH=$(echo "${CIRCLE_BRANCH}" | sed -E 's/[^A-Za-z0-9._-]+/-/g')
-              sed -i "s/EXTENDNO=.*/EXTENDNO=${SAFE_BRANCH}-${DATESTAMP}/g" release/src-rt/version.conf
+              SHORT_SHA=$(echo "${CIRCLE_SHA1}" | cut -c1-7)
+              sed -i "s/EXTENDNO=.*/EXTENDNO=${SAFE_BRANCH}-${SHORT_SHA}-${DATESTAMP}/g" release/src-rt/version.conf
             else
               MAJOR_VER=$(echo "${CIRCLE_TAG}" | sed -E 's/([0-9.]*)[_-]?(.*)/\1/')
               MINOR_VER=$(echo "${CIRCLE_TAG}" | sed -E 's/([0-9.]*)[_-]?(.*)/\2/')
