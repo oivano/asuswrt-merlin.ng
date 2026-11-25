@@ -67,6 +67,14 @@
 #define MAC_ARG(x) (x)[0],(x)[1],(x)[2],(x)[3],(x)[4],(x)[5]
 #endif
 
+#if defined(RTCONFIG_BCMWL6) && !defined(RTCONFIG_AMAS)
+void acsd_amasinfo(const char *ifname, unsigned short chanspec)
+{
+	(void)ifname;
+	(void)chanspec;
+}
+#endif
+
 
 char *server_table[][2] = {
 	{ "", "" },			/* 0: Unfiltered */
