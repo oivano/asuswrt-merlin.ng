@@ -91,7 +91,7 @@ function unlockAcc(){
 }
 </script>
 </head>
-<body onload="initial();" onunload="return unload_body();" class="bg">
+<body onload="initial();" class="bg">
 <div id="TopBanner"></div>
 <div id="Loading" class="popup_bg"></div>
 <iframe name="hidden_frame" id="hidden_frame" width="0" height="0" frameborder="0" scrolling="no"></iframe>

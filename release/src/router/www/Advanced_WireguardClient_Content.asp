@@ -68,7 +68,7 @@ function change_wgc_unit(unit){
 
 </head>
 
-<body onload="initial();" onunLoad="return unload_body();" class="bg">
+<body onload="initial();" class="bg">
 <div id="TopBanner"></div>
 
 <div id="Loading" class="popup_bg"></div>

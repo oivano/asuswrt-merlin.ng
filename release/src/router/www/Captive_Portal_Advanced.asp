@@ -5032,7 +5032,7 @@ function remove_hint_msg() {
 
 </head>
 
-<body onload="initial();" onunLoad="return unload_body();" class="bg">
+<body onload="initial();" class="bg">
 <div id="captive_portal_adv_log_panel" class="captive_portal_adv_log_panel"></div>
 <div id="TopBanner"></div>
 <div id="Loading" class="popup_bg"></div>

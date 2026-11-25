@@ -635,7 +635,7 @@ function update_applist(e){
 
 </script>
 </head>
-<body onload="initial();" onunload="return unload_body();" class="bg">
+<body onload="initial();" class="bg">
 <div id="TopBanner"></div>
 <div id="Loading" class="popup_bg"></div>
 	<table cellpadding="5" cellspacing="0" id="dr_sweet_advise" class="dr_sweet_advise" align="center">

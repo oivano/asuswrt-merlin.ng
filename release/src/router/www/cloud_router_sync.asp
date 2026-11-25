@@ -1029,7 +1029,7 @@ function checkDDNSReturnCode(){
 </script>
 </head>
 
-<body onload="initial();" onunload="return unload_body();" class="bg">
+<body onload="initial();" class="bg">
 <div id="TopBanner"></div>
 
 <!-- floder tree-->

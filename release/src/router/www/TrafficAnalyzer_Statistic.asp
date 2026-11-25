@@ -1521,7 +1521,7 @@ function setUnit(unit){
 }
 </script>
 </head>
-<body onload="initial();" onunload="unload_body();" class="bg">
+<body onload="initial();" class="bg">
 <div id="TopBanner"></div>
 <div id="Loading" class="popup_bg"></div>
 <div id="agreement_panel" class="eula_panel_container"></div>

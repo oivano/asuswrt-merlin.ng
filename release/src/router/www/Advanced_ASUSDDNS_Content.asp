@@ -871,7 +871,7 @@ function check_unregister_result(){
 </script>
 </head>
 
-<body onload="init();" onunLoad="return unload_body();" class="bg">
+<body onload="init();" class="bg">
 <div id="TopBanner"></div>
 
 <div id="Loading" class="popup_bg"></div>

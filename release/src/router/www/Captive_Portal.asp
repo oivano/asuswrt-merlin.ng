@@ -1835,7 +1835,7 @@ function check_gn_if_status(_subunit, _gn_array) {
 
 </head>
 
-<body onload="initial();" onunLoad="return unload_body();" class="bg">
+<body onload="initial();" class="bg">
 <div id="full_screen_bg" class="full_screen_bg" onselectstart="return false;"></div>
 <div id="guestnetwork_wl" class="guestnetwork_wl"></div>
 <div id='folderTree_panel' class='landing_folder_content'>

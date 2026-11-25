@@ -68,7 +68,7 @@ function change_tab(_index){
 </script>
 </head>
 
-<body onload="initial();" onunLoad="return unload_body();" class="bg">
+<body onload="initial();" class="bg">
 <div id="TopBanner"></div>
 
 

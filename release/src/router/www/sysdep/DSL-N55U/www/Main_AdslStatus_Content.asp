@@ -82,7 +82,7 @@ function replace_ContentAnnex(oldMod, newMod){
 </script>
 </head>
 
-<body onload="show_menu();showadslbootTime();initial();" onunLoad="return unload_body();">
+<body onload="show_menu();showadslbootTime();initial();" >
 <div id="TopBanner"></div>
 
 <div id="Loading" class="popup_bg"></div>
