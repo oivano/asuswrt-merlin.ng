@@ -518,7 +518,9 @@ function switchWanStatus(state){
 }
 
 function switchSftpStatus(state){
-	document.form.sshd_sftp.value = state;
+	showLoading();
+	document.sftpForm.sshd_sftp.value = state;
+	document.sftpForm.submit();
 }
 
 function resultOfSwitchWanStatus(){
@@ -789,6 +791,14 @@ function secure_check(flag){
 <input type="hidden" name="permission" id="permission" value="">
 </form>
 
+<form method="post" name="sftpForm" action="/start_apply.htm" target="hidden_frame">
+<input type="hidden" name="action_mode" value="apply">
+<input type="hidden" name="action_script" value="">
+<input type="hidden" name="action_wait" value="1">
+<input type="hidden" name="current_page" value="Advanced_AiDisk_ftp.asp">
+<input type="hidden" name="sshd_sftp" value="<% nvram_get("sshd_sftp"); %>">
+</form>
+
 <form method="post" name="form" action="/start_apply.htm" target="hidden_frame">
 <input type="hidden" name="preferred_lang" id="preferred_lang" value="<% nvram_get("preferred_lang"); %>">
 <input type="hidden" name="firmver" value="<% nvram_get("firmver"); %>">
@@ -798,7 +808,6 @@ function secure_check(flag){
 <input type="hidden" name="modified" value="0">
 <input type="hidden" name="current_page" value="Advanced_AiDisk_ftp.asp">
 <input type="hidden" name="ftp_wanac" value="<% nvram_get("ftp_wanac"); %>">
-<input type="hidden" name="sshd_sftp" value="<% nvram_get("sshd_sftp"); %>">
 <input type="hidden" name="flag" value="">
 
 <table id="content_table" border="0" align="center" cellpadding="0" cellspacing="0">
