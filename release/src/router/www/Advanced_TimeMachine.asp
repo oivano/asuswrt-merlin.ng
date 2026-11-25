@@ -189,7 +189,7 @@ function applyRule(){
 </script>
 </head>
 
-<body onload="initial();" onunLoad="return unload_body();" class="bg">
+<body onload="initial();" class="bg">
 <div id="TopBanner"></div>
 <!-- floder tree-->
 <div id="folderTree_panel" class="panel_folder">

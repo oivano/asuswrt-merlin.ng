@@ -116,7 +116,7 @@ function change_v3_priv_type(type){
 
 </script>
 </head>
-<body onload="initial();" onunLoad="return unload_body();" class="bg">
+<body onload="initial();" class="bg">
 
 <div id="TopBanner"></div>
 

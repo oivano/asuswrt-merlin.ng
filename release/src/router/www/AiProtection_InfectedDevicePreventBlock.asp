@@ -583,7 +583,7 @@ var download = function(content, fileName, mimeType) {
 </script>
 </head>
 
-<body onload="initial();" onunload="unload_body();" class="bg">
+<body onload="initial();" class="bg">
 <div id="TopBanner"></div>
 <div id="Loading" class="popup_bg"></div>
 <div id="erase_confirm" class="confirm">

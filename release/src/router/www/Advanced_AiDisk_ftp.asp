@@ -770,7 +770,7 @@ function secure_check(flag){
 </script>
 </head>
 
-<body onLoad="initial();" onunload="unload_body();" class="bg">
+<body onLoad="initial();" class="bg">
 <div id="TopBanner"></div>
 
 <div id="Loading" class="popup_bg"></div>

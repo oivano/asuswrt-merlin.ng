@@ -351,7 +351,7 @@
 	</script>
 </head>
 
-<body onload="initial();" onunLoad="return unload_body();" class="bg">
+<body onload="initial();" class="bg">
 
 	<!-- Certificate/Key Panel -->
 	<div id="cert_panel" class="contentM_qis" style="box-shadow: 3px 3px 10px #000;">

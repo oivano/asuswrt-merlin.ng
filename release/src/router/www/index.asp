@@ -2126,7 +2126,7 @@ function notice_apply(){
 </script>
 </head>
 
-<body onunload="return unload_body();" class="bg">
+<body class="bg">
 <noscript>
 	<div class="popup_bg" style="visibility:visible; z-index:999;">
 		<div style="margin:200px auto; width:300px; background-color:#006699; color:#FFFFFF; line-height:150%; border:3px solid #FFF; padding:5px;"><#not_support_script#></p></div>

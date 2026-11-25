@@ -1806,7 +1806,7 @@ function set_overhead(entry) {
 
 </script>
 </head>
-<body onload="initial();" id="body_id" onunload="unload_body();" class="bg">
+<body onload="initial();" id="body_id" class="bg">
 <div id="TopBanner"></div>
 <div id="Loading" class="popup_bg"></div>
 <div id="hiddenMask" class="popup_bg" style="z-index:999;">
