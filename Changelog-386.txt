@@ -1,3 +1,7 @@
+ion release asuswrt merlin changelog
+====================================
+
+
 386.16-ion (unreleased)
   - FIXED:   Addressed CVEs across the kernel and userland, including:
              Kernel networking: CVE-2004-0230, CVE-2011-2699,
@@ -74,8 +78,6 @@
   - UPDATED: OpenSSL to 1.1.1zh, OpenVPN to 2.7.9, strongSwan to 6.1.0,
              curl to 8.23.0, BusyBox to 1.36.1, dnscrypt-proxy to 2.1.20,
              and haveged to 1.9.27.
-
-
 
 
 386.15_4-ion (10-Oct-2026)

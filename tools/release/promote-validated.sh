@@ -148,11 +148,13 @@ install_curated_changelog_section() {
     if [[ "$target_version" == "$version" ]]; then
         next_line=$(awk -v t="$top_line" -v re="$RELEASE_HEADER_RE" \
             'NR > t { line = $0; sub(/\r$/, "", line); if (line ~ re) { print NR; exit } }' "$CHANGELOG")
-        if [[ -n "$next_line" ]]; then
-            { cat "$section"; sed -n "${next_line},\$p" "$CHANGELOG"; } > "$temp"
-        else
-            cat "$section" > "$temp"
-        fi
+        {
+            sed -n "1,$((top_line - 1))p" "$CHANGELOG"
+            cat "$section"
+            if [[ -n "$next_line" ]]; then
+                sed -n "${next_line},\$p" "$CHANGELOG"
+            fi
+        } > "$temp"
     elif git rev-parse -q --verify "refs/tags/$target_version" > /dev/null; then
         {
             sed -n "1,$((top_line - 1))p" "$CHANGELOG"
@@ -359,7 +361,7 @@ for sha in "${PATCH_UNIQUE_SHAS[@]}"; do
     PATCH_UNIQUE_MAP["$sha"]="1"
 done
 
-declare -a GAP_SHAS
+declare -a GAP_SHAS=()
 N_ALREADY_PRESENT=0
 N_CHANGELOG_ONLY=0
 for sha in "${RANGE_SHAS[@]}"; do
