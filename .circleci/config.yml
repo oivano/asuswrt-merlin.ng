@@ -48,10 +48,10 @@ jobs:
               SHORT_SHA=$(echo "${CIRCLE_SHA1}" | cut -c1-7)
               sed -i "s/EXTENDNO=.*/EXTENDNO=${SAFE_BRANCH}-${SHORT_SHA}-${DATESTAMP}/g" release/src-rt/version.conf
             else
-              MAJOR_VER=$(echo "${CIRCLE_TAG}" | sed -E 's/([0-9.]*)[_-]?(.*)/\1/')
-              MINOR_VER=$(echo "${CIRCLE_TAG}" | sed -E 's/([0-9.]*)[_-]?(.*)/\2/')
+              source tools/release/release-version.sh
+              parse_release_version "${CIRCLE_TAG}"
               sed -i "s/SERIALNO=.*/SERIALNO=${MAJOR_VER}/g" release/src-rt/version.conf
-              sed -i "s/EXTENDNO=.*/EXTENDNO=${MINOR_VER}/g" release/src-rt/version.conf
+              sed -i "s/EXTENDNO=.*/EXTENDNO=${ARTIFACT_EXTENDNO}/g" release/src-rt/version.conf
             fi
       - run:
           name: Generate changelog
@@ -63,6 +63,7 @@ jobs:
           shell: /bin/bash
           no_output_timeout: 120m
           command: |
+            set -o pipefail
             export MERLINUPDATE=y
             cd ${PROJECT_DIR}/release/${RELEASE_DIR}
             echo "----- Files in dir: $(pwd) -----"
@@ -200,16 +201,20 @@ jobs:
             cd asuswrt-merlin.ng
             UPDATE_DIR=updates
             mkdir -p "${UPDATE_DIR}"
-            MAJOR_VER=$(echo "${CIRCLE_TAG}" | sed -E 's/([0-9.]*)[_-]?(.*)/\1/')
-            MINOR_VER=$(echo "${CIRCLE_TAG}" | sed -E 's/([0-9.]*)[_-]?(.*)/\2/')
-            RELEASE_NOTE_FILE=$(echo "${MAJOR_VER}_${MINOR_VER}_note.txt" | sed "s/\./_/")
+            source tools/release/release-version.sh
+            parse_release_version "${CIRCLE_TAG}"
+            RELEASE_NOTE_FILE=$(echo "${MAJOR_VER}_${MINOR_VER}_note.txt" | tr '.' '_')
             echo "Generating manifest file for DSL-AC68U..."
             echo "DSL-AC68U#FW${MAJOR_VER}#EXT${MINOR_VER}#BETAFW0#BETAEXT0#" > ${UPDATE_DIR}/manifest.txt
             cp $HOME/project/workspace/release/CHANGELOG ${UPDATE_DIR}/"${RELEASE_NOTE_FILE}"
             echo "Uploading to github manifest and ${RELEASE_NOTE_FILE}"
             git add ${UPDATE_DIR}
-            git commit -m "Updating Notes and manifest to version:${MAJOR_VER} ${MINOR_VER} [ci skip]" -a
-            git push origin HEAD:refs/heads/DEV-nextrelease
+            if ! git diff --cached --quiet; then
+              git commit -m "Updating Notes and manifest to version:${MAJOR_VER} ${MINOR_VER} [ci skip]" -a
+              git push origin HEAD:refs/heads/DEV-nextrelease
+            else
+              echo "Manifest and release note are already up to date."
+            fi
   publish-github-release:
     docker:
       - image: cibuilds/github:latest

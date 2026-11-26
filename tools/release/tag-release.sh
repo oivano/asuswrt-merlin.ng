@@ -10,6 +10,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$REPO_ROOT"
+source "$SCRIPT_DIR/release-version.sh"
 
 # ── Config ────────────────────────────────────────────────────────────────────
 SOURCE_BRANCH="DEV"
@@ -38,8 +39,18 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 
 git show-ref --verify --quiet "refs/heads/$SOURCE_BRANCH" || die "Branch '$SOURCE_BRANCH' does not exist."
 git show-ref --verify --quiet "refs/heads/$TARGET_BRANCH" || die "Branch '$TARGET_BRANCH' does not exist."
-[[ -z "$(git status --porcelain --untracked-files=no)" ]] || \
-    die "Tracked working tree files must be clean before releasing."
+git fetch --prune "$REMOTE" \
+    "+refs/heads/$SOURCE_BRANCH:refs/remotes/$REMOTE/$SOURCE_BRANCH" \
+    "+refs/heads/$TARGET_BRANCH:refs/remotes/$REMOTE/$TARGET_BRANCH" >/dev/null 2>&1 || \
+    die "Could not fetch $SOURCE_BRANCH and $TARGET_BRANCH from $REMOTE."
+git merge-base --is-ancestor "refs/remotes/$REMOTE/$SOURCE_BRANCH" "$SOURCE_BRANCH" || \
+    die "Local $SOURCE_BRANCH is missing or diverged from fetched $REMOTE/$SOURCE_BRANCH."
+git merge-base --is-ancestor "refs/remotes/$REMOTE/$TARGET_BRANCH" "$TARGET_BRANCH" || \
+    die "Local $TARGET_BRANCH is missing or diverged from fetched $REMOTE/$TARGET_BRANCH."
+if ! $DRY_RUN; then
+    [[ -z "$(git status --porcelain --untracked-files=no)" ]] || \
+        die "Tracked working tree files must be clean before releasing."
+fi
 
 # ── Resolve version from the newest changelog section on TARGET ──────────────
 NOTES=$(git show "$TARGET_BRANCH:$CHANGELOG" | awk -v re="$RELEASE_HEADER_RE" \
@@ -53,12 +64,9 @@ if git ls-remote --exit-code --tags "$REMOTE" "refs/tags/$VERSION" > /dev/null 2
     die "$VERSION already exists on $REMOTE."
 fi
 
-base=${VERSION%-ion}
-SERIALNO=${base%%_*}
-EXTENDNO=0
-[[ $base == *_* ]] && EXTENDNO=${base#*_}
-[[ $SERIALNO =~ ^[0-9]+(\.[0-9]+)*$ && $EXTENDNO =~ ^[0-9]+$ ]] || \
-    die "Cannot parse version '$VERSION' from $CHANGELOG header."
+parse_release_version "$VERSION" || die "Cannot parse version '$VERSION' from $CHANGELOG header."
+SERIALNO=$MAJOR_VER
+EXTENDNO=$ARTIFACT_EXTENDNO
 RELEASE_DATE=$(LC_ALL=C date '+%d-%b-%Y')
 
 echo "=== tag-release.sh ==="
@@ -68,6 +76,10 @@ echo "Branch:   $TARGET_BRANCH @ $(git rev-parse --short=10 "$TARGET_BRANCH")"
 echo ""
 echo "$NOTES" | sed '1d' | tr -d '\r' | cat -s
 echo ""
+
+TARGET_HEADER=$(git show "$TARGET_BRANCH:$CHANGELOG" | grep -m1 -E "$RELEASE_HEADER_RE" | tr -d '\r')
+[[ "$TARGET_HEADER" == "$VERSION (unreleased)" ]] || \
+    die "Top changelog header on $TARGET_BRANCH is '$TARGET_HEADER', expected '$VERSION (unreleased)'."
 
 $DRY_RUN && echo "(dry-run — no changes made)" && exit 0
 
@@ -82,27 +94,44 @@ sed -i -E -e "s/^SERIALNO=[0-9.]*/SERIALNO=${SERIALNO}/" -e "s/^EXTENDNO=[0-9]*/
 git add -- "$CHANGELOG" "$VERSION_CONF"
 
 if git diff --cached --quiet; then
+    rel_sha=$(git rev-parse HEAD)
+    [[ "$(git log -1 --format=%s)" == "Bumped revision to $VERSION" ]] || \
+        die "Release files are already dated, but HEAD is not the '$VERSION' release commit."
     echo "Changelog date and version.conf already up to date."
 else
     git commit -q -m "Bumped revision to $VERSION"
     rel_sha=$(git rev-parse HEAD)
     echo "Committed ${rel_sha:0:10}  Bumped revision to $VERSION"
+fi
 
-    # Mirror to SOURCE so later promotions don't conflict on these files
-    git checkout -q "$SOURCE_BRANCH"
+# Mirror to SOURCE so later promotions do not conflict on these files
+TARGET_CHANGELOG=$(git show "refs/heads/$TARGET_BRANCH:$CHANGELOG")
+TARGET_VERSION_CONF=$(git show "refs/heads/$TARGET_BRANCH:$VERSION_CONF")
+git checkout -q "$SOURCE_BRANCH"
+SOURCE_CHANGELOG=$(git show "refs/heads/$SOURCE_BRANCH:$CHANGELOG" 2>/dev/null || true)
+SOURCE_VERSION_CONF=$(git show "refs/heads/$SOURCE_BRANCH:$VERSION_CONF" 2>/dev/null || true)
+
+if [[ "$SOURCE_CHANGELOG" != "$TARGET_CHANGELOG" || "$SOURCE_VERSION_CONF" != "$TARGET_VERSION_CONF" ]]; then
     if git cherry-pick "$rel_sha" > /dev/null 2>&1; then
         echo "  Mirrored to $SOURCE_BRANCH as $(git rev-parse --short=10 HEAD)"
     else
         git cherry-pick --abort 2>/dev/null || true
-        echo "WARNING: could not mirror release commit to $SOURCE_BRANCH; cherry-pick ${rel_sha:0:10} manually." >&2
+        die "Could not mirror release commit ${rel_sha:0:10} to $SOURCE_BRANCH; resolve it manually before tagging and pushing."
     fi
 fi
 
+SOURCE_CHANGELOG=$(git show "refs/heads/$SOURCE_BRANCH:$CHANGELOG")
+SOURCE_VERSION_CONF=$(git show "refs/heads/$SOURCE_BRANCH:$VERSION_CONF")
+if [[ "$SOURCE_CHANGELOG" != "$TARGET_CHANGELOG" || "$SOURCE_VERSION_CONF" != "$TARGET_VERSION_CONF" ]]; then
+    die "Release files do not match between $TARGET_BRANCH and $SOURCE_BRANCH."
+fi
+
+git checkout -q "$TARGET_BRANCH"
 git tag "$VERSION" "$TARGET_BRANCH"
 echo "Tagged   $VERSION -> $(git rev-parse --short=10 "$TARGET_BRANCH")"
 
 # ── Push ──────────────────────────────────────────────────────────────────────
-PUSH_HINT="git push --atomic $REMOTE $TARGET_BRANCH $SOURCE_BRANCH && git push $REMOTE refs/tags/$VERSION"
+PUSH_HINT="git push --atomic $REMOTE $TARGET_BRANCH $SOURCE_BRANCH refs/tags/$VERSION"
 if ! $PUSH; then
     echo ""
     echo "Not pushed. To publish: $PUSH_HINT"
@@ -118,7 +147,6 @@ if ! $ASSUME_YES; then
     fi
 fi
 
-git push --atomic "$REMOTE" "$TARGET_BRANCH" "$SOURCE_BRANCH"
-git push "$REMOTE" "refs/tags/$VERSION"
+git push --atomic "$REMOTE" "$TARGET_BRANCH" "$SOURCE_BRANCH" "refs/tags/$VERSION"
 echo ""
 echo "Pushed. CircleCI will build $VERSION."
