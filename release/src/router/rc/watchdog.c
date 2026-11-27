@@ -10654,7 +10654,7 @@ void auto_firmware_check_merlin()
 				memset(build, 0, sizeof(build));
 
 				sscanf(nvram_safe_get("webs_state_info_am"), "%3[^_]_%2[^_]_%15s", version, revision, build);
-				logmessage("watchdog", "New firmware version %s.%s_%s is available.", version, revision, build);
+				logmessage("watchdog", "New firmware version %s.%s%s%s is available.", version, revision, build[0] >= '0' && build[0] <= '9' ? "_" : "-", build);
 				run_custom_script("update-notification", 0, NULL, NULL);
 			}
 

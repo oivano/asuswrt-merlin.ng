@@ -18699,7 +18699,11 @@ int init_nvram2(void)
 	char varname[20];
 
 	if (nvram_match("x_Setting", "0")) {
-		snprintf(ver, sizeof(ver), "%s.%s_%s", nvram_safe_get("firmver"), nvram_safe_get("buildno"), nvram_safe_get("extendno"));
+		const char *extendno = nvram_safe_get("extendno");
+		if (extendno[0] >= '0' && extendno[0] <= '9' && strstr(extendno, "-ion") != NULL)
+			snprintf(ver, sizeof(ver), "%s.%s_%s", nvram_safe_get("firmver"), nvram_safe_get("buildno"), extendno);
+		else
+			snprintf(ver, sizeof(ver), "%s.%s-%s", nvram_safe_get("firmver"), nvram_safe_get("buildno"), extendno);
 		nvram_set("innerver", ver);
 	}
 

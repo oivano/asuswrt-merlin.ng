@@ -143,9 +143,9 @@ var firmver = '<% nvram_get("firmver"); %>';
 var buildno = '<% nvram_get("buildno"); %>';
 var extendno = '<% nvram_get("extendno"); %>';
 var FWString = '';
-FWString = buildno;
+FWString = firmver+"."+buildno;
 if ((extendno != "") && (extendno != "0"))
-	FWString += "_"+extendno;
+	FWString += (/^[0-9]+-ion$/.test(extendno) ? "_" : "-")+extendno;
 
 function showclock(){
 	JS_timeObj.setTime(systime_millsec);

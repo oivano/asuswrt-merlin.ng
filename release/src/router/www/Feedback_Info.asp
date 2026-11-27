@@ -33,7 +33,7 @@ var fb_split_files = Number(httpApi.nvramGet(["fb_split_files"], true).fb_split_
 
 var FWString = '';
 FWString = firmver+"."+buildno;
-FWString += "_"+extendno;
+FWString += (/^[0-9]+-ion$/.test(extendno) ? "_" : "-")+extendno;
 
 const DHD_Service = 16;
 

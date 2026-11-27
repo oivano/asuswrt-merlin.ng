@@ -478,7 +478,7 @@ function startLiveUpdate(){
 						document.getElementById("liveUpdate_div").style.display = "";
 						document.getElementById("current_fw_div").style.display = "";
 						document.getElementById("Latest_fw_div").style.display = "";
-						document.getElementById("currentFW").innerHTML = fwInfo.firmver + "_" + fwInfo.buildno + "_" + fwInfo.extendno; 
+						document.getElementById("currentFW").innerHTML = fwInfo.firmver + "." + fwInfo.buildno + (/^[0-9]+-ion$/.test(fwInfo.extendno) ? "_" : "-") + fwInfo.extendno;
 						document.getElementById("latestFW").innerHTML = newFwVersion;
 
 						if(isNewFw == 2){

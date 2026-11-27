@@ -54,6 +54,14 @@ var varload = 0;
 
 function initial(){
 	show_menu();
+	var buildno = '<% nvram_get("buildno"); %>';
+	var extendno = '<% nvram_get("extendno"); %>';
+	var firmver_table = document.getElementsByName("firmver_table")[0];
+	if (firmver_table) {
+		firmver_table.value = exist_firmver+'.'+buildno;
+		if ((extendno != "") && (extendno != "0"))
+			firmver_table.value += (/^[0-9]+-ion$/.test(extendno) ? '_' : '-')+extendno;
+	}
 	if(live_update_support == -1)
 		document.getElementById("update").style.display = "none";
 	else if('<% nvram_get("webs_state_update"); %>' != '')
@@ -382,7 +390,7 @@ function submitForm(){
 <!--###HTML_PREP_END###-->
 			<tr>
 				<th><#FW_item2#></th>
-				<td><input type="text" name="firmver_table" class="input_20_table" value="<% nvram_get("firmver"); %>.<% nvram_get("buildno"); %>_<% nvram_get("extendno"); %>" readonly="1" autocorrect="off" autocapitalize="off"><!--/td-->
+				<td><input type="text" name="firmver_table" class="input_20_table" value="" readonly="1" autocorrect="off" autocapitalize="off"><!--/td-->
 						<input type="button" id="update" name="update" class="button_gen" onclick="detect_update();" value="<#liveupdate#>" />
 						<div id="check_states">
 								<span id="update_states"></span>
