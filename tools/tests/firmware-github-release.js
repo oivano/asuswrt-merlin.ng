@@ -17,8 +17,40 @@ const notifications = fs.readFileSync(path.join(root, 'release/src/router/www/no
 
 function expectedAssetPrefix(tag) {
     const separator = tag.indexOf('_');
-    assert(separator > 0);
-    return `DSL-AC68U_${tag.slice(0, separator)}-${tag.slice(separator + 1)}_DSL_`;
+    const assetTag = separator > 0 ? `${tag.slice(0, separator)}-${tag.slice(separator + 1)}` : tag;
+    return `DSL-AC68U_${assetTag}_DSL_`;
+}
+
+function parseReleaseTag(tag) {
+    const match = /^(\d+)\.(\d+)(?:_(\d+))?(-.*)?$/.exec(tag);
+    if (!match) return null;
+    return {
+        major: Number(match[1]),
+        minor: Number(match[2]),
+        revision: match[3] ? Number(match[3]) : 0,
+        suffix: match[4] || ''
+    };
+}
+
+function parseCurrentVersion(build, extension) {
+    const version = parseReleaseTag(build);
+    if (/^\d/.test(extension)) {
+        const match = /^(\d+)(.*)$/.exec(extension);
+        return { ...version, revision: Number(match[1]), suffix: match[2] };
+    }
+    if (extension === 'ion') return { ...version, revision: 0, suffix: '-ion' };
+    return { ...version, revision: Number.MAX_SAFE_INTEGER, suffix: extension };
+}
+
+function isStableExtension(extension) {
+    return /^(?:\d+(?:-ion)?|ion)$/.test(extension);
+}
+
+function formatFirmwareVersion(product, firmver, buildno, extension) {
+    let version = product === 'DSL-AC68U' ? buildno : `${firmver}.${buildno}`;
+    if (extension && extension !== '0')
+        version += (/^\d+-ion$/.test(extension) ? '_' : '-') + extension;
+    return version;
 }
 
 function releaseIsNewer(available, current) {
@@ -47,6 +79,12 @@ function makeAsset(tag, name, state = 'uploaded') {
 
 const releases = [
     {
+        tag_name: '386.16-ion',
+        assets: [
+            makeAsset('386.16-ion', 'DSL-AC68U_386.16-ion_DSL_1.0.5.3.trx')
+        ]
+    },
+    {
         tag_name: '386.15_4-ion',
         assets: [
             makeAsset('386.15_4-ion', 'DSL-AC68U_386.15-4-ion_NO-DSL-FIRMWARE.trx'),
@@ -65,11 +103,31 @@ const releases = [
     }
 ];
 
-assert.strictEqual(selectAsset(releases[0]).name, 'DSL-AC68U_386.15-4-ion_DSL_1.0.5.3.trx');
-assert.strictEqual(selectAsset(releases[1]), undefined);
-releases[1].assets[2].state = 'uploaded';
-assert.strictEqual(selectAsset(releases[1]).name, 'DSL-AC68U_386.16-2_DSL_1.0.5.4.trx');
-assert.strictEqual(selectAsset({ ...releases[0], assets: releases[0].assets.slice(0, 2) }), undefined);
+assert.deepStrictEqual(parseReleaseTag('386.16-ion'), {
+    major: 386, minor: 16, revision: 0, suffix: '-ion'
+});
+assert.deepStrictEqual(parseReleaseTag('386.15_4-ion'), {
+    major: 386, minor: 15, revision: 4, suffix: '-ion'
+});
+assert.strictEqual(parseReleaseTag('386.16x-dev-extra'), null);
+assert.deepStrictEqual(parseCurrentVersion('386.17', 'ion'), parseReleaseTag('386.17-ion'));
+assert.deepStrictEqual(parseCurrentVersion('386.17', '2-ion'), parseReleaseTag('386.17_2-ion'));
+assert.strictEqual(releaseIsNewer(parseReleaseTag('386.17_2-ion'), parseCurrentVersion('386.17', 'ion')), true);
+assert.strictEqual(releaseIsNewer(parseReleaseTag('386.17-ion'), parseCurrentVersion('386.17', 'ion')), false);
+assert.strictEqual(releaseIsNewer(parseReleaseTag('386.17_2-ion'), parseCurrentVersion('386.17', '2-ion')), false);
+assert.strictEqual(isStableExtension('ion'), true);
+assert.strictEqual(isStableExtension('2-ion'), true);
+assert.strictEqual(isStableExtension('2'), true);
+assert.strictEqual(isStableExtension('DEV-nextrelease-gabc123'), false);
+assert.strictEqual(formatFirmwareVersion('DSL-AC68U', '3.0.0.4', '386.16', 'DEV-cf2dd01-20261127'), '386.16-DEV-cf2dd01-20261127');
+assert.strictEqual(formatFirmwareVersion('DSL-AC68U', '3.0.0.4', '386.17', '2-ion'), '386.17_2-ion');
+assert.strictEqual(formatFirmwareVersion('RT-AC68U', '3.0.0.4', '386.17', '2-ion'), '3.0.0.4.386.17_2-ion');
+assert.strictEqual(selectAsset(releases[0]).name, 'DSL-AC68U_386.16-ion_DSL_1.0.5.3.trx');
+assert.strictEqual(selectAsset(releases[1]).name, 'DSL-AC68U_386.15-4-ion_DSL_1.0.5.3.trx');
+assert.strictEqual(selectAsset(releases[2]), undefined);
+releases[2].assets[2].state = 'uploaded';
+assert.strictEqual(selectAsset(releases[2]).name, 'DSL-AC68U_386.16-2_DSL_1.0.5.4.trx');
+assert.strictEqual(selectAsset({ ...releases[1], assets: releases[1].assets.slice(0, 2) }), undefined);
 assert.strictEqual(releaseIsNewer(
     { major: 386, minor: 15, revision: 4, suffix: '-ion' },
     { major: 386, minor: 15, revision: Number.MAX_SAFE_INTEGER, suffix: 'DEV-experimental-20261117' }), false);
@@ -77,6 +135,8 @@ assert.strictEqual(releaseIsNewer(
     { major: 386, minor: 16, revision: 1, suffix: '-ion' },
     { major: 386, minor: 15, revision: Number.MAX_SAFE_INTEGER, suffix: 'DEV-experimental-20261117' }), true);
 assert(checker.includes('https://api.github.com/repos/oivano/asuswrt-merlin.ng/releases/latest'));
+assert(checker.includes("if (*cursor == '_')"));
+assert(checker.includes("if (separator)\n\t\t*separator = '-';"));
 assert(checker.includes('version->revision = ULONG_MAX'));
 assert(checker.includes('isdigit((unsigned char)*extension)'));
 assert(checker.includes('CURLOPT_SSL_VERIFYPEER, 1L'));
@@ -115,7 +175,12 @@ assert(firmwarePage.includes('ionupdate_support = (based_modelid == "DSL-AC68U")
 assert(firmwarePage.includes('Visit download site'));
 assert(firmwarePage.includes('Release notes'));
 assert(firmwarePage.includes('Development build; no newer stable release than '));
-assert(firmwarePage.includes('if(/^\\d+$/.test(extendno))'));
+assert(firmwarePage.includes('if(/^(?:\\d+(?:-ion)?|ion)$/.test(extendno))'));
+assert(firmwarePage.includes('FWDisplayString = ionupdate_support ? buildno : FWString;'));
+assert(firmwarePage.includes('$("#FWString").html(FWDisplayString);'));
+assert(firmwarePage.includes('"fwver": FWString'));
+assert(fs.readFileSync(path.join(root, 'release/src/router/www/state.js'), 'utf8')
+    .includes('FWString = (based_modelid == "DSL-AC68U") ? buildno : firmver+"."+buildno;'));
 assert(firmwarePage.includes('function show_ion_release_notes(tag, url)'));
 assert(firmwarePage.includes('iframe: "get_release_note0.asp"'));
 assert(firmwarePage.includes('show_ion_release_notes(tag, url);'));

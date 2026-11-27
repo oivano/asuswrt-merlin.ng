@@ -2303,7 +2303,7 @@ function show_top_status() {
 	var extendno = '<% nvram_get("extendno"); %>';
 	var FWString = '';
 
-	FWString = firmver+"."+buildno;
+	FWString = (based_modelid == "DSL-AC68U") ? buildno : firmver + "." + buildno;
 	//if(rcno.length > 0)
 	//	FWString += "rc"+rcno;
 	if ((extendno != "") && (extendno != "0"))

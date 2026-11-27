@@ -81,9 +81,15 @@ static int parse_release_tag(const char *tag, struct release_version *version)
 	const char *cursor;
 	size_t suffix_length;
 
-	if (parse_base_version(tag, version, &cursor) || *cursor++ != '_' ||
-	    parse_number(&cursor, &version->revision))
+	if (parse_base_version(tag, version, &cursor))
 		return -1;
+	if (*cursor == '_') {
+		++cursor;
+		if (parse_number(&cursor, &version->revision))
+			return -1;
+	} else {
+		version->revision = 0;
+	}
 	if (*cursor && *cursor != '-')
 		return -1;
 	suffix_length = strlen(cursor);
@@ -97,6 +103,7 @@ static int parse_current_version(struct release_version *version)
 {
 	const char *build = nvram_safe_get("buildno");
 	const char *end;
+	const char *suffix;
 	char full_build[48];
 
 	if (!strchr(build, '.')) {
@@ -113,12 +120,17 @@ static int parse_current_version(struct release_version *version)
 		if (parse_number(&extension, &version->revision) ||
 		    (*extension && *extension != '-'))
 			return -1;
+		suffix = extension;
+	} else if (!strcmp(extension, "ion")) {
+		version->revision = 0;
+		suffix = "-ion";
 	} else {
 		version->revision = ULONG_MAX;
+		suffix = extension;
 	}
-	if (strlen(extension) >= sizeof(version->suffix))
+	if (strlen(suffix) >= sizeof(version->suffix))
 		return -1;
-	strcpy(version->suffix, extension);
+	strcpy(version->suffix, suffix);
 	return 0;
 }
 
@@ -260,9 +272,8 @@ static int find_dsl_asset(struct json_object *release, const char *tag,
 		return -1;
 	strcpy(asset_version, tag);
 	separator = strchr(asset_version, '_');
-	if (!separator)
-		return -1;
-	*separator = '-';
+	if (separator)
+		*separator = '-';
 	if (snprintf(expected_prefix, sizeof(expected_prefix), "%s%s_DSL_",
 		     asset_prefix, asset_version) >= sizeof(expected_prefix))
 		return -1;

@@ -143,9 +143,13 @@ var firmver = '<% nvram_get("firmver"); %>';
 var buildno = '<% nvram_get("buildno"); %>';
 var extendno = '<% nvram_get("extendno"); %>';
 var FWString = '';
+var FWDisplayString = '';
 FWString = firmver+"."+buildno;
+FWDisplayString = ionupdate_support ? buildno : FWString;
 if ((extendno != "") && (extendno != "0"))
 	FWString += (/^[0-9]+-ion$/.test(extendno) ? "_" : "-")+extendno;
+if ((extendno != "") && (extendno != "0"))
+	FWDisplayString += (/^[0-9]+-ion$/.test(extendno) ? "_" : "-")+extendno;
 
 function showclock(){
 	JS_timeObj.setTime(systime_millsec);
@@ -228,7 +232,7 @@ function initial(){
 //	document.getElementById("asus_link2").href = helplink;	//#FW_desc0#
 //	document.getElementById("faq_link1").href=faq_href1;	//#FW_n3#
 
-	$("#FWString").html(FWString);
+	$("#FWString").html(FWDisplayString);
 
 	if(afwupg_support && webs_update_enable_orig == 1){
 		$("#FWString").addClass("current_fw_release_note");
@@ -697,7 +701,7 @@ function render_ion_firmware_status(status, tag, url, releaseUrl){
 		return;
 	}
 	if(status == "current"){
-		if(/^\d+$/.test(extendno))
+		if(/^(?:\d+(?:-ion)?|ion)$/.test(extendno))
 			$state.text("Firmware is up to date (" + tag + ").");
 		else
 			$state.text("Development build; no newer stable release than " + tag + ".");
