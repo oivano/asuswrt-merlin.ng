@@ -2,7 +2,7 @@ ion release asuswrt merlin changelog
 ====================================
 
 
-386.16-ion (unreleased)
+386.16-ion (27-Nov-2026)
   - FIXED:   Addressed CVEs across the kernel and userland, including:
              Kernel networking: CVE-2004-0230, CVE-2011-2699,
              CVE-2011-3188, CVE-2012-0207, CVE-2012-2136,
