@@ -293,7 +293,11 @@ static int request(ddns_t *ctx, ddns_info_t *info, ddns_alias_t *alias)
 #endif
 #endif
 
-	 snprintf(fwver, sizeof(fwver), "%s.%s_%s", nvram_safe_get("firmver"), nvram_safe_get("buildno"), nvram_safe_get("extendno"));
+	 const char *extendno = nvram_safe_get("extendno");
+	 if (extendno[0] >= '0' && extendno[0] <= '9' && strstr(extendno, "-ion") != NULL)
+		snprintf(fwver, sizeof(fwver), "%s.%s_%s", nvram_safe_get("firmver"), nvram_safe_get("buildno"), extendno);
+	 else
+		snprintf(fwver, sizeof(fwver), "%s.%s-%s", nvram_safe_get("firmver"), nvram_safe_get("buildno"), extendno);
 #if 0
 	return snprintf(ctx->request_buf, ctx->request_buflen,
 			ASUSDDNS_IP_HTTP_REQUEST,

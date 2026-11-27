@@ -2303,11 +2303,11 @@ function show_top_status() {
 	var extendno = '<% nvram_get("extendno"); %>';
 	var FWString = '';
 
-	FWString = buildno;
+	FWString = firmver+"."+buildno;
 	//if(rcno.length > 0)
 	//	FWString += "rc"+rcno;
 	if ((extendno != "") && (extendno != "0"))
-		FWString += "_" + extendno;
+		FWString += (/^[0-9]+-ion$/.test(extendno) ? "_" : "-") + extendno;
 
 	if (swpjverno == '') {
 		if (swisscom_support)

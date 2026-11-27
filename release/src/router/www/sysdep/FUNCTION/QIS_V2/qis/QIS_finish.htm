@@ -430,7 +430,7 @@ function checkIsNewFirmware(){
 	document.getElementById('loadingIcon').style.display = '';
 
 	if(parent.new_FW){
-		$("#currentFW")[0].innerHTML = parent.exist_firmver + "_" + parent.current_buildno + "_" + parent.current_extendno; 
+		$("#currentFW")[0].innerHTML = parent.exist_firmver + "." + parent.current_buildno + (/^[0-9]+-ion$/.test(parent.current_extendno) ? "_" : "-") + parent.current_extendno;
 		$("#latestFW")[0].innerHTML = "" 
 		for(var i=0; i<parent.Latest_firm.length; i++){
 			$("#latestFW")[0].innerHTML += parent.Latest_firm.charAt(i);
@@ -1385,7 +1385,7 @@ function QKfinish_load_body(){
 				document.getElementById("liveUpdate_div_rightbutton").value = "<#CTL_UpgradeNow#>";
 			}
 			document.getElementById("liveUpdateTitle").style.display = "none";
-			$("#currentFW")[0].innerHTML = parent.exist_firmver + "_" + parent.current_buildno + "_" + parent.current_extendno;
+			$("#currentFW")[0].innerHTML = parent.exist_firmver + "." + parent.current_buildno + (/^[0-9]+-ion$/.test(parent.current_extendno) ? "_" : "-") + parent.current_extendno;
 			$("#latestFW")[0].innerHTML = "" 
 			for(var i=0; i<parent.Latest_firm.length; i++){
 				$("#latestFW")[0].innerHTML += parent.Latest_firm.charAt(i);

@@ -79,12 +79,15 @@ function initial(){
 	else
 		document.getElementById("model_id").innerHTML = productid;
 
+	var firmver = '<% nvram_get("firmver"); %>';
 	var buildno = '<% nvram_get("buildno"); %>';
 	var extendno = '<% nvram_get("extendno"); %>';
 	if ((extendno == "") || (extendno == "0"))
-		document.getElementById("fwver").innerHTML = buildno;
+		document.getElementById("fwver").innerHTML = firmver + '.' + buildno;
+	else if (/^[0-9]+-ion$/.test(extendno))
+		document.getElementById("fwver").innerHTML = firmver + '.' + buildno + '_' + extendno;
 	else
-		document.getElementById("fwver").innerHTML = buildno + '_' + extendno;
+		document.getElementById("fwver").innerHTML = firmver + '.' + buildno + '-' + extendno;
 
 
 	var rc_caps = "<% nvram_get("rc_support"); %>";

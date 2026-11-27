@@ -2646,7 +2646,7 @@ ej_dump_impl(int eid, webs_t wp, int argc, char_t **argv, int escape_html)
 				"Your ISP / Internet Service Provider: %s\n"
 				"Name of the Subscribed Plan/Service/Package:  %s\n"
 				"DSL service performance option: %s\n"
-				"Firmware version: %s.%s_%s\n"
+				"Firmware version: %s.%s%s%s\n"
 				"DSL Firmware version: %s\n"
 				"&nbsp;\n"
 				"Comments / Suggestions:\n"
@@ -2654,7 +2654,8 @@ ej_dump_impl(int eid, webs_t wp, int argc, char_t **argv, int escape_html)
 				, nvram_safe_get("fb_ISP")
 				, nvram_safe_get("fb_Subscribed_Info")
 				, nvram_safe_get("fb_availability")
-				, nvram_safe_get("firmver"), nvram_safe_get("buildno"), nvram_safe_get("extendno")
+				, nvram_safe_get("firmver"), nvram_safe_get("buildno")
+				, nvram_safe_get("extendno")[0] >= '0' && nvram_safe_get("extendno")[0] <= '9' && strstr(nvram_safe_get("extendno"), "-ion") != NULL ? "_" : "-", nvram_safe_get("extendno")
 				, nvram_safe_get("dsllog_fwver")
 				, nvram_safe_get("fb_comment")
 				);
@@ -2691,13 +2692,14 @@ ej_dump_impl(int eid, webs_t wp, int argc, char_t **argv, int escape_html)
 			snprintf(buf, 4095,
 				"Feedback problem type: %s\n"
 				"Feedback problem description:  %s\n"
-				"Firmware version: %s.%s_%s\n"
+				"Firmware version: %s.%s%s%s\n"
 				"&nbsp;\n"
 				"Comments / Suggestions:\n"
 				"%s\n"
 				, nvram_safe_get("fb_ptype")
 				, nvram_safe_get("fb_pdesc")
-				, nvram_safe_get("firmver"), nvram_safe_get("buildno"), nvram_safe_get("extendno")
+				, nvram_safe_get("firmver"), nvram_safe_get("buildno")
+				, nvram_safe_get("extendno")[0] >= '0' && nvram_safe_get("extendno")[0] <= '9' && strstr(nvram_safe_get("extendno"), "-ion") != NULL ? "_" : "-", nvram_safe_get("extendno")
 				, nvram_safe_get("fb_comment")
 				);
 			ret += websWrite(wp, buf);
